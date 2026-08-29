@@ -73,6 +73,19 @@
   },
   "snippets": {
     "ai": {
+      "providerStream": {
+        "sourcePath": "src/examples/python/generation/provider-stream.py",
+        "verified": true,
+        "requiresCredentials": true,
+        "code": [
+          "stream = client.stream({\"chat_prompt\": [{\"role\": \"user\", \"content\": prompt}]})",
+          "try:",
+          "    for event in stream:",
+          "        print(event[\"results\"][0].get(\"content\") or \"\", end=\"\", flush=True)",
+          "finally:",
+          "    stream.close()"
+        ]
+      },
       "balancer": {
         "sourcePath": "src/examples/python/generation/adaptive-balancer.py",
         "verified": true,

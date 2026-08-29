@@ -34,7 +34,7 @@ var llm = Ax.ai("openai", java.util.Map.of("apiKey", System.getenv("OPENAI_API_K
 
 ## Relevant API Surface
 
-- AxAI: `Ax.ai`, `OpenAICompatibleClient.CredentialRequest`, `OpenAICompatibleClient.CredentialProvider`, `OpenAICompatibleClient`, `OpenAIResponsesClient`, `GoogleGeminiClient`, `AnthropicClient`, `Map<String, Object>`, `AxUsageEvent`, `AxUsageObserver`, `AxGlobals.setUsageObserver`, `AxRuntimeHooks`, `AxRateLimitInfo`, `AxRateLimiter`, `AxTracer`, `AxMeter`, `AxGlobals`, `AxGlobals.setRateLimiter`, `AxGlobals.setTracer`, `AxGlobals.setMeter`, `AxBalancer`, `AxBalancerAdaptiveStrategy`, `AxBalancerStatsStore`, `AxInMemoryBalancerStatsStore`, `AxBalancerAdaptive.createRouteStats`, `AxBalancerAdaptive.updateRouteStats`, `AxBalancerAdaptive.sampleRouteHealth`, `MultiServiceRouter`, `ProviderRouter`
+- AxAI: `Ax.ai`, `OpenAICompatibleClient.CredentialRequest`, `OpenAICompatibleClient.CredentialProvider`, `AxChatStream`, `OpenAICompatibleClient`, `OpenAIResponsesClient`, `GoogleGeminiClient`, `AnthropicClient`, `Map<String, Object>`, `AxUsageEvent`, `AxUsageObserver`, `AxGlobals.setUsageObserver`, `AxRuntimeHooks`, `AxRateLimitInfo`, `AxRateLimiter`, `AxTracer`, `AxMeter`, `AxGlobals`, `AxGlobals.setRateLimiter`, `AxGlobals.setTracer`, `AxGlobals.setMeter`, `AxBalancer`, `AxBalancerAdaptiveStrategy`, `AxBalancerStatsStore`, `AxInMemoryBalancerStatsStore`, `AxBalancerAdaptive.createRouteStats`, `AxBalancerAdaptive.updateRouteStats`, `AxBalancerAdaptive.sampleRouteHealth`, `MultiServiceRouter`, `ProviderRouter`
 
 ## Guardrails
 

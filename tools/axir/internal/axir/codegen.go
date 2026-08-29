@@ -190,6 +190,7 @@ func EmitJava(model AxRuntimeModel, outDir string) error {
 		"dev/axllm/ax/Core.java":                                      core,
 		"dev/axllm/ax/AiClient.java":                                  javaAiClient,
 		"dev/axllm/ax/AxAIService.java":                               javaAxAIService,
+		"dev/axllm/ax/AxChatStream.java":                              javaAxChatStream,
 		"dev/axllm/ax/AxGlobals.java":                                 javaAxGlobals,
 		"dev/axllm/ax/AxRuntimeHooks.java":                            javaAxRuntimeHooks,
 		"dev/axllm/ax/AxRateLimitInfo.java":                           javaAxRateLimitInfo,
@@ -777,7 +778,8 @@ func BuildCapabilityManifest(model AxRuntimeModel, target string) (CapabilityMan
 			"axai-balancer-adaptive-routing",
 			"axai-balancer-adaptive-stats-store",
 			"axai-balancer-adaptive-events",
-			"axai-balancer-adaptive-buffered-streaming",
+			"axai-provider-incremental-streaming",
+			"axai-balancer-incremental-streaming",
 			"axai-host-processing-callbacks",
 			"openai-compatible-provider-mapping",
 			"openai-reasoning-effort",
@@ -1072,6 +1074,7 @@ func apiReferenceSectionsForTarget(target string) []APIReferenceSection {
 				sym("ai", "function", "Create a provider client from a named deployment profile and options.", []string{"api key or credential provider", "model", "api URL", "headers", "transport"}, "AI client/service"),
 				sym("AxCredentialRequest", "type", "Request metadata passed to a renewable credential callback for every transport attempt.", []string{"profile", "operation", "method", "URL"}, "credential request"),
 				sym("AxCredentialProvider", "interface", "Return fresh request headers that override static profile authentication.", []string{"chat", "stream", "embeddings", "Responses", "audio", "retries"}, "header map or credential error"),
+				sym("AxProviderStream", "type", "Incremental, closeable provider event stream. Retry and failover stop once content is delivered.", []string{"next event", "terminal error", "consumer cancellation", "upstream close"}, "incremental chat events"),
 				sym("OpenAICompatibleClient", "type", "OpenAI-compatible chat, stream, embedding, audio, and realtime provider boundary.", []string{"api key", "model", "base URL", "transport"}, "provider client"),
 				sym("OpenAIResponsesClient", "type", "OpenAI Responses provider mapping using the same Core-owned request and response contract.", []string{"api key", "model", "audio", "realtime"}, "provider client"),
 				sym("GoogleGeminiClient", "type", "Gemini provider mapping for chat, streaming, media, tools, embeddings, and usage normalization.", []string{"api key", "model", "embed model"}, "provider client"),
@@ -1225,6 +1228,8 @@ func apiReferencePublicName(target, canonical string) string {
 		return mapTarget(target, "dict[str, str]", "OpenAICompatibleClient.CredentialRequest", "axllm::AxCredentialRequest", "axllm.AxCredentialRequest", "AxCredentialRequest")
 	case "AxCredentialProvider":
 		return mapTarget(target, "Callable[[dict[str, str]], dict[str, str]]", "OpenAICompatibleClient.CredentialProvider", "axllm::AxCredentialProvider", "axllm.AxCredentialProvider", "AxCredentialProvider")
+	case "AxProviderStream":
+		return mapTarget(target, "closable generator", "AxChatStream", "axllm::AxStreamHandler", "axllm.AxChatStream", "AxChatStream")
 	case "AxRuntimeHooks", "AxRateLimitInfo", "AxRateLimiter", "AxTracer", "AxMeter", "AxGlobals":
 		return apiReferenceQualifiedName(target, canonical)
 	case "set_usage_observer":
@@ -1300,6 +1305,8 @@ func apiReferenceForm(target, canonical, publicName string) string {
 		return mapTarget(target, "dict[str, str]", "OpenAICompatibleClient.CredentialRequest", "axllm::AxCredentialRequest", "axllm.AxCredentialRequest", "AxCredentialRequest")
 	case "AxCredentialProvider":
 		return mapTarget(target, "Callable[[dict[str, str]], dict[str, str]]", "OpenAICompatibleClient.CredentialProvider", "axllm::AxCredentialProvider", "axllm.AxCredentialProvider", "dyn AxCredentialProvider")
+	case "AxProviderStream":
+		return mapTarget(target, "client.stream(request)", "client.openStream(request)", "client.stream_each(request, handler)", "client.StreamEvents(ctx, request, options)", "client.stream_iter(request)")
 	case "AxUsageEvent":
 		return mapTarget(target, "AxUsageEvent", "AxUsageEvent", "axllm::AxUsageEvent", "axllm.AxUsageEvent", "AxUsageEvent")
 	case "AxUsageObserver":
@@ -1449,6 +1456,14 @@ func apiReferenceExample(target, canonical string) string {
 			`auto client = axllm::ai("openai", axllm::object({{"apiKey", std::getenv("OPENAI_API_KEY")}}));`,
 			`client := axllm.NewAI("openai", map[string]axllm.Value{"apiKey": os.Getenv("OPENAI_API_KEY")})`,
 			`let client = ai("openai", json!({"apiKey": std::env::var("OPENAI_API_KEY")?}))?;`,
+		)
+	case "AxProviderStream":
+		return mapTarget(target,
+			`for event in client.stream(request): handle(event)`,
+			`try (AxChatStream stream = client.openStream(request)) { for (var event : stream) handle(event); }`,
+			`client.stream_each(request, [&](const auto& event) { handle(event); return true; });`,
+			`stream, err := client.StreamEvents(ctx, request, nil)`,
+			`for event in client.stream_iter(request)? { handle(event?); }`,
 		)
 	case "set_usage_observer":
 		return mapTarget(target,

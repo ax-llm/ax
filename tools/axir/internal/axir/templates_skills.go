@@ -284,7 +284,7 @@ func renderSkill(spec packageSkillSpec, model AxRuntimeModel, target string) str
 			"- Put centralized decision state in an `AxBalancerStatsStore`. The routing-event callback is best-effort analytics and observability, not a state replication mechanism.",
 			"- Shared stores require non-empty, unique, stable route keys. Use slices to isolate workflows, tenants, or traffic classes without putting prompts, responses, raw errors, or sensitive identifiers in keys or events.",
 			"- Adaptive balancing does not measure answer quality or semantically choose a model. Only group routes that the application already accepts as substitutes.",
-			"- Generated streaming APIs are buffered: a provider error can fail over before the completed result is returned, and success latency is recorded after completion.",
+			"- Generated provider streams are incremental and closeable. Retry or failover is allowed only before the first content event; later failures surface without replay, and adaptive latency is recorded at the first chunk.",
 			"- Start with `examples/adaptive_balancer_no_key` for store/reducer syntax, then use the cataloged provider-backed adaptive-balancer example for a complete two-route setup.",
 			"",
 		) + "\n"

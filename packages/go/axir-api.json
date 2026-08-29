@@ -153,6 +153,22 @@
         },
         {
           "target_name": "go",
+          "canonical_name": "AxProviderStream",
+          "public_name": "axllm.AxChatStream",
+          "kind": "type",
+          "description": "Incremental, closeable provider event stream. Retry and failover stop once content is delivered.",
+          "form": "client.StreamEvents(ctx, request, options)",
+          "important_options": [
+            "next event",
+            "terminal error",
+            "consumer cancellation",
+            "upstream close"
+          ],
+          "returns": "incremental chat events",
+          "example": "stream, err := client.StreamEvents(ctx, request, nil)"
+        },
+        {
+          "target_name": "go",
           "canonical_name": "OpenAICompatibleClient",
           "public_name": "axllm.OpenAICompatibleClient",
           "kind": "type",

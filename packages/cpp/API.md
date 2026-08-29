@@ -113,6 +113,20 @@ Return fresh request headers that override static profile authentication.
 - Returns: `header map or credential error`
 - Important options: chat, stream, embeddings, Responses, audio, retries
 
+### `axllm::AxStreamHandler`
+
+Incremental, closeable provider event stream. Retry and failover stop once content is delivered.
+
+- Canonical Ax concept: `AxProviderStream`
+- Kind: `type`
+- Form: `client.stream_each(request, handler)`
+- Returns: `incremental chat events`
+- Important options: next event, terminal error, consumer cancellation, upstream close
+
+```cpp
+client.stream_each(request, [&](const auto& event) { handle(event); return true; });
+```
+
 ### `axllm::OpenAICompatibleClient`
 
 OpenAI-compatible chat, stream, embedding, audio, and realtime provider boundary.

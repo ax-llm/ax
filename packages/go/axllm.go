@@ -78,9 +78,15 @@ type AxMetricInstrumentOptions struct {
 	Unit        string
 }
 
-type AxCounter interface { Add(float64, map[string]Value) }
-type AxHistogram interface { Record(float64, map[string]Value) }
-type AxGauge interface { Record(float64, map[string]Value) }
+type AxCounter interface {
+	Add(float64, map[string]Value)
+}
+type AxHistogram interface {
+	Record(float64, map[string]Value)
+}
+type AxGauge interface {
+	Record(float64, map[string]Value)
+}
 
 type AxMeter interface {
 	CreateCounter(string, AxMetricInstrumentOptions) AxCounter
@@ -134,42 +140,70 @@ type runtimeHookContextKey struct{}
 
 func runtimeHooksFromOptions(options map[string]Value) AxRuntimeHooks {
 	var hooks AxRuntimeHooks
-	if options == nil { return hooks }
-	if value, ok := options["runtimeHooks"].(AxRuntimeHooks); ok { hooks = value }
-	if value, ok := options["runtimeHooks"].(*AxRuntimeHooks); ok && value != nil { hooks = *value }
-	if value, ok := options["runtime_hooks"].(AxRuntimeHooks); ok { hooks = value }
-	if value, ok := options["rateLimiter"].(AxRateLimiter); ok { hooks.RateLimiter = value }
-	if value, ok := options["rate_limiter"].(AxRateLimiter); ok { hooks.RateLimiter = value }
-	if value, ok := options["tracer"].(AxTracer); ok { hooks.Tracer = value }
-	if value, ok := options["meter"].(AxMeter); ok { hooks.Meter = value }
+	if options == nil {
+		return hooks
+	}
+	if value, ok := options["runtimeHooks"].(AxRuntimeHooks); ok {
+		hooks = value
+	}
+	if value, ok := options["runtimeHooks"].(*AxRuntimeHooks); ok && value != nil {
+		hooks = *value
+	}
+	if value, ok := options["runtime_hooks"].(AxRuntimeHooks); ok {
+		hooks = value
+	}
+	if value, ok := options["rateLimiter"].(AxRateLimiter); ok {
+		hooks.RateLimiter = value
+	}
+	if value, ok := options["rate_limiter"].(AxRateLimiter); ok {
+		hooks.RateLimiter = value
+	}
+	if value, ok := options["tracer"].(AxTracer); ok {
+		hooks.Tracer = value
+	}
+	if value, ok := options["meter"].(AxMeter); ok {
+		hooks.Meter = value
+	}
 	return hooks
 }
 
 func stripRuntimeHooks(options map[string]Value) map[string]Value {
 	out := cloneMap(options)
-	for _, key := range []string{"runtimeHooks", "runtime_hooks", "rateLimiter", "rate_limiter", "tracer", "meter"} { delete(out, key) }
+	for _, key := range []string{"runtimeHooks", "runtime_hooks", "rateLimiter", "rate_limiter", "tracer", "meter"} {
+		delete(out, key)
+	}
 	return out
 }
 
 func mergeRuntimeHooks(layers ...AxRuntimeHooks) AxRuntimeHooks {
 	var out AxRuntimeHooks
 	for _, layer := range layers {
-		if out.RateLimiter == nil && layer.RateLimiter != nil { out.RateLimiter = layer.RateLimiter }
-		if out.Tracer == nil && layer.Tracer != nil { out.Tracer = layer.Tracer }
-		if out.Meter == nil && layer.Meter != nil { out.Meter = layer.Meter }
+		if out.RateLimiter == nil && layer.RateLimiter != nil {
+			out.RateLimiter = layer.RateLimiter
+		}
+		if out.Tracer == nil && layer.Tracer != nil {
+			out.Tracer = layer.Tracer
+		}
+		if out.Meter == nil && layer.Meter != nil {
+			out.Meter = layer.Meter
+		}
 	}
 	return out
 }
 
 func runtimeFrameFromContext(ctx context.Context) *runtimeHookFrame {
-	if ctx == nil { return nil }
+	if ctx == nil {
+		return nil
+	}
 	frame, _ := ctx.Value(runtimeHookContextKey{}).(*runtimeHookFrame)
 	return frame
 }
 
 func effectiveRuntimeHooks(ctx context.Context, options map[string]Value, service AxRuntimeHooks) AxRuntimeHooks {
 	frame := runtimeFrameFromContext(ctx)
-	if frame != nil { return mergeRuntimeHooks(runtimeHooksFromOptions(options), frame.hooks, service, frame.globals) }
+	if frame != nil {
+		return mergeRuntimeHooks(runtimeHooksFromOptions(options), frame.hooks, service, frame.globals)
+	}
 	return mergeRuntimeHooks(runtimeHooksFromOptions(options), service, snapshotGlobalRuntimeHooks())
 }
 
@@ -179,25 +213,36 @@ func safeRuntimeHook(callback func()) {
 }
 
 func startRuntimeSpan(hooks AxRuntimeHooks, parent AxSpan, name, kind string, attributes map[string]Value) AxSpan {
-	if hooks.Tracer == nil { return nil }
+	if hooks.Tracer == nil {
+		return nil
+	}
 	var span AxSpan
-	safeRuntimeHook(func() { span = hooks.Tracer.StartSpan(AxSpanStart{Name: name, Kind: kind, Attributes: cloneMap(attributes), Parent: parent}) })
+	safeRuntimeHook(func() {
+		span = hooks.Tracer.StartSpan(AxSpanStart{Name: name, Kind: kind, Attributes: cloneMap(attributes), Parent: parent})
+	})
 	return span
 }
 
 func finishRuntimeSpan(span AxSpan, err error) {
-	if span == nil { return }
+	if span == nil {
+		return
+	}
 	safeRuntimeHook(func() {
-		if err != nil { span.RecordException(err); span.SetStatus("error", err.Error()) } else { span.SetStatus("ok", "") }
+		if err != nil {
+			span.RecordException(err)
+			span.SetStatus("error", err.Error())
+		} else {
+			span.SetStatus("ok", "")
+		}
 		span.End()
 	})
 }
 
 type runtimeMeterInstruments struct {
-	meter AxMeter
-	counters map[string]AxCounter
+	meter      AxMeter
+	counters   map[string]AxCounter
 	histograms map[string]AxHistogram
-	gauges map[string]AxGauge
+	gauges     map[string]AxGauge
 }
 
 var runtimeMeterCache struct {
@@ -206,22 +251,35 @@ var runtimeMeterCache struct {
 }
 
 func meterIdentity(meter AxMeter) uintptr {
-	if meter == nil { return 0 }
+	if meter == nil {
+		return 0
+	}
 	value := reflect.ValueOf(meter)
-	switch value.Kind() { case reflect.Chan, reflect.Func, reflect.Map, reflect.Ptr, reflect.Slice, reflect.UnsafePointer: return value.Pointer() }
+	switch value.Kind() {
+	case reflect.Chan, reflect.Func, reflect.Map, reflect.Ptr, reflect.Slice, reflect.UnsafePointer:
+		return value.Pointer()
+	}
 	return 0
 }
 
 func recordRuntimeMetric(meter AxMeter, kind, name string, value float64, attributes map[string]Value) {
-	if meter == nil { return }
+	if meter == nil {
+		return
+	}
 	safeRuntimeHook(func() {
 		id := meterIdentity(meter)
 		if id == 0 {
-			if kind == "counter" { meter.CreateCounter(name, AxMetricInstrumentOptions{}).Add(value, cloneMap(attributes)) } else { meter.CreateHistogram(name, AxMetricInstrumentOptions{}).Record(value, cloneMap(attributes)) }
+			if kind == "counter" {
+				meter.CreateCounter(name, AxMetricInstrumentOptions{}).Add(value, cloneMap(attributes))
+			} else {
+				meter.CreateHistogram(name, AxMetricInstrumentOptions{}).Record(value, cloneMap(attributes))
+			}
 			return
 		}
 		runtimeMeterCache.Lock()
-		if runtimeMeterCache.values == nil { runtimeMeterCache.values = map[uintptr]*runtimeMeterInstruments{} }
+		if runtimeMeterCache.values == nil {
+			runtimeMeterCache.values = map[uintptr]*runtimeMeterInstruments{}
+		}
 		entry := runtimeMeterCache.values[id]
 		if entry == nil {
 			entry = &runtimeMeterInstruments{meter: meter, counters: map[string]AxCounter{}, histograms: map[string]AxHistogram{}, gauges: map[string]AxGauge{}}
@@ -234,7 +292,10 @@ func recordRuntimeMetric(meter AxMeter, kind, name string, value float64, attrib
 				created := meter.CreateCounter(name, AxMetricInstrumentOptions{})
 				runtimeMeterCache.Lock()
 				instrument = entry.counters[name]
-				if instrument == nil { instrument = created; entry.counters[name] = created }
+				if instrument == nil {
+					instrument = created
+					entry.counters[name] = created
+				}
 				runtimeMeterCache.Unlock()
 			}
 			instrument.Add(value, cloneMap(attributes))
@@ -246,7 +307,10 @@ func recordRuntimeMetric(meter AxMeter, kind, name string, value float64, attrib
 			created := meter.CreateHistogram(name, AxMetricInstrumentOptions{})
 			runtimeMeterCache.Lock()
 			instrument = entry.histograms[name]
-			if instrument == nil { instrument = created; entry.histograms[name] = created }
+			if instrument == nil {
+				instrument = created
+				entry.histograms[name] = created
+			}
 			runtimeMeterCache.Unlock()
 		}
 		instrument.Record(value, cloneMap(attributes))
@@ -254,23 +318,35 @@ func recordRuntimeMetric(meter AxMeter, kind, name string, value float64, attrib
 }
 
 func beginRuntimeScope(ctx context.Context, callHooks, programHooks AxRuntimeHooks, spanName, metricPrefix string, attributes map[string]Value) (context.Context, AxRuntimeHooks, func(error)) {
-	if ctx == nil { ctx = context.Background() }
+	if ctx == nil {
+		ctx = context.Background()
+	}
 	parent := runtimeFrameFromContext(ctx)
 	inherited := AxRuntimeHooks{}
 	globals := snapshotGlobalRuntimeHooks()
 	var parentSpan AxSpan
-	if parent != nil { inherited = parent.hooks; globals = parent.globals; parentSpan = parent.span }
+	if parent != nil {
+		inherited = parent.hooks
+		globals = parent.globals
+		parentSpan = parent.span
+	}
 	hooks := mergeRuntimeHooks(callHooks, inherited, programHooks)
 	effective := mergeRuntimeHooks(hooks, globals)
 	span := startRuntimeSpan(effective, parentSpan, spanName, "internal", attributes)
-	if span == nil { span = parentSpan }
+	if span == nil {
+		span = parentSpan
+	}
 	ctx = context.WithValue(ctx, runtimeHookContextKey{}, &runtimeHookFrame{hooks: hooks, globals: globals, span: span})
 	started := time.Now()
 	recordRuntimeMetric(effective.Meter, "counter", metricPrefix+"_requests_total", 1, attributes)
 	return ctx, effective, func(err error) {
-		if err != nil { recordRuntimeMetric(effective.Meter, "counter", metricPrefix+"_errors_total", 1, attributes) }
+		if err != nil {
+			recordRuntimeMetric(effective.Meter, "counter", metricPrefix+"_errors_total", 1, attributes)
+		}
 		recordRuntimeMetric(effective.Meter, "histogram", metricPrefix+"_duration_ms", float64(time.Since(started).Microseconds())/1000, attributes)
-		if span != parentSpan { finishRuntimeSpan(span, err) }
+		if span != parentSpan {
+			finishRuntimeSpan(span, err)
+		}
 	}
 }
 
@@ -53614,7 +53690,9 @@ func runtimeScopedTools(ctx context.Context, tools []Tool) []Tool {
 	for index := range out {
 		original := out[index].Handler
 		name := out[index].Name
-		if original == nil { continue }
+		if original == nil {
+			continue
+		}
 		out[index].Handler = func(args map[string]Value) (result Value, err error) {
 			attributes := Object("ax.tool.name", name)
 			toolCtx, _, finish := beginRuntimeScope(ctx, AxRuntimeHooks{}, AxRuntimeHooks{}, "ax_gen_tool", "ax_gen_tool", attributes)
@@ -53663,6 +53741,76 @@ type AIClient interface {
 	Stream(context.Context, map[string]Value, map[string]Value) ([]Value, error)
 }
 
+type AxChatStream interface {
+	Next() bool
+	Value() Value
+	Err() error
+	Close() error
+}
+
+type StreamingAIClient interface {
+	AIClient
+	StreamEvents(context.Context, map[string]Value, map[string]Value) (AxChatStream, error)
+}
+
+type axChatStream struct {
+	next   func() (Value, error)
+	close  func() error
+	finish func(error, bool)
+	value  Value
+	err    error
+	done   bool
+	closed bool
+}
+
+func newAxChatStream(next func() (Value, error), closeFn func() error, finish func(error, bool)) AxChatStream {
+	if closeFn == nil {
+		closeFn = func() error { return nil }
+	}
+	if finish == nil {
+		finish = func(error, bool) {}
+	}
+	return &axChatStream{next: next, close: closeFn, finish: finish}
+}
+
+func (s *axChatStream) complete(err error, cancelled bool) {
+	if s.done {
+		return
+	}
+	s.done = true
+	closeErr := s.close()
+	if err == nil && !cancelled {
+		err = closeErr
+	}
+	s.err = err
+	s.finish(err, cancelled)
+}
+
+func (s *axChatStream) Next() bool {
+	if s.done {
+		return false
+	}
+	value, err := s.next()
+	if errors.Is(err, io.EOF) {
+		s.complete(nil, false)
+		return false
+	}
+	if err != nil {
+		s.complete(err, false)
+		return false
+	}
+	s.value = value
+	return true
+}
+func (s *axChatStream) Value() Value { return s.value }
+func (s *axChatStream) Err() error   { return s.err }
+func (s *axChatStream) Close() error {
+	if !s.done {
+		s.complete(nil, true)
+	}
+	return s.err
+}
+
 // RuntimeHookAIClient is implemented by generated services that accept typed,
 // run-scoped hooks beside the existing JSON option map.
 type RuntimeHookAIClient interface {
@@ -53670,6 +53818,7 @@ type RuntimeHookAIClient interface {
 	ChatWithHooks(context.Context, map[string]Value, map[string]Value, AxRuntimeHooks) (Value, error)
 	EmbedWithHooks(context.Context, map[string]Value, map[string]Value, AxRuntimeHooks) (Value, error)
 	StreamWithHooks(context.Context, map[string]Value, map[string]Value, AxRuntimeHooks) ([]Value, error)
+	StreamEventsWithHooks(context.Context, map[string]Value, map[string]Value, AxRuntimeHooks) (AxChatStream, error)
 }
 
 type contextBoundAIClient struct {
@@ -53687,11 +53836,17 @@ func bindAIClientContext(ctx context.Context, client AIClient) AIClient {
 func contextForAIClient(client AIClient, fallback context.Context) context.Context {
 	for {
 		bound, ok := client.(contextBoundAIClient)
-		if !ok { break }
-		if bound.ctx != nil { return bound.ctx }
+		if !ok {
+			break
+		}
+		if bound.ctx != nil {
+			return bound.ctx
+		}
 		client = bound.inner
 	}
-	if fallback != nil { return fallback }
+	if fallback != nil {
+		return fallback
+	}
 	return context.Background()
 }
 
@@ -53705,6 +53860,18 @@ func (c contextBoundAIClient) Embed(ctx context.Context, request map[string]Valu
 
 func (c contextBoundAIClient) Stream(ctx context.Context, request map[string]Value, options map[string]Value) ([]Value, error) {
 	return c.inner.Stream(c.ctx, request, options)
+}
+
+func (c contextBoundAIClient) StreamEvents(ctx context.Context, request map[string]Value, options map[string]Value) (AxChatStream, error) {
+	if streaming, ok := c.inner.(StreamingAIClient); ok {
+		return streaming.StreamEvents(c.ctx, request, options)
+	}
+	values, err := c.inner.Stream(c.ctx, request, options)
+	if err != nil {
+		return nil, err
+	}
+	legacy := &sliceProviderStream{values: values}
+	return newAxChatStream(legacy.Next, legacy.Close, nil), nil
 }
 
 func (c contextBoundAIClient) GetFeatures(model string) map[string]Value {
@@ -53725,6 +53892,16 @@ func (c contextBoundAIClient) Transcribe(ctx context.Context, request map[string
 
 type Transport interface {
 	Call(context.Context, Value) (Value, error)
+}
+
+type AxHTTPStreamResponse struct {
+	Status int
+	Body   io.ReadCloser
+}
+
+type StreamingTransport interface {
+	Transport
+	Stream(context.Context, Value) (AxHTTPStreamResponse, error)
 }
 
 type ScriptedTransport struct {
@@ -53864,19 +54041,40 @@ func (t HTTPTransport) Call(ctx context.Context, request Value) (Value, error) {
 	return out, nil
 }
 
+func (t HTTPTransport) Stream(ctx context.Context, request Value) (AxHTTPStreamResponse, error) {
+	req := asMap(request)
+	body := []byte(stableStringify(coreGet(req, "json", Object())))
+	httpReq, err := http.NewRequestWithContext(ctx, display(coreGet(req, "method", "POST")), display(req["url"]), bytes.NewReader(body))
+	if err != nil {
+		return AxHTTPStreamResponse{}, err
+	}
+	for _, key := range orderedKeys(asMap(coreGet(req, "headers", Object()))) {
+		httpReq.Header.Set(key, display(coreGet(coreGet(req, "headers", Object()), key, nil)))
+	}
+	client := t.Client
+	if client == nil {
+		client = http.DefaultClient
+	}
+	resp, err := client.Do(httpReq)
+	if err != nil {
+		return AxHTTPStreamResponse{}, err
+	}
+	return AxHTTPStreamResponse{Status: resp.StatusCode, Body: resp.Body}, nil
+}
+
 type OpenAICompatibleClient struct {
-	mu         sync.RWMutex
-	Profile    string
-	Name       string
-	Options    map[string]Value
-	Transport  Transport
-	ID         string
-	LastChat   Value
-	LastEmbed  Value
-	LastConfig Value
-	Metrics    map[string]Value
-	RuntimeHooks AxRuntimeHooks
-	LastUsage Value
+	mu                  sync.RWMutex
+	Profile             string
+	Name                string
+	Options             map[string]Value
+	Transport           Transport
+	ID                  string
+	LastChat            Value
+	LastEmbed           Value
+	LastConfig          Value
+	Metrics             map[string]Value
+	RuntimeHooks        AxRuntimeHooks
+	LastUsage           Value
 	contextCacheEntries map[string]map[string]Value
 }
 
@@ -53998,12 +54196,20 @@ func normalizeGoogleOptions(options map[string]Value) map[string]Value {
 	vertex := coreGet(options, "project_id", coreGet(options, "projectId", nil)) != nil && coreGet(options, "region", nil) != nil
 	if coreGet(options, "api_key", coreGet(options, "apiKey", nil)) == nil {
 		key := os.Getenv("GOOGLE_API_KEY")
-		if vertex { key = os.Getenv("GOOGLE_VERTEX_ACCESS_TOKEN") }
-		if key == "" { key = os.Getenv("GEMINI_API_KEY") }
-		if key != "" { coreSet(options, "api_key", key) }
+		if vertex {
+			key = os.Getenv("GOOGLE_VERTEX_ACCESS_TOKEN")
+		}
+		if key == "" {
+			key = os.Getenv("GEMINI_API_KEY")
+		}
+		if key != "" {
+			coreSet(options, "api_key", key)
+		}
 	}
 	if coreGet(options, "base_url", coreGet(options, "baseUrl", nil)) == nil {
-		if base := os.Getenv("GOOGLE_GEMINI_BASE_URL"); base != "" { coreSet(options, "base_url", base) }
+		if base := os.Getenv("GOOGLE_GEMINI_BASE_URL"); base != "" {
+			coreSet(options, "base_url", base)
+		}
 	}
 	return options
 }
@@ -54013,31 +54219,43 @@ func normalizeAnthropicOptions(options map[string]Value) map[string]Value {
 	vertex := coreGet(options, "project_id", coreGet(options, "projectId", nil)) != nil && coreGet(options, "region", nil) != nil
 	if coreGet(options, "api_key", coreGet(options, "apiKey", nil)) == nil {
 		key := os.Getenv("ANTHROPIC_API_KEY")
-		if vertex { key = os.Getenv("GOOGLE_VERTEX_ACCESS_TOKEN") }
-		if key != "" { coreSet(options, "api_key", key) }
+		if vertex {
+			key = os.Getenv("GOOGLE_VERTEX_ACCESS_TOKEN")
+		}
+		if key != "" {
+			coreSet(options, "api_key", key)
+		}
 	}
 	if coreGet(options, "base_url", coreGet(options, "baseUrl", nil)) == nil {
-		if base := os.Getenv("ANTHROPIC_BASE_URL"); base != "" { coreSet(options, "base_url", base) }
+		if base := os.Getenv("ANTHROPIC_BASE_URL"); base != "" {
+			coreSet(options, "base_url", base)
+		}
 	}
 	return options
 }
 
 func invokeRuntimeLimiter(limiter AxRateLimiter, next AxRequestExecutor, info AxRateLimitInfo) (Value, error) {
-	if limiter == nil { return next() }
+	if limiter == nil {
+		return next()
+	}
 	return limiter.Run(next, info)
 }
 
 func beginAIOperation(ctx context.Context, hooks AxRuntimeHooks, operation, ai, model string, streaming bool) (map[string]Value, AxSpan, time.Time) {
 	attributes := Object("ax.operation", operation, "ax.ai", ai, "ax.model", model, "ax.streaming", streaming)
 	var parent AxSpan
-	if frame := runtimeFrameFromContext(ctx); frame != nil { parent = frame.span }
+	if frame := runtimeFrameFromContext(ctx); frame != nil {
+		parent = frame.span
+	}
 	span := startRuntimeSpan(hooks, parent, "ax_llm_"+operation, "client", attributes)
 	recordRuntimeMetric(hooks.Meter, "counter", "ax_llm_requests_total", 1, attributes)
 	return attributes, span, time.Now()
 }
 
 func finishAIOperation(hooks AxRuntimeHooks, attributes map[string]Value, span AxSpan, started time.Time, err error) {
-	if err != nil { recordRuntimeMetric(hooks.Meter, "counter", "ax_llm_errors_total", 1, attributes) }
+	if err != nil {
+		recordRuntimeMetric(hooks.Meter, "counter", "ax_llm_errors_total", 1, attributes)
+	}
 	recordRuntimeMetric(hooks.Meter, "histogram", "ax_llm_request_duration_ms", float64(time.Since(started).Microseconds())/1000, attributes)
 	finishRuntimeSpan(span, err)
 }
@@ -54049,31 +54267,33 @@ func (c *OpenAICompatibleClient) Chat(ctx context.Context, request map[string]Va
 	modelName := display(coreGet(request, "model", coreGet(c.optionsSnapshot(), "model", "")))
 	streaming := coreTruthy(coreGet(coreGet(request, "model_config", Object()), "stream", coreGet(mergedOptions, "stream", false)))
 	attributes, span, started := beginAIOperation(ctx, hooks, "chat", c.Name, modelName, streaming)
-	next := func() (Value, error) { return safeValue(func() Value {
-		req := c.prepareChatRequest(request, mergedOptions)
-		mustCore(validate_chat_request(req))
-		opts := c.optionsSnapshot()
-		model := coreGet(req, "model", coreGet(opts, "model", nil))
-		if shouldRealtime, _ := mustCore(provider_should_use_realtime(c.Profile, display(model), req, mergedOptions)).(bool); shouldRealtime {
-			result, rtErr := c.RealtimeChat(ctx, req, mergedOptions, nil)
-			if rtErr != nil {
-				panic(AxError{Category: "network", Message: rtErr.Error()})
+	next := func() (Value, error) {
+		return safeValue(func() Value {
+			req := c.prepareChatRequest(request, mergedOptions)
+			mustCore(validate_chat_request(req))
+			opts := c.optionsSnapshot()
+			model := coreGet(req, "model", coreGet(opts, "model", nil))
+			if shouldRealtime, _ := mustCore(provider_should_use_realtime(c.Profile, display(model), req, mergedOptions)).(bool); shouldRealtime {
+				result, rtErr := c.RealtimeChat(ctx, req, mergedOptions, nil)
+				if rtErr != nil {
+					panic(AxError{Category: "network", Message: rtErr.Error()})
+				}
+				return result
 			}
-			return result
-		}
-		config := coreGet(req, "model_config", Object())
-		c.setLastChat(model, config)
-		transportReq := c.requestJSON(ctx, "chat", req, false, mergedOptions)
-		if body, handled := c.contextCacheChat(ctx, req, mergedOptions, model, transportReq); handled {
+			config := coreGet(req, "model_config", Object())
+			c.setLastChat(model, config)
+			transportReq := c.requestJSON(ctx, "chat", req, false, mergedOptions)
+			if body, handled := c.contextCacheChat(ctx, req, mergedOptions, model, transportReq); handled {
+				return mustCore(provider_normalize_chat_response(c.Profile, body, c.Name, model))
+			}
+			raw, err := c.Transport.Call(ctx, transportReq)
+			if err != nil {
+				panic(AxError{Category: "network", Message: err.Error()})
+			}
+			body := normalizeTransportPayload(raw)
 			return mustCore(provider_normalize_chat_response(c.Profile, body, c.Name, model))
-		}
-		raw, err := c.Transport.Call(ctx, transportReq)
-		if err != nil {
-			panic(AxError{Category: "network", Message: err.Error()})
-		}
-		body := normalizeTransportPayload(raw)
-		return mustCore(provider_normalize_chat_response(c.Profile, body, c.Name, model))
-	}) }
+		})
+	}
 	response, err := invokeRuntimeLimiter(hooks.RateLimiter, next, AxRateLimitInfo{Operation: "chat", Provider: c.Name, Model: modelName, Streaming: streaming, PreviousModelUsage: previousUsage})
 	finishAIOperation(hooks, attributes, span, started, err)
 	if err == nil {
@@ -54107,25 +54327,35 @@ func (c *OpenAICompatibleClient) contextCacheChat(ctx context.Context, request m
 		call := cloneMap(asMap(fullCall))
 		coreSet(call, "json", payload)
 		body, err := tryCall(call)
-		if err != nil { panic(err) }
+		if err != nil {
+			panic(err)
+		}
 		return body, true
 	}
 	prompts := asSlice(coreGet(request, "chat_prompt", coreGet(request, "chatPrompt", coreGet(request, "messages", Array()))))
 	nonSystem, cachedCount := 0, 0
 	for _, raw := range prompts {
 		prompt := asMap(raw)
-		if display(coreGet(prompt, "role", "")) == "system" { continue }
+		if display(coreGet(prompt, "role", "")) == "system" {
+			continue
+		}
 		nonSystem++
-		if coreTruthy(coreGet(prompt, "cache", false)) { cachedCount = nonSystem }
+		if coreTruthy(coreGet(prompt, "cache", false)) {
+			cachedCount = nonSystem
+		}
 	}
 	cacheBody := Object()
 	for _, key := range []string{"systemInstruction", "tools", "toolConfig"} {
-		if value := coreGet(payload, key, nil); value != nil { coreSet(cacheBody, key, cloneValue(value)) }
+		if value := coreGet(payload, key, nil); value != nil {
+			coreSet(cacheBody, key, cloneValue(value))
+		}
 	}
 	contents := asSlice(coreGet(payload, "contents", Array()))
 	if cachedCount > 0 {
 		limit := cachedCount
-		if limit > len(contents) { limit = len(contents) }
+		if limit > len(contents) {
+			limit = len(contents)
+		}
 		coreSet(cacheBody, "contents", cloneValue(contents[:limit]))
 	}
 	if coreGet(cacheBody, "systemInstruction", nil) == nil && len(asSlice(coreGet(cacheBody, "contents", Array()))) == 0 {
@@ -54141,13 +54371,24 @@ func (c *OpenAICompatibleClient) contextCacheChat(ctx context.Context, request m
 	namespace := display(coreGet(cfg, "namespace", "default"))
 	registry, external := coreGet(cfg, "registry", nil).(AxContextCacheRegistry)
 	getEntry := func() map[string]Value {
-		if external { if value, ok := registry.Get(namespace, cacheKey); ok { return cloneMap(value) }; return Object() }
-		c.mu.RLock(); defer c.mu.RUnlock()
+		if external {
+			if value, ok := registry.Get(namespace, cacheKey); ok {
+				return cloneMap(value)
+			}
+			return Object()
+		}
+		c.mu.RLock()
+		defer c.mu.RUnlock()
 		return cloneMap(c.contextCacheEntries[cacheKey])
 	}
 	setEntry := func(value map[string]Value) {
-		if external { registry.Set(namespace, cacheKey, cloneMap(value)); return }
-		c.mu.Lock(); defer c.mu.Unlock(); c.contextCacheEntries[cacheKey] = cloneMap(value)
+		if external {
+			registry.Set(namespace, cacheKey, cloneMap(value))
+			return
+		}
+		c.mu.Lock()
+		defer c.mu.Unlock()
+		c.contextCacheEntries[cacheKey] = cloneMap(value)
 	}
 	now := time.Now().UnixMilli()
 	entry := getEntry()
@@ -54156,10 +54397,14 @@ func (c *OpenAICompatibleClient) contextCacheChat(ctx context.Context, request m
 		raw := coreGet(value, "expireTime", coreGet(value, "expire_time", nil))
 		var millis int64
 		switch typed := raw.(type) {
-		case float64: millis = int64(typed)
-		case int64: millis = typed
+		case float64:
+			millis = int64(typed)
+		case int64:
+			millis = typed
 		case string:
-			if parsed, err := time.Parse(time.RFC3339Nano, typed); err == nil { millis = parsed.UnixMilli() }
+			if parsed, err := time.Parse(time.RFC3339Nano, typed); err == nil {
+				millis = parsed.UnixMilli()
+			}
 		}
 		return num(mustCore(ai_context_cache_expiry(float64(millis), float64(time.Now().UnixMilli()))))
 	}
@@ -54175,10 +54420,14 @@ func (c *OpenAICompatibleClient) contextCacheChat(ctx context.Context, request m
 	create := func() bool {
 		ops := mustCore(ai_gemini_cache_ops("", float64(ttlSeconds), apiKey, display(model), cacheBody, options))
 		created, err := opCall(coreGet(ops, "create", Object()))
-		if err != nil { return false }
+		if err != nil {
+			return false
+		}
 		cacheName = display(coreGet(created, "name", ""))
 		expiresAt := expiry(created)
-		if cacheName == "" || expiresAt == 0 { return false }
+		if cacheName == "" || expiresAt == 0 {
+			return false
+		}
 		setEntry(Object("cacheName", cacheName, "expiresAt", expiresAt))
 		return true
 	}
@@ -54187,31 +54436,65 @@ func (c *OpenAICompatibleClient) contextCacheChat(ctx context.Context, request m
 		ops := mustCore(ai_gemini_cache_ops(cacheName, float64(ttlSeconds), apiKey, display(model), cacheBody, options))
 		refreshed, err := opCall(coreGet(ops, "update", Object()))
 		if err != nil || expiry(refreshed) == 0 {
-			if !create() { body, fullErr := tryCall(fullCall); if fullErr != nil { panic(fullErr) }; return body, true }
-		} else { setEntry(Object("cacheName", cacheName, "expiresAt", expiry(refreshed))) }
+			if !create() {
+				body, fullErr := tryCall(fullCall)
+				if fullErr != nil {
+					panic(fullErr)
+				}
+				return body, true
+			}
+		} else {
+			setEntry(Object("cacheName", cacheName, "expiresAt", expiry(refreshed)))
+		}
 	case "create":
-		if !create() { body, fullErr := tryCall(fullCall); if fullErr != nil { panic(fullErr) }; return body, true }
+		if !create() {
+			body, fullErr := tryCall(fullCall)
+			if fullErr != nil {
+				panic(fullErr)
+			}
+			return body, true
+		}
 	case "none":
 		return nil, false
 	}
-	if cacheName == "" { return nil, false }
+	if cacheName == "" {
+		return nil, false
+	}
 	cachedPayload := cloneMap(payload)
-	delete(cachedPayload, "systemInstruction"); delete(cachedPayload, "tools"); delete(cachedPayload, "toolConfig")
-	if cachedCount > len(contents) { cachedCount = len(contents) }
+	delete(cachedPayload, "systemInstruction")
+	delete(cachedPayload, "tools")
+	delete(cachedPayload, "toolConfig")
+	if cachedCount > len(contents) {
+		cachedCount = len(contents)
+	}
 	coreSet(cachedPayload, "contents", cloneValue(contents[cachedCount:]))
 	coreSet(cachedPayload, "cachedContent", cacheName)
-	cachedCall := cloneMap(asMap(fullCall)); coreSet(cachedCall, "json", cachedPayload)
+	cachedCall := cloneMap(asMap(fullCall))
+	coreSet(cachedCall, "json", cachedPayload)
 	body, err := tryCall(cachedCall)
-	if err == nil { return body, true }
+	if err == nil {
+		return body, true
+	}
 	axErr := asAxError(errorValue(err))
-	if !coreTruthy(mustCore(ai_context_cache_rejection(float64(axErr.Status), axErr.Payload))) { panic(err) }
+	if !coreTruthy(mustCore(ai_context_cache_rejection(float64(axErr.Status), axErr.Payload))) {
+		panic(err)
+	}
 	current := getEntry()
 	recovery := asMap(mustCore(ai_context_cache_recovery(current, cacheName, external)))
 	if coreTruthy(coreGet(recovery, "invalidated", false)) {
-		if external { registry.Set(namespace, cacheKey, cloneMap(asMap(coreGet(recovery, "externalEntry", Object()))))
-		} else if coreTruthy(coreGet(recovery, "deleteInMemory", false)) { c.mu.Lock(); delete(c.contextCacheEntries, cacheKey); c.mu.Unlock() }
+		if external {
+			registry.Set(namespace, cacheKey, cloneMap(asMap(coreGet(recovery, "externalEntry", Object()))))
+		} else if coreTruthy(coreGet(recovery, "deleteInMemory", false)) {
+			c.mu.Lock()
+			delete(c.contextCacheEntries, cacheKey)
+			c.mu.Unlock()
+		}
 	}
-	body, err = tryCall(fullCall); if err != nil { panic(err) }; return body, true
+	body, err = tryCall(fullCall)
+	if err != nil {
+		panic(err)
+	}
+	return body, true
 }
 func (c *OpenAICompatibleClient) Embed(ctx context.Context, request map[string]Value, options map[string]Value) (Value, error) {
 	hooks, previousUsage := c.runtimeHooksSnapshot()
@@ -54219,21 +54502,23 @@ func (c *OpenAICompatibleClient) Embed(ctx context.Context, request map[string]V
 	mergedOptions := mergeAIOptions(c.optionsSnapshot(), stripRuntimeHooks(options))
 	modelName := display(coreGet(request, "embed_model", coreGet(request, "embedModel", coreGet(c.optionsSnapshot(), "embed_model", ""))))
 	attributes, span, started := beginAIOperation(ctx, hooks, "embed", c.Name, modelName, false)
-	next := func() (Value, error) { return safeValue(func() Value {
-		req := cloneMap(request)
-		opts := c.optionsSnapshot()
-		if coreGet(req, "embed_model", coreGet(req, "embedModel", nil)) == nil {
-			coreSet(req, "embed_model", coreGet(opts, "embed_model", nil))
-		}
-		model := coreGet(req, "embed_model", coreGet(req, "embedModel", coreGet(opts, "embed_model", nil)))
-		c.setLastEmbed(model)
-		transportReq := c.requestJSON(ctx, "embed", req, false, mergedOptions)
-		raw, err := c.Transport.Call(ctx, transportReq)
-		if err != nil {
-			panic(AxError{Category: "network", Message: err.Error()})
-		}
-		return mustCore(provider_normalize_embed_response(c.Profile, normalizeTransportPayload(raw), c.Name, model))
-	}) }
+	next := func() (Value, error) {
+		return safeValue(func() Value {
+			req := cloneMap(request)
+			opts := c.optionsSnapshot()
+			if coreGet(req, "embed_model", coreGet(req, "embedModel", nil)) == nil {
+				coreSet(req, "embed_model", coreGet(opts, "embed_model", nil))
+			}
+			model := coreGet(req, "embed_model", coreGet(req, "embedModel", coreGet(opts, "embed_model", nil)))
+			c.setLastEmbed(model)
+			transportReq := c.requestJSON(ctx, "embed", req, false, mergedOptions)
+			raw, err := c.Transport.Call(ctx, transportReq)
+			if err != nil {
+				panic(AxError{Category: "network", Message: err.Error()})
+			}
+			return mustCore(provider_normalize_embed_response(c.Profile, normalizeTransportPayload(raw), c.Name, model))
+		})
+	}
 	response, err := invokeRuntimeLimiter(hooks.RateLimiter, next, AxRateLimitInfo{Operation: "embed", Provider: c.Name, Model: modelName, Streaming: false, PreviousModelUsage: previousUsage})
 	finishAIOperation(hooks, attributes, span, started, err)
 	if err == nil {
@@ -54259,57 +54544,213 @@ func streamBackoffDelay(initialDelay float64, maxDelay float64, backoff float64,
 	return delay
 }
 
-func (c *OpenAICompatibleClient) Stream(ctx context.Context, request map[string]Value, options map[string]Value) ([]Value, error) {
+func waitStreamRetry(ctx context.Context, delay float64) error {
+	if delay <= 0 {
+		return nil
+	}
+	timer := time.NewTimer(time.Duration(delay) * time.Millisecond)
+	defer timer.Stop()
+	select {
+	case <-timer.C:
+		return nil
+	case <-ctx.Done():
+		return ctx.Err()
+	}
+}
+
+func (c *OpenAICompatibleClient) openProviderStream(ctx context.Context, request Value) (rawProviderStream, error) {
+	if transport, ok := c.Transport.(StreamingTransport); ok {
+		response, err := transport.Stream(ctx, request)
+		if err != nil {
+			return nil, AxError{Category: "network", Type: "AxAIServiceNetworkError", Message: err.Error(), Retryable: true}
+		}
+		if response.Body == nil {
+			return nil, AxError{Category: "network", Type: "AxAIServiceNetworkError", Message: "streaming transport returned no response body", Retryable: true}
+		}
+		if response.Status >= 400 {
+			data, readErr := io.ReadAll(response.Body)
+			_ = response.Body.Close()
+			if readErr != nil {
+				return nil, AxError{Category: "network", Type: "AxAIServiceNetworkError", Message: readErr.Error(), Retryable: true}
+			}
+			_, normalizedErr := safeValue(func() Value {
+				return normalizeTransportPayload(Object("status", float64(response.Status), "body", string(data)))
+			})
+			if normalizedErr != nil {
+				return nil, normalizedErr
+			}
+			return nil, AxError{Category: "response", Type: "AxAIServiceStatusError", Message: fmt.Sprintf("stream request failed with status %d", response.Status), Status: response.Status}
+		}
+		return newSSEJSONStream(response.Body, response.Body), nil
+	}
+
+	raw, err := c.Transport.Call(ctx, request)
+	if err != nil {
+		return nil, AxError{Category: "network", Type: "AxAIServiceNetworkError", Message: err.Error(), Retryable: true}
+	}
+	body, normalizedErr := safeValue(func() Value { return normalizeTransportPayload(raw) })
+	if normalizedErr != nil {
+		return nil, normalizedErr
+	}
+	switch body.(type) {
+	case []any, *AxArray:
+		return &sliceProviderStream{values: asSlice(body)}, nil
+	default:
+		return newSSEJSONStream(strings.NewReader(display(body)), nil), nil
+	}
+}
+
+func (c *OpenAICompatibleClient) StreamEvents(ctx context.Context, request map[string]Value, options map[string]Value) (AxChatStream, error) {
 	hooks, previousUsage := c.runtimeHooksSnapshot()
 	hooks = effectiveRuntimeHooks(ctx, options, hooks)
 	mergedOptions := mergeAIOptions(c.optionsSnapshot(), stripRuntimeHooks(options))
 	modelName := display(coreGet(request, "model", coreGet(c.optionsSnapshot(), "model", "")))
 	attributes, span, started := beginAIOperation(ctx, hooks, "chat", c.Name, modelName, true)
-	next := func() (Value, error) { return safeValue(func() Value {
-		req := c.prepareChatRequest(request, Object("stream", true))
-		mustCore(validate_chat_request(req))
-		opts := c.optionsSnapshot()
-		model := coreGet(req, "model", coreGet(opts, "model", nil))
-		maxRetries, initialDelay, maxDelay, backoff := streamRetryParams(mergedOptions)
-		attempt := 0
-		for {
-			transportReq := c.requestJSON(ctx, "stream_chat", req, true, mergedOptions)
-			raw, err := c.Transport.Call(ctx, transportReq)
-			if err != nil {
-				panic(AxError{Category: "network", Message: err.Error()})
-			}
-			body := normalizeTransportPayload(raw)
-			events := iterSSE(body)
-			// Pre-content streaming retry: peek the first raw SSE event before any stateful
-			// normalize runs (so peeking has no side effects). If the provider classifies it
-			// as a retryable transient status (e.g. Anthropic's HTTP-200 overloaded_error
-			// event), re-issue with the same exponential backoff apiCall uses for a 529.
-			if len(events) > 0 {
-				status := mustCore(provider_classify_stream_error_status(c.Profile, events[0]))
-				if status != nil && coreTruthy(mustCore(is_retryable_status(status))) && attempt < maxRetries {
+	open := func() (Value, error) {
+		return safeValue(func() Value {
+			req := c.prepareChatRequest(request, Object("stream", true))
+			mustCore(validate_chat_request(req))
+			opts := c.optionsSnapshot()
+			model := coreGet(req, "model", coreGet(opts, "model", nil))
+			config := coreGet(req, "model_config", Object())
+			c.setLastChat(model, config)
+			maxRetries, initialDelay, maxDelay, backoff := streamRetryParams(mergedOptions)
+			attempt := 0
+			for {
+				transportReq := c.requestJSON(ctx, "stream_chat", req, true, mergedOptions)
+				raw, err := c.openProviderStream(ctx, transportReq)
+				if err != nil {
+					if IsRetryable(err) && attempt < maxRetries {
+						attempt++
+						if waitErr := waitStreamRetry(ctx, streamBackoffDelay(initialDelay, maxDelay, backoff, attempt)); waitErr != nil {
+							panic(waitErr)
+						}
+						continue
+					}
+					panic(err)
+				}
+				firstRaw, firstErr := raw.Next()
+				if firstErr != nil && !errors.Is(firstErr, io.EOF) {
+					_ = raw.Close()
+					wrapped := AxError{Category: "network", Type: "AxAIServiceNetworkError", Message: firstErr.Error(), Retryable: true}
+					if attempt < maxRetries {
+						attempt++
+						if waitErr := waitStreamRetry(ctx, streamBackoffDelay(initialDelay, maxDelay, backoff, attempt)); waitErr != nil {
+							panic(waitErr)
+						}
+						continue
+					}
+					panic(wrapped)
+				}
+				if errors.Is(firstErr, io.EOF) {
+					_ = raw.Close()
+					return newAxChatStream(func() (Value, error) { return nil, io.EOF }, nil, nil)
+				}
+				status, classifyErr := safeValue(func() Value {
+					return mustCore(provider_classify_stream_error_status(c.Profile, firstRaw))
+				})
+				if classifyErr != nil {
+					_ = raw.Close()
+					panic(classifyErr)
+				}
+				retryableStatus := false
+				if status != nil {
+					value, statusErr := safeValue(func() Value { return mustCore(is_retryable_status(status)) })
+					if statusErr != nil {
+						_ = raw.Close()
+						panic(statusErr)
+					}
+					retryableStatus = coreTruthy(value)
+				}
+				if retryableStatus && attempt < maxRetries {
+					_ = raw.Close()
 					attempt++
-					delay := streamBackoffDelay(initialDelay, maxDelay, backoff, attempt)
-					if delay > 0 {
-						time.Sleep(time.Duration(delay) * time.Millisecond)
+					if waitErr := waitStreamRetry(ctx, streamBackoffDelay(initialDelay, maxDelay, backoff, attempt)); waitErr != nil {
+						panic(waitErr)
 					}
 					continue
 				}
+				state := Object()
+				first, normalizeErr := safeValue(func() Value {
+					return mustCore(provider_normalize_stream_delta(c.Profile, firstRaw, state, c.Name, model))
+				})
+				if normalizeErr != nil {
+					_ = raw.Close()
+					panic(normalizeErr)
+				}
+				firstPending := true
+				return newAxChatStream(func() (Value, error) {
+					if firstPending {
+						firstPending = false
+						return first, nil
+					}
+					event, eventErr := raw.Next()
+					if eventErr != nil {
+						if errors.Is(eventErr, io.EOF) {
+							return nil, io.EOF
+						}
+						return nil, AxError{Category: "response", Type: "AxAIServiceStreamTerminatedError", Message: eventErr.Error(), Retryable: true}
+					}
+					value, normalizeErr := safeValue(func() Value { return mustCore(provider_normalize_stream_delta(c.Profile, event, state, c.Name, model)) })
+					if normalizeErr != nil {
+						return nil, normalizeErr
+					}
+					return value, nil
+				}, raw.Close, nil)
 			}
-			out := Array()
-			state := Object()
-			for _, event := range events {
-				out = append(out, mustCore(provider_normalize_stream_delta(c.Profile, event, state, c.Name, model)))
-			}
-			return out
-		}
-	}) }
-	value, err := invokeRuntimeLimiter(hooks.RateLimiter, next, AxRateLimitInfo{Operation: "chat", Provider: c.Name, Model: modelName, Streaming: true, PreviousModelUsage: previousUsage})
-	finishAIOperation(hooks, attributes, span, started, err)
-	values := asSlice(value)
-	if err == nil {
-		emitUsageEvent("chat", Object("results", values), mergedOptions, true)
+		})
 	}
-	return values, err
+	value, err := invokeRuntimeLimiter(hooks.RateLimiter, open, AxRateLimitInfo{Operation: "chat", Provider: c.Name, Model: modelName, Streaming: true, PreviousModelUsage: previousUsage})
+	if err != nil {
+		finishAIOperation(hooks, attributes, span, started, err)
+		return nil, err
+	}
+	source, ok := value.(AxChatStream)
+	if !ok {
+		err = AxError{Category: "runtime", Message: "streaming rate limiter returned an invalid stream"}
+		finishAIOperation(hooks, attributes, span, started, err)
+		return nil, err
+	}
+	chunks := Array()
+	return newAxChatStream(func() (Value, error) {
+		if !source.Next() {
+			if source.Err() != nil {
+				return nil, source.Err()
+			}
+			return nil, io.EOF
+		}
+		chunk := source.Value()
+		chunks = append(chunks, chunk)
+		if usage := coreGet(chunk, "model_usage", coreGet(chunk, "modelUsage", nil)); usage != nil {
+			c.setLastUsage(usage)
+		}
+		return chunk, nil
+	}, source.Close, func(streamErr error, cancelled bool) {
+		terminal := streamErr
+		if cancelled && terminal == nil {
+			terminal = AxError{Category: "response", Type: "AxAIServiceStreamTerminatedError", Message: "stream cancelled", Retryable: true}
+		}
+		if !cancelled && terminal == nil {
+			emitUsageEvent("chat", Object("results", chunks), mergedOptions, true)
+		}
+		finishAIOperation(hooks, attributes, span, started, terminal)
+	}), nil
+}
+
+func (c *OpenAICompatibleClient) Stream(ctx context.Context, request map[string]Value, options map[string]Value) ([]Value, error) {
+	stream, err := c.StreamEvents(ctx, request, options)
+	if err != nil {
+		return nil, err
+	}
+	defer stream.Close()
+	values := Array()
+	for stream.Next() {
+		values = append(values, stream.Value())
+	}
+	if stream.Err() != nil {
+		return nil, stream.Err()
+	}
+	return values, nil
 }
 func (c *OpenAICompatibleClient) prepareChatRequest(request map[string]Value, options map[string]Value) map[string]Value {
 	req := cloneMap(request)
@@ -54339,9 +54780,9 @@ func (c *OpenAICompatibleClient) requestJSON(ctx context.Context, operation stri
 	if operation == "speak" {
 		payload = mustCore(provider_build_speak_request(c.Profile, request))
 	}
-	if stream {
-		coreSet(payload, "stream", true)
-	}
+	// The provider builder owns wire-level streaming fields. OpenAI uses a JSON
+	// `stream` flag, while Gemini and Anthropic select streaming through their
+	// operation endpoint and reject an extra body field.
 	operationDescriptor := mustCore(provider_resolve_operation_descriptor(c.Profile, operation, opts))
 	path := display(coreGet(operationDescriptor, "path", "/chat/completions"))
 	descriptor := mustCore(provider_resolve_descriptor(c.Profile, opts))
@@ -54685,20 +55126,43 @@ func (c *OpenAICompatibleClient) SetOptions(options map[string]Value) {
 	c.RuntimeHooks = runtimeHooksFromOptions(options)
 	c.Options = stripRuntimeHooks(options)
 }
-func (c *OpenAICompatibleClient) SetRateLimiter(limiter AxRateLimiter) *OpenAICompatibleClient { c.mu.Lock(); c.RuntimeHooks.RateLimiter = limiter; c.mu.Unlock(); return c }
-func (c *OpenAICompatibleClient) SetTracer(tracer AxTracer) *OpenAICompatibleClient { c.mu.Lock(); c.RuntimeHooks.Tracer = tracer; c.mu.Unlock(); return c }
-func (c *OpenAICompatibleClient) SetMeter(meter AxMeter) *OpenAICompatibleClient { c.mu.Lock(); c.RuntimeHooks.Meter = meter; c.mu.Unlock(); return c }
+func (c *OpenAICompatibleClient) SetRateLimiter(limiter AxRateLimiter) *OpenAICompatibleClient {
+	c.mu.Lock()
+	c.RuntimeHooks.RateLimiter = limiter
+	c.mu.Unlock()
+	return c
+}
+func (c *OpenAICompatibleClient) SetTracer(tracer AxTracer) *OpenAICompatibleClient {
+	c.mu.Lock()
+	c.RuntimeHooks.Tracer = tracer
+	c.mu.Unlock()
+	return c
+}
+func (c *OpenAICompatibleClient) SetMeter(meter AxMeter) *OpenAICompatibleClient {
+	c.mu.Lock()
+	c.RuntimeHooks.Meter = meter
+	c.mu.Unlock()
+	return c
+}
 func (c *OpenAICompatibleClient) ChatWithHooks(ctx context.Context, request map[string]Value, options map[string]Value, hooks AxRuntimeHooks) (Value, error) {
-	callOptions := cloneMap(options); callOptions["runtimeHooks"] = hooks
+	callOptions := cloneMap(options)
+	callOptions["runtimeHooks"] = hooks
 	return c.Chat(ctx, request, callOptions)
 }
 func (c *OpenAICompatibleClient) EmbedWithHooks(ctx context.Context, request map[string]Value, options map[string]Value, hooks AxRuntimeHooks) (Value, error) {
-	callOptions := cloneMap(options); callOptions["runtimeHooks"] = hooks
+	callOptions := cloneMap(options)
+	callOptions["runtimeHooks"] = hooks
 	return c.Embed(ctx, request, callOptions)
 }
 func (c *OpenAICompatibleClient) StreamWithHooks(ctx context.Context, request map[string]Value, options map[string]Value, hooks AxRuntimeHooks) ([]Value, error) {
-	callOptions := cloneMap(options); callOptions["runtimeHooks"] = hooks
+	callOptions := cloneMap(options)
+	callOptions["runtimeHooks"] = hooks
 	return c.Stream(ctx, request, callOptions)
+}
+func (c *OpenAICompatibleClient) StreamEventsWithHooks(ctx context.Context, request map[string]Value, options map[string]Value, hooks AxRuntimeHooks) (AxChatStream, error) {
+	callOptions := cloneMap(options)
+	callOptions["runtimeHooks"] = hooks
+	return c.StreamEvents(ctx, request, callOptions)
 }
 func (c *OpenAICompatibleClient) GetOptions() map[string]Value { return c.optionsSnapshot() }
 func (c *OpenAICompatibleClient) GetLastUsedChatModel() Value {
@@ -54756,6 +55220,9 @@ func (c OpenAIResponsesClient) Embed(ctx context.Context, r map[string]Value, o 
 func (c OpenAIResponsesClient) Stream(ctx context.Context, r map[string]Value, o map[string]Value) ([]Value, error) {
 	return c.OpenAICompatibleClient.Stream(ctx, r, o)
 }
+func (c OpenAIResponsesClient) StreamEvents(ctx context.Context, r map[string]Value, o map[string]Value) (AxChatStream, error) {
+	return c.OpenAICompatibleClient.StreamEvents(ctx, r, o)
+}
 func (c GoogleGeminiClient) Chat(ctx context.Context, r map[string]Value, o map[string]Value) (Value, error) {
 	return c.OpenAICompatibleClient.Chat(ctx, r, o)
 }
@@ -54765,6 +55232,9 @@ func (c GoogleGeminiClient) Embed(ctx context.Context, r map[string]Value, o map
 func (c GoogleGeminiClient) Stream(ctx context.Context, r map[string]Value, o map[string]Value) ([]Value, error) {
 	return c.OpenAICompatibleClient.Stream(ctx, r, o)
 }
+func (c GoogleGeminiClient) StreamEvents(ctx context.Context, r map[string]Value, o map[string]Value) (AxChatStream, error) {
+	return c.OpenAICompatibleClient.StreamEvents(ctx, r, o)
+}
 func (c AnthropicClient) Chat(ctx context.Context, r map[string]Value, o map[string]Value) (Value, error) {
 	return c.OpenAICompatibleClient.Chat(ctx, r, o)
 }
@@ -54773,6 +55243,9 @@ func (c AnthropicClient) Embed(ctx context.Context, r map[string]Value, o map[st
 }
 func (c AnthropicClient) Stream(ctx context.Context, r map[string]Value, o map[string]Value) ([]Value, error) {
 	return c.OpenAICompatibleClient.Stream(ctx, r, o)
+}
+func (c AnthropicClient) StreamEvents(ctx context.Context, r map[string]Value, o map[string]Value) (AxChatStream, error) {
+	return c.OpenAICompatibleClient.StreamEvents(ctx, r, o)
 }
 func safeValue(fn func() Value) (out Value, err error) {
 	defer func() {
@@ -54785,6 +55258,186 @@ func safeValue(fn func() Value) (out Value, err error) {
 		}
 	}()
 	return fn(), nil
+}
+
+type rawProviderStream interface {
+	Next() (Value, error)
+	Close() error
+}
+
+type sliceProviderStream struct {
+	values []Value
+	index  int
+}
+
+func (s *sliceProviderStream) Next() (Value, error) {
+	for s.index < len(s.values) {
+		value := s.values[s.index]
+		s.index++
+		if display(value) != "[DONE]" {
+			return value, nil
+		}
+	}
+	return nil, io.EOF
+}
+func (s *sliceProviderStream) Close() error { s.index = len(s.values); return nil }
+
+type sseJSONStream struct {
+	reader     *bufio.Reader
+	closer     io.Closer
+	line       []byte
+	dataLines  []string
+	pendingCR  bool
+	queuedByte *byte
+	atStart    bool
+	done       bool
+	closed     bool
+}
+
+func newSSEJSONStream(reader io.Reader, closer io.Closer) *sseJSONStream {
+	return &sseJSONStream{reader: bufio.NewReader(reader), closer: closer, atStart: true}
+}
+
+func (s *sseJSONStream) Close() error {
+	if s.closed {
+		return nil
+	}
+	s.closed = true
+	if s.closer != nil {
+		return s.closer.Close()
+	}
+	return nil
+}
+
+func (s *sseJSONStream) flushEvent() (Value, bool, error) {
+	if len(s.dataLines) == 0 {
+		return nil, false, nil
+	}
+	payload := strings.Join(s.dataLines, "\n")
+	s.dataLines = nil
+	if strings.TrimSpace(payload) == "[DONE]" {
+		s.done = true
+		_ = s.Close()
+		return nil, true, nil
+	}
+	var value Value
+	if err := json.Unmarshal([]byte(payload), &value); err != nil {
+		return nil, false, err
+	}
+	return value, false, nil
+}
+
+func (s *sseJSONStream) processLine() (Value, bool, error) {
+	line := string(s.line)
+	s.line = nil
+	if s.atStart {
+		s.atStart = false
+		line = strings.TrimPrefix(line, "\ufeff")
+	}
+	if line == "" {
+		return s.flushEvent()
+	}
+	if strings.HasPrefix(line, ":") {
+		return nil, false, nil
+	}
+	colon := strings.IndexByte(line, ':')
+	field, value := line, ""
+	if colon >= 0 {
+		field, value = line[:colon], line[colon+1:]
+	}
+	if strings.HasPrefix(value, " ") {
+		value = value[1:]
+	}
+	if field == "data" {
+		s.dataLines = append(s.dataLines, value)
+	}
+	return nil, false, nil
+}
+
+func (s *sseJSONStream) Next() (Value, error) {
+	if s.done {
+		return nil, io.EOF
+	}
+	for {
+		var b byte
+		var err error
+		if s.queuedByte != nil {
+			b = *s.queuedByte
+			s.queuedByte = nil
+		} else {
+			b, err = s.reader.ReadByte()
+		}
+		if errors.Is(err, io.EOF) {
+			if s.pendingCR {
+				s.pendingCR = false
+				if event, done, lineErr := s.processLine(); lineErr != nil {
+					return nil, lineErr
+				} else if done {
+					return nil, io.EOF
+				} else if event != nil {
+					return event, nil
+				}
+			}
+			if len(s.line) > 0 {
+				if event, done, lineErr := s.processLine(); lineErr != nil {
+					return nil, lineErr
+				} else if done {
+					return nil, io.EOF
+				} else if event != nil {
+					return event, nil
+				}
+			}
+			event, done, flushErr := s.flushEvent()
+			if flushErr != nil {
+				return nil, flushErr
+			}
+			if done || event == nil {
+				s.done = true
+				_ = s.Close()
+				return nil, io.EOF
+			}
+			s.done = true
+			_ = s.Close()
+			return event, nil
+		}
+		if err != nil {
+			return nil, err
+		}
+		if s.pendingCR {
+			s.pendingCR = false
+			event, done, lineErr := s.processLine()
+			if b != '\n' {
+				s.queuedByte = &b
+			}
+			if lineErr != nil {
+				return nil, lineErr
+			}
+			if done {
+				return nil, io.EOF
+			}
+			if event != nil {
+				return event, nil
+			}
+			continue
+		}
+		switch b {
+		case '\r':
+			s.pendingCR = true
+		case '\n':
+			event, done, lineErr := s.processLine()
+			if lineErr != nil {
+				return nil, lineErr
+			}
+			if done {
+				return nil, io.EOF
+			}
+			if event != nil {
+				return event, nil
+			}
+		default:
+			s.line = append(s.line, b)
+		}
+	}
 }
 
 func iterSSE(body Value) []Value {
@@ -54999,11 +55652,38 @@ func (r *MultiServiceRouter) Embed(ctx context.Context, request map[string]Value
 	return entry.Service.Embed(ctx, req, options)
 }
 func (r *MultiServiceRouter) Stream(ctx context.Context, request map[string]Value, options map[string]Value) ([]Value, error) {
-	value, err := r.Chat(ctx, request, options)
+	stream, err := r.StreamEvents(ctx, request, options)
 	if err != nil {
 		return nil, err
 	}
-	return asSlice(value), nil
+	defer stream.Close()
+	values := Array()
+	for stream.Next() {
+		values = append(values, stream.Value())
+	}
+	if stream.Err() != nil {
+		return nil, stream.Err()
+	}
+	return values, nil
+}
+func (r *MultiServiceRouter) StreamEvents(ctx context.Context, request map[string]Value, options map[string]Value) (AxChatStream, error) {
+	modelKey := display(coreGet(request, "model", ""))
+	if modelKey == "" {
+		return nil, AxError{Category: "runtime", Message: "Model key must be specified for multi-service"}
+	}
+	entry, ok := r.services[modelKey]
+	if !ok {
+		return nil, AxError{Category: "runtime", Message: "No service found for model key: " + modelKey}
+	}
+	r.lastUsedService = entry.Service
+	req := cloneMap(request)
+	if coreGet(req, "modelConfig", nil) != nil && coreGet(req, "model_config", nil) == nil {
+		coreSet(req, "model_config", cloneValue(coreGet(req, "modelConfig", nil)))
+	}
+	if !entry.HasModel {
+		delete(req, "model")
+	}
+	return openAIServiceStream(ctx, entry.Service, req, options)
 }
 func (r *MultiServiceRouter) Transcribe(ctx context.Context, request map[string]Value, options map[string]Value) (Value, error) {
 	modelKey := display(coreGet(request, "model", ""))
@@ -55784,7 +56464,31 @@ func (b *AxBalancer) Embed(ctx context.Context, request map[string]Value, option
 	b.currentService = b.services[0]
 	return b.currentService.Embed(ctx, request, options)
 }
-func (b *AxBalancer) Stream(ctx context.Context, request map[string]Value, options map[string]Value) ([]Value, error) {
+func openAIServiceStream(ctx context.Context, service AxAIService, request map[string]Value, options map[string]Value) (AxChatStream, error) {
+	if streaming, ok := service.(StreamingAIClient); ok {
+		return streaming.StreamEvents(ctx, request, options)
+	}
+	values, err := service.Stream(ctx, request, options)
+	if err != nil {
+		return nil, err
+	}
+	legacy := &sliceProviderStream{values: values}
+	return newAxChatStream(legacy.Next, legacy.Close, nil), nil
+}
+
+func collectAxChatStream(stream AxChatStream) ([]Value, error) {
+	defer stream.Close()
+	values := Array()
+	for stream.Next() {
+		values = append(values, stream.Value())
+	}
+	if stream.Err() != nil {
+		return nil, stream.Err()
+	}
+	return values, nil
+}
+
+func (b *AxBalancer) StreamEvents(ctx context.Context, request map[string]Value, options map[string]Value) (AxChatStream, error) {
 	if b.adaptive != nil {
 		ranked, err := b.rankAdaptive(request, options)
 		if err != nil {
@@ -55799,10 +56503,26 @@ func (b *AxBalancer) Stream(ctx context.Context, request map[string]Value, optio
 			selected["attempt"] = index + 1
 			b.emitRoutingEvent(selected)
 			started := time.Now()
-			chunks, err := candidate.service.Stream(ctx, request, options)
+			stream, err := openAIServiceStream(ctx, candidate.service, request, options)
 			if err == nil {
+				// Direct provider StreamEvents has prefetched one normalized event, so this
+				// is provider time-to-first-chunk and excludes later consumer pacing.
+				observed := true
 				b.observeAdaptive(candidate, AxBalancerStatsObservation{Outcome: "success", LatencyMs: math.Max(1, float64(time.Since(started).Microseconds())/1000)}, true, "", 0)
-				return chunks, nil
+				return newAxChatStream(func() (Value, error) {
+					if !stream.Next() {
+						if stream.Err() != nil {
+							return nil, stream.Err()
+						}
+						return nil, io.EOF
+					}
+					return stream.Value(), nil
+				}, stream.Close, func(streamErr error, cancelled bool) {
+					if streamErr != nil && observed {
+						reason, status := adaptiveErrorMeta(streamErr)
+						b.observeAdaptive(candidate, AxBalancerStatsObservation{Outcome: "failure"}, true, reason, status)
+					}
+				}), nil
 			}
 			if ctx.Err() != nil {
 				return nil, err
@@ -55833,16 +56553,48 @@ func (b *AxBalancer) Stream(ctx context.Context, request map[string]Value, optio
 		}
 		return nil, AxError{Category: "runtime", Message: fmt.Sprintf("All candidate services exhausted (tried %d service(s))", len(ranked))}
 	}
-	value, err := b.Chat(ctx, request, options)
+	candidates, err := b.candidateServices(request)
 	if err != nil {
 		return nil, err
 	}
-	if slice, ok := value.([]Value); ok {
-		return slice, nil
+	index := 0
+	current := candidates[index]
+	b.currentService = current
+	for {
+		if !b.canRetryService(current) {
+			index++
+			if index >= len(candidates) {
+				return nil, AxError{Category: "runtime", Message: fmt.Sprintf("All candidate services exhausted (tried %d service(s))", len(candidates))}
+			}
+			current = candidates[index]
+			b.currentService = current
+			continue
+		}
+		stream, openErr := openAIServiceStream(ctx, current, request, options)
+		if openErr == nil {
+			b.handleSuccess(current)
+			return stream, nil
+		}
+		if !IsRetryable(openErr) {
+			return nil, openErr
+		}
+		b.handleFailure(current)
+		if b.serviceFailures[current.GetID()] >= b.maxRetries {
+			index++
+			if index >= len(candidates) {
+				return nil, openErr
+			}
+			current = candidates[index]
+			b.currentService = current
+		}
 	}
-	// Balancer streaming routes through the chat() failover loop; replay the chosen service's
-	// response as one stream chunk, matching the other ports' balancer.stream() wrappers.
-	return []Value{value}, nil
+}
+func (b *AxBalancer) Stream(ctx context.Context, request map[string]Value, options map[string]Value) ([]Value, error) {
+	stream, err := b.StreamEvents(ctx, request, options)
+	if err != nil {
+		return nil, err
+	}
+	return collectAxChatStream(stream)
 }
 func (b *AxBalancer) Transcribe(ctx context.Context, request map[string]Value, options map[string]Value) (Value, error) {
 	return b.currentService.Transcribe(ctx, request, options)
@@ -55962,12 +56714,19 @@ func (r *ProviderRouter) Chat(ctx context.Context, request map[string]Value, opt
 	return Object("response", response, "routing", rec), nil
 }
 func (r *ProviderRouter) Stream(ctx context.Context, request map[string]Value, options map[string]Value) ([]Value, error) {
+	stream, err := r.StreamEvents(ctx, request, options)
+	if err != nil {
+		return nil, err
+	}
+	return collectAxChatStream(stream)
+}
+func (r *ProviderRouter) StreamEvents(ctx context.Context, request map[string]Value, options map[string]Value) (AxChatStream, error) {
 	_, service, err := r.selectedService(request)
 	if err != nil {
 		return nil, err
 	}
 	processedRequest := asMap(mustCore(provider_route_preprocess_request(service.GetFeatures(""), request)))
-	return service.Stream(ctx, processedRequest, options)
+	return openAIServiceStream(ctx, service, processedRequest, options)
 }
 func (r *ProviderRouter) Embed(ctx context.Context, request map[string]Value, options map[string]Value) (Value, error) {
 	_, service, err := r.selectedService(request)
@@ -56049,10 +56808,17 @@ func NewAx(signature string, options map[string]Value) *AxGen {
 	return g
 }
 func NewGen(signature string, options map[string]Value) *AxGen { return NewAx(signature, options) }
-func NewAxWithHooks(signature string, options map[string]Value, hooks AxRuntimeHooks) *AxGen { g := NewAx(signature, options); g.RuntimeHooks = hooks; return g }
-func (g *AxGen) SetRateLimiter(limiter AxRateLimiter) *AxGen { g.RuntimeHooks.RateLimiter = limiter; return g }
+func NewAxWithHooks(signature string, options map[string]Value, hooks AxRuntimeHooks) *AxGen {
+	g := NewAx(signature, options)
+	g.RuntimeHooks = hooks
+	return g
+}
+func (g *AxGen) SetRateLimiter(limiter AxRateLimiter) *AxGen {
+	g.RuntimeHooks.RateLimiter = limiter
+	return g
+}
 func (g *AxGen) SetTracer(tracer AxTracer) *AxGen { g.RuntimeHooks.Tracer = tracer; return g }
-func (g *AxGen) SetMeter(meter AxMeter) *AxGen { g.RuntimeHooks.Meter = meter; return g }
+func (g *AxGen) SetMeter(meter AxMeter) *AxGen    { g.RuntimeHooks.Meter = meter; return g }
 func (g *AxGen) SetSampleCount(sampleCount int) *AxGen {
 	g.Options["sampleCount"] = sampleCount
 	return g
@@ -56091,7 +56857,9 @@ func (g *AxGen) ForwardWithHooks(ctx context.Context, client AIClient, values ma
 	}
 	clone := *g
 	clone.Functions = runtimeScopedTools(ctx, g.Functions)
-	out, err = safeValue(func() Value { return mustCore(_forward_impl(&clone, bindAIClientContext(ctx, client), values, options)) })
+	out, err = safeValue(func() Value {
+		return mustCore(_forward_impl(&clone, bindAIClientContext(ctx, client), values, options))
+	})
 	g.Memory = clone.Memory
 	g.ChatLog = clone.ChatLog
 	g.FunctionCallTraces = clone.FunctionCallTraces
@@ -56249,10 +57017,17 @@ func NewAgent(signature string, options map[string]Value) *AxAgent {
 	llmQuerySignature := display(coreGet(state, "llm_query_signature", "task:string, context:json -> answer:string"))
 	return &AxAgent{Signature: sig, Options: options, State: state, Executor: NewAx(executorSignature, executorOptions), Responder: NewAx(responderSignature, responderOptions), Distiller: NewAx(distillerSignature, distillerOptions), LlmQuery: NewAx(llmQuerySignature, llmQueryOptions), ExecutionContext: executionContext, ExecutionContextError: contextErr, PlaybookConfig: coreGet(options, "playbook", nil), RuntimeHooks: hooks}
 }
-func NewAgentWithHooks(signature string, options map[string]Value, hooks AxRuntimeHooks) *AxAgent { a := NewAgent(signature, options); a.RuntimeHooks = hooks; return a }
-func (a *AxAgent) SetRateLimiter(limiter AxRateLimiter) *AxAgent { a.RuntimeHooks.RateLimiter = limiter; return a }
+func NewAgentWithHooks(signature string, options map[string]Value, hooks AxRuntimeHooks) *AxAgent {
+	a := NewAgent(signature, options)
+	a.RuntimeHooks = hooks
+	return a
+}
+func (a *AxAgent) SetRateLimiter(limiter AxRateLimiter) *AxAgent {
+	a.RuntimeHooks.RateLimiter = limiter
+	return a
+}
 func (a *AxAgent) SetTracer(tracer AxTracer) *AxAgent { a.RuntimeHooks.Tracer = tracer; return a }
-func (a *AxAgent) SetMeter(meter AxMeter) *AxAgent { a.RuntimeHooks.Meter = meter; return a }
+func (a *AxAgent) SetMeter(meter AxMeter) *AxAgent    { a.RuntimeHooks.Meter = meter; return a }
 func (a *AxAgent) SetSignature(signature string) *AxAgent {
 	state := asMap(mustCore(_agent_factory(signature, a.Options)))
 	a.Signature = NewSignature(signature)
@@ -56392,7 +57167,7 @@ func (a *AxAgent) GetChatLog() Value {
 	a.refreshObservability()
 	return coreGet(a.State, "chat_log", Array())
 }
-func (a *AxAgent) GetActionLog() Value        { return coreGet(a.State, "action_log", Array()) }
+func (a *AxAgent) GetActionLog() Value { return coreGet(a.State, "action_log", Array()) }
 func (a *AxAgent) ExportTrace() Value {
 	a.refreshObservability()
 	return mustCore(_agent_export_trace(a.State))
@@ -56838,10 +57613,17 @@ func NewFlow(source Value, bindings ...map[string]Value) *AxFlow {
 	executionContext, contextErr := ResolveAxExecutionContext(options, nil)
 	return &AxFlow{State: state, Steps: coreGet(state, "steps", Array()), Options: options, ExecutionContext: executionContext, ExecutionContextError: contextErr, RuntimeHooks: hooks}
 }
-func NewFlowWithHooks(source Value, hooks AxRuntimeHooks, bindings ...map[string]Value) *AxFlow { f := NewFlow(source, bindings...); f.RuntimeHooks = hooks; return f }
-func (f *AxFlow) SetRateLimiter(limiter AxRateLimiter) *AxFlow { f.RuntimeHooks.RateLimiter = limiter; return f }
+func NewFlowWithHooks(source Value, hooks AxRuntimeHooks, bindings ...map[string]Value) *AxFlow {
+	f := NewFlow(source, bindings...)
+	f.RuntimeHooks = hooks
+	return f
+}
+func (f *AxFlow) SetRateLimiter(limiter AxRateLimiter) *AxFlow {
+	f.RuntimeHooks.RateLimiter = limiter
+	return f
+}
 func (f *AxFlow) SetTracer(tracer AxTracer) *AxFlow { f.RuntimeHooks.Tracer = tracer; return f }
-func (f *AxFlow) SetMeter(meter AxMeter) *AxFlow { f.RuntimeHooks.Meter = meter; return f }
+func (f *AxFlow) SetMeter(meter AxMeter) *AxFlow    { f.RuntimeHooks.Meter = meter; return f }
 func (f *AxFlow) Execute(name string, program AxProgram, options map[string]Value) *AxFlow {
 	if options == nil {
 		options = Object()
@@ -60148,21 +60930,21 @@ func conformanceNormalizeFunctionCalls(calls Value) Value {
 }
 
 type routerFixtureService struct {
-	name          string
-	id            string
-	model         string
-	embedModel    string
-	features      map[string]Value
-	modelList     Value
-	requests      []Value
-	responses     []Value
-	metricsValue  map[string]Value
-	estimatedCost float64
-	options       map[string]Value
-	lastChat      Value
+	name            string
+	id              string
+	model           string
+	embedModel      string
+	features        map[string]Value
+	modelList       Value
+	requests        []Value
+	responses       []Value
+	metricsValue    map[string]Value
+	estimatedCost   float64
+	options         map[string]Value
+	lastChat        Value
 	lastChatRequest Value
-	lastEmbed     Value
-	lastConfig    Value
+	lastEmbed       Value
+	lastConfig      Value
 }
 
 type throwingBalancerStatsStore struct {
@@ -60487,7 +61269,7 @@ func runConformanceAIBalancer(fixture map[string]Value) {
 			strategy := &AxBalancerAdaptiveStrategy{
 				DeadlineMs: num(coreGet(raw, "deadlineMs", 1)), BadOutcomeCost: num(coreGet(raw, "badOutcomeCost", 0)),
 				Namespace: display(coreGet(raw, "namespace", "default")), StatsStore: bestEffortStore,
-				RouteKey: func(AxAIService, int) string { return "best-effort-route" },
+				RouteKey:       func(AxAIService, int) string { return "best-effort-route" },
 				OnRoutingEvent: func(AxBalancerRoutingEvent) { bestEffortEvents++; panic("fixture event hook failed") },
 			}
 			balancer, buildErr = NewAxBalancerWithOptions(services, AxBalancerOptions{Strategy: strategy})
@@ -60957,8 +61739,12 @@ func conformanceAIClient(fixture map[string]Value) (*OpenAICompatibleClient, *Sc
 			fresh := map[string]string{}
 			if len(credentialHeaders) > 0 {
 				index := credentialCalls
-				if index >= len(credentialHeaders) { index = len(credentialHeaders) - 1 }
-				for key, value := range asMap(credentialHeaders[index]) { fresh[key] = display(value) }
+				if index >= len(credentialHeaders) {
+					index = len(credentialHeaders) - 1
+				}
+				for key, value := range asMap(credentialHeaders[index]) {
+					fresh[key] = display(value)
+				}
 			}
 			credentialCalls++
 			return fresh, nil
@@ -61008,8 +61794,12 @@ func runConformanceAIChat(fixture map[string]Value) {
 func runConformanceAICredentialWrapper(fixture map[string]Value) {
 	client, transport := conformanceAIClient(fixture)
 	router, err := NewMultiServiceRouter([]Value{RouterServiceEntry{Key: "wrapped", Service: client}})
-	if err != nil { panic(err) }
-	if _, err = router.Chat(context.Background(), asMap(coreGet(fixture, "request", Object())), Object()); err != nil { panic(err) }
+	if err != nil {
+		panic(err)
+	}
+	if _, err = router.Chat(context.Background(), asMap(coreGet(fixture, "request", Object())), Object()); err != nil {
+		panic(err)
+	}
 	assertTransportRequest(fixture, transport)
 }
 
@@ -61049,11 +61839,20 @@ func runConformanceAIUsageObserver(fixture map[string]Value) {
 }
 
 type conformanceFailingTracer struct{}
+
 func (conformanceFailingTracer) StartSpan(AxSpanStart) AxSpan { panic("tracer failure") }
+
 type conformanceFailingMeter struct{}
-func (conformanceFailingMeter) CreateCounter(string, AxMetricInstrumentOptions) AxCounter { panic("meter failure") }
-func (conformanceFailingMeter) CreateHistogram(string, AxMetricInstrumentOptions) AxHistogram { panic("meter failure") }
-func (conformanceFailingMeter) CreateGauge(string, AxMetricInstrumentOptions) AxGauge { panic("meter failure") }
+
+func (conformanceFailingMeter) CreateCounter(string, AxMetricInstrumentOptions) AxCounter {
+	panic("meter failure")
+}
+func (conformanceFailingMeter) CreateHistogram(string, AxMetricInstrumentOptions) AxHistogram {
+	panic("meter failure")
+}
+func (conformanceFailingMeter) CreateGauge(string, AxMetricInstrumentOptions) AxGauge {
+	panic("meter failure")
+}
 
 func runConformanceAIRuntimeHooks(fixture map[string]Value) {
 	client, transport := conformanceAIClient(fixture)
@@ -61061,25 +61860,41 @@ func runConformanceAIRuntimeHooks(fixture map[string]Value) {
 	calls := []Value{}
 	limiter := func(label string) AxRateLimiter {
 		return AxRateLimiterFunc(func(next AxRequestExecutor, info AxRateLimitInfo) (Value, error) {
-			if info.Operation != "chat" || info.Provider == "" || info.Model == "" || info.Streaming { panic(FixtureError{Message: "invalid rate limit info"}) }
+			if info.Operation != "chat" || info.Provider == "" || info.Model == "" || info.Streaming {
+				panic(FixtureError{Message: "invalid rate limit info"})
+			}
 			calls = append(calls, label)
 			return next()
 		})
 	}
 	SetRateLimiter(limiter("global"))
 	defer func() { client.SetRateLimiter(nil); SetRateLimiter(nil); SetTracer(nil); SetMeter(nil) }()
-	if _, err := client.Chat(context.Background(), request, nil); err != nil { panic(err) }
+	if _, err := client.Chat(context.Background(), request, nil); err != nil {
+		panic(err)
+	}
 	client.SetRateLimiter(limiter("service"))
-	if _, err := client.Chat(context.Background(), request, nil); err != nil { panic(err) }
-	if _, err := client.ChatWithHooks(context.Background(), request, nil, AxRuntimeHooks{RateLimiter: limiter("call")}); err != nil { panic(err) }
+	if _, err := client.Chat(context.Background(), request, nil); err != nil {
+		panic(err)
+	}
+	if _, err := client.ChatWithHooks(context.Background(), request, nil, AxRuntimeHooks{RateLimiter: limiter("call")}); err != nil {
+		panic(err)
+	}
 	client.SetRateLimiter(nil)
 	SetTracer(conformanceFailingTracer{})
 	SetMeter(conformanceFailingMeter{})
-	if _, err := client.Chat(context.Background(), request, nil); err != nil { panic(err) }
+	if _, err := client.Chat(context.Background(), request, nil); err != nil {
+		panic(err)
+	}
 	reject := AxRateLimiterFunc(func(AxRequestExecutor, AxRateLimitInfo) (Value, error) { return nil, errors.New("limited") })
-	if _, err := client.ChatWithHooks(context.Background(), request, nil, AxRuntimeHooks{RateLimiter: reject}); err == nil || !strings.Contains(err.Error(), "limited") { panic(FixtureError{Message: "limiter rejection did not propagate"}) }
-	SetRateLimiter(nil); SetTracer(nil); SetMeter(nil)
-	if _, err := client.Chat(context.Background(), request, nil); err != nil { panic(err) }
+	if _, err := client.ChatWithHooks(context.Background(), request, nil, AxRuntimeHooks{RateLimiter: reject}); err == nil || !strings.Contains(err.Error(), "limited") {
+		panic(FixtureError{Message: "limiter rejection did not propagate"})
+	}
+	SetRateLimiter(nil)
+	SetTracer(nil)
+	SetMeter(nil)
+	if _, err := client.Chat(context.Background(), request, nil); err != nil {
+		panic(err)
+	}
 
 	ready := make(chan struct{}, 2)
 	release := make(chan struct{})
@@ -61089,7 +61904,9 @@ func runConformanceAIRuntimeHooks(fixture map[string]Value) {
 		go func() {
 			local := AxRateLimiterFunc(func(next AxRequestExecutor, _ AxRateLimitInfo) (Value, error) {
 				value, err := next()
-				if err != nil { return nil, err }
+				if err != nil {
+					return nil, err
+				}
 				return label + ":" + display(value), nil
 			})
 			ctx, _, finish := beginRuntimeScope(context.Background(), AxRuntimeHooks{RateLimiter: local}, AxRuntimeHooks{}, "ax_gen_conformance", "ax_gen_conformance", Object())
@@ -61098,11 +61915,16 @@ func runConformanceAIRuntimeHooks(fixture map[string]Value) {
 			active := effectiveRuntimeHooks(ctx, nil, AxRuntimeHooks{})
 			value, err := active.RateLimiter.Run(func() (Value, error) { return "next", nil }, AxRateLimitInfo{})
 			finish(err)
-			if err != nil { results <- "error:" + err.Error(); return }
+			if err != nil {
+				results <- "error:" + err.Error()
+				return
+			}
 			results <- display(value)
 		}()
 	}
-	<-ready; <-ready; close(release)
+	<-ready
+	<-ready
+	close(release)
 	isolated := []string{<-results, <-results}
 	sort.Strings(isolated)
 	if !reflect.DeepEqual(isolated, []string{"thread-a:next", "thread-b:next"}) || effectiveRuntimeHooks(context.Background(), nil, AxRuntimeHooks{}).RateLimiter != nil {
@@ -61141,10 +61963,14 @@ func assertTransportRequest(fixture map[string]Value, transport *ScriptedTranspo
 		assertEqual(coreGet(fixture, "__credential_requests", Array()), expectedCredentialRequests, "credential requests")
 	}
 	for index, expectedRequest := range expectedRequests {
-		if index >= len(transport.Requests) { panic(AxError{Category: "fixture", Message: "missing provider transport request"}) }
+		if index >= len(transport.Requests) {
+			panic(AxError{Category: "fixture", Message: "missing provider transport request"})
+		}
 		assertSubset(transport.Requests[index], expectedRequest, fmt.Sprintf("transport request %d", index))
 	}
-	if expected == nil && len(expectedAbsent) == 0 { return }
+	if expected == nil && len(expectedAbsent) == 0 {
+		return
+	}
 	if len(transport.Requests) == 0 {
 		panic(AxError{Category: "fixture", Message: "expected provider transport request but none were sent"})
 	}
@@ -63864,22 +64690,47 @@ func goPromptOutputSection(sig AxSignature) string {
 func goPromptOutputTypePlaceholder(fieldType FieldType) Value {
 	var value Value = "<string>"
 	switch fieldType.Name {
-	case "number": value = 0
-	case "boolean": value = true
+	case "number":
+		value = 0
+	case "boolean":
+		value = true
 	case "object", "json":
 		value = Object()
 		keys := append([]string(nil), fieldType.FieldOrder...)
-		if len(keys) == 0 { for key := range fieldType.Fields { keys = append(keys, key) }; sort.Strings(keys) }
-		for _, key := range keys { field := fieldType.Fields[key]; if !field.IsInternal { coreSet(value, key, goPromptOutputTypePlaceholder(field.Type)) } }
-	case "class": if len(fieldType.Options) > 0 { value = fieldType.Options[0] } else { value = "<allowed value>" }
-	case "code": value = "<complete source>"
-	case "date": value = "<YYYY-MM-DD>"
-	case "datetime": value = "<ISO 8601 datetime>"
-	case "dateRange": value = Object("start", "<YYYY-MM-DD>", "end", "<YYYY-MM-DD>")
-	case "datetimeRange": value = Object("start", "<ISO 8601 datetime>", "end", "<ISO 8601 datetime>")
-	case "url": value = "<url>"
+		if len(keys) == 0 {
+			for key := range fieldType.Fields {
+				keys = append(keys, key)
+			}
+			sort.Strings(keys)
+		}
+		for _, key := range keys {
+			field := fieldType.Fields[key]
+			if !field.IsInternal {
+				coreSet(value, key, goPromptOutputTypePlaceholder(field.Type))
+			}
+		}
+	case "class":
+		if len(fieldType.Options) > 0 {
+			value = fieldType.Options[0]
+		} else {
+			value = "<allowed value>"
+		}
+	case "code":
+		value = "<complete source>"
+	case "date":
+		value = "<YYYY-MM-DD>"
+	case "datetime":
+		value = "<ISO 8601 datetime>"
+	case "dateRange":
+		value = Object("start", "<YYYY-MM-DD>", "end", "<YYYY-MM-DD>")
+	case "datetimeRange":
+		value = Object("start", "<ISO 8601 datetime>", "end", "<ISO 8601 datetime>")
+	case "url":
+		value = "<url>"
 	}
-	if fieldType.IsArray { return Array(value) }
+	if fieldType.IsArray {
+		return Array(value)
+	}
 	return value
 }
 func goPromptOutputFields(sig AxSignature) []Field {

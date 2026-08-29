@@ -72,6 +72,18 @@
   },
   "snippets": {
     "ai": {
+      "providerStream": {
+        "sourcePath": "src/examples/go/generation/provider_stream.go",
+        "verified": true,
+        "requiresCredentials": true,
+        "code": [
+          "stream, err := client.StreamEvents(ctx, request, nil)",
+          "if err != nil { return err }",
+          "defer stream.Close()",
+          "for stream.Next() { handle(stream.Value()) }",
+          "return stream.Err()"
+        ]
+      },
       "balancer": {
         "sourcePath": "src/examples/go/generation/adaptive_balancer.go",
         "verified": true,

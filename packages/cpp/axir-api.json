@@ -153,6 +153,22 @@
         },
         {
           "target_name": "cpp",
+          "canonical_name": "AxProviderStream",
+          "public_name": "axllm::AxStreamHandler",
+          "kind": "type",
+          "description": "Incremental, closeable provider event stream. Retry and failover stop once content is delivered.",
+          "form": "client.stream_each(request, handler)",
+          "important_options": [
+            "next event",
+            "terminal error",
+            "consumer cancellation",
+            "upstream close"
+          ],
+          "returns": "incremental chat events",
+          "example": "client.stream_each(request, [\u0026](const auto\u0026 event) { handle(event); return true; });"
+        },
+        {
+          "target_name": "cpp",
           "canonical_name": "OpenAICompatibleClient",
           "public_name": "axllm::OpenAICompatibleClient",
           "kind": "type",

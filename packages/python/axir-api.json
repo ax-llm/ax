@@ -153,6 +153,22 @@
         },
         {
           "target_name": "python",
+          "canonical_name": "AxProviderStream",
+          "public_name": "closable generator",
+          "kind": "type",
+          "description": "Incremental, closeable provider event stream. Retry and failover stop once content is delivered.",
+          "form": "client.stream(request)",
+          "important_options": [
+            "next event",
+            "terminal error",
+            "consumer cancellation",
+            "upstream close"
+          ],
+          "returns": "incremental chat events",
+          "example": "for event in client.stream(request): handle(event)"
+        },
+        {
+          "target_name": "python",
           "canonical_name": "OpenAICompatibleClient",
           "public_name": "OpenAICompatibleClient",
           "kind": "type",

@@ -115,6 +115,20 @@ public final class AxMultiServiceRouter implements AxAIService {
     return lastUsedService.chat(req, options);
   }
 
+  @Override public AxChatStream openStream(Map<String, Object> request) throws Exception {
+    Object modelKey = request.get("model");
+    if (modelKey == null) throw new IllegalArgumentException("Model key must be specified for multi-service");
+    Map<String, Object> entry = services.get(String.valueOf(modelKey));
+    if (entry == null) throw new IllegalArgumentException("No service found for model key: " + modelKey);
+    lastUsedService = (AxAIService) entry.get("service");
+    Map<String, Object> req = new LinkedHashMap<>(request);
+    if (req.containsKey("modelConfig") && !req.containsKey("model_config")) req.put("model_config", req.get("modelConfig"));
+    if (!entry.containsKey("model")) req.remove("model");
+    return lastUsedService.openStream(req);
+  }
+
+  @Override public AxChatStream stream(Map<String, Object> request) { return AxChatStream.lazy(() -> openStream(request)); }
+
   public Map<String, Object> embed(Map<String, Object> request) throws Exception {
     return embed(request, Map.of());
   }

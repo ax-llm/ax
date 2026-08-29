@@ -1374,7 +1374,7 @@ const adaptiveStreamChat = await adaptiveStreamBalancer.chat(
   adaptiveStreamRequest as any,
   {}
 );
-writeFixture('balancer-adaptive-buffered-stream-failover', {
+writeFixture('balancer-adaptive-incremental-stream-failover', {
   kind: 'ai_balancer',
   services: [adaptiveStreamPrimarySpec, adaptiveStreamBackupSpec],
   options: adaptiveStreamOptions,

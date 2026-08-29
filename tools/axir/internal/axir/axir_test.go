@@ -647,7 +647,8 @@ func TestBuildRuntimeModel(t *testing.T) {
 		"axai_balancer_adaptive_routing",
 		"axai_balancer_adaptive_stats_store",
 		"axai_balancer_adaptive_events",
-		"axai_balancer_adaptive_buffered_streaming",
+		"axai_provider_incremental_streaming",
+		"axai_balancer_incremental_streaming",
 		"axai_host_processing_callbacks",
 		"axai_openai_compatible_catalog_clients",
 		"axai_provider_profile_registry",
@@ -1685,7 +1686,7 @@ func generatedCapabilityGuards(target string) []generatedCapabilityGuard {
 		}
 	case "java":
 		return []generatedCapabilityGuard{
-			{category: "provider", rel: "dev/axllm/ax/OpenAICompatibleClient.java", contains: []string{"protected Map<String, Object> doChat(", "public Iterable<Map<String, Object>> stream(", "protected Map<String, Object> doEmbed(", "public Map<String, Object> transcribe(", "public Map<String, Object> speak("}, forbidden: []string{"return null;\n}"}},
+			{category: "provider", rel: "dev/axllm/ax/OpenAICompatibleClient.java", contains: []string{"protected Map<String, Object> doChat(", "protected AxChatStream streamEventsIncremental(", "@Override public AxChatStream openStream(", "protected Map<String, Object> doEmbed(", "public Map<String, Object> transcribe(", "public Map<String, Object> speak("}, forbidden: []string{"return null;\n}"}},
 			{category: "router", rel: "dev/axllm/ax/AxMultiServiceRouter.java", contains: []string{"public Map<String, Object> chat(", "public Map<String, Object> embed(", "public Map<String, Object> transcribe(", "public Map<String, Object> speak("}},
 			{category: "provider-router", rel: "dev/axllm/ax/AxProviderRouter.java", contains: []string{"public Map<String, Object> chat(", "public Iterable<Map<String, Object>> stream(", "public Map<String, Object> embed(", "public Map<String, Object> transcribe(", "public Map<String, Object> speak(", "Core.provider_route_preprocess_request("}},
 			{category: "balancer", rel: "dev/axllm/ax/AxBalancer.java", contains: []string{"public Map<String, Object> chat(", "public Map<String, Object> embed(", "public Map<String, Object> transcribe(", "public Map<String, Object> speak("}},

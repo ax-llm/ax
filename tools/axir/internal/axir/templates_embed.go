@@ -130,6 +130,9 @@ var javaAx string
 //go:embed templates/java/javaAxAIService.java
 var javaAxAIService string
 
+//go:embed templates/java/javaAxChatStream.java
+var javaAxChatStream string
+
 //go:embed templates/java/javaAxAIServiceError.java
 var javaAxAIServiceError string
 

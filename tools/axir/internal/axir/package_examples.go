@@ -1459,7 +1459,7 @@ int main() {
 }
 `
 
-const pyProviderStreamNoKeyExample = `from axllm import OpenAICompatibleClient
+const pyProviderStreamNoKeyExample = `from axllm import AxAIServiceNetworkError, OpenAICompatibleClient, set_usage_observer
 
 
 def scripted_transport(request):
@@ -1468,15 +1468,60 @@ def scripted_transport(request):
         "body": (
             'data: {"id":"chatcmpl_stream","model":"gpt-5.4-mini","choices":[{"index":0,"delta":{"content":"hel"}}]}' + "\n\n"
             'data: {"id":"chatcmpl_stream","model":"gpt-5.4-mini","choices":[{"index":0,"delta":{"content":"lo"},"finish_reason":"stop"}]}' + "\n\n"
+            'data: {"id":"chatcmpl_stream","model":"gpt-5.4-mini","choices":[],"usage":{"prompt_tokens":1,"completion_tokens":2,"total_tokens":3}}' + "\n\n"
             "data: [DONE]\n\n"
         ),
     }
 
 
 client = OpenAICompatibleClient(api_key="test-key", model="gpt-5.4-mini", transport=scripted_transport)
+usage_events = []
+set_usage_observer(usage_events.append)
 events = list(client.stream({"chat_prompt": [{"role": "user", "content": "stream"}]}))
-text = "".join((event["results"][0].get("content") or "") for event in events)
+set_usage_observer(None)
+text = "".join((result.get("content") or "") for event in events for result in event["results"][:1])
 assert text == "hello", events
+assert len(usage_events) == 1, usage_events
+
+closed = False
+def incremental_transport(request):
+    body = (
+        'data: {"id":"chatcmpl_cancel","model":"gpt-5.4-mini","choices":[{"index":0,"delta":{"content":"first 🌍"}}]}\r\n\r\n'
+        'data: {"id":"chatcmpl_cancel","model":"gpt-5.4-mini","choices":[{"index":0,"delta":{"content":"second"}}]}\r\n\r\n'
+    ).encode()
+    def chunks():
+        global closed
+        try:
+            for byte in body:
+                yield bytes([byte])
+        finally:
+            closed = True
+    return chunks()
+
+cancel_client = OpenAICompatibleClient(api_key="test-key", model="gpt-5.4-mini", transport=incremental_transport)
+cancel_stream = cancel_client.stream({"chat_prompt": [{"role": "user", "content": "cancel"}]})
+assert next(cancel_stream)["results"][0]["content"] == "first 🌍"
+cancel_stream.close()
+assert closed, "consumer cancellation did not close the upstream stream"
+
+attempts = 0
+def failing_transport(request):
+    global attempts
+    attempts += 1
+    def chunks():
+        yield b'data: {"id":"chatcmpl_failure","model":"gpt-5.4-mini","choices":[{"index":0,"delta":{"content":"delivered"}}]}\n\n'
+        raise AxAIServiceNetworkError("upstream closed", retryable=True)
+    return chunks()
+
+failure_client = OpenAICompatibleClient(api_key="test-key", model="gpt-5.4-mini", transport=failing_transport)
+failure_stream = failure_client.stream({"chat_prompt": [{"role": "user", "content": "fail"}]})
+assert next(failure_stream)["results"][0]["content"] == "delivered"
+try:
+    next(failure_stream)
+    raise AssertionError("mid-stream failure was not surfaced")
+except AxAIServiceNetworkError:
+    pass
+assert attempts == 1, "mid-stream failure replayed the request"
 print("python-provider-stream-no-key", text)
 `
 
@@ -1811,25 +1856,24 @@ end-to-end coverage for the SSE line-folding that src/ax/util/sse.ts performs.
 Exits non-zero on any mismatch so ` + "`axir verify`" + ` fails if it regresses."""
 
 import threading
+import time
 from http.server import BaseHTTPRequestHandler, HTTPServer
 
 from axllm import OpenAICompatibleClient
 
 # One logical chat-completion delta whose JSON is split across two data: lines
 # (folded with "\n" into ...,"delta":\n{"content":"Hello "}}), then a normal
-# single-line delta, then [DONE]. Every line uses CRLF.
+# single-line delta accepted at EOF without a trailing delimiter.
 EVENT1A = '{"id":"chatcmpl_stream","model":"gpt-5.4-mini","choices":[{"index":0,"delta":'
-EVENT1B = '{"content":"Hello "}}]}'
+EVENT1B = '{"content":"Hello 🌍 "}}]}'
 EVENT2 = '{"id":"chatcmpl_stream","model":"gpt-5.4-mini","choices":[{"index":0,"delta":{"content":"world"},"finish_reason":"stop"}]}'
-SSE_BODY = (
-    "data: " + EVENT1A + "\r\n"
+SSE_FIRST = (
+    "\ufeffdatabase: ignored\r\n"
+    + "data: " + EVENT1A + "\r\n"
     + "data: " + EVENT1B + "\r\n"
     + "\r\n"
-    + "data: " + EVENT2 + "\r\n"
-    + "\r\n"
-    + "data: [DONE]\r\n"
-    + "\r\n"
 ).encode()
+SSE_REST = ("data: " + EVENT2).encode()
 
 
 class Handler(BaseHTTPRequestHandler):
@@ -1841,9 +1885,14 @@ class Handler(BaseHTTPRequestHandler):
         self.rfile.read(length)
         self.send_response(200)
         self.send_header("Content-Type", "text/event-stream")
-        self.send_header("Content-Length", str(len(SSE_BODY)))
+        self.send_header("Content-Length", str(len(SSE_FIRST) + len(SSE_REST)))
         self.end_headers()
-        self.wfile.write(SSE_BODY)
+        for byte in SSE_FIRST:
+            self.wfile.write(bytes([byte]))
+            self.wfile.flush()
+        time.sleep(0.3)
+        self.wfile.write(SSE_REST)
+        self.wfile.flush()
 
 
 server = HTTPServer(("127.0.0.1", 0), Handler)
@@ -1855,15 +1904,19 @@ try:
     client = OpenAICompatibleClient(
         api_key="test-key", base_url=f"http://127.0.0.1:{port}", model="gpt-5.4-mini"
     )
-    deltas = [
-        (event.get("results") or [{}])[0].get("content")
-        for event in client.stream({"chat_prompt": [{"role": "user", "content": "stream"}]})
-    ]
+    started = time.perf_counter()
+    stream = client.stream({"chat_prompt": [{"role": "user", "content": "stream"}]})
+    first = next(stream)
+    ttft = time.perf_counter() - started
+    events = [first, *stream]
+    completion = time.perf_counter() - started
+    assert completion - ttft >= 0.2, f"first event was not incremental: ttft={ttft} completion={completion}"
+    deltas = [(event.get("results") or [{}])[0].get("content") for event in events]
     deltas = [delta for delta in deltas if delta]
-    assert deltas[:1] == ["Hello "], (
+    assert deltas[:1] == ["Hello 🌍 "], (
         f"multi-line data: event was not folded into one JSON value: {deltas}"
     )
-    assert "".join(deltas) == "Hello world", f"bad stream fold: {deltas}"
+    assert "".join(deltas) == "Hello 🌍 world", f"bad stream fold: {deltas}"
 finally:
     server.shutdown()
 
@@ -2054,7 +2107,10 @@ print(json.dumps({"componentMap": artifact["componentMap"], "metadata": artifact
 `
 
 const javaProviderStreamNoKeyExample = `import dev.axllm.ax.*;
+import java.io.*;
+import java.nio.charset.StandardCharsets;
 import java.util.*;
+import java.util.concurrent.atomic.*;
 
 public final class ProviderStreamNoKeyExample {
   public static void main(String[] args) throws Exception {
@@ -2062,6 +2118,7 @@ public final class ProviderStreamNoKeyExample {
       "status", 200,
       "body", "data: {\"id\":\"chatcmpl_stream\",\"model\":\"gpt-5.4-mini\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\"hel\"}}]}\n\n"
         + "data: {\"id\":\"chatcmpl_stream\",\"model\":\"gpt-5.4-mini\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\"lo\"},\"finish_reason\":\"stop\"}]}\n\n"
+        + "data: {\"id\":\"chatcmpl_stream\",\"model\":\"gpt-5.4-mini\",\"choices\":[],\"usage\":{\"prompt_tokens\":1,\"completion_tokens\":2,\"total_tokens\":3}}\n\n"
         + "data: [DONE]\n\n"
     );
     OpenAICompatibleClient client = new OpenAICompatibleClient(Map.of(
@@ -2070,12 +2127,71 @@ public final class ProviderStreamNoKeyExample {
       "transport", transport
     ));
     StringBuilder text = new StringBuilder();
+    List<AxUsageEvent> usageEvents = new ArrayList<>();
+    AxGlobals.setUsageObserver(usageEvents::add);
     for (Map<String, Object> event : client.stream(Map.of("chat_prompt", List.of(Map.of("role", "user", "content", "stream"))))) {
       List<?> results = (List<?>) event.get("results");
-      Object content = ((Map<?, ?>) results.get(0)).get("content");
-      if (content != null) text.append(content);
+      if (!results.isEmpty()) {
+        Object content = ((Map<?, ?>) results.get(0)).get("content");
+        if (content != null) text.append(content);
+      }
     }
+    AxGlobals.setUsageObserver(null);
     if (!"hello".contentEquals(text)) throw new RuntimeException("bad stream: " + text);
+    if (usageEvents.size() != 1) throw new RuntimeException("usage was not delivered after completion: " + usageEvents);
+
+    AtomicInteger opened = new AtomicInteger();
+    AtomicBoolean closed = new AtomicBoolean();
+    OpenAICompatibleClient.Transport incremental = new OpenAICompatibleClient.Transport() {
+      @Override public Object call(Map<String, Object> request) { return Map.of("status", 200, "body", ""); }
+      @Override public Object stream(Map<String, Object> request) {
+        opened.incrementAndGet();
+        byte[] bytes = ("data: {\"id\":\"chatcmpl_cancel\",\"model\":\"gpt-5.4-mini\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\"first 🌍\"}}]}\\r\\n\\r\\n"
+          + "data: {\"id\":\"chatcmpl_cancel\",\"model\":\"gpt-5.4-mini\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\"second\"}}]}\\r\\n\\r\\n").getBytes(StandardCharsets.UTF_8);
+        return new ByteArrayInputStream(bytes) {
+          @Override public int read(byte[] target, int offset, int length) {
+            return super.read(target, offset, Math.min(length, 1));
+          }
+          @Override public void close() throws IOException { closed.set(true); super.close(); }
+        };
+      }
+    };
+    OpenAICompatibleClient cancelClient = new OpenAICompatibleClient(Map.of("api_key", "test-key", "model", "gpt-5.4-mini", "transport", incremental));
+    AxChatStream lazy = cancelClient.stream(Map.of("chat_prompt", List.of(Map.of("role", "user", "content", "cancel"))));
+    if (opened.get() != 0) throw new RuntimeException("stream() opened eagerly");
+    Iterator<Map<String, Object>> iterator = lazy.iterator();
+    if (!iterator.hasNext() || opened.get() != 1) throw new RuntimeException("lazy stream did not open on first pull");
+    lazy.close();
+    if (!closed.get()) throw new RuntimeException("consumer cancellation did not close the upstream stream");
+
+    AtomicInteger attempts = new AtomicInteger();
+    OpenAICompatibleClient.Transport failing = new OpenAICompatibleClient.Transport() {
+      @Override public Object call(Map<String, Object> request) { return Map.of("status", 200, "body", ""); }
+      @Override public Object stream(Map<String, Object> request) {
+        attempts.incrementAndGet();
+        byte[] prefix = "data: {\"id\":\"chatcmpl_failure\",\"model\":\"gpt-5.4-mini\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\"delivered\"}}]}\n\n".getBytes(StandardCharsets.UTF_8);
+        return new InputStream() {
+          int index;
+          @Override public int read() throws IOException {
+            if (index < prefix.length) return prefix[index++] & 0xff;
+            throw new IOException("upstream closed");
+          }
+        };
+      }
+    };
+    OpenAICompatibleClient failureClient = new OpenAICompatibleClient(Map.of("api_key", "test-key", "model", "gpt-5.4-mini", "transport", failing));
+    try (AxChatStream failureStream = failureClient.openStream(Map.of("chat_prompt", List.of(Map.of("role", "user", "content", "fail"))))) {
+      Iterator<Map<String, Object>> failureIterator = failureStream.iterator();
+      if (!failureIterator.hasNext()) throw new RuntimeException("missing first event");
+      failureIterator.next();
+      try {
+        failureIterator.hasNext();
+        throw new RuntimeException("mid-stream failure was not surfaced");
+      } catch (RuntimeException expected) {
+        if (expected.getMessage() != null && expected.getMessage().contains("was not surfaced")) throw expected;
+      }
+    }
+    if (attempts.get() != 1) throw new RuntimeException("mid-stream failure replayed the request");
     System.out.println("java-provider-stream-no-key " + text);
   }
 }
@@ -2430,19 +2546,18 @@ import java.util.*;
 public final class StreamHTTPRoundtripExample {
   public static void main(String[] args) throws Exception {
     // One logical delta whose JSON is split across two data: lines (folded with
-    // "\n"), then a single-line delta, then [DONE]. Every line uses CRLF.
+    // "\n"), then a single-line delta accepted at EOF without a delimiter.
     String event1a = "{\"id\":\"chatcmpl_stream\",\"model\":\"gpt-5.4-mini\",\"choices\":[{\"index\":0,\"delta\":";
-    String event1b = "{\"content\":\"Hello \"}}]}";
+    String event1b = "{\"content\":\"Hello 🌍 \"}}]}";
     String event2 = "{\"id\":\"chatcmpl_stream\",\"model\":\"gpt-5.4-mini\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\"world\"},\"finish_reason\":\"stop\"}]}";
-    String sseBody =
-        "data: " + event1a + "\r\n"
+    String sseFirst =
+        "\uFEFFdatabase: ignored\r\n"
+            + "data: " + event1a + "\r\n"
             + "data: " + event1b + "\r\n"
-            + "\r\n"
-            + "data: " + event2 + "\r\n"
-            + "\r\n"
-            + "data: [DONE]\r\n"
             + "\r\n";
-    byte[] sseBytes = sseBody.getBytes(StandardCharsets.UTF_8);
+    String sseRest = "data: " + event2;
+    byte[] firstBytes = sseFirst.getBytes(StandardCharsets.UTF_8);
+    byte[] restBytes = sseRest.getBytes(StandardCharsets.UTF_8);
 
     HttpServer server = HttpServer.create(new InetSocketAddress("127.0.0.1", 0), 0);
     server.createContext(
@@ -2450,9 +2565,12 @@ public final class StreamHTTPRoundtripExample {
         exchange -> {
           exchange.getRequestBody().readAllBytes();
           exchange.getResponseHeaders().set("Content-Type", "text/event-stream");
-          exchange.sendResponseHeaders(200, sseBytes.length);
+          exchange.sendResponseHeaders(200, firstBytes.length + restBytes.length);
           try (OutputStream os = exchange.getResponseBody()) {
-            os.write(sseBytes);
+            for (byte value : firstBytes) { os.write(value); os.flush(); }
+            try { Thread.sleep(300); } catch (InterruptedException error) { Thread.currentThread().interrupt(); }
+            os.write(restBytes);
+            os.flush();
           }
         });
     server.start();
@@ -2463,17 +2581,28 @@ public final class StreamHTTPRoundtripExample {
           new OpenAICompatibleClient(
               Map.of("api_key", "test-key", "base_url", "http://127.0.0.1:" + port, "model", "gpt-5.4-mini"));
       List<String> deltas = new ArrayList<>();
-      for (Map<String, Object> event :
-          client.stream(Map.of("chat_prompt", List.of(Map.of("role", "user", "content", "stream"))))) {
+      long started = System.nanoTime();
+      try (AxChatStream stream = client.openStream(Map.of("chat_prompt", List.of(Map.of("role", "user", "content", "stream"))))) {
+        Iterator<Map<String, Object>> iterator = stream.iterator();
+        if (!iterator.hasNext()) throw new RuntimeException("stream ended before first event");
+        Map<String, Object> firstEvent = iterator.next();
+        long ttft = System.nanoTime() - started;
+        List<Map<String, Object>> events = new ArrayList<>();
+        events.add(firstEvent);
+        iterator.forEachRemaining(events::add);
+        long completion = System.nanoTime() - started;
+        if (completion - ttft < 200_000_000L) throw new RuntimeException("first event was not incremental");
+        for (Map<String, Object> event : events) {
         Object results = event.get("results");
         if (results instanceof List<?> list && !list.isEmpty() && list.get(0) instanceof Map<?, ?> first) {
           Object content = first.get("content");
           if (content instanceof String s && !s.isEmpty()) deltas.add(s);
         }
+        }
       }
-      if (deltas.isEmpty() || !"Hello ".equals(deltas.get(0)))
+      if (deltas.isEmpty() || !"Hello 🌍 ".equals(deltas.get(0)))
         throw new RuntimeException("multi-line data: event was not folded into one JSON value: " + deltas);
-      if (!"Hello world".equals(String.join("", deltas)))
+      if (!"Hello 🌍 world".equals(String.join("", deltas)))
         throw new RuntimeException("bad stream fold: " + deltas);
     } finally {
       server.stop(0);
@@ -2848,28 +2977,78 @@ const cppProviderStreamNoKeyExample = `#include "axllm/axllm.hpp"
 #include <iostream>
 #include <string>
 
-struct ScriptedTransport : axllm::Transport {
+struct LegacyTransport : axllm::Transport {
   axllm::Value call(axllm::Value) override {
     return axllm::object({
       {"status", 200},
       {"body",
        "data: {\"id\":\"chatcmpl_stream\",\"model\":\"gpt-5.4-mini\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\"hel\"}}]}\n\n"
        "data: {\"id\":\"chatcmpl_stream\",\"model\":\"gpt-5.4-mini\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\"lo\"},\"finish_reason\":\"stop\"}]}\n\n"
+       "data: {\"id\":\"chatcmpl_stream\",\"model\":\"gpt-5.4-mini\",\"choices\":[],\"usage\":{\"prompt_tokens\":1,\"completion_tokens\":2,\"total_tokens\":3}}\n\n"
        "data: [DONE]\n\n"}
     });
+  }
+
+};
+
+struct IncrementalTransport : axllm::Transport {
+  bool cancelled = false;
+  axllm::Value call(axllm::Value) override { return axllm::Value::object(); }
+  void stream(axllm::Value, axllm::AxTransportStreamHandler handler) override {
+    const std::string body =
+      "data: {\"id\":\"chatcmpl_cancel\",\"model\":\"gpt-5.4-mini\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\"hel 🌍\"}}]}\r\n\r\n"
+      "data: {\"id\":\"chatcmpl_cancel\",\"model\":\"gpt-5.4-mini\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\"lo\"}}]}\r\n\r\n";
+    for (char byte : body) {
+      if (!handler(std::string(1, byte))) {
+        cancelled = true;
+        return;
+      }
+    }
+  }
+};
+
+struct FailingTransport : axllm::Transport {
+  int attempts = 0;
+  axllm::Value call(axllm::Value) override { return axllm::Value::object(); }
+  void stream(axllm::Value, axllm::AxTransportStreamHandler handler) override {
+    ++attempts;
+    handler("data: {\"id\":\"chatcmpl_failure\",\"model\":\"gpt-5.4-mini\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\"delivered\"}}]}\n\n");
+    throw axllm::AxError("network", "upstream closed", "AxAIServiceNetworkError", 0, "", true);
   }
 };
 
 int main() {
-  ScriptedTransport transport;
-  axllm::OpenAICompatibleClient client(axllm::object({{"api_key", "test-key"}, {"model", "gpt-5.4-mini"}}), &transport);
+  LegacyTransport legacy;
+  axllm::OpenAICompatibleClient client(axllm::object({{"api_key", "test-key"}, {"model", "gpt-5.4-mini"}}), &legacy);
   std::string text;
+  std::vector<axllm::AxUsageEvent> usage_events;
+  axllm::set_usage_observer([&](axllm::AxUsageEvent event) { usage_events.push_back(event); });
   for (const auto& event : client.stream(axllm::object({
          {"chat_prompt", axllm::array({axllm::object({{"role", "user"}, {"content", "stream"}})})}
        }))) {
     text += axllm::display(axllm::Core::get(axllm::Core::get(axllm::Core::get(event, "results"), 0), "content", ""));
   }
+  axllm::set_usage_observer({});
   if (text != "hello") return 1;
+  if (usage_events.size() != 1) return 4;
+  IncrementalTransport incremental;
+  axllm::OpenAICompatibleClient cancel_client(axllm::object({{"api_key", "test-key"}, {"model", "gpt-5.4-mini"}}), &incremental);
+  cancel_client.stream_each(axllm::object({
+      {"chat_prompt", axllm::array({axllm::object({{"role", "user"}, {"content", "cancel"}})})}
+    }), [](const axllm::Value&) { return false; });
+  if (!incremental.cancelled) return 2;
+  FailingTransport failing;
+  axllm::OpenAICompatibleClient failure_client(axllm::object({{"api_key", "test-key"}, {"model", "gpt-5.4-mini"}}), &failing);
+  bool delivered = false;
+  bool failed = false;
+  try {
+    failure_client.stream_each(axllm::object({
+        {"chat_prompt", axllm::array({axllm::object({{"role", "user"}, {"content", "fail"}})})}
+      }), [&](const axllm::Value&) { delivered = true; return true; });
+  } catch (const axllm::AxError&) {
+    failed = true;
+  }
+  if (!delivered || !failed || failing.attempts != 1) return 3;
   std::cout << "cpp-provider-stream-no-key " << text << "\n";
 }
 `
@@ -3272,6 +3451,7 @@ const cppStreamHTTPRoundtripExample = `#include "axllm/axllm.hpp"
 #include <sys/socket.h>
 #include <unistd.h>
 
+#include <chrono>
 #include <iostream>
 #include <string>
 #include <thread>
@@ -3323,30 +3503,33 @@ void drain_request(int fd) {
   }
 }
 
-void write_response(int fd, const std::string& content_type, const std::string& body) {
+void write_response(int fd, const std::string& content_type, const std::string& first, const std::string& rest) {
   std::string out = "HTTP/1.1 200 OK\r\nContent-Type: " + content_type +
-                    "\r\nContent-Length: " + std::to_string(body.size()) +
-                    "\r\nConnection: close\r\n\r\n" + body;
+                    "\r\nContent-Length: " + std::to_string(first.size() + rest.size()) +
+                    "\r\nConnection: close\r\n\r\n";
   size_t off = 0;
   while (off < out.size()) {
     ssize_t n = send(fd, out.data() + off, out.size() - off, 0);
     if (n <= 0) break;
     off += static_cast<size_t>(n);
   }
+  for (char byte : first) send(fd, &byte, 1, 0);
+  std::this_thread::sleep_for(std::chrono::milliseconds(300));
+  send(fd, rest.data(), rest.size(), 0);
 }
 
 }  // namespace
 
 int main() {
   // One logical delta whose JSON is split across two data: lines (folded with
-  // "\n"), then a single-line delta, then [DONE]. Every line uses CRLF.
+  // "\n"), then a single-line delta accepted at EOF without a delimiter.
   const std::string event1a =
       "{\"id\":\"chatcmpl_stream\",\"model\":\"gpt-5.4-mini\",\"choices\":[{\"index\":0,\"delta\":";
-  const std::string event1b = "{\"content\":\"Hello \"}}]}";
+  const std::string event1b = "{\"content\":\"Hello 🌍 \"}}]}";
   const std::string event2 =
       "{\"id\":\"chatcmpl_stream\",\"model\":\"gpt-5.4-mini\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\"world\"},\"finish_reason\":\"stop\"}]}";
-  const std::string sse_body = "data: " + event1a + "\r\n" + "data: " + event1b + "\r\n" + "\r\n" +
-                               "data: " + event2 + "\r\n" + "\r\n" + "data: [DONE]\r\n" + "\r\n";
+  const std::string sse_first = "\xef\xbb\xbf" "database: ignored\r\n" + std::string("data: ") + event1a + "\r\n" + "data: " + event1b + "\r\n" + "\r\n";
+  const std::string sse_rest = "data: " + event2;
 
   int server_fd = socket(AF_INET, SOCK_STREAM, 0);
   if (server_fd < 0) {
@@ -3375,7 +3558,7 @@ int main() {
     int fd = accept(server_fd, nullptr, nullptr);
     if (fd < 0) return;
     drain_request(fd);
-    write_response(fd, "text/event-stream", sse_body);
+    write_response(fd, "text/event-stream", sse_first, sse_rest);
     close(fd);
   });
 
@@ -3385,24 +3568,28 @@ int main() {
                      {"model", "gpt-5.4-mini"}}),
       nullptr);
   std::vector<std::string> deltas;
-  for (const auto& event : client.stream(axllm::object(
-           {{"chat_prompt",
-             axllm::array({axllm::object({{"role", "user"}, {"content", "stream"}})})}}))) {
+  auto started = std::chrono::steady_clock::now();
+  std::chrono::steady_clock::time_point first_at;
+  client.stream_each(axllm::object({{"chat_prompt", axllm::array({axllm::object({{"role", "user"}, {"content", "stream"}})})}}), [&](const axllm::Value& event) {
+    if (first_at.time_since_epoch().count() == 0) first_at = std::chrono::steady_clock::now();
     std::string content = axllm::display(
         axllm::Core::get(axllm::Core::get(axllm::Core::get(event, "results"), 0), "content", ""));
     if (!content.empty()) deltas.push_back(content);
-  }
+    return true;
+  });
+  auto completed = std::chrono::steady_clock::now();
+  if (completed - first_at < std::chrono::milliseconds(200)) { std::cerr << "first event was not incremental\n"; return 1; }
 
   server.join();
   close(server_fd);
 
-  if (deltas.empty() || deltas.front() != "Hello ") {
+  if (deltas.empty() || deltas.front() != "Hello 🌍 ") {
     std::cerr << "multi-line data: event was not folded into one JSON value\n";
     return 1;
   }
   std::string text;
   for (const auto& d : deltas) text += d;
-  if (text != "Hello world") {
+  if (text != "Hello 🌍 world") {
     std::cerr << "bad stream fold: " << text << "\n";
     return 1;
   }

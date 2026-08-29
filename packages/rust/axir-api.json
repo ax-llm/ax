@@ -153,6 +153,22 @@
         },
         {
           "target_name": "rust",
+          "canonical_name": "AxProviderStream",
+          "public_name": "AxChatStream",
+          "kind": "type",
+          "description": "Incremental, closeable provider event stream. Retry and failover stop once content is delivered.",
+          "form": "client.stream_iter(request)",
+          "important_options": [
+            "next event",
+            "terminal error",
+            "consumer cancellation",
+            "upstream close"
+          ],
+          "returns": "incremental chat events",
+          "example": "for event in client.stream_iter(request)? { handle(event?); }"
+        },
+        {
+          "target_name": "rust",
           "canonical_name": "OpenAICompatibleClient",
           "public_name": "OpenAICompatibleClient",
           "kind": "type",

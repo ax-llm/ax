@@ -76,6 +76,18 @@
   },
   "snippets": {
     "ai": {
+      "providerStream": {
+        "sourcePath": "src/examples/java/generation/ProviderStreamExample.java",
+        "verified": true,
+        "requiresCredentials": true,
+        "code": [
+          "try (AxChatStream stream = client.openStream(request)) {",
+          "  for (Map<String, Object> event : stream) {",
+          "    System.out.print(((Map<?, ?>) ((List<?>) event.get(\"results\")).get(0)).get(\"content\"));",
+          "  }",
+          "}"
+        ]
+      },
       "balancer": {
         "sourcePath": "src/examples/java/generation/AdaptiveBalancerExample.java",
         "verified": true,

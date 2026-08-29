@@ -72,6 +72,17 @@
   },
   "snippets": {
     "ai": {
+      "providerStream": {
+        "sourcePath": "src/examples/rust/generation/provider_stream.rs",
+        "verified": true,
+        "requiresCredentials": true,
+        "code": [
+          "for event in client.stream_iter(request)? {",
+          "    let event = event?;",
+          "    print!(\"{}\", event[\"results\"][0][\"content\"].as_str().unwrap_or(\"\"));",
+          "}"
+        ]
+      },
       "balancer": {
         "sourcePath": "src/examples/rust/generation/adaptive_balancer.rs",
         "verified": true,
