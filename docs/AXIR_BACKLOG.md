@@ -18,12 +18,7 @@ This ledger tracks portable TypeScript behavior that should be migrated into AxI
 
 ## Open
 
-- `axir-2026-08-28-port-true-incremental-provider-streaming` [axai] Port true incremental provider streaming
-  - Status: open
-  - Source commit: `2eb335322230bc3a33ccca9744d55719063c29df`
-  - TS paths: `ir/axcore/ai.axir`
-  - Impact: Generated Python, Java, C++, Go, and Rust provider streams currently buffer complete HTTP response bodies before exposing normalized deltas, preventing time-to-first-token parity, prompt cancellation, and TypeScript-equivalent pre-content versus mid-stream failure behavior.
-  - Suggested AxIR work: Add or update the TS-derived conformance fixture.; Update AxIR/Core or descriptor data to match the portable TS behavior.; Run npm run axir:conformance:check and npm run test:axir.
+No entries.
 
 ## Done
 
@@ -528,3 +523,12 @@ This ledger tracks portable TypeScript behavior that should be migrated into AxI
   - Completed at: 2026-08-27
   - Completed by: `working-tree`
   - Verification: `npm run profiles:check; npm run axir:conformance:check; npm run axir:check-packages; npm run test:axir; npx vitest run src/ax/ai/deepseek/api.test.ts src/ax/ai/google-gemini/api.test.ts src/ax/ai/types.enhanced.test.ts; npm run example -- list --json; npm run website:check`
+- `axir-2026-08-28-port-true-incremental-provider-streaming` [axai] Port true incremental provider streaming
+  - Status: done
+  - Source commit: `2eb335322230bc3a33ccca9744d55719063c29df`
+  - TS paths: `ir/axcore/ai.axir`
+  - Impact: Generated Python, Java, C++, Go, and Rust provider streams currently buffer complete HTTP response bodies before exposing normalized deltas, preventing time-to-first-token parity, prompt cancellation, and TypeScript-equivalent pre-content versus mid-stream failure behavior.
+  - Suggested AxIR work: Add or update the TS-derived conformance fixture.; Update AxIR/Core or descriptor data to match the portable TS behavior.; Run npm run axir:conformance:check and npm run test:axir.
+  - Completed at: 2026-08-29
+  - Completed by: `e62cfc20df1c683713c33ffae05b2fb9f74da9b0`
+  - Verification: `npm run test:axir; npm run test:examples:generated; npm run axir:check-packages; npm run axir:conformance:check; npm run website:check; live OpenAI gpt-5.6-luna and Gemini gemini-3.7-flash smokes on Python, Java, Go, Rust, and C++`

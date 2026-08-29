@@ -1212,7 +1212,7 @@
     },
     {
       "id": "axir-2026-08-28-port-true-incremental-provider-streaming",
-      "status": "open",
+      "status": "done",
       "title": "Port true incremental provider streaming",
       "createdAt": "2026-08-28",
       "sourcePR": null,
@@ -1225,9 +1225,9 @@
         "Update AxIR/Core or descriptor data to match the portable TS behavior.",
         "Run npm run axir:conformance:check and npm run test:axir."
       ],
-      "completedAt": null,
-      "completedByCommit": null,
-      "verification": null
+      "completedAt": "2026-08-29",
+      "completedByCommit": "e62cfc20df1c683713c33ffae05b2fb9f74da9b0",
+      "verification": "npm run test:axir; npm run test:examples:generated; npm run axir:check-packages; npm run axir:conformance:check; npm run website:check; live OpenAI gpt-5.6-luna and Gemini gemini-3.7-flash smokes on Python, Java, Go, Rust, and C++"
     }
   ],
   "nonPortableExemptions": [
