@@ -1,5 +1,25 @@
 # Changelog
 
+## [24.0.14](https://github.com/ax-llm/ax/compare/24.0.12...24.0.13) (2026-08-29)
+
+### Bug Fixes
+
+* **axir:** preserve thoughts in chat logs ([#629](https://github.com/ax-llm/ax/issues/629)) ([813b042](https://github.com/ax-llm/ax/commit/813b04206ab91e04d19535b06eaebe0d6674d356))
+
+## [24.0.13](https://github.com/ax-llm/ax/compare/24.0.12...24.0.13) (2026-08-29)
+
+### Features
+
+* **axir:** add incremental provider streaming ([#627](https://github.com/ax-llm/ax/issues/627)) ([62c5225](https://github.com/ax-llm/ax/commit/62c5225221b4c4166e5ab1dea5cfe34357f8fbd9))
+
+### Bug Fixes
+
+* **axir:** map Responses forced tool choices ([#625](https://github.com/ax-llm/ax/issues/625)) ([b374339](https://github.com/ax-llm/ax/commit/b3743397fb668336944b15cf576e1540380dbb0b))
+* **gemini:** route an effort level to thinkingLevel, not thinkingBudget ([#624](https://github.com/ax-llm/ax/issues/624)) ([d623f03](https://github.com/ax-llm/ax/commit/d623f03d7128024567e0c9bb741abcc4234e7085)), closes [#620](https://github.com/ax-llm/ax/issues/620)
+* **util:** keep SSE events whole when \r\n is split across chunks ([#622](https://github.com/ax-llm/ax/issues/622)) ([6a55a46](https://github.com/ax-llm/ax/commit/6a55a46d0b2f960161d488df3562a6647b951971))
+* **util:** parse SSE frames in the browser path the way the Node path does ([#623](https://github.com/ax-llm/ax/issues/623)) ([3b5cb86](https://github.com/ax-llm/ax/commit/3b5cb862c8664c999af6f9fdba2bf441027de056))
+* **util:** share SSE parsing across runtimes ([#626](https://github.com/ax-llm/ax/issues/626)) ([2eb3353](https://github.com/ax-llm/ax/commit/2eb335322230bc3a33ccca9744d55719063c29df))
+
 ## [24.0.13](https://github.com/ax-llm/ax/compare/24.0.11...24.0.12) (2026-08-29)
 
 ### Features
