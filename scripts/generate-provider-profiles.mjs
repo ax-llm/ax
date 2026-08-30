@@ -26,6 +26,29 @@ const matrixPath = path.join(repoRoot, 'docs/AI_PROFILES_MATRIX.md');
 const check = process.argv.includes('--check');
 const source = JSON.parse(readFileSync(sourcePath, 'utf8'));
 const ids = Object.keys(source.profiles);
+const resolvedProfiles = Object.fromEntries(
+  Object.entries(source.profiles).map(([id, profile]) => {
+    const serviceTierProfile = source.serviceTierProfiles?.[id];
+    return [
+      id,
+      {
+        ...profile,
+        capabilities: {
+          ...profile.capabilities,
+          serviceTiers: serviceTierProfile?.supported ?? [],
+        },
+        ...(serviceTierProfile
+          ? {
+              request: {
+                ...(profile.request ?? {}),
+                serviceTierMap: serviceTierProfile.requestMap,
+              },
+            }
+          : {}),
+      },
+    ];
+  })
+);
 const aliases = {};
 const allowedTransports = new Set([
   'openai-chat',
@@ -75,7 +98,9 @@ const allowedRequestRuleKeys = new Set([
   'reasoningObjectFields',
   'optionDialect',
   'thinkingBoolean',
+  'serviceTierMap',
 ]);
+const allowedServiceTiers = new Set(['auto', 'standard', 'flex', 'priority']);
 const validateStructuredOutputModes = (capabilities, context) => {
   const modes = capabilities?.structuredOutputModes;
   if (!Array.isArray(modes)) {
@@ -202,13 +227,29 @@ const validateRequestRules = (rules, context) => {
       );
     }
   }
+  if (
+    rules.serviceTierMap &&
+    Object.entries(rules.serviceTierMap).some(
+      ([tier, value]) =>
+        !allowedServiceTiers.has(tier) ||
+        (value !== null && typeof value !== 'string')
+    )
+  ) {
+    throw new Error(`${context}.serviceTierMap has invalid tiers or values`);
+  }
 };
 
 if (source.schemaVersion !== 'provider-profiles-v3') {
   throw new Error(`unsupported profile schema ${source.schemaVersion}`);
 }
 
-for (const [id, profile] of Object.entries(source.profiles)) {
+for (const id of Object.keys(source.serviceTierProfiles ?? {})) {
+  if (!source.profiles[id]) {
+    throw new Error(`service tier profile ${id} has no provider profile`);
+  }
+}
+
+for (const [id, profile] of Object.entries(resolvedProfiles)) {
   if (profile.id !== id)
     throw new Error(`profile key ${id} does not match id ${profile.id}`);
   if (!/^[a-z0-9]+(?:-[a-z0-9]+)*$/.test(id))
@@ -233,6 +274,18 @@ for (const [id, profile] of Object.entries(source.profiles)) {
   if (!profile.defaults || typeof profile.defaults !== 'object')
     throw new Error(`profile ${id} is missing defaults`);
   validateStructuredOutputModes(profile.capabilities, `profile ${id}`);
+  if (
+    profile.capabilities.serviceTiers &&
+    (profile.capabilities.serviceTiers.some(
+      (tier) => !allowedServiceTiers.has(tier)
+    ) ||
+      new Set(profile.capabilities.serviceTiers).size !==
+        profile.capabilities.serviceTiers.length)
+  ) {
+    throw new Error(
+      `profile ${id}.serviceTiers must contain unique legal tiers`
+    );
+  }
   if (!profile.operations || Object.keys(profile.operations).length === 0)
     throw new Error(`profile ${id} has no operation dialects`);
   for (const [operationName, operation] of Object.entries(profile.operations)) {
@@ -288,7 +341,7 @@ for (const [id, profile] of Object.entries(source.profiles)) {
   }
 }
 
-const output = `// Generated from ir/axcore/data/provider-profiles.json. Do not edit.\n// biome-ignore format: generated file\nexport const axAIProviderProfiles = ${JSON.stringify(source.profiles, null, 2)} as const;\n\n// biome-ignore format: generated file\nexport const axAIProviderAliases = ${JSON.stringify(aliases, null, 2)} as const;\n\n// biome-ignore format: generated file\nexport const axAIProviderProfileIds = ${JSON.stringify(ids, null, 2)} as const;\n`;
+const output = `// Generated from ir/axcore/data/provider-profiles.json. Do not edit.\n// biome-ignore format: generated file\nexport const axAIProviderProfiles = ${JSON.stringify(resolvedProfiles, null, 2)} as const;\n\n// biome-ignore format: generated file\nexport const axAIProviderAliases = ${JSON.stringify(aliases, null, 2)} as const;\n\n// biome-ignore format: generated file\nexport const axAIProviderProfileIds = ${JSON.stringify(ids, null, 2)} as const;\n`;
 
 const transportClient = {
   'openai-chat': 'OpenAICompatibleClient',
@@ -301,7 +354,7 @@ const registry = {
   registryVersion: source.schemaVersion,
   supportedProfileIds: ids,
   profiles: Object.fromEntries(
-    Object.entries(source.profiles).map(([id, profile]) => [
+    Object.entries(resolvedProfiles).map(([id, profile]) => [
       id,
       {
         id,
@@ -327,7 +380,7 @@ const operationDescriptor = (name, operation) => ({
   dialect: operation.dialect,
 });
 const descriptors = Object.fromEntries(
-  Object.entries(source.profiles).map(([id, profile]) => {
+  Object.entries(resolvedProfiles).map(([id, profile]) => {
     const operations = Object.fromEntries(
       Object.entries(profile.operations).map(([name, operation]) => [
         name,
@@ -377,6 +430,7 @@ const descriptors = Object.fromEntries(
           structured_output_modes: profile.capabilities.structuredOutputModes,
           thinking: profile.capabilities.thinking,
           multi_turn: profile.capabilities.multiTurn,
+          service_tiers: profile.capabilities.serviceTiers ?? [],
           media: {
             images: {
               supported: profile.capabilities.images ?? false,
@@ -452,7 +506,7 @@ const modelRuleCaveat = (rule) => {
   }
   return details.length ? `${selector}: ${details.join(', ')}` : selector;
 };
-const matrixRows = Object.values(source.profiles).map((profile) => {
+const matrixRows = Object.values(resolvedProfiles).map((profile) => {
   const endpoint = profile.baseURL
     ? `\`${profile.baseURL}\``
     : profile.endpoint
@@ -472,6 +526,9 @@ const matrixRows = Object.values(source.profiles).map((profile) => {
     profile.capabilities.audio ? 'audio' : null,
     profile.capabilities.files ? 'files' : null,
     profile.capabilities.webSearch ? 'web search' : null,
+    profile.capabilities.serviceTiers?.length
+      ? `tiers ${profile.capabilities.serviceTiers.join('/')}`
+      : null,
   ]
     .filter(Boolean)
     .join(', ');

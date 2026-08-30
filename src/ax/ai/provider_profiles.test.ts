@@ -60,6 +60,168 @@ describe('named AI deployment profiles', () => {
     ).toBe(false);
   });
 
+  it('publishes verified portable tiers for every named profile', () => {
+    const expected = new Map<string, readonly string[]>([
+      ['openai', ['standard', 'flex', 'priority']],
+      ['openai-responses', ['standard', 'flex', 'priority']],
+      ['google-gemini', ['standard', 'flex', 'priority']],
+      ['azure-openai', ['standard', 'priority']],
+      ['azure-foundry', ['standard', 'priority']],
+      ['amazon-bedrock', ['standard', 'flex', 'priority']],
+      ['mistral', ['standard', 'priority']],
+      ['groq', ['standard', 'flex', 'priority']],
+      ['openrouter', ['standard', 'flex', 'priority']],
+      ['deepinfra', ['standard', 'priority']],
+      ['cerebras', ['standard', 'flex', 'priority']],
+      ['grok', ['standard', 'priority']],
+      ['databricks', ['standard', 'priority']],
+      ['fireworks', ['standard', 'priority']],
+    ]);
+
+    for (const profile of axAIProfiles()) {
+      expect(profile.capabilities.serviceTiers ?? []).toEqual(
+        expected.get(profile.id) ?? []
+      );
+    }
+  });
+
+  it('maps standard tier through every OpenAI-compatible named profile', async () => {
+    const cases = [
+      ['openai', 'default'],
+      ['azure-openai', 'default'],
+      ['azure-foundry', 'default'],
+      ['amazon-bedrock', 'default'],
+      ['mistral', 'standard_only'],
+      ['groq', 'on_demand'],
+      ['openrouter', undefined],
+      ['deepinfra', undefined],
+      ['cerebras', 'default'],
+      ['grok', 'default'],
+      ['databricks', 'default'],
+      ['fireworks', 'default'],
+    ] as const;
+
+    for (const [name, expectedWireTier] of cases) {
+      const capture: Capture = {};
+      const profile = axGetAIProfile(name);
+      const service = ai({
+        name,
+        apiKey: 'key',
+        apiURL: profile.baseURL ?? 'https://profile.test/v1',
+        config: { model: profile.defaultModel ?? 'test-model', stream: false },
+        options: { fetch: createMockFetch(capture) },
+      });
+      await service.chat(
+        { chatPrompt: [{ role: 'user', content: 'ping' }] },
+        { serviceTier: 'standard' }
+      );
+      expect(capture.body?.service_tier, name).toBe(expectedWireTier);
+    }
+  });
+
+  it('maps and reports tiers through the OpenAI Responses profile', async () => {
+    const capture: Capture = {};
+    const fetch = vi.fn(async (_url: RequestInfo | URL, init?: RequestInit) => {
+      if (typeof init?.body === 'string') capture.body = JSON.parse(init.body);
+      return new Response(
+        JSON.stringify({
+          id: 'resp-tier',
+          object: 'response',
+          created: 1,
+          model: 'gpt-5-mini',
+          service_tier: 'priority',
+          output: [
+            {
+              id: 'msg-tier',
+              type: 'message',
+              role: 'assistant',
+              status: 'completed',
+              content: [{ type: 'output_text', text: 'ok', annotations: [] }],
+            },
+          ],
+          usage: { input_tokens: 1, output_tokens: 1, total_tokens: 2 },
+        }),
+        { status: 200, headers: { 'Content-Type': 'application/json' } }
+      );
+    });
+    const service = ai({
+      name: 'openai-responses',
+      apiKey: 'key',
+      config: { model: 'gpt-5-mini', stream: false },
+      options: { fetch },
+    });
+
+    const response = await service.chat(
+      { chatPrompt: [{ role: 'user', content: 'ping' }] },
+      { serviceTier: 'priority' }
+    );
+
+    expect(capture.body?.service_tier).toBe('priority');
+    if (response instanceof ReadableStream) {
+      throw new Error('Expected a non-streaming response');
+    }
+    expect(response.modelUsage?.tokens?.serviceTier).toBe('priority');
+  });
+
+  it('fails before transport for an unsupported explicit tier', async () => {
+    const fetch = vi.fn();
+    const service = ai({
+      name: 'anthropic',
+      apiKey: 'key',
+      config: { model: 'claude-sonnet-4-5', stream: false },
+      options: { fetch },
+    });
+
+    await expect(
+      service.chat(
+        { chatPrompt: [{ role: 'user', content: 'ping' }] },
+        { serviceTier: 'priority' }
+      )
+    ).rejects.toThrow('not verified');
+    expect(fetch).not.toHaveBeenCalled();
+  });
+
+  it('rejects unverified DeepInfra flex tier before transport', async () => {
+    const fetch = vi.fn();
+    const service = ai({
+      name: 'deepinfra',
+      apiKey: 'key',
+      config: { model: 'deepseek-ai/DeepSeek-R1', stream: false },
+      options: { fetch },
+    });
+
+    await expect(
+      service.chat(
+        { chatPrompt: [{ role: 'user', content: 'ping' }] },
+        { serviceTier: 'flex' }
+      )
+    ).rejects.toThrow('not verified');
+    expect(fetch).not.toHaveBeenCalled();
+  });
+
+  it('allows an exact modelInfo tier opt-in on a conservative profile', async () => {
+    const capture: Capture = {};
+    const service = ai({
+      name: 'openai-compatible',
+      apiURL: 'https://compatible.test/v1',
+      config: { model: 'custom-flex', stream: false },
+      modelInfo: [
+        {
+          name: 'custom-flex',
+          provider: 'openai-compatible',
+          supported: { serviceTiers: ['flex'] },
+        },
+      ],
+      options: { fetch: createMockFetch(capture) },
+    });
+
+    await service.chat(
+      { chatPrompt: [{ role: 'user', content: 'ping' }] },
+      { serviceTier: 'flex' }
+    );
+    expect(capture.body?.service_tier).toBe('flex');
+  });
+
   it('resolves OrcaRouter as a named OpenAI-compatible gateway', async () => {
     const profile = axGetAIProfile('orcarouter');
     expect(axResolveAIProfileId('orcarouter')).toBe('orcarouter');

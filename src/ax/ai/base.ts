@@ -565,6 +565,8 @@ export interface AxAIFeatures {
   thinking: boolean;
   /** Whether the provider supports multi-turn conversations */
   multiTurn: boolean;
+  /** Portable request-level service tiers verified for the selected model. */
+  serviceTiers?: readonly import('./types.js').AxServiceTier[];
 }
 
 export interface AxBaseAIArgs<TModel, TEmbedModel, TModelKey> {
@@ -659,6 +661,7 @@ export class AxBaseAI<
   private customLabels?: Record<string, string>;
   private usageContext?: AxUsageContext;
   private contextCache?: AxAIServiceOptions['contextCache'];
+  private serviceTier?: AxAIServiceOptions['serviceTier'];
   private beta?: AxAIServiceOptions['beta'];
   private includeRequestBodyInErrors?: AxAIServiceOptions['includeRequestBodyInErrors'];
 
@@ -872,6 +875,7 @@ export class AxBaseAI<
         }
       : undefined;
     this.contextCache = options.contextCache;
+    this.serviceTier = options.serviceTier;
     this.beta = options.beta;
     this.includeRequestBodyInErrors = options.includeRequestBodyInErrors;
   }
@@ -900,6 +904,7 @@ export class AxBaseAI<
           }
         : undefined,
       contextCache: this.contextCache,
+      serviceTier: this.serviceTier,
       beta: this.beta,
       includeRequestBodyInErrors: this.includeRequestBodyInErrors,
     };
@@ -1311,7 +1316,9 @@ export class AxBaseAI<
     });
     if (
       !modelInfo ||
-      (!modelInfo.promptTokenCostPer1M && !modelInfo.completionTokenCostPer1M)
+      (!modelInfo.promptTokenCostPer1M &&
+        !modelInfo.completionTokenCostPer1M &&
+        !modelInfo.serviceTierPricing)
     )
       return 0;
 
@@ -1321,6 +1328,7 @@ export class AxBaseAI<
       thoughtsTokens = 0,
       cacheReadTokens = 0,
       cacheCreationTokens = 0,
+      serviceTier,
       speed,
     } = modelUsage.tokens;
 
@@ -1336,38 +1344,61 @@ export class AxBaseAI<
       totalInputTokens > modelInfo.longContextThreshold;
 
     const useFastPricing = speed === 'fast';
+    const tierPricing =
+      serviceTier === 'flex' || serviceTier === 'priority'
+        ? modelInfo.serviceTierPricing?.[serviceTier]
+        : undefined;
     const promptCostPer1M = useFastPricing
       ? (modelInfo.fastPromptTokenCostPer1M ??
         modelInfo.promptTokenCostPer1M ??
         0)
       : isLongContext
-        ? (modelInfo.longContextPromptTokenCostPer1M ??
+        ? (tierPricing?.longContextPromptTokenCostPer1M ??
+          tierPricing?.promptTokenCostPer1M ??
+          modelInfo.longContextPromptTokenCostPer1M ??
           modelInfo.promptTokenCostPer1M ??
           0)
-        : (modelInfo.promptTokenCostPer1M ?? 0);
+        : (tierPricing?.promptTokenCostPer1M ??
+          modelInfo.promptTokenCostPer1M ??
+          0);
     const completionCostPer1M = useFastPricing
       ? (modelInfo.fastCompletionTokenCostPer1M ??
         modelInfo.completionTokenCostPer1M ??
         0)
       : isLongContext
-        ? (modelInfo.longContextCompletionTokenCostPer1M ??
+        ? (tierPricing?.longContextCompletionTokenCostPer1M ??
+          tierPricing?.completionTokenCostPer1M ??
+          modelInfo.longContextCompletionTokenCostPer1M ??
           modelInfo.completionTokenCostPer1M ??
           0)
-        : (modelInfo.completionTokenCostPer1M ?? 0);
+        : (tierPricing?.completionTokenCostPer1M ??
+          modelInfo.completionTokenCostPer1M ??
+          0);
     const cacheReadCostPer1M = useFastPricing
       ? (modelInfo.fastCacheReadTokenCostPer1M ??
         modelInfo.cacheReadTokenCostPer1M ??
         promptCostPer1M)
       : isLongContext
-        ? (modelInfo.longContextCacheReadTokenCostPer1M ??
+        ? (tierPricing?.longContextCacheReadTokenCostPer1M ??
+          tierPricing?.cacheReadTokenCostPer1M ??
+          modelInfo.longContextCacheReadTokenCostPer1M ??
           modelInfo.cacheReadTokenCostPer1M ??
           promptCostPer1M)
-        : (modelInfo.cacheReadTokenCostPer1M ?? promptCostPer1M);
+        : (tierPricing?.cacheReadTokenCostPer1M ??
+          modelInfo.cacheReadTokenCostPer1M ??
+          promptCostPer1M);
     const cacheWriteCostPer1M = useFastPricing
       ? (modelInfo.fastCacheWriteTokenCostPer1M ??
         modelInfo.cacheWriteTokenCostPer1M ??
         promptCostPer1M)
-      : (modelInfo.cacheWriteTokenCostPer1M ?? promptCostPer1M);
+      : isLongContext
+        ? (tierPricing?.longContextCacheWriteTokenCostPer1M ??
+          tierPricing?.cacheWriteTokenCostPer1M ??
+          modelInfo.cacheWriteTokenCostPer1M ??
+          promptCostPer1M)
+        : (tierPricing?.cacheWriteTokenCostPer1M ??
+          modelInfo.cacheWriteTokenCostPer1M ??
+          promptCostPer1M);
 
     // Thinking tokens are billed as output tokens
     const totalOutputTokens = completionTokens + thoughtsTokens;
@@ -1642,6 +1673,9 @@ export class AxBaseAI<
       : undefined;
     const mergedOptions: Readonly<AxAIServiceOptions> = {
       ...(this.beta !== undefined ? { beta: this.beta } : undefined),
+      ...(this.serviceTier !== undefined
+        ? { serviceTier: this.serviceTier }
+        : undefined),
       ...(modelKeyEntry
         ? {
             thinkingTokenBudget: modelKeyThinkingTokenBudget,
@@ -1650,6 +1684,15 @@ export class AxBaseAI<
                 showThoughts?: AxAIServiceOptions['showThoughts'];
               }
             ).showThoughts,
+            ...(Object.hasOwn(modelKeyEntry, 'serviceTier')
+              ? {
+                  serviceTier: (
+                    modelKeyEntry as {
+                      serviceTier?: AxAIServiceOptions['serviceTier'];
+                    }
+                  ).serviceTier,
+                }
+              : undefined),
             stream: (
               modelKeyEntry as {
                 stream?: AxAIServiceOptions['stream'];
@@ -1677,6 +1720,21 @@ export class AxBaseAI<
         Object.entries(options ?? {}).filter(([, value]) => value !== undefined)
       ),
     } as AxAIServiceOptions;
+
+    const requestedServiceTier =
+      mergedOptions.serviceTier ?? this.getOptions().serviceTier;
+    if (requestedServiceTier && requestedServiceTier !== 'auto') {
+      const featureModel =
+        modelKeyEntry && 'model' in modelKeyEntry
+          ? modelKeyEntry.model
+          : req.model;
+      const features = this.getFeatures(featureModel as TModel);
+      if (!features.serviceTiers?.includes(requestedServiceTier)) {
+        throw new Error(
+          `Service tier "${requestedServiceTier}" is not verified for ${this.name} model ${String(featureModel)}`
+        );
+      }
+    }
 
     try {
       result = await this._chat1(req, mergedOptions);

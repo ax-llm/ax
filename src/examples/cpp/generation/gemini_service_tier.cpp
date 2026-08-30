@@ -24,13 +24,12 @@ int main() {
   axllm::GoogleGeminiClient client(axllm::object({
       {"api_key", key},
       {"model", model == nullptr || std::string(model).empty() ? "gemini-3.7-flash" : model},
-      {"service_tier", "flex"},
   }));
   axllm::Value out = client.chat(axllm::object({
       {"chat_prompt", axllm::array({axllm::object({
           {"role", "user"},
           {"content", "Explain in one sentence why batch evaluations save time."},
       })})},
-  }));
+  }), axllm::object({{"service_tier", "flex"}}));
   std::cout << axllm::stringify(out) << "\n";
 }

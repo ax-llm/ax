@@ -1,0 +1,107 @@
+{
+  "expected_estimated_cost": 0.0175,
+  "expected_output": {
+    "model_usage": {
+      "ai": "openai",
+      "model": "custom-tier-pricing",
+      "tokens": {
+        "cache_creation_tokens": 500,
+        "cache_read_tokens": 1000,
+        "completion_tokens": 500,
+        "prompt_tokens": 1500,
+        "service_tier": "priority",
+        "total_tokens": 3500
+      }
+    },
+    "remote_id": "chatcmpl_tier_cost",
+    "results": [
+      {
+        "content": "ok",
+        "finish_reason": "stop",
+        "function_calls": [],
+        "id": "0",
+        "index": 0
+      }
+    ]
+  },
+  "expected_transport_request": {
+    "json": {
+      "service_tier": "priority"
+    },
+    "method": "POST",
+    "url": "https://api.openai.com/v1/chat/completions"
+  },
+  "kind": "ai_chat",
+  "model": "custom-tier-pricing",
+  "name": "openai-service-tier-long-context-cost-fallback",
+  "provider": "openai",
+  "request": {
+    "chat_prompt": [
+      {
+        "content": "price the applied tier",
+        "role": "user"
+      }
+    ],
+    "model_config": {
+      "stream": false
+    }
+  },
+  "service_options": {
+    "modelInfo": [
+      {
+        "cacheReadTokenCostPer1M": 0.5,
+        "cacheWriteTokenCostPer1M": 2,
+        "completionTokenCostPer1M": 8,
+        "longContextCacheReadTokenCostPer1M": 0.75,
+        "longContextCompletionTokenCostPer1M": 12,
+        "longContextPromptTokenCostPer1M": 3,
+        "longContextThreshold": 1000,
+        "name": "custom-tier-pricing",
+        "promptTokenCostPer1M": 2,
+        "serviceTierPricing": {
+          "priority": {
+            "cacheReadTokenCostPer1M": 1,
+            "cacheWriteTokenCostPer1M": 5,
+            "completionTokenCostPer1M": 16,
+            "promptTokenCostPer1M": 4
+          }
+        },
+        "supported": {
+          "serviceTiers": ["priority"]
+        }
+      }
+    ],
+    "serviceTier": "priority"
+  },
+  "transport_responses": [
+    {
+      "json": {
+        "choices": [
+          {
+            "finish_reason": "stop",
+            "index": 0,
+            "message": {
+              "content": "ok",
+              "refusal": null,
+              "role": "assistant"
+            }
+          }
+        ],
+        "id": "chatcmpl_tier_cost",
+        "model": "custom-tier-pricing",
+        "object": "chat.completion",
+        "service_tier": "priority",
+        "usage": {
+          "completion_tokens": 500,
+          "prompt_tokens": 3000,
+          "prompt_tokens_details": {
+            "cache_write_tokens": 500,
+            "cached_tokens": 1000
+          },
+          "total_tokens": 3500
+        }
+      },
+      "status": 200
+    }
+  ]
+}

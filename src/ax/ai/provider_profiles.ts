@@ -23,11 +23,17 @@ import {
   axAIProviderProfileIds,
   axAIProviderProfiles,
 } from './provider_profiles.generated.js';
+import {
+  type AxServiceTierMap,
+  axNormalizeRequestedServiceTier,
+  axResolveServiceTier,
+} from './service_tier.js';
 import type {
   AxAICredentialProvider,
   AxAIInputModelList,
   AxAIServiceOptions,
   AxModelInfo,
+  AxServiceTier,
   AxSpeechRequest,
   AxSpeechResponse,
   AxStructuredOutputRung,
@@ -55,6 +61,7 @@ export type AxAIProfileCapabilities = {
   structuredOutputModes: readonly AxStructuredOutputRung[];
   thinking: boolean;
   multiTurn: boolean;
+  serviceTiers?: readonly AxServiceTier[];
   thinkingBudget?: boolean;
   showThoughts?: boolean;
   images?: boolean;
@@ -87,6 +94,7 @@ export type AxAIProfileRequestRules = {
   reasoningObjectFields?: readonly string[];
   optionDialect?: 'search-parameters';
   thinkingBoolean?: { path: readonly string[] };
+  serviceTierMap?: AxServiceTierMap;
 };
 
 export type AxAIProfileModelRule = {
@@ -289,6 +297,7 @@ export const axResolveAIProfileFeatures = (
       : { supported: false, types: [] },
     thinking: capabilities.thinking,
     multiTurn: capabilities.multiTurn,
+    serviceTiers: capabilities.serviceTiers ?? [],
   };
 };
 
@@ -507,6 +516,10 @@ const applyExactModelInfoOverride = (
     thinking: hasThinkingOverride
       ? Boolean(override.thinkingBudget || override.showThoughts)
       : features.thinking,
+    serviceTiers:
+      override.serviceTiers !== undefined
+        ? [...override.serviceTiers]
+        : features.serviceTiers,
   };
 };
 
@@ -529,6 +542,18 @@ const applyProfileChatRequest = <TModel>(
     model,
     modelInfo
   );
+
+  const requestedTier =
+    options.serviceTier ?? (payload.service_tier as unknown);
+  delete payload.service_tier;
+  const mappedTier = axResolveServiceTier({
+    requested: requestedTier,
+    supported: features.serviceTiers,
+    mapping: rule?.request?.serviceTierMap ?? profile.request?.serviceTierMap,
+    provider: profile.id,
+    model,
+  });
+  if (mappedTier !== undefined) payload.service_tier = mappedTier;
 
   if (
     options.thinkingTokenBudget &&
@@ -665,6 +690,13 @@ const normalizeProfileModelPresets = <TModelKey>(
     return {
       ...item,
       modelConfig: { ...value.config, ...value.modelConfig },
+      ...(value.config.serviceTier !== undefined
+        ? {
+            serviceTier: axNormalizeRequestedServiceTier(
+              value.config.serviceTier
+            ),
+          }
+        : {}),
     };
   });
 
@@ -937,6 +969,25 @@ export class AxAIOpenAIResponsesProfile<
         ),
       responsesReqUpdater: (request) => {
         const payload = { ...request } as Record<string, unknown>;
+        const model = String(request.model);
+        const features = applyExactModelInfoOverride(
+          applyCapabilityGates(
+            profile,
+            axResolveAIProfileFeatures(profile.id, model),
+            args as Record<string, unknown>
+          ),
+          model,
+          args.modelInfo
+        );
+        const mappedTier = axResolveServiceTier({
+          requested: payload.service_tier,
+          supported: features.serviceTiers,
+          mapping: profile.request?.serviceTierMap,
+          provider: profile.id,
+          model,
+        });
+        delete payload.service_tier;
+        if (mappedTier !== undefined) payload.service_tier = mappedTier;
         applyRequestRules(payload, profile.request, args.options ?? {});
         if (profile.request?.reasoningObjectFields && payload.reasoning) {
           const reasoning = payload.reasoning as Record<string, unknown>;

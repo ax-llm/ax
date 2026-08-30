@@ -1,0 +1,83 @@
+{
+  "base_url": "https://compatible.test/v1",
+  "expected_output": {
+    "model_usage": {
+      "ai": "openai-compatible",
+      "model": "custom-flex",
+      "tokens": {
+        "completion_tokens": 2,
+        "prompt_tokens": 1,
+        "total_tokens": 3
+      }
+    },
+    "remote_id": "chatcmpl_custom_flex",
+    "results": [
+      {
+        "content": "ok",
+        "finish_reason": "stop",
+        "function_calls": [],
+        "id": "0",
+        "index": 0
+      }
+    ]
+  },
+  "expected_transport_request": {
+    "json": {
+      "service_tier": "flex"
+    },
+    "method": "POST",
+    "url": "https://compatible.test/v1/chat/completions"
+  },
+  "kind": "ai_chat",
+  "model": "custom-flex",
+  "name": "profile-service-tier-exact-model-opt-in",
+  "provider": "openai-compatible",
+  "request": {
+    "chat_prompt": [
+      {
+        "content": "use flex",
+        "role": "user"
+      }
+    ],
+    "model_config": {
+      "stream": false
+    }
+  },
+  "service_options": {
+    "modelInfo": [
+      {
+        "name": "custom-flex",
+        "supported": {
+          "serviceTiers": ["flex"]
+        }
+      }
+    ],
+    "serviceTier": "flex"
+  },
+  "transport_responses": [
+    {
+      "json": {
+        "choices": [
+          {
+            "finish_reason": "stop",
+            "index": 0,
+            "message": {
+              "content": "ok",
+              "refusal": null,
+              "role": "assistant"
+            }
+          }
+        ],
+        "id": "chatcmpl_custom_flex",
+        "model": "custom-flex",
+        "object": "chat.completion",
+        "usage": {
+          "completion_tokens": 2,
+          "prompt_tokens": 1,
+          "total_tokens": 3
+        }
+      },
+      "status": 200
+    }
+  ]
+}

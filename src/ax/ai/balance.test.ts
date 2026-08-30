@@ -121,6 +121,33 @@ describe('AxBalancer Interface Compatibility', () => {
 });
 
 describe('AxBalancer', () => {
+  test('filters routes by an explicit service tier', async () => {
+    const standard = createMockService({
+      name: 'standard-only',
+      features: {
+        functions: true,
+        streaming: true,
+        serviceTiers: ['standard'],
+      },
+    });
+    const priority = createMockService({
+      name: 'priority-capable',
+      features: {
+        functions: true,
+        streaming: true,
+        serviceTiers: ['priority'],
+      },
+    });
+    const balancer = new AxBalancer([standard, priority]);
+
+    await balancer.chat(
+      { chatPrompt: [{ role: 'user', content: 'urgent' }] },
+      { serviceTier: 'priority' }
+    );
+
+    expect(balancer.getName()).toBe('priority-capable');
+  });
+
   test('preserves advertised structured output mode order', () => {
     const balancer = new AxBalancer([
       createMockService({

@@ -1,4 +1,4 @@
-import type { AxModelConfig } from '../types.js';
+import type { AxModelConfig, AxServiceTier } from '../types.js';
 
 export enum AxAIGoogleGeminiModel {
   Gemini37Flash = 'gemini-3.7-flash',
@@ -295,7 +295,7 @@ export type AxAIGoogleGeminiConfig = AxModelConfig & {
   urlContext?: string;
   responseFormat?: 'json_object';
   /** Inference service tier used by the Gemini API. */
-  serviceTier?: 'standard' | 'flex' | 'priority';
+  serviceTier?: AxServiceTier;
 };
 
 /**

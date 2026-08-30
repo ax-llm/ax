@@ -12,6 +12,10 @@ import {
   axBaseAIDefaultConfig,
   axBaseAIDefaultCreativeConfig,
 } from '../base.js';
+import {
+  axNormalizeRequestedServiceTier,
+  axResolveServiceTier,
+} from '../service_tier.js';
 import type {
   AxAICredentialProvider,
   AxAIInputModelList,
@@ -326,7 +330,10 @@ class AxAIOpenAIImpl<
     private readonly chatStreamRespProcessor?: ChatStreamRespProcessor,
     private readonly realtime?: RealtimeAdapter<TModel>,
     private readonly promptCaching: boolean = false,
-    private readonly reasoningContentMode: AxOpenAIReasoningContentMode = 'none'
+    private readonly reasoningContentMode: AxOpenAIReasoningContentMode = 'none',
+    private readonly supportFor?:
+      | AxAIFeatures
+      | ((model: TModel) => AxAIFeatures)
   ) {}
 
   /**
@@ -373,6 +380,37 @@ class AxAIOpenAIImpl<
       this.config.audio,
       req.modelConfig?.audio
     );
+    const requestedServiceTier =
+      config.serviceTier ??
+      this.options?.serviceTier ??
+      this.config.serviceTier;
+    const normalizedServiceTier =
+      axNormalizeRequestedServiceTier(requestedServiceTier);
+    if (
+      useRealtime &&
+      normalizedServiceTier !== undefined &&
+      normalizedServiceTier !== 'auto'
+    ) {
+      throw new Error('Service tiers are not supported by realtime models');
+    }
+    const features =
+      typeof this.supportFor === 'function'
+        ? this.supportFor(model)
+        : this.supportFor;
+    const serviceTier = useRealtime
+      ? undefined
+      : axResolveServiceTier({
+          requested: requestedServiceTier,
+          supported: features?.serviceTiers,
+          mapping: {
+            auto: 'auto',
+            standard: 'default',
+            flex: 'flex',
+            priority: 'priority',
+          },
+          provider: 'OpenAI-compatible',
+          model: String(model),
+        });
 
     if (!req.chatPrompt || req.chatPrompt.length === 0) {
       throw new Error('Chat prompt is empty');
@@ -504,9 +542,7 @@ class AxAIOpenAIImpl<
         : {}),
       ...(promptCacheKey ? { prompt_cache_key: promptCacheKey } : {}),
       ...(store ? { store: store } : {}),
-      ...(this.config.serviceTier
-        ? { service_tier: this.config.serviceTier }
-        : {}),
+      ...(serviceTier ? { service_tier: serviceTier } : {}),
       ...(this.config.user ? { user: this.config.user } : {}),
     };
 
@@ -623,7 +659,10 @@ class AxAIOpenAIImpl<
     if (error) {
       throw error;
     }
-    this.tokensUsed = axNormalizeOpenAIUsage(usage);
+    this.tokensUsed = axNormalizeOpenAIUsage(
+      usage,
+      resp.service_tier_used ?? resp.service_tier
+    );
 
     const results = choices.map((choice) => {
       // Check for refusal and throw exception if present
@@ -676,11 +715,13 @@ class AxAIOpenAIImpl<
   ): AxChatResponse => {
     const { id, usage, choices } = resp;
 
-    this.tokensUsed = axNormalizeOpenAIUsage(usage);
-
     const sstate = state as {
       indexIdMap: Record<number, string>;
+      serviceTier?: unknown;
     };
+    sstate.serviceTier =
+      resp.service_tier_used ?? resp.service_tier ?? sstate.serviceTier;
+    this.tokensUsed = axNormalizeOpenAIUsage(usage, sstate.serviceTier);
 
     if (!sstate.indexIdMap) {
       sstate.indexIdMap = {};
@@ -1004,7 +1045,8 @@ export class AxAIOpenAIBase<
       chatStreamRespProcessor,
       realtime,
       promptCaching ?? false,
-      reasoningContentMode ?? 'none'
+      reasoningContentMode ?? 'none',
+      supportFor
     );
 
     const resolvedApiURL = apiURL ? apiURL : 'https://api.openai.com/v1';
@@ -1235,6 +1277,11 @@ export class AxAIOpenAI<TModelKey = string> extends AxAIOpenAIBase<
         },
         thinking: mi?.supported?.thinkingBudget ?? false,
         multiTurn: true,
+        serviceTiers:
+          mi?.supported?.serviceTiers ??
+          (isRealtimeModel || isRealtimeTranscriptionModel
+            ? []
+            : (['standard', 'flex', 'priority'] as const)),
       };
     };
 
@@ -1291,6 +1338,9 @@ export class AxAIOpenAI<TModelKey = string> extends AxAIOpenAIBase<
       }
       if ((cfg as any)?.thinking?.includeThoughts !== undefined) {
         out.showThoughts = !!(cfg as any).thinking.includeThoughts;
+      }
+      if (cfg.serviceTier !== undefined) {
+        out.serviceTier = axNormalizeRequestedServiceTier(cfg.serviceTier);
       }
 
       return out as typeof item;

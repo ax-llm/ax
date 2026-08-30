@@ -108,15 +108,21 @@ names share this behavior, including native Gemini configured for Vertex with a
 project and region. The separate OpenAI-compatible `vertex-ai` profile remains
 profile-owned and does not gain native Gemini request fields from its model ID.
 
-### Gemini inference service tiers
+### Portable inference service tiers
 
-Gemini GenerateContent supports `standard`, `flex`, and `priority` service
-tiers in every language package. Configure the tier in the Gemini provider
-options; the normalized model usage reports the tier that actually handled the
-request. An `unspecified` provider response becomes `standard`. Ax rejects a
-configured tier for Vertex AI and Gemini Live before transport. The Generation
-example catalog contains a provider-backed Gemini Flex example with exact
-language-native setup and response syntax.
+Every language package accepts the shared `auto`, `standard`, `flex`, and
+`priority` service-tier policy. A per-call value overrides a model preset or
+instance default. Named provider profiles translate that policy to their wire
+dialect, while unsupported explicit tiers fail before transport. `auto` is
+omitted when a provider has no explicit auto value.
+
+The applied provider value is normalized into model usage, including aliases
+such as `default`, `on_demand`, and `performance`. Tier-aware model metadata can
+also provide Flex or Priority token-price overrides so cost estimates follow
+the tier that actually served the request. Gemini supports tiers only on
+GenerateContent; Vertex AI and Gemini Live reject explicit tiers. Anthropic
+fast mode remains a separate API. The Generation catalog demonstrates the
+portable per-call option using Gemini Flex in every language.
 
 {{aiServiceTierExample}}
 

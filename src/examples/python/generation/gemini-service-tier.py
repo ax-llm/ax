@@ -20,7 +20,6 @@ if not api_key:
 client = GoogleGeminiClient(
     api_key=api_key,
     model=os.getenv("AX_GEMINI_MODEL", "gemini-3.7-flash"),
-    service_tier="flex",
 )
 out = client.chat(
     {
@@ -30,6 +29,7 @@ out = client.chat(
                 "content": "Explain in one sentence why batch evaluations save time.",
             }
         ]
-    }
+    },
+    {"service_tier": "flex"},
 )
 print(json.dumps(out, indent=2, sort_keys=True))

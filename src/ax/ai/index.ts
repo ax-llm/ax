@@ -17,12 +17,14 @@ export {
 } from './openai/realtime.js';
 export * from './processor.js';
 export * from './router.js';
+export * from './service_tier.js';
 // Re-export enhanced types and features
 export type {
   AxAICredentialProvider,
   AxAICredentialRequest,
   AxAIService,
   AxAIServiceOptions,
+  AxAppliedServiceTier,
   AxAudioFormat,
   AxChatAudioConfig,
   AxChatAudioOutput,
@@ -31,6 +33,8 @@ export type {
   AxContextCacheOptions,
   AxRateLimitInfo,
   AxRuntimeHooks,
+  AxServiceTier,
+  AxServiceTierPricing,
   AxStructuredOutputMode,
   AxStructuredOutputRung,
   AxUsageContext,

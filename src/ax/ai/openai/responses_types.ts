@@ -2,6 +2,7 @@ import type {
   AxChatRequest,
   AxChatResponseResult,
   AxModelConfig,
+  AxServiceTier,
 } from '../types.js';
 
 // Extended model enum for the responses API that includes models only available on responses API
@@ -239,7 +240,7 @@ export interface AxAIOpenAIResponsesRequest<TModel = AxAIOpenAIResponsesModel> {
       | null;
     readonly summary?: 'auto' | 'concise' | 'detailed' | null; // 'generate_summary' is deprecated
   } | null;
-  readonly service_tier?: 'auto' | 'default' | 'flex' | null;
+  readonly service_tier?: string | null;
   readonly store?: boolean | null; // Whether to store for later retrieval
   readonly stream?: boolean | null;
   readonly temperature?: number | null;
@@ -336,6 +337,8 @@ export interface AxAIOpenAIResponsesResponse {
   readonly object: string; // e.g., "response"
   readonly created: number; // Timestamp
   readonly model: string; // Model ID used
+  readonly service_tier?: string;
+  readonly service_tier_used?: string;
   readonly output: ReadonlyArray<AxAIOpenAIResponsesOutputItem>;
   readonly usage?: {
     readonly prompt_tokens?: number;
@@ -343,6 +346,7 @@ export interface AxAIOpenAIResponsesResponse {
     readonly completion_tokens?: number; // Some variants use output_tokens
     readonly output_tokens?: number; // Alias seen in some responses
     readonly total_tokens?: number;
+    readonly service_tier?: string;
     readonly prompt_tokens_details?: {
       readonly cached_tokens?: number;
       readonly cache_write_tokens?: number;
@@ -868,7 +872,8 @@ export type AxAIOpenAIResponsesConfig<TModel, TEmbedModel> = Omit<
   parallelToolCalls?: boolean;
   seed?: number;
   responseFormat?: 'text' | 'json_object' | 'json_schema';
-  serviceTier?: 'auto' | 'default' | 'flex';
+  /** Portable values plus the legacy OpenAI `default` alias. */
+  serviceTier?: AxServiceTier | 'default';
 };
 
 // ToolCall response types

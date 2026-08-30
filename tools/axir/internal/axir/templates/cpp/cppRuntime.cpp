@@ -2905,7 +2905,8 @@ OpenAIResponsesClient::OpenAIResponsesClient(std::string profile, Value options,
           display(Core::get(Core::provider_descriptor(profile), "defaultEmbedModel", ""))) {}
 
 double OpenAICompatibleClient::get_estimated_cost(Value model_usage) {
-  return num(Core::provider_estimate_cost(std::move(model_usage)));
+  Value model_info = Core::get(options_, "modelInfo", Core::get(options_, "model_info", Value()));
+  return num(Core::provider_estimate_cost(std::move(model_usage), std::move(model_info)));
 }
 
 Value OpenAICompatibleClient::get_features(Value model) {

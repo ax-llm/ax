@@ -19,17 +19,22 @@ fn api_key() -> AxResult<String> {
 
 fn main() -> AxResult<()> {
     let model = env::var("AX_GEMINI_MODEL").unwrap_or_else(|_| "gemini-3.7-flash".to_string());
-    let mut client = ai("google-gemini", json!({
-        "api_key": api_key()?,
-        "model": model,
-        "service_tier": "flex",
-    }))?;
-    let out = client.chat(json!({
-        "chat_prompt": [{
-            "role": "user",
-            "content": "Explain in one sentence why batch evaluations save time."
-        }]
-    }))?;
+    let mut client = ai(
+        "google-gemini",
+        json!({
+            "api_key": api_key()?,
+            "model": model,
+        }),
+    )?;
+    let out = client.chat_with_options(
+        json!({
+            "chat_prompt": [{
+                "role": "user",
+                "content": "Explain in one sentence why batch evaluations save time."
+            }]
+        }),
+        json!({"service_tier": "flex"}),
+    )?;
     println!("{}", serde_json::to_string_pretty(&out)?);
     Ok(())
 }

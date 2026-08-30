@@ -627,6 +627,31 @@ module @ax.provider version "0.1" {
     }
   }
 
+  op ax.provider.semantic @openai_usage_with_service_tier {
+    attr core_kind = "func"
+    attr emit_module = "ai"
+    attr private = true
+    tag "openai-service-tier-usage-helper"
+    type signature = "(raw:json, usage:json) -> json"
+    body @entry(%raw: json, %usage: json) {
+      %has_usage = core.call intrinsic.is_not_none(%usage)
+      core.if %has_usage {
+      } else {
+        core.return %usage
+      }
+      %empty = core.map
+      %out = core.call intrinsic.map.merge(%empty, %usage)
+      %usage_tier = core.get %usage["service_tier"]
+      %raw_tier = core.get %raw["service_tier"] default %usage_tier
+      %tier = core.get %raw["service_tier_used"] default %raw_tier
+      %has_tier = core.call intrinsic.is_not_none(%tier)
+      core.if %has_tier {
+        core.set %out["service_tier"] = %tier
+      }
+      core.return %out
+    }
+  }
+
   op ax.provider.semantic @openai_normalize_chat_response_impl {
     attr core_kind = "func"
     attr effect = "throws"
@@ -662,7 +687,8 @@ module @ax.provider version "0.1" {
       }
       %raw_model = core.get %raw["model"]
       %used_model = core.call intrinsic.coalesce(%raw_model, %model)
-      %usage = core.get %raw["usage"]
+      %raw_usage = core.get %raw["usage"]
+      %usage = core.call @openai_usage_with_service_tier(%raw, %raw_usage)
       %model_usage = core.call @ai_model_usage_impl(%ai_name, %used_model, %usage)
       %remote_id = core.get %raw["id"]
       %out = core.map
@@ -831,7 +857,8 @@ module @ax.provider version "0.1" {
       }
       %raw_model = core.get %raw["model"]
       %used_model = core.call intrinsic.coalesce(%raw_model, %model)
-      %usage = core.get %raw["usage"]
+      %raw_usage = core.get %raw["usage"]
+      %usage = core.call @openai_usage_with_service_tier(%raw, %raw_usage)
       %model_usage = core.call @ai_model_usage_impl(%ai_name, %used_model, %usage)
       %remote_id = core.get %raw["id"]
       %out = core.map
@@ -898,7 +925,8 @@ module @ax.provider version "0.1" {
       }
       %raw_model = core.get %raw["model"]
       %used_model = core.call intrinsic.coalesce(%raw_model, %model)
-      %usage = core.get %raw["usage"]
+      %raw_usage = core.get %raw["usage"]
+      %usage = core.call @openai_usage_with_service_tier(%raw, %raw_usage)
       %model_usage = core.call @ai_model_usage_impl(%ai_name, %used_model, %usage)
       %out = core.map
       core.set %out["results"] = %results
@@ -1154,8 +1182,8 @@ module @ax.provider version "0.1" {
     attr emit_module = "ai"
     tag "provider-model-catalog-runtime"
     tag "axai-cache-write-cost"
-    type signature = "(model_usage?:json) -> number"
-    body @entry(%model_usage: json) {
+    type signature = "(model_usage?:json, model_info_overrides?:json) -> number"
+    body @entry(%model_usage: json, %model_info_overrides: json) {
       %has_usage = core.call intrinsic.truthy(%model_usage)
       core.if %has_usage {
       } else {
@@ -1178,10 +1206,22 @@ module @ax.provider version "0.1" {
       core.if %is_google_name {
         %provider_name = core.let "google-gemini"
       }
-      %catalog = core.call @provider_model_catalog_registry()
-      %providers = core.get %catalog["all"]
       %model_info = core.call intrinsic.none()
       %empty_aliases = core.list
+      %empty_model_info = core.list
+      %override_list = core.call intrinsic.coalesce(%model_info_overrides, %empty_model_info)
+      core.for %candidate in %override_list {
+        %candidate_name = core.get %candidate["name"] default ""
+        %name_matches = core.call intrinsic.eq(%candidate_name, %model)
+        %aliases = core.get %candidate["aliases"] default %empty_aliases
+        %alias_matches = core.call intrinsic.contains(%aliases, %model)
+        %matches = core.call intrinsic.or(%name_matches, %alias_matches)
+        core.if %matches {
+          %model_info = core.let %candidate
+        }
+      }
+      %catalog = core.call @provider_model_catalog_registry()
+      %providers = core.get %catalog["all"]
       core.for %provider in %providers {
         %catalog_provider_name = core.get %provider["name"] default ""
         %provider_matches = core.call intrinsic.eq(%catalog_provider_name, %provider_name)
@@ -1193,7 +1233,9 @@ module @ax.provider version "0.1" {
             %aliases = core.get %candidate["aliases"] default %empty_aliases
             %alias_matches = core.call intrinsic.contains(%aliases, %model)
             %matches = core.call intrinsic.or(%name_matches, %alias_matches)
-            core.if %matches {
+            %missing_override = core.call intrinsic.is_none(%model_info)
+            %use_catalog_candidate = core.call intrinsic.and(%matches, %missing_override)
+            core.if %use_catalog_candidate {
               %model_info = core.let %candidate
             }
           }
@@ -1229,22 +1271,73 @@ module @ax.provider version "0.1" {
       %long_context = core.call intrinsic.and(%has_threshold, %above_threshold)
       %speed = core.get %tokens["speed"] default ""
       %fast = core.call intrinsic.eq(%speed, "fast")
-      %base_prompt_price = core.get %model_info["promptTokenCostPer1M"] default 0
-      %base_completion_price = core.get %model_info["completionTokenCostPer1M"] default 0
+      %standard_prompt_price = core.get %model_info["promptTokenCostPer1M"] default 0
+      %standard_completion_price = core.get %model_info["completionTokenCostPer1M"] default 0
+      %standard_cache_read_price = core.get %model_info["cacheReadTokenCostPer1M"] default %standard_prompt_price
+      %standard_cache_write_price = core.get %model_info["cacheWriteTokenCostPer1M"] default %standard_prompt_price
+      %service_tier_snake = core.get %tokens["service_tier"] default ""
+      %service_tier = core.get %tokens["serviceTier"] default %service_tier_snake
+      %empty_tier_pricing = core.map
+      %tier_pricing_snake = core.get %model_info["service_tier_pricing"] default %empty_tier_pricing
+      %tier_pricing_all = core.get %model_info["serviceTierPricing"] default %tier_pricing_snake
+      %tier_pricing = core.get %tier_pricing_all[%service_tier] default %empty_tier_pricing
+      %base_prompt_price = core.get %tier_pricing["promptTokenCostPer1M"] default %standard_prompt_price
+      %base_completion_price = core.get %tier_pricing["completionTokenCostPer1M"] default %standard_completion_price
       %prompt_price = core.let %base_prompt_price
       %completion_price = core.let %base_completion_price
-      %cache_read_price = core.get %model_info["cacheReadTokenCostPer1M"] default %base_prompt_price
-      %cache_write_price = core.get %model_info["cacheWriteTokenCostPer1M"] default %base_prompt_price
+      %cache_read_price = core.get %tier_pricing["cacheReadTokenCostPer1M"] default %standard_cache_read_price
+      %cache_write_price = core.get %tier_pricing["cacheWriteTokenCostPer1M"] default %standard_cache_write_price
       core.if %long_context {
-        %prompt_price = core.get %model_info["longContextPromptTokenCostPer1M"] default %base_prompt_price
-        %completion_price = core.get %model_info["longContextCompletionTokenCostPer1M"] default %base_completion_price
-        %cache_read_price = core.get %model_info["longContextCacheReadTokenCostPer1M"] default %cache_read_price
+        %standard_long_prompt = core.get %model_info["longContextPromptTokenCostPer1M"] default %standard_prompt_price
+        %standard_long_completion = core.get %model_info["longContextCompletionTokenCostPer1M"] default %standard_completion_price
+        %standard_long_cache_read = core.get %model_info["longContextCacheReadTokenCostPer1M"] default %standard_cache_read_price
+        %standard_long_cache_write = core.get %model_info["longContextCacheWriteTokenCostPer1M"] default %standard_cache_write_price
+        %tier_long_prompt = core.get %tier_pricing["longContextPromptTokenCostPer1M"] default %base_prompt_price
+        %tier_long_completion = core.get %tier_pricing["longContextCompletionTokenCostPer1M"] default %base_completion_price
+        %tier_long_cache_read = core.get %tier_pricing["longContextCacheReadTokenCostPer1M"] default %cache_read_price
+        %tier_long_cache_write = core.get %tier_pricing["longContextCacheWriteTokenCostPer1M"] default %cache_write_price
+        %has_tier_prompt = core.call intrinsic.map.contains(%tier_pricing, "promptTokenCostPer1M")
+        %has_tier_completion = core.call intrinsic.map.contains(%tier_pricing, "completionTokenCostPer1M")
+        %has_tier_cache_read = core.call intrinsic.map.contains(%tier_pricing, "cacheReadTokenCostPer1M")
+        %has_tier_cache_write = core.call intrinsic.map.contains(%tier_pricing, "cacheWriteTokenCostPer1M")
+        %prompt_price = core.let %standard_long_prompt
+        %completion_price = core.let %standard_long_completion
+        %cache_read_price = core.let %standard_long_cache_read
+        %cache_write_price = core.let %standard_long_cache_write
+        core.if %has_tier_prompt {
+          %prompt_price = core.let %tier_long_prompt
+        }
+        core.if %has_tier_completion {
+          %completion_price = core.let %tier_long_completion
+        }
+        core.if %has_tier_cache_read {
+          %cache_read_price = core.let %tier_long_cache_read
+        }
+        core.if %has_tier_cache_write {
+          %cache_write_price = core.let %tier_long_cache_write
+        }
+        %has_tier_long_prompt = core.call intrinsic.map.contains(%tier_pricing, "longContextPromptTokenCostPer1M")
+        %has_tier_long_completion = core.call intrinsic.map.contains(%tier_pricing, "longContextCompletionTokenCostPer1M")
+        %has_tier_long_cache_read = core.call intrinsic.map.contains(%tier_pricing, "longContextCacheReadTokenCostPer1M")
+        %has_tier_long_cache_write = core.call intrinsic.map.contains(%tier_pricing, "longContextCacheWriteTokenCostPer1M")
+        core.if %has_tier_long_prompt {
+          %prompt_price = core.let %tier_long_prompt
+        }
+        core.if %has_tier_long_completion {
+          %completion_price = core.let %tier_long_completion
+        }
+        core.if %has_tier_long_cache_read {
+          %cache_read_price = core.let %tier_long_cache_read
+        }
+        core.if %has_tier_long_cache_write {
+          %cache_write_price = core.let %tier_long_cache_write
+        }
       }
       core.if %fast {
-        %prompt_price = core.get %model_info["fastPromptTokenCostPer1M"] default %base_prompt_price
-        %completion_price = core.get %model_info["fastCompletionTokenCostPer1M"] default %base_completion_price
-        %cache_read_price = core.get %model_info["fastCacheReadTokenCostPer1M"] default %cache_read_price
-        %cache_write_price = core.get %model_info["fastCacheWriteTokenCostPer1M"] default %cache_write_price
+        %prompt_price = core.get %model_info["fastPromptTokenCostPer1M"] default %standard_prompt_price
+        %completion_price = core.get %model_info["fastCompletionTokenCostPer1M"] default %standard_completion_price
+        %cache_read_price = core.get %model_info["fastCacheReadTokenCostPer1M"] default %standard_cache_read_price
+        %cache_write_price = core.get %model_info["fastCacheWriteTokenCostPer1M"] default %standard_cache_write_price
       }
       %total_output = core.call intrinsic.add(%completion, %thoughts)
       %prompt_cost_raw = core.call intrinsic.mul(%prompt, %prompt_price)
@@ -3326,6 +3419,12 @@ module @ax.provider version "0.1" {
             %thinking_enabled = core.call intrinsic.or(%thinking_budget_enabled, %show_thoughts_enabled)
             core.set %features["thinking"] = %thinking_enabled
           }
+          %service_tiers_snake = core.get %supported["service_tiers"]
+          %service_tiers = core.get %supported["serviceTiers"] default %service_tiers_snake
+          %has_service_tiers = core.call intrinsic.is_not_none(%service_tiers)
+          core.if %has_service_tiers {
+            core.set %features["service_tiers"] = %service_tiers
+          }
         }
       }
       core.return %features
@@ -3594,6 +3693,85 @@ module @ax.provider version "0.1" {
     }
   }
 
+  op ax.provider.semantic @provider_apply_service_tier {
+    attr core_kind = "func"
+    attr effect = "throws"
+    attr emit_module = "ai"
+    attr private = true
+    tag "provider-profile-service-tier"
+    type signature = "(profile:string, payload:json, request:json, options:json, features:json, profile_rules:json, model_rules:json) -> json throws"
+    body @entry(%profile: string, %payload: json, %request: json, %options: json, %features: json, %profile_rules: json, %model_rules: json) {
+      %empty_map = core.map
+      %empty_list = core.list
+      %model_config_snake = core.get %request["model_config"] default %empty_map
+      %model_config = core.get %request["modelConfig"] default %model_config_snake
+      %payload_tier = core.get %payload["service_tier"]
+      %model_tier_snake = core.get %model_config["service_tier"]
+      %model_tier = core.get %model_config["serviceTier"] default %model_tier_snake
+      %option_tier_snake = core.get %options["service_tier"]
+      %option_tier = core.get %options["serviceTier"] default %option_tier_snake
+      %configured_tier = core.call intrinsic.coalesce(%model_tier, %payload_tier)
+      %requested_tier = core.call intrinsic.coalesce(%option_tier, %configured_tier)
+      core.call intrinsic.map.delete(%payload, "service_tier")
+      %has_tier = core.call intrinsic.is_not_none(%requested_tier)
+      core.if %has_tier {
+      } else {
+        core.return %payload
+      }
+      %normalized_tier = core.let %requested_tier
+      %is_default = core.call intrinsic.eq(%requested_tier, "default")
+      %is_on_demand = core.call intrinsic.eq(%requested_tier, "on_demand")
+      %is_standard_only = core.call intrinsic.eq(%requested_tier, "standard_only")
+      %default_or_on_demand = core.call intrinsic.or(%is_default, %is_on_demand)
+      %is_standard_alias = core.call intrinsic.or(%default_or_on_demand, %is_standard_only)
+      core.if %is_standard_alias {
+        %normalized_tier = core.let "standard"
+      }
+      %is_performance = core.call intrinsic.eq(%requested_tier, "performance")
+      core.if %is_performance {
+        %normalized_tier = core.let "priority"
+      }
+      %is_auto = core.call intrinsic.eq(%normalized_tier, "auto")
+      %supported_tiers = core.get %features["service_tiers"] default %empty_list
+      %is_supported = core.let false
+      core.for %supported_tier in %supported_tiers {
+        %tier_matches = core.call intrinsic.eq(%supported_tier, %normalized_tier)
+        core.if %tier_matches {
+          %is_supported = core.let true
+        }
+      }
+      %valid_tier = core.call intrinsic.or(%is_auto, %is_supported)
+      %invalid_tier = core.call intrinsic.not(%valid_tier)
+      core.if %invalid_tier {
+        %model = core.get %request["model"] default ""
+        %message = core.call intrinsic.string.format("service tier {} is not verified for profile {} model {}", %normalized_tier, %profile, %model)
+        %error = core.call intrinsic.ai.error.unsupported(%message)
+        core.raise %error
+      }
+      %profile_map = core.get %profile_rules["serviceTierMap"] default %empty_map
+      %model_map = core.get %model_rules["serviceTierMap"] default %empty_map
+      %mapping = core.let %profile_map
+      %model_has_mapping = core.call intrinsic.map.contains(%model_map, %normalized_tier)
+      core.if %model_has_mapping {
+        %mapping = core.let %model_map
+      }
+      %has_mapping = core.call intrinsic.map.contains(%mapping, %normalized_tier)
+      %mapped_tier = core.let %normalized_tier
+      core.if %has_mapping {
+        %mapped_tier = core.get %mapping[%normalized_tier]
+      } else {
+        core.if %is_auto {
+          %mapped_tier = core.call intrinsic.none()
+        }
+      }
+      %has_mapped_tier = core.call intrinsic.is_not_none(%mapped_tier)
+      core.if %has_mapped_tier {
+        core.set %payload["service_tier"] = %mapped_tier
+      }
+      core.return %payload
+    }
+  }
+
   op ax.provider.semantic @provider_build_chat_request {
     attr core_kind = "func"
     attr effect = "throws"
@@ -3643,6 +3821,7 @@ module @ax.provider version "0.1" {
       %model_rules = core.get %model_rule["request"] default %empty_rules
       %payload = core.call @provider_apply_request_rules(%payload, %request, %model_rules)
       %features = core.call @provider_resolve_features(%provider_id, %model, %options)
+      %payload = core.call @provider_apply_service_tier(%provider_id, %payload, %request, %options, %features, %profile_rules, %model_rules)
       %response_format = core.get %payload["response_format"] default %empty_rules
       %response_format_type = core.get %response_format["type"] default ""
       %is_json_schema = core.call intrinsic.eq(%response_format_type, "json_schema")
@@ -4555,7 +4734,8 @@ module @ax.provider version "0.1" {
       %results = core.list
       core.append %results, %result
       %raw_model = core.get %raw["model"] default %model
-      %usage = core.get %raw["usage"]
+      %raw_usage = core.get %raw["usage"]
+      %usage = core.call @openai_usage_with_service_tier(%raw, %raw_usage)
       %model_usage = core.call @ai_model_usage_impl(%ai_name, %raw_model, %usage)
       %out = core.map
       core.set %out["results"] = %results
@@ -4835,7 +5015,8 @@ module @ax.provider version "0.1" {
       %is_completed = core.call intrinsic.eq(%type, "response.completed")
       %usage = core.call intrinsic.none()
       core.if %is_completed {
-        %usage = core.get %event_response["usage"]
+        %raw_usage = core.get %event_response["usage"]
+        %usage = core.call @openai_usage_with_service_tier(%event_response, %raw_usage)
         core.set %result["finish_reason"] = "stop"
       }
       %results = core.list
@@ -5293,13 +5474,17 @@ module @ax.provider version "0.1" {
       %model_config = core.get %request["modelConfig"] default %model_config_snake
       %model_tier_snake = core.get %model_config["service_tier"]
       %service_tier = core.get %model_config["serviceTier"] default %model_tier_snake
-      %has_model_tier = core.call intrinsic.is_not_none(%service_tier)
-      core.if %has_model_tier {
-      } else {
+      %has_option_tier = core.call intrinsic.is_not_none(%option_tier)
+      core.if %has_option_tier {
         %service_tier = core.let %option_tier
       }
       %has_service_tier = core.call intrinsic.is_not_none(%service_tier)
       core.if %has_service_tier {
+        %is_auto = core.call intrinsic.eq(%service_tier, "auto")
+        core.if %is_auto {
+          %none = core.call intrinsic.none()
+          core.return %none
+        }
         core.if %vertex {
           %error = core.call intrinsic.ai.error.unsupported("Gemini inference service tiers are not supported by Vertex AI")
           core.raise %error

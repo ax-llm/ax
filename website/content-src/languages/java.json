@@ -168,8 +168,8 @@
         "code": [
           "GoogleGeminiClient client = new GoogleGeminiClient(Map.of(",
           "    \"api_key\", apiKey(),",
-          "    \"model\", System.getenv().getOrDefault(\"AX_GEMINI_MODEL\", \"gemini-3.7-flash\"),",
-          "    \"service_tier\", \"flex\"));"
+          "    \"model\", System.getenv().getOrDefault(\"AX_GEMINI_MODEL\", \"gemini-3.7-flash\")));",
+          "Map<String, Object> out = client.chat(request, Map.of(\"service_tier\", \"flex\"));"
         ]
       },
       "vertex": {

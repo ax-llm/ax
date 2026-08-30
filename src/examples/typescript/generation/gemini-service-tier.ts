@@ -19,7 +19,6 @@ const gemini = ai({
   apiKey,
   config: {
     model: AxAIGoogleGeminiModel.Gemini37Flash,
-    serviceTier: 'flex',
   },
 });
 
@@ -33,7 +32,7 @@ const result = await gemini.chat(
       },
     ],
   },
-  { stream: false }
+  { stream: false, serviceTier: 'flex' }
 );
 
 if (result instanceof ReadableStream) {

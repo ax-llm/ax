@@ -447,6 +447,20 @@ module @ax.ai version "0.1" {
       %service_tier = core.get %usage["serviceTier"] default %service_tier_snake
       %has_service_tier = core.call intrinsic.is_not_none(%service_tier)
       core.if %has_service_tier {
+        %is_default = core.call intrinsic.eq(%service_tier, "default")
+        %is_on_demand = core.call intrinsic.eq(%service_tier, "on_demand")
+        %is_standard_only = core.call intrinsic.eq(%service_tier, "standard_only")
+        %is_unspecified = core.call intrinsic.eq(%service_tier, "unspecified")
+        %standard_pair = core.call intrinsic.or(%is_default, %is_on_demand)
+        %standard_triple = core.call intrinsic.or(%standard_pair, %is_standard_only)
+        %is_standard_alias = core.call intrinsic.or(%standard_triple, %is_unspecified)
+        core.if %is_standard_alias {
+          %service_tier = core.let "standard"
+        }
+        %is_performance = core.call intrinsic.eq(%service_tier, "performance")
+        core.if %is_performance {
+          %service_tier = core.let "priority"
+        }
         core.set %out["service_tier"] = %service_tier
       }
       %speed = core.get %usage["speed"]

@@ -543,6 +543,44 @@ describe('AxBaseAI - Cost Estimation', () => {
     expect(costEntries[0]!.value).toBeCloseTo(0.07, 6);
   });
 
+  it('should estimate cost from the applied service tier', async () => {
+    const mockMeter = createMockMeter();
+    const ai = createCostTestAI(
+      [
+        {
+          name: 'model-tiered',
+          promptTokenCostPer1M: 2,
+          completionTokenCostPer1M: 8,
+          serviceTierPricing: {
+            priority: {
+              promptTokenCostPer1M: 4,
+              completionTokenCostPer1M: 16,
+              cacheReadTokenCostPer1M: 1,
+            },
+          },
+        } as AxModelInfo,
+      ],
+      {
+        promptTokens: 1000,
+        completionTokens: 500,
+        totalTokens: 2500,
+        cacheReadTokens: 1000,
+        serviceTier: 'priority',
+      },
+      mockMeter
+    );
+
+    await ai.chat(
+      { chatPrompt: [{ role: 'user', content: 'hi' }] },
+      { stream: false }
+    );
+
+    const costEntries =
+      mockMeter.counters.ax_llm_estimated_cost_total?.values ?? [];
+    expect(costEntries).toHaveLength(1);
+    expect(costEntries[0]!.value).toBeCloseTo(0.013, 6);
+  });
+
   it('should fall back to prompt rate when cache pricing is not configured', async () => {
     const mockMeter = createMockMeter();
     const ai = createCostTestAI(

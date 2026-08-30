@@ -61,6 +61,21 @@ describe('axNormalizeOpenAIUsage cache write tokens', () => {
       totalTokens: 5100,
     });
   });
+
+  it.each([
+    ['default', 'standard'],
+    ['on_demand', 'standard'],
+    ['performance', 'priority'],
+    ['flex', 'flex'],
+    ['batch', 'batch'],
+  ] as const)('normalizes applied service tier %s', (raw, expected) => {
+    expect(
+      axNormalizeOpenAIUsage(
+        { prompt_tokens: 1, completion_tokens: 1, total_tokens: 2 },
+        raw
+      )?.serviceTier
+    ).toBe(expected);
+  });
 });
 
 describe('cache write pricing', () => {

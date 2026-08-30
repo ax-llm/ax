@@ -2068,6 +2068,154 @@ const compatibleExpectedOutput = (
   },
 });
 
+for (const tierCase of [
+  {
+    name: 'profile-service-tier-openai-standard',
+    provider: 'openai',
+    model: profileDefaultModel('openai'),
+    url: 'https://api.openai.com/v1/chat/completions',
+    expected: 'default',
+  },
+  {
+    name: 'profile-service-tier-mistral-standard',
+    provider: 'mistral',
+    model: mistralDefaultModel,
+    url: 'https://api.mistral.ai/v1/chat/completions',
+    expected: 'standard_only',
+  },
+  {
+    name: 'profile-service-tier-groq-priority',
+    provider: 'groq',
+    model: 'openai/gpt-oss-120b',
+    url: 'https://api.groq.com/openai/v1/chat/completions',
+    requested: 'priority',
+    expected: 'performance',
+  },
+  {
+    name: 'profile-service-tier-openrouter-standard-omitted',
+    provider: 'openrouter',
+    model: 'openai/gpt-5-mini',
+    url: 'https://openrouter.ai/api/v1/chat/completions',
+    expected: null,
+  },
+] as const) {
+  const requested = tierCase.requested ?? 'standard';
+  writeFixture(tierCase.name, {
+    kind: 'ai_chat',
+    provider: tierCase.provider,
+    model: tierCase.model,
+    service_options: { serviceTier: requested },
+    request: {
+      chat_prompt: [{ role: 'user', content: 'use requested service tier' }],
+      model_config: { stream: false },
+    },
+    transport_responses: [
+      compatibleResponse(`chatcmpl_${tierCase.provider}_tier`, tierCase.model),
+    ],
+    expected_output: compatibleExpectedOutput(
+      tierCase.provider,
+      `chatcmpl_${tierCase.provider}_tier`,
+      tierCase.model
+    ),
+    expected_transport_request: {
+      method: 'POST',
+      url: tierCase.url,
+      json:
+        tierCase.expected === null ? {} : { service_tier: tierCase.expected },
+    },
+    ...(tierCase.expected === null
+      ? { expected_transport_json_absent: ['service_tier'] }
+      : {}),
+  });
+}
+
+writeFixture('profile-service-tier-unsupported-error', {
+  kind: 'ai_chat',
+  provider: 'anthropic',
+  model: anthropicDefaultModel,
+  service_options: { serviceTier: 'priority' },
+  request: {
+    chat_prompt: [{ role: 'user', content: 'use priority' }],
+    model_config: { stream: false },
+  },
+  expected_error_contains: 'service tier priority is not verified',
+});
+
+writeFixture('profile-service-tier-exact-model-opt-in', {
+  kind: 'ai_chat',
+  provider: 'openai-compatible',
+  model: 'custom-flex',
+  base_url: 'https://compatible.test/v1',
+  service_options: {
+    serviceTier: 'flex',
+    modelInfo: [
+      {
+        name: 'custom-flex',
+        supported: { serviceTiers: ['flex'] },
+      },
+    ],
+  },
+  request: {
+    chat_prompt: [{ role: 'user', content: 'use flex' }],
+    model_config: { stream: false },
+  },
+  transport_responses: [
+    compatibleResponse('chatcmpl_custom_flex', 'custom-flex'),
+  ],
+  expected_output: compatibleExpectedOutput(
+    'openai-compatible',
+    'chatcmpl_custom_flex',
+    'custom-flex'
+  ),
+  expected_transport_request: {
+    method: 'POST',
+    url: 'https://compatible.test/v1/chat/completions',
+    json: { service_tier: 'flex' },
+  },
+});
+
+writeFixture('profile-service-tier-response-normalization', {
+  kind: 'ai_chat',
+  provider: 'cerebras',
+  model: 'gpt-oss-120b',
+  service_options: { serviceTier: 'priority' },
+  request: {
+    chat_prompt: [{ role: 'user', content: 'use priority' }],
+    model_config: { stream: false },
+  },
+  transport_responses: [
+    {
+      status: 200,
+      json: {
+        ...compatibleResponse('chatcmpl_cerebras_tier', 'gpt-oss-120b').json,
+        service_tier_used: 'performance',
+      },
+    },
+  ],
+  expected_output: {
+    ...compatibleExpectedOutput(
+      'cerebras',
+      'chatcmpl_cerebras_tier',
+      'gpt-oss-120b'
+    ),
+    model_usage: {
+      ai: 'cerebras',
+      model: 'gpt-oss-120b',
+      tokens: {
+        prompt_tokens: 1,
+        completion_tokens: 2,
+        total_tokens: 3,
+        service_tier: 'priority',
+      },
+    },
+  },
+  expected_transport_request: {
+    method: 'POST',
+    url: 'https://api.cerebras.ai/v1/chat/completions',
+    json: { service_tier: 'priority' },
+  },
+});
+
 writeFixture('azure-openai-compatible-chat', {
   kind: 'ai_chat',
   provider: 'azure-openai',
@@ -6254,4 +6402,96 @@ writeFixture('openai-cache-write-usage-and-long-context-cost', {
     },
   },
   expected_estimated_cost: 0.10518,
+});
+
+writeFixture('openai-service-tier-long-context-cost-fallback', {
+  kind: 'ai_chat',
+  provider: 'openai',
+  model: 'custom-tier-pricing',
+  service_options: {
+    serviceTier: 'priority',
+    modelInfo: [
+      {
+        name: 'custom-tier-pricing',
+        promptTokenCostPer1M: 2,
+        completionTokenCostPer1M: 8,
+        cacheReadTokenCostPer1M: 0.5,
+        cacheWriteTokenCostPer1M: 2,
+        longContextThreshold: 1000,
+        longContextPromptTokenCostPer1M: 3,
+        longContextCompletionTokenCostPer1M: 12,
+        longContextCacheReadTokenCostPer1M: 0.75,
+        supported: { serviceTiers: ['priority'] },
+        serviceTierPricing: {
+          priority: {
+            promptTokenCostPer1M: 4,
+            completionTokenCostPer1M: 16,
+            cacheReadTokenCostPer1M: 1,
+            cacheWriteTokenCostPer1M: 5,
+          },
+        },
+      },
+    ],
+  },
+  request: {
+    chat_prompt: [{ role: 'user', content: 'price the applied tier' }],
+    model_config: { stream: false },
+  },
+  transport_responses: [
+    {
+      status: 200,
+      json: {
+        id: 'chatcmpl_tier_cost',
+        object: 'chat.completion',
+        model: 'custom-tier-pricing',
+        service_tier: 'priority',
+        choices: [
+          {
+            index: 0,
+            message: { role: 'assistant', content: 'ok', refusal: null },
+            finish_reason: 'stop',
+          },
+        ],
+        usage: {
+          prompt_tokens: 3000,
+          completion_tokens: 500,
+          total_tokens: 3500,
+          prompt_tokens_details: {
+            cached_tokens: 1000,
+            cache_write_tokens: 500,
+          },
+        },
+      },
+    },
+  ],
+  expected_output: {
+    results: [
+      {
+        index: 0,
+        id: '0',
+        content: 'ok',
+        function_calls: [],
+        finish_reason: 'stop',
+      },
+    ],
+    remote_id: 'chatcmpl_tier_cost',
+    model_usage: {
+      ai: 'openai',
+      model: 'custom-tier-pricing',
+      tokens: {
+        prompt_tokens: 1500,
+        completion_tokens: 500,
+        total_tokens: 3500,
+        cache_read_tokens: 1000,
+        cache_creation_tokens: 500,
+        service_tier: 'priority',
+      },
+    },
+  },
+  expected_transport_request: {
+    method: 'POST',
+    url: 'https://api.openai.com/v1/chat/completions',
+    json: { service_tier: 'priority' },
+  },
+  expected_estimated_cost: 0.0175,
 });

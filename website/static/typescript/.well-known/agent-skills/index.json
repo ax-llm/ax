@@ -6,91 +6,91 @@
       "type": "skill-md",
       "description": "This skill helps with using the @ax-llm/ax TypeScript library for building LLM applications. Use when the user asks about ax(), ai(), f(), s(), agent(), flow(), AxGen, AxAgent, AxFlow, signatures, streaming, or mentions @ax-llm/ax.",
       "url": "ax-llm/SKILL.md",
-      "digest": "sha256:2b1e7dc8b90269cabdca3665bc2c6400d2685870e76d82a991c82020579d5259"
+      "digest": "sha256:b089538505ea97ed023bd2db044e52098884dd62b778e892fc7370a96c62d642"
     },
     {
       "name": "ax-ai",
       "type": "skill-md",
       "description": "This skill helps an LLM generate correct AI provider setup and configuration code using @ax-llm/ax. Use when the user asks about ai(), providers, models, routing, adaptive balancing, presets, embeddings, batch audio with ai.transcribe() or ai.speak(), extended thinking, context caching, or mentions OpenAI/Anthropic/Google/Azure/DeepSeek/Mistral/Cohere/Reka/Grok with @ax-llm/ax.",
       "url": "ax-ai/SKILL.md",
-      "digest": "sha256:0377385716f427a34bf5d04cd6e24ebe58a9a4e568d2e2981ef59c10c851ab97"
+      "digest": "sha256:6ab085519f4e73b57a4953f0cf0b98bf1e1aaca076aa3c662c4fae19bb5fc287"
     },
     {
       "name": "ax-audio",
       "type": "skill-md",
       "description": "This skill helps an LLM generate correct audio code with @ax-llm/ax. Use when the user asks about ai.transcribe(), ai.speak(), signature audio inputs or outputs, agent audio behavior, .chat() conversational audio, OpenAI audio or realtime models, Gemini Live native audio, Grok Voice Agent models, voices, formats, transcripts, or how audio fits with structured outputs.",
       "url": "ax-audio/SKILL.md",
-      "digest": "sha256:4989db84b1c5608925431bf30629e74a335864c76dc93411231495eafe4b8065"
+      "digest": "sha256:9cd7ea5cf8a6c825b06aee525ec05527ecf4f0c2b790561ea5c678ca4d96d36c"
     },
     {
       "name": "ax-signature",
       "type": "skill-md",
       "description": "This skill helps an LLM generate correct DSPy signature code using @ax-llm/ax. Use when the user asks about signatures, s(), f(), field types, string syntax, fluent builder API, validation constraints, or type-safe inputs/outputs.",
       "url": "ax-signature/SKILL.md",
-      "digest": "sha256:981d7314a70cab679ebf25c6a7cb252b40c009b5c179fdbe2039f9a16e58ce52"
+      "digest": "sha256:7f37b57478e32894665b004fd77fa43bfa8b5ed49097afa470cb963fd6897674"
     },
     {
       "name": "ax-gen",
       "type": "skill-md",
       "description": "This skill helps an LLM generate correct AxGen code using @ax-llm/ax. Use when the user asks about ax(), AxGen, generators, forward(), streamingForward(), validation, assertions, streaming assertions, field processors, step hooks, self-tuning, or structured outputs. For MCP clients, transports, prompts, resources, tasks, subscriptions, or authentication use ax-mcp alongside this skill.",
       "url": "ax-gen/SKILL.md",
-      "digest": "sha256:f968f05b589dcc61b2b9abe0eb57d711d408ba88525fdf0c320bc6826414a625"
+      "digest": "sha256:faa34156ebb454542cf322849f7ba6a3dd0efa4c9e3696f42e7143da880041aa"
     },
     {
       "name": "ax-mcp",
       "type": "skill-md",
       "description": "This skill helps an LLM build correct native Model Context Protocol integrations with @ax-llm/ax. Use when the user asks about AxMCPClient, MCP transports, tools, prompts, resources, subscriptions, tasks, sampling, elicitation, roots, authentication, OAuth, MCP Apps, recording/replay, or MCP integration with AxGen, AxAgent, AxFlow, chat, optimization, and AxEventRuntime.",
       "url": "ax-mcp/SKILL.md",
-      "digest": "sha256:52cd6fbbb317c99803e207c7f28d22d8a8611d1041bed13de595f516a5e8c35f"
+      "digest": "sha256:f81fbe4bc8e56905ee2f1257e02d51bef4b9e7ee85824bc73958e4f9aa680630"
     },
     {
       "name": "ax-flow",
       "type": "skill-md",
       "description": "This skill helps an LLM generate correct AxFlow workflow code using @ax-llm/ax. Use when the user asks about flow(), AxFlow, workflow orchestration, parallel execution, DAG workflows, conditional routing, map/reduce patterns, or multi-node AI pipelines.",
       "url": "ax-flow/SKILL.md",
-      "digest": "sha256:fab5b14eba0c60c07fa7bd15240d98120f6fc3af2740b02dc919b9c68c200c4a"
+      "digest": "sha256:622bc8bb3ec7a15fd42d2e37016f5a67d9cce4add185cc80a6187e42079311ac"
     },
     {
       "name": "ax-agent",
       "type": "skill-md",
       "description": "This skill helps an LLM generate correct core AxAgent code using @ax-llm/ax. Use when the user asks about agent(), child agents, namespaced functions, discovery mode, clarification, bubbleErrors, host-side final/clarification protocol, or ordinary agent runtime behavior. For MCP clients, native runtime modules, subscriptions, tasks, or authentication use ax-mcp alongside this skill. For RLM/code-runtime work use ax-agent-rlm; for callbacks and telemetry use ax-agent-observability; for recall/memory/skill loading use ax-agent-memory-skills; for agent.optimize(...) use ax-agent-optimize.",
       "url": "ax-agent/SKILL.md",
-      "digest": "sha256:bc685bbba9ac853efc025418740eff56e48aade5afccd0efe393d56667246049"
+      "digest": "sha256:8a7d5c20823567c794538d1f9606c1efe58307473aa15ceaa2c7f6b1fad3038f"
     },
     {
       "name": "ax-agent-rlm",
       "type": "skill-md",
       "description": "This skill helps an LLM generate correct AxAgent RLM/runtime code using @ax-llm/ax. Use when the user asks about RLM code execution, AxJSRuntime, contextFields, contextPolicy, liveRuntimeState, promptLevel, stage prompt controls, executorModelPolicy, maxRuntimeChars, agent.test(...), llmQuery(...), recursionOptions, or long-running agent runtime behavior.",
       "url": "ax-agent-rlm/SKILL.md",
-      "digest": "sha256:e9e3f984b94c35c862b2579e07b4ab3debf052f2ab7870303b197bf51069bf0c"
+      "digest": "sha256:ba1597cabcfe9a41f6d0bae042a94baa19756593290b693abf46605844d78e60"
     },
     {
       "name": "ax-agent-memory-skills",
       "type": "skill-md",
       "description": "This skill helps an LLM generate correct AxAgent memory retrieval, context-map, and dynamic skill-loading code using @ax-llm/ax. Use when the user asks about contextMap, AxAgentContextMap, onMemoriesSearch, memoriesCatalog, recall(...), inputs.memories, onLoadedMemories, onUsedMemories, onSkillsSearch, skillsCatalog, AxAgentCatalogSkill, discover({ skills }), onLoadedSkills, onUsedSkills, preloaded skills, preloading memories at forward time, relevanceRanking hints, loaded memory/skill IDs, or carrying memories across forward() calls.",
       "url": "ax-agent-memory-skills/SKILL.md",
-      "digest": "sha256:7f86531a141462187b974fa6b08880edd01c9e5785c90b2efc14eb436bfa59f3"
+      "digest": "sha256:d06da09450f1bdef8ea587401082f3f12bc5fe8cd8e3689d079bb8c694d6ed42"
     },
     {
       "name": "ax-agent-observability",
       "type": "skill-md",
       "description": "This skill helps an LLM generate correct AxAgent observability code using @ax-llm/ax. Use when the user asks about axGlobals.onUsage, usageContext, centralized or multi-tenant usage accounting, actorTurnCallback, onContextEvent, agentStatusCallback, onFunctionCall, reportSuccess, reportFailure, getChatLog(), getUsage(), resetUsage(), debug traces, progress updates, or telemetry for AxAgent runs.",
       "url": "ax-agent-observability/SKILL.md",
-      "digest": "sha256:639cd414acaaad70f798aa7ec95bb510c2f37b36dcc31060ac083add7caf66c7"
+      "digest": "sha256:d18c51f71939924e0f68f4885726dfecb5f07c299de9c769ab4b97566ce3ba57"
     },
     {
       "name": "ax-agent-optimize",
       "type": "skill-md",
       "description": "This skill helps an LLM generate correct AxAgent tuning and evaluation code using @ax-llm/ax. Use when the user asks about agent.optimize(...), judgeOptions, eval datasets, optimization targets, saved optimizedProgram artifacts, or agent optimization guidance.",
       "url": "ax-agent-optimize/SKILL.md",
-      "digest": "sha256:259600165ab0d33f1e609ea6bf94bb629662cbf16334e003d5912642d6ebe240"
+      "digest": "sha256:3963c18d02ace34be8a20dcc1ac6f68c55e4da1b7712531f13da9beb0e502743"
     },
     {
       "name": "ax-agent-context",
       "type": "skill-md",
       "description": "This skill helps an LLM pick the right AxAgent context tool for a job - contextMap for recurring corpora, contextPolicy presets for within-run trajectory compaction, agent.optimize for offline GEPA instruction/demo tuning, agent.playbook for an evolving context playbook (offline evolve + online update), and recall/memories + skills for per-turn retrieval. Use when the user asks \"which context feature should I use\", confuses contextMap with contextPolicy or memory, or wants a decision guide for long-context agents. For contextPolicy/contextMap codegen use ax-agent-rlm; for recall/skills use ax-agent-memory-skills; for agent.optimize or agent.playbook use ax-agent-optimize.",
       "url": "ax-agent-context/SKILL.md",
-      "digest": "sha256:a7a9c01fb1aa1e6d9c6dcd36fc1902b581d19caa755ce3d90bb5da10f466ce18"
+      "digest": "sha256:83e3e5afaad3a6a4b7ff8b715bb0e7f1d4f96a3c80575d595c7bee43a180c846"
     },
     {
       "name": "ax-event-runtime",
@@ -104,21 +104,21 @@
       "type": "skill-md",
       "description": "This skill helps an LLM generate correct AxGEPA optimization code using @ax-llm/ax. Use when the user asks about AxGEPA, GEPA, Pareto optimization, multi-objective prompt tuning, reflective prompt evolution, validationExamples, maxMetricCalls, or optimizing a generator, flow, or agent tree.",
       "url": "ax-gepa/SKILL.md",
-      "digest": "sha256:d1bc6ab952ffa13892e5b108c5fceca6ad803a047637f1e269fe023a730bd305"
+      "digest": "sha256:dba5f9922a0bde376ab5577536c043ddbaaf0be3faa490ea84f5f419e186d045"
     },
     {
       "name": "ax-refine",
       "type": "skill-md",
       "description": "Use this skill when writing or reviewing Ax bestOfN/refine code, reward functions, thresholds, native sample selection, serial attempts, generated advice, and attempt diagnostics.",
       "url": "ax-refine/SKILL.md",
-      "digest": "sha256:57e7a628ad98f39742703bfe09c928c6f1345f739c41c8f82843f145d6514214"
+      "digest": "sha256:1fc798ff69c51a6d3bbb4629e4cabab11a8e6ca013e42878dc630cb0e6d5a8f0"
     },
     {
       "name": "ax-playbook",
       "type": "skill-md",
       "description": "This skill helps an LLM generate correct playbook code using @ax-llm/ax. Use when the user asks about playbook(), AxPlaybook, context playbooks, evolving context, ACE / Agentic Context Engineering, agent.playbook(), or growing/applying task knowledge offline and online with evolve() and update().",
       "url": "ax-playbook/SKILL.md",
-      "digest": "sha256:114a048a1cd86b6808c69421ca94d3a22112636c12408f31ad0f22a2a35c7791"
+      "digest": "sha256:f7bbfc2e62c36510aca7f315ba6a4195fa3c9ba77af01516283d6f32d7fee5cd"
     }
   ]
 }

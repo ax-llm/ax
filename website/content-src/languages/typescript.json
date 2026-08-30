@@ -519,11 +519,10 @@
           "const gemini = ai({",
           "  name: 'google-gemini',",
           "  apiKey,",
-          "  config: {",
-          "    model: AxAIGoogleGeminiModel.Gemini37Flash,",
-          "    serviceTier: 'flex',",
-          "  },",
-          "});"
+          "  config: { model: AxAIGoogleGeminiModel.Gemini37Flash },",
+          "});",
+          "",
+          "const response = await gemini.chat(request, { serviceTier: 'flex' });"
         ]
       },
       "balancer": {

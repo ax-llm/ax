@@ -2,6 +2,7 @@ import type { AxAIOpenAIResponsesConfig } from '@ax-llm/ax/index.js';
 import { getModelInfo } from '../../dsp/modelinfo.js';
 import type { AxAIFeatures } from '../base.js';
 import { AxBaseAI } from '../base.js';
+import { axNormalizeRequestedServiceTier } from '../service_tier.js';
 import type {
   AxAICredentialProvider,
   AxAIInputModelList,
@@ -146,7 +147,13 @@ export class AxAIOpenAIResponsesBase<
       TModel,
       TEmbedModel,
       TResponsesReq
-    >(config, options?.streamingUsage ?? true, responsesReqUpdater);
+    >(
+      config,
+      options?.streamingUsage ?? true,
+      options,
+      responsesReqUpdater,
+      supportFor
+    );
 
     // Normalize per-model presets: allow provider-specific config on each model list item
     const normalizedModels = (
@@ -207,6 +214,9 @@ export class AxAIOpenAIResponsesBase<
       }
       if ((cfg as any)?.thinking?.includeThoughts !== undefined) {
         out.showThoughts = !!(cfg as any).thinking.includeThoughts;
+      }
+      if (cfg.serviceTier !== undefined) {
+        out.serviceTier = axNormalizeRequestedServiceTier(cfg.serviceTier);
       }
 
       return out as typeof item;
@@ -345,6 +355,9 @@ export class AxAIOpenAIResponses<
         },
         thinking: false,
         multiTurn: true,
+        serviceTiers:
+          mi?.supported?.serviceTiers ??
+          (['standard', 'flex', 'priority'] as const),
       };
     };
 

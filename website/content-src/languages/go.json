@@ -165,10 +165,10 @@
         "requiresCredentials": true,
         "code": [
           "client := ax.NewAI(\"google-gemini\", map[string]ax.Value{",
-          "    \"api_key\":      geminiAPIKey(),",
-          "    \"model\":        model,",
-          "    \"service_tier\": \"flex\",",
-          "})"
+          "    \"api_key\": geminiAPIKey(),",
+          "    \"model\": model,",
+          "})",
+          "out, err := client.Chat(ctx, request, map[string]ax.Value{\"service_tier\": \"flex\"})"
         ]
       },
       "vertex": {

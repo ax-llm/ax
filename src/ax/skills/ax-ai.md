@@ -136,10 +136,13 @@ Filter with `{ type: 'all' | 'text' | 'embeddings' | 'code' | 'audio' }` or an a
 
 Dynamic providers such as Azure OpenAI deployments are marked with `isDynamic: true` and may have an empty or static-limited model list.
 
-## Gemini Inference Service Tiers
+## Portable Inference Service Tiers
 
-Gemini GenerateContent accepts `standard`, `flex`, and `priority` tiers. The
-applied tier is normalized into `response.modelUsage.tokens.serviceTier`.
+Use the shared `serviceTier` option with `auto`, `standard`, `flex`, or
+`priority`. Set it per call, as an instance option, or on a model-key preset;
+the narrower setting wins. `auto` delegates to the provider and is omitted
+when that provider has no explicit auto value. Ax rejects unsupported explicit
+tiers before transport.
 
 ```typescript
 import { ai, AxAIGoogleGeminiModel } from '@ax-llm/ax';
@@ -147,17 +150,28 @@ import { ai, AxAIGoogleGeminiModel } from '@ax-llm/ax';
 const gemini = ai({
   name: 'google-gemini',
   apiKey: process.env.GOOGLE_APIKEY!,
-  config: {
-    model: AxAIGoogleGeminiModel.Gemini35Flash,
-    serviceTier: 'flex',
-  },
+  config: { model: AxAIGoogleGeminiModel.Gemini35Flash },
 });
+
+const response = await gemini.chat(
+  { chatPrompt: [{ role: 'user', content: 'Run this when capacity is free.' }] },
+  { serviceTier: 'flex' },
+);
 ```
 
-Service tiers apply only to the Gemini GenerateContent API. Ax rejects them for
-Vertex AI and Gemini Live before opening a provider connection. Generated
-packages expose the same option using their native provider-options shape and
-normalize an `unspecified` provider response to `standard`.
+Inspect `ai.getFeatures(model).serviceTiers` for the verified tiers on a named
+profile or exact model. Named OpenAI, Gemini, Azure, Bedrock, Mistral, Groq,
+OpenRouter, DeepInfra, Cerebras, Grok, Databricks, and Fireworks profiles map
+the portable value to their provider dialect. Exact `modelInfo.supported`
+metadata can opt a conservative custom deployment into a tier.
+
+The applied provider value is normalized into
+`response.modelUsage.tokens.serviceTier`; aliases such as `default`,
+`on_demand`, and `performance` become `standard` or `priority`. Add
+`serviceTierPricing.flex` or `.priority` to `AxModelInfo` when tier pricing
+differs, and cost estimates will use the tier that actually served the request.
+Gemini service tiers remain GenerateContent-only: Vertex AI and Gemini Live
+reject explicit tiers. Anthropic `speed: 'fast'` remains a separate API.
 
 ## Routing And Balancing
 

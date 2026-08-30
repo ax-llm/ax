@@ -23,12 +23,12 @@ public final class GeminiServiceTierExample {
   public static void main(String[] args) throws Exception {
     GoogleGeminiClient client = new GoogleGeminiClient(Map.of(
         "api_key", apiKey(),
-        "model", System.getenv().getOrDefault("AX_GEMINI_MODEL", "gemini-3.7-flash"),
-        "service_tier", "flex"));
+        "model", System.getenv().getOrDefault("AX_GEMINI_MODEL", "gemini-3.7-flash")));
     Map<String, Object> out = client.chat(Map.of(
         "chat_prompt", List.of(Map.of(
             "role", "user",
-            "content", "Explain in one sentence why batch evaluations save time."))));
+            "content", "Explain in one sentence why batch evaluations save time."))),
+        Map.of("service_tier", "flex"));
     System.out.println(Json.stringify(out));
   }
 }

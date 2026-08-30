@@ -3449,7 +3449,9 @@ func (c *OpenAICompatibleClient) GetLastUsedModelConfig() Value {
 	return cloneValue(c.LastConfig)
 }
 func (c *OpenAICompatibleClient) GetEstimatedCost(usage map[string]Value) float64 {
-	return num(mustCore(provider_estimate_cost(usage)))
+	options := c.optionsSnapshot()
+	modelInfo := coreGet(options, "modelInfo", coreGet(options, "model_info", nil))
+	return num(mustCore(provider_estimate_cost(usage, modelInfo)))
 }
 
 func (c *OpenAICompatibleClient) optionsSnapshot() map[string]Value {
