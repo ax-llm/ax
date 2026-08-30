@@ -1,5 +1,22 @@
 # Changelog
 
+## [24.0.15](https://github.com/ax-llm/ax/compare/24.0.13...24.0.14) (2026-08-30)
+
+### Features
+
+* **ai:** standardize portable service tiers ([#633](https://github.com/ax-llm/ax/issues/633)) ([776e838](https://github.com/ax-llm/ax/commit/776e838b74ae42de138f139e9fdef854d7811910))
+
+### Bug Fixes
+
+* **event:** remove abort listener on normal resolution in AxInMemoryEventStore.waitForWork ([#632](https://github.com/ax-llm/ax/issues/632)) ([2e265a6](https://github.com/ax-llm/ax/commit/2e265a62a61ac3826ba2119dec50a5019d626e76))
+* **util:** prevent AxRateLimiterTokenUsage.acquire from hanging when a request exceeds maxTokens ([#631](https://github.com/ax-llm/ax/issues/631)) ([64d460f](https://github.com/ax-llm/ax/commit/64d460f7407378af02348d2fa6455f813cb5b5dc))
+
+## [24.0.14](https://github.com/ax-llm/ax/compare/24.0.13...24.0.14) (2026-08-29)
+
+### Bug Fixes
+
+* **axir:** preserve thoughts in chat logs ([#629](https://github.com/ax-llm/ax/issues/629)) ([813b042](https://github.com/ax-llm/ax/commit/813b04206ab91e04d19535b06eaebe0d6674d356))
+
 ## [24.0.14](https://github.com/ax-llm/ax/compare/24.0.12...24.0.13) (2026-08-29)
 
 ### Bug Fixes
