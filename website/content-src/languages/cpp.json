@@ -5,11 +5,26 @@
   "fence": "cpp",
   "packageName": "axllm",
   "install": [
+    "cmake_minimum_required(VERSION 3.20)",
+    "project(ax_quick_start LANGUAGES CXX)",
+    "set(CMAKE_CXX_STANDARD 17)",
+    "",
     "include(FetchContent)",
     "FetchContent_Declare(axllm GIT_REPOSITORY https://github.com/ax-llm/ax GIT_TAG main SOURCE_SUBDIR packages/cpp)",
     "FetchContent_MakeAvailable(axllm)",
-    "target_link_libraries(your_app PRIVATE axllm::axllm)"
+    "",
+    "add_executable(quick_start quick_start.cpp)",
+    "target_link_libraries(quick_start PRIVATE axllm::axllm)"
   ],
+  "quickStartRun": {
+    "file": "quick_start.cpp",
+    "setup": ["export OPENAI_API_KEY=\"sk-...\""],
+    "run": [
+      "cmake -S . -B build && cmake --build build",
+      "./build/quick_start"
+    ],
+    "output": ["sentiment: positive"]
+  },
   "exampleRoot": "packages/cpp/examples",
   "academy": {
     "unitExamples": {
@@ -112,9 +127,19 @@
     },
     "quickStart": [
       "#include <axllm/axllm.hpp>",
+      "#include <cstdlib>",
+      "#include <iostream>",
       "",
-      "auto llm = axllm::ai(\"openai\", axllm::object({{\"apiKey\", std::getenv(\"OPENAI_API_KEY\")}}));",
-      "auto classify = axllm::ax(\"review:string -> sentiment:class \\\"positive, negative, neutral\\\"\");"
+      "int main() {",
+      "  auto llm = axllm::ai(\"openai\", axllm::object({{\"apiKey\", std::getenv(\"OPENAI_API_KEY\")}}));",
+      "  auto classify = axllm::ax(\"review:string -> sentiment:class \\\"positive, negative, neutral\\\"\");",
+      "  auto result = classify.forward(*llm, axllm::object({",
+      "    {\"review\", \"Useful and boring in the best way.\"}",
+      "  }));",
+      "",
+      "  auto sentiment = axllm::Core::get(result, \"sentiment\");",
+      "  std::cout << \"sentiment: \" << std::get<std::string>(sentiment.data) << \"\\n\";",
+      "}"
     ],
     "dspy": [
       "auto qa = axllm::ax(\"question:string -> answer:string, confidence:number\");"

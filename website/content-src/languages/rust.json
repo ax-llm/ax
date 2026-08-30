@@ -5,6 +5,15 @@
   "fence": "rust",
   "packageName": "axllm",
   "install": ["cargo add axllm"],
+  "quickStartRun": {
+    "file": "src/main.rs",
+    "setup": [
+      "export OPENAI_API_KEY=\"sk-...\"",
+      "cargo new quickstart && cd quickstart && cargo add axllm serde_json"
+    ],
+    "run": ["cargo run"],
+    "output": ["sentiment: positive"]
+  },
   "exampleRoot": "packages/rust/examples",
   "academy": {
     "unitExamples": {
@@ -106,11 +115,19 @@
       ]
     },
     "quickStart": [
-      "use axllm::{ai, ax};",
+      "use axllm::{ai, ax, AxResult};",
       "use serde_json::json;",
       "",
-      "let llm = ai(\"openai\", json!({\"apiKey\": std::env::var(\"OPENAI_API_KEY\")?}))?;",
-      "let classify = ax(\"review:string -> sentiment:class \\\"positive, negative, neutral\\\"\")?;"
+      "fn main() -> AxResult<()> {",
+      "    let mut llm = ai(\"openai\", json!({\"apiKey\": std::env::var(\"OPENAI_API_KEY\")?}))?;",
+      "    let mut classify = ax(\"review:string -> sentiment:class \\\"positive, negative, neutral\\\"\")?;",
+      "    let result = classify.forward(&mut llm, json!({",
+      "        \"review\": \"Useful and boring in the best way.\"",
+      "    }))?;",
+      "",
+      "    println!(\"sentiment: {}\", result[\"sentiment\"].as_str().unwrap_or_default());",
+      "    Ok(())",
+      "}"
     ],
     "dspy": [
       "let qa = ax(\"question:string -> answer:string, confidence:number\")?;"
