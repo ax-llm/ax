@@ -20,14 +20,14 @@ description: "Stop prompting. Start programming. Typed signatures become reliabl
     <span><i class="home-proof-dot proof-green" aria-hidden="true"></i>Native in your language — six supported</span>
   </div>
   <div class="home-actions">
-    <a href="/typescript/quick-start/" data-home-lang-href="quick-start/">Get started</a>
+    <a href="/typescript/quick-start/" data-home-lang-href="quick-start/">Get started — 5 min</a>
     <a class="home-button-secondary" href="https://github.com/ax-llm/ax">GitHub</a>
     <div class="home-hero-stats" data-home-stats data-repo="ax-llm/ax" data-npm-package="@ax-llm/ax" aria-label="Project stats">
       <a href="https://github.com/ax-llm/ax" hidden><strong data-stat="stars"></strong><span>GitHub stars</span></a>
       <a href="https://www.npmjs.com/package/@ax-llm/ax" hidden><strong data-stat="downloads"></strong><span>npm downloads/week</span></a>
     </div>
   </div>
-  <p class="home-skills-note">Building with Claude Code or Cursor? <a href="/typescript/skills/" data-home-lang-href="skills/">Install the Ax skills</a> — your coding agent writes correct Ax in all six languages.</p>
+  <p class="home-skills-note">Coding with AI? <a href="/typescript/skills/" data-home-lang-href="skills/">Install the Ax skills</a> — Claude Code, Cursor, and other agents write correct Ax in all six languages.</p>
 </div>
 <div class="home-hero-panel" aria-label="Ax signature runtime preview">
   <div class="home-example-tabs" role="tablist" aria-label="Hero example">
@@ -54,7 +54,7 @@ description: "Stop prompting. Start programming. Typed signatures become reliabl
   <div>
     <p class="home-section-label">Ax Academy</p>
     <h2 id="home-academy-title">Learn Ax through an adaptive knowledge path.</h2>
-    <p>Start with a diagnostic, build mastery through short scaffolded lessons, and strengthen due concepts with interleaved spaced review. Progress stays in your browser.</p>
+    <p>A free course — about six hours end to end, entirely in your browser. Start with a diagnostic, build mastery through short scaffolded lessons, and strengthen due concepts with interleaved spaced review.</p>
     <div class="home-actions home-section-actions"><a href="/typescript/academy/" data-home-lang-href="academy/">Start Ax Academy</a></div>
   </div>
 </article>
@@ -64,7 +64,7 @@ description: "Stop prompting. Start programming. Typed signatures become reliabl
 <div class="home-section-heading">
   <p class="home-section-label">Get started</p>
   <h2 id="quick-install">Quick install</h2>
-  <p>One Ax programming model, six languages — pick yours and drop the package in.</p>
+  <p>Just want the package? One Ax programming model, six languages — pick yours and drop it in.</p>
 </div>
 <div class="home-quick-install-bar">
 {{< home-language-controls >}}
@@ -292,6 +292,41 @@ description: "Stop prompting. Start programming. Typed signatures become reliabl
 </div>
 </section>
 
+<section class="home-section home-graphjin" aria-labelledby="graphjin">
+<div class="home-section-heading">
+  <p class="home-section-label">Case study</p>
+  <h2 id="graphjin">GraphJin runs on Ax.</h2>
+  <p><a href="https://graphjin.com">GraphJin</a> — an automatic GraphQL-to-SQL engine from the same author — embeds the Ax Go agent <strong>in-process</strong> to connect databases and LLMs: <code>ax.NewAgent</code> plus a goja runtime with GraphJin's query engine registered as host tools. Rows never enter a prompt; the model writes small code steps against data the host owns.</p>
+</div>
+<div class="home-graphjin-layout">
+  <div class="home-graphjin-code">
+{{< home-code topic="graphjin" group="graphjin" compact="true" label="Embedded Ax agent" >}}
+  </div>
+  <div class="home-graphjin-copy">
+    <h3>AxAgent embeds into your tool the same way.</h3>
+    <p>Keep database access, permissions, and result rows inside your application process while Ax gives the model a typed agent boundary.</p>
+    <div class="home-badge-row">
+      <span>PostgreSQL</span><span>MySQL</span><span>SQLite</span><span>MongoDB</span><span>Snowflake</span>
+    </div>
+    <div class="home-actions home-section-actions">
+      <a href="https://graphjin.com">Explore GraphJin</a>
+      <a class="home-button-secondary" href="https://github.com/dosco/graphjin">GraphJin on GitHub</a>
+    </div>
+    <p class="home-inline-note">GraphJin also doubles as an MCP server, so any Ax agent can call it as an external tool. <a href="/typescript/concepts/mcp/">Read the MCP guide</a>.</p>
+  </div>
+</div>
+<div class="home-resource-row home-resource-row-tight">
+  <div>
+    <p class="home-section-label">In-process embedding</p>
+    <h3>Put the agent beside the system that owns the data.</h3>
+    <p>The host registers narrow query and schema functions in the runtime session. The executor operates on their results locally, while only bounded prompts and typed evidence cross the model boundary.</p>
+  </div>
+  <div>
+{{< svg "embedded-agent" "Ax agent embedded inside a host application" >}}
+  </div>
+</div>
+</section>
+
 <section class="home-section home-audio-section" aria-labelledby="audio">
 <div class="home-section-heading">
   <p class="home-section-label">Audio</p>
@@ -343,7 +378,7 @@ description: "Stop prompting. Start programming. Typed signatures become reliabl
 <div class="home-section-heading home-section-heading-wide">
   <p class="home-section-label">The full surface</p>
   <h2 id="included">Everything you need to build useful LLM systems.</h2>
-  <p>Every capability above hangs off the same signature contract. Start with a single typed generation call, then grow into tools, agents, voice, workflows, telemetry, optimization, and native packages without switching mental models.</p>
+  <p>Every capability above hangs off the same signature contract. Start with a single typed generation call, then grow into tools, agents, voice, workflows, telemetry, optimization, and native packages without switching mental models. New to Ax? <a href="/typescript/how-ax-fits-together/" data-home-lang-href="how-ax-fits-together/">See how the pieces fit together</a>.</p>
 </div>
 <div class="home-capability-grid">
   <article class="home-marketing-card">{{< home-icon "zap" "icon-blue" >}}<h3>Structured generation <span>ax()</span></h3><p>Declare typed inputs and outputs, then get parsed host values with streaming, validation, retries, and traces.</p></article>
@@ -445,30 +480,6 @@ description: "Stop prompting. Start programming. Typed signatures become reliabl
 </div>
 </section>
 
-<section class="home-section home-graphjin" aria-labelledby="graphjin">
-<div class="home-section-heading">
-  <p class="home-section-label">Also checkout</p>
-  <h2 id="graphjin">Connect AI agents to your database.</h2>
-  <p><a href="https://graphjin.com">GraphJin</a> compiles GraphQL to efficient SQL and doubles as an MCP server, giving Ax agents direct, governed access to application data.</p>
-</div>
-<div class="home-graphjin-layout">
-  <div class="home-graphjin-code">
-{{< home-code topic="graphjin" group="graphjin" compact="true" label="GraphJin MCP" >}}
-  </div>
-  <div class="home-graphjin-copy">
-    <h3>Use GraphJin as an MCP tool inside Ax agents.</h3>
-    <p>PostgreSQL, MySQL, SQLite, MongoDB, Oracle, MSSQL, and Snowflake can sit behind one data access layer for AI workflows.</p>
-    <div class="home-badge-row">
-      <span>PostgreSQL</span><span>MySQL</span><span>SQLite</span><span>MongoDB</span><span>Snowflake</span>
-    </div>
-    <div class="home-actions home-section-actions">
-      <a href="https://graphjin.com">Explore GraphJin</a>
-      <a class="home-button-secondary" href="https://github.com/dosco/graphjin">GitHub</a>
-    </div>
-  </div>
-</div>
-</section>
-
 <section class="home-section home-final-cta" aria-labelledby="get-started">
 <div class="home-section-heading">
   <p class="home-section-label">Start now</p>
@@ -477,6 +488,7 @@ description: "Stop prompting. Start programming. Typed signatures become reliabl
 </div>
 <div class="home-actions">
   <a href="/typescript/quick-start/">Get started</a>
+  <a class="home-button-secondary" href="/typescript/how-ax-fits-together/">How Ax fits together</a>
   <a class="home-button-secondary" href="/typescript/examples/">Examples</a>
   <a class="home-button-secondary" href="https://github.com/ax-llm/ax">GitHub</a>
   <a class="home-button-secondary" href="https://x.com/intent/follow?screen_name=dosco">Follow @dosco on X</a>

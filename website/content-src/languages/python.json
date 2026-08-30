@@ -5,6 +5,12 @@
   "fence": "python",
   "packageName": "axllm",
   "install": ["pip install axllm"],
+  "quickStartRun": {
+    "file": "classify.py",
+    "setup": ["export OPENAI_API_KEY=\"sk-...\""],
+    "run": ["python classify.py"],
+    "output": ["sentiment: positive"]
+  },
   "exampleRoot": "packages/python/examples",
   "academy": {
     "unitExamples": {
@@ -110,10 +116,16 @@
       ]
     },
     "quickStart": [
+      "import os",
       "from axllm import ai, ax",
       "",
       "llm = ai('openai', api_key=os.environ['OPENAI_API_KEY'])",
-      "classify = ax('review:string -> sentiment:class \"positive, negative, neutral\"')"
+      "classify = ax('review:string -> sentiment:class \"positive, negative, neutral\"')",
+      "result = classify.forward(llm, {",
+      "    'review': 'Useful and boring in the best way.',",
+      "})",
+      "",
+      "print('sentiment:', result['sentiment'])"
     ],
     "dspy": [
       "from axllm import ai, ax",

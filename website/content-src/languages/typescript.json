@@ -5,6 +5,12 @@
   "fence": "typescript",
   "packageName": "@ax-llm/ax",
   "install": ["npm install @ax-llm/ax"],
+  "quickStartRun": {
+    "file": "classify.ts",
+    "setup": ["export OPENAI_APIKEY=\"sk-...\""],
+    "run": ["npx tsx classify.ts"],
+    "output": ["sentiment: positive"]
+  },
   "exampleRoot": "src/examples",
   "academy": {
     "unitExamples": {
@@ -102,7 +108,9 @@
       "",
       "const result = await classify.forward(llm, {",
       "  review: 'Useful and boring in the best way.',",
-      "});"
+      "});",
+      "",
+      "console.log('sentiment:', result.sentiment);"
     ],
     "dspy": [
       "import { ai, ax } from '@ax-llm/ax';",

@@ -101,21 +101,26 @@ languages:
           config: { baseURL: "http://localhost:11434/v1" },
         });
     graphjin:
-      filename: ax-agent.ts
+      filename: embedded-agent.ts
       code: |
-        import { AxMCPClient, AxMCPHTTPSSETransport, agent } from "@ax-llm/ax";
+        import { AxJSRuntime, agent, fn } from "@ax-llm/ax";
 
-        const transport = new AxMCPHTTPSSETransport(
-          "http://localhost:8080/api/v1/mcp"
+        // GraphJin owns database access inside this process.
+        const query = fn("query")
+          .description("Run a governed GraphJin query")
+          .handler((args) => graphjin.query(args))
+          .build();
+
+        const analyst = agent(
+          "schema:string, question:string -> answer:string",
+          {
+            contextFields: ["schema"],
+            functions: [query],
+            runtime: new AxJSRuntime(),
+          }
         );
-        const mcp = new AxMCPClient(transport);
-        await mcp.init();
 
-        const dataAnalyst = agent({
-          name: "data-analyst",
-          signature: "question:string -> answer:string",
-          functions: mcp.toFunction(),
-        });
+        const result = await analyst.forward(llm, { schema, question });
     patterns:
       classification: ax("text:string -> category:class \"spam, ham, promo\"")
       extraction: ax("document:string -> names:string[], dates:date[]")
@@ -223,20 +228,26 @@ languages:
             "baseURL": "http://localhost:11434/v1"
         })
     graphjin:
-      filename: ax_agent.py
+      filename: embedded_agent.py
       code: |
         from axllm import agent
-        from axllm.mcp import MCPClient, HTTPSSETransport
+        from axllm.runtime_quickjs import AxQuickJsCodeRuntime
 
-        transport = HTTPSSETransport(
-            "http://localhost:8080/api/v1/mcp"
+        # GraphJin owns database access inside this process.
+        runtime = AxQuickJsCodeRuntime()
+        runtime.register_callable("query", graphjin.query)
+
+        analyst = agent(
+            "schema:string, question:string -> answer:string",
+            {
+                "contextFields": ["schema"],
+                "functions": [{"name": "query", "description": "Run a governed GraphJin query"}],
+                "runtime": {"language": "JavaScript"},
+            },
         )
-        mcp = MCPClient(transport)
-        mcp.init()
 
-        data_analyst = agent(
-            "question:string -> answer:string",
-            {"functions": mcp.to_functions()},
+        result = analyst.forward(
+            llm, {"schema": schema, "question": question}, {"runtime": runtime}
         )
     patterns:
       classification: ax('text:string -> category:class "spam, ham, promo"')
@@ -350,17 +361,27 @@ languages:
           "baseURL", "http://localhost:11434/v1"
         ));
     graphjin:
-      filename: AxAgent.java
+      filename: EmbeddedAgent.java
       code: |
-        var transport = new AxMCPHTTPSSETransport(
-          "http://localhost:8080/api/v1/mcp"
-        );
-        var mcp = new AxMCPClient(transport);
-        mcp.init();
+        // GraphJin owns database access inside this process.
+        var runtime = new AxQuickJsCodeRuntime();
+        runtime.registerCallable("query", graphjin::query);
 
-        var dataAnalyst = Ax.agent(
-          "question:string -> answer:string",
-          Map.of("functions", mcp.toFunctions())
+        var analyst = Ax.agent(
+          "schema:string, question:string -> answer:string",
+          Map.of(
+            "contextFields", List.of("schema"),
+            "functions", List.of(Map.of(
+              "name", "query",
+              "description", "Run a governed GraphJin query"
+            )),
+            "runtime", Map.of("language", "JavaScript")
+          )
+        );
+
+        var result = analyst.forward(
+          llm, Map.of("schema", schema, "question", question),
+          Map.of("runtime", runtime)
         );
     patterns:
       classification: Ax.ax("text:string -> category:class \"spam, ham, promo\"")
@@ -469,17 +490,29 @@ languages:
           {"baseURL", "http://localhost:11434/v1"}
         }));
     graphjin:
-      filename: ax_agent.cpp
+      filename: embedded_agent.cpp
       code: |
-        auto transport = axllm::MCPHTTPSSETransport(
-          "http://localhost:8080/api/v1/mcp"
-        );
-        auto mcp = axllm::MCPClient(transport);
-        mcp.init();
+        // GraphJin owns database access inside this process.
+        axllm::runtime::quickjs::QuickJsCodeRuntime runtime;
+        runtime.register_callable("query", [&graphjin](axllm::Value args) {
+          return graphjin.query(args);
+        });
 
-        auto data_analyst = axllm::agent(
-          "question:string -> answer:string",
-          axllm::object({{"functions", mcp.to_functions()}})
+        auto analyst = axllm::agent(
+          "schema:string, question:string -> answer:string",
+          axllm::object({
+            {"contextFields", axllm::array({"schema"})},
+            {"functions", axllm::array({axllm::object({
+              {"name", "query"},
+              {"description", "Run a governed GraphJin query"}
+            })})},
+            {"runtime", axllm::object({{"language", "JavaScript"}})}
+          })
+        );
+
+        auto result = analyst.forward(
+          llm, axllm::object({{"schema", schema}, {"question", question}}),
+          axllm::object({{"runtime", axllm::Core::code_runtime_ref(runtime)}})
         );
     patterns:
       classification: axllm::ax("text:string -> category:class \"spam, ham, promo\"")
@@ -594,19 +627,28 @@ languages:
           "baseURL": "http://localhost:11434/v1",
         })
     graphjin:
-      filename: ax_agent.go
+      filename: embedded_agent.go
       code: |
-        transport := ax.NewMCPHTTPSSETransport(
-          "http://localhost:8080/api/v1/mcp",
+        // GraphJin owns database access inside this process.
+        runtime := axgoja.NewRuntime(
+          axgoja.WithCallable("query", queryTool),
         )
-        mcp := ax.NewMCPClient(transport)
-        err := mcp.Init(ctx)
 
-        dataAnalyst := ax.NewAgent(
-          "question:string -> answer:string",
+        analyst := ax.NewAgent(
+          "schema:string, question:string -> answer:string",
           map[string]ax.Value{
-            "functions": mcp.ToFunctions(),
+            "contextFields": ax.Array("schema"),
+            "functions": ax.Array(ax.Object(
+              "name", "query",
+              "description", "Run a governed GraphJin query",
+            )),
           },
+        )
+
+        result, err := analyst.Forward(
+          ctx, llm,
+          map[string]ax.Value{"schema": schema, "question": question},
+          map[string]ax.Value{"runtime": runtime},
         )
     patterns:
       classification: ax.NewAx("text:string -> category:class \"spam, ham, promo\"", nil)
@@ -717,17 +759,29 @@ languages:
           "baseURL": "http://localhost:11434/v1"
         }))?;
     graphjin:
-      filename: ax_agent.rs
+      filename: embedded_agent.rs
       code: |
-        let transport = MCPHTTPSSETransport::new(
-          "http://localhost:8080/api/v1/mcp"
-        );
-        let mut mcp = MCPClient::new(transport);
-        mcp.init().await?;
+        // GraphJin owns database access inside this process.
+        let mut runtime = QuickJsCodeRuntime::new();
+        runtime.register_callable("query", move |args| {
+          graphjin.query(args)
+        })?;
 
-        let mut data_analyst = agent(
-          "question:string -> answer:string"
-        )?.with_functions(mcp.to_functions());
+        let mut analyst = agent_with_options(
+          "schema:string, question:string -> answer:string",
+          json!({
+            "contextFields": ["schema"],
+            "functions": [{
+              "name": "query",
+              "description": "Run a governed GraphJin query"
+            }],
+            "runtime": {"language": "JavaScript"}
+          })
+        )?.with_runtime(Box::new(runtime))?;
+
+        let result = analyst.forward(
+          &mut llm, json!({"schema": schema, "question": question})
+        )?;
     patterns:
       classification: ax("text:string -> category:class \"spam, ham, promo\"")?
       extraction: ax("document:string -> names:string[], dates:date[]")?

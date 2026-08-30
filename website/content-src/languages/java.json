@@ -6,14 +6,26 @@
   "packageName": "dev.axllm:ax",
   "install": [
     "// Gradle (build.gradle):",
-    "implementation 'dev.axllm:ax:22.0.4'",
+    "implementation 'dev.axllm:ax:24.0.15'",
     "// Maven (pom.xml):",
     "<dependency>",
     "  <groupId>dev.axllm</groupId>",
     "  <artifactId>ax</artifactId>",
-    "  <version>22.0.4</version>",
+    "  <version>24.0.15</version>",
     "</dependency>"
   ],
+  "quickStartRun": {
+    "file": "QuickStart.java",
+    "setup": [
+      "export OPENAI_API_KEY=\"sk-...\"",
+      "mvn dependency:copy -Dartifact=dev.axllm:ax:24.0.15 -DoutputDirectory=."
+    ],
+    "run": [
+      "javac -cp ax-24.0.15.jar QuickStart.java",
+      "java -cp \".:ax-24.0.15.jar\" QuickStart"
+    ],
+    "output": ["sentiment: positive"]
+  },
   "exampleRoot": "packages/java/examples",
   "academy": {
     "unitExamples": {
@@ -112,9 +124,19 @@
     },
     "quickStart": [
       "import dev.axllm.ax.Ax;",
+      "import java.util.Map;",
       "",
-      "var llm = Ax.ai(\"openai\", Map.of(\"apiKey\", System.getenv(\"OPENAI_API_KEY\")));",
-      "var classify = Ax.ax(\"review:string -> sentiment:class \\\"positive, negative, neutral\\\"\");"
+      "public class QuickStart {",
+      "  public static void main(String[] args) throws Exception {",
+      "    var llm = Ax.ai(\"openai\", Map.of(\"apiKey\", System.getenv(\"OPENAI_API_KEY\")));",
+      "    var classify = Ax.ax(\"review:string -> sentiment:class \\\"positive, negative, neutral\\\"\");",
+      "    var result = classify.forward(llm, Map.of(",
+      "      \"review\", \"Useful and boring in the best way.\"",
+      "    ));",
+      "",
+      "    System.out.println(\"sentiment: \" + result.get(\"sentiment\"));",
+      "  }",
+      "}"
     ],
     "dspy": [
       "var qa = Ax.ax(\"question:string -> answer:string, confidence:number\");"

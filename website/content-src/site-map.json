@@ -27,10 +27,22 @@
           "description": "Install Ax and run a typed LLM program."
         },
         {
+          "slug": "how-ax-fits-together",
+          "title": "How Ax Fits Together",
+          "template": "how-ax-fits-together",
+          "description": "The Ax stack on one page: signatures, ai(), ax(), flow(), agent(), optimizers, and the AxIR compiler — and how they compose."
+        },
+        {
           "slug": "advanced-start",
           "title": "Advanced Start",
           "template": "advanced-start",
           "description": "Follow the Ax story through selected runnable examples."
+        },
+        {
+          "slug": "faq",
+          "title": "FAQ",
+          "template": "faq",
+          "description": "Plain-English answers to common Ax questions, plus a glossary: DSPy, GEPA, ACE, RLM, PEEK, AxIR."
         }
       ]
     },

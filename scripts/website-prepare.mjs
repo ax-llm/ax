@@ -378,7 +378,9 @@ async function writeExampleGroupPages(language, navPages) {
 
 function sectionNavForPage(page) {
   if (page.slug === 'quick-start') return 'quick-start';
+  if (page.slug === 'how-ax-fits-together') return 'quick-start';
   if (page.slug === 'advanced-start') return 'quick-start';
+  if (page.slug === 'faq') return 'quick-start';
   if (page.slug.startsWith('examples')) return 'examples';
   if (page.slug === 'skills') return 'skills';
   return page.group;
@@ -409,6 +411,10 @@ async function renderContext(language, page) {
     skillInstallCommand: skillInstallCommand(language),
     skillList: skillList(inventory.languageSkills[language.id] ?? [], language),
     skillSource: skillSource(language),
+    quickStartFile: language.quickStartRun.file,
+    quickStartSetup: language.quickStartRun.setup.join('\n'),
+    quickStartRunCommand: language.quickStartRun.run.join('\n'),
+    quickStartOutput: language.quickStartRun.output.join('\n'),
     quickStartCode: lines(snippets.quickStart),
     dspyCode: lines(snippets.dspy ?? snippets.quickStart),
     signatureCode: lines(snippets.signature),

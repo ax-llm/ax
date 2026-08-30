@@ -8,9 +8,17 @@ Ax gives {{language}} one typed contract for LLM programs: signatures for data s
 {{install}}
 ```
 
+## Set Your API Key
+
+The first program uses OpenAI. Export the key in the same terminal where you will run it.
+
+```{{shellFence}}
+{{quickStartSetup}}
+```
+
 ## First Program
 
-Start with a small typed task. The signature declares the fields the model receives and the fields Ax must parse back out.
+Start with a small typed task. The signature declares the fields the model receives and the fields Ax must parse back out. Save this as `{{quickStartFile}}`.
 
 ```{{fence}}
 {{quickStartCode}}
@@ -31,6 +39,20 @@ flowchart LR
   D --> E["Typed output"]
 ```
 
+## Run It
+
+```{{shellFence}}
+{{quickStartRunCommand}}
+```
+
+You should see:
+
+```text
+{{quickStartOutput}}
+```
+
+The model's wording can vary, but the declared class shape is guaranteed.
+
 The rest of the site keeps the same concepts but swaps install commands, imports, examples, and API names for {{language}}.
 
 ## Where To Go Next
@@ -40,6 +62,8 @@ Use [Examples]({{langRoot}}/examples/) when you want runnable files. Use [Concep
 ## What To Read Next
 
 - [Examples]({{langRoot}}/examples/)
+- [How Ax fits together]({{langRoot}}/how-ax-fits-together/)
+- [FAQ]({{langRoot}}/faq/)
 - [DSPy concepts]({{langRoot}}/concepts/dspy/)
 - [ai() LLM models]({{langRoot}}/subsystems/ai/)
 - [ax() generation]({{langRoot}}/subsystems/ax/)

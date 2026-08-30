@@ -5,6 +5,15 @@
   "fence": "go",
   "packageName": "github.com/ax-llm/ax/packages/go",
   "install": ["go get github.com/ax-llm/ax/packages/go"],
+  "quickStartRun": {
+    "file": "main.go",
+    "setup": [
+      "export OPENAI_API_KEY=\"sk-...\"",
+      "go mod init quickstart && go get github.com/ax-llm/ax/packages/go"
+    ],
+    "run": ["go run ."],
+    "output": ["sentiment: positive"]
+  },
   "exampleRoot": "packages/go/examples",
   "academy": {
     "unitExamples": {
@@ -107,10 +116,28 @@
       ]
     },
     "quickStart": [
-      "import axllm \"github.com/ax-llm/ax/packages/go\"",
+      "package main",
       "",
-      "client := axllm.NewAI(\"openai\", map[string]axllm.Value{\"apiKey\": os.Getenv(\"OPENAI_API_KEY\")})",
-      "classify := axllm.NewAx(\"review:string -> sentiment:class \\\"positive, negative, neutral\\\"\", nil)"
+      "import (",
+      "    \"context\"",
+      "    \"fmt\"",
+      "    \"os\"",
+      "",
+      "    axllm \"github.com/ax-llm/ax/packages/go\"",
+      ")",
+      "",
+      "func main() {",
+      "    client := axllm.NewAI(\"openai\", map[string]axllm.Value{\"apiKey\": os.Getenv(\"OPENAI_API_KEY\")})",
+      "    classify := axllm.NewAx(\"review:string -> sentiment:class \\\"positive, negative, neutral\\\"\", nil)",
+      "    result, err := classify.Forward(context.Background(), client, map[string]axllm.Value{",
+      "        \"review\": \"Useful and boring in the best way.\"",
+      "    }, nil)",
+      "    if err != nil {",
+      "        panic(err)",
+      "    }",
+      "",
+      "    fmt.Println(\"sentiment:\", result.(map[string]axllm.Value)[\"sentiment\"])",
+      "}"
     ],
     "dspy": [
       "qa := axllm.NewAx(\"question:string -> answer:string, confidence:number\", nil)"

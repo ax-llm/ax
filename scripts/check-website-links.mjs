@@ -942,6 +942,7 @@ function collectQualityFailures(rel, html, failures) {
       'production-loop',
       'mcp-bridge',
       'provider-router',
+      'embedded-agent',
     ]) {
       if (!html.includes(`/svg/${svg}.svg`)) {
         failures.push(`${rel}: homepage missing static SVG ${svg}`);
@@ -1099,6 +1100,7 @@ function collectQualityFailures(rel, html, failures) {
     const compilerIndex = html.indexOf('home-compiler-section');
     const agentIndex = html.indexOf('home-agent-section');
     const graphjinIndex = html.indexOf('home-graphjin');
+    const audioIndex = html.indexOf('home-audio-section');
     const finalCtaIndex = html.indexOf('home-final-cta');
     if (
       codeStoryIndex < 0 ||
@@ -1114,12 +1116,21 @@ function collectQualityFailures(rel, html, failures) {
     }
     if (
       graphjinIndex < 0 ||
+      graphjinIndex < agentIndex ||
+      audioIndex < 0 ||
+      graphjinIndex > audioIndex ||
       finalCtaIndex < 0 ||
       graphjinIndex > finalCtaIndex
     ) {
       failures.push(
-        `${rel}: homepage final CTA must close the page after GraphJin`
+        `${rel}: homepage must place GraphJin after agents and before audio`
       );
+    }
+    if (!html.includes('GraphJin runs on Ax')) {
+      failures.push(`${rel}: homepage missing GraphJin case-study heading`);
+    }
+    if (html.includes('Also checkout')) {
+      failures.push(`${rel}: homepage still uses the old GraphJin cross-promo`);
     }
     if (countOccurrences(html, 'language-mark-') < 6) {
       failures.push(`${rel}: homepage missing language logo marks`);
@@ -1238,13 +1249,13 @@ function isApiPage(rel) {
 }
 
 function isTocExpectedPage(rel) {
-  return /^(?:typescript|python|java|cpp|go|rust)\/(?:quick-start|advanced-start|examples(?:\/[^/]+)?|concepts\/[^/]+|subsystems\/[^/]+)\/index\.html$/.test(
+  return /^(?:typescript|python|java|cpp|go|rust)\/(?:quick-start|how-ax-fits-together|advanced-start|faq|examples(?:\/[^/]+)?|concepts\/[^/]+|subsystems\/[^/]+)\/index\.html$/.test(
     rel
   );
 }
 
 function isMermaidExpectedPage(rel) {
-  return /^(?:typescript|python|java|cpp|go|rust)\/(?:quick-start|agents(?:\/(?:standard|long-horizon|internals))?|concepts\/(?:dspy|signatures|tools|llms|mcp|optimization|telemetry)|subsystems\/(?:ai|ax|s|flow|optimize))\/index\.html$/.test(
+  return /^(?:typescript|python|java|cpp|go|rust)\/(?:quick-start|how-ax-fits-together|agents(?:\/(?:standard|long-horizon|internals))?|concepts\/(?:dspy|signatures|tools|llms|mcp|optimization|telemetry)|subsystems\/(?:ai|ax|s|flow|optimize))\/index\.html$/.test(
     rel
   );
 }
