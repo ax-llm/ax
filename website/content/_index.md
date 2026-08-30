@@ -49,14 +49,14 @@ description: "Stop prompting. Start programming. Typed signatures become reliabl
 </div>
 
 <section class="home-section home-academy-cta" aria-labelledby="home-academy-title">
-<article class="home-marketing-card">
+<article class="home-editorial-callout">
 {{< home-icon "list-checks" "icon-violet" >}}
-  <div>
+  <div class="home-editorial-callout-copy">
     <p class="home-section-label">Ax Academy</p>
     <h2 id="home-academy-title">Learn Ax through an adaptive knowledge path.</h2>
     <p>A free course — about six hours end to end, entirely in your browser. Start with a diagnostic, build mastery through short scaffolded lessons, and strengthen due concepts with interleaved spaced review.</p>
-    <div class="home-actions home-section-actions"><a href="/typescript/academy/" data-home-lang-href="academy/">Start Ax Academy</a></div>
   </div>
+  <div class="home-actions home-editorial-callout-actions"><a href="/typescript/academy/" data-home-lang-href="academy/">Start Ax Academy</a></div>
 </article>
 </section>
 
@@ -78,7 +78,7 @@ description: "Stop prompting. Start programming. Typed signatures become reliabl
 </div>
 </section>
 
-<section class="home-section home-code-story" aria-labelledby="why-signatures">
+<section class="home-section home-code-story home-chapter-start" aria-labelledby="why-signatures">
 <div class="home-section-heading">
   <p class="home-section-label">Why signatures?</p>
   <h2 id="why-signatures">Describe the input and output. Ax handles the model call.</h2>
@@ -239,17 +239,17 @@ description: "Stop prompting. Start programming. Typed signatures become reliabl
 </div>
 </section>
 
-<section class="home-section home-agent-section" aria-labelledby="agents-that-work">
+<section class="home-section home-agent-section home-chapter-start" aria-labelledby="agents-that-work">
 <div class="home-section-heading home-agent-heading">
   <p class="home-section-label">Agents</p>
   <h2 id="agents-that-work">One agent harness, every size of job.</h2>
   <p>The design bet: <strong>the model computes on your data instead of reading it.</strong> Bulky inputs live in a runtime session; the agent writes small code steps against them; only compact evidence enters the prompt — so prompts stay bounded at any data size and small, cheap models stay exact. Typed signatures define the job, discovery loads only the schemas the next action needs, and built-in memory, skills, child agents, telemetry, and <code>agent.optimize(...)</code> make it practical to operate.</p>
   <p>Proof you can run: in the <a href="https://github.com/ax-llm/ax/blob/main/src/examples/agent-grounded-audit.ts">grounded-audit example</a>, a small Flash model audits a 250-row ledger it never sees in its prompt and reproduces the exact answer — total to the cent, count, and the full flagged-transaction list — verified against ground truth computed in plain code. <a href="/typescript/agents/performance/">See the measurements</a>.</p>
 </div>
-<div class="home-card-grid three-up">
-  <article class="home-marketing-card">{{< home-icon "zap" "icon-blue" >}}<h3>Micro</h3><p>One signature, a few tools, a typed reply. Zero config still runs the full harness — runtime session included.</p><p><a href="/typescript/agents/micro/">Micro agents</a></p></article>
-  <article class="home-marketing-card">{{< home-icon "bot" "icon-teal" >}}<h3>Standard</h3><p>Namespaced tool catalogs, specialist child agents, structured outputs, and clarification instead of guessing.</p><p><a href="/typescript/agents/standard/">Standard agents</a></p></article>
-  <article class="home-marketing-card">{{< home-icon "brain" "icon-green" >}}<h3>Long-horizon</h3><p>Large context by reference, context policies, memory, skills, and offline optimization for runs that keep going.</p><p><a href="/typescript/agents/long-horizon/">Long-horizon agents</a></p></article>
+<div class="home-card-grid three-up home-agent-tier-grid">
+  <article class="home-marketing-card home-agent-tier-card">{{< home-icon "zap" "icon-blue" >}}<h3>Micro</h3><p>One signature, a few tools, a typed reply. Zero config still runs the full harness — runtime session included.</p><p><a href="/typescript/agents/micro/">Micro agents</a></p></article>
+  <article class="home-marketing-card home-agent-tier-card">{{< home-icon "bot" "icon-teal" >}}<h3>Standard</h3><p>Namespaced tool catalogs, specialist child agents, structured outputs, and clarification instead of guessing.</p><p><a href="/typescript/agents/standard/">Standard agents</a></p></article>
+  <article class="home-marketing-card home-agent-tier-card">{{< home-icon "brain" "icon-green" >}}<h3>Long-horizon</h3><p>Large context by reference, context policies, memory, skills, and offline optimization for runs that keep going.</p><p><a href="/typescript/agents/long-horizon/">Long-horizon agents</a></p></article>
 </div>
 <div class="home-agent-code">
 {{< home-code topic="agent" group="agent" >}}
@@ -374,7 +374,7 @@ description: "Stop prompting. Start programming. Typed signatures become reliabl
 </div>
 </section>
 
-<section class="home-section" aria-labelledby="included">
+<section class="home-section home-chapter-start" aria-labelledby="included">
 <div class="home-section-heading home-section-heading-wide">
   <p class="home-section-label">The full surface</p>
   <h2 id="included">Everything you need to build useful LLM systems.</h2>

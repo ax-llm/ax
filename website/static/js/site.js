@@ -600,19 +600,6 @@ if (homeLanguageRoot) {
   }
 }
 
-const homeLanguageBar = document.querySelector('[data-home-language-bar]');
-if (homeLanguageBar && 'IntersectionObserver' in window) {
-  const sentinel = document.createElement('div');
-  sentinel.setAttribute('aria-hidden', 'true');
-  homeLanguageBar.before(sentinel);
-  new IntersectionObserver(
-    ([entry]) => {
-      homeLanguageBar.classList.toggle('is-stuck', !entry.isIntersecting);
-    },
-    { rootMargin: '-68px 0px 0px 0px' }
-  ).observe(sentinel);
-}
-
 const searchRoot = document.querySelector('[data-site-search]');
 const searchInput = searchRoot?.querySelector('[data-search-input]');
 const searchResults = searchRoot?.querySelector('[data-search-results]');
