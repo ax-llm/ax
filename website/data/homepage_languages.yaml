@@ -100,27 +100,6 @@ languages:
           name: "openai",
           config: { baseURL: "http://localhost:11434/v1" },
         });
-    graphjin:
-      filename: embedded-agent.ts
-      code: |
-        import { AxJSRuntime, agent, fn } from "@ax-llm/ax";
-
-        // GraphJin owns database access inside this process.
-        const query = fn("query")
-          .description("Run a governed GraphJin query")
-          .handler((args) => graphjin.query(args))
-          .build();
-
-        const analyst = agent(
-          "schema:string, question:string -> answer:string",
-          {
-            contextFields: ["schema"],
-            functions: [query],
-            runtime: new AxJSRuntime(),
-          }
-        );
-
-        const result = await analyst.forward(llm, { schema, question });
     patterns:
       classification: ax("text:string -> category:class \"spam, ham, promo\"")
       extraction: ax("document:string -> names:string[], dates:date[]")
@@ -227,28 +206,6 @@ languages:
         local = ai("openai", {
             "baseURL": "http://localhost:11434/v1"
         })
-    graphjin:
-      filename: embedded_agent.py
-      code: |
-        from axllm import agent
-        from axllm.runtime_quickjs import AxQuickJsCodeRuntime
-
-        # GraphJin owns database access inside this process.
-        runtime = AxQuickJsCodeRuntime()
-        runtime.register_callable("query", graphjin.query)
-
-        analyst = agent(
-            "schema:string, question:string -> answer:string",
-            {
-                "contextFields": ["schema"],
-                "functions": [{"name": "query", "description": "Run a governed GraphJin query"}],
-                "runtime": {"language": "JavaScript"},
-            },
-        )
-
-        result = analyst.forward(
-            llm, {"schema": schema, "question": question}, {"runtime": runtime}
-        )
     patterns:
       classification: ax('text:string -> category:class "spam, ham, promo"')
       extraction: ax("document:string -> names:string[], dates:date[]")
@@ -360,29 +317,6 @@ languages:
         var local = Ax.ai("openai", Map.of(
           "baseURL", "http://localhost:11434/v1"
         ));
-    graphjin:
-      filename: EmbeddedAgent.java
-      code: |
-        // GraphJin owns database access inside this process.
-        var runtime = new AxQuickJsCodeRuntime();
-        runtime.registerCallable("query", graphjin::query);
-
-        var analyst = Ax.agent(
-          "schema:string, question:string -> answer:string",
-          Map.of(
-            "contextFields", List.of("schema"),
-            "functions", List.of(Map.of(
-              "name", "query",
-              "description", "Run a governed GraphJin query"
-            )),
-            "runtime", Map.of("language", "JavaScript")
-          )
-        );
-
-        var result = analyst.forward(
-          llm, Map.of("schema", schema, "question", question),
-          Map.of("runtime", runtime)
-        );
     patterns:
       classification: Ax.ax("text:string -> category:class \"spam, ham, promo\"")
       extraction: Ax.ax("document:string -> names:string[], dates:date[]")
@@ -489,31 +423,6 @@ languages:
         auto local = axllm::ai("openai", axllm::object({
           {"baseURL", "http://localhost:11434/v1"}
         }));
-    graphjin:
-      filename: embedded_agent.cpp
-      code: |
-        // GraphJin owns database access inside this process.
-        axllm::runtime::quickjs::QuickJsCodeRuntime runtime;
-        runtime.register_callable("query", [&graphjin](axllm::Value args) {
-          return graphjin.query(args);
-        });
-
-        auto analyst = axllm::agent(
-          "schema:string, question:string -> answer:string",
-          axllm::object({
-            {"contextFields", axllm::array({"schema"})},
-            {"functions", axllm::array({axllm::object({
-              {"name", "query"},
-              {"description", "Run a governed GraphJin query"}
-            })})},
-            {"runtime", axllm::object({{"language", "JavaScript"}})}
-          })
-        );
-
-        auto result = analyst.forward(
-          llm, axllm::object({{"schema", schema}, {"question", question}}),
-          axllm::object({{"runtime", axllm::Core::code_runtime_ref(runtime)}})
-        );
     patterns:
       classification: axllm::ax("text:string -> category:class \"spam, ham, promo\"")
       extraction: axllm::ax("document:string -> names:string[], dates:date[]")
@@ -626,30 +535,6 @@ languages:
         local := ax.NewAI("openai", map[string]ax.Value{
           "baseURL": "http://localhost:11434/v1",
         })
-    graphjin:
-      filename: embedded_agent.go
-      code: |
-        // GraphJin owns database access inside this process.
-        runtime := axgoja.NewRuntime(
-          axgoja.WithCallable("query", queryTool),
-        )
-
-        analyst := ax.NewAgent(
-          "schema:string, question:string -> answer:string",
-          map[string]ax.Value{
-            "contextFields": ax.Array("schema"),
-            "functions": ax.Array(ax.Object(
-              "name", "query",
-              "description", "Run a governed GraphJin query",
-            )),
-          },
-        )
-
-        result, err := analyst.Forward(
-          ctx, llm,
-          map[string]ax.Value{"schema": schema, "question": question},
-          map[string]ax.Value{"runtime": runtime},
-        )
     patterns:
       classification: ax.NewAx("text:string -> category:class \"spam, ham, promo\"", nil)
       extraction: ax.NewAx("document:string -> names:string[], dates:date[]", nil)
@@ -758,30 +643,6 @@ languages:
         let local = ai("openai", json!({
           "baseURL": "http://localhost:11434/v1"
         }))?;
-    graphjin:
-      filename: embedded_agent.rs
-      code: |
-        // GraphJin owns database access inside this process.
-        let mut runtime = QuickJsCodeRuntime::new();
-        runtime.register_callable("query", move |args| {
-          graphjin.query(args)
-        })?;
-
-        let mut analyst = agent_with_options(
-          "schema:string, question:string -> answer:string",
-          json!({
-            "contextFields": ["schema"],
-            "functions": [{
-              "name": "query",
-              "description": "Run a governed GraphJin query"
-            }],
-            "runtime": {"language": "JavaScript"}
-          })
-        )?.with_runtime(Box::new(runtime))?;
-
-        let result = analyst.forward(
-          &mut llm, json!({"schema": schema, "question": question})
-        )?;
     patterns:
       classification: ax("text:string -> category:class \"spam, ham, promo\"")?
       extraction: ax("document:string -> names:string[], dates:date[]")?

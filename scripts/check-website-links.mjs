@@ -942,7 +942,6 @@ function collectQualityFailures(rel, html, failures) {
       'production-loop',
       'mcp-bridge',
       'provider-router',
-      'embedded-agent',
     ]) {
       if (!html.includes(`/svg/${svg}.svg`)) {
         failures.push(`${rel}: homepage missing static SVG ${svg}`);
