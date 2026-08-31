@@ -885,6 +885,53 @@ describe('named AI deployment profiles', () => {
     }
   });
 
+  it('maps Grok 3 Mini reasoning to its low and high effort levels', async () => {
+    const cases = [
+      { model: 'grok-3-mini', level: 'minimal', expectedEffort: 'low' },
+      {
+        model: 'grok-3-mini-fast',
+        level: 'medium',
+        expectedEffort: 'high',
+      },
+      { model: 'grok-3-mini', level: 'max', expectedEffort: 'high' },
+    ] as const;
+
+    for (const testCase of cases) {
+      const capture: Capture = {};
+      const service = ai({
+        name: 'grok',
+        apiKey: 'key',
+        config: { model: testCase.model, stream: false },
+        options: { fetch: createMockFetch(capture) },
+      });
+
+      await service.chat(
+        { chatPrompt: [{ role: 'user', content: 'think' }] },
+        { thinkingTokenBudget: testCase.level }
+      );
+
+      expect(capture.body?.reasoning_effort).toBe(testCase.expectedEffort);
+    }
+
+    const defaultCapture: Capture = {};
+    const service = ai({
+      name: 'grok',
+      apiKey: 'key',
+      config: { model: 'grok-3-mini', stream: false },
+      options: { fetch: createMockFetch(defaultCapture) },
+    });
+
+    await service.chat({ chatPrompt: [{ role: 'user', content: 'think' }] });
+
+    expect(defaultCapture.body?.reasoning_effort).toBe('low');
+    await expect(
+      service.chat(
+        { chatPrompt: [{ role: 'user', content: 'answer directly' }] },
+        { thinkingTokenBudget: 'none' }
+      )
+    ).rejects.toThrow('xAI Grok 3 Mini reasoning cannot be disabled');
+  });
+
   it('preserves explicit none only where the deployment documents it', async () => {
     const supported = [
       { name: 'groq', model: 'qwen/qwen3.6-27b' },

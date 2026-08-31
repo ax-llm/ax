@@ -50,7 +50,7 @@ result = program.forward(client, inputs)
 - Define model aliases when callers should choose `fast`, `smart`, or `cheap` instead of provider model IDs.
 - Use the named profile for a documented deployment. Reserve
   `openai-compatible` plus `apiURL` for an unlisted custom endpoint.
-- Use model catalog helpers before runtime when the UI needs provider/model selectors.
+- Use model catalog helpers before runtime when the UI needs provider/model selectors, portable thinking levels, or verified service tiers.
 - Use routers or balancers when provider fallback is part of the product.
 
 `ProviderRouter` selects a provider by request capability and degrades media only

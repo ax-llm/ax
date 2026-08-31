@@ -16,7 +16,7 @@ Create provider clients near the application boundary, keep keys in environment 
 
 ## Model Catalog
 
-Use the model catalog before runtime when a UI or router needs model choices, costs, and capabilities. It can filter for text, code, embedding, and audio models.
+Use the model catalog before runtime when a UI or router needs model choices, costs, and capabilities. It can filter for text, code, embedding, and audio models, and reports provider/model portable thinking levels plus verified explicit service tiers. Provider capabilities describe the default deployment profile; static model entries carry their resolved capability arrays.
 
 {{aiCatalogExample}}
 

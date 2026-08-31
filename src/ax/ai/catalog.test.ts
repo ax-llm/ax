@@ -12,6 +12,7 @@ import { axAIProfiles } from './provider_profiles.js';
 import { AxAIWebLLMModel } from './webllm/types.js';
 
 // axir-nonportable:end webllm
+import { AxAIGrokModel } from './x-grok/types.js';
 
 describe('axGetSupportedAIModels', () => {
   it('returns every ai() provider', () => {
@@ -279,6 +280,88 @@ describe('axGetSupportedAIModels', () => {
     // axir-nonportable:end webllm
   });
 
+  it('returns provider and model thinking levels and service tiers', () => {
+    const providers = axGetSupportedAIModels();
+    const portableThinkingLevels = [
+      'none',
+      'minimal',
+      'low',
+      'medium',
+      'high',
+      'highest',
+    ];
+
+    const openai = providers.find((provider) => provider.name === 'openai');
+    const gpt56Luna = openai?.models.find(
+      (model) => model.name === AxAIOpenAIModel.GPT56Luna
+    );
+    const realtime = openai?.models.find(
+      (model) => model.name === AxAIOpenAIModel.GPTRealtime2
+    );
+
+    expect(openai?.capabilities).toEqual({
+      thinking: true,
+      thinkingLevels: portableThinkingLevels,
+      serviceTiers: ['standard', 'flex', 'priority'],
+    });
+    expect(gpt56Luna?.capabilities.thinkingLevels).toEqual(
+      portableThinkingLevels
+    );
+    expect(gpt56Luna?.capabilities.serviceTiers).toEqual([
+      'standard',
+      'flex',
+      'priority',
+    ]);
+    expect(realtime?.capabilities.serviceTiers).toEqual([]);
+
+    const gemini = providers.find(
+      (provider) => provider.name === 'google-gemini'
+    );
+    const geminiLive = gemini?.models.find(
+      (model) => model.name === AxAIGoogleGeminiModel.Gemini31FlashLive
+    );
+    const geminiEmbedding = gemini?.models.find(
+      (model) => model.name === AxAIGoogleGeminiEmbedModel.GeminiEmbedding2
+    );
+
+    expect(geminiLive?.capabilities.serviceTiers).toEqual([]);
+    expect(geminiEmbedding?.capabilities.serviceTiers).toEqual([]);
+
+    const grok = providers.find((provider) => provider.name === 'grok');
+    const grok46 = grok?.models.find(
+      (model) => model.name === AxAIGrokModel.Grok46
+    );
+    const grok3Mini = grok?.models.find(
+      (model) => model.name === AxAIGrokModel.Grok3Mini
+    );
+    const grokVoice = grok?.models.find(
+      (model) => model.name === AxAIGrokModel.GrokVoiceThinkFast
+    );
+
+    expect(grok46?.capabilities.thinkingLevels).toEqual([
+      'minimal',
+      'low',
+      'medium',
+      'high',
+      'highest',
+    ]);
+    expect(grok46?.capabilities.serviceTiers).toEqual(['standard', 'priority']);
+    expect(grok3Mini?.capabilities.thinkingLevels).toEqual([
+      'minimal',
+      'low',
+      'medium',
+      'high',
+      'highest',
+    ]);
+    expect(grokVoice?.capabilities.serviceTiers).toEqual([]);
+
+    const azure = providers.find(
+      (provider) => provider.name === 'azure-openai'
+    );
+    expect(azure?.models).toEqual([]);
+    expect(azure?.capabilities.serviceTiers).toEqual(['standard', 'priority']);
+  });
+
   it.each([
     {
       label: 'Claude 5 Sonnet',
@@ -352,18 +435,22 @@ describe('axGetSupportedAIModels', () => {
       isDefault: false,
       capabilities: {
         thinkingBudget: false,
+        thinkingLevels: [],
         showThoughts: false,
         structuredOutputs: false,
         temperature: true,
         topP: true,
         audioInput: false,
         audioOutput: false,
+        serviceTiers: [],
       },
     });
     if (firstModel) {
       firstModel.promptTokenCostPer1M = 999;
       firstModel.capabilities.structuredOutputs = false;
+      firstModel.capabilities.serviceTiers.push('priority');
     }
+    firstOpenAI?.capabilities.serviceTiers.push('auto');
 
     const secondOpenAI = axGetSupportedAIModels().find(
       (provider) => provider.name === 'openai'
@@ -377,6 +464,16 @@ describe('axGetSupportedAIModels', () => {
     );
     expect(secondModel?.promptTokenCostPer1M).toBe(0.25);
     expect(secondModel?.capabilities.structuredOutputs).toBe(true);
+    expect(secondModel?.capabilities.serviceTiers).toEqual([
+      'standard',
+      'flex',
+      'priority',
+    ]);
+    expect(secondOpenAI?.capabilities.serviceTiers).toEqual([
+      'standard',
+      'flex',
+      'priority',
+    ]);
   });
 
   it('marks dynamic providers without inventing static pricing', () => {

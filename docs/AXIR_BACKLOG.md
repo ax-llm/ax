@@ -18,7 +18,12 @@ This ledger tracks portable TypeScript behavior that should be migrated into AxI
 
 ## Open
 
-No entries.
+- `axir-2026-08-31-expose-catalog-thinking-levels-and-service-tiers-in-generated-ru` [axai] Expose catalog thinking levels and service tiers in generated runtimes
+  - Status: open
+  - Source commit: `5ac2f8d8a4e7359c811a64d9274bb87d14aa7f22`
+  - TS paths: `src/ax/ai/catalog.ts`
+  - Impact: TypeScript axGetSupportedAIModels now returns provider and model portable thinking levels plus verified service tiers; generated Python, Java, C++, Go, and Rust packages do not expose an equivalent static catalog capability matrix.
+  - Suggested AxIR work: Add or update the TS-derived conformance fixture.; Update AxIR/Core or descriptor data to match the portable TS behavior.; Run npm run axir:conformance:check and npm run test:axir.
 
 ## Done
 
