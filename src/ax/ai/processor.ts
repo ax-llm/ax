@@ -10,6 +10,7 @@ type AxUserMessage = Extract<
 >;
 type AxUserContentItem = Exclude<AxUserMessage['content'], string>[number];
 type AxUserImageContent = Extract<AxUserContentItem, { type: 'image' }>;
+type AxUserFileContent = Extract<AxUserContentItem, { type: 'file' }>;
 
 /**
  * Configuration options for content processing and fallback behavior
@@ -28,12 +29,13 @@ export interface ProcessingOptions {
 }
 
 /**
- * Represents content after provider-specific processing. Native image content
- * is retained when the provider advertises image support.
+ * Represents content after provider-specific processing. Native image and file
+ * content is retained when the provider advertises support.
  */
 export type ProcessedContent =
   | { type: 'text'; text: string }
-  | AxUserImageContent;
+  | AxUserImageContent
+  | AxUserFileContent;
 
 /**
  * Indicates what types of media content are present in a request
@@ -198,18 +200,8 @@ export async function axProcessContentForProvider(
 
         case 'file':
           if (features.media.files.supported) {
-            // Provider supports files - use extracted text if available
-            if (item.extractedText) {
-              processedContent.push({
-                type: 'text',
-                text: item.extractedText,
-              });
-            } else {
-              processedContent.push({
-                type: 'text',
-                text: `[File: ${item.filename}]`,
-              });
-            }
+            // Preserve native file content for providers that support it.
+            processedContent.push(item as AxUserFileContent);
           } else if (item.extractedText) {
             processedContent.push({ type: 'text', text: item.extractedText });
           } else if (options.fileToText) {

@@ -1,11 +1,11 @@
-import { describe, it, expect, vi } from 'vitest';
-import {
-  axProcessContentForProvider,
-  axAnalyzeChatPromptRequirements,
-} from './processor.js';
-import { axSelectOptimalProvider } from './capabilities.js';
+import { describe, expect, it, vi } from 'vitest';
 import { AxMediaNotSupportedError } from '../util/apicall.js';
-import type { AxAIService, AxAIFeatures } from './types.js';
+import { axSelectOptimalProvider } from './capabilities.js';
+import {
+  axAnalyzeChatPromptRequirements,
+  axProcessContentForProvider,
+} from './processor.js';
+import type { AxAIFeatures, AxAIService } from './types.js';
 
 // Mock provider factory
 function createMockProvider(name: string, features: AxAIFeatures): AxAIService {
@@ -61,6 +61,19 @@ const mockTextOnlyProvider = createMockProvider('TextOnly', {
   caching: { supported: false, types: [] },
   thinking: false,
   multiTurn: true,
+});
+
+const mockFileSupportedProvider = createMockProvider('FileProvider', {
+  ...mockTextOnlyProvider.getFeatures(),
+  media: {
+    ...mockTextOnlyProvider.getFeatures().media,
+    files: {
+      supported: true,
+      formats: ['application/pdf'],
+      maxSize: 5 * 1024 * 1024,
+      uploadMethod: 'inline',
+    },
+  },
 });
 
 describe('axProcessContentForProvider', () => {
@@ -199,6 +212,24 @@ describe('axProcessContentForProvider', () => {
     );
 
     expect(result).toEqual([{ type: 'text', text: 'Document content' }]);
+  });
+
+  it('preserves native file content for a file-capable provider', async () => {
+    const file = {
+      type: 'file' as const,
+      data: 'base64data',
+      filename: 'document.pdf',
+      mimeType: 'application/pdf',
+      extractedText: 'Fallback text',
+      cache: true,
+    };
+
+    const result = await axProcessContentForProvider(
+      [file],
+      mockFileSupportedProvider
+    );
+
+    expect(result).toEqual([file]);
   });
 
   it('should handle URLs with cached content', async () => {

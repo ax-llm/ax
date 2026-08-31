@@ -286,6 +286,36 @@ describe('AxProviderRouter', () => {
       });
     });
 
+    it('preserves native files for a file-capable provider', async () => {
+      const request: AxChatRequest = {
+        chatPrompt: [
+          {
+            role: 'user',
+            content: [
+              { type: 'text', text: 'Summarize this file.' },
+              {
+                type: 'file',
+                data: 'base64data',
+                filename: 'report.pdf',
+                mimeType: 'application/pdf',
+                extractedText: 'Fallback text',
+                cache: true,
+              },
+            ],
+          },
+        ],
+      };
+
+      (mockMultiModalProvider.chat as ReturnType<typeof vi.fn>).mockClear();
+      await router.chat(request);
+
+      const sentRequest = (
+        mockMultiModalProvider.chat as ReturnType<typeof vi.fn>
+      ).mock.calls[0][0] as AxChatRequest;
+      expect(sentRequest.chatPrompt[0]).toEqual(request.chatPrompt[0]);
+      expect(mockFileToText).not.toHaveBeenCalled();
+    });
+
     it('should apply content processing when provider lacks capability', async () => {
       // Create router with text-only primary provider
       const textOnlyRouter = new AxProviderRouter({

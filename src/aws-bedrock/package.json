@@ -11,6 +11,9 @@
     "access": "public"
   },
   "license": "Apache-2.0",
+  "engines": {
+    "node": ">=20"
+  },
   "keywords": [
     "ax",
     "aws",
@@ -38,11 +41,8 @@
     "postbuild": "node ../../scripts/postbuild.js"
   },
   "dependencies": {
-    "@aws-sdk/client-bedrock-runtime": "^3.709.0",
+    "@aws-sdk/client-bedrock-runtime": "^3.1122.0",
     "@ax-llm/ax": "24.0.16"
-  },
-  "peerDependencies": {
-    "@ax-llm/ax": "14.0.31"
   },
   "bugs": {
     "url": "https://github.com/@ax-llm/ax/issues"
