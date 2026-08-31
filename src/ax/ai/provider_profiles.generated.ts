@@ -1082,14 +1082,48 @@ export const axAIProviderProfiles = {
             "stop"
           ]
         }
+      },
+      {
+        "match": {
+          "exact": [
+            "grok-3-mini",
+            "grok-3-mini-latest",
+            "grok-3-mini-beta",
+            "grok-3-mini-fast",
+            "grok-3-mini-fast-latest",
+            "grok-3-mini-fast-beta"
+          ]
+        },
+        "capabilities": {
+          "thinking": true,
+          "thinkingBudget": true
+        },
+        "request": {
+          "reasoning": "effort",
+          "defaultThinkingLevel": "low",
+          "effortMap": {
+            "none": null,
+            "minimal": "low",
+            "low": "low",
+            "medium": "high",
+            "high": "high",
+            "highest": "high",
+            "xhigh": "high",
+            "max": "high"
+          },
+          "unsupportedThinkingLevels": {
+            "none": "xAI Grok 3 Mini reasoning cannot be disabled"
+          }
+        }
       }
     ],
     "sources": [
       "https://docs.x.ai/developers/model-capabilities/text/reasoning",
+      "https://docs.x.ai/developers/rest-api-reference/management/auth",
       "https://docs.x.ai/developers/models/grok-4.5",
       "https://docs.x.ai/developers/advanced-api-usage/priority-processing"
     ],
-    "reviewedAt": "2026-08-18"
+    "reviewedAt": "2026-08-30"
   },
   "reka": {
     "id": "reka",

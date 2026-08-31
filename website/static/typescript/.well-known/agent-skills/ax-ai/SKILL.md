@@ -125,12 +125,20 @@ import { axGetSupportedAIModels } from '@ax-llm/ax';
 const providers = axGetSupportedAIModels();
 const openai = providers.find((provider) => provider.name === 'openai');
 console.log(openai?.models[0]?.promptTokenCostPer1M);
+console.log(openai?.capabilities.serviceTiers);
+
+const reasoningModel = openai?.models.find(
+  (model) => model.capabilities.thinkingLevels.includes('high')
+);
+console.log(reasoningModel?.capabilities.thinkingLevels);
 
 const textProviders = axGetSupportedAIModels({ type: 'text' });
 const embeddingProviders = axGetSupportedAIModels({ type: 'embeddings' });
 ```
 
-Use `axGetSupportedAIModels()` to build provider/model selectors before creating an `ai(...)` instance. It returns bundled static metadata: provider names, display names, default models, raw `AxModelInfo` pricing/details, model type (`'text'`, `'embeddings'`, `'code'`, or `'audio'`), and normalized capability flags for thinking, thoughts, structured outputs, audio, temperature, and top-p support. Provider groups and models are sorted cheapest to most expensive based on bundled input + output token pricing; unpriced models sort last.
+Use `axGetSupportedAIModels()` to build provider/model selectors before creating an `ai(...)` instance. It returns bundled static metadata: provider names, display names, default models, raw `AxModelInfo` pricing/details, model type (`'text'`, `'embeddings'`, `'code'`, or `'audio'`), and normalized capabilities for thinking, thoughts, structured outputs, audio, temperature, top-p, portable thinking levels, and verified service tiers. Provider capabilities describe the default deployment profile; each static model also carries its resolved `capabilities.thinkingLevels` and `capabilities.serviceTiers`. Portable thinking levels can collapse onto the same provider-native value. `serviceTiers` lists verified explicit tiers; `serviceTier: 'auto'` remains available as the provider-delegated policy.
+
+Provider groups and models are sorted cheapest to most expensive based on bundled input + output token pricing; unpriced models sort last. Dynamic profiles remain useful even when `models` is empty because their provider-level capability metadata is still returned.
 
 Filter with `{ type: 'all' | 'text' | 'embeddings' | 'code' | 'audio' }` or an array of those values. The `'text'` filter includes code-capable models; use `'code'` to show only code-first models.
 

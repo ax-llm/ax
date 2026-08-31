@@ -135,12 +135,14 @@ firstOpenAI?.models.push({
   isDefault: false,
   capabilities: {
     thinkingBudget: false,
+    thinkingLevels: [],
     showThoughts: false,
     structuredOutputs: false,
     temperature: true,
     topP: true,
     audioInput: false,
     audioOutput: false,
+    serviceTiers: [],
   },
 });
 if (firstOpenAIModel) {
