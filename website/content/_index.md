@@ -292,53 +292,48 @@ description: "Stop prompting. Start programming. Typed signatures become reliabl
 </div>
 </section>
 
-<section class="home-section home-graphjin" aria-labelledby="graphjin">
-<div class="home-section-heading">
-  <p class="home-section-label">Case study</p>
-  <h2 id="graphjin">GraphJin runs on Ax.</h2>
-  <p><a href="https://graphjin.com">GraphJin</a> — an open-source engine from the same author — connects AI agents to the databases a company already runs. Agents ask in plain English; GraphJin validates every query against the live schema, enforces role-based access, and audits each answer against what actually ran. Its production agent is an Ax Go program — the same harness described above.</p>
+<section id="graphjin" class="home-section home-graphjin" aria-labelledby="graphjin-title">
+<div class="home-graphjin-header">
+  <div class="home-graphjin-heading">
+    <p class="home-section-label">Case study</p>
+    <h2 id="graphjin-title">GraphJin runs on Ax.</h2>
+    <p>An agent built with Ax effortlessly connects all your databases to AI</p>
+  </div>
+  <div class="home-actions home-graphjin-actions">
+    <a href="https://graphjin.com">Explore GraphJin</a>
+    <a class="home-button-secondary" href="https://github.com/dosco/graphjin">GraphJin on GitHub</a>
+  </div>
 </div>
-<div class="home-graphjin-layout">
-  <div class="home-graphjin-code">
-    <div class="home-install" aria-label="Install GraphJin"><span>$</span><code><span class="home-install-command">npm install -g graphjin</span></code></div>
-    <div class="home-install" aria-label="Add GraphJin as an MCP server"><span>$</span><code><span class="home-install-command">claude mcp add graphjin -- graphjin mcp --demo</span></code></div>
-    <div class="home-output-panel" aria-label="GraphJin demo conversation">
+<div class="home-graphjin-demo">
+  <div class="home-graphjin-command-row" aria-label="GraphJin setup commands">
+    <div class="home-graphjin-command" aria-label="Install GraphJin"><span>$</span><code><span class="home-install-command">npm install -g graphjin</span></code></div>
+    <div class="home-graphjin-command" aria-label="Add GraphJin as an MCP server"><span>$</span><code><span class="home-install-command">claude mcp add graphjin -- graphjin mcp --demo</span></code></div>
+  </div>
+  <div class="home-graphjin-terminal" aria-label="GraphJin demo conversation">
     <div class="home-panel-title">Then just ask</div>
 <pre><code>Q: which customers churned last month,
    and what did they have in common?&#10;
 A: 9 of 12 churned accounts were on the Starter plan.
    7 opened a support ticket in their final 30 days.
    Median tenure: 4 months.</code></pre>
-    <div class="home-status"><span aria-hidden="true"></span>Schema-validated · role-checked · audited</div>
-    </div>
-  </div>
-  <div class="home-graphjin-copy">
-    <h3>One governed graph over every database you run.</h3>
-    <p>GraphJin speaks MCP, so the agents you already use — Claude Code, Codex, Cursor, or your own Ax agents — connect in one command. Queries are validated before they run, access policy decides what each role sees, and answers are checked against the execution record before they leave the server.</p>
-    <div class="home-badge-row">
-      <span>PostgreSQL</span><span>MySQL</span><span>SQLite</span><span>MongoDB</span><span>Snowflake</span><span>BigQuery</span><span>12+ engines</span>
-    </div>
-    <div class="home-actions home-section-actions">
-      <a href="https://graphjin.com">Explore GraphJin</a>
-      <a class="home-button-secondary" href="https://github.com/dosco/graphjin">GraphJin on GitHub</a>
-    </div>
-    <p class="home-inline-note">The demo flag ships a full SaaS dataset to explore — no config, no API keys. Curious how the agent is built? <a href="https://graphjin.com/agentic/server-agent/">Read the Ax write-up</a>.</p>
   </div>
 </div>
-<div class="home-resource-row home-resource-row-tight">
-  <div>
+<div class="home-graphjin-status">
+  <span aria-hidden="true"></span>
+  <p>Schema-validated · role-checked · audited · 12+ database engines</p>
+  <a href="https://graphjin.com/agentic/server-agent/">Read how the Ax agent is built</a>
+</div>
+<div class="home-graphjin-proof">
+  <div class="home-graphjin-proof-heading">
     <p class="home-section-label">Proof, in public</p>
-    <h3>A flash-lite model runs a whole org's data.</h3>
-    <p>DeepORG is GraphJin's public benchmark: 113 organizational tasks — questions, aggregations, writes, alerts, and the refusals that keep them safe — over live databases, files, and APIs. On the current board a Gemini flash-lite model passes 100 of 113 in full, with zero unsafe effects across every attempt, at about 4¢ a task. The harness behind it is the Ax agent loop described above.</p>
-    <p><a href="https://graphjin.com/benchmark/">See the DeepORG leaderboard</a>.</p>
+    <h3>DeepORG benchmark</h3>
+    <a href="https://graphjin.com/benchmark/">See the leaderboard</a>
   </div>
-  <div>
-    <div class="home-stats" aria-label="DeepORG current board result">
-      <div><strong>100/113</strong><span>tasks passed in full</span></div>
-      <div><strong>0</strong><span>unsafe effects</span></div>
-      <div><strong>~4¢</strong><span>per task</span></div>
-      <div><strong>339</strong><span>graded attempts</span></div>
-    </div>
+  <div class="home-stats" aria-label="DeepORG current board result">
+    <div><strong>100/113</strong><span>tasks passed in full</span></div>
+    <div><strong>0</strong><span>unsafe effects</span></div>
+    <div><strong>~4¢</strong><span>per task</span></div>
+    <div><strong>339</strong><span>graded attempts</span></div>
   </div>
 </div>
 </section>

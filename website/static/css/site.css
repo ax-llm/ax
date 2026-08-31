@@ -2838,7 +2838,6 @@ pre.mermaid {
 
 .home-code-pair,
 .home-agent-layout,
-.home-graphjin-layout,
 .home-provider-layout {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
@@ -2850,8 +2849,7 @@ pre.mermaid {
   align-items: stretch;
 }
 
-.home-output-panel,
-.home-graphjin-copy {
+.home-output-panel {
   border: 1px solid var(--line);
   border-radius: var(--home-card-radius);
   background: var(--panel);
@@ -3002,8 +3000,7 @@ pre.mermaid {
 .home-marketing-card p,
 .home-paper-card p,
 .home-pattern-grid p,
-.home-provider-grid p,
-.home-graphjin-copy p {
+.home-provider-grid p {
   margin: 0;
   color: var(--muted);
   font-size: 0.92rem;
@@ -3749,35 +3746,174 @@ pre.mermaid {
   font-size: 0.78rem;
 }
 
-.home-graphjin-layout {
+.home-graphjin-header {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: var(--home-space-5);
+  align-items: end;
+  margin-bottom: var(--home-space-4);
+}
+
+.home-graphjin-heading {
+  max-width: 52rem;
+}
+
+.home-graphjin-heading .home-section-label {
+  color: var(--accent-2);
+  margin-bottom: 0.55rem;
+}
+
+.home-graphjin-heading > p:last-child {
+  max-width: 54ch;
+  margin: 0.85rem 0 0;
+  color: var(--muted);
+  font-size: 1.08rem;
+  line-height: 1.5;
+}
+
+.home-graphjin-actions {
+  justify-content: flex-end;
+  margin: 0 0 0.15rem;
+}
+
+.home-graphjin-demo {
+  overflow: hidden;
+  border: 1px solid var(--line-strong);
+  border-radius: var(--home-card-radius);
+  background: var(--code-bg);
+}
+
+.home-graphjin-command-row {
+  display: grid;
+  grid-template-columns: minmax(15rem, 0.72fr) minmax(24rem, 1.28fr);
+  border-bottom: 1px solid var(--install-border);
+  background: var(--install-bg);
+}
+
+.home-graphjin-command {
+  display: flex;
   align-items: center;
+  gap: 0.62rem;
+  min-width: 0;
+  padding: 0.95rem 1.25rem;
+  color: var(--install-ink);
 }
 
-.home-graphjin-copy {
-  background: var(--panel-soft);
+.home-graphjin-command + .home-graphjin-command {
+  border-left: 1px solid var(--install-border);
 }
 
-.home-graphjin-copy .home-actions {
-  margin-bottom: 0;
+.home-graphjin-command > span {
+  color: var(--install-prompt);
+  font-family: var(--font-mono);
 }
 
-.home-graphjin-code {
+.home-graphjin-command code {
+  overflow-x: auto;
+  border: 0;
+  background: transparent;
+  color: var(--install-ink);
+  padding: 0;
+  white-space: nowrap;
+}
+
+.home-graphjin-terminal {
+  min-height: 15rem;
+  padding: 1.65rem 1.5rem 1.75rem;
+}
+
+.home-graphjin-terminal .home-panel-title {
+  color: var(--syntax-comment);
+  margin-bottom: 1.15rem;
+}
+
+.home-graphjin-terminal pre {
+  overflow-x: auto;
+  margin: 0;
+  border: 0;
+  background: transparent;
+  color: var(--code-ink);
+  font-size: 0.94rem;
+  line-height: 1.62;
+  padding: 0;
+}
+
+.home-graphjin-terminal code {
+  border: 0;
+  background: transparent;
+  color: inherit;
+  padding: 0;
+}
+
+.home-graphjin-status {
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+  border-bottom: 1px solid var(--line);
+  color: var(--muted);
+  padding: 1rem 0.15rem;
+}
+
+.home-graphjin-status > span {
+  flex: 0 0 auto;
+  width: 0.52rem;
+  height: 0.52rem;
+  border-radius: 999px;
+  background: var(--green);
+}
+
+.home-graphjin-status p {
+  margin: 0;
+  font-size: 0.94rem;
+  line-height: 1.45;
+}
+
+.home-graphjin-status a {
+  margin-left: auto;
+  font-size: 0.9rem;
+  white-space: nowrap;
+}
+
+.home-graphjin-proof {
+  display: grid;
+  grid-template-columns: minmax(12rem, 0.78fr) minmax(0, 4fr);
+  gap: var(--home-space-4);
+  align-items: stretch;
+  padding-top: var(--home-space-5);
+}
+
+.home-graphjin-proof-heading {
   display: flex;
   flex-direction: column;
-  gap: 0.6rem;
+  align-items: flex-start;
+  justify-content: center;
+  padding-right: var(--home-space-3);
 }
 
-.home-graphjin-code .home-install {
-  margin: 0;
+.home-graphjin-proof-heading h3 {
+  margin: 0 0 0.55rem;
+}
+
+.home-graphjin-proof-heading a {
+  font-size: 0.9rem;
 }
 
 .home-graphjin .home-stats {
-  grid-template-columns: repeat(2, minmax(0, 1fr));
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 0;
   margin: 0;
 }
 
+.home-graphjin .home-stats div {
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  border-left: 1px solid var(--line);
+  padding: 0.75rem 1rem;
+}
+
 .home-graphjin .home-stats strong {
-  font-size: 2.6rem;
+  font-size: clamp(2rem, 3.35vw, 3rem);
 }
 
 @media (max-width: 1180px) {
@@ -3965,7 +4101,6 @@ pre.mermaid {
   .home-hero,
   .home-code-pair,
   .home-agent-layout,
-  .home-graphjin-layout,
   .home-provider-layout,
   .home-resource-row {
     grid-template-columns: 1fr;
@@ -4021,6 +4156,47 @@ pre.mermaid {
 
   .home-research-compact .paper-title-row {
     align-items: flex-start;
+  }
+
+  .home-graphjin-header {
+    grid-template-columns: 1fr;
+    gap: var(--home-space-3);
+    align-items: start;
+  }
+
+  .home-graphjin-actions {
+    justify-content: flex-start;
+  }
+
+  .home-graphjin-command-row {
+    grid-template-columns: 1fr;
+  }
+
+  .home-graphjin-command + .home-graphjin-command {
+    border-top: 1px solid var(--install-border);
+    border-left: 0;
+  }
+
+  .home-graphjin-proof {
+    grid-template-columns: 1fr;
+    gap: var(--home-space-3);
+  }
+
+  .home-graphjin-proof-heading {
+    padding-right: 0;
+  }
+
+  .home-graphjin .home-stats {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    border-top: 1px solid var(--line);
+  }
+
+  .home-graphjin .home-stats div:nth-child(odd) {
+    border-left: 0;
+  }
+
+  .home-graphjin .home-stats div:nth-child(n + 3) {
+    border-top: 1px solid var(--line);
   }
 
   .paper-item-meta {
@@ -4098,8 +4274,48 @@ pre.mermaid {
     grid-template-columns: 1fr;
   }
 
-  .home-graphjin .home-stats {
-    grid-template-columns: 1fr;
+  .home-graphjin-status {
+    display: grid;
+    grid-template-columns: auto minmax(0, 1fr);
+    align-items: start;
+  }
+
+  .home-graphjin-status a {
+    grid-column: 2;
+    margin-left: 0;
+    white-space: normal;
+  }
+
+  .home-graphjin-terminal {
+    min-height: 0;
+    padding: 1.25rem 1rem 1.35rem;
+  }
+
+  .home-graphjin-terminal pre {
+    font-size: 0.82rem;
+    overflow-x: visible;
+    overflow-wrap: anywhere;
+    white-space: pre-wrap;
+  }
+
+  .home-graphjin-command code {
+    overflow-x: visible;
+    overflow-wrap: anywhere;
+    white-space: normal;
+  }
+
+  .home-graphjin-command .home-install-command {
+    overflow-x: visible;
+    overflow-wrap: anywhere;
+    white-space: normal;
+  }
+
+  .home-graphjin .home-stats div {
+    padding: 1rem 0.45rem;
+  }
+
+  .home-graphjin .home-stats strong {
+    font-size: 2rem;
   }
 
   .paper-title-row {
