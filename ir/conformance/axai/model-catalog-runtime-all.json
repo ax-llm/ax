@@ -3,6 +3,18 @@
   "expected_output": {
     "catalog": [
       {
+        "capabilities": {
+          "serviceTiers": ["standard", "flex", "priority"],
+          "thinking": true,
+          "thinkingLevels": [
+            "none",
+            "minimal",
+            "low",
+            "medium",
+            "high",
+            "highest"
+          ]
+        },
         "defaultEmbedModel": "gemini-embedding-2",
         "defaultModel": "gemini-2.5-flash",
         "displayName": "Google Gemini",
@@ -12,10 +24,19 @@
             "capabilities": {
               "audioInput": false,
               "audioOutput": false,
+              "serviceTiers": ["standard", "flex", "priority"],
               "showThoughts": true,
               "structuredOutputs": true,
               "temperature": true,
               "thinkingBudget": true,
+              "thinkingLevels": [
+                "none",
+                "minimal",
+                "low",
+                "medium",
+                "high",
+                "highest"
+              ],
               "topP": true
             },
             "characterIsToken": false,
@@ -36,10 +57,19 @@
             "capabilities": {
               "audioInput": false,
               "audioOutput": false,
+              "serviceTiers": ["standard", "flex", "priority"],
               "showThoughts": true,
               "structuredOutputs": true,
               "temperature": true,
               "thinkingBudget": true,
+              "thinkingLevels": [
+                "none",
+                "minimal",
+                "low",
+                "medium",
+                "high",
+                "highest"
+              ],
               "topP": true
             },
             "characterIsToken": false,
@@ -60,10 +90,12 @@
             "capabilities": {
               "audioInput": false,
               "audioOutput": false,
+              "serviceTiers": ["standard", "flex", "priority"],
               "showThoughts": false,
               "structuredOutputs": false,
               "temperature": true,
               "thinkingBudget": false,
+              "thinkingLevels": [],
               "topP": true
             },
             "characterIsToken": false,
@@ -79,10 +111,12 @@
             "capabilities": {
               "audioInput": false,
               "audioOutput": false,
+              "serviceTiers": [],
               "showThoughts": false,
               "structuredOutputs": false,
               "temperature": true,
               "thinkingBudget": false,
+              "thinkingLevels": [],
               "topP": true
             },
             "characterIsToken": false,
@@ -97,10 +131,12 @@
             "capabilities": {
               "audioInput": false,
               "audioOutput": false,
+              "serviceTiers": ["standard", "flex", "priority"],
               "showThoughts": false,
               "structuredOutputs": true,
               "temperature": true,
               "thinkingBudget": false,
+              "thinkingLevels": [],
               "topP": true
             },
             "characterIsToken": false,
@@ -119,10 +155,12 @@
             "capabilities": {
               "audioInput": false,
               "audioOutput": false,
+              "serviceTiers": [],
               "showThoughts": false,
               "structuredOutputs": false,
               "temperature": true,
               "thinkingBudget": false,
+              "thinkingLevels": [],
               "topP": true
             },
             "characterIsToken": false,
@@ -138,10 +176,12 @@
             "capabilities": {
               "audioInput": false,
               "audioOutput": false,
+              "serviceTiers": ["standard", "flex", "priority"],
               "showThoughts": false,
               "structuredOutputs": true,
               "temperature": true,
               "thinkingBudget": false,
+              "thinkingLevels": [],
               "topP": true
             },
             "characterIsToken": false,
@@ -160,10 +200,12 @@
             "capabilities": {
               "audioInput": false,
               "audioOutput": false,
+              "serviceTiers": ["standard", "flex", "priority"],
               "showThoughts": false,
               "structuredOutputs": true,
               "temperature": true,
               "thinkingBudget": false,
+              "thinkingLevels": [],
               "topP": true
             },
             "characterIsToken": false,
@@ -186,10 +228,12 @@
             "capabilities": {
               "audioInput": false,
               "audioOutput": false,
+              "serviceTiers": ["standard", "flex", "priority"],
               "showThoughts": false,
               "structuredOutputs": true,
               "temperature": true,
               "thinkingBudget": false,
+              "thinkingLevels": [],
               "topP": true
             },
             "characterIsToken": false,
@@ -212,10 +256,19 @@
             "capabilities": {
               "audioInput": false,
               "audioOutput": false,
+              "serviceTiers": ["standard", "flex", "priority"],
               "showThoughts": true,
               "structuredOutputs": true,
               "temperature": true,
               "thinkingBudget": true,
+              "thinkingLevels": [
+                "none",
+                "minimal",
+                "low",
+                "medium",
+                "high",
+                "highest"
+              ],
               "topP": true
             },
             "characterIsToken": false,
@@ -238,10 +291,19 @@
             "capabilities": {
               "audioInput": false,
               "audioOutput": false,
+              "serviceTiers": ["standard", "flex", "priority"],
               "showThoughts": true,
               "structuredOutputs": true,
               "temperature": true,
               "thinkingBudget": true,
+              "thinkingLevels": [
+                "none",
+                "minimal",
+                "low",
+                "medium",
+                "high",
+                "highest"
+              ],
               "topP": true
             },
             "characterIsToken": false,
@@ -264,10 +326,19 @@
             "capabilities": {
               "audioInput": false,
               "audioOutput": false,
+              "serviceTiers": ["standard", "flex", "priority"],
               "showThoughts": true,
               "structuredOutputs": true,
               "temperature": true,
               "thinkingBudget": true,
+              "thinkingLevels": [
+                "none",
+                "minimal",
+                "low",
+                "medium",
+                "high",
+                "highest"
+              ],
               "topP": true
             },
             "characterIsToken": false,
@@ -292,10 +363,19 @@
             "capabilities": {
               "audioInput": false,
               "audioOutput": false,
+              "serviceTiers": ["standard", "flex", "priority"],
               "showThoughts": true,
               "structuredOutputs": true,
               "temperature": true,
               "thinkingBudget": true,
+              "thinkingLevels": [
+                "none",
+                "minimal",
+                "low",
+                "medium",
+                "high",
+                "highest"
+              ],
               "topP": true
             },
             "characterIsToken": false,
@@ -316,10 +396,12 @@
             "capabilities": {
               "audioInput": false,
               "audioOutput": false,
+              "serviceTiers": ["standard", "flex", "priority"],
               "showThoughts": false,
               "structuredOutputs": true,
               "temperature": true,
               "thinkingBudget": false,
+              "thinkingLevels": [],
               "topP": true
             },
             "characterIsToken": false,
@@ -338,10 +420,19 @@
             "capabilities": {
               "audioInput": false,
               "audioOutput": false,
+              "serviceTiers": ["standard", "flex", "priority"],
               "showThoughts": true,
               "structuredOutputs": true,
               "temperature": true,
               "thinkingBudget": true,
+              "thinkingLevels": [
+                "none",
+                "minimal",
+                "low",
+                "medium",
+                "high",
+                "highest"
+              ],
               "topP": true
             },
             "characterIsToken": false,
@@ -364,10 +455,19 @@
             "capabilities": {
               "audioInput": false,
               "audioOutput": false,
+              "serviceTiers": ["standard", "flex", "priority"],
               "showThoughts": true,
               "structuredOutputs": true,
               "temperature": true,
               "thinkingBudget": true,
+              "thinkingLevels": [
+                "none",
+                "minimal",
+                "low",
+                "medium",
+                "high",
+                "highest"
+              ],
               "topP": true
             },
             "characterIsToken": false,
@@ -390,10 +490,19 @@
             "capabilities": {
               "audioInput": false,
               "audioOutput": false,
+              "serviceTiers": ["standard", "flex", "priority"],
               "showThoughts": true,
               "structuredOutputs": true,
               "temperature": false,
               "thinkingBudget": true,
+              "thinkingLevels": [
+                "none",
+                "minimal",
+                "low",
+                "medium",
+                "high",
+                "highest"
+              ],
               "topP": false
             },
             "characterIsToken": false,
@@ -422,10 +531,19 @@
             "capabilities": {
               "audioInput": false,
               "audioOutput": false,
+              "serviceTiers": ["standard", "flex", "priority"],
               "showThoughts": true,
               "structuredOutputs": true,
               "temperature": true,
               "thinkingBudget": true,
+              "thinkingLevels": [
+                "none",
+                "minimal",
+                "low",
+                "medium",
+                "high",
+                "highest"
+              ],
               "topP": true
             },
             "characterIsToken": false,
@@ -448,10 +566,19 @@
             "capabilities": {
               "audioInput": false,
               "audioOutput": false,
+              "serviceTiers": ["standard", "flex", "priority"],
               "showThoughts": true,
               "structuredOutputs": true,
               "temperature": true,
               "thinkingBudget": true,
+              "thinkingLevels": [
+                "none",
+                "minimal",
+                "low",
+                "medium",
+                "high",
+                "highest"
+              ],
               "topP": true
             },
             "characterIsToken": false,
@@ -472,10 +599,12 @@
             "capabilities": {
               "audioInput": false,
               "audioOutput": false,
+              "serviceTiers": ["standard", "flex", "priority"],
               "showThoughts": false,
               "structuredOutputs": true,
               "temperature": true,
               "thinkingBudget": false,
+              "thinkingLevels": [],
               "topP": true
             },
             "characterIsToken": false,
@@ -498,10 +627,12 @@
             "capabilities": {
               "audioInput": false,
               "audioOutput": true,
+              "serviceTiers": ["standard", "flex", "priority"],
               "showThoughts": false,
               "structuredOutputs": false,
               "temperature": true,
               "thinkingBudget": false,
+              "thinkingLevels": [],
               "topP": true
             },
             "characterIsToken": false,
@@ -517,10 +648,12 @@
             "capabilities": {
               "audioInput": false,
               "audioOutput": false,
+              "serviceTiers": ["standard", "flex", "priority"],
               "showThoughts": false,
               "structuredOutputs": false,
               "temperature": true,
               "thinkingBudget": false,
+              "thinkingLevels": [],
               "topP": true
             },
             "characterIsToken": false,
@@ -536,10 +669,12 @@
             "capabilities": {
               "audioInput": false,
               "audioOutput": false,
+              "serviceTiers": ["standard", "flex", "priority"],
               "showThoughts": false,
               "structuredOutputs": true,
               "temperature": true,
               "thinkingBudget": false,
+              "thinkingLevels": [],
               "topP": true
             },
             "characterIsToken": false,
@@ -560,10 +695,19 @@
             "capabilities": {
               "audioInput": false,
               "audioOutput": false,
+              "serviceTiers": ["standard", "flex", "priority"],
               "showThoughts": true,
               "structuredOutputs": true,
               "temperature": false,
               "thinkingBudget": true,
+              "thinkingLevels": [
+                "none",
+                "minimal",
+                "low",
+                "medium",
+                "high",
+                "highest"
+              ],
               "topP": false
             },
             "characterIsToken": false,
@@ -592,10 +736,19 @@
             "capabilities": {
               "audioInput": false,
               "audioOutput": false,
+              "serviceTiers": ["standard", "flex", "priority"],
               "showThoughts": true,
               "structuredOutputs": true,
               "temperature": false,
               "thinkingBudget": true,
+              "thinkingLevels": [
+                "none",
+                "minimal",
+                "low",
+                "medium",
+                "high",
+                "highest"
+              ],
               "topP": false
             },
             "characterIsToken": false,
@@ -624,10 +777,19 @@
             "capabilities": {
               "audioInput": false,
               "audioOutput": false,
+              "serviceTiers": ["standard", "flex", "priority"],
               "showThoughts": true,
               "structuredOutputs": true,
               "temperature": true,
               "thinkingBudget": true,
+              "thinkingLevels": [
+                "none",
+                "minimal",
+                "low",
+                "medium",
+                "high",
+                "highest"
+              ],
               "topP": true
             },
             "characterIsToken": false,
@@ -652,10 +814,19 @@
             "capabilities": {
               "audioInput": false,
               "audioOutput": false,
+              "serviceTiers": ["standard", "flex", "priority"],
               "showThoughts": true,
               "structuredOutputs": true,
               "temperature": true,
               "thinkingBudget": true,
+              "thinkingLevels": [
+                "none",
+                "minimal",
+                "low",
+                "medium",
+                "high",
+                "highest"
+              ],
               "topP": true
             },
             "characterIsToken": false,
@@ -682,10 +853,19 @@
             "capabilities": {
               "audioInput": false,
               "audioOutput": false,
+              "serviceTiers": ["standard", "flex", "priority"],
               "showThoughts": true,
               "structuredOutputs": true,
               "temperature": true,
               "thinkingBudget": true,
+              "thinkingLevels": [
+                "none",
+                "minimal",
+                "low",
+                "medium",
+                "high",
+                "highest"
+              ],
               "topP": true
             },
             "characterIsToken": false,
@@ -712,10 +892,19 @@
             "capabilities": {
               "audioInput": false,
               "audioOutput": false,
+              "serviceTiers": ["standard", "flex", "priority"],
               "showThoughts": true,
               "structuredOutputs": true,
               "temperature": true,
               "thinkingBudget": true,
+              "thinkingLevels": [
+                "none",
+                "minimal",
+                "low",
+                "medium",
+                "high",
+                "highest"
+              ],
               "topP": true
             },
             "characterIsToken": false,
@@ -744,10 +933,19 @@
             "capabilities": {
               "audioInput": true,
               "audioOutput": true,
+              "serviceTiers": [],
               "showThoughts": true,
               "structuredOutputs": false,
               "temperature": true,
               "thinkingBudget": true,
+              "thinkingLevels": [
+                "none",
+                "minimal",
+                "low",
+                "medium",
+                "high",
+                "highest"
+              ],
               "topP": true
             },
             "characterIsToken": false,
@@ -770,10 +968,19 @@
             "capabilities": {
               "audioInput": true,
               "audioOutput": true,
+              "serviceTiers": [],
               "showThoughts": true,
               "structuredOutputs": false,
               "temperature": true,
               "thinkingBudget": true,
+              "thinkingLevels": [
+                "none",
+                "minimal",
+                "low",
+                "medium",
+                "high",
+                "highest"
+              ],
               "topP": true
             },
             "characterIsToken": false,
@@ -792,6 +999,11 @@
         "name": "google-gemini"
       },
       {
+        "capabilities": {
+          "serviceTiers": [],
+          "thinking": false,
+          "thinkingLevels": []
+        },
         "defaultModel": "Llama-3.2-3B-Instruct-q4f32_1-MLC",
         "displayName": "WebLLM",
         "isDynamic": false,
@@ -800,10 +1012,12 @@
             "capabilities": {
               "audioInput": false,
               "audioOutput": false,
+              "serviceTiers": [],
               "showThoughts": false,
               "structuredOutputs": false,
               "temperature": true,
               "thinkingBudget": false,
+              "thinkingLevels": [],
               "topP": true
             },
             "completionTokenCostPer1M": 0,
@@ -820,10 +1034,12 @@
             "capabilities": {
               "audioInput": false,
               "audioOutput": false,
+              "serviceTiers": [],
               "showThoughts": false,
               "structuredOutputs": false,
               "temperature": true,
               "thinkingBudget": false,
+              "thinkingLevels": [],
               "topP": true
             },
             "completionTokenCostPer1M": 0,
@@ -840,10 +1056,12 @@
             "capabilities": {
               "audioInput": false,
               "audioOutput": false,
+              "serviceTiers": [],
               "showThoughts": false,
               "structuredOutputs": false,
               "temperature": true,
               "thinkingBudget": false,
+              "thinkingLevels": [],
               "topP": true
             },
             "completionTokenCostPer1M": 0,
@@ -861,10 +1079,12 @@
             "capabilities": {
               "audioInput": false,
               "audioOutput": false,
+              "serviceTiers": [],
               "showThoughts": false,
               "structuredOutputs": false,
               "temperature": true,
               "thinkingBudget": false,
+              "thinkingLevels": [],
               "topP": true
             },
             "completionTokenCostPer1M": 0,
@@ -881,10 +1101,12 @@
             "capabilities": {
               "audioInput": false,
               "audioOutput": false,
+              "serviceTiers": [],
               "showThoughts": false,
               "structuredOutputs": false,
               "temperature": true,
               "thinkingBudget": false,
+              "thinkingLevels": [],
               "topP": true
             },
             "completionTokenCostPer1M": 0,
@@ -901,10 +1123,12 @@
             "capabilities": {
               "audioInput": false,
               "audioOutput": false,
+              "serviceTiers": [],
               "showThoughts": false,
               "structuredOutputs": false,
               "temperature": true,
               "thinkingBudget": false,
+              "thinkingLevels": [],
               "topP": true
             },
             "completionTokenCostPer1M": 0,
@@ -921,10 +1145,12 @@
             "capabilities": {
               "audioInput": false,
               "audioOutput": false,
+              "serviceTiers": [],
               "showThoughts": false,
               "structuredOutputs": false,
               "temperature": true,
               "thinkingBudget": false,
+              "thinkingLevels": [],
               "topP": true
             },
             "completionTokenCostPer1M": 0,
@@ -941,10 +1167,12 @@
             "capabilities": {
               "audioInput": false,
               "audioOutput": false,
+              "serviceTiers": [],
               "showThoughts": false,
               "structuredOutputs": false,
               "temperature": true,
               "thinkingBudget": false,
+              "thinkingLevels": [],
               "topP": true
             },
             "completionTokenCostPer1M": 0,
@@ -961,10 +1189,12 @@
             "capabilities": {
               "audioInput": false,
               "audioOutput": false,
+              "serviceTiers": [],
               "showThoughts": false,
               "structuredOutputs": false,
               "temperature": true,
               "thinkingBudget": false,
+              "thinkingLevels": [],
               "topP": true
             },
             "completionTokenCostPer1M": 0,
@@ -981,10 +1211,12 @@
             "capabilities": {
               "audioInput": false,
               "audioOutput": false,
+              "serviceTiers": [],
               "showThoughts": false,
               "structuredOutputs": false,
               "temperature": true,
               "thinkingBudget": false,
+              "thinkingLevels": [],
               "topP": true
             },
             "completionTokenCostPer1M": 0,
@@ -1001,10 +1233,12 @@
             "capabilities": {
               "audioInput": false,
               "audioOutput": false,
+              "serviceTiers": [],
               "showThoughts": false,
               "structuredOutputs": false,
               "temperature": true,
               "thinkingBudget": false,
+              "thinkingLevels": [],
               "topP": true
             },
             "completionTokenCostPer1M": 0,
@@ -1021,10 +1255,12 @@
             "capabilities": {
               "audioInput": false,
               "audioOutput": false,
+              "serviceTiers": [],
               "showThoughts": false,
               "structuredOutputs": false,
               "temperature": true,
               "thinkingBudget": false,
+              "thinkingLevels": [],
               "topP": true
             },
             "completionTokenCostPer1M": 0,
@@ -1041,6 +1277,18 @@
         "name": "webllm"
       },
       {
+        "capabilities": {
+          "serviceTiers": ["standard", "flex", "priority"],
+          "thinking": true,
+          "thinkingLevels": [
+            "none",
+            "minimal",
+            "low",
+            "medium",
+            "high",
+            "highest"
+          ]
+        },
         "defaultEmbedModel": "text-embedding-3-small",
         "defaultModel": "gpt-5-mini",
         "displayName": "OpenAI",
@@ -1050,10 +1298,12 @@
             "capabilities": {
               "audioInput": false,
               "audioOutput": false,
+              "serviceTiers": [],
               "showThoughts": false,
               "structuredOutputs": false,
               "temperature": true,
               "thinkingBudget": false,
+              "thinkingLevels": [],
               "topP": true
             },
             "completionTokenCostPer1M": 0.02,
@@ -1068,10 +1318,12 @@
             "capabilities": {
               "audioInput": false,
               "audioOutput": false,
+              "serviceTiers": [],
               "showThoughts": false,
               "structuredOutputs": false,
               "temperature": true,
               "thinkingBudget": false,
+              "thinkingLevels": [],
               "topP": true
             },
             "completionTokenCostPer1M": 0.1,
@@ -1086,10 +1338,12 @@
             "capabilities": {
               "audioInput": false,
               "audioOutput": false,
+              "serviceTiers": [],
               "showThoughts": false,
               "structuredOutputs": false,
               "temperature": true,
               "thinkingBudget": false,
+              "thinkingLevels": [],
               "topP": true
             },
             "completionTokenCostPer1M": 0.13,
@@ -1104,10 +1358,12 @@
             "capabilities": {
               "audioInput": false,
               "audioOutput": false,
+              "serviceTiers": ["standard", "flex", "priority"],
               "showThoughts": false,
               "structuredOutputs": true,
               "temperature": false,
               "thinkingBudget": false,
+              "thinkingLevels": [],
               "topP": false
             },
             "completionTokenCostPer1M": 0.4,
@@ -1129,10 +1385,12 @@
             "capabilities": {
               "audioInput": false,
               "audioOutput": false,
+              "serviceTiers": ["standard", "flex", "priority"],
               "showThoughts": false,
               "structuredOutputs": true,
               "temperature": true,
               "thinkingBudget": false,
+              "thinkingLevels": [],
               "topP": true
             },
             "completionTokenCostPer1M": 0.4,
@@ -1150,10 +1408,12 @@
             "capabilities": {
               "audioInput": false,
               "audioOutput": false,
+              "serviceTiers": ["standard", "flex", "priority"],
               "showThoughts": false,
               "structuredOutputs": true,
               "temperature": true,
               "thinkingBudget": false,
+              "thinkingLevels": [],
               "topP": true
             },
             "completionTokenCostPer1M": 0.6,
@@ -1173,10 +1433,19 @@
             "capabilities": {
               "audioInput": false,
               "audioOutput": false,
+              "serviceTiers": ["standard", "flex", "priority"],
               "showThoughts": false,
               "structuredOutputs": true,
               "temperature": false,
               "thinkingBudget": true,
+              "thinkingLevels": [
+                "none",
+                "minimal",
+                "low",
+                "medium",
+                "high",
+                "highest"
+              ],
               "topP": false
             },
             "completionTokenCostPer1M": 1.2,
@@ -1205,10 +1474,12 @@
             "capabilities": {
               "audioInput": false,
               "audioOutput": false,
+              "serviceTiers": ["standard", "flex", "priority"],
               "showThoughts": false,
               "structuredOutputs": true,
               "temperature": false,
               "thinkingBudget": false,
+              "thinkingLevels": [],
               "topP": false
             },
             "completionTokenCostPer1M": 1.25,
@@ -1230,10 +1501,12 @@
             "capabilities": {
               "audioInput": false,
               "audioOutput": false,
+              "serviceTiers": ["standard", "flex", "priority"],
               "showThoughts": false,
               "structuredOutputs": false,
               "temperature": true,
               "thinkingBudget": false,
+              "thinkingLevels": [],
               "topP": true
             },
             "completionTokenCostPer1M": 1.5,
@@ -1248,10 +1521,12 @@
             "capabilities": {
               "audioInput": false,
               "audioOutput": false,
+              "serviceTiers": ["standard", "flex", "priority"],
               "showThoughts": false,
               "structuredOutputs": true,
               "temperature": true,
               "thinkingBudget": false,
+              "thinkingLevels": [],
               "topP": true
             },
             "completionTokenCostPer1M": 1.6,
@@ -1269,10 +1544,12 @@
             "capabilities": {
               "audioInput": false,
               "audioOutput": false,
+              "serviceTiers": ["standard", "flex", "priority"],
               "showThoughts": false,
               "structuredOutputs": true,
               "temperature": false,
               "thinkingBudget": false,
+              "thinkingLevels": [],
               "topP": false
             },
             "completionTokenCostPer1M": 2,
@@ -1294,10 +1571,12 @@
             "capabilities": {
               "audioInput": false,
               "audioOutput": false,
+              "serviceTiers": ["standard", "flex", "priority"],
               "showThoughts": false,
               "structuredOutputs": true,
               "temperature": false,
               "thinkingBudget": false,
+              "thinkingLevels": [],
               "topP": false
             },
             "completionTokenCostPer1M": 2,
@@ -1319,10 +1598,12 @@
             "capabilities": {
               "audioInput": false,
               "audioOutput": false,
+              "serviceTiers": ["standard", "flex", "priority"],
               "showThoughts": false,
               "structuredOutputs": true,
               "temperature": false,
               "thinkingBudget": false,
+              "thinkingLevels": [],
               "topP": false
             },
             "completionTokenCostPer1M": 4.5,
@@ -1344,10 +1625,12 @@
             "capabilities": {
               "audioInput": false,
               "audioOutput": false,
+              "serviceTiers": ["standard", "flex", "priority"],
               "showThoughts": false,
               "structuredOutputs": true,
               "temperature": true,
               "thinkingBudget": false,
+              "thinkingLevels": [],
               "topP": true
             },
             "completionTokenCostPer1M": 4.4,
@@ -1365,10 +1648,12 @@
             "capabilities": {
               "audioInput": false,
               "audioOutput": false,
+              "serviceTiers": ["standard", "flex", "priority"],
               "showThoughts": false,
               "structuredOutputs": true,
               "temperature": true,
               "thinkingBudget": false,
+              "thinkingLevels": [],
               "topP": true
             },
             "completionTokenCostPer1M": 4.4,
@@ -1386,10 +1671,12 @@
             "capabilities": {
               "audioInput": false,
               "audioOutput": false,
+              "serviceTiers": ["standard", "flex", "priority"],
               "showThoughts": false,
               "structuredOutputs": true,
               "temperature": true,
               "thinkingBudget": false,
+              "thinkingLevels": [],
               "topP": true
             },
             "completionTokenCostPer1M": 8,
@@ -1407,10 +1694,12 @@
             "capabilities": {
               "audioInput": false,
               "audioOutput": false,
+              "serviceTiers": ["standard", "flex", "priority"],
               "showThoughts": false,
               "structuredOutputs": true,
               "temperature": true,
               "thinkingBudget": false,
+              "thinkingLevels": [],
               "topP": true
             },
             "completionTokenCostPer1M": 8,
@@ -1428,10 +1717,12 @@
             "capabilities": {
               "audioInput": false,
               "audioOutput": false,
+              "serviceTiers": ["standard", "flex", "priority"],
               "showThoughts": false,
               "structuredOutputs": true,
               "temperature": false,
               "thinkingBudget": false,
+              "thinkingLevels": [],
               "topP": false
             },
             "completionTokenCostPer1M": 10,
@@ -1453,10 +1744,12 @@
             "capabilities": {
               "audioInput": false,
               "audioOutput": false,
+              "serviceTiers": ["standard", "flex", "priority"],
               "showThoughts": false,
               "structuredOutputs": true,
               "temperature": false,
               "thinkingBudget": false,
+              "thinkingLevels": [],
               "topP": false
             },
             "completionTokenCostPer1M": 10,
@@ -1478,10 +1771,12 @@
             "capabilities": {
               "audioInput": false,
               "audioOutput": false,
+              "serviceTiers": ["standard", "flex", "priority"],
               "showThoughts": false,
               "structuredOutputs": true,
               "temperature": false,
               "thinkingBudget": false,
+              "thinkingLevels": [],
               "topP": false
             },
             "completionTokenCostPer1M": 10,
@@ -1503,10 +1798,12 @@
             "capabilities": {
               "audioInput": false,
               "audioOutput": false,
+              "serviceTiers": ["standard", "flex", "priority"],
               "showThoughts": false,
               "structuredOutputs": true,
               "temperature": false,
               "thinkingBudget": false,
+              "thinkingLevels": [],
               "topP": false
             },
             "completionTokenCostPer1M": 10,
@@ -1528,10 +1825,12 @@
             "capabilities": {
               "audioInput": false,
               "audioOutput": false,
+              "serviceTiers": ["standard", "flex", "priority"],
               "showThoughts": false,
               "structuredOutputs": true,
               "temperature": false,
               "thinkingBudget": false,
+              "thinkingLevels": [],
               "topP": false
             },
             "completionTokenCostPer1M": 10,
@@ -1553,10 +1852,12 @@
             "capabilities": {
               "audioInput": false,
               "audioOutput": false,
+              "serviceTiers": ["standard", "flex", "priority"],
               "showThoughts": false,
               "structuredOutputs": true,
               "temperature": false,
               "thinkingBudget": false,
+              "thinkingLevels": [],
               "topP": false
             },
             "completionTokenCostPer1M": 10,
@@ -1578,10 +1879,12 @@
             "capabilities": {
               "audioInput": false,
               "audioOutput": false,
+              "serviceTiers": ["standard", "flex", "priority"],
               "showThoughts": false,
               "structuredOutputs": true,
               "temperature": false,
               "thinkingBudget": false,
+              "thinkingLevels": [],
               "topP": false
             },
             "completionTokenCostPer1M": 10,
@@ -1603,10 +1906,12 @@
             "capabilities": {
               "audioInput": false,
               "audioOutput": false,
+              "serviceTiers": ["standard", "flex", "priority"],
               "showThoughts": false,
               "structuredOutputs": true,
               "temperature": false,
               "thinkingBudget": false,
+              "thinkingLevels": [],
               "topP": false
             },
             "completionTokenCostPer1M": 10,
@@ -1628,10 +1933,12 @@
             "capabilities": {
               "audioInput": false,
               "audioOutput": false,
+              "serviceTiers": ["standard", "flex", "priority"],
               "showThoughts": false,
               "structuredOutputs": true,
               "temperature": true,
               "thinkingBudget": false,
+              "thinkingLevels": [],
               "topP": true
             },
             "completionTokenCostPer1M": 10,
@@ -1651,10 +1958,19 @@
             "capabilities": {
               "audioInput": false,
               "audioOutput": false,
+              "serviceTiers": ["standard", "flex", "priority"],
               "showThoughts": false,
               "structuredOutputs": true,
               "temperature": false,
               "thinkingBudget": true,
+              "thinkingLevels": [
+                "none",
+                "minimal",
+                "low",
+                "medium",
+                "high",
+                "highest"
+              ],
               "topP": false
             },
             "completionTokenCostPer1M": 12,
@@ -1683,10 +1999,12 @@
             "capabilities": {
               "audioInput": false,
               "audioOutput": false,
+              "serviceTiers": ["standard", "flex", "priority"],
               "showThoughts": false,
               "structuredOutputs": true,
               "temperature": false,
               "thinkingBudget": false,
+              "thinkingLevels": [],
               "topP": false
             },
             "completionTokenCostPer1M": 14,
@@ -1708,10 +2026,12 @@
             "capabilities": {
               "audioInput": false,
               "audioOutput": false,
+              "serviceTiers": ["standard", "flex", "priority"],
               "showThoughts": false,
               "structuredOutputs": true,
               "temperature": false,
               "thinkingBudget": false,
+              "thinkingLevels": [],
               "topP": false
             },
             "completionTokenCostPer1M": 14,
@@ -1733,10 +2053,12 @@
             "capabilities": {
               "audioInput": false,
               "audioOutput": false,
+              "serviceTiers": ["standard", "flex", "priority"],
               "showThoughts": false,
               "structuredOutputs": true,
               "temperature": false,
               "thinkingBudget": false,
+              "thinkingLevels": [],
               "topP": false
             },
             "completionTokenCostPer1M": 14,
@@ -1758,10 +2080,12 @@
             "capabilities": {
               "audioInput": false,
               "audioOutput": false,
+              "serviceTiers": ["standard", "flex", "priority"],
               "showThoughts": false,
               "structuredOutputs": true,
               "temperature": false,
               "thinkingBudget": false,
+              "thinkingLevels": [],
               "topP": false
             },
             "completionTokenCostPer1M": 15,
@@ -1783,10 +2107,12 @@
             "capabilities": {
               "audioInput": false,
               "audioOutput": false,
+              "serviceTiers": ["standard", "flex", "priority"],
               "showThoughts": false,
               "structuredOutputs": true,
               "temperature": true,
               "thinkingBudget": false,
+              "thinkingLevels": [],
               "topP": true
             },
             "completionTokenCostPer1M": 15,
@@ -1805,10 +2131,19 @@
             "capabilities": {
               "audioInput": false,
               "audioOutput": false,
+              "serviceTiers": ["standard", "flex", "priority"],
               "showThoughts": false,
               "structuredOutputs": true,
               "temperature": false,
               "thinkingBudget": true,
+              "thinkingLevels": [
+                "none",
+                "minimal",
+                "low",
+                "medium",
+                "high",
+                "highest"
+              ],
               "topP": false
             },
             "completionTokenCostPer1M": 30,
@@ -1839,10 +2174,19 @@
             "capabilities": {
               "audioInput": false,
               "audioOutput": false,
+              "serviceTiers": ["standard", "flex", "priority"],
               "showThoughts": false,
               "structuredOutputs": true,
               "temperature": false,
               "thinkingBudget": true,
+              "thinkingLevels": [
+                "none",
+                "minimal",
+                "low",
+                "medium",
+                "high",
+                "highest"
+              ],
               "topP": false
             },
             "completionTokenCostPer1M": 30,
@@ -1871,10 +2215,12 @@
             "capabilities": {
               "audioInput": false,
               "audioOutput": false,
+              "serviceTiers": ["standard", "flex", "priority"],
               "showThoughts": false,
               "structuredOutputs": true,
               "temperature": true,
               "thinkingBudget": false,
+              "thinkingLevels": [],
               "topP": true
             },
             "completionTokenCostPer1M": 30,
@@ -1892,10 +2238,12 @@
             "capabilities": {
               "audioInput": false,
               "audioOutput": false,
+              "serviceTiers": ["standard", "flex", "priority"],
               "showThoughts": false,
               "structuredOutputs": true,
               "temperature": true,
               "thinkingBudget": false,
+              "thinkingLevels": [],
               "topP": true
             },
             "completionTokenCostPer1M": 60,
@@ -1913,10 +2261,12 @@
             "capabilities": {
               "audioInput": false,
               "audioOutput": false,
+              "serviceTiers": ["standard", "flex", "priority"],
               "showThoughts": false,
               "structuredOutputs": false,
               "temperature": true,
               "thinkingBudget": false,
+              "thinkingLevels": [],
               "topP": true
             },
             "completionTokenCostPer1M": 60,
@@ -1931,10 +2281,12 @@
             "capabilities": {
               "audioInput": false,
               "audioOutput": false,
+              "serviceTiers": ["standard", "flex", "priority"],
               "showThoughts": false,
               "structuredOutputs": true,
               "temperature": false,
               "thinkingBudget": false,
+              "thinkingLevels": [],
               "topP": false
             },
             "completionTokenCostPer1M": 120,
@@ -1956,10 +2308,12 @@
             "capabilities": {
               "audioInput": false,
               "audioOutput": false,
+              "serviceTiers": ["standard", "flex", "priority"],
               "showThoughts": false,
               "structuredOutputs": true,
               "temperature": false,
               "thinkingBudget": false,
+              "thinkingLevels": [],
               "topP": false
             },
             "completionTokenCostPer1M": 168,
@@ -1981,10 +2335,19 @@
             "capabilities": {
               "audioInput": false,
               "audioOutput": false,
+              "serviceTiers": ["standard", "flex", "priority"],
               "showThoughts": false,
               "structuredOutputs": true,
               "temperature": false,
               "thinkingBudget": true,
+              "thinkingLevels": [
+                "none",
+                "minimal",
+                "low",
+                "medium",
+                "high",
+                "highest"
+              ],
               "topP": false
             },
             "completionTokenCostPer1M": 180,
@@ -2016,10 +2379,12 @@
             "capabilities": {
               "audioInput": true,
               "audioOutput": true,
+              "serviceTiers": ["standard", "flex", "priority"],
               "showThoughts": false,
               "structuredOutputs": false,
               "temperature": true,
               "thinkingBudget": false,
+              "thinkingLevels": [],
               "topP": true
             },
             "isDefault": false,
@@ -2035,10 +2400,12 @@
             "capabilities": {
               "audioInput": true,
               "audioOutput": true,
+              "serviceTiers": ["standard", "flex", "priority"],
               "showThoughts": false,
               "structuredOutputs": false,
               "temperature": true,
               "thinkingBudget": false,
+              "thinkingLevels": [],
               "topP": true
             },
             "isDefault": false,
@@ -2054,10 +2421,12 @@
             "capabilities": {
               "audioInput": true,
               "audioOutput": true,
+              "serviceTiers": ["standard", "flex", "priority"],
               "showThoughts": false,
               "structuredOutputs": false,
               "temperature": true,
               "thinkingBudget": false,
+              "thinkingLevels": [],
               "topP": true
             },
             "isDefault": false,
@@ -2073,10 +2442,12 @@
             "capabilities": {
               "audioInput": true,
               "audioOutput": true,
+              "serviceTiers": [],
               "showThoughts": false,
               "structuredOutputs": false,
               "temperature": true,
               "thinkingBudget": false,
+              "thinkingLevels": [],
               "topP": true
             },
             "isDefault": false,
@@ -2092,10 +2463,19 @@
             "capabilities": {
               "audioInput": true,
               "audioOutput": true,
+              "serviceTiers": [],
               "showThoughts": false,
               "structuredOutputs": false,
               "temperature": true,
               "thinkingBudget": true,
+              "thinkingLevels": [
+                "none",
+                "minimal",
+                "low",
+                "medium",
+                "high",
+                "highest"
+              ],
               "topP": true
             },
             "isDefault": false,
@@ -2114,10 +2494,12 @@
             "capabilities": {
               "audioInput": true,
               "audioOutput": false,
+              "serviceTiers": [],
               "showThoughts": false,
               "structuredOutputs": false,
               "temperature": true,
               "thinkingBudget": false,
+              "thinkingLevels": [],
               "topP": true
             },
             "isDefault": false,
@@ -2133,10 +2515,12 @@
             "capabilities": {
               "audioInput": true,
               "audioOutput": true,
+              "serviceTiers": [],
               "showThoughts": false,
               "structuredOutputs": false,
               "temperature": true,
               "thinkingBudget": false,
+              "thinkingLevels": [],
               "topP": true
             },
             "isDefault": false,
@@ -2148,6 +2532,11 @@
         "name": "openai"
       },
       {
+        "capabilities": {
+          "serviceTiers": [],
+          "thinking": false,
+          "thinkingLevels": []
+        },
         "defaultModel": "command-r-plus",
         "displayName": "Cohere",
         "isDynamic": false,
@@ -2156,10 +2545,12 @@
             "capabilities": {
               "audioInput": false,
               "audioOutput": false,
+              "serviceTiers": [],
               "showThoughts": false,
               "structuredOutputs": false,
               "temperature": true,
               "thinkingBudget": false,
+              "thinkingLevels": [],
               "topP": true
             },
             "completionTokenCostPer1M": 0.1,
@@ -2174,10 +2565,12 @@
             "capabilities": {
               "audioInput": false,
               "audioOutput": false,
+              "serviceTiers": [],
               "showThoughts": false,
               "structuredOutputs": false,
               "temperature": true,
               "thinkingBudget": false,
+              "thinkingLevels": [],
               "topP": true
             },
             "completionTokenCostPer1M": 0.1,
@@ -2192,10 +2585,12 @@
             "capabilities": {
               "audioInput": false,
               "audioOutput": false,
+              "serviceTiers": [],
               "showThoughts": false,
               "structuredOutputs": false,
               "temperature": true,
               "thinkingBudget": false,
+              "thinkingLevels": [],
               "topP": true
             },
             "completionTokenCostPer1M": 0.1,
@@ -2210,10 +2605,12 @@
             "capabilities": {
               "audioInput": false,
               "audioOutput": false,
+              "serviceTiers": [],
               "showThoughts": false,
               "structuredOutputs": false,
               "temperature": true,
               "thinkingBudget": false,
+              "thinkingLevels": [],
               "topP": true
             },
             "completionTokenCostPer1M": 0.1,
@@ -2228,10 +2625,12 @@
             "capabilities": {
               "audioInput": false,
               "audioOutput": false,
+              "serviceTiers": [],
               "showThoughts": false,
               "structuredOutputs": false,
               "temperature": true,
               "thinkingBudget": false,
+              "thinkingLevels": [],
               "topP": true
             },
             "completionTokenCostPer1M": 0.6,
@@ -2246,10 +2645,12 @@
             "capabilities": {
               "audioInput": false,
               "audioOutput": false,
+              "serviceTiers": [],
               "showThoughts": false,
               "structuredOutputs": false,
               "temperature": true,
               "thinkingBudget": false,
+              "thinkingLevels": [],
               "topP": true
             },
             "completionTokenCostPer1M": 1.5,
@@ -2264,10 +2665,12 @@
             "capabilities": {
               "audioInput": false,
               "audioOutput": false,
+              "serviceTiers": [],
               "showThoughts": false,
               "structuredOutputs": false,
               "temperature": true,
               "thinkingBudget": false,
+              "thinkingLevels": [],
               "topP": true
             },
             "completionTokenCostPer1M": 1.5,
@@ -2282,10 +2685,12 @@
             "capabilities": {
               "audioInput": false,
               "audioOutput": false,
+              "serviceTiers": [],
               "showThoughts": false,
               "structuredOutputs": false,
               "temperature": true,
               "thinkingBudget": false,
+              "thinkingLevels": [],
               "topP": true
             },
             "completionTokenCostPer1M": 15,
@@ -2300,6 +2705,11 @@
         "name": "cohere"
       },
       {
+        "capabilities": {
+          "serviceTiers": ["standard", "priority"],
+          "thinking": false,
+          "thinkingLevels": []
+        },
         "defaultModel": "mistral-small-latest",
         "displayName": "Mistral AI",
         "isDynamic": false,
@@ -2308,10 +2718,12 @@
             "capabilities": {
               "audioInput": false,
               "audioOutput": false,
+              "serviceTiers": ["standard", "priority"],
               "showThoughts": false,
               "structuredOutputs": false,
               "temperature": true,
               "thinkingBudget": false,
+              "thinkingLevels": [],
               "topP": true
             },
             "completionTokenCostPer1M": 0.15,
@@ -2326,10 +2738,12 @@
             "capabilities": {
               "audioInput": false,
               "audioOutput": false,
+              "serviceTiers": ["standard", "priority"],
               "showThoughts": false,
               "structuredOutputs": false,
               "temperature": true,
               "thinkingBudget": false,
+              "thinkingLevels": [],
               "topP": true
             },
             "completionTokenCostPer1M": 0.25,
@@ -2344,10 +2758,12 @@
             "capabilities": {
               "audioInput": false,
               "audioOutput": false,
+              "serviceTiers": ["standard", "priority"],
               "showThoughts": false,
               "structuredOutputs": false,
               "temperature": true,
               "thinkingBudget": false,
+              "thinkingLevels": [],
               "topP": true
             },
             "completionTokenCostPer1M": 0.25,
@@ -2362,10 +2778,12 @@
             "capabilities": {
               "audioInput": false,
               "audioOutput": false,
+              "serviceTiers": ["standard", "priority"],
               "showThoughts": false,
               "structuredOutputs": false,
               "temperature": true,
               "thinkingBudget": false,
+              "thinkingLevels": [],
               "topP": true
             },
             "completionTokenCostPer1M": 0.3,
@@ -2380,10 +2798,12 @@
             "capabilities": {
               "audioInput": false,
               "audioOutput": false,
+              "serviceTiers": ["standard", "priority"],
               "showThoughts": false,
               "structuredOutputs": false,
               "temperature": true,
               "thinkingBudget": false,
+              "thinkingLevels": [],
               "topP": true
             },
             "completionTokenCostPer1M": 0.6,
@@ -2398,10 +2818,12 @@
             "capabilities": {
               "audioInput": false,
               "audioOutput": false,
+              "serviceTiers": ["standard", "priority"],
               "showThoughts": false,
               "structuredOutputs": false,
               "temperature": true,
               "thinkingBudget": false,
+              "thinkingLevels": [],
               "topP": true
             },
             "completionTokenCostPer1M": 0.6,
@@ -2416,10 +2838,12 @@
             "capabilities": {
               "audioInput": false,
               "audioOutput": false,
+              "serviceTiers": ["standard", "priority"],
               "showThoughts": false,
               "structuredOutputs": false,
               "temperature": true,
               "thinkingBudget": false,
+              "thinkingLevels": [],
               "topP": true
             },
             "completionTokenCostPer1M": 0.7,
@@ -2434,10 +2858,12 @@
             "capabilities": {
               "audioInput": false,
               "audioOutput": false,
+              "serviceTiers": ["standard", "priority"],
               "showThoughts": false,
               "structuredOutputs": false,
               "temperature": true,
               "thinkingBudget": false,
+              "thinkingLevels": [],
               "topP": true
             },
             "completionTokenCostPer1M": 6,
@@ -2452,6 +2878,18 @@
         "name": "mistral"
       },
       {
+        "capabilities": {
+          "serviceTiers": [],
+          "thinking": true,
+          "thinkingLevels": [
+            "none",
+            "minimal",
+            "low",
+            "medium",
+            "high",
+            "highest"
+          ]
+        },
         "defaultModel": "deepseek-v4-flash",
         "displayName": "DeepSeek",
         "isDynamic": false,
@@ -2462,10 +2900,19 @@
             "capabilities": {
               "audioInput": false,
               "audioOutput": false,
+              "serviceTiers": [],
               "showThoughts": true,
               "structuredOutputs": false,
               "temperature": true,
               "thinkingBudget": true,
+              "thinkingLevels": [
+                "none",
+                "minimal",
+                "low",
+                "medium",
+                "high",
+                "highest"
+              ],
               "topP": true
             },
             "completionTokenCostPer1M": 0.28,
@@ -2488,10 +2935,19 @@
             "capabilities": {
               "audioInput": false,
               "audioOutput": false,
+              "serviceTiers": [],
               "showThoughts": true,
               "structuredOutputs": false,
               "temperature": true,
               "thinkingBudget": true,
+              "thinkingLevels": [
+                "none",
+                "minimal",
+                "low",
+                "medium",
+                "high",
+                "highest"
+              ],
               "topP": true
             },
             "completionTokenCostPer1M": 0.87,
@@ -2513,6 +2969,18 @@
         "name": "deepseek"
       },
       {
+        "capabilities": {
+          "serviceTiers": [],
+          "thinking": true,
+          "thinkingLevels": [
+            "none",
+            "minimal",
+            "low",
+            "medium",
+            "high",
+            "highest"
+          ]
+        },
         "defaultModel": "deepseek-v4-flash",
         "displayName": "DeepSeek Responses",
         "isDynamic": false,
@@ -2523,10 +2991,19 @@
             "capabilities": {
               "audioInput": false,
               "audioOutput": false,
+              "serviceTiers": [],
               "showThoughts": true,
               "structuredOutputs": false,
               "temperature": true,
               "thinkingBudget": true,
+              "thinkingLevels": [
+                "none",
+                "minimal",
+                "low",
+                "medium",
+                "high",
+                "highest"
+              ],
               "topP": true
             },
             "completionTokenCostPer1M": 0.28,
@@ -2549,10 +3026,19 @@
             "capabilities": {
               "audioInput": false,
               "audioOutput": false,
+              "serviceTiers": [],
               "showThoughts": true,
               "structuredOutputs": false,
               "temperature": true,
               "thinkingBudget": true,
+              "thinkingLevels": [
+                "none",
+                "minimal",
+                "low",
+                "medium",
+                "high",
+                "highest"
+              ],
               "topP": true
             },
             "completionTokenCostPer1M": 0.87,
@@ -2574,6 +3060,18 @@
         "name": "deepseek-responses"
       },
       {
+        "capabilities": {
+          "serviceTiers": ["standard", "flex", "priority"],
+          "thinking": true,
+          "thinkingLevels": [
+            "none",
+            "minimal",
+            "low",
+            "medium",
+            "high",
+            "highest"
+          ]
+        },
         "defaultEmbedModel": "text-embedding-ada-002",
         "defaultModel": "gpt-4o",
         "displayName": "OpenAI Responses",
@@ -2583,10 +3081,19 @@
             "capabilities": {
               "audioInput": false,
               "audioOutput": false,
+              "serviceTiers": ["standard", "flex", "priority"],
               "showThoughts": true,
               "structuredOutputs": true,
               "temperature": false,
               "thinkingBudget": true,
+              "thinkingLevels": [
+                "none",
+                "minimal",
+                "low",
+                "medium",
+                "high",
+                "highest"
+              ],
               "topP": false
             },
             "completionTokenCostPer1M": 0.4,
@@ -2610,10 +3117,12 @@
             "capabilities": {
               "audioInput": false,
               "audioOutput": false,
+              "serviceTiers": ["standard", "flex", "priority"],
               "showThoughts": false,
               "structuredOutputs": true,
               "temperature": true,
               "thinkingBudget": false,
+              "thinkingLevels": [],
               "topP": true
             },
             "completionTokenCostPer1M": 0.4,
@@ -2631,10 +3140,12 @@
             "capabilities": {
               "audioInput": false,
               "audioOutput": false,
+              "serviceTiers": ["standard", "flex", "priority"],
               "showThoughts": false,
               "structuredOutputs": true,
               "temperature": true,
               "thinkingBudget": false,
+              "thinkingLevels": [],
               "topP": true
             },
             "completionTokenCostPer1M": 0.6,
@@ -2654,10 +3165,19 @@
             "capabilities": {
               "audioInput": false,
               "audioOutput": false,
+              "serviceTiers": ["standard", "flex", "priority"],
               "showThoughts": true,
               "structuredOutputs": true,
               "temperature": false,
               "thinkingBudget": true,
+              "thinkingLevels": [
+                "none",
+                "minimal",
+                "low",
+                "medium",
+                "high",
+                "highest"
+              ],
               "topP": false
             },
             "completionTokenCostPer1M": 1.2,
@@ -2687,10 +3207,19 @@
             "capabilities": {
               "audioInput": false,
               "audioOutput": false,
+              "serviceTiers": ["standard", "flex", "priority"],
               "showThoughts": true,
               "structuredOutputs": true,
               "temperature": false,
               "thinkingBudget": true,
+              "thinkingLevels": [
+                "none",
+                "minimal",
+                "low",
+                "medium",
+                "high",
+                "highest"
+              ],
               "topP": false
             },
             "completionTokenCostPer1M": 1.25,
@@ -2714,10 +3243,12 @@
             "capabilities": {
               "audioInput": false,
               "audioOutput": false,
+              "serviceTiers": ["standard", "flex", "priority"],
               "showThoughts": false,
               "structuredOutputs": false,
               "temperature": true,
               "thinkingBudget": false,
+              "thinkingLevels": [],
               "topP": true
             },
             "completionTokenCostPer1M": 1.5,
@@ -2732,10 +3263,12 @@
             "capabilities": {
               "audioInput": false,
               "audioOutput": false,
+              "serviceTiers": ["standard", "flex", "priority"],
               "showThoughts": false,
               "structuredOutputs": true,
               "temperature": true,
               "thinkingBudget": false,
+              "thinkingLevels": [],
               "topP": true
             },
             "completionTokenCostPer1M": 1.6,
@@ -2753,10 +3286,19 @@
             "capabilities": {
               "audioInput": false,
               "audioOutput": false,
+              "serviceTiers": ["standard", "flex", "priority"],
               "showThoughts": true,
               "structuredOutputs": true,
               "temperature": false,
               "thinkingBudget": true,
+              "thinkingLevels": [
+                "none",
+                "minimal",
+                "low",
+                "medium",
+                "high",
+                "highest"
+              ],
               "topP": false
             },
             "completionTokenCostPer1M": 2,
@@ -2780,10 +3322,19 @@
             "capabilities": {
               "audioInput": false,
               "audioOutput": false,
+              "serviceTiers": ["standard", "flex", "priority"],
               "showThoughts": true,
               "structuredOutputs": true,
               "temperature": false,
               "thinkingBudget": true,
+              "thinkingLevels": [
+                "none",
+                "minimal",
+                "low",
+                "medium",
+                "high",
+                "highest"
+              ],
               "topP": false
             },
             "completionTokenCostPer1M": 2,
@@ -2807,10 +3358,19 @@
             "capabilities": {
               "audioInput": false,
               "audioOutput": false,
+              "serviceTiers": ["standard", "flex", "priority"],
               "showThoughts": true,
               "structuredOutputs": true,
               "temperature": false,
               "thinkingBudget": true,
+              "thinkingLevels": [
+                "none",
+                "minimal",
+                "low",
+                "medium",
+                "high",
+                "highest"
+              ],
               "topP": false
             },
             "completionTokenCostPer1M": 4.5,
@@ -2834,10 +3394,19 @@
             "capabilities": {
               "audioInput": false,
               "audioOutput": false,
+              "serviceTiers": ["standard", "flex", "priority"],
               "showThoughts": true,
               "structuredOutputs": true,
               "temperature": true,
               "thinkingBudget": true,
+              "thinkingLevels": [
+                "none",
+                "minimal",
+                "low",
+                "medium",
+                "high",
+                "highest"
+              ],
               "topP": true
             },
             "completionTokenCostPer1M": 4.4,
@@ -2857,10 +3426,19 @@
             "capabilities": {
               "audioInput": false,
               "audioOutput": false,
+              "serviceTiers": ["standard", "flex", "priority"],
               "showThoughts": true,
               "structuredOutputs": true,
               "temperature": true,
               "thinkingBudget": true,
+              "thinkingLevels": [
+                "none",
+                "minimal",
+                "low",
+                "medium",
+                "high",
+                "highest"
+              ],
               "topP": true
             },
             "completionTokenCostPer1M": 4.4,
@@ -2880,10 +3458,12 @@
             "capabilities": {
               "audioInput": false,
               "audioOutput": false,
+              "serviceTiers": ["standard", "flex", "priority"],
               "showThoughts": false,
               "structuredOutputs": true,
               "temperature": true,
               "thinkingBudget": false,
+              "thinkingLevels": [],
               "topP": true
             },
             "completionTokenCostPer1M": 8,
@@ -2901,10 +3481,19 @@
             "capabilities": {
               "audioInput": false,
               "audioOutput": false,
+              "serviceTiers": ["standard", "flex", "priority"],
               "showThoughts": true,
               "structuredOutputs": true,
               "temperature": true,
               "thinkingBudget": true,
+              "thinkingLevels": [
+                "none",
+                "minimal",
+                "low",
+                "medium",
+                "high",
+                "highest"
+              ],
               "topP": true
             },
             "completionTokenCostPer1M": 8,
@@ -2924,10 +3513,19 @@
             "capabilities": {
               "audioInput": false,
               "audioOutput": false,
+              "serviceTiers": ["standard", "flex", "priority"],
               "showThoughts": true,
               "structuredOutputs": true,
               "temperature": false,
               "thinkingBudget": true,
+              "thinkingLevels": [
+                "none",
+                "minimal",
+                "low",
+                "medium",
+                "high",
+                "highest"
+              ],
               "topP": false
             },
             "completionTokenCostPer1M": 10,
@@ -2951,10 +3549,19 @@
             "capabilities": {
               "audioInput": false,
               "audioOutput": false,
+              "serviceTiers": ["standard", "flex", "priority"],
               "showThoughts": true,
               "structuredOutputs": true,
               "temperature": false,
               "thinkingBudget": true,
+              "thinkingLevels": [
+                "none",
+                "minimal",
+                "low",
+                "medium",
+                "high",
+                "highest"
+              ],
               "topP": false
             },
             "completionTokenCostPer1M": 10,
@@ -2978,10 +3585,19 @@
             "capabilities": {
               "audioInput": false,
               "audioOutput": false,
+              "serviceTiers": ["standard", "flex", "priority"],
               "showThoughts": true,
               "structuredOutputs": true,
               "temperature": false,
               "thinkingBudget": true,
+              "thinkingLevels": [
+                "none",
+                "minimal",
+                "low",
+                "medium",
+                "high",
+                "highest"
+              ],
               "topP": false
             },
             "completionTokenCostPer1M": 10,
@@ -3005,10 +3621,19 @@
             "capabilities": {
               "audioInput": false,
               "audioOutput": false,
+              "serviceTiers": ["standard", "flex", "priority"],
               "showThoughts": true,
               "structuredOutputs": true,
               "temperature": false,
               "thinkingBudget": true,
+              "thinkingLevels": [
+                "none",
+                "minimal",
+                "low",
+                "medium",
+                "high",
+                "highest"
+              ],
               "topP": false
             },
             "completionTokenCostPer1M": 10,
@@ -3032,10 +3657,19 @@
             "capabilities": {
               "audioInput": false,
               "audioOutput": false,
+              "serviceTiers": ["standard", "flex", "priority"],
               "showThoughts": true,
               "structuredOutputs": true,
               "temperature": false,
               "thinkingBudget": true,
+              "thinkingLevels": [
+                "none",
+                "minimal",
+                "low",
+                "medium",
+                "high",
+                "highest"
+              ],
               "topP": false
             },
             "completionTokenCostPer1M": 10,
@@ -3059,10 +3693,19 @@
             "capabilities": {
               "audioInput": false,
               "audioOutput": false,
+              "serviceTiers": ["standard", "flex", "priority"],
               "showThoughts": true,
               "structuredOutputs": true,
               "temperature": false,
               "thinkingBudget": true,
+              "thinkingLevels": [
+                "none",
+                "minimal",
+                "low",
+                "medium",
+                "high",
+                "highest"
+              ],
               "topP": false
             },
             "completionTokenCostPer1M": 10,
@@ -3086,10 +3729,19 @@
             "capabilities": {
               "audioInput": false,
               "audioOutput": false,
+              "serviceTiers": ["standard", "flex", "priority"],
               "showThoughts": true,
               "structuredOutputs": true,
               "temperature": false,
               "thinkingBudget": true,
+              "thinkingLevels": [
+                "none",
+                "minimal",
+                "low",
+                "medium",
+                "high",
+                "highest"
+              ],
               "topP": false
             },
             "completionTokenCostPer1M": 10,
@@ -3113,10 +3765,19 @@
             "capabilities": {
               "audioInput": false,
               "audioOutput": false,
+              "serviceTiers": ["standard", "flex", "priority"],
               "showThoughts": true,
               "structuredOutputs": true,
               "temperature": false,
               "thinkingBudget": true,
+              "thinkingLevels": [
+                "none",
+                "minimal",
+                "low",
+                "medium",
+                "high",
+                "highest"
+              ],
               "topP": false
             },
             "completionTokenCostPer1M": 10,
@@ -3140,10 +3801,12 @@
             "capabilities": {
               "audioInput": false,
               "audioOutput": false,
+              "serviceTiers": ["standard", "flex", "priority"],
               "showThoughts": false,
               "structuredOutputs": true,
               "temperature": true,
               "thinkingBudget": false,
+              "thinkingLevels": [],
               "topP": true
             },
             "completionTokenCostPer1M": 10,
@@ -3163,10 +3826,19 @@
             "capabilities": {
               "audioInput": false,
               "audioOutput": false,
+              "serviceTiers": ["standard", "flex", "priority"],
               "showThoughts": true,
               "structuredOutputs": true,
               "temperature": false,
               "thinkingBudget": true,
+              "thinkingLevels": [
+                "none",
+                "minimal",
+                "low",
+                "medium",
+                "high",
+                "highest"
+              ],
               "topP": false
             },
             "completionTokenCostPer1M": 12,
@@ -3196,10 +3868,19 @@
             "capabilities": {
               "audioInput": false,
               "audioOutput": false,
+              "serviceTiers": ["standard", "flex", "priority"],
               "showThoughts": true,
               "structuredOutputs": true,
               "temperature": false,
               "thinkingBudget": true,
+              "thinkingLevels": [
+                "none",
+                "minimal",
+                "low",
+                "medium",
+                "high",
+                "highest"
+              ],
               "topP": false
             },
             "completionTokenCostPer1M": 14,
@@ -3223,10 +3904,19 @@
             "capabilities": {
               "audioInput": false,
               "audioOutput": false,
+              "serviceTiers": ["standard", "flex", "priority"],
               "showThoughts": true,
               "structuredOutputs": true,
               "temperature": false,
               "thinkingBudget": true,
+              "thinkingLevels": [
+                "none",
+                "minimal",
+                "low",
+                "medium",
+                "high",
+                "highest"
+              ],
               "topP": false
             },
             "completionTokenCostPer1M": 14,
@@ -3250,10 +3940,19 @@
             "capabilities": {
               "audioInput": false,
               "audioOutput": false,
+              "serviceTiers": ["standard", "flex", "priority"],
               "showThoughts": true,
               "structuredOutputs": true,
               "temperature": false,
               "thinkingBudget": true,
+              "thinkingLevels": [
+                "none",
+                "minimal",
+                "low",
+                "medium",
+                "high",
+                "highest"
+              ],
               "topP": false
             },
             "completionTokenCostPer1M": 14,
@@ -3277,10 +3976,19 @@
             "capabilities": {
               "audioInput": false,
               "audioOutput": false,
+              "serviceTiers": ["standard", "flex", "priority"],
               "showThoughts": true,
               "structuredOutputs": true,
               "temperature": false,
               "thinkingBudget": true,
+              "thinkingLevels": [
+                "none",
+                "minimal",
+                "low",
+                "medium",
+                "high",
+                "highest"
+              ],
               "topP": false
             },
             "completionTokenCostPer1M": 15,
@@ -3304,10 +4012,12 @@
             "capabilities": {
               "audioInput": false,
               "audioOutput": false,
+              "serviceTiers": ["standard", "flex", "priority"],
               "showThoughts": false,
               "structuredOutputs": true,
               "temperature": true,
               "thinkingBudget": false,
+              "thinkingLevels": [],
               "topP": true
             },
             "completionTokenCostPer1M": 15,
@@ -3326,10 +4036,19 @@
             "capabilities": {
               "audioInput": false,
               "audioOutput": false,
+              "serviceTiers": ["standard", "flex", "priority"],
               "showThoughts": true,
               "structuredOutputs": true,
               "temperature": false,
               "thinkingBudget": true,
+              "thinkingLevels": [
+                "none",
+                "minimal",
+                "low",
+                "medium",
+                "high",
+                "highest"
+              ],
               "topP": false
             },
             "completionTokenCostPer1M": 30,
@@ -3361,10 +4080,19 @@
             "capabilities": {
               "audioInput": false,
               "audioOutput": false,
+              "serviceTiers": ["standard", "flex", "priority"],
               "showThoughts": true,
               "structuredOutputs": true,
               "temperature": false,
               "thinkingBudget": true,
+              "thinkingLevels": [
+                "none",
+                "minimal",
+                "low",
+                "medium",
+                "high",
+                "highest"
+              ],
               "topP": false
             },
             "completionTokenCostPer1M": 30,
@@ -3394,10 +4122,12 @@
             "capabilities": {
               "audioInput": false,
               "audioOutput": false,
+              "serviceTiers": ["standard", "flex", "priority"],
               "showThoughts": false,
               "structuredOutputs": true,
               "temperature": true,
               "thinkingBudget": false,
+              "thinkingLevels": [],
               "topP": true
             },
             "completionTokenCostPer1M": 30,
@@ -3415,10 +4145,19 @@
             "capabilities": {
               "audioInput": false,
               "audioOutput": false,
+              "serviceTiers": ["standard", "flex", "priority"],
               "showThoughts": true,
               "structuredOutputs": true,
               "temperature": true,
               "thinkingBudget": true,
+              "thinkingLevels": [
+                "none",
+                "minimal",
+                "low",
+                "medium",
+                "high",
+                "highest"
+              ],
               "topP": true
             },
             "completionTokenCostPer1M": 60,
@@ -3438,10 +4177,12 @@
             "capabilities": {
               "audioInput": false,
               "audioOutput": false,
+              "serviceTiers": ["standard", "flex", "priority"],
               "showThoughts": false,
               "structuredOutputs": false,
               "temperature": true,
               "thinkingBudget": false,
+              "thinkingLevels": [],
               "topP": true
             },
             "completionTokenCostPer1M": 60,
@@ -3456,10 +4197,19 @@
             "capabilities": {
               "audioInput": false,
               "audioOutput": false,
+              "serviceTiers": ["standard", "flex", "priority"],
               "showThoughts": true,
               "structuredOutputs": true,
               "temperature": true,
               "thinkingBudget": true,
+              "thinkingLevels": [
+                "none",
+                "minimal",
+                "low",
+                "medium",
+                "high",
+                "highest"
+              ],
               "topP": true
             },
             "completionTokenCostPer1M": 80,
@@ -3480,10 +4230,19 @@
             "capabilities": {
               "audioInput": false,
               "audioOutput": false,
+              "serviceTiers": ["standard", "flex", "priority"],
               "showThoughts": true,
               "structuredOutputs": true,
               "temperature": false,
               "thinkingBudget": true,
+              "thinkingLevels": [
+                "none",
+                "minimal",
+                "low",
+                "medium",
+                "high",
+                "highest"
+              ],
               "topP": false
             },
             "completionTokenCostPer1M": 120,
@@ -3507,10 +4266,19 @@
             "capabilities": {
               "audioInput": false,
               "audioOutput": false,
+              "serviceTiers": ["standard", "flex", "priority"],
               "showThoughts": true,
               "structuredOutputs": true,
               "temperature": false,
               "thinkingBudget": true,
+              "thinkingLevels": [
+                "none",
+                "minimal",
+                "low",
+                "medium",
+                "high",
+                "highest"
+              ],
               "topP": false
             },
             "completionTokenCostPer1M": 168,
@@ -3534,10 +4302,19 @@
             "capabilities": {
               "audioInput": false,
               "audioOutput": false,
+              "serviceTiers": ["standard", "flex", "priority"],
               "showThoughts": true,
               "structuredOutputs": true,
               "temperature": false,
               "thinkingBudget": true,
+              "thinkingLevels": [
+                "none",
+                "minimal",
+                "low",
+                "medium",
+                "high",
+                "highest"
+              ],
               "topP": false
             },
             "completionTokenCostPer1M": 180,
@@ -3566,10 +4343,19 @@
             "capabilities": {
               "audioInput": false,
               "audioOutput": false,
+              "serviceTiers": ["standard", "flex", "priority"],
               "showThoughts": true,
               "structuredOutputs": true,
               "temperature": true,
               "thinkingBudget": true,
+              "thinkingLevels": [
+                "none",
+                "minimal",
+                "low",
+                "medium",
+                "high",
+                "highest"
+              ],
               "topP": true
             },
             "completionTokenCostPer1M": 600,
@@ -3590,6 +4376,11 @@
         "name": "openai-responses"
       },
       {
+        "capabilities": {
+          "serviceTiers": ["standard", "priority"],
+          "thinking": true,
+          "thinkingLevels": ["minimal", "low", "medium", "high", "highest"]
+        },
         "defaultModel": "grok-4.6",
         "displayName": "xAI Grok",
         "isDynamic": false,
@@ -3600,10 +4391,12 @@
             "capabilities": {
               "audioInput": false,
               "audioOutput": false,
+              "serviceTiers": ["standard", "priority"],
               "showThoughts": false,
               "structuredOutputs": true,
               "temperature": true,
               "thinkingBudget": false,
+              "thinkingLevels": [],
               "topP": true
             },
             "completionTokenCostPer1M": 0.5,
@@ -3624,10 +4417,12 @@
             "capabilities": {
               "audioInput": false,
               "audioOutput": false,
+              "serviceTiers": ["standard", "priority"],
               "showThoughts": false,
               "structuredOutputs": true,
               "temperature": true,
               "thinkingBudget": false,
+              "thinkingLevels": [],
               "topP": true
             },
             "completionTokenCostPer1M": 0.5,
@@ -3646,10 +4441,12 @@
             "capabilities": {
               "audioInput": false,
               "audioOutput": false,
+              "serviceTiers": ["standard", "priority"],
               "showThoughts": false,
               "structuredOutputs": false,
               "temperature": true,
               "thinkingBudget": true,
+              "thinkingLevels": ["minimal", "low", "medium", "high", "highest"],
               "topP": true
             },
             "completionTokenCostPer1M": 0.5,
@@ -3672,10 +4469,12 @@
             "capabilities": {
               "audioInput": false,
               "audioOutput": false,
+              "serviceTiers": ["standard", "priority"],
               "showThoughts": false,
               "structuredOutputs": true,
               "temperature": true,
               "thinkingBudget": false,
+              "thinkingLevels": [],
               "topP": true
             },
             "completionTokenCostPer1M": 2.5,
@@ -3699,10 +4498,12 @@
             "capabilities": {
               "audioInput": false,
               "audioOutput": false,
+              "serviceTiers": ["standard", "priority"],
               "showThoughts": false,
               "structuredOutputs": true,
               "temperature": true,
               "thinkingBudget": false,
+              "thinkingLevels": [],
               "topP": true
             },
             "completionTokenCostPer1M": 2.5,
@@ -3728,10 +4529,12 @@
             "capabilities": {
               "audioInput": false,
               "audioOutput": false,
+              "serviceTiers": ["standard", "priority"],
               "showThoughts": false,
               "structuredOutputs": true,
               "temperature": true,
               "thinkingBudget": false,
+              "thinkingLevels": [],
               "topP": true
             },
             "completionTokenCostPer1M": 2.5,
@@ -3752,10 +4555,19 @@
             "capabilities": {
               "audioInput": false,
               "audioOutput": false,
+              "serviceTiers": ["standard", "priority"],
               "showThoughts": false,
               "structuredOutputs": true,
               "temperature": true,
               "thinkingBudget": true,
+              "thinkingLevels": [
+                "none",
+                "minimal",
+                "low",
+                "medium",
+                "high",
+                "highest"
+              ],
               "topP": true
             },
             "completionTokenCostPer1M": 2.5,
@@ -3775,10 +4587,12 @@
             "capabilities": {
               "audioInput": false,
               "audioOutput": false,
+              "serviceTiers": ["standard", "priority"],
               "showThoughts": false,
               "structuredOutputs": false,
               "temperature": true,
               "thinkingBudget": true,
+              "thinkingLevels": ["minimal", "low", "medium", "high", "highest"],
               "topP": true
             },
             "completionTokenCostPer1M": 4,
@@ -3798,10 +4612,12 @@
             "capabilities": {
               "audioInput": false,
               "audioOutput": false,
+              "serviceTiers": ["standard", "priority"],
               "showThoughts": false,
               "structuredOutputs": true,
               "temperature": true,
               "thinkingBudget": true,
+              "thinkingLevels": ["minimal", "low", "medium", "high", "highest"],
               "topP": true
             },
             "completionTokenCostPer1M": 6,
@@ -3821,10 +4637,12 @@
             "capabilities": {
               "audioInput": false,
               "audioOutput": false,
+              "serviceTiers": ["standard", "priority"],
               "showThoughts": false,
               "structuredOutputs": false,
               "temperature": true,
               "thinkingBudget": false,
+              "thinkingLevels": [],
               "topP": true
             },
             "completionTokenCostPer1M": 15,
@@ -3839,10 +4657,12 @@
             "capabilities": {
               "audioInput": false,
               "audioOutput": false,
+              "serviceTiers": ["standard", "priority"],
               "showThoughts": false,
               "structuredOutputs": false,
               "temperature": true,
               "thinkingBudget": false,
+              "thinkingLevels": [],
               "topP": true
             },
             "completionTokenCostPer1M": 25,
@@ -3857,10 +4677,12 @@
             "capabilities": {
               "audioInput": false,
               "audioOutput": false,
+              "serviceTiers": ["standard", "priority"],
               "showThoughts": false,
               "structuredOutputs": true,
               "temperature": true,
               "thinkingBudget": true,
+              "thinkingLevels": ["minimal", "low", "medium", "high", "highest"],
               "topP": true
             },
             "currency": "USD",
@@ -3877,10 +4699,12 @@
             "capabilities": {
               "audioInput": true,
               "audioOutput": true,
+              "serviceTiers": [],
               "showThoughts": false,
               "structuredOutputs": false,
               "temperature": true,
               "thinkingBudget": false,
+              "thinkingLevels": [],
               "topP": true
             },
             "currency": "USD",
@@ -3893,10 +4717,12 @@
             "capabilities": {
               "audioInput": true,
               "audioOutput": true,
+              "serviceTiers": [],
               "showThoughts": false,
               "structuredOutputs": false,
               "temperature": true,
               "thinkingBudget": false,
+              "thinkingLevels": [],
               "topP": true
             },
             "currency": "USD",
@@ -3909,6 +4735,11 @@
         "name": "grok"
       },
       {
+        "capabilities": {
+          "serviceTiers": [],
+          "thinking": false,
+          "thinkingLevels": []
+        },
         "defaultModel": "reka-core",
         "displayName": "Reka",
         "isDynamic": false,
@@ -3917,10 +4748,12 @@
             "capabilities": {
               "audioInput": false,
               "audioOutput": false,
+              "serviceTiers": [],
               "showThoughts": false,
               "structuredOutputs": false,
               "temperature": true,
               "thinkingBudget": false,
+              "thinkingLevels": [],
               "topP": true
             },
             "completionTokenCostPer1M": 1,
@@ -3935,10 +4768,12 @@
             "capabilities": {
               "audioInput": false,
               "audioOutput": false,
+              "serviceTiers": [],
               "showThoughts": false,
               "structuredOutputs": false,
               "temperature": true,
               "thinkingBudget": false,
+              "thinkingLevels": [],
               "topP": true
             },
             "completionTokenCostPer1M": 2,
@@ -3953,10 +4788,12 @@
             "capabilities": {
               "audioInput": false,
               "audioOutput": false,
+              "serviceTiers": [],
               "showThoughts": false,
               "structuredOutputs": false,
               "temperature": true,
               "thinkingBudget": false,
+              "thinkingLevels": [],
               "topP": true
             },
             "completionTokenCostPer1M": 15,
@@ -3971,6 +4808,18 @@
         "name": "reka"
       },
       {
+        "capabilities": {
+          "serviceTiers": [],
+          "thinking": true,
+          "thinkingLevels": [
+            "none",
+            "minimal",
+            "low",
+            "medium",
+            "high",
+            "highest"
+          ]
+        },
         "defaultModel": "claude-3-7-sonnet-latest",
         "displayName": "Anthropic",
         "isDynamic": false,
@@ -3981,10 +4830,12 @@
             "capabilities": {
               "audioInput": false,
               "audioOutput": false,
+              "serviceTiers": [],
               "showThoughts": false,
               "structuredOutputs": false,
               "temperature": true,
               "thinkingBudget": false,
+              "thinkingLevels": [],
               "topP": true
             },
             "completionTokenCostPer1M": 1.25,
@@ -4002,10 +4853,12 @@
             "capabilities": {
               "audioInput": false,
               "audioOutput": false,
+              "serviceTiers": [],
               "showThoughts": false,
               "structuredOutputs": false,
               "temperature": true,
               "thinkingBudget": false,
+              "thinkingLevels": [],
               "topP": true
             },
             "completionTokenCostPer1M": 1.25,
@@ -4021,10 +4874,12 @@
             "capabilities": {
               "audioInput": false,
               "audioOutput": false,
+              "serviceTiers": [],
               "showThoughts": false,
               "structuredOutputs": false,
               "temperature": true,
               "thinkingBudget": false,
+              "thinkingLevels": [],
               "topP": true
             },
             "completionTokenCostPer1M": 2.24,
@@ -4042,10 +4897,12 @@
             "capabilities": {
               "audioInput": false,
               "audioOutput": false,
+              "serviceTiers": [],
               "showThoughts": false,
               "structuredOutputs": false,
               "temperature": true,
               "thinkingBudget": false,
+              "thinkingLevels": [],
               "topP": true
             },
             "completionTokenCostPer1M": 4,
@@ -4063,10 +4920,12 @@
             "capabilities": {
               "audioInput": false,
               "audioOutput": false,
+              "serviceTiers": [],
               "showThoughts": false,
               "structuredOutputs": false,
               "temperature": true,
               "thinkingBudget": false,
+              "thinkingLevels": [],
               "topP": true
             },
             "completionTokenCostPer1M": 5,
@@ -4084,10 +4943,19 @@
             "capabilities": {
               "audioInput": false,
               "audioOutput": false,
+              "serviceTiers": [],
               "showThoughts": true,
               "structuredOutputs": false,
               "temperature": true,
               "thinkingBudget": true,
+              "thinkingLevels": [
+                "none",
+                "minimal",
+                "low",
+                "medium",
+                "high",
+                "highest"
+              ],
               "topP": true
             },
             "completionTokenCostPer1M": 5,
@@ -4109,10 +4977,19 @@
             "capabilities": {
               "audioInput": false,
               "audioOutput": false,
+              "serviceTiers": [],
               "showThoughts": true,
               "structuredOutputs": false,
               "temperature": true,
               "thinkingBudget": true,
+              "thinkingLevels": [
+                "none",
+                "minimal",
+                "low",
+                "medium",
+                "high",
+                "highest"
+              ],
               "topP": true
             },
             "completionTokenCostPer1M": 5,
@@ -4134,10 +5011,19 @@
             "capabilities": {
               "audioInput": false,
               "audioOutput": false,
+              "serviceTiers": [],
               "showThoughts": true,
               "structuredOutputs": true,
               "temperature": true,
               "thinkingBudget": true,
+              "thinkingLevels": [
+                "none",
+                "minimal",
+                "low",
+                "medium",
+                "high",
+                "highest"
+              ],
               "topP": true
             },
             "completionTokenCostPer1M": 10,
@@ -4161,10 +5047,19 @@
             "capabilities": {
               "audioInput": false,
               "audioOutput": false,
+              "serviceTiers": [],
               "showThoughts": true,
               "structuredOutputs": true,
               "temperature": true,
               "thinkingBudget": true,
+              "thinkingLevels": [
+                "none",
+                "minimal",
+                "low",
+                "medium",
+                "high",
+                "highest"
+              ],
               "topP": true
             },
             "completionTokenCostPer1M": 10,
@@ -4188,10 +5083,12 @@
             "capabilities": {
               "audioInput": false,
               "audioOutput": false,
+              "serviceTiers": [],
               "showThoughts": false,
               "structuredOutputs": true,
               "temperature": true,
               "thinkingBudget": false,
+              "thinkingLevels": [],
               "topP": true
             },
             "completionTokenCostPer1M": 15,
@@ -4212,10 +5109,19 @@
             "capabilities": {
               "audioInput": false,
               "audioOutput": false,
+              "serviceTiers": [],
               "showThoughts": true,
               "structuredOutputs": true,
               "temperature": true,
               "thinkingBudget": true,
+              "thinkingLevels": [
+                "none",
+                "minimal",
+                "low",
+                "medium",
+                "high",
+                "highest"
+              ],
               "topP": true
             },
             "completionTokenCostPer1M": 15,
@@ -4238,10 +5144,12 @@
             "capabilities": {
               "audioInput": false,
               "audioOutput": false,
+              "serviceTiers": [],
               "showThoughts": false,
               "structuredOutputs": true,
               "temperature": true,
               "thinkingBudget": false,
+              "thinkingLevels": [],
               "topP": true
             },
             "completionTokenCostPer1M": 15,
@@ -4262,10 +5170,19 @@
             "capabilities": {
               "audioInput": false,
               "audioOutput": false,
+              "serviceTiers": [],
               "showThoughts": true,
               "structuredOutputs": true,
               "temperature": true,
               "thinkingBudget": true,
+              "thinkingLevels": [
+                "none",
+                "minimal",
+                "low",
+                "medium",
+                "high",
+                "highest"
+              ],
               "topP": true
             },
             "completionTokenCostPer1M": 15,
@@ -4288,10 +5205,19 @@
             "capabilities": {
               "audioInput": false,
               "audioOutput": false,
+              "serviceTiers": [],
               "showThoughts": true,
               "structuredOutputs": true,
               "temperature": true,
               "thinkingBudget": true,
+              "thinkingLevels": [
+                "none",
+                "minimal",
+                "low",
+                "medium",
+                "high",
+                "highest"
+              ],
               "topP": true
             },
             "completionTokenCostPer1M": 15,
@@ -4314,10 +5240,12 @@
             "capabilities": {
               "audioInput": false,
               "audioOutput": false,
+              "serviceTiers": [],
               "showThoughts": false,
               "structuredOutputs": true,
               "temperature": true,
               "thinkingBudget": false,
+              "thinkingLevels": [],
               "topP": true
             },
             "completionTokenCostPer1M": 15,
@@ -4338,10 +5266,19 @@
             "capabilities": {
               "audioInput": false,
               "audioOutput": false,
+              "serviceTiers": [],
               "showThoughts": true,
               "structuredOutputs": true,
               "temperature": true,
               "thinkingBudget": true,
+              "thinkingLevels": [
+                "none",
+                "minimal",
+                "low",
+                "medium",
+                "high",
+                "highest"
+              ],
               "topP": true
             },
             "completionTokenCostPer1M": 15,
@@ -4364,10 +5301,19 @@
             "capabilities": {
               "audioInput": false,
               "audioOutput": false,
+              "serviceTiers": [],
               "showThoughts": true,
               "structuredOutputs": true,
               "temperature": true,
               "thinkingBudget": true,
+              "thinkingLevels": [
+                "none",
+                "minimal",
+                "low",
+                "medium",
+                "high",
+                "highest"
+              ],
               "topP": true
             },
             "completionTokenCostPer1M": 15,
@@ -4390,10 +5336,19 @@
             "capabilities": {
               "audioInput": false,
               "audioOutput": false,
+              "serviceTiers": [],
               "showThoughts": true,
               "structuredOutputs": true,
               "temperature": true,
               "thinkingBudget": true,
+              "thinkingLevels": [
+                "none",
+                "minimal",
+                "low",
+                "medium",
+                "high",
+                "highest"
+              ],
               "topP": true
             },
             "completionTokenCostPer1M": 15,
@@ -4416,10 +5371,19 @@
             "capabilities": {
               "audioInput": false,
               "audioOutput": false,
+              "serviceTiers": [],
               "showThoughts": true,
               "structuredOutputs": true,
               "temperature": true,
               "thinkingBudget": true,
+              "thinkingLevels": [
+                "none",
+                "minimal",
+                "low",
+                "medium",
+                "high",
+                "highest"
+              ],
               "topP": true
             },
             "completionTokenCostPer1M": 15,
@@ -4442,10 +5406,19 @@
             "capabilities": {
               "audioInput": false,
               "audioOutput": false,
+              "serviceTiers": [],
               "showThoughts": true,
               "structuredOutputs": true,
               "temperature": true,
               "thinkingBudget": true,
+              "thinkingLevels": [
+                "none",
+                "minimal",
+                "low",
+                "medium",
+                "high",
+                "highest"
+              ],
               "topP": true
             },
             "completionTokenCostPer1M": 15,
@@ -4468,10 +5441,19 @@
             "capabilities": {
               "audioInput": false,
               "audioOutput": false,
+              "serviceTiers": [],
               "showThoughts": true,
               "structuredOutputs": true,
               "temperature": true,
               "thinkingBudget": true,
+              "thinkingLevels": [
+                "none",
+                "minimal",
+                "low",
+                "medium",
+                "high",
+                "highest"
+              ],
               "topP": true
             },
             "completionTokenCostPer1M": 15,
@@ -4494,10 +5476,19 @@
             "capabilities": {
               "audioInput": false,
               "audioOutput": false,
+              "serviceTiers": [],
               "showThoughts": true,
               "structuredOutputs": true,
               "temperature": true,
               "thinkingBudget": true,
+              "thinkingLevels": [
+                "none",
+                "minimal",
+                "low",
+                "medium",
+                "high",
+                "highest"
+              ],
               "topP": true
             },
             "completionTokenCostPer1M": 25,
@@ -4520,10 +5511,19 @@
             "capabilities": {
               "audioInput": false,
               "audioOutput": false,
+              "serviceTiers": [],
               "showThoughts": true,
               "structuredOutputs": true,
               "temperature": true,
               "thinkingBudget": true,
+              "thinkingLevels": [
+                "none",
+                "minimal",
+                "low",
+                "medium",
+                "high",
+                "highest"
+              ],
               "topP": true
             },
             "completionTokenCostPer1M": 25,
@@ -4546,10 +5546,19 @@
             "capabilities": {
               "audioInput": false,
               "audioOutput": false,
+              "serviceTiers": [],
               "showThoughts": true,
               "structuredOutputs": true,
               "temperature": true,
               "thinkingBudget": true,
+              "thinkingLevels": [
+                "none",
+                "minimal",
+                "low",
+                "medium",
+                "high",
+                "highest"
+              ],
               "topP": true
             },
             "completionTokenCostPer1M": 25,
@@ -4577,10 +5586,19 @@
             "capabilities": {
               "audioInput": false,
               "audioOutput": false,
+              "serviceTiers": [],
               "showThoughts": true,
               "structuredOutputs": true,
               "temperature": true,
               "thinkingBudget": true,
+              "thinkingLevels": [
+                "none",
+                "minimal",
+                "low",
+                "medium",
+                "high",
+                "highest"
+              ],
               "topP": true
             },
             "completionTokenCostPer1M": 25,
@@ -4604,10 +5622,19 @@
             "capabilities": {
               "audioInput": false,
               "audioOutput": false,
+              "serviceTiers": [],
               "showThoughts": true,
               "structuredOutputs": true,
               "temperature": true,
               "thinkingBudget": true,
+              "thinkingLevels": [
+                "none",
+                "minimal",
+                "low",
+                "medium",
+                "high",
+                "highest"
+              ],
               "topP": true
             },
             "completionTokenCostPer1M": 25,
@@ -4635,10 +5662,19 @@
             "capabilities": {
               "audioInput": false,
               "audioOutput": false,
+              "serviceTiers": [],
               "showThoughts": true,
               "structuredOutputs": true,
               "temperature": true,
               "thinkingBudget": true,
+              "thinkingLevels": [
+                "none",
+                "minimal",
+                "low",
+                "medium",
+                "high",
+                "highest"
+              ],
               "topP": true
             },
             "completionTokenCostPer1M": 25,
@@ -4662,10 +5698,19 @@
             "capabilities": {
               "audioInput": false,
               "audioOutput": false,
+              "serviceTiers": [],
               "showThoughts": true,
               "structuredOutputs": true,
               "temperature": true,
               "thinkingBudget": true,
+              "thinkingLevels": [
+                "none",
+                "minimal",
+                "low",
+                "medium",
+                "high",
+                "highest"
+              ],
               "topP": true
             },
             "completionTokenCostPer1M": 25,
@@ -4693,10 +5738,19 @@
             "capabilities": {
               "audioInput": false,
               "audioOutput": false,
+              "serviceTiers": [],
               "showThoughts": true,
               "structuredOutputs": true,
               "temperature": true,
               "thinkingBudget": true,
+              "thinkingLevels": [
+                "none",
+                "minimal",
+                "low",
+                "medium",
+                "high",
+                "highest"
+              ],
               "topP": true
             },
             "completionTokenCostPer1M": 25,
@@ -4718,10 +5772,12 @@
             "capabilities": {
               "audioInput": false,
               "audioOutput": false,
+              "serviceTiers": [],
               "showThoughts": false,
               "structuredOutputs": false,
               "temperature": true,
               "thinkingBudget": false,
+              "thinkingLevels": [],
               "topP": true
             },
             "completionTokenCostPer1M": 25,
@@ -4739,10 +5795,12 @@
             "capabilities": {
               "audioInput": false,
               "audioOutput": false,
+              "serviceTiers": [],
               "showThoughts": false,
               "structuredOutputs": true,
               "temperature": true,
               "thinkingBudget": false,
+              "thinkingLevels": [],
               "topP": true
             },
             "completionTokenCostPer1M": 75,
@@ -4763,10 +5821,12 @@
             "capabilities": {
               "audioInput": false,
               "audioOutput": false,
+              "serviceTiers": [],
               "showThoughts": false,
               "structuredOutputs": true,
               "temperature": true,
               "thinkingBudget": false,
+              "thinkingLevels": [],
               "topP": true
             },
             "completionTokenCostPer1M": 75,
@@ -4787,10 +5847,19 @@
             "capabilities": {
               "audioInput": false,
               "audioOutput": false,
+              "serviceTiers": [],
               "showThoughts": true,
               "structuredOutputs": true,
               "temperature": true,
               "thinkingBudget": true,
+              "thinkingLevels": [
+                "none",
+                "minimal",
+                "low",
+                "medium",
+                "high",
+                "highest"
+              ],
               "topP": true
             },
             "completionTokenCostPer1M": 75,
@@ -4813,10 +5882,19 @@
             "capabilities": {
               "audioInput": false,
               "audioOutput": false,
+              "serviceTiers": [],
               "showThoughts": true,
               "structuredOutputs": true,
               "temperature": true,
               "thinkingBudget": true,
+              "thinkingLevels": [
+                "none",
+                "minimal",
+                "low",
+                "medium",
+                "high",
+                "highest"
+              ],
               "topP": true
             },
             "completionTokenCostPer1M": 75,
@@ -4839,10 +5917,19 @@
             "capabilities": {
               "audioInput": false,
               "audioOutput": false,
+              "serviceTiers": [],
               "showThoughts": true,
               "structuredOutputs": true,
               "temperature": true,
               "thinkingBudget": true,
+              "thinkingLevels": [
+                "none",
+                "minimal",
+                "low",
+                "medium",
+                "high",
+                "highest"
+              ],
               "topP": true
             },
             "completionTokenCostPer1M": 75,
@@ -4865,10 +5952,19 @@
             "capabilities": {
               "audioInput": false,
               "audioOutput": false,
+              "serviceTiers": [],
               "showThoughts": true,
               "structuredOutputs": true,
               "temperature": true,
               "thinkingBudget": true,
+              "thinkingLevels": [
+                "none",
+                "minimal",
+                "low",
+                "medium",
+                "high",
+                "highest"
+              ],
               "topP": true
             },
             "completionTokenCostPer1M": 75,
@@ -4889,210 +5985,392 @@
         "name": "anthropic"
       },
       {
+        "capabilities": {
+          "serviceTiers": [],
+          "thinking": false,
+          "thinkingLevels": []
+        },
         "displayName": "OpenAI Compatible",
         "isDynamic": true,
         "models": [],
         "name": "openai-compatible"
       },
       {
+        "capabilities": {
+          "serviceTiers": ["standard", "priority"],
+          "thinking": true,
+          "thinkingLevels": [
+            "none",
+            "minimal",
+            "low",
+            "medium",
+            "high",
+            "highest"
+          ]
+        },
         "displayName": "Azure OpenAI",
         "isDynamic": true,
         "models": [],
         "name": "azure-openai"
       },
       {
+        "capabilities": {
+          "serviceTiers": [],
+          "thinking": false,
+          "thinkingLevels": []
+        },
         "displayName": "Together AI",
         "isDynamic": true,
         "models": [],
         "name": "together"
       },
       {
+        "capabilities": {
+          "serviceTiers": ["standard", "flex", "priority"],
+          "thinking": false,
+          "thinkingLevels": []
+        },
         "displayName": "OpenRouter",
         "isDynamic": true,
         "models": [],
         "name": "openrouter"
       },
       {
+        "capabilities": {
+          "serviceTiers": [],
+          "thinking": false,
+          "thinkingLevels": []
+        },
         "displayName": "OrcaRouter",
         "isDynamic": true,
         "models": [],
         "name": "orcarouter"
       },
       {
+        "capabilities": {
+          "serviceTiers": ["standard", "priority"],
+          "thinking": false,
+          "thinkingLevels": []
+        },
         "displayName": "Fireworks AI",
         "isDynamic": true,
         "models": [],
         "name": "fireworks"
       },
       {
+        "capabilities": {
+          "serviceTiers": [],
+          "thinking": false,
+          "thinkingLevels": []
+        },
         "displayName": "Hugging Face Router",
         "isDynamic": true,
         "models": [],
         "name": "huggingface-router"
       },
       {
+        "capabilities": {
+          "serviceTiers": ["standard", "flex", "priority"],
+          "thinking": false,
+          "thinkingLevels": []
+        },
         "displayName": "Amazon Bedrock",
         "isDynamic": true,
         "models": [],
         "name": "amazon-bedrock"
       },
       {
+        "capabilities": {
+          "serviceTiers": ["standard", "priority"],
+          "thinking": false,
+          "thinkingLevels": []
+        },
         "displayName": "Azure AI Foundry",
         "isDynamic": true,
         "models": [],
         "name": "azure-foundry"
       },
       {
+        "capabilities": {
+          "serviceTiers": [],
+          "thinking": false,
+          "thinkingLevels": []
+        },
         "displayName": "Vertex AI OpenAI Compatibility",
         "isDynamic": true,
         "models": [],
         "name": "vertex-ai"
       },
       {
+        "capabilities": {
+          "serviceTiers": ["standard", "priority"],
+          "thinking": false,
+          "thinkingLevels": []
+        },
         "displayName": "Databricks Model Serving",
         "isDynamic": true,
         "models": [],
         "name": "databricks"
       },
       {
+        "capabilities": {
+          "serviceTiers": [],
+          "thinking": false,
+          "thinkingLevels": []
+        },
         "displayName": "Baseten Model APIs",
         "isDynamic": true,
         "models": [],
         "name": "baseten"
       },
       {
+        "capabilities": {
+          "serviceTiers": ["standard", "flex", "priority"],
+          "thinking": false,
+          "thinkingLevels": []
+        },
         "displayName": "Groq",
         "isDynamic": true,
         "models": [],
         "name": "groq"
       },
       {
+        "capabilities": {
+          "serviceTiers": ["standard", "flex", "priority"],
+          "thinking": false,
+          "thinkingLevels": []
+        },
         "displayName": "Cerebras Inference",
         "isDynamic": true,
         "models": [],
         "name": "cerebras"
       },
       {
+        "capabilities": {
+          "serviceTiers": ["standard", "priority"],
+          "thinking": false,
+          "thinkingLevels": []
+        },
         "displayName": "DeepInfra",
         "isDynamic": true,
         "models": [],
         "name": "deepinfra"
       },
       {
+        "capabilities": {
+          "serviceTiers": [],
+          "thinking": false,
+          "thinkingLevels": []
+        },
         "displayName": "SambaNova Cloud",
         "isDynamic": true,
         "models": [],
         "name": "sambanova"
       },
       {
+        "capabilities": {
+          "serviceTiers": [],
+          "thinking": false,
+          "thinkingLevels": []
+        },
         "displayName": "Nebius AI Studio",
         "isDynamic": true,
         "models": [],
         "name": "nebius"
       },
       {
+        "capabilities": {
+          "serviceTiers": [],
+          "thinking": false,
+          "thinkingLevels": []
+        },
         "displayName": "Novita AI",
         "isDynamic": true,
         "models": [],
         "name": "novita"
       },
       {
+        "capabilities": {
+          "serviceTiers": [],
+          "thinking": false,
+          "thinkingLevels": []
+        },
         "displayName": "Hyperbolic",
         "isDynamic": true,
         "models": [],
         "name": "hyperbolic"
       },
       {
+        "capabilities": {
+          "serviceTiers": [],
+          "thinking": false,
+          "thinkingLevels": []
+        },
         "displayName": "SiliconFlow",
         "isDynamic": true,
         "models": [],
         "name": "siliconflow"
       },
       {
+        "capabilities": {
+          "serviceTiers": [],
+          "thinking": false,
+          "thinkingLevels": []
+        },
         "displayName": "FriendliAI",
         "isDynamic": true,
         "models": [],
         "name": "friendli"
       },
       {
+        "capabilities": {
+          "serviceTiers": [],
+          "thinking": false,
+          "thinkingLevels": []
+        },
         "displayName": "Cloudflare Workers AI",
         "isDynamic": true,
         "models": [],
         "name": "cloudflare-workers-ai"
       },
       {
+        "capabilities": {
+          "serviceTiers": [],
+          "thinking": false,
+          "thinkingLevels": []
+        },
         "displayName": "Featherless AI",
         "isDynamic": true,
         "models": [],
         "name": "featherless"
       },
       {
+        "capabilities": {
+          "serviceTiers": [],
+          "thinking": false,
+          "thinkingLevels": []
+        },
         "displayName": "Nscale",
         "isDynamic": true,
         "models": [],
         "name": "nscale"
       },
       {
+        "capabilities": {
+          "serviceTiers": [],
+          "thinking": false,
+          "thinkingLevels": []
+        },
         "displayName": "OVHcloud AI Endpoints",
         "isDynamic": true,
         "models": [],
         "name": "ovhcloud"
       },
       {
+        "capabilities": {
+          "serviceTiers": [],
+          "thinking": false,
+          "thinkingLevels": []
+        },
         "displayName": "Scaleway Generative APIs",
         "isDynamic": true,
         "models": [],
         "name": "scaleway"
       },
       {
+        "capabilities": {
+          "serviceTiers": [],
+          "thinking": false,
+          "thinkingLevels": []
+        },
         "displayName": "NVIDIA NIM",
         "isDynamic": true,
         "models": [],
         "name": "nvidia-nim"
       },
       {
+        "capabilities": {
+          "serviceTiers": [],
+          "thinking": false,
+          "thinkingLevels": []
+        },
         "displayName": "RunPod vLLM",
         "isDynamic": true,
         "models": [],
         "name": "runpod-vllm"
       },
       {
+        "capabilities": {
+          "serviceTiers": [],
+          "thinking": false,
+          "thinkingLevels": []
+        },
         "displayName": "SageMaker vLLM",
         "isDynamic": true,
         "models": [],
         "name": "sagemaker-vllm"
       },
       {
+        "capabilities": {
+          "serviceTiers": [],
+          "thinking": false,
+          "thinkingLevels": []
+        },
         "displayName": "vLLM",
         "isDynamic": true,
         "models": [],
         "name": "vllm"
       },
       {
+        "capabilities": {
+          "serviceTiers": [],
+          "thinking": false,
+          "thinkingLevels": []
+        },
         "displayName": "Ollama",
         "isDynamic": true,
         "models": [],
         "name": "ollama"
       },
       {
+        "capabilities": {
+          "serviceTiers": [],
+          "thinking": false,
+          "thinkingLevels": []
+        },
         "displayName": "LM Studio",
         "isDynamic": true,
         "models": [],
         "name": "lm-studio"
       },
       {
+        "capabilities": {
+          "serviceTiers": [],
+          "thinking": false,
+          "thinkingLevels": []
+        },
         "displayName": "llama.cpp Server",
         "isDynamic": true,
         "models": [],
         "name": "llama-cpp"
       },
       {
+        "capabilities": {
+          "serviceTiers": [],
+          "thinking": false,
+          "thinkingLevels": []
+        },
         "displayName": "LocalAI",
         "isDynamic": true,
         "models": [],
         "name": "localai"
       },
       {
+        "capabilities": {
+          "serviceTiers": [],
+          "thinking": false,
+          "thinkingLevels": []
+        },
         "displayName": "Baseten Inference Engine",
         "isDynamic": true,
         "models": [],
