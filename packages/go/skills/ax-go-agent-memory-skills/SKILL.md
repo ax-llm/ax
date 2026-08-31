@@ -1,7 +1,7 @@
 ---
 name: "ax-go-agent-memory-skills"
 description: "Use when writing Go code with `github.com/ax-llm/ax/packages/go` for agent memory, recall callbacks, dynamic skill discovery, loaded-skill state, and used-skill tracking."
-version: "24.0.15"
+version: "24.0.16"
 ---
 # AxAgent Memory And Skills For Go
 

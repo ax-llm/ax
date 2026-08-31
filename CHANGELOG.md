@@ -1,5 +1,11 @@
 # Changelog
 
+## [24.0.16](https://github.com/ax-llm/ax/compare/24.0.15...24.0.16) (2026-08-31)
+
+### Features
+
+* **ai:** expose catalog thinking and service tiers ([#639](https://github.com/ax-llm/ax/issues/639)) ([dec4f9e](https://github.com/ax-llm/ax/commit/dec4f9e8b1a81df0b7c1c69c313f0b03ad35b9fc))
+
 ## [24.0.15](https://github.com/ax-llm/ax/compare/24.0.13...24.0.14) (2026-08-30)
 
 ### Features
