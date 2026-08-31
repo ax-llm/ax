@@ -443,8 +443,23 @@ function runHomeLanguageViewTransition(update) {
     return Promise.resolve();
   }
 
-  const transition = document.startViewTransition(update);
-  return (transition.updateCallbackDone || transition.ready).catch(() => {});
+  try {
+    const transition = document.startViewTransition(update);
+    // A view transition may be aborted by navigation, theme changes, or the
+    // browser starting another transition. Consume every lifecycle rejection
+    // so an expected abort does not surface as an unhandled console error.
+    for (const promise of [
+      transition.updateCallbackDone,
+      transition.ready,
+      transition.finished,
+    ]) {
+      promise?.catch(() => {});
+    }
+    return (transition.updateCallbackDone || transition.ready).catch(() => {});
+  } catch {
+    update();
+    return Promise.resolve();
+  }
 }
 
 function finishHomeLanguageTransition(targets) {
