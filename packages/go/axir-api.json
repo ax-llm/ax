@@ -121,6 +121,22 @@
         },
         {
           "target_name": "go",
+          "canonical_name": "get_supported_ai_models",
+          "public_name": "axllm.GetSupportedAIModels",
+          "kind": "function",
+          "description": "Return the AxIR-backed provider and model catalog, including dynamic named profiles and portable capability metadata.",
+          "form": "axllm.GetSupportedAIModels(options)",
+          "important_options": [
+            "type filter",
+            "thinkingLevels",
+            "serviceTiers",
+            "isDynamic"
+          ],
+          "returns": "provider catalog entries",
+          "example": "catalog := axllm.GetSupportedAIModels(map[string]axllm.Value{})"
+        },
+        {
+          "target_name": "go",
           "canonical_name": "AxCredentialRequest",
           "public_name": "axllm.AxCredentialRequest",
           "kind": "type",

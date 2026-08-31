@@ -191,6 +191,19 @@
   },
   "snippetGroups": {
     "ai": {
+      "catalog": {
+        "sourcePath": "src/examples/python/generation/model-catalog.py",
+        "verified": true,
+        "requiresCredentials": false,
+        "code": [
+          "catalog = get_supported_ai_models()",
+          "providers = {entry[\"name\"]: entry for entry in catalog}",
+          "azure = providers[\"azure-openai\"]",
+          "print(azure[\"capabilities\"][\"thinkingLevels\"])",
+          "print(azure[\"capabilities\"][\"serviceTiers\"])",
+          "print(providers[\"openrouter\"][\"isDynamic\"])"
+        ]
+      },
       "serviceTier": {
         "sourcePath": "src/examples/python/generation/gemini-service-tier.py",
         "verified": true,

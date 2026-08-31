@@ -186,6 +186,18 @@
   },
   "snippetGroups": {
     "ai": {
+      "catalog": {
+        "sourcePath": "src/examples/go/generation/model_catalog.go",
+        "verified": true,
+        "requiresCredentials": false,
+        "code": [
+          "catalog := ax.GetSupportedAIModels(map[string]ax.Value{})",
+          "azure := provider(catalog, \"azure-openai\")",
+          "capabilities := azure[\"capabilities\"].(map[string]ax.Value)",
+          "fmt.Println(capabilities[\"thinkingLevels\"])",
+          "fmt.Println(capabilities[\"serviceTiers\"])"
+        ]
+      },
       "serviceTier": {
         "sourcePath": "src/examples/go/generation/gemini_service_tier.go",
         "verified": true,

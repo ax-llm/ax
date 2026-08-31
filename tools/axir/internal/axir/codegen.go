@@ -109,41 +109,42 @@ func EmitPython(model AxRuntimeModel, outDir string) error {
 		return err
 	}
 	files := map[string]string{
-		"pyproject.toml":                                        renderPackageTemplate(pyProjectToml, version),
-		"MANIFEST.in":                                           pyManifestIn,
-		"axllm/__init__.py":                                     pyInit,
-		"axllm/py.typed":                                        "",
-		"axllm/signature.py":                                    signature,
-		"axllm/schema.py":                                       schema,
-		"axllm/tool.py":                                         pyTool,
-		"axllm/runtime.py":                                      pyRuntime,
-		"axllm/runtime_quickjs.py":                              pyRuntimeQuickjs,
-		"axllm/prompt.py":                                       prompt,
-		"axllm/ai.py":                                           ai,
-		"axllm/gen.py":                                          gen,
-		"axllm/agent.py":                                        agent,
-		"axllm/flow.py":                                         flow,
-		"axllm/mcp.py":                                          mcpModule,
-		"axllm/conformance.py":                                  pyConformance,
-		"axllm/providers/__init__.py":                           pyProvidersInit,
-		"axllm/providers/openai.py":                             pyOpenAIProvider,
-		"axir-capabilities.json":                                mustCapabilityManifest(model, "python"),
-		"axir-api.json":                                         mustAPIReferenceManifest(model, "python"),
-		"conformance-coverage.json":                             mustConformanceCoverageManifest(model, "python"),
-		"examples/signature_schema.py":                          pySignatureSchemaExample,
-		"examples/axgen_scripted_client_tool.py":                pyAxGenScriptedClientToolExample,
-		"examples/axgen_openai_api.py":                          pyAxGenOpenAIExample,
-		"examples/vertex_gemini_api.py":                         pyVertexGeminiExample,
-		"examples/provider_mapping_no_key.py":                   pyProviderMappingNoKeyExample,
-		"examples/runtime_hooks_no_key.py":                      pyRuntimeHooksNoKeyExample,
-		"examples/adaptive_balancer_no_key.py":                  pyAdaptiveBalancerNoKeyExample,
-		"examples/provider_stream_no_key.py":                    pyProviderStreamNoKeyExample,
-		"examples/runtime_adapter.py":                           pyRuntimeAdapterExample,
-		"examples/runtime_protocol.py":                          pyRuntimeProtocolExample,
-		"examples/runtime_profiles/javascript_quickjs.py":       pyJavaScriptQuickJSProfilePythonExample,
-		"examples/runtime_profiles/python_pyodide.py":           pyPythonPyodideProfileExample,
-		"examples/runtime_profiles/pyodide-package.json":        pyodidePackageJSON,
-		"examples/runtime_profiles/pyodide-runtime-policy.json": pyodideRuntimePolicyJSON,
+		"pyproject.toml":                                              renderPackageTemplate(pyProjectToml, version),
+		"MANIFEST.in":                                                 pyManifestIn,
+		"axllm/__init__.py":                                           pyInit,
+		"axllm/py.typed":                                              "",
+		"axllm/signature.py":                                          signature,
+		"axllm/schema.py":                                             schema,
+		"axllm/tool.py":                                               pyTool,
+		"axllm/runtime.py":                                            pyRuntime,
+		"axllm/runtime_quickjs.py":                                    pyRuntimeQuickjs,
+		"axllm/prompt.py":                                             prompt,
+		"axllm/ai.py":                                                 ai,
+		"axllm/gen.py":                                                gen,
+		"axllm/agent.py":                                              agent,
+		"axllm/flow.py":                                               flow,
+		"axllm/mcp.py":                                                mcpModule,
+		"axllm/conformance.py":                                        pyConformance,
+		"axllm/providers/__init__.py":                                 pyProvidersInit,
+		"axllm/providers/openai.py":                                   pyOpenAIProvider,
+		"axir-capabilities.json":                                      mustCapabilityManifest(model, "python"),
+		"axir-api.json":                                               mustAPIReferenceManifest(model, "python"),
+		"conformance-coverage.json":                                   mustConformanceCoverageManifest(model, "python"),
+		"examples/signature_schema.py":                                pySignatureSchemaExample,
+		"examples/model_catalog.py":                                   pyModelCatalogExample,
+		"examples/axgen_scripted_client_tool.py":                      pyAxGenScriptedClientToolExample,
+		"examples/axgen_openai_api.py":                                pyAxGenOpenAIExample,
+		"examples/vertex_gemini_api.py":                               pyVertexGeminiExample,
+		"examples/provider_mapping_no_key.py":                         pyProviderMappingNoKeyExample,
+		"examples/runtime_hooks_no_key.py":                            pyRuntimeHooksNoKeyExample,
+		"examples/adaptive_balancer_no_key.py":                        pyAdaptiveBalancerNoKeyExample,
+		"examples/provider_stream_no_key.py":                          pyProviderStreamNoKeyExample,
+		"examples/runtime_adapter.py":                                 pyRuntimeAdapterExample,
+		"examples/runtime_protocol.py":                                pyRuntimeProtocolExample,
+		"examples/runtime_profiles/javascript_quickjs.py":             pyJavaScriptQuickJSProfilePythonExample,
+		"examples/runtime_profiles/python_pyodide.py":                 pyPythonPyodideProfileExample,
+		"examples/runtime_profiles/pyodide-package.json":              pyodidePackageJSON,
+		"examples/runtime_profiles/pyodide-runtime-policy.json":       pyodideRuntimePolicyJSON,
 		"examples/runtime_profiles/resolve_pyodide_runtime_server.sh": pyodideRuntimeHelper,
 		"examples/runtime_profiles/README.md":                         pyodideProfileReadme,
 		"examples/axflow_program_graph.py":                            pyAxFlowProgramGraphExample,
@@ -273,6 +274,7 @@ func EmitJava(model AxRuntimeModel, outDir string) error {
 		"axir-api.json":                                               mustAPIReferenceManifest(model, "java"),
 		"conformance-coverage.json":                                   mustConformanceCoverageManifest(model, "java"),
 		"examples/SignatureSchemaExample.java":                        javaSignatureSchemaExample,
+		"examples/ModelCatalogExample.java":                           javaModelCatalogExample,
 		"examples/AxGenScriptedClientToolExample.java":                javaAxGenScriptedClientToolExample,
 		"examples/AxGenOpenAIExample.java":                            javaAxGenOpenAIExample,
 		"examples/VertexGeminiExample.java":                           javaVertexGeminiExample,
@@ -338,6 +340,7 @@ func EmitCpp(model AxRuntimeModel, outDir string) error {
 		"axir-api.json":                                         mustAPIReferenceManifest(model, "cpp"),
 		"conformance-coverage.json":                             mustConformanceCoverageManifest(model, "cpp"),
 		"examples/signature_schema.cpp":                         cppSignatureSchemaExample,
+		"examples/model_catalog.cpp":                            cppModelCatalogExample,
 		"examples/axgen_scripted_client_tool.cpp":               cppAxGenScriptedClientToolExample,
 		"examples/axgen_openai_api.cpp":                         cppAxGenOpenAIExample,
 		"examples/vertex_gemini_api.cpp":                        cppVertexGeminiExample,
@@ -397,6 +400,7 @@ func EmitGo(model AxRuntimeModel, outDir string) error {
 		"conformance-coverage.json":         mustConformanceCoverageManifest(model, "go"),
 		"conformance/main.go":               goConformance,
 		"examples/signature_schema/main.go": goSignatureSchemaExample,
+		"examples/model_catalog/main.go":    goModelCatalogExample,
 		"examples/axgen_scripted_client_tool/main.go":       goAxGenScriptedClientToolExample,
 		"examples/axgen_openai_api/main.go":                 goAxGenOpenAIExample,
 		"examples/vertex_gemini_api/main.go":                goVertexGeminiExample,
@@ -448,6 +452,7 @@ func EmitRust(model AxRuntimeModel, outDir string) error {
 		"axir-api.json":                                   mustAPIReferenceManifest(model, "rust"),
 		"conformance-coverage.json":                       mustConformanceCoverageManifest(model, "rust"),
 		"examples/signature_schema.rs":                    rustSignatureSchemaExample,
+		"examples/model_catalog.rs":                       rustModelCatalogExample,
 		"examples/provider_mapping_no_key.rs":             rustProviderMappingNoKeyExample,
 		"examples/runtime_hooks_no_key.rs":                rustRuntimeHooksNoKeyExample,
 		"examples/adaptive_balancer_no_key.rs":            rustAdaptiveBalancerNoKeyExample,
@@ -1023,7 +1028,7 @@ func ValidateAPIReferenceManifest(manifest APIReferenceManifest) error {
 			return fmt.Errorf("api reference missing section %q", id)
 		}
 	}
-	for _, canonical := range []string{"s", "ax", "ai", "AxCredentialRequest", "AxCredentialProvider", "AxUsageContext", "AxUsageEvent", "AxUsageObserver", "AxRuntimeHooks", "AxRateLimitInfo", "AxRateLimiter", "AxTracer", "AxMeter", "AxGlobals", "set_usage_observer", "set_rate_limiter", "set_tracer", "set_meter", "agent", "flow", "fn", "AxMCPClient", "OpenAICompatibleClient", "OpenAIResponsesClient", "GoogleGeminiClient", "AnthropicClient", "ProcessCodeRuntime", "RuntimeCapabilities", "RuntimeEnvelope", "optimize", "AxBootstrapFewShot", "AxGEPA", "OptimizerEngine"} {
+	for _, canonical := range []string{"s", "ax", "ai", "get_supported_ai_models", "AxCredentialRequest", "AxCredentialProvider", "AxUsageContext", "AxUsageEvent", "AxUsageObserver", "AxRuntimeHooks", "AxRateLimitInfo", "AxRateLimiter", "AxTracer", "AxMeter", "AxGlobals", "set_usage_observer", "set_rate_limiter", "set_tracer", "set_meter", "agent", "flow", "fn", "AxMCPClient", "OpenAICompatibleClient", "OpenAIResponsesClient", "GoogleGeminiClient", "AnthropicClient", "ProcessCodeRuntime", "RuntimeCapabilities", "RuntimeEnvelope", "optimize", "AxBootstrapFewShot", "AxGEPA", "OptimizerEngine"} {
 		if !symbols[canonical] {
 			return fmt.Errorf("api reference missing canonical symbol %q", canonical)
 		}
@@ -1072,6 +1077,7 @@ func apiReferenceSectionsForTarget(target string) []APIReferenceSection {
 			Summary: "Call supported providers through the shared provider descriptor registry, scripted transports, routers, and balancers.",
 			Symbols: []APIReferenceSymbol{
 				sym("ai", "function", "Create a provider client from a named deployment profile and options.", []string{"api key or credential provider", "model", "api URL", "headers", "transport"}, "AI client/service"),
+				sym("get_supported_ai_models", "function", "Return the AxIR-backed provider and model catalog, including dynamic named profiles and portable capability metadata.", []string{"type filter", "thinkingLevels", "serviceTiers", "isDynamic"}, "provider catalog entries"),
 				sym("AxCredentialRequest", "type", "Request metadata passed to a renewable credential callback for every transport attempt.", []string{"profile", "operation", "method", "URL"}, "credential request"),
 				sym("AxCredentialProvider", "interface", "Return fresh request headers that override static profile authentication.", []string{"chat", "stream", "embeddings", "Responses", "audio", "retries"}, "header map or credential error"),
 				sym("AxProviderStream", "type", "Incremental, closeable provider event stream. Retry and failover stop once content is delivered.", []string{"next event", "terminal error", "consumer cancellation", "upstream close"}, "incremental chat events"),
@@ -1210,6 +1216,8 @@ func apiReferencePublicName(target, canonical string) string {
 		return mapTarget(target, "ax", "Ax.ax", "axllm::ax", "axllm.NewAx", "ax")
 	case "ai":
 		return mapTarget(target, "ai", "Ax.ai", "axllm::ai", "axllm.NewAI", "ai")
+	case "get_supported_ai_models":
+		return mapTarget(target, "get_supported_ai_models", "Ax.getSupportedAIModels", "axllm::get_supported_ai_models", "axllm.GetSupportedAIModels", "get_supported_ai_models")
 	case "agent":
 		return mapTarget(target, "agent", "Ax.agent", "axllm::agent", "axllm.NewAgent", "agent")
 	case "flow":
@@ -1299,6 +1307,8 @@ func apiReferenceForm(target, canonical, publicName string) string {
 		return mapTarget(target, "AxGen(signature, options=None)", "new AxGen(signature)", "axllm::AxGen(signature, options)", "axllm.NewGen(signature, options)", "AxGen")
 	case "ai":
 		return mapTarget(target, "ai(provider='openai', **options)", "Ax.ai(provider, options)", "axllm::ai(provider, options)", "axllm.NewAI(provider, options)", "ai(provider, options)")
+	case "get_supported_ai_models":
+		return mapTarget(target, "get_supported_ai_models(model_type=None)", "Ax.getSupportedAIModels(type)", "axllm::get_supported_ai_models(options)", "axllm.GetSupportedAIModels(options)", "get_supported_ai_models() / get_supported_ai_models_with_options(options)")
 	case "AxUsageContext":
 		return mapTarget(target, "dict[str, object]", "Map<String, Object>", "axllm::AxUsageContext", "axllm.AxUsageContext", "AxUsageContext")
 	case "AxCredentialRequest":
@@ -1404,6 +1414,8 @@ func apiReferenceReturns(target, canonical, fallback string) string {
 			return "AxResult<AxGen>"
 		case "ai":
 			return "AxResult<OpenAICompatibleClient>"
+		case "get_supported_ai_models":
+			return "AxResult<Vec<serde_json::Value>>"
 		case "agent":
 			return "AxResult<AxAgent>"
 		case "fn":
@@ -1456,6 +1468,14 @@ func apiReferenceExample(target, canonical string) string {
 			`auto client = axllm::ai("openai", axllm::object({{"apiKey", std::getenv("OPENAI_API_KEY")}}));`,
 			`client := axllm.NewAI("openai", map[string]axllm.Value{"apiKey": os.Getenv("OPENAI_API_KEY")})`,
 			`let client = ai("openai", json!({"apiKey": std::env::var("OPENAI_API_KEY")?}))?;`,
+		)
+	case "get_supported_ai_models":
+		return mapTarget(target,
+			`catalog = get_supported_ai_models()`,
+			`List<Object> catalog = Ax.getSupportedAIModels();`,
+			`auto catalog = axllm::get_supported_ai_models();`,
+			`catalog := axllm.GetSupportedAIModels(map[string]axllm.Value{})`,
+			`let catalog = get_supported_ai_models()?;`,
 		)
 	case "AxProviderStream":
 		return mapTarget(target,
@@ -2267,6 +2287,7 @@ func packageReadmeConfigForTarget(target string, network string) packageReadmeCo
 			),
 			NoKeyExamples: readmeLines(
 				"- `python examples/signature_schema.py`: signature parsing and JSON schema generation",
+				"- `python examples/model_catalog.py`: model catalog, named profiles, thinking levels, and service tiers",
 				"- `python examples/axgen_scripted_client_tool.py`: AxGen with a scripted client and tool",
 				"- `python examples/provider_mapping_no_key.py`: provider mapping through a scripted transport",
 				"- `python examples/runtime_hooks_no_key.py`: runtime-hook globals and typed program surfaces through a scripted transport",
@@ -2344,6 +2365,7 @@ func packageReadmeConfigForTarget(target string, network string) packageReadmeCo
 			),
 			NoKeyExamples: readmeLines(
 				"- `examples/SignatureSchemaExample.java`: signature parsing and JSON schema generation",
+				"- `examples/ModelCatalogExample.java`: model catalog, named profiles, thinking levels, and service tiers",
 				"- `examples/AxGenScriptedClientToolExample.java`: AxGen with a scripted client and tool",
 				"- `examples/ProviderMappingNoKeyExample.java`: provider mapping through a scripted transport",
 				"- `examples/RuntimeHooksNoKeyExample.java`: runtime-hook globals and typed program surfaces through a scripted transport",
@@ -2416,6 +2438,7 @@ func packageReadmeConfigForTarget(target string, network string) packageReadmeCo
 			),
 			NoKeyExamples: readmeLines(
 				"- `examples/signature_schema.cpp`: signature parsing and JSON schema generation",
+				"- `examples/model_catalog.cpp`: model catalog, named profiles, thinking levels, and service tiers",
 				"- `examples/axgen_scripted_client_tool.cpp`: AxGen with a scripted client and tool",
 				"- `examples/provider_mapping_no_key.cpp`: provider mapping through a scripted transport",
 				"- `examples/runtime_hooks_no_key.cpp`: runtime-hook globals and typed program surfaces through a scripted transport",
@@ -2485,6 +2508,7 @@ func packageReadmeConfigForTarget(target string, network string) packageReadmeCo
 			),
 			NoKeyExamples: readmeLines(
 				"- `go run ./examples/signature_schema`: signature parsing and JSON schema generation",
+				"- `go run ./examples/model_catalog`: model catalog, named profiles, thinking levels, and service tiers",
 				"- `go run ./examples/axgen_scripted_client_tool`: AxGen with a scripted client and tool",
 				"- `go run ./examples/provider_mapping_no_key`: provider mapping through a scripted transport",
 				"- `go run ./examples/runtime_hooks_no_key`: runtime-hook globals and typed program surfaces through a scripted transport",
@@ -2563,6 +2587,7 @@ func packageReadmeConfigForTarget(target string, network string) packageReadmeCo
 			),
 			NoKeyExamples: readmeLines(
 				"- `cargo run --example signature_schema`: signature parsing and JSON schema generation",
+				"- `cargo run --example model_catalog`: model catalog, named profiles, thinking levels, and service tiers",
 				"- `cargo run --example provider_mapping_no_key`: provider mapping through a scripted transport",
 				"- `cargo run --example runtime_hooks_no_key`: runtime-hook globals and typed program surfaces through a scripted transport",
 				"- `cargo run --example adaptive_balancer_no_key`: adaptive balancer state, scoring, and stable route keys without a provider key",

@@ -93,6 +93,20 @@ Create a provider client from a named deployment profile and options.
 client := axllm.NewAI("openai", map[string]axllm.Value{"apiKey": os.Getenv("OPENAI_API_KEY")})
 ```
 
+### `axllm.GetSupportedAIModels`
+
+Return the AxIR-backed provider and model catalog, including dynamic named profiles and portable capability metadata.
+
+- Canonical Ax concept: `get_supported_ai_models`
+- Kind: `function`
+- Form: `axllm.GetSupportedAIModels(options)`
+- Returns: `provider catalog entries`
+- Important options: type filter, thinkingLevels, serviceTiers, isDynamic
+
+```go
+catalog := axllm.GetSupportedAIModels(map[string]axllm.Value{})
+```
+
 ### `axllm.AxCredentialRequest`
 
 Request metadata passed to a renewable credential callback for every transport attempt.

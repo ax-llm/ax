@@ -803,6 +803,7 @@ func TestCapabilityManifestsAndGeneratedPackageShape(t *testing.T) {
 				"axllm/gen.py",
 				"axllm/conformance.py",
 				"examples/signature_schema.py",
+				"examples/model_catalog.py",
 				"examples/axgen_scripted_client_tool.py",
 				"examples/axgen_openai_api.py",
 				"examples/vertex_gemini_api.py",
@@ -874,6 +875,7 @@ func TestCapabilityManifestsAndGeneratedPackageShape(t *testing.T) {
 				"dev/axllm/ax/AxProviderRouter.java",
 				"dev/axllm/ax/Conformance.java",
 				"examples/SignatureSchemaExample.java",
+				"examples/ModelCatalogExample.java",
 				"examples/AxGenScriptedClientToolExample.java",
 				"examples/AxGenOpenAIExample.java",
 				"examples/VertexGeminiExample.java",
@@ -921,6 +923,7 @@ func TestCapabilityManifestsAndGeneratedPackageShape(t *testing.T) {
 				"axllm/axllm.cpp",
 				"conformance.cpp",
 				"examples/signature_schema.cpp",
+				"examples/model_catalog.cpp",
 				"examples/axgen_scripted_client_tool.cpp",
 				"examples/axgen_openai_api.cpp",
 				"examples/vertex_gemini_api.cpp",
@@ -967,6 +970,7 @@ func TestCapabilityManifestsAndGeneratedPackageShape(t *testing.T) {
 				"conformance-coverage.json",
 				"conformance/main.go",
 				"examples/signature_schema/main.go",
+				"examples/model_catalog/main.go",
 				"examples/axgen_scripted_client_tool/main.go",
 				"examples/axgen_openai_api/main.go",
 				"examples/vertex_gemini_api/main.go",
@@ -1005,6 +1009,7 @@ func TestCapabilityManifestsAndGeneratedPackageShape(t *testing.T) {
 				"axir-api.json",
 				"conformance-coverage.json",
 				"examples/signature_schema.rs",
+				"examples/model_catalog.rs",
 				"examples/provider_mapping_no_key.rs",
 				"examples/adaptive_balancer_no_key.rs",
 				"examples/provider_stream_no_key.rs",
@@ -1222,7 +1227,7 @@ func TestCapabilityManifestsAndGeneratedPackageShape(t *testing.T) {
 				checkGeneratedFileContains(t, dir, "examples/runtime_profiles/javascript_goja/main.go", "go-javascript-goja-profile-ok", "ax.NewAgent", "agent.Test(runtime", "while (true) {}")
 			case "rust":
 				checkGeneratedFileContains(t, dir, "Cargo.toml", `name = "axllm"`, "reqwest", "rustls-tls", "rquickjs", "runtime-quickjs", `required-features = ["runtime-quickjs"]`, "tungstenite", `realtime = ["dep:tungstenite"]`)
-				checkGeneratedFileContains(t, dir, "src/lib.rs", "pub fn s(", "pub fn ax(", "pub fn agent(", "pub fn flow(", "pub fn ai(", "pub fn tool(", "pub trait AxCodeRuntime", "pub struct ProcessCodeRuntime", "pub mod runtime")
+				checkGeneratedFileContains(t, dir, "src/lib.rs", "pub fn s(", "pub fn ax(", "pub fn agent(", "pub fn flow(", "pub fn ai(", "pub fn tool(", "pub fn get_supported_ai_models() -> AxResult<Vec<Value>>", "pub fn get_supported_ai_models_with_options(options: Value)", "provider_model_catalog(&[", "pub trait AxCodeRuntime", "pub struct ProcessCodeRuntime", "pub mod runtime")
 				checkGeneratedFileContains(t, dir, "src/lib.rs", "BEGIN AXIR CORE EMITTED FUNCTIONS", "fn parse_signature(args: &[CoreValue])", "fn _schema_flexible_json_as_string_impl(args: &[CoreValue])", "enum CoreValue")
 				checkGeneratedFileContains(t, dir, "src/lib.rs", "fn provider_normalize_chat_response(args: &[CoreValue])", "fn _build_agent_actor_prompt_policy(args: &[CoreValue])")
 				checkGeneratedFileContains(t, dir, "src/runtime/quickjs.rs", "pub struct QuickJsCodeRuntime", "pub struct QuickJsCodeSession", "pub type HostCallable", "rquickjs", "set_interrupt_handler", "allowFilesystem", "allowNetwork", "allowProcess", "allowNativeHostAccess")

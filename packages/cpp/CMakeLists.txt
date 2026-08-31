@@ -69,6 +69,7 @@ endif()
 if(AX_BUILD_EXAMPLES)
   foreach(example
     signature_schema
+    model_catalog
     axgen_scripted_client_tool
     axgen_openai_api
     vertex_gemini_api

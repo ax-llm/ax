@@ -93,6 +93,20 @@ Create a provider client from a named deployment profile and options.
 auto client = axllm::ai("openai", axllm::object({{"apiKey", std::getenv("OPENAI_API_KEY")}}));
 ```
 
+### `axllm::get_supported_ai_models`
+
+Return the AxIR-backed provider and model catalog, including dynamic named profiles and portable capability metadata.
+
+- Canonical Ax concept: `get_supported_ai_models`
+- Kind: `function`
+- Form: `axllm::get_supported_ai_models(options)`
+- Returns: `provider catalog entries`
+- Important options: type filter, thinkingLevels, serviceTiers, isDynamic
+
+```cpp
+auto catalog = axllm::get_supported_ai_models();
+```
+
 ### `axllm::AxCredentialRequest`
 
 Request metadata passed to a renewable credential callback for every transport attempt.

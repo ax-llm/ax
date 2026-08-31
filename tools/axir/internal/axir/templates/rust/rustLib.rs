@@ -7358,8 +7358,18 @@ impl Default for ProviderRouter {
     }
 }
 
-pub fn get_supported_ai_models() -> Vec<&'static str> {
-    vec!["gpt-4.1-mini", "gpt-4.1", "gpt-4o-mini"]
+pub fn get_supported_ai_models() -> AxResult<Vec<Value>> {
+    get_supported_ai_models_with_options(json!({}))
+}
+
+pub fn get_supported_ai_models_with_options(options: Value) -> AxResult<Vec<Value>> {
+    let catalog = core_value_to_json(&provider_model_catalog(&[
+        core_value_from_json(&options),
+    ])?);
+    catalog
+        .as_array()
+        .cloned()
+        .ok_or_else(|| AxError::validation("provider model catalog must return an array"))
 }
 
 /// A host callable the agent runtime can expose to actor code (e.g. the
@@ -8602,16 +8612,13 @@ fn conformance_ai_registry_result(kind: &str, fixture: &Value) -> AxResult<Value
     }
 }
 
-// python: get_supported_ai_models(model_type) -> provider_model_catalog(options)
 fn get_supported_ai_models_json(model_type: &Value) -> AxResult<Value> {
     let options = if model_type.is_null() {
         json!({})
     } else {
         json!({"type": model_type})
     };
-    Ok(core_value_to_json(&provider_model_catalog(&[
-        core_value_from_json(&options),
-    ])?))
+    Ok(Value::Array(get_supported_ai_models_with_options(options)?))
 }
 
 fn conformance_ai_routing_result(kind: &str, fixture: &Value) -> AxResult<Value> {

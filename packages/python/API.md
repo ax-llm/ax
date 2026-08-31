@@ -93,6 +93,20 @@ Create a provider client from a named deployment profile and options.
 client = ai("openai", api_key=os.environ["OPENAI_API_KEY"])
 ```
 
+### `get_supported_ai_models`
+
+Return the AxIR-backed provider and model catalog, including dynamic named profiles and portable capability metadata.
+
+- Canonical Ax concept: `get_supported_ai_models`
+- Kind: `function`
+- Form: `get_supported_ai_models(model_type=None)`
+- Returns: `provider catalog entries`
+- Important options: type filter, thinkingLevels, serviceTiers, isDynamic
+
+```python
+catalog = get_supported_ai_models()
+```
+
 ### `dict[str, str]`
 
 Request metadata passed to a renewable credential callback for every transport attempt.

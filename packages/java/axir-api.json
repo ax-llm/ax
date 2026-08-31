@@ -121,6 +121,22 @@
         },
         {
           "target_name": "java",
+          "canonical_name": "get_supported_ai_models",
+          "public_name": "Ax.getSupportedAIModels",
+          "kind": "function",
+          "description": "Return the AxIR-backed provider and model catalog, including dynamic named profiles and portable capability metadata.",
+          "form": "Ax.getSupportedAIModels(type)",
+          "important_options": [
+            "type filter",
+            "thinkingLevels",
+            "serviceTiers",
+            "isDynamic"
+          ],
+          "returns": "provider catalog entries",
+          "example": "List\u003cObject\u003e catalog = Ax.getSupportedAIModels();"
+        },
+        {
+          "target_name": "java",
           "canonical_name": "AxCredentialRequest",
           "public_name": "OpenAICompatibleClient.CredentialRequest",
           "kind": "type",

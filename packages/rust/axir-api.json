@@ -121,6 +121,22 @@
         },
         {
           "target_name": "rust",
+          "canonical_name": "get_supported_ai_models",
+          "public_name": "get_supported_ai_models",
+          "kind": "function",
+          "description": "Return the AxIR-backed provider and model catalog, including dynamic named profiles and portable capability metadata.",
+          "form": "get_supported_ai_models() / get_supported_ai_models_with_options(options)",
+          "important_options": [
+            "type filter",
+            "thinkingLevels",
+            "serviceTiers",
+            "isDynamic"
+          ],
+          "returns": "AxResult\u003cVec\u003cserde_json::Value\u003e\u003e",
+          "example": "let catalog = get_supported_ai_models()?;"
+        },
+        {
+          "target_name": "rust",
           "canonical_name": "AxCredentialRequest",
           "public_name": "AxCredentialRequest",
           "kind": "type",

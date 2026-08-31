@@ -447,6 +447,7 @@ func verifyGoTarget(report VerifyTargetReport, conformanceRoot string) (VerifyTa
 	}
 	for _, example := range []string{
 		"signature_schema",
+		"model_catalog",
 		"axgen_scripted_client_tool",
 		"provider_mapping_no_key",
 		"adaptive_balancer_no_key",
@@ -541,6 +542,7 @@ func verifyRustTarget(report VerifyTargetReport, conformanceRoot string) (Verify
 	}
 	for _, example := range []string{
 		"signature_schema",
+		"model_catalog",
 		"provider_mapping_no_key",
 		"adaptive_balancer_no_key",
 		"provider_stream_no_key",
@@ -686,6 +688,7 @@ func verifyPythonTarget(report VerifyTargetReport, conformanceRoot string) (Veri
 	}
 	for _, example := range []string{
 		"signature_schema.py",
+		"model_catalog.py",
 		"axgen_scripted_client_tool.py",
 		"provider_mapping_no_key.py",
 		"adaptive_balancer_no_key.py",
@@ -825,6 +828,7 @@ func verifyJavaTarget(report VerifyTargetReport, conformanceRoot string) (Verify
 	}
 	for _, className := range []string{
 		"SignatureSchemaExample",
+		"ModelCatalogExample",
 		"AxGenScriptedClientToolExample",
 		"ProviderMappingNoKeyExample",
 		"AdaptiveBalancerNoKeyExample",
@@ -1192,6 +1196,7 @@ func verifyCppTarget(report VerifyTargetReport, conformanceRoot string) (VerifyT
 	}
 	examples := []string{
 		"signature_schema",
+		"model_catalog",
 		"axgen_scripted_client_tool",
 		"provider_mapping_no_key",
 		"adaptive_balancer_no_key",

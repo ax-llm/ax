@@ -93,6 +93,20 @@ Create a provider client from a named deployment profile and options.
 AxAIService client = Ax.ai("openai", Map.of("apiKey", System.getenv("OPENAI_API_KEY")));
 ```
 
+### `Ax.getSupportedAIModels`
+
+Return the AxIR-backed provider and model catalog, including dynamic named profiles and portable capability metadata.
+
+- Canonical Ax concept: `get_supported_ai_models`
+- Kind: `function`
+- Form: `Ax.getSupportedAIModels(type)`
+- Returns: `provider catalog entries`
+- Important options: type filter, thinkingLevels, serviceTiers, isDynamic
+
+```java
+List<Object> catalog = Ax.getSupportedAIModels();
+```
+
 ### `OpenAICompatibleClient.CredentialRequest`
 
 Request metadata passed to a renewable credential callback for every transport attempt.
