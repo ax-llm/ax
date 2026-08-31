@@ -1998,6 +1998,11 @@ pre.mermaid {
   [data-home-language-root] .home-output-panel {
     view-transition-name: home-output-panel;
   }
+
+  [data-home-language-root] .home-graphjin .home-install,
+  [data-home-language-root] .home-graphjin .home-output-panel {
+    view-transition-name: none;
+  }
 }
 
 @media (prefers-reduced-motion: reduce) {
@@ -3756,8 +3761,23 @@ pre.mermaid {
   margin-bottom: 0;
 }
 
-.home-graphjin-code .code-block {
+.home-graphjin-code {
+  display: flex;
+  flex-direction: column;
+  gap: 0.6rem;
+}
+
+.home-graphjin-code .home-install {
   margin: 0;
+}
+
+.home-graphjin .home-stats {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  margin: 0;
+}
+
+.home-graphjin .home-stats strong {
+  font-size: 2.6rem;
 }
 
 @media (max-width: 1180px) {
@@ -4075,6 +4095,10 @@ pre.mermaid {
   .home-pattern-grid,
   .production-grid,
   .home-provider-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .home-graphjin .home-stats {
     grid-template-columns: 1fr;
   }
 
