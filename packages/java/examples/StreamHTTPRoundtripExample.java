@@ -4,6 +4,9 @@ import java.io.OutputStream;
 import java.net.InetSocketAddress;
 import java.nio.charset.StandardCharsets;
 import java.util.*;
+import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicBoolean;
 
 // Drive a streaming stream() through the REAL HttpClient transport against an
 // in-process com.sun.net.httpserver loopback that returns a spec-legal
@@ -27,6 +30,8 @@ public final class StreamHTTPRoundtripExample {
     String sseRest = "data: " + event2;
     byte[] firstBytes = sseFirst.getBytes(StandardCharsets.UTF_8);
     byte[] restBytes = sseRest.getBytes(StandardCharsets.UTF_8);
+    CountDownLatch releaseRest = new CountDownLatch(1);
+    AtomicBoolean releaseTimedOut = new AtomicBoolean(false);
 
     HttpServer server = HttpServer.create(new InetSocketAddress("127.0.0.1", 0), 0);
     server.createContext(
@@ -37,7 +42,12 @@ public final class StreamHTTPRoundtripExample {
           exchange.sendResponseHeaders(200, firstBytes.length + restBytes.length);
           try (OutputStream os = exchange.getResponseBody()) {
             for (byte value : firstBytes) { os.write(value); os.flush(); }
-            try { Thread.sleep(300); } catch (InterruptedException error) { Thread.currentThread().interrupt(); }
+            try {
+              if (!releaseRest.await(5, TimeUnit.SECONDS)) releaseTimedOut.set(true);
+            } catch (InterruptedException error) {
+              Thread.currentThread().interrupt();
+              releaseTimedOut.set(true);
+            }
             os.write(restBytes);
             os.flush();
           }
@@ -50,17 +60,15 @@ public final class StreamHTTPRoundtripExample {
           new OpenAICompatibleClient(
               Map.of("api_key", "test-key", "base_url", "http://127.0.0.1:" + port, "model", "gpt-5.4-mini"));
       List<String> deltas = new ArrayList<>();
-      long started = System.nanoTime();
       try (AxChatStream stream = client.openStream(Map.of("chat_prompt", List.of(Map.of("role", "user", "content", "stream"))))) {
         Iterator<Map<String, Object>> iterator = stream.iterator();
         if (!iterator.hasNext()) throw new RuntimeException("stream ended before first event");
         Map<String, Object> firstEvent = iterator.next();
-        long ttft = System.nanoTime() - started;
+        releaseRest.countDown();
         List<Map<String, Object>> events = new ArrayList<>();
         events.add(firstEvent);
         iterator.forEachRemaining(events::add);
-        long completion = System.nanoTime() - started;
-        if (completion - ttft < 200_000_000L) throw new RuntimeException("first event was not incremental");
+        if (releaseTimedOut.get()) throw new RuntimeException("first event was not incremental");
         for (Map<String, Object> event : events) {
         Object results = event.get("results");
         if (results instanceof List<?> list && !list.isEmpty() && list.get(0) instanceof Map<?, ?> first) {
