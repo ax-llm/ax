@@ -48,6 +48,7 @@ Shared Ax behavior is Core-owned. The generated target code stays focused on idi
 `no-key` examples are deterministic local smokes. They are the fastest way to see the package work without any provider account:
 
 - `go run ./examples/signature_schema`: signature parsing and JSON schema generation
+- `go run ./examples/model_catalog`: model catalog, named profiles, thinking levels, and service tiers
 - `go run ./examples/axgen_scripted_client_tool`: AxGen with a scripted client and tool
 - `go run ./examples/provider_mapping_no_key`: provider mapping through a scripted transport
 - `go run ./examples/runtime_hooks_no_key`: runtime-hook globals and typed program surfaces through a scripted transport

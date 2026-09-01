@@ -15,6 +15,11 @@ Every generated package must include:
   AxAI with a scripted OpenAI-compatible transport
 - a conformance runner when the target is executable in V1
 
+Model-catalog helpers delegate to AxIR `provider_model_catalog`; target
+wrappers must not substitute a hard-coded model list. The catalog includes
+static providers and dynamic named profiles, with provider and model capability
+metadata such as `thinkingLevels` and `serviceTiers`.
+
 Python target:
 
 - emits an `axllm/` package

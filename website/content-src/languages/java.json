@@ -183,6 +183,18 @@
   },
   "snippetGroups": {
     "ai": {
+      "catalog": {
+        "sourcePath": "src/examples/java/generation/ModelCatalogExample.java",
+        "verified": true,
+        "requiresCredentials": false,
+        "code": [
+          "List<Object> catalog = Ax.getSupportedAIModels();",
+          "Map<?, ?> azure = provider(catalog, \"azure-openai\");",
+          "Map<?, ?> capabilities = (Map<?, ?>) azure.get(\"capabilities\");",
+          "System.out.println(capabilities.get(\"thinkingLevels\"));",
+          "System.out.println(capabilities.get(\"serviceTiers\"));"
+        ]
+      },
       "serviceTier": {
         "sourcePath": "src/examples/java/generation/GeminiServiceTierExample.java",
         "verified": true,

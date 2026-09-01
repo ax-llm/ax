@@ -188,6 +188,18 @@
   },
   "snippetGroups": {
     "ai": {
+      "catalog": {
+        "sourcePath": "src/examples/cpp/generation/model_catalog.cpp",
+        "verified": true,
+        "requiresCredentials": false,
+        "code": [
+          "auto catalog = axllm::get_supported_ai_models();",
+          "auto azure = provider(catalog, \"azure-openai\");",
+          "auto capabilities = axllm::Core::get(azure, \"capabilities\");",
+          "std::cout << axllm::stringify(axllm::Core::get(capabilities, \"thinkingLevels\"));",
+          "std::cout << axllm::stringify(axllm::Core::get(capabilities, \"serviceTiers\"));"
+        ]
+      },
       "serviceTier": {
         "sourcePath": "src/examples/cpp/generation/gemini_service_tier.cpp",
         "verified": true,

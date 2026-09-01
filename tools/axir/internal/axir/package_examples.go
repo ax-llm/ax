@@ -1,5 +1,171 @@
 package axir
 
+const pyModelCatalogExample = `from axllm import get_supported_ai_models
+
+
+catalog = get_supported_ai_models()
+providers = {entry["name"]: entry for entry in catalog}
+azure = providers["azure-openai"]
+openrouter = providers["openrouter"]
+
+assert azure["isDynamic"] is True and azure["models"] == []
+assert "high" in azure["capabilities"]["thinkingLevels"]
+assert "priority" in azure["capabilities"]["serviceTiers"]
+assert openrouter["isDynamic"] is True and "flex" in openrouter["capabilities"]["serviceTiers"]
+assert all(entry["name"] in {item["name"] for item in get_supported_ai_models("text")} for entry in (azure, openrouter))
+
+print("python-model-catalog-ok")
+`
+
+const javaModelCatalogExample = `import dev.axllm.ax.Ax;
+import java.util.*;
+
+public final class ModelCatalogExample {
+  private static Map<?, ?> provider(List<Object> catalog, String name) {
+    return catalog.stream()
+      .map(entry -> (Map<?, ?>) entry)
+      .filter(entry -> name.equals(entry.get("name")))
+      .findFirst()
+      .orElseThrow();
+  }
+
+  public static void main(String[] args) {
+    List<Object> catalog = Ax.getSupportedAIModels();
+    Map<?, ?> azure = provider(catalog, "azure-openai");
+    Map<?, ?> openrouter = provider(catalog, "openrouter");
+    Map<?, ?> azureCapabilities = (Map<?, ?>) azure.get("capabilities");
+    Map<?, ?> openrouterCapabilities = (Map<?, ?>) openrouter.get("capabilities");
+
+    if (!Boolean.TRUE.equals(azure.get("isDynamic")) || !((List<?>) azure.get("models")).isEmpty()) throw new AssertionError();
+    if (!((List<?>) azureCapabilities.get("thinkingLevels")).contains("high")) throw new AssertionError();
+    if (!((List<?>) azureCapabilities.get("serviceTiers")).contains("priority")) throw new AssertionError();
+    if (!((List<?>) openrouterCapabilities.get("serviceTiers")).contains("flex")) throw new AssertionError();
+    provider(Ax.getSupportedAIModels("text"), "azure-openai");
+
+    System.out.println("java-model-catalog-ok");
+  }
+}
+`
+
+const cppModelCatalogExample = `#include "axllm/axllm.hpp"
+#include <iostream>
+#include <stdexcept>
+#include <string>
+
+axllm::Value provider(const axllm::Value& catalog, const std::string& name) {
+  for (const auto& entry : axllm::Core::iter(catalog)) {
+    if (axllm::display(axllm::Core::get(entry, "name")) == name) return entry;
+  }
+  throw std::runtime_error("missing provider " + name);
+}
+
+int main() {
+  const auto catalog = axllm::get_supported_ai_models();
+  const auto azure = provider(catalog, "azure-openai");
+  const auto openrouter = provider(catalog, "openrouter");
+  const auto azure_capabilities = axllm::Core::get(azure, "capabilities");
+  const auto openrouter_capabilities = axllm::Core::get(openrouter, "capabilities");
+
+  if (!axllm::equal(axllm::Core::get(azure, "isDynamic"), true)) return 2;
+  if (!axllm::Core::iter(axllm::Core::get(azure, "models")).empty()) return 3;
+  if (axllm::Core::iter(axllm::Core::get(azure_capabilities, "thinkingLevels")).empty()) return 4;
+  if (axllm::Core::iter(axllm::Core::get(openrouter_capabilities, "serviceTiers")).size() != 3) return 5;
+  provider(axllm::get_supported_ai_models(axllm::object({{"type", "text"}})), "azure-openai");
+
+  std::cout << "cpp-model-catalog-ok\n";
+}
+`
+
+const goModelCatalogExample = `package main
+
+import (
+  "fmt"
+  ax "github.com/ax-llm/ax/packages/go"
+)
+
+func values(value ax.Value) []ax.Value {
+  switch items := value.(type) {
+  case []ax.Value:
+    return items
+  case *ax.AxArray:
+    return items.Items
+  default:
+    panic(fmt.Sprintf("expected catalog array, got %T", value))
+  }
+}
+
+func provider(catalog ax.Value, name string) map[string]ax.Value {
+  for _, item := range values(catalog) {
+    entry := item.(map[string]ax.Value)
+    if entry["name"] == name {
+      return entry
+    }
+  }
+  panic("missing provider " + name)
+}
+
+func contains(items ax.Value, expected string) bool {
+  for _, item := range values(items) {
+    if item == expected {
+      return true
+    }
+  }
+  return false
+}
+
+func main() {
+  catalog := ax.GetSupportedAIModels(map[string]ax.Value{})
+  azure := provider(catalog, "azure-openai")
+  openrouter := provider(catalog, "openrouter")
+  azureCapabilities := azure["capabilities"].(map[string]ax.Value)
+  openrouterCapabilities := openrouter["capabilities"].(map[string]ax.Value)
+
+  if azure["isDynamic"] != true || len(values(azure["models"])) != 0 { panic("unexpected Azure profile") }
+  if !contains(azureCapabilities["thinkingLevels"], "high") { panic("missing Azure thinking levels") }
+  if !contains(azureCapabilities["serviceTiers"], "priority") { panic("missing Azure service tier") }
+  if !contains(openrouterCapabilities["serviceTiers"], "flex") { panic("missing OpenRouter service tier") }
+  provider(ax.GetSupportedAIModels(map[string]ax.Value{"type": "text"}), "azure-openai")
+
+  fmt.Println("go-model-catalog-ok")
+}
+`
+
+const rustModelCatalogExample = `use axllm::{
+    get_supported_ai_models, get_supported_ai_models_with_options, AxResult,
+};
+use serde_json::{json, Value};
+
+fn provider<'a>(catalog: &'a [Value], name: &str) -> &'a Value {
+    catalog
+        .iter()
+        .find(|entry| entry["name"] == name)
+        .unwrap_or_else(|| panic!("missing provider {name}"))
+}
+
+fn main() -> AxResult<()> {
+    let catalog = get_supported_ai_models()?;
+    let azure = provider(&catalog, "azure-openai");
+    let openrouter = provider(&catalog, "openrouter");
+
+    assert_eq!(azure["isDynamic"], true);
+    assert_eq!(azure["models"], json!([]));
+    assert!(azure["capabilities"]["thinkingLevels"]
+        .as_array()
+        .is_some_and(|levels| levels.iter().any(|level| level == "high")));
+    assert!(azure["capabilities"]["serviceTiers"]
+        .as_array()
+        .is_some_and(|tiers| tiers.iter().any(|tier| tier == "priority")));
+    assert!(openrouter["capabilities"]["serviceTiers"]
+        .as_array()
+        .is_some_and(|tiers| tiers.iter().any(|tier| tier == "flex")));
+
+    let text = get_supported_ai_models_with_options(json!({"type": "text"}))?;
+    provider(&text, "azure-openai");
+    println!("rust-model-catalog-ok");
+    Ok(())
+}
+`
+
 const pyContextCacheRecoveryExample = `import json
 import os
 import time
@@ -2535,6 +2701,9 @@ import java.io.OutputStream;
 import java.net.InetSocketAddress;
 import java.nio.charset.StandardCharsets;
 import java.util.*;
+import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicBoolean;
 
 // Drive a streaming stream() through the REAL HttpClient transport against an
 // in-process com.sun.net.httpserver loopback that returns a spec-legal
@@ -2558,6 +2727,8 @@ public final class StreamHTTPRoundtripExample {
     String sseRest = "data: " + event2;
     byte[] firstBytes = sseFirst.getBytes(StandardCharsets.UTF_8);
     byte[] restBytes = sseRest.getBytes(StandardCharsets.UTF_8);
+    CountDownLatch releaseRest = new CountDownLatch(1);
+    AtomicBoolean releaseTimedOut = new AtomicBoolean(false);
 
     HttpServer server = HttpServer.create(new InetSocketAddress("127.0.0.1", 0), 0);
     server.createContext(
@@ -2568,7 +2739,12 @@ public final class StreamHTTPRoundtripExample {
           exchange.sendResponseHeaders(200, firstBytes.length + restBytes.length);
           try (OutputStream os = exchange.getResponseBody()) {
             for (byte value : firstBytes) { os.write(value); os.flush(); }
-            try { Thread.sleep(300); } catch (InterruptedException error) { Thread.currentThread().interrupt(); }
+            try {
+              if (!releaseRest.await(5, TimeUnit.SECONDS)) releaseTimedOut.set(true);
+            } catch (InterruptedException error) {
+              Thread.currentThread().interrupt();
+              releaseTimedOut.set(true);
+            }
             os.write(restBytes);
             os.flush();
           }
@@ -2581,17 +2757,15 @@ public final class StreamHTTPRoundtripExample {
           new OpenAICompatibleClient(
               Map.of("api_key", "test-key", "base_url", "http://127.0.0.1:" + port, "model", "gpt-5.4-mini"));
       List<String> deltas = new ArrayList<>();
-      long started = System.nanoTime();
       try (AxChatStream stream = client.openStream(Map.of("chat_prompt", List.of(Map.of("role", "user", "content", "stream"))))) {
         Iterator<Map<String, Object>> iterator = stream.iterator();
         if (!iterator.hasNext()) throw new RuntimeException("stream ended before first event");
         Map<String, Object> firstEvent = iterator.next();
-        long ttft = System.nanoTime() - started;
+        releaseRest.countDown();
         List<Map<String, Object>> events = new ArrayList<>();
         events.add(firstEvent);
         iterator.forEachRemaining(events::add);
-        long completion = System.nanoTime() - started;
-        if (completion - ttft < 200_000_000L) throw new RuntimeException("first event was not incremental");
+        if (releaseTimedOut.get()) throw new RuntimeException("first event was not incremental");
         for (Map<String, Object> event : events) {
         Object results = event.get("results");
         if (results instanceof List<?> list && !list.isEmpty() && list.get(0) instanceof Map<?, ?> first) {

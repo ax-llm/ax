@@ -121,6 +121,22 @@
         },
         {
           "target_name": "cpp",
+          "canonical_name": "get_supported_ai_models",
+          "public_name": "axllm::get_supported_ai_models",
+          "kind": "function",
+          "description": "Return the AxIR-backed provider and model catalog, including dynamic named profiles and portable capability metadata.",
+          "form": "axllm::get_supported_ai_models(options)",
+          "important_options": [
+            "type filter",
+            "thinkingLevels",
+            "serviceTiers",
+            "isDynamic"
+          ],
+          "returns": "provider catalog entries",
+          "example": "auto catalog = axllm::get_supported_ai_models();"
+        },
+        {
+          "target_name": "cpp",
           "canonical_name": "AxCredentialRequest",
           "public_name": "axllm::AxCredentialRequest",
           "kind": "type",

@@ -57,6 +57,7 @@ Shared Ax behavior is Core-owned. The generated target code stays focused on idi
 `no-key` examples are deterministic local smokes. They are the fastest way to see the package work without any provider account:
 
 - `cargo run --example signature_schema`: signature parsing and JSON schema generation
+- `cargo run --example model_catalog`: model catalog, named profiles, thinking levels, and service tiers
 - `cargo run --example provider_mapping_no_key`: provider mapping through a scripted transport
 - `cargo run --example runtime_hooks_no_key`: runtime-hook globals and typed program surfaces through a scripted transport
 - `cargo run --example adaptive_balancer_no_key`: adaptive balancer state, scoring, and stable route keys without a provider key

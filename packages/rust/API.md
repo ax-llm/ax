@@ -93,6 +93,20 @@ Create a provider client from a named deployment profile and options.
 let client = ai("openai", json!({"apiKey": std::env::var("OPENAI_API_KEY")?}))?;
 ```
 
+### `get_supported_ai_models`
+
+Return the AxIR-backed provider and model catalog, including dynamic named profiles and portable capability metadata.
+
+- Canonical Ax concept: `get_supported_ai_models`
+- Kind: `function`
+- Form: `get_supported_ai_models() / get_supported_ai_models_with_options(options)`
+- Returns: `AxResult<Vec<serde_json::Value>>`
+- Important options: type filter, thinkingLevels, serviceTiers, isDynamic
+
+```rust
+let catalog = get_supported_ai_models()?;
+```
+
 ### `AxCredentialRequest`
 
 Request metadata passed to a renewable credential callback for every transport attempt.

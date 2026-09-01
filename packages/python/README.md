@@ -46,6 +46,7 @@ Shared Ax behavior is Core-owned. The generated target code stays focused on idi
 `no-key` examples are deterministic local smokes. They are the fastest way to see the package work without any provider account:
 
 - `python examples/signature_schema.py`: signature parsing and JSON schema generation
+- `python examples/model_catalog.py`: model catalog, named profiles, thinking levels, and service tiers
 - `python examples/axgen_scripted_client_tool.py`: AxGen with a scripted client and tool
 - `python examples/provider_mapping_no_key.py`: provider mapping through a scripted transport
 - `python examples/runtime_hooks_no_key.py`: runtime-hook globals and typed program surfaces through a scripted transport
