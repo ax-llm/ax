@@ -8,6 +8,11 @@ import type { AxModelConfig } from '@ax-llm/ax';
 // All Bedrock models
 export enum AxAIBedrockModel {
   // Claude models
+  ClaudeSonnet5 = 'us.anthropic.claude-sonnet-5',
+  ClaudeOpus5 = 'us.anthropic.claude-opus-5',
+  ClaudeOpus48 = 'us.anthropic.claude-opus-4-8',
+  ClaudeSonnet46 = 'us.anthropic.claude-sonnet-4-6',
+  ClaudeHaiku45 = 'us.anthropic.claude-haiku-4-5-20251001-v1:0',
   ClaudeOpus45 = 'us.anthropic.claude-opus-4-5-20251101-v1:0',
   ClaudeSonnet4 = 'us.anthropic.claude-sonnet-4-20250514-v1:0',
   Claude37Sonnet = 'anthropic.claude-3-7-sonnet-20250219-v1:0',
@@ -37,6 +42,7 @@ export interface AxAIBedrockConfig extends AxModelConfig {
 // Claude Request/Response Types
 // ============================================================================
 
+/** @deprecated Internal chat transport now uses the AWS Converse API. */
 export interface BedrockClaudeRequest {
   anthropic_version: string;
   max_tokens: number;
@@ -49,6 +55,7 @@ export interface BedrockClaudeRequest {
   top_p?: number;
 }
 
+/** @deprecated Internal chat transport now uses the AWS Converse API. */
 export interface BedrockClaudeResponse {
   id: string;
   type: 'message';
@@ -66,6 +73,7 @@ export interface BedrockClaudeResponse {
 // GPT OSS Request/Response Types (OpenAI-compatible format)
 // ============================================================================
 
+/** @deprecated Internal chat transport now uses the AWS Converse API. */
 export interface BedrockGptRequest {
   messages: Array<{
     role: 'system' | 'user' | 'assistant';
@@ -76,6 +84,7 @@ export interface BedrockGptRequest {
   top_p?: number;
 }
 
+/** @deprecated Internal chat transport now uses the AWS Converse API. */
 export interface BedrockGptResponse {
   id?: string;
   choices: Array<{
@@ -111,5 +120,7 @@ export interface BedrockTitanEmbedResponse {
 }
 
 // Union types for all models
+/** @deprecated Internal chat transport now uses the AWS Converse API. */
 export type BedrockChatRequest = BedrockClaudeRequest | BedrockGptRequest;
+/** @deprecated Internal chat transport now uses the AWS Converse API. */
 export type BedrockChatResponse = BedrockClaudeResponse | BedrockGptResponse;

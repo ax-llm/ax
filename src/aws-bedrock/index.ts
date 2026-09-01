@@ -9,7 +9,7 @@
  *
  * const ai = new AxAIBedrock({
  *   region: 'us-east-2',
- *   config: { model: AxAIBedrockModel.ClaudeOpus45 }
+ *   config: { model: AxAIBedrockModel.ClaudeSonnet5 }
  * });
  *
  * const response = await ai.chat({

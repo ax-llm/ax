@@ -263,9 +263,9 @@ export class AxProviderRouter {
           processedChatPrompt.push({
             ...message,
             content: processedContent.map((item) =>
-              item.type === 'image'
-                ? item
-                : { type: 'text' as const, text: item.text }
+              item.type === 'text'
+                ? { type: 'text' as const, text: item.text }
+                : item
             ),
           });
         }

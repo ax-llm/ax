@@ -18,7 +18,12 @@ This ledger tracks portable TypeScript behavior that should be migrated into AxI
 
 ## Open
 
-No entries.
+- `axir-2026-08-31-preserve-native-file-content-through-provider-routing` [axai] Preserve native file content through provider routing
+  - Status: open
+  - Source commit: `5fe5e9f130cdc51168f57bffcb7e271357d4d327`
+  - TS paths: `src/ax/ai/processor.test.ts`, `src/ax/ai/processor.ts`, `src/ax/ai/router.test.ts`, `src/ax/ai/router.ts`
+  - Impact: File-capable providers now receive native file content instead of degraded text; generated runtimes need matching provider-aware file pass-through behavior.
+  - Suggested AxIR work: Add or update the TS-derived conformance fixture.; Update AxIR/Core or descriptor data to match the portable TS behavior.; Run npm run axir:conformance:check and npm run test:axir.
 
 ## Done
 
