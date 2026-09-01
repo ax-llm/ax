@@ -1236,7 +1236,12 @@
       "createdAt": "2026-08-31",
       "sourcePR": null,
       "sourceCommit": "5fe5e9f130cdc51168f57bffcb7e271357d4d327",
-      "tsPaths": ["src/ax/ai/processor.ts", "src/ax/ai/router.ts"],
+      "tsPaths": [
+        "src/ax/ai/processor.test.ts",
+        "src/ax/ai/processor.ts",
+        "src/ax/ai/router.test.ts",
+        "src/ax/ai/router.ts"
+      ],
       "portableSurface": "axai",
       "impact": "File-capable providers now receive native file content instead of degraded text; generated runtimes need matching provider-aware file pass-through behavior.",
       "suggestedAxirWork": [
