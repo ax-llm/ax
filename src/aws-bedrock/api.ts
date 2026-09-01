@@ -76,6 +76,7 @@ const IMAGE_FORMATS: Record<string, ImageFormat> = {
   'image/webp': 'webp',
 };
 
+// cspell:ignore msword openxmlformats officedocument spreadsheetml wordprocessingml
 const DOCUMENT_FORMATS: Record<string, DocumentFormat> = {
   'application/msword': 'doc',
   'application/pdf': 'pdf',
@@ -406,13 +407,13 @@ class AxAIBedrockImpl
     const cachingRequested =
       hasExplicitBreakpoint || options?.contextCache !== undefined;
     if (!cachingRequested) return undefined;
-    if (capabilities.cacheTtls.length === 0) {
+    if (capabilities.cacheTTLs.length === 0) {
       throw new Error(`Prompt caching is not supported for ${model}`);
     }
 
     const ttlSeconds = options?.contextCache?.ttlSeconds ?? 300;
     if (ttlSeconds <= 300) return '5m';
-    if (ttlSeconds <= 3600 && capabilities.cacheTtls.includes('1h')) {
+    if (ttlSeconds <= 3600 && capabilities.cacheTTLs.includes('1h')) {
       return '1h';
     }
     throw new Error(
@@ -1079,7 +1080,7 @@ class AxAIBedrockImpl
   };
 
   supportsImplicitCaching = (model: AxAIBedrockModel): boolean =>
-    axGetBedrockModelCapabilities(model).cacheTtls.length > 0;
+    axGetBedrockModelCapabilities(model).cacheTTLs.length > 0;
 
   createEmbedReq = async (
     req: Readonly<AxBedrockEmbedRequest>
@@ -1196,8 +1197,8 @@ export class AxAIBedrock extends AxBaseAI<
           },
         },
         caching: {
-          supported: capabilities.cacheTtls.length > 0,
-          types: capabilities.cacheTtls.length ? ['ephemeral'] : [],
+          supported: capabilities.cacheTTLs.length > 0,
+          types: capabilities.cacheTTLs.length ? ['ephemeral'] : [],
           cacheBreakpoints: true,
         },
         thinking: capabilities.thinking !== 'none',

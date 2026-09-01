@@ -22,7 +22,7 @@ export type AxAIBedrockModelCapabilities = {
   functionCot: boolean;
   images: boolean;
   files: boolean;
-  cacheTtls: readonly ('5m' | '1h')[];
+  cacheTTLs: readonly ('5m' | '1h')[];
   thinking: AxAIBedrockThinkingMode;
   thinkingDefault: boolean;
   thinkingAlwaysOn: boolean;
@@ -40,7 +40,7 @@ const claude = (
   functionCot: true,
   images: true,
   files: true,
-  cacheTtls: ['5m'],
+  cacheTTLs: ['5m'],
   thinking: 'budget',
   thinkingDefault: false,
   thinkingAlwaysOn: false,
@@ -57,7 +57,7 @@ const gpt = (): AxAIBedrockModelCapabilities => ({
   functionCot: false,
   images: false,
   files: false,
-  cacheTtls: [],
+  cacheTTLs: [],
   thinking: 'none',
   thinkingDefault: false,
   thinkingAlwaysOn: false,
@@ -71,38 +71,38 @@ export const axBedrockModelCapabilities: Readonly<
   Record<AxAIBedrockModel, AxAIBedrockModelCapabilities>
 > = {
   [AxAIBedrockModel.ClaudeSonnet5]: claude({
-    cacheTtls: ['5m', '1h'],
+    cacheTTLs: ['5m', '1h'],
     thinking: 'adaptive',
     thinkingDefault: true,
     thinkingAlwaysOn: true,
   }),
   [AxAIBedrockModel.ClaudeOpus5]: claude({
-    cacheTtls: ['5m', '1h'],
+    cacheTTLs: ['5m', '1h'],
     thinking: 'adaptive',
     thinkingDefault: true,
   }),
   [AxAIBedrockModel.ClaudeOpus48]: claude({
-    cacheTtls: ['5m', '1h'],
+    cacheTTLs: ['5m', '1h'],
     thinking: 'adaptive',
   }),
   [AxAIBedrockModel.ClaudeSonnet46]: claude({
-    cacheTtls: ['5m', '1h'],
+    cacheTTLs: ['5m', '1h'],
     thinking: 'adaptive',
     structuredOutputModes: ['native', 'function'],
   }),
   [AxAIBedrockModel.ClaudeHaiku45]: claude({
-    cacheTtls: ['5m', '1h'],
+    cacheTTLs: ['5m', '1h'],
     structuredOutputModes: ['native', 'function'],
   }),
   [AxAIBedrockModel.ClaudeOpus45]: claude({
-    cacheTtls: ['5m', '1h'],
+    cacheTTLs: ['5m', '1h'],
     structuredOutputModes: ['native', 'function'],
   }),
   [AxAIBedrockModel.ClaudeSonnet4]: claude(),
   [AxAIBedrockModel.Claude37Sonnet]: claude({ functionCot: false }),
   [AxAIBedrockModel.Claude35Sonnet]: claude({
     functionCot: false,
-    cacheTtls: [],
+    cacheTTLs: [],
     thinking: 'none',
     showThoughts: false,
   }),
