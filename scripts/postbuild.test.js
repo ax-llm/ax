@@ -1,4 +1,10 @@
-import { mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import {
+  existsSync,
+  mkdirSync,
+  readFileSync,
+  rmSync,
+  writeFileSync,
+} from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
@@ -108,5 +114,27 @@ describe('Postbuild Script', () => {
     expect(generatedPackageJson.exports['./index.global.js']).toBe(
       './index.global.js'
     );
+  });
+
+  it('should not add postinstall when package scripts are bundled', async () => {
+    const postbuildPath = path.join(__dirname, 'postbuild.js');
+    const { execSync } = await import('node:child_process');
+
+    mkdirSync(path.join(testDir, 'scripts'), { recursive: true });
+    writeFileSync(
+      path.join(testDir, 'scripts', 'postinstall.mjs'),
+      'console.log("installing skills");\n'
+    );
+
+    execSync(`node ${postbuildPath}`, { cwd: testDir });
+
+    const generatedPackageJson = JSON.parse(
+      readFileSync(path.join(testDir, 'dist', 'package.json'), 'utf8')
+    );
+
+    expect(generatedPackageJson.scripts).toBeUndefined();
+    expect(
+      existsSync(path.join(testDir, 'dist', 'scripts', 'postinstall.mjs'))
+    ).toBe(true);
   });
 });
