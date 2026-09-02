@@ -19,6 +19,7 @@ export const modelsSignaturesUnit = {
         'You configure the provider, current model, credentials, and runtime options in one place. Your program contract stays separate from that choice.',
       example:
         "const llm = ai({ name: 'openai', apiKey: process.env.OPENAI_APIKEY!, config: { model: 'gpt-5.4-mini' } });",
+      examplePath: 'src/examples/typescript/generation/axgen-openai.ts',
       exampleSteps: [
         {
           label: 'Choose the provider',
@@ -112,6 +113,7 @@ export const modelsSignaturesUnit = {
         'You keep a field’s meaning stable as it moves through generators, tools, flows, agents, and events. That makes composed systems easier to validate and evaluate.',
       example:
         "const lookup = fn('lookup').arg('ticketId', f.string()).returns(f.json()).handler(loadTicket).build();",
+      examplePath: 'src/examples/typescript/short-agents/tools-agent.ts',
       exampleSteps: [
         {
           label: 'Name the capability',
