@@ -17703,6 +17703,7 @@ func _gemini_build_chat_request(args ...Value) (Value, error) {
 	var v_fn Value
 	var v_format_type Value
 	var v_function_declarations Value
+	var v_function_names Value
 	var v_functions Value
 	var v_generation_config Value
 	var v_has_functions Value
@@ -17761,6 +17762,7 @@ func _gemini_build_chat_request(args ...Value) (Value, error) {
 	_ = v_fn
 	_ = v_format_type
 	_ = v_function_declarations
+	_ = v_function_names
 	_ = v_functions
 	_ = v_generation_config
 	_ = v_has_functions
@@ -17815,6 +17817,7 @@ func _gemini_build_chat_request(args ...Value) (Value, error) {
 	v_prompt = coreGet(v_request, "chat_prompt", v_empty_prompt)
 	v_system_parts = MutableArray()
 	v_contents = MutableArray()
+	v_function_names = Object()
 	for _, v_message = range coreIter(v_prompt) {
 		v_role = coreGet(v_message, "role", nil)
 		v_is_system = _core_eq(v_role, "system")
@@ -17822,7 +17825,7 @@ func _gemini_build_chat_request(args ...Value) (Value, error) {
 			v_system_text = coreGet(v_message, "content", "")
 			v_system_parts = coreAppend(v_system_parts, v_system_text)
 		} else {
-			{ v, err := _gemini_message_impl(v_message); if err != nil { return nil, err }; v_mapped = v }
+			{ v, err := _gemini_message_impl(v_message, v_function_names); if err != nil { return nil, err }; v_mapped = v }
 			v_has_mapped = _core_is_not_none(v_mapped)
 			if coreTruthy(v_has_mapped) {
 				v_contents = coreAppend(v_contents, v_mapped)
@@ -18388,23 +18391,29 @@ func _gemini_apply_model_config_impl(args ...Value) (Value, error) {
 func _gemini_message_impl(args ...Value) (Value, error) {
 	axirCoverageMark("_gemini_message_impl")
 	var v_message Value
+	var v_function_names Value
 	var v_args Value
 	var v_args_is_string Value
 	var v_call Value
+	var v_call_id Value
 	var v_calls Value
 	var v_calls_camel Value
 	var v_content Value
 	var v_empty_args Value
 	var v_empty_calls Value
+	var v_explicit_name Value
 	var v_function Value
 	var v_function_call Value
 	var v_function_id Value
 	var v_function_id_camel Value
 	var v_function_response Value
+	var v_has_call_id Value
 	var v_has_content Value
+	var v_has_resolved_name Value
 	var v_is_assistant Value
 	var v_is_function Value
 	var v_is_user Value
+	var v_missing_resolved_name Value
 	var v_name Value
 	var v_none Value
 	var v_out Value
@@ -18418,23 +18427,30 @@ func _gemini_message_impl(args ...Value) (Value, error) {
 	var v_text_part Value
 	if len(args) > 0 { v_message = args[0] }
 	_ = v_message
+	if len(args) > 1 { v_function_names = args[1] }
+	_ = v_function_names
 	_ = v_args
 	_ = v_args_is_string
 	_ = v_call
+	_ = v_call_id
 	_ = v_calls
 	_ = v_calls_camel
 	_ = v_content
 	_ = v_empty_args
 	_ = v_empty_calls
+	_ = v_explicit_name
 	_ = v_function
 	_ = v_function_call
 	_ = v_function_id
 	_ = v_function_id_camel
 	_ = v_function_response
+	_ = v_has_call_id
 	_ = v_has_content
+	_ = v_has_resolved_name
 	_ = v_is_assistant
 	_ = v_is_function
 	_ = v_is_user
+	_ = v_missing_resolved_name
 	_ = v_name
 	_ = v_none
 	_ = v_out
@@ -18496,6 +18512,14 @@ func _gemini_message_impl(args ...Value) (Value, error) {
 			// empty
 			}
 			v_function_call = Object()
+			v_call_id = coreGet(v_call, "id", v_name)
+			v_has_call_id = _core_truthy(v_call_id)
+			if coreTruthy(v_has_call_id) {
+				if err := coreSet(v_function_call, "id", v_call_id); err != nil { return nil, err }
+				if err := coreSet(v_function_names, v_call_id, v_name); err != nil { return nil, err }
+			} else {
+			// empty
+			}
 			if err := coreSet(v_function_call, "name", v_name); err != nil { return nil, err }
 			if err := coreSet(v_function_call, "args", v_args); err != nil { return nil, err }
 			v_part = Object()
@@ -18511,14 +18535,23 @@ func _gemini_message_impl(args ...Value) (Value, error) {
 	}
 	v_is_function = _core_eq(v_role, "function")
 	if coreTruthy(v_is_function) {
-		v_name = coreGet(v_message, "name", nil)
-		v_function_id = coreGet(v_message, "function_id", v_name)
+		v_explicit_name = coreGet(v_message, "name", nil)
+		v_function_id = coreGet(v_message, "function_id", v_explicit_name)
 		v_function_id_camel = coreGet(v_message, "functionId", v_function_id)
+		v_name = coreGet(v_function_names, v_function_id_camel, v_explicit_name)
+		v_has_resolved_name = _core_truthy(v_name)
+		v_missing_resolved_name = _core_not(v_has_resolved_name)
+		if coreTruthy(v_missing_resolved_name) {
+			v_name = v_function_id_camel
+		} else {
+		// empty
+		}
 		v_result_value = coreGet(v_message, "result", nil)
 		v_response = Object()
 		if err := coreSet(v_response, "result", v_result_value); err != nil { return nil, err }
 		v_function_response = Object()
-		if err := coreSet(v_function_response, "name", v_function_id_camel); err != nil { return nil, err }
+		if err := coreSet(v_function_response, "id", v_function_id_camel); err != nil { return nil, err }
+		if err := coreSet(v_function_response, "name", v_name); err != nil { return nil, err }
 		if err := coreSet(v_function_response, "response", v_response); err != nil { return nil, err }
 		v_part = Object()
 		if err := coreSet(v_part, "functionResponse", v_function_response); err != nil { return nil, err }
@@ -19098,6 +19131,7 @@ func _gemini_merge_response_part_impl(args ...Value) (Value, error) {
 	var v_function_call Value
 	var v_has_call Value
 	var v_has_text Value
+	var v_id Value
 	var v_is_thought Value
 	var v_name Value
 	var v_text Value
@@ -19116,6 +19150,7 @@ func _gemini_merge_response_part_impl(args ...Value) (Value, error) {
 	_ = v_function_call
 	_ = v_has_call
 	_ = v_has_text
+	_ = v_id
 	_ = v_is_thought
 	_ = v_name
 	_ = v_text
@@ -19135,13 +19170,14 @@ func _gemini_merge_response_part_impl(args ...Value) (Value, error) {
 	v_has_call = _core_is_not_none(v_function_call)
 	if coreTruthy(v_has_call) {
 		v_name = coreGet(v_function_call, "name", nil)
+		v_id = coreGet(v_function_call, "id", v_name)
 		v_empty_args = Object()
 		v_args = coreGet(v_function_call, "args", v_empty_args)
 		v_function = Object()
 		if err := coreSet(v_function, "name", v_name); err != nil { return nil, err }
 		if err := coreSet(v_function, "params", v_args); err != nil { return nil, err }
 		v_call = Object()
-		if err := coreSet(v_call, "id", v_name); err != nil { return nil, err }
+		if err := coreSet(v_call, "id", v_id); err != nil { return nil, err }
 		if err := coreSet(v_call, "type", "function"); err != nil { return nil, err }
 		if err := coreSet(v_call, "function", v_function); err != nil { return nil, err }
 		v_function_calls = coreAppend(v_function_calls, v_call)
@@ -25989,6 +26025,7 @@ func _tool_result_message_impl(args ...Value) (Value, error) {
 	var v_result Value
 	var v_id Value
 	var v_message Value
+	var v_name Value
 	var v_result_json Value
 	if len(args) > 0 { v_call = args[0] }
 	_ = v_call
@@ -25996,12 +26033,15 @@ func _tool_result_message_impl(args ...Value) (Value, error) {
 	_ = v_result
 	_ = v_id
 	_ = v_message
+	_ = v_name
 	_ = v_result_json
 	v_id = coreGet(v_call, "id", nil)
+	v_name = coreGet(v_call, "name", nil)
 	v_result_json = _core_json_stringify(v_result)
 	v_message = Object()
 	if err := coreSet(v_message, "role", "function"); err != nil { return nil, err }
 	if err := coreSet(v_message, "function_id", v_id); err != nil { return nil, err }
+	if err := coreSet(v_message, "name", v_name); err != nil { return nil, err }
 	if err := coreSet(v_message, "result", v_result_json); err != nil { return nil, err }
 	return v_message, nil
 }
@@ -26368,6 +26408,7 @@ func _tool_error_message_impl(args ...Value) (Value, error) {
 	var v_error_text Value
 	var v_id Value
 	var v_message Value
+	var v_name Value
 	var v_payload Value
 	var v_payload_json Value
 	if len(args) > 0 { v_call = args[0] }
@@ -26377,9 +26418,11 @@ func _tool_error_message_impl(args ...Value) (Value, error) {
 	_ = v_error_text
 	_ = v_id
 	_ = v_message
+	_ = v_name
 	_ = v_payload
 	_ = v_payload_json
 	v_id = coreGet(v_call, "id", nil)
+	v_name = coreGet(v_call, "name", nil)
 	v_error_text = _core_exception_message(v_error)
 	v_payload = Object()
 	if err := coreSet(v_payload, "error", v_error_text); err != nil { return nil, err }
@@ -26387,6 +26430,7 @@ func _tool_error_message_impl(args ...Value) (Value, error) {
 	v_message = Object()
 	if err := coreSet(v_message, "role", "function"); err != nil { return nil, err }
 	if err := coreSet(v_message, "function_id", v_id); err != nil { return nil, err }
+	if err := coreSet(v_message, "name", v_name); err != nil { return nil, err }
 	if err := coreSet(v_message, "result", v_payload_json); err != nil { return nil, err }
 	if err := coreSet(v_message, "is_error", true); err != nil { return nil, err }
 	return v_message, nil

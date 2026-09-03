@@ -9707,6 +9707,7 @@ Value Core::_gemini_build_chat_request(Value request, Value options, Value is_ve
   Value prompt = Core::get(request, Value("chat_prompt"), empty_prompt);
   Value system_parts = Value::array();
   Value contents = Value::array();
+  Value function_names = Value::object();
   for (auto message : Core::iter(prompt)) {
     Value role = Core::get(message, Value("role"), Value());
     Value is_system = Core::eq(role, Value("system"));
@@ -9715,7 +9716,7 @@ Value Core::_gemini_build_chat_request(Value request, Value options, Value is_ve
       Core::append(system_parts, system_text);
     }
     if (!Core::truthy(is_system)) {
-      Value mapped = Core::_gemini_message_impl(message);
+      Value mapped = Core::_gemini_message_impl(message, function_names);
       Value has_mapped = Core::is_not_none(mapped);
       if (Core::truthy(has_mapped)) {
         Core::append(contents, mapped);
@@ -10043,7 +10044,7 @@ Value Core::_gemini_apply_model_config_impl(Value payload, Value model, Value mo
   return Value();
 }
 
-Value Core::_gemini_message_impl(Value message) {
+Value Core::_gemini_message_impl(Value message, Value function_names) {
   axir_coverage_mark("_gemini_message_impl");
   Value role = Core::get(message, Value("role"), Value());
   Value is_user = Core::eq(role, Value("user"));
@@ -10084,6 +10085,12 @@ Value Core::_gemini_message_impl(Value message) {
         }
       }
       Value function_call = Value::object();
+      Value call_id = Core::get(call, Value("id"), name);
+      Value has_call_id = Core::truthy_value(call_id);
+      if (Core::truthy(has_call_id)) {
+        Core::set(function_call, Value("id"), call_id);
+        Core::set(function_names, call_id, name);
+      }
       Core::set(function_call, Value("name"), name);
       Core::set(function_call, Value("args"), args);
       Value part = Value::object();
@@ -10097,14 +10104,21 @@ Value Core::_gemini_message_impl(Value message) {
   }
   Value is_function = Core::eq(role, Value("function"));
   if (Core::truthy(is_function)) {
-    Value name = Core::get(message, Value("name"), Value());
-    Value function_id = Core::get(message, Value("function_id"), name);
+    Value explicit_name = Core::get(message, Value("name"), Value());
+    Value function_id = Core::get(message, Value("function_id"), explicit_name);
     Value function_id_camel = Core::get(message, Value("functionId"), function_id);
+    Value name = Core::get(function_names, function_id_camel, explicit_name);
+    Value has_resolved_name = Core::truthy_value(name);
+    Value missing_resolved_name = Core::not_(has_resolved_name);
+    if (Core::truthy(missing_resolved_name)) {
+      name = function_id_camel;
+    }
     Value result_value = Core::get(message, Value("result"), Value());
     Value response = Value::object();
     Core::set(response, Value("result"), result_value);
     Value function_response = Value::object();
-    Core::set(function_response, Value("name"), function_id_camel);
+    Core::set(function_response, Value("id"), function_id_camel);
+    Core::set(function_response, Value("name"), name);
     Core::set(function_response, Value("response"), response);
     Value part = Value::object();
     Core::set(part, Value("functionResponse"), function_response);
@@ -10417,13 +10431,14 @@ Value Core::_gemini_merge_response_part_impl(Value result, Value text_parts, Val
   Value has_call = Core::is_not_none(function_call);
   if (Core::truthy(has_call)) {
     Value name = Core::get(function_call, Value("name"), Value());
+    Value id = Core::get(function_call, Value("id"), name);
     Value empty_args = Value::object();
     Value args = Core::get(function_call, Value("args"), empty_args);
     Value function = Value::object();
     Core::set(function, Value("name"), name);
     Core::set(function, Value("params"), args);
     Value call = Value::object();
-    Core::set(call, Value("id"), name);
+    Core::set(call, Value("id"), id);
     Core::set(call, Value("type"), Value("function"));
     Core::set(call, Value("function"), function);
     Core::append(function_calls, call);
@@ -13687,10 +13702,12 @@ Value Core::_completion_call_to_chat_impl(Value call) {
 Value Core::_tool_result_message_impl(Value call, Value result) {
   axir_coverage_mark("_tool_result_message_impl");
   Value id = Core::get(call, Value("id"), Value());
+  Value name = Core::get(call, Value("name"), Value());
   Value result_json = Core::json_stringify(result);
   Value message = Value::object();
   Core::set(message, Value("role"), Value("function"));
   Core::set(message, Value("function_id"), id);
+  Core::set(message, Value("name"), name);
   Core::set(message, Value("result"), result_json);
   return message;
 }
@@ -13868,6 +13885,7 @@ Value Core::_ace_apply_curator_operations(Value playbook, Value operations, Valu
 Value Core::_tool_error_message_impl(Value call, Value error) {
   axir_coverage_mark("_tool_error_message_impl");
   Value id = Core::get(call, Value("id"), Value());
+  Value name = Core::get(call, Value("name"), Value());
   Value error_text = Core::exception_message(error);
   Value payload = Value::object();
   Core::set(payload, Value("error"), error_text);
@@ -13875,6 +13893,7 @@ Value Core::_tool_error_message_impl(Value call, Value error) {
   Value message = Value::object();
   Core::set(message, Value("role"), Value("function"));
   Core::set(message, Value("function_id"), id);
+  Core::set(message, Value("name"), name);
   Core::set(message, Value("result"), payload_json);
   Core::set(message, Value("is_error"), Value(true));
   return message;

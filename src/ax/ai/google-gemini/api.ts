@@ -348,6 +348,7 @@ const mapFunctionResultParts = (
   const parts: AxAIGoogleGeminiContentPart[] = [
     {
       functionResponse: {
+        id: msg.functionId,
         name: resolveFunctionResponseName(chatPrompt, index, msg.functionId),
         response: {
           result: msg.result,
@@ -1141,6 +1142,7 @@ class AxAIGoogleGeminiImpl
 
               const part: AxAIGoogleGeminiContentPart = {
                 functionCall: {
+                  ...(f.id ? { id: f.id } : {}),
                   name: f.function.name,
                   args: args,
                 },
@@ -1529,7 +1531,7 @@ class AxAIGoogleGeminiImpl
             result.functionCalls = [
               ...(result.functionCalls ?? []),
               {
-                id: randomUUID(),
+                id: part.functionCall.id ?? randomUUID(),
                 type: 'function',
                 function: {
                   name: part.functionCall.name,
@@ -2098,7 +2100,11 @@ class AxAIGoogleGeminiImpl
                 args = f.function.params ?? {};
               }
               const part: AxAIGoogleGeminiContentPart = {
-                functionCall: { name: f.function.name, args },
+                functionCall: {
+                  ...(f.id ? { id: f.id } : {}),
+                  name: f.function.name,
+                  args,
+                },
               };
               if (firstSignature && index === 0) {
                 part.thought_signature = firstSignature;
@@ -2246,7 +2252,11 @@ class AxAIGoogleGeminiImpl
               args = f.function.params ?? {};
             }
             const part: AxAIGoogleGeminiContentPart = {
-              functionCall: { name: f.function.name, args },
+              functionCall: {
+                ...(f.id ? { id: f.id } : {}),
+                name: f.function.name,
+                args,
+              },
             };
             // Attach signature only to the first function call
             if (firstSignature && index === 0) {

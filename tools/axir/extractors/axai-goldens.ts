@@ -5095,6 +5095,137 @@ for (const { fixtureName, model, strictParameters } of [
   });
 }
 
+writeFixture('gemini-38-function-call-id-round-trip', {
+  kind: 'ai_chat',
+  provider: 'google-gemini',
+  model: 'gemini-3.8-flash',
+  request: {
+    chat_prompt: [
+      { role: 'user', content: 'Look up Ax.' },
+      {
+        role: 'assistant',
+        functionCalls: [
+          {
+            id: 'provider-call-1',
+            type: 'function',
+            function: { name: 'search', params: { query: 'Ax' } },
+          },
+        ],
+      },
+      {
+        role: 'function',
+        functionId: 'provider-call-1',
+        result: '{"found":true}',
+      },
+    ],
+    functions: [
+      {
+        name: 'search',
+        description: 'Search docs',
+        parameters: {
+          type: 'object',
+          properties: { query: { type: 'string' } },
+          required: ['query'],
+        },
+      },
+    ],
+    model_config: { stream: false },
+  },
+  transport_responses: [
+    {
+      status: 200,
+      json: {
+        candidates: [
+          {
+            finishReason: 'STOP',
+            content: {
+              parts: [
+                {
+                  functionCall: {
+                    id: 'provider-call-2',
+                    name: 'search',
+                    args: { query: 'Ax function IDs' },
+                  },
+                },
+              ],
+            },
+          },
+        ],
+      },
+    },
+  ],
+  expected_output: {
+    results: [
+      {
+        index: 0,
+        content: '',
+        function_calls: [
+          {
+            id: 'provider-call-2',
+            type: 'function',
+            function: {
+              name: 'search',
+              params: { query: 'Ax function IDs' },
+            },
+          },
+        ],
+        finish_reason: 'function_call',
+      },
+    ],
+    model_usage: null,
+  },
+  expected_transport_request: {
+    method: 'POST',
+    url: 'https://generativelanguage.googleapis.com/v1beta/models/gemini-3.8-flash:generateContent',
+    headers: { 'x-goog-api-key': 'test-key' },
+    json: {
+      contents: [
+        { role: 'user', parts: [{ text: 'Look up Ax.' }] },
+        {
+          role: 'model',
+          parts: [
+            {
+              functionCall: {
+                id: 'provider-call-1',
+                name: 'search',
+                args: { query: 'Ax' },
+              },
+            },
+          ],
+        },
+        {
+          role: 'user',
+          parts: [
+            {
+              functionResponse: {
+                id: 'provider-call-1',
+                name: 'search',
+                response: { result: '{"found":true}' },
+              },
+            },
+          ],
+        },
+      ],
+      generationConfig: { responseMimeType: 'text/plain' },
+      tools: [
+        {
+          function_declarations: [
+            {
+              name: 'search',
+              description: 'Search docs',
+              parameters: {
+                type: 'object',
+                properties: { query: { type: 'string' } },
+                required: ['query'],
+              },
+            },
+          ],
+        },
+      ],
+    },
+  },
+});
+
 writeFixture('gemini-tool-call', {
   kind: 'ai_chat',
   provider: 'gemini',
@@ -5138,6 +5269,7 @@ writeFixture('gemini-tool-call', {
               parts: [
                 {
                   functionCall: {
+                    id: 'gemini-search-1',
                     name: 'search',
                     args: { query: 'Search docs' },
                   },
@@ -5156,7 +5288,7 @@ writeFixture('gemini-tool-call', {
         content: '',
         function_calls: [
           {
-            id: 'search',
+            id: 'gemini-search-1',
             type: 'function',
             function: { name: 'search', params: { query: 'Search docs' } },
           },

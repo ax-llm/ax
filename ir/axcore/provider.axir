@@ -5516,6 +5516,7 @@ module @ax.provider version "0.1" {
       %prompt = core.get %request["chat_prompt"] default %empty_prompt
       %system_parts = core.list
       %contents = core.list
+      %function_names = core.map
       core.for %message in %prompt {
         %role = core.get %message["role"]
         %is_system = core.call intrinsic.eq(%role, "system")
@@ -5523,7 +5524,7 @@ module @ax.provider version "0.1" {
           %system_text = core.get %message["content"] default ""
           core.append %system_parts, %system_text
         } else {
-          %mapped = core.call @gemini_message_impl(%message)
+          %mapped = core.call @gemini_message_impl(%message, %function_names)
           %has_mapped = core.call intrinsic.is_not_none(%mapped)
           core.if %has_mapped {
             core.append %contents, %mapped
@@ -5873,8 +5874,8 @@ module @ax.provider version "0.1" {
     attr emit_module = "ai"
     attr private = true
     tag "gemini-message-core-helper"
-    type signature = "(json) -> json throws"
-    body @entry(%message: json) {
+    type signature = "(json, json) -> json throws"
+    body @entry(%message: json, %function_names: json) {
       %role = core.get %message["role"]
       %is_user = core.call intrinsic.eq(%role, "user")
       core.if %is_user {
@@ -5913,6 +5914,12 @@ module @ax.provider version "0.1" {
             }
           }
           %function_call = core.map
+          %call_id = core.get %call["id"] default %name
+          %has_call_id = core.call intrinsic.truthy(%call_id)
+          core.if %has_call_id {
+            core.set %function_call["id"] = %call_id
+            core.set %function_names[%call_id] = %name
+          }
           core.set %function_call["name"] = %name
           core.set %function_call["args"] = %args
           %part = core.map
@@ -5926,14 +5933,21 @@ module @ax.provider version "0.1" {
       }
       %is_function = core.call intrinsic.eq(%role, "function")
       core.if %is_function {
-        %name = core.get %message["name"]
-        %function_id = core.get %message["function_id"] default %name
+        %explicit_name = core.get %message["name"]
+        %function_id = core.get %message["function_id"] default %explicit_name
         %function_id_camel = core.get %message["functionId"] default %function_id
+        %name = core.get %function_names[%function_id_camel] default %explicit_name
+        %has_resolved_name = core.call intrinsic.truthy(%name)
+        %missing_resolved_name = core.call intrinsic.not(%has_resolved_name)
+        core.if %missing_resolved_name {
+          %name = core.let %function_id_camel
+        }
         %result_value = core.get %message["result"]
         %response = core.map
         core.set %response["result"] = %result_value
         %function_response = core.map
-        core.set %function_response["name"] = %function_id_camel
+        core.set %function_response["id"] = %function_id_camel
+        core.set %function_response["name"] = %name
         core.set %function_response["response"] = %response
         %part = core.map
         core.set %part["functionResponse"] = %function_response
@@ -6290,13 +6304,14 @@ module @ax.provider version "0.1" {
       %has_call = core.call intrinsic.is_not_none(%function_call)
       core.if %has_call {
         %name = core.get %function_call["name"]
+        %id = core.get %function_call["id"] default %name
         %empty_args = core.map
         %args = core.get %function_call["args"] default %empty_args
         %function = core.map
         core.set %function["name"] = %name
         core.set %function["params"] = %args
         %call = core.map
-        core.set %call["id"] = %name
+        core.set %call["id"] = %id
         core.set %call["type"] = "function"
         core.set %call["function"] = %function
         core.append %function_calls, %call

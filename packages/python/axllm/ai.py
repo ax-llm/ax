@@ -8192,6 +8192,7 @@ def _gemini_build_chat_request(request: AxChatRequest, options: Any, is_vertex: 
     prompt = _core_get(request, "chat_prompt", empty_prompt)
     system_parts = []
     contents = []
+    function_names = {}
     for message in prompt:
         role = _core_get(message, "role", None)
         is_system = _core_eq(role, "system")
@@ -8199,7 +8200,7 @@ def _gemini_build_chat_request(request: AxChatRequest, options: Any, is_vertex: 
             system_text = _core_get(message, "content", "")
             system_parts.append(system_text)
         else:
-            mapped = _gemini_message_impl(message)
+            mapped = _gemini_message_impl(message, function_names)
             has_mapped = _core_is_not_none(mapped)
             if has_mapped:
                 contents.append(mapped)
@@ -8548,7 +8549,7 @@ def _gemini_apply_model_config_impl(payload: Any, model: str, model_config: Any,
     return None
 
 
-def _gemini_message_impl(message: Any) -> Any:
+def _gemini_message_impl(message: Any, function_names: Any) -> Any:
     _core_coverage_mark("_gemini_message_impl")
     role = _core_get(message, "role", None)
     is_user = _core_eq(role, "user")
@@ -8590,6 +8591,13 @@ def _gemini_message_impl(message: Any) -> Any:
             else:
                 pass
             function_call = {}
+            call_id = _core_get(call, "id", name)
+            has_call_id = _core_truthy(call_id)
+            if has_call_id:
+                function_call["id"] = call_id
+                function_names[call_id] = name
+            else:
+                pass
             function_call["name"] = name
             function_call["args"] = args
             part = {}
@@ -8603,14 +8611,22 @@ def _gemini_message_impl(message: Any) -> Any:
         pass
     is_function = _core_eq(role, "function")
     if is_function:
-        name = _core_get(message, "name", None)
-        function_id = _core_get(message, "function_id", name)
+        explicit_name = _core_get(message, "name", None)
+        function_id = _core_get(message, "function_id", explicit_name)
         function_id_camel = _core_get(message, "functionId", function_id)
+        name = _core_get(function_names, function_id_camel, explicit_name)
+        has_resolved_name = _core_truthy(name)
+        missing_resolved_name = _core_not(has_resolved_name)
+        if missing_resolved_name:
+            name = function_id_camel
+        else:
+            pass
         result_value = _core_get(message, "result", None)
         response = {}
         response["result"] = result_value
         function_response = {}
-        function_response["name"] = function_id_camel
+        function_response["id"] = function_id_camel
+        function_response["name"] = name
         function_response["response"] = response
         part = {}
         part["functionResponse"] = function_response
@@ -8920,13 +8936,14 @@ def _gemini_merge_response_part_impl(result: Any, text_parts: list[Any], functio
     has_call = _core_is_not_none(function_call)
     if has_call:
         name = _core_get(function_call, "name", None)
+        id = _core_get(function_call, "id", name)
         empty_args = {}
         args = _core_get(function_call, "args", empty_args)
         function = {}
         function["name"] = name
         function["params"] = args
         call = {}
-        call["id"] = name
+        call["id"] = id
         call["type"] = "function"
         call["function"] = function
         function_calls.append(call)

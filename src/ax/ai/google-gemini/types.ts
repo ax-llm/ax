@@ -90,12 +90,14 @@ export type AxAIGoogleGeminiContentPart = {
     }
   | {
       functionCall: {
+        id?: string;
         name: string;
         args: object;
       };
     }
   | {
       functionResponse: {
+        id?: string;
         name: string;
         response: object;
       };

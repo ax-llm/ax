@@ -8555,6 +8555,7 @@ final class Core {
     Object prompt = Core.get(request, "chat_prompt", empty_prompt);
     Object system_parts = new java.util.ArrayList<Object>();
     Object contents = new java.util.ArrayList<Object>();
+    Object function_names = new java.util.LinkedHashMap<String, Object>();
     for (Object message : Core.iter(prompt)) {
       Object role = Core.get(message, "role", null);
       Object is_system = Core.eq(role, "system");
@@ -8563,7 +8564,7 @@ final class Core {
         Core.append(system_parts, system_text);
       }
       if (!Core.truthy(is_system)) {
-        Object mapped = Core._gemini_message_impl(message);
+        Object mapped = Core._gemini_message_impl(message, function_names);
         Object has_mapped = Core.isNotNone(mapped);
         if (Core.truthy(has_mapped)) {
           Core.append(contents, mapped);
@@ -8891,7 +8892,7 @@ final class Core {
     return null;
   }
 
-  static Object _gemini_message_impl(Object message) {
+  static Object _gemini_message_impl(Object message, Object function_names) {
     axirCoverageMark("_gemini_message_impl");
     Object role = Core.get(message, "role", null);
     Object is_user = Core.eq(role, "user");
@@ -8931,6 +8932,12 @@ final class Core {
           }
         }
         Object function_call = new java.util.LinkedHashMap<String, Object>();
+        Object call_id = Core.get(call, "id", name);
+        Object has_call_id = Core.truthyValue(call_id);
+        if (Core.truthy(has_call_id)) {
+          Core.set(function_call, "id", call_id);
+          Core.set(function_names, call_id, name);
+        }
         Core.set(function_call, "name", name);
         Core.set(function_call, "args", args);
         Object part = new java.util.LinkedHashMap<String, Object>();
@@ -8944,14 +8951,21 @@ final class Core {
     }
     Object is_function = Core.eq(role, "function");
     if (Core.truthy(is_function)) {
-      Object name = Core.get(message, "name", null);
-      Object function_id = Core.get(message, "function_id", name);
+      Object explicit_name = Core.get(message, "name", null);
+      Object function_id = Core.get(message, "function_id", explicit_name);
       Object function_id_camel = Core.get(message, "functionId", function_id);
+      Object name = Core.get(function_names, function_id_camel, explicit_name);
+      Object has_resolved_name = Core.truthyValue(name);
+      Object missing_resolved_name = Core.not(has_resolved_name);
+      if (Core.truthy(missing_resolved_name)) {
+        name = function_id_camel;
+      }
       Object result_value = Core.get(message, "result", null);
       Object response = new java.util.LinkedHashMap<String, Object>();
       Core.set(response, "result", result_value);
       Object function_response = new java.util.LinkedHashMap<String, Object>();
-      Core.set(function_response, "name", function_id_camel);
+      Core.set(function_response, "id", function_id_camel);
+      Core.set(function_response, "name", name);
       Core.set(function_response, "response", response);
       Object part = new java.util.LinkedHashMap<String, Object>();
       Core.set(part, "functionResponse", function_response);
@@ -9264,13 +9278,14 @@ final class Core {
     Object has_call = Core.isNotNone(function_call);
     if (Core.truthy(has_call)) {
       Object name = Core.get(function_call, "name", null);
+      Object id = Core.get(function_call, "id", name);
       Object empty_args = new java.util.LinkedHashMap<String, Object>();
       Object args = Core.get(function_call, "args", empty_args);
       Object function = new java.util.LinkedHashMap<String, Object>();
       Core.set(function, "name", name);
       Core.set(function, "params", args);
       Object call = new java.util.LinkedHashMap<String, Object>();
-      Core.set(call, "id", name);
+      Core.set(call, "id", id);
       Core.set(call, "type", "function");
       Core.set(call, "function", function);
       Core.append(function_calls, call);
@@ -12528,10 +12543,12 @@ final class Core {
   static Object _tool_result_message_impl(Object call, Object result) {
     axirCoverageMark("_tool_result_message_impl");
     Object id = Core.get(call, "id", null);
+    Object name = Core.get(call, "name", null);
     Object result_json = Core.jsonStringify(result);
     Object message = new java.util.LinkedHashMap<String, Object>();
     Core.set(message, "role", "function");
     Core.set(message, "function_id", id);
+    Core.set(message, "name", name);
     Core.set(message, "result", result_json);
     return message;
   }
@@ -12709,6 +12726,7 @@ final class Core {
   static Object _tool_error_message_impl(Object call, Object error) {
     axirCoverageMark("_tool_error_message_impl");
     Object id = Core.get(call, "id", null);
+    Object name = Core.get(call, "name", null);
     Object error_text = Core.exceptionMessage(error);
     Object payload = new java.util.LinkedHashMap<String, Object>();
     Core.set(payload, "error", error_text);
@@ -12716,6 +12734,7 @@ final class Core {
     Object message = new java.util.LinkedHashMap<String, Object>();
     Core.set(message, "role", "function");
     Core.set(message, "function_id", id);
+    Core.set(message, "name", name);
     Core.set(message, "result", payload_json);
     Core.set(message, "is_error", Boolean.TRUE);
     return message;

@@ -41654,6 +41654,7 @@ fn _gemini_build_chat_request(args: &[CoreValue]) -> Result<CoreValue, AxError> 
     let mut v_fn = CoreValue::Null;
     let mut v_format_type = CoreValue::Null;
     let mut v_function_declarations = CoreValue::Null;
+    let mut v_function_names = CoreValue::Null;
     let mut v_functions = CoreValue::Null;
     let mut v_generation_config = CoreValue::Null;
     let mut v_has_functions = CoreValue::Null;
@@ -41719,6 +41720,7 @@ fn _gemini_build_chat_request(args: &[CoreValue]) -> Result<CoreValue, AxError> 
     );
     v_system_parts = CoreValue::new_list();
     v_contents = CoreValue::new_list();
+    v_function_names = CoreValue::new_map();
     for v_message in core_iter(&v_prompt)? {
         let mut v_message = v_message;
         v_role = core_get(&v_message, &CoreValue::from("role"), CoreValue::Null);
@@ -41727,7 +41729,7 @@ fn _gemini_build_chat_request(args: &[CoreValue]) -> Result<CoreValue, AxError> 
             v_system_text = core_get(&v_message, &CoreValue::from("content"), CoreValue::from(""));
             core_append(&v_system_parts, v_system_text.clone())?;
         } else {
-            v_mapped = _gemini_message_impl(&[v_message.clone()])?;
+            v_mapped = _gemini_message_impl(&[v_message.clone(), v_function_names.clone()])?;
             v_has_mapped = core_is_not_none(&[v_mapped.clone()])?;
             if core_truthy(&v_has_mapped) {
                 core_append(&v_contents, v_mapped.clone())?;
@@ -42428,23 +42430,29 @@ fn _gemini_apply_model_config_impl(args: &[CoreValue]) -> Result<CoreValue, AxEr
 fn _gemini_message_impl(args: &[CoreValue]) -> Result<CoreValue, AxError> {
     axir_coverage_mark("_gemini_message_impl");
     let mut v_message = core_arg(args, 0);
+    let mut v_function_names = core_arg(args, 1);
     let mut v_args = CoreValue::Null;
     let mut v_args_is_string = CoreValue::Null;
     let mut v_call = CoreValue::Null;
+    let mut v_call_id = CoreValue::Null;
     let mut v_calls = CoreValue::Null;
     let mut v_calls_camel = CoreValue::Null;
     let mut v_content = CoreValue::Null;
     let mut v_empty_args = CoreValue::Null;
     let mut v_empty_calls = CoreValue::Null;
+    let mut v_explicit_name = CoreValue::Null;
     let mut v_function = CoreValue::Null;
     let mut v_function_call = CoreValue::Null;
     let mut v_function_id = CoreValue::Null;
     let mut v_function_id_camel = CoreValue::Null;
     let mut v_function_response = CoreValue::Null;
+    let mut v_has_call_id = CoreValue::Null;
     let mut v_has_content = CoreValue::Null;
+    let mut v_has_resolved_name = CoreValue::Null;
     let mut v_is_assistant = CoreValue::Null;
     let mut v_is_function = CoreValue::Null;
     let mut v_is_user = CoreValue::Null;
+    let mut v_missing_resolved_name = CoreValue::Null;
     let mut v_name = CoreValue::Null;
     let mut v_none = CoreValue::Null;
     let mut v_out = CoreValue::Null;
@@ -42516,6 +42524,12 @@ fn _gemini_message_impl(args: &[CoreValue]) -> Result<CoreValue, AxError> {
                 }
             }
             v_function_call = CoreValue::new_map();
+            v_call_id = core_get(&v_call, &CoreValue::from("id"), v_name.clone());
+            v_has_call_id = core_truthy_value(&[v_call_id.clone()])?;
+            if core_truthy(&v_has_call_id) {
+                core_set(&v_function_call, CoreValue::from("id"), v_call_id.clone())?;
+                core_set(&v_function_names, v_call_id.clone(), v_name.clone())?;
+            }
             core_set(&v_function_call, CoreValue::from("name"), v_name.clone())?;
             core_set(&v_function_call, CoreValue::from("args"), v_args.clone())?;
             v_part = CoreValue::new_map();
@@ -42533,13 +42547,27 @@ fn _gemini_message_impl(args: &[CoreValue]) -> Result<CoreValue, AxError> {
     }
     v_is_function = core_eq(&[v_role.clone(), CoreValue::from("function")])?;
     if core_truthy(&v_is_function) {
-        v_name = core_get(&v_message, &CoreValue::from("name"), CoreValue::Null);
-        v_function_id = core_get(&v_message, &CoreValue::from("function_id"), v_name.clone());
+        v_explicit_name = core_get(&v_message, &CoreValue::from("name"), CoreValue::Null);
+        v_function_id = core_get(
+            &v_message,
+            &CoreValue::from("function_id"),
+            v_explicit_name.clone(),
+        );
         v_function_id_camel = core_get(
             &v_message,
             &CoreValue::from("functionId"),
             v_function_id.clone(),
         );
+        v_name = core_get(
+            &v_function_names,
+            &v_function_id_camel.clone(),
+            v_explicit_name.clone(),
+        );
+        v_has_resolved_name = core_truthy_value(&[v_name.clone()])?;
+        v_missing_resolved_name = core_not(&[v_has_resolved_name.clone()])?;
+        if core_truthy(&v_missing_resolved_name) {
+            v_name = v_function_id_camel.clone();
+        }
         v_result_value = core_get(&v_message, &CoreValue::from("result"), CoreValue::Null);
         v_response = CoreValue::new_map();
         core_set(
@@ -42550,8 +42578,13 @@ fn _gemini_message_impl(args: &[CoreValue]) -> Result<CoreValue, AxError> {
         v_function_response = CoreValue::new_map();
         core_set(
             &v_function_response,
-            CoreValue::from("name"),
+            CoreValue::from("id"),
             v_function_id_camel.clone(),
+        )?;
+        core_set(
+            &v_function_response,
+            CoreValue::from("name"),
+            v_name.clone(),
         )?;
         core_set(
             &v_function_response,
@@ -43204,6 +43237,7 @@ fn _gemini_merge_response_part_impl(args: &[CoreValue]) -> Result<CoreValue, AxE
     let mut v_function_call = CoreValue::Null;
     let mut v_has_call = CoreValue::Null;
     let mut v_has_text = CoreValue::Null;
+    let mut v_id = CoreValue::Null;
     let mut v_is_thought = CoreValue::Null;
     let mut v_name = CoreValue::Null;
     let mut v_text = CoreValue::Null;
@@ -43221,6 +43255,7 @@ fn _gemini_merge_response_part_impl(args: &[CoreValue]) -> Result<CoreValue, AxE
     v_has_call = core_is_not_none(&[v_function_call.clone()])?;
     if core_truthy(&v_has_call) {
         v_name = core_get(&v_function_call, &CoreValue::from("name"), CoreValue::Null);
+        v_id = core_get(&v_function_call, &CoreValue::from("id"), v_name.clone());
         v_empty_args = CoreValue::new_map();
         v_args = core_get(
             &v_function_call,
@@ -43231,7 +43266,7 @@ fn _gemini_merge_response_part_impl(args: &[CoreValue]) -> Result<CoreValue, AxE
         core_set(&v_function, CoreValue::from("name"), v_name.clone())?;
         core_set(&v_function, CoreValue::from("params"), v_args.clone())?;
         v_call = CoreValue::new_map();
-        core_set(&v_call, CoreValue::from("id"), v_name.clone())?;
+        core_set(&v_call, CoreValue::from("id"), v_id.clone())?;
         core_set(
             &v_call,
             CoreValue::from("type"),
@@ -50338,8 +50373,10 @@ fn _tool_result_message_impl(args: &[CoreValue]) -> Result<CoreValue, AxError> {
     let mut v_result = core_arg(args, 1);
     let mut v_id = CoreValue::Null;
     let mut v_message = CoreValue::Null;
+    let mut v_name = CoreValue::Null;
     let mut v_result_json = CoreValue::Null;
     v_id = core_get(&v_call, &CoreValue::from("id"), CoreValue::Null);
+    v_name = core_get(&v_call, &CoreValue::from("name"), CoreValue::Null);
     v_result_json = core_json_stringify(&[v_result.clone()])?;
     v_message = CoreValue::new_map();
     core_set(
@@ -50348,6 +50385,7 @@ fn _tool_result_message_impl(args: &[CoreValue]) -> Result<CoreValue, AxError> {
         CoreValue::from("function"),
     )?;
     core_set(&v_message, CoreValue::from("function_id"), v_id.clone())?;
+    core_set(&v_message, CoreValue::from("name"), v_name.clone())?;
     core_set(&v_message, CoreValue::from("result"), v_result_json.clone())?;
     return Ok(v_message.clone());
 }
@@ -50753,9 +50791,11 @@ fn _tool_error_message_impl(args: &[CoreValue]) -> Result<CoreValue, AxError> {
     let mut v_error_text = CoreValue::Null;
     let mut v_id = CoreValue::Null;
     let mut v_message = CoreValue::Null;
+    let mut v_name = CoreValue::Null;
     let mut v_payload = CoreValue::Null;
     let mut v_payload_json = CoreValue::Null;
     v_id = core_get(&v_call, &CoreValue::from("id"), CoreValue::Null);
+    v_name = core_get(&v_call, &CoreValue::from("name"), CoreValue::Null);
     v_error_text = core_exception_message(&[v_error.clone()])?;
     v_payload = CoreValue::new_map();
     core_set(&v_payload, CoreValue::from("error"), v_error_text.clone())?;
@@ -50767,6 +50807,7 @@ fn _tool_error_message_impl(args: &[CoreValue]) -> Result<CoreValue, AxError> {
         CoreValue::from("function"),
     )?;
     core_set(&v_message, CoreValue::from("function_id"), v_id.clone())?;
+    core_set(&v_message, CoreValue::from("name"), v_name.clone())?;
     core_set(
         &v_message,
         CoreValue::from("result"),
