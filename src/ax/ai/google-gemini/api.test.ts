@@ -596,6 +596,7 @@ describe('AxAIGoogleGemini model key preset merging', () => {
   });
 
   it.each([
+    AxAIGoogleGeminiModel.Gemini38Flash,
     AxAIGoogleGeminiModel.Gemini37Flash,
     AxAIGoogleGeminiModel.Gemini36Flash,
     AxAIGoogleGeminiModel.Gemini35FlashLite,
@@ -635,6 +636,53 @@ describe('AxAIGoogleGemini model key preset merging', () => {
     expect(capture.lastBody?.generationConfig).not.toHaveProperty('topP');
     expect(capture.lastBody?.generationConfig).not.toHaveProperty('topK');
   });
+
+  it.each([
+    AxAIGoogleGeminiModel.Gemini38Flash,
+    AxAIGoogleGeminiModel.Gemini37Flash,
+    AxAIGoogleGeminiModel.Gemini36Flash,
+  ])(
+    'omits unsupported candidate and penalty parameters for %s',
+    async (model) => {
+      const capture: { lastBody?: any } = {};
+      const ai = new AxAIGoogleGemini({
+        apiKey: 'key',
+        config: { model, n: 2, frequencyPenalty: 0.4 },
+        models: [],
+        options: {
+          fetch: createMockFetch(
+            {
+              candidates: [
+                {
+                  content: { parts: [{ text: 'ok' }] },
+                  finishReason: 'STOP',
+                },
+              ],
+            },
+            capture
+          ),
+        },
+      });
+
+      await ai.chat(
+        {
+          chatPrompt: [{ role: 'user', content: 'hi' }],
+          modelConfig: { n: 3, frequencyPenalty: 0.2 },
+        },
+        { stream: false }
+      );
+
+      expect(capture.lastBody?.generationConfig).not.toHaveProperty(
+        'candidateCount'
+      );
+      expect(capture.lastBody?.generationConfig).not.toHaveProperty(
+        'frequencyPenalty'
+      );
+      expect(capture.lastBody?.generationConfig).not.toHaveProperty(
+        'presencePenalty'
+      );
+    }
+  );
 
   it('maps numeric thinkingTokenBudget in item config to per-model options and preserves explicit overrides', async () => {
     const ai = new AxAIGoogleGemini({
@@ -700,6 +748,11 @@ describe('AxAIGoogleGemini model key preset merging', () => {
       model: AxAIGoogleGeminiModel.Gemini35Flash,
       requested: 'highest' as const,
       expectedLevel: 'high',
+    },
+    {
+      model: AxAIGoogleGeminiModel.Gemini38Flash,
+      requested: 'minimal' as const,
+      expectedLevel: 'low',
     },
     {
       model: AxAIGoogleGeminiModel.Gemini37Flash,
@@ -815,7 +868,7 @@ describe('AxAIGoogleGemini model key preset merging', () => {
     const ai = new AxAIGoogleGemini({
       apiKey: 'key',
       config: {
-        model: AxAIGoogleGeminiModel.Gemini37Flash,
+        model: AxAIGoogleGeminiModel.Gemini38Flash,
         thinkingLevelMapping: { minimal: 'minimal' },
       },
       models: [],
@@ -852,7 +905,7 @@ describe('AxAIGoogleGemini model key preset merging', () => {
       models: [
         {
           key: 'modern',
-          model: AxAIGoogleGeminiModel.Gemini37Flash,
+          model: AxAIGoogleGeminiModel.Gemini38Flash,
           description: 'Gemini 3 preset',
           thinkingTokenBudget: 'minimal',
           showThoughts: true,
@@ -1793,6 +1846,8 @@ describe('AxAIGoogleGemini model key preset merging', () => {
     };
 
     it.each([
+      AxAIGoogleGeminiModel.Gemini38Flash,
+      AxAIGoogleGeminiModel.Gemini37Flash,
       AxAIGoogleGeminiModel.Gemini36Flash,
       AxAIGoogleGeminiModel.Gemini35FlashLite,
     ])(
@@ -1830,6 +1885,10 @@ describe('AxAIGoogleGemini model key preset merging', () => {
         expect(generationConfig).not.toHaveProperty('temperature');
         expect(generationConfig).not.toHaveProperty('topP');
         expect(generationConfig).not.toHaveProperty('topK');
+        if (model !== AxAIGoogleGeminiModel.Gemini35FlashLite) {
+          expect(generationConfig).not.toHaveProperty('candidateCount');
+          expect(generationConfig).not.toHaveProperty('frequencyPenalty');
+        }
       }
     );
 

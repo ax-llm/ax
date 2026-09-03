@@ -14,7 +14,7 @@ if (!apiKey) {
   throw new Error('Set GOOGLE_APIKEY to run this example.');
 }
 
-const model = AxAIGoogleGeminiModel.Gemini37Flash;
+const model = AxAIGoogleGeminiModel.Gemini38Flash;
 const catalogModel = axGetSupportedAIModels()
   .find((provider) => provider.name === 'google-gemini')
   ?.models.find((candidate) => candidate.name === model);

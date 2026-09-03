@@ -130,7 +130,7 @@ const analyst = agent(
 const llm = ai({
   name: 'google-gemini',
   apiKey,
-  config: { model: AxAIGoogleGeminiModel.Gemini37Flash },
+  config: { model: AxAIGoogleGeminiModel.Gemini38Flash },
 });
 
 const result = await analyst.forward(llm, {

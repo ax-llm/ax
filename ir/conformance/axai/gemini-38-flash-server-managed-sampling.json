@@ -2,7 +2,7 @@
   "expected_output": {
     "model_usage": {
       "ai": "google-gemini",
-      "model": "gemini-3.7-flash",
+      "model": "gemini-3.8-flash",
       "tokens": {
         "completion_tokens": 1,
         "prompt_tokens": 2,
@@ -11,10 +11,10 @@
     },
     "provider_metadata": {
       "google": {
-        "modelVersion": "gemini-3.7-flash"
+        "modelVersion": "gemini-3.8-flash"
       }
     },
-    "remote_id": "gemini-37-flash-server-managed-sampling-response",
+    "remote_id": "gemini-38-flash-server-managed-sampling-response",
     "results": [
       {
         "content": "Done.",
@@ -52,11 +52,11 @@
       }
     },
     "method": "POST",
-    "url": "https://generativelanguage.googleapis.com/v1beta/models/gemini-3.7-flash:generateContent"
+    "url": "https://generativelanguage.googleapis.com/v1beta/models/gemini-3.8-flash:generateContent"
   },
   "kind": "ai_chat",
-  "model": "gemini-3.7-flash",
-  "name": "gemini-37-flash-server-managed-sampling",
+  "model": "gemini-3.8-flash",
+  "name": "gemini-38-flash-server-managed-sampling",
   "provider": "google-gemini",
   "request": {
     "chat_prompt": [
@@ -90,8 +90,8 @@
             "finishReason": "STOP"
           }
         ],
-        "modelVersion": "gemini-3.7-flash",
-        "responseId": "gemini-37-flash-server-managed-sampling-response",
+        "modelVersion": "gemini-3.8-flash",
+        "responseId": "gemini-38-flash-server-managed-sampling-response",
         "usageMetadata": {
           "candidatesTokenCount": 1,
           "promptTokenCount": 2,

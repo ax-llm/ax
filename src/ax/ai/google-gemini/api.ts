@@ -17,13 +17,22 @@ import { resolveVertexAIHost } from '../vertex.js';
 const isGemini3Model = (model: string): boolean => model.includes('gemini-3');
 
 /**
- * Gemini 3.7 Flash, 3.6 Flash, and 3.5 Flash-Lite use server-managed
- * sampling and ignore temperature, topP, and topK.
+ * Gemini 3.8 Flash, 3.7 Flash, 3.6 Flash, and 3.5 Flash-Lite use
+ * server-managed sampling and ignore temperature, topP, and topK.
  */
 const usesServerManagedSampling = (model: string): boolean =>
+  model === 'gemini-3.8-flash' ||
   model === 'gemini-3.7-flash' ||
   model === 'gemini-3.6-flash' ||
   model === 'gemini-3.5-flash-lite';
+
+/**
+ * Current Gemini Flash models reject candidateCount and token penalties.
+ */
+const usesStrictFlashParameters = (model: string): boolean =>
+  model === 'gemini-3.8-flash' ||
+  model === 'gemini-3.7-flash' ||
+  model === 'gemini-3.6-flash';
 
 import {
   axNormalizeRequestedServiceTier,
@@ -112,6 +121,7 @@ const getGemini3ThinkingFamily = (
   if (normalized.includes('-image')) return 'image';
   if (normalized.includes('gemini-3-pro')) return 'legacy-pro';
   if (
+    normalized.includes('gemini-3.8-flash') ||
     normalized.includes('gemini-3.7-flash') ||
     normalized.includes('gemini-3.1-pro')
   ) {
@@ -1231,6 +1241,7 @@ class AxAIGoogleGeminiImpl
     }
 
     const serverManagedSampling = usesServerManagedSampling(model as string);
+    const strictFlashParameters = usesStrictFlashParameters(model as string);
     const generationConfig: AxAIGoogleGeminiGenerationConfig = {
       maxOutputTokens: req.modelConfig?.maxTokens ?? this.config.maxTokens,
       ...(!serverManagedSampling
@@ -1245,9 +1256,13 @@ class AxAIGoogleGeminiImpl
       ...(!serverManagedSampling
         ? { topK: req.modelConfig?.topK ?? this.config.topK }
         : {}),
-      frequencyPenalty:
-        req.modelConfig?.frequencyPenalty ?? this.config.frequencyPenalty,
-      candidateCount: req.modelConfig?.n ?? this.config.n ?? 1,
+      ...(!strictFlashParameters
+        ? {
+            frequencyPenalty:
+              req.modelConfig?.frequencyPenalty ?? this.config.frequencyPenalty,
+            candidateCount: req.modelConfig?.n ?? this.config.n ?? 1,
+          }
+        : {}),
       stopSequences:
         req.modelConfig?.stopSequences ?? this.config.stopSequences,
       responseMimeType: 'text/plain',
@@ -1890,6 +1905,7 @@ class AxAIGoogleGeminiImpl
 
     // Build the generation config using existing logic
     const serverManagedSampling = usesServerManagedSampling(model as string);
+    const strictFlashParameters = usesStrictFlashParameters(model as string);
     const effectiveMappings = this.getEffectiveMappings(model);
     const thinkingConfig = resolveGeminiThinkingConfig({
       model,
@@ -1912,9 +1928,13 @@ class AxAIGoogleGeminiImpl
       ...(!serverManagedSampling
         ? { topK: req.modelConfig?.topK ?? this.config.topK }
         : {}),
-      frequencyPenalty:
-        req.modelConfig?.frequencyPenalty ?? this.config.frequencyPenalty,
-      candidateCount: req.modelConfig?.n ?? this.config.n ?? 1,
+      ...(!strictFlashParameters
+        ? {
+            frequencyPenalty:
+              req.modelConfig?.frequencyPenalty ?? this.config.frequencyPenalty,
+            candidateCount: req.modelConfig?.n ?? this.config.n ?? 1,
+          }
+        : {}),
       stopSequences:
         req.modelConfig?.stopSequences ?? this.config.stopSequences,
       responseMimeType: 'text/plain',

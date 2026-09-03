@@ -110,7 +110,7 @@ const gemini = ai({
   config: { model: 'simple' },
   models: [
     { key: 'tiny', model: AxAIGoogleGeminiModel.Gemini35FlashLite, description: 'Fast + cheap', config: { maxTokens: 1024 } },
-    { key: 'simple', model: AxAIGoogleGeminiModel.Gemini37Flash, description: 'Balanced' },
+    { key: 'simple', model: AxAIGoogleGeminiModel.Gemini38Flash, description: 'Balanced' },
   ],
 });
 
@@ -443,9 +443,9 @@ console.log(res.results[0]?.content);
 
 Gemini 3 uses `thinkingLevel`; Gemini 2.5 and older models use numeric
 `thinkingBudget`. Ax selects the wire field after resolving a named model
-preset to its real model. Gemini 3.7 Flash and Gemini 3.1 Pro clamp `minimal`
-to `low`; image and legacy Gemini 3 models clamp to their documented two-level
-sets. Numeric Gemini 3 budgets fail locally. `none` always hides returned
+preset to its real model. Gemini 3.8 Flash, Gemini 3.7 Flash, and Gemini 3.1 Pro
+clamp `minimal` to `low`; image and legacy Gemini 3 models clamp to their
+documented two-level sets. Numeric Gemini 3 budgets fail locally. `none` always hides returned
 thoughts, even when the model must still perform its minimum amount of thinking.
 
 The native `google-gemini` deployment profile and its aliases use these Gemini

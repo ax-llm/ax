@@ -5545,17 +5545,22 @@ module @ax.provider version "0.1" {
       }
       core.set %payload["contents"] = %contents
       %model = core.get %request["model"] default "gemini-2.5-flash"
+      %is_gemini38_flash = core.call intrinsic.eq(%model, "gemini-3.8-flash")
       %is_gemini37_flash = core.call intrinsic.eq(%model, "gemini-3.7-flash")
       %is_gemini36_flash = core.call intrinsic.eq(%model, "gemini-3.6-flash")
       %is_gemini35_flash_lite = core.call intrinsic.eq(%model, "gemini-3.5-flash-lite")
-      %server_managed_sampling_36 = core.call intrinsic.or(%is_gemini37_flash, %is_gemini36_flash)
-      %server_managed_sampling = core.call intrinsic.or(%server_managed_sampling_36, %is_gemini35_flash_lite)
+      %server_managed_sampling_37 = core.call intrinsic.or(%is_gemini38_flash, %is_gemini37_flash)
+      %strict_flash_parameters = core.call intrinsic.or(%server_managed_sampling_37, %is_gemini36_flash)
+      %server_managed_sampling = core.call intrinsic.or(%strict_flash_parameters, %is_gemini35_flash_lite)
       %generation_config = core.map
-      core.set %generation_config["candidateCount"] = 1
+      %legacy_candidate_count = core.call intrinsic.not(%strict_flash_parameters)
+      core.if %legacy_candidate_count {
+        core.set %generation_config["candidateCount"] = 1
+      }
       core.set %generation_config["responseMimeType"] = "text/plain"
       %empty_model_config = core.map
       %model_config = core.get %request["model_config"] default %empty_model_config
-      core.call @gemini_apply_model_config_impl(%generation_config, %model, %model_config, %server_managed_sampling)
+      core.call @gemini_apply_model_config_impl(%generation_config, %model, %model_config, %server_managed_sampling, %strict_flash_parameters)
       %response_format = core.get %request["response_format"]
       %has_response_format = core.call intrinsic.truthy(%response_format)
       core.if %has_response_format {
@@ -5646,9 +5651,11 @@ module @ax.provider version "0.1" {
         core.return "high"
       }
 
+      %is_38_flash = core.call intrinsic.contains(%model, "gemini-3.8-flash")
       %is_37_flash = core.call intrinsic.contains(%model, "gemini-3.7-flash")
+      %is_current_flash = core.call intrinsic.or(%is_38_flash, %is_37_flash)
       %is_31_pro = core.call intrinsic.contains(%model, "gemini-3.1-pro")
-      %no_minimal_name = core.call intrinsic.or(%is_37_flash, %is_31_pro)
+      %no_minimal_name = core.call intrinsic.or(%is_current_flash, %is_31_pro)
       %no_minimal = core.call intrinsic.and(%is_gemini3, %no_minimal_name)
       %clamp_minimal = core.call intrinsic.and(%no_minimal, %is_minimal)
       core.if %clamp_minimal {
@@ -5835,8 +5842,8 @@ module @ax.provider version "0.1" {
     attr emit_module = "ai"
     attr private = true
     tag "gemini-model-config-core-helper"
-    type signature = "(json, string, json, bool) -> void throws"
-    body @entry(%payload: json, %model: string, %model_config: json, %server_managed_sampling: bool) {
+    type signature = "(json, string, json, bool, bool) -> void throws"
+    body @entry(%payload: json, %model: string, %model_config: json, %server_managed_sampling: bool, %strict_flash_parameters: bool) {
       core.call @openai_copy_config_key_impl(%payload, %model_config, "maxTokens", "maxOutputTokens")
       core.call @openai_copy_config_key_impl(%payload, %model_config, "max_tokens", "maxOutputTokens")
       %client_managed_sampling = core.call intrinsic.not(%server_managed_sampling)
@@ -5847,9 +5854,12 @@ module @ax.provider version "0.1" {
         core.call @openai_copy_config_key_impl(%payload, %model_config, "topK", "topK")
         core.call @openai_copy_config_key_impl(%payload, %model_config, "top_k", "topK")
       }
-      core.call @openai_copy_config_key_impl(%payload, %model_config, "frequencyPenalty", "frequencyPenalty")
-      core.call @openai_copy_config_key_impl(%payload, %model_config, "frequency_penalty", "frequencyPenalty")
-      core.call @openai_copy_config_key_impl(%payload, %model_config, "n", "candidateCount")
+      %legacy_parameters = core.call intrinsic.not(%strict_flash_parameters)
+      core.if %legacy_parameters {
+        core.call @openai_copy_config_key_impl(%payload, %model_config, "frequencyPenalty", "frequencyPenalty")
+        core.call @openai_copy_config_key_impl(%payload, %model_config, "frequency_penalty", "frequencyPenalty")
+        core.call @openai_copy_config_key_impl(%payload, %model_config, "n", "candidateCount")
+      }
       core.call @openai_copy_config_key_impl(%payload, %model_config, "stopSequences", "stopSequences")
       core.call @openai_copy_config_key_impl(%payload, %model_config, "stop_sequences", "stopSequences")
       core.call @gemini_apply_thinking_config_impl(%payload, %model, %model_config)

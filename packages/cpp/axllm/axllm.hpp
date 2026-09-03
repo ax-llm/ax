@@ -518,7 +518,7 @@ struct Core {
   static Value _gemini_build_chat_request(Value request, Value options, Value is_vertex);
   static Value _gemini_clamp_thinking_level_impl(Value model, Value level);
   static Value _gemini_apply_thinking_config_impl(Value payload, Value model, Value model_config);
-  static Value _gemini_apply_model_config_impl(Value payload, Value model, Value model_config, Value server_managed_sampling);
+  static Value _gemini_apply_model_config_impl(Value payload, Value model, Value model_config, Value server_managed_sampling, Value strict_flash_parameters);
   static Value _gemini_message_impl(Value message);
   static Value _gemini_content_parts_impl(Value content);
   static Value _gemini_content_part_impl(Value part);
