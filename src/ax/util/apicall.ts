@@ -511,6 +511,43 @@ export class AxContentProcessingError extends Error {
 }
 
 // Utility Functions
+// Header names whose values carry credentials and must never be logged.
+const SENSITIVE_HEADER_NAMES = new Set([
+  'authorization',
+  'proxy-authorization',
+  'x-api-key',
+  'api-key',
+  'apikey',
+  'x-goog-api-key',
+  'x-amz-security-token',
+  'cookie',
+  'set-cookie',
+]);
+
+/**
+ * Return a shallow copy of `headers` with the values of sensitive keys masked,
+ * for safe logging. Header-name matching is case-insensitive. The original
+ * headers object is never mutated, so the real credentials are still sent.
+ *
+ * `Authorization` values keep their scheme (e.g. `Bearer ***`) so the log stays
+ * useful for debugging while the secret itself is redacted.
+ */
+function redactHeaders(
+  headers: Record<string, string>
+): Record<string, string> {
+  const redacted: Record<string, string> = {};
+  for (const [key, value] of Object.entries(headers)) {
+    if (SENSITIVE_HEADER_NAMES.has(key.toLowerCase())) {
+      const spaceIndex = typeof value === 'string' ? value.indexOf(' ') : -1;
+      redacted[key] =
+        spaceIndex > 0 ? `${value.slice(0, spaceIndex)} ***` : '***';
+    } else {
+      redacted[key] = value;
+    }
+  }
+  return redacted;
+}
+
 async function safeReadResponseBody(response: Response) {
   try {
     if (response.headers.get('content-type')?.includes('application/json')) {
@@ -707,12 +744,12 @@ export const apiCall = async <TRequest = unknown, TResponse = unknown>(
           `Method: ${method}\n`,
           `Headers:`,
           JSON.stringify(
-            {
+            redactHeaders({
               'Content-Type': 'application/json',
               'X-Request-ID': requestId,
               'X-Retry-Count': attempt.toString(),
               ...requestHeaders,
-            },
+            }),
             null,
             2
           ),
