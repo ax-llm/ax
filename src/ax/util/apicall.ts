@@ -660,6 +660,19 @@ export const apiCall = async <TRequest = unknown, TResponse = unknown>(
     // Combine user abort signal with timeout signal
     const combinedAbortController = new AbortController();
 
+    // Idempotent removal of the user abort listener. Defined per attempt so
+    // every exit path (success, non-abort error, and each retry `continue`)
+    // can detach the listener it registered on the long-lived caller signal.
+    // `removeEventListener` is a no-op when the listener is already gone, so
+    // calling this more than once is safe.
+    let removeUserAbortHandler: (() => void) | undefined;
+
+    // The streaming response is consumed after this function returns, so the
+    // listener must outlive the outer `finally` and is instead detached by the
+    // stream's own teardown (its `finally`/`cancel`). This flag tells the outer
+    // `finally` to leave the listener in place for that case only.
+    let abortHandlerOwnedByStream = false;
+
     // Handle user abort signal
     if (api.abortSignal) {
       if (api.abortSignal.aborted) {
@@ -680,13 +693,16 @@ export const apiCall = async <TRequest = unknown, TResponse = unknown>(
       api.abortSignal.addEventListener('abort', userAbortHandler, {
         once: true,
       });
+      removeUserAbortHandler = () => {
+        api.abortSignal!.removeEventListener('abort', userAbortHandler);
+      };
 
       // Clean up listener if we complete before abort
       const originalAbort = combinedAbortController.abort.bind(
         combinedAbortController
       );
       combinedAbortController.abort = (reason?: string) => {
-        api.abortSignal!.removeEventListener('abort', userAbortHandler);
+        removeUserAbortHandler?.();
         originalAbort(reason);
       };
     }
@@ -934,6 +950,10 @@ export const apiCall = async <TRequest = unknown, TResponse = unknown>(
       let streamReader: ReadableStreamDefaultReader<TResponse> | undefined;
 
       // Enhanced wrapped stream
+      // The listener must stay attached while the stream is consumed (a user
+      // abort during streaming still needs to reach the fetch signal), so
+      // ownership transfers to the stream teardown below.
+      abortHandlerOwnedByStream = true;
       return new ReadableStream<TResponse>({
         start(controller) {
           const reader = res
@@ -1042,6 +1062,7 @@ export const apiCall = async <TRequest = unknown, TResponse = unknown>(
               if (timeoutId) {
                 clearTimeout(timeoutId);
               }
+              removeUserAbortHandler?.();
               reader.releaseLock();
               if (streamReader === reader) streamReader = undefined;
             }
@@ -1052,6 +1073,7 @@ export const apiCall = async <TRequest = unknown, TResponse = unknown>(
         // When the consumer cancels the stream, set our flag to stop processing further.
         cancel(reason) {
           closed = true;
+          removeUserAbortHandler?.();
           return streamReader?.cancel(reason);
         },
       });
@@ -1128,6 +1150,15 @@ export const apiCall = async <TRequest = unknown, TResponse = unknown>(
     } finally {
       if (timeoutId !== undefined) {
         clearTimeout(timeoutId);
+      }
+      // Detach the user abort listener on every non-streaming exit path
+      // (success, non-abort error, and each retry `continue`). Without this the
+      // `{ once: true }` listener registered above only ever detaches on an
+      // actual abort, so a long-lived caller signal accumulates one listener
+      // per attempt (MaxListenersExceededWarning at 11, then unbounded). For a
+      // streamed response the stream teardown owns the listener instead.
+      if (!abortHandlerOwnedByStream) {
+        removeUserAbortHandler?.();
       }
     }
   }
