@@ -1,0 +1,149 @@
+{
+  "cases": [
+    {
+      "event": {
+        "call": {
+          "id": "a"
+        },
+        "execution": "background",
+        "type": "tool.validated"
+      },
+      "expected_action": {
+        "changed": true,
+        "type": "wait"
+      }
+    },
+    {
+      "event": {
+        "call": {
+          "id": "b"
+        },
+        "execution": "background",
+        "type": "tool.validated"
+      },
+      "expected_action": {
+        "changed": true,
+        "type": "wait"
+      }
+    },
+    {
+      "event": {
+        "call": {
+          "id": "a"
+        },
+        "execution": "background",
+        "type": "tool.validated"
+      },
+      "expected_action": {
+        "changed": false,
+        "type": "wait"
+      }
+    },
+    {
+      "event": {
+        "id": "r1",
+        "type": "response.completed"
+      },
+      "expected_action": {
+        "changed": true,
+        "type": "wait"
+      }
+    },
+    {
+      "event": {
+        "id": "b",
+        "result": {
+          "function_id": "b",
+          "result": "B"
+        },
+        "type": "tool.result"
+      },
+      "expected_action": {
+        "changed": true,
+        "results": [
+          {
+            "function_id": "b",
+            "result": "B"
+          }
+        ],
+        "type": "submit"
+      }
+    },
+    {
+      "event": {
+        "ids": ["b"],
+        "type": "results.submitted"
+      },
+      "expected_action": {
+        "changed": true,
+        "type": "wait"
+      }
+    },
+    {
+      "event": {
+        "id": "r2",
+        "type": "response.completed"
+      },
+      "expected_action": {
+        "changed": true,
+        "type": "wait"
+      }
+    },
+    {
+      "event": {
+        "id": "a",
+        "result": {
+          "function_id": "a",
+          "result": "A"
+        },
+        "type": "tool.result"
+      },
+      "expected_action": {
+        "changed": true,
+        "results": [
+          {
+            "function_id": "a",
+            "result": "A"
+          }
+        ],
+        "type": "submit"
+      }
+    },
+    {
+      "event": {
+        "ids": ["a"],
+        "type": "results.submitted"
+      },
+      "expected_action": {
+        "changed": true,
+        "type": "wait"
+      }
+    },
+    {
+      "event": {
+        "id": "r3",
+        "type": "response.completed"
+      },
+      "expected_action": {
+        "changed": true,
+        "type": "validate"
+      }
+    },
+    {
+      "event": {
+        "type": "validated"
+      },
+      "expected_action": {
+        "changed": true,
+        "type": "closed"
+      }
+    }
+  ],
+  "expected_pending": [],
+  "expected_steps": 3,
+  "kind": "ai_session_state",
+  "max_steps": 3,
+  "model": "gpt-6-astra",
+  "name": "astra-pending-results-out-of-order",
+  "path": "root/left"
+}

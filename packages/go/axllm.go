@@ -1146,6 +1146,7 @@ func _core_div(left Value, right Value) Value {
 	return num(left) / d
 }
 func _core_math_abs(value Value) Value             { return math.Abs(num(value)) }
+func _core_math_floor(value Value) Value { return math.Floor(num(value)) }
 func _core_math_log(value Value) Value             { return math.Log(num(value)) }
 func _core_math_exp(value Value) Value             { return math.Exp(num(value)) }
 func _core_math_sqrt(value Value) Value            { return math.Sqrt(num(value)) }
@@ -1304,6 +1305,9 @@ func _core_ai_complete_once(client Value, request Value, options Value) (Value, 
 		if err != nil {
 			return nil, err
 		}
+        original:=c
+        for {bound,ok:=original.(contextBoundAIClient);if !ok{break};original=bound.inner}
+        if _,ok:=original.(*ProviderRouter);ok{out=coreGet(out,"response",out)}
 		return chat_response_to_completion(out)
 	}
 	return nil, AxError{Category: "runtime", Message: "client does not implement AIClient"}
@@ -4237,6 +4241,7 @@ func _validate_fields_impl(args ...Value) (Value, error) {
 	var v_field_name Value
 	var v_field_title Value
 	var v_field_value Value
+	var v_has_title Value
 	var v_has_value Value
 	var v_is_null Value
 	var v_is_optional Value
@@ -4258,6 +4263,7 @@ func _validate_fields_impl(args ...Value) (Value, error) {
 	_ = v_field_name
 	_ = v_field_title
 	_ = v_field_value
+	_ = v_has_title
 	_ = v_has_value
 	_ = v_is_null
 	_ = v_is_optional
@@ -4278,7 +4284,13 @@ func _validate_fields_impl(args ...Value) (Value, error) {
 	}
 	for _, v_field = range coreIter(v_fields) {
 		v_field_name = coreGet(v_field, "name", nil)
-		v_field_title = coreGet(v_field, "title", nil)
+		v_field_title = coreGet(v_field, "title", v_field_name)
+		v_has_title = _core_truthy(v_field_title)
+		if coreTruthy(v_has_title) {
+		// empty
+		} else {
+			v_field_title = v_field_name
+		}
 		v_is_optional = coreGet(v_field, "is_optional", false)
 		v_has_value = _core_map_contains(v_values, v_field_name)
 		v_missing = _core_not(v_has_value)
@@ -5975,6 +5987,7 @@ func _openai_build_chat_request_impl(args ...Value) (Value, error) {
 	var v_reasoning_details_mode Value
 	var v_cache_enabled Value
 	var v_cache_fn Value
+	var v_cache_model Value
 	var v_cache_provider_and_model Value
 	var v_cache_requested Value
 	var v_chat_prompt Value
@@ -5993,6 +6006,7 @@ func _openai_build_chat_request_impl(args ...Value) (Value, error) {
 	var v_has_markers Value
 	var v_has_resolved_key Value
 	var v_has_response_format Value
+	var v_is_astra Value
 	var v_is_before_last Value
 	var v_is_gpt_56 Value
 	var v_is_gpt_56_base Value
@@ -6040,6 +6054,7 @@ func _openai_build_chat_request_impl(args ...Value) (Value, error) {
 	_ = v_reasoning_details_mode
 	_ = v_cache_enabled
 	_ = v_cache_fn
+	_ = v_cache_model
 	_ = v_cache_provider_and_model
 	_ = v_cache_requested
 	_ = v_chat_prompt
@@ -6058,6 +6073,7 @@ func _openai_build_chat_request_impl(args ...Value) (Value, error) {
 	_ = v_has_markers
 	_ = v_has_resolved_key
 	_ = v_has_response_format
+	_ = v_is_astra
 	_ = v_is_before_last
 	_ = v_is_gpt_56
 	_ = v_is_gpt_56_base
@@ -6118,7 +6134,9 @@ func _openai_build_chat_request_impl(args ...Value) (Value, error) {
 	v_is_gpt_56_base = _core_eq(v_model, "gpt-5.6")
 	v_is_gpt_56_tier = _core_string_starts_with(v_model, "gpt-5.6-")
 	v_is_gpt_56 = _core_or(v_is_gpt_56_base, v_is_gpt_56_tier)
-	v_cache_provider_and_model = _core_and(v_prompt_caching, v_is_gpt_56)
+	v_is_astra = _core_string_starts_with(v_model, "gpt-6-astra")
+	v_cache_model = _core_or(v_is_gpt_56, v_is_astra)
+	v_cache_provider_and_model = _core_and(v_prompt_caching, v_cache_model)
 	v_cache_enabled = _core_and(v_cache_provider_and_model, v_cache_requested)
 	v_message_index = 0
 	v_marker_count = 0
@@ -6431,8 +6449,10 @@ func _openai_apply_model_config_impl(args ...Value) (Value, error) {
 	axirCoverageMark("_openai_apply_model_config_impl")
 	var v_payload Value
 	var v_model_config Value
+	var v_astra Value
 	var v_budget Value
 	var v_budget_snake Value
+	var v_configured_model Value
 	var v_effort Value
 	var v_has_budget Value
 	var v_has_effort Value
@@ -6447,8 +6467,10 @@ func _openai_apply_model_config_impl(args ...Value) (Value, error) {
 	_ = v_payload
 	if len(args) > 1 { v_model_config = args[1] }
 	_ = v_model_config
+	_ = v_astra
 	_ = v_budget
 	_ = v_budget_snake
+	_ = v_configured_model
 	_ = v_effort
 	_ = v_has_budget
 	_ = v_has_effort
@@ -6501,6 +6523,19 @@ func _openai_apply_model_config_impl(args ...Value) (Value, error) {
 		v_stream_options = Object()
 		if err := coreSet(v_stream_options, "include_usage", true); err != nil { return nil, err }
 		if err := coreSet(v_payload, "stream_options", v_stream_options); err != nil { return nil, err }
+	} else {
+	// empty
+	}
+	v_configured_model = coreGet(v_payload, "model", "")
+	v_astra = _core_string_starts_with(v_configured_model, "gpt-6-astra")
+	if coreTruthy(v_astra) {
+		_core_map_delete(v_payload, "temperature")
+		_core_map_delete(v_payload, "top_p")
+		_core_map_delete(v_payload, "presence_penalty")
+		_core_map_delete(v_payload, "frequency_penalty")
+		_core_map_delete(v_payload, "logprobs")
+		_core_map_delete(v_payload, "top_logprobs")
+		_core_map_delete(v_payload, "n")
 	} else {
 	// empty
 	}
@@ -6637,6 +6672,7 @@ func openai_reasoning_effort(args ...Value) (Value, error) {
 	axirCoverageMark("openai_reasoning_effort")
 	var v_model Value
 	var v_budget Value
+	var v_is_astra Value
 	var v_is_gpt56 Value
 	var v_is_gpt56_alias Value
 	var v_is_gpt56_suffix Value
@@ -6645,11 +6681,13 @@ func openai_reasoning_effort(args ...Value) (Value, error) {
 	var v_is_medium Value
 	var v_is_minimal Value
 	var v_is_none Value
+	var v_modern Value
 	var v_none Value
 	if len(args) > 0 { v_model = args[0] }
 	_ = v_model
 	if len(args) > 1 { v_budget = args[1] }
 	_ = v_budget
+	_ = v_is_astra
 	_ = v_is_gpt56
 	_ = v_is_gpt56_alias
 	_ = v_is_gpt56_suffix
@@ -6658,12 +6696,20 @@ func openai_reasoning_effort(args ...Value) (Value, error) {
 	_ = v_is_medium
 	_ = v_is_minimal
 	_ = v_is_none
+	_ = v_modern
 	_ = v_none
 	v_is_gpt56_alias = _core_eq(v_model, "gpt-5.6")
 	v_is_gpt56_suffix = _core_string_starts_with(v_model, "gpt-5.6-")
 	v_is_gpt56 = _core_or(v_is_gpt56_alias, v_is_gpt56_suffix)
+	v_is_astra = _core_string_starts_with(v_model, "gpt-6-astra")
+	v_modern = _core_or(v_is_gpt56, v_is_astra)
 	v_is_none = _core_eq(v_budget, "none")
 	if coreTruthy(v_is_none) {
+		if coreTruthy(v_is_astra) {
+			return nil, AxError{Category: "runtime", Message: "GPT-6 Astra does not support disabling reasoning; use low or higher"}
+		} else {
+		// empty
+		}
 		if coreTruthy(v_is_gpt56) {
 			return "none", nil
 		} else {
@@ -6678,7 +6724,7 @@ func openai_reasoning_effort(args ...Value) (Value, error) {
 	v_is_low = _core_eq(v_budget, "low")
 	v_is_medium = _core_eq(v_budget, "medium")
 	v_is_highest = _core_eq(v_budget, "highest")
-	if coreTruthy(v_is_gpt56) {
+	if coreTruthy(v_modern) {
 		if coreTruthy(v_is_minimal) {
 			return "low", nil
 		} else {
@@ -6739,28 +6785,6 @@ func build_chat_request(args ...Value) (Value, error) {
 	return v_payload, nil
 }
 
-func openai_chat_reasoning_effort(args ...Value) (Value, error) {
-	axirCoverageMark("openai_chat_reasoning_effort")
-	var v_model Value
-	var v_budget Value
-	var v_effort Value
-	var v_is_max Value
-	if len(args) > 0 { v_model = args[0] }
-	_ = v_model
-	if len(args) > 1 { v_budget = args[1] }
-	_ = v_budget
-	_ = v_effort
-	_ = v_is_max
-	{ v, err := openai_reasoning_effort(v_model, v_budget); if err != nil { return nil, err }; v_effort = v }
-	v_is_max = _core_eq(v_effort, "max")
-	if coreTruthy(v_is_max) {
-		return "xhigh", nil
-	} else {
-	// empty
-	}
-	return v_effort, nil
-}
-
 func normalize_chat_response(args ...Value) (Value, error) {
 	axirCoverageMark("normalize_chat_response")
 	var v_raw Value
@@ -6783,6 +6807,56 @@ func normalize_stream_delta(args ...Value) (Value, error) {
 	_ = v_state
 	_ = v_response
 	{ v, err := openai_normalize_stream_delta(v_raw, v_state); if err != nil { return nil, err }; v_response = v }
+	return v_response, nil
+}
+
+func openai_chat_reasoning_effort(args ...Value) (Value, error) {
+	axirCoverageMark("openai_chat_reasoning_effort")
+	var v_model Value
+	var v_budget Value
+	var v_effort Value
+	var v_is_max Value
+	if len(args) > 0 { v_model = args[0] }
+	_ = v_model
+	if len(args) > 1 { v_budget = args[1] }
+	_ = v_budget
+	_ = v_effort
+	_ = v_is_max
+	{ v, err := openai_reasoning_effort(v_model, v_budget); if err != nil { return nil, err }; v_effort = v }
+	v_is_max = _core_eq(v_effort, "max")
+	if coreTruthy(v_is_max) {
+		return "xhigh", nil
+	} else {
+	// empty
+	}
+	return v_effort, nil
+}
+
+func build_embed_request(args ...Value) (Value, error) {
+	axirCoverageMark("build_embed_request")
+	var v_service Value
+	var v_request Value
+	var v_options Value
+	var v_payload Value
+	if len(args) > 0 { v_service = args[0] }
+	_ = v_service
+	if len(args) > 1 { v_request = args[1] }
+	_ = v_request
+	if len(args) > 2 { v_options = args[2] }
+	_ = v_options
+	_ = v_payload
+	{ v, err := openai_build_embed_request(v_request); if err != nil { return nil, err }; v_payload = v }
+	return v_payload, nil
+}
+
+func normalize_embed_response(args ...Value) (Value, error) {
+	axirCoverageMark("normalize_embed_response")
+	var v_raw Value
+	var v_response Value
+	if len(args) > 0 { v_raw = args[0] }
+	_ = v_raw
+	_ = v_response
+	{ v, err := openai_normalize_embed_response(v_raw); if err != nil { return nil, err }; v_response = v }
 	return v_response, nil
 }
 
@@ -6814,21 +6888,234 @@ func _openai_copy_config_key_impl(args ...Value) (Value, error) {
 	return nil, nil
 }
 
-func build_embed_request(args ...Value) (Value, error) {
-	axirCoverageMark("build_embed_request")
-	var v_service Value
-	var v_request Value
-	var v_options Value
-	var v_payload Value
-	if len(args) > 0 { v_service = args[0] }
-	_ = v_service
-	if len(args) > 1 { v_request = args[1] }
-	_ = v_request
-	if len(args) > 2 { v_options = args[2] }
-	_ = v_options
-	_ = v_payload
-	{ v, err := openai_build_embed_request(v_request); if err != nil { return nil, err }; v_payload = v }
-	return v_payload, nil
+func normalize_token_usage(args ...Value) (Value, error) {
+	axirCoverageMark("normalize_token_usage")
+	var v_usage Value
+	var v_cache_creation_for_compare Value
+	var v_cache_creation_tokens Value
+	var v_cache_read_for_compare Value
+	var v_cache_read_tokens Value
+	var v_cache_write_for_math Value
+	var v_cache_write_from_details Value
+	var v_cached_for_math Value
+	var v_cached_from_details Value
+	var v_completion_details Value
+	var v_completion_details_snake Value
+	var v_completion_tokens Value
+	var v_completion_tokens_snake Value
+	var v_computed_total_tokens Value
+	var v_direct_cache_creation Value
+	var v_direct_cache_creation_snake Value
+	var v_direct_cache_read Value
+	var v_direct_cache_read_snake Value
+	var v_has_cache_creation Value
+	var v_has_cache_read Value
+	var v_has_direct_cache_creation Value
+	var v_has_direct_cache_read Value
+	var v_has_positive_cache_creation Value
+	var v_has_positive_cache_read Value
+	var v_has_reasoning Value
+	var v_has_service_tier Value
+	var v_has_speed Value
+	var v_has_thoughts Value
+	var v_input_tokens Value
+	var v_is_default Value
+	var v_is_on_demand Value
+	var v_is_performance Value
+	var v_is_standard_alias Value
+	var v_is_standard_only Value
+	var v_is_unspecified Value
+	var v_negative_cache_write Value
+	var v_negative_cached Value
+	var v_out Value
+	var v_output_tokens Value
+	var v_prompt_after_cache Value
+	var v_prompt_details Value
+	var v_prompt_details_snake Value
+	var v_prompt_is_negative Value
+	var v_prompt_tokens Value
+	var v_prompt_tokens_raw Value
+	var v_prompt_tokens_snake Value
+	var v_prompt_without_cached Value
+	var v_reasoning_from_details Value
+	var v_reasoning_tokens Value
+	var v_reasoning_tokens_snake Value
+	var v_service_tier Value
+	var v_service_tier_snake Value
+	var v_speed Value
+	var v_standard_pair Value
+	var v_standard_triple Value
+	var v_thoughts_tokens Value
+	var v_thoughts_tokens_snake Value
+	var v_total_tokens Value
+	var v_total_tokens_snake Value
+	if len(args) > 0 { v_usage = args[0] }
+	_ = v_usage
+	_ = v_cache_creation_for_compare
+	_ = v_cache_creation_tokens
+	_ = v_cache_read_for_compare
+	_ = v_cache_read_tokens
+	_ = v_cache_write_for_math
+	_ = v_cache_write_from_details
+	_ = v_cached_for_math
+	_ = v_cached_from_details
+	_ = v_completion_details
+	_ = v_completion_details_snake
+	_ = v_completion_tokens
+	_ = v_completion_tokens_snake
+	_ = v_computed_total_tokens
+	_ = v_direct_cache_creation
+	_ = v_direct_cache_creation_snake
+	_ = v_direct_cache_read
+	_ = v_direct_cache_read_snake
+	_ = v_has_cache_creation
+	_ = v_has_cache_read
+	_ = v_has_direct_cache_creation
+	_ = v_has_direct_cache_read
+	_ = v_has_positive_cache_creation
+	_ = v_has_positive_cache_read
+	_ = v_has_reasoning
+	_ = v_has_service_tier
+	_ = v_has_speed
+	_ = v_has_thoughts
+	_ = v_input_tokens
+	_ = v_is_default
+	_ = v_is_on_demand
+	_ = v_is_performance
+	_ = v_is_standard_alias
+	_ = v_is_standard_only
+	_ = v_is_unspecified
+	_ = v_negative_cache_write
+	_ = v_negative_cached
+	_ = v_out
+	_ = v_output_tokens
+	_ = v_prompt_after_cache
+	_ = v_prompt_details
+	_ = v_prompt_details_snake
+	_ = v_prompt_is_negative
+	_ = v_prompt_tokens
+	_ = v_prompt_tokens_raw
+	_ = v_prompt_tokens_snake
+	_ = v_prompt_without_cached
+	_ = v_reasoning_from_details
+	_ = v_reasoning_tokens
+	_ = v_reasoning_tokens_snake
+	_ = v_service_tier
+	_ = v_service_tier_snake
+	_ = v_speed
+	_ = v_standard_pair
+	_ = v_standard_triple
+	_ = v_thoughts_tokens
+	_ = v_thoughts_tokens_snake
+	_ = v_total_tokens
+	_ = v_total_tokens_snake
+	v_out = Object()
+	v_input_tokens = coreGet(v_usage, "input_tokens", 0)
+	v_prompt_tokens_snake = coreGet(v_usage, "prompt_tokens", v_input_tokens)
+	v_prompt_tokens_raw = coreGet(v_usage, "promptTokens", v_prompt_tokens_snake)
+	v_prompt_details_snake = coreGet(v_usage, "prompt_tokens_details", nil)
+	v_prompt_details = coreGet(v_usage, "input_tokens_details", v_prompt_details_snake)
+	v_cached_from_details = coreGet(v_prompt_details, "cached_tokens", nil)
+	v_cache_write_from_details = coreGet(v_prompt_details, "cache_write_tokens", nil)
+	v_cached_for_math = _core_coalesce(v_cached_from_details, 0)
+	v_cache_write_for_math = _core_coalesce(v_cache_write_from_details, 0)
+	v_negative_cached = _core_mul(v_cached_for_math, -1)
+	v_prompt_without_cached = _core_add(v_prompt_tokens_raw, v_negative_cached)
+	v_negative_cache_write = _core_mul(v_cache_write_for_math, -1)
+	v_prompt_after_cache = _core_add(v_prompt_without_cached, v_negative_cache_write)
+	v_prompt_is_negative = _core_lt(v_prompt_after_cache, 0)
+	v_prompt_tokens = v_prompt_after_cache
+	if coreTruthy(v_prompt_is_negative) {
+		v_prompt_tokens = 0
+	} else {
+	// empty
+	}
+	v_output_tokens = coreGet(v_usage, "output_tokens", 0)
+	v_completion_tokens_snake = coreGet(v_usage, "completion_tokens", v_output_tokens)
+	v_completion_tokens = coreGet(v_usage, "completionTokens", v_completion_tokens_snake)
+	v_computed_total_tokens = _core_add(v_prompt_tokens, v_completion_tokens)
+	v_total_tokens_snake = coreGet(v_usage, "total_tokens", v_computed_total_tokens)
+	v_total_tokens = coreGet(v_usage, "totalTokens", v_total_tokens_snake)
+	if err := coreSet(v_out, "prompt_tokens", v_prompt_tokens); err != nil { return nil, err }
+	if err := coreSet(v_out, "completion_tokens", v_completion_tokens); err != nil { return nil, err }
+	if err := coreSet(v_out, "total_tokens", v_total_tokens); err != nil { return nil, err }
+	v_thoughts_tokens_snake = coreGet(v_usage, "thoughts_tokens", nil)
+	v_thoughts_tokens = coreGet(v_usage, "thoughtsTokens", v_thoughts_tokens_snake)
+	v_has_thoughts = _core_is_not_none(v_thoughts_tokens)
+	if coreTruthy(v_has_thoughts) {
+		if err := coreSet(v_out, "thoughts_tokens", v_thoughts_tokens); err != nil { return nil, err }
+	} else {
+	// empty
+	}
+	v_completion_details_snake = coreGet(v_usage, "completion_tokens_details", nil)
+	v_completion_details = coreGet(v_usage, "output_tokens_details", v_completion_details_snake)
+	v_reasoning_from_details = coreGet(v_completion_details, "reasoning_tokens", nil)
+	v_reasoning_tokens_snake = coreGet(v_usage, "reasoning_tokens", v_reasoning_from_details)
+	v_reasoning_tokens = coreGet(v_usage, "reasoningTokens", v_reasoning_tokens_snake)
+	v_has_reasoning = _core_is_not_none(v_reasoning_tokens)
+	if coreTruthy(v_has_reasoning) {
+		if err := coreSet(v_out, "reasoning_tokens", v_reasoning_tokens); err != nil { return nil, err }
+	} else {
+	// empty
+	}
+	v_direct_cache_read_snake = coreGet(v_usage, "cache_read_tokens", nil)
+	v_direct_cache_read = coreGet(v_usage, "cacheReadTokens", v_direct_cache_read_snake)
+	v_cache_read_tokens = _core_coalesce(v_direct_cache_read, v_cached_from_details)
+	v_cache_read_for_compare = _core_coalesce(v_cache_read_tokens, 0)
+	v_has_direct_cache_read = _core_is_not_none(v_direct_cache_read)
+	v_has_positive_cache_read = _core_gt(v_cache_read_for_compare, 0)
+	v_has_cache_read = _core_or(v_has_direct_cache_read, v_has_positive_cache_read)
+	if coreTruthy(v_has_cache_read) {
+		if err := coreSet(v_out, "cache_read_tokens", v_cache_read_tokens); err != nil { return nil, err }
+	} else {
+	// empty
+	}
+	v_direct_cache_creation_snake = coreGet(v_usage, "cache_creation_tokens", nil)
+	v_direct_cache_creation = coreGet(v_usage, "cacheCreationTokens", v_direct_cache_creation_snake)
+	v_cache_creation_tokens = _core_coalesce(v_direct_cache_creation, v_cache_write_from_details)
+	v_cache_creation_for_compare = _core_coalesce(v_cache_creation_tokens, 0)
+	v_has_direct_cache_creation = _core_is_not_none(v_direct_cache_creation)
+	v_has_positive_cache_creation = _core_gt(v_cache_creation_for_compare, 0)
+	v_has_cache_creation = _core_or(v_has_direct_cache_creation, v_has_positive_cache_creation)
+	if coreTruthy(v_has_cache_creation) {
+		if err := coreSet(v_out, "cache_creation_tokens", v_cache_creation_tokens); err != nil { return nil, err }
+	} else {
+	// empty
+	}
+	v_service_tier_snake = coreGet(v_usage, "service_tier", nil)
+	v_service_tier = coreGet(v_usage, "serviceTier", v_service_tier_snake)
+	v_has_service_tier = _core_is_not_none(v_service_tier)
+	if coreTruthy(v_has_service_tier) {
+		v_is_default = _core_eq(v_service_tier, "default")
+		v_is_on_demand = _core_eq(v_service_tier, "on_demand")
+		v_is_standard_only = _core_eq(v_service_tier, "standard_only")
+		v_is_unspecified = _core_eq(v_service_tier, "unspecified")
+		v_standard_pair = _core_or(v_is_default, v_is_on_demand)
+		v_standard_triple = _core_or(v_standard_pair, v_is_standard_only)
+		v_is_standard_alias = _core_or(v_standard_triple, v_is_unspecified)
+		if coreTruthy(v_is_standard_alias) {
+			v_service_tier = "standard"
+		} else {
+		// empty
+		}
+		v_is_performance = _core_eq(v_service_tier, "performance")
+		if coreTruthy(v_is_performance) {
+			v_service_tier = "priority"
+		} else {
+		// empty
+		}
+		if err := coreSet(v_out, "service_tier", v_service_tier); err != nil { return nil, err }
+	} else {
+	// empty
+	}
+	v_speed = coreGet(v_usage, "speed", nil)
+	v_has_speed = _core_is_not_none(v_speed)
+	if coreTruthy(v_has_speed) {
+		if err := coreSet(v_out, "speed", v_speed); err != nil { return nil, err }
+	} else {
+	// empty
+	}
+	return v_out, nil
 }
 
 func _openai_message_impl(args ...Value) (Value, error) {
@@ -7067,373 +7354,6 @@ func _openai_message_impl(args ...Value) (Value, error) {
 	return nil, asAxError(v_error)
 }
 
-func normalize_embed_response(args ...Value) (Value, error) {
-	axirCoverageMark("normalize_embed_response")
-	var v_raw Value
-	var v_response Value
-	if len(args) > 0 { v_raw = args[0] }
-	_ = v_raw
-	_ = v_response
-	{ v, err := openai_normalize_embed_response(v_raw); if err != nil { return nil, err }; v_response = v }
-	return v_response, nil
-}
-
-func normalize_token_usage(args ...Value) (Value, error) {
-	axirCoverageMark("normalize_token_usage")
-	var v_usage Value
-	var v_cache_creation_for_compare Value
-	var v_cache_creation_tokens Value
-	var v_cache_read_for_compare Value
-	var v_cache_read_tokens Value
-	var v_cache_write_for_math Value
-	var v_cache_write_from_details Value
-	var v_cached_for_math Value
-	var v_cached_from_details Value
-	var v_completion_details Value
-	var v_completion_details_snake Value
-	var v_completion_tokens Value
-	var v_completion_tokens_snake Value
-	var v_computed_total_tokens Value
-	var v_direct_cache_creation Value
-	var v_direct_cache_creation_snake Value
-	var v_direct_cache_read Value
-	var v_direct_cache_read_snake Value
-	var v_has_cache_creation Value
-	var v_has_cache_read Value
-	var v_has_direct_cache_creation Value
-	var v_has_direct_cache_read Value
-	var v_has_positive_cache_creation Value
-	var v_has_positive_cache_read Value
-	var v_has_reasoning Value
-	var v_has_service_tier Value
-	var v_has_speed Value
-	var v_has_thoughts Value
-	var v_input_tokens Value
-	var v_is_default Value
-	var v_is_on_demand Value
-	var v_is_performance Value
-	var v_is_standard_alias Value
-	var v_is_standard_only Value
-	var v_is_unspecified Value
-	var v_negative_cache_write Value
-	var v_negative_cached Value
-	var v_out Value
-	var v_output_tokens Value
-	var v_prompt_after_cache Value
-	var v_prompt_details Value
-	var v_prompt_details_snake Value
-	var v_prompt_is_negative Value
-	var v_prompt_tokens Value
-	var v_prompt_tokens_raw Value
-	var v_prompt_tokens_snake Value
-	var v_prompt_without_cached Value
-	var v_reasoning_from_details Value
-	var v_reasoning_tokens Value
-	var v_reasoning_tokens_snake Value
-	var v_service_tier Value
-	var v_service_tier_snake Value
-	var v_speed Value
-	var v_standard_pair Value
-	var v_standard_triple Value
-	var v_thoughts_tokens Value
-	var v_thoughts_tokens_snake Value
-	var v_total_tokens Value
-	var v_total_tokens_snake Value
-	if len(args) > 0 { v_usage = args[0] }
-	_ = v_usage
-	_ = v_cache_creation_for_compare
-	_ = v_cache_creation_tokens
-	_ = v_cache_read_for_compare
-	_ = v_cache_read_tokens
-	_ = v_cache_write_for_math
-	_ = v_cache_write_from_details
-	_ = v_cached_for_math
-	_ = v_cached_from_details
-	_ = v_completion_details
-	_ = v_completion_details_snake
-	_ = v_completion_tokens
-	_ = v_completion_tokens_snake
-	_ = v_computed_total_tokens
-	_ = v_direct_cache_creation
-	_ = v_direct_cache_creation_snake
-	_ = v_direct_cache_read
-	_ = v_direct_cache_read_snake
-	_ = v_has_cache_creation
-	_ = v_has_cache_read
-	_ = v_has_direct_cache_creation
-	_ = v_has_direct_cache_read
-	_ = v_has_positive_cache_creation
-	_ = v_has_positive_cache_read
-	_ = v_has_reasoning
-	_ = v_has_service_tier
-	_ = v_has_speed
-	_ = v_has_thoughts
-	_ = v_input_tokens
-	_ = v_is_default
-	_ = v_is_on_demand
-	_ = v_is_performance
-	_ = v_is_standard_alias
-	_ = v_is_standard_only
-	_ = v_is_unspecified
-	_ = v_negative_cache_write
-	_ = v_negative_cached
-	_ = v_out
-	_ = v_output_tokens
-	_ = v_prompt_after_cache
-	_ = v_prompt_details
-	_ = v_prompt_details_snake
-	_ = v_prompt_is_negative
-	_ = v_prompt_tokens
-	_ = v_prompt_tokens_raw
-	_ = v_prompt_tokens_snake
-	_ = v_prompt_without_cached
-	_ = v_reasoning_from_details
-	_ = v_reasoning_tokens
-	_ = v_reasoning_tokens_snake
-	_ = v_service_tier
-	_ = v_service_tier_snake
-	_ = v_speed
-	_ = v_standard_pair
-	_ = v_standard_triple
-	_ = v_thoughts_tokens
-	_ = v_thoughts_tokens_snake
-	_ = v_total_tokens
-	_ = v_total_tokens_snake
-	v_out = Object()
-	v_input_tokens = coreGet(v_usage, "input_tokens", 0)
-	v_prompt_tokens_snake = coreGet(v_usage, "prompt_tokens", v_input_tokens)
-	v_prompt_tokens_raw = coreGet(v_usage, "promptTokens", v_prompt_tokens_snake)
-	v_prompt_details_snake = coreGet(v_usage, "prompt_tokens_details", nil)
-	v_prompt_details = coreGet(v_usage, "input_tokens_details", v_prompt_details_snake)
-	v_cached_from_details = coreGet(v_prompt_details, "cached_tokens", nil)
-	v_cache_write_from_details = coreGet(v_prompt_details, "cache_write_tokens", nil)
-	v_cached_for_math = _core_coalesce(v_cached_from_details, 0)
-	v_cache_write_for_math = _core_coalesce(v_cache_write_from_details, 0)
-	v_negative_cached = _core_mul(v_cached_for_math, -1)
-	v_prompt_without_cached = _core_add(v_prompt_tokens_raw, v_negative_cached)
-	v_negative_cache_write = _core_mul(v_cache_write_for_math, -1)
-	v_prompt_after_cache = _core_add(v_prompt_without_cached, v_negative_cache_write)
-	v_prompt_is_negative = _core_lt(v_prompt_after_cache, 0)
-	v_prompt_tokens = v_prompt_after_cache
-	if coreTruthy(v_prompt_is_negative) {
-		v_prompt_tokens = 0
-	} else {
-	// empty
-	}
-	v_output_tokens = coreGet(v_usage, "output_tokens", 0)
-	v_completion_tokens_snake = coreGet(v_usage, "completion_tokens", v_output_tokens)
-	v_completion_tokens = coreGet(v_usage, "completionTokens", v_completion_tokens_snake)
-	v_computed_total_tokens = _core_add(v_prompt_tokens, v_completion_tokens)
-	v_total_tokens_snake = coreGet(v_usage, "total_tokens", v_computed_total_tokens)
-	v_total_tokens = coreGet(v_usage, "totalTokens", v_total_tokens_snake)
-	if err := coreSet(v_out, "prompt_tokens", v_prompt_tokens); err != nil { return nil, err }
-	if err := coreSet(v_out, "completion_tokens", v_completion_tokens); err != nil { return nil, err }
-	if err := coreSet(v_out, "total_tokens", v_total_tokens); err != nil { return nil, err }
-	v_thoughts_tokens_snake = coreGet(v_usage, "thoughts_tokens", nil)
-	v_thoughts_tokens = coreGet(v_usage, "thoughtsTokens", v_thoughts_tokens_snake)
-	v_has_thoughts = _core_is_not_none(v_thoughts_tokens)
-	if coreTruthy(v_has_thoughts) {
-		if err := coreSet(v_out, "thoughts_tokens", v_thoughts_tokens); err != nil { return nil, err }
-	} else {
-	// empty
-	}
-	v_completion_details_snake = coreGet(v_usage, "completion_tokens_details", nil)
-	v_completion_details = coreGet(v_usage, "output_tokens_details", v_completion_details_snake)
-	v_reasoning_from_details = coreGet(v_completion_details, "reasoning_tokens", nil)
-	v_reasoning_tokens_snake = coreGet(v_usage, "reasoning_tokens", v_reasoning_from_details)
-	v_reasoning_tokens = coreGet(v_usage, "reasoningTokens", v_reasoning_tokens_snake)
-	v_has_reasoning = _core_is_not_none(v_reasoning_tokens)
-	if coreTruthy(v_has_reasoning) {
-		if err := coreSet(v_out, "reasoning_tokens", v_reasoning_tokens); err != nil { return nil, err }
-	} else {
-	// empty
-	}
-	v_direct_cache_read_snake = coreGet(v_usage, "cache_read_tokens", nil)
-	v_direct_cache_read = coreGet(v_usage, "cacheReadTokens", v_direct_cache_read_snake)
-	v_cache_read_tokens = _core_coalesce(v_direct_cache_read, v_cached_from_details)
-	v_cache_read_for_compare = _core_coalesce(v_cache_read_tokens, 0)
-	v_has_direct_cache_read = _core_is_not_none(v_direct_cache_read)
-	v_has_positive_cache_read = _core_gt(v_cache_read_for_compare, 0)
-	v_has_cache_read = _core_or(v_has_direct_cache_read, v_has_positive_cache_read)
-	if coreTruthy(v_has_cache_read) {
-		if err := coreSet(v_out, "cache_read_tokens", v_cache_read_tokens); err != nil { return nil, err }
-	} else {
-	// empty
-	}
-	v_direct_cache_creation_snake = coreGet(v_usage, "cache_creation_tokens", nil)
-	v_direct_cache_creation = coreGet(v_usage, "cacheCreationTokens", v_direct_cache_creation_snake)
-	v_cache_creation_tokens = _core_coalesce(v_direct_cache_creation, v_cache_write_from_details)
-	v_cache_creation_for_compare = _core_coalesce(v_cache_creation_tokens, 0)
-	v_has_direct_cache_creation = _core_is_not_none(v_direct_cache_creation)
-	v_has_positive_cache_creation = _core_gt(v_cache_creation_for_compare, 0)
-	v_has_cache_creation = _core_or(v_has_direct_cache_creation, v_has_positive_cache_creation)
-	if coreTruthy(v_has_cache_creation) {
-		if err := coreSet(v_out, "cache_creation_tokens", v_cache_creation_tokens); err != nil { return nil, err }
-	} else {
-	// empty
-	}
-	v_service_tier_snake = coreGet(v_usage, "service_tier", nil)
-	v_service_tier = coreGet(v_usage, "serviceTier", v_service_tier_snake)
-	v_has_service_tier = _core_is_not_none(v_service_tier)
-	if coreTruthy(v_has_service_tier) {
-		v_is_default = _core_eq(v_service_tier, "default")
-		v_is_on_demand = _core_eq(v_service_tier, "on_demand")
-		v_is_standard_only = _core_eq(v_service_tier, "standard_only")
-		v_is_unspecified = _core_eq(v_service_tier, "unspecified")
-		v_standard_pair = _core_or(v_is_default, v_is_on_demand)
-		v_standard_triple = _core_or(v_standard_pair, v_is_standard_only)
-		v_is_standard_alias = _core_or(v_standard_triple, v_is_unspecified)
-		if coreTruthy(v_is_standard_alias) {
-			v_service_tier = "standard"
-		} else {
-		// empty
-		}
-		v_is_performance = _core_eq(v_service_tier, "performance")
-		if coreTruthy(v_is_performance) {
-			v_service_tier = "priority"
-		} else {
-		// empty
-		}
-		if err := coreSet(v_out, "service_tier", v_service_tier); err != nil { return nil, err }
-	} else {
-	// empty
-	}
-	v_speed = coreGet(v_usage, "speed", nil)
-	v_has_speed = _core_is_not_none(v_speed)
-	if coreTruthy(v_has_speed) {
-		if err := coreSet(v_out, "speed", v_speed); err != nil { return nil, err }
-	} else {
-	// empty
-	}
-	return v_out, nil
-}
-
-func _openai_content_part_impl(args ...Value) (Value, error) {
-	axirCoverageMark("_openai_content_part_impl")
-	var v_part Value
-	var v_audio_alt Value
-	var v_audio_error Value
-	var v_audio_message Value
-	var v_data Value
-	var v_details Value
-	var v_error Value
-	var v_format Value
-	var v_format_ok Value
-	var v_image Value
-	var v_image_raw Value
-	var v_image_url Value
-	var v_image_value Value
-	var v_input_audio Value
-	var v_is_audio Value
-	var v_is_data_url Value
-	var v_is_image Value
-	var v_is_mp3 Value
-	var v_is_text Value
-	var v_is_wav Value
-	var v_message Value
-	var v_mime Value
-	var v_mime_raw Value
-	var v_mime_snake Value
-	var v_out Value
-	var v_text Value
-	var v_type Value
-	var v_url Value
-	if len(args) > 0 { v_part = args[0] }
-	_ = v_part
-	_ = v_audio_alt
-	_ = v_audio_error
-	_ = v_audio_message
-	_ = v_data
-	_ = v_details
-	_ = v_error
-	_ = v_format
-	_ = v_format_ok
-	_ = v_image
-	_ = v_image_raw
-	_ = v_image_url
-	_ = v_image_value
-	_ = v_input_audio
-	_ = v_is_audio
-	_ = v_is_data_url
-	_ = v_is_image
-	_ = v_is_mp3
-	_ = v_is_text
-	_ = v_is_wav
-	_ = v_message
-	_ = v_mime
-	_ = v_mime_raw
-	_ = v_mime_snake
-	_ = v_out
-	_ = v_text
-	_ = v_type
-	_ = v_url
-	v_type = coreGet(v_part, "type", nil)
-	v_is_text = _core_eq(v_type, "text")
-	if coreTruthy(v_is_text) {
-		v_text = coreGet(v_part, "text", "")
-		v_out = Object()
-		if err := coreSet(v_out, "type", "text"); err != nil { return nil, err }
-		if err := coreSet(v_out, "text", v_text); err != nil { return nil, err }
-		return v_out, nil
-	} else {
-	// empty
-	}
-	v_is_image = _core_eq(v_type, "image")
-	if coreTruthy(v_is_image) {
-		v_mime_snake = coreGet(v_part, "mime_type", nil)
-		v_mime_raw = coreGet(v_part, "mimeType", v_mime_snake)
-		v_mime = _core_coalesce(v_mime_raw, "image/png")
-		v_image_value = coreGet(v_part, "image", nil)
-		v_image_raw = coreGet(v_part, "data", v_image_value)
-		v_image = _core_coalesce(v_image_raw, "")
-		v_is_data_url = _core_string_starts_with(v_image, "data:")
-		v_url = ""
-		if coreTruthy(v_is_data_url) {
-			v_url = v_image
-		} else {
-			v_url = _core_string_format("data:{};base64,{}", v_mime, v_image)
-		}
-		v_details = coreGet(v_part, "details", "auto")
-		v_image_url = Object()
-		if err := coreSet(v_image_url, "url", v_url); err != nil { return nil, err }
-		if err := coreSet(v_image_url, "detail", v_details); err != nil { return nil, err }
-		v_out = Object()
-		if err := coreSet(v_out, "type", "image_url"); err != nil { return nil, err }
-		if err := coreSet(v_out, "image_url", v_image_url); err != nil { return nil, err }
-		return v_out, nil
-	} else {
-	// empty
-	}
-	v_is_audio = _core_eq(v_type, "audio")
-	if coreTruthy(v_is_audio) {
-		v_audio_alt = coreGet(v_part, "audio", nil)
-		v_data = coreGet(v_part, "data", v_audio_alt)
-		v_format = coreGet(v_part, "format", nil)
-		v_is_wav = _core_eq(v_format, "wav")
-		v_is_mp3 = _core_eq(v_format, "mp3")
-		v_format_ok = _core_or(v_is_wav, v_is_mp3)
-		if coreTruthy(v_format_ok) {
-			v_out = Object()
-			if err := coreSet(v_out, "type", "input_audio"); err != nil { return nil, err }
-			v_input_audio = Object()
-			if err := coreSet(v_input_audio, "data", v_data); err != nil { return nil, err }
-			if err := coreSet(v_input_audio, "format", v_format); err != nil { return nil, err }
-			if err := coreSet(v_out, "input_audio", v_input_audio); err != nil { return nil, err }
-			return v_out, nil
-		} else {
-		// empty
-		}
-		v_audio_message = _core_string_format("OpenAI audio chat input supports only wav and mp3 audio, received {}", v_format)
-		v_audio_error = _core_ai_error_unsupported(v_audio_message)
-		return nil, asAxError(v_audio_error)
-	} else {
-	// empty
-	}
-	v_message = _core_string_format("OpenAI-compatible beta does not support content part type: {}", v_type)
-	v_error = _core_ai_error_unsupported(v_message)
-	return nil, asAxError(v_error)
-}
-
 func merge_usage_context(args ...Value) (Value, error) {
 	axirCoverageMark("merge_usage_context")
 	var v_defaults Value
@@ -7625,6 +7545,132 @@ func build_usage_event(args ...Value) (Value, error) {
 	return v_event, nil
 }
 
+func _openai_content_part_impl(args ...Value) (Value, error) {
+	axirCoverageMark("_openai_content_part_impl")
+	var v_part Value
+	var v_audio_alt Value
+	var v_audio_error Value
+	var v_audio_message Value
+	var v_data Value
+	var v_details Value
+	var v_error Value
+	var v_format Value
+	var v_format_ok Value
+	var v_image Value
+	var v_image_raw Value
+	var v_image_url Value
+	var v_image_value Value
+	var v_input_audio Value
+	var v_is_audio Value
+	var v_is_data_url Value
+	var v_is_image Value
+	var v_is_mp3 Value
+	var v_is_text Value
+	var v_is_wav Value
+	var v_message Value
+	var v_mime Value
+	var v_mime_raw Value
+	var v_mime_snake Value
+	var v_out Value
+	var v_text Value
+	var v_type Value
+	var v_url Value
+	if len(args) > 0 { v_part = args[0] }
+	_ = v_part
+	_ = v_audio_alt
+	_ = v_audio_error
+	_ = v_audio_message
+	_ = v_data
+	_ = v_details
+	_ = v_error
+	_ = v_format
+	_ = v_format_ok
+	_ = v_image
+	_ = v_image_raw
+	_ = v_image_url
+	_ = v_image_value
+	_ = v_input_audio
+	_ = v_is_audio
+	_ = v_is_data_url
+	_ = v_is_image
+	_ = v_is_mp3
+	_ = v_is_text
+	_ = v_is_wav
+	_ = v_message
+	_ = v_mime
+	_ = v_mime_raw
+	_ = v_mime_snake
+	_ = v_out
+	_ = v_text
+	_ = v_type
+	_ = v_url
+	v_type = coreGet(v_part, "type", nil)
+	v_is_text = _core_eq(v_type, "text")
+	if coreTruthy(v_is_text) {
+		v_text = coreGet(v_part, "text", "")
+		v_out = Object()
+		if err := coreSet(v_out, "type", "text"); err != nil { return nil, err }
+		if err := coreSet(v_out, "text", v_text); err != nil { return nil, err }
+		return v_out, nil
+	} else {
+	// empty
+	}
+	v_is_image = _core_eq(v_type, "image")
+	if coreTruthy(v_is_image) {
+		v_mime_snake = coreGet(v_part, "mime_type", nil)
+		v_mime_raw = coreGet(v_part, "mimeType", v_mime_snake)
+		v_mime = _core_coalesce(v_mime_raw, "image/png")
+		v_image_value = coreGet(v_part, "image", nil)
+		v_image_raw = coreGet(v_part, "data", v_image_value)
+		v_image = _core_coalesce(v_image_raw, "")
+		v_is_data_url = _core_string_starts_with(v_image, "data:")
+		v_url = ""
+		if coreTruthy(v_is_data_url) {
+			v_url = v_image
+		} else {
+			v_url = _core_string_format("data:{};base64,{}", v_mime, v_image)
+		}
+		v_details = coreGet(v_part, "details", "auto")
+		v_image_url = Object()
+		if err := coreSet(v_image_url, "url", v_url); err != nil { return nil, err }
+		if err := coreSet(v_image_url, "detail", v_details); err != nil { return nil, err }
+		v_out = Object()
+		if err := coreSet(v_out, "type", "image_url"); err != nil { return nil, err }
+		if err := coreSet(v_out, "image_url", v_image_url); err != nil { return nil, err }
+		return v_out, nil
+	} else {
+	// empty
+	}
+	v_is_audio = _core_eq(v_type, "audio")
+	if coreTruthy(v_is_audio) {
+		v_audio_alt = coreGet(v_part, "audio", nil)
+		v_data = coreGet(v_part, "data", v_audio_alt)
+		v_format = coreGet(v_part, "format", nil)
+		v_is_wav = _core_eq(v_format, "wav")
+		v_is_mp3 = _core_eq(v_format, "mp3")
+		v_format_ok = _core_or(v_is_wav, v_is_mp3)
+		if coreTruthy(v_format_ok) {
+			v_out = Object()
+			if err := coreSet(v_out, "type", "input_audio"); err != nil { return nil, err }
+			v_input_audio = Object()
+			if err := coreSet(v_input_audio, "data", v_data); err != nil { return nil, err }
+			if err := coreSet(v_input_audio, "format", v_format); err != nil { return nil, err }
+			if err := coreSet(v_out, "input_audio", v_input_audio); err != nil { return nil, err }
+			return v_out, nil
+		} else {
+		// empty
+		}
+		v_audio_message = _core_string_format("OpenAI audio chat input supports only wav and mp3 audio, received {}", v_format)
+		v_audio_error = _core_ai_error_unsupported(v_audio_message)
+		return nil, asAxError(v_audio_error)
+	} else {
+	// empty
+	}
+	v_message = _core_string_format("OpenAI-compatible beta does not support content part type: {}", v_type)
+	v_error = _core_ai_error_unsupported(v_message)
+	return nil, asAxError(v_error)
+}
+
 func _openai_tool_call_to_provider_impl(args ...Value) (Value, error) {
 	axirCoverageMark("_openai_tool_call_to_provider_impl")
 	var v_call Value
@@ -7701,41 +7747,6 @@ func _ai_model_usage_impl(args ...Value) (Value, error) {
 	if err := coreSet(v_out, "ai", v_ai_name); err != nil { return nil, err }
 	if err := coreSet(v_out, "model", v_model); err != nil { return nil, err }
 	if err := coreSet(v_out, "tokens", v_tokens); err != nil { return nil, err }
-	return v_out, nil
-}
-
-func _openai_tool_spec_impl(args ...Value) (Value, error) {
-	axirCoverageMark("_openai_tool_spec_impl")
-	var v_fn Value
-	var v_description Value
-	var v_function Value
-	var v_has_parameters Value
-	var v_name Value
-	var v_out Value
-	var v_parameters Value
-	if len(args) > 0 { v_fn = args[0] }
-	_ = v_fn
-	_ = v_description
-	_ = v_function
-	_ = v_has_parameters
-	_ = v_name
-	_ = v_out
-	_ = v_parameters
-	v_name = coreGet(v_fn, "name", nil)
-	v_description = coreGet(v_fn, "description", "")
-	v_parameters = coreGet(v_fn, "parameters", nil)
-	v_function = Object()
-	if err := coreSet(v_function, "name", v_name); err != nil { return nil, err }
-	if err := coreSet(v_function, "description", v_description); err != nil { return nil, err }
-	v_has_parameters = _core_truthy(v_parameters)
-	if coreTruthy(v_has_parameters) {
-		if err := coreSet(v_function, "parameters", v_parameters); err != nil { return nil, err }
-	} else {
-	// empty
-	}
-	v_out = Object()
-	if err := coreSet(v_out, "type", "function"); err != nil { return nil, err }
-	if err := coreSet(v_out, "function", v_function); err != nil { return nil, err }
 	return v_out, nil
 }
 
@@ -7816,6 +7827,41 @@ func _chat_result_to_completion(args ...Value) (Value, error) {
 	return v_completion, nil
 }
 
+func _openai_tool_spec_impl(args ...Value) (Value, error) {
+	axirCoverageMark("_openai_tool_spec_impl")
+	var v_fn Value
+	var v_description Value
+	var v_function Value
+	var v_has_parameters Value
+	var v_name Value
+	var v_out Value
+	var v_parameters Value
+	if len(args) > 0 { v_fn = args[0] }
+	_ = v_fn
+	_ = v_description
+	_ = v_function
+	_ = v_has_parameters
+	_ = v_name
+	_ = v_out
+	_ = v_parameters
+	v_name = coreGet(v_fn, "name", nil)
+	v_description = coreGet(v_fn, "description", "")
+	v_parameters = coreGet(v_fn, "parameters", nil)
+	v_function = Object()
+	if err := coreSet(v_function, "name", v_name); err != nil { return nil, err }
+	if err := coreSet(v_function, "description", v_description); err != nil { return nil, err }
+	v_has_parameters = _core_truthy(v_parameters)
+	if coreTruthy(v_has_parameters) {
+		if err := coreSet(v_function, "parameters", v_parameters); err != nil { return nil, err }
+	} else {
+	// empty
+	}
+	v_out = Object()
+	if err := coreSet(v_out, "type", "function"); err != nil { return nil, err }
+	if err := coreSet(v_out, "function", v_function); err != nil { return nil, err }
+	return v_out, nil
+}
+
 func openai_build_embed_request(args ...Value) (Value, error) {
 	axirCoverageMark("openai_build_embed_request")
 	var v_request Value
@@ -7852,23 +7898,6 @@ func openai_build_embed_request(args ...Value) (Value, error) {
 	return v_payload, nil
 }
 
-func openai_normalize_chat_response(args ...Value) (Value, error) {
-	axirCoverageMark("openai_normalize_chat_response")
-	var v_raw Value
-	var v_ai_name Value
-	var v_model Value
-	var v_response Value
-	if len(args) > 0 { v_raw = args[0] }
-	_ = v_raw
-	if len(args) > 1 { v_ai_name = args[1] }
-	_ = v_ai_name
-	if len(args) > 2 { v_model = args[2] }
-	_ = v_model
-	_ = v_response
-	{ v, err := _openai_normalize_chat_response_impl(v_raw, v_ai_name, v_model, "none", "none"); if err != nil { return nil, err }; v_response = v }
-	return v_response, nil
-}
-
 func chat_response_to_completion(args ...Value) (Value, error) {
 	axirCoverageMark("chat_response_to_completion")
 	var v_response Value
@@ -7879,6 +7908,7 @@ func chat_response_to_completion(args ...Value) (Value, error) {
 	var v_empty_completion Value
 	var v_empty_results Value
 	var v_first Value
+	var v_has_session_id Value
 	var v_has_thought Value
 	var v_has_thought_blocks Value
 	var v_model_usage Value
@@ -7887,6 +7917,7 @@ func chat_response_to_completion(args ...Value) (Value, error) {
 	var v_position Value
 	var v_result Value
 	var v_results Value
+	var v_session_id Value
 	var v_thought Value
 	var v_thought_blocks Value
 	var v_usage Value
@@ -7899,6 +7930,7 @@ func chat_response_to_completion(args ...Value) (Value, error) {
 	_ = v_empty_completion
 	_ = v_empty_results
 	_ = v_first
+	_ = v_has_session_id
 	_ = v_has_thought
 	_ = v_has_thought_blocks
 	_ = v_model_usage
@@ -7907,6 +7939,7 @@ func chat_response_to_completion(args ...Value) (Value, error) {
 	_ = v_position
 	_ = v_result
 	_ = v_results
+	_ = v_session_id
 	_ = v_thought
 	_ = v_thought_blocks
 	_ = v_usage
@@ -7945,7 +7978,31 @@ func chat_response_to_completion(args ...Value) (Value, error) {
 	} else {
 	// empty
 	}
+	v_session_id = coreGet(v_response, "__session_response_id", nil)
+	v_has_session_id = _core_is_not_none(v_session_id)
+	if coreTruthy(v_has_session_id) {
+		if err := coreSet(v_out, "remote_id", v_session_id); err != nil { return nil, err }
+	} else {
+	// empty
+	}
 	return v_out, nil
+}
+
+func openai_normalize_chat_response(args ...Value) (Value, error) {
+	axirCoverageMark("openai_normalize_chat_response")
+	var v_raw Value
+	var v_ai_name Value
+	var v_model Value
+	var v_response Value
+	if len(args) > 0 { v_raw = args[0] }
+	_ = v_raw
+	if len(args) > 1 { v_ai_name = args[1] }
+	_ = v_ai_name
+	if len(args) > 2 { v_model = args[2] }
+	_ = v_model
+	_ = v_response
+	{ v, err := _openai_normalize_chat_response_impl(v_raw, v_ai_name, v_model, "none", "none"); if err != nil { return nil, err }; v_response = v }
+	return v_response, nil
 }
 
 func _openai_usage_with_service_tier(args ...Value) (Value, error) {
@@ -7987,6 +8044,92 @@ func _openai_usage_with_service_tier(args ...Value) (Value, error) {
 	} else {
 	// empty
 	}
+	return v_out, nil
+}
+
+func ai_context_cache_rejection(args ...Value) (Value, error) {
+	axirCoverageMark("ai_context_cache_rejection")
+	var v_status Value
+	var v_body_json Value
+	var v_body_lower Value
+	var v_body_text Value
+	var v_cache_rejection Value
+	var v_expired Value
+	var v_has_cache Value
+	var v_invalid Value
+	var v_invalid_cache Value
+	var v_invalid_left Value
+	var v_invalid_reason Value
+	var v_invalid_right Value
+	var v_is_400 Value
+	var v_is_404 Value
+	var v_missing Value
+	var v_names_cache Value
+	var v_names_compact Value
+	var v_names_left Value
+	var v_names_resource Value
+	var v_names_spaced Value
+	var v_not_found Value
+	var v_out Value
+	var v_status_400_max Value
+	var v_status_400_min Value
+	var v_status_404_max Value
+	var v_status_404_min Value
+	var v_valid_status Value
+	if len(args) > 0 { v_status = args[0] }
+	_ = v_status
+	if len(args) > 1 { v_body_json = args[1] }
+	_ = v_body_json
+	_ = v_body_lower
+	_ = v_body_text
+	_ = v_cache_rejection
+	_ = v_expired
+	_ = v_has_cache
+	_ = v_invalid
+	_ = v_invalid_cache
+	_ = v_invalid_left
+	_ = v_invalid_reason
+	_ = v_invalid_right
+	_ = v_is_400
+	_ = v_is_404
+	_ = v_missing
+	_ = v_names_cache
+	_ = v_names_compact
+	_ = v_names_left
+	_ = v_names_resource
+	_ = v_names_spaced
+	_ = v_not_found
+	_ = v_out
+	_ = v_status_400_max
+	_ = v_status_400_min
+	_ = v_status_404_max
+	_ = v_status_404_min
+	_ = v_valid_status
+	v_status_400_min = _core_gte(v_status, 400)
+	v_status_400_max = _core_lte(v_status, 400)
+	v_is_400 = _core_and(v_status_400_min, v_status_400_max)
+	v_status_404_min = _core_gte(v_status, 404)
+	v_status_404_max = _core_lte(v_status, 404)
+	v_is_404 = _core_and(v_status_404_min, v_status_404_max)
+	v_valid_status = _core_or(v_is_400, v_is_404)
+	v_body_text = _core_json_stringify(v_body_json)
+	v_body_lower = _core_string_lower(v_body_text)
+	v_names_compact = _core_contains(v_body_lower, "cachedcontent")
+	v_names_spaced = _core_contains(v_body_lower, "cached content")
+	v_names_resource = _core_contains(v_body_lower, "cachedcontents/")
+	v_names_left = _core_or(v_names_compact, v_names_spaced)
+	v_names_cache = _core_or(v_names_left, v_names_resource)
+	v_has_cache = _core_contains(v_body_lower, "cache")
+	v_expired = _core_contains(v_body_lower, "expired")
+	v_not_found = _core_contains(v_body_lower, "not found")
+	v_missing = _core_contains(v_body_lower, "does not exist")
+	v_invalid = _core_contains(v_body_lower, "invalid")
+	v_invalid_left = _core_or(v_expired, v_not_found)
+	v_invalid_right = _core_or(v_missing, v_invalid)
+	v_invalid_reason = _core_or(v_invalid_left, v_invalid_right)
+	v_invalid_cache = _core_and(v_has_cache, v_invalid_reason)
+	v_cache_rejection = _core_or(v_names_cache, v_invalid_cache)
+	v_out = _core_and(v_valid_status, v_cache_rejection)
 	return v_out, nil
 }
 
@@ -8089,90 +8232,30 @@ func _openai_normalize_chat_response_impl(args ...Value) (Value, error) {
 	return v_out, nil
 }
 
-func ai_context_cache_rejection(args ...Value) (Value, error) {
-	axirCoverageMark("ai_context_cache_rejection")
-	var v_status Value
-	var v_body_json Value
-	var v_body_lower Value
-	var v_body_text Value
-	var v_cache_rejection Value
-	var v_expired Value
-	var v_has_cache Value
-	var v_invalid Value
-	var v_invalid_cache Value
-	var v_invalid_left Value
-	var v_invalid_reason Value
-	var v_invalid_right Value
-	var v_is_400 Value
-	var v_is_404 Value
-	var v_missing Value
-	var v_names_cache Value
-	var v_names_compact Value
-	var v_names_left Value
-	var v_names_resource Value
-	var v_names_spaced Value
-	var v_not_found Value
-	var v_out Value
-	var v_status_400_max Value
-	var v_status_400_min Value
-	var v_status_404_max Value
-	var v_status_404_min Value
-	var v_valid_status Value
-	if len(args) > 0 { v_status = args[0] }
-	_ = v_status
-	if len(args) > 1 { v_body_json = args[1] }
-	_ = v_body_json
-	_ = v_body_lower
-	_ = v_body_text
-	_ = v_cache_rejection
-	_ = v_expired
-	_ = v_has_cache
-	_ = v_invalid
-	_ = v_invalid_cache
-	_ = v_invalid_left
-	_ = v_invalid_reason
-	_ = v_invalid_right
-	_ = v_is_400
-	_ = v_is_404
-	_ = v_missing
-	_ = v_names_cache
-	_ = v_names_compact
-	_ = v_names_left
-	_ = v_names_resource
-	_ = v_names_spaced
-	_ = v_not_found
-	_ = v_out
-	_ = v_status_400_max
-	_ = v_status_400_min
-	_ = v_status_404_max
-	_ = v_status_404_min
-	_ = v_valid_status
-	v_status_400_min = _core_gte(v_status, 400)
-	v_status_400_max = _core_lte(v_status, 400)
-	v_is_400 = _core_and(v_status_400_min, v_status_400_max)
-	v_status_404_min = _core_gte(v_status, 404)
-	v_status_404_max = _core_lte(v_status, 404)
-	v_is_404 = _core_and(v_status_404_min, v_status_404_max)
-	v_valid_status = _core_or(v_is_400, v_is_404)
-	v_body_text = _core_json_stringify(v_body_json)
-	v_body_lower = _core_string_lower(v_body_text)
-	v_names_compact = _core_contains(v_body_lower, "cachedcontent")
-	v_names_spaced = _core_contains(v_body_lower, "cached content")
-	v_names_resource = _core_contains(v_body_lower, "cachedcontents/")
-	v_names_left = _core_or(v_names_compact, v_names_spaced)
-	v_names_cache = _core_or(v_names_left, v_names_resource)
-	v_has_cache = _core_contains(v_body_lower, "cache")
-	v_expired = _core_contains(v_body_lower, "expired")
-	v_not_found = _core_contains(v_body_lower, "not found")
-	v_missing = _core_contains(v_body_lower, "does not exist")
-	v_invalid = _core_contains(v_body_lower, "invalid")
-	v_invalid_left = _core_or(v_expired, v_not_found)
-	v_invalid_right = _core_or(v_missing, v_invalid)
-	v_invalid_reason = _core_or(v_invalid_left, v_invalid_right)
-	v_invalid_cache = _core_and(v_has_cache, v_invalid_reason)
-	v_cache_rejection = _core_or(v_names_cache, v_invalid_cache)
-	v_out = _core_and(v_valid_status, v_cache_rejection)
-	return v_out, nil
+func ai_context_cache_expiry(args ...Value) (Value, error) {
+	axirCoverageMark("ai_context_cache_expiry")
+	var v_provider_expire_time Value
+	var v_now Value
+	var v_future Value
+	var v_is_number Value
+	if len(args) > 0 { v_provider_expire_time = args[0] }
+	_ = v_provider_expire_time
+	if len(args) > 1 { v_now = args[1] }
+	_ = v_now
+	_ = v_future
+	_ = v_is_number
+	v_is_number = coreTypeIs(v_provider_expire_time, "number")
+	if coreTruthy(v_is_number) {
+		v_future = _core_gt(v_provider_expire_time, v_now)
+		if coreTruthy(v_future) {
+			return v_provider_expire_time, nil
+		} else {
+		// empty
+		}
+	} else {
+	// empty
+	}
+	return 0, nil
 }
 
 func _openai_normalize_choice_impl(args ...Value) (Value, error) {
@@ -8336,32 +8419,6 @@ func _openai_normalize_choice_impl(args ...Value) (Value, error) {
 	if err := coreSet(v_out, "function_calls", v_function_calls); err != nil { return nil, err }
 	if err := coreSet(v_out, "finish_reason", v_finish_reason); err != nil { return nil, err }
 	return v_out, nil
-}
-
-func ai_context_cache_expiry(args ...Value) (Value, error) {
-	axirCoverageMark("ai_context_cache_expiry")
-	var v_provider_expire_time Value
-	var v_now Value
-	var v_future Value
-	var v_is_number Value
-	if len(args) > 0 { v_provider_expire_time = args[0] }
-	_ = v_provider_expire_time
-	if len(args) > 1 { v_now = args[1] }
-	_ = v_now
-	_ = v_future
-	_ = v_is_number
-	v_is_number = coreTypeIs(v_provider_expire_time, "number")
-	if coreTruthy(v_is_number) {
-		v_future = _core_gt(v_provider_expire_time, v_now)
-		if coreTruthy(v_future) {
-			return v_provider_expire_time, nil
-		} else {
-		// empty
-		}
-	} else {
-	// empty
-	}
-	return 0, nil
 }
 
 func ai_context_cache_plan(args ...Value) (Value, error) {
@@ -9315,7 +9372,7 @@ func _provider_model_catalog_registry(args ...Value) (Value, error) {
 	axirCoverageMark("_provider_model_catalog_registry")
 	var v_catalog Value
 	_ = v_catalog
-	{ v, err := _core_json_parse("{\"all\":[{\"capabilities\":{\"serviceTiers\":[\"standard\",\"flex\",\"priority\"],\"thinking\":true,\"thinkingLevels\":[\"none\",\"minimal\",\"low\",\"medium\",\"high\",\"highest\"]},\"defaultEmbedModel\":\"gemini-embedding-2\",\"defaultModel\":\"gemini-2.5-flash\",\"displayName\":\"Google Gemini\",\"isDynamic\":false,\"models\":[{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"serviceTiers\":[\"standard\",\"flex\",\"priority\"],\"showThoughts\":true,\"structuredOutputs\":true,\"temperature\":true,\"thinkingBudget\":true,\"thinkingLevels\":[\"none\",\"minimal\",\"low\",\"medium\",\"high\",\"highest\"],\"topP\":true},\"characterIsToken\":false,\"completionTokenCostPer1M\":0,\"currency\":\"usd\",\"isDefault\":false,\"name\":\"gemini-2.0-flash-thinking-exp-01-21\",\"promptTokenCostPer1M\":0,\"provider\":\"google-gemini\",\"supported\":{\"showThoughts\":true,\"structuredOutputs\":true,\"thinkingBudget\":true},\"type\":\"text\"},{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"serviceTiers\":[\"standard\",\"flex\",\"priority\"],\"showThoughts\":true,\"structuredOutputs\":true,\"temperature\":true,\"thinkingBudget\":true,\"thinkingLevels\":[\"none\",\"minimal\",\"low\",\"medium\",\"high\",\"highest\"],\"topP\":true},\"characterIsToken\":false,\"completionTokenCostPer1M\":0,\"currency\":\"usd\",\"isDefault\":false,\"name\":\"gemini-2.0-pro-exp-02-05\",\"promptTokenCostPer1M\":0,\"provider\":\"google-gemini\",\"supported\":{\"showThoughts\":true,\"structuredOutputs\":true,\"thinkingBudget\":true},\"type\":\"text\"},{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"serviceTiers\":[\"standard\",\"flex\",\"priority\"],\"showThoughts\":false,\"structuredOutputs\":false,\"temperature\":true,\"thinkingBudget\":false,\"thinkingLevels\":[],\"topP\":true},\"characterIsToken\":false,\"completionTokenCostPer1M\":0,\"currency\":\"usd\",\"isDefault\":false,\"name\":\"gemini-robotics-er-1.6-preview\",\"promptTokenCostPer1M\":0,\"provider\":\"google-gemini\",\"type\":\"text\"},{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"serviceTiers\":[],\"showThoughts\":false,\"structuredOutputs\":false,\"temperature\":true,\"thinkingBudget\":false,\"thinkingLevels\":[],\"topP\":true},\"characterIsToken\":false,\"currency\":\"usd\",\"isDefault\":false,\"name\":\"gemini-embedding-001\",\"promptTokenCostPer1M\":0.15,\"provider\":\"google-gemini\",\"type\":\"embeddings\"},{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"serviceTiers\":[\"standard\",\"flex\",\"priority\"],\"showThoughts\":false,\"structuredOutputs\":true,\"temperature\":true,\"thinkingBudget\":false,\"thinkingLevels\":[],\"topP\":true},\"characterIsToken\":false,\"completionTokenCostPer1M\":0.15,\"currency\":\"usd\",\"isDefault\":false,\"name\":\"gemini-1.5-flash-8b\",\"promptTokenCostPer1M\":0.0375,\"provider\":\"google-gemini\",\"supported\":{\"structuredOutputs\":true},\"type\":\"text\"},{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"serviceTiers\":[],\"showThoughts\":false,\"structuredOutputs\":false,\"temperature\":true,\"thinkingBudget\":false,\"thinkingLevels\":[],\"topP\":true},\"characterIsToken\":false,\"contextWindow\":8192,\"currency\":\"usd\",\"isDefault\":true,\"name\":\"gemini-embedding-2\",\"promptTokenCostPer1M\":0.2,\"provider\":\"google-gemini\",\"type\":\"embeddings\"},{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"serviceTiers\":[\"standard\",\"flex\",\"priority\"],\"showThoughts\":false,\"structuredOutputs\":true,\"temperature\":true,\"thinkingBudget\":false,\"thinkingLevels\":[],\"topP\":true},\"characterIsToken\":false,\"completionTokenCostPer1M\":0.3,\"currency\":\"usd\",\"isDefault\":false,\"name\":\"gemini-1.5-flash\",\"promptTokenCostPer1M\":0.075,\"provider\":\"google-gemini\",\"supported\":{\"structuredOutputs\":true},\"type\":\"text\"},{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"serviceTiers\":[\"standard\",\"flex\",\"priority\"],\"showThoughts\":false,\"structuredOutputs\":true,\"temperature\":true,\"thinkingBudget\":false,\"thinkingLevels\":[],\"topP\":true},\"characterIsToken\":false,\"completionTokenCostPer1M\":0.3,\"currency\":\"usd\",\"deprecatedOn\":\"2026-06-01\",\"isDefault\":false,\"isDeprecated\":true,\"name\":\"gemini-2.0-flash-lite\",\"promptTokenCostPer1M\":0.075,\"provider\":\"google-gemini\",\"supported\":{\"structuredOutputs\":true},\"type\":\"text\"},{\"cacheReadTokenCostPer1M\":0.025,\"cacheWriteTokenCostPer1M\":0.1,\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"serviceTiers\":[\"standard\",\"flex\",\"priority\"],\"showThoughts\":false,\"structuredOutputs\":true,\"temperature\":true,\"thinkingBudget\":false,\"thinkingLevels\":[],\"topP\":true},\"characterIsToken\":false,\"completionTokenCostPer1M\":0.4,\"currency\":\"usd\",\"deprecatedOn\":\"2026-06-01\",\"isDefault\":false,\"isDeprecated\":true,\"name\":\"gemini-2.0-flash\",\"promptTokenCostPer1M\":0.1,\"provider\":\"google-gemini\",\"supported\":{\"structuredOutputs\":true},\"type\":\"text\"},{\"cacheReadTokenCostPer1M\":0.01,\"cacheWriteTokenCostPer1M\":0.1,\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"serviceTiers\":[\"standard\",\"flex\",\"priority\"],\"showThoughts\":true,\"structuredOutputs\":true,\"temperature\":true,\"thinkingBudget\":true,\"thinkingLevels\":[\"none\",\"minimal\",\"low\",\"medium\",\"high\",\"highest\"],\"topP\":true},\"characterIsToken\":false,\"completionTokenCostPer1M\":0.4,\"currency\":\"usd\",\"isDefault\":false,\"name\":\"gemini-2.5-flash-lite\",\"promptTokenCostPer1M\":0.1,\"provider\":\"google-gemini\",\"supported\":{\"showThoughts\":true,\"structuredOutputs\":true,\"thinkingBudget\":true},\"type\":\"text\"},{\"cacheReadTokenCostPer1M\":0.01,\"cacheWriteTokenCostPer1M\":0.1,\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"serviceTiers\":[\"standard\",\"flex\",\"priority\"],\"showThoughts\":true,\"structuredOutputs\":true,\"temperature\":true,\"thinkingBudget\":true,\"thinkingLevels\":[\"none\",\"minimal\",\"low\",\"medium\",\"high\",\"highest\"],\"topP\":true},\"characterIsToken\":false,\"completionTokenCostPer1M\":0.4,\"currency\":\"usd\",\"isDefault\":false,\"name\":\"gemini-flash-lite-latest\",\"promptTokenCostPer1M\":0.1,\"provider\":\"google-gemini\",\"supported\":{\"showThoughts\":true,\"structuredOutputs\":true,\"thinkingBudget\":true},\"type\":\"text\"},{\"cacheReadTokenCostPer1M\":0.025,\"cacheWriteTokenCostPer1M\":0.25,\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"serviceTiers\":[\"standard\",\"flex\",\"priority\"],\"showThoughts\":true,\"structuredOutputs\":true,\"temperature\":true,\"thinkingBudget\":true,\"thinkingLevels\":[\"none\",\"minimal\",\"low\",\"medium\",\"high\",\"highest\"],\"topP\":true},\"characterIsToken\":false,\"completionTokenCostPer1M\":1.5,\"contextWindow\":1048576,\"currency\":\"usd\",\"isDefault\":false,\"maxTokens\":65536,\"name\":\"gemini-3.1-flash-lite\",\"promptTokenCostPer1M\":0.25,\"provider\":\"google-gemini\",\"supported\":{\"showThoughts\":true,\"structuredOutputs\":true,\"thinkingBudget\":true},\"type\":\"text\"},{\"cacheReadTokenCostPer1M\":0.025,\"cacheWriteTokenCostPer1M\":0.25,\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"serviceTiers\":[\"standard\",\"flex\",\"priority\"],\"showThoughts\":true,\"structuredOutputs\":true,\"temperature\":true,\"thinkingBudget\":true,\"thinkingLevels\":[\"none\",\"minimal\",\"low\",\"medium\",\"high\",\"highest\"],\"topP\":true},\"characterIsToken\":false,\"completionTokenCostPer1M\":1.5,\"currency\":\"usd\",\"isDefault\":false,\"name\":\"gemini-3.1-flash-lite-preview\",\"promptTokenCostPer1M\":0.25,\"provider\":\"google-gemini\",\"supported\":{\"showThoughts\":true,\"structuredOutputs\":true,\"thinkingBudget\":true},\"type\":\"text\"},{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"serviceTiers\":[\"standard\",\"flex\",\"priority\"],\"showThoughts\":false,\"structuredOutputs\":true,\"temperature\":true,\"thinkingBudget\":false,\"thinkingLevels\":[],\"topP\":true},\"characterIsToken\":false,\"completionTokenCostPer1M\":1.5,\"currency\":\"usd\",\"isDefault\":false,\"name\":\"gemini-1.0-pro\",\"promptTokenCostPer1M\":0.5,\"provider\":\"google-gemini\",\"supported\":{\"structuredOutputs\":true},\"type\":\"text\"},{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"serviceTiers\":[\"standard\",\"flex\",\"priority\"],\"showThoughts\":true,\"structuredOutputs\":true,\"temperature\":true,\"thinkingBudget\":true,\"thinkingLevels\":[\"none\",\"minimal\",\"low\",\"medium\",\"high\",\"highest\"],\"topP\":true},\"characterIsToken\":false,\"completionTokenCostPer1M\":0.134,\"currency\":\"usd\",\"isDefault\":false,\"name\":\"gemini-3-pro-image-preview\",\"promptTokenCostPer1M\":2,\"provider\":\"google-gemini\",\"supported\":{\"showThoughts\":true,\"structuredOutputs\":true,\"thinkingBudget\":true},\"type\":\"text\"},{\"cacheReadTokenCostPer1M\":0.03,\"cacheWriteTokenCostPer1M\":0.3,\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"serviceTiers\":[\"standard\",\"flex\",\"priority\"],\"showThoughts\":true,\"structuredOutputs\":true,\"temperature\":true,\"thinkingBudget\":true,\"thinkingLevels\":[\"none\",\"minimal\",\"low\",\"medium\",\"high\",\"highest\"],\"topP\":true},\"characterIsToken\":false,\"completionTokenCostPer1M\":2.5,\"currency\":\"usd\",\"isDefault\":true,\"name\":\"gemini-2.5-flash\",\"promptTokenCostPer1M\":0.3,\"provider\":\"google-gemini\",\"supported\":{\"showThoughts\":true,\"structuredOutputs\":true,\"thinkingBudget\":true},\"type\":\"text\"},{\"cacheReadTokenCostPer1M\":0.03,\"cacheWriteTokenCostPer1M\":0.3,\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"serviceTiers\":[\"standard\",\"flex\",\"priority\"],\"showThoughts\":true,\"structuredOutputs\":true,\"temperature\":false,\"thinkingBudget\":true,\"thinkingLevels\":[\"none\",\"minimal\",\"low\",\"medium\",\"high\",\"highest\"],\"topP\":false},\"characterIsToken\":false,\"completionTokenCostPer1M\":2.5,\"contextWindow\":1048576,\"currency\":\"usd\",\"isDefault\":false,\"maxTokens\":65536,\"name\":\"gemini-3.5-flash-lite\",\"notSupported\":{\"temperature\":true,\"topP\":true},\"promptTokenCostPer1M\":0.3,\"provider\":\"google-gemini\",\"supported\":{\"showThoughts\":true,\"structuredOutputs\":true,\"thinkingBudget\":true},\"type\":\"text\"},{\"cacheReadTokenCostPer1M\":0.03,\"cacheWriteTokenCostPer1M\":0.3,\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"serviceTiers\":[\"standard\",\"flex\",\"priority\"],\"showThoughts\":true,\"structuredOutputs\":true,\"temperature\":true,\"thinkingBudget\":true,\"thinkingLevels\":[\"none\",\"minimal\",\"low\",\"medium\",\"high\",\"highest\"],\"topP\":true},\"characterIsToken\":false,\"completionTokenCostPer1M\":2.5,\"currency\":\"usd\",\"isDefault\":false,\"name\":\"gemini-flash-latest\",\"promptTokenCostPer1M\":0.3,\"provider\":\"google-gemini\",\"supported\":{\"showThoughts\":true,\"structuredOutputs\":true,\"thinkingBudget\":true},\"type\":\"text\"},{\"cacheReadTokenCostPer1M\":0.05,\"cacheWriteTokenCostPer1M\":0.5,\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"serviceTiers\":[\"standard\",\"flex\",\"priority\"],\"showThoughts\":true,\"structuredOutputs\":true,\"temperature\":true,\"thinkingBudget\":true,\"thinkingLevels\":[\"none\",\"minimal\",\"low\",\"medium\",\"high\",\"highest\"],\"topP\":true},\"characterIsToken\":false,\"completionTokenCostPer1M\":3,\"currency\":\"usd\",\"isDefault\":false,\"name\":\"gemini-3-flash-preview\",\"promptTokenCostPer1M\":0.5,\"provider\":\"google-gemini\",\"supported\":{\"showThoughts\":true,\"structuredOutputs\":true,\"thinkingBudget\":true},\"type\":\"text\"},{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"serviceTiers\":[\"standard\",\"flex\",\"priority\"],\"showThoughts\":false,\"structuredOutputs\":true,\"temperature\":true,\"thinkingBudget\":false,\"thinkingLevels\":[],\"topP\":true},\"characterIsToken\":false,\"completionTokenCostPer1M\":3,\"currency\":\"usd\",\"isDefault\":false,\"name\":\"gemini-3.1-flash-image-preview\",\"promptTokenCostPer1M\":0.5,\"provider\":\"google-gemini\",\"supported\":{\"structuredOutputs\":true},\"type\":\"text\"},{\"audio\":{\"input\":false,\"output\":true},\"capabilities\":{\"audioInput\":false,\"audioOutput\":true,\"serviceTiers\":[\"standard\",\"flex\",\"priority\"],\"showThoughts\":false,\"structuredOutputs\":false,\"temperature\":true,\"thinkingBudget\":false,\"thinkingLevels\":[],\"topP\":true},\"characterIsToken\":false,\"completionTokenCostPer1M\":3,\"currency\":\"usd\",\"isDefault\":false,\"name\":\"gemini-3.1-flash-tts-preview\",\"promptTokenCostPer1M\":0.5,\"provider\":\"google-gemini\",\"type\":\"audio\"},{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"serviceTiers\":[\"standard\",\"flex\",\"priority\"],\"showThoughts\":false,\"structuredOutputs\":false,\"temperature\":true,\"thinkingBudget\":false,\"thinkingLevels\":[],\"topP\":true},\"characterIsToken\":false,\"completionTokenCostPer1M\":3,\"currency\":\"usd\",\"isDefault\":false,\"name\":\"nano-banana-2\",\"promptTokenCostPer1M\":0.5,\"provider\":\"google-gemini\",\"type\":\"text\"},{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"serviceTiers\":[\"standard\",\"flex\",\"priority\"],\"showThoughts\":false,\"structuredOutputs\":true,\"temperature\":true,\"thinkingBudget\":false,\"thinkingLevels\":[],\"topP\":true},\"characterIsToken\":false,\"completionTokenCostPer1M\":5,\"currency\":\"usd\",\"isDefault\":false,\"name\":\"gemini-1.5-pro\",\"promptTokenCostPer1M\":1.25,\"provider\":\"google-gemini\",\"supported\":{\"structuredOutputs\":true},\"type\":\"text\"},{\"cacheReadTokenCostPer1M\":0.15,\"cacheWriteTokenCostPer1M\":1.5,\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"serviceTiers\":[\"standard\",\"flex\",\"priority\"],\"showThoughts\":true,\"structuredOutputs\":true,\"temperature\":false,\"thinkingBudget\":true,\"thinkingLevels\":[\"none\",\"minimal\",\"low\",\"medium\",\"high\",\"highest\"],\"topP\":false},\"characterIsToken\":false,\"completionTokenCostPer1M\":7.5,\"contextWindow\":1048576,\"currency\":\"usd\",\"isDefault\":false,\"maxTokens\":65536,\"name\":\"gemini-3.6-flash\",\"notSupported\":{\"temperature\":true,\"topP\":true},\"promptTokenCostPer1M\":1.5,\"provider\":\"google-gemini\",\"supported\":{\"showThoughts\":true,\"structuredOutputs\":true,\"thinkingBudget\":true},\"type\":\"text\"},{\"cacheReadTokenCostPer1M\":0.15,\"cacheWriteTokenCostPer1M\":1.5,\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"serviceTiers\":[\"standard\",\"flex\",\"priority\"],\"showThoughts\":true,\"structuredOutputs\":true,\"temperature\":false,\"thinkingBudget\":true,\"thinkingLevels\":[\"none\",\"minimal\",\"low\",\"medium\",\"high\",\"highest\"],\"topP\":false},\"characterIsToken\":false,\"completionTokenCostPer1M\":7.5,\"contextWindow\":1048576,\"currency\":\"usd\",\"isDefault\":false,\"maxTokens\":65536,\"name\":\"gemini-3.7-flash\",\"notSupported\":{\"temperature\":true,\"topP\":true},\"promptTokenCostPer1M\":1.5,\"provider\":\"google-gemini\",\"supported\":{\"showThoughts\":true,\"structuredOutputs\":true,\"thinkingBudget\":true},\"type\":\"text\"},{\"cacheReadTokenCostPer1M\":0.15,\"cacheWriteTokenCostPer1M\":1.5,\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"serviceTiers\":[\"standard\",\"flex\",\"priority\"],\"showThoughts\":true,\"structuredOutputs\":true,\"temperature\":false,\"thinkingBudget\":true,\"thinkingLevels\":[\"none\",\"minimal\",\"low\",\"medium\",\"high\",\"highest\"],\"topP\":false},\"characterIsToken\":false,\"completionTokenCostPer1M\":7.5,\"contextWindow\":1048576,\"currency\":\"usd\",\"isDefault\":false,\"maxTokens\":65536,\"name\":\"gemini-3.8-flash\",\"notSupported\":{\"temperature\":true,\"topP\":true},\"promptTokenCostPer1M\":1.5,\"provider\":\"google-gemini\",\"supported\":{\"showThoughts\":true,\"structuredOutputs\":true,\"thinkingBudget\":true},\"type\":\"text\"},{\"cacheReadTokenCostPer1M\":0.15,\"cacheWriteTokenCostPer1M\":1.5,\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"serviceTiers\":[\"standard\",\"flex\",\"priority\"],\"showThoughts\":true,\"structuredOutputs\":true,\"temperature\":true,\"thinkingBudget\":true,\"thinkingLevels\":[\"none\",\"minimal\",\"low\",\"medium\",\"high\",\"highest\"],\"topP\":true},\"characterIsToken\":false,\"completionTokenCostPer1M\":9,\"contextWindow\":1048576,\"currency\":\"usd\",\"isDefault\":false,\"maxTokens\":65536,\"name\":\"gemini-3.5-flash\",\"promptTokenCostPer1M\":1.5,\"provider\":\"google-gemini\",\"supported\":{\"showThoughts\":true,\"structuredOutputs\":true,\"thinkingBudget\":true},\"type\":\"text\"},{\"cacheReadTokenCostPer1M\":0.125,\"cacheWriteTokenCostPer1M\":1.25,\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"serviceTiers\":[\"standard\",\"flex\",\"priority\"],\"showThoughts\":true,\"structuredOutputs\":true,\"temperature\":true,\"thinkingBudget\":true,\"thinkingLevels\":[\"none\",\"minimal\",\"low\",\"medium\",\"high\",\"highest\"],\"topP\":true},\"characterIsToken\":false,\"completionTokenCostPer1M\":10,\"currency\":\"usd\",\"isDefault\":false,\"longContextCacheReadTokenCostPer1M\":0.25,\"longContextCompletionTokenCostPer1M\":15,\"longContextPromptTokenCostPer1M\":2.5,\"longContextThreshold\":200000,\"name\":\"gemini-2.5-pro\",\"promptTokenCostPer1M\":1.25,\"provider\":\"google-gemini\",\"supported\":{\"showThoughts\":true,\"structuredOutputs\":true,\"thinkingBudget\":true},\"type\":\"text\"},{\"cacheReadTokenCostPer1M\":0.125,\"cacheWriteTokenCostPer1M\":1.25,\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"serviceTiers\":[\"standard\",\"flex\",\"priority\"],\"showThoughts\":true,\"structuredOutputs\":true,\"temperature\":true,\"thinkingBudget\":true,\"thinkingLevels\":[\"none\",\"minimal\",\"low\",\"medium\",\"high\",\"highest\"],\"topP\":true},\"characterIsToken\":false,\"completionTokenCostPer1M\":10,\"currency\":\"usd\",\"isDefault\":false,\"longContextCacheReadTokenCostPer1M\":0.25,\"longContextCompletionTokenCostPer1M\":15,\"longContextPromptTokenCostPer1M\":2.5,\"longContextThreshold\":200000,\"name\":\"gemini-pro-latest\",\"promptTokenCostPer1M\":1.25,\"provider\":\"google-gemini\",\"supported\":{\"showThoughts\":true,\"structuredOutputs\":true,\"thinkingBudget\":true},\"type\":\"text\"},{\"cacheReadTokenCostPer1M\":0.2,\"cacheWriteTokenCostPer1M\":2,\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"serviceTiers\":[\"standard\",\"flex\",\"priority\"],\"showThoughts\":true,\"structuredOutputs\":true,\"temperature\":true,\"thinkingBudget\":true,\"thinkingLevels\":[\"none\",\"minimal\",\"low\",\"medium\",\"high\",\"highest\"],\"topP\":true},\"characterIsToken\":false,\"completionTokenCostPer1M\":12,\"currency\":\"usd\",\"isDefault\":false,\"longContextCacheReadTokenCostPer1M\":0.4,\"longContextCompletionTokenCostPer1M\":18,\"longContextPromptTokenCostPer1M\":4,\"longContextThreshold\":200000,\"name\":\"gemini-3.1-pro-preview\",\"promptTokenCostPer1M\":2,\"provider\":\"google-gemini\",\"supported\":{\"showThoughts\":true,\"structuredOutputs\":true,\"thinkingBudget\":true},\"type\":\"text\"},{\"audio\":{\"input\":true,\"output\":true},\"capabilities\":{\"audioInput\":true,\"audioOutput\":true,\"serviceTiers\":[],\"showThoughts\":true,\"structuredOutputs\":false,\"temperature\":true,\"thinkingBudget\":true,\"thinkingLevels\":[\"none\",\"minimal\",\"low\",\"medium\",\"high\",\"highest\"],\"topP\":true},\"characterIsToken\":false,\"contextWindow\":131072,\"isDefault\":false,\"maxTokens\":65536,\"name\":\"gemini-3.1-flash-live-preview\",\"provider\":\"google-gemini\",\"supported\":{\"showThoughts\":true,\"thinkingBudget\":true},\"type\":\"audio\"},{\"audio\":{\"input\":true,\"output\":true},\"capabilities\":{\"audioInput\":true,\"audioOutput\":true,\"serviceTiers\":[],\"showThoughts\":true,\"structuredOutputs\":false,\"temperature\":true,\"thinkingBudget\":true,\"thinkingLevels\":[\"none\",\"minimal\",\"low\",\"medium\",\"high\",\"highest\"],\"topP\":true},\"characterIsToken\":false,\"contextWindow\":131072,\"isDefault\":false,\"maxTokens\":8192,\"name\":\"gemini-2.5-flash-native-audio-preview-12-2025\",\"provider\":\"google-gemini\",\"supported\":{\"showThoughts\":true,\"thinkingBudget\":true},\"type\":\"audio\"}],\"name\":\"google-gemini\"},{\"capabilities\":{\"serviceTiers\":[],\"thinking\":false,\"thinkingLevels\":[]},\"defaultModel\":\"Llama-3.2-3B-Instruct-q4f32_1-MLC\",\"displayName\":\"WebLLM\",\"isDynamic\":false,\"models\":[{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"serviceTiers\":[],\"showThoughts\":false,\"structuredOutputs\":false,\"temperature\":true,\"thinkingBudget\":false,\"thinkingLevels\":[],\"topP\":true},\"completionTokenCostPer1M\":0,\"contextWindow\":8192,\"currency\":\"usd\",\"isDefault\":false,\"maxTokens\":2048,\"name\":\"gemma-2-2b-it-q4f32_1-MLC\",\"promptTokenCostPer1M\":0,\"provider\":\"webllm\",\"type\":\"text\"},{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"serviceTiers\":[],\"showThoughts\":false,\"structuredOutputs\":false,\"temperature\":true,\"thinkingBudget\":false,\"thinkingLevels\":[],\"topP\":true},\"completionTokenCostPer1M\":0,\"contextWindow\":8192,\"currency\":\"usd\",\"isDefault\":false,\"maxTokens\":2048,\"name\":\"gemma-2-9b-it-q4f32_1-MLC\",\"promptTokenCostPer1M\":0,\"provider\":\"webllm\",\"type\":\"text\"},{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"serviceTiers\":[],\"showThoughts\":false,\"structuredOutputs\":false,\"temperature\":true,\"thinkingBudget\":false,\"thinkingLevels\":[],\"topP\":true},\"completionTokenCostPer1M\":0,\"contextWindow\":128000,\"currency\":\"usd\",\"isDefault\":false,\"isExpensive\":true,\"maxTokens\":4096,\"name\":\"Llama-3.1-70B-Instruct-q4f16_1-MLC\",\"promptTokenCostPer1M\":0,\"provider\":\"webllm\",\"type\":\"text\"},{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"serviceTiers\":[],\"showThoughts\":false,\"structuredOutputs\":false,\"temperature\":true,\"thinkingBudget\":false,\"thinkingLevels\":[],\"topP\":true},\"completionTokenCostPer1M\":0,\"contextWindow\":128000,\"currency\":\"usd\",\"isDefault\":false,\"maxTokens\":4096,\"name\":\"Llama-3.1-8B-Instruct-q4f32_1-MLC\",\"promptTokenCostPer1M\":0,\"provider\":\"webllm\",\"type\":\"text\"},{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"serviceTiers\":[],\"showThoughts\":false,\"structuredOutputs\":false,\"temperature\":true,\"thinkingBudget\":false,\"thinkingLevels\":[],\"topP\":true},\"completionTokenCostPer1M\":0,\"contextWindow\":128000,\"currency\":\"usd\",\"isDefault\":false,\"maxTokens\":2048,\"name\":\"Llama-3.2-1B-Instruct-q4f32_1-MLC\",\"promptTokenCostPer1M\":0,\"provider\":\"webllm\",\"type\":\"text\"},{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"serviceTiers\":[],\"showThoughts\":false,\"structuredOutputs\":false,\"temperature\":true,\"thinkingBudget\":false,\"thinkingLevels\":[],\"topP\":true},\"completionTokenCostPer1M\":0,\"contextWindow\":128000,\"currency\":\"usd\",\"isDefault\":true,\"maxTokens\":2048,\"name\":\"Llama-3.2-3B-Instruct-q4f32_1-MLC\",\"promptTokenCostPer1M\":0,\"provider\":\"webllm\",\"type\":\"text\"},{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"serviceTiers\":[],\"showThoughts\":false,\"structuredOutputs\":false,\"temperature\":true,\"thinkingBudget\":false,\"thinkingLevels\":[],\"topP\":true},\"completionTokenCostPer1M\":0,\"contextWindow\":32768,\"currency\":\"usd\",\"isDefault\":false,\"maxTokens\":4096,\"name\":\"Mistral-7B-Instruct-v0.3-q4f32_1-MLC\",\"promptTokenCostPer1M\":0,\"provider\":\"webllm\",\"type\":\"text\"},{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"serviceTiers\":[],\"showThoughts\":false,\"structuredOutputs\":false,\"temperature\":true,\"thinkingBudget\":false,\"thinkingLevels\":[],\"topP\":true},\"completionTokenCostPer1M\":0,\"contextWindow\":128000,\"currency\":\"usd\",\"isDefault\":false,\"maxTokens\":4096,\"name\":\"Phi-3.5-mini-instruct-q4f32_1-MLC\",\"promptTokenCostPer1M\":0,\"provider\":\"webllm\",\"type\":\"text\"},{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"serviceTiers\":[],\"showThoughts\":false,\"structuredOutputs\":false,\"temperature\":true,\"thinkingBudget\":false,\"thinkingLevels\":[],\"topP\":true},\"completionTokenCostPer1M\":0,\"contextWindow\":32768,\"currency\":\"usd\",\"isDefault\":false,\"maxTokens\":2048,\"name\":\"Qwen2.5-0.5B-Instruct-q4f32_1-MLC\",\"promptTokenCostPer1M\":0,\"provider\":\"webllm\",\"type\":\"text\"},{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"serviceTiers\":[],\"showThoughts\":false,\"structuredOutputs\":false,\"temperature\":true,\"thinkingBudget\":false,\"thinkingLevels\":[],\"topP\":true},\"completionTokenCostPer1M\":0,\"contextWindow\":32768,\"currency\":\"usd\",\"isDefault\":false,\"maxTokens\":2048,\"name\":\"Qwen2.5-1.5B-Instruct-q4f32_1-MLC\",\"promptTokenCostPer1M\":0,\"provider\":\"webllm\",\"type\":\"text\"},{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"serviceTiers\":[],\"showThoughts\":false,\"structuredOutputs\":false,\"temperature\":true,\"thinkingBudget\":false,\"thinkingLevels\":[],\"topP\":true},\"completionTokenCostPer1M\":0,\"contextWindow\":32768,\"currency\":\"usd\",\"isDefault\":false,\"maxTokens\":2048,\"name\":\"Qwen2.5-3B-Instruct-q4f32_1-MLC\",\"promptTokenCostPer1M\":0,\"provider\":\"webllm\",\"type\":\"text\"},{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"serviceTiers\":[],\"showThoughts\":false,\"structuredOutputs\":false,\"temperature\":true,\"thinkingBudget\":false,\"thinkingLevels\":[],\"topP\":true},\"completionTokenCostPer1M\":0,\"contextWindow\":32768,\"currency\":\"usd\",\"isDefault\":false,\"maxTokens\":4096,\"name\":\"Qwen2.5-7B-Instruct-q4f32_1-MLC\",\"promptTokenCostPer1M\":0,\"provider\":\"webllm\",\"type\":\"text\"}],\"name\":\"webllm\"},{\"capabilities\":{\"serviceTiers\":[\"standard\",\"flex\",\"priority\"],\"thinking\":true,\"thinkingLevels\":[\"none\",\"minimal\",\"low\",\"medium\",\"high\",\"highest\"]},\"defaultEmbedModel\":\"text-embedding-3-small\",\"defaultModel\":\"gpt-5-mini\",\"displayName\":\"OpenAI\",\"isDynamic\":false,\"models\":[{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"serviceTiers\":[],\"showThoughts\":false,\"structuredOutputs\":false,\"temperature\":true,\"thinkingBudget\":false,\"thinkingLevels\":[],\"topP\":true},\"completionTokenCostPer1M\":0.02,\"currency\":\"usd\",\"isDefault\":true,\"name\":\"text-embedding-3-small\",\"promptTokenCostPer1M\":0.02,\"provider\":\"openai\",\"type\":\"embeddings\"},{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"serviceTiers\":[],\"showThoughts\":false,\"structuredOutputs\":false,\"temperature\":true,\"thinkingBudget\":false,\"thinkingLevels\":[],\"topP\":true},\"completionTokenCostPer1M\":0.1,\"currency\":\"usd\",\"isDefault\":false,\"name\":\"text-embedding-ada-002\",\"promptTokenCostPer1M\":0.1,\"provider\":\"openai\",\"type\":\"embeddings\"},{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"serviceTiers\":[],\"showThoughts\":false,\"structuredOutputs\":false,\"temperature\":true,\"thinkingBudget\":false,\"thinkingLevels\":[],\"topP\":true},\"completionTokenCostPer1M\":0.13,\"currency\":\"usd\",\"isDefault\":false,\"name\":\"text-embedding-3-large\",\"promptTokenCostPer1M\":0.13,\"provider\":\"openai\",\"type\":\"embeddings\"},{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"serviceTiers\":[\"standard\",\"flex\",\"priority\"],\"showThoughts\":false,\"structuredOutputs\":true,\"temperature\":false,\"thinkingBudget\":false,\"thinkingLevels\":[],\"topP\":false},\"completionTokenCostPer1M\":0.4,\"currency\":\"usd\",\"isDefault\":false,\"name\":\"gpt-5-nano\",\"notSupported\":{\"temperature\":true,\"topP\":true},\"promptTokenCostPer1M\":0.05,\"provider\":\"openai\",\"supported\":{\"structuredOutputs\":true},\"type\":\"text\"},{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"serviceTiers\":[\"standard\",\"flex\",\"priority\"],\"showThoughts\":false,\"structuredOutputs\":true,\"temperature\":true,\"thinkingBudget\":false,\"thinkingLevels\":[],\"topP\":true},\"completionTokenCostPer1M\":0.4,\"currency\":\"usd\",\"isDefault\":false,\"name\":\"gpt-4.1-nano\",\"promptTokenCostPer1M\":0.1,\"provider\":\"openai\",\"supported\":{\"structuredOutputs\":true},\"type\":\"text\"},{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"serviceTiers\":[\"standard\",\"flex\",\"priority\"],\"showThoughts\":false,\"structuredOutputs\":true,\"temperature\":true,\"thinkingBudget\":false,\"thinkingLevels\":[],\"topP\":true},\"completionTokenCostPer1M\":0.6,\"currency\":\"usd\",\"isDefault\":false,\"name\":\"gpt-4o-mini\",\"promptTokenCostPer1M\":0.15,\"provider\":\"openai\",\"supported\":{\"structuredOutputs\":true},\"type\":\"text\"},{\"cacheReadTokenCostPer1M\":0.02,\"cacheWriteTokenCostPer1M\":0.25,\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"serviceTiers\":[\"standard\",\"flex\",\"priority\"],\"showThoughts\":false,\"structuredOutputs\":true,\"temperature\":false,\"thinkingBudget\":true,\"thinkingLevels\":[\"none\",\"minimal\",\"low\",\"medium\",\"high\",\"highest\"],\"topP\":false},\"completionTokenCostPer1M\":1.2,\"contextWindow\":1050000,\"currency\":\"usd\",\"isDefault\":false,\"longContextCacheReadTokenCostPer1M\":0.04,\"longContextCompletionTokenCostPer1M\":1.8,\"longContextPromptTokenCostPer1M\":0.4,\"longContextThreshold\":272000,\"maxTokens\":128000,\"name\":\"gpt-5.6-luna\",\"notSupported\":{\"temperature\":true,\"topP\":true},\"promptTokenCostPer1M\":0.2,\"provider\":\"openai\",\"supported\":{\"structuredOutputs\":true,\"thinkingBudget\":true},\"type\":\"text\"},{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"serviceTiers\":[\"standard\",\"flex\",\"priority\"],\"showThoughts\":false,\"structuredOutputs\":true,\"temperature\":false,\"thinkingBudget\":false,\"thinkingLevels\":[],\"topP\":false},\"completionTokenCostPer1M\":1.25,\"currency\":\"usd\",\"isDefault\":false,\"name\":\"gpt-5.4-nano\",\"notSupported\":{\"temperature\":true,\"topP\":true},\"promptTokenCostPer1M\":0.2,\"provider\":\"openai\",\"supported\":{\"structuredOutputs\":true},\"type\":\"text\"},{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"serviceTiers\":[\"standard\",\"flex\",\"priority\"],\"showThoughts\":false,\"structuredOutputs\":false,\"temperature\":true,\"thinkingBudget\":false,\"thinkingLevels\":[],\"topP\":true},\"completionTokenCostPer1M\":1.5,\"currency\":\"usd\",\"isDefault\":false,\"name\":\"gpt-3.5-turbo\",\"promptTokenCostPer1M\":0.5,\"provider\":\"openai\",\"type\":\"text\"},{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"serviceTiers\":[\"standard\",\"flex\",\"priority\"],\"showThoughts\":false,\"structuredOutputs\":true,\"temperature\":true,\"thinkingBudget\":false,\"thinkingLevels\":[],\"topP\":true},\"completionTokenCostPer1M\":1.6,\"currency\":\"usd\",\"isDefault\":false,\"name\":\"gpt-4.1-mini\",\"promptTokenCostPer1M\":0.4,\"provider\":\"openai\",\"supported\":{\"structuredOutputs\":true},\"type\":\"text\"},{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"serviceTiers\":[\"standard\",\"flex\",\"priority\"],\"showThoughts\":false,\"structuredOutputs\":true,\"temperature\":false,\"thinkingBudget\":false,\"thinkingLevels\":[],\"topP\":false},\"completionTokenCostPer1M\":2,\"currency\":\"usd\",\"isDefault\":true,\"name\":\"gpt-5-mini\",\"notSupported\":{\"temperature\":true,\"topP\":true},\"promptTokenCostPer1M\":0.25,\"provider\":\"openai\",\"supported\":{\"structuredOutputs\":true},\"type\":\"text\"},{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"serviceTiers\":[\"standard\",\"flex\",\"priority\"],\"showThoughts\":false,\"structuredOutputs\":true,\"temperature\":false,\"thinkingBudget\":false,\"thinkingLevels\":[],\"topP\":false},\"completionTokenCostPer1M\":2,\"currency\":\"usd\",\"isDefault\":false,\"name\":\"gpt-5.1-codex-mini\",\"notSupported\":{\"temperature\":true,\"topP\":true},\"promptTokenCostPer1M\":0.25,\"provider\":\"openai\",\"supported\":{\"structuredOutputs\":true},\"type\":\"code\"},{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"serviceTiers\":[\"standard\",\"flex\",\"priority\"],\"showThoughts\":false,\"structuredOutputs\":true,\"temperature\":false,\"thinkingBudget\":false,\"thinkingLevels\":[],\"topP\":false},\"completionTokenCostPer1M\":4.5,\"currency\":\"usd\",\"isDefault\":false,\"name\":\"gpt-5.4-mini\",\"notSupported\":{\"temperature\":true,\"topP\":true},\"promptTokenCostPer1M\":0.75,\"provider\":\"openai\",\"supported\":{\"structuredOutputs\":true},\"type\":\"text\"},{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"serviceTiers\":[\"standard\",\"flex\",\"priority\"],\"showThoughts\":false,\"structuredOutputs\":true,\"temperature\":true,\"thinkingBudget\":false,\"thinkingLevels\":[],\"topP\":true},\"completionTokenCostPer1M\":4.4,\"currency\":\"usd\",\"isDefault\":false,\"name\":\"o1-mini\",\"promptTokenCostPer1M\":1.1,\"provider\":\"openai\",\"supported\":{\"structuredOutputs\":true},\"type\":\"text\"},{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"serviceTiers\":[\"standard\",\"flex\",\"priority\"],\"showThoughts\":false,\"structuredOutputs\":true,\"temperature\":true,\"thinkingBudget\":false,\"thinkingLevels\":[],\"topP\":true},\"completionTokenCostPer1M\":4.4,\"currency\":\"usd\",\"isDefault\":false,\"name\":\"o4-mini\",\"promptTokenCostPer1M\":1.1,\"provider\":\"openai\",\"supported\":{\"structuredOutputs\":true},\"type\":\"text\"},{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"serviceTiers\":[\"standard\",\"flex\",\"priority\"],\"showThoughts\":false,\"structuredOutputs\":true,\"temperature\":true,\"thinkingBudget\":false,\"thinkingLevels\":[],\"topP\":true},\"completionTokenCostPer1M\":8,\"currency\":\"usd\",\"isDefault\":false,\"name\":\"gpt-4.1\",\"promptTokenCostPer1M\":2,\"provider\":\"openai\",\"supported\":{\"structuredOutputs\":true},\"type\":\"text\"},{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"serviceTiers\":[\"standard\",\"flex\",\"priority\"],\"showThoughts\":false,\"structuredOutputs\":true,\"temperature\":true,\"thinkingBudget\":false,\"thinkingLevels\":[],\"topP\":true},\"completionTokenCostPer1M\":8,\"currency\":\"usd\",\"isDefault\":false,\"name\":\"o3\",\"promptTokenCostPer1M\":2,\"provider\":\"openai\",\"supported\":{\"structuredOutputs\":true},\"type\":\"text\"},{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"serviceTiers\":[\"standard\",\"flex\",\"priority\"],\"showThoughts\":false,\"structuredOutputs\":true,\"temperature\":false,\"thinkingBudget\":false,\"thinkingLevels\":[],\"topP\":false},\"completionTokenCostPer1M\":10,\"currency\":\"usd\",\"isDefault\":false,\"name\":\"gpt-5\",\"notSupported\":{\"temperature\":true,\"topP\":true},\"promptTokenCostPer1M\":1.25,\"provider\":\"openai\",\"supported\":{\"structuredOutputs\":true},\"type\":\"text\"},{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"serviceTiers\":[\"standard\",\"flex\",\"priority\"],\"showThoughts\":false,\"structuredOutputs\":true,\"temperature\":false,\"thinkingBudget\":false,\"thinkingLevels\":[],\"topP\":false},\"completionTokenCostPer1M\":10,\"currency\":\"usd\",\"isDefault\":false,\"name\":\"gpt-5-chat\",\"notSupported\":{\"temperature\":true,\"topP\":true},\"promptTokenCostPer1M\":1.25,\"provider\":\"openai\",\"supported\":{\"structuredOutputs\":true},\"type\":\"text\"},{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"serviceTiers\":[\"standard\",\"flex\",\"priority\"],\"showThoughts\":false,\"structuredOutputs\":true,\"temperature\":false,\"thinkingBudget\":false,\"thinkingLevels\":[],\"topP\":false},\"completionTokenCostPer1M\":10,\"currency\":\"usd\",\"isDefault\":false,\"name\":\"gpt-5-chat-latest\",\"notSupported\":{\"temperature\":true,\"topP\":true},\"promptTokenCostPer1M\":1.25,\"provider\":\"openai\",\"supported\":{\"structuredOutputs\":true},\"type\":\"text\"},{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"serviceTiers\":[\"standard\",\"flex\",\"priority\"],\"showThoughts\":false,\"structuredOutputs\":true,\"temperature\":false,\"thinkingBudget\":false,\"thinkingLevels\":[],\"topP\":false},\"completionTokenCostPer1M\":10,\"currency\":\"usd\",\"isDefault\":false,\"name\":\"gpt-5-codex\",\"notSupported\":{\"temperature\":true,\"topP\":true},\"promptTokenCostPer1M\":1.25,\"provider\":\"openai\",\"supported\":{\"structuredOutputs\":true},\"type\":\"code\"},{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"serviceTiers\":[\"standard\",\"flex\",\"priority\"],\"showThoughts\":false,\"structuredOutputs\":true,\"temperature\":false,\"thinkingBudget\":false,\"thinkingLevels\":[],\"topP\":false},\"completionTokenCostPer1M\":10,\"currency\":\"usd\",\"isDefault\":false,\"name\":\"gpt-5.1\",\"notSupported\":{\"temperature\":true,\"topP\":true},\"promptTokenCostPer1M\":1.25,\"provider\":\"openai\",\"supported\":{\"structuredOutputs\":true},\"type\":\"text\"},{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"serviceTiers\":[\"standard\",\"flex\",\"priority\"],\"showThoughts\":false,\"structuredOutputs\":true,\"temperature\":false,\"thinkingBudget\":false,\"thinkingLevels\":[],\"topP\":false},\"completionTokenCostPer1M\":10,\"currency\":\"usd\",\"isDefault\":false,\"name\":\"gpt-5.1-chat-latest\",\"notSupported\":{\"temperature\":true,\"topP\":true},\"promptTokenCostPer1M\":1.25,\"provider\":\"openai\",\"supported\":{\"structuredOutputs\":true},\"type\":\"text\"},{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"serviceTiers\":[\"standard\",\"flex\",\"priority\"],\"showThoughts\":false,\"structuredOutputs\":true,\"temperature\":false,\"thinkingBudget\":false,\"thinkingLevels\":[],\"topP\":false},\"completionTokenCostPer1M\":10,\"currency\":\"usd\",\"isDefault\":false,\"name\":\"gpt-5.1-codex\",\"notSupported\":{\"temperature\":true,\"topP\":true},\"promptTokenCostPer1M\":1.25,\"provider\":\"openai\",\"supported\":{\"structuredOutputs\":true},\"type\":\"code\"},{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"serviceTiers\":[\"standard\",\"flex\",\"priority\"],\"showThoughts\":false,\"structuredOutputs\":true,\"temperature\":false,\"thinkingBudget\":false,\"thinkingLevels\":[],\"topP\":false},\"completionTokenCostPer1M\":10,\"currency\":\"usd\",\"isDefault\":false,\"name\":\"gpt-5.1-codex-max\",\"notSupported\":{\"temperature\":true,\"topP\":true},\"promptTokenCostPer1M\":1.25,\"provider\":\"openai\",\"supported\":{\"structuredOutputs\":true},\"type\":\"code\"},{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"serviceTiers\":[\"standard\",\"flex\",\"priority\"],\"showThoughts\":false,\"structuredOutputs\":true,\"temperature\":true,\"thinkingBudget\":false,\"thinkingLevels\":[],\"topP\":true},\"completionTokenCostPer1M\":10,\"currency\":\"usd\",\"isDefault\":false,\"name\":\"gpt-4o\",\"promptTokenCostPer1M\":2.5,\"provider\":\"openai\",\"supported\":{\"structuredOutputs\":true},\"type\":\"text\"},{\"cacheReadTokenCostPer1M\":0.2,\"cacheWriteTokenCostPer1M\":2.5,\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"serviceTiers\":[\"standard\",\"flex\",\"priority\"],\"showThoughts\":false,\"structuredOutputs\":true,\"temperature\":false,\"thinkingBudget\":true,\"thinkingLevels\":[\"none\",\"minimal\",\"low\",\"medium\",\"high\",\"highest\"],\"topP\":false},\"completionTokenCostPer1M\":12,\"contextWindow\":1050000,\"currency\":\"usd\",\"isDefault\":false,\"longContextCacheReadTokenCostPer1M\":0.4,\"longContextCompletionTokenCostPer1M\":18,\"longContextPromptTokenCostPer1M\":4,\"longContextThreshold\":272000,\"maxTokens\":128000,\"name\":\"gpt-5.6-terra\",\"notSupported\":{\"temperature\":true,\"topP\":true},\"promptTokenCostPer1M\":2,\"provider\":\"openai\",\"supported\":{\"structuredOutputs\":true,\"thinkingBudget\":true},\"type\":\"text\"},{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"serviceTiers\":[\"standard\",\"flex\",\"priority\"],\"showThoughts\":false,\"structuredOutputs\":true,\"temperature\":false,\"thinkingBudget\":false,\"thinkingLevels\":[],\"topP\":false},\"completionTokenCostPer1M\":14,\"currency\":\"usd\",\"isDefault\":false,\"name\":\"gpt-5.2\",\"notSupported\":{\"temperature\":true,\"topP\":true},\"promptTokenCostPer1M\":1.75,\"provider\":\"openai\",\"supported\":{\"structuredOutputs\":true},\"type\":\"text\"},{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"serviceTiers\":[\"standard\",\"flex\",\"priority\"],\"showThoughts\":false,\"structuredOutputs\":true,\"temperature\":false,\"thinkingBudget\":false,\"thinkingLevels\":[],\"topP\":false},\"completionTokenCostPer1M\":14,\"currency\":\"usd\",\"isDefault\":false,\"name\":\"gpt-5.2-chat-latest\",\"notSupported\":{\"temperature\":true,\"topP\":true},\"promptTokenCostPer1M\":1.75,\"provider\":\"openai\",\"supported\":{\"structuredOutputs\":true},\"type\":\"text\"},{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"serviceTiers\":[\"standard\",\"flex\",\"priority\"],\"showThoughts\":false,\"structuredOutputs\":true,\"temperature\":false,\"thinkingBudget\":false,\"thinkingLevels\":[],\"topP\":false},\"completionTokenCostPer1M\":14,\"currency\":\"usd\",\"isDefault\":false,\"name\":\"gpt-5.2-codex\",\"notSupported\":{\"temperature\":true,\"topP\":true},\"promptTokenCostPer1M\":1.75,\"provider\":\"openai\",\"supported\":{\"structuredOutputs\":true},\"type\":\"code\"},{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"serviceTiers\":[\"standard\",\"flex\",\"priority\"],\"showThoughts\":false,\"structuredOutputs\":true,\"temperature\":false,\"thinkingBudget\":false,\"thinkingLevels\":[],\"topP\":false},\"completionTokenCostPer1M\":15,\"currency\":\"usd\",\"isDefault\":false,\"name\":\"gpt-5.4\",\"notSupported\":{\"temperature\":true,\"topP\":true},\"promptTokenCostPer1M\":2.5,\"provider\":\"openai\",\"supported\":{\"structuredOutputs\":true},\"type\":\"text\"},{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"serviceTiers\":[\"standard\",\"flex\",\"priority\"],\"showThoughts\":false,\"structuredOutputs\":true,\"temperature\":true,\"thinkingBudget\":false,\"thinkingLevels\":[],\"topP\":true},\"completionTokenCostPer1M\":15,\"currency\":\"usd\",\"isDefault\":false,\"name\":\"chatgpt-4o-latest\",\"promptTokenCostPer1M\":5,\"provider\":\"openai\",\"supported\":{\"structuredOutputs\":true},\"type\":\"text\"},{\"cacheReadTokenCostPer1M\":0.5,\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"serviceTiers\":[\"standard\",\"flex\",\"priority\"],\"showThoughts\":false,\"structuredOutputs\":true,\"temperature\":false,\"thinkingBudget\":true,\"thinkingLevels\":[\"none\",\"minimal\",\"low\",\"medium\",\"high\",\"highest\"],\"topP\":false},\"completionTokenCostPer1M\":30,\"contextWindow\":1000000,\"currency\":\"usd\",\"isDefault\":false,\"longContextCacheReadTokenCostPer1M\":1,\"longContextCompletionTokenCostPer1M\":45,\"longContextPromptTokenCostPer1M\":10,\"longContextThreshold\":272000,\"name\":\"gpt-5.5\",\"notSupported\":{\"temperature\":true,\"topP\":true},\"promptTokenCostPer1M\":5,\"provider\":\"openai\",\"supported\":{\"structuredOutputs\":true,\"thinkingBudget\":true},\"type\":\"text\"},{\"aliases\":[\"gpt-5.6\"],\"cacheReadTokenCostPer1M\":0.5,\"cacheWriteTokenCostPer1M\":6.25,\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"serviceTiers\":[\"standard\",\"flex\",\"priority\"],\"showThoughts\":false,\"structuredOutputs\":true,\"temperature\":false,\"thinkingBudget\":true,\"thinkingLevels\":[\"none\",\"minimal\",\"low\",\"medium\",\"high\",\"highest\"],\"topP\":false},\"completionTokenCostPer1M\":30,\"contextWindow\":1050000,\"currency\":\"usd\",\"isDefault\":false,\"longContextCacheReadTokenCostPer1M\":1,\"longContextCompletionTokenCostPer1M\":45,\"longContextPromptTokenCostPer1M\":10,\"longContextThreshold\":272000,\"maxTokens\":128000,\"name\":\"gpt-5.6-sol\",\"notSupported\":{\"temperature\":true,\"topP\":true},\"promptTokenCostPer1M\":5,\"provider\":\"openai\",\"supported\":{\"structuredOutputs\":true,\"thinkingBudget\":true},\"type\":\"text\"},{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"serviceTiers\":[\"standard\",\"flex\",\"priority\"],\"showThoughts\":false,\"structuredOutputs\":true,\"temperature\":true,\"thinkingBudget\":false,\"thinkingLevels\":[],\"topP\":true},\"completionTokenCostPer1M\":30,\"currency\":\"usd\",\"isDefault\":false,\"name\":\"gpt-4-turbo\",\"promptTokenCostPer1M\":10,\"provider\":\"openai\",\"supported\":{\"structuredOutputs\":true},\"type\":\"text\"},{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"serviceTiers\":[\"standard\",\"flex\",\"priority\"],\"showThoughts\":false,\"structuredOutputs\":true,\"temperature\":true,\"thinkingBudget\":false,\"thinkingLevels\":[],\"topP\":true},\"completionTokenCostPer1M\":60,\"currency\":\"usd\",\"isDefault\":false,\"name\":\"o1\",\"promptTokenCostPer1M\":15,\"provider\":\"openai\",\"supported\":{\"structuredOutputs\":true},\"type\":\"text\"},{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"serviceTiers\":[\"standard\",\"flex\",\"priority\"],\"showThoughts\":false,\"structuredOutputs\":false,\"temperature\":true,\"thinkingBudget\":false,\"thinkingLevels\":[],\"topP\":true},\"completionTokenCostPer1M\":60,\"currency\":\"usd\",\"isDefault\":false,\"name\":\"gpt-4\",\"promptTokenCostPer1M\":30,\"provider\":\"openai\",\"type\":\"text\"},{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"serviceTiers\":[\"standard\",\"flex\",\"priority\"],\"showThoughts\":false,\"structuredOutputs\":true,\"temperature\":false,\"thinkingBudget\":false,\"thinkingLevels\":[],\"topP\":false},\"completionTokenCostPer1M\":120,\"currency\":\"usd\",\"isDefault\":false,\"name\":\"gpt-5-pro\",\"notSupported\":{\"temperature\":true,\"topP\":true},\"promptTokenCostPer1M\":15,\"provider\":\"openai\",\"supported\":{\"structuredOutputs\":true},\"type\":\"text\"},{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"serviceTiers\":[\"standard\",\"flex\",\"priority\"],\"showThoughts\":false,\"structuredOutputs\":true,\"temperature\":false,\"thinkingBudget\":false,\"thinkingLevels\":[],\"topP\":false},\"completionTokenCostPer1M\":168,\"currency\":\"usd\",\"isDefault\":false,\"name\":\"gpt-5.2-pro\",\"notSupported\":{\"temperature\":true,\"topP\":true},\"promptTokenCostPer1M\":21,\"provider\":\"openai\",\"supported\":{\"structuredOutputs\":true},\"type\":\"text\"},{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"serviceTiers\":[\"standard\",\"flex\",\"priority\"],\"showThoughts\":false,\"structuredOutputs\":true,\"temperature\":false,\"thinkingBudget\":true,\"thinkingLevels\":[\"none\",\"minimal\",\"low\",\"medium\",\"high\",\"highest\"],\"topP\":false},\"completionTokenCostPer1M\":180,\"contextWindow\":1000000,\"currency\":\"usd\",\"isDefault\":false,\"isExpensive\":true,\"longContextCompletionTokenCostPer1M\":270,\"longContextPromptTokenCostPer1M\":60,\"longContextThreshold\":272000,\"name\":\"gpt-5.5-pro\",\"notSupported\":{\"temperature\":true,\"topP\":true},\"promptTokenCostPer1M\":30,\"provider\":\"openai\",\"supported\":{\"structuredOutputs\":true,\"thinkingBudget\":true},\"type\":\"text\"},{\"audio\":{\"input\":true,\"output\":true},\"capabilities\":{\"audioInput\":true,\"audioOutput\":true,\"serviceTiers\":[\"standard\",\"flex\",\"priority\"],\"showThoughts\":false,\"structuredOutputs\":false,\"temperature\":true,\"thinkingBudget\":false,\"thinkingLevels\":[],\"topP\":true},\"isDefault\":false,\"name\":\"gpt-audio\",\"provider\":\"openai\",\"type\":\"audio\"},{\"audio\":{\"input\":true,\"output\":true},\"capabilities\":{\"audioInput\":true,\"audioOutput\":true,\"serviceTiers\":[\"standard\",\"flex\",\"priority\"],\"showThoughts\":false,\"structuredOutputs\":false,\"temperature\":true,\"thinkingBudget\":false,\"thinkingLevels\":[],\"topP\":true},\"isDefault\":false,\"name\":\"gpt-audio-mini\",\"provider\":\"openai\",\"type\":\"audio\"},{\"audio\":{\"input\":true,\"output\":true},\"capabilities\":{\"audioInput\":true,\"audioOutput\":true,\"serviceTiers\":[\"standard\",\"flex\",\"priority\"],\"showThoughts\":false,\"structuredOutputs\":false,\"temperature\":true,\"thinkingBudget\":false,\"thinkingLevels\":[],\"topP\":true},\"isDefault\":false,\"name\":\"gpt-audio-1.5\",\"provider\":\"openai\",\"type\":\"audio\"},{\"audio\":{\"input\":true,\"output\":true},\"capabilities\":{\"audioInput\":true,\"audioOutput\":true,\"serviceTiers\":[],\"showThoughts\":false,\"structuredOutputs\":false,\"temperature\":true,\"thinkingBudget\":false,\"thinkingLevels\":[],\"topP\":true},\"isDefault\":false,\"name\":\"gpt-realtime-1.5\",\"provider\":\"openai\",\"type\":\"audio\"},{\"audio\":{\"input\":true,\"output\":true},\"capabilities\":{\"audioInput\":true,\"audioOutput\":true,\"serviceTiers\":[],\"showThoughts\":false,\"structuredOutputs\":false,\"temperature\":true,\"thinkingBudget\":true,\"thinkingLevels\":[\"none\",\"minimal\",\"low\",\"medium\",\"high\",\"highest\"],\"topP\":true},\"isDefault\":false,\"name\":\"gpt-realtime-2\",\"provider\":\"openai\",\"supported\":{\"thinkingBudget\":true},\"type\":\"audio\"},{\"audio\":{\"input\":true,\"output\":false},\"capabilities\":{\"audioInput\":true,\"audioOutput\":false,\"serviceTiers\":[],\"showThoughts\":false,\"structuredOutputs\":false,\"temperature\":true,\"thinkingBudget\":false,\"thinkingLevels\":[],\"topP\":true},\"isDefault\":false,\"name\":\"gpt-realtime-whisper\",\"provider\":\"openai\",\"type\":\"audio\"},{\"audio\":{\"input\":true,\"output\":true},\"capabilities\":{\"audioInput\":true,\"audioOutput\":true,\"serviceTiers\":[],\"showThoughts\":false,\"structuredOutputs\":false,\"temperature\":true,\"thinkingBudget\":false,\"thinkingLevels\":[],\"topP\":true},\"isDefault\":false,\"name\":\"gpt-realtime-translate\",\"provider\":\"openai\",\"type\":\"audio\"}],\"name\":\"openai\"},{\"capabilities\":{\"serviceTiers\":[],\"thinking\":false,\"thinkingLevels\":[]},\"defaultModel\":\"command-r-plus\",\"displayName\":\"Cohere\",\"isDynamic\":false,\"models\":[{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"serviceTiers\":[],\"showThoughts\":false,\"structuredOutputs\":false,\"temperature\":true,\"thinkingBudget\":false,\"thinkingLevels\":[],\"topP\":true},\"completionTokenCostPer1M\":0.1,\"currency\":\"usd\",\"isDefault\":false,\"name\":\"embed-english-light-v3.0\",\"promptTokenCostPer1M\":0.1,\"provider\":\"cohere\",\"type\":\"embeddings\"},{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"serviceTiers\":[],\"showThoughts\":false,\"structuredOutputs\":false,\"temperature\":true,\"thinkingBudget\":false,\"thinkingLevels\":[],\"topP\":true},\"completionTokenCostPer1M\":0.1,\"currency\":\"usd\",\"isDefault\":false,\"name\":\"embed-english-v3.0\",\"promptTokenCostPer1M\":0.1,\"provider\":\"cohere\",\"type\":\"embeddings\"},{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"serviceTiers\":[],\"showThoughts\":false,\"structuredOutputs\":false,\"temperature\":true,\"thinkingBudget\":false,\"thinkingLevels\":[],\"topP\":true},\"completionTokenCostPer1M\":0.1,\"currency\":\"usd\",\"isDefault\":false,\"name\":\"embed-multilingual-light-v3.0\",\"promptTokenCostPer1M\":0.1,\"provider\":\"cohere\",\"type\":\"embeddings\"},{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"serviceTiers\":[],\"showThoughts\":false,\"structuredOutputs\":false,\"temperature\":true,\"thinkingBudget\":false,\"thinkingLevels\":[],\"topP\":true},\"completionTokenCostPer1M\":0.1,\"currency\":\"usd\",\"isDefault\":false,\"name\":\"embed-multilingual-v3.0\",\"promptTokenCostPer1M\":0.1,\"provider\":\"cohere\",\"type\":\"embeddings\"},{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"serviceTiers\":[],\"showThoughts\":false,\"structuredOutputs\":false,\"temperature\":true,\"thinkingBudget\":false,\"thinkingLevels\":[],\"topP\":true},\"completionTokenCostPer1M\":0.6,\"currency\":\"usd\",\"isDefault\":false,\"name\":\"command-light\",\"promptTokenCostPer1M\":0.3,\"provider\":\"cohere\",\"type\":\"text\"},{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"serviceTiers\":[],\"showThoughts\":false,\"structuredOutputs\":false,\"temperature\":true,\"thinkingBudget\":false,\"thinkingLevels\":[],\"topP\":true},\"completionTokenCostPer1M\":1.5,\"currency\":\"usd\",\"isDefault\":false,\"name\":\"command\",\"promptTokenCostPer1M\":0.5,\"provider\":\"cohere\",\"type\":\"text\"},{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"serviceTiers\":[],\"showThoughts\":false,\"structuredOutputs\":false,\"temperature\":true,\"thinkingBudget\":false,\"thinkingLevels\":[],\"topP\":true},\"completionTokenCostPer1M\":1.5,\"currency\":\"usd\",\"isDefault\":false,\"name\":\"command-r\",\"promptTokenCostPer1M\":0.5,\"provider\":\"cohere\",\"type\":\"text\"},{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"serviceTiers\":[],\"showThoughts\":false,\"structuredOutputs\":false,\"temperature\":true,\"thinkingBudget\":false,\"thinkingLevels\":[],\"topP\":true},\"completionTokenCostPer1M\":15,\"currency\":\"usd\",\"isDefault\":true,\"name\":\"command-r-plus\",\"promptTokenCostPer1M\":3,\"provider\":\"cohere\",\"type\":\"text\"}],\"name\":\"cohere\"},{\"capabilities\":{\"serviceTiers\":[\"standard\",\"priority\"],\"thinking\":false,\"thinkingLevels\":[]},\"defaultModel\":\"mistral-small-latest\",\"displayName\":\"Mistral AI\",\"isDynamic\":false,\"models\":[{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"serviceTiers\":[\"standard\",\"priority\"],\"showThoughts\":false,\"structuredOutputs\":false,\"temperature\":true,\"thinkingBudget\":false,\"thinkingLevels\":[],\"topP\":true},\"completionTokenCostPer1M\":0.15,\"currency\":\"USD\",\"isDefault\":false,\"name\":\"mistral-nemo-latest\",\"promptTokenCostPer1M\":0.15,\"provider\":\"mistral\",\"type\":\"text\"},{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"serviceTiers\":[\"standard\",\"priority\"],\"showThoughts\":false,\"structuredOutputs\":false,\"temperature\":true,\"thinkingBudget\":false,\"thinkingLevels\":[],\"topP\":true},\"completionTokenCostPer1M\":0.25,\"currency\":\"USD\",\"isDefault\":false,\"name\":\"open-codestral-mamba\",\"promptTokenCostPer1M\":0.25,\"provider\":\"mistral\",\"type\":\"code\"},{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"serviceTiers\":[\"standard\",\"priority\"],\"showThoughts\":false,\"structuredOutputs\":false,\"temperature\":true,\"thinkingBudget\":false,\"thinkingLevels\":[],\"topP\":true},\"completionTokenCostPer1M\":0.25,\"currency\":\"USD\",\"isDefault\":false,\"name\":\"open-mistral-7b\",\"promptTokenCostPer1M\":0.25,\"provider\":\"mistral\",\"type\":\"text\"},{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"serviceTiers\":[\"standard\",\"priority\"],\"showThoughts\":false,\"structuredOutputs\":false,\"temperature\":true,\"thinkingBudget\":false,\"thinkingLevels\":[],\"topP\":true},\"completionTokenCostPer1M\":0.3,\"currency\":\"USD\",\"isDefault\":false,\"name\":\"open-mistral-nemo-latest\",\"promptTokenCostPer1M\":0.3,\"provider\":\"mistral\",\"type\":\"text\"},{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"serviceTiers\":[\"standard\",\"priority\"],\"showThoughts\":false,\"structuredOutputs\":false,\"temperature\":true,\"thinkingBudget\":false,\"thinkingLevels\":[],\"topP\":true},\"completionTokenCostPer1M\":0.6,\"currency\":\"USD\",\"isDefault\":false,\"name\":\"codestral-latest\",\"promptTokenCostPer1M\":0.2,\"provider\":\"mistral\",\"type\":\"code\"},{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"serviceTiers\":[\"standard\",\"priority\"],\"showThoughts\":false,\"structuredOutputs\":false,\"temperature\":true,\"thinkingBudget\":false,\"thinkingLevels\":[],\"topP\":true},\"completionTokenCostPer1M\":0.6,\"currency\":\"USD\",\"isDefault\":true,\"name\":\"mistral-small-latest\",\"promptTokenCostPer1M\":0.2,\"provider\":\"mistral\",\"type\":\"text\"},{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"serviceTiers\":[\"standard\",\"priority\"],\"showThoughts\":false,\"structuredOutputs\":false,\"temperature\":true,\"thinkingBudget\":false,\"thinkingLevels\":[],\"topP\":true},\"completionTokenCostPer1M\":0.7,\"currency\":\"USD\",\"isDefault\":false,\"name\":\"open-mixtral-8x7b\",\"promptTokenCostPer1M\":0.7,\"provider\":\"mistral\",\"type\":\"text\"},{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"serviceTiers\":[\"standard\",\"priority\"],\"showThoughts\":false,\"structuredOutputs\":false,\"temperature\":true,\"thinkingBudget\":false,\"thinkingLevels\":[],\"topP\":true},\"completionTokenCostPer1M\":6,\"currency\":\"USD\",\"isDefault\":false,\"name\":\"mistral-large-latest\",\"promptTokenCostPer1M\":2,\"provider\":\"mistral\",\"type\":\"text\"}],\"name\":\"mistral\"},{\"capabilities\":{\"serviceTiers\":[],\"thinking\":true,\"thinkingLevels\":[\"none\",\"minimal\",\"low\",\"medium\",\"high\",\"highest\"]},\"defaultModel\":\"deepseek-v4-flash\",\"displayName\":\"DeepSeek\",\"isDynamic\":false,\"models\":[{\"aliases\":[\"deepseek-chat\",\"deepseek-reasoner\"],\"cacheReadTokenCostPer1M\":0.0028,\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"serviceTiers\":[],\"showThoughts\":true,\"structuredOutputs\":false,\"temperature\":true,\"thinkingBudget\":true,\"thinkingLevels\":[\"none\",\"minimal\",\"low\",\"medium\",\"high\",\"highest\"],\"topP\":true},\"completionTokenCostPer1M\":0.28,\"contextWindow\":1000000,\"currency\":\"USD\",\"isDefault\":true,\"maxTokens\":384000,\"name\":\"deepseek-v4-flash\",\"promptTokenCostPer1M\":0.14,\"provider\":\"deepseek\",\"supported\":{\"showThoughts\":true,\"structuredOutputs\":false,\"thinkingBudget\":true},\"type\":\"text\"},{\"cacheReadTokenCostPer1M\":0.003625,\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"serviceTiers\":[],\"showThoughts\":true,\"structuredOutputs\":false,\"temperature\":true,\"thinkingBudget\":true,\"thinkingLevels\":[\"none\",\"minimal\",\"low\",\"medium\",\"high\",\"highest\"],\"topP\":true},\"completionTokenCostPer1M\":0.87,\"contextWindow\":1000000,\"currency\":\"USD\",\"isDefault\":false,\"maxTokens\":384000,\"name\":\"deepseek-v4-pro\",\"promptTokenCostPer1M\":0.435,\"provider\":\"deepseek\",\"supported\":{\"showThoughts\":true,\"structuredOutputs\":false,\"thinkingBudget\":true},\"type\":\"text\"}],\"name\":\"deepseek\"},{\"capabilities\":{\"serviceTiers\":[],\"thinking\":true,\"thinkingLevels\":[\"none\",\"minimal\",\"low\",\"medium\",\"high\",\"highest\"]},\"defaultModel\":\"deepseek-v4-flash\",\"displayName\":\"DeepSeek Responses\",\"isDynamic\":false,\"models\":[{\"aliases\":[\"deepseek-chat\",\"deepseek-reasoner\"],\"cacheReadTokenCostPer1M\":0.0028,\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"serviceTiers\":[],\"showThoughts\":true,\"structuredOutputs\":false,\"temperature\":true,\"thinkingBudget\":true,\"thinkingLevels\":[\"none\",\"minimal\",\"low\",\"medium\",\"high\",\"highest\"],\"topP\":true},\"completionTokenCostPer1M\":0.28,\"contextWindow\":1000000,\"currency\":\"USD\",\"isDefault\":true,\"maxTokens\":384000,\"name\":\"deepseek-v4-flash\",\"promptTokenCostPer1M\":0.14,\"provider\":\"deepseek-responses\",\"supported\":{\"showThoughts\":true,\"structuredOutputs\":false,\"thinkingBudget\":true},\"type\":\"text\"},{\"cacheReadTokenCostPer1M\":0.003625,\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"serviceTiers\":[],\"showThoughts\":true,\"structuredOutputs\":false,\"temperature\":true,\"thinkingBudget\":true,\"thinkingLevels\":[\"none\",\"minimal\",\"low\",\"medium\",\"high\",\"highest\"],\"topP\":true},\"completionTokenCostPer1M\":0.87,\"contextWindow\":1000000,\"currency\":\"USD\",\"isDefault\":false,\"maxTokens\":384000,\"name\":\"deepseek-v4-pro\",\"promptTokenCostPer1M\":0.435,\"provider\":\"deepseek-responses\",\"supported\":{\"showThoughts\":true,\"structuredOutputs\":false,\"thinkingBudget\":true},\"type\":\"text\"}],\"name\":\"deepseek-responses\"},{\"capabilities\":{\"serviceTiers\":[\"standard\",\"flex\",\"priority\"],\"thinking\":true,\"thinkingLevels\":[\"none\",\"minimal\",\"low\",\"medium\",\"high\",\"highest\"]},\"defaultEmbedModel\":\"text-embedding-ada-002\",\"defaultModel\":\"gpt-4o\",\"displayName\":\"OpenAI Responses\",\"isDynamic\":false,\"models\":[{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"serviceTiers\":[\"standard\",\"flex\",\"priority\"],\"showThoughts\":true,\"structuredOutputs\":true,\"temperature\":false,\"thinkingBudget\":true,\"thinkingLevels\":[\"none\",\"minimal\",\"low\",\"medium\",\"high\",\"highest\"],\"topP\":false},\"completionTokenCostPer1M\":0.4,\"currency\":\"usd\",\"isDefault\":false,\"name\":\"gpt-5-nano\",\"notSupported\":{\"temperature\":true,\"topP\":true},\"promptTokenCostPer1M\":0.05,\"provider\":\"openai-responses\",\"supported\":{\"showThoughts\":true,\"structuredOutputs\":true,\"thinkingBudget\":true},\"type\":\"text\"},{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"serviceTiers\":[\"standard\",\"flex\",\"priority\"],\"showThoughts\":false,\"structuredOutputs\":true,\"temperature\":true,\"thinkingBudget\":false,\"thinkingLevels\":[],\"topP\":true},\"completionTokenCostPer1M\":0.4,\"currency\":\"usd\",\"isDefault\":false,\"name\":\"gpt-4.1-nano\",\"promptTokenCostPer1M\":0.1,\"provider\":\"openai-responses\",\"supported\":{\"structuredOutputs\":true},\"type\":\"text\"},{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"serviceTiers\":[\"standard\",\"flex\",\"priority\"],\"showThoughts\":false,\"structuredOutputs\":true,\"temperature\":true,\"thinkingBudget\":false,\"thinkingLevels\":[],\"topP\":true},\"completionTokenCostPer1M\":0.6,\"currency\":\"usd\",\"isDefault\":false,\"name\":\"gpt-4o-mini\",\"promptTokenCostPer1M\":0.15,\"provider\":\"openai-responses\",\"supported\":{\"structuredOutputs\":true},\"type\":\"text\"},{\"cacheReadTokenCostPer1M\":0.02,\"cacheWriteTokenCostPer1M\":0.25,\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"serviceTiers\":[\"standard\",\"flex\",\"priority\"],\"showThoughts\":true,\"structuredOutputs\":true,\"temperature\":false,\"thinkingBudget\":true,\"thinkingLevels\":[\"none\",\"minimal\",\"low\",\"medium\",\"high\",\"highest\"],\"topP\":false},\"completionTokenCostPer1M\":1.2,\"contextWindow\":1050000,\"currency\":\"usd\",\"isDefault\":false,\"longContextCacheReadTokenCostPer1M\":0.04,\"longContextCompletionTokenCostPer1M\":1.8,\"longContextPromptTokenCostPer1M\":0.4,\"longContextThreshold\":272000,\"maxTokens\":128000,\"name\":\"gpt-5.6-luna\",\"notSupported\":{\"temperature\":true,\"topP\":true},\"promptTokenCostPer1M\":0.2,\"provider\":\"openai-responses\",\"supported\":{\"showThoughts\":true,\"structuredOutputs\":true,\"thinkingBudget\":true},\"type\":\"text\"},{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"serviceTiers\":[\"standard\",\"flex\",\"priority\"],\"showThoughts\":true,\"structuredOutputs\":true,\"temperature\":false,\"thinkingBudget\":true,\"thinkingLevels\":[\"none\",\"minimal\",\"low\",\"medium\",\"high\",\"highest\"],\"topP\":false},\"completionTokenCostPer1M\":1.25,\"currency\":\"usd\",\"isDefault\":false,\"name\":\"gpt-5.4-nano\",\"notSupported\":{\"temperature\":true,\"topP\":true},\"promptTokenCostPer1M\":0.2,\"provider\":\"openai-responses\",\"supported\":{\"showThoughts\":true,\"structuredOutputs\":true,\"thinkingBudget\":true},\"type\":\"text\"},{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"serviceTiers\":[\"standard\",\"flex\",\"priority\"],\"showThoughts\":false,\"structuredOutputs\":false,\"temperature\":true,\"thinkingBudget\":false,\"thinkingLevels\":[],\"topP\":true},\"completionTokenCostPer1M\":1.5,\"currency\":\"usd\",\"isDefault\":false,\"name\":\"gpt-3.5-turbo\",\"promptTokenCostPer1M\":0.5,\"provider\":\"openai-responses\",\"type\":\"text\"},{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"serviceTiers\":[\"standard\",\"flex\",\"priority\"],\"showThoughts\":false,\"structuredOutputs\":true,\"temperature\":true,\"thinkingBudget\":false,\"thinkingLevels\":[],\"topP\":true},\"completionTokenCostPer1M\":1.6,\"currency\":\"usd\",\"isDefault\":false,\"name\":\"gpt-4.1-mini\",\"promptTokenCostPer1M\":0.4,\"provider\":\"openai-responses\",\"supported\":{\"structuredOutputs\":true},\"type\":\"text\"},{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"serviceTiers\":[\"standard\",\"flex\",\"priority\"],\"showThoughts\":true,\"structuredOutputs\":true,\"temperature\":false,\"thinkingBudget\":true,\"thinkingLevels\":[\"none\",\"minimal\",\"low\",\"medium\",\"high\",\"highest\"],\"topP\":false},\"completionTokenCostPer1M\":2,\"currency\":\"usd\",\"isDefault\":false,\"name\":\"gpt-5-mini\",\"notSupported\":{\"temperature\":true,\"topP\":true},\"promptTokenCostPer1M\":0.25,\"provider\":\"openai-responses\",\"supported\":{\"showThoughts\":true,\"structuredOutputs\":true,\"thinkingBudget\":true},\"type\":\"text\"},{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"serviceTiers\":[\"standard\",\"flex\",\"priority\"],\"showThoughts\":true,\"structuredOutputs\":true,\"temperature\":false,\"thinkingBudget\":true,\"thinkingLevels\":[\"none\",\"minimal\",\"low\",\"medium\",\"high\",\"highest\"],\"topP\":false},\"completionTokenCostPer1M\":2,\"currency\":\"usd\",\"isDefault\":false,\"name\":\"gpt-5.1-codex-mini\",\"notSupported\":{\"temperature\":true,\"topP\":true},\"promptTokenCostPer1M\":0.25,\"provider\":\"openai-responses\",\"supported\":{\"showThoughts\":true,\"structuredOutputs\":true,\"thinkingBudget\":true},\"type\":\"code\"},{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"serviceTiers\":[\"standard\",\"flex\",\"priority\"],\"showThoughts\":true,\"structuredOutputs\":true,\"temperature\":false,\"thinkingBudget\":true,\"thinkingLevels\":[\"none\",\"minimal\",\"low\",\"medium\",\"high\",\"highest\"],\"topP\":false},\"completionTokenCostPer1M\":4.5,\"currency\":\"usd\",\"isDefault\":false,\"name\":\"gpt-5.4-mini\",\"notSupported\":{\"temperature\":true,\"topP\":true},\"promptTokenCostPer1M\":0.75,\"provider\":\"openai-responses\",\"supported\":{\"showThoughts\":true,\"structuredOutputs\":true,\"thinkingBudget\":true},\"type\":\"text\"},{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"serviceTiers\":[\"standard\",\"flex\",\"priority\"],\"showThoughts\":true,\"structuredOutputs\":true,\"temperature\":true,\"thinkingBudget\":true,\"thinkingLevels\":[\"none\",\"minimal\",\"low\",\"medium\",\"high\",\"highest\"],\"topP\":true},\"completionTokenCostPer1M\":4.4,\"currency\":\"usd\",\"isDefault\":false,\"name\":\"o3-mini\",\"promptTokenCostPer1M\":1.1,\"provider\":\"openai-responses\",\"supported\":{\"showThoughts\":true,\"structuredOutputs\":true,\"thinkingBudget\":true},\"type\":\"text\"},{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"serviceTiers\":[\"standard\",\"flex\",\"priority\"],\"showThoughts\":true,\"structuredOutputs\":true,\"temperature\":true,\"thinkingBudget\":true,\"thinkingLevels\":[\"none\",\"minimal\",\"low\",\"medium\",\"high\",\"highest\"],\"topP\":true},\"completionTokenCostPer1M\":4.4,\"currency\":\"usd\",\"isDefault\":false,\"name\":\"o4-mini\",\"promptTokenCostPer1M\":1.1,\"provider\":\"openai-responses\",\"supported\":{\"showThoughts\":true,\"structuredOutputs\":true,\"thinkingBudget\":true},\"type\":\"text\"},{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"serviceTiers\":[\"standard\",\"flex\",\"priority\"],\"showThoughts\":false,\"structuredOutputs\":true,\"temperature\":true,\"thinkingBudget\":false,\"thinkingLevels\":[],\"topP\":true},\"completionTokenCostPer1M\":8,\"currency\":\"usd\",\"isDefault\":false,\"name\":\"gpt-4.1\",\"promptTokenCostPer1M\":2,\"provider\":\"openai-responses\",\"supported\":{\"structuredOutputs\":true},\"type\":\"text\"},{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"serviceTiers\":[\"standard\",\"flex\",\"priority\"],\"showThoughts\":true,\"structuredOutputs\":true,\"temperature\":true,\"thinkingBudget\":true,\"thinkingLevels\":[\"none\",\"minimal\",\"low\",\"medium\",\"high\",\"highest\"],\"topP\":true},\"completionTokenCostPer1M\":8,\"currency\":\"usd\",\"isDefault\":false,\"name\":\"o3\",\"promptTokenCostPer1M\":2,\"provider\":\"openai-responses\",\"supported\":{\"showThoughts\":true,\"structuredOutputs\":true,\"thinkingBudget\":true},\"type\":\"text\"},{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"serviceTiers\":[\"standard\",\"flex\",\"priority\"],\"showThoughts\":true,\"structuredOutputs\":true,\"temperature\":false,\"thinkingBudget\":true,\"thinkingLevels\":[\"none\",\"minimal\",\"low\",\"medium\",\"high\",\"highest\"],\"topP\":false},\"completionTokenCostPer1M\":10,\"currency\":\"usd\",\"isDefault\":false,\"name\":\"gpt-5\",\"notSupported\":{\"temperature\":true,\"topP\":true},\"promptTokenCostPer1M\":1.25,\"provider\":\"openai-responses\",\"supported\":{\"showThoughts\":true,\"structuredOutputs\":true,\"thinkingBudget\":true},\"type\":\"text\"},{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"serviceTiers\":[\"standard\",\"flex\",\"priority\"],\"showThoughts\":true,\"structuredOutputs\":true,\"temperature\":false,\"thinkingBudget\":true,\"thinkingLevels\":[\"none\",\"minimal\",\"low\",\"medium\",\"high\",\"highest\"],\"topP\":false},\"completionTokenCostPer1M\":10,\"currency\":\"usd\",\"isDefault\":false,\"name\":\"gpt-5-chat\",\"notSupported\":{\"temperature\":true,\"topP\":true},\"promptTokenCostPer1M\":1.25,\"provider\":\"openai-responses\",\"supported\":{\"showThoughts\":true,\"structuredOutputs\":true,\"thinkingBudget\":true},\"type\":\"text\"},{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"serviceTiers\":[\"standard\",\"flex\",\"priority\"],\"showThoughts\":true,\"structuredOutputs\":true,\"temperature\":false,\"thinkingBudget\":true,\"thinkingLevels\":[\"none\",\"minimal\",\"low\",\"medium\",\"high\",\"highest\"],\"topP\":false},\"completionTokenCostPer1M\":10,\"currency\":\"usd\",\"isDefault\":false,\"name\":\"gpt-5-chat-latest\",\"notSupported\":{\"temperature\":true,\"topP\":true},\"promptTokenCostPer1M\":1.25,\"provider\":\"openai-responses\",\"supported\":{\"showThoughts\":true,\"structuredOutputs\":true,\"thinkingBudget\":true},\"type\":\"text\"},{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"serviceTiers\":[\"standard\",\"flex\",\"priority\"],\"showThoughts\":true,\"structuredOutputs\":true,\"temperature\":false,\"thinkingBudget\":true,\"thinkingLevels\":[\"none\",\"minimal\",\"low\",\"medium\",\"high\",\"highest\"],\"topP\":false},\"completionTokenCostPer1M\":10,\"currency\":\"usd\",\"isDefault\":false,\"name\":\"gpt-5-codex\",\"notSupported\":{\"temperature\":true,\"topP\":true},\"promptTokenCostPer1M\":1.25,\"provider\":\"openai-responses\",\"supported\":{\"showThoughts\":true,\"structuredOutputs\":true,\"thinkingBudget\":true},\"type\":\"code\"},{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"serviceTiers\":[\"standard\",\"flex\",\"priority\"],\"showThoughts\":true,\"structuredOutputs\":true,\"temperature\":false,\"thinkingBudget\":true,\"thinkingLevels\":[\"none\",\"minimal\",\"low\",\"medium\",\"high\",\"highest\"],\"topP\":false},\"completionTokenCostPer1M\":10,\"currency\":\"usd\",\"isDefault\":false,\"name\":\"gpt-5.1\",\"notSupported\":{\"temperature\":true,\"topP\":true},\"promptTokenCostPer1M\":1.25,\"provider\":\"openai-responses\",\"supported\":{\"showThoughts\":true,\"structuredOutputs\":true,\"thinkingBudget\":true},\"type\":\"text\"},{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"serviceTiers\":[\"standard\",\"flex\",\"priority\"],\"showThoughts\":true,\"structuredOutputs\":true,\"temperature\":false,\"thinkingBudget\":true,\"thinkingLevels\":[\"none\",\"minimal\",\"low\",\"medium\",\"high\",\"highest\"],\"topP\":false},\"completionTokenCostPer1M\":10,\"currency\":\"usd\",\"isDefault\":false,\"name\":\"gpt-5.1-chat-latest\",\"notSupported\":{\"temperature\":true,\"topP\":true},\"promptTokenCostPer1M\":1.25,\"provider\":\"openai-responses\",\"supported\":{\"showThoughts\":true,\"structuredOutputs\":true,\"thinkingBudget\":true},\"type\":\"text\"},{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"serviceTiers\":[\"standard\",\"flex\",\"priority\"],\"showThoughts\":true,\"structuredOutputs\":true,\"temperature\":false,\"thinkingBudget\":true,\"thinkingLevels\":[\"none\",\"minimal\",\"low\",\"medium\",\"high\",\"highest\"],\"topP\":false},\"completionTokenCostPer1M\":10,\"currency\":\"usd\",\"isDefault\":false,\"name\":\"gpt-5.1-codex\",\"notSupported\":{\"temperature\":true,\"topP\":true},\"promptTokenCostPer1M\":1.25,\"provider\":\"openai-responses\",\"supported\":{\"showThoughts\":true,\"structuredOutputs\":true,\"thinkingBudget\":true},\"type\":\"code\"},{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"serviceTiers\":[\"standard\",\"flex\",\"priority\"],\"showThoughts\":true,\"structuredOutputs\":true,\"temperature\":false,\"thinkingBudget\":true,\"thinkingLevels\":[\"none\",\"minimal\",\"low\",\"medium\",\"high\",\"highest\"],\"topP\":false},\"completionTokenCostPer1M\":10,\"currency\":\"usd\",\"isDefault\":false,\"name\":\"gpt-5.1-codex-max\",\"notSupported\":{\"temperature\":true,\"topP\":true},\"promptTokenCostPer1M\":1.25,\"provider\":\"openai-responses\",\"supported\":{\"showThoughts\":true,\"structuredOutputs\":true,\"thinkingBudget\":true},\"type\":\"code\"},{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"serviceTiers\":[\"standard\",\"flex\",\"priority\"],\"showThoughts\":false,\"structuredOutputs\":true,\"temperature\":true,\"thinkingBudget\":false,\"thinkingLevels\":[],\"topP\":true},\"completionTokenCostPer1M\":10,\"currency\":\"usd\",\"isDefault\":true,\"name\":\"gpt-4o\",\"promptTokenCostPer1M\":2.5,\"provider\":\"openai-responses\",\"supported\":{\"structuredOutputs\":true},\"type\":\"text\"},{\"cacheReadTokenCostPer1M\":0.2,\"cacheWriteTokenCostPer1M\":2.5,\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"serviceTiers\":[\"standard\",\"flex\",\"priority\"],\"showThoughts\":true,\"structuredOutputs\":true,\"temperature\":false,\"thinkingBudget\":true,\"thinkingLevels\":[\"none\",\"minimal\",\"low\",\"medium\",\"high\",\"highest\"],\"topP\":false},\"completionTokenCostPer1M\":12,\"contextWindow\":1050000,\"currency\":\"usd\",\"isDefault\":false,\"longContextCacheReadTokenCostPer1M\":0.4,\"longContextCompletionTokenCostPer1M\":18,\"longContextPromptTokenCostPer1M\":4,\"longContextThreshold\":272000,\"maxTokens\":128000,\"name\":\"gpt-5.6-terra\",\"notSupported\":{\"temperature\":true,\"topP\":true},\"promptTokenCostPer1M\":2,\"provider\":\"openai-responses\",\"supported\":{\"showThoughts\":true,\"structuredOutputs\":true,\"thinkingBudget\":true},\"type\":\"text\"},{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"serviceTiers\":[\"standard\",\"flex\",\"priority\"],\"showThoughts\":true,\"structuredOutputs\":true,\"temperature\":false,\"thinkingBudget\":true,\"thinkingLevels\":[\"none\",\"minimal\",\"low\",\"medium\",\"high\",\"highest\"],\"topP\":false},\"completionTokenCostPer1M\":14,\"currency\":\"usd\",\"isDefault\":false,\"name\":\"gpt-5.2\",\"notSupported\":{\"temperature\":true,\"topP\":true},\"promptTokenCostPer1M\":1.75,\"provider\":\"openai-responses\",\"supported\":{\"showThoughts\":true,\"structuredOutputs\":true,\"thinkingBudget\":true},\"type\":\"text\"},{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"serviceTiers\":[\"standard\",\"flex\",\"priority\"],\"showThoughts\":true,\"structuredOutputs\":true,\"temperature\":false,\"thinkingBudget\":true,\"thinkingLevels\":[\"none\",\"minimal\",\"low\",\"medium\",\"high\",\"highest\"],\"topP\":false},\"completionTokenCostPer1M\":14,\"currency\":\"usd\",\"isDefault\":false,\"name\":\"gpt-5.2-chat-latest\",\"notSupported\":{\"temperature\":true,\"topP\":true},\"promptTokenCostPer1M\":1.75,\"provider\":\"openai-responses\",\"supported\":{\"showThoughts\":true,\"structuredOutputs\":true,\"thinkingBudget\":true},\"type\":\"text\"},{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"serviceTiers\":[\"standard\",\"flex\",\"priority\"],\"showThoughts\":true,\"structuredOutputs\":true,\"temperature\":false,\"thinkingBudget\":true,\"thinkingLevels\":[\"none\",\"minimal\",\"low\",\"medium\",\"high\",\"highest\"],\"topP\":false},\"completionTokenCostPer1M\":14,\"currency\":\"usd\",\"isDefault\":false,\"name\":\"gpt-5.2-codex\",\"notSupported\":{\"temperature\":true,\"topP\":true},\"promptTokenCostPer1M\":1.75,\"provider\":\"openai-responses\",\"supported\":{\"showThoughts\":true,\"structuredOutputs\":true,\"thinkingBudget\":true},\"type\":\"code\"},{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"serviceTiers\":[\"standard\",\"flex\",\"priority\"],\"showThoughts\":true,\"structuredOutputs\":true,\"temperature\":false,\"thinkingBudget\":true,\"thinkingLevels\":[\"none\",\"minimal\",\"low\",\"medium\",\"high\",\"highest\"],\"topP\":false},\"completionTokenCostPer1M\":15,\"currency\":\"usd\",\"isDefault\":false,\"name\":\"gpt-5.4\",\"notSupported\":{\"temperature\":true,\"topP\":true},\"promptTokenCostPer1M\":2.5,\"provider\":\"openai-responses\",\"supported\":{\"showThoughts\":true,\"structuredOutputs\":true,\"thinkingBudget\":true},\"type\":\"text\"},{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"serviceTiers\":[\"standard\",\"flex\",\"priority\"],\"showThoughts\":false,\"structuredOutputs\":true,\"temperature\":true,\"thinkingBudget\":false,\"thinkingLevels\":[],\"topP\":true},\"completionTokenCostPer1M\":15,\"currency\":\"usd\",\"isDefault\":false,\"name\":\"chatgpt-4o-latest\",\"promptTokenCostPer1M\":5,\"provider\":\"openai-responses\",\"supported\":{\"structuredOutputs\":true},\"type\":\"text\"},{\"cacheReadTokenCostPer1M\":0.5,\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"serviceTiers\":[\"standard\",\"flex\",\"priority\"],\"showThoughts\":true,\"structuredOutputs\":true,\"temperature\":false,\"thinkingBudget\":true,\"thinkingLevels\":[\"none\",\"minimal\",\"low\",\"medium\",\"high\",\"highest\"],\"topP\":false},\"completionTokenCostPer1M\":30,\"contextWindow\":1000000,\"currency\":\"usd\",\"isDefault\":false,\"longContextCacheReadTokenCostPer1M\":1,\"longContextCompletionTokenCostPer1M\":45,\"longContextPromptTokenCostPer1M\":10,\"longContextThreshold\":272000,\"name\":\"gpt-5.5\",\"notSupported\":{\"temperature\":true,\"topP\":true},\"promptTokenCostPer1M\":5,\"provider\":\"openai-responses\",\"supported\":{\"showThoughts\":true,\"structuredOutputs\":true,\"thinkingBudget\":true},\"type\":\"text\"},{\"aliases\":[\"gpt-5.6\"],\"cacheReadTokenCostPer1M\":0.5,\"cacheWriteTokenCostPer1M\":6.25,\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"serviceTiers\":[\"standard\",\"flex\",\"priority\"],\"showThoughts\":true,\"structuredOutputs\":true,\"temperature\":false,\"thinkingBudget\":true,\"thinkingLevels\":[\"none\",\"minimal\",\"low\",\"medium\",\"high\",\"highest\"],\"topP\":false},\"completionTokenCostPer1M\":30,\"contextWindow\":1050000,\"currency\":\"usd\",\"isDefault\":false,\"longContextCacheReadTokenCostPer1M\":1,\"longContextCompletionTokenCostPer1M\":45,\"longContextPromptTokenCostPer1M\":10,\"longContextThreshold\":272000,\"maxTokens\":128000,\"name\":\"gpt-5.6-sol\",\"notSupported\":{\"temperature\":true,\"topP\":true},\"promptTokenCostPer1M\":5,\"provider\":\"openai-responses\",\"supported\":{\"showThoughts\":true,\"structuredOutputs\":true,\"thinkingBudget\":true},\"type\":\"text\"},{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"serviceTiers\":[\"standard\",\"flex\",\"priority\"],\"showThoughts\":false,\"structuredOutputs\":true,\"temperature\":true,\"thinkingBudget\":false,\"thinkingLevels\":[],\"topP\":true},\"completionTokenCostPer1M\":30,\"currency\":\"usd\",\"isDefault\":false,\"name\":\"gpt-4-turbo\",\"promptTokenCostPer1M\":10,\"provider\":\"openai-responses\",\"supported\":{\"structuredOutputs\":true},\"type\":\"text\"},{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"serviceTiers\":[\"standard\",\"flex\",\"priority\"],\"showThoughts\":true,\"structuredOutputs\":true,\"temperature\":true,\"thinkingBudget\":true,\"thinkingLevels\":[\"none\",\"minimal\",\"low\",\"medium\",\"high\",\"highest\"],\"topP\":true},\"completionTokenCostPer1M\":60,\"currency\":\"usd\",\"isDefault\":false,\"name\":\"o1\",\"promptTokenCostPer1M\":15,\"provider\":\"openai-responses\",\"supported\":{\"showThoughts\":true,\"structuredOutputs\":true,\"thinkingBudget\":true},\"type\":\"text\"},{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"serviceTiers\":[\"standard\",\"flex\",\"priority\"],\"showThoughts\":false,\"structuredOutputs\":false,\"temperature\":true,\"thinkingBudget\":false,\"thinkingLevels\":[],\"topP\":true},\"completionTokenCostPer1M\":60,\"currency\":\"usd\",\"isDefault\":false,\"name\":\"gpt-4\",\"promptTokenCostPer1M\":30,\"provider\":\"openai-responses\",\"type\":\"text\"},{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"serviceTiers\":[\"standard\",\"flex\",\"priority\"],\"showThoughts\":true,\"structuredOutputs\":true,\"temperature\":true,\"thinkingBudget\":true,\"thinkingLevels\":[\"none\",\"minimal\",\"low\",\"medium\",\"high\",\"highest\"],\"topP\":true},\"completionTokenCostPer1M\":80,\"currency\":\"usd\",\"isDefault\":false,\"isExpensive\":true,\"name\":\"o3-pro\",\"promptTokenCostPer1M\":20,\"provider\":\"openai-responses\",\"supported\":{\"showThoughts\":true,\"structuredOutputs\":true,\"thinkingBudget\":true},\"type\":\"text\"},{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"serviceTiers\":[\"standard\",\"flex\",\"priority\"],\"showThoughts\":true,\"structuredOutputs\":true,\"temperature\":false,\"thinkingBudget\":true,\"thinkingLevels\":[\"none\",\"minimal\",\"low\",\"medium\",\"high\",\"highest\"],\"topP\":false},\"completionTokenCostPer1M\":120,\"currency\":\"usd\",\"isDefault\":false,\"name\":\"gpt-5-pro\",\"notSupported\":{\"temperature\":true,\"topP\":true},\"promptTokenCostPer1M\":15,\"provider\":\"openai-responses\",\"supported\":{\"showThoughts\":true,\"structuredOutputs\":true,\"thinkingBudget\":true},\"type\":\"text\"},{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"serviceTiers\":[\"standard\",\"flex\",\"priority\"],\"showThoughts\":true,\"structuredOutputs\":true,\"temperature\":false,\"thinkingBudget\":true,\"thinkingLevels\":[\"none\",\"minimal\",\"low\",\"medium\",\"high\",\"highest\"],\"topP\":false},\"completionTokenCostPer1M\":168,\"currency\":\"usd\",\"isDefault\":false,\"name\":\"gpt-5.2-pro\",\"notSupported\":{\"temperature\":true,\"topP\":true},\"promptTokenCostPer1M\":21,\"provider\":\"openai-responses\",\"supported\":{\"showThoughts\":true,\"structuredOutputs\":true,\"thinkingBudget\":true},\"type\":\"text\"},{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"serviceTiers\":[\"standard\",\"flex\",\"priority\"],\"showThoughts\":true,\"structuredOutputs\":true,\"temperature\":false,\"thinkingBudget\":true,\"thinkingLevels\":[\"none\",\"minimal\",\"low\",\"medium\",\"high\",\"highest\"],\"topP\":false},\"completionTokenCostPer1M\":180,\"contextWindow\":1000000,\"currency\":\"usd\",\"isDefault\":false,\"isExpensive\":true,\"longContextCompletionTokenCostPer1M\":270,\"longContextPromptTokenCostPer1M\":60,\"longContextThreshold\":272000,\"name\":\"gpt-5.5-pro\",\"notSupported\":{\"temperature\":true,\"topP\":true},\"promptTokenCostPer1M\":30,\"provider\":\"openai-responses\",\"supported\":{\"showThoughts\":true,\"structuredOutputs\":true,\"thinkingBudget\":true},\"type\":\"text\"},{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"serviceTiers\":[\"standard\",\"flex\",\"priority\"],\"showThoughts\":true,\"structuredOutputs\":true,\"temperature\":true,\"thinkingBudget\":true,\"thinkingLevels\":[\"none\",\"minimal\",\"low\",\"medium\",\"high\",\"highest\"],\"topP\":true},\"completionTokenCostPer1M\":600,\"currency\":\"usd\",\"isDefault\":false,\"isExpensive\":true,\"name\":\"o1-pro\",\"promptTokenCostPer1M\":150,\"provider\":\"openai-responses\",\"supported\":{\"showThoughts\":true,\"structuredOutputs\":true,\"thinkingBudget\":true},\"type\":\"text\"}],\"name\":\"openai-responses\"},{\"capabilities\":{\"serviceTiers\":[\"standard\",\"priority\"],\"thinking\":true,\"thinkingLevels\":[\"minimal\",\"low\",\"medium\",\"high\",\"highest\"]},\"defaultModel\":\"grok-4.6\",\"displayName\":\"xAI Grok\",\"isDynamic\":false,\"models\":[{\"aliases\":[\"grok-4-1-fast-non-reasoning-latest\"],\"cacheReadTokenCostPer1M\":0.05,\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"serviceTiers\":[\"standard\",\"priority\"],\"showThoughts\":false,\"structuredOutputs\":true,\"temperature\":true,\"thinkingBudget\":false,\"thinkingLevels\":[],\"topP\":true},\"completionTokenCostPer1M\":0.5,\"contextWindow\":2000000,\"currency\":\"USD\",\"isDefault\":false,\"name\":\"grok-4-1-fast-non-reasoning\",\"promptTokenCostPer1M\":0.2,\"provider\":\"grok\",\"supported\":{\"structuredOutputs\":true},\"type\":\"text\"},{\"aliases\":[\"grok-4-1-fast-reasoning-latest\"],\"cacheReadTokenCostPer1M\":0.05,\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"serviceTiers\":[\"standard\",\"priority\"],\"showThoughts\":false,\"structuredOutputs\":true,\"temperature\":true,\"thinkingBudget\":false,\"thinkingLevels\":[],\"topP\":true},\"completionTokenCostPer1M\":0.5,\"contextWindow\":2000000,\"currency\":\"USD\",\"isDefault\":false,\"name\":\"grok-4-1-fast-reasoning\",\"promptTokenCostPer1M\":0.2,\"provider\":\"grok\",\"supported\":{\"structuredOutputs\":true},\"type\":\"text\"},{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"serviceTiers\":[\"standard\",\"priority\"],\"showThoughts\":false,\"structuredOutputs\":false,\"temperature\":true,\"thinkingBudget\":true,\"thinkingLevels\":[\"minimal\",\"low\",\"medium\",\"high\",\"highest\"],\"topP\":true},\"completionTokenCostPer1M\":0.5,\"currency\":\"USD\",\"isDefault\":false,\"name\":\"grok-3-mini\",\"promptTokenCostPer1M\":0.3,\"provider\":\"grok\",\"supported\":{\"thinkingBudget\":true},\"type\":\"text\"},{\"aliases\":[\"grok-4.20-multi-agent-0309\",\"grok-4.20-multi-agent-latest\"],\"cacheReadTokenCostPer1M\":0.2,\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"serviceTiers\":[\"standard\",\"priority\"],\"showThoughts\":false,\"structuredOutputs\":true,\"temperature\":true,\"thinkingBudget\":false,\"thinkingLevels\":[],\"topP\":true},\"completionTokenCostPer1M\":2.5,\"contextWindow\":2000000,\"currency\":\"USD\",\"isDefault\":false,\"name\":\"grok-4.20-multi-agent\",\"promptTokenCostPer1M\":1.25,\"provider\":\"grok\",\"supported\":{\"structuredOutputs\":true},\"type\":\"text\"},{\"aliases\":[\"grok-4.20-0309-non-reasoning\",\"grok-4.20-non-reasoning-latest\"],\"cacheReadTokenCostPer1M\":0.2,\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"serviceTiers\":[\"standard\",\"priority\"],\"showThoughts\":false,\"structuredOutputs\":true,\"temperature\":true,\"thinkingBudget\":false,\"thinkingLevels\":[],\"topP\":true},\"completionTokenCostPer1M\":2.5,\"contextWindow\":2000000,\"currency\":\"USD\",\"isDefault\":false,\"name\":\"grok-4.20-non-reasoning\",\"promptTokenCostPer1M\":1.25,\"provider\":\"grok\",\"supported\":{\"structuredOutputs\":true},\"type\":\"text\"},{\"aliases\":[\"grok-4.20-0309-reasoning\",\"grok-4.20-reasoning-latest\",\"grok-4.20\",\"grok-4.20-0309\"],\"cacheReadTokenCostPer1M\":0.2,\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"serviceTiers\":[\"standard\",\"priority\"],\"showThoughts\":false,\"structuredOutputs\":true,\"temperature\":true,\"thinkingBudget\":false,\"thinkingLevels\":[],\"topP\":true},\"completionTokenCostPer1M\":2.5,\"contextWindow\":2000000,\"currency\":\"USD\",\"isDefault\":false,\"name\":\"grok-4.20-reasoning\",\"promptTokenCostPer1M\":1.25,\"provider\":\"grok\",\"supported\":{\"structuredOutputs\":true},\"type\":\"text\"},{\"aliases\":[\"grok-4.3-latest\",\"grok-latest\"],\"cacheReadTokenCostPer1M\":0.2,\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"serviceTiers\":[\"standard\",\"priority\"],\"showThoughts\":false,\"structuredOutputs\":true,\"temperature\":true,\"thinkingBudget\":true,\"thinkingLevels\":[\"none\",\"minimal\",\"low\",\"medium\",\"high\",\"highest\"],\"topP\":true},\"completionTokenCostPer1M\":2.5,\"contextWindow\":1000000,\"currency\":\"USD\",\"isDefault\":false,\"name\":\"grok-4.3\",\"promptTokenCostPer1M\":1.25,\"provider\":\"grok\",\"supported\":{\"structuredOutputs\":true,\"thinkingBudget\":true},\"type\":\"text\"},{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"serviceTiers\":[\"standard\",\"priority\"],\"showThoughts\":false,\"structuredOutputs\":false,\"temperature\":true,\"thinkingBudget\":true,\"thinkingLevels\":[\"minimal\",\"low\",\"medium\",\"high\",\"highest\"],\"topP\":true},\"completionTokenCostPer1M\":4,\"currency\":\"USD\",\"isDefault\":false,\"name\":\"grok-3-mini-fast\",\"promptTokenCostPer1M\":0.6,\"provider\":\"grok\",\"supported\":{\"thinkingBudget\":true},\"type\":\"text\"},{\"aliases\":[\"grok-4.5-latest\",\"grok-build-latest\"],\"cacheReadTokenCostPer1M\":0.3,\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"serviceTiers\":[\"standard\",\"priority\"],\"showThoughts\":false,\"structuredOutputs\":true,\"temperature\":true,\"thinkingBudget\":true,\"thinkingLevels\":[\"minimal\",\"low\",\"medium\",\"high\",\"highest\"],\"topP\":true},\"completionTokenCostPer1M\":6,\"contextWindow\":500000,\"currency\":\"USD\",\"isDefault\":false,\"name\":\"grok-4.5\",\"promptTokenCostPer1M\":2,\"provider\":\"grok\",\"supported\":{\"structuredOutputs\":true,\"thinkingBudget\":true},\"type\":\"text\"},{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"serviceTiers\":[\"standard\",\"priority\"],\"showThoughts\":false,\"structuredOutputs\":false,\"temperature\":true,\"thinkingBudget\":false,\"thinkingLevels\":[],\"topP\":true},\"completionTokenCostPer1M\":15,\"currency\":\"USD\",\"isDefault\":false,\"name\":\"grok-3\",\"promptTokenCostPer1M\":3,\"provider\":\"grok\",\"type\":\"text\"},{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"serviceTiers\":[\"standard\",\"priority\"],\"showThoughts\":false,\"structuredOutputs\":false,\"temperature\":true,\"thinkingBudget\":false,\"thinkingLevels\":[],\"topP\":true},\"completionTokenCostPer1M\":25,\"currency\":\"USD\",\"isDefault\":false,\"name\":\"grok-3-fast\",\"promptTokenCostPer1M\":5,\"provider\":\"grok\",\"type\":\"text\"},{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"serviceTiers\":[\"standard\",\"priority\"],\"showThoughts\":false,\"structuredOutputs\":true,\"temperature\":true,\"thinkingBudget\":true,\"thinkingLevels\":[\"minimal\",\"low\",\"medium\",\"high\",\"highest\"],\"topP\":true},\"currency\":\"USD\",\"isDefault\":true,\"name\":\"grok-4.6\",\"provider\":\"grok\",\"supported\":{\"structuredOutputs\":true,\"thinkingBudget\":true},\"type\":\"text\"},{\"capabilities\":{\"audioInput\":true,\"audioOutput\":true,\"serviceTiers\":[],\"showThoughts\":false,\"structuredOutputs\":false,\"temperature\":true,\"thinkingBudget\":false,\"thinkingLevels\":[],\"topP\":true},\"currency\":\"USD\",\"isDefault\":false,\"name\":\"grok-voice-think-fast-1.0\",\"provider\":\"grok\",\"type\":\"audio\"},{\"capabilities\":{\"audioInput\":true,\"audioOutput\":true,\"serviceTiers\":[],\"showThoughts\":false,\"structuredOutputs\":false,\"temperature\":true,\"thinkingBudget\":false,\"thinkingLevels\":[],\"topP\":true},\"currency\":\"USD\",\"isDefault\":false,\"name\":\"grok-voice-fast-1.0\",\"provider\":\"grok\",\"type\":\"audio\"}],\"name\":\"grok\"},{\"capabilities\":{\"serviceTiers\":[],\"thinking\":false,\"thinkingLevels\":[]},\"defaultModel\":\"reka-core\",\"displayName\":\"Reka\",\"isDynamic\":false,\"models\":[{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"serviceTiers\":[],\"showThoughts\":false,\"structuredOutputs\":false,\"temperature\":true,\"thinkingBudget\":false,\"thinkingLevels\":[],\"topP\":true},\"completionTokenCostPer1M\":1,\"currency\":\"usd\",\"isDefault\":false,\"name\":\"reka-edge\",\"promptTokenCostPer1M\":0.4,\"provider\":\"reka\",\"type\":\"text\"},{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"serviceTiers\":[],\"showThoughts\":false,\"structuredOutputs\":false,\"temperature\":true,\"thinkingBudget\":false,\"thinkingLevels\":[],\"topP\":true},\"completionTokenCostPer1M\":2,\"currency\":\"usd\",\"isDefault\":false,\"name\":\"reka-flash\",\"promptTokenCostPer1M\":0.8,\"provider\":\"reka\",\"type\":\"text\"},{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"serviceTiers\":[],\"showThoughts\":false,\"structuredOutputs\":false,\"temperature\":true,\"thinkingBudget\":false,\"thinkingLevels\":[],\"topP\":true},\"completionTokenCostPer1M\":15,\"currency\":\"usd\",\"isDefault\":true,\"name\":\"reka-core\",\"promptTokenCostPer1M\":3,\"provider\":\"reka\",\"type\":\"text\"}],\"name\":\"reka\"},{\"capabilities\":{\"serviceTiers\":[],\"thinking\":true,\"thinkingLevels\":[\"none\",\"minimal\",\"low\",\"medium\",\"high\",\"highest\"]},\"defaultModel\":\"claude-3-7-sonnet-latest\",\"displayName\":\"Anthropic\",\"isDynamic\":false,\"models\":[{\"cacheReadTokenCostPer1M\":0.03,\"cacheWriteTokenCostPer1M\":0.3,\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"serviceTiers\":[],\"showThoughts\":false,\"structuredOutputs\":false,\"temperature\":true,\"thinkingBudget\":false,\"thinkingLevels\":[],\"topP\":true},\"completionTokenCostPer1M\":1.25,\"currency\":\"usd\",\"isDefault\":false,\"maxTokens\":4096,\"name\":\"claude-3-haiku-20240307\",\"promptTokenCostPer1M\":0.25,\"provider\":\"anthropic\",\"type\":\"text\"},{\"cacheReadTokenCostPer1M\":0.03,\"cacheWriteTokenCostPer1M\":0.3,\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"serviceTiers\":[],\"showThoughts\":false,\"structuredOutputs\":false,\"temperature\":true,\"thinkingBudget\":false,\"thinkingLevels\":[],\"topP\":true},\"completionTokenCostPer1M\":1.25,\"currency\":\"usd\",\"isDefault\":false,\"maxTokens\":4096,\"name\":\"claude-3-haiku@20240307\",\"promptTokenCostPer1M\":0.25,\"provider\":\"anthropic\",\"type\":\"text\"},{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"serviceTiers\":[],\"showThoughts\":false,\"structuredOutputs\":false,\"temperature\":true,\"thinkingBudget\":false,\"thinkingLevels\":[],\"topP\":true},\"completionTokenCostPer1M\":2.24,\"currency\":\"usd\",\"isDefault\":false,\"maxTokens\":4096,\"name\":\"claude-instant-1.2\",\"promptTokenCostPer1M\":0.8,\"provider\":\"anthropic\",\"type\":\"text\"},{\"cacheReadTokenCostPer1M\":0.08,\"cacheWriteTokenCostPer1M\":1,\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"serviceTiers\":[],\"showThoughts\":false,\"structuredOutputs\":false,\"temperature\":true,\"thinkingBudget\":false,\"thinkingLevels\":[],\"topP\":true},\"completionTokenCostPer1M\":4,\"currency\":\"usd\",\"isDefault\":false,\"maxTokens\":8192,\"name\":\"claude-3-5-haiku-latest\",\"promptTokenCostPer1M\":0.8,\"provider\":\"anthropic\",\"type\":\"text\"},{\"cacheReadTokenCostPer1M\":0.1,\"cacheWriteTokenCostPer1M\":1.25,\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"serviceTiers\":[],\"showThoughts\":false,\"structuredOutputs\":false,\"temperature\":true,\"thinkingBudget\":false,\"thinkingLevels\":[],\"topP\":true},\"completionTokenCostPer1M\":5,\"currency\":\"usd\",\"isDefault\":false,\"maxTokens\":8192,\"name\":\"claude-3-5-haiku@20241022\",\"promptTokenCostPer1M\":1,\"provider\":\"anthropic\",\"type\":\"text\"},{\"cacheReadTokenCostPer1M\":0.1,\"cacheWriteTokenCostPer1M\":1.25,\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"serviceTiers\":[],\"showThoughts\":true,\"structuredOutputs\":false,\"temperature\":true,\"thinkingBudget\":true,\"thinkingLevels\":[\"none\",\"minimal\",\"low\",\"medium\",\"high\",\"highest\"],\"topP\":true},\"completionTokenCostPer1M\":5,\"currency\":\"usd\",\"isDefault\":false,\"maxTokens\":200000,\"name\":\"claude-haiku-4-5\",\"promptTokenCostPer1M\":1,\"provider\":\"anthropic\",\"supported\":{\"showThoughts\":true,\"thinkingBudget\":true},\"type\":\"text\"},{\"cacheReadTokenCostPer1M\":0.1,\"cacheWriteTokenCostPer1M\":1.25,\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"serviceTiers\":[],\"showThoughts\":true,\"structuredOutputs\":false,\"temperature\":true,\"thinkingBudget\":true,\"thinkingLevels\":[\"none\",\"minimal\",\"low\",\"medium\",\"high\",\"highest\"],\"topP\":true},\"completionTokenCostPer1M\":5,\"currency\":\"usd\",\"isDefault\":false,\"maxTokens\":200000,\"name\":\"claude-haiku-4-5@20251001\",\"promptTokenCostPer1M\":1,\"provider\":\"anthropic\",\"supported\":{\"showThoughts\":true,\"thinkingBudget\":true},\"type\":\"text\"},{\"cacheReadTokenCostPer1M\":0.2,\"cacheWriteTokenCostPer1M\":2.5,\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"serviceTiers\":[],\"showThoughts\":true,\"structuredOutputs\":true,\"temperature\":true,\"thinkingBudget\":true,\"thinkingLevels\":[\"none\",\"minimal\",\"low\",\"medium\",\"high\",\"highest\"],\"topP\":true},\"completionTokenCostPer1M\":10,\"contextWindow\":1000000,\"currency\":\"usd\",\"isDefault\":false,\"maxTokens\":128000,\"name\":\"claude-sonnet-5\",\"promptTokenCostPer1M\":2,\"provider\":\"anthropic\",\"supported\":{\"showThoughts\":true,\"structuredOutputs\":true,\"thinkingBudget\":true},\"type\":\"text\"},{\"cacheReadTokenCostPer1M\":0.2,\"cacheWriteTokenCostPer1M\":2.5,\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"serviceTiers\":[],\"showThoughts\":true,\"structuredOutputs\":true,\"temperature\":true,\"thinkingBudget\":true,\"thinkingLevels\":[\"none\",\"minimal\",\"low\",\"medium\",\"high\",\"highest\"],\"topP\":true},\"completionTokenCostPer1M\":10,\"contextWindow\":1000000,\"currency\":\"usd\",\"isDefault\":false,\"maxTokens\":128000,\"name\":\"claude-sonnet-5\",\"promptTokenCostPer1M\":2,\"provider\":\"anthropic\",\"supported\":{\"showThoughts\":true,\"structuredOutputs\":true,\"thinkingBudget\":true},\"type\":\"text\"},{\"cacheReadTokenCostPer1M\":0.3,\"cacheWriteTokenCostPer1M\":3.75,\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"serviceTiers\":[],\"showThoughts\":false,\"structuredOutputs\":true,\"temperature\":true,\"thinkingBudget\":false,\"thinkingLevels\":[],\"topP\":true},\"completionTokenCostPer1M\":15,\"currency\":\"usd\",\"isDefault\":false,\"maxTokens\":8192,\"name\":\"claude-3-5-sonnet-latest\",\"promptTokenCostPer1M\":3,\"provider\":\"anthropic\",\"supported\":{\"structuredOutputs\":true},\"type\":\"text\"},{\"cacheReadTokenCostPer1M\":0.3,\"cacheWriteTokenCostPer1M\":3.75,\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"serviceTiers\":[],\"showThoughts\":true,\"structuredOutputs\":true,\"temperature\":true,\"thinkingBudget\":true,\"thinkingLevels\":[\"none\",\"minimal\",\"low\",\"medium\",\"high\",\"highest\"],\"topP\":true},\"completionTokenCostPer1M\":15,\"currency\":\"usd\",\"isDefault\":false,\"maxTokens\":8192,\"name\":\"claude-3-5-sonnet-v2@20241022\",\"promptTokenCostPer1M\":3,\"provider\":\"anthropic\",\"supported\":{\"showThoughts\":true,\"structuredOutputs\":true,\"thinkingBudget\":true},\"type\":\"text\"},{\"cacheReadTokenCostPer1M\":0.3,\"cacheWriteTokenCostPer1M\":3.75,\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"serviceTiers\":[],\"showThoughts\":false,\"structuredOutputs\":true,\"temperature\":true,\"thinkingBudget\":false,\"thinkingLevels\":[],\"topP\":true},\"completionTokenCostPer1M\":15,\"currency\":\"usd\",\"isDefault\":false,\"maxTokens\":8192,\"name\":\"claude-3-5-sonnet@20240620\",\"promptTokenCostPer1M\":3,\"provider\":\"anthropic\",\"supported\":{\"structuredOutputs\":true},\"type\":\"text\"},{\"cacheReadTokenCostPer1M\":0.3,\"cacheWriteTokenCostPer1M\":3.75,\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"serviceTiers\":[],\"showThoughts\":true,\"structuredOutputs\":true,\"temperature\":true,\"thinkingBudget\":true,\"thinkingLevels\":[\"none\",\"minimal\",\"low\",\"medium\",\"high\",\"highest\"],\"topP\":true},\"completionTokenCostPer1M\":15,\"currency\":\"usd\",\"isDefault\":true,\"maxTokens\":64000,\"name\":\"claude-3-7-sonnet-latest\",\"promptTokenCostPer1M\":3,\"provider\":\"anthropic\",\"supported\":{\"showThoughts\":true,\"structuredOutputs\":true,\"thinkingBudget\":true},\"type\":\"text\"},{\"cacheReadTokenCostPer1M\":0.3,\"cacheWriteTokenCostPer1M\":3.75,\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"serviceTiers\":[],\"showThoughts\":true,\"structuredOutputs\":true,\"temperature\":true,\"thinkingBudget\":true,\"thinkingLevels\":[\"none\",\"minimal\",\"low\",\"medium\",\"high\",\"highest\"],\"topP\":true},\"completionTokenCostPer1M\":15,\"currency\":\"usd\",\"isDefault\":false,\"maxTokens\":64000,\"name\":\"claude-3-7-sonnet@20250219\",\"promptTokenCostPer1M\":3,\"provider\":\"anthropic\",\"supported\":{\"showThoughts\":true,\"structuredOutputs\":true,\"thinkingBudget\":true},\"type\":\"text\"},{\"cacheReadTokenCostPer1M\":0.3,\"cacheWriteTokenCostPer1M\":3.75,\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"serviceTiers\":[],\"showThoughts\":false,\"structuredOutputs\":true,\"temperature\":true,\"thinkingBudget\":false,\"thinkingLevels\":[],\"topP\":true},\"completionTokenCostPer1M\":15,\"currency\":\"usd\",\"isDefault\":false,\"maxTokens\":4096,\"name\":\"claude-3-sonnet-20240229\",\"promptTokenCostPer1M\":3,\"provider\":\"anthropic\",\"supported\":{\"structuredOutputs\":true},\"type\":\"text\"},{\"cacheReadTokenCostPer1M\":0.3,\"cacheWriteTokenCostPer1M\":3.75,\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"serviceTiers\":[],\"showThoughts\":true,\"structuredOutputs\":true,\"temperature\":true,\"thinkingBudget\":true,\"thinkingLevels\":[\"none\",\"minimal\",\"low\",\"medium\",\"high\",\"highest\"],\"topP\":true},\"completionTokenCostPer1M\":15,\"currency\":\"usd\",\"isDefault\":false,\"maxTokens\":64000,\"name\":\"claude-sonnet-4-20250514\",\"promptTokenCostPer1M\":3,\"provider\":\"anthropic\",\"supported\":{\"showThoughts\":true,\"structuredOutputs\":true,\"thinkingBudget\":true},\"type\":\"text\"},{\"cacheReadTokenCostPer1M\":0.3,\"cacheWriteTokenCostPer1M\":3.75,\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"serviceTiers\":[],\"showThoughts\":true,\"structuredOutputs\":true,\"temperature\":true,\"thinkingBudget\":true,\"thinkingLevels\":[\"none\",\"minimal\",\"low\",\"medium\",\"high\",\"highest\"],\"topP\":true},\"completionTokenCostPer1M\":15,\"currency\":\"usd\",\"isDefault\":false,\"maxTokens\":200000,\"name\":\"claude-sonnet-4-5-20250929\",\"promptTokenCostPer1M\":3,\"provider\":\"anthropic\",\"supported\":{\"showThoughts\":true,\"structuredOutputs\":true,\"thinkingBudget\":true},\"type\":\"text\"},{\"cacheReadTokenCostPer1M\":0.3,\"cacheWriteTokenCostPer1M\":3.75,\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"serviceTiers\":[],\"showThoughts\":true,\"structuredOutputs\":true,\"temperature\":true,\"thinkingBudget\":true,\"thinkingLevels\":[\"none\",\"minimal\",\"low\",\"medium\",\"high\",\"highest\"],\"topP\":true},\"completionTokenCostPer1M\":15,\"currency\":\"usd\",\"isDefault\":false,\"maxTokens\":200000,\"name\":\"claude-sonnet-4-5@20250929\",\"promptTokenCostPer1M\":3,\"provider\":\"anthropic\",\"supported\":{\"showThoughts\":true,\"structuredOutputs\":true,\"thinkingBudget\":true},\"type\":\"text\"},{\"cacheReadTokenCostPer1M\":0.3,\"cacheWriteTokenCostPer1M\":3.75,\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"serviceTiers\":[],\"showThoughts\":true,\"structuredOutputs\":true,\"temperature\":true,\"thinkingBudget\":true,\"thinkingLevels\":[\"none\",\"minimal\",\"low\",\"medium\",\"high\",\"highest\"],\"topP\":true},\"completionTokenCostPer1M\":15,\"currency\":\"usd\",\"isDefault\":false,\"maxTokens\":64000,\"name\":\"claude-sonnet-4-6\",\"promptTokenCostPer1M\":3,\"provider\":\"anthropic\",\"supported\":{\"showThoughts\":true,\"structuredOutputs\":true,\"thinkingBudget\":true},\"type\":\"text\"},{\"cacheReadTokenCostPer1M\":0.3,\"cacheWriteTokenCostPer1M\":3.75,\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"serviceTiers\":[],\"showThoughts\":true,\"structuredOutputs\":true,\"temperature\":true,\"thinkingBudget\":true,\"thinkingLevels\":[\"none\",\"minimal\",\"low\",\"medium\",\"high\",\"highest\"],\"topP\":true},\"completionTokenCostPer1M\":15,\"currency\":\"usd\",\"isDefault\":false,\"maxTokens\":64000,\"name\":\"claude-sonnet-4-6\",\"promptTokenCostPer1M\":3,\"provider\":\"anthropic\",\"supported\":{\"showThoughts\":true,\"structuredOutputs\":true,\"thinkingBudget\":true},\"type\":\"text\"},{\"cacheReadTokenCostPer1M\":0.3,\"cacheWriteTokenCostPer1M\":3.75,\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"serviceTiers\":[],\"showThoughts\":true,\"structuredOutputs\":true,\"temperature\":true,\"thinkingBudget\":true,\"thinkingLevels\":[\"none\",\"minimal\",\"low\",\"medium\",\"high\",\"highest\"],\"topP\":true},\"completionTokenCostPer1M\":15,\"currency\":\"usd\",\"isDefault\":false,\"maxTokens\":64000,\"name\":\"claude-sonnet-4@20250514\",\"promptTokenCostPer1M\":3,\"provider\":\"anthropic\",\"supported\":{\"showThoughts\":true,\"structuredOutputs\":true,\"thinkingBudget\":true},\"type\":\"text\"},{\"cacheReadTokenCostPer1M\":0.5,\"cacheWriteTokenCostPer1M\":6.25,\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"serviceTiers\":[],\"showThoughts\":true,\"structuredOutputs\":true,\"temperature\":true,\"thinkingBudget\":true,\"thinkingLevels\":[\"none\",\"minimal\",\"low\",\"medium\",\"high\",\"highest\"],\"topP\":true},\"completionTokenCostPer1M\":25,\"currency\":\"usd\",\"isDefault\":false,\"maxTokens\":64000,\"name\":\"claude-opus-4-5-20251101\",\"promptTokenCostPer1M\":5,\"provider\":\"anthropic\",\"supported\":{\"showThoughts\":true,\"structuredOutputs\":true,\"thinkingBudget\":true},\"type\":\"text\"},{\"cacheReadTokenCostPer1M\":0.5,\"cacheWriteTokenCostPer1M\":6.25,\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"serviceTiers\":[],\"showThoughts\":true,\"structuredOutputs\":true,\"temperature\":true,\"thinkingBudget\":true,\"thinkingLevels\":[\"none\",\"minimal\",\"low\",\"medium\",\"high\",\"highest\"],\"topP\":true},\"completionTokenCostPer1M\":25,\"currency\":\"usd\",\"isDefault\":false,\"maxTokens\":64000,\"name\":\"claude-opus-4-5@20251101\",\"promptTokenCostPer1M\":5,\"provider\":\"anthropic\",\"supported\":{\"showThoughts\":true,\"structuredOutputs\":true,\"thinkingBudget\":true},\"type\":\"text\"},{\"cacheReadTokenCostPer1M\":0.5,\"cacheWriteTokenCostPer1M\":6.25,\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"serviceTiers\":[],\"showThoughts\":true,\"structuredOutputs\":true,\"temperature\":true,\"thinkingBudget\":true,\"thinkingLevels\":[\"none\",\"minimal\",\"low\",\"medium\",\"high\",\"highest\"],\"topP\":true},\"completionTokenCostPer1M\":25,\"contextWindow\":1000000,\"currency\":\"usd\",\"fastCacheReadTokenCostPer1M\":3,\"fastCacheWriteTokenCostPer1M\":37.5,\"fastCompletionTokenCostPer1M\":150,\"fastPromptTokenCostPer1M\":30,\"isDefault\":false,\"maxTokens\":128000,\"name\":\"claude-opus-4-6\",\"promptTokenCostPer1M\":5,\"provider\":\"anthropic\",\"supported\":{\"showThoughts\":true,\"structuredOutputs\":true,\"thinkingBudget\":true},\"type\":\"text\"},{\"cacheReadTokenCostPer1M\":0.5,\"cacheWriteTokenCostPer1M\":6.25,\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"serviceTiers\":[],\"showThoughts\":true,\"structuredOutputs\":true,\"temperature\":true,\"thinkingBudget\":true,\"thinkingLevels\":[\"none\",\"minimal\",\"low\",\"medium\",\"high\",\"highest\"],\"topP\":true},\"completionTokenCostPer1M\":25,\"contextWindow\":1000000,\"currency\":\"usd\",\"isDefault\":false,\"maxTokens\":128000,\"name\":\"claude-opus-4-6\",\"promptTokenCostPer1M\":5,\"provider\":\"anthropic\",\"supported\":{\"showThoughts\":true,\"structuredOutputs\":true,\"thinkingBudget\":true},\"type\":\"text\"},{\"cacheReadTokenCostPer1M\":0.5,\"cacheWriteTokenCostPer1M\":6.25,\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"serviceTiers\":[],\"showThoughts\":true,\"structuredOutputs\":true,\"temperature\":true,\"thinkingBudget\":true,\"thinkingLevels\":[\"none\",\"minimal\",\"low\",\"medium\",\"high\",\"highest\"],\"topP\":true},\"completionTokenCostPer1M\":25,\"contextWindow\":1000000,\"currency\":\"usd\",\"fastCacheReadTokenCostPer1M\":3,\"fastCacheWriteTokenCostPer1M\":37.5,\"fastCompletionTokenCostPer1M\":150,\"fastPromptTokenCostPer1M\":30,\"isDefault\":false,\"maxTokens\":128000,\"name\":\"claude-opus-4-7\",\"promptTokenCostPer1M\":5,\"provider\":\"anthropic\",\"supported\":{\"showThoughts\":true,\"structuredOutputs\":true,\"thinkingBudget\":true},\"type\":\"text\"},{\"cacheReadTokenCostPer1M\":0.5,\"cacheWriteTokenCostPer1M\":6.25,\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"serviceTiers\":[],\"showThoughts\":true,\"structuredOutputs\":true,\"temperature\":true,\"thinkingBudget\":true,\"thinkingLevels\":[\"none\",\"minimal\",\"low\",\"medium\",\"high\",\"highest\"],\"topP\":true},\"completionTokenCostPer1M\":25,\"contextWindow\":1000000,\"currency\":\"usd\",\"isDefault\":false,\"maxTokens\":128000,\"name\":\"claude-opus-4-7\",\"promptTokenCostPer1M\":5,\"provider\":\"anthropic\",\"supported\":{\"showThoughts\":true,\"structuredOutputs\":true,\"thinkingBudget\":true},\"type\":\"text\"},{\"cacheReadTokenCostPer1M\":0.5,\"cacheWriteTokenCostPer1M\":6.25,\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"serviceTiers\":[],\"showThoughts\":true,\"structuredOutputs\":true,\"temperature\":true,\"thinkingBudget\":true,\"thinkingLevels\":[\"none\",\"minimal\",\"low\",\"medium\",\"high\",\"highest\"],\"topP\":true},\"completionTokenCostPer1M\":25,\"contextWindow\":1000000,\"currency\":\"usd\",\"fastCacheReadTokenCostPer1M\":1,\"fastCacheWriteTokenCostPer1M\":12.5,\"fastCompletionTokenCostPer1M\":50,\"fastPromptTokenCostPer1M\":10,\"isDefault\":false,\"maxTokens\":128000,\"name\":\"claude-opus-4-8\",\"promptTokenCostPer1M\":5,\"provider\":\"anthropic\",\"supported\":{\"showThoughts\":true,\"structuredOutputs\":true,\"thinkingBudget\":true},\"type\":\"text\"},{\"cacheReadTokenCostPer1M\":0.5,\"cacheWriteTokenCostPer1M\":6.25,\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"serviceTiers\":[],\"showThoughts\":true,\"structuredOutputs\":true,\"temperature\":true,\"thinkingBudget\":true,\"thinkingLevels\":[\"none\",\"minimal\",\"low\",\"medium\",\"high\",\"highest\"],\"topP\":true},\"completionTokenCostPer1M\":25,\"contextWindow\":1000000,\"currency\":\"usd\",\"isDefault\":false,\"maxTokens\":128000,\"name\":\"claude-opus-4-8\",\"promptTokenCostPer1M\":5,\"provider\":\"anthropic\",\"supported\":{\"showThoughts\":true,\"structuredOutputs\":true,\"thinkingBudget\":true},\"type\":\"text\"},{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"serviceTiers\":[],\"showThoughts\":false,\"structuredOutputs\":false,\"temperature\":true,\"thinkingBudget\":false,\"thinkingLevels\":[],\"topP\":true},\"completionTokenCostPer1M\":25,\"currency\":\"usd\",\"isDefault\":false,\"maxTokens\":4096,\"name\":\"claude-2.1\",\"promptTokenCostPer1M\":8,\"provider\":\"anthropic\",\"type\":\"text\"},{\"cacheReadTokenCostPer1M\":1.5,\"cacheWriteTokenCostPer1M\":18.75,\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"serviceTiers\":[],\"showThoughts\":false,\"structuredOutputs\":true,\"temperature\":true,\"thinkingBudget\":false,\"thinkingLevels\":[],\"topP\":true},\"completionTokenCostPer1M\":75,\"currency\":\"usd\",\"isDefault\":false,\"maxTokens\":4096,\"name\":\"claude-3-opus-latest\",\"promptTokenCostPer1M\":15,\"provider\":\"anthropic\",\"supported\":{\"structuredOutputs\":true},\"type\":\"text\"},{\"cacheReadTokenCostPer1M\":1.5,\"cacheWriteTokenCostPer1M\":18.75,\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"serviceTiers\":[],\"showThoughts\":false,\"structuredOutputs\":true,\"temperature\":true,\"thinkingBudget\":false,\"thinkingLevels\":[],\"topP\":true},\"completionTokenCostPer1M\":75,\"currency\":\"usd\",\"isDefault\":false,\"maxTokens\":4096,\"name\":\"claude-3-opus@20240229\",\"promptTokenCostPer1M\":15,\"provider\":\"anthropic\",\"supported\":{\"structuredOutputs\":true},\"type\":\"text\"},{\"cacheReadTokenCostPer1M\":1.5,\"cacheWriteTokenCostPer1M\":18.75,\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"serviceTiers\":[],\"showThoughts\":true,\"structuredOutputs\":true,\"temperature\":true,\"thinkingBudget\":true,\"thinkingLevels\":[\"none\",\"minimal\",\"low\",\"medium\",\"high\",\"highest\"],\"topP\":true},\"completionTokenCostPer1M\":75,\"currency\":\"usd\",\"isDefault\":false,\"maxTokens\":32000,\"name\":\"claude-opus-4-1-20250805\",\"promptTokenCostPer1M\":15,\"provider\":\"anthropic\",\"supported\":{\"showThoughts\":true,\"structuredOutputs\":true,\"thinkingBudget\":true},\"type\":\"text\"},{\"cacheReadTokenCostPer1M\":1.5,\"cacheWriteTokenCostPer1M\":18.75,\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"serviceTiers\":[],\"showThoughts\":true,\"structuredOutputs\":true,\"temperature\":true,\"thinkingBudget\":true,\"thinkingLevels\":[\"none\",\"minimal\",\"low\",\"medium\",\"high\",\"highest\"],\"topP\":true},\"completionTokenCostPer1M\":75,\"currency\":\"usd\",\"isDefault\":false,\"maxTokens\":32000,\"name\":\"claude-opus-4-1@20250805\",\"promptTokenCostPer1M\":15,\"provider\":\"anthropic\",\"supported\":{\"showThoughts\":true,\"structuredOutputs\":true,\"thinkingBudget\":true},\"type\":\"text\"},{\"cacheReadTokenCostPer1M\":1.5,\"cacheWriteTokenCostPer1M\":18.75,\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"serviceTiers\":[],\"showThoughts\":true,\"structuredOutputs\":true,\"temperature\":true,\"thinkingBudget\":true,\"thinkingLevels\":[\"none\",\"minimal\",\"low\",\"medium\",\"high\",\"highest\"],\"topP\":true},\"completionTokenCostPer1M\":75,\"currency\":\"usd\",\"isDefault\":false,\"maxTokens\":32000,\"name\":\"claude-opus-4-20250514\",\"promptTokenCostPer1M\":15,\"provider\":\"anthropic\",\"supported\":{\"showThoughts\":true,\"structuredOutputs\":true,\"thinkingBudget\":true},\"type\":\"text\"},{\"cacheReadTokenCostPer1M\":1.5,\"cacheWriteTokenCostPer1M\":18.75,\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"serviceTiers\":[],\"showThoughts\":true,\"structuredOutputs\":true,\"temperature\":true,\"thinkingBudget\":true,\"thinkingLevels\":[\"none\",\"minimal\",\"low\",\"medium\",\"high\",\"highest\"],\"topP\":true},\"completionTokenCostPer1M\":75,\"currency\":\"usd\",\"isDefault\":false,\"maxTokens\":32000,\"name\":\"claude-opus-4@20250514\",\"promptTokenCostPer1M\":15,\"provider\":\"anthropic\",\"supported\":{\"showThoughts\":true,\"structuredOutputs\":true,\"thinkingBudget\":true},\"type\":\"text\"}],\"name\":\"anthropic\"},{\"capabilities\":{\"serviceTiers\":[],\"thinking\":false,\"thinkingLevels\":[]},\"displayName\":\"OpenAI Compatible\",\"isDynamic\":true,\"models\":[],\"name\":\"openai-compatible\"},{\"capabilities\":{\"serviceTiers\":[\"standard\",\"priority\"],\"thinking\":true,\"thinkingLevels\":[\"none\",\"minimal\",\"low\",\"medium\",\"high\",\"highest\"]},\"displayName\":\"Azure OpenAI\",\"isDynamic\":true,\"models\":[],\"name\":\"azure-openai\"},{\"capabilities\":{\"serviceTiers\":[],\"thinking\":false,\"thinkingLevels\":[]},\"displayName\":\"Together AI\",\"isDynamic\":true,\"models\":[],\"name\":\"together\"},{\"capabilities\":{\"serviceTiers\":[\"standard\",\"flex\",\"priority\"],\"thinking\":false,\"thinkingLevels\":[]},\"displayName\":\"OpenRouter\",\"isDynamic\":true,\"models\":[],\"name\":\"openrouter\"},{\"capabilities\":{\"serviceTiers\":[],\"thinking\":false,\"thinkingLevels\":[]},\"displayName\":\"OrcaRouter\",\"isDynamic\":true,\"models\":[],\"name\":\"orcarouter\"},{\"capabilities\":{\"serviceTiers\":[\"standard\",\"priority\"],\"thinking\":false,\"thinkingLevels\":[]},\"displayName\":\"Fireworks AI\",\"isDynamic\":true,\"models\":[],\"name\":\"fireworks\"},{\"capabilities\":{\"serviceTiers\":[],\"thinking\":false,\"thinkingLevels\":[]},\"displayName\":\"Hugging Face Router\",\"isDynamic\":true,\"models\":[],\"name\":\"huggingface-router\"},{\"capabilities\":{\"serviceTiers\":[\"standard\",\"flex\",\"priority\"],\"thinking\":false,\"thinkingLevels\":[]},\"displayName\":\"Amazon Bedrock\",\"isDynamic\":true,\"models\":[],\"name\":\"amazon-bedrock\"},{\"capabilities\":{\"serviceTiers\":[\"standard\",\"priority\"],\"thinking\":false,\"thinkingLevels\":[]},\"displayName\":\"Azure AI Foundry\",\"isDynamic\":true,\"models\":[],\"name\":\"azure-foundry\"},{\"capabilities\":{\"serviceTiers\":[],\"thinking\":false,\"thinkingLevels\":[]},\"displayName\":\"Vertex AI OpenAI Compatibility\",\"isDynamic\":true,\"models\":[],\"name\":\"vertex-ai\"},{\"capabilities\":{\"serviceTiers\":[\"standard\",\"priority\"],\"thinking\":false,\"thinkingLevels\":[]},\"displayName\":\"Databricks Model Serving\",\"isDynamic\":true,\"models\":[],\"name\":\"databricks\"},{\"capabilities\":{\"serviceTiers\":[],\"thinking\":false,\"thinkingLevels\":[]},\"displayName\":\"Baseten Model APIs\",\"isDynamic\":true,\"models\":[],\"name\":\"baseten\"},{\"capabilities\":{\"serviceTiers\":[\"standard\",\"flex\",\"priority\"],\"thinking\":false,\"thinkingLevels\":[]},\"displayName\":\"Groq\",\"isDynamic\":true,\"models\":[],\"name\":\"groq\"},{\"capabilities\":{\"serviceTiers\":[\"standard\",\"flex\",\"priority\"],\"thinking\":false,\"thinkingLevels\":[]},\"displayName\":\"Cerebras Inference\",\"isDynamic\":true,\"models\":[],\"name\":\"cerebras\"},{\"capabilities\":{\"serviceTiers\":[\"standard\",\"priority\"],\"thinking\":false,\"thinkingLevels\":[]},\"displayName\":\"DeepInfra\",\"isDynamic\":true,\"models\":[],\"name\":\"deepinfra\"},{\"capabilities\":{\"serviceTiers\":[],\"thinking\":false,\"thinkingLevels\":[]},\"displayName\":\"SambaNova Cloud\",\"isDynamic\":true,\"models\":[],\"name\":\"sambanova\"},{\"capabilities\":{\"serviceTiers\":[],\"thinking\":false,\"thinkingLevels\":[]},\"displayName\":\"Nebius AI Studio\",\"isDynamic\":true,\"models\":[],\"name\":\"nebius\"},{\"capabilities\":{\"serviceTiers\":[],\"thinking\":false,\"thinkingLevels\":[]},\"displayName\":\"Novita AI\",\"isDynamic\":true,\"models\":[],\"name\":\"novita\"},{\"capabilities\":{\"serviceTiers\":[],\"thinking\":false,\"thinkingLevels\":[]},\"displayName\":\"Hyperbolic\",\"isDynamic\":true,\"models\":[],\"name\":\"hyperbolic\"},{\"capabilities\":{\"serviceTiers\":[],\"thinking\":false,\"thinkingLevels\":[]},\"displayName\":\"SiliconFlow\",\"isDynamic\":true,\"models\":[],\"name\":\"siliconflow\"},{\"capabilities\":{\"serviceTiers\":[],\"thinking\":false,\"thinkingLevels\":[]},\"displayName\":\"FriendliAI\",\"isDynamic\":true,\"models\":[],\"name\":\"friendli\"},{\"capabilities\":{\"serviceTiers\":[],\"thinking\":false,\"thinkingLevels\":[]},\"displayName\":\"Cloudflare Workers AI\",\"isDynamic\":true,\"models\":[],\"name\":\"cloudflare-workers-ai\"},{\"capabilities\":{\"serviceTiers\":[],\"thinking\":false,\"thinkingLevels\":[]},\"displayName\":\"Featherless AI\",\"isDynamic\":true,\"models\":[],\"name\":\"featherless\"},{\"capabilities\":{\"serviceTiers\":[],\"thinking\":false,\"thinkingLevels\":[]},\"displayName\":\"Nscale\",\"isDynamic\":true,\"models\":[],\"name\":\"nscale\"},{\"capabilities\":{\"serviceTiers\":[],\"thinking\":false,\"thinkingLevels\":[]},\"displayName\":\"OVHcloud AI Endpoints\",\"isDynamic\":true,\"models\":[],\"name\":\"ovhcloud\"},{\"capabilities\":{\"serviceTiers\":[],\"thinking\":false,\"thinkingLevels\":[]},\"displayName\":\"Scaleway Generative APIs\",\"isDynamic\":true,\"models\":[],\"name\":\"scaleway\"},{\"capabilities\":{\"serviceTiers\":[],\"thinking\":false,\"thinkingLevels\":[]},\"displayName\":\"NVIDIA NIM\",\"isDynamic\":true,\"models\":[],\"name\":\"nvidia-nim\"},{\"capabilities\":{\"serviceTiers\":[],\"thinking\":false,\"thinkingLevels\":[]},\"displayName\":\"RunPod vLLM\",\"isDynamic\":true,\"models\":[],\"name\":\"runpod-vllm\"},{\"capabilities\":{\"serviceTiers\":[],\"thinking\":false,\"thinkingLevels\":[]},\"displayName\":\"SageMaker vLLM\",\"isDynamic\":true,\"models\":[],\"name\":\"sagemaker-vllm\"},{\"capabilities\":{\"serviceTiers\":[],\"thinking\":false,\"thinkingLevels\":[]},\"displayName\":\"vLLM\",\"isDynamic\":true,\"models\":[],\"name\":\"vllm\"},{\"capabilities\":{\"serviceTiers\":[],\"thinking\":false,\"thinkingLevels\":[]},\"displayName\":\"Ollama\",\"isDynamic\":true,\"models\":[],\"name\":\"ollama\"},{\"capabilities\":{\"serviceTiers\":[],\"thinking\":false,\"thinkingLevels\":[]},\"displayName\":\"LM Studio\",\"isDynamic\":true,\"models\":[],\"name\":\"lm-studio\"},{\"capabilities\":{\"serviceTiers\":[],\"thinking\":false,\"thinkingLevels\":[]},\"displayName\":\"llama.cpp Server\",\"isDynamic\":true,\"models\":[],\"name\":\"llama-cpp\"},{\"capabilities\":{\"serviceTiers\":[],\"thinking\":false,\"thinkingLevels\":[]},\"displayName\":\"LocalAI\",\"isDynamic\":true,\"models\":[],\"name\":\"localai\"},{\"capabilities\":{\"serviceTiers\":[],\"thinking\":false,\"thinkingLevels\":[]},\"displayName\":\"Baseten Inference Engine\",\"isDynamic\":true,\"models\":[],\"name\":\"baseten-engine\"}],\"audio\":[{\"capabilities\":{\"serviceTiers\":[\"standard\",\"flex\",\"priority\"],\"thinking\":true,\"thinkingLevels\":[\"none\",\"minimal\",\"low\",\"medium\",\"high\",\"highest\"]},\"defaultEmbedModel\":\"gemini-embedding-2\",\"defaultModel\":\"gemini-2.5-flash\",\"displayName\":\"Google Gemini\",\"isDynamic\":false,\"models\":[{\"audio\":{\"input\":false,\"output\":true},\"capabilities\":{\"audioInput\":false,\"audioOutput\":true,\"serviceTiers\":[\"standard\",\"flex\",\"priority\"],\"showThoughts\":false,\"structuredOutputs\":false,\"temperature\":true,\"thinkingBudget\":false,\"thinkingLevels\":[],\"topP\":true},\"characterIsToken\":false,\"completionTokenCostPer1M\":3,\"currency\":\"usd\",\"isDefault\":false,\"name\":\"gemini-3.1-flash-tts-preview\",\"promptTokenCostPer1M\":0.5,\"provider\":\"google-gemini\",\"type\":\"audio\"},{\"audio\":{\"input\":true,\"output\":true},\"capabilities\":{\"audioInput\":true,\"audioOutput\":true,\"serviceTiers\":[],\"showThoughts\":true,\"structuredOutputs\":false,\"temperature\":true,\"thinkingBudget\":true,\"thinkingLevels\":[\"none\",\"minimal\",\"low\",\"medium\",\"high\",\"highest\"],\"topP\":true},\"characterIsToken\":false,\"contextWindow\":131072,\"isDefault\":false,\"maxTokens\":65536,\"name\":\"gemini-3.1-flash-live-preview\",\"provider\":\"google-gemini\",\"supported\":{\"showThoughts\":true,\"thinkingBudget\":true},\"type\":\"audio\"},{\"audio\":{\"input\":true,\"output\":true},\"capabilities\":{\"audioInput\":true,\"audioOutput\":true,\"serviceTiers\":[],\"showThoughts\":true,\"structuredOutputs\":false,\"temperature\":true,\"thinkingBudget\":true,\"thinkingLevels\":[\"none\",\"minimal\",\"low\",\"medium\",\"high\",\"highest\"],\"topP\":true},\"characterIsToken\":false,\"contextWindow\":131072,\"isDefault\":false,\"maxTokens\":8192,\"name\":\"gemini-2.5-flash-native-audio-preview-12-2025\",\"provider\":\"google-gemini\",\"supported\":{\"showThoughts\":true,\"thinkingBudget\":true},\"type\":\"audio\"}],\"name\":\"google-gemini\"},{\"capabilities\":{\"serviceTiers\":[\"standard\",\"flex\",\"priority\"],\"thinking\":true,\"thinkingLevels\":[\"none\",\"minimal\",\"low\",\"medium\",\"high\",\"highest\"]},\"defaultEmbedModel\":\"text-embedding-3-small\",\"defaultModel\":\"gpt-5-mini\",\"displayName\":\"OpenAI\",\"isDynamic\":false,\"models\":[{\"audio\":{\"input\":true,\"output\":true},\"capabilities\":{\"audioInput\":true,\"audioOutput\":true,\"serviceTiers\":[\"standard\",\"flex\",\"priority\"],\"showThoughts\":false,\"structuredOutputs\":false,\"temperature\":true,\"thinkingBudget\":false,\"thinkingLevels\":[],\"topP\":true},\"isDefault\":false,\"name\":\"gpt-audio\",\"provider\":\"openai\",\"type\":\"audio\"},{\"audio\":{\"input\":true,\"output\":true},\"capabilities\":{\"audioInput\":true,\"audioOutput\":true,\"serviceTiers\":[\"standard\",\"flex\",\"priority\"],\"showThoughts\":false,\"structuredOutputs\":false,\"temperature\":true,\"thinkingBudget\":false,\"thinkingLevels\":[],\"topP\":true},\"isDefault\":false,\"name\":\"gpt-audio-mini\",\"provider\":\"openai\",\"type\":\"audio\"},{\"audio\":{\"input\":true,\"output\":true},\"capabilities\":{\"audioInput\":true,\"audioOutput\":true,\"serviceTiers\":[\"standard\",\"flex\",\"priority\"],\"showThoughts\":false,\"structuredOutputs\":false,\"temperature\":true,\"thinkingBudget\":false,\"thinkingLevels\":[],\"topP\":true},\"isDefault\":false,\"name\":\"gpt-audio-1.5\",\"provider\":\"openai\",\"type\":\"audio\"},{\"audio\":{\"input\":true,\"output\":true},\"capabilities\":{\"audioInput\":true,\"audioOutput\":true,\"serviceTiers\":[],\"showThoughts\":false,\"structuredOutputs\":false,\"temperature\":true,\"thinkingBudget\":false,\"thinkingLevels\":[],\"topP\":true},\"isDefault\":false,\"name\":\"gpt-realtime-1.5\",\"provider\":\"openai\",\"type\":\"audio\"},{\"audio\":{\"input\":true,\"output\":true},\"capabilities\":{\"audioInput\":true,\"audioOutput\":true,\"serviceTiers\":[],\"showThoughts\":false,\"structuredOutputs\":false,\"temperature\":true,\"thinkingBudget\":true,\"thinkingLevels\":[\"none\",\"minimal\",\"low\",\"medium\",\"high\",\"highest\"],\"topP\":true},\"isDefault\":false,\"name\":\"gpt-realtime-2\",\"provider\":\"openai\",\"supported\":{\"thinkingBudget\":true},\"type\":\"audio\"},{\"audio\":{\"input\":true,\"output\":false},\"capabilities\":{\"audioInput\":true,\"audioOutput\":false,\"serviceTiers\":[],\"showThoughts\":false,\"structuredOutputs\":false,\"temperature\":true,\"thinkingBudget\":false,\"thinkingLevels\":[],\"topP\":true},\"isDefault\":false,\"name\":\"gpt-realtime-whisper\",\"provider\":\"openai\",\"type\":\"audio\"},{\"audio\":{\"input\":true,\"output\":true},\"capabilities\":{\"audioInput\":true,\"audioOutput\":true,\"serviceTiers\":[],\"showThoughts\":false,\"structuredOutputs\":false,\"temperature\":true,\"thinkingBudget\":false,\"thinkingLevels\":[],\"topP\":true},\"isDefault\":false,\"name\":\"gpt-realtime-translate\",\"provider\":\"openai\",\"type\":\"audio\"}],\"name\":\"openai\"},{\"capabilities\":{\"serviceTiers\":[],\"thinking\":false,\"thinkingLevels\":[]},\"displayName\":\"OpenAI Compatible\",\"isDynamic\":true,\"models\":[],\"name\":\"openai-compatible\"},{\"capabilities\":{\"serviceTiers\":[\"standard\",\"flex\",\"priority\"],\"thinking\":true,\"thinkingLevels\":[\"none\",\"minimal\",\"low\",\"medium\",\"high\",\"highest\"]},\"defaultEmbedModel\":\"text-embedding-ada-002\",\"defaultModel\":\"gpt-4o\",\"displayName\":\"OpenAI Responses\",\"isDynamic\":false,\"models\":[],\"name\":\"openai-responses\"},{\"capabilities\":{\"serviceTiers\":[],\"thinking\":true,\"thinkingLevels\":[\"none\",\"minimal\",\"low\",\"medium\",\"high\",\"highest\"]},\"defaultModel\":\"claude-3-7-sonnet-latest\",\"displayName\":\"Anthropic\",\"isDynamic\":false,\"models\":[],\"name\":\"anthropic\"},{\"capabilities\":{\"serviceTiers\":[],\"thinking\":false,\"thinkingLevels\":[]},\"defaultModel\":\"Llama-3.2-3B-Instruct-q4f32_1-MLC\",\"displayName\":\"WebLLM\",\"isDynamic\":false,\"models\":[],\"name\":\"webllm\"},{\"capabilities\":{\"serviceTiers\":[\"standard\",\"priority\"],\"thinking\":true,\"thinkingLevels\":[\"none\",\"minimal\",\"low\",\"medium\",\"high\",\"highest\"]},\"displayName\":\"Azure OpenAI\",\"isDynamic\":true,\"models\":[],\"name\":\"azure-openai\"},{\"capabilities\":{\"serviceTiers\":[],\"thinking\":true,\"thinkingLevels\":[\"none\",\"minimal\",\"low\",\"medium\",\"high\",\"highest\"]},\"defaultModel\":\"deepseek-v4-flash\",\"displayName\":\"DeepSeek\",\"isDynamic\":false,\"models\":[],\"name\":\"deepseek\"},{\"capabilities\":{\"serviceTiers\":[],\"thinking\":true,\"thinkingLevels\":[\"none\",\"minimal\",\"low\",\"medium\",\"high\",\"highest\"]},\"defaultModel\":\"deepseek-v4-flash\",\"displayName\":\"DeepSeek Responses\",\"isDynamic\":false,\"models\":[],\"name\":\"deepseek-responses\"},{\"capabilities\":{\"serviceTiers\":[\"standard\",\"priority\"],\"thinking\":false,\"thinkingLevels\":[]},\"defaultModel\":\"mistral-small-latest\",\"displayName\":\"Mistral AI\",\"isDynamic\":false,\"models\":[],\"name\":\"mistral\"},{\"capabilities\":{\"serviceTiers\":[],\"thinking\":false,\"thinkingLevels\":[]},\"defaultModel\":\"command-r-plus\",\"displayName\":\"Cohere\",\"isDynamic\":false,\"models\":[],\"name\":\"cohere\"},{\"capabilities\":{\"serviceTiers\":[\"standard\",\"priority\"],\"thinking\":true,\"thinkingLevels\":[\"minimal\",\"low\",\"medium\",\"high\",\"highest\"]},\"defaultModel\":\"grok-4.6\",\"displayName\":\"xAI Grok\",\"isDynamic\":false,\"models\":[{\"capabilities\":{\"audioInput\":true,\"audioOutput\":true,\"serviceTiers\":[],\"showThoughts\":false,\"structuredOutputs\":false,\"temperature\":true,\"thinkingBudget\":false,\"thinkingLevels\":[],\"topP\":true},\"currency\":\"USD\",\"isDefault\":false,\"name\":\"grok-voice-think-fast-1.0\",\"provider\":\"grok\",\"type\":\"audio\"},{\"capabilities\":{\"audioInput\":true,\"audioOutput\":true,\"serviceTiers\":[],\"showThoughts\":false,\"structuredOutputs\":false,\"temperature\":true,\"thinkingBudget\":false,\"thinkingLevels\":[],\"topP\":true},\"currency\":\"USD\",\"isDefault\":false,\"name\":\"grok-voice-fast-1.0\",\"provider\":\"grok\",\"type\":\"audio\"}],\"name\":\"grok\"},{\"capabilities\":{\"serviceTiers\":[],\"thinking\":false,\"thinkingLevels\":[]},\"defaultModel\":\"reka-core\",\"displayName\":\"Reka\",\"isDynamic\":false,\"models\":[],\"name\":\"reka\"},{\"capabilities\":{\"serviceTiers\":[],\"thinking\":false,\"thinkingLevels\":[]},\"displayName\":\"Together AI\",\"isDynamic\":true,\"models\":[],\"name\":\"together\"},{\"capabilities\":{\"serviceTiers\":[\"standard\",\"flex\",\"priority\"],\"thinking\":false,\"thinkingLevels\":[]},\"displayName\":\"OpenRouter\",\"isDynamic\":true,\"models\":[],\"name\":\"openrouter\"},{\"capabilities\":{\"serviceTiers\":[],\"thinking\":false,\"thinkingLevels\":[]},\"displayName\":\"OrcaRouter\",\"isDynamic\":true,\"models\":[],\"name\":\"orcarouter\"},{\"capabilities\":{\"serviceTiers\":[\"standard\",\"priority\"],\"thinking\":false,\"thinkingLevels\":[]},\"displayName\":\"Fireworks AI\",\"isDynamic\":true,\"models\":[],\"name\":\"fireworks\"},{\"capabilities\":{\"serviceTiers\":[],\"thinking\":false,\"thinkingLevels\":[]},\"displayName\":\"Hugging Face Router\",\"isDynamic\":true,\"models\":[],\"name\":\"huggingface-router\"},{\"capabilities\":{\"serviceTiers\":[\"standard\",\"flex\",\"priority\"],\"thinking\":false,\"thinkingLevels\":[]},\"displayName\":\"Amazon Bedrock\",\"isDynamic\":true,\"models\":[],\"name\":\"amazon-bedrock\"},{\"capabilities\":{\"serviceTiers\":[\"standard\",\"priority\"],\"thinking\":false,\"thinkingLevels\":[]},\"displayName\":\"Azure AI Foundry\",\"isDynamic\":true,\"models\":[],\"name\":\"azure-foundry\"},{\"capabilities\":{\"serviceTiers\":[],\"thinking\":false,\"thinkingLevels\":[]},\"displayName\":\"Vertex AI OpenAI Compatibility\",\"isDynamic\":true,\"models\":[],\"name\":\"vertex-ai\"},{\"capabilities\":{\"serviceTiers\":[\"standard\",\"priority\"],\"thinking\":false,\"thinkingLevels\":[]},\"displayName\":\"Databricks Model Serving\",\"isDynamic\":true,\"models\":[],\"name\":\"databricks\"},{\"capabilities\":{\"serviceTiers\":[],\"thinking\":false,\"thinkingLevels\":[]},\"displayName\":\"Baseten Model APIs\",\"isDynamic\":true,\"models\":[],\"name\":\"baseten\"},{\"capabilities\":{\"serviceTiers\":[\"standard\",\"flex\",\"priority\"],\"thinking\":false,\"thinkingLevels\":[]},\"displayName\":\"Groq\",\"isDynamic\":true,\"models\":[],\"name\":\"groq\"},{\"capabilities\":{\"serviceTiers\":[\"standard\",\"flex\",\"priority\"],\"thinking\":false,\"thinkingLevels\":[]},\"displayName\":\"Cerebras Inference\",\"isDynamic\":true,\"models\":[],\"name\":\"cerebras\"},{\"capabilities\":{\"serviceTiers\":[\"standard\",\"priority\"],\"thinking\":false,\"thinkingLevels\":[]},\"displayName\":\"DeepInfra\",\"isDynamic\":true,\"models\":[],\"name\":\"deepinfra\"},{\"capabilities\":{\"serviceTiers\":[],\"thinking\":false,\"thinkingLevels\":[]},\"displayName\":\"SambaNova Cloud\",\"isDynamic\":true,\"models\":[],\"name\":\"sambanova\"},{\"capabilities\":{\"serviceTiers\":[],\"thinking\":false,\"thinkingLevels\":[]},\"displayName\":\"Nebius AI Studio\",\"isDynamic\":true,\"models\":[],\"name\":\"nebius\"},{\"capabilities\":{\"serviceTiers\":[],\"thinking\":false,\"thinkingLevels\":[]},\"displayName\":\"Novita AI\",\"isDynamic\":true,\"models\":[],\"name\":\"novita\"},{\"capabilities\":{\"serviceTiers\":[],\"thinking\":false,\"thinkingLevels\":[]},\"displayName\":\"Hyperbolic\",\"isDynamic\":true,\"models\":[],\"name\":\"hyperbolic\"},{\"capabilities\":{\"serviceTiers\":[],\"thinking\":false,\"thinkingLevels\":[]},\"displayName\":\"SiliconFlow\",\"isDynamic\":true,\"models\":[],\"name\":\"siliconflow\"},{\"capabilities\":{\"serviceTiers\":[],\"thinking\":false,\"thinkingLevels\":[]},\"displayName\":\"FriendliAI\",\"isDynamic\":true,\"models\":[],\"name\":\"friendli\"},{\"capabilities\":{\"serviceTiers\":[],\"thinking\":false,\"thinkingLevels\":[]},\"displayName\":\"Cloudflare Workers AI\",\"isDynamic\":true,\"models\":[],\"name\":\"cloudflare-workers-ai\"},{\"capabilities\":{\"serviceTiers\":[],\"thinking\":false,\"thinkingLevels\":[]},\"displayName\":\"Featherless AI\",\"isDynamic\":true,\"models\":[],\"name\":\"featherless\"},{\"capabilities\":{\"serviceTiers\":[],\"thinking\":false,\"thinkingLevels\":[]},\"displayName\":\"Nscale\",\"isDynamic\":true,\"models\":[],\"name\":\"nscale\"},{\"capabilities\":{\"serviceTiers\":[],\"thinking\":false,\"thinkingLevels\":[]},\"displayName\":\"OVHcloud AI Endpoints\",\"isDynamic\":true,\"models\":[],\"name\":\"ovhcloud\"},{\"capabilities\":{\"serviceTiers\":[],\"thinking\":false,\"thinkingLevels\":[]},\"displayName\":\"Scaleway Generative APIs\",\"isDynamic\":true,\"models\":[],\"name\":\"scaleway\"},{\"capabilities\":{\"serviceTiers\":[],\"thinking\":false,\"thinkingLevels\":[]},\"displayName\":\"NVIDIA NIM\",\"isDynamic\":true,\"models\":[],\"name\":\"nvidia-nim\"},{\"capabilities\":{\"serviceTiers\":[],\"thinking\":false,\"thinkingLevels\":[]},\"displayName\":\"RunPod vLLM\",\"isDynamic\":true,\"models\":[],\"name\":\"runpod-vllm\"},{\"capabilities\":{\"serviceTiers\":[],\"thinking\":false,\"thinkingLevels\":[]},\"displayName\":\"SageMaker vLLM\",\"isDynamic\":true,\"models\":[],\"name\":\"sagemaker-vllm\"},{\"capabilities\":{\"serviceTiers\":[],\"thinking\":false,\"thinkingLevels\":[]},\"displayName\":\"vLLM\",\"isDynamic\":true,\"models\":[],\"name\":\"vllm\"},{\"capabilities\":{\"serviceTiers\":[],\"thinking\":false,\"thinkingLevels\":[]},\"displayName\":\"Ollama\",\"isDynamic\":true,\"models\":[],\"name\":\"ollama\"},{\"capabilities\":{\"serviceTiers\":[],\"thinking\":false,\"thinkingLevels\":[]},\"displayName\":\"LM Studio\",\"isDynamic\":true,\"models\":[],\"name\":\"lm-studio\"},{\"capabilities\":{\"serviceTiers\":[],\"thinking\":false,\"thinkingLevels\":[]},\"displayName\":\"llama.cpp Server\",\"isDynamic\":true,\"models\":[],\"name\":\"llama-cpp\"},{\"capabilities\":{\"serviceTiers\":[],\"thinking\":false,\"thinkingLevels\":[]},\"displayName\":\"LocalAI\",\"isDynamic\":true,\"models\":[],\"name\":\"localai\"},{\"capabilities\":{\"serviceTiers\":[],\"thinking\":false,\"thinkingLevels\":[]},\"displayName\":\"Baseten Inference Engine\",\"isDynamic\":true,\"models\":[],\"name\":\"baseten-engine\"}],\"code\":[{\"capabilities\":{\"serviceTiers\":[\"standard\",\"priority\"],\"thinking\":false,\"thinkingLevels\":[]},\"defaultModel\":\"mistral-small-latest\",\"displayName\":\"Mistral AI\",\"isDynamic\":false,\"models\":[{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"serviceTiers\":[\"standard\",\"priority\"],\"showThoughts\":false,\"structuredOutputs\":false,\"temperature\":true,\"thinkingBudget\":false,\"thinkingLevels\":[],\"topP\":true},\"completionTokenCostPer1M\":0.25,\"currency\":\"USD\",\"isDefault\":false,\"name\":\"open-codestral-mamba\",\"promptTokenCostPer1M\":0.25,\"provider\":\"mistral\",\"type\":\"code\"},{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"serviceTiers\":[\"standard\",\"priority\"],\"showThoughts\":false,\"structuredOutputs\":false,\"temperature\":true,\"thinkingBudget\":false,\"thinkingLevels\":[],\"topP\":true},\"completionTokenCostPer1M\":0.6,\"currency\":\"USD\",\"isDefault\":false,\"name\":\"codestral-latest\",\"promptTokenCostPer1M\":0.2,\"provider\":\"mistral\",\"type\":\"code\"}],\"name\":\"mistral\"},{\"capabilities\":{\"serviceTiers\":[\"standard\",\"flex\",\"priority\"],\"thinking\":true,\"thinkingLevels\":[\"none\",\"minimal\",\"low\",\"medium\",\"high\",\"highest\"]},\"defaultEmbedModel\":\"text-embedding-3-small\",\"defaultModel\":\"gpt-5-mini\",\"displayName\":\"OpenAI\",\"isDynamic\":false,\"models\":[{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"serviceTiers\":[\"standard\",\"flex\",\"priority\"],\"showThoughts\":false,\"structuredOutputs\":true,\"temperature\":false,\"thinkingBudget\":false,\"thinkingLevels\":[],\"topP\":false},\"completionTokenCostPer1M\":2,\"currency\":\"usd\",\"isDefault\":false,\"name\":\"gpt-5.1-codex-mini\",\"notSupported\":{\"temperature\":true,\"topP\":true},\"promptTokenCostPer1M\":0.25,\"provider\":\"openai\",\"supported\":{\"structuredOutputs\":true},\"type\":\"code\"},{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"serviceTiers\":[\"standard\",\"flex\",\"priority\"],\"showThoughts\":false,\"structuredOutputs\":true,\"temperature\":false,\"thinkingBudget\":false,\"thinkingLevels\":[],\"topP\":false},\"completionTokenCostPer1M\":10,\"currency\":\"usd\",\"isDefault\":false,\"name\":\"gpt-5-codex\",\"notSupported\":{\"temperature\":true,\"topP\":true},\"promptTokenCostPer1M\":1.25,\"provider\":\"openai\",\"supported\":{\"structuredOutputs\":true},\"type\":\"code\"},{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"serviceTiers\":[\"standard\",\"flex\",\"priority\"],\"showThoughts\":false,\"structuredOutputs\":true,\"temperature\":false,\"thinkingBudget\":false,\"thinkingLevels\":[],\"topP\":false},\"completionTokenCostPer1M\":10,\"currency\":\"usd\",\"isDefault\":false,\"name\":\"gpt-5.1-codex\",\"notSupported\":{\"temperature\":true,\"topP\":true},\"promptTokenCostPer1M\":1.25,\"provider\":\"openai\",\"supported\":{\"structuredOutputs\":true},\"type\":\"code\"},{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"serviceTiers\":[\"standard\",\"flex\",\"priority\"],\"showThoughts\":false,\"structuredOutputs\":true,\"temperature\":false,\"thinkingBudget\":false,\"thinkingLevels\":[],\"topP\":false},\"completionTokenCostPer1M\":10,\"currency\":\"usd\",\"isDefault\":false,\"name\":\"gpt-5.1-codex-max\",\"notSupported\":{\"temperature\":true,\"topP\":true},\"promptTokenCostPer1M\":1.25,\"provider\":\"openai\",\"supported\":{\"structuredOutputs\":true},\"type\":\"code\"},{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"serviceTiers\":[\"standard\",\"flex\",\"priority\"],\"showThoughts\":false,\"structuredOutputs\":true,\"temperature\":false,\"thinkingBudget\":false,\"thinkingLevels\":[],\"topP\":false},\"completionTokenCostPer1M\":14,\"currency\":\"usd\",\"isDefault\":false,\"name\":\"gpt-5.2-codex\",\"notSupported\":{\"temperature\":true,\"topP\":true},\"promptTokenCostPer1M\":1.75,\"provider\":\"openai\",\"supported\":{\"structuredOutputs\":true},\"type\":\"code\"}],\"name\":\"openai\"},{\"capabilities\":{\"serviceTiers\":[\"standard\",\"flex\",\"priority\"],\"thinking\":true,\"thinkingLevels\":[\"none\",\"minimal\",\"low\",\"medium\",\"high\",\"highest\"]},\"defaultEmbedModel\":\"text-embedding-ada-002\",\"defaultModel\":\"gpt-4o\",\"displayName\":\"OpenAI Responses\",\"isDynamic\":false,\"models\":[{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"serviceTiers\":[\"standard\",\"flex\",\"priority\"],\"showThoughts\":true,\"structuredOutputs\":true,\"temperature\":false,\"thinkingBudget\":true,\"thinkingLevels\":[\"none\",\"minimal\",\"low\",\"medium\",\"high\",\"highest\"],\"topP\":false},\"completionTokenCostPer1M\":2,\"currency\":\"usd\",\"isDefault\":false,\"name\":\"gpt-5.1-codex-mini\",\"notSupported\":{\"temperature\":true,\"topP\":true},\"promptTokenCostPer1M\":0.25,\"provider\":\"openai-responses\",\"supported\":{\"showThoughts\":true,\"structuredOutputs\":true,\"thinkingBudget\":true},\"type\":\"code\"},{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"serviceTiers\":[\"standard\",\"flex\",\"priority\"],\"showThoughts\":true,\"structuredOutputs\":true,\"temperature\":false,\"thinkingBudget\":true,\"thinkingLevels\":[\"none\",\"minimal\",\"low\",\"medium\",\"high\",\"highest\"],\"topP\":false},\"completionTokenCostPer1M\":10,\"currency\":\"usd\",\"isDefault\":false,\"name\":\"gpt-5-codex\",\"notSupported\":{\"temperature\":true,\"topP\":true},\"promptTokenCostPer1M\":1.25,\"provider\":\"openai-responses\",\"supported\":{\"showThoughts\":true,\"structuredOutputs\":true,\"thinkingBudget\":true},\"type\":\"code\"},{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"serviceTiers\":[\"standard\",\"flex\",\"priority\"],\"showThoughts\":true,\"structuredOutputs\":true,\"temperature\":false,\"thinkingBudget\":true,\"thinkingLevels\":[\"none\",\"minimal\",\"low\",\"medium\",\"high\",\"highest\"],\"topP\":false},\"completionTokenCostPer1M\":10,\"currency\":\"usd\",\"isDefault\":false,\"name\":\"gpt-5.1-codex\",\"notSupported\":{\"temperature\":true,\"topP\":true},\"promptTokenCostPer1M\":1.25,\"provider\":\"openai-responses\",\"supported\":{\"showThoughts\":true,\"structuredOutputs\":true,\"thinkingBudget\":true},\"type\":\"code\"},{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"serviceTiers\":[\"standard\",\"flex\",\"priority\"],\"showThoughts\":true,\"structuredOutputs\":true,\"temperature\":false,\"thinkingBudget\":true,\"thinkingLevels\":[\"none\",\"minimal\",\"low\",\"medium\",\"high\",\"highest\"],\"topP\":false},\"completionTokenCostPer1M\":10,\"currency\":\"usd\",\"isDefault\":false,\"name\":\"gpt-5.1-codex-max\",\"notSupported\":{\"temperature\":true,\"topP\":true},\"promptTokenCostPer1M\":1.25,\"provider\":\"openai-responses\",\"supported\":{\"showThoughts\":true,\"structuredOutputs\":true,\"thinkingBudget\":true},\"type\":\"code\"},{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"serviceTiers\":[\"standard\",\"flex\",\"priority\"],\"showThoughts\":true,\"structuredOutputs\":true,\"temperature\":false,\"thinkingBudget\":true,\"thinkingLevels\":[\"none\",\"minimal\",\"low\",\"medium\",\"high\",\"highest\"],\"topP\":false},\"completionTokenCostPer1M\":14,\"currency\":\"usd\",\"isDefault\":false,\"name\":\"gpt-5.2-codex\",\"notSupported\":{\"temperature\":true,\"topP\":true},\"promptTokenCostPer1M\":1.75,\"provider\":\"openai-responses\",\"supported\":{\"showThoughts\":true,\"structuredOutputs\":true,\"thinkingBudget\":true},\"type\":\"code\"}],\"name\":\"openai-responses\"},{\"capabilities\":{\"serviceTiers\":[],\"thinking\":false,\"thinkingLevels\":[]},\"displayName\":\"OpenAI Compatible\",\"isDynamic\":true,\"models\":[],\"name\":\"openai-compatible\"},{\"capabilities\":{\"serviceTiers\":[],\"thinking\":true,\"thinkingLevels\":[\"none\",\"minimal\",\"low\",\"medium\",\"high\",\"highest\"]},\"defaultModel\":\"claude-3-7-sonnet-latest\",\"displayName\":\"Anthropic\",\"isDynamic\":false,\"models\":[],\"name\":\"anthropic\"},{\"capabilities\":{\"serviceTiers\":[\"standard\",\"flex\",\"priority\"],\"thinking\":true,\"thinkingLevels\":[\"none\",\"minimal\",\"low\",\"medium\",\"high\",\"highest\"]},\"defaultEmbedModel\":\"gemini-embedding-2\",\"defaultModel\":\"gemini-2.5-flash\",\"displayName\":\"Google Gemini\",\"isDynamic\":false,\"models\":[],\"name\":\"google-gemini\"},{\"capabilities\":{\"serviceTiers\":[],\"thinking\":false,\"thinkingLevels\":[]},\"defaultModel\":\"Llama-3.2-3B-Instruct-q4f32_1-MLC\",\"displayName\":\"WebLLM\",\"isDynamic\":false,\"models\":[],\"name\":\"webllm\"},{\"capabilities\":{\"serviceTiers\":[\"standard\",\"priority\"],\"thinking\":true,\"thinkingLevels\":[\"none\",\"minimal\",\"low\",\"medium\",\"high\",\"highest\"]},\"displayName\":\"Azure OpenAI\",\"isDynamic\":true,\"models\":[],\"name\":\"azure-openai\"},{\"capabilities\":{\"serviceTiers\":[],\"thinking\":true,\"thinkingLevels\":[\"none\",\"minimal\",\"low\",\"medium\",\"high\",\"highest\"]},\"defaultModel\":\"deepseek-v4-flash\",\"displayName\":\"DeepSeek\",\"isDynamic\":false,\"models\":[],\"name\":\"deepseek\"},{\"capabilities\":{\"serviceTiers\":[],\"thinking\":true,\"thinkingLevels\":[\"none\",\"minimal\",\"low\",\"medium\",\"high\",\"highest\"]},\"defaultModel\":\"deepseek-v4-flash\",\"displayName\":\"DeepSeek Responses\",\"isDynamic\":false,\"models\":[],\"name\":\"deepseek-responses\"},{\"capabilities\":{\"serviceTiers\":[],\"thinking\":false,\"thinkingLevels\":[]},\"defaultModel\":\"command-r-plus\",\"displayName\":\"Cohere\",\"isDynamic\":false,\"models\":[],\"name\":\"cohere\"},{\"capabilities\":{\"serviceTiers\":[\"standard\",\"priority\"],\"thinking\":true,\"thinkingLevels\":[\"minimal\",\"low\",\"medium\",\"high\",\"highest\"]},\"defaultModel\":\"grok-4.6\",\"displayName\":\"xAI Grok\",\"isDynamic\":false,\"models\":[],\"name\":\"grok\"},{\"capabilities\":{\"serviceTiers\":[],\"thinking\":false,\"thinkingLevels\":[]},\"defaultModel\":\"reka-core\",\"displayName\":\"Reka\",\"isDynamic\":false,\"models\":[],\"name\":\"reka\"},{\"capabilities\":{\"serviceTiers\":[],\"thinking\":false,\"thinkingLevels\":[]},\"displayName\":\"Together AI\",\"isDynamic\":true,\"models\":[],\"name\":\"together\"},{\"capabilities\":{\"serviceTiers\":[\"standard\",\"flex\",\"priority\"],\"thinking\":false,\"thinkingLevels\":[]},\"displayName\":\"OpenRouter\",\"isDynamic\":true,\"models\":[],\"name\":\"openrouter\"},{\"capabilities\":{\"serviceTiers\":[],\"thinking\":false,\"thinkingLevels\":[]},\"displayName\":\"OrcaRouter\",\"isDynamic\":true,\"models\":[],\"name\":\"orcarouter\"},{\"capabilities\":{\"serviceTiers\":[\"standard\",\"priority\"],\"thinking\":false,\"thinkingLevels\":[]},\"displayName\":\"Fireworks AI\",\"isDynamic\":true,\"models\":[],\"name\":\"fireworks\"},{\"capabilities\":{\"serviceTiers\":[],\"thinking\":false,\"thinkingLevels\":[]},\"displayName\":\"Hugging Face Router\",\"isDynamic\":true,\"models\":[],\"name\":\"huggingface-router\"},{\"capabilities\":{\"serviceTiers\":[\"standard\",\"flex\",\"priority\"],\"thinking\":false,\"thinkingLevels\":[]},\"displayName\":\"Amazon Bedrock\",\"isDynamic\":true,\"models\":[],\"name\":\"amazon-bedrock\"},{\"capabilities\":{\"serviceTiers\":[\"standard\",\"priority\"],\"thinking\":false,\"thinkingLevels\":[]},\"displayName\":\"Azure AI Foundry\",\"isDynamic\":true,\"models\":[],\"name\":\"azure-foundry\"},{\"capabilities\":{\"serviceTiers\":[],\"thinking\":false,\"thinkingLevels\":[]},\"displayName\":\"Vertex AI OpenAI Compatibility\",\"isDynamic\":true,\"models\":[],\"name\":\"vertex-ai\"},{\"capabilities\":{\"serviceTiers\":[\"standard\",\"priority\"],\"thinking\":false,\"thinkingLevels\":[]},\"displayName\":\"Databricks Model Serving\",\"isDynamic\":true,\"models\":[],\"name\":\"databricks\"},{\"capabilities\":{\"serviceTiers\":[],\"thinking\":false,\"thinkingLevels\":[]},\"displayName\":\"Baseten Model APIs\",\"isDynamic\":true,\"models\":[],\"name\":\"baseten\"},{\"capabilities\":{\"serviceTiers\":[\"standard\",\"flex\",\"priority\"],\"thinking\":false,\"thinkingLevels\":[]},\"displayName\":\"Groq\",\"isDynamic\":true,\"models\":[],\"name\":\"groq\"},{\"capabilities\":{\"serviceTiers\":[\"standard\",\"flex\",\"priority\"],\"thinking\":false,\"thinkingLevels\":[]},\"displayName\":\"Cerebras Inference\",\"isDynamic\":true,\"models\":[],\"name\":\"cerebras\"},{\"capabilities\":{\"serviceTiers\":[\"standard\",\"priority\"],\"thinking\":false,\"thinkingLevels\":[]},\"displayName\":\"DeepInfra\",\"isDynamic\":true,\"models\":[],\"name\":\"deepinfra\"},{\"capabilities\":{\"serviceTiers\":[],\"thinking\":false,\"thinkingLevels\":[]},\"displayName\":\"SambaNova Cloud\",\"isDynamic\":true,\"models\":[],\"name\":\"sambanova\"},{\"capabilities\":{\"serviceTiers\":[],\"thinking\":false,\"thinkingLevels\":[]},\"displayName\":\"Nebius AI Studio\",\"isDynamic\":true,\"models\":[],\"name\":\"nebius\"},{\"capabilities\":{\"serviceTiers\":[],\"thinking\":false,\"thinkingLevels\":[]},\"displayName\":\"Novita AI\",\"isDynamic\":true,\"models\":[],\"name\":\"novita\"},{\"capabilities\":{\"serviceTiers\":[],\"thinking\":false,\"thinkingLevels\":[]},\"displayName\":\"Hyperbolic\",\"isDynamic\":true,\"models\":[],\"name\":\"hyperbolic\"},{\"capabilities\":{\"serviceTiers\":[],\"thinking\":false,\"thinkingLevels\":[]},\"displayName\":\"SiliconFlow\",\"isDynamic\":true,\"models\":[],\"name\":\"siliconflow\"},{\"capabilities\":{\"serviceTiers\":[],\"thinking\":false,\"thinkingLevels\":[]},\"displayName\":\"FriendliAI\",\"isDynamic\":true,\"models\":[],\"name\":\"friendli\"},{\"capabilities\":{\"serviceTiers\":[],\"thinking\":false,\"thinkingLevels\":[]},\"displayName\":\"Cloudflare Workers AI\",\"isDynamic\":true,\"models\":[],\"name\":\"cloudflare-workers-ai\"},{\"capabilities\":{\"serviceTiers\":[],\"thinking\":false,\"thinkingLevels\":[]},\"displayName\":\"Featherless AI\",\"isDynamic\":true,\"models\":[],\"name\":\"featherless\"},{\"capabilities\":{\"serviceTiers\":[],\"thinking\":false,\"thinkingLevels\":[]},\"displayName\":\"Nscale\",\"isDynamic\":true,\"models\":[],\"name\":\"nscale\"},{\"capabilities\":{\"serviceTiers\":[],\"thinking\":false,\"thinkingLevels\":[]},\"displayName\":\"OVHcloud AI Endpoints\",\"isDynamic\":true,\"models\":[],\"name\":\"ovhcloud\"},{\"capabilities\":{\"serviceTiers\":[],\"thinking\":false,\"thinkingLevels\":[]},\"displayName\":\"Scaleway Generative APIs\",\"isDynamic\":true,\"models\":[],\"name\":\"scaleway\"},{\"capabilities\":{\"serviceTiers\":[],\"thinking\":false,\"thinkingLevels\":[]},\"displayName\":\"NVIDIA NIM\",\"isDynamic\":true,\"models\":[],\"name\":\"nvidia-nim\"},{\"capabilities\":{\"serviceTiers\":[],\"thinking\":false,\"thinkingLevels\":[]},\"displayName\":\"RunPod vLLM\",\"isDynamic\":true,\"models\":[],\"name\":\"runpod-vllm\"},{\"capabilities\":{\"serviceTiers\":[],\"thinking\":false,\"thinkingLevels\":[]},\"displayName\":\"SageMaker vLLM\",\"isDynamic\":true,\"models\":[],\"name\":\"sagemaker-vllm\"},{\"capabilities\":{\"serviceTiers\":[],\"thinking\":false,\"thinkingLevels\":[]},\"displayName\":\"vLLM\",\"isDynamic\":true,\"models\":[],\"name\":\"vllm\"},{\"capabilities\":{\"serviceTiers\":[],\"thinking\":false,\"thinkingLevels\":[]},\"displayName\":\"Ollama\",\"isDynamic\":true,\"models\":[],\"name\":\"ollama\"},{\"capabilities\":{\"serviceTiers\":[],\"thinking\":false,\"thinkingLevels\":[]},\"displayName\":\"LM Studio\",\"isDynamic\":true,\"models\":[],\"name\":\"lm-studio\"},{\"capabilities\":{\"serviceTiers\":[],\"thinking\":false,\"thinkingLevels\":[]},\"displayName\":\"llama.cpp Server\",\"isDynamic\":true,\"models\":[],\"name\":\"llama-cpp\"},{\"capabilities\":{\"serviceTiers\":[],\"thinking\":false,\"thinkingLevels\":[]},\"displayName\":\"LocalAI\",\"isDynamic\":true,\"models\":[],\"name\":\"localai\"},{\"capabilities\":{\"serviceTiers\":[],\"thinking\":false,\"thinkingLevels\":[]},\"displayName\":\"Baseten Inference Engine\",\"isDynamic\":true,\"models\":[],\"name\":\"baseten-engine\"}],\"embeddings\":[{\"capabilities\":{\"serviceTiers\":[\"standard\",\"flex\",\"priority\"],\"thinking\":true,\"thinkingLevels\":[\"none\",\"minimal\",\"low\",\"medium\",\"high\",\"highest\"]},\"defaultEmbedModel\":\"text-embedding-3-small\",\"defaultModel\":\"gpt-5-mini\",\"displayName\":\"OpenAI\",\"isDynamic\":false,\"models\":[{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"serviceTiers\":[],\"showThoughts\":false,\"structuredOutputs\":false,\"temperature\":true,\"thinkingBudget\":false,\"thinkingLevels\":[],\"topP\":true},\"completionTokenCostPer1M\":0.02,\"currency\":\"usd\",\"isDefault\":true,\"name\":\"text-embedding-3-small\",\"promptTokenCostPer1M\":0.02,\"provider\":\"openai\",\"type\":\"embeddings\"},{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"serviceTiers\":[],\"showThoughts\":false,\"structuredOutputs\":false,\"temperature\":true,\"thinkingBudget\":false,\"thinkingLevels\":[],\"topP\":true},\"completionTokenCostPer1M\":0.1,\"currency\":\"usd\",\"isDefault\":false,\"name\":\"text-embedding-ada-002\",\"promptTokenCostPer1M\":0.1,\"provider\":\"openai\",\"type\":\"embeddings\"},{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"serviceTiers\":[],\"showThoughts\":false,\"structuredOutputs\":false,\"temperature\":true,\"thinkingBudget\":false,\"thinkingLevels\":[],\"topP\":true},\"completionTokenCostPer1M\":0.13,\"currency\":\"usd\",\"isDefault\":false,\"name\":\"text-embedding-3-large\",\"promptTokenCostPer1M\":0.13,\"provider\":\"openai\",\"type\":\"embeddings\"}],\"name\":\"openai\"},{\"capabilities\":{\"serviceTiers\":[\"standard\",\"flex\",\"priority\"],\"thinking\":true,\"thinkingLevels\":[\"none\",\"minimal\",\"low\",\"medium\",\"high\",\"highest\"]},\"defaultEmbedModel\":\"gemini-embedding-2\",\"defaultModel\":\"gemini-2.5-flash\",\"displayName\":\"Google Gemini\",\"isDynamic\":false,\"models\":[{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"serviceTiers\":[],\"showThoughts\":false,\"structuredOutputs\":false,\"temperature\":true,\"thinkingBudget\":false,\"thinkingLevels\":[],\"topP\":true},\"characterIsToken\":false,\"currency\":\"usd\",\"isDefault\":false,\"name\":\"gemini-embedding-001\",\"promptTokenCostPer1M\":0.15,\"provider\":\"google-gemini\",\"type\":\"embeddings\"},{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"serviceTiers\":[],\"showThoughts\":false,\"structuredOutputs\":false,\"temperature\":true,\"thinkingBudget\":false,\"thinkingLevels\":[],\"topP\":true},\"characterIsToken\":false,\"contextWindow\":8192,\"currency\":\"usd\",\"isDefault\":true,\"name\":\"gemini-embedding-2\",\"promptTokenCostPer1M\":0.2,\"provider\":\"google-gemini\",\"type\":\"embeddings\"}],\"name\":\"google-gemini\"},{\"capabilities\":{\"serviceTiers\":[],\"thinking\":false,\"thinkingLevels\":[]},\"defaultModel\":\"command-r-plus\",\"displayName\":\"Cohere\",\"isDynamic\":false,\"models\":[{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"serviceTiers\":[],\"showThoughts\":false,\"structuredOutputs\":false,\"temperature\":true,\"thinkingBudget\":false,\"thinkingLevels\":[],\"topP\":true},\"completionTokenCostPer1M\":0.1,\"currency\":\"usd\",\"isDefault\":false,\"name\":\"embed-english-light-v3.0\",\"promptTokenCostPer1M\":0.1,\"provider\":\"cohere\",\"type\":\"embeddings\"},{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"serviceTiers\":[],\"showThoughts\":false,\"structuredOutputs\":false,\"temperature\":true,\"thinkingBudget\":false,\"thinkingLevels\":[],\"topP\":true},\"completionTokenCostPer1M\":0.1,\"currency\":\"usd\",\"isDefault\":false,\"name\":\"embed-english-v3.0\",\"promptTokenCostPer1M\":0.1,\"provider\":\"cohere\",\"type\":\"embeddings\"},{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"serviceTiers\":[],\"showThoughts\":false,\"structuredOutputs\":false,\"temperature\":true,\"thinkingBudget\":false,\"thinkingLevels\":[],\"topP\":true},\"completionTokenCostPer1M\":0.1,\"currency\":\"usd\",\"isDefault\":false,\"name\":\"embed-multilingual-light-v3.0\",\"promptTokenCostPer1M\":0.1,\"provider\":\"cohere\",\"type\":\"embeddings\"},{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"serviceTiers\":[],\"showThoughts\":false,\"structuredOutputs\":false,\"temperature\":true,\"thinkingBudget\":false,\"thinkingLevels\":[],\"topP\":true},\"completionTokenCostPer1M\":0.1,\"currency\":\"usd\",\"isDefault\":false,\"name\":\"embed-multilingual-v3.0\",\"promptTokenCostPer1M\":0.1,\"provider\":\"cohere\",\"type\":\"embeddings\"}],\"name\":\"cohere\"},{\"capabilities\":{\"serviceTiers\":[],\"thinking\":false,\"thinkingLevels\":[]},\"displayName\":\"OpenAI Compatible\",\"isDynamic\":true,\"models\":[],\"name\":\"openai-compatible\"},{\"capabilities\":{\"serviceTiers\":[\"standard\",\"flex\",\"priority\"],\"thinking\":true,\"thinkingLevels\":[\"none\",\"minimal\",\"low\",\"medium\",\"high\",\"highest\"]},\"defaultEmbedModel\":\"text-embedding-ada-002\",\"defaultModel\":\"gpt-4o\",\"displayName\":\"OpenAI Responses\",\"isDynamic\":false,\"models\":[],\"name\":\"openai-responses\"},{\"capabilities\":{\"serviceTiers\":[],\"thinking\":true,\"thinkingLevels\":[\"none\",\"minimal\",\"low\",\"medium\",\"high\",\"highest\"]},\"defaultModel\":\"claude-3-7-sonnet-latest\",\"displayName\":\"Anthropic\",\"isDynamic\":false,\"models\":[],\"name\":\"anthropic\"},{\"capabilities\":{\"serviceTiers\":[],\"thinking\":false,\"thinkingLevels\":[]},\"defaultModel\":\"Llama-3.2-3B-Instruct-q4f32_1-MLC\",\"displayName\":\"WebLLM\",\"isDynamic\":false,\"models\":[],\"name\":\"webllm\"},{\"capabilities\":{\"serviceTiers\":[\"standard\",\"priority\"],\"thinking\":true,\"thinkingLevels\":[\"none\",\"minimal\",\"low\",\"medium\",\"high\",\"highest\"]},\"displayName\":\"Azure OpenAI\",\"isDynamic\":true,\"models\":[],\"name\":\"azure-openai\"},{\"capabilities\":{\"serviceTiers\":[],\"thinking\":true,\"thinkingLevels\":[\"none\",\"minimal\",\"low\",\"medium\",\"high\",\"highest\"]},\"defaultModel\":\"deepseek-v4-flash\",\"displayName\":\"DeepSeek\",\"isDynamic\":false,\"models\":[],\"name\":\"deepseek\"},{\"capabilities\":{\"serviceTiers\":[],\"thinking\":true,\"thinkingLevels\":[\"none\",\"minimal\",\"low\",\"medium\",\"high\",\"highest\"]},\"defaultModel\":\"deepseek-v4-flash\",\"displayName\":\"DeepSeek Responses\",\"isDynamic\":false,\"models\":[],\"name\":\"deepseek-responses\"},{\"capabilities\":{\"serviceTiers\":[\"standard\",\"priority\"],\"thinking\":false,\"thinkingLevels\":[]},\"defaultModel\":\"mistral-small-latest\",\"displayName\":\"Mistral AI\",\"isDynamic\":false,\"models\":[],\"name\":\"mistral\"},{\"capabilities\":{\"serviceTiers\":[\"standard\",\"priority\"],\"thinking\":true,\"thinkingLevels\":[\"minimal\",\"low\",\"medium\",\"high\",\"highest\"]},\"defaultModel\":\"grok-4.6\",\"displayName\":\"xAI Grok\",\"isDynamic\":false,\"models\":[],\"name\":\"grok\"},{\"capabilities\":{\"serviceTiers\":[],\"thinking\":false,\"thinkingLevels\":[]},\"defaultModel\":\"reka-core\",\"displayName\":\"Reka\",\"isDynamic\":false,\"models\":[],\"name\":\"reka\"},{\"capabilities\":{\"serviceTiers\":[],\"thinking\":false,\"thinkingLevels\":[]},\"displayName\":\"Together AI\",\"isDynamic\":true,\"models\":[],\"name\":\"together\"},{\"capabilities\":{\"serviceTiers\":[\"standard\",\"flex\",\"priority\"],\"thinking\":false,\"thinkingLevels\":[]},\"displayName\":\"OpenRouter\",\"isDynamic\":true,\"models\":[],\"name\":\"openrouter\"},{\"capabilities\":{\"serviceTiers\":[],\"thinking\":false,\"thinkingLevels\":[]},\"displayName\":\"OrcaRouter\",\"isDynamic\":true,\"models\":[],\"name\":\"orcarouter\"},{\"capabilities\":{\"serviceTiers\":[\"standard\",\"priority\"],\"thinking\":false,\"thinkingLevels\":[]},\"displayName\":\"Fireworks AI\",\"isDynamic\":true,\"models\":[],\"name\":\"fireworks\"},{\"capabilities\":{\"serviceTiers\":[],\"thinking\":false,\"thinkingLevels\":[]},\"displayName\":\"Hugging Face Router\",\"isDynamic\":true,\"models\":[],\"name\":\"huggingface-router\"},{\"capabilities\":{\"serviceTiers\":[\"standard\",\"flex\",\"priority\"],\"thinking\":false,\"thinkingLevels\":[]},\"displayName\":\"Amazon Bedrock\",\"isDynamic\":true,\"models\":[],\"name\":\"amazon-bedrock\"},{\"capabilities\":{\"serviceTiers\":[\"standard\",\"priority\"],\"thinking\":false,\"thinkingLevels\":[]},\"displayName\":\"Azure AI Foundry\",\"isDynamic\":true,\"models\":[],\"name\":\"azure-foundry\"},{\"capabilities\":{\"serviceTiers\":[],\"thinking\":false,\"thinkingLevels\":[]},\"displayName\":\"Vertex AI OpenAI Compatibility\",\"isDynamic\":true,\"models\":[],\"name\":\"vertex-ai\"},{\"capabilities\":{\"serviceTiers\":[\"standard\",\"priority\"],\"thinking\":false,\"thinkingLevels\":[]},\"displayName\":\"Databricks Model Serving\",\"isDynamic\":true,\"models\":[],\"name\":\"databricks\"},{\"capabilities\":{\"serviceTiers\":[],\"thinking\":false,\"thinkingLevels\":[]},\"displayName\":\"Baseten Model APIs\",\"isDynamic\":true,\"models\":[],\"name\":\"baseten\"},{\"capabilities\":{\"serviceTiers\":[\"standard\",\"flex\",\"priority\"],\"thinking\":false,\"thinkingLevels\":[]},\"displayName\":\"Groq\",\"isDynamic\":true,\"models\":[],\"name\":\"groq\"},{\"capabilities\":{\"serviceTiers\":[\"standard\",\"flex\",\"priority\"],\"thinking\":false,\"thinkingLevels\":[]},\"displayName\":\"Cerebras Inference\",\"isDynamic\":true,\"models\":[],\"name\":\"cerebras\"},{\"capabilities\":{\"serviceTiers\":[\"standard\",\"priority\"],\"thinking\":false,\"thinkingLevels\":[]},\"displayName\":\"DeepInfra\",\"isDynamic\":true,\"models\":[],\"name\":\"deepinfra\"},{\"capabilities\":{\"serviceTiers\":[],\"thinking\":false,\"thinkingLevels\":[]},\"displayName\":\"SambaNova Cloud\",\"isDynamic\":true,\"models\":[],\"name\":\"sambanova\"},{\"capabilities\":{\"serviceTiers\":[],\"thinking\":false,\"thinkingLevels\":[]},\"displayName\":\"Nebius AI Studio\",\"isDynamic\":true,\"models\":[],\"name\":\"nebius\"},{\"capabilities\":{\"serviceTiers\":[],\"thinking\":false,\"thinkingLevels\":[]},\"displayName\":\"Novita AI\",\"isDynamic\":true,\"models\":[],\"name\":\"novita\"},{\"capabilities\":{\"serviceTiers\":[],\"thinking\":false,\"thinkingLevels\":[]},\"displayName\":\"Hyperbolic\",\"isDynamic\":true,\"models\":[],\"name\":\"hyperbolic\"},{\"capabilities\":{\"serviceTiers\":[],\"thinking\":false,\"thinkingLevels\":[]},\"displayName\":\"SiliconFlow\",\"isDynamic\":true,\"models\":[],\"name\":\"siliconflow\"},{\"capabilities\":{\"serviceTiers\":[],\"thinking\":false,\"thinkingLevels\":[]},\"displayName\":\"FriendliAI\",\"isDynamic\":true,\"models\":[],\"name\":\"friendli\"},{\"capabilities\":{\"serviceTiers\":[],\"thinking\":false,\"thinkingLevels\":[]},\"displayName\":\"Cloudflare Workers AI\",\"isDynamic\":true,\"models\":[],\"name\":\"cloudflare-workers-ai\"},{\"capabilities\":{\"serviceTiers\":[],\"thinking\":false,\"thinkingLevels\":[]},\"displayName\":\"Featherless AI\",\"isDynamic\":true,\"models\":[],\"name\":\"featherless\"},{\"capabilities\":{\"serviceTiers\":[],\"thinking\":false,\"thinkingLevels\":[]},\"displayName\":\"Nscale\",\"isDynamic\":true,\"models\":[],\"name\":\"nscale\"},{\"capabilities\":{\"serviceTiers\":[],\"thinking\":false,\"thinkingLevels\":[]},\"displayName\":\"OVHcloud AI Endpoints\",\"isDynamic\":true,\"models\":[],\"name\":\"ovhcloud\"},{\"capabilities\":{\"serviceTiers\":[],\"thinking\":false,\"thinkingLevels\":[]},\"displayName\":\"Scaleway Generative APIs\",\"isDynamic\":true,\"models\":[],\"name\":\"scaleway\"},{\"capabilities\":{\"serviceTiers\":[],\"thinking\":false,\"thinkingLevels\":[]},\"displayName\":\"NVIDIA NIM\",\"isDynamic\":true,\"models\":[],\"name\":\"nvidia-nim\"},{\"capabilities\":{\"serviceTiers\":[],\"thinking\":false,\"thinkingLevels\":[]},\"displayName\":\"RunPod vLLM\",\"isDynamic\":true,\"models\":[],\"name\":\"runpod-vllm\"},{\"capabilities\":{\"serviceTiers\":[],\"thinking\":false,\"thinkingLevels\":[]},\"displayName\":\"SageMaker vLLM\",\"isDynamic\":true,\"models\":[],\"name\":\"sagemaker-vllm\"},{\"capabilities\":{\"serviceTiers\":[],\"thinking\":false,\"thinkingLevels\":[]},\"displayName\":\"vLLM\",\"isDynamic\":true,\"models\":[],\"name\":\"vllm\"},{\"capabilities\":{\"serviceTiers\":[],\"thinking\":false,\"thinkingLevels\":[]},\"displayName\":\"Ollama\",\"isDynamic\":true,\"models\":[],\"name\":\"ollama\"},{\"capabilities\":{\"serviceTiers\":[],\"thinking\":false,\"thinkingLevels\":[]},\"displayName\":\"LM Studio\",\"isDynamic\":true,\"models\":[],\"name\":\"lm-studio\"},{\"capabilities\":{\"serviceTiers\":[],\"thinking\":false,\"thinkingLevels\":[]},\"displayName\":\"llama.cpp Server\",\"isDynamic\":true,\"models\":[],\"name\":\"llama-cpp\"},{\"capabilities\":{\"serviceTiers\":[],\"thinking\":false,\"thinkingLevels\":[]},\"displayName\":\"LocalAI\",\"isDynamic\":true,\"models\":[],\"name\":\"localai\"},{\"capabilities\":{\"serviceTiers\":[],\"thinking\":false,\"thinkingLevels\":[]},\"displayName\":\"Baseten Inference Engine\",\"isDynamic\":true,\"models\":[],\"name\":\"baseten-engine\"}],\"text\":[{\"capabilities\":{\"serviceTiers\":[\"standard\",\"flex\",\"priority\"],\"thinking\":true,\"thinkingLevels\":[\"none\",\"minimal\",\"low\",\"medium\",\"high\",\"highest\"]},\"defaultEmbedModel\":\"gemini-embedding-2\",\"defaultModel\":\"gemini-2.5-flash\",\"displayName\":\"Google Gemini\",\"isDynamic\":false,\"models\":[{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"serviceTiers\":[\"standard\",\"flex\",\"priority\"],\"showThoughts\":true,\"structuredOutputs\":true,\"temperature\":true,\"thinkingBudget\":true,\"thinkingLevels\":[\"none\",\"minimal\",\"low\",\"medium\",\"high\",\"highest\"],\"topP\":true},\"characterIsToken\":false,\"completionTokenCostPer1M\":0,\"currency\":\"usd\",\"isDefault\":false,\"name\":\"gemini-2.0-flash-thinking-exp-01-21\",\"promptTokenCostPer1M\":0,\"provider\":\"google-gemini\",\"supported\":{\"showThoughts\":true,\"structuredOutputs\":true,\"thinkingBudget\":true},\"type\":\"text\"},{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"serviceTiers\":[\"standard\",\"flex\",\"priority\"],\"showThoughts\":true,\"structuredOutputs\":true,\"temperature\":true,\"thinkingBudget\":true,\"thinkingLevels\":[\"none\",\"minimal\",\"low\",\"medium\",\"high\",\"highest\"],\"topP\":true},\"characterIsToken\":false,\"completionTokenCostPer1M\":0,\"currency\":\"usd\",\"isDefault\":false,\"name\":\"gemini-2.0-pro-exp-02-05\",\"promptTokenCostPer1M\":0,\"provider\":\"google-gemini\",\"supported\":{\"showThoughts\":true,\"structuredOutputs\":true,\"thinkingBudget\":true},\"type\":\"text\"},{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"serviceTiers\":[\"standard\",\"flex\",\"priority\"],\"showThoughts\":false,\"structuredOutputs\":false,\"temperature\":true,\"thinkingBudget\":false,\"thinkingLevels\":[],\"topP\":true},\"characterIsToken\":false,\"completionTokenCostPer1M\":0,\"currency\":\"usd\",\"isDefault\":false,\"name\":\"gemini-robotics-er-1.6-preview\",\"promptTokenCostPer1M\":0,\"provider\":\"google-gemini\",\"type\":\"text\"},{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"serviceTiers\":[\"standard\",\"flex\",\"priority\"],\"showThoughts\":false,\"structuredOutputs\":true,\"temperature\":true,\"thinkingBudget\":false,\"thinkingLevels\":[],\"topP\":true},\"characterIsToken\":false,\"completionTokenCostPer1M\":0.15,\"currency\":\"usd\",\"isDefault\":false,\"name\":\"gemini-1.5-flash-8b\",\"promptTokenCostPer1M\":0.0375,\"provider\":\"google-gemini\",\"supported\":{\"structuredOutputs\":true},\"type\":\"text\"},{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"serviceTiers\":[\"standard\",\"flex\",\"priority\"],\"showThoughts\":false,\"structuredOutputs\":true,\"temperature\":true,\"thinkingBudget\":false,\"thinkingLevels\":[],\"topP\":true},\"characterIsToken\":false,\"completionTokenCostPer1M\":0.3,\"currency\":\"usd\",\"isDefault\":false,\"name\":\"gemini-1.5-flash\",\"promptTokenCostPer1M\":0.075,\"provider\":\"google-gemini\",\"supported\":{\"structuredOutputs\":true},\"type\":\"text\"},{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"serviceTiers\":[\"standard\",\"flex\",\"priority\"],\"showThoughts\":false,\"structuredOutputs\":true,\"temperature\":true,\"thinkingBudget\":false,\"thinkingLevels\":[],\"topP\":true},\"characterIsToken\":false,\"completionTokenCostPer1M\":0.3,\"currency\":\"usd\",\"deprecatedOn\":\"2026-06-01\",\"isDefault\":false,\"isDeprecated\":true,\"name\":\"gemini-2.0-flash-lite\",\"promptTokenCostPer1M\":0.075,\"provider\":\"google-gemini\",\"supported\":{\"structuredOutputs\":true},\"type\":\"text\"},{\"cacheReadTokenCostPer1M\":0.025,\"cacheWriteTokenCostPer1M\":0.1,\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"serviceTiers\":[\"standard\",\"flex\",\"priority\"],\"showThoughts\":false,\"structuredOutputs\":true,\"temperature\":true,\"thinkingBudget\":false,\"thinkingLevels\":[],\"topP\":true},\"characterIsToken\":false,\"completionTokenCostPer1M\":0.4,\"currency\":\"usd\",\"deprecatedOn\":\"2026-06-01\",\"isDefault\":false,\"isDeprecated\":true,\"name\":\"gemini-2.0-flash\",\"promptTokenCostPer1M\":0.1,\"provider\":\"google-gemini\",\"supported\":{\"structuredOutputs\":true},\"type\":\"text\"},{\"cacheReadTokenCostPer1M\":0.01,\"cacheWriteTokenCostPer1M\":0.1,\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"serviceTiers\":[\"standard\",\"flex\",\"priority\"],\"showThoughts\":true,\"structuredOutputs\":true,\"temperature\":true,\"thinkingBudget\":true,\"thinkingLevels\":[\"none\",\"minimal\",\"low\",\"medium\",\"high\",\"highest\"],\"topP\":true},\"characterIsToken\":false,\"completionTokenCostPer1M\":0.4,\"currency\":\"usd\",\"isDefault\":false,\"name\":\"gemini-2.5-flash-lite\",\"promptTokenCostPer1M\":0.1,\"provider\":\"google-gemini\",\"supported\":{\"showThoughts\":true,\"structuredOutputs\":true,\"thinkingBudget\":true},\"type\":\"text\"},{\"cacheReadTokenCostPer1M\":0.01,\"cacheWriteTokenCostPer1M\":0.1,\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"serviceTiers\":[\"standard\",\"flex\",\"priority\"],\"showThoughts\":true,\"structuredOutputs\":true,\"temperature\":true,\"thinkingBudget\":true,\"thinkingLevels\":[\"none\",\"minimal\",\"low\",\"medium\",\"high\",\"highest\"],\"topP\":true},\"characterIsToken\":false,\"completionTokenCostPer1M\":0.4,\"currency\":\"usd\",\"isDefault\":false,\"name\":\"gemini-flash-lite-latest\",\"promptTokenCostPer1M\":0.1,\"provider\":\"google-gemini\",\"supported\":{\"showThoughts\":true,\"structuredOutputs\":true,\"thinkingBudget\":true},\"type\":\"text\"},{\"cacheReadTokenCostPer1M\":0.025,\"cacheWriteTokenCostPer1M\":0.25,\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"serviceTiers\":[\"standard\",\"flex\",\"priority\"],\"showThoughts\":true,\"structuredOutputs\":true,\"temperature\":true,\"thinkingBudget\":true,\"thinkingLevels\":[\"none\",\"minimal\",\"low\",\"medium\",\"high\",\"highest\"],\"topP\":true},\"characterIsToken\":false,\"completionTokenCostPer1M\":1.5,\"contextWindow\":1048576,\"currency\":\"usd\",\"isDefault\":false,\"maxTokens\":65536,\"name\":\"gemini-3.1-flash-lite\",\"promptTokenCostPer1M\":0.25,\"provider\":\"google-gemini\",\"supported\":{\"showThoughts\":true,\"structuredOutputs\":true,\"thinkingBudget\":true},\"type\":\"text\"},{\"cacheReadTokenCostPer1M\":0.025,\"cacheWriteTokenCostPer1M\":0.25,\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"serviceTiers\":[\"standard\",\"flex\",\"priority\"],\"showThoughts\":true,\"structuredOutputs\":true,\"temperature\":true,\"thinkingBudget\":true,\"thinkingLevels\":[\"none\",\"minimal\",\"low\",\"medium\",\"high\",\"highest\"],\"topP\":true},\"characterIsToken\":false,\"completionTokenCostPer1M\":1.5,\"currency\":\"usd\",\"isDefault\":false,\"name\":\"gemini-3.1-flash-lite-preview\",\"promptTokenCostPer1M\":0.25,\"provider\":\"google-gemini\",\"supported\":{\"showThoughts\":true,\"structuredOutputs\":true,\"thinkingBudget\":true},\"type\":\"text\"},{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"serviceTiers\":[\"standard\",\"flex\",\"priority\"],\"showThoughts\":false,\"structuredOutputs\":true,\"temperature\":true,\"thinkingBudget\":false,\"thinkingLevels\":[],\"topP\":true},\"characterIsToken\":false,\"completionTokenCostPer1M\":1.5,\"currency\":\"usd\",\"isDefault\":false,\"name\":\"gemini-1.0-pro\",\"promptTokenCostPer1M\":0.5,\"provider\":\"google-gemini\",\"supported\":{\"structuredOutputs\":true},\"type\":\"text\"},{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"serviceTiers\":[\"standard\",\"flex\",\"priority\"],\"showThoughts\":true,\"structuredOutputs\":true,\"temperature\":true,\"thinkingBudget\":true,\"thinkingLevels\":[\"none\",\"minimal\",\"low\",\"medium\",\"high\",\"highest\"],\"topP\":true},\"characterIsToken\":false,\"completionTokenCostPer1M\":0.134,\"currency\":\"usd\",\"isDefault\":false,\"name\":\"gemini-3-pro-image-preview\",\"promptTokenCostPer1M\":2,\"provider\":\"google-gemini\",\"supported\":{\"showThoughts\":true,\"structuredOutputs\":true,\"thinkingBudget\":true},\"type\":\"text\"},{\"cacheReadTokenCostPer1M\":0.03,\"cacheWriteTokenCostPer1M\":0.3,\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"serviceTiers\":[\"standard\",\"flex\",\"priority\"],\"showThoughts\":true,\"structuredOutputs\":true,\"temperature\":true,\"thinkingBudget\":true,\"thinkingLevels\":[\"none\",\"minimal\",\"low\",\"medium\",\"high\",\"highest\"],\"topP\":true},\"characterIsToken\":false,\"completionTokenCostPer1M\":2.5,\"currency\":\"usd\",\"isDefault\":true,\"name\":\"gemini-2.5-flash\",\"promptTokenCostPer1M\":0.3,\"provider\":\"google-gemini\",\"supported\":{\"showThoughts\":true,\"structuredOutputs\":true,\"thinkingBudget\":true},\"type\":\"text\"},{\"cacheReadTokenCostPer1M\":0.03,\"cacheWriteTokenCostPer1M\":0.3,\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"serviceTiers\":[\"standard\",\"flex\",\"priority\"],\"showThoughts\":true,\"structuredOutputs\":true,\"temperature\":false,\"thinkingBudget\":true,\"thinkingLevels\":[\"none\",\"minimal\",\"low\",\"medium\",\"high\",\"highest\"],\"topP\":false},\"characterIsToken\":false,\"completionTokenCostPer1M\":2.5,\"contextWindow\":1048576,\"currency\":\"usd\",\"isDefault\":false,\"maxTokens\":65536,\"name\":\"gemini-3.5-flash-lite\",\"notSupported\":{\"temperature\":true,\"topP\":true},\"promptTokenCostPer1M\":0.3,\"provider\":\"google-gemini\",\"supported\":{\"showThoughts\":true,\"structuredOutputs\":true,\"thinkingBudget\":true},\"type\":\"text\"},{\"cacheReadTokenCostPer1M\":0.03,\"cacheWriteTokenCostPer1M\":0.3,\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"serviceTiers\":[\"standard\",\"flex\",\"priority\"],\"showThoughts\":true,\"structuredOutputs\":true,\"temperature\":true,\"thinkingBudget\":true,\"thinkingLevels\":[\"none\",\"minimal\",\"low\",\"medium\",\"high\",\"highest\"],\"topP\":true},\"characterIsToken\":false,\"completionTokenCostPer1M\":2.5,\"currency\":\"usd\",\"isDefault\":false,\"name\":\"gemini-flash-latest\",\"promptTokenCostPer1M\":0.3,\"provider\":\"google-gemini\",\"supported\":{\"showThoughts\":true,\"structuredOutputs\":true,\"thinkingBudget\":true},\"type\":\"text\"},{\"cacheReadTokenCostPer1M\":0.05,\"cacheWriteTokenCostPer1M\":0.5,\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"serviceTiers\":[\"standard\",\"flex\",\"priority\"],\"showThoughts\":true,\"structuredOutputs\":true,\"temperature\":true,\"thinkingBudget\":true,\"thinkingLevels\":[\"none\",\"minimal\",\"low\",\"medium\",\"high\",\"highest\"],\"topP\":true},\"characterIsToken\":false,\"completionTokenCostPer1M\":3,\"currency\":\"usd\",\"isDefault\":false,\"name\":\"gemini-3-flash-preview\",\"promptTokenCostPer1M\":0.5,\"provider\":\"google-gemini\",\"supported\":{\"showThoughts\":true,\"structuredOutputs\":true,\"thinkingBudget\":true},\"type\":\"text\"},{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"serviceTiers\":[\"standard\",\"flex\",\"priority\"],\"showThoughts\":false,\"structuredOutputs\":true,\"temperature\":true,\"thinkingBudget\":false,\"thinkingLevels\":[],\"topP\":true},\"characterIsToken\":false,\"completionTokenCostPer1M\":3,\"currency\":\"usd\",\"isDefault\":false,\"name\":\"gemini-3.1-flash-image-preview\",\"promptTokenCostPer1M\":0.5,\"provider\":\"google-gemini\",\"supported\":{\"structuredOutputs\":true},\"type\":\"text\"},{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"serviceTiers\":[\"standard\",\"flex\",\"priority\"],\"showThoughts\":false,\"structuredOutputs\":false,\"temperature\":true,\"thinkingBudget\":false,\"thinkingLevels\":[],\"topP\":true},\"characterIsToken\":false,\"completionTokenCostPer1M\":3,\"currency\":\"usd\",\"isDefault\":false,\"name\":\"nano-banana-2\",\"promptTokenCostPer1M\":0.5,\"provider\":\"google-gemini\",\"type\":\"text\"},{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"serviceTiers\":[\"standard\",\"flex\",\"priority\"],\"showThoughts\":false,\"structuredOutputs\":true,\"temperature\":true,\"thinkingBudget\":false,\"thinkingLevels\":[],\"topP\":true},\"characterIsToken\":false,\"completionTokenCostPer1M\":5,\"currency\":\"usd\",\"isDefault\":false,\"name\":\"gemini-1.5-pro\",\"promptTokenCostPer1M\":1.25,\"provider\":\"google-gemini\",\"supported\":{\"structuredOutputs\":true},\"type\":\"text\"},{\"cacheReadTokenCostPer1M\":0.15,\"cacheWriteTokenCostPer1M\":1.5,\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"serviceTiers\":[\"standard\",\"flex\",\"priority\"],\"showThoughts\":true,\"structuredOutputs\":true,\"temperature\":false,\"thinkingBudget\":true,\"thinkingLevels\":[\"none\",\"minimal\",\"low\",\"medium\",\"high\",\"highest\"],\"topP\":false},\"characterIsToken\":false,\"completionTokenCostPer1M\":7.5,\"contextWindow\":1048576,\"currency\":\"usd\",\"isDefault\":false,\"maxTokens\":65536,\"name\":\"gemini-3.6-flash\",\"notSupported\":{\"temperature\":true,\"topP\":true},\"promptTokenCostPer1M\":1.5,\"provider\":\"google-gemini\",\"supported\":{\"showThoughts\":true,\"structuredOutputs\":true,\"thinkingBudget\":true},\"type\":\"text\"},{\"cacheReadTokenCostPer1M\":0.15,\"cacheWriteTokenCostPer1M\":1.5,\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"serviceTiers\":[\"standard\",\"flex\",\"priority\"],\"showThoughts\":true,\"structuredOutputs\":true,\"temperature\":false,\"thinkingBudget\":true,\"thinkingLevels\":[\"none\",\"minimal\",\"low\",\"medium\",\"high\",\"highest\"],\"topP\":false},\"characterIsToken\":false,\"completionTokenCostPer1M\":7.5,\"contextWindow\":1048576,\"currency\":\"usd\",\"isDefault\":false,\"maxTokens\":65536,\"name\":\"gemini-3.7-flash\",\"notSupported\":{\"temperature\":true,\"topP\":true},\"promptTokenCostPer1M\":1.5,\"provider\":\"google-gemini\",\"supported\":{\"showThoughts\":true,\"structuredOutputs\":true,\"thinkingBudget\":true},\"type\":\"text\"},{\"cacheReadTokenCostPer1M\":0.15,\"cacheWriteTokenCostPer1M\":1.5,\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"serviceTiers\":[\"standard\",\"flex\",\"priority\"],\"showThoughts\":true,\"structuredOutputs\":true,\"temperature\":false,\"thinkingBudget\":true,\"thinkingLevels\":[\"none\",\"minimal\",\"low\",\"medium\",\"high\",\"highest\"],\"topP\":false},\"characterIsToken\":false,\"completionTokenCostPer1M\":7.5,\"contextWindow\":1048576,\"currency\":\"usd\",\"isDefault\":false,\"maxTokens\":65536,\"name\":\"gemini-3.8-flash\",\"notSupported\":{\"temperature\":true,\"topP\":true},\"promptTokenCostPer1M\":1.5,\"provider\":\"google-gemini\",\"supported\":{\"showThoughts\":true,\"structuredOutputs\":true,\"thinkingBudget\":true},\"type\":\"text\"},{\"cacheReadTokenCostPer1M\":0.15,\"cacheWriteTokenCostPer1M\":1.5,\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"serviceTiers\":[\"standard\",\"flex\",\"priority\"],\"showThoughts\":true,\"structuredOutputs\":true,\"temperature\":true,\"thinkingBudget\":true,\"thinkingLevels\":[\"none\",\"minimal\",\"low\",\"medium\",\"high\",\"highest\"],\"topP\":true},\"characterIsToken\":false,\"completionTokenCostPer1M\":9,\"contextWindow\":1048576,\"currency\":\"usd\",\"isDefault\":false,\"maxTokens\":65536,\"name\":\"gemini-3.5-flash\",\"promptTokenCostPer1M\":1.5,\"provider\":\"google-gemini\",\"supported\":{\"showThoughts\":true,\"structuredOutputs\":true,\"thinkingBudget\":true},\"type\":\"text\"},{\"cacheReadTokenCostPer1M\":0.125,\"cacheWriteTokenCostPer1M\":1.25,\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"serviceTiers\":[\"standard\",\"flex\",\"priority\"],\"showThoughts\":true,\"structuredOutputs\":true,\"temperature\":true,\"thinkingBudget\":true,\"thinkingLevels\":[\"none\",\"minimal\",\"low\",\"medium\",\"high\",\"highest\"],\"topP\":true},\"characterIsToken\":false,\"completionTokenCostPer1M\":10,\"currency\":\"usd\",\"isDefault\":false,\"longContextCacheReadTokenCostPer1M\":0.25,\"longContextCompletionTokenCostPer1M\":15,\"longContextPromptTokenCostPer1M\":2.5,\"longContextThreshold\":200000,\"name\":\"gemini-2.5-pro\",\"promptTokenCostPer1M\":1.25,\"provider\":\"google-gemini\",\"supported\":{\"showThoughts\":true,\"structuredOutputs\":true,\"thinkingBudget\":true},\"type\":\"text\"},{\"cacheReadTokenCostPer1M\":0.125,\"cacheWriteTokenCostPer1M\":1.25,\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"serviceTiers\":[\"standard\",\"flex\",\"priority\"],\"showThoughts\":true,\"structuredOutputs\":true,\"temperature\":true,\"thinkingBudget\":true,\"thinkingLevels\":[\"none\",\"minimal\",\"low\",\"medium\",\"high\",\"highest\"],\"topP\":true},\"characterIsToken\":false,\"completionTokenCostPer1M\":10,\"currency\":\"usd\",\"isDefault\":false,\"longContextCacheReadTokenCostPer1M\":0.25,\"longContextCompletionTokenCostPer1M\":15,\"longContextPromptTokenCostPer1M\":2.5,\"longContextThreshold\":200000,\"name\":\"gemini-pro-latest\",\"promptTokenCostPer1M\":1.25,\"provider\":\"google-gemini\",\"supported\":{\"showThoughts\":true,\"structuredOutputs\":true,\"thinkingBudget\":true},\"type\":\"text\"},{\"cacheReadTokenCostPer1M\":0.2,\"cacheWriteTokenCostPer1M\":2,\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"serviceTiers\":[\"standard\",\"flex\",\"priority\"],\"showThoughts\":true,\"structuredOutputs\":true,\"temperature\":true,\"thinkingBudget\":true,\"thinkingLevels\":[\"none\",\"minimal\",\"low\",\"medium\",\"high\",\"highest\"],\"topP\":true},\"characterIsToken\":false,\"completionTokenCostPer1M\":12,\"currency\":\"usd\",\"isDefault\":false,\"longContextCacheReadTokenCostPer1M\":0.4,\"longContextCompletionTokenCostPer1M\":18,\"longContextPromptTokenCostPer1M\":4,\"longContextThreshold\":200000,\"name\":\"gemini-3.1-pro-preview\",\"promptTokenCostPer1M\":2,\"provider\":\"google-gemini\",\"supported\":{\"showThoughts\":true,\"structuredOutputs\":true,\"thinkingBudget\":true},\"type\":\"text\"}],\"name\":\"google-gemini\"},{\"capabilities\":{\"serviceTiers\":[],\"thinking\":false,\"thinkingLevels\":[]},\"defaultModel\":\"Llama-3.2-3B-Instruct-q4f32_1-MLC\",\"displayName\":\"WebLLM\",\"isDynamic\":false,\"models\":[{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"serviceTiers\":[],\"showThoughts\":false,\"structuredOutputs\":false,\"temperature\":true,\"thinkingBudget\":false,\"thinkingLevels\":[],\"topP\":true},\"completionTokenCostPer1M\":0,\"contextWindow\":8192,\"currency\":\"usd\",\"isDefault\":false,\"maxTokens\":2048,\"name\":\"gemma-2-2b-it-q4f32_1-MLC\",\"promptTokenCostPer1M\":0,\"provider\":\"webllm\",\"type\":\"text\"},{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"serviceTiers\":[],\"showThoughts\":false,\"structuredOutputs\":false,\"temperature\":true,\"thinkingBudget\":false,\"thinkingLevels\":[],\"topP\":true},\"completionTokenCostPer1M\":0,\"contextWindow\":8192,\"currency\":\"usd\",\"isDefault\":false,\"maxTokens\":2048,\"name\":\"gemma-2-9b-it-q4f32_1-MLC\",\"promptTokenCostPer1M\":0,\"provider\":\"webllm\",\"type\":\"text\"},{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"serviceTiers\":[],\"showThoughts\":false,\"structuredOutputs\":false,\"temperature\":true,\"thinkingBudget\":false,\"thinkingLevels\":[],\"topP\":true},\"completionTokenCostPer1M\":0,\"contextWindow\":128000,\"currency\":\"usd\",\"isDefault\":false,\"isExpensive\":true,\"maxTokens\":4096,\"name\":\"Llama-3.1-70B-Instruct-q4f16_1-MLC\",\"promptTokenCostPer1M\":0,\"provider\":\"webllm\",\"type\":\"text\"},{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"serviceTiers\":[],\"showThoughts\":false,\"structuredOutputs\":false,\"temperature\":true,\"thinkingBudget\":false,\"thinkingLevels\":[],\"topP\":true},\"completionTokenCostPer1M\":0,\"contextWindow\":128000,\"currency\":\"usd\",\"isDefault\":false,\"maxTokens\":4096,\"name\":\"Llama-3.1-8B-Instruct-q4f32_1-MLC\",\"promptTokenCostPer1M\":0,\"provider\":\"webllm\",\"type\":\"text\"},{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"serviceTiers\":[],\"showThoughts\":false,\"structuredOutputs\":false,\"temperature\":true,\"thinkingBudget\":false,\"thinkingLevels\":[],\"topP\":true},\"completionTokenCostPer1M\":0,\"contextWindow\":128000,\"currency\":\"usd\",\"isDefault\":false,\"maxTokens\":2048,\"name\":\"Llama-3.2-1B-Instruct-q4f32_1-MLC\",\"promptTokenCostPer1M\":0,\"provider\":\"webllm\",\"type\":\"text\"},{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"serviceTiers\":[],\"showThoughts\":false,\"structuredOutputs\":false,\"temperature\":true,\"thinkingBudget\":false,\"thinkingLevels\":[],\"topP\":true},\"completionTokenCostPer1M\":0,\"contextWindow\":128000,\"currency\":\"usd\",\"isDefault\":true,\"maxTokens\":2048,\"name\":\"Llama-3.2-3B-Instruct-q4f32_1-MLC\",\"promptTokenCostPer1M\":0,\"provider\":\"webllm\",\"type\":\"text\"},{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"serviceTiers\":[],\"showThoughts\":false,\"structuredOutputs\":false,\"temperature\":true,\"thinkingBudget\":false,\"thinkingLevels\":[],\"topP\":true},\"completionTokenCostPer1M\":0,\"contextWindow\":32768,\"currency\":\"usd\",\"isDefault\":false,\"maxTokens\":4096,\"name\":\"Mistral-7B-Instruct-v0.3-q4f32_1-MLC\",\"promptTokenCostPer1M\":0,\"provider\":\"webllm\",\"type\":\"text\"},{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"serviceTiers\":[],\"showThoughts\":false,\"structuredOutputs\":false,\"temperature\":true,\"thinkingBudget\":false,\"thinkingLevels\":[],\"topP\":true},\"completionTokenCostPer1M\":0,\"contextWindow\":128000,\"currency\":\"usd\",\"isDefault\":false,\"maxTokens\":4096,\"name\":\"Phi-3.5-mini-instruct-q4f32_1-MLC\",\"promptTokenCostPer1M\":0,\"provider\":\"webllm\",\"type\":\"text\"},{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"serviceTiers\":[],\"showThoughts\":false,\"structuredOutputs\":false,\"temperature\":true,\"thinkingBudget\":false,\"thinkingLevels\":[],\"topP\":true},\"completionTokenCostPer1M\":0,\"contextWindow\":32768,\"currency\":\"usd\",\"isDefault\":false,\"maxTokens\":2048,\"name\":\"Qwen2.5-0.5B-Instruct-q4f32_1-MLC\",\"promptTokenCostPer1M\":0,\"provider\":\"webllm\",\"type\":\"text\"},{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"serviceTiers\":[],\"showThoughts\":false,\"structuredOutputs\":false,\"temperature\":true,\"thinkingBudget\":false,\"thinkingLevels\":[],\"topP\":true},\"completionTokenCostPer1M\":0,\"contextWindow\":32768,\"currency\":\"usd\",\"isDefault\":false,\"maxTokens\":2048,\"name\":\"Qwen2.5-1.5B-Instruct-q4f32_1-MLC\",\"promptTokenCostPer1M\":0,\"provider\":\"webllm\",\"type\":\"text\"},{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"serviceTiers\":[],\"showThoughts\":false,\"structuredOutputs\":false,\"temperature\":true,\"thinkingBudget\":false,\"thinkingLevels\":[],\"topP\":true},\"completionTokenCostPer1M\":0,\"contextWindow\":32768,\"currency\":\"usd\",\"isDefault\":false,\"maxTokens\":2048,\"name\":\"Qwen2.5-3B-Instruct-q4f32_1-MLC\",\"promptTokenCostPer1M\":0,\"provider\":\"webllm\",\"type\":\"text\"},{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"serviceTiers\":[],\"showThoughts\":false,\"structuredOutputs\":false,\"temperature\":true,\"thinkingBudget\":false,\"thinkingLevels\":[],\"topP\":true},\"completionTokenCostPer1M\":0,\"contextWindow\":32768,\"currency\":\"usd\",\"isDefault\":false,\"maxTokens\":4096,\"name\":\"Qwen2.5-7B-Instruct-q4f32_1-MLC\",\"promptTokenCostPer1M\":0,\"provider\":\"webllm\",\"type\":\"text\"}],\"name\":\"webllm\"},{\"capabilities\":{\"serviceTiers\":[\"standard\",\"priority\"],\"thinking\":false,\"thinkingLevels\":[]},\"defaultModel\":\"mistral-small-latest\",\"displayName\":\"Mistral AI\",\"isDynamic\":false,\"models\":[{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"serviceTiers\":[\"standard\",\"priority\"],\"showThoughts\":false,\"structuredOutputs\":false,\"temperature\":true,\"thinkingBudget\":false,\"thinkingLevels\":[],\"topP\":true},\"completionTokenCostPer1M\":0.15,\"currency\":\"USD\",\"isDefault\":false,\"name\":\"mistral-nemo-latest\",\"promptTokenCostPer1M\":0.15,\"provider\":\"mistral\",\"type\":\"text\"},{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"serviceTiers\":[\"standard\",\"priority\"],\"showThoughts\":false,\"structuredOutputs\":false,\"temperature\":true,\"thinkingBudget\":false,\"thinkingLevels\":[],\"topP\":true},\"completionTokenCostPer1M\":0.25,\"currency\":\"USD\",\"isDefault\":false,\"name\":\"open-codestral-mamba\",\"promptTokenCostPer1M\":0.25,\"provider\":\"mistral\",\"type\":\"code\"},{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"serviceTiers\":[\"standard\",\"priority\"],\"showThoughts\":false,\"structuredOutputs\":false,\"temperature\":true,\"thinkingBudget\":false,\"thinkingLevels\":[],\"topP\":true},\"completionTokenCostPer1M\":0.25,\"currency\":\"USD\",\"isDefault\":false,\"name\":\"open-mistral-7b\",\"promptTokenCostPer1M\":0.25,\"provider\":\"mistral\",\"type\":\"text\"},{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"serviceTiers\":[\"standard\",\"priority\"],\"showThoughts\":false,\"structuredOutputs\":false,\"temperature\":true,\"thinkingBudget\":false,\"thinkingLevels\":[],\"topP\":true},\"completionTokenCostPer1M\":0.3,\"currency\":\"USD\",\"isDefault\":false,\"name\":\"open-mistral-nemo-latest\",\"promptTokenCostPer1M\":0.3,\"provider\":\"mistral\",\"type\":\"text\"},{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"serviceTiers\":[\"standard\",\"priority\"],\"showThoughts\":false,\"structuredOutputs\":false,\"temperature\":true,\"thinkingBudget\":false,\"thinkingLevels\":[],\"topP\":true},\"completionTokenCostPer1M\":0.6,\"currency\":\"USD\",\"isDefault\":false,\"name\":\"codestral-latest\",\"promptTokenCostPer1M\":0.2,\"provider\":\"mistral\",\"type\":\"code\"},{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"serviceTiers\":[\"standard\",\"priority\"],\"showThoughts\":false,\"structuredOutputs\":false,\"temperature\":true,\"thinkingBudget\":false,\"thinkingLevels\":[],\"topP\":true},\"completionTokenCostPer1M\":0.6,\"currency\":\"USD\",\"isDefault\":true,\"name\":\"mistral-small-latest\",\"promptTokenCostPer1M\":0.2,\"provider\":\"mistral\",\"type\":\"text\"},{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"serviceTiers\":[\"standard\",\"priority\"],\"showThoughts\":false,\"structuredOutputs\":false,\"temperature\":true,\"thinkingBudget\":false,\"thinkingLevels\":[],\"topP\":true},\"completionTokenCostPer1M\":0.7,\"currency\":\"USD\",\"isDefault\":false,\"name\":\"open-mixtral-8x7b\",\"promptTokenCostPer1M\":0.7,\"provider\":\"mistral\",\"type\":\"text\"},{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"serviceTiers\":[\"standard\",\"priority\"],\"showThoughts\":false,\"structuredOutputs\":false,\"temperature\":true,\"thinkingBudget\":false,\"thinkingLevels\":[],\"topP\":true},\"completionTokenCostPer1M\":6,\"currency\":\"USD\",\"isDefault\":false,\"name\":\"mistral-large-latest\",\"promptTokenCostPer1M\":2,\"provider\":\"mistral\",\"type\":\"text\"}],\"name\":\"mistral\"},{\"capabilities\":{\"serviceTiers\":[],\"thinking\":true,\"thinkingLevels\":[\"none\",\"minimal\",\"low\",\"medium\",\"high\",\"highest\"]},\"defaultModel\":\"deepseek-v4-flash\",\"displayName\":\"DeepSeek\",\"isDynamic\":false,\"models\":[{\"aliases\":[\"deepseek-chat\",\"deepseek-reasoner\"],\"cacheReadTokenCostPer1M\":0.0028,\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"serviceTiers\":[],\"showThoughts\":true,\"structuredOutputs\":false,\"temperature\":true,\"thinkingBudget\":true,\"thinkingLevels\":[\"none\",\"minimal\",\"low\",\"medium\",\"high\",\"highest\"],\"topP\":true},\"completionTokenCostPer1M\":0.28,\"contextWindow\":1000000,\"currency\":\"USD\",\"isDefault\":true,\"maxTokens\":384000,\"name\":\"deepseek-v4-flash\",\"promptTokenCostPer1M\":0.14,\"provider\":\"deepseek\",\"supported\":{\"showThoughts\":true,\"structuredOutputs\":false,\"thinkingBudget\":true},\"type\":\"text\"},{\"cacheReadTokenCostPer1M\":0.003625,\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"serviceTiers\":[],\"showThoughts\":true,\"structuredOutputs\":false,\"temperature\":true,\"thinkingBudget\":true,\"thinkingLevels\":[\"none\",\"minimal\",\"low\",\"medium\",\"high\",\"highest\"],\"topP\":true},\"completionTokenCostPer1M\":0.87,\"contextWindow\":1000000,\"currency\":\"USD\",\"isDefault\":false,\"maxTokens\":384000,\"name\":\"deepseek-v4-pro\",\"promptTokenCostPer1M\":0.435,\"provider\":\"deepseek\",\"supported\":{\"showThoughts\":true,\"structuredOutputs\":false,\"thinkingBudget\":true},\"type\":\"text\"}],\"name\":\"deepseek\"},{\"capabilities\":{\"serviceTiers\":[],\"thinking\":true,\"thinkingLevels\":[\"none\",\"minimal\",\"low\",\"medium\",\"high\",\"highest\"]},\"defaultModel\":\"deepseek-v4-flash\",\"displayName\":\"DeepSeek Responses\",\"isDynamic\":false,\"models\":[{\"aliases\":[\"deepseek-chat\",\"deepseek-reasoner\"],\"cacheReadTokenCostPer1M\":0.0028,\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"serviceTiers\":[],\"showThoughts\":true,\"structuredOutputs\":false,\"temperature\":true,\"thinkingBudget\":true,\"thinkingLevels\":[\"none\",\"minimal\",\"low\",\"medium\",\"high\",\"highest\"],\"topP\":true},\"completionTokenCostPer1M\":0.28,\"contextWindow\":1000000,\"currency\":\"USD\",\"isDefault\":true,\"maxTokens\":384000,\"name\":\"deepseek-v4-flash\",\"promptTokenCostPer1M\":0.14,\"provider\":\"deepseek-responses\",\"supported\":{\"showThoughts\":true,\"structuredOutputs\":false,\"thinkingBudget\":true},\"type\":\"text\"},{\"cacheReadTokenCostPer1M\":0.003625,\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"serviceTiers\":[],\"showThoughts\":true,\"structuredOutputs\":false,\"temperature\":true,\"thinkingBudget\":true,\"thinkingLevels\":[\"none\",\"minimal\",\"low\",\"medium\",\"high\",\"highest\"],\"topP\":true},\"completionTokenCostPer1M\":0.87,\"contextWindow\":1000000,\"currency\":\"USD\",\"isDefault\":false,\"maxTokens\":384000,\"name\":\"deepseek-v4-pro\",\"promptTokenCostPer1M\":0.435,\"provider\":\"deepseek-responses\",\"supported\":{\"showThoughts\":true,\"structuredOutputs\":false,\"thinkingBudget\":true},\"type\":\"text\"}],\"name\":\"deepseek-responses\"},{\"capabilities\":{\"serviceTiers\":[\"standard\",\"flex\",\"priority\"],\"thinking\":true,\"thinkingLevels\":[\"none\",\"minimal\",\"low\",\"medium\",\"high\",\"highest\"]},\"defaultEmbedModel\":\"text-embedding-3-small\",\"defaultModel\":\"gpt-5-mini\",\"displayName\":\"OpenAI\",\"isDynamic\":false,\"models\":[{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"serviceTiers\":[\"standard\",\"flex\",\"priority\"],\"showThoughts\":false,\"structuredOutputs\":true,\"temperature\":false,\"thinkingBudget\":false,\"thinkingLevels\":[],\"topP\":false},\"completionTokenCostPer1M\":0.4,\"currency\":\"usd\",\"isDefault\":false,\"name\":\"gpt-5-nano\",\"notSupported\":{\"temperature\":true,\"topP\":true},\"promptTokenCostPer1M\":0.05,\"provider\":\"openai\",\"supported\":{\"structuredOutputs\":true},\"type\":\"text\"},{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"serviceTiers\":[\"standard\",\"flex\",\"priority\"],\"showThoughts\":false,\"structuredOutputs\":true,\"temperature\":true,\"thinkingBudget\":false,\"thinkingLevels\":[],\"topP\":true},\"completionTokenCostPer1M\":0.4,\"currency\":\"usd\",\"isDefault\":false,\"name\":\"gpt-4.1-nano\",\"promptTokenCostPer1M\":0.1,\"provider\":\"openai\",\"supported\":{\"structuredOutputs\":true},\"type\":\"text\"},{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"serviceTiers\":[\"standard\",\"flex\",\"priority\"],\"showThoughts\":false,\"structuredOutputs\":true,\"temperature\":true,\"thinkingBudget\":false,\"thinkingLevels\":[],\"topP\":true},\"completionTokenCostPer1M\":0.6,\"currency\":\"usd\",\"isDefault\":false,\"name\":\"gpt-4o-mini\",\"promptTokenCostPer1M\":0.15,\"provider\":\"openai\",\"supported\":{\"structuredOutputs\":true},\"type\":\"text\"},{\"cacheReadTokenCostPer1M\":0.02,\"cacheWriteTokenCostPer1M\":0.25,\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"serviceTiers\":[\"standard\",\"flex\",\"priority\"],\"showThoughts\":false,\"structuredOutputs\":true,\"temperature\":false,\"thinkingBudget\":true,\"thinkingLevels\":[\"none\",\"minimal\",\"low\",\"medium\",\"high\",\"highest\"],\"topP\":false},\"completionTokenCostPer1M\":1.2,\"contextWindow\":1050000,\"currency\":\"usd\",\"isDefault\":false,\"longContextCacheReadTokenCostPer1M\":0.04,\"longContextCompletionTokenCostPer1M\":1.8,\"longContextPromptTokenCostPer1M\":0.4,\"longContextThreshold\":272000,\"maxTokens\":128000,\"name\":\"gpt-5.6-luna\",\"notSupported\":{\"temperature\":true,\"topP\":true},\"promptTokenCostPer1M\":0.2,\"provider\":\"openai\",\"supported\":{\"structuredOutputs\":true,\"thinkingBudget\":true},\"type\":\"text\"},{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"serviceTiers\":[\"standard\",\"flex\",\"priority\"],\"showThoughts\":false,\"structuredOutputs\":true,\"temperature\":false,\"thinkingBudget\":false,\"thinkingLevels\":[],\"topP\":false},\"completionTokenCostPer1M\":1.25,\"currency\":\"usd\",\"isDefault\":false,\"name\":\"gpt-5.4-nano\",\"notSupported\":{\"temperature\":true,\"topP\":true},\"promptTokenCostPer1M\":0.2,\"provider\":\"openai\",\"supported\":{\"structuredOutputs\":true},\"type\":\"text\"},{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"serviceTiers\":[\"standard\",\"flex\",\"priority\"],\"showThoughts\":false,\"structuredOutputs\":false,\"temperature\":true,\"thinkingBudget\":false,\"thinkingLevels\":[],\"topP\":true},\"completionTokenCostPer1M\":1.5,\"currency\":\"usd\",\"isDefault\":false,\"name\":\"gpt-3.5-turbo\",\"promptTokenCostPer1M\":0.5,\"provider\":\"openai\",\"type\":\"text\"},{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"serviceTiers\":[\"standard\",\"flex\",\"priority\"],\"showThoughts\":false,\"structuredOutputs\":true,\"temperature\":true,\"thinkingBudget\":false,\"thinkingLevels\":[],\"topP\":true},\"completionTokenCostPer1M\":1.6,\"currency\":\"usd\",\"isDefault\":false,\"name\":\"gpt-4.1-mini\",\"promptTokenCostPer1M\":0.4,\"provider\":\"openai\",\"supported\":{\"structuredOutputs\":true},\"type\":\"text\"},{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"serviceTiers\":[\"standard\",\"flex\",\"priority\"],\"showThoughts\":false,\"structuredOutputs\":true,\"temperature\":false,\"thinkingBudget\":false,\"thinkingLevels\":[],\"topP\":false},\"completionTokenCostPer1M\":2,\"currency\":\"usd\",\"isDefault\":true,\"name\":\"gpt-5-mini\",\"notSupported\":{\"temperature\":true,\"topP\":true},\"promptTokenCostPer1M\":0.25,\"provider\":\"openai\",\"supported\":{\"structuredOutputs\":true},\"type\":\"text\"},{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"serviceTiers\":[\"standard\",\"flex\",\"priority\"],\"showThoughts\":false,\"structuredOutputs\":true,\"temperature\":false,\"thinkingBudget\":false,\"thinkingLevels\":[],\"topP\":false},\"completionTokenCostPer1M\":2,\"currency\":\"usd\",\"isDefault\":false,\"name\":\"gpt-5.1-codex-mini\",\"notSupported\":{\"temperature\":true,\"topP\":true},\"promptTokenCostPer1M\":0.25,\"provider\":\"openai\",\"supported\":{\"structuredOutputs\":true},\"type\":\"code\"},{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"serviceTiers\":[\"standard\",\"flex\",\"priority\"],\"showThoughts\":false,\"structuredOutputs\":true,\"temperature\":false,\"thinkingBudget\":false,\"thinkingLevels\":[],\"topP\":false},\"completionTokenCostPer1M\":4.5,\"currency\":\"usd\",\"isDefault\":false,\"name\":\"gpt-5.4-mini\",\"notSupported\":{\"temperature\":true,\"topP\":true},\"promptTokenCostPer1M\":0.75,\"provider\":\"openai\",\"supported\":{\"structuredOutputs\":true},\"type\":\"text\"},{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"serviceTiers\":[\"standard\",\"flex\",\"priority\"],\"showThoughts\":false,\"structuredOutputs\":true,\"temperature\":true,\"thinkingBudget\":false,\"thinkingLevels\":[],\"topP\":true},\"completionTokenCostPer1M\":4.4,\"currency\":\"usd\",\"isDefault\":false,\"name\":\"o1-mini\",\"promptTokenCostPer1M\":1.1,\"provider\":\"openai\",\"supported\":{\"structuredOutputs\":true},\"type\":\"text\"},{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"serviceTiers\":[\"standard\",\"flex\",\"priority\"],\"showThoughts\":false,\"structuredOutputs\":true,\"temperature\":true,\"thinkingBudget\":false,\"thinkingLevels\":[],\"topP\":true},\"completionTokenCostPer1M\":4.4,\"currency\":\"usd\",\"isDefault\":false,\"name\":\"o4-mini\",\"promptTokenCostPer1M\":1.1,\"provider\":\"openai\",\"supported\":{\"structuredOutputs\":true},\"type\":\"text\"},{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"serviceTiers\":[\"standard\",\"flex\",\"priority\"],\"showThoughts\":false,\"structuredOutputs\":true,\"temperature\":true,\"thinkingBudget\":false,\"thinkingLevels\":[],\"topP\":true},\"completionTokenCostPer1M\":8,\"currency\":\"usd\",\"isDefault\":false,\"name\":\"gpt-4.1\",\"promptTokenCostPer1M\":2,\"provider\":\"openai\",\"supported\":{\"structuredOutputs\":true},\"type\":\"text\"},{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"serviceTiers\":[\"standard\",\"flex\",\"priority\"],\"showThoughts\":false,\"structuredOutputs\":true,\"temperature\":true,\"thinkingBudget\":false,\"thinkingLevels\":[],\"topP\":true},\"completionTokenCostPer1M\":8,\"currency\":\"usd\",\"isDefault\":false,\"name\":\"o3\",\"promptTokenCostPer1M\":2,\"provider\":\"openai\",\"supported\":{\"structuredOutputs\":true},\"type\":\"text\"},{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"serviceTiers\":[\"standard\",\"flex\",\"priority\"],\"showThoughts\":false,\"structuredOutputs\":true,\"temperature\":false,\"thinkingBudget\":false,\"thinkingLevels\":[],\"topP\":false},\"completionTokenCostPer1M\":10,\"currency\":\"usd\",\"isDefault\":false,\"name\":\"gpt-5\",\"notSupported\":{\"temperature\":true,\"topP\":true},\"promptTokenCostPer1M\":1.25,\"provider\":\"openai\",\"supported\":{\"structuredOutputs\":true},\"type\":\"text\"},{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"serviceTiers\":[\"standard\",\"flex\",\"priority\"],\"showThoughts\":false,\"structuredOutputs\":true,\"temperature\":false,\"thinkingBudget\":false,\"thinkingLevels\":[],\"topP\":false},\"completionTokenCostPer1M\":10,\"currency\":\"usd\",\"isDefault\":false,\"name\":\"gpt-5-chat\",\"notSupported\":{\"temperature\":true,\"topP\":true},\"promptTokenCostPer1M\":1.25,\"provider\":\"openai\",\"supported\":{\"structuredOutputs\":true},\"type\":\"text\"},{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"serviceTiers\":[\"standard\",\"flex\",\"priority\"],\"showThoughts\":false,\"structuredOutputs\":true,\"temperature\":false,\"thinkingBudget\":false,\"thinkingLevels\":[],\"topP\":false},\"completionTokenCostPer1M\":10,\"currency\":\"usd\",\"isDefault\":false,\"name\":\"gpt-5-chat-latest\",\"notSupported\":{\"temperature\":true,\"topP\":true},\"promptTokenCostPer1M\":1.25,\"provider\":\"openai\",\"supported\":{\"structuredOutputs\":true},\"type\":\"text\"},{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"serviceTiers\":[\"standard\",\"flex\",\"priority\"],\"showThoughts\":false,\"structuredOutputs\":true,\"temperature\":false,\"thinkingBudget\":false,\"thinkingLevels\":[],\"topP\":false},\"completionTokenCostPer1M\":10,\"currency\":\"usd\",\"isDefault\":false,\"name\":\"gpt-5-codex\",\"notSupported\":{\"temperature\":true,\"topP\":true},\"promptTokenCostPer1M\":1.25,\"provider\":\"openai\",\"supported\":{\"structuredOutputs\":true},\"type\":\"code\"},{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"serviceTiers\":[\"standard\",\"flex\",\"priority\"],\"showThoughts\":false,\"structuredOutputs\":true,\"temperature\":false,\"thinkingBudget\":false,\"thinkingLevels\":[],\"topP\":false},\"completionTokenCostPer1M\":10,\"currency\":\"usd\",\"isDefault\":false,\"name\":\"gpt-5.1\",\"notSupported\":{\"temperature\":true,\"topP\":true},\"promptTokenCostPer1M\":1.25,\"provider\":\"openai\",\"supported\":{\"structuredOutputs\":true},\"type\":\"text\"},{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"serviceTiers\":[\"standard\",\"flex\",\"priority\"],\"showThoughts\":false,\"structuredOutputs\":true,\"temperature\":false,\"thinkingBudget\":false,\"thinkingLevels\":[],\"topP\":false},\"completionTokenCostPer1M\":10,\"currency\":\"usd\",\"isDefault\":false,\"name\":\"gpt-5.1-chat-latest\",\"notSupported\":{\"temperature\":true,\"topP\":true},\"promptTokenCostPer1M\":1.25,\"provider\":\"openai\",\"supported\":{\"structuredOutputs\":true},\"type\":\"text\"},{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"serviceTiers\":[\"standard\",\"flex\",\"priority\"],\"showThoughts\":false,\"structuredOutputs\":true,\"temperature\":false,\"thinkingBudget\":false,\"thinkingLevels\":[],\"topP\":false},\"completionTokenCostPer1M\":10,\"currency\":\"usd\",\"isDefault\":false,\"name\":\"gpt-5.1-codex\",\"notSupported\":{\"temperature\":true,\"topP\":true},\"promptTokenCostPer1M\":1.25,\"provider\":\"openai\",\"supported\":{\"structuredOutputs\":true},\"type\":\"code\"},{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"serviceTiers\":[\"standard\",\"flex\",\"priority\"],\"showThoughts\":false,\"structuredOutputs\":true,\"temperature\":false,\"thinkingBudget\":false,\"thinkingLevels\":[],\"topP\":false},\"completionTokenCostPer1M\":10,\"currency\":\"usd\",\"isDefault\":false,\"name\":\"gpt-5.1-codex-max\",\"notSupported\":{\"temperature\":true,\"topP\":true},\"promptTokenCostPer1M\":1.25,\"provider\":\"openai\",\"supported\":{\"structuredOutputs\":true},\"type\":\"code\"},{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"serviceTiers\":[\"standard\",\"flex\",\"priority\"],\"showThoughts\":false,\"structuredOutputs\":true,\"temperature\":true,\"thinkingBudget\":false,\"thinkingLevels\":[],\"topP\":true},\"completionTokenCostPer1M\":10,\"currency\":\"usd\",\"isDefault\":false,\"name\":\"gpt-4o\",\"promptTokenCostPer1M\":2.5,\"provider\":\"openai\",\"supported\":{\"structuredOutputs\":true},\"type\":\"text\"},{\"cacheReadTokenCostPer1M\":0.2,\"cacheWriteTokenCostPer1M\":2.5,\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"serviceTiers\":[\"standard\",\"flex\",\"priority\"],\"showThoughts\":false,\"structuredOutputs\":true,\"temperature\":false,\"thinkingBudget\":true,\"thinkingLevels\":[\"none\",\"minimal\",\"low\",\"medium\",\"high\",\"highest\"],\"topP\":false},\"completionTokenCostPer1M\":12,\"contextWindow\":1050000,\"currency\":\"usd\",\"isDefault\":false,\"longContextCacheReadTokenCostPer1M\":0.4,\"longContextCompletionTokenCostPer1M\":18,\"longContextPromptTokenCostPer1M\":4,\"longContextThreshold\":272000,\"maxTokens\":128000,\"name\":\"gpt-5.6-terra\",\"notSupported\":{\"temperature\":true,\"topP\":true},\"promptTokenCostPer1M\":2,\"provider\":\"openai\",\"supported\":{\"structuredOutputs\":true,\"thinkingBudget\":true},\"type\":\"text\"},{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"serviceTiers\":[\"standard\",\"flex\",\"priority\"],\"showThoughts\":false,\"structuredOutputs\":true,\"temperature\":false,\"thinkingBudget\":false,\"thinkingLevels\":[],\"topP\":false},\"completionTokenCostPer1M\":14,\"currency\":\"usd\",\"isDefault\":false,\"name\":\"gpt-5.2\",\"notSupported\":{\"temperature\":true,\"topP\":true},\"promptTokenCostPer1M\":1.75,\"provider\":\"openai\",\"supported\":{\"structuredOutputs\":true},\"type\":\"text\"},{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"serviceTiers\":[\"standard\",\"flex\",\"priority\"],\"showThoughts\":false,\"structuredOutputs\":true,\"temperature\":false,\"thinkingBudget\":false,\"thinkingLevels\":[],\"topP\":false},\"completionTokenCostPer1M\":14,\"currency\":\"usd\",\"isDefault\":false,\"name\":\"gpt-5.2-chat-latest\",\"notSupported\":{\"temperature\":true,\"topP\":true},\"promptTokenCostPer1M\":1.75,\"provider\":\"openai\",\"supported\":{\"structuredOutputs\":true},\"type\":\"text\"},{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"serviceTiers\":[\"standard\",\"flex\",\"priority\"],\"showThoughts\":false,\"structuredOutputs\":true,\"temperature\":false,\"thinkingBudget\":false,\"thinkingLevels\":[],\"topP\":false},\"completionTokenCostPer1M\":14,\"currency\":\"usd\",\"isDefault\":false,\"name\":\"gpt-5.2-codex\",\"notSupported\":{\"temperature\":true,\"topP\":true},\"promptTokenCostPer1M\":1.75,\"provider\":\"openai\",\"supported\":{\"structuredOutputs\":true},\"type\":\"code\"},{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"serviceTiers\":[\"standard\",\"flex\",\"priority\"],\"showThoughts\":false,\"structuredOutputs\":true,\"temperature\":false,\"thinkingBudget\":false,\"thinkingLevels\":[],\"topP\":false},\"completionTokenCostPer1M\":15,\"currency\":\"usd\",\"isDefault\":false,\"name\":\"gpt-5.4\",\"notSupported\":{\"temperature\":true,\"topP\":true},\"promptTokenCostPer1M\":2.5,\"provider\":\"openai\",\"supported\":{\"structuredOutputs\":true},\"type\":\"text\"},{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"serviceTiers\":[\"standard\",\"flex\",\"priority\"],\"showThoughts\":false,\"structuredOutputs\":true,\"temperature\":true,\"thinkingBudget\":false,\"thinkingLevels\":[],\"topP\":true},\"completionTokenCostPer1M\":15,\"currency\":\"usd\",\"isDefault\":false,\"name\":\"chatgpt-4o-latest\",\"promptTokenCostPer1M\":5,\"provider\":\"openai\",\"supported\":{\"structuredOutputs\":true},\"type\":\"text\"},{\"cacheReadTokenCostPer1M\":0.5,\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"serviceTiers\":[\"standard\",\"flex\",\"priority\"],\"showThoughts\":false,\"structuredOutputs\":true,\"temperature\":false,\"thinkingBudget\":true,\"thinkingLevels\":[\"none\",\"minimal\",\"low\",\"medium\",\"high\",\"highest\"],\"topP\":false},\"completionTokenCostPer1M\":30,\"contextWindow\":1000000,\"currency\":\"usd\",\"isDefault\":false,\"longContextCacheReadTokenCostPer1M\":1,\"longContextCompletionTokenCostPer1M\":45,\"longContextPromptTokenCostPer1M\":10,\"longContextThreshold\":272000,\"name\":\"gpt-5.5\",\"notSupported\":{\"temperature\":true,\"topP\":true},\"promptTokenCostPer1M\":5,\"provider\":\"openai\",\"supported\":{\"structuredOutputs\":true,\"thinkingBudget\":true},\"type\":\"text\"},{\"aliases\":[\"gpt-5.6\"],\"cacheReadTokenCostPer1M\":0.5,\"cacheWriteTokenCostPer1M\":6.25,\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"serviceTiers\":[\"standard\",\"flex\",\"priority\"],\"showThoughts\":false,\"structuredOutputs\":true,\"temperature\":false,\"thinkingBudget\":true,\"thinkingLevels\":[\"none\",\"minimal\",\"low\",\"medium\",\"high\",\"highest\"],\"topP\":false},\"completionTokenCostPer1M\":30,\"contextWindow\":1050000,\"currency\":\"usd\",\"isDefault\":false,\"longContextCacheReadTokenCostPer1M\":1,\"longContextCompletionTokenCostPer1M\":45,\"longContextPromptTokenCostPer1M\":10,\"longContextThreshold\":272000,\"maxTokens\":128000,\"name\":\"gpt-5.6-sol\",\"notSupported\":{\"temperature\":true,\"topP\":true},\"promptTokenCostPer1M\":5,\"provider\":\"openai\",\"supported\":{\"structuredOutputs\":true,\"thinkingBudget\":true},\"type\":\"text\"},{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"serviceTiers\":[\"standard\",\"flex\",\"priority\"],\"showThoughts\":false,\"structuredOutputs\":true,\"temperature\":true,\"thinkingBudget\":false,\"thinkingLevels\":[],\"topP\":true},\"completionTokenCostPer1M\":30,\"currency\":\"usd\",\"isDefault\":false,\"name\":\"gpt-4-turbo\",\"promptTokenCostPer1M\":10,\"provider\":\"openai\",\"supported\":{\"structuredOutputs\":true},\"type\":\"text\"},{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"serviceTiers\":[\"standard\",\"flex\",\"priority\"],\"showThoughts\":false,\"structuredOutputs\":true,\"temperature\":true,\"thinkingBudget\":false,\"thinkingLevels\":[],\"topP\":true},\"completionTokenCostPer1M\":60,\"currency\":\"usd\",\"isDefault\":false,\"name\":\"o1\",\"promptTokenCostPer1M\":15,\"provider\":\"openai\",\"supported\":{\"structuredOutputs\":true},\"type\":\"text\"},{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"serviceTiers\":[\"standard\",\"flex\",\"priority\"],\"showThoughts\":false,\"structuredOutputs\":false,\"temperature\":true,\"thinkingBudget\":false,\"thinkingLevels\":[],\"topP\":true},\"completionTokenCostPer1M\":60,\"currency\":\"usd\",\"isDefault\":false,\"name\":\"gpt-4\",\"promptTokenCostPer1M\":30,\"provider\":\"openai\",\"type\":\"text\"},{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"serviceTiers\":[\"standard\",\"flex\",\"priority\"],\"showThoughts\":false,\"structuredOutputs\":true,\"temperature\":false,\"thinkingBudget\":false,\"thinkingLevels\":[],\"topP\":false},\"completionTokenCostPer1M\":120,\"currency\":\"usd\",\"isDefault\":false,\"name\":\"gpt-5-pro\",\"notSupported\":{\"temperature\":true,\"topP\":true},\"promptTokenCostPer1M\":15,\"provider\":\"openai\",\"supported\":{\"structuredOutputs\":true},\"type\":\"text\"},{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"serviceTiers\":[\"standard\",\"flex\",\"priority\"],\"showThoughts\":false,\"structuredOutputs\":true,\"temperature\":false,\"thinkingBudget\":false,\"thinkingLevels\":[],\"topP\":false},\"completionTokenCostPer1M\":168,\"currency\":\"usd\",\"isDefault\":false,\"name\":\"gpt-5.2-pro\",\"notSupported\":{\"temperature\":true,\"topP\":true},\"promptTokenCostPer1M\":21,\"provider\":\"openai\",\"supported\":{\"structuredOutputs\":true},\"type\":\"text\"},{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"serviceTiers\":[\"standard\",\"flex\",\"priority\"],\"showThoughts\":false,\"structuredOutputs\":true,\"temperature\":false,\"thinkingBudget\":true,\"thinkingLevels\":[\"none\",\"minimal\",\"low\",\"medium\",\"high\",\"highest\"],\"topP\":false},\"completionTokenCostPer1M\":180,\"contextWindow\":1000000,\"currency\":\"usd\",\"isDefault\":false,\"isExpensive\":true,\"longContextCompletionTokenCostPer1M\":270,\"longContextPromptTokenCostPer1M\":60,\"longContextThreshold\":272000,\"name\":\"gpt-5.5-pro\",\"notSupported\":{\"temperature\":true,\"topP\":true},\"promptTokenCostPer1M\":30,\"provider\":\"openai\",\"supported\":{\"structuredOutputs\":true,\"thinkingBudget\":true},\"type\":\"text\"}],\"name\":\"openai\"},{\"capabilities\":{\"serviceTiers\":[\"standard\",\"flex\",\"priority\"],\"thinking\":true,\"thinkingLevels\":[\"none\",\"minimal\",\"low\",\"medium\",\"high\",\"highest\"]},\"defaultEmbedModel\":\"text-embedding-ada-002\",\"defaultModel\":\"gpt-4o\",\"displayName\":\"OpenAI Responses\",\"isDynamic\":false,\"models\":[{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"serviceTiers\":[\"standard\",\"flex\",\"priority\"],\"showThoughts\":true,\"structuredOutputs\":true,\"temperature\":false,\"thinkingBudget\":true,\"thinkingLevels\":[\"none\",\"minimal\",\"low\",\"medium\",\"high\",\"highest\"],\"topP\":false},\"completionTokenCostPer1M\":0.4,\"currency\":\"usd\",\"isDefault\":false,\"name\":\"gpt-5-nano\",\"notSupported\":{\"temperature\":true,\"topP\":true},\"promptTokenCostPer1M\":0.05,\"provider\":\"openai-responses\",\"supported\":{\"showThoughts\":true,\"structuredOutputs\":true,\"thinkingBudget\":true},\"type\":\"text\"},{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"serviceTiers\":[\"standard\",\"flex\",\"priority\"],\"showThoughts\":false,\"structuredOutputs\":true,\"temperature\":true,\"thinkingBudget\":false,\"thinkingLevels\":[],\"topP\":true},\"completionTokenCostPer1M\":0.4,\"currency\":\"usd\",\"isDefault\":false,\"name\":\"gpt-4.1-nano\",\"promptTokenCostPer1M\":0.1,\"provider\":\"openai-responses\",\"supported\":{\"structuredOutputs\":true},\"type\":\"text\"},{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"serviceTiers\":[\"standard\",\"flex\",\"priority\"],\"showThoughts\":false,\"structuredOutputs\":true,\"temperature\":true,\"thinkingBudget\":false,\"thinkingLevels\":[],\"topP\":true},\"completionTokenCostPer1M\":0.6,\"currency\":\"usd\",\"isDefault\":false,\"name\":\"gpt-4o-mini\",\"promptTokenCostPer1M\":0.15,\"provider\":\"openai-responses\",\"supported\":{\"structuredOutputs\":true},\"type\":\"text\"},{\"cacheReadTokenCostPer1M\":0.02,\"cacheWriteTokenCostPer1M\":0.25,\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"serviceTiers\":[\"standard\",\"flex\",\"priority\"],\"showThoughts\":true,\"structuredOutputs\":true,\"temperature\":false,\"thinkingBudget\":true,\"thinkingLevels\":[\"none\",\"minimal\",\"low\",\"medium\",\"high\",\"highest\"],\"topP\":false},\"completionTokenCostPer1M\":1.2,\"contextWindow\":1050000,\"currency\":\"usd\",\"isDefault\":false,\"longContextCacheReadTokenCostPer1M\":0.04,\"longContextCompletionTokenCostPer1M\":1.8,\"longContextPromptTokenCostPer1M\":0.4,\"longContextThreshold\":272000,\"maxTokens\":128000,\"name\":\"gpt-5.6-luna\",\"notSupported\":{\"temperature\":true,\"topP\":true},\"promptTokenCostPer1M\":0.2,\"provider\":\"openai-responses\",\"supported\":{\"showThoughts\":true,\"structuredOutputs\":true,\"thinkingBudget\":true},\"type\":\"text\"},{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"serviceTiers\":[\"standard\",\"flex\",\"priority\"],\"showThoughts\":true,\"structuredOutputs\":true,\"temperature\":false,\"thinkingBudget\":true,\"thinkingLevels\":[\"none\",\"minimal\",\"low\",\"medium\",\"high\",\"highest\"],\"topP\":false},\"completionTokenCostPer1M\":1.25,\"currency\":\"usd\",\"isDefault\":false,\"name\":\"gpt-5.4-nano\",\"notSupported\":{\"temperature\":true,\"topP\":true},\"promptTokenCostPer1M\":0.2,\"provider\":\"openai-responses\",\"supported\":{\"showThoughts\":true,\"structuredOutputs\":true,\"thinkingBudget\":true},\"type\":\"text\"},{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"serviceTiers\":[\"standard\",\"flex\",\"priority\"],\"showThoughts\":false,\"structuredOutputs\":false,\"temperature\":true,\"thinkingBudget\":false,\"thinkingLevels\":[],\"topP\":true},\"completionTokenCostPer1M\":1.5,\"currency\":\"usd\",\"isDefault\":false,\"name\":\"gpt-3.5-turbo\",\"promptTokenCostPer1M\":0.5,\"provider\":\"openai-responses\",\"type\":\"text\"},{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"serviceTiers\":[\"standard\",\"flex\",\"priority\"],\"showThoughts\":false,\"structuredOutputs\":true,\"temperature\":true,\"thinkingBudget\":false,\"thinkingLevels\":[],\"topP\":true},\"completionTokenCostPer1M\":1.6,\"currency\":\"usd\",\"isDefault\":false,\"name\":\"gpt-4.1-mini\",\"promptTokenCostPer1M\":0.4,\"provider\":\"openai-responses\",\"supported\":{\"structuredOutputs\":true},\"type\":\"text\"},{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"serviceTiers\":[\"standard\",\"flex\",\"priority\"],\"showThoughts\":true,\"structuredOutputs\":true,\"temperature\":false,\"thinkingBudget\":true,\"thinkingLevels\":[\"none\",\"minimal\",\"low\",\"medium\",\"high\",\"highest\"],\"topP\":false},\"completionTokenCostPer1M\":2,\"currency\":\"usd\",\"isDefault\":false,\"name\":\"gpt-5-mini\",\"notSupported\":{\"temperature\":true,\"topP\":true},\"promptTokenCostPer1M\":0.25,\"provider\":\"openai-responses\",\"supported\":{\"showThoughts\":true,\"structuredOutputs\":true,\"thinkingBudget\":true},\"type\":\"text\"},{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"serviceTiers\":[\"standard\",\"flex\",\"priority\"],\"showThoughts\":true,\"structuredOutputs\":true,\"temperature\":false,\"thinkingBudget\":true,\"thinkingLevels\":[\"none\",\"minimal\",\"low\",\"medium\",\"high\",\"highest\"],\"topP\":false},\"completionTokenCostPer1M\":2,\"currency\":\"usd\",\"isDefault\":false,\"name\":\"gpt-5.1-codex-mini\",\"notSupported\":{\"temperature\":true,\"topP\":true},\"promptTokenCostPer1M\":0.25,\"provider\":\"openai-responses\",\"supported\":{\"showThoughts\":true,\"structuredOutputs\":true,\"thinkingBudget\":true},\"type\":\"code\"},{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"serviceTiers\":[\"standard\",\"flex\",\"priority\"],\"showThoughts\":true,\"structuredOutputs\":true,\"temperature\":false,\"thinkingBudget\":true,\"thinkingLevels\":[\"none\",\"minimal\",\"low\",\"medium\",\"high\",\"highest\"],\"topP\":false},\"completionTokenCostPer1M\":4.5,\"currency\":\"usd\",\"isDefault\":false,\"name\":\"gpt-5.4-mini\",\"notSupported\":{\"temperature\":true,\"topP\":true},\"promptTokenCostPer1M\":0.75,\"provider\":\"openai-responses\",\"supported\":{\"showThoughts\":true,\"structuredOutputs\":true,\"thinkingBudget\":true},\"type\":\"text\"},{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"serviceTiers\":[\"standard\",\"flex\",\"priority\"],\"showThoughts\":true,\"structuredOutputs\":true,\"temperature\":true,\"thinkingBudget\":true,\"thinkingLevels\":[\"none\",\"minimal\",\"low\",\"medium\",\"high\",\"highest\"],\"topP\":true},\"completionTokenCostPer1M\":4.4,\"currency\":\"usd\",\"isDefault\":false,\"name\":\"o3-mini\",\"promptTokenCostPer1M\":1.1,\"provider\":\"openai-responses\",\"supported\":{\"showThoughts\":true,\"structuredOutputs\":true,\"thinkingBudget\":true},\"type\":\"text\"},{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"serviceTiers\":[\"standard\",\"flex\",\"priority\"],\"showThoughts\":true,\"structuredOutputs\":true,\"temperature\":true,\"thinkingBudget\":true,\"thinkingLevels\":[\"none\",\"minimal\",\"low\",\"medium\",\"high\",\"highest\"],\"topP\":true},\"completionTokenCostPer1M\":4.4,\"currency\":\"usd\",\"isDefault\":false,\"name\":\"o4-mini\",\"promptTokenCostPer1M\":1.1,\"provider\":\"openai-responses\",\"supported\":{\"showThoughts\":true,\"structuredOutputs\":true,\"thinkingBudget\":true},\"type\":\"text\"},{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"serviceTiers\":[\"standard\",\"flex\",\"priority\"],\"showThoughts\":false,\"structuredOutputs\":true,\"temperature\":true,\"thinkingBudget\":false,\"thinkingLevels\":[],\"topP\":true},\"completionTokenCostPer1M\":8,\"currency\":\"usd\",\"isDefault\":false,\"name\":\"gpt-4.1\",\"promptTokenCostPer1M\":2,\"provider\":\"openai-responses\",\"supported\":{\"structuredOutputs\":true},\"type\":\"text\"},{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"serviceTiers\":[\"standard\",\"flex\",\"priority\"],\"showThoughts\":true,\"structuredOutputs\":true,\"temperature\":true,\"thinkingBudget\":true,\"thinkingLevels\":[\"none\",\"minimal\",\"low\",\"medium\",\"high\",\"highest\"],\"topP\":true},\"completionTokenCostPer1M\":8,\"currency\":\"usd\",\"isDefault\":false,\"name\":\"o3\",\"promptTokenCostPer1M\":2,\"provider\":\"openai-responses\",\"supported\":{\"showThoughts\":true,\"structuredOutputs\":true,\"thinkingBudget\":true},\"type\":\"text\"},{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"serviceTiers\":[\"standard\",\"flex\",\"priority\"],\"showThoughts\":true,\"structuredOutputs\":true,\"temperature\":false,\"thinkingBudget\":true,\"thinkingLevels\":[\"none\",\"minimal\",\"low\",\"medium\",\"high\",\"highest\"],\"topP\":false},\"completionTokenCostPer1M\":10,\"currency\":\"usd\",\"isDefault\":false,\"name\":\"gpt-5\",\"notSupported\":{\"temperature\":true,\"topP\":true},\"promptTokenCostPer1M\":1.25,\"provider\":\"openai-responses\",\"supported\":{\"showThoughts\":true,\"structuredOutputs\":true,\"thinkingBudget\":true},\"type\":\"text\"},{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"serviceTiers\":[\"standard\",\"flex\",\"priority\"],\"showThoughts\":true,\"structuredOutputs\":true,\"temperature\":false,\"thinkingBudget\":true,\"thinkingLevels\":[\"none\",\"minimal\",\"low\",\"medium\",\"high\",\"highest\"],\"topP\":false},\"completionTokenCostPer1M\":10,\"currency\":\"usd\",\"isDefault\":false,\"name\":\"gpt-5-chat\",\"notSupported\":{\"temperature\":true,\"topP\":true},\"promptTokenCostPer1M\":1.25,\"provider\":\"openai-responses\",\"supported\":{\"showThoughts\":true,\"structuredOutputs\":true,\"thinkingBudget\":true},\"type\":\"text\"},{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"serviceTiers\":[\"standard\",\"flex\",\"priority\"],\"showThoughts\":true,\"structuredOutputs\":true,\"temperature\":false,\"thinkingBudget\":true,\"thinkingLevels\":[\"none\",\"minimal\",\"low\",\"medium\",\"high\",\"highest\"],\"topP\":false},\"completionTokenCostPer1M\":10,\"currency\":\"usd\",\"isDefault\":false,\"name\":\"gpt-5-chat-latest\",\"notSupported\":{\"temperature\":true,\"topP\":true},\"promptTokenCostPer1M\":1.25,\"provider\":\"openai-responses\",\"supported\":{\"showThoughts\":true,\"structuredOutputs\":true,\"thinkingBudget\":true},\"type\":\"text\"},{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"serviceTiers\":[\"standard\",\"flex\",\"priority\"],\"showThoughts\":true,\"structuredOutputs\":true,\"temperature\":false,\"thinkingBudget\":true,\"thinkingLevels\":[\"none\",\"minimal\",\"low\",\"medium\",\"high\",\"highest\"],\"topP\":false},\"completionTokenCostPer1M\":10,\"currency\":\"usd\",\"isDefault\":false,\"name\":\"gpt-5-codex\",\"notSupported\":{\"temperature\":true,\"topP\":true},\"promptTokenCostPer1M\":1.25,\"provider\":\"openai-responses\",\"supported\":{\"showThoughts\":true,\"structuredOutputs\":true,\"thinkingBudget\":true},\"type\":\"code\"},{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"serviceTiers\":[\"standard\",\"flex\",\"priority\"],\"showThoughts\":true,\"structuredOutputs\":true,\"temperature\":false,\"thinkingBudget\":true,\"thinkingLevels\":[\"none\",\"minimal\",\"low\",\"medium\",\"high\",\"highest\"],\"topP\":false},\"completionTokenCostPer1M\":10,\"currency\":\"usd\",\"isDefault\":false,\"name\":\"gpt-5.1\",\"notSupported\":{\"temperature\":true,\"topP\":true},\"promptTokenCostPer1M\":1.25,\"provider\":\"openai-responses\",\"supported\":{\"showThoughts\":true,\"structuredOutputs\":true,\"thinkingBudget\":true},\"type\":\"text\"},{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"serviceTiers\":[\"standard\",\"flex\",\"priority\"],\"showThoughts\":true,\"structuredOutputs\":true,\"temperature\":false,\"thinkingBudget\":true,\"thinkingLevels\":[\"none\",\"minimal\",\"low\",\"medium\",\"high\",\"highest\"],\"topP\":false},\"completionTokenCostPer1M\":10,\"currency\":\"usd\",\"isDefault\":false,\"name\":\"gpt-5.1-chat-latest\",\"notSupported\":{\"temperature\":true,\"topP\":true},\"promptTokenCostPer1M\":1.25,\"provider\":\"openai-responses\",\"supported\":{\"showThoughts\":true,\"structuredOutputs\":true,\"thinkingBudget\":true},\"type\":\"text\"},{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"serviceTiers\":[\"standard\",\"flex\",\"priority\"],\"showThoughts\":true,\"structuredOutputs\":true,\"temperature\":false,\"thinkingBudget\":true,\"thinkingLevels\":[\"none\",\"minimal\",\"low\",\"medium\",\"high\",\"highest\"],\"topP\":false},\"completionTokenCostPer1M\":10,\"currency\":\"usd\",\"isDefault\":false,\"name\":\"gpt-5.1-codex\",\"notSupported\":{\"temperature\":true,\"topP\":true},\"promptTokenCostPer1M\":1.25,\"provider\":\"openai-responses\",\"supported\":{\"showThoughts\":true,\"structuredOutputs\":true,\"thinkingBudget\":true},\"type\":\"code\"},{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"serviceTiers\":[\"standard\",\"flex\",\"priority\"],\"showThoughts\":true,\"structuredOutputs\":true,\"temperature\":false,\"thinkingBudget\":true,\"thinkingLevels\":[\"none\",\"minimal\",\"low\",\"medium\",\"high\",\"highest\"],\"topP\":false},\"completionTokenCostPer1M\":10,\"currency\":\"usd\",\"isDefault\":false,\"name\":\"gpt-5.1-codex-max\",\"notSupported\":{\"temperature\":true,\"topP\":true},\"promptTokenCostPer1M\":1.25,\"provider\":\"openai-responses\",\"supported\":{\"showThoughts\":true,\"structuredOutputs\":true,\"thinkingBudget\":true},\"type\":\"code\"},{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"serviceTiers\":[\"standard\",\"flex\",\"priority\"],\"showThoughts\":false,\"structuredOutputs\":true,\"temperature\":true,\"thinkingBudget\":false,\"thinkingLevels\":[],\"topP\":true},\"completionTokenCostPer1M\":10,\"currency\":\"usd\",\"isDefault\":true,\"name\":\"gpt-4o\",\"promptTokenCostPer1M\":2.5,\"provider\":\"openai-responses\",\"supported\":{\"structuredOutputs\":true},\"type\":\"text\"},{\"cacheReadTokenCostPer1M\":0.2,\"cacheWriteTokenCostPer1M\":2.5,\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"serviceTiers\":[\"standard\",\"flex\",\"priority\"],\"showThoughts\":true,\"structuredOutputs\":true,\"temperature\":false,\"thinkingBudget\":true,\"thinkingLevels\":[\"none\",\"minimal\",\"low\",\"medium\",\"high\",\"highest\"],\"topP\":false},\"completionTokenCostPer1M\":12,\"contextWindow\":1050000,\"currency\":\"usd\",\"isDefault\":false,\"longContextCacheReadTokenCostPer1M\":0.4,\"longContextCompletionTokenCostPer1M\":18,\"longContextPromptTokenCostPer1M\":4,\"longContextThreshold\":272000,\"maxTokens\":128000,\"name\":\"gpt-5.6-terra\",\"notSupported\":{\"temperature\":true,\"topP\":true},\"promptTokenCostPer1M\":2,\"provider\":\"openai-responses\",\"supported\":{\"showThoughts\":true,\"structuredOutputs\":true,\"thinkingBudget\":true},\"type\":\"text\"},{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"serviceTiers\":[\"standard\",\"flex\",\"priority\"],\"showThoughts\":true,\"structuredOutputs\":true,\"temperature\":false,\"thinkingBudget\":true,\"thinkingLevels\":[\"none\",\"minimal\",\"low\",\"medium\",\"high\",\"highest\"],\"topP\":false},\"completionTokenCostPer1M\":14,\"currency\":\"usd\",\"isDefault\":false,\"name\":\"gpt-5.2\",\"notSupported\":{\"temperature\":true,\"topP\":true},\"promptTokenCostPer1M\":1.75,\"provider\":\"openai-responses\",\"supported\":{\"showThoughts\":true,\"structuredOutputs\":true,\"thinkingBudget\":true},\"type\":\"text\"},{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"serviceTiers\":[\"standard\",\"flex\",\"priority\"],\"showThoughts\":true,\"structuredOutputs\":true,\"temperature\":false,\"thinkingBudget\":true,\"thinkingLevels\":[\"none\",\"minimal\",\"low\",\"medium\",\"high\",\"highest\"],\"topP\":false},\"completionTokenCostPer1M\":14,\"currency\":\"usd\",\"isDefault\":false,\"name\":\"gpt-5.2-chat-latest\",\"notSupported\":{\"temperature\":true,\"topP\":true},\"promptTokenCostPer1M\":1.75,\"provider\":\"openai-responses\",\"supported\":{\"showThoughts\":true,\"structuredOutputs\":true,\"thinkingBudget\":true},\"type\":\"text\"},{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"serviceTiers\":[\"standard\",\"flex\",\"priority\"],\"showThoughts\":true,\"structuredOutputs\":true,\"temperature\":false,\"thinkingBudget\":true,\"thinkingLevels\":[\"none\",\"minimal\",\"low\",\"medium\",\"high\",\"highest\"],\"topP\":false},\"completionTokenCostPer1M\":14,\"currency\":\"usd\",\"isDefault\":false,\"name\":\"gpt-5.2-codex\",\"notSupported\":{\"temperature\":true,\"topP\":true},\"promptTokenCostPer1M\":1.75,\"provider\":\"openai-responses\",\"supported\":{\"showThoughts\":true,\"structuredOutputs\":true,\"thinkingBudget\":true},\"type\":\"code\"},{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"serviceTiers\":[\"standard\",\"flex\",\"priority\"],\"showThoughts\":true,\"structuredOutputs\":true,\"temperature\":false,\"thinkingBudget\":true,\"thinkingLevels\":[\"none\",\"minimal\",\"low\",\"medium\",\"high\",\"highest\"],\"topP\":false},\"completionTokenCostPer1M\":15,\"currency\":\"usd\",\"isDefault\":false,\"name\":\"gpt-5.4\",\"notSupported\":{\"temperature\":true,\"topP\":true},\"promptTokenCostPer1M\":2.5,\"provider\":\"openai-responses\",\"supported\":{\"showThoughts\":true,\"structuredOutputs\":true,\"thinkingBudget\":true},\"type\":\"text\"},{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"serviceTiers\":[\"standard\",\"flex\",\"priority\"],\"showThoughts\":false,\"structuredOutputs\":true,\"temperature\":true,\"thinkingBudget\":false,\"thinkingLevels\":[],\"topP\":true},\"completionTokenCostPer1M\":15,\"currency\":\"usd\",\"isDefault\":false,\"name\":\"chatgpt-4o-latest\",\"promptTokenCostPer1M\":5,\"provider\":\"openai-responses\",\"supported\":{\"structuredOutputs\":true},\"type\":\"text\"},{\"cacheReadTokenCostPer1M\":0.5,\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"serviceTiers\":[\"standard\",\"flex\",\"priority\"],\"showThoughts\":true,\"structuredOutputs\":true,\"temperature\":false,\"thinkingBudget\":true,\"thinkingLevels\":[\"none\",\"minimal\",\"low\",\"medium\",\"high\",\"highest\"],\"topP\":false},\"completionTokenCostPer1M\":30,\"contextWindow\":1000000,\"currency\":\"usd\",\"isDefault\":false,\"longContextCacheReadTokenCostPer1M\":1,\"longContextCompletionTokenCostPer1M\":45,\"longContextPromptTokenCostPer1M\":10,\"longContextThreshold\":272000,\"name\":\"gpt-5.5\",\"notSupported\":{\"temperature\":true,\"topP\":true},\"promptTokenCostPer1M\":5,\"provider\":\"openai-responses\",\"supported\":{\"showThoughts\":true,\"structuredOutputs\":true,\"thinkingBudget\":true},\"type\":\"text\"},{\"aliases\":[\"gpt-5.6\"],\"cacheReadTokenCostPer1M\":0.5,\"cacheWriteTokenCostPer1M\":6.25,\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"serviceTiers\":[\"standard\",\"flex\",\"priority\"],\"showThoughts\":true,\"structuredOutputs\":true,\"temperature\":false,\"thinkingBudget\":true,\"thinkingLevels\":[\"none\",\"minimal\",\"low\",\"medium\",\"high\",\"highest\"],\"topP\":false},\"completionTokenCostPer1M\":30,\"contextWindow\":1050000,\"currency\":\"usd\",\"isDefault\":false,\"longContextCacheReadTokenCostPer1M\":1,\"longContextCompletionTokenCostPer1M\":45,\"longContextPromptTokenCostPer1M\":10,\"longContextThreshold\":272000,\"maxTokens\":128000,\"name\":\"gpt-5.6-sol\",\"notSupported\":{\"temperature\":true,\"topP\":true},\"promptTokenCostPer1M\":5,\"provider\":\"openai-responses\",\"supported\":{\"showThoughts\":true,\"structuredOutputs\":true,\"thinkingBudget\":true},\"type\":\"text\"},{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"serviceTiers\":[\"standard\",\"flex\",\"priority\"],\"showThoughts\":false,\"structuredOutputs\":true,\"temperature\":true,\"thinkingBudget\":false,\"thinkingLevels\":[],\"topP\":true},\"completionTokenCostPer1M\":30,\"currency\":\"usd\",\"isDefault\":false,\"name\":\"gpt-4-turbo\",\"promptTokenCostPer1M\":10,\"provider\":\"openai-responses\",\"supported\":{\"structuredOutputs\":true},\"type\":\"text\"},{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"serviceTiers\":[\"standard\",\"flex\",\"priority\"],\"showThoughts\":true,\"structuredOutputs\":true,\"temperature\":true,\"thinkingBudget\":true,\"thinkingLevels\":[\"none\",\"minimal\",\"low\",\"medium\",\"high\",\"highest\"],\"topP\":true},\"completionTokenCostPer1M\":60,\"currency\":\"usd\",\"isDefault\":false,\"name\":\"o1\",\"promptTokenCostPer1M\":15,\"provider\":\"openai-responses\",\"supported\":{\"showThoughts\":true,\"structuredOutputs\":true,\"thinkingBudget\":true},\"type\":\"text\"},{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"serviceTiers\":[\"standard\",\"flex\",\"priority\"],\"showThoughts\":false,\"structuredOutputs\":false,\"temperature\":true,\"thinkingBudget\":false,\"thinkingLevels\":[],\"topP\":true},\"completionTokenCostPer1M\":60,\"currency\":\"usd\",\"isDefault\":false,\"name\":\"gpt-4\",\"promptTokenCostPer1M\":30,\"provider\":\"openai-responses\",\"type\":\"text\"},{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"serviceTiers\":[\"standard\",\"flex\",\"priority\"],\"showThoughts\":true,\"structuredOutputs\":true,\"temperature\":true,\"thinkingBudget\":true,\"thinkingLevels\":[\"none\",\"minimal\",\"low\",\"medium\",\"high\",\"highest\"],\"topP\":true},\"completionTokenCostPer1M\":80,\"currency\":\"usd\",\"isDefault\":false,\"isExpensive\":true,\"name\":\"o3-pro\",\"promptTokenCostPer1M\":20,\"provider\":\"openai-responses\",\"supported\":{\"showThoughts\":true,\"structuredOutputs\":true,\"thinkingBudget\":true},\"type\":\"text\"},{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"serviceTiers\":[\"standard\",\"flex\",\"priority\"],\"showThoughts\":true,\"structuredOutputs\":true,\"temperature\":false,\"thinkingBudget\":true,\"thinkingLevels\":[\"none\",\"minimal\",\"low\",\"medium\",\"high\",\"highest\"],\"topP\":false},\"completionTokenCostPer1M\":120,\"currency\":\"usd\",\"isDefault\":false,\"name\":\"gpt-5-pro\",\"notSupported\":{\"temperature\":true,\"topP\":true},\"promptTokenCostPer1M\":15,\"provider\":\"openai-responses\",\"supported\":{\"showThoughts\":true,\"structuredOutputs\":true,\"thinkingBudget\":true},\"type\":\"text\"},{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"serviceTiers\":[\"standard\",\"flex\",\"priority\"],\"showThoughts\":true,\"structuredOutputs\":true,\"temperature\":false,\"thinkingBudget\":true,\"thinkingLevels\":[\"none\",\"minimal\",\"low\",\"medium\",\"high\",\"highest\"],\"topP\":false},\"completionTokenCostPer1M\":168,\"currency\":\"usd\",\"isDefault\":false,\"name\":\"gpt-5.2-pro\",\"notSupported\":{\"temperature\":true,\"topP\":true},\"promptTokenCostPer1M\":21,\"provider\":\"openai-responses\",\"supported\":{\"showThoughts\":true,\"structuredOutputs\":true,\"thinkingBudget\":true},\"type\":\"text\"},{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"serviceTiers\":[\"standard\",\"flex\",\"priority\"],\"showThoughts\":true,\"structuredOutputs\":true,\"temperature\":false,\"thinkingBudget\":true,\"thinkingLevels\":[\"none\",\"minimal\",\"low\",\"medium\",\"high\",\"highest\"],\"topP\":false},\"completionTokenCostPer1M\":180,\"contextWindow\":1000000,\"currency\":\"usd\",\"isDefault\":false,\"isExpensive\":true,\"longContextCompletionTokenCostPer1M\":270,\"longContextPromptTokenCostPer1M\":60,\"longContextThreshold\":272000,\"name\":\"gpt-5.5-pro\",\"notSupported\":{\"temperature\":true,\"topP\":true},\"promptTokenCostPer1M\":30,\"provider\":\"openai-responses\",\"supported\":{\"showThoughts\":true,\"structuredOutputs\":true,\"thinkingBudget\":true},\"type\":\"text\"},{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"serviceTiers\":[\"standard\",\"flex\",\"priority\"],\"showThoughts\":true,\"structuredOutputs\":true,\"temperature\":true,\"thinkingBudget\":true,\"thinkingLevels\":[\"none\",\"minimal\",\"low\",\"medium\",\"high\",\"highest\"],\"topP\":true},\"completionTokenCostPer1M\":600,\"currency\":\"usd\",\"isDefault\":false,\"isExpensive\":true,\"name\":\"o1-pro\",\"promptTokenCostPer1M\":150,\"provider\":\"openai-responses\",\"supported\":{\"showThoughts\":true,\"structuredOutputs\":true,\"thinkingBudget\":true},\"type\":\"text\"}],\"name\":\"openai-responses\"},{\"capabilities\":{\"serviceTiers\":[\"standard\",\"priority\"],\"thinking\":true,\"thinkingLevels\":[\"minimal\",\"low\",\"medium\",\"high\",\"highest\"]},\"defaultModel\":\"grok-4.6\",\"displayName\":\"xAI Grok\",\"isDynamic\":false,\"models\":[{\"aliases\":[\"grok-4-1-fast-non-reasoning-latest\"],\"cacheReadTokenCostPer1M\":0.05,\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"serviceTiers\":[\"standard\",\"priority\"],\"showThoughts\":false,\"structuredOutputs\":true,\"temperature\":true,\"thinkingBudget\":false,\"thinkingLevels\":[],\"topP\":true},\"completionTokenCostPer1M\":0.5,\"contextWindow\":2000000,\"currency\":\"USD\",\"isDefault\":false,\"name\":\"grok-4-1-fast-non-reasoning\",\"promptTokenCostPer1M\":0.2,\"provider\":\"grok\",\"supported\":{\"structuredOutputs\":true},\"type\":\"text\"},{\"aliases\":[\"grok-4-1-fast-reasoning-latest\"],\"cacheReadTokenCostPer1M\":0.05,\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"serviceTiers\":[\"standard\",\"priority\"],\"showThoughts\":false,\"structuredOutputs\":true,\"temperature\":true,\"thinkingBudget\":false,\"thinkingLevels\":[],\"topP\":true},\"completionTokenCostPer1M\":0.5,\"contextWindow\":2000000,\"currency\":\"USD\",\"isDefault\":false,\"name\":\"grok-4-1-fast-reasoning\",\"promptTokenCostPer1M\":0.2,\"provider\":\"grok\",\"supported\":{\"structuredOutputs\":true},\"type\":\"text\"},{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"serviceTiers\":[\"standard\",\"priority\"],\"showThoughts\":false,\"structuredOutputs\":false,\"temperature\":true,\"thinkingBudget\":true,\"thinkingLevels\":[\"minimal\",\"low\",\"medium\",\"high\",\"highest\"],\"topP\":true},\"completionTokenCostPer1M\":0.5,\"currency\":\"USD\",\"isDefault\":false,\"name\":\"grok-3-mini\",\"promptTokenCostPer1M\":0.3,\"provider\":\"grok\",\"supported\":{\"thinkingBudget\":true},\"type\":\"text\"},{\"aliases\":[\"grok-4.20-multi-agent-0309\",\"grok-4.20-multi-agent-latest\"],\"cacheReadTokenCostPer1M\":0.2,\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"serviceTiers\":[\"standard\",\"priority\"],\"showThoughts\":false,\"structuredOutputs\":true,\"temperature\":true,\"thinkingBudget\":false,\"thinkingLevels\":[],\"topP\":true},\"completionTokenCostPer1M\":2.5,\"contextWindow\":2000000,\"currency\":\"USD\",\"isDefault\":false,\"name\":\"grok-4.20-multi-agent\",\"promptTokenCostPer1M\":1.25,\"provider\":\"grok\",\"supported\":{\"structuredOutputs\":true},\"type\":\"text\"},{\"aliases\":[\"grok-4.20-0309-non-reasoning\",\"grok-4.20-non-reasoning-latest\"],\"cacheReadTokenCostPer1M\":0.2,\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"serviceTiers\":[\"standard\",\"priority\"],\"showThoughts\":false,\"structuredOutputs\":true,\"temperature\":true,\"thinkingBudget\":false,\"thinkingLevels\":[],\"topP\":true},\"completionTokenCostPer1M\":2.5,\"contextWindow\":2000000,\"currency\":\"USD\",\"isDefault\":false,\"name\":\"grok-4.20-non-reasoning\",\"promptTokenCostPer1M\":1.25,\"provider\":\"grok\",\"supported\":{\"structuredOutputs\":true},\"type\":\"text\"},{\"aliases\":[\"grok-4.20-0309-reasoning\",\"grok-4.20-reasoning-latest\",\"grok-4.20\",\"grok-4.20-0309\"],\"cacheReadTokenCostPer1M\":0.2,\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"serviceTiers\":[\"standard\",\"priority\"],\"showThoughts\":false,\"structuredOutputs\":true,\"temperature\":true,\"thinkingBudget\":false,\"thinkingLevels\":[],\"topP\":true},\"completionTokenCostPer1M\":2.5,\"contextWindow\":2000000,\"currency\":\"USD\",\"isDefault\":false,\"name\":\"grok-4.20-reasoning\",\"promptTokenCostPer1M\":1.25,\"provider\":\"grok\",\"supported\":{\"structuredOutputs\":true},\"type\":\"text\"},{\"aliases\":[\"grok-4.3-latest\",\"grok-latest\"],\"cacheReadTokenCostPer1M\":0.2,\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"serviceTiers\":[\"standard\",\"priority\"],\"showThoughts\":false,\"structuredOutputs\":true,\"temperature\":true,\"thinkingBudget\":true,\"thinkingLevels\":[\"none\",\"minimal\",\"low\",\"medium\",\"high\",\"highest\"],\"topP\":true},\"completionTokenCostPer1M\":2.5,\"contextWindow\":1000000,\"currency\":\"USD\",\"isDefault\":false,\"name\":\"grok-4.3\",\"promptTokenCostPer1M\":1.25,\"provider\":\"grok\",\"supported\":{\"structuredOutputs\":true,\"thinkingBudget\":true},\"type\":\"text\"},{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"serviceTiers\":[\"standard\",\"priority\"],\"showThoughts\":false,\"structuredOutputs\":false,\"temperature\":true,\"thinkingBudget\":true,\"thinkingLevels\":[\"minimal\",\"low\",\"medium\",\"high\",\"highest\"],\"topP\":true},\"completionTokenCostPer1M\":4,\"currency\":\"USD\",\"isDefault\":false,\"name\":\"grok-3-mini-fast\",\"promptTokenCostPer1M\":0.6,\"provider\":\"grok\",\"supported\":{\"thinkingBudget\":true},\"type\":\"text\"},{\"aliases\":[\"grok-4.5-latest\",\"grok-build-latest\"],\"cacheReadTokenCostPer1M\":0.3,\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"serviceTiers\":[\"standard\",\"priority\"],\"showThoughts\":false,\"structuredOutputs\":true,\"temperature\":true,\"thinkingBudget\":true,\"thinkingLevels\":[\"minimal\",\"low\",\"medium\",\"high\",\"highest\"],\"topP\":true},\"completionTokenCostPer1M\":6,\"contextWindow\":500000,\"currency\":\"USD\",\"isDefault\":false,\"name\":\"grok-4.5\",\"promptTokenCostPer1M\":2,\"provider\":\"grok\",\"supported\":{\"structuredOutputs\":true,\"thinkingBudget\":true},\"type\":\"text\"},{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"serviceTiers\":[\"standard\",\"priority\"],\"showThoughts\":false,\"structuredOutputs\":false,\"temperature\":true,\"thinkingBudget\":false,\"thinkingLevels\":[],\"topP\":true},\"completionTokenCostPer1M\":15,\"currency\":\"USD\",\"isDefault\":false,\"name\":\"grok-3\",\"promptTokenCostPer1M\":3,\"provider\":\"grok\",\"type\":\"text\"},{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"serviceTiers\":[\"standard\",\"priority\"],\"showThoughts\":false,\"structuredOutputs\":false,\"temperature\":true,\"thinkingBudget\":false,\"thinkingLevels\":[],\"topP\":true},\"completionTokenCostPer1M\":25,\"currency\":\"USD\",\"isDefault\":false,\"name\":\"grok-3-fast\",\"promptTokenCostPer1M\":5,\"provider\":\"grok\",\"type\":\"text\"},{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"serviceTiers\":[\"standard\",\"priority\"],\"showThoughts\":false,\"structuredOutputs\":true,\"temperature\":true,\"thinkingBudget\":true,\"thinkingLevels\":[\"minimal\",\"low\",\"medium\",\"high\",\"highest\"],\"topP\":true},\"currency\":\"USD\",\"isDefault\":true,\"name\":\"grok-4.6\",\"provider\":\"grok\",\"supported\":{\"structuredOutputs\":true,\"thinkingBudget\":true},\"type\":\"text\"}],\"name\":\"grok\"},{\"capabilities\":{\"serviceTiers\":[],\"thinking\":false,\"thinkingLevels\":[]},\"defaultModel\":\"command-r-plus\",\"displayName\":\"Cohere\",\"isDynamic\":false,\"models\":[{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"serviceTiers\":[],\"showThoughts\":false,\"structuredOutputs\":false,\"temperature\":true,\"thinkingBudget\":false,\"thinkingLevels\":[],\"topP\":true},\"completionTokenCostPer1M\":0.6,\"currency\":\"usd\",\"isDefault\":false,\"name\":\"command-light\",\"promptTokenCostPer1M\":0.3,\"provider\":\"cohere\",\"type\":\"text\"},{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"serviceTiers\":[],\"showThoughts\":false,\"structuredOutputs\":false,\"temperature\":true,\"thinkingBudget\":false,\"thinkingLevels\":[],\"topP\":true},\"completionTokenCostPer1M\":1.5,\"currency\":\"usd\",\"isDefault\":false,\"name\":\"command\",\"promptTokenCostPer1M\":0.5,\"provider\":\"cohere\",\"type\":\"text\"},{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"serviceTiers\":[],\"showThoughts\":false,\"structuredOutputs\":false,\"temperature\":true,\"thinkingBudget\":false,\"thinkingLevels\":[],\"topP\":true},\"completionTokenCostPer1M\":1.5,\"currency\":\"usd\",\"isDefault\":false,\"name\":\"command-r\",\"promptTokenCostPer1M\":0.5,\"provider\":\"cohere\",\"type\":\"text\"},{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"serviceTiers\":[],\"showThoughts\":false,\"structuredOutputs\":false,\"temperature\":true,\"thinkingBudget\":false,\"thinkingLevels\":[],\"topP\":true},\"completionTokenCostPer1M\":15,\"currency\":\"usd\",\"isDefault\":true,\"name\":\"command-r-plus\",\"promptTokenCostPer1M\":3,\"provider\":\"cohere\",\"type\":\"text\"}],\"name\":\"cohere\"},{\"capabilities\":{\"serviceTiers\":[],\"thinking\":false,\"thinkingLevels\":[]},\"defaultModel\":\"reka-core\",\"displayName\":\"Reka\",\"isDynamic\":false,\"models\":[{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"serviceTiers\":[],\"showThoughts\":false,\"structuredOutputs\":false,\"temperature\":true,\"thinkingBudget\":false,\"thinkingLevels\":[],\"topP\":true},\"completionTokenCostPer1M\":1,\"currency\":\"usd\",\"isDefault\":false,\"name\":\"reka-edge\",\"promptTokenCostPer1M\":0.4,\"provider\":\"reka\",\"type\":\"text\"},{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"serviceTiers\":[],\"showThoughts\":false,\"structuredOutputs\":false,\"temperature\":true,\"thinkingBudget\":false,\"thinkingLevels\":[],\"topP\":true},\"completionTokenCostPer1M\":2,\"currency\":\"usd\",\"isDefault\":false,\"name\":\"reka-flash\",\"promptTokenCostPer1M\":0.8,\"provider\":\"reka\",\"type\":\"text\"},{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"serviceTiers\":[],\"showThoughts\":false,\"structuredOutputs\":false,\"temperature\":true,\"thinkingBudget\":false,\"thinkingLevels\":[],\"topP\":true},\"completionTokenCostPer1M\":15,\"currency\":\"usd\",\"isDefault\":true,\"name\":\"reka-core\",\"promptTokenCostPer1M\":3,\"provider\":\"reka\",\"type\":\"text\"}],\"name\":\"reka\"},{\"capabilities\":{\"serviceTiers\":[],\"thinking\":true,\"thinkingLevels\":[\"none\",\"minimal\",\"low\",\"medium\",\"high\",\"highest\"]},\"defaultModel\":\"claude-3-7-sonnet-latest\",\"displayName\":\"Anthropic\",\"isDynamic\":false,\"models\":[{\"cacheReadTokenCostPer1M\":0.03,\"cacheWriteTokenCostPer1M\":0.3,\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"serviceTiers\":[],\"showThoughts\":false,\"structuredOutputs\":false,\"temperature\":true,\"thinkingBudget\":false,\"thinkingLevels\":[],\"topP\":true},\"completionTokenCostPer1M\":1.25,\"currency\":\"usd\",\"isDefault\":false,\"maxTokens\":4096,\"name\":\"claude-3-haiku-20240307\",\"promptTokenCostPer1M\":0.25,\"provider\":\"anthropic\",\"type\":\"text\"},{\"cacheReadTokenCostPer1M\":0.03,\"cacheWriteTokenCostPer1M\":0.3,\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"serviceTiers\":[],\"showThoughts\":false,\"structuredOutputs\":false,\"temperature\":true,\"thinkingBudget\":false,\"thinkingLevels\":[],\"topP\":true},\"completionTokenCostPer1M\":1.25,\"currency\":\"usd\",\"isDefault\":false,\"maxTokens\":4096,\"name\":\"claude-3-haiku@20240307\",\"promptTokenCostPer1M\":0.25,\"provider\":\"anthropic\",\"type\":\"text\"},{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"serviceTiers\":[],\"showThoughts\":false,\"structuredOutputs\":false,\"temperature\":true,\"thinkingBudget\":false,\"thinkingLevels\":[],\"topP\":true},\"completionTokenCostPer1M\":2.24,\"currency\":\"usd\",\"isDefault\":false,\"maxTokens\":4096,\"name\":\"claude-instant-1.2\",\"promptTokenCostPer1M\":0.8,\"provider\":\"anthropic\",\"type\":\"text\"},{\"cacheReadTokenCostPer1M\":0.08,\"cacheWriteTokenCostPer1M\":1,\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"serviceTiers\":[],\"showThoughts\":false,\"structuredOutputs\":false,\"temperature\":true,\"thinkingBudget\":false,\"thinkingLevels\":[],\"topP\":true},\"completionTokenCostPer1M\":4,\"currency\":\"usd\",\"isDefault\":false,\"maxTokens\":8192,\"name\":\"claude-3-5-haiku-latest\",\"promptTokenCostPer1M\":0.8,\"provider\":\"anthropic\",\"type\":\"text\"},{\"cacheReadTokenCostPer1M\":0.1,\"cacheWriteTokenCostPer1M\":1.25,\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"serviceTiers\":[],\"showThoughts\":false,\"structuredOutputs\":false,\"temperature\":true,\"thinkingBudget\":false,\"thinkingLevels\":[],\"topP\":true},\"completionTokenCostPer1M\":5,\"currency\":\"usd\",\"isDefault\":false,\"maxTokens\":8192,\"name\":\"claude-3-5-haiku@20241022\",\"promptTokenCostPer1M\":1,\"provider\":\"anthropic\",\"type\":\"text\"},{\"cacheReadTokenCostPer1M\":0.1,\"cacheWriteTokenCostPer1M\":1.25,\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"serviceTiers\":[],\"showThoughts\":true,\"structuredOutputs\":false,\"temperature\":true,\"thinkingBudget\":true,\"thinkingLevels\":[\"none\",\"minimal\",\"low\",\"medium\",\"high\",\"highest\"],\"topP\":true},\"completionTokenCostPer1M\":5,\"currency\":\"usd\",\"isDefault\":false,\"maxTokens\":200000,\"name\":\"claude-haiku-4-5\",\"promptTokenCostPer1M\":1,\"provider\":\"anthropic\",\"supported\":{\"showThoughts\":true,\"thinkingBudget\":true},\"type\":\"text\"},{\"cacheReadTokenCostPer1M\":0.1,\"cacheWriteTokenCostPer1M\":1.25,\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"serviceTiers\":[],\"showThoughts\":true,\"structuredOutputs\":false,\"temperature\":true,\"thinkingBudget\":true,\"thinkingLevels\":[\"none\",\"minimal\",\"low\",\"medium\",\"high\",\"highest\"],\"topP\":true},\"completionTokenCostPer1M\":5,\"currency\":\"usd\",\"isDefault\":false,\"maxTokens\":200000,\"name\":\"claude-haiku-4-5@20251001\",\"promptTokenCostPer1M\":1,\"provider\":\"anthropic\",\"supported\":{\"showThoughts\":true,\"thinkingBudget\":true},\"type\":\"text\"},{\"cacheReadTokenCostPer1M\":0.2,\"cacheWriteTokenCostPer1M\":2.5,\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"serviceTiers\":[],\"showThoughts\":true,\"structuredOutputs\":true,\"temperature\":true,\"thinkingBudget\":true,\"thinkingLevels\":[\"none\",\"minimal\",\"low\",\"medium\",\"high\",\"highest\"],\"topP\":true},\"completionTokenCostPer1M\":10,\"contextWindow\":1000000,\"currency\":\"usd\",\"isDefault\":false,\"maxTokens\":128000,\"name\":\"claude-sonnet-5\",\"promptTokenCostPer1M\":2,\"provider\":\"anthropic\",\"supported\":{\"showThoughts\":true,\"structuredOutputs\":true,\"thinkingBudget\":true},\"type\":\"text\"},{\"cacheReadTokenCostPer1M\":0.2,\"cacheWriteTokenCostPer1M\":2.5,\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"serviceTiers\":[],\"showThoughts\":true,\"structuredOutputs\":true,\"temperature\":true,\"thinkingBudget\":true,\"thinkingLevels\":[\"none\",\"minimal\",\"low\",\"medium\",\"high\",\"highest\"],\"topP\":true},\"completionTokenCostPer1M\":10,\"contextWindow\":1000000,\"currency\":\"usd\",\"isDefault\":false,\"maxTokens\":128000,\"name\":\"claude-sonnet-5\",\"promptTokenCostPer1M\":2,\"provider\":\"anthropic\",\"supported\":{\"showThoughts\":true,\"structuredOutputs\":true,\"thinkingBudget\":true},\"type\":\"text\"},{\"cacheReadTokenCostPer1M\":0.3,\"cacheWriteTokenCostPer1M\":3.75,\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"serviceTiers\":[],\"showThoughts\":false,\"structuredOutputs\":true,\"temperature\":true,\"thinkingBudget\":false,\"thinkingLevels\":[],\"topP\":true},\"completionTokenCostPer1M\":15,\"currency\":\"usd\",\"isDefault\":false,\"maxTokens\":8192,\"name\":\"claude-3-5-sonnet-latest\",\"promptTokenCostPer1M\":3,\"provider\":\"anthropic\",\"supported\":{\"structuredOutputs\":true},\"type\":\"text\"},{\"cacheReadTokenCostPer1M\":0.3,\"cacheWriteTokenCostPer1M\":3.75,\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"serviceTiers\":[],\"showThoughts\":true,\"structuredOutputs\":true,\"temperature\":true,\"thinkingBudget\":true,\"thinkingLevels\":[\"none\",\"minimal\",\"low\",\"medium\",\"high\",\"highest\"],\"topP\":true},\"completionTokenCostPer1M\":15,\"currency\":\"usd\",\"isDefault\":false,\"maxTokens\":8192,\"name\":\"claude-3-5-sonnet-v2@20241022\",\"promptTokenCostPer1M\":3,\"provider\":\"anthropic\",\"supported\":{\"showThoughts\":true,\"structuredOutputs\":true,\"thinkingBudget\":true},\"type\":\"text\"},{\"cacheReadTokenCostPer1M\":0.3,\"cacheWriteTokenCostPer1M\":3.75,\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"serviceTiers\":[],\"showThoughts\":false,\"structuredOutputs\":true,\"temperature\":true,\"thinkingBudget\":false,\"thinkingLevels\":[],\"topP\":true},\"completionTokenCostPer1M\":15,\"currency\":\"usd\",\"isDefault\":false,\"maxTokens\":8192,\"name\":\"claude-3-5-sonnet@20240620\",\"promptTokenCostPer1M\":3,\"provider\":\"anthropic\",\"supported\":{\"structuredOutputs\":true},\"type\":\"text\"},{\"cacheReadTokenCostPer1M\":0.3,\"cacheWriteTokenCostPer1M\":3.75,\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"serviceTiers\":[],\"showThoughts\":true,\"structuredOutputs\":true,\"temperature\":true,\"thinkingBudget\":true,\"thinkingLevels\":[\"none\",\"minimal\",\"low\",\"medium\",\"high\",\"highest\"],\"topP\":true},\"completionTokenCostPer1M\":15,\"currency\":\"usd\",\"isDefault\":true,\"maxTokens\":64000,\"name\":\"claude-3-7-sonnet-latest\",\"promptTokenCostPer1M\":3,\"provider\":\"anthropic\",\"supported\":{\"showThoughts\":true,\"structuredOutputs\":true,\"thinkingBudget\":true},\"type\":\"text\"},{\"cacheReadTokenCostPer1M\":0.3,\"cacheWriteTokenCostPer1M\":3.75,\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"serviceTiers\":[],\"showThoughts\":true,\"structuredOutputs\":true,\"temperature\":true,\"thinkingBudget\":true,\"thinkingLevels\":[\"none\",\"minimal\",\"low\",\"medium\",\"high\",\"highest\"],\"topP\":true},\"completionTokenCostPer1M\":15,\"currency\":\"usd\",\"isDefault\":false,\"maxTokens\":64000,\"name\":\"claude-3-7-sonnet@20250219\",\"promptTokenCostPer1M\":3,\"provider\":\"anthropic\",\"supported\":{\"showThoughts\":true,\"structuredOutputs\":true,\"thinkingBudget\":true},\"type\":\"text\"},{\"cacheReadTokenCostPer1M\":0.3,\"cacheWriteTokenCostPer1M\":3.75,\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"serviceTiers\":[],\"showThoughts\":false,\"structuredOutputs\":true,\"temperature\":true,\"thinkingBudget\":false,\"thinkingLevels\":[],\"topP\":true},\"completionTokenCostPer1M\":15,\"currency\":\"usd\",\"isDefault\":false,\"maxTokens\":4096,\"name\":\"claude-3-sonnet-20240229\",\"promptTokenCostPer1M\":3,\"provider\":\"anthropic\",\"supported\":{\"structuredOutputs\":true},\"type\":\"text\"},{\"cacheReadTokenCostPer1M\":0.3,\"cacheWriteTokenCostPer1M\":3.75,\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"serviceTiers\":[],\"showThoughts\":true,\"structuredOutputs\":true,\"temperature\":true,\"thinkingBudget\":true,\"thinkingLevels\":[\"none\",\"minimal\",\"low\",\"medium\",\"high\",\"highest\"],\"topP\":true},\"completionTokenCostPer1M\":15,\"currency\":\"usd\",\"isDefault\":false,\"maxTokens\":64000,\"name\":\"claude-sonnet-4-20250514\",\"promptTokenCostPer1M\":3,\"provider\":\"anthropic\",\"supported\":{\"showThoughts\":true,\"structuredOutputs\":true,\"thinkingBudget\":true},\"type\":\"text\"},{\"cacheReadTokenCostPer1M\":0.3,\"cacheWriteTokenCostPer1M\":3.75,\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"serviceTiers\":[],\"showThoughts\":true,\"structuredOutputs\":true,\"temperature\":true,\"thinkingBudget\":true,\"thinkingLevels\":[\"none\",\"minimal\",\"low\",\"medium\",\"high\",\"highest\"],\"topP\":true},\"completionTokenCostPer1M\":15,\"currency\":\"usd\",\"isDefault\":false,\"maxTokens\":200000,\"name\":\"claude-sonnet-4-5-20250929\",\"promptTokenCostPer1M\":3,\"provider\":\"anthropic\",\"supported\":{\"showThoughts\":true,\"structuredOutputs\":true,\"thinkingBudget\":true},\"type\":\"text\"},{\"cacheReadTokenCostPer1M\":0.3,\"cacheWriteTokenCostPer1M\":3.75,\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"serviceTiers\":[],\"showThoughts\":true,\"structuredOutputs\":true,\"temperature\":true,\"thinkingBudget\":true,\"thinkingLevels\":[\"none\",\"minimal\",\"low\",\"medium\",\"high\",\"highest\"],\"topP\":true},\"completionTokenCostPer1M\":15,\"currency\":\"usd\",\"isDefault\":false,\"maxTokens\":200000,\"name\":\"claude-sonnet-4-5@20250929\",\"promptTokenCostPer1M\":3,\"provider\":\"anthropic\",\"supported\":{\"showThoughts\":true,\"structuredOutputs\":true,\"thinkingBudget\":true},\"type\":\"text\"},{\"cacheReadTokenCostPer1M\":0.3,\"cacheWriteTokenCostPer1M\":3.75,\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"serviceTiers\":[],\"showThoughts\":true,\"structuredOutputs\":true,\"temperature\":true,\"thinkingBudget\":true,\"thinkingLevels\":[\"none\",\"minimal\",\"low\",\"medium\",\"high\",\"highest\"],\"topP\":true},\"completionTokenCostPer1M\":15,\"currency\":\"usd\",\"isDefault\":false,\"maxTokens\":64000,\"name\":\"claude-sonnet-4-6\",\"promptTokenCostPer1M\":3,\"provider\":\"anthropic\",\"supported\":{\"showThoughts\":true,\"structuredOutputs\":true,\"thinkingBudget\":true},\"type\":\"text\"},{\"cacheReadTokenCostPer1M\":0.3,\"cacheWriteTokenCostPer1M\":3.75,\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"serviceTiers\":[],\"showThoughts\":true,\"structuredOutputs\":true,\"temperature\":true,\"thinkingBudget\":true,\"thinkingLevels\":[\"none\",\"minimal\",\"low\",\"medium\",\"high\",\"highest\"],\"topP\":true},\"completionTokenCostPer1M\":15,\"currency\":\"usd\",\"isDefault\":false,\"maxTokens\":64000,\"name\":\"claude-sonnet-4-6\",\"promptTokenCostPer1M\":3,\"provider\":\"anthropic\",\"supported\":{\"showThoughts\":true,\"structuredOutputs\":true,\"thinkingBudget\":true},\"type\":\"text\"},{\"cacheReadTokenCostPer1M\":0.3,\"cacheWriteTokenCostPer1M\":3.75,\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"serviceTiers\":[],\"showThoughts\":true,\"structuredOutputs\":true,\"temperature\":true,\"thinkingBudget\":true,\"thinkingLevels\":[\"none\",\"minimal\",\"low\",\"medium\",\"high\",\"highest\"],\"topP\":true},\"completionTokenCostPer1M\":15,\"currency\":\"usd\",\"isDefault\":false,\"maxTokens\":64000,\"name\":\"claude-sonnet-4@20250514\",\"promptTokenCostPer1M\":3,\"provider\":\"anthropic\",\"supported\":{\"showThoughts\":true,\"structuredOutputs\":true,\"thinkingBudget\":true},\"type\":\"text\"},{\"cacheReadTokenCostPer1M\":0.5,\"cacheWriteTokenCostPer1M\":6.25,\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"serviceTiers\":[],\"showThoughts\":true,\"structuredOutputs\":true,\"temperature\":true,\"thinkingBudget\":true,\"thinkingLevels\":[\"none\",\"minimal\",\"low\",\"medium\",\"high\",\"highest\"],\"topP\":true},\"completionTokenCostPer1M\":25,\"currency\":\"usd\",\"isDefault\":false,\"maxTokens\":64000,\"name\":\"claude-opus-4-5-20251101\",\"promptTokenCostPer1M\":5,\"provider\":\"anthropic\",\"supported\":{\"showThoughts\":true,\"structuredOutputs\":true,\"thinkingBudget\":true},\"type\":\"text\"},{\"cacheReadTokenCostPer1M\":0.5,\"cacheWriteTokenCostPer1M\":6.25,\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"serviceTiers\":[],\"showThoughts\":true,\"structuredOutputs\":true,\"temperature\":true,\"thinkingBudget\":true,\"thinkingLevels\":[\"none\",\"minimal\",\"low\",\"medium\",\"high\",\"highest\"],\"topP\":true},\"completionTokenCostPer1M\":25,\"currency\":\"usd\",\"isDefault\":false,\"maxTokens\":64000,\"name\":\"claude-opus-4-5@20251101\",\"promptTokenCostPer1M\":5,\"provider\":\"anthropic\",\"supported\":{\"showThoughts\":true,\"structuredOutputs\":true,\"thinkingBudget\":true},\"type\":\"text\"},{\"cacheReadTokenCostPer1M\":0.5,\"cacheWriteTokenCostPer1M\":6.25,\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"serviceTiers\":[],\"showThoughts\":true,\"structuredOutputs\":true,\"temperature\":true,\"thinkingBudget\":true,\"thinkingLevels\":[\"none\",\"minimal\",\"low\",\"medium\",\"high\",\"highest\"],\"topP\":true},\"completionTokenCostPer1M\":25,\"contextWindow\":1000000,\"currency\":\"usd\",\"fastCacheReadTokenCostPer1M\":3,\"fastCacheWriteTokenCostPer1M\":37.5,\"fastCompletionTokenCostPer1M\":150,\"fastPromptTokenCostPer1M\":30,\"isDefault\":false,\"maxTokens\":128000,\"name\":\"claude-opus-4-6\",\"promptTokenCostPer1M\":5,\"provider\":\"anthropic\",\"supported\":{\"showThoughts\":true,\"structuredOutputs\":true,\"thinkingBudget\":true},\"type\":\"text\"},{\"cacheReadTokenCostPer1M\":0.5,\"cacheWriteTokenCostPer1M\":6.25,\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"serviceTiers\":[],\"showThoughts\":true,\"structuredOutputs\":true,\"temperature\":true,\"thinkingBudget\":true,\"thinkingLevels\":[\"none\",\"minimal\",\"low\",\"medium\",\"high\",\"highest\"],\"topP\":true},\"completionTokenCostPer1M\":25,\"contextWindow\":1000000,\"currency\":\"usd\",\"isDefault\":false,\"maxTokens\":128000,\"name\":\"claude-opus-4-6\",\"promptTokenCostPer1M\":5,\"provider\":\"anthropic\",\"supported\":{\"showThoughts\":true,\"structuredOutputs\":true,\"thinkingBudget\":true},\"type\":\"text\"},{\"cacheReadTokenCostPer1M\":0.5,\"cacheWriteTokenCostPer1M\":6.25,\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"serviceTiers\":[],\"showThoughts\":true,\"structuredOutputs\":true,\"temperature\":true,\"thinkingBudget\":true,\"thinkingLevels\":[\"none\",\"minimal\",\"low\",\"medium\",\"high\",\"highest\"],\"topP\":true},\"completionTokenCostPer1M\":25,\"contextWindow\":1000000,\"currency\":\"usd\",\"fastCacheReadTokenCostPer1M\":3,\"fastCacheWriteTokenCostPer1M\":37.5,\"fastCompletionTokenCostPer1M\":150,\"fastPromptTokenCostPer1M\":30,\"isDefault\":false,\"maxTokens\":128000,\"name\":\"claude-opus-4-7\",\"promptTokenCostPer1M\":5,\"provider\":\"anthropic\",\"supported\":{\"showThoughts\":true,\"structuredOutputs\":true,\"thinkingBudget\":true},\"type\":\"text\"},{\"cacheReadTokenCostPer1M\":0.5,\"cacheWriteTokenCostPer1M\":6.25,\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"serviceTiers\":[],\"showThoughts\":true,\"structuredOutputs\":true,\"temperature\":true,\"thinkingBudget\":true,\"thinkingLevels\":[\"none\",\"minimal\",\"low\",\"medium\",\"high\",\"highest\"],\"topP\":true},\"completionTokenCostPer1M\":25,\"contextWindow\":1000000,\"currency\":\"usd\",\"isDefault\":false,\"maxTokens\":128000,\"name\":\"claude-opus-4-7\",\"promptTokenCostPer1M\":5,\"provider\":\"anthropic\",\"supported\":{\"showThoughts\":true,\"structuredOutputs\":true,\"thinkingBudget\":true},\"type\":\"text\"},{\"cacheReadTokenCostPer1M\":0.5,\"cacheWriteTokenCostPer1M\":6.25,\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"serviceTiers\":[],\"showThoughts\":true,\"structuredOutputs\":true,\"temperature\":true,\"thinkingBudget\":true,\"thinkingLevels\":[\"none\",\"minimal\",\"low\",\"medium\",\"high\",\"highest\"],\"topP\":true},\"completionTokenCostPer1M\":25,\"contextWindow\":1000000,\"currency\":\"usd\",\"fastCacheReadTokenCostPer1M\":1,\"fastCacheWriteTokenCostPer1M\":12.5,\"fastCompletionTokenCostPer1M\":50,\"fastPromptTokenCostPer1M\":10,\"isDefault\":false,\"maxTokens\":128000,\"name\":\"claude-opus-4-8\",\"promptTokenCostPer1M\":5,\"provider\":\"anthropic\",\"supported\":{\"showThoughts\":true,\"structuredOutputs\":true,\"thinkingBudget\":true},\"type\":\"text\"},{\"cacheReadTokenCostPer1M\":0.5,\"cacheWriteTokenCostPer1M\":6.25,\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"serviceTiers\":[],\"showThoughts\":true,\"structuredOutputs\":true,\"temperature\":true,\"thinkingBudget\":true,\"thinkingLevels\":[\"none\",\"minimal\",\"low\",\"medium\",\"high\",\"highest\"],\"topP\":true},\"completionTokenCostPer1M\":25,\"contextWindow\":1000000,\"currency\":\"usd\",\"isDefault\":false,\"maxTokens\":128000,\"name\":\"claude-opus-4-8\",\"promptTokenCostPer1M\":5,\"provider\":\"anthropic\",\"supported\":{\"showThoughts\":true,\"structuredOutputs\":true,\"thinkingBudget\":true},\"type\":\"text\"},{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"serviceTiers\":[],\"showThoughts\":false,\"structuredOutputs\":false,\"temperature\":true,\"thinkingBudget\":false,\"thinkingLevels\":[],\"topP\":true},\"completionTokenCostPer1M\":25,\"currency\":\"usd\",\"isDefault\":false,\"maxTokens\":4096,\"name\":\"claude-2.1\",\"promptTokenCostPer1M\":8,\"provider\":\"anthropic\",\"type\":\"text\"},{\"cacheReadTokenCostPer1M\":1.5,\"cacheWriteTokenCostPer1M\":18.75,\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"serviceTiers\":[],\"showThoughts\":false,\"structuredOutputs\":true,\"temperature\":true,\"thinkingBudget\":false,\"thinkingLevels\":[],\"topP\":true},\"completionTokenCostPer1M\":75,\"currency\":\"usd\",\"isDefault\":false,\"maxTokens\":4096,\"name\":\"claude-3-opus-latest\",\"promptTokenCostPer1M\":15,\"provider\":\"anthropic\",\"supported\":{\"structuredOutputs\":true},\"type\":\"text\"},{\"cacheReadTokenCostPer1M\":1.5,\"cacheWriteTokenCostPer1M\":18.75,\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"serviceTiers\":[],\"showThoughts\":false,\"structuredOutputs\":true,\"temperature\":true,\"thinkingBudget\":false,\"thinkingLevels\":[],\"topP\":true},\"completionTokenCostPer1M\":75,\"currency\":\"usd\",\"isDefault\":false,\"maxTokens\":4096,\"name\":\"claude-3-opus@20240229\",\"promptTokenCostPer1M\":15,\"provider\":\"anthropic\",\"supported\":{\"structuredOutputs\":true},\"type\":\"text\"},{\"cacheReadTokenCostPer1M\":1.5,\"cacheWriteTokenCostPer1M\":18.75,\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"serviceTiers\":[],\"showThoughts\":true,\"structuredOutputs\":true,\"temperature\":true,\"thinkingBudget\":true,\"thinkingLevels\":[\"none\",\"minimal\",\"low\",\"medium\",\"high\",\"highest\"],\"topP\":true},\"completionTokenCostPer1M\":75,\"currency\":\"usd\",\"isDefault\":false,\"maxTokens\":32000,\"name\":\"claude-opus-4-1-20250805\",\"promptTokenCostPer1M\":15,\"provider\":\"anthropic\",\"supported\":{\"showThoughts\":true,\"structuredOutputs\":true,\"thinkingBudget\":true},\"type\":\"text\"},{\"cacheReadTokenCostPer1M\":1.5,\"cacheWriteTokenCostPer1M\":18.75,\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"serviceTiers\":[],\"showThoughts\":true,\"structuredOutputs\":true,\"temperature\":true,\"thinkingBudget\":true,\"thinkingLevels\":[\"none\",\"minimal\",\"low\",\"medium\",\"high\",\"highest\"],\"topP\":true},\"completionTokenCostPer1M\":75,\"currency\":\"usd\",\"isDefault\":false,\"maxTokens\":32000,\"name\":\"claude-opus-4-1@20250805\",\"promptTokenCostPer1M\":15,\"provider\":\"anthropic\",\"supported\":{\"showThoughts\":true,\"structuredOutputs\":true,\"thinkingBudget\":true},\"type\":\"text\"},{\"cacheReadTokenCostPer1M\":1.5,\"cacheWriteTokenCostPer1M\":18.75,\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"serviceTiers\":[],\"showThoughts\":true,\"structuredOutputs\":true,\"temperature\":true,\"thinkingBudget\":true,\"thinkingLevels\":[\"none\",\"minimal\",\"low\",\"medium\",\"high\",\"highest\"],\"topP\":true},\"completionTokenCostPer1M\":75,\"currency\":\"usd\",\"isDefault\":false,\"maxTokens\":32000,\"name\":\"claude-opus-4-20250514\",\"promptTokenCostPer1M\":15,\"provider\":\"anthropic\",\"supported\":{\"showThoughts\":true,\"structuredOutputs\":true,\"thinkingBudget\":true},\"type\":\"text\"},{\"cacheReadTokenCostPer1M\":1.5,\"cacheWriteTokenCostPer1M\":18.75,\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"serviceTiers\":[],\"showThoughts\":true,\"structuredOutputs\":true,\"temperature\":true,\"thinkingBudget\":true,\"thinkingLevels\":[\"none\",\"minimal\",\"low\",\"medium\",\"high\",\"highest\"],\"topP\":true},\"completionTokenCostPer1M\":75,\"currency\":\"usd\",\"isDefault\":false,\"maxTokens\":32000,\"name\":\"claude-opus-4@20250514\",\"promptTokenCostPer1M\":15,\"provider\":\"anthropic\",\"supported\":{\"showThoughts\":true,\"structuredOutputs\":true,\"thinkingBudget\":true},\"type\":\"text\"}],\"name\":\"anthropic\"},{\"capabilities\":{\"serviceTiers\":[],\"thinking\":false,\"thinkingLevels\":[]},\"displayName\":\"OpenAI Compatible\",\"isDynamic\":true,\"models\":[],\"name\":\"openai-compatible\"},{\"capabilities\":{\"serviceTiers\":[\"standard\",\"priority\"],\"thinking\":true,\"thinkingLevels\":[\"none\",\"minimal\",\"low\",\"medium\",\"high\",\"highest\"]},\"displayName\":\"Azure OpenAI\",\"isDynamic\":true,\"models\":[],\"name\":\"azure-openai\"},{\"capabilities\":{\"serviceTiers\":[],\"thinking\":false,\"thinkingLevels\":[]},\"displayName\":\"Together AI\",\"isDynamic\":true,\"models\":[],\"name\":\"together\"},{\"capabilities\":{\"serviceTiers\":[\"standard\",\"flex\",\"priority\"],\"thinking\":false,\"thinkingLevels\":[]},\"displayName\":\"OpenRouter\",\"isDynamic\":true,\"models\":[],\"name\":\"openrouter\"},{\"capabilities\":{\"serviceTiers\":[],\"thinking\":false,\"thinkingLevels\":[]},\"displayName\":\"OrcaRouter\",\"isDynamic\":true,\"models\":[],\"name\":\"orcarouter\"},{\"capabilities\":{\"serviceTiers\":[\"standard\",\"priority\"],\"thinking\":false,\"thinkingLevels\":[]},\"displayName\":\"Fireworks AI\",\"isDynamic\":true,\"models\":[],\"name\":\"fireworks\"},{\"capabilities\":{\"serviceTiers\":[],\"thinking\":false,\"thinkingLevels\":[]},\"displayName\":\"Hugging Face Router\",\"isDynamic\":true,\"models\":[],\"name\":\"huggingface-router\"},{\"capabilities\":{\"serviceTiers\":[\"standard\",\"flex\",\"priority\"],\"thinking\":false,\"thinkingLevels\":[]},\"displayName\":\"Amazon Bedrock\",\"isDynamic\":true,\"models\":[],\"name\":\"amazon-bedrock\"},{\"capabilities\":{\"serviceTiers\":[\"standard\",\"priority\"],\"thinking\":false,\"thinkingLevels\":[]},\"displayName\":\"Azure AI Foundry\",\"isDynamic\":true,\"models\":[],\"name\":\"azure-foundry\"},{\"capabilities\":{\"serviceTiers\":[],\"thinking\":false,\"thinkingLevels\":[]},\"displayName\":\"Vertex AI OpenAI Compatibility\",\"isDynamic\":true,\"models\":[],\"name\":\"vertex-ai\"},{\"capabilities\":{\"serviceTiers\":[\"standard\",\"priority\"],\"thinking\":false,\"thinkingLevels\":[]},\"displayName\":\"Databricks Model Serving\",\"isDynamic\":true,\"models\":[],\"name\":\"databricks\"},{\"capabilities\":{\"serviceTiers\":[],\"thinking\":false,\"thinkingLevels\":[]},\"displayName\":\"Baseten Model APIs\",\"isDynamic\":true,\"models\":[],\"name\":\"baseten\"},{\"capabilities\":{\"serviceTiers\":[\"standard\",\"flex\",\"priority\"],\"thinking\":false,\"thinkingLevels\":[]},\"displayName\":\"Groq\",\"isDynamic\":true,\"models\":[],\"name\":\"groq\"},{\"capabilities\":{\"serviceTiers\":[\"standard\",\"flex\",\"priority\"],\"thinking\":false,\"thinkingLevels\":[]},\"displayName\":\"Cerebras Inference\",\"isDynamic\":true,\"models\":[],\"name\":\"cerebras\"},{\"capabilities\":{\"serviceTiers\":[\"standard\",\"priority\"],\"thinking\":false,\"thinkingLevels\":[]},\"displayName\":\"DeepInfra\",\"isDynamic\":true,\"models\":[],\"name\":\"deepinfra\"},{\"capabilities\":{\"serviceTiers\":[],\"thinking\":false,\"thinkingLevels\":[]},\"displayName\":\"SambaNova Cloud\",\"isDynamic\":true,\"models\":[],\"name\":\"sambanova\"},{\"capabilities\":{\"serviceTiers\":[],\"thinking\":false,\"thinkingLevels\":[]},\"displayName\":\"Nebius AI Studio\",\"isDynamic\":true,\"models\":[],\"name\":\"nebius\"},{\"capabilities\":{\"serviceTiers\":[],\"thinking\":false,\"thinkingLevels\":[]},\"displayName\":\"Novita AI\",\"isDynamic\":true,\"models\":[],\"name\":\"novita\"},{\"capabilities\":{\"serviceTiers\":[],\"thinking\":false,\"thinkingLevels\":[]},\"displayName\":\"Hyperbolic\",\"isDynamic\":true,\"models\":[],\"name\":\"hyperbolic\"},{\"capabilities\":{\"serviceTiers\":[],\"thinking\":false,\"thinkingLevels\":[]},\"displayName\":\"SiliconFlow\",\"isDynamic\":true,\"models\":[],\"name\":\"siliconflow\"},{\"capabilities\":{\"serviceTiers\":[],\"thinking\":false,\"thinkingLevels\":[]},\"displayName\":\"FriendliAI\",\"isDynamic\":true,\"models\":[],\"name\":\"friendli\"},{\"capabilities\":{\"serviceTiers\":[],\"thinking\":false,\"thinkingLevels\":[]},\"displayName\":\"Cloudflare Workers AI\",\"isDynamic\":true,\"models\":[],\"name\":\"cloudflare-workers-ai\"},{\"capabilities\":{\"serviceTiers\":[],\"thinking\":false,\"thinkingLevels\":[]},\"displayName\":\"Featherless AI\",\"isDynamic\":true,\"models\":[],\"name\":\"featherless\"},{\"capabilities\":{\"serviceTiers\":[],\"thinking\":false,\"thinkingLevels\":[]},\"displayName\":\"Nscale\",\"isDynamic\":true,\"models\":[],\"name\":\"nscale\"},{\"capabilities\":{\"serviceTiers\":[],\"thinking\":false,\"thinkingLevels\":[]},\"displayName\":\"OVHcloud AI Endpoints\",\"isDynamic\":true,\"models\":[],\"name\":\"ovhcloud\"},{\"capabilities\":{\"serviceTiers\":[],\"thinking\":false,\"thinkingLevels\":[]},\"displayName\":\"Scaleway Generative APIs\",\"isDynamic\":true,\"models\":[],\"name\":\"scaleway\"},{\"capabilities\":{\"serviceTiers\":[],\"thinking\":false,\"thinkingLevels\":[]},\"displayName\":\"NVIDIA NIM\",\"isDynamic\":true,\"models\":[],\"name\":\"nvidia-nim\"},{\"capabilities\":{\"serviceTiers\":[],\"thinking\":false,\"thinkingLevels\":[]},\"displayName\":\"RunPod vLLM\",\"isDynamic\":true,\"models\":[],\"name\":\"runpod-vllm\"},{\"capabilities\":{\"serviceTiers\":[],\"thinking\":false,\"thinkingLevels\":[]},\"displayName\":\"SageMaker vLLM\",\"isDynamic\":true,\"models\":[],\"name\":\"sagemaker-vllm\"},{\"capabilities\":{\"serviceTiers\":[],\"thinking\":false,\"thinkingLevels\":[]},\"displayName\":\"vLLM\",\"isDynamic\":true,\"models\":[],\"name\":\"vllm\"},{\"capabilities\":{\"serviceTiers\":[],\"thinking\":false,\"thinkingLevels\":[]},\"displayName\":\"Ollama\",\"isDynamic\":true,\"models\":[],\"name\":\"ollama\"},{\"capabilities\":{\"serviceTiers\":[],\"thinking\":false,\"thinkingLevels\":[]},\"displayName\":\"LM Studio\",\"isDynamic\":true,\"models\":[],\"name\":\"lm-studio\"},{\"capabilities\":{\"serviceTiers\":[],\"thinking\":false,\"thinkingLevels\":[]},\"displayName\":\"llama.cpp Server\",\"isDynamic\":true,\"models\":[],\"name\":\"llama-cpp\"},{\"capabilities\":{\"serviceTiers\":[],\"thinking\":false,\"thinkingLevels\":[]},\"displayName\":\"LocalAI\",\"isDynamic\":true,\"models\":[],\"name\":\"localai\"},{\"capabilities\":{\"serviceTiers\":[],\"thinking\":false,\"thinkingLevels\":[]},\"displayName\":\"Baseten Inference Engine\",\"isDynamic\":true,\"models\":[],\"name\":\"baseten-engine\"}]}"); if err != nil { return nil, err }; v_catalog = v }
+	{ v, err := _core_json_parse("{\"all\":[{\"capabilities\":{\"serviceTiers\":[\"standard\",\"flex\",\"priority\"],\"thinking\":true,\"thinkingLevels\":[\"none\",\"minimal\",\"low\",\"medium\",\"high\",\"highest\"]},\"defaultEmbedModel\":\"gemini-embedding-2\",\"defaultModel\":\"gemini-2.5-flash\",\"displayName\":\"Google Gemini\",\"isDynamic\":false,\"models\":[{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"serviceTiers\":[\"standard\",\"flex\",\"priority\"],\"showThoughts\":true,\"structuredOutputs\":true,\"temperature\":true,\"thinkingBudget\":true,\"thinkingLevels\":[\"none\",\"minimal\",\"low\",\"medium\",\"high\",\"highest\"],\"topP\":true},\"characterIsToken\":false,\"completionTokenCostPer1M\":0,\"currency\":\"usd\",\"isDefault\":false,\"name\":\"gemini-2.0-flash-thinking-exp-01-21\",\"promptTokenCostPer1M\":0,\"provider\":\"google-gemini\",\"supported\":{\"showThoughts\":true,\"structuredOutputs\":true,\"thinkingBudget\":true},\"type\":\"text\"},{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"serviceTiers\":[\"standard\",\"flex\",\"priority\"],\"showThoughts\":true,\"structuredOutputs\":true,\"temperature\":true,\"thinkingBudget\":true,\"thinkingLevels\":[\"none\",\"minimal\",\"low\",\"medium\",\"high\",\"highest\"],\"topP\":true},\"characterIsToken\":false,\"completionTokenCostPer1M\":0,\"currency\":\"usd\",\"isDefault\":false,\"name\":\"gemini-2.0-pro-exp-02-05\",\"promptTokenCostPer1M\":0,\"provider\":\"google-gemini\",\"supported\":{\"showThoughts\":true,\"structuredOutputs\":true,\"thinkingBudget\":true},\"type\":\"text\"},{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"serviceTiers\":[\"standard\",\"flex\",\"priority\"],\"showThoughts\":false,\"structuredOutputs\":false,\"temperature\":true,\"thinkingBudget\":false,\"thinkingLevels\":[],\"topP\":true},\"characterIsToken\":false,\"completionTokenCostPer1M\":0,\"currency\":\"usd\",\"isDefault\":false,\"name\":\"gemini-robotics-er-1.6-preview\",\"promptTokenCostPer1M\":0,\"provider\":\"google-gemini\",\"type\":\"text\"},{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"serviceTiers\":[],\"showThoughts\":false,\"structuredOutputs\":false,\"temperature\":true,\"thinkingBudget\":false,\"thinkingLevels\":[],\"topP\":true},\"characterIsToken\":false,\"currency\":\"usd\",\"isDefault\":false,\"name\":\"gemini-embedding-001\",\"promptTokenCostPer1M\":0.15,\"provider\":\"google-gemini\",\"type\":\"embeddings\"},{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"serviceTiers\":[\"standard\",\"flex\",\"priority\"],\"showThoughts\":false,\"structuredOutputs\":true,\"temperature\":true,\"thinkingBudget\":false,\"thinkingLevels\":[],\"topP\":true},\"characterIsToken\":false,\"completionTokenCostPer1M\":0.15,\"currency\":\"usd\",\"isDefault\":false,\"name\":\"gemini-1.5-flash-8b\",\"promptTokenCostPer1M\":0.0375,\"provider\":\"google-gemini\",\"supported\":{\"structuredOutputs\":true},\"type\":\"text\"},{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"serviceTiers\":[],\"showThoughts\":false,\"structuredOutputs\":false,\"temperature\":true,\"thinkingBudget\":false,\"thinkingLevels\":[],\"topP\":true},\"characterIsToken\":false,\"contextWindow\":8192,\"currency\":\"usd\",\"isDefault\":true,\"name\":\"gemini-embedding-2\",\"promptTokenCostPer1M\":0.2,\"provider\":\"google-gemini\",\"type\":\"embeddings\"},{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"serviceTiers\":[\"standard\",\"flex\",\"priority\"],\"showThoughts\":false,\"structuredOutputs\":true,\"temperature\":true,\"thinkingBudget\":false,\"thinkingLevels\":[],\"topP\":true},\"characterIsToken\":false,\"completionTokenCostPer1M\":0.3,\"currency\":\"usd\",\"isDefault\":false,\"name\":\"gemini-1.5-flash\",\"promptTokenCostPer1M\":0.075,\"provider\":\"google-gemini\",\"supported\":{\"structuredOutputs\":true},\"type\":\"text\"},{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"serviceTiers\":[\"standard\",\"flex\",\"priority\"],\"showThoughts\":false,\"structuredOutputs\":true,\"temperature\":true,\"thinkingBudget\":false,\"thinkingLevels\":[],\"topP\":true},\"characterIsToken\":false,\"completionTokenCostPer1M\":0.3,\"currency\":\"usd\",\"deprecatedOn\":\"2026-06-01\",\"isDefault\":false,\"isDeprecated\":true,\"name\":\"gemini-2.0-flash-lite\",\"promptTokenCostPer1M\":0.075,\"provider\":\"google-gemini\",\"supported\":{\"structuredOutputs\":true},\"type\":\"text\"},{\"cacheReadTokenCostPer1M\":0.025,\"cacheWriteTokenCostPer1M\":0.1,\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"serviceTiers\":[\"standard\",\"flex\",\"priority\"],\"showThoughts\":false,\"structuredOutputs\":true,\"temperature\":true,\"thinkingBudget\":false,\"thinkingLevels\":[],\"topP\":true},\"characterIsToken\":false,\"completionTokenCostPer1M\":0.4,\"currency\":\"usd\",\"deprecatedOn\":\"2026-06-01\",\"isDefault\":false,\"isDeprecated\":true,\"name\":\"gemini-2.0-flash\",\"promptTokenCostPer1M\":0.1,\"provider\":\"google-gemini\",\"supported\":{\"structuredOutputs\":true},\"type\":\"text\"},{\"cacheReadTokenCostPer1M\":0.01,\"cacheWriteTokenCostPer1M\":0.1,\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"serviceTiers\":[\"standard\",\"flex\",\"priority\"],\"showThoughts\":true,\"structuredOutputs\":true,\"temperature\":true,\"thinkingBudget\":true,\"thinkingLevels\":[\"none\",\"minimal\",\"low\",\"medium\",\"high\",\"highest\"],\"topP\":true},\"characterIsToken\":false,\"completionTokenCostPer1M\":0.4,\"currency\":\"usd\",\"isDefault\":false,\"name\":\"gemini-2.5-flash-lite\",\"promptTokenCostPer1M\":0.1,\"provider\":\"google-gemini\",\"supported\":{\"showThoughts\":true,\"structuredOutputs\":true,\"thinkingBudget\":true},\"type\":\"text\"},{\"cacheReadTokenCostPer1M\":0.01,\"cacheWriteTokenCostPer1M\":0.1,\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"serviceTiers\":[\"standard\",\"flex\",\"priority\"],\"showThoughts\":true,\"structuredOutputs\":true,\"temperature\":true,\"thinkingBudget\":true,\"thinkingLevels\":[\"none\",\"minimal\",\"low\",\"medium\",\"high\",\"highest\"],\"topP\":true},\"characterIsToken\":false,\"completionTokenCostPer1M\":0.4,\"currency\":\"usd\",\"isDefault\":false,\"name\":\"gemini-flash-lite-latest\",\"promptTokenCostPer1M\":0.1,\"provider\":\"google-gemini\",\"supported\":{\"showThoughts\":true,\"structuredOutputs\":true,\"thinkingBudget\":true},\"type\":\"text\"},{\"cacheReadTokenCostPer1M\":0.025,\"cacheWriteTokenCostPer1M\":0.25,\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"serviceTiers\":[\"standard\",\"flex\",\"priority\"],\"showThoughts\":true,\"structuredOutputs\":true,\"temperature\":true,\"thinkingBudget\":true,\"thinkingLevels\":[\"none\",\"minimal\",\"low\",\"medium\",\"high\",\"highest\"],\"topP\":true},\"characterIsToken\":false,\"completionTokenCostPer1M\":1.5,\"contextWindow\":1048576,\"currency\":\"usd\",\"isDefault\":false,\"maxTokens\":65536,\"name\":\"gemini-3.1-flash-lite\",\"promptTokenCostPer1M\":0.25,\"provider\":\"google-gemini\",\"supported\":{\"showThoughts\":true,\"structuredOutputs\":true,\"thinkingBudget\":true},\"type\":\"text\"},{\"cacheReadTokenCostPer1M\":0.025,\"cacheWriteTokenCostPer1M\":0.25,\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"serviceTiers\":[\"standard\",\"flex\",\"priority\"],\"showThoughts\":true,\"structuredOutputs\":true,\"temperature\":true,\"thinkingBudget\":true,\"thinkingLevels\":[\"none\",\"minimal\",\"low\",\"medium\",\"high\",\"highest\"],\"topP\":true},\"characterIsToken\":false,\"completionTokenCostPer1M\":1.5,\"currency\":\"usd\",\"isDefault\":false,\"name\":\"gemini-3.1-flash-lite-preview\",\"promptTokenCostPer1M\":0.25,\"provider\":\"google-gemini\",\"supported\":{\"showThoughts\":true,\"structuredOutputs\":true,\"thinkingBudget\":true},\"type\":\"text\"},{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"serviceTiers\":[\"standard\",\"flex\",\"priority\"],\"showThoughts\":false,\"structuredOutputs\":true,\"temperature\":true,\"thinkingBudget\":false,\"thinkingLevels\":[],\"topP\":true},\"characterIsToken\":false,\"completionTokenCostPer1M\":1.5,\"currency\":\"usd\",\"isDefault\":false,\"name\":\"gemini-1.0-pro\",\"promptTokenCostPer1M\":0.5,\"provider\":\"google-gemini\",\"supported\":{\"structuredOutputs\":true},\"type\":\"text\"},{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"serviceTiers\":[\"standard\",\"flex\",\"priority\"],\"showThoughts\":true,\"structuredOutputs\":true,\"temperature\":true,\"thinkingBudget\":true,\"thinkingLevels\":[\"none\",\"minimal\",\"low\",\"medium\",\"high\",\"highest\"],\"topP\":true},\"characterIsToken\":false,\"completionTokenCostPer1M\":0.134,\"currency\":\"usd\",\"isDefault\":false,\"name\":\"gemini-3-pro-image-preview\",\"promptTokenCostPer1M\":2,\"provider\":\"google-gemini\",\"supported\":{\"showThoughts\":true,\"structuredOutputs\":true,\"thinkingBudget\":true},\"type\":\"text\"},{\"cacheReadTokenCostPer1M\":0.03,\"cacheWriteTokenCostPer1M\":0.3,\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"serviceTiers\":[\"standard\",\"flex\",\"priority\"],\"showThoughts\":true,\"structuredOutputs\":true,\"temperature\":true,\"thinkingBudget\":true,\"thinkingLevels\":[\"none\",\"minimal\",\"low\",\"medium\",\"high\",\"highest\"],\"topP\":true},\"characterIsToken\":false,\"completionTokenCostPer1M\":2.5,\"currency\":\"usd\",\"isDefault\":true,\"name\":\"gemini-2.5-flash\",\"promptTokenCostPer1M\":0.3,\"provider\":\"google-gemini\",\"supported\":{\"showThoughts\":true,\"structuredOutputs\":true,\"thinkingBudget\":true},\"type\":\"text\"},{\"cacheReadTokenCostPer1M\":0.03,\"cacheWriteTokenCostPer1M\":0.3,\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"serviceTiers\":[\"standard\",\"flex\",\"priority\"],\"showThoughts\":true,\"structuredOutputs\":true,\"temperature\":false,\"thinkingBudget\":true,\"thinkingLevels\":[\"none\",\"minimal\",\"low\",\"medium\",\"high\",\"highest\"],\"topP\":false},\"characterIsToken\":false,\"completionTokenCostPer1M\":2.5,\"contextWindow\":1048576,\"currency\":\"usd\",\"isDefault\":false,\"maxTokens\":65536,\"name\":\"gemini-3.5-flash-lite\",\"notSupported\":{\"temperature\":true,\"topP\":true},\"promptTokenCostPer1M\":0.3,\"provider\":\"google-gemini\",\"supported\":{\"showThoughts\":true,\"structuredOutputs\":true,\"thinkingBudget\":true},\"type\":\"text\"},{\"cacheReadTokenCostPer1M\":0.03,\"cacheWriteTokenCostPer1M\":0.3,\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"serviceTiers\":[\"standard\",\"flex\",\"priority\"],\"showThoughts\":true,\"structuredOutputs\":true,\"temperature\":true,\"thinkingBudget\":true,\"thinkingLevels\":[\"none\",\"minimal\",\"low\",\"medium\",\"high\",\"highest\"],\"topP\":true},\"characterIsToken\":false,\"completionTokenCostPer1M\":2.5,\"currency\":\"usd\",\"isDefault\":false,\"name\":\"gemini-flash-latest\",\"promptTokenCostPer1M\":0.3,\"provider\":\"google-gemini\",\"supported\":{\"showThoughts\":true,\"structuredOutputs\":true,\"thinkingBudget\":true},\"type\":\"text\"},{\"cacheReadTokenCostPer1M\":0.05,\"cacheWriteTokenCostPer1M\":0.5,\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"serviceTiers\":[\"standard\",\"flex\",\"priority\"],\"showThoughts\":true,\"structuredOutputs\":true,\"temperature\":true,\"thinkingBudget\":true,\"thinkingLevels\":[\"none\",\"minimal\",\"low\",\"medium\",\"high\",\"highest\"],\"topP\":true},\"characterIsToken\":false,\"completionTokenCostPer1M\":3,\"currency\":\"usd\",\"isDefault\":false,\"name\":\"gemini-3-flash-preview\",\"promptTokenCostPer1M\":0.5,\"provider\":\"google-gemini\",\"supported\":{\"showThoughts\":true,\"structuredOutputs\":true,\"thinkingBudget\":true},\"type\":\"text\"},{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"serviceTiers\":[\"standard\",\"flex\",\"priority\"],\"showThoughts\":false,\"structuredOutputs\":true,\"temperature\":true,\"thinkingBudget\":false,\"thinkingLevels\":[],\"topP\":true},\"characterIsToken\":false,\"completionTokenCostPer1M\":3,\"currency\":\"usd\",\"isDefault\":false,\"name\":\"gemini-3.1-flash-image-preview\",\"promptTokenCostPer1M\":0.5,\"provider\":\"google-gemini\",\"supported\":{\"structuredOutputs\":true},\"type\":\"text\"},{\"audio\":{\"input\":false,\"output\":true},\"capabilities\":{\"audioInput\":false,\"audioOutput\":true,\"serviceTiers\":[\"standard\",\"flex\",\"priority\"],\"showThoughts\":false,\"structuredOutputs\":false,\"temperature\":true,\"thinkingBudget\":false,\"thinkingLevels\":[],\"topP\":true},\"characterIsToken\":false,\"completionTokenCostPer1M\":3,\"currency\":\"usd\",\"isDefault\":false,\"name\":\"gemini-3.1-flash-tts-preview\",\"promptTokenCostPer1M\":0.5,\"provider\":\"google-gemini\",\"type\":\"audio\"},{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"serviceTiers\":[\"standard\",\"flex\",\"priority\"],\"showThoughts\":false,\"structuredOutputs\":false,\"temperature\":true,\"thinkingBudget\":false,\"thinkingLevels\":[],\"topP\":true},\"characterIsToken\":false,\"completionTokenCostPer1M\":3,\"currency\":\"usd\",\"isDefault\":false,\"name\":\"nano-banana-2\",\"promptTokenCostPer1M\":0.5,\"provider\":\"google-gemini\",\"type\":\"text\"},{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"serviceTiers\":[\"standard\",\"flex\",\"priority\"],\"showThoughts\":false,\"structuredOutputs\":true,\"temperature\":true,\"thinkingBudget\":false,\"thinkingLevels\":[],\"topP\":true},\"characterIsToken\":false,\"completionTokenCostPer1M\":5,\"currency\":\"usd\",\"isDefault\":false,\"name\":\"gemini-1.5-pro\",\"promptTokenCostPer1M\":1.25,\"provider\":\"google-gemini\",\"supported\":{\"structuredOutputs\":true},\"type\":\"text\"},{\"cacheReadTokenCostPer1M\":0.15,\"cacheWriteTokenCostPer1M\":1.5,\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"serviceTiers\":[\"standard\",\"flex\",\"priority\"],\"showThoughts\":true,\"structuredOutputs\":true,\"temperature\":false,\"thinkingBudget\":true,\"thinkingLevels\":[\"none\",\"minimal\",\"low\",\"medium\",\"high\",\"highest\"],\"topP\":false},\"characterIsToken\":false,\"completionTokenCostPer1M\":7.5,\"contextWindow\":1048576,\"currency\":\"usd\",\"isDefault\":false,\"maxTokens\":65536,\"name\":\"gemini-3.6-flash\",\"notSupported\":{\"temperature\":true,\"topP\":true},\"promptTokenCostPer1M\":1.5,\"provider\":\"google-gemini\",\"supported\":{\"showThoughts\":true,\"structuredOutputs\":true,\"thinkingBudget\":true},\"type\":\"text\"},{\"cacheReadTokenCostPer1M\":0.15,\"cacheWriteTokenCostPer1M\":1.5,\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"serviceTiers\":[\"standard\",\"flex\",\"priority\"],\"showThoughts\":true,\"structuredOutputs\":true,\"temperature\":false,\"thinkingBudget\":true,\"thinkingLevels\":[\"none\",\"minimal\",\"low\",\"medium\",\"high\",\"highest\"],\"topP\":false},\"characterIsToken\":false,\"completionTokenCostPer1M\":7.5,\"contextWindow\":1048576,\"currency\":\"usd\",\"isDefault\":false,\"maxTokens\":65536,\"name\":\"gemini-3.7-flash\",\"notSupported\":{\"temperature\":true,\"topP\":true},\"promptTokenCostPer1M\":1.5,\"provider\":\"google-gemini\",\"supported\":{\"showThoughts\":true,\"structuredOutputs\":true,\"thinkingBudget\":true},\"type\":\"text\"},{\"cacheReadTokenCostPer1M\":0.15,\"cacheWriteTokenCostPer1M\":1.5,\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"serviceTiers\":[\"standard\",\"flex\",\"priority\"],\"showThoughts\":true,\"structuredOutputs\":true,\"temperature\":false,\"thinkingBudget\":true,\"thinkingLevels\":[\"none\",\"minimal\",\"low\",\"medium\",\"high\",\"highest\"],\"topP\":false},\"characterIsToken\":false,\"completionTokenCostPer1M\":7.5,\"contextWindow\":1048576,\"currency\":\"usd\",\"isDefault\":false,\"maxTokens\":65536,\"name\":\"gemini-3.8-flash\",\"notSupported\":{\"temperature\":true,\"topP\":true},\"promptTokenCostPer1M\":1.5,\"provider\":\"google-gemini\",\"supported\":{\"showThoughts\":true,\"structuredOutputs\":true,\"thinkingBudget\":true},\"type\":\"text\"},{\"cacheReadTokenCostPer1M\":0.15,\"cacheWriteTokenCostPer1M\":1.5,\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"serviceTiers\":[\"standard\",\"flex\",\"priority\"],\"showThoughts\":true,\"structuredOutputs\":true,\"temperature\":true,\"thinkingBudget\":true,\"thinkingLevels\":[\"none\",\"minimal\",\"low\",\"medium\",\"high\",\"highest\"],\"topP\":true},\"characterIsToken\":false,\"completionTokenCostPer1M\":9,\"contextWindow\":1048576,\"currency\":\"usd\",\"isDefault\":false,\"maxTokens\":65536,\"name\":\"gemini-3.5-flash\",\"promptTokenCostPer1M\":1.5,\"provider\":\"google-gemini\",\"supported\":{\"showThoughts\":true,\"structuredOutputs\":true,\"thinkingBudget\":true},\"type\":\"text\"},{\"cacheReadTokenCostPer1M\":0.125,\"cacheWriteTokenCostPer1M\":1.25,\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"serviceTiers\":[\"standard\",\"flex\",\"priority\"],\"showThoughts\":true,\"structuredOutputs\":true,\"temperature\":true,\"thinkingBudget\":true,\"thinkingLevels\":[\"none\",\"minimal\",\"low\",\"medium\",\"high\",\"highest\"],\"topP\":true},\"characterIsToken\":false,\"completionTokenCostPer1M\":10,\"currency\":\"usd\",\"isDefault\":false,\"longContextCacheReadTokenCostPer1M\":0.25,\"longContextCompletionTokenCostPer1M\":15,\"longContextPromptTokenCostPer1M\":2.5,\"longContextThreshold\":200000,\"name\":\"gemini-2.5-pro\",\"promptTokenCostPer1M\":1.25,\"provider\":\"google-gemini\",\"supported\":{\"showThoughts\":true,\"structuredOutputs\":true,\"thinkingBudget\":true},\"type\":\"text\"},{\"cacheReadTokenCostPer1M\":0.125,\"cacheWriteTokenCostPer1M\":1.25,\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"serviceTiers\":[\"standard\",\"flex\",\"priority\"],\"showThoughts\":true,\"structuredOutputs\":true,\"temperature\":true,\"thinkingBudget\":true,\"thinkingLevels\":[\"none\",\"minimal\",\"low\",\"medium\",\"high\",\"highest\"],\"topP\":true},\"characterIsToken\":false,\"completionTokenCostPer1M\":10,\"currency\":\"usd\",\"isDefault\":false,\"longContextCacheReadTokenCostPer1M\":0.25,\"longContextCompletionTokenCostPer1M\":15,\"longContextPromptTokenCostPer1M\":2.5,\"longContextThreshold\":200000,\"name\":\"gemini-pro-latest\",\"promptTokenCostPer1M\":1.25,\"provider\":\"google-gemini\",\"supported\":{\"showThoughts\":true,\"structuredOutputs\":true,\"thinkingBudget\":true},\"type\":\"text\"},{\"cacheReadTokenCostPer1M\":0.2,\"cacheWriteTokenCostPer1M\":2,\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"serviceTiers\":[\"standard\",\"flex\",\"priority\"],\"showThoughts\":true,\"structuredOutputs\":true,\"temperature\":true,\"thinkingBudget\":true,\"thinkingLevels\":[\"none\",\"minimal\",\"low\",\"medium\",\"high\",\"highest\"],\"topP\":true},\"characterIsToken\":false,\"completionTokenCostPer1M\":12,\"currency\":\"usd\",\"isDefault\":false,\"longContextCacheReadTokenCostPer1M\":0.4,\"longContextCompletionTokenCostPer1M\":18,\"longContextPromptTokenCostPer1M\":4,\"longContextThreshold\":200000,\"name\":\"gemini-3.1-pro-preview\",\"promptTokenCostPer1M\":2,\"provider\":\"google-gemini\",\"supported\":{\"showThoughts\":true,\"structuredOutputs\":true,\"thinkingBudget\":true},\"type\":\"text\"},{\"audio\":{\"input\":true,\"output\":true},\"capabilities\":{\"audioInput\":true,\"audioOutput\":true,\"serviceTiers\":[],\"showThoughts\":true,\"structuredOutputs\":false,\"temperature\":true,\"thinkingBudget\":true,\"thinkingLevels\":[\"none\",\"minimal\",\"low\",\"medium\",\"high\",\"highest\"],\"topP\":true},\"characterIsToken\":false,\"contextWindow\":131072,\"isDefault\":false,\"maxTokens\":65536,\"name\":\"gemini-3.1-flash-live-preview\",\"provider\":\"google-gemini\",\"supported\":{\"showThoughts\":true,\"thinkingBudget\":true},\"type\":\"audio\"},{\"audio\":{\"input\":true,\"output\":true},\"capabilities\":{\"audioInput\":true,\"audioOutput\":true,\"serviceTiers\":[],\"showThoughts\":true,\"structuredOutputs\":false,\"temperature\":true,\"thinkingBudget\":true,\"thinkingLevels\":[\"none\",\"minimal\",\"low\",\"medium\",\"high\",\"highest\"],\"topP\":true},\"characterIsToken\":false,\"contextWindow\":131072,\"isDefault\":false,\"maxTokens\":8192,\"name\":\"gemini-2.5-flash-native-audio-preview-12-2025\",\"provider\":\"google-gemini\",\"supported\":{\"showThoughts\":true,\"thinkingBudget\":true},\"type\":\"audio\"}],\"name\":\"google-gemini\"},{\"capabilities\":{\"serviceTiers\":[],\"thinking\":false,\"thinkingLevels\":[]},\"defaultModel\":\"Llama-3.2-3B-Instruct-q4f32_1-MLC\",\"displayName\":\"WebLLM\",\"isDynamic\":false,\"models\":[{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"serviceTiers\":[],\"showThoughts\":false,\"structuredOutputs\":false,\"temperature\":true,\"thinkingBudget\":false,\"thinkingLevels\":[],\"topP\":true},\"completionTokenCostPer1M\":0,\"contextWindow\":8192,\"currency\":\"usd\",\"isDefault\":false,\"maxTokens\":2048,\"name\":\"gemma-2-2b-it-q4f32_1-MLC\",\"promptTokenCostPer1M\":0,\"provider\":\"webllm\",\"type\":\"text\"},{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"serviceTiers\":[],\"showThoughts\":false,\"structuredOutputs\":false,\"temperature\":true,\"thinkingBudget\":false,\"thinkingLevels\":[],\"topP\":true},\"completionTokenCostPer1M\":0,\"contextWindow\":8192,\"currency\":\"usd\",\"isDefault\":false,\"maxTokens\":2048,\"name\":\"gemma-2-9b-it-q4f32_1-MLC\",\"promptTokenCostPer1M\":0,\"provider\":\"webllm\",\"type\":\"text\"},{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"serviceTiers\":[],\"showThoughts\":false,\"structuredOutputs\":false,\"temperature\":true,\"thinkingBudget\":false,\"thinkingLevels\":[],\"topP\":true},\"completionTokenCostPer1M\":0,\"contextWindow\":128000,\"currency\":\"usd\",\"isDefault\":false,\"isExpensive\":true,\"maxTokens\":4096,\"name\":\"Llama-3.1-70B-Instruct-q4f16_1-MLC\",\"promptTokenCostPer1M\":0,\"provider\":\"webllm\",\"type\":\"text\"},{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"serviceTiers\":[],\"showThoughts\":false,\"structuredOutputs\":false,\"temperature\":true,\"thinkingBudget\":false,\"thinkingLevels\":[],\"topP\":true},\"completionTokenCostPer1M\":0,\"contextWindow\":128000,\"currency\":\"usd\",\"isDefault\":false,\"maxTokens\":4096,\"name\":\"Llama-3.1-8B-Instruct-q4f32_1-MLC\",\"promptTokenCostPer1M\":0,\"provider\":\"webllm\",\"type\":\"text\"},{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"serviceTiers\":[],\"showThoughts\":false,\"structuredOutputs\":false,\"temperature\":true,\"thinkingBudget\":false,\"thinkingLevels\":[],\"topP\":true},\"completionTokenCostPer1M\":0,\"contextWindow\":128000,\"currency\":\"usd\",\"isDefault\":false,\"maxTokens\":2048,\"name\":\"Llama-3.2-1B-Instruct-q4f32_1-MLC\",\"promptTokenCostPer1M\":0,\"provider\":\"webllm\",\"type\":\"text\"},{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"serviceTiers\":[],\"showThoughts\":false,\"structuredOutputs\":false,\"temperature\":true,\"thinkingBudget\":false,\"thinkingLevels\":[],\"topP\":true},\"completionTokenCostPer1M\":0,\"contextWindow\":128000,\"currency\":\"usd\",\"isDefault\":true,\"maxTokens\":2048,\"name\":\"Llama-3.2-3B-Instruct-q4f32_1-MLC\",\"promptTokenCostPer1M\":0,\"provider\":\"webllm\",\"type\":\"text\"},{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"serviceTiers\":[],\"showThoughts\":false,\"structuredOutputs\":false,\"temperature\":true,\"thinkingBudget\":false,\"thinkingLevels\":[],\"topP\":true},\"completionTokenCostPer1M\":0,\"contextWindow\":32768,\"currency\":\"usd\",\"isDefault\":false,\"maxTokens\":4096,\"name\":\"Mistral-7B-Instruct-v0.3-q4f32_1-MLC\",\"promptTokenCostPer1M\":0,\"provider\":\"webllm\",\"type\":\"text\"},{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"serviceTiers\":[],\"showThoughts\":false,\"structuredOutputs\":false,\"temperature\":true,\"thinkingBudget\":false,\"thinkingLevels\":[],\"topP\":true},\"completionTokenCostPer1M\":0,\"contextWindow\":128000,\"currency\":\"usd\",\"isDefault\":false,\"maxTokens\":4096,\"name\":\"Phi-3.5-mini-instruct-q4f32_1-MLC\",\"promptTokenCostPer1M\":0,\"provider\":\"webllm\",\"type\":\"text\"},{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"serviceTiers\":[],\"showThoughts\":false,\"structuredOutputs\":false,\"temperature\":true,\"thinkingBudget\":false,\"thinkingLevels\":[],\"topP\":true},\"completionTokenCostPer1M\":0,\"contextWindow\":32768,\"currency\":\"usd\",\"isDefault\":false,\"maxTokens\":2048,\"name\":\"Qwen2.5-0.5B-Instruct-q4f32_1-MLC\",\"promptTokenCostPer1M\":0,\"provider\":\"webllm\",\"type\":\"text\"},{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"serviceTiers\":[],\"showThoughts\":false,\"structuredOutputs\":false,\"temperature\":true,\"thinkingBudget\":false,\"thinkingLevels\":[],\"topP\":true},\"completionTokenCostPer1M\":0,\"contextWindow\":32768,\"currency\":\"usd\",\"isDefault\":false,\"maxTokens\":2048,\"name\":\"Qwen2.5-1.5B-Instruct-q4f32_1-MLC\",\"promptTokenCostPer1M\":0,\"provider\":\"webllm\",\"type\":\"text\"},{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"serviceTiers\":[],\"showThoughts\":false,\"structuredOutputs\":false,\"temperature\":true,\"thinkingBudget\":false,\"thinkingLevels\":[],\"topP\":true},\"completionTokenCostPer1M\":0,\"contextWindow\":32768,\"currency\":\"usd\",\"isDefault\":false,\"maxTokens\":2048,\"name\":\"Qwen2.5-3B-Instruct-q4f32_1-MLC\",\"promptTokenCostPer1M\":0,\"provider\":\"webllm\",\"type\":\"text\"},{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"serviceTiers\":[],\"showThoughts\":false,\"structuredOutputs\":false,\"temperature\":true,\"thinkingBudget\":false,\"thinkingLevels\":[],\"topP\":true},\"completionTokenCostPer1M\":0,\"contextWindow\":32768,\"currency\":\"usd\",\"isDefault\":false,\"maxTokens\":4096,\"name\":\"Qwen2.5-7B-Instruct-q4f32_1-MLC\",\"promptTokenCostPer1M\":0,\"provider\":\"webllm\",\"type\":\"text\"}],\"name\":\"webllm\"},{\"capabilities\":{\"serviceTiers\":[\"standard\",\"flex\",\"priority\"],\"thinking\":true,\"thinkingLevels\":[\"none\",\"minimal\",\"low\",\"medium\",\"high\",\"highest\"]},\"defaultEmbedModel\":\"text-embedding-3-small\",\"defaultModel\":\"gpt-5-mini\",\"displayName\":\"OpenAI\",\"isDynamic\":false,\"models\":[{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"serviceTiers\":[],\"showThoughts\":false,\"structuredOutputs\":false,\"temperature\":true,\"thinkingBudget\":false,\"thinkingLevels\":[],\"topP\":true},\"completionTokenCostPer1M\":0.02,\"currency\":\"usd\",\"isDefault\":true,\"name\":\"text-embedding-3-small\",\"promptTokenCostPer1M\":0.02,\"provider\":\"openai\",\"type\":\"embeddings\"},{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"serviceTiers\":[],\"showThoughts\":false,\"structuredOutputs\":false,\"temperature\":true,\"thinkingBudget\":false,\"thinkingLevels\":[],\"topP\":true},\"completionTokenCostPer1M\":0.1,\"currency\":\"usd\",\"isDefault\":false,\"name\":\"text-embedding-ada-002\",\"promptTokenCostPer1M\":0.1,\"provider\":\"openai\",\"type\":\"embeddings\"},{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"serviceTiers\":[],\"showThoughts\":false,\"structuredOutputs\":false,\"temperature\":true,\"thinkingBudget\":false,\"thinkingLevels\":[],\"topP\":true},\"completionTokenCostPer1M\":0.13,\"currency\":\"usd\",\"isDefault\":false,\"name\":\"text-embedding-3-large\",\"promptTokenCostPer1M\":0.13,\"provider\":\"openai\",\"type\":\"embeddings\"},{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"serviceTiers\":[\"standard\",\"flex\",\"priority\"],\"showThoughts\":false,\"structuredOutputs\":true,\"temperature\":false,\"thinkingBudget\":false,\"thinkingLevels\":[],\"topP\":false},\"completionTokenCostPer1M\":0.4,\"currency\":\"usd\",\"isDefault\":false,\"name\":\"gpt-5-nano\",\"notSupported\":{\"temperature\":true,\"topP\":true},\"promptTokenCostPer1M\":0.05,\"provider\":\"openai\",\"supported\":{\"structuredOutputs\":true},\"type\":\"text\"},{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"serviceTiers\":[\"standard\",\"flex\",\"priority\"],\"showThoughts\":false,\"structuredOutputs\":true,\"temperature\":true,\"thinkingBudget\":false,\"thinkingLevels\":[],\"topP\":true},\"completionTokenCostPer1M\":0.4,\"currency\":\"usd\",\"isDefault\":false,\"name\":\"gpt-4.1-nano\",\"promptTokenCostPer1M\":0.1,\"provider\":\"openai\",\"supported\":{\"structuredOutputs\":true},\"type\":\"text\"},{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"serviceTiers\":[\"standard\",\"flex\",\"priority\"],\"showThoughts\":false,\"structuredOutputs\":true,\"temperature\":true,\"thinkingBudget\":false,\"thinkingLevels\":[],\"topP\":true},\"completionTokenCostPer1M\":0.6,\"currency\":\"usd\",\"isDefault\":false,\"name\":\"gpt-4o-mini\",\"promptTokenCostPer1M\":0.15,\"provider\":\"openai\",\"supported\":{\"structuredOutputs\":true},\"type\":\"text\"},{\"cacheReadTokenCostPer1M\":0.02,\"cacheWriteTokenCostPer1M\":0.25,\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"serviceTiers\":[\"standard\",\"flex\",\"priority\"],\"showThoughts\":false,\"structuredOutputs\":true,\"temperature\":false,\"thinkingBudget\":true,\"thinkingLevels\":[\"none\",\"minimal\",\"low\",\"medium\",\"high\",\"highest\"],\"topP\":false},\"completionTokenCostPer1M\":1.2,\"contextWindow\":1050000,\"currency\":\"usd\",\"isDefault\":false,\"longContextCacheReadTokenCostPer1M\":0.04,\"longContextCompletionTokenCostPer1M\":1.8,\"longContextPromptTokenCostPer1M\":0.4,\"longContextThreshold\":272000,\"maxTokens\":128000,\"name\":\"gpt-5.6-luna\",\"notSupported\":{\"temperature\":true,\"topP\":true},\"promptTokenCostPer1M\":0.2,\"provider\":\"openai\",\"supported\":{\"structuredOutputs\":true,\"thinkingBudget\":true},\"type\":\"text\"},{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"serviceTiers\":[\"standard\",\"flex\",\"priority\"],\"showThoughts\":false,\"structuredOutputs\":true,\"temperature\":false,\"thinkingBudget\":false,\"thinkingLevels\":[],\"topP\":false},\"completionTokenCostPer1M\":1.25,\"currency\":\"usd\",\"isDefault\":false,\"name\":\"gpt-5.4-nano\",\"notSupported\":{\"temperature\":true,\"topP\":true},\"promptTokenCostPer1M\":0.2,\"provider\":\"openai\",\"supported\":{\"structuredOutputs\":true},\"type\":\"text\"},{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"serviceTiers\":[\"standard\",\"flex\",\"priority\"],\"showThoughts\":false,\"structuredOutputs\":false,\"temperature\":true,\"thinkingBudget\":false,\"thinkingLevels\":[],\"topP\":true},\"completionTokenCostPer1M\":1.5,\"currency\":\"usd\",\"isDefault\":false,\"name\":\"gpt-3.5-turbo\",\"promptTokenCostPer1M\":0.5,\"provider\":\"openai\",\"type\":\"text\"},{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"serviceTiers\":[\"standard\",\"flex\",\"priority\"],\"showThoughts\":false,\"structuredOutputs\":true,\"temperature\":true,\"thinkingBudget\":false,\"thinkingLevels\":[],\"topP\":true},\"completionTokenCostPer1M\":1.6,\"currency\":\"usd\",\"isDefault\":false,\"name\":\"gpt-4.1-mini\",\"promptTokenCostPer1M\":0.4,\"provider\":\"openai\",\"supported\":{\"structuredOutputs\":true},\"type\":\"text\"},{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"serviceTiers\":[\"standard\",\"flex\",\"priority\"],\"showThoughts\":false,\"structuredOutputs\":true,\"temperature\":false,\"thinkingBudget\":false,\"thinkingLevels\":[],\"topP\":false},\"completionTokenCostPer1M\":2,\"currency\":\"usd\",\"isDefault\":true,\"name\":\"gpt-5-mini\",\"notSupported\":{\"temperature\":true,\"topP\":true},\"promptTokenCostPer1M\":0.25,\"provider\":\"openai\",\"supported\":{\"structuredOutputs\":true},\"type\":\"text\"},{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"serviceTiers\":[\"standard\",\"flex\",\"priority\"],\"showThoughts\":false,\"structuredOutputs\":true,\"temperature\":false,\"thinkingBudget\":false,\"thinkingLevels\":[],\"topP\":false},\"completionTokenCostPer1M\":2,\"currency\":\"usd\",\"isDefault\":false,\"name\":\"gpt-5.1-codex-mini\",\"notSupported\":{\"temperature\":true,\"topP\":true},\"promptTokenCostPer1M\":0.25,\"provider\":\"openai\",\"supported\":{\"structuredOutputs\":true},\"type\":\"code\"},{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"serviceTiers\":[\"standard\",\"flex\",\"priority\"],\"showThoughts\":false,\"structuredOutputs\":true,\"temperature\":false,\"thinkingBudget\":false,\"thinkingLevels\":[],\"topP\":false},\"completionTokenCostPer1M\":4.5,\"currency\":\"usd\",\"isDefault\":false,\"name\":\"gpt-5.4-mini\",\"notSupported\":{\"temperature\":true,\"topP\":true},\"promptTokenCostPer1M\":0.75,\"provider\":\"openai\",\"supported\":{\"structuredOutputs\":true},\"type\":\"text\"},{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"serviceTiers\":[\"standard\",\"flex\",\"priority\"],\"showThoughts\":false,\"structuredOutputs\":true,\"temperature\":true,\"thinkingBudget\":false,\"thinkingLevels\":[],\"topP\":true},\"completionTokenCostPer1M\":4.4,\"currency\":\"usd\",\"isDefault\":false,\"name\":\"o1-mini\",\"promptTokenCostPer1M\":1.1,\"provider\":\"openai\",\"supported\":{\"structuredOutputs\":true},\"type\":\"text\"},{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"serviceTiers\":[\"standard\",\"flex\",\"priority\"],\"showThoughts\":false,\"structuredOutputs\":true,\"temperature\":true,\"thinkingBudget\":false,\"thinkingLevels\":[],\"topP\":true},\"completionTokenCostPer1M\":4.4,\"currency\":\"usd\",\"isDefault\":false,\"name\":\"o4-mini\",\"promptTokenCostPer1M\":1.1,\"provider\":\"openai\",\"supported\":{\"structuredOutputs\":true},\"type\":\"text\"},{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"serviceTiers\":[\"standard\",\"flex\",\"priority\"],\"showThoughts\":false,\"structuredOutputs\":true,\"temperature\":true,\"thinkingBudget\":false,\"thinkingLevels\":[],\"topP\":true},\"completionTokenCostPer1M\":8,\"currency\":\"usd\",\"isDefault\":false,\"name\":\"gpt-4.1\",\"promptTokenCostPer1M\":2,\"provider\":\"openai\",\"supported\":{\"structuredOutputs\":true},\"type\":\"text\"},{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"serviceTiers\":[\"standard\",\"flex\",\"priority\"],\"showThoughts\":false,\"structuredOutputs\":true,\"temperature\":true,\"thinkingBudget\":false,\"thinkingLevels\":[],\"topP\":true},\"completionTokenCostPer1M\":8,\"currency\":\"usd\",\"isDefault\":false,\"name\":\"o3\",\"promptTokenCostPer1M\":2,\"provider\":\"openai\",\"supported\":{\"structuredOutputs\":true},\"type\":\"text\"},{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"serviceTiers\":[\"standard\",\"flex\",\"priority\"],\"showThoughts\":false,\"structuredOutputs\":true,\"temperature\":false,\"thinkingBudget\":false,\"thinkingLevels\":[],\"topP\":false},\"completionTokenCostPer1M\":10,\"currency\":\"usd\",\"isDefault\":false,\"name\":\"gpt-5\",\"notSupported\":{\"temperature\":true,\"topP\":true},\"promptTokenCostPer1M\":1.25,\"provider\":\"openai\",\"supported\":{\"structuredOutputs\":true},\"type\":\"text\"},{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"serviceTiers\":[\"standard\",\"flex\",\"priority\"],\"showThoughts\":false,\"structuredOutputs\":true,\"temperature\":false,\"thinkingBudget\":false,\"thinkingLevels\":[],\"topP\":false},\"completionTokenCostPer1M\":10,\"currency\":\"usd\",\"isDefault\":false,\"name\":\"gpt-5-chat\",\"notSupported\":{\"temperature\":true,\"topP\":true},\"promptTokenCostPer1M\":1.25,\"provider\":\"openai\",\"supported\":{\"structuredOutputs\":true},\"type\":\"text\"},{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"serviceTiers\":[\"standard\",\"flex\",\"priority\"],\"showThoughts\":false,\"structuredOutputs\":true,\"temperature\":false,\"thinkingBudget\":false,\"thinkingLevels\":[],\"topP\":false},\"completionTokenCostPer1M\":10,\"currency\":\"usd\",\"isDefault\":false,\"name\":\"gpt-5-chat-latest\",\"notSupported\":{\"temperature\":true,\"topP\":true},\"promptTokenCostPer1M\":1.25,\"provider\":\"openai\",\"supported\":{\"structuredOutputs\":true},\"type\":\"text\"},{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"serviceTiers\":[\"standard\",\"flex\",\"priority\"],\"showThoughts\":false,\"structuredOutputs\":true,\"temperature\":false,\"thinkingBudget\":false,\"thinkingLevels\":[],\"topP\":false},\"completionTokenCostPer1M\":10,\"currency\":\"usd\",\"isDefault\":false,\"name\":\"gpt-5-codex\",\"notSupported\":{\"temperature\":true,\"topP\":true},\"promptTokenCostPer1M\":1.25,\"provider\":\"openai\",\"supported\":{\"structuredOutputs\":true},\"type\":\"code\"},{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"serviceTiers\":[\"standard\",\"flex\",\"priority\"],\"showThoughts\":false,\"structuredOutputs\":true,\"temperature\":false,\"thinkingBudget\":false,\"thinkingLevels\":[],\"topP\":false},\"completionTokenCostPer1M\":10,\"currency\":\"usd\",\"isDefault\":false,\"name\":\"gpt-5.1\",\"notSupported\":{\"temperature\":true,\"topP\":true},\"promptTokenCostPer1M\":1.25,\"provider\":\"openai\",\"supported\":{\"structuredOutputs\":true},\"type\":\"text\"},{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"serviceTiers\":[\"standard\",\"flex\",\"priority\"],\"showThoughts\":false,\"structuredOutputs\":true,\"temperature\":false,\"thinkingBudget\":false,\"thinkingLevels\":[],\"topP\":false},\"completionTokenCostPer1M\":10,\"currency\":\"usd\",\"isDefault\":false,\"name\":\"gpt-5.1-chat-latest\",\"notSupported\":{\"temperature\":true,\"topP\":true},\"promptTokenCostPer1M\":1.25,\"provider\":\"openai\",\"supported\":{\"structuredOutputs\":true},\"type\":\"text\"},{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"serviceTiers\":[\"standard\",\"flex\",\"priority\"],\"showThoughts\":false,\"structuredOutputs\":true,\"temperature\":false,\"thinkingBudget\":false,\"thinkingLevels\":[],\"topP\":false},\"completionTokenCostPer1M\":10,\"currency\":\"usd\",\"isDefault\":false,\"name\":\"gpt-5.1-codex\",\"notSupported\":{\"temperature\":true,\"topP\":true},\"promptTokenCostPer1M\":1.25,\"provider\":\"openai\",\"supported\":{\"structuredOutputs\":true},\"type\":\"code\"},{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"serviceTiers\":[\"standard\",\"flex\",\"priority\"],\"showThoughts\":false,\"structuredOutputs\":true,\"temperature\":false,\"thinkingBudget\":false,\"thinkingLevels\":[],\"topP\":false},\"completionTokenCostPer1M\":10,\"currency\":\"usd\",\"isDefault\":false,\"name\":\"gpt-5.1-codex-max\",\"notSupported\":{\"temperature\":true,\"topP\":true},\"promptTokenCostPer1M\":1.25,\"provider\":\"openai\",\"supported\":{\"structuredOutputs\":true},\"type\":\"code\"},{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"serviceTiers\":[\"standard\",\"flex\",\"priority\"],\"showThoughts\":false,\"structuredOutputs\":true,\"temperature\":true,\"thinkingBudget\":false,\"thinkingLevels\":[],\"topP\":true},\"completionTokenCostPer1M\":10,\"currency\":\"usd\",\"isDefault\":false,\"name\":\"gpt-4o\",\"promptTokenCostPer1M\":2.5,\"provider\":\"openai\",\"supported\":{\"structuredOutputs\":true},\"type\":\"text\"},{\"cacheReadTokenCostPer1M\":0.2,\"cacheWriteTokenCostPer1M\":2.5,\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"serviceTiers\":[\"standard\",\"flex\",\"priority\"],\"showThoughts\":false,\"structuredOutputs\":true,\"temperature\":false,\"thinkingBudget\":true,\"thinkingLevels\":[\"none\",\"minimal\",\"low\",\"medium\",\"high\",\"highest\"],\"topP\":false},\"completionTokenCostPer1M\":12,\"contextWindow\":1050000,\"currency\":\"usd\",\"isDefault\":false,\"longContextCacheReadTokenCostPer1M\":0.4,\"longContextCompletionTokenCostPer1M\":18,\"longContextPromptTokenCostPer1M\":4,\"longContextThreshold\":272000,\"maxTokens\":128000,\"name\":\"gpt-5.6-terra\",\"notSupported\":{\"temperature\":true,\"topP\":true},\"promptTokenCostPer1M\":2,\"provider\":\"openai\",\"supported\":{\"structuredOutputs\":true,\"thinkingBudget\":true},\"type\":\"text\"},{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"serviceTiers\":[\"standard\",\"flex\",\"priority\"],\"showThoughts\":false,\"structuredOutputs\":true,\"temperature\":false,\"thinkingBudget\":false,\"thinkingLevels\":[],\"topP\":false},\"completionTokenCostPer1M\":14,\"currency\":\"usd\",\"isDefault\":false,\"name\":\"gpt-5.2\",\"notSupported\":{\"temperature\":true,\"topP\":true},\"promptTokenCostPer1M\":1.75,\"provider\":\"openai\",\"supported\":{\"structuredOutputs\":true},\"type\":\"text\"},{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"serviceTiers\":[\"standard\",\"flex\",\"priority\"],\"showThoughts\":false,\"structuredOutputs\":true,\"temperature\":false,\"thinkingBudget\":false,\"thinkingLevels\":[],\"topP\":false},\"completionTokenCostPer1M\":14,\"currency\":\"usd\",\"isDefault\":false,\"name\":\"gpt-5.2-chat-latest\",\"notSupported\":{\"temperature\":true,\"topP\":true},\"promptTokenCostPer1M\":1.75,\"provider\":\"openai\",\"supported\":{\"structuredOutputs\":true},\"type\":\"text\"},{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"serviceTiers\":[\"standard\",\"flex\",\"priority\"],\"showThoughts\":false,\"structuredOutputs\":true,\"temperature\":false,\"thinkingBudget\":false,\"thinkingLevels\":[],\"topP\":false},\"completionTokenCostPer1M\":14,\"currency\":\"usd\",\"isDefault\":false,\"name\":\"gpt-5.2-codex\",\"notSupported\":{\"temperature\":true,\"topP\":true},\"promptTokenCostPer1M\":1.75,\"provider\":\"openai\",\"supported\":{\"structuredOutputs\":true},\"type\":\"code\"},{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"serviceTiers\":[\"standard\",\"flex\",\"priority\"],\"showThoughts\":false,\"structuredOutputs\":true,\"temperature\":false,\"thinkingBudget\":false,\"thinkingLevels\":[],\"topP\":false},\"completionTokenCostPer1M\":15,\"currency\":\"usd\",\"isDefault\":false,\"name\":\"gpt-5.4\",\"notSupported\":{\"temperature\":true,\"topP\":true},\"promptTokenCostPer1M\":2.5,\"provider\":\"openai\",\"supported\":{\"structuredOutputs\":true},\"type\":\"text\"},{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"serviceTiers\":[\"standard\",\"flex\",\"priority\"],\"showThoughts\":false,\"structuredOutputs\":true,\"temperature\":true,\"thinkingBudget\":false,\"thinkingLevels\":[],\"topP\":true},\"completionTokenCostPer1M\":15,\"currency\":\"usd\",\"isDefault\":false,\"name\":\"chatgpt-4o-latest\",\"promptTokenCostPer1M\":5,\"provider\":\"openai\",\"supported\":{\"structuredOutputs\":true},\"type\":\"text\"},{\"cacheReadTokenCostPer1M\":0.5,\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"serviceTiers\":[\"standard\",\"flex\",\"priority\"],\"showThoughts\":false,\"structuredOutputs\":true,\"temperature\":false,\"thinkingBudget\":true,\"thinkingLevels\":[\"none\",\"minimal\",\"low\",\"medium\",\"high\",\"highest\"],\"topP\":false},\"completionTokenCostPer1M\":30,\"contextWindow\":1000000,\"currency\":\"usd\",\"isDefault\":false,\"longContextCacheReadTokenCostPer1M\":1,\"longContextCompletionTokenCostPer1M\":45,\"longContextPromptTokenCostPer1M\":10,\"longContextThreshold\":272000,\"name\":\"gpt-5.5\",\"notSupported\":{\"temperature\":true,\"topP\":true},\"promptTokenCostPer1M\":5,\"provider\":\"openai\",\"supported\":{\"structuredOutputs\":true,\"thinkingBudget\":true},\"type\":\"text\"},{\"aliases\":[\"gpt-5.6\"],\"cacheReadTokenCostPer1M\":0.5,\"cacheWriteTokenCostPer1M\":6.25,\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"serviceTiers\":[\"standard\",\"flex\",\"priority\"],\"showThoughts\":false,\"structuredOutputs\":true,\"temperature\":false,\"thinkingBudget\":true,\"thinkingLevels\":[\"none\",\"minimal\",\"low\",\"medium\",\"high\",\"highest\"],\"topP\":false},\"completionTokenCostPer1M\":30,\"contextWindow\":1050000,\"currency\":\"usd\",\"isDefault\":false,\"longContextCacheReadTokenCostPer1M\":1,\"longContextCompletionTokenCostPer1M\":45,\"longContextPromptTokenCostPer1M\":10,\"longContextThreshold\":272000,\"maxTokens\":128000,\"name\":\"gpt-5.6-sol\",\"notSupported\":{\"temperature\":true,\"topP\":true},\"promptTokenCostPer1M\":5,\"provider\":\"openai\",\"supported\":{\"structuredOutputs\":true,\"thinkingBudget\":true},\"type\":\"text\"},{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"serviceTiers\":[\"standard\",\"flex\",\"priority\"],\"showThoughts\":false,\"structuredOutputs\":true,\"temperature\":true,\"thinkingBudget\":false,\"thinkingLevels\":[],\"topP\":true},\"completionTokenCostPer1M\":30,\"currency\":\"usd\",\"isDefault\":false,\"name\":\"gpt-4-turbo\",\"promptTokenCostPer1M\":10,\"provider\":\"openai\",\"supported\":{\"structuredOutputs\":true},\"type\":\"text\"},{\"cacheReadTokenCostPer1M\":1,\"cacheWriteTokenCostPer1M\":12.5,\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"serviceTiers\":[\"standard\",\"flex\",\"priority\"],\"showThoughts\":false,\"structuredOutputs\":true,\"temperature\":false,\"thinkingBudget\":true,\"thinkingLevels\":[\"minimal\",\"low\",\"medium\",\"high\",\"highest\"],\"topP\":false},\"completionTokenCostPer1M\":50,\"contextWindow\":1050000,\"currency\":\"usd\",\"isDefault\":false,\"longContextCacheReadTokenCostPer1M\":2,\"longContextCacheWriteTokenCostPer1M\":25,\"longContextCompletionTokenCostPer1M\":75,\"longContextPromptTokenCostPer1M\":20,\"longContextThreshold\":272000,\"maxTokens\":128000,\"name\":\"gpt-6-astra\",\"notSupported\":{\"temperature\":true,\"topP\":true},\"promptTokenCostPer1M\":10,\"provider\":\"openai\",\"supported\":{\"structuredOutputModes\":[\"native\",\"json_object\"],\"structuredOutputs\":true,\"thinkingBudget\":true},\"type\":\"text\"},{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"serviceTiers\":[\"standard\",\"flex\",\"priority\"],\"showThoughts\":false,\"structuredOutputs\":true,\"temperature\":true,\"thinkingBudget\":false,\"thinkingLevels\":[],\"topP\":true},\"completionTokenCostPer1M\":60,\"currency\":\"usd\",\"isDefault\":false,\"name\":\"o1\",\"promptTokenCostPer1M\":15,\"provider\":\"openai\",\"supported\":{\"structuredOutputs\":true},\"type\":\"text\"},{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"serviceTiers\":[\"standard\",\"flex\",\"priority\"],\"showThoughts\":false,\"structuredOutputs\":false,\"temperature\":true,\"thinkingBudget\":false,\"thinkingLevels\":[],\"topP\":true},\"completionTokenCostPer1M\":60,\"currency\":\"usd\",\"isDefault\":false,\"name\":\"gpt-4\",\"promptTokenCostPer1M\":30,\"provider\":\"openai\",\"type\":\"text\"},{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"serviceTiers\":[\"standard\",\"flex\",\"priority\"],\"showThoughts\":false,\"structuredOutputs\":true,\"temperature\":false,\"thinkingBudget\":false,\"thinkingLevels\":[],\"topP\":false},\"completionTokenCostPer1M\":120,\"currency\":\"usd\",\"isDefault\":false,\"name\":\"gpt-5-pro\",\"notSupported\":{\"temperature\":true,\"topP\":true},\"promptTokenCostPer1M\":15,\"provider\":\"openai\",\"supported\":{\"structuredOutputs\":true},\"type\":\"text\"},{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"serviceTiers\":[\"standard\",\"flex\",\"priority\"],\"showThoughts\":false,\"structuredOutputs\":true,\"temperature\":false,\"thinkingBudget\":false,\"thinkingLevels\":[],\"topP\":false},\"completionTokenCostPer1M\":168,\"currency\":\"usd\",\"isDefault\":false,\"name\":\"gpt-5.2-pro\",\"notSupported\":{\"temperature\":true,\"topP\":true},\"promptTokenCostPer1M\":21,\"provider\":\"openai\",\"supported\":{\"structuredOutputs\":true},\"type\":\"text\"},{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"serviceTiers\":[\"standard\",\"flex\",\"priority\"],\"showThoughts\":false,\"structuredOutputs\":true,\"temperature\":false,\"thinkingBudget\":true,\"thinkingLevels\":[\"none\",\"minimal\",\"low\",\"medium\",\"high\",\"highest\"],\"topP\":false},\"completionTokenCostPer1M\":180,\"contextWindow\":1000000,\"currency\":\"usd\",\"isDefault\":false,\"isExpensive\":true,\"longContextCompletionTokenCostPer1M\":270,\"longContextPromptTokenCostPer1M\":60,\"longContextThreshold\":272000,\"name\":\"gpt-5.5-pro\",\"notSupported\":{\"temperature\":true,\"topP\":true},\"promptTokenCostPer1M\":30,\"provider\":\"openai\",\"supported\":{\"structuredOutputs\":true,\"thinkingBudget\":true},\"type\":\"text\"},{\"audio\":{\"input\":true,\"output\":true},\"capabilities\":{\"audioInput\":true,\"audioOutput\":true,\"serviceTiers\":[\"standard\",\"flex\",\"priority\"],\"showThoughts\":false,\"structuredOutputs\":false,\"temperature\":true,\"thinkingBudget\":false,\"thinkingLevels\":[],\"topP\":true},\"isDefault\":false,\"name\":\"gpt-audio\",\"provider\":\"openai\",\"type\":\"audio\"},{\"audio\":{\"input\":true,\"output\":true},\"capabilities\":{\"audioInput\":true,\"audioOutput\":true,\"serviceTiers\":[\"standard\",\"flex\",\"priority\"],\"showThoughts\":false,\"structuredOutputs\":false,\"temperature\":true,\"thinkingBudget\":false,\"thinkingLevels\":[],\"topP\":true},\"isDefault\":false,\"name\":\"gpt-audio-mini\",\"provider\":\"openai\",\"type\":\"audio\"},{\"audio\":{\"input\":true,\"output\":true},\"capabilities\":{\"audioInput\":true,\"audioOutput\":true,\"serviceTiers\":[\"standard\",\"flex\",\"priority\"],\"showThoughts\":false,\"structuredOutputs\":false,\"temperature\":true,\"thinkingBudget\":false,\"thinkingLevels\":[],\"topP\":true},\"isDefault\":false,\"name\":\"gpt-audio-1.5\",\"provider\":\"openai\",\"type\":\"audio\"},{\"audio\":{\"input\":true,\"output\":true},\"capabilities\":{\"audioInput\":true,\"audioOutput\":true,\"serviceTiers\":[],\"showThoughts\":false,\"structuredOutputs\":false,\"temperature\":true,\"thinkingBudget\":false,\"thinkingLevels\":[],\"topP\":true},\"isDefault\":false,\"name\":\"gpt-realtime-1.5\",\"provider\":\"openai\",\"type\":\"audio\"},{\"audio\":{\"input\":true,\"output\":true},\"capabilities\":{\"audioInput\":true,\"audioOutput\":true,\"serviceTiers\":[],\"showThoughts\":false,\"structuredOutputs\":false,\"temperature\":true,\"thinkingBudget\":true,\"thinkingLevels\":[\"none\",\"minimal\",\"low\",\"medium\",\"high\",\"highest\"],\"topP\":true},\"isDefault\":false,\"name\":\"gpt-realtime-2\",\"provider\":\"openai\",\"supported\":{\"thinkingBudget\":true},\"type\":\"audio\"},{\"audio\":{\"input\":true,\"output\":false},\"capabilities\":{\"audioInput\":true,\"audioOutput\":false,\"serviceTiers\":[],\"showThoughts\":false,\"structuredOutputs\":false,\"temperature\":true,\"thinkingBudget\":false,\"thinkingLevels\":[],\"topP\":true},\"isDefault\":false,\"name\":\"gpt-realtime-whisper\",\"provider\":\"openai\",\"type\":\"audio\"},{\"audio\":{\"input\":true,\"output\":true},\"capabilities\":{\"audioInput\":true,\"audioOutput\":true,\"serviceTiers\":[],\"showThoughts\":false,\"structuredOutputs\":false,\"temperature\":true,\"thinkingBudget\":false,\"thinkingLevels\":[],\"topP\":true},\"isDefault\":false,\"name\":\"gpt-realtime-translate\",\"provider\":\"openai\",\"type\":\"audio\"}],\"name\":\"openai\"},{\"capabilities\":{\"serviceTiers\":[],\"thinking\":false,\"thinkingLevels\":[]},\"defaultModel\":\"command-r-plus\",\"displayName\":\"Cohere\",\"isDynamic\":false,\"models\":[{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"serviceTiers\":[],\"showThoughts\":false,\"structuredOutputs\":false,\"temperature\":true,\"thinkingBudget\":false,\"thinkingLevels\":[],\"topP\":true},\"completionTokenCostPer1M\":0.1,\"currency\":\"usd\",\"isDefault\":false,\"name\":\"embed-english-light-v3.0\",\"promptTokenCostPer1M\":0.1,\"provider\":\"cohere\",\"type\":\"embeddings\"},{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"serviceTiers\":[],\"showThoughts\":false,\"structuredOutputs\":false,\"temperature\":true,\"thinkingBudget\":false,\"thinkingLevels\":[],\"topP\":true},\"completionTokenCostPer1M\":0.1,\"currency\":\"usd\",\"isDefault\":false,\"name\":\"embed-english-v3.0\",\"promptTokenCostPer1M\":0.1,\"provider\":\"cohere\",\"type\":\"embeddings\"},{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"serviceTiers\":[],\"showThoughts\":false,\"structuredOutputs\":false,\"temperature\":true,\"thinkingBudget\":false,\"thinkingLevels\":[],\"topP\":true},\"completionTokenCostPer1M\":0.1,\"currency\":\"usd\",\"isDefault\":false,\"name\":\"embed-multilingual-light-v3.0\",\"promptTokenCostPer1M\":0.1,\"provider\":\"cohere\",\"type\":\"embeddings\"},{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"serviceTiers\":[],\"showThoughts\":false,\"structuredOutputs\":false,\"temperature\":true,\"thinkingBudget\":false,\"thinkingLevels\":[],\"topP\":true},\"completionTokenCostPer1M\":0.1,\"currency\":\"usd\",\"isDefault\":false,\"name\":\"embed-multilingual-v3.0\",\"promptTokenCostPer1M\":0.1,\"provider\":\"cohere\",\"type\":\"embeddings\"},{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"serviceTiers\":[],\"showThoughts\":false,\"structuredOutputs\":false,\"temperature\":true,\"thinkingBudget\":false,\"thinkingLevels\":[],\"topP\":true},\"completionTokenCostPer1M\":0.6,\"currency\":\"usd\",\"isDefault\":false,\"name\":\"command-light\",\"promptTokenCostPer1M\":0.3,\"provider\":\"cohere\",\"type\":\"text\"},{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"serviceTiers\":[],\"showThoughts\":false,\"structuredOutputs\":false,\"temperature\":true,\"thinkingBudget\":false,\"thinkingLevels\":[],\"topP\":true},\"completionTokenCostPer1M\":1.5,\"currency\":\"usd\",\"isDefault\":false,\"name\":\"command\",\"promptTokenCostPer1M\":0.5,\"provider\":\"cohere\",\"type\":\"text\"},{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"serviceTiers\":[],\"showThoughts\":false,\"structuredOutputs\":false,\"temperature\":true,\"thinkingBudget\":false,\"thinkingLevels\":[],\"topP\":true},\"completionTokenCostPer1M\":1.5,\"currency\":\"usd\",\"isDefault\":false,\"name\":\"command-r\",\"promptTokenCostPer1M\":0.5,\"provider\":\"cohere\",\"type\":\"text\"},{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"serviceTiers\":[],\"showThoughts\":false,\"structuredOutputs\":false,\"temperature\":true,\"thinkingBudget\":false,\"thinkingLevels\":[],\"topP\":true},\"completionTokenCostPer1M\":15,\"currency\":\"usd\",\"isDefault\":true,\"name\":\"command-r-plus\",\"promptTokenCostPer1M\":3,\"provider\":\"cohere\",\"type\":\"text\"}],\"name\":\"cohere\"},{\"capabilities\":{\"serviceTiers\":[\"standard\",\"priority\"],\"thinking\":false,\"thinkingLevels\":[]},\"defaultModel\":\"mistral-small-latest\",\"displayName\":\"Mistral AI\",\"isDynamic\":false,\"models\":[{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"serviceTiers\":[\"standard\",\"priority\"],\"showThoughts\":false,\"structuredOutputs\":false,\"temperature\":true,\"thinkingBudget\":false,\"thinkingLevels\":[],\"topP\":true},\"completionTokenCostPer1M\":0.15,\"currency\":\"USD\",\"isDefault\":false,\"name\":\"mistral-nemo-latest\",\"promptTokenCostPer1M\":0.15,\"provider\":\"mistral\",\"type\":\"text\"},{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"serviceTiers\":[\"standard\",\"priority\"],\"showThoughts\":false,\"structuredOutputs\":false,\"temperature\":true,\"thinkingBudget\":false,\"thinkingLevels\":[],\"topP\":true},\"completionTokenCostPer1M\":0.25,\"currency\":\"USD\",\"isDefault\":false,\"name\":\"open-codestral-mamba\",\"promptTokenCostPer1M\":0.25,\"provider\":\"mistral\",\"type\":\"code\"},{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"serviceTiers\":[\"standard\",\"priority\"],\"showThoughts\":false,\"structuredOutputs\":false,\"temperature\":true,\"thinkingBudget\":false,\"thinkingLevels\":[],\"topP\":true},\"completionTokenCostPer1M\":0.25,\"currency\":\"USD\",\"isDefault\":false,\"name\":\"open-mistral-7b\",\"promptTokenCostPer1M\":0.25,\"provider\":\"mistral\",\"type\":\"text\"},{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"serviceTiers\":[\"standard\",\"priority\"],\"showThoughts\":false,\"structuredOutputs\":false,\"temperature\":true,\"thinkingBudget\":false,\"thinkingLevels\":[],\"topP\":true},\"completionTokenCostPer1M\":0.3,\"currency\":\"USD\",\"isDefault\":false,\"name\":\"open-mistral-nemo-latest\",\"promptTokenCostPer1M\":0.3,\"provider\":\"mistral\",\"type\":\"text\"},{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"serviceTiers\":[\"standard\",\"priority\"],\"showThoughts\":false,\"structuredOutputs\":false,\"temperature\":true,\"thinkingBudget\":false,\"thinkingLevels\":[],\"topP\":true},\"completionTokenCostPer1M\":0.6,\"currency\":\"USD\",\"isDefault\":false,\"name\":\"codestral-latest\",\"promptTokenCostPer1M\":0.2,\"provider\":\"mistral\",\"type\":\"code\"},{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"serviceTiers\":[\"standard\",\"priority\"],\"showThoughts\":false,\"structuredOutputs\":false,\"temperature\":true,\"thinkingBudget\":false,\"thinkingLevels\":[],\"topP\":true},\"completionTokenCostPer1M\":0.6,\"currency\":\"USD\",\"isDefault\":true,\"name\":\"mistral-small-latest\",\"promptTokenCostPer1M\":0.2,\"provider\":\"mistral\",\"type\":\"text\"},{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"serviceTiers\":[\"standard\",\"priority\"],\"showThoughts\":false,\"structuredOutputs\":false,\"temperature\":true,\"thinkingBudget\":false,\"thinkingLevels\":[],\"topP\":true},\"completionTokenCostPer1M\":0.7,\"currency\":\"USD\",\"isDefault\":false,\"name\":\"open-mixtral-8x7b\",\"promptTokenCostPer1M\":0.7,\"provider\":\"mistral\",\"type\":\"text\"},{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"serviceTiers\":[\"standard\",\"priority\"],\"showThoughts\":false,\"structuredOutputs\":false,\"temperature\":true,\"thinkingBudget\":false,\"thinkingLevels\":[],\"topP\":true},\"completionTokenCostPer1M\":6,\"currency\":\"USD\",\"isDefault\":false,\"name\":\"mistral-large-latest\",\"promptTokenCostPer1M\":2,\"provider\":\"mistral\",\"type\":\"text\"}],\"name\":\"mistral\"},{\"capabilities\":{\"serviceTiers\":[],\"thinking\":true,\"thinkingLevels\":[\"none\",\"minimal\",\"low\",\"medium\",\"high\",\"highest\"]},\"defaultModel\":\"deepseek-v4-flash\",\"displayName\":\"DeepSeek\",\"isDynamic\":false,\"models\":[{\"aliases\":[\"deepseek-chat\",\"deepseek-reasoner\"],\"cacheReadTokenCostPer1M\":0.0028,\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"serviceTiers\":[],\"showThoughts\":true,\"structuredOutputs\":false,\"temperature\":true,\"thinkingBudget\":true,\"thinkingLevels\":[\"none\",\"minimal\",\"low\",\"medium\",\"high\",\"highest\"],\"topP\":true},\"completionTokenCostPer1M\":0.28,\"contextWindow\":1000000,\"currency\":\"USD\",\"isDefault\":true,\"maxTokens\":384000,\"name\":\"deepseek-v4-flash\",\"promptTokenCostPer1M\":0.14,\"provider\":\"deepseek\",\"supported\":{\"showThoughts\":true,\"structuredOutputs\":false,\"thinkingBudget\":true},\"type\":\"text\"},{\"cacheReadTokenCostPer1M\":0.003625,\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"serviceTiers\":[],\"showThoughts\":true,\"structuredOutputs\":false,\"temperature\":true,\"thinkingBudget\":true,\"thinkingLevels\":[\"none\",\"minimal\",\"low\",\"medium\",\"high\",\"highest\"],\"topP\":true},\"completionTokenCostPer1M\":0.87,\"contextWindow\":1000000,\"currency\":\"USD\",\"isDefault\":false,\"maxTokens\":384000,\"name\":\"deepseek-v4-pro\",\"promptTokenCostPer1M\":0.435,\"provider\":\"deepseek\",\"supported\":{\"showThoughts\":true,\"structuredOutputs\":false,\"thinkingBudget\":true},\"type\":\"text\"}],\"name\":\"deepseek\"},{\"capabilities\":{\"serviceTiers\":[],\"thinking\":true,\"thinkingLevels\":[\"none\",\"minimal\",\"low\",\"medium\",\"high\",\"highest\"]},\"defaultModel\":\"deepseek-v4-flash\",\"displayName\":\"DeepSeek Responses\",\"isDynamic\":false,\"models\":[{\"aliases\":[\"deepseek-chat\",\"deepseek-reasoner\"],\"cacheReadTokenCostPer1M\":0.0028,\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"serviceTiers\":[],\"showThoughts\":true,\"structuredOutputs\":false,\"temperature\":true,\"thinkingBudget\":true,\"thinkingLevels\":[\"none\",\"minimal\",\"low\",\"medium\",\"high\",\"highest\"],\"topP\":true},\"completionTokenCostPer1M\":0.28,\"contextWindow\":1000000,\"currency\":\"USD\",\"isDefault\":true,\"maxTokens\":384000,\"name\":\"deepseek-v4-flash\",\"promptTokenCostPer1M\":0.14,\"provider\":\"deepseek-responses\",\"supported\":{\"showThoughts\":true,\"structuredOutputs\":false,\"thinkingBudget\":true},\"type\":\"text\"},{\"cacheReadTokenCostPer1M\":0.003625,\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"serviceTiers\":[],\"showThoughts\":true,\"structuredOutputs\":false,\"temperature\":true,\"thinkingBudget\":true,\"thinkingLevels\":[\"none\",\"minimal\",\"low\",\"medium\",\"high\",\"highest\"],\"topP\":true},\"completionTokenCostPer1M\":0.87,\"contextWindow\":1000000,\"currency\":\"USD\",\"isDefault\":false,\"maxTokens\":384000,\"name\":\"deepseek-v4-pro\",\"promptTokenCostPer1M\":0.435,\"provider\":\"deepseek-responses\",\"supported\":{\"showThoughts\":true,\"structuredOutputs\":false,\"thinkingBudget\":true},\"type\":\"text\"}],\"name\":\"deepseek-responses\"},{\"capabilities\":{\"serviceTiers\":[\"standard\",\"flex\",\"priority\"],\"thinking\":true,\"thinkingLevels\":[\"none\",\"minimal\",\"low\",\"medium\",\"high\",\"highest\"]},\"defaultEmbedModel\":\"text-embedding-ada-002\",\"defaultModel\":\"gpt-4o\",\"displayName\":\"OpenAI Responses\",\"isDynamic\":false,\"models\":[{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"serviceTiers\":[\"standard\",\"flex\",\"priority\"],\"showThoughts\":true,\"structuredOutputs\":true,\"temperature\":false,\"thinkingBudget\":true,\"thinkingLevels\":[\"none\",\"minimal\",\"low\",\"medium\",\"high\",\"highest\"],\"topP\":false},\"completionTokenCostPer1M\":0.4,\"currency\":\"usd\",\"isDefault\":false,\"name\":\"gpt-5-nano\",\"notSupported\":{\"temperature\":true,\"topP\":true},\"promptTokenCostPer1M\":0.05,\"provider\":\"openai-responses\",\"supported\":{\"showThoughts\":true,\"structuredOutputs\":true,\"thinkingBudget\":true},\"type\":\"text\"},{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"serviceTiers\":[\"standard\",\"flex\",\"priority\"],\"showThoughts\":false,\"structuredOutputs\":true,\"temperature\":true,\"thinkingBudget\":false,\"thinkingLevels\":[],\"topP\":true},\"completionTokenCostPer1M\":0.4,\"currency\":\"usd\",\"isDefault\":false,\"name\":\"gpt-4.1-nano\",\"promptTokenCostPer1M\":0.1,\"provider\":\"openai-responses\",\"supported\":{\"structuredOutputs\":true},\"type\":\"text\"},{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"serviceTiers\":[\"standard\",\"flex\",\"priority\"],\"showThoughts\":false,\"structuredOutputs\":true,\"temperature\":true,\"thinkingBudget\":false,\"thinkingLevels\":[],\"topP\":true},\"completionTokenCostPer1M\":0.6,\"currency\":\"usd\",\"isDefault\":false,\"name\":\"gpt-4o-mini\",\"promptTokenCostPer1M\":0.15,\"provider\":\"openai-responses\",\"supported\":{\"structuredOutputs\":true},\"type\":\"text\"},{\"cacheReadTokenCostPer1M\":0.02,\"cacheWriteTokenCostPer1M\":0.25,\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"serviceTiers\":[\"standard\",\"flex\",\"priority\"],\"showThoughts\":true,\"structuredOutputs\":true,\"temperature\":false,\"thinkingBudget\":true,\"thinkingLevels\":[\"none\",\"minimal\",\"low\",\"medium\",\"high\",\"highest\"],\"topP\":false},\"completionTokenCostPer1M\":1.2,\"contextWindow\":1050000,\"currency\":\"usd\",\"isDefault\":false,\"longContextCacheReadTokenCostPer1M\":0.04,\"longContextCompletionTokenCostPer1M\":1.8,\"longContextPromptTokenCostPer1M\":0.4,\"longContextThreshold\":272000,\"maxTokens\":128000,\"name\":\"gpt-5.6-luna\",\"notSupported\":{\"temperature\":true,\"topP\":true},\"promptTokenCostPer1M\":0.2,\"provider\":\"openai-responses\",\"supported\":{\"showThoughts\":true,\"structuredOutputs\":true,\"thinkingBudget\":true},\"type\":\"text\"},{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"serviceTiers\":[\"standard\",\"flex\",\"priority\"],\"showThoughts\":true,\"structuredOutputs\":true,\"temperature\":false,\"thinkingBudget\":true,\"thinkingLevels\":[\"none\",\"minimal\",\"low\",\"medium\",\"high\",\"highest\"],\"topP\":false},\"completionTokenCostPer1M\":1.25,\"currency\":\"usd\",\"isDefault\":false,\"name\":\"gpt-5.4-nano\",\"notSupported\":{\"temperature\":true,\"topP\":true},\"promptTokenCostPer1M\":0.2,\"provider\":\"openai-responses\",\"supported\":{\"showThoughts\":true,\"structuredOutputs\":true,\"thinkingBudget\":true},\"type\":\"text\"},{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"serviceTiers\":[\"standard\",\"flex\",\"priority\"],\"showThoughts\":false,\"structuredOutputs\":false,\"temperature\":true,\"thinkingBudget\":false,\"thinkingLevels\":[],\"topP\":true},\"completionTokenCostPer1M\":1.5,\"currency\":\"usd\",\"isDefault\":false,\"name\":\"gpt-3.5-turbo\",\"promptTokenCostPer1M\":0.5,\"provider\":\"openai-responses\",\"type\":\"text\"},{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"serviceTiers\":[\"standard\",\"flex\",\"priority\"],\"showThoughts\":false,\"structuredOutputs\":true,\"temperature\":true,\"thinkingBudget\":false,\"thinkingLevels\":[],\"topP\":true},\"completionTokenCostPer1M\":1.6,\"currency\":\"usd\",\"isDefault\":false,\"name\":\"gpt-4.1-mini\",\"promptTokenCostPer1M\":0.4,\"provider\":\"openai-responses\",\"supported\":{\"structuredOutputs\":true},\"type\":\"text\"},{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"serviceTiers\":[\"standard\",\"flex\",\"priority\"],\"showThoughts\":true,\"structuredOutputs\":true,\"temperature\":false,\"thinkingBudget\":true,\"thinkingLevels\":[\"none\",\"minimal\",\"low\",\"medium\",\"high\",\"highest\"],\"topP\":false},\"completionTokenCostPer1M\":2,\"currency\":\"usd\",\"isDefault\":false,\"name\":\"gpt-5-mini\",\"notSupported\":{\"temperature\":true,\"topP\":true},\"promptTokenCostPer1M\":0.25,\"provider\":\"openai-responses\",\"supported\":{\"showThoughts\":true,\"structuredOutputs\":true,\"thinkingBudget\":true},\"type\":\"text\"},{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"serviceTiers\":[\"standard\",\"flex\",\"priority\"],\"showThoughts\":true,\"structuredOutputs\":true,\"temperature\":false,\"thinkingBudget\":true,\"thinkingLevels\":[\"none\",\"minimal\",\"low\",\"medium\",\"high\",\"highest\"],\"topP\":false},\"completionTokenCostPer1M\":2,\"currency\":\"usd\",\"isDefault\":false,\"name\":\"gpt-5.1-codex-mini\",\"notSupported\":{\"temperature\":true,\"topP\":true},\"promptTokenCostPer1M\":0.25,\"provider\":\"openai-responses\",\"supported\":{\"showThoughts\":true,\"structuredOutputs\":true,\"thinkingBudget\":true},\"type\":\"code\"},{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"serviceTiers\":[\"standard\",\"flex\",\"priority\"],\"showThoughts\":true,\"structuredOutputs\":true,\"temperature\":false,\"thinkingBudget\":true,\"thinkingLevels\":[\"none\",\"minimal\",\"low\",\"medium\",\"high\",\"highest\"],\"topP\":false},\"completionTokenCostPer1M\":4.5,\"currency\":\"usd\",\"isDefault\":false,\"name\":\"gpt-5.4-mini\",\"notSupported\":{\"temperature\":true,\"topP\":true},\"promptTokenCostPer1M\":0.75,\"provider\":\"openai-responses\",\"supported\":{\"showThoughts\":true,\"structuredOutputs\":true,\"thinkingBudget\":true},\"type\":\"text\"},{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"serviceTiers\":[\"standard\",\"flex\",\"priority\"],\"showThoughts\":true,\"structuredOutputs\":true,\"temperature\":true,\"thinkingBudget\":true,\"thinkingLevels\":[\"none\",\"minimal\",\"low\",\"medium\",\"high\",\"highest\"],\"topP\":true},\"completionTokenCostPer1M\":4.4,\"currency\":\"usd\",\"isDefault\":false,\"name\":\"o3-mini\",\"promptTokenCostPer1M\":1.1,\"provider\":\"openai-responses\",\"supported\":{\"showThoughts\":true,\"structuredOutputs\":true,\"thinkingBudget\":true},\"type\":\"text\"},{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"serviceTiers\":[\"standard\",\"flex\",\"priority\"],\"showThoughts\":true,\"structuredOutputs\":true,\"temperature\":true,\"thinkingBudget\":true,\"thinkingLevels\":[\"none\",\"minimal\",\"low\",\"medium\",\"high\",\"highest\"],\"topP\":true},\"completionTokenCostPer1M\":4.4,\"currency\":\"usd\",\"isDefault\":false,\"name\":\"o4-mini\",\"promptTokenCostPer1M\":1.1,\"provider\":\"openai-responses\",\"supported\":{\"showThoughts\":true,\"structuredOutputs\":true,\"thinkingBudget\":true},\"type\":\"text\"},{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"serviceTiers\":[\"standard\",\"flex\",\"priority\"],\"showThoughts\":false,\"structuredOutputs\":true,\"temperature\":true,\"thinkingBudget\":false,\"thinkingLevels\":[],\"topP\":true},\"completionTokenCostPer1M\":8,\"currency\":\"usd\",\"isDefault\":false,\"name\":\"gpt-4.1\",\"promptTokenCostPer1M\":2,\"provider\":\"openai-responses\",\"supported\":{\"structuredOutputs\":true},\"type\":\"text\"},{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"serviceTiers\":[\"standard\",\"flex\",\"priority\"],\"showThoughts\":true,\"structuredOutputs\":true,\"temperature\":true,\"thinkingBudget\":true,\"thinkingLevels\":[\"none\",\"minimal\",\"low\",\"medium\",\"high\",\"highest\"],\"topP\":true},\"completionTokenCostPer1M\":8,\"currency\":\"usd\",\"isDefault\":false,\"name\":\"o3\",\"promptTokenCostPer1M\":2,\"provider\":\"openai-responses\",\"supported\":{\"showThoughts\":true,\"structuredOutputs\":true,\"thinkingBudget\":true},\"type\":\"text\"},{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"serviceTiers\":[\"standard\",\"flex\",\"priority\"],\"showThoughts\":true,\"structuredOutputs\":true,\"temperature\":false,\"thinkingBudget\":true,\"thinkingLevels\":[\"none\",\"minimal\",\"low\",\"medium\",\"high\",\"highest\"],\"topP\":false},\"completionTokenCostPer1M\":10,\"currency\":\"usd\",\"isDefault\":false,\"name\":\"gpt-5\",\"notSupported\":{\"temperature\":true,\"topP\":true},\"promptTokenCostPer1M\":1.25,\"provider\":\"openai-responses\",\"supported\":{\"showThoughts\":true,\"structuredOutputs\":true,\"thinkingBudget\":true},\"type\":\"text\"},{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"serviceTiers\":[\"standard\",\"flex\",\"priority\"],\"showThoughts\":true,\"structuredOutputs\":true,\"temperature\":false,\"thinkingBudget\":true,\"thinkingLevels\":[\"none\",\"minimal\",\"low\",\"medium\",\"high\",\"highest\"],\"topP\":false},\"completionTokenCostPer1M\":10,\"currency\":\"usd\",\"isDefault\":false,\"name\":\"gpt-5-chat\",\"notSupported\":{\"temperature\":true,\"topP\":true},\"promptTokenCostPer1M\":1.25,\"provider\":\"openai-responses\",\"supported\":{\"showThoughts\":true,\"structuredOutputs\":true,\"thinkingBudget\":true},\"type\":\"text\"},{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"serviceTiers\":[\"standard\",\"flex\",\"priority\"],\"showThoughts\":true,\"structuredOutputs\":true,\"temperature\":false,\"thinkingBudget\":true,\"thinkingLevels\":[\"none\",\"minimal\",\"low\",\"medium\",\"high\",\"highest\"],\"topP\":false},\"completionTokenCostPer1M\":10,\"currency\":\"usd\",\"isDefault\":false,\"name\":\"gpt-5-chat-latest\",\"notSupported\":{\"temperature\":true,\"topP\":true},\"promptTokenCostPer1M\":1.25,\"provider\":\"openai-responses\",\"supported\":{\"showThoughts\":true,\"structuredOutputs\":true,\"thinkingBudget\":true},\"type\":\"text\"},{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"serviceTiers\":[\"standard\",\"flex\",\"priority\"],\"showThoughts\":true,\"structuredOutputs\":true,\"temperature\":false,\"thinkingBudget\":true,\"thinkingLevels\":[\"none\",\"minimal\",\"low\",\"medium\",\"high\",\"highest\"],\"topP\":false},\"completionTokenCostPer1M\":10,\"currency\":\"usd\",\"isDefault\":false,\"name\":\"gpt-5-codex\",\"notSupported\":{\"temperature\":true,\"topP\":true},\"promptTokenCostPer1M\":1.25,\"provider\":\"openai-responses\",\"supported\":{\"showThoughts\":true,\"structuredOutputs\":true,\"thinkingBudget\":true},\"type\":\"code\"},{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"serviceTiers\":[\"standard\",\"flex\",\"priority\"],\"showThoughts\":true,\"structuredOutputs\":true,\"temperature\":false,\"thinkingBudget\":true,\"thinkingLevels\":[\"none\",\"minimal\",\"low\",\"medium\",\"high\",\"highest\"],\"topP\":false},\"completionTokenCostPer1M\":10,\"currency\":\"usd\",\"isDefault\":false,\"name\":\"gpt-5.1\",\"notSupported\":{\"temperature\":true,\"topP\":true},\"promptTokenCostPer1M\":1.25,\"provider\":\"openai-responses\",\"supported\":{\"showThoughts\":true,\"structuredOutputs\":true,\"thinkingBudget\":true},\"type\":\"text\"},{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"serviceTiers\":[\"standard\",\"flex\",\"priority\"],\"showThoughts\":true,\"structuredOutputs\":true,\"temperature\":false,\"thinkingBudget\":true,\"thinkingLevels\":[\"none\",\"minimal\",\"low\",\"medium\",\"high\",\"highest\"],\"topP\":false},\"completionTokenCostPer1M\":10,\"currency\":\"usd\",\"isDefault\":false,\"name\":\"gpt-5.1-chat-latest\",\"notSupported\":{\"temperature\":true,\"topP\":true},\"promptTokenCostPer1M\":1.25,\"provider\":\"openai-responses\",\"supported\":{\"showThoughts\":true,\"structuredOutputs\":true,\"thinkingBudget\":true},\"type\":\"text\"},{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"serviceTiers\":[\"standard\",\"flex\",\"priority\"],\"showThoughts\":true,\"structuredOutputs\":true,\"temperature\":false,\"thinkingBudget\":true,\"thinkingLevels\":[\"none\",\"minimal\",\"low\",\"medium\",\"high\",\"highest\"],\"topP\":false},\"completionTokenCostPer1M\":10,\"currency\":\"usd\",\"isDefault\":false,\"name\":\"gpt-5.1-codex\",\"notSupported\":{\"temperature\":true,\"topP\":true},\"promptTokenCostPer1M\":1.25,\"provider\":\"openai-responses\",\"supported\":{\"showThoughts\":true,\"structuredOutputs\":true,\"thinkingBudget\":true},\"type\":\"code\"},{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"serviceTiers\":[\"standard\",\"flex\",\"priority\"],\"showThoughts\":true,\"structuredOutputs\":true,\"temperature\":false,\"thinkingBudget\":true,\"thinkingLevels\":[\"none\",\"minimal\",\"low\",\"medium\",\"high\",\"highest\"],\"topP\":false},\"completionTokenCostPer1M\":10,\"currency\":\"usd\",\"isDefault\":false,\"name\":\"gpt-5.1-codex-max\",\"notSupported\":{\"temperature\":true,\"topP\":true},\"promptTokenCostPer1M\":1.25,\"provider\":\"openai-responses\",\"supported\":{\"showThoughts\":true,\"structuredOutputs\":true,\"thinkingBudget\":true},\"type\":\"code\"},{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"serviceTiers\":[\"standard\",\"flex\",\"priority\"],\"showThoughts\":false,\"structuredOutputs\":true,\"temperature\":true,\"thinkingBudget\":false,\"thinkingLevels\":[],\"topP\":true},\"completionTokenCostPer1M\":10,\"currency\":\"usd\",\"isDefault\":true,\"name\":\"gpt-4o\",\"promptTokenCostPer1M\":2.5,\"provider\":\"openai-responses\",\"supported\":{\"structuredOutputs\":true},\"type\":\"text\"},{\"cacheReadTokenCostPer1M\":0.2,\"cacheWriteTokenCostPer1M\":2.5,\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"serviceTiers\":[\"standard\",\"flex\",\"priority\"],\"showThoughts\":true,\"structuredOutputs\":true,\"temperature\":false,\"thinkingBudget\":true,\"thinkingLevels\":[\"none\",\"minimal\",\"low\",\"medium\",\"high\",\"highest\"],\"topP\":false},\"completionTokenCostPer1M\":12,\"contextWindow\":1050000,\"currency\":\"usd\",\"isDefault\":false,\"longContextCacheReadTokenCostPer1M\":0.4,\"longContextCompletionTokenCostPer1M\":18,\"longContextPromptTokenCostPer1M\":4,\"longContextThreshold\":272000,\"maxTokens\":128000,\"name\":\"gpt-5.6-terra\",\"notSupported\":{\"temperature\":true,\"topP\":true},\"promptTokenCostPer1M\":2,\"provider\":\"openai-responses\",\"supported\":{\"showThoughts\":true,\"structuredOutputs\":true,\"thinkingBudget\":true},\"type\":\"text\"},{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"serviceTiers\":[\"standard\",\"flex\",\"priority\"],\"showThoughts\":true,\"structuredOutputs\":true,\"temperature\":false,\"thinkingBudget\":true,\"thinkingLevels\":[\"none\",\"minimal\",\"low\",\"medium\",\"high\",\"highest\"],\"topP\":false},\"completionTokenCostPer1M\":14,\"currency\":\"usd\",\"isDefault\":false,\"name\":\"gpt-5.2\",\"notSupported\":{\"temperature\":true,\"topP\":true},\"promptTokenCostPer1M\":1.75,\"provider\":\"openai-responses\",\"supported\":{\"showThoughts\":true,\"structuredOutputs\":true,\"thinkingBudget\":true},\"type\":\"text\"},{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"serviceTiers\":[\"standard\",\"flex\",\"priority\"],\"showThoughts\":true,\"structuredOutputs\":true,\"temperature\":false,\"thinkingBudget\":true,\"thinkingLevels\":[\"none\",\"minimal\",\"low\",\"medium\",\"high\",\"highest\"],\"topP\":false},\"completionTokenCostPer1M\":14,\"currency\":\"usd\",\"isDefault\":false,\"name\":\"gpt-5.2-chat-latest\",\"notSupported\":{\"temperature\":true,\"topP\":true},\"promptTokenCostPer1M\":1.75,\"provider\":\"openai-responses\",\"supported\":{\"showThoughts\":true,\"structuredOutputs\":true,\"thinkingBudget\":true},\"type\":\"text\"},{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"serviceTiers\":[\"standard\",\"flex\",\"priority\"],\"showThoughts\":true,\"structuredOutputs\":true,\"temperature\":false,\"thinkingBudget\":true,\"thinkingLevels\":[\"none\",\"minimal\",\"low\",\"medium\",\"high\",\"highest\"],\"topP\":false},\"completionTokenCostPer1M\":14,\"currency\":\"usd\",\"isDefault\":false,\"name\":\"gpt-5.2-codex\",\"notSupported\":{\"temperature\":true,\"topP\":true},\"promptTokenCostPer1M\":1.75,\"provider\":\"openai-responses\",\"supported\":{\"showThoughts\":true,\"structuredOutputs\":true,\"thinkingBudget\":true},\"type\":\"code\"},{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"serviceTiers\":[\"standard\",\"flex\",\"priority\"],\"showThoughts\":true,\"structuredOutputs\":true,\"temperature\":false,\"thinkingBudget\":true,\"thinkingLevels\":[\"none\",\"minimal\",\"low\",\"medium\",\"high\",\"highest\"],\"topP\":false},\"completionTokenCostPer1M\":15,\"currency\":\"usd\",\"isDefault\":false,\"name\":\"gpt-5.4\",\"notSupported\":{\"temperature\":true,\"topP\":true},\"promptTokenCostPer1M\":2.5,\"provider\":\"openai-responses\",\"supported\":{\"showThoughts\":true,\"structuredOutputs\":true,\"thinkingBudget\":true},\"type\":\"text\"},{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"serviceTiers\":[\"standard\",\"flex\",\"priority\"],\"showThoughts\":false,\"structuredOutputs\":true,\"temperature\":true,\"thinkingBudget\":false,\"thinkingLevels\":[],\"topP\":true},\"completionTokenCostPer1M\":15,\"currency\":\"usd\",\"isDefault\":false,\"name\":\"chatgpt-4o-latest\",\"promptTokenCostPer1M\":5,\"provider\":\"openai-responses\",\"supported\":{\"structuredOutputs\":true},\"type\":\"text\"},{\"cacheReadTokenCostPer1M\":0.5,\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"serviceTiers\":[\"standard\",\"flex\",\"priority\"],\"showThoughts\":true,\"structuredOutputs\":true,\"temperature\":false,\"thinkingBudget\":true,\"thinkingLevels\":[\"none\",\"minimal\",\"low\",\"medium\",\"high\",\"highest\"],\"topP\":false},\"completionTokenCostPer1M\":30,\"contextWindow\":1000000,\"currency\":\"usd\",\"isDefault\":false,\"longContextCacheReadTokenCostPer1M\":1,\"longContextCompletionTokenCostPer1M\":45,\"longContextPromptTokenCostPer1M\":10,\"longContextThreshold\":272000,\"name\":\"gpt-5.5\",\"notSupported\":{\"temperature\":true,\"topP\":true},\"promptTokenCostPer1M\":5,\"provider\":\"openai-responses\",\"supported\":{\"showThoughts\":true,\"structuredOutputs\":true,\"thinkingBudget\":true},\"type\":\"text\"},{\"aliases\":[\"gpt-5.6\"],\"cacheReadTokenCostPer1M\":0.5,\"cacheWriteTokenCostPer1M\":6.25,\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"serviceTiers\":[\"standard\",\"flex\",\"priority\"],\"showThoughts\":true,\"structuredOutputs\":true,\"temperature\":false,\"thinkingBudget\":true,\"thinkingLevels\":[\"none\",\"minimal\",\"low\",\"medium\",\"high\",\"highest\"],\"topP\":false},\"completionTokenCostPer1M\":30,\"contextWindow\":1050000,\"currency\":\"usd\",\"isDefault\":false,\"longContextCacheReadTokenCostPer1M\":1,\"longContextCompletionTokenCostPer1M\":45,\"longContextPromptTokenCostPer1M\":10,\"longContextThreshold\":272000,\"maxTokens\":128000,\"name\":\"gpt-5.6-sol\",\"notSupported\":{\"temperature\":true,\"topP\":true},\"promptTokenCostPer1M\":5,\"provider\":\"openai-responses\",\"supported\":{\"showThoughts\":true,\"structuredOutputs\":true,\"thinkingBudget\":true},\"type\":\"text\"},{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"serviceTiers\":[\"standard\",\"flex\",\"priority\"],\"showThoughts\":false,\"structuredOutputs\":true,\"temperature\":true,\"thinkingBudget\":false,\"thinkingLevels\":[],\"topP\":true},\"completionTokenCostPer1M\":30,\"currency\":\"usd\",\"isDefault\":false,\"name\":\"gpt-4-turbo\",\"promptTokenCostPer1M\":10,\"provider\":\"openai-responses\",\"supported\":{\"structuredOutputs\":true},\"type\":\"text\"},{\"cacheReadTokenCostPer1M\":1,\"cacheWriteTokenCostPer1M\":12.5,\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"serviceTiers\":[\"standard\",\"flex\",\"priority\"],\"showThoughts\":true,\"structuredOutputs\":true,\"temperature\":false,\"thinkingBudget\":true,\"thinkingLevels\":[\"minimal\",\"low\",\"medium\",\"high\",\"highest\"],\"topP\":false},\"completionTokenCostPer1M\":50,\"contextWindow\":1050000,\"currency\":\"usd\",\"isDefault\":false,\"longContextCacheReadTokenCostPer1M\":2,\"longContextCacheWriteTokenCostPer1M\":25,\"longContextCompletionTokenCostPer1M\":75,\"longContextPromptTokenCostPer1M\":20,\"longContextThreshold\":272000,\"maxTokens\":128000,\"name\":\"gpt-6-astra\",\"notSupported\":{\"temperature\":true,\"topP\":true},\"promptTokenCostPer1M\":10,\"provider\":\"openai-responses\",\"supported\":{\"showThoughts\":true,\"structuredOutputs\":true,\"thinkingBudget\":true},\"type\":\"text\"},{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"serviceTiers\":[\"standard\",\"flex\",\"priority\"],\"showThoughts\":true,\"structuredOutputs\":true,\"temperature\":true,\"thinkingBudget\":true,\"thinkingLevels\":[\"none\",\"minimal\",\"low\",\"medium\",\"high\",\"highest\"],\"topP\":true},\"completionTokenCostPer1M\":60,\"currency\":\"usd\",\"isDefault\":false,\"name\":\"o1\",\"promptTokenCostPer1M\":15,\"provider\":\"openai-responses\",\"supported\":{\"showThoughts\":true,\"structuredOutputs\":true,\"thinkingBudget\":true},\"type\":\"text\"},{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"serviceTiers\":[\"standard\",\"flex\",\"priority\"],\"showThoughts\":false,\"structuredOutputs\":false,\"temperature\":true,\"thinkingBudget\":false,\"thinkingLevels\":[],\"topP\":true},\"completionTokenCostPer1M\":60,\"currency\":\"usd\",\"isDefault\":false,\"name\":\"gpt-4\",\"promptTokenCostPer1M\":30,\"provider\":\"openai-responses\",\"type\":\"text\"},{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"serviceTiers\":[\"standard\",\"flex\",\"priority\"],\"showThoughts\":true,\"structuredOutputs\":true,\"temperature\":true,\"thinkingBudget\":true,\"thinkingLevels\":[\"none\",\"minimal\",\"low\",\"medium\",\"high\",\"highest\"],\"topP\":true},\"completionTokenCostPer1M\":80,\"currency\":\"usd\",\"isDefault\":false,\"isExpensive\":true,\"name\":\"o3-pro\",\"promptTokenCostPer1M\":20,\"provider\":\"openai-responses\",\"supported\":{\"showThoughts\":true,\"structuredOutputs\":true,\"thinkingBudget\":true},\"type\":\"text\"},{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"serviceTiers\":[\"standard\",\"flex\",\"priority\"],\"showThoughts\":true,\"structuredOutputs\":true,\"temperature\":false,\"thinkingBudget\":true,\"thinkingLevels\":[\"none\",\"minimal\",\"low\",\"medium\",\"high\",\"highest\"],\"topP\":false},\"completionTokenCostPer1M\":120,\"currency\":\"usd\",\"isDefault\":false,\"name\":\"gpt-5-pro\",\"notSupported\":{\"temperature\":true,\"topP\":true},\"promptTokenCostPer1M\":15,\"provider\":\"openai-responses\",\"supported\":{\"showThoughts\":true,\"structuredOutputs\":true,\"thinkingBudget\":true},\"type\":\"text\"},{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"serviceTiers\":[\"standard\",\"flex\",\"priority\"],\"showThoughts\":true,\"structuredOutputs\":true,\"temperature\":false,\"thinkingBudget\":true,\"thinkingLevels\":[\"none\",\"minimal\",\"low\",\"medium\",\"high\",\"highest\"],\"topP\":false},\"completionTokenCostPer1M\":168,\"currency\":\"usd\",\"isDefault\":false,\"name\":\"gpt-5.2-pro\",\"notSupported\":{\"temperature\":true,\"topP\":true},\"promptTokenCostPer1M\":21,\"provider\":\"openai-responses\",\"supported\":{\"showThoughts\":true,\"structuredOutputs\":true,\"thinkingBudget\":true},\"type\":\"text\"},{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"serviceTiers\":[\"standard\",\"flex\",\"priority\"],\"showThoughts\":true,\"structuredOutputs\":true,\"temperature\":false,\"thinkingBudget\":true,\"thinkingLevels\":[\"none\",\"minimal\",\"low\",\"medium\",\"high\",\"highest\"],\"topP\":false},\"completionTokenCostPer1M\":180,\"contextWindow\":1000000,\"currency\":\"usd\",\"isDefault\":false,\"isExpensive\":true,\"longContextCompletionTokenCostPer1M\":270,\"longContextPromptTokenCostPer1M\":60,\"longContextThreshold\":272000,\"name\":\"gpt-5.5-pro\",\"notSupported\":{\"temperature\":true,\"topP\":true},\"promptTokenCostPer1M\":30,\"provider\":\"openai-responses\",\"supported\":{\"showThoughts\":true,\"structuredOutputs\":true,\"thinkingBudget\":true},\"type\":\"text\"},{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"serviceTiers\":[\"standard\",\"flex\",\"priority\"],\"showThoughts\":true,\"structuredOutputs\":true,\"temperature\":true,\"thinkingBudget\":true,\"thinkingLevels\":[\"none\",\"minimal\",\"low\",\"medium\",\"high\",\"highest\"],\"topP\":true},\"completionTokenCostPer1M\":600,\"currency\":\"usd\",\"isDefault\":false,\"isExpensive\":true,\"name\":\"o1-pro\",\"promptTokenCostPer1M\":150,\"provider\":\"openai-responses\",\"supported\":{\"showThoughts\":true,\"structuredOutputs\":true,\"thinkingBudget\":true},\"type\":\"text\"}],\"name\":\"openai-responses\"},{\"capabilities\":{\"serviceTiers\":[\"standard\",\"priority\"],\"thinking\":true,\"thinkingLevels\":[\"minimal\",\"low\",\"medium\",\"high\",\"highest\"]},\"defaultModel\":\"grok-4.6\",\"displayName\":\"xAI Grok\",\"isDynamic\":false,\"models\":[{\"aliases\":[\"grok-4-1-fast-non-reasoning-latest\"],\"cacheReadTokenCostPer1M\":0.05,\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"serviceTiers\":[\"standard\",\"priority\"],\"showThoughts\":false,\"structuredOutputs\":true,\"temperature\":true,\"thinkingBudget\":false,\"thinkingLevels\":[],\"topP\":true},\"completionTokenCostPer1M\":0.5,\"contextWindow\":2000000,\"currency\":\"USD\",\"isDefault\":false,\"name\":\"grok-4-1-fast-non-reasoning\",\"promptTokenCostPer1M\":0.2,\"provider\":\"grok\",\"supported\":{\"structuredOutputs\":true},\"type\":\"text\"},{\"aliases\":[\"grok-4-1-fast-reasoning-latest\"],\"cacheReadTokenCostPer1M\":0.05,\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"serviceTiers\":[\"standard\",\"priority\"],\"showThoughts\":false,\"structuredOutputs\":true,\"temperature\":true,\"thinkingBudget\":false,\"thinkingLevels\":[],\"topP\":true},\"completionTokenCostPer1M\":0.5,\"contextWindow\":2000000,\"currency\":\"USD\",\"isDefault\":false,\"name\":\"grok-4-1-fast-reasoning\",\"promptTokenCostPer1M\":0.2,\"provider\":\"grok\",\"supported\":{\"structuredOutputs\":true},\"type\":\"text\"},{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"serviceTiers\":[\"standard\",\"priority\"],\"showThoughts\":false,\"structuredOutputs\":false,\"temperature\":true,\"thinkingBudget\":true,\"thinkingLevels\":[\"minimal\",\"low\",\"medium\",\"high\",\"highest\"],\"topP\":true},\"completionTokenCostPer1M\":0.5,\"currency\":\"USD\",\"isDefault\":false,\"name\":\"grok-3-mini\",\"promptTokenCostPer1M\":0.3,\"provider\":\"grok\",\"supported\":{\"thinkingBudget\":true},\"type\":\"text\"},{\"aliases\":[\"grok-4.20-multi-agent-0309\",\"grok-4.20-multi-agent-latest\"],\"cacheReadTokenCostPer1M\":0.2,\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"serviceTiers\":[\"standard\",\"priority\"],\"showThoughts\":false,\"structuredOutputs\":true,\"temperature\":true,\"thinkingBudget\":false,\"thinkingLevels\":[],\"topP\":true},\"completionTokenCostPer1M\":2.5,\"contextWindow\":2000000,\"currency\":\"USD\",\"isDefault\":false,\"name\":\"grok-4.20-multi-agent\",\"promptTokenCostPer1M\":1.25,\"provider\":\"grok\",\"supported\":{\"structuredOutputs\":true},\"type\":\"text\"},{\"aliases\":[\"grok-4.20-0309-non-reasoning\",\"grok-4.20-non-reasoning-latest\"],\"cacheReadTokenCostPer1M\":0.2,\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"serviceTiers\":[\"standard\",\"priority\"],\"showThoughts\":false,\"structuredOutputs\":true,\"temperature\":true,\"thinkingBudget\":false,\"thinkingLevels\":[],\"topP\":true},\"completionTokenCostPer1M\":2.5,\"contextWindow\":2000000,\"currency\":\"USD\",\"isDefault\":false,\"name\":\"grok-4.20-non-reasoning\",\"promptTokenCostPer1M\":1.25,\"provider\":\"grok\",\"supported\":{\"structuredOutputs\":true},\"type\":\"text\"},{\"aliases\":[\"grok-4.20-0309-reasoning\",\"grok-4.20-reasoning-latest\",\"grok-4.20\",\"grok-4.20-0309\"],\"cacheReadTokenCostPer1M\":0.2,\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"serviceTiers\":[\"standard\",\"priority\"],\"showThoughts\":false,\"structuredOutputs\":true,\"temperature\":true,\"thinkingBudget\":false,\"thinkingLevels\":[],\"topP\":true},\"completionTokenCostPer1M\":2.5,\"contextWindow\":2000000,\"currency\":\"USD\",\"isDefault\":false,\"name\":\"grok-4.20-reasoning\",\"promptTokenCostPer1M\":1.25,\"provider\":\"grok\",\"supported\":{\"structuredOutputs\":true},\"type\":\"text\"},{\"aliases\":[\"grok-4.3-latest\",\"grok-latest\"],\"cacheReadTokenCostPer1M\":0.2,\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"serviceTiers\":[\"standard\",\"priority\"],\"showThoughts\":false,\"structuredOutputs\":true,\"temperature\":true,\"thinkingBudget\":true,\"thinkingLevels\":[\"none\",\"minimal\",\"low\",\"medium\",\"high\",\"highest\"],\"topP\":true},\"completionTokenCostPer1M\":2.5,\"contextWindow\":1000000,\"currency\":\"USD\",\"isDefault\":false,\"name\":\"grok-4.3\",\"promptTokenCostPer1M\":1.25,\"provider\":\"grok\",\"supported\":{\"structuredOutputs\":true,\"thinkingBudget\":true},\"type\":\"text\"},{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"serviceTiers\":[\"standard\",\"priority\"],\"showThoughts\":false,\"structuredOutputs\":false,\"temperature\":true,\"thinkingBudget\":true,\"thinkingLevels\":[\"minimal\",\"low\",\"medium\",\"high\",\"highest\"],\"topP\":true},\"completionTokenCostPer1M\":4,\"currency\":\"USD\",\"isDefault\":false,\"name\":\"grok-3-mini-fast\",\"promptTokenCostPer1M\":0.6,\"provider\":\"grok\",\"supported\":{\"thinkingBudget\":true},\"type\":\"text\"},{\"aliases\":[\"grok-4.5-latest\",\"grok-build-latest\"],\"cacheReadTokenCostPer1M\":0.3,\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"serviceTiers\":[\"standard\",\"priority\"],\"showThoughts\":false,\"structuredOutputs\":true,\"temperature\":true,\"thinkingBudget\":true,\"thinkingLevels\":[\"minimal\",\"low\",\"medium\",\"high\",\"highest\"],\"topP\":true},\"completionTokenCostPer1M\":6,\"contextWindow\":500000,\"currency\":\"USD\",\"isDefault\":false,\"name\":\"grok-4.5\",\"promptTokenCostPer1M\":2,\"provider\":\"grok\",\"supported\":{\"structuredOutputs\":true,\"thinkingBudget\":true},\"type\":\"text\"},{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"serviceTiers\":[\"standard\",\"priority\"],\"showThoughts\":false,\"structuredOutputs\":false,\"temperature\":true,\"thinkingBudget\":false,\"thinkingLevels\":[],\"topP\":true},\"completionTokenCostPer1M\":15,\"currency\":\"USD\",\"isDefault\":false,\"name\":\"grok-3\",\"promptTokenCostPer1M\":3,\"provider\":\"grok\",\"type\":\"text\"},{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"serviceTiers\":[\"standard\",\"priority\"],\"showThoughts\":false,\"structuredOutputs\":false,\"temperature\":true,\"thinkingBudget\":false,\"thinkingLevels\":[],\"topP\":true},\"completionTokenCostPer1M\":25,\"currency\":\"USD\",\"isDefault\":false,\"name\":\"grok-3-fast\",\"promptTokenCostPer1M\":5,\"provider\":\"grok\",\"type\":\"text\"},{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"serviceTiers\":[\"standard\",\"priority\"],\"showThoughts\":false,\"structuredOutputs\":true,\"temperature\":true,\"thinkingBudget\":true,\"thinkingLevels\":[\"minimal\",\"low\",\"medium\",\"high\",\"highest\"],\"topP\":true},\"currency\":\"USD\",\"isDefault\":true,\"name\":\"grok-4.6\",\"provider\":\"grok\",\"supported\":{\"structuredOutputs\":true,\"thinkingBudget\":true},\"type\":\"text\"},{\"capabilities\":{\"audioInput\":true,\"audioOutput\":true,\"serviceTiers\":[],\"showThoughts\":false,\"structuredOutputs\":false,\"temperature\":true,\"thinkingBudget\":false,\"thinkingLevels\":[],\"topP\":true},\"currency\":\"USD\",\"isDefault\":false,\"name\":\"grok-voice-think-fast-1.0\",\"provider\":\"grok\",\"type\":\"audio\"},{\"capabilities\":{\"audioInput\":true,\"audioOutput\":true,\"serviceTiers\":[],\"showThoughts\":false,\"structuredOutputs\":false,\"temperature\":true,\"thinkingBudget\":false,\"thinkingLevels\":[],\"topP\":true},\"currency\":\"USD\",\"isDefault\":false,\"name\":\"grok-voice-fast-1.0\",\"provider\":\"grok\",\"type\":\"audio\"}],\"name\":\"grok\"},{\"capabilities\":{\"serviceTiers\":[],\"thinking\":false,\"thinkingLevels\":[]},\"defaultModel\":\"reka-core\",\"displayName\":\"Reka\",\"isDynamic\":false,\"models\":[{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"serviceTiers\":[],\"showThoughts\":false,\"structuredOutputs\":false,\"temperature\":true,\"thinkingBudget\":false,\"thinkingLevels\":[],\"topP\":true},\"completionTokenCostPer1M\":1,\"currency\":\"usd\",\"isDefault\":false,\"name\":\"reka-edge\",\"promptTokenCostPer1M\":0.4,\"provider\":\"reka\",\"type\":\"text\"},{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"serviceTiers\":[],\"showThoughts\":false,\"structuredOutputs\":false,\"temperature\":true,\"thinkingBudget\":false,\"thinkingLevels\":[],\"topP\":true},\"completionTokenCostPer1M\":2,\"currency\":\"usd\",\"isDefault\":false,\"name\":\"reka-flash\",\"promptTokenCostPer1M\":0.8,\"provider\":\"reka\",\"type\":\"text\"},{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"serviceTiers\":[],\"showThoughts\":false,\"structuredOutputs\":false,\"temperature\":true,\"thinkingBudget\":false,\"thinkingLevels\":[],\"topP\":true},\"completionTokenCostPer1M\":15,\"currency\":\"usd\",\"isDefault\":true,\"name\":\"reka-core\",\"promptTokenCostPer1M\":3,\"provider\":\"reka\",\"type\":\"text\"}],\"name\":\"reka\"},{\"capabilities\":{\"serviceTiers\":[],\"thinking\":true,\"thinkingLevels\":[\"none\",\"minimal\",\"low\",\"medium\",\"high\",\"highest\"]},\"defaultModel\":\"claude-3-7-sonnet-latest\",\"displayName\":\"Anthropic\",\"isDynamic\":false,\"models\":[{\"cacheReadTokenCostPer1M\":0.03,\"cacheWriteTokenCostPer1M\":0.3,\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"serviceTiers\":[],\"showThoughts\":false,\"structuredOutputs\":false,\"temperature\":true,\"thinkingBudget\":false,\"thinkingLevels\":[],\"topP\":true},\"completionTokenCostPer1M\":1.25,\"currency\":\"usd\",\"isDefault\":false,\"maxTokens\":4096,\"name\":\"claude-3-haiku-20240307\",\"promptTokenCostPer1M\":0.25,\"provider\":\"anthropic\",\"type\":\"text\"},{\"cacheReadTokenCostPer1M\":0.03,\"cacheWriteTokenCostPer1M\":0.3,\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"serviceTiers\":[],\"showThoughts\":false,\"structuredOutputs\":false,\"temperature\":true,\"thinkingBudget\":false,\"thinkingLevels\":[],\"topP\":true},\"completionTokenCostPer1M\":1.25,\"currency\":\"usd\",\"isDefault\":false,\"maxTokens\":4096,\"name\":\"claude-3-haiku@20240307\",\"promptTokenCostPer1M\":0.25,\"provider\":\"anthropic\",\"type\":\"text\"},{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"serviceTiers\":[],\"showThoughts\":false,\"structuredOutputs\":false,\"temperature\":true,\"thinkingBudget\":false,\"thinkingLevels\":[],\"topP\":true},\"completionTokenCostPer1M\":2.24,\"currency\":\"usd\",\"isDefault\":false,\"maxTokens\":4096,\"name\":\"claude-instant-1.2\",\"promptTokenCostPer1M\":0.8,\"provider\":\"anthropic\",\"type\":\"text\"},{\"cacheReadTokenCostPer1M\":0.08,\"cacheWriteTokenCostPer1M\":1,\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"serviceTiers\":[],\"showThoughts\":false,\"structuredOutputs\":false,\"temperature\":true,\"thinkingBudget\":false,\"thinkingLevels\":[],\"topP\":true},\"completionTokenCostPer1M\":4,\"currency\":\"usd\",\"isDefault\":false,\"maxTokens\":8192,\"name\":\"claude-3-5-haiku-latest\",\"promptTokenCostPer1M\":0.8,\"provider\":\"anthropic\",\"type\":\"text\"},{\"cacheReadTokenCostPer1M\":0.1,\"cacheWriteTokenCostPer1M\":1.25,\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"serviceTiers\":[],\"showThoughts\":false,\"structuredOutputs\":false,\"temperature\":true,\"thinkingBudget\":false,\"thinkingLevels\":[],\"topP\":true},\"completionTokenCostPer1M\":5,\"currency\":\"usd\",\"isDefault\":false,\"maxTokens\":8192,\"name\":\"claude-3-5-haiku@20241022\",\"promptTokenCostPer1M\":1,\"provider\":\"anthropic\",\"type\":\"text\"},{\"cacheReadTokenCostPer1M\":0.1,\"cacheWriteTokenCostPer1M\":1.25,\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"serviceTiers\":[],\"showThoughts\":true,\"structuredOutputs\":false,\"temperature\":true,\"thinkingBudget\":true,\"thinkingLevels\":[\"none\",\"minimal\",\"low\",\"medium\",\"high\",\"highest\"],\"topP\":true},\"completionTokenCostPer1M\":5,\"currency\":\"usd\",\"isDefault\":false,\"maxTokens\":200000,\"name\":\"claude-haiku-4-5\",\"promptTokenCostPer1M\":1,\"provider\":\"anthropic\",\"supported\":{\"showThoughts\":true,\"thinkingBudget\":true},\"type\":\"text\"},{\"cacheReadTokenCostPer1M\":0.1,\"cacheWriteTokenCostPer1M\":1.25,\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"serviceTiers\":[],\"showThoughts\":true,\"structuredOutputs\":false,\"temperature\":true,\"thinkingBudget\":true,\"thinkingLevels\":[\"none\",\"minimal\",\"low\",\"medium\",\"high\",\"highest\"],\"topP\":true},\"completionTokenCostPer1M\":5,\"currency\":\"usd\",\"isDefault\":false,\"maxTokens\":200000,\"name\":\"claude-haiku-4-5@20251001\",\"promptTokenCostPer1M\":1,\"provider\":\"anthropic\",\"supported\":{\"showThoughts\":true,\"thinkingBudget\":true},\"type\":\"text\"},{\"cacheReadTokenCostPer1M\":0.2,\"cacheWriteTokenCostPer1M\":2.5,\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"serviceTiers\":[],\"showThoughts\":true,\"structuredOutputs\":true,\"temperature\":true,\"thinkingBudget\":true,\"thinkingLevels\":[\"none\",\"minimal\",\"low\",\"medium\",\"high\",\"highest\"],\"topP\":true},\"completionTokenCostPer1M\":10,\"contextWindow\":1000000,\"currency\":\"usd\",\"isDefault\":false,\"maxTokens\":128000,\"name\":\"claude-sonnet-5\",\"promptTokenCostPer1M\":2,\"provider\":\"anthropic\",\"supported\":{\"showThoughts\":true,\"structuredOutputs\":true,\"thinkingBudget\":true},\"type\":\"text\"},{\"cacheReadTokenCostPer1M\":0.2,\"cacheWriteTokenCostPer1M\":2.5,\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"serviceTiers\":[],\"showThoughts\":true,\"structuredOutputs\":true,\"temperature\":true,\"thinkingBudget\":true,\"thinkingLevels\":[\"none\",\"minimal\",\"low\",\"medium\",\"high\",\"highest\"],\"topP\":true},\"completionTokenCostPer1M\":10,\"contextWindow\":1000000,\"currency\":\"usd\",\"isDefault\":false,\"maxTokens\":128000,\"name\":\"claude-sonnet-5\",\"promptTokenCostPer1M\":2,\"provider\":\"anthropic\",\"supported\":{\"showThoughts\":true,\"structuredOutputs\":true,\"thinkingBudget\":true},\"type\":\"text\"},{\"cacheReadTokenCostPer1M\":0.3,\"cacheWriteTokenCostPer1M\":3.75,\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"serviceTiers\":[],\"showThoughts\":false,\"structuredOutputs\":true,\"temperature\":true,\"thinkingBudget\":false,\"thinkingLevels\":[],\"topP\":true},\"completionTokenCostPer1M\":15,\"currency\":\"usd\",\"isDefault\":false,\"maxTokens\":8192,\"name\":\"claude-3-5-sonnet-latest\",\"promptTokenCostPer1M\":3,\"provider\":\"anthropic\",\"supported\":{\"structuredOutputs\":true},\"type\":\"text\"},{\"cacheReadTokenCostPer1M\":0.3,\"cacheWriteTokenCostPer1M\":3.75,\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"serviceTiers\":[],\"showThoughts\":true,\"structuredOutputs\":true,\"temperature\":true,\"thinkingBudget\":true,\"thinkingLevels\":[\"none\",\"minimal\",\"low\",\"medium\",\"high\",\"highest\"],\"topP\":true},\"completionTokenCostPer1M\":15,\"currency\":\"usd\",\"isDefault\":false,\"maxTokens\":8192,\"name\":\"claude-3-5-sonnet-v2@20241022\",\"promptTokenCostPer1M\":3,\"provider\":\"anthropic\",\"supported\":{\"showThoughts\":true,\"structuredOutputs\":true,\"thinkingBudget\":true},\"type\":\"text\"},{\"cacheReadTokenCostPer1M\":0.3,\"cacheWriteTokenCostPer1M\":3.75,\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"serviceTiers\":[],\"showThoughts\":false,\"structuredOutputs\":true,\"temperature\":true,\"thinkingBudget\":false,\"thinkingLevels\":[],\"topP\":true},\"completionTokenCostPer1M\":15,\"currency\":\"usd\",\"isDefault\":false,\"maxTokens\":8192,\"name\":\"claude-3-5-sonnet@20240620\",\"promptTokenCostPer1M\":3,\"provider\":\"anthropic\",\"supported\":{\"structuredOutputs\":true},\"type\":\"text\"},{\"cacheReadTokenCostPer1M\":0.3,\"cacheWriteTokenCostPer1M\":3.75,\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"serviceTiers\":[],\"showThoughts\":true,\"structuredOutputs\":true,\"temperature\":true,\"thinkingBudget\":true,\"thinkingLevels\":[\"none\",\"minimal\",\"low\",\"medium\",\"high\",\"highest\"],\"topP\":true},\"completionTokenCostPer1M\":15,\"currency\":\"usd\",\"isDefault\":true,\"maxTokens\":64000,\"name\":\"claude-3-7-sonnet-latest\",\"promptTokenCostPer1M\":3,\"provider\":\"anthropic\",\"supported\":{\"showThoughts\":true,\"structuredOutputs\":true,\"thinkingBudget\":true},\"type\":\"text\"},{\"cacheReadTokenCostPer1M\":0.3,\"cacheWriteTokenCostPer1M\":3.75,\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"serviceTiers\":[],\"showThoughts\":true,\"structuredOutputs\":true,\"temperature\":true,\"thinkingBudget\":true,\"thinkingLevels\":[\"none\",\"minimal\",\"low\",\"medium\",\"high\",\"highest\"],\"topP\":true},\"completionTokenCostPer1M\":15,\"currency\":\"usd\",\"isDefault\":false,\"maxTokens\":64000,\"name\":\"claude-3-7-sonnet@20250219\",\"promptTokenCostPer1M\":3,\"provider\":\"anthropic\",\"supported\":{\"showThoughts\":true,\"structuredOutputs\":true,\"thinkingBudget\":true},\"type\":\"text\"},{\"cacheReadTokenCostPer1M\":0.3,\"cacheWriteTokenCostPer1M\":3.75,\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"serviceTiers\":[],\"showThoughts\":false,\"structuredOutputs\":true,\"temperature\":true,\"thinkingBudget\":false,\"thinkingLevels\":[],\"topP\":true},\"completionTokenCostPer1M\":15,\"currency\":\"usd\",\"isDefault\":false,\"maxTokens\":4096,\"name\":\"claude-3-sonnet-20240229\",\"promptTokenCostPer1M\":3,\"provider\":\"anthropic\",\"supported\":{\"structuredOutputs\":true},\"type\":\"text\"},{\"cacheReadTokenCostPer1M\":0.3,\"cacheWriteTokenCostPer1M\":3.75,\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"serviceTiers\":[],\"showThoughts\":true,\"structuredOutputs\":true,\"temperature\":true,\"thinkingBudget\":true,\"thinkingLevels\":[\"none\",\"minimal\",\"low\",\"medium\",\"high\",\"highest\"],\"topP\":true},\"completionTokenCostPer1M\":15,\"currency\":\"usd\",\"isDefault\":false,\"maxTokens\":64000,\"name\":\"claude-sonnet-4-20250514\",\"promptTokenCostPer1M\":3,\"provider\":\"anthropic\",\"supported\":{\"showThoughts\":true,\"structuredOutputs\":true,\"thinkingBudget\":true},\"type\":\"text\"},{\"cacheReadTokenCostPer1M\":0.3,\"cacheWriteTokenCostPer1M\":3.75,\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"serviceTiers\":[],\"showThoughts\":true,\"structuredOutputs\":true,\"temperature\":true,\"thinkingBudget\":true,\"thinkingLevels\":[\"none\",\"minimal\",\"low\",\"medium\",\"high\",\"highest\"],\"topP\":true},\"completionTokenCostPer1M\":15,\"currency\":\"usd\",\"isDefault\":false,\"maxTokens\":200000,\"name\":\"claude-sonnet-4-5-20250929\",\"promptTokenCostPer1M\":3,\"provider\":\"anthropic\",\"supported\":{\"showThoughts\":true,\"structuredOutputs\":true,\"thinkingBudget\":true},\"type\":\"text\"},{\"cacheReadTokenCostPer1M\":0.3,\"cacheWriteTokenCostPer1M\":3.75,\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"serviceTiers\":[],\"showThoughts\":true,\"structuredOutputs\":true,\"temperature\":true,\"thinkingBudget\":true,\"thinkingLevels\":[\"none\",\"minimal\",\"low\",\"medium\",\"high\",\"highest\"],\"topP\":true},\"completionTokenCostPer1M\":15,\"currency\":\"usd\",\"isDefault\":false,\"maxTokens\":200000,\"name\":\"claude-sonnet-4-5@20250929\",\"promptTokenCostPer1M\":3,\"provider\":\"anthropic\",\"supported\":{\"showThoughts\":true,\"structuredOutputs\":true,\"thinkingBudget\":true},\"type\":\"text\"},{\"cacheReadTokenCostPer1M\":0.3,\"cacheWriteTokenCostPer1M\":3.75,\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"serviceTiers\":[],\"showThoughts\":true,\"structuredOutputs\":true,\"temperature\":true,\"thinkingBudget\":true,\"thinkingLevels\":[\"none\",\"minimal\",\"low\",\"medium\",\"high\",\"highest\"],\"topP\":true},\"completionTokenCostPer1M\":15,\"currency\":\"usd\",\"isDefault\":false,\"maxTokens\":64000,\"name\":\"claude-sonnet-4-6\",\"promptTokenCostPer1M\":3,\"provider\":\"anthropic\",\"supported\":{\"showThoughts\":true,\"structuredOutputs\":true,\"thinkingBudget\":true},\"type\":\"text\"},{\"cacheReadTokenCostPer1M\":0.3,\"cacheWriteTokenCostPer1M\":3.75,\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"serviceTiers\":[],\"showThoughts\":true,\"structuredOutputs\":true,\"temperature\":true,\"thinkingBudget\":true,\"thinkingLevels\":[\"none\",\"minimal\",\"low\",\"medium\",\"high\",\"highest\"],\"topP\":true},\"completionTokenCostPer1M\":15,\"currency\":\"usd\",\"isDefault\":false,\"maxTokens\":64000,\"name\":\"claude-sonnet-4-6\",\"promptTokenCostPer1M\":3,\"provider\":\"anthropic\",\"supported\":{\"showThoughts\":true,\"structuredOutputs\":true,\"thinkingBudget\":true},\"type\":\"text\"},{\"cacheReadTokenCostPer1M\":0.3,\"cacheWriteTokenCostPer1M\":3.75,\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"serviceTiers\":[],\"showThoughts\":true,\"structuredOutputs\":true,\"temperature\":true,\"thinkingBudget\":true,\"thinkingLevels\":[\"none\",\"minimal\",\"low\",\"medium\",\"high\",\"highest\"],\"topP\":true},\"completionTokenCostPer1M\":15,\"currency\":\"usd\",\"isDefault\":false,\"maxTokens\":64000,\"name\":\"claude-sonnet-4@20250514\",\"promptTokenCostPer1M\":3,\"provider\":\"anthropic\",\"supported\":{\"showThoughts\":true,\"structuredOutputs\":true,\"thinkingBudget\":true},\"type\":\"text\"},{\"cacheReadTokenCostPer1M\":0.5,\"cacheWriteTokenCostPer1M\":6.25,\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"serviceTiers\":[],\"showThoughts\":true,\"structuredOutputs\":true,\"temperature\":true,\"thinkingBudget\":true,\"thinkingLevels\":[\"none\",\"minimal\",\"low\",\"medium\",\"high\",\"highest\"],\"topP\":true},\"completionTokenCostPer1M\":25,\"currency\":\"usd\",\"isDefault\":false,\"maxTokens\":64000,\"name\":\"claude-opus-4-5-20251101\",\"promptTokenCostPer1M\":5,\"provider\":\"anthropic\",\"supported\":{\"showThoughts\":true,\"structuredOutputs\":true,\"thinkingBudget\":true},\"type\":\"text\"},{\"cacheReadTokenCostPer1M\":0.5,\"cacheWriteTokenCostPer1M\":6.25,\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"serviceTiers\":[],\"showThoughts\":true,\"structuredOutputs\":true,\"temperature\":true,\"thinkingBudget\":true,\"thinkingLevels\":[\"none\",\"minimal\",\"low\",\"medium\",\"high\",\"highest\"],\"topP\":true},\"completionTokenCostPer1M\":25,\"currency\":\"usd\",\"isDefault\":false,\"maxTokens\":64000,\"name\":\"claude-opus-4-5@20251101\",\"promptTokenCostPer1M\":5,\"provider\":\"anthropic\",\"supported\":{\"showThoughts\":true,\"structuredOutputs\":true,\"thinkingBudget\":true},\"type\":\"text\"},{\"cacheReadTokenCostPer1M\":0.5,\"cacheWriteTokenCostPer1M\":6.25,\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"serviceTiers\":[],\"showThoughts\":true,\"structuredOutputs\":true,\"temperature\":true,\"thinkingBudget\":true,\"thinkingLevels\":[\"none\",\"minimal\",\"low\",\"medium\",\"high\",\"highest\"],\"topP\":true},\"completionTokenCostPer1M\":25,\"contextWindow\":1000000,\"currency\":\"usd\",\"fastCacheReadTokenCostPer1M\":3,\"fastCacheWriteTokenCostPer1M\":37.5,\"fastCompletionTokenCostPer1M\":150,\"fastPromptTokenCostPer1M\":30,\"isDefault\":false,\"maxTokens\":128000,\"name\":\"claude-opus-4-6\",\"promptTokenCostPer1M\":5,\"provider\":\"anthropic\",\"supported\":{\"showThoughts\":true,\"structuredOutputs\":true,\"thinkingBudget\":true},\"type\":\"text\"},{\"cacheReadTokenCostPer1M\":0.5,\"cacheWriteTokenCostPer1M\":6.25,\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"serviceTiers\":[],\"showThoughts\":true,\"structuredOutputs\":true,\"temperature\":true,\"thinkingBudget\":true,\"thinkingLevels\":[\"none\",\"minimal\",\"low\",\"medium\",\"high\",\"highest\"],\"topP\":true},\"completionTokenCostPer1M\":25,\"contextWindow\":1000000,\"currency\":\"usd\",\"isDefault\":false,\"maxTokens\":128000,\"name\":\"claude-opus-4-6\",\"promptTokenCostPer1M\":5,\"provider\":\"anthropic\",\"supported\":{\"showThoughts\":true,\"structuredOutputs\":true,\"thinkingBudget\":true},\"type\":\"text\"},{\"cacheReadTokenCostPer1M\":0.5,\"cacheWriteTokenCostPer1M\":6.25,\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"serviceTiers\":[],\"showThoughts\":true,\"structuredOutputs\":true,\"temperature\":true,\"thinkingBudget\":true,\"thinkingLevels\":[\"none\",\"minimal\",\"low\",\"medium\",\"high\",\"highest\"],\"topP\":true},\"completionTokenCostPer1M\":25,\"contextWindow\":1000000,\"currency\":\"usd\",\"fastCacheReadTokenCostPer1M\":3,\"fastCacheWriteTokenCostPer1M\":37.5,\"fastCompletionTokenCostPer1M\":150,\"fastPromptTokenCostPer1M\":30,\"isDefault\":false,\"maxTokens\":128000,\"name\":\"claude-opus-4-7\",\"promptTokenCostPer1M\":5,\"provider\":\"anthropic\",\"supported\":{\"showThoughts\":true,\"structuredOutputs\":true,\"thinkingBudget\":true},\"type\":\"text\"},{\"cacheReadTokenCostPer1M\":0.5,\"cacheWriteTokenCostPer1M\":6.25,\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"serviceTiers\":[],\"showThoughts\":true,\"structuredOutputs\":true,\"temperature\":true,\"thinkingBudget\":true,\"thinkingLevels\":[\"none\",\"minimal\",\"low\",\"medium\",\"high\",\"highest\"],\"topP\":true},\"completionTokenCostPer1M\":25,\"contextWindow\":1000000,\"currency\":\"usd\",\"isDefault\":false,\"maxTokens\":128000,\"name\":\"claude-opus-4-7\",\"promptTokenCostPer1M\":5,\"provider\":\"anthropic\",\"supported\":{\"showThoughts\":true,\"structuredOutputs\":true,\"thinkingBudget\":true},\"type\":\"text\"},{\"cacheReadTokenCostPer1M\":0.5,\"cacheWriteTokenCostPer1M\":6.25,\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"serviceTiers\":[],\"showThoughts\":true,\"structuredOutputs\":true,\"temperature\":true,\"thinkingBudget\":true,\"thinkingLevels\":[\"none\",\"minimal\",\"low\",\"medium\",\"high\",\"highest\"],\"topP\":true},\"completionTokenCostPer1M\":25,\"contextWindow\":1000000,\"currency\":\"usd\",\"fastCacheReadTokenCostPer1M\":1,\"fastCacheWriteTokenCostPer1M\":12.5,\"fastCompletionTokenCostPer1M\":50,\"fastPromptTokenCostPer1M\":10,\"isDefault\":false,\"maxTokens\":128000,\"name\":\"claude-opus-4-8\",\"promptTokenCostPer1M\":5,\"provider\":\"anthropic\",\"supported\":{\"showThoughts\":true,\"structuredOutputs\":true,\"thinkingBudget\":true},\"type\":\"text\"},{\"cacheReadTokenCostPer1M\":0.5,\"cacheWriteTokenCostPer1M\":6.25,\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"serviceTiers\":[],\"showThoughts\":true,\"structuredOutputs\":true,\"temperature\":true,\"thinkingBudget\":true,\"thinkingLevels\":[\"none\",\"minimal\",\"low\",\"medium\",\"high\",\"highest\"],\"topP\":true},\"completionTokenCostPer1M\":25,\"contextWindow\":1000000,\"currency\":\"usd\",\"isDefault\":false,\"maxTokens\":128000,\"name\":\"claude-opus-4-8\",\"promptTokenCostPer1M\":5,\"provider\":\"anthropic\",\"supported\":{\"showThoughts\":true,\"structuredOutputs\":true,\"thinkingBudget\":true},\"type\":\"text\"},{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"serviceTiers\":[],\"showThoughts\":false,\"structuredOutputs\":false,\"temperature\":true,\"thinkingBudget\":false,\"thinkingLevels\":[],\"topP\":true},\"completionTokenCostPer1M\":25,\"currency\":\"usd\",\"isDefault\":false,\"maxTokens\":4096,\"name\":\"claude-2.1\",\"promptTokenCostPer1M\":8,\"provider\":\"anthropic\",\"type\":\"text\"},{\"cacheReadTokenCostPer1M\":1.5,\"cacheWriteTokenCostPer1M\":18.75,\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"serviceTiers\":[],\"showThoughts\":false,\"structuredOutputs\":true,\"temperature\":true,\"thinkingBudget\":false,\"thinkingLevels\":[],\"topP\":true},\"completionTokenCostPer1M\":75,\"currency\":\"usd\",\"isDefault\":false,\"maxTokens\":4096,\"name\":\"claude-3-opus-latest\",\"promptTokenCostPer1M\":15,\"provider\":\"anthropic\",\"supported\":{\"structuredOutputs\":true},\"type\":\"text\"},{\"cacheReadTokenCostPer1M\":1.5,\"cacheWriteTokenCostPer1M\":18.75,\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"serviceTiers\":[],\"showThoughts\":false,\"structuredOutputs\":true,\"temperature\":true,\"thinkingBudget\":false,\"thinkingLevels\":[],\"topP\":true},\"completionTokenCostPer1M\":75,\"currency\":\"usd\",\"isDefault\":false,\"maxTokens\":4096,\"name\":\"claude-3-opus@20240229\",\"promptTokenCostPer1M\":15,\"provider\":\"anthropic\",\"supported\":{\"structuredOutputs\":true},\"type\":\"text\"},{\"cacheReadTokenCostPer1M\":1.5,\"cacheWriteTokenCostPer1M\":18.75,\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"serviceTiers\":[],\"showThoughts\":true,\"structuredOutputs\":true,\"temperature\":true,\"thinkingBudget\":true,\"thinkingLevels\":[\"none\",\"minimal\",\"low\",\"medium\",\"high\",\"highest\"],\"topP\":true},\"completionTokenCostPer1M\":75,\"currency\":\"usd\",\"isDefault\":false,\"maxTokens\":32000,\"name\":\"claude-opus-4-1-20250805\",\"promptTokenCostPer1M\":15,\"provider\":\"anthropic\",\"supported\":{\"showThoughts\":true,\"structuredOutputs\":true,\"thinkingBudget\":true},\"type\":\"text\"},{\"cacheReadTokenCostPer1M\":1.5,\"cacheWriteTokenCostPer1M\":18.75,\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"serviceTiers\":[],\"showThoughts\":true,\"structuredOutputs\":true,\"temperature\":true,\"thinkingBudget\":true,\"thinkingLevels\":[\"none\",\"minimal\",\"low\",\"medium\",\"high\",\"highest\"],\"topP\":true},\"completionTokenCostPer1M\":75,\"currency\":\"usd\",\"isDefault\":false,\"maxTokens\":32000,\"name\":\"claude-opus-4-1@20250805\",\"promptTokenCostPer1M\":15,\"provider\":\"anthropic\",\"supported\":{\"showThoughts\":true,\"structuredOutputs\":true,\"thinkingBudget\":true},\"type\":\"text\"},{\"cacheReadTokenCostPer1M\":1.5,\"cacheWriteTokenCostPer1M\":18.75,\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"serviceTiers\":[],\"showThoughts\":true,\"structuredOutputs\":true,\"temperature\":true,\"thinkingBudget\":true,\"thinkingLevels\":[\"none\",\"minimal\",\"low\",\"medium\",\"high\",\"highest\"],\"topP\":true},\"completionTokenCostPer1M\":75,\"currency\":\"usd\",\"isDefault\":false,\"maxTokens\":32000,\"name\":\"claude-opus-4-20250514\",\"promptTokenCostPer1M\":15,\"provider\":\"anthropic\",\"supported\":{\"showThoughts\":true,\"structuredOutputs\":true,\"thinkingBudget\":true},\"type\":\"text\"},{\"cacheReadTokenCostPer1M\":1.5,\"cacheWriteTokenCostPer1M\":18.75,\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"serviceTiers\":[],\"showThoughts\":true,\"structuredOutputs\":true,\"temperature\":true,\"thinkingBudget\":true,\"thinkingLevels\":[\"none\",\"minimal\",\"low\",\"medium\",\"high\",\"highest\"],\"topP\":true},\"completionTokenCostPer1M\":75,\"currency\":\"usd\",\"isDefault\":false,\"maxTokens\":32000,\"name\":\"claude-opus-4@20250514\",\"promptTokenCostPer1M\":15,\"provider\":\"anthropic\",\"supported\":{\"showThoughts\":true,\"structuredOutputs\":true,\"thinkingBudget\":true},\"type\":\"text\"}],\"name\":\"anthropic\"},{\"capabilities\":{\"serviceTiers\":[],\"thinking\":false,\"thinkingLevels\":[]},\"displayName\":\"OpenAI Compatible\",\"isDynamic\":true,\"models\":[],\"name\":\"openai-compatible\"},{\"capabilities\":{\"serviceTiers\":[\"standard\",\"priority\"],\"thinking\":true,\"thinkingLevels\":[\"none\",\"minimal\",\"low\",\"medium\",\"high\",\"highest\"]},\"displayName\":\"Azure OpenAI\",\"isDynamic\":true,\"models\":[],\"name\":\"azure-openai\"},{\"capabilities\":{\"serviceTiers\":[],\"thinking\":false,\"thinkingLevels\":[]},\"displayName\":\"Together AI\",\"isDynamic\":true,\"models\":[],\"name\":\"together\"},{\"capabilities\":{\"serviceTiers\":[\"standard\",\"flex\",\"priority\"],\"thinking\":false,\"thinkingLevels\":[]},\"displayName\":\"OpenRouter\",\"isDynamic\":true,\"models\":[],\"name\":\"openrouter\"},{\"capabilities\":{\"serviceTiers\":[],\"thinking\":false,\"thinkingLevels\":[]},\"displayName\":\"OrcaRouter\",\"isDynamic\":true,\"models\":[],\"name\":\"orcarouter\"},{\"capabilities\":{\"serviceTiers\":[\"standard\",\"priority\"],\"thinking\":false,\"thinkingLevels\":[]},\"displayName\":\"Fireworks AI\",\"isDynamic\":true,\"models\":[],\"name\":\"fireworks\"},{\"capabilities\":{\"serviceTiers\":[],\"thinking\":false,\"thinkingLevels\":[]},\"displayName\":\"Hugging Face Router\",\"isDynamic\":true,\"models\":[],\"name\":\"huggingface-router\"},{\"capabilities\":{\"serviceTiers\":[\"standard\",\"flex\",\"priority\"],\"thinking\":false,\"thinkingLevels\":[]},\"displayName\":\"Amazon Bedrock\",\"isDynamic\":true,\"models\":[],\"name\":\"amazon-bedrock\"},{\"capabilities\":{\"serviceTiers\":[\"standard\",\"priority\"],\"thinking\":false,\"thinkingLevels\":[]},\"displayName\":\"Azure AI Foundry\",\"isDynamic\":true,\"models\":[],\"name\":\"azure-foundry\"},{\"capabilities\":{\"serviceTiers\":[],\"thinking\":false,\"thinkingLevels\":[]},\"displayName\":\"Vertex AI OpenAI Compatibility\",\"isDynamic\":true,\"models\":[],\"name\":\"vertex-ai\"},{\"capabilities\":{\"serviceTiers\":[\"standard\",\"priority\"],\"thinking\":false,\"thinkingLevels\":[]},\"displayName\":\"Databricks Model Serving\",\"isDynamic\":true,\"models\":[],\"name\":\"databricks\"},{\"capabilities\":{\"serviceTiers\":[],\"thinking\":false,\"thinkingLevels\":[]},\"displayName\":\"Baseten Model APIs\",\"isDynamic\":true,\"models\":[],\"name\":\"baseten\"},{\"capabilities\":{\"serviceTiers\":[\"standard\",\"flex\",\"priority\"],\"thinking\":false,\"thinkingLevels\":[]},\"displayName\":\"Groq\",\"isDynamic\":true,\"models\":[],\"name\":\"groq\"},{\"capabilities\":{\"serviceTiers\":[\"standard\",\"flex\",\"priority\"],\"thinking\":false,\"thinkingLevels\":[]},\"displayName\":\"Cerebras Inference\",\"isDynamic\":true,\"models\":[],\"name\":\"cerebras\"},{\"capabilities\":{\"serviceTiers\":[\"standard\",\"priority\"],\"thinking\":false,\"thinkingLevels\":[]},\"displayName\":\"DeepInfra\",\"isDynamic\":true,\"models\":[],\"name\":\"deepinfra\"},{\"capabilities\":{\"serviceTiers\":[],\"thinking\":false,\"thinkingLevels\":[]},\"displayName\":\"SambaNova Cloud\",\"isDynamic\":true,\"models\":[],\"name\":\"sambanova\"},{\"capabilities\":{\"serviceTiers\":[],\"thinking\":false,\"thinkingLevels\":[]},\"displayName\":\"Nebius AI Studio\",\"isDynamic\":true,\"models\":[],\"name\":\"nebius\"},{\"capabilities\":{\"serviceTiers\":[],\"thinking\":false,\"thinkingLevels\":[]},\"displayName\":\"Novita AI\",\"isDynamic\":true,\"models\":[],\"name\":\"novita\"},{\"capabilities\":{\"serviceTiers\":[],\"thinking\":false,\"thinkingLevels\":[]},\"displayName\":\"Hyperbolic\",\"isDynamic\":true,\"models\":[],\"name\":\"hyperbolic\"},{\"capabilities\":{\"serviceTiers\":[],\"thinking\":false,\"thinkingLevels\":[]},\"displayName\":\"SiliconFlow\",\"isDynamic\":true,\"models\":[],\"name\":\"siliconflow\"},{\"capabilities\":{\"serviceTiers\":[],\"thinking\":false,\"thinkingLevels\":[]},\"displayName\":\"FriendliAI\",\"isDynamic\":true,\"models\":[],\"name\":\"friendli\"},{\"capabilities\":{\"serviceTiers\":[],\"thinking\":false,\"thinkingLevels\":[]},\"displayName\":\"Cloudflare Workers AI\",\"isDynamic\":true,\"models\":[],\"name\":\"cloudflare-workers-ai\"},{\"capabilities\":{\"serviceTiers\":[],\"thinking\":false,\"thinkingLevels\":[]},\"displayName\":\"Featherless AI\",\"isDynamic\":true,\"models\":[],\"name\":\"featherless\"},{\"capabilities\":{\"serviceTiers\":[],\"thinking\":false,\"thinkingLevels\":[]},\"displayName\":\"Nscale\",\"isDynamic\":true,\"models\":[],\"name\":\"nscale\"},{\"capabilities\":{\"serviceTiers\":[],\"thinking\":false,\"thinkingLevels\":[]},\"displayName\":\"OVHcloud AI Endpoints\",\"isDynamic\":true,\"models\":[],\"name\":\"ovhcloud\"},{\"capabilities\":{\"serviceTiers\":[],\"thinking\":false,\"thinkingLevels\":[]},\"displayName\":\"Scaleway Generative APIs\",\"isDynamic\":true,\"models\":[],\"name\":\"scaleway\"},{\"capabilities\":{\"serviceTiers\":[],\"thinking\":false,\"thinkingLevels\":[]},\"displayName\":\"NVIDIA NIM\",\"isDynamic\":true,\"models\":[],\"name\":\"nvidia-nim\"},{\"capabilities\":{\"serviceTiers\":[],\"thinking\":false,\"thinkingLevels\":[]},\"displayName\":\"RunPod vLLM\",\"isDynamic\":true,\"models\":[],\"name\":\"runpod-vllm\"},{\"capabilities\":{\"serviceTiers\":[],\"thinking\":false,\"thinkingLevels\":[]},\"displayName\":\"SageMaker vLLM\",\"isDynamic\":true,\"models\":[],\"name\":\"sagemaker-vllm\"},{\"capabilities\":{\"serviceTiers\":[],\"thinking\":false,\"thinkingLevels\":[]},\"displayName\":\"vLLM\",\"isDynamic\":true,\"models\":[],\"name\":\"vllm\"},{\"capabilities\":{\"serviceTiers\":[],\"thinking\":false,\"thinkingLevels\":[]},\"displayName\":\"Ollama\",\"isDynamic\":true,\"models\":[],\"name\":\"ollama\"},{\"capabilities\":{\"serviceTiers\":[],\"thinking\":false,\"thinkingLevels\":[]},\"displayName\":\"LM Studio\",\"isDynamic\":true,\"models\":[],\"name\":\"lm-studio\"},{\"capabilities\":{\"serviceTiers\":[],\"thinking\":false,\"thinkingLevels\":[]},\"displayName\":\"llama.cpp Server\",\"isDynamic\":true,\"models\":[],\"name\":\"llama-cpp\"},{\"capabilities\":{\"serviceTiers\":[],\"thinking\":false,\"thinkingLevels\":[]},\"displayName\":\"LocalAI\",\"isDynamic\":true,\"models\":[],\"name\":\"localai\"},{\"capabilities\":{\"serviceTiers\":[],\"thinking\":false,\"thinkingLevels\":[]},\"displayName\":\"Baseten Inference Engine\",\"isDynamic\":true,\"models\":[],\"name\":\"baseten-engine\"}],\"audio\":[{\"capabilities\":{\"serviceTiers\":[\"standard\",\"flex\",\"priority\"],\"thinking\":true,\"thinkingLevels\":[\"none\",\"minimal\",\"low\",\"medium\",\"high\",\"highest\"]},\"defaultEmbedModel\":\"gemini-embedding-2\",\"defaultModel\":\"gemini-2.5-flash\",\"displayName\":\"Google Gemini\",\"isDynamic\":false,\"models\":[{\"audio\":{\"input\":false,\"output\":true},\"capabilities\":{\"audioInput\":false,\"audioOutput\":true,\"serviceTiers\":[\"standard\",\"flex\",\"priority\"],\"showThoughts\":false,\"structuredOutputs\":false,\"temperature\":true,\"thinkingBudget\":false,\"thinkingLevels\":[],\"topP\":true},\"characterIsToken\":false,\"completionTokenCostPer1M\":3,\"currency\":\"usd\",\"isDefault\":false,\"name\":\"gemini-3.1-flash-tts-preview\",\"promptTokenCostPer1M\":0.5,\"provider\":\"google-gemini\",\"type\":\"audio\"},{\"audio\":{\"input\":true,\"output\":true},\"capabilities\":{\"audioInput\":true,\"audioOutput\":true,\"serviceTiers\":[],\"showThoughts\":true,\"structuredOutputs\":false,\"temperature\":true,\"thinkingBudget\":true,\"thinkingLevels\":[\"none\",\"minimal\",\"low\",\"medium\",\"high\",\"highest\"],\"topP\":true},\"characterIsToken\":false,\"contextWindow\":131072,\"isDefault\":false,\"maxTokens\":65536,\"name\":\"gemini-3.1-flash-live-preview\",\"provider\":\"google-gemini\",\"supported\":{\"showThoughts\":true,\"thinkingBudget\":true},\"type\":\"audio\"},{\"audio\":{\"input\":true,\"output\":true},\"capabilities\":{\"audioInput\":true,\"audioOutput\":true,\"serviceTiers\":[],\"showThoughts\":true,\"structuredOutputs\":false,\"temperature\":true,\"thinkingBudget\":true,\"thinkingLevels\":[\"none\",\"minimal\",\"low\",\"medium\",\"high\",\"highest\"],\"topP\":true},\"characterIsToken\":false,\"contextWindow\":131072,\"isDefault\":false,\"maxTokens\":8192,\"name\":\"gemini-2.5-flash-native-audio-preview-12-2025\",\"provider\":\"google-gemini\",\"supported\":{\"showThoughts\":true,\"thinkingBudget\":true},\"type\":\"audio\"}],\"name\":\"google-gemini\"},{\"capabilities\":{\"serviceTiers\":[\"standard\",\"flex\",\"priority\"],\"thinking\":true,\"thinkingLevels\":[\"none\",\"minimal\",\"low\",\"medium\",\"high\",\"highest\"]},\"defaultEmbedModel\":\"text-embedding-3-small\",\"defaultModel\":\"gpt-5-mini\",\"displayName\":\"OpenAI\",\"isDynamic\":false,\"models\":[{\"audio\":{\"input\":true,\"output\":true},\"capabilities\":{\"audioInput\":true,\"audioOutput\":true,\"serviceTiers\":[\"standard\",\"flex\",\"priority\"],\"showThoughts\":false,\"structuredOutputs\":false,\"temperature\":true,\"thinkingBudget\":false,\"thinkingLevels\":[],\"topP\":true},\"isDefault\":false,\"name\":\"gpt-audio\",\"provider\":\"openai\",\"type\":\"audio\"},{\"audio\":{\"input\":true,\"output\":true},\"capabilities\":{\"audioInput\":true,\"audioOutput\":true,\"serviceTiers\":[\"standard\",\"flex\",\"priority\"],\"showThoughts\":false,\"structuredOutputs\":false,\"temperature\":true,\"thinkingBudget\":false,\"thinkingLevels\":[],\"topP\":true},\"isDefault\":false,\"name\":\"gpt-audio-mini\",\"provider\":\"openai\",\"type\":\"audio\"},{\"audio\":{\"input\":true,\"output\":true},\"capabilities\":{\"audioInput\":true,\"audioOutput\":true,\"serviceTiers\":[\"standard\",\"flex\",\"priority\"],\"showThoughts\":false,\"structuredOutputs\":false,\"temperature\":true,\"thinkingBudget\":false,\"thinkingLevels\":[],\"topP\":true},\"isDefault\":false,\"name\":\"gpt-audio-1.5\",\"provider\":\"openai\",\"type\":\"audio\"},{\"audio\":{\"input\":true,\"output\":true},\"capabilities\":{\"audioInput\":true,\"audioOutput\":true,\"serviceTiers\":[],\"showThoughts\":false,\"structuredOutputs\":false,\"temperature\":true,\"thinkingBudget\":false,\"thinkingLevels\":[],\"topP\":true},\"isDefault\":false,\"name\":\"gpt-realtime-1.5\",\"provider\":\"openai\",\"type\":\"audio\"},{\"audio\":{\"input\":true,\"output\":true},\"capabilities\":{\"audioInput\":true,\"audioOutput\":true,\"serviceTiers\":[],\"showThoughts\":false,\"structuredOutputs\":false,\"temperature\":true,\"thinkingBudget\":true,\"thinkingLevels\":[\"none\",\"minimal\",\"low\",\"medium\",\"high\",\"highest\"],\"topP\":true},\"isDefault\":false,\"name\":\"gpt-realtime-2\",\"provider\":\"openai\",\"supported\":{\"thinkingBudget\":true},\"type\":\"audio\"},{\"audio\":{\"input\":true,\"output\":false},\"capabilities\":{\"audioInput\":true,\"audioOutput\":false,\"serviceTiers\":[],\"showThoughts\":false,\"structuredOutputs\":false,\"temperature\":true,\"thinkingBudget\":false,\"thinkingLevels\":[],\"topP\":true},\"isDefault\":false,\"name\":\"gpt-realtime-whisper\",\"provider\":\"openai\",\"type\":\"audio\"},{\"audio\":{\"input\":true,\"output\":true},\"capabilities\":{\"audioInput\":true,\"audioOutput\":true,\"serviceTiers\":[],\"showThoughts\":false,\"structuredOutputs\":false,\"temperature\":true,\"thinkingBudget\":false,\"thinkingLevels\":[],\"topP\":true},\"isDefault\":false,\"name\":\"gpt-realtime-translate\",\"provider\":\"openai\",\"type\":\"audio\"}],\"name\":\"openai\"},{\"capabilities\":{\"serviceTiers\":[],\"thinking\":false,\"thinkingLevels\":[]},\"displayName\":\"OpenAI Compatible\",\"isDynamic\":true,\"models\":[],\"name\":\"openai-compatible\"},{\"capabilities\":{\"serviceTiers\":[\"standard\",\"flex\",\"priority\"],\"thinking\":true,\"thinkingLevels\":[\"none\",\"minimal\",\"low\",\"medium\",\"high\",\"highest\"]},\"defaultEmbedModel\":\"text-embedding-ada-002\",\"defaultModel\":\"gpt-4o\",\"displayName\":\"OpenAI Responses\",\"isDynamic\":false,\"models\":[],\"name\":\"openai-responses\"},{\"capabilities\":{\"serviceTiers\":[],\"thinking\":true,\"thinkingLevels\":[\"none\",\"minimal\",\"low\",\"medium\",\"high\",\"highest\"]},\"defaultModel\":\"claude-3-7-sonnet-latest\",\"displayName\":\"Anthropic\",\"isDynamic\":false,\"models\":[],\"name\":\"anthropic\"},{\"capabilities\":{\"serviceTiers\":[],\"thinking\":false,\"thinkingLevels\":[]},\"defaultModel\":\"Llama-3.2-3B-Instruct-q4f32_1-MLC\",\"displayName\":\"WebLLM\",\"isDynamic\":false,\"models\":[],\"name\":\"webllm\"},{\"capabilities\":{\"serviceTiers\":[\"standard\",\"priority\"],\"thinking\":true,\"thinkingLevels\":[\"none\",\"minimal\",\"low\",\"medium\",\"high\",\"highest\"]},\"displayName\":\"Azure OpenAI\",\"isDynamic\":true,\"models\":[],\"name\":\"azure-openai\"},{\"capabilities\":{\"serviceTiers\":[],\"thinking\":true,\"thinkingLevels\":[\"none\",\"minimal\",\"low\",\"medium\",\"high\",\"highest\"]},\"defaultModel\":\"deepseek-v4-flash\",\"displayName\":\"DeepSeek\",\"isDynamic\":false,\"models\":[],\"name\":\"deepseek\"},{\"capabilities\":{\"serviceTiers\":[],\"thinking\":true,\"thinkingLevels\":[\"none\",\"minimal\",\"low\",\"medium\",\"high\",\"highest\"]},\"defaultModel\":\"deepseek-v4-flash\",\"displayName\":\"DeepSeek Responses\",\"isDynamic\":false,\"models\":[],\"name\":\"deepseek-responses\"},{\"capabilities\":{\"serviceTiers\":[\"standard\",\"priority\"],\"thinking\":false,\"thinkingLevels\":[]},\"defaultModel\":\"mistral-small-latest\",\"displayName\":\"Mistral AI\",\"isDynamic\":false,\"models\":[],\"name\":\"mistral\"},{\"capabilities\":{\"serviceTiers\":[],\"thinking\":false,\"thinkingLevels\":[]},\"defaultModel\":\"command-r-plus\",\"displayName\":\"Cohere\",\"isDynamic\":false,\"models\":[],\"name\":\"cohere\"},{\"capabilities\":{\"serviceTiers\":[\"standard\",\"priority\"],\"thinking\":true,\"thinkingLevels\":[\"minimal\",\"low\",\"medium\",\"high\",\"highest\"]},\"defaultModel\":\"grok-4.6\",\"displayName\":\"xAI Grok\",\"isDynamic\":false,\"models\":[{\"capabilities\":{\"audioInput\":true,\"audioOutput\":true,\"serviceTiers\":[],\"showThoughts\":false,\"structuredOutputs\":false,\"temperature\":true,\"thinkingBudget\":false,\"thinkingLevels\":[],\"topP\":true},\"currency\":\"USD\",\"isDefault\":false,\"name\":\"grok-voice-think-fast-1.0\",\"provider\":\"grok\",\"type\":\"audio\"},{\"capabilities\":{\"audioInput\":true,\"audioOutput\":true,\"serviceTiers\":[],\"showThoughts\":false,\"structuredOutputs\":false,\"temperature\":true,\"thinkingBudget\":false,\"thinkingLevels\":[],\"topP\":true},\"currency\":\"USD\",\"isDefault\":false,\"name\":\"grok-voice-fast-1.0\",\"provider\":\"grok\",\"type\":\"audio\"}],\"name\":\"grok\"},{\"capabilities\":{\"serviceTiers\":[],\"thinking\":false,\"thinkingLevels\":[]},\"defaultModel\":\"reka-core\",\"displayName\":\"Reka\",\"isDynamic\":false,\"models\":[],\"name\":\"reka\"},{\"capabilities\":{\"serviceTiers\":[],\"thinking\":false,\"thinkingLevels\":[]},\"displayName\":\"Together AI\",\"isDynamic\":true,\"models\":[],\"name\":\"together\"},{\"capabilities\":{\"serviceTiers\":[\"standard\",\"flex\",\"priority\"],\"thinking\":false,\"thinkingLevels\":[]},\"displayName\":\"OpenRouter\",\"isDynamic\":true,\"models\":[],\"name\":\"openrouter\"},{\"capabilities\":{\"serviceTiers\":[],\"thinking\":false,\"thinkingLevels\":[]},\"displayName\":\"OrcaRouter\",\"isDynamic\":true,\"models\":[],\"name\":\"orcarouter\"},{\"capabilities\":{\"serviceTiers\":[\"standard\",\"priority\"],\"thinking\":false,\"thinkingLevels\":[]},\"displayName\":\"Fireworks AI\",\"isDynamic\":true,\"models\":[],\"name\":\"fireworks\"},{\"capabilities\":{\"serviceTiers\":[],\"thinking\":false,\"thinkingLevels\":[]},\"displayName\":\"Hugging Face Router\",\"isDynamic\":true,\"models\":[],\"name\":\"huggingface-router\"},{\"capabilities\":{\"serviceTiers\":[\"standard\",\"flex\",\"priority\"],\"thinking\":false,\"thinkingLevels\":[]},\"displayName\":\"Amazon Bedrock\",\"isDynamic\":true,\"models\":[],\"name\":\"amazon-bedrock\"},{\"capabilities\":{\"serviceTiers\":[\"standard\",\"priority\"],\"thinking\":false,\"thinkingLevels\":[]},\"displayName\":\"Azure AI Foundry\",\"isDynamic\":true,\"models\":[],\"name\":\"azure-foundry\"},{\"capabilities\":{\"serviceTiers\":[],\"thinking\":false,\"thinkingLevels\":[]},\"displayName\":\"Vertex AI OpenAI Compatibility\",\"isDynamic\":true,\"models\":[],\"name\":\"vertex-ai\"},{\"capabilities\":{\"serviceTiers\":[\"standard\",\"priority\"],\"thinking\":false,\"thinkingLevels\":[]},\"displayName\":\"Databricks Model Serving\",\"isDynamic\":true,\"models\":[],\"name\":\"databricks\"},{\"capabilities\":{\"serviceTiers\":[],\"thinking\":false,\"thinkingLevels\":[]},\"displayName\":\"Baseten Model APIs\",\"isDynamic\":true,\"models\":[],\"name\":\"baseten\"},{\"capabilities\":{\"serviceTiers\":[\"standard\",\"flex\",\"priority\"],\"thinking\":false,\"thinkingLevels\":[]},\"displayName\":\"Groq\",\"isDynamic\":true,\"models\":[],\"name\":\"groq\"},{\"capabilities\":{\"serviceTiers\":[\"standard\",\"flex\",\"priority\"],\"thinking\":false,\"thinkingLevels\":[]},\"displayName\":\"Cerebras Inference\",\"isDynamic\":true,\"models\":[],\"name\":\"cerebras\"},{\"capabilities\":{\"serviceTiers\":[\"standard\",\"priority\"],\"thinking\":false,\"thinkingLevels\":[]},\"displayName\":\"DeepInfra\",\"isDynamic\":true,\"models\":[],\"name\":\"deepinfra\"},{\"capabilities\":{\"serviceTiers\":[],\"thinking\":false,\"thinkingLevels\":[]},\"displayName\":\"SambaNova Cloud\",\"isDynamic\":true,\"models\":[],\"name\":\"sambanova\"},{\"capabilities\":{\"serviceTiers\":[],\"thinking\":false,\"thinkingLevels\":[]},\"displayName\":\"Nebius AI Studio\",\"isDynamic\":true,\"models\":[],\"name\":\"nebius\"},{\"capabilities\":{\"serviceTiers\":[],\"thinking\":false,\"thinkingLevels\":[]},\"displayName\":\"Novita AI\",\"isDynamic\":true,\"models\":[],\"name\":\"novita\"},{\"capabilities\":{\"serviceTiers\":[],\"thinking\":false,\"thinkingLevels\":[]},\"displayName\":\"Hyperbolic\",\"isDynamic\":true,\"models\":[],\"name\":\"hyperbolic\"},{\"capabilities\":{\"serviceTiers\":[],\"thinking\":false,\"thinkingLevels\":[]},\"displayName\":\"SiliconFlow\",\"isDynamic\":true,\"models\":[],\"name\":\"siliconflow\"},{\"capabilities\":{\"serviceTiers\":[],\"thinking\":false,\"thinkingLevels\":[]},\"displayName\":\"FriendliAI\",\"isDynamic\":true,\"models\":[],\"name\":\"friendli\"},{\"capabilities\":{\"serviceTiers\":[],\"thinking\":false,\"thinkingLevels\":[]},\"displayName\":\"Cloudflare Workers AI\",\"isDynamic\":true,\"models\":[],\"name\":\"cloudflare-workers-ai\"},{\"capabilities\":{\"serviceTiers\":[],\"thinking\":false,\"thinkingLevels\":[]},\"displayName\":\"Featherless AI\",\"isDynamic\":true,\"models\":[],\"name\":\"featherless\"},{\"capabilities\":{\"serviceTiers\":[],\"thinking\":false,\"thinkingLevels\":[]},\"displayName\":\"Nscale\",\"isDynamic\":true,\"models\":[],\"name\":\"nscale\"},{\"capabilities\":{\"serviceTiers\":[],\"thinking\":false,\"thinkingLevels\":[]},\"displayName\":\"OVHcloud AI Endpoints\",\"isDynamic\":true,\"models\":[],\"name\":\"ovhcloud\"},{\"capabilities\":{\"serviceTiers\":[],\"thinking\":false,\"thinkingLevels\":[]},\"displayName\":\"Scaleway Generative APIs\",\"isDynamic\":true,\"models\":[],\"name\":\"scaleway\"},{\"capabilities\":{\"serviceTiers\":[],\"thinking\":false,\"thinkingLevels\":[]},\"displayName\":\"NVIDIA NIM\",\"isDynamic\":true,\"models\":[],\"name\":\"nvidia-nim\"},{\"capabilities\":{\"serviceTiers\":[],\"thinking\":false,\"thinkingLevels\":[]},\"displayName\":\"RunPod vLLM\",\"isDynamic\":true,\"models\":[],\"name\":\"runpod-vllm\"},{\"capabilities\":{\"serviceTiers\":[],\"thinking\":false,\"thinkingLevels\":[]},\"displayName\":\"SageMaker vLLM\",\"isDynamic\":true,\"models\":[],\"name\":\"sagemaker-vllm\"},{\"capabilities\":{\"serviceTiers\":[],\"thinking\":false,\"thinkingLevels\":[]},\"displayName\":\"vLLM\",\"isDynamic\":true,\"models\":[],\"name\":\"vllm\"},{\"capabilities\":{\"serviceTiers\":[],\"thinking\":false,\"thinkingLevels\":[]},\"displayName\":\"Ollama\",\"isDynamic\":true,\"models\":[],\"name\":\"ollama\"},{\"capabilities\":{\"serviceTiers\":[],\"thinking\":false,\"thinkingLevels\":[]},\"displayName\":\"LM Studio\",\"isDynamic\":true,\"models\":[],\"name\":\"lm-studio\"},{\"capabilities\":{\"serviceTiers\":[],\"thinking\":false,\"thinkingLevels\":[]},\"displayName\":\"llama.cpp Server\",\"isDynamic\":true,\"models\":[],\"name\":\"llama-cpp\"},{\"capabilities\":{\"serviceTiers\":[],\"thinking\":false,\"thinkingLevels\":[]},\"displayName\":\"LocalAI\",\"isDynamic\":true,\"models\":[],\"name\":\"localai\"},{\"capabilities\":{\"serviceTiers\":[],\"thinking\":false,\"thinkingLevels\":[]},\"displayName\":\"Baseten Inference Engine\",\"isDynamic\":true,\"models\":[],\"name\":\"baseten-engine\"}],\"code\":[{\"capabilities\":{\"serviceTiers\":[\"standard\",\"priority\"],\"thinking\":false,\"thinkingLevels\":[]},\"defaultModel\":\"mistral-small-latest\",\"displayName\":\"Mistral AI\",\"isDynamic\":false,\"models\":[{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"serviceTiers\":[\"standard\",\"priority\"],\"showThoughts\":false,\"structuredOutputs\":false,\"temperature\":true,\"thinkingBudget\":false,\"thinkingLevels\":[],\"topP\":true},\"completionTokenCostPer1M\":0.25,\"currency\":\"USD\",\"isDefault\":false,\"name\":\"open-codestral-mamba\",\"promptTokenCostPer1M\":0.25,\"provider\":\"mistral\",\"type\":\"code\"},{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"serviceTiers\":[\"standard\",\"priority\"],\"showThoughts\":false,\"structuredOutputs\":false,\"temperature\":true,\"thinkingBudget\":false,\"thinkingLevels\":[],\"topP\":true},\"completionTokenCostPer1M\":0.6,\"currency\":\"USD\",\"isDefault\":false,\"name\":\"codestral-latest\",\"promptTokenCostPer1M\":0.2,\"provider\":\"mistral\",\"type\":\"code\"}],\"name\":\"mistral\"},{\"capabilities\":{\"serviceTiers\":[\"standard\",\"flex\",\"priority\"],\"thinking\":true,\"thinkingLevels\":[\"none\",\"minimal\",\"low\",\"medium\",\"high\",\"highest\"]},\"defaultEmbedModel\":\"text-embedding-3-small\",\"defaultModel\":\"gpt-5-mini\",\"displayName\":\"OpenAI\",\"isDynamic\":false,\"models\":[{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"serviceTiers\":[\"standard\",\"flex\",\"priority\"],\"showThoughts\":false,\"structuredOutputs\":true,\"temperature\":false,\"thinkingBudget\":false,\"thinkingLevels\":[],\"topP\":false},\"completionTokenCostPer1M\":2,\"currency\":\"usd\",\"isDefault\":false,\"name\":\"gpt-5.1-codex-mini\",\"notSupported\":{\"temperature\":true,\"topP\":true},\"promptTokenCostPer1M\":0.25,\"provider\":\"openai\",\"supported\":{\"structuredOutputs\":true},\"type\":\"code\"},{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"serviceTiers\":[\"standard\",\"flex\",\"priority\"],\"showThoughts\":false,\"structuredOutputs\":true,\"temperature\":false,\"thinkingBudget\":false,\"thinkingLevels\":[],\"topP\":false},\"completionTokenCostPer1M\":10,\"currency\":\"usd\",\"isDefault\":false,\"name\":\"gpt-5-codex\",\"notSupported\":{\"temperature\":true,\"topP\":true},\"promptTokenCostPer1M\":1.25,\"provider\":\"openai\",\"supported\":{\"structuredOutputs\":true},\"type\":\"code\"},{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"serviceTiers\":[\"standard\",\"flex\",\"priority\"],\"showThoughts\":false,\"structuredOutputs\":true,\"temperature\":false,\"thinkingBudget\":false,\"thinkingLevels\":[],\"topP\":false},\"completionTokenCostPer1M\":10,\"currency\":\"usd\",\"isDefault\":false,\"name\":\"gpt-5.1-codex\",\"notSupported\":{\"temperature\":true,\"topP\":true},\"promptTokenCostPer1M\":1.25,\"provider\":\"openai\",\"supported\":{\"structuredOutputs\":true},\"type\":\"code\"},{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"serviceTiers\":[\"standard\",\"flex\",\"priority\"],\"showThoughts\":false,\"structuredOutputs\":true,\"temperature\":false,\"thinkingBudget\":false,\"thinkingLevels\":[],\"topP\":false},\"completionTokenCostPer1M\":10,\"currency\":\"usd\",\"isDefault\":false,\"name\":\"gpt-5.1-codex-max\",\"notSupported\":{\"temperature\":true,\"topP\":true},\"promptTokenCostPer1M\":1.25,\"provider\":\"openai\",\"supported\":{\"structuredOutputs\":true},\"type\":\"code\"},{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"serviceTiers\":[\"standard\",\"flex\",\"priority\"],\"showThoughts\":false,\"structuredOutputs\":true,\"temperature\":false,\"thinkingBudget\":false,\"thinkingLevels\":[],\"topP\":false},\"completionTokenCostPer1M\":14,\"currency\":\"usd\",\"isDefault\":false,\"name\":\"gpt-5.2-codex\",\"notSupported\":{\"temperature\":true,\"topP\":true},\"promptTokenCostPer1M\":1.75,\"provider\":\"openai\",\"supported\":{\"structuredOutputs\":true},\"type\":\"code\"}],\"name\":\"openai\"},{\"capabilities\":{\"serviceTiers\":[\"standard\",\"flex\",\"priority\"],\"thinking\":true,\"thinkingLevels\":[\"none\",\"minimal\",\"low\",\"medium\",\"high\",\"highest\"]},\"defaultEmbedModel\":\"text-embedding-ada-002\",\"defaultModel\":\"gpt-4o\",\"displayName\":\"OpenAI Responses\",\"isDynamic\":false,\"models\":[{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"serviceTiers\":[\"standard\",\"flex\",\"priority\"],\"showThoughts\":true,\"structuredOutputs\":true,\"temperature\":false,\"thinkingBudget\":true,\"thinkingLevels\":[\"none\",\"minimal\",\"low\",\"medium\",\"high\",\"highest\"],\"topP\":false},\"completionTokenCostPer1M\":2,\"currency\":\"usd\",\"isDefault\":false,\"name\":\"gpt-5.1-codex-mini\",\"notSupported\":{\"temperature\":true,\"topP\":true},\"promptTokenCostPer1M\":0.25,\"provider\":\"openai-responses\",\"supported\":{\"showThoughts\":true,\"structuredOutputs\":true,\"thinkingBudget\":true},\"type\":\"code\"},{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"serviceTiers\":[\"standard\",\"flex\",\"priority\"],\"showThoughts\":true,\"structuredOutputs\":true,\"temperature\":false,\"thinkingBudget\":true,\"thinkingLevels\":[\"none\",\"minimal\",\"low\",\"medium\",\"high\",\"highest\"],\"topP\":false},\"completionTokenCostPer1M\":10,\"currency\":\"usd\",\"isDefault\":false,\"name\":\"gpt-5-codex\",\"notSupported\":{\"temperature\":true,\"topP\":true},\"promptTokenCostPer1M\":1.25,\"provider\":\"openai-responses\",\"supported\":{\"showThoughts\":true,\"structuredOutputs\":true,\"thinkingBudget\":true},\"type\":\"code\"},{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"serviceTiers\":[\"standard\",\"flex\",\"priority\"],\"showThoughts\":true,\"structuredOutputs\":true,\"temperature\":false,\"thinkingBudget\":true,\"thinkingLevels\":[\"none\",\"minimal\",\"low\",\"medium\",\"high\",\"highest\"],\"topP\":false},\"completionTokenCostPer1M\":10,\"currency\":\"usd\",\"isDefault\":false,\"name\":\"gpt-5.1-codex\",\"notSupported\":{\"temperature\":true,\"topP\":true},\"promptTokenCostPer1M\":1.25,\"provider\":\"openai-responses\",\"supported\":{\"showThoughts\":true,\"structuredOutputs\":true,\"thinkingBudget\":true},\"type\":\"code\"},{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"serviceTiers\":[\"standard\",\"flex\",\"priority\"],\"showThoughts\":true,\"structuredOutputs\":true,\"temperature\":false,\"thinkingBudget\":true,\"thinkingLevels\":[\"none\",\"minimal\",\"low\",\"medium\",\"high\",\"highest\"],\"topP\":false},\"completionTokenCostPer1M\":10,\"currency\":\"usd\",\"isDefault\":false,\"name\":\"gpt-5.1-codex-max\",\"notSupported\":{\"temperature\":true,\"topP\":true},\"promptTokenCostPer1M\":1.25,\"provider\":\"openai-responses\",\"supported\":{\"showThoughts\":true,\"structuredOutputs\":true,\"thinkingBudget\":true},\"type\":\"code\"},{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"serviceTiers\":[\"standard\",\"flex\",\"priority\"],\"showThoughts\":true,\"structuredOutputs\":true,\"temperature\":false,\"thinkingBudget\":true,\"thinkingLevels\":[\"none\",\"minimal\",\"low\",\"medium\",\"high\",\"highest\"],\"topP\":false},\"completionTokenCostPer1M\":14,\"currency\":\"usd\",\"isDefault\":false,\"name\":\"gpt-5.2-codex\",\"notSupported\":{\"temperature\":true,\"topP\":true},\"promptTokenCostPer1M\":1.75,\"provider\":\"openai-responses\",\"supported\":{\"showThoughts\":true,\"structuredOutputs\":true,\"thinkingBudget\":true},\"type\":\"code\"}],\"name\":\"openai-responses\"},{\"capabilities\":{\"serviceTiers\":[],\"thinking\":false,\"thinkingLevels\":[]},\"displayName\":\"OpenAI Compatible\",\"isDynamic\":true,\"models\":[],\"name\":\"openai-compatible\"},{\"capabilities\":{\"serviceTiers\":[],\"thinking\":true,\"thinkingLevels\":[\"none\",\"minimal\",\"low\",\"medium\",\"high\",\"highest\"]},\"defaultModel\":\"claude-3-7-sonnet-latest\",\"displayName\":\"Anthropic\",\"isDynamic\":false,\"models\":[],\"name\":\"anthropic\"},{\"capabilities\":{\"serviceTiers\":[\"standard\",\"flex\",\"priority\"],\"thinking\":true,\"thinkingLevels\":[\"none\",\"minimal\",\"low\",\"medium\",\"high\",\"highest\"]},\"defaultEmbedModel\":\"gemini-embedding-2\",\"defaultModel\":\"gemini-2.5-flash\",\"displayName\":\"Google Gemini\",\"isDynamic\":false,\"models\":[],\"name\":\"google-gemini\"},{\"capabilities\":{\"serviceTiers\":[],\"thinking\":false,\"thinkingLevels\":[]},\"defaultModel\":\"Llama-3.2-3B-Instruct-q4f32_1-MLC\",\"displayName\":\"WebLLM\",\"isDynamic\":false,\"models\":[],\"name\":\"webllm\"},{\"capabilities\":{\"serviceTiers\":[\"standard\",\"priority\"],\"thinking\":true,\"thinkingLevels\":[\"none\",\"minimal\",\"low\",\"medium\",\"high\",\"highest\"]},\"displayName\":\"Azure OpenAI\",\"isDynamic\":true,\"models\":[],\"name\":\"azure-openai\"},{\"capabilities\":{\"serviceTiers\":[],\"thinking\":true,\"thinkingLevels\":[\"none\",\"minimal\",\"low\",\"medium\",\"high\",\"highest\"]},\"defaultModel\":\"deepseek-v4-flash\",\"displayName\":\"DeepSeek\",\"isDynamic\":false,\"models\":[],\"name\":\"deepseek\"},{\"capabilities\":{\"serviceTiers\":[],\"thinking\":true,\"thinkingLevels\":[\"none\",\"minimal\",\"low\",\"medium\",\"high\",\"highest\"]},\"defaultModel\":\"deepseek-v4-flash\",\"displayName\":\"DeepSeek Responses\",\"isDynamic\":false,\"models\":[],\"name\":\"deepseek-responses\"},{\"capabilities\":{\"serviceTiers\":[],\"thinking\":false,\"thinkingLevels\":[]},\"defaultModel\":\"command-r-plus\",\"displayName\":\"Cohere\",\"isDynamic\":false,\"models\":[],\"name\":\"cohere\"},{\"capabilities\":{\"serviceTiers\":[\"standard\",\"priority\"],\"thinking\":true,\"thinkingLevels\":[\"minimal\",\"low\",\"medium\",\"high\",\"highest\"]},\"defaultModel\":\"grok-4.6\",\"displayName\":\"xAI Grok\",\"isDynamic\":false,\"models\":[],\"name\":\"grok\"},{\"capabilities\":{\"serviceTiers\":[],\"thinking\":false,\"thinkingLevels\":[]},\"defaultModel\":\"reka-core\",\"displayName\":\"Reka\",\"isDynamic\":false,\"models\":[],\"name\":\"reka\"},{\"capabilities\":{\"serviceTiers\":[],\"thinking\":false,\"thinkingLevels\":[]},\"displayName\":\"Together AI\",\"isDynamic\":true,\"models\":[],\"name\":\"together\"},{\"capabilities\":{\"serviceTiers\":[\"standard\",\"flex\",\"priority\"],\"thinking\":false,\"thinkingLevels\":[]},\"displayName\":\"OpenRouter\",\"isDynamic\":true,\"models\":[],\"name\":\"openrouter\"},{\"capabilities\":{\"serviceTiers\":[],\"thinking\":false,\"thinkingLevels\":[]},\"displayName\":\"OrcaRouter\",\"isDynamic\":true,\"models\":[],\"name\":\"orcarouter\"},{\"capabilities\":{\"serviceTiers\":[\"standard\",\"priority\"],\"thinking\":false,\"thinkingLevels\":[]},\"displayName\":\"Fireworks AI\",\"isDynamic\":true,\"models\":[],\"name\":\"fireworks\"},{\"capabilities\":{\"serviceTiers\":[],\"thinking\":false,\"thinkingLevels\":[]},\"displayName\":\"Hugging Face Router\",\"isDynamic\":true,\"models\":[],\"name\":\"huggingface-router\"},{\"capabilities\":{\"serviceTiers\":[\"standard\",\"flex\",\"priority\"],\"thinking\":false,\"thinkingLevels\":[]},\"displayName\":\"Amazon Bedrock\",\"isDynamic\":true,\"models\":[],\"name\":\"amazon-bedrock\"},{\"capabilities\":{\"serviceTiers\":[\"standard\",\"priority\"],\"thinking\":false,\"thinkingLevels\":[]},\"displayName\":\"Azure AI Foundry\",\"isDynamic\":true,\"models\":[],\"name\":\"azure-foundry\"},{\"capabilities\":{\"serviceTiers\":[],\"thinking\":false,\"thinkingLevels\":[]},\"displayName\":\"Vertex AI OpenAI Compatibility\",\"isDynamic\":true,\"models\":[],\"name\":\"vertex-ai\"},{\"capabilities\":{\"serviceTiers\":[\"standard\",\"priority\"],\"thinking\":false,\"thinkingLevels\":[]},\"displayName\":\"Databricks Model Serving\",\"isDynamic\":true,\"models\":[],\"name\":\"databricks\"},{\"capabilities\":{\"serviceTiers\":[],\"thinking\":false,\"thinkingLevels\":[]},\"displayName\":\"Baseten Model APIs\",\"isDynamic\":true,\"models\":[],\"name\":\"baseten\"},{\"capabilities\":{\"serviceTiers\":[\"standard\",\"flex\",\"priority\"],\"thinking\":false,\"thinkingLevels\":[]},\"displayName\":\"Groq\",\"isDynamic\":true,\"models\":[],\"name\":\"groq\"},{\"capabilities\":{\"serviceTiers\":[\"standard\",\"flex\",\"priority\"],\"thinking\":false,\"thinkingLevels\":[]},\"displayName\":\"Cerebras Inference\",\"isDynamic\":true,\"models\":[],\"name\":\"cerebras\"},{\"capabilities\":{\"serviceTiers\":[\"standard\",\"priority\"],\"thinking\":false,\"thinkingLevels\":[]},\"displayName\":\"DeepInfra\",\"isDynamic\":true,\"models\":[],\"name\":\"deepinfra\"},{\"capabilities\":{\"serviceTiers\":[],\"thinking\":false,\"thinkingLevels\":[]},\"displayName\":\"SambaNova Cloud\",\"isDynamic\":true,\"models\":[],\"name\":\"sambanova\"},{\"capabilities\":{\"serviceTiers\":[],\"thinking\":false,\"thinkingLevels\":[]},\"displayName\":\"Nebius AI Studio\",\"isDynamic\":true,\"models\":[],\"name\":\"nebius\"},{\"capabilities\":{\"serviceTiers\":[],\"thinking\":false,\"thinkingLevels\":[]},\"displayName\":\"Novita AI\",\"isDynamic\":true,\"models\":[],\"name\":\"novita\"},{\"capabilities\":{\"serviceTiers\":[],\"thinking\":false,\"thinkingLevels\":[]},\"displayName\":\"Hyperbolic\",\"isDynamic\":true,\"models\":[],\"name\":\"hyperbolic\"},{\"capabilities\":{\"serviceTiers\":[],\"thinking\":false,\"thinkingLevels\":[]},\"displayName\":\"SiliconFlow\",\"isDynamic\":true,\"models\":[],\"name\":\"siliconflow\"},{\"capabilities\":{\"serviceTiers\":[],\"thinking\":false,\"thinkingLevels\":[]},\"displayName\":\"FriendliAI\",\"isDynamic\":true,\"models\":[],\"name\":\"friendli\"},{\"capabilities\":{\"serviceTiers\":[],\"thinking\":false,\"thinkingLevels\":[]},\"displayName\":\"Cloudflare Workers AI\",\"isDynamic\":true,\"models\":[],\"name\":\"cloudflare-workers-ai\"},{\"capabilities\":{\"serviceTiers\":[],\"thinking\":false,\"thinkingLevels\":[]},\"displayName\":\"Featherless AI\",\"isDynamic\":true,\"models\":[],\"name\":\"featherless\"},{\"capabilities\":{\"serviceTiers\":[],\"thinking\":false,\"thinkingLevels\":[]},\"displayName\":\"Nscale\",\"isDynamic\":true,\"models\":[],\"name\":\"nscale\"},{\"capabilities\":{\"serviceTiers\":[],\"thinking\":false,\"thinkingLevels\":[]},\"displayName\":\"OVHcloud AI Endpoints\",\"isDynamic\":true,\"models\":[],\"name\":\"ovhcloud\"},{\"capabilities\":{\"serviceTiers\":[],\"thinking\":false,\"thinkingLevels\":[]},\"displayName\":\"Scaleway Generative APIs\",\"isDynamic\":true,\"models\":[],\"name\":\"scaleway\"},{\"capabilities\":{\"serviceTiers\":[],\"thinking\":false,\"thinkingLevels\":[]},\"displayName\":\"NVIDIA NIM\",\"isDynamic\":true,\"models\":[],\"name\":\"nvidia-nim\"},{\"capabilities\":{\"serviceTiers\":[],\"thinking\":false,\"thinkingLevels\":[]},\"displayName\":\"RunPod vLLM\",\"isDynamic\":true,\"models\":[],\"name\":\"runpod-vllm\"},{\"capabilities\":{\"serviceTiers\":[],\"thinking\":false,\"thinkingLevels\":[]},\"displayName\":\"SageMaker vLLM\",\"isDynamic\":true,\"models\":[],\"name\":\"sagemaker-vllm\"},{\"capabilities\":{\"serviceTiers\":[],\"thinking\":false,\"thinkingLevels\":[]},\"displayName\":\"vLLM\",\"isDynamic\":true,\"models\":[],\"name\":\"vllm\"},{\"capabilities\":{\"serviceTiers\":[],\"thinking\":false,\"thinkingLevels\":[]},\"displayName\":\"Ollama\",\"isDynamic\":true,\"models\":[],\"name\":\"ollama\"},{\"capabilities\":{\"serviceTiers\":[],\"thinking\":false,\"thinkingLevels\":[]},\"displayName\":\"LM Studio\",\"isDynamic\":true,\"models\":[],\"name\":\"lm-studio\"},{\"capabilities\":{\"serviceTiers\":[],\"thinking\":false,\"thinkingLevels\":[]},\"displayName\":\"llama.cpp Server\",\"isDynamic\":true,\"models\":[],\"name\":\"llama-cpp\"},{\"capabilities\":{\"serviceTiers\":[],\"thinking\":false,\"thinkingLevels\":[]},\"displayName\":\"LocalAI\",\"isDynamic\":true,\"models\":[],\"name\":\"localai\"},{\"capabilities\":{\"serviceTiers\":[],\"thinking\":false,\"thinkingLevels\":[]},\"displayName\":\"Baseten Inference Engine\",\"isDynamic\":true,\"models\":[],\"name\":\"baseten-engine\"}],\"embeddings\":[{\"capabilities\":{\"serviceTiers\":[\"standard\",\"flex\",\"priority\"],\"thinking\":true,\"thinkingLevels\":[\"none\",\"minimal\",\"low\",\"medium\",\"high\",\"highest\"]},\"defaultEmbedModel\":\"text-embedding-3-small\",\"defaultModel\":\"gpt-5-mini\",\"displayName\":\"OpenAI\",\"isDynamic\":false,\"models\":[{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"serviceTiers\":[],\"showThoughts\":false,\"structuredOutputs\":false,\"temperature\":true,\"thinkingBudget\":false,\"thinkingLevels\":[],\"topP\":true},\"completionTokenCostPer1M\":0.02,\"currency\":\"usd\",\"isDefault\":true,\"name\":\"text-embedding-3-small\",\"promptTokenCostPer1M\":0.02,\"provider\":\"openai\",\"type\":\"embeddings\"},{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"serviceTiers\":[],\"showThoughts\":false,\"structuredOutputs\":false,\"temperature\":true,\"thinkingBudget\":false,\"thinkingLevels\":[],\"topP\":true},\"completionTokenCostPer1M\":0.1,\"currency\":\"usd\",\"isDefault\":false,\"name\":\"text-embedding-ada-002\",\"promptTokenCostPer1M\":0.1,\"provider\":\"openai\",\"type\":\"embeddings\"},{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"serviceTiers\":[],\"showThoughts\":false,\"structuredOutputs\":false,\"temperature\":true,\"thinkingBudget\":false,\"thinkingLevels\":[],\"topP\":true},\"completionTokenCostPer1M\":0.13,\"currency\":\"usd\",\"isDefault\":false,\"name\":\"text-embedding-3-large\",\"promptTokenCostPer1M\":0.13,\"provider\":\"openai\",\"type\":\"embeddings\"}],\"name\":\"openai\"},{\"capabilities\":{\"serviceTiers\":[\"standard\",\"flex\",\"priority\"],\"thinking\":true,\"thinkingLevels\":[\"none\",\"minimal\",\"low\",\"medium\",\"high\",\"highest\"]},\"defaultEmbedModel\":\"gemini-embedding-2\",\"defaultModel\":\"gemini-2.5-flash\",\"displayName\":\"Google Gemini\",\"isDynamic\":false,\"models\":[{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"serviceTiers\":[],\"showThoughts\":false,\"structuredOutputs\":false,\"temperature\":true,\"thinkingBudget\":false,\"thinkingLevels\":[],\"topP\":true},\"characterIsToken\":false,\"currency\":\"usd\",\"isDefault\":false,\"name\":\"gemini-embedding-001\",\"promptTokenCostPer1M\":0.15,\"provider\":\"google-gemini\",\"type\":\"embeddings\"},{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"serviceTiers\":[],\"showThoughts\":false,\"structuredOutputs\":false,\"temperature\":true,\"thinkingBudget\":false,\"thinkingLevels\":[],\"topP\":true},\"characterIsToken\":false,\"contextWindow\":8192,\"currency\":\"usd\",\"isDefault\":true,\"name\":\"gemini-embedding-2\",\"promptTokenCostPer1M\":0.2,\"provider\":\"google-gemini\",\"type\":\"embeddings\"}],\"name\":\"google-gemini\"},{\"capabilities\":{\"serviceTiers\":[],\"thinking\":false,\"thinkingLevels\":[]},\"defaultModel\":\"command-r-plus\",\"displayName\":\"Cohere\",\"isDynamic\":false,\"models\":[{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"serviceTiers\":[],\"showThoughts\":false,\"structuredOutputs\":false,\"temperature\":true,\"thinkingBudget\":false,\"thinkingLevels\":[],\"topP\":true},\"completionTokenCostPer1M\":0.1,\"currency\":\"usd\",\"isDefault\":false,\"name\":\"embed-english-light-v3.0\",\"promptTokenCostPer1M\":0.1,\"provider\":\"cohere\",\"type\":\"embeddings\"},{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"serviceTiers\":[],\"showThoughts\":false,\"structuredOutputs\":false,\"temperature\":true,\"thinkingBudget\":false,\"thinkingLevels\":[],\"topP\":true},\"completionTokenCostPer1M\":0.1,\"currency\":\"usd\",\"isDefault\":false,\"name\":\"embed-english-v3.0\",\"promptTokenCostPer1M\":0.1,\"provider\":\"cohere\",\"type\":\"embeddings\"},{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"serviceTiers\":[],\"showThoughts\":false,\"structuredOutputs\":false,\"temperature\":true,\"thinkingBudget\":false,\"thinkingLevels\":[],\"topP\":true},\"completionTokenCostPer1M\":0.1,\"currency\":\"usd\",\"isDefault\":false,\"name\":\"embed-multilingual-light-v3.0\",\"promptTokenCostPer1M\":0.1,\"provider\":\"cohere\",\"type\":\"embeddings\"},{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"serviceTiers\":[],\"showThoughts\":false,\"structuredOutputs\":false,\"temperature\":true,\"thinkingBudget\":false,\"thinkingLevels\":[],\"topP\":true},\"completionTokenCostPer1M\":0.1,\"currency\":\"usd\",\"isDefault\":false,\"name\":\"embed-multilingual-v3.0\",\"promptTokenCostPer1M\":0.1,\"provider\":\"cohere\",\"type\":\"embeddings\"}],\"name\":\"cohere\"},{\"capabilities\":{\"serviceTiers\":[],\"thinking\":false,\"thinkingLevels\":[]},\"displayName\":\"OpenAI Compatible\",\"isDynamic\":true,\"models\":[],\"name\":\"openai-compatible\"},{\"capabilities\":{\"serviceTiers\":[\"standard\",\"flex\",\"priority\"],\"thinking\":true,\"thinkingLevels\":[\"none\",\"minimal\",\"low\",\"medium\",\"high\",\"highest\"]},\"defaultEmbedModel\":\"text-embedding-ada-002\",\"defaultModel\":\"gpt-4o\",\"displayName\":\"OpenAI Responses\",\"isDynamic\":false,\"models\":[],\"name\":\"openai-responses\"},{\"capabilities\":{\"serviceTiers\":[],\"thinking\":true,\"thinkingLevels\":[\"none\",\"minimal\",\"low\",\"medium\",\"high\",\"highest\"]},\"defaultModel\":\"claude-3-7-sonnet-latest\",\"displayName\":\"Anthropic\",\"isDynamic\":false,\"models\":[],\"name\":\"anthropic\"},{\"capabilities\":{\"serviceTiers\":[],\"thinking\":false,\"thinkingLevels\":[]},\"defaultModel\":\"Llama-3.2-3B-Instruct-q4f32_1-MLC\",\"displayName\":\"WebLLM\",\"isDynamic\":false,\"models\":[],\"name\":\"webllm\"},{\"capabilities\":{\"serviceTiers\":[\"standard\",\"priority\"],\"thinking\":true,\"thinkingLevels\":[\"none\",\"minimal\",\"low\",\"medium\",\"high\",\"highest\"]},\"displayName\":\"Azure OpenAI\",\"isDynamic\":true,\"models\":[],\"name\":\"azure-openai\"},{\"capabilities\":{\"serviceTiers\":[],\"thinking\":true,\"thinkingLevels\":[\"none\",\"minimal\",\"low\",\"medium\",\"high\",\"highest\"]},\"defaultModel\":\"deepseek-v4-flash\",\"displayName\":\"DeepSeek\",\"isDynamic\":false,\"models\":[],\"name\":\"deepseek\"},{\"capabilities\":{\"serviceTiers\":[],\"thinking\":true,\"thinkingLevels\":[\"none\",\"minimal\",\"low\",\"medium\",\"high\",\"highest\"]},\"defaultModel\":\"deepseek-v4-flash\",\"displayName\":\"DeepSeek Responses\",\"isDynamic\":false,\"models\":[],\"name\":\"deepseek-responses\"},{\"capabilities\":{\"serviceTiers\":[\"standard\",\"priority\"],\"thinking\":false,\"thinkingLevels\":[]},\"defaultModel\":\"mistral-small-latest\",\"displayName\":\"Mistral AI\",\"isDynamic\":false,\"models\":[],\"name\":\"mistral\"},{\"capabilities\":{\"serviceTiers\":[\"standard\",\"priority\"],\"thinking\":true,\"thinkingLevels\":[\"minimal\",\"low\",\"medium\",\"high\",\"highest\"]},\"defaultModel\":\"grok-4.6\",\"displayName\":\"xAI Grok\",\"isDynamic\":false,\"models\":[],\"name\":\"grok\"},{\"capabilities\":{\"serviceTiers\":[],\"thinking\":false,\"thinkingLevels\":[]},\"defaultModel\":\"reka-core\",\"displayName\":\"Reka\",\"isDynamic\":false,\"models\":[],\"name\":\"reka\"},{\"capabilities\":{\"serviceTiers\":[],\"thinking\":false,\"thinkingLevels\":[]},\"displayName\":\"Together AI\",\"isDynamic\":true,\"models\":[],\"name\":\"together\"},{\"capabilities\":{\"serviceTiers\":[\"standard\",\"flex\",\"priority\"],\"thinking\":false,\"thinkingLevels\":[]},\"displayName\":\"OpenRouter\",\"isDynamic\":true,\"models\":[],\"name\":\"openrouter\"},{\"capabilities\":{\"serviceTiers\":[],\"thinking\":false,\"thinkingLevels\":[]},\"displayName\":\"OrcaRouter\",\"isDynamic\":true,\"models\":[],\"name\":\"orcarouter\"},{\"capabilities\":{\"serviceTiers\":[\"standard\",\"priority\"],\"thinking\":false,\"thinkingLevels\":[]},\"displayName\":\"Fireworks AI\",\"isDynamic\":true,\"models\":[],\"name\":\"fireworks\"},{\"capabilities\":{\"serviceTiers\":[],\"thinking\":false,\"thinkingLevels\":[]},\"displayName\":\"Hugging Face Router\",\"isDynamic\":true,\"models\":[],\"name\":\"huggingface-router\"},{\"capabilities\":{\"serviceTiers\":[\"standard\",\"flex\",\"priority\"],\"thinking\":false,\"thinkingLevels\":[]},\"displayName\":\"Amazon Bedrock\",\"isDynamic\":true,\"models\":[],\"name\":\"amazon-bedrock\"},{\"capabilities\":{\"serviceTiers\":[\"standard\",\"priority\"],\"thinking\":false,\"thinkingLevels\":[]},\"displayName\":\"Azure AI Foundry\",\"isDynamic\":true,\"models\":[],\"name\":\"azure-foundry\"},{\"capabilities\":{\"serviceTiers\":[],\"thinking\":false,\"thinkingLevels\":[]},\"displayName\":\"Vertex AI OpenAI Compatibility\",\"isDynamic\":true,\"models\":[],\"name\":\"vertex-ai\"},{\"capabilities\":{\"serviceTiers\":[\"standard\",\"priority\"],\"thinking\":false,\"thinkingLevels\":[]},\"displayName\":\"Databricks Model Serving\",\"isDynamic\":true,\"models\":[],\"name\":\"databricks\"},{\"capabilities\":{\"serviceTiers\":[],\"thinking\":false,\"thinkingLevels\":[]},\"displayName\":\"Baseten Model APIs\",\"isDynamic\":true,\"models\":[],\"name\":\"baseten\"},{\"capabilities\":{\"serviceTiers\":[\"standard\",\"flex\",\"priority\"],\"thinking\":false,\"thinkingLevels\":[]},\"displayName\":\"Groq\",\"isDynamic\":true,\"models\":[],\"name\":\"groq\"},{\"capabilities\":{\"serviceTiers\":[\"standard\",\"flex\",\"priority\"],\"thinking\":false,\"thinkingLevels\":[]},\"displayName\":\"Cerebras Inference\",\"isDynamic\":true,\"models\":[],\"name\":\"cerebras\"},{\"capabilities\":{\"serviceTiers\":[\"standard\",\"priority\"],\"thinking\":false,\"thinkingLevels\":[]},\"displayName\":\"DeepInfra\",\"isDynamic\":true,\"models\":[],\"name\":\"deepinfra\"},{\"capabilities\":{\"serviceTiers\":[],\"thinking\":false,\"thinkingLevels\":[]},\"displayName\":\"SambaNova Cloud\",\"isDynamic\":true,\"models\":[],\"name\":\"sambanova\"},{\"capabilities\":{\"serviceTiers\":[],\"thinking\":false,\"thinkingLevels\":[]},\"displayName\":\"Nebius AI Studio\",\"isDynamic\":true,\"models\":[],\"name\":\"nebius\"},{\"capabilities\":{\"serviceTiers\":[],\"thinking\":false,\"thinkingLevels\":[]},\"displayName\":\"Novita AI\",\"isDynamic\":true,\"models\":[],\"name\":\"novita\"},{\"capabilities\":{\"serviceTiers\":[],\"thinking\":false,\"thinkingLevels\":[]},\"displayName\":\"Hyperbolic\",\"isDynamic\":true,\"models\":[],\"name\":\"hyperbolic\"},{\"capabilities\":{\"serviceTiers\":[],\"thinking\":false,\"thinkingLevels\":[]},\"displayName\":\"SiliconFlow\",\"isDynamic\":true,\"models\":[],\"name\":\"siliconflow\"},{\"capabilities\":{\"serviceTiers\":[],\"thinking\":false,\"thinkingLevels\":[]},\"displayName\":\"FriendliAI\",\"isDynamic\":true,\"models\":[],\"name\":\"friendli\"},{\"capabilities\":{\"serviceTiers\":[],\"thinking\":false,\"thinkingLevels\":[]},\"displayName\":\"Cloudflare Workers AI\",\"isDynamic\":true,\"models\":[],\"name\":\"cloudflare-workers-ai\"},{\"capabilities\":{\"serviceTiers\":[],\"thinking\":false,\"thinkingLevels\":[]},\"displayName\":\"Featherless AI\",\"isDynamic\":true,\"models\":[],\"name\":\"featherless\"},{\"capabilities\":{\"serviceTiers\":[],\"thinking\":false,\"thinkingLevels\":[]},\"displayName\":\"Nscale\",\"isDynamic\":true,\"models\":[],\"name\":\"nscale\"},{\"capabilities\":{\"serviceTiers\":[],\"thinking\":false,\"thinkingLevels\":[]},\"displayName\":\"OVHcloud AI Endpoints\",\"isDynamic\":true,\"models\":[],\"name\":\"ovhcloud\"},{\"capabilities\":{\"serviceTiers\":[],\"thinking\":false,\"thinkingLevels\":[]},\"displayName\":\"Scaleway Generative APIs\",\"isDynamic\":true,\"models\":[],\"name\":\"scaleway\"},{\"capabilities\":{\"serviceTiers\":[],\"thinking\":false,\"thinkingLevels\":[]},\"displayName\":\"NVIDIA NIM\",\"isDynamic\":true,\"models\":[],\"name\":\"nvidia-nim\"},{\"capabilities\":{\"serviceTiers\":[],\"thinking\":false,\"thinkingLevels\":[]},\"displayName\":\"RunPod vLLM\",\"isDynamic\":true,\"models\":[],\"name\":\"runpod-vllm\"},{\"capabilities\":{\"serviceTiers\":[],\"thinking\":false,\"thinkingLevels\":[]},\"displayName\":\"SageMaker vLLM\",\"isDynamic\":true,\"models\":[],\"name\":\"sagemaker-vllm\"},{\"capabilities\":{\"serviceTiers\":[],\"thinking\":false,\"thinkingLevels\":[]},\"displayName\":\"vLLM\",\"isDynamic\":true,\"models\":[],\"name\":\"vllm\"},{\"capabilities\":{\"serviceTiers\":[],\"thinking\":false,\"thinkingLevels\":[]},\"displayName\":\"Ollama\",\"isDynamic\":true,\"models\":[],\"name\":\"ollama\"},{\"capabilities\":{\"serviceTiers\":[],\"thinking\":false,\"thinkingLevels\":[]},\"displayName\":\"LM Studio\",\"isDynamic\":true,\"models\":[],\"name\":\"lm-studio\"},{\"capabilities\":{\"serviceTiers\":[],\"thinking\":false,\"thinkingLevels\":[]},\"displayName\":\"llama.cpp Server\",\"isDynamic\":true,\"models\":[],\"name\":\"llama-cpp\"},{\"capabilities\":{\"serviceTiers\":[],\"thinking\":false,\"thinkingLevels\":[]},\"displayName\":\"LocalAI\",\"isDynamic\":true,\"models\":[],\"name\":\"localai\"},{\"capabilities\":{\"serviceTiers\":[],\"thinking\":false,\"thinkingLevels\":[]},\"displayName\":\"Baseten Inference Engine\",\"isDynamic\":true,\"models\":[],\"name\":\"baseten-engine\"}],\"text\":[{\"capabilities\":{\"serviceTiers\":[\"standard\",\"flex\",\"priority\"],\"thinking\":true,\"thinkingLevels\":[\"none\",\"minimal\",\"low\",\"medium\",\"high\",\"highest\"]},\"defaultEmbedModel\":\"gemini-embedding-2\",\"defaultModel\":\"gemini-2.5-flash\",\"displayName\":\"Google Gemini\",\"isDynamic\":false,\"models\":[{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"serviceTiers\":[\"standard\",\"flex\",\"priority\"],\"showThoughts\":true,\"structuredOutputs\":true,\"temperature\":true,\"thinkingBudget\":true,\"thinkingLevels\":[\"none\",\"minimal\",\"low\",\"medium\",\"high\",\"highest\"],\"topP\":true},\"characterIsToken\":false,\"completionTokenCostPer1M\":0,\"currency\":\"usd\",\"isDefault\":false,\"name\":\"gemini-2.0-flash-thinking-exp-01-21\",\"promptTokenCostPer1M\":0,\"provider\":\"google-gemini\",\"supported\":{\"showThoughts\":true,\"structuredOutputs\":true,\"thinkingBudget\":true},\"type\":\"text\"},{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"serviceTiers\":[\"standard\",\"flex\",\"priority\"],\"showThoughts\":true,\"structuredOutputs\":true,\"temperature\":true,\"thinkingBudget\":true,\"thinkingLevels\":[\"none\",\"minimal\",\"low\",\"medium\",\"high\",\"highest\"],\"topP\":true},\"characterIsToken\":false,\"completionTokenCostPer1M\":0,\"currency\":\"usd\",\"isDefault\":false,\"name\":\"gemini-2.0-pro-exp-02-05\",\"promptTokenCostPer1M\":0,\"provider\":\"google-gemini\",\"supported\":{\"showThoughts\":true,\"structuredOutputs\":true,\"thinkingBudget\":true},\"type\":\"text\"},{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"serviceTiers\":[\"standard\",\"flex\",\"priority\"],\"showThoughts\":false,\"structuredOutputs\":false,\"temperature\":true,\"thinkingBudget\":false,\"thinkingLevels\":[],\"topP\":true},\"characterIsToken\":false,\"completionTokenCostPer1M\":0,\"currency\":\"usd\",\"isDefault\":false,\"name\":\"gemini-robotics-er-1.6-preview\",\"promptTokenCostPer1M\":0,\"provider\":\"google-gemini\",\"type\":\"text\"},{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"serviceTiers\":[\"standard\",\"flex\",\"priority\"],\"showThoughts\":false,\"structuredOutputs\":true,\"temperature\":true,\"thinkingBudget\":false,\"thinkingLevels\":[],\"topP\":true},\"characterIsToken\":false,\"completionTokenCostPer1M\":0.15,\"currency\":\"usd\",\"isDefault\":false,\"name\":\"gemini-1.5-flash-8b\",\"promptTokenCostPer1M\":0.0375,\"provider\":\"google-gemini\",\"supported\":{\"structuredOutputs\":true},\"type\":\"text\"},{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"serviceTiers\":[\"standard\",\"flex\",\"priority\"],\"showThoughts\":false,\"structuredOutputs\":true,\"temperature\":true,\"thinkingBudget\":false,\"thinkingLevels\":[],\"topP\":true},\"characterIsToken\":false,\"completionTokenCostPer1M\":0.3,\"currency\":\"usd\",\"isDefault\":false,\"name\":\"gemini-1.5-flash\",\"promptTokenCostPer1M\":0.075,\"provider\":\"google-gemini\",\"supported\":{\"structuredOutputs\":true},\"type\":\"text\"},{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"serviceTiers\":[\"standard\",\"flex\",\"priority\"],\"showThoughts\":false,\"structuredOutputs\":true,\"temperature\":true,\"thinkingBudget\":false,\"thinkingLevels\":[],\"topP\":true},\"characterIsToken\":false,\"completionTokenCostPer1M\":0.3,\"currency\":\"usd\",\"deprecatedOn\":\"2026-06-01\",\"isDefault\":false,\"isDeprecated\":true,\"name\":\"gemini-2.0-flash-lite\",\"promptTokenCostPer1M\":0.075,\"provider\":\"google-gemini\",\"supported\":{\"structuredOutputs\":true},\"type\":\"text\"},{\"cacheReadTokenCostPer1M\":0.025,\"cacheWriteTokenCostPer1M\":0.1,\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"serviceTiers\":[\"standard\",\"flex\",\"priority\"],\"showThoughts\":false,\"structuredOutputs\":true,\"temperature\":true,\"thinkingBudget\":false,\"thinkingLevels\":[],\"topP\":true},\"characterIsToken\":false,\"completionTokenCostPer1M\":0.4,\"currency\":\"usd\",\"deprecatedOn\":\"2026-06-01\",\"isDefault\":false,\"isDeprecated\":true,\"name\":\"gemini-2.0-flash\",\"promptTokenCostPer1M\":0.1,\"provider\":\"google-gemini\",\"supported\":{\"structuredOutputs\":true},\"type\":\"text\"},{\"cacheReadTokenCostPer1M\":0.01,\"cacheWriteTokenCostPer1M\":0.1,\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"serviceTiers\":[\"standard\",\"flex\",\"priority\"],\"showThoughts\":true,\"structuredOutputs\":true,\"temperature\":true,\"thinkingBudget\":true,\"thinkingLevels\":[\"none\",\"minimal\",\"low\",\"medium\",\"high\",\"highest\"],\"topP\":true},\"characterIsToken\":false,\"completionTokenCostPer1M\":0.4,\"currency\":\"usd\",\"isDefault\":false,\"name\":\"gemini-2.5-flash-lite\",\"promptTokenCostPer1M\":0.1,\"provider\":\"google-gemini\",\"supported\":{\"showThoughts\":true,\"structuredOutputs\":true,\"thinkingBudget\":true},\"type\":\"text\"},{\"cacheReadTokenCostPer1M\":0.01,\"cacheWriteTokenCostPer1M\":0.1,\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"serviceTiers\":[\"standard\",\"flex\",\"priority\"],\"showThoughts\":true,\"structuredOutputs\":true,\"temperature\":true,\"thinkingBudget\":true,\"thinkingLevels\":[\"none\",\"minimal\",\"low\",\"medium\",\"high\",\"highest\"],\"topP\":true},\"characterIsToken\":false,\"completionTokenCostPer1M\":0.4,\"currency\":\"usd\",\"isDefault\":false,\"name\":\"gemini-flash-lite-latest\",\"promptTokenCostPer1M\":0.1,\"provider\":\"google-gemini\",\"supported\":{\"showThoughts\":true,\"structuredOutputs\":true,\"thinkingBudget\":true},\"type\":\"text\"},{\"cacheReadTokenCostPer1M\":0.025,\"cacheWriteTokenCostPer1M\":0.25,\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"serviceTiers\":[\"standard\",\"flex\",\"priority\"],\"showThoughts\":true,\"structuredOutputs\":true,\"temperature\":true,\"thinkingBudget\":true,\"thinkingLevels\":[\"none\",\"minimal\",\"low\",\"medium\",\"high\",\"highest\"],\"topP\":true},\"characterIsToken\":false,\"completionTokenCostPer1M\":1.5,\"contextWindow\":1048576,\"currency\":\"usd\",\"isDefault\":false,\"maxTokens\":65536,\"name\":\"gemini-3.1-flash-lite\",\"promptTokenCostPer1M\":0.25,\"provider\":\"google-gemini\",\"supported\":{\"showThoughts\":true,\"structuredOutputs\":true,\"thinkingBudget\":true},\"type\":\"text\"},{\"cacheReadTokenCostPer1M\":0.025,\"cacheWriteTokenCostPer1M\":0.25,\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"serviceTiers\":[\"standard\",\"flex\",\"priority\"],\"showThoughts\":true,\"structuredOutputs\":true,\"temperature\":true,\"thinkingBudget\":true,\"thinkingLevels\":[\"none\",\"minimal\",\"low\",\"medium\",\"high\",\"highest\"],\"topP\":true},\"characterIsToken\":false,\"completionTokenCostPer1M\":1.5,\"currency\":\"usd\",\"isDefault\":false,\"name\":\"gemini-3.1-flash-lite-preview\",\"promptTokenCostPer1M\":0.25,\"provider\":\"google-gemini\",\"supported\":{\"showThoughts\":true,\"structuredOutputs\":true,\"thinkingBudget\":true},\"type\":\"text\"},{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"serviceTiers\":[\"standard\",\"flex\",\"priority\"],\"showThoughts\":false,\"structuredOutputs\":true,\"temperature\":true,\"thinkingBudget\":false,\"thinkingLevels\":[],\"topP\":true},\"characterIsToken\":false,\"completionTokenCostPer1M\":1.5,\"currency\":\"usd\",\"isDefault\":false,\"name\":\"gemini-1.0-pro\",\"promptTokenCostPer1M\":0.5,\"provider\":\"google-gemini\",\"supported\":{\"structuredOutputs\":true},\"type\":\"text\"},{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"serviceTiers\":[\"standard\",\"flex\",\"priority\"],\"showThoughts\":true,\"structuredOutputs\":true,\"temperature\":true,\"thinkingBudget\":true,\"thinkingLevels\":[\"none\",\"minimal\",\"low\",\"medium\",\"high\",\"highest\"],\"topP\":true},\"characterIsToken\":false,\"completionTokenCostPer1M\":0.134,\"currency\":\"usd\",\"isDefault\":false,\"name\":\"gemini-3-pro-image-preview\",\"promptTokenCostPer1M\":2,\"provider\":\"google-gemini\",\"supported\":{\"showThoughts\":true,\"structuredOutputs\":true,\"thinkingBudget\":true},\"type\":\"text\"},{\"cacheReadTokenCostPer1M\":0.03,\"cacheWriteTokenCostPer1M\":0.3,\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"serviceTiers\":[\"standard\",\"flex\",\"priority\"],\"showThoughts\":true,\"structuredOutputs\":true,\"temperature\":true,\"thinkingBudget\":true,\"thinkingLevels\":[\"none\",\"minimal\",\"low\",\"medium\",\"high\",\"highest\"],\"topP\":true},\"characterIsToken\":false,\"completionTokenCostPer1M\":2.5,\"currency\":\"usd\",\"isDefault\":true,\"name\":\"gemini-2.5-flash\",\"promptTokenCostPer1M\":0.3,\"provider\":\"google-gemini\",\"supported\":{\"showThoughts\":true,\"structuredOutputs\":true,\"thinkingBudget\":true},\"type\":\"text\"},{\"cacheReadTokenCostPer1M\":0.03,\"cacheWriteTokenCostPer1M\":0.3,\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"serviceTiers\":[\"standard\",\"flex\",\"priority\"],\"showThoughts\":true,\"structuredOutputs\":true,\"temperature\":false,\"thinkingBudget\":true,\"thinkingLevels\":[\"none\",\"minimal\",\"low\",\"medium\",\"high\",\"highest\"],\"topP\":false},\"characterIsToken\":false,\"completionTokenCostPer1M\":2.5,\"contextWindow\":1048576,\"currency\":\"usd\",\"isDefault\":false,\"maxTokens\":65536,\"name\":\"gemini-3.5-flash-lite\",\"notSupported\":{\"temperature\":true,\"topP\":true},\"promptTokenCostPer1M\":0.3,\"provider\":\"google-gemini\",\"supported\":{\"showThoughts\":true,\"structuredOutputs\":true,\"thinkingBudget\":true},\"type\":\"text\"},{\"cacheReadTokenCostPer1M\":0.03,\"cacheWriteTokenCostPer1M\":0.3,\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"serviceTiers\":[\"standard\",\"flex\",\"priority\"],\"showThoughts\":true,\"structuredOutputs\":true,\"temperature\":true,\"thinkingBudget\":true,\"thinkingLevels\":[\"none\",\"minimal\",\"low\",\"medium\",\"high\",\"highest\"],\"topP\":true},\"characterIsToken\":false,\"completionTokenCostPer1M\":2.5,\"currency\":\"usd\",\"isDefault\":false,\"name\":\"gemini-flash-latest\",\"promptTokenCostPer1M\":0.3,\"provider\":\"google-gemini\",\"supported\":{\"showThoughts\":true,\"structuredOutputs\":true,\"thinkingBudget\":true},\"type\":\"text\"},{\"cacheReadTokenCostPer1M\":0.05,\"cacheWriteTokenCostPer1M\":0.5,\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"serviceTiers\":[\"standard\",\"flex\",\"priority\"],\"showThoughts\":true,\"structuredOutputs\":true,\"temperature\":true,\"thinkingBudget\":true,\"thinkingLevels\":[\"none\",\"minimal\",\"low\",\"medium\",\"high\",\"highest\"],\"topP\":true},\"characterIsToken\":false,\"completionTokenCostPer1M\":3,\"currency\":\"usd\",\"isDefault\":false,\"name\":\"gemini-3-flash-preview\",\"promptTokenCostPer1M\":0.5,\"provider\":\"google-gemini\",\"supported\":{\"showThoughts\":true,\"structuredOutputs\":true,\"thinkingBudget\":true},\"type\":\"text\"},{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"serviceTiers\":[\"standard\",\"flex\",\"priority\"],\"showThoughts\":false,\"structuredOutputs\":true,\"temperature\":true,\"thinkingBudget\":false,\"thinkingLevels\":[],\"topP\":true},\"characterIsToken\":false,\"completionTokenCostPer1M\":3,\"currency\":\"usd\",\"isDefault\":false,\"name\":\"gemini-3.1-flash-image-preview\",\"promptTokenCostPer1M\":0.5,\"provider\":\"google-gemini\",\"supported\":{\"structuredOutputs\":true},\"type\":\"text\"},{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"serviceTiers\":[\"standard\",\"flex\",\"priority\"],\"showThoughts\":false,\"structuredOutputs\":false,\"temperature\":true,\"thinkingBudget\":false,\"thinkingLevels\":[],\"topP\":true},\"characterIsToken\":false,\"completionTokenCostPer1M\":3,\"currency\":\"usd\",\"isDefault\":false,\"name\":\"nano-banana-2\",\"promptTokenCostPer1M\":0.5,\"provider\":\"google-gemini\",\"type\":\"text\"},{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"serviceTiers\":[\"standard\",\"flex\",\"priority\"],\"showThoughts\":false,\"structuredOutputs\":true,\"temperature\":true,\"thinkingBudget\":false,\"thinkingLevels\":[],\"topP\":true},\"characterIsToken\":false,\"completionTokenCostPer1M\":5,\"currency\":\"usd\",\"isDefault\":false,\"name\":\"gemini-1.5-pro\",\"promptTokenCostPer1M\":1.25,\"provider\":\"google-gemini\",\"supported\":{\"structuredOutputs\":true},\"type\":\"text\"},{\"cacheReadTokenCostPer1M\":0.15,\"cacheWriteTokenCostPer1M\":1.5,\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"serviceTiers\":[\"standard\",\"flex\",\"priority\"],\"showThoughts\":true,\"structuredOutputs\":true,\"temperature\":false,\"thinkingBudget\":true,\"thinkingLevels\":[\"none\",\"minimal\",\"low\",\"medium\",\"high\",\"highest\"],\"topP\":false},\"characterIsToken\":false,\"completionTokenCostPer1M\":7.5,\"contextWindow\":1048576,\"currency\":\"usd\",\"isDefault\":false,\"maxTokens\":65536,\"name\":\"gemini-3.6-flash\",\"notSupported\":{\"temperature\":true,\"topP\":true},\"promptTokenCostPer1M\":1.5,\"provider\":\"google-gemini\",\"supported\":{\"showThoughts\":true,\"structuredOutputs\":true,\"thinkingBudget\":true},\"type\":\"text\"},{\"cacheReadTokenCostPer1M\":0.15,\"cacheWriteTokenCostPer1M\":1.5,\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"serviceTiers\":[\"standard\",\"flex\",\"priority\"],\"showThoughts\":true,\"structuredOutputs\":true,\"temperature\":false,\"thinkingBudget\":true,\"thinkingLevels\":[\"none\",\"minimal\",\"low\",\"medium\",\"high\",\"highest\"],\"topP\":false},\"characterIsToken\":false,\"completionTokenCostPer1M\":7.5,\"contextWindow\":1048576,\"currency\":\"usd\",\"isDefault\":false,\"maxTokens\":65536,\"name\":\"gemini-3.7-flash\",\"notSupported\":{\"temperature\":true,\"topP\":true},\"promptTokenCostPer1M\":1.5,\"provider\":\"google-gemini\",\"supported\":{\"showThoughts\":true,\"structuredOutputs\":true,\"thinkingBudget\":true},\"type\":\"text\"},{\"cacheReadTokenCostPer1M\":0.15,\"cacheWriteTokenCostPer1M\":1.5,\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"serviceTiers\":[\"standard\",\"flex\",\"priority\"],\"showThoughts\":true,\"structuredOutputs\":true,\"temperature\":false,\"thinkingBudget\":true,\"thinkingLevels\":[\"none\",\"minimal\",\"low\",\"medium\",\"high\",\"highest\"],\"topP\":false},\"characterIsToken\":false,\"completionTokenCostPer1M\":7.5,\"contextWindow\":1048576,\"currency\":\"usd\",\"isDefault\":false,\"maxTokens\":65536,\"name\":\"gemini-3.8-flash\",\"notSupported\":{\"temperature\":true,\"topP\":true},\"promptTokenCostPer1M\":1.5,\"provider\":\"google-gemini\",\"supported\":{\"showThoughts\":true,\"structuredOutputs\":true,\"thinkingBudget\":true},\"type\":\"text\"},{\"cacheReadTokenCostPer1M\":0.15,\"cacheWriteTokenCostPer1M\":1.5,\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"serviceTiers\":[\"standard\",\"flex\",\"priority\"],\"showThoughts\":true,\"structuredOutputs\":true,\"temperature\":true,\"thinkingBudget\":true,\"thinkingLevels\":[\"none\",\"minimal\",\"low\",\"medium\",\"high\",\"highest\"],\"topP\":true},\"characterIsToken\":false,\"completionTokenCostPer1M\":9,\"contextWindow\":1048576,\"currency\":\"usd\",\"isDefault\":false,\"maxTokens\":65536,\"name\":\"gemini-3.5-flash\",\"promptTokenCostPer1M\":1.5,\"provider\":\"google-gemini\",\"supported\":{\"showThoughts\":true,\"structuredOutputs\":true,\"thinkingBudget\":true},\"type\":\"text\"},{\"cacheReadTokenCostPer1M\":0.125,\"cacheWriteTokenCostPer1M\":1.25,\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"serviceTiers\":[\"standard\",\"flex\",\"priority\"],\"showThoughts\":true,\"structuredOutputs\":true,\"temperature\":true,\"thinkingBudget\":true,\"thinkingLevels\":[\"none\",\"minimal\",\"low\",\"medium\",\"high\",\"highest\"],\"topP\":true},\"characterIsToken\":false,\"completionTokenCostPer1M\":10,\"currency\":\"usd\",\"isDefault\":false,\"longContextCacheReadTokenCostPer1M\":0.25,\"longContextCompletionTokenCostPer1M\":15,\"longContextPromptTokenCostPer1M\":2.5,\"longContextThreshold\":200000,\"name\":\"gemini-2.5-pro\",\"promptTokenCostPer1M\":1.25,\"provider\":\"google-gemini\",\"supported\":{\"showThoughts\":true,\"structuredOutputs\":true,\"thinkingBudget\":true},\"type\":\"text\"},{\"cacheReadTokenCostPer1M\":0.125,\"cacheWriteTokenCostPer1M\":1.25,\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"serviceTiers\":[\"standard\",\"flex\",\"priority\"],\"showThoughts\":true,\"structuredOutputs\":true,\"temperature\":true,\"thinkingBudget\":true,\"thinkingLevels\":[\"none\",\"minimal\",\"low\",\"medium\",\"high\",\"highest\"],\"topP\":true},\"characterIsToken\":false,\"completionTokenCostPer1M\":10,\"currency\":\"usd\",\"isDefault\":false,\"longContextCacheReadTokenCostPer1M\":0.25,\"longContextCompletionTokenCostPer1M\":15,\"longContextPromptTokenCostPer1M\":2.5,\"longContextThreshold\":200000,\"name\":\"gemini-pro-latest\",\"promptTokenCostPer1M\":1.25,\"provider\":\"google-gemini\",\"supported\":{\"showThoughts\":true,\"structuredOutputs\":true,\"thinkingBudget\":true},\"type\":\"text\"},{\"cacheReadTokenCostPer1M\":0.2,\"cacheWriteTokenCostPer1M\":2,\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"serviceTiers\":[\"standard\",\"flex\",\"priority\"],\"showThoughts\":true,\"structuredOutputs\":true,\"temperature\":true,\"thinkingBudget\":true,\"thinkingLevels\":[\"none\",\"minimal\",\"low\",\"medium\",\"high\",\"highest\"],\"topP\":true},\"characterIsToken\":false,\"completionTokenCostPer1M\":12,\"currency\":\"usd\",\"isDefault\":false,\"longContextCacheReadTokenCostPer1M\":0.4,\"longContextCompletionTokenCostPer1M\":18,\"longContextPromptTokenCostPer1M\":4,\"longContextThreshold\":200000,\"name\":\"gemini-3.1-pro-preview\",\"promptTokenCostPer1M\":2,\"provider\":\"google-gemini\",\"supported\":{\"showThoughts\":true,\"structuredOutputs\":true,\"thinkingBudget\":true},\"type\":\"text\"}],\"name\":\"google-gemini\"},{\"capabilities\":{\"serviceTiers\":[],\"thinking\":false,\"thinkingLevels\":[]},\"defaultModel\":\"Llama-3.2-3B-Instruct-q4f32_1-MLC\",\"displayName\":\"WebLLM\",\"isDynamic\":false,\"models\":[{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"serviceTiers\":[],\"showThoughts\":false,\"structuredOutputs\":false,\"temperature\":true,\"thinkingBudget\":false,\"thinkingLevels\":[],\"topP\":true},\"completionTokenCostPer1M\":0,\"contextWindow\":8192,\"currency\":\"usd\",\"isDefault\":false,\"maxTokens\":2048,\"name\":\"gemma-2-2b-it-q4f32_1-MLC\",\"promptTokenCostPer1M\":0,\"provider\":\"webllm\",\"type\":\"text\"},{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"serviceTiers\":[],\"showThoughts\":false,\"structuredOutputs\":false,\"temperature\":true,\"thinkingBudget\":false,\"thinkingLevels\":[],\"topP\":true},\"completionTokenCostPer1M\":0,\"contextWindow\":8192,\"currency\":\"usd\",\"isDefault\":false,\"maxTokens\":2048,\"name\":\"gemma-2-9b-it-q4f32_1-MLC\",\"promptTokenCostPer1M\":0,\"provider\":\"webllm\",\"type\":\"text\"},{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"serviceTiers\":[],\"showThoughts\":false,\"structuredOutputs\":false,\"temperature\":true,\"thinkingBudget\":false,\"thinkingLevels\":[],\"topP\":true},\"completionTokenCostPer1M\":0,\"contextWindow\":128000,\"currency\":\"usd\",\"isDefault\":false,\"isExpensive\":true,\"maxTokens\":4096,\"name\":\"Llama-3.1-70B-Instruct-q4f16_1-MLC\",\"promptTokenCostPer1M\":0,\"provider\":\"webllm\",\"type\":\"text\"},{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"serviceTiers\":[],\"showThoughts\":false,\"structuredOutputs\":false,\"temperature\":true,\"thinkingBudget\":false,\"thinkingLevels\":[],\"topP\":true},\"completionTokenCostPer1M\":0,\"contextWindow\":128000,\"currency\":\"usd\",\"isDefault\":false,\"maxTokens\":4096,\"name\":\"Llama-3.1-8B-Instruct-q4f32_1-MLC\",\"promptTokenCostPer1M\":0,\"provider\":\"webllm\",\"type\":\"text\"},{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"serviceTiers\":[],\"showThoughts\":false,\"structuredOutputs\":false,\"temperature\":true,\"thinkingBudget\":false,\"thinkingLevels\":[],\"topP\":true},\"completionTokenCostPer1M\":0,\"contextWindow\":128000,\"currency\":\"usd\",\"isDefault\":false,\"maxTokens\":2048,\"name\":\"Llama-3.2-1B-Instruct-q4f32_1-MLC\",\"promptTokenCostPer1M\":0,\"provider\":\"webllm\",\"type\":\"text\"},{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"serviceTiers\":[],\"showThoughts\":false,\"structuredOutputs\":false,\"temperature\":true,\"thinkingBudget\":false,\"thinkingLevels\":[],\"topP\":true},\"completionTokenCostPer1M\":0,\"contextWindow\":128000,\"currency\":\"usd\",\"isDefault\":true,\"maxTokens\":2048,\"name\":\"Llama-3.2-3B-Instruct-q4f32_1-MLC\",\"promptTokenCostPer1M\":0,\"provider\":\"webllm\",\"type\":\"text\"},{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"serviceTiers\":[],\"showThoughts\":false,\"structuredOutputs\":false,\"temperature\":true,\"thinkingBudget\":false,\"thinkingLevels\":[],\"topP\":true},\"completionTokenCostPer1M\":0,\"contextWindow\":32768,\"currency\":\"usd\",\"isDefault\":false,\"maxTokens\":4096,\"name\":\"Mistral-7B-Instruct-v0.3-q4f32_1-MLC\",\"promptTokenCostPer1M\":0,\"provider\":\"webllm\",\"type\":\"text\"},{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"serviceTiers\":[],\"showThoughts\":false,\"structuredOutputs\":false,\"temperature\":true,\"thinkingBudget\":false,\"thinkingLevels\":[],\"topP\":true},\"completionTokenCostPer1M\":0,\"contextWindow\":128000,\"currency\":\"usd\",\"isDefault\":false,\"maxTokens\":4096,\"name\":\"Phi-3.5-mini-instruct-q4f32_1-MLC\",\"promptTokenCostPer1M\":0,\"provider\":\"webllm\",\"type\":\"text\"},{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"serviceTiers\":[],\"showThoughts\":false,\"structuredOutputs\":false,\"temperature\":true,\"thinkingBudget\":false,\"thinkingLevels\":[],\"topP\":true},\"completionTokenCostPer1M\":0,\"contextWindow\":32768,\"currency\":\"usd\",\"isDefault\":false,\"maxTokens\":2048,\"name\":\"Qwen2.5-0.5B-Instruct-q4f32_1-MLC\",\"promptTokenCostPer1M\":0,\"provider\":\"webllm\",\"type\":\"text\"},{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"serviceTiers\":[],\"showThoughts\":false,\"structuredOutputs\":false,\"temperature\":true,\"thinkingBudget\":false,\"thinkingLevels\":[],\"topP\":true},\"completionTokenCostPer1M\":0,\"contextWindow\":32768,\"currency\":\"usd\",\"isDefault\":false,\"maxTokens\":2048,\"name\":\"Qwen2.5-1.5B-Instruct-q4f32_1-MLC\",\"promptTokenCostPer1M\":0,\"provider\":\"webllm\",\"type\":\"text\"},{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"serviceTiers\":[],\"showThoughts\":false,\"structuredOutputs\":false,\"temperature\":true,\"thinkingBudget\":false,\"thinkingLevels\":[],\"topP\":true},\"completionTokenCostPer1M\":0,\"contextWindow\":32768,\"currency\":\"usd\",\"isDefault\":false,\"maxTokens\":2048,\"name\":\"Qwen2.5-3B-Instruct-q4f32_1-MLC\",\"promptTokenCostPer1M\":0,\"provider\":\"webllm\",\"type\":\"text\"},{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"serviceTiers\":[],\"showThoughts\":false,\"structuredOutputs\":false,\"temperature\":true,\"thinkingBudget\":false,\"thinkingLevels\":[],\"topP\":true},\"completionTokenCostPer1M\":0,\"contextWindow\":32768,\"currency\":\"usd\",\"isDefault\":false,\"maxTokens\":4096,\"name\":\"Qwen2.5-7B-Instruct-q4f32_1-MLC\",\"promptTokenCostPer1M\":0,\"provider\":\"webllm\",\"type\":\"text\"}],\"name\":\"webllm\"},{\"capabilities\":{\"serviceTiers\":[\"standard\",\"priority\"],\"thinking\":false,\"thinkingLevels\":[]},\"defaultModel\":\"mistral-small-latest\",\"displayName\":\"Mistral AI\",\"isDynamic\":false,\"models\":[{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"serviceTiers\":[\"standard\",\"priority\"],\"showThoughts\":false,\"structuredOutputs\":false,\"temperature\":true,\"thinkingBudget\":false,\"thinkingLevels\":[],\"topP\":true},\"completionTokenCostPer1M\":0.15,\"currency\":\"USD\",\"isDefault\":false,\"name\":\"mistral-nemo-latest\",\"promptTokenCostPer1M\":0.15,\"provider\":\"mistral\",\"type\":\"text\"},{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"serviceTiers\":[\"standard\",\"priority\"],\"showThoughts\":false,\"structuredOutputs\":false,\"temperature\":true,\"thinkingBudget\":false,\"thinkingLevels\":[],\"topP\":true},\"completionTokenCostPer1M\":0.25,\"currency\":\"USD\",\"isDefault\":false,\"name\":\"open-codestral-mamba\",\"promptTokenCostPer1M\":0.25,\"provider\":\"mistral\",\"type\":\"code\"},{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"serviceTiers\":[\"standard\",\"priority\"],\"showThoughts\":false,\"structuredOutputs\":false,\"temperature\":true,\"thinkingBudget\":false,\"thinkingLevels\":[],\"topP\":true},\"completionTokenCostPer1M\":0.25,\"currency\":\"USD\",\"isDefault\":false,\"name\":\"open-mistral-7b\",\"promptTokenCostPer1M\":0.25,\"provider\":\"mistral\",\"type\":\"text\"},{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"serviceTiers\":[\"standard\",\"priority\"],\"showThoughts\":false,\"structuredOutputs\":false,\"temperature\":true,\"thinkingBudget\":false,\"thinkingLevels\":[],\"topP\":true},\"completionTokenCostPer1M\":0.3,\"currency\":\"USD\",\"isDefault\":false,\"name\":\"open-mistral-nemo-latest\",\"promptTokenCostPer1M\":0.3,\"provider\":\"mistral\",\"type\":\"text\"},{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"serviceTiers\":[\"standard\",\"priority\"],\"showThoughts\":false,\"structuredOutputs\":false,\"temperature\":true,\"thinkingBudget\":false,\"thinkingLevels\":[],\"topP\":true},\"completionTokenCostPer1M\":0.6,\"currency\":\"USD\",\"isDefault\":false,\"name\":\"codestral-latest\",\"promptTokenCostPer1M\":0.2,\"provider\":\"mistral\",\"type\":\"code\"},{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"serviceTiers\":[\"standard\",\"priority\"],\"showThoughts\":false,\"structuredOutputs\":false,\"temperature\":true,\"thinkingBudget\":false,\"thinkingLevels\":[],\"topP\":true},\"completionTokenCostPer1M\":0.6,\"currency\":\"USD\",\"isDefault\":true,\"name\":\"mistral-small-latest\",\"promptTokenCostPer1M\":0.2,\"provider\":\"mistral\",\"type\":\"text\"},{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"serviceTiers\":[\"standard\",\"priority\"],\"showThoughts\":false,\"structuredOutputs\":false,\"temperature\":true,\"thinkingBudget\":false,\"thinkingLevels\":[],\"topP\":true},\"completionTokenCostPer1M\":0.7,\"currency\":\"USD\",\"isDefault\":false,\"name\":\"open-mixtral-8x7b\",\"promptTokenCostPer1M\":0.7,\"provider\":\"mistral\",\"type\":\"text\"},{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"serviceTiers\":[\"standard\",\"priority\"],\"showThoughts\":false,\"structuredOutputs\":false,\"temperature\":true,\"thinkingBudget\":false,\"thinkingLevels\":[],\"topP\":true},\"completionTokenCostPer1M\":6,\"currency\":\"USD\",\"isDefault\":false,\"name\":\"mistral-large-latest\",\"promptTokenCostPer1M\":2,\"provider\":\"mistral\",\"type\":\"text\"}],\"name\":\"mistral\"},{\"capabilities\":{\"serviceTiers\":[],\"thinking\":true,\"thinkingLevels\":[\"none\",\"minimal\",\"low\",\"medium\",\"high\",\"highest\"]},\"defaultModel\":\"deepseek-v4-flash\",\"displayName\":\"DeepSeek\",\"isDynamic\":false,\"models\":[{\"aliases\":[\"deepseek-chat\",\"deepseek-reasoner\"],\"cacheReadTokenCostPer1M\":0.0028,\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"serviceTiers\":[],\"showThoughts\":true,\"structuredOutputs\":false,\"temperature\":true,\"thinkingBudget\":true,\"thinkingLevels\":[\"none\",\"minimal\",\"low\",\"medium\",\"high\",\"highest\"],\"topP\":true},\"completionTokenCostPer1M\":0.28,\"contextWindow\":1000000,\"currency\":\"USD\",\"isDefault\":true,\"maxTokens\":384000,\"name\":\"deepseek-v4-flash\",\"promptTokenCostPer1M\":0.14,\"provider\":\"deepseek\",\"supported\":{\"showThoughts\":true,\"structuredOutputs\":false,\"thinkingBudget\":true},\"type\":\"text\"},{\"cacheReadTokenCostPer1M\":0.003625,\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"serviceTiers\":[],\"showThoughts\":true,\"structuredOutputs\":false,\"temperature\":true,\"thinkingBudget\":true,\"thinkingLevels\":[\"none\",\"minimal\",\"low\",\"medium\",\"high\",\"highest\"],\"topP\":true},\"completionTokenCostPer1M\":0.87,\"contextWindow\":1000000,\"currency\":\"USD\",\"isDefault\":false,\"maxTokens\":384000,\"name\":\"deepseek-v4-pro\",\"promptTokenCostPer1M\":0.435,\"provider\":\"deepseek\",\"supported\":{\"showThoughts\":true,\"structuredOutputs\":false,\"thinkingBudget\":true},\"type\":\"text\"}],\"name\":\"deepseek\"},{\"capabilities\":{\"serviceTiers\":[],\"thinking\":true,\"thinkingLevels\":[\"none\",\"minimal\",\"low\",\"medium\",\"high\",\"highest\"]},\"defaultModel\":\"deepseek-v4-flash\",\"displayName\":\"DeepSeek Responses\",\"isDynamic\":false,\"models\":[{\"aliases\":[\"deepseek-chat\",\"deepseek-reasoner\"],\"cacheReadTokenCostPer1M\":0.0028,\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"serviceTiers\":[],\"showThoughts\":true,\"structuredOutputs\":false,\"temperature\":true,\"thinkingBudget\":true,\"thinkingLevels\":[\"none\",\"minimal\",\"low\",\"medium\",\"high\",\"highest\"],\"topP\":true},\"completionTokenCostPer1M\":0.28,\"contextWindow\":1000000,\"currency\":\"USD\",\"isDefault\":true,\"maxTokens\":384000,\"name\":\"deepseek-v4-flash\",\"promptTokenCostPer1M\":0.14,\"provider\":\"deepseek-responses\",\"supported\":{\"showThoughts\":true,\"structuredOutputs\":false,\"thinkingBudget\":true},\"type\":\"text\"},{\"cacheReadTokenCostPer1M\":0.003625,\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"serviceTiers\":[],\"showThoughts\":true,\"structuredOutputs\":false,\"temperature\":true,\"thinkingBudget\":true,\"thinkingLevels\":[\"none\",\"minimal\",\"low\",\"medium\",\"high\",\"highest\"],\"topP\":true},\"completionTokenCostPer1M\":0.87,\"contextWindow\":1000000,\"currency\":\"USD\",\"isDefault\":false,\"maxTokens\":384000,\"name\":\"deepseek-v4-pro\",\"promptTokenCostPer1M\":0.435,\"provider\":\"deepseek-responses\",\"supported\":{\"showThoughts\":true,\"structuredOutputs\":false,\"thinkingBudget\":true},\"type\":\"text\"}],\"name\":\"deepseek-responses\"},{\"capabilities\":{\"serviceTiers\":[\"standard\",\"flex\",\"priority\"],\"thinking\":true,\"thinkingLevels\":[\"none\",\"minimal\",\"low\",\"medium\",\"high\",\"highest\"]},\"defaultEmbedModel\":\"text-embedding-3-small\",\"defaultModel\":\"gpt-5-mini\",\"displayName\":\"OpenAI\",\"isDynamic\":false,\"models\":[{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"serviceTiers\":[\"standard\",\"flex\",\"priority\"],\"showThoughts\":false,\"structuredOutputs\":true,\"temperature\":false,\"thinkingBudget\":false,\"thinkingLevels\":[],\"topP\":false},\"completionTokenCostPer1M\":0.4,\"currency\":\"usd\",\"isDefault\":false,\"name\":\"gpt-5-nano\",\"notSupported\":{\"temperature\":true,\"topP\":true},\"promptTokenCostPer1M\":0.05,\"provider\":\"openai\",\"supported\":{\"structuredOutputs\":true},\"type\":\"text\"},{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"serviceTiers\":[\"standard\",\"flex\",\"priority\"],\"showThoughts\":false,\"structuredOutputs\":true,\"temperature\":true,\"thinkingBudget\":false,\"thinkingLevels\":[],\"topP\":true},\"completionTokenCostPer1M\":0.4,\"currency\":\"usd\",\"isDefault\":false,\"name\":\"gpt-4.1-nano\",\"promptTokenCostPer1M\":0.1,\"provider\":\"openai\",\"supported\":{\"structuredOutputs\":true},\"type\":\"text\"},{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"serviceTiers\":[\"standard\",\"flex\",\"priority\"],\"showThoughts\":false,\"structuredOutputs\":true,\"temperature\":true,\"thinkingBudget\":false,\"thinkingLevels\":[],\"topP\":true},\"completionTokenCostPer1M\":0.6,\"currency\":\"usd\",\"isDefault\":false,\"name\":\"gpt-4o-mini\",\"promptTokenCostPer1M\":0.15,\"provider\":\"openai\",\"supported\":{\"structuredOutputs\":true},\"type\":\"text\"},{\"cacheReadTokenCostPer1M\":0.02,\"cacheWriteTokenCostPer1M\":0.25,\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"serviceTiers\":[\"standard\",\"flex\",\"priority\"],\"showThoughts\":false,\"structuredOutputs\":true,\"temperature\":false,\"thinkingBudget\":true,\"thinkingLevels\":[\"none\",\"minimal\",\"low\",\"medium\",\"high\",\"highest\"],\"topP\":false},\"completionTokenCostPer1M\":1.2,\"contextWindow\":1050000,\"currency\":\"usd\",\"isDefault\":false,\"longContextCacheReadTokenCostPer1M\":0.04,\"longContextCompletionTokenCostPer1M\":1.8,\"longContextPromptTokenCostPer1M\":0.4,\"longContextThreshold\":272000,\"maxTokens\":128000,\"name\":\"gpt-5.6-luna\",\"notSupported\":{\"temperature\":true,\"topP\":true},\"promptTokenCostPer1M\":0.2,\"provider\":\"openai\",\"supported\":{\"structuredOutputs\":true,\"thinkingBudget\":true},\"type\":\"text\"},{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"serviceTiers\":[\"standard\",\"flex\",\"priority\"],\"showThoughts\":false,\"structuredOutputs\":true,\"temperature\":false,\"thinkingBudget\":false,\"thinkingLevels\":[],\"topP\":false},\"completionTokenCostPer1M\":1.25,\"currency\":\"usd\",\"isDefault\":false,\"name\":\"gpt-5.4-nano\",\"notSupported\":{\"temperature\":true,\"topP\":true},\"promptTokenCostPer1M\":0.2,\"provider\":\"openai\",\"supported\":{\"structuredOutputs\":true},\"type\":\"text\"},{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"serviceTiers\":[\"standard\",\"flex\",\"priority\"],\"showThoughts\":false,\"structuredOutputs\":false,\"temperature\":true,\"thinkingBudget\":false,\"thinkingLevels\":[],\"topP\":true},\"completionTokenCostPer1M\":1.5,\"currency\":\"usd\",\"isDefault\":false,\"name\":\"gpt-3.5-turbo\",\"promptTokenCostPer1M\":0.5,\"provider\":\"openai\",\"type\":\"text\"},{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"serviceTiers\":[\"standard\",\"flex\",\"priority\"],\"showThoughts\":false,\"structuredOutputs\":true,\"temperature\":true,\"thinkingBudget\":false,\"thinkingLevels\":[],\"topP\":true},\"completionTokenCostPer1M\":1.6,\"currency\":\"usd\",\"isDefault\":false,\"name\":\"gpt-4.1-mini\",\"promptTokenCostPer1M\":0.4,\"provider\":\"openai\",\"supported\":{\"structuredOutputs\":true},\"type\":\"text\"},{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"serviceTiers\":[\"standard\",\"flex\",\"priority\"],\"showThoughts\":false,\"structuredOutputs\":true,\"temperature\":false,\"thinkingBudget\":false,\"thinkingLevels\":[],\"topP\":false},\"completionTokenCostPer1M\":2,\"currency\":\"usd\",\"isDefault\":true,\"name\":\"gpt-5-mini\",\"notSupported\":{\"temperature\":true,\"topP\":true},\"promptTokenCostPer1M\":0.25,\"provider\":\"openai\",\"supported\":{\"structuredOutputs\":true},\"type\":\"text\"},{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"serviceTiers\":[\"standard\",\"flex\",\"priority\"],\"showThoughts\":false,\"structuredOutputs\":true,\"temperature\":false,\"thinkingBudget\":false,\"thinkingLevels\":[],\"topP\":false},\"completionTokenCostPer1M\":2,\"currency\":\"usd\",\"isDefault\":false,\"name\":\"gpt-5.1-codex-mini\",\"notSupported\":{\"temperature\":true,\"topP\":true},\"promptTokenCostPer1M\":0.25,\"provider\":\"openai\",\"supported\":{\"structuredOutputs\":true},\"type\":\"code\"},{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"serviceTiers\":[\"standard\",\"flex\",\"priority\"],\"showThoughts\":false,\"structuredOutputs\":true,\"temperature\":false,\"thinkingBudget\":false,\"thinkingLevels\":[],\"topP\":false},\"completionTokenCostPer1M\":4.5,\"currency\":\"usd\",\"isDefault\":false,\"name\":\"gpt-5.4-mini\",\"notSupported\":{\"temperature\":true,\"topP\":true},\"promptTokenCostPer1M\":0.75,\"provider\":\"openai\",\"supported\":{\"structuredOutputs\":true},\"type\":\"text\"},{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"serviceTiers\":[\"standard\",\"flex\",\"priority\"],\"showThoughts\":false,\"structuredOutputs\":true,\"temperature\":true,\"thinkingBudget\":false,\"thinkingLevels\":[],\"topP\":true},\"completionTokenCostPer1M\":4.4,\"currency\":\"usd\",\"isDefault\":false,\"name\":\"o1-mini\",\"promptTokenCostPer1M\":1.1,\"provider\":\"openai\",\"supported\":{\"structuredOutputs\":true},\"type\":\"text\"},{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"serviceTiers\":[\"standard\",\"flex\",\"priority\"],\"showThoughts\":false,\"structuredOutputs\":true,\"temperature\":true,\"thinkingBudget\":false,\"thinkingLevels\":[],\"topP\":true},\"completionTokenCostPer1M\":4.4,\"currency\":\"usd\",\"isDefault\":false,\"name\":\"o4-mini\",\"promptTokenCostPer1M\":1.1,\"provider\":\"openai\",\"supported\":{\"structuredOutputs\":true},\"type\":\"text\"},{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"serviceTiers\":[\"standard\",\"flex\",\"priority\"],\"showThoughts\":false,\"structuredOutputs\":true,\"temperature\":true,\"thinkingBudget\":false,\"thinkingLevels\":[],\"topP\":true},\"completionTokenCostPer1M\":8,\"currency\":\"usd\",\"isDefault\":false,\"name\":\"gpt-4.1\",\"promptTokenCostPer1M\":2,\"provider\":\"openai\",\"supported\":{\"structuredOutputs\":true},\"type\":\"text\"},{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"serviceTiers\":[\"standard\",\"flex\",\"priority\"],\"showThoughts\":false,\"structuredOutputs\":true,\"temperature\":true,\"thinkingBudget\":false,\"thinkingLevels\":[],\"topP\":true},\"completionTokenCostPer1M\":8,\"currency\":\"usd\",\"isDefault\":false,\"name\":\"o3\",\"promptTokenCostPer1M\":2,\"provider\":\"openai\",\"supported\":{\"structuredOutputs\":true},\"type\":\"text\"},{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"serviceTiers\":[\"standard\",\"flex\",\"priority\"],\"showThoughts\":false,\"structuredOutputs\":true,\"temperature\":false,\"thinkingBudget\":false,\"thinkingLevels\":[],\"topP\":false},\"completionTokenCostPer1M\":10,\"currency\":\"usd\",\"isDefault\":false,\"name\":\"gpt-5\",\"notSupported\":{\"temperature\":true,\"topP\":true},\"promptTokenCostPer1M\":1.25,\"provider\":\"openai\",\"supported\":{\"structuredOutputs\":true},\"type\":\"text\"},{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"serviceTiers\":[\"standard\",\"flex\",\"priority\"],\"showThoughts\":false,\"structuredOutputs\":true,\"temperature\":false,\"thinkingBudget\":false,\"thinkingLevels\":[],\"topP\":false},\"completionTokenCostPer1M\":10,\"currency\":\"usd\",\"isDefault\":false,\"name\":\"gpt-5-chat\",\"notSupported\":{\"temperature\":true,\"topP\":true},\"promptTokenCostPer1M\":1.25,\"provider\":\"openai\",\"supported\":{\"structuredOutputs\":true},\"type\":\"text\"},{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"serviceTiers\":[\"standard\",\"flex\",\"priority\"],\"showThoughts\":false,\"structuredOutputs\":true,\"temperature\":false,\"thinkingBudget\":false,\"thinkingLevels\":[],\"topP\":false},\"completionTokenCostPer1M\":10,\"currency\":\"usd\",\"isDefault\":false,\"name\":\"gpt-5-chat-latest\",\"notSupported\":{\"temperature\":true,\"topP\":true},\"promptTokenCostPer1M\":1.25,\"provider\":\"openai\",\"supported\":{\"structuredOutputs\":true},\"type\":\"text\"},{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"serviceTiers\":[\"standard\",\"flex\",\"priority\"],\"showThoughts\":false,\"structuredOutputs\":true,\"temperature\":false,\"thinkingBudget\":false,\"thinkingLevels\":[],\"topP\":false},\"completionTokenCostPer1M\":10,\"currency\":\"usd\",\"isDefault\":false,\"name\":\"gpt-5-codex\",\"notSupported\":{\"temperature\":true,\"topP\":true},\"promptTokenCostPer1M\":1.25,\"provider\":\"openai\",\"supported\":{\"structuredOutputs\":true},\"type\":\"code\"},{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"serviceTiers\":[\"standard\",\"flex\",\"priority\"],\"showThoughts\":false,\"structuredOutputs\":true,\"temperature\":false,\"thinkingBudget\":false,\"thinkingLevels\":[],\"topP\":false},\"completionTokenCostPer1M\":10,\"currency\":\"usd\",\"isDefault\":false,\"name\":\"gpt-5.1\",\"notSupported\":{\"temperature\":true,\"topP\":true},\"promptTokenCostPer1M\":1.25,\"provider\":\"openai\",\"supported\":{\"structuredOutputs\":true},\"type\":\"text\"},{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"serviceTiers\":[\"standard\",\"flex\",\"priority\"],\"showThoughts\":false,\"structuredOutputs\":true,\"temperature\":false,\"thinkingBudget\":false,\"thinkingLevels\":[],\"topP\":false},\"completionTokenCostPer1M\":10,\"currency\":\"usd\",\"isDefault\":false,\"name\":\"gpt-5.1-chat-latest\",\"notSupported\":{\"temperature\":true,\"topP\":true},\"promptTokenCostPer1M\":1.25,\"provider\":\"openai\",\"supported\":{\"structuredOutputs\":true},\"type\":\"text\"},{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"serviceTiers\":[\"standard\",\"flex\",\"priority\"],\"showThoughts\":false,\"structuredOutputs\":true,\"temperature\":false,\"thinkingBudget\":false,\"thinkingLevels\":[],\"topP\":false},\"completionTokenCostPer1M\":10,\"currency\":\"usd\",\"isDefault\":false,\"name\":\"gpt-5.1-codex\",\"notSupported\":{\"temperature\":true,\"topP\":true},\"promptTokenCostPer1M\":1.25,\"provider\":\"openai\",\"supported\":{\"structuredOutputs\":true},\"type\":\"code\"},{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"serviceTiers\":[\"standard\",\"flex\",\"priority\"],\"showThoughts\":false,\"structuredOutputs\":true,\"temperature\":false,\"thinkingBudget\":false,\"thinkingLevels\":[],\"topP\":false},\"completionTokenCostPer1M\":10,\"currency\":\"usd\",\"isDefault\":false,\"name\":\"gpt-5.1-codex-max\",\"notSupported\":{\"temperature\":true,\"topP\":true},\"promptTokenCostPer1M\":1.25,\"provider\":\"openai\",\"supported\":{\"structuredOutputs\":true},\"type\":\"code\"},{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"serviceTiers\":[\"standard\",\"flex\",\"priority\"],\"showThoughts\":false,\"structuredOutputs\":true,\"temperature\":true,\"thinkingBudget\":false,\"thinkingLevels\":[],\"topP\":true},\"completionTokenCostPer1M\":10,\"currency\":\"usd\",\"isDefault\":false,\"name\":\"gpt-4o\",\"promptTokenCostPer1M\":2.5,\"provider\":\"openai\",\"supported\":{\"structuredOutputs\":true},\"type\":\"text\"},{\"cacheReadTokenCostPer1M\":0.2,\"cacheWriteTokenCostPer1M\":2.5,\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"serviceTiers\":[\"standard\",\"flex\",\"priority\"],\"showThoughts\":false,\"structuredOutputs\":true,\"temperature\":false,\"thinkingBudget\":true,\"thinkingLevels\":[\"none\",\"minimal\",\"low\",\"medium\",\"high\",\"highest\"],\"topP\":false},\"completionTokenCostPer1M\":12,\"contextWindow\":1050000,\"currency\":\"usd\",\"isDefault\":false,\"longContextCacheReadTokenCostPer1M\":0.4,\"longContextCompletionTokenCostPer1M\":18,\"longContextPromptTokenCostPer1M\":4,\"longContextThreshold\":272000,\"maxTokens\":128000,\"name\":\"gpt-5.6-terra\",\"notSupported\":{\"temperature\":true,\"topP\":true},\"promptTokenCostPer1M\":2,\"provider\":\"openai\",\"supported\":{\"structuredOutputs\":true,\"thinkingBudget\":true},\"type\":\"text\"},{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"serviceTiers\":[\"standard\",\"flex\",\"priority\"],\"showThoughts\":false,\"structuredOutputs\":true,\"temperature\":false,\"thinkingBudget\":false,\"thinkingLevels\":[],\"topP\":false},\"completionTokenCostPer1M\":14,\"currency\":\"usd\",\"isDefault\":false,\"name\":\"gpt-5.2\",\"notSupported\":{\"temperature\":true,\"topP\":true},\"promptTokenCostPer1M\":1.75,\"provider\":\"openai\",\"supported\":{\"structuredOutputs\":true},\"type\":\"text\"},{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"serviceTiers\":[\"standard\",\"flex\",\"priority\"],\"showThoughts\":false,\"structuredOutputs\":true,\"temperature\":false,\"thinkingBudget\":false,\"thinkingLevels\":[],\"topP\":false},\"completionTokenCostPer1M\":14,\"currency\":\"usd\",\"isDefault\":false,\"name\":\"gpt-5.2-chat-latest\",\"notSupported\":{\"temperature\":true,\"topP\":true},\"promptTokenCostPer1M\":1.75,\"provider\":\"openai\",\"supported\":{\"structuredOutputs\":true},\"type\":\"text\"},{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"serviceTiers\":[\"standard\",\"flex\",\"priority\"],\"showThoughts\":false,\"structuredOutputs\":true,\"temperature\":false,\"thinkingBudget\":false,\"thinkingLevels\":[],\"topP\":false},\"completionTokenCostPer1M\":14,\"currency\":\"usd\",\"isDefault\":false,\"name\":\"gpt-5.2-codex\",\"notSupported\":{\"temperature\":true,\"topP\":true},\"promptTokenCostPer1M\":1.75,\"provider\":\"openai\",\"supported\":{\"structuredOutputs\":true},\"type\":\"code\"},{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"serviceTiers\":[\"standard\",\"flex\",\"priority\"],\"showThoughts\":false,\"structuredOutputs\":true,\"temperature\":false,\"thinkingBudget\":false,\"thinkingLevels\":[],\"topP\":false},\"completionTokenCostPer1M\":15,\"currency\":\"usd\",\"isDefault\":false,\"name\":\"gpt-5.4\",\"notSupported\":{\"temperature\":true,\"topP\":true},\"promptTokenCostPer1M\":2.5,\"provider\":\"openai\",\"supported\":{\"structuredOutputs\":true},\"type\":\"text\"},{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"serviceTiers\":[\"standard\",\"flex\",\"priority\"],\"showThoughts\":false,\"structuredOutputs\":true,\"temperature\":true,\"thinkingBudget\":false,\"thinkingLevels\":[],\"topP\":true},\"completionTokenCostPer1M\":15,\"currency\":\"usd\",\"isDefault\":false,\"name\":\"chatgpt-4o-latest\",\"promptTokenCostPer1M\":5,\"provider\":\"openai\",\"supported\":{\"structuredOutputs\":true},\"type\":\"text\"},{\"cacheReadTokenCostPer1M\":0.5,\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"serviceTiers\":[\"standard\",\"flex\",\"priority\"],\"showThoughts\":false,\"structuredOutputs\":true,\"temperature\":false,\"thinkingBudget\":true,\"thinkingLevels\":[\"none\",\"minimal\",\"low\",\"medium\",\"high\",\"highest\"],\"topP\":false},\"completionTokenCostPer1M\":30,\"contextWindow\":1000000,\"currency\":\"usd\",\"isDefault\":false,\"longContextCacheReadTokenCostPer1M\":1,\"longContextCompletionTokenCostPer1M\":45,\"longContextPromptTokenCostPer1M\":10,\"longContextThreshold\":272000,\"name\":\"gpt-5.5\",\"notSupported\":{\"temperature\":true,\"topP\":true},\"promptTokenCostPer1M\":5,\"provider\":\"openai\",\"supported\":{\"structuredOutputs\":true,\"thinkingBudget\":true},\"type\":\"text\"},{\"aliases\":[\"gpt-5.6\"],\"cacheReadTokenCostPer1M\":0.5,\"cacheWriteTokenCostPer1M\":6.25,\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"serviceTiers\":[\"standard\",\"flex\",\"priority\"],\"showThoughts\":false,\"structuredOutputs\":true,\"temperature\":false,\"thinkingBudget\":true,\"thinkingLevels\":[\"none\",\"minimal\",\"low\",\"medium\",\"high\",\"highest\"],\"topP\":false},\"completionTokenCostPer1M\":30,\"contextWindow\":1050000,\"currency\":\"usd\",\"isDefault\":false,\"longContextCacheReadTokenCostPer1M\":1,\"longContextCompletionTokenCostPer1M\":45,\"longContextPromptTokenCostPer1M\":10,\"longContextThreshold\":272000,\"maxTokens\":128000,\"name\":\"gpt-5.6-sol\",\"notSupported\":{\"temperature\":true,\"topP\":true},\"promptTokenCostPer1M\":5,\"provider\":\"openai\",\"supported\":{\"structuredOutputs\":true,\"thinkingBudget\":true},\"type\":\"text\"},{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"serviceTiers\":[\"standard\",\"flex\",\"priority\"],\"showThoughts\":false,\"structuredOutputs\":true,\"temperature\":true,\"thinkingBudget\":false,\"thinkingLevels\":[],\"topP\":true},\"completionTokenCostPer1M\":30,\"currency\":\"usd\",\"isDefault\":false,\"name\":\"gpt-4-turbo\",\"promptTokenCostPer1M\":10,\"provider\":\"openai\",\"supported\":{\"structuredOutputs\":true},\"type\":\"text\"},{\"cacheReadTokenCostPer1M\":1,\"cacheWriteTokenCostPer1M\":12.5,\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"serviceTiers\":[\"standard\",\"flex\",\"priority\"],\"showThoughts\":false,\"structuredOutputs\":true,\"temperature\":false,\"thinkingBudget\":true,\"thinkingLevels\":[\"minimal\",\"low\",\"medium\",\"high\",\"highest\"],\"topP\":false},\"completionTokenCostPer1M\":50,\"contextWindow\":1050000,\"currency\":\"usd\",\"isDefault\":false,\"longContextCacheReadTokenCostPer1M\":2,\"longContextCacheWriteTokenCostPer1M\":25,\"longContextCompletionTokenCostPer1M\":75,\"longContextPromptTokenCostPer1M\":20,\"longContextThreshold\":272000,\"maxTokens\":128000,\"name\":\"gpt-6-astra\",\"notSupported\":{\"temperature\":true,\"topP\":true},\"promptTokenCostPer1M\":10,\"provider\":\"openai\",\"supported\":{\"structuredOutputModes\":[\"native\",\"json_object\"],\"structuredOutputs\":true,\"thinkingBudget\":true},\"type\":\"text\"},{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"serviceTiers\":[\"standard\",\"flex\",\"priority\"],\"showThoughts\":false,\"structuredOutputs\":true,\"temperature\":true,\"thinkingBudget\":false,\"thinkingLevels\":[],\"topP\":true},\"completionTokenCostPer1M\":60,\"currency\":\"usd\",\"isDefault\":false,\"name\":\"o1\",\"promptTokenCostPer1M\":15,\"provider\":\"openai\",\"supported\":{\"structuredOutputs\":true},\"type\":\"text\"},{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"serviceTiers\":[\"standard\",\"flex\",\"priority\"],\"showThoughts\":false,\"structuredOutputs\":false,\"temperature\":true,\"thinkingBudget\":false,\"thinkingLevels\":[],\"topP\":true},\"completionTokenCostPer1M\":60,\"currency\":\"usd\",\"isDefault\":false,\"name\":\"gpt-4\",\"promptTokenCostPer1M\":30,\"provider\":\"openai\",\"type\":\"text\"},{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"serviceTiers\":[\"standard\",\"flex\",\"priority\"],\"showThoughts\":false,\"structuredOutputs\":true,\"temperature\":false,\"thinkingBudget\":false,\"thinkingLevels\":[],\"topP\":false},\"completionTokenCostPer1M\":120,\"currency\":\"usd\",\"isDefault\":false,\"name\":\"gpt-5-pro\",\"notSupported\":{\"temperature\":true,\"topP\":true},\"promptTokenCostPer1M\":15,\"provider\":\"openai\",\"supported\":{\"structuredOutputs\":true},\"type\":\"text\"},{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"serviceTiers\":[\"standard\",\"flex\",\"priority\"],\"showThoughts\":false,\"structuredOutputs\":true,\"temperature\":false,\"thinkingBudget\":false,\"thinkingLevels\":[],\"topP\":false},\"completionTokenCostPer1M\":168,\"currency\":\"usd\",\"isDefault\":false,\"name\":\"gpt-5.2-pro\",\"notSupported\":{\"temperature\":true,\"topP\":true},\"promptTokenCostPer1M\":21,\"provider\":\"openai\",\"supported\":{\"structuredOutputs\":true},\"type\":\"text\"},{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"serviceTiers\":[\"standard\",\"flex\",\"priority\"],\"showThoughts\":false,\"structuredOutputs\":true,\"temperature\":false,\"thinkingBudget\":true,\"thinkingLevels\":[\"none\",\"minimal\",\"low\",\"medium\",\"high\",\"highest\"],\"topP\":false},\"completionTokenCostPer1M\":180,\"contextWindow\":1000000,\"currency\":\"usd\",\"isDefault\":false,\"isExpensive\":true,\"longContextCompletionTokenCostPer1M\":270,\"longContextPromptTokenCostPer1M\":60,\"longContextThreshold\":272000,\"name\":\"gpt-5.5-pro\",\"notSupported\":{\"temperature\":true,\"topP\":true},\"promptTokenCostPer1M\":30,\"provider\":\"openai\",\"supported\":{\"structuredOutputs\":true,\"thinkingBudget\":true},\"type\":\"text\"}],\"name\":\"openai\"},{\"capabilities\":{\"serviceTiers\":[\"standard\",\"flex\",\"priority\"],\"thinking\":true,\"thinkingLevels\":[\"none\",\"minimal\",\"low\",\"medium\",\"high\",\"highest\"]},\"defaultEmbedModel\":\"text-embedding-ada-002\",\"defaultModel\":\"gpt-4o\",\"displayName\":\"OpenAI Responses\",\"isDynamic\":false,\"models\":[{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"serviceTiers\":[\"standard\",\"flex\",\"priority\"],\"showThoughts\":true,\"structuredOutputs\":true,\"temperature\":false,\"thinkingBudget\":true,\"thinkingLevels\":[\"none\",\"minimal\",\"low\",\"medium\",\"high\",\"highest\"],\"topP\":false},\"completionTokenCostPer1M\":0.4,\"currency\":\"usd\",\"isDefault\":false,\"name\":\"gpt-5-nano\",\"notSupported\":{\"temperature\":true,\"topP\":true},\"promptTokenCostPer1M\":0.05,\"provider\":\"openai-responses\",\"supported\":{\"showThoughts\":true,\"structuredOutputs\":true,\"thinkingBudget\":true},\"type\":\"text\"},{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"serviceTiers\":[\"standard\",\"flex\",\"priority\"],\"showThoughts\":false,\"structuredOutputs\":true,\"temperature\":true,\"thinkingBudget\":false,\"thinkingLevels\":[],\"topP\":true},\"completionTokenCostPer1M\":0.4,\"currency\":\"usd\",\"isDefault\":false,\"name\":\"gpt-4.1-nano\",\"promptTokenCostPer1M\":0.1,\"provider\":\"openai-responses\",\"supported\":{\"structuredOutputs\":true},\"type\":\"text\"},{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"serviceTiers\":[\"standard\",\"flex\",\"priority\"],\"showThoughts\":false,\"structuredOutputs\":true,\"temperature\":true,\"thinkingBudget\":false,\"thinkingLevels\":[],\"topP\":true},\"completionTokenCostPer1M\":0.6,\"currency\":\"usd\",\"isDefault\":false,\"name\":\"gpt-4o-mini\",\"promptTokenCostPer1M\":0.15,\"provider\":\"openai-responses\",\"supported\":{\"structuredOutputs\":true},\"type\":\"text\"},{\"cacheReadTokenCostPer1M\":0.02,\"cacheWriteTokenCostPer1M\":0.25,\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"serviceTiers\":[\"standard\",\"flex\",\"priority\"],\"showThoughts\":true,\"structuredOutputs\":true,\"temperature\":false,\"thinkingBudget\":true,\"thinkingLevels\":[\"none\",\"minimal\",\"low\",\"medium\",\"high\",\"highest\"],\"topP\":false},\"completionTokenCostPer1M\":1.2,\"contextWindow\":1050000,\"currency\":\"usd\",\"isDefault\":false,\"longContextCacheReadTokenCostPer1M\":0.04,\"longContextCompletionTokenCostPer1M\":1.8,\"longContextPromptTokenCostPer1M\":0.4,\"longContextThreshold\":272000,\"maxTokens\":128000,\"name\":\"gpt-5.6-luna\",\"notSupported\":{\"temperature\":true,\"topP\":true},\"promptTokenCostPer1M\":0.2,\"provider\":\"openai-responses\",\"supported\":{\"showThoughts\":true,\"structuredOutputs\":true,\"thinkingBudget\":true},\"type\":\"text\"},{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"serviceTiers\":[\"standard\",\"flex\",\"priority\"],\"showThoughts\":true,\"structuredOutputs\":true,\"temperature\":false,\"thinkingBudget\":true,\"thinkingLevels\":[\"none\",\"minimal\",\"low\",\"medium\",\"high\",\"highest\"],\"topP\":false},\"completionTokenCostPer1M\":1.25,\"currency\":\"usd\",\"isDefault\":false,\"name\":\"gpt-5.4-nano\",\"notSupported\":{\"temperature\":true,\"topP\":true},\"promptTokenCostPer1M\":0.2,\"provider\":\"openai-responses\",\"supported\":{\"showThoughts\":true,\"structuredOutputs\":true,\"thinkingBudget\":true},\"type\":\"text\"},{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"serviceTiers\":[\"standard\",\"flex\",\"priority\"],\"showThoughts\":false,\"structuredOutputs\":false,\"temperature\":true,\"thinkingBudget\":false,\"thinkingLevels\":[],\"topP\":true},\"completionTokenCostPer1M\":1.5,\"currency\":\"usd\",\"isDefault\":false,\"name\":\"gpt-3.5-turbo\",\"promptTokenCostPer1M\":0.5,\"provider\":\"openai-responses\",\"type\":\"text\"},{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"serviceTiers\":[\"standard\",\"flex\",\"priority\"],\"showThoughts\":false,\"structuredOutputs\":true,\"temperature\":true,\"thinkingBudget\":false,\"thinkingLevels\":[],\"topP\":true},\"completionTokenCostPer1M\":1.6,\"currency\":\"usd\",\"isDefault\":false,\"name\":\"gpt-4.1-mini\",\"promptTokenCostPer1M\":0.4,\"provider\":\"openai-responses\",\"supported\":{\"structuredOutputs\":true},\"type\":\"text\"},{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"serviceTiers\":[\"standard\",\"flex\",\"priority\"],\"showThoughts\":true,\"structuredOutputs\":true,\"temperature\":false,\"thinkingBudget\":true,\"thinkingLevels\":[\"none\",\"minimal\",\"low\",\"medium\",\"high\",\"highest\"],\"topP\":false},\"completionTokenCostPer1M\":2,\"currency\":\"usd\",\"isDefault\":false,\"name\":\"gpt-5-mini\",\"notSupported\":{\"temperature\":true,\"topP\":true},\"promptTokenCostPer1M\":0.25,\"provider\":\"openai-responses\",\"supported\":{\"showThoughts\":true,\"structuredOutputs\":true,\"thinkingBudget\":true},\"type\":\"text\"},{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"serviceTiers\":[\"standard\",\"flex\",\"priority\"],\"showThoughts\":true,\"structuredOutputs\":true,\"temperature\":false,\"thinkingBudget\":true,\"thinkingLevels\":[\"none\",\"minimal\",\"low\",\"medium\",\"high\",\"highest\"],\"topP\":false},\"completionTokenCostPer1M\":2,\"currency\":\"usd\",\"isDefault\":false,\"name\":\"gpt-5.1-codex-mini\",\"notSupported\":{\"temperature\":true,\"topP\":true},\"promptTokenCostPer1M\":0.25,\"provider\":\"openai-responses\",\"supported\":{\"showThoughts\":true,\"structuredOutputs\":true,\"thinkingBudget\":true},\"type\":\"code\"},{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"serviceTiers\":[\"standard\",\"flex\",\"priority\"],\"showThoughts\":true,\"structuredOutputs\":true,\"temperature\":false,\"thinkingBudget\":true,\"thinkingLevels\":[\"none\",\"minimal\",\"low\",\"medium\",\"high\",\"highest\"],\"topP\":false},\"completionTokenCostPer1M\":4.5,\"currency\":\"usd\",\"isDefault\":false,\"name\":\"gpt-5.4-mini\",\"notSupported\":{\"temperature\":true,\"topP\":true},\"promptTokenCostPer1M\":0.75,\"provider\":\"openai-responses\",\"supported\":{\"showThoughts\":true,\"structuredOutputs\":true,\"thinkingBudget\":true},\"type\":\"text\"},{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"serviceTiers\":[\"standard\",\"flex\",\"priority\"],\"showThoughts\":true,\"structuredOutputs\":true,\"temperature\":true,\"thinkingBudget\":true,\"thinkingLevels\":[\"none\",\"minimal\",\"low\",\"medium\",\"high\",\"highest\"],\"topP\":true},\"completionTokenCostPer1M\":4.4,\"currency\":\"usd\",\"isDefault\":false,\"name\":\"o3-mini\",\"promptTokenCostPer1M\":1.1,\"provider\":\"openai-responses\",\"supported\":{\"showThoughts\":true,\"structuredOutputs\":true,\"thinkingBudget\":true},\"type\":\"text\"},{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"serviceTiers\":[\"standard\",\"flex\",\"priority\"],\"showThoughts\":true,\"structuredOutputs\":true,\"temperature\":true,\"thinkingBudget\":true,\"thinkingLevels\":[\"none\",\"minimal\",\"low\",\"medium\",\"high\",\"highest\"],\"topP\":true},\"completionTokenCostPer1M\":4.4,\"currency\":\"usd\",\"isDefault\":false,\"name\":\"o4-mini\",\"promptTokenCostPer1M\":1.1,\"provider\":\"openai-responses\",\"supported\":{\"showThoughts\":true,\"structuredOutputs\":true,\"thinkingBudget\":true},\"type\":\"text\"},{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"serviceTiers\":[\"standard\",\"flex\",\"priority\"],\"showThoughts\":false,\"structuredOutputs\":true,\"temperature\":true,\"thinkingBudget\":false,\"thinkingLevels\":[],\"topP\":true},\"completionTokenCostPer1M\":8,\"currency\":\"usd\",\"isDefault\":false,\"name\":\"gpt-4.1\",\"promptTokenCostPer1M\":2,\"provider\":\"openai-responses\",\"supported\":{\"structuredOutputs\":true},\"type\":\"text\"},{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"serviceTiers\":[\"standard\",\"flex\",\"priority\"],\"showThoughts\":true,\"structuredOutputs\":true,\"temperature\":true,\"thinkingBudget\":true,\"thinkingLevels\":[\"none\",\"minimal\",\"low\",\"medium\",\"high\",\"highest\"],\"topP\":true},\"completionTokenCostPer1M\":8,\"currency\":\"usd\",\"isDefault\":false,\"name\":\"o3\",\"promptTokenCostPer1M\":2,\"provider\":\"openai-responses\",\"supported\":{\"showThoughts\":true,\"structuredOutputs\":true,\"thinkingBudget\":true},\"type\":\"text\"},{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"serviceTiers\":[\"standard\",\"flex\",\"priority\"],\"showThoughts\":true,\"structuredOutputs\":true,\"temperature\":false,\"thinkingBudget\":true,\"thinkingLevels\":[\"none\",\"minimal\",\"low\",\"medium\",\"high\",\"highest\"],\"topP\":false},\"completionTokenCostPer1M\":10,\"currency\":\"usd\",\"isDefault\":false,\"name\":\"gpt-5\",\"notSupported\":{\"temperature\":true,\"topP\":true},\"promptTokenCostPer1M\":1.25,\"provider\":\"openai-responses\",\"supported\":{\"showThoughts\":true,\"structuredOutputs\":true,\"thinkingBudget\":true},\"type\":\"text\"},{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"serviceTiers\":[\"standard\",\"flex\",\"priority\"],\"showThoughts\":true,\"structuredOutputs\":true,\"temperature\":false,\"thinkingBudget\":true,\"thinkingLevels\":[\"none\",\"minimal\",\"low\",\"medium\",\"high\",\"highest\"],\"topP\":false},\"completionTokenCostPer1M\":10,\"currency\":\"usd\",\"isDefault\":false,\"name\":\"gpt-5-chat\",\"notSupported\":{\"temperature\":true,\"topP\":true},\"promptTokenCostPer1M\":1.25,\"provider\":\"openai-responses\",\"supported\":{\"showThoughts\":true,\"structuredOutputs\":true,\"thinkingBudget\":true},\"type\":\"text\"},{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"serviceTiers\":[\"standard\",\"flex\",\"priority\"],\"showThoughts\":true,\"structuredOutputs\":true,\"temperature\":false,\"thinkingBudget\":true,\"thinkingLevels\":[\"none\",\"minimal\",\"low\",\"medium\",\"high\",\"highest\"],\"topP\":false},\"completionTokenCostPer1M\":10,\"currency\":\"usd\",\"isDefault\":false,\"name\":\"gpt-5-chat-latest\",\"notSupported\":{\"temperature\":true,\"topP\":true},\"promptTokenCostPer1M\":1.25,\"provider\":\"openai-responses\",\"supported\":{\"showThoughts\":true,\"structuredOutputs\":true,\"thinkingBudget\":true},\"type\":\"text\"},{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"serviceTiers\":[\"standard\",\"flex\",\"priority\"],\"showThoughts\":true,\"structuredOutputs\":true,\"temperature\":false,\"thinkingBudget\":true,\"thinkingLevels\":[\"none\",\"minimal\",\"low\",\"medium\",\"high\",\"highest\"],\"topP\":false},\"completionTokenCostPer1M\":10,\"currency\":\"usd\",\"isDefault\":false,\"name\":\"gpt-5-codex\",\"notSupported\":{\"temperature\":true,\"topP\":true},\"promptTokenCostPer1M\":1.25,\"provider\":\"openai-responses\",\"supported\":{\"showThoughts\":true,\"structuredOutputs\":true,\"thinkingBudget\":true},\"type\":\"code\"},{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"serviceTiers\":[\"standard\",\"flex\",\"priority\"],\"showThoughts\":true,\"structuredOutputs\":true,\"temperature\":false,\"thinkingBudget\":true,\"thinkingLevels\":[\"none\",\"minimal\",\"low\",\"medium\",\"high\",\"highest\"],\"topP\":false},\"completionTokenCostPer1M\":10,\"currency\":\"usd\",\"isDefault\":false,\"name\":\"gpt-5.1\",\"notSupported\":{\"temperature\":true,\"topP\":true},\"promptTokenCostPer1M\":1.25,\"provider\":\"openai-responses\",\"supported\":{\"showThoughts\":true,\"structuredOutputs\":true,\"thinkingBudget\":true},\"type\":\"text\"},{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"serviceTiers\":[\"standard\",\"flex\",\"priority\"],\"showThoughts\":true,\"structuredOutputs\":true,\"temperature\":false,\"thinkingBudget\":true,\"thinkingLevels\":[\"none\",\"minimal\",\"low\",\"medium\",\"high\",\"highest\"],\"topP\":false},\"completionTokenCostPer1M\":10,\"currency\":\"usd\",\"isDefault\":false,\"name\":\"gpt-5.1-chat-latest\",\"notSupported\":{\"temperature\":true,\"topP\":true},\"promptTokenCostPer1M\":1.25,\"provider\":\"openai-responses\",\"supported\":{\"showThoughts\":true,\"structuredOutputs\":true,\"thinkingBudget\":true},\"type\":\"text\"},{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"serviceTiers\":[\"standard\",\"flex\",\"priority\"],\"showThoughts\":true,\"structuredOutputs\":true,\"temperature\":false,\"thinkingBudget\":true,\"thinkingLevels\":[\"none\",\"minimal\",\"low\",\"medium\",\"high\",\"highest\"],\"topP\":false},\"completionTokenCostPer1M\":10,\"currency\":\"usd\",\"isDefault\":false,\"name\":\"gpt-5.1-codex\",\"notSupported\":{\"temperature\":true,\"topP\":true},\"promptTokenCostPer1M\":1.25,\"provider\":\"openai-responses\",\"supported\":{\"showThoughts\":true,\"structuredOutputs\":true,\"thinkingBudget\":true},\"type\":\"code\"},{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"serviceTiers\":[\"standard\",\"flex\",\"priority\"],\"showThoughts\":true,\"structuredOutputs\":true,\"temperature\":false,\"thinkingBudget\":true,\"thinkingLevels\":[\"none\",\"minimal\",\"low\",\"medium\",\"high\",\"highest\"],\"topP\":false},\"completionTokenCostPer1M\":10,\"currency\":\"usd\",\"isDefault\":false,\"name\":\"gpt-5.1-codex-max\",\"notSupported\":{\"temperature\":true,\"topP\":true},\"promptTokenCostPer1M\":1.25,\"provider\":\"openai-responses\",\"supported\":{\"showThoughts\":true,\"structuredOutputs\":true,\"thinkingBudget\":true},\"type\":\"code\"},{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"serviceTiers\":[\"standard\",\"flex\",\"priority\"],\"showThoughts\":false,\"structuredOutputs\":true,\"temperature\":true,\"thinkingBudget\":false,\"thinkingLevels\":[],\"topP\":true},\"completionTokenCostPer1M\":10,\"currency\":\"usd\",\"isDefault\":true,\"name\":\"gpt-4o\",\"promptTokenCostPer1M\":2.5,\"provider\":\"openai-responses\",\"supported\":{\"structuredOutputs\":true},\"type\":\"text\"},{\"cacheReadTokenCostPer1M\":0.2,\"cacheWriteTokenCostPer1M\":2.5,\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"serviceTiers\":[\"standard\",\"flex\",\"priority\"],\"showThoughts\":true,\"structuredOutputs\":true,\"temperature\":false,\"thinkingBudget\":true,\"thinkingLevels\":[\"none\",\"minimal\",\"low\",\"medium\",\"high\",\"highest\"],\"topP\":false},\"completionTokenCostPer1M\":12,\"contextWindow\":1050000,\"currency\":\"usd\",\"isDefault\":false,\"longContextCacheReadTokenCostPer1M\":0.4,\"longContextCompletionTokenCostPer1M\":18,\"longContextPromptTokenCostPer1M\":4,\"longContextThreshold\":272000,\"maxTokens\":128000,\"name\":\"gpt-5.6-terra\",\"notSupported\":{\"temperature\":true,\"topP\":true},\"promptTokenCostPer1M\":2,\"provider\":\"openai-responses\",\"supported\":{\"showThoughts\":true,\"structuredOutputs\":true,\"thinkingBudget\":true},\"type\":\"text\"},{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"serviceTiers\":[\"standard\",\"flex\",\"priority\"],\"showThoughts\":true,\"structuredOutputs\":true,\"temperature\":false,\"thinkingBudget\":true,\"thinkingLevels\":[\"none\",\"minimal\",\"low\",\"medium\",\"high\",\"highest\"],\"topP\":false},\"completionTokenCostPer1M\":14,\"currency\":\"usd\",\"isDefault\":false,\"name\":\"gpt-5.2\",\"notSupported\":{\"temperature\":true,\"topP\":true},\"promptTokenCostPer1M\":1.75,\"provider\":\"openai-responses\",\"supported\":{\"showThoughts\":true,\"structuredOutputs\":true,\"thinkingBudget\":true},\"type\":\"text\"},{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"serviceTiers\":[\"standard\",\"flex\",\"priority\"],\"showThoughts\":true,\"structuredOutputs\":true,\"temperature\":false,\"thinkingBudget\":true,\"thinkingLevels\":[\"none\",\"minimal\",\"low\",\"medium\",\"high\",\"highest\"],\"topP\":false},\"completionTokenCostPer1M\":14,\"currency\":\"usd\",\"isDefault\":false,\"name\":\"gpt-5.2-chat-latest\",\"notSupported\":{\"temperature\":true,\"topP\":true},\"promptTokenCostPer1M\":1.75,\"provider\":\"openai-responses\",\"supported\":{\"showThoughts\":true,\"structuredOutputs\":true,\"thinkingBudget\":true},\"type\":\"text\"},{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"serviceTiers\":[\"standard\",\"flex\",\"priority\"],\"showThoughts\":true,\"structuredOutputs\":true,\"temperature\":false,\"thinkingBudget\":true,\"thinkingLevels\":[\"none\",\"minimal\",\"low\",\"medium\",\"high\",\"highest\"],\"topP\":false},\"completionTokenCostPer1M\":14,\"currency\":\"usd\",\"isDefault\":false,\"name\":\"gpt-5.2-codex\",\"notSupported\":{\"temperature\":true,\"topP\":true},\"promptTokenCostPer1M\":1.75,\"provider\":\"openai-responses\",\"supported\":{\"showThoughts\":true,\"structuredOutputs\":true,\"thinkingBudget\":true},\"type\":\"code\"},{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"serviceTiers\":[\"standard\",\"flex\",\"priority\"],\"showThoughts\":true,\"structuredOutputs\":true,\"temperature\":false,\"thinkingBudget\":true,\"thinkingLevels\":[\"none\",\"minimal\",\"low\",\"medium\",\"high\",\"highest\"],\"topP\":false},\"completionTokenCostPer1M\":15,\"currency\":\"usd\",\"isDefault\":false,\"name\":\"gpt-5.4\",\"notSupported\":{\"temperature\":true,\"topP\":true},\"promptTokenCostPer1M\":2.5,\"provider\":\"openai-responses\",\"supported\":{\"showThoughts\":true,\"structuredOutputs\":true,\"thinkingBudget\":true},\"type\":\"text\"},{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"serviceTiers\":[\"standard\",\"flex\",\"priority\"],\"showThoughts\":false,\"structuredOutputs\":true,\"temperature\":true,\"thinkingBudget\":false,\"thinkingLevels\":[],\"topP\":true},\"completionTokenCostPer1M\":15,\"currency\":\"usd\",\"isDefault\":false,\"name\":\"chatgpt-4o-latest\",\"promptTokenCostPer1M\":5,\"provider\":\"openai-responses\",\"supported\":{\"structuredOutputs\":true},\"type\":\"text\"},{\"cacheReadTokenCostPer1M\":0.5,\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"serviceTiers\":[\"standard\",\"flex\",\"priority\"],\"showThoughts\":true,\"structuredOutputs\":true,\"temperature\":false,\"thinkingBudget\":true,\"thinkingLevels\":[\"none\",\"minimal\",\"low\",\"medium\",\"high\",\"highest\"],\"topP\":false},\"completionTokenCostPer1M\":30,\"contextWindow\":1000000,\"currency\":\"usd\",\"isDefault\":false,\"longContextCacheReadTokenCostPer1M\":1,\"longContextCompletionTokenCostPer1M\":45,\"longContextPromptTokenCostPer1M\":10,\"longContextThreshold\":272000,\"name\":\"gpt-5.5\",\"notSupported\":{\"temperature\":true,\"topP\":true},\"promptTokenCostPer1M\":5,\"provider\":\"openai-responses\",\"supported\":{\"showThoughts\":true,\"structuredOutputs\":true,\"thinkingBudget\":true},\"type\":\"text\"},{\"aliases\":[\"gpt-5.6\"],\"cacheReadTokenCostPer1M\":0.5,\"cacheWriteTokenCostPer1M\":6.25,\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"serviceTiers\":[\"standard\",\"flex\",\"priority\"],\"showThoughts\":true,\"structuredOutputs\":true,\"temperature\":false,\"thinkingBudget\":true,\"thinkingLevels\":[\"none\",\"minimal\",\"low\",\"medium\",\"high\",\"highest\"],\"topP\":false},\"completionTokenCostPer1M\":30,\"contextWindow\":1050000,\"currency\":\"usd\",\"isDefault\":false,\"longContextCacheReadTokenCostPer1M\":1,\"longContextCompletionTokenCostPer1M\":45,\"longContextPromptTokenCostPer1M\":10,\"longContextThreshold\":272000,\"maxTokens\":128000,\"name\":\"gpt-5.6-sol\",\"notSupported\":{\"temperature\":true,\"topP\":true},\"promptTokenCostPer1M\":5,\"provider\":\"openai-responses\",\"supported\":{\"showThoughts\":true,\"structuredOutputs\":true,\"thinkingBudget\":true},\"type\":\"text\"},{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"serviceTiers\":[\"standard\",\"flex\",\"priority\"],\"showThoughts\":false,\"structuredOutputs\":true,\"temperature\":true,\"thinkingBudget\":false,\"thinkingLevels\":[],\"topP\":true},\"completionTokenCostPer1M\":30,\"currency\":\"usd\",\"isDefault\":false,\"name\":\"gpt-4-turbo\",\"promptTokenCostPer1M\":10,\"provider\":\"openai-responses\",\"supported\":{\"structuredOutputs\":true},\"type\":\"text\"},{\"cacheReadTokenCostPer1M\":1,\"cacheWriteTokenCostPer1M\":12.5,\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"serviceTiers\":[\"standard\",\"flex\",\"priority\"],\"showThoughts\":true,\"structuredOutputs\":true,\"temperature\":false,\"thinkingBudget\":true,\"thinkingLevels\":[\"minimal\",\"low\",\"medium\",\"high\",\"highest\"],\"topP\":false},\"completionTokenCostPer1M\":50,\"contextWindow\":1050000,\"currency\":\"usd\",\"isDefault\":false,\"longContextCacheReadTokenCostPer1M\":2,\"longContextCacheWriteTokenCostPer1M\":25,\"longContextCompletionTokenCostPer1M\":75,\"longContextPromptTokenCostPer1M\":20,\"longContextThreshold\":272000,\"maxTokens\":128000,\"name\":\"gpt-6-astra\",\"notSupported\":{\"temperature\":true,\"topP\":true},\"promptTokenCostPer1M\":10,\"provider\":\"openai-responses\",\"supported\":{\"showThoughts\":true,\"structuredOutputs\":true,\"thinkingBudget\":true},\"type\":\"text\"},{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"serviceTiers\":[\"standard\",\"flex\",\"priority\"],\"showThoughts\":true,\"structuredOutputs\":true,\"temperature\":true,\"thinkingBudget\":true,\"thinkingLevels\":[\"none\",\"minimal\",\"low\",\"medium\",\"high\",\"highest\"],\"topP\":true},\"completionTokenCostPer1M\":60,\"currency\":\"usd\",\"isDefault\":false,\"name\":\"o1\",\"promptTokenCostPer1M\":15,\"provider\":\"openai-responses\",\"supported\":{\"showThoughts\":true,\"structuredOutputs\":true,\"thinkingBudget\":true},\"type\":\"text\"},{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"serviceTiers\":[\"standard\",\"flex\",\"priority\"],\"showThoughts\":false,\"structuredOutputs\":false,\"temperature\":true,\"thinkingBudget\":false,\"thinkingLevels\":[],\"topP\":true},\"completionTokenCostPer1M\":60,\"currency\":\"usd\",\"isDefault\":false,\"name\":\"gpt-4\",\"promptTokenCostPer1M\":30,\"provider\":\"openai-responses\",\"type\":\"text\"},{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"serviceTiers\":[\"standard\",\"flex\",\"priority\"],\"showThoughts\":true,\"structuredOutputs\":true,\"temperature\":true,\"thinkingBudget\":true,\"thinkingLevels\":[\"none\",\"minimal\",\"low\",\"medium\",\"high\",\"highest\"],\"topP\":true},\"completionTokenCostPer1M\":80,\"currency\":\"usd\",\"isDefault\":false,\"isExpensive\":true,\"name\":\"o3-pro\",\"promptTokenCostPer1M\":20,\"provider\":\"openai-responses\",\"supported\":{\"showThoughts\":true,\"structuredOutputs\":true,\"thinkingBudget\":true},\"type\":\"text\"},{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"serviceTiers\":[\"standard\",\"flex\",\"priority\"],\"showThoughts\":true,\"structuredOutputs\":true,\"temperature\":false,\"thinkingBudget\":true,\"thinkingLevels\":[\"none\",\"minimal\",\"low\",\"medium\",\"high\",\"highest\"],\"topP\":false},\"completionTokenCostPer1M\":120,\"currency\":\"usd\",\"isDefault\":false,\"name\":\"gpt-5-pro\",\"notSupported\":{\"temperature\":true,\"topP\":true},\"promptTokenCostPer1M\":15,\"provider\":\"openai-responses\",\"supported\":{\"showThoughts\":true,\"structuredOutputs\":true,\"thinkingBudget\":true},\"type\":\"text\"},{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"serviceTiers\":[\"standard\",\"flex\",\"priority\"],\"showThoughts\":true,\"structuredOutputs\":true,\"temperature\":false,\"thinkingBudget\":true,\"thinkingLevels\":[\"none\",\"minimal\",\"low\",\"medium\",\"high\",\"highest\"],\"topP\":false},\"completionTokenCostPer1M\":168,\"currency\":\"usd\",\"isDefault\":false,\"name\":\"gpt-5.2-pro\",\"notSupported\":{\"temperature\":true,\"topP\":true},\"promptTokenCostPer1M\":21,\"provider\":\"openai-responses\",\"supported\":{\"showThoughts\":true,\"structuredOutputs\":true,\"thinkingBudget\":true},\"type\":\"text\"},{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"serviceTiers\":[\"standard\",\"flex\",\"priority\"],\"showThoughts\":true,\"structuredOutputs\":true,\"temperature\":false,\"thinkingBudget\":true,\"thinkingLevels\":[\"none\",\"minimal\",\"low\",\"medium\",\"high\",\"highest\"],\"topP\":false},\"completionTokenCostPer1M\":180,\"contextWindow\":1000000,\"currency\":\"usd\",\"isDefault\":false,\"isExpensive\":true,\"longContextCompletionTokenCostPer1M\":270,\"longContextPromptTokenCostPer1M\":60,\"longContextThreshold\":272000,\"name\":\"gpt-5.5-pro\",\"notSupported\":{\"temperature\":true,\"topP\":true},\"promptTokenCostPer1M\":30,\"provider\":\"openai-responses\",\"supported\":{\"showThoughts\":true,\"structuredOutputs\":true,\"thinkingBudget\":true},\"type\":\"text\"},{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"serviceTiers\":[\"standard\",\"flex\",\"priority\"],\"showThoughts\":true,\"structuredOutputs\":true,\"temperature\":true,\"thinkingBudget\":true,\"thinkingLevels\":[\"none\",\"minimal\",\"low\",\"medium\",\"high\",\"highest\"],\"topP\":true},\"completionTokenCostPer1M\":600,\"currency\":\"usd\",\"isDefault\":false,\"isExpensive\":true,\"name\":\"o1-pro\",\"promptTokenCostPer1M\":150,\"provider\":\"openai-responses\",\"supported\":{\"showThoughts\":true,\"structuredOutputs\":true,\"thinkingBudget\":true},\"type\":\"text\"}],\"name\":\"openai-responses\"},{\"capabilities\":{\"serviceTiers\":[\"standard\",\"priority\"],\"thinking\":true,\"thinkingLevels\":[\"minimal\",\"low\",\"medium\",\"high\",\"highest\"]},\"defaultModel\":\"grok-4.6\",\"displayName\":\"xAI Grok\",\"isDynamic\":false,\"models\":[{\"aliases\":[\"grok-4-1-fast-non-reasoning-latest\"],\"cacheReadTokenCostPer1M\":0.05,\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"serviceTiers\":[\"standard\",\"priority\"],\"showThoughts\":false,\"structuredOutputs\":true,\"temperature\":true,\"thinkingBudget\":false,\"thinkingLevels\":[],\"topP\":true},\"completionTokenCostPer1M\":0.5,\"contextWindow\":2000000,\"currency\":\"USD\",\"isDefault\":false,\"name\":\"grok-4-1-fast-non-reasoning\",\"promptTokenCostPer1M\":0.2,\"provider\":\"grok\",\"supported\":{\"structuredOutputs\":true},\"type\":\"text\"},{\"aliases\":[\"grok-4-1-fast-reasoning-latest\"],\"cacheReadTokenCostPer1M\":0.05,\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"serviceTiers\":[\"standard\",\"priority\"],\"showThoughts\":false,\"structuredOutputs\":true,\"temperature\":true,\"thinkingBudget\":false,\"thinkingLevels\":[],\"topP\":true},\"completionTokenCostPer1M\":0.5,\"contextWindow\":2000000,\"currency\":\"USD\",\"isDefault\":false,\"name\":\"grok-4-1-fast-reasoning\",\"promptTokenCostPer1M\":0.2,\"provider\":\"grok\",\"supported\":{\"structuredOutputs\":true},\"type\":\"text\"},{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"serviceTiers\":[\"standard\",\"priority\"],\"showThoughts\":false,\"structuredOutputs\":false,\"temperature\":true,\"thinkingBudget\":true,\"thinkingLevels\":[\"minimal\",\"low\",\"medium\",\"high\",\"highest\"],\"topP\":true},\"completionTokenCostPer1M\":0.5,\"currency\":\"USD\",\"isDefault\":false,\"name\":\"grok-3-mini\",\"promptTokenCostPer1M\":0.3,\"provider\":\"grok\",\"supported\":{\"thinkingBudget\":true},\"type\":\"text\"},{\"aliases\":[\"grok-4.20-multi-agent-0309\",\"grok-4.20-multi-agent-latest\"],\"cacheReadTokenCostPer1M\":0.2,\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"serviceTiers\":[\"standard\",\"priority\"],\"showThoughts\":false,\"structuredOutputs\":true,\"temperature\":true,\"thinkingBudget\":false,\"thinkingLevels\":[],\"topP\":true},\"completionTokenCostPer1M\":2.5,\"contextWindow\":2000000,\"currency\":\"USD\",\"isDefault\":false,\"name\":\"grok-4.20-multi-agent\",\"promptTokenCostPer1M\":1.25,\"provider\":\"grok\",\"supported\":{\"structuredOutputs\":true},\"type\":\"text\"},{\"aliases\":[\"grok-4.20-0309-non-reasoning\",\"grok-4.20-non-reasoning-latest\"],\"cacheReadTokenCostPer1M\":0.2,\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"serviceTiers\":[\"standard\",\"priority\"],\"showThoughts\":false,\"structuredOutputs\":true,\"temperature\":true,\"thinkingBudget\":false,\"thinkingLevels\":[],\"topP\":true},\"completionTokenCostPer1M\":2.5,\"contextWindow\":2000000,\"currency\":\"USD\",\"isDefault\":false,\"name\":\"grok-4.20-non-reasoning\",\"promptTokenCostPer1M\":1.25,\"provider\":\"grok\",\"supported\":{\"structuredOutputs\":true},\"type\":\"text\"},{\"aliases\":[\"grok-4.20-0309-reasoning\",\"grok-4.20-reasoning-latest\",\"grok-4.20\",\"grok-4.20-0309\"],\"cacheReadTokenCostPer1M\":0.2,\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"serviceTiers\":[\"standard\",\"priority\"],\"showThoughts\":false,\"structuredOutputs\":true,\"temperature\":true,\"thinkingBudget\":false,\"thinkingLevels\":[],\"topP\":true},\"completionTokenCostPer1M\":2.5,\"contextWindow\":2000000,\"currency\":\"USD\",\"isDefault\":false,\"name\":\"grok-4.20-reasoning\",\"promptTokenCostPer1M\":1.25,\"provider\":\"grok\",\"supported\":{\"structuredOutputs\":true},\"type\":\"text\"},{\"aliases\":[\"grok-4.3-latest\",\"grok-latest\"],\"cacheReadTokenCostPer1M\":0.2,\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"serviceTiers\":[\"standard\",\"priority\"],\"showThoughts\":false,\"structuredOutputs\":true,\"temperature\":true,\"thinkingBudget\":true,\"thinkingLevels\":[\"none\",\"minimal\",\"low\",\"medium\",\"high\",\"highest\"],\"topP\":true},\"completionTokenCostPer1M\":2.5,\"contextWindow\":1000000,\"currency\":\"USD\",\"isDefault\":false,\"name\":\"grok-4.3\",\"promptTokenCostPer1M\":1.25,\"provider\":\"grok\",\"supported\":{\"structuredOutputs\":true,\"thinkingBudget\":true},\"type\":\"text\"},{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"serviceTiers\":[\"standard\",\"priority\"],\"showThoughts\":false,\"structuredOutputs\":false,\"temperature\":true,\"thinkingBudget\":true,\"thinkingLevels\":[\"minimal\",\"low\",\"medium\",\"high\",\"highest\"],\"topP\":true},\"completionTokenCostPer1M\":4,\"currency\":\"USD\",\"isDefault\":false,\"name\":\"grok-3-mini-fast\",\"promptTokenCostPer1M\":0.6,\"provider\":\"grok\",\"supported\":{\"thinkingBudget\":true},\"type\":\"text\"},{\"aliases\":[\"grok-4.5-latest\",\"grok-build-latest\"],\"cacheReadTokenCostPer1M\":0.3,\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"serviceTiers\":[\"standard\",\"priority\"],\"showThoughts\":false,\"structuredOutputs\":true,\"temperature\":true,\"thinkingBudget\":true,\"thinkingLevels\":[\"minimal\",\"low\",\"medium\",\"high\",\"highest\"],\"topP\":true},\"completionTokenCostPer1M\":6,\"contextWindow\":500000,\"currency\":\"USD\",\"isDefault\":false,\"name\":\"grok-4.5\",\"promptTokenCostPer1M\":2,\"provider\":\"grok\",\"supported\":{\"structuredOutputs\":true,\"thinkingBudget\":true},\"type\":\"text\"},{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"serviceTiers\":[\"standard\",\"priority\"],\"showThoughts\":false,\"structuredOutputs\":false,\"temperature\":true,\"thinkingBudget\":false,\"thinkingLevels\":[],\"topP\":true},\"completionTokenCostPer1M\":15,\"currency\":\"USD\",\"isDefault\":false,\"name\":\"grok-3\",\"promptTokenCostPer1M\":3,\"provider\":\"grok\",\"type\":\"text\"},{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"serviceTiers\":[\"standard\",\"priority\"],\"showThoughts\":false,\"structuredOutputs\":false,\"temperature\":true,\"thinkingBudget\":false,\"thinkingLevels\":[],\"topP\":true},\"completionTokenCostPer1M\":25,\"currency\":\"USD\",\"isDefault\":false,\"name\":\"grok-3-fast\",\"promptTokenCostPer1M\":5,\"provider\":\"grok\",\"type\":\"text\"},{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"serviceTiers\":[\"standard\",\"priority\"],\"showThoughts\":false,\"structuredOutputs\":true,\"temperature\":true,\"thinkingBudget\":true,\"thinkingLevels\":[\"minimal\",\"low\",\"medium\",\"high\",\"highest\"],\"topP\":true},\"currency\":\"USD\",\"isDefault\":true,\"name\":\"grok-4.6\",\"provider\":\"grok\",\"supported\":{\"structuredOutputs\":true,\"thinkingBudget\":true},\"type\":\"text\"}],\"name\":\"grok\"},{\"capabilities\":{\"serviceTiers\":[],\"thinking\":false,\"thinkingLevels\":[]},\"defaultModel\":\"command-r-plus\",\"displayName\":\"Cohere\",\"isDynamic\":false,\"models\":[{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"serviceTiers\":[],\"showThoughts\":false,\"structuredOutputs\":false,\"temperature\":true,\"thinkingBudget\":false,\"thinkingLevels\":[],\"topP\":true},\"completionTokenCostPer1M\":0.6,\"currency\":\"usd\",\"isDefault\":false,\"name\":\"command-light\",\"promptTokenCostPer1M\":0.3,\"provider\":\"cohere\",\"type\":\"text\"},{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"serviceTiers\":[],\"showThoughts\":false,\"structuredOutputs\":false,\"temperature\":true,\"thinkingBudget\":false,\"thinkingLevels\":[],\"topP\":true},\"completionTokenCostPer1M\":1.5,\"currency\":\"usd\",\"isDefault\":false,\"name\":\"command\",\"promptTokenCostPer1M\":0.5,\"provider\":\"cohere\",\"type\":\"text\"},{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"serviceTiers\":[],\"showThoughts\":false,\"structuredOutputs\":false,\"temperature\":true,\"thinkingBudget\":false,\"thinkingLevels\":[],\"topP\":true},\"completionTokenCostPer1M\":1.5,\"currency\":\"usd\",\"isDefault\":false,\"name\":\"command-r\",\"promptTokenCostPer1M\":0.5,\"provider\":\"cohere\",\"type\":\"text\"},{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"serviceTiers\":[],\"showThoughts\":false,\"structuredOutputs\":false,\"temperature\":true,\"thinkingBudget\":false,\"thinkingLevels\":[],\"topP\":true},\"completionTokenCostPer1M\":15,\"currency\":\"usd\",\"isDefault\":true,\"name\":\"command-r-plus\",\"promptTokenCostPer1M\":3,\"provider\":\"cohere\",\"type\":\"text\"}],\"name\":\"cohere\"},{\"capabilities\":{\"serviceTiers\":[],\"thinking\":false,\"thinkingLevels\":[]},\"defaultModel\":\"reka-core\",\"displayName\":\"Reka\",\"isDynamic\":false,\"models\":[{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"serviceTiers\":[],\"showThoughts\":false,\"structuredOutputs\":false,\"temperature\":true,\"thinkingBudget\":false,\"thinkingLevels\":[],\"topP\":true},\"completionTokenCostPer1M\":1,\"currency\":\"usd\",\"isDefault\":false,\"name\":\"reka-edge\",\"promptTokenCostPer1M\":0.4,\"provider\":\"reka\",\"type\":\"text\"},{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"serviceTiers\":[],\"showThoughts\":false,\"structuredOutputs\":false,\"temperature\":true,\"thinkingBudget\":false,\"thinkingLevels\":[],\"topP\":true},\"completionTokenCostPer1M\":2,\"currency\":\"usd\",\"isDefault\":false,\"name\":\"reka-flash\",\"promptTokenCostPer1M\":0.8,\"provider\":\"reka\",\"type\":\"text\"},{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"serviceTiers\":[],\"showThoughts\":false,\"structuredOutputs\":false,\"temperature\":true,\"thinkingBudget\":false,\"thinkingLevels\":[],\"topP\":true},\"completionTokenCostPer1M\":15,\"currency\":\"usd\",\"isDefault\":true,\"name\":\"reka-core\",\"promptTokenCostPer1M\":3,\"provider\":\"reka\",\"type\":\"text\"}],\"name\":\"reka\"},{\"capabilities\":{\"serviceTiers\":[],\"thinking\":true,\"thinkingLevels\":[\"none\",\"minimal\",\"low\",\"medium\",\"high\",\"highest\"]},\"defaultModel\":\"claude-3-7-sonnet-latest\",\"displayName\":\"Anthropic\",\"isDynamic\":false,\"models\":[{\"cacheReadTokenCostPer1M\":0.03,\"cacheWriteTokenCostPer1M\":0.3,\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"serviceTiers\":[],\"showThoughts\":false,\"structuredOutputs\":false,\"temperature\":true,\"thinkingBudget\":false,\"thinkingLevels\":[],\"topP\":true},\"completionTokenCostPer1M\":1.25,\"currency\":\"usd\",\"isDefault\":false,\"maxTokens\":4096,\"name\":\"claude-3-haiku-20240307\",\"promptTokenCostPer1M\":0.25,\"provider\":\"anthropic\",\"type\":\"text\"},{\"cacheReadTokenCostPer1M\":0.03,\"cacheWriteTokenCostPer1M\":0.3,\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"serviceTiers\":[],\"showThoughts\":false,\"structuredOutputs\":false,\"temperature\":true,\"thinkingBudget\":false,\"thinkingLevels\":[],\"topP\":true},\"completionTokenCostPer1M\":1.25,\"currency\":\"usd\",\"isDefault\":false,\"maxTokens\":4096,\"name\":\"claude-3-haiku@20240307\",\"promptTokenCostPer1M\":0.25,\"provider\":\"anthropic\",\"type\":\"text\"},{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"serviceTiers\":[],\"showThoughts\":false,\"structuredOutputs\":false,\"temperature\":true,\"thinkingBudget\":false,\"thinkingLevels\":[],\"topP\":true},\"completionTokenCostPer1M\":2.24,\"currency\":\"usd\",\"isDefault\":false,\"maxTokens\":4096,\"name\":\"claude-instant-1.2\",\"promptTokenCostPer1M\":0.8,\"provider\":\"anthropic\",\"type\":\"text\"},{\"cacheReadTokenCostPer1M\":0.08,\"cacheWriteTokenCostPer1M\":1,\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"serviceTiers\":[],\"showThoughts\":false,\"structuredOutputs\":false,\"temperature\":true,\"thinkingBudget\":false,\"thinkingLevels\":[],\"topP\":true},\"completionTokenCostPer1M\":4,\"currency\":\"usd\",\"isDefault\":false,\"maxTokens\":8192,\"name\":\"claude-3-5-haiku-latest\",\"promptTokenCostPer1M\":0.8,\"provider\":\"anthropic\",\"type\":\"text\"},{\"cacheReadTokenCostPer1M\":0.1,\"cacheWriteTokenCostPer1M\":1.25,\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"serviceTiers\":[],\"showThoughts\":false,\"structuredOutputs\":false,\"temperature\":true,\"thinkingBudget\":false,\"thinkingLevels\":[],\"topP\":true},\"completionTokenCostPer1M\":5,\"currency\":\"usd\",\"isDefault\":false,\"maxTokens\":8192,\"name\":\"claude-3-5-haiku@20241022\",\"promptTokenCostPer1M\":1,\"provider\":\"anthropic\",\"type\":\"text\"},{\"cacheReadTokenCostPer1M\":0.1,\"cacheWriteTokenCostPer1M\":1.25,\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"serviceTiers\":[],\"showThoughts\":true,\"structuredOutputs\":false,\"temperature\":true,\"thinkingBudget\":true,\"thinkingLevels\":[\"none\",\"minimal\",\"low\",\"medium\",\"high\",\"highest\"],\"topP\":true},\"completionTokenCostPer1M\":5,\"currency\":\"usd\",\"isDefault\":false,\"maxTokens\":200000,\"name\":\"claude-haiku-4-5\",\"promptTokenCostPer1M\":1,\"provider\":\"anthropic\",\"supported\":{\"showThoughts\":true,\"thinkingBudget\":true},\"type\":\"text\"},{\"cacheReadTokenCostPer1M\":0.1,\"cacheWriteTokenCostPer1M\":1.25,\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"serviceTiers\":[],\"showThoughts\":true,\"structuredOutputs\":false,\"temperature\":true,\"thinkingBudget\":true,\"thinkingLevels\":[\"none\",\"minimal\",\"low\",\"medium\",\"high\",\"highest\"],\"topP\":true},\"completionTokenCostPer1M\":5,\"currency\":\"usd\",\"isDefault\":false,\"maxTokens\":200000,\"name\":\"claude-haiku-4-5@20251001\",\"promptTokenCostPer1M\":1,\"provider\":\"anthropic\",\"supported\":{\"showThoughts\":true,\"thinkingBudget\":true},\"type\":\"text\"},{\"cacheReadTokenCostPer1M\":0.2,\"cacheWriteTokenCostPer1M\":2.5,\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"serviceTiers\":[],\"showThoughts\":true,\"structuredOutputs\":true,\"temperature\":true,\"thinkingBudget\":true,\"thinkingLevels\":[\"none\",\"minimal\",\"low\",\"medium\",\"high\",\"highest\"],\"topP\":true},\"completionTokenCostPer1M\":10,\"contextWindow\":1000000,\"currency\":\"usd\",\"isDefault\":false,\"maxTokens\":128000,\"name\":\"claude-sonnet-5\",\"promptTokenCostPer1M\":2,\"provider\":\"anthropic\",\"supported\":{\"showThoughts\":true,\"structuredOutputs\":true,\"thinkingBudget\":true},\"type\":\"text\"},{\"cacheReadTokenCostPer1M\":0.2,\"cacheWriteTokenCostPer1M\":2.5,\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"serviceTiers\":[],\"showThoughts\":true,\"structuredOutputs\":true,\"temperature\":true,\"thinkingBudget\":true,\"thinkingLevels\":[\"none\",\"minimal\",\"low\",\"medium\",\"high\",\"highest\"],\"topP\":true},\"completionTokenCostPer1M\":10,\"contextWindow\":1000000,\"currency\":\"usd\",\"isDefault\":false,\"maxTokens\":128000,\"name\":\"claude-sonnet-5\",\"promptTokenCostPer1M\":2,\"provider\":\"anthropic\",\"supported\":{\"showThoughts\":true,\"structuredOutputs\":true,\"thinkingBudget\":true},\"type\":\"text\"},{\"cacheReadTokenCostPer1M\":0.3,\"cacheWriteTokenCostPer1M\":3.75,\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"serviceTiers\":[],\"showThoughts\":false,\"structuredOutputs\":true,\"temperature\":true,\"thinkingBudget\":false,\"thinkingLevels\":[],\"topP\":true},\"completionTokenCostPer1M\":15,\"currency\":\"usd\",\"isDefault\":false,\"maxTokens\":8192,\"name\":\"claude-3-5-sonnet-latest\",\"promptTokenCostPer1M\":3,\"provider\":\"anthropic\",\"supported\":{\"structuredOutputs\":true},\"type\":\"text\"},{\"cacheReadTokenCostPer1M\":0.3,\"cacheWriteTokenCostPer1M\":3.75,\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"serviceTiers\":[],\"showThoughts\":true,\"structuredOutputs\":true,\"temperature\":true,\"thinkingBudget\":true,\"thinkingLevels\":[\"none\",\"minimal\",\"low\",\"medium\",\"high\",\"highest\"],\"topP\":true},\"completionTokenCostPer1M\":15,\"currency\":\"usd\",\"isDefault\":false,\"maxTokens\":8192,\"name\":\"claude-3-5-sonnet-v2@20241022\",\"promptTokenCostPer1M\":3,\"provider\":\"anthropic\",\"supported\":{\"showThoughts\":true,\"structuredOutputs\":true,\"thinkingBudget\":true},\"type\":\"text\"},{\"cacheReadTokenCostPer1M\":0.3,\"cacheWriteTokenCostPer1M\":3.75,\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"serviceTiers\":[],\"showThoughts\":false,\"structuredOutputs\":true,\"temperature\":true,\"thinkingBudget\":false,\"thinkingLevels\":[],\"topP\":true},\"completionTokenCostPer1M\":15,\"currency\":\"usd\",\"isDefault\":false,\"maxTokens\":8192,\"name\":\"claude-3-5-sonnet@20240620\",\"promptTokenCostPer1M\":3,\"provider\":\"anthropic\",\"supported\":{\"structuredOutputs\":true},\"type\":\"text\"},{\"cacheReadTokenCostPer1M\":0.3,\"cacheWriteTokenCostPer1M\":3.75,\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"serviceTiers\":[],\"showThoughts\":true,\"structuredOutputs\":true,\"temperature\":true,\"thinkingBudget\":true,\"thinkingLevels\":[\"none\",\"minimal\",\"low\",\"medium\",\"high\",\"highest\"],\"topP\":true},\"completionTokenCostPer1M\":15,\"currency\":\"usd\",\"isDefault\":true,\"maxTokens\":64000,\"name\":\"claude-3-7-sonnet-latest\",\"promptTokenCostPer1M\":3,\"provider\":\"anthropic\",\"supported\":{\"showThoughts\":true,\"structuredOutputs\":true,\"thinkingBudget\":true},\"type\":\"text\"},{\"cacheReadTokenCostPer1M\":0.3,\"cacheWriteTokenCostPer1M\":3.75,\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"serviceTiers\":[],\"showThoughts\":true,\"structuredOutputs\":true,\"temperature\":true,\"thinkingBudget\":true,\"thinkingLevels\":[\"none\",\"minimal\",\"low\",\"medium\",\"high\",\"highest\"],\"topP\":true},\"completionTokenCostPer1M\":15,\"currency\":\"usd\",\"isDefault\":false,\"maxTokens\":64000,\"name\":\"claude-3-7-sonnet@20250219\",\"promptTokenCostPer1M\":3,\"provider\":\"anthropic\",\"supported\":{\"showThoughts\":true,\"structuredOutputs\":true,\"thinkingBudget\":true},\"type\":\"text\"},{\"cacheReadTokenCostPer1M\":0.3,\"cacheWriteTokenCostPer1M\":3.75,\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"serviceTiers\":[],\"showThoughts\":false,\"structuredOutputs\":true,\"temperature\":true,\"thinkingBudget\":false,\"thinkingLevels\":[],\"topP\":true},\"completionTokenCostPer1M\":15,\"currency\":\"usd\",\"isDefault\":false,\"maxTokens\":4096,\"name\":\"claude-3-sonnet-20240229\",\"promptTokenCostPer1M\":3,\"provider\":\"anthropic\",\"supported\":{\"structuredOutputs\":true},\"type\":\"text\"},{\"cacheReadTokenCostPer1M\":0.3,\"cacheWriteTokenCostPer1M\":3.75,\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"serviceTiers\":[],\"showThoughts\":true,\"structuredOutputs\":true,\"temperature\":true,\"thinkingBudget\":true,\"thinkingLevels\":[\"none\",\"minimal\",\"low\",\"medium\",\"high\",\"highest\"],\"topP\":true},\"completionTokenCostPer1M\":15,\"currency\":\"usd\",\"isDefault\":false,\"maxTokens\":64000,\"name\":\"claude-sonnet-4-20250514\",\"promptTokenCostPer1M\":3,\"provider\":\"anthropic\",\"supported\":{\"showThoughts\":true,\"structuredOutputs\":true,\"thinkingBudget\":true},\"type\":\"text\"},{\"cacheReadTokenCostPer1M\":0.3,\"cacheWriteTokenCostPer1M\":3.75,\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"serviceTiers\":[],\"showThoughts\":true,\"structuredOutputs\":true,\"temperature\":true,\"thinkingBudget\":true,\"thinkingLevels\":[\"none\",\"minimal\",\"low\",\"medium\",\"high\",\"highest\"],\"topP\":true},\"completionTokenCostPer1M\":15,\"currency\":\"usd\",\"isDefault\":false,\"maxTokens\":200000,\"name\":\"claude-sonnet-4-5-20250929\",\"promptTokenCostPer1M\":3,\"provider\":\"anthropic\",\"supported\":{\"showThoughts\":true,\"structuredOutputs\":true,\"thinkingBudget\":true},\"type\":\"text\"},{\"cacheReadTokenCostPer1M\":0.3,\"cacheWriteTokenCostPer1M\":3.75,\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"serviceTiers\":[],\"showThoughts\":true,\"structuredOutputs\":true,\"temperature\":true,\"thinkingBudget\":true,\"thinkingLevels\":[\"none\",\"minimal\",\"low\",\"medium\",\"high\",\"highest\"],\"topP\":true},\"completionTokenCostPer1M\":15,\"currency\":\"usd\",\"isDefault\":false,\"maxTokens\":200000,\"name\":\"claude-sonnet-4-5@20250929\",\"promptTokenCostPer1M\":3,\"provider\":\"anthropic\",\"supported\":{\"showThoughts\":true,\"structuredOutputs\":true,\"thinkingBudget\":true},\"type\":\"text\"},{\"cacheReadTokenCostPer1M\":0.3,\"cacheWriteTokenCostPer1M\":3.75,\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"serviceTiers\":[],\"showThoughts\":true,\"structuredOutputs\":true,\"temperature\":true,\"thinkingBudget\":true,\"thinkingLevels\":[\"none\",\"minimal\",\"low\",\"medium\",\"high\",\"highest\"],\"topP\":true},\"completionTokenCostPer1M\":15,\"currency\":\"usd\",\"isDefault\":false,\"maxTokens\":64000,\"name\":\"claude-sonnet-4-6\",\"promptTokenCostPer1M\":3,\"provider\":\"anthropic\",\"supported\":{\"showThoughts\":true,\"structuredOutputs\":true,\"thinkingBudget\":true},\"type\":\"text\"},{\"cacheReadTokenCostPer1M\":0.3,\"cacheWriteTokenCostPer1M\":3.75,\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"serviceTiers\":[],\"showThoughts\":true,\"structuredOutputs\":true,\"temperature\":true,\"thinkingBudget\":true,\"thinkingLevels\":[\"none\",\"minimal\",\"low\",\"medium\",\"high\",\"highest\"],\"topP\":true},\"completionTokenCostPer1M\":15,\"currency\":\"usd\",\"isDefault\":false,\"maxTokens\":64000,\"name\":\"claude-sonnet-4-6\",\"promptTokenCostPer1M\":3,\"provider\":\"anthropic\",\"supported\":{\"showThoughts\":true,\"structuredOutputs\":true,\"thinkingBudget\":true},\"type\":\"text\"},{\"cacheReadTokenCostPer1M\":0.3,\"cacheWriteTokenCostPer1M\":3.75,\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"serviceTiers\":[],\"showThoughts\":true,\"structuredOutputs\":true,\"temperature\":true,\"thinkingBudget\":true,\"thinkingLevels\":[\"none\",\"minimal\",\"low\",\"medium\",\"high\",\"highest\"],\"topP\":true},\"completionTokenCostPer1M\":15,\"currency\":\"usd\",\"isDefault\":false,\"maxTokens\":64000,\"name\":\"claude-sonnet-4@20250514\",\"promptTokenCostPer1M\":3,\"provider\":\"anthropic\",\"supported\":{\"showThoughts\":true,\"structuredOutputs\":true,\"thinkingBudget\":true},\"type\":\"text\"},{\"cacheReadTokenCostPer1M\":0.5,\"cacheWriteTokenCostPer1M\":6.25,\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"serviceTiers\":[],\"showThoughts\":true,\"structuredOutputs\":true,\"temperature\":true,\"thinkingBudget\":true,\"thinkingLevels\":[\"none\",\"minimal\",\"low\",\"medium\",\"high\",\"highest\"],\"topP\":true},\"completionTokenCostPer1M\":25,\"currency\":\"usd\",\"isDefault\":false,\"maxTokens\":64000,\"name\":\"claude-opus-4-5-20251101\",\"promptTokenCostPer1M\":5,\"provider\":\"anthropic\",\"supported\":{\"showThoughts\":true,\"structuredOutputs\":true,\"thinkingBudget\":true},\"type\":\"text\"},{\"cacheReadTokenCostPer1M\":0.5,\"cacheWriteTokenCostPer1M\":6.25,\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"serviceTiers\":[],\"showThoughts\":true,\"structuredOutputs\":true,\"temperature\":true,\"thinkingBudget\":true,\"thinkingLevels\":[\"none\",\"minimal\",\"low\",\"medium\",\"high\",\"highest\"],\"topP\":true},\"completionTokenCostPer1M\":25,\"currency\":\"usd\",\"isDefault\":false,\"maxTokens\":64000,\"name\":\"claude-opus-4-5@20251101\",\"promptTokenCostPer1M\":5,\"provider\":\"anthropic\",\"supported\":{\"showThoughts\":true,\"structuredOutputs\":true,\"thinkingBudget\":true},\"type\":\"text\"},{\"cacheReadTokenCostPer1M\":0.5,\"cacheWriteTokenCostPer1M\":6.25,\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"serviceTiers\":[],\"showThoughts\":true,\"structuredOutputs\":true,\"temperature\":true,\"thinkingBudget\":true,\"thinkingLevels\":[\"none\",\"minimal\",\"low\",\"medium\",\"high\",\"highest\"],\"topP\":true},\"completionTokenCostPer1M\":25,\"contextWindow\":1000000,\"currency\":\"usd\",\"fastCacheReadTokenCostPer1M\":3,\"fastCacheWriteTokenCostPer1M\":37.5,\"fastCompletionTokenCostPer1M\":150,\"fastPromptTokenCostPer1M\":30,\"isDefault\":false,\"maxTokens\":128000,\"name\":\"claude-opus-4-6\",\"promptTokenCostPer1M\":5,\"provider\":\"anthropic\",\"supported\":{\"showThoughts\":true,\"structuredOutputs\":true,\"thinkingBudget\":true},\"type\":\"text\"},{\"cacheReadTokenCostPer1M\":0.5,\"cacheWriteTokenCostPer1M\":6.25,\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"serviceTiers\":[],\"showThoughts\":true,\"structuredOutputs\":true,\"temperature\":true,\"thinkingBudget\":true,\"thinkingLevels\":[\"none\",\"minimal\",\"low\",\"medium\",\"high\",\"highest\"],\"topP\":true},\"completionTokenCostPer1M\":25,\"contextWindow\":1000000,\"currency\":\"usd\",\"isDefault\":false,\"maxTokens\":128000,\"name\":\"claude-opus-4-6\",\"promptTokenCostPer1M\":5,\"provider\":\"anthropic\",\"supported\":{\"showThoughts\":true,\"structuredOutputs\":true,\"thinkingBudget\":true},\"type\":\"text\"},{\"cacheReadTokenCostPer1M\":0.5,\"cacheWriteTokenCostPer1M\":6.25,\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"serviceTiers\":[],\"showThoughts\":true,\"structuredOutputs\":true,\"temperature\":true,\"thinkingBudget\":true,\"thinkingLevels\":[\"none\",\"minimal\",\"low\",\"medium\",\"high\",\"highest\"],\"topP\":true},\"completionTokenCostPer1M\":25,\"contextWindow\":1000000,\"currency\":\"usd\",\"fastCacheReadTokenCostPer1M\":3,\"fastCacheWriteTokenCostPer1M\":37.5,\"fastCompletionTokenCostPer1M\":150,\"fastPromptTokenCostPer1M\":30,\"isDefault\":false,\"maxTokens\":128000,\"name\":\"claude-opus-4-7\",\"promptTokenCostPer1M\":5,\"provider\":\"anthropic\",\"supported\":{\"showThoughts\":true,\"structuredOutputs\":true,\"thinkingBudget\":true},\"type\":\"text\"},{\"cacheReadTokenCostPer1M\":0.5,\"cacheWriteTokenCostPer1M\":6.25,\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"serviceTiers\":[],\"showThoughts\":true,\"structuredOutputs\":true,\"temperature\":true,\"thinkingBudget\":true,\"thinkingLevels\":[\"none\",\"minimal\",\"low\",\"medium\",\"high\",\"highest\"],\"topP\":true},\"completionTokenCostPer1M\":25,\"contextWindow\":1000000,\"currency\":\"usd\",\"isDefault\":false,\"maxTokens\":128000,\"name\":\"claude-opus-4-7\",\"promptTokenCostPer1M\":5,\"provider\":\"anthropic\",\"supported\":{\"showThoughts\":true,\"structuredOutputs\":true,\"thinkingBudget\":true},\"type\":\"text\"},{\"cacheReadTokenCostPer1M\":0.5,\"cacheWriteTokenCostPer1M\":6.25,\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"serviceTiers\":[],\"showThoughts\":true,\"structuredOutputs\":true,\"temperature\":true,\"thinkingBudget\":true,\"thinkingLevels\":[\"none\",\"minimal\",\"low\",\"medium\",\"high\",\"highest\"],\"topP\":true},\"completionTokenCostPer1M\":25,\"contextWindow\":1000000,\"currency\":\"usd\",\"fastCacheReadTokenCostPer1M\":1,\"fastCacheWriteTokenCostPer1M\":12.5,\"fastCompletionTokenCostPer1M\":50,\"fastPromptTokenCostPer1M\":10,\"isDefault\":false,\"maxTokens\":128000,\"name\":\"claude-opus-4-8\",\"promptTokenCostPer1M\":5,\"provider\":\"anthropic\",\"supported\":{\"showThoughts\":true,\"structuredOutputs\":true,\"thinkingBudget\":true},\"type\":\"text\"},{\"cacheReadTokenCostPer1M\":0.5,\"cacheWriteTokenCostPer1M\":6.25,\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"serviceTiers\":[],\"showThoughts\":true,\"structuredOutputs\":true,\"temperature\":true,\"thinkingBudget\":true,\"thinkingLevels\":[\"none\",\"minimal\",\"low\",\"medium\",\"high\",\"highest\"],\"topP\":true},\"completionTokenCostPer1M\":25,\"contextWindow\":1000000,\"currency\":\"usd\",\"isDefault\":false,\"maxTokens\":128000,\"name\":\"claude-opus-4-8\",\"promptTokenCostPer1M\":5,\"provider\":\"anthropic\",\"supported\":{\"showThoughts\":true,\"structuredOutputs\":true,\"thinkingBudget\":true},\"type\":\"text\"},{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"serviceTiers\":[],\"showThoughts\":false,\"structuredOutputs\":false,\"temperature\":true,\"thinkingBudget\":false,\"thinkingLevels\":[],\"topP\":true},\"completionTokenCostPer1M\":25,\"currency\":\"usd\",\"isDefault\":false,\"maxTokens\":4096,\"name\":\"claude-2.1\",\"promptTokenCostPer1M\":8,\"provider\":\"anthropic\",\"type\":\"text\"},{\"cacheReadTokenCostPer1M\":1.5,\"cacheWriteTokenCostPer1M\":18.75,\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"serviceTiers\":[],\"showThoughts\":false,\"structuredOutputs\":true,\"temperature\":true,\"thinkingBudget\":false,\"thinkingLevels\":[],\"topP\":true},\"completionTokenCostPer1M\":75,\"currency\":\"usd\",\"isDefault\":false,\"maxTokens\":4096,\"name\":\"claude-3-opus-latest\",\"promptTokenCostPer1M\":15,\"provider\":\"anthropic\",\"supported\":{\"structuredOutputs\":true},\"type\":\"text\"},{\"cacheReadTokenCostPer1M\":1.5,\"cacheWriteTokenCostPer1M\":18.75,\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"serviceTiers\":[],\"showThoughts\":false,\"structuredOutputs\":true,\"temperature\":true,\"thinkingBudget\":false,\"thinkingLevels\":[],\"topP\":true},\"completionTokenCostPer1M\":75,\"currency\":\"usd\",\"isDefault\":false,\"maxTokens\":4096,\"name\":\"claude-3-opus@20240229\",\"promptTokenCostPer1M\":15,\"provider\":\"anthropic\",\"supported\":{\"structuredOutputs\":true},\"type\":\"text\"},{\"cacheReadTokenCostPer1M\":1.5,\"cacheWriteTokenCostPer1M\":18.75,\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"serviceTiers\":[],\"showThoughts\":true,\"structuredOutputs\":true,\"temperature\":true,\"thinkingBudget\":true,\"thinkingLevels\":[\"none\",\"minimal\",\"low\",\"medium\",\"high\",\"highest\"],\"topP\":true},\"completionTokenCostPer1M\":75,\"currency\":\"usd\",\"isDefault\":false,\"maxTokens\":32000,\"name\":\"claude-opus-4-1-20250805\",\"promptTokenCostPer1M\":15,\"provider\":\"anthropic\",\"supported\":{\"showThoughts\":true,\"structuredOutputs\":true,\"thinkingBudget\":true},\"type\":\"text\"},{\"cacheReadTokenCostPer1M\":1.5,\"cacheWriteTokenCostPer1M\":18.75,\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"serviceTiers\":[],\"showThoughts\":true,\"structuredOutputs\":true,\"temperature\":true,\"thinkingBudget\":true,\"thinkingLevels\":[\"none\",\"minimal\",\"low\",\"medium\",\"high\",\"highest\"],\"topP\":true},\"completionTokenCostPer1M\":75,\"currency\":\"usd\",\"isDefault\":false,\"maxTokens\":32000,\"name\":\"claude-opus-4-1@20250805\",\"promptTokenCostPer1M\":15,\"provider\":\"anthropic\",\"supported\":{\"showThoughts\":true,\"structuredOutputs\":true,\"thinkingBudget\":true},\"type\":\"text\"},{\"cacheReadTokenCostPer1M\":1.5,\"cacheWriteTokenCostPer1M\":18.75,\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"serviceTiers\":[],\"showThoughts\":true,\"structuredOutputs\":true,\"temperature\":true,\"thinkingBudget\":true,\"thinkingLevels\":[\"none\",\"minimal\",\"low\",\"medium\",\"high\",\"highest\"],\"topP\":true},\"completionTokenCostPer1M\":75,\"currency\":\"usd\",\"isDefault\":false,\"maxTokens\":32000,\"name\":\"claude-opus-4-20250514\",\"promptTokenCostPer1M\":15,\"provider\":\"anthropic\",\"supported\":{\"showThoughts\":true,\"structuredOutputs\":true,\"thinkingBudget\":true},\"type\":\"text\"},{\"cacheReadTokenCostPer1M\":1.5,\"cacheWriteTokenCostPer1M\":18.75,\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"serviceTiers\":[],\"showThoughts\":true,\"structuredOutputs\":true,\"temperature\":true,\"thinkingBudget\":true,\"thinkingLevels\":[\"none\",\"minimal\",\"low\",\"medium\",\"high\",\"highest\"],\"topP\":true},\"completionTokenCostPer1M\":75,\"currency\":\"usd\",\"isDefault\":false,\"maxTokens\":32000,\"name\":\"claude-opus-4@20250514\",\"promptTokenCostPer1M\":15,\"provider\":\"anthropic\",\"supported\":{\"showThoughts\":true,\"structuredOutputs\":true,\"thinkingBudget\":true},\"type\":\"text\"}],\"name\":\"anthropic\"},{\"capabilities\":{\"serviceTiers\":[],\"thinking\":false,\"thinkingLevels\":[]},\"displayName\":\"OpenAI Compatible\",\"isDynamic\":true,\"models\":[],\"name\":\"openai-compatible\"},{\"capabilities\":{\"serviceTiers\":[\"standard\",\"priority\"],\"thinking\":true,\"thinkingLevels\":[\"none\",\"minimal\",\"low\",\"medium\",\"high\",\"highest\"]},\"displayName\":\"Azure OpenAI\",\"isDynamic\":true,\"models\":[],\"name\":\"azure-openai\"},{\"capabilities\":{\"serviceTiers\":[],\"thinking\":false,\"thinkingLevels\":[]},\"displayName\":\"Together AI\",\"isDynamic\":true,\"models\":[],\"name\":\"together\"},{\"capabilities\":{\"serviceTiers\":[\"standard\",\"flex\",\"priority\"],\"thinking\":false,\"thinkingLevels\":[]},\"displayName\":\"OpenRouter\",\"isDynamic\":true,\"models\":[],\"name\":\"openrouter\"},{\"capabilities\":{\"serviceTiers\":[],\"thinking\":false,\"thinkingLevels\":[]},\"displayName\":\"OrcaRouter\",\"isDynamic\":true,\"models\":[],\"name\":\"orcarouter\"},{\"capabilities\":{\"serviceTiers\":[\"standard\",\"priority\"],\"thinking\":false,\"thinkingLevels\":[]},\"displayName\":\"Fireworks AI\",\"isDynamic\":true,\"models\":[],\"name\":\"fireworks\"},{\"capabilities\":{\"serviceTiers\":[],\"thinking\":false,\"thinkingLevels\":[]},\"displayName\":\"Hugging Face Router\",\"isDynamic\":true,\"models\":[],\"name\":\"huggingface-router\"},{\"capabilities\":{\"serviceTiers\":[\"standard\",\"flex\",\"priority\"],\"thinking\":false,\"thinkingLevels\":[]},\"displayName\":\"Amazon Bedrock\",\"isDynamic\":true,\"models\":[],\"name\":\"amazon-bedrock\"},{\"capabilities\":{\"serviceTiers\":[\"standard\",\"priority\"],\"thinking\":false,\"thinkingLevels\":[]},\"displayName\":\"Azure AI Foundry\",\"isDynamic\":true,\"models\":[],\"name\":\"azure-foundry\"},{\"capabilities\":{\"serviceTiers\":[],\"thinking\":false,\"thinkingLevels\":[]},\"displayName\":\"Vertex AI OpenAI Compatibility\",\"isDynamic\":true,\"models\":[],\"name\":\"vertex-ai\"},{\"capabilities\":{\"serviceTiers\":[\"standard\",\"priority\"],\"thinking\":false,\"thinkingLevels\":[]},\"displayName\":\"Databricks Model Serving\",\"isDynamic\":true,\"models\":[],\"name\":\"databricks\"},{\"capabilities\":{\"serviceTiers\":[],\"thinking\":false,\"thinkingLevels\":[]},\"displayName\":\"Baseten Model APIs\",\"isDynamic\":true,\"models\":[],\"name\":\"baseten\"},{\"capabilities\":{\"serviceTiers\":[\"standard\",\"flex\",\"priority\"],\"thinking\":false,\"thinkingLevels\":[]},\"displayName\":\"Groq\",\"isDynamic\":true,\"models\":[],\"name\":\"groq\"},{\"capabilities\":{\"serviceTiers\":[\"standard\",\"flex\",\"priority\"],\"thinking\":false,\"thinkingLevels\":[]},\"displayName\":\"Cerebras Inference\",\"isDynamic\":true,\"models\":[],\"name\":\"cerebras\"},{\"capabilities\":{\"serviceTiers\":[\"standard\",\"priority\"],\"thinking\":false,\"thinkingLevels\":[]},\"displayName\":\"DeepInfra\",\"isDynamic\":true,\"models\":[],\"name\":\"deepinfra\"},{\"capabilities\":{\"serviceTiers\":[],\"thinking\":false,\"thinkingLevels\":[]},\"displayName\":\"SambaNova Cloud\",\"isDynamic\":true,\"models\":[],\"name\":\"sambanova\"},{\"capabilities\":{\"serviceTiers\":[],\"thinking\":false,\"thinkingLevels\":[]},\"displayName\":\"Nebius AI Studio\",\"isDynamic\":true,\"models\":[],\"name\":\"nebius\"},{\"capabilities\":{\"serviceTiers\":[],\"thinking\":false,\"thinkingLevels\":[]},\"displayName\":\"Novita AI\",\"isDynamic\":true,\"models\":[],\"name\":\"novita\"},{\"capabilities\":{\"serviceTiers\":[],\"thinking\":false,\"thinkingLevels\":[]},\"displayName\":\"Hyperbolic\",\"isDynamic\":true,\"models\":[],\"name\":\"hyperbolic\"},{\"capabilities\":{\"serviceTiers\":[],\"thinking\":false,\"thinkingLevels\":[]},\"displayName\":\"SiliconFlow\",\"isDynamic\":true,\"models\":[],\"name\":\"siliconflow\"},{\"capabilities\":{\"serviceTiers\":[],\"thinking\":false,\"thinkingLevels\":[]},\"displayName\":\"FriendliAI\",\"isDynamic\":true,\"models\":[],\"name\":\"friendli\"},{\"capabilities\":{\"serviceTiers\":[],\"thinking\":false,\"thinkingLevels\":[]},\"displayName\":\"Cloudflare Workers AI\",\"isDynamic\":true,\"models\":[],\"name\":\"cloudflare-workers-ai\"},{\"capabilities\":{\"serviceTiers\":[],\"thinking\":false,\"thinkingLevels\":[]},\"displayName\":\"Featherless AI\",\"isDynamic\":true,\"models\":[],\"name\":\"featherless\"},{\"capabilities\":{\"serviceTiers\":[],\"thinking\":false,\"thinkingLevels\":[]},\"displayName\":\"Nscale\",\"isDynamic\":true,\"models\":[],\"name\":\"nscale\"},{\"capabilities\":{\"serviceTiers\":[],\"thinking\":false,\"thinkingLevels\":[]},\"displayName\":\"OVHcloud AI Endpoints\",\"isDynamic\":true,\"models\":[],\"name\":\"ovhcloud\"},{\"capabilities\":{\"serviceTiers\":[],\"thinking\":false,\"thinkingLevels\":[]},\"displayName\":\"Scaleway Generative APIs\",\"isDynamic\":true,\"models\":[],\"name\":\"scaleway\"},{\"capabilities\":{\"serviceTiers\":[],\"thinking\":false,\"thinkingLevels\":[]},\"displayName\":\"NVIDIA NIM\",\"isDynamic\":true,\"models\":[],\"name\":\"nvidia-nim\"},{\"capabilities\":{\"serviceTiers\":[],\"thinking\":false,\"thinkingLevels\":[]},\"displayName\":\"RunPod vLLM\",\"isDynamic\":true,\"models\":[],\"name\":\"runpod-vllm\"},{\"capabilities\":{\"serviceTiers\":[],\"thinking\":false,\"thinkingLevels\":[]},\"displayName\":\"SageMaker vLLM\",\"isDynamic\":true,\"models\":[],\"name\":\"sagemaker-vllm\"},{\"capabilities\":{\"serviceTiers\":[],\"thinking\":false,\"thinkingLevels\":[]},\"displayName\":\"vLLM\",\"isDynamic\":true,\"models\":[],\"name\":\"vllm\"},{\"capabilities\":{\"serviceTiers\":[],\"thinking\":false,\"thinkingLevels\":[]},\"displayName\":\"Ollama\",\"isDynamic\":true,\"models\":[],\"name\":\"ollama\"},{\"capabilities\":{\"serviceTiers\":[],\"thinking\":false,\"thinkingLevels\":[]},\"displayName\":\"LM Studio\",\"isDynamic\":true,\"models\":[],\"name\":\"lm-studio\"},{\"capabilities\":{\"serviceTiers\":[],\"thinking\":false,\"thinkingLevels\":[]},\"displayName\":\"llama.cpp Server\",\"isDynamic\":true,\"models\":[],\"name\":\"llama-cpp\"},{\"capabilities\":{\"serviceTiers\":[],\"thinking\":false,\"thinkingLevels\":[]},\"displayName\":\"LocalAI\",\"isDynamic\":true,\"models\":[],\"name\":\"localai\"},{\"capabilities\":{\"serviceTiers\":[],\"thinking\":false,\"thinkingLevels\":[]},\"displayName\":\"Baseten Inference Engine\",\"isDynamic\":true,\"models\":[],\"name\":\"baseten-engine\"}]}"); if err != nil { return nil, err }; v_catalog = v }
 	return v_catalog, nil
 }
 
@@ -12017,7 +12074,7 @@ func provider_descriptor(args ...Value) (Value, error) {
 	_ = v_empty
 	_ = v_provider_id
 	{ v, err := provider_normalize_profile(v_profile); if err != nil { return nil, err }; v_provider_id = v }
-	{ v, err := _core_json_parse("{\"openai\":{\"id\":\"openai\",\"name\":\"OpenAI\",\"aliases\":[\"openai\"],\"transport\":\"openai-chat\",\"baseURL\":\"https://api.openai.com/v1\",\"requiresApiURL\":false,\"auth\":\"bearer\",\"defaults\":{\"model\":\"gpt-5-mini\",\"embedModel\":\"text-embedding-3-small\"},\"capabilities\":{\"functions\":true,\"streaming\":true,\"structuredOutputs\":true,\"thinking\":true,\"multiTurn\":true,\"images\":true,\"audio\":true,\"audioOutput\":true,\"structuredOutputModes\":[\"native\",\"function\",\"json_object\"],\"serviceTiers\":[\"standard\",\"flex\",\"priority\"]},\"operations\":{\"chat\":{\"path\":\"/chat/completions\",\"dialect\":\"openai-chat\",\"method\":\"POST\",\"body\":\"json\",\"stream\":false},\"embed\":{\"path\":\"/embeddings\",\"dialect\":\"openai-embeddings\",\"method\":\"POST\",\"body\":\"json\",\"stream\":false},\"transcribe\":{\"path\":\"/audio/transcriptions\",\"dialect\":\"openai-transcription\",\"method\":\"POST\",\"body\":\"multipart\",\"stream\":false},\"speak\":{\"path\":\"/audio/speech\",\"dialect\":\"openai-speech\",\"method\":\"POST\",\"body\":\"json\",\"stream\":false,\"response\":\"binary\"},\"realtime\":{\"path\":\"/realtime\",\"dialect\":\"openai-realtime\",\"modelMatch\":{\"prefix\":[\"gpt-realtime\"]},\"url\":\"wss://api.openai.com/v1/realtime\",\"grammar\":\"openai_realtime_compatible\",\"audio\":{\"input\":{\"formats\":[\"pcm16\",\"pcm\"],\"sampleRate\":24000},\"output\":{\"formats\":[\"pcm16\",\"pcm\"],\"sampleRate\":24000,\"voices\":[\"alloy\",\"ash\",\"ballad\",\"coral\",\"echo\",\"sage\",\"shimmer\",\"verse\"],\"defaultVoice\":\"alloy\"}},\"validation\":{\"structuredOutputWithAudio\":false},\"method\":\"WS\",\"body\":\"json\",\"stream\":true},\"stream_chat\":{\"path\":\"/chat/completions\",\"dialect\":\"openai-chat\",\"method\":\"POST\",\"body\":\"json\",\"stream\":true}},\"modelRules\":[],\"sources\":[\"https://platform.openai.com/docs/api-reference/chat\"],\"reviewedAt\":\"2026-08-17\",\"request\":{\"serviceTierMap\":{\"auto\":\"auto\",\"standard\":\"default\",\"flex\":\"flex\",\"priority\":\"priority\"}},\"provider\":\"openai\",\"baseUrl\":\"https://api.openai.com/v1\",\"authRequired\":true,\"defaultModel\":\"gpt-5-mini\",\"defaultEmbedModel\":\"text-embedding-3-small\",\"features\":{\"functions\":true,\"streaming\":true,\"structured_outputs\":true,\"structured_output_modes\":[\"native\",\"function\",\"json_object\"],\"thinking\":true,\"multi_turn\":true,\"service_tiers\":[\"standard\",\"flex\",\"priority\"],\"media\":{\"images\":{\"supported\":true,\"formats\":[\"image/jpeg\",\"image/png\"]},\"audio\":{\"supported\":true,\"formats\":[\"wav\",\"mp3\",\"pcm16\"],\"realtime\":true,\"output\":{\"supported\":true,\"formats\":[\"wav\",\"mp3\",\"pcm16\"]}},\"files\":{\"supported\":false,\"formats\":[],\"upload_method\":\"none\"},\"urls\":{\"supported\":false,\"web_search\":false,\"context_fetching\":false}},\"caching\":{\"supported\":false,\"types\":[]}}},\"openai-compatible\":{\"id\":\"openai-compatible\",\"name\":\"OpenAI Compatible\",\"aliases\":[\"openai-compatible\",\"openai_compatible\",\"compatible\"],\"transport\":\"openai-chat\",\"baseURL\":null,\"requiresApiURL\":true,\"auth\":\"bearer\",\"defaults\":{\"model\":\"\"},\"capabilities\":{\"functions\":true,\"streaming\":true,\"structuredOutputs\":false,\"thinking\":false,\"multiTurn\":true,\"structuredOutputModes\":[\"function\"],\"serviceTiers\":[]},\"operations\":{\"chat\":{\"path\":\"/chat/completions\",\"dialect\":\"openai-chat\",\"method\":\"POST\",\"body\":\"json\",\"stream\":false},\"embed\":{\"path\":\"/embeddings\",\"dialect\":\"openai-embeddings\",\"method\":\"POST\",\"body\":\"json\",\"stream\":false},\"stream_chat\":{\"path\":\"/chat/completions\",\"dialect\":\"openai-chat\",\"method\":\"POST\",\"body\":\"json\",\"stream\":true}},\"modelRules\":[],\"sources\":[\"https://platform.openai.com/docs/api-reference/chat\"],\"reviewedAt\":\"2026-08-17\",\"provider\":\"openai-compatible\",\"baseUrl\":null,\"authRequired\":false,\"defaultModel\":\"\",\"features\":{\"functions\":true,\"streaming\":true,\"structured_outputs\":false,\"structured_output_modes\":[\"function\"],\"thinking\":false,\"multi_turn\":true,\"service_tiers\":[],\"media\":{\"images\":{\"supported\":false,\"formats\":[]},\"audio\":{\"supported\":false,\"formats\":[],\"realtime\":false,\"output\":{\"supported\":false,\"formats\":[]}},\"files\":{\"supported\":false,\"formats\":[],\"upload_method\":\"none\"},\"urls\":{\"supported\":false,\"web_search\":false,\"context_fetching\":false}},\"caching\":{\"supported\":false,\"types\":[]}}},\"openai-responses\":{\"id\":\"openai-responses\",\"name\":\"OpenAI Responses\",\"aliases\":[\"openai-responses\",\"openai_responses\",\"responses\"],\"transport\":\"openai-responses\",\"baseURL\":\"https://api.openai.com/v1\",\"requiresApiURL\":false,\"auth\":\"bearer\",\"defaults\":{\"model\":\"gpt-5-mini\",\"embedModel\":\"text-embedding-3-small\"},\"capabilities\":{\"functions\":true,\"streaming\":true,\"structuredOutputs\":true,\"thinking\":true,\"multiTurn\":true,\"images\":true,\"audio\":true,\"audioOutput\":true,\"structuredOutputModes\":[\"native\",\"function\",\"json_object\"],\"serviceTiers\":[\"standard\",\"flex\",\"priority\"]},\"operations\":{\"chat\":{\"path\":\"/responses\",\"dialect\":\"openai-responses\",\"method\":\"POST\",\"body\":\"json\",\"stream\":false},\"embed\":{\"path\":\"/embeddings\",\"dialect\":\"openai-embeddings\",\"method\":\"POST\",\"body\":\"json\",\"stream\":false},\"transcribe\":{\"path\":\"/audio/transcriptions\",\"dialect\":\"openai-transcription\",\"method\":\"POST\",\"body\":\"multipart\",\"stream\":false},\"speak\":{\"path\":\"/audio/speech\",\"dialect\":\"openai-speech\",\"method\":\"POST\",\"body\":\"json\",\"stream\":false,\"response\":\"binary\"},\"realtime\":{\"path\":\"/realtime\",\"dialect\":\"openai-realtime\",\"modelMatch\":{\"prefix\":[\"gpt-realtime\"]},\"url\":\"wss://api.openai.com/v1/realtime\",\"grammar\":\"openai_realtime_compatible\",\"audio\":{\"input\":{\"formats\":[\"pcm16\",\"pcm\"],\"sampleRate\":24000},\"output\":{\"formats\":[\"pcm16\",\"pcm\"],\"sampleRate\":24000,\"voices\":[\"alloy\",\"ash\",\"ballad\",\"coral\",\"echo\",\"sage\",\"shimmer\",\"verse\"],\"defaultVoice\":\"alloy\"}},\"validation\":{\"structuredOutputWithAudio\":false},\"method\":\"WS\",\"body\":\"json\",\"stream\":true},\"stream_chat\":{\"path\":\"/responses\",\"dialect\":\"openai-responses\",\"method\":\"POST\",\"body\":\"json\",\"stream\":true}},\"modelRules\":[],\"sources\":[\"https://platform.openai.com/docs/api-reference/responses\"],\"reviewedAt\":\"2026-08-17\",\"request\":{\"serviceTierMap\":{\"auto\":\"auto\",\"standard\":\"default\",\"flex\":\"flex\",\"priority\":\"priority\"}},\"provider\":\"openai-responses\",\"baseUrl\":\"https://api.openai.com/v1\",\"authRequired\":true,\"defaultModel\":\"gpt-5-mini\",\"defaultEmbedModel\":\"text-embedding-3-small\",\"features\":{\"functions\":true,\"streaming\":true,\"structured_outputs\":true,\"structured_output_modes\":[\"native\",\"function\",\"json_object\"],\"thinking\":true,\"multi_turn\":true,\"service_tiers\":[\"standard\",\"flex\",\"priority\"],\"media\":{\"images\":{\"supported\":true,\"formats\":[\"image/jpeg\",\"image/png\"]},\"audio\":{\"supported\":true,\"formats\":[\"wav\",\"mp3\",\"pcm16\"],\"realtime\":true,\"output\":{\"supported\":true,\"formats\":[\"wav\",\"mp3\",\"pcm16\"]}},\"files\":{\"supported\":false,\"formats\":[],\"upload_method\":\"none\"},\"urls\":{\"supported\":false,\"web_search\":false,\"context_fetching\":false}},\"caching\":{\"supported\":false,\"types\":[]}}},\"anthropic\":{\"id\":\"anthropic\",\"name\":\"Anthropic\",\"aliases\":[\"anthropic\",\"claude\"],\"transport\":\"anthropic-messages\",\"baseURL\":\"https://api.anthropic.com\",\"requiresApiURL\":false,\"auth\":\"x-api-key\",\"headers\":{\"anthropic-version\":\"2023-06-01\",\"anthropic-beta\":\"structured-outputs-2025-11-13, web-search-2025-03-05\"},\"defaults\":{\"model\":\"claude-sonnet-4-5\"},\"capabilities\":{\"functions\":true,\"streaming\":true,\"structuredOutputs\":false,\"thinking\":true,\"multiTurn\":true,\"images\":true,\"caching\":{\"types\":[\"ephemeral\"],\"cacheBreakpoints\":true},\"structuredOutputModes\":[\"function\"],\"serviceTiers\":[]},\"operations\":{\"chat\":{\"path\":\"/v1/messages\",\"dialect\":\"anthropic-messages\",\"method\":\"POST\",\"body\":\"json\",\"stream\":false},\"stream_chat\":{\"path\":\"/v1/messages\",\"dialect\":\"anthropic-messages\",\"method\":\"POST\",\"body\":\"json\",\"stream\":true}},\"modelRules\":[],\"sources\":[\"https://docs.anthropic.com/en/api/messages\"],\"reviewedAt\":\"2026-08-17\",\"provider\":\"anthropic\",\"baseUrl\":\"https://api.anthropic.com\",\"authRequired\":true,\"defaultModel\":\"claude-sonnet-4-5\",\"features\":{\"functions\":true,\"streaming\":true,\"structured_outputs\":false,\"structured_output_modes\":[\"function\"],\"thinking\":true,\"multi_turn\":true,\"service_tiers\":[],\"media\":{\"images\":{\"supported\":true,\"formats\":[\"image/jpeg\",\"image/png\"]},\"audio\":{\"supported\":false,\"formats\":[],\"realtime\":false,\"output\":{\"supported\":false,\"formats\":[]}},\"files\":{\"supported\":false,\"formats\":[],\"upload_method\":\"none\"},\"urls\":{\"supported\":false,\"web_search\":false,\"context_fetching\":false}},\"caching\":{\"supported\":true,\"types\":[\"ephemeral\"],\"cache_breakpoints\":true}}},\"google-gemini\":{\"id\":\"google-gemini\",\"name\":\"Google Gemini\",\"aliases\":[\"google-gemini\",\"google_gemini\",\"gemini\"],\"transport\":\"gemini-generate-content\",\"baseURL\":\"https://generativelanguage.googleapis.com/v1beta\",\"requiresApiURL\":false,\"auth\":\"api_key_header\",\"defaults\":{\"model\":\"gemini-3.5-flash\",\"embedModel\":\"gemini-embedding-2\"},\"capabilities\":{\"functions\":true,\"streaming\":true,\"structuredOutputs\":true,\"thinking\":true,\"multiTurn\":true,\"images\":true,\"audio\":true,\"audioOutput\":true,\"files\":{\"uploadMethod\":\"cloud\"},\"caching\":{\"types\":[\"persistent\"]},\"structuredOutputModes\":[\"native\",\"function\"],\"serviceTiers\":[\"standard\",\"flex\",\"priority\"]},\"operations\":{\"chat\":{\"path\":\"/models/{model}:generateContent\",\"dialect\":\"gemini-generate-content\",\"method\":\"POST\",\"body\":\"json\",\"stream\":false},\"stream_chat\":{\"path\":\"/models/{model}:streamGenerateContent?alt=sse\",\"dialect\":\"gemini-generate-content\",\"method\":\"POST\",\"body\":\"json\",\"stream\":true},\"embed\":{\"path\":\"/models/{model}:batchEmbedContents\",\"dialect\":\"gemini-generate-content\",\"method\":\"POST\",\"body\":\"json\",\"stream\":false},\"transcribe\":{\"path\":\"/models/{model}:generateContent\",\"dialect\":\"gemini-generate-content\",\"method\":\"POST\",\"body\":\"multipart\",\"stream\":false},\"speak\":{\"path\":\"/models/{model}:generateContent\",\"dialect\":\"gemini-generate-content\",\"method\":\"POST\",\"body\":\"json\",\"stream\":false,\"response\":\"binary\"},\"realtime\":{\"path\":\"/ws/google.ai.generativelanguage.v1beta.GenerativeService.BidiGenerateContent\",\"dialect\":\"gemini-live-bidi\",\"modelMatch\":{\"prefix\":[\"gemini-live\"],\"contains\":[\"native-audio\",\"-live-\"]},\"url\":\"wss://generativelanguage.googleapis.com/ws/google.ai.generativelanguage.v1beta.GenerativeService.BidiGenerateContent\",\"grammar\":\"gemini_live_bidi\",\"defaultModel\":\"gemini-2.5-flash-native-audio-preview-12-2025\",\"audio\":{\"input\":{\"formats\":[\"pcm16\",\"pcm\"],\"sampleRate\":16000},\"output\":{\"formats\":[\"pcm16\",\"pcm\"],\"sampleRate\":24000,\"voices\":[\"Kore\",\"Puck\",\"Charon\",\"Fenrir\",\"Aoede\"],\"defaultVoice\":\"Kore\"}},\"validation\":{\"pcmInputOnly\":true,\"rejectStructuredOutputWithAudio\":true},\"method\":\"WS\",\"body\":\"json\",\"stream\":true}},\"modelRules\":[],\"sources\":[\"https://ai.google.dev/api/generate-content\",\"https://ai.google.dev/gemini-api/docs/optimization\"],\"reviewedAt\":\"2026-08-17\",\"request\":{\"serviceTierMap\":{\"auto\":null,\"standard\":\"standard\",\"flex\":\"flex\",\"priority\":\"priority\"}},\"provider\":\"google-gemini\",\"baseUrl\":\"https://generativelanguage.googleapis.com/v1beta\",\"authRequired\":true,\"apiKeyHeader\":\"x-goog-api-key\",\"defaultModel\":\"gemini-3.5-flash\",\"defaultEmbedModel\":\"gemini-embedding-2\",\"features\":{\"functions\":true,\"streaming\":true,\"structured_outputs\":true,\"structured_output_modes\":[\"native\",\"function\"],\"thinking\":true,\"multi_turn\":true,\"service_tiers\":[\"standard\",\"flex\",\"priority\"],\"media\":{\"images\":{\"supported\":true,\"formats\":[\"image/jpeg\",\"image/png\"]},\"audio\":{\"supported\":true,\"formats\":[\"wav\",\"mp3\",\"pcm16\"],\"realtime\":true,\"output\":{\"supported\":true,\"formats\":[\"wav\",\"mp3\",\"pcm16\"]}},\"files\":{\"supported\":true,\"formats\":[\"application/pdf\",\"text/plain\"],\"upload_method\":\"cloud\"},\"urls\":{\"supported\":false,\"web_search\":false,\"context_fetching\":false}},\"caching\":{\"supported\":true,\"types\":[\"persistent\"]}}},\"webllm\":{\"id\":\"webllm\",\"name\":\"WebLLM\",\"aliases\":[\"webllm\"],\"transport\":\"webllm\",\"baseURL\":null,\"requiresApiURL\":false,\"auth\":\"none\",\"defaults\":{\"model\":\"\"},\"capabilities\":{\"functions\":true,\"streaming\":true,\"structuredOutputs\":false,\"thinking\":false,\"multiTurn\":true,\"structuredOutputModes\":[\"function\"],\"serviceTiers\":[]},\"operations\":{\"chat\":{\"path\":\"\",\"dialect\":\"webllm\",\"method\":\"POST\",\"body\":\"json\",\"stream\":false},\"stream_chat\":{\"path\":\"\",\"dialect\":\"webllm\",\"method\":\"POST\",\"body\":\"json\",\"stream\":true}},\"modelRules\":[],\"sources\":[\"https://webllm.mlc.ai/docs/\"],\"reviewedAt\":\"2026-08-17\",\"provider\":\"webllm\",\"baseUrl\":null,\"authRequired\":false,\"defaultModel\":\"\",\"features\":{\"functions\":true,\"streaming\":true,\"structured_outputs\":false,\"structured_output_modes\":[\"function\"],\"thinking\":false,\"multi_turn\":true,\"service_tiers\":[],\"media\":{\"images\":{\"supported\":false,\"formats\":[]},\"audio\":{\"supported\":false,\"formats\":[],\"realtime\":false,\"output\":{\"supported\":false,\"formats\":[]}},\"files\":{\"supported\":false,\"formats\":[],\"upload_method\":\"none\"},\"urls\":{\"supported\":false,\"web_search\":false,\"context_fetching\":false}},\"caching\":{\"supported\":false,\"types\":[]}}},\"azure-openai\":{\"id\":\"azure-openai\",\"name\":\"Azure OpenAI\",\"aliases\":[\"azure-openai\",\"azure_openai\",\"azure\"],\"transport\":\"openai-chat\",\"baseURL\":null,\"requiresApiURL\":false,\"auth\":\"api_key_header\",\"defaults\":{\"model\":\"gpt-5-mini\",\"embedModel\":\"text-embedding-3-small\"},\"capabilities\":{\"functions\":true,\"streaming\":true,\"structuredOutputs\":true,\"thinking\":true,\"multiTurn\":true,\"images\":true,\"structuredOutputModes\":[\"native\",\"function\"],\"serviceTiers\":[\"standard\",\"priority\"]},\"operations\":{\"chat\":{\"path\":\"/chat/completions\",\"dialect\":\"openai-chat\",\"method\":\"POST\",\"body\":\"json\",\"stream\":false},\"embed\":{\"path\":\"/embeddings\",\"dialect\":\"openai-embeddings\",\"method\":\"POST\",\"body\":\"json\",\"stream\":false},\"stream_chat\":{\"path\":\"/chat/completions\",\"dialect\":\"openai-chat\",\"method\":\"POST\",\"body\":\"json\",\"stream\":true}},\"endpoint\":{\"scheme\":\"https\",\"hostField\":\"resourceName\",\"hostSuffix\":\".openai.azure.com\",\"path\":\"/openai/deployments/{deploymentName}\",\"fields\":{\"resourceName\":[\"resource_name\",\"resourceName\"],\"deploymentName\":[\"deployment_name\",\"deploymentName\"],\"version\":[\"api_version\",\"apiVersion\",\"version\"]},\"required\":[\"resourceName\",\"deploymentName\"],\"defaults\":{\"version\":\"2024-02-15-preview\"},\"normalizers\":{\"version\":\"api-version\"},\"apiVersionField\":\"version\"},\"capabilityGates\":{\"structuredOutputs\":{\"option\":\"version\",\"min\":\"2024-08-01\"}},\"modelRules\":[],\"sources\":[\"https://learn.microsoft.com/en-us/azure/ai-services/openai/reference\",\"https://learn.microsoft.com/en-us/azure/foundry/openai/concepts/priority-processing\"],\"reviewedAt\":\"2026-08-17\",\"request\":{\"serviceTierMap\":{\"auto\":\"auto\",\"standard\":\"default\",\"flex\":\"flex\",\"priority\":\"priority\"}},\"provider\":\"azure-openai\",\"baseUrl\":null,\"authRequired\":true,\"apiKeyHeader\":\"api-key\",\"apiVersion\":\"2024-02-15-preview\",\"defaultModel\":\"gpt-5-mini\",\"defaultEmbedModel\":\"text-embedding-3-small\",\"features\":{\"functions\":true,\"streaming\":true,\"structured_outputs\":true,\"structured_output_modes\":[\"native\",\"function\"],\"thinking\":true,\"multi_turn\":true,\"service_tiers\":[\"standard\",\"priority\"],\"media\":{\"images\":{\"supported\":true,\"formats\":[\"image/jpeg\",\"image/png\"]},\"audio\":{\"supported\":false,\"formats\":[],\"realtime\":false,\"output\":{\"supported\":false,\"formats\":[]}},\"files\":{\"supported\":false,\"formats\":[],\"upload_method\":\"none\"},\"urls\":{\"supported\":false,\"web_search\":false,\"context_fetching\":false}},\"caching\":{\"supported\":false,\"types\":[]}}},\"deepseek\":{\"id\":\"deepseek\",\"name\":\"DeepSeek\",\"aliases\":[\"deepseek\"],\"transport\":\"openai-chat\",\"baseURL\":\"https://api.deepseek.com\",\"requiresApiURL\":false,\"auth\":\"bearer\",\"defaults\":{\"model\":\"deepseek-v4-flash\"},\"capabilities\":{\"functions\":true,\"streaming\":true,\"structuredOutputs\":false,\"thinking\":false,\"multiTurn\":true,\"structuredOutputModes\":[\"function\",\"json_object\"],\"serviceTiers\":[]},\"operations\":{\"chat\":{\"path\":\"/chat/completions\",\"dialect\":\"openai-chat\",\"method\":\"POST\",\"body\":\"json\",\"stream\":false},\"stream_chat\":{\"path\":\"/chat/completions\",\"dialect\":\"openai-chat\",\"method\":\"POST\",\"body\":\"json\",\"stream\":true}},\"modelRules\":[{\"match\":{\"exact\":[\"deepseek-v4-flash\",\"deepseek-v4-pro\"]},\"capabilities\":{\"thinking\":true,\"thinkingBudget\":true,\"showThoughts\":true,\"structuredOutputs\":false,\"structuredOutputModes\":[\"function\"]},\"request\":{\"reasoning\":\"thinking-object\",\"toolChoice\":\"unforced\",\"effortMap\":{\"none\":null,\"minimal\":\"low\",\"low\":\"low\",\"medium\":\"medium\",\"high\":\"high\",\"highest\":\"max\",\"xhigh\":\"max\",\"max\":\"max\"},\"dropWhenThinking\":[\"temperature\",\"top_p\",\"presence_penalty\",\"frequency_penalty\"],\"defaultThinkingLevel\":\"max\"},\"response\":{\"reasoningFields\":[\"reasoning_content\",\"reasoning\"]},\"replay\":{\"assistantReasoningField\":\"reasoning_content\"}},{\"match\":{\"exact\":[\"deepseek-reasoner\"]},\"capabilities\":{\"thinking\":true,\"thinkingBudget\":false,\"showThoughts\":true,\"structuredOutputs\":false,\"structuredOutputModes\":[\"function\"]},\"request\":{\"toolChoice\":\"unforced\"},\"response\":{\"reasoningFields\":[\"reasoning_content\",\"reasoning\"]},\"replay\":{\"assistantReasoningField\":\"reasoning_content\"}}],\"sources\":[\"https://api-docs.deepseek.com/guides/thinking_mode/\"],\"reviewedAt\":\"2026-08-18\",\"provider\":\"deepseek\",\"baseUrl\":\"https://api.deepseek.com\",\"authRequired\":true,\"defaultModel\":\"deepseek-v4-flash\",\"features\":{\"functions\":true,\"streaming\":true,\"structured_outputs\":false,\"structured_output_modes\":[\"function\",\"json_object\"],\"thinking\":false,\"multi_turn\":true,\"service_tiers\":[],\"media\":{\"images\":{\"supported\":false,\"formats\":[]},\"audio\":{\"supported\":false,\"formats\":[],\"realtime\":false,\"output\":{\"supported\":false,\"formats\":[]}},\"files\":{\"supported\":false,\"formats\":[],\"upload_method\":\"none\"},\"urls\":{\"supported\":false,\"web_search\":false,\"context_fetching\":false}},\"caching\":{\"supported\":false,\"types\":[]}}},\"deepseek-responses\":{\"id\":\"deepseek-responses\",\"name\":\"DeepSeek Responses\",\"aliases\":[\"deepseek-responses\",\"deepseek_responses\"],\"transport\":\"openai-responses\",\"baseURL\":\"https://api.deepseek.com\",\"requiresApiURL\":false,\"auth\":\"bearer\",\"defaults\":{\"model\":\"deepseek-v4-flash\"},\"capabilities\":{\"functions\":true,\"streaming\":true,\"structuredOutputs\":false,\"thinking\":true,\"multiTurn\":true,\"structuredOutputModes\":[\"function\"],\"serviceTiers\":[]},\"operations\":{\"chat\":{\"path\":\"/responses\",\"dialect\":\"openai-responses\",\"method\":\"POST\",\"body\":\"json\",\"stream\":false},\"stream_chat\":{\"path\":\"/responses\",\"dialect\":\"openai-responses\",\"method\":\"POST\",\"body\":\"json\",\"stream\":true}},\"request\":{\"dropFields\":[\"include\",\"previous_response_id\",\"store\",\"parallel_tool_calls\"],\"reasoningObjectFields\":[\"effort\"]},\"modelRules\":[],\"sources\":[\"https://api-docs.deepseek.com/api/create-chat-completion\"],\"reviewedAt\":\"2026-08-17\",\"provider\":\"deepseek-responses\",\"baseUrl\":\"https://api.deepseek.com\",\"authRequired\":true,\"defaultModel\":\"deepseek-v4-flash\",\"features\":{\"functions\":true,\"streaming\":true,\"structured_outputs\":false,\"structured_output_modes\":[\"function\"],\"thinking\":true,\"multi_turn\":true,\"service_tiers\":[],\"media\":{\"images\":{\"supported\":false,\"formats\":[]},\"audio\":{\"supported\":false,\"formats\":[],\"realtime\":false,\"output\":{\"supported\":false,\"formats\":[]}},\"files\":{\"supported\":false,\"formats\":[],\"upload_method\":\"none\"},\"urls\":{\"supported\":false,\"web_search\":false,\"context_fetching\":false}},\"caching\":{\"supported\":false,\"types\":[]}}},\"mistral\":{\"id\":\"mistral\",\"name\":\"Mistral AI\",\"aliases\":[\"mistral\"],\"transport\":\"openai-chat\",\"baseURL\":\"https://api.mistral.ai/v1\",\"requiresApiURL\":false,\"auth\":\"bearer\",\"defaults\":{\"model\":\"mistral-small-latest\",\"embedModel\":\"mistral-embed\"},\"capabilities\":{\"functions\":true,\"streaming\":true,\"structuredOutputs\":true,\"thinking\":false,\"multiTurn\":true,\"images\":true,\"audio\":true,\"audioOutput\":true,\"structuredOutputModes\":[\"native\",\"function\"],\"serviceTiers\":[\"standard\",\"priority\"]},\"operations\":{\"chat\":{\"path\":\"/chat/completions\",\"dialect\":\"openai-chat\",\"method\":\"POST\",\"body\":\"json\",\"stream\":false},\"embed\":{\"path\":\"/embeddings\",\"dialect\":\"openai-embeddings\",\"method\":\"POST\",\"body\":\"json\",\"stream\":false},\"transcribe\":{\"path\":\"/audio/transcriptions\",\"dialect\":\"openai-transcription\",\"method\":\"POST\",\"body\":\"multipart\",\"stream\":false},\"speak\":{\"path\":\"/audio/speech\",\"dialect\":\"mistral-speech\",\"method\":\"POST\",\"body\":\"json\",\"stream\":false,\"response\":\"binary\"},\"stream_chat\":{\"path\":\"/chat/completions\",\"dialect\":\"openai-chat\",\"method\":\"POST\",\"body\":\"json\",\"stream\":true}},\"request\":{\"renameFields\":{\"max_completion_tokens\":\"max_tokens\"},\"imageURLShape\":\"object\",\"serviceTierMap\":{\"auto\":\"auto\",\"standard\":\"standard_only\",\"priority\":\"auto\"}},\"modelRules\":[],\"sources\":[\"https://docs.mistral.ai/api/\",\"https://docs.mistral.ai/inference/priority-tier\"],\"reviewedAt\":\"2026-08-17\",\"provider\":\"mistral\",\"baseUrl\":\"https://api.mistral.ai/v1\",\"authRequired\":true,\"defaultModel\":\"mistral-small-latest\",\"defaultEmbedModel\":\"mistral-embed\",\"features\":{\"functions\":true,\"streaming\":true,\"structured_outputs\":true,\"structured_output_modes\":[\"native\",\"function\"],\"thinking\":false,\"multi_turn\":true,\"service_tiers\":[\"standard\",\"priority\"],\"media\":{\"images\":{\"supported\":true,\"formats\":[\"image/jpeg\",\"image/png\"]},\"audio\":{\"supported\":true,\"formats\":[\"wav\",\"mp3\",\"pcm16\"],\"realtime\":false,\"output\":{\"supported\":true,\"formats\":[\"wav\",\"mp3\",\"pcm16\"]}},\"files\":{\"supported\":false,\"formats\":[],\"upload_method\":\"none\"},\"urls\":{\"supported\":false,\"web_search\":false,\"context_fetching\":false}},\"caching\":{\"supported\":false,\"types\":[]}}},\"cohere\":{\"id\":\"cohere\",\"name\":\"Cohere\",\"aliases\":[\"cohere\"],\"transport\":\"openai-chat\",\"baseURL\":\"https://api.cohere.ai/compatibility/v1\",\"requiresApiURL\":false,\"auth\":\"bearer\",\"defaults\":{\"model\":\"command-r-plus\",\"embedModel\":\"embed-english-v3.0\"},\"capabilities\":{\"functions\":true,\"streaming\":true,\"structuredOutputs\":false,\"thinking\":false,\"multiTurn\":true,\"structuredOutputModes\":[\"function\"],\"serviceTiers\":[]},\"operations\":{\"chat\":{\"path\":\"/chat/completions\",\"dialect\":\"openai-chat\",\"method\":\"POST\",\"body\":\"json\",\"stream\":false},\"embed\":{\"path\":\"/embeddings\",\"dialect\":\"openai-embeddings\",\"method\":\"POST\",\"body\":\"json\",\"stream\":false},\"stream_chat\":{\"path\":\"/chat/completions\",\"dialect\":\"openai-chat\",\"method\":\"POST\",\"body\":\"json\",\"stream\":true}},\"modelRules\":[],\"sources\":[\"https://docs.cohere.com/reference/compatibility-api\"],\"reviewedAt\":\"2026-08-17\",\"provider\":\"cohere\",\"baseUrl\":\"https://api.cohere.ai/compatibility/v1\",\"authRequired\":true,\"defaultModel\":\"command-r-plus\",\"defaultEmbedModel\":\"embed-english-v3.0\",\"features\":{\"functions\":true,\"streaming\":true,\"structured_outputs\":false,\"structured_output_modes\":[\"function\"],\"thinking\":false,\"multi_turn\":true,\"service_tiers\":[],\"media\":{\"images\":{\"supported\":false,\"formats\":[]},\"audio\":{\"supported\":false,\"formats\":[],\"realtime\":false,\"output\":{\"supported\":false,\"formats\":[]}},\"files\":{\"supported\":false,\"formats\":[],\"upload_method\":\"none\"},\"urls\":{\"supported\":false,\"web_search\":false,\"context_fetching\":false}},\"caching\":{\"supported\":false,\"types\":[]}}},\"grok\":{\"id\":\"grok\",\"name\":\"xAI Grok\",\"aliases\":[\"grok\",\"xai\",\"x-grok\",\"x_grok\"],\"transport\":\"openai-chat\",\"baseURL\":\"https://api.x.ai/v1\",\"requiresApiURL\":false,\"auth\":\"bearer\",\"defaults\":{\"model\":\"grok-4.6\"},\"capabilities\":{\"functions\":true,\"streaming\":true,\"structuredOutputs\":true,\"thinking\":false,\"multiTurn\":true,\"images\":true,\"audio\":true,\"audioOutput\":true,\"webSearch\":true,\"structuredOutputModes\":[\"native\",\"function\"],\"serviceTiers\":[\"standard\",\"priority\"]},\"operations\":{\"chat\":{\"path\":\"/chat/completions\",\"dialect\":\"openai-chat\",\"method\":\"POST\",\"body\":\"json\",\"stream\":false},\"transcribe\":{\"path\":\"/stt\",\"dialect\":\"xai-transcription\",\"method\":\"POST\",\"body\":\"multipart\",\"stream\":false},\"speak\":{\"path\":\"/tts\",\"dialect\":\"xai-speech\",\"method\":\"POST\",\"body\":\"json\",\"stream\":false,\"response\":\"binary\"},\"realtime\":{\"path\":\"/realtime\",\"dialect\":\"xai-realtime\",\"modelMatch\":{\"prefix\":[\"grok-voice\"]},\"url\":\"wss://api.x.ai/v1/realtime\",\"grammar\":\"openai_realtime_compatible\",\"defaultModel\":\"grok-voice-think-fast-1.0\",\"audio\":{\"input\":{\"formats\":[\"pcm16\",\"pcm\"],\"sampleRate\":24000},\"output\":{\"formats\":[\"pcm16\",\"pcm\"],\"sampleRate\":24000,\"voices\":[\"eve\",\"ara\",\"rex\",\"sal\",\"leo\"],\"defaultVoice\":\"eve\"}},\"validation\":{\"structuredOutputWithAudio\":false},\"method\":\"WS\",\"body\":\"json\",\"stream\":true},\"stream_chat\":{\"path\":\"/chat/completions\",\"dialect\":\"openai-chat\",\"method\":\"POST\",\"body\":\"json\",\"stream\":true}},\"request\":{\"optionDialect\":\"search-parameters\",\"serviceTierMap\":{\"auto\":null,\"standard\":\"default\",\"priority\":\"priority\"}},\"modelRules\":[{\"match\":{\"exact\":[\"grok-4.6\"]},\"capabilities\":{\"thinking\":true,\"thinkingBudget\":true,\"structuredOutputs\":true,\"structuredOutputModes\":[\"native\",\"function\"]},\"request\":{\"reasoning\":\"effort\",\"defaultThinkingLevel\":\"max\",\"effortMap\":{\"none\":null,\"minimal\":\"low\",\"low\":\"low\",\"medium\":\"medium\",\"high\":\"high\",\"highest\":\"xhigh\",\"xhigh\":\"xhigh\",\"max\":\"xhigh\"},\"unsupportedThinkingLevels\":{\"none\":\"xAI Grok 4.6 reasoning cannot be disabled\"},\"dropFields\":[\"presence_penalty\",\"frequency_penalty\",\"stop\"]}},{\"match\":{\"exact\":[\"grok-4.5\",\"grok-4.5-latest\",\"grok-build-latest\"]},\"capabilities\":{\"thinking\":true,\"thinkingBudget\":true,\"structuredOutputs\":true,\"structuredOutputModes\":[\"native\",\"function\"]},\"request\":{\"reasoning\":\"effort\",\"defaultThinkingLevel\":\"max\",\"effortMap\":{\"none\":null,\"minimal\":\"low\",\"low\":\"low\",\"medium\":\"medium\",\"high\":\"high\",\"highest\":\"high\",\"xhigh\":\"high\",\"max\":\"high\"},\"unsupportedThinkingLevels\":{\"none\":\"xAI Grok 4.5 reasoning cannot be disabled\"},\"dropFields\":[\"presence_penalty\",\"frequency_penalty\",\"stop\"]}},{\"match\":{\"exact\":[\"grok-4.3\",\"grok-4.3-latest\",\"grok-latest\"]},\"capabilities\":{\"thinking\":true,\"thinkingBudget\":true,\"showThoughts\":true,\"structuredOutputs\":true,\"structuredOutputModes\":[\"native\",\"function\"]},\"request\":{\"reasoning\":\"effort\",\"defaultThinkingLevel\":\"max\",\"effortMap\":{\"none\":\"none\",\"minimal\":\"low\",\"low\":\"low\",\"medium\":\"medium\",\"high\":\"high\",\"highest\":\"high\",\"xhigh\":\"high\",\"max\":\"high\"},\"dropFields\":[\"presence_penalty\",\"frequency_penalty\",\"stop\"]}},{\"match\":{\"exact\":[\"grok-3-mini\",\"grok-3-mini-latest\",\"grok-3-mini-beta\",\"grok-3-mini-fast\",\"grok-3-mini-fast-latest\",\"grok-3-mini-fast-beta\"]},\"capabilities\":{\"thinking\":true,\"thinkingBudget\":true},\"request\":{\"reasoning\":\"effort\",\"defaultThinkingLevel\":\"low\",\"effortMap\":{\"none\":null,\"minimal\":\"low\",\"low\":\"low\",\"medium\":\"high\",\"high\":\"high\",\"highest\":\"high\",\"xhigh\":\"high\",\"max\":\"high\"},\"unsupportedThinkingLevels\":{\"none\":\"xAI Grok 3 Mini reasoning cannot be disabled\"}}}],\"sources\":[\"https://docs.x.ai/developers/model-capabilities/text/reasoning\",\"https://docs.x.ai/developers/rest-api-reference/management/auth\",\"https://docs.x.ai/developers/models/grok-4.5\",\"https://docs.x.ai/developers/advanced-api-usage/priority-processing\"],\"reviewedAt\":\"2026-08-30\",\"provider\":\"grok\",\"baseUrl\":\"https://api.x.ai/v1\",\"authRequired\":true,\"defaultModel\":\"grok-4.6\",\"features\":{\"functions\":true,\"streaming\":true,\"structured_outputs\":true,\"structured_output_modes\":[\"native\",\"function\"],\"thinking\":false,\"multi_turn\":true,\"service_tiers\":[\"standard\",\"priority\"],\"media\":{\"images\":{\"supported\":true,\"formats\":[\"image/jpeg\",\"image/png\"]},\"audio\":{\"supported\":true,\"formats\":[\"wav\",\"mp3\",\"pcm16\"],\"realtime\":true,\"output\":{\"supported\":true,\"formats\":[\"wav\",\"mp3\",\"pcm16\"]}},\"files\":{\"supported\":false,\"formats\":[],\"upload_method\":\"none\"},\"urls\":{\"supported\":false,\"web_search\":true,\"context_fetching\":false}},\"caching\":{\"supported\":false,\"types\":[]}}},\"reka\":{\"id\":\"reka\",\"name\":\"Reka\",\"aliases\":[\"reka\"],\"transport\":\"openai-chat\",\"baseURL\":\"https://api.reka.ai/v1\",\"requiresApiURL\":false,\"auth\":\"bearer\",\"defaults\":{\"model\":\"reka-core\"},\"capabilities\":{\"functions\":true,\"streaming\":true,\"structuredOutputs\":false,\"thinking\":false,\"multiTurn\":true,\"structuredOutputModes\":[\"function\"],\"serviceTiers\":[]},\"operations\":{\"chat\":{\"path\":\"/chat/completions\",\"dialect\":\"openai-chat\",\"method\":\"POST\",\"body\":\"json\",\"stream\":false},\"stream_chat\":{\"path\":\"/chat/completions\",\"dialect\":\"openai-chat\",\"method\":\"POST\",\"body\":\"json\",\"stream\":true}},\"modelRules\":[],\"sources\":[\"https://docs.reka.ai/\"],\"reviewedAt\":\"2026-08-17\",\"provider\":\"reka\",\"baseUrl\":\"https://api.reka.ai/v1\",\"authRequired\":true,\"defaultModel\":\"reka-core\",\"features\":{\"functions\":true,\"streaming\":true,\"structured_outputs\":false,\"structured_output_modes\":[\"function\"],\"thinking\":false,\"multi_turn\":true,\"service_tiers\":[],\"media\":{\"images\":{\"supported\":false,\"formats\":[]},\"audio\":{\"supported\":false,\"formats\":[],\"realtime\":false,\"output\":{\"supported\":false,\"formats\":[]}},\"files\":{\"supported\":false,\"formats\":[],\"upload_method\":\"none\"},\"urls\":{\"supported\":false,\"web_search\":false,\"context_fetching\":false}},\"caching\":{\"supported\":false,\"types\":[]}}},\"together\":{\"id\":\"together\",\"name\":\"Together AI\",\"aliases\":[\"together\",\"together-ai\",\"together_ai\"],\"transport\":\"openai-chat\",\"baseURL\":\"https://api.together.xyz/v1\",\"requiresApiURL\":false,\"auth\":\"bearer\",\"defaults\":{\"model\":\"\"},\"capabilities\":{\"functions\":true,\"streaming\":true,\"structuredOutputs\":true,\"thinking\":false,\"multiTurn\":true,\"structuredOutputModes\":[\"native\",\"function\",\"json_object\"],\"serviceTiers\":[]},\"operations\":{\"chat\":{\"path\":\"/chat/completions\",\"dialect\":\"openai-chat\",\"method\":\"POST\",\"body\":\"json\",\"stream\":false},\"embed\":{\"path\":\"/embeddings\",\"dialect\":\"openai-embeddings\",\"method\":\"POST\",\"body\":\"json\",\"stream\":false},\"stream_chat\":{\"path\":\"/chat/completions\",\"dialect\":\"openai-chat\",\"method\":\"POST\",\"body\":\"json\",\"stream\":true}},\"modelRules\":[{\"match\":{\"prefix\":[\"deepseek-ai/DeepSeek-V4\"]},\"capabilities\":{\"thinking\":true,\"thinkingBudget\":true,\"showThoughts\":true,\"structuredOutputs\":false,\"structuredOutputModes\":[\"function\"]},\"request\":{\"reasoning\":\"effort\",\"toolChoice\":\"unforced\",\"effortMap\":{\"none\":null,\"minimal\":\"high\",\"low\":\"high\",\"medium\":\"high\",\"high\":\"max\",\"highest\":\"max\",\"xhigh\":\"max\",\"max\":\"max\"},\"defaultThinkingLevel\":\"max\"},\"response\":{\"reasoningFields\":[\"reasoning\",\"reasoning_content\"]},\"replay\":{\"assistantReasoningField\":\"reasoning\"}}],\"sources\":[\"https://docs.together.ai/docs/inference/chat/reasoning\"],\"reviewedAt\":\"2026-08-18\",\"provider\":\"together\",\"baseUrl\":\"https://api.together.xyz/v1\",\"authRequired\":true,\"defaultModel\":\"\",\"features\":{\"functions\":true,\"streaming\":true,\"structured_outputs\":true,\"structured_output_modes\":[\"native\",\"function\",\"json_object\"],\"thinking\":false,\"multi_turn\":true,\"service_tiers\":[],\"media\":{\"images\":{\"supported\":false,\"formats\":[]},\"audio\":{\"supported\":false,\"formats\":[],\"realtime\":false,\"output\":{\"supported\":false,\"formats\":[]}},\"files\":{\"supported\":false,\"formats\":[],\"upload_method\":\"none\"},\"urls\":{\"supported\":false,\"web_search\":false,\"context_fetching\":false}},\"caching\":{\"supported\":false,\"types\":[]}}},\"openrouter\":{\"id\":\"openrouter\",\"name\":\"OpenRouter\",\"aliases\":[\"openrouter\"],\"transport\":\"openai-chat\",\"baseURL\":\"https://openrouter.ai/api/v1\",\"requiresApiURL\":false,\"auth\":\"bearer\",\"defaults\":{\"model\":\"\"},\"capabilities\":{\"functions\":true,\"streaming\":true,\"structuredOutputs\":false,\"thinking\":false,\"multiTurn\":true,\"structuredOutputModes\":[\"function\"],\"serviceTiers\":[\"standard\",\"flex\",\"priority\"]},\"operations\":{\"chat\":{\"path\":\"/chat/completions\",\"dialect\":\"openai-chat\",\"method\":\"POST\",\"body\":\"json\",\"stream\":false},\"stream_chat\":{\"path\":\"/chat/completions\",\"dialect\":\"openai-chat\",\"method\":\"POST\",\"body\":\"json\",\"stream\":true}},\"modelRules\":[{\"match\":{\"prefix\":[\"deepseek/\"]},\"capabilities\":{\"thinking\":true,\"thinkingBudget\":true,\"showThoughts\":true,\"structuredOutputs\":false,\"structuredOutputModes\":[\"function\"]},\"request\":{\"reasoning\":\"openrouter\",\"toolChoice\":\"unforced\",\"effortMap\":{\"none\":\"none\",\"minimal\":\"low\",\"low\":\"low\",\"medium\":\"medium\",\"high\":\"high\",\"highest\":\"max\",\"xhigh\":\"xhigh\",\"max\":\"max\"},\"defaultThinkingLevel\":\"max\"},\"response\":{\"reasoningFields\":[\"reasoning\",\"reasoning_content\"],\"reasoningDetailsFields\":[\"reasoning_details\"]},\"replay\":{\"assistantReasoningField\":\"reasoning\",\"assistantReasoningDetailsField\":\"reasoning_details\"}}],\"sources\":[\"https://openrouter.ai/docs/guides/best-practices/reasoning-tokens\",\"https://openrouter.ai/docs/guides/features/service-tiers\"],\"reviewedAt\":\"2026-08-18\",\"request\":{\"serviceTierMap\":{\"auto\":null,\"standard\":null,\"flex\":\"flex\",\"priority\":\"priority\"}},\"provider\":\"openrouter\",\"baseUrl\":\"https://openrouter.ai/api/v1\",\"authRequired\":true,\"defaultModel\":\"\",\"features\":{\"functions\":true,\"streaming\":true,\"structured_outputs\":false,\"structured_output_modes\":[\"function\"],\"thinking\":false,\"multi_turn\":true,\"service_tiers\":[\"standard\",\"flex\",\"priority\"],\"media\":{\"images\":{\"supported\":false,\"formats\":[]},\"audio\":{\"supported\":false,\"formats\":[],\"realtime\":false,\"output\":{\"supported\":false,\"formats\":[]}},\"files\":{\"supported\":false,\"formats\":[],\"upload_method\":\"none\"},\"urls\":{\"supported\":false,\"web_search\":false,\"context_fetching\":false}},\"caching\":{\"supported\":false,\"types\":[]}}},\"orcarouter\":{\"id\":\"orcarouter\",\"name\":\"OrcaRouter\",\"aliases\":[\"orcarouter\"],\"transport\":\"openai-chat\",\"baseURL\":\"https://api.orcarouter.ai/v1\",\"requiresApiURL\":false,\"auth\":\"bearer\",\"defaults\":{\"model\":\"orcarouter/auto\"},\"capabilities\":{\"functions\":true,\"streaming\":true,\"structuredOutputs\":false,\"thinking\":false,\"multiTurn\":true,\"structuredOutputModes\":[\"function\"],\"serviceTiers\":[]},\"operations\":{\"chat\":{\"path\":\"/chat/completions\",\"dialect\":\"openai-chat\",\"method\":\"POST\",\"body\":\"json\",\"stream\":false},\"stream_chat\":{\"path\":\"/chat/completions\",\"dialect\":\"openai-chat\",\"method\":\"POST\",\"body\":\"json\",\"stream\":true}},\"modelRules\":[],\"sources\":[\"https://www.orcarouter.ai\"],\"reviewedAt\":\"2026-08-19\",\"provider\":\"orcarouter\",\"baseUrl\":\"https://api.orcarouter.ai/v1\",\"authRequired\":true,\"defaultModel\":\"orcarouter/auto\",\"features\":{\"functions\":true,\"streaming\":true,\"structured_outputs\":false,\"structured_output_modes\":[\"function\"],\"thinking\":false,\"multi_turn\":true,\"service_tiers\":[],\"media\":{\"images\":{\"supported\":false,\"formats\":[]},\"audio\":{\"supported\":false,\"formats\":[],\"realtime\":false,\"output\":{\"supported\":false,\"formats\":[]}},\"files\":{\"supported\":false,\"formats\":[],\"upload_method\":\"none\"},\"urls\":{\"supported\":false,\"web_search\":false,\"context_fetching\":false}},\"caching\":{\"supported\":false,\"types\":[]}}},\"fireworks\":{\"id\":\"fireworks\",\"name\":\"Fireworks AI\",\"aliases\":[\"fireworks\",\"fireworks-ai\"],\"transport\":\"openai-chat\",\"baseURL\":\"https://api.fireworks.ai/inference/v1\",\"requiresApiURL\":false,\"auth\":\"bearer\",\"defaults\":{\"model\":\"\"},\"capabilities\":{\"functions\":true,\"streaming\":true,\"structuredOutputs\":true,\"thinking\":false,\"multiTurn\":true,\"structuredOutputModes\":[\"native\",\"function\"],\"serviceTiers\":[\"standard\",\"priority\"]},\"operations\":{\"chat\":{\"path\":\"/chat/completions\",\"dialect\":\"openai-chat\",\"method\":\"POST\",\"body\":\"json\",\"stream\":false},\"embed\":{\"path\":\"/embeddings\",\"dialect\":\"openai-embeddings\",\"method\":\"POST\",\"body\":\"json\",\"stream\":false},\"stream_chat\":{\"path\":\"/chat/completions\",\"dialect\":\"openai-chat\",\"method\":\"POST\",\"body\":\"json\",\"stream\":true}},\"modelRules\":[{\"match\":{\"contains\":[\"deepseek-v4\"]},\"capabilities\":{\"thinking\":true,\"thinkingBudget\":true,\"showThoughts\":true,\"structuredOutputs\":false,\"structuredOutputModes\":[\"function\"]},\"request\":{\"reasoning\":\"effort\",\"toolChoice\":\"unforced\",\"effortMap\":{\"none\":\"none\",\"minimal\":\"high\",\"low\":\"high\",\"medium\":\"high\",\"high\":\"high\",\"highest\":\"max\",\"xhigh\":\"max\",\"max\":\"max\"},\"defaultThinkingLevel\":\"max\"},\"response\":{\"reasoningFields\":[\"reasoning_content\",\"reasoning\"]},\"replay\":{\"assistantReasoningField\":\"reasoning_content\"}}],\"sources\":[\"https://docs.fireworks.ai/api-reference/post-chatcompletions\",\"https://docs.fireworks.ai/guides/reasoning\"],\"reviewedAt\":\"2026-08-18\",\"request\":{\"serviceTierMap\":{\"auto\":null,\"standard\":\"default\",\"priority\":\"priority\"}},\"provider\":\"fireworks\",\"baseUrl\":\"https://api.fireworks.ai/inference/v1\",\"authRequired\":true,\"defaultModel\":\"\",\"features\":{\"functions\":true,\"streaming\":true,\"structured_outputs\":true,\"structured_output_modes\":[\"native\",\"function\"],\"thinking\":false,\"multi_turn\":true,\"service_tiers\":[\"standard\",\"priority\"],\"media\":{\"images\":{\"supported\":false,\"formats\":[]},\"audio\":{\"supported\":false,\"formats\":[],\"realtime\":false,\"output\":{\"supported\":false,\"formats\":[]}},\"files\":{\"supported\":false,\"formats\":[],\"upload_method\":\"none\"},\"urls\":{\"supported\":false,\"web_search\":false,\"context_fetching\":false}},\"caching\":{\"supported\":false,\"types\":[]}}},\"huggingface-router\":{\"id\":\"huggingface-router\",\"name\":\"Hugging Face Router\",\"aliases\":[\"huggingface-router\",\"huggingface\",\"hf-router\"],\"transport\":\"openai-chat\",\"baseURL\":\"https://router.huggingface.co/v1\",\"requiresApiURL\":false,\"auth\":\"bearer\",\"defaults\":{\"model\":\"\"},\"capabilities\":{\"functions\":true,\"streaming\":true,\"structuredOutputs\":false,\"thinking\":false,\"multiTurn\":true,\"structuredOutputModes\":[\"function\"],\"serviceTiers\":[]},\"operations\":{\"chat\":{\"path\":\"/chat/completions\",\"dialect\":\"openai-chat\",\"method\":\"POST\",\"body\":\"json\",\"stream\":false},\"stream_chat\":{\"path\":\"/chat/completions\",\"dialect\":\"openai-chat\",\"method\":\"POST\",\"body\":\"json\",\"stream\":true}},\"modelRules\":[],\"sources\":[\"https://huggingface.co/docs/inference-providers/en/index\",\"https://huggingface.co/docs/inference-providers/en/tasks/chat-completion\"],\"reviewedAt\":\"2026-08-18\",\"provider\":\"huggingface-router\",\"baseUrl\":\"https://router.huggingface.co/v1\",\"authRequired\":true,\"defaultModel\":\"\",\"features\":{\"functions\":true,\"streaming\":true,\"structured_outputs\":false,\"structured_output_modes\":[\"function\"],\"thinking\":false,\"multi_turn\":true,\"service_tiers\":[],\"media\":{\"images\":{\"supported\":false,\"formats\":[]},\"audio\":{\"supported\":false,\"formats\":[],\"realtime\":false,\"output\":{\"supported\":false,\"formats\":[]}},\"files\":{\"supported\":false,\"formats\":[],\"upload_method\":\"none\"},\"urls\":{\"supported\":false,\"web_search\":false,\"context_fetching\":false}},\"caching\":{\"supported\":false,\"types\":[]}}},\"amazon-bedrock\":{\"id\":\"amazon-bedrock\",\"name\":\"Amazon Bedrock\",\"aliases\":[\"amazon-bedrock\",\"bedrock\"],\"transport\":\"openai-chat\",\"baseURL\":null,\"requiresApiURL\":true,\"auth\":\"bearer\",\"defaults\":{\"model\":\"\"},\"capabilities\":{\"functions\":true,\"streaming\":true,\"structuredOutputs\":false,\"thinking\":false,\"multiTurn\":true,\"structuredOutputModes\":[\"function\"],\"serviceTiers\":[\"standard\",\"flex\",\"priority\"]},\"operations\":{\"chat\":{\"path\":\"/chat/completions\",\"dialect\":\"openai-chat\",\"method\":\"POST\",\"body\":\"json\",\"stream\":false},\"stream_chat\":{\"path\":\"/chat/completions\",\"dialect\":\"openai-chat\",\"method\":\"POST\",\"body\":\"json\",\"stream\":true}},\"modelRules\":[],\"sources\":[\"https://docs.aws.amazon.com/bedrock/latest/userguide/inference-chat-completions-mantle.html\",\"https://docs.aws.amazon.com/bedrock/latest/userguide/service-tiers-inference.html\"],\"reviewedAt\":\"2026-08-17\",\"request\":{\"serviceTierMap\":{\"auto\":null,\"standard\":\"default\",\"flex\":\"flex\",\"priority\":\"priority\"}},\"provider\":\"amazon-bedrock\",\"baseUrl\":null,\"authRequired\":true,\"defaultModel\":\"\",\"features\":{\"functions\":true,\"streaming\":true,\"structured_outputs\":false,\"structured_output_modes\":[\"function\"],\"thinking\":false,\"multi_turn\":true,\"service_tiers\":[\"standard\",\"flex\",\"priority\"],\"media\":{\"images\":{\"supported\":false,\"formats\":[]},\"audio\":{\"supported\":false,\"formats\":[],\"realtime\":false,\"output\":{\"supported\":false,\"formats\":[]}},\"files\":{\"supported\":false,\"formats\":[],\"upload_method\":\"none\"},\"urls\":{\"supported\":false,\"web_search\":false,\"context_fetching\":false}},\"caching\":{\"supported\":false,\"types\":[]}}},\"azure-foundry\":{\"id\":\"azure-foundry\",\"name\":\"Azure AI Foundry\",\"aliases\":[\"azure-foundry\",\"azure-ai-foundry\",\"microsoft-foundry\"],\"transport\":\"openai-chat\",\"baseURL\":null,\"requiresApiURL\":true,\"auth\":\"api_key_header\",\"defaults\":{\"model\":\"\"},\"capabilities\":{\"functions\":true,\"streaming\":true,\"structuredOutputs\":false,\"thinking\":false,\"multiTurn\":true,\"structuredOutputModes\":[\"function\"],\"serviceTiers\":[\"standard\",\"priority\"]},\"operations\":{\"chat\":{\"path\":\"/chat/completions\",\"dialect\":\"openai-chat\",\"method\":\"POST\",\"body\":\"json\",\"stream\":false},\"stream_chat\":{\"path\":\"/chat/completions\",\"dialect\":\"openai-chat\",\"method\":\"POST\",\"body\":\"json\",\"stream\":true}},\"modelRules\":[],\"sources\":[\"https://learn.microsoft.com/en-us/rest/api/microsoft-foundry/azureopenai/chat\",\"https://learn.microsoft.com/en-us/azure/foundry/openai/concepts/priority-processing\"],\"reviewedAt\":\"2026-08-17\",\"request\":{\"serviceTierMap\":{\"auto\":\"auto\",\"standard\":\"default\",\"flex\":\"flex\",\"priority\":\"priority\"}},\"provider\":\"azure-foundry\",\"baseUrl\":null,\"authRequired\":true,\"apiKeyHeader\":\"api-key\",\"defaultModel\":\"\",\"features\":{\"functions\":true,\"streaming\":true,\"structured_outputs\":false,\"structured_output_modes\":[\"function\"],\"thinking\":false,\"multi_turn\":true,\"service_tiers\":[\"standard\",\"priority\"],\"media\":{\"images\":{\"supported\":false,\"formats\":[]},\"audio\":{\"supported\":false,\"formats\":[],\"realtime\":false,\"output\":{\"supported\":false,\"formats\":[]}},\"files\":{\"supported\":false,\"formats\":[],\"upload_method\":\"none\"},\"urls\":{\"supported\":false,\"web_search\":false,\"context_fetching\":false}},\"caching\":{\"supported\":false,\"types\":[]}}},\"vertex-ai\":{\"id\":\"vertex-ai\",\"name\":\"Vertex AI OpenAI Compatibility\",\"aliases\":[\"vertex-ai\",\"vertex-openai\"],\"transport\":\"openai-chat\",\"baseURL\":null,\"requiresApiURL\":true,\"auth\":\"bearer\",\"defaults\":{\"model\":\"\"},\"capabilities\":{\"functions\":true,\"streaming\":true,\"structuredOutputs\":false,\"thinking\":false,\"multiTurn\":true,\"structuredOutputModes\":[\"function\"],\"serviceTiers\":[]},\"operations\":{\"chat\":{\"path\":\"/chat/completions\",\"dialect\":\"openai-chat\",\"method\":\"POST\",\"body\":\"json\",\"stream\":false},\"stream_chat\":{\"path\":\"/chat/completions\",\"dialect\":\"openai-chat\",\"method\":\"POST\",\"body\":\"json\",\"stream\":true}},\"modelRules\":[{\"match\":{\"exact\":[\"google/gemma-4-26b-a4b-it-maas\"]},\"capabilities\":{\"structuredOutputs\":false,\"structuredOutputModes\":[\"json_object\",\"function\"],\"thinking\":true},\"request\":{\"defaultThinkingLevel\":\"max\",\"thinkingBoolean\":{\"path\":[\"chat_template_kwargs\",\"enable_thinking\"]}},\"response\":{\"reasoningFields\":[\"reasoning_content\"]},\"replay\":{\"assistantReasoningField\":\"reasoning_content\"}},{\"match\":{\"prefix\":[\"google/gemini-\",\"gemini-\"]},\"capabilities\":{\"structuredOutputs\":true,\"structuredOutputModes\":[\"native\",\"function\",\"json_object\"]}}],\"sources\":[\"https://cloud.google.com/vertex-ai/generative-ai/docs/multimodal/call-vertex-using-openai-library\",\"https://docs.cloud.google.com/gemini-enterprise-agent-platform/models/maas/capabilities/structured-output\",\"https://docs.cloud.google.com/gemini-enterprise-agent-platform/models/maas/capabilities/thinking\"],\"reviewedAt\":\"2026-08-18\",\"provider\":\"vertex-ai\",\"baseUrl\":null,\"authRequired\":true,\"defaultModel\":\"\",\"features\":{\"functions\":true,\"streaming\":true,\"structured_outputs\":false,\"structured_output_modes\":[\"function\"],\"thinking\":false,\"multi_turn\":true,\"service_tiers\":[],\"media\":{\"images\":{\"supported\":false,\"formats\":[]},\"audio\":{\"supported\":false,\"formats\":[],\"realtime\":false,\"output\":{\"supported\":false,\"formats\":[]}},\"files\":{\"supported\":false,\"formats\":[],\"upload_method\":\"none\"},\"urls\":{\"supported\":false,\"web_search\":false,\"context_fetching\":false}},\"caching\":{\"supported\":false,\"types\":[]}}},\"databricks\":{\"id\":\"databricks\",\"name\":\"Databricks Model Serving\",\"aliases\":[\"databricks\"],\"transport\":\"openai-chat\",\"baseURL\":null,\"requiresApiURL\":true,\"auth\":\"bearer\",\"defaults\":{\"model\":\"\"},\"capabilities\":{\"functions\":true,\"streaming\":true,\"structuredOutputs\":false,\"thinking\":false,\"multiTurn\":true,\"structuredOutputModes\":[\"function\"],\"serviceTiers\":[\"standard\",\"priority\"]},\"operations\":{\"chat\":{\"path\":\"/chat/completions\",\"dialect\":\"openai-chat\",\"method\":\"POST\",\"body\":\"json\",\"stream\":false},\"stream_chat\":{\"path\":\"/chat/completions\",\"dialect\":\"openai-chat\",\"method\":\"POST\",\"body\":\"json\",\"stream\":true}},\"modelRules\":[],\"sources\":[\"https://docs.databricks.com/aws/en/machine-learning/model-serving/query-chat-models\",\"https://docs.databricks.com/aws/en/machine-learning/foundation-model-apis/priority-mode\"],\"reviewedAt\":\"2026-08-17\",\"request\":{\"serviceTierMap\":{\"auto\":null,\"standard\":\"default\",\"priority\":\"priority\"}},\"provider\":\"databricks\",\"baseUrl\":null,\"authRequired\":true,\"defaultModel\":\"\",\"features\":{\"functions\":true,\"streaming\":true,\"structured_outputs\":false,\"structured_output_modes\":[\"function\"],\"thinking\":false,\"multi_turn\":true,\"service_tiers\":[\"standard\",\"priority\"],\"media\":{\"images\":{\"supported\":false,\"formats\":[]},\"audio\":{\"supported\":false,\"formats\":[],\"realtime\":false,\"output\":{\"supported\":false,\"formats\":[]}},\"files\":{\"supported\":false,\"formats\":[],\"upload_method\":\"none\"},\"urls\":{\"supported\":false,\"web_search\":false,\"context_fetching\":false}},\"caching\":{\"supported\":false,\"types\":[]}}},\"baseten\":{\"id\":\"baseten\",\"name\":\"Baseten Model APIs\",\"aliases\":[\"baseten\"],\"transport\":\"openai-chat\",\"baseURL\":\"https://inference.baseten.co/v1\",\"requiresApiURL\":false,\"auth\":\"bearer\",\"defaults\":{\"model\":\"\"},\"capabilities\":{\"functions\":true,\"streaming\":true,\"structuredOutputs\":true,\"thinking\":false,\"multiTurn\":true,\"structuredOutputModes\":[\"native\",\"function\"],\"serviceTiers\":[]},\"operations\":{\"chat\":{\"path\":\"/chat/completions\",\"dialect\":\"openai-chat\",\"method\":\"POST\",\"body\":\"json\",\"stream\":false},\"stream_chat\":{\"path\":\"/chat/completions\",\"dialect\":\"openai-chat\",\"method\":\"POST\",\"body\":\"json\",\"stream\":true}},\"modelRules\":[],\"sources\":[\"https://docs.baseten.co/inference/model-apis/overview\"],\"reviewedAt\":\"2026-08-17\",\"provider\":\"baseten\",\"baseUrl\":\"https://inference.baseten.co/v1\",\"authRequired\":true,\"defaultModel\":\"\",\"features\":{\"functions\":true,\"streaming\":true,\"structured_outputs\":true,\"structured_output_modes\":[\"native\",\"function\"],\"thinking\":false,\"multi_turn\":true,\"service_tiers\":[],\"media\":{\"images\":{\"supported\":false,\"formats\":[]},\"audio\":{\"supported\":false,\"formats\":[],\"realtime\":false,\"output\":{\"supported\":false,\"formats\":[]}},\"files\":{\"supported\":false,\"formats\":[],\"upload_method\":\"none\"},\"urls\":{\"supported\":false,\"web_search\":false,\"context_fetching\":false}},\"caching\":{\"supported\":false,\"types\":[]}}},\"groq\":{\"id\":\"groq\",\"name\":\"Groq\",\"aliases\":[\"groq\"],\"transport\":\"openai-chat\",\"baseURL\":\"https://api.groq.com/openai/v1\",\"requiresApiURL\":false,\"auth\":\"bearer\",\"defaults\":{\"model\":\"\"},\"capabilities\":{\"functions\":true,\"streaming\":true,\"structuredOutputs\":true,\"thinking\":false,\"multiTurn\":true,\"structuredOutputModes\":[\"native\",\"function\"],\"serviceTiers\":[\"standard\",\"flex\",\"priority\"]},\"operations\":{\"chat\":{\"path\":\"/chat/completions\",\"dialect\":\"openai-chat\",\"method\":\"POST\",\"body\":\"json\",\"stream\":false},\"stream_chat\":{\"path\":\"/chat/completions\",\"dialect\":\"openai-chat\",\"method\":\"POST\",\"body\":\"json\",\"stream\":true}},\"modelRules\":[{\"match\":{\"exact\":[\"openai/gpt-oss-20b\",\"openai/gpt-oss-120b\"]},\"capabilities\":{\"thinking\":true,\"thinkingBudget\":true},\"request\":{\"reasoning\":\"effort\",\"defaultThinkingLevel\":\"max\",\"effortMap\":{\"none\":null,\"minimal\":\"low\",\"low\":\"low\",\"medium\":\"medium\",\"high\":\"high\",\"highest\":\"high\",\"xhigh\":\"high\",\"max\":\"high\"},\"unsupportedThinkingLevels\":{\"none\":\"Groq GPT-OSS reasoning does not support the none effort level\"}}},{\"match\":{\"exact\":[\"qwen/qwen3.6-27b\"]},\"capabilities\":{\"thinking\":true,\"thinkingBudget\":true},\"request\":{\"reasoning\":\"effort\",\"defaultThinkingLevel\":\"max\",\"effortMap\":{\"none\":\"none\",\"minimal\":\"default\",\"low\":\"default\",\"medium\":\"default\",\"high\":\"default\",\"highest\":\"default\",\"xhigh\":\"default\",\"max\":\"default\"}}}],\"sources\":[\"https://console.groq.com/docs/reasoning\",\"https://console.groq.com/docs/api-reference\",\"https://console.groq.com/docs/service-tiers\"],\"reviewedAt\":\"2026-08-18\",\"request\":{\"serviceTierMap\":{\"auto\":\"auto\",\"standard\":\"on_demand\",\"flex\":\"flex\",\"priority\":\"performance\"}},\"provider\":\"groq\",\"baseUrl\":\"https://api.groq.com/openai/v1\",\"authRequired\":true,\"defaultModel\":\"\",\"features\":{\"functions\":true,\"streaming\":true,\"structured_outputs\":true,\"structured_output_modes\":[\"native\",\"function\"],\"thinking\":false,\"multi_turn\":true,\"service_tiers\":[\"standard\",\"flex\",\"priority\"],\"media\":{\"images\":{\"supported\":false,\"formats\":[]},\"audio\":{\"supported\":false,\"formats\":[],\"realtime\":false,\"output\":{\"supported\":false,\"formats\":[]}},\"files\":{\"supported\":false,\"formats\":[],\"upload_method\":\"none\"},\"urls\":{\"supported\":false,\"web_search\":false,\"context_fetching\":false}},\"caching\":{\"supported\":false,\"types\":[]}}},\"cerebras\":{\"id\":\"cerebras\",\"name\":\"Cerebras Inference\",\"aliases\":[\"cerebras\"],\"transport\":\"openai-chat\",\"baseURL\":\"https://api.cerebras.ai/v1\",\"requiresApiURL\":false,\"auth\":\"bearer\",\"defaults\":{\"model\":\"\"},\"capabilities\":{\"functions\":true,\"streaming\":true,\"structuredOutputs\":true,\"thinking\":false,\"multiTurn\":true,\"structuredOutputModes\":[\"native\",\"function\"],\"serviceTiers\":[\"standard\",\"flex\",\"priority\"]},\"operations\":{\"chat\":{\"path\":\"/chat/completions\",\"dialect\":\"openai-chat\",\"method\":\"POST\",\"body\":\"json\",\"stream\":false},\"stream_chat\":{\"path\":\"/chat/completions\",\"dialect\":\"openai-chat\",\"method\":\"POST\",\"body\":\"json\",\"stream\":true}},\"modelRules\":[{\"match\":{\"exact\":[\"gpt-oss-120b\"]},\"capabilities\":{\"thinking\":true,\"thinkingBudget\":true},\"request\":{\"reasoning\":\"effort\",\"defaultThinkingLevel\":\"max\",\"effortMap\":{\"none\":null,\"minimal\":\"low\",\"low\":\"low\",\"medium\":\"medium\",\"high\":\"high\",\"highest\":\"high\",\"xhigh\":\"high\",\"max\":\"high\"},\"unsupportedThinkingLevels\":{\"none\":\"Cerebras GPT-OSS reasoning does not support the none effort level\"}}},{\"match\":{\"exact\":[\"gemma-4-31b\"]},\"capabilities\":{\"thinking\":true,\"thinkingBudget\":true},\"request\":{\"reasoning\":\"effort\",\"defaultThinkingLevel\":\"max\",\"effortMap\":{\"none\":\"none\",\"minimal\":\"high\",\"low\":\"high\",\"medium\":\"high\",\"high\":\"high\",\"highest\":\"high\",\"xhigh\":\"high\",\"max\":\"high\"}}}],\"sources\":[\"https://inference-docs.cerebras.ai/capabilities/reasoning\",\"https://inference-docs.cerebras.ai/api-reference/chat-completions\",\"https://inference-docs.cerebras.ai/capabilities/service-tiers\"],\"reviewedAt\":\"2026-08-18\",\"request\":{\"serviceTierMap\":{\"auto\":\"auto\",\"standard\":\"default\",\"flex\":\"flex\",\"priority\":\"priority\"}},\"provider\":\"cerebras\",\"baseUrl\":\"https://api.cerebras.ai/v1\",\"authRequired\":true,\"defaultModel\":\"\",\"features\":{\"functions\":true,\"streaming\":true,\"structured_outputs\":true,\"structured_output_modes\":[\"native\",\"function\"],\"thinking\":false,\"multi_turn\":true,\"service_tiers\":[\"standard\",\"flex\",\"priority\"],\"media\":{\"images\":{\"supported\":false,\"formats\":[]},\"audio\":{\"supported\":false,\"formats\":[],\"realtime\":false,\"output\":{\"supported\":false,\"formats\":[]}},\"files\":{\"supported\":false,\"formats\":[],\"upload_method\":\"none\"},\"urls\":{\"supported\":false,\"web_search\":false,\"context_fetching\":false}},\"caching\":{\"supported\":false,\"types\":[]}}},\"deepinfra\":{\"id\":\"deepinfra\",\"name\":\"DeepInfra\",\"aliases\":[\"deepinfra\"],\"transport\":\"openai-chat\",\"baseURL\":\"https://api.deepinfra.com/v1/openai\",\"requiresApiURL\":false,\"auth\":\"bearer\",\"defaults\":{\"model\":\"\"},\"capabilities\":{\"functions\":true,\"streaming\":true,\"structuredOutputs\":false,\"thinking\":false,\"multiTurn\":true,\"structuredOutputModes\":[\"function\"],\"serviceTiers\":[\"standard\",\"priority\"]},\"operations\":{\"chat\":{\"path\":\"/chat/completions\",\"dialect\":\"openai-chat\",\"method\":\"POST\",\"body\":\"json\",\"stream\":false},\"stream_chat\":{\"path\":\"/chat/completions\",\"dialect\":\"openai-chat\",\"method\":\"POST\",\"body\":\"json\",\"stream\":true}},\"modelRules\":[{\"match\":{\"prefix\":[\"deepseek-ai/DeepSeek-R1\"]},\"capabilities\":{\"thinking\":true,\"thinkingBudget\":true},\"request\":{\"reasoning\":\"effort\",\"defaultThinkingLevel\":\"max\",\"effortMap\":{\"none\":\"none\",\"minimal\":\"low\",\"low\":\"low\",\"medium\":\"medium\",\"high\":\"high\",\"highest\":\"high\",\"xhigh\":\"high\",\"max\":\"high\"}}}],\"sources\":[\"https://docs.deepinfra.com/chat/reasoning\",\"https://docs.deepinfra.com/api-reference/introduction\",\"https://docs.deepinfra.com/chat/overview\"],\"reviewedAt\":\"2026-08-18\",\"request\":{\"serviceTierMap\":{\"auto\":null,\"standard\":null,\"priority\":\"priority\"}},\"provider\":\"deepinfra\",\"baseUrl\":\"https://api.deepinfra.com/v1/openai\",\"authRequired\":true,\"defaultModel\":\"\",\"features\":{\"functions\":true,\"streaming\":true,\"structured_outputs\":false,\"structured_output_modes\":[\"function\"],\"thinking\":false,\"multi_turn\":true,\"service_tiers\":[\"standard\",\"priority\"],\"media\":{\"images\":{\"supported\":false,\"formats\":[]},\"audio\":{\"supported\":false,\"formats\":[],\"realtime\":false,\"output\":{\"supported\":false,\"formats\":[]}},\"files\":{\"supported\":false,\"formats\":[],\"upload_method\":\"none\"},\"urls\":{\"supported\":false,\"web_search\":false,\"context_fetching\":false}},\"caching\":{\"supported\":false,\"types\":[]}}},\"sambanova\":{\"id\":\"sambanova\",\"name\":\"SambaNova Cloud\",\"aliases\":[\"sambanova\",\"sambanova-cloud\"],\"transport\":\"openai-chat\",\"baseURL\":\"https://api.sambanova.ai/v1\",\"requiresApiURL\":false,\"auth\":\"bearer\",\"defaults\":{\"model\":\"\"},\"capabilities\":{\"functions\":true,\"streaming\":true,\"structuredOutputs\":false,\"thinking\":false,\"multiTurn\":true,\"structuredOutputModes\":[\"function\"],\"serviceTiers\":[]},\"operations\":{\"chat\":{\"path\":\"/chat/completions\",\"dialect\":\"openai-chat\",\"method\":\"POST\",\"body\":\"json\",\"stream\":false},\"stream_chat\":{\"path\":\"/chat/completions\",\"dialect\":\"openai-chat\",\"method\":\"POST\",\"body\":\"json\",\"stream\":true}},\"modelRules\":[],\"sources\":[\"https://docs.sambanova.ai/docs/en/api-reference/overview\"],\"reviewedAt\":\"2026-08-17\",\"provider\":\"sambanova\",\"baseUrl\":\"https://api.sambanova.ai/v1\",\"authRequired\":true,\"defaultModel\":\"\",\"features\":{\"functions\":true,\"streaming\":true,\"structured_outputs\":false,\"structured_output_modes\":[\"function\"],\"thinking\":false,\"multi_turn\":true,\"service_tiers\":[],\"media\":{\"images\":{\"supported\":false,\"formats\":[]},\"audio\":{\"supported\":false,\"formats\":[],\"realtime\":false,\"output\":{\"supported\":false,\"formats\":[]}},\"files\":{\"supported\":false,\"formats\":[],\"upload_method\":\"none\"},\"urls\":{\"supported\":false,\"web_search\":false,\"context_fetching\":false}},\"caching\":{\"supported\":false,\"types\":[]}}},\"nebius\":{\"id\":\"nebius\",\"name\":\"Nebius AI Studio\",\"aliases\":[\"nebius\"],\"transport\":\"openai-chat\",\"baseURL\":\"https://api.tokenfactory.nebius.com/v1\",\"requiresApiURL\":false,\"auth\":\"bearer\",\"defaults\":{\"model\":\"\"},\"capabilities\":{\"functions\":true,\"streaming\":true,\"structuredOutputs\":false,\"thinking\":false,\"multiTurn\":true,\"structuredOutputModes\":[\"function\"],\"serviceTiers\":[]},\"operations\":{\"chat\":{\"path\":\"/chat/completions\",\"dialect\":\"openai-chat\",\"method\":\"POST\",\"body\":\"json\",\"stream\":false},\"stream_chat\":{\"path\":\"/chat/completions\",\"dialect\":\"openai-chat\",\"method\":\"POST\",\"body\":\"json\",\"stream\":true}},\"modelRules\":[],\"sources\":[\"https://api.studio.nebius.com/docs\"],\"reviewedAt\":\"2026-08-17\",\"provider\":\"nebius\",\"baseUrl\":\"https://api.tokenfactory.nebius.com/v1\",\"authRequired\":true,\"defaultModel\":\"\",\"features\":{\"functions\":true,\"streaming\":true,\"structured_outputs\":false,\"structured_output_modes\":[\"function\"],\"thinking\":false,\"multi_turn\":true,\"service_tiers\":[],\"media\":{\"images\":{\"supported\":false,\"formats\":[]},\"audio\":{\"supported\":false,\"formats\":[],\"realtime\":false,\"output\":{\"supported\":false,\"formats\":[]}},\"files\":{\"supported\":false,\"formats\":[],\"upload_method\":\"none\"},\"urls\":{\"supported\":false,\"web_search\":false,\"context_fetching\":false}},\"caching\":{\"supported\":false,\"types\":[]}}},\"novita\":{\"id\":\"novita\",\"name\":\"Novita AI\",\"aliases\":[\"novita\",\"novita-ai\"],\"transport\":\"openai-chat\",\"baseURL\":\"https://api.novita.ai/v3/openai\",\"requiresApiURL\":false,\"auth\":\"bearer\",\"defaults\":{\"model\":\"\"},\"capabilities\":{\"functions\":true,\"streaming\":true,\"structuredOutputs\":false,\"thinking\":false,\"multiTurn\":true,\"structuredOutputModes\":[\"function\"],\"serviceTiers\":[]},\"operations\":{\"chat\":{\"path\":\"/chat/completions\",\"dialect\":\"openai-chat\",\"method\":\"POST\",\"body\":\"json\",\"stream\":false},\"stream_chat\":{\"path\":\"/chat/completions\",\"dialect\":\"openai-chat\",\"method\":\"POST\",\"body\":\"json\",\"stream\":true}},\"modelRules\":[],\"sources\":[\"https://novita.ai/docs/guides/llm-api\"],\"reviewedAt\":\"2026-08-17\",\"provider\":\"novita\",\"baseUrl\":\"https://api.novita.ai/v3/openai\",\"authRequired\":true,\"defaultModel\":\"\",\"features\":{\"functions\":true,\"streaming\":true,\"structured_outputs\":false,\"structured_output_modes\":[\"function\"],\"thinking\":false,\"multi_turn\":true,\"service_tiers\":[],\"media\":{\"images\":{\"supported\":false,\"formats\":[]},\"audio\":{\"supported\":false,\"formats\":[],\"realtime\":false,\"output\":{\"supported\":false,\"formats\":[]}},\"files\":{\"supported\":false,\"formats\":[],\"upload_method\":\"none\"},\"urls\":{\"supported\":false,\"web_search\":false,\"context_fetching\":false}},\"caching\":{\"supported\":false,\"types\":[]}}},\"hyperbolic\":{\"id\":\"hyperbolic\",\"name\":\"Hyperbolic\",\"aliases\":[\"hyperbolic\"],\"transport\":\"openai-chat\",\"baseURL\":\"https://api.hyperbolic.xyz/v1\",\"requiresApiURL\":false,\"auth\":\"bearer\",\"defaults\":{\"model\":\"\"},\"capabilities\":{\"functions\":true,\"streaming\":true,\"structuredOutputs\":false,\"thinking\":false,\"multiTurn\":true,\"structuredOutputModes\":[\"function\"],\"serviceTiers\":[]},\"operations\":{\"chat\":{\"path\":\"/chat/completions\",\"dialect\":\"openai-chat\",\"method\":\"POST\",\"body\":\"json\",\"stream\":false},\"stream_chat\":{\"path\":\"/chat/completions\",\"dialect\":\"openai-chat\",\"method\":\"POST\",\"body\":\"json\",\"stream\":true}},\"modelRules\":[],\"sources\":[\"https://docs.hyperbolic.xyz/docs/inference-api\"],\"reviewedAt\":\"2026-08-17\",\"provider\":\"hyperbolic\",\"baseUrl\":\"https://api.hyperbolic.xyz/v1\",\"authRequired\":true,\"defaultModel\":\"\",\"features\":{\"functions\":true,\"streaming\":true,\"structured_outputs\":false,\"structured_output_modes\":[\"function\"],\"thinking\":false,\"multi_turn\":true,\"service_tiers\":[],\"media\":{\"images\":{\"supported\":false,\"formats\":[]},\"audio\":{\"supported\":false,\"formats\":[],\"realtime\":false,\"output\":{\"supported\":false,\"formats\":[]}},\"files\":{\"supported\":false,\"formats\":[],\"upload_method\":\"none\"},\"urls\":{\"supported\":false,\"web_search\":false,\"context_fetching\":false}},\"caching\":{\"supported\":false,\"types\":[]}}},\"siliconflow\":{\"id\":\"siliconflow\",\"name\":\"SiliconFlow\",\"aliases\":[\"siliconflow\"],\"transport\":\"openai-chat\",\"baseURL\":\"https://api.siliconflow.com/v1\",\"requiresApiURL\":false,\"auth\":\"bearer\",\"defaults\":{\"model\":\"\"},\"capabilities\":{\"functions\":true,\"streaming\":true,\"structuredOutputs\":false,\"thinking\":false,\"multiTurn\":true,\"structuredOutputModes\":[\"function\"],\"serviceTiers\":[]},\"operations\":{\"chat\":{\"path\":\"/chat/completions\",\"dialect\":\"openai-chat\",\"method\":\"POST\",\"body\":\"json\",\"stream\":false},\"stream_chat\":{\"path\":\"/chat/completions\",\"dialect\":\"openai-chat\",\"method\":\"POST\",\"body\":\"json\",\"stream\":true}},\"modelRules\":[],\"sources\":[\"https://docs.siliconflow.com/en/userguide/quickstart\"],\"reviewedAt\":\"2026-08-17\",\"provider\":\"siliconflow\",\"baseUrl\":\"https://api.siliconflow.com/v1\",\"authRequired\":true,\"defaultModel\":\"\",\"features\":{\"functions\":true,\"streaming\":true,\"structured_outputs\":false,\"structured_output_modes\":[\"function\"],\"thinking\":false,\"multi_turn\":true,\"service_tiers\":[],\"media\":{\"images\":{\"supported\":false,\"formats\":[]},\"audio\":{\"supported\":false,\"formats\":[],\"realtime\":false,\"output\":{\"supported\":false,\"formats\":[]}},\"files\":{\"supported\":false,\"formats\":[],\"upload_method\":\"none\"},\"urls\":{\"supported\":false,\"web_search\":false,\"context_fetching\":false}},\"caching\":{\"supported\":false,\"types\":[]}}},\"friendli\":{\"id\":\"friendli\",\"name\":\"FriendliAI\",\"aliases\":[\"friendli\",\"friendli-ai\"],\"transport\":\"openai-chat\",\"baseURL\":\"https://api.friendli.ai/serverless/v1\",\"requiresApiURL\":false,\"auth\":\"bearer\",\"defaults\":{\"model\":\"\"},\"capabilities\":{\"functions\":true,\"streaming\":true,\"structuredOutputs\":false,\"thinking\":false,\"multiTurn\":true,\"structuredOutputModes\":[\"function\"],\"serviceTiers\":[]},\"operations\":{\"chat\":{\"path\":\"/chat/completions\",\"dialect\":\"openai-chat\",\"method\":\"POST\",\"body\":\"json\",\"stream\":false},\"stream_chat\":{\"path\":\"/chat/completions\",\"dialect\":\"openai-chat\",\"method\":\"POST\",\"body\":\"json\",\"stream\":true}},\"modelRules\":[],\"sources\":[\"https://friendli.ai/docs/guides/tool-calling\"],\"reviewedAt\":\"2026-08-17\",\"provider\":\"friendli\",\"baseUrl\":\"https://api.friendli.ai/serverless/v1\",\"authRequired\":true,\"defaultModel\":\"\",\"features\":{\"functions\":true,\"streaming\":true,\"structured_outputs\":false,\"structured_output_modes\":[\"function\"],\"thinking\":false,\"multi_turn\":true,\"service_tiers\":[],\"media\":{\"images\":{\"supported\":false,\"formats\":[]},\"audio\":{\"supported\":false,\"formats\":[],\"realtime\":false,\"output\":{\"supported\":false,\"formats\":[]}},\"files\":{\"supported\":false,\"formats\":[],\"upload_method\":\"none\"},\"urls\":{\"supported\":false,\"web_search\":false,\"context_fetching\":false}},\"caching\":{\"supported\":false,\"types\":[]}}},\"cloudflare-workers-ai\":{\"id\":\"cloudflare-workers-ai\",\"name\":\"Cloudflare Workers AI\",\"aliases\":[\"cloudflare-workers-ai\",\"workers-ai\"],\"transport\":\"openai-chat\",\"baseURL\":null,\"requiresApiURL\":true,\"auth\":\"bearer\",\"defaults\":{\"model\":\"\"},\"capabilities\":{\"functions\":true,\"streaming\":true,\"structuredOutputs\":false,\"thinking\":false,\"multiTurn\":true,\"structuredOutputModes\":[\"function\"],\"serviceTiers\":[]},\"operations\":{\"chat\":{\"path\":\"/chat/completions\",\"dialect\":\"openai-chat\",\"method\":\"POST\",\"body\":\"json\",\"stream\":false},\"stream_chat\":{\"path\":\"/chat/completions\",\"dialect\":\"openai-chat\",\"method\":\"POST\",\"body\":\"json\",\"stream\":true}},\"modelRules\":[],\"sources\":[\"https://developers.cloudflare.com/workers-ai/configuration/open-ai-compatibility/\"],\"reviewedAt\":\"2026-08-17\",\"provider\":\"cloudflare-workers-ai\",\"baseUrl\":null,\"authRequired\":true,\"defaultModel\":\"\",\"features\":{\"functions\":true,\"streaming\":true,\"structured_outputs\":false,\"structured_output_modes\":[\"function\"],\"thinking\":false,\"multi_turn\":true,\"service_tiers\":[],\"media\":{\"images\":{\"supported\":false,\"formats\":[]},\"audio\":{\"supported\":false,\"formats\":[],\"realtime\":false,\"output\":{\"supported\":false,\"formats\":[]}},\"files\":{\"supported\":false,\"formats\":[],\"upload_method\":\"none\"},\"urls\":{\"supported\":false,\"web_search\":false,\"context_fetching\":false}},\"caching\":{\"supported\":false,\"types\":[]}}},\"featherless\":{\"id\":\"featherless\",\"name\":\"Featherless AI\",\"aliases\":[\"featherless\",\"featherless-ai\"],\"transport\":\"openai-chat\",\"baseURL\":\"https://api.featherless.ai/v1\",\"requiresApiURL\":false,\"auth\":\"bearer\",\"defaults\":{\"model\":\"\"},\"capabilities\":{\"functions\":true,\"streaming\":true,\"structuredOutputs\":false,\"thinking\":false,\"multiTurn\":true,\"structuredOutputModes\":[\"function\"],\"serviceTiers\":[]},\"operations\":{\"chat\":{\"path\":\"/chat/completions\",\"dialect\":\"openai-chat\",\"method\":\"POST\",\"body\":\"json\",\"stream\":false},\"stream_chat\":{\"path\":\"/chat/completions\",\"dialect\":\"openai-chat\",\"method\":\"POST\",\"body\":\"json\",\"stream\":true}},\"modelRules\":[],\"sources\":[\"https://featherless.ai/docs/quickstart-guide\"],\"reviewedAt\":\"2026-08-17\",\"provider\":\"featherless\",\"baseUrl\":\"https://api.featherless.ai/v1\",\"authRequired\":true,\"defaultModel\":\"\",\"features\":{\"functions\":true,\"streaming\":true,\"structured_outputs\":false,\"structured_output_modes\":[\"function\"],\"thinking\":false,\"multi_turn\":true,\"service_tiers\":[],\"media\":{\"images\":{\"supported\":false,\"formats\":[]},\"audio\":{\"supported\":false,\"formats\":[],\"realtime\":false,\"output\":{\"supported\":false,\"formats\":[]}},\"files\":{\"supported\":false,\"formats\":[],\"upload_method\":\"none\"},\"urls\":{\"supported\":false,\"web_search\":false,\"context_fetching\":false}},\"caching\":{\"supported\":false,\"types\":[]}}},\"nscale\":{\"id\":\"nscale\",\"name\":\"Nscale\",\"aliases\":[\"nscale\"],\"transport\":\"openai-chat\",\"baseURL\":null,\"requiresApiURL\":true,\"auth\":\"bearer\",\"defaults\":{\"model\":\"\"},\"capabilities\":{\"functions\":true,\"streaming\":true,\"structuredOutputs\":false,\"thinking\":false,\"multiTurn\":true,\"structuredOutputModes\":[\"function\"],\"serviceTiers\":[]},\"operations\":{\"chat\":{\"path\":\"/chat/completions\",\"dialect\":\"openai-chat\",\"method\":\"POST\",\"body\":\"json\",\"stream\":false},\"stream_chat\":{\"path\":\"/chat/completions\",\"dialect\":\"openai-chat\",\"method\":\"POST\",\"body\":\"json\",\"stream\":true}},\"modelRules\":[],\"sources\":[\"https://docs.nscale.com/docs/use-cases/chat\"],\"reviewedAt\":\"2026-08-17\",\"provider\":\"nscale\",\"baseUrl\":null,\"authRequired\":true,\"defaultModel\":\"\",\"features\":{\"functions\":true,\"streaming\":true,\"structured_outputs\":false,\"structured_output_modes\":[\"function\"],\"thinking\":false,\"multi_turn\":true,\"service_tiers\":[],\"media\":{\"images\":{\"supported\":false,\"formats\":[]},\"audio\":{\"supported\":false,\"formats\":[],\"realtime\":false,\"output\":{\"supported\":false,\"formats\":[]}},\"files\":{\"supported\":false,\"formats\":[],\"upload_method\":\"none\"},\"urls\":{\"supported\":false,\"web_search\":false,\"context_fetching\":false}},\"caching\":{\"supported\":false,\"types\":[]}}},\"ovhcloud\":{\"id\":\"ovhcloud\",\"name\":\"OVHcloud AI Endpoints\",\"aliases\":[\"ovhcloud\",\"ovh\"],\"transport\":\"openai-chat\",\"baseURL\":null,\"requiresApiURL\":true,\"auth\":\"bearer\",\"defaults\":{\"model\":\"\"},\"capabilities\":{\"functions\":true,\"streaming\":true,\"structuredOutputs\":false,\"thinking\":false,\"multiTurn\":true,\"structuredOutputModes\":[\"function\"],\"serviceTiers\":[]},\"operations\":{\"chat\":{\"path\":\"/chat/completions\",\"dialect\":\"openai-chat\",\"method\":\"POST\",\"body\":\"json\",\"stream\":false},\"stream_chat\":{\"path\":\"/chat/completions\",\"dialect\":\"openai-chat\",\"method\":\"POST\",\"body\":\"json\",\"stream\":true}},\"modelRules\":[],\"sources\":[\"https://docs.ovhcloud.com/en/guides/public-cloud/ai-machine-learning/ai-endpoints-capabilities\"],\"reviewedAt\":\"2026-08-17\",\"provider\":\"ovhcloud\",\"baseUrl\":null,\"authRequired\":true,\"defaultModel\":\"\",\"features\":{\"functions\":true,\"streaming\":true,\"structured_outputs\":false,\"structured_output_modes\":[\"function\"],\"thinking\":false,\"multi_turn\":true,\"service_tiers\":[],\"media\":{\"images\":{\"supported\":false,\"formats\":[]},\"audio\":{\"supported\":false,\"formats\":[],\"realtime\":false,\"output\":{\"supported\":false,\"formats\":[]}},\"files\":{\"supported\":false,\"formats\":[],\"upload_method\":\"none\"},\"urls\":{\"supported\":false,\"web_search\":false,\"context_fetching\":false}},\"caching\":{\"supported\":false,\"types\":[]}}},\"scaleway\":{\"id\":\"scaleway\",\"name\":\"Scaleway Generative APIs\",\"aliases\":[\"scaleway\"],\"transport\":\"openai-chat\",\"baseURL\":\"https://api.scaleway.ai/v1\",\"requiresApiURL\":false,\"auth\":\"bearer\",\"defaults\":{\"model\":\"\"},\"capabilities\":{\"functions\":true,\"streaming\":true,\"structuredOutputs\":false,\"thinking\":false,\"multiTurn\":true,\"structuredOutputModes\":[\"function\"],\"serviceTiers\":[]},\"operations\":{\"chat\":{\"path\":\"/chat/completions\",\"dialect\":\"openai-chat\",\"method\":\"POST\",\"body\":\"json\",\"stream\":false},\"stream_chat\":{\"path\":\"/chat/completions\",\"dialect\":\"openai-chat\",\"method\":\"POST\",\"body\":\"json\",\"stream\":true}},\"modelRules\":[],\"sources\":[\"https://www.scaleway.com/en/developers/api/generative-apis\"],\"reviewedAt\":\"2026-08-17\",\"provider\":\"scaleway\",\"baseUrl\":\"https://api.scaleway.ai/v1\",\"authRequired\":true,\"defaultModel\":\"\",\"features\":{\"functions\":true,\"streaming\":true,\"structured_outputs\":false,\"structured_output_modes\":[\"function\"],\"thinking\":false,\"multi_turn\":true,\"service_tiers\":[],\"media\":{\"images\":{\"supported\":false,\"formats\":[]},\"audio\":{\"supported\":false,\"formats\":[],\"realtime\":false,\"output\":{\"supported\":false,\"formats\":[]}},\"files\":{\"supported\":false,\"formats\":[],\"upload_method\":\"none\"},\"urls\":{\"supported\":false,\"web_search\":false,\"context_fetching\":false}},\"caching\":{\"supported\":false,\"types\":[]}}},\"nvidia-nim\":{\"id\":\"nvidia-nim\",\"name\":\"NVIDIA NIM\",\"aliases\":[\"nvidia-nim\",\"nim\"],\"transport\":\"openai-chat\",\"baseURL\":null,\"requiresApiURL\":true,\"auth\":\"bearer\",\"defaults\":{\"model\":\"\"},\"capabilities\":{\"functions\":true,\"streaming\":true,\"structuredOutputs\":false,\"thinking\":false,\"multiTurn\":true,\"structuredOutputModes\":[\"function\"],\"serviceTiers\":[]},\"operations\":{\"chat\":{\"path\":\"/chat/completions\",\"dialect\":\"openai-chat\",\"method\":\"POST\",\"body\":\"json\",\"stream\":false},\"stream_chat\":{\"path\":\"/chat/completions\",\"dialect\":\"openai-chat\",\"method\":\"POST\",\"body\":\"json\",\"stream\":true}},\"modelRules\":[],\"sources\":[\"https://docs.nvidia.com/nim/large-language-models/latest/getting-started.html\"],\"reviewedAt\":\"2026-08-17\",\"provider\":\"nvidia-nim\",\"baseUrl\":null,\"authRequired\":false,\"defaultModel\":\"\",\"features\":{\"functions\":true,\"streaming\":true,\"structured_outputs\":false,\"structured_output_modes\":[\"function\"],\"thinking\":false,\"multi_turn\":true,\"service_tiers\":[],\"media\":{\"images\":{\"supported\":false,\"formats\":[]},\"audio\":{\"supported\":false,\"formats\":[],\"realtime\":false,\"output\":{\"supported\":false,\"formats\":[]}},\"files\":{\"supported\":false,\"formats\":[],\"upload_method\":\"none\"},\"urls\":{\"supported\":false,\"web_search\":false,\"context_fetching\":false}},\"caching\":{\"supported\":false,\"types\":[]}}},\"runpod-vllm\":{\"id\":\"runpod-vllm\",\"name\":\"RunPod vLLM\",\"aliases\":[\"runpod-vllm\",\"runpod\"],\"transport\":\"openai-chat\",\"baseURL\":null,\"requiresApiURL\":true,\"auth\":\"bearer\",\"defaults\":{\"model\":\"\"},\"capabilities\":{\"functions\":true,\"streaming\":true,\"structuredOutputs\":false,\"thinking\":false,\"multiTurn\":true,\"structuredOutputModes\":[\"function\"],\"serviceTiers\":[]},\"operations\":{\"chat\":{\"path\":\"/chat/completions\",\"dialect\":\"openai-chat\",\"method\":\"POST\",\"body\":\"json\",\"stream\":false},\"stream_chat\":{\"path\":\"/chat/completions\",\"dialect\":\"openai-chat\",\"method\":\"POST\",\"body\":\"json\",\"stream\":true}},\"modelRules\":[],\"sources\":[\"https://docs.runpod.io/serverless/vllm/openai-compatibility\"],\"reviewedAt\":\"2026-08-17\",\"provider\":\"runpod-vllm\",\"baseUrl\":null,\"authRequired\":true,\"defaultModel\":\"\",\"features\":{\"functions\":true,\"streaming\":true,\"structured_outputs\":false,\"structured_output_modes\":[\"function\"],\"thinking\":false,\"multi_turn\":true,\"service_tiers\":[],\"media\":{\"images\":{\"supported\":false,\"formats\":[]},\"audio\":{\"supported\":false,\"formats\":[],\"realtime\":false,\"output\":{\"supported\":false,\"formats\":[]}},\"files\":{\"supported\":false,\"formats\":[],\"upload_method\":\"none\"},\"urls\":{\"supported\":false,\"web_search\":false,\"context_fetching\":false}},\"caching\":{\"supported\":false,\"types\":[]}}},\"sagemaker-vllm\":{\"id\":\"sagemaker-vllm\",\"name\":\"SageMaker vLLM\",\"aliases\":[\"sagemaker-vllm\",\"sagemaker\"],\"transport\":\"openai-chat\",\"baseURL\":null,\"requiresApiURL\":true,\"auth\":\"bearer\",\"defaults\":{\"model\":\"\"},\"capabilities\":{\"functions\":true,\"streaming\":true,\"structuredOutputs\":false,\"thinking\":false,\"multiTurn\":true,\"structuredOutputModes\":[\"function\"],\"serviceTiers\":[]},\"operations\":{\"chat\":{\"path\":\"/chat/completions\",\"dialect\":\"openai-chat\",\"method\":\"POST\",\"body\":\"json\",\"stream\":false},\"stream_chat\":{\"path\":\"/chat/completions\",\"dialect\":\"openai-chat\",\"method\":\"POST\",\"body\":\"json\",\"stream\":true}},\"modelRules\":[],\"sources\":[\"https://docs.aws.amazon.com/sagemaker/latest/dg/realtime-endpoints-openai-compatible.html\"],\"reviewedAt\":\"2026-08-17\",\"provider\":\"sagemaker-vllm\",\"baseUrl\":null,\"authRequired\":false,\"defaultModel\":\"\",\"features\":{\"functions\":true,\"streaming\":true,\"structured_outputs\":false,\"structured_output_modes\":[\"function\"],\"thinking\":false,\"multi_turn\":true,\"service_tiers\":[],\"media\":{\"images\":{\"supported\":false,\"formats\":[]},\"audio\":{\"supported\":false,\"formats\":[],\"realtime\":false,\"output\":{\"supported\":false,\"formats\":[]}},\"files\":{\"supported\":false,\"formats\":[],\"upload_method\":\"none\"},\"urls\":{\"supported\":false,\"web_search\":false,\"context_fetching\":false}},\"caching\":{\"supported\":false,\"types\":[]}}},\"vllm\":{\"id\":\"vllm\",\"name\":\"vLLM\",\"aliases\":[\"vllm\"],\"transport\":\"openai-chat\",\"baseURL\":\"http://localhost:8000/v1\",\"requiresApiURL\":false,\"auth\":\"bearer\",\"defaults\":{\"model\":\"\"},\"capabilities\":{\"functions\":true,\"streaming\":true,\"structuredOutputs\":false,\"thinking\":false,\"multiTurn\":true,\"structuredOutputModes\":[\"function\"],\"serviceTiers\":[]},\"operations\":{\"chat\":{\"path\":\"/chat/completions\",\"dialect\":\"openai-chat\",\"method\":\"POST\",\"body\":\"json\",\"stream\":false},\"stream_chat\":{\"path\":\"/chat/completions\",\"dialect\":\"openai-chat\",\"method\":\"POST\",\"body\":\"json\",\"stream\":true}},\"modelRules\":[],\"sources\":[\"https://docs.vllm.ai/en/latest/serving/openai_compatible_server/\"],\"reviewedAt\":\"2026-08-17\",\"provider\":\"vllm\",\"baseUrl\":\"http://localhost:8000/v1\",\"authRequired\":false,\"defaultModel\":\"\",\"features\":{\"functions\":true,\"streaming\":true,\"structured_outputs\":false,\"structured_output_modes\":[\"function\"],\"thinking\":false,\"multi_turn\":true,\"service_tiers\":[],\"media\":{\"images\":{\"supported\":false,\"formats\":[]},\"audio\":{\"supported\":false,\"formats\":[],\"realtime\":false,\"output\":{\"supported\":false,\"formats\":[]}},\"files\":{\"supported\":false,\"formats\":[],\"upload_method\":\"none\"},\"urls\":{\"supported\":false,\"web_search\":false,\"context_fetching\":false}},\"caching\":{\"supported\":false,\"types\":[]}}},\"ollama\":{\"id\":\"ollama\",\"name\":\"Ollama\",\"aliases\":[\"ollama\"],\"transport\":\"openai-chat\",\"baseURL\":\"http://localhost:11434/v1\",\"requiresApiURL\":false,\"auth\":\"bearer\",\"defaults\":{\"model\":\"\"},\"capabilities\":{\"functions\":true,\"streaming\":true,\"structuredOutputs\":false,\"thinking\":false,\"multiTurn\":true,\"structuredOutputModes\":[\"function\"],\"serviceTiers\":[]},\"operations\":{\"chat\":{\"path\":\"/chat/completions\",\"dialect\":\"openai-chat\",\"method\":\"POST\",\"body\":\"json\",\"stream\":false},\"stream_chat\":{\"path\":\"/chat/completions\",\"dialect\":\"openai-chat\",\"method\":\"POST\",\"body\":\"json\",\"stream\":true}},\"modelRules\":[],\"sources\":[\"https://docs.ollama.com/api/openai-compatibility\"],\"reviewedAt\":\"2026-08-17\",\"provider\":\"ollama\",\"baseUrl\":\"http://localhost:11434/v1\",\"authRequired\":false,\"defaultModel\":\"\",\"features\":{\"functions\":true,\"streaming\":true,\"structured_outputs\":false,\"structured_output_modes\":[\"function\"],\"thinking\":false,\"multi_turn\":true,\"service_tiers\":[],\"media\":{\"images\":{\"supported\":false,\"formats\":[]},\"audio\":{\"supported\":false,\"formats\":[],\"realtime\":false,\"output\":{\"supported\":false,\"formats\":[]}},\"files\":{\"supported\":false,\"formats\":[],\"upload_method\":\"none\"},\"urls\":{\"supported\":false,\"web_search\":false,\"context_fetching\":false}},\"caching\":{\"supported\":false,\"types\":[]}}},\"lm-studio\":{\"id\":\"lm-studio\",\"name\":\"LM Studio\",\"aliases\":[\"lm-studio\",\"lmstudio\"],\"transport\":\"openai-chat\",\"baseURL\":\"http://localhost:1234/v1\",\"requiresApiURL\":false,\"auth\":\"bearer\",\"defaults\":{\"model\":\"\"},\"capabilities\":{\"functions\":true,\"streaming\":true,\"structuredOutputs\":false,\"thinking\":false,\"multiTurn\":true,\"structuredOutputModes\":[\"function\"],\"serviceTiers\":[]},\"operations\":{\"chat\":{\"path\":\"/chat/completions\",\"dialect\":\"openai-chat\",\"method\":\"POST\",\"body\":\"json\",\"stream\":false},\"stream_chat\":{\"path\":\"/chat/completions\",\"dialect\":\"openai-chat\",\"method\":\"POST\",\"body\":\"json\",\"stream\":true}},\"modelRules\":[],\"sources\":[\"https://lmstudio.ai/docs/developer/openai-compat\"],\"reviewedAt\":\"2026-08-17\",\"provider\":\"lm-studio\",\"baseUrl\":\"http://localhost:1234/v1\",\"authRequired\":false,\"defaultModel\":\"\",\"features\":{\"functions\":true,\"streaming\":true,\"structured_outputs\":false,\"structured_output_modes\":[\"function\"],\"thinking\":false,\"multi_turn\":true,\"service_tiers\":[],\"media\":{\"images\":{\"supported\":false,\"formats\":[]},\"audio\":{\"supported\":false,\"formats\":[],\"realtime\":false,\"output\":{\"supported\":false,\"formats\":[]}},\"files\":{\"supported\":false,\"formats\":[],\"upload_method\":\"none\"},\"urls\":{\"supported\":false,\"web_search\":false,\"context_fetching\":false}},\"caching\":{\"supported\":false,\"types\":[]}}},\"llama-cpp\":{\"id\":\"llama-cpp\",\"name\":\"llama.cpp Server\",\"aliases\":[\"llama-cpp\",\"llama.cpp\"],\"transport\":\"openai-chat\",\"baseURL\":\"http://localhost:8080/v1\",\"requiresApiURL\":false,\"auth\":\"bearer\",\"defaults\":{\"model\":\"\"},\"capabilities\":{\"functions\":true,\"streaming\":true,\"structuredOutputs\":false,\"thinking\":false,\"multiTurn\":true,\"structuredOutputModes\":[\"function\"],\"serviceTiers\":[]},\"operations\":{\"chat\":{\"path\":\"/chat/completions\",\"dialect\":\"openai-chat\",\"method\":\"POST\",\"body\":\"json\",\"stream\":false},\"stream_chat\":{\"path\":\"/chat/completions\",\"dialect\":\"openai-chat\",\"method\":\"POST\",\"body\":\"json\",\"stream\":true}},\"modelRules\":[],\"sources\":[\"https://github.com/ggml-org/llama.cpp/blob/master/tools/server/README.md\"],\"reviewedAt\":\"2026-08-17\",\"provider\":\"llama-cpp\",\"baseUrl\":\"http://localhost:8080/v1\",\"authRequired\":false,\"defaultModel\":\"\",\"features\":{\"functions\":true,\"streaming\":true,\"structured_outputs\":false,\"structured_output_modes\":[\"function\"],\"thinking\":false,\"multi_turn\":true,\"service_tiers\":[],\"media\":{\"images\":{\"supported\":false,\"formats\":[]},\"audio\":{\"supported\":false,\"formats\":[],\"realtime\":false,\"output\":{\"supported\":false,\"formats\":[]}},\"files\":{\"supported\":false,\"formats\":[],\"upload_method\":\"none\"},\"urls\":{\"supported\":false,\"web_search\":false,\"context_fetching\":false}},\"caching\":{\"supported\":false,\"types\":[]}}},\"localai\":{\"id\":\"localai\",\"name\":\"LocalAI\",\"aliases\":[\"localai\",\"local-ai\"],\"transport\":\"openai-chat\",\"baseURL\":\"http://localhost:8080/v1\",\"requiresApiURL\":false,\"auth\":\"bearer\",\"defaults\":{\"model\":\"\"},\"capabilities\":{\"functions\":true,\"streaming\":true,\"structuredOutputs\":false,\"thinking\":false,\"multiTurn\":true,\"structuredOutputModes\":[\"function\"],\"serviceTiers\":[]},\"operations\":{\"chat\":{\"path\":\"/chat/completions\",\"dialect\":\"openai-chat\",\"method\":\"POST\",\"body\":\"json\",\"stream\":false},\"stream_chat\":{\"path\":\"/chat/completions\",\"dialect\":\"openai-chat\",\"method\":\"POST\",\"body\":\"json\",\"stream\":true}},\"modelRules\":[],\"sources\":[\"https://localai.io/features/openai-functions/\"],\"reviewedAt\":\"2026-08-17\",\"provider\":\"localai\",\"baseUrl\":\"http://localhost:8080/v1\",\"authRequired\":false,\"defaultModel\":\"\",\"features\":{\"functions\":true,\"streaming\":true,\"structured_outputs\":false,\"structured_output_modes\":[\"function\"],\"thinking\":false,\"multi_turn\":true,\"service_tiers\":[],\"media\":{\"images\":{\"supported\":false,\"formats\":[]},\"audio\":{\"supported\":false,\"formats\":[],\"realtime\":false,\"output\":{\"supported\":false,\"formats\":[]}},\"files\":{\"supported\":false,\"formats\":[],\"upload_method\":\"none\"},\"urls\":{\"supported\":false,\"web_search\":false,\"context_fetching\":false}},\"caching\":{\"supported\":false,\"types\":[]}}},\"baseten-engine\":{\"id\":\"baseten-engine\",\"name\":\"Baseten Inference Engine\",\"aliases\":[\"baseten-engine\",\"truss\"],\"transport\":\"openai-chat\",\"baseURL\":null,\"requiresApiURL\":true,\"auth\":\"bearer\",\"defaults\":{\"model\":\"\"},\"capabilities\":{\"functions\":true,\"streaming\":true,\"structuredOutputs\":false,\"thinking\":false,\"multiTurn\":true,\"structuredOutputModes\":[\"function\"],\"serviceTiers\":[]},\"operations\":{\"chat\":{\"path\":\"/chat/completions\",\"dialect\":\"openai-chat\",\"method\":\"POST\",\"body\":\"json\",\"stream\":false},\"stream_chat\":{\"path\":\"/chat/completions\",\"dialect\":\"openai-chat\",\"method\":\"POST\",\"body\":\"json\",\"stream\":true}},\"modelRules\":[],\"sources\":[\"https://docs.baseten.co/development/model/deployment/inference\"],\"reviewedAt\":\"2026-08-17\",\"provider\":\"baseten-engine\",\"baseUrl\":null,\"authRequired\":false,\"defaultModel\":\"\",\"features\":{\"functions\":true,\"streaming\":true,\"structured_outputs\":false,\"structured_output_modes\":[\"function\"],\"thinking\":false,\"multi_turn\":true,\"service_tiers\":[],\"media\":{\"images\":{\"supported\":false,\"formats\":[]},\"audio\":{\"supported\":false,\"formats\":[],\"realtime\":false,\"output\":{\"supported\":false,\"formats\":[]}},\"files\":{\"supported\":false,\"formats\":[],\"upload_method\":\"none\"},\"urls\":{\"supported\":false,\"web_search\":false,\"context_fetching\":false}},\"caching\":{\"supported\":false,\"types\":[]}}}}\n"); if err != nil { return nil, err }; v_descriptors = v }
+	{ v, err := _core_json_parse("{\"openai\":{\"id\":\"openai\",\"name\":\"OpenAI\",\"aliases\":[\"openai\"],\"transport\":\"openai-chat\",\"baseURL\":\"https://api.openai.com/v1\",\"requiresApiURL\":false,\"auth\":\"bearer\",\"defaults\":{\"model\":\"gpt-5-mini\",\"embedModel\":\"text-embedding-3-small\"},\"capabilities\":{\"functions\":true,\"streaming\":true,\"structuredOutputs\":true,\"thinking\":true,\"multiTurn\":true,\"images\":true,\"audio\":true,\"audioOutput\":true,\"structuredOutputModes\":[\"native\",\"function\",\"json_object\"],\"serviceTiers\":[\"standard\",\"flex\",\"priority\"]},\"operations\":{\"chat\":{\"path\":\"/chat/completions\",\"dialect\":\"openai-chat\",\"method\":\"POST\",\"body\":\"json\",\"stream\":false},\"embed\":{\"path\":\"/embeddings\",\"dialect\":\"openai-embeddings\",\"method\":\"POST\",\"body\":\"json\",\"stream\":false},\"transcribe\":{\"path\":\"/audio/transcriptions\",\"dialect\":\"openai-transcription\",\"method\":\"POST\",\"body\":\"multipart\",\"stream\":false},\"speak\":{\"path\":\"/audio/speech\",\"dialect\":\"openai-speech\",\"method\":\"POST\",\"body\":\"json\",\"stream\":false,\"response\":\"binary\"},\"realtime\":{\"path\":\"/realtime\",\"dialect\":\"openai-realtime\",\"modelMatch\":{\"prefix\":[\"gpt-realtime\"]},\"url\":\"wss://api.openai.com/v1/realtime\",\"grammar\":\"openai_realtime_compatible\",\"audio\":{\"input\":{\"formats\":[\"pcm16\",\"pcm\"],\"sampleRate\":24000},\"output\":{\"formats\":[\"pcm16\",\"pcm\"],\"sampleRate\":24000,\"voices\":[\"alloy\",\"ash\",\"ballad\",\"coral\",\"echo\",\"sage\",\"shimmer\",\"verse\"],\"defaultVoice\":\"alloy\"}},\"validation\":{\"structuredOutputWithAudio\":false},\"method\":\"WS\",\"body\":\"json\",\"stream\":true},\"stream_chat\":{\"path\":\"/chat/completions\",\"dialect\":\"openai-chat\",\"method\":\"POST\",\"body\":\"json\",\"stream\":true}},\"modelRules\":[{\"match\":{\"prefix\":[\"gpt-6-astra\"]},\"request\":{\"unsupportedThinkingLevels\":{\"none\":\"GPT-6 Astra requires reasoning; use low or higher\"}},\"capabilities\":{\"audio\":false,\"audioOutput\":false,\"functions\":true,\"structuredOutputModes\":[\"native\",\"json_object\"]}}],\"sources\":[\"https://platform.openai.com/docs/api-reference/chat\"],\"reviewedAt\":\"2026-08-17\",\"request\":{\"serviceTierMap\":{\"auto\":\"auto\",\"standard\":\"default\",\"flex\":\"flex\",\"priority\":\"priority\"}},\"provider\":\"openai\",\"baseUrl\":\"https://api.openai.com/v1\",\"authRequired\":true,\"defaultModel\":\"gpt-5-mini\",\"defaultEmbedModel\":\"text-embedding-3-small\",\"features\":{\"functions\":true,\"streaming\":true,\"structured_outputs\":true,\"structured_output_modes\":[\"native\",\"function\",\"json_object\"],\"thinking\":true,\"multi_turn\":true,\"service_tiers\":[\"standard\",\"flex\",\"priority\"],\"media\":{\"images\":{\"supported\":true,\"formats\":[\"image/jpeg\",\"image/png\"]},\"audio\":{\"supported\":true,\"formats\":[\"wav\",\"mp3\",\"pcm16\"],\"realtime\":true,\"output\":{\"supported\":true,\"formats\":[\"wav\",\"mp3\",\"pcm16\"]}},\"files\":{\"supported\":false,\"formats\":[],\"upload_method\":\"none\"},\"urls\":{\"supported\":false,\"web_search\":false,\"context_fetching\":false}},\"caching\":{\"supported\":false,\"types\":[]}}},\"openai-compatible\":{\"id\":\"openai-compatible\",\"name\":\"OpenAI Compatible\",\"aliases\":[\"openai-compatible\",\"openai_compatible\",\"compatible\"],\"transport\":\"openai-chat\",\"baseURL\":null,\"requiresApiURL\":true,\"auth\":\"bearer\",\"defaults\":{\"model\":\"\"},\"capabilities\":{\"functions\":true,\"streaming\":true,\"structuredOutputs\":false,\"thinking\":false,\"multiTurn\":true,\"structuredOutputModes\":[\"function\"],\"serviceTiers\":[]},\"operations\":{\"chat\":{\"path\":\"/chat/completions\",\"dialect\":\"openai-chat\",\"method\":\"POST\",\"body\":\"json\",\"stream\":false},\"embed\":{\"path\":\"/embeddings\",\"dialect\":\"openai-embeddings\",\"method\":\"POST\",\"body\":\"json\",\"stream\":false},\"stream_chat\":{\"path\":\"/chat/completions\",\"dialect\":\"openai-chat\",\"method\":\"POST\",\"body\":\"json\",\"stream\":true}},\"modelRules\":[],\"sources\":[\"https://platform.openai.com/docs/api-reference/chat\"],\"reviewedAt\":\"2026-08-17\",\"provider\":\"openai-compatible\",\"baseUrl\":null,\"authRequired\":false,\"defaultModel\":\"\",\"features\":{\"functions\":true,\"streaming\":true,\"structured_outputs\":false,\"structured_output_modes\":[\"function\"],\"thinking\":false,\"multi_turn\":true,\"service_tiers\":[],\"media\":{\"images\":{\"supported\":false,\"formats\":[]},\"audio\":{\"supported\":false,\"formats\":[],\"realtime\":false,\"output\":{\"supported\":false,\"formats\":[]}},\"files\":{\"supported\":false,\"formats\":[],\"upload_method\":\"none\"},\"urls\":{\"supported\":false,\"web_search\":false,\"context_fetching\":false}},\"caching\":{\"supported\":false,\"types\":[]}}},\"openai-responses\":{\"id\":\"openai-responses\",\"name\":\"OpenAI Responses\",\"aliases\":[\"openai-responses\",\"openai_responses\",\"responses\"],\"transport\":\"openai-responses\",\"baseURL\":\"https://api.openai.com/v1\",\"requiresApiURL\":false,\"auth\":\"bearer\",\"defaults\":{\"model\":\"gpt-5-mini\",\"embedModel\":\"text-embedding-3-small\"},\"capabilities\":{\"functions\":true,\"streaming\":true,\"structuredOutputs\":true,\"thinking\":true,\"multiTurn\":true,\"images\":true,\"audio\":true,\"audioOutput\":true,\"structuredOutputModes\":[\"native\",\"function\",\"json_object\"],\"serviceTiers\":[\"standard\",\"flex\",\"priority\"]},\"operations\":{\"chat\":{\"path\":\"/responses\",\"dialect\":\"openai-responses\",\"method\":\"POST\",\"body\":\"json\",\"stream\":false},\"embed\":{\"path\":\"/embeddings\",\"dialect\":\"openai-embeddings\",\"method\":\"POST\",\"body\":\"json\",\"stream\":false},\"transcribe\":{\"path\":\"/audio/transcriptions\",\"dialect\":\"openai-transcription\",\"method\":\"POST\",\"body\":\"multipart\",\"stream\":false},\"speak\":{\"path\":\"/audio/speech\",\"dialect\":\"openai-speech\",\"method\":\"POST\",\"body\":\"json\",\"stream\":false,\"response\":\"binary\"},\"realtime\":{\"path\":\"/realtime\",\"dialect\":\"openai-realtime\",\"modelMatch\":{\"prefix\":[\"gpt-realtime\"]},\"url\":\"wss://api.openai.com/v1/realtime\",\"grammar\":\"openai_realtime_compatible\",\"audio\":{\"input\":{\"formats\":[\"pcm16\",\"pcm\"],\"sampleRate\":24000},\"output\":{\"formats\":[\"pcm16\",\"pcm\"],\"sampleRate\":24000,\"voices\":[\"alloy\",\"ash\",\"ballad\",\"coral\",\"echo\",\"sage\",\"shimmer\",\"verse\"],\"defaultVoice\":\"alloy\"}},\"validation\":{\"structuredOutputWithAudio\":false},\"method\":\"WS\",\"body\":\"json\",\"stream\":true},\"stream_chat\":{\"path\":\"/responses\",\"dialect\":\"openai-responses\",\"method\":\"POST\",\"body\":\"json\",\"stream\":true}},\"modelRules\":[{\"match\":{\"prefix\":[\"gpt-6-astra\"]},\"request\":{\"unsupportedThinkingLevels\":{\"none\":\"GPT-6 Astra requires reasoning; use low or higher\"}},\"capabilities\":{\"audio\":false,\"audioOutput\":false}}],\"sources\":[\"https://platform.openai.com/docs/api-reference/responses\"],\"reviewedAt\":\"2026-08-17\",\"request\":{\"serviceTierMap\":{\"auto\":\"auto\",\"standard\":\"default\",\"flex\":\"flex\",\"priority\":\"priority\"}},\"provider\":\"openai-responses\",\"baseUrl\":\"https://api.openai.com/v1\",\"authRequired\":true,\"defaultModel\":\"gpt-5-mini\",\"defaultEmbedModel\":\"text-embedding-3-small\",\"features\":{\"functions\":true,\"streaming\":true,\"structured_outputs\":true,\"structured_output_modes\":[\"native\",\"function\",\"json_object\"],\"thinking\":true,\"multi_turn\":true,\"service_tiers\":[\"standard\",\"flex\",\"priority\"],\"media\":{\"images\":{\"supported\":true,\"formats\":[\"image/jpeg\",\"image/png\"]},\"audio\":{\"supported\":true,\"formats\":[\"wav\",\"mp3\",\"pcm16\"],\"realtime\":true,\"output\":{\"supported\":true,\"formats\":[\"wav\",\"mp3\",\"pcm16\"]}},\"files\":{\"supported\":false,\"formats\":[],\"upload_method\":\"none\"},\"urls\":{\"supported\":false,\"web_search\":false,\"context_fetching\":false}},\"caching\":{\"supported\":false,\"types\":[]}}},\"anthropic\":{\"id\":\"anthropic\",\"name\":\"Anthropic\",\"aliases\":[\"anthropic\",\"claude\"],\"transport\":\"anthropic-messages\",\"baseURL\":\"https://api.anthropic.com\",\"requiresApiURL\":false,\"auth\":\"x-api-key\",\"headers\":{\"anthropic-version\":\"2023-06-01\",\"anthropic-beta\":\"structured-outputs-2025-11-13, web-search-2025-03-05\"},\"defaults\":{\"model\":\"claude-sonnet-4-5\"},\"capabilities\":{\"functions\":true,\"streaming\":true,\"structuredOutputs\":false,\"thinking\":true,\"multiTurn\":true,\"images\":true,\"caching\":{\"types\":[\"ephemeral\"],\"cacheBreakpoints\":true},\"structuredOutputModes\":[\"function\"],\"serviceTiers\":[]},\"operations\":{\"chat\":{\"path\":\"/v1/messages\",\"dialect\":\"anthropic-messages\",\"method\":\"POST\",\"body\":\"json\",\"stream\":false},\"stream_chat\":{\"path\":\"/v1/messages\",\"dialect\":\"anthropic-messages\",\"method\":\"POST\",\"body\":\"json\",\"stream\":true}},\"modelRules\":[],\"sources\":[\"https://docs.anthropic.com/en/api/messages\"],\"reviewedAt\":\"2026-08-17\",\"provider\":\"anthropic\",\"baseUrl\":\"https://api.anthropic.com\",\"authRequired\":true,\"defaultModel\":\"claude-sonnet-4-5\",\"features\":{\"functions\":true,\"streaming\":true,\"structured_outputs\":false,\"structured_output_modes\":[\"function\"],\"thinking\":true,\"multi_turn\":true,\"service_tiers\":[],\"media\":{\"images\":{\"supported\":true,\"formats\":[\"image/jpeg\",\"image/png\"]},\"audio\":{\"supported\":false,\"formats\":[],\"realtime\":false,\"output\":{\"supported\":false,\"formats\":[]}},\"files\":{\"supported\":false,\"formats\":[],\"upload_method\":\"none\"},\"urls\":{\"supported\":false,\"web_search\":false,\"context_fetching\":false}},\"caching\":{\"supported\":true,\"types\":[\"ephemeral\"],\"cache_breakpoints\":true}}},\"google-gemini\":{\"id\":\"google-gemini\",\"name\":\"Google Gemini\",\"aliases\":[\"google-gemini\",\"google_gemini\",\"gemini\"],\"transport\":\"gemini-generate-content\",\"baseURL\":\"https://generativelanguage.googleapis.com/v1beta\",\"requiresApiURL\":false,\"auth\":\"api_key_header\",\"defaults\":{\"model\":\"gemini-3.5-flash\",\"embedModel\":\"gemini-embedding-2\"},\"capabilities\":{\"functions\":true,\"streaming\":true,\"structuredOutputs\":true,\"thinking\":true,\"multiTurn\":true,\"images\":true,\"audio\":true,\"audioOutput\":true,\"files\":{\"uploadMethod\":\"cloud\"},\"caching\":{\"types\":[\"persistent\"]},\"structuredOutputModes\":[\"native\",\"function\"],\"serviceTiers\":[\"standard\",\"flex\",\"priority\"]},\"operations\":{\"chat\":{\"path\":\"/models/{model}:generateContent\",\"dialect\":\"gemini-generate-content\",\"method\":\"POST\",\"body\":\"json\",\"stream\":false},\"stream_chat\":{\"path\":\"/models/{model}:streamGenerateContent?alt=sse\",\"dialect\":\"gemini-generate-content\",\"method\":\"POST\",\"body\":\"json\",\"stream\":true},\"embed\":{\"path\":\"/models/{model}:batchEmbedContents\",\"dialect\":\"gemini-generate-content\",\"method\":\"POST\",\"body\":\"json\",\"stream\":false},\"transcribe\":{\"path\":\"/models/{model}:generateContent\",\"dialect\":\"gemini-generate-content\",\"method\":\"POST\",\"body\":\"multipart\",\"stream\":false},\"speak\":{\"path\":\"/models/{model}:generateContent\",\"dialect\":\"gemini-generate-content\",\"method\":\"POST\",\"body\":\"json\",\"stream\":false,\"response\":\"binary\"},\"realtime\":{\"path\":\"/ws/google.ai.generativelanguage.v1beta.GenerativeService.BidiGenerateContent\",\"dialect\":\"gemini-live-bidi\",\"modelMatch\":{\"prefix\":[\"gemini-live\"],\"contains\":[\"native-audio\",\"-live-\"]},\"url\":\"wss://generativelanguage.googleapis.com/ws/google.ai.generativelanguage.v1beta.GenerativeService.BidiGenerateContent\",\"grammar\":\"gemini_live_bidi\",\"defaultModel\":\"gemini-2.5-flash-native-audio-preview-12-2025\",\"audio\":{\"input\":{\"formats\":[\"pcm16\",\"pcm\"],\"sampleRate\":16000},\"output\":{\"formats\":[\"pcm16\",\"pcm\"],\"sampleRate\":24000,\"voices\":[\"Kore\",\"Puck\",\"Charon\",\"Fenrir\",\"Aoede\"],\"defaultVoice\":\"Kore\"}},\"validation\":{\"pcmInputOnly\":true,\"rejectStructuredOutputWithAudio\":true},\"method\":\"WS\",\"body\":\"json\",\"stream\":true}},\"modelRules\":[],\"sources\":[\"https://ai.google.dev/api/generate-content\",\"https://ai.google.dev/gemini-api/docs/optimization\"],\"reviewedAt\":\"2026-08-17\",\"request\":{\"serviceTierMap\":{\"auto\":null,\"standard\":\"standard\",\"flex\":\"flex\",\"priority\":\"priority\"}},\"provider\":\"google-gemini\",\"baseUrl\":\"https://generativelanguage.googleapis.com/v1beta\",\"authRequired\":true,\"apiKeyHeader\":\"x-goog-api-key\",\"defaultModel\":\"gemini-3.5-flash\",\"defaultEmbedModel\":\"gemini-embedding-2\",\"features\":{\"functions\":true,\"streaming\":true,\"structured_outputs\":true,\"structured_output_modes\":[\"native\",\"function\"],\"thinking\":true,\"multi_turn\":true,\"service_tiers\":[\"standard\",\"flex\",\"priority\"],\"media\":{\"images\":{\"supported\":true,\"formats\":[\"image/jpeg\",\"image/png\"]},\"audio\":{\"supported\":true,\"formats\":[\"wav\",\"mp3\",\"pcm16\"],\"realtime\":true,\"output\":{\"supported\":true,\"formats\":[\"wav\",\"mp3\",\"pcm16\"]}},\"files\":{\"supported\":true,\"formats\":[\"application/pdf\",\"text/plain\"],\"upload_method\":\"cloud\"},\"urls\":{\"supported\":false,\"web_search\":false,\"context_fetching\":false}},\"caching\":{\"supported\":true,\"types\":[\"persistent\"]}}},\"webllm\":{\"id\":\"webllm\",\"name\":\"WebLLM\",\"aliases\":[\"webllm\"],\"transport\":\"webllm\",\"baseURL\":null,\"requiresApiURL\":false,\"auth\":\"none\",\"defaults\":{\"model\":\"\"},\"capabilities\":{\"functions\":true,\"streaming\":true,\"structuredOutputs\":false,\"thinking\":false,\"multiTurn\":true,\"structuredOutputModes\":[\"function\"],\"serviceTiers\":[]},\"operations\":{\"chat\":{\"path\":\"\",\"dialect\":\"webllm\",\"method\":\"POST\",\"body\":\"json\",\"stream\":false},\"stream_chat\":{\"path\":\"\",\"dialect\":\"webllm\",\"method\":\"POST\",\"body\":\"json\",\"stream\":true}},\"modelRules\":[],\"sources\":[\"https://webllm.mlc.ai/docs/\"],\"reviewedAt\":\"2026-08-17\",\"provider\":\"webllm\",\"baseUrl\":null,\"authRequired\":false,\"defaultModel\":\"\",\"features\":{\"functions\":true,\"streaming\":true,\"structured_outputs\":false,\"structured_output_modes\":[\"function\"],\"thinking\":false,\"multi_turn\":true,\"service_tiers\":[],\"media\":{\"images\":{\"supported\":false,\"formats\":[]},\"audio\":{\"supported\":false,\"formats\":[],\"realtime\":false,\"output\":{\"supported\":false,\"formats\":[]}},\"files\":{\"supported\":false,\"formats\":[],\"upload_method\":\"none\"},\"urls\":{\"supported\":false,\"web_search\":false,\"context_fetching\":false}},\"caching\":{\"supported\":false,\"types\":[]}}},\"azure-openai\":{\"id\":\"azure-openai\",\"name\":\"Azure OpenAI\",\"aliases\":[\"azure-openai\",\"azure_openai\",\"azure\"],\"transport\":\"openai-chat\",\"baseURL\":null,\"requiresApiURL\":false,\"auth\":\"api_key_header\",\"defaults\":{\"model\":\"gpt-5-mini\",\"embedModel\":\"text-embedding-3-small\"},\"capabilities\":{\"functions\":true,\"streaming\":true,\"structuredOutputs\":true,\"thinking\":true,\"multiTurn\":true,\"images\":true,\"structuredOutputModes\":[\"native\",\"function\"],\"serviceTiers\":[\"standard\",\"priority\"]},\"operations\":{\"chat\":{\"path\":\"/chat/completions\",\"dialect\":\"openai-chat\",\"method\":\"POST\",\"body\":\"json\",\"stream\":false},\"embed\":{\"path\":\"/embeddings\",\"dialect\":\"openai-embeddings\",\"method\":\"POST\",\"body\":\"json\",\"stream\":false},\"stream_chat\":{\"path\":\"/chat/completions\",\"dialect\":\"openai-chat\",\"method\":\"POST\",\"body\":\"json\",\"stream\":true}},\"endpoint\":{\"scheme\":\"https\",\"hostField\":\"resourceName\",\"hostSuffix\":\".openai.azure.com\",\"path\":\"/openai/deployments/{deploymentName}\",\"fields\":{\"resourceName\":[\"resource_name\",\"resourceName\"],\"deploymentName\":[\"deployment_name\",\"deploymentName\"],\"version\":[\"api_version\",\"apiVersion\",\"version\"]},\"required\":[\"resourceName\",\"deploymentName\"],\"defaults\":{\"version\":\"2024-02-15-preview\"},\"normalizers\":{\"version\":\"api-version\"},\"apiVersionField\":\"version\"},\"capabilityGates\":{\"structuredOutputs\":{\"option\":\"version\",\"min\":\"2024-08-01\"}},\"modelRules\":[],\"sources\":[\"https://learn.microsoft.com/en-us/azure/ai-services/openai/reference\",\"https://learn.microsoft.com/en-us/azure/foundry/openai/concepts/priority-processing\"],\"reviewedAt\":\"2026-08-17\",\"request\":{\"serviceTierMap\":{\"auto\":\"auto\",\"standard\":\"default\",\"flex\":\"flex\",\"priority\":\"priority\"}},\"provider\":\"azure-openai\",\"baseUrl\":null,\"authRequired\":true,\"apiKeyHeader\":\"api-key\",\"apiVersion\":\"2024-02-15-preview\",\"defaultModel\":\"gpt-5-mini\",\"defaultEmbedModel\":\"text-embedding-3-small\",\"features\":{\"functions\":true,\"streaming\":true,\"structured_outputs\":true,\"structured_output_modes\":[\"native\",\"function\"],\"thinking\":true,\"multi_turn\":true,\"service_tiers\":[\"standard\",\"priority\"],\"media\":{\"images\":{\"supported\":true,\"formats\":[\"image/jpeg\",\"image/png\"]},\"audio\":{\"supported\":false,\"formats\":[],\"realtime\":false,\"output\":{\"supported\":false,\"formats\":[]}},\"files\":{\"supported\":false,\"formats\":[],\"upload_method\":\"none\"},\"urls\":{\"supported\":false,\"web_search\":false,\"context_fetching\":false}},\"caching\":{\"supported\":false,\"types\":[]}}},\"deepseek\":{\"id\":\"deepseek\",\"name\":\"DeepSeek\",\"aliases\":[\"deepseek\"],\"transport\":\"openai-chat\",\"baseURL\":\"https://api.deepseek.com\",\"requiresApiURL\":false,\"auth\":\"bearer\",\"defaults\":{\"model\":\"deepseek-v4-flash\"},\"capabilities\":{\"functions\":true,\"streaming\":true,\"structuredOutputs\":false,\"thinking\":false,\"multiTurn\":true,\"structuredOutputModes\":[\"function\",\"json_object\"],\"serviceTiers\":[]},\"operations\":{\"chat\":{\"path\":\"/chat/completions\",\"dialect\":\"openai-chat\",\"method\":\"POST\",\"body\":\"json\",\"stream\":false},\"stream_chat\":{\"path\":\"/chat/completions\",\"dialect\":\"openai-chat\",\"method\":\"POST\",\"body\":\"json\",\"stream\":true}},\"modelRules\":[{\"match\":{\"exact\":[\"deepseek-v4-flash\",\"deepseek-v4-pro\"]},\"capabilities\":{\"thinking\":true,\"thinkingBudget\":true,\"showThoughts\":true,\"structuredOutputs\":false,\"structuredOutputModes\":[\"function\"]},\"request\":{\"reasoning\":\"thinking-object\",\"toolChoice\":\"unforced\",\"effortMap\":{\"none\":null,\"minimal\":\"low\",\"low\":\"low\",\"medium\":\"medium\",\"high\":\"high\",\"highest\":\"max\",\"xhigh\":\"max\",\"max\":\"max\"},\"dropWhenThinking\":[\"temperature\",\"top_p\",\"presence_penalty\",\"frequency_penalty\"],\"defaultThinkingLevel\":\"max\"},\"response\":{\"reasoningFields\":[\"reasoning_content\",\"reasoning\"]},\"replay\":{\"assistantReasoningField\":\"reasoning_content\"}},{\"match\":{\"exact\":[\"deepseek-reasoner\"]},\"capabilities\":{\"thinking\":true,\"thinkingBudget\":false,\"showThoughts\":true,\"structuredOutputs\":false,\"structuredOutputModes\":[\"function\"]},\"request\":{\"toolChoice\":\"unforced\"},\"response\":{\"reasoningFields\":[\"reasoning_content\",\"reasoning\"]},\"replay\":{\"assistantReasoningField\":\"reasoning_content\"}}],\"sources\":[\"https://api-docs.deepseek.com/guides/thinking_mode/\"],\"reviewedAt\":\"2026-08-18\",\"provider\":\"deepseek\",\"baseUrl\":\"https://api.deepseek.com\",\"authRequired\":true,\"defaultModel\":\"deepseek-v4-flash\",\"features\":{\"functions\":true,\"streaming\":true,\"structured_outputs\":false,\"structured_output_modes\":[\"function\",\"json_object\"],\"thinking\":false,\"multi_turn\":true,\"service_tiers\":[],\"media\":{\"images\":{\"supported\":false,\"formats\":[]},\"audio\":{\"supported\":false,\"formats\":[],\"realtime\":false,\"output\":{\"supported\":false,\"formats\":[]}},\"files\":{\"supported\":false,\"formats\":[],\"upload_method\":\"none\"},\"urls\":{\"supported\":false,\"web_search\":false,\"context_fetching\":false}},\"caching\":{\"supported\":false,\"types\":[]}}},\"deepseek-responses\":{\"id\":\"deepseek-responses\",\"name\":\"DeepSeek Responses\",\"aliases\":[\"deepseek-responses\",\"deepseek_responses\"],\"transport\":\"openai-responses\",\"baseURL\":\"https://api.deepseek.com\",\"requiresApiURL\":false,\"auth\":\"bearer\",\"defaults\":{\"model\":\"deepseek-v4-flash\"},\"capabilities\":{\"functions\":true,\"streaming\":true,\"structuredOutputs\":false,\"thinking\":true,\"multiTurn\":true,\"structuredOutputModes\":[\"function\"],\"serviceTiers\":[]},\"operations\":{\"chat\":{\"path\":\"/responses\",\"dialect\":\"openai-responses\",\"method\":\"POST\",\"body\":\"json\",\"stream\":false},\"stream_chat\":{\"path\":\"/responses\",\"dialect\":\"openai-responses\",\"method\":\"POST\",\"body\":\"json\",\"stream\":true}},\"request\":{\"dropFields\":[\"include\",\"previous_response_id\",\"store\",\"parallel_tool_calls\"],\"reasoningObjectFields\":[\"effort\"]},\"modelRules\":[],\"sources\":[\"https://api-docs.deepseek.com/api/create-chat-completion\"],\"reviewedAt\":\"2026-08-17\",\"provider\":\"deepseek-responses\",\"baseUrl\":\"https://api.deepseek.com\",\"authRequired\":true,\"defaultModel\":\"deepseek-v4-flash\",\"features\":{\"functions\":true,\"streaming\":true,\"structured_outputs\":false,\"structured_output_modes\":[\"function\"],\"thinking\":true,\"multi_turn\":true,\"service_tiers\":[],\"media\":{\"images\":{\"supported\":false,\"formats\":[]},\"audio\":{\"supported\":false,\"formats\":[],\"realtime\":false,\"output\":{\"supported\":false,\"formats\":[]}},\"files\":{\"supported\":false,\"formats\":[],\"upload_method\":\"none\"},\"urls\":{\"supported\":false,\"web_search\":false,\"context_fetching\":false}},\"caching\":{\"supported\":false,\"types\":[]}}},\"mistral\":{\"id\":\"mistral\",\"name\":\"Mistral AI\",\"aliases\":[\"mistral\"],\"transport\":\"openai-chat\",\"baseURL\":\"https://api.mistral.ai/v1\",\"requiresApiURL\":false,\"auth\":\"bearer\",\"defaults\":{\"model\":\"mistral-small-latest\",\"embedModel\":\"mistral-embed\"},\"capabilities\":{\"functions\":true,\"streaming\":true,\"structuredOutputs\":true,\"thinking\":false,\"multiTurn\":true,\"images\":true,\"audio\":true,\"audioOutput\":true,\"structuredOutputModes\":[\"native\",\"function\"],\"serviceTiers\":[\"standard\",\"priority\"]},\"operations\":{\"chat\":{\"path\":\"/chat/completions\",\"dialect\":\"openai-chat\",\"method\":\"POST\",\"body\":\"json\",\"stream\":false},\"embed\":{\"path\":\"/embeddings\",\"dialect\":\"openai-embeddings\",\"method\":\"POST\",\"body\":\"json\",\"stream\":false},\"transcribe\":{\"path\":\"/audio/transcriptions\",\"dialect\":\"openai-transcription\",\"method\":\"POST\",\"body\":\"multipart\",\"stream\":false},\"speak\":{\"path\":\"/audio/speech\",\"dialect\":\"mistral-speech\",\"method\":\"POST\",\"body\":\"json\",\"stream\":false,\"response\":\"binary\"},\"stream_chat\":{\"path\":\"/chat/completions\",\"dialect\":\"openai-chat\",\"method\":\"POST\",\"body\":\"json\",\"stream\":true}},\"request\":{\"renameFields\":{\"max_completion_tokens\":\"max_tokens\"},\"imageURLShape\":\"object\",\"serviceTierMap\":{\"auto\":\"auto\",\"standard\":\"standard_only\",\"priority\":\"auto\"}},\"modelRules\":[],\"sources\":[\"https://docs.mistral.ai/api/\",\"https://docs.mistral.ai/inference/priority-tier\"],\"reviewedAt\":\"2026-08-17\",\"provider\":\"mistral\",\"baseUrl\":\"https://api.mistral.ai/v1\",\"authRequired\":true,\"defaultModel\":\"mistral-small-latest\",\"defaultEmbedModel\":\"mistral-embed\",\"features\":{\"functions\":true,\"streaming\":true,\"structured_outputs\":true,\"structured_output_modes\":[\"native\",\"function\"],\"thinking\":false,\"multi_turn\":true,\"service_tiers\":[\"standard\",\"priority\"],\"media\":{\"images\":{\"supported\":true,\"formats\":[\"image/jpeg\",\"image/png\"]},\"audio\":{\"supported\":true,\"formats\":[\"wav\",\"mp3\",\"pcm16\"],\"realtime\":false,\"output\":{\"supported\":true,\"formats\":[\"wav\",\"mp3\",\"pcm16\"]}},\"files\":{\"supported\":false,\"formats\":[],\"upload_method\":\"none\"},\"urls\":{\"supported\":false,\"web_search\":false,\"context_fetching\":false}},\"caching\":{\"supported\":false,\"types\":[]}}},\"cohere\":{\"id\":\"cohere\",\"name\":\"Cohere\",\"aliases\":[\"cohere\"],\"transport\":\"openai-chat\",\"baseURL\":\"https://api.cohere.ai/compatibility/v1\",\"requiresApiURL\":false,\"auth\":\"bearer\",\"defaults\":{\"model\":\"command-r-plus\",\"embedModel\":\"embed-english-v3.0\"},\"capabilities\":{\"functions\":true,\"streaming\":true,\"structuredOutputs\":false,\"thinking\":false,\"multiTurn\":true,\"structuredOutputModes\":[\"function\"],\"serviceTiers\":[]},\"operations\":{\"chat\":{\"path\":\"/chat/completions\",\"dialect\":\"openai-chat\",\"method\":\"POST\",\"body\":\"json\",\"stream\":false},\"embed\":{\"path\":\"/embeddings\",\"dialect\":\"openai-embeddings\",\"method\":\"POST\",\"body\":\"json\",\"stream\":false},\"stream_chat\":{\"path\":\"/chat/completions\",\"dialect\":\"openai-chat\",\"method\":\"POST\",\"body\":\"json\",\"stream\":true}},\"modelRules\":[],\"sources\":[\"https://docs.cohere.com/reference/compatibility-api\"],\"reviewedAt\":\"2026-08-17\",\"provider\":\"cohere\",\"baseUrl\":\"https://api.cohere.ai/compatibility/v1\",\"authRequired\":true,\"defaultModel\":\"command-r-plus\",\"defaultEmbedModel\":\"embed-english-v3.0\",\"features\":{\"functions\":true,\"streaming\":true,\"structured_outputs\":false,\"structured_output_modes\":[\"function\"],\"thinking\":false,\"multi_turn\":true,\"service_tiers\":[],\"media\":{\"images\":{\"supported\":false,\"formats\":[]},\"audio\":{\"supported\":false,\"formats\":[],\"realtime\":false,\"output\":{\"supported\":false,\"formats\":[]}},\"files\":{\"supported\":false,\"formats\":[],\"upload_method\":\"none\"},\"urls\":{\"supported\":false,\"web_search\":false,\"context_fetching\":false}},\"caching\":{\"supported\":false,\"types\":[]}}},\"grok\":{\"id\":\"grok\",\"name\":\"xAI Grok\",\"aliases\":[\"grok\",\"xai\",\"x-grok\",\"x_grok\"],\"transport\":\"openai-chat\",\"baseURL\":\"https://api.x.ai/v1\",\"requiresApiURL\":false,\"auth\":\"bearer\",\"defaults\":{\"model\":\"grok-4.6\"},\"capabilities\":{\"functions\":true,\"streaming\":true,\"structuredOutputs\":true,\"thinking\":false,\"multiTurn\":true,\"images\":true,\"audio\":true,\"audioOutput\":true,\"webSearch\":true,\"structuredOutputModes\":[\"native\",\"function\"],\"serviceTiers\":[\"standard\",\"priority\"]},\"operations\":{\"chat\":{\"path\":\"/chat/completions\",\"dialect\":\"openai-chat\",\"method\":\"POST\",\"body\":\"json\",\"stream\":false},\"transcribe\":{\"path\":\"/stt\",\"dialect\":\"xai-transcription\",\"method\":\"POST\",\"body\":\"multipart\",\"stream\":false},\"speak\":{\"path\":\"/tts\",\"dialect\":\"xai-speech\",\"method\":\"POST\",\"body\":\"json\",\"stream\":false,\"response\":\"binary\"},\"realtime\":{\"path\":\"/realtime\",\"dialect\":\"xai-realtime\",\"modelMatch\":{\"prefix\":[\"grok-voice\"]},\"url\":\"wss://api.x.ai/v1/realtime\",\"grammar\":\"openai_realtime_compatible\",\"defaultModel\":\"grok-voice-think-fast-1.0\",\"audio\":{\"input\":{\"formats\":[\"pcm16\",\"pcm\"],\"sampleRate\":24000},\"output\":{\"formats\":[\"pcm16\",\"pcm\"],\"sampleRate\":24000,\"voices\":[\"eve\",\"ara\",\"rex\",\"sal\",\"leo\"],\"defaultVoice\":\"eve\"}},\"validation\":{\"structuredOutputWithAudio\":false},\"method\":\"WS\",\"body\":\"json\",\"stream\":true},\"stream_chat\":{\"path\":\"/chat/completions\",\"dialect\":\"openai-chat\",\"method\":\"POST\",\"body\":\"json\",\"stream\":true}},\"request\":{\"optionDialect\":\"search-parameters\",\"serviceTierMap\":{\"auto\":null,\"standard\":\"default\",\"priority\":\"priority\"}},\"modelRules\":[{\"match\":{\"exact\":[\"grok-4.6\"]},\"capabilities\":{\"thinking\":true,\"thinkingBudget\":true,\"structuredOutputs\":true,\"structuredOutputModes\":[\"native\",\"function\"]},\"request\":{\"reasoning\":\"effort\",\"defaultThinkingLevel\":\"max\",\"effortMap\":{\"none\":null,\"minimal\":\"low\",\"low\":\"low\",\"medium\":\"medium\",\"high\":\"high\",\"highest\":\"xhigh\",\"xhigh\":\"xhigh\",\"max\":\"xhigh\"},\"unsupportedThinkingLevels\":{\"none\":\"xAI Grok 4.6 reasoning cannot be disabled\"},\"dropFields\":[\"presence_penalty\",\"frequency_penalty\",\"stop\"]}},{\"match\":{\"exact\":[\"grok-4.5\",\"grok-4.5-latest\",\"grok-build-latest\"]},\"capabilities\":{\"thinking\":true,\"thinkingBudget\":true,\"structuredOutputs\":true,\"structuredOutputModes\":[\"native\",\"function\"]},\"request\":{\"reasoning\":\"effort\",\"defaultThinkingLevel\":\"max\",\"effortMap\":{\"none\":null,\"minimal\":\"low\",\"low\":\"low\",\"medium\":\"medium\",\"high\":\"high\",\"highest\":\"high\",\"xhigh\":\"high\",\"max\":\"high\"},\"unsupportedThinkingLevels\":{\"none\":\"xAI Grok 4.5 reasoning cannot be disabled\"},\"dropFields\":[\"presence_penalty\",\"frequency_penalty\",\"stop\"]}},{\"match\":{\"exact\":[\"grok-4.3\",\"grok-4.3-latest\",\"grok-latest\"]},\"capabilities\":{\"thinking\":true,\"thinkingBudget\":true,\"showThoughts\":true,\"structuredOutputs\":true,\"structuredOutputModes\":[\"native\",\"function\"]},\"request\":{\"reasoning\":\"effort\",\"defaultThinkingLevel\":\"max\",\"effortMap\":{\"none\":\"none\",\"minimal\":\"low\",\"low\":\"low\",\"medium\":\"medium\",\"high\":\"high\",\"highest\":\"high\",\"xhigh\":\"high\",\"max\":\"high\"},\"dropFields\":[\"presence_penalty\",\"frequency_penalty\",\"stop\"]}},{\"match\":{\"exact\":[\"grok-3-mini\",\"grok-3-mini-latest\",\"grok-3-mini-beta\",\"grok-3-mini-fast\",\"grok-3-mini-fast-latest\",\"grok-3-mini-fast-beta\"]},\"capabilities\":{\"thinking\":true,\"thinkingBudget\":true},\"request\":{\"reasoning\":\"effort\",\"defaultThinkingLevel\":\"low\",\"effortMap\":{\"none\":null,\"minimal\":\"low\",\"low\":\"low\",\"medium\":\"high\",\"high\":\"high\",\"highest\":\"high\",\"xhigh\":\"high\",\"max\":\"high\"},\"unsupportedThinkingLevels\":{\"none\":\"xAI Grok 3 Mini reasoning cannot be disabled\"}}}],\"sources\":[\"https://docs.x.ai/developers/model-capabilities/text/reasoning\",\"https://docs.x.ai/developers/rest-api-reference/management/auth\",\"https://docs.x.ai/developers/models/grok-4.5\",\"https://docs.x.ai/developers/advanced-api-usage/priority-processing\"],\"reviewedAt\":\"2026-08-30\",\"provider\":\"grok\",\"baseUrl\":\"https://api.x.ai/v1\",\"authRequired\":true,\"defaultModel\":\"grok-4.6\",\"features\":{\"functions\":true,\"streaming\":true,\"structured_outputs\":true,\"structured_output_modes\":[\"native\",\"function\"],\"thinking\":false,\"multi_turn\":true,\"service_tiers\":[\"standard\",\"priority\"],\"media\":{\"images\":{\"supported\":true,\"formats\":[\"image/jpeg\",\"image/png\"]},\"audio\":{\"supported\":true,\"formats\":[\"wav\",\"mp3\",\"pcm16\"],\"realtime\":true,\"output\":{\"supported\":true,\"formats\":[\"wav\",\"mp3\",\"pcm16\"]}},\"files\":{\"supported\":false,\"formats\":[],\"upload_method\":\"none\"},\"urls\":{\"supported\":false,\"web_search\":true,\"context_fetching\":false}},\"caching\":{\"supported\":false,\"types\":[]}}},\"reka\":{\"id\":\"reka\",\"name\":\"Reka\",\"aliases\":[\"reka\"],\"transport\":\"openai-chat\",\"baseURL\":\"https://api.reka.ai/v1\",\"requiresApiURL\":false,\"auth\":\"bearer\",\"defaults\":{\"model\":\"reka-core\"},\"capabilities\":{\"functions\":true,\"streaming\":true,\"structuredOutputs\":false,\"thinking\":false,\"multiTurn\":true,\"structuredOutputModes\":[\"function\"],\"serviceTiers\":[]},\"operations\":{\"chat\":{\"path\":\"/chat/completions\",\"dialect\":\"openai-chat\",\"method\":\"POST\",\"body\":\"json\",\"stream\":false},\"stream_chat\":{\"path\":\"/chat/completions\",\"dialect\":\"openai-chat\",\"method\":\"POST\",\"body\":\"json\",\"stream\":true}},\"modelRules\":[],\"sources\":[\"https://docs.reka.ai/\"],\"reviewedAt\":\"2026-08-17\",\"provider\":\"reka\",\"baseUrl\":\"https://api.reka.ai/v1\",\"authRequired\":true,\"defaultModel\":\"reka-core\",\"features\":{\"functions\":true,\"streaming\":true,\"structured_outputs\":false,\"structured_output_modes\":[\"function\"],\"thinking\":false,\"multi_turn\":true,\"service_tiers\":[],\"media\":{\"images\":{\"supported\":false,\"formats\":[]},\"audio\":{\"supported\":false,\"formats\":[],\"realtime\":false,\"output\":{\"supported\":false,\"formats\":[]}},\"files\":{\"supported\":false,\"formats\":[],\"upload_method\":\"none\"},\"urls\":{\"supported\":false,\"web_search\":false,\"context_fetching\":false}},\"caching\":{\"supported\":false,\"types\":[]}}},\"together\":{\"id\":\"together\",\"name\":\"Together AI\",\"aliases\":[\"together\",\"together-ai\",\"together_ai\"],\"transport\":\"openai-chat\",\"baseURL\":\"https://api.together.xyz/v1\",\"requiresApiURL\":false,\"auth\":\"bearer\",\"defaults\":{\"model\":\"\"},\"capabilities\":{\"functions\":true,\"streaming\":true,\"structuredOutputs\":true,\"thinking\":false,\"multiTurn\":true,\"structuredOutputModes\":[\"native\",\"function\",\"json_object\"],\"serviceTiers\":[]},\"operations\":{\"chat\":{\"path\":\"/chat/completions\",\"dialect\":\"openai-chat\",\"method\":\"POST\",\"body\":\"json\",\"stream\":false},\"embed\":{\"path\":\"/embeddings\",\"dialect\":\"openai-embeddings\",\"method\":\"POST\",\"body\":\"json\",\"stream\":false},\"stream_chat\":{\"path\":\"/chat/completions\",\"dialect\":\"openai-chat\",\"method\":\"POST\",\"body\":\"json\",\"stream\":true}},\"modelRules\":[{\"match\":{\"prefix\":[\"deepseek-ai/DeepSeek-V4\"]},\"capabilities\":{\"thinking\":true,\"thinkingBudget\":true,\"showThoughts\":true,\"structuredOutputs\":false,\"structuredOutputModes\":[\"function\"]},\"request\":{\"reasoning\":\"effort\",\"toolChoice\":\"unforced\",\"effortMap\":{\"none\":null,\"minimal\":\"high\",\"low\":\"high\",\"medium\":\"high\",\"high\":\"max\",\"highest\":\"max\",\"xhigh\":\"max\",\"max\":\"max\"},\"defaultThinkingLevel\":\"max\"},\"response\":{\"reasoningFields\":[\"reasoning\",\"reasoning_content\"]},\"replay\":{\"assistantReasoningField\":\"reasoning\"}}],\"sources\":[\"https://docs.together.ai/docs/inference/chat/reasoning\"],\"reviewedAt\":\"2026-08-18\",\"provider\":\"together\",\"baseUrl\":\"https://api.together.xyz/v1\",\"authRequired\":true,\"defaultModel\":\"\",\"features\":{\"functions\":true,\"streaming\":true,\"structured_outputs\":true,\"structured_output_modes\":[\"native\",\"function\",\"json_object\"],\"thinking\":false,\"multi_turn\":true,\"service_tiers\":[],\"media\":{\"images\":{\"supported\":false,\"formats\":[]},\"audio\":{\"supported\":false,\"formats\":[],\"realtime\":false,\"output\":{\"supported\":false,\"formats\":[]}},\"files\":{\"supported\":false,\"formats\":[],\"upload_method\":\"none\"},\"urls\":{\"supported\":false,\"web_search\":false,\"context_fetching\":false}},\"caching\":{\"supported\":false,\"types\":[]}}},\"openrouter\":{\"id\":\"openrouter\",\"name\":\"OpenRouter\",\"aliases\":[\"openrouter\"],\"transport\":\"openai-chat\",\"baseURL\":\"https://openrouter.ai/api/v1\",\"requiresApiURL\":false,\"auth\":\"bearer\",\"defaults\":{\"model\":\"\"},\"capabilities\":{\"functions\":true,\"streaming\":true,\"structuredOutputs\":false,\"thinking\":false,\"multiTurn\":true,\"structuredOutputModes\":[\"function\"],\"serviceTiers\":[\"standard\",\"flex\",\"priority\"]},\"operations\":{\"chat\":{\"path\":\"/chat/completions\",\"dialect\":\"openai-chat\",\"method\":\"POST\",\"body\":\"json\",\"stream\":false},\"stream_chat\":{\"path\":\"/chat/completions\",\"dialect\":\"openai-chat\",\"method\":\"POST\",\"body\":\"json\",\"stream\":true}},\"modelRules\":[{\"match\":{\"prefix\":[\"deepseek/\"]},\"capabilities\":{\"thinking\":true,\"thinkingBudget\":true,\"showThoughts\":true,\"structuredOutputs\":false,\"structuredOutputModes\":[\"function\"]},\"request\":{\"reasoning\":\"openrouter\",\"toolChoice\":\"unforced\",\"effortMap\":{\"none\":\"none\",\"minimal\":\"low\",\"low\":\"low\",\"medium\":\"medium\",\"high\":\"high\",\"highest\":\"max\",\"xhigh\":\"xhigh\",\"max\":\"max\"},\"defaultThinkingLevel\":\"max\"},\"response\":{\"reasoningFields\":[\"reasoning\",\"reasoning_content\"],\"reasoningDetailsFields\":[\"reasoning_details\"]},\"replay\":{\"assistantReasoningField\":\"reasoning\",\"assistantReasoningDetailsField\":\"reasoning_details\"}}],\"sources\":[\"https://openrouter.ai/docs/guides/best-practices/reasoning-tokens\",\"https://openrouter.ai/docs/guides/features/service-tiers\"],\"reviewedAt\":\"2026-08-18\",\"request\":{\"serviceTierMap\":{\"auto\":null,\"standard\":null,\"flex\":\"flex\",\"priority\":\"priority\"}},\"provider\":\"openrouter\",\"baseUrl\":\"https://openrouter.ai/api/v1\",\"authRequired\":true,\"defaultModel\":\"\",\"features\":{\"functions\":true,\"streaming\":true,\"structured_outputs\":false,\"structured_output_modes\":[\"function\"],\"thinking\":false,\"multi_turn\":true,\"service_tiers\":[\"standard\",\"flex\",\"priority\"],\"media\":{\"images\":{\"supported\":false,\"formats\":[]},\"audio\":{\"supported\":false,\"formats\":[],\"realtime\":false,\"output\":{\"supported\":false,\"formats\":[]}},\"files\":{\"supported\":false,\"formats\":[],\"upload_method\":\"none\"},\"urls\":{\"supported\":false,\"web_search\":false,\"context_fetching\":false}},\"caching\":{\"supported\":false,\"types\":[]}}},\"orcarouter\":{\"id\":\"orcarouter\",\"name\":\"OrcaRouter\",\"aliases\":[\"orcarouter\"],\"transport\":\"openai-chat\",\"baseURL\":\"https://api.orcarouter.ai/v1\",\"requiresApiURL\":false,\"auth\":\"bearer\",\"defaults\":{\"model\":\"orcarouter/auto\"},\"capabilities\":{\"functions\":true,\"streaming\":true,\"structuredOutputs\":false,\"thinking\":false,\"multiTurn\":true,\"structuredOutputModes\":[\"function\"],\"serviceTiers\":[]},\"operations\":{\"chat\":{\"path\":\"/chat/completions\",\"dialect\":\"openai-chat\",\"method\":\"POST\",\"body\":\"json\",\"stream\":false},\"stream_chat\":{\"path\":\"/chat/completions\",\"dialect\":\"openai-chat\",\"method\":\"POST\",\"body\":\"json\",\"stream\":true}},\"modelRules\":[],\"sources\":[\"https://www.orcarouter.ai\"],\"reviewedAt\":\"2026-08-19\",\"provider\":\"orcarouter\",\"baseUrl\":\"https://api.orcarouter.ai/v1\",\"authRequired\":true,\"defaultModel\":\"orcarouter/auto\",\"features\":{\"functions\":true,\"streaming\":true,\"structured_outputs\":false,\"structured_output_modes\":[\"function\"],\"thinking\":false,\"multi_turn\":true,\"service_tiers\":[],\"media\":{\"images\":{\"supported\":false,\"formats\":[]},\"audio\":{\"supported\":false,\"formats\":[],\"realtime\":false,\"output\":{\"supported\":false,\"formats\":[]}},\"files\":{\"supported\":false,\"formats\":[],\"upload_method\":\"none\"},\"urls\":{\"supported\":false,\"web_search\":false,\"context_fetching\":false}},\"caching\":{\"supported\":false,\"types\":[]}}},\"fireworks\":{\"id\":\"fireworks\",\"name\":\"Fireworks AI\",\"aliases\":[\"fireworks\",\"fireworks-ai\"],\"transport\":\"openai-chat\",\"baseURL\":\"https://api.fireworks.ai/inference/v1\",\"requiresApiURL\":false,\"auth\":\"bearer\",\"defaults\":{\"model\":\"\"},\"capabilities\":{\"functions\":true,\"streaming\":true,\"structuredOutputs\":true,\"thinking\":false,\"multiTurn\":true,\"structuredOutputModes\":[\"native\",\"function\"],\"serviceTiers\":[\"standard\",\"priority\"]},\"operations\":{\"chat\":{\"path\":\"/chat/completions\",\"dialect\":\"openai-chat\",\"method\":\"POST\",\"body\":\"json\",\"stream\":false},\"embed\":{\"path\":\"/embeddings\",\"dialect\":\"openai-embeddings\",\"method\":\"POST\",\"body\":\"json\",\"stream\":false},\"stream_chat\":{\"path\":\"/chat/completions\",\"dialect\":\"openai-chat\",\"method\":\"POST\",\"body\":\"json\",\"stream\":true}},\"modelRules\":[{\"match\":{\"contains\":[\"deepseek-v4\"]},\"capabilities\":{\"thinking\":true,\"thinkingBudget\":true,\"showThoughts\":true,\"structuredOutputs\":false,\"structuredOutputModes\":[\"function\"]},\"request\":{\"reasoning\":\"effort\",\"toolChoice\":\"unforced\",\"effortMap\":{\"none\":\"none\",\"minimal\":\"high\",\"low\":\"high\",\"medium\":\"high\",\"high\":\"high\",\"highest\":\"max\",\"xhigh\":\"max\",\"max\":\"max\"},\"defaultThinkingLevel\":\"max\"},\"response\":{\"reasoningFields\":[\"reasoning_content\",\"reasoning\"]},\"replay\":{\"assistantReasoningField\":\"reasoning_content\"}}],\"sources\":[\"https://docs.fireworks.ai/api-reference/post-chatcompletions\",\"https://docs.fireworks.ai/guides/reasoning\"],\"reviewedAt\":\"2026-08-18\",\"request\":{\"serviceTierMap\":{\"auto\":null,\"standard\":\"default\",\"priority\":\"priority\"}},\"provider\":\"fireworks\",\"baseUrl\":\"https://api.fireworks.ai/inference/v1\",\"authRequired\":true,\"defaultModel\":\"\",\"features\":{\"functions\":true,\"streaming\":true,\"structured_outputs\":true,\"structured_output_modes\":[\"native\",\"function\"],\"thinking\":false,\"multi_turn\":true,\"service_tiers\":[\"standard\",\"priority\"],\"media\":{\"images\":{\"supported\":false,\"formats\":[]},\"audio\":{\"supported\":false,\"formats\":[],\"realtime\":false,\"output\":{\"supported\":false,\"formats\":[]}},\"files\":{\"supported\":false,\"formats\":[],\"upload_method\":\"none\"},\"urls\":{\"supported\":false,\"web_search\":false,\"context_fetching\":false}},\"caching\":{\"supported\":false,\"types\":[]}}},\"huggingface-router\":{\"id\":\"huggingface-router\",\"name\":\"Hugging Face Router\",\"aliases\":[\"huggingface-router\",\"huggingface\",\"hf-router\"],\"transport\":\"openai-chat\",\"baseURL\":\"https://router.huggingface.co/v1\",\"requiresApiURL\":false,\"auth\":\"bearer\",\"defaults\":{\"model\":\"\"},\"capabilities\":{\"functions\":true,\"streaming\":true,\"structuredOutputs\":false,\"thinking\":false,\"multiTurn\":true,\"structuredOutputModes\":[\"function\"],\"serviceTiers\":[]},\"operations\":{\"chat\":{\"path\":\"/chat/completions\",\"dialect\":\"openai-chat\",\"method\":\"POST\",\"body\":\"json\",\"stream\":false},\"stream_chat\":{\"path\":\"/chat/completions\",\"dialect\":\"openai-chat\",\"method\":\"POST\",\"body\":\"json\",\"stream\":true}},\"modelRules\":[],\"sources\":[\"https://huggingface.co/docs/inference-providers/en/index\",\"https://huggingface.co/docs/inference-providers/en/tasks/chat-completion\"],\"reviewedAt\":\"2026-08-18\",\"provider\":\"huggingface-router\",\"baseUrl\":\"https://router.huggingface.co/v1\",\"authRequired\":true,\"defaultModel\":\"\",\"features\":{\"functions\":true,\"streaming\":true,\"structured_outputs\":false,\"structured_output_modes\":[\"function\"],\"thinking\":false,\"multi_turn\":true,\"service_tiers\":[],\"media\":{\"images\":{\"supported\":false,\"formats\":[]},\"audio\":{\"supported\":false,\"formats\":[],\"realtime\":false,\"output\":{\"supported\":false,\"formats\":[]}},\"files\":{\"supported\":false,\"formats\":[],\"upload_method\":\"none\"},\"urls\":{\"supported\":false,\"web_search\":false,\"context_fetching\":false}},\"caching\":{\"supported\":false,\"types\":[]}}},\"amazon-bedrock\":{\"id\":\"amazon-bedrock\",\"name\":\"Amazon Bedrock\",\"aliases\":[\"amazon-bedrock\",\"bedrock\"],\"transport\":\"openai-chat\",\"baseURL\":null,\"requiresApiURL\":true,\"auth\":\"bearer\",\"defaults\":{\"model\":\"\"},\"capabilities\":{\"functions\":true,\"streaming\":true,\"structuredOutputs\":false,\"thinking\":false,\"multiTurn\":true,\"structuredOutputModes\":[\"function\"],\"serviceTiers\":[\"standard\",\"flex\",\"priority\"]},\"operations\":{\"chat\":{\"path\":\"/chat/completions\",\"dialect\":\"openai-chat\",\"method\":\"POST\",\"body\":\"json\",\"stream\":false},\"stream_chat\":{\"path\":\"/chat/completions\",\"dialect\":\"openai-chat\",\"method\":\"POST\",\"body\":\"json\",\"stream\":true}},\"modelRules\":[],\"sources\":[\"https://docs.aws.amazon.com/bedrock/latest/userguide/inference-chat-completions-mantle.html\",\"https://docs.aws.amazon.com/bedrock/latest/userguide/service-tiers-inference.html\"],\"reviewedAt\":\"2026-08-17\",\"request\":{\"serviceTierMap\":{\"auto\":null,\"standard\":\"default\",\"flex\":\"flex\",\"priority\":\"priority\"}},\"provider\":\"amazon-bedrock\",\"baseUrl\":null,\"authRequired\":true,\"defaultModel\":\"\",\"features\":{\"functions\":true,\"streaming\":true,\"structured_outputs\":false,\"structured_output_modes\":[\"function\"],\"thinking\":false,\"multi_turn\":true,\"service_tiers\":[\"standard\",\"flex\",\"priority\"],\"media\":{\"images\":{\"supported\":false,\"formats\":[]},\"audio\":{\"supported\":false,\"formats\":[],\"realtime\":false,\"output\":{\"supported\":false,\"formats\":[]}},\"files\":{\"supported\":false,\"formats\":[],\"upload_method\":\"none\"},\"urls\":{\"supported\":false,\"web_search\":false,\"context_fetching\":false}},\"caching\":{\"supported\":false,\"types\":[]}}},\"azure-foundry\":{\"id\":\"azure-foundry\",\"name\":\"Azure AI Foundry\",\"aliases\":[\"azure-foundry\",\"azure-ai-foundry\",\"microsoft-foundry\"],\"transport\":\"openai-chat\",\"baseURL\":null,\"requiresApiURL\":true,\"auth\":\"api_key_header\",\"defaults\":{\"model\":\"\"},\"capabilities\":{\"functions\":true,\"streaming\":true,\"structuredOutputs\":false,\"thinking\":false,\"multiTurn\":true,\"structuredOutputModes\":[\"function\"],\"serviceTiers\":[\"standard\",\"priority\"]},\"operations\":{\"chat\":{\"path\":\"/chat/completions\",\"dialect\":\"openai-chat\",\"method\":\"POST\",\"body\":\"json\",\"stream\":false},\"stream_chat\":{\"path\":\"/chat/completions\",\"dialect\":\"openai-chat\",\"method\":\"POST\",\"body\":\"json\",\"stream\":true}},\"modelRules\":[],\"sources\":[\"https://learn.microsoft.com/en-us/rest/api/microsoft-foundry/azureopenai/chat\",\"https://learn.microsoft.com/en-us/azure/foundry/openai/concepts/priority-processing\"],\"reviewedAt\":\"2026-08-17\",\"request\":{\"serviceTierMap\":{\"auto\":\"auto\",\"standard\":\"default\",\"flex\":\"flex\",\"priority\":\"priority\"}},\"provider\":\"azure-foundry\",\"baseUrl\":null,\"authRequired\":true,\"apiKeyHeader\":\"api-key\",\"defaultModel\":\"\",\"features\":{\"functions\":true,\"streaming\":true,\"structured_outputs\":false,\"structured_output_modes\":[\"function\"],\"thinking\":false,\"multi_turn\":true,\"service_tiers\":[\"standard\",\"priority\"],\"media\":{\"images\":{\"supported\":false,\"formats\":[]},\"audio\":{\"supported\":false,\"formats\":[],\"realtime\":false,\"output\":{\"supported\":false,\"formats\":[]}},\"files\":{\"supported\":false,\"formats\":[],\"upload_method\":\"none\"},\"urls\":{\"supported\":false,\"web_search\":false,\"context_fetching\":false}},\"caching\":{\"supported\":false,\"types\":[]}}},\"vertex-ai\":{\"id\":\"vertex-ai\",\"name\":\"Vertex AI OpenAI Compatibility\",\"aliases\":[\"vertex-ai\",\"vertex-openai\"],\"transport\":\"openai-chat\",\"baseURL\":null,\"requiresApiURL\":true,\"auth\":\"bearer\",\"defaults\":{\"model\":\"\"},\"capabilities\":{\"functions\":true,\"streaming\":true,\"structuredOutputs\":false,\"thinking\":false,\"multiTurn\":true,\"structuredOutputModes\":[\"function\"],\"serviceTiers\":[]},\"operations\":{\"chat\":{\"path\":\"/chat/completions\",\"dialect\":\"openai-chat\",\"method\":\"POST\",\"body\":\"json\",\"stream\":false},\"stream_chat\":{\"path\":\"/chat/completions\",\"dialect\":\"openai-chat\",\"method\":\"POST\",\"body\":\"json\",\"stream\":true}},\"modelRules\":[{\"match\":{\"exact\":[\"google/gemma-4-26b-a4b-it-maas\"]},\"capabilities\":{\"structuredOutputs\":false,\"structuredOutputModes\":[\"json_object\",\"function\"],\"thinking\":true},\"request\":{\"defaultThinkingLevel\":\"max\",\"thinkingBoolean\":{\"path\":[\"chat_template_kwargs\",\"enable_thinking\"]}},\"response\":{\"reasoningFields\":[\"reasoning_content\"]},\"replay\":{\"assistantReasoningField\":\"reasoning_content\"}},{\"match\":{\"prefix\":[\"google/gemini-\",\"gemini-\"]},\"capabilities\":{\"structuredOutputs\":true,\"structuredOutputModes\":[\"native\",\"function\",\"json_object\"]}}],\"sources\":[\"https://cloud.google.com/vertex-ai/generative-ai/docs/multimodal/call-vertex-using-openai-library\",\"https://docs.cloud.google.com/gemini-enterprise-agent-platform/models/maas/capabilities/structured-output\",\"https://docs.cloud.google.com/gemini-enterprise-agent-platform/models/maas/capabilities/thinking\"],\"reviewedAt\":\"2026-08-18\",\"provider\":\"vertex-ai\",\"baseUrl\":null,\"authRequired\":true,\"defaultModel\":\"\",\"features\":{\"functions\":true,\"streaming\":true,\"structured_outputs\":false,\"structured_output_modes\":[\"function\"],\"thinking\":false,\"multi_turn\":true,\"service_tiers\":[],\"media\":{\"images\":{\"supported\":false,\"formats\":[]},\"audio\":{\"supported\":false,\"formats\":[],\"realtime\":false,\"output\":{\"supported\":false,\"formats\":[]}},\"files\":{\"supported\":false,\"formats\":[],\"upload_method\":\"none\"},\"urls\":{\"supported\":false,\"web_search\":false,\"context_fetching\":false}},\"caching\":{\"supported\":false,\"types\":[]}}},\"databricks\":{\"id\":\"databricks\",\"name\":\"Databricks Model Serving\",\"aliases\":[\"databricks\"],\"transport\":\"openai-chat\",\"baseURL\":null,\"requiresApiURL\":true,\"auth\":\"bearer\",\"defaults\":{\"model\":\"\"},\"capabilities\":{\"functions\":true,\"streaming\":true,\"structuredOutputs\":false,\"thinking\":false,\"multiTurn\":true,\"structuredOutputModes\":[\"function\"],\"serviceTiers\":[\"standard\",\"priority\"]},\"operations\":{\"chat\":{\"path\":\"/chat/completions\",\"dialect\":\"openai-chat\",\"method\":\"POST\",\"body\":\"json\",\"stream\":false},\"stream_chat\":{\"path\":\"/chat/completions\",\"dialect\":\"openai-chat\",\"method\":\"POST\",\"body\":\"json\",\"stream\":true}},\"modelRules\":[],\"sources\":[\"https://docs.databricks.com/aws/en/machine-learning/model-serving/query-chat-models\",\"https://docs.databricks.com/aws/en/machine-learning/foundation-model-apis/priority-mode\"],\"reviewedAt\":\"2026-08-17\",\"request\":{\"serviceTierMap\":{\"auto\":null,\"standard\":\"default\",\"priority\":\"priority\"}},\"provider\":\"databricks\",\"baseUrl\":null,\"authRequired\":true,\"defaultModel\":\"\",\"features\":{\"functions\":true,\"streaming\":true,\"structured_outputs\":false,\"structured_output_modes\":[\"function\"],\"thinking\":false,\"multi_turn\":true,\"service_tiers\":[\"standard\",\"priority\"],\"media\":{\"images\":{\"supported\":false,\"formats\":[]},\"audio\":{\"supported\":false,\"formats\":[],\"realtime\":false,\"output\":{\"supported\":false,\"formats\":[]}},\"files\":{\"supported\":false,\"formats\":[],\"upload_method\":\"none\"},\"urls\":{\"supported\":false,\"web_search\":false,\"context_fetching\":false}},\"caching\":{\"supported\":false,\"types\":[]}}},\"baseten\":{\"id\":\"baseten\",\"name\":\"Baseten Model APIs\",\"aliases\":[\"baseten\"],\"transport\":\"openai-chat\",\"baseURL\":\"https://inference.baseten.co/v1\",\"requiresApiURL\":false,\"auth\":\"bearer\",\"defaults\":{\"model\":\"\"},\"capabilities\":{\"functions\":true,\"streaming\":true,\"structuredOutputs\":true,\"thinking\":false,\"multiTurn\":true,\"structuredOutputModes\":[\"native\",\"function\"],\"serviceTiers\":[]},\"operations\":{\"chat\":{\"path\":\"/chat/completions\",\"dialect\":\"openai-chat\",\"method\":\"POST\",\"body\":\"json\",\"stream\":false},\"stream_chat\":{\"path\":\"/chat/completions\",\"dialect\":\"openai-chat\",\"method\":\"POST\",\"body\":\"json\",\"stream\":true}},\"modelRules\":[],\"sources\":[\"https://docs.baseten.co/inference/model-apis/overview\"],\"reviewedAt\":\"2026-08-17\",\"provider\":\"baseten\",\"baseUrl\":\"https://inference.baseten.co/v1\",\"authRequired\":true,\"defaultModel\":\"\",\"features\":{\"functions\":true,\"streaming\":true,\"structured_outputs\":true,\"structured_output_modes\":[\"native\",\"function\"],\"thinking\":false,\"multi_turn\":true,\"service_tiers\":[],\"media\":{\"images\":{\"supported\":false,\"formats\":[]},\"audio\":{\"supported\":false,\"formats\":[],\"realtime\":false,\"output\":{\"supported\":false,\"formats\":[]}},\"files\":{\"supported\":false,\"formats\":[],\"upload_method\":\"none\"},\"urls\":{\"supported\":false,\"web_search\":false,\"context_fetching\":false}},\"caching\":{\"supported\":false,\"types\":[]}}},\"groq\":{\"id\":\"groq\",\"name\":\"Groq\",\"aliases\":[\"groq\"],\"transport\":\"openai-chat\",\"baseURL\":\"https://api.groq.com/openai/v1\",\"requiresApiURL\":false,\"auth\":\"bearer\",\"defaults\":{\"model\":\"\"},\"capabilities\":{\"functions\":true,\"streaming\":true,\"structuredOutputs\":true,\"thinking\":false,\"multiTurn\":true,\"structuredOutputModes\":[\"native\",\"function\"],\"serviceTiers\":[\"standard\",\"flex\",\"priority\"]},\"operations\":{\"chat\":{\"path\":\"/chat/completions\",\"dialect\":\"openai-chat\",\"method\":\"POST\",\"body\":\"json\",\"stream\":false},\"stream_chat\":{\"path\":\"/chat/completions\",\"dialect\":\"openai-chat\",\"method\":\"POST\",\"body\":\"json\",\"stream\":true}},\"modelRules\":[{\"match\":{\"exact\":[\"openai/gpt-oss-20b\",\"openai/gpt-oss-120b\"]},\"capabilities\":{\"thinking\":true,\"thinkingBudget\":true},\"request\":{\"reasoning\":\"effort\",\"defaultThinkingLevel\":\"max\",\"effortMap\":{\"none\":null,\"minimal\":\"low\",\"low\":\"low\",\"medium\":\"medium\",\"high\":\"high\",\"highest\":\"high\",\"xhigh\":\"high\",\"max\":\"high\"},\"unsupportedThinkingLevels\":{\"none\":\"Groq GPT-OSS reasoning does not support the none effort level\"}}},{\"match\":{\"exact\":[\"qwen/qwen3.6-27b\"]},\"capabilities\":{\"thinking\":true,\"thinkingBudget\":true},\"request\":{\"reasoning\":\"effort\",\"defaultThinkingLevel\":\"max\",\"effortMap\":{\"none\":\"none\",\"minimal\":\"default\",\"low\":\"default\",\"medium\":\"default\",\"high\":\"default\",\"highest\":\"default\",\"xhigh\":\"default\",\"max\":\"default\"}}}],\"sources\":[\"https://console.groq.com/docs/reasoning\",\"https://console.groq.com/docs/api-reference\",\"https://console.groq.com/docs/service-tiers\"],\"reviewedAt\":\"2026-08-18\",\"request\":{\"serviceTierMap\":{\"auto\":\"auto\",\"standard\":\"on_demand\",\"flex\":\"flex\",\"priority\":\"performance\"}},\"provider\":\"groq\",\"baseUrl\":\"https://api.groq.com/openai/v1\",\"authRequired\":true,\"defaultModel\":\"\",\"features\":{\"functions\":true,\"streaming\":true,\"structured_outputs\":true,\"structured_output_modes\":[\"native\",\"function\"],\"thinking\":false,\"multi_turn\":true,\"service_tiers\":[\"standard\",\"flex\",\"priority\"],\"media\":{\"images\":{\"supported\":false,\"formats\":[]},\"audio\":{\"supported\":false,\"formats\":[],\"realtime\":false,\"output\":{\"supported\":false,\"formats\":[]}},\"files\":{\"supported\":false,\"formats\":[],\"upload_method\":\"none\"},\"urls\":{\"supported\":false,\"web_search\":false,\"context_fetching\":false}},\"caching\":{\"supported\":false,\"types\":[]}}},\"cerebras\":{\"id\":\"cerebras\",\"name\":\"Cerebras Inference\",\"aliases\":[\"cerebras\"],\"transport\":\"openai-chat\",\"baseURL\":\"https://api.cerebras.ai/v1\",\"requiresApiURL\":false,\"auth\":\"bearer\",\"defaults\":{\"model\":\"\"},\"capabilities\":{\"functions\":true,\"streaming\":true,\"structuredOutputs\":true,\"thinking\":false,\"multiTurn\":true,\"structuredOutputModes\":[\"native\",\"function\"],\"serviceTiers\":[\"standard\",\"flex\",\"priority\"]},\"operations\":{\"chat\":{\"path\":\"/chat/completions\",\"dialect\":\"openai-chat\",\"method\":\"POST\",\"body\":\"json\",\"stream\":false},\"stream_chat\":{\"path\":\"/chat/completions\",\"dialect\":\"openai-chat\",\"method\":\"POST\",\"body\":\"json\",\"stream\":true}},\"modelRules\":[{\"match\":{\"exact\":[\"gpt-oss-120b\"]},\"capabilities\":{\"thinking\":true,\"thinkingBudget\":true},\"request\":{\"reasoning\":\"effort\",\"defaultThinkingLevel\":\"max\",\"effortMap\":{\"none\":null,\"minimal\":\"low\",\"low\":\"low\",\"medium\":\"medium\",\"high\":\"high\",\"highest\":\"high\",\"xhigh\":\"high\",\"max\":\"high\"},\"unsupportedThinkingLevels\":{\"none\":\"Cerebras GPT-OSS reasoning does not support the none effort level\"}}},{\"match\":{\"exact\":[\"gemma-4-31b\"]},\"capabilities\":{\"thinking\":true,\"thinkingBudget\":true},\"request\":{\"reasoning\":\"effort\",\"defaultThinkingLevel\":\"max\",\"effortMap\":{\"none\":\"none\",\"minimal\":\"high\",\"low\":\"high\",\"medium\":\"high\",\"high\":\"high\",\"highest\":\"high\",\"xhigh\":\"high\",\"max\":\"high\"}}}],\"sources\":[\"https://inference-docs.cerebras.ai/capabilities/reasoning\",\"https://inference-docs.cerebras.ai/api-reference/chat-completions\",\"https://inference-docs.cerebras.ai/capabilities/service-tiers\"],\"reviewedAt\":\"2026-08-18\",\"request\":{\"serviceTierMap\":{\"auto\":\"auto\",\"standard\":\"default\",\"flex\":\"flex\",\"priority\":\"priority\"}},\"provider\":\"cerebras\",\"baseUrl\":\"https://api.cerebras.ai/v1\",\"authRequired\":true,\"defaultModel\":\"\",\"features\":{\"functions\":true,\"streaming\":true,\"structured_outputs\":true,\"structured_output_modes\":[\"native\",\"function\"],\"thinking\":false,\"multi_turn\":true,\"service_tiers\":[\"standard\",\"flex\",\"priority\"],\"media\":{\"images\":{\"supported\":false,\"formats\":[]},\"audio\":{\"supported\":false,\"formats\":[],\"realtime\":false,\"output\":{\"supported\":false,\"formats\":[]}},\"files\":{\"supported\":false,\"formats\":[],\"upload_method\":\"none\"},\"urls\":{\"supported\":false,\"web_search\":false,\"context_fetching\":false}},\"caching\":{\"supported\":false,\"types\":[]}}},\"deepinfra\":{\"id\":\"deepinfra\",\"name\":\"DeepInfra\",\"aliases\":[\"deepinfra\"],\"transport\":\"openai-chat\",\"baseURL\":\"https://api.deepinfra.com/v1/openai\",\"requiresApiURL\":false,\"auth\":\"bearer\",\"defaults\":{\"model\":\"\"},\"capabilities\":{\"functions\":true,\"streaming\":true,\"structuredOutputs\":false,\"thinking\":false,\"multiTurn\":true,\"structuredOutputModes\":[\"function\"],\"serviceTiers\":[\"standard\",\"priority\"]},\"operations\":{\"chat\":{\"path\":\"/chat/completions\",\"dialect\":\"openai-chat\",\"method\":\"POST\",\"body\":\"json\",\"stream\":false},\"stream_chat\":{\"path\":\"/chat/completions\",\"dialect\":\"openai-chat\",\"method\":\"POST\",\"body\":\"json\",\"stream\":true}},\"modelRules\":[{\"match\":{\"prefix\":[\"deepseek-ai/DeepSeek-R1\"]},\"capabilities\":{\"thinking\":true,\"thinkingBudget\":true},\"request\":{\"reasoning\":\"effort\",\"defaultThinkingLevel\":\"max\",\"effortMap\":{\"none\":\"none\",\"minimal\":\"low\",\"low\":\"low\",\"medium\":\"medium\",\"high\":\"high\",\"highest\":\"high\",\"xhigh\":\"high\",\"max\":\"high\"}}}],\"sources\":[\"https://docs.deepinfra.com/chat/reasoning\",\"https://docs.deepinfra.com/api-reference/introduction\",\"https://docs.deepinfra.com/chat/overview\"],\"reviewedAt\":\"2026-08-18\",\"request\":{\"serviceTierMap\":{\"auto\":null,\"standard\":null,\"priority\":\"priority\"}},\"provider\":\"deepinfra\",\"baseUrl\":\"https://api.deepinfra.com/v1/openai\",\"authRequired\":true,\"defaultModel\":\"\",\"features\":{\"functions\":true,\"streaming\":true,\"structured_outputs\":false,\"structured_output_modes\":[\"function\"],\"thinking\":false,\"multi_turn\":true,\"service_tiers\":[\"standard\",\"priority\"],\"media\":{\"images\":{\"supported\":false,\"formats\":[]},\"audio\":{\"supported\":false,\"formats\":[],\"realtime\":false,\"output\":{\"supported\":false,\"formats\":[]}},\"files\":{\"supported\":false,\"formats\":[],\"upload_method\":\"none\"},\"urls\":{\"supported\":false,\"web_search\":false,\"context_fetching\":false}},\"caching\":{\"supported\":false,\"types\":[]}}},\"sambanova\":{\"id\":\"sambanova\",\"name\":\"SambaNova Cloud\",\"aliases\":[\"sambanova\",\"sambanova-cloud\"],\"transport\":\"openai-chat\",\"baseURL\":\"https://api.sambanova.ai/v1\",\"requiresApiURL\":false,\"auth\":\"bearer\",\"defaults\":{\"model\":\"\"},\"capabilities\":{\"functions\":true,\"streaming\":true,\"structuredOutputs\":false,\"thinking\":false,\"multiTurn\":true,\"structuredOutputModes\":[\"function\"],\"serviceTiers\":[]},\"operations\":{\"chat\":{\"path\":\"/chat/completions\",\"dialect\":\"openai-chat\",\"method\":\"POST\",\"body\":\"json\",\"stream\":false},\"stream_chat\":{\"path\":\"/chat/completions\",\"dialect\":\"openai-chat\",\"method\":\"POST\",\"body\":\"json\",\"stream\":true}},\"modelRules\":[],\"sources\":[\"https://docs.sambanova.ai/docs/en/api-reference/overview\"],\"reviewedAt\":\"2026-08-17\",\"provider\":\"sambanova\",\"baseUrl\":\"https://api.sambanova.ai/v1\",\"authRequired\":true,\"defaultModel\":\"\",\"features\":{\"functions\":true,\"streaming\":true,\"structured_outputs\":false,\"structured_output_modes\":[\"function\"],\"thinking\":false,\"multi_turn\":true,\"service_tiers\":[],\"media\":{\"images\":{\"supported\":false,\"formats\":[]},\"audio\":{\"supported\":false,\"formats\":[],\"realtime\":false,\"output\":{\"supported\":false,\"formats\":[]}},\"files\":{\"supported\":false,\"formats\":[],\"upload_method\":\"none\"},\"urls\":{\"supported\":false,\"web_search\":false,\"context_fetching\":false}},\"caching\":{\"supported\":false,\"types\":[]}}},\"nebius\":{\"id\":\"nebius\",\"name\":\"Nebius AI Studio\",\"aliases\":[\"nebius\"],\"transport\":\"openai-chat\",\"baseURL\":\"https://api.tokenfactory.nebius.com/v1\",\"requiresApiURL\":false,\"auth\":\"bearer\",\"defaults\":{\"model\":\"\"},\"capabilities\":{\"functions\":true,\"streaming\":true,\"structuredOutputs\":false,\"thinking\":false,\"multiTurn\":true,\"structuredOutputModes\":[\"function\"],\"serviceTiers\":[]},\"operations\":{\"chat\":{\"path\":\"/chat/completions\",\"dialect\":\"openai-chat\",\"method\":\"POST\",\"body\":\"json\",\"stream\":false},\"stream_chat\":{\"path\":\"/chat/completions\",\"dialect\":\"openai-chat\",\"method\":\"POST\",\"body\":\"json\",\"stream\":true}},\"modelRules\":[],\"sources\":[\"https://api.studio.nebius.com/docs\"],\"reviewedAt\":\"2026-08-17\",\"provider\":\"nebius\",\"baseUrl\":\"https://api.tokenfactory.nebius.com/v1\",\"authRequired\":true,\"defaultModel\":\"\",\"features\":{\"functions\":true,\"streaming\":true,\"structured_outputs\":false,\"structured_output_modes\":[\"function\"],\"thinking\":false,\"multi_turn\":true,\"service_tiers\":[],\"media\":{\"images\":{\"supported\":false,\"formats\":[]},\"audio\":{\"supported\":false,\"formats\":[],\"realtime\":false,\"output\":{\"supported\":false,\"formats\":[]}},\"files\":{\"supported\":false,\"formats\":[],\"upload_method\":\"none\"},\"urls\":{\"supported\":false,\"web_search\":false,\"context_fetching\":false}},\"caching\":{\"supported\":false,\"types\":[]}}},\"novita\":{\"id\":\"novita\",\"name\":\"Novita AI\",\"aliases\":[\"novita\",\"novita-ai\"],\"transport\":\"openai-chat\",\"baseURL\":\"https://api.novita.ai/v3/openai\",\"requiresApiURL\":false,\"auth\":\"bearer\",\"defaults\":{\"model\":\"\"},\"capabilities\":{\"functions\":true,\"streaming\":true,\"structuredOutputs\":false,\"thinking\":false,\"multiTurn\":true,\"structuredOutputModes\":[\"function\"],\"serviceTiers\":[]},\"operations\":{\"chat\":{\"path\":\"/chat/completions\",\"dialect\":\"openai-chat\",\"method\":\"POST\",\"body\":\"json\",\"stream\":false},\"stream_chat\":{\"path\":\"/chat/completions\",\"dialect\":\"openai-chat\",\"method\":\"POST\",\"body\":\"json\",\"stream\":true}},\"modelRules\":[],\"sources\":[\"https://novita.ai/docs/guides/llm-api\"],\"reviewedAt\":\"2026-08-17\",\"provider\":\"novita\",\"baseUrl\":\"https://api.novita.ai/v3/openai\",\"authRequired\":true,\"defaultModel\":\"\",\"features\":{\"functions\":true,\"streaming\":true,\"structured_outputs\":false,\"structured_output_modes\":[\"function\"],\"thinking\":false,\"multi_turn\":true,\"service_tiers\":[],\"media\":{\"images\":{\"supported\":false,\"formats\":[]},\"audio\":{\"supported\":false,\"formats\":[],\"realtime\":false,\"output\":{\"supported\":false,\"formats\":[]}},\"files\":{\"supported\":false,\"formats\":[],\"upload_method\":\"none\"},\"urls\":{\"supported\":false,\"web_search\":false,\"context_fetching\":false}},\"caching\":{\"supported\":false,\"types\":[]}}},\"hyperbolic\":{\"id\":\"hyperbolic\",\"name\":\"Hyperbolic\",\"aliases\":[\"hyperbolic\"],\"transport\":\"openai-chat\",\"baseURL\":\"https://api.hyperbolic.xyz/v1\",\"requiresApiURL\":false,\"auth\":\"bearer\",\"defaults\":{\"model\":\"\"},\"capabilities\":{\"functions\":true,\"streaming\":true,\"structuredOutputs\":false,\"thinking\":false,\"multiTurn\":true,\"structuredOutputModes\":[\"function\"],\"serviceTiers\":[]},\"operations\":{\"chat\":{\"path\":\"/chat/completions\",\"dialect\":\"openai-chat\",\"method\":\"POST\",\"body\":\"json\",\"stream\":false},\"stream_chat\":{\"path\":\"/chat/completions\",\"dialect\":\"openai-chat\",\"method\":\"POST\",\"body\":\"json\",\"stream\":true}},\"modelRules\":[],\"sources\":[\"https://docs.hyperbolic.xyz/docs/inference-api\"],\"reviewedAt\":\"2026-08-17\",\"provider\":\"hyperbolic\",\"baseUrl\":\"https://api.hyperbolic.xyz/v1\",\"authRequired\":true,\"defaultModel\":\"\",\"features\":{\"functions\":true,\"streaming\":true,\"structured_outputs\":false,\"structured_output_modes\":[\"function\"],\"thinking\":false,\"multi_turn\":true,\"service_tiers\":[],\"media\":{\"images\":{\"supported\":false,\"formats\":[]},\"audio\":{\"supported\":false,\"formats\":[],\"realtime\":false,\"output\":{\"supported\":false,\"formats\":[]}},\"files\":{\"supported\":false,\"formats\":[],\"upload_method\":\"none\"},\"urls\":{\"supported\":false,\"web_search\":false,\"context_fetching\":false}},\"caching\":{\"supported\":false,\"types\":[]}}},\"siliconflow\":{\"id\":\"siliconflow\",\"name\":\"SiliconFlow\",\"aliases\":[\"siliconflow\"],\"transport\":\"openai-chat\",\"baseURL\":\"https://api.siliconflow.com/v1\",\"requiresApiURL\":false,\"auth\":\"bearer\",\"defaults\":{\"model\":\"\"},\"capabilities\":{\"functions\":true,\"streaming\":true,\"structuredOutputs\":false,\"thinking\":false,\"multiTurn\":true,\"structuredOutputModes\":[\"function\"],\"serviceTiers\":[]},\"operations\":{\"chat\":{\"path\":\"/chat/completions\",\"dialect\":\"openai-chat\",\"method\":\"POST\",\"body\":\"json\",\"stream\":false},\"stream_chat\":{\"path\":\"/chat/completions\",\"dialect\":\"openai-chat\",\"method\":\"POST\",\"body\":\"json\",\"stream\":true}},\"modelRules\":[],\"sources\":[\"https://docs.siliconflow.com/en/userguide/quickstart\"],\"reviewedAt\":\"2026-08-17\",\"provider\":\"siliconflow\",\"baseUrl\":\"https://api.siliconflow.com/v1\",\"authRequired\":true,\"defaultModel\":\"\",\"features\":{\"functions\":true,\"streaming\":true,\"structured_outputs\":false,\"structured_output_modes\":[\"function\"],\"thinking\":false,\"multi_turn\":true,\"service_tiers\":[],\"media\":{\"images\":{\"supported\":false,\"formats\":[]},\"audio\":{\"supported\":false,\"formats\":[],\"realtime\":false,\"output\":{\"supported\":false,\"formats\":[]}},\"files\":{\"supported\":false,\"formats\":[],\"upload_method\":\"none\"},\"urls\":{\"supported\":false,\"web_search\":false,\"context_fetching\":false}},\"caching\":{\"supported\":false,\"types\":[]}}},\"friendli\":{\"id\":\"friendli\",\"name\":\"FriendliAI\",\"aliases\":[\"friendli\",\"friendli-ai\"],\"transport\":\"openai-chat\",\"baseURL\":\"https://api.friendli.ai/serverless/v1\",\"requiresApiURL\":false,\"auth\":\"bearer\",\"defaults\":{\"model\":\"\"},\"capabilities\":{\"functions\":true,\"streaming\":true,\"structuredOutputs\":false,\"thinking\":false,\"multiTurn\":true,\"structuredOutputModes\":[\"function\"],\"serviceTiers\":[]},\"operations\":{\"chat\":{\"path\":\"/chat/completions\",\"dialect\":\"openai-chat\",\"method\":\"POST\",\"body\":\"json\",\"stream\":false},\"stream_chat\":{\"path\":\"/chat/completions\",\"dialect\":\"openai-chat\",\"method\":\"POST\",\"body\":\"json\",\"stream\":true}},\"modelRules\":[],\"sources\":[\"https://friendli.ai/docs/guides/tool-calling\"],\"reviewedAt\":\"2026-08-17\",\"provider\":\"friendli\",\"baseUrl\":\"https://api.friendli.ai/serverless/v1\",\"authRequired\":true,\"defaultModel\":\"\",\"features\":{\"functions\":true,\"streaming\":true,\"structured_outputs\":false,\"structured_output_modes\":[\"function\"],\"thinking\":false,\"multi_turn\":true,\"service_tiers\":[],\"media\":{\"images\":{\"supported\":false,\"formats\":[]},\"audio\":{\"supported\":false,\"formats\":[],\"realtime\":false,\"output\":{\"supported\":false,\"formats\":[]}},\"files\":{\"supported\":false,\"formats\":[],\"upload_method\":\"none\"},\"urls\":{\"supported\":false,\"web_search\":false,\"context_fetching\":false}},\"caching\":{\"supported\":false,\"types\":[]}}},\"cloudflare-workers-ai\":{\"id\":\"cloudflare-workers-ai\",\"name\":\"Cloudflare Workers AI\",\"aliases\":[\"cloudflare-workers-ai\",\"workers-ai\"],\"transport\":\"openai-chat\",\"baseURL\":null,\"requiresApiURL\":true,\"auth\":\"bearer\",\"defaults\":{\"model\":\"\"},\"capabilities\":{\"functions\":true,\"streaming\":true,\"structuredOutputs\":false,\"thinking\":false,\"multiTurn\":true,\"structuredOutputModes\":[\"function\"],\"serviceTiers\":[]},\"operations\":{\"chat\":{\"path\":\"/chat/completions\",\"dialect\":\"openai-chat\",\"method\":\"POST\",\"body\":\"json\",\"stream\":false},\"stream_chat\":{\"path\":\"/chat/completions\",\"dialect\":\"openai-chat\",\"method\":\"POST\",\"body\":\"json\",\"stream\":true}},\"modelRules\":[],\"sources\":[\"https://developers.cloudflare.com/workers-ai/configuration/open-ai-compatibility/\"],\"reviewedAt\":\"2026-08-17\",\"provider\":\"cloudflare-workers-ai\",\"baseUrl\":null,\"authRequired\":true,\"defaultModel\":\"\",\"features\":{\"functions\":true,\"streaming\":true,\"structured_outputs\":false,\"structured_output_modes\":[\"function\"],\"thinking\":false,\"multi_turn\":true,\"service_tiers\":[],\"media\":{\"images\":{\"supported\":false,\"formats\":[]},\"audio\":{\"supported\":false,\"formats\":[],\"realtime\":false,\"output\":{\"supported\":false,\"formats\":[]}},\"files\":{\"supported\":false,\"formats\":[],\"upload_method\":\"none\"},\"urls\":{\"supported\":false,\"web_search\":false,\"context_fetching\":false}},\"caching\":{\"supported\":false,\"types\":[]}}},\"featherless\":{\"id\":\"featherless\",\"name\":\"Featherless AI\",\"aliases\":[\"featherless\",\"featherless-ai\"],\"transport\":\"openai-chat\",\"baseURL\":\"https://api.featherless.ai/v1\",\"requiresApiURL\":false,\"auth\":\"bearer\",\"defaults\":{\"model\":\"\"},\"capabilities\":{\"functions\":true,\"streaming\":true,\"structuredOutputs\":false,\"thinking\":false,\"multiTurn\":true,\"structuredOutputModes\":[\"function\"],\"serviceTiers\":[]},\"operations\":{\"chat\":{\"path\":\"/chat/completions\",\"dialect\":\"openai-chat\",\"method\":\"POST\",\"body\":\"json\",\"stream\":false},\"stream_chat\":{\"path\":\"/chat/completions\",\"dialect\":\"openai-chat\",\"method\":\"POST\",\"body\":\"json\",\"stream\":true}},\"modelRules\":[],\"sources\":[\"https://featherless.ai/docs/quickstart-guide\"],\"reviewedAt\":\"2026-08-17\",\"provider\":\"featherless\",\"baseUrl\":\"https://api.featherless.ai/v1\",\"authRequired\":true,\"defaultModel\":\"\",\"features\":{\"functions\":true,\"streaming\":true,\"structured_outputs\":false,\"structured_output_modes\":[\"function\"],\"thinking\":false,\"multi_turn\":true,\"service_tiers\":[],\"media\":{\"images\":{\"supported\":false,\"formats\":[]},\"audio\":{\"supported\":false,\"formats\":[],\"realtime\":false,\"output\":{\"supported\":false,\"formats\":[]}},\"files\":{\"supported\":false,\"formats\":[],\"upload_method\":\"none\"},\"urls\":{\"supported\":false,\"web_search\":false,\"context_fetching\":false}},\"caching\":{\"supported\":false,\"types\":[]}}},\"nscale\":{\"id\":\"nscale\",\"name\":\"Nscale\",\"aliases\":[\"nscale\"],\"transport\":\"openai-chat\",\"baseURL\":null,\"requiresApiURL\":true,\"auth\":\"bearer\",\"defaults\":{\"model\":\"\"},\"capabilities\":{\"functions\":true,\"streaming\":true,\"structuredOutputs\":false,\"thinking\":false,\"multiTurn\":true,\"structuredOutputModes\":[\"function\"],\"serviceTiers\":[]},\"operations\":{\"chat\":{\"path\":\"/chat/completions\",\"dialect\":\"openai-chat\",\"method\":\"POST\",\"body\":\"json\",\"stream\":false},\"stream_chat\":{\"path\":\"/chat/completions\",\"dialect\":\"openai-chat\",\"method\":\"POST\",\"body\":\"json\",\"stream\":true}},\"modelRules\":[],\"sources\":[\"https://docs.nscale.com/docs/use-cases/chat\"],\"reviewedAt\":\"2026-08-17\",\"provider\":\"nscale\",\"baseUrl\":null,\"authRequired\":true,\"defaultModel\":\"\",\"features\":{\"functions\":true,\"streaming\":true,\"structured_outputs\":false,\"structured_output_modes\":[\"function\"],\"thinking\":false,\"multi_turn\":true,\"service_tiers\":[],\"media\":{\"images\":{\"supported\":false,\"formats\":[]},\"audio\":{\"supported\":false,\"formats\":[],\"realtime\":false,\"output\":{\"supported\":false,\"formats\":[]}},\"files\":{\"supported\":false,\"formats\":[],\"upload_method\":\"none\"},\"urls\":{\"supported\":false,\"web_search\":false,\"context_fetching\":false}},\"caching\":{\"supported\":false,\"types\":[]}}},\"ovhcloud\":{\"id\":\"ovhcloud\",\"name\":\"OVHcloud AI Endpoints\",\"aliases\":[\"ovhcloud\",\"ovh\"],\"transport\":\"openai-chat\",\"baseURL\":null,\"requiresApiURL\":true,\"auth\":\"bearer\",\"defaults\":{\"model\":\"\"},\"capabilities\":{\"functions\":true,\"streaming\":true,\"structuredOutputs\":false,\"thinking\":false,\"multiTurn\":true,\"structuredOutputModes\":[\"function\"],\"serviceTiers\":[]},\"operations\":{\"chat\":{\"path\":\"/chat/completions\",\"dialect\":\"openai-chat\",\"method\":\"POST\",\"body\":\"json\",\"stream\":false},\"stream_chat\":{\"path\":\"/chat/completions\",\"dialect\":\"openai-chat\",\"method\":\"POST\",\"body\":\"json\",\"stream\":true}},\"modelRules\":[],\"sources\":[\"https://docs.ovhcloud.com/en/guides/public-cloud/ai-machine-learning/ai-endpoints-capabilities\"],\"reviewedAt\":\"2026-08-17\",\"provider\":\"ovhcloud\",\"baseUrl\":null,\"authRequired\":true,\"defaultModel\":\"\",\"features\":{\"functions\":true,\"streaming\":true,\"structured_outputs\":false,\"structured_output_modes\":[\"function\"],\"thinking\":false,\"multi_turn\":true,\"service_tiers\":[],\"media\":{\"images\":{\"supported\":false,\"formats\":[]},\"audio\":{\"supported\":false,\"formats\":[],\"realtime\":false,\"output\":{\"supported\":false,\"formats\":[]}},\"files\":{\"supported\":false,\"formats\":[],\"upload_method\":\"none\"},\"urls\":{\"supported\":false,\"web_search\":false,\"context_fetching\":false}},\"caching\":{\"supported\":false,\"types\":[]}}},\"scaleway\":{\"id\":\"scaleway\",\"name\":\"Scaleway Generative APIs\",\"aliases\":[\"scaleway\"],\"transport\":\"openai-chat\",\"baseURL\":\"https://api.scaleway.ai/v1\",\"requiresApiURL\":false,\"auth\":\"bearer\",\"defaults\":{\"model\":\"\"},\"capabilities\":{\"functions\":true,\"streaming\":true,\"structuredOutputs\":false,\"thinking\":false,\"multiTurn\":true,\"structuredOutputModes\":[\"function\"],\"serviceTiers\":[]},\"operations\":{\"chat\":{\"path\":\"/chat/completions\",\"dialect\":\"openai-chat\",\"method\":\"POST\",\"body\":\"json\",\"stream\":false},\"stream_chat\":{\"path\":\"/chat/completions\",\"dialect\":\"openai-chat\",\"method\":\"POST\",\"body\":\"json\",\"stream\":true}},\"modelRules\":[],\"sources\":[\"https://www.scaleway.com/en/developers/api/generative-apis\"],\"reviewedAt\":\"2026-08-17\",\"provider\":\"scaleway\",\"baseUrl\":\"https://api.scaleway.ai/v1\",\"authRequired\":true,\"defaultModel\":\"\",\"features\":{\"functions\":true,\"streaming\":true,\"structured_outputs\":false,\"structured_output_modes\":[\"function\"],\"thinking\":false,\"multi_turn\":true,\"service_tiers\":[],\"media\":{\"images\":{\"supported\":false,\"formats\":[]},\"audio\":{\"supported\":false,\"formats\":[],\"realtime\":false,\"output\":{\"supported\":false,\"formats\":[]}},\"files\":{\"supported\":false,\"formats\":[],\"upload_method\":\"none\"},\"urls\":{\"supported\":false,\"web_search\":false,\"context_fetching\":false}},\"caching\":{\"supported\":false,\"types\":[]}}},\"nvidia-nim\":{\"id\":\"nvidia-nim\",\"name\":\"NVIDIA NIM\",\"aliases\":[\"nvidia-nim\",\"nim\"],\"transport\":\"openai-chat\",\"baseURL\":null,\"requiresApiURL\":true,\"auth\":\"bearer\",\"defaults\":{\"model\":\"\"},\"capabilities\":{\"functions\":true,\"streaming\":true,\"structuredOutputs\":false,\"thinking\":false,\"multiTurn\":true,\"structuredOutputModes\":[\"function\"],\"serviceTiers\":[]},\"operations\":{\"chat\":{\"path\":\"/chat/completions\",\"dialect\":\"openai-chat\",\"method\":\"POST\",\"body\":\"json\",\"stream\":false},\"stream_chat\":{\"path\":\"/chat/completions\",\"dialect\":\"openai-chat\",\"method\":\"POST\",\"body\":\"json\",\"stream\":true}},\"modelRules\":[],\"sources\":[\"https://docs.nvidia.com/nim/large-language-models/latest/getting-started.html\"],\"reviewedAt\":\"2026-08-17\",\"provider\":\"nvidia-nim\",\"baseUrl\":null,\"authRequired\":false,\"defaultModel\":\"\",\"features\":{\"functions\":true,\"streaming\":true,\"structured_outputs\":false,\"structured_output_modes\":[\"function\"],\"thinking\":false,\"multi_turn\":true,\"service_tiers\":[],\"media\":{\"images\":{\"supported\":false,\"formats\":[]},\"audio\":{\"supported\":false,\"formats\":[],\"realtime\":false,\"output\":{\"supported\":false,\"formats\":[]}},\"files\":{\"supported\":false,\"formats\":[],\"upload_method\":\"none\"},\"urls\":{\"supported\":false,\"web_search\":false,\"context_fetching\":false}},\"caching\":{\"supported\":false,\"types\":[]}}},\"runpod-vllm\":{\"id\":\"runpod-vllm\",\"name\":\"RunPod vLLM\",\"aliases\":[\"runpod-vllm\",\"runpod\"],\"transport\":\"openai-chat\",\"baseURL\":null,\"requiresApiURL\":true,\"auth\":\"bearer\",\"defaults\":{\"model\":\"\"},\"capabilities\":{\"functions\":true,\"streaming\":true,\"structuredOutputs\":false,\"thinking\":false,\"multiTurn\":true,\"structuredOutputModes\":[\"function\"],\"serviceTiers\":[]},\"operations\":{\"chat\":{\"path\":\"/chat/completions\",\"dialect\":\"openai-chat\",\"method\":\"POST\",\"body\":\"json\",\"stream\":false},\"stream_chat\":{\"path\":\"/chat/completions\",\"dialect\":\"openai-chat\",\"method\":\"POST\",\"body\":\"json\",\"stream\":true}},\"modelRules\":[],\"sources\":[\"https://docs.runpod.io/serverless/vllm/openai-compatibility\"],\"reviewedAt\":\"2026-08-17\",\"provider\":\"runpod-vllm\",\"baseUrl\":null,\"authRequired\":true,\"defaultModel\":\"\",\"features\":{\"functions\":true,\"streaming\":true,\"structured_outputs\":false,\"structured_output_modes\":[\"function\"],\"thinking\":false,\"multi_turn\":true,\"service_tiers\":[],\"media\":{\"images\":{\"supported\":false,\"formats\":[]},\"audio\":{\"supported\":false,\"formats\":[],\"realtime\":false,\"output\":{\"supported\":false,\"formats\":[]}},\"files\":{\"supported\":false,\"formats\":[],\"upload_method\":\"none\"},\"urls\":{\"supported\":false,\"web_search\":false,\"context_fetching\":false}},\"caching\":{\"supported\":false,\"types\":[]}}},\"sagemaker-vllm\":{\"id\":\"sagemaker-vllm\",\"name\":\"SageMaker vLLM\",\"aliases\":[\"sagemaker-vllm\",\"sagemaker\"],\"transport\":\"openai-chat\",\"baseURL\":null,\"requiresApiURL\":true,\"auth\":\"bearer\",\"defaults\":{\"model\":\"\"},\"capabilities\":{\"functions\":true,\"streaming\":true,\"structuredOutputs\":false,\"thinking\":false,\"multiTurn\":true,\"structuredOutputModes\":[\"function\"],\"serviceTiers\":[]},\"operations\":{\"chat\":{\"path\":\"/chat/completions\",\"dialect\":\"openai-chat\",\"method\":\"POST\",\"body\":\"json\",\"stream\":false},\"stream_chat\":{\"path\":\"/chat/completions\",\"dialect\":\"openai-chat\",\"method\":\"POST\",\"body\":\"json\",\"stream\":true}},\"modelRules\":[],\"sources\":[\"https://docs.aws.amazon.com/sagemaker/latest/dg/realtime-endpoints-openai-compatible.html\"],\"reviewedAt\":\"2026-08-17\",\"provider\":\"sagemaker-vllm\",\"baseUrl\":null,\"authRequired\":false,\"defaultModel\":\"\",\"features\":{\"functions\":true,\"streaming\":true,\"structured_outputs\":false,\"structured_output_modes\":[\"function\"],\"thinking\":false,\"multi_turn\":true,\"service_tiers\":[],\"media\":{\"images\":{\"supported\":false,\"formats\":[]},\"audio\":{\"supported\":false,\"formats\":[],\"realtime\":false,\"output\":{\"supported\":false,\"formats\":[]}},\"files\":{\"supported\":false,\"formats\":[],\"upload_method\":\"none\"},\"urls\":{\"supported\":false,\"web_search\":false,\"context_fetching\":false}},\"caching\":{\"supported\":false,\"types\":[]}}},\"vllm\":{\"id\":\"vllm\",\"name\":\"vLLM\",\"aliases\":[\"vllm\"],\"transport\":\"openai-chat\",\"baseURL\":\"http://localhost:8000/v1\",\"requiresApiURL\":false,\"auth\":\"bearer\",\"defaults\":{\"model\":\"\"},\"capabilities\":{\"functions\":true,\"streaming\":true,\"structuredOutputs\":false,\"thinking\":false,\"multiTurn\":true,\"structuredOutputModes\":[\"function\"],\"serviceTiers\":[]},\"operations\":{\"chat\":{\"path\":\"/chat/completions\",\"dialect\":\"openai-chat\",\"method\":\"POST\",\"body\":\"json\",\"stream\":false},\"stream_chat\":{\"path\":\"/chat/completions\",\"dialect\":\"openai-chat\",\"method\":\"POST\",\"body\":\"json\",\"stream\":true}},\"modelRules\":[],\"sources\":[\"https://docs.vllm.ai/en/latest/serving/openai_compatible_server/\"],\"reviewedAt\":\"2026-08-17\",\"provider\":\"vllm\",\"baseUrl\":\"http://localhost:8000/v1\",\"authRequired\":false,\"defaultModel\":\"\",\"features\":{\"functions\":true,\"streaming\":true,\"structured_outputs\":false,\"structured_output_modes\":[\"function\"],\"thinking\":false,\"multi_turn\":true,\"service_tiers\":[],\"media\":{\"images\":{\"supported\":false,\"formats\":[]},\"audio\":{\"supported\":false,\"formats\":[],\"realtime\":false,\"output\":{\"supported\":false,\"formats\":[]}},\"files\":{\"supported\":false,\"formats\":[],\"upload_method\":\"none\"},\"urls\":{\"supported\":false,\"web_search\":false,\"context_fetching\":false}},\"caching\":{\"supported\":false,\"types\":[]}}},\"ollama\":{\"id\":\"ollama\",\"name\":\"Ollama\",\"aliases\":[\"ollama\"],\"transport\":\"openai-chat\",\"baseURL\":\"http://localhost:11434/v1\",\"requiresApiURL\":false,\"auth\":\"bearer\",\"defaults\":{\"model\":\"\"},\"capabilities\":{\"functions\":true,\"streaming\":true,\"structuredOutputs\":false,\"thinking\":false,\"multiTurn\":true,\"structuredOutputModes\":[\"function\"],\"serviceTiers\":[]},\"operations\":{\"chat\":{\"path\":\"/chat/completions\",\"dialect\":\"openai-chat\",\"method\":\"POST\",\"body\":\"json\",\"stream\":false},\"stream_chat\":{\"path\":\"/chat/completions\",\"dialect\":\"openai-chat\",\"method\":\"POST\",\"body\":\"json\",\"stream\":true}},\"modelRules\":[],\"sources\":[\"https://docs.ollama.com/api/openai-compatibility\"],\"reviewedAt\":\"2026-08-17\",\"provider\":\"ollama\",\"baseUrl\":\"http://localhost:11434/v1\",\"authRequired\":false,\"defaultModel\":\"\",\"features\":{\"functions\":true,\"streaming\":true,\"structured_outputs\":false,\"structured_output_modes\":[\"function\"],\"thinking\":false,\"multi_turn\":true,\"service_tiers\":[],\"media\":{\"images\":{\"supported\":false,\"formats\":[]},\"audio\":{\"supported\":false,\"formats\":[],\"realtime\":false,\"output\":{\"supported\":false,\"formats\":[]}},\"files\":{\"supported\":false,\"formats\":[],\"upload_method\":\"none\"},\"urls\":{\"supported\":false,\"web_search\":false,\"context_fetching\":false}},\"caching\":{\"supported\":false,\"types\":[]}}},\"lm-studio\":{\"id\":\"lm-studio\",\"name\":\"LM Studio\",\"aliases\":[\"lm-studio\",\"lmstudio\"],\"transport\":\"openai-chat\",\"baseURL\":\"http://localhost:1234/v1\",\"requiresApiURL\":false,\"auth\":\"bearer\",\"defaults\":{\"model\":\"\"},\"capabilities\":{\"functions\":true,\"streaming\":true,\"structuredOutputs\":false,\"thinking\":false,\"multiTurn\":true,\"structuredOutputModes\":[\"function\"],\"serviceTiers\":[]},\"operations\":{\"chat\":{\"path\":\"/chat/completions\",\"dialect\":\"openai-chat\",\"method\":\"POST\",\"body\":\"json\",\"stream\":false},\"stream_chat\":{\"path\":\"/chat/completions\",\"dialect\":\"openai-chat\",\"method\":\"POST\",\"body\":\"json\",\"stream\":true}},\"modelRules\":[],\"sources\":[\"https://lmstudio.ai/docs/developer/openai-compat\"],\"reviewedAt\":\"2026-08-17\",\"provider\":\"lm-studio\",\"baseUrl\":\"http://localhost:1234/v1\",\"authRequired\":false,\"defaultModel\":\"\",\"features\":{\"functions\":true,\"streaming\":true,\"structured_outputs\":false,\"structured_output_modes\":[\"function\"],\"thinking\":false,\"multi_turn\":true,\"service_tiers\":[],\"media\":{\"images\":{\"supported\":false,\"formats\":[]},\"audio\":{\"supported\":false,\"formats\":[],\"realtime\":false,\"output\":{\"supported\":false,\"formats\":[]}},\"files\":{\"supported\":false,\"formats\":[],\"upload_method\":\"none\"},\"urls\":{\"supported\":false,\"web_search\":false,\"context_fetching\":false}},\"caching\":{\"supported\":false,\"types\":[]}}},\"llama-cpp\":{\"id\":\"llama-cpp\",\"name\":\"llama.cpp Server\",\"aliases\":[\"llama-cpp\",\"llama.cpp\"],\"transport\":\"openai-chat\",\"baseURL\":\"http://localhost:8080/v1\",\"requiresApiURL\":false,\"auth\":\"bearer\",\"defaults\":{\"model\":\"\"},\"capabilities\":{\"functions\":true,\"streaming\":true,\"structuredOutputs\":false,\"thinking\":false,\"multiTurn\":true,\"structuredOutputModes\":[\"function\"],\"serviceTiers\":[]},\"operations\":{\"chat\":{\"path\":\"/chat/completions\",\"dialect\":\"openai-chat\",\"method\":\"POST\",\"body\":\"json\",\"stream\":false},\"stream_chat\":{\"path\":\"/chat/completions\",\"dialect\":\"openai-chat\",\"method\":\"POST\",\"body\":\"json\",\"stream\":true}},\"modelRules\":[],\"sources\":[\"https://github.com/ggml-org/llama.cpp/blob/master/tools/server/README.md\"],\"reviewedAt\":\"2026-08-17\",\"provider\":\"llama-cpp\",\"baseUrl\":\"http://localhost:8080/v1\",\"authRequired\":false,\"defaultModel\":\"\",\"features\":{\"functions\":true,\"streaming\":true,\"structured_outputs\":false,\"structured_output_modes\":[\"function\"],\"thinking\":false,\"multi_turn\":true,\"service_tiers\":[],\"media\":{\"images\":{\"supported\":false,\"formats\":[]},\"audio\":{\"supported\":false,\"formats\":[],\"realtime\":false,\"output\":{\"supported\":false,\"formats\":[]}},\"files\":{\"supported\":false,\"formats\":[],\"upload_method\":\"none\"},\"urls\":{\"supported\":false,\"web_search\":false,\"context_fetching\":false}},\"caching\":{\"supported\":false,\"types\":[]}}},\"localai\":{\"id\":\"localai\",\"name\":\"LocalAI\",\"aliases\":[\"localai\",\"local-ai\"],\"transport\":\"openai-chat\",\"baseURL\":\"http://localhost:8080/v1\",\"requiresApiURL\":false,\"auth\":\"bearer\",\"defaults\":{\"model\":\"\"},\"capabilities\":{\"functions\":true,\"streaming\":true,\"structuredOutputs\":false,\"thinking\":false,\"multiTurn\":true,\"structuredOutputModes\":[\"function\"],\"serviceTiers\":[]},\"operations\":{\"chat\":{\"path\":\"/chat/completions\",\"dialect\":\"openai-chat\",\"method\":\"POST\",\"body\":\"json\",\"stream\":false},\"stream_chat\":{\"path\":\"/chat/completions\",\"dialect\":\"openai-chat\",\"method\":\"POST\",\"body\":\"json\",\"stream\":true}},\"modelRules\":[],\"sources\":[\"https://localai.io/features/openai-functions/\"],\"reviewedAt\":\"2026-08-17\",\"provider\":\"localai\",\"baseUrl\":\"http://localhost:8080/v1\",\"authRequired\":false,\"defaultModel\":\"\",\"features\":{\"functions\":true,\"streaming\":true,\"structured_outputs\":false,\"structured_output_modes\":[\"function\"],\"thinking\":false,\"multi_turn\":true,\"service_tiers\":[],\"media\":{\"images\":{\"supported\":false,\"formats\":[]},\"audio\":{\"supported\":false,\"formats\":[],\"realtime\":false,\"output\":{\"supported\":false,\"formats\":[]}},\"files\":{\"supported\":false,\"formats\":[],\"upload_method\":\"none\"},\"urls\":{\"supported\":false,\"web_search\":false,\"context_fetching\":false}},\"caching\":{\"supported\":false,\"types\":[]}}},\"baseten-engine\":{\"id\":\"baseten-engine\",\"name\":\"Baseten Inference Engine\",\"aliases\":[\"baseten-engine\",\"truss\"],\"transport\":\"openai-chat\",\"baseURL\":null,\"requiresApiURL\":true,\"auth\":\"bearer\",\"defaults\":{\"model\":\"\"},\"capabilities\":{\"functions\":true,\"streaming\":true,\"structuredOutputs\":false,\"thinking\":false,\"multiTurn\":true,\"structuredOutputModes\":[\"function\"],\"serviceTiers\":[]},\"operations\":{\"chat\":{\"path\":\"/chat/completions\",\"dialect\":\"openai-chat\",\"method\":\"POST\",\"body\":\"json\",\"stream\":false},\"stream_chat\":{\"path\":\"/chat/completions\",\"dialect\":\"openai-chat\",\"method\":\"POST\",\"body\":\"json\",\"stream\":true}},\"modelRules\":[],\"sources\":[\"https://docs.baseten.co/development/model/deployment/inference\"],\"reviewedAt\":\"2026-08-17\",\"provider\":\"baseten-engine\",\"baseUrl\":null,\"authRequired\":false,\"defaultModel\":\"\",\"features\":{\"functions\":true,\"streaming\":true,\"structured_outputs\":false,\"structured_output_modes\":[\"function\"],\"thinking\":false,\"multi_turn\":true,\"service_tiers\":[],\"media\":{\"images\":{\"supported\":false,\"formats\":[]},\"audio\":{\"supported\":false,\"formats\":[],\"realtime\":false,\"output\":{\"supported\":false,\"formats\":[]}},\"files\":{\"supported\":false,\"formats\":[],\"upload_method\":\"none\"},\"urls\":{\"supported\":false,\"web_search\":false,\"context_fetching\":false}},\"caching\":{\"supported\":false,\"types\":[]}}}}\n"); if err != nil { return nil, err }; v_descriptors = v }
 	v_empty = Object()
 	v_descriptor = coreGet(v_descriptors, v_provider_id, v_empty)
 	return v_descriptor, nil
@@ -13499,7 +13556,12 @@ func provider_resolve_features(args ...Value) (Value, error) {
 	var v_alias_match Value
 	var v_aliases Value
 	var v_apply_native_override Value
+	var v_astra_cache Value
+	var v_astra_model Value
 	var v_base_features Value
+	var v_cache_features Value
+	var v_cache_types Value
+	var v_can_steer Value
 	var v_capabilities Value
 	var v_capability_keys Value
 	var v_current_is_native Value
@@ -13509,14 +13571,20 @@ func provider_resolve_features(args ...Value) (Value, error) {
 	var v_descriptor Value
 	var v_empty_list Value
 	var v_empty_map Value
+	var v_factory Value
+	var v_factory_snake Value
 	var v_features Value
+	var v_has_factory Value
 	var v_has_native Value
 	var v_has_override_modes Value
 	var v_has_override_native Value
 	var v_has_service_tiers Value
 	var v_has_show_thoughts Value
+	var v_has_socket Value
 	var v_has_thinking_budget Value
 	var v_has_thinking_override Value
+	var v_hook_present Value
+	var v_host_available Value
 	var v_is_multi_turn Value
 	var v_is_show_thoughts Value
 	var v_is_structured_modes Value
@@ -13540,12 +13608,16 @@ func provider_resolve_features(args ...Value) (Value, error) {
 	var v_override_modes_snake Value
 	var v_override_native Value
 	var v_override_native_snake Value
+	var v_responses Value
 	var v_rule Value
 	var v_service_tiers Value
 	var v_service_tiers_snake Value
+	var v_session_profile Value
 	var v_show_thoughts Value
 	var v_show_thoughts_enabled Value
 	var v_show_thoughts_snake Value
+	var v_socket Value
+	var v_socket_snake Value
 	var v_supported Value
 	var v_thinking_budget Value
 	var v_thinking_budget_enabled Value
@@ -13562,7 +13634,12 @@ func provider_resolve_features(args ...Value) (Value, error) {
 	_ = v_alias_match
 	_ = v_aliases
 	_ = v_apply_native_override
+	_ = v_astra_cache
+	_ = v_astra_model
 	_ = v_base_features
+	_ = v_cache_features
+	_ = v_cache_types
+	_ = v_can_steer
 	_ = v_capabilities
 	_ = v_capability_keys
 	_ = v_current_is_native
@@ -13572,14 +13649,20 @@ func provider_resolve_features(args ...Value) (Value, error) {
 	_ = v_descriptor
 	_ = v_empty_list
 	_ = v_empty_map
+	_ = v_factory
+	_ = v_factory_snake
 	_ = v_features
+	_ = v_has_factory
 	_ = v_has_native
 	_ = v_has_override_modes
 	_ = v_has_override_native
 	_ = v_has_service_tiers
 	_ = v_has_show_thoughts
+	_ = v_has_socket
 	_ = v_has_thinking_budget
 	_ = v_has_thinking_override
+	_ = v_hook_present
+	_ = v_host_available
 	_ = v_is_multi_turn
 	_ = v_is_show_thoughts
 	_ = v_is_structured_modes
@@ -13603,18 +13686,23 @@ func provider_resolve_features(args ...Value) (Value, error) {
 	_ = v_override_modes_snake
 	_ = v_override_native
 	_ = v_override_native_snake
+	_ = v_responses
 	_ = v_rule
 	_ = v_service_tiers
 	_ = v_service_tiers_snake
+	_ = v_session_profile
 	_ = v_show_thoughts
 	_ = v_show_thoughts_enabled
 	_ = v_show_thoughts_snake
+	_ = v_socket
+	_ = v_socket_snake
 	_ = v_supported
 	_ = v_thinking_budget
 	_ = v_thinking_budget_enabled
 	_ = v_thinking_budget_snake
 	_ = v_thinking_enabled
 	_ = v_value
+	{ v, err := provider_chat_profile(v_profile, v_model); if err != nil { return nil, err }; v_profile = v }
 	{ v, err := provider_descriptor(v_profile); if err != nil { return nil, err }; v_descriptor = v }
 	v_empty_map = Object()
 	v_base_features = coreGet(v_descriptor, "features", v_empty_map)
@@ -13761,6 +13849,32 @@ func provider_resolve_features(args ...Value) (Value, error) {
 		} else {
 		// empty
 		}
+	}
+	{ v, err := provider_chat_profile(v_profile, v_model); if err != nil { return nil, err }; v_session_profile = v }
+	v_responses = _core_eq(v_session_profile, "openai-responses")
+	v_astra_model = _core_string_starts_with(v_model, "gpt-6-astra")
+	v_astra_cache = _core_and(v_responses, v_astra_model)
+	if coreTruthy(v_astra_cache) {
+		if err := coreSet(v_features, "asyncTools", true); err != nil { return nil, err }
+		if err := coreSet(v_features, "reasoningUpdates", true); err != nil { return nil, err }
+		v_socket_snake = coreGet(v_options, "web_socket_transport", nil)
+		v_socket = coreGet(v_options, "webSocketTransport", v_socket_snake)
+		v_factory_snake = coreGet(v_options, "web_socket_factory", nil)
+		v_factory = coreGet(v_options, "webSocketFactory", v_factory_snake)
+		v_has_socket = _core_is_not_none(v_socket)
+		v_has_factory = _core_is_not_none(v_factory)
+		v_hook_present = _core_or(v_has_socket, v_has_factory)
+		v_host_available = coreGet(v_options, "session_web_socket_available", false)
+		v_can_steer = _core_or(v_hook_present, v_host_available)
+		if err := coreSet(v_features, "nativeSteering", v_can_steer); err != nil { return nil, err }
+		v_cache_features = Object()
+		v_cache_types = MutableArray()
+		v_cache_types = coreAppend(v_cache_types, "ephemeral")
+		if err := coreSet(v_cache_features, "supported", true); err != nil { return nil, err }
+		if err := coreSet(v_cache_features, "types", v_cache_types); err != nil { return nil, err }
+		if err := coreSet(v_features, "caching", v_cache_features); err != nil { return nil, err }
+	} else {
+	// empty
 	}
 	return v_features, nil
 }
@@ -14554,19 +14668,19 @@ func provider_build_chat_request(args ...Value) (Value, error) {
 	_ = v_structured_modes
 	_ = v_supports_json_object
 	_ = v_transport
-	{ v, err := provider_normalize_profile(v_profile); if err != nil { return nil, err }; v_provider_id = v }
+	v_model = coreGet(v_request, "model", "")
+	{ v, err := provider_chat_profile(v_profile, v_model); if err != nil { return nil, err }; v_provider_id = v }
 	{ v, err := provider_resolve_descriptor(v_provider_id, v_options); if err != nil { return nil, err }; v_descriptor = v }
 	v_transport = coreGet(v_descriptor, "transport", "openai-chat")
 	v_is_responses = _core_eq(v_transport, "openai-responses")
 	v_is_gemini = _core_eq(v_transport, "gemini-generate-content")
 	v_is_anthropic = _core_eq(v_transport, "anthropic-messages")
-	v_model = coreGet(v_request, "model", "")
 	{ v, err := _provider_reasoning_replay_field(v_provider_id, v_model); if err != nil { return nil, err }; v_reasoning_content_mode = v }
 	{ v, err := _provider_reasoning_details_replay_field(v_provider_id, v_model); if err != nil { return nil, err }; v_reasoning_details_mode = v }
 	v_payload = Object()
 	if coreTruthy(v_is_responses) {
 		{ v, err := openai_responses_build_chat_request(v_request); if err != nil { return nil, err }; v_responses_payload = v }
-		v_payload = v_responses_payload
+		{ v, err := openai_responses_apply_astra_caching(v_responses_payload, v_request, v_options); if err != nil { return nil, err }; v_payload = v }
 	} else {
 		if coreTruthy(v_is_gemini) {
 			v_is_vertex = coreGet(v_descriptor, "vertex", false)
@@ -15016,7 +15130,7 @@ func provider_normalize_chat_response(args ...Value) (Value, error) {
 	_ = v_response
 	_ = v_responses_response
 	_ = v_transport
-	{ v, err := provider_normalize_profile(v_profile); if err != nil { return nil, err }; v_provider_id = v }
+	{ v, err := provider_chat_profile(v_profile, v_model); if err != nil { return nil, err }; v_provider_id = v }
 	{ v, err := provider_descriptor(v_provider_id); if err != nil { return nil, err }; v_descriptor = v }
 	v_transport = coreGet(v_descriptor, "transport", "openai-chat")
 	v_is_responses = _core_eq(v_transport, "openai-responses")
@@ -15053,8 +15167,10 @@ func provider_normalize_stream_delta(args ...Value) (Value, error) {
 	var v_ai_name Value
 	var v_model Value
 	var v_anthropic_response Value
+	var v_astra Value
 	var v_compatible_response Value
 	var v_descriptor Value
+	var v_empty_session_state Value
 	var v_gemini_response Value
 	var v_is_anthropic Value
 	var v_is_gemini Value
@@ -15064,6 +15180,9 @@ func provider_normalize_stream_delta(args ...Value) (Value, error) {
 	var v_reasoning_details_mode Value
 	var v_response Value
 	var v_responses_response Value
+	var v_session_capable Value
+	var v_session_events Value
+	var v_session_state Value
 	var v_transport Value
 	if len(args) > 0 { v_profile = args[0] }
 	_ = v_profile
@@ -15076,8 +15195,10 @@ func provider_normalize_stream_delta(args ...Value) (Value, error) {
 	if len(args) > 4 { v_model = args[4] }
 	_ = v_model
 	_ = v_anthropic_response
+	_ = v_astra
 	_ = v_compatible_response
 	_ = v_descriptor
+	_ = v_empty_session_state
 	_ = v_gemini_response
 	_ = v_is_anthropic
 	_ = v_is_gemini
@@ -15087,8 +15208,11 @@ func provider_normalize_stream_delta(args ...Value) (Value, error) {
 	_ = v_reasoning_details_mode
 	_ = v_response
 	_ = v_responses_response
+	_ = v_session_capable
+	_ = v_session_events
+	_ = v_session_state
 	_ = v_transport
-	{ v, err := provider_normalize_profile(v_profile); if err != nil { return nil, err }; v_provider_id = v }
+	{ v, err := provider_chat_profile(v_profile, v_model); if err != nil { return nil, err }; v_provider_id = v }
 	{ v, err := provider_descriptor(v_provider_id); if err != nil { return nil, err }; v_descriptor = v }
 	v_transport = coreGet(v_descriptor, "transport", "openai-chat")
 	v_is_responses = _core_eq(v_transport, "openai-responses")
@@ -15113,6 +15237,17 @@ func provider_normalize_stream_delta(args ...Value) (Value, error) {
 				v_response = v_compatible_response
 			}
 		}
+	}
+	v_astra = _core_string_starts_with(v_model, "gpt-6-astra")
+	v_session_capable = _core_and(v_is_responses, v_astra)
+	if coreTruthy(v_session_capable) {
+		v_empty_session_state = Object()
+		v_session_state = coreGet(v_state, "session_wire", v_empty_session_state)
+		{ v, err := openai_responses_session_event(v_raw, v_session_state, v_model); if err != nil { return nil, err }; v_session_events = v }
+		if err := coreSet(v_state, "session_wire", v_session_state); err != nil { return nil, err }
+		if err := coreSet(v_response, "session_events", v_session_events); err != nil { return nil, err }
+	} else {
+	// empty
 	}
 	return v_response, nil
 }
@@ -15620,15 +15755,26 @@ func provider_normalize_realtime_event(args ...Value) (Value, error) {
 func openai_responses_build_chat_request(args ...Value) (Value, error) {
 	axirCoverageMark("openai_responses_build_chat_request")
 	var v_request Value
+	var v_astra_format Value
+	var v_async_enabled Value
+	var v_background Value
+	var v_block Value
+	var v_blocks Value
+	var v_blocks_snake Value
 	var v_call Value
 	var v_call_id Value
 	var v_calls Value
 	var v_calls_snake Value
 	var v_content Value
+	var v_data Value
+	var v_empty_blocks Value
 	var v_empty_calls Value
 	var v_empty_functions Value
 	var v_empty_model_config Value
 	var v_empty_prompt Value
+	var v_encrypted Value
+	var v_envelope Value
+	var v_execution Value
 	var v_fn Value
 	var v_format Value
 	var v_format_type Value
@@ -15636,14 +15782,18 @@ func openai_responses_build_chat_request(args ...Value) (Value, error) {
 	var v_function_call Value
 	var v_functions Value
 	var v_has_content Value
+	var v_has_encrypted_blocks Value
 	var v_has_functions Value
+	var v_has_id Value
 	var v_has_include Value
 	var v_has_instructions Value
 	var v_has_parallel Value
 	var v_has_reasoning Value
 	var v_has_response_format Value
+	var v_has_session_input Value
 	var v_has_thought Value
 	var v_has_tool_choice Value
+	var v_id Value
 	var v_include Value
 	var v_input Value
 	var v_instructions Value
@@ -15660,30 +15810,51 @@ func openai_responses_build_chat_request(args ...Value) (Value, error) {
 	var v_params_is_string Value
 	var v_params_json Value
 	var v_payload Value
+	var v_plain_thought Value
+	var v_previous_id Value
 	var v_prompt Value
 	var v_reasoning Value
 	var v_reasoning_item Value
 	var v_response_format Value
 	var v_role Value
 	var v_schema Value
+	var v_schema_body Value
+	var v_schema_name Value
+	var v_schema_strict Value
+	var v_session_enabled Value
+	var v_session_input Value
 	var v_stream Value
+	var v_summary Value
 	var v_system_content Value
 	var v_text_config Value
 	var v_thought Value
+	var v_thought_present Value
 	var v_tool Value
 	var v_tool_choice Value
 	var v_tools Value
+	var v_validated Value
 	if len(args) > 0 { v_request = args[0] }
 	_ = v_request
+	_ = v_astra_format
+	_ = v_async_enabled
+	_ = v_background
+	_ = v_block
+	_ = v_blocks
+	_ = v_blocks_snake
 	_ = v_call
 	_ = v_call_id
 	_ = v_calls
 	_ = v_calls_snake
 	_ = v_content
+	_ = v_data
+	_ = v_empty_blocks
 	_ = v_empty_calls
 	_ = v_empty_functions
 	_ = v_empty_model_config
 	_ = v_empty_prompt
+	_ = v_encrypted
+	_ = v_envelope
+	_ = v_execution
 	_ = v_fn
 	_ = v_format
 	_ = v_format_type
@@ -15691,14 +15862,18 @@ func openai_responses_build_chat_request(args ...Value) (Value, error) {
 	_ = v_function_call
 	_ = v_functions
 	_ = v_has_content
+	_ = v_has_encrypted_blocks
 	_ = v_has_functions
+	_ = v_has_id
 	_ = v_has_include
 	_ = v_has_instructions
 	_ = v_has_parallel
 	_ = v_has_reasoning
 	_ = v_has_response_format
+	_ = v_has_session_input
 	_ = v_has_thought
 	_ = v_has_tool_choice
+	_ = v_id
 	_ = v_include
 	_ = v_input
 	_ = v_instructions
@@ -15715,19 +15890,29 @@ func openai_responses_build_chat_request(args ...Value) (Value, error) {
 	_ = v_params_is_string
 	_ = v_params_json
 	_ = v_payload
+	_ = v_plain_thought
+	_ = v_previous_id
 	_ = v_prompt
 	_ = v_reasoning
 	_ = v_reasoning_item
 	_ = v_response_format
 	_ = v_role
 	_ = v_schema
+	_ = v_schema_body
+	_ = v_schema_name
+	_ = v_schema_strict
+	_ = v_session_enabled
+	_ = v_session_input
 	_ = v_stream
+	_ = v_summary
 	_ = v_system_content
 	_ = v_text_config
 	_ = v_thought
+	_ = v_thought_present
 	_ = v_tool
 	_ = v_tool_choice
 	_ = v_tools
+	_ = v_validated
 	v_payload = Object()
 	v_model = coreGet(v_request, "model", "gpt-4o")
 	if err := coreSet(v_payload, "model", v_model); err != nil { return nil, err }
@@ -15744,8 +15929,36 @@ func openai_responses_build_chat_request(args ...Value) (Value, error) {
 		} else {
 			v_is_assistant = _core_eq(v_role, "assistant")
 			if coreTruthy(v_is_assistant) {
+				v_empty_blocks = MutableArray()
+				v_blocks_snake = coreGet(v_message, "thought_blocks", v_empty_blocks)
+				v_blocks = coreGet(v_message, "thoughtBlocks", v_blocks_snake)
+				v_has_encrypted_blocks = false
+				for _, v_block = range coreIter(v_blocks) {
+					v_encrypted = coreGet(v_block, "encrypted", false)
+					if coreTruthy(v_encrypted) {
+						v_envelope = Object()
+						v_summary = MutableArray()
+						if err := coreSet(v_envelope, "type", "reasoning"); err != nil { return nil, err }
+						v_id = coreGet(v_block, "signature", nil)
+						v_has_id = _core_truthy(v_id)
+						if coreTruthy(v_has_id) {
+							if err := coreSet(v_envelope, "id", v_id); err != nil { return nil, err }
+						} else {
+						// empty
+						}
+						v_data = coreGet(v_block, "data", nil)
+						if err := coreSet(v_envelope, "encrypted_content", v_data); err != nil { return nil, err }
+						if err := coreSet(v_envelope, "summary", v_summary); err != nil { return nil, err }
+						v_input = coreAppend(v_input, v_envelope)
+						v_has_encrypted_blocks = true
+					} else {
+					// empty
+					}
+				}
 				v_thought = coreGet(v_message, "thought", nil)
-				v_has_thought = _core_truthy(v_thought)
+				v_thought_present = _core_truthy(v_thought)
+				v_plain_thought = _core_not(v_has_encrypted_blocks)
+				v_has_thought = _core_and(v_thought_present, v_plain_thought)
 				if coreTruthy(v_has_thought) {
 					v_reasoning_item = Object()
 					if err := coreSet(v_reasoning_item, "type", "reasoning"); err != nil { return nil, err }
@@ -15804,6 +16017,15 @@ func openai_responses_build_chat_request(args ...Value) (Value, error) {
 		v_tools = MutableArray()
 		for _, v_fn = range coreIter(v_functions) {
 			{ v, err := _openai_responses_tool_spec_impl(v_fn); if err != nil { return nil, err }; v_tool = v }
+			v_session_enabled = coreGet(v_request, "session_enabled", false)
+			v_execution = coreGet(v_fn, "execution", "blocking")
+			v_background = _core_eq(v_execution, "background")
+			v_async_enabled = _core_and(v_session_enabled, v_background)
+			if coreTruthy(v_async_enabled) {
+				if err := coreSet(v_tool, "async", true); err != nil { return nil, err }
+			} else {
+			// empty
+			}
 			v_tools = coreAppend(v_tools, v_tool)
 		}
 		if err := coreSet(v_payload, "tools", v_tools); err != nil { return nil, err }
@@ -15827,7 +16049,17 @@ func openai_responses_build_chat_request(args ...Value) (Value, error) {
 		if coreTruthy(v_is_json_schema) {
 			v_schema = coreGet(v_response_format, "schema", nil)
 			if err := coreSet(v_format, "type", "json_schema"); err != nil { return nil, err }
-			if err := coreSet(v_format, "json_schema", v_schema); err != nil { return nil, err }
+			v_astra_format = _core_string_starts_with(v_model, "gpt-6-astra")
+			if coreTruthy(v_astra_format) {
+				v_schema_body = coreGet(v_schema, "schema", v_schema)
+				v_schema_name = coreGet(v_schema, "name", "output")
+				v_schema_strict = coreGet(v_schema, "strict", true)
+				if err := coreSet(v_format, "name", v_schema_name); err != nil { return nil, err }
+				if err := coreSet(v_format, "schema", v_schema_body); err != nil { return nil, err }
+				if err := coreSet(v_format, "strict", v_schema_strict); err != nil { return nil, err }
+			} else {
+				if err := coreSet(v_format, "json_schema", v_schema); err != nil { return nil, err }
+			}
 		} else {
 			if err := coreSet(v_format, "type", v_format_type); err != nil { return nil, err }
 		}
@@ -15863,15 +16095,30 @@ func openai_responses_build_chat_request(args ...Value) (Value, error) {
 	} else {
 	// empty
 	}
-	return v_payload, nil
+	v_session_input = coreGet(v_request, "session_input", nil)
+	v_has_session_input = _core_is_not_none(v_session_input)
+	if coreTruthy(v_has_session_input) {
+		if err := coreSet(v_payload, "input", v_session_input); err != nil { return nil, err }
+		v_previous_id = coreGet(v_request, "previous_response_id", nil)
+		if err := coreSet(v_payload, "previous_response_id", v_previous_id); err != nil { return nil, err }
+	} else {
+	// empty
+	}
+	if _, err := _openai_copy_config_key_impl(v_payload, v_model_config, "truncation", "truncation"); err != nil { return nil, err }
+	if _, err := _openai_copy_config_key_impl(v_payload, v_model_config, "context_management", "context_management"); err != nil { return nil, err }
+	if _, err := _openai_copy_config_key_impl(v_payload, v_model_config, "agents", "agents"); err != nil { return nil, err }
+	{ v, err := openai_responses_validate_session_request(v_payload); if err != nil { return nil, err }; v_validated = v }
+	return v_validated, nil
 }
 
 func _openai_responses_apply_model_config_impl(args ...Value) (Value, error) {
 	axirCoverageMark("_openai_responses_apply_model_config_impl")
 	var v_payload Value
 	var v_model_config Value
+	var v_astra Value
 	var v_budget Value
 	var v_budget_snake Value
+	var v_configured_model Value
 	var v_effort Value
 	var v_empty_reasoning Value
 	var v_has_budget Value
@@ -15883,8 +16130,10 @@ func _openai_responses_apply_model_config_impl(args ...Value) (Value, error) {
 	_ = v_payload
 	if len(args) > 1 { v_model_config = args[1] }
 	_ = v_model_config
+	_ = v_astra
 	_ = v_budget
 	_ = v_budget_snake
+	_ = v_configured_model
 	_ = v_effort
 	_ = v_empty_reasoning
 	_ = v_has_budget
@@ -15922,6 +16171,19 @@ func _openai_responses_apply_model_config_impl(args ...Value) (Value, error) {
 		} else {
 			_core_map_delete(v_payload, "reasoning")
 		}
+	} else {
+	// empty
+	}
+	v_configured_model = coreGet(v_payload, "model", "")
+	v_astra = _core_string_starts_with(v_configured_model, "gpt-6-astra")
+	if coreTruthy(v_astra) {
+		_core_map_delete(v_payload, "temperature")
+		_core_map_delete(v_payload, "top_p")
+		_core_map_delete(v_payload, "presence_penalty")
+		_core_map_delete(v_payload, "frequency_penalty")
+		_core_map_delete(v_payload, "logprobs")
+		_core_map_delete(v_payload, "top_logprobs")
+		_core_map_delete(v_payload, "n")
 	} else {
 	// empty
 	}
@@ -16301,11 +16563,15 @@ func _openai_responses_merge_output_item_impl(args ...Value) (Value, error) {
 	var v_calls Value
 	var v_citations Value
 	var v_content Value
+	var v_empty_blocks Value
+	var v_empty_calls Value
 	var v_empty_content Value
 	var v_encrypted Value
+	var v_has_block Value
 	var v_has_citations Value
 	var v_has_encrypted Value
 	var v_has_thought Value
+	var v_id Value
 	var v_is_function Value
 	var v_is_message Value
 	var v_is_reasoning Value
@@ -16323,11 +16589,15 @@ func _openai_responses_merge_output_item_impl(args ...Value) (Value, error) {
 	_ = v_calls
 	_ = v_citations
 	_ = v_content
+	_ = v_empty_blocks
+	_ = v_empty_calls
 	_ = v_empty_content
 	_ = v_encrypted
+	_ = v_has_block
 	_ = v_has_citations
 	_ = v_has_encrypted
 	_ = v_has_thought
+	_ = v_id
 	_ = v_is_function
 	_ = v_is_message
 	_ = v_is_reasoning
@@ -16361,7 +16631,8 @@ func _openai_responses_merge_output_item_impl(args ...Value) (Value, error) {
 		v_item_id = coreGet(v_item, "id", "0")
 		if err := coreSet(v_result, "id", v_item_id); err != nil { return nil, err }
 		{ v, err := _openai_responses_function_call_impl(v_item); if err != nil { return nil, err }; v_call = v }
-		v_calls = MutableArray()
+		v_empty_calls = MutableArray()
+		v_calls = coreGet(v_result, "function_calls", v_empty_calls)
 		v_calls = coreAppend(v_calls, v_call)
 		if err := coreSet(v_result, "function_calls", v_calls); err != nil { return nil, err }
 		if err := coreSet(v_result, "finish_reason", "function_call"); err != nil { return nil, err }
@@ -16370,21 +16641,27 @@ func _openai_responses_merge_output_item_impl(args ...Value) (Value, error) {
 	}
 	v_is_reasoning = _core_eq(v_type, "reasoning")
 	if coreTruthy(v_is_reasoning) {
-		v_item_id = coreGet(v_item, "id", "0")
-		if err := coreSet(v_result, "id", v_item_id); err != nil { return nil, err }
 		{ v, err := _openai_responses_reasoning_text_impl(v_item); if err != nil { return nil, err }; v_thought = v }
+		v_encrypted = coreGet(v_item, "encrypted_content", nil)
 		v_has_thought = _core_truthy(v_thought)
+		v_has_encrypted = _core_truthy(v_encrypted)
+		v_has_block = _core_or(v_has_thought, v_has_encrypted)
 		if coreTruthy(v_has_thought) {
 			if err := coreSet(v_result, "thought", v_thought); err != nil { return nil, err }
-			v_thought_blocks = MutableArray()
+		} else {
+		// empty
+		}
+		if coreTruthy(v_has_block) {
+			v_empty_blocks = MutableArray()
+			v_thought_blocks = coreGet(v_result, "thought_blocks", v_empty_blocks)
 			v_thought_block = Object()
 			if err := coreSet(v_thought_block, "data", v_thought); err != nil { return nil, err }
 			if err := coreSet(v_thought_block, "encrypted", false); err != nil { return nil, err }
-			v_encrypted = coreGet(v_item, "encrypted_content", nil)
-			v_has_encrypted = _core_truthy(v_encrypted)
 			if coreTruthy(v_has_encrypted) {
 				if err := coreSet(v_thought_block, "data", v_encrypted); err != nil { return nil, err }
 				if err := coreSet(v_thought_block, "encrypted", true); err != nil { return nil, err }
+				v_id = coreGet(v_item, "id", nil)
+				if err := coreSet(v_thought_block, "signature", v_id); err != nil { return nil, err }
 			} else {
 			// empty
 			}
@@ -21365,6 +21642,777 @@ func _anthropic_normalize_stream_delta(args ...Value) (Value, error) {
 	return v_out, nil
 }
 
+func provider_session_route(args ...Value) (Value, error) {
+	axirCoverageMark("provider_session_route")
+	var v_entry Value
+	var v_request Value
+	var v_options Value
+	var v_empty Value
+	var v_has_model Value
+	var v_model Value
+	var v_out Value
+	if len(args) > 0 { v_entry = args[0] }
+	_ = v_entry
+	if len(args) > 1 { v_request = args[1] }
+	_ = v_request
+	if len(args) > 2 { v_options = args[2] }
+	_ = v_options
+	_ = v_empty
+	_ = v_has_model
+	_ = v_model
+	_ = v_out
+	v_empty = Object()
+	v_request = _core_map_merge(v_request, v_empty)
+	v_options = _core_map_merge(v_options, v_empty)
+	v_model = coreGet(v_entry, "model", nil)
+	v_has_model = _core_is_not_none(v_model)
+	if coreTruthy(v_has_model) {
+		if err := coreSet(v_request, "model", v_model); err != nil { return nil, err }
+		if err := coreSet(v_options, "model", v_model); err != nil { return nil, err }
+	} else {
+		_core_map_delete(v_request, "model")
+		_core_map_delete(v_options, "model")
+	}
+	v_out = Object()
+	if err := coreSet(v_out, "request", v_request); err != nil { return nil, err }
+	if err := coreSet(v_out, "options", v_options); err != nil { return nil, err }
+	return v_out, nil
+}
+
+func provider_chat_profile(args ...Value) (Value, error) {
+	axirCoverageMark("provider_chat_profile")
+	var v_profile Value
+	var v_model Value
+	var v_astra Value
+	var v_normalized Value
+	var v_official Value
+	var v_route Value
+	if len(args) > 0 { v_profile = args[0] }
+	_ = v_profile
+	if len(args) > 1 { v_model = args[1] }
+	_ = v_model
+	_ = v_astra
+	_ = v_normalized
+	_ = v_official
+	_ = v_route
+	{ v, err := provider_normalize_profile(v_profile); if err != nil { return nil, err }; v_normalized = v }
+	v_official = _core_eq(v_normalized, "openai")
+	v_astra = _core_string_starts_with(v_model, "gpt-6-astra")
+	v_route = _core_and(v_official, v_astra)
+	if coreTruthy(v_route) {
+		return "openai-responses", nil
+	} else {
+	// empty
+	}
+	return v_normalized, nil
+}
+
+func provider_chat_operation_path(args ...Value) (Value, error) {
+	axirCoverageMark("provider_chat_operation_path")
+	var v_profile Value
+	var v_model Value
+	var v_operation Value
+	var v_path Value
+	var v_changed Value
+	var v_chat Value
+	var v_chat_op Value
+	var v_normalized Value
+	var v_resolved Value
+	var v_route Value
+	var v_stream Value
+	if len(args) > 0 { v_profile = args[0] }
+	_ = v_profile
+	if len(args) > 1 { v_model = args[1] }
+	_ = v_model
+	if len(args) > 2 { v_operation = args[2] }
+	_ = v_operation
+	if len(args) > 3 { v_path = args[3] }
+	_ = v_path
+	_ = v_changed
+	_ = v_chat
+	_ = v_chat_op
+	_ = v_normalized
+	_ = v_resolved
+	_ = v_route
+	_ = v_stream
+	{ v, err := provider_chat_profile(v_profile, v_model); if err != nil { return nil, err }; v_resolved = v }
+	{ v, err := provider_normalize_profile(v_profile); if err != nil { return nil, err }; v_normalized = v }
+	v_changed = _core_ne(v_resolved, v_normalized)
+	v_chat = _core_eq(v_operation, "chat")
+	v_stream = _core_eq(v_operation, "stream_chat")
+	v_chat_op = _core_or(v_chat, v_stream)
+	v_route = _core_and(v_changed, v_chat_op)
+	if coreTruthy(v_route) {
+		return "/responses", nil
+	} else {
+	// empty
+	}
+	return v_path, nil
+}
+
+func openai_responses_apply_astra_caching(args ...Value) (Value, error) {
+	axirCoverageMark("openai_responses_apply_astra_caching")
+	var v_payload Value
+	var v_request Value
+	var v_options Value
+	var v_astra Value
+	var v_cache Value
+	var v_cache_options Value
+	var v_camel Value
+	var v_count Value
+	var v_empty Value
+	var v_enabled Value
+	var v_function Value
+	var v_functions Value
+	var v_has_key Value
+	var v_has_parts Value
+	var v_index Value
+	var v_input Value
+	var v_is_list Value
+	var v_item Value
+	var v_key Value
+	var v_key_snake Value
+	var v_last_part Value
+	var v_marked_input Value
+	var v_marked_parts Value
+	var v_marker Value
+	var v_message Value
+	var v_model Value
+	var v_original_part Value
+	var v_other Value
+	var v_part Value
+	var v_part_index Value
+	var v_parts Value
+	var v_prompt Value
+	var v_resolved_key Value
+	var v_session Value
+	var v_session_snake Value
+	var v_snake Value
+	if len(args) > 0 { v_payload = args[0] }
+	_ = v_payload
+	if len(args) > 1 { v_request = args[1] }
+	_ = v_request
+	if len(args) > 2 { v_options = args[2] }
+	_ = v_options
+	_ = v_astra
+	_ = v_cache
+	_ = v_cache_options
+	_ = v_camel
+	_ = v_count
+	_ = v_empty
+	_ = v_enabled
+	_ = v_function
+	_ = v_functions
+	_ = v_has_key
+	_ = v_has_parts
+	_ = v_index
+	_ = v_input
+	_ = v_is_list
+	_ = v_item
+	_ = v_key
+	_ = v_key_snake
+	_ = v_last_part
+	_ = v_marked_input
+	_ = v_marked_parts
+	_ = v_marker
+	_ = v_message
+	_ = v_model
+	_ = v_original_part
+	_ = v_other
+	_ = v_part
+	_ = v_part_index
+	_ = v_parts
+	_ = v_prompt
+	_ = v_resolved_key
+	_ = v_session
+	_ = v_session_snake
+	_ = v_snake
+	v_model = coreGet(v_payload, "model", "")
+	v_astra = _core_string_starts_with(v_model, "gpt-6-astra")
+	v_other = _core_not(v_astra)
+	if coreTruthy(v_other) {
+		return v_payload, nil
+	} else {
+	// empty
+	}
+	v_empty = MutableArray()
+	v_snake = _core_map_contains(v_options, "context_cache")
+	v_camel = _core_map_contains(v_options, "contextCache")
+	v_enabled = _core_or(v_snake, v_camel)
+	v_prompt = coreGet(v_request, "chat_prompt", v_empty)
+	v_functions = coreGet(v_request, "functions", v_empty)
+	for _, v_message = range coreIter(v_prompt) {
+		v_cache = coreGet(v_message, "cache", false)
+		v_enabled = _core_or(v_enabled, v_cache)
+	}
+	for _, v_function = range coreIter(v_functions) {
+		v_cache = coreGet(v_function, "cache", false)
+		v_enabled = _core_or(v_enabled, v_cache)
+	}
+	if coreTruthy(v_enabled) {
+		v_input = coreGet(v_payload, "input", v_empty)
+		v_marked_input = MutableArray()
+		for _, v_item = range coreIter(v_input) {
+			v_parts = coreGet(v_item, "content", v_empty)
+			v_is_list = coreTypeIs(v_parts, "list")
+			if coreTruthy(v_is_list) {
+				v_count = _core_len(v_parts)
+				v_has_parts = _core_gt(v_count, 0)
+				if coreTruthy(v_has_parts) {
+					v_index = _core_add(v_count, -1)
+					v_part = _core_list_get(v_parts, v_index, nil)
+					v_marker = Object()
+					if err := coreSet(v_marker, "mode", "explicit"); err != nil { return nil, err }
+					if err := coreSet(v_part, "prompt_cache_breakpoint", v_marker); err != nil { return nil, err }
+					v_marked_parts = MutableArray()
+					v_part_index = 0
+					for _, v_original_part = range coreIter(v_parts) {
+						v_last_part = _core_eq(v_part_index, v_index)
+						if coreTruthy(v_last_part) {
+							v_marked_parts = coreAppend(v_marked_parts, v_part)
+						} else {
+							v_marked_parts = coreAppend(v_marked_parts, v_original_part)
+						}
+						v_part_index = _core_add(v_part_index, 1)
+					}
+					if err := coreSet(v_item, "content", v_marked_parts); err != nil { return nil, err }
+				} else {
+				// empty
+				}
+			} else {
+			// empty
+			}
+			v_marked_input = coreAppend(v_marked_input, v_item)
+		}
+		if err := coreSet(v_payload, "input", v_marked_input); err != nil { return nil, err }
+		v_cache_options = Object()
+		if err := coreSet(v_cache_options, "mode", "explicit"); err != nil { return nil, err }
+		if err := coreSet(v_cache_options, "ttl", "30m"); err != nil { return nil, err }
+		if err := coreSet(v_payload, "prompt_cache_options", v_cache_options); err != nil { return nil, err }
+		v_key_snake = coreGet(v_options, "prompt_cache_key", nil)
+		v_key = coreGet(v_options, "promptCacheKey", v_key_snake)
+		v_session_snake = coreGet(v_options, "session_id", nil)
+		v_session = coreGet(v_options, "sessionId", v_session_snake)
+		v_resolved_key = _core_coalesce(v_key, v_session)
+		v_has_key = _core_is_not_none(v_resolved_key)
+		if coreTruthy(v_has_key) {
+			if err := coreSet(v_payload, "prompt_cache_key", v_resolved_key); err != nil { return nil, err }
+		} else {
+		// empty
+		}
+	} else {
+	// empty
+	}
+	return v_payload, nil
+}
+
+func openai_responses_transport_cursor(args ...Value) (Value, error) {
+	axirCoverageMark("openai_responses_transport_cursor")
+	var v_state Value
+	var v_event Value
+	var v_active Value
+	var v_created Value
+	var v_empty Value
+	var v_id Value
+	var v_kind Value
+	var v_known Value
+	var v_response Value
+	var v_same Value
+	var v_seen Value
+	var v_terminal Value
+	var v_terminals Value
+	if len(args) > 0 { v_state = args[0] }
+	_ = v_state
+	if len(args) > 1 { v_event = args[1] }
+	_ = v_event
+	_ = v_active
+	_ = v_created
+	_ = v_empty
+	_ = v_id
+	_ = v_kind
+	_ = v_known
+	_ = v_response
+	_ = v_same
+	_ = v_seen
+	_ = v_terminal
+	_ = v_terminals
+	v_empty = Object()
+	v_seen = coreGet(v_state, "seen", v_empty)
+	v_response = coreGet(v_event, "response", v_empty)
+	v_id = coreGet(v_response, "id", nil)
+	v_kind = coreGet(v_event, "type", "")
+	v_created = _core_eq(v_kind, "response.created")
+	if coreTruthy(v_created) {
+		v_known = _core_map_contains(v_seen, v_id)
+		if coreTruthy(v_known) {
+		// empty
+		} else {
+			if err := coreSet(v_seen, v_id, true); err != nil { return nil, err }
+			if err := coreSet(v_state, "active_id", v_id); err != nil { return nil, err }
+		}
+	} else {
+	// empty
+	}
+	v_terminals = MutableArray()
+	v_terminals = coreAppend(v_terminals, "response.completed")
+	v_terminals = coreAppend(v_terminals, "response.incomplete")
+	v_terminals = coreAppend(v_terminals, "response.failed")
+	v_terminals = coreAppend(v_terminals, "response.cancelled")
+	v_terminal = _core_contains(v_terminals, v_kind)
+	if coreTruthy(v_terminal) {
+		if err := coreSet(v_seen, v_id, true); err != nil { return nil, err }
+		v_active = coreGet(v_state, "active_id", nil)
+		v_same = _core_eq(v_active, v_id)
+		if coreTruthy(v_same) {
+			_core_map_delete(v_state, "active_id")
+		} else {
+		// empty
+		}
+	} else {
+	// empty
+	}
+	if err := coreSet(v_state, "seen", v_seen); err != nil { return nil, err }
+	return v_state, nil
+}
+
+func openai_responses_session_event(args ...Value) (Value, error) {
+	axirCoverageMark("openai_responses_session_event")
+	var v_event Value
+	var v_state Value
+	var v_model Value
+	var v_accepted Value
+	var v_boundary Value
+	var v_call Value
+	var v_call_id Value
+	var v_completed Value
+	var v_created Value
+	var v_details Value
+	var v_done Value
+	var v_duplicate Value
+	var v_empty_list Value
+	var v_empty_map Value
+	var v_error Value
+	var v_error_object Value
+	var v_events Value
+	var v_failed Value
+	var v_failure Value
+	var v_has_id Value
+	var v_id Value
+	var v_ids Value
+	var v_incomplete Value
+	var v_input Value
+	var v_is_function Value
+	var v_item Value
+	var v_item_type Value
+	var v_key Value
+	var v_kind Value
+	var v_message Value
+	var v_new_event Value
+	var v_normalized Value
+	var v_notification Value
+	var v_parent Value
+	var v_pending Value
+	var v_reason Value
+	var v_rejected Value
+	var v_required Value
+	var v_required_key Value
+	var v_response Value
+	var v_response_id Value
+	var v_seen Value
+	var v_sequence Value
+	var v_session_error Value
+	var v_steer Value
+	var v_steered Value
+	var v_steered_end Value
+	var v_steering Value
+	var v_text Value
+	if len(args) > 0 { v_event = args[0] }
+	_ = v_event
+	if len(args) > 1 { v_state = args[1] }
+	_ = v_state
+	if len(args) > 2 { v_model = args[2] }
+	_ = v_model
+	_ = v_accepted
+	_ = v_boundary
+	_ = v_call
+	_ = v_call_id
+	_ = v_completed
+	_ = v_created
+	_ = v_details
+	_ = v_done
+	_ = v_duplicate
+	_ = v_empty_list
+	_ = v_empty_map
+	_ = v_error
+	_ = v_error_object
+	_ = v_events
+	_ = v_failed
+	_ = v_failure
+	_ = v_has_id
+	_ = v_id
+	_ = v_ids
+	_ = v_incomplete
+	_ = v_input
+	_ = v_is_function
+	_ = v_item
+	_ = v_item_type
+	_ = v_key
+	_ = v_kind
+	_ = v_message
+	_ = v_new_event
+	_ = v_normalized
+	_ = v_notification
+	_ = v_parent
+	_ = v_pending
+	_ = v_reason
+	_ = v_rejected
+	_ = v_required
+	_ = v_required_key
+	_ = v_response
+	_ = v_response_id
+	_ = v_seen
+	_ = v_sequence
+	_ = v_session_error
+	_ = v_steer
+	_ = v_steered
+	_ = v_steered_end
+	_ = v_steering
+	_ = v_text
+	v_events = MutableArray()
+	v_empty_map = Object()
+	v_kind = coreGet(v_event, "type", "")
+	v_response = coreGet(v_event, "response", v_empty_map)
+	v_created = _core_eq(v_kind, "response.created")
+	if coreTruthy(v_created) {
+		v_id = coreGet(v_response, "id", nil)
+		if err := coreSet(v_state, "response_id", v_id); err != nil { return nil, err }
+	} else {
+	// empty
+	}
+	v_response_id = coreGet(v_state, "response_id", nil)
+	v_done = _core_eq(v_kind, "response.output_item.done")
+	if coreTruthy(v_done) {
+		v_item = coreGet(v_event, "item", nil)
+		v_item_type = coreGet(v_item, "type", nil)
+		v_is_function = _core_eq(v_item_type, "function_call")
+		if coreTruthy(v_is_function) {
+			v_id = coreGet(v_item, "call_id", nil)
+			v_seen = coreGet(v_state, "seen_calls", v_empty_map)
+			v_duplicate = _core_map_contains(v_seen, v_id)
+			v_new_event = _core_not(v_duplicate)
+			if coreTruthy(v_new_event) {
+				{ v, err := _openai_responses_function_call_impl(v_item); if err != nil { return nil, err }; v_call = v }
+				v_notification = Object()
+				if err := coreSet(v_notification, "type", "tool.call"); err != nil { return nil, err }
+				if err := coreSet(v_notification, "response_id", v_response_id); err != nil { return nil, err }
+				if err := coreSet(v_notification, "call", v_call); err != nil { return nil, err }
+				v_events = coreAppend(v_events, v_notification)
+				if err := coreSet(v_seen, v_id, true); err != nil { return nil, err }
+				if err := coreSet(v_state, "seen_calls", v_seen); err != nil { return nil, err }
+			} else {
+			// empty
+			}
+		} else {
+		// empty
+		}
+	} else {
+	// empty
+	}
+	v_completed = _core_eq(v_kind, "response.completed")
+	v_incomplete = _core_eq(v_kind, "response.incomplete")
+	v_details = coreGet(v_response, "incomplete_details", v_empty_map)
+	v_reason = coreGet(v_details, "reason", nil)
+	v_steered = _core_eq(v_reason, "steered")
+	v_steered_end = _core_and(v_incomplete, v_steered)
+	v_boundary = _core_or(v_completed, v_steered_end)
+	if coreTruthy(v_boundary) {
+		v_id = coreGet(v_response, "id", nil)
+		if err := coreSet(v_state, "response_id", v_id); err != nil { return nil, err }
+		v_seen = coreGet(v_state, "seen_responses", v_empty_map)
+		v_duplicate = _core_map_contains(v_seen, v_id)
+		v_new_event = _core_not(v_duplicate)
+		if coreTruthy(v_new_event) {
+			{ v, err := openai_responses_normalize_chat_response(v_response, "openai-responses", v_model); if err != nil { return nil, err }; v_normalized = v }
+			v_notification = Object()
+			if err := coreSet(v_notification, "type", "response.completed"); err != nil { return nil, err }
+			if err := coreSet(v_notification, "response_id", v_id); err != nil { return nil, err }
+			if err := coreSet(v_notification, "response", v_normalized); err != nil { return nil, err }
+			v_events = coreAppend(v_events, v_notification)
+			if err := coreSet(v_seen, v_id, true); err != nil { return nil, err }
+			if err := coreSet(v_state, "seen_responses", v_seen); err != nil { return nil, err }
+		} else {
+		// empty
+		}
+		return v_events, nil
+	} else {
+	// empty
+	}
+	v_failed = _core_eq(v_kind, "response.failed")
+	v_error = _core_eq(v_kind, "error")
+	v_failure = _core_or(v_failed, v_error)
+	v_failure = _core_or(v_failure, v_incomplete)
+	if coreTruthy(v_failure) {
+		v_message = _core_json_stringify(v_event)
+		v_message = _core_string_format("Responses session failed: {}", v_message)
+		v_session_error = _core_runtime_error(v_message)
+		return nil, asAxError(v_session_error)
+	} else {
+	// empty
+	}
+	v_accepted = _core_eq(v_kind, "response.steer.accepted")
+	v_pending = _core_eq(v_kind, "response.steer.pending")
+	v_rejected = _core_eq(v_kind, "response.steer.failed")
+	v_steering = _core_or(v_accepted, v_pending)
+	v_steering = _core_or(v_steering, v_rejected)
+	if coreTruthy(v_steering) {
+		v_steer = coreGet(v_event, "steer", v_empty_map)
+		v_sequence = coreGet(v_event, "sequence_number", nil)
+		v_id = coreGet(v_steer, "id", v_sequence)
+		v_empty_list = MutableArray()
+		v_required = coreGet(v_event, "required_input", v_empty_list)
+		v_required_key = _core_json_stringify(v_required)
+		v_key = _core_string_format("{}:{}:{}", v_kind, v_id, v_required_key)
+		v_seen = coreGet(v_state, "seen_steering", v_empty_map)
+		v_duplicate = _core_map_contains(v_seen, v_key)
+		if coreTruthy(v_duplicate) {
+			return v_events, nil
+		} else {
+		// empty
+		}
+		if err := coreSet(v_seen, v_key, true); err != nil { return nil, err }
+		if err := coreSet(v_state, "seen_steering", v_seen); err != nil { return nil, err }
+		v_notification = Object()
+		if err := coreSet(v_notification, "type", "steering"); err != nil { return nil, err }
+		if err := coreSet(v_notification, "steer_id", v_id); err != nil { return nil, err }
+		v_parent = coreGet(v_steer, "previous_response_id", nil)
+		if err := coreSet(v_notification, "response_id", v_parent); err != nil { return nil, err }
+		if err := coreSet(v_notification, "status", "accepted"); err != nil { return nil, err }
+		if coreTruthy(v_pending) {
+			if err := coreSet(v_notification, "status", "pending"); err != nil { return nil, err }
+			v_ids = MutableArray()
+			for _, v_input = range coreIter(v_required) {
+				v_call_id = coreGet(v_input, "call_id", nil)
+				v_has_id = _core_truthy(v_call_id)
+				if coreTruthy(v_has_id) {
+					v_ids = coreAppend(v_ids, v_call_id)
+				} else {
+				// empty
+				}
+			}
+			if err := coreSet(v_notification, "required_call_ids", v_ids); err != nil { return nil, err }
+		} else {
+		// empty
+		}
+		if coreTruthy(v_rejected) {
+			if err := coreSet(v_notification, "status", "failed"); err != nil { return nil, err }
+			v_error_object = coreGet(v_event, "error", v_empty_map)
+			v_message = coreGet(v_error_object, "message", nil)
+			if err := coreSet(v_notification, "error", v_message); err != nil { return nil, err }
+		} else {
+		// empty
+		}
+		v_events = coreAppend(v_events, v_notification)
+	} else {
+	// empty
+	}
+	v_text = _core_eq(v_kind, "response.output_text.delta")
+	if coreTruthy(v_text) {
+		{ v, err := openai_responses_normalize_stream_delta(v_event, v_state, "openai-responses", v_model); if err != nil { return nil, err }; v_normalized = v }
+		v_notification = Object()
+		if err := coreSet(v_notification, "type", "response"); err != nil { return nil, err }
+		if err := coreSet(v_notification, "response_id", v_response_id); err != nil { return nil, err }
+		if err := coreSet(v_notification, "response", v_normalized); err != nil { return nil, err }
+		v_events = coreAppend(v_events, v_notification)
+	} else {
+	// empty
+	}
+	return v_events, nil
+}
+
+func openai_responses_validate_session_request(args ...Value) (Value, error) {
+	axirCoverageMark("openai_responses_validate_session_request")
+	var v_request Value
+	var v_agents Value
+	var v_agents_value Value
+	var v_astra Value
+	var v_automatic_truncation Value
+	var v_compaction Value
+	var v_effort Value
+	var v_empty Value
+	var v_empty_input Value
+	var v_has_effort Value
+	var v_incompatible Value
+	var v_input Value
+	var v_is_list Value
+	var v_item Value
+	var v_management Value
+	var v_mode Value
+	var v_model Value
+	var v_previous_update Value
+	var v_pro Value
+	var v_reasoning Value
+	var v_truncation Value
+	var v_type Value
+	var v_update Value
+	var v_update_effort Value
+	var v_update_reasoning Value
+	var v_validate_effort Value
+	var v_wrong_model Value
+	if len(args) > 0 { v_request = args[0] }
+	_ = v_request
+	_ = v_agents
+	_ = v_agents_value
+	_ = v_astra
+	_ = v_automatic_truncation
+	_ = v_compaction
+	_ = v_effort
+	_ = v_empty
+	_ = v_empty_input
+	_ = v_has_effort
+	_ = v_incompatible
+	_ = v_input
+	_ = v_is_list
+	_ = v_item
+	_ = v_management
+	_ = v_mode
+	_ = v_model
+	_ = v_previous_update
+	_ = v_pro
+	_ = v_reasoning
+	_ = v_truncation
+	_ = v_type
+	_ = v_update
+	_ = v_update_effort
+	_ = v_update_reasoning
+	_ = v_validate_effort
+	_ = v_wrong_model
+	v_model = coreGet(v_request, "model", "")
+	v_astra = _core_string_starts_with(v_model, "gpt-6-astra")
+	v_empty = Object()
+	v_reasoning = coreGet(v_request, "reasoning", v_empty)
+	v_effort = coreGet(v_reasoning, "effort", nil)
+	v_has_effort = _core_is_not_none(v_effort)
+	v_validate_effort = _core_and(v_astra, v_has_effort)
+	if coreTruthy(v_validate_effort) {
+		if _, err := openai_responses_validate_astra_effort(v_effort); err != nil { return nil, err }
+	} else {
+	// empty
+	}
+	v_empty_input = MutableArray()
+	v_input = coreGet(v_request, "input", v_empty_input)
+	v_is_list = coreTypeIs(v_input, "list")
+	if coreTruthy(v_is_list) {
+		v_previous_update = false
+		for _, v_item = range coreIter(v_input) {
+			v_type = coreGet(v_item, "type", nil)
+			v_update = _core_eq(v_type, "configuration_update")
+			if coreTruthy(v_update) {
+				if coreTruthy(v_previous_update) {
+					return nil, AxError{Category: "runtime", Message: "Adjacent configuration_update items are not supported"}
+				} else {
+				// empty
+				}
+				v_truncation = coreGet(v_request, "truncation", nil)
+				v_automatic_truncation = _core_eq(v_truncation, "auto")
+				v_management = coreGet(v_request, "context_management", nil)
+				v_compaction = _core_truthy(v_management)
+				v_agents_value = coreGet(v_request, "agents", nil)
+				v_agents = _core_truthy(v_agents_value)
+				v_mode = coreGet(v_reasoning, "mode", nil)
+				v_pro = _core_eq(v_mode, "pro")
+				v_wrong_model = _core_not(v_astra)
+				v_incompatible = _core_or(v_wrong_model, v_automatic_truncation)
+				v_incompatible = _core_or(v_incompatible, v_compaction)
+				v_incompatible = _core_or(v_incompatible, v_agents)
+				v_incompatible = _core_or(v_incompatible, v_pro)
+				if coreTruthy(v_incompatible) {
+					return nil, AxError{Category: "runtime", Message: "configuration_update requires GPT-6 Astra in standard single-agent mode without automatic compaction or truncation"}
+				} else {
+				// empty
+				}
+				v_update_reasoning = coreGet(v_item, "reasoning", v_empty)
+				v_update_effort = coreGet(v_update_reasoning, "effort", nil)
+				if _, err := openai_responses_validate_astra_effort(v_update_effort); err != nil { return nil, err }
+			} else {
+			// empty
+			}
+			v_previous_update = v_update
+		}
+	} else {
+	// empty
+	}
+	return v_request, nil
+}
+
+func openai_responses_validate_astra_effort(args ...Value) (Value, error) {
+	axirCoverageMark("openai_responses_validate_astra_effort")
+	var v_effort Value
+	var v_high Value
+	var v_invalid Value
+	var v_low Value
+	var v_max Value
+	var v_medium Value
+	var v_valid Value
+	var v_xhigh Value
+	if len(args) > 0 { v_effort = args[0] }
+	_ = v_effort
+	_ = v_high
+	_ = v_invalid
+	_ = v_low
+	_ = v_max
+	_ = v_medium
+	_ = v_valid
+	_ = v_xhigh
+	v_low = _core_eq(v_effort, "low")
+	v_medium = _core_eq(v_effort, "medium")
+	v_high = _core_eq(v_effort, "high")
+	v_xhigh = _core_eq(v_effort, "xhigh")
+	v_max = _core_eq(v_effort, "max")
+	v_valid = _core_or(v_low, v_medium)
+	v_valid = _core_or(v_valid, v_high)
+	v_valid = _core_or(v_valid, v_xhigh)
+	v_valid = _core_or(v_valid, v_max)
+	v_invalid = _core_not(v_valid)
+	if coreTruthy(v_invalid) {
+		return nil, AxError{Category: "runtime", Message: "Invalid Astra reasoning effort"}
+	} else {
+	// empty
+	}
+	return nil, nil
+}
+
+func chat_session_mode_enabled(args ...Value) (Value, error) {
+	axirCoverageMark("chat_session_mode_enabled")
+	var v_options Value
+	var v_disabled Value
+	var v_enabled Value
+	var v_function_mode Value
+	var v_function_snake Value
+	var v_legacy Value
+	var v_mode Value
+	var v_mode_snake Value
+	var v_prompt Value
+	if len(args) > 0 { v_options = args[0] }
+	_ = v_options
+	_ = v_disabled
+	_ = v_enabled
+	_ = v_function_mode
+	_ = v_function_snake
+	_ = v_legacy
+	_ = v_mode
+	_ = v_mode_snake
+	_ = v_prompt
+	v_mode_snake = coreGet(v_options, "async_mode", "auto")
+	v_mode = coreGet(v_options, "asyncMode", v_mode_snake)
+	v_disabled = _core_eq(v_mode, "off")
+	v_function_snake = coreGet(v_options, "function_call_mode", "auto")
+	v_function_mode = coreGet(v_options, "functionCallMode", v_function_snake)
+	v_prompt = _core_eq(v_function_mode, "prompt")
+	v_legacy = _core_or(v_disabled, v_prompt)
+	v_enabled = _core_not(v_legacy)
+	return v_enabled, nil
+}
+
 func fold_stream(args ...Value) (Value, error) {
 	axirCoverageMark("fold_stream")
 	var v_events Value
@@ -21676,6 +22724,215 @@ func _select_structured_output_rung(args ...Value) (Value, error) {
 	}
 	if err := coreSet(v_selection, "rung", "json_object"); err != nil { return nil, err }
 	return v_selection, nil
+}
+
+func chat_session_validate_required_arguments(args ...Value) (Value, error) {
+	axirCoverageMark("chat_session_validate_required_arguments")
+	var v_schema Value
+	var v_arguments Value
+	var v_path Value
+	var v_array Value
+	var v_child Value
+	var v_child_path Value
+	var v_child_schema Value
+	var v_declared_type Value
+	var v_empty Value
+	var v_empty_map Value
+	var v_error Value
+	var v_has_type Value
+	var v_is_union Value
+	var v_item Value
+	var v_items Value
+	var v_matches Value
+	var v_message Value
+	var v_name Value
+	var v_names Value
+	var v_numeric Value
+	var v_object Value
+	var v_present Value
+	var v_properties Value
+	var v_required Value
+	var v_type Value
+	var v_types Value
+	var v_value_array Value
+	var v_value_boolean Value
+	var v_value_integer Value
+	var v_value_null Value
+	var v_value_number Value
+	var v_value_object Value
+	var v_value_string Value
+	var v_wants_array Value
+	var v_wants_boolean Value
+	var v_wants_integer Value
+	var v_wants_null Value
+	var v_wants_number Value
+	var v_wants_object Value
+	var v_wants_string Value
+	var v_whole Value
+	if len(args) > 0 { v_schema = args[0] }
+	_ = v_schema
+	if len(args) > 1 { v_arguments = args[1] }
+	_ = v_arguments
+	if len(args) > 2 { v_path = args[2] }
+	_ = v_path
+	_ = v_array
+	_ = v_child
+	_ = v_child_path
+	_ = v_child_schema
+	_ = v_declared_type
+	_ = v_empty
+	_ = v_empty_map
+	_ = v_error
+	_ = v_has_type
+	_ = v_is_union
+	_ = v_item
+	_ = v_items
+	_ = v_matches
+	_ = v_message
+	_ = v_name
+	_ = v_names
+	_ = v_numeric
+	_ = v_object
+	_ = v_present
+	_ = v_properties
+	_ = v_required
+	_ = v_type
+	_ = v_types
+	_ = v_value_array
+	_ = v_value_boolean
+	_ = v_value_integer
+	_ = v_value_null
+	_ = v_value_number
+	_ = v_value_object
+	_ = v_value_string
+	_ = v_wants_array
+	_ = v_wants_boolean
+	_ = v_wants_integer
+	_ = v_wants_null
+	_ = v_wants_number
+	_ = v_wants_object
+	_ = v_wants_string
+	_ = v_whole
+	v_declared_type = coreGet(v_schema, "type", nil)
+	v_has_type = _core_is_not_none(v_declared_type)
+	if coreTruthy(v_has_type) {
+		v_types = MutableArray()
+		v_is_union = coreTypeIs(v_declared_type, "list")
+		if coreTruthy(v_is_union) {
+			v_types = v_declared_type
+		} else {
+			v_types = coreAppend(v_types, v_declared_type)
+		}
+		v_matches = false
+		for _, v_type = range coreIter(v_types) {
+			v_wants_string = _core_eq(v_type, "string")
+			if coreTruthy(v_wants_string) {
+				v_value_string = coreTypeIs(v_arguments, "string")
+				v_matches = _core_or(v_matches, v_value_string)
+			} else {
+			// empty
+			}
+			v_wants_object = _core_eq(v_type, "object")
+			if coreTruthy(v_wants_object) {
+				v_value_object = coreTypeIs(v_arguments, "object")
+				v_matches = _core_or(v_matches, v_value_object)
+			} else {
+			// empty
+			}
+			v_wants_array = _core_eq(v_type, "array")
+			if coreTruthy(v_wants_array) {
+				v_value_array = coreTypeIs(v_arguments, "list")
+				v_matches = _core_or(v_matches, v_value_array)
+			} else {
+			// empty
+			}
+			v_wants_number = _core_eq(v_type, "number")
+			if coreTruthy(v_wants_number) {
+				v_value_number = coreTypeIs(v_arguments, "number")
+				v_matches = _core_or(v_matches, v_value_number)
+			} else {
+			// empty
+			}
+			v_wants_boolean = _core_eq(v_type, "boolean")
+			if coreTruthy(v_wants_boolean) {
+				v_value_boolean = coreTypeIs(v_arguments, "boolean")
+				v_matches = _core_or(v_matches, v_value_boolean)
+			} else {
+			// empty
+			}
+			v_wants_null = _core_eq(v_type, "null")
+			if coreTruthy(v_wants_null) {
+				v_value_null = _core_is_none(v_arguments)
+				v_matches = _core_or(v_matches, v_value_null)
+			} else {
+			// empty
+			}
+			v_wants_integer = _core_eq(v_type, "integer")
+			if coreTruthy(v_wants_integer) {
+				v_numeric = coreTypeIs(v_arguments, "number")
+				if coreTruthy(v_numeric) {
+					v_whole = _core_math_floor(v_arguments)
+					v_value_integer = _core_eq(v_whole, v_arguments)
+					v_matches = _core_or(v_matches, v_value_integer)
+				} else {
+				// empty
+				}
+			} else {
+			// empty
+			}
+		}
+		if coreTruthy(v_matches) {
+		// empty
+		} else {
+			v_message = _core_string_format("Validation failed: Expected '{}' to have type {}", v_path, v_declared_type)
+			v_error = _core_validation_error(v_message)
+			return nil, asAxError(v_error)
+		}
+	} else {
+	// empty
+	}
+	v_object = coreTypeIs(v_arguments, "object")
+	if coreTruthy(v_object) {
+		v_empty = MutableArray()
+		v_required = coreGet(v_schema, "required", v_empty)
+		for _, v_name = range coreIter(v_required) {
+			v_present = _core_map_contains(v_arguments, v_name)
+			if coreTruthy(v_present) {
+			// empty
+			} else {
+				v_message = _core_string_format("Required field is missing: '{}.{}'", v_path, v_name)
+				v_error = _core_validation_error(v_message)
+				return nil, asAxError(v_error)
+			}
+		}
+		v_empty_map = Object()
+		v_properties = coreGet(v_schema, "properties", v_empty_map)
+		v_names = _core_map_keys(v_properties)
+		for _, v_name = range coreIter(v_names) {
+			v_present = _core_map_contains(v_arguments, v_name)
+			if coreTruthy(v_present) {
+				v_child = coreGet(v_arguments, v_name, nil)
+				v_child_schema = coreGet(v_properties, v_name, nil)
+				v_child_path = _core_string_format("{}.{}", v_path, v_name)
+				if _, err := chat_session_validate_required_arguments(v_child_schema, v_child, v_child_path); err != nil { return nil, err }
+			} else {
+			// empty
+			}
+		}
+	} else {
+	// empty
+	}
+	v_array = coreTypeIs(v_arguments, "list")
+	if coreTruthy(v_array) {
+		v_empty_map = Object()
+		v_items = coreGet(v_schema, "items", v_empty_map)
+		for _, v_item = range coreIter(v_arguments) {
+			if _, err := chat_session_validate_required_arguments(v_items, v_item, v_path); err != nil { return nil, err }
+		}
+	} else {
+	// empty
+	}
+	return nil, nil
 }
 
 func _execute_tool_call(args ...Value) (Value, error) {
@@ -22201,6 +23458,62 @@ func _validate_optimization_component_value(args ...Value) (Value, error) {
 	return true, nil
 }
 
+func chat_session_record_result(args ...Value) (Value, error) {
+	axirCoverageMark("chat_session_record_result")
+	var v_gen Value
+	var v_state Value
+	var v_call Value
+	var v_result Value
+	var v_ok Value
+	var v_changed Value
+	var v_id Value
+	var v_is_string Value
+	var v_output Value
+	var v_status Value
+	var v_text Value
+	if len(args) > 0 { v_gen = args[0] }
+	_ = v_gen
+	if len(args) > 1 { v_state = args[1] }
+	_ = v_state
+	if len(args) > 2 { v_call = args[2] }
+	_ = v_call
+	if len(args) > 3 { v_result = args[3] }
+	_ = v_result
+	if len(args) > 4 { v_ok = args[4] }
+	_ = v_ok
+	_ = v_changed
+	_ = v_id
+	_ = v_is_string
+	_ = v_output
+	_ = v_status
+	_ = v_text
+	v_id = coreGet(v_call, "id", nil)
+	v_text = v_result
+	v_is_string = coreTypeIs(v_result, "string")
+	if coreTruthy(v_is_string) {
+	// empty
+	} else {
+		v_text = _core_json_stringify(v_result)
+	}
+	v_output = Object()
+	if err := coreSet(v_output, "function_id", v_id); err != nil { return nil, err }
+	if err := coreSet(v_output, "result", v_text); err != nil { return nil, err }
+	{ v, err := chat_session_complete_call(v_state, v_id, v_output); if err != nil { return nil, err }; v_changed = v }
+	if coreTruthy(v_changed) {
+		v_status = "error"
+		if coreTruthy(v_ok) {
+			v_status = "ok"
+		} else {
+		// empty
+		}
+		_core_axgen_memory_add_function_result(v_gen, v_call, v_result, v_ok)
+		_core_axgen_record_function_call(v_gen, v_call, v_result, v_status)
+	} else {
+	// empty
+	}
+	return v_changed, nil
+}
+
 func _validate_optimization_component_map(args ...Value) (Value, error) {
 	axirCoverageMark("_validate_optimization_component_map")
 	var v_components Value
@@ -22414,6 +23727,101 @@ func _structured_output_scalar_placeholder(args ...Value) (Value, error) {
 	// empty
 	}
 	return "<value>", nil
+}
+
+func chat_session_observe_output(args ...Value) (Value, error) {
+	axirCoverageMark("chat_session_observe_output")
+	var v_gen Value
+	var v_state Value
+	var v_event Value
+	var v_assertion Value
+	var v_assertions Value
+	var v_delta Value
+	var v_empty_list Value
+	var v_empty_map Value
+	var v_error Value
+	var v_found Value
+	var v_has_needle Value
+	var v_id Value
+	var v_is_map Value
+	var v_message Value
+	var v_needle Value
+	var v_needle_camel Value
+	var v_output Value
+	var v_response Value
+	var v_result Value
+	var v_results Value
+	var v_text Value
+	var v_texts Value
+	var v_version Value
+	if len(args) > 0 { v_gen = args[0] }
+	_ = v_gen
+	if len(args) > 1 { v_state = args[1] }
+	_ = v_state
+	if len(args) > 2 { v_event = args[2] }
+	_ = v_event
+	_ = v_assertion
+	_ = v_assertions
+	_ = v_delta
+	_ = v_empty_list
+	_ = v_empty_map
+	_ = v_error
+	_ = v_found
+	_ = v_has_needle
+	_ = v_id
+	_ = v_is_map
+	_ = v_message
+	_ = v_needle
+	_ = v_needle_camel
+	_ = v_output
+	_ = v_response
+	_ = v_result
+	_ = v_results
+	_ = v_text
+	_ = v_texts
+	_ = v_version
+	v_empty_map = Object()
+	v_empty_list = MutableArray()
+	v_texts = coreGet(v_state, "texts", v_empty_map)
+	v_id = coreGet(v_event, "response_id", nil)
+	v_text = coreGet(v_texts, v_id, "")
+	v_response = coreGet(v_event, "response", nil)
+	v_results = coreGet(v_response, "results", v_empty_list)
+	for _, v_result = range coreIter(v_results) {
+		v_delta = coreGet(v_result, "content", "")
+		v_text = _core_string_format("{}{}", v_text, v_delta)
+	}
+	if err := coreSet(v_texts, v_id, v_text); err != nil { return nil, err }
+	if err := coreSet(v_state, "texts", v_texts); err != nil { return nil, err }
+	v_assertions = coreGet(v_gen, "streaming_assertions", v_empty_list)
+	for _, v_assertion = range coreIter(v_assertions) {
+		v_is_map = coreTypeIs(v_assertion, "object")
+		if coreTruthy(v_is_map) {
+			v_needle_camel = coreGet(v_assertion, "notContains", nil)
+			v_needle = coreGet(v_assertion, "not_contains", v_needle_camel)
+			v_has_needle = _core_is_not_none(v_needle)
+			if coreTruthy(v_has_needle) {
+				v_found = _core_contains(v_text, v_needle)
+				if coreTruthy(v_found) {
+					v_message = coreGet(v_assertion, "message", "streaming assertion failed")
+					v_error = _core_runtime_error(v_message)
+					return nil, asAxError(v_error)
+				} else {
+				// empty
+				}
+			} else {
+			// empty
+			}
+		} else {
+		// empty
+		}
+	}
+	v_version = coreGet(v_state, "version", 0)
+	v_output = Object()
+	if err := coreSet(v_output, "response_id", v_id); err != nil { return nil, err }
+	if err := coreSet(v_output, "text", v_text); err != nil { return nil, err }
+	if err := coreSet(v_output, "version", v_version); err != nil { return nil, err }
+	return v_output, nil
 }
 
 func _stream_event_content_parts_impl(args ...Value) (Value, error) {
@@ -22659,6 +24067,82 @@ func _validate_optimized_artifact(args ...Value) (Value, error) {
 	return v_artifact, nil
 }
 
+func chat_session_apply_boundary_updates(args ...Value) (Value, error) {
+	axirCoverageMark("chat_session_apply_boundary_updates")
+	var v_request Value
+	var v_updates Value
+	var v_level Value
+	var v_applied Value
+	var v_config Value
+	var v_current_level Value
+	var v_empty Value
+	var v_has_level Value
+	var v_id Value
+	var v_kind Value
+	var v_message Value
+	var v_messages Value
+	var v_next_level Value
+	var v_result Value
+	var v_steering Value
+	var v_text Value
+	var v_update Value
+	if len(args) > 0 { v_request = args[0] }
+	_ = v_request
+	if len(args) > 1 { v_updates = args[1] }
+	_ = v_updates
+	if len(args) > 2 { v_level = args[2] }
+	_ = v_level
+	_ = v_applied
+	_ = v_config
+	_ = v_current_level
+	_ = v_empty
+	_ = v_has_level
+	_ = v_id
+	_ = v_kind
+	_ = v_message
+	_ = v_messages
+	_ = v_next_level
+	_ = v_result
+	_ = v_steering
+	_ = v_text
+	_ = v_update
+	v_empty = Object()
+	v_config = coreGet(v_request, "model_config", v_empty)
+	v_config = _core_map_merge(v_config, v_empty)
+	v_messages = coreGet(v_request, "chat_prompt", nil)
+	v_current_level = v_level
+	v_applied = MutableArray()
+	for _, v_update = range coreIter(v_updates) {
+		v_kind = coreGet(v_update, "type", nil)
+		v_steering = _core_eq(v_kind, "steer")
+		if coreTruthy(v_steering) {
+			v_message = Object()
+			v_text = coreGet(v_update, "text", nil)
+			if err := coreSet(v_message, "role", "user"); err != nil { return nil, err }
+			if err := coreSet(v_message, "content", v_text); err != nil { return nil, err }
+			v_messages = coreAppend(v_messages, v_message)
+		} else {
+			v_next_level = coreGet(v_update, "level", nil)
+			v_current_level = v_next_level
+		}
+		v_id = coreGet(v_update, "id", nil)
+		v_applied = coreAppend(v_applied, v_id)
+	}
+	v_has_level = _core_is_not_none(v_current_level)
+	if coreTruthy(v_has_level) {
+		if err := coreSet(v_config, "thinkingTokenBudget", v_current_level); err != nil { return nil, err }
+	} else {
+	// empty
+	}
+	if err := coreSet(v_request, "model_config", v_config); err != nil { return nil, err }
+	if err := coreSet(v_request, "chat_prompt", v_messages); err != nil { return nil, err }
+	v_result = Object()
+	if err := coreSet(v_result, "request", v_request); err != nil { return nil, err }
+	if err := coreSet(v_result, "level", v_current_level); err != nil { return nil, err }
+	if err := coreSet(v_result, "applied", v_applied); err != nil { return nil, err }
+	return v_result, nil
+}
+
 func _structured_output_type_placeholder(args ...Value) (Value, error) {
 	axirCoverageMark("_structured_output_type_placeholder")
 	var v_typ Value
@@ -22683,6 +24167,42 @@ func _structured_output_type_placeholder(args ...Value) (Value, error) {
 	// empty
 	}
 	return v_placeholder, nil
+}
+
+func chat_session_create_state(args ...Value) (Value, error) {
+	axirCoverageMark("chat_session_create_state")
+	var v_model Value
+	var v_path Value
+	var v_max_steps Value
+	var v_pending Value
+	var v_responses Value
+	var v_state Value
+	var v_updates Value
+	if len(args) > 0 { v_model = args[0] }
+	_ = v_model
+	if len(args) > 1 { v_path = args[1] }
+	_ = v_path
+	if len(args) > 2 { v_max_steps = args[2] }
+	_ = v_max_steps
+	_ = v_pending
+	_ = v_responses
+	_ = v_state
+	_ = v_updates
+	v_state = Object()
+	v_pending = Object()
+	v_responses = Object()
+	v_updates = Object()
+	if err := coreSet(v_state, "model", v_model); err != nil { return nil, err }
+	if err := coreSet(v_state, "path", v_path); err != nil { return nil, err }
+	if err := coreSet(v_state, "max_steps", v_max_steps); err != nil { return nil, err }
+	if err := coreSet(v_state, "steps", 0); err != nil { return nil, err }
+	if err := coreSet(v_state, "version", 0); err != nil { return nil, err }
+	if err := coreSet(v_state, "pending", v_pending); err != nil { return nil, err }
+	if err := coreSet(v_state, "responses", v_responses); err != nil { return nil, err }
+	if err := coreSet(v_state, "updates", v_updates); err != nil { return nil, err }
+	if err := coreSet(v_state, "boundary", false); err != nil { return nil, err }
+	if err := coreSet(v_state, "terminal", false); err != nil { return nil, err }
+	return v_state, nil
 }
 
 func _structured_output_shape(args ...Value) (Value, error) {
@@ -22735,6 +24255,29 @@ func _serialize_optimized_artifact(args ...Value) (Value, error) {
 	_ = v_text
 	v_text = _core_json_stringify(v_artifact)
 	return v_text, nil
+}
+
+func chat_session_target_matches(args ...Value) (Value, error) {
+	axirCoverageMark("chat_session_target_matches")
+	var v_target Value
+	var v_path Value
+	var v_descendant Value
+	var v_exact Value
+	var v_matches Value
+	var v_prefix Value
+	if len(args) > 0 { v_target = args[0] }
+	_ = v_target
+	if len(args) > 1 { v_path = args[1] }
+	_ = v_path
+	_ = v_descendant
+	_ = v_exact
+	_ = v_matches
+	_ = v_prefix
+	v_exact = _core_eq(v_target, v_path)
+	v_prefix = _core_string_format("{}/", v_target)
+	v_descendant = _core_string_starts_with(v_path, v_prefix)
+	v_matches = _core_or(v_exact, v_descendant)
+	return v_matches, nil
 }
 
 func _append_structured_output_instruction(args ...Value) (Value, error) {
@@ -22795,6 +24338,44 @@ func _deserialize_optimized_artifact(args ...Value) (Value, error) {
 	{ v, err := _core_json_parse(v_text); if err != nil { return nil, err }; v_artifact = v }
 	{ v, err := _validate_optimized_artifact(v_artifact, v_components); if err != nil { return nil, err }; v_validated = v }
 	return v_validated, nil
+}
+
+func chat_session_unresolved(args ...Value) (Value, error) {
+	axirCoverageMark("chat_session_unresolved")
+	var v_state Value
+	var v_call Value
+	var v_id Value
+	var v_ids Value
+	var v_out Value
+	var v_pending Value
+	var v_sent Value
+	var v_status Value
+	var v_unresolved Value
+	if len(args) > 0 { v_state = args[0] }
+	_ = v_state
+	_ = v_call
+	_ = v_id
+	_ = v_ids
+	_ = v_out
+	_ = v_pending
+	_ = v_sent
+	_ = v_status
+	_ = v_unresolved
+	v_out = MutableArray()
+	v_pending = coreGet(v_state, "pending", nil)
+	v_ids = _core_map_keys(v_pending)
+	for _, v_id = range coreIter(v_ids) {
+		v_call = coreGet(v_pending, v_id, nil)
+		v_status = coreGet(v_call, "status", nil)
+		v_sent = _core_eq(v_status, "sent")
+		v_unresolved = _core_not(v_sent)
+		if coreTruthy(v_unresolved) {
+			v_out = coreAppend(v_out, v_id)
+		} else {
+		// empty
+		}
+	}
+	return v_out, nil
 }
 
 func _optimization_changed_components(args ...Value) (Value, error) {
@@ -22868,6 +24449,58 @@ func _assert_no_reserved_output_functions(args ...Value) (Value, error) {
 		}
 	}
 	return nil, nil
+}
+
+func chat_session_register_call(args ...Value) (Value, error) {
+	axirCoverageMark("chat_session_register_call")
+	var v_state Value
+	var v_call Value
+	var v_execution Value
+	var v_exists Value
+	var v_id Value
+	var v_missing Value
+	var v_pending Value
+	var v_record Value
+	var v_terminal Value
+	if len(args) > 0 { v_state = args[0] }
+	_ = v_state
+	if len(args) > 1 { v_call = args[1] }
+	_ = v_call
+	if len(args) > 2 { v_execution = args[2] }
+	_ = v_execution
+	_ = v_exists
+	_ = v_id
+	_ = v_missing
+	_ = v_pending
+	_ = v_record
+	_ = v_terminal
+	v_terminal = coreGet(v_state, "terminal", false)
+	if coreTruthy(v_terminal) {
+		return false, nil
+	} else {
+	// empty
+	}
+	v_id = coreGet(v_call, "id", "")
+	v_missing = _core_eq(v_id, "")
+	if coreTruthy(v_missing) {
+		return nil, AxError{Category: "runtime", Message: "Completed tool calls require a call ID"}
+	} else {
+	// empty
+	}
+	v_pending = coreGet(v_state, "pending", nil)
+	v_exists = _core_map_contains(v_pending, v_id)
+	if coreTruthy(v_exists) {
+		return false, nil
+	} else {
+	// empty
+	}
+	v_record = Object()
+	if err := coreSet(v_record, "call", v_call); err != nil { return nil, err }
+	if err := coreSet(v_record, "execution", v_execution); err != nil { return nil, err }
+	if err := coreSet(v_record, "status", "running"); err != nil { return nil, err }
+	if err := coreSet(v_pending, v_id, v_record); err != nil { return nil, err }
+	if err := coreSet(v_state, "pending", v_pending); err != nil { return nil, err }
+	return true, nil
 }
 
 func _optimization_component_current_map(args ...Value) (Value, error) {
@@ -22965,6 +24598,37 @@ func _normalize_optimization_dataset(args ...Value) (Value, error) {
 	return v_out_list, nil
 }
 
+func chat_session_result(args ...Value) (Value, error) {
+	axirCoverageMark("chat_session_result")
+	var v_response Value
+	var v_id Value
+	var v_empty Value
+	if len(args) > 0 { v_response = args[0] }
+	_ = v_response
+	if len(args) > 1 { v_id = args[1] }
+	_ = v_id
+	_ = v_empty
+	v_empty = Object()
+	v_response = _core_map_merge(v_response, v_empty)
+	if err := coreSet(v_response, "__session_response_id", v_id); err != nil { return nil, err }
+	return v_response, nil
+}
+
+func chat_session_completion(args ...Value) (Value, error) {
+	axirCoverageMark("chat_session_completion")
+	var v_response Value
+	var v_id Value
+	var v_completion Value
+	if len(args) > 0 { v_response = args[0] }
+	_ = v_response
+	if len(args) > 1 { v_id = args[1] }
+	_ = v_id
+	_ = v_completion
+	{ v, err := chat_response_to_completion(v_response); if err != nil { return nil, err }; v_completion = v }
+	if err := coreSet(v_completion, "remote_id", v_id); err != nil { return nil, err }
+	return v_completion, nil
+}
+
 func _structured_output_call_args(args ...Value) (Value, error) {
 	axirCoverageMark("_structured_output_call_args")
 	var v_call Value
@@ -23034,6 +24698,28 @@ func _normalize_optimization_metric_scores(args ...Value) (Value, error) {
 	v_out_zero = Object()
 	if err := coreSet(v_out_zero, "score", 0); err != nil { return nil, err }
 	return v_out_zero, nil
+}
+
+func chat_session_has_continuation_work(args ...Value) (Value, error) {
+	axirCoverageMark("chat_session_has_continuation_work")
+	var v_state Value
+	var v_continuation Value
+	var v_native_wait Value
+	var v_pending Value
+	var v_work Value
+	if len(args) > 0 { v_state = args[0] }
+	_ = v_state
+	_ = v_continuation
+	_ = v_native_wait
+	_ = v_pending
+	_ = v_work
+	{ v, err := chat_session_unresolved(v_state); if err != nil { return nil, err }; v_pending = v }
+	v_pending = _core_truthy(v_pending)
+	{ v, err := chat_session_native_wait(v_state); if err != nil { return nil, err }; v_native_wait = v }
+	v_continuation = coreGet(v_state, "needs_continuation", false)
+	v_work = _core_or(v_pending, v_native_wait)
+	v_work = _core_or(v_work, v_continuation)
+	return v_work, nil
 }
 
 func _build_gen_chat_request(args ...Value) (Value, error) {
@@ -23325,6 +25011,34 @@ func _build_gen_chat_request(args ...Value) (Value, error) {
 	return v_request, nil
 }
 
+func chat_session_normalize_call(args ...Value) (Value, error) {
+	axirCoverageMark("chat_session_normalize_call")
+	var v_call Value
+	var v_function Value
+	var v_missing Value
+	var v_name Value
+	var v_params Value
+	if len(args) > 0 { v_call = args[0] }
+	_ = v_call
+	_ = v_function
+	_ = v_missing
+	_ = v_name
+	_ = v_params
+	v_function = coreGet(v_call, "function", nil)
+	v_missing = _core_is_none(v_function)
+	if coreTruthy(v_missing) {
+		{ v, err := _completion_call_to_chat_impl(v_call); if err != nil { return nil, err }; v_call = v }
+		v_function = coreGet(v_call, "function", nil)
+	} else {
+	// empty
+	}
+	v_name = coreGet(v_function, "name", nil)
+	v_params = coreGet(v_function, "params", nil)
+	if err := coreSet(v_call, "name", v_name); err != nil { return nil, err }
+	if err := coreSet(v_call, "params", v_params); err != nil { return nil, err }
+	return v_call, nil
+}
+
 func _scalarize_optimization_scores(args ...Value) (Value, error) {
 	axirCoverageMark("_scalarize_optimization_scores")
 	var v_scores Value
@@ -23382,6 +25096,50 @@ func _scalarize_optimization_scores(args ...Value) (Value, error) {
 	return v_avg, nil
 }
 
+func chat_session_defer_final_call(args ...Value) (Value, error) {
+	axirCoverageMark("chat_session_defer_final_call")
+	var v_state Value
+	var v_call Value
+	var v_defer Value
+	var v_id Value
+	var v_pending Value
+	var v_registered Value
+	var v_result Value
+	var v_unresolved Value
+	var v_updates Value
+	if len(args) > 0 { v_state = args[0] }
+	_ = v_state
+	if len(args) > 1 { v_call = args[1] }
+	_ = v_call
+	_ = v_defer
+	_ = v_id
+	_ = v_pending
+	_ = v_registered
+	_ = v_result
+	_ = v_unresolved
+	_ = v_updates
+	{ v, err := chat_session_unresolved(v_state); if err != nil { return nil, err }; v_unresolved = v }
+	v_pending = _core_truthy(v_unresolved)
+	v_updates = coreGet(v_state, "needs_continuation", false)
+	v_defer = _core_or(v_pending, v_updates)
+	if coreTruthy(v_defer) {
+		{ v, err := chat_session_register_call(v_state, v_call, "blocking"); if err != nil { return nil, err }; v_registered = v }
+		if coreTruthy(v_registered) {
+			v_id = coreGet(v_call, "id", nil)
+			v_result = Object()
+			if err := coreSet(v_result, "function_id", v_id); err != nil { return nil, err }
+			if err := coreSet(v_result, "result", "Not executed: incorporate the background tool results and queued updates before calling this finalization function again."); err != nil { return nil, err }
+			if _, err := chat_session_complete_call(v_state, v_id, v_result); err != nil { return nil, err }
+		} else {
+		// empty
+		}
+		return v_registered, nil
+	} else {
+	// empty
+	}
+	return false, nil
+}
+
 func _optimization_action_name_matches(args ...Value) (Value, error) {
 	axirCoverageMark("_optimization_action_name_matches")
 	var v_expected Value
@@ -23415,6 +25173,60 @@ func _optimization_action_name_matches(args ...Value) (Value, error) {
 	v_direct_match = _core_or(v_qualified_match, v_name_match)
 	v_any_match = _core_or(v_direct_match, v_suffix_match)
 	return v_any_match, nil
+}
+
+func chat_session_complete_call(args ...Value) (Value, error) {
+	axirCoverageMark("chat_session_complete_call")
+	var v_state Value
+	var v_id Value
+	var v_result Value
+	var v_exists Value
+	var v_missing Value
+	var v_pending Value
+	var v_record Value
+	var v_running Value
+	var v_status Value
+	var v_terminal Value
+	if len(args) > 0 { v_state = args[0] }
+	_ = v_state
+	if len(args) > 1 { v_id = args[1] }
+	_ = v_id
+	if len(args) > 2 { v_result = args[2] }
+	_ = v_result
+	_ = v_exists
+	_ = v_missing
+	_ = v_pending
+	_ = v_record
+	_ = v_running
+	_ = v_status
+	_ = v_terminal
+	v_terminal = coreGet(v_state, "terminal", false)
+	if coreTruthy(v_terminal) {
+		return false, nil
+	} else {
+	// empty
+	}
+	v_pending = coreGet(v_state, "pending", nil)
+	v_exists = _core_map_contains(v_pending, v_id)
+	v_missing = _core_not(v_exists)
+	if coreTruthy(v_missing) {
+		return nil, AxError{Category: "runtime", Message: "Tool result has no registered call"}
+	} else {
+	// empty
+	}
+	v_record = coreGet(v_pending, v_id, nil)
+	v_status = coreGet(v_record, "status", nil)
+	v_running = _core_eq(v_status, "running")
+	if coreTruthy(v_running) {
+		if err := coreSet(v_record, "result", v_result); err != nil { return nil, err }
+		if err := coreSet(v_record, "status", "ready"); err != nil { return nil, err }
+		if err := coreSet(v_pending, v_id, v_record); err != nil { return nil, err }
+		if err := coreSet(v_state, "pending", v_pending); err != nil { return nil, err }
+		return true, nil
+	} else {
+	// empty
+	}
+	return false, nil
 }
 
 func _adjust_optimization_score_for_actions(args ...Value) (Value, error) {
@@ -23524,6 +25336,134 @@ func _adjust_optimization_score_for_actions(args ...Value) (Value, error) {
 	return v_adjusted, nil
 }
 
+func chat_session_complete_response(args ...Value) (Value, error) {
+	axirCoverageMark("chat_session_complete_response")
+	var v_state Value
+	var v_id Value
+	var v_duplicate Value
+	var v_exhausted Value
+	var v_finished Value
+	var v_had_successor Value
+	var v_has_parent Value
+	var v_limit Value
+	var v_next Value
+	var v_parent Value
+	var v_queued Value
+	var v_record Value
+	var v_responses Value
+	var v_steps Value
+	var v_successor Value
+	var v_terminal Value
+	var v_update_id Value
+	var v_update_ids Value
+	var v_updates Value
+	if len(args) > 0 { v_state = args[0] }
+	_ = v_state
+	if len(args) > 1 { v_id = args[1] }
+	_ = v_id
+	_ = v_duplicate
+	_ = v_exhausted
+	_ = v_finished
+	_ = v_had_successor
+	_ = v_has_parent
+	_ = v_limit
+	_ = v_next
+	_ = v_parent
+	_ = v_queued
+	_ = v_record
+	_ = v_responses
+	_ = v_steps
+	_ = v_successor
+	_ = v_terminal
+	_ = v_update_id
+	_ = v_update_ids
+	_ = v_updates
+	v_terminal = coreGet(v_state, "terminal", false)
+	if coreTruthy(v_terminal) {
+		return false, nil
+	} else {
+	// empty
+	}
+	v_responses = coreGet(v_state, "responses", nil)
+	v_duplicate = _core_map_contains(v_responses, v_id)
+	if coreTruthy(v_duplicate) {
+		return false, nil
+	} else {
+	// empty
+	}
+	v_steps = coreGet(v_state, "steps", 0)
+	v_limit = coreGet(v_state, "max_steps", nil)
+	v_exhausted = _core_gte(v_steps, v_limit)
+	if coreTruthy(v_exhausted) {
+		return nil, AxError{Category: "runtime", Message: "Maximum model steps exhausted before final completion"}
+	} else {
+	// empty
+	}
+	v_next = _core_add(v_steps, 1)
+	if err := coreSet(v_responses, v_id, true); err != nil { return nil, err }
+	if err := coreSet(v_state, "responses", v_responses); err != nil { return nil, err }
+	if err := coreSet(v_state, "response_id", v_id); err != nil { return nil, err }
+	if err := coreSet(v_state, "steps", v_next); err != nil { return nil, err }
+	if err := coreSet(v_state, "boundary", true); err != nil { return nil, err }
+	v_updates = coreGet(v_state, "updates", nil)
+	v_update_ids = _core_map_keys(v_updates)
+	v_had_successor = false
+	for _, v_update_id = range coreIter(v_update_ids) {
+		v_record = coreGet(v_updates, v_update_id, nil)
+		v_parent = coreGet(v_record, "native_parent", nil)
+		v_has_parent = _core_is_not_none(v_parent)
+		v_successor = _core_ne(v_parent, v_id)
+		v_finished = _core_and(v_has_parent, v_successor)
+		if coreTruthy(v_finished) {
+			v_had_successor = true
+			if err := coreSet(v_record, "native_state", "done"); err != nil { return nil, err }
+			if err := coreSet(v_updates, v_update_id, v_record); err != nil { return nil, err }
+		} else {
+		// empty
+		}
+	}
+	if err := coreSet(v_state, "updates", v_updates); err != nil { return nil, err }
+	if coreTruthy(v_had_successor) {
+		{ v, err := chat_session_has_queued_updates(v_state); if err != nil { return nil, err }; v_queued = v }
+		if err := coreSet(v_state, "needs_continuation", v_queued); err != nil { return nil, err }
+	} else {
+	// empty
+	}
+	return true, nil
+}
+
+func chat_session_has_queued_updates(args ...Value) (Value, error) {
+	axirCoverageMark("chat_session_has_queued_updates")
+	var v_state Value
+	var v_id Value
+	var v_ids Value
+	var v_queued Value
+	var v_record Value
+	var v_status Value
+	var v_updates Value
+	if len(args) > 0 { v_state = args[0] }
+	_ = v_state
+	_ = v_id
+	_ = v_ids
+	_ = v_queued
+	_ = v_record
+	_ = v_status
+	_ = v_updates
+	v_updates = coreGet(v_state, "updates", nil)
+	v_ids = _core_map_keys(v_updates)
+	for _, v_id = range coreIter(v_ids) {
+		v_record = coreGet(v_updates, v_id, nil)
+		v_status = coreGet(v_record, "status", nil)
+		v_queued = _core_eq(v_status, "queued")
+		if coreTruthy(v_queued) {
+			return true, nil
+		} else {
+		// empty
+		}
+	}
+	return false, nil
+}
+
 func _parse_sample_outputs(args ...Value) (Value, error) {
 	axirCoverageMark("_parse_sample_outputs")
 	var v_gen Value
@@ -23613,6 +25553,102 @@ func _parse_sample_outputs(args ...Value) (Value, error) {
 	if err := coreSet(v_bundle, "outputs", v_outputs); err != nil { return nil, err }
 	if err := coreSet(v_bundle, "samples", v_samples); err != nil { return nil, err }
 	return v_bundle, nil
+}
+
+func chat_session_native_update(args ...Value) (Value, error) {
+	axirCoverageMark("chat_session_native_update")
+	var v_state Value
+	var v_id Value
+	var v_baseline Value
+	var v_empty_baseline Value
+	var v_native_state Value
+	var v_new_native Value
+	var v_record Value
+	var v_responses Value
+	var v_terminal Value
+	var v_updates Value
+	if len(args) > 0 { v_state = args[0] }
+	_ = v_state
+	if len(args) > 1 { v_id = args[1] }
+	_ = v_id
+	_ = v_baseline
+	_ = v_empty_baseline
+	_ = v_native_state
+	_ = v_new_native
+	_ = v_record
+	_ = v_responses
+	_ = v_terminal
+	_ = v_updates
+	v_terminal = coreGet(v_state, "terminal", false)
+	if coreTruthy(v_terminal) {
+		return false, nil
+	} else {
+	// empty
+	}
+	v_updates = coreGet(v_state, "updates", nil)
+	v_record = coreGet(v_updates, v_id, nil)
+	v_native_state = coreGet(v_record, "native_state", nil)
+	v_new_native = _core_is_none(v_native_state)
+	if coreTruthy(v_new_native) {
+		if err := coreSet(v_record, "native_state", "awaiting_ack"); err != nil { return nil, err }
+		v_responses = coreGet(v_state, "responses", nil)
+		v_empty_baseline = Object()
+		v_baseline = _core_map_merge(v_empty_baseline, v_responses)
+		if err := coreSet(v_record, "native_responses", v_baseline); err != nil { return nil, err }
+		if err := coreSet(v_updates, v_id, v_record); err != nil { return nil, err }
+		if err := coreSet(v_state, "updates", v_updates); err != nil { return nil, err }
+	} else {
+	// empty
+	}
+	return v_new_native, nil
+}
+
+func chat_session_native_wait(args ...Value) (Value, error) {
+	axirCoverageMark("chat_session_native_wait")
+	var v_state Value
+	var v_has_native Value
+	var v_id Value
+	var v_ids Value
+	var v_native_state Value
+	var v_queued Value
+	var v_record Value
+	var v_status Value
+	var v_successor Value
+	var v_updates Value
+	var v_waiting Value
+	if len(args) > 0 { v_state = args[0] }
+	_ = v_state
+	_ = v_has_native
+	_ = v_id
+	_ = v_ids
+	_ = v_native_state
+	_ = v_queued
+	_ = v_record
+	_ = v_status
+	_ = v_successor
+	_ = v_updates
+	_ = v_waiting
+	v_updates = coreGet(v_state, "updates", nil)
+	v_ids = _core_map_keys(v_updates)
+	for _, v_id = range coreIter(v_ids) {
+		v_record = coreGet(v_updates, v_id, nil)
+		v_native_state = coreGet(v_record, "native_state", nil)
+		v_has_native = _core_is_not_none(v_native_state)
+		if coreTruthy(v_has_native) {
+			v_status = coreGet(v_record, "status", nil)
+			v_queued = _core_eq(v_status, "queued")
+			v_successor = _core_eq(v_native_state, "awaiting_successor")
+			v_waiting = _core_or(v_queued, v_successor)
+			if coreTruthy(v_waiting) {
+				return true, nil
+			} else {
+			// empty
+			}
+		} else {
+		// empty
+		}
+	}
+	return false, nil
 }
 
 func _build_optimization_eval_row(args ...Value) (Value, error) {
@@ -23726,6 +25762,253 @@ func _select_sample_index(args ...Value) (Value, error) {
 	// empty
 	}
 	return v_selected, nil
+}
+
+func chat_session_native_event(args ...Value) (Value, error) {
+	axirCoverageMark("chat_session_native_event")
+	var v_state Value
+	var v_event Value
+	var v_accepted Value
+	var v_await_successor Value
+	var v_baseline Value
+	var v_can_clear Value
+	var v_candidate Value
+	var v_changed Value
+	var v_changed_ids Value
+	var v_changed_state Value
+	var v_choose_record Value
+	var v_done Value
+	var v_empty Value
+	var v_empty_map Value
+	var v_error Value
+	var v_failed Value
+	var v_found Value
+	var v_has_steer Value
+	var v_id Value
+	var v_ids Value
+	var v_matches Value
+	var v_missing Value
+	var v_native_state Value
+	var v_new_response Value
+	var v_not_done Value
+	var v_not_parent Value
+	var v_not_pending Value
+	var v_old_required Value
+	var v_old_response Value
+	var v_parent Value
+	var v_pending Value
+	var v_pending_input Value
+	var v_pending_status Value
+	var v_queued Value
+	var v_record Value
+	var v_record_status Value
+	var v_record_steer Value
+	var v_required Value
+	var v_response_id Value
+	var v_response_ids Value
+	var v_responses Value
+	var v_result Value
+	var v_same Value
+	var v_selected Value
+	var v_settled Value
+	var v_status Value
+	var v_steer_id Value
+	var v_successor_seen Value
+	var v_terminal Value
+	var v_unassigned Value
+	var v_updates Value
+	var v_version Value
+	var v_waiting Value
+	if len(args) > 0 { v_state = args[0] }
+	_ = v_state
+	if len(args) > 1 { v_event = args[1] }
+	_ = v_event
+	_ = v_accepted
+	_ = v_await_successor
+	_ = v_baseline
+	_ = v_can_clear
+	_ = v_candidate
+	_ = v_changed
+	_ = v_changed_ids
+	_ = v_changed_state
+	_ = v_choose_record
+	_ = v_done
+	_ = v_empty
+	_ = v_empty_map
+	_ = v_error
+	_ = v_failed
+	_ = v_found
+	_ = v_has_steer
+	_ = v_id
+	_ = v_ids
+	_ = v_matches
+	_ = v_missing
+	_ = v_native_state
+	_ = v_new_response
+	_ = v_not_done
+	_ = v_not_parent
+	_ = v_not_pending
+	_ = v_old_required
+	_ = v_old_response
+	_ = v_parent
+	_ = v_pending
+	_ = v_pending_input
+	_ = v_pending_status
+	_ = v_queued
+	_ = v_record
+	_ = v_record_status
+	_ = v_record_steer
+	_ = v_required
+	_ = v_response_id
+	_ = v_response_ids
+	_ = v_responses
+	_ = v_result
+	_ = v_same
+	_ = v_selected
+	_ = v_settled
+	_ = v_status
+	_ = v_steer_id
+	_ = v_successor_seen
+	_ = v_terminal
+	_ = v_unassigned
+	_ = v_updates
+	_ = v_version
+	_ = v_waiting
+	v_result = Object()
+	if err := coreSet(v_result, "changed", false); err != nil { return nil, err }
+	v_terminal = coreGet(v_state, "terminal", false)
+	if coreTruthy(v_terminal) {
+		return v_result, nil
+	} else {
+	// empty
+	}
+	v_status = coreGet(v_event, "status", nil)
+	v_failed = _core_eq(v_status, "failed")
+	if coreTruthy(v_failed) {
+		v_error = coreGet(v_event, "error", "Provider rejected steering")
+		return nil, asAxError(v_error)
+	} else {
+	// empty
+	}
+	v_updates = coreGet(v_state, "updates", nil)
+	v_ids = _core_map_keys(v_updates)
+	v_steer_id = coreGet(v_event, "steer_id", nil)
+	v_selected = _core_none()
+	for _, v_id = range coreIter(v_ids) {
+		v_record = coreGet(v_updates, v_id, nil)
+		v_record_steer = coreGet(v_record, "steer_id", nil)
+		v_same = _core_eq(v_record_steer, v_steer_id)
+		v_has_steer = _core_is_not_none(v_steer_id)
+		v_matches = _core_and(v_same, v_has_steer)
+		if coreTruthy(v_matches) {
+			v_selected = v_id
+		} else {
+		// empty
+		}
+	}
+	v_missing = _core_is_none(v_selected)
+	if coreTruthy(v_missing) {
+		for _, v_id = range coreIter(v_ids) {
+			v_record = coreGet(v_updates, v_id, nil)
+			v_native_state = coreGet(v_record, "native_state", nil)
+			v_record_steer = coreGet(v_record, "steer_id", nil)
+			v_waiting = _core_eq(v_native_state, "awaiting_ack")
+			v_unassigned = _core_is_none(v_record_steer)
+			v_missing = _core_is_none(v_selected)
+			v_candidate = _core_and(v_waiting, v_unassigned)
+			v_choose_record = _core_and(v_missing, v_candidate)
+			if coreTruthy(v_choose_record) {
+				v_selected = v_id
+			} else {
+			// empty
+			}
+		}
+	} else {
+	// empty
+	}
+	v_found = _core_is_not_none(v_selected)
+	if coreTruthy(v_found) {
+		v_record = coreGet(v_updates, v_selected, nil)
+		if err := coreSet(v_record, "steer_id", v_steer_id); err != nil { return nil, err }
+		v_parent = coreGet(v_event, "response_id", nil)
+		if err := coreSet(v_record, "native_parent", v_parent); err != nil { return nil, err }
+		v_native_state = coreGet(v_record, "native_state", nil)
+		v_empty_map = Object()
+		v_baseline = coreGet(v_record, "native_responses", v_empty_map)
+		v_responses = coreGet(v_state, "responses", nil)
+		v_response_ids = _core_map_keys(v_responses)
+		for _, v_response_id = range coreIter(v_response_ids) {
+			v_old_response = _core_map_contains(v_baseline, v_response_id)
+			v_new_response = _core_not(v_old_response)
+			v_not_parent = _core_ne(v_response_id, v_parent)
+			v_successor_seen = _core_and(v_new_response, v_not_parent)
+			if coreTruthy(v_successor_seen) {
+				v_native_state = "done"
+				if err := coreSet(v_record, "native_state", "done"); err != nil { return nil, err }
+			} else {
+			// empty
+			}
+		}
+		v_pending_status = _core_eq(v_status, "pending")
+		v_done = _core_eq(v_native_state, "done")
+		v_not_done = _core_not(v_done)
+		v_pending = _core_and(v_pending_status, v_not_done)
+		if coreTruthy(v_pending) {
+			v_changed_state = _core_ne(v_native_state, "pending_input")
+			if err := coreSet(v_record, "native_state", "pending_input"); err != nil { return nil, err }
+			v_empty = MutableArray()
+			v_required = coreGet(v_event, "required_call_ids", v_empty)
+			v_old_required = coreGet(v_record, "required_call_ids", v_empty)
+			v_changed_ids = _core_ne(v_required, v_old_required)
+			v_changed = _core_or(v_changed_state, v_changed_ids)
+			if err := coreSet(v_record, "required_call_ids", v_required); err != nil { return nil, err }
+			if err := coreSet(v_state, "needs_continuation", true); err != nil { return nil, err }
+			if err := coreSet(v_result, "changed", v_changed); err != nil { return nil, err }
+		} else {
+			v_accepted = _core_eq(v_status, "accepted")
+			if coreTruthy(v_accepted) {
+				v_record_status = coreGet(v_record, "status", nil)
+				v_queued = _core_eq(v_record_status, "queued")
+				if coreTruthy(v_queued) {
+					v_pending_input = _core_eq(v_native_state, "pending_input")
+					v_done = _core_eq(v_native_state, "done")
+					v_settled = _core_or(v_pending_input, v_done)
+					v_await_successor = _core_not(v_settled)
+					if coreTruthy(v_await_successor) {
+						if err := coreSet(v_record, "native_state", "awaiting_successor"); err != nil { return nil, err }
+					} else {
+					// empty
+					}
+					if err := coreSet(v_record, "status", "applied"); err != nil { return nil, err }
+					v_version = coreGet(v_state, "version", 0)
+					v_version = _core_add(v_version, 1)
+					if err := coreSet(v_state, "version", v_version); err != nil { return nil, err }
+					if err := coreSet(v_result, "changed", true); err != nil { return nil, err }
+					if err := coreSet(v_result, "applied_id", v_selected); err != nil { return nil, err }
+				} else {
+				// empty
+				}
+			} else {
+			// empty
+			}
+		}
+		if err := coreSet(v_updates, v_selected, v_record); err != nil { return nil, err }
+		if err := coreSet(v_state, "updates", v_updates); err != nil { return nil, err }
+		v_accepted = _core_eq(v_status, "accepted")
+		v_native_state = coreGet(v_record, "native_state", nil)
+		v_pending_input = _core_eq(v_native_state, "pending_input")
+		v_not_pending = _core_not(v_pending_input)
+		v_can_clear = _core_and(v_accepted, v_not_pending)
+		if coreTruthy(v_can_clear) {
+			{ v, err := chat_session_has_queued_updates(v_state); if err != nil { return nil, err }; v_queued = v }
+			if err := coreSet(v_state, "needs_continuation", v_queued); err != nil { return nil, err }
+		} else {
+		// empty
+		}
+	} else {
+	// empty
+	}
+	return v_result, nil
 }
 
 func _build_optimization_eval_result(args ...Value) (Value, error) {
@@ -24277,6 +26560,124 @@ func _build_optimizer_request(args ...Value) (Value, error) {
 	return v_out, nil
 }
 
+func chat_session_boundary_action(args ...Value) (Value, error) {
+	axirCoverageMark("chat_session_boundary_action")
+	var v_state Value
+	var v_action Value
+	var v_active Value
+	var v_blocking Value
+	var v_boundary Value
+	var v_execution Value
+	var v_has_results Value
+	var v_id Value
+	var v_ids Value
+	var v_is_blocking Value
+	var v_is_running Value
+	var v_native_wait Value
+	var v_needs_continuation Value
+	var v_pending Value
+	var v_ready Value
+	var v_record Value
+	var v_result Value
+	var v_results Value
+	var v_running Value
+	var v_running_barrier Value
+	var v_status Value
+	var v_terminal Value
+	if len(args) > 0 { v_state = args[0] }
+	_ = v_state
+	_ = v_action
+	_ = v_active
+	_ = v_blocking
+	_ = v_boundary
+	_ = v_execution
+	_ = v_has_results
+	_ = v_id
+	_ = v_ids
+	_ = v_is_blocking
+	_ = v_is_running
+	_ = v_native_wait
+	_ = v_needs_continuation
+	_ = v_pending
+	_ = v_ready
+	_ = v_record
+	_ = v_result
+	_ = v_results
+	_ = v_running
+	_ = v_running_barrier
+	_ = v_status
+	_ = v_terminal
+	v_action = Object()
+	if err := coreSet(v_action, "type", "wait"); err != nil { return nil, err }
+	v_terminal = coreGet(v_state, "terminal", false)
+	if coreTruthy(v_terminal) {
+		if err := coreSet(v_action, "type", "closed"); err != nil { return nil, err }
+		return v_action, nil
+	} else {
+	// empty
+	}
+	{ v, err := chat_session_native_wait(v_state); if err != nil { return nil, err }; v_native_wait = v }
+	if coreTruthy(v_native_wait) {
+		return v_action, nil
+	} else {
+	// empty
+	}
+	v_boundary = coreGet(v_state, "boundary", false)
+	v_active = _core_not(v_boundary)
+	if coreTruthy(v_active) {
+		return v_action, nil
+	} else {
+	// empty
+	}
+	v_pending = coreGet(v_state, "pending", nil)
+	v_ids = _core_map_keys(v_pending)
+	v_results = MutableArray()
+	v_running = false
+	v_blocking = false
+	for _, v_id = range coreIter(v_ids) {
+		v_record = coreGet(v_pending, v_id, nil)
+		v_status = coreGet(v_record, "status", nil)
+		v_is_running = _core_eq(v_status, "running")
+		v_execution = coreGet(v_record, "execution", nil)
+		v_is_blocking = _core_eq(v_execution, "blocking")
+		v_running_barrier = _core_and(v_is_running, v_is_blocking)
+		v_blocking = _core_or(v_blocking, v_running_barrier)
+		v_running = _core_or(v_running, v_is_running)
+		v_ready = _core_eq(v_status, "ready")
+		if coreTruthy(v_ready) {
+			v_result = coreGet(v_record, "result", nil)
+			v_results = coreAppend(v_results, v_result)
+		} else {
+		// empty
+		}
+	}
+	if coreTruthy(v_blocking) {
+		return v_action, nil
+	} else {
+	// empty
+	}
+	v_has_results = _core_truthy(v_results)
+	if coreTruthy(v_has_results) {
+		if err := coreSet(v_action, "type", "submit"); err != nil { return nil, err }
+		if err := coreSet(v_action, "results", v_results); err != nil { return nil, err }
+		return v_action, nil
+	} else {
+	// empty
+	}
+	if coreTruthy(v_running) {
+		return v_action, nil
+	} else {
+	// empty
+	}
+	v_needs_continuation = coreGet(v_state, "needs_continuation", false)
+	if coreTruthy(v_needs_continuation) {
+		if err := coreSet(v_action, "type", "continue"); err != nil { return nil, err }
+	} else {
+		if err := coreSet(v_action, "type", "validate"); err != nil { return nil, err }
+	}
+	return v_action, nil
+}
+
 func _prepare_optimizer_run(args ...Value) (Value, error) {
 	axirCoverageMark("_prepare_optimizer_run")
 	var v_program_kind Value
@@ -24543,6 +26944,32 @@ func _set_demos(args ...Value) (Value, error) {
 	return v_gen, nil
 }
 
+func chat_session_mark_submitted(args ...Value) (Value, error) {
+	axirCoverageMark("chat_session_mark_submitted")
+	var v_state Value
+	var v_ids Value
+	var v_id Value
+	var v_pending Value
+	var v_record Value
+	if len(args) > 0 { v_state = args[0] }
+	_ = v_state
+	if len(args) > 1 { v_ids = args[1] }
+	_ = v_ids
+	_ = v_id
+	_ = v_pending
+	_ = v_record
+	v_pending = coreGet(v_state, "pending", nil)
+	for _, v_id = range coreIter(v_ids) {
+		v_record = coreGet(v_pending, v_id, nil)
+		if err := coreSet(v_record, "status", "sent"); err != nil { return nil, err }
+		if err := coreSet(v_pending, v_id, v_record); err != nil { return nil, err }
+	}
+	if err := coreSet(v_state, "pending", v_pending); err != nil { return nil, err }
+	if err := coreSet(v_state, "boundary", false); err != nil { return nil, err }
+	if err := coreSet(v_state, "needs_continuation", false); err != nil { return nil, err }
+	return nil, nil
+}
+
 func _render_examples(args ...Value) (Value, error) {
 	axirCoverageMark("_render_examples")
 	var v_gen Value
@@ -24552,6 +26979,64 @@ func _render_examples(args ...Value) (Value, error) {
 	_ = v_messages
 	v_messages = _core_axgen_render_examples(v_gen)
 	return v_messages, nil
+}
+
+func chat_session_queue_update(args ...Value) (Value, error) {
+	axirCoverageMark("chat_session_queue_update")
+	var v_state Value
+	var v_update Value
+	var v_exists Value
+	var v_id Value
+	var v_matches Value
+	var v_path Value
+	var v_record Value
+	var v_target Value
+	var v_terminal Value
+	var v_unmatched Value
+	var v_updates Value
+	if len(args) > 0 { v_state = args[0] }
+	_ = v_state
+	if len(args) > 1 { v_update = args[1] }
+	_ = v_update
+	_ = v_exists
+	_ = v_id
+	_ = v_matches
+	_ = v_path
+	_ = v_record
+	_ = v_target
+	_ = v_terminal
+	_ = v_unmatched
+	_ = v_updates
+	v_terminal = coreGet(v_state, "terminal", false)
+	if coreTruthy(v_terminal) {
+		return false, nil
+	} else {
+	// empty
+	}
+	v_target = coreGet(v_update, "target", "root")
+	v_path = coreGet(v_state, "path", nil)
+	{ v, err := chat_session_target_matches(v_target, v_path); if err != nil { return nil, err }; v_matches = v }
+	v_unmatched = _core_not(v_matches)
+	if coreTruthy(v_unmatched) {
+		return false, nil
+	} else {
+	// empty
+	}
+	v_id = coreGet(v_update, "id", nil)
+	v_updates = coreGet(v_state, "updates", nil)
+	v_exists = _core_map_contains(v_updates, v_id)
+	if coreTruthy(v_exists) {
+		return false, nil
+	} else {
+	// empty
+	}
+	v_record = Object()
+	if err := coreSet(v_record, "update", v_update); err != nil { return nil, err }
+	if err := coreSet(v_record, "status", "queued"); err != nil { return nil, err }
+	if err := coreSet(v_updates, v_id, v_record); err != nil { return nil, err }
+	if err := coreSet(v_state, "updates", v_updates); err != nil { return nil, err }
+	if err := coreSet(v_state, "needs_continuation", true); err != nil { return nil, err }
+	return true, nil
 }
 
 func _render_demos(args ...Value) (Value, error) {
@@ -24726,6 +27211,18 @@ func _build_optimizer_evidence_batch(args ...Value) (Value, error) {
 	return v_out, nil
 }
 
+func chat_session_close_state(args ...Value) (Value, error) {
+	axirCoverageMark("chat_session_close_state")
+	var v_state Value
+	var v_unresolved Value
+	if len(args) > 0 { v_state = args[0] }
+	_ = v_state
+	_ = v_unresolved
+	if err := coreSet(v_state, "terminal", true); err != nil { return nil, err }
+	{ v, err := chat_session_unresolved(v_state); if err != nil { return nil, err }; v_unresolved = v }
+	return v_unresolved, nil
+}
+
 func _append_assertion_retry_messages(args ...Value) (Value, error) {
 	axirCoverageMark("_append_assertion_retry_messages")
 	var v_messages Value
@@ -24739,6 +27236,203 @@ func _append_assertion_retry_messages(args ...Value) (Value, error) {
 	_ = v_error
 	if _, err := _append_validation_retry_messages_impl(v_messages, v_response, v_error); err != nil { return nil, err }
 	return nil, nil
+}
+
+func chat_session_transition(args ...Value) (Value, error) {
+	axirCoverageMark("chat_session_transition")
+	var v_state Value
+	var v_event Value
+	var v_action Value
+	var v_action_type Value
+	var v_applied Value
+	var v_call Value
+	var v_change Value
+	var v_changed Value
+	var v_closed Value
+	var v_execution Value
+	var v_exists Value
+	var v_final_call Value
+	var v_id Value
+	var v_ids Value
+	var v_item Value
+	var v_kind Value
+	var v_native_queued Value
+	var v_next_version Value
+	var v_not_ready Value
+	var v_queued Value
+	var v_ready Value
+	var v_record Value
+	var v_response Value
+	var v_result Value
+	var v_status Value
+	var v_steer Value
+	var v_steering Value
+	var v_submitted Value
+	var v_tool_call Value
+	var v_type Value
+	var v_update Value
+	var v_updates Value
+	var v_validated Value
+	var v_value Value
+	var v_version Value
+	if len(args) > 0 { v_state = args[0] }
+	_ = v_state
+	if len(args) > 1 { v_event = args[1] }
+	_ = v_event
+	_ = v_action
+	_ = v_action_type
+	_ = v_applied
+	_ = v_call
+	_ = v_change
+	_ = v_changed
+	_ = v_closed
+	_ = v_execution
+	_ = v_exists
+	_ = v_final_call
+	_ = v_id
+	_ = v_ids
+	_ = v_item
+	_ = v_kind
+	_ = v_native_queued
+	_ = v_next_version
+	_ = v_not_ready
+	_ = v_queued
+	_ = v_ready
+	_ = v_record
+	_ = v_response
+	_ = v_result
+	_ = v_status
+	_ = v_steer
+	_ = v_steering
+	_ = v_submitted
+	_ = v_tool_call
+	_ = v_type
+	_ = v_update
+	_ = v_updates
+	_ = v_validated
+	_ = v_value
+	_ = v_version
+	v_type = coreGet(v_event, "type", nil)
+	v_call = _core_eq(v_type, "tool.validated")
+	v_result = _core_eq(v_type, "tool.result")
+	v_response = _core_eq(v_type, "response.completed")
+	v_update = _core_eq(v_type, "update.queued")
+	v_submitted = _core_eq(v_type, "results.submitted")
+	v_closed = _core_eq(v_type, "closed")
+	v_validated = _core_eq(v_type, "validated")
+	v_applied = _core_eq(v_type, "update.applied")
+	v_changed = false
+	v_native_queued = _core_eq(v_type, "native.queued")
+	if coreTruthy(v_native_queued) {
+		v_id = coreGet(v_event, "id", nil)
+		{ v, err := chat_session_native_update(v_state, v_id); if err != nil { return nil, err }; v_changed = v }
+		{ v, err := chat_session_boundary_action(v_state); if err != nil { return nil, err }; v_action = v }
+		if err := coreSet(v_action, "changed", v_changed); err != nil { return nil, err }
+		return v_action, nil
+	} else {
+	// empty
+	}
+	v_steering = _core_eq(v_type, "steering")
+	if coreTruthy(v_steering) {
+		{ v, err := chat_session_native_event(v_state, v_event); if err != nil { return nil, err }; v_change = v }
+		{ v, err := chat_session_boundary_action(v_state); if err != nil { return nil, err }; v_action = v }
+		v_action = _core_map_merge(v_action, v_change)
+		return v_action, nil
+	} else {
+	// empty
+	}
+	v_final_call = _core_eq(v_type, "tool.final")
+	if coreTruthy(v_final_call) {
+		v_tool_call = coreGet(v_event, "call", nil)
+		{ v, err := chat_session_defer_final_call(v_state, v_tool_call); if err != nil { return nil, err }; v_changed = v }
+		{ v, err := chat_session_boundary_action(v_state); if err != nil { return nil, err }; v_action = v }
+		if err := coreSet(v_action, "changed", v_changed); err != nil { return nil, err }
+		return v_action, nil
+	} else {
+	// empty
+	}
+	if coreTruthy(v_call) {
+		v_tool_call = coreGet(v_event, "call", nil)
+		v_execution = coreGet(v_event, "execution", "blocking")
+		{ v, err := chat_session_register_call(v_state, v_tool_call, v_execution); if err != nil { return nil, err }; v_changed = v }
+	} else {
+		if coreTruthy(v_result) {
+			v_id = coreGet(v_event, "id", nil)
+			v_value = coreGet(v_event, "result", nil)
+			{ v, err := chat_session_complete_call(v_state, v_id, v_value); if err != nil { return nil, err }; v_changed = v }
+		} else {
+			if coreTruthy(v_response) {
+				v_id = coreGet(v_event, "id", nil)
+				{ v, err := chat_session_complete_response(v_state, v_id); if err != nil { return nil, err }; v_changed = v }
+			} else {
+				if coreTruthy(v_update) {
+					v_item = coreGet(v_event, "update", nil)
+					{ v, err := chat_session_queue_update(v_state, v_item); if err != nil { return nil, err }; v_changed = v }
+				} else {
+					if coreTruthy(v_submitted) {
+						v_ids = coreGet(v_event, "ids", nil)
+						if _, err := chat_session_mark_submitted(v_state, v_ids); err != nil { return nil, err }
+						v_changed = true
+					} else {
+						if coreTruthy(v_closed) {
+							if _, err := chat_session_close_state(v_state); err != nil { return nil, err }
+							v_changed = true
+						} else {
+							if coreTruthy(v_validated) {
+								{ v, err := chat_session_boundary_action(v_state); if err != nil { return nil, err }; v_action = v }
+								v_action_type = coreGet(v_action, "type", nil)
+								v_ready = _core_eq(v_action_type, "validate")
+								v_not_ready = _core_not(v_ready)
+								if coreTruthy(v_not_ready) {
+									return nil, AxError{Category: "runtime", Message: "Cannot finalize while model or tool work is unresolved"}
+								} else {
+								// empty
+								}
+								if err := coreSet(v_state, "terminal", true); err != nil { return nil, err }
+								v_changed = true
+							} else {
+								if coreTruthy(v_applied) {
+									v_id = coreGet(v_event, "id", nil)
+									v_updates = coreGet(v_state, "updates", nil)
+									v_exists = _core_map_contains(v_updates, v_id)
+									if coreTruthy(v_exists) {
+										v_record = coreGet(v_updates, v_id, nil)
+										v_status = coreGet(v_record, "status", nil)
+										v_queued = _core_eq(v_status, "queued")
+										if coreTruthy(v_queued) {
+											if err := coreSet(v_record, "status", "applied"); err != nil { return nil, err }
+											if err := coreSet(v_updates, v_id, v_record); err != nil { return nil, err }
+											if err := coreSet(v_state, "updates", v_updates); err != nil { return nil, err }
+											v_item = coreGet(v_record, "update", nil)
+											v_kind = coreGet(v_item, "type", nil)
+											v_steer = _core_eq(v_kind, "steer")
+											if coreTruthy(v_steer) {
+												v_version = coreGet(v_state, "version", 0)
+												v_next_version = _core_add(v_version, 1)
+												if err := coreSet(v_state, "version", v_next_version); err != nil { return nil, err }
+											} else {
+											// empty
+											}
+											v_changed = true
+										} else {
+										// empty
+										}
+									} else {
+									// empty
+									}
+								} else {
+									return nil, AxError{Category: "runtime", Message: "Unknown chat session transition"}
+								}
+							}
+						}
+					}
+				}
+			}
+		}
+	}
+	{ v, err := chat_session_boundary_action(v_state); if err != nil { return nil, err }; v_action = v }
+	if err := coreSet(v_action, "changed", v_changed); err != nil { return nil, err }
+	return v_action, nil
 }
 
 func _record_trace(args ...Value) (Value, error) {
@@ -25699,13 +28393,17 @@ func _ace_dedupe_playbook(args ...Value) (Value, error) {
 func _tool_spec_impl(args ...Value) (Value, error) {
 	axirCoverageMark("_tool_spec_impl")
 	var v_fn Value
+	var v_background Value
 	var v_description Value
+	var v_execution Value
 	var v_name Value
 	var v_parameters Value
 	var v_spec Value
 	if len(args) > 0 { v_fn = args[0] }
 	_ = v_fn
+	_ = v_background
 	_ = v_description
+	_ = v_execution
 	_ = v_name
 	_ = v_parameters
 	_ = v_spec
@@ -25716,6 +28414,13 @@ func _tool_spec_impl(args ...Value) (Value, error) {
 	if err := coreSet(v_spec, "name", v_name); err != nil { return nil, err }
 	if err := coreSet(v_spec, "description", v_description); err != nil { return nil, err }
 	if err := coreSet(v_spec, "parameters", v_parameters); err != nil { return nil, err }
+	v_execution = coreGet(v_fn, "execution", "blocking")
+	v_background = _core_eq(v_execution, "background")
+	if coreTruthy(v_background) {
+		if err := coreSet(v_spec, "execution", v_execution); err != nil { return nil, err }
+	} else {
+	// empty
+	}
 	return v_spec, nil
 }
 
@@ -26017,33 +28722,6 @@ func _completion_call_to_chat_impl(args ...Value) (Value, error) {
 	if err := coreSet(v_out, "type", "function"); err != nil { return nil, err }
 	if err := coreSet(v_out, "function", v_function); err != nil { return nil, err }
 	return v_out, nil
-}
-
-func _tool_result_message_impl(args ...Value) (Value, error) {
-	axirCoverageMark("_tool_result_message_impl")
-	var v_call Value
-	var v_result Value
-	var v_id Value
-	var v_message Value
-	var v_name Value
-	var v_result_json Value
-	if len(args) > 0 { v_call = args[0] }
-	_ = v_call
-	if len(args) > 1 { v_result = args[1] }
-	_ = v_result
-	_ = v_id
-	_ = v_message
-	_ = v_name
-	_ = v_result_json
-	v_id = coreGet(v_call, "id", nil)
-	v_name = coreGet(v_call, "name", nil)
-	v_result_json = _core_json_stringify(v_result)
-	v_message = Object()
-	if err := coreSet(v_message, "role", "function"); err != nil { return nil, err }
-	if err := coreSet(v_message, "function_id", v_id); err != nil { return nil, err }
-	if err := coreSet(v_message, "name", v_name); err != nil { return nil, err }
-	if err := coreSet(v_message, "result", v_result_json); err != nil { return nil, err }
-	return v_message, nil
 }
 
 func _ace_apply_curator_operations(args ...Value) (Value, error) {
@@ -26399,6 +29077,33 @@ func _ace_apply_curator_operations(args ...Value) (Value, error) {
 	if err := coreSet(v_out, "updatedBulletIds", v_updated_bullets); err != nil { return nil, err }
 	if err := coreSet(v_out, "autoRemoved", v_auto_removed); err != nil { return nil, err }
 	return v_out, nil
+}
+
+func _tool_result_message_impl(args ...Value) (Value, error) {
+	axirCoverageMark("_tool_result_message_impl")
+	var v_call Value
+	var v_result Value
+	var v_id Value
+	var v_message Value
+	var v_name Value
+	var v_result_json Value
+	if len(args) > 0 { v_call = args[0] }
+	_ = v_call
+	if len(args) > 1 { v_result = args[1] }
+	_ = v_result
+	_ = v_id
+	_ = v_message
+	_ = v_name
+	_ = v_result_json
+	v_id = coreGet(v_call, "id", nil)
+	v_name = coreGet(v_call, "name", nil)
+	v_result_json = _core_json_stringify(v_result)
+	v_message = Object()
+	if err := coreSet(v_message, "role", "function"); err != nil { return nil, err }
+	if err := coreSet(v_message, "function_id", v_id); err != nil { return nil, err }
+	if err := coreSet(v_message, "name", v_name); err != nil { return nil, err }
+	if err := coreSet(v_message, "result", v_result_json); err != nil { return nil, err }
+	return v_message, nil
 }
 
 func _tool_error_message_impl(args ...Value) (Value, error) {
@@ -34977,8 +37682,11 @@ func _normalize_agent_callable(args ...Value) (Value, error) {
 	var v_namespace Value
 	var v_always_camel Value
 	var v_always_include Value
+	var v_background Value
+	var v_blocking Value
 	var v_description Value
 	var v_error Value
+	var v_execution Value
 	var v_kind Value
 	var v_missing_name Value
 	var v_name Value
@@ -34991,8 +37699,11 @@ func _normalize_agent_callable(args ...Value) (Value, error) {
 	_ = v_namespace
 	_ = v_always_camel
 	_ = v_always_include
+	_ = v_background
+	_ = v_blocking
 	_ = v_description
 	_ = v_error
+	_ = v_execution
 	_ = v_kind
 	_ = v_missing_name
 	_ = v_name
@@ -35021,6 +37732,18 @@ func _normalize_agent_callable(args ...Value) (Value, error) {
 	if err := coreSet(v_out, "description", v_description); err != nil { return nil, err }
 	if err := coreSet(v_out, "parameters", v_parameters); err != nil { return nil, err }
 	if err := coreSet(v_out, "always_include", v_always_include); err != nil { return nil, err }
+	v_execution = coreGet(v_raw, "execution", "blocking")
+	v_background = _core_eq(v_execution, "background")
+	if coreTruthy(v_background) {
+		if err := coreSet(v_out, "execution", "background"); err != nil { return nil, err }
+	} else {
+		v_blocking = _core_eq(v_execution, "blocking")
+		if coreTruthy(v_blocking) {
+		// empty
+		} else {
+			return nil, AxError{Category: "runtime", Message: "Tool execution must be blocking or background"}
+		}
+	}
 	return v_out, nil
 }
 
@@ -37013,47 +39736,285 @@ func _agent_append_guidance(args ...Value) (Value, error) {
 	return v_entry, nil
 }
 
+func _agent_native_callables(args ...Value) (Value, error) {
+	axirCoverageMark("_agent_native_callables")
+	var v_state Value
+	var v_features Value
+	var v_options Value
+	var v_all_visible Value
+	var v_always Value
+	var v_available Value
+	var v_background Value
+	var v_callable Value
+	var v_callables Value
+	var v_description Value
+	var v_discovered Value
+	var v_discovery Value
+	var v_doc Value
+	var v_doc_name Value
+	var v_docs Value
+	var v_duplicate_name Value
+	var v_empty_list Value
+	var v_empty_map Value
+	var v_enabled Value
+	var v_entry Value
+	var v_execution Value
+	var v_flags Value
+	var v_group Value
+	var v_group_always Value
+	var v_group_visible Value
+	var v_inventory Value
+	var v_name Value
+	var v_names Value
+	var v_qualified Value
+	var v_selected Value
+	var v_supports Value
+	var v_visible Value
+	if len(args) > 0 { v_state = args[0] }
+	_ = v_state
+	if len(args) > 1 { v_features = args[1] }
+	_ = v_features
+	if len(args) > 2 { v_options = args[2] }
+	_ = v_options
+	_ = v_all_visible
+	_ = v_always
+	_ = v_available
+	_ = v_background
+	_ = v_callable
+	_ = v_callables
+	_ = v_description
+	_ = v_discovered
+	_ = v_discovery
+	_ = v_doc
+	_ = v_doc_name
+	_ = v_docs
+	_ = v_duplicate_name
+	_ = v_empty_list
+	_ = v_empty_map
+	_ = v_enabled
+	_ = v_entry
+	_ = v_execution
+	_ = v_flags
+	_ = v_group
+	_ = v_group_always
+	_ = v_group_visible
+	_ = v_inventory
+	_ = v_name
+	_ = v_names
+	_ = v_qualified
+	_ = v_selected
+	_ = v_supports
+	_ = v_visible
+	v_selected = MutableArray()
+	{ v, err := chat_session_mode_enabled(v_options); if err != nil { return nil, err }; v_enabled = v }
+	v_supports = coreGet(v_features, "asyncTools", false)
+	v_available = _core_and(v_enabled, v_supports)
+	if coreTruthy(v_available) {
+		v_empty_list = MutableArray()
+		v_empty_map = Object()
+		v_flags = coreGet(v_state, "policy_flags", v_empty_map)
+		v_discovery = coreGet(v_flags, "discoveryMode", false)
+		v_all_visible = _core_not(v_discovery)
+		v_inventory = coreGet(v_state, "callable_inventory", v_empty_list)
+		v_docs = coreGet(v_state, "discovered_tool_docs", v_empty_list)
+		v_names = Object()
+		for _, v_group = range coreIter(v_inventory) {
+			v_group_always = coreGet(v_group, "always_include", false)
+			v_group_visible = _core_or(v_all_visible, v_group_always)
+			v_callables = coreGet(v_group, "callables", v_empty_list)
+			for _, v_callable = range coreIter(v_callables) {
+				v_execution = coreGet(v_callable, "execution", "blocking")
+				v_background = _core_eq(v_execution, "background")
+				if coreTruthy(v_background) {
+					v_always = coreGet(v_callable, "always_include", false)
+					v_visible = _core_or(v_group_visible, v_always)
+					v_qualified = coreGet(v_callable, "qualified_name", nil)
+					for _, v_doc = range coreIter(v_docs) {
+						v_doc_name = coreGet(v_doc, "qualified_name", nil)
+						v_discovered = _core_eq(v_qualified, v_doc_name)
+						v_visible = _core_or(v_visible, v_discovered)
+					}
+					if coreTruthy(v_visible) {
+						v_name = _core_regex_replace("[^A-Za-z0-9_-]", "_", v_qualified)
+						v_duplicate_name = _core_map_contains(v_names, v_name)
+						if coreTruthy(v_duplicate_name) {
+							return nil, AxError{Category: "runtime", Message: "Native agent tool names collide after namespace normalization"}
+						} else {
+						// empty
+						}
+						if err := coreSet(v_names, v_name, true); err != nil { return nil, err }
+						v_entry = _core_map_merge(v_empty_map, v_callable)
+						if err := coreSet(v_entry, "native_name", v_name); err != nil { return nil, err }
+						v_description = coreGet(v_entry, "description", "")
+						v_description = _core_string_format("{} Execute through this native tool. Do not call {} from actor code.", v_description, v_qualified)
+						if err := coreSet(v_entry, "description", v_description); err != nil { return nil, err }
+						v_selected = coreAppend(v_selected, v_entry)
+					} else {
+					// empty
+					}
+				} else {
+				// empty
+				}
+			}
+		}
+	} else {
+	// empty
+	}
+	return v_selected, nil
+}
+
+func _agent_callable_implementation(args ...Value) (Value, error) {
+	axirCoverageMark("_agent_callable_implementation")
+	var v_state Value
+	var v_qualified Value
+	var v_candidate Value
+	var v_candidate_name Value
+	var v_candidates Value
+	var v_empty_list Value
+	var v_empty_map Value
+	var v_functions Value
+	var v_group Value
+	var v_group_functions Value
+	var v_group_name Value
+	var v_item Value
+	var v_matches Value
+	var v_name Value
+	var v_namespace Value
+	var v_options Value
+	if len(args) > 0 { v_state = args[0] }
+	_ = v_state
+	if len(args) > 1 { v_qualified = args[1] }
+	_ = v_qualified
+	_ = v_candidate
+	_ = v_candidate_name
+	_ = v_candidates
+	_ = v_empty_list
+	_ = v_empty_map
+	_ = v_functions
+	_ = v_group
+	_ = v_group_functions
+	_ = v_group_name
+	_ = v_item
+	_ = v_matches
+	_ = v_name
+	_ = v_namespace
+	_ = v_options
+	v_empty_map = Object()
+	v_empty_list = MutableArray()
+	v_options = coreGet(v_state, "options", v_empty_map)
+	v_functions = coreGet(v_options, "functions", v_empty_list)
+	for _, v_item = range coreIter(v_functions) {
+		v_group_functions = coreGet(v_item, "functions", nil)
+		v_group = coreTypeIs(v_group_functions, "list")
+		v_namespace = "tools"
+		v_candidates = MutableArray()
+		if coreTruthy(v_group) {
+			v_group_name = coreGet(v_item, "name", "tools")
+			v_namespace = coreGet(v_item, "namespace", v_group_name)
+			v_candidates = v_group_functions
+		} else {
+			v_candidates = coreAppend(v_candidates, v_item)
+		}
+		for _, v_candidate = range coreIter(v_candidates) {
+			v_name = coreGet(v_candidate, "name", "")
+			v_candidate_name = _core_string_format("{}.{}", v_namespace, v_name)
+			v_matches = _core_eq(v_candidate_name, v_qualified)
+			if coreTruthy(v_matches) {
+				return v_candidate, nil
+			} else {
+			// empty
+			}
+		}
+	}
+	return nil, nil
+}
+
 func _agent_execute_callable(args ...Value) (Value, error) {
 	axirCoverageMark("_agent_execute_callable")
 	var v_state Value
 	var v_request Value
 	var v_options Value
-	var v_action Value
-	var v_action_log Value
-	var v_args Value
 	var v_empty_list Value
-	var v_guidance Value
-	var v_has_guidance Value
-	var v_host_event Value
-	var v_name Value
-	var v_payload Value
+	var v_message Value
+	var v_native_names Value
+	var v_native_tool Value
 	var v_qualified Value
-	var v_record Value
+	var v_recorded Value
 	var v_result Value
-	var v_status Value
-	var v_trace Value
 	if len(args) > 0 { v_state = args[0] }
 	_ = v_state
 	if len(args) > 1 { v_request = args[1] }
 	_ = v_request
 	if len(args) > 2 { v_options = args[2] }
 	_ = v_options
+	_ = v_empty_list
+	_ = v_message
+	_ = v_native_names
+	_ = v_native_tool
+	_ = v_qualified
+	_ = v_recorded
+	_ = v_result
+	v_empty_list = MutableArray()
+	v_native_names = coreGet(v_state, "native_tool_names", v_empty_list)
+	v_qualified = coreGet(v_request, "qualified_name", "")
+	v_native_tool = _core_contains(v_native_names, v_qualified)
+	v_result = Object()
+	if coreTruthy(v_native_tool) {
+		v_message = _core_string_format("{} is a native background tool. Use its model tool result; do not invoke it again in code.", v_qualified)
+		if err := coreSet(v_result, "status", "error"); err != nil { return nil, err }
+		if err := coreSet(v_result, "error", v_message); err != nil { return nil, err }
+	} else {
+		v_result = _core_agent_callable_invoke(v_state, v_request, v_options)
+	}
+	{ v, err := _agent_record_callable_result(v_state, v_request, v_result, v_options); if err != nil { return nil, err }; v_recorded = v }
+	return v_recorded, nil
+}
+
+func _agent_record_callable_result(args ...Value) (Value, error) {
+	axirCoverageMark("_agent_record_callable_result")
+	var v_state Value
+	var v_request Value
+	var v_result Value
+	var v_options Value
+	var v_action Value
+	var v_action_log Value
+	var v_args Value
+	var v_call_id Value
+	var v_empty_list Value
+	var v_guidance Value
+	var v_has_call_id Value
+	var v_has_guidance Value
+	var v_host_event Value
+	var v_name Value
+	var v_payload Value
+	var v_qualified Value
+	var v_record Value
+	var v_status Value
+	var v_trace Value
+	if len(args) > 0 { v_state = args[0] }
+	_ = v_state
+	if len(args) > 1 { v_request = args[1] }
+	_ = v_request
+	if len(args) > 2 { v_result = args[2] }
+	_ = v_result
+	if len(args) > 3 { v_options = args[3] }
+	_ = v_options
 	_ = v_action
 	_ = v_action_log
 	_ = v_args
+	_ = v_call_id
 	_ = v_empty_list
 	_ = v_guidance
+	_ = v_has_call_id
 	_ = v_has_guidance
 	_ = v_host_event
 	_ = v_name
 	_ = v_payload
 	_ = v_qualified
 	_ = v_record
-	_ = v_result
 	_ = v_status
 	_ = v_trace
 	v_empty_list = MutableArray()
-	v_result = _core_agent_callable_invoke(v_state, v_request, v_options)
 	v_qualified = coreGet(v_request, "qualified_name", "")
 	v_name = coreGet(v_request, "name", v_qualified)
 	v_args = coreGet(v_request, "args", v_request)
@@ -37062,6 +40023,13 @@ func _agent_execute_callable(args ...Value) (Value, error) {
 	v_record = Object()
 	if err := coreSet(v_record, "qualified_name", v_qualified); err != nil { return nil, err }
 	if err := coreSet(v_record, "name", v_name); err != nil { return nil, err }
+	v_call_id = coreGet(v_request, "call_id", nil)
+	v_has_call_id = _core_is_not_none(v_call_id)
+	if coreTruthy(v_has_call_id) {
+		if err := coreSet(v_record, "call_id", v_call_id); err != nil { return nil, err }
+	} else {
+	// empty
+	}
 	if err := coreSet(v_record, "arguments", v_args); err != nil { return nil, err }
 	if err := coreSet(v_record, "status", v_status); err != nil { return nil, err }
 	if err := coreSet(v_record, "result", v_result); err != nil { return nil, err }
@@ -37070,6 +40038,11 @@ func _agent_execute_callable(args ...Value) (Value, error) {
 	v_action_log = coreGet(v_state, "action_log", v_empty_list)
 	v_action = Object()
 	if err := coreSet(v_action, "type", "function_call"); err != nil { return nil, err }
+	if coreTruthy(v_has_call_id) {
+		if err := coreSet(v_action, "call_id", v_call_id); err != nil { return nil, err }
+	} else {
+	// empty
+	}
 	if err := coreSet(v_action, "qualified_name", v_qualified); err != nil { return nil, err }
 	if err := coreSet(v_action, "status", v_status); err != nil { return nil, err }
 	v_action_log = coreAppend(v_action_log, v_action)
@@ -38720,6 +41693,8 @@ func _agent_runtime_execution_options(args ...Value) (Value, error) {
 	var v_abort_signal Value
 	var v_abort_snake Value
 	var v_aborted Value
+	var v_control Value
+	var v_control_aborted Value
 	var v_empty_map Value
 	var v_has_abort Value
 	var v_has_session_id Value
@@ -38729,6 +41704,7 @@ func _agent_runtime_execution_options(args ...Value) (Value, error) {
 	var v_runtime_options Value
 	var v_session_id Value
 	var v_session_id_snake Value
+	var v_signal_aborted Value
 	var v_timeout Value
 	var v_timeout_ms Value
 	var v_trace_id Value
@@ -38740,6 +41716,8 @@ func _agent_runtime_execution_options(args ...Value) (Value, error) {
 	_ = v_abort_signal
 	_ = v_abort_snake
 	_ = v_aborted
+	_ = v_control
+	_ = v_control_aborted
 	_ = v_empty_map
 	_ = v_has_abort
 	_ = v_has_session_id
@@ -38749,6 +41727,7 @@ func _agent_runtime_execution_options(args ...Value) (Value, error) {
 	_ = v_runtime_options
 	_ = v_session_id
 	_ = v_session_id_snake
+	_ = v_signal_aborted
 	_ = v_timeout
 	_ = v_timeout_ms
 	_ = v_trace_id
@@ -38769,7 +41748,10 @@ func _agent_runtime_execution_options(args ...Value) (Value, error) {
 	v_abort_snake = coreGet(v_options, "abort", false)
 	v_aborted = coreGet(v_options, "aborted", v_abort_snake)
 	v_abort_signal = coreGet(v_options, "abortSignal", v_aborted)
-	v_has_abort = _core_truthy(v_abort_signal)
+	v_signal_aborted = _core_truthy(v_abort_signal)
+	v_control = coreGet(v_options, "control", nil)
+	v_control_aborted = _core_run_control_aborted(v_control)
+	v_has_abort = _core_or(v_signal_aborted, v_control_aborted)
 	if coreTruthy(v_has_abort) {
 		if err := coreSet(v_runtime_options, "abort", true); err != nil { return nil, err }
 	} else {
@@ -42657,16 +45639,195 @@ func _agent_set_state(args ...Value) (Value, error) {
 	return v_runtime_state, nil
 }
 
+func _agent_executor_stage_forward(args ...Value) (Value, error) {
+	axirCoverageMark("_agent_executor_stage_forward")
+	var v_state Value
+	var v_stage Value
+	var v_client Value
+	var v_values Value
+	var v_options Value
+	var v_aborted Value
+	var v_control Value
+	var v_count Value
+	var v_features Value
+	var v_has_native Value
+	var v_model Value
+	var v_names Value
+	var v_output Value
+	var v_qualified Value
+	var v_selected Value
+	var v_tool Value
+	if len(args) > 0 { v_state = args[0] }
+	_ = v_state
+	if len(args) > 1 { v_stage = args[1] }
+	_ = v_stage
+	if len(args) > 2 { v_client = args[2] }
+	_ = v_client
+	if len(args) > 3 { v_values = args[3] }
+	_ = v_values
+	if len(args) > 4 { v_options = args[4] }
+	_ = v_options
+	_ = v_aborted
+	_ = v_control
+	_ = v_count
+	_ = v_features
+	_ = v_has_native
+	_ = v_model
+	_ = v_names
+	_ = v_output
+	_ = v_qualified
+	_ = v_selected
+	_ = v_tool
+	v_control = coreGet(v_options, "control", nil)
+	v_aborted = _core_run_control_aborted(v_control)
+	if coreTruthy(v_aborted) {
+		return nil, AxError{Category: "runtime", Message: "Agent aborted before starting the next stage"}
+	} else {
+	// empty
+	}
+	v_model = coreGet(v_options, "model", nil)
+	v_features = _core_ai_client_features(v_client, v_model)
+	{ v, err := _agent_native_callables(v_state, v_features, v_options); if err != nil { return nil, err }; v_selected = v }
+	v_names = MutableArray()
+	for _, v_tool = range coreIter(v_selected) {
+		v_qualified = coreGet(v_tool, "qualified_name", nil)
+		v_names = coreAppend(v_names, v_qualified)
+	}
+	if err := coreSet(v_state, "native_tool_names", v_names); err != nil { return nil, err }
+	v_count = _core_len(v_selected)
+	v_has_native = _core_gt(v_count, 0)
+	if coreTruthy(v_has_native) {
+		{ v, err := _core_agent_native_stage_forward(v_stage, v_state, v_client, v_values, v_options, v_selected); if err != nil { return nil, err }; v_output = v }
+		return v_output, nil
+	} else {
+	// empty
+	}
+	{ v, err := _agent_controlled_stage_forward(v_stage, v_client, v_values, v_options); if err != nil { return nil, err }; v_output = v }
+	return v_output, nil
+}
+
+func _agent_record_native_calls(args ...Value) (Value, error) {
+	axirCoverageMark("_agent_record_native_calls")
+	var v_state Value
+	var v_selected Value
+	var v_traces Value
+	var v_options Value
+	var v_args Value
+	var v_empty_map Value
+	var v_id Value
+	var v_matches Value
+	var v_name Value
+	var v_native_name Value
+	var v_ok Value
+	var v_qualified Value
+	var v_request Value
+	var v_result Value
+	var v_status Value
+	var v_tool Value
+	var v_trace Value
+	var v_value Value
+	if len(args) > 0 { v_state = args[0] }
+	_ = v_state
+	if len(args) > 1 { v_selected = args[1] }
+	_ = v_selected
+	if len(args) > 2 { v_traces = args[2] }
+	_ = v_traces
+	if len(args) > 3 { v_options = args[3] }
+	_ = v_options
+	_ = v_args
+	_ = v_empty_map
+	_ = v_id
+	_ = v_matches
+	_ = v_name
+	_ = v_native_name
+	_ = v_ok
+	_ = v_qualified
+	_ = v_request
+	_ = v_result
+	_ = v_status
+	_ = v_tool
+	_ = v_trace
+	_ = v_value
+	v_empty_map = Object()
+	for _, v_trace = range coreIter(v_traces) {
+		v_name = coreGet(v_trace, "name", "")
+		for _, v_tool = range coreIter(v_selected) {
+			v_native_name = coreGet(v_tool, "native_name", nil)
+			v_matches = _core_eq(v_name, v_native_name)
+			if coreTruthy(v_matches) {
+				v_qualified = coreGet(v_tool, "qualified_name", nil)
+				v_request = Object()
+				v_id = coreGet(v_trace, "id", nil)
+				v_args = coreGet(v_trace, "args", v_empty_map)
+				if err := coreSet(v_request, "qualified_name", v_qualified); err != nil { return nil, err }
+				if err := coreSet(v_request, "call_id", v_id); err != nil { return nil, err }
+				if err := coreSet(v_request, "args", v_args); err != nil { return nil, err }
+				v_status = coreGet(v_trace, "status", "ok")
+				v_value = coreGet(v_trace, "result", nil)
+				v_result = Object()
+				if err := coreSet(v_result, "status", v_status); err != nil { return nil, err }
+				v_ok = _core_eq(v_status, "ok")
+				if coreTruthy(v_ok) {
+					if err := coreSet(v_result, "value", v_value); err != nil { return nil, err }
+				} else {
+					if err := coreSet(v_result, "error", v_value); err != nil { return nil, err }
+				}
+				if _, err := _agent_record_callable_result(v_state, v_request, v_result, v_options); err != nil { return nil, err }
+			} else {
+			// empty
+			}
+		}
+	}
+	return nil, nil
+}
+
+func _agent_controlled_stage_forward(args ...Value) (Value, error) {
+	axirCoverageMark("_agent_controlled_stage_forward")
+	var v_stage Value
+	var v_client Value
+	var v_values Value
+	var v_options Value
+	var v_aborted Value
+	var v_control Value
+	var v_error Value
+	var v_output Value
+	if len(args) > 0 { v_stage = args[0] }
+	_ = v_stage
+	if len(args) > 1 { v_client = args[1] }
+	_ = v_client
+	if len(args) > 2 { v_values = args[2] }
+	_ = v_values
+	if len(args) > 3 { v_options = args[3] }
+	_ = v_options
+	_ = v_aborted
+	_ = v_control
+	_ = v_error
+	_ = v_output
+	v_control = coreGet(v_options, "control", nil)
+	v_aborted = _core_run_control_aborted(v_control)
+	if coreTruthy(v_aborted) {
+		v_error = _core_runtime_error("Agent aborted before starting the next stage")
+		return nil, asAxError(v_error)
+	} else {
+	// empty
+	}
+	{ v, err := _core_agent_stage_forward(v_stage, v_client, v_values, v_options); if err != nil { return nil, err }; v_output = v }
+	return v_output, nil
+}
+
 func _agent_stage_options(args ...Value) (Value, error) {
 	axirCoverageMark("_agent_stage_options")
 	var v_state Value
 	var v_stage Value
 	var v_forward_options Value
+	var v_base_control Value
 	var v_base_options Value
 	var v_cache Value
 	var v_call_cache Value
 	var v_call_cache_snake Value
 	var v_context_opts_camel Value
+	var v_controlled Value
+	var v_controller Value
 	var v_empty_map Value
 	var v_executor_opts_camel Value
 	var v_has_cache Value
@@ -42676,10 +45837,13 @@ func _agent_stage_options(args ...Value) (Value, error) {
 	var v_is_executor Value
 	var v_is_responder Value
 	var v_out Value
+	var v_parent_path Value
+	var v_parent_path_snake Value
 	var v_responder_opts_camel Value
 	var v_stage_cache Value
 	var v_stage_cache_snake Value
 	var v_stage_options Value
+	var v_stage_path Value
 	var v_top_cache Value
 	var v_top_cache_snake Value
 	if len(args) > 0 { v_state = args[0] }
@@ -42688,11 +45852,14 @@ func _agent_stage_options(args ...Value) (Value, error) {
 	_ = v_stage
 	if len(args) > 2 { v_forward_options = args[2] }
 	_ = v_forward_options
+	_ = v_base_control
 	_ = v_base_options
 	_ = v_cache
 	_ = v_call_cache
 	_ = v_call_cache_snake
 	_ = v_context_opts_camel
+	_ = v_controlled
+	_ = v_controller
 	_ = v_empty_map
 	_ = v_executor_opts_camel
 	_ = v_has_cache
@@ -42702,10 +45869,13 @@ func _agent_stage_options(args ...Value) (Value, error) {
 	_ = v_is_executor
 	_ = v_is_responder
 	_ = v_out
+	_ = v_parent_path
+	_ = v_parent_path_snake
 	_ = v_responder_opts_camel
 	_ = v_stage_cache
 	_ = v_stage_cache_snake
 	_ = v_stage_options
+	_ = v_stage_path
 	_ = v_top_cache
 	_ = v_top_cache_snake
 	v_empty_map = Object()
@@ -42733,6 +45903,19 @@ func _agent_stage_options(args ...Value) (Value, error) {
 	// empty
 	}
 	v_out = _core_map_merge(v_stage_options, v_forward_options)
+	v_base_control = coreGet(v_base_options, "control", nil)
+	v_controller = coreGet(v_forward_options, "control", v_base_control)
+	v_controlled = _core_is_not_none(v_controller)
+	if coreTruthy(v_controlled) {
+		v_parent_path_snake = coreGet(v_forward_options, "execution_path", "root")
+		v_parent_path = coreGet(v_forward_options, "executionPath", v_parent_path_snake)
+		v_stage_path = _core_string_format("{}/{}", v_parent_path, v_stage)
+		if err := coreSet(v_out, "control", v_controller); err != nil { return nil, err }
+		if err := coreSet(v_out, "execution_path", v_stage_path); err != nil { return nil, err }
+		if err := coreSet(v_out, "executionPath", v_stage_path); err != nil { return nil, err }
+	} else {
+	// empty
+	}
 	v_top_cache_snake = coreGet(v_base_options, "context_cache", nil)
 	v_top_cache = coreGet(v_base_options, "contextCache", v_top_cache_snake)
 	v_stage_cache_snake = coreGet(v_stage_options, "context_cache", nil)
@@ -44056,11 +47239,15 @@ func _agent_run_llm_query_one(args ...Value) (Value, error) {
 	var v_sub_gen Value
 	var v_client Value
 	var v_item Value
+	var v_options Value
 	var v_answer Value
 	var v_context Value
 	var v_empty_map Value
 	var v_item_is_string Value
 	var v_output Value
+	var v_parent Value
+	var v_parent_snake Value
+	var v_path Value
 	var v_query Value
 	var v_sub_options Value
 	var v_values Value
@@ -44070,11 +47257,16 @@ func _agent_run_llm_query_one(args ...Value) (Value, error) {
 	_ = v_client
 	if len(args) > 2 { v_item = args[2] }
 	_ = v_item
+	if len(args) > 3 { v_options = args[3] }
+	_ = v_options
 	_ = v_answer
 	_ = v_context
 	_ = v_empty_map
 	_ = v_item_is_string
 	_ = v_output
+	_ = v_parent
+	_ = v_parent_snake
+	_ = v_path
 	_ = v_query
 	_ = v_sub_options
 	_ = v_values
@@ -44091,8 +47283,13 @@ func _agent_run_llm_query_one(args ...Value) (Value, error) {
 	v_values = Object()
 	if err := coreSet(v_values, "task", v_query); err != nil { return nil, err }
 	if err := coreSet(v_values, "context", v_context); err != nil { return nil, err }
-	v_sub_options = Object()
-	{ v, err := _core_agent_stage_forward(v_sub_gen, v_client, v_values, v_sub_options); if err != nil { return nil, err }; v_output = v }
+	v_sub_options = _core_map_merge(v_empty_map, v_options)
+	v_parent_snake = coreGet(v_options, "execution_path", "root")
+	v_parent = coreGet(v_options, "executionPath", v_parent_snake)
+	v_path = _core_string_format("{}/llmQuery", v_parent)
+	if err := coreSet(v_sub_options, "execution_path", v_path); err != nil { return nil, err }
+	if err := coreSet(v_sub_options, "executionPath", v_path); err != nil { return nil, err }
+	{ v, err := _agent_controlled_stage_forward(v_sub_gen, v_client, v_values, v_sub_options); if err != nil { return nil, err }; v_output = v }
 	v_answer = coreGet(v_output, "answer", "")
 	return v_answer, nil
 }
@@ -44102,6 +47299,7 @@ func _agent_run_llm_query(args ...Value) (Value, error) {
 	var v_sub_gen Value
 	var v_client Value
 	var v_params Value
+	var v_options Value
 	var v_answers Value
 	var v_item Value
 	var v_one Value
@@ -44113,6 +47311,8 @@ func _agent_run_llm_query(args ...Value) (Value, error) {
 	_ = v_client
 	if len(args) > 2 { v_params = args[2] }
 	_ = v_params
+	if len(args) > 3 { v_options = args[3] }
+	_ = v_options
 	_ = v_answers
 	_ = v_item
 	_ = v_one
@@ -44122,14 +47322,14 @@ func _agent_run_llm_query(args ...Value) (Value, error) {
 	if coreTruthy(v_params_is_list) {
 		v_answers = MutableArray()
 		for _, v_item = range coreIter(v_params) {
-			{ v, err := _agent_run_llm_query_one(v_sub_gen, v_client, v_item); if err != nil { return nil, err }; v_one = v }
+			{ v, err := _agent_run_llm_query_one(v_sub_gen, v_client, v_item, v_options); if err != nil { return nil, err }; v_one = v }
 			v_answers = coreAppend(v_answers, v_one)
 		}
 		return v_answers, nil
 	} else {
 	// empty
 	}
-	{ v, err := _agent_run_llm_query_one(v_sub_gen, v_client, v_params); if err != nil { return nil, err }; v_single = v }
+	{ v, err := _agent_run_llm_query_one(v_sub_gen, v_client, v_params, v_options); if err != nil { return nil, err }; v_single = v }
 	return v_single, nil
 }
 
@@ -44418,6 +47618,7 @@ func _agent_forward(args ...Value) (Value, error) {
 	_ = v_used_skills
 	v_empty_list = MutableArray()
 	v_empty_map = Object()
+	if err := coreSet(v_state, "native_tool_names", v_empty_list); err != nil { return nil, err }
 	v_loaded_memories = MutableArray()
 	v_used_memories = MutableArray()
 	v_used_skills = MutableArray()
@@ -44516,7 +47717,7 @@ func _agent_forward(args ...Value) (Value, error) {
 			if err := coreSet(v_distiller_request_event, "values", v_distiller_values); err != nil { return nil, err }
 			if err := coreSet(v_distiller_request_event, "component_id", "agent.stage.distiller"); err != nil { return nil, err }
 			if _, err := _agent_record_trace_event(v_state, "stage_request", v_distiller_request_event); err != nil { return nil, err }
-			{ v, err := _core_agent_stage_forward(v_distiller, v_client, v_distiller_values, v_distiller_options); if err != nil { return nil, err }; v_distiller_output = v }
+			{ v, err := _agent_controlled_stage_forward(v_distiller, v_client, v_distiller_values, v_distiller_options); if err != nil { return nil, err }; v_distiller_output = v }
 			v_distiller_response_event = Object()
 			if err := coreSet(v_distiller_response_event, "stage", "distiller"); err != nil { return nil, err }
 			if err := coreSet(v_distiller_response_event, "step", v_distiller_step); err != nil { return nil, err }
@@ -44570,7 +47771,7 @@ func _agent_forward(args ...Value) (Value, error) {
 		if err := coreSet(v_distiller_request_event, "values", v_distiller_values); err != nil { return nil, err }
 		if err := coreSet(v_distiller_request_event, "component_id", "agent.stage.distiller"); err != nil { return nil, err }
 		if _, err := _agent_record_trace_event(v_state, "stage_request", v_distiller_request_event); err != nil { return nil, err }
-		{ v, err := _core_agent_stage_forward(v_distiller, v_client, v_distiller_values, v_distiller_options); if err != nil { return nil, err }; v_distiller_output = v }
+		{ v, err := _agent_controlled_stage_forward(v_distiller, v_client, v_distiller_values, v_distiller_options); if err != nil { return nil, err }; v_distiller_output = v }
 		v_distiller_response_event = Object()
 		if err := coreSet(v_distiller_response_event, "stage", "distiller"); err != nil { return nil, err }
 		if err := coreSet(v_distiller_response_event, "output", v_distiller_output); err != nil { return nil, err }
@@ -44666,7 +47867,7 @@ func _agent_forward(args ...Value) (Value, error) {
 			if err := coreSet(v_executor_request_event, "values", v_executor_values); err != nil { return nil, err }
 			if err := coreSet(v_executor_request_event, "component_id", "agent.stage.executor"); err != nil { return nil, err }
 			if _, err := _agent_record_trace_event(v_state, "stage_request", v_executor_request_event); err != nil { return nil, err }
-			{ v, err := _core_agent_stage_forward(v_executor, v_client, v_executor_values, v_executor_options); if err != nil { return nil, err }; v_executor_output = v }
+			{ v, err := _agent_executor_stage_forward(v_state, v_executor, v_client, v_executor_values, v_executor_options); if err != nil { return nil, err }; v_executor_output = v }
 			v_executor_response_event = Object()
 			if err := coreSet(v_executor_response_event, "stage", "executor"); err != nil { return nil, err }
 			if err := coreSet(v_executor_response_event, "step", v_step); err != nil { return nil, err }
@@ -44722,7 +47923,7 @@ func _agent_forward(args ...Value) (Value, error) {
 		if err := coreSet(v_executor_request_event, "values", v_executor_values); err != nil { return nil, err }
 		if err := coreSet(v_executor_request_event, "component_id", "agent.stage.executor"); err != nil { return nil, err }
 		if _, err := _agent_record_trace_event(v_state, "stage_request", v_executor_request_event); err != nil { return nil, err }
-		{ v, err := _core_agent_stage_forward(v_executor, v_client, v_executor_values, v_executor_options); if err != nil { return nil, err }; v_executor_output = v }
+		{ v, err := _agent_executor_stage_forward(v_state, v_executor, v_client, v_executor_values, v_executor_options); if err != nil { return nil, err }; v_executor_output = v }
 		v_executor_response_event = Object()
 		if err := coreSet(v_executor_response_event, "stage", "executor"); err != nil { return nil, err }
 		if err := coreSet(v_executor_response_event, "output", v_executor_output); err != nil { return nil, err }
@@ -44750,7 +47951,7 @@ func _agent_forward(args ...Value) (Value, error) {
 	if err := coreSet(v_responder_request_event, "values", v_responder_values); err != nil { return nil, err }
 	if err := coreSet(v_responder_request_event, "component_id", "agent.stage.responder"); err != nil { return nil, err }
 	if _, err := _agent_record_trace_event(v_state, "stage_request", v_responder_request_event); err != nil { return nil, err }
-	{ v, err := _core_agent_stage_forward(v_responder, v_client, v_responder_values, v_responder_options); if err != nil { return nil, err }; v_responder_output = v }
+	{ v, err := _agent_controlled_stage_forward(v_responder, v_client, v_responder_values, v_responder_options); if err != nil { return nil, err }; v_responder_output = v }
 	v_citation_retry_options = Object()
 	v_citation_retry_options = _core_map_merge(v_citation_retry_options, v_responder_options)
 	{ v, err := _agent_validate_citations(v_state, v_responder_output); if err != nil { return nil, err }; v_citations_valid = v }
@@ -44759,7 +47960,7 @@ func _agent_forward(args ...Value) (Value, error) {
 		v_invalid_citations_output = _core_json_stringify(v_responder_output)
 		v_citation_retry_feedback = _core_string_format("The previous responder output failed evidence-citation validation: {}. Cite only exact top-level evidence keys or permitted nested record ids present in contextData.evidence, or leave citations empty. Return only corrected JSON.", v_invalid_citations_output)
 		if err := coreSet(v_citation_retry_options, "validation_feedback", v_citation_retry_feedback); err != nil { return nil, err }
-		{ v, err := _core_agent_stage_forward(v_responder, v_client, v_responder_values, v_citation_retry_options); if err != nil { return nil, err }; v_responder_output = v }
+		{ v, err := _agent_controlled_stage_forward(v_responder, v_client, v_responder_values, v_citation_retry_options); if err != nil { return nil, err }; v_responder_output = v }
 		{ v, err := _agent_validate_citations(v_state, v_responder_output); if err != nil { return nil, err }; v_citations_valid = v }
 	} else {
 	// empty
@@ -44769,7 +47970,7 @@ func _agent_forward(args ...Value) (Value, error) {
 		v_invalid_citations_output = _core_json_stringify(v_responder_output)
 		v_citation_retry_feedback = _core_string_format("The previous responder output failed evidence-citation validation: {}. Cite only exact top-level evidence keys or permitted nested record ids present in contextData.evidence, or leave citations empty. Return only corrected JSON.", v_invalid_citations_output)
 		if err := coreSet(v_citation_retry_options, "validation_feedback", v_citation_retry_feedback); err != nil { return nil, err }
-		{ v, err := _core_agent_stage_forward(v_responder, v_client, v_responder_values, v_citation_retry_options); if err != nil { return nil, err }; v_responder_output = v }
+		{ v, err := _agent_controlled_stage_forward(v_responder, v_client, v_responder_values, v_citation_retry_options); if err != nil { return nil, err }; v_responder_output = v }
 		{ v, err := _agent_validate_citations(v_state, v_responder_output); if err != nil { return nil, err }; v_citations_valid = v }
 	} else {
 	// empty
@@ -45535,6 +48736,8 @@ func _flow_cache_read_write(args ...Value) (Value, error) {
 	var v_cached Value
 	var v_can_read_store Value
 	var v_can_write_store Value
+	var v_controlled Value
+	var v_controller Value
 	var v_empty_map Value
 	var v_has_store Value
 	var v_hit Value
@@ -45566,6 +48769,8 @@ func _flow_cache_read_write(args ...Value) (Value, error) {
 	_ = v_cached
 	_ = v_can_read_store
 	_ = v_can_write_store
+	_ = v_controlled
+	_ = v_controller
 	_ = v_empty_map
 	_ = v_has_store
 	_ = v_hit
@@ -45607,6 +48812,13 @@ func _flow_cache_read_write(args ...Value) (Value, error) {
 	if err := coreSet(v_result, "key", v_key); err != nil { return nil, err }
 	if err := coreSet(v_result, "hit", false); err != nil { return nil, err }
 	if err := coreSet(v_result, "value", v_none); err != nil { return nil, err }
+	v_controller = coreGet(v_opts, "control", nil)
+	v_controlled = _core_is_not_none(v_controller)
+	if coreTruthy(v_controlled) {
+		return v_result, nil
+	} else {
+	// empty
+	}
 	if coreTruthy(v_is_read) {
 		v_can_read_store = _core_and(v_has_store, v_read_error)
 		v_skip_read = _core_truthy(v_can_read_store)
@@ -45656,6 +48868,8 @@ func _flow_check_abort(args ...Value) (Value, error) {
 	var v_abort_camel Value
 	var v_abort_snake Value
 	var v_aborted Value
+	var v_control_aborted Value
+	var v_controller Value
 	var v_err Value
 	var v_message Value
 	var v_none Value
@@ -45667,6 +48881,8 @@ func _flow_check_abort(args ...Value) (Value, error) {
 	_ = v_abort_camel
 	_ = v_abort_snake
 	_ = v_aborted
+	_ = v_control_aborted
+	_ = v_controller
 	_ = v_err
 	_ = v_message
 	_ = v_none
@@ -45675,6 +48891,9 @@ func _flow_check_abort(args ...Value) (Value, error) {
 	v_abort_camel = coreGet(v_options, "abortBeforeStep", v_abort_snake)
 	v_aborted = coreGet(v_options, "aborted", v_abort_camel)
 	v_abort = coreGet(v_options, "abort", v_aborted)
+	v_controller = coreGet(v_options, "control", nil)
+	v_control_aborted = _core_run_control_aborted(v_controller)
+	v_abort = _core_or(v_abort, v_control_aborted)
 	if coreTruthy(v_abort) {
 		v_message = _core_string_format("Flow aborted at {}", v_location)
 		v_err = _core_runtime_error(v_message)
@@ -45883,8 +49102,8 @@ func _flow_record_child_traces(args ...Value) (Value, error) {
 	return v_traces, nil
 }
 
-func _flow_execute_program_node(args ...Value) (Value, error) {
-	axirCoverageMark("_flow_execute_program_node")
+func _flow_prepare_program_node(args ...Value) (Value, error) {
+	axirCoverageMark("_flow_prepare_program_node")
 	var v_flow Value
 	var v_step Value
 	var v_client Value
@@ -45902,14 +49121,17 @@ func _flow_execute_program_node(args ...Value) (Value, error) {
 	var v_abort_now Value
 	var v_abort_this_node Value
 	var v_base_options Value
+	var v_controlled Value
+	var v_controller Value
 	var v_empty_map Value
 	var v_has_trace_label Value
 	var v_kind Value
 	var v_name Value
-	var v_out Value
+	var v_node_path Value
+	var v_parent_path Value
+	var v_parent_path_snake Value
+	var v_prepared Value
 	var v_program Value
-	var v_result Value
-	var v_result_key Value
 	var v_runtime_base Value
 	var v_runtime_options Value
 	var v_step_options Value
@@ -45937,14 +49159,17 @@ func _flow_execute_program_node(args ...Value) (Value, error) {
 	_ = v_abort_now
 	_ = v_abort_this_node
 	_ = v_base_options
+	_ = v_controlled
+	_ = v_controller
 	_ = v_empty_map
 	_ = v_has_trace_label
 	_ = v_kind
 	_ = v_name
-	_ = v_out
+	_ = v_node_path
+	_ = v_parent_path
+	_ = v_parent_path_snake
+	_ = v_prepared
 	_ = v_program
-	_ = v_result
-	_ = v_result_key
 	_ = v_runtime_base
 	_ = v_runtime_options
 	_ = v_step_options
@@ -45958,6 +49183,18 @@ func _flow_execute_program_node(args ...Value) (Value, error) {
 	v_base_options = coreGet(v_flow, "options", v_empty_map)
 	v_runtime_base = _core_map_merge(v_base_options, v_options)
 	v_runtime_options = _core_map_merge(v_runtime_base, v_step_options)
+	v_controller = coreGet(v_runtime_base, "control", nil)
+	v_controlled = _core_is_not_none(v_controller)
+	if coreTruthy(v_controlled) {
+		v_parent_path_snake = coreGet(v_runtime_base, "execution_path", "root")
+		v_parent_path = coreGet(v_runtime_base, "executionPath", v_parent_path_snake)
+		v_node_path = _core_string_format("{}/{}", v_parent_path, v_name)
+		if err := coreSet(v_runtime_options, "control", v_controller); err != nil { return nil, err }
+		if err := coreSet(v_runtime_options, "execution_path", v_node_path); err != nil { return nil, err }
+		if err := coreSet(v_runtime_options, "executionPath", v_node_path); err != nil { return nil, err }
+	} else {
+	// empty
+	}
 	v_trace_label_in = coreGet(v_options, "traceLabel", "")
 	v_has_trace_label = _core_truthy(v_trace_label_in)
 	v_trace_label = _core_string_format("Node:{}", v_name)
@@ -45983,7 +49220,40 @@ func _flow_execute_program_node(args ...Value) (Value, error) {
 	} else {
 	// empty
 	}
-	{ v, err := _core_agent_stage_forward(v_program, v_client, v_state, v_runtime_options); if err != nil { return nil, err }; v_result = v }
+	v_prepared = Object()
+	if err := coreSet(v_prepared, "name", v_name); err != nil { return nil, err }
+	if err := coreSet(v_prepared, "program", v_program); err != nil { return nil, err }
+	if err := coreSet(v_prepared, "options", v_runtime_options); err != nil { return nil, err }
+	return v_prepared, nil
+}
+
+func _flow_finish_program_node(args ...Value) (Value, error) {
+	axirCoverageMark("_flow_finish_program_node")
+	var v_flow Value
+	var v_prepared Value
+	var v_result Value
+	var v_state Value
+	var v_empty_map Value
+	var v_name Value
+	var v_out Value
+	var v_program Value
+	var v_result_key Value
+	if len(args) > 0 { v_flow = args[0] }
+	_ = v_flow
+	if len(args) > 1 { v_prepared = args[1] }
+	_ = v_prepared
+	if len(args) > 2 { v_result = args[2] }
+	_ = v_result
+	if len(args) > 3 { v_state = args[3] }
+	_ = v_state
+	_ = v_empty_map
+	_ = v_name
+	_ = v_out
+	_ = v_program
+	_ = v_result_key
+	v_empty_map = Object()
+	v_name = coreGet(v_prepared, "name", "")
+	v_program = coreGet(v_prepared, "program", nil)
 	v_out = _core_map_merge(v_state, v_empty_map)
 	v_result_key = _core_string_format("{}Result", v_name)
 	if err := coreSet(v_out, v_result_key, v_result); err != nil { return nil, err }
@@ -45991,6 +49261,41 @@ func _flow_execute_program_node(args ...Value) (Value, error) {
 	if _, err := _flow_record_child_chat_log(v_flow, v_name, v_program); err != nil { return nil, err }
 	if _, err := _flow_record_child_usage(v_flow, v_name, v_program); err != nil { return nil, err }
 	if _, err := _flow_record_child_traces(v_flow, v_name, v_program); err != nil { return nil, err }
+	return v_out, nil
+}
+
+func _flow_execute_program_node(args ...Value) (Value, error) {
+	axirCoverageMark("_flow_execute_program_node")
+	var v_flow Value
+	var v_step Value
+	var v_client Value
+	var v_state Value
+	var v_options Value
+	var v_out Value
+	var v_prepared Value
+	var v_program Value
+	var v_result Value
+	var v_runtime_options Value
+	if len(args) > 0 { v_flow = args[0] }
+	_ = v_flow
+	if len(args) > 1 { v_step = args[1] }
+	_ = v_step
+	if len(args) > 2 { v_client = args[2] }
+	_ = v_client
+	if len(args) > 3 { v_state = args[3] }
+	_ = v_state
+	if len(args) > 4 { v_options = args[4] }
+	_ = v_options
+	_ = v_out
+	_ = v_prepared
+	_ = v_program
+	_ = v_result
+	_ = v_runtime_options
+	{ v, err := _flow_prepare_program_node(v_flow, v_step, v_client, v_state, v_options); if err != nil { return nil, err }; v_prepared = v }
+	v_program = coreGet(v_prepared, "program", nil)
+	v_runtime_options = coreGet(v_prepared, "options", nil)
+	{ v, err := _core_agent_stage_forward(v_program, v_client, v_state, v_runtime_options); if err != nil { return nil, err }; v_result = v }
+	{ v, err := _flow_finish_program_node(v_flow, v_prepared, v_result, v_state); if err != nil { return nil, err }; v_out = v }
 	return v_out, nil
 }
 
@@ -54167,29 +57472,46 @@ func title(name string) string {
 
 // Tools and AI services.
 type Tool struct {
+    ExecutionMode string
 	Name        string
 	Description string
 	Args        map[string]Field
 	Returns     map[string]Field
 	Handler     func(map[string]Value) (Value, error)
+	ContextHandler func(context.Context, map[string]Value) (Value, error)
 }
 
 func Fn(name string) Tool {
-	return Tool{Name: name, Description: name, Args: map[string]Field{}, Returns: map[string]Field{}}
+	return Tool{ExecutionMode: "blocking", Name: name, Description: name, Args: map[string]Field{}, Returns: map[string]Field{}}
+}
+func (t Tool) Execution(mode string) Tool {
+    if mode != "blocking" && mode != "background" { panic("Tool execution must be blocking or background") }
+    t.ExecutionMode = mode
+    return t
 }
 func (t Tool) WithHandler(handler func(map[string]Value) (Value, error)) Tool {
 	t.Handler = handler
 	return t
 }
+func (t Tool) WithContextHandler(handler func(context.Context, map[string]Value) (Value, error)) Tool {
+    t.ContextHandler = handler
+    t.Handler = func(args map[string]Value) (Value,error) { return handler(context.Background(), args) }
+    return t
+}
 func (t Tool) Call(args map[string]Value) Value { return mustCore(t.invoke(args)) }
 func (t Tool) invoke(args map[string]Value) (Value, error) {
+    return t.invokeContext(context.Background(), args)
+}
+func (t Tool) invokeContext(ctx context.Context, args map[string]Value) (Value, error) {
 	if _, err := validate_fields(toolFields(t.Args), args, "tool."+t.Name+".args"); err != nil {
 		return nil, err
 	}
-	if t.Handler == nil {
+	if t.Handler == nil && t.ContextHandler == nil {
 		return nil, nil
 	}
-	out, err := t.Handler(args)
+    var out Value
+    var err error
+    if t.ContextHandler != nil { out, err = t.ContextHandler(ctx, args) } else { out, err = t.Handler(args) }
 	if err != nil {
 		return nil, AxError{Category: "runtime", Message: err.Error()}
 	}
@@ -54205,7 +57527,15 @@ func runtimeScopedTools(ctx context.Context, tools []Tool) []Tool {
 	out := append([]Tool(nil), tools...)
 	for index := range out {
 		original := out[index].Handler
+        contextual := out[index].ContextHandler
 		name := out[index].Name
+        if contextual != nil {
+            out[index].ContextHandler = func(callCtx context.Context, args map[string]Value) (result Value, err error) {
+                toolCtx, _, finish := beginRuntimeScope(callCtx, AxRuntimeHooks{}, AxRuntimeHooks{}, "ax_gen_tool", "ax_gen_tool", Object("ax.tool.name", name))
+                defer func() { finish(err) }()
+                return contextual(toolCtx, args)
+            }
+        }
 		if original == nil {
 			continue
 		}
@@ -54233,6 +57563,8 @@ func toolFields(fields map[string]Field) []Field {
 }
 func (t Tool) get(key string, fallback Value) Value {
 	switch key {
+	case "execution":
+        if t.ExecutionMode == "" { return "blocking" }; return t.ExecutionMode
 	case "name":
 		return t.Name
 	case "description":
@@ -55300,7 +58632,7 @@ func (c *OpenAICompatibleClient) requestJSON(ctx context.Context, operation stri
 	// `stream` flag, while Gemini and Anthropic select streaming through their
 	// operation endpoint and reject an extra body field.
 	operationDescriptor := mustCore(provider_resolve_operation_descriptor(c.Profile, operation, opts))
-	path := display(coreGet(operationDescriptor, "path", "/chat/completions"))
+	path := display(mustCore(provider_chat_operation_path(c.Profile, coreGet(request, "model", ""), operation, coreGet(operationDescriptor, "path", "/chat/completions"))))
 	descriptor := mustCore(provider_resolve_descriptor(c.Profile, opts))
 	base := display(coreGet(opts, "base_url", coreGet(opts, "baseUrl", coreGet(descriptor, "baseUrl", "https://api.openai.com/v1"))))
 	headers := Object("Content-Type", "application/json")
@@ -55798,7 +59130,7 @@ func (s *sliceProviderStream) Next() (Value, error) {
 	}
 	return nil, io.EOF
 }
-func (s *sliceProviderStream) Close() error { s.index = len(s.values); return nil }
+func (s *sliceProviderStream) Close() error { return nil }
 
 type sseJSONStream struct {
 	reader     *bufio.Reader
@@ -55809,7 +59141,7 @@ type sseJSONStream struct {
 	queuedByte *byte
 	atStart    bool
 	done       bool
-	closed     bool
+	closeOnce sync.Once
 }
 
 func newSSEJSONStream(reader io.Reader, closer io.Closer) *sseJSONStream {
@@ -55817,14 +59149,9 @@ func newSSEJSONStream(reader io.Reader, closer io.Closer) *sseJSONStream {
 }
 
 func (s *sseJSONStream) Close() error {
-	if s.closed {
-		return nil
-	}
-	s.closed = true
-	if s.closer != nil {
-		return s.closer.Close()
-	}
-	return nil
+	var err error
+	s.closeOnce.Do(func() { if s.closer != nil { err = s.closer.Close() } })
+	return err
 }
 
 func (s *sseJSONStream) flushEvent() (Value, bool, error) {
@@ -56129,9 +59456,17 @@ func routerDefaultFeatures() map[string]Value {
 }
 func (r *MultiServiceRouter) GetFeatures(model string) map[string]Value {
 	if entry, ok := r.services[model]; ok {
-		return cloneMap(entry.Service.GetFeatures(model))
+		return cloneMap(entry.Service.GetFeatures(display(entry.Model)))
 	}
 	return routerDefaultFeatures()
+}
+func (r *MultiServiceRouter) OpenChatSession(ctx context.Context, request,options map[string]Value)(AxChatSession,error){
+    key:=display(coreGet(request,"model",""));entry,ok:=r.services[key]
+    if !ok{return nil,fmt.Errorf("No service found for model key: %s",key)}
+    opener,ok:=entry.Service.(SessionAIClient);if !ok{return nil,fmt.Errorf("Selected service does not support sessions")}
+    route:=Object();if entry.HasModel {coreSet(route,"model",entry.Model)}
+    resolved:=mustCore(provider_session_route(route,request,options));r.lastUsedService=entry.Service
+    return opener.OpenChatSession(ctx,asMap(coreGet(resolved,"request",Object())),asMap(coreGet(resolved,"options",Object())))
 }
 func (r *MultiServiceRouter) Chat(ctx context.Context, request map[string]Value, options map[string]Value) (Value, error) {
 	modelKey := display(coreGet(request, "model", ""))
@@ -56314,6 +59649,7 @@ func appendUnique(target *AxArray, values Value) {
 func balancerBaseFeatures() map[string]Value {
 	return Object(
 		"functions", false, "streaming", false, "thinking", false, "multiTurn", false, "structuredOutputs", false,
+        "asyncTools", false, "nativeSteering", false, "reasoningUpdates", false,
 		"media", Object(
 			"images", Object("supported", false, "formats", Array()),
 			"audio", Object("supported", false, "formats", Array()),
@@ -56575,6 +59911,14 @@ func (b *AxBalancer) validateModels() error {
 	}
 	return nil
 }
+func (b *AxBalancer) OpenChatSession(ctx context.Context,request,options map[string]Value)(AxChatSession,error) {
+    selected,err:=b.pinChatRun(ctx,request,options);if err!=nil{return nil,err};opener,ok:=selected.(SessionAIClient);if !ok{return nil,fmt.Errorf("selected service does not support chat sessions")};return opener.OpenChatSession(ctx,request,options)
+}
+func (b *AxBalancer) pinChatRun(ctx context.Context,request,options map[string]Value)(AIClient,error) {
+    var selected AxAIService
+    if b.adaptive!=nil {ranked,err:=b.rankAdaptive(request,options);if err!=nil{return nil,err};if len(ranked)>0{selected=ranked[0].service}} else {candidates,err:=b.candidateServices(request);if err!=nil{return nil,err};for _,service:=range candidates {if b.canRetryService(service){selected=service;break}}}
+    if selected==nil{return nil,fmt.Errorf("no eligible service for this run")};b.currentService=selected;return selected,nil
+}
 func (b *AxBalancer) canRetryService(service AxAIService) bool {
 	return b.serviceFailures[service.GetID()] == 0
 }
@@ -56624,11 +59968,12 @@ func (b *AxBalancer) GetModelList() Value {
 	}
 	return nil
 }
-func (b *AxBalancer) GetFeatures(model string) map[string]Value {
+func (b *AxBalancer) GetFeatures(model string) map[string]Value {return mergedServiceFeatures(b.services,model)}
+func mergedServiceFeatures(services []AxAIService,model string) map[string]Value {
 	features := balancerBaseFeatures()
 	modes := MutableArray()
-	allModesAdvertised := len(b.services) > 0
-	for _, service := range b.services {
+	allModesAdvertised := len(services) > 0
+	for _, service := range services {
 		raw := service.GetFeatures(model)
 		rawModes := coreGet(raw, "structuredOutputModes", coreGet(raw, "structured_output_modes", nil))
 		if rawModes == nil {
@@ -56636,7 +59981,7 @@ func (b *AxBalancer) GetFeatures(model string) map[string]Value {
 		} else {
 			appendUnique(modes, rawModes)
 		}
-		for _, pair := range []struct{ key, alt string }{{"functions", ""}, {"streaming", ""}, {"thinking", ""}, {"multiTurn", "multi_turn"}, {"structuredOutputs", "structured_outputs"}, {"functionCot", "function_cot"}, {"hasThinkingBudget", "has_thinking_budget"}, {"hasShowThoughts", "has_show_thoughts"}} {
+		for _, pair := range []struct{ key, alt string }{{"functions", ""}, {"streaming", ""}, {"thinking", ""}, {"multiTurn", "multi_turn"}, {"structuredOutputs", "structured_outputs"}, {"functionCot", "function_cot"}, {"hasThinkingBudget", "has_thinking_budget"}, {"hasShowThoughts", "has_show_thoughts"}, {"asyncTools", ""}, {"nativeSteering", ""}, {"reasoningUpdates", ""}} {
 			if featureBool(raw, pair.key, pair.alt) {
 				coreSet(features, pair.key, true)
 			}
@@ -57211,6 +60556,19 @@ func (r *ProviderRouter) ValidateRequest(request map[string]Value) map[string]Va
 func (r *ProviderRouter) GetRoutingStats() map[string]Value {
 	return asMap(mustCore(provider_routing_stats(r.providerRecords())))
 }
+type pinnedProviderChat struct {AIClient}
+func (p *pinnedProviderChat) GetFeatures(model string)map[string]Value{return asMap(_core_ai_client_features(p.AIClient,model))}
+func (p *pinnedProviderChat) Chat(ctx context.Context,request,options map[string]Value)(Value,error){processed:=asMap(mustCore(provider_route_preprocess_request(p.GetFeatures(display(coreGet(request,"model",""))),request)));return p.AIClient.Chat(ctx,processed,options)}
+func (p *pinnedProviderChat) OpenChatSession(ctx context.Context,request,options map[string]Value)(AxChatSession,error){
+    opener,ok:=p.AIClient.(SessionAIClient);if !ok{return nil,fmt.Errorf("selected provider does not support chat sessions")};processed:=asMap(mustCore(provider_route_preprocess_request(p.GetFeatures(display(coreGet(request,"model",""))),request)));return opener.OpenChatSession(ctx,processed,options)
+}
+func (r *ProviderRouter) GetFeatures(model string)map[string]Value{return mergedServiceFeatures(r.providers,model)}
+func (r *ProviderRouter) pinChatRun(ctx context.Context,request,options map[string]Value)(AIClient,error){
+    _,provider,err:=r.selectedService(request);if err!=nil{return nil,err};var selected AIClient=provider;seen:=map[AIClient]bool{}
+    for{selector,ok:=selected.(chatRunSelector);if !ok{break};if seen[selected]{return nil,fmt.Errorf("cyclic run routing")};seen[selected]=true;selected,err=selector.pinChatRun(ctx,request,options);if err!=nil{return nil,err}}
+    return &pinnedProviderChat{AIClient:selected},nil
+}
+func (r *ProviderRouter) OpenChatSession(ctx context.Context,request,options map[string]Value)(AxChatSession,error){selected,err:=r.pinChatRun(ctx,request,options);if err!=nil{return nil,err};return selected.(SessionAIClient).OpenChatSession(ctx,request,options)}
 func (r *ProviderRouter) selectedService(request map[string]Value) (map[string]Value, AxAIService, error) {
 	rec := r.GetRoutingRecommendation(request)
 	service, _ := coreGet(rec, "provider", nil).(AxAIService)
@@ -57371,10 +60729,29 @@ func (g *AxGen) ForwardWithHooks(ctx context.Context, client AIClient, values ma
 			}
 			clone.Functions = append(clone.Functions, tools...)
 		}
-		return clone.ForwardWithHooks(ctx, client, values, map[string]Value{"executionContext": callContext}, AxRuntimeHooks{})
+		callOptions := cloneMap(options)
+        callOptions["executionContext"] = callContext
+        return clone.ForwardWithHooks(ctx, client, values, callOptions, AxRuntimeHooks{})
 	}
 	clone := *g
 	clone.Functions = runtimeScopedTools(ctx, g.Functions)
+    control,_ := coreGet(options,"control",nil).(*AxRunControl)
+    selectionClient := client
+    for { bound,ok:=selectionClient.(contextBoundAIClient);if !ok {break};selectionClient=bound.inner }
+    opener,_ := selectionClient.(SessionAIClient)
+    model := display(coreGet(options,"model",""))
+    if model == "" { switch provider:=selectionClient.(type) {case *OpenAICompatibleClient:model=display(coreGet(provider.optionsSnapshot(),"model",""));case *OpenAIResponsesClient:model=display(coreGet(provider.optionsSnapshot(),"model",""))} }
+    if !coreTruthy(mustCore(chat_session_mode_enabled(options))) {opener=nil} else if service,ok:=selectionClient.(interface{GetFeatures(string) map[string]Value}); !ok || !coreTruthy(coreGet(service.GetFeatures(model),"asyncTools",false)) {opener=nil}
+    _, selectable := selectionClient.(chatRunSelector)
+    selectable=selectable && coreTruthy(mustCore(chat_session_mode_enabled(options)))
+    eligible := control!=nil
+    for _,tool:=range clone.Functions { eligible=eligible || ((opener!=nil || selectable) && tool.ExecutionMode=="background") }
+    if eligible {
+        sessionClient:=&genSessionClient{AIClient:client,gen:&clone,opener:opener,options:options,control:control,path:display(coreGet(options,"execution_path",coreGet(options,"executionPath","root"))),deliveries:make(chan sessionDelivery,32),results:make(chan sessionToolResult,32)}
+        client=sessionClient
+        if opener!=nil || selectable {options=cloneMap(options);coreSet(options,"infraRetries",0)}
+        defer func(){sessionClient.close(err)}()
+    }
 	out, err = safeValue(func() Value {
 		return mustCore(_forward_impl(&clone, bindAIClientContext(ctx, client), values, options))
 	})
@@ -57615,7 +60992,7 @@ func (a *AxAgent) ForwardWithHooks(ctx context.Context, client AIClient, values 
 	runtime := coreGet(callOptions, "runtime", coreGet(a.Options, "runtime", nil))
 	if reg, ok := runtime.(runtimeCallableRegistrar); ok {
 		reg.RegisterHostCallable("llmQuery", func(params Value) (Value, error) {
-			return _agent_run_llm_query(a.LlmQuery, boundClient, params)
+			return _agent_run_llm_query(a.LlmQuery, boundClient, params, callOptions)
 		})
 	}
 	output, forwardErr = safeValue(func() Value {
@@ -60539,6 +63916,14 @@ func _core_axgen_record_chat_log(target Value, values ...Value) Value {
 func _core_axgen_record_function_call(target Value, values ...Value) Value {
 	traces := coreGet(target, "function_call_traces", Array())
 	entry := Object()
+	if len(values) > 0 {
+        call := values[0]
+        coreSet(entry, "id", coreGet(call, "id", nil))
+        coreSet(entry, "name", coreGet(call, "name", ""))
+        coreSet(entry, "args", coreGet(call, "args", Object()))
+    }
+    if len(values) > 1 { coreSet(entry, "result", values[1]) }
+    if len(values) > 2 { coreSet(entry, "status", values[2]) }
 	for i, value := range values {
 		coreSet(entry, fmt.Sprintf("item%d", i), value)
 	}
@@ -60548,6 +63933,21 @@ func _core_axgen_record_function_call(target Value, values ...Value) Value {
 	}
 	return traces
 }
+func _core_agent_native_stage_forward(stage,state,client,values,options,selected Value)(Value,error) {
+    program,ok:=stage.(*AxGen);if !ok{return nil,fmt.Errorf("Native agent stage must be an AxGen")}
+    nativeTools:=[]Tool{}
+    for _,descriptor:=range asSlice(selected) {
+        source:=mustCore(_agent_callable_implementation(state,display(coreGet(descriptor,"qualified_name",""))))
+        var tool Tool
+        switch value:=source.(type){case Tool:tool=value;case *Tool:tool=*value;default:return nil,fmt.Errorf("Background agent callables must have a typed Fn implementation")}
+        tool.Name=display(coreGet(descriptor,"native_name",""));tool.Description=display(coreGet(descriptor,"description",""));tool.ExecutionMode="background";nativeTools=append(nativeTools,tool)
+    }
+    original,base,previous:=program.Functions,program.BaseFunctions,program.FunctionCallTraces
+    program.Functions=append(append([]Tool{},original...),nativeTools...);program.FunctionCallTraces=Array();program.BaseFunctions=append(append([]Tool{},base...),nativeTools...)
+    defer func(){records:=program.FunctionCallTraces;program.Functions=original;program.BaseFunctions=base;program.FunctionCallTraces=append(append(Array(),asSlice(previous)...),asSlice(records)...);mustCore(_agent_record_native_calls(state,selected,records,options))}()
+    ai:=client.(AIClient);return program.Forward(contextForAIClient(ai,context.Background()),ai,asMap(values),asMap(options))
+}
+
 func _core_agent_stage_forward(stage Value, client Value, values Value, options Value) (Value, error) {
 	ai := client.(AIClient)
 	ctx := contextForAIClient(ai, context.Background())
@@ -60898,6 +64298,10 @@ func _core_agent_callable_invoke(values ...Value) Value {
 	qualified := display(coreGet(request, "qualified_name", coreGet(request, "name", "")))
 	name := display(coreGet(request, "name", ""))
 	args := asMap(coreGet(request, "args", Object()))
+    implementation:=mustCore(_agent_callable_implementation(state,qualified))
+    ctx:=context.Background();if len(values)>2 {if configured,ok:=coreGet(values[2],"context",nil).(context.Context);ok {ctx=configured}}
+    switch tool:=implementation.(type){case Tool:return Object("status","ok","value",mustCore(tool.invokeContext(ctx,args)));case *Tool:return Object("status","ok","value",mustCore(tool.invokeContext(ctx,args)))}
+    switch handler:=coreGet(implementation,"handler",nil).(type){case func(map[string]Value)Value:return Object("status","ok","value",handler(args));case func(map[string]Value)(Value,error):value,err:=handler(args);if err!=nil{return Object("status","error","error",err.Error())};return Object("status","ok","value",value)}
 	for _, rawGroup := range asSlice(coreGet(state, "callable_inventory", Array())) {
 		for _, rawCallable := range asSlice(coreGet(rawGroup, "callables", Array())) {
 			callable := asMap(rawCallable)
@@ -61071,6 +64475,32 @@ func runConformanceFixture(fixture map[string]Value) {
 		runConformanceStream(fixture)
 	case "forward":
 		runConformanceForward(fixture)
+	case "ai_session_state":
+        state := mustCore(chat_session_create_state(coreGet(fixture,"model",nil),coreGet(fixture,"path",nil),coreGet(fixture,"max_steps",nil)))
+        for _, item := range coreIter(coreGet(fixture,"cases",nil)) {
+            assertEqual(mustCore(chat_session_transition(state,coreGet(item,"event",nil))),coreGet(item,"expected_action",nil),"session transition")
+        }
+        assertEqual(mustCore(chat_session_unresolved(state)),coreGet(fixture,"expected_pending",nil),"unresolved work")
+        assertEqual(coreGet(state,"steps",nil),coreGet(fixture,"expected_steps",nil),"response accounting")
+	case "ai_session_events":
+        state := Object()
+        cursor := Object()
+        for _, rawCase := range coreIter(coreGet(fixture, "cases", Array())) {
+            item := asMap(rawCase)
+            mustCore(openai_responses_transport_cursor(cursor,coreGet(item,"event",nil)))
+            if expected,ok:=item["expected_active_id"];ok {assertEqual(coreGet(cursor,"active_id",nil),expected,"transport active response")}
+            if expected,ok:=item["expected_exception"];ok {
+                _,err:=openai_responses_session_event(coreGet(item,"event",nil),state,coreGet(fixture,"model",""))
+                if err==nil || !strings.Contains(err.Error(),display(expected)){panic(fmt.Sprintf("Expected provider session failure %v, got %v",expected,err))};continue
+            }
+            events := coreIter(mustCore(openai_responses_session_event(coreGet(item, "event", nil), state, coreGet(fixture, "model", ""))))
+            types := Array()
+            for _, event := range events { types = append(types, coreGet(event, "type", nil)) }
+            assertEqual(types, coreGet(item, "expected_types", nil), "session event types")
+            for _, key := range []string{"call", "response_id", "status", "required_call_ids", "error"} {
+                if expected, ok := item["expected_"+key]; ok { assertEqual(coreGet(events[0], key, nil), expected, "session "+key) }
+            }
+        }
 	case "ai_chat":
 		runConformanceAIChat(fixture)
 	case "ai_embed":
@@ -63587,6 +67017,9 @@ func runConformanceAgentRuntimePolicy(fixture map[string]Value) {
 				assertEqual(result, expected, "discover result")
 			}
 		}
+        for _,raw:=range asSlice(coreGet(fixture,"native_cases",Array())) {
+            names:=Array();for _,item:=range asSlice(mustCore(_agent_native_callables(ag.State,coreGet(raw,"features",Object()),coreGet(raw,"options",Object())))){names=append(names,coreGet(item,"qualified_name",nil))};assertEqual(names,coreGet(raw,"expected",Array()),"native agent selection")
+        }
 		if request := coreGet(fixture, "recall", nil); request != nil {
 			result := ag.Recall(request)
 			if expected, ok := fixture["expected_recall_result"]; ok {

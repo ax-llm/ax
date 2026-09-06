@@ -566,6 +566,8 @@ public final class Conformance {
       case "template_validate" -> assertEqual(Core.validate_prompt_template_syntax(fixture.get("template"), fixture.getOrDefault("context", "fixture-template"), fixture.getOrDefault("required_variables", List.of())), fixture.getOrDefault("expected_result", true), "template validation");
       case "stream" -> runStream(fixture);
       case "forward" -> runForward(fixture);
+      case "ai_session_state" -> runAISessionState(fixture);
+      case "ai_session_events" -> runAISessionEvents(fixture);
       case "ai_chat" -> runAIChat(fixture);
       case "ai_embed" -> runAIEmbed(fixture);
       case "ai_stream" -> runAIStream(fixture);
@@ -1808,6 +1810,11 @@ public final class Conformance {
         Object result = agent.discover(discoverValue instanceof Map<?, ?> ? Core.asMap(discoverValue) : new LinkedHashMap<>(Map.of("tools", discoverValue)));
         if (fixture.containsKey("expected_discover_result")) assertEqual(result, fixture.get("expected_discover_result"), "discover result");
       }
+      if(fixture.containsKey("native_cases")) {
+        Object state=Core._agent_factory(fixture.getOrDefault("signature","question:string -> answer:string"),fixture.getOrDefault("options",Map.of()));
+        if(fixture.containsKey("discover"))Core._agent_discover(state,fixture.get("discover"));
+        for(Object raw:Core.asList(fixture.get("native_cases"))){var c=Core.asMap(raw);var names=new ArrayList<Object>();for(Object item:Core.asList(Core._agent_native_callables(state,c.getOrDefault("features",Map.of()),c.getOrDefault("options",Map.of()))))names.add(Core.get(item,"qualified_name",null));assertEqual(names,c.get("expected"),"native agent selection");}
+      }
       if (fixture.containsKey("recall")) {
         Object result = agent.recall(fixture.getOrDefault("recall", List.of()));
         if (fixture.containsKey("expected_recall_result")) assertEqual(result, fixture.get("expected_recall_result"), "recall result");
@@ -2785,5 +2792,38 @@ public final class Conformance {
     if (value instanceof Map<?, ?> map) { Map<String, Object> out = new LinkedHashMap<>(); for (Map.Entry<?, ?> e : map.entrySet()) out.put(String.valueOf(e.getKey()), canonical(e.getValue())); return out; }
     if (value instanceof Iterable<?> list) { List<Object> out = new ArrayList<>(); for (Object item : list) out.add(canonical(item)); return out; }
     return value;
+  }
+
+  private static void runAISessionEvents(Map<String, Object> fixture) {
+    Map<String, Object> state = new LinkedHashMap<>();
+    Map<String, Object> cursor = new LinkedHashMap<>();
+    for (Object rawCase : Core.iter(fixture.get("cases"))) {
+      Map<String, Object> item = Core.asMap(rawCase);
+      Core.openai_responses_transport_cursor(cursor,item.get("event"));
+      if(item.containsKey("expected_active_id"))assertEqual(cursor.get("active_id"),item.get("expected_active_id"),"transport active response");
+      if(item.containsKey("expected_exception")) {
+        try { Core.openai_responses_session_event(item.get("event"),state,fixture.get("model"));throw new AssertionError("Expected provider session failure"); }
+        catch(RuntimeException error){if(!error.toString().contains(String.valueOf(item.get("expected_exception"))))throw error;}
+        continue;
+      }
+      List<Object> events = new ArrayList<>();
+      for (Object event : Core.iter(Core.openai_responses_session_event(item.get("event"), state, fixture.get("model")))) events.add(event);
+      List<Object> types = new ArrayList<>();
+      for (Object event : events) types.add(Core.asMap(event).get("type"));
+      assertEqual(types, item.get("expected_types"), "session event types");
+      for (String key : List.of("call", "response_id", "status", "required_call_ids", "error")) {
+        if (item.containsKey("expected_" + key)) assertEqual(Core.asMap(events.get(0)).get(key), item.get("expected_" + key), "session " + key);
+      }
+    }
+  }
+
+  private static void runAISessionState(Map<String, Object> fixture) {
+    Object state = Core.chat_session_create_state(fixture.get("model"), fixture.get("path"), fixture.get("max_steps"));
+    for (Object rawCase : Core.iter(fixture.get("cases"))) {
+      Map<String, Object> item = Core.asMap(rawCase);
+      assertEqual(Core.chat_session_transition(state, item.get("event")), item.get("expected_action"), "session transition");
+    }
+    assertEqual(Core.chat_session_unresolved(state), fixture.get("expected_pending"), "unresolved work");
+    assertEqual(Core.asMap(state).get("steps"), fixture.get("expected_steps"), "response accounting");
   }
 }

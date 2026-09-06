@@ -6,21 +6,21 @@
       "type": "skill-md",
       "description": "Use when writing Go code with `github.com/ax-llm/ax/packages/go` for using the generated Ax package, factory functions, package docs, examples, and API reference.",
       "url": "ax-go-llm/SKILL.md",
-      "digest": "sha256:70a739e3770c1db3725f43913a3873e8071c49e3b538a91f1cd9ee44a22367b8"
+      "digest": "sha256:395bcfeb59ddd0f9e9ff4d87141fb94a021f5297c85caea200e9db877053cfba"
     },
     {
       "name": "ax-go-ai",
       "type": "skill-md",
       "description": "Use when writing Go code with `github.com/ax-llm/ax/packages/go` for named deployment profiles, generic provider clients, model selection, OpenAI-compatible calls, Responses, Gemini, Anthropic, routers, and balancers.",
       "url": "ax-go-ai/SKILL.md",
-      "digest": "sha256:06e40f64948e97a8ede3e6e52e31f9ca2eee6cb5835f53ecacffd510072b147c"
+      "digest": "sha256:58d4ea69c90371183371d68273ab8e6b9a7c43355fb95e922f5fe602fd1b63b3"
     },
     {
       "name": "ax-go-audio",
       "type": "skill-md",
       "description": "Use when writing Go code with `github.com/ax-llm/ax/packages/go` for audio input/output, OpenAI Responses audio mapping, realtime event folding, and generated package audio examples.",
       "url": "ax-go-audio/SKILL.md",
-      "digest": "sha256:8a47078bd59801779ed19197f0fc47cbcbc035be23df9d6a1c1e256f51dcfb3c"
+      "digest": "sha256:7781ebc8ce5c684831a3bc539f49c4d7c123fe4a03a19b5ffc4726feaa534170"
     },
     {
       "name": "ax-go-signature",
@@ -34,21 +34,21 @@
       "type": "skill-md",
       "description": "Use when writing Go code with `github.com/ax-llm/ax/packages/go` for AxGen programs, forward calls, indexed multi-sampling, result pickers, streaming, tools, assertions, traces, usage, and output parsing.",
       "url": "ax-go-gen/SKILL.md",
-      "digest": "sha256:07ca3ea48705e1acc7c17c62e015a4953977504a90e065afc129c825645ab0a1"
+      "digest": "sha256:3fea1c28869977ab773de622239cb1474bfe91fbbf2f2eeb5a51536da4bff207"
     },
     {
       "name": "ax-go-flow",
       "type": "skill-md",
       "description": "Use when writing Go code with `github.com/ax-llm/ax/packages/go` for flows, nodes, program graphs, nested programs, dynamic options, caching, and optimizer components.",
       "url": "ax-go-flow/SKILL.md",
-      "digest": "sha256:664244b236af7fb2aa7c76f826632877b58d85912fb95923507b2e14d034f396"
+      "digest": "sha256:eba2fc00f92229deb9304646188064efcd85b0b64e0ab4d814173f8e87171c97"
     },
     {
       "name": "ax-go-agent",
       "type": "skill-md",
       "description": "Use when writing Go code with `github.com/ax-llm/ax/packages/go` for agents, child delegation, tools, MCP, citations, persistent playbook learning, stage instructions, runtime state, final typed responses, and direct-respond executor skipping.",
       "url": "ax-go-agent/SKILL.md",
-      "digest": "sha256:f49c06d34111cddb1efced907bee1fda3f595afdcb3b924afc469de91fd3bbde"
+      "digest": "sha256:67d68cd6746b62da5a8abfed1e17854dece6a18716cef3a209165017ffb8fc68"
     },
     {
       "name": "ax-go-agent-rlm",
@@ -69,7 +69,7 @@
       "type": "skill-md",
       "description": "Use when writing Go code with `github.com/ax-llm/ax/packages/go` for agent tracing, centralized and multi-tenant usage accounting, action logs, runtime diagnostics, replay, and production debugging.",
       "url": "ax-go-agent-observability/SKILL.md",
-      "digest": "sha256:0b64079665765ebce2beb36613f4719e62f0689b4f966d4ff68f2ed05023277e"
+      "digest": "sha256:d9ee2cb295d39aa0afcb4ff019c5380fe5f794ad24151759d8d574d453b055f9"
     },
     {
       "name": "ax-go-agent-optimize",
@@ -97,7 +97,7 @@
       "type": "skill-md",
       "description": "Use when writing Go code with `github.com/ax-llm/ax/packages/go` for reward-scored generation, iterative candidate improvement, evaluator feedback, and optimizer-backed refinement patterns.",
       "url": "ax-go-refine/SKILL.md",
-      "digest": "sha256:dc1d8c3dfea10ad7e32fdb921c42f20a2b665a4c9c8e9f7a9955b4d711a41303"
+      "digest": "sha256:27a98fa56d668fb74734213ce29b8dfd6ad8318ae989bf0fefd9e1478f108d2d"
     },
     {
       "name": "ax-go-playbook",

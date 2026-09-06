@@ -1124,6 +1124,11 @@ module @ax.gen version "0.1" {
       core.set %spec["name"] = %name
       core.set %spec["description"] = %description
       core.set %spec["parameters"] = %parameters
+      %execution = core.get %fn["execution"] default "blocking"
+      %background = core.call intrinsic.eq(%execution, "background")
+      core.if %background {
+        core.set %spec["execution"] = %execution
+      }
       core.return %spec
     }
   }

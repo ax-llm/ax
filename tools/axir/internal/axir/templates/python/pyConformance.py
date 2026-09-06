@@ -9,10 +9,11 @@ from pathlib import Path
 from typing import Any
 
 from .ai import AnthropicClient, AxAIServiceAuthenticationError, AxAIServiceError, AxAIServiceNetworkError, AxAIServiceResponseError, AxAIServiceStatusError, AxAIServiceStreamTerminatedError, AxAIServiceTimeoutError, AxBaseAI, AxBalancer, AxRuntimeHooks, GoogleGeminiClient, MultiServiceRouter, OpenAICompatibleClient, OpenAIResponsesClient, ProviderRouter, _effective_runtime_hooks, _runtime_hook_scope, ai, get_supported_ai_models, provider_descriptor, provider_model_catalog_summary, provider_normalize_profile, provider_profile_registry, provider_resolve_descriptor, set_meter, set_rate_limiter, set_tracer, set_usage_observer
-from .ai import build_chat_request, build_embed_request, normalize_chat_response, normalize_embed_response, normalize_stream_delta, provider_resolve_profile, _gemini_build_speak_request, _gemini_build_transcribe_request, _gemini_normalize_speak_response, _gemini_normalize_transcribe_response, _grok_build_speak_request, _grok_build_transcribe_request, _openai_tool_call_to_provider_impl, ai_context_cache_expiry, ai_context_cache_plan, ai_context_cache_recovery, ai_context_cache_rejection, ai_gemini_cache_ops
+from .ai import openai_responses_transport_cursor, openai_responses_session_event, build_chat_request, build_embed_request, normalize_chat_response, normalize_embed_response, normalize_stream_delta, provider_resolve_profile, _gemini_build_speak_request, _gemini_build_transcribe_request, _gemini_normalize_speak_response, _gemini_normalize_transcribe_response, _grok_build_speak_request, _grok_build_transcribe_request, _openai_tool_call_to_provider_impl, ai_context_cache_expiry, ai_context_cache_plan, ai_context_cache_recovery, ai_context_cache_rejection, ai_gemini_cache_ops
 from .ai import AxBalancerAdaptiveStrategy, AxBalancerOptions, AxInMemoryBalancerStatsStore, _core_set_math_random_values, create_balancer_route_stats, provider_balancer_adaptive_score, sample_balancer_route_health, update_balancer_route_stats
 from .gen import (
     ax,
+    chat_session_create_state, chat_session_transition, chat_session_unresolved,
     fold_stream,
     stream_extraction_route,
     stream_structured_delta,
@@ -49,6 +50,7 @@ from .flow import (
     flow,
 )
 from .agent import (
+    _agent_native_callables,
     AxACE,
     AxAgent,
     AxAgentClarificationError,
@@ -490,6 +492,10 @@ def run_fixture(fixture: dict[str, Any], *, source: str | None = None):
             _run_strip_internal(fixture)
         elif kind == "forward":
             _run_forward(fixture)
+        elif kind == "ai_session_state":
+            _run_ai_session_state(fixture)
+        elif kind == "ai_session_events":
+            _run_ai_session_events(fixture)
         elif kind == "ai_chat":
             _run_ai_chat(fixture)
         elif kind == "ai_embed":
@@ -2089,6 +2095,10 @@ def _run_agent_runtime_policy(fixture):
         raise
     if "expected_error_contains" in fixture:
         raise FixtureError("expected agent runtime policy fixture to fail")
+    if "native_cases" in fixture:
+        for case in fixture["native_cases"]:
+            selected=_agent_native_callables(ag.state,case.get("features",{}),case.get("options",{}))
+            _assert_equal([item["qualified_name"] for item in selected],case["expected"],"native agent selection")
     if "expected_runtime_contract_subset" in fixture:
         _assert_subset(ag.get_runtime_contract(), fixture["expected_runtime_contract_subset"], "runtime contract")
     if "expected_policy_subset" in fixture:
@@ -3136,6 +3146,38 @@ def main(argv=None):
         raise SystemExit("usage: python -m axllm.conformance <fixture-or-dir>...")
     for result in run_fixtures(argv):
         print("ok", result["name"])
+
+
+
+
+
+def _run_ai_session_events(fixture):
+    state = {}
+    cursor = {}
+    for case in fixture["cases"]:
+        openai_responses_transport_cursor(cursor, case["event"])
+        if "expected_active_id" in case:
+            _assert_equal(cursor.get("active_id"), case["expected_active_id"], "transport active response")
+        if "expected_exception" in case:
+            try:
+                openai_responses_session_event(case["event"], state, fixture["model"])
+            except RuntimeError as error:
+                assert case["expected_exception"] in str(error), error
+            else:
+                raise AssertionError("Expected provider session failure")
+            continue
+        events = openai_responses_session_event(case["event"], state, fixture["model"])
+        _assert_equal([event["type"] for event in events], case["expected_types"], "session event types")
+        for key in ("call", "response_id", "status", "required_call_ids", "error"):
+            if "expected_" + key in case:
+                _assert_equal(events[0].get(key), case["expected_" + key], "session " + key)
+
+def _run_ai_session_state(fixture):
+    state = chat_session_create_state(fixture["model"], fixture["path"], fixture["max_steps"])
+    for case in fixture["cases"]:
+        _assert_equal(chat_session_transition(state, case["event"]), case["expected_action"], "session transition")
+    _assert_equal(chat_session_unresolved(state), fixture["expected_pending"], "unresolved work")
+    _assert_equal(state["steps"], fixture["expected_steps"], "response accounting")
 
 
 if __name__ == "__main__":

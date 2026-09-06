@@ -85,6 +85,18 @@
       },
       {
         "suite": "axai",
+        "kind": "ai_session_events",
+        "runner": "go:axai",
+        "category": "semantic"
+      },
+      {
+        "suite": "axai",
+        "kind": "ai_session_state",
+        "runner": "go:axai",
+        "category": "semantic"
+      },
+      {
+        "suite": "axai",
         "kind": "ai_stream",
         "runner": "go:axai",
         "category": "transport-boundary"

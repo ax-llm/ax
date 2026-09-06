@@ -9,6 +9,34 @@ TypeScript runtime and write small conformance fixtures under `ir/conformance/`.
 The compiler source of truth is the `.axir` bundle under `ir/axcore/`, plus the
 fixtures and specs under `ir/spec/`.
 
+## Astra Session Implementation Status
+
+Astra and automatic sessions are partially implemented in the five generated
+languages. Applications use their existing generation, agent, and flow APIs;
+the Responses transport stays internal. Existing chat-only services remain
+supported. Both Astra backlog entries stay open until the full behavioral scope
+is implemented and verified.
+
+Recent fixes cover raw-schema argument types before C++ session tool execution
+and transport activity tracking in Java, C++, and Rust WebSocket readers. Buffered
+events cannot reactivate completed responses, and late parent completions cannot
+replace an active successor. Invalid tool arguments can be corrected within the
+existing step limit; exhausted runs fail instead of reporting success.
+
+All-five-language release verification, package freshness, conformance
+synchronization, strict Core checks, and provider profiles passed for those fixes.
+Coverage includes deterministic host transport tests and
+`ir/conformance/axai/astra-session-transport-cursor.json`. Passing these checks is
+not evidence that every requested session behavior has been implemented.
+
+**Parallel flow dispatch remains unimplemented:** generated Core currently
+executes planned parallel groups serially. Background tool/model overlap inside
+one node does not prove concurrent node execution. Additional gaps include raw
+JSON Schema constraints, native MCP invocation, child targeting, and routing
+failure/accounting coverage. Generated-language parity must not be advertised as
+complete. See [the session implementation notes](../ir/axcore/session.md) and
+[the AxIR backlog](AXIR_BACKLOG.md) for remaining work and verification evidence.
+
 ## Pipeline
 
 ```mermaid

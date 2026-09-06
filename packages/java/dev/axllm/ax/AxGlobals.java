@@ -17,6 +17,11 @@ public final class AxGlobals {
 
   private AxGlobals() {}
 
+  static Runnable inherit(Runnable action) {
+    Frame captured=FRAME.get();
+    return ()->{Frame previous=FRAME.get();FRAME.set(captured);try{action.run();}finally{if(previous==null)FRAME.remove();else FRAME.set(previous);}};
+  }
+
   public static void setUsageObserver(Consumer<AxUsageEvent> observer) {
     USAGE_OBSERVER.set(observer);
   }

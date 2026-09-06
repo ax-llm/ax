@@ -661,6 +661,11 @@ module @ax.ai version "0.1" {
       core.if %has_thought_blocks {
         core.set %out["thought_blocks"] = %thought_blocks
       }
+      %session_id = core.get %response["__session_response_id"]
+      %has_session_id = core.call intrinsic.is_not_none(%session_id)
+      core.if %has_session_id {
+        core.set %out["remote_id"] = %session_id
+      }
       core.return %out
     }
   }

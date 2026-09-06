@@ -1,6 +1,7 @@
 {
   "expected_output": {
     "features": {
+      "asyncTools": false,
       "caching": {
         "supported": false,
         "types": []
@@ -27,6 +28,8 @@
         }
       },
       "multiTurn": true,
+      "nativeSteering": false,
+      "reasoningUpdates": false,
       "streaming": true,
       "structuredOutputs": true,
       "thinking": false

@@ -136,7 +136,7 @@ public final class AxAgent implements AxProgram {
     Object runtimeObj = callOptions.get("runtime");
     if (runtimeObj == null) runtimeObj = options.get("runtime");
     if (runtimeObj instanceof AxCodeRuntime runtime) {
-      runtime.registerHostCallable("llmQuery", params -> Core._agent_run_llm_query(llmQuery, client, params));
+      runtime.registerHostCallable("llmQuery", params -> Core._agent_run_llm_query(llmQuery, client, params, callOptions));
     }
     Map<String, Object> output = Core.asMap(Core._agent_forward(
       state,

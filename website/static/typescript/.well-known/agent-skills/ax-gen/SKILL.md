@@ -567,3 +567,9 @@ first model call; mapper exceptions become non-retryable
 Declare independent host tools with `.execution('background')`. AxGen automatically uses supported async sessions, submits results, and validates the final answer after pending work. Use `asyncMode: 'off'` for the ordinary loop. Attach `runControl()` through `{ control }` for steering, reasoning updates, and cancellation. Streamed session output is provisional until the run completes. Reset accumulated output when its `version` changes; the final output still passes assertions and field validation. Streaming assertions run before provisional text is emitted. An assertion may trigger a correction before tools start; after host work starts, a mid-stream assertion fails the run without replaying that work.
 
 For automatic tool runs and controller-attached runs, routers and balancers resolve a provider before execution and pin it for the run. Mixed balancers use sessions only when the selected provider supports them. Providers implementing only `.chat()` continue through the ordinary loop.
+
+Generated-language status: C++ session tools with raw JSON schemas validate
+required properties and argument types before their handlers start. Invalid
+arguments enter the correction loop; exhausting the step limit fails the run.
+This does not establish support for every JSON Schema constraint. Generated
+session parity remains open; see `docs/COMPILER.md`.

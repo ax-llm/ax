@@ -697,3 +697,10 @@ Runnable TypeScript examples under `src/examples/typescript/flows/`:
 - `astra-cancel-pending.ts`: cancellation while both branches have host tools pending; the example verifies rejection rather than successful completion.
 
 Deterministic coverage lives in `src/ax/flow/flow.sessions.test.ts`, including both automatic and explicit parallel execution, delayed results, active/future root updates, targeted updates, cache bypass, cancellation, and chat-only provider fallback. These session examples and tests are TypeScript-only.
+
+Generated-language status: the parallel scheduling described above is implemented
+in TypeScript. Python, Go, Java, C++, and Rust currently execute Core's planned
+parallel groups serially. Their Astra flow examples demonstrate sequential node
+isolation and controls, not concurrent node dispatch. Background tool/model
+overlap within a node does not establish overlap between nodes. Keep the AxIR
+session backlog open until actual concurrent dispatch and isolation are verified.

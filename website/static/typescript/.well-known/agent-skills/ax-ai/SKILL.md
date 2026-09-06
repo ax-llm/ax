@@ -802,4 +802,8 @@ preserve provider defaults and model-alias settings; explicit request settings w
 Runnable examples: `typescript/generation/astra.ts`, `astra-async-tools.ts`,
 `astra-steering.ts`, `astra-reasoning-update.ts`, `astra-session-lifecycle.ts`, and
 `typescript/short-agents/astra-background.ts`. Generated-language session support
-is deferred in the AxIR backlog.
+is partially implemented in Python, Go, Java, C++, and Rust. Their language
+galleries include provider-backed examples, but full parity remains open in the
+AxIR backlog. Generated flow groups still execute serially; MCP invocation and
+other session coverage remain incomplete. See `docs/COMPILER.md` for the
+implementation status.

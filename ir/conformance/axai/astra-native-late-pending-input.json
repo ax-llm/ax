@@ -1,0 +1,134 @@
+{
+  "cases": [
+    {
+      "event": {
+        "call": {
+          "id": "c1"
+        },
+        "execution": "background",
+        "type": "tool.validated"
+      },
+      "expected_action": {
+        "changed": true,
+        "type": "wait"
+      }
+    },
+    {
+      "event": {
+        "type": "update.queued",
+        "update": {
+          "id": "u1",
+          "target": "root",
+          "text": "Use the pending result.",
+          "type": "steer"
+        }
+      },
+      "expected_action": {
+        "changed": true,
+        "type": "wait"
+      }
+    },
+    {
+      "event": {
+        "id": "u1",
+        "type": "native.queued"
+      },
+      "expected_action": {
+        "changed": true,
+        "type": "wait"
+      }
+    },
+    {
+      "event": {
+        "response_id": "parent",
+        "status": "accepted",
+        "steer_id": "s1",
+        "type": "steering"
+      },
+      "expected_action": {
+        "applied_id": "u1",
+        "changed": true,
+        "type": "wait"
+      }
+    },
+    {
+      "event": {
+        "id": "parent",
+        "type": "response.completed"
+      },
+      "expected_action": {
+        "changed": true,
+        "type": "wait"
+      }
+    },
+    {
+      "event": {
+        "id": "c1",
+        "result": {
+          "function_id": "c1",
+          "result": "REF-42"
+        },
+        "type": "tool.result"
+      },
+      "expected_action": {
+        "changed": true,
+        "type": "wait"
+      }
+    },
+    {
+      "event": {
+        "required_call_ids": ["c1"],
+        "response_id": "parent",
+        "status": "pending",
+        "steer_id": "s1",
+        "type": "steering"
+      },
+      "expected_action": {
+        "changed": true,
+        "results": [
+          {
+            "function_id": "c1",
+            "result": "REF-42"
+          }
+        ],
+        "type": "submit"
+      }
+    },
+    {
+      "event": {
+        "ids": ["c1"],
+        "type": "results.submitted"
+      },
+      "expected_action": {
+        "changed": true,
+        "type": "wait"
+      }
+    },
+    {
+      "event": {
+        "id": "successor",
+        "type": "response.completed"
+      },
+      "expected_action": {
+        "changed": true,
+        "type": "validate"
+      }
+    },
+    {
+      "event": {
+        "type": "validated"
+      },
+      "expected_action": {
+        "changed": true,
+        "type": "closed"
+      }
+    }
+  ],
+  "expected_pending": [],
+  "expected_steps": 2,
+  "kind": "ai_session_state",
+  "max_steps": 3,
+  "model": "gpt-6-astra",
+  "name": "astra-native-late-pending-input",
+  "path": "root"
+}

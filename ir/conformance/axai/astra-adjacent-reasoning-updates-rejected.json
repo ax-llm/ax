@@ -1,0 +1,31 @@
+{
+  "expected_error_contains": "Adjacent configuration_update",
+  "expected_transport_request_count": 0,
+  "kind": "ai_chat",
+  "model": "gpt-6-astra",
+  "name": "astra-adjacent-reasoning-updates-rejected",
+  "provider": "openai",
+  "request": {
+    "chat_prompt": [
+      {
+        "content": "reason",
+        "role": "user"
+      }
+    ],
+    "previous_response_id": "r1",
+    "session_input": [
+      {
+        "reasoning": {
+          "effort": "low"
+        },
+        "type": "configuration_update"
+      },
+      {
+        "reasoning": {
+          "effort": "high"
+        },
+        "type": "configuration_update"
+      }
+    ]
+  }
+}

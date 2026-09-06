@@ -58,7 +58,7 @@ Create an AxGen program from a string or parsed signature.
 - Kind: `function`
 - Form: `axllm.NewAx(signature, options)`
 - Returns: `AxGen`
-- Important options: functions, examples, demos, sample count, result picker, modelConfig, maxRetries, streaming assertions, field processors
+- Important options: functions, examples, demos, sample count, result picker, modelConfig, maxRetries, streaming assertions, field processors, control, asyncMode
 
 ```go
 qa := axllm.NewAx("question:string -> answer:string", nil)
@@ -73,6 +73,29 @@ Structured generation program with indexed multi-sampling, winner selection, for
 - Form: `axllm.NewGen(signature, options)`
 - Returns: `program object`
 - Important options: signature, functions, examples, demos, sample count, result picker, memory, prompt template
+
+### `axllm.RunControl`
+
+Create a controller for scoped steering, reasoning updates, cancellation, and queued/applied lifecycle events. Pass it through forward options.
+
+- Canonical Ax concept: `run_control`
+- Kind: `function`
+- Form: `axllm.RunControl()`
+- Returns: `AxRunControl`
+
+```go
+control := axllm.RunControl()
+```
+
+### `axllm.AxRunControl`
+
+Run control shared by active and future descendant programs. Cancellation reports unresolved work and does not undo external effects.
+
+- Canonical Ax concept: `AxRunControl`
+- Kind: `type`
+- Form: `axllm.AxRunControl`
+- Returns: `run controller`
+- Important options: steer, thinking token budget, target path, abort, event listener
 
 
 ## AxAI
@@ -126,6 +149,16 @@ Return fresh request headers that override static profile authentication.
 - Form: `axllm.AxCredentialProvider`
 - Returns: `header map or credential error`
 - Important options: chat, stream, embeddings, Responses, audio, retries
+
+### `axllm.AxChatSession`
+
+Optional normalized session capability for custom provider adapters. High-level programs own tool execution and continuation; chat-only services remain supported.
+
+- Canonical Ax concept: `AxChatSession`
+- Kind: `interface`
+- Form: `axllm.AxChatSession`
+- Returns: `run-owned chat session`
+- Important options: normalized events, completed calls, submit results, steering, reasoning updates, close
 
 ### `axllm.AxChatStream`
 
@@ -490,7 +523,7 @@ Build a typed function tool. Rust uses `tool` because `fn` is reserved.
 - Kind: `function`
 - Form: `axllm.Fn(name).Description(...).Arg(...).Handler(...)`
 - Returns: `Tool`
-- Important options: name, description, args, returns, handler
+- Important options: name, description, args, returns, handler, execution: blocking or background, cancellation-aware handler
 
 ```go
 search := axllm.Fn("search").Description("Search docs")

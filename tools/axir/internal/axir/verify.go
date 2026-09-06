@@ -693,6 +693,7 @@ func verifyPythonTarget(report VerifyTargetReport, conformanceRoot string) (Veri
 		"provider_mapping_no_key.py",
 		"adaptive_balancer_no_key.py",
 		"provider_stream_no_key.py",
+		"astra_session_no_key.py",
 		"audio_responses_mapping.py",
 		"audio_http_roundtrip.py",
 		"stream_http_roundtrip.py",
@@ -829,6 +830,7 @@ func verifyJavaTarget(report VerifyTargetReport, conformanceRoot string) (Verify
 	for _, className := range []string{
 		"SignatureSchemaExample",
 		"ModelCatalogExample",
+		"AstraSessionNoKeyExample",
 		"AxGenScriptedClientToolExample",
 		"ProviderMappingNoKeyExample",
 		"AdaptiveBalancerNoKeyExample",
@@ -1197,6 +1199,7 @@ func verifyCppTarget(report VerifyTargetReport, conformanceRoot string) (VerifyT
 	examples := []string{
 		"signature_schema",
 		"model_catalog",
+		"astra_session_no_key",
 		"axgen_scripted_client_tool",
 		"provider_mapping_no_key",
 		"adaptive_balancer_no_key",

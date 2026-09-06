@@ -9,6 +9,7 @@ import time
 from typing import Any
 
 from .ai import (
+    _core_math_floor,
     AIClient,
     AxMeter,
     AxRateLimiter,
@@ -448,20 +449,49 @@ class AxGen:
 
     def _forward_unscoped(self, client: AIClient, values: dict[str, Any], options: dict[str, Any] | None = None):
         call_context = resolve_execution_context(options, self.execution_context)
-        if call_context is self.execution_context:
-            return _forward_impl(self, client, values, options)
-        call_gen = copy.copy(self)
-        call_gen.execution_context = call_context
-        call_gen.functions = self._base_functions + (call_context.native_tools() if call_context else [])
-        call_gen.prompt_template = AxPromptTemplate(
-            self.signature,
-            functions=call_gen.functions,
-            structured_output_function_name=self.options.get("structured_output_function_name", self.options.get("structuredOutputFunctionName")),
-            custom_template=self.options.get("custom_template", self.options.get("customTemplate")),
-        )
-        if self.instruction:
-            call_gen.prompt_template.set_instruction(self.instruction)
-        return _forward_impl(call_gen, client, values, options)
+        if call_context is not self.execution_context:
+            call_gen = copy.copy(self)
+            call_gen.execution_context = call_context
+            call_gen.functions = self._base_functions + (call_context.native_tools() if call_context else [])
+            call_gen.prompt_template = AxPromptTemplate(
+                self.signature,
+                functions=call_gen.functions,
+                structured_output_function_name=self.options.get("structured_output_function_name", self.options.get("structuredOutputFunctionName")),
+                custom_template=self.options.get("custom_template", self.options.get("customTemplate")),
+            )
+            if self.instruction:
+                call_gen.prompt_template.set_instruction(self.instruction)
+            return call_gen._forward_unscoped(client, values, options)
+        run_options = {**self.options, **(options or {})}
+        model = str(run_options.get("model") or getattr(client, "model", ""))
+        session_enabled = (chat_session_mode_enabled(run_options)
+            and (callable(getattr(client, "_pin_chat_run", None)) or
+                 (callable(getattr(client, "open_chat_session", None)) and
+                  bool(getattr(client, "get_features", lambda model=None: {})(model or None).get("asyncTools"))))
+            and (run_options.get("control") is not None or any(getattr(tool, "execution", "blocking") == "background" for tool in self.functions)))
+        if session_enabled:
+            from .session import _SessionClient
+            pinned = _SessionClient(self, client, run_options)
+            try:
+                result = self._forward_unscoped(pinned, values, {**run_options, "asyncMode": "off", "async_mode": "off", "infraRetries": 0, "infra_retries": 0})
+            except BaseException as error:
+                pinned.close(error)
+                raise
+            pinned.close()
+            return result
+        from .session import _BoundaryClient
+        if run_options.get("control") is not None and not isinstance(client, (_BoundaryClient,)):
+            from .session import _SessionClient
+            if not isinstance(client, _SessionClient):
+                bounded = _BoundaryClient(client, run_options)
+                try:
+                    result = self._forward_unscoped(bounded, values, run_options)
+                except BaseException as error:
+                    bounded.close(error)
+                    raise
+                bounded.close()
+                return result
+        return _forward_impl(self, client, values, options)
 
     def streaming_forward(
         self,
@@ -480,6 +510,47 @@ class AxGen:
             yield from self._streaming_forward_unscoped(client, values, _strip_runtime_hooks(options))
 
     def _streaming_forward_unscoped(self, client: AIClient, values: dict[str, Any], options: dict[str, Any] | None = None):
+        run_options = {**self.options, **(options or {})}
+        model = str(run_options.get("model") or getattr(client, "model", ""))
+        session_enabled = (chat_session_mode_enabled(run_options)
+            and (callable(getattr(client, "_pin_chat_run", None)) or
+                 (callable(getattr(client, "open_chat_session", None)) and
+                  bool(getattr(client, "get_features", lambda model=None: {})(model or None).get("asyncTools"))))
+            and (run_options.get("control") is not None or any(getattr(tool, "execution", "blocking") == "background" for tool in self.functions)))
+        if session_enabled:
+            import contextvars
+            import queue
+            import threading
+            from .session import run_control
+            deliveries = queue.Queue()
+            control = run_options.get("control") or run_control()
+            stopped = threading.Event()
+            def emit(event):
+                if not stopped.is_set():
+                    deliveries.put(("delta", event))
+            def run():
+                try:
+                    self._forward_unscoped(client, values, {**run_options, "control": control, "_session_delta": emit})
+                    deliveries.put(("done", None))
+                except BaseException as error:
+                    deliveries.put(("error", error))
+            context = contextvars.copy_context()
+            threading.Thread(target=context.run, args=(run,), daemon=True).start()
+            complete = False
+            try:
+                while True:
+                    kind, event = deliveries.get()
+                    if kind == "error":
+                        raise event
+                    if kind == "done":
+                        complete = True
+                        return
+                    yield event
+            finally:
+                stopped.set()
+                if not complete:
+                    control.abort()
+            return
         call_context = resolve_execution_context(options, self.execution_context)
         if call_context is not self.execution_context:
             call_gen = copy.copy(self)
@@ -759,7 +830,7 @@ def _core_validation_error(message):
     return AxValidationError(str(message))
 
 
-def _core_tool_invoke(fn, params):
+def _core_tool_invoke(fn, params, context=None):
     name = str(getattr(fn, "name", "") or "tool")
     with _runtime_hook_scope(
         None,
@@ -768,7 +839,7 @@ def _core_tool_invoke(fn, params):
         attributes={"ax.tool.name": name},
         metric_prefix="ax_gen_tool",
     ):
-        return fn.call(params or {})
+        return fn.call(params or {}, context) if context is not None else fn.call(params or {})
 
 
 def _core_stream_event_content_parts(event) -> list[str]:
@@ -1080,6 +1151,19 @@ def _core_axgen_record_function_call(gen, call, result, status):
 
 
 # BEGIN AXIR CORE EMITTED FUNCTIONS
+def chat_session_mode_enabled(options: Any) -> bool:
+    _core_coverage_mark("chat_session_mode_enabled")
+    mode_snake = _core_get(options, "async_mode", "auto")
+    mode = _core_get(options, "asyncMode", mode_snake)
+    disabled = _core_eq(mode, "off")
+    function_snake = _core_get(options, "function_call_mode", "auto")
+    function_mode = _core_get(options, "functionCallMode", function_snake)
+    prompt = _core_eq(function_mode, "prompt")
+    legacy = _core_or(disabled, prompt)
+    enabled = _core_not(legacy)
+    return enabled
+
+
 def fold_stream(events: list[Any]) -> str:
     _core_coverage_mark("fold_stream")
     chunks = []
@@ -1238,6 +1322,111 @@ def _select_structured_output_rung(signature: AxSignature, features: Any, option
         pass
     selection["rung"] = "json_object"
     return selection
+
+
+def chat_session_validate_required_arguments(schema: Any, arguments: Any, path: str) -> None:
+    _core_coverage_mark("chat_session_validate_required_arguments")
+    declared_type = _core_get(schema, "type", None)
+    has_type = _core_is_not_none(declared_type)
+    if has_type:
+        types = []
+        is_union = _core_type_is(declared_type, "list")
+        if is_union:
+            types = declared_type
+        else:
+            types.append(declared_type)
+        matches = False
+        for type in types:
+            wants_string = _core_eq(type, "string")
+            if wants_string:
+                value_string = _core_type_is(arguments, "string")
+                matches = _core_or(matches, value_string)
+            else:
+                pass
+            wants_object = _core_eq(type, "object")
+            if wants_object:
+                value_object = _core_type_is(arguments, "object")
+                matches = _core_or(matches, value_object)
+            else:
+                pass
+            wants_array = _core_eq(type, "array")
+            if wants_array:
+                value_array = _core_type_is(arguments, "list")
+                matches = _core_or(matches, value_array)
+            else:
+                pass
+            wants_number = _core_eq(type, "number")
+            if wants_number:
+                value_number = _core_type_is(arguments, "number")
+                matches = _core_or(matches, value_number)
+            else:
+                pass
+            wants_boolean = _core_eq(type, "boolean")
+            if wants_boolean:
+                value_boolean = _core_type_is(arguments, "boolean")
+                matches = _core_or(matches, value_boolean)
+            else:
+                pass
+            wants_null = _core_eq(type, "null")
+            if wants_null:
+                value_null = _core_is_none(arguments)
+                matches = _core_or(matches, value_null)
+            else:
+                pass
+            wants_integer = _core_eq(type, "integer")
+            if wants_integer:
+                numeric = _core_type_is(arguments, "number")
+                if numeric:
+                    whole = _core_math_floor(arguments)
+                    value_integer = _core_eq(whole, arguments)
+                    matches = _core_or(matches, value_integer)
+                else:
+                    pass
+            else:
+                pass
+        if matches:
+            pass
+        else:
+            message = _core_string_format("Validation failed: Expected '{}' to have type {}", path, declared_type)
+            error = _core_validation_error(message)
+            raise error
+    else:
+        pass
+    object = _core_type_is(arguments, "object")
+    if object:
+        empty = []
+        required = _core_get(schema, "required", empty)
+        for name in required:
+            present = _core_map_contains(arguments, name)
+            if present:
+                pass
+            else:
+                message = _core_string_format("Required field is missing: '{}.{}'", path, name)
+                error = _core_validation_error(message)
+                raise error
+        empty_map = {}
+        properties = _core_get(schema, "properties", empty_map)
+        names = _core_map_keys(properties)
+        for name in names:
+            present = _core_map_contains(arguments, name)
+            if present:
+                child = _core_get(arguments, name, None)
+                child_schema = _core_get(properties, name, None)
+                child_path = _core_string_format("{}.{}", path, name)
+                chat_session_validate_required_arguments(child_schema, child, child_path)
+            else:
+                pass
+    else:
+        pass
+    array = _core_type_is(arguments, "list")
+    if array:
+        empty_map = {}
+        items = _core_get(schema, "items", empty_map)
+        for item in arguments:
+            chat_session_validate_required_arguments(items, item, path)
+    else:
+        pass
+    return None
 
 
 def _execute_tool_call(functions: list[Any], call: Any) -> Any:
@@ -1491,6 +1680,32 @@ def _validate_optimization_component_value(component: Any, value: Any) -> bool:
     return True
 
 
+def chat_session_record_result(gen: Any, state: Any, call: Any, result: Any, ok: bool) -> bool:
+    _core_coverage_mark("chat_session_record_result")
+    id = _core_get(call, "id", None)
+    text = result
+    is_string = _core_type_is(result, "string")
+    if is_string:
+        pass
+    else:
+        text = _core_json_stringify(result)
+    output = {}
+    output["function_id"] = id
+    output["result"] = text
+    changed = chat_session_complete_call(state, id, output)
+    if changed:
+        status = "error"
+        if ok:
+            status = "ok"
+        else:
+            pass
+        _core_axgen_memory_add_function_result(gen, call, result, ok)
+        _core_axgen_record_function_call(gen, call, result, status)
+    else:
+        pass
+    return changed
+
+
 def _validate_optimization_component_map(components: Any, component_map: Any) -> bool:
     _core_coverage_mark("_validate_optimization_component_map")
     known = []
@@ -1602,6 +1817,47 @@ def _structured_output_scalar_placeholder(typ: Any) -> Any:
     else:
         pass
     return "<value>"
+
+
+def chat_session_observe_output(gen: Any, state: Any, event: Any) -> Any:
+    _core_coverage_mark("chat_session_observe_output")
+    empty_map = {}
+    empty_list = []
+    texts = _core_get(state, "texts", empty_map)
+    id = _core_get(event, "response_id", None)
+    text = _core_get(texts, id, "")
+    response = _core_get(event, "response", None)
+    results = _core_get(response, "results", empty_list)
+    for result in results:
+        delta = _core_get(result, "content", "")
+        text = _core_string_format("{}{}", text, delta)
+    texts[id] = text
+    state["texts"] = texts
+    assertions = _core_get(gen, "streaming_assertions", empty_list)
+    for assertion in assertions:
+        is_map = _core_type_is(assertion, "object")
+        if is_map:
+            needle_camel = _core_get(assertion, "notContains", None)
+            needle = _core_get(assertion, "not_contains", needle_camel)
+            has_needle = _core_is_not_none(needle)
+            if has_needle:
+                found = _core_contains(text, needle)
+                if found:
+                    message = _core_get(assertion, "message", "streaming assertion failed")
+                    error = _core_runtime_error(message)
+                    raise error
+                else:
+                    pass
+            else:
+                pass
+        else:
+            pass
+    version = _core_get(state, "version", 0)
+    output = {}
+    output["response_id"] = id
+    output["text"] = text
+    output["version"] = version
+    return output
 
 
 def _stream_event_content_parts_impl(event: Any) -> list[Any]:
@@ -1716,6 +1972,42 @@ def _validate_optimized_artifact(artifact: Any, components: Any) -> Any:
     return artifact
 
 
+def chat_session_apply_boundary_updates(request: Any, updates: list[Any], level: Any) -> Any:
+    _core_coverage_mark("chat_session_apply_boundary_updates")
+    empty = {}
+    config = _core_get(request, "model_config", empty)
+    config = _core_map_merge(config, empty)
+    messages = _core_get(request, "chat_prompt", None)
+    current_level = level
+    applied = []
+    for update in updates:
+        kind = _core_get(update, "type", None)
+        steering = _core_eq(kind, "steer")
+        if steering:
+            message = {}
+            text = _core_get(update, "text", None)
+            message["role"] = "user"
+            message["content"] = text
+            messages.append(message)
+        else:
+            next_level = _core_get(update, "level", None)
+            current_level = next_level
+        id = _core_get(update, "id", None)
+        applied.append(id)
+    has_level = _core_is_not_none(current_level)
+    if has_level:
+        config["thinkingTokenBudget"] = current_level
+    else:
+        pass
+    request["model_config"] = config
+    request["chat_prompt"] = messages
+    result = {}
+    result["request"] = request
+    result["level"] = current_level
+    result["applied"] = applied
+    return result
+
+
 def _structured_output_type_placeholder(typ: Any) -> Any:
     _core_coverage_mark("_structured_output_type_placeholder")
     placeholder = _structured_output_scalar_placeholder(typ)
@@ -1728,6 +2020,25 @@ def _structured_output_type_placeholder(typ: Any) -> Any:
     else:
         pass
     return placeholder
+
+
+def chat_session_create_state(model: str, path: str, max_steps: Any) -> Any:
+    _core_coverage_mark("chat_session_create_state")
+    state = {}
+    pending = {}
+    responses = {}
+    updates = {}
+    state["model"] = model
+    state["path"] = path
+    state["max_steps"] = max_steps
+    state["steps"] = 0
+    state["version"] = 0
+    state["pending"] = pending
+    state["responses"] = responses
+    state["updates"] = updates
+    state["boundary"] = False
+    state["terminal"] = False
+    return state
 
 
 def _structured_output_shape(output_fields: list[Any]) -> str:
@@ -1752,6 +2063,15 @@ def _serialize_optimized_artifact(artifact: Any) -> str:
     _core_coverage_mark("_serialize_optimized_artifact")
     text = _core_json_stringify(artifact)
     return text
+
+
+def chat_session_target_matches(target: str, path: str) -> bool:
+    _core_coverage_mark("chat_session_target_matches")
+    exact = _core_eq(target, path)
+    prefix = _core_string_format("{}/", target)
+    descendant = _core_string_starts_with(path, prefix)
+    matches = _core_or(exact, descendant)
+    return matches
 
 
 def _append_structured_output_instruction(messages: list[Any], output_fields: list[Any], selection: Any) -> None:
@@ -1780,6 +2100,23 @@ def _deserialize_optimized_artifact(text: str, components: Any) -> Any:
     artifact = _core_json_parse(text)
     validated = _validate_optimized_artifact(artifact, components)
     return validated
+
+
+def chat_session_unresolved(state: Any) -> list[Any]:
+    _core_coverage_mark("chat_session_unresolved")
+    out = []
+    pending = _core_get(state, "pending", None)
+    ids = _core_map_keys(pending)
+    for id in ids:
+        call = _core_get(pending, id, None)
+        status = _core_get(call, "status", None)
+        sent = _core_eq(status, "sent")
+        unresolved = _core_not(sent)
+        if unresolved:
+            out.append(id)
+        else:
+            pass
+    return out
 
 
 def _optimization_changed_components(components: Any, component_map: Any) -> list[Any]:
@@ -1814,6 +2151,34 @@ def _assert_no_reserved_output_functions(functions: list[Any]) -> None:
         else:
             pass
     return None
+
+
+def chat_session_register_call(state: Any, call: Any, execution: str) -> bool:
+    _core_coverage_mark("chat_session_register_call")
+    terminal = _core_get(state, "terminal", False)
+    if terminal:
+        return False
+    else:
+        pass
+    id = _core_get(call, "id", "")
+    missing = _core_eq(id, "")
+    if missing:
+        raise RuntimeError("Completed tool calls require a call ID")
+    else:
+        pass
+    pending = _core_get(state, "pending", None)
+    exists = _core_map_contains(pending, id)
+    if exists:
+        return False
+    else:
+        pass
+    record = {}
+    record["call"] = call
+    record["execution"] = execution
+    record["status"] = "running"
+    pending[id] = record
+    state["pending"] = pending
+    return True
 
 
 def _optimization_component_current_map(components: Any) -> Any:
@@ -1862,6 +2227,21 @@ def _normalize_optimization_dataset(dataset: Any) -> Any:
     return out_list
 
 
+def chat_session_result(response: Any, id: str) -> Any:
+    _core_coverage_mark("chat_session_result")
+    empty = {}
+    response = _core_map_merge(response, empty)
+    response["__session_response_id"] = id
+    return response
+
+
+def chat_session_completion(response: Any, id: str) -> Any:
+    _core_coverage_mark("chat_session_completion")
+    completion = chat_response_to_completion(response)
+    completion["remote_id"] = id
+    return completion
+
+
 def _structured_output_call_args(call: Any) -> Any:
     _core_coverage_mark("_structured_output_call_args")
     fn = _core_get(call, "function", None)
@@ -1899,6 +2279,17 @@ def _normalize_optimization_metric_scores(raw: Any) -> Any:
     out_zero = {}
     out_zero["score"] = 0
     return out_zero
+
+
+def chat_session_has_continuation_work(state: Any) -> bool:
+    _core_coverage_mark("chat_session_has_continuation_work")
+    pending = chat_session_unresolved(state)
+    pending = _core_truthy(pending)
+    native_wait = chat_session_native_wait(state)
+    continuation = _core_get(state, "needs_continuation", False)
+    work = _core_or(pending, native_wait)
+    work = _core_or(work, continuation)
+    return work
 
 
 def _build_gen_chat_request(gen: AxGen, messages: list[Any], options: Any, selection: Any) -> AxChatRequest:
@@ -2047,6 +2438,22 @@ def _build_gen_chat_request(gen: AxGen, messages: list[Any], options: Any, selec
     return request
 
 
+def chat_session_normalize_call(call: Any) -> Any:
+    _core_coverage_mark("chat_session_normalize_call")
+    function = _core_get(call, "function", None)
+    missing = _core_is_none(function)
+    if missing:
+        call = _completion_call_to_chat_impl(call)
+        function = _core_get(call, "function", None)
+    else:
+        pass
+    name = _core_get(function, "name", None)
+    params = _core_get(function, "params", None)
+    call["name"] = name
+    call["params"] = params
+    return call
+
+
 def _scalarize_optimization_scores(scores: Any, options: Any) -> f64:
     _core_coverage_mark("_scalarize_optimization_scores")
     metric_key = _core_get(options, "paretoMetricKey", "")
@@ -2073,6 +2480,28 @@ def _scalarize_optimization_scores(scores: Any, options: Any) -> f64:
     return avg
 
 
+def chat_session_defer_final_call(state: Any, call: Any) -> bool:
+    _core_coverage_mark("chat_session_defer_final_call")
+    unresolved = chat_session_unresolved(state)
+    pending = _core_truthy(unresolved)
+    updates = _core_get(state, "needs_continuation", False)
+    defer = _core_or(pending, updates)
+    if defer:
+        registered = chat_session_register_call(state, call, "blocking")
+        if registered:
+            id = _core_get(call, "id", None)
+            result = {}
+            result["function_id"] = id
+            result["result"] = "Not executed: incorporate the background tool results and queued updates before calling this finalization function again."
+            chat_session_complete_call(state, id, result)
+        else:
+            pass
+        return registered
+    else:
+        pass
+    return False
+
+
 def _optimization_action_name_matches(expected: str, call: Any) -> bool:
     _core_coverage_mark("_optimization_action_name_matches")
     qualified = _core_get(call, "qualifiedName", "")
@@ -2084,6 +2513,34 @@ def _optimization_action_name_matches(expected: str, call: Any) -> bool:
     direct_match = _core_or(qualified_match, name_match)
     any_match = _core_or(direct_match, suffix_match)
     return any_match
+
+
+def chat_session_complete_call(state: Any, id: str, result: Any) -> bool:
+    _core_coverage_mark("chat_session_complete_call")
+    terminal = _core_get(state, "terminal", False)
+    if terminal:
+        return False
+    else:
+        pass
+    pending = _core_get(state, "pending", None)
+    exists = _core_map_contains(pending, id)
+    missing = _core_not(exists)
+    if missing:
+        raise RuntimeError("Tool result has no registered call")
+    else:
+        pass
+    record = _core_get(pending, id, None)
+    status = _core_get(record, "status", None)
+    running = _core_eq(status, "running")
+    if running:
+        record["result"] = result
+        record["status"] = "ready"
+        pending[id] = record
+        state["pending"] = pending
+        return True
+    else:
+        pass
+    return False
 
 
 def _adjust_optimization_score_for_actions(score: Any, task: Any, prediction: Any) -> f64:
@@ -2133,6 +2590,71 @@ def _adjust_optimization_score_for_actions(score: Any, task: Any, prediction: An
     return adjusted
 
 
+def chat_session_complete_response(state: Any, id: str) -> bool:
+    _core_coverage_mark("chat_session_complete_response")
+    terminal = _core_get(state, "terminal", False)
+    if terminal:
+        return False
+    else:
+        pass
+    responses = _core_get(state, "responses", None)
+    duplicate = _core_map_contains(responses, id)
+    if duplicate:
+        return False
+    else:
+        pass
+    steps = _core_get(state, "steps", 0)
+    limit = _core_get(state, "max_steps", None)
+    exhausted = _core_gte(steps, limit)
+    if exhausted:
+        raise RuntimeError("Maximum model steps exhausted before final completion")
+    else:
+        pass
+    next = _core_add(steps, 1)
+    responses[id] = True
+    state["responses"] = responses
+    state["response_id"] = id
+    state["steps"] = next
+    state["boundary"] = True
+    updates = _core_get(state, "updates", None)
+    update_ids = _core_map_keys(updates)
+    had_successor = False
+    for update_id in update_ids:
+        record = _core_get(updates, update_id, None)
+        parent = _core_get(record, "native_parent", None)
+        has_parent = _core_is_not_none(parent)
+        successor = _core_ne(parent, id)
+        finished = _core_and(has_parent, successor)
+        if finished:
+            had_successor = True
+            record["native_state"] = "done"
+            updates[update_id] = record
+        else:
+            pass
+    state["updates"] = updates
+    if had_successor:
+        queued = chat_session_has_queued_updates(state)
+        state["needs_continuation"] = queued
+    else:
+        pass
+    return True
+
+
+def chat_session_has_queued_updates(state: Any) -> bool:
+    _core_coverage_mark("chat_session_has_queued_updates")
+    updates = _core_get(state, "updates", None)
+    ids = _core_map_keys(updates)
+    for id in ids:
+        record = _core_get(updates, id, None)
+        status = _core_get(record, "status", None)
+        queued = _core_eq(status, "queued")
+        if queued:
+            return True
+        else:
+            pass
+    return False
+
+
 def _parse_sample_outputs(gen: AxGen, output_fields: list[Any], response: Any, validate_exact_json: bool) -> Any:
     _core_coverage_mark("_parse_sample_outputs")
     empty_results = []
@@ -2171,6 +2693,52 @@ def _parse_sample_outputs(gen: AxGen, output_fields: list[Any], response: Any, v
     bundle["outputs"] = outputs
     bundle["samples"] = samples
     return bundle
+
+
+def chat_session_native_update(state: Any, id: str) -> bool:
+    _core_coverage_mark("chat_session_native_update")
+    terminal = _core_get(state, "terminal", False)
+    if terminal:
+        return False
+    else:
+        pass
+    updates = _core_get(state, "updates", None)
+    record = _core_get(updates, id, None)
+    native_state = _core_get(record, "native_state", None)
+    new_native = _core_is_none(native_state)
+    if new_native:
+        record["native_state"] = "awaiting_ack"
+        responses = _core_get(state, "responses", None)
+        empty_baseline = {}
+        baseline = _core_map_merge(empty_baseline, responses)
+        record["native_responses"] = baseline
+        updates[id] = record
+        state["updates"] = updates
+    else:
+        pass
+    return new_native
+
+
+def chat_session_native_wait(state: Any) -> bool:
+    _core_coverage_mark("chat_session_native_wait")
+    updates = _core_get(state, "updates", None)
+    ids = _core_map_keys(updates)
+    for id in ids:
+        record = _core_get(updates, id, None)
+        native_state = _core_get(record, "native_state", None)
+        has_native = _core_is_not_none(native_state)
+        if has_native:
+            status = _core_get(record, "status", None)
+            queued = _core_eq(status, "queued")
+            successor = _core_eq(native_state, "awaiting_successor")
+            waiting = _core_or(queued, successor)
+            if waiting:
+                return True
+            else:
+                pass
+        else:
+            pass
+    return False
 
 
 def _build_optimization_eval_row(task: Any, prediction: Any, scores: Any, scalar: Any, trace: Any, error: Any) -> Any:
@@ -2219,6 +2787,130 @@ def _select_sample_index(samples: list[Any], options: Any) -> number:
     else:
         pass
     return selected
+
+
+def chat_session_native_event(state: Any, event: Any) -> Any:
+    _core_coverage_mark("chat_session_native_event")
+    result = {}
+    result["changed"] = False
+    terminal = _core_get(state, "terminal", False)
+    if terminal:
+        return result
+    else:
+        pass
+    status = _core_get(event, "status", None)
+    failed = _core_eq(status, "failed")
+    if failed:
+        error = _core_get(event, "error", "Provider rejected steering")
+        raise error
+    else:
+        pass
+    updates = _core_get(state, "updates", None)
+    ids = _core_map_keys(updates)
+    steer_id = _core_get(event, "steer_id", None)
+    selected = _core_none()
+    for id in ids:
+        record = _core_get(updates, id, None)
+        record_steer = _core_get(record, "steer_id", None)
+        same = _core_eq(record_steer, steer_id)
+        has_steer = _core_is_not_none(steer_id)
+        matches = _core_and(same, has_steer)
+        if matches:
+            selected = id
+        else:
+            pass
+    missing = _core_is_none(selected)
+    if missing:
+        for id in ids:
+            record = _core_get(updates, id, None)
+            native_state = _core_get(record, "native_state", None)
+            record_steer = _core_get(record, "steer_id", None)
+            waiting = _core_eq(native_state, "awaiting_ack")
+            unassigned = _core_is_none(record_steer)
+            missing = _core_is_none(selected)
+            candidate = _core_and(waiting, unassigned)
+            choose_record = _core_and(missing, candidate)
+            if choose_record:
+                selected = id
+            else:
+                pass
+    else:
+        pass
+    found = _core_is_not_none(selected)
+    if found:
+        record = _core_get(updates, selected, None)
+        record["steer_id"] = steer_id
+        parent = _core_get(event, "response_id", None)
+        record["native_parent"] = parent
+        native_state = _core_get(record, "native_state", None)
+        empty_map = {}
+        baseline = _core_get(record, "native_responses", empty_map)
+        responses = _core_get(state, "responses", None)
+        response_ids = _core_map_keys(responses)
+        for response_id in response_ids:
+            old_response = _core_map_contains(baseline, response_id)
+            new_response = _core_not(old_response)
+            not_parent = _core_ne(response_id, parent)
+            successor_seen = _core_and(new_response, not_parent)
+            if successor_seen:
+                native_state = "done"
+                record["native_state"] = "done"
+            else:
+                pass
+        pending_status = _core_eq(status, "pending")
+        done = _core_eq(native_state, "done")
+        not_done = _core_not(done)
+        pending = _core_and(pending_status, not_done)
+        if pending:
+            changed_state = _core_ne(native_state, "pending_input")
+            record["native_state"] = "pending_input"
+            empty = []
+            required = _core_get(event, "required_call_ids", empty)
+            old_required = _core_get(record, "required_call_ids", empty)
+            changed_ids = _core_ne(required, old_required)
+            changed = _core_or(changed_state, changed_ids)
+            record["required_call_ids"] = required
+            state["needs_continuation"] = True
+            result["changed"] = changed
+        else:
+            accepted = _core_eq(status, "accepted")
+            if accepted:
+                record_status = _core_get(record, "status", None)
+                queued = _core_eq(record_status, "queued")
+                if queued:
+                    pending_input = _core_eq(native_state, "pending_input")
+                    done = _core_eq(native_state, "done")
+                    settled = _core_or(pending_input, done)
+                    await_successor = _core_not(settled)
+                    if await_successor:
+                        record["native_state"] = "awaiting_successor"
+                    else:
+                        pass
+                    record["status"] = "applied"
+                    version = _core_get(state, "version", 0)
+                    version = _core_add(version, 1)
+                    state["version"] = version
+                    result["changed"] = True
+                    result["applied_id"] = selected
+                else:
+                    pass
+            else:
+                pass
+        updates[selected] = record
+        state["updates"] = updates
+        accepted = _core_eq(status, "accepted")
+        native_state = _core_get(record, "native_state", None)
+        pending_input = _core_eq(native_state, "pending_input")
+        not_pending = _core_not(pending_input)
+        can_clear = _core_and(accepted, not_pending)
+        if can_clear:
+            queued = chat_session_has_queued_updates(state)
+            state["needs_continuation"] = queued
+        else:
+            pass
+    else:
+        pass
+    return result
 
 
 def _build_optimization_eval_result(rows: Any, candidate_map: Any, phase: str) -> Any:
@@ -2478,6 +3170,70 @@ def _build_optimizer_request(program_kind: str, components: Any, dataset: Any, o
     return out
 
 
+def chat_session_boundary_action(state: Any) -> Any:
+    _core_coverage_mark("chat_session_boundary_action")
+    action = {}
+    action["type"] = "wait"
+    terminal = _core_get(state, "terminal", False)
+    if terminal:
+        action["type"] = "closed"
+        return action
+    else:
+        pass
+    native_wait = chat_session_native_wait(state)
+    if native_wait:
+        return action
+    else:
+        pass
+    boundary = _core_get(state, "boundary", False)
+    active = _core_not(boundary)
+    if active:
+        return action
+    else:
+        pass
+    pending = _core_get(state, "pending", None)
+    ids = _core_map_keys(pending)
+    results = []
+    running = False
+    blocking = False
+    for id in ids:
+        record = _core_get(pending, id, None)
+        status = _core_get(record, "status", None)
+        is_running = _core_eq(status, "running")
+        execution = _core_get(record, "execution", None)
+        is_blocking = _core_eq(execution, "blocking")
+        running_barrier = _core_and(is_running, is_blocking)
+        blocking = _core_or(blocking, running_barrier)
+        running = _core_or(running, is_running)
+        ready = _core_eq(status, "ready")
+        if ready:
+            result = _core_get(record, "result", None)
+            results.append(result)
+        else:
+            pass
+    if blocking:
+        return action
+    else:
+        pass
+    has_results = _core_truthy(results)
+    if has_results:
+        action["type"] = "submit"
+        action["results"] = results
+        return action
+    else:
+        pass
+    if running:
+        return action
+    else:
+        pass
+    needs_continuation = _core_get(state, "needs_continuation", False)
+    if needs_continuation:
+        action["type"] = "continue"
+    else:
+        action["type"] = "validate"
+    return action
+
+
 def _prepare_optimizer_run(program_kind: str, components: Any, dataset: Any, options: Any, trace: Any, evaluator_available: bool) -> Any:
     _core_coverage_mark("_prepare_optimizer_run")
     empty_map = {}
@@ -2601,10 +3357,54 @@ def _set_demos(gen: AxGen, demos: list[Any]) -> AxGen:
     return gen
 
 
+def chat_session_mark_submitted(state: Any, ids: list[Any]) -> None:
+    _core_coverage_mark("chat_session_mark_submitted")
+    pending = _core_get(state, "pending", None)
+    for id in ids:
+        record = _core_get(pending, id, None)
+        record["status"] = "sent"
+        pending[id] = record
+    state["pending"] = pending
+    state["boundary"] = False
+    state["needs_continuation"] = False
+    return None
+
+
 def _render_examples(gen: AxGen) -> list[Any]:
     _core_coverage_mark("_render_examples")
     messages = _core_axgen_render_examples(gen)
     return messages
+
+
+def chat_session_queue_update(state: Any, update: Any) -> bool:
+    _core_coverage_mark("chat_session_queue_update")
+    terminal = _core_get(state, "terminal", False)
+    if terminal:
+        return False
+    else:
+        pass
+    target = _core_get(update, "target", "root")
+    path = _core_get(state, "path", None)
+    matches = chat_session_target_matches(target, path)
+    unmatched = _core_not(matches)
+    if unmatched:
+        return False
+    else:
+        pass
+    id = _core_get(update, "id", None)
+    updates = _core_get(state, "updates", None)
+    exists = _core_map_contains(updates, id)
+    if exists:
+        return False
+    else:
+        pass
+    record = {}
+    record["update"] = update
+    record["status"] = "queued"
+    updates[id] = record
+    state["updates"] = updates
+    state["needs_continuation"] = True
+    return True
 
 
 def _render_demos(gen: AxGen) -> list[Any]:
@@ -2693,10 +3493,127 @@ def _build_optimizer_evidence_batch(eval_result: Any, components: Any) -> Any:
     return out
 
 
+def chat_session_close_state(state: Any) -> list[Any]:
+    _core_coverage_mark("chat_session_close_state")
+    state["terminal"] = True
+    unresolved = chat_session_unresolved(state)
+    return unresolved
+
+
 def _append_assertion_retry_messages(messages: list[Any], response: Any, error: error) -> None:
     _core_coverage_mark("_append_assertion_retry_messages")
     _append_validation_retry_messages_impl(messages, response, error)
     return None
+
+
+def chat_session_transition(state: Any, event: Any) -> Any:
+    _core_coverage_mark("chat_session_transition")
+    type = _core_get(event, "type", None)
+    call = _core_eq(type, "tool.validated")
+    result = _core_eq(type, "tool.result")
+    response = _core_eq(type, "response.completed")
+    update = _core_eq(type, "update.queued")
+    submitted = _core_eq(type, "results.submitted")
+    closed = _core_eq(type, "closed")
+    validated = _core_eq(type, "validated")
+    applied = _core_eq(type, "update.applied")
+    changed = False
+    native_queued = _core_eq(type, "native.queued")
+    if native_queued:
+        id = _core_get(event, "id", None)
+        changed = chat_session_native_update(state, id)
+        action = chat_session_boundary_action(state)
+        action["changed"] = changed
+        return action
+    else:
+        pass
+    steering = _core_eq(type, "steering")
+    if steering:
+        change = chat_session_native_event(state, event)
+        action = chat_session_boundary_action(state)
+        action = _core_map_merge(action, change)
+        return action
+    else:
+        pass
+    final_call = _core_eq(type, "tool.final")
+    if final_call:
+        tool_call = _core_get(event, "call", None)
+        changed = chat_session_defer_final_call(state, tool_call)
+        action = chat_session_boundary_action(state)
+        action["changed"] = changed
+        return action
+    else:
+        pass
+    if call:
+        tool_call = _core_get(event, "call", None)
+        execution = _core_get(event, "execution", "blocking")
+        changed = chat_session_register_call(state, tool_call, execution)
+    else:
+        if result:
+            id = _core_get(event, "id", None)
+            value = _core_get(event, "result", None)
+            changed = chat_session_complete_call(state, id, value)
+        else:
+            if response:
+                id = _core_get(event, "id", None)
+                changed = chat_session_complete_response(state, id)
+            else:
+                if update:
+                    item = _core_get(event, "update", None)
+                    changed = chat_session_queue_update(state, item)
+                else:
+                    if submitted:
+                        ids = _core_get(event, "ids", None)
+                        chat_session_mark_submitted(state, ids)
+                        changed = True
+                    else:
+                        if closed:
+                            chat_session_close_state(state)
+                            changed = True
+                        else:
+                            if validated:
+                                action = chat_session_boundary_action(state)
+                                action_type = _core_get(action, "type", None)
+                                ready = _core_eq(action_type, "validate")
+                                not_ready = _core_not(ready)
+                                if not_ready:
+                                    raise RuntimeError("Cannot finalize while model or tool work is unresolved")
+                                else:
+                                    pass
+                                state["terminal"] = True
+                                changed = True
+                            else:
+                                if applied:
+                                    id = _core_get(event, "id", None)
+                                    updates = _core_get(state, "updates", None)
+                                    exists = _core_map_contains(updates, id)
+                                    if exists:
+                                        record = _core_get(updates, id, None)
+                                        status = _core_get(record, "status", None)
+                                        queued = _core_eq(status, "queued")
+                                        if queued:
+                                            record["status"] = "applied"
+                                            updates[id] = record
+                                            state["updates"] = updates
+                                            item = _core_get(record, "update", None)
+                                            kind = _core_get(item, "type", None)
+                                            steer = _core_eq(kind, "steer")
+                                            if steer:
+                                                version = _core_get(state, "version", 0)
+                                                next_version = _core_add(version, 1)
+                                                state["version"] = next_version
+                                            else:
+                                                pass
+                                            changed = True
+                                        else:
+                                            pass
+                                    else:
+                                        pass
+                                else:
+                                    raise RuntimeError("Unknown chat session transition")
+    action = chat_session_boundary_action(state)
+    action["changed"] = changed
+    return action
 
 
 def _record_trace(gen: AxGen, input: Any, output: Any, status: str) -> None:
@@ -3145,6 +4062,12 @@ def _tool_spec_impl(fn: Tool) -> Any:
     spec["name"] = name
     spec["description"] = description
     spec["parameters"] = parameters
+    execution = _core_get(fn, "execution", "blocking")
+    background = _core_eq(execution, "background")
+    if background:
+        spec["execution"] = execution
+    else:
+        pass
     return spec
 
 
@@ -3299,19 +4222,6 @@ def _completion_call_to_chat_impl(call: Any) -> Any:
     out["type"] = "function"
     out["function"] = function
     return out
-
-
-def _tool_result_message_impl(call: Any, result: Any) -> Any:
-    _core_coverage_mark("_tool_result_message_impl")
-    id = _core_get(call, "id", None)
-    name = _core_get(call, "name", None)
-    result_json = _core_json_stringify(result)
-    message = {}
-    message["role"] = "function"
-    message["function_id"] = id
-    message["name"] = name
-    message["result"] = result_json
-    return message
 
 
 def _ace_apply_curator_operations(playbook: Any, operations: Any, options: Any, now: str) -> Any:
@@ -3492,6 +4402,19 @@ def _ace_apply_curator_operations(playbook: Any, operations: Any, options: Any, 
     out["updatedBulletIds"] = updated_bullets
     out["autoRemoved"] = auto_removed
     return out
+
+
+def _tool_result_message_impl(call: Any, result: Any) -> Any:
+    _core_coverage_mark("_tool_result_message_impl")
+    id = _core_get(call, "id", None)
+    name = _core_get(call, "name", None)
+    result_json = _core_json_stringify(result)
+    message = {}
+    message["role"] = "function"
+    message["function_id"] = id
+    message["name"] = name
+    message["result"] = result_json
+    return message
 
 
 def _tool_error_message_impl(call: Any, error: error) -> Any:

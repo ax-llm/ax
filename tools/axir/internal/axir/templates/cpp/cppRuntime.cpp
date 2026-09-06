@@ -117,6 +117,7 @@ Value register_agent_observer(std::function<void(Value)> fn) {
   return object({{"__agent_observer_id", id}});
 }
 
+static std::map<std::string,std::function<Value(Value,const AxToolContext&)>>& contextual_tool_registry(){static std::map<std::string,std::function<Value(Value,const AxToolContext&)>> values;return values;}
 static std::map<std::string, std::function<Value(Value)>>& tool_registry() {
   static std::map<std::string, std::function<Value(Value)>> handlers;
   return handlers;
@@ -381,7 +382,14 @@ void Transport::stream(Value request, AxTransportStreamHandler handler) {
   handler(call(std::move(request)));
 }
 
+void Transport::stream_cancellable(Value request,AxTransportStreamHandler handler,std::shared_ptr<std::atomic<bool>> cancelled){
+  if(cancelled->load())return;
+  stream(std::move(request),[handler,cancelled](Value value){return !cancelled->load()&&handler(std::move(value));});
+}
 void HttpTransport::stream(Value request, AxTransportStreamHandler handler) {
+  stream_cancellable(std::move(request),std::move(handler),std::make_shared<std::atomic<bool>>(false));
+}
+void HttpTransport::stream_cancellable(Value request,AxTransportStreamHandler handler,std::shared_ptr<std::atomic<bool>> cancelled) {
 #if !defined(AXLLM_ENABLE_CURL)
   (void)request;
   (void)handler;
@@ -434,6 +442,9 @@ void HttpTransport::stream(Value request, AxTransportStreamHandler handler) {
     }
   });
   curl_easy_setopt(curl, CURLOPT_WRITEDATA, &context);
+  curl_easy_setopt(curl, CURLOPT_NOPROGRESS, 0L);
+  curl_easy_setopt(curl, CURLOPT_XFERINFOFUNCTION, +[](void* state,curl_off_t,curl_off_t,curl_off_t,curl_off_t)->int {return static_cast<std::atomic<bool>*>(state)->load()?1:0;});
+  curl_easy_setopt(curl, CURLOPT_XFERINFODATA, cancelled.get());
   if (timeout > 0) curl_easy_setopt(curl, CURLOPT_TIMEOUT_MS, static_cast<long>(timeout * 1000.0));
   if (method == "POST") curl_easy_setopt(curl, CURLOPT_POST, 1L);
   else curl_easy_setopt(curl, CURLOPT_CUSTOMREQUEST, method.c_str());
@@ -449,7 +460,7 @@ void HttpTransport::stream(Value request, AxTransportStreamHandler handler) {
   // Returning false is the transport seam's normal cancellation signal. libcurl
   // may report it as CURLE_WRITE_ERROR (or another callback-abort code), but the
   // handler decision is authoritative once callback exceptions are excluded.
-  if (context.cancelled) return;
+  if (context.cancelled || cancelled->load()) return;
   if (rc != CURLE_OK) {
     std::string message = error_buffer[0] ? error_buffer : curl_easy_strerror(rc);
     if (rc == CURLE_OPERATION_TIMEDOUT) throw Core::as_error(Core::ai_error_timeout(message, Value(), Value(), Value(), request, false));
@@ -639,6 +650,7 @@ Value Core::div(Value left, Value right) {
   return Value(num(left) / (denom == 0.0 ? 1.0 : denom));
 }
 Value Core::math_abs(Value value) { return Value(std::abs(num(value))); }
+Value Core::math_floor(Value value) { return Value(std::floor(num(value))); }
 Value Core::math_log(Value value) { return Value(std::log(num(value))); }
 Value Core::math_exp(Value value) { return Value(std::exp(num(value))); }
 Value Core::math_sqrt(Value value) { return Value(std::sqrt(num(value))); }
@@ -1198,6 +1210,8 @@ Value Core::ai_client_features(Value client, Value model) {
   std::string id = str(get_key(client, "__client_id"));
   AIClient* registered = registered_client(id);
   if (registered != nullptr) {
+    Value scoped_features=registered->features_for_run(model);
+    if(!scoped_features.is_null())return scoped_features;
     if (auto* service = dynamic_cast<AxAIService*>(registered)) {
       return service->get_features(model);
     }
@@ -1226,6 +1240,26 @@ Value Core::tool_invoke(Value fn, Value params) {
   if (truthy(returns) && result.is_object()) validate_fields(returns, result, "tool." + str(get_key(fn, "name")) + ".return");
   return result;
 }
+Value Core::agent_native_stage_forward(Value stage,Value state,Value client,Value values,Value options,Value selected) {
+  auto it=agent_stage_registry().find(str(get_key(stage,"__agent_stage_id")));
+  auto* gen=it==agent_stage_registry().end()?nullptr:dynamic_cast<AxGen*>(it->second);
+  auto* ai=registered_client(str(get_key(client,"__client_id")));
+  if(!gen||!ai)throw AxError("runtime","Native agent stage requires AxGen and an AI client");
+  Value target=gen->value();Value original=get(target,"functions",Value::array()),previous=get(target,"function_call_traces",Value::array());
+  Value functions=parse_json(stringify(original));
+  for(const auto& descriptor:array_ref(selected)) {
+    Value source=_agent_callable_implementation(state,get(descriptor,"qualified_name",""));
+    if(get(source,"__tool_id").is_null())throw AxError("validation","Background agent callables must have a typed Tool implementation");
+    Value tool=parse_json(stringify(source));set(tool,"name",get(descriptor,"native_name"));set(tool,"description",get(descriptor,"description"));set(tool,"execution","background");append(functions,tool);
+  }
+  set(target,"functions",functions);set(target,"function_call_traces",Value::array());
+  Value output;std::exception_ptr failure;
+  try{output=gen->forward(*ai,values,options);}catch(...){failure=std::current_exception();}
+  Value records=gen->get_function_call_traces();set(target,"functions",original);Value combined=parse_json(stringify(previous));for(const auto& record:array_ref(records))append(combined,record);set(target,"function_call_traces",combined);
+  _agent_record_native_calls(state,selected,records,options);
+  if(failure)std::rethrow_exception(failure);return output;
+}
+
 Value Core::agent_stage_forward(Value stage, Value client, Value values, Value options) {
   std::string stage_id = str(get_key(stage, "__agent_stage_id"));
   auto stage_it = agent_stage_registry().find(stage_id);
@@ -1428,6 +1462,8 @@ Value Core::agent_callable_invoke(Value state, Value request, Value options_arg)
   Value options = get_key(state, "options", Value::object());
   std::string qualified = str(get_key(request, "qualified_name", get_key(request, "name", Value(""))));
   std::string name = str(get_key(request, "name", Value("")));
+  Value implementation=_agent_callable_implementation(state,qualified);
+  if(!get_key(implementation,"__tool_id",Value()).is_null())return object({{"status","ok"},{"value",tool_invoke(implementation,get_key(request,"args",Value::object()))}});
   Value scripted = get_key(options, "callable_results", get_key(options, "callableResults", Value::object()));
   if (scripted.is_object()) {
     Value result = get_key(scripted, qualified, Value());
@@ -2889,7 +2925,7 @@ OpenAICompatibleClient::OpenAICompatibleClient(std::string profile, std::string 
       credential_provider_(std::move(credential_provider)),
       transport_(transport) {
   if (transport_ == nullptr) {
-    owned_transport_ = std::make_unique<HttpTransport>();
+    owned_transport_ = std::make_shared<HttpTransport>();
     transport_ = owned_transport_.get();
   }
 }
@@ -3579,7 +3615,7 @@ std::string OpenAICompatibleClient::operation_path(const std::string& operation)
 
 std::string OpenAICompatibleClient::operation_path(const std::string& operation, Value model) const {
   Value operation_descriptor = Core::get(Core::get(descriptor_, "operations", Value::object()), operation, Value::object());
-  std::string path = str(Core::get(operation_descriptor, "path", "/" + operation));
+  std::string path = str(Core::provider_chat_operation_path(profile_, model, operation, Core::get(operation_descriptor, "path", "/" + operation)));
   if (!model.is_null()) {
     std::string token = "{model}";
     std::string::size_type pos = 0;
@@ -3599,7 +3635,7 @@ std::string OpenAICompatibleClient::operation_path(const std::string& operation,
 }
 
 Value OpenAICompatibleClient::transport_result(Value result, Value request) {
-  if (result.is_object() && has_key(result, "status")) {
+  if (result.is_object() && Core::get(result, "status").is_number()) {
     int status = static_cast<int>(num(Core::get(result, "status", 200)));
     Value body = Core::get(result, "json", Core::get(result, "body", Core::get(result, "data")));
     if (status >= 400) throw Core::as_error(Core::openai_normalize_error(status, body, request));
@@ -3670,9 +3706,20 @@ Tool::Tool(std::string name_, std::string description_, Value parameters_, std::
   tool_registry()[id] = handler ? handler : [](Value) { return Value(); };
 }
 
+Tool& Tool::context_handler(std::function<Value(Value,const AxToolContext&)> callback){
+  contextual_tool_registry()[id]=callback;
+  handler=[callback](Value args){return callback(args,AxToolContext{std::make_shared<std::atomic<bool>>(false),""});};
+  tool_registry()[id]=handler;return *this;
+}
+Tool& Tool::execution(const std::string& mode) {
+  if (mode != "blocking" && mode != "background") throw std::invalid_argument("Tool execution must be blocking or background");
+  execution_mode = mode; return *this;
+}
+
 Value Tool::value() const {
   return Value(Object{
       {"__tool_id", id},
+      {"execution", execution_mode},
       {"name", name},
       {"description", description},
       {"parameters", parameters},
@@ -5425,6 +5472,8 @@ AxMemory& AxGen::get_memory() {
   return memory_;
 }
 
+#include "session.inc"
+
 Value AxGen::forward(AIClient& client, Value values, Value options) {
   return forward(client, std::move(values), std::move(options), AxRuntimeHooks{});
 }
@@ -5433,6 +5482,15 @@ Value AxGen::forward(AIClient& client, Value values, Value options, const AxRunt
   AxRuntimeHooks program_hooks = *std::atomic_load(&runtime_hooks_);
   RuntimeHookScope scope(hooks, program_hooks, "ax_gen_forward", "ax_gen_generation",
                          object({{"ax.program.id", Core::get(state_, "program_id", "root")}, {"ax.program.type", "AxGen"}}));
+  Value run_options = Core::map_merge(Core::get(state_, "options", Value::object()), options);
+  bool eligible = !Core::get(run_options,"control").is_null();
+  for(const auto& tool:array_ref(Core::get(state_,"functions",Value::array()))) if(display(Core::get(tool,"execution","blocking"))=="background") eligible=true;
+  if(eligible && (!Core::get(run_options,"control").is_null() || display(Core::get(run_options,"asyncMode",Core::get(run_options,"async_mode","auto")))!="off")) {
+    SessionRun session(state_,client,run_options);
+    Core::set(run_options,"infraRetries",0);
+    try {Value output=Core::_forward_impl(state_,Core::client_ref(session),std::move(values),run_options);session.finish();return output;}
+    catch(const std::exception& error){session.finish(error.what());throw;}
+  }
   return Core::_forward_impl(state_, Core::client_ref(client), std::move(values), std::move(options));
 }
 
@@ -5752,8 +5810,8 @@ Value AxAgent::forward(AIClient& client, Value values, Value options, const AxRu
     if (it != code_runtime_registry().end() && it->second != nullptr) {
       AxGen* sub = llm_query_.get();
       AIClient* client_ptr = &client;
-      it->second->register_host_callable("llmQuery", [sub, client_ptr](Value params) -> Value {
-        return Core::_agent_run_llm_query(Core::agent_stage_ref(*sub), Core::client_ref(*client_ptr), std::move(params));
+      it->second->register_host_callable("llmQuery", [sub, client_ptr, options](Value params) -> Value {
+        return Core::_agent_run_llm_query(Core::agent_stage_ref(*sub), Core::client_ref(*client_ptr), std::move(params), options);
       });
     }
   }
@@ -6351,6 +6409,7 @@ static Value balancer_base_features_cpp() {
       {"functions", false},
       {"streaming", false},
       {"thinking", false},
+      {"asyncTools", false}, {"nativeSteering", false}, {"reasoningUpdates", false},
       {"multiTurn", false},
       {"structuredOutputs", false},
       {"media", object({
@@ -6531,16 +6590,24 @@ Value AxBalancer::get_model_list() {
   return Value();
 }
 
-Value AxBalancer::get_features(Value model) {
+std::shared_ptr<AxChatSession> AxBalancer::open_chat_session(Value request,Value options){return pin_chat_run(request,options)->open_chat_session(request,options);}
+std::shared_ptr<AIClient> AxBalancer::pin_chat_run(Value request,Value options) {
+  std::shared_ptr<AxAIService> selected;
+  if(adaptive_){auto ranked=rank_adaptive(request,options);if(!ranked.empty())selected=ranked.front().service;}
+  else{for(const auto& service:candidate_services(request)){if(can_retry_service(service)){selected=service;break;}}}
+  if(!selected)throw AxError("runtime","No eligible service for this run");current_service_=selected;return selected;
+}
+
+static Value merge_service_features_cpp(const std::vector<std::shared_ptr<AxAIService>>& services,Value model) {
   Value features = balancer_base_features_cpp();
   Value structured_output_modes = Value::array();
-  bool all_modes_advertised = !services_.empty();
-  for (const auto& service : services_) {
+  bool all_modes_advertised = !services.empty();
+  for (const auto& service : services) {
     Value raw = service->get_features(model);
     Value raw_modes = Core::get(raw, "structuredOutputModes", Core::get(raw, "structured_output_modes", Value()));
     if (raw_modes.is_null()) all_modes_advertised = false;
     else append_unique_cpp(structured_output_modes, raw_modes);
-    for (const auto& pair : std::vector<std::pair<std::string, std::string>>{{"functions", ""}, {"streaming", ""}, {"thinking", ""}, {"multiTurn", "multi_turn"}, {"structuredOutputs", "structured_outputs"}, {"functionCot", "function_cot"}, {"hasThinkingBudget", "has_thinking_budget"}, {"hasShowThoughts", "has_show_thoughts"}}) {
+    for (const auto& pair : std::vector<std::pair<std::string, std::string>>{{"functions", ""}, {"streaming", ""}, {"thinking", ""}, {"multiTurn", "multi_turn"}, {"structuredOutputs", "structured_outputs"}, {"functionCot", "function_cot"}, {"hasThinkingBudget", "has_thinking_budget"}, {"hasShowThoughts", "has_show_thoughts"}, {"asyncTools", ""}, {"nativeSteering", ""}, {"reasoningUpdates", ""}}) {
       if (feature_truthy_cpp(raw, pair.first, pair.second)) Core::set(features, pair.first, true);
     }
     Value media = Core::get(features, "media", Value::object());
@@ -6576,6 +6643,8 @@ Value AxBalancer::get_features(Value model) {
   if (all_modes_advertised) Core::set(features, "structured_output_modes", structured_output_modes);
   return features;
 }
+
+Value AxBalancer::get_features(Value model) {return merge_service_features_cpp(services_,model);}
 
 Value AxBalancer::get_metrics() {
   double chat_error_count = 0, chat_error_total = 0, embed_error_count = 0, embed_error_total = 0;
@@ -6904,9 +6973,17 @@ Value MultiServiceRouter::get_model_list() {
 Value MultiServiceRouter::get_features(Value model) {
   if (!model.is_null()) {
     auto it = services_.find(display(model));
-    if (it != services_.end()) return it->second.service->get_features(model);
+    if (it != services_.end()) return it->second.service->get_features(it->second.model);
   }
   return router_default_features_cpp();
+}
+
+std::shared_ptr<AxChatSession> MultiServiceRouter::open_chat_session(Value request,Value options) {
+  auto it=services_.find(display(Core::get(request,"model")));
+  if(it==services_.end())throw AxError("validation","No service found for requested model key");
+  Value entry=object({{"model",it->second.model}});Value resolved=Core::provider_session_route(entry,request,options);
+  last_used_service_=it->second.service;
+  return last_used_service_->open_chat_session(Core::get(resolved,"request"),Core::get(resolved,"options"));
 }
 
 Value MultiServiceRouter::chat(Value request) { return chat(std::move(request), Value::object()); }
@@ -7002,6 +7079,26 @@ Value MultiServiceRouter::get_last_used_chat_model() { return last_used_service_
 Value MultiServiceRouter::get_last_used_embed_model() { return last_used_service_ ? last_used_service_->get_last_used_embed_model() : Value(); }
 Value MultiServiceRouter::get_last_used_model_config() { return last_used_service_ ? last_used_service_->get_last_used_model_config() : Value(); }
 Value MultiServiceRouter::complete(Value request) { return Core::chat_response_to_completion(chat(Core::coerce_chat_request(std::move(request)))); }
+
+class PinnedProviderClient final:public AIClient {
+  std::shared_ptr<AIClient> client_;
+  Value request(Value value){return Core::provider_route_preprocess_request(features_for_run(Core::get(value,"model")),value);}
+ public:
+  explicit PinnedProviderClient(std::shared_ptr<AIClient> client):client_(std::move(client)){}
+  Value features_for_run(Value model)override{if(auto* service=dynamic_cast<AxAIService*>(client_.get()))return service->get_features(model);return client_->features_for_run(model);}
+  Value complete(Value value)override{return Core::chat_response_to_completion(chat(value,Value::object()));}
+  Value chat(Value value,Value options)override{return client_->chat(request(value),options);}
+  std::shared_ptr<AxChatSession> open_chat_session(Value value,Value options)override{return client_->open_chat_session(request(value),options);}
+};
+Value ProviderRouter::features_for_run(Value model){return merge_service_features_cpp(providers_,model);}
+Value ProviderRouter::complete(Value request){return Core::chat_response_to_completion(Core::get(chat(request,Value::object()),"response"));}
+std::shared_ptr<AIClient> ProviderRouter::pin_chat_run(Value request,Value options){
+  Value recommendation=get_routing_recommendation(request);std::shared_ptr<AIClient> selected=service_for_name(Core::get(recommendation,"providerName"));
+  if(!selected)throw AxError("runtime","No provider selected");std::set<AIClient*> visited;
+  while(true){if(!visited.insert(selected.get()).second)throw AxError("runtime","Cyclic run routing");auto next=selected->pin_chat_run(request,options);if(!next)break;selected=std::move(next);}
+  return std::make_shared<PinnedProviderClient>(selected);
+}
+std::shared_ptr<AxChatSession> ProviderRouter::open_chat_session(Value request,Value options){return pin_chat_run(request,options)->open_chat_session(request,options);}
 
 ProviderRouter::ProviderRouter(Value config) {
   Value providers = Core::get(config, "providers", Value::object());

@@ -1,0 +1,94 @@
+{
+  "cases": [
+    {
+      "event": {
+        "type": "update.queued",
+        "update": {
+          "id": "1",
+          "target": "root/right",
+          "text": "Elsewhere",
+          "type": "steer"
+        }
+      },
+      "expected_action": {
+        "changed": false,
+        "type": "wait"
+      }
+    },
+    {
+      "event": {
+        "type": "update.queued",
+        "update": {
+          "id": "2",
+          "target": "root",
+          "text": "Revise",
+          "type": "steer"
+        }
+      },
+      "expected_action": {
+        "changed": true,
+        "type": "wait"
+      }
+    },
+    {
+      "event": {
+        "id": "2",
+        "type": "update.applied"
+      },
+      "expected_action": {
+        "changed": true,
+        "type": "wait"
+      }
+    },
+    {
+      "event": {
+        "id": "2",
+        "type": "update.applied"
+      },
+      "expected_action": {
+        "changed": false,
+        "type": "wait"
+      }
+    },
+    {
+      "event": {
+        "call": {
+          "id": "unresolved"
+        },
+        "execution": "background",
+        "type": "tool.validated"
+      },
+      "expected_action": {
+        "changed": true,
+        "type": "wait"
+      }
+    },
+    {
+      "event": {
+        "type": "closed"
+      },
+      "expected_action": {
+        "changed": true,
+        "type": "closed"
+      }
+    },
+    {
+      "event": {
+        "id": "unresolved",
+        "result": "too late",
+        "type": "tool.result"
+      },
+      "expected_action": {
+        "changed": false,
+        "type": "closed"
+      }
+    }
+  ],
+  "expected_pending": ["unresolved"],
+  "expected_steps": 0,
+  "kind": "ai_session_state",
+  "max_steps": 3,
+  "model": "gpt-6-astra",
+  "name": "astra-scoped-updates-and-cancellation",
+  "path": "root/left"
+}

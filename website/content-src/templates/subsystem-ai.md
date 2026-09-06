@@ -138,8 +138,21 @@ preserve provider defaults and model-alias settings; explicit request settings w
 
 Runnable examples: `typescript/generation/astra.ts`, `astra-async-tools.ts`,
 `astra-steering.ts`, `astra-reasoning-update.ts`, `astra-session-lifecycle.ts`, and
-`typescript/short-agents/astra-background.ts`. Generated-language session support
-is deferred in the AxIR backlog.
+`typescript/short-agents/astra-background.ts`. Python, Go, Java, C++, and Rust
+have provider-backed Astra generation, agent, flow, and cancellation examples in
+their language galleries. Their broader session parity is still being verified
+in the AxIR backlog. Generated flow groups currently execute serially; native
+MCP invocation and other session coverage remain incomplete.
+
+The Java, C++, and Rust WebSocket adapters track response activity as frames
+arrive. A completed response cannot become active again when an older buffered
+event is consumed. When no response is active, steering is queued for the next
+response; an active successor can still receive native steering. Observe lifecycle
+timing rather than assuming that every update applies natively.
+C++ session tools also reject invalid raw-schema argument types before invoking
+the handler, allowing the model to correct its call within the step limit.
+These fixes have deterministic regression coverage; they do not establish full
+generated-language parity.
 
 
 ### Gemini thinking levels

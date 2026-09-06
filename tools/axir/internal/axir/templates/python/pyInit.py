@@ -54,6 +54,7 @@ from .ai import (
     update_balancer_route_stats,
 )
 from .gen import AxGen, AxMemory, ax
+from .session import AxChatSession, AxRunControl, run_control
 from .agent import AxAgent, AxAgentClarificationError, AxBootstrapFewShot, AxCodeRuntime, AxCodeSession, AxGEPA, AxPlaybook, OptimizerEngine, OptimizerEvaluator, agent, optimize, playbook
 from .flow import AxFlow, AxProgram, flow
 from .mcp import AxEventCancellationToken, AxEventClock, AxEventCommand, AxEventContinuation, AxEventDeadLetter, AxEventEnvelope, AxEventInputBuilder, AxEventInputError, AxEventInputPlan, AxEventPath, AxEventPublishReceipt, AxEventRoute, AxEventRouteBuilder, AxEventRun, AxEventRuntime, AxEventSink, AxEventSource, AxEventStore, AxEventTarget, AxEventTargetBuilder, AxExecutionContext, AxInMemoryEventStore, AxManualEventClock, AxMCPClient, AxMCPContinuationState, AxMCPEventSource, AxMCPOAuthOptions, AxMCPScriptedTransport, AxMCPStdioTransport, AxMCPStreamableHTTPTransport, AxMCPTokenSet, AxMCPTransport, AxPushEventSource, AxSystemEventClock, AxUCPBinding, AxUCPClient, event_input, event_path, event_route, event_target
@@ -85,6 +86,9 @@ __all__ = [
     "AxBalancerStatsStore",
     "AxInMemoryBalancerStatsStore",
     "AxGen",
+    "AxRunControl",
+    "AxChatSession",
+    "run_control",
     "AxFlow",
     "AxAgent",
     "AxAgentClarificationError",

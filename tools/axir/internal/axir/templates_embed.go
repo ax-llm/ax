@@ -22,6 +22,12 @@ var cppHeader string
 //go:embed templates/cpp/cppRuntime.cpp
 var cppRuntime string
 
+//go:embed templates/cpp/cppSession.inc
+var cppSession string
+
+//go:embed templates/cpp/cppAstraSessionNoKey.cpp
+var cppAstraSessionNoKeyExample string
+
 // templates/go
 
 //go:embed templates/go/goAdaptiveBalancerNoKey.go.txt
@@ -86,6 +92,15 @@ var goRealtimeAudioTurnExample string
 
 //go:embed templates/go/goRuntime.go.txt
 var goRuntime string
+
+//go:embed templates/go/goSession.go.txt
+var goSession string
+
+//go:embed templates/go/goSessionTest.go.txt
+var goSessionTest string
+
+//go:embed templates/rust/rustSession.rs
+var rustSession string
 
 //go:embed templates/go/goRuntimeAdapterExample.go.txt
 var goRuntimeAdapterExample string
@@ -249,6 +264,21 @@ var javaAxPlaybook string
 
 //go:embed templates/java/javaAxGen.java
 var javaAxGen string
+
+//go:embed templates/java/javaAxRunControl.java
+var javaAxRunControl string
+
+//go:embed templates/java/javaAxChatSession.java
+var javaAxChatSession string
+
+//go:embed templates/java/javaResponsesChatSession.java
+var javaResponsesChatSession string
+
+//go:embed templates/java/javaSessionRun.java
+var javaSessionRun string
+
+//go:embed templates/java/javaAstraSessionNoKeyExample.java
+var javaAstraSessionNoKeyExample string
 
 //go:embed templates/java/javaAxMemory.java
 var javaAxMemory string
@@ -649,3 +679,9 @@ var rustQuickJSRuntime string
 
 //go:embed templates/rust_quickjs/rustRuntimeProfilesReadme.md
 var rustRuntimeProfilesReadme string
+
+//go:embed templates/python/pySession.py
+var pySession string
+
+//go:embed templates/python/pySessionNoKeyExample.py
+var pySessionNoKeyExample string

@@ -63,6 +63,7 @@ final class Core {
     return asDouble(left) / (denom == 0.0 ? 1.0 : denom);
   }
   static Object mathAbs(Object value) { return Math.abs(asDouble(value)); }
+  static Object mathFloor(Object value) { return Math.floor(asDouble(value)); }
   static Object mathLog(Object value) { return Math.log(asDouble(value)); }
   static Object mathExp(Object value) { return Math.exp(asDouble(value)); }
   static Object mathSqrt(Object value) { return Math.sqrt(asDouble(value)); }
@@ -211,6 +212,7 @@ final class Core {
     if (target instanceof Tool t) {
       return switch (k) {
         case "name" -> t.name;
+        case "execution" -> t.execution;
         case "description" -> t.description;
         case "parameters" -> t.schema();
         case "args" -> t.args;
@@ -585,13 +587,16 @@ final class Core {
     }
   }
   static Object aiClientFeatures(Object client, Object model) {
+    if (client instanceof SessionRun session) return aiClientFeatures(session.client, model);
+    if (client instanceof ChatRunFeatures features) return features.getFeatures(model == null ? null : String.valueOf(model));
     if (client instanceof AxAIService service) {
       return service.getFeatures(model == null ? null : String.valueOf(model));
     }
     return Map.of("functions", true, "structured_outputs", true);
   }
   static Object retrySleep(Object attempt) { return null; }
-  static Object toolInvoke(Object fn, Object params) {
+  static Object toolInvoke(Object fn,Object params){return toolInvoke(fn,params,()->Thread.currentThread().isInterrupted());}
+  static Object toolInvoke(Object fn, Object params,java.util.function.BooleanSupplier cancelled) {
     if (!(fn instanceof Tool tool)) throw new RuntimeException("unknown tool");
     AxGlobals.Scope scope = AxGlobals.openScope(
         AxRuntimeHooks.empty(),
@@ -600,7 +605,7 @@ final class Core {
         "ax_gen_tool",
         Map.of("ax.tool.name", tool.name));
     try {
-      return tool.call(asMap(params));
+      return tool.call(asMap(params),cancelled);
     } catch (RuntimeException | Error error) {
       scope.fail(error);
       throw error;
@@ -854,6 +859,24 @@ final class Core {
     }
     return null;
   }
+  static Object runControlAborted(Object control) {
+    return control instanceof AxRunControl value ? value.isAborted() : truthy(get(control,"aborted",false));
+  }
+
+  static Object agentNativeStageForward(Object stage,Object state,Object client,Object values,Object options,Object selected) {
+    if(!(stage instanceof AxGen gen)||!(client instanceof AiClient ai))throw new IllegalArgumentException("Native agent stage requires AxGen and an AI client");
+    var tools=new ArrayList<Tool>();
+    for(Object descriptor:asList(selected)) {
+      Object source=_agent_callable_implementation(state,get(descriptor,"qualified_name",""));
+      if(!(source instanceof Tool tool))throw new IllegalArgumentException("Background agent callables must have a typed fn() implementation");
+      tools.add(new Tool(String.valueOf(get(descriptor,"native_name","")),String.valueOf(get(descriptor,"description","")),tool.args,tool.returns,tool.handler,"background",tool.contextHandler));
+    }
+    var original=new ArrayList<>(gen.functions);var base=new ArrayList<>(gen.baseFunctions);var previous=new ArrayList<>(gen.functionCallTraces);
+    gen.functions.addAll(tools);gen.baseFunctions.addAll(tools);gen.functionCallTraces.clear();
+    try{return gen.forward(ai,asMap(values),asMap(options));}
+    finally{var records=new ArrayList<>(gen.functionCallTraces);gen.functions.clear();gen.functions.addAll(original);gen.baseFunctions.clear();gen.baseFunctions.addAll(base);gen.functionCallTraces.clear();gen.functionCallTraces.addAll(previous);gen.functionCallTraces.addAll(records);_agent_record_native_calls(state,selected,records,options);}
+  }
+
   static Object agentStageForward(Object stage, Object client, Object values, Object options) {
     if (!(stage instanceof AxProgram program)) throw new RuntimeException("agent stage is not AxProgram");
     if (!(client instanceof AiClient ai)) throw new RuntimeException("client does not implement AiClient");
@@ -998,6 +1021,11 @@ final class Core {
   static Object agentCallableInvoke(Object state, Object request, Object optionsArg) {
     Map<String, Object> options = asMap(get(state, "options", Map.of()));
     String qualified = String.valueOf(get(request, "qualified_name", get(request, "name", "")));
+    Object implementation=_agent_callable_implementation(state,qualified);
+    Object values=get(request,"args",Map.of());
+    if(implementation instanceof Tool tool){var result=new LinkedHashMap<String,Object>();result.put("status","ok");result.put("value",toolInvoke(tool,values));return result;}
+    Object handler=get(implementation,"handler",null);
+    if(handler instanceof Tool.Handler callback){try{Object value=callback.call(asMap(values));var result=new LinkedHashMap<String,Object>();result.put("status","ok");result.put("value",value);return result;}catch(Exception error){throw asRuntime(error);}}
     Object scripted = options.getOrDefault("callable_results", options.get("callableResults"));
     if (scripted instanceof Map<?, ?> map) {
       Object requestName = String.valueOf(get(request, "name", ""));

@@ -20,9 +20,12 @@ from .ai import (
     _strip_runtime_hooks,
 )
 
+from .session import _core_run_control_aborted
 from .gen import (
     AxGen,
     _core_ai_complete_once,
+    _core_ai_client_features,
+    _core_tool_invoke,
     _ace_apply_curator_operations,
     _ace_dedupe_playbook,
     _ace_empty_playbook,
@@ -1670,7 +1673,7 @@ class AxAgent:
         # await inside the runtime. The logic lives in the AxIR-generated helper;
         # this wrapper only registers the host callable that closes over this client.
         if runtime is not None and hasattr(runtime, "register_callable"):
-            runtime.register_callable("llmQuery", lambda params: _agent_run_llm_query(self.llm_query, client, params))
+            runtime.register_callable("llmQuery", lambda params: _agent_run_llm_query(self.llm_query, client, params, options))
         output = _agent_forward(
             self.state,
             self.distiller,
@@ -2194,6 +2197,31 @@ def _core_json_pretty(value):
     return json.dumps(value, indent=2)
 
 
+def _core_agent_native_stage_forward(stage, state, client, values, options, selected):
+    from .tool import Tool
+    from dataclasses import replace
+    tools=[]
+    for descriptor in selected:
+        source=_agent_callable_implementation(state,descriptor["qualified_name"])
+        if not isinstance(source,Tool):
+            raise ValueError("Background agent callables must have a typed fn() implementation")
+        tools.append(replace(source,name=descriptor["native_name"],description=descriptor["description"],execution="background"))
+    original=stage.functions
+    original_base=stage._base_functions
+    previous=stage.function_call_traces
+    stage.functions=[*original,*tools]
+    stage._base_functions=[*original_base,*tools]
+    stage.function_call_traces=[]
+    try:
+        return stage.forward(client,values or {},options or {})
+    finally:
+        records=stage.function_call_traces
+        stage.functions=original
+        stage._base_functions=original_base
+        stage.function_call_traces=[*previous,*records]
+        _agent_record_native_calls(state,selected,records,options or {})
+
+
 def _core_agent_stage_forward(stage, client, values, options):
     return stage.forward(client, values or {}, options or {})
 
@@ -2358,6 +2386,13 @@ def _core_agent_callable_invoke(state, request, options):
     agent_options = _core_get(state, "options", {}) or {}
     qualified = _core_get(request, "qualified_name", _core_get(request, "name", ""))
     args = _core_get(request, "args", {})
+    implementation=_agent_callable_implementation(state,qualified)
+    from .tool import Tool
+    if isinstance(implementation,Tool):
+        from .gen import _core_tool_invoke
+        return {"status":"ok","value":_core_tool_invoke(implementation,args,(options or {}).get("tool_context"))}
+    handler=_core_get(implementation,"handler")
+    if callable(handler):return {"status":"ok","value":handler(args)}
     for group in _core_get(state, "callable_inventory", []) or []:
         for callable_meta in _core_get(group, "callables", []) or []:
             if _core_get(callable_meta, "qualified_name") == qualified:

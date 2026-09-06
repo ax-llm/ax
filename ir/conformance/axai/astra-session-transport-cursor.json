@@ -1,0 +1,83 @@
+{
+  "cases": [
+    {
+      "event": {
+        "response": {
+          "id": "parent"
+        },
+        "type": "response.created"
+      },
+      "expected_active_id": "parent",
+      "expected_types": []
+    },
+    {
+      "event": {
+        "response": {
+          "id": "successor"
+        },
+        "type": "response.created"
+      },
+      "expected_active_id": "successor",
+      "expected_types": []
+    },
+    {
+      "event": {
+        "response": {
+          "id": "parent",
+          "output": []
+        },
+        "type": "response.completed"
+      },
+      "expected_active_id": "successor",
+      "expected_types": ["response.completed"]
+    },
+    {
+      "event": {
+        "response": {
+          "id": "parent"
+        },
+        "type": "response.created"
+      },
+      "expected_active_id": "successor",
+      "expected_types": []
+    },
+    {
+      "event": {
+        "response": {
+          "id": "successor",
+          "incomplete_details": {
+            "reason": "steered"
+          },
+          "output": []
+        },
+        "type": "response.incomplete"
+      },
+      "expected_active_id": null,
+      "expected_types": ["response.completed"]
+    },
+    {
+      "event": {
+        "response": {
+          "id": "successor"
+        },
+        "type": "response.created"
+      },
+      "expected_active_id": null,
+      "expected_types": []
+    },
+    {
+      "event": {
+        "response": {
+          "id": "parent",
+          "output": []
+        },
+        "type": "response.completed"
+      },
+      "expected_active_id": null,
+      "expected_types": []
+    }
+  ],
+  "kind": "ai_session_events",
+  "model": "gpt-6-astra",
+  "name": "astra-session-transport-cursor"
+}

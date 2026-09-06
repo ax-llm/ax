@@ -13,6 +13,8 @@ option(AXLLM_ENABLE_REALTIME "Build the built-in IXWebSocket realtime audio tran
 
 add_library(axllm axllm/axllm.cpp axllm/mcp.cpp)
 add_library(axllm::axllm ALIAS axllm)
+find_package(Threads REQUIRED)
+target_link_libraries(axllm PUBLIC Threads::Threads)
 target_compile_features(axllm PUBLIC cxx_std_17)
 target_include_directories(axllm PUBLIC
   $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}>

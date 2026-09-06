@@ -10,7 +10,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.function.Consumer;
 
-public final class AxBalancer implements AxAIService {
+public final class AxBalancer implements AxAIService,ChatRunSelector,AxChatSession.Provider {
   public static final String inputOrderComparator = "input_order";
 
   private final List<AxAIService> services;
@@ -281,6 +281,9 @@ public final class AxBalancer implements AxAIService {
     out.put("functions", false);
     out.put("streaming", false);
     out.put("thinking", false);
+    out.put("asyncTools", false);
+    out.put("nativeSteering", false);
+    out.put("reasoningUpdates", false);
     out.put("multiTurn", false);
     out.put("structuredOutputs", false);
     Map<String, Object> media = new LinkedHashMap<>();
@@ -323,7 +326,9 @@ public final class AxBalancer implements AxAIService {
     return out;
   }
 
-  public Map<String, Object> getFeatures(String model) {
+  public Map<String, Object> getFeatures(String model) { return mergedFeatures(services,model); }
+
+  static Map<String,Object> mergedFeatures(List<AxAIService> services,String model) {
     Map<String, Object> features = balancerBaseFeatures();
     Map<String, Object> media = Core.asMap(features.get("media"));
     List<Object> structuredOutputModes = new ArrayList<>();
@@ -333,7 +338,7 @@ public final class AxBalancer implements AxAIService {
       Object rawModes = raw.containsKey("structuredOutputModes") ? raw.get("structuredOutputModes") : raw.get("structured_output_modes");
       if (rawModes == null) allModesAdvertised = false;
       else appendUnique(structuredOutputModes, rawModes);
-      for (String key : List.of("functions", "streaming", "thinking", "multiTurn", "structuredOutputs", "functionCot", "hasThinkingBudget", "hasShowThoughts")) {
+      for (String key : List.of("functions", "streaming", "thinking", "multiTurn", "structuredOutputs", "functionCot", "hasThinkingBudget", "hasShowThoughts", "asyncTools", "nativeSteering", "reasoningUpdates")) {
         String alt = switch (key) {
           case "multiTurn" -> "multi_turn";
           case "structuredOutputs" -> "structured_outputs";
@@ -399,6 +404,19 @@ public final class AxBalancer implements AxAIService {
     if (chatCount > 0) Core.asMap(Core.asMap(out.get("latency")).get("chat")).put("mean", chatSum / chatCount);
     if (embedCount > 0) Core.asMap(Core.asMap(out.get("latency")).get("embed")).put("mean", embedSum / embedCount);
     return out;
+  }
+
+  public AxChatSession openChatSession(Map<String,Object> request,Map<String,Object> options)throws Exception {
+    var selected=pinChatRun(request,options);
+    if(!(selected instanceof AxChatSession.Provider provider))throw new IllegalArgumentException("Selected service does not support chat sessions");
+    return provider.openChatSession(request,options);
+  }
+  public AiClient pinChatRun(Map<String,Object> request,Map<String,Object> options) {
+    AxAIService selected;
+    if(adaptive!=null) {var ranked=rankAdaptive(request,options);selected=ranked.isEmpty()?null:ranked.get(0).service();}
+    else selected=candidateServices(request).stream().filter(this::canRetryService).findFirst().orElse(null);
+    if(selected==null)throw new IllegalArgumentException("No eligible service for this run");
+    currentService=selected;return selected;
   }
 
   public Map<String, Object> chat(Map<String, Object> request) throws Exception { return chat(request, Map.of()); }
