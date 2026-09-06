@@ -469,6 +469,7 @@ module @ax.gen version "0.1" {
           core.set %forced_function["type"] = "function"
           core.set %forced_function["function"] = %forced_function_ref
           core.set %request["function_call"] = %forced_function
+          core.set %request["function_call_source"] = "ax"
         }
       }
       core.set %request["functions"] = %function_specs
@@ -1192,6 +1193,16 @@ module @ax.gen version "0.1" {
       %has_thought_blocks = core.call intrinsic.is_not_none(%thought_blocks)
       core.if %has_thought_blocks {
         core.set %message["thought_blocks"] = %thought_blocks
+      }
+      %images = core.get %response["images"]
+      %has_images = core.call intrinsic.is_not_none(%images)
+      core.if %has_images {
+        core.set %message["images"] = %images
+      }
+      %phase = core.get %response["phase"]
+      %has_phase = core.call intrinsic.is_not_none(%phase)
+      core.if %has_phase {
+        core.set %message["phase"] = %phase
       }
       core.append %messages, %message
       core.return %messages

@@ -22,6 +22,10 @@ import urllib.request
 from typing import Any, Callable, Iterable, Protocol
 # AXIR_CORE_IMPORTS
 
+def _core_string_split_once(value, sep):
+    left, marker, right = str(value).partition(str(sep))
+    return {"left": left, "right": right, "found": bool(marker)}
+
 AxUsageContext = dict[str, Any]
 AxUsageEvent = dict[str, Any]
 AxUsageObserver = Callable[[AxUsageEvent], Any]
@@ -501,7 +505,7 @@ def _encode_multipart(payload: dict[str, Any]) -> tuple[bytes, str]:
     """Encode a request payload as multipart/form-data.
 
     Multipart operations (e.g. OpenAI /audio/transcriptions) carry the audio as a
-    binary `file` part; every other field is a plain form field. The `file` value is
+    binary `file` or `audio` part; every other field is a plain form field. Its value is
     a base64 string (optionally a data: URL) or a dict {data, mimeType?, filename?}.
     """
     boundary = "----axllmFormBoundary" + uuid.uuid4().hex
@@ -510,7 +514,7 @@ def _encode_multipart(payload: dict[str, Any]) -> tuple[bytes, str]:
     for key, value in payload.items():
         if value is None:
             continue
-        if key == "file":
+        if key in ("file", "audio"):
             if isinstance(value, dict):
                 data = str(value.get("data", ""))
                 filename = str(value.get("filename") or "audio.wav")
@@ -527,24 +531,31 @@ def _encode_multipart(payload: dict[str, Any]) -> tuple[bytes, str]:
                 file_bytes = data.encode()
             parts.append(b"--" + boundary.encode() + crlf)
             parts.append(
-                ('Content-Disposition: form-data; name="file"; filename="' + filename + '"').encode() + crlf
+                ('Content-Disposition: form-data; name="' + str(key) + '"; filename="' + filename + '"').encode() + crlf
             )
             parts.append(("Content-Type: " + content_type).encode() + crlf + crlf)
             parts.append(file_bytes + crlf)
         else:
             parts.append(b"--" + boundary.encode() + crlf)
-            parts.append(('Content-Disposition: form-data; name="' + str(key) + '"').encode() + crlf + crlf)
+            parts.append(('Content-Disposition: form-data; name="' + str(key) + '"').encode() + crlf)
+            if key == "request":
+                parts.append(b"Content-Type: application/json" + crlf)
+            parts.append(crlf)
             parts.append(str(value).encode() + crlf)
     parts.append(b"--" + boundary.encode() + b"--" + crlf)
     return b"".join(parts), "multipart/form-data; boundary=" + boundary
 
 
 def _realtime_event_is_ready(event: dict[str, Any]) -> bool:
+    if not event.get("type") and event.get("sessionId"):
+        return True
     if event.get("type") in (
         "session.created",
         "session.updated",
         "transcription_session.created",
         "transcription_session.updated",
+        "ready",
+        "sessionStarted",
     ):
         return True
     return "setupComplete" in event
@@ -565,15 +576,23 @@ class ScriptedRealtimeTransport:
     def __init__(self, inbound: Iterable[dict[str, Any]]):
         self._inbound = list(inbound)
         self.sent: list[dict[str, Any]] = []
+        self._meta = any('sessionId' in event and 'type' not in event for event in self._inbound)
+        self._ended = threading.Event()
 
     def send(self, event: dict[str, Any]) -> None:
         self.sent.append(event)
+        if event.get('type') == 'endStream':
+            self._ended.set()
 
     def recv(self) -> dict[str, Any] | None:
-        return self._inbound.pop(0) if self._inbound else None
+        if self._inbound:
+            return self._inbound.pop(0)
+        if self._meta and not self._ended.wait(30):
+            raise AxAIServiceError('scripted realtime input did not finish')
+        return None
 
     def close(self) -> None:
-        pass
+        self._ended.set()
 
 
 class _WebSocketRealtimeTransport:
@@ -594,15 +613,20 @@ class _WebSocketRealtimeTransport:
 
     def send(self, event: dict[str, Any]) -> None:
         self.sent.append(event)
-        self._ws.send(json.dumps(event))
+        if event.get("type") == "binary":
+            self._ws.send(base64.b64decode(str(event.get("data") or "")), opcode=self._websocket.ABNF.OPCODE_BINARY)
+        else:
+            self._ws.send(json.dumps(event))
 
     def recv(self) -> dict[str, Any] | None:
-        try:
-            raw = self._ws.recv()
-        except self._websocket.WebSocketTimeoutException:
+        opcode, raw = self._ws.recv_data(control_frame=True)
+        if opcode == self._websocket.ABNF.OPCODE_CLOSE:
+            code = int.from_bytes(raw[:2], "big") if len(raw) >= 2 else 1005
+            if code != 1000:
+                raise AxAIServiceError(f"realtime WebSocket closed abnormally (code {code})")
             return None
-        if not raw:
-            return None
+        if opcode in (self._websocket.ABNF.OPCODE_PING, self._websocket.ABNF.OPCODE_PONG):
+            return self.recv()
         if isinstance(raw, (bytes, bytearray)):
             raw = raw.decode("utf-8")
         return json.loads(raw)
@@ -968,7 +992,7 @@ class ProviderOperationClient(AxBaseAI):
         if raw is None:
             operation = "responses" if self.descriptor.get("transport") == "openai-responses" else "chat"
             raw = self._request_json(endpoint, payload, stream=False, method=self._operation_method("chat"), operation=operation)
-        return provider_normalize_chat_response(self.profile, raw, self.name, model)
+        return provider_normalize_chat_response(self.profile, raw, self.name, model, payload)
 
     def _context_cache_chat(self, request, payload, model, endpoint, options):
         cfg = (options or {}).get("contextCache", (options or {}).get("context_cache"))
@@ -1106,6 +1130,9 @@ class ProviderOperationClient(AxBaseAI):
         req = {**req, "model": model, "model_config": model_config}
         self.last_used_chat_model = model
         self.last_used_model_config = copy.deepcopy(model_config)
+        if provider_should_use_realtime(self.profile, str(model), req, merged_options):
+            yield from self._realtime_events(req, merged_options, terminal_delta=True)
+            return
         payload = provider_build_chat_request(self.profile, req, merged_options)
         hooks = _effective_runtime_hooks(options, self.runtime_hooks)
         attributes = {"ax.operation": "chat", "ax.ai": self.name, "ax.model": str(model), "ax.streaming": True}
@@ -1171,9 +1198,9 @@ class ProviderOperationClient(AxBaseAI):
             state: dict[str, Any] = {}
             try:
                 if first is not sentinel:
-                    yield provider_normalize_stream_delta(self.profile, first, state, self.name, model)
+                    yield provider_normalize_stream_delta(self.profile, first, state, self.name, model, payload)
                     for event in events:
-                        yield provider_normalize_stream_delta(self.profile, event, state, self.name, model)
+                        yield provider_normalize_stream_delta(self.profile, event, state, self.name, model, payload)
             finally:
                 close = getattr(events, "close", None)
                 if callable(close):
@@ -1185,8 +1212,15 @@ class ProviderOperationClient(AxBaseAI):
         model = request.get("model") or self.model
         descriptor = provider_operation_descriptor(self.profile, "transcribe")
         body_key = "data" if descriptor.get("body") == "multipart" else "json"
-        raw = self._request_json(self._operation_path("transcribe", model), payload, stream=False, body_key=body_key, method=self._operation_method("transcribe"), operation="transcribe")
-        return provider_normalize_transcribe_response(self.profile, raw)
+        query = payload.pop("query", None) or {}
+        endpoint = self._operation_path("transcribe", model)
+        if query:
+            endpoint += ("&" if "?" in endpoint else "?") + urllib.parse.urlencode(query)
+        event_stream = self.profile == "meta" and (request.get("partialMode") is not None or request.get("partial_mode") is not None or request.get("emitAudioProgress") is True or request.get("emit_audio_progress") is True)
+        raw = self._request_json(endpoint, payload, stream=False, body_key=body_key, method=self._operation_method("transcribe"), operation="transcribe", accept="text/event-stream" if event_stream else None)
+        if event_stream and isinstance(raw, (str, bytes, bytearray)):
+            raw = {"events": list(_iter_sse_json(raw))}
+        return provider_normalize_transcribe_response(self.profile, raw, request)
 
     def speak(self, request: dict[str, Any], options: dict[str, Any] | None = None):
         payload = provider_build_speak_request(self.profile, request)
@@ -1203,24 +1237,63 @@ class ProviderOperationClient(AxBaseAI):
             yield provider_normalize_realtime_event(self.profile, event, state, self.name, model or self.model)
 
     def realtime_audio_setup(self, request: dict[str, Any], options: dict[str, Any] | None = None):
-        return provider_build_realtime_audio_setup(self.profile, request, self._merged_options(options))
+        setup_options = {"api_key": self.api_key or "", **self._merged_options(options)}
+        return provider_build_realtime_audio_setup(self.profile, request, setup_options)
 
     def realtime_audio_input(self, request: dict[str, Any]):
         return provider_build_realtime_audio_input(self.profile, request)
 
     def realtime_chat(self, request: dict[str, Any], options: dict[str, Any] | None = None, *, transport: Any = None):
+        final = None
+        for final in self._realtime_events(request, options, transport=transport):
+            pass
+        return final
+
+    def _realtime_events(self, request, options=None, *, transport=None, terminal_delta=False):
         """Drive a realtime audio turn over a WebSocket transport: send the
         Core-built session setup + input events, fold the inbound event stream
         through the shared realtime codec, and return the final response. Pass a
         ScriptedRealtimeTransport to exercise the loop offline without a socket."""
         model = request.get("model") or self.model
-        setup = provider_build_realtime_audio_setup(self.profile, request, self._merged_options(options))
+        setup = self.realtime_audio_setup(request, options)
         inputs = provider_build_realtime_audio_input(self.profile, request)
+        if self.profile == "meta" and self.credential_provider:
+            url, _ = self._realtime_ws_target(model, self._merged_options(options))
+            fresh = self.credential_provider({"profile": self.profile, "operation": "realtime", "method": "WS", "url": url})
+            setup = provider_apply_realtime_credentials(setup, fresh)
         own_transport = transport is None
         if transport is None:
-            url, headers = self._realtime_ws_target(model)
+            url, headers = self._realtime_ws_target(model, self._merged_options(options))
             transport = _WebSocketRealtimeTransport(url, headers, self.timeout)
         events: list[dict[str, Any]] = []
+        state: dict[str, Any] = {"partial_mode": setup.get("partialMode")}
+        stopped = threading.Event()
+        sender = None
+        send_errors: list[BaseException] = []
+
+        def send_inputs():
+            try:
+                for item in inputs:
+                    if stopped.is_set():
+                        return
+                    if setup.get("audioEncoding") and item.get("type") == "binary":
+                        rate = 16000 if setup.get("audioEncoding") == "PCM_16KHZ" else 24000
+                        audio = base64.b64decode(str(item.get("data") or ""), validate=True)
+                        if len(audio) % 2:
+                            raise AxAIServiceError("PCM16 audio must contain complete 16-bit samples")
+                        chunk_size = rate * 2 * 80 // 1000
+                        for offset in range(0, len(audio), chunk_size):
+                            if stopped.is_set():
+                                return
+                            chunk = audio[offset:offset + chunk_size]
+                            transport.send({"type": "binary", "data": base64.b64encode(chunk).decode()})
+                            if stopped.wait(len(chunk) / float(rate * 2)):
+                                return
+                    else:
+                        transport.send(item)
+            except BaseException as error:
+                send_errors.append(error)
+                transport.close()  # Wake a receiver blocked on the socket.
         try:
             transport.send(setup)
             input_sent = False
@@ -1230,31 +1303,45 @@ class ProviderOperationClient(AxBaseAI):
                     break
                 if event.get("type") == "error":
                     detail = event.get("error") or {}
-                    raise AxAIServiceError(detail.get("message") or "realtime error", code=detail.get("code"))
+                    raise AxAIServiceError(event.get("message") or detail.get("message") or "realtime error", code=detail.get("code"))
                 if _realtime_event_is_ready(event):
+                    if event.get("sessionId"):
+                        state["session_id"] = event["sessionId"]
                     if not input_sent:
                         input_sent = True
-                        for item in inputs:
-                            transport.send(item)
+                        if setup.get("audioEncoding"):
+                            sender = threading.Thread(target=send_inputs, daemon=True)
+                            sender.start()
+                        else:
+                            send_inputs()
                     continue
-                events.append(event)
+                if setup.get("audioEncoding") and not input_sent:
+                    raise AxAIServiceError("Meta Voice server did not acknowledge setup")
+                normalized = provider_normalize_realtime_event(self.profile, event, state, self.name, model)
+                events.append(normalized)
+                yield normalized
                 if _realtime_event_is_done(event):
                     break
         finally:
+            stopped.set()
             if own_transport:
                 transport.close()
+            if sender is not None:
+                sender.join()
+            if send_errors:
+                raise send_errors[0]
         # Fold the per-delta normalize results into one turn response: concat the
         # transcript/text content and base64-concat the audio chunks (mirrors the
         # TS makeChatResponse; base64 join can't live in Core, so it stays here).
-        state: dict[str, Any] = {}
+        if setup.get("audioEncoding") and not input_sent:
+            raise AxAIServiceError("Meta Voice closed before acknowledging setup")
         contents: list[str] = []
         audio_chunks: list[str] = []
         function_calls: list[Any] = []
         response_id = None
         finish_reason = None
         model_usage = None
-        for event in events:
-            out = provider_normalize_realtime_event(self.profile, event, state, self.name, model)
+        for out in events:
             result = out["results"][0]
             if result.get("content"):
                 contents.append(result["content"])
@@ -1281,12 +1368,14 @@ class ProviderOperationClient(AxBaseAI):
         if audio_chunks:
             combined = base64.b64encode(b"".join(base64.b64decode(chunk) for chunk in audio_chunks)).decode()
             merged["audio"] = {"data": combined, "format": "pcm16", "transcript": text}
-        return {"results": [merged], "remote_id": response_id, "model_usage": model_usage}
+        final = provider_finalize_realtime_response(self.profile, state, {"results": [merged], "remote_id": response_id, "model_usage": model_usage})
+        yield provider_realtime_terminal_response(final) if terminal_delta else final
 
-    def _realtime_ws_target(self, model: str | None):
+    def _realtime_ws_target(self, model: str | None, options: dict[str, Any] | None = None):
         # Grammar-specific URL + auth construction lives in Core so the client
         # stays provider-agnostic.
-        target = provider_realtime_ws_url(self.profile, str(model or ""), self.api_key or "")
+        target_options = {"base_url": self.base_url, **(options or {})}
+        target = provider_realtime_ws_url(self.profile, str(model or ""), self.api_key or "", target_options)
         headers = [f"{key}: {value}" for key, value in (target.get("headers") or {}).items()]
         return target.get("url", ""), headers
 
@@ -1308,11 +1397,13 @@ class ProviderOperationClient(AxBaseAI):
         descriptor = (self.descriptor.get("operations") or {}).get(operation) or provider_operation_descriptor(self.profile, operation)
         return str(descriptor.get("method") or "POST").upper()
 
-    def _request_json(self, endpoint: str, payload: dict[str, Any], *, stream: bool, body_key: str = "json", binary_response: bool = False, method: str = "POST", base_url: str | None = None, operation: str = "chat"):
+    def _request_json(self, endpoint: str, payload: dict[str, Any], *, stream: bool, body_key: str = "json", binary_response: bool = False, method: str = "POST", base_url: str | None = None, operation: str = "chat", accept: str | None = None):
         method = str(method or "POST").upper()
         request_base_url = (base_url or self.base_url).rstrip("/")
         request_url = request_base_url + endpoint
         headers = self._headers()
+        if accept:
+            headers["Accept"] = accept
         if self.credential_provider:
             fresh = self.credential_provider({
                 "profile": self.profile,
@@ -1379,7 +1470,11 @@ class ProviderOperationClient(AxBaseAI):
                     # Binary operations (e.g. OpenAI /audio/speech returns raw mp3)
                     # must not be UTF-8 decoded; return the bytes as base64.
                     return base64.b64encode(res.read()).decode()
-                return json.loads(res.read().decode())
+                response_text = res.read().decode()
+                try:
+                    return json.loads(response_text)
+                except json.JSONDecodeError:
+                    return response_text
         except TimeoutError as exc:
             raise AxAIServiceTimeoutError("OpenAI-compatible request timed out", request=call, retryable=True) from exc
         except urllib.error.HTTPError as exc:
@@ -2541,6 +2636,12 @@ def _core_string_join(sep, values):
 
 def _core_string_lower(value):
     return str(value).lower()
+
+
+def _core_string_slice(value, start, end=None):
+    if end is None:
+        return str(value)[int(start):]
+    return str(value)[int(start):int(end)]
 
 
 def _core_string_format(template, *args):

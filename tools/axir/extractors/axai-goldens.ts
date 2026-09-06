@@ -83,6 +83,7 @@ const catalogText = axGetSupportedAIModels({ type: 'text' });
 const catalogEmbeddings = axGetSupportedAIModels({ type: 'embeddings' });
 const catalogCode = axGetSupportedAIModels({ type: 'code' });
 const catalogAudio = axGetSupportedAIModels({ type: 'audio' });
+const catalogImage = axGetSupportedAIModels({ type: 'image' });
 const catalogProviderNames = catalogAll.map((provider) => provider.name);
 const profileRegistry = JSON.parse(
   readFileSync(
@@ -116,6 +117,9 @@ const codeOpenAIProvider = catalogCode.find(
 );
 const audioOpenAIProvider = catalogAudio.find(
   (provider) => provider.name === 'openai'
+);
+const imageMetaProvider = catalogImage.find(
+  (provider) => provider.name === 'meta'
 );
 const geminiCatalogProvider = catalogAll.find(
   (provider) => provider.name === 'google-gemini'
@@ -368,6 +372,9 @@ writeFixture('model-catalog-audit', {
     audioFilterOnlyAudio:
       audioOpenAIProvider?.models.every((model) => model.type === 'audio') ??
       false,
+    imageFilterOnlyImage:
+      imageMetaProvider?.models.every((model) => model.type === 'image') ??
+      false,
     geminiDefaultEmbedModel: geminiCatalogProvider?.defaultEmbedModel ?? null,
     geminiEmbedding2: geminiEmbeddingModel
       ? {
@@ -388,7 +395,7 @@ writeFixture('model-catalog-audit', {
     providerNames: catalogProviderNames,
     descriptorCoveredProviderIds,
     deferredProviderIds,
-    filterOptions: ['all', 'text', 'embeddings', 'code', 'audio'],
+    filterOptions: ['all', 'text', 'embeddings', 'code', 'audio', 'image'],
     semantics: {
       codeMatchesTextFilter: true,
       modelSort: 'price-then-name',
@@ -407,6 +414,7 @@ for (const [fixtureName, modelType, catalog] of [
   ['model-catalog-runtime-embeddings', 'embeddings', catalogEmbeddings],
   ['model-catalog-runtime-code', 'code', catalogCode],
   ['model-catalog-runtime-audio', 'audio', catalogAudio],
+  ['model-catalog-runtime-image', 'image', catalogImage],
 ] as const) {
   const openai = catalog.find((provider) => provider.name === 'openai');
   writeFixture(fixtureName, {
@@ -3797,6 +3805,1637 @@ writeFixture('responses-realtime-audio-grammar-reuse', {
   ],
   events: [],
   expected_output: [],
+});
+
+writeFixture('meta-responses-reasoning-image-replay', {
+  kind: 'ai_chat',
+  provider: 'meta',
+  model: 'muse-image-1.0',
+  request: {
+    model: 'muse-image-1.0',
+    chat_prompt: [
+      {
+        role: 'user',
+        content: [{ type: 'text', text: 'Paint a lighthouse', cache: true }],
+      },
+      {
+        role: 'assistant',
+        content: 'First draft',
+        phase: 'final_answer',
+        thought_blocks: [
+          { data: 'Checking style', phase: 'commentary', encrypted: false },
+          {
+            id: 'reasoning-old',
+            data: 'Kept the composition',
+            summary: 'Kept the composition',
+            encrypted: true,
+            encrypted_content: 'opaque-old',
+          },
+        ],
+        images: [
+          { id: 'image-old', data: 'b2xkLWltYWdl', mime_type: 'image/png' },
+        ],
+      },
+      {
+        role: 'user',
+        content: [
+          {
+            type: 'file',
+            fileUri: 'https://example.com/reference.png',
+            mimeType: 'image/png',
+          },
+        ],
+      },
+    ],
+    model_config: {
+      stream: false,
+      imageGeneration: {
+        size: '1024x1536',
+        outputFormat: 'png',
+        enableImageSearch: true,
+      },
+    },
+  },
+  transport_responses: [
+    {
+      status: 200,
+      json: {
+        id: 'meta-image-response',
+        model: 'muse-image-1.0',
+        output: [
+          {
+            id: 'commentary-new',
+            type: 'message',
+            phase: 'commentary',
+            content: [{ type: 'output_text', text: 'Refining light.' }],
+          },
+          {
+            id: 'reasoning-new',
+            type: 'reasoning',
+            summary: [{ type: 'summary_text', text: 'Adjusted sunset.' }],
+            encrypted_content: 'opaque-new',
+          },
+          {
+            id: 'final-new',
+            type: 'message',
+            phase: 'final_answer',
+            content: [{ type: 'output_text', text: 'Updated.' }],
+          },
+          {
+            id: 'image-new',
+            type: 'image_generation_call',
+            result: 'bmV3LWltYWdl',
+          },
+        ],
+      },
+    },
+  ],
+  expected_transport_request: {
+    url: 'https://api.meta.ai/v1/responses',
+    json: {
+      model: 'muse-image-1.0',
+      store: false,
+      tools: [
+        {
+          type: 'image_generation',
+          size: '1024x1536',
+          output_format: 'png',
+          enable_image_search: true,
+        },
+      ],
+      input: [
+        {
+          role: 'user',
+          content: [
+            {
+              type: 'input_text',
+              text: 'Paint a lighthouse',
+            },
+          ],
+        },
+        {
+          type: 'message',
+          role: 'assistant',
+          phase: 'commentary',
+          content: [{ type: 'output_text', text: 'Checking style' }],
+        },
+        {
+          type: 'image_generation_call',
+          id: 'image-old',
+          status: 'completed',
+          result: null,
+        },
+        {
+          type: 'message',
+          role: 'assistant',
+          content: [{ type: 'output_text', text: 'First draft' }],
+          phase: 'final_answer',
+        },
+        {
+          role: 'user',
+          content: [
+            {
+              type: 'input_image',
+              image_url: 'https://example.com/reference.png',
+              detail: 'auto',
+            },
+          ],
+        },
+      ],
+    },
+  },
+  expected_output: {
+    results: [
+      {
+        index: 0,
+        id: 'image-new',
+        content: 'Updated.',
+        phase: 'final_answer',
+        thought: 'Adjusted sunset.',
+        thought_blocks: [
+          {
+            data: 'Refining light.',
+            encrypted: false,
+            id: 'commentary-new',
+            phase: 'commentary',
+          },
+          {
+            data: 'Adjusted sunset.',
+            encrypted: true,
+            id: 'reasoning-new',
+            summary: 'Adjusted sunset.',
+            encrypted_content: 'opaque-new',
+          },
+        ],
+        images: [
+          {
+            id: 'image-new',
+            data: 'bmV3LWltYWdl',
+            mime_type: 'image/png',
+          },
+        ],
+        function_calls: [],
+        finish_reason: 'stop',
+      },
+    ],
+    remote_id: 'meta-image-response',
+    model_usage: null,
+  },
+});
+
+writeFixture('meta-responses-encrypted-replay', {
+  kind: 'ai_chat',
+  provider: 'meta',
+  model: 'muse-spark-1.3',
+  request: {
+    chat_prompt: [
+      { role: 'user', content: 'Solve it' },
+      {
+        role: 'assistant',
+        content: 'First answer',
+        thought_blocks: [
+          {
+            id: 'reasoning-old',
+            data: '',
+            encrypted: true,
+            encrypted_content: 'opaque-old',
+          },
+        ],
+      },
+      { role: 'user', content: 'Continue' },
+    ],
+    model_config: {
+      stream: false,
+      promptCacheKey: 'spark-session',
+      promptCacheRetention: '24h',
+    },
+  },
+  transport_responses: [
+    {
+      status: 200,
+      json: {
+        id: 'meta-spark-response',
+        model: 'muse-spark-1.3',
+        output: [
+          {
+            id: 'reasoning-new',
+            type: 'reasoning',
+            encrypted_content: 'opaque-new',
+          },
+          {
+            id: 'message-new',
+            type: 'message',
+            phase: 'final_answer',
+            content: [{ type: 'output_text', text: 'Done.' }],
+          },
+        ],
+        usage: { input_tokens: 3, output_tokens: 2, total_tokens: 5 },
+      },
+    },
+  ],
+  expected_transport_request: {
+    url: 'https://api.meta.ai/v1/responses',
+    json: {
+      model: 'muse-spark-1.3',
+      store: false,
+      include: ['reasoning.encrypted_content'],
+      prompt_cache_key: 'spark-session',
+      prompt_cache_retention: '24h',
+      input: [
+        { role: 'user', content: [{ type: 'input_text', text: 'Solve it' }] },
+        {
+          type: 'reasoning',
+          id: 'reasoning-old',
+          summary: [{ type: 'summary_text', text: '' }],
+          encrypted_content: 'opaque-old',
+        },
+        {
+          type: 'message',
+          role: 'assistant',
+          content: [{ type: 'output_text', text: 'First answer' }],
+        },
+        { role: 'user', content: [{ type: 'input_text', text: 'Continue' }] },
+      ],
+    },
+  },
+  expected_output: {
+    results: [
+      {
+        index: 0,
+        id: 'message-new',
+        content: 'Done.',
+        phase: 'final_answer',
+        thought_blocks: [
+          {
+            data: '',
+            encrypted: true,
+            id: 'reasoning-new',
+            encrypted_content: 'opaque-new',
+          },
+        ],
+        function_calls: [],
+        finish_reason: 'stop',
+      },
+    ],
+    remote_id: 'meta-spark-response',
+    model_usage: {
+      ai: 'meta',
+      model: 'muse-spark-1.3',
+      tokens: { prompt_tokens: 3, completion_tokens: 2, total_tokens: 5 },
+    },
+  },
+});
+
+for (const [suffix, terminal] of [
+  [
+    'failed',
+    {
+      type: 'response.failed',
+      response: {
+        id: 'r1',
+        error: { message: 'Provider failed while generating' },
+      },
+    },
+  ],
+  ['error', { type: 'error', message: 'Provider failed while generating' }],
+] as const) {
+  writeFixture(`meta-responses-stream-${suffix}`, {
+    kind: 'ai_error',
+    method: 'stream',
+    provider: 'meta',
+    model: 'muse-spark-1.3',
+    request: { chat_prompt: [{ role: 'user', content: 'test' }] },
+    options: { stream: true },
+    transport_responses: [
+      {
+        status: 200,
+        body: [
+          {
+            type: 'response.output_text.delta',
+            item_id: 'msg1',
+            delta: 'Answer: Done',
+          },
+          terminal,
+        ]
+          .map((event) => `data: ${JSON.stringify(event)}\n\n`)
+          .join(''),
+      },
+    ],
+    expected_error_contains: 'Provider failed while generating',
+    expected_error_type: 'AxAIServiceResponseError',
+    expected_request_count: 1,
+  });
+}
+
+writeFixture('meta-responses-stream-incomplete', {
+  kind: 'ai_stream',
+  provider: 'meta',
+  model: 'muse-spark-1.3',
+  request: { chat_prompt: [{ role: 'user', content: 'test' }] },
+  options: { stream: true },
+  transport_responses: [
+    {
+      status: 200,
+      body: [
+        {
+          type: 'response.output_text.delta',
+          item_id: 'msg1',
+          response_id: 'r1',
+          delta: 'Answer: Done',
+        },
+        {
+          type: 'response.incomplete',
+          response: {
+            id: 'r1',
+            incomplete_details: { reason: 'max_output_tokens' },
+          },
+        },
+      ]
+        .map((event) => `data: ${JSON.stringify(event)}\n\n`)
+        .join(''),
+    },
+  ],
+  expected_output: [
+    {
+      results: [
+        {
+          index: 0,
+          id: 'msg1',
+          content: 'Answer: Done',
+          function_calls: [],
+          finish_reason: null,
+        },
+      ],
+      remote_id: 'r1',
+      model_usage: null,
+    },
+    {
+      results: [
+        {
+          index: 0,
+          id: '0',
+          content: '',
+          function_calls: [],
+          finish_reason: 'length',
+        },
+      ],
+      remote_id: 'r1',
+      model_usage: null,
+    },
+  ],
+});
+
+for (const provider of ['meta', 'meta-chat', 'meta-messages']) {
+  const outputTool = {
+    name: '__axOutput',
+    description: 'Emit output',
+    parameters: {
+      type: 'object',
+      properties: { answer: { type: 'string' } },
+      required: ['answer'],
+    },
+  };
+  const otherTool = {
+    name: 'lookup',
+    description: 'Look up a fact',
+    parameters: { type: 'object', properties: {} },
+  };
+  const response =
+    provider === 'meta'
+      ? {
+          id: 'r1',
+          output: [
+            {
+              type: 'message',
+              id: 'm1',
+              role: 'assistant',
+              content: [{ type: 'output_text', text: 'Done' }],
+            },
+          ],
+        }
+      : provider === 'meta-chat'
+        ? {
+            id: 'r1',
+            choices: [
+              {
+                index: 0,
+                message: { role: 'assistant', content: 'Done' },
+                finish_reason: 'stop',
+              },
+            ],
+          }
+        : {
+            id: 'r1',
+            content: [{ type: 'text', text: 'Done' }],
+            stop_reason: 'end_turn',
+            usage: { input_tokens: 1, output_tokens: 1 },
+          };
+  writeFixture(`${provider}-ax-output-tool-choice`, {
+    kind: 'ai_chat',
+    provider,
+    model: 'muse-spark-1.3',
+    request: {
+      chat_prompt: [{ role: 'user', content: 'Return the structured output' }],
+      functions: [otherTool, outputTool],
+      function_call: { type: 'function', function: { name: '__axOutput' } },
+      model_config: { stream: false },
+    },
+    options: { functionCallSource: 'ax' },
+    transport_responses: [{ status: 200, json: response }],
+    expected_transport_request: {
+      json: {
+        tool_choice:
+          provider === 'meta-messages' ? { type: 'any' } : 'required',
+        tools:
+          provider === 'meta-messages'
+            ? [
+                {
+                  name: '__axOutput',
+                  description: 'Emit output',
+                  input_schema: outputTool.parameters,
+                },
+              ]
+            : provider === 'meta-chat'
+              ? [
+                  {
+                    type: 'function',
+                    function: {
+                      name: '__axOutput',
+                      description: 'Emit output',
+                      parameters: outputTool.parameters,
+                    },
+                  },
+                ]
+              : [
+                  {
+                    type: 'function',
+                    name: '__axOutput',
+                    description: 'Emit output',
+                    parameters: outputTool.parameters,
+                  },
+                ],
+      },
+    },
+    expected_request_count: 1,
+  });
+  writeFixture(`${provider}-caller-ax-output-tool-rejected`, {
+    kind: 'ai_chat',
+    provider,
+    model: 'muse-spark-1.3',
+    request: {
+      chat_prompt: [{ role: 'user', content: 'Force a named tool' }],
+      functions: [outputTool],
+      function_call: { type: 'function', function: { name: '__axOutput' } },
+      model_config: { stream: false },
+    },
+    expected_error_contains: 'does not support explicitly named tool choices',
+  });
+}
+
+writeFixture('meta-responses-streaming-reasoning', {
+  kind: 'ai_stream',
+  provider: 'meta',
+  model: 'muse-spark-1.3',
+  request: {
+    chat_prompt: [{ role: 'user', content: 'Think' }],
+    model_config: { thinkingTokenBudget: 'highest' },
+  },
+  options: { stream: true },
+  transport_responses: [
+    {
+      status: 200,
+      body:
+        'data: {"type":"response.reasoning_summary_text.delta","response_id":"meta-stream","item_id":"reasoning-1","delta":"Checked"}\n\n' +
+        'data: {"type":"response.reasoning_summary_text.done","response_id":"meta-stream","item_id":"reasoning-1","text":"Checked facts"}\n\n' +
+        'data: {"type":"response.output_item.done","response_id":"meta-stream","item":{"type":"reasoning","id":"reasoning-1","summary":[{"type":"summary_text","text":"Checked facts"}],"encrypted_content":"opaque-stream"}}\n\n' +
+        'data: {"type":"response.output_text.delta","response_id":"meta-stream","item_id":"message-1","delta":"Done"}\n\n' +
+        'data: {"type":"response.completed","response":{"id":"meta-stream","model":"muse-spark-1.3","usage":{"input_tokens":2,"output_tokens":2,"total_tokens":4}}}\n\n' +
+        'data: [DONE]\n\n',
+    },
+  ],
+  expected_transport_request: {
+    url: 'https://api.meta.ai/v1/responses',
+    json: {
+      store: false,
+      reasoning: { effort: 'xhigh', summary: 'auto' },
+      stream: true,
+    },
+  },
+  expected_output: [
+    {
+      results: [
+        {
+          index: 0,
+          id: 'reasoning-1',
+          content: '',
+          thought: 'Checked',
+          thought_blocks: [
+            { id: 'reasoning-1', data: 'Checked', encrypted: false },
+          ],
+          function_calls: [],
+          finish_reason: null,
+        },
+      ],
+      remote_id: 'meta-stream',
+      model_usage: null,
+    },
+    {
+      results: [
+        {
+          index: 0,
+          id: 'reasoning-1',
+          content: '',
+          thought: 'Checked facts',
+          thought_blocks: [
+            {
+              id: 'reasoning-1',
+              data: 'Checked facts',
+              summary: 'Checked facts',
+              encrypted: false,
+            },
+          ],
+          function_calls: [],
+          finish_reason: null,
+        },
+      ],
+      remote_id: 'meta-stream',
+      model_usage: null,
+    },
+    {
+      results: [
+        {
+          index: 0,
+          id: 'reasoning-1',
+          content: '',
+          thought: 'Checked facts',
+          thought_blocks: [
+            {
+              id: 'reasoning-1',
+              data: 'Checked facts',
+              summary: 'Checked facts',
+              encrypted: true,
+              encrypted_content: 'opaque-stream',
+            },
+          ],
+          function_calls: [],
+          finish_reason: null,
+        },
+      ],
+      remote_id: 'meta-stream',
+      model_usage: null,
+    },
+    {
+      results: [
+        {
+          index: 0,
+          id: 'message-1',
+          content: 'Done',
+          function_calls: [],
+          finish_reason: null,
+        },
+      ],
+      remote_id: 'meta-stream',
+      model_usage: null,
+    },
+    {
+      results: [
+        {
+          index: 0,
+          id: '0',
+          content: '',
+          function_calls: [],
+          finish_reason: 'stop',
+        },
+      ],
+      remote_id: 'meta-stream',
+      model_usage: {
+        ai: 'meta',
+        model: 'muse-spark-1.3',
+        tokens: { prompt_tokens: 2, completion_tokens: 2, total_tokens: 4 },
+      },
+    },
+  ],
+});
+
+for (const format of [undefined, 'png', 'jpeg'] as const) {
+  const name = `meta-image-format-${format ?? 'default'}`;
+  writeFixture(name, {
+    kind: 'ai_chat',
+    provider: 'meta',
+    model: 'muse-image-1.0',
+    request: {
+      chat_prompt: [{ role: 'user', content: 'Draw a boat' }],
+      model_config: {
+        stream: false,
+        ...(format ? { imageGeneration: { outputFormat: format } } : {}),
+      },
+    },
+    transport_responses: [
+      {
+        status: 200,
+        json: {
+          id: name,
+          model: 'muse-image-1.0',
+          output: [
+            { type: 'image_generation_call', id: 'base64', result: 'AAAA' },
+            {
+              type: 'image_generation_call',
+              id: 'url',
+              result: 'https://example.com/image',
+            },
+            {
+              type: 'image_generation_call',
+              id: 'data-url',
+              result: 'data:image/png;base64,BBBB',
+            },
+          ],
+        },
+      },
+    ],
+    expected_transport_request: {
+      json: {
+        tools: [{ type: 'image_generation', output_format: format ?? 'webp' }],
+      },
+    },
+    expected_output: {
+      results: [
+        {
+          index: 0,
+          id: 'data-url',
+          content: '',
+          function_calls: [],
+          finish_reason: 'stop',
+          images: [
+            {
+              id: 'base64',
+              data: 'AAAA',
+              mime_type: `image/${format ?? 'webp'}`,
+            },
+            {
+              id: 'url',
+              url: 'https://example.com/image',
+              mime_type: `image/${format ?? 'webp'}`,
+            },
+            { id: 'data-url', data: 'BBBB', mime_type: 'image/png' },
+          ],
+        },
+      ],
+      remote_id: name,
+      model_usage: null,
+    },
+  });
+}
+
+writeFixture('meta-image-streaming-partial', {
+  kind: 'ai_stream',
+  provider: 'meta',
+  model: 'muse-image-1.0',
+  request: {
+    chat_prompt: [{ role: 'user', content: 'Draw a boat' }],
+    model_config: { stream: true, imageGeneration: { outputFormat: 'jpeg' } },
+  },
+  options: { stream: true },
+  transport_responses: [
+    {
+      status: 200,
+      body:
+        'data: {"type":"response.image_generation_call.partial_image","response_id":"image-stream","item_id":"image-1","partial_image_index":0,"partial_image_b64":"AAAA"}\n\n' +
+        'data: {"type":"response.output_item.done","response_id":"image-stream","item":{"type":"image_generation_call","id":"image-1","status":"completed","result":"BBBB"}}\n\n' +
+        'data: {"type":"response.completed","response":{"id":"image-stream","model":"muse-image-1.0","usage":{"input_tokens":1,"output_tokens":1,"total_tokens":2}}}\n\n' +
+        'data: [DONE]\n\n',
+    },
+  ],
+  expected_transport_request: {
+    json: {
+      store: false,
+      tools: [{ type: 'image_generation', output_format: 'jpeg' }],
+      stream: true,
+    },
+  },
+  expected_output: [
+    {
+      results: [
+        {
+          index: 0,
+          id: 'image-1',
+          content: '',
+          images: [
+            {
+              id: 'image-1',
+              data: 'AAAA',
+              mime_type: 'image/jpeg',
+              is_delta: true,
+            },
+          ],
+          function_calls: [],
+          finish_reason: null,
+        },
+      ],
+      remote_id: 'image-stream',
+      model_usage: null,
+    },
+    {
+      results: [
+        {
+          index: 0,
+          id: 'image-1',
+          content: '',
+          images: [{ id: 'image-1', data: 'BBBB', mime_type: 'image/jpeg' }],
+          function_calls: [],
+          finish_reason: 'stop',
+        },
+      ],
+      remote_id: 'image-stream',
+      model_usage: null,
+    },
+    {
+      results: [
+        {
+          index: 0,
+          id: '0',
+          content: '',
+          function_calls: [],
+          finish_reason: 'stop',
+        },
+      ],
+      remote_id: 'image-stream',
+      model_usage: {
+        ai: 'meta',
+        model: 'muse-image-1.0',
+        tokens: { prompt_tokens: 1, completion_tokens: 1, total_tokens: 2 },
+      },
+    },
+  ],
+});
+
+writeFixture('meta-image-audio-rejected', {
+  kind: 'ai_chat',
+  provider: 'meta',
+  model: 'muse-image-1.0',
+  request: {
+    chat_prompt: [
+      {
+        role: 'user',
+        content: [{ type: 'audio', data: 'AAAA', format: 'wav' }],
+      },
+    ],
+    model_config: { stream: false },
+  },
+  expected_error_contains: 'does not support input_audio input',
+});
+
+writeFixture('meta-chat-reasoning', {
+  kind: 'ai_chat',
+  provider: 'meta-chat',
+  model: 'muse-spark-1.3',
+  request: {
+    chat_prompt: [{ role: 'user', content: 'Reason briefly' }],
+    model_config: { stream: false, thinkingTokenBudget: 'highest' },
+  },
+  transport_responses: [compatibleResponse('meta_chat', 'muse-spark-1.3')],
+  expected_transport_request: {
+    url: 'https://api.meta.ai/v1/chat/completions',
+    json: { reasoning_effort: 'xhigh' },
+  },
+});
+
+writeFixture('meta-responses-multimodal', {
+  kind: 'ai_chat',
+  provider: 'meta',
+  model: 'muse-spark-1.3',
+  request: {
+    chat_prompt: [
+      {
+        role: 'user',
+        content: [
+          { type: 'text', text: 'Describe these' },
+          {
+            type: 'file',
+            fileUri: 'https://example.com/image.png',
+            mimeType: 'image/png',
+          },
+          { type: 'audio', data: 'AAAA', format: 'wav' },
+          {
+            type: 'file',
+            fileUri: 'https://example.com/brief.pdf',
+            mimeType: 'application/pdf',
+          },
+          {
+            type: 'file',
+            fileUri: 'https://example.com/clip.mp4',
+            mimeType: 'video/mp4',
+          },
+        ],
+      },
+    ],
+    model_config: { stream: false },
+  },
+  transport_responses: [
+    {
+      status: 200,
+      json: {
+        id: 'meta-mm',
+        model: 'muse-spark-1.3',
+        output: [
+          {
+            id: 'message-mm',
+            type: 'message',
+            content: [{ type: 'output_text', text: 'ok' }],
+          },
+        ],
+      },
+    },
+  ],
+  expected_transport_request: {
+    json: {
+      input: [
+        {
+          role: 'user',
+          content: [
+            { type: 'input_text', text: 'Describe these' },
+            {
+              type: 'input_image',
+              image_url: 'https://example.com/image.png',
+              detail: 'auto',
+            },
+            {
+              type: 'input_audio',
+              input_audio: { data: 'AAAA', format: 'wav' },
+            },
+            { type: 'input_file', file_url: 'https://example.com/brief.pdf' },
+            { type: 'input_video', video_url: 'https://example.com/clip.mp4' },
+          ],
+        },
+      ],
+    },
+  },
+});
+
+writeFixture('meta-chat-multimodal', {
+  kind: 'ai_chat',
+  provider: 'meta-chat',
+  model: 'muse-spark-1.3',
+  request: {
+    chat_prompt: [
+      {
+        role: 'user',
+        content: [
+          { type: 'text', text: 'Describe these' },
+          {
+            type: 'file',
+            fileUri: 'https://example.com/image.png',
+            mimeType: 'image/png',
+          },
+          { type: 'audio', data: 'AAAA', format: 'wav' },
+          {
+            type: 'file',
+            fileUri: 'https://example.com/brief.pdf',
+            mimeType: 'application/pdf',
+          },
+          {
+            type: 'file',
+            fileUri: 'https://example.com/clip.mp4',
+            mimeType: 'video/mp4',
+          },
+        ],
+      },
+    ],
+    model_config: { stream: false },
+  },
+  transport_responses: [compatibleResponse('meta-chat-mm', 'muse-spark-1.3')],
+  expected_transport_request: {
+    json: {
+      messages: [
+        {
+          role: 'user',
+          content: [
+            { type: 'text', text: 'Describe these' },
+            {
+              type: 'image_url',
+              image_url: {
+                url: 'https://example.com/image.png',
+                detail: 'auto',
+              },
+            },
+            {
+              type: 'input_audio',
+              input_audio: { data: 'AAAA', format: 'wav' },
+            },
+            {
+              type: 'file',
+              file: { file_url: 'https://example.com/brief.pdf' },
+            },
+            {
+              type: 'video_url',
+              video_url: { url: 'https://example.com/clip.mp4' },
+            },
+          ],
+        },
+      ],
+    },
+  },
+});
+
+writeFixture('meta-messages-reasoning', {
+  kind: 'ai_chat',
+  provider: 'meta-messages',
+  model: 'muse-spark-1.3',
+  request: {
+    chat_prompt: [
+      {
+        role: 'user',
+        cache: true,
+        content: [
+          { type: 'audio', data: 'AAAA', format: 'wav' },
+          {
+            type: 'file',
+            fileUri: 'https://example.com/brief.pdf',
+            mimeType: 'application/pdf',
+          },
+        ],
+      },
+    ],
+    response_format: {
+      type: 'json_schema',
+      schema: {
+        schema: {
+          type: 'object',
+          properties: { answer: { type: 'string' } },
+          required: ['answer'],
+        },
+      },
+    },
+    model_config: { stream: false, thinkingTokenBudget: 'highest' },
+  },
+  transport_responses: [
+    {
+      status: 200,
+      json: {
+        id: 'meta_messages',
+        type: 'message',
+        model: 'muse-spark-1.3',
+        content: [{ type: 'text', text: 'ok' }],
+        stop_reason: 'end_turn',
+        usage: { input_tokens: 1, output_tokens: 1 },
+      },
+    },
+  ],
+  expected_transport_request: {
+    url: 'https://api.meta.ai/v1/messages',
+    json: {
+      thinking: { type: 'adaptive', display: 'summarized' },
+      output_config: {
+        effort: 'xhigh',
+        format: {
+          type: 'json_schema',
+          schema: {
+            type: 'object',
+            properties: { answer: { type: 'string' } },
+            required: ['answer'],
+          },
+        },
+      },
+      messages: [
+        {
+          role: 'user',
+          content: [
+            {
+              type: 'audio',
+              source: { type: 'base64', media_type: 'audio/wav', data: 'AAAA' },
+            },
+            {
+              type: 'document',
+              source: { type: 'url', url: 'https://example.com/brief.pdf' },
+            },
+          ],
+        },
+      ],
+    },
+  },
+  expected_transport_json_absent: [
+    'reasoning_effort',
+    'stop_sequences',
+    'top_k',
+  ],
+});
+
+writeFixture('meta-messages-multimodal', {
+  kind: 'ai_chat',
+  provider: 'meta-messages',
+  model: 'muse-spark-1.3',
+  request: {
+    chat_prompt: [
+      {
+        role: 'user',
+        content: [
+          { type: 'text', text: 'Describe these' },
+          {
+            type: 'file',
+            fileUri: 'https://example.com/image.png',
+            mimeType: 'image/png',
+          },
+          { type: 'audio', data: 'AAAA', format: 'wav' },
+          {
+            type: 'file',
+            fileUri: 'https://example.com/brief.pdf',
+            mimeType: 'application/pdf',
+          },
+          {
+            type: 'file',
+            fileUri: 'https://example.com/clip.mp4',
+            mimeType: 'video/mp4',
+          },
+        ],
+      },
+    ],
+    model_config: { stream: false },
+  },
+  transport_responses: [
+    {
+      status: 200,
+      json: {
+        id: 'meta-messages-mm',
+        model: 'muse-spark-1.3',
+        content: [{ type: 'text', text: 'ok' }],
+        stop_reason: 'end_turn',
+      },
+    },
+  ],
+  expected_transport_request: {
+    json: {
+      messages: [
+        {
+          role: 'user',
+          content: [
+            { type: 'text', text: 'Describe these' },
+            {
+              type: 'image',
+              source: { type: 'url', url: 'https://example.com/image.png' },
+            },
+            {
+              type: 'audio',
+              source: { type: 'base64', media_type: 'audio/wav', data: 'AAAA' },
+            },
+            {
+              type: 'document',
+              source: { type: 'url', url: 'https://example.com/brief.pdf' },
+            },
+            {
+              type: 'video',
+              source: { type: 'url', url: 'https://example.com/clip.mp4' },
+            },
+          ],
+        },
+      ],
+    },
+  },
+});
+
+writeFixture('meta-reasoning-none-rejected', {
+  kind: 'ai_chat',
+  provider: 'meta',
+  model: 'muse-spark-1.3',
+  request: {
+    chat_prompt: [{ role: 'user', content: 'Do not reason' }],
+    model_config: { stream: false, thinkingTokenBudget: 'none' },
+  },
+  expected_error_contains: 'does not support reasoning level none',
+});
+
+writeFixture('meta-messages-tool-none', {
+  kind: 'ai_chat',
+  provider: 'meta-messages',
+  model: 'muse-spark-1.3',
+  request: {
+    chat_prompt: [{ role: 'user', content: 'Do not use tools' }],
+    functions: [
+      {
+        name: 'lookup',
+        parameters: {
+          type: 'object',
+          properties: { query: { type: 'string' } },
+        },
+      },
+    ],
+    function_call: 'none',
+    model_config: { stream: false, thinkingTokenBudget: 'minimal' },
+  },
+  transport_responses: [
+    {
+      status: 200,
+      json: {
+        id: 'meta-none',
+        model: 'muse-spark-1.3',
+        content: [{ type: 'text', text: 'ok' }],
+        stop_reason: 'end_turn',
+      },
+    },
+  ],
+  expected_transport_request: {
+    json: {
+      tool_choice: { type: 'none' },
+      thinking: { type: 'adaptive', display: 'summarized' },
+      output_config: { effort: 'low' },
+    },
+  },
+  expected_transport_json_absent: [
+    'reasoning_effort',
+    'stop_sequences',
+    'top_k',
+  ],
+});
+
+for (const provider of ['meta', 'meta-chat', 'meta-messages']) {
+  writeFixture(`${provider}-named-tool-rejected`, {
+    kind: 'ai_chat',
+    provider,
+    model: 'muse-spark-1.3',
+    request: {
+      chat_prompt: [{ role: 'user', content: 'Force a tool' }],
+      functions: [
+        {
+          name: 'lookup',
+          parameters: {
+            type: 'object',
+            properties: { query: { type: 'string' } },
+          },
+        },
+      ],
+      function_call: { type: 'function', function: { name: 'lookup' } },
+      model_config: { stream: false },
+    },
+    expected_error_contains: 'does not support explicitly named tool choices',
+  });
+}
+
+writeFixture('meta-voice-transcribe', {
+  kind: 'ai_transcribe',
+  provider: 'meta',
+  request: {
+    audio: {
+      data: 'UklGRg==',
+      format: 'wav',
+      mimeType: 'audio/wav',
+      filename: 'voice.wav',
+    },
+    model: 'muse-voice-transcribe-1.0',
+    mode: 'diarization',
+    languageBias: ['en', 'es'],
+    keywords: ['Ax'],
+    partialMode: 'delta',
+    emitAudioProgress: true,
+    sessionId: 'caller-session',
+  },
+  transport_responses: [
+    {
+      status: 200,
+      json: {
+        sessionId: 'voice-session',
+        transcript: 'Hello world',
+        audioDurationMs: 2250,
+        turns: [
+          {
+            turnId: 'turn-1',
+            startMs: 250,
+            endMs: 2250,
+            transcript: 'Hello world',
+            speaker: 'speaker-1',
+          },
+        ],
+      },
+    },
+  ],
+  expected_transport_request: {
+    url: 'https://api.meta.ai/v1/asr/transcribe?sessionId=caller-session',
+    data: {
+      audio: {
+        data: 'UklGRg==',
+        format: 'wav',
+        mimeType: 'audio/wav',
+        filename: 'voice.wav',
+      },
+      request: JSON.stringify({
+        audioEncoding: 'WAV',
+        emitAudioProgress: true,
+        keywords: ['Ax'],
+        languageBias: ['en', 'es'],
+        mode: 'DIARIZATION',
+        model: 'muse-voice-transcribe-1.0',
+        partialMode: 'DELTA',
+      }),
+    },
+  },
+  expected_output: {
+    text: 'Hello world',
+    duration: 2.25,
+    session_id: 'voice-session',
+    segments: [
+      {
+        id: 'turn-1',
+        text: 'Hello world',
+        start: 0.25,
+        end: 2.25,
+        speaker: 'speaker-1',
+      },
+    ],
+  },
+});
+
+writeFixture('meta-voice-transcribe-sse', {
+  kind: 'ai_transcribe',
+  provider: 'meta',
+  request: {
+    model: 'muse-voice-transcribe-1.0',
+    audio: { data: 'UklGRg==', format: 'wav', sampleRate: 16000, channels: 1 },
+    partialMode: 'cumulative',
+    emitAudioProgress: true,
+  },
+  transport_responses: [
+    {
+      status: 200,
+      body:
+        'data: {"type":"speechStart","turnId":"turn-1","audioProcessedMs":0}\n\n' +
+        'data: {"type":"transcript","transcript":"Hello","audioProcessedMs":100}\n\n' +
+        'data: {"type":"speaker","label":"speaker-1"}\n\n' +
+        'data: {"type":"speechStart","turnId":"turn-2","audioProcessedMs":120}\n\n' +
+        'data: {"type":"transcript","transcript":"Second","audioProcessedMs":200}\n\n' +
+        'data: {"type":"speaker","label":"speaker-2"}\n\n' +
+        'data: {"type":"speechComplete","turnId":"turn-1","transcript":"Hello world","audioProcessedMs":300}\n\n' +
+        'data: {"type":"speechComplete","turnId":"turn-2","transcript":"Second turn","audioProcessedMs":400}\n\n' +
+        'data: {"type":"audioProgress","sessionId":"voice-sse","audioProcessedMs":450}\n\n',
+    },
+  ],
+  expected_transport_request: { headers: { Accept: 'text/event-stream' } },
+  expected_output: {
+    text: 'Hello world\nSecond turn',
+    duration: 0.45,
+    audio_processed_ms: 450,
+    session_id: 'voice-sse',
+    segments: [
+      {
+        id: 'turn-1',
+        text: 'Hello world',
+        start: 0,
+        end: 0.3,
+        speaker: 'speaker-1',
+      },
+      {
+        id: 'turn-2',
+        text: 'Second turn',
+        start: 0.12,
+        end: 0.4,
+        speaker: 'speaker-2',
+      },
+    ],
+  },
+});
+
+for (const [name, request, error] of [
+  [
+    'model',
+    { model: 'muse-spark-1.3', audio: { data: 'AAAA', format: 'wav' } },
+    'requires muse-voice-transcribe-1.0',
+  ],
+  [
+    'format',
+    {
+      model: 'muse-voice-transcribe-1.0',
+      audio: { data: 'AAAA', format: 'mp3' },
+    },
+    'requires WAV audio',
+  ],
+  [
+    'rate',
+    {
+      model: 'muse-voice-transcribe-1.0',
+      audio: { data: 'AAAA', format: 'wav', sampleRate: 44100 },
+    },
+    'requires 16000 Hz or 24000 Hz',
+  ],
+] as const) {
+  writeFixture(`meta-voice-transcribe-invalid-${name}`, {
+    kind: 'ai_unsupported',
+    method: 'transcribe',
+    provider: 'meta',
+    request,
+    expected_error_contains: error,
+  });
+}
+
+const metaRealtimeDelta = (
+  id: string,
+  content: string,
+  audioProcessedMs: number,
+  name?: string,
+  transcript?: string,
+  isFinal = false
+) => ({
+  results: [
+    {
+      index: 0,
+      id,
+      content,
+      ...(name ? { name } : {}),
+      ...(transcript !== undefined
+        ? { transcript: { text: transcript, is_final: isFinal } }
+        : {}),
+      audio_processed_ms: audioProcessedMs,
+      function_calls: [],
+      finish_reason: null,
+    },
+  ],
+  model_usage: null,
+});
+
+writeFixture('meta-voice-realtime', {
+  kind: 'ai_realtime',
+  provider: 'meta',
+  request: {
+    model: 'muse-voice-transcribe-1.0',
+    chat_prompt: [
+      {
+        role: 'user',
+        content: [{ type: 'audio', data: 'AAE=', format: 'pcm16' }],
+      },
+    ],
+    audio: { input: { sampleRate: 24000, channels: 1 } },
+    model_config: {
+      realtimeTranscription: {
+        mode: 'diarization',
+        languageBias: ['en'],
+        keywords: ['Ax'],
+        partialMode: 'cumulative',
+        emitAudioProgress: true,
+      },
+    },
+  },
+  options: { apiKey: 'meta-key' },
+  expected_setup: {
+    model: 'muse-voice-transcribe-1.0',
+    authorization: { accessToken: 'Bearer meta-key' },
+    mode: 'DIARIZATION',
+    languageBias: ['en'],
+    keywords: ['Ax'],
+    partialMode: 'CUMULATIVE',
+    emitAudioProgress: true,
+    audioEncoding: 'PCM_24KHZ',
+  },
+  expected_input: [{ type: 'binary', data: 'AAE=' }, { type: 'endStream' }],
+  events: [
+    { type: 'speechStart', turnId: 'turn-1', audioProcessedMs: 0 },
+    { type: 'transcript', transcript: 'Hello', audioProcessedMs: 100 },
+    { type: 'speaker', label: 'speaker-1', audioProcessedMs: 100 },
+    { type: 'speechStart', turnId: 'turn-2', audioProcessedMs: 150 },
+    { type: 'transcript', transcript: 'Second', audioProcessedMs: 200 },
+    { type: 'speaker', label: 'speaker-2', audioProcessedMs: 200 },
+    {
+      type: 'speechComplete',
+      turnId: 'turn-1',
+      transcript: 'Hello world',
+      audioProcessedMs: 300,
+    },
+    {
+      type: 'speechComplete',
+      turnId: 'turn-2',
+      transcript: 'Second turn',
+      audioProcessedMs: 400,
+    },
+    { type: 'audioProgress', audioProcessedMs: 400 },
+  ],
+  expected_output: [
+    metaRealtimeDelta('turn-1', '', 0),
+    metaRealtimeDelta('turn-1', '', 100, undefined, 'Hello'),
+    metaRealtimeDelta('turn-1', '', 100, 'speaker-1'),
+    metaRealtimeDelta('turn-2', '', 150),
+    metaRealtimeDelta('turn-2', '', 200, undefined, 'Second'),
+    metaRealtimeDelta('turn-2', '', 200, 'speaker-2'),
+    metaRealtimeDelta(
+      'turn-1',
+      'Hello world',
+      300,
+      'speaker-1',
+      'Hello world',
+      true
+    ),
+    metaRealtimeDelta(
+      'turn-2',
+      'Second turn',
+      400,
+      'speaker-2',
+      'Second turn',
+      true
+    ),
+    metaRealtimeDelta('turn-2', '', 400, 'speaker-2'),
+  ],
+});
+
+writeFixture('meta-voice-realtime-contract', {
+  kind: 'ai_realtime',
+  provider: 'meta',
+  request: {
+    model: 'muse-voice-transcribe-1.0',
+    chat_prompt: [
+      {
+        role: 'user',
+        content: [{ type: 'audio', data: 'AAE=', format: 'pcm16' }],
+      },
+    ],
+    audio: { input: { sampleRate: 16000, channels: 1 } },
+  },
+  options: {
+    apiKey: 'meta-key',
+    sessionId: 'caller-session',
+    realtimeTranscription: { zdrOverride: true },
+  },
+  expected_setup: {
+    model: 'muse-voice-transcribe-1.0',
+    authorization: { accessToken: 'Bearer meta-key' },
+    mode: 'PUSH_TO_TALK',
+    audioEncoding: 'PCM_16KHZ',
+    zdrOverride: true,
+  },
+  expected_input: [{ type: 'binary', data: 'AAE=' }, { type: 'endStream' }],
+  events: [
+    { type: 'speechStart', turnId: 'turn-1', audioProcessedMs: 0 },
+    {
+      type: 'transcript',
+      transcript: 'Hello',
+      final: false,
+      audioProcessedMs: 100,
+    },
+    { type: 'speaker', label: 'speaker-1', audioProcessedMs: 100 },
+    { type: 'speechStart', turnId: 'turn-2', audioProcessedMs: 150 },
+    {
+      type: 'transcript',
+      transcript: 'Second',
+      final: false,
+      audioProcessedMs: 200,
+    },
+    { type: 'speaker', label: 'speaker-2', audioProcessedMs: 200 },
+    {
+      type: 'speechComplete',
+      turnId: 'turn-1',
+      transcript: 'Hello world',
+      audioProcessedMs: 300,
+    },
+    {
+      type: 'speechComplete',
+      turnId: 'turn-2',
+      transcript: 'Second turn',
+      audioProcessedMs: 400,
+    },
+    { type: 'audioProgress', audioProcessedMs: 400 },
+  ],
+  expected_output: [
+    metaRealtimeDelta('turn-1', '', 0),
+    metaRealtimeDelta('turn-1', '', 100, undefined, 'Hello'),
+    metaRealtimeDelta('turn-1', '', 100, 'speaker-1'),
+    metaRealtimeDelta('turn-2', '', 150),
+    metaRealtimeDelta('turn-2', '', 200, undefined, 'Second'),
+    metaRealtimeDelta('turn-2', '', 200, 'speaker-2'),
+    metaRealtimeDelta(
+      'turn-1',
+      'Hello world',
+      300,
+      'speaker-1',
+      'Hello world',
+      true
+    ),
+    metaRealtimeDelta(
+      'turn-2',
+      'Second turn',
+      400,
+      'speaker-2',
+      'Second turn',
+      true
+    ),
+    metaRealtimeDelta('turn-2', '', 400, 'speaker-2'),
+  ],
+});
+
+for (const partialMode of ['delta', 'cumulative']) {
+  writeFixture(`meta-voice-transcribe-${partialMode}-final`, {
+    kind: 'ai_transcribe',
+    provider: 'meta',
+    request: { audio: { data: 'AAE=', format: 'wav' }, partialMode },
+    transport_responses: [
+      {
+        status: 200,
+        body: [
+          { type: 'transcript', transcript: 'Hello', final: false },
+          {
+            type: 'transcript',
+            transcript: partialMode === 'delta' ? ' world' : 'Hello world',
+            final: false,
+          },
+          { type: 'transcript', transcript: 'Hello world.', final: true },
+        ]
+          .map((event) => `data: ${JSON.stringify(event)}\n\n`)
+          .join(''),
+      },
+    ],
+    expected_output: {
+      text: 'Hello world.',
+      segments: [{ id: '0', text: 'Hello world.' }],
+    },
+  });
+}
+
+writeFixture('meta-voice-transcribe-overlap-order', {
+  kind: 'ai_transcribe',
+  provider: 'meta',
+  request: {
+    audio: { data: 'AAE=', format: 'wav' },
+    partialMode: 'cumulative',
+    mode: 'endpointing',
+  },
+  transport_responses: [
+    {
+      status: 200,
+      body: [
+        { type: 'speechStart', turnId: 'first', audioProcessedMs: 100 },
+        { type: 'speechStart', turnId: 'second', audioProcessedMs: 200 },
+        { type: 'speechComplete', turnId: 'second', transcript: 'Second.' },
+        { type: 'speechComplete', turnId: 'first', transcript: 'First.' },
+      ]
+        .map((event) => `data: ${JSON.stringify(event)}\n\n`)
+        .join(''),
+    },
+  ],
+  expected_output: {
+    text: 'First.\nSecond.',
+    duration: 0.2,
+    audio_processed_ms: 200,
+    segments: [
+      { id: 'first', text: 'First.', start: 0.1 },
+      { id: 'second', text: 'Second.', start: 0.2 },
+    ],
+  },
+});
+
+writeFixture('meta-voice-realtime-corrections', {
+  kind: 'ai_realtime',
+  provider: 'meta',
+  request: { model: 'muse-voice-transcribe-1.0' },
+  events: [
+    { type: 'speechStart', turnId: 'turn', audioProcessedMs: 0 },
+    { type: 'transcript', transcript: 'I scream', audioProcessedMs: 100 },
+    { type: 'transcript', transcript: 'Ice cream', audioProcessedMs: 200 },
+    {
+      type: 'speechComplete',
+      turnId: 'turn',
+      transcript: 'Ice cream.',
+      audioProcessedMs: 300,
+    },
+  ],
+  expected_output: [
+    metaRealtimeDelta('turn', '', 0),
+    metaRealtimeDelta('turn', '', 100, undefined, 'I scream'),
+    metaRealtimeDelta('turn', '', 200, undefined, 'Ice cream'),
+    metaRealtimeDelta('turn', 'Ice cream.', 300, undefined, 'Ice cream.', true),
+  ],
+});
+
+writeFixture('meta-voice-realtime-overlap-final-order', {
+  kind: 'ai_realtime',
+  provider: 'meta',
+  request: { model: 'muse-voice-transcribe-1.0' },
+  events: [
+    { type: 'speechStart', turnId: 1, audioProcessedMs: 100 },
+    { type: 'speechStart', turnId: 2, audioProcessedMs: 200 },
+    {
+      type: 'speechComplete',
+      turnId: 2,
+      transcript: 'Second.',
+      audioProcessedMs: 300,
+    },
+    {
+      type: 'speechComplete',
+      turnId: 1,
+      transcript: 'First.',
+      audioProcessedMs: 400,
+    },
+  ],
+  expected_output: [
+    metaRealtimeDelta('1', '', 100),
+    metaRealtimeDelta('2', '', 200),
+    metaRealtimeDelta('2', '', 300, undefined, 'Second.', true),
+    {
+      ...metaRealtimeDelta('1', 'First.', 400, undefined, 'First.', true),
+      results: [
+        ...metaRealtimeDelta('1', 'First.', 400, undefined, 'First.', true)
+          .results,
+        {
+          index: 0,
+          id: '2',
+          content: 'Second.',
+          transcript: { text: 'Second.', is_final: true },
+          function_calls: [],
+          finish_reason: null,
+        },
+      ],
+    },
+  ],
 });
 
 writeFixture('grok-realtime-audio-session-and-events', {

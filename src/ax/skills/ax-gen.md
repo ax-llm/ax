@@ -348,11 +348,13 @@ Rules:
 - Ax advertises only `__axOutput`. It accepts legacy inbound `__finalResult` calls so stored trajectories remain replayable, and rejects user functions that collide with either reserved name.
 - Use `structuredOutputMode: 'native'` to require native schema enforcement; Ax reports an error instead of silently weakening that requirement.
 - Use `structuredOutputMode: 'function'` to require the function-argument path; Ax reports an error before sending a request when function calling is unavailable.
+- Meta profiles require the sole Ax output tool with an unnamed choice; this does not enable unsupported caller-named tool choices.
 - Use `structuredOutputMode: 'json_object'` to require JSON object mode for rich or singleton output; Ax reports an error before transport when the selected profile/model has not verified it.
 - Direct `json_schema` and `json_object` chat requests validate their corresponding capabilities independently. `structuredOutputs` remains the compatibility alias for native JSON Schema only.
 - Chat-log provenance records the selected path at `providerMetadata.ax.structured_output_rung` (`native`, `function`, or `json_object`).
 - Native structured-output schemas list every object property in `required`, set `additionalProperties: false` on objects, and express optional fields as nullable types.
 - Flexible `json` fields and unshaped `object` fields are sent as JSON-encoded strings for native structured outputs, then parsed back into normal JavaScript values.
+- Streaming programs reject error and token-limit terminal results even when the final chunk has no content and earlier chunks already form valid output.
 
 ## Step Hooks
 

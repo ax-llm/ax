@@ -1,0 +1,215 @@
+{
+  "expected_output": {
+    "model_usage": null,
+    "remote_id": "meta-image-response",
+    "results": [
+      {
+        "content": "Updated.",
+        "finish_reason": "stop",
+        "function_calls": [],
+        "id": "image-new",
+        "images": [
+          {
+            "data": "bmV3LWltYWdl",
+            "id": "image-new",
+            "mime_type": "image/png"
+          }
+        ],
+        "index": 0,
+        "phase": "final_answer",
+        "thought": "Adjusted sunset.",
+        "thought_blocks": [
+          {
+            "data": "Refining light.",
+            "encrypted": false,
+            "id": "commentary-new",
+            "phase": "commentary"
+          },
+          {
+            "data": "Adjusted sunset.",
+            "encrypted": true,
+            "encrypted_content": "opaque-new",
+            "id": "reasoning-new",
+            "summary": "Adjusted sunset."
+          }
+        ]
+      }
+    ]
+  },
+  "expected_transport_request": {
+    "json": {
+      "input": [
+        {
+          "content": [
+            {
+              "text": "Paint a lighthouse",
+              "type": "input_text"
+            }
+          ],
+          "role": "user"
+        },
+        {
+          "content": [
+            {
+              "text": "Checking style",
+              "type": "output_text"
+            }
+          ],
+          "phase": "commentary",
+          "role": "assistant",
+          "type": "message"
+        },
+        {
+          "id": "image-old",
+          "result": null,
+          "status": "completed",
+          "type": "image_generation_call"
+        },
+        {
+          "content": [
+            {
+              "text": "First draft",
+              "type": "output_text"
+            }
+          ],
+          "phase": "final_answer",
+          "role": "assistant",
+          "type": "message"
+        },
+        {
+          "content": [
+            {
+              "detail": "auto",
+              "image_url": "https://example.com/reference.png",
+              "type": "input_image"
+            }
+          ],
+          "role": "user"
+        }
+      ],
+      "model": "muse-image-1.0",
+      "store": false,
+      "tools": [
+        {
+          "enable_image_search": true,
+          "output_format": "png",
+          "size": "1024x1536",
+          "type": "image_generation"
+        }
+      ]
+    },
+    "url": "https://api.meta.ai/v1/responses"
+  },
+  "kind": "ai_chat",
+  "model": "muse-image-1.0",
+  "name": "meta-responses-reasoning-image-replay",
+  "provider": "meta",
+  "request": {
+    "chat_prompt": [
+      {
+        "content": [
+          {
+            "cache": true,
+            "text": "Paint a lighthouse",
+            "type": "text"
+          }
+        ],
+        "role": "user"
+      },
+      {
+        "content": "First draft",
+        "images": [
+          {
+            "data": "b2xkLWltYWdl",
+            "id": "image-old",
+            "mime_type": "image/png"
+          }
+        ],
+        "phase": "final_answer",
+        "role": "assistant",
+        "thought_blocks": [
+          {
+            "data": "Checking style",
+            "encrypted": false,
+            "phase": "commentary"
+          },
+          {
+            "data": "Kept the composition",
+            "encrypted": true,
+            "encrypted_content": "opaque-old",
+            "id": "reasoning-old",
+            "summary": "Kept the composition"
+          }
+        ]
+      },
+      {
+        "content": [
+          {
+            "fileUri": "https://example.com/reference.png",
+            "mimeType": "image/png",
+            "type": "file"
+          }
+        ],
+        "role": "user"
+      }
+    ],
+    "model": "muse-image-1.0",
+    "model_config": {
+      "imageGeneration": {
+        "enableImageSearch": true,
+        "outputFormat": "png",
+        "size": "1024x1536"
+      },
+      "stream": false
+    }
+  },
+  "transport_responses": [
+    {
+      "json": {
+        "id": "meta-image-response",
+        "model": "muse-image-1.0",
+        "output": [
+          {
+            "content": [
+              {
+                "text": "Refining light.",
+                "type": "output_text"
+              }
+            ],
+            "id": "commentary-new",
+            "phase": "commentary",
+            "type": "message"
+          },
+          {
+            "encrypted_content": "opaque-new",
+            "id": "reasoning-new",
+            "summary": [
+              {
+                "text": "Adjusted sunset.",
+                "type": "summary_text"
+              }
+            ],
+            "type": "reasoning"
+          },
+          {
+            "content": [
+              {
+                "text": "Updated.",
+                "type": "output_text"
+              }
+            ],
+            "id": "final-new",
+            "phase": "final_answer",
+            "type": "message"
+          },
+          {
+            "id": "image-new",
+            "result": "bmV3LWltYWdl",
+            "type": "image_generation_call"
+          }
+        ]
+      },
+      "status": 200
+    }
+  ]
+}

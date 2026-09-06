@@ -3,6 +3,7 @@
 #include <algorithm>
 #include <atomic>
 #include <chrono>
+#include <condition_variable>
 #include <cmath>
 #include <thread>
 #include <cctype>
@@ -636,11 +637,16 @@ class ScriptedRealtimeTransport : public RealtimeTransport {
   explicit ScriptedRealtimeTransport(std::vector<Value> inbound);
   void send(const Value& event) override;
   bool recv(Value& out) override;
+  void close() override;
   std::vector<Value> sent;
 
  private:
   std::vector<Value> inbound_;
   std::size_t index_ = 0;
+  bool meta_ = false;
+  bool ended_ = false;
+  std::mutex mutex_;
+  std::condition_variable cv_;
 };
 
 class OpenAICompatibleClient : public AxBaseAI {
@@ -654,7 +660,7 @@ class OpenAICompatibleClient : public AxBaseAI {
   std::vector<Value> realtime(Value events);
   Value realtime_audio_setup(Value request);
   Value realtime_audio_input(Value request);
-  Value realtime_chat(Value request, RealtimeTransport* transport = nullptr);
+  Value realtime_chat(Value request, RealtimeTransport* transport = nullptr, AxStreamHandler handler = {});
   Value get_features(Value model = Value()) override;
   double get_estimated_cost(Value model_usage) override;
   OpenAICompatibleClient& context_cache_registry(AxContextCacheRegistry* registry);

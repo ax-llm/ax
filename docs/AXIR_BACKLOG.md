@@ -537,3 +537,12 @@ This ledger tracks portable TypeScript behavior that should be migrated into AxI
   - Completed at: 2026-08-29
   - Completed by: `e62cfc20df1c683713c33ffae05b2fb9f74da9b0`
   - Verification: `npm run test:axir; npm run test:examples:generated; npm run axir:check-packages; npm run axir:conformance:check; npm run website:check; live OpenAI gpt-5.6-luna and Gemini gemini-3.7-flash smokes on Python, Java, Go, Rust, and C++`
+- `axir-2026-09-06-preserve-meta-stream-failures-and-replay-metadata-and-enable-ax-` [axai] Preserve Meta stream failures and replay metadata and enable Ax output tools
+  - Status: done
+  - Source commit: `781623e58befc00a555cf73ccbac598a72bb700c`
+  - TS paths: `src/ax/ai/meta/regressions.test.ts`, `src/ax/ai/openai/responses_api.ts`, `src/ax/ai/openai/responses_api_base.ts`, `src/ax/ai/openai/responses_types.ts`, `src/ax/ai/provider_profiles.ts`, `src/ax/dsp/response/streaming.ts`
+  - Impact: Responses terminal failures and token limits must survive provider normalization and program streaming; Meta must accept internally generated output tools without enabling caller-named forced choices; streamed final-answer phases must reach memory.
+  - Suggested AxIR work: Add or update the TS-derived conformance fixture.; Update AxIR/Core or descriptor data to match the portable TS behavior.; Run npm run axir:conformance:check and npm run test:axir.
+  - Completed at: 2026-09-06
+  - Completed by: `working-tree`
+  - Verification: `TypeScript: 3052 tests passed, 1 skipped; type-check and type-tests passed. test:axir passed, including Python/Java/C++/Go/Rust release conformance and package-consumer checks. profiles:check, axir:conformance:check, axir:check-packages, test:examples:generated, and website:check passed.`

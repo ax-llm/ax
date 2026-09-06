@@ -1,0 +1,23 @@
+{
+  "expected_transport_request": {
+    "json": {
+      "stream": true,
+      "stream_options": { "include_usage": true }
+    },
+    "url": "https://api.meta.ai/v1/chat/completions"
+  },
+  "kind": "ai_stream",
+  "model": "muse-spark-1.3",
+  "name": "meta-chat-streaming",
+  "options": { "stream": true },
+  "provider": "meta-chat",
+  "request": {
+    "chat_prompt": [{ "content": "stream", "role": "user" }]
+  },
+  "transport_responses": [
+    {
+      "body": "data: {\"id\":\"meta-chat-stream\",\"model\":\"muse-spark-1.3\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\"hello\"},\"finish_reason\":\"stop\"}]}\n\ndata: [DONE]\n\n",
+      "status": 200
+    }
+  ]
+}

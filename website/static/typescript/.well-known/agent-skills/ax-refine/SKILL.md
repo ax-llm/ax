@@ -1,7 +1,7 @@
 ---
 name: ax-refine
 description: Use this skill when writing or reviewing Ax bestOfN/refine code, reward functions, thresholds, native sample selection, serial attempts, generated advice, and attempt diagnostics.
-version: "24.0.16"
+version: "24.0.17"
 ---
 
 # Ax Refine And BestOfN

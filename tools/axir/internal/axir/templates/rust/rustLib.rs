@@ -1163,8 +1163,8 @@ fn encode_base64(input: &[u8]) -> String {
 
 // Encode a request payload as multipart/form-data and return the raw body
 // bytes plus the matching Content-Type header value. Multipart operations
-// (e.g. OpenAI /audio/transcriptions) carry the audio as a binary `file` part;
-// every other field is a plain form field. The `file` value is a base64 string
+// (e.g. OpenAI /audio/transcriptions) carry audio as a binary `file` or `audio` part;
+// every other field is a plain form field. The binary value is a base64 string
 // (optionally a `data:` URL) or a map {data, mimeType?, filename?}. Mirrors the
 // verified Python `_encode_multipart`; the fixed boundary avoids needing a
 // random/uuid dependency.
@@ -1177,7 +1177,7 @@ fn encode_multipart(payload: &Value) -> (Vec<u8>, String) {
             if value.is_null() {
                 continue;
             }
-            if key == "file" {
+            if key == "file" || key == "audio" {
                 let (raw_data, filename, content_type) = match value {
                     Value::Object(map) => {
                         let data = map.get("data").and_then(Value::as_str).unwrap_or("").to_string();
@@ -1218,7 +1218,7 @@ fn encode_multipart(payload: &Value) -> (Vec<u8>, String) {
                 body.extend_from_slice(BOUNDARY.as_bytes());
                 body.extend_from_slice(CRLF);
                 body.extend_from_slice(
-                    format!("Content-Disposition: form-data; name=\"file\"; filename=\"{filename}\"")
+                    format!("Content-Disposition: form-data; name=\"{key}\"; filename=\"{filename}\"")
                         .as_bytes(),
                 );
                 body.extend_from_slice(CRLF);
@@ -1235,6 +1235,10 @@ fn encode_multipart(payload: &Value) -> (Vec<u8>, String) {
                     format!("Content-Disposition: form-data; name=\"{key}\"").as_bytes(),
                 );
                 body.extend_from_slice(CRLF);
+                if key == "request" {
+                    body.extend_from_slice(b"Content-Type: application/json");
+                    body.extend_from_slice(CRLF);
+                }
                 body.extend_from_slice(CRLF);
                 body.extend_from_slice(value_as_display_string(value).as_bytes());
                 body.extend_from_slice(CRLF);
@@ -1532,6 +1536,7 @@ struct NormalizedProviderStream {
     profile: String,
     model: String,
     state: CoreValue,
+    context: CoreValue,
 }
 
 impl Iterator for NormalizedProviderStream {
@@ -1547,6 +1552,7 @@ impl Iterator for NormalizedProviderStream {
                 self.state.clone(),
                 provider_ai_display_name(&self.profile),
                 CoreValue::from(self.model.as_str()),
+                self.context.clone(),
             ]);
             match normalized {
                 Ok(value) if value.is_null() => continue,
@@ -2151,6 +2157,9 @@ impl OpenAICompatibleClient {
     fn post_data(&mut self, path: &str, data: Value, operation: &str) -> AxResult<Value> {
         let url = self.endpoint_url(path);
         let mut headers = serde_json::Map::new();
+        if self.profile == "meta" && operation == "transcribe" {
+            headers.insert("Accept".to_string(), json!("text/event-stream"));
+        }
         if !self.api_key.is_empty() { headers.insert("Authorization".to_string(), json!(format!("Bearer {}", self.api_key))); }
         if let Some(provider) = self.credential_provider.as_ref() {
             for (key, value) in provider.credentials(&AxCredentialRequest { profile: self.profile.clone(), operation: operation.to_string(), method: "POST".to_string(), url: url.clone() })? {
@@ -2175,12 +2184,14 @@ impl OpenAICompatibleClient {
         for (key, value) in &headers {
             request_builder = request_builder.header(key, value.as_str().unwrap_or_default());
         }
-        let response: Value = request_builder
+        let response = request_builder
             .header("Content-Type", content_type)
             .body(body)
             .send()?
-            .error_for_status()?
-            .json()?;
+            .error_for_status()?;
+        let bytes = response.bytes()?;
+        let response: Value = serde_json::from_slice(&bytes)
+            .unwrap_or_else(|_| Value::String(String::from_utf8_lossy(&bytes).into_owned()));
         Ok(json!({"status": 200, "json": response}))
     }
 
@@ -2272,10 +2283,30 @@ impl OpenAICompatibleClient {
 
     pub fn transcribe(&mut self, request: Value) -> AxResult<Value> {
         let profile = self.profile.clone();
-        let body = core_value_to_json(&provider_build_transcribe_request(&[
+        let mut body = core_value_to_json(&provider_build_transcribe_request(&[
             CoreValue::from(profile.as_str()),
             core_value_from_json(&request),
         ])?);
+        let descriptor = core_value_to_json(&provider_operation_descriptor(&[
+            CoreValue::from(profile.as_str()),
+            CoreValue::from("transcribe"),
+        ])?);
+        let mut path = descriptor
+            .get("path")
+            .and_then(Value::as_str)
+            .unwrap_or("/audio/transcriptions")
+            .to_string();
+        if let Some(session_id) = body
+            .get("query")
+            .and_then(|query| query.get("sessionId"))
+            .and_then(Value::as_str)
+        {
+            path.push_str(if path.contains('?') { "&sessionId=" } else { "?sessionId=" });
+            path.push_str(session_id);
+        }
+        if let Some(object) = body.as_object_mut() {
+            object.remove("query");
+        }
         let raw = match profile.as_str() {
             "google-gemini" => {
                 let model = string_at(&request, "model").unwrap_or_else(|| self.model.clone());
@@ -2284,10 +2315,16 @@ impl OpenAICompatibleClient {
                 );
                 self.post_json(&path, body, false, "transcribe")?
             }
-            "grok" => self.post_data("/stt", body, "transcribe")?,
-            _ => self.post_data("/audio/transcriptions", body, "transcribe")?,
+            _ => self.post_data(&path, body, "transcribe")?,
         };
-        let payload = normalize_passthrough_response(raw)?;
+        let mut payload = normalize_passthrough_response(raw)?;
+        if profile == "meta" {
+            if let Some(text) = payload.as_str() {
+                let stream = SseJsonStream::new(Box::new(std::io::Cursor::new(text.as_bytes().to_vec())));
+                let events = stream.collect::<AxResult<Vec<Value>>>()?;
+                payload = json!({"events": events});
+            }
+        }
         let normalized = provider_normalize_transcribe_response(&[
             CoreValue::from(profile.as_str()),
             core_value_from_json(&payload),
@@ -2368,6 +2405,14 @@ impl OpenAICompatibleClient {
             core_value_from_json(&request),
             core_value_from_json(&self.options),
         ])?;
+        if self.profile == "meta" {
+            if let Some(provider) = self.credential_provider.as_ref() {
+                let model = request.get("model").and_then(Value::as_str).unwrap_or(&self.model);
+                let (url, _) = self.realtime_ws_target(model);
+                let fresh = provider.credentials(&AxCredentialRequest { profile: self.profile.clone(), operation: "realtime".to_string(), method: "WS".to_string(), url })?;
+                return Ok(core_value_to_json(&provider_apply_realtime_credentials(&[built, core_value_from_json(&json!(fresh))])?));
+            }
+        }
         Ok(core_value_to_json(&built))
     }
 
@@ -2377,6 +2422,56 @@ impl OpenAICompatibleClient {
             core_value_from_json(&audio),
         ])?;
         Ok(core_value_to_json(&built))
+    }
+
+    fn meta_realtime_stream(&self, request: Value) -> AxResult<AxChatStream> {
+        let model = request.get("model").and_then(Value::as_str).unwrap_or(&self.model).to_string();
+        let setup = self.realtime_audio_setup(request.clone())?;
+        let inputs = self.realtime_audio_input(request)?;
+        let mut transport = self.open_realtime_transport(&model)?;
+        transport.send(&setup)?;
+        let profile = self.profile.clone();
+        let state = core_value_from_json(&json!({"partial_mode": setup.get("partialMode")}));
+        let mut ready = false;
+        let mut finished = false;
+        let mut audio_pump: Option<MetaAudioPump> = None;
+        let events = std::iter::from_fn(move || {
+            if finished { return None; }
+            let step = (|| -> AxResult<Value> {
+                loop {
+                    let event = match match audio_pump.as_mut() {
+                        Some(pump) => pump.recv(&mut transport)?,
+                        None => transport.recv()?,
+                    } {
+                        Some(event) => event,
+                        None => {
+                            finished = true;
+                            if !ready { return Err(AxError::runtime("Meta Voice closed before acknowledging setup")); }
+                            let final_response = provider_finalize_realtime_response(&[
+                                CoreValue::from(profile.as_str()), state.clone(), core_value_from_json(&json!({"results": []})),
+                            ])?;
+                            return Ok(core_value_to_json(&provider_realtime_terminal_response(&[final_response])?));
+                        }
+                    };
+                    if event.get("type").and_then(Value::as_str) == Some("error") {
+                        return Err(AxError::runtime(event.get("message").and_then(Value::as_str).unwrap_or("Meta Voice realtime error")));
+                    }
+                    if !ready {
+                        let session = event.get("sessionId").ok_or_else(|| AxError::runtime("Meta Voice server did not acknowledge setup"))?;
+                        core_set(&state, CoreValue::from("session_id"), core_value_from_json(session))?;
+                        ready = true;
+                        audio_pump = Some(MetaAudioPump::new(&setup, &inputs)?);
+                        continue;
+                    }
+                    return Ok(core_value_to_json(&provider_normalize_realtime_event(&[
+                        CoreValue::from(profile.as_str()), core_value_from_json(&event), state.clone(), provider_ai_display_name(&profile), CoreValue::from(model.as_str()),
+                    ])?));
+                }
+            })();
+            if step.is_err() { finished = true; }
+            Some(step)
+        });
+        Ok(AxChatStream::new(events, None))
     }
 
     /// Drive a realtime audio turn over a WebSocket transport: send the
@@ -2398,38 +2493,54 @@ impl OpenAICompatibleClient {
         };
         transport.send(&setup)?;
         let mut input_sent = false;
+        let mut audio_pump: Option<MetaAudioPump> = None;
         let mut events: Vec<Value> = Vec::new();
+        let state = core_value_from_json(&json!({"partial_mode": setup.get("partialMode")}));
         loop {
-            let event = match transport.recv()? {
+            let event = match match audio_pump.as_mut() {
+                Some(pump) => pump.recv(&mut transport)?,
+                None => transport.recv()?,
+            } {
                 Some(event) => event,
                 None => break,
             };
             if event.get("type").and_then(|t| t.as_str()) == Some("error") {
                 let message = event
+                    .get("message")
+                    .and_then(|m| m.as_str())
+                    .or_else(|| event
                     .get("error")
                     .and_then(|err| err.get("message"))
-                    .and_then(|m| m.as_str())
+                    .and_then(|m| m.as_str()))
                     .unwrap_or("realtime error");
                 return Err(AxError::runtime(message));
             }
             if realtime_event_is_ready(&event) {
+                if let Some(session) = event.get("sessionId") {
+                    core_set(&state, CoreValue::from("session_id"), core_value_from_json(session))?;
+                }
                 if !input_sent {
                     input_sent = true;
+                    if setup.get("audioEncoding").is_some() {
+                        audio_pump = Some(MetaAudioPump::new(&setup, &inputs)?);
+                    } else {
                     if let Some(items) = inputs.as_array() {
                         for item in items {
                             transport.send(item)?;
                         }
                     }
+                    }
                 }
                 continue;
             }
+            if setup.get("audioEncoding").is_some() && !input_sent { return Err(AxError::runtime("Meta Voice server did not acknowledge setup")); }
             let done = realtime_event_is_done(&event);
             events.push(event);
             if done {
                 break;
             }
         }
-        let state = CoreValue::new_map();
+        if setup.get("audioEncoding").is_some() && !input_sent { return Err(AxError::runtime("Meta Voice closed before acknowledging setup")); }
         let ai_name = provider_ai_display_name(&self.profile);
         let mut content = String::new();
         let mut audio_bytes: Vec<u8> = Vec::new();
@@ -2500,11 +2611,12 @@ impl OpenAICompatibleClient {
                 "transcript": content,
             });
         }
-        Ok(json!({
+        let response = json!({
             "results": [result],
             "remote_id": response_id,
             "model_usage": model_usage,
-        }))
+        });
+        Ok(core_value_to_json(&provider_finalize_realtime_response(&[CoreValue::from(self.profile.as_str()), state, core_value_from_json(&response)])?))
     }
 
     fn open_realtime_transport(&self, model: &str) -> AxResult<RealtimeTransport> {
@@ -2531,6 +2643,7 @@ impl OpenAICompatibleClient {
                 CoreValue::from(self.profile.as_str()),
                 CoreValue::from(model),
                 CoreValue::from(self.api_key.as_str()),
+                core_value_from_json(&self.options),
             ])
             .unwrap_or_else(|_| CoreValue::new_map()),
         );
@@ -2577,6 +2690,53 @@ impl RealtimeTransport {
     }
 }
 
+// One socket owner interleaves paced writes with bounded reads. In particular,
+// reading a partial never waits for the remaining recording to be uploaded.
+struct MetaAudioPump {
+    frames: VecDeque<(Value, Duration)>,
+    next_send: std::time::Instant,
+}
+
+impl MetaAudioPump {
+    fn new(setup: &Value, inputs: &Value) -> AxResult<Self> {
+        let rate = if setup.get("audioEncoding").and_then(Value::as_str) == Some("PCM_16KHZ") { 16000 } else { 24000 };
+        let mut frames = VecDeque::new();
+        for item in inputs.as_array().into_iter().flatten() {
+            if item.get("type").and_then(Value::as_str) == Some("binary") {
+                let bytes = decode_base64(item.get("data").and_then(Value::as_str).unwrap_or(""));
+                if bytes.len() % 2 != 0 { return Err(AxError::runtime("PCM16 audio must contain complete 16-bit samples")); }
+                for chunk in bytes.chunks(rate * 2 * 80 / 1000) {
+                    frames.push_back((json!({"type": "binary", "data": encode_base64(chunk)}), Duration::from_secs_f64(chunk.len() as f64 / (rate as f64 * 2.0))));
+                }
+            } else { frames.push_back((item.clone(), Duration::ZERO)); }
+        }
+        Ok(Self { frames, next_send: std::time::Instant::now() })
+    }
+
+    fn recv(&mut self, transport: &mut RealtimeTransport) -> AxResult<Option<Value>> {
+        loop {
+            if self.frames.is_empty() { return transport.recv(); }
+            let now = std::time::Instant::now();
+            if now >= self.next_send {
+                let (event, delay) = self.frames.pop_front().unwrap();
+                transport.send(&event)?;
+                self.next_send = std::time::Instant::now() + delay;
+                continue;
+            }
+            match transport {
+                RealtimeTransport::Scripted(scripted) => {
+                    if let Some(event) = scripted.inbound.pop_front() { return Ok(Some(event)); }
+                    std::thread::sleep(self.next_send - now);
+                }
+                #[cfg(feature = "realtime")]
+                RealtimeTransport::Live(live) => {
+                    if let Some(event) = live.recv_timeout(self.next_send - now)? { return Ok(event); }
+                }
+            }
+        }
+    }
+}
+
 pub struct ScriptedRealtimeTransport {
     inbound: VecDeque<Value>,
     pub sent: Vec<Value>,
@@ -2592,9 +2752,12 @@ impl ScriptedRealtimeTransport {
 }
 
 fn realtime_event_is_ready(event: &Value) -> bool {
+    if event.get("type").is_none() && event.get("sessionId").is_some() {
+        return true;
+    }
     if matches!(
         event.get("type").and_then(|t| t.as_str()),
-        Some("session.created") | Some("session.updated") | Some("transcription_session.created") | Some("transcription_session.updated")
+        Some("session.created") | Some("session.updated") | Some("transcription_session.created") | Some("transcription_session.updated") | Some("ready") | Some("sessionStarted")
     ) {
         return true;
     }
@@ -2622,6 +2785,20 @@ pub struct WsRealtimeTransport {
 
 #[cfg(feature = "realtime")]
 impl WsRealtimeTransport {
+    fn recv_timeout(&mut self, timeout: Duration) -> AxResult<Option<Option<Value>>> {
+        fn set_timeout(stream: &tungstenite::stream::MaybeTlsStream<std::net::TcpStream>, timeout: Option<Duration>) -> AxResult<()> {
+            let tcp = match stream {
+                tungstenite::stream::MaybeTlsStream::Plain(tcp) => tcp,
+                tungstenite::stream::MaybeTlsStream::Rustls(tls) => &tls.sock,
+                _ => return Err(AxError::runtime("unsupported realtime TLS stream")),
+            };
+            tcp.set_read_timeout(timeout).map_err(|error| AxError::runtime(error.to_string()))
+        }
+        set_timeout(self.socket.get_ref(), Some(timeout.max(Duration::from_millis(1))))?;
+        let result = self.read_event(true);
+        set_timeout(self.socket.get_ref(), Some(Duration::from_secs(30)))?;
+        result
+    }
     fn connect(url: &str, headers: Vec<(String, String)>) -> AxResult<Self> {
         use tungstenite::client::IntoClientRequest;
         let mut request = url.into_client_request().map_err(|e| AxError::runtime(e.to_string()))?;
@@ -2637,6 +2814,13 @@ impl WsRealtimeTransport {
     }
 
     fn send(&mut self, event: &Value) -> AxResult<()> {
+        if event.get("type").and_then(|value| value.as_str()) == Some("binary") {
+            let bytes = decode_base64(event.get("data").and_then(|value| value.as_str()).unwrap_or(""));
+            return self
+                .socket
+                .send(tungstenite::Message::Binary(bytes.into()))
+                .map_err(|e| AxError::runtime(e.to_string()));
+        }
         let text = serde_json::to_string(event).map_err(|e| AxError::runtime(e.to_string()))?;
         self.socket
             .send(tungstenite::Message::Text(text.into()))
@@ -2644,19 +2828,78 @@ impl WsRealtimeTransport {
     }
 
     fn recv(&mut self) -> AxResult<Option<Value>> {
+        Ok(self.read_event(false)?.flatten())
+    }
+
+    fn read_event(&mut self, allow_timeout: bool) -> AxResult<Option<Option<Value>>> {
         loop {
             match self.socket.read() {
                 Ok(tungstenite::Message::Text(text)) => {
-                    return Ok(Some(serde_json::from_str(text.as_str()).map_err(|e| AxError::runtime(e.to_string()))?));
+                    return Ok(Some(Some(serde_json::from_str(text.as_str()).map_err(|e| AxError::runtime(e.to_string()))?)));
                 }
                 Ok(tungstenite::Message::Binary(data)) => {
-                    return Ok(Some(serde_json::from_slice(&data).map_err(|e| AxError::runtime(e.to_string()))?));
+                    return Ok(Some(Some(serde_json::from_slice(&data).map_err(|e| AxError::runtime(e.to_string()))?)));
                 }
-                Ok(tungstenite::Message::Close(_)) => return Ok(None),
+                Ok(tungstenite::Message::Close(frame)) => {
+                    if frame.as_ref().map(|f| f.code) == Some(tungstenite::protocol::frame::coding::CloseCode::Normal) { return Ok(Some(None)); }
+                    return Err(AxError::runtime("realtime WebSocket closed abnormally"));
+                }
                 Ok(_) => continue,
-                Err(_) => return Ok(None),
+                Err(tungstenite::Error::Io(error)) if allow_timeout && matches!(error.kind(), std::io::ErrorKind::WouldBlock | std::io::ErrorKind::TimedOut) => return Ok(None),
+                Err(error) => return Err(AxError::runtime(error.to_string())),
             }
         }
+    }
+}
+
+#[cfg(all(test, feature = "realtime"))]
+mod meta_duplex_tests {
+    use super::*;
+
+    #[test]
+    fn public_stream_receives_before_end_stream() {
+        use std::net::TcpListener;
+        use std::sync::atomic::{AtomicBool, Ordering};
+        let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+        let address = listener.local_addr().unwrap();
+        let ended = Arc::new(AtomicBool::new(false));
+        let server_ended = ended.clone();
+        let server = std::thread::spawn(move || {
+            let (tcp, _) = listener.accept().unwrap();
+            tcp.set_read_timeout(Some(Duration::from_secs(3))).unwrap();
+            let mut socket = tungstenite::accept(tcp).unwrap();
+            let setup: Value = serde_json::from_str(socket.read().unwrap().to_text().unwrap()).unwrap();
+            assert_eq!(setup["authorization"]["accessToken"], "Bearer test");
+            socket.send(tungstenite::Message::Text(json!({"sessionId":"duplex"}).to_string())).unwrap();
+            let mut bytes = 0;
+            loop {
+                match socket.read().unwrap() {
+                    tungstenite::Message::Binary(chunk) => {
+                        if bytes == 0 { socket.send(tungstenite::Message::Text(json!({"type":"transcript","transcript":"wrong hypothesis"}).to_string())).unwrap(); }
+                        bytes += chunk.len();
+                    }
+                    tungstenite::Message::Text(text) => {
+                        assert_eq!(serde_json::from_str::<Value>(&text).unwrap()["type"], "endStream");
+                        server_ended.store(true, Ordering::SeqCst);
+                        socket.send(tungstenite::Message::Text(json!({"type":"transcript","transcript":"Correct final.","final":true}).to_string())).unwrap();
+                        socket.close(Some(tungstenite::protocol::CloseFrame { code: tungstenite::protocol::frame::coding::CloseCode::Normal, reason: "".into() })).unwrap();
+                        break;
+                    }
+                    _ => {}
+                }
+            }
+            assert_eq!(bytes, 9600);
+        });
+        let mut client = ai("meta", json!({"api_key":"test", "model":"muse-voice-transcribe-1.0", "base_url":format!("http://{address}/v1")})).unwrap();
+        let request = json!({"model":"muse-voice-transcribe-1.0", "audio":{"input":{"sampleRate":16000,"channels":1}}, "chat_prompt":[{"role":"user","content":[{"type":"audio","format":"pcm16","data":encode_base64(&vec![0;9600])}]}]});
+        let mut stream = client.stream_iter(request).unwrap();
+        let first = stream.next().unwrap().unwrap();
+        assert_eq!(first["results"][0]["transcript"]["text"], "wrong hypothesis");
+        assert!(!ended.load(Ordering::SeqCst), "partial blocked behind the complete upload");
+        let mut text = String::new();
+        for event in stream { for result in event.unwrap()["results"].as_array().unwrap() { text.push_str(result["content"].as_str().unwrap_or("")); } }
+        assert_eq!(text, "Correct final.");
+        server.join().unwrap();
     }
 }
 
@@ -2778,7 +3021,7 @@ impl AxAIClient for OpenAICompatibleClient {
             None => self.dispatch_transport_request(call)?,
         };
         let profile = self.profile.clone();
-        let response = normalize_openai_response(&profile, &model, raw);
+        let response = normalize_openai_response(&profile, &model, raw, &payload);
         if let Ok(value) = &response {
             emit_usage_event("chat", value, &self.options, false);
         }
@@ -2820,6 +3063,9 @@ impl AxAIClient for OpenAICompatibleClient {
         let mut model_config = req.get("model_config").cloned().unwrap_or_else(|| json!({}));
         model_config["stream"] = json!(true);
         req["model_config"] = model_config;
+        if self.profile == "meta" && req.get("model").and_then(Value::as_str).unwrap_or(&self.model) == "muse-voice-transcribe-1.0" {
+            return self.meta_realtime_stream(req);
+        }
         let payload = core_value_to_json(&provider_build_chat_request(&[
             CoreValue::from(self.profile.as_str()),
             core_value_from_json(&req),
@@ -2889,6 +3135,7 @@ impl AxAIClient for OpenAICompatibleClient {
                 profile: self.profile.clone(),
                 model: model.clone(),
                 state: CoreValue::new_map(),
+                context: core_value_from_json(&payload),
             };
             let first_normalized = match normalized.next() {
                 None => return Ok(AxChatStream::from_values(Vec::new())),
@@ -3007,7 +3254,7 @@ fn provider_defaults(provider: &str) -> Option<ProviderDefaults> {
     })
 }
 
-fn normalize_openai_response(profile: &str, model: &str, response: Value) -> AxResult<Value> {
+fn normalize_openai_response(profile: &str, model: &str, response: Value, context: &Value) -> AxResult<Value> {
     let payload = normalize_passthrough_response(response)?;
     if profile == "openai-compatible" {
         let _ = normalize_chat_response(&[core_value_from_json(&payload)])?;
@@ -3017,6 +3264,7 @@ fn normalize_openai_response(profile: &str, model: &str, response: Value) -> AxR
         core_value_from_json(&payload),
         provider_ai_display_name(profile),
         CoreValue::from(model),
+        core_value_from_json(context),
     ])?;
     Ok(core_value_to_json(&normalized))
 }
@@ -8126,7 +8374,10 @@ fn run_stream_fixture(fixture: &Value) -> AxResult<()> {
     let mut folded = String::new();
     for event in events {
         chunks.push(event);
-        folded = fold_fixture_stream(&chunks)?;
+        folded = match fold_fixture_stream(&chunks) {
+            Ok(value) => value,
+            Err(error) => return expect_validation_result(Err(error), fixture),
+        };
         for assertion in &assertions {
             if let Some(needle) = assertion
                 .get("not_contains")
@@ -16754,6 +17005,7 @@ fn core_memory_response_meaningful(response: &CoreValue) -> bool {
                 "toolCalls",
                 "thought_blocks",
                 "thoughtBlocks",
+                "images",
             ] {
                 if let Some(CoreValue::List(items)) = map.get(key) {
                     if !items.borrow().is_empty() {
@@ -16811,6 +17063,9 @@ impl CoreHost for CoreMemory {
                         let sid =
                             core_get(existing, &CoreValue::from("session_id"), CoreValue::Null);
                         if role.as_str() == Some("assistant") && sid == session {
+                            let previous = core_get(existing, &CoreValue::from("response"), CoreValue::Null);
+                            let merged = ai_merge_replay_metadata(&[previous, core_arg(args, 0)])?;
+                            core_set(&item, CoreValue::from("response"), merged)?;
                             if let (CoreValue::Map(dst), CoreValue::Map(src)) = (existing, &item) {
                                 let entries = src.borrow().entries.clone();
                                 for (key, value) in entries {
@@ -19701,6 +19956,16 @@ fn python_repr(value: &Value) -> String {
 
 #[cfg(test)]
 mod request_url_security_tests {
+    #[test]
+    fn meta_replay_metadata_survives_partial_updates() {
+        use super::*;
+        let previous = core_value_from_json(&json!({"thought_blocks": [{"id":"r","data":"Plan"}],"images":[{"id":"image","data":"partial"}]}));
+        let incoming = core_value_from_json(&json!({"thought_blocks": [{"id":"r","data":"Plan.","summary":"Plan.","encrypted_content":"opaque"}]}));
+        let merged = core_value_to_json(&ai_merge_replay_metadata(&[previous, incoming]).unwrap());
+        assert_eq!(merged["thought_blocks"][0]["data"], "Plan.");
+        assert_eq!(merged["thought_blocks"][0]["encrypted_content"], "opaque");
+        assert_eq!(merged["images"][0]["id"], "image");
+    }
     use super::*;
     use std::sync::Mutex;
 

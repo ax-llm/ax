@@ -7,7 +7,6 @@ import type {
   AxAIOpenAIChatContentPart,
   AxAIOpenAIChatRequest,
 } from './chat_types.js';
-import { axIsGPT56Family } from './model_family.js';
 
 /**
  * OpenAI prompt caching for GPT-5.6 and later.
@@ -82,8 +81,8 @@ const BREAKPOINT = { mode: 'explicit' } as const;
  *    shares this request builder and is typed on the same model enum, so a
  *    `gpt-5.6-*` deployment name would otherwise pick up parameters its API
  *    version may reject.
- * 2. The model is a GPT-5.6+ family member. Earlier families predate the
- *    parameters and answer with a 400.
+ * 2. The provider's request builder has confirmed that the selected model or
+ *    compatible protocol accepts this wire format.
  * 3. The caller asked for caching, either by marking messages or functions with
  *    `cache: true` (which is what `AxPromptTemplate` does) or by passing
  *    `contextCache`. The second clause matters: the flags are only ever set on
@@ -97,7 +96,7 @@ export const axIsOpenAIPromptCachingEnabled = <TModel>(
   options: Readonly<AxAIServiceOptions> | undefined,
   promptCaching: boolean
 ): boolean => {
-  if (!promptCaching || !axIsGPT56Family(req.model)) {
+  if (!promptCaching) {
     return false;
   }
   return (

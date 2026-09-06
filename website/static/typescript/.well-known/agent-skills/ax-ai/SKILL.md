@@ -1,7 +1,7 @@
 ---
 name: ax-ai
-description: This skill helps an LLM generate correct AI provider setup and configuration code using @ax-llm/ax. Use when the user asks about ai(), providers, models, routing, adaptive balancing, presets, embeddings, batch audio with ai.transcribe() or ai.speak(), extended thinking, context caching, or mentions OpenAI/Anthropic/Google/Azure/DeepSeek/Mistral/Cohere/Reka/Grok with @ax-llm/ax.
-version: "24.0.16"
+description: This skill helps an LLM generate correct AI provider setup and configuration code using @ax-llm/ax. Use when the user asks about ai(), providers, models, routing, adaptive balancing, presets, embeddings, batch audio with ai.transcribe() or ai.speak(), extended thinking, context caching, or mentions OpenAI/Anthropic/Google/Azure/DeepSeek/Meta/Mistral/Cohere/Reka/Grok with @ax-llm/ax.
+version: "24.0.17"
 ---
 
 # AI Provider Codegen Rules (@ax-llm/ax)
@@ -136,11 +136,11 @@ const textProviders = axGetSupportedAIModels({ type: 'text' });
 const embeddingProviders = axGetSupportedAIModels({ type: 'embeddings' });
 ```
 
-Use `axGetSupportedAIModels()` to build provider/model selectors before creating an `ai(...)` instance. It returns bundled static metadata: provider names, display names, default models, raw `AxModelInfo` pricing/details, model type (`'text'`, `'embeddings'`, `'code'`, or `'audio'`), and normalized capabilities for thinking, thoughts, structured outputs, audio, temperature, top-p, portable thinking levels, and verified service tiers. Provider capabilities describe the default deployment profile; each static model also carries its resolved `capabilities.thinkingLevels` and `capabilities.serviceTiers`. Portable thinking levels can collapse onto the same provider-native value. `serviceTiers` lists verified explicit tiers; `serviceTier: 'auto'` remains available as the provider-delegated policy.
+Use `axGetSupportedAIModels()` to build provider/model selectors before creating an `ai(...)` instance. It returns bundled static metadata: provider names, display names, default models, raw `AxModelInfo` pricing/details, model type (`'text'`, `'embeddings'`, `'code'`, `'audio'`, or `'image'`), operation availability, provider-training data use, and normalized capabilities for thinking, thoughts, structured outputs, audio, image output, temperature, top-p, portable thinking levels, and verified service tiers. Provider capabilities describe the default deployment profile; each static model also carries its resolved `capabilities.thinkingLevels` and `capabilities.serviceTiers`. Portable thinking levels can collapse onto the same provider-native value. `serviceTiers` lists verified explicit tiers; `serviceTier: 'auto'` remains available as the provider-delegated policy.
 
 Provider groups and models are sorted cheapest to most expensive based on bundled input + output token pricing; unpriced models sort last. Dynamic profiles remain useful even when `models` is empty because their provider-level capability metadata is still returned.
 
-Filter with `{ type: 'all' | 'text' | 'embeddings' | 'code' | 'audio' }` or an array of those values. The `'text'` filter includes code-capable models; use `'code'` to show only code-first models.
+Filter with `{ type: 'all' | 'text' | 'embeddings' | 'code' | 'audio' | 'image' }` or an array of those values. The `'text'` filter includes code-capable models; use `'code'` to show only code-first models.
 
 Dynamic providers such as Azure OpenAI deployments are marked with `isDynamic: true` and may have an empty or static-limited model list.
 
@@ -255,6 +255,48 @@ const res = await llm.chat({
 });
 console.log(res.results[0]?.content);
 ```
+
+## Meta Muse
+
+Use `meta` for the Responses API (the recommended default), `meta-chat` for
+Chat Completions, or `meta-messages` for Anthropic-compatible Messages. All
+three use `MODEL_API_KEY`; `muse-spark-1.3` is the default model.
+
+```typescript
+import { ai, AxAIMetaModel } from '@ax-llm/ax';
+
+const muse = ai({
+  name: 'meta',
+  apiKey: process.env.MODEL_API_KEY!,
+  config: { model: AxAIMetaModel.MuseSpark13 },
+});
+
+const result = await muse.chat({
+  chatPrompt: [{ role: 'user', content: 'Summarize the attached brief.' }],
+});
+```
+
+`thinkingTokenBudget: 'highest'` maps to Meta `xhigh`; `none` is rejected.
+Responses reasoning IDs, summaries, encrypted content, and message phases
+are retained in Ax chat memory so stateless multi-turn replay works.
+Streaming Ax programs also retain the final-answer phase. Responses failure
+events raise errors; token-limited streams are not accepted as completed
+program output.
+
+All three Spark profiles support function-based structured output. When Ax
+selects its internal `__axOutput` tool, the profiles require that sole tool
+using the protocol's unnamed required choice. Explicit caller-named choices
+remain unsupported, including a caller naming `__axOutput` directly.
+
+Use `muse-image-1.0` through the same `chat()` method. Text and reference images
+belong in normal chat content, and generated images arrive in
+`result.results[0].images`. Muse Image rejects ordinary function tools. Use
+`transcribe()` for Muse Voice batch audio and streaming `chat()` with PCM16 for
+realtime transcription; Ax adds no Meta-specific service methods.
+
+Muse Glimmer is self-hosted. Point Ax's `vllm`, `llama-cpp`, `ollama`, or
+`lm-studio` profile at the server you operate. Ax does not download, serve, or
+manage Glimmer weights.
 
 ## Batch Audio
 
@@ -557,6 +599,10 @@ Provider behavior:
   failed refreshes recreate or fall back uncached, and rejected Ax-managed
   caches retry once without the cache
 - Anthropic: implicit via `cache_control` markers
+- Meta Responses and Chat Completions cache automatically and accept an optional
+  `promptCacheKey`; Responses also accepts `promptCacheRetention: 'in_memory' |
+  '24h'`. Meta Messages has no cache marker or cache-key field, so Ax strips
+  generic `cache_control` annotations on that profile.
 - OpenAI: explicit `prompt_cache_breakpoint` markers, **GPT-5.6+ only**. Earlier
   families cache automatically and predate the parameters, so nothing is sent to
   them. Only the `openai` provider opts in — Azure OpenAI shares the request
@@ -721,7 +767,7 @@ the event runtime sees the request.
 ## Critical Rules
 
 - Use `ai()` factory for all providers.
-- Use `axAIProfiles()` as the source of truth for names. Core names include `'openai'`, `'openai-compatible'`, `'openai-responses'`, `'anthropic'`, `'google-gemini'`, `'azure-openai'`, `'deepseek'`, `'mistral'`, `'cohere'`, `'grok'`, routers such as `'together'`, `'openrouter'`, and `'orcarouter'`, hosted inference profiles, and configurable local runtimes.
+- Use `axAIProfiles()` as the source of truth for names. Core names include `'openai'`, `'openai-compatible'`, `'openai-responses'`, `'anthropic'`, `'google-gemini'`, `'azure-openai'`, `'deepseek'`, `'meta'`, `'meta-chat'`, `'meta-messages'`, `'mistral'`, `'cohere'`, `'grok'`, routers such as `'together'`, `'openrouter'`, and `'orcarouter'`, hosted inference profiles, and configurable local runtimes.
 - Thinking constraints on Anthropic: every adaptive-thinking model omits
   `temperature`, `topP`, and `topK`; older thinking models ignore `temperature` and `topK`, with
   `topP` only sent if >= 0.95.
@@ -743,6 +789,8 @@ Fetch these for full working code:
 - [Gemini Files](https://raw.githubusercontent.com/ax-llm/ax/refs/heads/main/src/examples/gemini-file-support.ts) — Gemini file handling
 - [Grok Live Search](https://raw.githubusercontent.com/ax-llm/ax/refs/heads/main/src/examples/grok-live-search.ts) — Grok live search
 - [OpenAI-Compatible](https://raw.githubusercontent.com/ax-llm/ax/refs/heads/main/src/examples/openai-compatible.ts) — custom OpenAI-compatible base URL
+- [Meta Muse](https://raw.githubusercontent.com/ax-llm/ax/refs/heads/main/src/examples/meta-muse.ts) — Muse Spark and Muse Image through `chat()`
+- [Meta Voice](https://raw.githubusercontent.com/ax-llm/ax/refs/heads/main/src/examples/meta-voice-transcribe.ts) — Muse Voice batch transcription
 - [Vertex AI Auth](https://raw.githubusercontent.com/ax-llm/ax/refs/heads/main/src/examples/vertex-auth-example.ts) — Vertex AI authentication
 - [MCP Stdio](https://raw.githubusercontent.com/ax-llm/ax/refs/heads/main/src/examples/mcp-client-memory.ts) — MCP stdio transport
 - [MCP HTTP](https://raw.githubusercontent.com/ax-llm/ax/refs/heads/main/src/examples/mcp-client-pipedream.ts) — MCP HTTP transport
@@ -755,4 +803,5 @@ Fetch these for full working code:
 - Do not hardcode provider class names when `ai({ name: ... })` covers the provider.
 - Do not mix `thinkingTokenBudget` with explicit `temperature` on Anthropic thinking models.
 - Do not confuse the `amazon-bedrock` OpenAI-compatible profile with the separate AWS-native `AxAIBedrock` client.
+- Do not invent Meta image, file, model-listing, or response-lifecycle methods. Muse Image uses `chat()`, Voice uses `transcribe()` or realtime `chat()`, and inline data/URLs use normal chat content.
 - Do not omit `resourceName` and `deploymentName` for Azure OpenAI.

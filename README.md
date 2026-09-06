@@ -80,7 +80,7 @@ const { sentiment } = await classify.forward(llm, {
 ```
 
 No prompt engineering. Switch `name: "openai"` to `"anthropic"`, `"google-gemini"`,
-`"together"`, `"fireworks"`, `"deepseek"`, `"grok"`, etc. — same signature,
+`"meta"`, `"together"`, `"fireworks"`, `"deepseek"`, `"grok"`, etc. — same signature,
 same code. The name is a deployment profile: a DeepSeek model hosted by
 Together uses Together's endpoint and reasoning rules, not DeepSeek's native
 wire format.
@@ -514,10 +514,11 @@ const result = await optimizer.compile(
 | Standard Schema v1 | `f`, `fn` | Zod, Valibot, ArkType — per-field or whole-object |
 | Tools / function calling | `fn`, `functions:` option | typed args, typed return, async handler |
 | Streaming + validation | `.streamingForward()` | parses at field boundaries |
-| Multi-modal | `f.image`, `f.audio`, `.chat({ audio })` | OpenAI, Gemini, Anthropic |
-| Batch STT/TTS | `ai.transcribe`, `ai.speak` | OpenAI, xAI, Gemini, Mistral where provider endpoints exist |
+| Multi-modal | `f.image`, `f.audio`, `.chat({ audio })` | OpenAI, Gemini, Anthropic, Meta Muse Spark |
+| Image generation/editing | `ai.chat` + `result.images` | Meta Muse Image uses normal multi-turn chat memory |
+| Batch STT/TTS | `ai.transcribe`, `ai.speak` | OpenAI, xAI, Gemini, Mistral, and Meta Voice where provider endpoints exist |
 | Signature audio artifacts | `speech:audio` outputs + `speech` options | model emits script text, Ax synthesizes audio after parsing |
-| Conversational audio | `.chat()` + `result.audio` | OpenAI `gpt-audio*`, `gpt-realtime-2`, `gpt-realtime-whisper`; Gemini Live native audio; Grok Voice; also in Python/Go/Rust/Java/C++ via `realtime_chat()` |
+| Conversational audio | `.chat()` + `result.audio` | OpenAI `gpt-audio*`, `gpt-realtime-2`, `gpt-realtime-whisper`; Gemini Live native audio; Grok Voice; Meta Voice realtime transcription; also in Python/Go/Rust/Java/C++ via `realtime_chat()` |
 | Workflows | `flow` | typed program graphs, branching, loops, parallelism, `.returns(...)` |
 | Optimization | `AxGEPA`, `AxBootstrapFewShot` | Pareto front, few-shot, portable optimizer artifacts |
 | Agent loop | `agent`, `AxAgent` | distiller → executor → responder |
@@ -526,7 +527,7 @@ const result = await optimizer.compile(
 | Skills | `onSkillsSearch`, `consult(...)` | on-demand prompt-section loader |
 | Sandboxed JS runtime | `AxJSRuntime`, `AxJSRuntimePermission` | TypeScript runtime for Node, Bun, Deno, browser |
 | Recursive runtime (RLM) | `agent({ runtime, contextFields })` | long-context REPL with checkpointed replay |
-| Deployment profiles | `ai({ name: ... })` | 46 named native, router/cloud, hosted-inference, and configurable-runtime deployments |
+| Deployment profiles | `ai({ name: ... })` | 49 named native, router/cloud, hosted-inference, and configurable-runtime deployments |
 | Custom OpenAI-compatible endpoint | `ai({ name: "openai-compatible", apiURL, apiKey, config: { model } })` | conservative capabilities; unknown names are errors |
 | Observability | OpenTelemetry, `actorTurnCallback`, `onFunctionCall` | per-turn telemetry, tool-call tracing |
 | MCP | `AxMCPClient`, `AxMCPStreamableHTTPTransport`, `AxMCPStdioTransport` | use any MCP server as a tool source |

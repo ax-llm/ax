@@ -1,0 +1,39 @@
+{
+  "expected_error_contains": "does not support explicitly named tool choices",
+  "kind": "ai_chat",
+  "model": "muse-spark-1.3",
+  "name": "meta-chat-caller-ax-output-tool-rejected",
+  "provider": "meta-chat",
+  "request": {
+    "chat_prompt": [
+      {
+        "content": "Force a named tool",
+        "role": "user"
+      }
+    ],
+    "function_call": {
+      "function": {
+        "name": "__axOutput"
+      },
+      "type": "function"
+    },
+    "functions": [
+      {
+        "description": "Emit output",
+        "name": "__axOutput",
+        "parameters": {
+          "properties": {
+            "answer": {
+              "type": "string"
+            }
+          },
+          "required": ["answer"],
+          "type": "object"
+        }
+      }
+    ],
+    "model_config": {
+      "stream": false
+    }
+  }
+}

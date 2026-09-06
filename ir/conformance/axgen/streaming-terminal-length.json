@@ -1,0 +1,23 @@
+{
+  "expected_error_contains": "Max tokens reached before completion",
+  "kind": "stream",
+  "name": "streaming-terminal-length",
+  "stream_events": [
+    {
+      "results": [
+        {
+          "content": "{\"answer\":\"Done\"}",
+          "index": 0
+        }
+      ]
+    },
+    {
+      "results": [
+        {
+          "finish_reason": "length",
+          "index": 0
+        }
+      ]
+    }
+  ]
+}

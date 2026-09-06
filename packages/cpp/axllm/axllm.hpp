@@ -3,6 +3,7 @@
 #include <algorithm>
 #include <atomic>
 #include <chrono>
+#include <condition_variable>
 #include <cmath>
 #include <thread>
 #include <cctype>
@@ -385,35 +386,36 @@ struct Core {
   static Value validate_chat_request(Value request);
   static Value openai_reasoning_effort(Value model, Value budget);
   static Value build_chat_request(Value service, Value request, Value options);
-  static Value openai_chat_reasoning_effort(Value model, Value budget);
   static Value normalize_chat_response(Value raw);
+  static Value openai_chat_reasoning_effort(Value model, Value budget);
   static Value normalize_stream_delta(Value raw, Value state);
   static Value _openai_copy_config_key_impl(Value payload, Value model_config, Value source, Value target);
   static Value build_embed_request(Value service, Value request, Value options);
-  static Value _openai_message_impl(Value message, Value reasoning_content_mode, Value reasoning_details_mode);
+  static Value _openai_message_impl(Value message, Value reasoning_content_mode, Value reasoning_details_mode, Value extended_media);
   static Value normalize_embed_response(Value raw);
   static Value normalize_token_usage(Value usage);
-  static Value _openai_content_part_impl(Value part);
   static Value merge_usage_context(Value defaults, Value overrides);
+  static Value _openai_content_part_impl(Value part, Value extended_media);
   static Value build_usage_event(Value operation, Value response, Value options, Value streaming);
-  static Value _openai_tool_call_to_provider_impl(Value call);
   static Value _ai_model_usage_impl(Value ai_name, Value model, Value usage);
+  static Value ai_merge_replay_metadata(Value previous, Value incoming);
+  static Value _openai_tool_call_to_provider_impl(Value call);
   static Value _openai_tool_spec_impl(Value fn);
-  static Value _chat_result_to_completion(Value result, Value fallback_index);
   static Value openai_build_embed_request(Value request);
+  static Value _chat_result_to_completion(Value result, Value fallback_index);
   static Value openai_normalize_chat_response(Value raw, Value ai_name, Value model);
-  static Value chat_response_to_completion(Value response);
   static Value _openai_usage_with_service_tier(Value raw, Value usage);
   static Value _openai_normalize_chat_response_impl(Value raw, Value ai_name, Value model, Value reasoning_content_mode, Value reasoning_details_mode);
-  static Value ai_context_cache_rejection(Value status, Value body_json);
+  static Value chat_response_to_completion(Value response);
   static Value _openai_normalize_choice_impl(Value choice, Value raw, Value reasoning_content_mode, Value reasoning_details_mode);
+  static Value ai_context_cache_rejection(Value status, Value body_json);
   static Value ai_context_cache_expiry(Value provider_expire_time, Value now);
   static Value ai_context_cache_plan(Value configured, Value supported, Value explicit_name, Value existing, Value now, Value refresh_window_ms, Value create_eligible);
-  static Value ai_context_cache_recovery(Value current_entry, Value cache_name, Value external_registry);
   static Value _openai_normalize_tool_calls_impl(Value calls);
-  static Value ai_gemini_cache_ops(Value cache_name, Value ttl_seconds, Value api_key, Value model, Value create_body, Value options);
   static Value _openai_finish_reason_impl(Value value);
+  static Value ai_context_cache_recovery(Value current_entry, Value cache_name, Value external_registry);
   static Value openai_normalize_embed_response(Value raw, Value ai_name, Value model);
+  static Value ai_gemini_cache_ops(Value cache_name, Value ttl_seconds, Value api_key, Value model, Value create_body, Value options);
   static Value openai_normalize_stream_delta(Value raw, Value state, Value ai_name, Value model);
   static Value _openai_normalize_stream_delta_impl(Value raw, Value state, Value ai_name, Value model, Value reasoning_content_mode, Value reasoning_details_mode);
   static Value _openai_stream_choice_impl(Value choice, Value index_ids, Value reasoning_content_mode, Value reasoning_details_mode);
@@ -453,10 +455,13 @@ struct Core {
   static Value provider_operation_descriptor(Value profile, Value operation);
   static Value provider_resolve_operation_descriptor(Value profile, Value operation, Value options);
   static Value _provider_realtime_audio_descriptor(Value profile);
-  static Value provider_realtime_ws_url(Value profile, Value model, Value api_key);
+  static Value provider_realtime_ws_url(Value profile, Value model, Value api_key, Value options);
+  static Value provider_apply_realtime_credentials(Value setup, Value headers);
   static Value provider_should_use_realtime(Value profile, Value model, Value request, Value options);
   static Value provider_build_realtime_audio_setup(Value profile, Value request, Value options);
   static Value provider_build_realtime_audio_input(Value profile, Value request);
+  static Value _meta_asr_realtime_build_setup(Value descriptor, Value request, Value options);
+  static Value _meta_asr_realtime_build_input(Value descriptor, Value request);
   static Value _openai_realtime_compatible_build_setup(Value descriptor, Value request);
   static Value _openai_realtime_compatible_build_input(Value descriptor, Value request);
   static Value _gemini_live_bidi_build_setup(Value descriptor, Value request);
@@ -471,14 +476,19 @@ struct Core {
   static Value _provider_reasoning_details_field(Value profile, Value model);
   static Value _provider_reasoning_replay_field(Value profile, Value model);
   static Value _provider_reasoning_details_replay_field(Value profile, Value model);
-  static Value _provider_apply_request_rules(Value payload, Value request, Value rules);
+  static Value _provider_apply_request_rules(Value payload, Value request, Value rules, Value options);
   static Value _provider_apply_service_tier(Value profile, Value payload, Value request, Value options, Value features, Value profile_rules, Value model_rules);
   static Value provider_build_chat_request(Value profile, Value request, Value options);
+  static Value _meta_prepare_responses_request(Value payload, Value request, Value options);
+  static Value _meta_prepare_messages_request(Value payload, Value request, Value options);
+  static Value _meta_apply_prompt_cache_options(Value payload, Value options, Value request);
+  static Value _meta_strip_cache_control(Value payload);
   static Value _provider_apply_image_url_object_shape(Value payload);
   static Value _provider_apply_search_parameters_option(Value payload, Value request, Value model_config);
   static Value provider_build_embed_request(Value profile, Value request, Value options);
-  static Value provider_normalize_chat_response(Value profile, Value raw, Value ai_name, Value model);
-  static Value provider_normalize_stream_delta(Value profile, Value raw, Value state, Value ai_name, Value model);
+  static Value provider_normalize_chat_response(Value profile, Value raw, Value ai_name, Value model, Value context);
+  static Value provider_normalize_stream_delta(Value profile, Value raw, Value state, Value ai_name, Value model, Value context);
+  static Value _provider_normalize_image_outputs(Value response, Value context, Value model);
   static Value provider_classify_stream_error_status(Value profile, Value event);
   static Value is_retryable_status(Value status);
   static Value default_retry_config();
@@ -487,7 +497,9 @@ struct Core {
   static Value provider_normalize_embed_response(Value profile, Value raw, Value ai_name, Value model);
   static Value provider_build_transcribe_request(Value profile, Value request);
   static Value provider_build_speak_request(Value profile, Value request);
-  static Value provider_normalize_transcribe_response(Value profile, Value raw);
+  static Value provider_normalize_transcribe_response(Value profile, Value raw, Value request);
+  static Value _meta_build_transcribe_request(Value request);
+  static Value _meta_normalize_transcribe_response(Value raw, Value request);
   static Value provider_normalize_speak_response(Value profile, Value raw, Value request);
   static Value provider_normalize_realtime_event(Value profile, Value event, Value state, Value ai_name, Value model);
   static Value openai_responses_build_chat_request(Value request);
@@ -497,9 +509,11 @@ struct Core {
   static Value _openai_responses_input_item_impl(Value message);
   static Value _openai_responses_content_parts_impl(Value content, Value role);
   static Value _openai_responses_content_part_impl(Value part, Value role);
+  static Value _openai_responses_copy_cache_control_impl(Value target, Value source);
   static Value openai_responses_normalize_chat_response(Value raw, Value ai_name, Value model);
   static Value _openai_responses_merge_output_item_impl(Value result, Value item);
   static Value _openai_responses_reasoning_text_impl(Value item);
+  static Value _openai_responses_reasoning_summary_impl(Value item);
   static Value _openai_responses_content_to_text_impl(Value content);
   static Value _openai_responses_extract_citations_impl(Value content);
   static Value _openai_responses_function_call_impl(Value item);
@@ -512,6 +526,9 @@ struct Core {
   static Value _gemini_build_speak_request(Value request);
   static Value _gemini_normalize_transcribe_response(Value raw);
   static Value _gemini_normalize_speak_response(Value raw, Value request);
+  static Value _meta_asr_realtime_normalize_event(Value event, Value state, Value ai_name, Value model);
+  static Value provider_finalize_realtime_response(Value profile, Value state, Value fallback);
+  static Value provider_realtime_terminal_response(Value response);
   static Value openai_responses_normalize_realtime_event(Value event, Value state, Value ai_name, Value model);
   static Value _gemini_live_bidi_normalize_realtime_event(Value event, Value state, Value ai_name, Value model);
   static Value _gemini_service_tier_impl(Value request, Value options, Value vertex, Value live);
@@ -531,7 +548,7 @@ struct Core {
   static Value _gemini_extract_citations_impl(Value candidate);
   static Value _gemini_usage_impl(Value usage);
   static Value _gemini_normalize_embed_response(Value raw, Value ai_name, Value model);
-  static Value _anthropic_build_chat_request(Value request);
+  static Value _anthropic_build_chat_request(Value request, Value supports_none);
   static Value _anthropic_apply_model_config_impl(Value payload, Value model_config, Value model);
   static Value _anthropic_is_adaptive_model_impl(Value model);
   static Value _anthropic_thinking_config_impl(Value model, Value level, Value show_thoughts);
@@ -539,7 +556,7 @@ struct Core {
   static Value _anthropic_content_parts_impl(Value content);
   static Value _anthropic_content_part_impl(Value part);
   static Value _anthropic_tool_spec_impl(Value fn);
-  static Value _anthropic_tool_choice_impl(Value request);
+  static Value _anthropic_tool_choice_impl(Value request, Value supports_none);
   static Value _anthropic_error_type_to_status(Value type);
   static Value _anthropic_map_error_event(Value error, Value raw);
   static Value _anthropic_normalize_chat_response(Value raw, Value ai_name, Value model);
@@ -556,8 +573,8 @@ struct Core {
   static Value _validate_optimization_component_value(Value component, Value value);
   static Value _validate_optimization_component_map(Value components, Value component_map);
   static Value _structured_output_scalar_placeholder(Value typ);
-  static Value _stream_event_content_parts_impl(Value event);
   static Value _validate_optimized_artifact_provenance(Value artifact, Value components);
+  static Value _stream_event_content_parts_impl(Value event);
   static Value _validate_optimized_artifact(Value artifact, Value components);
   static Value _structured_output_type_placeholder(Value typ);
   static Value _structured_output_shape(Value output_fields);
@@ -614,8 +631,8 @@ struct Core {
   static Value _response_function_calls_impl(Value response);
   static Value _append_tool_call_messages_impl(Value messages, Value response, Value calls);
   static Value _completion_call_to_chat_impl(Value call);
-  static Value _tool_result_message_impl(Value call, Value result);
   static Value _ace_apply_curator_operations(Value playbook, Value operations, Value options, Value now);
+  static Value _tool_result_message_impl(Value call, Value result);
   static Value _tool_error_message_impl(Value call, Value error);
   static Value _append_validation_retry_messages_impl(Value messages, Value response, Value error);
   static Value _ace_is_noop_acknowledgment(Value content);
@@ -1235,11 +1252,16 @@ class ScriptedRealtimeTransport : public RealtimeTransport {
   explicit ScriptedRealtimeTransport(std::vector<Value> inbound);
   void send(const Value& event) override;
   bool recv(Value& out) override;
+  void close() override;
   std::vector<Value> sent;
 
  private:
   std::vector<Value> inbound_;
   std::size_t index_ = 0;
+  bool meta_ = false;
+  bool ended_ = false;
+  std::mutex mutex_;
+  std::condition_variable cv_;
 };
 
 class OpenAICompatibleClient : public AxBaseAI {
@@ -1253,7 +1275,7 @@ class OpenAICompatibleClient : public AxBaseAI {
   std::vector<Value> realtime(Value events);
   Value realtime_audio_setup(Value request);
   Value realtime_audio_input(Value request);
-  Value realtime_chat(Value request, RealtimeTransport* transport = nullptr);
+  Value realtime_chat(Value request, RealtimeTransport* transport = nullptr, AxStreamHandler handler = {});
   Value get_features(Value model = Value()) override;
   double get_estimated_cost(Value model_usage) override;
   OpenAICompatibleClient& context_cache_registry(AxContextCacheRegistry* registry);

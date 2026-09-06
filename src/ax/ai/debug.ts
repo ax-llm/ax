@@ -94,6 +94,15 @@ export function logResponseStreamingDoneResult(
         if (result.thought) {
           existing.thought = (existing.thought ?? '') + result.thought;
         }
+        if (result.images) {
+          existing.images = [
+            ...(existing.images ?? []),
+            ...structuredClone(result.images),
+          ];
+        }
+        if (result.phase) {
+          existing.phase = result.phase;
+        }
         if (result.finishReason) {
           existing.finishReason = result.finishReason;
         }

@@ -203,7 +203,7 @@ public class OpenAICompatibleClient extends AxBaseAI {
     Object modelName = request.getOrDefault("model", payload.getOrDefault("model", model));
     Object raw = contextCacheChat(request, options, payload, modelName);
     if (raw == null) raw = requestJson(operationPath("chat", modelName), payload, false, "json", false, operationMethod("chat"), "openai-responses".equals(descriptor.get("transport")) ? "responses" : "chat");
-    return Core.asMap(Core.provider_normalize_chat_response(profile, raw, name, modelName));
+    return Core.asMap(Core.provider_normalize_chat_response(profile, raw, name, modelName, payload));
   }
 
   protected Map<String, Object> doEmbed(Map<String, Object> request, Map<String, Object> options) throws Exception {
@@ -368,7 +368,7 @@ public class OpenAICompatibleClient extends AxBaseAI {
         }
       }
       Map<String, Object> state = new LinkedHashMap<>();
-      Map<String, Object> firstNormalized = first == null ? null : Core.asMap(Core.provider_normalize_stream_delta(profile, first, state, name, modelName));
+      Map<String, Object> firstNormalized = first == null ? null : Core.asMap(Core.provider_normalize_stream_delta(profile, first, state, name, modelName, payload));
       boolean[] emitFirst = {firstNormalized != null};
       RawSseStream selectedRaw = raw;
       return new AxChatStream(
@@ -376,7 +376,7 @@ public class OpenAICompatibleClient extends AxBaseAI {
           if (emitFirst[0]) { emitFirst[0] = false; return firstNormalized; }
           try {
             Object event = selectedRaw.nextEvent();
-            return event == null ? null : Core.asMap(Core.provider_normalize_stream_delta(profile, event, state, name, modelName));
+            return event == null ? null : Core.asMap(Core.provider_normalize_stream_delta(profile, event, state, name, modelName, payload));
           } catch (AxAIServiceError error) {
             throw error;
           } catch (Exception error) {
@@ -408,7 +408,8 @@ public class OpenAICompatibleClient extends AxBaseAI {
     long started = System.nanoTime();
     Throwable failure = null;
     try {
-      AxRequestExecutor next = () -> streamEventsIncremental(payload, modelName);
+      AxRequestExecutor next = () -> Boolean.TRUE.equals(Core.provider_should_use_realtime(profile, selectedModel, req, streamOptions))
+          ? realtimeStream(req) : streamEventsIncremental(payload, modelName);
       Object raw = hooks.rateLimiter() == null
           ? next.execute()
           : hooks.rateLimiter().run(next, new AxRateLimitInfo("chat", name, selectedModel, true, lastModelUsage == null ? null : new LinkedHashMap<>(lastModelUsage)));
@@ -453,8 +454,22 @@ public class OpenAICompatibleClient extends AxBaseAI {
     Object modelName = request.getOrDefault("model", model);
     Map<String, Object> descriptor = Core.asMap(Core.provider_operation_descriptor(profile, "transcribe"));
     String bodyKey = "multipart".equals(String.valueOf(descriptor.getOrDefault("body", "json"))) ? "data" : "json";
-    Object raw = requestJson(operationPath("transcribe", modelName), payload, false, bodyKey, false, operationMethod("transcribe"), "transcribe");
-    return Core.asMap(Core.provider_normalize_transcribe_response(profile, raw));
+    Map<String, Object> query = Core.asMap(payload.remove("query"));
+    String endpoint = operationPath("transcribe", modelName);
+    if (!query.isEmpty()) {
+      List<String> parts = new ArrayList<>();
+      for (Map.Entry<String, Object> entry : query.entrySet()) {
+        parts.add(URLEncoder.encode(entry.getKey(), StandardCharsets.UTF_8) + "=" + URLEncoder.encode(String.valueOf(entry.getValue()), StandardCharsets.UTF_8));
+      }
+      endpoint += (endpoint.contains("?") ? "&" : "?") + String.join("&", parts);
+    }
+    Object raw = requestJson(endpoint, payload, false, bodyKey, false, operationMethod("transcribe"), "transcribe");
+    if ("meta".equals(profile) && raw instanceof String) {
+      List<Object> events = new ArrayList<>();
+      for (Object event : iterSseJson(raw)) events.add(event);
+      raw = Map.of("events", events);
+    }
+    return Core.asMap(Core.provider_normalize_transcribe_response(profile, raw, request));
   }
 
   public Map<String, Object> speak(Map<String, Object> request) throws Exception {
@@ -493,12 +508,19 @@ public class OpenAICompatibleClient extends AxBaseAI {
   public static final class ScriptedRealtimeTransport implements RealtimeTransport {
     private final java.util.Deque<Map<String, Object>> inbound = new java.util.ArrayDeque<>();
     public final List<Map<String, Object>> sent = new ArrayList<>();
+    private final java.util.concurrent.CountDownLatch ended = new java.util.concurrent.CountDownLatch(1);
+    private boolean meta = false;
     public ScriptedRealtimeTransport(List<?> inbound) {
-      for (Object event : inbound) this.inbound.add(Core.asMap(event));
+      for (Object event : inbound) { Map<String, Object> frame = Core.asMap(event); this.inbound.add(frame); if (frame.containsKey("sessionId") && !frame.containsKey("type")) meta = true; }
     }
-    public void send(Map<String, Object> event) { sent.add(event); }
-    public Map<String, Object> recv() { return inbound.poll(); }
-    public void close() {}
+    public void send(Map<String, Object> event) { sent.add(event); if ("endStream".equals(event.get("type"))) ended.countDown(); }
+    public Map<String, Object> recv() {
+      if (!inbound.isEmpty()) return inbound.poll();
+      try { if (meta && !ended.await(30, java.util.concurrent.TimeUnit.SECONDS)) throw new AxAIServiceError("scripted realtime input did not finish"); }
+      catch (InterruptedException error) { Thread.currentThread().interrupt(); throw new AxAIServiceError("scripted realtime interrupted"); }
+      return null;
+    }
+    public void close() { ended.countDown(); }
   }
 
   // Bridges the JDK WebSocket's async, fragment-delivering listener to a blocking
@@ -520,20 +542,32 @@ public class OpenAICompatibleClient extends AxBaseAI {
           socket.request(1);
           return null;
         }
-        @Override public void onError(java.net.http.WebSocket socket, Throwable error) { queue.offer(CLOSED); }
-        @Override public java.util.concurrent.CompletionStage<?> onClose(java.net.http.WebSocket socket, int statusCode, String reason) { queue.offer(CLOSED); return null; }
+        @Override public void onError(java.net.http.WebSocket socket, Throwable error) { queue.offer(new AxAIServiceError(error.toString())); }
+        @Override public java.util.concurrent.CompletionStage<?> onClose(java.net.http.WebSocket socket, int statusCode, String reason) {
+          queue.offer(statusCode == 1000 ? CLOSED : new AxAIServiceError("realtime WebSocket closed abnormally (code " + statusCode + ")"));
+          return null;
+        }
       }).join();
       this.ws.request(1);
     }
-    public void send(Map<String, Object> event) { ws.sendText(Json.stringify(event), true).join(); }
+    public void send(Map<String, Object> event) {
+      if ("binary".equals(String.valueOf(event.get("type")))) {
+        byte[] bytes = Base64.getDecoder().decode(String.valueOf(event.getOrDefault("data", "")));
+        ws.sendBinary(java.nio.ByteBuffer.wrap(bytes), true).join();
+      } else {
+        ws.sendText(Json.stringify(event), true).join();
+      }
+    }
     public Map<String, Object> recv() {
       try {
         Object item = queue.poll(30, java.util.concurrent.TimeUnit.SECONDS);
-        if (item == null || item == CLOSED) return null;
+        if (item == null) throw new AxAIServiceError("realtime WebSocket timed out");
+        if (item instanceof RuntimeException error) throw error;
+        if (item == CLOSED) return null;
         return Core.asMap(Json.parse((String) item));
-      } catch (InterruptedException e) { Thread.currentThread().interrupt(); return null; }
+      } catch (InterruptedException e) { Thread.currentThread().interrupt(); throw new AxAIServiceError("realtime WebSocket interrupted"); }
     }
-    public void close() { try { ws.sendClose(java.net.http.WebSocket.NORMAL_CLOSURE, ""); } catch (Exception ignored) {} }
+    public void close() { ws.abort(); queue.offer(CLOSED); }
   }
 
   /** Drive a realtime audio turn over a WebSocket transport: send the Core-built
@@ -542,9 +576,45 @@ public class OpenAICompatibleClient extends AxBaseAI {
    * concatenated, audio chunks base64-joined). Pass a ScriptedRealtimeTransport
    * to exercise the loop offline without a socket. */
   public Map<String, Object> realtimeChat(Map<String, Object> request, RealtimeTransport transport) {
+    return realtimeChat(request, transport, null);
+  }
+
+  private AxChatStream realtimeStream(Map<String, Object> request) {
+    java.util.concurrent.BlockingQueue<Object> queue = new java.util.concurrent.ArrayBlockingQueue<>(1);
+    Object done = new Object();
+    Thread worker = new Thread(() -> {
+      try {
+        Map<String, Object> finalResponse = realtimeChat(request, null, event -> {
+          try { queue.put(event); } catch (InterruptedException error) { Thread.currentThread().interrupt(); throw new AxAIServiceError("realtime stream cancelled"); }
+        });
+        queue.put(Core.provider_realtime_terminal_response(finalResponse));
+        queue.put(done);
+      } catch (Throwable error) {
+        if (!Thread.currentThread().isInterrupted()) {
+          try { queue.put(error); } catch (InterruptedException ignored) { Thread.currentThread().interrupt(); }
+        }
+      }
+    }, "ax-realtime-stream");
+    worker.setDaemon(true);
+    worker.start();
+    return new AxChatStream(() -> {
+      Object value = queue.take();
+      if (value == done) return null;
+      if (value instanceof Throwable error) throw Core.asRuntime(error);
+      return Core.asMap(value);
+    }, worker::interrupt);
+  }
+
+  private Map<String, Object> realtimeChat(Map<String, Object> request, RealtimeTransport transport, java.util.function.Consumer<Map<String, Object>> emit) {
     Object model = request.getOrDefault("model", this.model);
     Map<String, Object> setup = realtimeAudioSetup(request);
     List<Object> inputs = realtimeAudioInput(request);
+    if ("meta".equals(profile) && credentialProvider != null) {
+      try {
+        Map<String, String> fresh = credentialProvider.credentials(new CredentialRequest(profile, "realtime", "WS", (String) realtimeWsTarget(String.valueOf(model))[0]));
+        setup = Core.asMap(Core.provider_apply_realtime_credentials(setup, fresh));
+      } catch (Exception error) { throw Core.asRuntime(error); }
+    }
     boolean ownTransport = transport == null;
     if (ownTransport) {
       Object[] target = realtimeWsTarget(String.valueOf(model));
@@ -552,26 +622,69 @@ public class OpenAICompatibleClient extends AxBaseAI {
       Map<String, String> wsHeaders = (Map<String, String>) target[1];
       transport = new WebSocketRealtimeTransport((String) target[0], wsHeaders);
     }
+    final RealtimeTransport sendingTransport = transport;
+    final Map<String, Object> sendingSetup = setup;
+    final java.util.concurrent.atomic.AtomicReference<RuntimeException> sendError = new java.util.concurrent.atomic.AtomicReference<>();
+    Thread sender = null;
     try {
       transport.send(setup);
       boolean inputSent = false;
       List<Object> events = new ArrayList<>();
+      Map<String, Object> state = new LinkedHashMap<>();
+      state.put("partial_mode", setup.get("partialMode"));
       while (true) {
         Map<String, Object> event = transport.recv();
         if (event == null) break;
         if ("error".equals(String.valueOf(event.get("type")))) {
           Map<String, Object> err = Core.asMap(event.get("error"));
-          throw new AxAIServiceError(String.valueOf(err.getOrDefault("message", "realtime error")));
+          throw new AxAIServiceError(String.valueOf(event.getOrDefault("message", err.getOrDefault("message", "realtime error"))));
         }
         if (realtimeEventIsReady(event)) {
-          if (!inputSent) { inputSent = true; for (Object item : inputs) transport.send(Core.asMap(item)); }
+          if (event.get("sessionId") != null) state.put("session_id", event.get("sessionId"));
+          if (!inputSent) {
+            inputSent = true;
+            Runnable sendInputs = () -> {
+            try {
+            for (Object item : inputs) {
+              if (Thread.currentThread().isInterrupted()) return;
+              Map<String, Object> input = Core.asMap(item);
+              if (sendingSetup.containsKey("audioEncoding") && "binary".equals(String.valueOf(input.get("type")))) {
+                int rate = "PCM_16KHZ".equals(String.valueOf(sendingSetup.get("audioEncoding"))) ? 16000 : 24000;
+                byte[] bytes = Base64.getDecoder().decode(String.valueOf(input.getOrDefault("data", "")));
+                if (bytes.length % 2 != 0) throw new AxAIServiceError("PCM16 audio must contain complete 16-bit samples");
+                int chunkSize = rate * 2 * 80 / 1000;
+                for (int offset = 0; offset < bytes.length; offset += chunkSize) {
+                  if (Thread.currentThread().isInterrupted()) return;
+                  byte[] chunk = java.util.Arrays.copyOfRange(bytes, offset, Math.min(offset + chunkSize, bytes.length));
+                  sendingTransport.send(Map.of("type", "binary", "data", Base64.getEncoder().encodeToString(chunk)));
+                  long millis = Math.round(chunk.length * 1000.0 / (rate * 2.0));
+                  try { Thread.sleep(millis); } catch (InterruptedException interrupted) { Thread.currentThread().interrupt(); return; }
+                }
+              } else {
+                sendingTransport.send(input);
+              }
+            }
+            } catch (RuntimeException error) {
+              sendError.set(error);
+              sendingTransport.close();
+            }
+            };
+            if (setup.containsKey("audioEncoding")) {
+              sender = new Thread(sendInputs, "ax-meta-audio");
+              sender.setDaemon(true);
+              sender.start();
+            } else sendInputs.run();
+          }
           continue;
         }
+        if (setup.containsKey("audioEncoding") && !inputSent) throw new AxAIServiceError("Meta Voice server did not acknowledge setup");
         boolean done = realtimeEventIsDone(event);
-        events.add(event);
+        Map<String, Object> normalized = Core.asMap(Core.provider_normalize_realtime_event(profile, event, state, name, model));
+        events.add(normalized);
+        if (emit != null) emit.accept(normalized);
         if (done) break;
       }
-      Map<String, Object> state = new LinkedHashMap<>();
+      if (setup.containsKey("audioEncoding") && !inputSent) throw new AxAIServiceError("Meta Voice closed before acknowledging setup");
       StringBuilder content = new StringBuilder();
       ByteArrayOutputStream audio = new ByteArrayOutputStream();
       boolean hasAudio = false;
@@ -580,7 +693,7 @@ public class OpenAICompatibleClient extends AxBaseAI {
       String finishReason = "";
       Object modelUsage = null;
       for (Object eventObj : events) {
-        Map<String, Object> out = Core.asMap(Core.provider_normalize_realtime_event(profile, eventObj, state, name, model));
+        Map<String, Object> out = Core.asMap(eventObj);
         List<Object> results = Core.asList(out.get("results"));
         if (results.isEmpty()) continue;
         Map<String, Object> result = Core.asMap(results.get(0));
@@ -619,15 +732,22 @@ public class OpenAICompatibleClient extends AxBaseAI {
       response.put("results", List.of(result));
       response.put("remote_id", responseId);
       response.put("model_usage", modelUsage);
-      return response;
+      return Core.asMap(Core.provider_finalize_realtime_response(profile, state, response));
     } finally {
+      if (sender != null) sender.interrupt();
       if (ownTransport) transport.close();
+      if (sender != null) {
+        try { sender.join(); }
+        catch (InterruptedException error) { Thread.currentThread().interrupt(); throw new AxAIServiceError("realtime audio interrupted"); }
+      }
+      if (sendError.get() != null) throw sendError.get();
     }
   }
 
   private static boolean realtimeEventIsReady(Map<String, Object> event) {
+    if (event.get("type") == null && event.get("sessionId") != null) return true;
     String type = String.valueOf(event.get("type"));
-    if (type.equals("session.created") || type.equals("session.updated") || type.equals("transcription_session.created") || type.equals("transcription_session.updated")) return true;
+    if (type.equals("session.created") || type.equals("session.updated") || type.equals("transcription_session.created") || type.equals("transcription_session.updated") || type.equals("ready") || type.equals("sessionStarted")) return true;
     return event.containsKey("setupComplete");
   }
 
@@ -642,7 +762,7 @@ public class OpenAICompatibleClient extends AxBaseAI {
     // Grammar-specific URL + auth construction lives in Core so the client stays
     // provider-agnostic.
     String key = apiKey == null || "null".equals(apiKey) ? "" : apiKey;
-    Map<String, Object> target = Core.asMap(Core.provider_realtime_ws_url(profile, model, key));
+    Map<String, Object> target = Core.asMap(Core.provider_realtime_ws_url(profile, model, key, options));
     Map<String, String> wsHeaders = new LinkedHashMap<>();
     for (Map.Entry<String, Object> header : Core.asMap(target.get("headers")).entrySet()) {
       wsHeaders.put(header.getKey(), String.valueOf(header.getValue()));
@@ -681,6 +801,7 @@ public class OpenAICompatibleClient extends AxBaseAI {
     String requestUrl = endpoint.startsWith("http://") || endpoint.startsWith("https://") ? endpoint : baseUrl + endpoint;
     call.put("url", requestUrl);
     Map<String, Object> resolvedHeaders = headers();
+    if ("meta".equals(profile) && "transcribe".equals(operation)) resolvedHeaders.put("Accept", "text/event-stream");
     if (credentialProvider != null) {
       Map<String, String> fresh = credentialProvider.credentials(
         new CredentialRequest(profile, operation, method, requestUrl)
@@ -731,7 +852,7 @@ public class OpenAICompatibleClient extends AxBaseAI {
     // for iterSseJson to fold. This explicit branch matches the other ports
     // rather than relying on Json.parse throwing on the SSE body to fall back.
     if (stream) return responseBody;
-    return Json.parse(responseBody);
+    try { return Json.parse(responseBody); } catch (RuntimeException ignored) { return responseBody; }
   }
 
   private RawSseStream requestSse(String endpoint, Map<String, Object> payload, Object modelName) throws Exception {
@@ -769,8 +890,8 @@ public class OpenAICompatibleClient extends AxBaseAI {
   }
 
   // Encode a request payload as multipart/form-data. Multipart operations (e.g. OpenAI
-  // /audio/transcriptions) carry the audio as a binary `file` part; every other field is a
-  // plain form field. The `file` value is a base64 String (optionally a data: URL) or a
+  // /audio/transcriptions) carry audio as a binary `file` or `audio` part; every other field is a
+  // plain form field. The binary value is a base64 String (optionally a data: URL) or a
   // Map {data, mimeType?, filename?}. The body is binary: text parts are UTF-8 bytes and the
   // file part is the raw decoded bytes.
   private static byte[] encodeMultipart(Map<String, Object> payload, String boundary) throws IOException {
@@ -781,7 +902,7 @@ public class OpenAICompatibleClient extends AxBaseAI {
       String key = entry.getKey();
       Object value = entry.getValue();
       if (value == null) continue;
-      if ("file".equals(key)) {
+      if ("file".equals(key) || "audio".equals(key)) {
         String data;
         String filename;
         String contentType;
@@ -809,7 +930,7 @@ public class OpenAICompatibleClient extends AxBaseAI {
         }
         out.write(dashes);
         out.write(crlf);
-        out.write(("Content-Disposition: form-data; name=\"file\"; filename=\"" + filename + "\"").getBytes(StandardCharsets.UTF_8));
+        out.write(("Content-Disposition: form-data; name=\"" + key + "\"; filename=\"" + filename + "\"").getBytes(StandardCharsets.UTF_8));
         out.write(crlf);
         out.write(("Content-Type: " + contentType).getBytes(StandardCharsets.UTF_8));
         out.write(crlf);
@@ -821,6 +942,10 @@ public class OpenAICompatibleClient extends AxBaseAI {
         out.write(crlf);
         out.write(("Content-Disposition: form-data; name=\"" + key + "\"").getBytes(StandardCharsets.UTF_8));
         out.write(crlf);
+        if ("request".equals(key)) {
+          out.write("Content-Type: application/json".getBytes(StandardCharsets.UTF_8));
+          out.write(crlf);
+        }
         out.write(crlf);
         out.write(String.valueOf(value).getBytes(StandardCharsets.UTF_8));
         out.write(crlf);

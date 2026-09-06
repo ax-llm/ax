@@ -297,6 +297,45 @@ writeFixture('streaming-assertion-fail-fast', {
   expected_error_contains: 'answer must not include forbidden',
 });
 
+writeFixture('structured-output-ax-choice-source', {
+  kind: 'forward',
+  signature: 'query:string -> answer:string, confidence:number',
+  input: { query: 'test' },
+  features: { structured_outputs: false, functions: true },
+  responses: [
+    {
+      content: '',
+      function_calls: [
+        {
+          id: 'call1',
+          name: '__axOutput',
+          params: { answer: 'Done', confidence: 1 },
+        },
+      ],
+    },
+  ],
+  expected_output: { answer: 'Done', confidence: 1 },
+  expected_request: {
+    function_call: { type: 'function', function: { name: '__axOutput' } },
+    function_call_source: 'ax',
+  },
+  expected_request_count: 1,
+});
+
+for (const finishReason of ['length', 'error']) {
+  writeFixture(`streaming-terminal-${finishReason}`, {
+    kind: 'stream',
+    stream_events: [
+      { results: [{ index: 0, content: '{"answer":"Done"}' }] },
+      { results: [{ index: 0, finish_reason: finishReason }] },
+    ],
+    expected_error_contains:
+      finishReason === 'length'
+        ? 'Max tokens reached before completion'
+        : 'Streaming response failed',
+  });
+}
+
 writeFixture('examples-message-pairs-exact', {
   kind: 'forward',
   signature: 'question:string -> answer:string',

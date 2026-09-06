@@ -66,6 +66,35 @@ remains the compatibility alias for native JSON Schema support, not for every
 JSON response format. The selected rung is recorded with the chat log so runs
 remain comparable and debuggable.
 
+### Meta Muse models
+
+Use `meta` for Meta's recommended Responses transport, `meta-chat` for Chat
+Completions, or `meta-messages` for Anthropic-compatible Messages. All three
+use `MODEL_API_KEY` bearer authentication and default to `muse-spark-1.3`.
+Ax maps logical `highest` reasoning to `xhigh`; unsupported reasoning and
+forced named-tool choices fail locally.
+
+Muse Spark uses the normal chat API. Muse Image (`muse-image-1.0`) also uses
+chat through `meta`: prompts and reference images go in the existing content
+array, and generated images come back in `results[].images` with their MIME
+type. Preserve the result in chat memory to edit the image on a later turn.
+Ordinary function tools are not supported by Muse Image.
+
+Muse Voice (`muse-voice-transcribe-1.0`) uses `transcribe` for mono WAV files
+and the existing streaming chat surface for realtime PCM16 at 16 or 24 kHz.
+Transcription supports speaker labels, turn timestamps, language bias,
+keywords, progress, and session IDs. It does not synthesize speech.
+Realtime partial captions are replacement snapshots in `results[].transcript`
+(`text` plus `isFinal`, or `is_final` in generated languages), keyed by result
+ID. Replace each partial instead of concatenating it. Normal `content` contains
+finalized turns once, in speech-start order. Audio sending and event reception
+run concurrently.
+
+Contributor variants explicitly allow provider-training data use and are
+never defaults. Muse Glimmer runs through the existing `vllm`, `llama-cpp`,
+`ollama`, or `lm-studio` profiles; Ax does not download or manage weights.
+No standalone image-generation or file-management service methods are added.
+
 ### Renewable credentials
 
 Use the language's `credentialProvider` / `credential_provider` callback for

@@ -53,6 +53,55 @@ public final class RealtimeAudioTurnExample {
     if (!(audio instanceof Map) || !"AQI=".equals(((Map<?, ?>) audio).get("data"))) {
       fail("audio chunk not surfaced", finalResponse);
     }
+    OpenAICompatibleClient meta = (OpenAICompatibleClient) Ax.ai("meta", Map.of("model", "muse-voice-transcribe-1.0", "api_key", "test-key"));
+    Map<String, Object> metaRequest = Map.of(
+        "model", "muse-voice-transcribe-1.0",
+        "chat_prompt", List.of(Map.of("role", "user", "content", List.of(Map.of("type", "audio", "data", "AAE=", "format", "pcm16")))),
+        "audio", Map.of("input", Map.of("sampleRate", 16000, "channels", 1)),
+        "model_config", Map.of("realtimeTranscription", Map.of("partialMode", "delta")));
+    OpenAICompatibleClient.ScriptedRealtimeTransport metaTransport = new OpenAICompatibleClient.ScriptedRealtimeTransport(List.of(
+        Map.of("sessionId", "meta-session"),
+        Map.of("type", "speechStart", "turnId", "one"),
+        Map.of("type", "transcript", "transcript", "Hello"),
+        Map.of("type", "transcript", "transcript", " world"),
+        Map.of("type", "speaker", "speaker", "A"),
+        Map.of("type", "speechStart", "turnId", "two"),
+        Map.of("type", "transcript", "transcript", "Second"),
+        Map.of("type", "speechComplete", "turnId", "one", "transcript", "Hello world!"),
+        Map.of("type", "speechComplete", "turnId", "two", "transcript", "Second turn")));
+    Map<String, Object> metaFinal = meta.realtimeChat(metaRequest, metaTransport);
+    List<?> metaResults = (List<?>) metaFinal.get("results");
+    if (!"meta-session".equals(metaFinal.get("remote_session_id")) || metaResults.size() != 2 || !"Hello world!".equals(((Map<?, ?>) metaResults.get(0)).get("content")) || !"Second turn".equals(((Map<?, ?>) metaResults.get(1)).get("content"))) fail("Meta overlapping turns or session lost", metaFinal);
+    if (metaTransport.sent.size() != 3 || !"binary".equals(metaTransport.sent.get(1).get("type")) || !"endStream".equals(metaTransport.sent.get(2).get("type"))) fail("Meta input order", metaTransport.sent);
+    OpenAICompatibleClient.RealtimeTransport duplex = new OpenAICompatibleClient.RealtimeTransport() {
+      final java.util.concurrent.BlockingQueue<Map<String, Object>> frames = new java.util.concurrent.LinkedBlockingQueue<>();
+      volatile boolean ended = false;
+      int chunks = 0;
+      public void send(Map<String, Object> event) {
+        if (event.containsKey("authorization")) frames.offer(Map.of("sessionId", "duplex"));
+        else if ("binary".equals(event.get("type")) && ++chunks == 1) frames.offer(Map.of("type", "transcript", "transcript", "wrong hypothesis"));
+        else if ("endStream".equals(event.get("type"))) { ended = true; frames.offer(Map.of("type", "transcript", "transcript", "Correct final.", "final", true)); frames.offer(Map.of()); }
+      }
+      public Map<String, Object> recv() {
+        try {
+          Map<String, Object> event = frames.poll(3, java.util.concurrent.TimeUnit.SECONDS);
+          if (event == null) throw new IllegalStateException("duplex receiver timed out");
+          if ("wrong hypothesis".equals(event.get("transcript")) && ended) throw new IllegalStateException("partial delayed until endStream");
+          return event.isEmpty() ? null : event;
+        } catch (InterruptedException error) { Thread.currentThread().interrupt(); throw new IllegalStateException(error); }
+      }
+      public void close() { frames.offer(Map.of()); }
+    };
+    Map<String, Object> duplexRequest = new LinkedHashMap<>(metaRequest);
+    duplexRequest.put("model_config", Map.of());
+    duplexRequest.put("chat_prompt", List.of(Map.of("role", "user", "content", List.of(Map.of("type", "audio", "format", "pcm16", "data", Base64.getEncoder().encodeToString(new byte[9600]))))));
+    Map<String, Object> duplexResult = meta.realtimeChat(duplexRequest, duplex);
+    if (!"Correct final.".equals(((Map<?, ?>)((List<?>)duplexResult.get("results")).get(0)).get("content"))) fail("duplex final lost", duplexResult);
+    AxMemory memory = new AxMemory();
+    memory.updateResult(Map.of("thought_blocks", List.of(Map.of("id", "r", "data", "Plan")), "images", List.of(Map.of("id", "image", "data", "partial"))));
+    memory.updateResult(Map.of("thought_blocks", List.of(Map.of("id", "r", "data", "Plan.", "summary", "Plan.", "encrypted_content", "opaque"))));
+    String replay = Json.stringify(memory.getLast());
+    if (!replay.contains("opaque") || !replay.contains("image") || replay.contains("PlanPlan")) fail("replay metadata lost", replay);
     System.out.println("realtime-audio-turn-ok");
   }
 

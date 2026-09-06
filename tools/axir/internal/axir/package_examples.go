@@ -2221,6 +2221,84 @@ assert sent_types == ["session.update", "conversation.item.create", "response.cr
 assert result["content"] == "hello", result
 assert result["finish_reason"] == "stop", result
 assert result.get("audio", {}).get("data") == "AQI=", result
+from axllm import ai
+meta = ai("meta", model="muse-voice-transcribe-1.0", api_key="test-key")
+assert meta.realtime_audio_setup({"model": "muse-voice-transcribe-1.0"})["authorization"]["accessToken"] == "Bearer test-key"
+custom_meta = ai("meta", model="muse-voice-transcribe-1.0", api_key="test-key", base_url="https://proxy.example/v1")
+assert custom_meta._realtime_ws_target("muse-voice-transcribe-1.0")[0] == "wss://proxy.example/v1/asr/realtime"
+meta_request = {
+    "model": "muse-voice-transcribe-1.0",
+    "chat_prompt": [{"role": "user", "content": [{"type": "audio", "data": "AAE=", "format": "pcm16"}]}],
+    "audio": {"input": {"sampleRate": 16000, "channels": 1}},
+    "model_config": {"realtimeTranscription": {"partialMode": "delta"}},
+}
+meta_transport = ScriptedRealtimeTransport([
+    {"sessionId": "meta-session"},
+    {"type": "speechStart", "turnId": "one"},
+    {"type": "transcript", "transcript": "Hello"},
+    {"type": "transcript", "transcript": " world"},
+    {"type": "speaker", "speaker": "A"},
+    {"type": "speechStart", "turnId": "two"},
+    {"type": "transcript", "transcript": "Second"},
+    {"type": "speechComplete", "turnId": "one", "transcript": "Hello world!"},
+    {"type": "speechComplete", "turnId": "two", "transcript": "Second turn"},
+])
+meta_final = meta.realtime_chat(meta_request, transport=meta_transport)
+assert meta_final["remote_session_id"] == "meta-session", meta_final
+assert [r["content"] for r in meta_final["results"]] == ["Hello world!", "Second turn"], meta_final
+assert meta_transport.sent[0]["authorization"]["accessToken"] == "Bearer test-key", meta_transport.sent
+assert [e.get("type") for e in meta_transport.sent] == [None, "binary", "endStream"], meta_transport.sent
+import base64
+import queue
+import importlib
+wire = importlib.import_module('axllm.ai')
+
+class DuplexProbe:
+    instance = None
+    def __init__(self, *args):
+        DuplexProbe.instance = self
+        self.inbound = queue.Queue()
+        self.sent = []
+        self.closed = False
+    def send(self, event):
+        self.sent.append(event)
+        if 'authorization' in event:
+            self.inbound.put({'sessionId': 'duplex'})
+        elif event.get('type') == 'binary' and len(self.sent) == 2:
+            self.inbound.put({'type': 'transcript', 'transcript': 'wrong hypothesis'})
+        elif event.get('type') == 'endStream':
+            self.inbound.put({'type': 'transcript', 'transcript': 'Correct final.', 'final': True})
+            self.inbound.put(None)
+    def recv(self):
+        return self.inbound.get(timeout=3)
+    def close(self):
+        self.closed = True
+        self.inbound.put(None)
+
+original_socket = wire._WebSocketRealtimeTransport
+wire._WebSocketRealtimeTransport = DuplexProbe
+try:
+    duplex_request = {**meta_request, 'model_config': {}, 'chat_prompt': [{'role': 'user', 'content': [{'type': 'audio', 'data': base64.b64encode(bytes(9600)).decode(), 'format': 'pcm16'}]}]}
+    stream = meta.stream(duplex_request)
+    partial = next(stream)
+    assert partial['results'][0]['transcript']['text'] == 'wrong hypothesis', partial
+    assert not any(x.get('type') == 'endStream' for x in DuplexProbe.instance.sent)
+    content = ''.join(r.get('content', '') for chunk in stream for r in chunk['results'])
+    assert content == 'Correct final.', content
+    assert DuplexProbe.instance.closed
+    stream = meta.stream(duplex_request)
+    next(stream)
+    stream.close()
+    assert DuplexProbe.instance.closed
+    assert not any(x.get('type') == 'endStream' for x in DuplexProbe.instance.sent)
+finally:
+    wire._WebSocketRealtimeTransport = original_socket
+from axllm import AxMemory
+memory = AxMemory()
+memory.update_result({"thought_blocks": [{"id": "r", "data": "Plan"}], "images": [{"id": "image", "data": "partial"}]})
+memory.update_result({"thought_blocks": [{"id": "r", "data": "Plan.", "summary": "Plan.", "encrypted_content": "opaque"}]})
+assert memory.get_last()["response"]["thought_blocks"] == [{"id": "r", "data": "Plan.", "summary": "Plan.", "encrypted_content": "opaque"}]
+assert memory.get_last()["response"]["images"][0]["id"] == "image"
 print("realtime-audio-turn-ok")
 `
 
@@ -2932,6 +3010,55 @@ public final class RealtimeAudioTurnExample {
     if (!(audio instanceof Map) || !"AQI=".equals(((Map<?, ?>) audio).get("data"))) {
       fail("audio chunk not surfaced", finalResponse);
     }
+    OpenAICompatibleClient meta = (OpenAICompatibleClient) Ax.ai("meta", Map.of("model", "muse-voice-transcribe-1.0", "api_key", "test-key"));
+    Map<String, Object> metaRequest = Map.of(
+        "model", "muse-voice-transcribe-1.0",
+        "chat_prompt", List.of(Map.of("role", "user", "content", List.of(Map.of("type", "audio", "data", "AAE=", "format", "pcm16")))),
+        "audio", Map.of("input", Map.of("sampleRate", 16000, "channels", 1)),
+        "model_config", Map.of("realtimeTranscription", Map.of("partialMode", "delta")));
+    OpenAICompatibleClient.ScriptedRealtimeTransport metaTransport = new OpenAICompatibleClient.ScriptedRealtimeTransport(List.of(
+        Map.of("sessionId", "meta-session"),
+        Map.of("type", "speechStart", "turnId", "one"),
+        Map.of("type", "transcript", "transcript", "Hello"),
+        Map.of("type", "transcript", "transcript", " world"),
+        Map.of("type", "speaker", "speaker", "A"),
+        Map.of("type", "speechStart", "turnId", "two"),
+        Map.of("type", "transcript", "transcript", "Second"),
+        Map.of("type", "speechComplete", "turnId", "one", "transcript", "Hello world!"),
+        Map.of("type", "speechComplete", "turnId", "two", "transcript", "Second turn")));
+    Map<String, Object> metaFinal = meta.realtimeChat(metaRequest, metaTransport);
+    List<?> metaResults = (List<?>) metaFinal.get("results");
+    if (!"meta-session".equals(metaFinal.get("remote_session_id")) || metaResults.size() != 2 || !"Hello world!".equals(((Map<?, ?>) metaResults.get(0)).get("content")) || !"Second turn".equals(((Map<?, ?>) metaResults.get(1)).get("content"))) fail("Meta overlapping turns or session lost", metaFinal);
+    if (metaTransport.sent.size() != 3 || !"binary".equals(metaTransport.sent.get(1).get("type")) || !"endStream".equals(metaTransport.sent.get(2).get("type"))) fail("Meta input order", metaTransport.sent);
+    OpenAICompatibleClient.RealtimeTransport duplex = new OpenAICompatibleClient.RealtimeTransport() {
+      final java.util.concurrent.BlockingQueue<Map<String, Object>> frames = new java.util.concurrent.LinkedBlockingQueue<>();
+      volatile boolean ended = false;
+      int chunks = 0;
+      public void send(Map<String, Object> event) {
+        if (event.containsKey("authorization")) frames.offer(Map.of("sessionId", "duplex"));
+        else if ("binary".equals(event.get("type")) && ++chunks == 1) frames.offer(Map.of("type", "transcript", "transcript", "wrong hypothesis"));
+        else if ("endStream".equals(event.get("type"))) { ended = true; frames.offer(Map.of("type", "transcript", "transcript", "Correct final.", "final", true)); frames.offer(Map.of()); }
+      }
+      public Map<String, Object> recv() {
+        try {
+          Map<String, Object> event = frames.poll(3, java.util.concurrent.TimeUnit.SECONDS);
+          if (event == null) throw new IllegalStateException("duplex receiver timed out");
+          if ("wrong hypothesis".equals(event.get("transcript")) && ended) throw new IllegalStateException("partial delayed until endStream");
+          return event.isEmpty() ? null : event;
+        } catch (InterruptedException error) { Thread.currentThread().interrupt(); throw new IllegalStateException(error); }
+      }
+      public void close() { frames.offer(Map.of()); }
+    };
+    Map<String, Object> duplexRequest = new LinkedHashMap<>(metaRequest);
+    duplexRequest.put("model_config", Map.of());
+    duplexRequest.put("chat_prompt", List.of(Map.of("role", "user", "content", List.of(Map.of("type", "audio", "format", "pcm16", "data", Base64.getEncoder().encodeToString(new byte[9600]))))));
+    Map<String, Object> duplexResult = meta.realtimeChat(duplexRequest, duplex);
+    if (!"Correct final.".equals(((Map<?, ?>)((List<?>)duplexResult.get("results")).get(0)).get("content"))) fail("duplex final lost", duplexResult);
+    AxMemory memory = new AxMemory();
+    memory.updateResult(Map.of("thought_blocks", List.of(Map.of("id", "r", "data", "Plan")), "images", List.of(Map.of("id", "image", "data", "partial"))));
+    memory.updateResult(Map.of("thought_blocks", List.of(Map.of("id", "r", "data", "Plan.", "summary", "Plan.", "encrypted_content", "opaque"))));
+    String replay = Json.stringify(memory.getLast());
+    if (!replay.contains("opaque") || !replay.contains("image") || replay.contains("PlanPlan")) fail("replay metadata lost", replay);
     System.out.println("realtime-audio-turn-ok");
   }
 
@@ -4010,6 +4137,57 @@ int main() {
   if (axllm::stringify(axllm::Core::get(axllm::Core::get(result, "audio"), "data")) != "\"AQI=\"") {
     fail("audio chunk not surfaced", final_response);
   }
+  auto meta = std::dynamic_pointer_cast<axllm::OpenAICompatibleClient>(axllm::ai("meta", axllm::parse_json(R"({"model":"muse-voice-transcribe-1.0","api_key":"test-key"})")));
+  auto meta_request = axllm::parse_json(R"({"model":"muse-voice-transcribe-1.0","chat_prompt":[{"role":"user","content":[{"type":"audio","data":"AAE=","format":"pcm16"}]}],"audio":{"input":{"sampleRate":16000,"channels":1}},"model_config":{"realtimeTranscription":{"partialMode":"delta"}}})");
+  std::vector<axllm::Value> meta_inbound = {
+    axllm::parse_json(R"({"sessionId":"meta-session"})"),
+    axllm::parse_json(R"({"type":"speechStart","turnId":"one"})"),
+    axllm::parse_json(R"({"type":"transcript","transcript":"Hello"})"),
+    axllm::parse_json(R"({"type":"transcript","transcript":" world"})"),
+    axllm::parse_json(R"({"type":"speaker","speaker":"A"})"),
+    axllm::parse_json(R"({"type":"speechStart","turnId":"two"})"),
+    axllm::parse_json(R"({"type":"transcript","transcript":"Second"})"),
+    axllm::parse_json(R"({"type":"speechComplete","turnId":"one","transcript":"Hello world!"})"),
+    axllm::parse_json(R"({"type":"speechComplete","turnId":"two","transcript":"Second turn"})"),
+  };
+  axllm::ScriptedRealtimeTransport meta_transport(meta_inbound);
+  auto meta_final = meta->realtime_chat(meta_request, &meta_transport);
+  auto meta_results = axllm::Core::iter(axllm::Core::get(meta_final, "results"));
+  if (axllm::stringify(axllm::Core::get(meta_final, "remote_session_id")) != "\"meta-session\"" || meta_results.size() != 2 || axllm::stringify(axllm::Core::get(meta_results[0], "content")) != "\"Hello world!\"" || axllm::stringify(axllm::Core::get(meta_results[1], "content")) != "\"Second turn\"") fail("Meta overlapping turns or session lost", meta_final);
+  if (meta_transport.sent.size() != 3) fail("Meta setup/audio/shutdown order", meta_final);
+  class DuplexProbe : public axllm::RealtimeTransport {
+   public:
+    std::mutex mutex;
+    std::condition_variable ready;
+    std::vector<axllm::Value> frames;
+    bool ended = false;
+    int chunks = 0;
+    void send(const axllm::Value& event) override {
+      std::lock_guard<std::mutex> lock(mutex);
+      auto type = axllm::stringify(axllm::Core::get(event, "type"));
+      if (!axllm::Core::get(event, "authorization").is_null()) frames.push_back(axllm::object({{"sessionId", "duplex"}}));
+      else if (type == "\"binary\"" && ++chunks == 1) frames.push_back(axllm::object({{"type", "transcript"}, {"transcript", "wrong hypothesis"}}));
+      else if (type == "\"endStream\"") { ended = true; frames.push_back(axllm::object({{"type", "transcript"}, {"transcript", "Correct final."}, {"final", true}})); frames.push_back(axllm::Value()); }
+      ready.notify_all();
+    }
+    bool recv(axllm::Value& event) override {
+      std::unique_lock<std::mutex> lock(mutex);
+      if (!ready.wait_for(lock, std::chrono::seconds(3), [&] { return !frames.empty(); })) throw std::runtime_error("duplex receiver timed out");
+      event = frames.front(); frames.erase(frames.begin());
+      if (axllm::stringify(axllm::Core::get(event, "transcript")) == "\"wrong hypothesis\"" && ended) throw std::runtime_error("partial delayed until endStream");
+      return !event.is_null();
+    }
+    void close() override { std::lock_guard<std::mutex> lock(mutex); frames.push_back(axllm::Value()); ready.notify_all(); }
+  } duplex;
+  auto duplex_request = axllm::parse_json(R"({"model":"muse-voice-transcribe-1.0","chat_prompt":[{"role":"user","content":[{"type":"audio","data":"","format":"pcm16"}]}],"audio":{"input":{"sampleRate":16000,"channels":1}}})");
+  axllm::Core::set(duplex_request, "chat_prompt", axllm::array({axllm::object({{"role", "user"}, {"content", axllm::array({axllm::object({{"type", "audio"}, {"format", "pcm16"}, {"data", std::string(12800, 'A')}})})}})}));
+  auto duplex_final = meta->realtime_chat(duplex_request, &duplex);
+  if (axllm::stringify(axllm::Core::get(axllm::Core::iter(axllm::Core::get(duplex_final, "results"))[0], "content")) != "\"Correct final.\"") fail("duplex final lost", duplex_final);
+  axllm::AxMemory memory;
+  memory.update_result(axllm::parse_json(R"({"thought_blocks":[{"id":"r","data":"Plan"}],"images":[{"id":"image","data":"partial"}]})"));
+  memory.update_result(axllm::parse_json(R"({"thought_blocks":[{"id":"r","data":"Plan.","summary":"Plan.","encrypted_content":"opaque"}]})"));
+  auto replay = axllm::stringify(memory.history());
+  if (replay.find("opaque") == std::string::npos || replay.find("image") == std::string::npos || replay.find("PlanPlan") != std::string::npos) fail("replay metadata lost", replay);
   std::cout << "realtime-audio-turn-ok\n";
   return 0;
 }

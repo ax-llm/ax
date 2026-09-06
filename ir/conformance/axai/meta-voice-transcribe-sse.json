@@ -1,0 +1,49 @@
+{
+  "expected_output": {
+    "audio_processed_ms": 450,
+    "duration": 0.45,
+    "segments": [
+      {
+        "end": 0.3,
+        "id": "turn-1",
+        "speaker": "speaker-1",
+        "start": 0,
+        "text": "Hello world"
+      },
+      {
+        "end": 0.4,
+        "id": "turn-2",
+        "speaker": "speaker-2",
+        "start": 0.12,
+        "text": "Second turn"
+      }
+    ],
+    "session_id": "voice-sse",
+    "text": "Hello world\nSecond turn"
+  },
+  "expected_transport_request": {
+    "headers": {
+      "Accept": "text/event-stream"
+    }
+  },
+  "kind": "ai_transcribe",
+  "name": "meta-voice-transcribe-sse",
+  "provider": "meta",
+  "request": {
+    "audio": {
+      "channels": 1,
+      "data": "UklGRg==",
+      "format": "wav",
+      "sampleRate": 16000
+    },
+    "emitAudioProgress": true,
+    "model": "muse-voice-transcribe-1.0",
+    "partialMode": "cumulative"
+  },
+  "transport_responses": [
+    {
+      "body": "data: {\"type\":\"speechStart\",\"turnId\":\"turn-1\",\"audioProcessedMs\":0}\n\ndata: {\"type\":\"transcript\",\"transcript\":\"Hello\",\"audioProcessedMs\":100}\n\ndata: {\"type\":\"speaker\",\"label\":\"speaker-1\"}\n\ndata: {\"type\":\"speechStart\",\"turnId\":\"turn-2\",\"audioProcessedMs\":120}\n\ndata: {\"type\":\"transcript\",\"transcript\":\"Second\",\"audioProcessedMs\":200}\n\ndata: {\"type\":\"speaker\",\"label\":\"speaker-2\"}\n\ndata: {\"type\":\"speechComplete\",\"turnId\":\"turn-1\",\"transcript\":\"Hello world\",\"audioProcessedMs\":300}\n\ndata: {\"type\":\"speechComplete\",\"turnId\":\"turn-2\",\"transcript\":\"Second turn\",\"audioProcessedMs\":400}\n\ndata: {\"type\":\"audioProgress\",\"sessionId\":\"voice-sse\",\"audioProcessedMs\":450}\n\n",
+      "status": 200
+    }
+  ]
+}

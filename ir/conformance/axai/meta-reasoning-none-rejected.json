@@ -1,0 +1,19 @@
+{
+  "expected_error_contains": "does not support reasoning level none",
+  "kind": "ai_chat",
+  "model": "muse-spark-1.3",
+  "name": "meta-reasoning-none-rejected",
+  "provider": "meta",
+  "request": {
+    "chat_prompt": [
+      {
+        "content": "Do not reason",
+        "role": "user"
+      }
+    ],
+    "model_config": {
+      "stream": false,
+      "thinkingTokenBudget": "none"
+    }
+  }
+}
