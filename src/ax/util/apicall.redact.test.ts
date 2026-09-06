@@ -59,6 +59,28 @@ describe('apiCall verbose header redaction', () => {
     expect(logged).toContain('***');
   });
 
+  it('fully redacts cookie values containing spaces', async () => {
+    const logSpy = vi.spyOn(console, 'log').mockImplementation(() => {});
+    const mockFetch = okFetch();
+
+    await apiCall(
+      {
+        url: 'https://api.example.com/test',
+        fetch: mockFetch,
+        verbose: true,
+        headers: { Cookie: 'session=COOKIE_SECRET; theme=dark' },
+      },
+      { test: 'data' }
+    );
+
+    const logged = logSpy.mock.calls
+      .map((call) => call.map((arg) => String(arg)).join(' '))
+      .join('\n');
+
+    expect(logged).not.toContain('COOKIE_SECRET');
+    expect(logged).toContain('"Cookie": "***"');
+  });
+
   it('still sends the real, unredacted credential to fetch', async () => {
     vi.spyOn(console, 'log').mockImplementation(() => {});
     const mockFetch = okFetch();

@@ -529,8 +529,8 @@ const SENSITIVE_HEADER_NAMES = new Set([
  * for safe logging. Header-name matching is case-insensitive. The original
  * headers object is never mutated, so the real credentials are still sent.
  *
- * `Authorization` values keep their scheme (e.g. `Bearer ***`) so the log stays
- * useful for debugging while the secret itself is redacted.
+ * Sensitive values are masked in full. Preserving a prefix is unsafe for
+ * headers such as Cookie, whose first value commonly appears before a space.
  */
 function redactHeaders(
   headers: Record<string, string>
@@ -538,9 +538,7 @@ function redactHeaders(
   const redacted: Record<string, string> = {};
   for (const [key, value] of Object.entries(headers)) {
     if (SENSITIVE_HEADER_NAMES.has(key.toLowerCase())) {
-      const spaceIndex = typeof value === 'string' ? value.indexOf(' ') : -1;
-      redacted[key] =
-        spaceIndex > 0 ? `${value.slice(0, spaceIndex)} ***` : '***';
+      redacted[key] = '***';
     } else {
       redacted[key] = value;
     }
