@@ -13693,8 +13693,13 @@ fn expect_cancellation_error(error:AxError,reason:&str)->AxResult<()>{if error.e
 fn cancellation_client(fixture:&Value,response:Value,cancel_on_first:Option<(AxCancellationToken,String)>)->AxResult<(OpenAICompatibleClient,Arc<Mutex<Vec<Value>>>,Arc<Mutex<Vec<AxCancellationToken>>>)>{let requests=Arc::new(Mutex::new(Vec::new()));let cancellations=Arc::new(Mutex::new(Vec::new()));let transport=CancellationRecordingTransport{responses:vec![response].into(),requests:requests.clone(),cancellations:cancellations.clone(),cancel_on_first};let mut options=json!({"api_key":"test-key","model":"claude-sonnet-4-5"});if let Some(retry)=fixture.get("retry_options"){if let(Some(target),Some(source))=(options.as_object_mut(),retry.as_object()){for(key,value)in source{target.insert(key.clone(),value.clone());}}}Ok((ai("anthropic",options)?.with_transport(transport),requests,cancellations))}
 
 fn run_ai_cancellation_fixture(fixture:&Value)->AxResult<()> {
-    let reason=fixture["reason"].as_str().unwrap_or("fixture-stop");let request=fixture["request"].clone();let max_elapsed=Duration::from_millis(fixture["max_elapsed_ms"].as_u64().unwrap_or(1_000));
+    let reason=fixture["reason"].as_str().unwrap_or("fixture-stop");let request=fixture["request"].clone();let max_elapsed=Duration::from_millis(fixture["max_elapsed_ms"].as_u64().unwrap_or(1_000));let program_max_elapsed=Duration::from_millis(fixture["program_max_elapsed_ms"].as_u64().unwrap_or(100));
     let (mut preflight,preflight_requests,_)=cancellation_client(fixture,fixture["success_response"].clone(),None)?;let token=AxCancellationToken::default();token.cancel(reason);let error=preflight.chat_with_cancellation(request.clone(),json!({}),&token).expect_err("pre-cancelled provider request unexpectedly succeeded");expect_cancellation_error(error,reason)?;if !preflight_requests.lock().unwrap().is_empty(){return Err(AxError::new("fixture","pre-cancelled provider request reached transport"))}
+
+    let program_input=json!({"question":"cancel"});let program_options=json!({"infraRetries":2});
+    let mut generator=ax("question:string -> answer:string")?;let started=std::time::Instant::now();let error=generator.forward_with_cancellation(&mut preflight,program_input.clone(),program_options.clone(),&token).expect_err("pre-cancelled AxGen request unexpectedly succeeded");expect_cancellation_error(error,reason)?;if started.elapsed()>program_max_elapsed||!preflight_requests.lock().unwrap().is_empty(){return Err(AxError::new("fixture","AxGen cancellation retried or reached transport"))}
+    let mut cancellation_agent=agent("question:string -> answer:string")?;let started=std::time::Instant::now();let error=cancellation_agent.forward_with_cancellation(&mut preflight,program_input.clone(),program_options.clone(),&token).expect_err("pre-cancelled AxAgent request unexpectedly succeeded");expect_cancellation_error(error,reason)?;if started.elapsed()>program_max_elapsed||!preflight_requests.lock().unwrap().is_empty(){return Err(AxError::new("fixture","AxAgent cancellation retried or reached transport"))}
+    let mut cancellation_flow=flow("cancellation-flow").execute("answer",ax("question:string -> answer:string")?);let started=std::time::Instant::now();let error=cancellation_flow.forward_with_cancellation(&mut preflight,program_input,program_options,&token).expect_err("pre-cancelled AxFlow request unexpectedly succeeded");expect_cancellation_error(error,reason)?;if started.elapsed()>program_max_elapsed||!preflight_requests.lock().unwrap().is_empty(){return Err(AxError::new("fixture","AxFlow cancellation retried or reached transport"))}
 
     let backoff_token=AxCancellationToken::default();let (mut backoff,backoff_requests,backoff_cancellations)=cancellation_client(fixture,fixture["retry_response"].clone(),Some((backoff_token.clone(),reason.into())))?;let started=std::time::Instant::now();let error=backoff.stream_with_cancellation(request.clone(),&backoff_token).expect_err("provider retry backoff ignored cancellation");expect_cancellation_error(error,reason)?;if backoff_requests.lock().unwrap().len()!=1||backoff_cancellations.lock().unwrap().len()!=1||started.elapsed()>max_elapsed{return Err(AxError::new("fixture","provider retry cancellation attempted another request, skipped the custom token, or was not prompt"))}
 
@@ -17284,6 +17289,15 @@ fn core_exception_message(args: &[CoreValue]) -> Result<CoreValue, AxError> {
 }
 
 #[allow(dead_code)]
+fn core_exception_is_aborted(args: &[CoreValue]) -> Result<CoreValue, AxError> {
+    let aborted = match core_arg(args, 0) {
+        CoreValue::Error(error) => error.error_type.as_deref() == Some("AxAIServiceAbortedError") || error.category == "aborted",
+        _ => false,
+    };
+    Ok(CoreValue::Bool(aborted))
+}
+
+#[allow(dead_code)]
 fn core_map_keys(args: &[CoreValue]) -> Result<CoreValue, AxError> {
     match core_arg(args, 0) {
         CoreValue::Map(map) => Ok(CoreValue::list_from(
@@ -17341,7 +17355,7 @@ fn core_retry_sleep(args: &[CoreValue]) -> Result<CoreValue, AxError> {
         }
     };
     let seconds = (0.25 * ((attempt + 1) as f64)).min(1.0).max(0.0);
-    std::thread::sleep(Duration::from_secs_f64(seconds));
+    cancellation_backoff(Duration::from_secs_f64(seconds))?;
     Ok(CoreValue::Null)
 }
 

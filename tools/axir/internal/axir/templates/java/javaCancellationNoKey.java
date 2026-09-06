@@ -3,6 +3,17 @@ import java.util.*;
 import java.util.concurrent.atomic.AtomicInteger;
 
 public final class CancellationNoKeyExample {
+  @SuppressWarnings("unused")
+  private static void compileLegacyNullOptions(
+      AxAIService service, AiClient client, AxGen gen, AxAgent agent, AxFlow flow) throws Exception {
+    service.chat(Map.of(), null);
+    service.chat(Map.of(), Map.of(), null);
+    service.embed(Map.of("texts", List.of("x")), Map.of(), null);
+    gen.forward(client, Map.of(), null);
+    agent.forward(client, Map.of(), null);
+    flow.forward(client, Map.of(), null);
+  }
+
   public static void main(String[] args) throws Exception {
     AtomicInteger calls = new AtomicInteger();
     OpenAICompatibleClient.Transport transport = request -> {
@@ -18,7 +29,7 @@ public final class CancellationNoKeyExample {
     if (!token.cancel("user stopped") || token.cancel("later reason")) throw new AssertionError("cancellation was not one-shot");
 
     try {
-      client.chat(
+      client.chatWithCancellation(
         Map.of("chat_prompt", List.of(Map.of("role", "user", "content", "This must not be sent."))),
         Map.of(),
         token

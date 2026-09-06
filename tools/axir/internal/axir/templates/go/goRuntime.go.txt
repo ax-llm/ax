@@ -1084,15 +1084,21 @@ func runtimeJSONValue(value Value) any {
 	}
 }
 
+func axErrorValue(v AxError) Value {
+	return Object("__error", v.Category, "message", v.Message, "__type", v.Type, "status", float64(v.Status), "code", v.Code, "retryable", v.Retryable, "response_body", v.Payload)
+}
+
 func errorValue(raw any) Value {
-	switch v := raw.(type) {
-	case AxError:
-		return Object("__error", v.Category, "message", v.Message, "__type", v.Type, "status", float64(v.Status), "code", v.Code, "retryable", v.Retryable, "response_body", v.Payload)
-	case error:
-		return Object("__error", "runtime", "message", v.Error())
-	default:
-		return Object("__error", "runtime", "message", display(v))
+	if err, ok := raw.(error); ok {
+		var aborted AxAIServiceAbortedError
+		if errors.As(err, &aborted) { return axErrorValue(aborted.AIServiceError.AxError) }
+		var service AIServiceError
+		if errors.As(err, &service) { return axErrorValue(service.AxError) }
+		var axErr AxError
+		if errors.As(err, &axErr) { return axErrorValue(axErr) }
+		return Object("__error", "runtime", "message", err.Error())
 	}
+	return Object("__error", "runtime", "message", display(raw))
 }
 
 func asAxError(value Value) AxError {
@@ -1104,6 +1110,15 @@ func asAxError(value Value) AxError {
 		return AxError{Category: cat, Message: display(m["message"]), Type: display(m["__type"]), Status: int(num(m["status"])), Code: display(m["code"]), Retryable: coreTruthy(m["retryable"]), Payload: coreGet(m, "response_body", m["payload"])}
 	}
 	return AxError{Category: "runtime", Message: display(value)}
+}
+
+func asError(value Value) error {
+	if err, ok := value.(error); ok { return err }
+	axErr := asAxError(value)
+	if axErr.Type == "AxAIServiceAbortedError" || axErr.Category == "aborted" {
+		return AxAIServiceAbortedError{AIServiceError{axErr}}
+	}
+	return axErr
 }
 
 func coreRegexMatch(pattern Value, value Value) Value {
@@ -1351,8 +1366,24 @@ func _core_ai_client_features(client Value, model Value) Value {
 	}
 	return Object("functions", true, "structured_outputs", true)
 }
-func _core_retry_sleep(attempt Value) Value   { return nil }
+func _core_retry_sleep(attempt Value, client Value, _ Value) (Value, error) {
+	delay := time.Duration(math.Min(0.25*(num(attempt)+1), 1.0) * float64(time.Second))
+	ctx := context.Background()
+	if aiClient, ok := client.(AIClient); ok { ctx = contextForAIClient(aiClient, ctx) }
+	timer := time.NewTimer(delay)
+	defer timer.Stop()
+	select {
+	case <-ctx.Done():
+		return nil, normalizeContextError(ctx, ctx.Err())
+	case <-timer.C:
+		return nil, nil
+	}
+}
 func _core_exception_message(err Value) Value { return display(coreGet(err, "message", err)) }
+func _core_exception_is_aborted(err Value) Value {
+	structured := asAxError(err)
+	return structured.Type == "AxAIServiceAbortedError" || structured.Category == "aborted"
+}
 func _core_runtime_error(message Value) Value {
 	return Object("__error", "runtime", "message", display(message))
 }
@@ -10423,6 +10454,7 @@ func runConformanceAICancellation(fixture map[string]Value) {
 	reason := display(coreGet(fixture, "reason", "fixture-stop"))
 	request := asMap(coreGet(fixture, "request", Object()))
 	maxElapsed := time.Duration(int64(num(coreGet(fixture, "max_elapsed_ms", 1_000)))) * time.Millisecond
+	programMaxElapsed := time.Duration(int64(num(coreGet(fixture, "program_max_elapsed_ms", 100)))) * time.Millisecond
 
 	preflightFixture := cloneMap(fixture)
 	preflightFixture["transport_responses"] = []Value{coreGet(fixture, "success_response", Object())}
@@ -10432,6 +10464,24 @@ func runConformanceAICancellation(fixture map[string]Value) {
 	_, err := preflight.Chat(preflightCtx, request, nil)
 	assertConformanceAborted(err, reason)
 	if len(preflightTransport.Requests) != 0 { panic(AxError{Category: "fixture", Message: "pre-cancelled provider request reached transport"}) }
+
+	flowGen := NewAx("question:string -> answer:string", nil)
+	cancellationFlow := NewFlow(Object("id", "cancellation-flow"))
+	cancellationFlow.Execute("answer", flowGen, nil)
+	cancellationGen := NewAx("question:string -> answer:string", nil)
+	cancellationAgent := NewAgent("question:string -> answer:string", nil)
+	programs := []struct{name string; forward func() (Value, error)}{
+		{"AxGen", func() (Value, error) { return cancellationGen.Forward(preflightCtx, preflight, Object("question", "cancel"), Object("infraRetries", 2)) }},
+		{"AxAgent", func() (Value, error) { return cancellationAgent.Forward(preflightCtx, preflight, Object("question", "cancel"), Object("infraRetries", 2)) }},
+		{"AxFlow", func() (Value, error) { return cancellationFlow.Forward(preflightCtx, preflight, Object("question", "cancel"), Object("infraRetries", 2)) }},
+	}
+	for _, program := range programs {
+		programStarted := time.Now()
+		_, programErr := program.forward()
+		assertConformanceAborted(programErr, reason)
+		if time.Since(programStarted) > programMaxElapsed { panic(AxError{Category: "fixture", Message: program.name + " cancellation was retried instead of returning promptly"}) }
+		if len(preflightTransport.Requests) != 0 { panic(AxError{Category: "fixture", Message: program.name + " cancellation reached transport"}) }
+	}
 
 	backoffCtx, backoffCancel := context.WithCancelCause(context.Background())
 	backoffTransport := &conformanceCancellationTransport{response: coreGet(fixture, "retry_response", Object()), cancel: backoffCancel, reason: reason}

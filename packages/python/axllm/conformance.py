@@ -2451,6 +2451,7 @@ def _run_ai_stream(fixture):
 def _run_ai_cancellation(fixture):
     reason = fixture["reason"]
     request = fixture["request"]
+    program_max_elapsed_ms = fixture.get("program_max_elapsed_ms", 100)
 
     preflight_fixture = dict(fixture, transport_responses=[fixture["success_response"]])
     client, transport = _openai_fixture_client(preflight_fixture)
@@ -2461,6 +2462,26 @@ def _run_ai_cancellation(fixture):
     except AxAIServiceAbortedError as error:
         if error.reason != reason or error.retryable: raise FixtureError("pre-cancelled provider error mismatch")
     if transport.requests: raise FixtureError("pre-cancelled provider request reached transport")
+
+    cancellation_flow = flow({"id": "cancellation-flow"})
+    cancellation_flow.execute("answer", ax("question:string -> answer:string"))
+    programs = [
+        ("AxGen", ax("question:string -> answer:string")),
+        ("AxAgent", agent("question:string -> answer:string")),
+        ("AxFlow", cancellation_flow),
+    ]
+    for program_name, program in programs:
+        started = time.monotonic()
+        try:
+            program.forward(client, {"question": "cancel"}, {"cancellation": token, "infraRetries": 2})
+            raise FixtureError(f"{program_name} ignored pre-cancelled forwarding")
+        except AxAIServiceAbortedError as error:
+            if error.reason != reason or error.retryable:
+                raise FixtureError(f"{program_name} cancellation error mismatch")
+        if (time.monotonic() - started) * 1000 > program_max_elapsed_ms:
+            raise FixtureError(f"{program_name} cancellation was retried instead of returning promptly")
+        if transport.requests:
+            raise FixtureError(f"{program_name} cancellation reached transport")
 
     class BackoffTransport(ScriptedTransport):
         def stream_with_cancellation(self, next_request, cancellation):

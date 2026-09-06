@@ -248,7 +248,7 @@ See the [adaptive balancer example](https://raw.githubusercontent.com/ax-llm/ax/
 
 Generated Python, Java, C++, and Rust packages expose a reusable `AxCancellationToken`; Go keeps its idiomatic `context.Context` API. Pass the token/context to chat, streaming, embeddings, transcription, speech, or `AxGen`/`AxAgent`/`AxFlow` forwarding. The same cancellation propagates through provider routers, multi-service routing, balancers, retries, and cancellation-aware custom transports.
 
-Cancellation is thread-safe, one-shot, and first-reason-wins. It stops before a new transport attempt, wakes retry backoff, and terminates an active stream at the next blocking-I/O boundary. The surfaced error is always the non-retryable `AxAIServiceAbortedError`, so routers and balancers must not retry or fail over. Existing methods remain available; use the added overloads/options when cancellation is needed. Realtime WebSocket turns retain their separate lifecycle.
+Cancellation is thread-safe, one-shot, and first-reason-wins. It stops before a new transport attempt, wakes retry backoff, and terminates an active stream at the next blocking-I/O boundary. The surfaced error is always the non-retryable `AxAIServiceAbortedError`, so routers and balancers must not retry or fail over. Existing methods remain available; use the added cancellation variants/options when cancellation is needed. Realtime WebSocket turns retain their separate lifecycle.
 
 ## Chat
 

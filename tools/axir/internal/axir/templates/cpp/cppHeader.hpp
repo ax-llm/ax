@@ -346,7 +346,9 @@ struct Core {
   static Value ai_error_status(Value message, Value status, Value code, Value response_body, Value request, Value retryable);
   static Value exception_value(const std::exception& error);
   static Value exception_message(Value error);
+  static Value exception_is_aborted(Value error);
   static AxError as_error(Value error);
+  [[noreturn]] static void raise_error(Value error);
   static Value coerce_chat_request(Value request);
   static Value client_ref(AIClient& client);
   static Value agent_stage_ref(AxProgram& stage);
@@ -356,7 +358,7 @@ struct Core {
   static Value program_apply_components(Value program, Value component_map);
   static Value ai_complete_once(Value client, Value request, Value options);
   static Value ai_client_features(Value client, Value model);
-  static Value retry_sleep(Value attempt);
+  static Value retry_sleep(Value attempt, Value client, Value options);
   static Value tool_invoke(Value fn, Value params);
   static Value legacy_response_to_chat_response(Value raw);
   static Value record_new(Value name, Value values);

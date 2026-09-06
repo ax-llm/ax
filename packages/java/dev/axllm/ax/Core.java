@@ -469,6 +469,11 @@ final class Core {
   static Object validationError(Object message) { return new AxValidationError(String.valueOf(message)); }
   static Object runtimeError(Object message) { return new RuntimeException(String.valueOf(message)); }
   static Object exceptionMessage(Object error) { return error instanceof Throwable t ? t.getMessage() : String.valueOf(error); }
+  static Object exceptionIsAborted(Object error) {
+    Object current=error;
+    while(current instanceof Throwable throwable){if(throwable instanceof AxAIServiceAbortedError)return true;current=throwable.getCause();}
+    return false;
+  }
   static Object aiErrorResponse(Object message) { return new AxAIServiceResponseError(String.valueOf(message)); }
   static Object aiErrorResponse(Object message, Object responseBody) { return new AxAIServiceResponseError(String.valueOf(message), responseBody); }
   static Object aiErrorRefusal(Object message, Object responseBody) { return new AxAIRefusalError(String.valueOf(message), responseBody); }
@@ -590,7 +595,14 @@ final class Core {
     }
     return Map.of("functions", true, "structured_outputs", true);
   }
-  static Object retrySleep(Object attempt) { return null; }
+  static Object retrySleep(Object attempt,Object client,Object options) {
+    long milliseconds=Math.min(250L*(asInt(attempt)+1L),1000L);
+    Map<String,Object> optionMap=asMap(options);
+    Object raw=optionMap.getOrDefault("cancellation",optionMap.getOrDefault("cancellationToken",optionMap.get("cancellation_token")));
+    if(!(raw instanceof AxCancellationToken cancellation)){try{Thread.sleep(milliseconds);}catch(InterruptedException error){Thread.currentThread().interrupt();throw new RuntimeException(error);}return null;}
+    try{cancellation.await(milliseconds);cancellation.throwIfCancelled();return null;}
+    catch(InterruptedException error){Thread.currentThread().interrupt();cancellation.throwIfCancelled();throw new RuntimeException(error);}
+  }
   static Object toolInvoke(Object fn, Object params) {
     if (!(fn instanceof Tool tool)) throw new RuntimeException("unknown tool");
     AxGlobals.Scope scope = AxGlobals.openScope(
@@ -11938,12 +11950,16 @@ final class Core {
         Object response = Core.aiCompleteOnce(client, request, options);
         return response;
       } catch (RuntimeException error) {
+        Object aborted = Core.exceptionIsAborted(error);
+        if (Core.truthy(aborted)) {
+          throw Core.asRuntime(error);
+        }
         last_error = error;
         Object exhausted = Core.gte(attempt, retries);
         if (Core.truthy(exhausted)) {
           throw Core.asRuntime(error);
         }
-        Core.retrySleep(attempt);
+        Core.retrySleep(attempt, client, options);
         Object next_attempt = Core.add(attempt, 1);
         attempt = next_attempt;
         continue;
@@ -11957,23 +11973,6 @@ final class Core {
     Object text = Core.stringTrim(content);
     Object output = Core.jsonParseStrict(text);
     return output;
-  }
-
-  static Object _is_flexible_json_field(Object typ) {
-    axirCoverageMark("_is_flexible_json_field");
-    Object type_name = Core.get(typ, "name", null);
-    Object is_json = Core.eq(type_name, "json");
-    Object is_object = Core.eq(type_name, "object");
-    Object fields = Core.get(typ, "fields", null);
-    Object has_fields = Core.truthyValue(fields);
-    Object no_fields = Core.not(has_fields);
-    Object flexible = is_json;
-    if (Core.truthy(is_object)) {
-      if (Core.truthy(no_fields)) {
-        flexible = Boolean.TRUE;
-      }
-    }
-    return flexible;
   }
 
   static Object _ace_estimate_token_count(Object text) {
@@ -11994,21 +11993,21 @@ final class Core {
     return tokens;
   }
 
-  static Object _parse_json_string_value(Object value) {
-    axirCoverageMark("_parse_json_string_value");
-    Object is_string = Core.typeIs(value, "string");
-    Object not_string = Core.not(is_string);
-    if (Core.truthy(not_string)) {
-      return value;
+  static Object _is_flexible_json_field(Object typ) {
+    axirCoverageMark("_is_flexible_json_field");
+    Object type_name = Core.get(typ, "name", null);
+    Object is_json = Core.eq(type_name, "json");
+    Object is_object = Core.eq(type_name, "object");
+    Object fields = Core.get(typ, "fields", null);
+    Object has_fields = Core.truthyValue(fields);
+    Object no_fields = Core.not(has_fields);
+    Object flexible = is_json;
+    if (Core.truthy(is_object)) {
+      if (Core.truthy(no_fields)) {
+        flexible = Boolean.TRUE;
+      }
     }
-    Object result = value;
-    try {
-      Object parsed = Core.jsonParse(value);
-      result = parsed;
-    } catch (RuntimeException parse_error) {
-      result = value;
-    }
-    return result;
+    return flexible;
   }
 
   static Object _ace_recompute_playbook_stats(Object playbook) {
@@ -12043,6 +12042,23 @@ final class Core {
     Core.set(stats, "tokenEstimate", token_estimate);
     Core.set(playbook, "stats", stats);
     return playbook;
+  }
+
+  static Object _parse_json_string_value(Object value) {
+    axirCoverageMark("_parse_json_string_value");
+    Object is_string = Core.typeIs(value, "string");
+    Object not_string = Core.not(is_string);
+    if (Core.truthy(not_string)) {
+      return value;
+    }
+    Object result = value;
+    try {
+      Object parsed = Core.jsonParse(value);
+      result = parsed;
+    } catch (RuntimeException parse_error) {
+      result = value;
+    }
+    return result;
   }
 
   static Object _parse_json_string_for_field(Object field, Object value) {
@@ -12515,17 +12531,6 @@ final class Core {
     return out;
   }
 
-  static Object _tool_result_message_impl(Object call, Object result) {
-    axirCoverageMark("_tool_result_message_impl");
-    Object id = Core.get(call, "id", null);
-    Object result_json = Core.jsonStringify(result);
-    Object message = new java.util.LinkedHashMap<String, Object>();
-    Core.set(message, "role", "function");
-    Core.set(message, "function_id", id);
-    Core.set(message, "result", result_json);
-    return message;
-  }
-
   static Object _ace_apply_curator_operations(Object playbook, Object operations, Object options, Object now) {
     axirCoverageMark("_ace_apply_curator_operations");
     Object empty_map = new java.util.LinkedHashMap<String, Object>();
@@ -12694,6 +12699,17 @@ final class Core {
     Core.set(out, "updatedBulletIds", updated_bullets);
     Core.set(out, "autoRemoved", auto_removed);
     return out;
+  }
+
+  static Object _tool_result_message_impl(Object call, Object result) {
+    axirCoverageMark("_tool_result_message_impl");
+    Object id = Core.get(call, "id", null);
+    Object result_json = Core.jsonStringify(result);
+    Object message = new java.util.LinkedHashMap<String, Object>();
+    Core.set(message, "role", "function");
+    Core.set(message, "function_id", id);
+    Core.set(message, "result", result_json);
+    return message;
   }
 
   static Object _tool_error_message_impl(Object call, Object error) {

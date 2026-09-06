@@ -333,6 +333,7 @@ var coreIntrinsicJava = map[CoreIntrinsic]string{
 	IntrinsicAIClientFeatures:       "Core.aiClientFeatures",
 	IntrinsicRetrySleep:             "Core.retrySleep",
 	IntrinsicExceptionMessage:       "Core.exceptionMessage",
+	IntrinsicExceptionIsAborted:     "Core.exceptionIsAborted",
 	IntrinsicRuntimeError:           "Core.runtimeError",
 	IntrinsicJSONParse:              "Core.jsonParse",
 	IntrinsicJSONParseStrict:        "Core.jsonParseStrict",

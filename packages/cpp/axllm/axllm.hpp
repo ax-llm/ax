@@ -346,7 +346,9 @@ struct Core {
   static Value ai_error_status(Value message, Value status, Value code, Value response_body, Value request, Value retryable);
   static Value exception_value(const std::exception& error);
   static Value exception_message(Value error);
+  static Value exception_is_aborted(Value error);
   static AxError as_error(Value error);
+  [[noreturn]] static void raise_error(Value error);
   static Value coerce_chat_request(Value request);
   static Value client_ref(AIClient& client);
   static Value agent_stage_ref(AxProgram& stage);
@@ -356,7 +358,7 @@ struct Core {
   static Value program_apply_components(Value program, Value component_map);
   static Value ai_complete_once(Value client, Value request, Value options);
   static Value ai_client_features(Value client, Value model);
-  static Value retry_sleep(Value attempt);
+  static Value retry_sleep(Value attempt, Value client, Value options);
   static Value tool_invoke(Value fn, Value params);
   static Value legacy_response_to_chat_response(Value raw);
   static Value record_new(Value name, Value values);
@@ -680,10 +682,10 @@ struct Core {
   static Value _should_continue_steps(Value gen, Value calls);
   static Value _complete_with_retries_impl(Value client, Value request, Value options, Value retries);
   static Value _parse_output_impl(Value content);
-  static Value _is_flexible_json_field(Value typ);
   static Value _ace_estimate_token_count(Value text);
-  static Value _parse_json_string_value(Value value);
+  static Value _is_flexible_json_field(Value typ);
   static Value _ace_recompute_playbook_stats(Value playbook);
+  static Value _parse_json_string_value(Value value);
   static Value _parse_json_string_for_field(Value field, Value value);
   static Value _ace_empty_playbook(Value description, Value now);
   static Value _ace_render_playbook(Value playbook);
@@ -698,8 +700,8 @@ struct Core {
   static Value _response_function_calls_impl(Value response);
   static Value _append_tool_call_messages_impl(Value messages, Value response, Value calls);
   static Value _completion_call_to_chat_impl(Value call);
-  static Value _tool_result_message_impl(Value call, Value result);
   static Value _ace_apply_curator_operations(Value playbook, Value operations, Value options, Value now);
+  static Value _tool_result_message_impl(Value call, Value result);
   static Value _tool_error_message_impl(Value call, Value error);
   static Value _append_validation_retry_messages_impl(Value messages, Value response, Value error);
   static Value _ace_is_noop_acknowledgment(Value content);

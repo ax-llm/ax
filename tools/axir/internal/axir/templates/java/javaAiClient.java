@@ -9,8 +9,9 @@ public interface AiClient {
     return Core.legacyResponseToChatResponse(complete(request));
   }
 
-  default Map<String, Object> chat(Map<String, Object> request, AxCancellationToken cancellation) throws Exception {
+  default Map<String, Object> chatWithCancellation(Map<String, Object> request, AxCancellationToken cancellation) throws Exception {
     if(cancellation!=null)cancellation.throwIfCancelled();
+    if(this instanceof AxAIService service)return service.chatWithCancellation(request,Map.of(),cancellation);
     Map<String,Object> response=chat(request);
     if(cancellation!=null)cancellation.throwIfCancelled();
     return response;

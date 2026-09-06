@@ -108,7 +108,7 @@
           "AxCancellationToken token = new AxCancellationToken();",
           "token.cancel(\"user stopped\");",
           "try {",
-          "  client.chat(request, Map.of(), token);",
+          "  client.chatWithCancellation(request, Map.of(), token);",
           "} catch (AxAIServiceAbortedError error) {",
           "  assert error.reason().equals(\"user stopped\") && !error.retryable;",
           "}"

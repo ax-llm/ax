@@ -1136,12 +1136,26 @@ Value Core::exception_message(Value error) {
   if (error.is_object() && has_key(error, "message")) return get_key(error, "message");
   return Value(str(error));
 }
+Value Core::exception_is_aborted(Value error) {
+  return Value(error.is_object() &&
+               (str(get_key(error, "__type")) == "AxAIServiceAbortedError" ||
+                str(get_key(error, "__error")) == "aborted"));
+}
 AxError Core::as_error(Value error) {
   if (error.is_object() && has_key(error, "__error")) {
     int status = get_key(error, "status").is_null() ? 0 : static_cast<int>(num(get_key(error, "status")));
     return AxError(str(get_key(error, "__error")), str(get_key(error, "message")), str(get_key(error, "__type")), status, str(get_key(error, "code")), truthy(get_key(error, "retryable")), get_key(error, "response_body"));
   }
   return AxError("runtime", str(error));
+}
+[[noreturn]] void Core::raise_error(Value error) {
+  if (truthy(exception_is_aborted(error))) {
+    std::string message = str(get_key(error, "message"));
+    const std::string prefix = "Request aborted: ";
+    std::string reason = message.rfind(prefix, 0) == 0 ? message.substr(prefix.size()) : "cancelled";
+    throw AxAIServiceAbortedError(reason);
+  }
+  throw as_error(std::move(error));
 }
 Value Core::coerce_chat_request(Value request) {
   if (has_key(request, "chat_prompt")) return Value(object_ref(request));
@@ -1257,7 +1271,16 @@ Value Core::agent_transcribe(Value client, Value request, Value options) {
   if (registered == nullptr) return object({{"text", std::string("")}});
   return registered->transcribe(request, options);
 }
-Value Core::retry_sleep(Value) { return Value(); }
+Value Core::retry_sleep(Value attempt, Value, Value) {
+  auto duration = std::chrono::milliseconds(std::min(250LL * (static_cast<long long>(num(attempt)) + 1LL), 1000LL));
+  if (const AxCancellationToken* cancellation = current_cancellation_token()) {
+    cancellation->wait_for(duration);
+    cancellation->throw_if_cancelled();
+  } else {
+    std::this_thread::sleep_for(duration);
+  }
+  return Value();
+}
 Value Core::tool_invoke(Value fn, Value params) {
   Value args = get_key(fn, "args", Value::array());
   if (truthy(args)) validate_fields(args, params, "tool." + str(get_key(fn, "name")) + ".args");

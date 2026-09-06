@@ -18304,6 +18304,8 @@ fn run_ai_cancellation_fixture(fixture: &Value) -> AxResult<()> {
     let reason = fixture["reason"].as_str().unwrap_or("fixture-stop");
     let request = fixture["request"].clone();
     let max_elapsed = Duration::from_millis(fixture["max_elapsed_ms"].as_u64().unwrap_or(1_000));
+    let program_max_elapsed =
+        Duration::from_millis(fixture["program_max_elapsed_ms"].as_u64().unwrap_or(100));
     let (mut preflight, preflight_requests, _) =
         cancellation_client(fixture, fixture["success_response"].clone(), None)?;
     let token = AxCancellationToken::default();
@@ -18316,6 +18318,56 @@ fn run_ai_cancellation_fixture(fixture: &Value) -> AxResult<()> {
         return Err(AxError::new(
             "fixture",
             "pre-cancelled provider request reached transport",
+        ));
+    }
+
+    let program_input = json!({"question":"cancel"});
+    let program_options = json!({"infraRetries":2});
+    let mut generator = ax("question:string -> answer:string")?;
+    let started = std::time::Instant::now();
+    let error = generator
+        .forward_with_cancellation(
+            &mut preflight,
+            program_input.clone(),
+            program_options.clone(),
+            &token,
+        )
+        .expect_err("pre-cancelled AxGen request unexpectedly succeeded");
+    expect_cancellation_error(error, reason)?;
+    if started.elapsed() > program_max_elapsed || !preflight_requests.lock().unwrap().is_empty() {
+        return Err(AxError::new(
+            "fixture",
+            "AxGen cancellation retried or reached transport",
+        ));
+    }
+    let mut cancellation_agent = agent("question:string -> answer:string")?;
+    let started = std::time::Instant::now();
+    let error = cancellation_agent
+        .forward_with_cancellation(
+            &mut preflight,
+            program_input.clone(),
+            program_options.clone(),
+            &token,
+        )
+        .expect_err("pre-cancelled AxAgent request unexpectedly succeeded");
+    expect_cancellation_error(error, reason)?;
+    if started.elapsed() > program_max_elapsed || !preflight_requests.lock().unwrap().is_empty() {
+        return Err(AxError::new(
+            "fixture",
+            "AxAgent cancellation retried or reached transport",
+        ));
+    }
+    let mut cancellation_flow =
+        flow("cancellation-flow").execute("answer", ax("question:string -> answer:string")?);
+    let started = std::time::Instant::now();
+    let error = cancellation_flow
+        .forward_with_cancellation(&mut preflight, program_input, program_options, &token)
+        .expect_err("pre-cancelled AxFlow request unexpectedly succeeded");
+    expect_cancellation_error(error, reason)?;
+    if started.elapsed() > program_max_elapsed || !preflight_requests.lock().unwrap().is_empty() {
+        return Err(AxError::new(
+            "fixture",
+            "AxFlow cancellation retried or reached transport",
         ));
     }
 
@@ -22480,6 +22532,18 @@ fn core_exception_message(args: &[CoreValue]) -> Result<CoreValue, AxError> {
 }
 
 #[allow(dead_code)]
+fn core_exception_is_aborted(args: &[CoreValue]) -> Result<CoreValue, AxError> {
+    let aborted = match core_arg(args, 0) {
+        CoreValue::Error(error) => {
+            error.error_type.as_deref() == Some("AxAIServiceAbortedError")
+                || error.category == "aborted"
+        }
+        _ => false,
+    };
+    Ok(CoreValue::Bool(aborted))
+}
+
+#[allow(dead_code)]
 fn core_map_keys(args: &[CoreValue]) -> Result<CoreValue, AxError> {
     match core_arg(args, 0) {
         CoreValue::Map(map) => Ok(CoreValue::list_from(
@@ -22538,7 +22602,7 @@ fn core_retry_sleep(args: &[CoreValue]) -> Result<CoreValue, AxError> {
         }
     };
     let seconds = (0.25 * ((attempt + 1) as f64)).min(1.0).max(0.0);
-    std::thread::sleep(Duration::from_secs_f64(seconds));
+    cancellation_backoff(Duration::from_secs_f64(seconds))?;
     Ok(CoreValue::Null)
 }
 
@@ -49725,6 +49789,7 @@ fn _complete_with_retries_impl(args: &[CoreValue]) -> Result<CoreValue, AxError>
     let mut v_request = core_arg(args, 1);
     let mut v_options = core_arg(args, 2);
     let mut v_retries = core_arg(args, 3);
+    let mut v_aborted = CoreValue::Null;
     let mut v_attempt = CoreValue::Null;
     let mut v_error = CoreValue::Null;
     let mut v_exhausted = CoreValue::Null;
@@ -49747,12 +49812,16 @@ fn _complete_with_retries_impl(args: &[CoreValue]) -> Result<CoreValue, AxError>
             Ok(CoreFlow::Continue) => continue,
             Err(__core_caught) => {
                 v_error = CoreValue::Error(std::rc::Rc::new(__core_caught));
+                v_aborted = core_exception_is_aborted(&[v_error.clone()])?;
+                if core_truthy(&v_aborted) {
+                    return Err(core_as_error(&v_error));
+                }
                 v_last_error = v_error.clone();
                 v_exhausted = core_gte(&[v_attempt.clone(), v_retries.clone()])?;
                 if core_truthy(&v_exhausted) {
                     return Err(core_as_error(&v_error));
                 }
-                core_retry_sleep(&[v_attempt.clone()])?;
+                core_retry_sleep(&[v_attempt.clone(), v_client.clone(), v_options.clone()])?;
                 v_next_attempt = core_add(&[v_attempt.clone(), CoreValue::Num(1f64)])?;
                 v_attempt = v_next_attempt.clone();
                 continue;
@@ -49777,38 +49846,6 @@ fn _parse_output_impl(args: &[CoreValue]) -> Result<CoreValue, AxError> {
     v_text = core_string_trim(&v_content);
     v_output = core_json_parse_strict(&[v_text.clone()])?;
     return Ok(v_output.clone());
-}
-
-#[allow(
-    unused_variables,
-    unused_assignments,
-    unused_mut,
-    unreachable_code,
-    clippy::all
-)]
-fn _is_flexible_json_field(args: &[CoreValue]) -> Result<CoreValue, AxError> {
-    axir_coverage_mark("_is_flexible_json_field");
-    let mut v_typ = core_arg(args, 0);
-    let mut v_fields = CoreValue::Null;
-    let mut v_flexible = CoreValue::Null;
-    let mut v_has_fields = CoreValue::Null;
-    let mut v_is_json = CoreValue::Null;
-    let mut v_is_object = CoreValue::Null;
-    let mut v_no_fields = CoreValue::Null;
-    let mut v_type_name = CoreValue::Null;
-    v_type_name = core_get(&v_typ, &CoreValue::from("name"), CoreValue::Null);
-    v_is_json = core_eq(&[v_type_name.clone(), CoreValue::from("json")])?;
-    v_is_object = core_eq(&[v_type_name.clone(), CoreValue::from("object")])?;
-    v_fields = core_get(&v_typ, &CoreValue::from("fields"), CoreValue::Null);
-    v_has_fields = core_truthy_value(&[v_fields.clone()])?;
-    v_no_fields = core_not(&[v_has_fields.clone()])?;
-    v_flexible = v_is_json.clone();
-    if core_truthy(&v_is_object) {
-        if core_truthy(&v_no_fields) {
-            v_flexible = CoreValue::Bool(true);
-        }
-    }
-    return Ok(v_flexible.clone());
 }
 
 #[allow(
@@ -49850,36 +49887,29 @@ fn _ace_estimate_token_count(args: &[CoreValue]) -> Result<CoreValue, AxError> {
     unreachable_code,
     clippy::all
 )]
-fn _parse_json_string_value(args: &[CoreValue]) -> Result<CoreValue, AxError> {
-    axir_coverage_mark("_parse_json_string_value");
-    let mut v_value = core_arg(args, 0);
-    let mut v_is_string = CoreValue::Null;
-    let mut v_not_string = CoreValue::Null;
-    let mut v_parse_error = CoreValue::Null;
-    let mut v_parsed = CoreValue::Null;
-    let mut v_result = CoreValue::Null;
-    v_is_string = core_type_is(&v_value, CoreValue::from("string"));
-    v_not_string = core_not(&[v_is_string.clone()])?;
-    if core_truthy(&v_not_string) {
-        return Ok(v_value.clone());
-    }
-    v_result = v_value.clone();
-    let __core_try: Result<CoreFlow, AxError> = (|| {
-        v_parsed = core_json_parse(&[v_value.clone()])?;
-        v_result = v_parsed.clone();
-        Ok(CoreFlow::Normal)
-    })();
-    match __core_try {
-        Ok(CoreFlow::Normal) => {}
-        Ok(CoreFlow::Return(value)) => return Ok(value),
-        Ok(CoreFlow::Break) => unreachable!("break outside loop"),
-        Ok(CoreFlow::Continue) => unreachable!("continue outside loop"),
-        Err(__core_caught) => {
-            v_parse_error = CoreValue::Error(std::rc::Rc::new(__core_caught));
-            v_result = v_value.clone();
+fn _is_flexible_json_field(args: &[CoreValue]) -> Result<CoreValue, AxError> {
+    axir_coverage_mark("_is_flexible_json_field");
+    let mut v_typ = core_arg(args, 0);
+    let mut v_fields = CoreValue::Null;
+    let mut v_flexible = CoreValue::Null;
+    let mut v_has_fields = CoreValue::Null;
+    let mut v_is_json = CoreValue::Null;
+    let mut v_is_object = CoreValue::Null;
+    let mut v_no_fields = CoreValue::Null;
+    let mut v_type_name = CoreValue::Null;
+    v_type_name = core_get(&v_typ, &CoreValue::from("name"), CoreValue::Null);
+    v_is_json = core_eq(&[v_type_name.clone(), CoreValue::from("json")])?;
+    v_is_object = core_eq(&[v_type_name.clone(), CoreValue::from("object")])?;
+    v_fields = core_get(&v_typ, &CoreValue::from("fields"), CoreValue::Null);
+    v_has_fields = core_truthy_value(&[v_fields.clone()])?;
+    v_no_fields = core_not(&[v_has_fields.clone()])?;
+    v_flexible = v_is_json.clone();
+    if core_truthy(&v_is_object) {
+        if core_truthy(&v_no_fields) {
+            v_flexible = CoreValue::Bool(true);
         }
     }
-    return Ok(v_result.clone());
+    return Ok(v_flexible.clone());
 }
 
 #[allow(
@@ -49970,6 +50000,45 @@ fn _ace_recompute_playbook_stats(args: &[CoreValue]) -> Result<CoreValue, AxErro
     )?;
     core_set(&v_playbook, CoreValue::from("stats"), v_stats.clone())?;
     return Ok(v_playbook.clone());
+}
+
+#[allow(
+    unused_variables,
+    unused_assignments,
+    unused_mut,
+    unreachable_code,
+    clippy::all
+)]
+fn _parse_json_string_value(args: &[CoreValue]) -> Result<CoreValue, AxError> {
+    axir_coverage_mark("_parse_json_string_value");
+    let mut v_value = core_arg(args, 0);
+    let mut v_is_string = CoreValue::Null;
+    let mut v_not_string = CoreValue::Null;
+    let mut v_parse_error = CoreValue::Null;
+    let mut v_parsed = CoreValue::Null;
+    let mut v_result = CoreValue::Null;
+    v_is_string = core_type_is(&v_value, CoreValue::from("string"));
+    v_not_string = core_not(&[v_is_string.clone()])?;
+    if core_truthy(&v_not_string) {
+        return Ok(v_value.clone());
+    }
+    v_result = v_value.clone();
+    let __core_try: Result<CoreFlow, AxError> = (|| {
+        v_parsed = core_json_parse(&[v_value.clone()])?;
+        v_result = v_parsed.clone();
+        Ok(CoreFlow::Normal)
+    })();
+    match __core_try {
+        Ok(CoreFlow::Normal) => {}
+        Ok(CoreFlow::Return(value)) => return Ok(value),
+        Ok(CoreFlow::Break) => unreachable!("break outside loop"),
+        Ok(CoreFlow::Continue) => unreachable!("continue outside loop"),
+        Err(__core_caught) => {
+            v_parse_error = CoreValue::Error(std::rc::Rc::new(__core_caught));
+            v_result = v_value.clone();
+        }
+    }
+    return Ok(v_result.clone());
 }
 
 #[allow(
@@ -50945,33 +51014,6 @@ fn _completion_call_to_chat_impl(args: &[CoreValue]) -> Result<CoreValue, AxErro
     unreachable_code,
     clippy::all
 )]
-fn _tool_result_message_impl(args: &[CoreValue]) -> Result<CoreValue, AxError> {
-    axir_coverage_mark("_tool_result_message_impl");
-    let mut v_call = core_arg(args, 0);
-    let mut v_result = core_arg(args, 1);
-    let mut v_id = CoreValue::Null;
-    let mut v_message = CoreValue::Null;
-    let mut v_result_json = CoreValue::Null;
-    v_id = core_get(&v_call, &CoreValue::from("id"), CoreValue::Null);
-    v_result_json = core_json_stringify(&[v_result.clone()])?;
-    v_message = CoreValue::new_map();
-    core_set(
-        &v_message,
-        CoreValue::from("role"),
-        CoreValue::from("function"),
-    )?;
-    core_set(&v_message, CoreValue::from("function_id"), v_id.clone())?;
-    core_set(&v_message, CoreValue::from("result"), v_result_json.clone())?;
-    return Ok(v_message.clone());
-}
-
-#[allow(
-    unused_variables,
-    unused_assignments,
-    unused_mut,
-    unreachable_code,
-    clippy::all
-)]
 fn _ace_apply_curator_operations(args: &[CoreValue]) -> Result<CoreValue, AxError> {
     axir_coverage_mark("_ace_apply_curator_operations");
     let mut v_playbook = core_arg(args, 0);
@@ -51350,6 +51392,33 @@ fn _ace_apply_curator_operations(args: &[CoreValue]) -> Result<CoreValue, AxErro
         v_auto_removed.clone(),
     )?;
     return Ok(v_out.clone());
+}
+
+#[allow(
+    unused_variables,
+    unused_assignments,
+    unused_mut,
+    unreachable_code,
+    clippy::all
+)]
+fn _tool_result_message_impl(args: &[CoreValue]) -> Result<CoreValue, AxError> {
+    axir_coverage_mark("_tool_result_message_impl");
+    let mut v_call = core_arg(args, 0);
+    let mut v_result = core_arg(args, 1);
+    let mut v_id = CoreValue::Null;
+    let mut v_message = CoreValue::Null;
+    let mut v_result_json = CoreValue::Null;
+    v_id = core_get(&v_call, &CoreValue::from("id"), CoreValue::Null);
+    v_result_json = core_json_stringify(&[v_result.clone()])?;
+    v_message = CoreValue::new_map();
+    core_set(
+        &v_message,
+        CoreValue::from("role"),
+        CoreValue::from("function"),
+    )?;
+    core_set(&v_message, CoreValue::from("function_id"), v_id.clone())?;
+    core_set(&v_message, CoreValue::from("result"), v_result_json.clone())?;
+    return Ok(v_message.clone());
 }
 
 #[allow(

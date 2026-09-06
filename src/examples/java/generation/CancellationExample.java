@@ -25,7 +25,7 @@ public final class CancellationExample {
     assert token.cancel("user stopped") && !token.cancel("later reason");
 
     try {
-      client.chat(
+      client.chatWithCancellation(
         Map.of("chat_prompt", List.of(Map.of("role", "user", "content", "This must not be sent."))),
         Map.of(), token
       );
