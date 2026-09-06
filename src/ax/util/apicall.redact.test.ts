@@ -46,7 +46,7 @@ describe('apiCall verbose header redaction', () => {
         url: 'https://api.example.com/test',
         fetch: mockFetch,
         verbose: true,
-        headers: { 'x-api-key': 'topsecretapikey' },
+        headers: { 'x-api-key': 'top-secret-api-key' },
       },
       { test: 'data' }
     );
@@ -55,7 +55,7 @@ describe('apiCall verbose header redaction', () => {
       .map((call) => call.map((arg) => String(arg)).join(' '))
       .join('\n');
 
-    expect(logged).not.toContain('topsecretapikey');
+    expect(logged).not.toContain('top-secret-api-key');
     expect(logged).toContain('***');
   });
 
@@ -81,7 +81,7 @@ describe('apiCall verbose header redaction', () => {
     expect(logged).toContain('"Cookie": "***"');
   });
 
-  it('still sends the real, unredacted credential to fetch', async () => {
+  it('still sends the original credential to fetch', async () => {
     vi.spyOn(console, 'log').mockImplementation(() => {});
     const mockFetch = okFetch();
 
