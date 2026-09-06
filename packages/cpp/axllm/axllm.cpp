@@ -19,6 +19,12 @@
 
 namespace axllm {
 
+thread_local const AxCancellationToken* ax_current_cancellation_token = nullptr;
+
+const AxCancellationToken* current_cancellation_token() { return ax_current_cancellation_token; }
+AxCancellationScope::AxCancellationScope(const AxCancellationToken* token) : previous_(ax_current_cancellation_token) { ax_current_cancellation_token = token; if (token) token->throw_if_cancelled(); }
+AxCancellationScope::~AxCancellationScope() { ax_current_cancellation_token = previous_; }
+
 Value::Value() : data(nullptr) {}
 Value::Value(std::nullptr_t) : data(nullptr) {}
 Value::Value(bool value) : data(value) {}
@@ -381,7 +387,31 @@ void Transport::stream(Value request, AxTransportStreamHandler handler) {
   handler(call(std::move(request)));
 }
 
+Value Transport::call(Value request, const AxCancellationToken* cancellation) {
+  if (cancellation) cancellation->throw_if_cancelled();
+  AxCancellationScope scope(cancellation);
+  Value response = call(std::move(request));
+  if (cancellation) cancellation->throw_if_cancelled();
+  return response;
+}
+
+void Transport::stream(Value request, AxTransportStreamHandler handler, const AxCancellationToken* cancellation) {
+  if (cancellation) cancellation->throw_if_cancelled();
+  AxCancellationScope scope(cancellation);
+  stream(std::move(request), [&](Value chunk) {
+    if (cancellation) cancellation->throw_if_cancelled();
+    bool keep_going = handler(std::move(chunk));
+    if (cancellation) cancellation->throw_if_cancelled();
+    return keep_going;
+  });
+}
+
 void HttpTransport::stream(Value request, AxTransportStreamHandler handler) {
+  stream(std::move(request), std::move(handler), current_cancellation_token());
+}
+
+void HttpTransport::stream(Value request, AxTransportStreamHandler handler, const AxCancellationToken* cancellation) {
+  if (cancellation) cancellation->throw_if_cancelled();
 #if !defined(AXLLM_ENABLE_CURL)
   (void)request;
   (void)handler;
@@ -410,8 +440,9 @@ void HttpTransport::stream(Value request, AxTransportStreamHandler handler) {
     AxTransportStreamHandler* handler = nullptr;
     std::string* error_body = nullptr;
     bool cancelled = false;
+    const AxCancellationToken* cancellation = nullptr;
     std::exception_ptr exception;
-  } context{curl, &handler, &error_body, false, nullptr};
+  } context{curl, &handler, &error_body, false, cancellation, nullptr};
 
   curl_easy_setopt(curl, CURLOPT_URL, url.c_str());
   curl_easy_setopt(curl, CURLOPT_ERRORBUFFER, error_buffer);
@@ -434,6 +465,9 @@ void HttpTransport::stream(Value request, AxTransportStreamHandler handler) {
     }
   });
   curl_easy_setopt(curl, CURLOPT_WRITEDATA, &context);
+  curl_easy_setopt(curl, CURLOPT_NOPROGRESS, 0L);
+  curl_easy_setopt(curl, CURLOPT_XFERINFOFUNCTION, +[](void* userdata, curl_off_t, curl_off_t, curl_off_t, curl_off_t) -> int {auto* context=static_cast<StreamContext*>(userdata);return context->cancellation&&context->cancellation->is_cancelled()?1:0;});
+  curl_easy_setopt(curl, CURLOPT_XFERINFODATA, &context);
   if (timeout > 0) curl_easy_setopt(curl, CURLOPT_TIMEOUT_MS, static_cast<long>(timeout * 1000.0));
   if (method == "POST") curl_easy_setopt(curl, CURLOPT_POST, 1L);
   else curl_easy_setopt(curl, CURLOPT_CUSTOMREQUEST, method.c_str());
@@ -446,6 +480,7 @@ void HttpTransport::stream(Value request, AxTransportStreamHandler handler) {
   curl_slist_free_all(headers);
   curl_easy_cleanup(curl);
   if (context.exception) std::rethrow_exception(context.exception);
+  if (cancellation && cancellation->is_cancelled()) throw AxAIServiceAbortedError(cancellation->reason());
   // Returning false is the transport seam's normal cancellation signal. libcurl
   // may report it as CURLE_WRITE_ERROR (or another callback-abort code), but the
   // handler decision is authoritative once callback exceptions are excluded.
@@ -464,6 +499,11 @@ void HttpTransport::stream(Value request, AxTransportStreamHandler handler) {
 }
 
 Value HttpTransport::call(Value request) {
+  return call(std::move(request), current_cancellation_token());
+}
+
+Value HttpTransport::call(Value request, const AxCancellationToken* cancellation) {
+  if (cancellation) cancellation->throw_if_cancelled();
 #if !defined(AXLLM_ENABLE_CURL)
   (void)request;
   throw Core::as_error(Core::ai_error_unsupported("C++ HTTP transport requires libcurl. Build with CMake and AXLLM_ENABLE_CURL=ON, or pass a custom Transport."));
@@ -543,6 +583,9 @@ Value HttpTransport::call(Value request) {
     return size * nmemb;
   });
   curl_easy_setopt(curl, CURLOPT_HEADERDATA, &response_headers);
+  curl_easy_setopt(curl, CURLOPT_NOPROGRESS, 0L);
+  curl_easy_setopt(curl, CURLOPT_XFERINFOFUNCTION, +[](void* userdata, curl_off_t, curl_off_t, curl_off_t, curl_off_t) -> int {auto* token=static_cast<const AxCancellationToken*>(userdata);return token&&token->is_cancelled()?1:0;});
+  curl_easy_setopt(curl, CURLOPT_XFERINFODATA, const_cast<AxCancellationToken*>(cancellation));
   if (timeout > 0) curl_easy_setopt(curl, CURLOPT_TIMEOUT_MS, static_cast<long>(timeout * 1000.0));
   if (method == "POST") {
     curl_easy_setopt(curl, CURLOPT_POST, 1L);
@@ -567,6 +610,8 @@ Value HttpTransport::call(Value request) {
   std::string content_type = response_content_type != nullptr ? std::string(response_content_type) : std::string();
   curl_slist_free_all(headers);
   curl_easy_cleanup(curl);
+
+  if (cancellation && cancellation->is_cancelled()) throw AxAIServiceAbortedError(cancellation->reason());
 
   if (rc != CURLE_OK) {
     std::string message = error_buffer[0] ? error_buffer : curl_easy_strerror(rc);
@@ -4456,47 +4501,6 @@ Value Core::_openai_apply_cache_breakpoint_impl(Value message) {
   return out;
 }
 
-Value Core::merge_model_config(Value base, Value override, Value options) {
-  axir_coverage_mark("merge_model_config");
-  Value empty_options_config = Value::object();
-  Value options_config_snake = Core::get(options, Value("model_config"), empty_options_config);
-  Value options_config = Core::get(options, Value("modelConfig"), options_config_snake);
-  Value base_options = Core::map_merge(base, options_config);
-  Value merged = Core::map_merge(base_options, override);
-  Value has_stream_option = Core::map_contains(options, Value("stream"));
-  if (Core::truthy(has_stream_option)) {
-    Value stream = Core::get(options, Value("stream"), Value());
-    Core::set(merged, Value("stream"), stream);
-  }
-  Value budget_snake = Core::get(options, Value("thinking_token_budget"), Value());
-  Value budget = Core::get(options, Value("thinkingTokenBudget"), budget_snake);
-  Value has_budget = Core::is_not_none(budget);
-  if (Core::truthy(has_budget)) {
-    Core::set(merged, Value("thinkingTokenBudget"), budget);
-  }
-  Value reasoning_snake = Core::get(options, Value("reasoning_effort"), Value());
-  Value reasoning = Core::get(options, Value("reasoningEffort"), reasoning_snake);
-  Value has_reasoning = Core::is_not_none(reasoning);
-  if (Core::truthy(has_reasoning)) {
-    Core::set(merged, Value("reasoning_effort"), reasoning);
-  }
-  Value show_thoughts_snake = Core::get(options, Value("show_thoughts"), Value());
-  Value show_thoughts = Core::get(options, Value("showThoughts"), show_thoughts_snake);
-  Value has_show_thoughts = Core::is_not_none(show_thoughts);
-  if (Core::truthy(has_show_thoughts)) {
-    Core::set(merged, Value("showThoughts"), show_thoughts);
-  }
-  Value out = Value::object();
-  for (auto key : Core::iter(merged)) {
-    Value value = Core::get(merged, key, Value());
-    Value include = Core::is_not_none(value);
-    if (Core::truthy(include)) {
-      Core::set(out, key, value);
-    }
-  }
-  return out;
-}
-
 Value Core::_openai_apply_model_config_impl(Value payload, Value model_config) {
   axir_coverage_mark("_openai_apply_model_config_impl");
   Core::_openai_copy_config_key_impl(payload, model_config, Value("max_tokens"), Value("max_completion_tokens"));
@@ -4540,6 +4544,47 @@ Value Core::_openai_apply_model_config_impl(Value payload, Value model_config) {
     Core::set(payload, Value("stream_options"), stream_options);
   }
   return Value();
+}
+
+Value Core::merge_model_config(Value base, Value override, Value options) {
+  axir_coverage_mark("merge_model_config");
+  Value empty_options_config = Value::object();
+  Value options_config_snake = Core::get(options, Value("model_config"), empty_options_config);
+  Value options_config = Core::get(options, Value("modelConfig"), options_config_snake);
+  Value base_options = Core::map_merge(base, options_config);
+  Value merged = Core::map_merge(base_options, override);
+  Value has_stream_option = Core::map_contains(options, Value("stream"));
+  if (Core::truthy(has_stream_option)) {
+    Value stream = Core::get(options, Value("stream"), Value());
+    Core::set(merged, Value("stream"), stream);
+  }
+  Value budget_snake = Core::get(options, Value("thinking_token_budget"), Value());
+  Value budget = Core::get(options, Value("thinkingTokenBudget"), budget_snake);
+  Value has_budget = Core::is_not_none(budget);
+  if (Core::truthy(has_budget)) {
+    Core::set(merged, Value("thinkingTokenBudget"), budget);
+  }
+  Value reasoning_snake = Core::get(options, Value("reasoning_effort"), Value());
+  Value reasoning = Core::get(options, Value("reasoningEffort"), reasoning_snake);
+  Value has_reasoning = Core::is_not_none(reasoning);
+  if (Core::truthy(has_reasoning)) {
+    Core::set(merged, Value("reasoning_effort"), reasoning);
+  }
+  Value show_thoughts_snake = Core::get(options, Value("show_thoughts"), Value());
+  Value show_thoughts = Core::get(options, Value("showThoughts"), show_thoughts_snake);
+  Value has_show_thoughts = Core::is_not_none(show_thoughts);
+  if (Core::truthy(has_show_thoughts)) {
+    Core::set(merged, Value("showThoughts"), show_thoughts);
+  }
+  Value out = Value::object();
+  for (auto key : Core::iter(merged)) {
+    Value value = Core::get(merged, key, Value());
+    Value include = Core::is_not_none(value);
+    if (Core::truthy(include)) {
+      Core::set(out, key, value);
+    }
+  }
+  return out;
 }
 
 Value Core::validate_chat_request(Value request) {
@@ -4639,13 +4684,6 @@ Value Core::openai_reasoning_effort(Value model, Value budget) {
   return Value("high");
 }
 
-Value Core::build_chat_request(Value service, Value request, Value options) {
-  axir_coverage_mark("build_chat_request");
-  Core::validate_chat_request(request);
-  Value payload = Core::openai_build_chat_request(request, options, Value(true));
-  return payload;
-}
-
 Value Core::openai_chat_reasoning_effort(Value model, Value budget) {
   axir_coverage_mark("openai_chat_reasoning_effort");
   Value effort = Core::openai_reasoning_effort(model, budget);
@@ -4656,16 +4694,11 @@ Value Core::openai_chat_reasoning_effort(Value model, Value budget) {
   return effort;
 }
 
-Value Core::normalize_chat_response(Value raw) {
-  axir_coverage_mark("normalize_chat_response");
-  Value response = Core::openai_normalize_chat_response(raw);
-  return response;
-}
-
-Value Core::normalize_stream_delta(Value raw, Value state) {
-  axir_coverage_mark("normalize_stream_delta");
-  Value response = Core::openai_normalize_stream_delta(raw, state);
-  return response;
+Value Core::build_chat_request(Value service, Value request, Value options) {
+  axir_coverage_mark("build_chat_request");
+  Core::validate_chat_request(request);
+  Value payload = Core::openai_build_chat_request(request, options, Value(true));
+  return payload;
 }
 
 Value Core::_openai_copy_config_key_impl(Value payload, Value model_config, Value source, Value target) {
@@ -4678,10 +4711,10 @@ Value Core::_openai_copy_config_key_impl(Value payload, Value model_config, Valu
   return Value();
 }
 
-Value Core::build_embed_request(Value service, Value request, Value options) {
-  axir_coverage_mark("build_embed_request");
-  Value payload = Core::openai_build_embed_request(request);
-  return payload;
+Value Core::normalize_chat_response(Value raw) {
+  axir_coverage_mark("normalize_chat_response");
+  Value response = Core::openai_normalize_chat_response(raw);
+  return response;
 }
 
 Value Core::_openai_message_impl(Value message, Value reasoning_content_mode, Value reasoning_details_mode) {
@@ -4794,6 +4827,18 @@ Value Core::_openai_message_impl(Value message, Value reasoning_content_mode, Va
   Value message_text = Core::string_format(Value("Invalid role: {}"), role);
   Value error = Core::ai_error_response(message_text);
   throw Core::as_error(error);
+}
+
+Value Core::normalize_stream_delta(Value raw, Value state) {
+  axir_coverage_mark("normalize_stream_delta");
+  Value response = Core::openai_normalize_stream_delta(raw, state);
+  return response;
+}
+
+Value Core::build_embed_request(Value service, Value request, Value options) {
+  axir_coverage_mark("build_embed_request");
+  Value payload = Core::openai_build_embed_request(request);
+  return payload;
 }
 
 Value Core::normalize_embed_response(Value raw) {
@@ -5060,22 +5105,6 @@ Value Core::_openai_tool_call_to_provider_impl(Value call) {
   return out;
 }
 
-Value Core::_ai_model_usage_impl(Value ai_name, Value model, Value usage) {
-  axir_coverage_mark("_ai_model_usage_impl");
-  Value has_usage = Core::truthy_value(usage);
-  Value missing_usage = Core::not_(has_usage);
-  if (Core::truthy(missing_usage)) {
-    Value none = Core::none();
-    return none;
-  }
-  Value tokens = Core::normalize_token_usage(usage);
-  Value out = Value::object();
-  Core::set(out, Value("ai"), ai_name);
-  Core::set(out, Value("model"), model);
-  Core::set(out, Value("tokens"), tokens);
-  return out;
-}
-
 Value Core::_openai_tool_spec_impl(Value fn) {
   axir_coverage_mark("_openai_tool_spec_impl");
   Value name = Core::get(fn, Value("name"), Value());
@@ -5092,6 +5121,39 @@ Value Core::_openai_tool_spec_impl(Value fn) {
   Core::set(out, Value("type"), Value("function"));
   Core::set(out, Value("function"), function);
   return out;
+}
+
+Value Core::_ai_model_usage_impl(Value ai_name, Value model, Value usage) {
+  axir_coverage_mark("_ai_model_usage_impl");
+  Value has_usage = Core::truthy_value(usage);
+  Value missing_usage = Core::not_(has_usage);
+  if (Core::truthy(missing_usage)) {
+    Value none = Core::none();
+    return none;
+  }
+  Value tokens = Core::normalize_token_usage(usage);
+  Value out = Value::object();
+  Core::set(out, Value("ai"), ai_name);
+  Core::set(out, Value("model"), model);
+  Core::set(out, Value("tokens"), tokens);
+  return out;
+}
+
+Value Core::openai_build_embed_request(Value request) {
+  axir_coverage_mark("openai_build_embed_request");
+  Value embed_model_snake = Core::get(request, Value("embed_model"), Value());
+  Value model = Core::get(request, Value("embedModel"), embed_model_snake);
+  Value empty_texts = Value::array();
+  Value texts = Core::get(request, Value("texts"), empty_texts);
+  Value payload = Value::object();
+  Core::set(payload, Value("model"), model);
+  Core::set(payload, Value("input"), texts);
+  Value dimensions = Core::get(request, Value("dimensions"), Value());
+  Value has_dimensions = Core::truthy_value(dimensions);
+  if (Core::truthy(has_dimensions)) {
+    Core::set(payload, Value("dimensions"), dimensions);
+  }
+  return payload;
 }
 
 Value Core::_chat_result_to_completion(Value result, Value fallback_index) {
@@ -5129,27 +5191,31 @@ Value Core::_chat_result_to_completion(Value result, Value fallback_index) {
   return completion;
 }
 
-Value Core::openai_build_embed_request(Value request) {
-  axir_coverage_mark("openai_build_embed_request");
-  Value embed_model_snake = Core::get(request, Value("embed_model"), Value());
-  Value model = Core::get(request, Value("embedModel"), embed_model_snake);
-  Value empty_texts = Value::array();
-  Value texts = Core::get(request, Value("texts"), empty_texts);
-  Value payload = Value::object();
-  Core::set(payload, Value("model"), model);
-  Core::set(payload, Value("input"), texts);
-  Value dimensions = Core::get(request, Value("dimensions"), Value());
-  Value has_dimensions = Core::truthy_value(dimensions);
-  if (Core::truthy(has_dimensions)) {
-    Core::set(payload, Value("dimensions"), dimensions);
-  }
-  return payload;
-}
-
 Value Core::openai_normalize_chat_response(Value raw, Value ai_name, Value model) {
   axir_coverage_mark("openai_normalize_chat_response");
   Value response = Core::_openai_normalize_chat_response_impl(raw, ai_name, model, Value("none"), Value("none"));
   return response;
+}
+
+Value Core::_openai_usage_with_service_tier(Value raw, Value usage) {
+  axir_coverage_mark("_openai_usage_with_service_tier");
+  Value has_usage = Core::is_not_none(usage);
+  if (Core::truthy(has_usage)) {
+    // empty
+  }
+  if (!Core::truthy(has_usage)) {
+    return usage;
+  }
+  Value empty = Value::object();
+  Value out = Core::map_merge(empty, usage);
+  Value usage_tier = Core::get(usage, Value("service_tier"), Value());
+  Value raw_tier = Core::get(raw, Value("service_tier"), usage_tier);
+  Value tier = Core::get(raw, Value("service_tier_used"), raw_tier);
+  Value has_tier = Core::is_not_none(tier);
+  if (Core::truthy(has_tier)) {
+    Core::set(out, Value("service_tier"), tier);
+  }
+  return out;
 }
 
 Value Core::chat_response_to_completion(Value response) {
@@ -5184,27 +5250,6 @@ Value Core::chat_response_to_completion(Value response) {
   }
   if (Core::truthy(has_thought_blocks)) {
     Core::set(out, Value("thought_blocks"), thought_blocks);
-  }
-  return out;
-}
-
-Value Core::_openai_usage_with_service_tier(Value raw, Value usage) {
-  axir_coverage_mark("_openai_usage_with_service_tier");
-  Value has_usage = Core::is_not_none(usage);
-  if (Core::truthy(has_usage)) {
-    // empty
-  }
-  if (!Core::truthy(has_usage)) {
-    return usage;
-  }
-  Value empty = Value::object();
-  Value out = Core::map_merge(empty, usage);
-  Value usage_tier = Core::get(usage, Value("service_tier"), Value());
-  Value raw_tier = Core::get(raw, Value("service_tier"), usage_tier);
-  Value tier = Core::get(raw, Value("service_tier_used"), raw_tier);
-  Value has_tier = Core::is_not_none(tier);
-  if (Core::truthy(has_tier)) {
-    Core::set(out, Value("service_tier"), tier);
   }
   return out;
 }
@@ -5409,31 +5454,6 @@ Value Core::ai_context_cache_plan(Value configured, Value supported, Value expli
   return out;
 }
 
-Value Core::ai_context_cache_recovery(Value current_entry, Value cache_name, Value external_registry) {
-  axir_coverage_mark("ai_context_cache_recovery");
-  Value out = Value::object();
-  Core::set(out, Value("invalidated"), Value(false));
-  Core::set(out, Value("deleteInMemory"), Value(false));
-  Value entry_object = Core::type_is(current_entry, Value("object"));
-  if (Core::truthy(entry_object)) {
-    Value current_name = Core::get(current_entry, Value("cacheName"), Value(""));
-    Value matches = Core::eq(current_name, cache_name);
-    if (Core::truthy(matches)) {
-      Core::set(out, Value("invalidated"), Value(true));
-      if (Core::truthy(external_registry)) {
-        Value empty = Value::object();
-        Value tombstone = Core::map_merge(current_entry, empty);
-        Core::set(tombstone, Value("expiresAt"), Value(0));
-        Core::set(out, Value("externalEntry"), tombstone);
-      }
-      if (!Core::truthy(external_registry)) {
-        Core::set(out, Value("deleteInMemory"), Value(true));
-      }
-    }
-  }
-  return out;
-}
-
 Value Core::_openai_normalize_tool_calls_impl(Value calls) {
   axir_coverage_mark("_openai_normalize_tool_calls_impl");
   Value out = Value::array();
@@ -5462,6 +5482,55 @@ Value Core::_openai_normalize_tool_calls_impl(Value calls) {
     Core::append(out, normalized);
   }
   return out;
+}
+
+Value Core::ai_context_cache_recovery(Value current_entry, Value cache_name, Value external_registry) {
+  axir_coverage_mark("ai_context_cache_recovery");
+  Value out = Value::object();
+  Core::set(out, Value("invalidated"), Value(false));
+  Core::set(out, Value("deleteInMemory"), Value(false));
+  Value entry_object = Core::type_is(current_entry, Value("object"));
+  if (Core::truthy(entry_object)) {
+    Value current_name = Core::get(current_entry, Value("cacheName"), Value(""));
+    Value matches = Core::eq(current_name, cache_name);
+    if (Core::truthy(matches)) {
+      Core::set(out, Value("invalidated"), Value(true));
+      if (Core::truthy(external_registry)) {
+        Value empty = Value::object();
+        Value tombstone = Core::map_merge(current_entry, empty);
+        Core::set(tombstone, Value("expiresAt"), Value(0));
+        Core::set(out, Value("externalEntry"), tombstone);
+      }
+      if (!Core::truthy(external_registry)) {
+        Core::set(out, Value("deleteInMemory"), Value(true));
+      }
+    }
+  }
+  return out;
+}
+
+Value Core::_openai_finish_reason_impl(Value value) {
+  axir_coverage_mark("_openai_finish_reason_impl");
+  Value is_stop = Core::eq(value, Value("stop"));
+  if (Core::truthy(is_stop)) {
+    return Value("stop");
+  }
+  Value is_length = Core::eq(value, Value("length"));
+  if (Core::truthy(is_length)) {
+    return Value("length");
+  }
+  Value is_content_filter = Core::eq(value, Value("content_filter"));
+  if (Core::truthy(is_content_filter)) {
+    return Value("error");
+  }
+  Value is_tool_calls = Core::eq(value, Value("tool_calls"));
+  Value is_function_call = Core::eq(value, Value("function_call"));
+  Value is_call = Core::or_(is_tool_calls, is_function_call);
+  if (Core::truthy(is_call)) {
+    return Value("function_call");
+  }
+  Value none = Core::none();
+  return none;
 }
 
 Value Core::ai_gemini_cache_ops(Value cache_name, Value ttl_seconds, Value api_key, Value model, Value create_body, Value options) {
@@ -5523,30 +5592,6 @@ Value Core::ai_gemini_cache_ops(Value cache_name, Value ttl_seconds, Value api_k
   Core::set(out, Value("update"), update);
   Core::set(out, Value("delete"), delete_op);
   return out;
-}
-
-Value Core::_openai_finish_reason_impl(Value value) {
-  axir_coverage_mark("_openai_finish_reason_impl");
-  Value is_stop = Core::eq(value, Value("stop"));
-  if (Core::truthy(is_stop)) {
-    return Value("stop");
-  }
-  Value is_length = Core::eq(value, Value("length"));
-  if (Core::truthy(is_length)) {
-    return Value("length");
-  }
-  Value is_content_filter = Core::eq(value, Value("content_filter"));
-  if (Core::truthy(is_content_filter)) {
-    return Value("error");
-  }
-  Value is_tool_calls = Core::eq(value, Value("tool_calls"));
-  Value is_function_call = Core::eq(value, Value("function_call"));
-  Value is_call = Core::or_(is_tool_calls, is_function_call);
-  if (Core::truthy(is_call)) {
-    return Value("function_call");
-  }
-  Value none = Core::none();
-  return none;
 }
 
 Value Core::openai_normalize_embed_response(Value raw, Value ai_name, Value model) {
@@ -27406,6 +27451,12 @@ bool equal(const Value& left, const Value& right) {
 Value AIClient::chat(Value request) {
   return Core::legacy_response_to_chat_response(complete(std::move(request)));
 }
+Value AIClient::chat(Value request, Value options, const AxCancellationToken* cancellation) {
+  if (cancellation) cancellation->throw_if_cancelled();
+  AxCancellationScope scope(cancellation);
+  try { Value response = chat(std::move(request), std::move(options)); if (cancellation) cancellation->throw_if_cancelled(); return response; }
+  catch (...) { if(cancellation&&cancellation->is_cancelled())throw AxAIServiceAbortedError(cancellation->reason());throw; }
+}
 
 std::string AxAIService::get_id() { return get_name() + "-id"; }
 std::string AxAIService::get_name() { return "ai"; }
@@ -27416,10 +27467,18 @@ std::vector<Value> AxAIService::stream(Value request) { return {chat(std::move(r
 void AxAIService::stream_each(Value request, AxStreamHandler handler) {
   for (const auto& event : stream(std::move(request))) if (!handler(event)) break;
 }
+void AxAIService::stream_each(Value request, AxStreamHandler handler, const AxCancellationToken* cancellation) {
+  if (cancellation) cancellation->throw_if_cancelled();
+  AxCancellationScope scope(cancellation);
+  stream_each(std::move(request), [&](Value event) { if (cancellation) cancellation->throw_if_cancelled(); return handler(std::move(event)); });
+}
 Value AxAIService::embed(Value request, Value) { return embed(std::move(request)); }
+Value AxAIService::embed(Value request, Value options, const AxCancellationToken* cancellation) { if(cancellation)cancellation->throw_if_cancelled();AxCancellationScope scope(cancellation);Value response=embed(std::move(request),std::move(options));if(cancellation)cancellation->throw_if_cancelled();return response; }
 Value AxAIService::embed(Value request, Value options, const AxRuntimeHooks&) { return embed(std::move(request), std::move(options)); }
 Value AxAIService::transcribe(Value request, Value) { return transcribe(std::move(request)); }
+Value AxAIService::transcribe(Value request, Value options, const AxCancellationToken* cancellation) { if(cancellation)cancellation->throw_if_cancelled();AxCancellationScope scope(cancellation);Value response=transcribe(std::move(request),std::move(options));if(cancellation)cancellation->throw_if_cancelled();return response; }
 Value AxAIService::speak(Value request, Value) { return speak(std::move(request)); }
+Value AxAIService::speak(Value request, Value options, const AxCancellationToken* cancellation) { if(cancellation)cancellation->throw_if_cancelled();AxCancellationScope scope(cancellation);Value response=speak(std::move(request),std::move(options));if(cancellation)cancellation->throw_if_cancelled();return response; }
 Value AxAIService::get_features(Value) {
   return Value(Object{{"functions", true}, {"streaming", true}, {"structured_outputs", true}, {"multi_turn", true}});
 }
@@ -28149,7 +28208,8 @@ class IncrementalSSEDecoder {
 };
 
 static bool stream_error_retryable(const AxError& error) {
-  if (error.type == "AxAIServiceAuthenticationError") return false;
+  if(auto token=current_cancellation_token();token&&token->is_cancelled())return false;
+  if (error.type == "AxAIServiceAuthenticationError" || error.type == "AxAIServiceAbortedError") return false;
   if (error.type == "AxAIServiceStatusError") return Core::truthy(Core::is_retryable_status(error.status));
   return error.retryable || error.category == "network" || error.type == "AxAIServiceNetworkError" || error.type == "AxAIServiceResponseError" || error.type == "AxAIServiceStreamTerminatedError" || error.type == "AxAIServiceTimeoutError";
 }
@@ -28221,9 +28281,11 @@ void OpenAICompatibleClient::stream_each(Value request, AxStreamHandler handler)
           return decoder.feed(display(raw));
         };
         try {
-          transport_->stream(call, consume);
+          transport_->stream(call, consume, current_cancellation_token());
           if (!retry_requested && !cancelled && !decoder.done_marker()) decoder.finish();
         } catch (const AxError& error) {
+          if (error.type == "AxAIServiceAbortedError") throw;
+          if (auto token = current_cancellation_token(); token && token->is_cancelled()) throw AxAIServiceAbortedError(token->reason());
           // Retry transport/open failures before any SSE event. Once a provider
           // event exists, its normalized error is authoritative unless the
           // explicit transient-status classifier above requested a retry.
@@ -28234,7 +28296,7 @@ void OpenAICompatibleClient::stream_each(Value request, AxStreamHandler handler)
         if (retry_requested) {
           ++attempt;
           double delay = std::min(initial_delay * std::pow(backoff, attempt - 1), max_delay);
-          if (delay > 0) std::this_thread::sleep_for(std::chrono::milliseconds(static_cast<long>(delay)));
+          if (delay > 0) {auto token=current_cancellation_token();auto duration=std::chrono::milliseconds(static_cast<long>(delay));if(token&&token->wait_for(duration))token->throw_if_cancelled();else if(!token)std::this_thread::sleep_for(duration);}
           continue;
         }
         Value response = object({{"results", results}});
@@ -28519,7 +28581,7 @@ std::string OpenAICompatibleClient::operation_method(const std::string& operatio
 
 Value OpenAICompatibleClient::request_json(const std::string& endpoint, Value payload, bool stream, const std::string& body_key, bool binary_response, const std::string& method) {
   Value call = build_request(endpoint, std::move(payload), stream, body_key, binary_response, method);
-  if (transport_ != nullptr) return transport_result(transport_->call(call), call);
+  if (transport_ != nullptr) return transport_result(transport_->call(call, current_cancellation_token()), call);
   throw Core::as_error(Core::ai_error_unsupported("C++ HTTP transport is not available; build with AXLLM_ENABLE_CURL=ON or pass a custom Transport"));
 }
 
@@ -30405,6 +30467,10 @@ Value AxGen::forward(AIClient& client, Value values, Value options) {
   return forward(client, std::move(values), std::move(options), AxRuntimeHooks{});
 }
 
+Value AxGen::forward(AIClient& client, Value values, Value options, const AxCancellationToken* cancellation) {
+  if(cancellation)cancellation->throw_if_cancelled();AxCancellationScope scope(cancellation);return forward(client,std::move(values),std::move(options));
+}
+
 Value AxGen::forward(AIClient& client, Value values, Value options, const AxRuntimeHooks& hooks) {
   AxRuntimeHooks program_hooks = *std::atomic_load(&runtime_hooks_);
   RuntimeHookScope scope(hooks, program_hooks, "ax_gen_forward", "ax_gen_generation",
@@ -30583,6 +30649,10 @@ Value AxFlow::forward(AIClient& client, Value values, Value options) {
   return forward(client, std::move(values), std::move(options), AxRuntimeHooks{});
 }
 
+Value AxFlow::forward(AIClient& client, Value values, Value options, const AxCancellationToken* cancellation) {
+  if(cancellation)cancellation->throw_if_cancelled();AxCancellationScope scope(cancellation);return forward(client,std::move(values),std::move(options));
+}
+
 Value AxFlow::forward(AIClient& client, Value values, Value options, const AxRuntimeHooks& hooks) {
   AxRuntimeHooks program_hooks = *std::atomic_load(&runtime_hooks_);
   RuntimeHookScope scope(hooks, program_hooks, "ax_gen_flow_forward", "ax_gen_flow",
@@ -30707,6 +30777,10 @@ AxAgent& AxAgent::add_actor_instruction(Value addendum) {
 
 Value AxAgent::forward(AIClient& client, Value values, Value options) {
   return forward(client, std::move(values), std::move(options), AxRuntimeHooks{});
+}
+
+Value AxAgent::forward(AIClient& client, Value values, Value options, const AxCancellationToken* cancellation) {
+  if(cancellation)cancellation->throw_if_cancelled();AxCancellationScope scope(cancellation);return forward(client,std::move(values),std::move(options));
 }
 
 Value AxAgent::forward(AIClient& client, Value values, Value options, const AxRuntimeHooks& hooks) {
@@ -31466,8 +31540,9 @@ void AxBalancer::handle_success(const std::shared_ptr<AxAIService>& service) {
 }
 
 bool AxBalancer::retryable(const AxError& error) const {
+  if(auto token=current_cancellation_token();token&&token->is_cancelled())return false;
   if (error.category != "ai") return false;
-  if (error.type == "AxAIServiceAuthenticationError") return false;
+  if (error.type == "AxAIServiceAuthenticationError" || error.type == "AxAIServiceAbortedError") return false;
   if (error.type == "AxAIServiceStatusError") {
     return error.status == 408 || error.status == 429 || error.status == 500 || error.status == 502 || error.status == 503 || error.status == 504 || error.status == 529;
   }
@@ -32013,11 +32088,14 @@ Value ProviderRouter::validate_request(Value request) {
 
 Value ProviderRouter::get_routing_stats() { return Core::provider_routing_stats(provider_records()); }
 Value ProviderRouter::chat(Value request, Value options) {
+  return chat(std::move(request), std::move(options), nullptr);
+}
+Value ProviderRouter::chat(Value request, Value options, const AxCancellationToken* cancellation) {
   Value rec = get_routing_recommendation(request);
   auto provider = service_for_name(Core::get(rec, "providerName"));
   if (!provider) throw Core::as_error(Core::ai_error_unsupported("No provider selected"));
   Value processed_request = Core::provider_route_preprocess_request(provider->get_features(Value()), request);
-  return object({{"response", provider->chat(processed_request, options)}, {"routing", rec}});
+  return object({{"response", provider->chat(processed_request, options, cancellation)}, {"routing", rec}});
 }
 
 std::vector<Value> ProviderRouter::stream(Value request) {
@@ -32027,32 +32105,44 @@ std::vector<Value> ProviderRouter::stream(Value request) {
 }
 
 void ProviderRouter::stream_each(Value request, AxStreamHandler handler) {
+  stream_each(std::move(request), std::move(handler), nullptr);
+}
+void ProviderRouter::stream_each(Value request, AxStreamHandler handler, const AxCancellationToken* cancellation) {
   Value rec = get_routing_recommendation(request);
   auto provider = service_for_name(Core::get(rec, "providerName"));
   if (!provider) throw Core::as_error(Core::ai_error_unsupported("No provider selected"));
   Value processed_request = Core::provider_route_preprocess_request(provider->get_features(Value()), request);
-  provider->stream_each(std::move(processed_request), std::move(handler));
+  provider->stream_each(std::move(processed_request), std::move(handler), cancellation);
 }
 
 Value ProviderRouter::embed(Value request, Value options) {
+  return embed(std::move(request), std::move(options), nullptr);
+}
+Value ProviderRouter::embed(Value request, Value options, const AxCancellationToken* cancellation) {
   Value rec = get_routing_recommendation(request);
   auto provider = service_for_name(Core::get(rec, "providerName"));
   if (!provider) throw Core::as_error(Core::ai_error_unsupported("No provider selected"));
-  return provider->embed(std::move(request), std::move(options));
+  return provider->embed(std::move(request), std::move(options), cancellation);
 }
 
 Value ProviderRouter::transcribe(Value request, Value options) {
+  return transcribe(std::move(request), std::move(options), nullptr);
+}
+Value ProviderRouter::transcribe(Value request, Value options, const AxCancellationToken* cancellation) {
   Value rec = get_routing_recommendation(request);
   auto provider = service_for_name(Core::get(rec, "providerName"));
   if (!provider) throw Core::as_error(Core::ai_error_unsupported("No provider selected"));
-  return provider->transcribe(std::move(request), std::move(options));
+  return provider->transcribe(std::move(request), std::move(options), cancellation);
 }
 
 Value ProviderRouter::speak(Value request, Value options) {
+  return speak(std::move(request), std::move(options), nullptr);
+}
+Value ProviderRouter::speak(Value request, Value options, const AxCancellationToken* cancellation) {
   Value rec = get_routing_recommendation(request);
   auto provider = service_for_name(Core::get(rec, "providerName"));
   if (!provider) throw Core::as_error(Core::ai_error_unsupported("No provider selected"));
-  return provider->speak(std::move(request), std::move(options));
+  return provider->speak(std::move(request), std::move(options), cancellation);
 }
 
 Value to_json_schema(Value fields, const std::string& title, Value options) { return Core::to_json_schema(fields, title, options); }

@@ -76,6 +76,7 @@ if(AX_BUILD_EXAMPLES)
     provider_mapping_no_key
     adaptive_balancer_no_key
     provider_stream_no_key
+    cancellation_no_key
     runtime_adapter
     runtime_protocol
     axflow_program_graph

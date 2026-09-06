@@ -3277,47 +3277,6 @@ final class Core {
     return out;
   }
 
-  static Object merge_model_config(Object base, Object override, Object options) {
-    axirCoverageMark("merge_model_config");
-    Object empty_options_config = new java.util.LinkedHashMap<String, Object>();
-    Object options_config_snake = Core.get(options, "model_config", empty_options_config);
-    Object options_config = Core.get(options, "modelConfig", options_config_snake);
-    Object base_options = Core.mapMerge(base, options_config);
-    Object merged = Core.mapMerge(base_options, override);
-    Object has_stream_option = Core.mapContains(options, "stream");
-    if (Core.truthy(has_stream_option)) {
-      Object stream = Core.get(options, "stream", null);
-      Core.set(merged, "stream", stream);
-    }
-    Object budget_snake = Core.get(options, "thinking_token_budget", null);
-    Object budget = Core.get(options, "thinkingTokenBudget", budget_snake);
-    Object has_budget = Core.isNotNone(budget);
-    if (Core.truthy(has_budget)) {
-      Core.set(merged, "thinkingTokenBudget", budget);
-    }
-    Object reasoning_snake = Core.get(options, "reasoning_effort", null);
-    Object reasoning = Core.get(options, "reasoningEffort", reasoning_snake);
-    Object has_reasoning = Core.isNotNone(reasoning);
-    if (Core.truthy(has_reasoning)) {
-      Core.set(merged, "reasoning_effort", reasoning);
-    }
-    Object show_thoughts_snake = Core.get(options, "show_thoughts", null);
-    Object show_thoughts = Core.get(options, "showThoughts", show_thoughts_snake);
-    Object has_show_thoughts = Core.isNotNone(show_thoughts);
-    if (Core.truthy(has_show_thoughts)) {
-      Core.set(merged, "showThoughts", show_thoughts);
-    }
-    Object out = new java.util.LinkedHashMap<String, Object>();
-    for (Object key : Core.iter(merged)) {
-      Object value = Core.get(merged, key, null);
-      Object include = Core.isNotNone(value);
-      if (Core.truthy(include)) {
-        Core.set(out, key, value);
-      }
-    }
-    return out;
-  }
-
   static Object _openai_apply_model_config_impl(Object payload, Object model_config) {
     axirCoverageMark("_openai_apply_model_config_impl");
     Core._openai_copy_config_key_impl(payload, model_config, "max_tokens", "max_completion_tokens");
@@ -3361,6 +3320,47 @@ final class Core {
       Core.set(payload, "stream_options", stream_options);
     }
     return null;
+  }
+
+  static Object merge_model_config(Object base, Object override, Object options) {
+    axirCoverageMark("merge_model_config");
+    Object empty_options_config = new java.util.LinkedHashMap<String, Object>();
+    Object options_config_snake = Core.get(options, "model_config", empty_options_config);
+    Object options_config = Core.get(options, "modelConfig", options_config_snake);
+    Object base_options = Core.mapMerge(base, options_config);
+    Object merged = Core.mapMerge(base_options, override);
+    Object has_stream_option = Core.mapContains(options, "stream");
+    if (Core.truthy(has_stream_option)) {
+      Object stream = Core.get(options, "stream", null);
+      Core.set(merged, "stream", stream);
+    }
+    Object budget_snake = Core.get(options, "thinking_token_budget", null);
+    Object budget = Core.get(options, "thinkingTokenBudget", budget_snake);
+    Object has_budget = Core.isNotNone(budget);
+    if (Core.truthy(has_budget)) {
+      Core.set(merged, "thinkingTokenBudget", budget);
+    }
+    Object reasoning_snake = Core.get(options, "reasoning_effort", null);
+    Object reasoning = Core.get(options, "reasoningEffort", reasoning_snake);
+    Object has_reasoning = Core.isNotNone(reasoning);
+    if (Core.truthy(has_reasoning)) {
+      Core.set(merged, "reasoning_effort", reasoning);
+    }
+    Object show_thoughts_snake = Core.get(options, "show_thoughts", null);
+    Object show_thoughts = Core.get(options, "showThoughts", show_thoughts_snake);
+    Object has_show_thoughts = Core.isNotNone(show_thoughts);
+    if (Core.truthy(has_show_thoughts)) {
+      Core.set(merged, "showThoughts", show_thoughts);
+    }
+    Object out = new java.util.LinkedHashMap<String, Object>();
+    for (Object key : Core.iter(merged)) {
+      Object value = Core.get(merged, key, null);
+      Object include = Core.isNotNone(value);
+      if (Core.truthy(include)) {
+        Core.set(out, key, value);
+      }
+    }
+    return out;
   }
 
   static Object validate_chat_request(Object request) {
@@ -3460,13 +3460,6 @@ final class Core {
     return "high";
   }
 
-  static Object build_chat_request(Object service, Object request, Object options) {
-    axirCoverageMark("build_chat_request");
-    Core.validate_chat_request(request);
-    Object payload = Core.openai_build_chat_request(request, options, Boolean.TRUE);
-    return payload;
-  }
-
   static Object openai_chat_reasoning_effort(Object model, Object budget) {
     axirCoverageMark("openai_chat_reasoning_effort");
     Object effort = Core.openai_reasoning_effort(model, budget);
@@ -3477,16 +3470,11 @@ final class Core {
     return effort;
   }
 
-  static Object normalize_chat_response(Object raw) {
-    axirCoverageMark("normalize_chat_response");
-    Object response = Core.openai_normalize_chat_response(raw);
-    return response;
-  }
-
-  static Object normalize_stream_delta(Object raw, Object state) {
-    axirCoverageMark("normalize_stream_delta");
-    Object response = Core.openai_normalize_stream_delta(raw, state);
-    return response;
+  static Object build_chat_request(Object service, Object request, Object options) {
+    axirCoverageMark("build_chat_request");
+    Core.validate_chat_request(request);
+    Object payload = Core.openai_build_chat_request(request, options, Boolean.TRUE);
+    return payload;
   }
 
   static Object _openai_copy_config_key_impl(Object payload, Object model_config, Object source, Object target) {
@@ -3499,10 +3487,10 @@ final class Core {
     return null;
   }
 
-  static Object build_embed_request(Object service, Object request, Object options) {
-    axirCoverageMark("build_embed_request");
-    Object payload = Core.openai_build_embed_request(request);
-    return payload;
+  static Object normalize_chat_response(Object raw) {
+    axirCoverageMark("normalize_chat_response");
+    Object response = Core.openai_normalize_chat_response(raw);
+    return response;
   }
 
   static Object _openai_message_impl(Object message, Object reasoning_content_mode, Object reasoning_details_mode) {
@@ -3614,6 +3602,18 @@ final class Core {
     Object message_text = Core.stringFormat("Invalid role: {}", role);
     Object error = Core.aiErrorResponse(message_text);
     throw Core.asRuntime(error);
+  }
+
+  static Object normalize_stream_delta(Object raw, Object state) {
+    axirCoverageMark("normalize_stream_delta");
+    Object response = Core.openai_normalize_stream_delta(raw, state);
+    return response;
+  }
+
+  static Object build_embed_request(Object service, Object request, Object options) {
+    axirCoverageMark("build_embed_request");
+    Object payload = Core.openai_build_embed_request(request);
+    return payload;
   }
 
   static Object normalize_embed_response(Object raw) {
@@ -3880,22 +3880,6 @@ final class Core {
     return out;
   }
 
-  static Object _ai_model_usage_impl(Object ai_name, Object model, Object usage) {
-    axirCoverageMark("_ai_model_usage_impl");
-    Object has_usage = Core.truthyValue(usage);
-    Object missing_usage = Core.not(has_usage);
-    if (Core.truthy(missing_usage)) {
-      Object none = Core.none();
-      return none;
-    }
-    Object tokens = Core.normalize_token_usage(usage);
-    Object out = new java.util.LinkedHashMap<String, Object>();
-    Core.set(out, "ai", ai_name);
-    Core.set(out, "model", model);
-    Core.set(out, "tokens", tokens);
-    return out;
-  }
-
   static Object _openai_tool_spec_impl(Object fn) {
     axirCoverageMark("_openai_tool_spec_impl");
     Object name = Core.get(fn, "name", null);
@@ -3912,6 +3896,39 @@ final class Core {
     Core.set(out, "type", "function");
     Core.set(out, "function", function);
     return out;
+  }
+
+  static Object _ai_model_usage_impl(Object ai_name, Object model, Object usage) {
+    axirCoverageMark("_ai_model_usage_impl");
+    Object has_usage = Core.truthyValue(usage);
+    Object missing_usage = Core.not(has_usage);
+    if (Core.truthy(missing_usage)) {
+      Object none = Core.none();
+      return none;
+    }
+    Object tokens = Core.normalize_token_usage(usage);
+    Object out = new java.util.LinkedHashMap<String, Object>();
+    Core.set(out, "ai", ai_name);
+    Core.set(out, "model", model);
+    Core.set(out, "tokens", tokens);
+    return out;
+  }
+
+  static Object openai_build_embed_request(Object request) {
+    axirCoverageMark("openai_build_embed_request");
+    Object embed_model_snake = Core.get(request, "embed_model", null);
+    Object model = Core.get(request, "embedModel", embed_model_snake);
+    Object empty_texts = new java.util.ArrayList<Object>();
+    Object texts = Core.get(request, "texts", empty_texts);
+    Object payload = new java.util.LinkedHashMap<String, Object>();
+    Core.set(payload, "model", model);
+    Core.set(payload, "input", texts);
+    Object dimensions = Core.get(request, "dimensions", null);
+    Object has_dimensions = Core.truthyValue(dimensions);
+    if (Core.truthy(has_dimensions)) {
+      Core.set(payload, "dimensions", dimensions);
+    }
+    return payload;
   }
 
   static Object _chat_result_to_completion(Object result, Object fallback_index) {
@@ -3949,27 +3966,31 @@ final class Core {
     return completion;
   }
 
-  static Object openai_build_embed_request(Object request) {
-    axirCoverageMark("openai_build_embed_request");
-    Object embed_model_snake = Core.get(request, "embed_model", null);
-    Object model = Core.get(request, "embedModel", embed_model_snake);
-    Object empty_texts = new java.util.ArrayList<Object>();
-    Object texts = Core.get(request, "texts", empty_texts);
-    Object payload = new java.util.LinkedHashMap<String, Object>();
-    Core.set(payload, "model", model);
-    Core.set(payload, "input", texts);
-    Object dimensions = Core.get(request, "dimensions", null);
-    Object has_dimensions = Core.truthyValue(dimensions);
-    if (Core.truthy(has_dimensions)) {
-      Core.set(payload, "dimensions", dimensions);
-    }
-    return payload;
-  }
-
   static Object openai_normalize_chat_response(Object raw, Object ai_name, Object model) {
     axirCoverageMark("openai_normalize_chat_response");
     Object response = Core._openai_normalize_chat_response_impl(raw, ai_name, model, "none", "none");
     return response;
+  }
+
+  static Object _openai_usage_with_service_tier(Object raw, Object usage) {
+    axirCoverageMark("_openai_usage_with_service_tier");
+    Object has_usage = Core.isNotNone(usage);
+    if (Core.truthy(has_usage)) {
+      // empty
+    }
+    if (!Core.truthy(has_usage)) {
+      return usage;
+    }
+    Object empty = new java.util.LinkedHashMap<String, Object>();
+    Object out = Core.mapMerge(empty, usage);
+    Object usage_tier = Core.get(usage, "service_tier", null);
+    Object raw_tier = Core.get(raw, "service_tier", usage_tier);
+    Object tier = Core.get(raw, "service_tier_used", raw_tier);
+    Object has_tier = Core.isNotNone(tier);
+    if (Core.truthy(has_tier)) {
+      Core.set(out, "service_tier", tier);
+    }
+    return out;
   }
 
   static Object chat_response_to_completion(Object response) {
@@ -4004,27 +4025,6 @@ final class Core {
     }
     if (Core.truthy(has_thought_blocks)) {
       Core.set(out, "thought_blocks", thought_blocks);
-    }
-    return out;
-  }
-
-  static Object _openai_usage_with_service_tier(Object raw, Object usage) {
-    axirCoverageMark("_openai_usage_with_service_tier");
-    Object has_usage = Core.isNotNone(usage);
-    if (Core.truthy(has_usage)) {
-      // empty
-    }
-    if (!Core.truthy(has_usage)) {
-      return usage;
-    }
-    Object empty = new java.util.LinkedHashMap<String, Object>();
-    Object out = Core.mapMerge(empty, usage);
-    Object usage_tier = Core.get(usage, "service_tier", null);
-    Object raw_tier = Core.get(raw, "service_tier", usage_tier);
-    Object tier = Core.get(raw, "service_tier_used", raw_tier);
-    Object has_tier = Core.isNotNone(tier);
-    if (Core.truthy(has_tier)) {
-      Core.set(out, "service_tier", tier);
     }
     return out;
   }
@@ -4229,31 +4229,6 @@ final class Core {
     return out;
   }
 
-  static Object ai_context_cache_recovery(Object current_entry, Object cache_name, Object external_registry) {
-    axirCoverageMark("ai_context_cache_recovery");
-    Object out = new java.util.LinkedHashMap<String, Object>();
-    Core.set(out, "invalidated", Boolean.FALSE);
-    Core.set(out, "deleteInMemory", Boolean.FALSE);
-    Object entry_object = Core.typeIs(current_entry, "object");
-    if (Core.truthy(entry_object)) {
-      Object current_name = Core.get(current_entry, "cacheName", "");
-      Object matches = Core.eq(current_name, cache_name);
-      if (Core.truthy(matches)) {
-        Core.set(out, "invalidated", Boolean.TRUE);
-        if (Core.truthy(external_registry)) {
-          Object empty = new java.util.LinkedHashMap<String, Object>();
-          Object tombstone = Core.mapMerge(current_entry, empty);
-          Core.set(tombstone, "expiresAt", 0);
-          Core.set(out, "externalEntry", tombstone);
-        }
-        if (!Core.truthy(external_registry)) {
-          Core.set(out, "deleteInMemory", Boolean.TRUE);
-        }
-      }
-    }
-    return out;
-  }
-
   static Object _openai_normalize_tool_calls_impl(Object calls) {
     axirCoverageMark("_openai_normalize_tool_calls_impl");
     Object out = new java.util.ArrayList<Object>();
@@ -4281,6 +4256,55 @@ final class Core {
       Core.append(out, normalized);
     }
     return out;
+  }
+
+  static Object ai_context_cache_recovery(Object current_entry, Object cache_name, Object external_registry) {
+    axirCoverageMark("ai_context_cache_recovery");
+    Object out = new java.util.LinkedHashMap<String, Object>();
+    Core.set(out, "invalidated", Boolean.FALSE);
+    Core.set(out, "deleteInMemory", Boolean.FALSE);
+    Object entry_object = Core.typeIs(current_entry, "object");
+    if (Core.truthy(entry_object)) {
+      Object current_name = Core.get(current_entry, "cacheName", "");
+      Object matches = Core.eq(current_name, cache_name);
+      if (Core.truthy(matches)) {
+        Core.set(out, "invalidated", Boolean.TRUE);
+        if (Core.truthy(external_registry)) {
+          Object empty = new java.util.LinkedHashMap<String, Object>();
+          Object tombstone = Core.mapMerge(current_entry, empty);
+          Core.set(tombstone, "expiresAt", 0);
+          Core.set(out, "externalEntry", tombstone);
+        }
+        if (!Core.truthy(external_registry)) {
+          Core.set(out, "deleteInMemory", Boolean.TRUE);
+        }
+      }
+    }
+    return out;
+  }
+
+  static Object _openai_finish_reason_impl(Object value) {
+    axirCoverageMark("_openai_finish_reason_impl");
+    Object is_stop = Core.eq(value, "stop");
+    if (Core.truthy(is_stop)) {
+      return "stop";
+    }
+    Object is_length = Core.eq(value, "length");
+    if (Core.truthy(is_length)) {
+      return "length";
+    }
+    Object is_content_filter = Core.eq(value, "content_filter");
+    if (Core.truthy(is_content_filter)) {
+      return "error";
+    }
+    Object is_tool_calls = Core.eq(value, "tool_calls");
+    Object is_function_call = Core.eq(value, "function_call");
+    Object is_call = Core.or(is_tool_calls, is_function_call);
+    if (Core.truthy(is_call)) {
+      return "function_call";
+    }
+    Object none = Core.none();
+    return none;
   }
 
   static Object ai_gemini_cache_ops(Object cache_name, Object ttl_seconds, Object api_key, Object model, Object create_body, Object options) {
@@ -4342,30 +4366,6 @@ final class Core {
     Core.set(out, "update", update);
     Core.set(out, "delete", delete_op);
     return out;
-  }
-
-  static Object _openai_finish_reason_impl(Object value) {
-    axirCoverageMark("_openai_finish_reason_impl");
-    Object is_stop = Core.eq(value, "stop");
-    if (Core.truthy(is_stop)) {
-      return "stop";
-    }
-    Object is_length = Core.eq(value, "length");
-    if (Core.truthy(is_length)) {
-      return "length";
-    }
-    Object is_content_filter = Core.eq(value, "content_filter");
-    if (Core.truthy(is_content_filter)) {
-      return "error";
-    }
-    Object is_tool_calls = Core.eq(value, "tool_calls");
-    Object is_function_call = Core.eq(value, "function_call");
-    Object is_call = Core.or(is_tool_calls, is_function_call);
-    if (Core.truthy(is_call)) {
-      return "function_call";
-    }
-    Object none = Core.none();
-    return none;
   }
 
   static Object openai_normalize_embed_response(Object raw, Object ai_name, Object model) {

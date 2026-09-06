@@ -537,3 +537,23 @@ This ledger tracks portable TypeScript behavior that should be migrated into AxI
   - Completed at: 2026-08-29
   - Completed by: `e62cfc20df1c683713c33ffae05b2fb9f74da9b0`
   - Verification: `npm run test:axir; npm run test:examples:generated; npm run axir:check-packages; npm run axir:conformance:check; npm run website:check; live OpenAI gpt-5.6-luna and Gemini gemini-3.7-flash smokes on Python, Java, Go, Rust, and C++`
+- `axir-2026-09-06-port-event-clock-cancellation` [axprogram] Port event clock cancellation
+  - Status: done
+  - Source PR: #647
+  - Source commit: `039f1d7e36fc0dd05817d340350264376dd98e75`
+  - TS paths: `src/ax/event/types.ts`, `src/ax/event/types.test.ts`
+  - Impact: Generated system and manual event clocks need the TypeScript cancellation cleanup contract so successful and cancelled sleeps promptly release wake callbacks, timers, waiters, and condition registrations.
+  - Suggested AxIR work: Add or update the TS-derived conformance fixture.; Update AxIR/Core or descriptor data to match the portable TS behavior.; Run npm run axir:conformance:check and npm run test:axir.
+  - Completed at: 2026-09-06
+  - Completed by: `working-tree`
+  - Verification: `axevent lifecycle conformance in Python, Java, C++, Go, and Rust; npm run test:axir; npm run axir:check-packages`
+- `axir-2026-09-06-port-provider-request-cancellation` [axai] Port provider request cancellation
+  - Status: done
+  - Source PR: #645
+  - Source commit: `2034b04f688bcfe64ffd8f728a4efccaa8045aff`
+  - TS paths: `src/ax/util/apicall.ts`, `src/ax/util/apicall.test.ts`
+  - Impact: Generated Python, Java, C++, Go, and Rust provider operations need the TypeScript request cancellation cleanup contract across HTTP/SSE, retry, routing, forwarding, and custom transports, with terminal non-retryable aborted errors and no listener or attempt retention.
+  - Suggested AxIR work: Add or update the TS-derived conformance fixture.; Update AxIR/Core or descriptor data to match the portable TS behavior.; Run npm run axir:conformance:check and npm run test:axir.
+  - Completed at: 2026-09-06
+  - Completed by: `working-tree`
+  - Verification: `portable-cancellation conformance in Python, Java, C++, Go, and Rust; npm run test:axir; npm run axir:check-packages`

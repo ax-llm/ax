@@ -1,0 +1,39 @@
+{
+  "name": "portable-provider-cancellation",
+  "kind": "ai_cancellation",
+  "provider": "anthropic",
+  "reason": "fixture-stop",
+  "max_elapsed_ms": 1000,
+  "request": {
+    "chat_prompt": [
+      { "role": "user", "content": "cancel this request" }
+    ]
+  },
+  "retry_options": {
+    "retry": {
+      "initialDelayMs": 30000,
+      "maxDelayMs": 30000,
+      "maxRetries": 3
+    }
+  },
+  "success_response": {
+    "status": 200,
+    "json": {
+      "id": "msg_success",
+      "type": "message",
+      "role": "assistant",
+      "content": [{ "type": "text", "text": "ok" }],
+      "model": "claude-sonnet-4-5",
+      "stop_reason": "end_turn",
+      "usage": { "input_tokens": 1, "output_tokens": 1 }
+    }
+  },
+  "retry_response": {
+    "status": 200,
+    "body": "data: {\"type\":\"error\",\"error\":{\"type\":\"overloaded_error\",\"message\":\"retry later\"}}\n\n"
+  },
+  "stream_response": {
+    "status": 200,
+    "body": "data: {\"type\":\"message_start\",\"message\":{\"id\":\"msg_stream\",\"type\":\"message\",\"role\":\"assistant\",\"content\":[],\"model\":\"claude-sonnet-4-5\",\"stop_reason\":null,\"usage\":{\"input_tokens\":1,\"output_tokens\":0}}}\n\ndata: {\"type\":\"content_block_delta\",\"index\":0,\"delta\":{\"type\":\"text_delta\",\"text\":\"late\"}}\n\n"
+  }
+}

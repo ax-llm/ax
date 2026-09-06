@@ -28,7 +28,7 @@ public final class AxEventRuntime {
     public final String id,targetId,instanceKey,identityScope; public final List<Map<String,String>> correlation; public final Map<String,Object> metadata; public boolean completed;public final Long expiresAt;
     Continuation(String id,String targetId,String instanceKey,String identityScope,List<Map<String,String>> correlation,Map<String,Object> metadata,Long expiresAt){this.id=id;this.targetId=targetId;this.instanceKey=instanceKey;this.identityScope=identityScope;this.correlation=List.copyOf(correlation);this.metadata=Map.copyOf(metadata);this.expiresAt=expiresAt;}
   }
-  public static final class CancellationToken { private volatile boolean cancelled;private volatile String reason;public void cancel(String reason){this.cancelled=true;this.reason=reason;}public boolean cancelled(){return cancelled;}public String reason(){return reason;} }
+  public static final class CancellationToken extends AxEventCancellationToken {}
   public static final class Target {
     public final String id;final TargetInvoker invoke;InputMapper mapInput;final Map<String,AxEventSink> sinks=new LinkedHashMap<>();String retrySafety="unknown";final List<Map<String,Object>> waitFor=new ArrayList<>();java.util.function.Supplier<Object> captureState;java.util.function.Consumer<Object> restoreState;AxSignature signature;InputPlan input,wakeInput,resumeInput;
     public Target(String id,TargetInvoker invoke){this.id=id;this.invoke=invoke;}

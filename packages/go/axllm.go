@@ -399,6 +399,36 @@ type SignatureError struct{ AxError }
 type ValidationError struct{ AxError }
 type AIServiceError struct{ AxError }
 
+// AxAIServiceAbortedError is returned when the caller cancels an in-flight
+// provider operation. Cancellation is always terminal and never retryable.
+type AxAIServiceAbortedError struct{ AIServiceError }
+
+func (e AxAIServiceAbortedError) Unwrap() error { return e.AIServiceError }
+
+func newAIServiceAbortedError(reason string) error {
+	message := "Request aborted"
+	if reason != "" && reason != context.Canceled.Error() {
+		message += ": " + reason
+	}
+	return AxAIServiceAbortedError{AIServiceError{AxError{Category: "aborted", Type: "AxAIServiceAbortedError", Message: message, Retryable: false}}}
+}
+
+func normalizeContextError(ctx context.Context, err error) error {
+	if ctx == nil {
+		return err
+	}
+	if errors.Is(ctx.Err(), context.Canceled) || (err != nil && errors.Is(err, context.Canceled)) {
+		reason := context.Canceled.Error()
+		if cause := context.Cause(ctx); cause != nil {
+			reason = cause.Error()
+		}
+		return newAIServiceAbortedError(reason)
+	}
+	return err
+}
+
+func contextCancellationError(ctx context.Context) error { if ctx == nil { return nil }; return normalizeContextError(ctx, ctx.Err()) }
+
 // Unwrap exposes the embedded envelope so errors.As(err, &AxError{}) reaches
 // Status, Code, and Retryable without the caller having to know which concrete
 // Ax error type carries them. Embedding alone does not satisfy errors.As: the
@@ -429,7 +459,7 @@ func IsRetryable(err error) bool {
 	var serviceErr AIServiceError
 	if errors.As(err, &serviceErr) {
 		switch serviceErr.Type {
-		case "AxAIServiceAuthenticationError":
+		case "AxAIServiceAuthenticationError", "AxAIServiceAbortedError":
 			return false
 		case "AxAIServiceStatusError":
 			return coreTruthy(mustCore(is_retryable_status(serviceErr.Status)))
@@ -6327,6 +6357,86 @@ func _openai_apply_cache_breakpoint_impl(args ...Value) (Value, error) {
 	return v_out, nil
 }
 
+func _openai_apply_model_config_impl(args ...Value) (Value, error) {
+	axirCoverageMark("_openai_apply_model_config_impl")
+	var v_payload Value
+	var v_model_config Value
+	var v_budget Value
+	var v_budget_snake Value
+	var v_effort Value
+	var v_has_budget Value
+	var v_has_effort Value
+	var v_has_stop Value
+	var v_is_stream Value
+	var v_model Value
+	var v_stop Value
+	var v_stop_snake Value
+	var v_stream Value
+	var v_stream_options Value
+	if len(args) > 0 { v_payload = args[0] }
+	_ = v_payload
+	if len(args) > 1 { v_model_config = args[1] }
+	_ = v_model_config
+	_ = v_budget
+	_ = v_budget_snake
+	_ = v_effort
+	_ = v_has_budget
+	_ = v_has_effort
+	_ = v_has_stop
+	_ = v_is_stream
+	_ = v_model
+	_ = v_stop
+	_ = v_stop_snake
+	_ = v_stream
+	_ = v_stream_options
+	if _, err := _openai_copy_config_key_impl(v_payload, v_model_config, "max_tokens", "max_completion_tokens"); err != nil { return nil, err }
+	if _, err := _openai_copy_config_key_impl(v_payload, v_model_config, "maxTokens", "max_completion_tokens"); err != nil { return nil, err }
+	if _, err := _openai_copy_config_key_impl(v_payload, v_model_config, "temperature", "temperature"); err != nil { return nil, err }
+	if _, err := _openai_copy_config_key_impl(v_payload, v_model_config, "top_p", "top_p"); err != nil { return nil, err }
+	if _, err := _openai_copy_config_key_impl(v_payload, v_model_config, "topP", "top_p"); err != nil { return nil, err }
+	if _, err := _openai_copy_config_key_impl(v_payload, v_model_config, "n", "n"); err != nil { return nil, err }
+	if _, err := _openai_copy_config_key_impl(v_payload, v_model_config, "presence_penalty", "presence_penalty"); err != nil { return nil, err }
+	if _, err := _openai_copy_config_key_impl(v_payload, v_model_config, "presencePenalty", "presence_penalty"); err != nil { return nil, err }
+	if _, err := _openai_copy_config_key_impl(v_payload, v_model_config, "frequency_penalty", "frequency_penalty"); err != nil { return nil, err }
+	if _, err := _openai_copy_config_key_impl(v_payload, v_model_config, "frequencyPenalty", "frequency_penalty"); err != nil { return nil, err }
+	if _, err := _openai_copy_config_key_impl(v_payload, v_model_config, "reasoning_effort", "reasoning_effort"); err != nil { return nil, err }
+	if _, err := _openai_copy_config_key_impl(v_payload, v_model_config, "reasoningEffort", "reasoning_effort"); err != nil { return nil, err }
+	v_budget_snake = coreGet(v_model_config, "thinking_token_budget", nil)
+	v_budget = coreGet(v_model_config, "thinkingTokenBudget", v_budget_snake)
+	v_has_budget = _core_is_not_none(v_budget)
+	if coreTruthy(v_has_budget) {
+		v_model = coreGet(v_payload, "model", "")
+		{ v, err := openai_chat_reasoning_effort(v_model, v_budget); if err != nil { return nil, err }; v_effort = v }
+		v_has_effort = _core_is_not_none(v_effort)
+		if coreTruthy(v_has_effort) {
+			if err := coreSet(v_payload, "reasoning_effort", v_effort); err != nil { return nil, err }
+		} else {
+			_core_map_delete(v_payload, "reasoning_effort")
+		}
+	} else {
+	// empty
+	}
+	v_stop_snake = coreGet(v_model_config, "stop_sequences", nil)
+	v_stop = coreGet(v_model_config, "stopSequences", v_stop_snake)
+	v_has_stop = _core_truthy(v_stop)
+	if coreTruthy(v_has_stop) {
+		if err := coreSet(v_payload, "stop", v_stop); err != nil { return nil, err }
+	} else {
+	// empty
+	}
+	v_stream = coreGet(v_model_config, "stream", nil)
+	v_is_stream = _core_truthy(v_stream)
+	if coreTruthy(v_is_stream) {
+		if err := coreSet(v_payload, "stream", true); err != nil { return nil, err }
+		v_stream_options = Object()
+		if err := coreSet(v_stream_options, "include_usage", true); err != nil { return nil, err }
+		if err := coreSet(v_payload, "stream_options", v_stream_options); err != nil { return nil, err }
+	} else {
+	// empty
+	}
+	return nil, nil
+}
+
 func merge_model_config(args ...Value) (Value, error) {
 	axirCoverageMark("merge_model_config")
 	var v_base Value
@@ -6425,86 +6535,6 @@ func merge_model_config(args ...Value) (Value, error) {
 		}
 	}
 	return v_out, nil
-}
-
-func _openai_apply_model_config_impl(args ...Value) (Value, error) {
-	axirCoverageMark("_openai_apply_model_config_impl")
-	var v_payload Value
-	var v_model_config Value
-	var v_budget Value
-	var v_budget_snake Value
-	var v_effort Value
-	var v_has_budget Value
-	var v_has_effort Value
-	var v_has_stop Value
-	var v_is_stream Value
-	var v_model Value
-	var v_stop Value
-	var v_stop_snake Value
-	var v_stream Value
-	var v_stream_options Value
-	if len(args) > 0 { v_payload = args[0] }
-	_ = v_payload
-	if len(args) > 1 { v_model_config = args[1] }
-	_ = v_model_config
-	_ = v_budget
-	_ = v_budget_snake
-	_ = v_effort
-	_ = v_has_budget
-	_ = v_has_effort
-	_ = v_has_stop
-	_ = v_is_stream
-	_ = v_model
-	_ = v_stop
-	_ = v_stop_snake
-	_ = v_stream
-	_ = v_stream_options
-	if _, err := _openai_copy_config_key_impl(v_payload, v_model_config, "max_tokens", "max_completion_tokens"); err != nil { return nil, err }
-	if _, err := _openai_copy_config_key_impl(v_payload, v_model_config, "maxTokens", "max_completion_tokens"); err != nil { return nil, err }
-	if _, err := _openai_copy_config_key_impl(v_payload, v_model_config, "temperature", "temperature"); err != nil { return nil, err }
-	if _, err := _openai_copy_config_key_impl(v_payload, v_model_config, "top_p", "top_p"); err != nil { return nil, err }
-	if _, err := _openai_copy_config_key_impl(v_payload, v_model_config, "topP", "top_p"); err != nil { return nil, err }
-	if _, err := _openai_copy_config_key_impl(v_payload, v_model_config, "n", "n"); err != nil { return nil, err }
-	if _, err := _openai_copy_config_key_impl(v_payload, v_model_config, "presence_penalty", "presence_penalty"); err != nil { return nil, err }
-	if _, err := _openai_copy_config_key_impl(v_payload, v_model_config, "presencePenalty", "presence_penalty"); err != nil { return nil, err }
-	if _, err := _openai_copy_config_key_impl(v_payload, v_model_config, "frequency_penalty", "frequency_penalty"); err != nil { return nil, err }
-	if _, err := _openai_copy_config_key_impl(v_payload, v_model_config, "frequencyPenalty", "frequency_penalty"); err != nil { return nil, err }
-	if _, err := _openai_copy_config_key_impl(v_payload, v_model_config, "reasoning_effort", "reasoning_effort"); err != nil { return nil, err }
-	if _, err := _openai_copy_config_key_impl(v_payload, v_model_config, "reasoningEffort", "reasoning_effort"); err != nil { return nil, err }
-	v_budget_snake = coreGet(v_model_config, "thinking_token_budget", nil)
-	v_budget = coreGet(v_model_config, "thinkingTokenBudget", v_budget_snake)
-	v_has_budget = _core_is_not_none(v_budget)
-	if coreTruthy(v_has_budget) {
-		v_model = coreGet(v_payload, "model", "")
-		{ v, err := openai_chat_reasoning_effort(v_model, v_budget); if err != nil { return nil, err }; v_effort = v }
-		v_has_effort = _core_is_not_none(v_effort)
-		if coreTruthy(v_has_effort) {
-			if err := coreSet(v_payload, "reasoning_effort", v_effort); err != nil { return nil, err }
-		} else {
-			_core_map_delete(v_payload, "reasoning_effort")
-		}
-	} else {
-	// empty
-	}
-	v_stop_snake = coreGet(v_model_config, "stop_sequences", nil)
-	v_stop = coreGet(v_model_config, "stopSequences", v_stop_snake)
-	v_has_stop = _core_truthy(v_stop)
-	if coreTruthy(v_has_stop) {
-		if err := coreSet(v_payload, "stop", v_stop); err != nil { return nil, err }
-	} else {
-	// empty
-	}
-	v_stream = coreGet(v_model_config, "stream", nil)
-	v_is_stream = _core_truthy(v_stream)
-	if coreTruthy(v_is_stream) {
-		if err := coreSet(v_payload, "stream", true); err != nil { return nil, err }
-		v_stream_options = Object()
-		if err := coreSet(v_stream_options, "include_usage", true); err != nil { return nil, err }
-		if err := coreSet(v_payload, "stream_options", v_stream_options); err != nil { return nil, err }
-	} else {
-	// empty
-	}
-	return nil, nil
 }
 
 func validate_chat_request(args ...Value) (Value, error) {
@@ -6721,24 +6751,6 @@ func openai_reasoning_effort(args ...Value) (Value, error) {
 	return "high", nil
 }
 
-func build_chat_request(args ...Value) (Value, error) {
-	axirCoverageMark("build_chat_request")
-	var v_service Value
-	var v_request Value
-	var v_options Value
-	var v_payload Value
-	if len(args) > 0 { v_service = args[0] }
-	_ = v_service
-	if len(args) > 1 { v_request = args[1] }
-	_ = v_request
-	if len(args) > 2 { v_options = args[2] }
-	_ = v_options
-	_ = v_payload
-	if _, err := validate_chat_request(v_request); err != nil { return nil, err }
-	{ v, err := openai_build_chat_request(v_request, v_options, true); if err != nil { return nil, err }; v_payload = v }
-	return v_payload, nil
-}
-
 func openai_chat_reasoning_effort(args ...Value) (Value, error) {
 	axirCoverageMark("openai_chat_reasoning_effort")
 	var v_model Value
@@ -6761,29 +6773,22 @@ func openai_chat_reasoning_effort(args ...Value) (Value, error) {
 	return v_effort, nil
 }
 
-func normalize_chat_response(args ...Value) (Value, error) {
-	axirCoverageMark("normalize_chat_response")
-	var v_raw Value
-	var v_response Value
-	if len(args) > 0 { v_raw = args[0] }
-	_ = v_raw
-	_ = v_response
-	{ v, err := openai_normalize_chat_response(v_raw); if err != nil { return nil, err }; v_response = v }
-	return v_response, nil
-}
-
-func normalize_stream_delta(args ...Value) (Value, error) {
-	axirCoverageMark("normalize_stream_delta")
-	var v_raw Value
-	var v_state Value
-	var v_response Value
-	if len(args) > 0 { v_raw = args[0] }
-	_ = v_raw
-	if len(args) > 1 { v_state = args[1] }
-	_ = v_state
-	_ = v_response
-	{ v, err := openai_normalize_stream_delta(v_raw, v_state); if err != nil { return nil, err }; v_response = v }
-	return v_response, nil
+func build_chat_request(args ...Value) (Value, error) {
+	axirCoverageMark("build_chat_request")
+	var v_service Value
+	var v_request Value
+	var v_options Value
+	var v_payload Value
+	if len(args) > 0 { v_service = args[0] }
+	_ = v_service
+	if len(args) > 1 { v_request = args[1] }
+	_ = v_request
+	if len(args) > 2 { v_options = args[2] }
+	_ = v_options
+	_ = v_payload
+	if _, err := validate_chat_request(v_request); err != nil { return nil, err }
+	{ v, err := openai_build_chat_request(v_request, v_options, true); if err != nil { return nil, err }; v_payload = v }
+	return v_payload, nil
 }
 
 func _openai_copy_config_key_impl(args ...Value) (Value, error) {
@@ -6814,21 +6819,15 @@ func _openai_copy_config_key_impl(args ...Value) (Value, error) {
 	return nil, nil
 }
 
-func build_embed_request(args ...Value) (Value, error) {
-	axirCoverageMark("build_embed_request")
-	var v_service Value
-	var v_request Value
-	var v_options Value
-	var v_payload Value
-	if len(args) > 0 { v_service = args[0] }
-	_ = v_service
-	if len(args) > 1 { v_request = args[1] }
-	_ = v_request
-	if len(args) > 2 { v_options = args[2] }
-	_ = v_options
-	_ = v_payload
-	{ v, err := openai_build_embed_request(v_request); if err != nil { return nil, err }; v_payload = v }
-	return v_payload, nil
+func normalize_chat_response(args ...Value) (Value, error) {
+	axirCoverageMark("normalize_chat_response")
+	var v_raw Value
+	var v_response Value
+	if len(args) > 0 { v_raw = args[0] }
+	_ = v_raw
+	_ = v_response
+	{ v, err := openai_normalize_chat_response(v_raw); if err != nil { return nil, err }; v_response = v }
+	return v_response, nil
 }
 
 func _openai_message_impl(args ...Value) (Value, error) {
@@ -7065,6 +7064,37 @@ func _openai_message_impl(args ...Value) (Value, error) {
 	v_message_text = _core_string_format("Invalid role: {}", v_role)
 	v_error = _core_ai_error_response(v_message_text)
 	return nil, asAxError(v_error)
+}
+
+func normalize_stream_delta(args ...Value) (Value, error) {
+	axirCoverageMark("normalize_stream_delta")
+	var v_raw Value
+	var v_state Value
+	var v_response Value
+	if len(args) > 0 { v_raw = args[0] }
+	_ = v_raw
+	if len(args) > 1 { v_state = args[1] }
+	_ = v_state
+	_ = v_response
+	{ v, err := openai_normalize_stream_delta(v_raw, v_state); if err != nil { return nil, err }; v_response = v }
+	return v_response, nil
+}
+
+func build_embed_request(args ...Value) (Value, error) {
+	axirCoverageMark("build_embed_request")
+	var v_service Value
+	var v_request Value
+	var v_options Value
+	var v_payload Value
+	if len(args) > 0 { v_service = args[0] }
+	_ = v_service
+	if len(args) > 1 { v_request = args[1] }
+	_ = v_request
+	if len(args) > 2 { v_options = args[2] }
+	_ = v_options
+	_ = v_payload
+	{ v, err := openai_build_embed_request(v_request); if err != nil { return nil, err }; v_payload = v }
+	return v_payload, nil
 }
 
 func normalize_embed_response(args ...Value) (Value, error) {
@@ -7667,6 +7697,41 @@ func _openai_tool_call_to_provider_impl(args ...Value) (Value, error) {
 	return v_out, nil
 }
 
+func _openai_tool_spec_impl(args ...Value) (Value, error) {
+	axirCoverageMark("_openai_tool_spec_impl")
+	var v_fn Value
+	var v_description Value
+	var v_function Value
+	var v_has_parameters Value
+	var v_name Value
+	var v_out Value
+	var v_parameters Value
+	if len(args) > 0 { v_fn = args[0] }
+	_ = v_fn
+	_ = v_description
+	_ = v_function
+	_ = v_has_parameters
+	_ = v_name
+	_ = v_out
+	_ = v_parameters
+	v_name = coreGet(v_fn, "name", nil)
+	v_description = coreGet(v_fn, "description", "")
+	v_parameters = coreGet(v_fn, "parameters", nil)
+	v_function = Object()
+	if err := coreSet(v_function, "name", v_name); err != nil { return nil, err }
+	if err := coreSet(v_function, "description", v_description); err != nil { return nil, err }
+	v_has_parameters = _core_truthy(v_parameters)
+	if coreTruthy(v_has_parameters) {
+		if err := coreSet(v_function, "parameters", v_parameters); err != nil { return nil, err }
+	} else {
+	// empty
+	}
+	v_out = Object()
+	if err := coreSet(v_out, "type", "function"); err != nil { return nil, err }
+	if err := coreSet(v_out, "function", v_function); err != nil { return nil, err }
+	return v_out, nil
+}
+
 func _ai_model_usage_impl(args ...Value) (Value, error) {
 	axirCoverageMark("_ai_model_usage_impl")
 	var v_ai_name Value
@@ -7704,39 +7769,40 @@ func _ai_model_usage_impl(args ...Value) (Value, error) {
 	return v_out, nil
 }
 
-func _openai_tool_spec_impl(args ...Value) (Value, error) {
-	axirCoverageMark("_openai_tool_spec_impl")
-	var v_fn Value
-	var v_description Value
-	var v_function Value
-	var v_has_parameters Value
-	var v_name Value
-	var v_out Value
-	var v_parameters Value
-	if len(args) > 0 { v_fn = args[0] }
-	_ = v_fn
-	_ = v_description
-	_ = v_function
-	_ = v_has_parameters
-	_ = v_name
-	_ = v_out
-	_ = v_parameters
-	v_name = coreGet(v_fn, "name", nil)
-	v_description = coreGet(v_fn, "description", "")
-	v_parameters = coreGet(v_fn, "parameters", nil)
-	v_function = Object()
-	if err := coreSet(v_function, "name", v_name); err != nil { return nil, err }
-	if err := coreSet(v_function, "description", v_description); err != nil { return nil, err }
-	v_has_parameters = _core_truthy(v_parameters)
-	if coreTruthy(v_has_parameters) {
-		if err := coreSet(v_function, "parameters", v_parameters); err != nil { return nil, err }
+func openai_build_embed_request(args ...Value) (Value, error) {
+	axirCoverageMark("openai_build_embed_request")
+	var v_request Value
+	var v_dimensions Value
+	var v_embed_model_snake Value
+	var v_empty_texts Value
+	var v_has_dimensions Value
+	var v_model Value
+	var v_payload Value
+	var v_texts Value
+	if len(args) > 0 { v_request = args[0] }
+	_ = v_request
+	_ = v_dimensions
+	_ = v_embed_model_snake
+	_ = v_empty_texts
+	_ = v_has_dimensions
+	_ = v_model
+	_ = v_payload
+	_ = v_texts
+	v_embed_model_snake = coreGet(v_request, "embed_model", nil)
+	v_model = coreGet(v_request, "embedModel", v_embed_model_snake)
+	v_empty_texts = MutableArray()
+	v_texts = coreGet(v_request, "texts", v_empty_texts)
+	v_payload = Object()
+	if err := coreSet(v_payload, "model", v_model); err != nil { return nil, err }
+	if err := coreSet(v_payload, "input", v_texts); err != nil { return nil, err }
+	v_dimensions = coreGet(v_request, "dimensions", nil)
+	v_has_dimensions = _core_truthy(v_dimensions)
+	if coreTruthy(v_has_dimensions) {
+		if err := coreSet(v_payload, "dimensions", v_dimensions); err != nil { return nil, err }
 	} else {
 	// empty
 	}
-	v_out = Object()
-	if err := coreSet(v_out, "type", "function"); err != nil { return nil, err }
-	if err := coreSet(v_out, "function", v_function); err != nil { return nil, err }
-	return v_out, nil
+	return v_payload, nil
 }
 
 func _chat_result_to_completion(args ...Value) (Value, error) {
@@ -7816,42 +7882,6 @@ func _chat_result_to_completion(args ...Value) (Value, error) {
 	return v_completion, nil
 }
 
-func openai_build_embed_request(args ...Value) (Value, error) {
-	axirCoverageMark("openai_build_embed_request")
-	var v_request Value
-	var v_dimensions Value
-	var v_embed_model_snake Value
-	var v_empty_texts Value
-	var v_has_dimensions Value
-	var v_model Value
-	var v_payload Value
-	var v_texts Value
-	if len(args) > 0 { v_request = args[0] }
-	_ = v_request
-	_ = v_dimensions
-	_ = v_embed_model_snake
-	_ = v_empty_texts
-	_ = v_has_dimensions
-	_ = v_model
-	_ = v_payload
-	_ = v_texts
-	v_embed_model_snake = coreGet(v_request, "embed_model", nil)
-	v_model = coreGet(v_request, "embedModel", v_embed_model_snake)
-	v_empty_texts = MutableArray()
-	v_texts = coreGet(v_request, "texts", v_empty_texts)
-	v_payload = Object()
-	if err := coreSet(v_payload, "model", v_model); err != nil { return nil, err }
-	if err := coreSet(v_payload, "input", v_texts); err != nil { return nil, err }
-	v_dimensions = coreGet(v_request, "dimensions", nil)
-	v_has_dimensions = _core_truthy(v_dimensions)
-	if coreTruthy(v_has_dimensions) {
-		if err := coreSet(v_payload, "dimensions", v_dimensions); err != nil { return nil, err }
-	} else {
-	// empty
-	}
-	return v_payload, nil
-}
-
 func openai_normalize_chat_response(args ...Value) (Value, error) {
 	axirCoverageMark("openai_normalize_chat_response")
 	var v_raw Value
@@ -7867,6 +7897,48 @@ func openai_normalize_chat_response(args ...Value) (Value, error) {
 	_ = v_response
 	{ v, err := _openai_normalize_chat_response_impl(v_raw, v_ai_name, v_model, "none", "none"); if err != nil { return nil, err }; v_response = v }
 	return v_response, nil
+}
+
+func _openai_usage_with_service_tier(args ...Value) (Value, error) {
+	axirCoverageMark("_openai_usage_with_service_tier")
+	var v_raw Value
+	var v_usage Value
+	var v_empty Value
+	var v_has_tier Value
+	var v_has_usage Value
+	var v_out Value
+	var v_raw_tier Value
+	var v_tier Value
+	var v_usage_tier Value
+	if len(args) > 0 { v_raw = args[0] }
+	_ = v_raw
+	if len(args) > 1 { v_usage = args[1] }
+	_ = v_usage
+	_ = v_empty
+	_ = v_has_tier
+	_ = v_has_usage
+	_ = v_out
+	_ = v_raw_tier
+	_ = v_tier
+	_ = v_usage_tier
+	v_has_usage = _core_is_not_none(v_usage)
+	if coreTruthy(v_has_usage) {
+	// empty
+	} else {
+		return v_usage, nil
+	}
+	v_empty = Object()
+	v_out = _core_map_merge(v_empty, v_usage)
+	v_usage_tier = coreGet(v_usage, "service_tier", nil)
+	v_raw_tier = coreGet(v_raw, "service_tier", v_usage_tier)
+	v_tier = coreGet(v_raw, "service_tier_used", v_raw_tier)
+	v_has_tier = _core_is_not_none(v_tier)
+	if coreTruthy(v_has_tier) {
+		if err := coreSet(v_out, "service_tier", v_tier); err != nil { return nil, err }
+	} else {
+	// empty
+	}
+	return v_out, nil
 }
 
 func chat_response_to_completion(args ...Value) (Value, error) {
@@ -7942,48 +8014,6 @@ func chat_response_to_completion(args ...Value) (Value, error) {
 	}
 	if coreTruthy(v_has_thought_blocks) {
 		if err := coreSet(v_out, "thought_blocks", v_thought_blocks); err != nil { return nil, err }
-	} else {
-	// empty
-	}
-	return v_out, nil
-}
-
-func _openai_usage_with_service_tier(args ...Value) (Value, error) {
-	axirCoverageMark("_openai_usage_with_service_tier")
-	var v_raw Value
-	var v_usage Value
-	var v_empty Value
-	var v_has_tier Value
-	var v_has_usage Value
-	var v_out Value
-	var v_raw_tier Value
-	var v_tier Value
-	var v_usage_tier Value
-	if len(args) > 0 { v_raw = args[0] }
-	_ = v_raw
-	if len(args) > 1 { v_usage = args[1] }
-	_ = v_usage
-	_ = v_empty
-	_ = v_has_tier
-	_ = v_has_usage
-	_ = v_out
-	_ = v_raw_tier
-	_ = v_tier
-	_ = v_usage_tier
-	v_has_usage = _core_is_not_none(v_usage)
-	if coreTruthy(v_has_usage) {
-	// empty
-	} else {
-		return v_usage, nil
-	}
-	v_empty = Object()
-	v_out = _core_map_merge(v_empty, v_usage)
-	v_usage_tier = coreGet(v_usage, "service_tier", nil)
-	v_raw_tier = coreGet(v_raw, "service_tier", v_usage_tier)
-	v_tier = coreGet(v_raw, "service_tier_used", v_raw_tier)
-	v_has_tier = _core_is_not_none(v_tier)
-	if coreTruthy(v_has_tier) {
-		if err := coreSet(v_out, "service_tier", v_tier); err != nil { return nil, err }
 	} else {
 	// empty
 	}
@@ -8468,55 +8498,6 @@ func ai_context_cache_plan(args ...Value) (Value, error) {
 	return v_out, nil
 }
 
-func ai_context_cache_recovery(args ...Value) (Value, error) {
-	axirCoverageMark("ai_context_cache_recovery")
-	var v_current_entry Value
-	var v_cache_name Value
-	var v_external_registry Value
-	var v_current_name Value
-	var v_empty Value
-	var v_entry_object Value
-	var v_matches Value
-	var v_out Value
-	var v_tombstone Value
-	if len(args) > 0 { v_current_entry = args[0] }
-	_ = v_current_entry
-	if len(args) > 1 { v_cache_name = args[1] }
-	_ = v_cache_name
-	if len(args) > 2 { v_external_registry = args[2] }
-	_ = v_external_registry
-	_ = v_current_name
-	_ = v_empty
-	_ = v_entry_object
-	_ = v_matches
-	_ = v_out
-	_ = v_tombstone
-	v_out = Object()
-	if err := coreSet(v_out, "invalidated", false); err != nil { return nil, err }
-	if err := coreSet(v_out, "deleteInMemory", false); err != nil { return nil, err }
-	v_entry_object = coreTypeIs(v_current_entry, "object")
-	if coreTruthy(v_entry_object) {
-		v_current_name = coreGet(v_current_entry, "cacheName", "")
-		v_matches = _core_eq(v_current_name, v_cache_name)
-		if coreTruthy(v_matches) {
-			if err := coreSet(v_out, "invalidated", true); err != nil { return nil, err }
-			if coreTruthy(v_external_registry) {
-				v_empty = Object()
-				v_tombstone = _core_map_merge(v_current_entry, v_empty)
-				if err := coreSet(v_tombstone, "expiresAt", 0); err != nil { return nil, err }
-				if err := coreSet(v_out, "externalEntry", v_tombstone); err != nil { return nil, err }
-			} else {
-				if err := coreSet(v_out, "deleteInMemory", true); err != nil { return nil, err }
-			}
-		} else {
-		// empty
-		}
-	} else {
-	// empty
-	}
-	return v_out, nil
-}
-
 func _openai_normalize_tool_calls_impl(args ...Value) (Value, error) {
 	axirCoverageMark("_openai_normalize_tool_calls_impl")
 	var v_calls Value
@@ -8577,6 +8558,104 @@ func _openai_normalize_tool_calls_impl(args ...Value) (Value, error) {
 		v_out = coreAppend(v_out, v_normalized)
 	}
 	return v_out, nil
+}
+
+func ai_context_cache_recovery(args ...Value) (Value, error) {
+	axirCoverageMark("ai_context_cache_recovery")
+	var v_current_entry Value
+	var v_cache_name Value
+	var v_external_registry Value
+	var v_current_name Value
+	var v_empty Value
+	var v_entry_object Value
+	var v_matches Value
+	var v_out Value
+	var v_tombstone Value
+	if len(args) > 0 { v_current_entry = args[0] }
+	_ = v_current_entry
+	if len(args) > 1 { v_cache_name = args[1] }
+	_ = v_cache_name
+	if len(args) > 2 { v_external_registry = args[2] }
+	_ = v_external_registry
+	_ = v_current_name
+	_ = v_empty
+	_ = v_entry_object
+	_ = v_matches
+	_ = v_out
+	_ = v_tombstone
+	v_out = Object()
+	if err := coreSet(v_out, "invalidated", false); err != nil { return nil, err }
+	if err := coreSet(v_out, "deleteInMemory", false); err != nil { return nil, err }
+	v_entry_object = coreTypeIs(v_current_entry, "object")
+	if coreTruthy(v_entry_object) {
+		v_current_name = coreGet(v_current_entry, "cacheName", "")
+		v_matches = _core_eq(v_current_name, v_cache_name)
+		if coreTruthy(v_matches) {
+			if err := coreSet(v_out, "invalidated", true); err != nil { return nil, err }
+			if coreTruthy(v_external_registry) {
+				v_empty = Object()
+				v_tombstone = _core_map_merge(v_current_entry, v_empty)
+				if err := coreSet(v_tombstone, "expiresAt", 0); err != nil { return nil, err }
+				if err := coreSet(v_out, "externalEntry", v_tombstone); err != nil { return nil, err }
+			} else {
+				if err := coreSet(v_out, "deleteInMemory", true); err != nil { return nil, err }
+			}
+		} else {
+		// empty
+		}
+	} else {
+	// empty
+	}
+	return v_out, nil
+}
+
+func _openai_finish_reason_impl(args ...Value) (Value, error) {
+	axirCoverageMark("_openai_finish_reason_impl")
+	var v_value Value
+	var v_is_call Value
+	var v_is_content_filter Value
+	var v_is_function_call Value
+	var v_is_length Value
+	var v_is_stop Value
+	var v_is_tool_calls Value
+	var v_none Value
+	if len(args) > 0 { v_value = args[0] }
+	_ = v_value
+	_ = v_is_call
+	_ = v_is_content_filter
+	_ = v_is_function_call
+	_ = v_is_length
+	_ = v_is_stop
+	_ = v_is_tool_calls
+	_ = v_none
+	v_is_stop = _core_eq(v_value, "stop")
+	if coreTruthy(v_is_stop) {
+		return "stop", nil
+	} else {
+	// empty
+	}
+	v_is_length = _core_eq(v_value, "length")
+	if coreTruthy(v_is_length) {
+		return "length", nil
+	} else {
+	// empty
+	}
+	v_is_content_filter = _core_eq(v_value, "content_filter")
+	if coreTruthy(v_is_content_filter) {
+		return "error", nil
+	} else {
+	// empty
+	}
+	v_is_tool_calls = _core_eq(v_value, "tool_calls")
+	v_is_function_call = _core_eq(v_value, "function_call")
+	v_is_call = _core_or(v_is_tool_calls, v_is_function_call)
+	if coreTruthy(v_is_call) {
+		return "function_call", nil
+	} else {
+	// empty
+	}
+	v_none = _core_none()
+	return v_none, nil
 }
 
 func ai_gemini_cache_ops(args ...Value) (Value, error) {
@@ -8708,55 +8787,6 @@ func ai_gemini_cache_ops(args ...Value) (Value, error) {
 	if err := coreSet(v_out, "update", v_update); err != nil { return nil, err }
 	if err := coreSet(v_out, "delete", v_delete_op); err != nil { return nil, err }
 	return v_out, nil
-}
-
-func _openai_finish_reason_impl(args ...Value) (Value, error) {
-	axirCoverageMark("_openai_finish_reason_impl")
-	var v_value Value
-	var v_is_call Value
-	var v_is_content_filter Value
-	var v_is_function_call Value
-	var v_is_length Value
-	var v_is_stop Value
-	var v_is_tool_calls Value
-	var v_none Value
-	if len(args) > 0 { v_value = args[0] }
-	_ = v_value
-	_ = v_is_call
-	_ = v_is_content_filter
-	_ = v_is_function_call
-	_ = v_is_length
-	_ = v_is_stop
-	_ = v_is_tool_calls
-	_ = v_none
-	v_is_stop = _core_eq(v_value, "stop")
-	if coreTruthy(v_is_stop) {
-		return "stop", nil
-	} else {
-	// empty
-	}
-	v_is_length = _core_eq(v_value, "length")
-	if coreTruthy(v_is_length) {
-		return "length", nil
-	} else {
-	// empty
-	}
-	v_is_content_filter = _core_eq(v_value, "content_filter")
-	if coreTruthy(v_is_content_filter) {
-		return "error", nil
-	} else {
-	// empty
-	}
-	v_is_tool_calls = _core_eq(v_value, "tool_calls")
-	v_is_function_call = _core_eq(v_value, "function_call")
-	v_is_call = _core_or(v_is_tool_calls, v_is_function_call)
-	if coreTruthy(v_is_call) {
-		return "function_call", nil
-	} else {
-	// empty
-	}
-	v_none = _core_none()
-	return v_none, nil
 }
 
 func openai_normalize_embed_response(args ...Value) (Value, error) {
@@ -54350,12 +54380,14 @@ type StreamingTransport interface {
 type ScriptedTransport struct {
 	Responses []Value
 	Requests  []Value
+	Contexts  []context.Context
 }
 
 func NewScriptedTransport(responses []Value) *ScriptedTransport {
 	return &ScriptedTransport{Responses: append([]Value(nil), responses...)}
 }
 func (t *ScriptedTransport) Call(ctx context.Context, request Value) (Value, error) {
+	t.Contexts = append(t.Contexts, ctx)
 	t.Requests = append(t.Requests, request)
 	if len(t.Responses) == 0 {
 		return Object("status", float64(200), "json", Object()), nil
@@ -54466,10 +54498,13 @@ func (t HTTPTransport) Call(ctx context.Context, request Value) (Value, error) {
 	}
 	resp, err := client.Do(httpReq)
 	if err != nil {
-		return nil, err
+		return nil, normalizeContextError(ctx, err)
 	}
 	defer resp.Body.Close()
-	data, _ := io.ReadAll(resp.Body)
+	data, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return nil, normalizeContextError(ctx, err)
+	}
 	out := Object("status", float64(resp.StatusCode))
 	if coreTruthy(coreGet(req, "binaryResponse", false)) {
 		// Binary operations (e.g. OpenAI /audio/speech returns raw mp3) must not
@@ -54500,7 +54535,7 @@ func (t HTTPTransport) Stream(ctx context.Context, request Value) (AxHTTPStreamR
 	}
 	resp, err := client.Do(httpReq)
 	if err != nil {
-		return AxHTTPStreamResponse{}, err
+		return AxHTTPStreamResponse{}, normalizeContextError(ctx, err)
 	}
 	return AxHTTPStreamResponse{Status: resp.StatusCode, Body: resp.Body}, nil
 }
@@ -54704,6 +54739,7 @@ func finishAIOperation(hooks AxRuntimeHooks, attributes map[string]Value, span A
 }
 
 func (c *OpenAICompatibleClient) Chat(ctx context.Context, request map[string]Value, options map[string]Value) (Value, error) {
+	if err := contextCancellationError(ctx); err != nil { return nil, err }
 	hooks, previousUsage := c.runtimeHooksSnapshot()
 	hooks = effectiveRuntimeHooks(ctx, options, hooks)
 	mergedOptions := mergeAIOptions(c.optionsSnapshot(), stripRuntimeHooks(options))
@@ -54738,6 +54774,7 @@ func (c *OpenAICompatibleClient) Chat(ctx context.Context, request map[string]Va
 		})
 	}
 	response, err := invokeRuntimeLimiter(hooks.RateLimiter, next, AxRateLimitInfo{Operation: "chat", Provider: c.Name, Model: modelName, Streaming: streaming, PreviousModelUsage: previousUsage})
+	err = normalizeContextError(ctx, err)
 	finishAIOperation(hooks, attributes, span, started, err)
 	if err == nil {
 		c.setLastUsage(coreGet(response, "model_usage", coreGet(response, "modelUsage", nil)))
@@ -54761,6 +54798,7 @@ func (c *OpenAICompatibleClient) contextCacheChat(ctx context.Context, request m
 	tryCall := func(call Value) (Value, error) {
 		raw, err := c.Transport.Call(ctx, call)
 		if err != nil {
+			if ctx.Err() != nil { return nil, normalizeContextError(ctx, err) }
 			return nil, AxError{Category: "network", Message: err.Error()}
 		}
 		return safeValue(func() Value { return normalizeTransportPayload(raw) })
@@ -54864,6 +54902,7 @@ func (c *OpenAICompatibleClient) contextCacheChat(ctx context.Context, request m
 		ops := mustCore(ai_gemini_cache_ops("", float64(ttlSeconds), apiKey, display(model), cacheBody, options))
 		created, err := opCall(coreGet(ops, "create", Object()))
 		if err != nil {
+			if ctx.Err() != nil { panic(err) }
 			return false
 		}
 		cacheName = display(coreGet(created, "name", ""))
@@ -54878,6 +54917,7 @@ func (c *OpenAICompatibleClient) contextCacheChat(ctx context.Context, request m
 	case "refresh":
 		ops := mustCore(ai_gemini_cache_ops(cacheName, float64(ttlSeconds), apiKey, display(model), cacheBody, options))
 		refreshed, err := opCall(coreGet(ops, "update", Object()))
+		if err != nil && ctx.Err() != nil { panic(err) }
 		if err != nil || expiry(refreshed) == 0 {
 			if !create() {
 				body, fullErr := tryCall(fullCall)
@@ -54940,6 +54980,7 @@ func (c *OpenAICompatibleClient) contextCacheChat(ctx context.Context, request m
 	return body, true
 }
 func (c *OpenAICompatibleClient) Embed(ctx context.Context, request map[string]Value, options map[string]Value) (Value, error) {
+	if err := contextCancellationError(ctx); err != nil { return nil, err }
 	hooks, previousUsage := c.runtimeHooksSnapshot()
 	hooks = effectiveRuntimeHooks(ctx, options, hooks)
 	mergedOptions := mergeAIOptions(c.optionsSnapshot(), stripRuntimeHooks(options))
@@ -54963,6 +55004,7 @@ func (c *OpenAICompatibleClient) Embed(ctx context.Context, request map[string]V
 		})
 	}
 	response, err := invokeRuntimeLimiter(hooks.RateLimiter, next, AxRateLimitInfo{Operation: "embed", Provider: c.Name, Model: modelName, Streaming: false, PreviousModelUsage: previousUsage})
+	err = normalizeContextError(ctx, err)
 	finishAIOperation(hooks, attributes, span, started, err)
 	if err == nil {
 		c.setLastUsage(coreGet(response, "model_usage", coreGet(response, "modelUsage", nil)))
@@ -54997,7 +55039,7 @@ func waitStreamRetry(ctx context.Context, delay float64) error {
 	case <-timer.C:
 		return nil
 	case <-ctx.Done():
-		return ctx.Err()
+		return normalizeContextError(ctx, ctx.Err())
 	}
 }
 
@@ -55005,6 +55047,7 @@ func (c *OpenAICompatibleClient) openProviderStream(ctx context.Context, request
 	if transport, ok := c.Transport.(StreamingTransport); ok {
 		response, err := transport.Stream(ctx, request)
 		if err != nil {
+			if ctx.Err() != nil { return nil, normalizeContextError(ctx, err) }
 			return nil, AxError{Category: "network", Type: "AxAIServiceNetworkError", Message: err.Error(), Retryable: true}
 		}
 		if response.Body == nil {
@@ -55029,6 +55072,7 @@ func (c *OpenAICompatibleClient) openProviderStream(ctx context.Context, request
 
 	raw, err := c.Transport.Call(ctx, request)
 	if err != nil {
+		if ctx.Err() != nil { return nil, normalizeContextError(ctx, err) }
 		return nil, AxError{Category: "network", Type: "AxAIServiceNetworkError", Message: err.Error(), Retryable: true}
 	}
 	body, normalizedErr := safeValue(func() Value { return normalizeTransportPayload(raw) })
@@ -55044,6 +55088,7 @@ func (c *OpenAICompatibleClient) openProviderStream(ctx context.Context, request
 }
 
 func (c *OpenAICompatibleClient) StreamEvents(ctx context.Context, request map[string]Value, options map[string]Value) (AxChatStream, error) {
+	if err := contextCancellationError(ctx); err != nil { return nil, err }
 	hooks, previousUsage := c.runtimeHooksSnapshot()
 	hooks = effectiveRuntimeHooks(ctx, options, hooks)
 	mergedOptions := mergeAIOptions(c.optionsSnapshot(), stripRuntimeHooks(options))
@@ -55075,6 +55120,7 @@ func (c *OpenAICompatibleClient) StreamEvents(ctx context.Context, request map[s
 				firstRaw, firstErr := raw.Next()
 				if firstErr != nil && !errors.Is(firstErr, io.EOF) {
 					_ = raw.Close()
+					if ctx.Err() != nil { panic(normalizeContextError(ctx, firstErr)) }
 					wrapped := AxError{Category: "network", Type: "AxAIServiceNetworkError", Message: firstErr.Error(), Retryable: true}
 					if attempt < maxRetries {
 						attempt++
@@ -55123,12 +55169,14 @@ func (c *OpenAICompatibleClient) StreamEvents(ctx context.Context, request map[s
 				}
 				firstPending := true
 				return newAxChatStream(func() (Value, error) {
+					if ctx.Err() != nil { return nil, normalizeContextError(ctx, ctx.Err()) }
 					if firstPending {
 						firstPending = false
 						return first, nil
 					}
 					event, eventErr := raw.Next()
 					if eventErr != nil {
+						if ctx.Err() != nil { return nil, normalizeContextError(ctx, eventErr) }
 						if errors.Is(eventErr, io.EOF) {
 							return nil, io.EOF
 						}
@@ -55144,6 +55192,7 @@ func (c *OpenAICompatibleClient) StreamEvents(ctx context.Context, request map[s
 		})
 	}
 	value, err := invokeRuntimeLimiter(hooks.RateLimiter, open, AxRateLimitInfo{Operation: "chat", Provider: c.Name, Model: modelName, Streaming: true, PreviousModelUsage: previousUsage})
+	err = normalizeContextError(ctx, err)
 	if err != nil {
 		finishAIOperation(hooks, attributes, span, started, err)
 		return nil, err
@@ -55156,9 +55205,10 @@ func (c *OpenAICompatibleClient) StreamEvents(ctx context.Context, request map[s
 	}
 	chunks := Array()
 	return newAxChatStream(func() (Value, error) {
+		if ctx.Err() != nil { return nil, normalizeContextError(ctx, ctx.Err()) }
 		if !source.Next() {
 			if source.Err() != nil {
-				return nil, source.Err()
+				return nil, normalizeContextError(ctx, source.Err())
 			}
 			return nil, io.EOF
 		}
@@ -55305,7 +55355,8 @@ func normalizeTransportPayload(raw Value) Value {
 }
 
 func (c *OpenAICompatibleClient) Transcribe(ctx context.Context, request map[string]Value, options map[string]Value) (Value, error) {
-	return safeValue(func() Value {
+	if err := contextCancellationError(ctx); err != nil { return nil, err }
+	value, err := safeValue(func() Value {
 		transportReq := c.requestJSON(ctx, "transcribe", request, false, options)
 		raw, err := c.Transport.Call(ctx, transportReq)
 		if err != nil {
@@ -55313,9 +55364,11 @@ func (c *OpenAICompatibleClient) Transcribe(ctx context.Context, request map[str
 		}
 		return mustCore(provider_normalize_transcribe_response(c.Profile, normalizeTransportPayload(raw)))
 	})
+	return value, normalizeContextError(ctx, err)
 }
 func (c *OpenAICompatibleClient) Speak(ctx context.Context, request map[string]Value, options map[string]Value) (Value, error) {
-	return safeValue(func() Value {
+	if err := contextCancellationError(ctx); err != nil { return nil, err }
+	value, err := safeValue(func() Value {
 		transportReq := c.requestJSON(ctx, "speak", request, false, options)
 		raw, err := c.Transport.Call(ctx, transportReq)
 		if err != nil {
@@ -55323,6 +55376,7 @@ func (c *OpenAICompatibleClient) Speak(ctx context.Context, request map[string]V
 		}
 		return mustCore(provider_normalize_speak_response(c.Profile, normalizeTransportPayload(raw), request))
 	})
+	return value, normalizeContextError(ctx, err)
 }
 func (c *OpenAICompatibleClient) RealtimeAudioSetup(request map[string]Value, options map[string]Value) Value {
 	return mustCore(provider_build_realtime_audio_setup(c.Profile, request, options))
@@ -61004,6 +61058,8 @@ func runConformanceFixture(fixture map[string]Value) {
 		runConformanceAIEmbed(fixture)
 	case "ai_stream":
 		runConformanceAIStream(fixture)
+	case "ai_cancellation":
+		runConformanceAICancellation(fixture)
 	case "ai_usage_observer":
 		runConformanceAIUsageObserver(fixture)
 	case "ai_runtime_hooks":
@@ -61179,6 +61235,45 @@ func runConformanceEvent(fixture map[string]Value) {
 		}
 		assertEqual(run.Output, fixture["expected_output"], "event automatic dispatch")
 		_ = runtime.Close()
+
+		cancellationSpec := asMap(coreGet(fixture, "cancellation", Object()))
+		cancellationReason := display(coreGet(cancellationSpec, "reason", "fixture-stop"))
+		cancellationSleep := time.Duration(int64(num(coreGet(cancellationSpec, "sleep_ms", 30_000)))) * time.Millisecond
+		maxCancellationElapsed := time.Duration(int64(num(coreGet(cancellationSpec, "max_elapsed_ms", 1_000)))) * time.Millisecond
+		token := &AxEventCancellationToken{}
+		removedCalls := 0
+		remove := token.Subscribe(func() { removedCalls++ })
+		remove()
+		if !token.Cancel(cancellationReason) || token.Cancel("ignored") || token.CancellationReason() != cancellationReason || removedCalls != 0 {
+			panic(AxError{Category: "fixture", Message: "event cancellation one-shot or removable subscription mismatch"})
+		}
+		checkCancelledClock := func(clock AxEventClock, manual bool) {
+			sleepToken := &AxEventCancellationToken{}
+			result := make(chan bool, 1)
+			started := time.Now()
+			go func() { result <- clock.Sleep(cancellationSleep, sleepToken) }()
+			if manual {
+				deadline := time.Now().Add(time.Second)
+				for sleepToken.SubscriptionCount() == 0 && time.Now().Before(deadline) { time.Sleep(time.Millisecond) }
+			} else { time.Sleep(10 * time.Millisecond) }
+			sleepToken.Cancel(cancellationReason)
+			select {
+			case completed := <-result:
+				if completed || sleepToken.SubscriptionCount() != 0 || time.Since(started) > maxCancellationElapsed { panic(AxError{Category: "fixture", Message: "event clock cancellation or cleanup mismatch"}) }
+			case <-time.After(maxCancellationElapsed):
+				panic(AxError{Category: "fixture", Message: "event clock cancellation was not prompt"})
+			}
+		}
+		checkCancelledClock(AxSystemEventClock{}, false)
+		checkCancelledClock(NewAxManualEventClock(0), true)
+		successClock := NewAxManualEventClock(0)
+		successToken := &AxEventCancellationToken{}
+		success := make(chan bool, 1)
+		go func() { success <- successClock.Sleep(time.Millisecond, successToken) }()
+		successDeadline := time.Now().Add(time.Second)
+		for successToken.SubscriptionCount() == 0 && time.Now().Before(successDeadline) { time.Sleep(time.Millisecond) }
+		successClock.Advance(1)
+		if !<-success || successToken.SubscriptionCount() != 0 { panic(AxError{Category: "fixture", Message: "manual event clock successful sleep cleanup mismatch"}) }
 
 		makeEvent := func(id, eventType string, data Value, correlation []map[string]string) AxEventEnvelope {
 			return AxEventEnvelope{SpecVersion: "1.0", ID: id, Source: "test://axevent", Type: eventType, Data: data, Correlation: correlation}
@@ -62474,6 +62569,68 @@ func runConformanceAIStream(fixture map[string]Value) {
 		assertEqual(output, expected, "ai stream output")
 	}
 	assertTransportRequest(fixture, transport)
+}
+
+type conformanceCancellationTransport struct {
+	response Value
+	cancel context.CancelCauseFunc
+	reason string
+	calls int
+	contexts []context.Context
+}
+
+func (t *conformanceCancellationTransport) Call(ctx context.Context, request Value) (Value, error) {
+	t.calls++
+	t.contexts = append(t.contexts, ctx)
+	if t.calls == 1 && t.cancel != nil { go func() { time.Sleep(10 * time.Millisecond); t.cancel(errors.New(t.reason)) }() }
+	return cloneValue(t.response), nil
+}
+
+func assertConformanceAborted(err error, reason string) {
+	var aborted AxAIServiceAbortedError
+	structured, ok := AsAxError(err)
+	if !errors.As(err, &aborted) || !ok || structured.Retryable || structured.Type != "AxAIServiceAbortedError" || !strings.Contains(err.Error(), reason) {
+		panic(AxError{Category: "fixture", Message: "provider cancellation error mismatch: " + display(err)})
+	}
+}
+
+func runConformanceAICancellation(fixture map[string]Value) {
+	reason := display(coreGet(fixture, "reason", "fixture-stop"))
+	request := asMap(coreGet(fixture, "request", Object()))
+	maxElapsed := time.Duration(int64(num(coreGet(fixture, "max_elapsed_ms", 1_000)))) * time.Millisecond
+
+	preflightFixture := cloneMap(fixture)
+	preflightFixture["transport_responses"] = []Value{coreGet(fixture, "success_response", Object())}
+	preflight, preflightTransport := conformanceAIClient(preflightFixture)
+	preflightCtx, preflightCancel := context.WithCancelCause(context.Background())
+	preflightCancel(errors.New(reason))
+	_, err := preflight.Chat(preflightCtx, request, nil)
+	assertConformanceAborted(err, reason)
+	if len(preflightTransport.Requests) != 0 { panic(AxError{Category: "fixture", Message: "pre-cancelled provider request reached transport"}) }
+
+	backoffCtx, backoffCancel := context.WithCancelCause(context.Background())
+	backoffTransport := &conformanceCancellationTransport{response: coreGet(fixture, "retry_response", Object()), cancel: backoffCancel, reason: reason}
+	backoffOptions := cloneMap(asMap(coreGet(fixture, "retry_options", Object())))
+	backoffOptions["api_key"] = "test-key"
+	backoffOptions["model"] = "claude-sonnet-4-5"
+	backoffOptions["transport"] = backoffTransport
+	backoffClient := NewAnthropicClient(backoffOptions).OpenAICompatibleClient
+	started := time.Now()
+	_, err = backoffClient.Stream(backoffCtx, request, nil)
+	assertConformanceAborted(err, reason)
+	if backoffTransport.calls != 1 || len(backoffTransport.contexts) != 1 || time.Since(started) > maxElapsed { panic(AxError{Category: "fixture", Message: "provider retry cancellation attempted another request, skipped the custom context, or was not prompt"}) }
+
+	streamFixture := cloneMap(fixture)
+	streamFixture["transport_responses"] = []Value{coreGet(fixture, "stream_response", Object())}
+	streamClient, streamTransport := conformanceAIClient(streamFixture)
+	streamCtx, streamCancel := context.WithCancelCause(context.Background())
+	stream, err := streamClient.StreamEvents(streamCtx, request, nil)
+	if err != nil || !stream.Next() { panic(AxError{Category: "fixture", Message: "provider stream produced no first event"}) }
+	streamCancel(errors.New(reason))
+	if stream.Next() { panic(AxError{Category: "fixture", Message: "provider stream yielded after cancellation"}) }
+	assertConformanceAborted(stream.Err(), reason)
+	_ = stream.Close()
+	if len(streamTransport.Requests) != 1 || len(streamTransport.Contexts) != 1 { panic(AxError{Category: "fixture", Message: "provider stream cancellation custom transport mismatch"}) }
 }
 func runConformanceProviderOperation(fixture map[string]Value, op string) {
 	if op == "transcribe" || op == "speak" {

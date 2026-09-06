@@ -492,7 +492,7 @@ class AxGen:
         stream_options = {**self.options, **(options or {}), "stream": True}
         req = self._request(self.prompt_template.render(values), stream_options, client)
         chunks = []
-        for event in client.stream(req):
+        for event in client.stream(req, stream_options):
             chunks.append(event)
             _core_axgen_run_streaming_assertions(self, fold_stream(chunks))
             yield event

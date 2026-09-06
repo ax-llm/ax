@@ -103,6 +103,8 @@ public final class AxAgent implements AxProgram {
     return forward(client, values, forwardOptions, AxRuntimeHooks.fromOptions(forwardOptions));
   }
 
+  public Map<String,Object> forward(AiClient client,Map<String,Object> values,AxCancellationToken cancellation){Map<String,Object> options=new LinkedHashMap<>();options.put("cancellation",cancellation);return forward(client,values,options);}
+
   public Map<String, Object> forward(AiClient client, Map<String, Object> values, Map<String, Object> forwardOptions, AxRuntimeHooks hooks) {
     AxGlobals.Scope scope = AxGlobals.openScope(
         hooks,

@@ -132,6 +132,12 @@ make these transitions deterministic. Generated in-memory stores enforce
 10,000 pending deliveries, 64 MiB queued data, 1 MiB per envelope, and a
 five-second publication wait.
 
+System and manual clock sleeps accept the generated cancellation token (Go uses
+`context.Context`). Cancellation wakes the sleep without advancing a manual
+clock, preserves the token's first reason, and removes its wake subscription on
+both cancellation and normal completion. Repeated completed sleeps must not
+retain timers, callbacks, condition registrations, or manual-clock waiters.
+
 ## Testing
 
 Use `AxManualEventClock`, `AxInMemoryEventStore`, deterministic event IDs, and

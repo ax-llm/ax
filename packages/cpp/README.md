@@ -57,6 +57,7 @@ Shared Ax behavior is Core-owned. The generated target code stays focused on idi
 - `examples/runtime_hooks_no_key.cpp`: runtime-hook globals and typed program surfaces through a scripted transport
 - `examples/adaptive_balancer_no_key.cpp`: adaptive balancer state, scoring, and stable route keys without a provider key
 - `examples/provider_stream_no_key.cpp`: provider streaming through a scripted SSE transport
+- `examples/cancellation_no_key.cpp`: one-shot provider cancellation with no transport attempt
 - `examples/axflow_program_graph.cpp`: AxFlow program graph
 - `examples/flow_mermaid.cpp`: portable Mermaid flow parsing and canonical round-trip
 - `examples/audio_responses_mapping.cpp`: OpenAI Responses speak/transcribe mapping through a scripted transport

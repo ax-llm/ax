@@ -52,6 +52,7 @@ Shared Ax behavior is Core-owned. The generated target code stays focused on idi
 - `python examples/runtime_hooks_no_key.py`: runtime-hook globals and typed program surfaces through a scripted transport
 - `python examples/adaptive_balancer_no_key.py`: adaptive balancer state, scoring, and stable route keys without a provider key
 - `python examples/provider_stream_no_key.py`: provider streaming through a scripted SSE transport
+- `python examples/cancellation_no_key.py`: one-shot provider cancellation with no transport attempt
 - `python examples/axflow_program_graph.py`: AxFlow program graph
 - `python examples/flow_mermaid.py`: portable Mermaid flow parsing and canonical round-trip
 - `python examples/audio_responses_mapping.py`: OpenAI Responses speak/transcribe mapping through a scripted transport

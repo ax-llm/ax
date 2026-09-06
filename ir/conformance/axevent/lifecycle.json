@@ -18,5 +18,10 @@
   },
   "identity_scope": "tenant:test",
   "trust": "authenticated",
+  "cancellation": {
+    "reason": "fixture-stop",
+    "sleep_ms": 30000,
+    "max_elapsed_ms": 1000
+  },
   "expected_output": { "handled": "wake" }
 }

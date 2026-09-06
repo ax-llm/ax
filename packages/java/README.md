@@ -62,6 +62,7 @@ Shared Ax behavior is Core-owned. The generated target code stays focused on idi
 - `examples/RuntimeHooksNoKeyExample.java`: runtime-hook globals and typed program surfaces through a scripted transport
 - `examples/AdaptiveBalancerNoKeyExample.java`: adaptive balancer state, scoring, and stable route keys without a provider key
 - `examples/ProviderStreamNoKeyExample.java`: provider streaming through a scripted SSE transport
+- `examples/CancellationNoKeyExample.java`: one-shot provider cancellation with no transport attempt
 - `examples/AxFlowProgramGraphExample.java`: AxFlow program graph
 - `examples/FlowMermaidExample.java`: portable Mermaid flow parsing and canonical round-trip
 - `examples/AudioResponsesMappingExample.java`: OpenAI Responses speak/transcribe mapping through a scripted transport

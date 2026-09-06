@@ -5,10 +5,11 @@ import json
 import os
 import sys
 import threading
+import time
 from pathlib import Path
 from typing import Any
 
-from .ai import AnthropicClient, AxAIServiceAuthenticationError, AxAIServiceError, AxAIServiceNetworkError, AxAIServiceResponseError, AxAIServiceStatusError, AxAIServiceStreamTerminatedError, AxAIServiceTimeoutError, AxBaseAI, AxBalancer, AxRuntimeHooks, GoogleGeminiClient, MultiServiceRouter, OpenAICompatibleClient, OpenAIResponsesClient, ProviderRouter, _effective_runtime_hooks, _runtime_hook_scope, ai, get_supported_ai_models, provider_descriptor, provider_model_catalog_summary, provider_normalize_profile, provider_profile_registry, provider_resolve_descriptor, set_meter, set_rate_limiter, set_tracer, set_usage_observer
+from .ai import AnthropicClient, AxAIServiceAbortedError, AxAIServiceAuthenticationError, AxAIServiceError, AxAIServiceNetworkError, AxAIServiceResponseError, AxAIServiceStatusError, AxAIServiceStreamTerminatedError, AxAIServiceTimeoutError, AxBaseAI, AxBalancer, AxCancellationToken, AxRuntimeHooks, GoogleGeminiClient, MultiServiceRouter, OpenAICompatibleClient, OpenAIResponsesClient, ProviderRouter, _effective_runtime_hooks, _runtime_hook_scope, ai, get_supported_ai_models, provider_descriptor, provider_model_catalog_summary, provider_normalize_profile, provider_profile_registry, provider_resolve_descriptor, set_meter, set_rate_limiter, set_tracer, set_usage_observer
 from .ai import build_chat_request, build_embed_request, normalize_chat_response, normalize_embed_response, normalize_stream_delta, provider_resolve_profile, _gemini_build_speak_request, _gemini_build_transcribe_request, _gemini_normalize_speak_response, _gemini_normalize_transcribe_response, _grok_build_speak_request, _grok_build_transcribe_request, _openai_tool_call_to_provider_impl, ai_context_cache_expiry, ai_context_cache_plan, ai_context_cache_recovery, ai_context_cache_rejection, ai_gemini_cache_ops
 from .ai import AxBalancerAdaptiveStrategy, AxBalancerOptions, AxInMemoryBalancerStatsStore, _core_set_math_random_values, create_balancer_route_stats, provider_balancer_adaptive_score, sample_balancer_route_health, update_balancer_route_stats
 from .gen import (
@@ -82,7 +83,7 @@ from .runtime_quickjs import AxQuickJsCodeRuntime
 from .schema import strip_internal, to_json_schema, validate_output, validate_value
 from .signature import AxSignature, f, s
 from .tool import fn
-from .mcp import AxEventEnvelope, AxEventRoute, AxEventRuntime, AxEventSink, AxEventTarget, AxManualEventClock, AxMCPClient, AxMCPEventSource, AxMCPScriptedTransport, AxPushEventSource, event_continuation_match, event_map_input, event_normalize_mcp, event_path, event_retry_transition, event_route, event_route_commands, event_target, mcp_jsonrpc_notification, mcp_jsonrpc_request, mcp_normalize_error, mcp_protocol_constants, mcp_resource_subscription_ownership, mcp_resource_subscription_selection, run_mcp_conformance_fixture
+from .mcp import AxEventCancellationToken, AxEventEnvelope, AxEventRoute, AxEventRuntime, AxEventSink, AxEventTarget, AxManualEventClock, AxMCPClient, AxMCPEventSource, AxMCPScriptedTransport, AxPushEventSource, AxSystemEventClock, event_continuation_match, event_map_input, event_normalize_mcp, event_path, event_retry_transition, event_route, event_route_commands, event_target, mcp_jsonrpc_notification, mcp_jsonrpc_request, mcp_normalize_error, mcp_protocol_constants, mcp_resource_subscription_ownership, mcp_resource_subscription_selection, run_mcp_conformance_fixture
 
 
 class FixtureError(AssertionError):
@@ -232,12 +233,21 @@ class ScriptedTransport:
     def __init__(self, responses):
         self.responses = list(responses or [])
         self.requests = []
+        self.cancellations = []
 
     def __call__(self, request):
         self.requests.append(copy.deepcopy(request))
         if not self.responses:
             raise RuntimeError("scripted transport exhausted")
         return copy.deepcopy(self.responses.pop(0))
+
+    def call_with_cancellation(self, request, cancellation):
+        self.cancellations.append(cancellation)
+        return self(request)
+
+    def stream_with_cancellation(self, request, cancellation):
+        self.cancellations.append(cancellation)
+        return self(request)
 
 
 class ScriptedCodeSession(AxCodeSession):
@@ -496,6 +506,8 @@ def run_fixture(fixture: dict[str, Any], *, source: str | None = None):
             _run_ai_embed(fixture)
         elif kind == "ai_stream":
             _run_ai_stream(fixture)
+        elif kind == "ai_cancellation":
+            _run_ai_cancellation(fixture)
         elif kind == "ai_usage_observer":
             _run_ai_usage_observer(fixture)
         elif kind == "ai_runtime_hooks":
@@ -624,6 +636,35 @@ def _run_event(fixture):
         _assert_equal(receipt.accepted, True, "event publish receipt")
         _assert_equal(run.output, fixture["expected_output"], "event automatic dispatch")
         runtime.close()
+
+        cancellation_spec = fixture["cancellation"]
+        reason = cancellation_spec["reason"]
+        sleep_seconds = cancellation_spec["sleep_ms"] / 1000
+        token = AxEventCancellationToken()
+        removed_calls = []
+        remove = token.subscribe(lambda: removed_calls.append(True))
+        remove()
+        if not token.cancel(reason) or token.cancel("ignored") or token.reason != reason or removed_calls:
+            raise FixtureError("event cancellation one-shot or removable subscription mismatch")
+
+        def check_cancelled_clock(clock, label):
+            sleep_token = AxEventCancellationToken(); result = []
+            started = time.monotonic()
+            worker = threading.Thread(target=lambda: result.append(clock.sleep(sleep_seconds, sleep_token)))
+            worker.start()
+            if isinstance(clock, AxManualEventClock): clock.wait_for_sleepers()
+            else: time.sleep(0.01)
+            sleep_token.cancel(reason); worker.join(1)
+            elapsed_ms = (time.monotonic() - started) * 1000
+            _assert_equal([worker.is_alive(), result, sleep_token.subscription_count], [False, [False], 0], f"{label} cancellation cleanup")
+            if elapsed_ms > cancellation_spec["max_elapsed_ms"]: raise FixtureError(f"{label} cancellation was not prompt")
+
+        check_cancelled_clock(AxSystemEventClock(), "system event clock")
+        check_cancelled_clock(AxManualEventClock(), "manual event clock")
+        success_clock = AxManualEventClock(); success_token = AxEventCancellationToken(); success = []
+        worker = threading.Thread(target=lambda: success.append(success_clock.sleep(0.001, success_token)))
+        worker.start(); success_clock.wait_for_sleepers(); success_clock.advance(1); worker.join(1)
+        _assert_equal([success, success_token.subscription_count], [[True], 0], "manual event clock successful sleep cleanup")
 
         def envelope(event_id, event_type, data, correlation=None):
             return AxEventEnvelope(event_id, "test://axevent", event_type, data,
@@ -2405,6 +2446,54 @@ def _run_ai_stream(fixture):
     if "expected_output" in fixture:
         _assert_equal(result, fixture["expected_output"], "ai stream output")
     _assert_transport_request(fixture, transport)
+
+
+def _run_ai_cancellation(fixture):
+    reason = fixture["reason"]
+    request = fixture["request"]
+
+    preflight_fixture = dict(fixture, transport_responses=[fixture["success_response"]])
+    client, transport = _openai_fixture_client(preflight_fixture)
+    token = AxCancellationToken(); token.cancel(reason)
+    try:
+        client.chat(request, {"cancellation": token})
+        raise FixtureError("pre-cancelled provider request unexpectedly reached transport")
+    except AxAIServiceAbortedError as error:
+        if error.reason != reason or error.retryable: raise FixtureError("pre-cancelled provider error mismatch")
+    if transport.requests: raise FixtureError("pre-cancelled provider request reached transport")
+
+    class BackoffTransport(ScriptedTransport):
+        def stream_with_cancellation(self, next_request, cancellation):
+            self.cancellations.append(cancellation)
+            timer = threading.Timer(0.01, lambda: cancellation.cancel(reason))
+            timer.daemon = True; timer.start()
+            return self(next_request)
+
+    backoff_fixture = dict(fixture, service_options=fixture["retry_options"], transport_responses=[fixture["retry_response"]])
+    client, _ = _openai_fixture_client(backoff_fixture)
+    backoff_transport = BackoffTransport([fixture["retry_response"]]); client.transport = backoff_transport
+    backoff_token = AxCancellationToken(); started = time.monotonic()
+    try:
+        list(client.stream(request, {"cancellation": backoff_token}))
+        raise FixtureError("provider retry backoff ignored cancellation")
+    except AxAIServiceAbortedError as error:
+        if error.reason != reason or error.retryable: raise FixtureError("provider retry cancellation error mismatch")
+    if len(backoff_transport.requests) != 1 or backoff_transport.cancellations != [backoff_token]:
+        raise FixtureError("provider retry cancellation attempted another request or skipped custom transport token")
+    if (time.monotonic() - started) * 1000 > fixture["max_elapsed_ms"]:
+        raise FixtureError("provider retry backoff cancellation was not prompt")
+
+    stream_fixture = dict(fixture, transport_responses=[fixture["stream_response"]])
+    client, stream_transport = _openai_fixture_client(stream_fixture)
+    stream_token = AxCancellationToken(); stream = iter(client.stream(request, {"cancellation": stream_token}))
+    next(stream); stream_token.cancel(reason)
+    try:
+        next(stream)
+        raise FixtureError("provider stream yielded after cancellation")
+    except AxAIServiceAbortedError as error:
+        if error.reason != reason or error.retryable: raise FixtureError("provider stream cancellation error mismatch")
+    if len(stream_transport.requests) != 1 or stream_transport.cancellations != [stream_token]:
+        raise FixtureError("provider stream cancellation custom transport mismatch")
 
 
 def _run_ai_usage_observer(fixture):

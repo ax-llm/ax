@@ -4,6 +4,7 @@
 #include <atomic>
 #include <chrono>
 #include <cmath>
+#include <condition_variable>
 #include <thread>
 #include <cctype>
 #include <cstdlib>
@@ -176,6 +177,89 @@ class AxError : public std::runtime_error {
           std::string code = "", bool retryable = false, Value response_body = Value());
 };
 
+class AxAIServiceAbortedError : public AxError {
+ public:
+  explicit AxAIServiceAbortedError(std::string reason = "")
+      : AxError("aborted", reason.empty() || reason == "cancelled" ? "Request aborted" : "Request aborted: " + reason,
+                "AxAIServiceAbortedError", 0, "", false) {}
+};
+
+class AxCancellationToken {
+ private:
+  struct State {
+    mutable std::mutex mutex;
+    std::condition_variable changed;
+    bool cancelled = false;
+    std::string reason;
+    std::size_t next_subscription = 0;
+    std::map<std::size_t, std::function<void()>> subscriptions;
+  };
+
+ public:
+  class Subscription {
+   public:
+    Subscription() = default;
+    Subscription(std::weak_ptr<State> state, std::size_t id) : state_(std::move(state)), id_(id) {}
+    Subscription(const Subscription&) = delete;
+    Subscription& operator=(const Subscription&) = delete;
+    Subscription(Subscription&& other) noexcept : state_(std::move(other.state_)), id_(other.id_) { other.id_ = 0; }
+    Subscription& operator=(Subscription&& other) noexcept { if (this != &other) { reset(); state_ = std::move(other.state_); id_ = other.id_; other.id_ = 0; } return *this; }
+    ~Subscription() { reset(); }
+    void reset() { if (id_ == 0) return; if (auto state = state_.lock()) { std::lock_guard<std::mutex> lock(state->mutex); state->subscriptions.erase(id_); } id_ = 0; }
+   private:
+    std::weak_ptr<State> state_;
+    std::size_t id_ = 0;
+  };
+
+  AxCancellationToken() : state_(std::make_shared<State>()) {}
+  bool cancel(std::string reason = "cancelled") {
+    std::vector<std::function<void()>> callbacks;
+    {
+      std::lock_guard<std::mutex> lock(state_->mutex);
+      if (state_->cancelled) return false;
+      state_->cancelled = true;
+      state_->reason = std::move(reason);
+      for (auto& entry : state_->subscriptions) callbacks.push_back(entry.second);
+      state_->subscriptions.clear();
+    }
+    state_->changed.notify_all();
+    for (auto& callback : callbacks) callback();
+    return true;
+  }
+  bool is_cancelled() const { std::lock_guard<std::mutex> lock(state_->mutex); return state_->cancelled; }
+  std::string reason() const { std::lock_guard<std::mutex> lock(state_->mutex); return state_->reason; }
+  Subscription subscribe(std::function<void()> callback) const {
+    std::size_t id = 0;
+    bool immediate = false;
+    {
+      std::lock_guard<std::mutex> lock(state_->mutex);
+      immediate = state_->cancelled;
+      if (!immediate) { id = ++state_->next_subscription; state_->subscriptions.emplace(id, callback); }
+    }
+    if (immediate) callback();
+    return Subscription(state_, id);
+  }
+  bool wait_for(std::chrono::milliseconds duration) const {
+    std::unique_lock<std::mutex> lock(state_->mutex);
+    return state_->changed.wait_for(lock, duration, [&] { return state_->cancelled; });
+  }
+  std::size_t subscription_count() const { std::lock_guard<std::mutex> lock(state_->mutex); return state_->subscriptions.size(); }
+  void throw_if_cancelled() const { if (is_cancelled()) throw AxAIServiceAbortedError(reason()); }
+
+ private:
+  std::shared_ptr<State> state_;
+};
+
+const AxCancellationToken* current_cancellation_token();
+
+class AxCancellationScope {
+ public:
+  explicit AxCancellationScope(const AxCancellationToken* token);
+  ~AxCancellationScope();
+ private:
+  const AxCancellationToken* previous_;
+};
+
 struct Core {
   static bool truthy(const Value& value);
   static Value truthy_value(Value value);
@@ -337,6 +421,7 @@ class AIClient {
     (void)options;
     return chat(std::move(request));
   }
+  virtual Value chat(Value request, Value options, const AxCancellationToken* cancellation);
   // Default so intrinsic.agent.transcribe can call transcribe through an AIClient* (the agent's
   // scripted client extends the base AIClient). AxAIService and the scripted client override it.
   virtual Value transcribe(Value request, Value options) {
@@ -348,6 +433,7 @@ class AIClient {
 
 class AxAIService : public AIClient {
  public:
+  using AIClient::chat;
   ~AxAIService() override = default;
   virtual std::string get_id();
   virtual std::string get_name();
@@ -356,13 +442,17 @@ class AxAIService : public AIClient {
   virtual Value chat(Value request, Value options, const AxRuntimeHooks& hooks);
   virtual std::vector<Value> stream(Value request);
   virtual void stream_each(Value request, AxStreamHandler handler);
+  virtual void stream_each(Value request, AxStreamHandler handler, const AxCancellationToken* cancellation);
   virtual Value embed(Value request, Value options);
+  virtual Value embed(Value request, Value options, const AxCancellationToken* cancellation);
   virtual Value embed(Value request, Value options, const AxRuntimeHooks& hooks);
   virtual Value embed(Value request) = 0;
   virtual Value transcribe(Value request) = 0;
-  virtual Value transcribe(Value request, Value options);
+  Value transcribe(Value request, Value options) override;
+  virtual Value transcribe(Value request, Value options, const AxCancellationToken* cancellation);
   virtual Value speak(Value request) = 0;
   virtual Value speak(Value request, Value options);
+  virtual Value speak(Value request, Value options, const AxCancellationToken* cancellation);
   virtual Value get_features(Value model = Value());
   virtual Value get_model_list();
   virtual Value get_metrics();
@@ -380,6 +470,8 @@ class AxAIService : public AIClient {
 
 class AxBaseAI : public AxAIService {
  public:
+  using AxAIService::chat;
+  using AxAIService::embed;
   AxBaseAI(std::string name, std::string model, std::string embed_model,
            Value model_config = Value::object(), Value options = Value::object(),
            AxRuntimeHooks hooks = {});
@@ -471,6 +563,11 @@ struct AxBalancerOptions {
 
 class AxBalancer : public AxAIService {
  public:
+  using AxAIService::chat;
+  using AxAIService::embed;
+  using AxAIService::speak;
+  using AxAIService::stream_each;
+  using AxAIService::transcribe;
   AxBalancer();
   explicit AxBalancer(std::vector<std::shared_ptr<AxAIService>> services, Value options = Value::object());
   explicit AxBalancer(std::vector<std::shared_ptr<AxAIService>> services, AxBalancerOptions options);
@@ -535,6 +632,11 @@ class AxBalancer : public AxAIService {
 
 class MultiServiceRouter : public AxAIService {
  public:
+  using AxAIService::chat;
+  using AxAIService::embed;
+  using AxAIService::speak;
+  using AxAIService::stream_each;
+  using AxAIService::transcribe;
   MultiServiceRouter();
   explicit MultiServiceRouter(std::vector<std::shared_ptr<AxAIService>> services);
   explicit MultiServiceRouter(Value entries);
@@ -586,11 +688,16 @@ class ProviderRouter {
   Value validate_request(Value request);
   Value get_routing_stats();
   Value chat(Value request, Value options = Value::object());
+  Value chat(Value request, Value options, const AxCancellationToken* cancellation);
   std::vector<Value> stream(Value request);
   void stream_each(Value request, AxStreamHandler handler);
+  void stream_each(Value request, AxStreamHandler handler, const AxCancellationToken* cancellation);
   Value embed(Value request, Value options = Value::object());
+  Value embed(Value request, Value options, const AxCancellationToken* cancellation);
   Value transcribe(Value request, Value options = Value::object());
+  Value transcribe(Value request, Value options, const AxCancellationToken* cancellation);
   Value speak(Value request, Value options = Value::object());
+  Value speak(Value request, Value options, const AxCancellationToken* cancellation);
 
  private:
   std::vector<std::shared_ptr<AxAIService>> providers_;
@@ -604,13 +711,17 @@ class Transport {
  public:
   virtual ~Transport() = default;
   virtual Value call(Value request) = 0;
+  virtual Value call(Value request, const AxCancellationToken* cancellation);
   virtual void stream(Value request, AxTransportStreamHandler handler);
+  virtual void stream(Value request, AxTransportStreamHandler handler, const AxCancellationToken* cancellation);
 };
 
 class HttpTransport : public Transport {
  public:
   Value call(Value request) override;
+  Value call(Value request, const AxCancellationToken* cancellation) override;
   void stream(Value request, AxTransportStreamHandler handler) override;
+  void stream(Value request, AxTransportStreamHandler handler, const AxCancellationToken* cancellation) override;
 };
 
 class AxContextCacheRegistry {
@@ -645,6 +756,11 @@ class ScriptedRealtimeTransport : public RealtimeTransport {
 
 class OpenAICompatibleClient : public AxBaseAI {
  public:
+  using AxBaseAI::chat;
+  using AxBaseAI::embed;
+  using AxAIService::speak;
+  using AxAIService::stream_each;
+  using AxAIService::transcribe;
   explicit OpenAICompatibleClient(Value options = Value::object(), Transport* transport = nullptr, AxCredentialProvider credential_provider = {});
   OpenAICompatibleClient(std::string profile, std::string name, Value options, Transport* transport, std::string default_model, std::string default_embed_model, AxCredentialProvider credential_provider = {});
   std::vector<Value> stream(Value request) override;
@@ -760,6 +876,7 @@ class AxGen : public AxProgram {
  public:
   explicit AxGen(Value signature, Value options = Value::object(), AxRuntimeHooks hooks = {});
   Value forward(AIClient& client, Value values, Value options = Value::object());
+  Value forward(AIClient& client, Value values, Value options, const AxCancellationToken* cancellation);
   Value forward(AIClient& client, Value values, Value options, const AxRuntimeHooks& hooks);
   AxGen& set_rate_limiter(AxRateLimiter limiter);
   AxGen& set_tracer(std::shared_ptr<AxTracer> tracer);
@@ -816,6 +933,7 @@ class AxFlow : public AxProgram {
   AxFlow& returns(Value spec);
   AxFlow& set_demos(Value demos);
   Value forward(AIClient& client, Value values, Value options = Value::object());
+  Value forward(AIClient& client, Value values, Value options, const AxCancellationToken* cancellation);
   Value forward(AIClient& client, Value values, Value options, const AxRuntimeHooks& hooks);
   AxFlow& set_rate_limiter(AxRateLimiter limiter);
   AxFlow& set_tracer(std::shared_ptr<AxTracer> tracer);
@@ -1077,6 +1195,7 @@ class AxAgent : public AxProgram {
   AxAgent& set_instruction(Value instruction);
   AxAgent& add_actor_instruction(Value addendum);
   Value forward(AIClient& client, Value values, Value options = Value::object());
+  Value forward(AIClient& client, Value values, Value options, const AxCancellationToken* cancellation);
   Value forward(AIClient& client, Value values, Value options, const AxRuntimeHooks& hooks);
   AxAgent& set_rate_limiter(AxRateLimiter limiter);
   AxAgent& set_tracer(std::shared_ptr<AxTracer> tracer);

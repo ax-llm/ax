@@ -7,6 +7,7 @@ import java.util.*;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.concurrent.atomic.AtomicInteger;
 
 // Drive a streaming stream() through the REAL HttpClient transport against an
 // in-process com.sun.net.httpserver loopback that returns a spec-legal
@@ -31,7 +32,9 @@ public final class StreamHTTPRoundtripExample {
     byte[] firstBytes = sseFirst.getBytes(StandardCharsets.UTF_8);
     byte[] restBytes = sseRest.getBytes(StandardCharsets.UTF_8);
     CountDownLatch releaseRest = new CountDownLatch(1);
+    CountDownLatch releaseCancelledRest = new CountDownLatch(1);
     AtomicBoolean releaseTimedOut = new AtomicBoolean(false);
+    AtomicInteger requests = new AtomicInteger();
 
     HttpServer server = HttpServer.create(new InetSocketAddress("127.0.0.1", 0), 0);
     server.createContext(
@@ -43,7 +46,8 @@ public final class StreamHTTPRoundtripExample {
           try (OutputStream os = exchange.getResponseBody()) {
             for (byte value : firstBytes) { os.write(value); os.flush(); }
             try {
-              if (!releaseRest.await(5, TimeUnit.SECONDS)) releaseTimedOut.set(true);
+              CountDownLatch release = requests.incrementAndGet() == 2 ? releaseCancelledRest : releaseRest;
+              if (!release.await(5, TimeUnit.SECONDS)) releaseTimedOut.set(true);
             } catch (InterruptedException error) {
               Thread.currentThread().interrupt();
               releaseTimedOut.set(true);
@@ -81,7 +85,32 @@ public final class StreamHTTPRoundtripExample {
         throw new RuntimeException("multi-line data: event was not folded into one JSON value: " + deltas);
       if (!"Hello 🌍 world".equals(String.join("", deltas)))
         throw new RuntimeException("bad stream fold: " + deltas);
+
+      AxCancellationToken token = new AxCancellationToken();
+      try (AxChatStream cancelled = client.openStream(
+          Map.of("chat_prompt", List.of(Map.of("role", "user", "content", "cancel stream"))), token)) {
+        Iterator<Map<String, Object>> iterator = cancelled.iterator();
+        if (!iterator.hasNext()) throw new RuntimeException("cancel stream ended before first event");
+        iterator.next();
+        long cancelStarted = System.nanoTime();
+        token.cancel("loopback stopped");
+        try {
+          iterator.hasNext();
+          throw new RuntimeException("cancelled stream did not raise an aborted error");
+        } catch (AxAIServiceAbortedError error) {
+          if (!"loopback stopped".equals(error.reason()) || error.retryable)
+            throw new RuntimeException("wrong cancellation error", error);
+        }
+        if (TimeUnit.NANOSECONDS.toMillis(System.nanoTime() - cancelStarted) > 1000)
+          throw new RuntimeException("cancelled stream did not return promptly");
+        if (token.subscriptionCount() != 0)
+          throw new RuntimeException("cancelled stream retained a body-close subscription");
+      } finally {
+        releaseCancelledRest.countDown();
+      }
     } finally {
+      releaseRest.countDown();
+      releaseCancelledRest.countDown();
       server.stop(0);
     }
     System.out.println("stream-http-roundtrip-ok");
