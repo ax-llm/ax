@@ -24,6 +24,18 @@ This ledger tracks portable TypeScript behavior that should be migrated into AxI
   - TS paths: `src/ax/ai/processor.test.ts`, `src/ax/ai/processor.ts`, `src/ax/ai/router.test.ts`, `src/ax/ai/router.ts`
   - Impact: File-capable providers now receive native file content instead of degraded text; generated runtimes need matching provider-aware file pass-through behavior.
   - Suggested AxIR work: Add or update the TS-derived conformance fixture.; Update AxIR/Core or descriptor data to match the portable TS behavior.; Run npm run axir:conformance:check and npm run test:axir.
+- `axir-2026-09-05-port-gpt-6-astra-model-rules-caching-and-pricing` [axai] Port GPT-6 Astra model rules, caching, and pricing
+  - Status: open
+  - Source commit: `8e3f99ff404731e9adca2b78923f27813104e434`
+  - TS paths: `src/ax/ai/base.ts`, `src/ax/ai/types.ts`, `src/ax/ai/openai/api.ts`, `src/ax/ai/openai/caching.ts`, `src/ax/ai/openai/chat_types.ts`, `src/ax/ai/openai/effort.ts`, `src/ax/ai/openai/info.ts`, `src/ax/ai/openai/model_family.ts`, `src/ax/ai/openai/responses_api.ts`, `src/ax/ai/openai/responses_api_base.ts`, `src/ax/ai/openai/astra.test.ts`, `src/ax/ai/provider_profiles.generated.ts`
+  - Impact: TypeScript-only Astra support: model enums and catalogs, reasoning restrictions, automatic Responses routing for tools, breakpoint caching, and long-context cache-write pricing require generated-language parity.
+  - Suggested AxIR work: Add or update the TS-derived conformance fixture.; Update AxIR/Core or descriptor data to match the portable TS behavior.; Run npm run axir:conformance:check and npm run test:axir.
+- `axir-2026-09-05-port-shared-chat-sessions-and-run-controls` [axai] Port shared chat sessions and higher-level run controls
+  - Status: open
+  - Source commit: `8e3f99ff404731e9adca2b78923f27813104e434`
+  - TS paths: `src/ax/agent/AxAgent.ts`, `src/ax/agent/agent.sessions.test.ts`, `src/ax/agent/agentInternal/actorLoopTurn.ts`, `src/ax/agent/agentInternal/agentInternalTypes.ts`, `src/ax/agent/agentInternal/runtimeExecution.ts`, `src/ax/agent/agentInternal/runtimeExecutionLlmQuery.ts`, `src/ax/agent/agentInternal/runtimeGlobals.ts`, `src/ax/ai/balance.ts`, `src/ax/ai/base.ts`, `src/ax/ai/multiservice.ts`, `src/ax/ai/openai/chat_session.test.ts`, `src/ax/ai/openai/chat_session.ts`, `src/ax/ai/openai/responses_api.tool_calls.test.ts`, `src/ax/ai/openai/responses_client.test-d.ts`, `src/ax/ai/openai/responses_client.test.ts`, `src/ax/ai/openai/responses_client.ts`, `src/ax/ai/openai/responses_types.ts`, `src/ax/ai/router.ts`, `src/ax/ai/session.routing.test.ts`, `src/ax/ai/session.ts`, `src/ax/ai/types.ts`, `src/ax/ai/wrap.ts`, `src/ax/dsp/chatSession.test.ts`, `src/ax/dsp/chatSession.ts`, `src/ax/dsp/functions.ts`, `src/ax/dsp/generate.ts`, `src/ax/dsp/response/finalize.ts`, `src/ax/dsp/response/nonStreaming.ts`, `src/ax/dsp/response/types.ts`, `src/ax/dsp/runControl.test.ts`, `src/ax/dsp/runControl.ts`, `src/ax/dsp/sig.ts`, `src/ax/dsp/toolArguments.ts`, `src/ax/flow/executor.ts`, `src/ax/flow/flow.ts`, `src/ax/flow/flow.sessions.test.ts`
+  - Impact: TypeScript-only AxAI sessions, automatic Astra routing, explicit background tool execution, pending-result finalization, late steering-pending continuation, deduplicated steering acknowledgements and accurate applied-update timing, abortable pending-work waits, streaming assertions before emission, provider and alias default precedence, scoped controls, agent native tools, and flow isolation. Generated-language implementations remain deferred.
+  - Suggested AxIR work: Add or update the TS-derived conformance fixture.; Update AxIR/Core or descriptor data to match the portable TS behavior.; Run npm run axir:conformance:check and npm run test:axir.
 
 ## Done
 

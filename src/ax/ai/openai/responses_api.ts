@@ -19,6 +19,8 @@ import type {
   AxTokenUsage,
 } from '../types.js';
 import { axResolveOpenAIResponsesReasoningEffort } from './effort.js';
+import { axIsGPT6Astra } from './model_family.js';
+import { axValidateOpenAIResponseRequest } from './responses_client.js';
 import type {
   AxAIOpenAIResponsesCodeInterpreterToolCall,
   AxAIOpenAIResponsesComputerToolCall,
@@ -97,6 +99,8 @@ export class AxAIOpenAIResponsesImpl<
       | AxAIFeatures
       | ((model: TModel) => AxAIFeatures)
   ) {}
+
+  supportsImplicitCaching = (model: TModel): boolean => axIsGPT6Astra(model);
 
   getTokenUsage(): Readonly<AxTokenUsage> | undefined {
     return this.tokensUsed;
@@ -284,8 +288,21 @@ export class AxAIOpenAIResponsesImpl<
             name: msg.name,
           });
           break;
-        case 'assistant':
-          if (msg.thought || msg.thoughtBlocks?.length) {
+        case 'assistant': {
+          const encryptedBlocks = msg.thoughtBlocks?.filter(
+            (block) => block.encrypted
+          );
+          if (encryptedBlocks?.length) {
+            for (const block of encryptedBlocks) {
+              if (block.data)
+                items.push({
+                  type: 'reasoning',
+                  ...(block.signature ? { id: block.signature } : {}),
+                  encrypted_content: block.data,
+                  summary: [],
+                });
+            }
+          } else if (msg.thought || msg.thoughtBlocks?.length) {
             const thought =
               msg.thought ??
               msg.thoughtBlocks?.map((block) => block.data).join('');
@@ -333,6 +350,7 @@ export class AxAIOpenAIResponsesImpl<
             }
           }
           break;
+        }
         case 'function': // This is a tool result
           items.push({
             type: 'function_call_output',
@@ -505,7 +523,7 @@ export class AxAIOpenAIResponsesImpl<
           req.responseFormat.type === 'json_schema'
             ? {
                 type: 'json_schema',
-                json_schema: req.responseFormat.schema,
+                ...req.responseFormat.schema,
               }
             : { type: req.responseFormat.type as 'text' | 'json_object' },
       };
@@ -559,6 +577,51 @@ export class AxAIOpenAIResponsesImpl<
       );
     }
 
+    if (axIsGPT6Astra(model)) {
+      if (
+        config.contextCache !== undefined ||
+        req.chatPrompt.some((m) => 'cache' in m && m.cache) ||
+        req.functions?.some((f) => f.cache)
+      ) {
+        const marked = Array.isArray(finalReqToProcess.input)
+          ? finalReqToProcess.input.map((item) => {
+              if (
+                typeof item !== 'object' ||
+                item.type !== 'message' ||
+                !item.content
+              )
+                return item;
+              const content =
+                typeof item.content === 'string'
+                  ? [
+                      {
+                        type:
+                          item.role === 'assistant'
+                            ? 'output_text'
+                            : 'input_text',
+                        text: item.content,
+                      },
+                    ]
+                  : item.content;
+              return {
+                ...item,
+                content: content.map((part: object, index: number) =>
+                  index === content.length - 1
+                    ? { ...part, prompt_cache_breakpoint: { mode: 'explicit' } }
+                    : part
+                ),
+              };
+            })
+          : finalReqToProcess.input;
+        finalReqToProcess = {
+          ...finalReqToProcess,
+          input: marked as typeof finalReqToProcess.input,
+          prompt_cache_options: { mode: 'explicit', ttl: '30m' },
+          prompt_cache_key: config.promptCacheKey ?? config.sessionId,
+        };
+      }
+      finalReqToProcess = axValidateOpenAIResponseRequest(finalReqToProcess);
+    }
     return [apiConfig, finalReqToProcess];
   }
 
@@ -604,6 +667,7 @@ export class AxAIOpenAIResponsesImpl<
                 {
                   data: thought,
                   encrypted: Boolean(item.encrypted_content),
+                  ...(item.encrypted_content ? { signature: item.id } : {}),
                 },
               ];
             }
@@ -968,6 +1032,7 @@ export class AxAIOpenAIResponsesImpl<
             }
             break;
           case 'reasoning': {
+            if (event.item.encrypted_content) break;
             baseResult.id = event.item.id;
             const thought = reasoningItemToText(event.item);
             if (thought) {
@@ -976,6 +1041,9 @@ export class AxAIOpenAIResponsesImpl<
                 {
                   data: thought,
                   encrypted: Boolean(event.item.encrypted_content),
+                  ...(event.item.encrypted_content
+                    ? { signature: event.item.id }
+                    : {}),
                 },
               ];
             }
@@ -1180,6 +1248,9 @@ export class AxAIOpenAIResponsesImpl<
                 {
                   data: thought,
                   encrypted: Boolean(event.item.encrypted_content),
+                  ...(event.item.encrypted_content
+                    ? { signature: event.item.id }
+                    : {}),
                 },
               ];
             }

@@ -148,3 +148,62 @@ describe('OpenAI Responses function-call streaming', () => {
     expect(delta.results[0]!.functionCalls?.[0]!.id).toBe('call_1');
   });
 });
+
+describe('encrypted reasoning replay', () => {
+  it('emits completed encrypted items once and preserves separate replay envelopes', () => {
+    const impl = new AxAIOpenAIResponsesImpl(config, true);
+    const state = {};
+    const blocks = ['rs_1', 'rs_2'].flatMap((id) => {
+      const item = {
+        type: 'reasoning',
+        id,
+        encrypted_content: `encrypted-${id}`,
+        summary: [],
+      };
+      const added = impl.createChatStreamResp(
+        {
+          type: 'response.output_item.added',
+          item,
+        } as OpenAIResponsesResponseDelta,
+        state
+      );
+      expect(added.results[0]?.thoughtBlocks).toBeUndefined();
+      const done = impl.createChatStreamResp(
+        {
+          type: 'response.output_item.done',
+          item,
+        } as OpenAIResponsesResponseDelta,
+        state
+      );
+      return done.results[0]!.thoughtBlocks!;
+    });
+    const [, request] = impl.createChatReq(
+      {
+        model: AxAIOpenAIResponsesModel.GPT6Astra,
+        modelConfig: {},
+        chatPrompt: [
+          {
+            role: 'assistant',
+            thought: 'must-not-replay-concatenation',
+            thoughtBlocks: blocks,
+          },
+        ],
+      },
+      {}
+    );
+    expect(request.input).toEqual([
+      {
+        type: 'reasoning',
+        id: 'rs_1',
+        encrypted_content: 'encrypted-rs_1',
+        summary: [],
+      },
+      {
+        type: 'reasoning',
+        id: 'rs_2',
+        encrypted_content: 'encrypted-rs_2',
+        summary: [],
+      },
+    ]);
+  });
+});

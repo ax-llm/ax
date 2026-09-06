@@ -561,3 +561,9 @@ first model call; mapper exceptions become non-retryable
 - Do not use streaming assertions as reward/refine mechanisms; they enforce hard partial-output invariants and retry with correction.
 - Do not mutate step hook context expecting immediate effect; mutations are pending until the next step.
 - Do not assume multi-step stops after one LLM call; it continues until outputs are filled, a stop function fires, or `maxSteps` is reached.
+
+## Automatic sessions (TypeScript)
+
+Declare independent host tools with `.execution('background')`. AxGen automatically uses supported async sessions, submits results, and validates the final answer after pending work. Use `asyncMode: 'off'` for the ordinary loop. Attach `runControl()` through `{ control }` for steering, reasoning updates, and cancellation. Streamed session output is provisional until the run completes. Reset accumulated output when its `version` changes; the final output still passes assertions and field validation. Streaming assertions run before provisional text is emitted. An assertion may trigger a correction before tools start; after host work starts, a mid-stream assertion fails the run without replaying that work.
+
+For automatic tool runs and controller-attached runs, routers and balancers resolve a provider before execution and pin it for the run. Mixed balancers use sessions only when the selected provider supports them. Providers implementing only `.chat()` continue through the ordinary loop.

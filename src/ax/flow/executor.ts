@@ -71,6 +71,11 @@ export async function executeNodeProgram({
 
   const result = await nodeProgram.forward(ai, inputs, {
     ...options,
+    executionPath: `${options?.executionPath ?? 'root'}/${nodeName}`,
+    abortSignal: mergeAbortSignals(
+      options?.abortSignal,
+      options?.control?.signal
+    ),
     traceLabel,
   });
 

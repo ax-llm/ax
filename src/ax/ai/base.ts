@@ -489,6 +489,9 @@ function computeCacheableContentHash<TModel>(
 }
 
 export interface AxAIFeatures {
+  asyncTools?: boolean;
+  nativeSteering?: boolean;
+  reasoningUpdates?: boolean;
   functions: boolean;
   streaming: boolean;
   functionCot?: boolean;
@@ -851,7 +854,18 @@ export class AxBaseAI<
     return this.getEffectiveDebug();
   }
 
+  private sessionOptions: Pick<
+    AxAIServiceOptions,
+    'webSocket' | 'asyncMode' | 'control' | 'executionPath'
+  > = {};
+
   setOptions(options: Readonly<AxAIServiceOptions>): void {
+    this.sessionOptions = {
+      webSocket: options.webSocket,
+      asyncMode: options.asyncMode ?? 'auto',
+      control: options.control,
+      executionPath: options.executionPath,
+    };
     this.#debug = options.debug;
     // verbose controls low-level HTTP logging (separate from debug)
     this.#verbose = options.verbose ?? false;
@@ -882,6 +896,7 @@ export class AxBaseAI<
 
   getOptions(): Readonly<AxAIServiceOptions> {
     return {
+      ...this.sessionOptions,
       debug: this.getEffectiveDebug(),
       verbose: this.#verbose,
       rateLimiter: this.getEffectiveRateLimiter(),
@@ -1394,6 +1409,7 @@ export class AxBaseAI<
       : isLongContext
         ? (tierPricing?.longContextCacheWriteTokenCostPer1M ??
           tierPricing?.cacheWriteTokenCostPer1M ??
+          modelInfo.longContextCacheWriteTokenCostPer1M ??
           modelInfo.cacheWriteTokenCostPer1M ??
           promptCostPer1M)
         : (tierPricing?.cacheWriteTokenCostPer1M ??
@@ -2032,6 +2048,8 @@ export class AxBaseAI<
         options?.debugHideSystemPrompt
       );
     }
+
+    this.aiImpl.validateChatReq?.(req);
 
     // After logging, optionally emulate prompt-based function mode centrally
     const providerSupportsFunctions = this.getFeatures(model).functions;

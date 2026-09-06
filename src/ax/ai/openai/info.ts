@@ -283,6 +283,27 @@ export const axModelInfoOpenAI: AxModelInfo[] = [
   // GPT-5.6 models. Above 272K input tokens the whole request is billed at 2x
   // input / 1.5x output across the family.
   {
+    name: AxAIOpenAIModel.GPT6Astra,
+    currency: 'usd',
+    promptTokenCostPer1M: 10,
+    completionTokenCostPer1M: 50,
+    cacheReadTokenCostPer1M: 1,
+    cacheWriteTokenCostPer1M: 12.5,
+    longContextThreshold: 272_000,
+    longContextPromptTokenCostPer1M: 20,
+    longContextCompletionTokenCostPer1M: 75,
+    longContextCacheReadTokenCostPer1M: 2,
+    longContextCacheWriteTokenCostPer1M: 25,
+    contextWindow: 1_050_000,
+    maxTokens: 128_000,
+    notSupported: { temperature: true, topP: true },
+    supported: {
+      structuredOutputs: true,
+      thinkingBudget: true,
+      structuredOutputModes: ['native', 'json_object'],
+    },
+  },
+  {
     name: AxAIOpenAIModel.GPT56Sol,
     aliases: [AxAIOpenAIModel.GPT56],
     currency: 'usd',
@@ -715,6 +736,27 @@ export const axModelInfoOpenAIResponses: AxModelInfo[] = [
   },
   // GPT-5.6 models. Above 272K input tokens the whole request is billed at 2x
   // input / 1.5x output across the family.
+  {
+    name: AxAIOpenAIResponsesModel.GPT6Astra,
+    currency: 'usd',
+    promptTokenCostPer1M: 10,
+    completionTokenCostPer1M: 50,
+    cacheReadTokenCostPer1M: 1,
+    cacheWriteTokenCostPer1M: 12.5,
+    longContextThreshold: 272_000,
+    longContextPromptTokenCostPer1M: 20,
+    longContextCompletionTokenCostPer1M: 75,
+    longContextCacheReadTokenCostPer1M: 2,
+    longContextCacheWriteTokenCostPer1M: 25,
+    contextWindow: 1_050_000,
+    maxTokens: 128_000,
+    notSupported: { temperature: true, topP: true },
+    supported: {
+      structuredOutputs: true,
+      thinkingBudget: true,
+      showThoughts: true,
+    },
+  },
   {
     name: AxAIOpenAIResponsesModel.GPT56Sol,
     aliases: [AxAIOpenAIResponsesModel.GPT56],

@@ -784,7 +784,7 @@ export class ActorAgentRLM<
     }
     const effectiveAbortSignal = mergeAbortSignals(
       abortController.signal,
-      options?.abortSignal
+      mergeAbortSignals(options?.abortSignal, options?.control?.signal)
     );
     this.activeAbortControllers.add(abortController);
     const createdBudgetState = this._ensureLlmQueryBudgetState();
@@ -832,7 +832,11 @@ export class ActorAgentRLM<
     ) => void,
     onUsed?: (id: unknown, reason?: unknown) => void,
     onFunctionCall?: import('./agentInternal/types.js').AxAgentOnFunctionCall,
-    getCurrentMemories?: () => readonly import('./agentInternal/memoriesTypes.js').AxAgentMemoryResult[]
+    getCurrentMemories?: () => readonly import('./agentInternal/memoriesTypes.js').AxAgentMemoryResult[],
+    runOptions?: Pick<
+      import('../ai/types.js').AxAIServiceOptions,
+      'control' | 'executionPath'
+    >
   ): Record<string, unknown> {
     return buildRuntimeGlobals(
       this,
@@ -847,7 +851,8 @@ export class ActorAgentRLM<
       onLoadedMemories,
       onUsed,
       onFunctionCall,
-      getCurrentMemories
+      getCurrentMemories,
+      runOptions
     );
   }
 

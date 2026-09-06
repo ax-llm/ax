@@ -34,6 +34,8 @@ export interface AxResponseHandlerArgs<T> {
   ) => void | Promise<void>;
   mcpExecutionContext?: import('../../mcp/execution.js').AxMCPExecutionContext;
   eventContext?: import('../../event/types.js').AxEventContext;
+  control?: import('../runControl.js').AxRunControl;
+  executionPath?: string;
 }
 
 export type InternalAxGenState = {

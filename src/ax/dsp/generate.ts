@@ -1,3 +1,11 @@
+import { axRunChatSession } from './chatSession.js';
+import { extractValues } from './extract.js';
+import {
+  createStructuredDelta,
+  parseStructuredPartial,
+} from './response/structuredDelta.js';
+import { axValidateToolArguments } from './toolArguments.js';
+import type { DeltaOut } from './types.js';
 // ReadableStream is available globally in modern browsers and Node.js 16+
 
 import {
@@ -51,6 +59,7 @@ import {
   type AxStreamingAssertion,
   AxStreamingAssertionError,
   assertAssertions,
+  assertStreamingAssertions,
 } from './asserts.js';
 import { renderAudioOutputArtifacts } from './audioArtifacts.js';
 import {
@@ -69,6 +78,7 @@ import {
   AxStopFunctionCallException,
   createFunctionConfig,
   parseFunctions,
+  processFunctions,
 } from './functions.js';
 import { axGlobals } from './globals.js';
 import { toJsonSchema } from './jsonSchema.js';
@@ -127,6 +137,7 @@ import {
   validateURL,
 } from './validators.js';
 
+const axSessionOutputVersion = Symbol('ax.sessionOutputVersion');
 const STRUCTURED_OUTPUT_FUNCTION_NAME = '__axOutput';
 const LEGACY_STRUCTURED_OUTPUT_FUNCTION_NAME = '__finalResult';
 
@@ -1027,7 +1038,12 @@ export class AxGen<IN = any, OUT extends AxGenOut = any>
     functionCall,
     stepIndex,
     preRenderedPrompt,
+    sessionChat,
   }: Readonly<{
+    sessionChat?: (
+      req: AxChatRequest,
+      options: AxAIServiceOptions
+    ) => Promise<AxChatResponse>;
     ai: Readonly<AxAIService>;
     values: IN;
     mem: AxAIMemory;
@@ -1216,7 +1232,7 @@ export class AxGen<IN = any, OUT extends AxGenOut = any>
           }))
         : functions;
 
-    let res = await ai.chat(
+    let res = await (sessionChat ?? ai.chat.bind(ai))(
       {
         chatPrompt,
         // Do not send native functions to the provider when emulating via prompt mode
@@ -1228,6 +1244,11 @@ export class AxGen<IN = any, OUT extends AxGenOut = any>
       },
       {
         sessionId,
+        executionPath: options?.executionPath,
+        webSocket: options?.webSocket ?? ai.getOptions().webSocket,
+        fetch: options?.fetch ?? ai.getOptions().fetch,
+        timeout: options?.timeout ?? ai.getOptions().timeout,
+        asyncMode: options?.asyncMode,
         promptCacheKey: promptCacheKey ?? this.options?.promptCacheKey,
         functionCallSource:
           typeof functionCall === 'object' &&
@@ -1267,6 +1288,16 @@ export class AxGen<IN = any, OUT extends AxGenOut = any>
         ),
       } as AxAIServiceOptions & AxRuntimeHookFramedOptions
     );
+
+    if (sessionChat && stream && !(res instanceof ReadableStream)) {
+      const finalResponse = res;
+      res = new ReadableStream<AxChatResponse>({
+        start(controller) {
+          controller.enqueue(finalResponse);
+          controller.close();
+        },
+      });
+    }
 
     if (res instanceof ReadableStream) {
       const source = res;
@@ -1383,58 +1414,310 @@ export class AxGen<IN = any, OUT extends AxGenOut = any>
       }
     }
 
-    const { res, debugPromptMetrics, responseMetadata } =
-      await this.forwardSendRequest({
-        ai,
-        values,
-        mem,
-        options,
-        traceContext,
-        functions,
-        functionCall,
-        stepIndex,
-        preRenderedPrompt,
-      });
+    functions = functions.map((fn) =>
+      stopFunctionNames?.includes(fn.name.toLowerCase()) ||
+      isReservedStructuredOutputFunctionName(fn.name)
+        ? { ...fn, execution: 'blocking' }
+        : fn
+    );
+
+    let sessionVersion = -1;
+    let sessionResponseId: string | undefined;
+    let partialContent = '';
+    let provisionalValues: Record<string, unknown> = {};
+    const provisional: (DeltaOut<OUT> & {
+      [axSessionOutputVersion]: number;
+    })[] = [];
+    let wakeProvisional: (() => void) | undefined;
+    let requestSettled = false;
+    const selectResponse = (responseId: string) => {
+      if (responseId === sessionResponseId) return;
+      sessionResponseId = responseId;
+      sessionVersion++;
+      partialContent = '';
+      provisionalValues = {};
+    };
+    const onSessionDelta = async (
+      responseId: string,
+      response: AxChatResponse
+    ) => {
+      selectResponse(responseId);
+      if (!options.stream) return;
+      partialContent += response.results
+        .map((result) => result.content ?? '')
+        .join('');
+      let parsed = false;
+      try {
+        const values: Record<string, unknown> = {};
+        let partialMarker = null;
+        if (this.signature.hasComplexFields()) {
+          const parsed = parseStructuredPartial(partialContent);
+          if (!parsed) return;
+          Object.assign(values, parsed.values);
+          partialMarker = parsed.partialMarker;
+        } else
+          extractValues(this.signature, values, partialContent, {
+            treatAllFieldsOptional: true,
+          });
+        const { delta, fullValues } = createStructuredDelta<OUT>({
+          signature: this.signature,
+          parsedValues: values,
+          previousValues: provisionalValues,
+          partialMarker,
+        });
+        parsed = true;
+        for (const field of this.signature.getOutputFields()) {
+          const value = fullValues[field.name];
+          if (typeof value !== 'string' || !(field.name in delta)) continue;
+          await assertStreamingAssertions(
+            this.streamingAsserts,
+            {
+              ...this.createStates(1)[0]!.xstate,
+              currField: field,
+              s: 0,
+            },
+            value
+          );
+        }
+        provisionalValues = fullValues;
+        if (Object.keys(delta).length) {
+          provisional.push({
+            index: 0,
+            delta,
+            [axSessionOutputVersion]: sessionVersion,
+          });
+          wakeProvisional?.();
+        }
+      } catch (error) {
+        if (parsed) throw error;
+        /* Incomplete field values are validated when the response finishes. */
+      }
+    };
+    const requestPromise = this.forwardSendRequest({
+      ai,
+      values,
+      mem,
+      options,
+      traceContext,
+      functions,
+      functionCall,
+      stepIndex,
+      preRenderedPrompt,
+      sessionChat:
+        (options.asyncMode ?? ai.getOptions().asyncMode) !== 'off' &&
+        ai.openChatSession &&
+        ai.getFeatures(model).asyncTools &&
+        options.functionCallMode !== 'prompt' &&
+        (functions.some((fn) => fn.execution === 'background') ||
+          options.control)
+          ? (request, serviceOptions) =>
+              axRunChatSession({
+                ai,
+                request,
+                onDelta: onSessionDelta,
+                onResponse: selectResponse,
+                options: {
+                  ...serviceOptions,
+                  control: options.control,
+                  executionPath: options.executionPath,
+                },
+                functions,
+                finalFunctions: functions
+                  .filter(
+                    (fn) =>
+                      stopFunctionNames?.includes(fn.name.toLowerCase()) ||
+                      isReservedStructuredOutputFunctionName(fn.name)
+                  )
+                  .map((fn) => fn.name),
+                mem,
+                maxResponses:
+                  (stepContext?.maxSteps ?? options.maxSteps ?? 25) -
+                  (stepIndex ?? 0),
+                recordUsage: (response) => {
+                  if (response.modelUsage) usage.push(response.modelUsage);
+                },
+                execute: async (call) => {
+                  const captured: import('../ai/types.js').AxFunctionResult[] =
+                    [];
+                  let executed: Set<string>;
+                  try {
+                    executed = await processFunctions({
+                      ai,
+                      functionList: functions.map((fn) => ({
+                        ...fn,
+                        parameters: fn.parameters ?? {
+                          type: 'object',
+                          properties: {},
+                        },
+                        func: (args, extra) => {
+                          axValidateToolArguments(fn.parameters, args);
+                          options.control?.emit({
+                            type: 'tool.started',
+                            path: options.executionPath ?? 'root',
+                            callId: call.id,
+                          });
+                          return fn.parameters
+                            ? fn.func.length === 2
+                              ? fn.func(args, extra)
+                              : fn.func(args)
+                            : fn.func.length === 1
+                              ? fn.func(extra)
+                              : fn.func();
+                        },
+                      })),
+                      functionCalls: [
+                        {
+                          id: call.id,
+                          name: call.function.name,
+                          args:
+                            typeof call.function.params === 'string'
+                              ? call.function.params
+                              : JSON.stringify(call.function.params ?? {}),
+                        },
+                      ],
+                      mem: {
+                        addFunctionResults: (
+                          results: import('../ai/types.js').AxFunctionResult[]
+                        ) => captured.push(...results),
+                      },
+                      sessionId,
+                      traceId: span
+                        ? (span as any).spanContext?.().traceId
+                        : undefined,
+                      traceContext,
+                      tracer: activeTracer,
+                      span,
+                      index: 0,
+                      functionResultFormatter,
+                      logger,
+                      debug,
+                      stopFunctionNames,
+                      step: stepContext,
+                      abortSignal: options.abortSignal,
+                      onFunctionCall: options.onFunctionCall,
+                      mcpExecutionContext: options._mcpExecutionContext,
+                      eventContext: options.eventContext,
+                      control: options.control,
+                      executionPath: options.executionPath,
+                    });
+                  } catch (error) {
+                    if (error instanceof AxStopFunctionCallException)
+                      mem.addFunctionResults(captured, sessionId);
+                    throw error;
+                  }
+                  for (const name of executed)
+                    states[0]?.functionsExecuted.add(name);
+                  return captured;
+                },
+              })
+          : undefined,
+    });
+    void requestPromise.then(
+      () => {
+        requestSettled = true;
+        wakeProvisional?.();
+      },
+      () => {
+        requestSettled = true;
+        wakeProvisional?.();
+      }
+    );
+    while (!requestSettled || provisional.length) {
+      if (provisional.length) yield provisional.shift()!;
+      else
+        await new Promise<void>((resolve) => {
+          wakeProvisional = resolve;
+        });
+    }
+    const { res, debugPromptMetrics, responseMetadata } = await requestPromise;
+    const signature = this.signature;
+    const finalValues: Record<string, unknown> = {};
+    const versioned = async function* (
+      outputs: AsyncGenDeltaOut<OUT>
+    ): AsyncGenDeltaOut<OUT> {
+      for await (const output of outputs) {
+        if (sessionVersion < 0 || !options.stream) {
+          yield output;
+          continue;
+        }
+        for (const [key, value] of Object.entries(output.delta)) {
+          const previous = finalValues[key];
+          finalValues[key] =
+            typeof value === 'string'
+              ? String(previous ?? '') + value
+              : Array.isArray(value)
+                ? [...(Array.isArray(previous) ? previous : []), ...value]
+                : value;
+        }
+        if (
+          Object.entries(finalValues).some(
+            ([key, value]) =>
+              typeof value === 'string' &&
+              typeof provisionalValues[key] === 'string' &&
+              !value.startsWith(provisionalValues[key] as string)
+          )
+        ) {
+          sessionVersion++;
+          provisionalValues = {};
+        }
+        const { delta, fullValues } = createStructuredDelta<OUT>({
+          signature,
+          parsedValues: finalValues,
+          previousValues: provisionalValues,
+          partialMarker: null,
+        });
+        provisionalValues = fullValues;
+        if (Object.keys(delta).length)
+          yield Object.assign(
+            { ...output, delta },
+            { [axSessionOutputVersion]: sessionVersion }
+          );
+      }
+    };
 
     if (res instanceof ReadableStream) {
-      yield* processStreamingResponse<OUT>({
-        ai,
-        model,
-        res,
-        mem,
-        sessionId,
-        traceId: span ? (span as any).spanContext?.().traceId : undefined,
-        traceContext,
-        tracer: activeTracer,
-        functions,
-        strictMode,
-        span,
-        states,
-        usage,
-        streamingAsserts: this.streamingAsserts,
-        asserts: this.asserts,
-        fieldProcessors: this.fieldProcessors,
-        streamingFieldProcessors: this.streamingFieldProcessors,
-        thoughtFieldName: this.thoughtFieldName,
-        excludeContentFromTrace: this.excludeContentFromTrace,
-        signature: this.signature,
-        parseJsonStringFields:
-          this.signature.hasComplexFields() &&
-          !this.structuredOutputFunctionFallback,
-        strictStructuredJson: this.structuredOutputRung === 'json_object',
-        logger,
-        debugPromptMetrics,
-        onFunctionCall: options.onFunctionCall,
-        mcpExecutionContext: options._mcpExecutionContext,
-        eventContext: options.eventContext,
-        debug,
-        functionResultFormatter,
-        signatureToolCallingManager,
-        stopFunctionNames,
-        disableMemoryCleanup: options.disableMemoryCleanup,
-        stepContext,
-        abortSignal: options.abortSignal,
-      });
+      yield* versioned(
+        processStreamingResponse<OUT>({
+          ai,
+          model,
+          res,
+          mem,
+          sessionId,
+          traceId: span ? (span as any).spanContext?.().traceId : undefined,
+          traceContext,
+          tracer: activeTracer,
+          functions,
+          strictMode,
+          span,
+          states,
+          usage,
+          streamingAsserts: this.streamingAsserts,
+          asserts: this.asserts,
+          fieldProcessors: this.fieldProcessors,
+          streamingFieldProcessors: this.streamingFieldProcessors,
+          thoughtFieldName: this.thoughtFieldName,
+          excludeContentFromTrace: this.excludeContentFromTrace,
+          signature: this.signature,
+          parseJsonStringFields:
+            this.signature.hasComplexFields() &&
+            !this.structuredOutputFunctionFallback,
+          strictStructuredJson: this.structuredOutputRung === 'json_object',
+          logger,
+          debugPromptMetrics,
+          onFunctionCall: options.onFunctionCall,
+          mcpExecutionContext: options._mcpExecutionContext,
+          eventContext: options.eventContext,
+          control: options.control,
+          executionPath: options.executionPath,
+          debug,
+          functionResultFormatter,
+          signatureToolCallingManager,
+          stopFunctionNames,
+          disableMemoryCleanup: options.disableMemoryCleanup,
+          stepContext,
+          abortSignal: options.abortSignal,
+        })
+      );
 
       // Update the streaming chat log entry with accumulated response.
       // For streaming, state.content is the raw LLM output. We don't extract
@@ -1461,42 +1744,46 @@ export class AxGen<IN = any, OUT extends AxGenOut = any>
         }
       }
     } else {
-      yield* processResponse<OUT>({
-        ai,
-        model,
-        res,
-        mem,
-        sessionId,
-        traceId: span ? (span as any).spanContext?.().traceId : undefined,
-        traceContext,
-        tracer: activeTracer,
-        functions,
-        span,
-        strictMode,
-        states,
-        usage,
-        asserts: this.asserts,
-        fieldProcessors: this.fieldProcessors,
-        thoughtFieldName: this.thoughtFieldName,
-        excludeContentFromTrace: this.excludeContentFromTrace,
-        signature: this.signature,
-        parseJsonStringFields:
-          this.signature.hasComplexFields() &&
-          !this.structuredOutputFunctionFallback,
-        strictStructuredJson: this.structuredOutputRung === 'json_object',
-        logger,
-        debugPromptMetrics,
-        onFunctionCall: options.onFunctionCall,
-        mcpExecutionContext: options._mcpExecutionContext,
-        eventContext: options.eventContext,
-        debug,
-        functionResultFormatter,
-        signatureToolCallingManager,
-        stopFunctionNames,
-        disableMemoryCleanup: options.disableMemoryCleanup,
-        stepContext,
-        abortSignal: options.abortSignal,
-      });
+      yield* versioned(
+        processResponse<OUT>({
+          ai,
+          model,
+          res,
+          mem,
+          sessionId,
+          traceId: span ? (span as any).spanContext?.().traceId : undefined,
+          traceContext,
+          tracer: activeTracer,
+          functions,
+          span,
+          strictMode,
+          states,
+          usage,
+          asserts: this.asserts,
+          fieldProcessors: this.fieldProcessors,
+          thoughtFieldName: this.thoughtFieldName,
+          excludeContentFromTrace: this.excludeContentFromTrace,
+          signature: this.signature,
+          parseJsonStringFields:
+            this.signature.hasComplexFields() &&
+            !this.structuredOutputFunctionFallback,
+          strictStructuredJson: this.structuredOutputRung === 'json_object',
+          logger,
+          debugPromptMetrics,
+          onFunctionCall: options.onFunctionCall,
+          mcpExecutionContext: options._mcpExecutionContext,
+          eventContext: options.eventContext,
+          control: options.control,
+          executionPath: options.executionPath,
+          debug,
+          functionResultFormatter,
+          signatureToolCallingManager,
+          stopFunctionNames,
+          disableMemoryCleanup: options.disableMemoryCleanup,
+          stepContext,
+          abortSignal: options.abortSignal,
+        })
+      );
     }
   }
 
@@ -1717,6 +2004,58 @@ export class AxGen<IN = any, OUT extends AxGenOut = any>
         ? renderedInitialPrompt.promptMetrics
         : undefined;
 
+    // Resolve routing once before any model request or tool execution. Rebuild
+    // the prompt against the selected provider's actual capabilities.
+    if (
+      ai.resolveChatService &&
+      (options.asyncMode ?? ai.getOptions().asyncMode) !== 'off' &&
+      functionCallMode !== 'prompt' &&
+      (options.control ||
+        mutableFunctions.some((fn) => fn.execution === 'background'))
+    ) {
+      const selected = await ai.resolveChatService(
+        {
+          model: options.model,
+          chatPrompt: prompt,
+          functions: mutableFunctions,
+          ...(this.structuredOutputRung === 'native'
+            ? {
+                responseFormat: {
+                  type: 'json_schema' as const,
+                  schema: {
+                    name: 'output',
+                    strict: true,
+                    schema: toJsonSchema(
+                      this.signature.getOutputFields(),
+                      'Schema',
+                      {
+                        flexibleJsonFieldsAsString: true,
+                        strictStructuredOutputs: true,
+                      }
+                    ),
+                  },
+                },
+              }
+            : {}),
+        },
+        options
+      );
+      if (selected.service === ai)
+        throw new Error('AI routing must resolve to a different service');
+      yield* this._forward2(
+        selected.service,
+        values,
+        states,
+        {
+          ...options,
+          model: selected.model,
+        },
+        span,
+        traceContext
+      );
+      return;
+    }
+
     const promptRenderDuration = performance.now() - promptRenderStart;
 
     // Record prompt render performance metric
@@ -1798,7 +2137,35 @@ export class AxGen<IN = any, OUT extends AxGenOut = any>
       axGlobals.abortSignal
     );
 
+    let controlAfter = 0;
+    let controlVersion = 0;
+    const controlsUseSession =
+      ai.getFeatures(options.model).asyncTools &&
+      ai.openChatSession &&
+      (options.asyncMode ?? ai.getOptions().asyncMode) !== 'off' &&
+      options.functionCallMode !== 'prompt';
+
     multiStepLoop: for (let n = 0; n < maxSteps; n++) {
+      if (!controlsUseSession && options.control) {
+        const path = options.executionPath ?? 'root';
+        for (const update of options.control.pending(path, controlAfter)) {
+          controlAfter = update.id;
+          if (update.type === 'steer')
+            mem.addRequest(
+              [{ role: 'user', content: update.text }],
+              options.sessionId
+            );
+          else mutableOptions.thinkingTokenBudget = update.level;
+          controlVersion++;
+          committedValues.forEach((_, index) => committedValues.set(index, {}));
+          options.control.emit({
+            type: 'applied',
+            path,
+            updateId: update.id,
+            timing: 'next-response',
+          });
+        }
+      }
       // Begin new step on the context
       stepContext._beginStep(n);
 
@@ -1916,15 +2283,37 @@ export class AxGen<IN = any, OUT extends AxGenOut = any>
                 stopFunctionNames,
                 stepContext,
                 preRenderedPrompt:
-                  n === 0 && errCount === 0 && !stepHooks?.beforeStep
+                  n === 0 &&
+                  errCount === 0 &&
+                  !controlAfter &&
+                  !stepHooks?.beforeStep
                     ? { prompt, promptMetrics }
                     : undefined,
               });
 
               let stopFunctionTriggered = false;
+              let lastSessionVersion = 0;
               try {
                 for await (const result of generator) {
                   if (result !== undefined) {
+                    const innerVersion = (
+                      result as DeltaOut<OUT> & {
+                        [axSessionOutputVersion]?: number;
+                      }
+                    )[axSessionOutputVersion];
+                    if (
+                      innerVersion !== undefined &&
+                      innerVersion !== lastSessionVersion
+                    ) {
+                      lastSessionVersion = innerVersion;
+                      controlVersion++;
+                      committedValues.forEach((_, index) =>
+                        committedValues.set(index, {})
+                      );
+                      currentAttemptValues.forEach((_, index) =>
+                        currentAttemptValues.set(index, {})
+                      );
+                    }
                     const index = result.index;
                     const delta = result.delta;
 
@@ -2008,7 +2397,7 @@ export class AxGen<IN = any, OUT extends AxGenOut = any>
 
                     if (hasEffectiveDelta) {
                       yield {
-                        version: errCount,
+                        version: controlVersion + errCount,
                         index: result.index,
                         delta: effectiveDelta,
                       };
@@ -2072,7 +2461,7 @@ export class AxGen<IN = any, OUT extends AxGenOut = any>
                           }
                         }
                         yield {
-                          version: errCount,
+                          version: controlVersion + errCount,
                           index: state.index,
                           delta: delta as Partial<OUT>,
                         };
@@ -2110,7 +2499,12 @@ export class AxGen<IN = any, OUT extends AxGenOut = any>
               const shouldContinue =
                 stopFunctionTriggered || stepContext._isStopRequested
                   ? false
-                  : shouldContinueSteps(
+                  : (!controlsUseSession &&
+                      !!options.control?.pending(
+                        options.executionPath ?? 'root',
+                        controlAfter
+                      ).length) ||
+                    shouldContinueSteps(
                       mem,
                       stopFunctionNames,
                       states,
@@ -2644,7 +3038,10 @@ export class AxGen<IN = any, OUT extends AxGenOut = any>
     }
     const effectiveAbortSignal = mergeAbortSignals(
       abortController.signal,
-      mergeAbortSignals(options?.abortSignal, axGlobals.abortSignal)
+      mergeAbortSignals(
+        mergeAbortSignals(options?.abortSignal, options?.control?.signal),
+        axGlobals.abortSignal
+      )
     );
     const effectiveOptions = {
       ...options,
@@ -2663,6 +3060,12 @@ export class AxGen<IN = any, OUT extends AxGenOut = any>
       ...(effectiveAbortSignal ? { abortSignal: effectiveAbortSignal } : {}),
     };
 
+    let runSucceeded = false;
+    let runFailure: unknown;
+    options.control?.emit({
+      type: 'started',
+      path: options.executionPath ?? 'root',
+    });
     try {
       // Track state creation performance
       const stateCreationStart = performance.now();
@@ -2757,6 +3160,7 @@ export class AxGen<IN = any, OUT extends AxGenOut = any>
           ...executionOptions,
           functions,
         });
+        runSucceeded = true;
         return;
       }
 
@@ -2779,6 +3183,7 @@ export class AxGen<IN = any, OUT extends AxGenOut = any>
           traceContext
         );
 
+        runSucceeded = true;
         span.addEvent('output', {
           sample_count: states.length,
           field_count: Math.max(
@@ -2797,7 +3202,16 @@ export class AxGen<IN = any, OUT extends AxGenOut = any>
       } finally {
         span.end();
       }
+    } catch (error) {
+      runFailure = error;
+      throw error;
     } finally {
+      options.control?.emit({
+        type: runSucceeded ? 'completed' : 'failed',
+        path: options.executionPath ?? 'root',
+        error: runFailure,
+      });
+      abortController.abort(new Error('Run finished'));
       this.activeAbortControllers.delete(abortController);
       this._stopRequested = false;
     }
@@ -2904,7 +3318,7 @@ export class AxGen<IN = any, OUT extends AxGenOut = any>
       this.options?.cachingFunction ??
       axGlobals.cachingFunction;
     const cacheKey = (() => {
-      if (!cachingFunction) return undefined;
+      if (!cachingFunction || options?.control) return undefined;
       const inputNames = this.signature.getInputFields().map((f) => f.name);
       return this.computeCacheKey(values, inputNames);
     })();
@@ -3084,7 +3498,7 @@ export class AxGen<IN = any, OUT extends AxGenOut = any>
       this.options?.cachingFunction ??
       axGlobals.cachingFunction;
     const cacheKey = (() => {
-      if (!cachingFunction) return undefined;
+      if (!cachingFunction || options?.control) return undefined;
       const inputNames = this.signature.getInputFields().map((f) => f.name);
       return this.computeCacheKey(values, inputNames);
     })();

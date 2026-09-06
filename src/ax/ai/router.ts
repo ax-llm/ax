@@ -136,6 +136,22 @@ export class AxProviderRouter {
     this.config = config.routing;
   }
 
+  /** Select and pin a provider for one session without failover. */
+  async openChatSession(
+    request: AxChatRequest,
+    options: AxAIServiceOptions = {}
+  ) {
+    const routing = await this.selectProviderWithDegradation(
+      request,
+      {},
+      options.serviceTier
+    );
+    if (!routing.provider.openChatSession)
+      throw new Error('Selected provider does not support chat sessions');
+    const processed = await this.preprocessRequest(request, routing.provider);
+    return await routing.provider.openChatSession(processed, options);
+  }
+
   /**
    * Routes a chat request to the most appropriate provider with automatic content processing.
    *

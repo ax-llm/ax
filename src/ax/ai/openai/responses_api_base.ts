@@ -16,6 +16,7 @@ import type {
 } from './chat_types.js';
 import { AxAIOpenAIEmbedModel } from './chat_types.js';
 import { axModelInfoOpenAIResponses } from './info.js';
+import { axIsGPT6Astra } from './model_family.js';
 import { AxAIOpenAIResponsesImpl } from './responses_api.js';
 import type {
   AxAIOpenAIResponsesRequest,
@@ -331,8 +332,10 @@ export class AxAIOpenAIResponses<
         structuredOutputModes,
         media: {
           images: {
-            supported: false,
-            formats: [],
+            supported: axIsGPT6Astra(model),
+            formats: axIsGPT6Astra(model)
+              ? ['image/jpeg', 'image/png', 'image/gif', 'image/webp']
+              : [],
           },
           audio: {
             supported: false,
@@ -350,10 +353,10 @@ export class AxAIOpenAIResponses<
           },
         },
         caching: {
-          supported: false,
-          types: [],
+          supported: axIsGPT6Astra(model),
+          types: axIsGPT6Astra(model) ? ['ephemeral' as const] : [],
         },
-        thinking: false,
+        thinking: axIsGPT6Astra(model),
         multiTurn: true,
         serviceTiers:
           mi?.supported?.serviceTiers ??

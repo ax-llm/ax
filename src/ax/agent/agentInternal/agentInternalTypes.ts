@@ -146,6 +146,10 @@ export type AxAgentGuidanceState = {
 };
 
 export type AxAgentRuntimeExecutionContext = {
+  consumeNativeToolActivity?: () => readonly string[];
+  getNativeFunctions?: (
+    options: import('../../dsp/types.js').AxProgramForwardOptions<string>
+  ) => import('../../ai/types.js').AxFunction[];
   effectiveContextConfig: AxResolvedContextPolicy;
   bootstrapContextSummary?: string;
   applyBootstrapRuntimeContext: () => Promise<string | undefined>;

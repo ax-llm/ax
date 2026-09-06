@@ -173,6 +173,12 @@ export class AxFunctionProcessor {
           traceId: options.traceId,
           ai: options.ai,
           step: options.step,
+          ...(options.control
+            ? {
+                control: options.control,
+                executionPath: `${options.executionPath ?? 'root'}/${fnSpec.name}`,
+              }
+            : {}),
           abortSignal: options.abortSignal,
           eventContext: options.eventContext,
           _mcpExecutionContext: options._mcpExecutionContext,
@@ -309,7 +315,7 @@ type ProcessFunctionsArgs = {
   ai: Readonly<AxAIService>;
   functionList: Readonly<AxFunction[]>;
   functionCalls: readonly AxChatResponseFunctionCall[];
-  mem: Readonly<AxMemory>;
+  mem: Readonly<Pick<AxMemory, 'addFunctionResults'>>;
   sessionId?: string;
   traceId?: string;
   traceContext?: any;
@@ -328,6 +334,8 @@ type ProcessFunctionsArgs = {
   ) => void | Promise<void>;
   mcpExecutionContext?: import('../mcp/execution.js').AxMCPExecutionContext;
   eventContext?: import('../event/types.js').AxEventContext;
+  control?: import('./runControl.js').AxRunControl;
+  executionPath?: string;
 };
 
 export const processFunctions = async ({
@@ -350,6 +358,8 @@ export const processFunctions = async ({
   onFunctionCall,
   mcpExecutionContext,
   eventContext,
+  control,
+  executionPath,
 }: Readonly<ProcessFunctionsArgs>) => {
   const funcProc = new AxFunctionProcessor(functionList);
   const functionsExecuted = new Set<string>();
@@ -463,6 +473,8 @@ export const processFunctions = async ({
           step,
           abortSignal,
           eventContext,
+          control,
+          executionPath,
           _mcpExecutionContext: mcpExecutionContext,
         })
         .then(
@@ -569,6 +581,8 @@ export const processFunctions = async ({
               step,
               abortSignal,
               eventContext,
+              control,
+              executionPath,
               _mcpExecutionContext: mcpExecutionContext,
             });
 

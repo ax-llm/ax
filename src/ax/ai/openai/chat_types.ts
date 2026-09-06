@@ -51,6 +51,7 @@ export enum AxAIOpenAIModel {
   GPT56Sol = 'gpt-5.6-sol',
   GPT56Terra = 'gpt-5.6-terra',
   GPT56Luna = 'gpt-5.6-luna',
+  GPT6Astra = 'gpt-6-astra',
   // Reasoning models
   O1 = 'o1',
   O1Mini = 'o1-mini',
@@ -210,7 +211,7 @@ export type AxAIOpenAIChatRequest<TModel> = {
    * `implicit` (the default) also places a breakpoint at the newest user or tool
    * message; `explicit` uses only caller-provided breakpoints.
    */
-  prompt_cache_options?: { mode?: 'implicit' | 'explicit' };
+  prompt_cache_options?: { mode?: 'implicit' | 'explicit'; ttl?: '30m' };
   store?: boolean;
   modalities?: readonly ('text' | 'audio')[];
   audio?: {

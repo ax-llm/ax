@@ -693,3 +693,7 @@ its own authorization, instance serialization, retry policy, and run record.
 - Do not call `discover()` from the distiller or responder stages.
 - Do not assign or inspect the return value of `await discover(...)`; read the next prompt instead.
 - Do not loop `discover()` calls or wrap them in `Promise.all`.
+
+## Automatic sessions (TypeScript)
+
+Declared-background tools become native actor tools on supporting providers after discovery. Their invocation uses the existing runtime bindings. Stateful code stays serialized; do not call a native background tool again in generated code. Agent pipeline scopes are `root/distiller`, `root/executor`, and `root/responder`. Pass the shared controller through forward options.

@@ -7,7 +7,7 @@ import type {
   AxAIOpenAIChatContentPart,
   AxAIOpenAIChatRequest,
 } from './chat_types.js';
-import { axIsGPT56Family } from './model_family.js';
+import { axSupportsOpenAIBreakpointCaching } from './model_family.js';
 
 /**
  * OpenAI prompt caching for GPT-5.6 and later.
@@ -97,7 +97,7 @@ export const axIsOpenAIPromptCachingEnabled = <TModel>(
   options: Readonly<AxAIServiceOptions> | undefined,
   promptCaching: boolean
 ): boolean => {
-  if (!promptCaching || !axIsGPT56Family(req.model)) {
+  if (!promptCaching || !axSupportsOpenAIBreakpointCaching(req.model)) {
     return false;
   }
   return (

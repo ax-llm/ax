@@ -24,6 +24,16 @@ flowchart LR
   G --> H["Typed result"]
 ```
 
+## Async flow examples (TypeScript)
+
+These runnable examples use the same `flow()` and `ax()` APIs with GPT-6 Astra:
+
+- `flows/astra-parallel-tools`: independent background lookups whose results stay in separate node conversations until the join.
+- `flows/astra-targeted-control`: instructions and reasoning updates applied only to a review node; the completed baseline is preserved.
+- `flows/astra-cancel-pending`: a controller cancels two pending lookups, and the flow rejects instead of reporting completion.
+
+Run one with `npm run example -- ts flows/astra-parallel-tools`. The examples require an OpenAI API key. Automatic session support is currently TypeScript-only.
+
 ## Core Call Shape
 
 ```text

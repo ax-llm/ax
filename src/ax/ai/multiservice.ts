@@ -159,6 +159,34 @@ export class AxMultiServiceRouter<
   /**
    * Delegates the chat call to the service matching the provided model key.
    */
+  async resolveChatService(req: Readonly<AxChatRequest<TModelKey>>): Promise<{
+    service: Readonly<AxAIService<unknown, unknown, any>>;
+    model?: string;
+  }> {
+    const item = req.model ? this.services.get(req.model) : undefined;
+    if (!item)
+      throw new Error(`No service found for model key: ${String(req.model)}`);
+    this.lastUsedService = item.service;
+    return {
+      service: item.service,
+      model: item.model ? (req.model as string) : undefined,
+    };
+  }
+
+  async openChatSession(
+    req: Readonly<AxChatRequest<TModelKey>>,
+    options?: Readonly<AxAIServiceOptions>
+  ) {
+    const item = req.model ? this.services.get(req.model) : undefined;
+    if (!item)
+      throw new Error(`No service found for model key: ${String(req.model)}`);
+    if (!item.service.openChatSession)
+      throw new Error('Selected service does not support chat sessions');
+    this.lastUsedService = item.service;
+    const { model: _model, ...rest } = req;
+    return await item.service.openChatSession(item.model ? req : rest, options);
+  }
+
   async chat(
     req: Readonly<AxChatRequest<TModelKey>>,
     options?: Readonly<AxAIServiceOptions>
@@ -298,7 +326,7 @@ export class AxMultiServiceRouter<
     if (model) {
       const service = this.services.get(model);
       if (service) {
-        return service.service.getFeatures(model);
+        return service.service.getFeatures(service.model ? model : undefined);
       }
     }
     return {

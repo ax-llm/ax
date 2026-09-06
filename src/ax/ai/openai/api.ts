@@ -59,7 +59,10 @@ import {
 } from './chat_types.js';
 import { axResolveOpenAIChatReasoningEffort } from './effort.js';
 import { axModelInfoOpenAI } from './info.js';
-import { axIsGPT56Family } from './model_family.js';
+import {
+  axIsGPT6Astra,
+  axSupportsOpenAIBreakpointCaching,
+} from './model_family.js';
 import {
   axAIOpenAIRealtimeDefaultConfig,
   axAIOpenAIRealtimeTranscriptionDefaultConfig,
@@ -345,7 +348,7 @@ class AxAIOpenAIImpl<
    * providers throwing exactly as they do today.
    */
   supportsImplicitCaching = (model: TModel): boolean =>
-    this.promptCaching && axIsGPT56Family(model);
+    this.promptCaching && axSupportsOpenAIBreakpointCaching(model);
 
   getTokenUsage(): AxTokenUsage | undefined {
     return this.tokensUsed;
@@ -367,11 +370,28 @@ class AxAIOpenAIImpl<
     };
   }
 
+  validateChatReq = (req: Readonly<AxInternalChatRequest<TModel>>): void => {
+    if (
+      this.promptCaching &&
+      axIsGPT6Astra(req.model) &&
+      (req.functions?.length ||
+        (req.functionCall && req.functionCall !== 'none') ||
+        req.chatPrompt?.some(
+          (m) =>
+            m.role === 'function' ||
+            (m.role === 'assistant' && m.functionCalls?.length)
+        ))
+    ) {
+      throw new Error('GPT-6 Astra tool calling requires openai-responses');
+    }
+  };
+
   createChatReq = (
     req: Readonly<AxInternalChatRequest<TModel>>,
     config: Readonly<AxAIServiceOptions>
   ): [AxAPI, AxAIOpenAIChatRequest<TModel>] => {
     const model = req.model;
+    this.validateChatReq(req);
     const realtimeAudio = (
       this.realtime?.resolveAudioConfig ?? axResolveOpenAIRealtimeAudioConfig
     )(this.config.audio, req.modelConfig?.audio);
@@ -538,7 +558,12 @@ class AxAIOpenAIImpl<
       // user/tool message: that entry covers the volatile trailing message and
       // so is written but never read back.
       ...(breakpointCount > 0
-        ? { prompt_cache_options: { mode: 'explicit' as const } }
+        ? {
+            prompt_cache_options: {
+              mode: 'explicit' as const,
+              ...(axIsGPT6Astra(model) ? { ttl: '30m' as const } : {}),
+            },
+          }
         : {}),
       ...(promptCacheKey ? { prompt_cache_key: promptCacheKey } : {}),
       ...(store ? { store: store } : {}),
@@ -618,6 +643,15 @@ class AxAIOpenAIImpl<
         model,
         config.thinkingTokenBudget
       );
+    }
+
+    if (this.promptCaching && axIsGPT6Astra(model)) {
+      if (reqValue.reasoning_effort === 'none')
+        throw new Error('GPT-6 Astra requires reasoning; use low or higher');
+      if (reqValue.reasoning_effort === 'minimal')
+        reqValue.reasoning_effort = 'low';
+      delete reqValue.temperature;
+      delete reqValue.top_p;
     }
 
     if (this.chatReqUpdater) {
@@ -1201,7 +1235,7 @@ export class AxAIOpenAI<TModelKey = string> extends AxAIOpenAIBase<
           ? (['native', 'function', 'json_object'] as const)
           : (['function', 'json_object'] as const));
       return {
-        functions: true,
+        functions: !axIsGPT6Astra(model),
         streaming: true,
         hasThinkingBudget: mi?.supported?.thinkingBudget ?? false,
         hasShowThoughts: mi?.supported?.showThoughts ?? false,
@@ -1219,7 +1253,7 @@ export class AxAIOpenAI<TModelKey = string> extends AxAIOpenAIBase<
             )[],
           },
           audio: {
-            supported: true,
+            supported: !axIsGPT6Astra(model),
             formats:
               isAudioModel || isRealtimeModel
                 ? ['wav', 'mp3', 'pcm16']
@@ -1269,8 +1303,8 @@ export class AxAIOpenAI<TModelKey = string> extends AxAIOpenAIBase<
           // predate the parameters entirely. `cacheBreakpoints` is inert today
           // (callers only test for `=== false`) but records that this provider
           // needs positional markers rather than Anthropic's auto-lookback.
-          supported: axIsGPT56Family(model),
-          types: axIsGPT56Family(model)
+          supported: axSupportsOpenAIBreakpointCaching(model),
+          types: axSupportsOpenAIBreakpointCaching(model)
             ? (['ephemeral'] as ('ephemeral' | 'persistent')[])
             : [],
           cacheBreakpoints: true,

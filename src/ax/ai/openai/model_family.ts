@@ -21,3 +21,12 @@ const GPT56_MODELS = /^gpt-5\.6($|-)/;
 export function axIsGPT56Family(model: unknown): boolean {
   return GPT56_MODELS.test(typeof model === 'string' ? model : '');
 }
+
+/** Explicit Astra family; do not infer future model contracts. */
+export function axIsGPT6Astra(model: unknown): boolean {
+  return typeof model === 'string' && /^gpt-6-astra($|-)/.test(model);
+}
+
+export function axSupportsOpenAIBreakpointCaching(model: unknown): boolean {
+  return axIsGPT56Family(model) || axIsGPT6Astra(model);
+}

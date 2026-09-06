@@ -304,6 +304,7 @@ export async function runActorTurn<_IN extends AxGenIn>(
   actorCallOptions = {
     ...actorCallOptions,
     debugHideSystemPrompt,
+    functions: runtimeContext.getNativeFunctions?.(actorCallOptions),
   };
 
   const usageBefore = s.actorProgram.getUsage()?.length ?? 0;
@@ -401,7 +402,10 @@ export async function runActorTurn<_IN extends AxGenIn>(
       actionLogEntries.push({
         turn: entryTurn,
         code,
-        output: policyViolation,
+        output: [
+          ...(runtimeContext.consumeNativeToolActivity?.() ?? []),
+          policyViolation,
+        ].join('\n'),
         tags: ['error'],
         ...(() => {
           const calls =
@@ -522,6 +526,10 @@ export async function runActorTurn<_IN extends AxGenIn>(
     output = appendDiscoveryTurnSummary(output, discoveryTurnArtifacts.summary);
   }
 
+  output = [
+    ...(runtimeContext.consumeNativeToolActivity?.() ?? []),
+    output,
+  ].join('\n');
   const entryTurn = actionLogEntries.length + 1;
   const actionLogCode = guidancePayload
     ? buildGuidanceActionLogCode(guidancePayload)

@@ -1792,6 +1792,12 @@ class AxFunctionBuilder<
   private returnJsonSchema?: AxFunctionJSONSchema;
   private fnHandler?: AxTypedFunctionHandler<TArgs, TReturn>;
   private fnExamples: AxFunctionBuilderExample[] = [];
+  private executionMode: 'blocking' | 'background' = 'blocking';
+
+  public execution(mode: 'blocking' | 'background'): this {
+    this.executionMode = mode;
+    return this;
+  }
 
   constructor(name: string) {
     this.name = name;
@@ -2021,6 +2027,7 @@ class AxFunctionBuilder<
         name,
         description,
         ...(namespace ? { namespace } : {}),
+        execution: this.executionMode,
         parameters: buildFunctionObjectSchema(this.argFields),
         ...(this.returnMode === 'single' && this.returnJsonSchema
           ? { returns: this.returnJsonSchema }
