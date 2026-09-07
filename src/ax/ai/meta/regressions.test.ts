@@ -67,7 +67,7 @@ describe('Meta Ax program regression coverage', () => {
     }
   );
 
-  it('rejects a content-free token limit event after a parseable answer', async () => {
+  it('rejects a content-free token limit event after a valid answer', async () => {
     const client = ai({
       name: 'meta',
       apiKey: 'test',
