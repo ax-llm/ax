@@ -137,3 +137,8 @@ new shared cursor fixture, native transport regressions, and package consumers
 provider profiles, and generated-package freshness passed. The independently
 rerun parallel-flow probe still reports `overlap:False`
 (`/tmp/astra-fix-parallel-status.log`), so that blocker remains unresolved.
+
+Scripted native session and agent checks live under generated package `tests/`
+(Python, Java and C++), with equivalent native Go/Rust test suites. The all-target
+AxIR verifier executes them explicitly. They are regression fixtures, not runnable
+agent examples; provider-backed public examples remain under `src/examples/`.

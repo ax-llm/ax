@@ -5,7 +5,7 @@ import java.util.*;
 import java.util.concurrent.*;
 import java.util.concurrent.atomic.AtomicInteger;
 
-public final class AstraSessionNoKeyExample {
+public final class AstraSessionTest {
   private static void emit(OutputStream output,Object event) throws IOException { output.write(("data: "+Json.stringify(event)+"\n\n").getBytes(StandardCharsets.UTF_8));output.flush(); }
   private static Map<String,Object> completed(String id,String answer) {return Map.of("type","response.completed","response",Map.of("id",id,"model","gpt-6-astra","output",List.of(Map.of("type","message","id","msg-"+id,"content",List.of(Map.of("type","output_text","text",answer))))));}
   public static void main(String[] args) throws Exception {
