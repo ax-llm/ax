@@ -504,3 +504,47 @@ func TestAstraSessionInvalidArgumentsAndStepExhaustion(t *testing.T) {
   expected:=2;if exhausted{expected=1};if calls.Load()!=0||len(transport.requests)!=expected{t.Fatalf("invalid execution or replay: %d %d",calls.Load(),len(transport.requests))}
  })}
 }
+
+type nativeFileTransport struct { requests []Value }
+func (t *nativeFileTransport) Call(_ context.Context, request Value) (Value,error) {
+    t.requests=append(t.requests,coreGet(request,"json",nil))
+    return Object("status",200,"json",Object("id","file-response","choices",Array(Object("index",0,"message",Object("role","assistant","content","{\"summary\":\"Read\"}"))))),nil
+}
+func TestNativeFileRouterBalancerHistory(t *testing.T) {
+    transport:=&nativeFileTransport{}
+    client:=NewAI("openai",Object("api_key","test","model","gpt-5.6","transport",transport))
+    balancer,err:=NewAxBalancer([]AxAIService{client.(AxAIService)},Object("strategy","input_order"));if err!=nil{t.Fatal(err)}
+    router:=NewProviderRouter(Object("providers",Object("primary",balancer),"processing",Object("fileToText",AxFileToText(func(string,string)(string,error){t.Fatal("native file extracted");return "",nil}))))
+    file:=Object("type","file","filename","report.pdf","mimeType","application/pdf","data","JVBERi0=","cache",true,"extractedText","fallback")
+    message:=Object("role","user","content",Array(Object("type","text","text","Read"),file,Object("type","text","text","Summarize")))
+    original,_:=json.Marshal(message)
+    request:=Object("chat_prompt",Array(message),"model_config",Object("stream",false))
+    if _,err=router.Chat(context.Background(),request,nil);err!=nil{t.Fatal(err)}
+    request["chat_prompt"]=Array(message,Object("role","assistant","content","Read"),Object("role","user","content","Continue"))
+    if _,err=router.Chat(context.Background(),request,nil);err!=nil{t.Fatal(err)}
+    after,_:=json.Marshal(message);if string(after)!=string(original){t.Fatal("retained history mutated")}
+    for _,body:=range transport.requests {
+        parts:=asSlice(coreGet(asSlice(coreGet(body,"messages",nil))[0],"content",nil))
+        fileBody:=coreGet(parts[1],"file",nil)
+        if coreGet(fileBody,"filename",nil)!="report.pdf"||coreGet(fileBody,"file_data",nil)!="data:application/pdf;base64,JVBERi0="||coreGet(parts[0],"text",nil)!="Read"||coreGet(parts[2],"text",nil)!="Summarize"{t.Fatalf("native file or ordering lost: %v",parts)}
+    }
+    if len(transport.requests)!=2{t.Fatal("unexpected replay")}
+    result,err:=NewAx("document:file -> summary:string",nil).Forward(context.Background(),router,Object("document",file),nil)
+    if err!=nil||coreGet(result,"summary",nil)!="Read"||len(transport.requests)!=3{t.Fatalf("router lost generator completion: %v %v",result,err)}
+}
+
+func TestFileExtractionCallback(t *testing.T) {
+ transport:=&nativeFileTransport{}
+ client:=NewAI("deepseek",Object("api_key","test","model","deepseek-v4-flash","transport",transport))
+ calls:=0
+ router:=NewProviderRouter(Object("providers",Object("primary",client),"processing",Object("fileToText",AxFileToText(func(data,mime string)(string,error){calls++;if data!="JVBERi0="||mime!="application/pdf"{t.Fatal("extraction arguments lost")};return "",nil}))))
+ request:=Object("chat_prompt",Array(Object("role","user","content",Array(Object("type","file","data","JVBERi0=","mimeType","application/pdf")))))
+ if _,err:=router.Chat(context.Background(),request,nil);err!=nil{t.Fatal(err)}
+ if calls!=1||coreGet(asSlice(coreGet(transport.requests[0],"messages",nil))[0],"content",nil)!=""{t.Fatal("empty extraction was lost")}
+ router.processing["fileToText"]=AxFileToText(func(string,string)(string,error){return "",fmt.Errorf("extractor failed")})
+ if _,err:=router.Chat(context.Background(),request,nil);err==nil||!strings.Contains(err.Error(),"extractor failed"){t.Fatalf("extraction error lost: %v",err)}
+ if len(transport.requests)!=1{t.Fatal("failed extraction reached transport")}
+ delete(router.processing,"fileToText");router.processing["fallbackBehavior"]="error"
+ if _,err:=router.Chat(context.Background(),request,nil);err==nil||!strings.Contains(err.Error(),"Files are not supported"){t.Fatalf("error policy lost: %v",err)}
+ if len(transport.requests)!=1{t.Fatal("unsupported file reached transport")}
+}

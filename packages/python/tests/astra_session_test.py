@@ -304,3 +304,62 @@ for exhausted in (False, True):
     assert not failure_calls, 'invalid arguments reached a handler'
     assert len(failure_requests)==(1 if exhausted else 2)
 print('python invalid arguments, correction continuation, and step exhaustion passed')
+
+# Native files survive router and balancer preprocessing and a subsequent turn.
+import copy
+from axllm import AxBalancer
+file_requests=[]
+def file_transport(request):
+    file_requests.append(copy.deepcopy(request['json']))
+    return {'status':200,'json':{'id':'file-response','choices':[{'index':0,'message':{'role':'assistant','content':'{"summary":"Read"}'}}]}}
+def unexpected_extraction(*args):
+    raise AssertionError('Native file was extracted')
+file_client=ai('openai',api_key='test',model='gpt-5.6',transport=file_transport)
+file_balancer=AxBalancer([file_client])
+file_router=ProviderRouter({'providers':{'primary':file_balancer},'processing':{'fileToText':unexpected_extraction}})
+file_item={'type':'file','filename':'report.pdf','mimeType':'application/pdf','data':'JVBERi0=','extractedText':'fallback','cache':True}
+file_request={'chatPrompt':[{'role':'user','content':[{'type':'text','text':'Read'},file_item,{'type':'text','text':'Summarize'}]}],'modelConfig':{'stream':False}}
+original=copy.deepcopy(file_request)
+file_router.chat(file_request)
+assert file_request==original, 'preprocessing mutated retained history'
+file_request['chatPrompt'].extend([{'role':'assistant','content':'Read'},{'role':'user','content':'Continue'}])
+file_router.chat(file_request)
+for request in file_requests:
+    parts=request['messages'][0]['content']
+    assert parts[1]=={'type':'file','file':{'filename':'report.pdf','file_data':'data:application/pdf;base64,JVBERi0='}}, parts
+    assert parts[0]['text']=='Read' and parts[2]['text']=='Summarize'
+assert file_request['chatPrompt'][0]==original['chatPrompt'][0]
+generated_file=ax('document:file -> summary:string').forward(file_router,{'document':file_item})
+assert generated_file=={'summary':'Read'}, generated_file
+assert len(file_requests)==3, 'router completion lost the final answer and retried'
+print('python router and balancer native files, ordering, history, and continuation passed')
+
+extractions=[]
+def extract_file(data,mime):
+    extractions.append((data,mime))
+    return ''
+text_client=ai('deepseek',api_key='test',model='deepseek-v4-flash',transport=file_transport)
+text_router=ProviderRouter({'providers':{'primary':text_client},'processing':{'fileToText':extract_file}})
+raw_file={'chatPrompt':[{'role':'user','content':[{'type':'file','mimeType':'application/pdf','data':'JVBERi0='}]}]}
+text_router.chat(raw_file)
+assert extractions==[('JVBERi0=','application/pdf')]
+assert file_requests[-1]['messages'][0]['content']==''
+def failed_file(data,mime):
+    raise ValueError('extractor failed')
+text_router.processing['fileToText']=failed_file
+before=len(file_requests)
+try:
+    text_router.chat(raw_file)
+    raise AssertionError('extraction failure was swallowed')
+except Exception as error:
+    assert isinstance(error.__cause__,ValueError), error
+assert len(file_requests)==before
+print('python file extraction arguments, empty results, and failure context passed')
+
+reject_files=ProviderRouter({'providers':{'primary':text_client},'processing':{'fallbackBehavior':'error'}})
+try:
+    reject_files.chat(raw_file)
+    raise AssertionError('error policy accepted an unsupported file')
+except Exception as error:
+    assert 'Files are not supported' in str(error), error
+assert len(file_requests)==before

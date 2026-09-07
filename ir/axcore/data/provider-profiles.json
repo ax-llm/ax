@@ -3,60 +3,174 @@
   "reviewedAt": "2026-08-18",
   "serviceTierProfiles": {
     "openai": {
-      "supported": ["standard", "flex", "priority"],
-      "requestMap": {"auto": "auto", "standard": "default", "flex": "flex", "priority": "priority"}
+      "supported": [
+        "standard",
+        "flex",
+        "priority"
+      ],
+      "requestMap": {
+        "auto": "auto",
+        "standard": "default",
+        "flex": "flex",
+        "priority": "priority"
+      }
     },
     "openai-responses": {
-      "supported": ["standard", "flex", "priority"],
-      "requestMap": {"auto": "auto", "standard": "default", "flex": "flex", "priority": "priority"}
+      "supported": [
+        "standard",
+        "flex",
+        "priority"
+      ],
+      "requestMap": {
+        "auto": "auto",
+        "standard": "default",
+        "flex": "flex",
+        "priority": "priority"
+      }
     },
     "google-gemini": {
-      "supported": ["standard", "flex", "priority"],
-      "requestMap": {"auto": null, "standard": "standard", "flex": "flex", "priority": "priority"}
+      "supported": [
+        "standard",
+        "flex",
+        "priority"
+      ],
+      "requestMap": {
+        "auto": null,
+        "standard": "standard",
+        "flex": "flex",
+        "priority": "priority"
+      }
     },
     "azure-openai": {
-      "supported": ["standard", "priority"],
-      "requestMap": {"auto": "auto", "standard": "default", "flex": "flex", "priority": "priority"}
+      "supported": [
+        "standard",
+        "priority"
+      ],
+      "requestMap": {
+        "auto": "auto",
+        "standard": "default",
+        "flex": "flex",
+        "priority": "priority"
+      }
     },
     "azure-foundry": {
-      "supported": ["standard", "priority"],
-      "requestMap": {"auto": "auto", "standard": "default", "flex": "flex", "priority": "priority"}
+      "supported": [
+        "standard",
+        "priority"
+      ],
+      "requestMap": {
+        "auto": "auto",
+        "standard": "default",
+        "flex": "flex",
+        "priority": "priority"
+      }
     },
     "amazon-bedrock": {
-      "supported": ["standard", "flex", "priority"],
-      "requestMap": {"auto": null, "standard": "default", "flex": "flex", "priority": "priority"}
+      "supported": [
+        "standard",
+        "flex",
+        "priority"
+      ],
+      "requestMap": {
+        "auto": null,
+        "standard": "default",
+        "flex": "flex",
+        "priority": "priority"
+      }
     },
     "mistral": {
-      "supported": ["standard", "priority"],
-      "requestMap": {"auto": "auto", "standard": "standard_only", "priority": "auto"}
+      "supported": [
+        "standard",
+        "priority"
+      ],
+      "requestMap": {
+        "auto": "auto",
+        "standard": "standard_only",
+        "priority": "auto"
+      }
     },
     "groq": {
-      "supported": ["standard", "flex", "priority"],
-      "requestMap": {"auto": "auto", "standard": "on_demand", "flex": "flex", "priority": "performance"}
+      "supported": [
+        "standard",
+        "flex",
+        "priority"
+      ],
+      "requestMap": {
+        "auto": "auto",
+        "standard": "on_demand",
+        "flex": "flex",
+        "priority": "performance"
+      }
     },
     "openrouter": {
-      "supported": ["standard", "flex", "priority"],
-      "requestMap": {"auto": null, "standard": null, "flex": "flex", "priority": "priority"}
+      "supported": [
+        "standard",
+        "flex",
+        "priority"
+      ],
+      "requestMap": {
+        "auto": null,
+        "standard": null,
+        "flex": "flex",
+        "priority": "priority"
+      }
     },
     "deepinfra": {
-      "supported": ["standard", "priority"],
-      "requestMap": {"auto": null, "standard": null, "priority": "priority"}
+      "supported": [
+        "standard",
+        "priority"
+      ],
+      "requestMap": {
+        "auto": null,
+        "standard": null,
+        "priority": "priority"
+      }
     },
     "cerebras": {
-      "supported": ["standard", "flex", "priority"],
-      "requestMap": {"auto": "auto", "standard": "default", "flex": "flex", "priority": "priority"}
+      "supported": [
+        "standard",
+        "flex",
+        "priority"
+      ],
+      "requestMap": {
+        "auto": "auto",
+        "standard": "default",
+        "flex": "flex",
+        "priority": "priority"
+      }
     },
     "grok": {
-      "supported": ["standard", "priority"],
-      "requestMap": {"auto": null, "standard": "default", "priority": "priority"}
+      "supported": [
+        "standard",
+        "priority"
+      ],
+      "requestMap": {
+        "auto": null,
+        "standard": "default",
+        "priority": "priority"
+      }
     },
     "databricks": {
-      "supported": ["standard", "priority"],
-      "requestMap": {"auto": null, "standard": "default", "priority": "priority"}
+      "supported": [
+        "standard",
+        "priority"
+      ],
+      "requestMap": {
+        "auto": null,
+        "standard": "default",
+        "priority": "priority"
+      }
     },
     "fireworks": {
-      "supported": ["standard", "priority"],
-      "requestMap": {"auto": null, "standard": "default", "priority": "priority"}
+      "supported": [
+        "standard",
+        "priority"
+      ],
+      "requestMap": {
+        "auto": null,
+        "standard": "default",
+        "priority": "priority"
+      }
     }
   },
   "profiles": {
@@ -90,7 +204,10 @@
           "native",
           "function",
           "json_object"
-        ]
+        ],
+        "files": {
+          "uploadMethod": "upload"
+        }
       },
       "operations": {
         "chat": {
@@ -255,7 +372,10 @@
           "native",
           "function",
           "json_object"
-        ]
+        ],
+        "files": {
+          "uploadMethod": "upload"
+        }
       },
       "operations": {
         "chat": {
@@ -797,12 +917,21 @@
     "meta": {
       "id": "meta",
       "name": "Meta Model API",
-      "aliases": ["meta", "meta-responses", "meta_responses"],
+      "aliases": [
+        "meta",
+        "meta-responses",
+        "meta_responses"
+      ],
       "transport": "openai-responses",
       "baseURL": "https://api.meta.ai/v1",
       "requiresApiURL": false,
-      "auth": {"type": "bearer", "required": true},
-      "defaults": {"model": "muse-spark-1.3"},
+      "auth": {
+        "type": "bearer",
+        "required": true
+      },
+      "defaults": {
+        "model": "muse-spark-1.3"
+      },
       "capabilities": {
         "functions": true,
         "streaming": true,
@@ -811,31 +940,69 @@
         "multiTurn": true,
         "images": true,
         "audio": true,
-        "files": {"uploadMethod": "inline"},
-        "caching": {"types": ["ephemeral"], "cacheBreakpoints": false},
-        "structuredOutputModes": ["native", "function", "json_object"]
+        "files": {
+          "uploadMethod": "inline"
+        },
+        "caching": {
+          "types": [
+            "ephemeral"
+          ],
+          "cacheBreakpoints": false
+        },
+        "structuredOutputModes": [
+          "native",
+          "function",
+          "json_object"
+        ]
       },
       "operations": {
-        "chat": {"path": "/responses", "dialect": "openai-responses"},
-        "transcribe": {"path": "/asr/transcribe", "dialect": "meta-transcription"},
+        "chat": {
+          "path": "/responses",
+          "dialect": "openai-responses"
+        },
+        "transcribe": {
+          "path": "/asr/transcribe",
+          "dialect": "meta-transcription"
+        },
         "realtime": {
           "path": "/asr/realtime",
           "dialect": "meta-realtime",
-          "modelMatch": {"exact": ["muse-voice-transcribe-1.0"]},
+          "modelMatch": {
+            "exact": [
+              "muse-voice-transcribe-1.0"
+            ]
+          },
           "url": "wss://api.meta.ai/v1/asr/realtime",
           "grammar": "meta_asr_realtime",
           "defaultModel": "muse-voice-transcribe-1.0",
-          "audio": {"input": {"formats": ["pcm16", "pcm"], "sampleRate": 24000}}
+          "audio": {
+            "input": {
+              "formats": [
+                "pcm16",
+                "pcm"
+              ],
+              "sampleRate": 24000
+            }
+          }
         }
       },
       "request": {
         "toolChoice": "no-named",
-        "reasoningObjectFields": ["effort", "summary"],
-        "unsupportedThinkingLevels": {"none": "Meta Muse Spark does not support reasoning level none"}
+        "reasoningObjectFields": [
+          "effort",
+          "summary"
+        ],
+        "unsupportedThinkingLevels": {
+          "none": "Meta Muse Spark does not support reasoning level none"
+        }
       },
       "modelRules": [
         {
-          "match": {"exact": ["muse-image-1.0"]},
+          "match": {
+            "exact": [
+              "muse-image-1.0"
+            ]
+          },
           "capabilities": {
             "functions": false,
             "functionEmulation": false,
@@ -846,7 +1013,11 @@
           }
         },
         {
-          "match": {"exact": ["muse-voice-transcribe-1.0"]},
+          "match": {
+            "exact": [
+              "muse-voice-transcribe-1.0"
+            ]
+          },
           "capabilities": {
             "functions": false,
             "functionEmulation": false,
@@ -857,18 +1028,28 @@
           }
         }
       ],
-      "sources": ["https://dev.meta.ai/docs/protocols/responses"],
+      "sources": [
+        "https://dev.meta.ai/docs/protocols/responses"
+      ],
       "reviewedAt": "2026-09-03"
     },
     "meta-chat": {
       "id": "meta-chat",
       "name": "Meta Model API Chat Completions",
-      "aliases": ["meta-chat", "meta_chat"],
+      "aliases": [
+        "meta-chat",
+        "meta_chat"
+      ],
       "transport": "openai-chat",
       "baseURL": "https://api.meta.ai/v1",
       "requiresApiURL": false,
-      "auth": {"type": "bearer", "required": true},
-      "defaults": {"model": "muse-spark-1.3"},
+      "auth": {
+        "type": "bearer",
+        "required": true
+      },
+      "defaults": {
+        "model": "muse-spark-1.3"
+      },
       "capabilities": {
         "functions": true,
         "streaming": true,
@@ -877,12 +1058,26 @@
         "multiTurn": true,
         "images": true,
         "audio": true,
-        "files": {"uploadMethod": "inline"},
-        "caching": {"types": ["ephemeral"], "cacheBreakpoints": false},
-        "structuredOutputModes": ["native", "function", "json_object"]
+        "files": {
+          "uploadMethod": "inline"
+        },
+        "caching": {
+          "types": [
+            "ephemeral"
+          ],
+          "cacheBreakpoints": false
+        },
+        "structuredOutputModes": [
+          "native",
+          "function",
+          "json_object"
+        ]
       },
       "operations": {
-        "chat": {"path": "/chat/completions", "dialect": "openai-chat"}
+        "chat": {
+          "path": "/chat/completions",
+          "dialect": "openai-chat"
+        }
       },
       "request": {
         "toolChoice": "no-named",
@@ -893,21 +1088,33 @@
           "high": "high",
           "highest": "xhigh"
         },
-        "unsupportedThinkingLevels": {"none": "Meta Muse Spark does not support reasoning level none"}
+        "unsupportedThinkingLevels": {
+          "none": "Meta Muse Spark does not support reasoning level none"
+        }
       },
       "modelRules": [],
-      "sources": ["https://dev.meta.ai/docs/protocols/chat-completions"],
+      "sources": [
+        "https://dev.meta.ai/docs/protocols/chat-completions"
+      ],
       "reviewedAt": "2026-09-03"
     },
     "meta-messages": {
       "id": "meta-messages",
       "name": "Meta Model API Messages",
-      "aliases": ["meta-messages", "meta_messages"],
+      "aliases": [
+        "meta-messages",
+        "meta_messages"
+      ],
       "transport": "anthropic-messages",
       "baseURL": "https://api.meta.ai/v1",
       "requiresApiURL": false,
-      "auth": {"type": "bearer", "required": true},
-      "defaults": {"model": "muse-spark-1.3"},
+      "auth": {
+        "type": "bearer",
+        "required": true
+      },
+      "defaults": {
+        "model": "muse-spark-1.3"
+      },
       "capabilities": {
         "functions": true,
         "streaming": true,
@@ -916,18 +1123,30 @@
         "multiTurn": true,
         "images": true,
         "audio": true,
-        "files": {"uploadMethod": "inline"},
-        "structuredOutputModes": ["native", "function"]
+        "files": {
+          "uploadMethod": "inline"
+        },
+        "structuredOutputModes": [
+          "native",
+          "function"
+        ]
       },
       "operations": {
-        "chat": {"path": "/messages", "dialect": "anthropic-messages"}
+        "chat": {
+          "path": "/messages",
+          "dialect": "anthropic-messages"
+        }
       },
       "request": {
         "toolChoice": "no-named",
-        "unsupportedThinkingLevels": {"none": "Meta Muse Spark does not support reasoning level none"}
+        "unsupportedThinkingLevels": {
+          "none": "Meta Muse Spark does not support reasoning level none"
+        }
       },
       "modelRules": [],
-      "sources": ["https://dev.meta.ai/docs/protocols/messages"],
+      "sources": [
+        "https://dev.meta.ai/docs/protocols/messages"
+      ],
       "reviewedAt": "2026-09-03"
     },
     "mistral": {

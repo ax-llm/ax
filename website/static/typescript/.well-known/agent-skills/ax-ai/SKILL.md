@@ -866,3 +866,13 @@ galleries include provider-backed examples, but full parity remains open in the
 AxIR backlog. Generated flow groups still execute serially; MCP invocation and
 other session coverage remain incomplete. See `docs/COMPILER.md` for the
 implementation status.
+
+### Files through provider routing
+
+Provider routing preserves native file items when the selected provider and model
+support files, including filename, MIME type, cache flags, and extraction metadata.
+Supplying extracted text does not replace a file that the provider can consume
+natively. For unsupported providers, extracted text or a configured file-to-text
+callback supplies text; fallback policy can degrade, skip, or reject the file.
+The original conversation retains the file for later turns. Generated Python, Go,
+Java, C++, and Rust routers apply this policy in shared Core after selection.

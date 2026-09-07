@@ -725,6 +725,8 @@ class MultiServiceRouter : public AxAIService {
 class ProviderRouter : public AIClient {
  public:
   explicit ProviderRouter(Value config);
+  using FileToText = std::function<std::string(const std::string&, const std::string&)>;
+  ProviderRouter& file_to_text(FileToText extractor);
   ProviderRouter(std::vector<std::shared_ptr<AxAIService>> providers, Value routing = Value::object(), Value processing = Value::object());
   Value complete(Value request) override;
   Value features_for_run(Value model) override;
@@ -749,7 +751,8 @@ class ProviderRouter : public AIClient {
   std::vector<std::shared_ptr<AxAIService>> providers_;
   Value routing_;
   Value processing_;
-  Value provider_records() const;
+  FileToText file_to_text_;
+  Value provider_records(Value model = Value()) const;
   std::shared_ptr<AxAIService> service_for_name(Value name) const;
 };
 

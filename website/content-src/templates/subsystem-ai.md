@@ -275,3 +275,11 @@ available.
 - Trace provider requests, token usage, estimated cost, and routing decisions in production.
 
 See [ai() API]({{langRoot}}/api/ai/).
+
+## File routing
+
+A provider router preserves files for providers that can read them directly. File
+names, media types, cache metadata, and content order survive routing and later
+conversation turns. For providers without native file support, supply extracted
+text or a file-to-text callback, or choose a degradation, skip, or error policy.
+The router checks the selected model before preprocessing the request.

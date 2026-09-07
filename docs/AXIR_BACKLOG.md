@@ -18,12 +18,6 @@ This ledger tracks portable TypeScript behavior that should be migrated into AxI
 
 ## Open
 
-- `axir-2026-08-31-preserve-native-file-content-through-provider-routing` [axai] Preserve native file content through provider routing
-  - Status: open
-  - Source commit: `5fe5e9f130cdc51168f57bffcb7e271357d4d327`
-  - TS paths: `src/ax/ai/processor.test.ts`, `src/ax/ai/processor.ts`, `src/ax/ai/router.test.ts`, `src/ax/ai/router.ts`
-  - Impact: File-capable providers now receive native file content instead of degraded text; generated runtimes need matching provider-aware file pass-through behavior.
-  - Suggested AxIR work: Add or update the TS-derived conformance fixture.; Update AxIR/Core or descriptor data to match the portable TS behavior.; Run npm run axir:conformance:check and npm run test:axir.
 - `axir-2026-09-05-port-gpt-6-astra-model-rules-caching-and-pricing` [axai] Port GPT-6 Astra model rules, caching, and pricing
   - Status: open
   - Source commit: `8c138f108c02d3f000d4ac9c03e078770b0c813c`
@@ -549,6 +543,15 @@ This ledger tracks portable TypeScript behavior that should be migrated into AxI
   - Completed at: 2026-08-29
   - Completed by: `e62cfc20df1c683713c33ffae05b2fb9f74da9b0`
   - Verification: `npm run test:axir; npm run test:examples:generated; npm run axir:check-packages; npm run axir:conformance:check; npm run website:check; live OpenAI gpt-5.6-luna and Gemini gemini-3.7-flash smokes on Python, Java, Go, Rust, and C++`
+- `axir-2026-08-31-preserve-native-file-content-through-provider-routing` [axai] Preserve native file content through provider routing
+  - Status: done
+  - Source commit: `5fe5e9f130cdc51168f57bffcb7e271357d4d327`
+  - TS paths: `src/ax/ai/processor.test.ts`, `src/ax/ai/processor.ts`, `src/ax/ai/router.test.ts`, `src/ax/ai/router.ts`
+  - Impact: File-capable providers now receive native file content instead of degraded text; generated runtimes need matching provider-aware file pass-through behavior.
+  - Suggested AxIR work: Add or update the TS-derived conformance fixture.; Update AxIR/Core or descriptor data to match the portable TS behavior.; Run npm run axir:conformance:check and npm run test:axir.
+  - Completed at: 2026-09-07
+  - Completed by: `87a93967795cefcf20a388a72e26e748b1991bc0`
+  - Verification: `PR #652 (https://github.com/ax-llm/ax/pull/652): native file request/history/continuation and extraction/error tests passed across Python, Go, Java, C++, Rust; all-target release verification and package consumers; 370 tooling tests; compiler suite with TestVerifyGeneratedPackages retest after deterministic Java clock regression; 50 TypeScript router/processor/balancer tests; generated examples; all five live Astra native-file generation examples returned profit 24000; conformance synchronization, package freshness, profiles, semantic parity, provenance, anti-facade, build, formatting, lint, spelling and website checks. CI run 34152613769 verifies source commit. Evidence matrix: ir/axcore/provider.md.`
 - `axir-2026-09-06-port-event-clock-cancellation` [axprogram] Port event clock cancellation
   - Status: done
   - Source PR: #647

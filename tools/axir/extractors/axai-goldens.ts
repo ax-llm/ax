@@ -757,6 +757,84 @@ writeFixture('provider-router-degradation', {
   },
 });
 
+// Compare native file routing with TypeScript, including fallback policy.
+for (const variant of ['native', 'extracted', 'degrade', 'skip'] as const) {
+  const supported = variant === 'native';
+  const spec = {
+    name: supported ? 'Files' : 'Text',
+    features: routerFeatures({
+      media: {
+        ...routerFeatures().media,
+        files: {
+          supported,
+          formats: supported ? ['application/pdf'] : [],
+          uploadMethod: supported ? 'inline' : 'none',
+        },
+      },
+    }),
+  };
+  const service = new FixtureAIService(spec);
+  const processing = {
+    fallbackBehavior: variant === 'skip' ? 'skip' : 'degrade',
+  };
+  const request = {
+    chatPrompt: [
+      {
+        role: 'user',
+        content: [
+          { type: 'text', text: 'Read this file' },
+          {
+            type: 'file',
+            data: 'JVBERi0=',
+            mimeType: 'application/pdf',
+            filename: 'report.pdf',
+            cache: true,
+            ...(supported || variant === 'extracted'
+              ? { extractedText: 'Extracted report' }
+              : {}),
+          },
+          { type: 'text', text: 'Then summarize' },
+        ],
+      },
+    ],
+  };
+  const router = new AxProviderRouter({
+    providers: { primary: service as any, alternatives: [] },
+    routing: {
+      preferenceOrder: ['capability'],
+      capability: { requireExactMatch: false, allowDegradation: true },
+    },
+    processing: processing as any,
+  });
+  const rec = await router.getRoutingRecommendation(request as any);
+  const validation = await router.validateRequest(request as any);
+  const stats = router.getRoutingStats();
+  await router.chat(request as any, { processingOptions: processing } as any);
+  writeFixture(`provider-router-files-${variant}`, {
+    kind: 'ai_provider_router',
+    services: [spec],
+    primary_index: 0,
+    alternative_indices: [],
+    routing: {
+      capability: { requireExactMatch: false, allowDegradation: true },
+    },
+    processing,
+    request,
+    expected_output: {
+      recommendation: {
+        provider: rec.provider.getName(),
+        processingApplied: rec.processingApplied,
+        degradations: rec.degradations,
+        warnings: rec.warnings,
+      },
+      validation: validation as any,
+      stats: stats as any,
+      forwardedContent: service.requests[0]?.req?.chatPrompt?.[0]
+        ?.content as Json,
+    },
+  });
+}
+
 const balancerSlowSpec = {
   name: 'Slow',
   id: 'Slow-id',
