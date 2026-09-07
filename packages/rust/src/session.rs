@@ -2298,6 +2298,215 @@ mod tests {
         Ok(())
     }
 
+    struct MCPAgentGate {
+        started: AtomicBool,
+        release: Mutex<bool>,
+        ready: Condvar,
+        calls: AtomicUsize,
+        schema: Value,
+    }
+    struct MCPAgentTransport(Arc<MCPAgentGate>);
+    impl AxMCPTransport for MCPAgentTransport {
+        fn send_notification(&mut self, _: Value) -> AxResult<()> {
+            panic!("Modern discovery initialized")
+        }
+        fn send(&mut self, message: Value) -> AxResult<Value> {
+            let result = match message["method"].as_str().unwrap_or("") {
+                "server/discover" => {
+                    json!({"resultType":"complete","supportedVersions":["2026-07-28"],"ttlMs":60000,"cacheScope":"private","capabilities":{"tools":{}}})
+                }
+                "tools/list" => {
+                    json!({"tools":[{"name":"lookup","description":"Find reference","inputSchema":self.0.schema}]})
+                }
+                "tools/call" => {
+                    assert_eq!(message["params"]["name"], "lookup");
+                    assert_eq!(message["params"]["arguments"], json!({"query":"REF-42"}));
+                    assert!(message["params"]["_meta"].is_object());
+                    self.0.calls.fetch_add(1, Ordering::SeqCst);
+                    self.0.started.store(true, Ordering::SeqCst);
+                    self.0.ready.notify_all();
+                    let release = self.0.release.lock().unwrap();
+                    let (release, timeout) = self
+                        .0
+                        .ready
+                        .wait_timeout_while(release, Duration::from_secs(3), |value| !*value)
+                        .unwrap();
+                    assert!(
+                        !timeout.timed_out() || *release,
+                        "MCP tool did not overlap model"
+                    );
+                    json!({"resultType":"complete","structuredContent":{"reference":"REF-42"},"content":[{"type":"text","text":"REF-42"}]})
+                }
+                method => panic!("Unexpected MCP method {method}"),
+            };
+            Ok(json!({"jsonrpc":"2.0","id":message["id"],"result":result}))
+        }
+    }
+    struct MCPAgentModel {
+        gate: Arc<MCPAgentGate>,
+        hidden: Arc<AtomicBool>,
+        requests: Arc<AtomicUsize>,
+    }
+    impl MCPAgentModel {
+        fn event(&self, request: &Value, number: usize) -> Value {
+            let body = &request["json"];
+            let actor: Vec<_> = body["tools"]
+                .as_array()
+                .into_iter()
+                .flatten()
+                .filter(|tool| tool["async"] == true)
+                .collect();
+            if self.hidden.load(Ordering::SeqCst) {
+                assert!(actor.is_empty(), "Undiscovered MCP tool exposed");
+                return completed(
+                    &format!("hidden-{number}"),
+                    if number < 3 {
+                        "{\"completion\":{\"type\":\"final\",\"args\":[\"No discovered tools\",{}]}}"
+                    } else {
+                        "{\"answer\":\"not discovered\"}"
+                    },
+                );
+            }
+            if number == 1 || number == 5 {
+                assert!(actor.is_empty(), "Native authority escaped executor");
+                if number == 5 {
+                    assert!(
+                        body.to_string().contains("REF-42"),
+                        "Responder preceded result incorporation"
+                    );
+                }
+                return completed(
+                    &format!("stage-{number}"),
+                    if number == 1 {
+                        "{\"completion\":{\"type\":\"final\",\"args\":[\"Find reference\",{}]}}"
+                    } else {
+                        "{\"answer\":\"REF-42\"}"
+                    },
+                );
+            }
+            if number == 2 {
+                assert_eq!(actor.len(), 1);
+                assert_eq!(actor[0]["name"], "orders_lookup");
+                assert_eq!(actor[0]["parameters"], self.gate.schema);
+                return json!({"type":"response.completed","response":{"id":"invalid-response","model":"gpt-6-astra","output":[{"type":"function_call","id":"invalid","call_id":"invalid-call","name":"orders_lookup","arguments":"{\"query\":\"X\"}"}]}});
+            }
+            assert_eq!(number, 4);
+            assert_eq!(body["previous_response_id"], "tool-response");
+            let result = body["input"].as_array().unwrap().last().unwrap();
+            assert_eq!(result["call_id"], "mcp-call");
+            let output: Value = serde_json::from_str(result["output"].as_str().unwrap()).unwrap();
+            assert_eq!(output["structuredContent"]["reference"], "REF-42");
+            completed("final-response","{\"completion\":{\"type\":\"final\",\"args\":[\"Report\",{\"answer\":\"REF-42\"}]}}")
+        }
+    }
+    impl AxTransport for MCPAgentModel {
+        fn send(&mut self, request: Value) -> AxResult<Value> {
+            let number = self.requests.fetch_add(1, Ordering::SeqCst) + 1;
+            Ok(self.event(&request, number)["response"].clone())
+        }
+        fn stream(&mut self, request: Value) -> AxResult<AxTransportStream> {
+            let number = self.requests.fetch_add(1, Ordering::SeqCst) + 1;
+            if !self.hidden.load(Ordering::SeqCst) && number == 3 {
+                assert_eq!(
+                    self.gate.calls.load(Ordering::SeqCst),
+                    0,
+                    "Invalid arguments invoked MCP"
+                );
+                assert_eq!(request["json"]["previous_response_id"], "invalid-response");
+                let (sender, receiver) = mpsc::channel();
+                let gate = self.gate.clone();
+                std::thread::spawn(move || {
+                    sender.send(sse(json!({"type":"response.output_item.done","item":{"type":"function_call","id":"valid","call_id":"mcp-call","name":"orders_lookup","arguments":"{\"query\":\"REF-42\"}"}}))).unwrap();
+                    let release = gate.release.lock().unwrap();
+                    let (mut release, timeout) = gate
+                        .ready
+                        .wait_timeout_while(release, Duration::from_secs(3), |_| {
+                            !gate.started.load(Ordering::SeqCst)
+                        })
+                        .unwrap();
+                    assert!(
+                        !timeout.timed_out() || gate.started.load(Ordering::SeqCst),
+                        "MCP tool did not start"
+                    );
+                    *release = true;
+                    gate.ready.notify_all();
+                    drop(release);
+                    sender.send(sse(completed("tool-response","{\"completion\":{\"type\":\"final\",\"args\":[\"Report\",{\"answer\":\"provisional\"}]}}"))).unwrap();
+                });
+                return Ok(AxTransportStream::Reader {
+                    status: 200,
+                    body: Box::new(ChannelReader {
+                        source: receiver,
+                        current: std::io::Cursor::new(Vec::new()),
+                    }),
+                });
+            }
+            Ok(AxTransportStream::Buffered(
+                json!({"status":200,"body":String::from_utf8(sse(self.event(&request,number))).unwrap()}),
+            ))
+        }
+    }
+    #[test]
+    fn discovered_mcp_native_agent_invocation() -> AxResult<()> {
+        let schema = json!({"type":"object","$defs":{"reference":{"type":"string","minLength":3}},"properties":{"query":{"$ref":"#/$defs/reference"}},"required":["query"],"additionalProperties":false});
+        let gate = Arc::new(MCPAgentGate {
+            started: AtomicBool::new(false),
+            release: Mutex::new(false),
+            ready: Condvar::new(),
+            calls: AtomicUsize::new(0),
+            schema,
+        });
+        let mut mcp = AxMCPClient::new(
+            Box::new(MCPAgentTransport(gate.clone())),
+            json!({"era":"modern","namespace":"orders"}),
+        );
+        mcp.init()?;
+        let mut native = mcp.native_tools().remove(0);
+        assert_eq!(native.execution, "blocking");
+        native.execution = "background".into();
+        let mut program = agent_with_options(
+            "question -> answer",
+            json!({"functionDiscovery":true,"directResponse":"off"}),
+        )?
+        .with_tool_module("orders", vec![native])?;
+        let hidden = Arc::new(AtomicBool::new(true));
+        let requests = Arc::new(AtomicUsize::new(0));
+        let mut client = ai("openai", json!({"api_key":"test","model":"gpt-6-astra"}))?
+            .with_transport(MCPAgentModel {
+                gate: gate.clone(),
+                hidden: hidden.clone(),
+                requests: requests.clone(),
+            });
+        assert_eq!(
+            program.forward(&mut client, json!({"question":"Find reference"}))?,
+            json!({"answer":"not discovered"})
+        );
+        assert_eq!(gate.calls.load(Ordering::SeqCst), 0);
+        assert_eq!(requests.load(Ordering::SeqCst), 3);
+        program.discover(json!({"tools":["orders"]}))?;
+        hidden.store(false, Ordering::SeqCst);
+        requests.store(0, Ordering::SeqCst);
+        assert_eq!(
+            program.forward(&mut client, json!({"question":"Find reference"}))?,
+            json!({"answer":"REF-42"})
+        );
+        assert_eq!(gate.calls.load(Ordering::SeqCst), 1);
+        assert_eq!(requests.load(Ordering::SeqCst), 5);
+        assert!(program
+            .get_action_log()
+            .iter()
+            .any(|entry| entry["qualified_name"] == "orders.lookup"
+                && entry["call_id"] == "mcp-call"
+                && entry["status"] == "ok"));
+        assert_eq!(
+            program.invoke_callable("orders.lookup", json!({"query":"REF-42"}), json!({}))?
+                ["status"],
+            "error"
+        );
+        assert_eq!(gate.calls.load(Ordering::SeqCst), 1);
+        Ok(())
+    }
+
     struct AgentSessionTransport {
         requests: Arc<AtomicUsize>,
         started: Option<mpsc::Receiver<()>>,

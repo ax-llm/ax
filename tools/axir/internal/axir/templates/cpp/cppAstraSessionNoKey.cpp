@@ -379,12 +379,87 @@ void concurrent_native_mcp(){
   std::set<std::string> ids;for(const auto& request:transport->requests)ids.insert(display(Core::get(request,"id")));if(ids.size()!=32||transport->requests.size()!=32)throw std::runtime_error("Duplicate native MCP request IDs");
   std::cout<<"cpp concurrent native MCP identities and results passed\n";
 }
+class MCPAgentTransport final:public AxMCPTransport {
+ public:
+  std::shared_ptr<Gate> gate;Value schema;std::vector<Value> calls;
+  explicit MCPAgentTransport(std::shared_ptr<Gate> gate):gate(gate),schema(parse_json(R"({"type":"object","$defs":{"reference":{"type":"string","minLength":3}},"properties":{"query":{"$ref":"#/$defs/reference"}},"required":["query"],"additionalProperties":false})")){}
+  void send_notification(Value)override{throw std::runtime_error("Modern discovery initialized");}
+  Value send(Value message)override{
+    auto method=display(Core::get(message,"method"));Value result;
+    if(method=="server/discover")result=parse_json(R"({"resultType":"complete","supportedVersions":["2026-07-28"],"ttlMs":60000,"cacheScope":"private","capabilities":{"tools":{}}})");
+    else if(method=="tools/list")result=object({{"tools",array({object({{"name","lookup"},{"description","Find a reference"},{"inputSchema",schema}})})}});
+    else{
+      auto params=Core::get(message,"params");if(method!="tools/call"||display(Core::get(params,"name"))!="lookup"||display(Core::get(Core::get(params,"arguments"),"query"))!="REF-42"||!Core::get(params,"_meta").is_object())throw std::runtime_error("Invalid MCP invocation");
+      std::unique_lock<std::mutex> lock(gate->mutex);calls.push_back(message);++gate->calls;gate->started=true;gate->ready.notify_all();if(!gate->ready.wait_for(lock,std::chrono::seconds(3),[&]{return gate->released;}))throw std::runtime_error("MCP handler failed to overlap");
+      result=parse_json(R"({"resultType":"complete","structuredContent":{"reference":"REF-42"},"content":[]})");
+    }
+    return object({{"jsonrpc","2.0"},{"id",Core::get(message,"id")},{"result",result}});
+  }
+};
+class MCPAgentModel final:public Transport {
+ public:
+  std::shared_ptr<MCPAgentTransport> mcp;bool hidden=true;int requests=0;
+  explicit MCPAgentModel(std::shared_ptr<MCPAgentTransport> mcp):mcp(mcp){}
+  Value respond(Value request,AxTransportStreamHandler handler){
+    int number=++requests;auto body=Core::get(request,"json");Value actor=Value::array();for(auto tool:Core::iter(Core::get(body,"tools",Value::array())))if(Core::truthy(Core::get(tool,"async")))Core::append(actor,tool);
+    auto stage=[](const std::string& answer){return std::string("{\"completion\":{\"type\":\"final\",\"args\":[\"Report reference\",{\"answer\":\"")+answer+"\"}]}}";};Value event;
+    if(hidden){if(!Core::iter(actor).empty())throw std::runtime_error("Undiscovered native tool exposed");event=completed("hidden-"+std::to_string(number),number<3?stage("not discovered"):"{\"answer\":\"not discovered\"}");}
+    else if(number==1)event=completed("distiller",stage("Find reference"));
+    else if(number==2||number==3){
+      if(Core::iter(actor).size()!=1)throw std::runtime_error("Missing discovered native MCP tool");auto tool=Core::get(actor,0);if(display(Core::get(tool,"name"))!="orders_lookup"||stringify(Core::get(tool,"parameters"))!=stringify(mcp->schema))throw std::runtime_error("Lost native MCP schema: "+stringify(tool));
+      if(number==3&&(mcp->gate->calls.load()!=0||display(Core::get(body,"previous_response_id"))!="invalid-response"))throw std::runtime_error("Invalid MCP arguments executed or correction lost");
+      std::string id=number==2?"invalid-call":"mcp-call";handler(object({{"type","response.output_item.done"},{"item",object({{"type","function_call"},{"id",id},{"call_id",id},{"name","orders_lookup"},{"arguments",number==2?"{\"query\":\"X\"}":"{\"query\":\"REF-42\"}"}})}}));
+      if(number==3){auto gate=mcp->gate;std::unique_lock<std::mutex> lock(gate->mutex);if(!gate->ready.wait_for(lock,std::chrono::seconds(3),[&]{return gate->started;}))throw std::runtime_error("Native MCP work did not start");gate->released=true;gate->ready.notify_all();}
+      event=completed(number==2?"invalid-response":"mcp-response",stage("provisional"));
+    }else if(number==4){auto input=Core::get(body,"input");bool found=false;for(auto item:Core::iter(input))if(display(Core::get(item,"call_id"))=="mcp-call"){auto result=parse_json(display(Core::get(item,"output")));found=display(Core::get(Core::get(result,"structuredContent"),"reference"))=="REF-42";}if(!found||display(Core::get(body,"previous_response_id"))!="mcp-response")throw std::runtime_error("Lost raw MCP continuation: "+stringify(body));event=completed("actor-final",stage("REF-42"));}
+    else{if(number!=5||!Core::iter(actor).empty()||stringify(body).find("REF-42")==std::string::npos)throw std::runtime_error("Responder ran before MCP incorporation");event=completed("responder","{\"answer\":\"REF-42\"}");}
+    return event;
+  }
+  Value call(Value request)override{return Core::get(respond(request,[](Value)->bool{throw std::runtime_error("Expected streaming tool call");}),"response");}
+  void stream(Value request,AxTransportStreamHandler handler)override{handler(respond(request,handler));}
+};
+void native_mcp_agent_discovery(){
+  auto gate=std::make_shared<Gate>();auto transport=std::make_shared<MCPAgentTransport>(gate);AxMCPClient mcp(transport,object({{"era","modern"},{"namespace","orders"}}));mcp.init();auto tool=mcp.native_tools().at(0);if(tool.execution_mode!="blocking")throw std::runtime_error("MCP inferred background permission");tool.execution("background");
+  auto model=std::make_shared<MCPAgentModel>(transport);auto client=ai("openai",object({{"api_key","test"},{"model","gpt-6-astra"}}));dynamic_cast<OpenAICompatibleClient&>(*client).shared_transport(model);
+  auto program=agent("question -> answer",object({{"functionDiscovery",true},{"directResponse","off"}}));program.add_tool_module("orders",std::vector<Tool>{tool});
+  auto result=program.forward(*client,object({{"question","Find reference"}}));if(display(Core::get(result,"answer"))!="not discovered"||gate->calls.load()!=0||model->requests!=3)throw std::runtime_error("MCP discovery boundary failed");
+  program.discover(object({{"tools",array({"orders"})}}));model->hidden=false;model->requests=0;result=program.forward(*client,object({{"question","Find reference"}}));if(display(Core::get(result,"answer"))!="REF-42"||gate->calls.load()!=1||model->requests!=5)throw std::runtime_error("MCP agent final output failed");
+  int logged=0;for(auto entry:Core::iter(program.get_action_log()))if(display(Core::get(entry,"call_id"))=="mcp-call"&&display(Core::get(entry,"qualified_name"))=="orders.lookup"&&display(Core::get(entry,"status"))=="ok")++logged;if(logged!=1)throw std::runtime_error("Lost native MCP action log: "+stringify(program.get_action_log()));
+  auto duplicate=program.invoke_callable("orders.lookup",object({{"query","REF-42"}}));if(display(Core::get(duplicate,"status"))!="error"||gate->calls.load()!=1)throw std::runtime_error("MCP call replayed through actor code");
+  std::cout<<"cpp discovered MCP native agent schema, correction, overlap, result and action log passed\n";
+}
+void native_mcp_owned_lifetime(){
+  auto gate=std::make_shared<Gate>();auto transport=std::make_shared<MCPAgentTransport>(gate);std::optional<Tool> tool;std::future<Value> result;
+  {
+    AxMCPClient client(transport,object({{"era","modern"},{"namespace","orders"}}));client.init();tool=client.native_tools().at(0);
+    result=std::async(std::launch::async,[handler=tool->handler]{return handler(object({{"query","REF-42"}}));});
+    std::unique_lock<std::mutex> lock(gate->mutex);if(!gate->ready.wait_for(lock,std::chrono::seconds(3),[&]{return gate->started;}))throw std::runtime_error("MCP lifetime test did not start");
+  }
+  tool.reset(); // Public client and caller tool are gone while the worker is pending.
+  {std::lock_guard<std::mutex> lock(gate->mutex);gate->released=true;gate->ready.notify_all();}
+  auto output=result.get();if(display(Core::get(Core::get(output,"structuredContent"),"reference"))!="REF-42")throw std::runtime_error("Owned MCP result was lost");
+  std::cout<<"cpp native MCP worker retains invocation state after caller destruction\n";
+}
+
+void concurrent_owned_tool_registration(){
+  std::vector<std::future<std::vector<Value>>> workers;
+  for(int worker=0;worker<8;++worker)workers.push_back(std::async(std::launch::async,[worker]{
+    std::vector<Value> values;
+    for(int index=0;index<100;++index){int expected=worker*100+index;Tool tool("lookup","Lookup",Value::object(),[expected](Value){return Value(expected);});
+      if(index%2)tool.context_handler([expected](Value,const AxToolContext&){return Value(expected);});values.push_back(tool.value());}
+    return values;
+  }));
+  std::set<std::string> ids;
+  for(int worker=0;worker<8;++worker){auto values=workers[worker].get();for(int index=0;index<100;++index){auto descriptor=values[index];ids.insert(display(Core::get(descriptor,"__tool_id")));auto output=Core::tool_invoke(descriptor,Value::object());if(Core::number(output)!=worker*100+index)throw std::runtime_error("Tool registration rebound another worker's handler");}}
+  if(ids.size()!=800)throw std::runtime_error("Concurrent tool IDs collided");
+  std::cout<<"cpp concurrent owned tool registration preserves each handler\n";
+}
 int main(int argc,char** argv){
   owned_flow_failure();
   owned_flow_overlap();
-  concurrent_mcp_header_state();owned_balancer_failure_accounting();
+  concurrent_mcp_header_state();owned_balancer_failure_accounting();native_mcp_owned_lifetime();concurrent_owned_tool_registration();
   if(argc>1&&std::string(argv[1])=="--owned-only")return 0;
- native_files();file_extraction();
+ native_files();file_extraction();native_mcp_agent_discovery();
   auto gate=std::make_shared<Gate>();auto transport=std::make_shared<GatedTransport>(gate);
   auto client=ai("openai",object({{"api_key","test"},{"model","gpt-6-astra"},{"model_config",object({{"thinkingTokenBudget","low"}})}}));
   dynamic_cast<OpenAICompatibleClient&>(*client).shared_transport(transport);

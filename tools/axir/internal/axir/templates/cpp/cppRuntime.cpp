@@ -125,10 +125,19 @@ Value register_agent_observer(std::function<void(Value)> fn) {
   return object({{"__agent_observer_id", id}});
 }
 
+static std::mutex& tool_registry_mutex(){static std::mutex mutex;return mutex;}
+static std::string next_tool_id(){static std::atomic<std::uint64_t> next{0};return "__tool_"+std::to_string(++next);}
 static std::map<std::string,std::function<Value(Value,const AxToolContext&)>>& contextual_tool_registry(){static std::map<std::string,std::function<Value(Value,const AxToolContext&)>> values;return values;}
 static std::map<std::string, std::function<Value(Value)>>& tool_registry() {
   static std::map<std::string, std::function<Value(Value)>> handlers;
   return handlers;
+}
+
+static std::pair<std::function<Value(Value)>,std::function<Value(Value,const AxToolContext&)>> registered_tool(const std::string& id){
+  std::lock_guard<std::mutex> lock(tool_registry_mutex());
+  auto found=tool_registry().find(id);if(found==tool_registry().end())throw AxError("runtime","Unknown tool handler");
+  auto contextual=contextual_tool_registry().find(id);
+  return {found->second,contextual==contextual_tool_registry().end()?std::function<Value(Value,const AxToolContext&)>{}:contextual->second};
 }
 
 static std::map<std::string, std::function<Value(Value)>>& assertion_registry() {
@@ -1323,10 +1332,9 @@ Value Core::tool_invoke(Value fn, Value params) {
   Value args = get_key(fn, "args", Value::array());
   if (truthy(args)) validate_fields(args, params, "tool." + str(get_key(fn, "name")) + ".args");
   std::string id = str(get_key(fn, "__tool_id"));
-  auto it = tool_registry().find(id);
-  if (it == tool_registry().end()) throw AxError("runtime", "unknown tool");
+  auto handler = registered_tool(id).first;
   Value result = invoke_runtime_tool(str(get_key(fn, "name")), [&]() {
-    return it->second(params.is_null() ? Value::object() : params);
+    return handler(params.is_null() ? Value::object() : params);
   });
   Value returns = get_key(fn, "returns", Value::array());
   if (truthy(returns) && result.is_object()) validate_fields(returns, result, "tool." + str(get_key(fn, "name")) + ".return");
@@ -3934,17 +3942,19 @@ std::vector<Value> OpenAICompatibleClient::iter_sse_json(Value raw) {
 }
 
 Tool::Tool(std::string name_, std::string description_, Value parameters_, std::function<Value(Value)> handler_, Value args_, Value returns_)
-    : id(pointer_id(this)),
+    : id(next_tool_id()),
       name(std::move(name_)),
       description(std::move(description_)),
       parameters(std::move(parameters_)),
       args(std::move(args_)),
       returns(std::move(returns_)),
       handler(std::move(handler_)) {
+  std::lock_guard<std::mutex> lock(tool_registry_mutex());
   tool_registry()[id] = handler ? handler : [](Value) { return Value(); };
 }
 
 Tool& Tool::context_handler(std::function<Value(Value,const AxToolContext&)> callback){
+  std::lock_guard<std::mutex> lock(tool_registry_mutex());
   contextual_tool_registry()[id]=callback;
   handler=[callback](Value args){return callback(args,AxToolContext{std::make_shared<std::atomic<bool>>(false),""});};
   tool_registry()[id]=handler;return *this;

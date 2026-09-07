@@ -668,3 +668,62 @@ func TestOwnedBalancerFailureAccounting(t *testing.T){
     if _,err:=worker.Chat(context.Background(),request,nil);err==nil{t.Fatal("Failed route returned success")};first:=calls.Load();if first==0{t.Fatal("No provider request")}
     if _,err:=owner.Chat(context.Background(),request,nil);err==nil{t.Fatal("Failed parent route returned success")};if calls.Load()!=first{t.Fatal("Parent forgot worker failure and replayed route")}
 }
+
+type nativeMCPAgentTransport struct {
+    AxMCPTransport
+    schema Value
+    started,release chan struct{}
+    calls atomic.Int32
+}
+func(t *nativeMCPAgentTransport) SetMessageHandler(func(map[string]Value)){}
+func(t *nativeMCPAgentTransport) SetLifecycleHandler(func(string)){}
+func(t *nativeMCPAgentTransport) SendWithHeaders(message map[string]Value,_ map[string]string)(map[string]Value,error){
+    var result Value
+    switch message["method"] {
+    case "server/discover":result=Object("resultType","complete","supportedVersions",Array("2026-07-28"),"ttlMs",60000,"cacheScope","private","capabilities",Object("tools",Object()))
+    case "tools/list":result=Object("tools",Array(Object("name","lookup","description","Find reference","inputSchema",t.schema)))
+    case "tools/call":
+        params:=coreGet(message,"params",nil)
+        if coreGet(params,"name",nil)!="lookup"||stableStringify(coreGet(params,"arguments",nil))!=`{"query":"REF-42"}`||coreGet(params,"_meta",nil)==nil{return nil,fmt.Errorf("Lost MCP invocation: %v",message)}
+        t.calls.Add(1);close(t.started);select{case <-t.release:case <-time.After(3*time.Second):return nil,fmt.Errorf("MCP tool did not overlap model")}
+        result=Object("resultType","complete","structuredContent",Object("reference","REF-42"),"content",Array(Object("type","text","text","REF-42")))
+    default:return nil,fmt.Errorf("Unexpected MCP method: %v",message["method"])
+    }
+    return Object("jsonrpc","2.0","id",message["id"],"result",result),nil
+}
+type mcpAgentModelTransport struct {mcp *nativeMCPAgentTransport;hidden bool;requests int}
+func(t *mcpAgentModelTransport) response(request Value)(Value,io.ReadCloser,error){
+    t.requests++;number:=t.requests;body:=coreGet(request,"json",nil);actor:=[]Value{}
+    for _,tool:=range asSlice(coreGet(body,"tools",Array())){if coreTruthy(coreGet(tool,"async",false)){actor=append(actor,tool)}}
+    if t.hidden {
+        if len(actor)!=0{return nil,nil,fmt.Errorf("Undiscovered MCP tool exposed")};text:=`{"completion":{"type":"final","args":["No discovered tools",{}]}}`;if number==3{text=`{"answer":"not discovered"}`};return sessionCompleted(fmt.Sprint("hidden-",number),text),nil,nil
+    }
+    if number==1||number==5 {
+        if len(actor)!=0{return nil,nil,fmt.Errorf("Native authority escaped executor")};text:=`{"completion":{"type":"final","args":["Find reference",{}]}}`;if number==5{if !strings.Contains(stableStringify(body),"REF-42"){return nil,nil,fmt.Errorf("Responder preceded result incorporation")};text=`{"answer":"REF-42"}`};return sessionCompleted(fmt.Sprint("stage-",number),text),nil,nil
+    }
+    if number==2 {
+        if len(actor)!=1||coreGet(actor[0],"name",nil)!="orders_lookup"||stableStringify(coreGet(actor[0],"parameters",nil))!=stableStringify(t.mcp.schema){return nil,nil,fmt.Errorf("Lost native MCP schema: %v",actor)}
+        return Object("type","response.completed","response",Object("id","invalid-response","model","gpt-6-astra","output",Array(Object("type","function_call","id","invalid","call_id","invalid-call","name","orders_lookup","arguments",`{"query":"X"}`)))),nil,nil
+    }
+    if number==3 {
+        if t.mcp.calls.Load()!=0||coreGet(body,"previous_response_id",nil)!="invalid-response"{return nil,nil,fmt.Errorf("Invalid arguments invoked MCP or lost correction")}
+        reader,writer:=io.Pipe();go func(){defer writer.Close();sessionSSE(writer,Object("type","response.output_item.done","item",Object("type","function_call","id","valid","call_id","mcp-call","name","orders_lookup","arguments",`{"query":"REF-42"}`)));select{case <-t.mcp.started:case <-time.After(3*time.Second):_ = writer.CloseWithError(fmt.Errorf("MCP tool did not start"));return};close(t.mcp.release);sessionSSE(writer,sessionCompleted("tool-response",`{"completion":{"type":"final","args":["Report",{"answer":"provisional"}]}}`))}();return nil,reader,nil
+    }
+    if number!=4||coreGet(body,"previous_response_id",nil)!="tool-response"{return nil,nil,fmt.Errorf("Unexpected native continuation: %v",body)}
+    input:=asSlice(coreGet(body,"input",Array()));result:=input[len(input)-1];if coreGet(result,"call_id",nil)!="mcp-call"||!strings.Contains(display(coreGet(result,"output",nil)),"REF-42"){return nil,nil,fmt.Errorf("Lost MCP result: %v",result)}
+    return sessionCompleted("final-response",`{"completion":{"type":"final","args":["Report",{"answer":"REF-42"}]}}`),nil,nil
+}
+func(t *mcpAgentModelTransport) Call(_ context.Context,request Value)(Value,error){event,reader,err:=t.response(request);if reader!=nil{reader.Close();return nil,fmt.Errorf("Expected incremental transport")};if err!=nil{return nil,err};return coreGet(event,"response",nil),nil}
+func(t *mcpAgentModelTransport) Stream(_ context.Context,request Value)(AxHTTPStreamResponse,error){event,reader,err:=t.response(request);if err!=nil{return AxHTTPStreamResponse{},err};if reader==nil{var text strings.Builder;sessionSSE(&text,event);reader=io.NopCloser(strings.NewReader(text.String()))};return AxHTTPStreamResponse{Status:200,Body:reader},nil}
+func TestNativeMCPAgentDiscoveryAndInvocation(t *testing.T){
+    schema:=parseJSON(`{"type":"object","$defs":{"reference":{"type":"string","minLength":3}},"properties":{"query":{"$ref":"#/$defs/reference"}},"required":["query"],"additionalProperties":false}`)
+    transport:=&nativeMCPAgentTransport{AxMCPTransport:NewAxMCPScriptedTransport(nil),schema:schema,started:make(chan struct{}),release:make(chan struct{})}
+    mcp:=NewAxMCPClient(transport,Object("era","modern","namespace","orders"));if err:=mcp.Init();err!=nil{t.Fatal(err)};native:=mcp.NativeTools()[0];if native.ExecutionMode=="background"{t.Fatal("MCP hints enabled background work")};native=native.Execution("background")
+    program:=NewAgent("question -> answer",Object("functions",Array(Object("namespace","orders","functions",Array(native))),"functionDiscovery",true,"directResponse","off"))
+    model:=&mcpAgentModelTransport{mcp:transport,hidden:true};client:=NewAI("openai",Object("api_key","test","model","gpt-6-astra","transport",model))
+    output,err:=program.Forward(context.Background(),client,Object("question","Find reference"),nil);if err!=nil||coreGet(output,"answer",nil)!="not discovered"||transport.calls.Load()!=0||model.requests!=3{t.Fatalf("Discovery boundary failed: %v %v",output,err)}
+    program.Discover(Object("tools",Array("orders")));model.hidden=false;model.requests=0
+    output,err=program.Forward(context.Background(),client,Object("question","Find reference"),nil);if err!=nil||coreGet(output,"answer",nil)!="REF-42"||transport.calls.Load()!=1||model.requests!=5{t.Fatalf("Native MCP invocation failed: %v %v",output,err)}
+    recorded:=false;for _,entry:=range asSlice(coreGet(program.State,"action_log",Array())){if coreGet(entry,"qualified_name",nil)=="orders.lookup"&&coreGet(entry,"call_id",nil)=="mcp-call"&&coreGet(entry,"status",nil)=="ok"{recorded=true}};if !recorded{t.Fatal("Native MCP activity missing")}
+    duplicate:=program.InvokeCallable("orders.lookup",Object("query","REF-42"),nil);if coreGet(duplicate,"status",nil)!="error"||transport.calls.Load()!=1{t.Fatal("Native MCP call replayed through actor code")}
+}

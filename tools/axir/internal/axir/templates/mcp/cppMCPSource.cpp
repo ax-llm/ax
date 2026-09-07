@@ -89,91 +89,99 @@ static void expect_subset_local(Value actual, Value expected, const std::string&
 static std::map<std::string,std::string>& ax_mcp_client_era_cache(){static std::map<std::string,std::string> cache;return cache;}
 
 AxMCPClient::AxMCPClient(std::shared_ptr<AxMCPTransport> transport, Value options)
-    : transport_(std::move(transport)), options_(std::move(options)) { transport_->set_message_handler([this](Value message){if(era_=="modern"){std::string active;{std::lock_guard<std::mutex> lock(subscription_mutex_);active=active_subscription_id_;}auto filtered=Core::mcp_notification_subscription_filter(message,active);if(!Core::truthy(Core::get(filtered,"deliver",false)))return;message=Core::get(filtered,"message",Value::object());if(Core::truthy(Core::get(filtered,"acknowledged",false))){{std::lock_guard<std::mutex> lock(subscription_mutex_);subscription_ready_=true;}subscription_condition_.notify_all();}}auto method=display(Core::get(message,"method",""));if(method=="notifications/tools/list_changed"||method=="notifications/prompts/list_changed"||method=="notifications/resources/list_changed")refresh();if(method=="notifications/resources/updated"){auto uri=display(Core::get(Core::get(message,"params",Value::object()),"uri",""));if(!uri.empty())value_erase(resource_read_cache_,uri);}emit_notification(std::move(message));});transport_->set_request_handler([this](Value request){return handle_server_request(std::move(request));});transport_->set_lifecycle_handler([this](std::string state){emit_lifecycle(state);}); }
+    : state_(std::make_shared<State>()) {
+  state_->transport_=std::move(transport); state_->options_=std::move(options);
+  std::weak_ptr<State> weak=state_;
+  state_->transport_->set_message_handler([weak](Value message){if(auto state=weak.lock())AxMCPClient(std::move(state)).handle_notification(std::move(message));});
+  state_->transport_->set_request_handler([weak](Value request){if(auto state=weak.lock())return AxMCPClient(std::move(state)).handle_server_request(std::move(request));throw AxError("mcp","MCP client is closed");});
+  state_->transport_->set_lifecycle_handler([weak](std::string event){if(auto state=weak.lock())AxMCPClient(std::move(state)).emit_lifecycle(event);});
+}
+
+void AxMCPClient::handle_notification(Value message){if(state_->era_=="modern"){std::string active;{std::lock_guard<std::mutex> lock(state_->subscription_mutex_);active=state_->active_subscription_id_;}auto filtered=Core::mcp_notification_subscription_filter(message,active);if(!Core::truthy(Core::get(filtered,"deliver",false)))return;message=Core::get(filtered,"message",Value::object());if(Core::truthy(Core::get(filtered,"acknowledged",false))){{std::lock_guard<std::mutex> lock(state_->subscription_mutex_);state_->subscription_ready_=true;}state_->subscription_condition_.notify_all();}}auto method=display(Core::get(message,"method",""));if(method=="notifications/tools/list_changed"||method=="notifications/prompts/list_changed"||method=="notifications/resources/list_changed")refresh();if(method=="notifications/resources/updated"){auto uri=display(Core::get(Core::get(message,"params",Value::object()),"uri",""));if(!uri.empty())value_erase(state_->resource_read_cache_,uri);}emit_notification(std::move(message));}
 
 void AxMCPClient::init() {
-  if(initialized_)return;
-  auto sampling=Core::get(options_,"sampling",Value());if(!sampling.is_null()&&Core::truthy(sampling))throw AxError("mcp","MCP sampling is not supported by the generated C++ client");
-  transport_->connect();
-  auto& era_cache=ax_mcp_client_era_cache();auto configured=display(Core::get(options_,"era","auto"));auto key=transport_->era_cache_key();auto cached=era_cache[key];auto stored=Core::get(Core::get(options_,"eraStore",Value::object()),key,"");auto resolution=Core::mcp_resolve_known_era(configured,transport_->era_hint(),cached,stored);auto resolved=display(Core::get(resolution,"era","modern"));
-  if(!Core::truthy(Core::get(resolution,"probe",false))){if(resolved=="legacy")initialize_legacy();else{apply_era("modern");apply_discovery(request_discovery());refresh();}remember_era(resolved);initialized_=true;if(resolved=="legacy")transport_->start_listening();return;}
-  apply_era("modern");try{apply_discovery(request_discovery());}catch(const AxError& error){if(error.code=="-32022")throw;initialize_legacy();remember_era("legacy");initialized_=true;transport_->start_listening();return;}remember_era("modern");refresh();initialized_=true;
+  if(state_->initialized_)return;
+  auto sampling=Core::get(state_->options_,"sampling",Value());if(!sampling.is_null()&&Core::truthy(sampling))throw AxError("mcp","MCP sampling is not supported by the generated C++ client");
+  state_->transport_->connect();
+  auto& era_cache=ax_mcp_client_era_cache();auto configured=display(Core::get(state_->options_,"era","auto"));auto key=state_->transport_->era_cache_key();auto cached=era_cache[key];auto stored=Core::get(Core::get(state_->options_,"eraStore",Value::object()),key,"");auto resolution=Core::mcp_resolve_known_era(configured,state_->transport_->era_hint(),cached,stored);auto resolved=display(Core::get(resolution,"era","modern"));
+  if(!Core::truthy(Core::get(resolution,"probe",false))){if(resolved=="legacy")initialize_legacy();else{apply_era("modern");apply_discovery(request_discovery());refresh();}remember_era(resolved);state_->initialized_=true;if(resolved=="legacy")state_->transport_->start_listening();return;}
+  apply_era("modern");try{apply_discovery(request_discovery());}catch(const AxError& error){if(error.code=="-32022")throw;initialize_legacy();remember_era("legacy");state_->initialized_=true;state_->transport_->start_listening();return;}remember_era("modern");refresh();state_->initialized_=true;
 }
 
 void AxMCPClient::initialize_legacy(){
   apply_era("legacy");
   Value result = request("initialize", object({
-      {"protocolVersion", display(Core::get(options_, "protocolVersion", AX_MCP_PROTOCOL_VERSION))},
+      {"protocolVersion", display(Core::get(state_->options_, "protocolVersion", AX_MCP_PROTOCOL_VERSION))},
       {"capabilities", client_capabilities()},
       {"clientInfo", object({{"name", "AxMCPClient"}, {"title", "Ax MCP Client"}, {"version", "1.0.0"}})},
   }));
-  negotiated_protocol_version_ = display(Core::get(result, "protocolVersion", ""));
-  bool supported = negotiated_protocol_version_ == "2026-07-28" || negotiated_protocol_version_ == "2025-11-25" || negotiated_protocol_version_ == "2025-06-18" ||
-                   negotiated_protocol_version_ == "2025-03-26" || negotiated_protocol_version_ == "2024-11-05";
-  if (!supported) throw AxError("mcp", "Unsupported MCP protocol version " + negotiated_protocol_version_);
-  transport_->set_protocol_version(negotiated_protocol_version_);
-  server_capabilities_ = Core::get(result, "capabilities", Value::object());
+  state_->negotiated_protocol_version_ = display(Core::get(result, "protocolVersion", ""));
+  bool supported = state_->negotiated_protocol_version_ == "2026-07-28" || state_->negotiated_protocol_version_ == "2025-11-25" || state_->negotiated_protocol_version_ == "2025-06-18" ||
+                   state_->negotiated_protocol_version_ == "2025-03-26" || state_->negotiated_protocol_version_ == "2024-11-05";
+  if (!supported) throw AxError("mcp", "Unsupported MCP protocol version " + state_->negotiated_protocol_version_);
+  state_->transport_->set_protocol_version(state_->negotiated_protocol_version_);
+  state_->server_capabilities_ = Core::get(result, "capabilities", Value::object());
   set_server_info(Core::get(result, "serverInfo", Value::object()));
   negotiate_extensions();
   notify("notifications/initialized");
   refresh();
 }
 
-void AxMCPClient::apply_era(const std::string& era){era_=era;transport_->set_era(era);if(era=="modern"){negotiated_protocol_version_="2026-07-28";transport_->set_protocol_version(negotiated_protocol_version_);}else negotiated_protocol_version_.clear();}
-void AxMCPClient::remember_era(const std::string& era){auto key=transport_->era_cache_key();if(!key.empty())ax_mcp_client_era_cache()[key]=era;}
+void AxMCPClient::apply_era(const std::string& era){state_->era_=era;state_->transport_->set_era(era);if(era=="modern"){state_->negotiated_protocol_version_="2026-07-28";state_->transport_->set_protocol_version(state_->negotiated_protocol_version_);}else state_->negotiated_protocol_version_.clear();}
+void AxMCPClient::remember_era(const std::string& era){auto key=state_->transport_->era_cache_key();if(!key.empty())ax_mcp_client_era_cache()[key]=era;}
 Value AxMCPClient::request_discovery(){return request("server/discover",Value::object());}
-void AxMCPClient::apply_discovery(Value result){auto classified=Core::mcp_classify_discovery_result(result);if(!Core::truthy(Core::get(classified,"valid",false)))throw AxError("mcp","Invalid MCP server/discover result");discover_result_=result;server_capabilities_=Core::get(classified,"capabilities",Value::object());auto info=Core::get(classified,"serverInfo",Value());if(!info.is_null())set_server_info(info);negotiate_extensions();}
-void AxMCPClient::negotiate_extensions(){negotiated_extensions_=Core::mcp_negotiate_extensions(Core::get(client_capabilities(),"extensions",Value::object()),Core::get(server_capabilities_,"extensions",Value::object()));}
-Value AxMCPClient::discover(){init();if(era_!="modern")throw AxError("mcp","server/discover is only available for modern MCP");auto result=request_discovery();apply_discovery(result);return result;}
+void AxMCPClient::apply_discovery(Value result){auto classified=Core::mcp_classify_discovery_result(result);if(!Core::truthy(Core::get(classified,"valid",false)))throw AxError("mcp","Invalid MCP server/discover result");state_->discover_result_=result;state_->server_capabilities_=Core::get(classified,"capabilities",Value::object());auto info=Core::get(classified,"serverInfo",Value());if(!info.is_null())set_server_info(info);negotiate_extensions();}
+void AxMCPClient::negotiate_extensions(){state_->negotiated_extensions_=Core::mcp_negotiate_extensions(Core::get(client_capabilities(),"extensions",Value::object()),Core::get(state_->server_capabilities_,"extensions",Value::object()));}
+Value AxMCPClient::discover(){init();if(state_->era_!="modern")throw AxError("mcp","server/discover is only available for modern MCP");auto result=request_discovery();apply_discovery(result);return result;}
 
-void AxMCPClient::close(){initialized_=false;{std::lock_guard<std::mutex> lock(subscription_mutex_);active_subscription_id_.clear();}transport_->close_request_stream();subscription_owners_.clear();catalog_cache_=Value::object();resource_read_cache_=Value::object();transport_->close();}
+void AxMCPClient::close(){state_->initialized_=false;{std::lock_guard<std::mutex> lock(state_->subscription_mutex_);state_->active_subscription_id_.clear();}state_->transport_->close_request_stream();state_->subscription_owners_.clear();state_->catalog_cache_=Value::object();state_->resource_read_cache_=Value::object();state_->transport_->close();}
 
 void AxMCPClient::refresh(){refresh(true);}
 void AxMCPClient::refresh(bool force) {
   bool changed=false;
-  if (capability("tools")&&(force||!catalog_cache_fresh("tools"))) {tools_.clear();for(auto tool:collect_catalog("tools/list","tools")){try{Core::mcp_param_header_bindings(Core::get(tool,"inputSchema",Value::object()));tools_.push_back(tool);}catch(const std::exception&){}}changed=true;}
-  if (capability("prompts")&&(force||!catalog_cache_fresh("prompts"))){prompts_=collect_catalog("prompts/list","prompts");changed=true;}
+  if (capability("tools")&&(force||!catalog_cache_fresh("tools"))) {state_->tools_.clear();for(auto tool:collect_catalog("tools/list","tools")){try{Core::mcp_param_header_bindings(Core::get(tool,"inputSchema",Value::object()));state_->tools_.push_back(tool);}catch(const std::exception&){}}changed=true;}
+  if (capability("prompts")&&(force||!catalog_cache_fresh("prompts"))){state_->prompts_=collect_catalog("prompts/list","prompts");changed=true;}
   if (capability("resources")) {
-    if(force||!catalog_cache_fresh("resources")){resources_=collect_catalog("resources/list","resources");changed=true;}
-    if(force||!catalog_cache_fresh("resourceTemplates")){resource_templates_=collect_catalog("resources/templates/list","resourceTemplates");changed=true;}
+    if(force||!catalog_cache_fresh("resources")){state_->resources_=collect_catalog("resources/list","resources");changed=true;}
+    if(force||!catalog_cache_fresh("resourceTemplates")){state_->resource_templates_=collect_catalog("resources/templates/list","resourceTemplates");changed=true;}
   }
-  if(changed)++catalog_revision_;
+  if(changed)++state_->catalog_revision_;
 }
 
-std::vector<Value> AxMCPClient::collect_catalog(const std::string& method,const std::string& field){std::vector<Value> out;Value pages=Value::array();std::string cursor;std::set<std::string> seen;auto max_pages=static_cast<int>(Core::number(Core::get(options_,"maxPaginationPages",1000)));for(int page=0;page<max_pages;++page){auto result=request(method,cursor_params(cursor));Core::append(pages,result);for(auto item:as_array_local(Core::get(result,field,Value::array())))out.push_back(item);cursor=display(Core::get(result,"nextCursor",""));if(cursor.empty()){std::map<std::string,std::string> names={{"tools/list","tools"},{"prompts/list","prompts"},{"resources/list","resources"},{"resources/templates/list","resourceTemplates"}};auto found=names.find(method);if(found!=names.end())Core::set(catalog_cache_,found->second,Core::mcp_fold_cache_info(pages,mcp_now_ms()));return out;}if(!seen.insert(cursor).second)throw AxError("mcp","MCP "+method+" repeated pagination cursor "+cursor);}throw AxError("mcp","MCP "+method+" exceeded pagination limit");}
-bool AxMCPClient::catalog_cache_fresh(const std::string& name)const{return Core::truthy(Core::mcp_cache_freshness(Core::get(catalog_cache_,name,Value()),mcp_now_ms()));}
+std::vector<Value> AxMCPClient::collect_catalog(const std::string& method,const std::string& field){std::vector<Value> out;Value pages=Value::array();std::string cursor;std::set<std::string> seen;auto max_pages=static_cast<int>(Core::number(Core::get(state_->options_,"maxPaginationPages",1000)));for(int page=0;page<max_pages;++page){auto result=request(method,cursor_params(cursor));Core::append(pages,result);for(auto item:as_array_local(Core::get(result,field,Value::array())))out.push_back(item);cursor=display(Core::get(result,"nextCursor",""));if(cursor.empty()){std::map<std::string,std::string> names={{"tools/list","tools"},{"prompts/list","prompts"},{"resources/list","resources"},{"resources/templates/list","resourceTemplates"}};auto found=names.find(method);if(found!=names.end())Core::set(state_->catalog_cache_,found->second,Core::mcp_fold_cache_info(pages,mcp_now_ms()));return out;}if(!seen.insert(cursor).second)throw AxError("mcp","MCP "+method+" repeated pagination cursor "+cursor);}throw AxError("mcp","MCP "+method+" exceeded pagination limit");}
+bool AxMCPClient::catalog_cache_fresh(const std::string& name)const{return Core::truthy(Core::mcp_cache_freshness(Core::get(state_->catalog_cache_,name,Value()),mcp_now_ms()));}
 
-AxMCPCatalogSnapshot AxMCPClient::inspect_catalog(bool refresh_catalog){init();if(refresh_catalog)refresh();AxMCPCatalogSnapshot out;out.namespace_name=namespace_name();out.protocol_version=negotiated_protocol_version_;out.revision=catalog_revision_;out.server_info=server_info_snapshot();out.server_capabilities=server_capabilities_;out.tools=Value(Array(tools_.begin(),tools_.end()));out.prompts=Value(Array(prompts_.begin(),prompts_.end()));out.resources=Value(Array(resources_.begin(),resources_.end()));out.resource_templates=Value(Array(resource_templates_.begin(),resource_templates_.end()));for(const auto& item:subscription_owners_)out.subscriptions.push_back(item.first);return out;}
+AxMCPCatalogSnapshot AxMCPClient::inspect_catalog(bool refresh_catalog){init();if(refresh_catalog)refresh();AxMCPCatalogSnapshot out;out.namespace_name=namespace_name();out.protocol_version=state_->negotiated_protocol_version_;out.revision=state_->catalog_revision_;out.server_info=server_info_snapshot();out.server_capabilities=state_->server_capabilities_;out.tools=Value(Array(state_->tools_.begin(),state_->tools_.end()));out.prompts=Value(Array(state_->prompts_.begin(),state_->prompts_.end()));out.resources=Value(Array(state_->resources_.begin(),state_->resources_.end()));out.resource_templates=Value(Array(state_->resource_templates_.begin(),state_->resource_templates_.end()));for(const auto& item:state_->subscription_owners_)out.subscriptions.push_back(item.first);return out;}
 
-std::string AxMCPClient::protocol_version() const { return negotiated_protocol_version_; }
+std::string AxMCPClient::protocol_version() const { return state_->negotiated_protocol_version_; }
 Value AxMCPClient::ping() { return request("ping"); }
 Value AxMCPClient::list_tools(const std::string& cursor) { return request("tools/list", cursor_params(cursor)); }
-Value AxMCPClient::call_tool(const std::string& name, Value arguments) {auto params=object({{"name",name},{"arguments",arguments}});Value result;try{result=request_with_input_rounds("tools/call",params,tool_headers(name,arguments));}catch(const AxError& error){if(era_!="modern"||error.code!="-32020")throw;tools_.clear();for(auto tool:collect_catalog("tools/list","tools")){try{Core::mcp_param_header_bindings(Core::get(tool,"inputSchema",Value::object()));tools_.push_back(tool);}catch(const std::exception&){}}result=request_with_input_rounds("tools/call",params,tool_headers(name,arguments));}if(display(Core::get(result,"resultType",""))!="task")return result;if(!has_tasks_capability())throw AxError("mcp","MCP protocol violation: server returned a task without negotiating io.modelcontextprotocol/tasks");if(!Core::truthy(Core::mcp_validate_modern_task(result)))throw AxError("mcp","MCP protocol violation: invalid CreateTaskResult");return await_modern_task(display(Core::get(result,"taskId","")));}
-Value AxMCPClient::await_modern_task(const std::string& task_id){auto max=static_cast<int>(Core::number(Core::get(options_,"maxTaskPolls",1000)));for(int poll=0;poll<max;++poll){auto outcome=Core::mcp_task_terminal_outcome(get_task(task_id));auto kind=display(Core::get(outcome,"kind",""));if(kind=="result")return Core::json_parse(Core::json_stringify(Core::get(outcome,"result",Value::object())));if(kind=="protocol_error")throw AxError("mcp",display(Core::get(outcome,"message","MCP task failed")),"",0,display(Core::get(outcome,"code",0)),false);if(kind=="violation"||kind=="failure"||kind=="cancelled")throw AxError("mcp",display(Core::get(outcome,"message","MCP task failed")));if(kind=="input_required"){auto fulfillment=Core::mcp_mrtr_plan_fulfillment(Core::get(outcome,"inputRequests",Value::object()),Core::get(options_,"roots",Value()),static_cast<bool>(elicitation_handler_),false);if(!Core::truthy(Core::get(fulfillment,"ok",false)))throw AxError("mcp",display(Core::get(fulfillment,"message","MCP protocol violation")));auto responses=Core::get(fulfillment,"responses",Value::object());for(auto entry:as_object_local(Core::get(fulfillment,"pending",Value::object()))){if(entry.first=="__order")continue;auto method=display(Core::get(entry.second,"method",""));if(!elicitation_handler_||method!="elicitation/create")throw AxError("mcp","MCP protocol violation: unsupported pending task input request method "+method);Core::set(responses,entry.first,elicitation_handler_(Core::get(entry.second,"params",Value::object()),object({{"client","AxMCPClient"},{"namespace",namespace_name()}})));}provide_task_input(task_id,responses);}}throw AxError("mcp","MCP task "+task_id+" exceeded "+std::to_string(max)+" polls");}
-Value AxMCPClient::tool_headers(const std::string& name,Value arguments)const{if(era_!="modern")return Value::object();for(auto tool:tools_)if(display(Core::get(tool,"name",""))==name){auto bindings=Core::mcp_param_header_bindings(Core::get(tool,"inputSchema",Value::object()));return Core::mcp_param_header_values(bindings,arguments);}return Value::object();}
+Value AxMCPClient::call_tool(const std::string& name, Value arguments) {auto params=object({{"name",name},{"arguments",arguments}});Value result;try{result=request_with_input_rounds("tools/call",params,tool_headers(name,arguments));}catch(const AxError& error){if(state_->era_!="modern"||error.code!="-32020")throw;state_->tools_.clear();for(auto tool:collect_catalog("tools/list","tools")){try{Core::mcp_param_header_bindings(Core::get(tool,"inputSchema",Value::object()));state_->tools_.push_back(tool);}catch(const std::exception&){}}result=request_with_input_rounds("tools/call",params,tool_headers(name,arguments));}if(display(Core::get(result,"resultType",""))!="task")return result;if(!has_tasks_capability())throw AxError("mcp","MCP protocol violation: server returned a task without negotiating io.modelcontextprotocol/tasks");if(!Core::truthy(Core::mcp_validate_modern_task(result)))throw AxError("mcp","MCP protocol violation: invalid CreateTaskResult");return await_modern_task(display(Core::get(result,"taskId","")));}
+Value AxMCPClient::await_modern_task(const std::string& task_id){auto max=static_cast<int>(Core::number(Core::get(state_->options_,"maxTaskPolls",1000)));for(int poll=0;poll<max;++poll){auto outcome=Core::mcp_task_terminal_outcome(get_task(task_id));auto kind=display(Core::get(outcome,"kind",""));if(kind=="result")return Core::json_parse(Core::json_stringify(Core::get(outcome,"result",Value::object())));if(kind=="protocol_error")throw AxError("mcp",display(Core::get(outcome,"message","MCP task failed")),"",0,display(Core::get(outcome,"code",0)),false);if(kind=="violation"||kind=="failure"||kind=="cancelled")throw AxError("mcp",display(Core::get(outcome,"message","MCP task failed")));if(kind=="input_required"){auto fulfillment=Core::mcp_mrtr_plan_fulfillment(Core::get(outcome,"inputRequests",Value::object()),Core::get(state_->options_,"roots",Value()),static_cast<bool>(state_->elicitation_handler_),false);if(!Core::truthy(Core::get(fulfillment,"ok",false)))throw AxError("mcp",display(Core::get(fulfillment,"message","MCP protocol violation")));auto responses=Core::get(fulfillment,"responses",Value::object());for(auto entry:as_object_local(Core::get(fulfillment,"pending",Value::object()))){if(entry.first=="__order")continue;auto method=display(Core::get(entry.second,"method",""));if(!state_->elicitation_handler_||method!="elicitation/create")throw AxError("mcp","MCP protocol violation: unsupported pending task input request method "+method);Core::set(responses,entry.first,state_->elicitation_handler_(Core::get(entry.second,"params",Value::object()),object({{"client","AxMCPClient"},{"namespace",namespace_name()}})));}provide_task_input(task_id,responses);}}throw AxError("mcp","MCP task "+task_id+" exceeded "+std::to_string(max)+" polls");}
+Value AxMCPClient::tool_headers(const std::string& name,Value arguments)const{if(state_->era_!="modern")return Value::object();for(auto tool:state_->tools_)if(display(Core::get(tool,"name",""))==name){auto bindings=Core::mcp_param_header_bindings(Core::get(tool,"inputSchema",Value::object()));return Core::mcp_param_header_values(bindings,arguments);}return Value::object();}
 Value AxMCPClient::list_prompts(const std::string& cursor) { return request("prompts/list", cursor_params(cursor)); }
 Value AxMCPClient::get_prompt(const std::string& name, Value arguments) { return request_with_input_rounds("prompts/get", object({{"name", name}, {"arguments", arguments}}),Value::object()); }
 Value AxMCPClient::list_resources(const std::string& cursor) { return request("resources/list", cursor_params(cursor)); }
-Value AxMCPClient::read_resource(const std::string& uri) {bool enabled=era_=="modern"&&Core::truthy(Core::get(options_,"readCache",false));if(enabled){auto cached=Core::get(resource_read_cache_,uri,Value());if(!cached.is_null()&&Core::truthy(Core::mcp_cache_freshness(Core::get(cached,"cache",Value()),mcp_now_ms())))return Core::json_parse(Core::json_stringify(Core::get(cached,"result",Value::object())));value_erase(resource_read_cache_,uri);}auto result=request_with_input_rounds("resources/read",object({{"uri",uri}}),Value::object());if(enabled){auto cache=Core::mcp_fold_cache_info(array({result}),mcp_now_ms());if(Core::truthy(Core::mcp_cache_freshness(cache,mcp_now_ms())))Core::set(resource_read_cache_,uri,object({{"result",Core::json_parse(Core::json_stringify(result))},{"cache",cache}}));}return result;}
-Value AxMCPClient::acquire_resource_subscription(const std::string& uri,const std::string& owner){if(!Core::truthy(Core::get(Core::get(server_capabilities_,"resources",Value::object()),"subscribe",false)))throw AxError("mcp","Resource subscriptions are not supported");Value current=Value::array();for(const auto& value:subscription_owners_[uri])Core::append(current,value);auto transition=Core::mcp_resource_subscription_ownership(current,owner,"acquire");std::set<std::string> owners;for(const auto& value:Core::iter(Core::get(transition,"owners",Value::array())))owners.insert(display(value));subscription_owners_[uri]=std::move(owners);if(era_=="modern"){if(Core::truthy(Core::get(transition,"changed",false))&&!active_subscription_id_.empty())start_listening();return Value::object();}return display(Core::get(transition,"wireAction","none"))=="subscribe"?request("resources/subscribe",object({{"uri",uri}})):Value::object();}
-Value AxMCPClient::release_resource_subscription(const std::string& uri,const std::string& owner){if(!Core::truthy(Core::get(Core::get(server_capabilities_,"resources",Value::object()),"subscribe",false)))throw AxError("mcp","Resource subscriptions are not supported");Value current=Value::array();auto found=subscription_owners_.find(uri);if(found!=subscription_owners_.end())for(const auto& value:found->second)Core::append(current,value);auto transition=Core::mcp_resource_subscription_ownership(current,owner,"release");std::set<std::string> owners;for(const auto& value:Core::iter(Core::get(transition,"owners",Value::array())))owners.insert(display(value));if(owners.empty())subscription_owners_.erase(uri);else subscription_owners_[uri]=std::move(owners);if(era_=="modern"){if(Core::truthy(Core::get(transition,"changed",false))&&!active_subscription_id_.empty())start_listening();return Value::object();}return display(Core::get(transition,"wireAction","none"))=="unsubscribe"?request("resources/unsubscribe",object({{"uri",uri}})):Value::object();}
-void AxMCPClient::restore_resource_subscriptions(){if(era_=="modern"){if(!active_subscription_id_.empty())start_listening();return;}for(const auto& item:subscription_owners_)request("resources/subscribe",object({{"uri",item.first}}));}
-void AxMCPClient::start_listening(){init();if(era_!="modern"){transport_->start_listening();return;}transport_->close_request_stream();auto id="listen-"+std::to_string(next_id_++);Value uris=Value::array();for(const auto& item:subscription_owners_)Core::append(uris,item.first);auto notifications=Core::mcp_listen_interests(uris,Core::get(options_,"subscriptionFilters",Value::object()));auto meta=Core::mcp_build_request_meta(Value::object(),negotiated_protocol_version_,client_capabilities(),object({{"name","AxMCPClient"},{"title","Ax MCP Client"},{"version","1.0.0"}}),Core::get(options_,"logLevel",Value()),Value(),Value());{std::lock_guard<std::mutex> lock(subscription_mutex_);active_subscription_id_=id;subscription_ready_=false;}transport_->open_request_stream(object({{"jsonrpc","2.0"},{"id",id},{"method","subscriptions/listen"},{"params",object({{"notifications",notifications},{"_meta",meta}})}}));std::unique_lock<std::mutex> lock(subscription_mutex_);auto timeout=static_cast<long>(Core::number(Core::get(options_,"listenAckTimeoutMs",2000)));if(!subscription_condition_.wait_for(lock,std::chrono::milliseconds(timeout),[this]{return subscription_ready_;}))throw AxError("mcp","subscriptions/listen acknowledgement timed out");}
+Value AxMCPClient::read_resource(const std::string& uri) {bool enabled=state_->era_=="modern"&&Core::truthy(Core::get(state_->options_,"readCache",false));if(enabled){auto cached=Core::get(state_->resource_read_cache_,uri,Value());if(!cached.is_null()&&Core::truthy(Core::mcp_cache_freshness(Core::get(cached,"cache",Value()),mcp_now_ms())))return Core::json_parse(Core::json_stringify(Core::get(cached,"result",Value::object())));value_erase(state_->resource_read_cache_,uri);}auto result=request_with_input_rounds("resources/read",object({{"uri",uri}}),Value::object());if(enabled){auto cache=Core::mcp_fold_cache_info(array({result}),mcp_now_ms());if(Core::truthy(Core::mcp_cache_freshness(cache,mcp_now_ms())))Core::set(state_->resource_read_cache_,uri,object({{"result",Core::json_parse(Core::json_stringify(result))},{"cache",cache}}));}return result;}
+Value AxMCPClient::acquire_resource_subscription(const std::string& uri,const std::string& owner){if(!Core::truthy(Core::get(Core::get(state_->server_capabilities_,"resources",Value::object()),"subscribe",false)))throw AxError("mcp","Resource subscriptions are not supported");Value current=Value::array();for(const auto& value:state_->subscription_owners_[uri])Core::append(current,value);auto transition=Core::mcp_resource_subscription_ownership(current,owner,"acquire");std::set<std::string> owners;for(const auto& value:Core::iter(Core::get(transition,"owners",Value::array())))owners.insert(display(value));state_->subscription_owners_[uri]=std::move(owners);if(state_->era_=="modern"){if(Core::truthy(Core::get(transition,"changed",false))&&!state_->active_subscription_id_.empty())start_listening();return Value::object();}return display(Core::get(transition,"wireAction","none"))=="subscribe"?request("resources/subscribe",object({{"uri",uri}})):Value::object();}
+Value AxMCPClient::release_resource_subscription(const std::string& uri,const std::string& owner){if(!Core::truthy(Core::get(Core::get(state_->server_capabilities_,"resources",Value::object()),"subscribe",false)))throw AxError("mcp","Resource subscriptions are not supported");Value current=Value::array();auto found=state_->subscription_owners_.find(uri);if(found!=state_->subscription_owners_.end())for(const auto& value:found->second)Core::append(current,value);auto transition=Core::mcp_resource_subscription_ownership(current,owner,"release");std::set<std::string> owners;for(const auto& value:Core::iter(Core::get(transition,"owners",Value::array())))owners.insert(display(value));if(owners.empty())state_->subscription_owners_.erase(uri);else state_->subscription_owners_[uri]=std::move(owners);if(state_->era_=="modern"){if(Core::truthy(Core::get(transition,"changed",false))&&!state_->active_subscription_id_.empty())start_listening();return Value::object();}return display(Core::get(transition,"wireAction","none"))=="unsubscribe"?request("resources/unsubscribe",object({{"uri",uri}})):Value::object();}
+void AxMCPClient::restore_resource_subscriptions(){if(state_->era_=="modern"){if(!state_->active_subscription_id_.empty())start_listening();return;}for(const auto& item:state_->subscription_owners_)request("resources/subscribe",object({{"uri",item.first}}));}
+void AxMCPClient::start_listening(){init();if(state_->era_!="modern"){state_->transport_->start_listening();return;}state_->transport_->close_request_stream();auto id="listen-"+std::to_string(state_->next_id_++);Value uris=Value::array();for(const auto& item:state_->subscription_owners_)Core::append(uris,item.first);auto notifications=Core::mcp_listen_interests(uris,Core::get(state_->options_,"subscriptionFilters",Value::object()));auto meta=Core::mcp_build_request_meta(Value::object(),state_->negotiated_protocol_version_,client_capabilities(),object({{"name","AxMCPClient"},{"title","Ax MCP Client"},{"version","1.0.0"}}),Core::get(state_->options_,"logLevel",Value()),Value(),Value());{std::lock_guard<std::mutex> lock(state_->subscription_mutex_);state_->active_subscription_id_=id;state_->subscription_ready_=false;}state_->transport_->open_request_stream(object({{"jsonrpc","2.0"},{"id",id},{"method","subscriptions/listen"},{"params",object({{"notifications",notifications},{"_meta",meta}})}}));std::unique_lock<std::mutex> lock(state_->subscription_mutex_);auto timeout=static_cast<long>(Core::number(Core::get(state_->options_,"listenAckTimeoutMs",2000)));if(!state_->subscription_condition_.wait_for(lock,std::chrono::milliseconds(timeout),[this]{return state_->subscription_ready_;}))throw AxError("mcp","subscriptions/listen acknowledgement timed out");}
 Value AxMCPClient::subscribe_resource(const std::string& uri) { return acquire_resource_subscription(uri,"manual"); }
 Value AxMCPClient::unsubscribe_resource(const std::string& uri) { return release_resource_subscription(uri,"manual"); }
-bool AxMCPClient::has_tasks_capability()const{return era_=="modern"?value_has(negotiated_extensions_,"io.modelcontextprotocol/tasks"):capability("tasks");}
-Value AxMCPClient::get_task(const std::string& task_id) {if(!has_tasks_capability())throw AxError("mcp","Tasks are not supported");auto result=request("tasks/get",object({{"taskId",task_id}}));if(era_=="modern"&&!Core::truthy(Core::mcp_validate_modern_task(result)))throw AxError("mcp","MCP protocol violation: invalid tasks/get result");return result;}
-Value AxMCPClient::cancel_task(const std::string& task_id) {if(!has_tasks_capability())throw AxError("mcp","Tasks are not supported");auto result=request("tasks/cancel",object({{"taskId",task_id}}));return era_=="modern"?Value::object():result;}
-Value AxMCPClient::list_tasks(const std::string& cursor){if(era_=="modern")throw AxError("mcp","tasks/list is only available for legacy MCP tasks");if(!has_tasks_capability())throw AxError("mcp","Tasks are not supported");return request("tasks/list",cursor_params(cursor));}
-Value AxMCPClient::get_task_result(const std::string& task_id){if(era_=="modern")throw AxError("mcp","tasks/result is only available for legacy MCP tasks; modern results are embedded in tasks/get");if(!has_tasks_capability())throw AxError("mcp","Tasks are not supported");return request("tasks/result",object({{"taskId",task_id}}));}
-void AxMCPClient::provide_task_input(const std::string& task_id,Value input_responses){if(era_!="modern"||!has_tasks_capability())throw AxError("mcp","tasks/update is only available for modern MCP Tasks v2");request("tasks/update",object({{"taskId",task_id},{"inputResponses",input_responses}}));}
+bool AxMCPClient::has_tasks_capability()const{return state_->era_=="modern"?value_has(state_->negotiated_extensions_,"io.modelcontextprotocol/tasks"):capability("tasks");}
+Value AxMCPClient::get_task(const std::string& task_id) {if(!has_tasks_capability())throw AxError("mcp","Tasks are not supported");auto result=request("tasks/get",object({{"taskId",task_id}}));if(state_->era_=="modern"&&!Core::truthy(Core::mcp_validate_modern_task(result)))throw AxError("mcp","MCP protocol violation: invalid tasks/get result");return result;}
+Value AxMCPClient::cancel_task(const std::string& task_id) {if(!has_tasks_capability())throw AxError("mcp","Tasks are not supported");auto result=request("tasks/cancel",object({{"taskId",task_id}}));return state_->era_=="modern"?Value::object():result;}
+Value AxMCPClient::list_tasks(const std::string& cursor){if(state_->era_=="modern")throw AxError("mcp","tasks/list is only available for legacy MCP tasks");if(!has_tasks_capability())throw AxError("mcp","Tasks are not supported");return request("tasks/list",cursor_params(cursor));}
+Value AxMCPClient::get_task_result(const std::string& task_id){if(state_->era_=="modern")throw AxError("mcp","tasks/result is only available for legacy MCP tasks; modern results are embedded in tasks/get");if(!has_tasks_capability())throw AxError("mcp","Tasks are not supported");return request("tasks/result",object({{"taskId",task_id}}));}
+void AxMCPClient::provide_task_input(const std::string& task_id,Value input_responses){if(state_->era_!="modern"||!has_tasks_capability())throw AxError("mcp","tasks/update is only available for modern MCP Tasks v2");request("tasks/update",object({{"taskId",task_id},{"inputResponses",input_responses}}));}
 Value AxMCPClient::list_resource_templates(const std::string& cursor) { return request("resources/templates/list", cursor_params(cursor)); }
 
 void AxMCPClient::notify(const std::string& method, Value params) {
-  if(era_=="modern"&&(method=="notifications/initialized"||method=="notifications/roots/list_changed"||method=="notifications/cancelled"))return;
+  if(state_->era_=="modern"&&(method=="notifications/initialized"||method=="notifications/roots/list_changed"||method=="notifications/cancelled"))return;
   Value message = object({{"jsonrpc", "2.0"}, {"method", method}});
   if (!params.is_null()) Core::set(message, "params", params);
-  transport_->send_notification(message);
+  state_->transport_->send_notification(message);
 }
 
 void AxMCPClient::cancel_request(Value request_id, const std::string& reason) {
@@ -186,31 +194,31 @@ Value AxMCPClient::request(const std::string& method, Value params) {
   return request_with_headers(method,params,Value::object(),true);
 }
 
-void AxMCPClient::set_elicitation_handler(std::function<Value(Value,Value)> handler){elicitation_handler_=std::move(handler);}
+void AxMCPClient::set_elicitation_handler(std::function<Value(Value,Value)> handler){state_->elicitation_handler_=std::move(handler);}
 
-Value AxMCPClient::request_with_input_rounds(const std::string& method,Value base_params,Value headers){auto params=Core::json_parse(Core::json_stringify(base_params));auto max_rounds=Core::get(options_,"maxInputRounds",Value());for(int round=0;;++round){auto result=request_with_headers(method,params,headers,true);auto plan=Core::mcp_mrtr_plan_round(result,era_.empty()?"legacy":era_,method,round,max_rounds);auto action=display(Core::get(plan,"action",""));if(action=="complete")return result;if(action=="violation")throw AxError("mcp",display(Core::get(plan,"message","MCP protocol violation")));Value input_responses;auto requests=Core::get(plan,"inputRequests",Value());if(Core::truthy(Core::get(plan,"hasInputRequests",false))&&requests.is_object()){auto fulfillment=Core::mcp_mrtr_plan_fulfillment(requests,Core::get(options_,"roots",Value()),static_cast<bool>(elicitation_handler_),false);if(!Core::truthy(Core::get(fulfillment,"ok",false)))throw AxError("mcp",display(Core::get(fulfillment,"message","MCP protocol violation")));auto responses=Core::get(fulfillment,"responses",Value::object());for(auto entry:as_object_local(Core::get(fulfillment,"pending",Value::object()))){if(entry.first=="__order")continue;auto pending_method=display(Core::get(entry.second,"method",""));if(pending_method!="elicitation/create")throw AxError("mcp","MCP protocol violation: unsupported pending MRTR input request method "+pending_method);Core::set(responses,entry.first,elicitation_handler_(Core::get(entry.second,"params",Value::object()),object({{"namespace",namespace_name()}})));}input_responses=responses;}Value request_state;if(Core::truthy(Core::get(plan,"hasRequestState",false)))request_state=Core::get(plan,"requestState",Value());params=Core::mcp_mrtr_next_params(base_params,input_responses,request_state);}}
+Value AxMCPClient::request_with_input_rounds(const std::string& method,Value base_params,Value headers){auto params=Core::json_parse(Core::json_stringify(base_params));auto max_rounds=Core::get(state_->options_,"maxInputRounds",Value());for(int round=0;;++round){auto result=request_with_headers(method,params,headers,true);auto plan=Core::mcp_mrtr_plan_round(result,state_->era_.empty()?"legacy":state_->era_,method,round,max_rounds);auto action=display(Core::get(plan,"action",""));if(action=="complete")return result;if(action=="violation")throw AxError("mcp",display(Core::get(plan,"message","MCP protocol violation")));Value input_responses;auto requests=Core::get(plan,"inputRequests",Value());if(Core::truthy(Core::get(plan,"hasInputRequests",false))&&requests.is_object()){auto fulfillment=Core::mcp_mrtr_plan_fulfillment(requests,Core::get(state_->options_,"roots",Value()),static_cast<bool>(state_->elicitation_handler_),false);if(!Core::truthy(Core::get(fulfillment,"ok",false)))throw AxError("mcp",display(Core::get(fulfillment,"message","MCP protocol violation")));auto responses=Core::get(fulfillment,"responses",Value::object());for(auto entry:as_object_local(Core::get(fulfillment,"pending",Value::object()))){if(entry.first=="__order")continue;auto pending_method=display(Core::get(entry.second,"method",""));if(pending_method!="elicitation/create")throw AxError("mcp","MCP protocol violation: unsupported pending MRTR input request method "+pending_method);Core::set(responses,entry.first,state_->elicitation_handler_(Core::get(entry.second,"params",Value::object()),object({{"namespace",namespace_name()}})));}input_responses=responses;}Value request_state;if(Core::truthy(Core::get(plan,"hasRequestState",false)))request_state=Core::get(plan,"requestState",Value());params=Core::mcp_mrtr_next_params(base_params,input_responses,request_state);}}
 
 Value AxMCPClient::request_with_headers(const std::string& method,Value params,Value headers,bool allow_version_retry){
-  Value message = object({{"jsonrpc", "2.0"}, {"id", std::to_string(next_id_++)}, {"method", method}});
-  Value request_params=parse_json(stringify(params));if(era_=="modern"){if(!request_params.is_object())request_params=Value::object();auto meta=Core::mcp_build_request_meta(Core::get(request_params,"_meta",Value::object()),negotiated_protocol_version_,client_capabilities(),object({{"name","AxMCPClient"},{"title","Ax MCP Client"},{"version","1.0.0"}}),Core::get(options_,"logLevel",Value()),Value(),Value());Core::set(request_params,"_meta",meta);}
+  Value message = object({{"jsonrpc", "2.0"}, {"id", std::to_string(state_->next_id_++)}, {"method", method}});
+  Value request_params=parse_json(stringify(params));if(state_->era_=="modern"){if(!request_params.is_object())request_params=Value::object();auto meta=Core::mcp_build_request_meta(Core::get(request_params,"_meta",Value::object()),state_->negotiated_protocol_version_,client_capabilities(),object({{"name","AxMCPClient"},{"title","Ax MCP Client"},{"version","1.0.0"}}),Core::get(state_->options_,"logLevel",Value()),Value(),Value());Core::set(request_params,"_meta",meta);}
   if (!params.is_null()) Core::set(message, "params", request_params);
-  Value response = transport_->send_with_headers(message,headers);
+  Value response = state_->transport_->send_with_headers(message,headers);
   Value error = Core::get(response, "error", Value());
-  if (!error.is_null()){auto code=display(Core::get(error,"code",0));if(era_=="modern"&&allow_version_retry&&code=="-32022"){auto supported=array({"2026-07-28","2025-11-25","2025-06-18","2025-03-26","2024-11-05"});auto version=display(Core::mcp_select_mutual_version(Core::get(error,"data",Value()),supported));if(!version.empty()){negotiated_protocol_version_=version;transport_->set_protocol_version(version);return request_with_headers(method,params,headers,false);}}throw AxError("mcp",display(Core::get(error,"message","MCP JSON-RPC error")),"",0,code,false);}
-  auto result=Core::get(response,"result",Value::object());if(era_=="modern"){auto info=Core::get(Core::get(result,"_meta",Value::object()),"io.modelcontextprotocol/serverInfo",Value());if(!info.is_null()&&!display(Core::get(info,"name","")).empty()&&!display(Core::get(info,"version","")).empty())set_server_info(info);}return result;
+  if (!error.is_null()){auto code=display(Core::get(error,"code",0));if(state_->era_=="modern"&&allow_version_retry&&code=="-32022"){auto supported=array({"2026-07-28","2025-11-25","2025-06-18","2025-03-26","2024-11-05"});auto version=display(Core::mcp_select_mutual_version(Core::get(error,"data",Value()),supported));if(!version.empty()){state_->negotiated_protocol_version_=version;state_->transport_->set_protocol_version(version);return request_with_headers(method,params,headers,false);}}throw AxError("mcp",display(Core::get(error,"message","MCP JSON-RPC error")),"",0,code,false);}
+  auto result=Core::get(response,"result",Value::object());if(state_->era_=="modern"){auto info=Core::get(Core::get(result,"_meta",Value::object()),"io.modelcontextprotocol/serverInfo",Value());if(!info.is_null()&&!display(Core::get(info,"name","")).empty()&&!display(Core::get(info,"version","")).empty())set_server_info(info);}return result;
 }
 
-Value AxMCPClient::client_capabilities()const{Value out=Core::get(options_,"capabilities",Value::object());auto tasks=Core::get(options_,"tasksExtension",Value());auto enabled=tasks.is_null()||Core::truthy(tasks);auto has_elicitation=static_cast<bool>(elicitation_handler_);auto derived=Core::mcp_client_capabilities(!Core::get(options_,"roots",Value()).is_null(),false,has_elicitation,era_.empty()?"legacy":era_,enabled);for(auto entry:as_object_local(derived))if(!value_has(out,entry.first))Core::set(out,entry.first,entry.second);value_erase(out,"sampling");if(!has_elicitation)value_erase(out,"elicitation");return out;}
+Value AxMCPClient::client_capabilities()const{Value out=Core::get(state_->options_,"capabilities",Value::object());auto tasks=Core::get(state_->options_,"tasksExtension",Value());auto enabled=tasks.is_null()||Core::truthy(tasks);auto has_elicitation=static_cast<bool>(state_->elicitation_handler_);auto derived=Core::mcp_client_capabilities(!Core::get(state_->options_,"roots",Value()).is_null(),false,has_elicitation,state_->era_.empty()?"legacy":state_->era_,enabled);for(auto entry:as_object_local(derived))if(!value_has(out,entry.first))Core::set(out,entry.first,entry.second);value_erase(out,"sampling");if(!has_elicitation)value_erase(out,"elicitation");return out;}
 
 Value AxMCPClient::handle_server_request(Value request) {
   auto plan = Core::mcp_server_request_plan(
-      request, Core::get(options_, "roots", Value()),
-      static_cast<bool>(elicitation_handler_));
+      request, Core::get(state_->options_, "roots", Value()),
+      static_cast<bool>(state_->elicitation_handler_));
   if (display(Core::get(plan, "action", "")) == "respond") {
     return Core::get(plan, "response", Value::object());
   }
   try {
-    auto result = elicitation_handler_(
+    auto result = state_->elicitation_handler_(
         Core::get(plan, "params", Value::object()),
         object({{"client", "AxMCPClient"}, {"namespace", namespace_name()}}));
     return object({{"jsonrpc", "2.0"},
@@ -225,24 +233,24 @@ Value AxMCPClient::handle_server_request(Value request) {
 }
 
 bool AxMCPClient::capability(const std::string& name) const {
-  Value value = Core::get(server_capabilities_, name, Value());
+  Value value = Core::get(state_->server_capabilities_, name, Value());
   return !value.is_null() && !equal(value, false);
 }
 
 std::vector<Tool> AxMCPClient::to_function() {
   std::vector<Tool> out;
-  for (auto item : tools_) out.push_back(tool_to_function(item));
-  for (auto item : prompts_) out.push_back(prompt_to_function(item));
-  for (auto item : resources_) out.push_back(resource_to_function(item));
-  for (auto item : resource_templates_) out.push_back(resource_template_to_function(item));
+  for (auto item : state_->tools_) out.push_back(tool_to_function(item));
+  for (auto item : state_->prompts_) out.push_back(prompt_to_function(item));
+  for (auto item : state_->resources_) out.push_back(resource_to_function(item));
+  for (auto item : state_->resource_templates_) out.push_back(resource_template_to_function(item));
   return out;
 }
 
 std::vector<Tool> AxMCPClient::native_tools() {
   std::vector<Tool> out;
-  for (auto spec : tools_) {
+  for (auto spec : state_->tools_) {
     std::string original = display(Core::get(spec, "name", ""));
-    auto self = this;
+    auto self = owned_view();
     out.emplace_back(original, display(Core::get(spec, "description", original)), Core::get(spec, "inputSchema", Value::object()), [self, original](Value args) {
       return self->call_tool(original, args);
     });
@@ -250,15 +258,15 @@ std::vector<Tool> AxMCPClient::native_tools() {
   return out;
 }
 
-Value AxMCPClient::prompts() const { return Value(Array(prompts_.begin(), prompts_.end())); }
-Value AxMCPClient::resources() const { return Value(Array(resources_.begin(), resources_.end())); }
-Value AxMCPClient::resource_templates() const { return Value(Array(resource_templates_.begin(), resource_templates_.end())); }
+Value AxMCPClient::prompts() const { return Value(Array(state_->prompts_.begin(), state_->prompts_.end())); }
+Value AxMCPClient::resources() const { return Value(Array(state_->resources_.begin(), state_->resources_.end())); }
+Value AxMCPClient::resource_templates() const { return Value(Array(state_->resource_templates_.begin(), state_->resource_templates_.end())); }
 
-Value AxMCPClient::server_info_snapshot() const {std::lock_guard<std::mutex> lock(server_info_mutex_);return server_info_;}
-void AxMCPClient::set_server_info(Value info){std::lock_guard<std::mutex> lock(server_info_mutex_);server_info_=std::move(info);}
+Value AxMCPClient::server_info_snapshot() const {std::lock_guard<std::mutex> lock(state_->server_info_mutex_);return state_->server_info_;}
+void AxMCPClient::set_server_info(Value info){std::lock_guard<std::mutex> lock(state_->server_info_mutex_);state_->server_info_=std::move(info);}
 
 std::string AxMCPClient::namespace_name() const {
-  std::string configured = display(Core::get(options_, "namespace", ""));
+  std::string configured = display(Core::get(state_->options_, "namespace", ""));
   if(!configured.empty())return configured;auto server=display(Core::get(server_info_snapshot(),"name",""));return server.empty()?"mcp":server;
 }
 
@@ -380,7 +388,7 @@ void AxExecutionContext::attach(AxAgent& agent) { initialize(); for (auto& clien
 Tool AxMCPClient::tool_to_function(Value spec) {
   std::string original = display(Core::get(spec, "name", ""));
   std::string desc = display(Core::get(spec, "description", original));
-  auto self = this;
+  auto self = owned_view();
   return Tool(original, desc, Core::get(spec, "inputSchema", Value::object()), [self, original](Value args) {
     Value result = self->call_tool(original, args);
     Value structured = Core::get(result, "structuredContent", Value());
@@ -391,7 +399,7 @@ Tool AxMCPClient::tool_to_function(Value spec) {
 
 Tool AxMCPClient::prompt_to_function(Value spec) {
   std::string original = display(Core::get(spec, "name", ""));
-  auto self = this;
+  auto self = owned_view();
   return Tool("prompt_" + original, display(Core::get(spec, "description", original)), Value::object(), [self, original](Value args) {
     return self->get_prompt(original, args);
   });
@@ -399,13 +407,13 @@ Tool AxMCPClient::prompt_to_function(Value spec) {
 
 Tool AxMCPClient::resource_to_function(Value spec) {
   std::string uri = display(Core::get(spec, "uri", ""));
-  auto self = this;
+  auto self = owned_view();
   return Tool("resource_" + safe_name(display(Core::get(spec, "name", uri))), display(Core::get(spec, "description", uri)), Value::object(),
               [self, uri](Value) { return self->read_resource(uri); });
 }
 
 Tool AxMCPClient::resource_template_to_function(Value spec) {
-  auto self = this;
+  auto self = owned_view();
   return Tool("resource_template_" + safe_name(display(Core::get(spec, "name", "template"))), display(Core::get(spec, "description", "template")),
               Value::object(), [self](Value args) { return self->read_resource(display(Core::get(args, "uri", ""))); });
 }

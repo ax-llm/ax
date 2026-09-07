@@ -948,7 +948,7 @@ final class Core {
     for(Object descriptor:asList(selected)) {
       Object source=_agent_callable_implementation(state,get(descriptor,"qualified_name",""));
       if(!(source instanceof Tool tool))throw new IllegalArgumentException("Background agent callables must have a typed fn() implementation");
-      tools.add(new Tool(String.valueOf(get(descriptor,"native_name","")),String.valueOf(get(descriptor,"description","")),tool.args,tool.returns,tool.handler,"background",tool.contextHandler));
+      tools.add(new Tool(String.valueOf(get(descriptor,"native_name","")),String.valueOf(get(descriptor,"description","")),tool.args,tool.returns,tool.handler,"background",tool.contextHandler).parameters(tool.schema()));
     }
     var original=new ArrayList<>(gen.functions);var base=new ArrayList<>(gen.baseFunctions);var previous=new ArrayList<>(gen.functionCallTraces);
     gen.functions.addAll(tools);gen.baseFunctions.addAll(tools);gen.functionCallTraces.clear();

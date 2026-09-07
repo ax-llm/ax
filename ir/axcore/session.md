@@ -30,7 +30,12 @@ integers, type- and order-preserving enum/const comparison, nested properties an
 properties, numeric bounds, Unicode code-point string lengths, patterns, and
 array lengths. External and unresolved references are rejected. Partial argument
 events cannot start a handler. Native MCP schemas retain their original
-references and constraints through provider request construction. Ordinary
+references and constraints through provider request construction and agent tool
+renaming. Native actor calls use the imported MCP handler, preserving modern
+request metadata and raw structured results. Discovery controls exposure; an
+invalid call is corrected before the MCP handler runs. The responder sees the
+incorporated result, and the action log records the qualified name and call ID.
+Actor code cannot execute the same native callable again. Ordinary
 non-session tool invocation keeps its existing validation behavior.
 
 Host regular-expression engines evaluate patterns; advanced expressions outside
@@ -57,7 +62,11 @@ to a serialized dispatcher. Unsupported custom factories select a traced serial
 group. Group failure retains completed-node diagnostics, cancels active siblings,
 and discards late work. Balancer workers share synchronized failure counters and the adaptive statistics
 store. Python provider workers also share synchronized latency/error metrics.
-Closed dispatchers reject late worker deliveries.
+Closed dispatchers reject late worker deliveries. C++ MCP tool workers retain
+shared invocation state after the public client handle is destroyed. Transport
+callbacks use weak ownership to avoid a client/transport cycle. C++ tool
+registration uses synchronized lookups and unique IDs so concurrent construction
+cannot replace another worker's handler.
 
 Rust keeps borrowed clients and non-Send Core values on their owning thread.
 Python, Java, C++, Go, and Rust cancellation tests cover stalled HTTP responses
@@ -76,7 +85,7 @@ Scripted agent fixtures belong under package tests, not public examples.
 | Behavior | Shared evidence | Native evidence |
 | --- | --- | --- |
 | Raw schema validation | `session-raw-argument-validation.json`, evaluated against TypeScript | Invalid calls, correction requests, unchanged call IDs, and step exhaustion in all five session suites |
-| Native MCP schemas and modern continuation | `native-tools-modern-roundtrip.json` | Schema equality, protocol requests, opaque request state, and final raw tool result |
+| Native MCP schemas and modern continuation | `native-tools-modern-roundtrip.json` | All-five native agent tests assert discovery boundaries, exact schemas, invalid-argument correction, overlap, raw result continuation, responder output, action logs, and duplicate prevention |
 | Completed calls and pending work | `astra-session-completed-calls-and-response-boundaries.json`, `astra-pending-results-out-of-order.json` | Delayed tools, blocking barriers, partial arguments, and provisional answers |
 | Steering and reasoning history | `astra-native-steering-successor-no-replay.json`, `astra-native-late-pending-input.json`, `astra-session-transport-cursor.json` | Scripted sockets and delayed HTTP cleanup |
 | Scope and cancellation | `astra-scoped-updates-and-cancellation.json` | Root/future-node controls, per-node histories, noncooperative handlers, and aborts; all-five native agent tests assert stage-specific steering and reasoning continuations |

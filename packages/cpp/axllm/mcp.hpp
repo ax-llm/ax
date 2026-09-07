@@ -90,6 +90,8 @@ struct AxMCPCatalogSnapshot {
 class AxMCPClient {
  public:
   AxMCPClient(std::shared_ptr<AxMCPTransport> transport, Value options = Value::object());
+  AxMCPClient(const AxMCPClient&) = delete;
+  AxMCPClient& operator=(const AxMCPClient&) = delete;
   void init();
   void close();
   void refresh();
@@ -125,23 +127,23 @@ class AxMCPClient {
   std::string namespace_name() const;
   Value request(const std::string& method, Value params = Value::object());
   void set_elicitation_handler(std::function<Value(Value, Value)> handler);
-  std::string get_era() const { return era_; }
+  std::string get_era() const { return state_->era_; }
   Value discover();
-  int add_notification_listener(std::function<void(Value)> listener){int id=next_listener_id_++;notification_listeners_[id]=std::move(listener);return id;}
-  void remove_notification_listener(int id){notification_listeners_.erase(id);}
-  void emit_notification(Value message){auto listeners=notification_listeners_;for(auto& item:listeners)item.second(message);}
-  int add_lifecycle_listener(std::function<void(std::string)> listener){int id=next_listener_id_++;lifecycle_listeners_[id]=std::move(listener);return id;}
-  void remove_lifecycle_listener(int id){lifecycle_listeners_.erase(id);}
-  void emit_lifecycle(const std::string& state){if(era_=="modern"&&state=="disconnected"&&!active_subscription_id_.empty())std::thread([this]{try{start_listening();}catch(...){}}).detach();else if(state=="reconnected")restore_resource_subscriptions();auto listeners=lifecycle_listeners_;for(auto& item:listeners)item.second(state);}
+  int add_notification_listener(std::function<void(Value)> listener){int id=state_->next_listener_id_++;state_->notification_listeners_[id]=std::move(listener);return id;}
+  void remove_notification_listener(int id){state_->notification_listeners_.erase(id);}
+  void emit_notification(Value message){auto listeners=state_->notification_listeners_;for(auto& item:listeners)item.second(message);}
+  int add_lifecycle_listener(std::function<void(std::string)> listener){int id=state_->next_listener_id_++;state_->lifecycle_listeners_[id]=std::move(listener);return id;}
+  void remove_lifecycle_listener(int id){state_->lifecycle_listeners_.erase(id);}
+  void emit_lifecycle(const std::string& state){if(state_->era_=="modern"&&state=="disconnected"&&!state_->active_subscription_id_.empty())std::thread([self=owned_view()]{try{self->start_listening();}catch(...){}}).detach();else if(state=="reconnected")restore_resource_subscriptions();auto listeners=state_->lifecycle_listeners_;for(auto& item:listeners)item.second(state);}
 
  private:
+  // Tool workers retain protocol state independently of the public client handle.
+  struct State {
   std::shared_ptr<AxMCPTransport> transport_;
   Value options_;
   Value server_capabilities_ = Value::object();
   mutable std::mutex server_info_mutex_;
   Value server_info_ = Value::object();
-  Value server_info_snapshot() const;
-  void set_server_info(Value info);
   std::string negotiated_protocol_version_;
   std::string era_;
   Value discover_result_ = Value::object();
@@ -164,6 +166,13 @@ class AxMCPClient {
   std::map<int,std::function<void(std::string)>> lifecycle_listeners_;
   std::function<Value(Value,Value)> elicitation_handler_;
   bool initialized_=false;
+  };
+  std::shared_ptr<State> state_;
+  explicit AxMCPClient(std::shared_ptr<State> state) : state_(std::move(state)) {}
+  std::shared_ptr<AxMCPClient> owned_view() const { return std::shared_ptr<AxMCPClient>(new AxMCPClient(state_)); }
+  void handle_notification(Value message);
+  Value server_info_snapshot() const;
+  void set_server_info(Value info);
 
   bool capability(const std::string& name) const;
   void initialize_legacy();

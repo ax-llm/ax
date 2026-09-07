@@ -168,9 +168,7 @@ class SessionRun final:public AIClient {
     try{if(tool.is_null())throw AxError("validation","Function '"+name+"' not found");if(params.is_string())params=parse_json(display(params));Core::validate_fields(Core::get(tool,"args",Value::array()),params,"tool."+name+".args");Core::chat_session_validate_required_arguments(Core::get(tool,"parameters",Value::object()),params,"tool."+name+".args");}
     catch(const std::exception& error){Core::chat_session_register_call(state_,call,"blocking");Core::chat_session_record_result(gen_,state_,call,Core::get(Core::_tool_error_message_impl(call,object({{"message",error.what()}})),"result",error.what()),false);return;}
     Core::chat_session_register_call(state_,call,execution);blocking_=execution!="background";emit("tool.started",object({{"call_id",id}}));
-    auto found=tool_registry().find(display(Core::get(tool,"__tool_id")));if(found==tool_registry().end())throw AxError("runtime","Unknown tool handler");
-    auto handler=found->second;auto contextual=std::function<Value(Value,const AxToolContext&)>{};
-    auto contextual_it=contextual_tool_registry().find(display(Core::get(tool,"__tool_id")));if(contextual_it!=contextual_tool_registry().end())contextual=contextual_it->second;
+    auto callbacks=registered_tool(display(Core::get(tool,"__tool_id")));auto handler=callbacks.first;auto contextual=callbacks.second;
     auto inherited=runtime_hook_frames;auto results=results_;params=parse_json(stringify(params));call=parse_json(stringify(call));Value returns=parse_json(stringify(Core::get(tool,"returns",Value::array())));
     std::thread([handler,contextual,inherited,results,params,call,returns,name,id]{
       runtime_hook_frames=inherited;

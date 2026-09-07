@@ -99,6 +99,51 @@ public final class AstraSessionTest {
     if(calls.get()!=first)throw new AssertionError("Parent forgot worker failure and replayed route");
     System.out.println("java owned balancer shares failure accounting");
   }
+  @SuppressWarnings("unchecked") static void nativeMCPAgentDiscovery() throws Exception {
+    var schema=(Map<String,Object>)Json.parse("{\"type\":\"object\",\"$defs\":{\"reference\":{\"type\":\"string\",\"minLength\":3}},\"properties\":{\"query\":{\"$ref\":\"#/$defs/reference\"}},\"required\":[\"query\"],\"additionalProperties\":false}");
+    var started=new CountDownLatch(1);var release=new CountDownLatch(1);var calls=new CopyOnWriteArrayList<Map<String,Object>>();var requests=new ArrayList<Map<String,Object>>();var hidden=new java.util.concurrent.atomic.AtomicBoolean(true);
+    AxMCPTransport mcpTransport=new AxMCPTransport(){
+      public void sendNotification(Map<String,Object> message){throw new AssertionError("Modern discovery initialized");}
+      public Map<String,Object> send(Map<String,Object> message){
+        String method=String.valueOf(message.get("method"));Object result;
+        if(method.equals("server/discover"))result=Map.of("resultType","complete","supportedVersions",List.of("2026-07-28"),"ttlMs",60000,"cacheScope","private","capabilities",Map.of("tools",Map.of()));
+        else if(method.equals("tools/list"))result=Map.of("tools",List.of(Map.of("name","lookup","description","Find reference","inputSchema",schema)));
+        else {var params=(Map<String,Object>)message.get("params");if(!method.equals("tools/call")||!"lookup".equals(params.get("name"))||!Map.of("query","REF-42").equals(params.get("arguments"))||!(params.get("_meta") instanceof Map))throw new AssertionError("Lost MCP invocation: "+message);calls.add(message);started.countDown();try{if(!release.await(3,TimeUnit.SECONDS))throw new AssertionError("MCP tool did not overlap model");}catch(InterruptedException error){throw new RuntimeException(error);}result=Map.of("resultType","complete","structuredContent",Map.of("reference","REF-42"),"content",List.of(Map.of("type","text","text","REF-42")));}
+        return Map.of("jsonrpc","2.0","id",message.get("id"),"result",result);
+      }
+    };
+    var mcp=new AxMCPClient(mcpTransport,Map.of("era","modern","namespace","orders"));mcp.init();var original=mcp.nativeTools().get(0);if(!"blocking".equals(original.execution))throw new AssertionError("MCP hint enabled background work");
+    var nativeTool=Ax.fn(original.name).description(original.description).parameters(original.schema()).execution("background").handler(original.handler).build();
+    var program=Ax.agent("question -> answer",Map.of("functions",List.of(Map.of("namespace","orders","functions",List.of(nativeTool))),"functionDiscovery",true,"directResponse","off"));
+    OpenAICompatibleClient.Transport transport=new OpenAICompatibleClient.Transport(){
+      public Object call(Map<String,Object> request)throws Exception{return event(request,false);}
+      public Object stream(Map<String,Object> request)throws Exception{return event(request,true);}
+      private Object event(Map<String,Object> request,boolean streaming)throws Exception {
+        var body=(Map<String,Object>)request.get("json");requests.add(body);int number=requests.size();var tools=(List<Map<String,Object>>)body.getOrDefault("tools",List.of());var actor=tools.stream().filter(tool->Boolean.TRUE.equals(tool.get("async"))).toList();Map<String,Object> event;
+        if(hidden.get()){
+          if(!actor.isEmpty())throw new AssertionError("Undiscovered tool exposed");event=completed("hidden-"+number,number<3?"{\"completion\":{\"type\":\"final\",\"args\":[\"No discovered tools\",{}]}}":"{\"answer\":\"not discovered\"}");
+        }else if(number==1||number==5){
+          if(!actor.isEmpty())throw new AssertionError("Native authority escaped executor");if(number==5&&!Json.stringify(body).contains("REF-42"))throw new AssertionError("Responder preceded result incorporation");event=completed("stage-"+number,number==1?"{\"completion\":{\"type\":\"final\",\"args\":[\"Find reference\",{}]}}":"{\"answer\":\"REF-42\"}");
+        }else if(number==2){
+          if(actor.size()!=1||!"orders_lookup".equals(actor.get(0).get("name"))||!schema.equals(actor.get(0).get("parameters")))throw new AssertionError("Lost native MCP schema: "+actor);
+          event=Map.of("type","response.completed","response",Map.of("id","invalid-response","model","gpt-6-astra","output",List.of(Map.of("type","function_call","id","invalid","call_id","invalid-call","name","orders_lookup","arguments","{\"query\":\"X\"}"))));
+        }else if(number==3){
+          if(!calls.isEmpty()||!"invalid-response".equals(body.get("previous_response_id")))throw new AssertionError("Invalid args reached MCP or lost correction");
+          var pipe=new java.io.PipedInputStream();var writer=new java.io.PipedOutputStream(pipe);new Thread(()->{try(writer){writer.write(("data: "+Json.stringify(Map.of("type","response.output_item.done","item",Map.of("type","function_call","id","valid","call_id","mcp-call","name","orders_lookup","arguments","{\"query\":\"REF-42\"}")))+"\n\n").getBytes(java.nio.charset.StandardCharsets.UTF_8));writer.flush();if(!started.await(3,TimeUnit.SECONDS))throw new AssertionError("MCP tool did not start");release.countDown();writer.write(("data: "+Json.stringify(completed("tool-response","{\"completion\":{\"type\":\"final\",\"args\":[\"Report\",{\"answer\":\"provisional\"}]}}"))+"\n\n").getBytes(java.nio.charset.StandardCharsets.UTF_8));}catch(Exception error){throw new RuntimeException(error);}},"mcp-agent-fixture").start();return pipe;
+        }else{
+          if(number!=4||!"tool-response".equals(body.get("previous_response_id")))throw new AssertionError("Unexpected continuation");var input=(List<Map<String,Object>>)body.get("input");var result=input.get(input.size()-1);if(!"mcp-call".equals(result.get("call_id"))||!Json.stringify(Json.parse(String.valueOf(result.get("output")))).contains("REF-42"))throw new AssertionError("MCP result lost");event=completed("final-response","{\"completion\":{\"type\":\"final\",\"args\":[\"Report\",{\"answer\":\"REF-42\"}]}}");
+        }
+        return streaming?"data: "+Json.stringify(event)+"\n\n":Map.of("status",200,"json",event.get("response"));
+      }
+    };
+    var client=Ax.ai("openai",Map.of("api_key","test","model","gpt-6-astra","transport",transport));
+    if(!"not discovered".equals(program.forward(client,Map.of("question","Find reference")).get("answer"))||!calls.isEmpty()||requests.size()!=3)throw new AssertionError("Discovery boundary failed");
+    program.discover(Map.of("tools",List.of("orders")));hidden.set(false);requests.clear();
+    if(!"REF-42".equals(program.forward(client,Map.of("question","Find reference")).get("answer"))||calls.size()!=1||requests.size()!=5)throw new AssertionError("Native MCP execution failed");
+    boolean recorded=program.getActionLog().stream().anyMatch(entry->entry instanceof Map<?,?> record&&"orders.lookup".equals(record.get("qualified_name"))&&"mcp-call".equals(record.get("call_id"))&&"ok".equals(record.get("status")));if(!recorded)throw new AssertionError("Native MCP activity missing");
+    var duplicate=(Map<String,Object>)program.invokeCallable("orders.lookup",Map.of("query","REF-42"));if(!"error".equals(duplicate.get("status"))||calls.size()!=1)throw new AssertionError("Native MCP call replayed through actor");
+    System.out.println("java discovered MCP native agent schema, correction, overlap, result and action log passed");
+  }
   static void ownedFlowFailure() throws Exception {
     var gate=new CyclicBarrier(3);var release=new CountDownLatch(1);var fast=new CountDownLatch(1);var late=new CountDownLatch(1);var requests=new AtomicInteger();
     class Transport implements OpenAICompatibleClient.Transport {
@@ -153,7 +198,7 @@ public final class AstraSessionTest {
     ownedFlowFailure();ownedBalancerFailureAccounting();
     ownedFlowOverlap();
     manualClockDeadline();
-    nativeFiles();
+    nativeFiles();nativeMCPAgentDiscovery();
     CountDownLatch started=new CountDownLatch(1),release=new CountDownLatch(1);
     AtomicInteger calls=new AtomicInteger(),requests=new AtomicInteger();
     OpenAICompatibleClient.Transport transport=new OpenAICompatibleClient.Transport(){
