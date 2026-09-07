@@ -136,15 +136,23 @@ export function axValidateChatRequestMessage(item: AxChatRequestMessage): void {
                 'image' in contentItem && typeof contentItem.image === 'string'
                   ? contentItem.image
                   : undefined;
+              const fileUri =
+                'fileUri' in contentItem &&
+                typeof contentItem.fileUri === 'string'
+                  ? contentItem.fileUri
+                  : undefined;
               const mimeType =
                 'mimeType' in contentItem &&
                 typeof contentItem.mimeType === 'string'
                   ? contentItem.mimeType
                   : undefined;
 
-              if (!image || image.trim() === '') {
+              if (
+                (!image || image.trim() === '') &&
+                (!fileUri || fileUri.trim() === '')
+              ) {
                 throw new Error(
-                  `User message image content at index ${index} cannot be empty, received: ${value(image)}`
+                  `User message image content at index ${index} must have either data or fileUri, received: ${value(image ?? fileUri)}`
                 );
               }
               if (!mimeType || mimeType.trim() === '') {
