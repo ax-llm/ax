@@ -2848,6 +2848,13 @@ public final class Conformance {
   }
 
   private static void runAISessionState(Map<String, Object> fixture) {
+    for (Object raw : Core.iter(fixture.get("validation_cases"))) {
+      Map<String,Object> item = Core.asMap(raw);
+      boolean valid = true;
+      try { Core.chat_session_validate_required_arguments(item.get("schema"), item.get("arguments"), "arguments"); }
+      catch (RuntimeException error) { valid = false; }
+      assertEqual(valid, item.get("valid"), "raw argument validation: " + item);
+    }
     Object state = Core.chat_session_create_state(fixture.get("model"), fixture.get("path"), fixture.get("max_steps"));
     for (Object rawCase : Core.iter(fixture.get("cases"))) {
       Map<String, Object> item = Core.asMap(rawCase);

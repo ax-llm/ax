@@ -29,10 +29,29 @@ import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ExecutionException;
 
 public class OpenAICompatibleClient extends AxBaseAI implements AxChatSession.Provider {
+  private boolean ownedWorker;
+  public java.util.function.Supplier<AiClient> ownedWorkerFactory() {
+    if(!ownedWorker && getClass()!=OpenAICompatibleClient.class && getClass()!=OpenAIResponsesClient.class && getClass()!=GoogleGeminiClient.class && getClass()!=AnthropicClient.class)return null;
+    var transportFactory=transport==null?null:transport.ownedWorkerFactory();
+    if(transport!=null&&transportFactory==null)return null;
+    Map<String,Object> snapshot=Core.asMap(Core.ownedCopy(options));
+    snapshot.put("api_key",apiKey);snapshot.put("base_url",baseUrl);snapshot.put("model",model);snapshot.put("embed_model",embedModel);snapshot.put("model_config",Core.ownedCopy(modelConfig));
+    if(credentialProvider!=null)snapshot.put("credentialProvider",credentialProvider);
+    AxRuntimeHooks hooks=runtimeHooks;String sourceId=getId();
+    var cache=Core.asMap(Core.ownedCopy(contextCacheEntries));
+    return ()->{
+      var ownedOptions=Core.asMap(Core.ownedCopy(snapshot));if(transportFactory!=null)ownedOptions.put("transport",transportFactory.get());
+      OpenAICompatibleClient owned=new OpenAICompatibleClient(profile,name,ownedOptions,model,embedModel){public String getId(){return sourceId;}};
+      owned.runtimeHooks=hooks;owned.ownedWorker=true;
+      for(var entry:cache.entrySet())owned.contextCacheEntries.put(entry.getKey(),Core.asMap(Core.ownedCopy(entry.getValue())));
+      return owned;
+    };
+  }
   public AxChatSession openChatSession(Map<String,Object> request,Map<String,Object> options) throws Exception {
     return new ResponsesChatSession(this,request,options);
   }
   public interface Transport {
+    default java.util.function.Supplier<Transport> ownedWorkerFactory() { return null; }
     Object call(Map<String, Object> request) throws Exception;
     default Object stream(Map<String, Object> request) throws Exception { return call(request); }
     default Object call(Map<String,Object> request,AxCancellationToken cancellation)throws Exception{if(cancellation!=null)cancellation.throwIfCancelled();Object value=call(request);if(cancellation!=null)cancellation.throwIfCancelled();return value;}

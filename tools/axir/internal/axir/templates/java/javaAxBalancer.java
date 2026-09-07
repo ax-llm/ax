@@ -16,11 +16,19 @@ public final class AxBalancer implements AxAIService,ChatRunSelector,AxChatSessi
   private final List<AxAIService> services;
   private AxAIService currentService;
   private int currentServiceIndex = 0;
-  private final Map<String, Map<String, Object>> serviceFailures = new HashMap<>();
+  private java.util.concurrent.ConcurrentMap<String, Map<String, Object>> serviceFailures = new java.util.concurrent.ConcurrentHashMap<>();
   private final Map<String, Object> policy;
   private AdaptiveState adaptive;
   private boolean debug;
   private int maxRetries;
+
+  public java.util.function.Supplier<AiClient> ownedWorkerFactory() {
+    var factories=new ArrayList<java.util.function.Supplier<AiClient>>();for(var service:services){var factory=service.ownedWorkerFactory();if(factory==null)return null;factories.add(factory);}
+    var policy=Core.asMap(Core.ownedCopy(this.policy));var failures=serviceFailures;var adaptive=this.adaptive;int current=currentServiceIndex;int retries=maxRetries;boolean debug=this.debug;
+    var keys=new ArrayList<String>();var indices=new ArrayList<Integer>();if(adaptive!=null)for(var service:services){keys.add(adaptive.routeKeys.get(service));indices.add(adaptive.indices.get(service));}
+    return ()->{var clients=new ArrayList<AxAIService>();for(var factory:factories)clients.add((AxAIService)factory.get());var worker=new AxBalancer(clients,Map.of("strategy","input_order"));worker.policy.clear();worker.policy.putAll(Core.asMap(Core.ownedCopy(policy)));worker.maxRetries=retries;worker.debug=debug;worker.currentServiceIndex=current;worker.currentService=clients.get(current);worker.serviceFailures=failures;
+      if(adaptive!=null){var routeKeys=new java.util.IdentityHashMap<AxAIService,String>();var positions=new java.util.IdentityHashMap<AxAIService,Integer>();for(int i=0;i<clients.size();i++){routeKeys.put(clients.get(i),keys.get(i));positions.put(clients.get(i),indices.get(i));}worker.adaptive=new AdaptiveState(adaptive.strategy,adaptive.store,routeKeys,positions);}return worker;};
+  }
 
   public AxBalancer(List<? extends AxAIService> services) { this(services, Map.of()); }
 
@@ -117,11 +125,7 @@ public final class AxBalancer implements AxAIService,ChatRunSelector,AxChatSessi
   private boolean canRetryService(AxAIService service) { return !serviceFailures.containsKey(service.getId()); }
 
   private void handleFailure(AxAIService service) {
-    Map<String, Object> failure = serviceFailures.getOrDefault(service.getId(), new LinkedHashMap<>());
-    int retries = Core.asInt(failure.getOrDefault("retries", 0)) + 1;
-    Map<String, Object> next = new LinkedHashMap<>();
-    next.put("retries", retries);
-    serviceFailures.put(service.getId(), next);
+    serviceFailures.compute(service.getId(),(id,failure)->Map.of("retries",Core.asInt(failure==null?0:failure.getOrDefault("retries",0))+1));
   }
 
   private void handleSuccess(AxAIService service) { serviceFailures.remove(service.getId()); }
@@ -442,7 +446,7 @@ public final class AxBalancer implements AxAIService,ChatRunSelector,AxChatSessi
       } catch (AxAIServiceError e) {
         if (!retryable(e)) throw e;
         handleFailure(service);
-        Map<String, Object> failure = serviceFailures.get(service.getId());
+        Map<String, Object> failure = serviceFailures.getOrDefault(service.getId(),Map.of());
         if (Core.asInt(failure.getOrDefault("retries", 0)) >= maxRetries) {
           service = nextService(candidates, index);
           index++;
@@ -483,7 +487,7 @@ public final class AxBalancer implements AxAIService,ChatRunSelector,AxChatSessi
             if (!retryable(error)) throw error;
             last = error;
             handleFailure(service);
-            Map<String, Object> failure = serviceFailures.get(service.getId());
+            Map<String, Object> failure = serviceFailures.getOrDefault(service.getId(),Map.of());
             if (Core.asInt(failure.getOrDefault("retries", 0)) >= maxRetries) break;
           }
         }
@@ -552,7 +556,7 @@ public final class AxBalancer implements AxAIService,ChatRunSelector,AxChatSessi
       } catch (AxAIServiceError e) {
         if (!retryable(e)) throw e;
         handleFailure(currentService);
-        Map<String, Object> failure = serviceFailures.get(currentService.getId());
+        Map<String, Object> failure = serviceFailures.getOrDefault(currentService.getId(),Map.of());
         if (Core.asInt(failure.getOrDefault("retries", 0)) >= maxRetries) {
           AxAIService next = nextService(services, index);
           index++;

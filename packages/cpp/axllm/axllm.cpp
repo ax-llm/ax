@@ -703,6 +703,8 @@ Value Core::div(Value left, Value right) {
   return Value(num(left) / (denom == 0.0 ? 1.0 : denom));
 }
 Value Core::math_abs(Value value) { return Value(std::abs(num(value))); }
+Value Core::string_codepoint_length(Value value) { size_t count = 0; for (unsigned char byte : str(value)) if ((byte & 0xc0) != 0x80) ++count; return Value(static_cast<double>(count)); }
+Value Core::math_is_finite(Value value) { return Value(std::isfinite(num(value))); }
 Value Core::math_floor(Value value) { return Value(std::floor(num(value))); }
 Value Core::math_log(Value value) { return Value(std::log(num(value))); }
 Value Core::math_exp(Value value) { return Value(std::exp(num(value))); }
@@ -1204,9 +1206,23 @@ Value Core::client_ref(AIClient& client) {
   }
   return Value(Object{{"__client_id", id}});
 }
+static std::mutex& stage_registry_mutex() { static std::mutex mutex; return mutex; }
+static AxProgram* registered_stage(const std::string& id) {
+  std::lock_guard<std::mutex> lock(stage_registry_mutex());
+  auto it=agent_stage_registry().find(id);return it==agent_stage_registry().end()?nullptr:it->second;
+}
+using OwnedFlowPrograms = std::vector<std::shared_ptr<AxProgram>>;
+static std::mutex owned_flows_mutex;
+static std::map<std::string,std::weak_ptr<OwnedFlowPrograms>> owned_flows;
+static void register_owned_flow(Value state,const std::shared_ptr<OwnedFlowPrograms>& programs) {
+  auto id=pointer_id(programs.get());Core::set(state,"__owned_flow_id",id);
+  std::lock_guard<std::mutex> lock(owned_flows_mutex);
+  for(auto it=owned_flows.begin();it!=owned_flows.end();)if(it->second.expired())it=owned_flows.erase(it);else ++it;
+  owned_flows[id]=programs;
+}
 Value Core::agent_stage_ref(AxProgram& stage) {
   std::string id = pointer_id(&stage);
-  agent_stage_registry()[id] = &stage;
+  { std::lock_guard<std::mutex> lock(stage_registry_mutex()); agent_stage_registry()[id] = &stage; }
   return Value(Object{{"__agent_stage_id", id}});
 }
 Value Core::code_runtime_ref(AxCodeRuntime& runtime) {
@@ -1257,14 +1273,14 @@ Value Core::object_call_method(Value target, Value method_name, Value arg) {
 }
 Value Core::program_components(Value program) {
   std::string stage_id = str(get_key(program, "__agent_stage_id"));
-  auto it = agent_stage_registry().find(stage_id);
-  if (it == agent_stage_registry().end() || it->second == nullptr) return Value::array();
-  return it->second->get_optimizable_components();
+  auto* stage_ptr = registered_stage(stage_id);
+  if (!stage_ptr) return Value::array();
+  return stage_ptr->get_optimizable_components();
 }
 Value Core::program_apply_components(Value program, Value component_map) {
   std::string stage_id = str(get_key(program, "__agent_stage_id"));
-  auto it = agent_stage_registry().find(stage_id);
-  if (it != agent_stage_registry().end() && it->second != nullptr) it->second->apply_optimized_components(std::move(component_map));
+  auto* stage_ptr = registered_stage(stage_id);
+  if (stage_ptr) stage_ptr->apply_optimized_components(std::move(component_map));
   return Value::object();
 }
 Value Core::ai_complete_once(Value client, Value request, Value options) {
@@ -1317,8 +1333,7 @@ Value Core::tool_invoke(Value fn, Value params) {
   return result;
 }
 Value Core::agent_native_stage_forward(Value stage,Value state,Value client,Value values,Value options,Value selected) {
-  auto it=agent_stage_registry().find(str(get_key(stage,"__agent_stage_id")));
-  auto* gen=it==agent_stage_registry().end()?nullptr:dynamic_cast<AxGen*>(it->second);
+  auto* gen=dynamic_cast<AxGen*>(registered_stage(str(get_key(stage,"__agent_stage_id"))));
   auto* ai=registered_client(str(get_key(client,"__client_id")));
   if(!gen||!ai)throw AxError("runtime","Native agent stage requires AxGen and an AI client");
   Value target=gen->value();Value original=get(target,"functions",Value::array()),previous=get(target,"function_call_traces",Value::array());
@@ -1338,8 +1353,8 @@ Value Core::agent_native_stage_forward(Value stage,Value state,Value client,Valu
 
 Value Core::agent_stage_forward(Value stage, Value client, Value values, Value options) {
   std::string stage_id = str(get_key(stage, "__agent_stage_id"));
-  auto stage_it = agent_stage_registry().find(stage_id);
-  if (stage_it == agent_stage_registry().end() || stage_it->second == nullptr) {
+  auto* stage_ptr = registered_stage(stage_id);
+  if (!stage_ptr) {
     throw AxError("runtime", "agent stage is not AxProgram");
   }
   std::string client_id = str(get_key(client, "__client_id"));
@@ -1347,22 +1362,22 @@ Value Core::agent_stage_forward(Value stage, Value client, Value values, Value o
   if (registered == nullptr) {
     throw AxError("runtime", "client does not implement AIClient");
   }
-  return stage_it->second->forward(*registered, values, options);
+  return stage_ptr->forward(*registered, values, options);
 }
 Value Core::agent_stage_chat_log(Value stage) {
   std::string stage_id = str(get_key(stage, "__agent_stage_id"));
-  auto it = agent_stage_registry().find(stage_id);
-  if (it == agent_stage_registry().end() || it->second == nullptr) return Value::array();
-  return it->second->get_chat_log();
+  auto* stage_ptr = registered_stage(stage_id);
+  if (!stage_ptr) return Value::array();
+  return stage_ptr->get_chat_log();
 }
 Value Core::agent_stage_usage(Value stage) {
   std::string stage_id = str(get_key(stage, "__agent_stage_id"));
-  auto it = agent_stage_registry().find(stage_id);
-  if (it == agent_stage_registry().end() || it->second == nullptr) return Value::array();
-  Value usage = it->second->get_usage();
+  auto* stage_ptr = registered_stage(stage_id);
+  if (!stage_ptr) return Value::array();
+  Value usage = stage_ptr->get_usage();
   if (truthy(usage)) return usage;
   Value items = Value::array();
-  for (const auto& raw_entry : array_ref(it->second->get_chat_log())) {
+  for (const auto& raw_entry : array_ref(stage_ptr->get_chat_log())) {
     Value item = get_key(raw_entry, "usage");
     if (truthy(item)) append(items, item);
   }
@@ -1370,9 +1385,9 @@ Value Core::agent_stage_usage(Value stage) {
 }
 Value Core::agent_stage_traces(Value stage) {
   std::string stage_id = str(get_key(stage, "__agent_stage_id"));
-  auto it = agent_stage_registry().find(stage_id);
-  if (it == agent_stage_registry().end() || it->second == nullptr) return Value::array();
-  return it->second->get_traces();
+  auto* stage_ptr = registered_stage(stage_id);
+  if (!stage_ptr) return Value::array();
+  return stage_ptr->get_traces();
 }
 Value Core::agent_clarification_error(Value payload, Value state) {
   Value args = get_key(payload, "args", Value::array());
@@ -14146,103 +14161,13 @@ Value Core::_select_structured_output_rung(Value signature, Value features, Valu
 
 Value Core::chat_session_validate_required_arguments(Value schema, Value arguments, Value path) {
   axir_coverage_mark("chat_session_validate_required_arguments");
-  Value declared_type = Core::get(schema, Value("type"), Value());
-  Value has_type = Core::is_not_none(declared_type);
-  if (Core::truthy(has_type)) {
-    Value types = Value::array();
-    Value is_union = Core::type_is(declared_type, Value("list"));
-    if (Core::truthy(is_union)) {
-      types = declared_type;
-    }
-    if (!Core::truthy(is_union)) {
-      Core::append(types, declared_type);
-    }
-    Value matches = Value(false);
-    for (auto type : Core::iter(types)) {
-      Value wants_string = Core::eq(type, Value("string"));
-      if (Core::truthy(wants_string)) {
-        Value value_string = Core::type_is(arguments, Value("string"));
-        matches = Core::or_(matches, value_string);
-      }
-      Value wants_object = Core::eq(type, Value("object"));
-      if (Core::truthy(wants_object)) {
-        Value value_object = Core::type_is(arguments, Value("object"));
-        matches = Core::or_(matches, value_object);
-      }
-      Value wants_array = Core::eq(type, Value("array"));
-      if (Core::truthy(wants_array)) {
-        Value value_array = Core::type_is(arguments, Value("list"));
-        matches = Core::or_(matches, value_array);
-      }
-      Value wants_number = Core::eq(type, Value("number"));
-      if (Core::truthy(wants_number)) {
-        Value value_number = Core::type_is(arguments, Value("number"));
-        matches = Core::or_(matches, value_number);
-      }
-      Value wants_boolean = Core::eq(type, Value("boolean"));
-      if (Core::truthy(wants_boolean)) {
-        Value value_boolean = Core::type_is(arguments, Value("boolean"));
-        matches = Core::or_(matches, value_boolean);
-      }
-      Value wants_null = Core::eq(type, Value("null"));
-      if (Core::truthy(wants_null)) {
-        Value value_null = Core::is_none(arguments);
-        matches = Core::or_(matches, value_null);
-      }
-      Value wants_integer = Core::eq(type, Value("integer"));
-      if (Core::truthy(wants_integer)) {
-        Value numeric = Core::type_is(arguments, Value("number"));
-        if (Core::truthy(numeric)) {
-          Value whole = Core::math_floor(arguments);
-          Value value_integer = Core::eq(whole, arguments);
-          matches = Core::or_(matches, value_integer);
-        }
-      }
-    }
-    if (Core::truthy(matches)) {
-      // empty
-    }
-    if (!Core::truthy(matches)) {
-      Value message = Core::string_format(Value("Validation failed: Expected '{}' to have type {}"), path, declared_type);
-      Value error = Core::validation_error(message);
-      Core::raise_error(error);
-    }
-  }
-  Value object = Core::type_is(arguments, Value("object"));
-  if (Core::truthy(object)) {
-    Value empty = Value::array();
-    Value required = Core::get(schema, Value("required"), empty);
-    for (auto name : Core::iter(required)) {
-      Value present = Core::map_contains(arguments, name);
-      if (Core::truthy(present)) {
-        // empty
-      }
-      if (!Core::truthy(present)) {
-        Value message = Core::string_format(Value("Required field is missing: '{}.{}'"), path, name);
-        Value error = Core::validation_error(message);
-        Core::raise_error(error);
-      }
-    }
-    Value empty_map = Value::object();
-    Value properties = Core::get(schema, Value("properties"), empty_map);
-    Value names = Core::map_keys(properties);
-    for (auto name : Core::iter(names)) {
-      Value present = Core::map_contains(arguments, name);
-      if (Core::truthy(present)) {
-        Value child = Core::get(arguments, name, Value());
-        Value child_schema = Core::get(properties, name, Value());
-        Value child_path = Core::string_format(Value("{}.{}"), path, name);
-        Core::chat_session_validate_required_arguments(child_schema, child, child_path);
-      }
-    }
-  }
-  Value array = Core::type_is(arguments, Value("list"));
-  if (Core::truthy(array)) {
-    Value empty_map = Value::object();
-    Value items = Core::get(schema, Value("items"), empty_map);
-    for (auto item : Core::iter(arguments)) {
-      Core::chat_session_validate_required_arguments(items, item, path);
-    }
+  Value errors = Core::_chat_session_argument_errors(schema, schema, arguments, path, Value(0));
+  Value count = Core::len(errors);
+  Value invalid = Core::gt(count, Value(0));
+  if (Core::truthy(invalid)) {
+    Value message = Core::string_join(Value("; "), errors);
+    Value error = Core::validation_error(message);
+    Core::raise_error(error);
   }
   return Value();
 }
@@ -14295,6 +14220,109 @@ Value Core::stream_extraction_route(Value has_complex_fields) {
     return Value("structured_json");
   }
   return Value("prompt_extraction");
+}
+
+Value Core::_chat_session_argument_equal(Value left, Value right, Value depth) {
+  axir_coverage_mark("_chat_session_argument_equal");
+  Value too_deep = Core::gt(depth, Value(64));
+  if (Core::truthy(too_deep)) {
+    return Value(false);
+  }
+  Value next = Core::add(depth, Value(1));
+  Value left_list = Core::type_is(left, Value("list"));
+  Value right_list = Core::type_is(right, Value("list"));
+  Value same_list = Core::eq(left_list, right_list);
+  if (Core::truthy(same_list)) {
+    // empty
+  }
+  if (!Core::truthy(same_list)) {
+    return Value(false);
+  }
+  Value left_object = Core::type_is(left, Value("object"));
+  Value right_object = Core::type_is(right, Value("object"));
+  Value same_object = Core::eq(left_object, right_object);
+  if (Core::truthy(same_object)) {
+    // empty
+  }
+  if (!Core::truthy(same_object)) {
+    return Value(false);
+  }
+  Value left_string = Core::type_is(left, Value("string"));
+  Value right_string = Core::type_is(right, Value("string"));
+  Value same_string = Core::eq(left_string, right_string);
+  if (Core::truthy(same_string)) {
+    // empty
+  }
+  if (!Core::truthy(same_string)) {
+    return Value(false);
+  }
+  Value left_number = Core::type_is(left, Value("number"));
+  Value right_number = Core::type_is(right, Value("number"));
+  Value same_number = Core::eq(left_number, right_number);
+  if (Core::truthy(same_number)) {
+    // empty
+  }
+  if (!Core::truthy(same_number)) {
+    return Value(false);
+  }
+  Value left_boolean = Core::type_is(left, Value("boolean"));
+  Value right_boolean = Core::type_is(right, Value("boolean"));
+  Value same_boolean = Core::eq(left_boolean, right_boolean);
+  if (Core::truthy(same_boolean)) {
+    // empty
+  }
+  if (!Core::truthy(same_boolean)) {
+    return Value(false);
+  }
+  if (Core::truthy(left_list)) {
+    Value left_size = Core::len(left);
+    Value right_size = Core::len(right);
+    Value same_size = Core::eq(left_size, right_size);
+    if (Core::truthy(same_size)) {
+      // empty
+    }
+    if (!Core::truthy(same_size)) {
+      return Value(false);
+    }
+    Value index = Value(0);
+    for (auto value : Core::iter(left)) {
+      Value other = Core::get(right, index, Value());
+      Value same = Core::_chat_session_argument_equal(value, other, next);
+      if (Core::truthy(same)) {
+        // empty
+      }
+      if (!Core::truthy(same)) {
+        return Value(false);
+      }
+      index = Core::add(index, Value(1));
+    }
+    return Value(true);
+  }
+  if (Core::truthy(left_object)) {
+    Value left_keys = Core::map_keys(left);
+    Value right_keys = Core::map_keys(right);
+    Value same_keys = Core::_chat_session_argument_equal(left_keys, right_keys, next);
+    if (Core::truthy(same_keys)) {
+      // empty
+    }
+    if (!Core::truthy(same_keys)) {
+      return Value(false);
+    }
+    for (auto key : Core::iter(left_keys)) {
+      Value value = Core::get(left, key, Value());
+      Value other = Core::get(right, key, Value());
+      Value same = Core::_chat_session_argument_equal(value, other, next);
+      if (Core::truthy(same)) {
+        // empty
+      }
+      if (!Core::truthy(same)) {
+        return Value(false);
+      }
+    }
+    return Value(true);
+  }
+  Value same = Core::eq(left, right);
+  return same;
 }
 
 Value Core::stream_structured_delta(Value fields, Value parsed_values, Value previous_values, Value partial_array_incomplete) {
@@ -14483,32 +14511,6 @@ Value Core::_validate_optimization_component_value(Value component, Value value)
   return Value(true);
 }
 
-Value Core::chat_session_record_result(Value gen, Value state, Value call, Value result, Value ok) {
-  axir_coverage_mark("chat_session_record_result");
-  Value id = Core::get(call, Value("id"), Value());
-  Value text = result;
-  Value is_string = Core::type_is(result, Value("string"));
-  if (Core::truthy(is_string)) {
-    // empty
-  }
-  if (!Core::truthy(is_string)) {
-    text = Core::json_stringify(result);
-  }
-  Value output = Value::object();
-  Core::set(output, Value("function_id"), id);
-  Core::set(output, Value("result"), text);
-  Value changed = Core::chat_session_complete_call(state, id, output);
-  if (Core::truthy(changed)) {
-    Value status = Value("error");
-    if (Core::truthy(ok)) {
-      status = Value("ok");
-    }
-    Core::axgen_memory_add_function_result(gen, call, result, ok);
-    Core::axgen_record_function_call(gen, call, result, status);
-  }
-  return changed;
-}
-
 Value Core::_validate_optimization_component_map(Value components, Value component_map) {
   axir_coverage_mark("_validate_optimization_component_map");
   Value known = Value::array();
@@ -14532,6 +14534,325 @@ Value Core::_validate_optimization_component_map(Value components, Value compone
     Core::_validate_optimization_component_value(component, value);
   }
   return Value(true);
+}
+
+Value Core::_chat_session_argument_errors(Value root, Value schema, Value arguments, Value path, Value depth) {
+  axir_coverage_mark("_chat_session_argument_errors");
+  Value errors = Value::array();
+  Value empty = Value::object();
+  Value empty_list = Value::array();
+  Value too_deep = Core::gt(depth, Value(64));
+  if (Core::truthy(too_deep)) {
+    Value message = Core::string_format(Value("{}: Arguments exceed schema nesting limit"), path);
+    Core::append(errors, message);
+    return errors;
+  }
+  Value next_depth = Core::add(depth, Value(1));
+  Value reference = Core::get(schema, Value("$ref"), Value(""));
+  if (Core::truthy(reference)) {
+    Value local = Core::string_starts_with(reference, Value("#/"));
+    if (Core::truthy(local)) {
+      Value tail = Core::string_slice(reference, Value(2));
+      Value parts = Core::string_split(tail, Value("/"));
+      Value target = root;
+      for (auto part : Core::iter(parts)) {
+        Value slash = Core::string_replace(part, Value("~1"), Value("/"));
+        Value key = Core::string_replace(slash, Value("~0"), Value("~"));
+        Value array_target = Core::type_is(target, Value("list"));
+        if (Core::truthy(array_target)) {
+          Value found = Core::get(empty, Value("not_found"), Value());
+          Value index = Value(0);
+          for (auto entry : Core::iter(target)) {
+            Value index_key = Core::string_format(Value("{}"), index);
+            Value same_index = Core::eq(index_key, key);
+            if (Core::truthy(same_index)) {
+              found = entry;
+            }
+            index = Core::add(index, Value(1));
+          }
+          target = found;
+        }
+        if (!Core::truthy(array_target)) {
+          target = Core::get(target, key, Value());
+        }
+      }
+      Value missing = Core::is_none(target);
+      Value target_boolean = Core::type_is(target, Value("boolean"));
+      if (Core::truthy(target_boolean)) {
+        Value is_false = Core::not_(target);
+        missing = Core::or_(missing, is_false);
+      }
+      Value target_number = Core::type_is(target, Value("number"));
+      if (Core::truthy(target_number)) {
+        Value is_zero = Core::eq(target, Value(0));
+        missing = Core::or_(missing, is_zero);
+      }
+      Value target_string = Core::type_is(target, Value("string"));
+      if (Core::truthy(target_string)) {
+        Value is_empty = Core::eq(target, Value(""));
+        missing = Core::or_(missing, is_empty);
+      }
+      if (Core::truthy(missing)) {
+        Value message = Core::string_format(Value("{}: Unresolved schema reference"), path);
+        Core::append(errors, message);
+        return errors;
+      }
+      Value referenced_errors = Core::_chat_session_argument_errors(root, target, arguments, path, next_depth);
+      return referenced_errors;
+    }
+    if (!Core::truthy(local)) {
+      Value message = Core::string_format(Value("{}: External schema references are unsupported"), path);
+      Core::append(errors, message);
+      return errors;
+    }
+  }
+  Value all = Core::get(schema, Value("allOf"), empty_list);
+  for (auto branch : Core::iter(all)) {
+    Value branch_errors = Core::_chat_session_argument_errors(root, branch, arguments, path, next_depth);
+    for (auto error : Core::iter(branch_errors)) {
+      Core::append(errors, error);
+    }
+  }
+  Value keywords = Value::array();
+  Core::append(keywords, Value("anyOf"));
+  Core::append(keywords, Value("oneOf"));
+  for (auto keyword : Core::iter(keywords)) {
+    Value branches = Core::get(schema, keyword, Value());
+    Value union_branches = Core::type_is(branches, Value("list"));
+    if (Core::truthy(union_branches)) {
+      Value matches = Value(0);
+      for (auto branch : Core::iter(branches)) {
+        Value branch_errors = Core::_chat_session_argument_errors(root, branch, arguments, path, next_depth);
+        Value error_count = Core::len(branch_errors);
+        Value match = Core::eq(error_count, Value(0));
+        if (Core::truthy(match)) {
+          matches = Core::add(matches, Value(1));
+        }
+      }
+      Value no_match = Core::eq(matches, Value(0));
+      Value one = Core::eq(keyword, Value("oneOf"));
+      Value ambiguous = Core::gt(matches, Value(1));
+      Value too_many = Core::and_(one, ambiguous);
+      Value invalid_union = Core::or_(no_match, too_many);
+      if (Core::truthy(invalid_union)) {
+        Value message = Core::string_format(Value("{}: Arguments do not match {}"), path, keyword);
+        Core::append(errors, message);
+      }
+    }
+  }
+  Value declared_type = Core::get(schema, Value("type"), Value());
+  Value has_type = Core::is_not_none(declared_type);
+  if (Core::truthy(has_type)) {
+    Value types = Value::array();
+    Value is_union = Core::type_is(declared_type, Value("list"));
+    if (Core::truthy(is_union)) {
+      types = declared_type;
+    }
+    if (!Core::truthy(is_union)) {
+      Core::append(types, declared_type);
+    }
+    Value matches = Value(false);
+    for (auto type : Core::iter(types)) {
+      Value wants_string = Core::eq(type, Value("string"));
+      if (Core::truthy(wants_string)) {
+        Value value_string = Core::type_is(arguments, Value("string"));
+        matches = Core::or_(matches, value_string);
+      }
+      Value wants_object = Core::eq(type, Value("object"));
+      if (Core::truthy(wants_object)) {
+        Value value_object = Core::type_is(arguments, Value("object"));
+        matches = Core::or_(matches, value_object);
+      }
+      Value wants_array = Core::eq(type, Value("array"));
+      if (Core::truthy(wants_array)) {
+        Value value_array = Core::type_is(arguments, Value("list"));
+        matches = Core::or_(matches, value_array);
+      }
+      Value wants_number = Core::eq(type, Value("number"));
+      if (Core::truthy(wants_number)) {
+        Value value_number = Core::type_is(arguments, Value("number"));
+        matches = Core::or_(matches, value_number);
+      }
+      Value wants_boolean = Core::eq(type, Value("boolean"));
+      if (Core::truthy(wants_boolean)) {
+        Value value_boolean = Core::type_is(arguments, Value("boolean"));
+        matches = Core::or_(matches, value_boolean);
+      }
+      Value wants_null = Core::eq(type, Value("null"));
+      if (Core::truthy(wants_null)) {
+        Value value_null = Core::is_none(arguments);
+        matches = Core::or_(matches, value_null);
+      }
+      Value wants_integer = Core::eq(type, Value("integer"));
+      if (Core::truthy(wants_integer)) {
+        Value numeric = Core::type_is(arguments, Value("number"));
+        if (Core::truthy(numeric)) {
+          Value finite = Core::math_is_finite(arguments);
+          if (Core::truthy(finite)) {
+            Value whole = Core::math_floor(arguments);
+            Value value_integer = Core::eq(whole, arguments);
+            matches = Core::or_(matches, value_integer);
+          }
+        }
+      }
+    }
+    if (Core::truthy(matches)) {
+      // empty
+    }
+    if (!Core::truthy(matches)) {
+      Value message = Core::string_format(Value("Validation failed: Expected '{}' to have type {}"), path, declared_type);
+      Core::append(errors, message);
+      return errors;
+    }
+  }
+  Value enum_values = Core::get(schema, Value("enum"), Value());
+  Value has_enum = Core::type_is(enum_values, Value("list"));
+  if (Core::truthy(has_enum)) {
+    Value allowed = Value(false);
+    for (auto choice : Core::iter(enum_values)) {
+      Value same = Core::_chat_session_argument_equal(choice, arguments, Value(0));
+      allowed = Core::or_(allowed, same);
+    }
+    if (Core::truthy(allowed)) {
+      // empty
+    }
+    if (!Core::truthy(allowed)) {
+      Value message = Core::string_format(Value("{}: Value is not in the allowed enum"), path);
+      Core::append(errors, message);
+    }
+  }
+  Value has_const = Core::map_contains(schema, Value("const"));
+  if (Core::truthy(has_const)) {
+    Value constant = Core::get(schema, Value("const"), Value());
+    Value same = Core::_chat_session_argument_equal(constant, arguments, Value(0));
+    if (Core::truthy(same)) {
+      // empty
+    }
+    if (!Core::truthy(same)) {
+      Value message = Core::string_format(Value("{}: Value does not match const"), path);
+      Core::append(errors, message);
+    }
+  }
+  Value string = Core::type_is(arguments, Value("string"));
+  if (Core::truthy(string)) {
+    Value length = Core::string_codepoint_length(arguments);
+    Value minimum = Core::get(schema, Value("minLength"), Value(0));
+    Value maximum = Core::get(schema, Value("maxLength"), length);
+    Value too_short = Core::lt(length, minimum);
+    Value too_long = Core::gt(length, maximum);
+    if (Core::truthy(too_short)) {
+      Value message = Core::string_format(Value("{}: String is too short"), path);
+      Core::append(errors, message);
+    }
+    if (Core::truthy(too_long)) {
+      Value message = Core::string_format(Value("{}: String is too long"), path);
+      Core::append(errors, message);
+    }
+    Value pattern = Core::get(schema, Value("pattern"), Value(""));
+    if (Core::truthy(pattern)) {
+      Value matches = Core::regex_match(pattern, arguments);
+      if (Core::truthy(matches)) {
+        // empty
+      }
+      if (!Core::truthy(matches)) {
+        Value message = Core::string_format(Value("{}: String does not match pattern"), path);
+        Core::append(errors, message);
+      }
+    }
+  }
+  Value number = Core::type_is(arguments, Value("number"));
+  if (Core::truthy(number)) {
+    Value finite = Core::math_is_finite(arguments);
+    if (Core::truthy(finite)) {
+      // empty
+    }
+    if (!Core::truthy(finite)) {
+      Value message = Core::string_format(Value("{}: Number must be finite"), path);
+      Core::append(errors, message);
+    }
+    Value minimum = Core::get(schema, Value("minimum"), arguments);
+    Value maximum = Core::get(schema, Value("maximum"), arguments);
+    Value low = Core::lt(arguments, minimum);
+    Value high = Core::gt(arguments, maximum);
+    if (Core::truthy(low)) {
+      Value message = Core::string_format(Value("{}: Number is below minimum"), path);
+      Core::append(errors, message);
+    }
+    if (Core::truthy(high)) {
+      Value message = Core::string_format(Value("{}: Number is above maximum"), path);
+      Core::append(errors, message);
+    }
+  }
+  Value object = Core::type_is(arguments, Value("object"));
+  if (Core::truthy(object)) {
+    Value required = Core::get(schema, Value("required"), empty_list);
+    for (auto name : Core::iter(required)) {
+      Value present = Core::map_contains(arguments, name);
+      if (Core::truthy(present)) {
+        // empty
+      }
+      if (!Core::truthy(present)) {
+        Value message = Core::string_format(Value("Required field is missing: '{}.{}'"), path, name);
+        Core::append(errors, message);
+      }
+    }
+    Value properties = Core::get(schema, Value("properties"), empty);
+    Value additional = Core::get(schema, Value("additionalProperties"), Value(true));
+    Value forbidden = Core::eq(additional, Value(false));
+    Value additional_schema = Core::type_is(additional, Value("object"));
+    Value names = Core::map_keys(arguments);
+    for (auto name : Core::iter(names)) {
+      Value child = Core::get(arguments, name, Value());
+      Value child_path = Core::string_format(Value("{}.{}"), path, name);
+      Value child_schema = Core::get(properties, name, Value());
+      Value known = Core::is_not_none(child_schema);
+      if (Core::truthy(known)) {
+        Value child_errors = Core::_chat_session_argument_errors(root, child_schema, child, child_path, next_depth);
+        for (auto error : Core::iter(child_errors)) {
+          Core::append(errors, error);
+        }
+      }
+      if (!Core::truthy(known)) {
+        if (Core::truthy(forbidden)) {
+          Value message = Core::string_format(Value("{}: Unexpected property: {}"), path, name);
+          Core::append(errors, message);
+        }
+        if (Core::truthy(additional_schema)) {
+          Value child_errors = Core::_chat_session_argument_errors(root, additional, child, child_path, next_depth);
+          for (auto error : Core::iter(child_errors)) {
+            Core::append(errors, error);
+          }
+        }
+      }
+    }
+  }
+  Value array = Core::type_is(arguments, Value("list"));
+  if (Core::truthy(array)) {
+    Value length = Core::len(arguments);
+    Value minimum = Core::get(schema, Value("minItems"), Value(0));
+    Value maximum = Core::get(schema, Value("maxItems"), length);
+    Value too_short = Core::lt(length, minimum);
+    Value too_long = Core::gt(length, maximum);
+    if (Core::truthy(too_short)) {
+      Value message = Core::string_format(Value("{}: Too few items"), path);
+      Core::append(errors, message);
+    }
+    if (Core::truthy(too_long)) {
+      Value message = Core::string_format(Value("{}: Too many items"), path);
+      Core::append(errors, message);
+    }
+    Value items = Core::get(schema, Value("items"), empty);
+    Value index = Value(0);
+    for (auto item : Core::iter(arguments)) {
+      Value child_path = Core::string_format(Value("{}[{}]"), path, index);
+      Value child_errors = Core::_chat_session_argument_errors(root, items, item, child_path, next_depth);
+      for (auto error : Core::iter(child_errors)) {
+        Core::append(errors, error);
+      }
+      index = Core::add(index, Value(1));
+    }
+  }
+  return errors;
 }
 
 Value Core::_structured_output_scalar_placeholder(Value typ) {
@@ -14609,46 +14930,6 @@ Value Core::_structured_output_scalar_placeholder(Value typ) {
     return json_placeholder;
   }
   return Value("<value>");
-}
-
-Value Core::chat_session_observe_output(Value gen, Value state, Value event) {
-  axir_coverage_mark("chat_session_observe_output");
-  Value empty_map = Value::object();
-  Value empty_list = Value::array();
-  Value texts = Core::get(state, Value("texts"), empty_map);
-  Value id = Core::get(event, Value("response_id"), Value());
-  Value text = Core::get(texts, id, Value(""));
-  Value response = Core::get(event, Value("response"), Value());
-  Value results = Core::get(response, Value("results"), empty_list);
-  for (auto result : Core::iter(results)) {
-    Value delta = Core::get(result, Value("content"), Value(""));
-    text = Core::string_format(Value("{}{}"), text, delta);
-  }
-  Core::set(texts, id, text);
-  Core::set(state, Value("texts"), texts);
-  Value assertions = Core::get(gen, Value("streaming_assertions"), empty_list);
-  for (auto assertion : Core::iter(assertions)) {
-    Value is_map = Core::type_is(assertion, Value("object"));
-    if (Core::truthy(is_map)) {
-      Value needle_camel = Core::get(assertion, Value("notContains"), Value());
-      Value needle = Core::get(assertion, Value("not_contains"), needle_camel);
-      Value has_needle = Core::is_not_none(needle);
-      if (Core::truthy(has_needle)) {
-        Value found = Core::contains(text, needle);
-        if (Core::truthy(found)) {
-          Value message = Core::get(assertion, Value("message"), Value("streaming assertion failed"));
-          Value error = Core::runtime_error(message);
-          Core::raise_error(error);
-        }
-      }
-    }
-  }
-  Value version = Core::get(state, Value("version"), Value(0));
-  Value output = Value::object();
-  Core::set(output, Value("response_id"), id);
-  Core::set(output, Value("text"), text);
-  Core::set(output, Value("version"), version);
-  return output;
 }
 
 Value Core::_validate_optimized_artifact_provenance(Value artifact, Value components) {
@@ -14753,44 +15034,6 @@ Value Core::_validate_optimized_artifact(Value artifact, Value components) {
   return artifact;
 }
 
-Value Core::chat_session_apply_boundary_updates(Value request, Value updates, Value level) {
-  axir_coverage_mark("chat_session_apply_boundary_updates");
-  Value empty = Value::object();
-  Value config = Core::get(request, Value("model_config"), empty);
-  config = Core::map_merge(config, empty);
-  Value messages = Core::get(request, Value("chat_prompt"), Value());
-  Value current_level = level;
-  Value applied = Value::array();
-  for (auto update : Core::iter(updates)) {
-    Value kind = Core::get(update, Value("type"), Value());
-    Value steering = Core::eq(kind, Value("steer"));
-    if (Core::truthy(steering)) {
-      Value message = Value::object();
-      Value text = Core::get(update, Value("text"), Value());
-      Core::set(message, Value("role"), Value("user"));
-      Core::set(message, Value("content"), text);
-      Core::append(messages, message);
-    }
-    if (!Core::truthy(steering)) {
-      Value next_level = Core::get(update, Value("level"), Value());
-      current_level = next_level;
-    }
-    Value id = Core::get(update, Value("id"), Value());
-    Core::append(applied, id);
-  }
-  Value has_level = Core::is_not_none(current_level);
-  if (Core::truthy(has_level)) {
-    Core::set(config, Value("thinkingTokenBudget"), current_level);
-  }
-  Core::set(request, Value("model_config"), config);
-  Core::set(request, Value("chat_prompt"), messages);
-  Value result = Value::object();
-  Core::set(result, Value("request"), request);
-  Core::set(result, Value("level"), current_level);
-  Core::set(result, Value("applied"), applied);
-  return result;
-}
-
 Value Core::_structured_output_type_placeholder(Value typ) {
   axir_coverage_mark("_structured_output_type_placeholder");
   Value placeholder = Core::_structured_output_scalar_placeholder(typ);
@@ -14802,25 +15045,6 @@ Value Core::_structured_output_type_placeholder(Value typ) {
     return array_placeholder;
   }
   return placeholder;
-}
-
-Value Core::chat_session_create_state(Value model, Value path, Value max_steps) {
-  axir_coverage_mark("chat_session_create_state");
-  Value state = Value::object();
-  Value pending = Value::object();
-  Value responses = Value::object();
-  Value updates = Value::object();
-  Core::set(state, Value("model"), model);
-  Core::set(state, Value("path"), path);
-  Core::set(state, Value("max_steps"), max_steps);
-  Core::set(state, Value("steps"), Value(0));
-  Core::set(state, Value("version"), Value(0));
-  Core::set(state, Value("pending"), pending);
-  Core::set(state, Value("responses"), responses);
-  Core::set(state, Value("updates"), updates);
-  Core::set(state, Value("boundary"), Value(false));
-  Core::set(state, Value("terminal"), Value(false));
-  return state;
 }
 
 Value Core::_structured_output_shape(Value output_fields) {
@@ -14845,15 +15069,6 @@ Value Core::_serialize_optimized_artifact(Value artifact) {
   axir_coverage_mark("_serialize_optimized_artifact");
   Value text = Core::json_stringify(artifact);
   return text;
-}
-
-Value Core::chat_session_target_matches(Value target, Value path) {
-  axir_coverage_mark("chat_session_target_matches");
-  Value exact = Core::eq(target, path);
-  Value prefix = Core::string_format(Value("{}/"), target);
-  Value descendant = Core::string_starts_with(path, prefix);
-  Value matches = Core::or_(exact, descendant);
-  return matches;
 }
 
 Value Core::_append_structured_output_instruction(Value messages, Value output_fields, Value selection) {
@@ -14884,23 +15099,6 @@ Value Core::_deserialize_optimized_artifact(Value text, Value components) {
   Value artifact = Core::json_parse(text);
   Value validated = Core::_validate_optimized_artifact(artifact, components);
   return validated;
-}
-
-Value Core::chat_session_unresolved(Value state) {
-  axir_coverage_mark("chat_session_unresolved");
-  Value out = Value::array();
-  Value pending = Core::get(state, Value("pending"), Value());
-  Value ids = Core::map_keys(pending);
-  for (auto id : Core::iter(ids)) {
-    Value call = Core::get(pending, id, Value());
-    Value status = Core::get(call, Value("status"), Value());
-    Value sent = Core::eq(status, Value("sent"));
-    Value unresolved = Core::not_(sent);
-    if (Core::truthy(unresolved)) {
-      Core::append(out, id);
-    }
-  }
-  return out;
 }
 
 Value Core::_optimization_changed_components(Value components, Value component_map) {
@@ -14935,31 +15133,6 @@ Value Core::_assert_no_reserved_output_functions(Value functions) {
     }
   }
   return Value();
-}
-
-Value Core::chat_session_register_call(Value state, Value call, Value execution) {
-  axir_coverage_mark("chat_session_register_call");
-  Value terminal = Core::get(state, Value("terminal"), Value(false));
-  if (Core::truthy(terminal)) {
-    return Value(false);
-  }
-  Value id = Core::get(call, Value("id"), Value(""));
-  Value missing = Core::eq(id, Value(""));
-  if (Core::truthy(missing)) {
-    throw AxError("runtime", "Completed tool calls require a call ID");
-  }
-  Value pending = Core::get(state, Value("pending"), Value());
-  Value exists = Core::map_contains(pending, id);
-  if (Core::truthy(exists)) {
-    return Value(false);
-  }
-  Value record = Value::object();
-  Core::set(record, Value("call"), call);
-  Core::set(record, Value("execution"), execution);
-  Core::set(record, Value("status"), Value("running"));
-  Core::set(pending, id, record);
-  Core::set(state, Value("pending"), pending);
-  return Value(true);
 }
 
 Value Core::_optimization_component_current_map(Value components) {
@@ -15008,21 +15181,6 @@ Value Core::_normalize_optimization_dataset(Value dataset) {
   return out_list;
 }
 
-Value Core::chat_session_result(Value response, Value id) {
-  axir_coverage_mark("chat_session_result");
-  Value empty = Value::object();
-  response = Core::map_merge(response, empty);
-  Core::set(response, Value("__session_response_id"), id);
-  return response;
-}
-
-Value Core::chat_session_completion(Value response, Value id) {
-  axir_coverage_mark("chat_session_completion");
-  Value completion = Core::chat_response_to_completion(response);
-  Core::set(completion, Value("remote_id"), id);
-  return completion;
-}
-
 Value Core::_structured_output_call_args(Value call) {
   axir_coverage_mark("_structured_output_call_args");
   Value fn = Core::get(call, Value("function"), Value());
@@ -15056,17 +15214,6 @@ Value Core::_normalize_optimization_metric_scores(Value raw) {
   Value out_zero = Value::object();
   Core::set(out_zero, Value("score"), Value(0));
   return out_zero;
-}
-
-Value Core::chat_session_has_continuation_work(Value state) {
-  axir_coverage_mark("chat_session_has_continuation_work");
-  Value pending = Core::chat_session_unresolved(state);
-  pending = Core::truthy_value(pending);
-  Value native_wait = Core::chat_session_native_wait(state);
-  Value continuation = Core::get(state, Value("needs_continuation"), Value(false));
-  Value work = Core::or_(pending, native_wait);
-  work = Core::or_(work, continuation);
-  return work;
 }
 
 Value Core::_build_gen_chat_request(Value gen, Value messages, Value options, Value selection) {
@@ -15203,21 +15350,6 @@ Value Core::_build_gen_chat_request(Value gen, Value messages, Value options, Va
   return request;
 }
 
-Value Core::chat_session_normalize_call(Value call) {
-  axir_coverage_mark("chat_session_normalize_call");
-  Value function = Core::get(call, Value("function"), Value());
-  Value missing = Core::is_none(function);
-  if (Core::truthy(missing)) {
-    call = Core::_completion_call_to_chat_impl(call);
-    function = Core::get(call, Value("function"), Value());
-  }
-  Value name = Core::get(function, Value("name"), Value());
-  Value params = Core::get(function, Value("params"), Value());
-  Core::set(call, Value("name"), name);
-  Core::set(call, Value("params"), params);
-  return call;
-}
-
 Value Core::_scalarize_optimization_scores(Value scores, Value options) {
   axir_coverage_mark("_scalarize_optimization_scores");
   Value metric_key = Core::get(options, Value("paretoMetricKey"), Value(""));
@@ -15243,26 +15375,6 @@ Value Core::_scalarize_optimization_scores(Value scores, Value options) {
   return avg;
 }
 
-Value Core::chat_session_defer_final_call(Value state, Value call) {
-  axir_coverage_mark("chat_session_defer_final_call");
-  Value unresolved = Core::chat_session_unresolved(state);
-  Value pending = Core::truthy_value(unresolved);
-  Value updates = Core::get(state, Value("needs_continuation"), Value(false));
-  Value defer = Core::or_(pending, updates);
-  if (Core::truthy(defer)) {
-    Value registered = Core::chat_session_register_call(state, call, Value("blocking"));
-    if (Core::truthy(registered)) {
-      Value id = Core::get(call, Value("id"), Value());
-      Value result = Value::object();
-      Core::set(result, Value("function_id"), id);
-      Core::set(result, Value("result"), Value("Not executed: incorporate the background tool results and queued updates before calling this finalization function again."));
-      Core::chat_session_complete_call(state, id, result);
-    }
-    return registered;
-  }
-  return Value(false);
-}
-
 Value Core::_optimization_action_name_matches(Value expected, Value call) {
   axir_coverage_mark("_optimization_action_name_matches");
   Value qualified = Core::get(call, Value("qualifiedName"), Value(""));
@@ -15274,31 +15386,6 @@ Value Core::_optimization_action_name_matches(Value expected, Value call) {
   Value direct_match = Core::or_(qualified_match, name_match);
   Value any_match = Core::or_(direct_match, suffix_match);
   return any_match;
-}
-
-Value Core::chat_session_complete_call(Value state, Value id, Value result) {
-  axir_coverage_mark("chat_session_complete_call");
-  Value terminal = Core::get(state, Value("terminal"), Value(false));
-  if (Core::truthy(terminal)) {
-    return Value(false);
-  }
-  Value pending = Core::get(state, Value("pending"), Value());
-  Value exists = Core::map_contains(pending, id);
-  Value missing = Core::not_(exists);
-  if (Core::truthy(missing)) {
-    throw AxError("runtime", "Tool result has no registered call");
-  }
-  Value record = Core::get(pending, id, Value());
-  Value status = Core::get(record, Value("status"), Value());
-  Value running = Core::eq(status, Value("running"));
-  if (Core::truthy(running)) {
-    Core::set(record, Value("result"), result);
-    Core::set(record, Value("status"), Value("ready"));
-    Core::set(pending, id, record);
-    Core::set(state, Value("pending"), pending);
-    return Value(true);
-  }
-  return Value(false);
 }
 
 Value Core::_adjust_optimization_score_for_actions(Value score, Value task, Value prediction) {
@@ -15347,65 +15434,70 @@ Value Core::_adjust_optimization_score_for_actions(Value score, Value task, Valu
   return adjusted;
 }
 
-Value Core::chat_session_complete_response(Value state, Value id) {
-  axir_coverage_mark("chat_session_complete_response");
-  Value terminal = Core::get(state, Value("terminal"), Value(false));
-  if (Core::truthy(terminal)) {
-    return Value(false);
+Value Core::chat_session_record_result(Value gen, Value state, Value call, Value result, Value ok) {
+  axir_coverage_mark("chat_session_record_result");
+  Value id = Core::get(call, Value("id"), Value());
+  Value text = result;
+  Value is_string = Core::type_is(result, Value("string"));
+  if (Core::truthy(is_string)) {
+    // empty
   }
-  Value responses = Core::get(state, Value("responses"), Value());
-  Value duplicate = Core::map_contains(responses, id);
-  if (Core::truthy(duplicate)) {
-    return Value(false);
+  if (!Core::truthy(is_string)) {
+    text = Core::json_stringify(result);
   }
-  Value steps = Core::get(state, Value("steps"), Value(0));
-  Value limit = Core::get(state, Value("max_steps"), Value());
-  Value exhausted = Core::gte(steps, limit);
-  if (Core::truthy(exhausted)) {
-    throw AxError("runtime", "Maximum model steps exhausted before final completion");
-  }
-  Value next = Core::add(steps, Value(1));
-  Core::set(responses, id, Value(true));
-  Core::set(state, Value("responses"), responses);
-  Core::set(state, Value("response_id"), id);
-  Core::set(state, Value("steps"), next);
-  Core::set(state, Value("boundary"), Value(true));
-  Value updates = Core::get(state, Value("updates"), Value());
-  Value update_ids = Core::map_keys(updates);
-  Value had_successor = Value(false);
-  for (auto update_id : Core::iter(update_ids)) {
-    Value record = Core::get(updates, update_id, Value());
-    Value parent = Core::get(record, Value("native_parent"), Value());
-    Value has_parent = Core::is_not_none(parent);
-    Value successor = Core::ne(parent, id);
-    Value finished = Core::and_(has_parent, successor);
-    if (Core::truthy(finished)) {
-      had_successor = Value(true);
-      Core::set(record, Value("native_state"), Value("done"));
-      Core::set(updates, update_id, record);
+  Value output = Value::object();
+  Core::set(output, Value("function_id"), id);
+  Core::set(output, Value("result"), text);
+  Value changed = Core::chat_session_complete_call(state, id, output);
+  if (Core::truthy(changed)) {
+    Value status = Value("error");
+    if (Core::truthy(ok)) {
+      status = Value("ok");
     }
+    Core::axgen_memory_add_function_result(gen, call, result, ok);
+    Core::axgen_record_function_call(gen, call, result, status);
   }
-  Core::set(state, Value("updates"), updates);
-  if (Core::truthy(had_successor)) {
-    Value queued = Core::chat_session_has_queued_updates(state);
-    Core::set(state, Value("needs_continuation"), queued);
-  }
-  return Value(true);
+  return changed;
 }
 
-Value Core::chat_session_has_queued_updates(Value state) {
-  axir_coverage_mark("chat_session_has_queued_updates");
-  Value updates = Core::get(state, Value("updates"), Value());
-  Value ids = Core::map_keys(updates);
-  for (auto id : Core::iter(ids)) {
-    Value record = Core::get(updates, id, Value());
-    Value status = Core::get(record, Value("status"), Value());
-    Value queued = Core::eq(status, Value("queued"));
-    if (Core::truthy(queued)) {
-      return Value(true);
+Value Core::chat_session_observe_output(Value gen, Value state, Value event) {
+  axir_coverage_mark("chat_session_observe_output");
+  Value empty_map = Value::object();
+  Value empty_list = Value::array();
+  Value texts = Core::get(state, Value("texts"), empty_map);
+  Value id = Core::get(event, Value("response_id"), Value());
+  Value text = Core::get(texts, id, Value(""));
+  Value response = Core::get(event, Value("response"), Value());
+  Value results = Core::get(response, Value("results"), empty_list);
+  for (auto result : Core::iter(results)) {
+    Value delta = Core::get(result, Value("content"), Value(""));
+    text = Core::string_format(Value("{}{}"), text, delta);
+  }
+  Core::set(texts, id, text);
+  Core::set(state, Value("texts"), texts);
+  Value assertions = Core::get(gen, Value("streaming_assertions"), empty_list);
+  for (auto assertion : Core::iter(assertions)) {
+    Value is_map = Core::type_is(assertion, Value("object"));
+    if (Core::truthy(is_map)) {
+      Value needle_camel = Core::get(assertion, Value("notContains"), Value());
+      Value needle = Core::get(assertion, Value("not_contains"), needle_camel);
+      Value has_needle = Core::is_not_none(needle);
+      if (Core::truthy(has_needle)) {
+        Value found = Core::contains(text, needle);
+        if (Core::truthy(found)) {
+          Value message = Core::get(assertion, Value("message"), Value("streaming assertion failed"));
+          Value error = Core::runtime_error(message);
+          Core::raise_error(error);
+        }
+      }
     }
   }
-  return Value(false);
+  Value version = Core::get(state, Value("version"), Value(0));
+  Value output = Value::object();
+  Core::set(output, Value("response_id"), id);
+  Core::set(output, Value("text"), text);
+  Core::set(output, Value("version"), version);
+  return output;
 }
 
 Value Core::_parse_sample_outputs(Value gen, Value output_fields, Value response, Value validate_exact_json) {
@@ -15447,47 +15539,42 @@ Value Core::_parse_sample_outputs(Value gen, Value output_fields, Value response
   return bundle;
 }
 
-Value Core::chat_session_native_update(Value state, Value id) {
-  axir_coverage_mark("chat_session_native_update");
-  Value terminal = Core::get(state, Value("terminal"), Value(false));
-  if (Core::truthy(terminal)) {
-    return Value(false);
-  }
-  Value updates = Core::get(state, Value("updates"), Value());
-  Value record = Core::get(updates, id, Value());
-  Value native_state = Core::get(record, Value("native_state"), Value());
-  Value new_native = Core::is_none(native_state);
-  if (Core::truthy(new_native)) {
-    Core::set(record, Value("native_state"), Value("awaiting_ack"));
-    Value responses = Core::get(state, Value("responses"), Value());
-    Value empty_baseline = Value::object();
-    Value baseline = Core::map_merge(empty_baseline, responses);
-    Core::set(record, Value("native_responses"), baseline);
-    Core::set(updates, id, record);
-    Core::set(state, Value("updates"), updates);
-  }
-  return new_native;
-}
-
-Value Core::chat_session_native_wait(Value state) {
-  axir_coverage_mark("chat_session_native_wait");
-  Value updates = Core::get(state, Value("updates"), Value());
-  Value ids = Core::map_keys(updates);
-  for (auto id : Core::iter(ids)) {
-    Value record = Core::get(updates, id, Value());
-    Value native_state = Core::get(record, Value("native_state"), Value());
-    Value has_native = Core::is_not_none(native_state);
-    if (Core::truthy(has_native)) {
-      Value status = Core::get(record, Value("status"), Value());
-      Value queued = Core::eq(status, Value("queued"));
-      Value successor = Core::eq(native_state, Value("awaiting_successor"));
-      Value waiting = Core::or_(queued, successor);
-      if (Core::truthy(waiting)) {
-        return Value(true);
-      }
+Value Core::chat_session_apply_boundary_updates(Value request, Value updates, Value level) {
+  axir_coverage_mark("chat_session_apply_boundary_updates");
+  Value empty = Value::object();
+  Value config = Core::get(request, Value("model_config"), empty);
+  config = Core::map_merge(config, empty);
+  Value messages = Core::get(request, Value("chat_prompt"), Value());
+  Value current_level = level;
+  Value applied = Value::array();
+  for (auto update : Core::iter(updates)) {
+    Value kind = Core::get(update, Value("type"), Value());
+    Value steering = Core::eq(kind, Value("steer"));
+    if (Core::truthy(steering)) {
+      Value message = Value::object();
+      Value text = Core::get(update, Value("text"), Value());
+      Core::set(message, Value("role"), Value("user"));
+      Core::set(message, Value("content"), text);
+      Core::append(messages, message);
     }
+    if (!Core::truthy(steering)) {
+      Value next_level = Core::get(update, Value("level"), Value());
+      current_level = next_level;
+    }
+    Value id = Core::get(update, Value("id"), Value());
+    Core::append(applied, id);
   }
-  return Value(false);
+  Value has_level = Core::is_not_none(current_level);
+  if (Core::truthy(has_level)) {
+    Core::set(config, Value("thinkingTokenBudget"), current_level);
+  }
+  Core::set(request, Value("model_config"), config);
+  Core::set(request, Value("chat_prompt"), messages);
+  Value result = Value::object();
+  Core::set(result, Value("request"), request);
+  Core::set(result, Value("level"), current_level);
+  Core::set(result, Value("applied"), applied);
+  return result;
 }
 
 Value Core::_build_optimization_eval_row(Value task, Value prediction, Value scores, Value scalar, Value trace, Value error) {
@@ -15535,122 +15622,23 @@ Value Core::_select_sample_index(Value samples, Value options) {
   return selected;
 }
 
-Value Core::chat_session_native_event(Value state, Value event) {
-  axir_coverage_mark("chat_session_native_event");
-  Value result = Value::object();
-  Core::set(result, Value("changed"), Value(false));
-  Value terminal = Core::get(state, Value("terminal"), Value(false));
-  if (Core::truthy(terminal)) {
-    return result;
-  }
-  Value status = Core::get(event, Value("status"), Value());
-  Value failed = Core::eq(status, Value("failed"));
-  if (Core::truthy(failed)) {
-    Value error = Core::get(event, Value("error"), Value("Provider rejected steering"));
-    Core::raise_error(error);
-  }
-  Value updates = Core::get(state, Value("updates"), Value());
-  Value ids = Core::map_keys(updates);
-  Value steer_id = Core::get(event, Value("steer_id"), Value());
-  Value selected = Core::none();
-  for (auto id : Core::iter(ids)) {
-    Value record = Core::get(updates, id, Value());
-    Value record_steer = Core::get(record, Value("steer_id"), Value());
-    Value same = Core::eq(record_steer, steer_id);
-    Value has_steer = Core::is_not_none(steer_id);
-    Value matches = Core::and_(same, has_steer);
-    if (Core::truthy(matches)) {
-      selected = id;
-    }
-  }
-  Value missing = Core::is_none(selected);
-  if (Core::truthy(missing)) {
-    for (auto id : Core::iter(ids)) {
-      Value record = Core::get(updates, id, Value());
-      Value native_state = Core::get(record, Value("native_state"), Value());
-      Value record_steer = Core::get(record, Value("steer_id"), Value());
-      Value waiting = Core::eq(native_state, Value("awaiting_ack"));
-      Value unassigned = Core::is_none(record_steer);
-      missing = Core::is_none(selected);
-      Value candidate = Core::and_(waiting, unassigned);
-      Value choose_record = Core::and_(missing, candidate);
-      if (Core::truthy(choose_record)) {
-        selected = id;
-      }
-    }
-  }
-  Value found = Core::is_not_none(selected);
-  if (Core::truthy(found)) {
-    Value record = Core::get(updates, selected, Value());
-    Core::set(record, Value("steer_id"), steer_id);
-    Value parent = Core::get(event, Value("response_id"), Value());
-    Core::set(record, Value("native_parent"), parent);
-    Value native_state = Core::get(record, Value("native_state"), Value());
-    Value empty_map = Value::object();
-    Value baseline = Core::get(record, Value("native_responses"), empty_map);
-    Value responses = Core::get(state, Value("responses"), Value());
-    Value response_ids = Core::map_keys(responses);
-    for (auto response_id : Core::iter(response_ids)) {
-      Value old_response = Core::map_contains(baseline, response_id);
-      Value new_response = Core::not_(old_response);
-      Value not_parent = Core::ne(response_id, parent);
-      Value successor_seen = Core::and_(new_response, not_parent);
-      if (Core::truthy(successor_seen)) {
-        native_state = Value("done");
-        Core::set(record, Value("native_state"), Value("done"));
-      }
-    }
-    Value pending_status = Core::eq(status, Value("pending"));
-    Value done = Core::eq(native_state, Value("done"));
-    Value not_done = Core::not_(done);
-    Value pending = Core::and_(pending_status, not_done);
-    if (Core::truthy(pending)) {
-      Value changed_state = Core::ne(native_state, Value("pending_input"));
-      Core::set(record, Value("native_state"), Value("pending_input"));
-      Value empty = Value::array();
-      Value required = Core::get(event, Value("required_call_ids"), empty);
-      Value old_required = Core::get(record, Value("required_call_ids"), empty);
-      Value changed_ids = Core::ne(required, old_required);
-      Value changed = Core::or_(changed_state, changed_ids);
-      Core::set(record, Value("required_call_ids"), required);
-      Core::set(state, Value("needs_continuation"), Value(true));
-      Core::set(result, Value("changed"), changed);
-    }
-    if (!Core::truthy(pending)) {
-      Value accepted = Core::eq(status, Value("accepted"));
-      if (Core::truthy(accepted)) {
-        Value record_status = Core::get(record, Value("status"), Value());
-        Value queued = Core::eq(record_status, Value("queued"));
-        if (Core::truthy(queued)) {
-          Value pending_input = Core::eq(native_state, Value("pending_input"));
-          done = Core::eq(native_state, Value("done"));
-          Value settled = Core::or_(pending_input, done);
-          Value await_successor = Core::not_(settled);
-          if (Core::truthy(await_successor)) {
-            Core::set(record, Value("native_state"), Value("awaiting_successor"));
-          }
-          Core::set(record, Value("status"), Value("applied"));
-          Value version = Core::get(state, Value("version"), Value(0));
-          version = Core::add(version, Value(1));
-          Core::set(state, Value("version"), version);
-          Core::set(result, Value("changed"), Value(true));
-          Core::set(result, Value("applied_id"), selected);
-        }
-      }
-    }
-    Core::set(updates, selected, record);
-    Core::set(state, Value("updates"), updates);
-    Value accepted = Core::eq(status, Value("accepted"));
-    native_state = Core::get(record, Value("native_state"), Value());
-    Value pending_input = Core::eq(native_state, Value("pending_input"));
-    Value not_pending = Core::not_(pending_input);
-    Value can_clear = Core::and_(accepted, not_pending);
-    if (Core::truthy(can_clear)) {
-      Value queued = Core::chat_session_has_queued_updates(state);
-      Core::set(state, Value("needs_continuation"), queued);
-    }
-  }
-  return result;
+Value Core::chat_session_create_state(Value model, Value path, Value max_steps) {
+  axir_coverage_mark("chat_session_create_state");
+  Value state = Value::object();
+  Value pending = Value::object();
+  Value responses = Value::object();
+  Value updates = Value::object();
+  Core::set(state, Value("model"), model);
+  Core::set(state, Value("path"), path);
+  Core::set(state, Value("max_steps"), max_steps);
+  Core::set(state, Value("steps"), Value(0));
+  Core::set(state, Value("version"), Value(0));
+  Core::set(state, Value("pending"), pending);
+  Core::set(state, Value("responses"), responses);
+  Core::set(state, Value("updates"), updates);
+  Core::set(state, Value("boundary"), Value(false));
+  Core::set(state, Value("terminal"), Value(false));
+  return state;
 }
 
 Value Core::_build_optimization_eval_result(Value rows, Value candidate_map, Value phase) {
@@ -15678,6 +15666,15 @@ Value Core::_build_optimization_eval_result(Value rows, Value candidate_map, Val
   Core::set(out, Value("avg"), avg);
   Core::set(out, Value("count"), count);
   return out;
+}
+
+Value Core::chat_session_target_matches(Value target, Value path) {
+  axir_coverage_mark("chat_session_target_matches");
+  Value exact = Core::eq(target, path);
+  Value prefix = Core::string_format(Value("{}/"), target);
+  Value descendant = Core::string_starts_with(path, prefix);
+  Value matches = Core::or_(exact, descendant);
+  return matches;
 }
 
 Value Core::_forward_impl(Value gen, Value client, Value values, Value options) {
@@ -15826,6 +15823,23 @@ Value Core::_forward_impl(Value gen, Value client, Value values, Value options) 
   throw AxError("runtime", "unreachable AxGen forward loop exit");
 }
 
+Value Core::chat_session_unresolved(Value state) {
+  axir_coverage_mark("chat_session_unresolved");
+  Value out = Value::array();
+  Value pending = Core::get(state, Value("pending"), Value());
+  Value ids = Core::map_keys(pending);
+  for (auto id : Core::iter(ids)) {
+    Value call = Core::get(pending, id, Value());
+    Value status = Core::get(call, Value("status"), Value());
+    Value sent = Core::eq(status, Value("sent"));
+    Value unresolved = Core::not_(sent);
+    if (Core::truthy(unresolved)) {
+      Core::append(out, id);
+    }
+  }
+  return out;
+}
+
 Value Core::_filter_optimization_components(Value components, Value target) {
   axir_coverage_mark("_filter_optimization_components");
   Value out = Value::array();
@@ -15889,6 +15903,57 @@ Value Core::_filter_optimization_components(Value components, Value target) {
   return out;
 }
 
+Value Core::chat_session_register_call(Value state, Value call, Value execution) {
+  axir_coverage_mark("chat_session_register_call");
+  Value terminal = Core::get(state, Value("terminal"), Value(false));
+  if (Core::truthy(terminal)) {
+    return Value(false);
+  }
+  Value id = Core::get(call, Value("id"), Value(""));
+  Value missing = Core::eq(id, Value(""));
+  if (Core::truthy(missing)) {
+    throw AxError("runtime", "Completed tool calls require a call ID");
+  }
+  Value pending = Core::get(state, Value("pending"), Value());
+  Value exists = Core::map_contains(pending, id);
+  if (Core::truthy(exists)) {
+    return Value(false);
+  }
+  Value record = Value::object();
+  Core::set(record, Value("call"), call);
+  Core::set(record, Value("execution"), execution);
+  Core::set(record, Value("status"), Value("running"));
+  Core::set(pending, id, record);
+  Core::set(state, Value("pending"), pending);
+  return Value(true);
+}
+
+Value Core::chat_session_result(Value response, Value id) {
+  axir_coverage_mark("chat_session_result");
+  Value empty = Value::object();
+  response = Core::map_merge(response, empty);
+  Core::set(response, Value("__session_response_id"), id);
+  return response;
+}
+
+Value Core::chat_session_completion(Value response, Value id) {
+  axir_coverage_mark("chat_session_completion");
+  Value completion = Core::chat_response_to_completion(response);
+  Core::set(completion, Value("remote_id"), id);
+  return completion;
+}
+
+Value Core::chat_session_has_continuation_work(Value state) {
+  axir_coverage_mark("chat_session_has_continuation_work");
+  Value pending = Core::chat_session_unresolved(state);
+  pending = Core::truthy_value(pending);
+  Value native_wait = Core::chat_session_native_wait(state);
+  Value continuation = Core::get(state, Value("needs_continuation"), Value(false));
+  Value work = Core::or_(pending, native_wait);
+  work = Core::or_(work, continuation);
+  return work;
+}
+
 Value Core::_build_optimizer_request(Value program_kind, Value components, Value dataset, Value options, Value trace) {
   axir_coverage_mark("_build_optimizer_request");
   Value out = Value::object();
@@ -15909,64 +15974,19 @@ Value Core::_build_optimizer_request(Value program_kind, Value components, Value
   return out;
 }
 
-Value Core::chat_session_boundary_action(Value state) {
-  axir_coverage_mark("chat_session_boundary_action");
-  Value action = Value::object();
-  Core::set(action, Value("type"), Value("wait"));
-  Value terminal = Core::get(state, Value("terminal"), Value(false));
-  if (Core::truthy(terminal)) {
-    Core::set(action, Value("type"), Value("closed"));
-    return action;
+Value Core::chat_session_normalize_call(Value call) {
+  axir_coverage_mark("chat_session_normalize_call");
+  Value function = Core::get(call, Value("function"), Value());
+  Value missing = Core::is_none(function);
+  if (Core::truthy(missing)) {
+    call = Core::_completion_call_to_chat_impl(call);
+    function = Core::get(call, Value("function"), Value());
   }
-  Value native_wait = Core::chat_session_native_wait(state);
-  if (Core::truthy(native_wait)) {
-    return action;
-  }
-  Value boundary = Core::get(state, Value("boundary"), Value(false));
-  Value active = Core::not_(boundary);
-  if (Core::truthy(active)) {
-    return action;
-  }
-  Value pending = Core::get(state, Value("pending"), Value());
-  Value ids = Core::map_keys(pending);
-  Value results = Value::array();
-  Value running = Value(false);
-  Value blocking = Value(false);
-  for (auto id : Core::iter(ids)) {
-    Value record = Core::get(pending, id, Value());
-    Value status = Core::get(record, Value("status"), Value());
-    Value is_running = Core::eq(status, Value("running"));
-    Value execution = Core::get(record, Value("execution"), Value());
-    Value is_blocking = Core::eq(execution, Value("blocking"));
-    Value running_barrier = Core::and_(is_running, is_blocking);
-    blocking = Core::or_(blocking, running_barrier);
-    running = Core::or_(running, is_running);
-    Value ready = Core::eq(status, Value("ready"));
-    if (Core::truthy(ready)) {
-      Value result = Core::get(record, Value("result"), Value());
-      Core::append(results, result);
-    }
-  }
-  if (Core::truthy(blocking)) {
-    return action;
-  }
-  Value has_results = Core::truthy_value(results);
-  if (Core::truthy(has_results)) {
-    Core::set(action, Value("type"), Value("submit"));
-    Core::set(action, Value("results"), results);
-    return action;
-  }
-  if (Core::truthy(running)) {
-    return action;
-  }
-  Value needs_continuation = Core::get(state, Value("needs_continuation"), Value(false));
-  if (Core::truthy(needs_continuation)) {
-    Core::set(action, Value("type"), Value("continue"));
-  }
-  if (!Core::truthy(needs_continuation)) {
-    Core::set(action, Value("type"), Value("validate"));
-  }
-  return action;
+  Value name = Core::get(function, Value("name"), Value());
+  Value params = Core::get(function, Value("params"), Value());
+  Core::set(call, Value("name"), name);
+  Core::set(call, Value("params"), params);
+  return call;
 }
 
 Value Core::_prepare_optimizer_run(Value program_kind, Value components, Value dataset, Value options, Value trace, Value evaluator_available) {
@@ -15996,6 +16016,51 @@ Value Core::_prepare_optimizer_run(Value program_kind, Value components, Value d
   Core::set(out, Value("options"), request_options);
   Core::set(out, Value("request"), request);
   return out;
+}
+
+Value Core::chat_session_defer_final_call(Value state, Value call) {
+  axir_coverage_mark("chat_session_defer_final_call");
+  Value unresolved = Core::chat_session_unresolved(state);
+  Value pending = Core::truthy_value(unresolved);
+  Value updates = Core::get(state, Value("needs_continuation"), Value(false));
+  Value defer = Core::or_(pending, updates);
+  if (Core::truthy(defer)) {
+    Value registered = Core::chat_session_register_call(state, call, Value("blocking"));
+    if (Core::truthy(registered)) {
+      Value id = Core::get(call, Value("id"), Value());
+      Value result = Value::object();
+      Core::set(result, Value("function_id"), id);
+      Core::set(result, Value("result"), Value("Not executed: incorporate the background tool results and queued updates before calling this finalization function again."));
+      Core::chat_session_complete_call(state, id, result);
+    }
+    return registered;
+  }
+  return Value(false);
+}
+
+Value Core::chat_session_complete_call(Value state, Value id, Value result) {
+  axir_coverage_mark("chat_session_complete_call");
+  Value terminal = Core::get(state, Value("terminal"), Value(false));
+  if (Core::truthy(terminal)) {
+    return Value(false);
+  }
+  Value pending = Core::get(state, Value("pending"), Value());
+  Value exists = Core::map_contains(pending, id);
+  Value missing = Core::not_(exists);
+  if (Core::truthy(missing)) {
+    throw AxError("runtime", "Tool result has no registered call");
+  }
+  Value record = Core::get(pending, id, Value());
+  Value status = Core::get(record, Value("status"), Value());
+  Value running = Core::eq(status, Value("running"));
+  if (Core::truthy(running)) {
+    Core::set(record, Value("result"), result);
+    Core::set(record, Value("status"), Value("ready"));
+    Core::set(pending, id, record);
+    Core::set(state, Value("pending"), pending);
+    return Value(true);
+  }
+  return Value(false);
 }
 
 Value Core::_normalize_optimizer_engine_response(Value response, Value engine_name, Value engine_version, Value components) {
@@ -16081,52 +16146,56 @@ Value Core::_set_demos(Value gen, Value demos) {
   return gen;
 }
 
-Value Core::chat_session_mark_submitted(Value state, Value ids) {
-  axir_coverage_mark("chat_session_mark_submitted");
-  Value pending = Core::get(state, Value("pending"), Value());
-  for (auto id : Core::iter(ids)) {
-    Value record = Core::get(pending, id, Value());
-    Core::set(record, Value("status"), Value("sent"));
-    Core::set(pending, id, record);
+Value Core::chat_session_complete_response(Value state, Value id) {
+  axir_coverage_mark("chat_session_complete_response");
+  Value terminal = Core::get(state, Value("terminal"), Value(false));
+  if (Core::truthy(terminal)) {
+    return Value(false);
   }
-  Core::set(state, Value("pending"), pending);
-  Core::set(state, Value("boundary"), Value(false));
-  Core::set(state, Value("needs_continuation"), Value(false));
-  return Value();
+  Value responses = Core::get(state, Value("responses"), Value());
+  Value duplicate = Core::map_contains(responses, id);
+  if (Core::truthy(duplicate)) {
+    return Value(false);
+  }
+  Value steps = Core::get(state, Value("steps"), Value(0));
+  Value limit = Core::get(state, Value("max_steps"), Value());
+  Value exhausted = Core::gte(steps, limit);
+  if (Core::truthy(exhausted)) {
+    throw AxError("runtime", "Maximum model steps exhausted before final completion");
+  }
+  Value next = Core::add(steps, Value(1));
+  Core::set(responses, id, Value(true));
+  Core::set(state, Value("responses"), responses);
+  Core::set(state, Value("response_id"), id);
+  Core::set(state, Value("steps"), next);
+  Core::set(state, Value("boundary"), Value(true));
+  Value updates = Core::get(state, Value("updates"), Value());
+  Value update_ids = Core::map_keys(updates);
+  Value had_successor = Value(false);
+  for (auto update_id : Core::iter(update_ids)) {
+    Value record = Core::get(updates, update_id, Value());
+    Value parent = Core::get(record, Value("native_parent"), Value());
+    Value has_parent = Core::is_not_none(parent);
+    Value successor = Core::ne(parent, id);
+    Value finished = Core::and_(has_parent, successor);
+    if (Core::truthy(finished)) {
+      had_successor = Value(true);
+      Core::set(record, Value("native_state"), Value("done"));
+      Core::set(updates, update_id, record);
+    }
+  }
+  Core::set(state, Value("updates"), updates);
+  if (Core::truthy(had_successor)) {
+    Value queued = Core::chat_session_has_queued_updates(state);
+    Core::set(state, Value("needs_continuation"), queued);
+  }
+  return Value(true);
 }
 
 Value Core::_render_examples(Value gen) {
   axir_coverage_mark("_render_examples");
   Value messages = Core::axgen_render_examples(gen);
   return messages;
-}
-
-Value Core::chat_session_queue_update(Value state, Value update) {
-  axir_coverage_mark("chat_session_queue_update");
-  Value terminal = Core::get(state, Value("terminal"), Value(false));
-  if (Core::truthy(terminal)) {
-    return Value(false);
-  }
-  Value target = Core::get(update, Value("target"), Value("root"));
-  Value path = Core::get(state, Value("path"), Value());
-  Value matches = Core::chat_session_target_matches(target, path);
-  Value unmatched = Core::not_(matches);
-  if (Core::truthy(unmatched)) {
-    return Value(false);
-  }
-  Value id = Core::get(update, Value("id"), Value());
-  Value updates = Core::get(state, Value("updates"), Value());
-  Value exists = Core::map_contains(updates, id);
-  if (Core::truthy(exists)) {
-    return Value(false);
-  }
-  Value record = Value::object();
-  Core::set(record, Value("update"), update);
-  Core::set(record, Value("status"), Value("queued"));
-  Core::set(updates, id, record);
-  Core::set(state, Value("updates"), updates);
-  Core::set(state, Value("needs_continuation"), Value(true));
-  return Value(true);
 }
 
 Value Core::_render_demos(Value gen) {
@@ -16216,11 +16285,19 @@ Value Core::_build_optimizer_evidence_batch(Value eval_result, Value components)
   return out;
 }
 
-Value Core::chat_session_close_state(Value state) {
-  axir_coverage_mark("chat_session_close_state");
-  Core::set(state, Value("terminal"), Value(true));
-  Value unresolved = Core::chat_session_unresolved(state);
-  return unresolved;
+Value Core::chat_session_has_queued_updates(Value state) {
+  axir_coverage_mark("chat_session_has_queued_updates");
+  Value updates = Core::get(state, Value("updates"), Value());
+  Value ids = Core::map_keys(updates);
+  for (auto id : Core::iter(ids)) {
+    Value record = Core::get(updates, id, Value());
+    Value status = Core::get(record, Value("status"), Value());
+    Value queued = Core::eq(status, Value("queued"));
+    if (Core::truthy(queued)) {
+      return Value(true);
+    }
+  }
+  return Value(false);
 }
 
 Value Core::_append_assertion_retry_messages(Value messages, Value response, Value error) {
@@ -16229,129 +16306,32 @@ Value Core::_append_assertion_retry_messages(Value messages, Value response, Val
   return Value();
 }
 
-Value Core::chat_session_transition(Value state, Value event) {
-  axir_coverage_mark("chat_session_transition");
-  Value type = Core::get(event, Value("type"), Value());
-  Value call = Core::eq(type, Value("tool.validated"));
-  Value result = Core::eq(type, Value("tool.result"));
-  Value response = Core::eq(type, Value("response.completed"));
-  Value update = Core::eq(type, Value("update.queued"));
-  Value submitted = Core::eq(type, Value("results.submitted"));
-  Value closed = Core::eq(type, Value("closed"));
-  Value validated = Core::eq(type, Value("validated"));
-  Value applied = Core::eq(type, Value("update.applied"));
-  Value changed = Value(false);
-  Value native_queued = Core::eq(type, Value("native.queued"));
-  if (Core::truthy(native_queued)) {
-    Value id = Core::get(event, Value("id"), Value());
-    changed = Core::chat_session_native_update(state, id);
-    Value action = Core::chat_session_boundary_action(state);
-    Core::set(action, Value("changed"), changed);
-    return action;
-  }
-  Value steering = Core::eq(type, Value("steering"));
-  if (Core::truthy(steering)) {
-    Value change = Core::chat_session_native_event(state, event);
-    Value action = Core::chat_session_boundary_action(state);
-    action = Core::map_merge(action, change);
-    return action;
-  }
-  Value final_call = Core::eq(type, Value("tool.final"));
-  if (Core::truthy(final_call)) {
-    Value tool_call = Core::get(event, Value("call"), Value());
-    changed = Core::chat_session_defer_final_call(state, tool_call);
-    Value action = Core::chat_session_boundary_action(state);
-    Core::set(action, Value("changed"), changed);
-    return action;
-  }
-  if (Core::truthy(call)) {
-    Value tool_call = Core::get(event, Value("call"), Value());
-    Value execution = Core::get(event, Value("execution"), Value("blocking"));
-    changed = Core::chat_session_register_call(state, tool_call, execution);
-  }
-  if (!Core::truthy(call)) {
-    if (Core::truthy(result)) {
-      Value id = Core::get(event, Value("id"), Value());
-      Value value = Core::get(event, Value("result"), Value());
-      changed = Core::chat_session_complete_call(state, id, value);
-    }
-    if (!Core::truthy(result)) {
-      if (Core::truthy(response)) {
-        Value id = Core::get(event, Value("id"), Value());
-        changed = Core::chat_session_complete_response(state, id);
-      }
-      if (!Core::truthy(response)) {
-        if (Core::truthy(update)) {
-          Value item = Core::get(event, Value("update"), Value());
-          changed = Core::chat_session_queue_update(state, item);
-        }
-        if (!Core::truthy(update)) {
-          if (Core::truthy(submitted)) {
-            Value ids = Core::get(event, Value("ids"), Value());
-            Core::chat_session_mark_submitted(state, ids);
-            changed = Value(true);
-          }
-          if (!Core::truthy(submitted)) {
-            if (Core::truthy(closed)) {
-              Core::chat_session_close_state(state);
-              changed = Value(true);
-            }
-            if (!Core::truthy(closed)) {
-              if (Core::truthy(validated)) {
-                Value action = Core::chat_session_boundary_action(state);
-                Value action_type = Core::get(action, Value("type"), Value());
-                Value ready = Core::eq(action_type, Value("validate"));
-                Value not_ready = Core::not_(ready);
-                if (Core::truthy(not_ready)) {
-                  throw AxError("runtime", "Cannot finalize while model or tool work is unresolved");
-                }
-                Core::set(state, Value("terminal"), Value(true));
-                changed = Value(true);
-              }
-              if (!Core::truthy(validated)) {
-                if (Core::truthy(applied)) {
-                  Value id = Core::get(event, Value("id"), Value());
-                  Value updates = Core::get(state, Value("updates"), Value());
-                  Value exists = Core::map_contains(updates, id);
-                  if (Core::truthy(exists)) {
-                    Value record = Core::get(updates, id, Value());
-                    Value status = Core::get(record, Value("status"), Value());
-                    Value queued = Core::eq(status, Value("queued"));
-                    if (Core::truthy(queued)) {
-                      Core::set(record, Value("status"), Value("applied"));
-                      Core::set(updates, id, record);
-                      Core::set(state, Value("updates"), updates);
-                      Value item = Core::get(record, Value("update"), Value());
-                      Value kind = Core::get(item, Value("type"), Value());
-                      Value steer = Core::eq(kind, Value("steer"));
-                      if (Core::truthy(steer)) {
-                        Value version = Core::get(state, Value("version"), Value(0));
-                        Value next_version = Core::add(version, Value(1));
-                        Core::set(state, Value("version"), next_version);
-                      }
-                      changed = Value(true);
-                    }
-                  }
-                }
-                if (!Core::truthy(applied)) {
-                  throw AxError("runtime", "Unknown chat session transition");
-                }
-              }
-            }
-          }
-        }
-      }
-    }
-  }
-  Value action = Core::chat_session_boundary_action(state);
-  Core::set(action, Value("changed"), changed);
-  return action;
-}
-
 Value Core::_record_trace(Value gen, Value input, Value output, Value status) {
   axir_coverage_mark("_record_trace");
   Core::axgen_record_trace(gen, input, output, status);
   return Value();
+}
+
+Value Core::chat_session_native_update(Value state, Value id) {
+  axir_coverage_mark("chat_session_native_update");
+  Value terminal = Core::get(state, Value("terminal"), Value(false));
+  if (Core::truthy(terminal)) {
+    return Value(false);
+  }
+  Value updates = Core::get(state, Value("updates"), Value());
+  Value record = Core::get(updates, id, Value());
+  Value native_state = Core::get(record, Value("native_state"), Value());
+  Value new_native = Core::is_none(native_state);
+  if (Core::truthy(new_native)) {
+    Core::set(record, Value("native_state"), Value("awaiting_ack"));
+    Value responses = Core::get(state, Value("responses"), Value());
+    Value empty_baseline = Value::object();
+    Value baseline = Core::map_merge(empty_baseline, responses);
+    Core::set(record, Value("native_responses"), baseline);
+    Core::set(updates, id, record);
+    Core::set(state, Value("updates"), updates);
+  }
+  return new_native;
 }
 
 Value Core::_should_continue_steps(Value gen, Value calls) {
@@ -16386,6 +16366,145 @@ Value Core::_complete_with_retries_impl(Value client, Value request, Value optio
     }
   }
   Core::raise_error(last_error);
+}
+
+Value Core::chat_session_native_wait(Value state) {
+  axir_coverage_mark("chat_session_native_wait");
+  Value updates = Core::get(state, Value("updates"), Value());
+  Value ids = Core::map_keys(updates);
+  for (auto id : Core::iter(ids)) {
+    Value record = Core::get(updates, id, Value());
+    Value native_state = Core::get(record, Value("native_state"), Value());
+    Value has_native = Core::is_not_none(native_state);
+    if (Core::truthy(has_native)) {
+      Value status = Core::get(record, Value("status"), Value());
+      Value queued = Core::eq(status, Value("queued"));
+      Value successor = Core::eq(native_state, Value("awaiting_successor"));
+      Value waiting = Core::or_(queued, successor);
+      if (Core::truthy(waiting)) {
+        return Value(true);
+      }
+    }
+  }
+  return Value(false);
+}
+
+Value Core::chat_session_native_event(Value state, Value event) {
+  axir_coverage_mark("chat_session_native_event");
+  Value result = Value::object();
+  Core::set(result, Value("changed"), Value(false));
+  Value terminal = Core::get(state, Value("terminal"), Value(false));
+  if (Core::truthy(terminal)) {
+    return result;
+  }
+  Value status = Core::get(event, Value("status"), Value());
+  Value failed = Core::eq(status, Value("failed"));
+  if (Core::truthy(failed)) {
+    Value error = Core::get(event, Value("error"), Value("Provider rejected steering"));
+    Core::raise_error(error);
+  }
+  Value updates = Core::get(state, Value("updates"), Value());
+  Value ids = Core::map_keys(updates);
+  Value steer_id = Core::get(event, Value("steer_id"), Value());
+  Value selected = Core::none();
+  for (auto id : Core::iter(ids)) {
+    Value record = Core::get(updates, id, Value());
+    Value record_steer = Core::get(record, Value("steer_id"), Value());
+    Value same = Core::eq(record_steer, steer_id);
+    Value has_steer = Core::is_not_none(steer_id);
+    Value matches = Core::and_(same, has_steer);
+    if (Core::truthy(matches)) {
+      selected = id;
+    }
+  }
+  Value missing = Core::is_none(selected);
+  if (Core::truthy(missing)) {
+    for (auto id : Core::iter(ids)) {
+      Value record = Core::get(updates, id, Value());
+      Value native_state = Core::get(record, Value("native_state"), Value());
+      Value record_steer = Core::get(record, Value("steer_id"), Value());
+      Value waiting = Core::eq(native_state, Value("awaiting_ack"));
+      Value unassigned = Core::is_none(record_steer);
+      missing = Core::is_none(selected);
+      Value candidate = Core::and_(waiting, unassigned);
+      Value choose_record = Core::and_(missing, candidate);
+      if (Core::truthy(choose_record)) {
+        selected = id;
+      }
+    }
+  }
+  Value found = Core::is_not_none(selected);
+  if (Core::truthy(found)) {
+    Value record = Core::get(updates, selected, Value());
+    Core::set(record, Value("steer_id"), steer_id);
+    Value parent = Core::get(event, Value("response_id"), Value());
+    Core::set(record, Value("native_parent"), parent);
+    Value native_state = Core::get(record, Value("native_state"), Value());
+    Value empty_map = Value::object();
+    Value baseline = Core::get(record, Value("native_responses"), empty_map);
+    Value responses = Core::get(state, Value("responses"), Value());
+    Value response_ids = Core::map_keys(responses);
+    for (auto response_id : Core::iter(response_ids)) {
+      Value old_response = Core::map_contains(baseline, response_id);
+      Value new_response = Core::not_(old_response);
+      Value not_parent = Core::ne(response_id, parent);
+      Value successor_seen = Core::and_(new_response, not_parent);
+      if (Core::truthy(successor_seen)) {
+        native_state = Value("done");
+        Core::set(record, Value("native_state"), Value("done"));
+      }
+    }
+    Value pending_status = Core::eq(status, Value("pending"));
+    Value done = Core::eq(native_state, Value("done"));
+    Value not_done = Core::not_(done);
+    Value pending = Core::and_(pending_status, not_done);
+    if (Core::truthy(pending)) {
+      Value changed_state = Core::ne(native_state, Value("pending_input"));
+      Core::set(record, Value("native_state"), Value("pending_input"));
+      Value empty = Value::array();
+      Value required = Core::get(event, Value("required_call_ids"), empty);
+      Value old_required = Core::get(record, Value("required_call_ids"), empty);
+      Value changed_ids = Core::ne(required, old_required);
+      Value changed = Core::or_(changed_state, changed_ids);
+      Core::set(record, Value("required_call_ids"), required);
+      Core::set(state, Value("needs_continuation"), Value(true));
+      Core::set(result, Value("changed"), changed);
+    }
+    if (!Core::truthy(pending)) {
+      Value accepted = Core::eq(status, Value("accepted"));
+      if (Core::truthy(accepted)) {
+        Value record_status = Core::get(record, Value("status"), Value());
+        Value queued = Core::eq(record_status, Value("queued"));
+        if (Core::truthy(queued)) {
+          Value pending_input = Core::eq(native_state, Value("pending_input"));
+          done = Core::eq(native_state, Value("done"));
+          Value settled = Core::or_(pending_input, done);
+          Value await_successor = Core::not_(settled);
+          if (Core::truthy(await_successor)) {
+            Core::set(record, Value("native_state"), Value("awaiting_successor"));
+          }
+          Core::set(record, Value("status"), Value("applied"));
+          Value version = Core::get(state, Value("version"), Value(0));
+          version = Core::add(version, Value(1));
+          Core::set(state, Value("version"), version);
+          Core::set(result, Value("changed"), Value(true));
+          Core::set(result, Value("applied_id"), selected);
+        }
+      }
+    }
+    Core::set(updates, selected, record);
+    Core::set(state, Value("updates"), updates);
+    Value accepted = Core::eq(status, Value("accepted"));
+    native_state = Core::get(record, Value("native_state"), Value());
+    Value pending_input = Core::eq(native_state, Value("pending_input"));
+    Value not_pending = Core::not_(pending_input);
+    Value can_clear = Core::and_(accepted, not_pending);
+    if (Core::truthy(can_clear)) {
+      Value queued = Core::chat_session_has_queued_updates(state);
+      Core::set(state, Value("needs_continuation"), queued);
+    }
+  }
+  return result;
 }
 
 Value Core::_parse_output_impl(Value content) {
@@ -16615,6 +16734,66 @@ Value Core::_ace_render_playbook(Value playbook) {
   return result;
 }
 
+Value Core::chat_session_boundary_action(Value state) {
+  axir_coverage_mark("chat_session_boundary_action");
+  Value action = Value::object();
+  Core::set(action, Value("type"), Value("wait"));
+  Value terminal = Core::get(state, Value("terminal"), Value(false));
+  if (Core::truthy(terminal)) {
+    Core::set(action, Value("type"), Value("closed"));
+    return action;
+  }
+  Value native_wait = Core::chat_session_native_wait(state);
+  if (Core::truthy(native_wait)) {
+    return action;
+  }
+  Value boundary = Core::get(state, Value("boundary"), Value(false));
+  Value active = Core::not_(boundary);
+  if (Core::truthy(active)) {
+    return action;
+  }
+  Value pending = Core::get(state, Value("pending"), Value());
+  Value ids = Core::map_keys(pending);
+  Value results = Value::array();
+  Value running = Value(false);
+  Value blocking = Value(false);
+  for (auto id : Core::iter(ids)) {
+    Value record = Core::get(pending, id, Value());
+    Value status = Core::get(record, Value("status"), Value());
+    Value is_running = Core::eq(status, Value("running"));
+    Value execution = Core::get(record, Value("execution"), Value());
+    Value is_blocking = Core::eq(execution, Value("blocking"));
+    Value running_barrier = Core::and_(is_running, is_blocking);
+    blocking = Core::or_(blocking, running_barrier);
+    running = Core::or_(running, is_running);
+    Value ready = Core::eq(status, Value("ready"));
+    if (Core::truthy(ready)) {
+      Value result = Core::get(record, Value("result"), Value());
+      Core::append(results, result);
+    }
+  }
+  if (Core::truthy(blocking)) {
+    return action;
+  }
+  Value has_results = Core::truthy_value(results);
+  if (Core::truthy(has_results)) {
+    Core::set(action, Value("type"), Value("submit"));
+    Core::set(action, Value("results"), results);
+    return action;
+  }
+  if (Core::truthy(running)) {
+    return action;
+  }
+  Value needs_continuation = Core::get(state, Value("needs_continuation"), Value(false));
+  if (Core::truthy(needs_continuation)) {
+    Core::set(action, Value("type"), Value("continue"));
+  }
+  if (!Core::truthy(needs_continuation)) {
+    Core::set(action, Value("type"), Value("validate"));
+  }
+  return action;
+}
+
 Value Core::_parse_json_string_fields(Value output_fields, Value values) {
   axir_coverage_mark("_parse_json_string_fields");
   Value values_is_map = Core::type_is(values, Value("object"));
@@ -16753,6 +16932,48 @@ Value Core::_validate_exact_output_keys(Value fields, Value values, Value contex
   return Value();
 }
 
+Value Core::chat_session_mark_submitted(Value state, Value ids) {
+  axir_coverage_mark("chat_session_mark_submitted");
+  Value pending = Core::get(state, Value("pending"), Value());
+  for (auto id : Core::iter(ids)) {
+    Value record = Core::get(pending, id, Value());
+    Core::set(record, Value("status"), Value("sent"));
+    Core::set(pending, id, record);
+  }
+  Core::set(state, Value("pending"), pending);
+  Core::set(state, Value("boundary"), Value(false));
+  Core::set(state, Value("needs_continuation"), Value(false));
+  return Value();
+}
+
+Value Core::chat_session_queue_update(Value state, Value update) {
+  axir_coverage_mark("chat_session_queue_update");
+  Value terminal = Core::get(state, Value("terminal"), Value(false));
+  if (Core::truthy(terminal)) {
+    return Value(false);
+  }
+  Value target = Core::get(update, Value("target"), Value("root"));
+  Value path = Core::get(state, Value("path"), Value());
+  Value matches = Core::chat_session_target_matches(target, path);
+  Value unmatched = Core::not_(matches);
+  if (Core::truthy(unmatched)) {
+    return Value(false);
+  }
+  Value id = Core::get(update, Value("id"), Value());
+  Value updates = Core::get(state, Value("updates"), Value());
+  Value exists = Core::map_contains(updates, id);
+  if (Core::truthy(exists)) {
+    return Value(false);
+  }
+  Value record = Value::object();
+  Core::set(record, Value("update"), update);
+  Core::set(record, Value("status"), Value("queued"));
+  Core::set(updates, id, record);
+  Core::set(state, Value("updates"), updates);
+  Core::set(state, Value("needs_continuation"), Value(true));
+  return Value(true);
+}
+
 Value Core::_ace_dedupe_playbook(Value playbook) {
   axir_coverage_mark("_ace_dedupe_playbook");
   Value empty_map = Value::object();
@@ -16807,6 +17028,29 @@ Value Core::_tool_spec_impl(Value fn) {
     Core::set(spec, Value("execution"), execution);
   }
   return spec;
+}
+
+Value Core::chat_session_record_unresolved(Value gen, Value state) {
+  axir_coverage_mark("chat_session_record_unresolved");
+  Value pending = Core::get(state, Value("pending"), Value());
+  Value ids = Core::map_keys(pending);
+  for (auto id : Core::iter(ids)) {
+    Value record = Core::get(pending, id, Value());
+    Value status = Core::get(record, Value("status"), Value());
+    Value running = Core::eq(status, Value("running"));
+    Value recorded = Core::get(record, Value("diagnostic_recorded"), Value(false));
+    Value not_recorded = Core::not_(recorded);
+    Value needed = Core::and_(running, not_recorded);
+    if (Core::truthy(needed)) {
+      Value call = Core::get(record, Value("call"), Value());
+      Value message = Value("Run closed before the started tool settled; its external effects may still complete");
+      Core::axgen_record_function_call(gen, call, message, Value("unresolved"));
+      Core::set(record, Value("diagnostic_recorded"), Value(true));
+      Core::set(pending, id, record);
+    }
+  }
+  Core::set(state, Value("pending"), pending);
+  return Value();
 }
 
 Value Core::_ace_prune_section_for_addition(Value section, Value protected_ids) {
@@ -16907,6 +17151,132 @@ Value Core::_function_call_mode_impl(Value mode) {
     return Value("none");
   }
   return mode;
+}
+
+Value Core::chat_session_close_state(Value state) {
+  axir_coverage_mark("chat_session_close_state");
+  Core::set(state, Value("terminal"), Value(true));
+  Value unresolved = Core::chat_session_unresolved(state);
+  return unresolved;
+}
+
+Value Core::chat_session_transition(Value state, Value event) {
+  axir_coverage_mark("chat_session_transition");
+  Value type = Core::get(event, Value("type"), Value());
+  Value call = Core::eq(type, Value("tool.validated"));
+  Value result = Core::eq(type, Value("tool.result"));
+  Value response = Core::eq(type, Value("response.completed"));
+  Value update = Core::eq(type, Value("update.queued"));
+  Value submitted = Core::eq(type, Value("results.submitted"));
+  Value closed = Core::eq(type, Value("closed"));
+  Value validated = Core::eq(type, Value("validated"));
+  Value applied = Core::eq(type, Value("update.applied"));
+  Value changed = Value(false);
+  Value native_queued = Core::eq(type, Value("native.queued"));
+  if (Core::truthy(native_queued)) {
+    Value id = Core::get(event, Value("id"), Value());
+    changed = Core::chat_session_native_update(state, id);
+    Value action = Core::chat_session_boundary_action(state);
+    Core::set(action, Value("changed"), changed);
+    return action;
+  }
+  Value steering = Core::eq(type, Value("steering"));
+  if (Core::truthy(steering)) {
+    Value change = Core::chat_session_native_event(state, event);
+    Value action = Core::chat_session_boundary_action(state);
+    action = Core::map_merge(action, change);
+    return action;
+  }
+  Value final_call = Core::eq(type, Value("tool.final"));
+  if (Core::truthy(final_call)) {
+    Value tool_call = Core::get(event, Value("call"), Value());
+    changed = Core::chat_session_defer_final_call(state, tool_call);
+    Value action = Core::chat_session_boundary_action(state);
+    Core::set(action, Value("changed"), changed);
+    return action;
+  }
+  if (Core::truthy(call)) {
+    Value tool_call = Core::get(event, Value("call"), Value());
+    Value execution = Core::get(event, Value("execution"), Value("blocking"));
+    changed = Core::chat_session_register_call(state, tool_call, execution);
+  }
+  if (!Core::truthy(call)) {
+    if (Core::truthy(result)) {
+      Value id = Core::get(event, Value("id"), Value());
+      Value value = Core::get(event, Value("result"), Value());
+      changed = Core::chat_session_complete_call(state, id, value);
+    }
+    if (!Core::truthy(result)) {
+      if (Core::truthy(response)) {
+        Value id = Core::get(event, Value("id"), Value());
+        changed = Core::chat_session_complete_response(state, id);
+      }
+      if (!Core::truthy(response)) {
+        if (Core::truthy(update)) {
+          Value item = Core::get(event, Value("update"), Value());
+          changed = Core::chat_session_queue_update(state, item);
+        }
+        if (!Core::truthy(update)) {
+          if (Core::truthy(submitted)) {
+            Value ids = Core::get(event, Value("ids"), Value());
+            Core::chat_session_mark_submitted(state, ids);
+            changed = Value(true);
+          }
+          if (!Core::truthy(submitted)) {
+            if (Core::truthy(closed)) {
+              Core::chat_session_close_state(state);
+              changed = Value(true);
+            }
+            if (!Core::truthy(closed)) {
+              if (Core::truthy(validated)) {
+                Value action = Core::chat_session_boundary_action(state);
+                Value action_type = Core::get(action, Value("type"), Value());
+                Value ready = Core::eq(action_type, Value("validate"));
+                Value not_ready = Core::not_(ready);
+                if (Core::truthy(not_ready)) {
+                  throw AxError("runtime", "Cannot finalize while model or tool work is unresolved");
+                }
+                Core::set(state, Value("terminal"), Value(true));
+                changed = Value(true);
+              }
+              if (!Core::truthy(validated)) {
+                if (Core::truthy(applied)) {
+                  Value id = Core::get(event, Value("id"), Value());
+                  Value updates = Core::get(state, Value("updates"), Value());
+                  Value exists = Core::map_contains(updates, id);
+                  if (Core::truthy(exists)) {
+                    Value record = Core::get(updates, id, Value());
+                    Value status = Core::get(record, Value("status"), Value());
+                    Value queued = Core::eq(status, Value("queued"));
+                    if (Core::truthy(queued)) {
+                      Core::set(record, Value("status"), Value("applied"));
+                      Core::set(updates, id, record);
+                      Core::set(state, Value("updates"), updates);
+                      Value item = Core::get(record, Value("update"), Value());
+                      Value kind = Core::get(item, Value("type"), Value());
+                      Value steer = Core::eq(kind, Value("steer"));
+                      if (Core::truthy(steer)) {
+                        Value version = Core::get(state, Value("version"), Value(0));
+                        Value next_version = Core::add(version, Value(1));
+                        Core::set(state, Value("version"), next_version);
+                      }
+                      changed = Value(true);
+                    }
+                  }
+                }
+                if (!Core::truthy(applied)) {
+                  throw AxError("runtime", "Unknown chat session transition");
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+  }
+  Value action = Core::chat_session_boundary_action(state);
+  Core::set(action, Value("changed"), changed);
+  return action;
 }
 
 Value Core::_response_function_calls_impl(Value response) {
@@ -27001,6 +27371,42 @@ Value Core::_flow_execute_nested_steps(Value flow, Value client, Value steps, Va
   return out;
 }
 
+Value Core::flow_execute_owned_worker(Value flow, Value step, Value plan_step, Value client, Value state, Value options) {
+  axir_coverage_mark("flow_execute_owned_worker");
+  Value empty_map = Value::object();
+  Value traces = Value::array();
+  Value chat_log = Value::array();
+  Value usage = Value::object();
+  Core::set(flow, Value("traces"), traces);
+  Core::set(flow, Value("chat_log"), chat_log);
+  Core::set(flow, Value("usage"), usage);
+  Value report = Value::object();
+  try {
+    Value result_state = Core::_flow_execute_step(flow, step, plan_step, client, state, options);
+    Core::set(report, Value("state"), result_state);
+  } catch (const std::exception& e) {
+    Value error = Core::exception_value(e);
+    Value message = Core::exception_message(error);
+    Value name = Core::get(step, Value("name"), Value(""));
+    message = Core::string_format(Value("Flow node {} failed: {}"), name, message);
+    Core::set(report, Value("error"), message);
+    Value program = Core::get(step, Value("program"), Value());
+    Value has_program = Core::is_not_none(program);
+    if (Core::truthy(has_program)) {
+      Core::_flow_record_child_chat_log(flow, name, program);
+      Core::_flow_record_child_usage(flow, name, program);
+      Core::_flow_record_child_traces(flow, name, program);
+    }
+  }
+  traces = Core::get(flow, Value("traces"), Value());
+  chat_log = Core::get(flow, Value("chat_log"), Value());
+  usage = Core::get(flow, Value("usage"), Value());
+  Core::set(report, Value("traces"), traces);
+  Core::set(report, Value("chat_log"), chat_log);
+  Core::set(report, Value("usage"), usage);
+  return report;
+}
+
 Value Core::_flow_execute_steps(Value flow, Value client, Value state, Value options) {
   axir_coverage_mark("_flow_execute_steps");
   Value empty_map = Value::object();
@@ -27054,11 +27460,67 @@ Value Core::_flow_execute_steps(Value flow, Value client, Value state, Value opt
     Value is_parallel_group = Core::gt(group_count, Value(1));
     if (Core::truthy(is_parallel_group)) {
       Value group_start = Core::map_merge(current, empty_map);
-      for (auto plan_step : Core::iter(group_steps)) {
-        Value index = Core::get(plan_step, Value("stepIndex"), Value(0));
-        Value step = Core::list_get(steps, index, Value());
-        Value result_state = Core::_flow_execute_step(flow, step, plan_step, client, group_start, options);
-        current = Core::_flow_merge_parallel_results(current, result_state);
+      Value reports = Core::flow_dispatch_group(flow, client, group_steps, group_start, options);
+      Value fallback = Core::is_none(reports);
+      if (Core::truthy(fallback)) {
+        Value traces = Core::get(flow, Value("traces"), empty_list);
+        Value program_id = Core::get(flow, Value("program_id"), Value("root.flow"));
+        Value payload = Value::object();
+        Core::set(payload, Value("level"), level);
+        Core::set(payload, Value("reason"), Value("owned-worker-unavailable"));
+        Value fallback_event = Core::_program_trace_event(program_id, Value("flow_parallel_fallback"), payload);
+        Core::append(traces, fallback_event);
+        for (auto plan_step : Core::iter(group_steps)) {
+          Value index = Core::get(plan_step, Value("stepIndex"), Value(0));
+          Value step = Core::list_get(steps, index, Value());
+          Value result_state = Core::_flow_execute_step(flow, step, plan_step, client, group_start, options);
+          current = Core::_flow_merge_parallel_results(current, result_state);
+        }
+      }
+      if (!Core::truthy(fallback)) {
+        Value report_count = Core::len(reports);
+        Value complete_reports = Core::eq(report_count, group_count);
+        if (Core::truthy(complete_reports)) {
+          // empty
+        }
+        if (!Core::truthy(complete_reports)) {
+          Value error = Core::runtime_error(Value("Flow dispatcher omitted node outcomes"));
+          Core::raise_error(error);
+        }
+        Value failures = Value::array();
+        for (auto report : Core::iter(reports)) {
+          Value worker_traces = Core::get(report, Value("traces"), empty_list);
+          Value traces = Core::get(flow, Value("traces"), empty_list);
+          for (auto trace : Core::iter(worker_traces)) {
+            Core::append(traces, trace);
+          }
+          Value worker_log = Core::get(report, Value("chat_log"), empty_list);
+          Value chat_log = Core::get(flow, Value("chat_log"), empty_list);
+          for (auto entry : Core::iter(worker_log)) {
+            Core::append(chat_log, entry);
+          }
+          Value worker_usage = Core::get(report, Value("usage"), empty_map);
+          Value usage = Core::get(flow, Value("usage"), empty_map);
+          Value merged_usage = Core::map_merge(usage, worker_usage);
+          Core::set(flow, Value("usage"), merged_usage);
+          Value failure = Core::get(report, Value("error"), Value());
+          Value failed = Core::is_not_none(failure);
+          if (Core::truthy(failed)) {
+            Core::append(failures, failure);
+          }
+          if (!Core::truthy(failed)) {
+            Value result_state = Core::get(report, Value("state"), Value());
+            current = Core::_flow_merge_parallel_results(current, result_state);
+          }
+        }
+        Value failure_count = Core::len(failures);
+        Value failed = Core::gt(failure_count, Value(0));
+        if (Core::truthy(failed)) {
+          Core::set(flow, Value("completed_state"), current);
+          Value message = Core::string_join(Value("; "), failures);
+          Value error = Core::runtime_error(message);
+          Core::raise_error(error);
+        }
       }
     }
     if (!Core::truthy(is_parallel_group)) {
@@ -31435,6 +31897,23 @@ OpenAICompatibleClient::OpenAICompatibleClient(std::string profile, std::string 
   }
 }
 
+std::function<std::shared_ptr<AIClient>()> OpenAICompatibleClient::owned_worker_factory() {
+  if(typeid(*this)!=typeid(OpenAICompatibleClient)&&typeid(*this)!=typeid(OpenAIResponsesClient)&&typeid(*this)!=typeid(GoogleGeminiClient)&&typeid(*this)!=typeid(AnthropicClient))return {};
+  if(context_cache_registry_)return {}; // Borrowed registries require an ownership capability.
+  auto transport_factory=transport_?transport_->owned_worker_factory():std::function<std::shared_ptr<Transport>()>{};
+  if(!transport_factory)return {};
+  auto snapshot=std::make_shared<OpenAICompatibleClient>(*this);
+  snapshot->options_=parse_json(stringify(options_));snapshot->model_config_=parse_json(stringify(model_config_));
+  snapshot->descriptor_=parse_json(stringify(descriptor_));snapshot->context_cache_entries_=parse_json(stringify(context_cache_entries_));
+  snapshot->owned_transport_.reset();snapshot->transport_=nullptr;
+  return [snapshot,transport_factory] {
+    auto worker=std::make_shared<OpenAICompatibleClient>(*snapshot);
+    worker->options_=parse_json(stringify(snapshot->options_));worker->model_config_=parse_json(stringify(snapshot->model_config_));
+    worker->descriptor_=parse_json(stringify(snapshot->descriptor_));worker->context_cache_entries_=parse_json(stringify(snapshot->context_cache_entries_));
+    worker->owned_transport_=transport_factory();worker->transport_=worker->owned_transport_.get();return worker;
+  };
+}
+
 OpenAIResponsesClient::OpenAIResponsesClient(Value options, Transport* transport)
     : OpenAICompatibleClient("openai-responses", "openai-responses", std::move(options), transport, "gpt-4o", "text-embedding-ada-002") {}
 
@@ -34142,11 +34621,25 @@ AxGen& AxGen::set_meter(std::shared_ptr<AxMeter> meter) {
   std::atomic_store(&runtime_hooks_, std::make_shared<const AxRuntimeHooks>(std::move(hooks))); return *this;
 }
 
+std::function<std::shared_ptr<AxProgram>()> AxGen::owned_worker_factory() const {
+  auto options=Core::get(state_,"options",Value::object());
+  if(!Core::get(options,"execution_context",Core::get(options,"executionContext")).is_null())return {};
+  auto snapshot=stringify(state_);auto hooks=runtime_hooks_;
+  return [snapshot,hooks] {auto state=parse_json(snapshot);auto worker=std::make_shared<AxGen>(Core::get(state,"signature"),Core::get(state,"options"),*hooks);worker->state_=state;worker->memory_.value_ref()=Core::get(state,"memory",Value::array());worker->refresh_prompt_template();return worker;};
+}
+std::function<std::shared_ptr<AxProgram>()> AxFlow::owned_worker_factory() const {
+  std::vector<std::pair<std::size_t,std::function<std::shared_ptr<AxProgram>()>>> factories;
+  const auto& steps=array_ref(Core::get(state_,"steps",Value::array()));
+  for(std::size_t i=0;i<steps.size();++i){auto program=Core::get(steps[i],"program");if(program.is_null())continue;auto* stage=registered_stage(display(Core::get(program,"__agent_stage_id")));if(!stage)return {};auto factory=stage->owned_worker_factory();if(!factory)return {};factories.emplace_back(i,std::move(factory));}
+  auto snapshot=stringify(state_);auto hooks=runtime_hooks_;
+  return [snapshot,hooks,factories]{auto worker=std::make_shared<AxFlow>(Value::object(),*hooks);worker->state_=parse_json(snapshot);register_owned_flow(worker->state_,worker->owned_programs_);auto steps=Core::get(worker->state_,"steps");for(const auto& [i,factory]:factories){auto program=factory();worker->owned_programs_->push_back(program);auto step=Core::get(steps,static_cast<int>(i));Core::set(step,"program",Core::agent_stage_ref(*program));}return worker;};
+}
 Value AxGen::value() const { return state_; }
 
 AxFlow::AxFlow(Value options, AxRuntimeHooks hooks)
     : runtime_hooks_(std::make_shared<const AxRuntimeHooks>(std::move(hooks))) {
   state_ = Core::_flow_factory(std::move(options));
+  register_owned_flow(state_,owned_programs_);
   Core::set(state_, "mermaidPercent", "%");
   Core::set(state_, "mermaidOpenBrace", "{");
   Core::set(state_, "mermaidCloseBrace", "}");
@@ -34155,6 +34648,7 @@ AxFlow::AxFlow(Value options, AxRuntimeHooks hooks)
 AxFlow::AxFlow(std::string mermaid, Value bindings, AxRuntimeHooks hooks)
     : runtime_hooks_(std::make_shared<const AxRuntimeHooks>(std::move(hooks))) {
   state_ = Core::_flow_from_mermaid(Value(std::move(mermaid)), bindings);
+  register_owned_flow(state_,owned_programs_);
   Core::set(state_, "mermaidPercent", "%");
   Core::set(state_, "mermaidOpenBrace", "{");
   Core::set(state_, "mermaidCloseBrace", "}");
@@ -35095,6 +35589,24 @@ static Value balancer_base_metrics_cpp() {
   });
 }
 
+std::function<std::shared_ptr<AIClient>()> MultiServiceRouter::owned_worker_factory() {
+  std::map<std::string,std::function<std::shared_ptr<AIClient>()>> factories;
+  for(const auto& [key,entry]:services_){auto factory=entry.service->owned_worker_factory();if(!factory)return {};factories[key]=factory;}
+  auto snapshot=*this;auto options=stringify(options_);
+  return [snapshot,factories,options]{auto worker=std::make_shared<MultiServiceRouter>(snapshot);worker->options_=parse_json(options);worker->last_used_service_.reset();for(auto& [key,entry]:worker->services_){entry.service=std::dynamic_pointer_cast<AxAIService>(factories.at(key)());if(!entry.service)throw AxError("runtime","Owned router worker must implement AxAIService");entry.model=parse_json(stringify(entry.model));entry.embed_model=parse_json(stringify(entry.embed_model));}return worker;};
+}
+std::function<std::shared_ptr<AIClient>()> ProviderRouter::owned_worker_factory() {
+  std::vector<std::function<std::shared_ptr<AIClient>()>> factories;for(auto& provider:providers_){auto factory=provider->owned_worker_factory();if(!factory)return {};factories.push_back(factory);}
+  auto routing=stringify(routing_),processing=stringify(processing_);auto extractor=file_to_text_;
+  return [factories,routing,processing,extractor]{std::vector<std::shared_ptr<AxAIService>> providers;for(auto& factory:factories){auto provider=std::dynamic_pointer_cast<AxAIService>(factory());if(!provider)throw AxError("runtime","Owned provider worker must implement AxAIService");providers.push_back(provider);}auto worker=std::make_shared<ProviderRouter>(providers,parse_json(routing),parse_json(processing));worker->file_to_text_=extractor;return worker;};
+}
+std::function<std::shared_ptr<AIClient>()> AxBalancer::owned_worker_factory() {
+  std::vector<std::function<std::shared_ptr<AIClient>()>> factories;std::vector<std::string> keys;std::vector<size_t> indices;
+  for(auto& service:services_){auto factory=service->owned_worker_factory();if(!factory)return {};factories.push_back(factory);if(adaptive_){keys.push_back(adaptive_route_keys_.at(service.get()));indices.push_back(adaptive_indices_.at(service.get()));}}
+  auto snapshot=*this;auto policy=stringify(policy_);
+  return [snapshot,factories,keys,indices,policy]{auto worker=std::make_shared<AxBalancer>(snapshot);worker->policy_=parse_json(policy);worker->services_.clear();worker->adaptive_route_keys_.clear();worker->adaptive_indices_.clear();for(size_t i=0;i<factories.size();++i){auto service=std::dynamic_pointer_cast<AxAIService>(factories[i]());if(!service)throw AxError("runtime","Owned balancer worker must implement AxAIService");worker->services_.push_back(service);if(worker->adaptive_){worker->adaptive_route_keys_[service.get()]=keys[i];worker->adaptive_indices_[service.get()]=indices[i];}}worker->current_service_=worker->services_.at(worker->current_service_index_);return worker;};
+}
+
 AxBalancer::AxBalancer() = default;
 
 AxBalancer::AxBalancer(std::vector<std::shared_ptr<AxAIService>> services, Value options)
@@ -35180,15 +35692,17 @@ void AxBalancer::validate_models() {
 }
 
 bool AxBalancer::can_retry_service(const std::shared_ptr<AxAIService>& service) const {
-  return service_failures_.find(service->get_id()) == service_failures_.end();
+  return failure_count(service) == 0;
 }
 
+int AxBalancer::failure_count(const std::shared_ptr<AxAIService>& service) const { std::lock_guard<std::mutex> lock(service_failures_->mutex); auto found=service_failures_->counts.find(service->get_id()); return found==service_failures_->counts.end()?0:found->second; }
+
 void AxBalancer::handle_failure(const std::shared_ptr<AxAIService>& service) {
-  service_failures_[service->get_id()] += 1;
+  std::lock_guard<std::mutex> lock(service_failures_->mutex); service_failures_->counts[service->get_id()] += 1;
 }
 
 void AxBalancer::handle_success(const std::shared_ptr<AxAIService>& service) {
-  service_failures_.erase(service->get_id());
+  std::lock_guard<std::mutex> lock(service_failures_->mutex); service_failures_->counts.erase(service->get_id());
 }
 
 bool AxBalancer::retryable(const AxError& error) const {
@@ -35414,7 +35928,7 @@ Value AxBalancer::chat(Value request, Value options) {
     } catch (const AxError& error) {
       if (!retryable(error)) throw;
       handle_failure(service);
-      if (service_failures_[service->get_id()] >= max_retries_) {
+      if (failure_count(service) >= max_retries_) {
         ++index;
         if (index >= candidates.size()) throw;
         service = candidates.at(index);
@@ -35436,7 +35950,7 @@ void AxBalancer::stream_each(Value request, AxStreamHandler handler) {
     std::exception_ptr last;
     for (auto& service : candidates) {
       current_service_ = service;
-      while (service_failures_[service->get_id()] < max_retries_) {
+      while (failure_count(service) < max_retries_) {
         bool delivered = false;
         try {
           service->stream_each(request, [&](const Value& event) { delivered = true; return handler(event); });
@@ -35506,7 +36020,7 @@ Value AxBalancer::embed(Value request, Value options) {
     } catch (const AxError& error) {
       if (!retryable(error)) throw;
       handle_failure(current_service_);
-      if (service_failures_[current_service_->get_id()] >= max_retries_) {
+      if (failure_count(current_service_) >= max_retries_) {
         ++index;
         if (index >= services_.size()) throw;
         current_service_ = services_.at(index);

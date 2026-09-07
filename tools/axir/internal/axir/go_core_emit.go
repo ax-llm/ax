@@ -18,6 +18,7 @@ var coreIntrinsicGoRaising = map[CoreIntrinsic]bool{
 	IntrinsicJSONParse:               true,
 	IntrinsicJSONParseStrict:         true,
 	IntrinsicAxGenRunAssertions:      true,
+	IntrinsicFlowDispatchGroup:       true,
 	IntrinsicAgentStageForward:       true,
 	IntrinsicAgentNativeStageForward: true,
 	IntrinsicAgentRuntimeCreate:      true,
@@ -32,7 +33,7 @@ var coreIntrinsicGoRaising = map[CoreIntrinsic]bool{
 	IntrinsicStringExtractGroup:      true,
 	IntrinsicStringConsumeOpt:        true,
 	IntrinsicStringExtractSuf:        true,
-	IntrinsicRetrySleep:          true,
+	IntrinsicRetrySleep:              true,
 }
 
 func BuildGoCore(model AxRuntimeModel) (string, error) {

@@ -4,6 +4,7 @@ import java.util.List;
 import java.util.Map;
 
 public interface AxProgram {
+  default java.util.function.Supplier<AxProgram> ownedWorkerFactory() { return null; }
   Map<String, Object> forward(AiClient client, Map<String, Object> values, Map<String, Object> options);
   default Map<String, Object> forward(AiClient client, Map<String, Object> values, Map<String, Object> options, AxRuntimeHooks hooks) {
     Map<String, Object> resolved = new java.util.LinkedHashMap<>(options == null ? Map.of() : options);

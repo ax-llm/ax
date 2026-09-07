@@ -225,6 +225,20 @@
         },
         {
           "target_name": "rust",
+          "canonical_name": "owned_client_factory",
+          "public_name": "AxAIClient::owned_worker_factory",
+          "kind": "method",
+          "description": "Optional factory for an independent client worker with preserved configuration, authentication and routing. Built-in providers supply it; custom services may omit it without changing chat compatibility.",
+          "form": "AxAIClient::owned_worker_factory()",
+          "important_options": [
+            "owned configuration",
+            "shared balancer accounting",
+            "no borrowed client transfer"
+          ],
+          "returns": "worker factory or unavailable"
+        },
+        {
+          "target_name": "rust",
           "canonical_name": "AxChatSession",
           "public_name": "AxChatSession",
           "kind": "interface",
@@ -724,6 +738,21 @@
             "returns"
           ],
           "returns": "flow program"
+        },
+        {
+          "target_name": "rust",
+          "canonical_name": "owned_program_factory",
+          "public_name": "AxExecutableProgram::owned_worker_factory",
+          "kind": "method",
+          "description": "Optional factory for independent program state. Parallel groups require both client and program factories; otherwise the whole group runs serially with a fallback trace.",
+          "form": "AxExecutableProgram::owned_worker_factory()",
+          "important_options": [
+            "owned memory",
+            "per-node controls",
+            "deterministic result merge",
+            "cooperative cancellation"
+          ],
+          "returns": "worker factory or unavailable"
         }
       ]
     },

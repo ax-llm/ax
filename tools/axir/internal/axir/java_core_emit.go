@@ -305,6 +305,8 @@ var coreIntrinsicJava = map[CoreIntrinsic]string{
 	IntrinsicMul:                     "Core.mul",
 	IntrinsicDiv:                     "Core.div",
 	IntrinsicMathAbs:                 "Core.mathAbs",
+	IntrinsicStringCodepointLength:   "Core.stringCodepointLength",
+	IntrinsicMathIsFinite:            "Core.mathIsFinite",
 	IntrinsicMathFloor:               "Core.mathFloor",
 	IntrinsicMathLog:                 "Core.mathLog",
 	IntrinsicMathExp:                 "Core.mathExp",
@@ -393,6 +395,7 @@ var coreIntrinsicJava = map[CoreIntrinsic]string{
 	IntrinsicAxGenRecordChatLog:      "Core.axgenRecordChatLog",
 	IntrinsicAxGenRecordFunction:     "Core.axgenRecordFunctionCall",
 	IntrinsicRunControlAborted:       "Core.runControlAborted",
+	IntrinsicFlowDispatchGroup:       "Core.flowDispatchGroup",
 	IntrinsicAgentStageForward:       "Core.agentStageForward",
 	IntrinsicAgentNativeStageForward: "Core.agentNativeStageForward",
 	IntrinsicAgentStageChatLog:       "Core.agentStageChatLog",
@@ -422,7 +425,7 @@ var coreIntrinsicJava = map[CoreIntrinsic]string{
 	IntrinsicValidAudio:              "Core.validAudio",
 	IntrinsicValidFile:               "Core.validFile",
 	IntrinsicValidURLShape:           "Core.validUrlShape",
-	IntrinsicExceptionIsAborted:     "Core.exceptionIsAborted",
+	IntrinsicExceptionIsAborted:      "Core.exceptionIsAborted",
 }
 
 func javaAttrValue(op Operation, name string) string {

@@ -17,25 +17,29 @@ the Responses transport stays internal. Existing chat-only services remain
 supported. Both Astra backlog entries stay open until the full behavioral scope
 is implemented and verified.
 
-Recent fixes cover raw-schema argument types before C++ session tool execution
-and transport activity tracking in Java, C++, and Rust WebSocket readers. Buffered
-events cannot reactivate completed responses, and late parent completions cannot
-replace an active successor. Invalid tool arguments can be corrected within the
-existing step limit; exhausted runs fail instead of reporting success.
+Completed raw arguments now pass a shared validator in every target before a
+handler starts. Its TypeScript-derived fixtures cover references, unions, nested
+objects and arrays, additional properties, and scalar constraints. Native MCP
+tools retain the original schema and use the existing protocol invocation path.
+WebSocket adapters track transport activity independently of buffered events, so
+late parent events cannot reactivate completed responses or replace successors.
 
-All-five-language release verification, package freshness, conformance
-synchronization, strict Core checks, and provider profiles passed for those fixes.
-Coverage includes deterministic host transport tests and
-`ir/conformance/axai/astra-session-transport-cursor.json`. Passing these checks is
-not evidence that every requested session behavior has been implemented.
+Independent flow nodes use owned client and program factories. The host dispatches
+workers and Core merges reports in plan order. Custom implementations without
+factories use the existing serial loop and emit `flow_parallel_fallback` traces.
+Rust keeps borrowed clients and Core `Rc` values on their owner thread without
+adding Send/Sync requirements to the client trait. Adaptive balancer workers
+share their accounting store. Group failures retain completed diagnostics and
+return before noncooperative work finishes; late results are discarded.
 
-**Parallel flow dispatch remains unimplemented:** generated Core currently
-executes planned parallel groups serially. Background tool/model overlap inside
-one node does not prove concurrent node execution. Additional gaps include raw
-JSON Schema constraints, native MCP invocation, child targeting, and routing
-failure/accounting coverage. Generated-language parity must not be advertised as
-complete. See [the session implementation notes](../ir/axcore/session.md) and
-[the AxIR backlog](AXIR_BACKLOG.md) for remaining work and verification evidence.
+Coordinated native tests prove overlap and failure isolation in all five
+languages. Provider-backed generation, agent, dependent-flow, concurrent-flow,
+and cancellation examples have also run successfully against Astra. These are
+behavior-specific evidence, not a blanket parity claim. Remaining agent
+invocation/targeting, advanced-pattern compatibility, and final acceptance gates
+are tracked in [the session contract](../ir/axcore/session.md) and
+[the AxIR backlog](AXIR_BACKLOG.md). The two Astra entries remain open until their
+complete acceptance criteria pass.
 
 ## Pipeline
 

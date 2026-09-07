@@ -44,9 +44,9 @@ A provisional answer is not successful completion while started tools remain unr
 
 Java, C++, and Rust WebSocket adapters track activity when frames arrive. Consuming buffered events does not reactivate a completed response. When no response is active, steering is queued for the next response; an active successor can still receive native steering. Observe lifecycle timing instead of assuming native application.
 
-C++ session tools validate required raw-schema properties and argument types before invoking handlers. Invalid arguments enter the correction loop, and step exhaustion fails the run. Full raw JSON Schema constraint coverage remains incomplete.
+All five session adapters validate completed raw arguments against the shared Core validator before invoking handlers, including local references, unions, nested schemas, additional properties, and numeric/string/array constraints. Invalid arguments enter correction; step exhaustion fails the run.
 
-Generated flow groups currently execute serially in Python, Go, Java, C++, and Rust. Sequential node isolation and background tool/model overlap within a node do not establish concurrent node execution. The TypeScript parallel-flow examples describe TypeScript behavior only.
+Independent flow nodes use owned program and client workers. Built-in providers, routers, and balancers supply factories; custom implementations without them run the entire group serially and emit a flow_parallel_fallback trace. Rust does not require Send/Sync on the existing client trait. Rust nested flows and custom AxExecutableProgram implementations use execute_program; an optional AxOwnedProgramFactory constructs state on its worker. Workers deliver events and results to the owner, which merges successful results in plan order. On group failure, cancellation preserves completed diagnostics and discards late deliveries.
 
 Use the provider-backed Astra examples under `src/examples/cpp/generation/`, `short-agents/`, and `flows/`. All-five generated parity remains under verification in the shared-session AxIR backlog; do not infer full agent, parallel-flow, or transport parity from these examples alone.
 

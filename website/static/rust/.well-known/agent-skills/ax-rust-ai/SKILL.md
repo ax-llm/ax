@@ -14,7 +14,7 @@ This skill helps an agent write Rust code with the generated Ax package `axllm`.
 - Attach renewable per-request credentials for expiring cloud tokens.
 - Resolve structured-output modes from the selected profile and model.
 - Choose between model-list routing, ordered failover, and adaptive operational routing.
-- Route multimodal requests without flattening native images when the selected provider supports them.
+- Route multimodal requests without flattening native images or files when the selected provider supports them.
 - Use scripted transports for deterministic no-key examples.
 - Use provider-api examples only when explicit provider credentials are available.
 
@@ -66,6 +66,9 @@ let llm = ai("openai", options)?;
 
 - Use the multi-service router when a logical model key selects a configured service or concrete model. It combines model lists; it does not learn from outcomes.
 - Use `ProviderRouter` for capability-based selection and optional media degradation. When the selected provider supports images, preserve every native image part with its payload, MIME type, detail level, cache and optimization hints, alt text, and ordering with surrounding text.
+- Native files retain filename, MIME type, data, cache flags, extraction metadata, and order through provider/model selection and later conversation turns. Existing extracted text is used only when the selected provider cannot consume the file.
+- For unsupported files, configure a file-to-text callback or choose degradation, skip, or error policy. An empty extraction result is valid; extraction failures stop before the provider request. Python, Go, and Java accept fileToText in router processing options; C++ exposes file_to_text, and Rust exposes with_file_to_text and with_processing.
+- Inline PDF inputs should include filename, mimeType, and base64 data. See the public native-file-routing generation example for this language; it uses the ordinary generator and a real provider.
 - Use the default `AxBalancer` for deterministic ordered/metric failover with its existing retry policy.
 - Opt into `AxBalancerAdaptiveStrategy` only for operational routing among application-approved equivalent aliases. It learns transient reliability and successful latency, combines them with estimated cost and a deadline, and explores with Thompson sampling.
 - Put centralized decision state in an `AxBalancerStatsStore`. The routing-event callback is best-effort analytics and observability, not a state replication mechanism.
@@ -86,15 +89,15 @@ A provisional answer is not successful completion while started tools remain unr
 
 Java, C++, and Rust WebSocket adapters track activity when frames arrive. Consuming buffered events does not reactivate a completed response. When no response is active, steering is queued for the next response; an active successor can still receive native steering. Observe lifecycle timing instead of assuming native application.
 
-C++ session tools validate required raw-schema properties and argument types before invoking handlers. Invalid arguments enter the correction loop, and step exhaustion fails the run. Full raw JSON Schema constraint coverage remains incomplete.
+All five session adapters validate completed raw arguments against the shared Core validator before invoking handlers, including local references, unions, nested schemas, additional properties, and numeric/string/array constraints. Invalid arguments enter correction; step exhaustion fails the run.
 
-Generated flow groups currently execute serially in Python, Go, Java, C++, and Rust. Sequential node isolation and background tool/model overlap within a node do not establish concurrent node execution. The TypeScript parallel-flow examples describe TypeScript behavior only.
+Independent flow nodes use owned program and client workers. Built-in providers, routers, and balancers supply factories; custom implementations without them run the entire group serially and emit a flow_parallel_fallback trace. Rust does not require Send/Sync on the existing client trait. Rust nested flows and custom AxExecutableProgram implementations use execute_program; an optional AxOwnedProgramFactory constructs state on its worker. Workers deliver events and results to the owner, which merges successful results in plan order. On group failure, cancellation preserves completed diagnostics and discards late deliveries.
 
 Use the provider-backed Astra examples under `src/examples/rust/generation/`, `short-agents/`, and `flows/`. All-five generated parity remains under verification in the shared-session AxIR backlog; do not infer full agent, parallel-flow, or transport parity from these examples alone.
 
 ## Relevant API Surface
 
-- AxAI: `ai`, `AxCancellationToken`, `AxAIServiceAbortedError`, `get_supported_ai_models`, `AxCredentialRequest`, `AxCredentialProvider`, `AxChatSession`, `AxChatStream`, `OpenAICompatibleClient`, `OpenAIResponsesClient`, `GoogleGeminiClient`, `AnthropicClient`, `AxUsageContext`, `AxUsageEvent`, `AxUsageObserver`, `set_usage_observer`, `AxRuntimeHooks`, `AxRateLimitInfo`, `AxRateLimiter`, `AxTracer`, `AxMeter`, `AxGlobals`, `set_rate_limiter`, `set_tracer`, `set_meter`, `AxBalancer`, `AxBalancerAdaptiveStrategy`, `AxBalancerStatsStore`, `AxInMemoryBalancerStatsStore`, `create_balancer_route_stats`, `update_balancer_route_stats`, `sample_balancer_route_health`, `MultiServiceRouter`, `ProviderRouter`
+- AxAI: `ai`, `AxCancellationToken`, `AxAIServiceAbortedError`, `get_supported_ai_models`, `AxCredentialRequest`, `AxCredentialProvider`, `AxAIClient::owned_worker_factory`, `AxChatSession`, `AxChatStream`, `OpenAICompatibleClient`, `OpenAIResponsesClient`, `GoogleGeminiClient`, `AnthropicClient`, `AxUsageContext`, `AxUsageEvent`, `AxUsageObserver`, `set_usage_observer`, `AxRuntimeHooks`, `AxRateLimitInfo`, `AxRateLimiter`, `AxTracer`, `AxMeter`, `AxGlobals`, `set_rate_limiter`, `set_tracer`, `set_meter`, `AxBalancer`, `AxBalancerAdaptiveStrategy`, `AxBalancerStatsStore`, `AxInMemoryBalancerStatsStore`, `create_balancer_route_stats`, `update_balancer_route_stats`, `sample_balancer_route_health`, `MultiServiceRouter`, `ProviderRouter`
 
 ## Guardrails
 

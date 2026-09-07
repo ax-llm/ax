@@ -3022,6 +3022,12 @@ static void run(Value fixture) {
     }
     else throw AxError("fixture","unsupported event operation "+operation);
   } else if (kind == "ai_session_state") {
+    for (auto item : Core::iter(Core::get(fixture, "validation_cases", Value::array()))) {
+      bool valid = true;
+      try { Core::chat_session_validate_required_arguments(Core::get(item,"schema"), Core::get(item,"arguments"), "arguments"); }
+      catch (const AxError&) { valid = false; }
+      assert_equal(Value(valid), Core::get(item,"valid"), "raw argument validation: " + display(item));
+    }
     Value state = Core::chat_session_create_state(Core::get(fixture, "model"), Core::get(fixture, "path"), Core::get(fixture, "max_steps"));
     for (auto item : Core::iter(Core::get(fixture, "cases"))) {
       assert_equal(Core::chat_session_transition(state, Core::get(item, "event")), Core::get(item, "expected_action"), "session transition");

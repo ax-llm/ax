@@ -138,7 +138,10 @@ class AxMCPClient {
   std::shared_ptr<AxMCPTransport> transport_;
   Value options_;
   Value server_capabilities_ = Value::object();
+  mutable std::mutex server_info_mutex_;
   Value server_info_ = Value::object();
+  Value server_info_snapshot() const;
+  void set_server_info(Value info);
   std::string negotiated_protocol_version_;
   std::string era_;
   Value discover_result_ = Value::object();
@@ -155,7 +158,7 @@ class AxMCPClient {
   bool subscription_ready_=false;
   std::mutex subscription_mutex_;
   std::condition_variable subscription_condition_;
-  int next_id_ = 1;
+  std::atomic<std::uint64_t> next_id_{1};
   int next_listener_id_=1;
   std::map<int,std::function<void(Value)>> notification_listeners_;
   std::map<int,std::function<void(std::string)>> lifecycle_listeners_;
@@ -363,10 +366,14 @@ class AxMCPStreamableHTTPTransport : public AxMCPTransport {
                       Value extra_headers = Value::object()) const;
   void terminate_session();
   bool apply_oauth(const std::string& www_authenticate = "");
-  Value headers() const { return headers_; }
+  Value headers() const { std::lock_guard<std::mutex> lock(request_state_mutex_); return parse_json(stringify(headers_)); }
   AxMCPOAuthOptions oauth;
 
  private:
+  mutable std::mutex request_state_mutex_;
+  bool modern_era() const;
+  void record_session_id(const std::string& session);
+  void record_authorization(const std::string& authorization);
   std::string endpoint_;
   Value options_;
   Value headers_ = Value::object();

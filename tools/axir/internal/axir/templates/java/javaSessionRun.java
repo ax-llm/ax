@@ -43,6 +43,7 @@ final class SessionRun implements AiClient,AutoCloseable {
       if(args instanceof String text) args=Json.parse(text);
       if(tool==null) throw new IllegalArgumentException("Function '"+name+"' not found");
       Core.validate_fields(tool.args,args,"tool."+name+".args");
+      Core.chat_session_validate_required_arguments(tool.schema(),args,"tool."+name+".args");
     } catch(RuntimeException error) {
       Core.chat_session_register_call(state,call,"blocking");
       Core.chat_session_record_result(gen,state,call,Core.get(Core._tool_error_message_impl(call,error),"result",error.getMessage()),false);return;
@@ -122,6 +123,7 @@ final class SessionRun implements AiClient,AutoCloseable {
     for(String id:applied){Core.chat_session_transition(state,Map.of("type","update.applied","id",id));emit("applied",Map.of("update_id",id,"timing","next-response"));}applied.clear();
   }
   void finish(Throwable failure) {
+    if(state!=null)Core.chat_session_record_unresolved(gen,state);
     Object pending=state==null?List.of():Core.chat_session_close_state(state);close();
     if(failure==null)emit("completed",Map.of());else emit("failed",Map.of("error",failure.toString(),"pending_call_ids",pending));
   }

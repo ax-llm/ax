@@ -33,6 +33,71 @@ final class Core {
   }
 
   private Core() {}
+  static Object ownedCopy(Object value) {
+    if(value instanceof Map<?,?> map){Map<String,Object> out=new LinkedHashMap<>();for(var entry:map.entrySet())out.put(String.valueOf(entry.getKey()),ownedCopy(entry.getValue()));return out;}
+    if(value instanceof List<?> list){List<Object> out=new ArrayList<>();for(Object item:list)out.add(ownedCopy(item));return out;}
+    if(value instanceof AxMemory memory)return memory.ownedCopy();
+    return value;
+  }
+  static Object flowDispatchGroup(Object flowValue,Object clientValue,Object groupSteps,Object state,Object options) {
+    if(!(clientValue instanceof AiClient client))throw new IllegalArgumentException("Flow requires an AI client");
+    var clientFactory=client.ownedWorkerFactory();if(clientFactory==null)return null;
+    record Task(int index,Object plan,Map<String,Object> step,AxProgram program,AiClient client){}
+    record Delivery(int position,Object report,Map<String,Object> event){}
+    List<Task> tasks=new ArrayList<>();
+    for(Object plan:iter(groupSteps)){
+      int index=(int)asDouble(get(plan,"stepIndex",0));Object step=get(get(flowValue,"steps",List.of()),index,null);
+      if(!(get(step,"program",null) instanceof AxProgram program))return null;
+      var factory=program.ownedWorkerFactory();if(factory==null)return null;
+      tasks.add(new Task(index,ownedCopy(plan),asMap(ownedCopy(step)),factory.get(),clientFactory.get()));
+    }
+    var queue=new java.util.concurrent.LinkedBlockingQueue<Delivery>();
+    Object deliveryLock=new Object();boolean[] acceptingDeliveries={true};
+    java.util.function.Consumer<Delivery> deliver=value->{synchronized(deliveryLock){if(acceptingDeliveries[0])queue.add(value);}};
+    Runnable closeDeliveries=()->{synchronized(deliveryLock){acceptingDeliveries[0]=false;}};
+    var parent=get(options,"control",null) instanceof AxRunControl c?c:null;
+    var parentToken=get(options,"cancellation",get(options,"cancellationToken",get(options,"cancellation_token",null))) instanceof AxCancellationToken token?token:null;
+    List<AxCancellationToken> tokens=new ArrayList<>();List<Thread> threads=new ArrayList<>();
+    for(int position=0;position<tasks.size();position++){
+      Task task=tasks.get(position);int slot=position;task.step().put("program",task.program());
+      Object workerFlow=ownedCopy(flowValue),workerState=ownedCopy(state);
+      Map<String,Object> workerOptions=asMap(ownedCopy(options));var token=new AxCancellationToken();tokens.add(token);
+      workerOptions.put("cancellation",token);
+      workerOptions.put("control",new AxRunControl(parent,event->deliver.accept(new Delivery(-1,null,event))));
+      Thread thread=new Thread(()->{
+        Object report;
+        try{report=flow_execute_owned_worker(workerFlow,task.step(),task.plan(),task.client(),workerState,workerOptions);}
+        catch(Throwable error){report=Map.of("error",error.toString());}
+        deliver.accept(new Delivery(slot,report,null));
+      },"ax-flow-worker");thread.setDaemon(true);threads.add(thread);
+    }
+    threads.forEach(Thread::start);
+    Object[] reports=new Object[tasks.size()];int remaining=tasks.size();long deadline=Long.MAX_VALUE;
+    java.util.Set<String> pending=new java.util.LinkedHashSet<>();
+    try{
+      while(remaining>0){
+        if(((parent!=null&&parent.isAborted())||(parentToken!=null&&parentToken.cancelled()))&&deadline==Long.MAX_VALUE){deadline=System.nanoTime()+100_000_000L;tokens.forEach(token->token.cancel("Flow group cancelled"));threads.forEach(Thread::interrupt);}
+        Delivery delivery=queue.poll(20,java.util.concurrent.TimeUnit.MILLISECONDS);
+        if(delivery!=null){
+          if(delivery.event()!=null){var event=delivery.event();String key=event.get("path")+":"+event.get("call_id");if("tool.started".equals(event.get("type")))pending.add(key);if(List.of("tool.completed","tool.failed").contains(event.get("type")))pending.remove(key);if(parent!=null)parent.emit(event);}
+          else if(reports[delivery.position()]==null){
+            reports[delivery.position()]=delivery.report();remaining--;
+            if(get(delivery.report(),"error",null)!=null){if(deadline==Long.MAX_VALUE)deadline=System.nanoTime()+100_000_000L;tokens.forEach(token->token.cancel("Flow sibling failed"));threads.forEach(Thread::interrupt);}
+            else{Task task=tasks.get(delivery.position());set(get(get(flowValue,"steps",List.of()),task.index(),null),"program",task.program());}
+          }
+        }
+        if(System.nanoTime()>=deadline)closeDeliveries.run();
+        if(System.nanoTime()>=deadline&&queue.isEmpty()){
+          for(int position=0;position<reports.length;position++)if(reports[position]==null){reports[position]=Map.of("error","Flow cancelled; unresolved node: "+tasks.get(position).step().get("name")+"; unresolved calls: "+pending);remaining--;}
+        }
+      }
+    }catch(InterruptedException error){
+      Thread.currentThread().interrupt();
+      for(int position=0;position<reports.length;position++)if(reports[position]==null)reports[position]=Map.of("error","Flow interrupted; unresolved node: "+tasks.get(position).step().get("name")+"; unresolved calls: "+pending);
+    }finally{closeDeliveries.run();tokens.forEach(token->token.cancel("Flow dispatcher closed"));threads.forEach(Thread::interrupt);}
+    return new ArrayList<>(java.util.Arrays.asList(reports));
+  }
+
 
   static boolean truthy(Object value) {
     if (value == null) return false;
@@ -63,6 +128,8 @@ final class Core {
     return asDouble(left) / (denom == 0.0 ? 1.0 : denom);
   }
   static Object mathAbs(Object value) { return Math.abs(asDouble(value)); }
+  static Object stringCodepointLength(Object value) { String text = String.valueOf(value); return text.codePointCount(0, text.length()); }
+  static Object mathIsFinite(Object value) { return Double.isFinite(asDouble(value)); }
   static Object mathFloor(Object value) { return Math.floor(asDouble(value)); }
   static Object mathLog(Object value) { return Math.log(asDouble(value)); }
   static Object mathExp(Object value) { return Math.exp(asDouble(value)); }

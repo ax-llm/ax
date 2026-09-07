@@ -24,6 +24,214 @@ module @ax.session version "0.1" {
     attr effect = "throws"
     type signature = "(schema:json, arguments:json, path:string) -> void throws"
     body @entry(%schema: json, %arguments: json, %path: string) {
+      %errors = core.call @chat_session_argument_errors(%schema, %schema, %arguments, %path, 0)
+      %count = core.call intrinsic.len(%errors)
+      %invalid = core.call intrinsic.gt(%count, 0)
+      core.if %invalid {
+        %message = core.string_join %errors sep "; "
+        %error = core.call intrinsic.error.validation(%message)
+        core.raise %error
+      }
+      core.return
+    }
+  }
+
+  op ax.gen.semantic @chat_session_argument_equal {
+    attr core_kind = "func"
+    attr emit_module = "gen"
+    attr private = true
+    type signature = "(left:json, right:json, depth:i64) -> bool"
+    body @entry(%left: json, %right: json, %depth: i64) {
+      %too_deep = core.call intrinsic.gt(%depth, 64)
+      core.if %too_deep {
+        core.return false
+      }
+      %next = core.call intrinsic.add(%depth, 1)
+      %left_list = core.type_is %left type "list"
+      %right_list = core.type_is %right type "list"
+      %same_list = core.call intrinsic.eq(%left_list, %right_list)
+      core.if %same_list {
+      } else {
+        core.return false
+      }
+      %left_object = core.type_is %left type "object"
+      %right_object = core.type_is %right type "object"
+      %same_object = core.call intrinsic.eq(%left_object, %right_object)
+      core.if %same_object {
+      } else {
+        core.return false
+      }
+      %left_string = core.type_is %left type "string"
+      %right_string = core.type_is %right type "string"
+      %same_string = core.call intrinsic.eq(%left_string, %right_string)
+      core.if %same_string {
+      } else {
+        core.return false
+      }
+      %left_number = core.type_is %left type "number"
+      %right_number = core.type_is %right type "number"
+      %same_number = core.call intrinsic.eq(%left_number, %right_number)
+      core.if %same_number {
+      } else {
+        core.return false
+      }
+      %left_boolean = core.type_is %left type "boolean"
+      %right_boolean = core.type_is %right type "boolean"
+      %same_boolean = core.call intrinsic.eq(%left_boolean, %right_boolean)
+      core.if %same_boolean {
+      } else {
+        core.return false
+      }
+      core.if %left_list {
+        %left_size = core.call intrinsic.len(%left)
+        %right_size = core.call intrinsic.len(%right)
+        %same_size = core.call intrinsic.eq(%left_size, %right_size)
+        core.if %same_size {
+        } else {
+          core.return false
+        }
+        %index = core.let 0
+        core.for %value in %left {
+          %other = core.get %right[%index]
+          %same = core.call @chat_session_argument_equal(%value, %other, %next)
+          core.if %same {
+          } else {
+            core.return false
+          }
+          %index = core.call intrinsic.add(%index, 1)
+        }
+        core.return true
+      }
+      core.if %left_object {
+        %left_keys = core.call intrinsic.map.keys(%left)
+        %right_keys = core.call intrinsic.map.keys(%right)
+        %same_keys = core.call @chat_session_argument_equal(%left_keys, %right_keys, %next)
+        core.if %same_keys {
+        } else {
+          core.return false
+        }
+        core.for %key in %left_keys {
+          %value = core.get %left[%key]
+          %other = core.get %right[%key]
+          %same = core.call @chat_session_argument_equal(%value, %other, %next)
+          core.if %same {
+          } else {
+            core.return false
+          }
+        }
+        core.return true
+      }
+      %same = core.call intrinsic.eq(%left, %right)
+      core.return %same
+    }
+  }
+
+  op ax.gen.semantic @chat_session_argument_errors {
+    attr core_kind = "func"
+    attr emit_module = "gen"
+    attr private = true
+    type signature = "(root:json, schema:json, arguments:json, path:string, depth:i64) -> json throws"
+    body @entry(%root: json, %schema: json, %arguments: json, %path: string, %depth: i64) {
+      %errors = core.list
+      %empty = core.map
+      %empty_list = core.list
+      %too_deep = core.call intrinsic.gt(%depth, 64)
+      core.if %too_deep {
+        %message = core.call intrinsic.string.format("{}: Arguments exceed schema nesting limit", %path)
+        core.append %errors, %message
+        core.return %errors
+      }
+      %next_depth = core.call intrinsic.add(%depth, 1)
+      %reference = core.get %schema["$ref"] default ""
+      core.if %reference {
+        %local = core.call intrinsic.string.starts_with(%reference, "#/")
+        core.if %local {
+          %tail = core.call intrinsic.string.slice(%reference, 2)
+          %parts = core.call intrinsic.string.split(%tail, "/")
+          %target = core.let %root
+          core.for %part in %parts {
+            %slash = core.call intrinsic.string.replace(%part, "~1", "/")
+            %key = core.call intrinsic.string.replace(%slash, "~0", "~")
+            %array_target = core.type_is %target type "list"
+            core.if %array_target {
+              %found = core.get %empty["not_found"] default null
+              %index = core.let 0
+              core.for %entry in %target {
+                %index_key = core.call intrinsic.string.format("{}", %index)
+                %same_index = core.call intrinsic.eq(%index_key, %key)
+                core.if %same_index {
+                  %found = core.let %entry
+                }
+                %index = core.call intrinsic.add(%index, 1)
+              }
+              %target = core.let %found
+            } else {
+              %target = core.get %target[%key] default null
+            }
+          }
+          %missing = core.call intrinsic.is_none(%target)
+          %target_boolean = core.type_is %target type "boolean"
+          core.if %target_boolean {
+            %is_false = core.call intrinsic.not(%target)
+            %missing = core.call intrinsic.or(%missing, %is_false)
+          }
+          %target_number = core.type_is %target type "number"
+          core.if %target_number {
+            %is_zero = core.call intrinsic.eq(%target, 0)
+            %missing = core.call intrinsic.or(%missing, %is_zero)
+          }
+          %target_string = core.type_is %target type "string"
+          core.if %target_string {
+            %is_empty = core.call intrinsic.eq(%target, "")
+            %missing = core.call intrinsic.or(%missing, %is_empty)
+          }
+          core.if %missing {
+            %message = core.call intrinsic.string.format("{}: Unresolved schema reference", %path)
+            core.append %errors, %message
+            core.return %errors
+          }
+          %referenced_errors = core.call @chat_session_argument_errors(%root, %target, %arguments, %path, %next_depth)
+          core.return %referenced_errors
+        } else {
+          %message = core.call intrinsic.string.format("{}: External schema references are unsupported", %path)
+          core.append %errors, %message
+          core.return %errors
+        }
+      }
+      %all = core.get %schema["allOf"] default %empty_list
+      core.for %branch in %all {
+        %branch_errors = core.call @chat_session_argument_errors(%root, %branch, %arguments, %path, %next_depth)
+        core.for %error in %branch_errors {
+          core.append %errors, %error
+        }
+      }
+      %keywords = core.list
+      core.append %keywords, "anyOf"
+      core.append %keywords, "oneOf"
+      core.for %keyword in %keywords {
+        %branches = core.get %schema[%keyword] default null
+        %union_branches = core.type_is %branches type "list"
+        core.if %union_branches {
+          %matches = core.let 0
+          core.for %branch in %branches {
+            %branch_errors = core.call @chat_session_argument_errors(%root, %branch, %arguments, %path, %next_depth)
+            %error_count = core.call intrinsic.len(%branch_errors)
+            %match = core.call intrinsic.eq(%error_count, 0)
+            core.if %match {
+              %matches = core.call intrinsic.add(%matches, 1)
+            }
+          }
+          %no_match = core.call intrinsic.eq(%matches, 0)
+          %one = core.call intrinsic.eq(%keyword, "oneOf")
+          %ambiguous = core.call intrinsic.gt(%matches, 1)
+          %too_many = core.call intrinsic.and(%one, %ambiguous)
+          %invalid_union = core.call intrinsic.or(%no_match, %too_many)
+          core.if %invalid_union {
+            %message = core.call intrinsic.string.format("{}: Arguments do not match {}", %path, %keyword)
+            core.append %errors, %message
+          }
+        }
+      }
       %declared_type = core.get %schema["type"] default null
       %has_type = core.call intrinsic.is_not_none(%declared_type)
       core.if %has_type {
@@ -70,54 +278,159 @@ module @ax.session version "0.1" {
           core.if %wants_integer {
             %numeric = core.type_is %arguments type "number"
             core.if %numeric {
+              %finite = core.call intrinsic.math.is_finite(%arguments)
+              core.if %finite {
               %whole = core.call intrinsic.math.floor(%arguments)
               %value_integer = core.call intrinsic.eq(%whole, %arguments)
               %matches = core.call intrinsic.or(%matches, %value_integer)
+              }
             }
           }
         }
         core.if %matches {
         } else {
           %message = core.call intrinsic.string.format("Validation failed: Expected '{}' to have type {}", %path, %declared_type)
-          %error = core.call intrinsic.error.validation(%message)
-          core.raise %error
+          core.append %errors, %message
+          core.return %errors
+        }
+      }
+      %enum_values = core.get %schema["enum"] default null
+      %has_enum = core.type_is %enum_values type "list"
+      core.if %has_enum {
+        %allowed = core.let false
+        core.for %choice in %enum_values {
+          %same = core.call @chat_session_argument_equal(%choice, %arguments, 0)
+          %allowed = core.call intrinsic.or(%allowed, %same)
+        }
+        core.if %allowed {
+        } else {
+          %message = core.call intrinsic.string.format("{}: Value is not in the allowed enum", %path)
+          core.append %errors, %message
+        }
+      }
+      %has_const = core.call intrinsic.map.contains(%schema, "const")
+      core.if %has_const {
+        %constant = core.get %schema["const"]
+        %same = core.call @chat_session_argument_equal(%constant, %arguments, 0)
+        core.if %same {
+        } else {
+          %message = core.call intrinsic.string.format("{}: Value does not match const", %path)
+          core.append %errors, %message
+        }
+      }
+      %string = core.type_is %arguments type "string"
+      core.if %string {
+        %length = core.call intrinsic.string.codepoint_length(%arguments)
+        %minimum = core.get %schema["minLength"] default 0
+        %maximum = core.get %schema["maxLength"] default %length
+        %too_short = core.call intrinsic.lt(%length, %minimum)
+        %too_long = core.call intrinsic.gt(%length, %maximum)
+        core.if %too_short {
+          %message = core.call intrinsic.string.format("{}: String is too short", %path)
+          core.append %errors, %message
+        }
+        core.if %too_long {
+          %message = core.call intrinsic.string.format("{}: String is too long", %path)
+          core.append %errors, %message
+        }
+        %pattern = core.get %schema["pattern"] default ""
+        core.if %pattern {
+          %matches = core.regex_match %arguments pattern %pattern
+          core.if %matches {
+          } else {
+            %message = core.call intrinsic.string.format("{}: String does not match pattern", %path)
+            core.append %errors, %message
+          }
+        }
+      }
+      %number = core.type_is %arguments type "number"
+      core.if %number {
+        %finite = core.call intrinsic.math.is_finite(%arguments)
+        core.if %finite {
+        } else {
+          %message = core.call intrinsic.string.format("{}: Number must be finite", %path)
+          core.append %errors, %message
+        }
+        %minimum = core.get %schema["minimum"] default %arguments
+        %maximum = core.get %schema["maximum"] default %arguments
+        %low = core.call intrinsic.lt(%arguments, %minimum)
+        %high = core.call intrinsic.gt(%arguments, %maximum)
+        core.if %low {
+          %message = core.call intrinsic.string.format("{}: Number is below minimum", %path)
+          core.append %errors, %message
+        }
+        core.if %high {
+          %message = core.call intrinsic.string.format("{}: Number is above maximum", %path)
+          core.append %errors, %message
         }
       }
       %object = core.type_is %arguments type "object"
       core.if %object {
-        %empty = core.list
-        %required = core.get %schema["required"] default %empty
+        %required = core.get %schema["required"] default %empty_list
         core.for %name in %required {
           %present = core.call intrinsic.map.contains(%arguments, %name)
           core.if %present {
           } else {
             %message = core.call intrinsic.string.format("Required field is missing: '{}.{}'", %path, %name)
-            %error = core.call intrinsic.error.validation(%message)
-            core.raise %error
+            core.append %errors, %message
           }
         }
-        %empty_map = core.map
-        %properties = core.get %schema["properties"] default %empty_map
-        %names = core.call intrinsic.map.keys(%properties)
+        %properties = core.get %schema["properties"] default %empty
+        %additional = core.get %schema["additionalProperties"] default true
+        %forbidden = core.call intrinsic.eq(%additional, false)
+        %additional_schema = core.type_is %additional type "object"
+        %names = core.call intrinsic.map.keys(%arguments)
         core.for %name in %names {
-          %present = core.call intrinsic.map.contains(%arguments, %name)
-          core.if %present {
-            %child = core.get %arguments[%name]
-            %child_schema = core.get %properties[%name]
-            %child_path = core.call intrinsic.string.format("{}.{}", %path, %name)
-            core.call @chat_session_validate_required_arguments(%child_schema, %child, %child_path)
+          %child = core.get %arguments[%name]
+          %child_path = core.call intrinsic.string.format("{}.{}", %path, %name)
+          %child_schema = core.get %properties[%name] default null
+          %known = core.call intrinsic.is_not_none(%child_schema)
+          core.if %known {
+            %child_errors = core.call @chat_session_argument_errors(%root, %child_schema, %child, %child_path, %next_depth)
+            core.for %error in %child_errors {
+              core.append %errors, %error
+            }
+          } else {
+            core.if %forbidden {
+              %message = core.call intrinsic.string.format("{}: Unexpected property: {}", %path, %name)
+              core.append %errors, %message
+            }
+            core.if %additional_schema {
+              %child_errors = core.call @chat_session_argument_errors(%root, %additional, %child, %child_path, %next_depth)
+              core.for %error in %child_errors {
+                core.append %errors, %error
+              }
+            }
           }
         }
       }
       %array = core.type_is %arguments type "list"
       core.if %array {
-        %empty_map = core.map
-        %items = core.get %schema["items"] default %empty_map
+        %length = core.call intrinsic.len(%arguments)
+        %minimum = core.get %schema["minItems"] default 0
+        %maximum = core.get %schema["maxItems"] default %length
+        %too_short = core.call intrinsic.lt(%length, %minimum)
+        %too_long = core.call intrinsic.gt(%length, %maximum)
+        core.if %too_short {
+          %message = core.call intrinsic.string.format("{}: Too few items", %path)
+          core.append %errors, %message
+        }
+        core.if %too_long {
+          %message = core.call intrinsic.string.format("{}: Too many items", %path)
+          core.append %errors, %message
+        }
+        %items = core.get %schema["items"] default %empty
+        %index = core.let 0
         core.for %item in %arguments {
-          core.call @chat_session_validate_required_arguments(%items, %item, %path)
+          %child_path = core.call intrinsic.string.format("{}[{}]", %path, %index)
+          %child_errors = core.call @chat_session_argument_errors(%root, %items, %item, %child_path, %next_depth)
+          core.for %error in %child_errors {
+            core.append %errors, %error
+          }
+          %index = core.call intrinsic.add(%index, 1)
         }
       }
-      core.return
+      core.return %errors
     }
   }
 
@@ -800,6 +1113,34 @@ module @ax.session version "0.1" {
       core.set %state["updates"] = %updates
       core.set %state["needs_continuation"] = true
       core.return true
+    }
+  }
+
+  op ax.gen.semantic @chat_session_record_unresolved {
+    attr core_kind = "func"
+    attr emit_module = "gen"
+    attr effect = "throws"
+    type signature = "(gen:json, state:json) -> void throws"
+    body @entry(%gen: json, %state: json) {
+      %pending = core.get %state["pending"]
+      %ids = core.call intrinsic.map.keys(%pending)
+      core.for %id in %ids {
+        %record = core.get %pending[%id]
+        %status = core.get %record["status"]
+        %running = core.call intrinsic.eq(%status, "running")
+        %recorded = core.get %record["diagnostic_recorded"] default false
+        %not_recorded = core.call intrinsic.not(%recorded)
+        %needed = core.call intrinsic.and(%running, %not_recorded)
+        core.if %needed {
+          %call = core.get %record["call"]
+          %message = core.let "Run closed before the started tool settled; its external effects may still complete"
+          core.call intrinsic.axgen.record_function_call(%gen, %call, %message, "unresolved")
+          core.set %record["diagnostic_recorded"] = true
+          core.set %pending[%id] = %record
+        }
+      }
+      core.set %state["pending"] = %pending
+      core.return
     }
   }
 

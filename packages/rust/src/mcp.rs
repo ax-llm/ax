@@ -173,8 +173,15 @@ pub struct AxMCPClient {
 
 impl AxMCPClient {
     pub fn new(transport: Box<dyn AxMCPTransport>, options: Value) -> Self {
+        Self::from_shared_transport(Arc::new(Mutex::new(transport)), options)
+    }
+
+    fn from_shared_transport(
+        transport: Arc<Mutex<Box<dyn AxMCPTransport>>>,
+        options: Value,
+    ) -> Self {
         Self {
-            transport: Arc::new(Mutex::new(transport)),
+            transport,
             options,
             server_capabilities: json!({}),
             server_info: Arc::new(Mutex::new(json!({}))),
@@ -1303,6 +1310,60 @@ impl AxMCPClient {
         out
     }
 
+    // Invocation views retain transport ownership and negotiated protocol state.
+    // Non-Send listener callbacks remain on the owning client; workers leave
+    // inbound notifications queued for that client to dispatch.
+    fn invocation_factory(&self) -> impl Fn() -> AxMCPClient + Send + Sync + 'static {
+        let transport = self.transport.clone();
+        let options = self.options.clone();
+        let server_capabilities = self.server_capabilities.clone();
+        let server_info = self.server_info.clone();
+        let negotiated_protocol_version = self.negotiated_protocol_version.clone();
+        let era = self.era.clone();
+        let discover_result = self.discover_result.clone();
+        let negotiated_extensions = self.negotiated_extensions.clone();
+        let tools = self.tools.clone();
+        let prompts = self.prompts.clone();
+        let resources = self.resources.clone();
+        let resource_templates = self.resource_templates.clone();
+        let catalog_cache = self.catalog_cache.clone();
+        let resource_read_cache = self.resource_read_cache.clone();
+        let next_id = self.next_id.clone();
+        let inbound_messages = self.inbound_messages.clone();
+        let inbound_lifecycle = self.inbound_lifecycle.clone();
+        let subscription_owners = self.subscription_owners.clone();
+        let active_subscription_id = self.active_subscription_id.clone();
+        let elicitation_handler = self.elicitation_handler.clone();
+        let initialized = self.initialized;
+        let subscription_ready = self.subscription_ready;
+        let catalog_revision = self.catalog_revision;
+        move || {
+            let mut client = AxMCPClient::from_shared_transport(transport.clone(), options.clone());
+            client.server_capabilities = server_capabilities.clone();
+            client.server_info = server_info.clone();
+            client.negotiated_protocol_version = negotiated_protocol_version.clone();
+            client.era = era.clone();
+            client.discover_result = discover_result.clone();
+            client.negotiated_extensions = negotiated_extensions.clone();
+            client.tools = tools.clone();
+            client.prompts = prompts.clone();
+            client.resources = resources.clone();
+            client.resource_templates = resource_templates.clone();
+            client.catalog_cache = catalog_cache.clone();
+            client.resource_read_cache = resource_read_cache.clone();
+            client.next_id = next_id.clone();
+            client.inbound_messages = inbound_messages.clone();
+            client.inbound_lifecycle = inbound_lifecycle.clone();
+            client.subscription_owners = subscription_owners.clone();
+            client.active_subscription_id = active_subscription_id.clone();
+            client.elicitation_handler = elicitation_handler.clone();
+            client.initialized = initialized;
+            client.subscription_ready = subscription_ready;
+            client.catalog_revision = catalog_revision;
+            client
+        }
+    }
+
     pub fn native_tools(&self) -> Vec<Tool> {
         let mut out = Vec::new();
         for spec in &self.tools {
@@ -1313,16 +1374,17 @@ impl AxMCPClient {
                 .to_string();
             let name = override_name(&self.options, &original);
             let description = override_description(&self.options, spec);
-            let transport = self.transport.clone();
-            let next_id = self.next_id.clone();
-            out.push(tool(&name).description(description).handler(move |args| {
-                mcp_transport_request(
-                    &transport,
-                    &next_id,
-                    "tools/call",
-                    json!({"name": original, "arguments": args}),
-                )
-            }));
+            let invoke = self.invocation_factory();
+            let schema = spec
+                .get("inputSchema")
+                .cloned()
+                .unwrap_or_else(|| json!({}));
+            out.push(
+                tool(&name)
+                    .description(description)
+                    .parameters(schema)
+                    .handler(move |args| invoke().call_tool(&original, args)),
+            );
         }
         out
     }
@@ -1602,10 +1664,13 @@ impl AxMCPClient {
             .to_string();
         let name = override_name(&self.options, &original);
         let description = override_description(&self.options, &spec);
-        let transport = self.transport.clone();
-        let next_id = self.next_id.clone();
-        tool(&name).description(description).handler(move |args| {
-            let result = mcp_transport_request(&transport, &next_id, "tools/call", json!({"name": original, "arguments": args}))?;
+        let invoke = self.invocation_factory();
+        let schema = spec
+            .get("inputSchema")
+            .cloned()
+            .unwrap_or_else(|| json!({}));
+        tool(&name).description(description).parameters(schema).handler(move |args| {
+            let result = invoke().call_tool(&original, args)?;
             if let Some(value) = result.get("structuredContent") { return Ok(value.clone()); }
             Ok(json!({"content": content_text(result.get("content").and_then(Value::as_array).cloned().unwrap_or_default())}))
         })
@@ -6997,6 +7062,19 @@ fn run_mcp_conformance_fixture_inner(fixture: &Value, operation: &str) -> AxResu
                 "ping" => client.ping().map(|_| ()),
                 "tools" => {
                     let functions = client.native_tools();
+                    for function in &functions {
+                        if let Some(expected) = fixture
+                            .get("expected_schemas")
+                            .and_then(|schemas| schemas.get(&function.name))
+                        {
+                            if &function.schema()? != expected {
+                                return Err(AxError::new(
+                                    "fixture",
+                                    "Native tool schema was altered",
+                                ));
+                            }
+                        }
+                    }
                     if let Some(expected) = fixture.get("expected_function_names") {
                         let names =
                             Value::Array(functions.iter().map(|tool| json!(tool.name)).collect());
@@ -7015,6 +7093,20 @@ fn run_mcp_conformance_fixture_inner(fixture: &Value, operation: &str) -> AxResu
                             &result,
                             fixture.get("expected_call_result").unwrap_or(&Value::Null),
                         )?;
+                    }
+                    let requests = client.transport.lock().unwrap().sent_requests();
+                    if let Some(expected) =
+                        fixture.get("expected_requests").and_then(Value::as_array)
+                    {
+                        if requests.len() != expected.len() {
+                            return Err(AxError::new(
+                                "fixture",
+                                "Native MCP request count mismatch",
+                            ));
+                        }
+                        for (request, expected) in requests.iter().zip(expected) {
+                            expect_subset("native MCP request", request, expected)?;
+                        }
                     }
                     Ok(())
                 }

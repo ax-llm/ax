@@ -155,6 +155,7 @@ except RuntimeError as error:
     assert 'pending-call' in str(error), error
 assert late_socket.closed and not finished_late.is_set()
 late_traces=list(late_program.function_call_traces)
+assert len(late_traces)==1 and late_traces[0]["id"]=="pending-call" and late_traces[0]["status"]=="unresolved",late_traces
 release_late.set()
 assert finished_late.wait(2)
 assert late_program.function_call_traces==late_traces and len(late_socket.sent)==1
@@ -163,7 +164,12 @@ print('python noncooperative cancellation returns before tool completion')
 # The agent executor exposes declared background tools through its normal API.
 from axllm import agent
 agent_requests=[];agent_calls=[];agent_started=threading.Event();agent_release=threading.Event()
-def agent_lookup(args):
+agent_control=run_control();agent_control_events=[];agent_control.on_event(agent_control_events.append)
+agent_control.steer('ROOT-GUIDANCE')
+agent_control.steer('RESPONDER-ONLY',target='root/responder')
+agent_control.set_thinking_token_budget('medium',target='root/executor')
+def agent_lookup(args,context):
+    assert context['call_id']=='agent-call' and not context['signal'].is_set()
     agent_calls.append(args['query']);agent_started.set()
     assert agent_release.wait(2), 'agent model work did not overlap the handler'
     return args['query']
@@ -171,26 +177,36 @@ def agent_response(id,text):
     return {'id':id,'model':'gpt-6-astra','output':[{'type':'message','id':'message-'+id,'content':[{'type':'output_text','text':text}]}]}
 def agent_transport(request):
     agent_requests.append(request);number=len(agent_requests);body=request['json']
-    if number==1:
-        assert not any(t.get('async') for t in body.get('tools',[])), 'distiller received actor authority'
-        return {'status':200,'json':agent_response('distiller','{"completion":{"type":"final","args":["Find reference",{}]}}')}
-    if number==2:
+    if number in (1,2,5,6):
+        assert not any(t.get('async') for t in body.get('tools',[])), 'actor authority leaked'
+        stage='distiller' if number<3 else 'responder'
+        if number in (2,6):
+            assert body['previous_response_id']==stage+'-start',body
+            assert 'ROOT-GUIDANCE' in json.dumps(body['input']),body
+            assert ('RESPONDER-ONLY' in json.dumps(body['input'])) == (number==6),body
+        text='{"completion":{"type":"final","args":["Find reference",{}]}}' if number<3 else '{"answer":"REF-42"}'
+        if number==5:assert 'REF-42' in json.dumps(body), 'responder ran before final tool incorporation'
+        response=agent_response(stage+('-start' if number in (1,5) else '-final'),text)
+        return {'status':200,'body':'data: '+json.dumps({'type':'response.completed','response':response})+'\n\n'}
+    if number==3:
         assert body['tools'][0]['name']=='tools_lookup' and body['tools'][0]['async'] is True,body['tools']
         def events():
             yield 'data: '+json.dumps({'type':'response.output_item.done','item':{'type':'function_call','id':'item','call_id':'agent-call','name':'tools_lookup','arguments':'{"query":"REF-42"}'}})+'\n\n'
             assert agent_started.wait(2);agent_release.set()
             yield 'data: '+json.dumps({'type':'response.completed','response':agent_response('executor1','{"completion":{"type":"final","args":["Report reference",{"answer":"provisional"}]}}')})+'\n\n'
         return {'status':200,'body':events()}
-    if number==3:
-        assert body['previous_response_id']=='executor1' and body['input']==[{'type':'function_call_output','call_id':'agent-call','output':'REF-42'}],body
-        return {'status':200,'body':'data: '+json.dumps({'type':'response.completed','response':agent_response('executor2','{"completion":{"type":"final","args":["Report reference",{"answer":"REF-42"}]}}')})+'\n\n'}
-    assert number==4 and 'REF-42' in json.dumps(body), 'responder ran before final tool incorporation'
-    assert not any(t.get('async') for t in body.get('tools',[])), 'responder received actor tools'
-    return {'status':200,'json':agent_response('responder','{"answer":"REF-42"}')}
-agent_tool=fn('lookup').description('Lookup').arg('query',f.string()).execution('background').handler(agent_lookup).build()
+    assert number==4 and body['previous_response_id']=='executor1',body
+    assert body['input'][-1]=={'type':'function_call_output','call_id':'agent-call','output':'REF-42'},body
+    assert 'ROOT-GUIDANCE' in json.dumps(body['input']) and 'RESPONDER-ONLY' not in json.dumps(body['input']),body
+    assert {'type':'configuration_update','reasoning':{'effort':'medium'}} in body['input'],body
+    assert body.get('reasoning')==agent_requests[2]['json'].get('reasoning'), 'reasoning update changed original cache prefix'
+    return {'status':200,'body':'data: '+json.dumps({'type':'response.completed','response':agent_response('executor2','{"completion":{"type":"final","args":["Report reference",{"answer":"REF-42"}]}}')})+'\n\n'}
+agent_tool=fn('lookup').description('Lookup').arg('query',f.string()).execution('background').context_handler(agent_lookup).build()
 agent_program=agent('question -> answer',{'functions':[agent_tool],'directResponse':'off'})
-assert agent_program.forward(ai('openai',model='gpt-6-astra',api_key='test',transport=agent_transport),{'question':'Find reference'})=={'answer':'REF-42'}
-assert agent_calls==['REF-42'] and len(agent_requests)==4
+assert agent_program.forward(ai('openai',model='gpt-6-astra',api_key='test',transport=agent_transport),{'question':'Find reference'},{'control':agent_control})=={'answer':'REF-42'}
+assert agent_calls==['REF-42'] and len(agent_requests)==6
+assert len([event for event in agent_control_events if event['type']=='applied'])==5
+assert {event['path'] for event in agent_control_events if event['type']=='started'}=={'root/distiller','root/executor','root/responder'}
 activity=[entry for entry in agent_program.state['action_log'] if entry.get('type')=='function_call']
 assert len(activity)==1 and activity[0]['qualified_name']=='tools.lookup',activity
 assert agent_program.state['function_call_traces'][0]['call_id']=='agent-call'
@@ -279,12 +295,12 @@ assert len(balanced_requests)==2 and balanced_calls==['done']
 print('python mixed balancer pins ordinary-chat fallback for the entire run')
 
 # Invalid completed arguments are corrected through the same call ID without execution.
-for exhausted in (False, True):
+for exhausted, raw_arguments in [(exhausted, arguments) for exhausted in (False, True) for arguments in ('{}', '{"query":"ab"}')]:
     failure_requests=[]; failure_calls=[]
     def failure_transport(req):
         failure_requests.append(req)
         if len(failure_requests)==1:
-            response={'id':'invalid','model':'gpt-6-astra','output':[{'type':'function_call','id':'invalid-item','call_id':'invalid-call','name':'validated_lookup','arguments':'{}'}]}
+            response={'id':'invalid','model':'gpt-6-astra','output':[{'type':'function_call','id':'invalid-item','call_id':'invalid-call','name':'validated_lookup','arguments':raw_arguments}]}
         else:
             assert not exhausted and len(failure_requests)==2, 'work replayed after step exhaustion'
             body=req['json']; assert body['previous_response_id']=='invalid'
@@ -295,6 +311,7 @@ for exhausted in (False, True):
         return {'status':200,'body':'data: '+json.dumps({'type':'response.completed','response':response})+'\n\n'}
     failure_client=ai('openai',model='gpt-6-astra',api_key='test',transport=failure_transport)
     validated=fn('validated_lookup').description('Requires a query').arg('query',f.string()).execution('background').handler(lambda args: failure_calls.append(args)).build()
+    validated.parameters = {'type': 'object', '$defs': {'query': {'type': 'string', 'minLength': 3, 'pattern': '^[A-Z]+$'}}, 'properties': {'query': {'$ref': '#/$defs/query'}}, 'required': ['query'], 'additionalProperties': False}
     failure_program=ax('question -> answer',{'functions':[validated]})
     try:
         result=failure_program.forward(failure_client,{'question':'Find reference'},{'maxSteps':1 if exhausted else 3})
@@ -363,3 +380,139 @@ try:
 except Exception as error:
     assert 'Files are not supported' in str(error), error
 assert len(file_requests)==before
+
+# Independent built-in clients must overlap; a serial implementation times out.
+def owned_flow_overlap():
+    import json, threading
+    from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+    from axllm import ai, ax, flow, MultiServiceRouter, AxBalancer, ProviderRouter
+    barrier = threading.Barrier(2, timeout=3)
+    requests = []
+    class Handler(BaseHTTPRequestHandler):
+        def log_message(self, *args): pass
+        def do_POST(self):
+            requests.append(json.loads(self.rfile.read(int(self.headers['Content-Length']))))
+            assert self.headers['Authorization'] == 'Bearer worker-test'
+            try: barrier.wait()
+            except threading.BrokenBarrierError:
+                self.send_error(500, 'parallel nodes did not overlap'); return
+            data = json.dumps({'id':'reply','choices':[{'index':0,'message':{'role':'assistant','content':'{"answer":"DONE"}'},'finish_reason':'stop'}], 'usage':{'prompt_tokens':2,'completion_tokens':1,'total_tokens':3}}).encode()
+            self.send_response(200);self.send_header('Content-Type','application/json');self.send_header('Content-Length',str(len(data)));self.end_headers();self.wfile.write(data)
+    server=ThreadingHTTPServer(('127.0.0.1',0),Handler)
+    thread=threading.Thread(target=server.serve_forever,daemon=True);thread.start()
+    try:
+        client=ai('openai',api_key='worker-test',model='gpt-5.6',base_url=f'http://127.0.0.1:{server.server_port}')
+        client=ProviderRouter({'providers':{'primary':MultiServiceRouter([{'key':'smart','service':AxBalancer([client])}])}})
+        program=ax('question -> answer')
+        factory=program.owned_worker_factory()
+        assert factory() is not factory()
+        workflow=flow().execute('first',program).execute('second',program).returns({'first':'firstResult','second':'secondResult'})
+        result=workflow.forward(client,{'question':'Ready'},{'stream':False,'model':'smart'})
+        assert result=={'first':{'answer':'DONE'},'second':{'answer':'DONE'}},result
+        assert len(requests)==2,requests
+        assert len(workflow.state['chat_log'])==2,workflow.state
+        print('Python owned flow HTTP barrier passed')
+    finally:
+        server.shutdown();server.server_close();thread.join()
+
+owned_flow_overlap()
+# A failed parallel group retains completed nodes and returns before a host
+# operation that ignores cancellation finishes. Late results cannot alter it.
+def owned_flow_failure():
+    import time
+    from axllm import ai, ax, flow, run_control
+    gate = threading.Barrier(3, timeout=3)
+    release = threading.Event()
+    fast_completed = threading.Event()
+    late_finished = threading.Event()
+    requests = []
+    class Transport:
+        def owned_worker_factory(self): return Transport
+        def __call__(self, request):
+            body = json.dumps(request['json'])
+            requests.append(body)
+            gate.wait()
+            if 'lateAnswer' in body:
+                try:
+                    assert release.wait(3), 'test did not release noncooperative worker'
+                    content = {'lateAnswer':'LATE'}
+                finally: late_finished.set()
+            elif 'failAnswer' in body:
+                assert fast_completed.wait(3), 'completed sibling was not reported'
+                content = {'wrong':'invalid'}
+            else: content = {'fastAnswer':'DONE'}
+            return {'status':200,'json':{'id':'reply','choices':[{'index':0,'message':{'role':'assistant','content':json.dumps(content)},'finish_reason':'stop'}]}}
+    control=run_control()
+    control.on_event(lambda event: fast_completed.set() if event['type']=='completed' and event['path']=='root/fast' else None)
+    client=ai('openai',api_key='test',model='gpt-5.6',transport=Transport())
+    workflow=flow().execute('fast',ax('question -> fastAnswer')).execute('fail',ax('question -> failAnswer')).execute('late',ax('question -> lateAnswer'))
+    try:
+        started=time.monotonic()
+        try:
+            workflow.forward(client,{'question':'Ready'},{'control':control,'stream':False,'maxSteps':1,'validationRetries':0,'infraRetries':0})
+            raise AssertionError('Failed group returned success')
+        except RuntimeError as error:
+            assert 'late' in str(error),error
+        assert time.monotonic()-started<2, 'Flow waited for noncooperative work'
+        assert not late_finished.is_set()
+        assert workflow.state['completed_state']['fastResult']=={'fastAnswer':'DONE'},workflow.state
+        snapshot=json.dumps(workflow.state['completed_state'],sort_keys=True)
+    finally: release.set()
+    assert late_finished.wait(3)
+    assert json.dumps(workflow.state['completed_state'],sort_keys=True)==snapshot
+    assert len(requests)==3, 'Completed nodes or started requests were replayed'
+    print('python parallel failure preserves completed state and discards late work')
+owned_flow_failure()
+
+# Concurrent native MCP invocations keep protocol IDs and tool results distinct.
+from axllm.mcp import AxMCPClient, AxMCPTransport
+from concurrent.futures import ThreadPoolExecutor
+class ConcurrentMCPTransport(AxMCPTransport):
+    def __init__(self):
+        self.requests=[];self.lock=threading.Lock();self.gate=threading.Barrier(32)
+    def send_notification(self,message):
+        assert message['method']=='notifications/initialized'
+    def send(self,message):
+        method=message['method']
+        if method=='server/discover':
+            result={'resultType':'complete','supportedVersions':['2026-07-28'],'ttlMs':60000,'cacheScope':'private','capabilities':{'tools':{}}}
+        elif method=='initialize':
+            result={'protocolVersion':'2025-11-25','serverInfo':{'name':'orders','version':'1'},'capabilities':{'tools':{}}}
+        elif method=='tools/list':
+            result={'tools':[{'name':'lookup','inputSchema':{'type':'object','properties':{'index':{'type':'integer'}}}}]}
+        else:
+            assert method=='tools/call' and message['params']['name']=='lookup'
+            with self.lock:self.requests.append(message)
+            self.gate.wait(timeout=3)
+            result={'resultType':'complete','_meta':{'io.modelcontextprotocol/serverInfo':{'name':'orders','version':message['id']}},'structuredContent':message['params']['arguments']}
+        return {'jsonrpc':'2.0','id':message['id'],'result':result}
+mcp_transport=ConcurrentMCPTransport();mcp_client=AxMCPClient(mcp_transport,{'era':'modern','namespace':'orders'});mcp_client.init()
+mcp_native=mcp_client.native_tools()[0]
+with ThreadPoolExecutor(max_workers=32) as workers:
+    mcp_results=list(workers.map(lambda index:mcp_native.call({'index':index}),range(32)))
+assert sorted(result['structuredContent']['index'] for result in mcp_results)==list(range(32))
+assert len(mcp_transport.requests)==32 and len({request['id'] for request in mcp_transport.requests})==32
+print('python concurrent native MCP identities and results passed')
+
+# Worker failures must affect later routing by the original balancer.
+def owned_balancer_failure_accounting():
+    from axllm import AxBalancer
+    requests=[]
+    class FailingTransport:
+        def owned_worker_factory(self): return FailingTransport
+        def __call__(self,request):
+            requests.append(request)
+            return {'status':429,'json':{'error':{'message':'fixture rate limit'}}}
+    owner=AxBalancer([ai('openai',api_key='test',model='gpt-5.6',transport=FailingTransport())],{'maxRetries':1,'initialBackoffMs':0})
+    worker=owner.owned_worker_factory()()
+    request={'chat_prompt':[{'role':'user','content':'Hello'}],'model_config':{'stream':False}}
+    for current in (worker,owner):
+        try: current.chat(request); raise AssertionError('Failed route returned success')
+        except Exception as error:
+            assert not isinstance(error,AssertionError)
+        if current is worker: first_count=len(requests);assert first_count>0
+    assert len(requests)==first_count,'Parent forgot worker failure and replayed the failed route'
+    assert owner.get_metrics()['errors']['chat']['total']==1,owner.get_metrics()
+    assert owner.get_metrics()['errors']['chat']['count']==1,owner.get_metrics()
+    print('python owned balancer shares failure accounting')
+owned_balancer_failure_accounting()

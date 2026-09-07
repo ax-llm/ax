@@ -12,6 +12,8 @@ import (
 // AxRunControl can be shared by the root program and its descendants. Updates
 // are retained so that scopes which start later observe the same root updates.
 type AxRunControl struct {
+    parent *AxRunControl
+    relay func(map[string]Value)
 	mu        sync.Mutex
 	updates   []map[string]Value
 	listeners []func(map[string]Value)
@@ -30,6 +32,7 @@ func (c *AxRunControl) OnEvent(listener func(map[string]Value)) {
 	c.mu.Unlock()
 }
 func (c *AxRunControl) emit(event map[string]Value) {
+    if c.relay != nil { c.relay(cloneMap(event)); return }
 	c.mu.Lock()
 	listeners := append([]func(map[string]Value){}, c.listeners...)
 	c.mu.Unlock()
@@ -71,6 +74,7 @@ func (c *AxRunControl) SetThinkingTokenBudget(level string, target ...string) er
 	return c.enqueue(Object("type", "thinking", "level", level), target)
 }
 func (c *AxRunControl) pending(path string, after int) ([]map[string]Value, int) {
+    if c.parent != nil {return c.parent.pending(path,after)}
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	updates := []map[string]Value{}
@@ -436,6 +440,7 @@ func (p *genSessionClient) start(call Value) {
 		validationErr = fmt.Errorf("function %q not found", name)
 	} else if validationErr == nil {
 		_, validationErr = validate_fields(toolFields(selected.Args), args, "tool."+name+".args")
+        if validationErr == nil { _, validationErr = chat_session_validate_required_arguments(selected.Schema(), args, "tool."+name+".args") }
 	}
 	execution := "blocking"
 	if selected != nil && selected.ExecutionMode == "background" {
@@ -655,6 +660,7 @@ func (p *genSessionClient) close(err error) {
 	}
 	pending := Value(Array())
 	if p.state != nil {
+        mustCore(chat_session_record_unresolved(p.gen,p.state))
 		pending = mustCore(chat_session_close_state(p.state))
 	}
 	if err != nil {

@@ -1,6 +1,5 @@
 import { mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
-
 import { AxBalancer } from '../../../src/ax/ai/balance.js';
 import {
   AxInMemoryBalancerStatsStore,
@@ -24,6 +23,7 @@ import {
   axAIGrokDefaultConfig,
   axAIGrokVoiceDefaultConfig,
 } from '../../../src/ax/ai/x-grok/api.js';
+import { axValidateToolArguments } from '../../../src/ax/dsp/toolArguments.js';
 import {
   AxAIServiceAuthenticationError,
   AxAIServiceNetworkError,
@@ -40,13 +40,17 @@ const outDir = join(
   'ir/conformance/axai'
 );
 
-function stable(value: unknown): unknown {
-  if (Array.isArray(value)) return value.map((item) => stable(item));
+function stable(value: unknown, preserveOrder = false): unknown {
+  if (Array.isArray(value))
+    return value.map((item) => stable(item, preserveOrder));
   if (value && typeof value === 'object') {
     return Object.fromEntries(
       Object.entries(value as Record<string, unknown>)
-        .sort(([a], [b]) => a.localeCompare(b))
-        .map(([key, item]) => [key, stable(item)])
+        .sort(([a], [b]) => (preserveOrder ? 0 : a.localeCompare(b)))
+        .map(([key, item]) => [
+          key,
+          stable(item, preserveOrder || key === 'validation_cases'),
+        ])
     );
   }
   return value;
@@ -9452,4 +9456,141 @@ writeFixture('astra-session-transport-cursor', {
       expected_active_id: null,
     },
   ],
+});
+
+// Evaluate the supported TypeScript validator, then replay identical raw values in every target.
+const argumentValidationCases: { schema: any; arguments: Json }[] = [
+  { schema: { const: {} }, arguments: null },
+  { schema: { const: null }, arguments: {} },
+  { schema: { const: false }, arguments: 0 },
+  { schema: { enum: [true] }, arguments: 1 },
+  { schema: { const: { z: 1, a: 2 } }, arguments: { z: 1, a: 2 } },
+  { schema: { const: { z: 1, a: 2 } }, arguments: { a: 2, z: 1 } },
+  {
+    schema: { enum: [{ nested: [1, null, { z: true, a: false }] }] },
+    arguments: { nested: [1, null, { a: false, z: true }] },
+  },
+  {
+    schema: { $defs: { target: false }, $ref: '#/$defs/target' },
+    arguments: 2,
+  },
+  { schema: { $defs: { target: {} }, $ref: '#/$defs/target' }, arguments: 2 },
+  { schema: { allOf: [{ type: 'integer' }], $ref: '#/allOf/0' }, arguments: 2 },
+  {
+    schema: { allOf: [{ type: 'integer' }], $ref: '#/allOf/0' },
+    arguments: '2',
+  },
+  {
+    schema: { allOf: [{ type: 'integer' }], $ref: '#/allOf/00' },
+    arguments: 2,
+  },
+  { schema: { type: 'integer' }, arguments: 1.5 },
+  { schema: { type: ['string', 'null'] }, arguments: null },
+  { schema: { type: ['string', 'null'] }, arguments: 3 },
+  { schema: { minimum: 2, maximum: 4 }, arguments: 2 },
+  { schema: { minimum: 2, maximum: 4 }, arguments: 1 },
+  { schema: { minimum: 2, maximum: 4 }, arguments: 5 },
+  { schema: { minLength: 2, maxLength: 2 }, arguments: '😀a' },
+  { schema: { minLength: 2 }, arguments: '😀' },
+  { schema: { maxLength: 1 }, arguments: '😀a' },
+  { schema: { pattern: '[A-Z]{2}[0-9]+' }, arguments: 'prefix AB12 suffix' },
+  { schema: { pattern: '^[A-Z]{2}[0-9]+$' }, arguments: 'prefix AB12 suffix' },
+  { schema: { enum: ['a', 2, null] }, arguments: null },
+  { schema: { enum: ['a', 2, null] }, arguments: '2' },
+  { schema: { const: { a: [1, true] } }, arguments: { a: [1, true] } },
+  { schema: { const: null }, arguments: false },
+  { schema: { allOf: [{ minimum: 2 }, { maximum: 4 }] }, arguments: 5 },
+  {
+    schema: { anyOf: [{ type: 'integer' }, { const: 'yes' }] },
+    arguments: 'yes',
+  },
+  {
+    schema: { anyOf: [{ type: 'integer' }, { const: 'yes' }] },
+    arguments: 'no',
+  },
+  {
+    schema: { oneOf: [{ type: 'number' }, { type: 'integer' }] },
+    arguments: 2,
+  },
+  {
+    schema: { oneOf: [{ type: 'number' }, { type: 'integer' }] },
+    arguments: 2.5,
+  },
+  { schema: { anyOf: [] }, arguments: {} },
+  {
+    schema: {
+      type: 'array',
+      minItems: 2,
+      maxItems: 3,
+      items: { type: 'integer' },
+    },
+    arguments: [1, 2],
+  },
+  { schema: { minItems: 2 }, arguments: [1] },
+  { schema: { maxItems: 1 }, arguments: [1, 2] },
+  { schema: { items: { type: 'integer' } }, arguments: [1, '2'] },
+  {
+    schema: {
+      type: 'object',
+      required: ['a'],
+      properties: { a: { type: 'string' } },
+      additionalProperties: false,
+    },
+    arguments: { a: 'ok', extra: true },
+  },
+  { schema: { required: ['a'] }, arguments: {} },
+  {
+    schema: { additionalProperties: { type: 'integer', minimum: 0 } },
+    arguments: { a: 1, b: -1 },
+  },
+  {
+    schema: { additionalProperties: { type: 'integer', minimum: 0 } },
+    arguments: { a: 1, b: 2 },
+  },
+  {
+    schema: {
+      $defs: { 'a/b~c': { type: 'integer', minimum: 2 } },
+      $ref: '#/$defs/a~1b~0c',
+    },
+    arguments: 3,
+  },
+  {
+    schema: {
+      $defs: { n: { type: 'integer' } },
+      properties: { nested: { items: { $ref: '#/$defs/n' } } },
+    },
+    arguments: { nested: [1, 'bad'] },
+  },
+  { schema: { $ref: '#/missing' }, arguments: {} },
+  { schema: { $ref: 'https://example.com/schema' }, arguments: {} },
+  {
+    schema: { $defs: { loop: { $ref: '#/$defs/loop' } }, $ref: '#/$defs/loop' },
+    arguments: {},
+  },
+  {
+    schema: {
+      $defs: { n: { type: 'integer' } },
+      $ref: '#/$defs/n',
+      type: 'string',
+    },
+    arguments: 3,
+  },
+];
+writeFixture('session-raw-argument-validation', {
+  kind: 'ai_session_state',
+  model: 'gpt-6-astra',
+  path: 'root',
+  max_steps: 3,
+  cases: [],
+  expected_pending: [],
+  expected_steps: 0,
+  validation_cases: argumentValidationCases.map((item) => {
+    let valid = true;
+    try {
+      axValidateToolArguments(item.schema, item.arguments);
+    } catch {
+      valid = false;
+    }
+    return { ...item, valid };
+  }),
 });

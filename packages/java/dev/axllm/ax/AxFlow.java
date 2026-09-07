@@ -6,6 +6,24 @@ import java.util.List;
 import java.util.Map;
 
 public final class AxFlow implements AxProgram {
+  public java.util.function.Supplier<AxProgram> ownedWorkerFactory() {
+    if(executionContext!=null)return null;
+    Map<String,Object> snapshot=Core.asMap(Core.ownedCopy(state));
+    Map<Integer,java.util.function.Supplier<AxProgram>> factories=new LinkedHashMap<>();
+    List<Object> steps=Core.asList(snapshot.get("steps"));
+    for(int index=0;index<steps.size();index++){
+      Object value=Core.get(steps.get(index),"program",null);if(value==null)continue;
+      if(!(value instanceof AxProgram program))return null;
+      var factory=program.ownedWorkerFactory();if(factory==null)return null;factories.put(index,factory);
+    }
+    var ownedOptions=Core.asMap(Core.ownedCopy(options));AxRuntimeHooks hooks=runtimeHooks;
+    return ()->{
+      AxFlow owned=new AxFlow(Core.asMap(Core.ownedCopy(ownedOptions)),hooks);owned.state.clear();owned.state.putAll(Core.asMap(Core.ownedCopy(snapshot)));
+      List<Object> ownedSteps=Core.asList(owned.state.get("steps"));
+      for(var entry:factories.entrySet())Core.set(ownedSteps.get(entry.getKey()),"program",entry.getValue().get());
+      return owned;
+    };
+  }
   public interface Mapper {
     Object apply(Map<String, Object> state);
   }

@@ -3,6 +3,7 @@ import os
 
 import copy
 import inspect
+import math
 import json
 import re
 import time
@@ -25,9 +26,9 @@ from .ai import (
     chat_response_to_completion,
     ai_merge_replay_metadata,
 )
-from .prompt import AxPromptTemplate
+from .prompt import AxPromptTemplate, _core_string_split
 from .schema import AxValidationError, strip_internal, validate_fields, validate_output
-from .signature import AxSignature
+from .signature import AxSignature, _core_string_replace
 from .mcp import resolve_execution_context
 # AXIR_CORE_IMPORTS
 
@@ -178,6 +179,13 @@ def _ax_memory_response_meaningful(response) -> bool:
 
 
 class AxGen:
+    def owned_worker_factory(self):
+        if self.execution_context is not None: return None
+        memo = {id(self.runtime_hooks):self.runtime_hooks}
+        try: snapshot = copy.deepcopy(self, dict(memo))
+        except (TypeError, ValueError): return None
+        return lambda: copy.deepcopy(snapshot, dict(memo))
+
     def __init__(self, signature, options: dict[str, Any] | None = None, hooks: AxRuntimeHooks | None = None):
         self.signature = signature if isinstance(signature, AxSignature) else AxSignature(signature)
         self.runtime_hooks = _merge_runtime_hooks(_coerce_runtime_hooks(hooks), _runtime_hooks_from_options(options))
@@ -613,6 +621,10 @@ def _core_gte(left, right): return left >= right
 def _core_add(left, right): return left + right
 def _core_mul(left, right): return float(left or 0) * float(right or 0)
 def _core_div(left, right): return float(left or 0) / float(right or 1)
+def _core_string_codepoint_length(value): return len(value)
+
+def _core_math_is_finite(value): return math.isfinite(value)
+
 def _core_len(value): return len(value)
 def _core_contains(container, item): return False if container is None else item in container
 def _core_truthy(value): return bool(value)

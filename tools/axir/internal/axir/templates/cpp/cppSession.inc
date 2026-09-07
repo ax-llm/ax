@@ -5,7 +5,12 @@ struct AxRunControl::State {
   std::vector<Value> updates;
   std::vector<std::function<void(Value)>> listeners;
   std::string id;
+  std::shared_ptr<State> parent;
+  std::function<void(Value)> relay;
+  bool is_aborted() const { return aborted.load() || (parent && parent->is_aborted()); }
+  State* source() { return parent ? parent->source() : this; }
   void emit(Value event) {
+    if(relay){relay(parse_json(stringify(event)));return;}
     std::vector<std::function<void(Value)>> copy;
     {std::lock_guard<std::mutex> lock(mutex);copy=listeners;}
     for(auto& listener:copy) listener(parse_json(stringify(event)));
@@ -45,7 +50,7 @@ static std::shared_ptr<AxRunControl::State> resolve_control(Value options) {
   if(it==control_registry.end() || it->second.expired())throw AxError("validation","Run control handle has expired");return it->second.lock();
 }
 Value Core::run_control_aborted(Value control) {
-  if(!Core::get(control,"__run_control_id").is_null()) {auto resolved=resolve_control(object({{"control",control}}));return Value(resolved && resolved->aborted.load());}
+  if(!Core::get(control,"__run_control_id").is_null()) {auto resolved=resolve_control(object({{"control",control}}));return Value(resolved && resolved->is_aborted());}
   return Value(Core::truthy(Core::get(control,"aborted",false)));
 }
 struct SessionQueue {
@@ -149,6 +154,7 @@ class SessionRun final:public AIClient {
   bool blocking_=false;
   Value level_;
   bool fallback_started_=false;
+  bool finished_=false;
   void emit(std::string kind,Value event=Value::object()){if(control_){Core::set(event,"type",kind);Core::set(event,"path",path_);control_->emit(event);}}
   void start(Value call){
     call=Core::chat_session_normalize_call(call);
@@ -197,19 +203,19 @@ class SessionRun final:public AIClient {
   }
   Value chat_impl(Value request,Value options) {
     if(!selected_) {
-      if(control_&&control_->aborted.load())throw AxError("runtime","Run aborted before selecting a provider");
+      if(control_&&control_->is_aborted())throw AxError("runtime","Run aborted before selecting a provider");
       std::set<AIClient*> visited;
       while(true){if(!visited.insert(client_).second)throw AxError("runtime","Cyclic run routing");auto selected=client_->pin_chat_run(request,options_);if(!selected)break;selected_client_=std::move(selected);client_=selected_client_.get();}
       selected_=true;
     }
-    if(!session_){if(control_&&control_->aborted.load())throw AxError("runtime","Run aborted before opening a session");if(Core::truthy(Core::chat_session_mode_enabled(options_))&&Core::truthy(Core::get(features_for_run(Core::get(request,"model")),"asyncTools",false)))session_=client_->open_chat_session(request,options);if(!session_){
+    if(!session_){if(control_&&control_->is_aborted())throw AxError("runtime","Run aborted before opening a session");if(Core::truthy(Core::chat_session_mode_enabled(options_))&&Core::truthy(Core::get(features_for_run(Core::get(request,"model")),"asyncTools",false)))session_=client_->open_chat_session(request,options);if(!session_){
         if(!fallback_started_){emit("started");fallback_started_=true;}Value updates=Value::array();
-        if(control_){if(control_->aborted.load())throw AxError("runtime","Run aborted before the next model request");std::lock_guard<std::mutex> lock(control_->mutex);for(;after_<control_->updates.size();++after_){Value update=control_->updates[after_];if(Core::truthy(Core::chat_session_target_matches(Core::get(update,"target"),path_)))Core::append(updates,update);}}
+        if(control_){if(control_->is_aborted())throw AxError("runtime","Run aborted before the next model request");std::lock_guard<std::mutex> lock(control_->source()->mutex);for(;after_<control_->source()->updates.size();++after_){Value update=control_->source()->updates[after_];if(Core::truthy(Core::chat_session_target_matches(Core::get(update,"target"),path_)))Core::append(updates,update);}}
         Value applied=Core::chat_session_apply_boundary_updates(request,updates,level_);level_=Core::get(applied,"level");for(const auto& id:array_ref(Core::get(applied,"applied",Value::array())))emit("applied",object({{"update_id",id},{"timing","next-response"}}));return client_->chat(Core::get(applied,"request"),options);
       }state_=Core::chat_session_create_state(Core::get(request,"model",""),path_,Core::get(options_,"maxSteps",Core::get(options_,"max_steps",10)));emit("started");}
     else{const auto& messages=array_ref(Core::get(request,"chat_prompt",Value::array()));if(!messages.empty())session_->update(object({{"type","steer"},{"text",Core::get(messages.back(),"content","")}}));submit(Value::array());}
     while(true){
-      if(control_){if(control_->aborted.load())throw AxError("runtime","Run aborted; unresolved calls: "+stringify(Core::chat_session_unresolved(state_)));std::vector<Value> updates;{std::lock_guard<std::mutex> lock(control_->mutex);for(;after_<control_->updates.size();++after_){const auto& update=control_->updates[after_];if(Core::truthy(Core::chat_session_target_matches(Core::get(update,"target"),path_)))updates.push_back(update);}}
+      if(control_){if(control_->is_aborted())throw AxError("runtime","Run aborted; unresolved calls: "+stringify(Core::chat_session_unresolved(state_)));std::vector<Value> updates;{std::lock_guard<std::mutex> lock(control_->source()->mutex);for(;after_<control_->source()->updates.size();++after_){const auto& update=control_->source()->updates[after_];if(Core::truthy(Core::chat_session_target_matches(Core::get(update,"target"),path_)))updates.push_back(update);}}
         for(const auto& update:updates){Core::chat_session_queue_update(state_,update);if(session_->update(update)=="native")Core::chat_session_native_update(state_,Core::get(update,"id"));else applied_.push_back(display(Core::get(update,"id")));}}
       Value result=results_->pop(std::chrono::milliseconds(0));
       if(!result.is_null()){Value call=Core::get(result,"call"),output=Core::get(result,"result");std::string id=display(Core::get(call,"id"));bool ok=Core::truthy(Core::get(result,"ok"));if(!ok)output=Core::get(Core::_tool_error_message_impl(call,object({{"message",Core::get(result,"error")}})),"result");
@@ -221,5 +227,59 @@ class SessionRun final:public AIClient {
       Value action=Core::chat_session_boundary_action(state_);std::string type=display(Core::get(action,"type"));if(type=="submit")submit(Core::get(action,"results",Value::array()));else if(type=="continue")submit(Value::array());else if(type=="validate"&&!last_.is_null())return Core::chat_session_result(last_,Core::get(state_,"response_id"));
     }
   }
-  void finish(std::string error=""){results_->close();if(session_){Value pending=Core::chat_session_close_state(state_);session_->close();if(error.empty())emit("completed");else emit("failed",object({{"error",error},{"pending_call_ids",pending}}));}}
+  void finish(std::optional<std::string> error=std::nullopt){if(finished_)return;finished_=true;results_->close();Value pending=Value::array();if(session_){Core::chat_session_record_unresolved(gen_,state_);pending=Core::chat_session_close_state(state_);session_->close();}if(!error)emit("completed");else emit("failed",object({{"error",*error},{"pending_call_ids",pending}}));}
 };
+
+Value Core::flow_dispatch_group(Value flow,Value client,Value plans,Value state,Value options) {
+  auto* source=registered_client(display(get(client,"__client_id")));if(!source)return {};
+  std::shared_ptr<OwnedFlowPrograms> ownership;
+  {std::lock_guard<std::mutex> lock(owned_flows_mutex);auto it=owned_flows.find(display(get(flow,"__owned_flow_id")));if(it!=owned_flows.end())ownership=it->second.lock();}
+  if(!ownership)return {};
+  struct Task{int index;std::shared_ptr<AIClient> client;std::shared_ptr<AxProgram> program;Value flow,step,plan,state,options;std::shared_ptr<AxCancellationToken> token;std::shared_ptr<AxRunControl::State> control;};
+  auto parent=resolve_control(options);const auto* parent_token=current_cancellation_token();auto queue=std::make_shared<SessionQueue>();
+  std::vector<Task> tasks;auto steps=get(flow,"steps");
+  for(const auto& plan:array_ref(plans)){
+    int index=static_cast<int>(num(get(plan,"stepIndex")));auto step=get(steps,index);
+    if(display(get(step,"kind","execute"))!="execute")return {};
+    auto* program=registered_stage(display(get(get(step,"program"),"__agent_stage_id")));if(!program)return {};
+    auto program_factory=program->owned_worker_factory();auto client_factory=source->owned_worker_factory();if(!program_factory||!client_factory)return {};
+    auto owned_program=program_factory();auto owned_client=client_factory();if(!owned_program||!owned_client)return {};
+    auto owned_flow=parse_json(stringify(flow));auto owned_step=parse_json(stringify(step));set(owned_step,"program",agent_stage_ref(*owned_program));
+    auto control=std::make_shared<AxRunControl::State>();control->id="control-"+std::to_string(++control_sequence);control->parent=parent;control->relay=[queue](Value event){queue->push(object({{"event",std::move(event)}}));};
+    {std::lock_guard<std::mutex> lock(control_registry_mutex);control_registry[control->id]=control;}
+    auto owned_options=parse_json(stringify(options));set(owned_options,"control",object({{"__run_control_id",control->id}}));
+    tasks.push_back({index,std::move(owned_client),std::move(owned_program),owned_flow,owned_step,parse_json(stringify(plan)),parse_json(stringify(state)),owned_options,std::make_shared<AxCancellationToken>(),control});
+  }
+  for(std::size_t position=0;position<tasks.size();++position){auto task=tasks[position];std::thread([task,position,queue]()mutable{
+    Value report;
+    try{AxCancellationScope scope(task.token.get());report=Core::flow_execute_owned_worker(task.flow,task.step,task.plan,Core::client_ref(*task.client),task.state,task.options);}
+    catch(const std::exception& error){report=object({{"error",error.what()}});}catch(...){report=object({{"error","Flow worker failed"}});}
+    // Serialize delivery: Value containers are never shared with the owner while a worker can mutate them.
+    queue->push(object({{"position",static_cast<int>(position)},{"report",parse_json(stringify(report))}}));
+  }).detach();}
+  std::vector<Value> reports(tasks.size());std::set<std::string> pending;std::size_t remaining=tasks.size();
+  std::optional<std::chrono::steady_clock::time_point> deadline;
+  auto cancel=[&]{if(!deadline){deadline=std::chrono::steady_clock::now()+std::chrono::milliseconds(100);for(auto& task:tasks)task.token->cancel("Flow group cancelled");}};
+  try {
+    while(remaining){
+      if((parent&&parent->is_aborted())||(parent_token&&parent_token->is_cancelled()))cancel();
+      auto delivery=queue->pop(std::chrono::milliseconds(20));auto event=get(delivery,"event");
+      if(!event.is_null()){
+        auto key=display(get(event,"path"))+":"+display(get(event,"call_id"));auto type=display(get(event,"type"));
+        if(type=="tool.started")pending.insert(key);if(type=="tool.completed"||type=="tool.failed")pending.erase(key);
+        if(parent)parent->emit(event);
+      } else if(!delivery.is_null()){
+        auto position=static_cast<std::size_t>(num(get(delivery,"position")));if(position>=reports.size())throw AxError("runtime","Invalid flow worker delivery");
+        if(reports[position].is_null()){
+          reports[position]=get(delivery,"report");--remaining;
+          if(!get(reports[position],"error").is_null())cancel();
+          else{ownership->push_back(tasks[position].program);auto step=get(steps,tasks[position].index);set(step,"program",agent_stage_ref(*tasks[position].program));}
+        }
+      }
+      if(deadline&&std::chrono::steady_clock::now()>=*deadline){
+        for(std::size_t i=0;i<reports.size();++i)if(reports[i].is_null()){std::string unresolved;for(const auto& id:pending)unresolved+=id+" ";reports[i]=object({{"error","Flow cancelled; unresolved node: "+display(get(tasks[i].step,"name"))+"; unresolved calls: "+unresolved}});--remaining;}
+      }
+    }
+  }catch(...){cancel();queue->close();throw;}
+  for(auto& task:tasks)task.token->cancel("Flow dispatcher closed");queue->close();return Value(Array(reports.begin(),reports.end()));
+}

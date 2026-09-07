@@ -698,9 +698,10 @@ Runnable TypeScript examples under `src/examples/typescript/flows/`:
 
 Deterministic coverage lives in `src/ax/flow/flow.sessions.test.ts`, including both automatic and explicit parallel execution, delayed results, active/future root updates, targeted updates, cache bypass, cancellation, and chat-only provider fallback. These session examples and tests are TypeScript-only.
 
-Generated-language status: the parallel scheduling described above is implemented
-in TypeScript. Python, Go, Java, C++, and Rust currently execute Core's planned
-parallel groups serially. Their Astra flow examples demonstrate sequential node
-isolation and controls, not concurrent node dispatch. Background tool/model
-overlap within a node does not establish overlap between nodes. Keep the AxIR
-session backlog open until actual concurrent dispatch and isolation are verified.
+Python, Go, Java, C++, and Rust dispatch independent Core-planned nodes through
+owned client and program workers. Built-in providers, routers, and balancers
+provide the capability automatically; unsupported custom implementations run the
+group serially and emit a `flow_parallel_fallback` trace. Each node owns its
+conversation, pending calls, and control path; successful results merge in plan
+order. Native tests and provider-backed `flows/astra_parallel` examples cover
+coordinated overlap. Full session acceptance remains tracked in the AxIR backlog.

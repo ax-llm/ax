@@ -113,7 +113,7 @@ void AxMCPClient::initialize_legacy(){
   if (!supported) throw AxError("mcp", "Unsupported MCP protocol version " + negotiated_protocol_version_);
   transport_->set_protocol_version(negotiated_protocol_version_);
   server_capabilities_ = Core::get(result, "capabilities", Value::object());
-  server_info_ = Core::get(result, "serverInfo", Value::object());
+  set_server_info(Core::get(result, "serverInfo", Value::object()));
   negotiate_extensions();
   notify("notifications/initialized");
   refresh();
@@ -122,7 +122,7 @@ void AxMCPClient::initialize_legacy(){
 void AxMCPClient::apply_era(const std::string& era){era_=era;transport_->set_era(era);if(era=="modern"){negotiated_protocol_version_="2026-07-28";transport_->set_protocol_version(negotiated_protocol_version_);}else negotiated_protocol_version_.clear();}
 void AxMCPClient::remember_era(const std::string& era){auto key=transport_->era_cache_key();if(!key.empty())ax_mcp_client_era_cache()[key]=era;}
 Value AxMCPClient::request_discovery(){return request("server/discover",Value::object());}
-void AxMCPClient::apply_discovery(Value result){auto classified=Core::mcp_classify_discovery_result(result);if(!Core::truthy(Core::get(classified,"valid",false)))throw AxError("mcp","Invalid MCP server/discover result");discover_result_=result;server_capabilities_=Core::get(classified,"capabilities",Value::object());auto info=Core::get(classified,"serverInfo",Value());if(!info.is_null())server_info_=info;negotiate_extensions();}
+void AxMCPClient::apply_discovery(Value result){auto classified=Core::mcp_classify_discovery_result(result);if(!Core::truthy(Core::get(classified,"valid",false)))throw AxError("mcp","Invalid MCP server/discover result");discover_result_=result;server_capabilities_=Core::get(classified,"capabilities",Value::object());auto info=Core::get(classified,"serverInfo",Value());if(!info.is_null())set_server_info(info);negotiate_extensions();}
 void AxMCPClient::negotiate_extensions(){negotiated_extensions_=Core::mcp_negotiate_extensions(Core::get(client_capabilities(),"extensions",Value::object()),Core::get(server_capabilities_,"extensions",Value::object()));}
 Value AxMCPClient::discover(){init();if(era_!="modern")throw AxError("mcp","server/discover is only available for modern MCP");auto result=request_discovery();apply_discovery(result);return result;}
 
@@ -143,7 +143,7 @@ void AxMCPClient::refresh(bool force) {
 std::vector<Value> AxMCPClient::collect_catalog(const std::string& method,const std::string& field){std::vector<Value> out;Value pages=Value::array();std::string cursor;std::set<std::string> seen;auto max_pages=static_cast<int>(Core::number(Core::get(options_,"maxPaginationPages",1000)));for(int page=0;page<max_pages;++page){auto result=request(method,cursor_params(cursor));Core::append(pages,result);for(auto item:as_array_local(Core::get(result,field,Value::array())))out.push_back(item);cursor=display(Core::get(result,"nextCursor",""));if(cursor.empty()){std::map<std::string,std::string> names={{"tools/list","tools"},{"prompts/list","prompts"},{"resources/list","resources"},{"resources/templates/list","resourceTemplates"}};auto found=names.find(method);if(found!=names.end())Core::set(catalog_cache_,found->second,Core::mcp_fold_cache_info(pages,mcp_now_ms()));return out;}if(!seen.insert(cursor).second)throw AxError("mcp","MCP "+method+" repeated pagination cursor "+cursor);}throw AxError("mcp","MCP "+method+" exceeded pagination limit");}
 bool AxMCPClient::catalog_cache_fresh(const std::string& name)const{return Core::truthy(Core::mcp_cache_freshness(Core::get(catalog_cache_,name,Value()),mcp_now_ms()));}
 
-AxMCPCatalogSnapshot AxMCPClient::inspect_catalog(bool refresh_catalog){init();if(refresh_catalog)refresh();AxMCPCatalogSnapshot out;out.namespace_name=namespace_name();out.protocol_version=negotiated_protocol_version_;out.revision=catalog_revision_;out.server_info=server_info_;out.server_capabilities=server_capabilities_;out.tools=Value(Array(tools_.begin(),tools_.end()));out.prompts=Value(Array(prompts_.begin(),prompts_.end()));out.resources=Value(Array(resources_.begin(),resources_.end()));out.resource_templates=Value(Array(resource_templates_.begin(),resource_templates_.end()));for(const auto& item:subscription_owners_)out.subscriptions.push_back(item.first);return out;}
+AxMCPCatalogSnapshot AxMCPClient::inspect_catalog(bool refresh_catalog){init();if(refresh_catalog)refresh();AxMCPCatalogSnapshot out;out.namespace_name=namespace_name();out.protocol_version=negotiated_protocol_version_;out.revision=catalog_revision_;out.server_info=server_info_snapshot();out.server_capabilities=server_capabilities_;out.tools=Value(Array(tools_.begin(),tools_.end()));out.prompts=Value(Array(prompts_.begin(),prompts_.end()));out.resources=Value(Array(resources_.begin(),resources_.end()));out.resource_templates=Value(Array(resource_templates_.begin(),resource_templates_.end()));for(const auto& item:subscription_owners_)out.subscriptions.push_back(item.first);return out;}
 
 std::string AxMCPClient::protocol_version() const { return negotiated_protocol_version_; }
 Value AxMCPClient::ping() { return request("ping"); }
@@ -197,7 +197,7 @@ Value AxMCPClient::request_with_headers(const std::string& method,Value params,V
   Value response = transport_->send_with_headers(message,headers);
   Value error = Core::get(response, "error", Value());
   if (!error.is_null()){auto code=display(Core::get(error,"code",0));if(era_=="modern"&&allow_version_retry&&code=="-32022"){auto supported=array({"2026-07-28","2025-11-25","2025-06-18","2025-03-26","2024-11-05"});auto version=display(Core::mcp_select_mutual_version(Core::get(error,"data",Value()),supported));if(!version.empty()){negotiated_protocol_version_=version;transport_->set_protocol_version(version);return request_with_headers(method,params,headers,false);}}throw AxError("mcp",display(Core::get(error,"message","MCP JSON-RPC error")),"",0,code,false);}
-  auto result=Core::get(response,"result",Value::object());if(era_=="modern"){auto info=Core::get(Core::get(result,"_meta",Value::object()),"io.modelcontextprotocol/serverInfo",Value());if(!info.is_null()&&!display(Core::get(info,"name","")).empty()&&!display(Core::get(info,"version","")).empty())server_info_=info;}return result;
+  auto result=Core::get(response,"result",Value::object());if(era_=="modern"){auto info=Core::get(Core::get(result,"_meta",Value::object()),"io.modelcontextprotocol/serverInfo",Value());if(!info.is_null()&&!display(Core::get(info,"name","")).empty()&&!display(Core::get(info,"version","")).empty())set_server_info(info);}return result;
 }
 
 Value AxMCPClient::client_capabilities()const{Value out=Core::get(options_,"capabilities",Value::object());auto tasks=Core::get(options_,"tasksExtension",Value());auto enabled=tasks.is_null()||Core::truthy(tasks);auto has_elicitation=static_cast<bool>(elicitation_handler_);auto derived=Core::mcp_client_capabilities(!Core::get(options_,"roots",Value()).is_null(),false,has_elicitation,era_.empty()?"legacy":era_,enabled);for(auto entry:as_object_local(derived))if(!value_has(out,entry.first))Core::set(out,entry.first,entry.second);value_erase(out,"sampling");if(!has_elicitation)value_erase(out,"elicitation");return out;}
@@ -254,9 +254,12 @@ Value AxMCPClient::prompts() const { return Value(Array(prompts_.begin(), prompt
 Value AxMCPClient::resources() const { return Value(Array(resources_.begin(), resources_.end())); }
 Value AxMCPClient::resource_templates() const { return Value(Array(resource_templates_.begin(), resource_templates_.end())); }
 
+Value AxMCPClient::server_info_snapshot() const {std::lock_guard<std::mutex> lock(server_info_mutex_);return server_info_;}
+void AxMCPClient::set_server_info(Value info){std::lock_guard<std::mutex> lock(server_info_mutex_);server_info_=std::move(info);}
+
 std::string AxMCPClient::namespace_name() const {
   std::string configured = display(Core::get(options_, "namespace", ""));
-  if(!configured.empty())return configured;auto server=display(Core::get(server_info_,"name",""));return server.empty()?"mcp":server;
+  if(!configured.empty())return configured;auto server=display(Core::get(server_info_snapshot(),"name",""));return server.empty()?"mcp":server;
 }
 
 static const std::vector<std::string>& ax_ucp_operations() {
@@ -495,7 +498,7 @@ Value AxMCPStreamableHTTPTransport::send_with_headers(Value message, Value extra
   if(status==401){auto challenge=display(Core::get(response_headers,"WWW-Authenticate",Core::get(response_headers,"www-authenticate","")));if(apply_oauth(challenge))return send_with_headers(std::move(message),std::move(extra_headers));}
   if(status<200||status>=300)throw AxError("mcp","HTTP error "+std::to_string(status));
   auto session=display(Core::get(response_headers,"MCP-Session-Id",Core::get(response_headers,"mcp-session-id","")));
-  if(era_ != "modern" && !session.empty())session_id_=session;
+  record_session_id(session);
   Value request_id = Core::get(message, "id", Value());
   std::string body = display(Core::get(response, "body", ""));
   if (body.empty()) return object({{"jsonrpc", "2.0"}, {"id", request_id}, {"result", Value::object()}});
@@ -508,16 +511,20 @@ Value AxMCPStreamableHTTPTransport::send_with_headers(Value message, Value extra
 }
 
 void AxMCPStreamableHTTPTransport::send_notification(Value message) { (void)send(std::move(message)); }
-void AxMCPStreamableHTTPTransport::set_protocol_version(const std::string& protocol_version) { protocol_version_ = protocol_version; }
+bool AxMCPStreamableHTTPTransport::modern_era() const { std::lock_guard<std::mutex> lock(request_state_mutex_); return era_ == "modern"; }
+void AxMCPStreamableHTTPTransport::record_session_id(const std::string& session) { std::lock_guard<std::mutex> lock(request_state_mutex_); if (era_ != "modern" && !session.empty()) session_id_ = session; }
+void AxMCPStreamableHTTPTransport::record_authorization(const std::string& authorization) { std::lock_guard<std::mutex> lock(request_state_mutex_); Core::set(headers_, "Authorization", authorization); }
+void AxMCPStreamableHTTPTransport::set_protocol_version(const std::string& protocol_version) { std::lock_guard<std::mutex> lock(request_state_mutex_); protocol_version_ = protocol_version; }
 void AxMCPStreamableHTTPTransport::set_era(const std::string& era) {
+  std::lock_guard<std::mutex> lock(request_state_mutex_);
   era_ = era;
   if (era_ == "modern") { session_id_.clear(); protocol_version_ = "2026-07-28"; }
   else if (protocol_version_ == "2026-07-28") protocol_version_.clear();
 }
-void AxMCPStreamableHTTPTransport::set_session_id(std::string session_id) { session_id_ = std::move(session_id); }
+void AxMCPStreamableHTTPTransport::set_session_id(std::string session_id) { std::lock_guard<std::mutex> lock(request_state_mutex_); session_id_ = std::move(session_id); }
 
 void AxMCPStreamableHTTPTransport::start_listening(){
-  if (era_ == "modern") throw AxError("mcp", "Modern MCP uses subscriptions/listen via openRequestStream, not HTTP GET");
+  if (modern_era()) throw AxError("mcp", "Modern MCP uses subscriptions/listen via openRequestStream, not HTTP GET");
   std::lock_guard<std::mutex> lock(listen_mutex_);
   if(listen_thread_.joinable())return;
   listen_stop_=false;
@@ -525,7 +532,7 @@ void AxMCPStreamableHTTPTransport::start_listening(){
 }
 
 void AxMCPStreamableHTTPTransport::open_request_stream(Value message){
-  if(era_!="modern")throw AxError("mcp","Request streams are only available for modern MCP");
+  if(!modern_era())throw AxError("mcp","Request streams are only available for modern MCP");
   close_request_stream();std::lock_guard<std::mutex> lock(listen_mutex_);listen_stop_=false;sse_buffer_.clear();listen_thread_=std::thread([this,message=std::move(message)]()mutable{request_stream_loop(std::move(message));});
 }
 
@@ -572,7 +579,7 @@ void AxMCPStreamableHTTPTransport::listen_loop(){
     curl_easy_setopt(curl,CURLOPT_URL,endpoint_.c_str());curl_easy_setopt(curl,CURLOPT_HTTPGET,1L);curl_easy_setopt(curl,CURLOPT_HTTPHEADER,headers);
     curl_easy_setopt(curl,CURLOPT_WRITEFUNCTION,+[](char* ptr,size_t size,size_t nmemb,void* raw)->size_t{auto* ctx=static_cast<ListenContext*>(raw);if(ctx->self->listen_stop_)return 0;if(!ctx->announced){if(*ctx->connected_once&&ctx->self->lifecycle_handler_)ctx->self->lifecycle_handler_("reconnected");*ctx->connected_once=true;ctx->announced=true;}auto count=size*nmemb;ctx->self->consume_sse_chunk(ptr,count);return count;});
     curl_easy_setopt(curl,CURLOPT_WRITEDATA,&context);
-    curl_easy_setopt(curl,CURLOPT_HEADERFUNCTION,+[](char* ptr,size_t size,size_t nmemb,void* raw)->size_t{auto* self=static_cast<AxMCPStreamableHTTPTransport*>(raw);if(self->era_=="modern")return size*nmemb;std::string line(ptr,size*nmemb);auto colon=line.find(':');if(colon!=std::string::npos){auto name=line.substr(0,colon);std::transform(name.begin(),name.end(),name.begin(),[](unsigned char c){return static_cast<char>(std::tolower(c));});if(name=="mcp-session-id"){auto value=line.substr(colon+1);auto begin=value.find_first_not_of(" \t");auto end=value.find_last_not_of(" \t\r\n");if(begin!=std::string::npos)self->session_id_=value.substr(begin,end-begin+1);}}return size*nmemb;});
+    curl_easy_setopt(curl,CURLOPT_HEADERFUNCTION,+[](char* ptr,size_t size,size_t nmemb,void* raw)->size_t{auto* self=static_cast<AxMCPStreamableHTTPTransport*>(raw);if(self->modern_era())return size*nmemb;std::string line(ptr,size*nmemb);auto colon=line.find(':');if(colon!=std::string::npos){auto name=line.substr(0,colon);std::transform(name.begin(),name.end(),name.begin(),[](unsigned char c){return static_cast<char>(std::tolower(c));});if(name=="mcp-session-id"){auto value=line.substr(colon+1);auto begin=value.find_first_not_of(" \t");auto end=value.find_last_not_of(" \t\r\n");if(begin!=std::string::npos)self->record_session_id(value.substr(begin,end-begin+1));}}return size*nmemb;});
     curl_easy_setopt(curl,CURLOPT_HEADERDATA,this);curl_easy_setopt(curl,CURLOPT_NOPROGRESS,0L);
     curl_easy_setopt(curl,CURLOPT_XFERINFOFUNCTION,+[](void* raw,curl_off_t,curl_off_t,curl_off_t,curl_off_t)->int{return static_cast<AxMCPStreamableHTTPTransport*>(raw)->listen_stop_?1:0;});curl_easy_setopt(curl,CURLOPT_XFERINFODATA,this);
     auto result=curl_easy_perform(curl);curl_slist_free_all(headers);curl_easy_cleanup(curl);
@@ -594,6 +601,7 @@ void AxMCPStreamableHTTPTransport::request_stream_loop(Value message){
 
 Value AxMCPStreamableHTTPTransport::build_headers(Value base, bool include_protocol, const std::string& method,
                                                   Value params, Value extra_headers) const {
+  std::lock_guard<std::mutex> lock(request_state_mutex_);
   Value out = Core::map_merge(Core::map_merge(headers_, base), extra_headers);
   if (era_ == "modern") {
     for (const auto& entry : as_object_local(extra_headers)) {
@@ -612,7 +620,7 @@ Value AxMCPStreamableHTTPTransport::build_headers(Value base, bool include_proto
   return out;
 }
 
-void AxMCPStreamableHTTPTransport::terminate_session() { if (era_ != "modern") session_id_.clear(); }
+void AxMCPStreamableHTTPTransport::terminate_session() { std::lock_guard<std::mutex> lock(request_state_mutex_); if (era_ != "modern") session_id_.clear(); }
 
 static std::string ax_mcp_oauth_encode(const std::string& value){static const char* hex="0123456789ABCDEF";std::string out;for(unsigned char ch:value){if(std::isalnum(ch)||ch=='-'||ch=='.'||ch=='_'||ch=='~')out.push_back(static_cast<char>(ch));else{out.push_back('%');out.push_back(hex[ch>>4]);out.push_back(hex[ch&15]);}}return out;}
 static Value ax_mcp_oauth_http(const std::string& url,const std::string& method,const std::string& form=""){
@@ -625,14 +633,14 @@ static Value ax_mcp_oauth_http(const std::string& url,const std::string& method,
 static long ax_mcp_oauth_now_ms(){return std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::system_clock::now().time_since_epoch()).count();}
 
 bool AxMCPStreamableHTTPTransport::apply_oauth(const std::string& www_authenticate) {
-  Value stored=oauth.getToken?oauth.getToken(endpoint_):Value();std::string grant_type=oauth.grantType.empty()?"authorization_code":oauth.grantType;Value plan=Core::mcp_oauth_plan_ensure_token(stored,ax_mcp_oauth_now_ms(),false,grant_type,static_cast<bool>(oauth.onAuthCode));if(!Core::truthy(Core::get(plan,"ok",false)))throw AxError("mcp",display(Core::get(plan,"message","OAuth token planning failed")));std::string action=display(Core::get(plan,"action",""));if(action=="cached"){auto token=Core::get(plan,"token",stored);Core::set(headers_,"Authorization","Bearer "+display(Core::get(token,"accessToken","")));return true;}
+  Value stored=oauth.getToken?oauth.getToken(endpoint_):Value();std::string grant_type=oauth.grantType.empty()?"authorization_code":oauth.grantType;Value plan=Core::mcp_oauth_plan_ensure_token(stored,ax_mcp_oauth_now_ms(),false,grant_type,static_cast<bool>(oauth.onAuthCode));if(!Core::truthy(Core::get(plan,"ok",false)))throw AxError("mcp",display(Core::get(plan,"message","OAuth token planning failed")));std::string action=display(Core::get(plan,"action",""));if(action=="cached"){auto token=Core::get(plan,"token",stored);record_authorization("Bearer "+display(Core::get(token,"accessToken","")));return true;}
   Value parsed=Core::mcp_oauth_parse_www_authenticate(www_authenticate);std::string resource=oauth.resource;Value as_metadata=oauth.authorizationServerMetadata;std::string issuer=display(Core::get(as_metadata,"issuer",""));std::string client_auth=oauth.clientSecret.empty()?"none":"client_secret_post";
   auto get_json=[&](const std::string& raw_url){auto checked=ax_mcp_validate_endpoint(raw_url,oauth.ssrfProtection);auto response=ax_mcp_oauth_http(checked,"GET");auto status=static_cast<long>(Core::number(Core::get(response,"status",0)));if(status<200||status>=300)throw AxError("mcp","OAuth discovery HTTP error "+std::to_string(status));return Core::get(response,"json",Value::object());};
   if(as_metadata.is_null()){Value discovery=Core::mcp_oauth_discovery_endpoints(endpoint_,"",Core::get(parsed,"resourceMetadata",""));Value resource_metadata;std::string last_error;for(auto endpoint:Core::iter(Core::get(discovery,"resourceMetadataEndpoints",Value::array()))){try{resource_metadata=get_json(display(endpoint));break;}catch(const std::exception& error){last_error=error.what();}}if(resource_metadata.is_null())throw AxError("mcp","Failed to resolve protected resource metadata: "+last_error);Value coverage=Core::mcp_oauth_validate_resource_coverage(endpoint_,resource_metadata);if(!Core::truthy(Core::get(coverage,"ok",false)))throw AxError("mcp",display(Core::get(coverage,"message","OAuth resource coverage validation failed")));if(resource.empty())resource=display(Core::get(coverage,"resource",""));auto issuers=as_array_local(Core::get(coverage,"issuers",Value::array()));if(issuers.empty())throw AxError("mcp","No OAuth authorization server discovered");issuer=display(issuers.front());discovery=Core::mcp_oauth_discovery_endpoints(endpoint_,issuer,"");last_error.clear();for(auto endpoint:Core::iter(Core::get(discovery,"authorizationServerMetadataEndpoints",Value::array()))){try{auto candidate=get_json(display(endpoint));auto validation=Core::mcp_oauth_validate_as_metadata(candidate,issuer,grant_type!="client_credentials",client_auth);if(!Core::truthy(Core::get(validation,"ok",false)))throw AxError("mcp",display(Core::get(validation,"message","OAuth AS metadata validation failed")));as_metadata=candidate;break;}catch(const std::exception& error){last_error=error.what();}}if(as_metadata.is_null())throw AxError("mcp","Failed to discover authorization server metadata: "+last_error);}
   if(resource.empty())resource=endpoint_;if(issuer.empty())issuer=display(Core::get(as_metadata,"issuer",""));Value metadata_validation=Core::mcp_oauth_validate_as_metadata(as_metadata,issuer,grant_type!="client_credentials",client_auth);if(!Core::truthy(Core::get(metadata_validation,"ok",false)))throw AxError("mcp",display(Core::get(metadata_validation,"message","OAuth AS metadata validation failed")));oauth.authorizationServerMetadata=as_metadata;oauth.resource=resource;Value scopes=Core::get(parsed,"scopes",Value::array());if(as_array_local(scopes).empty()){Array values;for(const auto& scope:oauth.scopes)values.emplace_back(scope);scopes=Value(values);}if(as_array_local(scopes).empty())scopes=Core::get(as_metadata,"scopes_supported",Value::array());std::string client_id=oauth.clientId.empty()?"ax-mcp-client":oauth.clientId;std::string redirect_uri=oauth.redirectUri.empty()?"http://localhost:8787/callback":oauth.redirectUri;
   auto exchange=[&](const std::string& selected_grant,const std::string& code,const std::string& verifier,const std::string& refresh_token){Value grant=Core::mcp_oauth_grant_body(selected_grant,client_id,oauth.clientSecret,client_auth,resource,scopes,code,redirect_uri,verifier,refresh_token);if(!Core::truthy(Core::get(grant,"ok",false)))throw AxError("mcp",display(Core::get(grant,"message","OAuth grant planning failed")));std::string form;for(const auto& entry:as_object_local(Core::get(grant,"body",Value::object()))){if(entry.first=="__order")continue;if(!form.empty())form+='&';form+=ax_mcp_oauth_encode(entry.first)+"="+ax_mcp_oauth_encode(display(entry.second));}auto checked=ax_mcp_validate_endpoint(display(Core::get(as_metadata,"token_endpoint","")),oauth.ssrfProtection);auto response=ax_mcp_oauth_http(checked,"POST",form);auto status=static_cast<long>(Core::number(Core::get(response,"status",0)));if(status<200||status>=300)throw AxError("mcp","OAuth token HTTP error "+std::to_string(status));Value parsed_token=Core::mcp_oauth_parse_token_response(Core::get(response,"json",Value::object()),ax_mcp_oauth_now_ms(),refresh_token,issuer);if(!Core::truthy(Core::get(parsed_token,"ok",false)))throw AxError("mcp",display(Core::get(parsed_token,"message","OAuth token response validation failed")));return Core::get(parsed_token,"token",Value::object());};
   Value token;if(action=="refresh"){try{token=exchange("refresh_token","","",display(Core::get(plan,"refreshToken","")));}catch(...){if(oauth.clearToken)oauth.clearToken(endpoint_);action=grant_type=="client_credentials"?"client_credentials":"authorize";}}if(action=="client_credentials")token=exchange("client_credentials","","","");else if(action=="authorize"){if(!oauth.onAuthCode)throw AxError("mcp","Authorization required. Provide oauth.onAuthCode to complete the flow");std::string verifier=ax_mcp_pkce_verifier();std::string challenge=ax_mcp_pkce_challenge(verifier);std::string state=ax_mcp_pkce_verifier();Value params=Core::mcp_oauth_authorization_request_params(client_id,redirect_uri,scopes,resource,state,challenge);std::string authorization_endpoint=ax_mcp_validate_endpoint(display(Core::get(as_metadata,"authorization_endpoint","")),oauth.ssrfProtection);std::string auth_url=authorization_endpoint+(authorization_endpoint.find('?')==std::string::npos?"?":"&");bool first=true;for(const auto& entry:as_object_local(params)){if(entry.first=="__order")continue;if(!first)auth_url+='&';first=false;auth_url+=ax_mcp_oauth_encode(entry.first)+"="+ax_mcp_oauth_encode(display(entry.second));}Value auth=oauth.onAuthCode(auth_url);std::string code=display(Core::get(auth,"code",""));if(code.empty())return false;Core::set(auth,"expectedState",state);Value validation=Core::mcp_oauth_validate_issuer(auth,issuer,oauth.requireIss||Core::truthy(Core::get(metadata_validation,"requireIss",false)));if(!Core::truthy(Core::get(validation,"ok",false)))throw AxError("mcp",display(Core::get(validation,"message","OAuth authorization response validation failed")));token=exchange("authorization_code",code,verifier,"");}
-  if(token.is_null())throw AxError("mcp","OAuth flow produced no token");if(oauth.setToken)oauth.setToken(endpoint_,token);Core::set(headers_,"Authorization","Bearer "+display(Core::get(token,"accessToken","")));return true;
+  if(token.is_null())throw AxError("mcp","OAuth flow produced no token");if(oauth.setToken)oauth.setToken(endpoint_,token);record_authorization("Bearer "+display(Core::get(token,"accessToken","")));return true;
 }
 
 AxMCPStdioTransport::AxMCPStdioTransport(std::string command, std::vector<std::string> args) {
@@ -999,14 +1007,24 @@ void run_mcp_conformance_fixture(Value fixture) {
       client.ping();
     } else if (op == "tools") {
       auto functions = client.native_tools();
+      for (const auto& function : functions) {
+        Value expected = Core::get(Core::get(fixture,"expected_schemas",Value::object()),function.name,Value());
+        if (!expected.is_null() && !Core::truthy(Core::eq(function.parameters,expected))) throw AxError("fixture","Native tool schema was altered");
+      }
+      bool invoked = false;
       if (!Core::get(fixture, "call_function", Value()).is_null()) {
         Value call = Core::get(fixture, "call_function");
         for (auto& fn : functions) {
           if (fn.name == display(Core::get(call, "name", ""))) {
+            invoked = true;
             expect_subset_local(fn.handler(Core::get(call, "arguments", Value::object())), Core::get(fixture, "expected_call_result", Value::object()), "tool result");
           }
         }
       }
+      if (!Core::get(fixture,"call_function",Value()).is_null() && !invoked) throw AxError("fixture","Missing native tool invocation");
+      auto expected_requests = as_array_local(Core::get(fixture,"expected_requests",Value::array()));
+      if (transport->requests.size() != expected_requests.size()) throw AxError("fixture","Native MCP request count mismatch");
+      for (size_t index=0; index<expected_requests.size(); ++index) expect_subset_local(transport->requests[index],expected_requests[index],"native MCP request");
     } else if (op == "cancellation") {
       client.cancel_request(Core::get(fixture, "request_id", "1"), display(Core::get(fixture, "reason", "cancelled")));
       if (transport->notifications.empty()) throw AxError("fixture", "expected a cancel notification");

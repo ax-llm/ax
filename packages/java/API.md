@@ -170,6 +170,16 @@ Return fresh request headers that override static profile authentication.
 - Returns: `header map or credential error`
 - Important options: chat, stream, embeddings, Responses, audio, retries
 
+### `AiClient.ownedWorkerFactory`
+
+Optional factory for an independent client worker with preserved configuration, authentication and routing. Built-in providers supply it; custom services may omit it without changing chat compatibility.
+
+- Canonical Ax concept: `owned_client_factory`
+- Kind: `method`
+- Form: `AiClient.ownedWorkerFactory()`
+- Returns: `worker factory or unavailable`
+- Important options: owned configuration, shared balancer accounting, no borrowed client transfer
+
 ### `AxChatSession`
 
 Optional normalized session capability for custom provider adapters. High-level programs own tool execution and continuation; chat-only services remain supported.
@@ -529,6 +539,16 @@ Workflow graph with Core-owned planning, cache keys, state merge, child aggregat
 - Form: `new AxFlow(optionsOrMermaid, bindings)`
 - Returns: `flow program`
 - Important options: steps, state, parallel groups, returns
+
+### `AxProgram.ownedWorkerFactory`
+
+Optional factory for independent program state. Parallel groups require both client and program factories; otherwise the whole group runs serially with a fallback trace.
+
+- Canonical Ax concept: `owned_program_factory`
+- Kind: `method`
+- Form: `AxProgram.ownedWorkerFactory()`
+- Returns: `worker factory or unavailable`
+- Important options: owned memory, per-node controls, deterministic result merge, cooperative cancellation
 
 
 ## Tools

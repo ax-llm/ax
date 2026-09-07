@@ -225,6 +225,20 @@
         },
         {
           "target_name": "go",
+          "canonical_name": "owned_client_factory",
+          "public_name": "AxOwnedClientFactory.OwnedWorkerFactory",
+          "kind": "method",
+          "description": "Optional factory for an independent client worker with preserved configuration, authentication and routing. Built-in providers supply it; custom services may omit it without changing chat compatibility.",
+          "form": "AxOwnedClientFactory.OwnedWorkerFactory()",
+          "important_options": [
+            "owned configuration",
+            "shared balancer accounting",
+            "no borrowed client transfer"
+          ],
+          "returns": "worker factory or unavailable"
+        },
+        {
+          "target_name": "go",
           "canonical_name": "AxChatSession",
           "public_name": "axllm.AxChatSession",
           "kind": "interface",
@@ -724,6 +738,21 @@
             "returns"
           ],
           "returns": "flow program"
+        },
+        {
+          "target_name": "go",
+          "canonical_name": "owned_program_factory",
+          "public_name": "AxOwnedProgramFactory.OwnedWorkerFactory",
+          "kind": "method",
+          "description": "Optional factory for independent program state. Parallel groups require both client and program factories; otherwise the whole group runs serially with a fallback trace.",
+          "form": "AxOwnedProgramFactory.OwnedWorkerFactory()",
+          "important_options": [
+            "owned memory",
+            "per-node controls",
+            "deterministic result merge",
+            "cooperative cancellation"
+          ],
+          "returns": "worker factory or unavailable"
         }
       ]
     },

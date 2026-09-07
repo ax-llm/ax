@@ -703,6 +703,8 @@ Value Core::div(Value left, Value right) {
   return Value(num(left) / (denom == 0.0 ? 1.0 : denom));
 }
 Value Core::math_abs(Value value) { return Value(std::abs(num(value))); }
+Value Core::string_codepoint_length(Value value) { size_t count = 0; for (unsigned char byte : str(value)) if ((byte & 0xc0) != 0x80) ++count; return Value(static_cast<double>(count)); }
+Value Core::math_is_finite(Value value) { return Value(std::isfinite(num(value))); }
 Value Core::math_floor(Value value) { return Value(std::floor(num(value))); }
 Value Core::math_log(Value value) { return Value(std::log(num(value))); }
 Value Core::math_exp(Value value) { return Value(std::exp(num(value))); }
@@ -1204,9 +1206,23 @@ Value Core::client_ref(AIClient& client) {
   }
   return Value(Object{{"__client_id", id}});
 }
+static std::mutex& stage_registry_mutex() { static std::mutex mutex; return mutex; }
+static AxProgram* registered_stage(const std::string& id) {
+  std::lock_guard<std::mutex> lock(stage_registry_mutex());
+  auto it=agent_stage_registry().find(id);return it==agent_stage_registry().end()?nullptr:it->second;
+}
+using OwnedFlowPrograms = std::vector<std::shared_ptr<AxProgram>>;
+static std::mutex owned_flows_mutex;
+static std::map<std::string,std::weak_ptr<OwnedFlowPrograms>> owned_flows;
+static void register_owned_flow(Value state,const std::shared_ptr<OwnedFlowPrograms>& programs) {
+  auto id=pointer_id(programs.get());Core::set(state,"__owned_flow_id",id);
+  std::lock_guard<std::mutex> lock(owned_flows_mutex);
+  for(auto it=owned_flows.begin();it!=owned_flows.end();)if(it->second.expired())it=owned_flows.erase(it);else ++it;
+  owned_flows[id]=programs;
+}
 Value Core::agent_stage_ref(AxProgram& stage) {
   std::string id = pointer_id(&stage);
-  agent_stage_registry()[id] = &stage;
+  { std::lock_guard<std::mutex> lock(stage_registry_mutex()); agent_stage_registry()[id] = &stage; }
   return Value(Object{{"__agent_stage_id", id}});
 }
 Value Core::code_runtime_ref(AxCodeRuntime& runtime) {
@@ -1257,14 +1273,14 @@ Value Core::object_call_method(Value target, Value method_name, Value arg) {
 }
 Value Core::program_components(Value program) {
   std::string stage_id = str(get_key(program, "__agent_stage_id"));
-  auto it = agent_stage_registry().find(stage_id);
-  if (it == agent_stage_registry().end() || it->second == nullptr) return Value::array();
-  return it->second->get_optimizable_components();
+  auto* stage_ptr = registered_stage(stage_id);
+  if (!stage_ptr) return Value::array();
+  return stage_ptr->get_optimizable_components();
 }
 Value Core::program_apply_components(Value program, Value component_map) {
   std::string stage_id = str(get_key(program, "__agent_stage_id"));
-  auto it = agent_stage_registry().find(stage_id);
-  if (it != agent_stage_registry().end() && it->second != nullptr) it->second->apply_optimized_components(std::move(component_map));
+  auto* stage_ptr = registered_stage(stage_id);
+  if (stage_ptr) stage_ptr->apply_optimized_components(std::move(component_map));
   return Value::object();
 }
 Value Core::ai_complete_once(Value client, Value request, Value options) {
@@ -1317,8 +1333,7 @@ Value Core::tool_invoke(Value fn, Value params) {
   return result;
 }
 Value Core::agent_native_stage_forward(Value stage,Value state,Value client,Value values,Value options,Value selected) {
-  auto it=agent_stage_registry().find(str(get_key(stage,"__agent_stage_id")));
-  auto* gen=it==agent_stage_registry().end()?nullptr:dynamic_cast<AxGen*>(it->second);
+  auto* gen=dynamic_cast<AxGen*>(registered_stage(str(get_key(stage,"__agent_stage_id"))));
   auto* ai=registered_client(str(get_key(client,"__client_id")));
   if(!gen||!ai)throw AxError("runtime","Native agent stage requires AxGen and an AI client");
   Value target=gen->value();Value original=get(target,"functions",Value::array()),previous=get(target,"function_call_traces",Value::array());
@@ -1338,8 +1353,8 @@ Value Core::agent_native_stage_forward(Value stage,Value state,Value client,Valu
 
 Value Core::agent_stage_forward(Value stage, Value client, Value values, Value options) {
   std::string stage_id = str(get_key(stage, "__agent_stage_id"));
-  auto stage_it = agent_stage_registry().find(stage_id);
-  if (stage_it == agent_stage_registry().end() || stage_it->second == nullptr) {
+  auto* stage_ptr = registered_stage(stage_id);
+  if (!stage_ptr) {
     throw AxError("runtime", "agent stage is not AxProgram");
   }
   std::string client_id = str(get_key(client, "__client_id"));
@@ -1347,22 +1362,22 @@ Value Core::agent_stage_forward(Value stage, Value client, Value values, Value o
   if (registered == nullptr) {
     throw AxError("runtime", "client does not implement AIClient");
   }
-  return stage_it->second->forward(*registered, values, options);
+  return stage_ptr->forward(*registered, values, options);
 }
 Value Core::agent_stage_chat_log(Value stage) {
   std::string stage_id = str(get_key(stage, "__agent_stage_id"));
-  auto it = agent_stage_registry().find(stage_id);
-  if (it == agent_stage_registry().end() || it->second == nullptr) return Value::array();
-  return it->second->get_chat_log();
+  auto* stage_ptr = registered_stage(stage_id);
+  if (!stage_ptr) return Value::array();
+  return stage_ptr->get_chat_log();
 }
 Value Core::agent_stage_usage(Value stage) {
   std::string stage_id = str(get_key(stage, "__agent_stage_id"));
-  auto it = agent_stage_registry().find(stage_id);
-  if (it == agent_stage_registry().end() || it->second == nullptr) return Value::array();
-  Value usage = it->second->get_usage();
+  auto* stage_ptr = registered_stage(stage_id);
+  if (!stage_ptr) return Value::array();
+  Value usage = stage_ptr->get_usage();
   if (truthy(usage)) return usage;
   Value items = Value::array();
-  for (const auto& raw_entry : array_ref(it->second->get_chat_log())) {
+  for (const auto& raw_entry : array_ref(stage_ptr->get_chat_log())) {
     Value item = get_key(raw_entry, "usage");
     if (truthy(item)) append(items, item);
   }
@@ -1370,9 +1385,9 @@ Value Core::agent_stage_usage(Value stage) {
 }
 Value Core::agent_stage_traces(Value stage) {
   std::string stage_id = str(get_key(stage, "__agent_stage_id"));
-  auto it = agent_stage_registry().find(stage_id);
-  if (it == agent_stage_registry().end() || it->second == nullptr) return Value::array();
-  return it->second->get_traces();
+  auto* stage_ptr = registered_stage(stage_id);
+  if (!stage_ptr) return Value::array();
+  return stage_ptr->get_traces();
 }
 Value Core::agent_clarification_error(Value payload, Value state) {
   Value args = get_key(payload, "args", Value::array());
@@ -3018,6 +3033,23 @@ OpenAICompatibleClient::OpenAICompatibleClient(std::string profile, std::string 
     owned_transport_ = std::make_shared<HttpTransport>();
     transport_ = owned_transport_.get();
   }
+}
+
+std::function<std::shared_ptr<AIClient>()> OpenAICompatibleClient::owned_worker_factory() {
+  if(typeid(*this)!=typeid(OpenAICompatibleClient)&&typeid(*this)!=typeid(OpenAIResponsesClient)&&typeid(*this)!=typeid(GoogleGeminiClient)&&typeid(*this)!=typeid(AnthropicClient))return {};
+  if(context_cache_registry_)return {}; // Borrowed registries require an ownership capability.
+  auto transport_factory=transport_?transport_->owned_worker_factory():std::function<std::shared_ptr<Transport>()>{};
+  if(!transport_factory)return {};
+  auto snapshot=std::make_shared<OpenAICompatibleClient>(*this);
+  snapshot->options_=parse_json(stringify(options_));snapshot->model_config_=parse_json(stringify(model_config_));
+  snapshot->descriptor_=parse_json(stringify(descriptor_));snapshot->context_cache_entries_=parse_json(stringify(context_cache_entries_));
+  snapshot->owned_transport_.reset();snapshot->transport_=nullptr;
+  return [snapshot,transport_factory] {
+    auto worker=std::make_shared<OpenAICompatibleClient>(*snapshot);
+    worker->options_=parse_json(stringify(snapshot->options_));worker->model_config_=parse_json(stringify(snapshot->model_config_));
+    worker->descriptor_=parse_json(stringify(snapshot->descriptor_));worker->context_cache_entries_=parse_json(stringify(snapshot->context_cache_entries_));
+    worker->owned_transport_=transport_factory();worker->transport_=worker->owned_transport_.get();return worker;
+  };
 }
 
 OpenAIResponsesClient::OpenAIResponsesClient(Value options, Transport* transport)
@@ -5727,11 +5759,25 @@ AxGen& AxGen::set_meter(std::shared_ptr<AxMeter> meter) {
   std::atomic_store(&runtime_hooks_, std::make_shared<const AxRuntimeHooks>(std::move(hooks))); return *this;
 }
 
+std::function<std::shared_ptr<AxProgram>()> AxGen::owned_worker_factory() const {
+  auto options=Core::get(state_,"options",Value::object());
+  if(!Core::get(options,"execution_context",Core::get(options,"executionContext")).is_null())return {};
+  auto snapshot=stringify(state_);auto hooks=runtime_hooks_;
+  return [snapshot,hooks] {auto state=parse_json(snapshot);auto worker=std::make_shared<AxGen>(Core::get(state,"signature"),Core::get(state,"options"),*hooks);worker->state_=state;worker->memory_.value_ref()=Core::get(state,"memory",Value::array());worker->refresh_prompt_template();return worker;};
+}
+std::function<std::shared_ptr<AxProgram>()> AxFlow::owned_worker_factory() const {
+  std::vector<std::pair<std::size_t,std::function<std::shared_ptr<AxProgram>()>>> factories;
+  const auto& steps=array_ref(Core::get(state_,"steps",Value::array()));
+  for(std::size_t i=0;i<steps.size();++i){auto program=Core::get(steps[i],"program");if(program.is_null())continue;auto* stage=registered_stage(display(Core::get(program,"__agent_stage_id")));if(!stage)return {};auto factory=stage->owned_worker_factory();if(!factory)return {};factories.emplace_back(i,std::move(factory));}
+  auto snapshot=stringify(state_);auto hooks=runtime_hooks_;
+  return [snapshot,hooks,factories]{auto worker=std::make_shared<AxFlow>(Value::object(),*hooks);worker->state_=parse_json(snapshot);register_owned_flow(worker->state_,worker->owned_programs_);auto steps=Core::get(worker->state_,"steps");for(const auto& [i,factory]:factories){auto program=factory();worker->owned_programs_->push_back(program);auto step=Core::get(steps,static_cast<int>(i));Core::set(step,"program",Core::agent_stage_ref(*program));}return worker;};
+}
 Value AxGen::value() const { return state_; }
 
 AxFlow::AxFlow(Value options, AxRuntimeHooks hooks)
     : runtime_hooks_(std::make_shared<const AxRuntimeHooks>(std::move(hooks))) {
   state_ = Core::_flow_factory(std::move(options));
+  register_owned_flow(state_,owned_programs_);
   Core::set(state_, "mermaidPercent", "%");
   Core::set(state_, "mermaidOpenBrace", "{");
   Core::set(state_, "mermaidCloseBrace", "}");
@@ -5740,6 +5786,7 @@ AxFlow::AxFlow(Value options, AxRuntimeHooks hooks)
 AxFlow::AxFlow(std::string mermaid, Value bindings, AxRuntimeHooks hooks)
     : runtime_hooks_(std::make_shared<const AxRuntimeHooks>(std::move(hooks))) {
   state_ = Core::_flow_from_mermaid(Value(std::move(mermaid)), bindings);
+  register_owned_flow(state_,owned_programs_);
   Core::set(state_, "mermaidPercent", "%");
   Core::set(state_, "mermaidOpenBrace", "{");
   Core::set(state_, "mermaidCloseBrace", "}");
@@ -6680,6 +6727,24 @@ static Value balancer_base_metrics_cpp() {
   });
 }
 
+std::function<std::shared_ptr<AIClient>()> MultiServiceRouter::owned_worker_factory() {
+  std::map<std::string,std::function<std::shared_ptr<AIClient>()>> factories;
+  for(const auto& [key,entry]:services_){auto factory=entry.service->owned_worker_factory();if(!factory)return {};factories[key]=factory;}
+  auto snapshot=*this;auto options=stringify(options_);
+  return [snapshot,factories,options]{auto worker=std::make_shared<MultiServiceRouter>(snapshot);worker->options_=parse_json(options);worker->last_used_service_.reset();for(auto& [key,entry]:worker->services_){entry.service=std::dynamic_pointer_cast<AxAIService>(factories.at(key)());if(!entry.service)throw AxError("runtime","Owned router worker must implement AxAIService");entry.model=parse_json(stringify(entry.model));entry.embed_model=parse_json(stringify(entry.embed_model));}return worker;};
+}
+std::function<std::shared_ptr<AIClient>()> ProviderRouter::owned_worker_factory() {
+  std::vector<std::function<std::shared_ptr<AIClient>()>> factories;for(auto& provider:providers_){auto factory=provider->owned_worker_factory();if(!factory)return {};factories.push_back(factory);}
+  auto routing=stringify(routing_),processing=stringify(processing_);auto extractor=file_to_text_;
+  return [factories,routing,processing,extractor]{std::vector<std::shared_ptr<AxAIService>> providers;for(auto& factory:factories){auto provider=std::dynamic_pointer_cast<AxAIService>(factory());if(!provider)throw AxError("runtime","Owned provider worker must implement AxAIService");providers.push_back(provider);}auto worker=std::make_shared<ProviderRouter>(providers,parse_json(routing),parse_json(processing));worker->file_to_text_=extractor;return worker;};
+}
+std::function<std::shared_ptr<AIClient>()> AxBalancer::owned_worker_factory() {
+  std::vector<std::function<std::shared_ptr<AIClient>()>> factories;std::vector<std::string> keys;std::vector<size_t> indices;
+  for(auto& service:services_){auto factory=service->owned_worker_factory();if(!factory)return {};factories.push_back(factory);if(adaptive_){keys.push_back(adaptive_route_keys_.at(service.get()));indices.push_back(adaptive_indices_.at(service.get()));}}
+  auto snapshot=*this;auto policy=stringify(policy_);
+  return [snapshot,factories,keys,indices,policy]{auto worker=std::make_shared<AxBalancer>(snapshot);worker->policy_=parse_json(policy);worker->services_.clear();worker->adaptive_route_keys_.clear();worker->adaptive_indices_.clear();for(size_t i=0;i<factories.size();++i){auto service=std::dynamic_pointer_cast<AxAIService>(factories[i]());if(!service)throw AxError("runtime","Owned balancer worker must implement AxAIService");worker->services_.push_back(service);if(worker->adaptive_){worker->adaptive_route_keys_[service.get()]=keys[i];worker->adaptive_indices_[service.get()]=indices[i];}}worker->current_service_=worker->services_.at(worker->current_service_index_);return worker;};
+}
+
 AxBalancer::AxBalancer() = default;
 
 AxBalancer::AxBalancer(std::vector<std::shared_ptr<AxAIService>> services, Value options)
@@ -6765,15 +6830,17 @@ void AxBalancer::validate_models() {
 }
 
 bool AxBalancer::can_retry_service(const std::shared_ptr<AxAIService>& service) const {
-  return service_failures_.find(service->get_id()) == service_failures_.end();
+  return failure_count(service) == 0;
 }
 
+int AxBalancer::failure_count(const std::shared_ptr<AxAIService>& service) const { std::lock_guard<std::mutex> lock(service_failures_->mutex); auto found=service_failures_->counts.find(service->get_id()); return found==service_failures_->counts.end()?0:found->second; }
+
 void AxBalancer::handle_failure(const std::shared_ptr<AxAIService>& service) {
-  service_failures_[service->get_id()] += 1;
+  std::lock_guard<std::mutex> lock(service_failures_->mutex); service_failures_->counts[service->get_id()] += 1;
 }
 
 void AxBalancer::handle_success(const std::shared_ptr<AxAIService>& service) {
-  service_failures_.erase(service->get_id());
+  std::lock_guard<std::mutex> lock(service_failures_->mutex); service_failures_->counts.erase(service->get_id());
 }
 
 bool AxBalancer::retryable(const AxError& error) const {
@@ -6999,7 +7066,7 @@ Value AxBalancer::chat(Value request, Value options) {
     } catch (const AxError& error) {
       if (!retryable(error)) throw;
       handle_failure(service);
-      if (service_failures_[service->get_id()] >= max_retries_) {
+      if (failure_count(service) >= max_retries_) {
         ++index;
         if (index >= candidates.size()) throw;
         service = candidates.at(index);
@@ -7021,7 +7088,7 @@ void AxBalancer::stream_each(Value request, AxStreamHandler handler) {
     std::exception_ptr last;
     for (auto& service : candidates) {
       current_service_ = service;
-      while (service_failures_[service->get_id()] < max_retries_) {
+      while (failure_count(service) < max_retries_) {
         bool delivered = false;
         try {
           service->stream_each(request, [&](const Value& event) { delivered = true; return handler(event); });
@@ -7091,7 +7158,7 @@ Value AxBalancer::embed(Value request, Value options) {
     } catch (const AxError& error) {
       if (!retryable(error)) throw;
       handle_failure(current_service_);
-      if (service_failures_[current_service_->get_id()] >= max_retries_) {
+      if (failure_count(current_service_) >= max_retries_) {
         ++index;
         if (index >= services_.size()) throw;
         current_service_ = services_.at(index);

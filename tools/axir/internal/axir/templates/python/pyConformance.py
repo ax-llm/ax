@@ -15,7 +15,7 @@ from .ai import openai_responses_transport_cursor, openai_responses_session_even
 from .ai import AxBalancerAdaptiveStrategy, AxBalancerOptions, AxInMemoryBalancerStatsStore, _core_set_math_random_values, create_balancer_route_stats, provider_balancer_adaptive_score, sample_balancer_route_health, update_balancer_route_stats
 from .gen import (
     ax,
-    chat_session_create_state, chat_session_transition, chat_session_unresolved,
+    chat_session_create_state, chat_session_transition, chat_session_unresolved, chat_session_validate_required_arguments,
     fold_stream,
     stream_extraction_route,
     stream_structured_delta,
@@ -3284,6 +3284,13 @@ def _run_ai_session_events(fixture):
                 _assert_equal(events[0].get(key), case["expected_" + key], "session " + key)
 
 def _run_ai_session_state(fixture):
+    for case in fixture.get("validation_cases", []):
+        valid = True
+        try:
+            chat_session_validate_required_arguments(case["schema"], case["arguments"], "arguments")
+        except Exception:
+            valid = False
+        _assert_equal(valid, case["valid"], "raw argument validation: " + json.dumps(case))
     state = chat_session_create_state(fixture["model"], fixture["path"], fixture["max_steps"])
     for case in fixture["cases"]:
         _assert_equal(chat_session_transition(state, case["event"]), case["expected_action"], "session transition")

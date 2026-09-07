@@ -863,8 +863,9 @@ Runnable examples: `typescript/generation/astra.ts`, `astra-async-tools.ts`,
 `typescript/short-agents/astra-background.ts`. Generated-language session support
 is partially implemented in Python, Go, Java, C++, and Rust. Their language
 galleries include provider-backed examples, but full parity remains open in the
-AxIR backlog. Generated flow groups still execute serially; MCP invocation and
-other session coverage remain incomplete. See `docs/COMPILER.md` for the
+AxIR backlog. Generated flow groups now dispatch owned workers, with a traced serial fallback
+for custom implementations without worker factories. Remaining MCP invocation
+and session acceptance evidence is tracked in the backlog. See `docs/COMPILER.md` for the
 implementation status.
 
 ### Files through provider routing

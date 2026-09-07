@@ -1207,7 +1207,7 @@ func verifyCppTarget(report VerifyTargetReport, conformanceRoot string) (VerifyT
 	}
 	// Scripted agent payloads belong in regression tests, not user-facing examples.
 	sessionTest := filepath.Join(buildDir, "astra_session_test")
-	if err := runVerifyCommand(&report, "compile Astra session tests", "", nil, cpp, "-std=c++17", "-I", report.OutDir, filepath.Join(report.OutDir, "tests", "astra_session_test.cpp"), axObj, "-o", sessionTest); err != nil {
+	if err := runVerifyCommand(&report, "compile Astra session tests", "", nil, cpp, "-std=c++17", "-I", report.OutDir, filepath.Join(report.OutDir, "tests", "astra_session_test.cpp"), axObj, mcpObj, "-o", sessionTest); err != nil {
 		return report, err
 	}
 	if err := runVerifyCommand(&report, "Astra session tests", "", nil, sessionTest); err != nil {

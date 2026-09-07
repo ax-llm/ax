@@ -11,6 +11,28 @@ import {
 } from './axir-conformance-sync.mjs';
 
 describe('axir-conformance-sync helpers', () => {
+  it('preserves nested validator object order because TypeScript enum equality observes it', () => {
+    const value = {
+      validation_cases: [
+        {
+          schema: { const: { z: 1, a: 2 } },
+          arguments: { a: 2, z: 1 },
+          valid: false,
+        },
+      ],
+    };
+    const normalized = normalizeCatalog(value);
+    expect(Object.keys(normalized.validation_cases[0].schema.const)).toEqual([
+      'z',
+      'a',
+    ]);
+    expect(Object.keys(normalized.validation_cases[0].arguments)).toEqual([
+      'a',
+      'z',
+    ]);
+    expect(normalized.validation_cases[0].valid).toBe(false);
+  });
+
   it('detects stale model pricing with a precise diff', () => {
     const expected = normalizeCatalog({
       all: [

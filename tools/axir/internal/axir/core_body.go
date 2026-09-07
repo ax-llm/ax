@@ -50,6 +50,8 @@ const (
 	IntrinsicAdd                     CoreIntrinsic = "intrinsic.add"
 	IntrinsicMul                     CoreIntrinsic = "intrinsic.mul"
 	IntrinsicDiv                     CoreIntrinsic = "intrinsic.div"
+	IntrinsicStringCodepointLength   CoreIntrinsic = "intrinsic.string.codepoint_length"
+	IntrinsicMathIsFinite            CoreIntrinsic = "intrinsic.math.is_finite"
 	IntrinsicMathFloor               CoreIntrinsic = "intrinsic.math.floor"
 	IntrinsicMathAbs                 CoreIntrinsic = "intrinsic.math.abs"
 	IntrinsicMathLog                 CoreIntrinsic = "intrinsic.math.log"
@@ -139,6 +141,7 @@ const (
 	IntrinsicAxGenRecordChatLog      CoreIntrinsic = "intrinsic.axgen.record_chat_log"
 	IntrinsicAxGenRecordFunction     CoreIntrinsic = "intrinsic.axgen.record_function_call"
 	IntrinsicRunControlAborted       CoreIntrinsic = "intrinsic.run_control.aborted"
+	IntrinsicFlowDispatchGroup       CoreIntrinsic = "intrinsic.flow.dispatch_group"
 	IntrinsicAgentStageForward       CoreIntrinsic = "intrinsic.agent.stage_forward"
 	IntrinsicAgentNativeStageForward CoreIntrinsic = "intrinsic.agent.native_stage_forward"
 	IntrinsicAgentStageChatLog       CoreIntrinsic = "intrinsic.agent.stage_chat_log"
@@ -168,7 +171,7 @@ const (
 	IntrinsicValidAudio              CoreIntrinsic = "intrinsic.media.valid_audio"
 	IntrinsicValidFile               CoreIntrinsic = "intrinsic.media.valid_file"
 	IntrinsicValidURLShape           CoreIntrinsic = "intrinsic.media.valid_url_shape"
-	IntrinsicExceptionIsAborted     CoreIntrinsic = "intrinsic.exception.is_aborted"
+	IntrinsicExceptionIsAborted      CoreIntrinsic = "intrinsic.exception.is_aborted"
 )
 
 var coreIntrinsicPython = map[CoreIntrinsic]string{
@@ -185,6 +188,8 @@ var coreIntrinsicPython = map[CoreIntrinsic]string{
 	IntrinsicMul:                     "_core_mul",
 	IntrinsicDiv:                     "_core_div",
 	IntrinsicMathAbs:                 "_core_math_abs",
+	IntrinsicStringCodepointLength:   "_core_string_codepoint_length",
+	IntrinsicMathIsFinite:            "_core_math_is_finite",
 	IntrinsicMathFloor:               "_core_math_floor",
 	IntrinsicMathLog:                 "_core_math_log",
 	IntrinsicMathExp:                 "_core_math_exp",
@@ -273,6 +278,7 @@ var coreIntrinsicPython = map[CoreIntrinsic]string{
 	IntrinsicAxGenRecordChatLog:      "_core_axgen_record_chat_log",
 	IntrinsicAxGenRecordFunction:     "_core_axgen_record_function_call",
 	IntrinsicRunControlAborted:       "_core_run_control_aborted",
+	IntrinsicFlowDispatchGroup:       "_core_flow_dispatch_group",
 	IntrinsicAgentStageForward:       "_core_agent_stage_forward",
 	IntrinsicAgentNativeStageForward: "_core_agent_native_stage_forward",
 	IntrinsicAgentStageChatLog:       "_core_agent_stage_chat_log",
@@ -302,7 +308,7 @@ var coreIntrinsicPython = map[CoreIntrinsic]string{
 	IntrinsicValidAudio:              "_valid_audio",
 	IntrinsicValidFile:               "_valid_file",
 	IntrinsicValidURLShape:           "_valid_url_shape",
-	IntrinsicExceptionIsAborted:     "_core_exception_is_aborted",
+	IntrinsicExceptionIsAborted:      "_core_exception_is_aborted",
 }
 
 var knownCoreIntrinsics = map[string]bool{
@@ -319,6 +325,8 @@ var knownCoreIntrinsics = map[string]bool{
 	"intrinsic.mul":                                   true,
 	"intrinsic.div":                                   true,
 	"intrinsic.math.abs":                              true,
+	"intrinsic.string.codepoint_length":               true,
+	"intrinsic.math.is_finite":                        true,
 	"intrinsic.math.floor":                            true,
 	"intrinsic.math.log":                              true,
 	"intrinsic.math.exp":                              true,
@@ -417,6 +425,7 @@ var knownCoreIntrinsics = map[string]bool{
 	"intrinsic.axgen.record_chat_log":                 true,
 	"intrinsic.axgen.record_function_call":            true,
 	"intrinsic.run_control.aborted":                   true,
+	"intrinsic.flow.dispatch_group":                   true,
 	"intrinsic.agent.stage_forward":                   true,
 	"intrinsic.agent.native_stage_forward":            true,
 	"intrinsic.agent.stage_chat_log":                  true,
@@ -678,6 +687,8 @@ var coreIntrinsicInfo = map[string]CoreIntrinsicInfo{
 	"intrinsic.gte":                          intrinsicInfo("intrinsic.gte", 2, 2, false, "bool"),
 	"intrinsic.mul":                          intrinsicInfo("intrinsic.mul", 2, 2, false, "f64"),
 	"intrinsic.div":                          intrinsicInfo("intrinsic.div", 2, 2, false, "f64"),
+	"intrinsic.string.codepoint_length":      intrinsicInfo("intrinsic.string.codepoint_length", 1, 1, false, "i64"),
+	"intrinsic.math.is_finite":               intrinsicInfo("intrinsic.math.is_finite", 1, 1, false, "bool"),
 	"intrinsic.math.floor":                   intrinsicInfo("intrinsic.math.floor", 1, 1, false, "f64"),
 	"intrinsic.math.abs":                     intrinsicInfo("intrinsic.math.abs", 1, 1, false, "f64"),
 	"intrinsic.math.log":                     intrinsicInfo("intrinsic.math.log", 1, 1, false, "f64"),
@@ -701,6 +712,7 @@ var coreIntrinsicInfo = map[string]CoreIntrinsicInfo{
 	"intrinsic.json.stable_stringify":        intrinsicInfo("intrinsic.json.stable_stringify", 1, 1, false, "string"),
 	"intrinsic.tool.invoke":                  intrinsicInfo("intrinsic.tool.invoke", 2, 2, true, "json"),
 	"intrinsic.run_control.aborted":          intrinsicInfo("intrinsic.run_control.aborted", 1, 1, false, "bool"),
+	"intrinsic.flow.dispatch_group":          intrinsicInfo("intrinsic.flow.dispatch_group", 5, 5, true, "json"),
 	"intrinsic.agent.stage_forward":          intrinsicInfo("intrinsic.agent.stage_forward", 4, 4, true, "json"),
 	"intrinsic.agent.native_stage_forward":   intrinsicInfo("intrinsic.agent.native_stage_forward", 6, 6, true, "json"),
 	"intrinsic.agent.stage_chat_log":         intrinsicInfo("intrinsic.agent.stage_chat_log", 1, 1, true, "list<json>"),

@@ -1104,6 +1104,7 @@ func apiReferenceSectionsForTarget(target string) []APIReferenceSection {
 				sym("get_supported_ai_models", "function", "Return the AxIR-backed provider and model catalog, including dynamic named profiles and portable capability metadata.", []string{"type filter", "thinkingLevels", "serviceTiers", "isDynamic"}, "provider catalog entries"),
 				sym("AxCredentialRequest", "type", "Request metadata passed to a renewable credential callback for every transport attempt.", []string{"profile", "operation", "method", "URL"}, "credential request"),
 				sym("AxCredentialProvider", "interface", "Return fresh request headers that override static profile authentication.", []string{"chat", "stream", "embeddings", "Responses", "audio", "retries"}, "header map or credential error"),
+				sym("owned_client_factory", "method", "Optional factory for an independent client worker with preserved configuration, authentication and routing. Built-in providers supply it; custom services may omit it without changing chat compatibility.", []string{"owned configuration", "shared balancer accounting", "no borrowed client transfer"}, "worker factory or unavailable"),
 				sym("AxChatSession", "interface", "Optional normalized session capability for custom provider adapters. High-level programs own tool execution and continuation; chat-only services remain supported.", []string{"normalized events", "completed calls", "submit results", "steering", "reasoning updates", "close"}, "run-owned chat session"),
 				sym("AxProviderStream", "type", "Incremental, closeable provider event stream. Retry and failover stop once content is delivered.", []string{"next event", "terminal error", "consumer cancellation", "upstream close"}, "incremental chat events"),
 				sym("OpenAICompatibleClient", "type", "OpenAI-compatible chat, stream, embedding, audio, and realtime provider boundary.", []string{"api key", "model", "base URL", "transport"}, "provider client"),
@@ -1150,6 +1151,7 @@ func apiReferenceSectionsForTarget(target string) []APIReferenceSection {
 			Symbols: []APIReferenceSymbol{
 				sym("flow", "function", "Create an AxFlow program graph or compile the portable Mermaid shorthand.", []string{"nodes", "execute mappers", "conditions", "cache", "returns", "Mermaid roundtrip"}, "AxFlow"),
 				sym("AxFlow", "type", "Workflow graph with Core-owned planning, cache keys, state merge, child aggregation, optimization, and returns projection.", []string{"steps", "state", "parallel groups", "returns"}, "flow program"),
+				sym("owned_program_factory", "method", "Optional factory for independent program state. Parallel groups require both client and program factories; otherwise the whole group runs serially with a fallback trace.", []string{"owned memory", "per-node controls", "deterministic result merge", "cooperative cancellation"}, "worker factory or unavailable"),
 			},
 		},
 		{
@@ -1241,6 +1243,10 @@ func apiReferencePublicName(target, canonical string) string {
 		return mapTarget(target, "run_control", "Ax.runControl", "axllm::run_control", "axllm.RunControl", "run_control")
 	case "AxChatSession":
 		return mapTarget(target, "AxChatSession", "AxChatSession", "axllm::AxChatSession", "axllm.AxChatSession", "AxChatSession")
+	case "owned_client_factory":
+		return mapTarget(target, "AIClient.owned_worker_factory", "AiClient.ownedWorkerFactory", "axllm::AIClient::owned_worker_factory", "AxOwnedClientFactory.OwnedWorkerFactory", "AxAIClient::owned_worker_factory")
+	case "owned_program_factory":
+		return mapTarget(target, "AxProgram.owned_worker_factory", "AxProgram.ownedWorkerFactory", "axllm::AxProgram::owned_worker_factory", "AxOwnedProgramFactory.OwnedWorkerFactory", "AxExecutableProgram::owned_worker_factory")
 	case "AxRunControl":
 		return mapTarget(target, "AxRunControl", "AxRunControl", "axllm::AxRunControl", "axllm.AxRunControl", "AxRunControl")
 	case "ax":
@@ -1330,6 +1336,8 @@ func apiReferenceQualifiedName(target, name string) string {
 
 func apiReferenceForm(target, canonical, publicName string) string {
 	switch canonical {
+	case "owned_client_factory", "owned_program_factory":
+		return publicName + "()"
 	case "s":
 		return mapTarget(target, "s(signature: str)", "Ax.s(String signature)", "axllm::s(const std::string& signature)", "axllm.S(signature string)", "s(spec: &str)")
 	case "f":

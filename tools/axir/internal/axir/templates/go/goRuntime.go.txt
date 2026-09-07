@@ -1192,6 +1192,9 @@ func _core_div(left Value, right Value) Value {
 	return num(left) / d
 }
 func _core_math_abs(value Value) Value             { return math.Abs(num(value)) }
+func _core_string_codepoint_length(value Value) Value { return len([]rune(display(value))) }
+func _core_math_is_finite(value Value) Value { return !math.IsNaN(num(value)) && !math.IsInf(num(value), 0) }
+
 func _core_math_floor(value Value) Value { return math.Floor(num(value)) }
 func _core_math_log(value Value) Value             { return math.Log(num(value)) }
 func _core_math_exp(value Value) Value             { return math.Exp(num(value)) }
@@ -1796,6 +1799,193 @@ func cloneValue(value Value) Value {
 	}
 }
 
+// Owned worker factories are optional. Chat-only clients and custom programs
+// keep their existing interfaces and use the Core serial fallback.
+type AxOwnedClientFactory interface { OwnedWorkerFactory() func() AIClient }
+type AxOwnedTransportFactory interface { OwnedWorkerFactory() func() Transport }
+type AxExecutableProgram interface {
+    Forward(context.Context, AIClient, map[string]Value, map[string]Value) (Value, error)
+}
+type AxOwnedProgramFactory interface { OwnedWorkerFactory() func() AxExecutableProgram }
+
+func (c contextBoundAIClient) OwnedWorkerFactory() func() AIClient {
+    provider, ok := c.inner.(AxOwnedClientFactory)
+    if !ok { return nil }
+    factory := provider.OwnedWorkerFactory()
+    if factory == nil { return nil }
+    return factory
+}
+
+func (c *OpenAICompatibleClient) OwnedWorkerFactory() func() AIClient {
+    c.mu.RLock()
+    defer c.mu.RUnlock()
+    var transportFactory func() Transport
+    switch transport := c.Transport.(type) {
+    case HTTPTransport:
+        transportFactory = func() Transport { return HTTPTransport{Client: transport.Client} }
+    case *HTTPTransport:
+        client := transport.Client
+        transportFactory = func() Transport { return HTTPTransport{Client: client} }
+    case AxOwnedTransportFactory:
+        transportFactory = transport.OwnedWorkerFactory()
+    }
+    if transportFactory == nil { return nil }
+    profile, name, id := c.Profile, c.Name, c.ID
+    options, metrics := cloneMap(c.Options), cloneMap(c.Metrics)
+    hooks := c.RuntimeHooks
+    entries := map[string]map[string]Value{}
+    for key, entry := range c.contextCacheEntries { entries[key] = cloneMap(entry) }
+    return func() AIClient {
+        ownedEntries := map[string]map[string]Value{}
+        for key, entry := range entries { ownedEntries[key] = cloneMap(entry) }
+        return &OpenAICompatibleClient{Profile:profile,Name:name,ID:id,Options:cloneMap(options),Transport:transportFactory(),Metrics:cloneMap(metrics),RuntimeHooks:hooks,contextCacheEntries:ownedEntries}
+    }
+}
+
+func ownedServiceFactories(services []AxAIService) []func() AIClient {
+    factories:=make([]func() AIClient,len(services))
+    for i,service:=range services {owned,ok:=service.(AxOwnedClientFactory);if !ok{return nil};factories[i]=owned.OwnedWorkerFactory();if factories[i]==nil{return nil}}
+    return factories
+}
+func (r *MultiServiceRouter) OwnedWorkerFactory() func() AIClient {
+    entries:=map[string]multiServiceEntry{};factories:=map[string]func() AIClient{}
+    for key,entry:=range r.services {owned,ok:=entry.Service.(AxOwnedClientFactory);if !ok{return nil};factory:=owned.OwnedWorkerFactory();if factory==nil{return nil};factories[key]=factory;entries[key]=entry}
+    keys,options:=append([]string(nil),r.keyOrder...),cloneMap(r.options)
+    return func() AIClient {worker:=&MultiServiceRouter{services:map[string]multiServiceEntry{},keyOrder:append([]string(nil),keys...),options:cloneMap(options)};for key,entry:=range entries {entry.Service=factories[key]().(AxAIService);worker.services[key]=entry};return worker}
+}
+func (r *ProviderRouter) OwnedWorkerFactory() func() AIClient {
+    factories:=ownedServiceFactories(r.providers);if factories==nil{return nil};processing,routing:=cloneMap(r.processing),cloneMap(r.routing)
+    return func() AIClient {worker:=&ProviderRouter{processing:cloneMap(processing),routing:cloneMap(routing)};for _,factory:=range factories {worker.providers=append(worker.providers,factory().(AxAIService))};return worker}
+}
+func (b *AxBalancer) OwnedWorkerFactory() func() AIClient {
+    factories:=ownedServiceFactories(b.services);if factories==nil{return nil};snapshot:=*b;policy:=cloneMap(b.policy)
+    keys:=[]string{};indices:=[]int{};if b.adaptive!=nil{for _,service:=range b.services{keys=append(keys,b.adaptive.routeKeys[service]);indices=append(indices,b.adaptive.indices[service])}}
+    return func() AIClient {worker:=snapshot;worker.services=nil;worker.policy=cloneMap(policy);for _,factory:=range factories{worker.services=append(worker.services,factory().(AxAIService))};worker.currentService=worker.services[worker.currentServiceIndex]
+        if snapshot.adaptive!=nil {adaptive:=*snapshot.adaptive;adaptive.routeKeys=map[AxAIService]string{};adaptive.indices=map[AxAIService]int{};for i,service:=range worker.services{adaptive.routeKeys[service]=keys[i];adaptive.indices[service]=indices[i]};worker.adaptive=&adaptive};return &worker}
+}
+
+func cloneOwnedTools(tools []Tool) []Tool {
+    out := append([]Tool(nil), tools...)
+    for index := range out {
+        out[index].Parameters = cloneValue(out[index].Parameters)
+        out[index].Args = map[string]Field{}
+        for key, field := range tools[index].Args { out[index].Args[key] = fieldFromValue(cloneValue(field.toMap())) }
+        out[index].Returns = map[string]Field{}
+        for key, field := range tools[index].Returns { out[index].Returns[key] = fieldFromValue(cloneValue(field.toMap())) }
+    }
+    return out
+}
+func (g *AxGen) OwnedWorkerFactory() func() AxExecutableProgram {
+    if g.ExecutionContext != nil { return nil }
+    snapshot := *g
+    return func() AxExecutableProgram {
+        owned := snapshot
+        owned.Signature = signatureFromValue(cloneValue(snapshot.Signature.toMap()))
+        owned.Options = cloneMap(snapshot.Options)
+        owned.Functions = cloneOwnedTools(snapshot.Functions)
+        owned.BaseFunctions = cloneOwnedTools(snapshot.BaseFunctions)
+        owned.Examples, owned.Demos = cloneValue(snapshot.Examples), cloneValue(snapshot.Demos)
+        owned.Assertions, owned.StreamingAssertions = cloneValue(snapshot.Assertions), cloneValue(snapshot.StreamingAssertions)
+        owned.FieldProcessors, owned.StopFunctions = cloneValue(snapshot.FieldProcessors), cloneValue(snapshot.StopFunctions)
+        owned.Memory, owned.ChatLog = cloneValue(snapshot.Memory), cloneValue(snapshot.ChatLog)
+        owned.FunctionCallTraces, owned.Traces = cloneValue(snapshot.FunctionCallTraces), cloneValue(snapshot.Traces)
+        owned.PromptTemplate = cloneValue(snapshot.PromptTemplate)
+        return &owned
+    }
+}
+func (f *AxFlow) OwnedWorkerFactory() func() AxExecutableProgram {
+    if f.ExecutionContext != nil { return nil }
+    snapshot := cloneMap(f.State)
+    factories := map[int]func() AxExecutableProgram{}
+    for index, step := range coreIter(coreGet(snapshot,"steps",Array())) {
+        program := coreGet(step,"program",nil)
+        if program == nil { continue }
+        owned, ok := program.(AxOwnedProgramFactory)
+        if !ok { return nil }
+        factory := owned.OwnedWorkerFactory()
+        if factory == nil { return nil }
+        factories[index] = factory
+    }
+    options, hooks := cloneMap(f.Options), f.RuntimeHooks
+    return func() AxExecutableProgram {
+        state := cloneMap(snapshot)
+        steps := coreGet(state,"steps",Array())
+        for index, step := range coreIter(steps) { if factory := factories[index]; factory != nil { coreSet(step,"program",factory()) } }
+        return &AxFlow{State:state,Steps:steps,Options:cloneMap(options),RuntimeHooks:hooks}
+    }
+}
+
+func _core_flow_dispatch_group(flowValue, clientValue, groupSteps, state, options Value) (Value,error) {
+    client, ok := clientValue.(AIClient)
+    if !ok { return nil,fmt.Errorf("Flow requires an AI client") }
+    ownedClient, ok := client.(AxOwnedClientFactory)
+    if !ok { return nil,nil }
+    clientFactory := ownedClient.OwnedWorkerFactory()
+    if clientFactory == nil { return nil,nil }
+    plans := coreIter(groupSteps)
+    type task struct { index int; plan, step Value; program AxExecutableProgram; client AIClient }
+    tasks := make([]task,0,len(plans))
+    for _, plan := range plans {
+        index := int(num(coreGet(plan,"stepIndex",0)))
+        step := coreGet(coreGet(flowValue,"steps",Array()),index,nil)
+        if display(coreGet(step,"kind","execute")) != "execute" { return nil,nil }
+        program, ok := coreGet(step,"program",nil).(AxOwnedProgramFactory)
+        if !ok { return nil,nil }
+        factory := program.OwnedWorkerFactory()
+        if factory == nil { return nil,nil }
+        tasks = append(tasks,task{index:index,plan:cloneValue(plan),step:cloneValue(step),program:factory(),client:clientFactory()})
+    }
+    ctx,cancel := context.WithCancel(contextForAIClient(client,context.Background()))
+    defer cancel()
+    type delivery struct { position int; report Value; event map[string]Value }
+    deliveries := make(chan delivery,len(tasks)+64)
+    parentControl,_ := coreGet(options,"control",nil).(*AxRunControl)
+    pending := map[string]bool{}
+    for position, item := range tasks {
+        coreSet(item.step,"program",item.program)
+        workerFlow, workerState, workerOptions := cloneValue(flowValue),cloneValue(state),cloneValue(options)
+        control:=RunControl();control.parent=parentControl;control.relay=func(event map[string]Value){select{case deliveries<-delivery{event:event}:case <-ctx.Done():}}
+        coreSet(workerOptions,"control",control)
+        go func(position int,item task,workerFlow,workerState,workerOptions Value) {
+            report,err := safeValue(func() Value { return mustCore(flow_execute_owned_worker(workerFlow,item.step,item.plan,bindAIClientContext(ctx,item.client),workerState,workerOptions)) })
+            if err != nil { report = Object("error",err.Error()) }
+            deliveries <- delivery{position:position,report:report}
+        }(position,item,workerFlow,workerState,workerOptions)
+    }
+    reports := make([]Value,len(tasks))
+    remaining := len(tasks)
+    var settling <-chan time.Time
+    var timer *time.Timer
+    defer func(){if timer != nil {timer.Stop()}}()
+    stop := func(){ cancel(); if timer == nil { timer=time.NewTimer(100*time.Millisecond);settling=timer.C } }
+    receive := func(result delivery) {
+        if result.event != nil {event:=result.event;key:=display(coreGet(event,"path",""))+":"+display(coreGet(event,"call_id",""));switch display(coreGet(event,"type","")){case "tool.started":pending[key]=true;case "tool.completed","tool.failed":delete(pending,key)};if parentControl!=nil {parentControl.emit(event)};return}
+        if reports[result.position] != nil { return }
+        reports[result.position]=result.report;remaining--
+        if coreGet(result.report,"error",nil) != nil { stop() } else {
+            // The dispatcher alone installs completed program state.
+            original := coreGet(coreGet(flowValue,"steps",Array()),tasks[result.position].index,nil)
+            coreSet(original,"program",tasks[result.position].program)
+        }
+    }
+    var controllerDone <-chan struct{}
+    if control,ok := coreGet(options,"control",nil).(*AxRunControl);ok {controllerDone=control.Done()}
+    parentDone := contextForAIClient(client,context.Background()).Done()
+    for remaining>0 {
+        select {
+        case result:= <-deliveries: receive(result)
+        case <-controllerDone: controllerDone=nil;stop()
+        case <-parentDone: parentDone=nil;stop()
+        case <-settling:
+            for { select { case result:= <-deliveries: receive(result); default: goto settled } }
+        settled:
+            for position,item:=range tasks {if reports[position]==nil {reports[position]=Object("error","Flow cancelled; unresolved node: "+display(coreGet(item.step,"name",""))+"; unresolved calls: "+fmt.Sprint(pending));remaining--}}
+        }
+    }
+    out:=Array();for _,report:=range reports {out=append(out,report)}
+    return out,nil
+}
+
 // AXIR_CORE_GO_FUNCTIONS
 
 // Public signature/schema surface.
@@ -1985,6 +2175,7 @@ func title(name string) string {
 
 // Tools and AI services.
 type Tool struct {
+    Parameters Value
     ExecutionMode string
 	Name        string
 	Description string
@@ -2093,6 +2284,7 @@ func (t Tool) get(key string, fallback Value) Value {
 	}
 }
 func (t Tool) Schema() Value {
+    if t.Parameters != nil { return cloneValue(t.Parameters) }
 	return mustCore(to_json_schema(toolFields(t.Args), "", Object("strict", true)))
 }
 
@@ -4444,6 +4636,7 @@ type AxBalancer struct {
 	currentService      AxAIService
 	currentServiceIndex int
 	serviceFailures     map[string]int
+    failuresMu          *sync.Mutex
 	policy              map[string]Value
 	maxRetries          int
 	adaptive            *adaptiveBalancerState
@@ -4454,7 +4647,7 @@ func NewAxBalancer(services []AxAIService, options map[string]Value) (*AxBalance
 		return nil, AxError{Category: "runtime", Message: "No AI services provided."}
 	}
 	policy := asMap(mustCore(provider_balancer_retry_policy(options)))
-	b := &AxBalancer{services: append([]AxAIService(nil), services...), currentService: services[0], serviceFailures: map[string]int{}, policy: policy, maxRetries: int(num(coreGet(policy, "maxRetries", float64(3))))}
+	b := &AxBalancer{services: append([]AxAIService(nil), services...), currentService: services[0], serviceFailures: map[string]int{}, failuresMu: &sync.Mutex{}, policy: policy, maxRetries: int(num(coreGet(policy, "maxRetries", float64(3))))}
 	if err := b.validateModels(); err != nil {
 		return nil, err
 	}
@@ -4591,10 +4784,11 @@ func (b *AxBalancer) pinChatRun(ctx context.Context,request,options map[string]V
     if selected==nil{return nil,fmt.Errorf("no eligible service for this run")};b.currentService=selected;return selected,nil
 }
 func (b *AxBalancer) canRetryService(service AxAIService) bool {
-	return b.serviceFailures[service.GetID()] == 0
+	return b.failureCount(service) == 0
 }
-func (b *AxBalancer) handleFailure(service AxAIService) { b.serviceFailures[service.GetID()]++ }
-func (b *AxBalancer) handleSuccess(service AxAIService) { delete(b.serviceFailures, service.GetID()) }
+func (b *AxBalancer) failureCount(service AxAIService) int { b.failuresMu.Lock(); defer b.failuresMu.Unlock(); return b.serviceFailures[service.GetID()] }
+func (b *AxBalancer) handleFailure(service AxAIService) { b.failuresMu.Lock(); defer b.failuresMu.Unlock(); b.serviceFailures[service.GetID()]++ }
+func (b *AxBalancer) handleSuccess(service AxAIService) { b.failuresMu.Lock(); defer b.failuresMu.Unlock(); delete(b.serviceFailures, service.GetID()) }
 func (b *AxBalancer) candidateServices(request map[string]Value) ([]AxAIService, error) {
 	out := []AxAIService{}
 	model := display(coreGet(request, "model", ""))
@@ -4988,7 +5182,7 @@ func (b *AxBalancer) Chat(ctx context.Context, request map[string]Value, options
 			return nil, err
 		}
 		b.handleFailure(current)
-		if b.serviceFailures[current.GetID()] >= b.maxRetries {
+		if b.failureCount(current) >= b.maxRetries {
 			index++
 			if index >= len(candidates) {
 				return nil, AxError{Category: "runtime", Message: fmt.Sprintf("All candidate services exhausted (tried %d service(s))", len(candidates))}
@@ -5118,7 +5312,7 @@ func (b *AxBalancer) StreamEvents(ctx context.Context, request map[string]Value,
 			return nil, openErr
 		}
 		b.handleFailure(current)
-		if b.serviceFailures[current.GetID()] >= b.maxRetries {
+		if b.failureCount(current) >= b.maxRetries {
 			index++
 			if index >= len(candidates) {
 				return nil, openErr
@@ -5433,6 +5627,8 @@ func (g *AxGen) ForwardWithHooks(ctx context.Context, client AIClient, values ma
         return clone.ForwardWithHooks(ctx, client, values, callOptions, AxRuntimeHooks{})
 	}
 	clone := *g
+    // Persist state after session closure records unresolved work.
+    defer func(){g.Memory=clone.Memory;g.ChatLog=clone.ChatLog;g.FunctionCallTraces=clone.FunctionCallTraces;g.Traces=clone.Traces}()
 	clone.Functions = runtimeScopedTools(ctx, g.Functions)
     control,_ := coreGet(options,"control",nil).(*AxRunControl)
     selectionClient := client
@@ -5454,10 +5650,6 @@ func (g *AxGen) ForwardWithHooks(ctx context.Context, client AIClient, values ma
 	out, err = safeValue(func() Value {
 		return mustCore(_forward_impl(&clone, bindAIClientContext(ctx, client), values, options))
 	})
-	g.Memory = clone.Memory
-	g.ChatLog = clone.ChatLog
-	g.FunctionCallTraces = clone.FunctionCallTraces
-	g.Traces = clone.Traces
 	return out, err
 }
 func (g *AxGen) AddAssert(assertion Value) *AxGen {
@@ -8658,7 +8850,8 @@ func _core_agent_stage_forward(stage Value, client Value, values Value, options 
 	case *AxAgent:
 		return p.Forward(ctx, ai, asMap(values), asMap(options))
 	}
-	return Object(), nil
+    if program,ok := stage.(AxExecutableProgram);ok {return program.Forward(ctx,ai,asMap(values),asMap(options))}
+    return nil,fmt.Errorf("Flow program has no executable forward method")
 }
 func _core_agent_stage_chat_log(stage Value) Value { return coreGet(stage, "chat_log", Array()) }
 func _core_agent_stage_usage(stage Value) Value {
@@ -9175,6 +9368,10 @@ func runConformanceFixture(fixture map[string]Value) {
 	case "forward":
 		runConformanceForward(fixture)
 	case "ai_session_state":
+        for _, item := range coreIter(coreGet(fixture,"validation_cases",Array())) {
+            _, err := chat_session_validate_required_arguments(coreGet(item,"schema",nil),coreGet(item,"arguments",nil),"arguments")
+            assertEqual(err == nil, coreGet(item,"valid",nil),"raw argument validation: " + display(item))
+        }
         state := mustCore(chat_session_create_state(coreGet(fixture,"model",nil),coreGet(fixture,"path",nil),coreGet(fixture,"max_steps",nil)))
         for _, item := range coreIter(coreGet(fixture,"cases",nil)) {
             assertEqual(mustCore(chat_session_transition(state,coreGet(item,"event",nil))),coreGet(item,"expected_action",nil),"session transition")

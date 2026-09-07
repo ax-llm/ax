@@ -996,6 +996,7 @@ class AxMCPClient:
         self._subscription_ready = threading.Event()
         self._subscription_restart_lock = threading.Lock()
         self._next_id = 1
+        self._request_id_lock = threading.Lock()
         self._notification_listeners: list[Callable[[dict[str, Any]], None]] = []
         self._lifecycle_listeners: list[Callable[[str], None]] = []
         self._initialized = False
@@ -1518,8 +1519,9 @@ class AxMCPClient:
             round_index += 1
 
     def _request(self, method: str, params: dict[str, Any] | None = None, *, extra_headers: dict[str, str] | None = None, allow_version_retry: bool = True) -> dict[str, Any]:
-        request_id = str(self._next_id)
-        self._next_id += 1
+        with self._request_id_lock:
+            request_id = str(self._next_id)
+            self._next_id += 1
         message: dict[str, Any] = {"jsonrpc": "2.0", "id": request_id, "method": method}
         request_params = dict(params or {})
         if self.era == "modern":
@@ -2938,6 +2940,10 @@ def run_mcp_conformance_fixture(fixture: dict[str, Any]) -> None:
             return
         if operation == "tools":
             functions = client.native_tools()
+            for function in functions:
+                if function.name in (fixture.get("expected_schemas") or {}):
+                    if function.parameters != fixture["expected_schemas"][function.name]:
+                        raise AssertionError("Native tool schema was altered")
             names = [fn.name for fn in functions]
             if fixture.get("expected_function_names") and names != fixture["expected_function_names"]:
                 raise AssertionError(f"function names mismatch: {names!r}")

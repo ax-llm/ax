@@ -36,14 +36,14 @@ public final class AxMCPClient {
   private boolean subscriptionReady;
   private long catalogRevision;
   private Map<String, Object> serverCapabilities = new LinkedHashMap<>();
-  private Map<String, Object> serverInfo = new LinkedHashMap<>();
+  private volatile Map<String, Object> serverInfo = new LinkedHashMap<>();
   private String serverInstructions;
   private String negotiatedProtocolVersion;
   private String era;
   private Map<String,Object> discoverResult = new LinkedHashMap<>();
   private Map<String,Object> negotiatedExtensions = new LinkedHashMap<>();
   private static final Map<String,String> ERA_CACHE = new LinkedHashMap<>();
-  private int nextId = 1;
+  private final java.util.concurrent.atomic.AtomicLong nextId = new java.util.concurrent.atomic.AtomicLong(1);
   private int nextListenerId = 1;
   private final Map<Integer,Consumer<Map<String,Object>>> notificationListeners = new LinkedHashMap<>();
   private final Map<Integer,Consumer<String>> lifecycleListeners = new LinkedHashMap<>();
@@ -184,7 +184,7 @@ public final class AxMCPClient {
     List<Tool> out = new ArrayList<>();
     for (Map<String, Object> tool : tools) {
       String original = String.valueOf(tool.getOrDefault("name", ""));
-      out.add(new Tool(overrideName(original), overrideDescription(tool), List.of(), List.of(), args -> callTool(original, args)));
+      out.add(new Tool(overrideName(original), overrideDescription(tool), List.of(), List.of(), args -> callTool(original, args)).parameters(Core.asMap(tool.getOrDefault("inputSchema",Map.of()))));
     }
     return out;
   }
@@ -212,7 +212,7 @@ public final class AxMCPClient {
   private Map<String,Object> requestWithHeaders(String method,Map<String,Object> params,Map<String,String> headers,boolean allowVersionRetry){
     Map<String, Object> message = new LinkedHashMap<>();
     message.put("jsonrpc", "2.0");
-    message.put("id", String.valueOf(nextId++));
+    message.put("id", String.valueOf(nextId.getAndIncrement()));
     message.put("method", method);
     Map<String,Object> requestParams=new LinkedHashMap<>(params==null?Map.of():params);if("modern".equals(era)){Map<String,Object> info=new LinkedHashMap<>(Map.of("name","AxMCPClient","title","Ax MCP Client","version","1.0.0"));info.putAll(Core.asMap(options.get("clientInfo")));requestParams.put("_meta",Core.mcp_build_request_meta(Core.asMap(requestParams.get("_meta")),negotiatedProtocolVersion,clientCapabilities(),info,options.get("logLevel"),null,null));}
     if (params != null) message.put("params", requestParams);
@@ -274,7 +274,7 @@ public final class AxMCPClient {
       Map<String, Object> result = callTool(original, args);
       if (result.containsKey("structuredContent")) return result.get("structuredContent");
       return Map.of("content", contentText(Core.asList(result.get("content"))));
-    });
+    }).parameters(Core.asMap(tool.getOrDefault("inputSchema",Map.of())));
   }
 
   private Tool promptToFunction(Map<String, Object> prompt) {
@@ -588,6 +588,8 @@ public final class AxMCPClient {
         assertRequests(transport.requests, fixture);
       } else if ("tools".equals(operation)) {
         List<Tool> functions = client.nativeTools();
+        Map<String,Object> schemas = Core.asMap(fixture.getOrDefault("expected_schemas",Map.of()));
+        for (Tool function : functions) if (schemas.containsKey(function.name) && !function.schema().equals(schemas.get(function.name))) throw new AssertionError("Native tool schema was altered");
         List<String> names = functions.stream().map(tool -> tool.name).toList();
         if (fixture.get("expected_function_names") != null && !names.equals(Core.asList(fixture.get("expected_function_names")).stream().map(String::valueOf).toList())) throw new AssertionError("function names mismatch: " + names);
         if (fixture.get("call_function") != null) {

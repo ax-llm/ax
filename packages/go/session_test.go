@@ -5,6 +5,8 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+    "net/http"
+    "net/http/httptest"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -162,6 +164,8 @@ func TestAstraSessionCancellationDiscardsLateWork(t *testing.T) {
 	case <-time.After(time.Second):
 		t.Fatal("transport did not close")
 	}
+    unresolved:=asSlice(program.FunctionCallTraces)
+    if len(unresolved)!=1||display(coreGet(unresolved[0],"id",nil))!="pending-call"||display(coreGet(unresolved[0],"status",nil))!="unresolved"{t.Fatalf("Unresolved action missing: %v",unresolved)}
 	close(release)
 	select {
 	case <-finished:
@@ -385,7 +389,14 @@ func (t *agentSessionTransport) Call(ctx context.Context, request Value) (Value,
 func (t *agentSessionTransport) Stream(ctx context.Context, request Value) (AxHTTPStreamResponse, error) {
 	n := t.next(request)
 	body := coreGet(request, "json", Object())
-	if n == 2 {
+    if n==1||n==2||n==5||n==6 {
+        for _,tool:=range asSlice(coreGet(body,"tools",Array())){if coreTruthy(coreGet(tool,"async",false)){return AxHTTPStreamResponse{},fmt.Errorf("Actor authority leaked")}}
+        stage:="distiller";text:="{\"completion\":{\"type\":\"final\",\"args\":[\"Find reference\",{}]}}";if n>=5{stage="responder";text="{\"answer\":\"REF-42\"}"}
+        suffix:="-start";if n==2||n==6 {suffix="-final";input:=stableStringify(coreGet(body,"input",nil));if coreGet(body,"previous_response_id","")!=stage+"-start"||!strings.Contains(input,"ROOT-GUIDANCE")||strings.Contains(input,"RESPONDER-ONLY")!=(n==6){return AxHTTPStreamResponse{},fmt.Errorf("Scoped stage update mismatch: %v",body)}}
+        if n==5&&!strings.Contains(stableStringify(body),"REF-42"){return AxHTTPStreamResponse{},fmt.Errorf("Responder started before incorporation")}
+        var out strings.Builder;sessionSSE(&out,sessionCompleted(stage+suffix,text));return AxHTTPStreamResponse{Status:200,Body:io.NopCloser(strings.NewReader(out.String()))},nil
+    }
+	if n == 3 {
 		tools := asSlice(coreGet(body, "tools", Array()))
 		if len(tools) != 1 || coreGet(tools[0], "name", "") != "tools_lookup" || coreGet(tools[0], "async", false) != true {
 			return AxHTTPStreamResponse{}, fmt.Errorf("missing native actor tool: %v", tools)
@@ -405,15 +416,17 @@ func (t *agentSessionTransport) Stream(ctx context.Context, request Value) (AxHT
 		}()
 		return AxHTTPStreamResponse{Status: 200, Body: reader}, nil
 	}
-	if n != 3 || coreGet(body, "previous_response_id", "") != "executor1" || !strings.Contains(stableStringify(coreGet(body, "input", nil)), "REF-42") {
+	if n != 4 || coreGet(body, "previous_response_id", "") != "executor1" || !strings.Contains(stableStringify(coreGet(body, "input", nil)), "REF-42") {
 		return AxHTTPStreamResponse{}, fmt.Errorf("lost native result: %v", body)
 	}
+    input:=stableStringify(coreGet(body,"input",nil));if !strings.Contains(input,"ROOT-GUIDANCE")||strings.Contains(input,"RESPONDER-ONLY")||!strings.Contains(input,"configuration_update")||!strings.Contains(input,"medium"){return AxHTTPStreamResponse{},fmt.Errorf("Missing executor update: %v",body)}
 	var out strings.Builder
 	sessionSSE(&out, sessionCompleted("executor2", "{\"completion\":{\"type\":\"final\",\"args\":[\"Report reference\",{\"answer\":\"REF-42\"}]}}"))
 	return AxHTTPStreamResponse{Status: 200, Body: io.NopCloser(strings.NewReader(out.String()))}, nil
 }
 func TestAstraAgentNativeToolsAndActionLog(t *testing.T) {
 	transport := &agentSessionTransport{started: make(chan struct{}), release: make(chan struct{})}
+	control:=RunControl();_ = control.Steer("ROOT-GUIDANCE");_ = control.Steer("RESPONDER-ONLY","root/responder");_ = control.SetThinkingTokenBudget("medium","root/executor")
 	var calls atomic.Int32
 	tool := Fn("lookup").Execution("background").WithContextHandler(func(ctx context.Context, args map[string]Value) (Value, error) {
 		calls.Add(1)
@@ -431,7 +444,7 @@ func TestAstraAgentNativeToolsAndActionLog(t *testing.T) {
 	client := NewAI("openai", Object("api_key", "test", "model", "gpt-6-astra", "transport", transport))
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
-	result, err := program.Forward(ctx, client, Object("question", "Find reference"), Object())
+	result, err := program.Forward(ctx, client, Object("question", "Find reference"), Object("control",control))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -478,13 +491,13 @@ func TestAstraMixedBalancerPinsChatOnlyFallback(t *testing.T) {
 }
 
 func TestAstraSessionInvalidArgumentsAndStepExhaustion(t *testing.T) {
- for _, exhausted := range []bool{false,true} { t.Run(fmt.Sprint(exhausted),func(t *testing.T){
+ for _, exhausted := range []bool{false,true} { for _, rawArguments := range []string{`{}`,`{"query":"ab"}`} { t.Run(fmt.Sprint(exhausted,rawArguments),func(t *testing.T){
   var calls atomic.Int32
   transport:=&sessionTestTransport{}
   transport.stream=func(ctx context.Context,request Value,n int)(AxHTTPStreamResponse,error){
    if coreGet(coreGet(request,"json",Object()),"temperature",nil)!=nil{return AxHTTPStreamResponse{},fmt.Errorf("Astra leaked temperature: %v",coreGet(request,"json",Object()))}
    var event Value
-   if n==1 {event=Object("type","response.completed","response",Object("id","invalid","model","gpt-6-astra","output",Array(Object("type","function_call","id","invalid-item","call_id","invalid-call","name","validated_lookup","arguments","{}"))))
+   if n==1 {event=Object("type","response.completed","response",Object("id","invalid","model","gpt-6-astra","output",Array(Object("type","function_call","id","invalid-item","call_id","invalid-call","name","validated_lookup","arguments",rawArguments))))
    }else{
     if exhausted||n!=2 {return AxHTTPStreamResponse{},fmt.Errorf("work replayed after step exhaustion")}
     body:=coreGet(request,"json",Object());outputs:=asSlice(coreGet(body,"input",Array()))
@@ -497,12 +510,13 @@ func TestAstraSessionInvalidArgumentsAndStepExhaustion(t *testing.T) {
   client:=NewAI("openai",Object("api_key","test","model","gpt-6-astra","transport",transport))
   tool:=Fn("validated_lookup").Execution("background").WithHandler(func(args map[string]Value)(Value,error){calls.Add(1);return "unexpected",nil})
   tool.Args["query"]=Field{Name:"query",Type:FieldType{Name:"string"}}
+  tool.Parameters = parseJSON("{\"type\":\"object\",\"$defs\":{\"query\":{\"type\":\"string\",\"minLength\":3,\"pattern\":\"^[A-Z]+$\"}},\"properties\":{\"query\":{\"$ref\":\"#/$defs/query\"}},\"required\":[\"query\"],\"additionalProperties\":false}")
   program:=NewAx("question -> answer",nil);program.Functions=[]Tool{tool}
   steps:=3;if exhausted{steps=1}
   result,err:=program.Forward(context.Background(),client,Object("question","Find reference"),Object("maxSteps",steps))
   if exhausted {if err==nil||!strings.Contains(err.Error(),"steps"){t.Fatalf("expected exhaustion, got %v %v",result,err)}}else if err!=nil||coreGet(result,"answer",nil)!="CORRECTED"{t.Fatalf("correction failed: %v %v",result,err)}
   expected:=2;if exhausted{expected=1};if calls.Load()!=0||len(transport.requests)!=expected{t.Fatalf("invalid execution or replay: %d %d",calls.Load(),len(transport.requests))}
- })}
+ })}}
 }
 
 type nativeFileTransport struct { requests []Value }
@@ -547,4 +561,110 @@ func TestFileExtractionCallback(t *testing.T) {
  delete(router.processing,"fileToText");router.processing["fallbackBehavior"]="error"
  if _,err:=router.Chat(context.Background(),request,nil);err==nil||!strings.Contains(err.Error(),"Files are not supported"){t.Fatalf("error policy lost: %v",err)}
  if len(transport.requests)!=1{t.Fatal("unsupported file reached transport")}
+}
+
+func TestOwnedFlowWorkersOverlap(t *testing.T) {
+    var started atomic.Int32
+    release := make(chan struct{})
+    server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter,r *http.Request) {
+        if r.Header.Get("Authorization") != "Bearer worker-test" { t.Error("worker lost configured authentication") }
+        if started.Add(1)==2 {close(release)}
+        select {case <-release: case <-r.Context().Done(): return; case <-time.After(3*time.Second): http.Error(w,"parallel nodes did not overlap",500);return}
+        w.Header().Set("Content-Type","application/json")
+        fmt.Fprint(w,`{"id":"reply","choices":[{"index":0,"message":{"role":"assistant","content":"{\"answer\":\"DONE\"}"},"finish_reason":"stop"}],"usage":{"prompt_tokens":2,"completion_tokens":1,"total_tokens":3}}`)
+    }))
+    defer server.Close()
+    client := NewAI("openai",Object("api_key","worker-test","model","gpt-5.6","base_url",server.URL))
+    balancer,err:=NewAxBalancer([]AxAIService{client.(AxAIService)},Object("strategy","input_order"));if err!=nil{t.Fatal(err)}
+    aliases,err:=NewMultiServiceRouter([]Value{RouterServiceEntry{Key:"smart",Service:balancer}});if err!=nil{t.Fatal(err)}
+    router:=NewProviderRouter(Object("providers",Object("primary",aliases)))
+    first,second := NewAx("question -> answer",nil),NewAx("question -> answer",nil)
+    workflow := NewFlow(nil).Execute("first",first,nil).Execute("second",second,nil).Returns(Object("first","firstResult","second","secondResult"))
+    ctx,cancel := context.WithTimeout(context.Background(),5*time.Second);defer cancel()
+    result,err := workflow.Forward(ctx,router,Object("question","Ready"),Object("stream",false,"model","smart"))
+    if err != nil {t.Fatal(err)}
+    if started.Load()!=2 {t.Fatalf("expected two requests, got %d",started.Load())}
+    if display(coreGet(coreGet(result,"first",nil),"answer",""))!="DONE" || display(coreGet(coreGet(result,"second",nil),"answer",""))!="DONE" {t.Fatalf("incorrect parallel results: %v",result)}
+    if len(coreIter(coreGet(workflow.State,"chat_log",Array())))!=2 {t.Fatalf("missing independent histories: %v",workflow.State)}
+}
+type flowFailureGate struct {started atomic.Int32; all chan struct{}; release chan struct{}; fast chan struct{}; late chan struct{}; once sync.Once}
+type flowFailureTransport struct {gate *flowFailureGate}
+func (t *flowFailureTransport) OwnedWorkerFactory() func() Transport {return func() Transport{return &flowFailureTransport{t.gate}}}
+func (t *flowFailureTransport) Call(_ context.Context,request Value)(Value,error){
+    body,_:=json.Marshal(coreGet(request,"json",nil));if t.gate.started.Add(1)==3{close(t.gate.all)}
+    select{case <-t.gate.all:case <-time.After(3*time.Second):return nil,fmt.Errorf("parallel requests did not overlap")}
+    content:=`{"fastAnswer":"DONE"}`
+    if strings.Contains(string(body),"lateAnswer"){select{case <-t.gate.release:case <-time.After(3*time.Second):return nil,fmt.Errorf("late worker not released")};content=`{"lateAnswer":"LATE"}`;defer close(t.gate.late)
+    }else if strings.Contains(string(body),"failAnswer"){select{case <-t.gate.fast:case <-time.After(3*time.Second):return nil,fmt.Errorf("completed sibling was not reported")};content=`{"wrong":"invalid"}`}
+    return Object("status",200,"json",Object("id","reply","choices",Array(Object("index",0,"message",Object("role","assistant","content",content),"finish_reason","stop")))),nil
+}
+func TestOwnedFlowFailureDiscardsLateWork(t *testing.T){
+    gate:=&flowFailureGate{all:make(chan struct{}),release:make(chan struct{}),fast:make(chan struct{}),late:make(chan struct{})};defer gate.once.Do(func(){close(gate.release)})
+    control:=RunControl();var completed sync.Once;control.OnEvent(func(event map[string]Value){if event["type"]=="completed"&&event["path"]=="root/fast"{completed.Do(func(){close(gate.fast)})}})
+    client:=NewAI("openai",Object("api_key","test","model","gpt-5.6","transport",&flowFailureTransport{gate}))
+    workflow:=NewFlow(nil).Execute("fast",NewAx("question -> fastAnswer",nil),nil).Execute("fail",NewAx("question -> failAnswer",nil),nil).Execute("late",NewAx("question -> lateAnswer",nil),nil)
+    started:=time.Now();_,err:=workflow.Forward(context.Background(),client,Object("question","Ready"),Object("control",control,"stream",false,"maxSteps",1,"validationRetries",0,"infraRetries",0))
+    if err==nil||!strings.Contains(err.Error(),"late"){t.Fatalf("failed group returned incorrect outcome: %v",err)}
+    if time.Since(started)>2*time.Second{t.Fatal("flow waited for noncooperative worker")}
+    completedState:=coreGet(workflow.State,"completed_state",nil);if coreGet(coreGet(completedState,"fastResult",nil),"fastAnswer",nil)!="DONE"{t.Fatalf("lost completed sibling: %v",workflow.State)}
+    snapshot,_:=json.Marshal(completedState);gate.once.Do(func(){close(gate.release)})
+    select{case <-gate.late:case <-time.After(3*time.Second):t.Fatal("late worker did not finish")}
+    after,_:=json.Marshal(coreGet(workflow.State,"completed_state",nil));if string(after)!=string(snapshot)||gate.started.Load()!=3{t.Fatal("late delivery changed state or requests were replayed")}
+}
+
+// Exercise native tool invocations concurrently through the MCP request path.
+// The transport coordinates overlap and records IDs without introducing its own races.
+type concurrentMCPTransport struct {
+    AxMCPTransport
+    mu sync.Mutex
+    requests []Value
+    arrived chan struct{}
+    release chan struct{}
+}
+func (t *concurrentMCPTransport) SetMessageHandler(handler func(map[string]Value)) {}
+func (t *concurrentMCPTransport) SetLifecycleHandler(handler func(string)) {}
+func (t *concurrentMCPTransport) SendWithHeaders(message map[string]Value, headers map[string]string)(map[string]Value,error){
+    if message["method"]=="server/discover"{return Object("result",Object("resultType","complete","supportedVersions",Array("2026-07-28"),"ttlMs",60000,"cacheScope","private","capabilities",Object("tools",Object()))),nil}
+    if message["method"]=="initialize"{return Object("result",Object("protocolVersion","2025-11-25","serverInfo",Object("name","orders","version","1"),"capabilities",Object("tools",Object()))),nil}
+    if message["method"]=="tools/list"{return Object("result",Object("tools",Array(Object("name","lookup","inputSchema",Object("type","object","properties",Object("index",Object("type","integer"))))))),nil}
+    t.mu.Lock();t.requests=append(t.requests,cloneValue(message));t.mu.Unlock()
+    t.arrived<-struct{}{}
+    select{case <-t.release:case <-time.After(3*time.Second):return nil,fmt.Errorf("Native MCP calls did not overlap")}
+    return Object("jsonrpc","2.0","id",message["id"],"result",Object("resultType","complete","_meta",Object("io.modelcontextprotocol/serverInfo",Object("name","orders","version",display(message["id"]))),"structuredContent",coreGet(coreGet(message,"params",nil),"arguments",nil))),nil
+}
+func TestConcurrentNativeMCPRequestIDs(t *testing.T){
+    const count=32
+    transport:=&concurrentMCPTransport{AxMCPTransport:NewAxMCPScriptedTransport(nil),arrived:make(chan struct{},count),release:make(chan struct{})}
+    server:=httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter,r *http.Request){
+        var message map[string]Value
+        if err:=json.NewDecoder(r.Body).Decode(&message);err!=nil{http.Error(w,err.Error(),400);return}
+        if r.Header.Get("Authorization")!="Bearer mcp-worker-test"||r.Header.Get("MCP-Protocol-Version")!="2026-07-28"||r.Header.Get("Mcp-Method")!=display(message["method"]){t.Error("MCP worker lost configured authentication or protocol headers")}
+        result,err:=transport.SendWithHeaders(message,nil);if err!=nil{http.Error(w,err.Error(),500);return};w.Header().Set("Content-Type","application/json");_ = json.NewEncoder(w).Encode(result)
+    }));defer server.Close()
+    httpTransport,err:=NewAxMCPStreamableHTTPTransport(server.URL,Object("authorization","Bearer mcp-worker-test","ssrfProtection",Object("allowLocalhost",true,"requireHttps",false)))
+    if err!=nil{t.Fatal(err)}
+    client:=NewAxMCPClient(httpTransport,Object("era","modern","namespace","orders"))
+    if err:=client.Init();err!=nil{t.Fatal(err)}
+    native:=client.NativeTools()[0].Execution("background")
+    results:=make(chan Value,count)
+    for index:=0;index<count;index++ {go func(index int){value,err:=native.invoke(Object("index",index));if err!=nil{results<-err}else{results<-value}}(index)}
+    for index:=0;index<count;index++ {select{case <-transport.arrived:case <-time.After(3*time.Second):close(transport.release);t.Fatal("Native calls did not overlap")}}
+    close(transport.release)
+    seenResults:=map[int]bool{}
+    for index:=0;index<count;index++ {value:=<-results;if err,ok:=value.(error);ok{t.Fatal(err)};seenResults[int(num(coreGet(coreGet(value,"structuredContent",nil),"index",-1)))]=true}
+    if len(seenResults)!=count{t.Fatalf("Lost tool results: %v",seenResults)}
+    ids:=map[string]bool{}
+    for _,request:=range transport.requests{id:=display(coreGet(request,"id",""));if id==""||ids[id]{t.Fatalf("Duplicate native MCP request ID: %v",request)};ids[id]=true;if coreGet(coreGet(request,"params",nil),"name","")!="lookup"{t.Fatal("Native callable changed tool identity")}}
+    if len(ids)!=count{t.Fatal("Missing native MCP requests")}
+}
+
+type ownedFailingTransport struct { calls *atomic.Int32 }
+func(t *ownedFailingTransport) OwnedWorkerFactory() func() Transport{return func()Transport{return &ownedFailingTransport{t.calls}}}
+func(t *ownedFailingTransport) Call(context.Context,Value)(Value,error){t.calls.Add(1);return Object("status",429,"json",Object("error",Object("message","fixture rate limit"))),nil}
+func TestOwnedBalancerFailureAccounting(t *testing.T){
+    calls:=&atomic.Int32{};client:=NewAI("openai",Object("api_key","test","model","gpt-5.6","transport",&ownedFailingTransport{calls}))
+    owner,err:=NewAxBalancer([]AxAIService{client.(AxAIService)},Object("maxRetries",1,"initialBackoffMs",0));if err!=nil{t.Fatal(err)}
+    worker:=owner.OwnedWorkerFactory()();request:=Object("chat_prompt",Array(Object("role","user","content","Hello")),"model_config",Object("stream",false))
+    if _,err:=worker.Chat(context.Background(),request,nil);err==nil{t.Fatal("Failed route returned success")};first:=calls.Load();if first==0{t.Fatal("No provider request")}
+    if _,err:=owner.Chat(context.Background(),request,nil);err==nil{t.Fatal("Failed parent route returned success")};if calls.Load()!=first{t.Fatal("Parent forgot worker failure and replayed route")}
 }
