@@ -26,6 +26,70 @@ AxUsageEvent = dict[str, Any]
 AxUsageObserver = Callable[[AxUsageEvent], Any]
 
 
+class AxCancellationToken:
+    """Thread-safe, one-shot cancellation shared by providers and event clocks."""
+
+    def __init__(self):
+        self._lock = threading.RLock()
+        self._event = threading.Event()
+        self._reason: str | None = None
+        self._subscriptions: dict[int, Callable[[], Any]] = {}
+        self._next_subscription = 0
+
+    @property
+    def cancelled(self) -> bool:
+        return self._event.is_set()
+
+    @property
+    def reason(self) -> str | None:
+        with self._lock:
+            return self._reason
+
+    def cancel(self, reason: str = "cancelled") -> bool:
+        with self._lock:
+            if self._event.is_set():
+                return False
+            self._reason = reason
+            self._event.set()
+            callbacks = list(self._subscriptions.values())
+            self._subscriptions.clear()
+        for callback in callbacks:
+            callback()
+        return True
+
+    def wait(self, timeout: float | None = None) -> bool:
+        return self._event.wait(timeout)
+
+    def subscribe(self, callback: Callable[[], Any]) -> Callable[[], None]:
+        with self._lock:
+            if self._event.is_set():
+                immediate = True
+                subscription_id = -1
+            else:
+                immediate = False
+                self._next_subscription += 1
+                subscription_id = self._next_subscription
+                self._subscriptions[subscription_id] = callback
+        if immediate:
+            callback()
+            return lambda: None
+
+        def remove() -> None:
+            with self._lock:
+                self._subscriptions.pop(subscription_id, None)
+
+        return remove
+
+    def throw_if_cancelled(self) -> None:
+        if self.cancelled:
+            raise AxAIServiceAbortedError(self.reason)
+
+    @property
+    def subscription_count(self) -> int:
+        with self._lock:
+            return len(self._subscriptions)
+
+
 @dataclass(frozen=True)
 class AxRateLimitInfo:
     operation: str
@@ -346,14 +410,17 @@ def _usage_observed_stream(
     values: Iterable[dict[str, Any]],
     options: dict[str, Any],
 ):
+    cancellation = _cancellation_token(options)
     last_usage_response = None
     completed = False
     try:
         for value in values:
+            if cancellation is not None: cancellation.throw_if_cancelled()
             model_usage = value.get("model_usage") or value.get("modelUsage")
             if isinstance(model_usage, dict) and model_usage.get("tokens"):
                 last_usage_response = value
             yield value
+            if cancellation is not None: cancellation.throw_if_cancelled()
         completed = True
     finally:
         if completed and last_usage_response is not None:
@@ -438,6 +505,39 @@ class AxAIServiceTimeoutError(AxAIServiceError):
 
 class AxAIServiceAuthenticationError(AxAIServiceError):
     pass
+
+
+class AxAIServiceAbortedError(AxAIServiceError):
+    def __init__(self, reason: str | None = None):
+        message = "Request aborted" + (f": {reason}" if reason and reason != "cancelled" else "")
+        super().__init__(message, retryable=False)
+        self.reason = reason
+
+
+def _cancellation_token(options: dict[str, Any] | None) -> AxCancellationToken | None:
+    if not isinstance(options, dict):
+        return None
+    token = options.get("cancellation") or options.get("cancellation_token") or options.get("cancellationToken")
+    if token is not None and not isinstance(token, AxCancellationToken):
+        raise TypeError("cancellation must be an AxCancellationToken")
+    return token
+
+
+def _check_cancelled(options: dict[str, Any] | None) -> AxCancellationToken | None:
+    token = _cancellation_token(options)
+    if token is not None:
+        token.throw_if_cancelled()
+    return token
+
+
+def _wait_backoff(milliseconds: float, token: AxCancellationToken | None) -> None:
+    if milliseconds <= 0:
+        if token is not None: token.throw_if_cancelled()
+        return
+    if token is not None and token.wait(milliseconds / 1000.0):
+        token.throw_if_cancelled()
+    elif token is None:
+        time.sleep(milliseconds / 1000.0)
 
 
 class AxAIRefusalError(AxAIServiceError):
@@ -792,6 +892,7 @@ class AxBaseAI(AIClient):
         stream_returned = False
         hooks = _effective_runtime_hooks(options, self.runtime_hooks)
         try:
+            _check_cancelled(options)
             req = _coerce_chat_request(request)
             validate_chat_request(req)
             merged_options = self._merged_options(options)
@@ -833,6 +934,7 @@ class AxBaseAI(AIClient):
         span = None
         hooks = _effective_runtime_hooks(options, self.runtime_hooks)
         try:
+            _check_cancelled(options)
             texts = request.get("texts")
             if not texts:
                 raise AxAIServiceResponseError("Embed texts is empty")
@@ -966,10 +1068,11 @@ class ProviderOperationClient(AxBaseAI):
         raw = self._context_cache_chat(request, payload, model, endpoint, options)
         if raw is None:
             operation = "responses" if self.descriptor.get("transport") == "openai-responses" else "chat"
-            raw = self._request_json(endpoint, payload, stream=False, method=self._operation_method("chat"), operation=operation)
+            raw = self._request_json(endpoint, payload, stream=False, method=self._operation_method("chat"), operation=operation, cancellation=_cancellation_token(options))
         return provider_normalize_chat_response(self.profile, raw, self.name, model)
 
     def _context_cache_chat(self, request, payload, model, endpoint, options):
+        cancellation = _check_cancelled(options)
         cfg = (options or {}).get("contextCache", (options or {}).get("context_cache"))
         supported = bool((((self.descriptor.get("features") or {}).get("caching") or {}).get("supported")))
         if self.profile != "google-gemini" or not supported or not cfg:
@@ -982,7 +1085,7 @@ class ProviderOperationClient(AxBaseAI):
         if explicit:
             cached_payload = copy.deepcopy(payload)
             cached_payload["cachedContent"] = explicit
-            return self._request_json(endpoint, cached_payload, stream=False, method=self._operation_method("chat"))
+            return self._request_json(endpoint, cached_payload, stream=False, method=self._operation_method("chat"), cancellation=cancellation)
 
         prompts = request.get("chat_prompt") or request.get("chatPrompt") or request.get("messages") or []
         non_system_seen = 0
@@ -1045,33 +1148,37 @@ class ProviderOperationClient(AxBaseAI):
         try:
             if plan.get("action") == "refresh":
                 ops = ai_gemini_cache_ops(cache_name, ttl_seconds, api_key, str(model), cache_body, options)
-                refreshed = self._request_json(ops["update"]["path"], ops["update"]["request"], stream=False, method=ops["update"]["method"], base_url=ops["update"].get("base_url"))
+                refreshed = self._request_json(ops["update"]["path"], ops["update"]["request"], stream=False, method=ops["update"]["method"], base_url=ops["update"].get("base_url"), cancellation=cancellation)
                 expires_at = expiry(refreshed)
                 if not expires_at:
                     raise AxAIServiceResponseError("Gemini cache refresh omitted a future expireTime", response_body=refreshed)
                 save({"cacheName": cache_name, "expiresAt": expires_at})
             if plan.get("action") in ("create", "refresh") and (plan.get("action") == "create" or not cache_name):
                 ops = ai_gemini_cache_ops("", ttl_seconds, api_key, str(model), cache_body, options)
-                created = self._request_json(ops["create"]["path"], ops["create"]["request"], stream=False, method=ops["create"]["method"], base_url=ops["create"].get("base_url"))
+                created = self._request_json(ops["create"]["path"], ops["create"]["request"], stream=False, method=ops["create"]["method"], base_url=ops["create"].get("base_url"), cancellation=cancellation)
                 cache_name = str((created or {}).get("name") or "")
                 expires_at = expiry(created)
                 if not cache_name or not expires_at:
                     raise AxAIServiceResponseError("Gemini cache creation omitted name or future expireTime", response_body=created)
                 save({"cacheName": cache_name, "expiresAt": expires_at})
+        except AxAIServiceAbortedError:
+            raise
         except AxAIServiceError:
             if plan.get("action") == "refresh":
                 try:
                     ops = ai_gemini_cache_ops("", ttl_seconds, api_key, str(model), cache_body, options)
-                    created = self._request_json(ops["create"]["path"], ops["create"]["request"], stream=False, method=ops["create"]["method"], base_url=ops["create"].get("base_url"))
+                    created = self._request_json(ops["create"]["path"], ops["create"]["request"], stream=False, method=ops["create"]["method"], base_url=ops["create"].get("base_url"), cancellation=cancellation)
                     cache_name = str((created or {}).get("name") or "")
                     expires_at = expiry(created)
                     if not cache_name or not expires_at:
                         raise AxAIServiceResponseError("Gemini cache recreation omitted name or future expireTime", response_body=created)
                     save({"cacheName": cache_name, "expiresAt": expires_at})
+                except AxAIServiceAbortedError:
+                    raise
                 except AxAIServiceError:
-                    return self._request_json(endpoint, payload, stream=False, method=self._operation_method("chat"))
+                    return self._request_json(endpoint, payload, stream=False, method=self._operation_method("chat"), cancellation=cancellation)
             else:
-                return self._request_json(endpoint, payload, stream=False, method=self._operation_method("chat"))
+                return self._request_json(endpoint, payload, stream=False, method=self._operation_method("chat"), cancellation=cancellation)
         if not cache_name:
             return None
         cached_payload = copy.deepcopy(payload)
@@ -1081,7 +1188,7 @@ class ProviderOperationClient(AxBaseAI):
         cached_payload.pop("toolConfig", None)
         cached_payload["cachedContent"] = cache_name
         try:
-            return self._request_json(endpoint, cached_payload, stream=False, method=self._operation_method("chat"))
+            return self._request_json(endpoint, cached_payload, stream=False, method=self._operation_method("chat"), cancellation=cancellation)
         except AxAIServiceError as error:
             if not ai_context_cache_rejection(error.status or 0, error.response_body):
                 raise
@@ -1092,9 +1199,10 @@ class ProviderOperationClient(AxBaseAI):
                     registry_call("set", namespace, cache_key, recovery.get("externalEntry"))
                 elif recovery.get("deleteInMemory"):
                     self._context_cache_entries.pop(cache_key, None)
-            return self._request_json(endpoint, payload, stream=False, method=self._operation_method("chat"))
+            return self._request_json(endpoint, payload, stream=False, method=self._operation_method("chat"), cancellation=cancellation)
 
     def stream(self, request: dict[str, Any], options: dict[str, Any] | None = None):
+        _check_cancelled(options)
         req = _coerce_chat_request(request)
         req.setdefault("model_config", {})["stream"] = True
         validate_chat_request(req)
@@ -1125,10 +1233,11 @@ class ProviderOperationClient(AxBaseAI):
         payload = provider_build_embed_request(self.profile, request, options)
         model = request.get("embed_model") or request.get("embedModel") or payload.get("model") or self.embed_model
         endpoint = self._operation_path("embed", model)
-        raw = self._request_json(endpoint, payload, stream=False, method=self._operation_method("embed"), operation="embed")
+        raw = self._request_json(endpoint, payload, stream=False, method=self._operation_method("embed"), operation="embed", cancellation=_cancellation_token(options))
         return provider_normalize_embed_response(self.profile, raw, self.name, model)
 
     def _stream_chat(self, payload: dict[str, Any], request: dict[str, Any], options: dict[str, Any] | None = None):
+        cancellation = _check_cancelled(options)
         model = request.get("model") or payload.get("model") or self.model
         endpoint = self._operation_path("stream_chat", model)
         cfg = resolve_stream_retry(options or {})
@@ -1145,15 +1254,14 @@ class ProviderOperationClient(AxBaseAI):
             # re-issue with the same exponential backoff apiCall uses for a 529 before surfacing.
             events = None
             try:
-                raw = self._request_json(endpoint, payload, stream=True, method=self._operation_method("stream_chat"), operation="stream_chat")
+                raw = self._request_json(endpoint, payload, stream=True, method=self._operation_method("stream_chat"), operation="stream_chat", cancellation=cancellation)
                 events = _iter_sse_json(raw)
                 first = next(events, sentinel)
             except AxAIServiceError as error:
                 if _is_retryable_ai_error(error) and attempt < max_retries:
                     attempt += 1
                     delay = min(initial_delay * (backoff ** (attempt - 1)), max_delay)
-                    if delay > 0:
-                        time.sleep(delay / 1000.0)
+                    _wait_backoff(delay, cancellation)
                     continue
                 raise
             if first is not sentinel:
@@ -1164,14 +1272,15 @@ class ProviderOperationClient(AxBaseAI):
                         close()
                     attempt += 1
                     delay = min(initial_delay * (backoff ** (attempt - 1)), max_delay)
-                    if delay > 0:
-                        time.sleep(delay / 1000.0)
+                    _wait_backoff(delay, cancellation)
                     continue
             state: dict[str, Any] = {}
             try:
                 if first is not sentinel:
+                    if cancellation is not None: cancellation.throw_if_cancelled()
                     yield provider_normalize_stream_delta(self.profile, first, state, self.name, model)
                     for event in events:
+                        if cancellation is not None: cancellation.throw_if_cancelled()
                         yield provider_normalize_stream_delta(self.profile, event, state, self.name, model)
             finally:
                 close = getattr(events, "close", None)
@@ -1180,20 +1289,22 @@ class ProviderOperationClient(AxBaseAI):
             return
 
     def transcribe(self, request: dict[str, Any], options: dict[str, Any] | None = None):
+        cancellation = _check_cancelled(options)
         payload = provider_build_transcribe_request(self.profile, request)
         model = request.get("model") or self.model
         descriptor = provider_operation_descriptor(self.profile, "transcribe")
         body_key = "data" if descriptor.get("body") == "multipart" else "json"
-        raw = self._request_json(self._operation_path("transcribe", model), payload, stream=False, body_key=body_key, method=self._operation_method("transcribe"), operation="transcribe")
+        raw = self._request_json(self._operation_path("transcribe", model), payload, stream=False, body_key=body_key, method=self._operation_method("transcribe"), operation="transcribe", cancellation=cancellation)
         return provider_normalize_transcribe_response(self.profile, raw)
 
     def speak(self, request: dict[str, Any], options: dict[str, Any] | None = None):
+        cancellation = _check_cancelled(options)
         payload = provider_build_speak_request(self.profile, request)
         model = request.get("model") or self.model
         descriptor = provider_operation_descriptor(self.profile, "speak")
         body_key = "data" if descriptor.get("body") == "multipart" else "json"
         binary_response = descriptor.get("response") == "binary"
-        raw = self._request_json(self._operation_path("speak", model), payload, stream=False, body_key=body_key, binary_response=binary_response, method=self._operation_method("speak"), operation="speak")
+        raw = self._request_json(self._operation_path("speak", model), payload, stream=False, body_key=body_key, binary_response=binary_response, method=self._operation_method("speak"), operation="speak", cancellation=cancellation)
         return provider_normalize_speak_response(self.profile, raw, request)
 
     def realtime(self, events: Iterable[dict[str, Any]], model: str | None = None):
@@ -1307,7 +1418,8 @@ class ProviderOperationClient(AxBaseAI):
         descriptor = (self.descriptor.get("operations") or {}).get(operation) or provider_operation_descriptor(self.profile, operation)
         return str(descriptor.get("method") or "POST").upper()
 
-    def _request_json(self, endpoint: str, payload: dict[str, Any], *, stream: bool, body_key: str = "json", binary_response: bool = False, method: str = "POST", base_url: str | None = None, operation: str = "chat"):
+    def _request_json(self, endpoint: str, payload: dict[str, Any], *, stream: bool, body_key: str = "json", binary_response: bool = False, method: str = "POST", base_url: str | None = None, operation: str = "chat", cancellation: AxCancellationToken | None = None):
+        if cancellation is not None: cancellation.throw_if_cancelled()
         method = str(method or "POST").upper()
         request_base_url = (base_url or self.base_url).rstrip("/")
         request_url = request_base_url + endpoint
@@ -1333,12 +1445,20 @@ class ProviderOperationClient(AxBaseAI):
         }
         if self.transport:
             try:
-                return _transport_result(self.transport(call), call)
+                cancellable_name = "stream_with_cancellation" if stream else "call_with_cancellation"
+                cancellable = getattr(self.transport, cancellable_name, None)
+                result = cancellable(call, cancellation) if callable(cancellable) else self.transport(call)
+                if cancellation is not None: cancellation.throw_if_cancelled()
+                return _transport_result(result, call)
+            except AxAIServiceAbortedError:
+                raise
             except AxAIServiceError:
                 raise
             except TimeoutError as exc:
+                if cancellation is not None and cancellation.cancelled: cancellation.throw_if_cancelled()
                 raise AxAIServiceTimeoutError("OpenAI-compatible request timed out", request=call, retryable=True) from exc
             except OSError as exc:
+                if cancellation is not None and cancellation.cancelled: cancellation.throw_if_cancelled()
                 raise AxAIServiceNetworkError(str(exc), request=call, retryable=True) from exc
         if not self.api_key:
             raise AxAIServiceAuthenticationError("OPENAI_API_KEY is required")
@@ -1356,19 +1476,26 @@ class ProviderOperationClient(AxBaseAI):
             method=method,
         )
         try:
+            if cancellation is not None: cancellation.throw_if_cancelled()
             res = urllib.request.urlopen(req, timeout=self.timeout)
             if stream:
                 def body_chunks():
                     try:
                         read = getattr(res, "read1", res.read)
                         while True:
+                            if cancellation is not None: cancellation.throw_if_cancelled()
                             chunk = read(8192)
+                            if cancellation is not None: cancellation.throw_if_cancelled()
                             if not chunk:
                                 return
                             yield chunk
+                    except AxAIServiceAbortedError:
+                        raise
                     except TimeoutError as exc:
+                        if cancellation is not None and cancellation.cancelled: cancellation.throw_if_cancelled()
                         raise AxAIServiceTimeoutError("OpenAI-compatible request timed out", request=call, retryable=True) from exc
                     except OSError as exc:
+                        if cancellation is not None and cancellation.cancelled: cancellation.throw_if_cancelled()
                         raise AxAIServiceNetworkError(str(exc), request=call, retryable=True) from exc
                     finally:
                         res.close()
@@ -1377,11 +1504,18 @@ class ProviderOperationClient(AxBaseAI):
                 if binary_response:
                     # Binary operations (e.g. OpenAI /audio/speech returns raw mp3)
                     # must not be UTF-8 decoded; return the bytes as base64.
-                    return base64.b64encode(res.read()).decode()
-                return json.loads(res.read().decode())
+                    value = base64.b64encode(res.read()).decode()
+                else:
+                    value = json.loads(res.read().decode())
+                if cancellation is not None: cancellation.throw_if_cancelled()
+                return value
+        except AxAIServiceAbortedError:
+            raise
         except TimeoutError as exc:
+            if cancellation is not None and cancellation.cancelled: cancellation.throw_if_cancelled()
             raise AxAIServiceTimeoutError("OpenAI-compatible request timed out", request=call, retryable=True) from exc
         except urllib.error.HTTPError as exc:
+            if cancellation is not None and cancellation.cancelled: cancellation.throw_if_cancelled()
             body = exc.read().decode()
             try:
                 parsed = json.loads(body)
@@ -1389,6 +1523,7 @@ class ProviderOperationClient(AxBaseAI):
                 parsed = body
             raise openai_normalize_error(exc.code, parsed, call) from exc
         except OSError as exc:
+            if cancellation is not None and cancellation.cancelled: cancellation.throw_if_cancelled()
             raise AxAIServiceNetworkError(str(exc), request=call, retryable=True) from exc
 
     def _headers(self):
@@ -1708,7 +1843,7 @@ def _service_latency_score(service: AxAIService) -> float:
 
 
 def _is_retryable_ai_error(exc: AxAIServiceError) -> bool:
-    if isinstance(exc, AxAIServiceAuthenticationError):
+    if isinstance(exc, (AxAIServiceAuthenticationError, AxAIServiceAbortedError)):
         return False
     if isinstance(exc, AxAIServiceStatusError):
         return getattr(exc, "status", None) in {408, 429, 500, 502, 503, 504, 529}
@@ -2762,51 +2897,6 @@ def _openai_apply_cache_breakpoint_impl(message: Any) -> Any:
     return out
 
 
-def merge_model_config(base: Any, override: Any = None, options: Any = None) -> AxModelConfig:
-    _core_coverage_mark("merge_model_config")
-    empty_options_config = {}
-    options_config_snake = _core_get(options, "model_config", empty_options_config)
-    options_config = _core_get(options, "modelConfig", options_config_snake)
-    base_options = _core_map_merge(base, options_config)
-    merged = _core_map_merge(base_options, override)
-    has_stream_option = _core_map_contains(options, "stream")
-    if has_stream_option:
-        stream = _core_get(options, "stream", None)
-        merged["stream"] = stream
-    else:
-        pass
-    budget_snake = _core_get(options, "thinking_token_budget", None)
-    budget = _core_get(options, "thinkingTokenBudget", budget_snake)
-    has_budget = _core_is_not_none(budget)
-    if has_budget:
-        merged["thinkingTokenBudget"] = budget
-    else:
-        pass
-    reasoning_snake = _core_get(options, "reasoning_effort", None)
-    reasoning = _core_get(options, "reasoningEffort", reasoning_snake)
-    has_reasoning = _core_is_not_none(reasoning)
-    if has_reasoning:
-        merged["reasoning_effort"] = reasoning
-    else:
-        pass
-    show_thoughts_snake = _core_get(options, "show_thoughts", None)
-    show_thoughts = _core_get(options, "showThoughts", show_thoughts_snake)
-    has_show_thoughts = _core_is_not_none(show_thoughts)
-    if has_show_thoughts:
-        merged["showThoughts"] = show_thoughts
-    else:
-        pass
-    out = {}
-    for key in merged:
-        value = _core_get(merged, key, None)
-        include = _core_is_not_none(value)
-        if include:
-            out[key] = value
-        else:
-            pass
-    return out
-
-
 def _openai_apply_model_config_impl(payload: Any, model_config: Any) -> None:
     _core_coverage_mark("_openai_apply_model_config_impl")
     _openai_copy_config_key_impl(payload, model_config, "max_tokens", "max_completion_tokens")
@@ -2851,6 +2941,51 @@ def _openai_apply_model_config_impl(payload: Any, model_config: Any) -> None:
     else:
         pass
     return None
+
+
+def merge_model_config(base: Any, override: Any = None, options: Any = None) -> AxModelConfig:
+    _core_coverage_mark("merge_model_config")
+    empty_options_config = {}
+    options_config_snake = _core_get(options, "model_config", empty_options_config)
+    options_config = _core_get(options, "modelConfig", options_config_snake)
+    base_options = _core_map_merge(base, options_config)
+    merged = _core_map_merge(base_options, override)
+    has_stream_option = _core_map_contains(options, "stream")
+    if has_stream_option:
+        stream = _core_get(options, "stream", None)
+        merged["stream"] = stream
+    else:
+        pass
+    budget_snake = _core_get(options, "thinking_token_budget", None)
+    budget = _core_get(options, "thinkingTokenBudget", budget_snake)
+    has_budget = _core_is_not_none(budget)
+    if has_budget:
+        merged["thinkingTokenBudget"] = budget
+    else:
+        pass
+    reasoning_snake = _core_get(options, "reasoning_effort", None)
+    reasoning = _core_get(options, "reasoningEffort", reasoning_snake)
+    has_reasoning = _core_is_not_none(reasoning)
+    if has_reasoning:
+        merged["reasoning_effort"] = reasoning
+    else:
+        pass
+    show_thoughts_snake = _core_get(options, "show_thoughts", None)
+    show_thoughts = _core_get(options, "showThoughts", show_thoughts_snake)
+    has_show_thoughts = _core_is_not_none(show_thoughts)
+    if has_show_thoughts:
+        merged["showThoughts"] = show_thoughts
+    else:
+        pass
+    out = {}
+    for key in merged:
+        value = _core_get(merged, key, None)
+        include = _core_is_not_none(value)
+        if include:
+            out[key] = value
+        else:
+            pass
+    return out
 
 
 def validate_chat_request(request: AxChatRequest) -> None:
@@ -2963,13 +3098,6 @@ def openai_reasoning_effort(model: str, budget: Any) -> Any:
     return "high"
 
 
-def build_chat_request(service: AxAIService, request: AxChatRequest, options: Any = None) -> Any:
-    _core_coverage_mark("build_chat_request")
-    validate_chat_request(request)
-    payload = openai_build_chat_request(request, options, True)
-    return payload
-
-
 def openai_chat_reasoning_effort(model: str, budget: Any) -> Any:
     _core_coverage_mark("openai_chat_reasoning_effort")
     effort = openai_reasoning_effort(model, budget)
@@ -2981,16 +3109,11 @@ def openai_chat_reasoning_effort(model: str, budget: Any) -> Any:
     return effort
 
 
-def normalize_chat_response(raw: Any) -> AxChatResponse:
-    _core_coverage_mark("normalize_chat_response")
-    response = openai_normalize_chat_response(raw)
-    return response
-
-
-def normalize_stream_delta(raw: Any, state: Any) -> AxChatResponse:
-    _core_coverage_mark("normalize_stream_delta")
-    response = openai_normalize_stream_delta(raw, state)
-    return response
+def build_chat_request(service: AxAIService, request: AxChatRequest, options: Any = None) -> Any:
+    _core_coverage_mark("build_chat_request")
+    validate_chat_request(request)
+    payload = openai_build_chat_request(request, options, True)
+    return payload
 
 
 def _openai_copy_config_key_impl(payload: Any, model_config: Any, source: str, target: str) -> None:
@@ -3004,10 +3127,10 @@ def _openai_copy_config_key_impl(payload: Any, model_config: Any, source: str, t
     return None
 
 
-def build_embed_request(service: AxAIService, request: AxEmbedRequest, options: Any = None) -> Any:
-    _core_coverage_mark("build_embed_request")
-    payload = openai_build_embed_request(request)
-    return payload
+def normalize_chat_response(raw: Any) -> AxChatResponse:
+    _core_coverage_mark("normalize_chat_response")
+    response = openai_normalize_chat_response(raw)
+    return response
 
 
 def _openai_message_impl(message: Any, reasoning_content_mode: str, reasoning_details_mode: str) -> Any:
@@ -3121,6 +3244,18 @@ def _openai_message_impl(message: Any, reasoning_content_mode: str, reasoning_de
     message_text = _core_string_format("Invalid role: {}", role)
     error = _core_ai_error_response(message_text)
     raise error
+
+
+def normalize_stream_delta(raw: Any, state: Any) -> AxChatResponse:
+    _core_coverage_mark("normalize_stream_delta")
+    response = openai_normalize_stream_delta(raw, state)
+    return response
+
+
+def build_embed_request(service: AxAIService, request: AxEmbedRequest, options: Any = None) -> Any:
+    _core_coverage_mark("build_embed_request")
+    payload = openai_build_embed_request(request)
+    return payload
 
 
 def normalize_embed_response(raw: Any) -> AxEmbedResponse:
@@ -3403,23 +3538,6 @@ def _openai_tool_call_to_provider_impl(call: Any) -> Any:
     return out
 
 
-def _ai_model_usage_impl(ai_name: str, model: str, usage: Any) -> Any:
-    _core_coverage_mark("_ai_model_usage_impl")
-    has_usage = _core_truthy(usage)
-    missing_usage = _core_not(has_usage)
-    if missing_usage:
-        none = _core_none()
-        return none
-    else:
-        pass
-    tokens = normalize_token_usage(usage)
-    out = {}
-    out["ai"] = ai_name
-    out["model"] = model
-    out["tokens"] = tokens
-    return out
-
-
 def _openai_tool_spec_impl(fn: Any) -> Any:
     _core_coverage_mark("_openai_tool_spec_impl")
     name = _core_get(fn, "name", None)
@@ -3437,6 +3555,41 @@ def _openai_tool_spec_impl(fn: Any) -> Any:
     out["type"] = "function"
     out["function"] = function
     return out
+
+
+def _ai_model_usage_impl(ai_name: str, model: str, usage: Any) -> Any:
+    _core_coverage_mark("_ai_model_usage_impl")
+    has_usage = _core_truthy(usage)
+    missing_usage = _core_not(has_usage)
+    if missing_usage:
+        none = _core_none()
+        return none
+    else:
+        pass
+    tokens = normalize_token_usage(usage)
+    out = {}
+    out["ai"] = ai_name
+    out["model"] = model
+    out["tokens"] = tokens
+    return out
+
+
+def openai_build_embed_request(request: AxEmbedRequest) -> Any:
+    _core_coverage_mark("openai_build_embed_request")
+    embed_model_snake = _core_get(request, "embed_model", None)
+    model = _core_get(request, "embedModel", embed_model_snake)
+    empty_texts = []
+    texts = _core_get(request, "texts", empty_texts)
+    payload = {}
+    payload["model"] = model
+    payload["input"] = texts
+    dimensions = _core_get(request, "dimensions", None)
+    has_dimensions = _core_truthy(dimensions)
+    if has_dimensions:
+        payload["dimensions"] = dimensions
+    else:
+        pass
+    return payload
 
 
 def _chat_result_to_completion(result: Any, fallback_index: number) -> Any:
@@ -3475,28 +3628,30 @@ def _chat_result_to_completion(result: Any, fallback_index: number) -> Any:
     return completion
 
 
-def openai_build_embed_request(request: AxEmbedRequest) -> Any:
-    _core_coverage_mark("openai_build_embed_request")
-    embed_model_snake = _core_get(request, "embed_model", None)
-    model = _core_get(request, "embedModel", embed_model_snake)
-    empty_texts = []
-    texts = _core_get(request, "texts", empty_texts)
-    payload = {}
-    payload["model"] = model
-    payload["input"] = texts
-    dimensions = _core_get(request, "dimensions", None)
-    has_dimensions = _core_truthy(dimensions)
-    if has_dimensions:
-        payload["dimensions"] = dimensions
-    else:
-        pass
-    return payload
-
-
 def openai_normalize_chat_response(raw: Any, ai_name: str = "openai", model: str = None) -> AxChatResponse:
     _core_coverage_mark("openai_normalize_chat_response")
     response = _openai_normalize_chat_response_impl(raw, ai_name, model, "none", "none")
     return response
+
+
+def _openai_usage_with_service_tier(raw: Any, usage: Any) -> Any:
+    _core_coverage_mark("_openai_usage_with_service_tier")
+    has_usage = _core_is_not_none(usage)
+    if has_usage:
+        pass
+    else:
+        return usage
+    empty = {}
+    out = _core_map_merge(empty, usage)
+    usage_tier = _core_get(usage, "service_tier", None)
+    raw_tier = _core_get(raw, "service_tier", usage_tier)
+    tier = _core_get(raw, "service_tier_used", raw_tier)
+    has_tier = _core_is_not_none(tier)
+    if has_tier:
+        out["service_tier"] = tier
+    else:
+        pass
+    return out
 
 
 def chat_response_to_completion(response: AxChatResponse) -> Any:
@@ -3531,26 +3686,6 @@ def chat_response_to_completion(response: AxChatResponse) -> Any:
         pass
     if has_thought_blocks:
         out["thought_blocks"] = thought_blocks
-    else:
-        pass
-    return out
-
-
-def _openai_usage_with_service_tier(raw: Any, usage: Any) -> Any:
-    _core_coverage_mark("_openai_usage_with_service_tier")
-    has_usage = _core_is_not_none(usage)
-    if has_usage:
-        pass
-    else:
-        return usage
-    empty = {}
-    out = _core_map_merge(empty, usage)
-    usage_tier = _core_get(usage, "service_tier", None)
-    raw_tier = _core_get(raw, "service_tier", usage_tier)
-    tier = _core_get(raw, "service_tier_used", raw_tier)
-    has_tier = _core_is_not_none(tier)
-    if has_tier:
-        out["service_tier"] = tier
     else:
         pass
     return out
@@ -3764,31 +3899,6 @@ def ai_context_cache_plan(configured: bool, supported: bool, explicit_name: str,
     return out
 
 
-def ai_context_cache_recovery(current_entry: Any, cache_name: str, external_registry: bool) -> Any:
-    _core_coverage_mark("ai_context_cache_recovery")
-    out = {}
-    out["invalidated"] = False
-    out["deleteInMemory"] = False
-    entry_object = _core_type_is(current_entry, "object")
-    if entry_object:
-        current_name = _core_get(current_entry, "cacheName", "")
-        matches = _core_eq(current_name, cache_name)
-        if matches:
-            out["invalidated"] = True
-            if external_registry:
-                empty = {}
-                tombstone = _core_map_merge(current_entry, empty)
-                tombstone["expiresAt"] = 0
-                out["externalEntry"] = tombstone
-            else:
-                out["deleteInMemory"] = True
-        else:
-            pass
-    else:
-        pass
-    return out
-
-
 def _openai_normalize_tool_calls_impl(calls: list[Any]) -> list[Any]:
     _core_coverage_mark("_openai_normalize_tool_calls_impl")
     out = []
@@ -3815,6 +3925,59 @@ def _openai_normalize_tool_calls_impl(calls: list[Any]) -> list[Any]:
         normalized["function"] = function
         out.append(normalized)
     return out
+
+
+def ai_context_cache_recovery(current_entry: Any, cache_name: str, external_registry: bool) -> Any:
+    _core_coverage_mark("ai_context_cache_recovery")
+    out = {}
+    out["invalidated"] = False
+    out["deleteInMemory"] = False
+    entry_object = _core_type_is(current_entry, "object")
+    if entry_object:
+        current_name = _core_get(current_entry, "cacheName", "")
+        matches = _core_eq(current_name, cache_name)
+        if matches:
+            out["invalidated"] = True
+            if external_registry:
+                empty = {}
+                tombstone = _core_map_merge(current_entry, empty)
+                tombstone["expiresAt"] = 0
+                out["externalEntry"] = tombstone
+            else:
+                out["deleteInMemory"] = True
+        else:
+            pass
+    else:
+        pass
+    return out
+
+
+def _openai_finish_reason_impl(value: Any) -> Any:
+    _core_coverage_mark("_openai_finish_reason_impl")
+    is_stop = _core_eq(value, "stop")
+    if is_stop:
+        return "stop"
+    else:
+        pass
+    is_length = _core_eq(value, "length")
+    if is_length:
+        return "length"
+    else:
+        pass
+    is_content_filter = _core_eq(value, "content_filter")
+    if is_content_filter:
+        return "error"
+    else:
+        pass
+    is_tool_calls = _core_eq(value, "tool_calls")
+    is_function_call = _core_eq(value, "function_call")
+    is_call = _core_or(is_tool_calls, is_function_call)
+    if is_call:
+        return "function_call"
+    else:
+        pass
+    none = _core_none()
+    return none
 
 
 def ai_gemini_cache_ops(cache_name: str, ttl_seconds: number, api_key: str, model: str, create_body: Any, options: Any) -> Any:
@@ -3882,34 +4045,6 @@ def ai_gemini_cache_ops(cache_name: str, ttl_seconds: number, api_key: str, mode
     out["update"] = update
     out["delete"] = delete_op
     return out
-
-
-def _openai_finish_reason_impl(value: Any) -> Any:
-    _core_coverage_mark("_openai_finish_reason_impl")
-    is_stop = _core_eq(value, "stop")
-    if is_stop:
-        return "stop"
-    else:
-        pass
-    is_length = _core_eq(value, "length")
-    if is_length:
-        return "length"
-    else:
-        pass
-    is_content_filter = _core_eq(value, "content_filter")
-    if is_content_filter:
-        return "error"
-    else:
-        pass
-    is_tool_calls = _core_eq(value, "tool_calls")
-    is_function_call = _core_eq(value, "function_call")
-    is_call = _core_or(is_tool_calls, is_function_call)
-    if is_call:
-        return "function_call"
-    else:
-        pass
-    none = _core_none()
-    return none
 
 
 def openai_normalize_embed_response(raw: Any, ai_name: str = "openai", model: str = None) -> AxEmbedResponse:

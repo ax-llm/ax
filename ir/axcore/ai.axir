@@ -7,6 +7,25 @@ module @ax.ai version "0.1" {
     type fields = "message:string,status?:i64,code?:string,response_body?:json,request?:json,retryable?:bool"
   }
 
+  op ax.ai.error @AxAIServiceAbortedError {
+    attr core_kind = "error"
+    attr public = true
+    attr retryable = false
+    attr semantics = "caller cancellation is terminal, preserves the first reason, and must not retry or fail over"
+    tag "src/ax/util/apicall.ts"
+    type fields = "message:string,reason?:string,retryable:bool"
+  }
+
+  op ax.ai.interface @AxCancellationToken {
+    attr core_kind = "interface"
+    attr public = true
+    attr semantics = "thread-safe one-shot cancellation; first reason wins; subscriptions are removable and released after completion"
+    tag "cancellation-host-boundary"
+    type cancel = "(reason?:string) -> bool"
+    type subscribe = "(wake:json) -> json"
+    type throwIfCancelled = "() -> void throws"
+  }
+
   op ax.ai.record @ChatMessage {
     attr core_kind = "record"
     tag "src/ax/ai/types.ts"
@@ -46,7 +65,7 @@ module @ax.ai version "0.1" {
   op ax.ai.record @AxAIServiceOptions {
     attr core_kind = "record"
     tag "src/ax/ai/types.ts"
-    type fields = "debug?:bool,stream?:bool,functionCallMode?:string,timeout?:i64,retry?:json,useExpensiveModel?:string,thinkingTokenBudget?:string,showThoughts?:bool,serviceTier?:string,sessionId?:string,promptCacheKey?:string,contextCache?:json,usageContext?:AxUsageContext"
+    type fields = "debug?:bool,stream?:bool,functionCallMode?:string,timeout?:i64,retry?:json,useExpensiveModel?:string,thinkingTokenBudget?:string,showThoughts?:bool,serviceTier?:string,sessionId?:string,promptCacheKey?:string,contextCache?:json,usageContext?:AxUsageContext,cancellation?:AxCancellationToken"
   }
 
   op ax.ai.record @AxTokenUsage {

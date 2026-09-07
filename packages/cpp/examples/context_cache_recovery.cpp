@@ -1,5 +1,6 @@
 #include "axllm/axllm.hpp"
 #include <chrono>
+#include <csignal>
 #include <iostream>
 
 struct Script : axllm::Transport {

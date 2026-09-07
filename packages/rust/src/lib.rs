@@ -19,7 +19,7 @@ use std::fmt;
 use std::io::{BufRead, BufReader, Read, Write};
 use std::process::{Child, ChildStdin, Command, Stdio};
 use std::sync::atomic::{AtomicU64, Ordering};
-use std::sync::{Arc, Mutex, OnceLock, Weak};
+use std::sync::{Arc, Condvar, Mutex, OnceLock, Weak};
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
 #[cfg(feature = "runtime-quickjs")]
@@ -581,6 +581,168 @@ impl fmt::Display for AxError {
 }
 
 impl Error for AxError {}
+
+pub type AxAIServiceAbortedError = AxError;
+
+#[derive(Clone)]
+pub struct AxCancellationToken {
+    state: Arc<(Mutex<AxCancellationState>, Condvar)>,
+}
+
+struct AxCancellationState {
+    cancelled: bool,
+    reason: Option<String>,
+    next_subscription: u64,
+    subscriptions: BTreeMap<u64, Arc<dyn Fn() + Send + Sync>>,
+}
+
+impl fmt::Debug for AxCancellationToken {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("AxCancellationToken")
+            .field("cancelled", &self.is_cancelled())
+            .field("reason", &self.reason())
+            .finish()
+    }
+}
+
+impl Default for AxCancellationToken {
+    fn default() -> Self {
+        Self {
+            state: Arc::new((
+                Mutex::new(AxCancellationState {
+                    cancelled: false,
+                    reason: None,
+                    next_subscription: 0,
+                    subscriptions: BTreeMap::new(),
+                }),
+                Condvar::new(),
+            )),
+        }
+    }
+}
+
+impl AxCancellationToken {
+    pub fn cancel(&self, reason: impl Into<String>) -> bool {
+        let callbacks = {
+            let (state, changed) = &*self.state;
+            let mut state = state.lock().unwrap();
+            if state.cancelled {
+                return false;
+            }
+            state.cancelled = true;
+            state.reason = Some(reason.into());
+            let callbacks = state.subscriptions.values().cloned().collect::<Vec<_>>();
+            state.subscriptions.clear();
+            changed.notify_all();
+            callbacks
+        };
+        for callback in callbacks {
+            callback();
+        }
+        true
+    }
+
+    pub fn is_cancelled(&self) -> bool {
+        self.state.0.lock().unwrap().cancelled
+    }
+    pub fn reason(&self) -> Option<String> {
+        self.state.0.lock().unwrap().reason.clone()
+    }
+    pub fn throw_if_cancelled(&self) -> AxResult<()> {
+        if !self.is_cancelled() {
+            return Ok(());
+        }
+        let reason = self.reason().unwrap_or_else(|| "cancelled".into());
+        let mut error = AxError::new(
+            "aborted",
+            if reason == "cancelled" {
+                "Request aborted".into()
+            } else {
+                format!("Request aborted: {reason}")
+            },
+        );
+        error.error_type = Some("AxAIServiceAbortedError".into());
+        Err(error)
+    }
+    pub fn subscribe(
+        &self,
+        callback: impl Fn() + Send + Sync + 'static,
+    ) -> AxCancellationSubscription {
+        let callback: Arc<dyn Fn() + Send + Sync> = Arc::new(callback);
+        let mut immediate = false;
+        let id = {
+            let mut state = self.state.0.lock().unwrap();
+            if state.cancelled {
+                immediate = true;
+                0
+            } else {
+                state.next_subscription += 1;
+                let id = state.next_subscription;
+                state.subscriptions.insert(id, callback.clone());
+                id
+            }
+        };
+        if immediate {
+            callback();
+        }
+        AxCancellationSubscription {
+            state: Arc::downgrade(&self.state),
+            id,
+        }
+    }
+    pub fn wait_timeout(&self, duration: Duration) -> bool {
+        let (state, changed) = &*self.state;
+        let state = state.lock().unwrap();
+        if state.cancelled {
+            return true;
+        }
+        changed
+            .wait_timeout_while(state, duration, |state| !state.cancelled)
+            .unwrap()
+            .0
+            .cancelled
+    }
+    pub fn subscription_count(&self) -> usize {
+        self.state.0.lock().unwrap().subscriptions.len()
+    }
+}
+
+pub struct AxCancellationSubscription {
+    state: Weak<(Mutex<AxCancellationState>, Condvar)>,
+    id: u64,
+}
+
+impl Drop for AxCancellationSubscription {
+    fn drop(&mut self) {
+        if self.id == 0 {
+            return;
+        }
+        if let Some(state) = self.state.upgrade() {
+            state.0.lock().unwrap().subscriptions.remove(&self.id);
+        }
+    }
+}
+
+thread_local! { static AX_CANCELLATION_STACK: std::cell::RefCell<Vec<AxCancellationToken>> = const { std::cell::RefCell::new(Vec::new()) }; }
+
+struct AxCancellationScope;
+impl AxCancellationScope {
+    fn enter(token: &AxCancellationToken) -> AxResult<Self> {
+        token.throw_if_cancelled()?;
+        AX_CANCELLATION_STACK.with(|stack| stack.borrow_mut().push(token.clone()));
+        Ok(Self)
+    }
+}
+impl Drop for AxCancellationScope {
+    fn drop(&mut self) {
+        AX_CANCELLATION_STACK.with(|stack| {
+            stack.borrow_mut().pop();
+        });
+    }
+}
+fn current_cancellation_token() -> Option<AxCancellationToken> {
+    AX_CANCELLATION_STACK.with(|stack| stack.borrow().last().cloned())
+}
 
 impl From<serde_json::Error> for AxError {
     fn from(value: serde_json::Error) -> Self {
@@ -1352,6 +1514,18 @@ pub trait AxAIClient {
         self.chat(request)
     }
 
+    fn chat_with_cancellation(
+        &mut self,
+        request: Value,
+        options: Value,
+        cancellation: &AxCancellationToken,
+    ) -> AxResult<Value> {
+        let _scope = AxCancellationScope::enter(cancellation)?;
+        let result = self.chat_with_options(request, options);
+        cancellation.throw_if_cancelled()?;
+        result
+    }
+
     fn chat_with_runtime_hooks(
         &mut self,
         request: Value,
@@ -1373,6 +1547,16 @@ pub trait AxAIClient {
             "embedding is not supported by this AI client",
         ))
     }
+    fn embed_with_cancellation(
+        &mut self,
+        request: Value,
+        cancellation: &AxCancellationToken,
+    ) -> AxResult<Value> {
+        let _scope = AxCancellationScope::enter(cancellation)?;
+        let result = self.embed(request);
+        cancellation.throw_if_cancelled()?;
+        result
+    }
 
     fn embed_with_runtime_hooks(
         &mut self,
@@ -1393,6 +1577,16 @@ pub trait AxAIClient {
         Err(AxError::runtime(
             "speech is not supported by this AI client",
         ))
+    }
+    fn speak_with_cancellation(
+        &mut self,
+        request: Value,
+        cancellation: &AxCancellationToken,
+    ) -> AxResult<Value> {
+        let _scope = AxCancellationScope::enter(cancellation)?;
+        let result = self.speak(request);
+        cancellation.throw_if_cancelled()?;
+        result
     }
 
     fn get_id(&self) -> String {
@@ -1422,6 +1616,16 @@ pub trait AxAIClient {
         let _ = request;
         Ok(json!({"text": ""}))
     }
+    fn transcribe_with_cancellation(
+        &mut self,
+        request: Value,
+        cancellation: &AxCancellationToken,
+    ) -> AxResult<Value> {
+        let _scope = AxCancellationScope::enter(cancellation)?;
+        let result = self.transcribe(request);
+        cancellation.throw_if_cancelled()?;
+        result
+    }
 
     fn complete(&mut self, request: Value) -> AxResult<Value> {
         self.chat(request)
@@ -1440,6 +1644,34 @@ pub trait AxAIClient {
 
     fn stream_iter(&mut self, request: Value) -> AxResult<AxChatStream> {
         self.stream(request).map(AxChatStream::from_values)
+    }
+    fn stream_iter_with_cancellation(
+        &mut self,
+        request: Value,
+        cancellation: &AxCancellationToken,
+    ) -> AxResult<AxChatStream> {
+        let _scope = AxCancellationScope::enter(cancellation)?;
+        let stream = self.stream_iter(request)?;
+        let token = cancellation.clone();
+        Ok(AxChatStream::new(
+            CancellableProviderIterator {
+                inner: Box::new(stream),
+                token,
+            },
+            None,
+        ))
+    }
+    fn stream_with_cancellation(
+        &mut self,
+        request: Value,
+        cancellation: &AxCancellationToken,
+    ) -> AxResult<Vec<Value>> {
+        let mut stream = self.stream_iter_with_cancellation(request, cancellation)?;
+        let mut values = Vec::new();
+        for value in &mut stream {
+            values.push(value?);
+        }
+        Ok(values)
     }
 
     fn stream_with_runtime_hooks(
@@ -1548,8 +1780,47 @@ pub enum AxTransportStream {
 pub trait AxTransport: Send {
     fn send(&mut self, request: Value) -> AxResult<Value>;
 
+    fn send_with_cancellation(
+        &mut self,
+        request: Value,
+        cancellation: &AxCancellationToken,
+    ) -> AxResult<Value> {
+        let _scope = AxCancellationScope::enter(cancellation)?;
+        let result = self.send(request);
+        cancellation.throw_if_cancelled()?;
+        result
+    }
+
     fn stream(&mut self, request: Value) -> AxResult<AxTransportStream> {
         self.send(request).map(AxTransportStream::Buffered)
+    }
+    fn stream_with_cancellation(
+        &mut self,
+        request: Value,
+        cancellation: &AxCancellationToken,
+    ) -> AxResult<AxTransportStream> {
+        let _scope = AxCancellationScope::enter(cancellation)?;
+        let result = self.stream(request);
+        cancellation.throw_if_cancelled()?;
+        result
+    }
+}
+
+struct CancellableProviderIterator {
+    inner: Box<dyn Iterator<Item = AxResult<Value>>>,
+    token: AxCancellationToken,
+}
+impl Iterator for CancellableProviderIterator {
+    type Item = AxResult<Value>;
+    fn next(&mut self) -> Option<Self::Item> {
+        if let Err(error) = self.token.throw_if_cancelled() {
+            return Some(Err(error));
+        }
+        let value = self.inner.next();
+        if self.token.is_cancelled() {
+            return Some(Err(self.token.throw_if_cancelled().unwrap_err()));
+        }
+        value
     }
 }
 
@@ -1762,6 +2033,7 @@ pub type RuntimeTransport = dyn AxTransport;
 pub struct ScriptedTransport {
     responses: VecDeque<Value>,
     pub requests: Vec<Value>,
+    pub cancellations: Vec<AxCancellationToken>,
 }
 
 impl ScriptedTransport {
@@ -1769,6 +2041,7 @@ impl ScriptedTransport {
         Self {
             responses: responses.into(),
             requests: Vec::new(),
+            cancellations: Vec::new(),
         }
     }
 }
@@ -1779,6 +2052,22 @@ impl AxTransport for ScriptedTransport {
         self.responses
             .pop_front()
             .ok_or_else(|| AxError::runtime("scripted transport exhausted"))
+    }
+    fn send_with_cancellation(
+        &mut self,
+        request: Value,
+        cancellation: &AxCancellationToken,
+    ) -> AxResult<Value> {
+        self.cancellations.push(cancellation.clone());
+        self.send(request)
+    }
+    fn stream_with_cancellation(
+        &mut self,
+        request: Value,
+        cancellation: &AxCancellationToken,
+    ) -> AxResult<AxTransportStream> {
+        self.cancellations.push(cancellation.clone());
+        self.stream(request)
     }
 }
 
@@ -2056,8 +2345,15 @@ impl OpenAICompatibleClient {
     }
 
     fn dispatch_transport_request(&mut self, call: Value) -> AxResult<Value> {
+        let cancellation = current_cancellation_token();
+        if let Some(token) = &cancellation {
+            token.throw_if_cancelled()?;
+        }
         if let Some(transport) = self.transport.as_mut() {
-            return transport.send(call);
+            return match cancellation.as_ref() {
+                Some(token) => transport.send_with_cancellation(call, token),
+                None => transport.send(call),
+            };
         }
         let url = call
             .get("url")
@@ -2092,8 +2388,14 @@ impl OpenAICompatibleClient {
             let body = call.get("json").cloned().unwrap_or_else(|| json!({}));
             builder.json(&body).send()?
         };
+        if let Some(token) = &cancellation {
+            token.throw_if_cancelled()?;
+        }
         let status = response.status().as_u16();
         let bytes = response.bytes()?;
+        if let Some(token) = &cancellation {
+            token.throw_if_cancelled()?;
+        }
         let body = if bytes.is_empty() {
             Value::Null
         } else {
@@ -2131,8 +2433,21 @@ impl OpenAICompatibleClient {
         &mut self,
         call: Value,
     ) -> AxResult<Box<dyn Iterator<Item = AxResult<Value>>>> {
+        let cancellation = current_cancellation_token();
+        if let Some(token) = &cancellation {
+            token.throw_if_cancelled()?;
+        }
         if let Some(transport) = self.transport.as_mut() {
-            return Self::transport_stream_iter(transport.stream(call)?);
+            let stream = match cancellation.as_ref() {
+                Some(token) => transport.stream_with_cancellation(call, token)?,
+                None => transport.stream(call)?,
+            };
+            let inner = Self::transport_stream_iter(stream)?;
+            return Ok(match cancellation {
+                Some(token) => Box::new(CancellableProviderIterator { inner, token })
+                    as Box<dyn Iterator<Item = AxResult<Value>>>,
+                None => inner,
+            });
         }
         let url = call
             .get("url")
@@ -2156,10 +2471,18 @@ impl OpenAICompatibleClient {
         }
         let body = call.get("json").cloned().unwrap_or_else(|| json!({}));
         let response = builder.json(&body).send()?;
+        if let Some(token) = &cancellation {
+            token.throw_if_cancelled()?;
+        }
         let status = response.status().as_u16();
-        Self::transport_stream_iter(AxTransportStream::Reader {
+        let inner = Self::transport_stream_iter(AxTransportStream::Reader {
             status,
             body: Box::new(response),
+        })?;
+        Ok(match cancellation {
+            Some(token) => Box::new(CancellableProviderIterator { inner, token })
+                as Box<dyn Iterator<Item = AxResult<Value>>>,
+            None => inner,
         })
     }
 
@@ -3399,9 +3722,7 @@ impl AxAIClient for OpenAICompatibleClient {
                 Err(error) if is_retryable_ai_error(&error) && attempt < max_retries => {
                     attempt += 1;
                     let delay = (initial_delay * backoff.powi((attempt - 1) as i32)).min(max_delay);
-                    if delay > 0.0 {
-                        std::thread::sleep(Duration::from_millis(delay as u64));
-                    }
+                    cancellation_backoff(Duration::from_millis(delay.max(0.0) as u64))?;
                     continue;
                 }
                 Err(error) => {
@@ -3447,9 +3768,7 @@ impl AxAIClient for OpenAICompatibleClient {
                 Some(Err(error)) if is_retryable_ai_error(&error) && attempt < max_retries => {
                     attempt += 1;
                     let delay = (initial_delay * backoff.powi((attempt - 1) as i32)).min(max_delay);
-                    if delay > 0.0 {
-                        std::thread::sleep(Duration::from_millis(delay as u64));
-                    }
+                    cancellation_backoff(Duration::from_millis(delay.max(0.0) as u64))?;
                     continue;
                 }
                 Some(Err(error)) => {
@@ -3475,9 +3794,7 @@ impl AxAIClient for OpenAICompatibleClient {
             {
                 attempt += 1;
                 let delay = (initial_delay * backoff.powi((attempt - 1) as i32)).min(max_delay);
-                if delay > 0.0 {
-                    std::thread::sleep(Duration::from_millis(delay as u64));
-                }
+                cancellation_backoff(Duration::from_millis(delay.max(0.0) as u64))?;
                 continue;
             }
             let mut normalized = NormalizedProviderStream {
@@ -3987,6 +4304,19 @@ impl AxGen {
 
     pub fn forward<C: AxAIClient>(&mut self, client: &mut C, input: Value) -> AxResult<Value> {
         self.forward_with_options(client, input, Value::Null)
+    }
+
+    pub fn forward_with_cancellation<C: AxAIClient>(
+        &mut self,
+        client: &mut C,
+        input: Value,
+        options: Value,
+        cancellation: &AxCancellationToken,
+    ) -> AxResult<Value> {
+        let _scope = AxCancellationScope::enter(cancellation)?;
+        let result = self.forward_with_options(client, input, options);
+        cancellation.throw_if_cancelled()?;
+        result
     }
 
     pub fn forward_with_options<C: AxAIClient>(
@@ -4917,6 +5247,19 @@ impl AxAgent {
 
     pub fn forward<C: AxAIClient>(&mut self, client: &mut C, input: Value) -> AxResult<Value> {
         self.forward_with_options(client, input, json!({}))
+    }
+
+    pub fn forward_with_cancellation<C: AxAIClient>(
+        &mut self,
+        client: &mut C,
+        input: Value,
+        options: Value,
+        cancellation: &AxCancellationToken,
+    ) -> AxResult<Value> {
+        let _scope = AxCancellationScope::enter(cancellation)?;
+        let result = self.forward_with_options(client, input, options);
+        cancellation.throw_if_cancelled()?;
+        result
     }
 
     pub fn forward_with_options<C: AxAIClient>(
@@ -5992,6 +6335,19 @@ impl AxFlow {
 
     pub fn forward<C: AxAIClient>(&mut self, client: &mut C, input: Value) -> AxResult<Value> {
         self.forward_with_options(client, input, Value::Null)
+    }
+
+    pub fn forward_with_cancellation<C: AxAIClient>(
+        &mut self,
+        client: &mut C,
+        input: Value,
+        options: Value,
+        cancellation: &AxCancellationToken,
+    ) -> AxResult<Value> {
+        let _scope = AxCancellationScope::enter(cancellation)?;
+        let result = self.forward_with_options(client, input, options);
+        cancellation.throw_if_cancelled()?;
+        result
     }
 
     pub fn forward_with_options<C: AxAIClient>(
@@ -10078,6 +10434,7 @@ pub fn run_conformance_fixture(fixture: Value) -> AxResult<()> {
         "stream" => run_stream_fixture(&fixture)?,
         "ai_chat" => run_ai_chat_fixture(&fixture)?,
         "ai_stream" => run_ai_stream_fixture(&fixture)?,
+        "ai_cancellation" => run_ai_cancellation_fixture(&fixture)?,
         "ai_embed" => run_ai_embed_fixture(&fixture)?,
         "ai_usage_observer" => run_ai_usage_observer_fixture(&fixture)?,
         "ai_runtime_hooks" => run_ai_runtime_hooks_fixture(&fixture)?,
@@ -10310,6 +10667,111 @@ fn run_event_fixture(fixture: &Value) -> AxResult<()> {
                 return Err(AxError::new("fixture", "event lifecycle mismatch"));
             }
             runtime.close()?;
+
+            let cancellation_spec = &fixture["cancellation"];
+            let cancellation_reason = cancellation_spec["reason"]
+                .as_str()
+                .unwrap_or("fixture-stop")
+                .to_string();
+            let cancellation_sleep =
+                Duration::from_millis(cancellation_spec["sleep_ms"].as_u64().unwrap_or(30_000));
+            let max_cancellation_elapsed = Duration::from_millis(
+                cancellation_spec["max_elapsed_ms"]
+                    .as_u64()
+                    .unwrap_or(1_000),
+            );
+            let token = AxEventCancellationToken::default();
+            let removed_calls = Arc::new(std::sync::atomic::AtomicUsize::new(0));
+            let removed_state = removed_calls.clone();
+            let removed = token.subscribe(move || {
+                removed_state.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+            });
+            drop(removed);
+            if !token.cancel(cancellation_reason.clone())
+                || token.cancel("ignored")
+                || token.reason().as_deref() != Some(cancellation_reason.as_str())
+                || removed_calls.load(std::sync::atomic::Ordering::SeqCst) != 0
+            {
+                return Err(AxError::new(
+                    "fixture",
+                    "event cancellation one-shot or removable subscription mismatch",
+                ));
+            }
+            {
+                let clock = Arc::new(AxSystemEventClock);
+                let sleep_token = AxEventCancellationToken::default();
+                let thread_clock = clock.clone();
+                let thread_token = sleep_token.clone();
+                let started = std::time::Instant::now();
+                let sleeper = std::thread::spawn(move || {
+                    thread_clock.sleep(cancellation_sleep.as_millis() as i64, Some(&thread_token))
+                });
+                std::thread::sleep(Duration::from_millis(10));
+                sleep_token.cancel(cancellation_reason.clone());
+                let result = sleeper
+                    .join()
+                    .map_err(|_| AxError::new("fixture", "system event clock thread panicked"))?;
+                if result
+                    || sleep_token.subscription_count() != 0
+                    || started.elapsed() > max_cancellation_elapsed
+                {
+                    return Err(AxError::new(
+                        "fixture",
+                        "system event clock cancellation or cleanup mismatch",
+                    ));
+                }
+            }
+            {
+                let clock = Arc::new(AxManualEventClock::new(0));
+                let sleep_token = AxEventCancellationToken::default();
+                let thread_clock = clock.clone();
+                let thread_token = sleep_token.clone();
+                let started = std::time::Instant::now();
+                let sleeper = std::thread::spawn(move || {
+                    thread_clock.sleep(cancellation_sleep.as_millis() as i64, Some(&thread_token))
+                });
+                let deadline = std::time::Instant::now() + Duration::from_secs(1);
+                while sleep_token.subscription_count() == 0 && std::time::Instant::now() < deadline
+                {
+                    std::thread::yield_now();
+                }
+                sleep_token.cancel(cancellation_reason.clone());
+                let result = sleeper
+                    .join()
+                    .map_err(|_| AxError::new("fixture", "manual event clock thread panicked"))?;
+                if result
+                    || sleep_token.subscription_count() != 0
+                    || started.elapsed() > max_cancellation_elapsed
+                {
+                    return Err(AxError::new(
+                        "fixture",
+                        "manual event clock cancellation or cleanup mismatch",
+                    ));
+                }
+            }
+            {
+                let clock = Arc::new(AxManualEventClock::new(0));
+                let sleep_token = AxEventCancellationToken::default();
+                let thread_clock = clock.clone();
+                let thread_token = sleep_token.clone();
+                let sleeper =
+                    std::thread::spawn(move || thread_clock.sleep(1, Some(&thread_token)));
+                let deadline = std::time::Instant::now() + Duration::from_secs(1);
+                while sleep_token.subscription_count() == 0 && std::time::Instant::now() < deadline
+                {
+                    std::thread::yield_now();
+                }
+                clock.advance(1);
+                let result = sleeper.join().map_err(|_| {
+                    AxError::new("fixture", "manual event clock success thread panicked")
+                })?;
+                if !result || sleep_token.subscription_count() != 0 {
+                    return Err(AxError::new(
+                        "fixture",
+                        "manual event clock successful sleep cleanup mismatch",
+                    ));
+                }
+            }
 
             let retry_calls = std::sync::Arc::new(std::sync::Mutex::new(0usize));
             let retry_state = retry_calls.clone();
@@ -12977,7 +13439,10 @@ fn balancer_metrics(services: &[RouterFixtureService]) -> Value {
 }
 
 fn is_retryable_ai_error(err: &AxError) -> bool {
-    if err.error_type.as_deref() == Some("AxAIServiceAuthenticationError") {
+    if matches!(
+        err.error_type.as_deref(),
+        Some("AxAIServiceAuthenticationError") | Some("AxAIServiceAbortedError")
+    ) {
         return false;
     }
     if err.error_type.as_deref() == Some("AxAIServiceStatusError") {
@@ -12991,6 +13456,23 @@ fn is_retryable_ai_error(err: &AxError) -> bool {
                 | Some("AxAIServiceStreamTerminatedError")
                 | Some("AxAIServiceTimeoutError")
         )
+}
+
+fn cancellation_backoff(duration: Duration) -> AxResult<()> {
+    if duration.is_zero() {
+        if let Some(token) = current_cancellation_token() {
+            token.throw_if_cancelled()?;
+        }
+        return Ok(());
+    }
+    if let Some(token) = current_cancellation_token() {
+        if token.wait_timeout(duration) {
+            token.throw_if_cancelled()?;
+        }
+    } else {
+        std::thread::sleep(duration);
+    }
+    Ok(())
 }
 
 fn conformance_balancer_result(fixture: &Value) -> AxResult<Value> {
@@ -17729,6 +18211,210 @@ fn run_ai_stream_fixture(fixture: &Value) -> AxResult<()> {
     Ok(())
 }
 
+struct CancellationRecordingTransport {
+    responses: VecDeque<Value>,
+    requests: Arc<Mutex<Vec<Value>>>,
+    cancellations: Arc<Mutex<Vec<AxCancellationToken>>>,
+    cancel_on_first: Option<(AxCancellationToken, String)>,
+}
+
+impl AxTransport for CancellationRecordingTransport {
+    fn send(&mut self, request: Value) -> AxResult<Value> {
+        self.requests.lock().unwrap().push(request);
+        self.responses
+            .pop_front()
+            .ok_or_else(|| AxError::new("fixture", "fixture transport response exhausted"))
+    }
+    fn send_with_cancellation(
+        &mut self,
+        request: Value,
+        cancellation: &AxCancellationToken,
+    ) -> AxResult<Value> {
+        self.cancellations
+            .lock()
+            .unwrap()
+            .push(cancellation.clone());
+        self.send(request)
+    }
+    fn stream_with_cancellation(
+        &mut self,
+        request: Value,
+        cancellation: &AxCancellationToken,
+    ) -> AxResult<AxTransportStream> {
+        self.cancellations
+            .lock()
+            .unwrap()
+            .push(cancellation.clone());
+        if let Some((token, reason)) = self.cancel_on_first.take() {
+            std::thread::spawn(move || {
+                std::thread::sleep(Duration::from_millis(10));
+                token.cancel(reason);
+            });
+        }
+        self.stream(request)
+    }
+}
+
+fn expect_cancellation_error(error: AxError, reason: &str) -> AxResult<()> {
+    if error.error_type.as_deref() != Some("AxAIServiceAbortedError")
+        || error.retryable
+        || !error.message.contains(reason)
+    {
+        return Err(AxError::new(
+            "fixture",
+            format!("provider cancellation error mismatch: {error}"),
+        ));
+    }
+    Ok(())
+}
+
+fn cancellation_client(
+    fixture: &Value,
+    response: Value,
+    cancel_on_first: Option<(AxCancellationToken, String)>,
+) -> AxResult<(
+    OpenAICompatibleClient,
+    Arc<Mutex<Vec<Value>>>,
+    Arc<Mutex<Vec<AxCancellationToken>>>,
+)> {
+    let requests = Arc::new(Mutex::new(Vec::new()));
+    let cancellations = Arc::new(Mutex::new(Vec::new()));
+    let transport = CancellationRecordingTransport {
+        responses: vec![response].into(),
+        requests: requests.clone(),
+        cancellations: cancellations.clone(),
+        cancel_on_first,
+    };
+    let mut options = json!({"api_key":"test-key","model":"claude-sonnet-4-5"});
+    if let Some(retry) = fixture.get("retry_options") {
+        if let (Some(target), Some(source)) = (options.as_object_mut(), retry.as_object()) {
+            for (key, value) in source {
+                target.insert(key.clone(), value.clone());
+            }
+        }
+    }
+    Ok((
+        ai("anthropic", options)?.with_transport(transport),
+        requests,
+        cancellations,
+    ))
+}
+
+fn run_ai_cancellation_fixture(fixture: &Value) -> AxResult<()> {
+    let reason = fixture["reason"].as_str().unwrap_or("fixture-stop");
+    let request = fixture["request"].clone();
+    let max_elapsed = Duration::from_millis(fixture["max_elapsed_ms"].as_u64().unwrap_or(1_000));
+    let program_max_elapsed =
+        Duration::from_millis(fixture["program_max_elapsed_ms"].as_u64().unwrap_or(100));
+    let (mut preflight, preflight_requests, _) =
+        cancellation_client(fixture, fixture["success_response"].clone(), None)?;
+    let token = AxCancellationToken::default();
+    token.cancel(reason);
+    let error = preflight
+        .chat_with_cancellation(request.clone(), json!({}), &token)
+        .expect_err("pre-cancelled provider request unexpectedly succeeded");
+    expect_cancellation_error(error, reason)?;
+    if !preflight_requests.lock().unwrap().is_empty() {
+        return Err(AxError::new(
+            "fixture",
+            "pre-cancelled provider request reached transport",
+        ));
+    }
+
+    let program_input = json!({"question":"cancel"});
+    let program_options = json!({"infraRetries":2});
+    let mut generator = ax("question:string -> answer:string")?;
+    let started = std::time::Instant::now();
+    let error = generator
+        .forward_with_cancellation(
+            &mut preflight,
+            program_input.clone(),
+            program_options.clone(),
+            &token,
+        )
+        .expect_err("pre-cancelled AxGen request unexpectedly succeeded");
+    expect_cancellation_error(error, reason)?;
+    if started.elapsed() > program_max_elapsed || !preflight_requests.lock().unwrap().is_empty() {
+        return Err(AxError::new(
+            "fixture",
+            "AxGen cancellation retried or reached transport",
+        ));
+    }
+    let mut cancellation_agent = agent("question:string -> answer:string")?;
+    let started = std::time::Instant::now();
+    let error = cancellation_agent
+        .forward_with_cancellation(
+            &mut preflight,
+            program_input.clone(),
+            program_options.clone(),
+            &token,
+        )
+        .expect_err("pre-cancelled AxAgent request unexpectedly succeeded");
+    expect_cancellation_error(error, reason)?;
+    if started.elapsed() > program_max_elapsed || !preflight_requests.lock().unwrap().is_empty() {
+        return Err(AxError::new(
+            "fixture",
+            "AxAgent cancellation retried or reached transport",
+        ));
+    }
+    let mut cancellation_flow =
+        flow("cancellation-flow").execute("answer", ax("question:string -> answer:string")?);
+    let started = std::time::Instant::now();
+    let error = cancellation_flow
+        .forward_with_cancellation(&mut preflight, program_input, program_options, &token)
+        .expect_err("pre-cancelled AxFlow request unexpectedly succeeded");
+    expect_cancellation_error(error, reason)?;
+    if started.elapsed() > program_max_elapsed || !preflight_requests.lock().unwrap().is_empty() {
+        return Err(AxError::new(
+            "fixture",
+            "AxFlow cancellation retried or reached transport",
+        ));
+    }
+
+    let backoff_token = AxCancellationToken::default();
+    let (mut backoff, backoff_requests, backoff_cancellations) = cancellation_client(
+        fixture,
+        fixture["retry_response"].clone(),
+        Some((backoff_token.clone(), reason.into())),
+    )?;
+    let started = std::time::Instant::now();
+    let error = backoff
+        .stream_with_cancellation(request.clone(), &backoff_token)
+        .expect_err("provider retry backoff ignored cancellation");
+    expect_cancellation_error(error, reason)?;
+    if backoff_requests.lock().unwrap().len() != 1
+        || backoff_cancellations.lock().unwrap().len() != 1
+        || started.elapsed() > max_elapsed
+    {
+        return Err(AxError::new("fixture","provider retry cancellation attempted another request, skipped the custom token, or was not prompt"));
+    }
+
+    let stream_token = AxCancellationToken::default();
+    let (mut streaming, stream_requests, stream_cancellations) =
+        cancellation_client(fixture, fixture["stream_response"].clone(), None)?;
+    let mut stream = streaming.stream_iter_with_cancellation(request, &stream_token)?;
+    if stream.next().transpose()?.is_none() {
+        return Err(AxError::new(
+            "fixture",
+            "provider stream produced no first event",
+        ));
+    }
+    stream_token.cancel(reason);
+    let error = stream
+        .next()
+        .expect("provider stream ended before cancellation was observed")
+        .expect_err("provider stream yielded after cancellation");
+    expect_cancellation_error(error, reason)?;
+    if stream_requests.lock().unwrap().len() != 1 || stream_cancellations.lock().unwrap().len() != 1
+    {
+        return Err(AxError::new(
+            "fixture",
+            "provider stream cancellation custom transport mismatch",
+        ));
+    }
+    Ok(())
+}
+
 fn run_ai_embed_fixture(fixture: &Value) -> AxResult<()> {
     let (mut client, requests, credential_requests) = fixture_client(fixture)?;
     let request = fixture.get("request").cloned().unwrap_or_else(|| json!({}));
@@ -21846,6 +22532,18 @@ fn core_exception_message(args: &[CoreValue]) -> Result<CoreValue, AxError> {
 }
 
 #[allow(dead_code)]
+fn core_exception_is_aborted(args: &[CoreValue]) -> Result<CoreValue, AxError> {
+    let aborted = match core_arg(args, 0) {
+        CoreValue::Error(error) => {
+            error.error_type.as_deref() == Some("AxAIServiceAbortedError")
+                || error.category == "aborted"
+        }
+        _ => false,
+    };
+    Ok(CoreValue::Bool(aborted))
+}
+
+#[allow(dead_code)]
 fn core_map_keys(args: &[CoreValue]) -> Result<CoreValue, AxError> {
     match core_arg(args, 0) {
         CoreValue::Map(map) => Ok(CoreValue::list_from(
@@ -21904,7 +22602,7 @@ fn core_retry_sleep(args: &[CoreValue]) -> Result<CoreValue, AxError> {
         }
     };
     let seconds = (0.25 * ((attempt + 1) as f64)).min(1.0).max(0.0);
-    std::thread::sleep(Duration::from_secs_f64(seconds));
+    cancellation_backoff(Duration::from_secs_f64(seconds))?;
     Ok(CoreValue::Null)
 }
 
@@ -29233,122 +29931,6 @@ fn _openai_apply_cache_breakpoint_impl(args: &[CoreValue]) -> Result<CoreValue, 
     unreachable_code,
     clippy::all
 )]
-fn merge_model_config(args: &[CoreValue]) -> Result<CoreValue, AxError> {
-    axir_coverage_mark("merge_model_config");
-    let mut v_base = core_arg(args, 0);
-    let mut v_override = core_arg(args, 1);
-    let mut v_options = core_arg(args, 2);
-    let mut v_base_options = CoreValue::Null;
-    let mut v_budget = CoreValue::Null;
-    let mut v_budget_snake = CoreValue::Null;
-    let mut v_empty_options_config = CoreValue::Null;
-    let mut v_has_budget = CoreValue::Null;
-    let mut v_has_reasoning = CoreValue::Null;
-    let mut v_has_show_thoughts = CoreValue::Null;
-    let mut v_has_stream_option = CoreValue::Null;
-    let mut v_include = CoreValue::Null;
-    let mut v_key = CoreValue::Null;
-    let mut v_merged = CoreValue::Null;
-    let mut v_options_config = CoreValue::Null;
-    let mut v_options_config_snake = CoreValue::Null;
-    let mut v_out = CoreValue::Null;
-    let mut v_reasoning = CoreValue::Null;
-    let mut v_reasoning_snake = CoreValue::Null;
-    let mut v_show_thoughts = CoreValue::Null;
-    let mut v_show_thoughts_snake = CoreValue::Null;
-    let mut v_stream = CoreValue::Null;
-    let mut v_value = CoreValue::Null;
-    v_empty_options_config = CoreValue::new_map();
-    v_options_config_snake = core_get(
-        &v_options,
-        &CoreValue::from("model_config"),
-        v_empty_options_config.clone(),
-    );
-    v_options_config = core_get(
-        &v_options,
-        &CoreValue::from("modelConfig"),
-        v_options_config_snake.clone(),
-    );
-    v_base_options = core_map_merge(&[v_base.clone(), v_options_config.clone()])?;
-    v_merged = core_map_merge(&[v_base_options.clone(), v_override.clone()])?;
-    v_has_stream_option = core_map_contains(&[v_options.clone(), CoreValue::from("stream")])?;
-    if core_truthy(&v_has_stream_option) {
-        v_stream = core_get(&v_options, &CoreValue::from("stream"), CoreValue::Null);
-        core_set(&v_merged, CoreValue::from("stream"), v_stream.clone())?;
-    }
-    v_budget_snake = core_get(
-        &v_options,
-        &CoreValue::from("thinking_token_budget"),
-        CoreValue::Null,
-    );
-    v_budget = core_get(
-        &v_options,
-        &CoreValue::from("thinkingTokenBudget"),
-        v_budget_snake.clone(),
-    );
-    v_has_budget = core_is_not_none(&[v_budget.clone()])?;
-    if core_truthy(&v_has_budget) {
-        core_set(
-            &v_merged,
-            CoreValue::from("thinkingTokenBudget"),
-            v_budget.clone(),
-        )?;
-    }
-    v_reasoning_snake = core_get(
-        &v_options,
-        &CoreValue::from("reasoning_effort"),
-        CoreValue::Null,
-    );
-    v_reasoning = core_get(
-        &v_options,
-        &CoreValue::from("reasoningEffort"),
-        v_reasoning_snake.clone(),
-    );
-    v_has_reasoning = core_is_not_none(&[v_reasoning.clone()])?;
-    if core_truthy(&v_has_reasoning) {
-        core_set(
-            &v_merged,
-            CoreValue::from("reasoning_effort"),
-            v_reasoning.clone(),
-        )?;
-    }
-    v_show_thoughts_snake = core_get(
-        &v_options,
-        &CoreValue::from("show_thoughts"),
-        CoreValue::Null,
-    );
-    v_show_thoughts = core_get(
-        &v_options,
-        &CoreValue::from("showThoughts"),
-        v_show_thoughts_snake.clone(),
-    );
-    v_has_show_thoughts = core_is_not_none(&[v_show_thoughts.clone()])?;
-    if core_truthy(&v_has_show_thoughts) {
-        core_set(
-            &v_merged,
-            CoreValue::from("showThoughts"),
-            v_show_thoughts.clone(),
-        )?;
-    }
-    v_out = CoreValue::new_map();
-    for v_key in core_iter(&v_merged)? {
-        let mut v_key = v_key;
-        v_value = core_get(&v_merged, &v_key.clone(), CoreValue::Null);
-        v_include = core_is_not_none(&[v_value.clone()])?;
-        if core_truthy(&v_include) {
-            core_set(&v_out, v_key.clone(), v_value.clone())?;
-        }
-    }
-    return Ok(v_out.clone());
-}
-
-#[allow(
-    unused_variables,
-    unused_assignments,
-    unused_mut,
-    unreachable_code,
-    clippy::all
-)]
 fn _openai_apply_model_config_impl(args: &[CoreValue]) -> Result<CoreValue, AxError> {
     axir_coverage_mark("_openai_apply_model_config_impl");
     let mut v_payload = core_arg(args, 0);
@@ -29493,6 +30075,122 @@ fn _openai_apply_model_config_impl(args: &[CoreValue]) -> Result<CoreValue, AxEr
         )?;
     }
     return Ok(CoreValue::Null);
+}
+
+#[allow(
+    unused_variables,
+    unused_assignments,
+    unused_mut,
+    unreachable_code,
+    clippy::all
+)]
+fn merge_model_config(args: &[CoreValue]) -> Result<CoreValue, AxError> {
+    axir_coverage_mark("merge_model_config");
+    let mut v_base = core_arg(args, 0);
+    let mut v_override = core_arg(args, 1);
+    let mut v_options = core_arg(args, 2);
+    let mut v_base_options = CoreValue::Null;
+    let mut v_budget = CoreValue::Null;
+    let mut v_budget_snake = CoreValue::Null;
+    let mut v_empty_options_config = CoreValue::Null;
+    let mut v_has_budget = CoreValue::Null;
+    let mut v_has_reasoning = CoreValue::Null;
+    let mut v_has_show_thoughts = CoreValue::Null;
+    let mut v_has_stream_option = CoreValue::Null;
+    let mut v_include = CoreValue::Null;
+    let mut v_key = CoreValue::Null;
+    let mut v_merged = CoreValue::Null;
+    let mut v_options_config = CoreValue::Null;
+    let mut v_options_config_snake = CoreValue::Null;
+    let mut v_out = CoreValue::Null;
+    let mut v_reasoning = CoreValue::Null;
+    let mut v_reasoning_snake = CoreValue::Null;
+    let mut v_show_thoughts = CoreValue::Null;
+    let mut v_show_thoughts_snake = CoreValue::Null;
+    let mut v_stream = CoreValue::Null;
+    let mut v_value = CoreValue::Null;
+    v_empty_options_config = CoreValue::new_map();
+    v_options_config_snake = core_get(
+        &v_options,
+        &CoreValue::from("model_config"),
+        v_empty_options_config.clone(),
+    );
+    v_options_config = core_get(
+        &v_options,
+        &CoreValue::from("modelConfig"),
+        v_options_config_snake.clone(),
+    );
+    v_base_options = core_map_merge(&[v_base.clone(), v_options_config.clone()])?;
+    v_merged = core_map_merge(&[v_base_options.clone(), v_override.clone()])?;
+    v_has_stream_option = core_map_contains(&[v_options.clone(), CoreValue::from("stream")])?;
+    if core_truthy(&v_has_stream_option) {
+        v_stream = core_get(&v_options, &CoreValue::from("stream"), CoreValue::Null);
+        core_set(&v_merged, CoreValue::from("stream"), v_stream.clone())?;
+    }
+    v_budget_snake = core_get(
+        &v_options,
+        &CoreValue::from("thinking_token_budget"),
+        CoreValue::Null,
+    );
+    v_budget = core_get(
+        &v_options,
+        &CoreValue::from("thinkingTokenBudget"),
+        v_budget_snake.clone(),
+    );
+    v_has_budget = core_is_not_none(&[v_budget.clone()])?;
+    if core_truthy(&v_has_budget) {
+        core_set(
+            &v_merged,
+            CoreValue::from("thinkingTokenBudget"),
+            v_budget.clone(),
+        )?;
+    }
+    v_reasoning_snake = core_get(
+        &v_options,
+        &CoreValue::from("reasoning_effort"),
+        CoreValue::Null,
+    );
+    v_reasoning = core_get(
+        &v_options,
+        &CoreValue::from("reasoningEffort"),
+        v_reasoning_snake.clone(),
+    );
+    v_has_reasoning = core_is_not_none(&[v_reasoning.clone()])?;
+    if core_truthy(&v_has_reasoning) {
+        core_set(
+            &v_merged,
+            CoreValue::from("reasoning_effort"),
+            v_reasoning.clone(),
+        )?;
+    }
+    v_show_thoughts_snake = core_get(
+        &v_options,
+        &CoreValue::from("show_thoughts"),
+        CoreValue::Null,
+    );
+    v_show_thoughts = core_get(
+        &v_options,
+        &CoreValue::from("showThoughts"),
+        v_show_thoughts_snake.clone(),
+    );
+    v_has_show_thoughts = core_is_not_none(&[v_show_thoughts.clone()])?;
+    if core_truthy(&v_has_show_thoughts) {
+        core_set(
+            &v_merged,
+            CoreValue::from("showThoughts"),
+            v_show_thoughts.clone(),
+        )?;
+    }
+    v_out = CoreValue::new_map();
+    for v_key in core_iter(&v_merged)? {
+        let mut v_key = v_key;
+        v_value = core_get(&v_merged, &v_key.clone(), CoreValue::Null);
+        v_include = core_is_not_none(&[v_value.clone()])?;
+        if core_truthy(&v_include) {
+            core_set(&v_out, v_key.clone(), v_value.clone())?;
+        }
+    }
+    return Ok(v_out.clone());
 }
 
 #[allow(
@@ -29673,25 +30371,6 @@ fn openai_reasoning_effort(args: &[CoreValue]) -> Result<CoreValue, AxError> {
     unreachable_code,
     clippy::all
 )]
-fn build_chat_request(args: &[CoreValue]) -> Result<CoreValue, AxError> {
-    axir_coverage_mark("build_chat_request");
-    let mut v_service = core_arg(args, 0);
-    let mut v_request = core_arg(args, 1);
-    let mut v_options = core_arg(args, 2);
-    let mut v_payload = CoreValue::Null;
-    validate_chat_request(&[v_request.clone()])?;
-    v_payload =
-        openai_build_chat_request(&[v_request.clone(), v_options.clone(), CoreValue::Bool(true)])?;
-    return Ok(v_payload.clone());
-}
-
-#[allow(
-    unused_variables,
-    unused_assignments,
-    unused_mut,
-    unreachable_code,
-    clippy::all
-)]
 fn openai_chat_reasoning_effort(args: &[CoreValue]) -> Result<CoreValue, AxError> {
     axir_coverage_mark("openai_chat_reasoning_effort");
     let mut v_model = core_arg(args, 0);
@@ -29713,28 +30392,16 @@ fn openai_chat_reasoning_effort(args: &[CoreValue]) -> Result<CoreValue, AxError
     unreachable_code,
     clippy::all
 )]
-fn normalize_chat_response(args: &[CoreValue]) -> Result<CoreValue, AxError> {
-    axir_coverage_mark("normalize_chat_response");
-    let mut v_raw = core_arg(args, 0);
-    let mut v_response = CoreValue::Null;
-    v_response = openai_normalize_chat_response(&[v_raw.clone()])?;
-    return Ok(v_response.clone());
-}
-
-#[allow(
-    unused_variables,
-    unused_assignments,
-    unused_mut,
-    unreachable_code,
-    clippy::all
-)]
-fn normalize_stream_delta(args: &[CoreValue]) -> Result<CoreValue, AxError> {
-    axir_coverage_mark("normalize_stream_delta");
-    let mut v_raw = core_arg(args, 0);
-    let mut v_state = core_arg(args, 1);
-    let mut v_response = CoreValue::Null;
-    v_response = openai_normalize_stream_delta(&[v_raw.clone(), v_state.clone()])?;
-    return Ok(v_response.clone());
+fn build_chat_request(args: &[CoreValue]) -> Result<CoreValue, AxError> {
+    axir_coverage_mark("build_chat_request");
+    let mut v_service = core_arg(args, 0);
+    let mut v_request = core_arg(args, 1);
+    let mut v_options = core_arg(args, 2);
+    let mut v_payload = CoreValue::Null;
+    validate_chat_request(&[v_request.clone()])?;
+    v_payload =
+        openai_build_chat_request(&[v_request.clone(), v_options.clone(), CoreValue::Bool(true)])?;
+    return Ok(v_payload.clone());
 }
 
 #[allow(
@@ -29767,14 +30434,12 @@ fn _openai_copy_config_key_impl(args: &[CoreValue]) -> Result<CoreValue, AxError
     unreachable_code,
     clippy::all
 )]
-fn build_embed_request(args: &[CoreValue]) -> Result<CoreValue, AxError> {
-    axir_coverage_mark("build_embed_request");
-    let mut v_service = core_arg(args, 0);
-    let mut v_request = core_arg(args, 1);
-    let mut v_options = core_arg(args, 2);
-    let mut v_payload = CoreValue::Null;
-    v_payload = openai_build_embed_request(&[v_request.clone()])?;
-    return Ok(v_payload.clone());
+fn normalize_chat_response(args: &[CoreValue]) -> Result<CoreValue, AxError> {
+    axir_coverage_mark("normalize_chat_response");
+    let mut v_raw = core_arg(args, 0);
+    let mut v_response = CoreValue::Null;
+    v_response = openai_normalize_chat_response(&[v_raw.clone()])?;
+    return Ok(v_response.clone());
 }
 
 #[allow(
@@ -29990,6 +30655,39 @@ fn _openai_message_impl(args: &[CoreValue]) -> Result<CoreValue, AxError> {
     v_message_text = core_string_format(&[CoreValue::from("Invalid role: {}"), v_role.clone()])?;
     v_error = core_ai_error_response(&[v_message_text.clone()])?;
     return Err(core_as_error(&v_error));
+}
+
+#[allow(
+    unused_variables,
+    unused_assignments,
+    unused_mut,
+    unreachable_code,
+    clippy::all
+)]
+fn normalize_stream_delta(args: &[CoreValue]) -> Result<CoreValue, AxError> {
+    axir_coverage_mark("normalize_stream_delta");
+    let mut v_raw = core_arg(args, 0);
+    let mut v_state = core_arg(args, 1);
+    let mut v_response = CoreValue::Null;
+    v_response = openai_normalize_stream_delta(&[v_raw.clone(), v_state.clone()])?;
+    return Ok(v_response.clone());
+}
+
+#[allow(
+    unused_variables,
+    unused_assignments,
+    unused_mut,
+    unreachable_code,
+    clippy::all
+)]
+fn build_embed_request(args: &[CoreValue]) -> Result<CoreValue, AxError> {
+    axir_coverage_mark("build_embed_request");
+    let mut v_service = core_arg(args, 0);
+    let mut v_request = core_arg(args, 1);
+    let mut v_options = core_arg(args, 2);
+    let mut v_payload = CoreValue::Null;
+    v_payload = openai_build_embed_request(&[v_request.clone()])?;
+    return Ok(v_payload.clone());
 }
 
 #[allow(
@@ -30690,37 +31388,6 @@ fn _openai_tool_call_to_provider_impl(args: &[CoreValue]) -> Result<CoreValue, A
     unreachable_code,
     clippy::all
 )]
-fn _ai_model_usage_impl(args: &[CoreValue]) -> Result<CoreValue, AxError> {
-    axir_coverage_mark("_ai_model_usage_impl");
-    let mut v_ai_name = core_arg(args, 0);
-    let mut v_model = core_arg(args, 1);
-    let mut v_usage = core_arg(args, 2);
-    let mut v_has_usage = CoreValue::Null;
-    let mut v_missing_usage = CoreValue::Null;
-    let mut v_none = CoreValue::Null;
-    let mut v_out = CoreValue::Null;
-    let mut v_tokens = CoreValue::Null;
-    v_has_usage = core_truthy_value(&[v_usage.clone()])?;
-    v_missing_usage = core_not(&[v_has_usage.clone()])?;
-    if core_truthy(&v_missing_usage) {
-        v_none = core_none(&[])?;
-        return Ok(v_none.clone());
-    }
-    v_tokens = normalize_token_usage(&[v_usage.clone()])?;
-    v_out = CoreValue::new_map();
-    core_set(&v_out, CoreValue::from("ai"), v_ai_name.clone())?;
-    core_set(&v_out, CoreValue::from("model"), v_model.clone())?;
-    core_set(&v_out, CoreValue::from("tokens"), v_tokens.clone())?;
-    return Ok(v_out.clone());
-}
-
-#[allow(
-    unused_variables,
-    unused_assignments,
-    unused_mut,
-    unreachable_code,
-    clippy::all
-)]
 fn _openai_tool_spec_impl(args: &[CoreValue]) -> Result<CoreValue, AxError> {
     axir_coverage_mark("_openai_tool_spec_impl");
     let mut v_fn = core_arg(args, 0);
@@ -30752,6 +31419,77 @@ fn _openai_tool_spec_impl(args: &[CoreValue]) -> Result<CoreValue, AxError> {
     core_set(&v_out, CoreValue::from("type"), CoreValue::from("function"))?;
     core_set(&v_out, CoreValue::from("function"), v_function.clone())?;
     return Ok(v_out.clone());
+}
+
+#[allow(
+    unused_variables,
+    unused_assignments,
+    unused_mut,
+    unreachable_code,
+    clippy::all
+)]
+fn _ai_model_usage_impl(args: &[CoreValue]) -> Result<CoreValue, AxError> {
+    axir_coverage_mark("_ai_model_usage_impl");
+    let mut v_ai_name = core_arg(args, 0);
+    let mut v_model = core_arg(args, 1);
+    let mut v_usage = core_arg(args, 2);
+    let mut v_has_usage = CoreValue::Null;
+    let mut v_missing_usage = CoreValue::Null;
+    let mut v_none = CoreValue::Null;
+    let mut v_out = CoreValue::Null;
+    let mut v_tokens = CoreValue::Null;
+    v_has_usage = core_truthy_value(&[v_usage.clone()])?;
+    v_missing_usage = core_not(&[v_has_usage.clone()])?;
+    if core_truthy(&v_missing_usage) {
+        v_none = core_none(&[])?;
+        return Ok(v_none.clone());
+    }
+    v_tokens = normalize_token_usage(&[v_usage.clone()])?;
+    v_out = CoreValue::new_map();
+    core_set(&v_out, CoreValue::from("ai"), v_ai_name.clone())?;
+    core_set(&v_out, CoreValue::from("model"), v_model.clone())?;
+    core_set(&v_out, CoreValue::from("tokens"), v_tokens.clone())?;
+    return Ok(v_out.clone());
+}
+
+#[allow(
+    unused_variables,
+    unused_assignments,
+    unused_mut,
+    unreachable_code,
+    clippy::all
+)]
+fn openai_build_embed_request(args: &[CoreValue]) -> Result<CoreValue, AxError> {
+    axir_coverage_mark("openai_build_embed_request");
+    let mut v_request = core_arg(args, 0);
+    let mut v_dimensions = CoreValue::Null;
+    let mut v_embed_model_snake = CoreValue::Null;
+    let mut v_empty_texts = CoreValue::Null;
+    let mut v_has_dimensions = CoreValue::Null;
+    let mut v_model = CoreValue::Null;
+    let mut v_payload = CoreValue::Null;
+    let mut v_texts = CoreValue::Null;
+    v_embed_model_snake = core_get(&v_request, &CoreValue::from("embed_model"), CoreValue::Null);
+    v_model = core_get(
+        &v_request,
+        &CoreValue::from("embedModel"),
+        v_embed_model_snake.clone(),
+    );
+    v_empty_texts = CoreValue::new_list();
+    v_texts = core_get(&v_request, &CoreValue::from("texts"), v_empty_texts.clone());
+    v_payload = CoreValue::new_map();
+    core_set(&v_payload, CoreValue::from("model"), v_model.clone())?;
+    core_set(&v_payload, CoreValue::from("input"), v_texts.clone())?;
+    v_dimensions = core_get(&v_request, &CoreValue::from("dimensions"), CoreValue::Null);
+    v_has_dimensions = core_truthy_value(&[v_dimensions.clone()])?;
+    if core_truthy(&v_has_dimensions) {
+        core_set(
+            &v_payload,
+            CoreValue::from("dimensions"),
+            v_dimensions.clone(),
+        )?;
+    }
+    return Ok(v_payload.clone());
 }
 
 #[allow(
@@ -30842,46 +31580,6 @@ fn _chat_result_to_completion(args: &[CoreValue]) -> Result<CoreValue, AxError> 
     unreachable_code,
     clippy::all
 )]
-fn openai_build_embed_request(args: &[CoreValue]) -> Result<CoreValue, AxError> {
-    axir_coverage_mark("openai_build_embed_request");
-    let mut v_request = core_arg(args, 0);
-    let mut v_dimensions = CoreValue::Null;
-    let mut v_embed_model_snake = CoreValue::Null;
-    let mut v_empty_texts = CoreValue::Null;
-    let mut v_has_dimensions = CoreValue::Null;
-    let mut v_model = CoreValue::Null;
-    let mut v_payload = CoreValue::Null;
-    let mut v_texts = CoreValue::Null;
-    v_embed_model_snake = core_get(&v_request, &CoreValue::from("embed_model"), CoreValue::Null);
-    v_model = core_get(
-        &v_request,
-        &CoreValue::from("embedModel"),
-        v_embed_model_snake.clone(),
-    );
-    v_empty_texts = CoreValue::new_list();
-    v_texts = core_get(&v_request, &CoreValue::from("texts"), v_empty_texts.clone());
-    v_payload = CoreValue::new_map();
-    core_set(&v_payload, CoreValue::from("model"), v_model.clone())?;
-    core_set(&v_payload, CoreValue::from("input"), v_texts.clone())?;
-    v_dimensions = core_get(&v_request, &CoreValue::from("dimensions"), CoreValue::Null);
-    v_has_dimensions = core_truthy_value(&[v_dimensions.clone()])?;
-    if core_truthy(&v_has_dimensions) {
-        core_set(
-            &v_payload,
-            CoreValue::from("dimensions"),
-            v_dimensions.clone(),
-        )?;
-    }
-    return Ok(v_payload.clone());
-}
-
-#[allow(
-    unused_variables,
-    unused_assignments,
-    unused_mut,
-    unreachable_code,
-    clippy::all
-)]
 fn openai_normalize_chat_response(args: &[CoreValue]) -> Result<CoreValue, AxError> {
     axir_coverage_mark("openai_normalize_chat_response");
     let mut v_raw = core_arg(args, 0);
@@ -30896,6 +31594,49 @@ fn openai_normalize_chat_response(args: &[CoreValue]) -> Result<CoreValue, AxErr
         CoreValue::from("none"),
     ])?;
     return Ok(v_response.clone());
+}
+
+#[allow(
+    unused_variables,
+    unused_assignments,
+    unused_mut,
+    unreachable_code,
+    clippy::all
+)]
+fn _openai_usage_with_service_tier(args: &[CoreValue]) -> Result<CoreValue, AxError> {
+    axir_coverage_mark("_openai_usage_with_service_tier");
+    let mut v_raw = core_arg(args, 0);
+    let mut v_usage = core_arg(args, 1);
+    let mut v_empty = CoreValue::Null;
+    let mut v_has_tier = CoreValue::Null;
+    let mut v_has_usage = CoreValue::Null;
+    let mut v_out = CoreValue::Null;
+    let mut v_raw_tier = CoreValue::Null;
+    let mut v_tier = CoreValue::Null;
+    let mut v_usage_tier = CoreValue::Null;
+    v_has_usage = core_is_not_none(&[v_usage.clone()])?;
+    if core_truthy(&v_has_usage) {
+    } else {
+        return Ok(v_usage.clone());
+    }
+    v_empty = CoreValue::new_map();
+    v_out = core_map_merge(&[v_empty.clone(), v_usage.clone()])?;
+    v_usage_tier = core_get(&v_usage, &CoreValue::from("service_tier"), CoreValue::Null);
+    v_raw_tier = core_get(
+        &v_raw,
+        &CoreValue::from("service_tier"),
+        v_usage_tier.clone(),
+    );
+    v_tier = core_get(
+        &v_raw,
+        &CoreValue::from("service_tier_used"),
+        v_raw_tier.clone(),
+    );
+    v_has_tier = core_is_not_none(&[v_tier.clone()])?;
+    if core_truthy(&v_has_tier) {
+        core_set(&v_out, CoreValue::from("service_tier"), v_tier.clone())?;
+    }
+    return Ok(v_out.clone());
 }
 
 #[allow(
@@ -30981,49 +31722,6 @@ fn chat_response_to_completion(args: &[CoreValue]) -> Result<CoreValue, AxError>
             CoreValue::from("thought_blocks"),
             v_thought_blocks.clone(),
         )?;
-    }
-    return Ok(v_out.clone());
-}
-
-#[allow(
-    unused_variables,
-    unused_assignments,
-    unused_mut,
-    unreachable_code,
-    clippy::all
-)]
-fn _openai_usage_with_service_tier(args: &[CoreValue]) -> Result<CoreValue, AxError> {
-    axir_coverage_mark("_openai_usage_with_service_tier");
-    let mut v_raw = core_arg(args, 0);
-    let mut v_usage = core_arg(args, 1);
-    let mut v_empty = CoreValue::Null;
-    let mut v_has_tier = CoreValue::Null;
-    let mut v_has_usage = CoreValue::Null;
-    let mut v_out = CoreValue::Null;
-    let mut v_raw_tier = CoreValue::Null;
-    let mut v_tier = CoreValue::Null;
-    let mut v_usage_tier = CoreValue::Null;
-    v_has_usage = core_is_not_none(&[v_usage.clone()])?;
-    if core_truthy(&v_has_usage) {
-    } else {
-        return Ok(v_usage.clone());
-    }
-    v_empty = CoreValue::new_map();
-    v_out = core_map_merge(&[v_empty.clone(), v_usage.clone()])?;
-    v_usage_tier = core_get(&v_usage, &CoreValue::from("service_tier"), CoreValue::Null);
-    v_raw_tier = core_get(
-        &v_raw,
-        &CoreValue::from("service_tier"),
-        v_usage_tier.clone(),
-    );
-    v_tier = core_get(
-        &v_raw,
-        &CoreValue::from("service_tier_used"),
-        v_raw_tier.clone(),
-    );
-    v_has_tier = core_is_not_none(&[v_tier.clone()])?;
-    if core_truthy(&v_has_tier) {
-        core_set(&v_out, CoreValue::from("service_tier"), v_tier.clone())?;
     }
     return Ok(v_out.clone());
 }
@@ -31482,6 +32180,71 @@ fn ai_context_cache_plan(args: &[CoreValue]) -> Result<CoreValue, AxError> {
     unreachable_code,
     clippy::all
 )]
+fn _openai_normalize_tool_calls_impl(args: &[CoreValue]) -> Result<CoreValue, AxError> {
+    axir_coverage_mark("_openai_normalize_tool_calls_impl");
+    let mut v_calls = core_arg(args, 0);
+    let mut v_call = CoreValue::Null;
+    let mut v_fn = CoreValue::Null;
+    let mut v_function = CoreValue::Null;
+    let mut v_id = CoreValue::Null;
+    let mut v_name = CoreValue::Null;
+    let mut v_normalized = CoreValue::Null;
+    let mut v_out = CoreValue::Null;
+    let mut v_params = CoreValue::Null;
+    let mut v_params_is_string = CoreValue::Null;
+    let mut v_parse_error = CoreValue::Null;
+    let mut v_parsed_params = CoreValue::Null;
+    v_out = CoreValue::new_list();
+    for v_call in core_iter(&v_calls)? {
+        let mut v_call = v_call;
+        v_fn = core_get(&v_call, &CoreValue::from("function"), CoreValue::Null);
+        v_params = core_get(&v_fn, &CoreValue::from("arguments"), CoreValue::Null);
+        v_params_is_string = core_type_is(&v_params, CoreValue::from("string"));
+        if core_truthy(&v_params_is_string) {
+            let __core_try: Result<CoreFlow, AxError> = (|| {
+                v_parsed_params = core_json_parse(&[v_params.clone()])?;
+                v_params = v_parsed_params.clone();
+                Ok(CoreFlow::Normal)
+            })();
+            match __core_try {
+                Ok(CoreFlow::Normal) => {}
+                Ok(CoreFlow::Return(value)) => return Ok(value),
+                Ok(CoreFlow::Break) => break,
+                Ok(CoreFlow::Continue) => continue,
+                Err(__core_caught) => {
+                    v_parse_error = CoreValue::Error(std::rc::Rc::new(__core_caught));
+                }
+            }
+        }
+        v_id = core_get(&v_call, &CoreValue::from("id"), CoreValue::Null);
+        v_name = core_get(&v_fn, &CoreValue::from("name"), CoreValue::Null);
+        v_function = CoreValue::new_map();
+        core_set(&v_function, CoreValue::from("name"), v_name.clone())?;
+        core_set(&v_function, CoreValue::from("params"), v_params.clone())?;
+        v_normalized = CoreValue::new_map();
+        core_set(&v_normalized, CoreValue::from("id"), v_id.clone())?;
+        core_set(
+            &v_normalized,
+            CoreValue::from("type"),
+            CoreValue::from("function"),
+        )?;
+        core_set(
+            &v_normalized,
+            CoreValue::from("function"),
+            v_function.clone(),
+        )?;
+        core_append(&v_out, v_normalized.clone())?;
+    }
+    return Ok(v_out.clone());
+}
+
+#[allow(
+    unused_variables,
+    unused_assignments,
+    unused_mut,
+    unreachable_code,
+    clippy::all
+)]
 fn ai_context_cache_recovery(args: &[CoreValue]) -> Result<CoreValue, AxError> {
     axir_coverage_mark("ai_context_cache_recovery");
     let mut v_current_entry = core_arg(args, 0);
@@ -31550,62 +32313,36 @@ fn ai_context_cache_recovery(args: &[CoreValue]) -> Result<CoreValue, AxError> {
     unreachable_code,
     clippy::all
 )]
-fn _openai_normalize_tool_calls_impl(args: &[CoreValue]) -> Result<CoreValue, AxError> {
-    axir_coverage_mark("_openai_normalize_tool_calls_impl");
-    let mut v_calls = core_arg(args, 0);
-    let mut v_call = CoreValue::Null;
-    let mut v_fn = CoreValue::Null;
-    let mut v_function = CoreValue::Null;
-    let mut v_id = CoreValue::Null;
-    let mut v_name = CoreValue::Null;
-    let mut v_normalized = CoreValue::Null;
-    let mut v_out = CoreValue::Null;
-    let mut v_params = CoreValue::Null;
-    let mut v_params_is_string = CoreValue::Null;
-    let mut v_parse_error = CoreValue::Null;
-    let mut v_parsed_params = CoreValue::Null;
-    v_out = CoreValue::new_list();
-    for v_call in core_iter(&v_calls)? {
-        let mut v_call = v_call;
-        v_fn = core_get(&v_call, &CoreValue::from("function"), CoreValue::Null);
-        v_params = core_get(&v_fn, &CoreValue::from("arguments"), CoreValue::Null);
-        v_params_is_string = core_type_is(&v_params, CoreValue::from("string"));
-        if core_truthy(&v_params_is_string) {
-            let __core_try: Result<CoreFlow, AxError> = (|| {
-                v_parsed_params = core_json_parse(&[v_params.clone()])?;
-                v_params = v_parsed_params.clone();
-                Ok(CoreFlow::Normal)
-            })();
-            match __core_try {
-                Ok(CoreFlow::Normal) => {}
-                Ok(CoreFlow::Return(value)) => return Ok(value),
-                Ok(CoreFlow::Break) => break,
-                Ok(CoreFlow::Continue) => continue,
-                Err(__core_caught) => {
-                    v_parse_error = CoreValue::Error(std::rc::Rc::new(__core_caught));
-                }
-            }
-        }
-        v_id = core_get(&v_call, &CoreValue::from("id"), CoreValue::Null);
-        v_name = core_get(&v_fn, &CoreValue::from("name"), CoreValue::Null);
-        v_function = CoreValue::new_map();
-        core_set(&v_function, CoreValue::from("name"), v_name.clone())?;
-        core_set(&v_function, CoreValue::from("params"), v_params.clone())?;
-        v_normalized = CoreValue::new_map();
-        core_set(&v_normalized, CoreValue::from("id"), v_id.clone())?;
-        core_set(
-            &v_normalized,
-            CoreValue::from("type"),
-            CoreValue::from("function"),
-        )?;
-        core_set(
-            &v_normalized,
-            CoreValue::from("function"),
-            v_function.clone(),
-        )?;
-        core_append(&v_out, v_normalized.clone())?;
+fn _openai_finish_reason_impl(args: &[CoreValue]) -> Result<CoreValue, AxError> {
+    axir_coverage_mark("_openai_finish_reason_impl");
+    let mut v_value = core_arg(args, 0);
+    let mut v_is_call = CoreValue::Null;
+    let mut v_is_content_filter = CoreValue::Null;
+    let mut v_is_function_call = CoreValue::Null;
+    let mut v_is_length = CoreValue::Null;
+    let mut v_is_stop = CoreValue::Null;
+    let mut v_is_tool_calls = CoreValue::Null;
+    let mut v_none = CoreValue::Null;
+    v_is_stop = core_eq(&[v_value.clone(), CoreValue::from("stop")])?;
+    if core_truthy(&v_is_stop) {
+        return Ok(CoreValue::from("stop"));
     }
-    return Ok(v_out.clone());
+    v_is_length = core_eq(&[v_value.clone(), CoreValue::from("length")])?;
+    if core_truthy(&v_is_length) {
+        return Ok(CoreValue::from("length"));
+    }
+    v_is_content_filter = core_eq(&[v_value.clone(), CoreValue::from("content_filter")])?;
+    if core_truthy(&v_is_content_filter) {
+        return Ok(CoreValue::from("error"));
+    }
+    v_is_tool_calls = core_eq(&[v_value.clone(), CoreValue::from("tool_calls")])?;
+    v_is_function_call = core_eq(&[v_value.clone(), CoreValue::from("function_call")])?;
+    v_is_call = core_or(&[v_is_tool_calls.clone(), v_is_function_call.clone()])?;
+    if core_truthy(&v_is_call) {
+        return Ok(CoreValue::from("function_call"));
+    }
+    v_none = core_none(&[])?;
+    return Ok(v_none.clone());
 }
 
 #[allow(
@@ -31764,45 +32501,6 @@ fn ai_gemini_cache_ops(args: &[CoreValue]) -> Result<CoreValue, AxError> {
     core_set(&v_out, CoreValue::from("update"), v_update.clone())?;
     core_set(&v_out, CoreValue::from("delete"), v_delete_op.clone())?;
     return Ok(v_out.clone());
-}
-
-#[allow(
-    unused_variables,
-    unused_assignments,
-    unused_mut,
-    unreachable_code,
-    clippy::all
-)]
-fn _openai_finish_reason_impl(args: &[CoreValue]) -> Result<CoreValue, AxError> {
-    axir_coverage_mark("_openai_finish_reason_impl");
-    let mut v_value = core_arg(args, 0);
-    let mut v_is_call = CoreValue::Null;
-    let mut v_is_content_filter = CoreValue::Null;
-    let mut v_is_function_call = CoreValue::Null;
-    let mut v_is_length = CoreValue::Null;
-    let mut v_is_stop = CoreValue::Null;
-    let mut v_is_tool_calls = CoreValue::Null;
-    let mut v_none = CoreValue::Null;
-    v_is_stop = core_eq(&[v_value.clone(), CoreValue::from("stop")])?;
-    if core_truthy(&v_is_stop) {
-        return Ok(CoreValue::from("stop"));
-    }
-    v_is_length = core_eq(&[v_value.clone(), CoreValue::from("length")])?;
-    if core_truthy(&v_is_length) {
-        return Ok(CoreValue::from("length"));
-    }
-    v_is_content_filter = core_eq(&[v_value.clone(), CoreValue::from("content_filter")])?;
-    if core_truthy(&v_is_content_filter) {
-        return Ok(CoreValue::from("error"));
-    }
-    v_is_tool_calls = core_eq(&[v_value.clone(), CoreValue::from("tool_calls")])?;
-    v_is_function_call = core_eq(&[v_value.clone(), CoreValue::from("function_call")])?;
-    v_is_call = core_or(&[v_is_tool_calls.clone(), v_is_function_call.clone()])?;
-    if core_truthy(&v_is_call) {
-        return Ok(CoreValue::from("function_call"));
-    }
-    v_none = core_none(&[])?;
-    return Ok(v_none.clone());
 }
 
 #[allow(
@@ -49091,6 +49789,7 @@ fn _complete_with_retries_impl(args: &[CoreValue]) -> Result<CoreValue, AxError>
     let mut v_request = core_arg(args, 1);
     let mut v_options = core_arg(args, 2);
     let mut v_retries = core_arg(args, 3);
+    let mut v_aborted = CoreValue::Null;
     let mut v_attempt = CoreValue::Null;
     let mut v_error = CoreValue::Null;
     let mut v_exhausted = CoreValue::Null;
@@ -49113,12 +49812,16 @@ fn _complete_with_retries_impl(args: &[CoreValue]) -> Result<CoreValue, AxError>
             Ok(CoreFlow::Continue) => continue,
             Err(__core_caught) => {
                 v_error = CoreValue::Error(std::rc::Rc::new(__core_caught));
+                v_aborted = core_exception_is_aborted(&[v_error.clone()])?;
+                if core_truthy(&v_aborted) {
+                    return Err(core_as_error(&v_error));
+                }
                 v_last_error = v_error.clone();
                 v_exhausted = core_gte(&[v_attempt.clone(), v_retries.clone()])?;
                 if core_truthy(&v_exhausted) {
                     return Err(core_as_error(&v_error));
                 }
-                core_retry_sleep(&[v_attempt.clone()])?;
+                core_retry_sleep(&[v_attempt.clone(), v_client.clone(), v_options.clone()])?;
                 v_next_attempt = core_add(&[v_attempt.clone(), CoreValue::Num(1f64)])?;
                 v_attempt = v_next_attempt.clone();
                 continue;
@@ -49143,38 +49846,6 @@ fn _parse_output_impl(args: &[CoreValue]) -> Result<CoreValue, AxError> {
     v_text = core_string_trim(&v_content);
     v_output = core_json_parse_strict(&[v_text.clone()])?;
     return Ok(v_output.clone());
-}
-
-#[allow(
-    unused_variables,
-    unused_assignments,
-    unused_mut,
-    unreachable_code,
-    clippy::all
-)]
-fn _is_flexible_json_field(args: &[CoreValue]) -> Result<CoreValue, AxError> {
-    axir_coverage_mark("_is_flexible_json_field");
-    let mut v_typ = core_arg(args, 0);
-    let mut v_fields = CoreValue::Null;
-    let mut v_flexible = CoreValue::Null;
-    let mut v_has_fields = CoreValue::Null;
-    let mut v_is_json = CoreValue::Null;
-    let mut v_is_object = CoreValue::Null;
-    let mut v_no_fields = CoreValue::Null;
-    let mut v_type_name = CoreValue::Null;
-    v_type_name = core_get(&v_typ, &CoreValue::from("name"), CoreValue::Null);
-    v_is_json = core_eq(&[v_type_name.clone(), CoreValue::from("json")])?;
-    v_is_object = core_eq(&[v_type_name.clone(), CoreValue::from("object")])?;
-    v_fields = core_get(&v_typ, &CoreValue::from("fields"), CoreValue::Null);
-    v_has_fields = core_truthy_value(&[v_fields.clone()])?;
-    v_no_fields = core_not(&[v_has_fields.clone()])?;
-    v_flexible = v_is_json.clone();
-    if core_truthy(&v_is_object) {
-        if core_truthy(&v_no_fields) {
-            v_flexible = CoreValue::Bool(true);
-        }
-    }
-    return Ok(v_flexible.clone());
 }
 
 #[allow(
@@ -49216,36 +49887,29 @@ fn _ace_estimate_token_count(args: &[CoreValue]) -> Result<CoreValue, AxError> {
     unreachable_code,
     clippy::all
 )]
-fn _parse_json_string_value(args: &[CoreValue]) -> Result<CoreValue, AxError> {
-    axir_coverage_mark("_parse_json_string_value");
-    let mut v_value = core_arg(args, 0);
-    let mut v_is_string = CoreValue::Null;
-    let mut v_not_string = CoreValue::Null;
-    let mut v_parse_error = CoreValue::Null;
-    let mut v_parsed = CoreValue::Null;
-    let mut v_result = CoreValue::Null;
-    v_is_string = core_type_is(&v_value, CoreValue::from("string"));
-    v_not_string = core_not(&[v_is_string.clone()])?;
-    if core_truthy(&v_not_string) {
-        return Ok(v_value.clone());
-    }
-    v_result = v_value.clone();
-    let __core_try: Result<CoreFlow, AxError> = (|| {
-        v_parsed = core_json_parse(&[v_value.clone()])?;
-        v_result = v_parsed.clone();
-        Ok(CoreFlow::Normal)
-    })();
-    match __core_try {
-        Ok(CoreFlow::Normal) => {}
-        Ok(CoreFlow::Return(value)) => return Ok(value),
-        Ok(CoreFlow::Break) => unreachable!("break outside loop"),
-        Ok(CoreFlow::Continue) => unreachable!("continue outside loop"),
-        Err(__core_caught) => {
-            v_parse_error = CoreValue::Error(std::rc::Rc::new(__core_caught));
-            v_result = v_value.clone();
+fn _is_flexible_json_field(args: &[CoreValue]) -> Result<CoreValue, AxError> {
+    axir_coverage_mark("_is_flexible_json_field");
+    let mut v_typ = core_arg(args, 0);
+    let mut v_fields = CoreValue::Null;
+    let mut v_flexible = CoreValue::Null;
+    let mut v_has_fields = CoreValue::Null;
+    let mut v_is_json = CoreValue::Null;
+    let mut v_is_object = CoreValue::Null;
+    let mut v_no_fields = CoreValue::Null;
+    let mut v_type_name = CoreValue::Null;
+    v_type_name = core_get(&v_typ, &CoreValue::from("name"), CoreValue::Null);
+    v_is_json = core_eq(&[v_type_name.clone(), CoreValue::from("json")])?;
+    v_is_object = core_eq(&[v_type_name.clone(), CoreValue::from("object")])?;
+    v_fields = core_get(&v_typ, &CoreValue::from("fields"), CoreValue::Null);
+    v_has_fields = core_truthy_value(&[v_fields.clone()])?;
+    v_no_fields = core_not(&[v_has_fields.clone()])?;
+    v_flexible = v_is_json.clone();
+    if core_truthy(&v_is_object) {
+        if core_truthy(&v_no_fields) {
+            v_flexible = CoreValue::Bool(true);
         }
     }
-    return Ok(v_result.clone());
+    return Ok(v_flexible.clone());
 }
 
 #[allow(
@@ -49336,6 +50000,45 @@ fn _ace_recompute_playbook_stats(args: &[CoreValue]) -> Result<CoreValue, AxErro
     )?;
     core_set(&v_playbook, CoreValue::from("stats"), v_stats.clone())?;
     return Ok(v_playbook.clone());
+}
+
+#[allow(
+    unused_variables,
+    unused_assignments,
+    unused_mut,
+    unreachable_code,
+    clippy::all
+)]
+fn _parse_json_string_value(args: &[CoreValue]) -> Result<CoreValue, AxError> {
+    axir_coverage_mark("_parse_json_string_value");
+    let mut v_value = core_arg(args, 0);
+    let mut v_is_string = CoreValue::Null;
+    let mut v_not_string = CoreValue::Null;
+    let mut v_parse_error = CoreValue::Null;
+    let mut v_parsed = CoreValue::Null;
+    let mut v_result = CoreValue::Null;
+    v_is_string = core_type_is(&v_value, CoreValue::from("string"));
+    v_not_string = core_not(&[v_is_string.clone()])?;
+    if core_truthy(&v_not_string) {
+        return Ok(v_value.clone());
+    }
+    v_result = v_value.clone();
+    let __core_try: Result<CoreFlow, AxError> = (|| {
+        v_parsed = core_json_parse(&[v_value.clone()])?;
+        v_result = v_parsed.clone();
+        Ok(CoreFlow::Normal)
+    })();
+    match __core_try {
+        Ok(CoreFlow::Normal) => {}
+        Ok(CoreFlow::Return(value)) => return Ok(value),
+        Ok(CoreFlow::Break) => unreachable!("break outside loop"),
+        Ok(CoreFlow::Continue) => unreachable!("continue outside loop"),
+        Err(__core_caught) => {
+            v_parse_error = CoreValue::Error(std::rc::Rc::new(__core_caught));
+            v_result = v_value.clone();
+        }
+    }
+    return Ok(v_result.clone());
 }
 
 #[allow(
@@ -50311,33 +51014,6 @@ fn _completion_call_to_chat_impl(args: &[CoreValue]) -> Result<CoreValue, AxErro
     unreachable_code,
     clippy::all
 )]
-fn _tool_result_message_impl(args: &[CoreValue]) -> Result<CoreValue, AxError> {
-    axir_coverage_mark("_tool_result_message_impl");
-    let mut v_call = core_arg(args, 0);
-    let mut v_result = core_arg(args, 1);
-    let mut v_id = CoreValue::Null;
-    let mut v_message = CoreValue::Null;
-    let mut v_result_json = CoreValue::Null;
-    v_id = core_get(&v_call, &CoreValue::from("id"), CoreValue::Null);
-    v_result_json = core_json_stringify(&[v_result.clone()])?;
-    v_message = CoreValue::new_map();
-    core_set(
-        &v_message,
-        CoreValue::from("role"),
-        CoreValue::from("function"),
-    )?;
-    core_set(&v_message, CoreValue::from("function_id"), v_id.clone())?;
-    core_set(&v_message, CoreValue::from("result"), v_result_json.clone())?;
-    return Ok(v_message.clone());
-}
-
-#[allow(
-    unused_variables,
-    unused_assignments,
-    unused_mut,
-    unreachable_code,
-    clippy::all
-)]
 fn _ace_apply_curator_operations(args: &[CoreValue]) -> Result<CoreValue, AxError> {
     axir_coverage_mark("_ace_apply_curator_operations");
     let mut v_playbook = core_arg(args, 0);
@@ -50716,6 +51392,33 @@ fn _ace_apply_curator_operations(args: &[CoreValue]) -> Result<CoreValue, AxErro
         v_auto_removed.clone(),
     )?;
     return Ok(v_out.clone());
+}
+
+#[allow(
+    unused_variables,
+    unused_assignments,
+    unused_mut,
+    unreachable_code,
+    clippy::all
+)]
+fn _tool_result_message_impl(args: &[CoreValue]) -> Result<CoreValue, AxError> {
+    axir_coverage_mark("_tool_result_message_impl");
+    let mut v_call = core_arg(args, 0);
+    let mut v_result = core_arg(args, 1);
+    let mut v_id = CoreValue::Null;
+    let mut v_message = CoreValue::Null;
+    let mut v_result_json = CoreValue::Null;
+    v_id = core_get(&v_call, &CoreValue::from("id"), CoreValue::Null);
+    v_result_json = core_json_stringify(&[v_result.clone()])?;
+    v_message = CoreValue::new_map();
+    core_set(
+        &v_message,
+        CoreValue::from("role"),
+        CoreValue::from("function"),
+    )?;
+    core_set(&v_message, CoreValue::from("function_id"), v_id.clone())?;
+    core_set(&v_message, CoreValue::from("result"), v_result_json.clone())?;
+    return Ok(v_message.clone());
 }
 
 #[allow(

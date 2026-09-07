@@ -1,7 +1,7 @@
 ---
 name: "ax-cpp-signature"
 description: "Use when writing C++ code with `axllm` for string signatures, field descriptors, JSON schema output, validation, and typed tool argument shapes."
-version: "24.0.16"
+version: "24.0.17"
 ---
 # Ax Signatures For C++
 

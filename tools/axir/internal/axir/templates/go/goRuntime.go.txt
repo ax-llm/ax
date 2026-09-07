@@ -399,6 +399,36 @@ type SignatureError struct{ AxError }
 type ValidationError struct{ AxError }
 type AIServiceError struct{ AxError }
 
+// AxAIServiceAbortedError is returned when the caller cancels an in-flight
+// provider operation. Cancellation is always terminal and never retryable.
+type AxAIServiceAbortedError struct{ AIServiceError }
+
+func (e AxAIServiceAbortedError) Unwrap() error { return e.AIServiceError }
+
+func newAIServiceAbortedError(reason string) error {
+	message := "Request aborted"
+	if reason != "" && reason != context.Canceled.Error() {
+		message += ": " + reason
+	}
+	return AxAIServiceAbortedError{AIServiceError{AxError{Category: "aborted", Type: "AxAIServiceAbortedError", Message: message, Retryable: false}}}
+}
+
+func normalizeContextError(ctx context.Context, err error) error {
+	if ctx == nil {
+		return err
+	}
+	if errors.Is(ctx.Err(), context.Canceled) || (err != nil && errors.Is(err, context.Canceled)) {
+		reason := context.Canceled.Error()
+		if cause := context.Cause(ctx); cause != nil {
+			reason = cause.Error()
+		}
+		return newAIServiceAbortedError(reason)
+	}
+	return err
+}
+
+func contextCancellationError(ctx context.Context) error { if ctx == nil { return nil }; return normalizeContextError(ctx, ctx.Err()) }
+
 // Unwrap exposes the embedded envelope so errors.As(err, &AxError{}) reaches
 // Status, Code, and Retryable without the caller having to know which concrete
 // Ax error type carries them. Embedding alone does not satisfy errors.As: the
@@ -429,7 +459,7 @@ func IsRetryable(err error) bool {
 	var serviceErr AIServiceError
 	if errors.As(err, &serviceErr) {
 		switch serviceErr.Type {
-		case "AxAIServiceAuthenticationError":
+		case "AxAIServiceAuthenticationError", "AxAIServiceAbortedError":
 			return false
 		case "AxAIServiceStatusError":
 			return coreTruthy(mustCore(is_retryable_status(serviceErr.Status)))
@@ -1054,15 +1084,21 @@ func runtimeJSONValue(value Value) any {
 	}
 }
 
+func axErrorValue(v AxError) Value {
+	return Object("__error", v.Category, "message", v.Message, "__type", v.Type, "status", float64(v.Status), "code", v.Code, "retryable", v.Retryable, "response_body", v.Payload)
+}
+
 func errorValue(raw any) Value {
-	switch v := raw.(type) {
-	case AxError:
-		return Object("__error", v.Category, "message", v.Message, "__type", v.Type, "status", float64(v.Status), "code", v.Code, "retryable", v.Retryable, "response_body", v.Payload)
-	case error:
-		return Object("__error", "runtime", "message", v.Error())
-	default:
-		return Object("__error", "runtime", "message", display(v))
+	if err, ok := raw.(error); ok {
+		var aborted AxAIServiceAbortedError
+		if errors.As(err, &aborted) { return axErrorValue(aborted.AIServiceError.AxError) }
+		var service AIServiceError
+		if errors.As(err, &service) { return axErrorValue(service.AxError) }
+		var axErr AxError
+		if errors.As(err, &axErr) { return axErrorValue(axErr) }
+		return Object("__error", "runtime", "message", err.Error())
 	}
+	return Object("__error", "runtime", "message", display(raw))
 }
 
 func asAxError(value Value) AxError {
@@ -1074,6 +1110,15 @@ func asAxError(value Value) AxError {
 		return AxError{Category: cat, Message: display(m["message"]), Type: display(m["__type"]), Status: int(num(m["status"])), Code: display(m["code"]), Retryable: coreTruthy(m["retryable"]), Payload: coreGet(m, "response_body", m["payload"])}
 	}
 	return AxError{Category: "runtime", Message: display(value)}
+}
+
+func asError(value Value) error {
+	if err, ok := value.(error); ok { return err }
+	axErr := asAxError(value)
+	if axErr.Type == "AxAIServiceAbortedError" || axErr.Category == "aborted" {
+		return AxAIServiceAbortedError{AIServiceError{axErr}}
+	}
+	return axErr
 }
 
 func coreRegexMatch(pattern Value, value Value) Value {
@@ -1321,8 +1366,24 @@ func _core_ai_client_features(client Value, model Value) Value {
 	}
 	return Object("functions", true, "structured_outputs", true)
 }
-func _core_retry_sleep(attempt Value) Value   { return nil }
+func _core_retry_sleep(attempt Value, client Value, _ Value) (Value, error) {
+	delay := time.Duration(math.Min(0.25*(num(attempt)+1), 1.0) * float64(time.Second))
+	ctx := context.Background()
+	if aiClient, ok := client.(AIClient); ok { ctx = contextForAIClient(aiClient, ctx) }
+	timer := time.NewTimer(delay)
+	defer timer.Stop()
+	select {
+	case <-ctx.Done():
+		return nil, normalizeContextError(ctx, ctx.Err())
+	case <-timer.C:
+		return nil, nil
+	}
+}
 func _core_exception_message(err Value) Value { return display(coreGet(err, "message", err)) }
+func _core_exception_is_aborted(err Value) Value {
+	structured := asAxError(err)
+	return structured.Type == "AxAIServiceAbortedError" || structured.Category == "aborted"
+}
 func _core_runtime_error(message Value) Value {
 	return Object("__error", "runtime", "message", display(message))
 }
@@ -2175,12 +2236,14 @@ type StreamingTransport interface {
 type ScriptedTransport struct {
 	Responses []Value
 	Requests  []Value
+	Contexts  []context.Context
 }
 
 func NewScriptedTransport(responses []Value) *ScriptedTransport {
 	return &ScriptedTransport{Responses: append([]Value(nil), responses...)}
 }
 func (t *ScriptedTransport) Call(ctx context.Context, request Value) (Value, error) {
+	t.Contexts = append(t.Contexts, ctx)
 	t.Requests = append(t.Requests, request)
 	if len(t.Responses) == 0 {
 		return Object("status", float64(200), "json", Object()), nil
@@ -2291,10 +2354,13 @@ func (t HTTPTransport) Call(ctx context.Context, request Value) (Value, error) {
 	}
 	resp, err := client.Do(httpReq)
 	if err != nil {
-		return nil, err
+		return nil, normalizeContextError(ctx, err)
 	}
 	defer resp.Body.Close()
-	data, _ := io.ReadAll(resp.Body)
+	data, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return nil, normalizeContextError(ctx, err)
+	}
 	out := Object("status", float64(resp.StatusCode))
 	if coreTruthy(coreGet(req, "binaryResponse", false)) {
 		// Binary operations (e.g. OpenAI /audio/speech returns raw mp3) must not
@@ -2325,7 +2391,7 @@ func (t HTTPTransport) Stream(ctx context.Context, request Value) (AxHTTPStreamR
 	}
 	resp, err := client.Do(httpReq)
 	if err != nil {
-		return AxHTTPStreamResponse{}, err
+		return AxHTTPStreamResponse{}, normalizeContextError(ctx, err)
 	}
 	return AxHTTPStreamResponse{Status: resp.StatusCode, Body: resp.Body}, nil
 }
@@ -2529,6 +2595,7 @@ func finishAIOperation(hooks AxRuntimeHooks, attributes map[string]Value, span A
 }
 
 func (c *OpenAICompatibleClient) Chat(ctx context.Context, request map[string]Value, options map[string]Value) (Value, error) {
+	if err := contextCancellationError(ctx); err != nil { return nil, err }
 	hooks, previousUsage := c.runtimeHooksSnapshot()
 	hooks = effectiveRuntimeHooks(ctx, options, hooks)
 	mergedOptions := mergeAIOptions(c.optionsSnapshot(), stripRuntimeHooks(options))
@@ -2563,6 +2630,7 @@ func (c *OpenAICompatibleClient) Chat(ctx context.Context, request map[string]Va
 		})
 	}
 	response, err := invokeRuntimeLimiter(hooks.RateLimiter, next, AxRateLimitInfo{Operation: "chat", Provider: c.Name, Model: modelName, Streaming: streaming, PreviousModelUsage: previousUsage})
+	err = normalizeContextError(ctx, err)
 	finishAIOperation(hooks, attributes, span, started, err)
 	if err == nil {
 		c.setLastUsage(coreGet(response, "model_usage", coreGet(response, "modelUsage", nil)))
@@ -2586,6 +2654,7 @@ func (c *OpenAICompatibleClient) contextCacheChat(ctx context.Context, request m
 	tryCall := func(call Value) (Value, error) {
 		raw, err := c.Transport.Call(ctx, call)
 		if err != nil {
+			if ctx.Err() != nil { return nil, normalizeContextError(ctx, err) }
 			return nil, AxError{Category: "network", Message: err.Error()}
 		}
 		return safeValue(func() Value { return normalizeTransportPayload(raw) })
@@ -2689,6 +2758,7 @@ func (c *OpenAICompatibleClient) contextCacheChat(ctx context.Context, request m
 		ops := mustCore(ai_gemini_cache_ops("", float64(ttlSeconds), apiKey, display(model), cacheBody, options))
 		created, err := opCall(coreGet(ops, "create", Object()))
 		if err != nil {
+			if ctx.Err() != nil { panic(err) }
 			return false
 		}
 		cacheName = display(coreGet(created, "name", ""))
@@ -2703,6 +2773,7 @@ func (c *OpenAICompatibleClient) contextCacheChat(ctx context.Context, request m
 	case "refresh":
 		ops := mustCore(ai_gemini_cache_ops(cacheName, float64(ttlSeconds), apiKey, display(model), cacheBody, options))
 		refreshed, err := opCall(coreGet(ops, "update", Object()))
+		if err != nil && ctx.Err() != nil { panic(err) }
 		if err != nil || expiry(refreshed) == 0 {
 			if !create() {
 				body, fullErr := tryCall(fullCall)
@@ -2765,6 +2836,7 @@ func (c *OpenAICompatibleClient) contextCacheChat(ctx context.Context, request m
 	return body, true
 }
 func (c *OpenAICompatibleClient) Embed(ctx context.Context, request map[string]Value, options map[string]Value) (Value, error) {
+	if err := contextCancellationError(ctx); err != nil { return nil, err }
 	hooks, previousUsage := c.runtimeHooksSnapshot()
 	hooks = effectiveRuntimeHooks(ctx, options, hooks)
 	mergedOptions := mergeAIOptions(c.optionsSnapshot(), stripRuntimeHooks(options))
@@ -2788,6 +2860,7 @@ func (c *OpenAICompatibleClient) Embed(ctx context.Context, request map[string]V
 		})
 	}
 	response, err := invokeRuntimeLimiter(hooks.RateLimiter, next, AxRateLimitInfo{Operation: "embed", Provider: c.Name, Model: modelName, Streaming: false, PreviousModelUsage: previousUsage})
+	err = normalizeContextError(ctx, err)
 	finishAIOperation(hooks, attributes, span, started, err)
 	if err == nil {
 		c.setLastUsage(coreGet(response, "model_usage", coreGet(response, "modelUsage", nil)))
@@ -2822,7 +2895,7 @@ func waitStreamRetry(ctx context.Context, delay float64) error {
 	case <-timer.C:
 		return nil
 	case <-ctx.Done():
-		return ctx.Err()
+		return normalizeContextError(ctx, ctx.Err())
 	}
 }
 
@@ -2830,6 +2903,7 @@ func (c *OpenAICompatibleClient) openProviderStream(ctx context.Context, request
 	if transport, ok := c.Transport.(StreamingTransport); ok {
 		response, err := transport.Stream(ctx, request)
 		if err != nil {
+			if ctx.Err() != nil { return nil, normalizeContextError(ctx, err) }
 			return nil, AxError{Category: "network", Type: "AxAIServiceNetworkError", Message: err.Error(), Retryable: true}
 		}
 		if response.Body == nil {
@@ -2854,6 +2928,7 @@ func (c *OpenAICompatibleClient) openProviderStream(ctx context.Context, request
 
 	raw, err := c.Transport.Call(ctx, request)
 	if err != nil {
+		if ctx.Err() != nil { return nil, normalizeContextError(ctx, err) }
 		return nil, AxError{Category: "network", Type: "AxAIServiceNetworkError", Message: err.Error(), Retryable: true}
 	}
 	body, normalizedErr := safeValue(func() Value { return normalizeTransportPayload(raw) })
@@ -2869,6 +2944,7 @@ func (c *OpenAICompatibleClient) openProviderStream(ctx context.Context, request
 }
 
 func (c *OpenAICompatibleClient) StreamEvents(ctx context.Context, request map[string]Value, options map[string]Value) (AxChatStream, error) {
+	if err := contextCancellationError(ctx); err != nil { return nil, err }
 	hooks, previousUsage := c.runtimeHooksSnapshot()
 	hooks = effectiveRuntimeHooks(ctx, options, hooks)
 	mergedOptions := mergeAIOptions(c.optionsSnapshot(), stripRuntimeHooks(options))
@@ -2900,6 +2976,7 @@ func (c *OpenAICompatibleClient) StreamEvents(ctx context.Context, request map[s
 				firstRaw, firstErr := raw.Next()
 				if firstErr != nil && !errors.Is(firstErr, io.EOF) {
 					_ = raw.Close()
+					if ctx.Err() != nil { panic(normalizeContextError(ctx, firstErr)) }
 					wrapped := AxError{Category: "network", Type: "AxAIServiceNetworkError", Message: firstErr.Error(), Retryable: true}
 					if attempt < maxRetries {
 						attempt++
@@ -2948,12 +3025,14 @@ func (c *OpenAICompatibleClient) StreamEvents(ctx context.Context, request map[s
 				}
 				firstPending := true
 				return newAxChatStream(func() (Value, error) {
+					if ctx.Err() != nil { return nil, normalizeContextError(ctx, ctx.Err()) }
 					if firstPending {
 						firstPending = false
 						return first, nil
 					}
 					event, eventErr := raw.Next()
 					if eventErr != nil {
+						if ctx.Err() != nil { return nil, normalizeContextError(ctx, eventErr) }
 						if errors.Is(eventErr, io.EOF) {
 							return nil, io.EOF
 						}
@@ -2969,6 +3048,7 @@ func (c *OpenAICompatibleClient) StreamEvents(ctx context.Context, request map[s
 		})
 	}
 	value, err := invokeRuntimeLimiter(hooks.RateLimiter, open, AxRateLimitInfo{Operation: "chat", Provider: c.Name, Model: modelName, Streaming: true, PreviousModelUsage: previousUsage})
+	err = normalizeContextError(ctx, err)
 	if err != nil {
 		finishAIOperation(hooks, attributes, span, started, err)
 		return nil, err
@@ -2981,9 +3061,10 @@ func (c *OpenAICompatibleClient) StreamEvents(ctx context.Context, request map[s
 	}
 	chunks := Array()
 	return newAxChatStream(func() (Value, error) {
+		if ctx.Err() != nil { return nil, normalizeContextError(ctx, ctx.Err()) }
 		if !source.Next() {
 			if source.Err() != nil {
-				return nil, source.Err()
+				return nil, normalizeContextError(ctx, source.Err())
 			}
 			return nil, io.EOF
 		}
@@ -3130,7 +3211,8 @@ func normalizeTransportPayload(raw Value) Value {
 }
 
 func (c *OpenAICompatibleClient) Transcribe(ctx context.Context, request map[string]Value, options map[string]Value) (Value, error) {
-	return safeValue(func() Value {
+	if err := contextCancellationError(ctx); err != nil { return nil, err }
+	value, err := safeValue(func() Value {
 		transportReq := c.requestJSON(ctx, "transcribe", request, false, options)
 		raw, err := c.Transport.Call(ctx, transportReq)
 		if err != nil {
@@ -3138,9 +3220,11 @@ func (c *OpenAICompatibleClient) Transcribe(ctx context.Context, request map[str
 		}
 		return mustCore(provider_normalize_transcribe_response(c.Profile, normalizeTransportPayload(raw)))
 	})
+	return value, normalizeContextError(ctx, err)
 }
 func (c *OpenAICompatibleClient) Speak(ctx context.Context, request map[string]Value, options map[string]Value) (Value, error) {
-	return safeValue(func() Value {
+	if err := contextCancellationError(ctx); err != nil { return nil, err }
+	value, err := safeValue(func() Value {
 		transportReq := c.requestJSON(ctx, "speak", request, false, options)
 		raw, err := c.Transport.Call(ctx, transportReq)
 		if err != nil {
@@ -3148,6 +3232,7 @@ func (c *OpenAICompatibleClient) Speak(ctx context.Context, request map[string]V
 		}
 		return mustCore(provider_normalize_speak_response(c.Profile, normalizeTransportPayload(raw), request))
 	})
+	return value, normalizeContextError(ctx, err)
 }
 func (c *OpenAICompatibleClient) RealtimeAudioSetup(request map[string]Value, options map[string]Value) Value {
 	return mustCore(provider_build_realtime_audio_setup(c.Profile, request, options))
@@ -8829,6 +8914,8 @@ func runConformanceFixture(fixture map[string]Value) {
 		runConformanceAIEmbed(fixture)
 	case "ai_stream":
 		runConformanceAIStream(fixture)
+	case "ai_cancellation":
+		runConformanceAICancellation(fixture)
 	case "ai_usage_observer":
 		runConformanceAIUsageObserver(fixture)
 	case "ai_runtime_hooks":
@@ -9004,6 +9091,45 @@ func runConformanceEvent(fixture map[string]Value) {
 		}
 		assertEqual(run.Output, fixture["expected_output"], "event automatic dispatch")
 		_ = runtime.Close()
+
+		cancellationSpec := asMap(coreGet(fixture, "cancellation", Object()))
+		cancellationReason := display(coreGet(cancellationSpec, "reason", "fixture-stop"))
+		cancellationSleep := time.Duration(int64(num(coreGet(cancellationSpec, "sleep_ms", 30_000)))) * time.Millisecond
+		maxCancellationElapsed := time.Duration(int64(num(coreGet(cancellationSpec, "max_elapsed_ms", 1_000)))) * time.Millisecond
+		token := &AxEventCancellationToken{}
+		removedCalls := 0
+		remove := token.Subscribe(func() { removedCalls++ })
+		remove()
+		if !token.Cancel(cancellationReason) || token.Cancel("ignored") || token.CancellationReason() != cancellationReason || removedCalls != 0 {
+			panic(AxError{Category: "fixture", Message: "event cancellation one-shot or removable subscription mismatch"})
+		}
+		checkCancelledClock := func(clock AxEventClock, manual bool) {
+			sleepToken := &AxEventCancellationToken{}
+			result := make(chan bool, 1)
+			started := time.Now()
+			go func() { result <- clock.Sleep(cancellationSleep, sleepToken) }()
+			if manual {
+				deadline := time.Now().Add(time.Second)
+				for sleepToken.SubscriptionCount() == 0 && time.Now().Before(deadline) { time.Sleep(time.Millisecond) }
+			} else { time.Sleep(10 * time.Millisecond) }
+			sleepToken.Cancel(cancellationReason)
+			select {
+			case completed := <-result:
+				if completed || sleepToken.SubscriptionCount() != 0 || time.Since(started) > maxCancellationElapsed { panic(AxError{Category: "fixture", Message: "event clock cancellation or cleanup mismatch"}) }
+			case <-time.After(maxCancellationElapsed):
+				panic(AxError{Category: "fixture", Message: "event clock cancellation was not prompt"})
+			}
+		}
+		checkCancelledClock(AxSystemEventClock{}, false)
+		checkCancelledClock(NewAxManualEventClock(0), true)
+		successClock := NewAxManualEventClock(0)
+		successToken := &AxEventCancellationToken{}
+		success := make(chan bool, 1)
+		go func() { success <- successClock.Sleep(time.Millisecond, successToken) }()
+		successDeadline := time.Now().Add(time.Second)
+		for successToken.SubscriptionCount() == 0 && time.Now().Before(successDeadline) { time.Sleep(time.Millisecond) }
+		successClock.Advance(1)
+		if !<-success || successToken.SubscriptionCount() != 0 { panic(AxError{Category: "fixture", Message: "manual event clock successful sleep cleanup mismatch"}) }
 
 		makeEvent := func(id, eventType string, data Value, correlation []map[string]string) AxEventEnvelope {
 			return AxEventEnvelope{SpecVersion: "1.0", ID: id, Source: "test://axevent", Type: eventType, Data: data, Correlation: correlation}
@@ -10299,6 +10425,87 @@ func runConformanceAIStream(fixture map[string]Value) {
 		assertEqual(output, expected, "ai stream output")
 	}
 	assertTransportRequest(fixture, transport)
+}
+
+type conformanceCancellationTransport struct {
+	response Value
+	cancel context.CancelCauseFunc
+	reason string
+	calls int
+	contexts []context.Context
+}
+
+func (t *conformanceCancellationTransport) Call(ctx context.Context, request Value) (Value, error) {
+	t.calls++
+	t.contexts = append(t.contexts, ctx)
+	if t.calls == 1 && t.cancel != nil { go func() { time.Sleep(10 * time.Millisecond); t.cancel(errors.New(t.reason)) }() }
+	return cloneValue(t.response), nil
+}
+
+func assertConformanceAborted(err error, reason string) {
+	var aborted AxAIServiceAbortedError
+	structured, ok := AsAxError(err)
+	if !errors.As(err, &aborted) || !ok || structured.Retryable || structured.Type != "AxAIServiceAbortedError" || !strings.Contains(err.Error(), reason) {
+		panic(AxError{Category: "fixture", Message: "provider cancellation error mismatch: " + display(err)})
+	}
+}
+
+func runConformanceAICancellation(fixture map[string]Value) {
+	reason := display(coreGet(fixture, "reason", "fixture-stop"))
+	request := asMap(coreGet(fixture, "request", Object()))
+	maxElapsed := time.Duration(int64(num(coreGet(fixture, "max_elapsed_ms", 1_000)))) * time.Millisecond
+	programMaxElapsed := time.Duration(int64(num(coreGet(fixture, "program_max_elapsed_ms", 100)))) * time.Millisecond
+
+	preflightFixture := cloneMap(fixture)
+	preflightFixture["transport_responses"] = []Value{coreGet(fixture, "success_response", Object())}
+	preflight, preflightTransport := conformanceAIClient(preflightFixture)
+	preflightCtx, preflightCancel := context.WithCancelCause(context.Background())
+	preflightCancel(errors.New(reason))
+	_, err := preflight.Chat(preflightCtx, request, nil)
+	assertConformanceAborted(err, reason)
+	if len(preflightTransport.Requests) != 0 { panic(AxError{Category: "fixture", Message: "pre-cancelled provider request reached transport"}) }
+
+	flowGen := NewAx("question:string -> answer:string", nil)
+	cancellationFlow := NewFlow(Object("id", "cancellation-flow"))
+	cancellationFlow.Execute("answer", flowGen, nil)
+	cancellationGen := NewAx("question:string -> answer:string", nil)
+	cancellationAgent := NewAgent("question:string -> answer:string", nil)
+	programs := []struct{name string; forward func() (Value, error)}{
+		{"AxGen", func() (Value, error) { return cancellationGen.Forward(preflightCtx, preflight, Object("question", "cancel"), Object("infraRetries", 2)) }},
+		{"AxAgent", func() (Value, error) { return cancellationAgent.Forward(preflightCtx, preflight, Object("question", "cancel"), Object("infraRetries", 2)) }},
+		{"AxFlow", func() (Value, error) { return cancellationFlow.Forward(preflightCtx, preflight, Object("question", "cancel"), Object("infraRetries", 2)) }},
+	}
+	for _, program := range programs {
+		programStarted := time.Now()
+		_, programErr := program.forward()
+		assertConformanceAborted(programErr, reason)
+		if time.Since(programStarted) > programMaxElapsed { panic(AxError{Category: "fixture", Message: program.name + " cancellation was retried instead of returning promptly"}) }
+		if len(preflightTransport.Requests) != 0 { panic(AxError{Category: "fixture", Message: program.name + " cancellation reached transport"}) }
+	}
+
+	backoffCtx, backoffCancel := context.WithCancelCause(context.Background())
+	backoffTransport := &conformanceCancellationTransport{response: coreGet(fixture, "retry_response", Object()), cancel: backoffCancel, reason: reason}
+	backoffOptions := cloneMap(asMap(coreGet(fixture, "retry_options", Object())))
+	backoffOptions["api_key"] = "test-key"
+	backoffOptions["model"] = "claude-sonnet-4-5"
+	backoffOptions["transport"] = backoffTransport
+	backoffClient := NewAnthropicClient(backoffOptions).OpenAICompatibleClient
+	started := time.Now()
+	_, err = backoffClient.Stream(backoffCtx, request, nil)
+	assertConformanceAborted(err, reason)
+	if backoffTransport.calls != 1 || len(backoffTransport.contexts) != 1 || time.Since(started) > maxElapsed { panic(AxError{Category: "fixture", Message: "provider retry cancellation attempted another request, skipped the custom context, or was not prompt"}) }
+
+	streamFixture := cloneMap(fixture)
+	streamFixture["transport_responses"] = []Value{coreGet(fixture, "stream_response", Object())}
+	streamClient, streamTransport := conformanceAIClient(streamFixture)
+	streamCtx, streamCancel := context.WithCancelCause(context.Background())
+	stream, err := streamClient.StreamEvents(streamCtx, request, nil)
+	if err != nil || !stream.Next() { panic(AxError{Category: "fixture", Message: "provider stream produced no first event"}) }
+	streamCancel(errors.New(reason))
+	if stream.Next() { panic(AxError{Category: "fixture", Message: "provider stream yielded after cancellation"}) }
+	assertConformanceAborted(stream.Err(), reason)
+	_ = stream.Close()
+	if len(streamTransport.Requests) != 1 || len(streamTransport.Contexts) != 1 { panic(AxError{Category: "fixture", Message: "provider stream cancellation custom transport mismatch"}) }
 }
 func runConformanceProviderOperation(fixture map[string]Value, op string) {
 	if op == "transcribe" || op == "speak" {

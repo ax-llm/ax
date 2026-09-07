@@ -248,6 +248,9 @@ public final class AxFlow implements AxProgram {
     return forward(client, values, options, AxRuntimeHooks.fromOptions(options));
   }
 
+  public Map<String,Object> forwardWithCancellation(AiClient client,Map<String,Object> values,AxCancellationToken cancellation){return forwardWithCancellation(client,values,Map.of(),cancellation);}
+  public Map<String,Object> forwardWithCancellation(AiClient client,Map<String,Object> values,Map<String,Object> options,AxCancellationToken cancellation){Map<String,Object> resolved=new LinkedHashMap<>(options==null?Map.of():options);resolved.put("cancellation",cancellation);return forward(client,values,resolved);}
+
   public Map<String, Object> forward(AiClient client, Map<String, Object> values, Map<String, Object> options, AxRuntimeHooks hooks) {
     AxGlobals.Scope scope = AxGlobals.openScope(
         hooks,

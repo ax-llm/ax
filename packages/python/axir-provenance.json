@@ -9,19 +9,19 @@
     },
     "axllm/ai.py": {
       "emitted_lines": 7515,
-      "total_lines": 10281
+      "total_lines": 10416
     },
     "axllm/flow.py": {
       "emitted_lines": 2287,
       "total_lines": 2850
     },
     "axllm/gen.py": {
-      "emitted_lines": 3021,
-      "total_lines": 4104
+      "emitted_lines": 3026,
+      "total_lines": 4125
     },
     "axllm/mcp.py": {
       "emitted_lines": 2192,
-      "total_lines": 5190
+      "total_lines": 5195
     },
     "axllm/prompt.py": {
       "emitted_lines": 79,

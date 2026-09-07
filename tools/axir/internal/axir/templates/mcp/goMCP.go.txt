@@ -416,9 +416,13 @@ type AxEventPublishReceipt struct { EventID string; Accepted bool; Duplicate boo
 type AxEventRun struct { ID,DeliveryID,RouteID,TargetID,InstanceKey,Status string; Attempt int; Output Value; Error string; ContinuationIDs []string }
 type AxEventDeadLetter struct { ID,DeliveryID,RunID,SinkID,Reason string }
 type AxEventContinuation struct { ID,TargetID,InstanceKey,IdentityScope string; Correlation []map[string]string; Metadata map[string]Value; Completed bool; ExpiresAt int64 }
-type AxEventCancellationToken struct { mu sync.Mutex; Cancelled bool; Reason string }
-func (t *AxEventCancellationToken) Cancel(reason string){t.mu.Lock();defer t.mu.Unlock();t.Cancelled=true;t.Reason=reason}
-func (t *AxEventCancellationToken) IsCancelled()bool{t.mu.Lock();defer t.mu.Unlock();return t.Cancelled}
+type AxEventCancellationToken struct { mu sync.RWMutex; Cancelled bool; Reason string; done chan struct{}; subscriptions map[uint64]func(); nextSubscription uint64 }
+func (t *AxEventCancellationToken) Cancel(reason string)bool{t.mu.Lock();if t.Cancelled{t.mu.Unlock();return false};t.Cancelled=true;t.Reason=reason;if t.done==nil{t.done=make(chan struct{})};close(t.done);callbacks:=make([]func(),0,len(t.subscriptions));for _,callback:=range t.subscriptions{callbacks=append(callbacks,callback)};t.subscriptions=nil;t.mu.Unlock();for _,callback:=range callbacks{callback()};return true}
+func (t *AxEventCancellationToken) IsCancelled()bool{t.mu.RLock();defer t.mu.RUnlock();return t.Cancelled}
+func (t *AxEventCancellationToken) CancellationReason()string{t.mu.RLock();defer t.mu.RUnlock();return t.Reason}
+func (t *AxEventCancellationToken) Done()<-chan struct{}{t.mu.Lock();defer t.mu.Unlock();if t.done==nil{t.done=make(chan struct{})};return t.done}
+func (t *AxEventCancellationToken) Subscribe(callback func())func(){t.mu.Lock();if t.Cancelled{t.mu.Unlock();callback();return func(){}};if t.subscriptions==nil{t.subscriptions=map[uint64]func(){}};t.nextSubscription++;id:=t.nextSubscription;t.subscriptions[id]=callback;t.mu.Unlock();return func(){t.mu.Lock();delete(t.subscriptions,id);t.mu.Unlock()}}
+func (t *AxEventCancellationToken) SubscriptionCount()int{t.mu.RLock();defer t.mu.RUnlock();return len(t.subscriptions)}
 type AxEventTarget struct {
 	ID string
 	Invoke func(Value,map[string]Value)(Value,error)
@@ -466,12 +470,12 @@ type AxEventSink interface { Write(Value, map[string]Value) error }
 type AxEventClock interface { Now() int64; Sleep(time.Duration,*AxEventCancellationToken) bool }
 type AxSystemEventClock struct{}
 func (AxSystemEventClock) Now()int64{return time.Now().UnixMilli()}
-func (AxSystemEventClock) Sleep(delay time.Duration,token *AxEventCancellationToken)bool{timer:=time.NewTimer(delay);defer timer.Stop();<-timer.C;return token==nil||!token.IsCancelled()}
+func (AxSystemEventClock) Sleep(delay time.Duration,token *AxEventCancellationToken)bool{if token==nil{timer:=time.NewTimer(delay);defer timer.Stop();<-timer.C;return true};if token.IsCancelled(){return false};timer:=time.NewTimer(delay);defer timer.Stop();select{case <-timer.C:return !token.IsCancelled();case <-token.Done():return false}}
 type AxManualEventClock struct{mu sync.Mutex;cond *sync.Cond;current int64}
 func NewAxManualEventClock(current int64)*AxManualEventClock{value:=&AxManualEventClock{current:current};value.cond=sync.NewCond(&value.mu);return value}
 func (c *AxManualEventClock) Now()int64{c.mu.Lock();defer c.mu.Unlock();return c.current}
 func (c *AxManualEventClock) Advance(milliseconds int64){c.mu.Lock();c.current+=milliseconds;c.cond.Broadcast();c.mu.Unlock()}
-func (c *AxManualEventClock) Sleep(delay time.Duration,token *AxEventCancellationToken)bool{target:=c.Now()+delay.Milliseconds();c.mu.Lock();defer c.mu.Unlock();for c.current<target{if token!=nil&&token.IsCancelled(){return false};c.cond.Wait()};return token==nil||!token.IsCancelled()}
+func (c *AxManualEventClock) Sleep(delay time.Duration,token *AxEventCancellationToken)bool{target:=c.Now()+delay.Milliseconds();unsubscribe:=func(){};if token!=nil{unsubscribe=token.Subscribe(func(){c.mu.Lock();c.cond.Broadcast();c.mu.Unlock()});defer unsubscribe()};c.mu.Lock();defer c.mu.Unlock();for c.current<target{if token!=nil&&token.IsCancelled(){return false};c.cond.Wait()};return token==nil||!token.IsCancelled()}
 type AxEventStore interface { Enqueue(AxEventEnvelope, []AxEventCommand) error }
 type axEventDelivery struct { Event AxEventEnvelope; Command AxEventCommand; IdentityScope,Trust,Status,RunID string; AvailableAt,Sequence,Size int64; Attempt int }
 type AxInMemoryEventStore struct { Deliveries map[string]*axEventDelivery; Runs map[string]*AxEventRun; DeadLetters map[string]AxEventDeadLetter; Continuations map[string]*AxEventContinuation; ProgramState map[string]Value; Clock AxEventClock;MaxPending int;MaxQueuedBytes,MaxEnvelopeBytes,PublishTimeoutMs,QueuedBytes,sequence int64;mu sync.Mutex;cond *sync.Cond }

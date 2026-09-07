@@ -9,7 +9,7 @@ use std::fmt;
 use std::io::{BufRead, BufReader, Read, Write};
 use std::process::{Child, ChildStdin, Command, Stdio};
 use std::sync::atomic::{AtomicU64, Ordering};
-use std::sync::{Arc, Mutex, OnceLock, Weak};
+use std::sync::{Arc, Condvar, Mutex, OnceLock, Weak};
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
 #[cfg(feature = "runtime-quickjs")]
@@ -567,6 +567,99 @@ impl fmt::Display for AxError {
 }
 
 impl Error for AxError {}
+
+pub type AxAIServiceAbortedError = AxError;
+
+#[derive(Clone)]
+pub struct AxCancellationToken {
+    state: Arc<(Mutex<AxCancellationState>, Condvar)>,
+}
+
+struct AxCancellationState {
+    cancelled: bool,
+    reason: Option<String>,
+    next_subscription: u64,
+    subscriptions: BTreeMap<u64, Arc<dyn Fn() + Send + Sync>>,
+}
+
+impl fmt::Debug for AxCancellationToken {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("AxCancellationToken")
+            .field("cancelled", &self.is_cancelled())
+            .field("reason", &self.reason())
+            .finish()
+    }
+}
+
+impl Default for AxCancellationToken {
+    fn default() -> Self {
+        Self { state: Arc::new((Mutex::new(AxCancellationState { cancelled: false, reason: None, next_subscription: 0, subscriptions: BTreeMap::new() }), Condvar::new())) }
+    }
+}
+
+impl AxCancellationToken {
+    pub fn cancel(&self, reason: impl Into<String>) -> bool {
+        let callbacks = {
+            let (state, changed) = &*self.state;
+            let mut state = state.lock().unwrap();
+            if state.cancelled { return false; }
+            state.cancelled = true;
+            state.reason = Some(reason.into());
+            let callbacks = state.subscriptions.values().cloned().collect::<Vec<_>>();
+            state.subscriptions.clear();
+            changed.notify_all();
+            callbacks
+        };
+        for callback in callbacks { callback(); }
+        true
+    }
+
+    pub fn is_cancelled(&self) -> bool { self.state.0.lock().unwrap().cancelled }
+    pub fn reason(&self) -> Option<String> { self.state.0.lock().unwrap().reason.clone() }
+    pub fn throw_if_cancelled(&self) -> AxResult<()> {
+        if !self.is_cancelled() { return Ok(()); }
+        let reason = self.reason().unwrap_or_else(|| "cancelled".into());
+        let mut error = AxError::new("aborted", if reason == "cancelled" { "Request aborted".into() } else { format!("Request aborted: {reason}") });
+        error.error_type = Some("AxAIServiceAbortedError".into());
+        Err(error)
+    }
+    pub fn subscribe(&self, callback: impl Fn() + Send + Sync + 'static) -> AxCancellationSubscription {
+        let callback: Arc<dyn Fn() + Send + Sync> = Arc::new(callback);
+        let mut immediate = false;
+        let id = {
+            let mut state = self.state.0.lock().unwrap();
+            if state.cancelled { immediate = true; 0 } else { state.next_subscription += 1; let id = state.next_subscription; state.subscriptions.insert(id, callback.clone()); id }
+        };
+        if immediate { callback(); }
+        AxCancellationSubscription { state: Arc::downgrade(&self.state), id }
+    }
+    pub fn wait_timeout(&self, duration: Duration) -> bool {
+        let (state, changed) = &*self.state;
+        let state = state.lock().unwrap();
+        if state.cancelled { return true; }
+        changed.wait_timeout_while(state, duration, |state| !state.cancelled).unwrap().0.cancelled
+    }
+    pub fn subscription_count(&self) -> usize { self.state.0.lock().unwrap().subscriptions.len() }
+}
+
+pub struct AxCancellationSubscription {
+    state: Weak<(Mutex<AxCancellationState>, Condvar)>,
+    id: u64,
+}
+
+impl Drop for AxCancellationSubscription {
+    fn drop(&mut self) {
+        if self.id == 0 { return; }
+        if let Some(state) = self.state.upgrade() { state.0.lock().unwrap().subscriptions.remove(&self.id); }
+    }
+}
+
+thread_local! { static AX_CANCELLATION_STACK: std::cell::RefCell<Vec<AxCancellationToken>> = const { std::cell::RefCell::new(Vec::new()) }; }
+
+struct AxCancellationScope;
+impl AxCancellationScope { fn enter(token:&AxCancellationToken)->AxResult<Self>{token.throw_if_cancelled()?;AX_CANCELLATION_STACK.with(|stack|stack.borrow_mut().push(token.clone()));Ok(Self)} }
+impl Drop for AxCancellationScope { fn drop(&mut self){AX_CANCELLATION_STACK.with(|stack|{stack.borrow_mut().pop();});} }
+fn current_cancellation_token()->Option<AxCancellationToken>{AX_CANCELLATION_STACK.with(|stack|stack.borrow().last().cloned())}
 
 impl From<serde_json::Error> for AxError {
     fn from(value: serde_json::Error) -> Self {
@@ -1272,6 +1365,8 @@ pub trait AxAIClient {
         self.chat(request)
     }
 
+    fn chat_with_cancellation(&mut self,request:Value,options:Value,cancellation:&AxCancellationToken)->AxResult<Value>{let _scope=AxCancellationScope::enter(cancellation)?;let result=self.chat_with_options(request,options);cancellation.throw_if_cancelled()?;result}
+
     fn chat_with_runtime_hooks(
         &mut self,
         request: Value,
@@ -1291,6 +1386,7 @@ pub trait AxAIClient {
     fn embed(&mut self, _request: Value) -> AxResult<Value> {
         Err(AxError::runtime("embedding is not supported by this AI client"))
     }
+    fn embed_with_cancellation(&mut self,request:Value,cancellation:&AxCancellationToken)->AxResult<Value>{let _scope=AxCancellationScope::enter(cancellation)?;let result=self.embed(request);cancellation.throw_if_cancelled()?;result}
 
 
     fn embed_with_runtime_hooks(
@@ -1311,6 +1407,7 @@ pub trait AxAIClient {
     fn speak(&mut self, _request: Value) -> AxResult<Value> {
         Err(AxError::runtime("speech is not supported by this AI client"))
     }
+    fn speak_with_cancellation(&mut self,request:Value,cancellation:&AxCancellationToken)->AxResult<Value>{let _scope=AxCancellationScope::enter(cancellation)?;let result=self.speak(request);cancellation.throw_if_cancelled()?;result}
 
     fn get_id(&self) -> String { self.get_name() }
     fn get_name(&self) -> String { "ai-service".to_string() }
@@ -1325,6 +1422,7 @@ pub trait AxAIClient {
         let _ = request;
         Ok(json!({"text": ""}))
     }
+    fn transcribe_with_cancellation(&mut self,request:Value,cancellation:&AxCancellationToken)->AxResult<Value>{let _scope=AxCancellationScope::enter(cancellation)?;let result=self.transcribe(request);cancellation.throw_if_cancelled()?;result}
 
     fn complete(&mut self, request: Value) -> AxResult<Value> {
         self.chat(request)
@@ -1344,6 +1442,8 @@ pub trait AxAIClient {
     fn stream_iter(&mut self, request: Value) -> AxResult<AxChatStream> {
         self.stream(request).map(AxChatStream::from_values)
     }
+    fn stream_iter_with_cancellation(&mut self,request:Value,cancellation:&AxCancellationToken)->AxResult<AxChatStream>{let _scope=AxCancellationScope::enter(cancellation)?;let stream=self.stream_iter(request)?;let token=cancellation.clone();Ok(AxChatStream::new(CancellableProviderIterator{inner:Box::new(stream),token},None))}
+    fn stream_with_cancellation(&mut self,request:Value,cancellation:&AxCancellationToken)->AxResult<Vec<Value>>{let mut stream=self.stream_iter_with_cancellation(request,cancellation)?;let mut values=Vec::new();for value in &mut stream{values.push(value?);}Ok(values)}
 
     fn stream_with_runtime_hooks(
         &mut self,
@@ -1437,10 +1537,16 @@ pub enum AxTransportStream {
 pub trait AxTransport: Send {
     fn send(&mut self, request: Value) -> AxResult<Value>;
 
+    fn send_with_cancellation(&mut self,request:Value,cancellation:&AxCancellationToken)->AxResult<Value>{let _scope=AxCancellationScope::enter(cancellation)?;let result=self.send(request);cancellation.throw_if_cancelled()?;result}
+
     fn stream(&mut self, request: Value) -> AxResult<AxTransportStream> {
         self.send(request).map(AxTransportStream::Buffered)
     }
+    fn stream_with_cancellation(&mut self,request:Value,cancellation:&AxCancellationToken)->AxResult<AxTransportStream>{let _scope=AxCancellationScope::enter(cancellation)?;let result=self.stream(request);cancellation.throw_if_cancelled()?;result}
 }
+
+struct CancellableProviderIterator{inner:Box<dyn Iterator<Item=AxResult<Value>>>,token:AxCancellationToken}
+impl Iterator for CancellableProviderIterator{type Item=AxResult<Value>;fn next(&mut self)->Option<Self::Item>{if let Err(error)=self.token.throw_if_cancelled(){return Some(Err(error))}let value=self.inner.next();if self.token.is_cancelled(){return Some(Err(self.token.throw_if_cancelled().unwrap_err()))}value}}
 
 struct SseJsonStream {
     reader: BufReader<Box<dyn Read>>,
@@ -1590,6 +1696,7 @@ pub type RuntimeTransport = dyn AxTransport;
 pub struct ScriptedTransport {
     responses: VecDeque<Value>,
     pub requests: Vec<Value>,
+    pub cancellations: Vec<AxCancellationToken>,
 }
 
 impl ScriptedTransport {
@@ -1597,6 +1704,7 @@ impl ScriptedTransport {
         Self {
             responses: responses.into(),
             requests: Vec::new(),
+            cancellations: Vec::new(),
         }
     }
 }
@@ -1608,6 +1716,8 @@ impl AxTransport for ScriptedTransport {
             .pop_front()
             .ok_or_else(|| AxError::runtime("scripted transport exhausted"))
     }
+    fn send_with_cancellation(&mut self,request:Value,cancellation:&AxCancellationToken)->AxResult<Value>{self.cancellations.push(cancellation.clone());self.send(request)}
+    fn stream_with_cancellation(&mut self,request:Value,cancellation:&AxCancellationToken)->AxResult<AxTransportStream>{self.cancellations.push(cancellation.clone());self.stream(request)}
 }
 
 pub struct OpenAICompatibleClient {
@@ -1831,8 +1941,10 @@ impl OpenAICompatibleClient {
     }
 
     fn dispatch_transport_request(&mut self, call: Value) -> AxResult<Value> {
+        let cancellation=current_cancellation_token();
+        if let Some(token)=&cancellation{token.throw_if_cancelled()?;}
         if let Some(transport) = self.transport.as_mut() {
-            return transport.send(call);
+            return match cancellation.as_ref(){Some(token)=>transport.send_with_cancellation(call,token),None=>transport.send(call)};
         }
         let url = call.get("url").and_then(Value::as_str).unwrap_or_default().to_string();
         let method = call.get("method").and_then(Value::as_str).unwrap_or("POST").parse::<reqwest::Method>()
@@ -1861,8 +1973,10 @@ impl OpenAICompatibleClient {
                 .json(&body)
                 .send()?
         };
+        if let Some(token)=&cancellation{token.throw_if_cancelled()?;}
         let status = response.status().as_u16();
         let bytes = response.bytes()?;
+        if let Some(token)=&cancellation{token.throw_if_cancelled()?;}
         let body = if bytes.is_empty() {
             Value::Null
         } else {
@@ -1889,8 +2003,12 @@ impl OpenAICompatibleClient {
     }
 
     fn dispatch_transport_stream(&mut self, call: Value) -> AxResult<Box<dyn Iterator<Item = AxResult<Value>>>> {
+        let cancellation=current_cancellation_token();
+        if let Some(token)=&cancellation{token.throw_if_cancelled()?;}
         if let Some(transport) = self.transport.as_mut() {
-            return Self::transport_stream_iter(transport.stream(call)?);
+            let stream=match cancellation.as_ref(){Some(token)=>transport.stream_with_cancellation(call,token)?,None=>transport.stream(call)?};
+            let inner=Self::transport_stream_iter(stream)?;
+            return Ok(match cancellation{Some(token)=>Box::new(CancellableProviderIterator{inner,token}) as Box<dyn Iterator<Item=AxResult<Value>>>,None=>inner});
         }
         let url = call.get("url").and_then(Value::as_str).unwrap_or_default().to_string();
         let method = call.get("method").and_then(Value::as_str).unwrap_or("POST").parse::<reqwest::Method>()
@@ -1904,8 +2022,10 @@ impl OpenAICompatibleClient {
         }
         let body = call.get("json").cloned().unwrap_or_else(|| json!({}));
         let response = builder.json(&body).send()?;
+        if let Some(token)=&cancellation{token.throw_if_cancelled()?;}
         let status = response.status().as_u16();
-        Self::transport_stream_iter(AxTransportStream::Reader { status, body: Box::new(response) })
+        let inner=Self::transport_stream_iter(AxTransportStream::Reader { status, body: Box::new(response) })?;
+        Ok(match cancellation{Some(token)=>Box::new(CancellableProviderIterator{inner,token}) as Box<dyn Iterator<Item=AxResult<Value>>>,None=>inner})
     }
 
     fn send_json_call(&mut self, call: Value) -> AxResult<Value> {
@@ -2839,7 +2959,7 @@ impl AxAIClient for OpenAICompatibleClient {
                 Err(error) if is_retryable_ai_error(&error) && attempt < max_retries => {
                     attempt += 1;
                     let delay = (initial_delay * backoff.powi((attempt - 1) as i32)).min(max_delay);
-                    if delay > 0.0 { std::thread::sleep(Duration::from_millis(delay as u64)); }
+                    cancellation_backoff(Duration::from_millis(delay.max(0.0) as u64))?;
                     continue;
                 }
                 Err(error) => {
@@ -2863,7 +2983,7 @@ impl AxAIClient for OpenAICompatibleClient {
                 Some(Err(error)) if is_retryable_ai_error(&error) && attempt < max_retries => {
                     attempt += 1;
                     let delay = (initial_delay * backoff.powi((attempt - 1) as i32)).min(max_delay);
-                    if delay > 0.0 { std::thread::sleep(Duration::from_millis(delay as u64)); }
+                    cancellation_backoff(Duration::from_millis(delay.max(0.0) as u64))?;
                     continue;
                 }
                 Some(Err(error)) => {
@@ -2880,7 +3000,7 @@ impl AxAIClient for OpenAICompatibleClient {
             if !status.is_null() && core_truthy(&is_retryable_status(&[status.clone()])?) && attempt < max_retries {
                 attempt += 1;
                 let delay = (initial_delay * backoff.powi((attempt - 1) as i32)).min(max_delay);
-                if delay > 0.0 { std::thread::sleep(Duration::from_millis(delay as u64)); }
+                cancellation_backoff(Duration::from_millis(delay.max(0.0) as u64))?;
                 continue;
             }
             let mut normalized = NormalizedProviderStream {
@@ -3328,6 +3448,8 @@ impl AxGen {
     pub fn forward<C: AxAIClient>(&mut self, client: &mut C, input: Value) -> AxResult<Value> {
         self.forward_with_options(client, input, Value::Null)
     }
+
+    pub fn forward_with_cancellation<C:AxAIClient>(&mut self,client:&mut C,input:Value,options:Value,cancellation:&AxCancellationToken)->AxResult<Value>{let _scope=AxCancellationScope::enter(cancellation)?;let result=self.forward_with_options(client,input,options);cancellation.throw_if_cancelled()?;result}
 
     pub fn forward_with_options<C: AxAIClient>(
         &mut self,
@@ -4102,6 +4224,8 @@ impl AxAgent {
     pub fn forward<C: AxAIClient>(&mut self, client: &mut C, input: Value) -> AxResult<Value> {
         self.forward_with_options(client, input, json!({}))
     }
+
+    pub fn forward_with_cancellation<C:AxAIClient>(&mut self,client:&mut C,input:Value,options:Value,cancellation:&AxCancellationToken)->AxResult<Value>{let _scope=AxCancellationScope::enter(cancellation)?;let result=self.forward_with_options(client,input,options);cancellation.throw_if_cancelled()?;result}
 
     pub fn forward_with_options<C: AxAIClient>(
         &mut self,
@@ -4963,6 +5087,8 @@ impl AxFlow {
     pub fn forward<C: AxAIClient>(&mut self, client: &mut C, input: Value) -> AxResult<Value> {
         self.forward_with_options(client, input, Value::Null)
     }
+
+    pub fn forward_with_cancellation<C:AxAIClient>(&mut self,client:&mut C,input:Value,options:Value,cancellation:&AxCancellationToken)->AxResult<Value>{let _scope=AxCancellationScope::enter(cancellation)?;let result=self.forward_with_options(client,input,options);cancellation.throw_if_cancelled()?;result}
 
     pub fn forward_with_options<C: AxAIClient>(
         &mut self,
@@ -7734,6 +7860,7 @@ pub fn run_conformance_fixture(fixture: Value) -> AxResult<()> {
         "stream" => run_stream_fixture(&fixture)?,
         "ai_chat" => run_ai_chat_fixture(&fixture)?,
         "ai_stream" => run_ai_stream_fixture(&fixture)?,
+        "ai_cancellation" => run_ai_cancellation_fixture(&fixture)?,
         "ai_embed" => run_ai_embed_fixture(&fixture)?,
         "ai_usage_observer" => run_ai_usage_observer_fixture(&fixture)?,
         "ai_runtime_hooks" => run_ai_runtime_hooks_fixture(&fixture)?,
@@ -7815,6 +7942,11 @@ fn run_event_fixture(fixture:&Value)->AxResult<()>{
             let mut target=AxEventTarget::new(route.target_id.clone().unwrap(),|input,_|Ok(json!({"handled":input["message"]})));target.retry_safety="idempotent".into();
             let event=AxEventEnvelope{specversion:"1.0".into(),id:event_value["id"].as_str().unwrap().into(),source:event_value["source"].as_str().unwrap().into(),r#type:event_value["type"].as_str().unwrap().into(),subject:event_value.get("subject").and_then(Value::as_str).map(str::to_string),data:event_value["data"].clone(),extensions:Map::new(),correlation:vec![]};
             let mut runtime=AxEventRuntime::new(vec![route.clone()],json!({}))?;runtime.register_target(target);runtime.start()?;let receipts=runtime.start_source(&mut FixtureSource(Some(event.clone())),fixture["identity_scope"].as_str().unwrap(),fixture["trust"].as_str().unwrap())?;let run_id=format!("run:{}:{}:1",route.id,event.id);let run=runtime.get_run(&run_id).ok_or_else(||AxError::new("fixture","event lifecycle did not dispatch"))?;if !receipts.first().map(|value|value.accepted).unwrap_or(false)||run.output.as_ref()!=Some(&fixture["expected_output"]){return Err(AxError::new("fixture","event lifecycle mismatch"))}runtime.close()?;
+
+            let cancellation_spec=&fixture["cancellation"];let cancellation_reason=cancellation_spec["reason"].as_str().unwrap_or("fixture-stop").to_string();let cancellation_sleep=Duration::from_millis(cancellation_spec["sleep_ms"].as_u64().unwrap_or(30_000));let max_cancellation_elapsed=Duration::from_millis(cancellation_spec["max_elapsed_ms"].as_u64().unwrap_or(1_000));let token=AxEventCancellationToken::default();let removed_calls=Arc::new(std::sync::atomic::AtomicUsize::new(0));let removed_state=removed_calls.clone();let removed=token.subscribe(move||{removed_state.fetch_add(1,std::sync::atomic::Ordering::SeqCst);});drop(removed);if !token.cancel(cancellation_reason.clone())||token.cancel("ignored")||token.reason().as_deref()!=Some(cancellation_reason.as_str())||removed_calls.load(std::sync::atomic::Ordering::SeqCst)!=0{return Err(AxError::new("fixture","event cancellation one-shot or removable subscription mismatch"))}
+            {let clock=Arc::new(AxSystemEventClock);let sleep_token=AxEventCancellationToken::default();let thread_clock=clock.clone();let thread_token=sleep_token.clone();let started=std::time::Instant::now();let sleeper=std::thread::spawn(move||thread_clock.sleep(cancellation_sleep.as_millis() as i64,Some(&thread_token)));std::thread::sleep(Duration::from_millis(10));sleep_token.cancel(cancellation_reason.clone());let result=sleeper.join().map_err(|_|AxError::new("fixture","system event clock thread panicked"))?;if result||sleep_token.subscription_count()!=0||started.elapsed()>max_cancellation_elapsed{return Err(AxError::new("fixture","system event clock cancellation or cleanup mismatch"))}}
+            {let clock=Arc::new(AxManualEventClock::new(0));let sleep_token=AxEventCancellationToken::default();let thread_clock=clock.clone();let thread_token=sleep_token.clone();let started=std::time::Instant::now();let sleeper=std::thread::spawn(move||thread_clock.sleep(cancellation_sleep.as_millis() as i64,Some(&thread_token)));let deadline=std::time::Instant::now()+Duration::from_secs(1);while sleep_token.subscription_count()==0&&std::time::Instant::now()<deadline{std::thread::yield_now();}sleep_token.cancel(cancellation_reason.clone());let result=sleeper.join().map_err(|_|AxError::new("fixture","manual event clock thread panicked"))?;if result||sleep_token.subscription_count()!=0||started.elapsed()>max_cancellation_elapsed{return Err(AxError::new("fixture","manual event clock cancellation or cleanup mismatch"))}}
+            {let clock=Arc::new(AxManualEventClock::new(0));let sleep_token=AxEventCancellationToken::default();let thread_clock=clock.clone();let thread_token=sleep_token.clone();let sleeper=std::thread::spawn(move||thread_clock.sleep(1,Some(&thread_token)));let deadline=std::time::Instant::now()+Duration::from_secs(1);while sleep_token.subscription_count()==0&&std::time::Instant::now()<deadline{std::thread::yield_now();}clock.advance(1);let result=sleeper.join().map_err(|_|AxError::new("fixture","manual event clock success thread panicked"))?;if !result||sleep_token.subscription_count()!=0{return Err(AxError::new("fixture","manual event clock successful sleep cleanup mismatch"))}}
 
             let retry_calls=std::sync::Arc::new(std::sync::Mutex::new(0usize));let retry_state=retry_calls.clone();
             let mut retry_target=AxEventTarget::new("retry-target",move|_,_|{let mut calls=retry_state.lock().unwrap();*calls+=1;if *calls==1{return Err(AxError::new("fixture","retry once"))}Ok(json!({"attempt":*calls}))});retry_target.retry_safety="idempotent".into();
@@ -9508,7 +9640,7 @@ fn balancer_metrics(services: &[RouterFixtureService]) -> Value {
 }
 
 fn is_retryable_ai_error(err: &AxError) -> bool {
-    if err.error_type.as_deref() == Some("AxAIServiceAuthenticationError") {
+    if matches!(err.error_type.as_deref(),Some("AxAIServiceAuthenticationError")|Some("AxAIServiceAbortedError")) {
         return false;
     }
     if err.error_type.as_deref() == Some("AxAIServiceStatusError") {
@@ -9523,6 +9655,8 @@ fn is_retryable_ai_error(err: &AxError) -> bool {
                 | Some("AxAIServiceTimeoutError")
         )
 }
+
+fn cancellation_backoff(duration:Duration)->AxResult<()>{if duration.is_zero(){if let Some(token)=current_cancellation_token(){token.throw_if_cancelled()?;}return Ok(())}if let Some(token)=current_cancellation_token(){if token.wait_timeout(duration){token.throw_if_cancelled()?;}}else{std::thread::sleep(duration);}Ok(())}
 
 fn conformance_balancer_result(fixture: &Value) -> AxResult<Value> {
     let raw_options = fixture.get("options").cloned().unwrap_or_else(|| json!({}));
@@ -13541,6 +13675,38 @@ fn run_ai_stream_fixture(fixture: &Value) -> AxResult<()> {
     Ok(())
 }
 
+struct CancellationRecordingTransport {
+    responses: VecDeque<Value>,
+    requests: Arc<Mutex<Vec<Value>>>,
+    cancellations: Arc<Mutex<Vec<AxCancellationToken>>>,
+    cancel_on_first: Option<(AxCancellationToken,String)>,
+}
+
+impl AxTransport for CancellationRecordingTransport {
+    fn send(&mut self,request:Value)->AxResult<Value>{self.requests.lock().unwrap().push(request);self.responses.pop_front().ok_or_else(||AxError::new("fixture","fixture transport response exhausted"))}
+    fn send_with_cancellation(&mut self,request:Value,cancellation:&AxCancellationToken)->AxResult<Value>{self.cancellations.lock().unwrap().push(cancellation.clone());self.send(request)}
+    fn stream_with_cancellation(&mut self,request:Value,cancellation:&AxCancellationToken)->AxResult<AxTransportStream>{self.cancellations.lock().unwrap().push(cancellation.clone());if let Some((token,reason))=self.cancel_on_first.take(){std::thread::spawn(move||{std::thread::sleep(Duration::from_millis(10));token.cancel(reason);});}self.stream(request)}
+}
+
+fn expect_cancellation_error(error:AxError,reason:&str)->AxResult<()>{if error.error_type.as_deref()!=Some("AxAIServiceAbortedError")||error.retryable||!error.message.contains(reason){return Err(AxError::new("fixture",format!("provider cancellation error mismatch: {error}")))}Ok(())}
+
+fn cancellation_client(fixture:&Value,response:Value,cancel_on_first:Option<(AxCancellationToken,String)>)->AxResult<(OpenAICompatibleClient,Arc<Mutex<Vec<Value>>>,Arc<Mutex<Vec<AxCancellationToken>>>)>{let requests=Arc::new(Mutex::new(Vec::new()));let cancellations=Arc::new(Mutex::new(Vec::new()));let transport=CancellationRecordingTransport{responses:vec![response].into(),requests:requests.clone(),cancellations:cancellations.clone(),cancel_on_first};let mut options=json!({"api_key":"test-key","model":"claude-sonnet-4-5"});if let Some(retry)=fixture.get("retry_options"){if let(Some(target),Some(source))=(options.as_object_mut(),retry.as_object()){for(key,value)in source{target.insert(key.clone(),value.clone());}}}Ok((ai("anthropic",options)?.with_transport(transport),requests,cancellations))}
+
+fn run_ai_cancellation_fixture(fixture:&Value)->AxResult<()> {
+    let reason=fixture["reason"].as_str().unwrap_or("fixture-stop");let request=fixture["request"].clone();let max_elapsed=Duration::from_millis(fixture["max_elapsed_ms"].as_u64().unwrap_or(1_000));let program_max_elapsed=Duration::from_millis(fixture["program_max_elapsed_ms"].as_u64().unwrap_or(100));
+    let (mut preflight,preflight_requests,_)=cancellation_client(fixture,fixture["success_response"].clone(),None)?;let token=AxCancellationToken::default();token.cancel(reason);let error=preflight.chat_with_cancellation(request.clone(),json!({}),&token).expect_err("pre-cancelled provider request unexpectedly succeeded");expect_cancellation_error(error,reason)?;if !preflight_requests.lock().unwrap().is_empty(){return Err(AxError::new("fixture","pre-cancelled provider request reached transport"))}
+
+    let program_input=json!({"question":"cancel"});let program_options=json!({"infraRetries":2});
+    let mut generator=ax("question:string -> answer:string")?;let started=std::time::Instant::now();let error=generator.forward_with_cancellation(&mut preflight,program_input.clone(),program_options.clone(),&token).expect_err("pre-cancelled AxGen request unexpectedly succeeded");expect_cancellation_error(error,reason)?;if started.elapsed()>program_max_elapsed||!preflight_requests.lock().unwrap().is_empty(){return Err(AxError::new("fixture","AxGen cancellation retried or reached transport"))}
+    let mut cancellation_agent=agent("question:string -> answer:string")?;let started=std::time::Instant::now();let error=cancellation_agent.forward_with_cancellation(&mut preflight,program_input.clone(),program_options.clone(),&token).expect_err("pre-cancelled AxAgent request unexpectedly succeeded");expect_cancellation_error(error,reason)?;if started.elapsed()>program_max_elapsed||!preflight_requests.lock().unwrap().is_empty(){return Err(AxError::new("fixture","AxAgent cancellation retried or reached transport"))}
+    let mut cancellation_flow=flow("cancellation-flow").execute("answer",ax("question:string -> answer:string")?);let started=std::time::Instant::now();let error=cancellation_flow.forward_with_cancellation(&mut preflight,program_input,program_options,&token).expect_err("pre-cancelled AxFlow request unexpectedly succeeded");expect_cancellation_error(error,reason)?;if started.elapsed()>program_max_elapsed||!preflight_requests.lock().unwrap().is_empty(){return Err(AxError::new("fixture","AxFlow cancellation retried or reached transport"))}
+
+    let backoff_token=AxCancellationToken::default();let (mut backoff,backoff_requests,backoff_cancellations)=cancellation_client(fixture,fixture["retry_response"].clone(),Some((backoff_token.clone(),reason.into())))?;let started=std::time::Instant::now();let error=backoff.stream_with_cancellation(request.clone(),&backoff_token).expect_err("provider retry backoff ignored cancellation");expect_cancellation_error(error,reason)?;if backoff_requests.lock().unwrap().len()!=1||backoff_cancellations.lock().unwrap().len()!=1||started.elapsed()>max_elapsed{return Err(AxError::new("fixture","provider retry cancellation attempted another request, skipped the custom token, or was not prompt"))}
+
+    let stream_token=AxCancellationToken::default();let (mut streaming,stream_requests,stream_cancellations)=cancellation_client(fixture,fixture["stream_response"].clone(),None)?;let mut stream=streaming.stream_iter_with_cancellation(request,&stream_token)?;if stream.next().transpose()?.is_none(){return Err(AxError::new("fixture","provider stream produced no first event"))}stream_token.cancel(reason);let error=stream.next().expect("provider stream ended before cancellation was observed").expect_err("provider stream yielded after cancellation");expect_cancellation_error(error,reason)?;if stream_requests.lock().unwrap().len()!=1||stream_cancellations.lock().unwrap().len()!=1{return Err(AxError::new("fixture","provider stream cancellation custom transport mismatch"))}
+    Ok(())
+}
+
 fn run_ai_embed_fixture(fixture: &Value) -> AxResult<()> {
     let (mut client, requests, credential_requests) = fixture_client(fixture)?;
     let request = fixture.get("request").cloned().unwrap_or_else(|| json!({}));
@@ -17123,6 +17289,15 @@ fn core_exception_message(args: &[CoreValue]) -> Result<CoreValue, AxError> {
 }
 
 #[allow(dead_code)]
+fn core_exception_is_aborted(args: &[CoreValue]) -> Result<CoreValue, AxError> {
+    let aborted = match core_arg(args, 0) {
+        CoreValue::Error(error) => error.error_type.as_deref() == Some("AxAIServiceAbortedError") || error.category == "aborted",
+        _ => false,
+    };
+    Ok(CoreValue::Bool(aborted))
+}
+
+#[allow(dead_code)]
 fn core_map_keys(args: &[CoreValue]) -> Result<CoreValue, AxError> {
     match core_arg(args, 0) {
         CoreValue::Map(map) => Ok(CoreValue::list_from(
@@ -17180,7 +17355,7 @@ fn core_retry_sleep(args: &[CoreValue]) -> Result<CoreValue, AxError> {
         }
     };
     let seconds = (0.25 * ((attempt + 1) as f64)).min(1.0).max(0.0);
-    std::thread::sleep(Duration::from_secs_f64(seconds));
+    cancellation_backoff(Duration::from_secs_f64(seconds))?;
     Ok(CoreValue::Null)
 }
 

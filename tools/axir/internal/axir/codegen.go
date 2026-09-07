@@ -139,6 +139,7 @@ func EmitPython(model AxRuntimeModel, outDir string) error {
 		"examples/runtime_hooks_no_key.py":                            pyRuntimeHooksNoKeyExample,
 		"examples/adaptive_balancer_no_key.py":                        pyAdaptiveBalancerNoKeyExample,
 		"examples/provider_stream_no_key.py":                          pyProviderStreamNoKeyExample,
+		"examples/cancellation_no_key.py":                             pyCancellationNoKeyExample,
 		"examples/runtime_adapter.py":                                 pyRuntimeAdapterExample,
 		"examples/runtime_protocol.py":                                pyRuntimeProtocolExample,
 		"examples/runtime_profiles/javascript_quickjs.py":             pyJavaScriptQuickJSProfilePythonExample,
@@ -223,6 +224,8 @@ func EmitJava(model AxRuntimeModel, outDir string) error {
 		"dev/axllm/ax/AxProviderRouter.java":                          javaAxProviderRouter,
 		"dev/axllm/ax/AxBaseAI.java":                                  javaAxBaseAI,
 		"dev/axllm/ax/AxAIServiceError.java":                          javaAxAIServiceError,
+		"dev/axllm/ax/AxAIServiceAbortedError.java":                   javaAxAIServiceAbortedError,
+		"dev/axllm/ax/AxCancellationToken.java":                       javaAxCancellationToken,
 		"dev/axllm/ax/AxMemory.java":                                  javaAxMemory,
 		"dev/axllm/ax/AxAgent.java":                                   javaAxAgent,
 		"dev/axllm/ax/AxFlow.java":                                    javaAxFlow,
@@ -233,6 +236,7 @@ func EmitJava(model AxRuntimeModel, outDir string) error {
 		"dev/axllm/ax/AxEventSource.java":                             javaAxEventSource,
 		"dev/axllm/ax/AxEventSink.java":                               javaAxEventSink,
 		"dev/axllm/ax/AxEventClock.java":                              javaAxEventClock,
+		"dev/axllm/ax/AxEventCancellationToken.java":                  javaAxEventCancellationToken,
 		"dev/axllm/ax/AxEventStore.java":                              javaAxEventStore,
 		"dev/axllm/ax/AxEventRuntime.java":                            javaAxEventRuntime,
 		"dev/axllm/ax/AxMCPEventSource.java":                          javaAxMCPEventSource,
@@ -282,6 +286,7 @@ func EmitJava(model AxRuntimeModel, outDir string) error {
 		"examples/RuntimeHooksNoKeyExample.java":                      javaRuntimeHooksNoKeyExample,
 		"examples/AdaptiveBalancerNoKeyExample.java":                  javaAdaptiveBalancerNoKeyExample,
 		"examples/ProviderStreamNoKeyExample.java":                    javaProviderStreamNoKeyExample,
+		"examples/CancellationNoKeyExample.java":                      javaCancellationNoKeyExample,
 		"examples/RuntimeAdapterExample.java":                         javaRuntimeAdapterExample,
 		"examples/RuntimeProtocolExample.java":                        javaRuntimeProtocolExample,
 		"examples/runtime_profiles/JavaScriptQuickJsExample.java":     javaJavaScriptQuickJSProfileExample,
@@ -348,6 +353,7 @@ func EmitCpp(model AxRuntimeModel, outDir string) error {
 		"examples/runtime_hooks_no_key.cpp":                     cppRuntimeHooksNoKeyExample,
 		"examples/adaptive_balancer_no_key.cpp":                 cppAdaptiveBalancerNoKeyExample,
 		"examples/provider_stream_no_key.cpp":                   cppProviderStreamNoKeyExample,
+		"examples/cancellation_no_key.cpp":                      cppCancellationNoKeyExample,
 		"examples/runtime_adapter.cpp":                          cppRuntimeAdapterExample,
 		"examples/runtime_protocol.cpp":                         cppRuntimeProtocolExample,
 		"axllm/runtime/quickjs/quickjs_runtime.hpp":             cppQuickJSRuntimeHeader,
@@ -409,6 +415,7 @@ func EmitGo(model AxRuntimeModel, outDir string) error {
 		"examples/runtime_hooks_no_key/main.go":             goRuntimeHooksNoKeyExample,
 		"examples/adaptive_balancer_no_key/main.go":         goAdaptiveBalancerNoKeyExample,
 		"examples/provider_stream_no_key/main.go":           goProviderStreamNoKeyExample,
+		"examples/cancellation_no_key/main.go":              goCancellationNoKeyExample,
 		"examples/runtime_adapter/main.go":                  goRuntimeAdapterExample,
 		"examples/runtime_protocol/main.go":                 goRuntimeProtocolExample,
 		"examples/runtime_profiles/javascript_goja/main.go": goJavaScriptGojaProfileExample,
@@ -457,6 +464,7 @@ func EmitRust(model AxRuntimeModel, outDir string) error {
 		"examples/runtime_hooks_no_key.rs":                rustRuntimeHooksNoKeyExample,
 		"examples/adaptive_balancer_no_key.rs":            rustAdaptiveBalancerNoKeyExample,
 		"examples/provider_stream_no_key.rs":              rustProviderStreamNoKeyExample,
+		"examples/cancellation_no_key.rs":                 rustCancellationNoKeyExample,
 		"examples/axgen_scripted_client_tool.rs":          rustAxGenScriptedClientToolExample,
 		"examples/axgen_openai_api.rs":                    rustAxGenOpenAIExample,
 		"examples/vertex_gemini_api.rs":                   rustVertexGeminiExample,
@@ -1028,7 +1036,7 @@ func ValidateAPIReferenceManifest(manifest APIReferenceManifest) error {
 			return fmt.Errorf("api reference missing section %q", id)
 		}
 	}
-	for _, canonical := range []string{"s", "ax", "ai", "get_supported_ai_models", "AxCredentialRequest", "AxCredentialProvider", "AxUsageContext", "AxUsageEvent", "AxUsageObserver", "AxRuntimeHooks", "AxRateLimitInfo", "AxRateLimiter", "AxTracer", "AxMeter", "AxGlobals", "set_usage_observer", "set_rate_limiter", "set_tracer", "set_meter", "agent", "flow", "fn", "AxMCPClient", "OpenAICompatibleClient", "OpenAIResponsesClient", "GoogleGeminiClient", "AnthropicClient", "ProcessCodeRuntime", "RuntimeCapabilities", "RuntimeEnvelope", "optimize", "AxBootstrapFewShot", "AxGEPA", "OptimizerEngine"} {
+	for _, canonical := range []string{"s", "ax", "ai", "get_supported_ai_models", "AxCancellationToken", "AxAIServiceAbortedError", "AxCredentialRequest", "AxCredentialProvider", "AxUsageContext", "AxUsageEvent", "AxUsageObserver", "AxRuntimeHooks", "AxRateLimitInfo", "AxRateLimiter", "AxTracer", "AxMeter", "AxGlobals", "set_usage_observer", "set_rate_limiter", "set_tracer", "set_meter", "agent", "flow", "fn", "AxMCPClient", "OpenAICompatibleClient", "OpenAIResponsesClient", "GoogleGeminiClient", "AnthropicClient", "ProcessCodeRuntime", "RuntimeCapabilities", "RuntimeEnvelope", "optimize", "AxBootstrapFewShot", "AxGEPA", "OptimizerEngine"} {
 		if !symbols[canonical] {
 			return fmt.Errorf("api reference missing canonical symbol %q", canonical)
 		}
@@ -1077,6 +1085,8 @@ func apiReferenceSectionsForTarget(target string) []APIReferenceSection {
 			Summary: "Call supported providers through the shared provider descriptor registry, scripted transports, routers, and balancers.",
 			Symbols: []APIReferenceSymbol{
 				sym("ai", "function", "Create a provider client from a named deployment profile and options.", []string{"api key or credential provider", "model", "api URL", "headers", "transport"}, "AI client/service"),
+				sym("AxCancellationToken", "type", "Reusable one-shot cancellation for provider calls, streams, retries, and event-clock sleeps. Go uses context.Context.", []string{"first reason wins", "removable wake subscriptions", "non-retryable cancellation"}, "cancellation token or context"),
+				sym("AxAIServiceAbortedError", "error", "Terminal provider error raised when caller cancellation is observed.", []string{"reason preservation", "no retry", "no provider failover"}, "non-retryable provider error"),
 				sym("get_supported_ai_models", "function", "Return the AxIR-backed provider and model catalog, including dynamic named profiles and portable capability metadata.", []string{"type filter", "thinkingLevels", "serviceTiers", "isDynamic"}, "provider catalog entries"),
 				sym("AxCredentialRequest", "type", "Request metadata passed to a renewable credential callback for every transport attempt.", []string{"profile", "operation", "method", "URL"}, "credential request"),
 				sym("AxCredentialProvider", "interface", "Return fresh request headers that override static profile authentication.", []string{"chat", "stream", "embeddings", "Responses", "audio", "retries"}, "header map or credential error"),
@@ -1238,6 +1248,10 @@ func apiReferencePublicName(target, canonical string) string {
 		return mapTarget(target, "Callable[[dict[str, str]], dict[str, str]]", "OpenAICompatibleClient.CredentialProvider", "axllm::AxCredentialProvider", "axllm.AxCredentialProvider", "AxCredentialProvider")
 	case "AxProviderStream":
 		return mapTarget(target, "closable generator", "AxChatStream", "axllm::AxStreamHandler", "axllm.AxChatStream", "AxChatStream")
+	case "AxCancellationToken":
+		return mapTarget(target, "AxCancellationToken", "AxCancellationToken", "axllm::AxCancellationToken", "context.Context", "AxCancellationToken")
+	case "AxAIServiceAbortedError":
+		return mapTarget(target, "AxAIServiceAbortedError", "AxAIServiceAbortedError", "axllm::AxAIServiceAbortedError", "axllm.AxAIServiceAbortedError", "AxAIServiceAbortedError")
 	case "AxRuntimeHooks", "AxRateLimitInfo", "AxRateLimiter", "AxTracer", "AxMeter", "AxGlobals":
 		return apiReferenceQualifiedName(target, canonical)
 	case "set_usage_observer":
@@ -1317,6 +1331,10 @@ func apiReferenceForm(target, canonical, publicName string) string {
 		return mapTarget(target, "Callable[[dict[str, str]], dict[str, str]]", "OpenAICompatibleClient.CredentialProvider", "axllm::AxCredentialProvider", "axllm.AxCredentialProvider", "dyn AxCredentialProvider")
 	case "AxProviderStream":
 		return mapTarget(target, "client.stream(request)", "client.openStream(request)", "client.stream_each(request, handler)", "client.StreamEvents(ctx, request, options)", "client.stream_iter(request)")
+	case "AxCancellationToken":
+		return mapTarget(target, "AxCancellationToken()", "new AxCancellationToken()", "axllm::AxCancellationToken", "context.WithCancelCause(ctx)", "AxCancellationToken::default()")
+	case "AxAIServiceAbortedError":
+		return mapTarget(target, "AxAIServiceAbortedError(reason)", "new AxAIServiceAbortedError(reason)", "axllm::AxAIServiceAbortedError(reason)", "axllm.AxAIServiceAbortedError", "AxError with error_type AxAIServiceAbortedError")
 	case "AxUsageEvent":
 		return mapTarget(target, "AxUsageEvent", "AxUsageEvent", "axllm::AxUsageEvent", "axllm.AxUsageEvent", "AxUsageEvent")
 	case "AxUsageObserver":
@@ -2293,6 +2311,7 @@ func packageReadmeConfigForTarget(target string, network string) packageReadmeCo
 				"- `python examples/runtime_hooks_no_key.py`: runtime-hook globals and typed program surfaces through a scripted transport",
 				"- `python examples/adaptive_balancer_no_key.py`: adaptive balancer state, scoring, and stable route keys without a provider key",
 				"- `python examples/provider_stream_no_key.py`: provider streaming through a scripted SSE transport",
+				"- `python examples/cancellation_no_key.py`: one-shot provider cancellation with no transport attempt",
 				"- `python examples/axflow_program_graph.py`: AxFlow program graph",
 				"- `python examples/flow_mermaid.py`: portable Mermaid flow parsing and canonical round-trip",
 				"- `python examples/audio_responses_mapping.py`: OpenAI Responses speak/transcribe mapping through a scripted transport",
@@ -2371,6 +2390,7 @@ func packageReadmeConfigForTarget(target string, network string) packageReadmeCo
 				"- `examples/RuntimeHooksNoKeyExample.java`: runtime-hook globals and typed program surfaces through a scripted transport",
 				"- `examples/AdaptiveBalancerNoKeyExample.java`: adaptive balancer state, scoring, and stable route keys without a provider key",
 				"- `examples/ProviderStreamNoKeyExample.java`: provider streaming through a scripted SSE transport",
+				"- `examples/CancellationNoKeyExample.java`: one-shot provider cancellation with no transport attempt",
 				"- `examples/AxFlowProgramGraphExample.java`: AxFlow program graph",
 				"- `examples/FlowMermaidExample.java`: portable Mermaid flow parsing and canonical round-trip",
 				"- `examples/AudioResponsesMappingExample.java`: OpenAI Responses speak/transcribe mapping through a scripted transport",
@@ -2444,6 +2464,7 @@ func packageReadmeConfigForTarget(target string, network string) packageReadmeCo
 				"- `examples/runtime_hooks_no_key.cpp`: runtime-hook globals and typed program surfaces through a scripted transport",
 				"- `examples/adaptive_balancer_no_key.cpp`: adaptive balancer state, scoring, and stable route keys without a provider key",
 				"- `examples/provider_stream_no_key.cpp`: provider streaming through a scripted SSE transport",
+				"- `examples/cancellation_no_key.cpp`: one-shot provider cancellation with no transport attempt",
 				"- `examples/axflow_program_graph.cpp`: AxFlow program graph",
 				"- `examples/flow_mermaid.cpp`: portable Mermaid flow parsing and canonical round-trip",
 				"- `examples/audio_responses_mapping.cpp`: OpenAI Responses speak/transcribe mapping through a scripted transport",
@@ -2515,6 +2536,7 @@ func packageReadmeConfigForTarget(target string, network string) packageReadmeCo
 				"- `go run ./examples/vertex_gemma_maas_no_key`: Vertex Gemma MaaS JSON-object, thinking, reasoning replay, and renewable-header mapping through a scripted transport",
 				"- `go run ./examples/adaptive_balancer_no_key`: adaptive balancer state, scoring, and stable route keys without a provider key",
 				"- `go run ./examples/provider_stream_no_key`: provider streaming through a scripted SSE transport",
+				"- `go run ./examples/cancellation_no_key`: context cancellation with no transport attempt",
 				"- `go run ./examples/axflow_program_graph`: AxFlow program graph",
 				"- `go run ./examples/flow_mermaid`: portable Mermaid flow parsing and canonical round-trip",
 				"- `go run ./examples/audio_responses_mapping`: OpenAI Responses speak/transcribe mapping through a scripted transport",
@@ -2592,6 +2614,7 @@ func packageReadmeConfigForTarget(target string, network string) packageReadmeCo
 				"- `cargo run --example runtime_hooks_no_key`: runtime-hook globals and typed program surfaces through a scripted transport",
 				"- `cargo run --example adaptive_balancer_no_key`: adaptive balancer state, scoring, and stable route keys without a provider key",
 				"- `cargo run --example provider_stream_no_key`: provider streaming through a scripted SSE transport",
+				"- `cargo run --example cancellation_no_key`: one-shot provider cancellation with no transport attempt",
 				"- `cargo run --example axgen_scripted_client_tool`: AxGen with a scripted client and tool",
 				"- `cargo run --example axflow_program_graph`: AxFlow program graph",
 				"- `cargo run --example flow_mermaid`: portable Mermaid flow parsing and canonical round-trip",
