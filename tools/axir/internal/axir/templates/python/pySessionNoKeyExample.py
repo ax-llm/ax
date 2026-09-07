@@ -516,3 +516,74 @@ def owned_balancer_failure_accounting():
     assert owner.get_metrics()['errors']['chat']['count']==1,owner.get_metrics()
     print('python owned balancer shares failure accounting')
 owned_balancer_failure_accounting()
+
+# An MCP-derived tool must retain its raw schema and invocation binding in an agent.
+def native_mcp_agent_discovery():
+    from dataclasses import replace
+    from axllm import agent
+    schema={'type':'object','$defs':{'reference':{'type':'string','minLength':3}},'properties':{'query':{'$ref':'#/$defs/reference'}},'required':['query'],'additionalProperties':False}
+    started=threading.Event();release=threading.Event();calls=[];requests=[]
+    class MCP(AxMCPTransport):
+        def send_notification(self,message): raise AssertionError('Modern discovery sent initialize')
+        def send(self,message):
+            method=message['method']
+            if method=='server/discover':result={'resultType':'complete','supportedVersions':['2026-07-28'],'ttlMs':60000,'cacheScope':'private','capabilities':{'tools':{}}}
+            elif method=='tools/list':result={'tools':[{'name':'lookup','description':'Find reference','inputSchema':schema}]}
+            else:
+                assert method=='tools/call' and message['params']['name']=='lookup',message
+                assert message['params']['arguments']=={'query':'REF-42'},message
+                assert message['params']['_meta'], 'MCP invocation metadata was lost'
+                calls.append(message);started.set();assert release.wait(3),'MCP tool did not overlap the model'
+                result={'resultType':'complete','structuredContent':{'reference':'REF-42'},'content':[{'type':'text','text':'REF-42'}]}
+            return {'jsonrpc':'2.0','id':message['id'],'result':result}
+    mcp=AxMCPClient(MCP(),{'era':'modern','namespace':'orders'});mcp.init()
+    native=mcp.native_tools()[0];assert native.execution=='blocking'
+    native=replace(native,execution='background')
+    program=agent('question -> answer',{'functions':[{'namespace':'orders','functions':[native]}],'functionDiscovery':True,'directResponse':'off'})
+    hidden=True
+    def model(request):
+        nonlocal hidden
+        body=request['json'];requests.append(body);number=len(requests)
+        actor_tools=[tool for tool in body.get('tools',[]) if tool.get('async')]
+        if hidden:
+            assert not actor_tools,'Undiscovered MCP tool was exposed to the model'
+            output='{"completion":{"type":"final","args":["No discovered tools",{}]}}' if number<3 else '{"answer":"not discovered"}'
+            return {'status':200,'body':'data: '+json.dumps({'type':'response.completed','response':agent_response('hidden-'+str(number),output)})+'\n\n'}
+        if number==1 or number==5:
+            assert not actor_tools,'Native tool escaped executor authority'
+            if number==5:assert 'REF-42' in json.dumps(body),'Responder started before the MCP result was incorporated'
+            output='{"completion":{"type":"final","args":["Find reference",{}]}}' if number==1 else '{"answer":"REF-42"}'
+            return {'status':200,'body':'data: '+json.dumps({'type':'response.completed','response':agent_response('stage-'+str(number),output)})+'\n\n'}
+        if number==2:
+            assert actor_tools[0]['name']=='orders_lookup' and actor_tools[0]['parameters']==schema,actor_tools
+            item={'type':'function_call','id':'invalid','call_id':'invalid-call','name':'orders_lookup','arguments':'{"query":"X"}'}
+            response={'id':'invalid-response','model':'gpt-6-astra','output':[item]}
+            return {'status':200,'body':'data: '+json.dumps({'type':'response.completed','response':response})+'\n\n'}
+        if number==3:
+            assert not calls,'Invalid MCP arguments reached the handler'
+            assert body['previous_response_id']=='invalid-response' and body['input'][-1]['call_id']=='invalid-call',body
+            def events():
+                yield 'data: '+json.dumps({'type':'response.output_item.done','item':{'type':'function_call','id':'valid','call_id':'mcp-call','name':'orders_lookup','arguments':'{"query":"REF-42"}'}})+'\n\n'
+                assert started.wait(3);release.set()
+                yield 'data: '+json.dumps({'type':'response.completed','response':agent_response('tool-response','{"completion":{"type":"final","args":["Report",{"answer":"provisional"}]}}')})+'\n\n'
+            return {'status':200,'body':events()}
+        assert number==4 and body['previous_response_id']=='tool-response',body
+        result=body['input'][-1];assert result['call_id']=='mcp-call' and json.loads(result['output'])['structuredContent']['reference']=='REF-42',result
+        return {'status':200,'body':'data: '+json.dumps({'type':'response.completed','response':agent_response('final-response','{"completion":{"type":"final","args":["Report",{"answer":"REF-42"}]}}')})+'\n\n'}
+    def transport(request):
+        response=model(request)
+        if not request.get('stream') and isinstance(response.get('body'),str):
+            response['json']=json.loads(response['body'].removeprefix('data: '))['response']
+        return response
+    client=ai('openai',model='gpt-6-astra',api_key='test',transport=transport)
+    assert program.forward(client,{'question':'Find reference'})=={'answer':'not discovered'}
+    assert not calls and len(requests)==3
+    program.discover({'tools':['orders']});hidden=False;requests.clear()
+    assert program.forward(client,{'question':'Find reference'})=={'answer':'REF-42'}
+    assert len(calls)==1 and len(requests)==5
+    activity=[entry for entry in program.state['action_log'] if entry.get('type')=='function_call']
+    assert any(entry.get('qualified_name')=='orders.lookup' and entry.get('call_id')=='mcp-call' and entry.get('status')=='ok' for entry in activity),activity
+    assert program.invoke_callable('orders.lookup',{'query':'REF-42'})['status']=='error'
+    assert len(calls)==1,'MCP native call was replayed through actor code'
+    print('python discovered MCP native agent schema, correction, overlap, result and action log passed')
+native_mcp_agent_discovery()

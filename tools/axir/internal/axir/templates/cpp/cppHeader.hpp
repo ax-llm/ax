@@ -20,6 +20,7 @@
 #include <map>
 #include <limits>
 #include <memory>
+#include <optional>
 #include <mutex>
 #include <regex>
 #include <set>
