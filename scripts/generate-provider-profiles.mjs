@@ -65,6 +65,8 @@ const allowedDialects = new Set([
   'openai-speech',
   'openai-transcription',
   'mistral-speech',
+  'meta-realtime',
+  'meta-transcription',
   'xai-realtime',
   'xai-speech',
   'xai-transcription',
@@ -150,7 +152,7 @@ const validateRequestRules = (rules, context) => {
   }
   if (
     rules.toolChoice &&
-    !['supported', 'unforced'].includes(rules.toolChoice)
+    !['supported', 'unforced', 'no-named'].includes(rules.toolChoice)
   ) {
     throw new Error(`${context} has invalid tool choice rule`);
   }
@@ -503,6 +505,8 @@ const modelRuleCaveat = (rule) => {
   }
   if (rule.request?.toolChoice === 'unforced') {
     details.push('no forced tool choice');
+  } else if (rule.request?.toolChoice === 'no-named') {
+    details.push('no explicitly named tool choice');
   }
   return details.length ? `${selector}: ${details.join(', ')}` : selector;
 };

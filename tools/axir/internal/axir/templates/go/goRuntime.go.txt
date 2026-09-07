@@ -23,6 +23,7 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/coder/websocket"
@@ -2255,7 +2256,7 @@ func (t *ScriptedTransport) Call(ctx context.Context, request Value) (Value, err
 
 // encodeMultipart builds a multipart/form-data body for operations whose
 // transport payload lives under "data" (currently OpenAI /audio/transcriptions).
-// It mirrors the verified Python encoder: the "file" field is base64-decoded to
+// It mirrors the verified Python encoder: binary "file" and "audio" fields are base64-decoded to
 // raw bytes and emitted with a filename + Content-Type, every other field is
 // emitted as a plain text part. A fixed boundary is used (collision with the
 // binary audio is negligible). Returns the body and the Content-Type header.
@@ -2268,7 +2269,7 @@ func encodeMultipart(payload map[string]Value) ([]byte, string) {
 		if value == nil {
 			continue
 		}
-		if key == "file" {
+		if key == "file" || key == "audio" {
 			data := ""
 			filename := "audio.wav"
 			contentType := "audio/wav"
@@ -2293,13 +2294,17 @@ func encodeMultipart(payload map[string]Value) ([]byte, string) {
 				fileBytes = []byte(data)
 			}
 			buf.WriteString("--" + boundary + crlf)
-			buf.WriteString("Content-Disposition: form-data; name=\"file\"; filename=\"" + filename + "\"" + crlf)
+			buf.WriteString("Content-Disposition: form-data; name=\"" + key + "\"; filename=\"" + filename + "\"" + crlf)
 			buf.WriteString("Content-Type: " + contentType + crlf + crlf)
 			buf.Write(fileBytes)
 			buf.WriteString(crlf)
 		} else {
 			buf.WriteString("--" + boundary + crlf)
-			buf.WriteString("Content-Disposition: form-data; name=\"" + key + "\"" + crlf + crlf)
+			buf.WriteString("Content-Disposition: form-data; name=\"" + key + "\"" + crlf)
+			if key == "request" {
+				buf.WriteString("Content-Type: application/json" + crlf)
+			}
+			buf.WriteString(crlf)
 			buf.WriteString(display(value))
 			buf.WriteString(crlf)
 		}
@@ -2370,7 +2375,8 @@ func (t HTTPTransport) Call(ctx context.Context, request Value) (Value, error) {
 	} else if coreTruthy(coreGet(req, "stream", false)) {
 		coreSet(out, "body", string(data))
 	} else if len(data) > 0 {
-		coreSet(out, "json", parseJSON(string(data)))
+		parsed, parseErr := parseJSONErr(string(data))
+		if parseErr != nil { coreSet(out, "json", string(data)) } else { coreSet(out, "json", parsed) }
 	}
 	return out, nil
 }
@@ -2619,14 +2625,14 @@ func (c *OpenAICompatibleClient) Chat(ctx context.Context, request map[string]Va
 			c.setLastChat(model, config)
 			transportReq := c.requestJSON(ctx, "chat", req, false, mergedOptions)
 			if body, handled := c.contextCacheChat(ctx, req, mergedOptions, model, transportReq); handled {
-				return mustCore(provider_normalize_chat_response(c.Profile, body, c.Name, model))
+                return mustCore(provider_normalize_chat_response(c.Profile, body, c.Name, model, coreGet(transportReq, "json", Object())))
 			}
 			raw, err := c.Transport.Call(ctx, transportReq)
 			if err != nil {
 				panic(AxError{Category: "network", Message: err.Error()})
 			}
 			body := normalizeTransportPayload(raw)
-			return mustCore(provider_normalize_chat_response(c.Profile, body, c.Name, model))
+            return mustCore(provider_normalize_chat_response(c.Profile, body, c.Name, model, coreGet(transportReq, "json", Object())))
 		})
 	}
 	response, err := invokeRuntimeLimiter(hooks.RateLimiter, next, AxRateLimitInfo{Operation: "chat", Provider: c.Name, Model: modelName, Streaming: streaming, PreviousModelUsage: previousUsage})
@@ -2945,6 +2951,32 @@ func (c *OpenAICompatibleClient) openProviderStream(ctx context.Context, request
 
 func (c *OpenAICompatibleClient) StreamEvents(ctx context.Context, request map[string]Value, options map[string]Value) (AxChatStream, error) {
 	if err := contextCancellationError(ctx); err != nil { return nil, err }
+	prepared, prepareErr := safeValue(func() Value { return c.prepareChatRequest(request, Object("stream", true)) })
+	if prepareErr != nil { return nil, prepareErr }
+	realtimeRequest := asMap(prepared)
+	realtimeOptions := mergeAIOptions(c.optionsSnapshot(), stripRuntimeHooks(options))
+	useRealtime, routeErr := provider_should_use_realtime(c.Profile, display(coreGet(realtimeRequest, "model", "")), realtimeRequest, realtimeOptions)
+	if routeErr != nil { return nil, routeErr }
+	if useRealtime == true {
+		streamCtx, cancel := context.WithCancel(ctx)
+		type item struct { value Value; err error }
+		items := make(chan item)
+		go func() {
+			defer close(items)
+			final, err := c.realtimeChat(streamCtx, realtimeRequest, realtimeOptions, nil, func(value Value) {
+				select { case items <- item{value: value}: case <-streamCtx.Done(): panic(streamCtx.Err()) }
+			})
+			if err == nil { final, err = provider_realtime_terminal_response(final) }
+			select { case items <- item{value: final, err: err}: case <-streamCtx.Done(): }
+		}()
+		return newAxChatStream(func() (Value, error) {
+			select {
+			case value, ok := <-items:
+				if !ok { return nil, io.EOF }; return value.value, value.err
+			case <-streamCtx.Done(): return nil, streamCtx.Err()
+			}
+		}, func() error { cancel(); return nil }, nil), nil
+	}
 	hooks, previousUsage := c.runtimeHooksSnapshot()
 	hooks = effectiveRuntimeHooks(ctx, options, hooks)
 	mergedOptions := mergeAIOptions(c.optionsSnapshot(), stripRuntimeHooks(options))
@@ -3017,7 +3049,7 @@ func (c *OpenAICompatibleClient) StreamEvents(ctx context.Context, request map[s
 				}
 				state := Object()
 				first, normalizeErr := safeValue(func() Value {
-					return mustCore(provider_normalize_stream_delta(c.Profile, firstRaw, state, c.Name, model))
+                    return mustCore(provider_normalize_stream_delta(c.Profile, firstRaw, state, c.Name, model, coreGet(transportReq, "json", Object())))
 				})
 				if normalizeErr != nil {
 					_ = raw.Close()
@@ -3038,7 +3070,7 @@ func (c *OpenAICompatibleClient) StreamEvents(ctx context.Context, request map[s
 						}
 						return nil, AxError{Category: "response", Type: "AxAIServiceStreamTerminatedError", Message: eventErr.Error(), Retryable: true}
 					}
-					value, normalizeErr := safeValue(func() Value { return mustCore(provider_normalize_stream_delta(c.Profile, event, state, c.Name, model)) })
+                    value, normalizeErr := safeValue(func() Value { return mustCore(provider_normalize_stream_delta(c.Profile, event, state, c.Name, model, coreGet(transportReq, "json", Object()))) })
 					if normalizeErr != nil {
 						return nil, normalizeErr
 					}
@@ -3129,6 +3161,8 @@ func (c *OpenAICompatibleClient) requestJSON(ctx context.Context, operation stri
 	if operation == "speak" {
 		payload = mustCore(provider_build_speak_request(c.Profile, request))
 	}
+	query := asMap(coreGet(payload, "query", Object()))
+	delete(asMap(payload), "query")
 	// The provider builder owns wire-level streaming fields. OpenAI uses a JSON
 	// `stream` flag, while Gemini and Anthropic select streaming through their
 	// operation endpoint and reject an extra body field.
@@ -3151,6 +3185,9 @@ func (c *OpenAICompatibleClient) requestJSON(ctx context.Context, operation stri
 	for _, key := range orderedKeys(asMap(coreGet(descriptor, "headers", Object()))) {
 		coreSet(headers, key, display(coreGet(coreGet(descriptor, "headers", Object()), key, nil)))
 	}
+	if c.Profile == "meta" && operation == "transcribe" && (coreGet(request, "partialMode", coreGet(request, "partial_mode", nil)) != nil || coreTruthy(coreGet(request, "emitAudioProgress", coreGet(request, "emit_audio_progress", false)))) {
+		coreSet(headers, "Accept", "text/event-stream")
+	}
 	pathModel := coreGet(request, "model", coreGet(request, "embed_model", coreGet(request, "embedModel", coreGet(opts, "model", nil))))
 	if pathModel != nil {
 		path = strings.ReplaceAll(path, "{model}", url.PathEscape(display(pathModel)))
@@ -3164,6 +3201,15 @@ func (c *OpenAICompatibleClient) requestJSON(ctx context.Context, operation stri
 		path += sep + url.QueryEscape(keyName) + "=" + url.QueryEscape(apiKey)
 	}
 	requestURL := strings.TrimRight(base, "/") + path
+	if len(query) > 0 {
+		values := url.Values{}
+		for _, key := range orderedKeys(query) {
+			values.Set(key, display(coreGet(query, key, "")))
+		}
+		sep := "?"
+		if strings.Contains(requestURL, "?") { sep = "&" }
+		requestURL += sep + values.Encode()
+	}
 	if apiVersion := display(coreGet(descriptor, "apiVersion", coreGet(opts, "api_version", coreGet(opts, "apiVersion", "")))); apiVersion != "" {
 		sep := "?"
 		if strings.Contains(requestURL, "?") {
@@ -3218,7 +3264,11 @@ func (c *OpenAICompatibleClient) Transcribe(ctx context.Context, request map[str
 		if err != nil {
 			panic(AxError{Category: "network", Message: err.Error()})
 		}
-		return mustCore(provider_normalize_transcribe_response(c.Profile, normalizeTransportPayload(raw)))
+		payload := normalizeTransportPayload(raw)
+		if c.Profile == "meta" {
+			if _, ok := payload.(string); ok { payload = Object("events", iterSSE(payload)) }
+		}
+		return mustCore(provider_normalize_transcribe_response(c.Profile, payload, request))
 	})
 	return value, normalizeContextError(ctx, err)
 }
@@ -3264,21 +3314,26 @@ type ScriptedRealtimeTransport struct {
 	Inbound []Value
 	Sent    []Value
 	idx     int
+	ended chan struct{}
+	endOnce sync.Once
 }
 
 func NewScriptedRealtimeTransport(inbound []Value) *ScriptedRealtimeTransport {
-	return &ScriptedRealtimeTransport{Inbound: append([]Value(nil), inbound...)}
+	t := &ScriptedRealtimeTransport{Inbound: append([]Value(nil), inbound...)}
+	for _, event := range inbound { if coreGet(event, "sessionId", nil) != nil && coreGet(event, "type", nil) == nil { t.ended = make(chan struct{}); break } }
+	return t
 }
-func (t *ScriptedRealtimeTransport) Send(event Value) { t.Sent = append(t.Sent, event) }
+func (t *ScriptedRealtimeTransport) Send(event Value) { t.Sent = append(t.Sent, event); if coreGet(event, "type", nil) == "endStream" { t.Close() } }
 func (t *ScriptedRealtimeTransport) Recv() (Value, bool) {
 	if t.idx >= len(t.Inbound) {
+		if t.ended != nil { select { case <-t.ended: case <-time.After(30*time.Second): panic(AxError{Category: "network", Message: "scripted realtime input did not finish"}) } }
 		return nil, false
 	}
 	event := t.Inbound[t.idx]
 	t.idx++
 	return event, true
 }
-func (t *ScriptedRealtimeTransport) Close() {}
+func (t *ScriptedRealtimeTransport) Close() { if t.ended != nil { t.endOnce.Do(func() { close(t.ended) }) } }
 
 type wsRealtimeTransport struct {
 	conn *websocket.Conn
@@ -3286,6 +3341,16 @@ type wsRealtimeTransport struct {
 }
 
 func (t *wsRealtimeTransport) Send(event Value) {
+	if display(coreGet(event, "type", "")) == "binary" {
+		data, err := base64.StdEncoding.DecodeString(display(coreGet(event, "data", "")))
+		if err != nil {
+			panic(AxError{Category: "protocol", Message: err.Error()})
+		}
+		if err := t.conn.Write(t.ctx, websocket.MessageBinary, data); err != nil {
+			panic(AxError{Category: "network", Message: err.Error()})
+		}
+		return
+	}
 	data, err := json.Marshal(runtimeJSONValue(event))
 	if err != nil {
 		panic(AxError{Category: "protocol", Message: err.Error()})
@@ -3297,15 +3362,19 @@ func (t *wsRealtimeTransport) Send(event Value) {
 func (t *wsRealtimeTransport) Recv() (Value, bool) {
 	_, data, err := t.conn.Read(t.ctx)
 	if err != nil {
-		return nil, false
+		if websocket.CloseStatus(err) == websocket.StatusNormalClosure { return nil, false }
+		panic(AxError{Category: "network", Message: err.Error()})
 	}
 	return parseJSON(string(data)), true
 }
 func (t *wsRealtimeTransport) Close() { _ = t.conn.Close(websocket.StatusNormalClosure, "") }
 
 func realtimeEventIsReady(event Value) bool {
+	if display(coreGet(event, "type", "")) == "" && display(coreGet(event, "sessionId", "")) != "" {
+		return true
+	}
 	switch display(coreGet(event, "type", "")) {
-	case "session.created", "session.updated", "transcription_session.created", "transcription_session.updated":
+	case "session.created", "session.updated", "transcription_session.created", "transcription_session.updated", "ready", "sessionStarted":
 		return true
 	}
 	return coreGet(event, "setupComplete", nil) != nil
@@ -3327,7 +3396,7 @@ func (c *OpenAICompatibleClient) realtimeWSTarget(model Value, opts map[string]V
 	// Grammar-specific URL + auth construction lives in Core so the client stays
 	// provider-agnostic.
 	apiKey := display(coreGet(opts, "api_key", coreGet(opts, "apiKey", os.Getenv("OPENAI_API_KEY"))))
-	target := mustCore(provider_realtime_ws_url(c.Profile, display(model), apiKey))
+	target := mustCore(provider_realtime_ws_url(c.Profile, display(model), apiKey, opts))
 	headers := Object()
 	rawHeaders := asMap(coreGet(target, "headers", Object()))
 	for _, key := range orderedKeys(rawHeaders) {
@@ -3342,11 +3411,28 @@ func (c *OpenAICompatibleClient) realtimeWSTarget(model Value, opts map[string]V
 // turn response (transcript concatenated, audio chunks base64-joined). Pass a
 // ScriptedRealtimeTransport to exercise the loop offline without a socket.
 func (c *OpenAICompatibleClient) RealtimeChat(ctx context.Context, request map[string]Value, options map[string]Value, transport RealtimeTransport) (Value, error) {
+	return c.realtimeChat(ctx, request, options, transport, nil)
+}
+
+func (c *OpenAICompatibleClient) realtimeChat(ctx context.Context, request map[string]Value, options map[string]Value, transport RealtimeTransport, emit func(Value)) (Value, error) {
 	return safeValue(func() Value {
 		opts := mergeAIOptions(c.optionsSnapshot(), options)
 		model := coreGet(request, "model", coreGet(opts, "model", nil))
 		setup := mustCore(provider_build_realtime_audio_setup(c.Profile, request, opts))
 		inputs := asSlice(mustCore(provider_build_realtime_audio_input(c.Profile, request, opts)))
+		if c.Profile == "meta" {
+			credential := coreGet(opts, "credential_provider", coreGet(opts, "credentialProvider", nil))
+			if credential != nil {
+				provider, ok := credential.(AxCredentialProvider)
+				if !ok { panic(AxError{Category: "authentication", Message: "credential_provider must implement AxCredentialProvider"}) }
+				wsURL, _ := c.realtimeWSTarget(model, opts)
+				fresh, err := provider.Credentials(ctx, AxCredentialRequest{Profile: c.Profile, Operation: "realtime", Method: "WS", URL: wsURL})
+				if err != nil { panic(err) }
+				headers := Object()
+				for key, value := range fresh { coreSet(headers, key, value) }
+				setup = mustCore(provider_apply_realtime_credentials(setup, headers))
+			}
+		}
 		ownTransport := transport == nil
 		if ownTransport {
 			wsURL, headers := c.realtimeWSTarget(model, opts)
@@ -3363,8 +3449,19 @@ func (c *OpenAICompatibleClient) RealtimeChat(ctx context.Context, request map[s
 			defer transport.Close()
 		}
 		transport.Send(setup)
+		sendCtx, stopSending := context.WithCancel(ctx)
+		if ws, ok := transport.(*wsRealtimeTransport); ok { ws.ctx = sendCtx }
+		var sendDone chan error
+		defer func() {
+			stopSending()
+			if sendDone != nil {
+				if err := <-sendDone; err != nil { panic(err) }
+			}
+		}()
 		inputSent := false
+		var endStreamSent atomic.Bool
 		events := []Value{}
+		state := Object("partial_mode", coreGet(setup, "partialMode", nil))
 		for {
 			event, ok := transport.Recv()
 			if !ok {
@@ -3372,31 +3469,69 @@ func (c *OpenAICompatibleClient) RealtimeChat(ctx context.Context, request map[s
 			}
 			if display(coreGet(event, "type", "")) == "error" {
 				detail := coreGet(event, "error", Object())
-				panic(AxError{Category: "provider", Message: display(coreGet(detail, "message", "realtime error"))})
+				panic(AxError{Category: "provider", Message: display(coreGet(event, "message", coreGet(detail, "message", "realtime error")))})
 			}
 			if realtimeEventIsReady(event) {
+				if session := coreGet(event, "sessionId", nil); session != nil { coreSet(state, "session_id", session) }
 				if !inputSent {
 					inputSent = true
+					sendInputs := func() error {
+					_, err := safeValue(func() Value {
 					for _, item := range inputs {
-						transport.Send(item)
+						if sendCtx.Err() != nil { return nil }
+						if display(coreGet(setup, "audioEncoding", "")) != "" && display(coreGet(item, "type", "")) == "binary" {
+							decoded, err := base64.StdEncoding.DecodeString(display(coreGet(item, "data", "")))
+							if err != nil || len(decoded)%2 != 0 { panic(AxError{Category: "protocol", Message: "PCM16 audio must contain complete base64-encoded 16-bit samples"}) }
+							rate := 24000
+							if display(coreGet(setup, "audioEncoding", "")) == "PCM_16KHZ" { rate = 16000 }
+							chunkSize := rate * 2 * 80 / 1000
+							for offset := 0; offset < len(decoded); offset += chunkSize {
+								if sendCtx.Err() != nil { return nil }
+								end := offset + chunkSize
+								if end > len(decoded) { end = len(decoded) }
+								transport.Send(Object("type", "binary", "data", base64.StdEncoding.EncodeToString(decoded[offset:end])))
+								select {
+								case <-time.After(time.Duration(end-offset) * time.Second / time.Duration(rate*2)):
+								case <-sendCtx.Done(): return nil
+								}
+							}
+						} else {
+							if display(coreGet(item, "type", "")) == "endStream" { endStreamSent.Store(true) }
+							transport.Send(item)
+						}
 					}
+					return nil
+					})
+					return err
+					}
+					if coreGet(setup, "audioEncoding", nil) != nil {
+						sendDone = make(chan error, 1)
+						go func() {
+							err := sendInputs()
+							sendDone <- err
+							if err != nil { transport.Close() }
+						}()
+					} else if err := sendInputs(); err != nil { panic(err) }
 				}
 				continue
 			}
-			events = append(events, event)
+			if coreGet(setup, "audioEncoding", nil) != nil && !inputSent { panic(AxError{Category: "protocol", Message: "Meta Voice server did not acknowledge setup"}) }
+			normalized := mustCore(provider_normalize_realtime_event(c.Profile, event, state, c.Name, model))
+			events = append(events, normalized)
+			if emit != nil { emit(normalized) }
 			if realtimeEventIsDone(event) {
 				break
 			}
 		}
-		state := Object()
+		if coreGet(setup, "audioEncoding", nil) != nil && !inputSent { panic(AxError{Category: "protocol", Message: "Meta Voice closed before acknowledging setup"}) }
+		if coreGet(setup, "audioEncoding", nil) != nil && !endStreamSent.Load() { panic(AxError{Category: "protocol", Message: "Meta Voice closed before audio upload completed"}) }
 		var contents []string
 		var audioChunks []string
 		functionCalls := []Value{}
 		responseID := ""
 		finishReason := ""
 		var modelUsage Value
-		for _, event := range events {
-			out := mustCore(provider_normalize_realtime_event(c.Profile, event, state, c.Name, model))
+		for _, out := range events {
 			results := asSlice(coreGet(out, "results", Array()))
 			if len(results) == 0 {
 				continue
@@ -3438,7 +3573,7 @@ func (c *OpenAICompatibleClient) RealtimeChat(ctx context.Context, request map[s
 			}
 			coreSet(merged, "audio", Object("data", base64.StdEncoding.EncodeToString(combined), "format", "pcm16", "transcript", text))
 		}
-		return Object("results", Array(merged), "remote_id", responseID, "model_usage", modelUsage)
+		return mustCore(provider_finalize_realtime_response(c.Profile, state, Object("results", Array(merged), "remote_id", responseID, "model_usage", modelUsage)))
 	})
 }
 func (c *OpenAICompatibleClient) GetID() string {
@@ -8278,7 +8413,7 @@ func axMemoryResponseMeaningful(response Value) bool {
 	if content := coreGet(m, "content", nil); content != nil && strings.TrimSpace(display(content)) != "" {
 		return true
 	}
-	for _, key := range []string{"function_calls", "functionCalls", "tool_calls", "toolCalls", "thought_blocks", "thoughtBlocks"} {
+	for _, key := range []string{"function_calls", "functionCalls", "tool_calls", "toolCalls", "thought_blocks", "thoughtBlocks", "images"} {
 		if len(asSlice(coreGet(m, key, nil))) > 0 {
 			return true
 		}

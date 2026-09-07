@@ -155,7 +155,11 @@ export type AxAIOpenAIChatContentPart = (
     }
   | {
       type: 'image_url';
-      image_url: { url: string; details?: 'high' | 'low' | 'auto' };
+      image_url: {
+        url: string;
+        detail?: 'high' | 'low' | 'auto';
+        details?: 'high' | 'low' | 'auto';
+      };
     }
   | {
       type: 'input_audio';
@@ -170,9 +174,14 @@ export type AxAIOpenAIChatContentPart = (
   | {
       type: 'file';
       file: {
-        file_data: string;
-        filename: string;
+        file_data?: string;
+        file_url?: string;
+        filename?: string;
       };
+    }
+  | {
+      type: 'video_url';
+      video_url: { url: string };
     }
 ) & {
   prompt_cache_breakpoint?: AxAIOpenAIPromptCacheBreakpoint;

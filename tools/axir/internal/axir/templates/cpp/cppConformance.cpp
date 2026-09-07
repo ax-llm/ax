@@ -789,10 +789,11 @@ static void run_stream(Value fixture) {
   try {
     for (const auto& event : Core::iter(Core::get(fixture, "stream_events", Value::array()))) {
       Core::append(chunks, event);
+      Value content = Core::fold_stream(chunks);
       for (const auto& raw : Core::iter(Core::get(fixture, "streaming_assertions", Value::array()))) {
         Value needle = Core::get(raw, "not_contains", Core::get(raw, "notContains"));
         if (needle.is_null()) continue;
-        if (display(Core::fold_stream(chunks)).find(display(needle)) != std::string::npos) {
+        if (display(content).find(display(needle)) != std::string::npos) {
           throw AxError("runtime", display(Core::get(raw, "message", "streaming assertion failed")));
         }
       }

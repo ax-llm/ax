@@ -1,0 +1,116 @@
+{
+  "expected_transport_json_absent": [
+    "reasoning_effort",
+    "stop_sequences",
+    "top_k"
+  ],
+  "expected_transport_request": {
+    "json": {
+      "messages": [
+        {
+          "content": [
+            {
+              "source": {
+                "data": "AAAA",
+                "media_type": "audio/wav",
+                "type": "base64"
+              },
+              "type": "audio"
+            },
+            {
+              "source": {
+                "type": "url",
+                "url": "https://example.com/brief.pdf"
+              },
+              "type": "document"
+            }
+          ],
+          "role": "user"
+        }
+      ],
+      "output_config": {
+        "effort": "xhigh",
+        "format": {
+          "schema": {
+            "properties": {
+              "answer": {
+                "type": "string"
+              }
+            },
+            "required": ["answer"],
+            "type": "object"
+          },
+          "type": "json_schema"
+        }
+      },
+      "thinking": {
+        "display": "summarized",
+        "type": "adaptive"
+      }
+    },
+    "url": "https://api.meta.ai/v1/messages"
+  },
+  "kind": "ai_chat",
+  "model": "muse-spark-1.3",
+  "name": "meta-messages-reasoning",
+  "provider": "meta-messages",
+  "request": {
+    "chat_prompt": [
+      {
+        "cache": true,
+        "content": [
+          {
+            "data": "AAAA",
+            "format": "wav",
+            "type": "audio"
+          },
+          {
+            "fileUri": "https://example.com/brief.pdf",
+            "mimeType": "application/pdf",
+            "type": "file"
+          }
+        ],
+        "role": "user"
+      }
+    ],
+    "model_config": {
+      "stream": false,
+      "thinkingTokenBudget": "highest"
+    },
+    "response_format": {
+      "schema": {
+        "schema": {
+          "properties": {
+            "answer": {
+              "type": "string"
+            }
+          },
+          "required": ["answer"],
+          "type": "object"
+        }
+      },
+      "type": "json_schema"
+    }
+  },
+  "transport_responses": [
+    {
+      "json": {
+        "content": [
+          {
+            "text": "ok",
+            "type": "text"
+          }
+        ],
+        "id": "meta_messages",
+        "model": "muse-spark-1.3",
+        "stop_reason": "end_turn",
+        "type": "message",
+        "usage": {
+          "input_tokens": 1,
+          "output_tokens": 1
+        }
+      },
+      "status": 200
+    }
+  ]
+}

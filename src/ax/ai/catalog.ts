@@ -10,6 +10,12 @@ import {
   AxAIGoogleGeminiEmbedModel,
   AxAIGoogleGeminiModel,
 } from './google-gemini/types.js';
+import {
+  axModelInfoMeta,
+  axModelInfoMetaMessages,
+  axModelInfoMetaSpark,
+} from './meta/info.js';
+import { AxAIMetaModel } from './meta/types.js';
 import { axModelInfoMistral } from './mistral/info.js';
 import { AxAIMistralModel } from './mistral/types.js';
 import { AxAIOpenAIEmbedModel, AxAIOpenAIModel } from './openai/chat_types.js';
@@ -57,6 +63,13 @@ export type AxAIModelCatalogModelCapabilities = {
   topP: boolean;
   audioInput: boolean;
   audioOutput: boolean;
+  /** Omitted when the bundled model metadata does not declare exact modalities. */
+  textInput?: boolean;
+  imageInput?: boolean;
+  videoInput?: boolean;
+  pdfInput?: boolean;
+  textOutput?: boolean;
+  imageOutput: boolean;
   /** Verified explicit request tiers. `auto` remains available as the provider-delegated policy. */
   serviceTiers: AxServiceTier[];
 };
@@ -78,7 +91,8 @@ export type AxAIModelCatalogModelType =
   | 'text'
   | 'embeddings'
   | 'code'
-  | 'audio';
+  | 'audio'
+  | 'image';
 
 export type AxAIModelCatalogFilter = 'all' | AxAIModelCatalogModelType;
 
@@ -167,6 +181,24 @@ const axKnownModelCatalogProviderDefinitions = {
     isDynamic: false,
     modelInfo: axModelInfoDeepSeek,
   },
+  meta: {
+    displayName: 'Meta Model API',
+    defaultModel: AxAIMetaModel.MuseSpark13,
+    isDynamic: false,
+    modelInfo: axModelInfoMeta,
+  },
+  'meta-chat': {
+    displayName: 'Meta Model API Chat Completions',
+    defaultModel: AxAIMetaModel.MuseSpark13,
+    isDynamic: false,
+    modelInfo: axModelInfoMetaSpark,
+  },
+  'meta-messages': {
+    displayName: 'Meta Model API Messages',
+    defaultModel: AxAIMetaModel.MuseSpark13,
+    isDynamic: false,
+    modelInfo: axModelInfoMetaMessages,
+  },
   mistral: {
     displayName: 'Mistral AI',
     defaultModel: AxAIMistralModel.MistralSmall,
@@ -247,8 +279,13 @@ const axThinkingLevelsFor = (
 ): AxAIModelCatalogThinkingLevel[] => {
   if (!supported) return [];
 
-  const unsupported = axProfileModelRule(profile, model)?.request
-    ?.unsupportedThinkingLevels;
+  const unsupported = {
+    ...Object.fromEntries(
+      (profile.unsupportedThinkingLevels ?? []).map((level) => [level, true])
+    ),
+    ...(axProfileModelRule(profile, model)?.request
+      ?.unsupportedThinkingLevels ?? {}),
+  };
   return axAIModelCatalogThinkingLevels.filter(
     (level) => !Object.hasOwn(unsupported ?? {}, level)
   );
@@ -315,6 +352,9 @@ const axCloneModelInfo = (
       ...(model.supported.serviceTiers
         ? { serviceTiers: [...model.supported.serviceTiers] }
         : undefined),
+      ...(model.supported.operations
+        ? { operations: [...model.supported.operations] }
+        : undefined),
     };
   }
   if (model.notSupported) {
@@ -322,6 +362,20 @@ const axCloneModelInfo = (
   }
   if (model.audio) {
     clone.audio = { ...model.audio };
+  }
+  if (model.modalities) {
+    clone.modalities = {
+      input: [...model.modalities.input],
+      output: [...model.modalities.output],
+    };
+  }
+  if (model.dataUse) {
+    clone.dataUse = {
+      ...model.dataUse,
+      ...(model.dataUse.appliesTo
+        ? { appliesTo: [...model.dataUse.appliesTo] }
+        : undefined),
+    };
   }
 
   return clone;
@@ -349,6 +403,19 @@ const axModelCapabilities = (
       (type === 'audio' &&
         !name.includes('whisper') &&
         !name.includes('transcription')),
+    ...(model.modalities
+      ? {
+          textInput: model.modalities.input.includes('text'),
+          imageInput: model.modalities.input.includes('image'),
+          videoInput: model.modalities.input.includes('video'),
+          pdfInput: model.modalities.input.includes('pdf'),
+          textOutput: model.modalities.output.includes('text'),
+        }
+      : {}),
+    imageOutput:
+      model.modalities?.output.includes('image') ??
+      model.supported?.imageOutput ??
+      false,
     serviceTiers: axServiceTiersFor(provider, model, type),
   };
 };
@@ -358,8 +425,11 @@ const axModelType = (
 ): AxAIModelCatalogModelType => {
   const name = model.name.toLowerCase();
 
+  if (model.supported?.imageOutput || name.includes('image')) {
+    return 'image';
+  }
+
   if (
-    model.audio?.input ||
     model.audio?.output ||
     name.includes('audio') ||
     name.includes('realtime') ||

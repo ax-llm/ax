@@ -1,0 +1,27 @@
+{
+  "expected_output": {
+    "segments": [
+      {
+        "id": "0",
+        "text": "Hello world."
+      }
+    ],
+    "text": "Hello world."
+  },
+  "kind": "ai_transcribe",
+  "name": "meta-voice-transcribe-cumulative-final",
+  "provider": "meta",
+  "request": {
+    "audio": {
+      "data": "AAE=",
+      "format": "wav"
+    },
+    "partialMode": "cumulative"
+  },
+  "transport_responses": [
+    {
+      "body": "data: {\"type\":\"transcript\",\"transcript\":\"Hello\",\"final\":false}\n\ndata: {\"type\":\"transcript\",\"transcript\":\"Hello world\",\"final\":false}\n\ndata: {\"type\":\"transcript\",\"transcript\":\"Hello world.\",\"final\":true}\n\n",
+      "status": 200
+    }
+  ]
+}

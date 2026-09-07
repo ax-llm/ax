@@ -6,9 +6,7 @@
   "max_elapsed_ms": 1000,
   "program_max_elapsed_ms": 100,
   "request": {
-    "chat_prompt": [
-      { "role": "user", "content": "cancel this request" }
-    ]
+    "chat_prompt": [{ "role": "user", "content": "cancel this request" }]
   },
   "retry_options": {
     "retry": {

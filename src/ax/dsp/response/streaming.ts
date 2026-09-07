@@ -53,11 +53,17 @@ export async function* processStreamingResponse<OUT extends AxGenOut>({
       aggregatedCitations.push(...collectResultCitations(v.results));
 
       for (const result of v.results) {
+        if (result.finishReason === 'error') {
+          throw new Error('Streaming response failed');
+        }
+        // Terminal status often arrives in a separate, content-free delta.
         if (
           (!result.content || result.content === '') &&
           (!result.thought || result.thought === '') &&
           (!result.thoughtBlocks || result.thoughtBlocks.length === 0) &&
-          (!result.functionCalls || result.functionCalls.length === 0)
+          (!result.functionCalls || result.functionCalls.length === 0) &&
+          !result.phase &&
+          result.finishReason !== 'length'
         ) {
           continue;
         }
@@ -159,6 +165,7 @@ async function* processStreamingResult<OUT extends AxGenOut>({
         content: result.content,
         functionCalls: state.functionCalls,
         thoughtBlocks: result.thoughtBlocks,
+        phase: result.phase,
         delta: result.functionCalls?.[0]?.function?.params as string,
         index: result.index,
       },
@@ -171,6 +178,7 @@ async function* processStreamingResult<OUT extends AxGenOut>({
         name: result.name,
         content: state.content,
         thoughtBlocks: result.thoughtBlocks,
+        phase: result.phase,
         delta: result.content,
         index: result.index,
       },
@@ -282,6 +290,7 @@ async function* processStreamingResult<OUT extends AxGenOut>({
         index: result.index,
         thought: result.thought,
         thoughtBlocks: result.thoughtBlocks,
+        phase: result.phase,
       },
       sessionId
     );
@@ -293,9 +302,12 @@ async function* processStreamingResult<OUT extends AxGenOut>({
         delta: '',
         index: result.index,
         thoughtBlocks: result.thoughtBlocks,
+        phase: result.phase,
       },
       sessionId
     );
+  } else if (result.phase) {
+    mem.updateResult({ index: result.index, phase: result.phase }, sessionId);
   }
 
   if (result.finishReason === 'length') {

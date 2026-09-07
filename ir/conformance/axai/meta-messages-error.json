@@ -1,0 +1,21 @@
+{
+  "expected_error_contains": "Meta rate limit",
+  "expected_error_type": "AxAIServiceStatusError",
+  "expected_status": 429,
+  "kind": "ai_error",
+  "model": "muse-spark-1.3",
+  "name": "meta-messages-error",
+  "provider": "meta-messages",
+  "request": {
+    "chat_prompt": [{ "content": "fail", "role": "user" }]
+  },
+  "transport_responses": [
+    {
+      "json": {
+        "error": { "message": "Meta rate limit", "type": "rate_limit_error" },
+        "type": "error"
+      },
+      "status": 200
+    }
+  ]
+}

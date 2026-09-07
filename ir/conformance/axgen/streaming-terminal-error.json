@@ -1,0 +1,23 @@
+{
+  "expected_error_contains": "Streaming response failed",
+  "kind": "stream",
+  "name": "streaming-terminal-error",
+  "stream_events": [
+    {
+      "results": [
+        {
+          "content": "{\"answer\":\"Done\"}",
+          "index": 0
+        }
+      ]
+    },
+    {
+      "results": [
+        {
+          "finish_reason": "error",
+          "index": 0
+        }
+      ]
+    }
+  ]
+}

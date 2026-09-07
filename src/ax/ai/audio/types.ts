@@ -63,6 +63,18 @@ export type AxTranscriptionRequest<TModel = string> = {
   prompt?: string;
   temperature?: number;
   responseFormat?: 'json' | 'verbose_json' | 'text';
+  /** Portable speech-turn behavior for providers that support it. */
+  mode?: 'push_to_talk' | 'endpointing' | 'diarization';
+  /** Expected spoken languages used to bias recognition without forcing one language. */
+  languageBias?: string[];
+  /** Domain words and names used to bias recognition. */
+  keywords?: string[];
+  /** Shape of partial transcript events when a provider offers streaming transcription. */
+  partialMode?: 'cumulative' | 'delta';
+  /** Ask the provider to emit audio processing progress when supported. */
+  emitAudioProgress?: boolean;
+  /** Optional caller correlation identifier. */
+  sessionId?: string;
 };
 
 export type AxTranscriptionSegment = {
@@ -79,6 +91,9 @@ export type AxTranscriptionResponse = {
   duration?: number;
   segments?: AxTranscriptionSegment[];
   words?: AxTranscriptionSegment[];
+  sessionId?: string;
+  /** Latest provider-reported amount of audio processed. */
+  audioProcessedMs?: number;
 };
 
 export type AxSpeechRequest<TModel = string> = {

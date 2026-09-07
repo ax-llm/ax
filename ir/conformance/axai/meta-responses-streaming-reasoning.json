@@ -1,0 +1,139 @@
+{
+  "expected_output": [
+    {
+      "model_usage": null,
+      "remote_id": "meta-stream",
+      "results": [
+        {
+          "content": "",
+          "finish_reason": null,
+          "function_calls": [],
+          "id": "reasoning-1",
+          "index": 0,
+          "thought": "Checked",
+          "thought_blocks": [
+            {
+              "data": "Checked",
+              "encrypted": false,
+              "id": "reasoning-1"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "model_usage": null,
+      "remote_id": "meta-stream",
+      "results": [
+        {
+          "content": "",
+          "finish_reason": null,
+          "function_calls": [],
+          "id": "reasoning-1",
+          "index": 0,
+          "thought": "Checked facts",
+          "thought_blocks": [
+            {
+              "data": "Checked facts",
+              "encrypted": false,
+              "id": "reasoning-1",
+              "summary": "Checked facts"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "model_usage": null,
+      "remote_id": "meta-stream",
+      "results": [
+        {
+          "content": "",
+          "finish_reason": null,
+          "function_calls": [],
+          "id": "reasoning-1",
+          "index": 0,
+          "thought": "Checked facts",
+          "thought_blocks": [
+            {
+              "data": "Checked facts",
+              "encrypted": true,
+              "encrypted_content": "opaque-stream",
+              "id": "reasoning-1",
+              "summary": "Checked facts"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "model_usage": null,
+      "remote_id": "meta-stream",
+      "results": [
+        {
+          "content": "Done",
+          "finish_reason": null,
+          "function_calls": [],
+          "id": "message-1",
+          "index": 0
+        }
+      ]
+    },
+    {
+      "model_usage": {
+        "ai": "meta",
+        "model": "muse-spark-1.3",
+        "tokens": {
+          "completion_tokens": 2,
+          "prompt_tokens": 2,
+          "total_tokens": 4
+        }
+      },
+      "remote_id": "meta-stream",
+      "results": [
+        {
+          "content": "",
+          "finish_reason": "stop",
+          "function_calls": [],
+          "id": "0",
+          "index": 0
+        }
+      ]
+    }
+  ],
+  "expected_transport_request": {
+    "json": {
+      "reasoning": {
+        "effort": "xhigh",
+        "summary": "auto"
+      },
+      "store": false,
+      "stream": true
+    },
+    "url": "https://api.meta.ai/v1/responses"
+  },
+  "kind": "ai_stream",
+  "model": "muse-spark-1.3",
+  "name": "meta-responses-streaming-reasoning",
+  "options": {
+    "stream": true
+  },
+  "provider": "meta",
+  "request": {
+    "chat_prompt": [
+      {
+        "content": "Think",
+        "role": "user"
+      }
+    ],
+    "model_config": {
+      "thinkingTokenBudget": "highest"
+    }
+  },
+  "transport_responses": [
+    {
+      "body": "data: {\"type\":\"response.reasoning_summary_text.delta\",\"response_id\":\"meta-stream\",\"item_id\":\"reasoning-1\",\"delta\":\"Checked\"}\n\ndata: {\"type\":\"response.reasoning_summary_text.done\",\"response_id\":\"meta-stream\",\"item_id\":\"reasoning-1\",\"text\":\"Checked facts\"}\n\ndata: {\"type\":\"response.output_item.done\",\"response_id\":\"meta-stream\",\"item\":{\"type\":\"reasoning\",\"id\":\"reasoning-1\",\"summary\":[{\"type\":\"summary_text\",\"text\":\"Checked facts\"}],\"encrypted_content\":\"opaque-stream\"}}\n\ndata: {\"type\":\"response.output_text.delta\",\"response_id\":\"meta-stream\",\"item_id\":\"message-1\",\"delta\":\"Done\"}\n\ndata: {\"type\":\"response.completed\",\"response\":{\"id\":\"meta-stream\",\"model\":\"muse-spark-1.3\",\"usage\":{\"input_tokens\":2,\"output_tokens\":2,\"total_tokens\":4}}}\n\ndata: [DONE]\n\n",
+      "status": 200
+    }
+  ]
+}

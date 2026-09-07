@@ -557,3 +557,22 @@ This ledger tracks portable TypeScript behavior that should be migrated into AxI
   - Completed at: 2026-09-06
   - Completed by: `working-tree`
   - Verification: `portable-cancellation conformance in Python, Java, C++, Go, and Rust; npm run test:axir; npm run axir:check-packages`
+- `axir-2026-09-06-preserve-meta-stream-failures-and-replay-metadata-and-enable-ax-` [axai] Preserve Meta stream failures and replay metadata and enable Ax output tools
+  - Status: done
+  - Source commit: `781623e58befc00a555cf73ccbac598a72bb700c`
+  - TS paths: `src/ax/ai/meta/regressions.test.ts`, `src/ax/ai/openai/responses_api.ts`, `src/ax/ai/openai/responses_api_base.ts`, `src/ax/ai/openai/responses_types.ts`, `src/ax/ai/provider_profiles.ts`, `src/ax/dsp/response/streaming.ts`
+  - Impact: Responses terminal failures and token limits must survive provider normalization and program streaming; Meta must accept internally generated output tools without enabling caller-named forced choices; streamed final-answer phases must reach memory.
+  - Suggested AxIR work: Add or update the TS-derived conformance fixture.; Update AxIR/Core or descriptor data to match the portable TS behavior.; Run npm run axir:conformance:check and npm run test:axir.
+  - Completed at: 2026-09-06
+  - Completed by: `working-tree`
+  - Verification: `TypeScript: 3052 tests passed, 1 skipped; type-check and type-tests passed. test:axir passed, including Python/Java/C++/Go/Rust release conformance and package-consumer checks. profiles:check, axir:conformance:check, axir:check-packages, test:examples:generated, and website:check passed.`
+- `axir-2026-09-07-complete-meta-replay-and-realtime-upload-integrity` [axai] Complete Meta replay and realtime upload integrity
+  - Status: done
+  - Source PR: #649
+  - Source commit: `0072270c8f6de37da546f739e6f8ef2c25ff7459`
+  - TS paths: `src/ax/ai/openai/responses_api.ts`
+  - Impact: Preserve parallel Responses calls, stream call identities and nonduplicated content, replay-only assistant payloads, and audio item metadata; reject early realtime closes before upload completion.
+  - Suggested AxIR work: Add or update the TS-derived conformance fixture.; Update AxIR/Core or descriptor data to match the portable TS behavior.; Run npm run axir:conformance:check and npm run test:axir.
+  - Completed at: 2026-09-07
+  - Completed by: `working-tree`
+  - Verification: `TypeScript: 3067 passed, 1 skipped, type-check and type tests passed. Meta conformance passed in Python, Java, C++, Go, and Rust; generated examples passed. Go package tests and Rust realtime loopback tests passed. Semantic parity, provider profiles, generated-package freshness, and website checks passed.`

@@ -1,0 +1,46 @@
+{
+  "expected_input": [
+    {
+      "data": "AAE=",
+      "type": "binary"
+    },
+    {
+      "type": "endStream"
+    }
+  ],
+  "expected_setup": {
+    "audioEncoding": "PCM_16KHZ",
+    "authorization": {
+      "accessToken": "Bearer meta-key"
+    },
+    "mode": "PUSH_TO_TALK",
+    "model": "muse-voice-transcribe-1.0"
+  },
+  "kind": "ai_realtime",
+  "model": "muse-voice-transcribe-1.0",
+  "name": "meta-voice-item-metadata-16khz",
+  "options": {
+    "apiKey": "meta-key"
+  },
+  "provider": "meta",
+  "request": {
+    "audio": {
+      "input": {}
+    },
+    "chat_prompt": [
+      {
+        "content": [
+          {
+            "channels": 1,
+            "data": "AAE=",
+            "format": "pcm16",
+            "sampleRate": 16000,
+            "type": "audio"
+          }
+        ],
+        "role": "user"
+      }
+    ],
+    "model": "muse-voice-transcribe-1.0"
+  }
+}

@@ -1,0 +1,27 @@
+{
+  "expected_error_contains": "Provider failed while generating",
+  "expected_error_type": "AxAIServiceResponseError",
+  "expected_request_count": 1,
+  "kind": "ai_error",
+  "method": "stream",
+  "model": "muse-spark-1.3",
+  "name": "meta-responses-stream-error",
+  "options": {
+    "stream": true
+  },
+  "provider": "meta",
+  "request": {
+    "chat_prompt": [
+      {
+        "content": "test",
+        "role": "user"
+      }
+    ]
+  },
+  "transport_responses": [
+    {
+      "body": "data: {\"type\":\"response.output_text.delta\",\"item_id\":\"msg1\",\"delta\":\"Answer: Done\"}\n\ndata: {\"type\":\"error\",\"message\":\"Provider failed while generating\"}\n\n",
+      "status": 200
+    }
+  ]
+}

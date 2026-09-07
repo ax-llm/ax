@@ -22,6 +22,7 @@ from .ai import (
     _runtime_hooks_from_options,
     _strip_runtime_hooks,
     chat_response_to_completion,
+    ai_merge_replay_metadata,
 )
 from .prompt import AxPromptTemplate
 from .schema import AxValidationError, strip_internal, validate_fields, validate_output
@@ -120,6 +121,7 @@ class AxMemory:
         item = {"role": "assistant", "response": result, "session_id": session_id, "tags": []}
         for existing in reversed(self.items):
             if existing.get("role") == "assistant" and existing.get("session_id") == session_id:
+                item["response"] = ai_merge_replay_metadata(existing.get("response") or {}, result)
                 existing.update(item)
                 return self
         self.items.append(item)
@@ -169,7 +171,7 @@ def _ax_memory_response_meaningful(response) -> bool:
     content = response.get("content")
     if isinstance(content, str) and content.strip():
         return True
-    for key in ("function_calls", "functionCalls", "tool_calls", "toolCalls", "thought_blocks", "thoughtBlocks"):
+    for key in ("function_calls", "functionCalls", "tool_calls", "toolCalls", "thought_blocks", "thoughtBlocks", "images"):
         value = response.get(key)
         if isinstance(value, list) and value:
             return True
@@ -1100,6 +1102,21 @@ def fold_stream(events: list[Any]) -> str:
     _core_coverage_mark("fold_stream")
     chunks = []
     for event in events:
+        empty_results = []
+        results = _core_get(event, "results", empty_results)
+        for result in results:
+            finish_snake = _core_get(result, "finish_reason", None)
+            finish = _core_get(result, "finishReason", finish_snake)
+            is_length = _core_eq(finish, "length")
+            if is_length:
+                raise RuntimeError("Max tokens reached before completion")
+            else:
+                pass
+            is_error = _core_eq(finish, "error")
+            if is_error:
+                raise RuntimeError("Streaming response failed")
+            else:
+                pass
         parts = _stream_event_content_parts_impl(event)
         for part in parts:
             chunks.append(part)
@@ -1620,12 +1637,6 @@ def _structured_output_scalar_placeholder(typ: Any) -> Any:
     return "<value>"
 
 
-def _stream_event_content_parts_impl(event: Any) -> list[Any]:
-    _core_coverage_mark("_stream_event_content_parts_impl")
-    parts = _core_stream_event_content_parts(event)
-    return parts
-
-
 def _validate_optimized_artifact_provenance(artifact: Any, components: Any) -> bool:
     _core_coverage_mark("_validate_optimized_artifact_provenance")
     empty_map = {}
@@ -1655,6 +1666,12 @@ def _validate_optimized_artifact_provenance(artifact: Any, components: Any) -> b
         else:
             pass
     return True
+
+
+def _stream_event_content_parts_impl(event: Any) -> list[Any]:
+    _core_coverage_mark("_stream_event_content_parts_impl")
+    parts = _core_stream_event_content_parts(event)
+    return parts
 
 
 def _validate_optimized_artifact(artifact: Any, components: Any) -> Any:
@@ -2026,6 +2043,7 @@ def _build_gen_chat_request(gen: AxGen, messages: list[Any], options: Any, selec
             forced_function["type"] = "function"
             forced_function["function"] = forced_function_ref
             request["function_call"] = forced_function
+            request["function_call_source"] = "ax"
         else:
             pass
     else:
@@ -3301,6 +3319,18 @@ def _append_tool_call_messages_impl(messages: list[Any], response: Any, calls: l
     has_thought_blocks = _core_is_not_none(thought_blocks)
     if has_thought_blocks:
         message["thought_blocks"] = thought_blocks
+    else:
+        pass
+    images = _core_get(response, "images", None)
+    has_images = _core_is_not_none(images)
+    if has_images:
+        message["images"] = images
+    else:
+        pass
+    phase = _core_get(response, "phase", None)
+    has_phase = _core_is_not_none(phase)
+    if has_phase:
+        message["phase"] = phase
     else:
         pass
     messages.append(message)

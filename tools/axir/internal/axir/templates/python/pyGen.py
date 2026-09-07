@@ -22,6 +22,7 @@ from .ai import (
     _runtime_hooks_from_options,
     _strip_runtime_hooks,
     chat_response_to_completion,
+    ai_merge_replay_metadata,
 )
 from .prompt import AxPromptTemplate
 from .schema import AxValidationError, strip_internal, validate_fields, validate_output
@@ -118,6 +119,7 @@ class AxMemory:
         item = {"role": "assistant", "response": result, "session_id": session_id, "tags": []}
         for existing in reversed(self.items):
             if existing.get("role") == "assistant" and existing.get("session_id") == session_id:
+                item["response"] = ai_merge_replay_metadata(existing.get("response") or {}, result)
                 existing.update(item)
                 return self
         self.items.append(item)
@@ -167,7 +169,7 @@ def _ax_memory_response_meaningful(response) -> bool:
     content = response.get("content")
     if isinstance(content, str) and content.strip():
         return True
-    for key in ("function_calls", "functionCalls", "tool_calls", "toolCalls", "thought_blocks", "thoughtBlocks"):
+    for key in ("function_calls", "functionCalls", "tool_calls", "toolCalls", "thought_blocks", "thoughtBlocks", "images"):
         value = response.get(key)
         if isinstance(value, list) and value:
             return True

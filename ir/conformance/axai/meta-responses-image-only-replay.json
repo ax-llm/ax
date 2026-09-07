@@ -1,0 +1,70 @@
+{
+  "expected_output": {
+    "model_usage": null,
+    "remote_id": "meta-parallel",
+    "results": [
+      {
+        "content": "",
+        "finish_reason": "stop",
+        "function_calls": [],
+        "id": "0",
+        "index": 0
+      }
+    ]
+  },
+  "expected_transport_request": {
+    "json": {
+      "input": [
+        {
+          "id": "image-old",
+          "result": null,
+          "status": "completed",
+          "type": "image_generation_call"
+        },
+        {
+          "content": [
+            {
+              "text": "Continue",
+              "type": "input_text"
+            }
+          ],
+          "role": "user"
+        }
+      ]
+    }
+  },
+  "kind": "ai_chat",
+  "model": "muse-image-1.0",
+  "name": "meta-responses-image-only-replay",
+  "provider": "meta",
+  "request": {
+    "chat_prompt": [
+      {
+        "images": [
+          {
+            "data": "AAAA",
+            "id": "image-old",
+            "mime_type": "image/webp"
+          }
+        ],
+        "role": "assistant"
+      },
+      {
+        "content": "Continue",
+        "role": "user"
+      }
+    ],
+    "model_config": {
+      "stream": false
+    }
+  },
+  "transport_responses": [
+    {
+      "json": {
+        "id": "meta-parallel",
+        "output": []
+      },
+      "status": 200
+    }
+  ]
+}

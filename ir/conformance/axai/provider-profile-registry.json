@@ -41,6 +41,13 @@
     "lmstudio": "lm-studio",
     "local-ai": "localai",
     "localai": "localai",
+    "meta": "meta",
+    "meta_chat": "meta-chat",
+    "meta_messages": "meta-messages",
+    "meta_responses": "meta",
+    "meta-chat": "meta-chat",
+    "meta-messages": "meta-messages",
+    "meta-responses": "meta",
     "microsoft-foundry": "azure-foundry",
     "mistral": "mistral",
     "nebius": "nebius",
@@ -253,6 +260,27 @@
         "id": "localai",
         "transport": "openai-chat"
       },
+      "meta": {
+        "aliases": ["meta", "meta-responses", "meta_responses"],
+        "catalogStatus": "descriptor-covered",
+        "generatedClient": "OpenAIResponsesClient",
+        "id": "meta",
+        "transport": "openai-responses"
+      },
+      "meta-chat": {
+        "aliases": ["meta-chat", "meta_chat"],
+        "catalogStatus": "descriptor-covered",
+        "generatedClient": "OpenAICompatibleClient",
+        "id": "meta-chat",
+        "transport": "openai-chat"
+      },
+      "meta-messages": {
+        "aliases": ["meta-messages", "meta_messages"],
+        "catalogStatus": "descriptor-covered",
+        "generatedClient": "AnthropicClient",
+        "id": "meta-messages",
+        "transport": "anthropic-messages"
+      },
       "mistral": {
         "aliases": ["mistral"],
         "catalogStatus": "descriptor-covered",
@@ -419,6 +447,9 @@
       "azure-openai",
       "deepseek",
       "deepseek-responses",
+      "meta",
+      "meta-chat",
+      "meta-messages",
       "mistral",
       "cohere",
       "grok",

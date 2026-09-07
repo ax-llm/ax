@@ -97,6 +97,7 @@ export async function buildTypeScriptCatalog() {
     embeddings: axGetSupportedAIModels({ type: 'embeddings' }),
     code: axGetSupportedAIModels({ type: 'code' }),
     audio: axGetSupportedAIModels({ type: 'audio' }),
+    image: axGetSupportedAIModels({ type: 'image' }),
   });
 }
 

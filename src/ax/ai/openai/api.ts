@@ -297,9 +297,14 @@ export interface AxAIOpenAIBaseArgs<
    * Opt in to OpenAI prompt caching on GPT-5.6+ models. Off by default because
    * this request builder is shared: Azure OpenAI is typed on the same model
    * enum, so a `gpt-5.6-*` deployment would otherwise pick up parameters its API
-   * version may reject. Only `AxAIOpenAI` sets it today.
+   * version may reject. Official OpenAI and explicitly compatible named
+   * profiles opt in deliberately.
    */
   promptCaching?: boolean;
+  /** Apply the compatible prompt-cache wire format without OpenAI model-family gating. */
+  promptCachingAllModels?: boolean;
+  /** Whether the compatible API accepts explicit per-content cache breakpoints. */
+  promptCacheBreakpoints?: boolean;
   supportFor: AxAIFeatures | ((model: TModel) => AxAIFeatures);
 }
 
@@ -330,6 +335,8 @@ class AxAIOpenAIImpl<
     private readonly chatStreamRespProcessor?: ChatStreamRespProcessor,
     private readonly realtime?: RealtimeAdapter<TModel>,
     private readonly promptCaching: boolean = false,
+    private readonly promptCachingAllModels: boolean = false,
+    private readonly promptCacheBreakpoints: boolean = true,
     private readonly reasoningContentMode: AxOpenAIReasoningContentMode = 'none',
     private readonly supportFor?:
       | AxAIFeatures
@@ -345,7 +352,8 @@ class AxAIOpenAIImpl<
    * providers throwing exactly as they do today.
    */
   supportsImplicitCaching = (model: TModel): boolean =>
-    this.promptCaching && axIsGPT56Family(model);
+    this.promptCaching &&
+    (this.promptCachingAllModels || axIsGPT56Family(model));
 
   getTokenUsage(): AxTokenUsage | undefined {
     return this.tokensUsed;
@@ -442,17 +450,20 @@ class AxAIOpenAIImpl<
     const promptCachingEnabled = axIsOpenAIPromptCachingEnabled(
       req,
       config,
-      this.promptCaching
+      this.promptCaching &&
+        (this.promptCachingAllModels || axIsGPT56Family(req.model))
     );
     let promptCacheKey: string | undefined;
     let breakpointCount = 0;
     if (promptCachingEnabled) {
-      const applied = axApplyOpenAIPromptCacheBreakpoints(
-        messages,
-        req.chatPrompt
-      );
-      messages = applied.messages;
-      breakpointCount = applied.markerCount;
+      if (this.promptCacheBreakpoints) {
+        const applied = axApplyOpenAIPromptCacheBreakpoints(
+          messages,
+          req.chatPrompt
+        );
+        messages = applied.messages;
+        breakpointCount = applied.markerCount;
+      }
       // The key helps implicit matching too, so it is sent whenever caching was
       // asked for — even when no message could take a marker.
       promptCacheKey = axResolveOpenAIPromptCacheKey(config, this.options);
@@ -859,6 +870,46 @@ function createMessages<TModel>(
                     allowPcm16: allowRealtimeAudio,
                   });
                 }
+                case 'file': {
+                  const fileUri = 'fileUri' in c ? c.fileUri : undefined;
+                  if (c.mimeType.startsWith('image/')) {
+                    return {
+                      type: 'image_url' as const,
+                      image_url: {
+                        url:
+                          fileUri ??
+                          `data:${c.mimeType};base64,${'data' in c ? c.data : ''}`,
+                        detail: 'auto' as const,
+                      },
+                    };
+                  }
+                  if (fileUri && c.mimeType.startsWith('video/')) {
+                    return {
+                      type: 'video_url' as const,
+                      video_url: { url: fileUri },
+                    };
+                  }
+                  return {
+                    type: 'file' as const,
+                    file: {
+                      ...(fileUri
+                        ? { file_url: fileUri }
+                        : {
+                            file_data: `data:${c.mimeType};base64,${'data' in c ? c.data : ''}`,
+                          }),
+                      filename: c.filename,
+                    },
+                  };
+                }
+                case 'url':
+                  return {
+                    type: 'text' as const,
+                    text:
+                      c.cachedContent ??
+                      [c.title, c.description, c.url]
+                        .filter(Boolean)
+                        .join('\n'),
+                  };
                 default:
                   throw new Error('Invalid content type');
               }
@@ -1024,6 +1075,8 @@ export class AxAIOpenAIBase<
     chatStreamRespProcessor,
     realtime,
     promptCaching,
+    promptCachingAllModels,
+    promptCacheBreakpoints,
     reasoningContentMode,
     supportFor,
   }: Readonly<
@@ -1045,6 +1098,8 @@ export class AxAIOpenAIBase<
       chatStreamRespProcessor,
       realtime,
       promptCaching ?? false,
+      promptCachingAllModels ?? false,
+      promptCacheBreakpoints ?? true,
       reasoningContentMode ?? 'none',
       supportFor
     );

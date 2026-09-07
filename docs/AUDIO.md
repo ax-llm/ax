@@ -25,7 +25,7 @@ console.log(res.speech.transcript);
 
 ## Direct APIs
 
-`ai.transcribe(...)` accepts `{ audio, model?, language?, prompt? }`, where `audio` is `{ data, format?, mimeType? }`.
+`ai.transcribe(...)` accepts `{ audio, model?, language?, prompt? }`, where `audio` is `{ data, format?, mimeType? }`. Providers with richer transcription protocols can also use `mode`, `languageBias`, `keywords`, `partialMode`, `emitAudioProgress`, and `sessionId`; returned turns remain normalized as `segments` with optional speaker labels.
 
 `ai.speak(...)` accepts `{ text, model?, voice?, format? }` and returns `{ data, format?, mimeType?, transcript? }`.
 
@@ -78,6 +78,7 @@ Current public provider docs change quickly; verify production pricing before co
 | xAI | Yes | Yes | Voice APIs expose `/v1/stt` and `/v1/tts`; public docs list REST STT at `$0.10/hr` and TTS at `$15/1M characters`. |
 | Gemini | Yes | Yes | Audio understanding uses Gemini `generateContent`; TTS uses Gemini TTS models through `generateContent`. |
 | Mistral | Yes | Yes | Voxtral transcription uses `/v1/audio/transcriptions`; Voxtral TTS uses `/v1/audio/speech`. |
+| Meta | Yes | No | Muse Voice uses `/v1/asr/transcribe` for files and the existing streaming `chat()` transport for realtime PCM16 transcription, diarization, endpointing, biasing, and turn-level timestamps. |
 
 Official references:
 
@@ -88,3 +89,10 @@ Official references:
 - [Mistral audio speech](https://docs.mistral.ai/api/endpoint/audio/speech)
 - [Gemini audio understanding](https://ai.google.dev/gemini-api/docs/audio)
 - [Gemini TTS](https://docs.cloud.google.com/text-to-speech/docs/gemini-tts)
+- [Meta Muse Voice Transcribe](https://dev.meta.ai/docs/speech-to-text)
+
+Meta streaming captions are replacement snapshots on `result.transcript.text`,
+keyed by result `id`; `isFinal` (`is_final` in generated languages) identifies a
+final snapshot. Partials may revise earlier words and must not be concatenated.
+The normal `content` stream contains finalized turns once, in speech-start order.
+Audio upload and transcript reception run concurrently.

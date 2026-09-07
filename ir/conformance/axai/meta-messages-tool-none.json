@@ -1,0 +1,67 @@
+{
+  "expected_transport_json_absent": [
+    "reasoning_effort",
+    "stop_sequences",
+    "top_k"
+  ],
+  "expected_transport_request": {
+    "json": {
+      "output_config": {
+        "effort": "low"
+      },
+      "thinking": {
+        "display": "summarized",
+        "type": "adaptive"
+      },
+      "tool_choice": {
+        "type": "none"
+      }
+    }
+  },
+  "kind": "ai_chat",
+  "model": "muse-spark-1.3",
+  "name": "meta-messages-tool-none",
+  "provider": "meta-messages",
+  "request": {
+    "chat_prompt": [
+      {
+        "content": "Do not use tools",
+        "role": "user"
+      }
+    ],
+    "function_call": "none",
+    "functions": [
+      {
+        "name": "lookup",
+        "parameters": {
+          "properties": {
+            "query": {
+              "type": "string"
+            }
+          },
+          "type": "object"
+        }
+      }
+    ],
+    "model_config": {
+      "stream": false,
+      "thinkingTokenBudget": "minimal"
+    }
+  },
+  "transport_responses": [
+    {
+      "json": {
+        "content": [
+          {
+            "text": "ok",
+            "type": "text"
+          }
+        ],
+        "id": "meta-none",
+        "model": "muse-spark-1.3",
+        "stop_reason": "end_turn"
+      },
+      "status": 200
+    }
+  ]
+}

@@ -1,0 +1,105 @@
+{
+  "expected_output": [
+    {
+      "model_usage": null,
+      "remote_id": "image-stream",
+      "results": [
+        {
+          "content": "",
+          "finish_reason": null,
+          "function_calls": [],
+          "id": "image-1",
+          "images": [
+            {
+              "data": "AAAA",
+              "id": "image-1",
+              "is_delta": true,
+              "mime_type": "image/jpeg"
+            }
+          ],
+          "index": 0
+        }
+      ]
+    },
+    {
+      "model_usage": null,
+      "remote_id": "image-stream",
+      "results": [
+        {
+          "content": "",
+          "finish_reason": "stop",
+          "function_calls": [],
+          "id": "image-1",
+          "images": [
+            {
+              "data": "BBBB",
+              "id": "image-1",
+              "mime_type": "image/jpeg"
+            }
+          ],
+          "index": 0
+        }
+      ]
+    },
+    {
+      "model_usage": {
+        "ai": "meta",
+        "model": "muse-image-1.0",
+        "tokens": {
+          "completion_tokens": 1,
+          "prompt_tokens": 1,
+          "total_tokens": 2
+        }
+      },
+      "remote_id": "image-stream",
+      "results": [
+        {
+          "content": "",
+          "finish_reason": "stop",
+          "function_calls": [],
+          "id": "0",
+          "index": 0
+        }
+      ]
+    }
+  ],
+  "expected_transport_request": {
+    "json": {
+      "store": false,
+      "stream": true,
+      "tools": [
+        {
+          "output_format": "jpeg",
+          "type": "image_generation"
+        }
+      ]
+    }
+  },
+  "kind": "ai_stream",
+  "model": "muse-image-1.0",
+  "name": "meta-image-streaming-partial",
+  "options": {
+    "stream": true
+  },
+  "provider": "meta",
+  "request": {
+    "chat_prompt": [
+      {
+        "content": "Draw a boat",
+        "role": "user"
+      }
+    ],
+    "model_config": {
+      "imageGeneration": {
+        "outputFormat": "jpeg"
+      },
+      "stream": true
+    }
+  },
+  "transport_responses": [
+    {
+      "body": "data: {\"type\":\"response.image_generation_call.partial_image\",\"response_id\":\"image-stream\",\"item_id\":\"image-1\",\"partial_image_index\":0,\"partial_image_b64\":\"AAAA\"}\n\ndata: {\"type\":\"response.output_item.done\",\"response_id\":\"image-stream\",\"item\":{\"type\":\"image_generation_call\",\"id\":\"image-1\",\"status\":\"completed\",\"result\":\"BBBB\"}}\n\ndata: {\"type\":\"response.completed\",\"response\":{\"id\":\"image-stream\",\"model\":\"muse-image-1.0\",\"usage\":{\"input_tokens\":1,\"output_tokens\":1,\"total_tokens\":2}}}\n\ndata: [DONE]\n\n",
+      "status": 200
+    }
+  ]
+}

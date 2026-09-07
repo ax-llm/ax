@@ -2227,6 +2227,7 @@ func packageREADME(model AxRuntimeModel, target string) string {
 		"- AxGen: run structured generation with retries, tool calls, field processors, assertions, traces, usage, and provider-backed output parsing.",
 		"- AxAI: select named deployment profiles independently from model IDs, resolve model-aware structured-output modes, and attach renewable request credentials through one provider boundary.",
 		"- Audio and realtime: `.chat()` accepts `input_audio` content parts, `transcribe()`/`speak()` do batch speech-to-text and text-to-speech, and realtime-capable models stream audio over a WebSocket — transparently through `chat()` or via the productized `realtime_chat()` driver (Go: `RealtimeChat`).",
+		"- Meta Muse: `meta` (Responses), `meta-chat` (Chat Completions), and `meta-messages` (Messages) default to `muse-spark-1.3` with `MODEL_API_KEY`. Muse Image uses chat and `results[].images`; Muse Voice uses batch transcription or realtime streaming chat. Contributor models expose provider-training data-use metadata and are never defaults. Glimmer uses the existing self-hosted profiles; Ax does not manage weights.",
 		"- AxAgent and RLM: let an agent plan and execute actor-code steps while Ax keeps envelopes, state, logs, traces, context, discovery, recall, and final typed responses aligned.",
 		"- AxFlow: compose AxGen, AxAgent, and nested flows into a portable program graph.",
 		"- Optimizers: save, load, apply, and evaluate optimizer artifacts, including the generated GEPA engine.",
