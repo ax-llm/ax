@@ -20,20 +20,40 @@ public final class AxProviderRouter implements AiClient,ChatRunSelector,AxChatSe
     processing = Core.asMap(config.getOrDefault("processing", Map.of()));
   }
 
+  @FunctionalInterface
+  public interface FileToText { String extract(String data, String mimeType) throws Exception; }
+
+  private static Map<String,Object> preprocess(Map<String,Object> features, Map<String,Object> request, Map<String,Object> processing) {
+    Map<String,Object> prepared = new LinkedHashMap<>(processing);
+    prepared.remove("file_texts");
+    Object raw = processing.getOrDefault("fileToText", processing.get("file_to_text"));
+    if (raw != null) {
+      if (!(raw instanceof FileToText extractor)) throw new IllegalArgumentException("fileToText must implement FileToText");
+      Map<String,Object> texts = new LinkedHashMap<>();
+      for (Object entry : Core.asList(Core.provider_route_file_extractions(features, request))) {
+        Map<String,Object> task = Core.asMap(entry);
+        try { texts.put(String.valueOf(task.get("slot")), extractor.extract(String.valueOf(task.get("data")), String.valueOf(task.get("mime_type")))); }
+        catch (Exception error) { throw new IllegalStateException("File content processing failed: " + error.getMessage(), error); }
+      }
+      prepared.put("file_texts", texts);
+    }
+    return Core.asMap(Core.provider_route_preprocess_request(features, request, prepared));
+  }
+
   public Map<String,Object> getFeatures(String model){return AxBalancer.mergedFeatures(providers,model);}
   public AiClient pinChatRun(Map<String,Object> request,Map<String,Object> options)throws Exception {
     AiClient selected=selectedProvider(request);
     var visited=java.util.Collections.newSetFromMap(new java.util.IdentityHashMap<AiClient,Boolean>());
     while(selected instanceof ChatRunSelector selector){if(!visited.add(selected))throw new IllegalStateException("Cyclic run routing");selected=selector.pinChatRun(request,options);}
-    return new PinnedProvider(selected,options);
+    return new PinnedProvider(selected,options,processing);
   }
   public AxChatSession openChatSession(Map<String,Object> request,Map<String,Object> options)throws Exception{return ((AxChatSession.Provider)pinChatRun(request,options)).openChatSession(request,options);}
   public Map<String,Object> complete(Map<String,Object> request)throws Exception{return Core.asMap(Core.chat_response_to_completion(chat(request,Map.of()).get("response")));}
   private static final class PinnedProvider implements AiClient,ChatRunFeatures,AxChatSession.Provider {
-    private final AiClient client;private final Map<String,Object> options;
-    PinnedProvider(AiClient client,Map<String,Object> options){this.client=client;this.options=options;}
+    private final AiClient client;private final Map<String,Object> options;private final Map<String,Object> processing;
+    PinnedProvider(AiClient client,Map<String,Object> options,Map<String,Object> processing){this.client=client;this.options=options;this.processing=processing;}
     public Map<String,Object> getFeatures(String model){return Core.asMap(Core.aiClientFeatures(client,model));}
-    private Map<String,Object> request(Map<String,Object> request){return Core.asMap(Core.provider_route_preprocess_request(Core.aiClientFeatures(client,request.get("model")),request));}
+    private Map<String,Object> request(Map<String,Object> request){return preprocess(Core.asMap(Core.aiClientFeatures(client,request.get("model"))),request,processing);}
     public Map<String,Object> complete(Map<String,Object> request)throws Exception{return Core.asMap(Core.aiCompleteOnce(client,request(request),options));}
     public AxChatSession openChatSession(Map<String,Object> request,Map<String,Object> options)throws Exception {
       if(!(client instanceof AxChatSession.Provider provider))throw new IllegalArgumentException("Selected provider does not support chat sessions");return provider.openChatSession(request(request),options);
@@ -66,7 +86,7 @@ public final class AxProviderRouter implements AiClient,ChatRunSelector,AxChatSe
   }
 
   public Map<String, Object> validateRequest(Map<String, Object> request) {
-    return Core.asMap(Core.provider_route_validation(providerRecords(), Core.coerceChatRequest(request), processing, routing));
+    return Core.asMap(Core.provider_route_validation(providerRecords((String)request.get("model")), Core.coerceChatRequest(request), processing, routing));
   }
 
   public Map<String, Object> getRoutingStats() {
@@ -83,7 +103,7 @@ public final class AxProviderRouter implements AiClient,ChatRunSelector,AxChatSe
   public Map<String, Object> chat(Map<String, Object> request, Map<String, Object> options) throws Exception {
     Map<String, Object> rec = getRoutingRecommendation(request);
     AxAIService provider = selectedProvider(request);
-    Map<String, Object> processedRequest = Core.asMap(Core.provider_route_preprocess_request(provider.getFeatures(null), request));
+    Map<String, Object> processedRequest = preprocess(provider.getFeatures((String)request.get("model")), request, processing);
     Map<String, Object> out = new LinkedHashMap<>();
     out.put("response", provider.chat(processedRequest, options));
     out.put("routing", rec);
@@ -103,7 +123,7 @@ public final class AxProviderRouter implements AiClient,ChatRunSelector,AxChatSe
   public AxChatStream openStream(Map<String,Object> request,AxCancellationToken cancellation)throws Exception{
     if(cancellation!=null)cancellation.throwIfCancelled();
     AxAIService provider = selectedProvider(request);
-    Map<String, Object> processedRequest = Core.asMap(Core.provider_route_preprocess_request(provider.getFeatures(null), request));
+    Map<String, Object> processedRequest = preprocess(provider.getFeatures((String)request.get("model")), request, processing);
     return provider.openStream(processedRequest,cancellation);
   }
 

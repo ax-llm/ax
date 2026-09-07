@@ -7309,11 +7309,28 @@ Value MultiServiceRouter::get_last_used_embed_model() { return last_used_service
 Value MultiServiceRouter::get_last_used_model_config() { return last_used_service_ ? last_used_service_->get_last_used_model_config() : Value(); }
 Value MultiServiceRouter::complete(Value request) { return Core::chat_response_to_completion(chat(Core::coerce_chat_request(std::move(request)))); }
 
+static Value preprocess_provider_files(Value features, Value request, Value processing, const ProviderRouter::FileToText& extractor) {
+  Value prepared = Core::map_merge(Value::object(), processing);
+  Core::map_delete(prepared, "file_texts");
+  if (extractor) {
+    Value texts = Value::object();
+    for (const auto& task : array_ref(Core::provider_route_file_extractions(features, request))) {
+      try { Core::set(texts, Core::get(task,"slot"), extractor(str(Core::get(task,"data")),str(Core::get(task,"mime_type")))); }
+      catch (const std::exception& error) { throw AxError("content_processing", std::string("File content processing failed: ")+error.what()); }
+    }
+    Core::set(prepared,"file_texts",texts);
+  }
+  return Core::provider_route_preprocess_request(features,request,prepared);
+}
+ProviderRouter& ProviderRouter::file_to_text(FileToText extractor) { file_to_text_=std::move(extractor);return *this; }
+
 class PinnedProviderClient final:public AIClient {
   std::shared_ptr<AIClient> client_;
-  Value request(Value value){return Core::provider_route_preprocess_request(features_for_run(Core::get(value,"model")),value);}
+  Value processing_;
+  ProviderRouter::FileToText extractor_;
+  Value request(Value value){return preprocess_provider_files(features_for_run(Core::get(value,"model")),value,processing_,extractor_);}
  public:
-  explicit PinnedProviderClient(std::shared_ptr<AIClient> client):client_(std::move(client)){}
+  explicit PinnedProviderClient(std::shared_ptr<AIClient> client,Value processing,ProviderRouter::FileToText extractor):client_(std::move(client)),processing_(std::move(processing)),extractor_(std::move(extractor)){}
   Value features_for_run(Value model)override{if(auto* service=dynamic_cast<AxAIService*>(client_.get()))return service->get_features(model);return client_->features_for_run(model);}
   Value complete(Value value)override{return Core::chat_response_to_completion(chat(value,Value::object()));}
   Value chat(Value value,Value options)override{return client_->chat(request(value),options);}
@@ -7325,7 +7342,7 @@ std::shared_ptr<AIClient> ProviderRouter::pin_chat_run(Value request,Value optio
   Value recommendation=get_routing_recommendation(request);std::shared_ptr<AIClient> selected=service_for_name(Core::get(recommendation,"providerName"));
   if(!selected)throw AxError("runtime","No provider selected");std::set<AIClient*> visited;
   while(true){if(!visited.insert(selected.get()).second)throw AxError("runtime","Cyclic run routing");auto next=selected->pin_chat_run(request,options);if(!next)break;selected=std::move(next);}
-  return std::make_shared<PinnedProviderClient>(selected);
+  return std::make_shared<PinnedProviderClient>(selected,processing_,file_to_text_);
 }
 std::shared_ptr<AxChatSession> ProviderRouter::open_chat_session(Value request,Value options){return pin_chat_run(request,options)->open_chat_session(request,options);}
 
@@ -7339,10 +7356,10 @@ ProviderRouter::ProviderRouter(Value config) {
 ProviderRouter::ProviderRouter(std::vector<std::shared_ptr<AxAIService>> providers, Value routing, Value processing)
     : providers_(std::move(providers)), routing_(std::move(routing)), processing_(std::move(processing)) {}
 
-Value ProviderRouter::provider_records() const {
+Value ProviderRouter::provider_records(Value model) const {
   Value out = Value::array();
   for (const auto& provider : providers_) {
-    Core::append(out, object({{"name", provider->get_name()}, {"id", provider->get_id()}, {"features", provider->get_features(Value())}}));
+    Core::append(out, object({{"name", provider->get_name()}, {"id", provider->get_id()}, {"features", provider->get_features(model)}}));
   }
   return out;
 }
@@ -7353,12 +7370,12 @@ std::shared_ptr<AxAIService> ProviderRouter::service_for_name(Value name) const 
 }
 
 Value ProviderRouter::get_routing_recommendation(Value request) {
-  Value rec = Core::provider_route_recommendation(provider_records(), Core::coerce_chat_request(request), routing_);
+  Value rec = Core::provider_route_recommendation(provider_records(Core::get(request,"model")), Core::coerce_chat_request(request), routing_);
   return rec;
 }
 
 Value ProviderRouter::validate_request(Value request) {
-  return Core::provider_route_validation(provider_records(), Core::coerce_chat_request(request), processing_, routing_);
+  return Core::provider_route_validation(provider_records(Core::get(request,"model")), Core::coerce_chat_request(request), processing_, routing_);
 }
 
 Value ProviderRouter::get_routing_stats() { return Core::provider_routing_stats(provider_records()); }
@@ -7369,7 +7386,7 @@ Value ProviderRouter::chat(Value request, Value options, const AxCancellationTok
   Value rec = get_routing_recommendation(request);
   auto provider = service_for_name(Core::get(rec, "providerName"));
   if (!provider) throw Core::as_error(Core::ai_error_unsupported("No provider selected"));
-  Value processed_request = Core::provider_route_preprocess_request(provider->get_features(Value()), request);
+  Value processed_request = preprocess_provider_files(provider->get_features(Core::get(request,"model")), request, processing_, file_to_text_);
   return object({{"response", provider->chat(processed_request, options, cancellation)}, {"routing", rec}});
 }
 
@@ -7386,7 +7403,7 @@ void ProviderRouter::stream_each(Value request, AxStreamHandler handler, const A
   Value rec = get_routing_recommendation(request);
   auto provider = service_for_name(Core::get(rec, "providerName"));
   if (!provider) throw Core::as_error(Core::ai_error_unsupported("No provider selected"));
-  Value processed_request = Core::provider_route_preprocess_request(provider->get_features(Value()), request);
+  Value processed_request = preprocess_provider_files(provider->get_features(Core::get(request,"model")), request, processing_, file_to_text_);
   provider->stream_each(std::move(processed_request), std::move(handler), cancellation);
 }
 

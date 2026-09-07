@@ -1,0 +1,115 @@
+{
+  "alternative_indices": [],
+  "expected_output": {
+    "forwardedContent": [
+      {
+        "text": "Read this file",
+        "type": "text"
+      },
+      {
+        "text": "[File: report.pdf - content not accessible by this provider]",
+        "type": "text"
+      },
+      {
+        "text": "Then summarize",
+        "type": "text"
+      }
+    ],
+    "recommendation": {
+      "degradations": ["File content will be extracted to text"],
+      "processingApplied": ["File-to-text extraction"],
+      "provider": "Text",
+      "warnings": ["Content caching not supported"]
+    },
+    "stats": {
+      "capabilityMatrix": {},
+      "recommendedProvider": "Text",
+      "totalProviders": 1
+    },
+    "validation": {
+      "canHandle": true,
+      "issues": [
+        "File content will be extracted to text",
+        "Content caching not supported"
+      ],
+      "recommendations": [
+        "Consider using a provider that natively supports all media types"
+      ]
+    }
+  },
+  "kind": "ai_provider_router",
+  "name": "provider-router-files-degrade",
+  "primary_index": 0,
+  "processing": {
+    "fallbackBehavior": "degrade"
+  },
+  "request": {
+    "chatPrompt": [
+      {
+        "content": [
+          {
+            "text": "Read this file",
+            "type": "text"
+          },
+          {
+            "cache": true,
+            "data": "JVBERi0=",
+            "filename": "report.pdf",
+            "mimeType": "application/pdf",
+            "type": "file"
+          },
+          {
+            "text": "Then summarize",
+            "type": "text"
+          }
+        ],
+        "role": "user"
+      }
+    ]
+  },
+  "routing": {
+    "capability": {
+      "allowDegradation": true,
+      "requireExactMatch": false
+    }
+  },
+  "services": [
+    {
+      "features": {
+        "caching": {
+          "supported": false,
+          "types": []
+        },
+        "functions": false,
+        "media": {
+          "audio": {
+            "formats": [],
+            "output": {
+              "formats": [],
+              "supported": false
+            },
+            "supported": false
+          },
+          "files": {
+            "formats": [],
+            "supported": false,
+            "uploadMethod": "none"
+          },
+          "images": {
+            "formats": [],
+            "supported": false
+          },
+          "urls": {
+            "contextFetching": false,
+            "supported": false,
+            "webSearch": false
+          }
+        },
+        "multiTurn": true,
+        "streaming": false,
+        "thinking": false
+      },
+      "name": "Text"
+    }
+  ]
+}

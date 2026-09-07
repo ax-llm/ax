@@ -86,9 +86,8 @@ module @ax.provider version "0.1" {
       %cache_enabled = core.call intrinsic.and(%cache_provider_and_model, %cache_requested)
       %message_index = core.const 0
       %marker_count = core.const 0
-      %extended_media = core.call intrinsic.string.starts_with(%model, "muse-")
       core.for %message in %chat_prompt {
-        %provider_message = core.call @openai_message_impl(%message, %reasoning_content_mode, %reasoning_details_mode, %extended_media)
+        %provider_message = core.call @openai_message_impl(%message, %reasoning_content_mode, %reasoning_details_mode)
         core.if %cache_enabled {
           %is_before_last = core.call intrinsic.lt(%message_index, %last_index)
           %explicit_cache = core.get %message["cache"] default false
@@ -384,8 +383,8 @@ module @ax.provider version "0.1" {
     attr emit_module = "ai"
     attr private = true
     tag "openai-message-core-helper"
-    type signature = "(json, reasoning_content_mode:string, reasoning_details_mode:string, extended_media:bool) -> json throws"
-    body @entry(%message: json, %reasoning_content_mode: string, %reasoning_details_mode: string, %extended_media: bool) {
+    type signature = "(json, reasoning_content_mode:string, reasoning_details_mode:string) -> json throws"
+    body @entry(%message: json, %reasoning_content_mode: string, %reasoning_details_mode: string) {
       %role = core.get %message["role"]
       %content = core.get %message["content"] default ""
       %is_no_reasoning = core.call intrinsic.eq(%reasoning_content_mode, "none")
@@ -403,7 +402,7 @@ module @ax.provider version "0.1" {
         core.if %content_is_list {
           %parts = core.list
           core.for %part in %content {
-            %provider_part = core.call @openai_content_part_impl(%part, %extended_media)
+            %provider_part = core.call @openai_content_part_impl(%part)
             core.append %parts, %provider_part
           }
           %content = core.let %parts
@@ -498,8 +497,8 @@ module @ax.provider version "0.1" {
     attr emit_module = "ai"
     attr private = true
     tag "openai-content-part-core-helper"
-    type signature = "(json, extended_media:bool) -> json throws"
-    body @entry(%part: json, %extended_media: bool) {
+    type signature = "(json) -> json throws"
+    body @entry(%part: json) {
       %type = core.get %part["type"]
       %is_text = core.call intrinsic.eq(%type, "text")
       core.if %is_text {
@@ -555,8 +554,7 @@ module @ax.provider version "0.1" {
         core.raise %audio_error
       }
       %is_file = core.call intrinsic.eq(%type, "file")
-      %is_supported_file = core.call intrinsic.and(%is_file, %extended_media)
-      core.if %is_supported_file {
+      core.if %is_file {
         %out = core.map
         %mime_snake = core.get %part["mime_type"] default "application/octet-stream"
         %mime = core.get %part["mimeType"] default %mime_snake
@@ -1617,14 +1615,9 @@ module @ax.provider version "0.1" {
     attr emit_module = "ai"
     tag "provider-routing-runtime"
     tag "provider-routing-native-image-preservation"
-    type signature = "(features:json, request:json) -> json"
-    body @entry(%features: json, %request: json) {
-      %supports_images = core.call @provider_features_support(%features, "images")
-      %does_not_support_images = core.call intrinsic.not(%supports_images)
-      core.if %does_not_support_images {
-        core.return %request
-      }
-
+    tag "provider-routing-native-file-preservation"
+    type signature = "(features:json, request:json, processing?:json) -> json throws"
+    body @entry(%features: json, %request: json, %processing: json) {
       %has_camel_prompt = core.call intrinsic.map.contains(%request, "chatPrompt")
       %has_snake_prompt = core.call intrinsic.map.contains(%request, "chat_prompt")
       %has_any_prompt = core.call intrinsic.or(%has_camel_prompt, %has_snake_prompt)
@@ -1647,15 +1640,29 @@ module @ax.provider version "0.1" {
       }
 
       %processed_prompt = core.list
+      %message_index = core.let 0
       core.for %message in %prompt {
         %message_seed = core.map
         %message_copy = core.call intrinsic.map.merge(%message_seed, %message)
         %content = core.get %message["content"] default null
         %content_is_list = core.type_is %content type "list"
-        core.if %content_is_list {
+        %role = core.get %message["role"] default ""
+        %is_user = core.call intrinsic.eq(%role, "user")
+        %process_content = core.call intrinsic.and(%content_is_list, %is_user)
+        core.if %process_content {
           %processed_content = core.list
+          %part_index = core.let 0
           core.for %part in %content {
             %part_type = core.get %part["type"] default "text"
+            %is_file = core.call intrinsic.eq(%part_type, "file")
+            core.if %is_file {
+              %slot = core.call intrinsic.string.format("{}:{}", %message_index, %part_index)
+              %file_part = core.call @provider_route_file_content(%features, %part, %processing, %slot)
+              %keep_file = core.call intrinsic.is_not_none(%file_part)
+              core.if %keep_file {
+                core.append %processed_content, %file_part
+              }
+            } else {
             %is_image = core.call intrinsic.eq(%part_type, "image")
             core.if %is_image {
               %image_seed = core.map
@@ -1664,16 +1671,125 @@ module @ax.provider version "0.1" {
             } else {
               core.append %processed_content, %part
             }
+            }
+            %part_index = core.call intrinsic.add(%part_index, 1)
           }
           core.set %message_copy["content"] = %processed_content
+          %content_count = core.call intrinsic.len(%processed_content)
+          %single = core.call intrinsic.eq(%content_count, 1)
+          core.if %single {
+            %only = core.call intrinsic.list.get(%processed_content, 0, null)
+            %only_type = core.get %only["type"] default ""
+            %only_text = core.call intrinsic.eq(%only_type, "text")
+            core.if %only_text {
+              %text = core.get %only["text"] default ""
+              core.set %message_copy["content"] = %text
+            }
+          }
         }
         core.append %processed_prompt, %message_copy
+        %message_index = core.call intrinsic.add(%message_index, 1)
       }
 
       %request_seed = core.map
       %out = core.call intrinsic.map.merge(%request_seed, %request)
       core.set %out[%prompt_key] = %processed_prompt
       core.return %out
+    }
+  }
+
+  op ax.provider.semantic @provider_route_file_content {
+    attr core_kind = "func"
+    attr emit_module = "ai"
+    attr private = true
+    tag "provider-routing-native-file-preservation"
+    type signature = "(features:json, part:json, processing:json, slot:string) -> json throws"
+    body @entry(%features: json, %part: json, %processing: json, %slot: string) {
+      %supports_files = core.call @provider_features_support(%features, "files")
+      core.if %supports_files {
+        %empty = core.map
+        %copy = core.call intrinsic.map.merge(%empty, %part)
+        core.return %copy
+      }
+      %snake_text = core.get %part["extracted_text"] default ""
+      %text = core.get %part["extractedText"] default %snake_text
+      %has_text = core.call intrinsic.truthy(%text)
+      %no_text = core.call intrinsic.not(%has_text)
+      core.if %no_text {
+        %empty_texts = core.map
+        %texts = core.get %processing["file_texts"] default %empty_texts
+        %has_extracted = core.call intrinsic.map.contains(%texts, %slot)
+        core.if %has_extracted {
+          %text = core.get %texts[%slot]
+        } else {
+          %snake_fallback = core.get %processing["fallback_behavior"] default "degrade"
+          %fallback = core.get %processing["fallbackBehavior"] default %snake_fallback
+          %skip = core.call intrinsic.eq(%fallback, "skip")
+          core.if %skip {
+            core.return null
+          }
+          %error = core.call intrinsic.eq(%fallback, "error")
+          core.if %error {
+            %err = core.call intrinsic.ai.error.unsupported("Files are not supported by the selected provider")
+            core.raise %err
+          }
+          %filename = core.get %part["filename"] default "undefined"
+          %text = core.call intrinsic.string.format("[File: {} - content not accessible by this provider]", %filename)
+        }
+      }
+      %out = core.map
+      core.set %out["type"] = "text"
+      core.set %out["text"] = %text
+      core.return %out
+    }
+  }
+
+  op ax.provider.semantic @provider_route_file_extractions {
+    attr core_kind = "func"
+    attr emit_module = "ai"
+    tag "provider-routing-native-file-preservation"
+    type signature = "(features:json, request:json) -> json"
+    body @entry(%features: json, %request: json) {
+      %tasks = core.list
+      %supports = core.call @provider_features_support(%features, "files")
+      core.if %supports { core.return %tasks }
+      %empty = core.list
+      %snake_prompt = core.get %request["chat_prompt"] default %empty
+      %prompt = core.get %request["chatPrompt"] default %snake_prompt
+      %message_index = core.let 0
+      core.for %message in %prompt {
+        %role = core.get %message["role"] default ""
+        %user = core.call intrinsic.eq(%role, "user")
+        %content = core.get %message["content"] default null
+        %list = core.type_is %content type "list"
+        %process = core.call intrinsic.and(%user, %list)
+        core.if %process {
+          %part_index = core.let 0
+          core.for %part in %content {
+            %type = core.get %part["type"] default ""
+            %file = core.call intrinsic.eq(%type, "file")
+            %snake_text = core.get %part["extracted_text"] default ""
+            %text = core.get %part["extractedText"] default %snake_text
+            %has_text = core.call intrinsic.truthy(%text)
+            %missing_text = core.call intrinsic.not(%has_text)
+            %extract = core.call intrinsic.and(%file, %missing_text)
+            core.if %extract {
+              %task = core.map
+              %slot = core.call intrinsic.string.format("{}:{}", %message_index, %part_index)
+              %data = core.get %part["data"] default ""
+              %snake_mime = core.get %part["mime_type"] default ""
+              %mime = core.get %part["mimeType"] default %snake_mime
+              core.set %task["slot"] = %slot
+              core.set %task["data"] = %data
+              core.set %task["mime_type"] = %mime
+              core.append %tasks, %task
+            }
+            %part_index = core.call intrinsic.add(%part_index, 1)
+          }
+        }
+        %message_index = core.call intrinsic.add(%message_index, 1)
+      }
+      core.return %tasks
     }
   }
 

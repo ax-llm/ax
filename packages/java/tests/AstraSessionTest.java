@@ -6,9 +6,48 @@ import java.util.concurrent.*;
 import java.util.concurrent.atomic.AtomicInteger;
 
 public final class AstraSessionTest {
+  @SuppressWarnings("unchecked") static void nativeFiles() throws Exception {
+    var requests=new ArrayList<Map<String,Object>>();
+    OpenAICompatibleClient.Transport transport=request->{requests.add((Map<String,Object>)request.get("json"));return Map.of("status",200,"json",Map.of("id","file-response","choices",List.of(Map.of("index",0,"message",Map.of("role","assistant","content","{\"summary\":\"Read\"}")))));};
+    var client=Ax.ai("openai",Map.of("api_key","test","model","gpt-5.6","transport",transport));
+    var balancer=new AxBalancer(List.of(client));
+    AxProviderRouter.FileToText extractor=(data,mime)->{throw new AssertionError("Native file extracted");};
+    var router=new AxProviderRouter(Map.of("providers",Map.of("primary",balancer),"processing",Map.of("fileToText",extractor)));
+    var message=Map.of("role","user","content",List.of(Map.of("type","text","text","Read"),Map.of("type","file","filename","report.pdf","mimeType","application/pdf","data","JVBERi0=","cache",true,"extractedText","fallback"),Map.of("type","text","text","Summarize")));
+    String original=Json.stringify(message);
+    var prompt=new ArrayList<Object>();prompt.add(message);
+    var request=new LinkedHashMap<String,Object>();request.put("chatPrompt",prompt);request.put("modelConfig",Map.of("stream",false));
+    router.chat(request,Map.of());
+    prompt.add(Map.of("role","assistant","content","Read"));prompt.add(Map.of("role","user","content","Continue"));
+    router.chat(request,Map.of());
+    if(!original.equals(Json.stringify(message))||requests.size()!=2)throw new AssertionError("History mutated or request replayed");
+    for(var body:requests){
+      var parts=(List<Map<String,Object>>)((Map<String,Object>)((List<?>)body.get("messages")).get(0)).get("content");
+      if(!parts.get(1).equals(Map.of("type","file","file",Map.of("filename","report.pdf","file_data","data:application/pdf;base64,JVBERi0=")))||!"Read".equals(parts.get(0).get("text"))||!"Summarize".equals(parts.get(2).get("text")))throw new AssertionError("Native file or ordering lost: "+parts);
+    }
+    var generated=Ax.ax("document:file -> summary:string").forward(router,Map.of("document",Map.of("filename","report.pdf","mimeType","application/pdf","data","JVBERi0=")));
+    if(!"Read".equals(generated.get("summary"))||requests.size()!=3)throw new AssertionError("Router lost generator completion");
+    requests.clear();
+    var textClient=Ax.ai("deepseek",Map.of("api_key","test","model","deepseek-v4-flash","transport",transport));
+    AxProviderRouter.FileToText extract=(data,mime)->{if(!"JVBERi0=".equals(data)||!"application/pdf".equals(mime))throw new AssertionError("Extraction arguments lost");return "";};
+    var processing=new HashMap<String,Object>();processing.put("fileToText",extract);
+    var textRouter=new AxProviderRouter(Map.of("providers",Map.of("primary",textClient),"processing",processing));
+    var rawFile=Map.<String,Object>of("chatPrompt",List.of(Map.of("role","user","content",List.of(Map.of("type","file","data","JVBERi0=","mimeType","application/pdf")))));
+    textRouter.chat(rawFile,Map.of());
+    if(!"".equals(((Map<?,?>)((List<?>)requests.get(0).get("messages")).get(0)).get("content")))throw new AssertionError("Empty extraction lost");
+    AxProviderRouter.FileToText fail=(data,mime)->{throw new IOException("extractor failed");};
+    var failingRouter=new AxProviderRouter(Map.of("providers",Map.of("primary",textClient),"processing",Map.of("fileToText",fail)));
+    try{failingRouter.chat(rawFile,Map.of());throw new AssertionError("Extraction failure swallowed");}catch(IllegalStateException error){if(!(error.getCause() instanceof IOException))throw error;}
+    if(requests.size()!=1)throw new AssertionError("Failed extraction reached transport");
+    var rejectFiles=new AxProviderRouter(Map.of("providers",Map.of("primary",textClient),"processing",Map.of("fallbackBehavior","error")));
+    try{rejectFiles.chat(rawFile,Map.of());throw new AssertionError("Error policy accepted unsupported file");}catch(AxAIServiceError error){if(!error.getMessage().contains("Files are not supported"))throw error;}
+    if(requests.size()!=1)throw new AssertionError("Unsupported file reached transport");
+    System.out.println("java router and balancer native files, history, and continuation passed");
+  }
   private static void emit(OutputStream output,Object event) throws IOException { output.write(("data: "+Json.stringify(event)+"\n\n").getBytes(StandardCharsets.UTF_8));output.flush(); }
   private static Map<String,Object> completed(String id,String answer) {return Map.of("type","response.completed","response",Map.of("id",id,"model","gpt-6-astra","output",List.of(Map.of("type","message","id","msg-"+id,"content",List.of(Map.of("type","output_text","text",answer))))));}
   public static void main(String[] args) throws Exception {
+    nativeFiles();
     CountDownLatch started=new CountDownLatch(1),release=new CountDownLatch(1);
     AtomicInteger calls=new AtomicInteger(),requests=new AtomicInteger();
     OpenAICompatibleClient.Transport transport=new OpenAICompatibleClient.Transport(){

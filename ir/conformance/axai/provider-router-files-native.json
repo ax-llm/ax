@@ -1,0 +1,117 @@
+{
+  "alternative_indices": [],
+  "expected_output": {
+    "forwardedContent": [
+      {
+        "text": "Read this file",
+        "type": "text"
+      },
+      {
+        "cache": true,
+        "data": "JVBERi0=",
+        "extractedText": "Extracted report",
+        "filename": "report.pdf",
+        "mimeType": "application/pdf",
+        "type": "file"
+      },
+      {
+        "text": "Then summarize",
+        "type": "text"
+      }
+    ],
+    "recommendation": {
+      "degradations": [],
+      "processingApplied": [],
+      "provider": "Files",
+      "warnings": ["Content caching not supported"]
+    },
+    "stats": {
+      "capabilityMatrix": {
+        "Files": ["Files"]
+      },
+      "recommendedProvider": "Files",
+      "totalProviders": 1
+    },
+    "validation": {
+      "canHandle": false,
+      "issues": ["Content caching not supported"],
+      "recommendations": []
+    }
+  },
+  "kind": "ai_provider_router",
+  "name": "provider-router-files-native",
+  "primary_index": 0,
+  "processing": {
+    "fallbackBehavior": "degrade"
+  },
+  "request": {
+    "chatPrompt": [
+      {
+        "content": [
+          {
+            "text": "Read this file",
+            "type": "text"
+          },
+          {
+            "cache": true,
+            "data": "JVBERi0=",
+            "extractedText": "Extracted report",
+            "filename": "report.pdf",
+            "mimeType": "application/pdf",
+            "type": "file"
+          },
+          {
+            "text": "Then summarize",
+            "type": "text"
+          }
+        ],
+        "role": "user"
+      }
+    ]
+  },
+  "routing": {
+    "capability": {
+      "allowDegradation": true,
+      "requireExactMatch": false
+    }
+  },
+  "services": [
+    {
+      "features": {
+        "caching": {
+          "supported": false,
+          "types": []
+        },
+        "functions": false,
+        "media": {
+          "audio": {
+            "formats": [],
+            "output": {
+              "formats": [],
+              "supported": false
+            },
+            "supported": false
+          },
+          "files": {
+            "formats": ["application/pdf"],
+            "supported": true,
+            "uploadMethod": "inline"
+          },
+          "images": {
+            "formats": [],
+            "supported": false
+          },
+          "urls": {
+            "contextFetching": false,
+            "supported": false,
+            "webSearch": false
+          }
+        },
+        "multiTurn": true,
+        "streaming": false,
+        "thinking": false
+      },
+      "name": "Files"
+    }
+  ]
+}

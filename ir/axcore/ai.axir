@@ -753,6 +753,12 @@ module @ax.ai version "0.1" {
     tag "legacy-completion-compat"
     type signature = "(AxChatResponse) -> json"
     body @entry(%response: AxChatResponse) {
+      %has_routing = core.call intrinsic.map.contains(%response, "routing")
+      %has_response = core.call intrinsic.map.contains(%response, "response")
+      %router_envelope = core.call intrinsic.and(%has_routing, %has_response)
+      core.if %router_envelope {
+        %response = core.get %response["response"]
+      }
       %empty_results = core.list
       %results = core.get %response["results"] default %empty_results
       %completions = core.list

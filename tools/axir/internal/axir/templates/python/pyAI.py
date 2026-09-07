@@ -2644,16 +2644,32 @@ class AxBalancer(AxAIService):
         return chat_response_to_completion(self.chat(_coerce_chat_request(request)))
 
 
+def _preprocess_provider_files(features, request, processing=None):
+    options = dict(processing or {})
+    options.pop("file_texts", None)
+    extractor = options.get("fileToText") or options.get("file_to_text")
+    if extractor is not None:
+        texts = {}
+        for task in provider_route_file_extractions(features, request):
+            try:
+                texts[task["slot"]] = extractor(task["data"], task["mime_type"])
+            except Exception as error:
+                raise AxAIServiceResponseError("File content processing failed: " + str(error)) from error
+        options["file_texts"] = texts
+    return provider_route_preprocess_request(features, request, options)
+
+
 class _PinnedProviderClient:
-    def __init__(self, provider):
+    def __init__(self, provider, processing):
         self.provider=provider
+        self.processing=processing
     def __getattr__(self,name):
         if name=="_pin_chat_run":raise AttributeError(name)
         return getattr(self.provider,name)
     def get_features(self,model=None):
         return self.provider.get_features(model)
     def _request(self,request):
-        return provider_route_preprocess_request(self.get_features(request.get("model")),request)
+        return _preprocess_provider_files(self.get_features(request.get("model")),request,self.processing)
     def chat(self,request,options=None):
         return self.provider.chat(self._request(request),options)
     def open_chat_session(self,request,options=None):
@@ -2680,7 +2696,7 @@ class ProviderRouter:
         while callable(getattr(provider,"_pin_chat_run",None)):
             if id(provider) in visited:raise RuntimeError("Cyclic run routing")
             visited.add(id(provider));provider=provider._pin_chat_run(request,options)
-        return _PinnedProviderClient(provider)
+        return _PinnedProviderClient(provider,self.processing)
 
     def open_chat_session(self,request,options=None):
         return self._pin_chat_run(request,options or {}).open_chat_session(request,options or {})
@@ -2707,7 +2723,7 @@ class ProviderRouter:
         return out
 
     def validate_request(self, request: dict[str, Any]):
-        return provider_route_validation(self._provider_records(), _coerce_chat_request(request), self.processing, self.routing)
+        return provider_route_validation(self._provider_records(request.get("model")), _coerce_chat_request(request), self.processing, self.routing)
 
     def get_routing_stats(self):
         return provider_routing_stats(self._provider_records())
@@ -2721,13 +2737,13 @@ class ProviderRouter:
 
     def chat(self, request: dict[str, Any], options: dict[str, Any] | None = None):
         rec, provider = self._selected_provider(request)
-        processed_request = provider_route_preprocess_request(provider.get_features(), request)
+        processed_request = _preprocess_provider_files(provider.get_features(request.get("model")), request, self.processing)
         response = provider.chat(processed_request, options)
         return {"response": response, "routing": rec}
 
     def stream(self, request: dict[str, Any], options: dict[str, Any] | None = None):
         _rec, provider = self._selected_provider(request)
-        processed_request = provider_route_preprocess_request(provider.get_features(), request)
+        processed_request = _preprocess_provider_files(provider.get_features(request.get("model")), request, self.processing)
         return provider.stream(processed_request, options)
 
     def embed(self, request: dict[str, Any], options: dict[str, Any] | None = None):

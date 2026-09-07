@@ -7527,6 +7527,8 @@ pub struct MultiServiceRouter {
 
 pub struct ProviderRouter {
     providers: BTreeMap<String, OpenAICompatibleClient>,
+    processing: Value,
+    file_to_text: Option<Arc<dyn Fn(&str, &str) -> AxResult<String> + Send + Sync>>,
 }
 
 impl AxBalancer {
@@ -7812,8 +7814,13 @@ impl ProviderRouter {
     pub fn new() -> Self {
         Self {
             providers: BTreeMap::new(),
+            processing: json!({}),
+            file_to_text: None,
         }
     }
+
+    pub fn with_processing(mut self, processing: Value) -> Self {self.processing=processing;self}
+    pub fn with_file_to_text(mut self, extractor: impl Fn(&str,&str)->AxResult<String>+Send+Sync+'static)->Self {self.file_to_text=Some(Arc::new(extractor));self}
 
     pub fn from_providers<K: Into<String>>(providers: Vec<(K, OpenAICompatibleClient)>) -> Self {
         let mut router = Self::new();
@@ -7829,26 +7836,26 @@ impl ProviderRouter {
     }
 
     pub fn get_routing_recommendation(&self, request: Value) -> AxResult<Value> {
-        let provider = request
-            .get("provider")
-            .and_then(Value::as_str)
-            .filter(|name| self.providers.contains_key(*name))
-            .map(str::to_string)
-            .or_else(|| self.providers.keys().next().cloned())
-            .ok_or_else(|| AxError::validation("ProviderRouter requires at least one provider"))?;
-        Ok(json!({"provider": provider, "reason": "available"}))
+        if let Some(provider) = request.get("provider").and_then(Value::as_str) {
+            if self.providers.contains_key(provider) {
+                return Ok(json!({"provider":provider,"providerName":provider,"reason":"explicit"}));
+            }
+        }
+        let model=request.get("model").and_then(Value::as_str);
+        let records=Value::Array(self.providers.iter().map(|(key,provider)|json!({
+            "name":key,"id":key,"features":<OpenAICompatibleClient as AxAIClient>::get_features(provider,model)
+        })).collect());
+        let mut recommendation=core_value_to_json(&provider_route_recommendation(&[
+            core_value_from_json(&records),core_value_from_json(&request),
+            core_value_from_json(&json!({"capability":{"requireExactMatch":false,"allowDegradation":true}}))
+        ])?);
+        recommendation["provider"]=recommendation["providerName"].clone();
+        Ok(recommendation)
     }
 
     fn provider_key(&self, request: &Value) -> AxResult<String> {
-        if let Some(provider) = request.get("provider").and_then(Value::as_str) {
-            if self.providers.contains_key(provider) {
-                return Ok(provider.to_string());
-            }
-        }
-        self.providers
-            .keys()
-            .next()
-            .cloned()
+        self.get_routing_recommendation(request.clone())?["provider"]
+            .as_str().map(str::to_owned)
             .ok_or_else(|| AxError::validation("ProviderRouter requires at least one provider"))
     }
 
@@ -7864,10 +7871,22 @@ impl ProviderRouter {
             .providers
             .get(key)
             .ok_or_else(|| AxError::validation(format!("ProviderRouter provider {key} not found")))?;
-        let features = <OpenAICompatibleClient as AxAIClient>::get_features(provider, None);
+        let features = <OpenAICompatibleClient as AxAIClient>::get_features(provider, request.get("model").and_then(Value::as_str));
+        let mut processing=self.processing.as_object().cloned().unwrap_or_default();
+        processing.remove("file_texts");
+        if let Some(extractor)=&self.file_to_text {
+            let tasks=core_value_to_json(&provider_route_file_extractions(&[core_value_from_json(&features),core_value_from_json(request)])?);
+            let mut texts=serde_json::Map::new();
+            for task in tasks.as_array().into_iter().flatten() {
+                let text=extractor(task["data"].as_str().unwrap_or_default(),task["mime_type"].as_str().unwrap_or_default()).map_err(|error|AxError::runtime(format!("File content processing failed: {}",error.message)))?;
+                texts.insert(task["slot"].as_str().unwrap_or_default().to_owned(),Value::String(text));
+            }
+            processing.insert("file_texts".to_owned(),Value::Object(texts));
+        }
         provider_route_preprocess_request(&[
             core_value_from_json(&features),
             core_value_from_json(request),
+            core_value_from_json(&Value::Object(processing)),
         ])
         .map(|value| core_value_to_json(&value))
     }
@@ -9863,6 +9882,7 @@ fn conformance_provider_router_result(fixture: &Value) -> AxResult<Value> {
         let forwarded_request = core_value_to_json(&provider_route_preprocess_request(&[
             core_value_from_json(&selected_features),
             core_value_from_json(&request),
+            core_value_from_json(&processing),
         ])?);
         let prompt = forwarded_request
             .get("chatPrompt")
@@ -20427,6 +20447,55 @@ mod request_url_security_tests {
     }
     use super::*;
     use std::sync::Mutex;
+
+    struct NativeFileTransport { requests: Arc<Mutex<Vec<Value>>> }
+    impl AxTransport for NativeFileTransport {
+        fn send(&mut self, request: Value)->AxResult<Value> {
+            self.requests.lock().unwrap().push(request["json"].clone());
+            Ok(json!({"status":200,"json":{"id":"file-response","choices":[{"index":0,"message":{"role":"assistant","content":"{\"summary\":\"Read\"}"}}]}}))
+        }
+    }
+    #[test]
+    fn native_file_router_balancer_history()->AxResult<()> {
+        let requests=Arc::new(Mutex::new(Vec::new()));
+        let client=ai("openai",json!({"api_key":"test","model":"gpt-5.6"}))?.with_transport(NativeFileTransport{requests:requests.clone()});
+        let router=ProviderRouter::new().with_provider("files",client).with_file_to_text(|_,_|panic!("native file extracted"));
+        let mut balancer=AxBalancer::from_clients(vec![Box::new(router)],AxBalancerOptions::default())?;
+        let message=json!({"role":"user","content":[{"type":"text","text":"Read"},{"type":"file","filename":"report.pdf","mimeType":"application/pdf","data":"JVBERi0=","extractedText":"fallback","cache":true},{"type":"text","text":"Summarize"}]});
+        let mut request=json!({"chatPrompt":[message.clone()],"modelConfig":{"stream":false}});
+        balancer.chat(request.clone())?;
+        request["chatPrompt"].as_array_mut().unwrap().extend([json!({"role":"assistant","content":"Read"}),json!({"role":"user","content":"Continue"})]);
+        balancer.chat(request.clone())?;
+        assert_eq!(request["chatPrompt"][0],message);
+        let captured=requests.lock().unwrap();assert_eq!(captured.len(),2);
+        for body in captured.iter(){
+            let parts=&body["messages"][0]["content"];
+            assert_eq!(parts[1],json!({"type":"file","file":{"filename":"report.pdf","file_data":"data:application/pdf;base64,JVBERi0="}}));
+            assert_eq!(parts[0]["text"],"Read");assert_eq!(parts[2]["text"],"Summarize");
+        }
+        drop(captured);
+        let generated=ax("document:file -> summary:string")?.forward(&mut balancer,json!({"document":{"filename":"report.pdf","mimeType":"application/pdf","data":"JVBERi0="}}))?;
+        assert_eq!(generated["summary"],"Read");assert_eq!(requests.lock().unwrap().len(),3);
+        Ok(())
+    }
+
+    #[test]
+    fn file_extraction_callback()->AxResult<()> {
+        let requests=Arc::new(Mutex::new(Vec::new()));
+        let client=ai("deepseek",json!({"api_key":"test","model":"deepseek-v4-flash"}))?.with_transport(NativeFileTransport{requests:requests.clone()});
+        let mut router=ProviderRouter::new().with_provider("text",client).with_file_to_text(|data,mime|{assert_eq!(data,"JVBERi0=");assert_eq!(mime,"application/pdf");Ok(String::new())});
+        let request=json!({"chatPrompt":[{"role":"user","content":[{"type":"file","data":"JVBERi0=","mimeType":"application/pdf"}]}]});
+        router.chat(request.clone())?;
+        assert_eq!(requests.lock().unwrap()[0]["messages"][0]["content"],"");
+        router=router.with_file_to_text(|_,_|Err(AxError::runtime("extractor failed")));
+        assert!(router.chat(request.clone()).unwrap_err().message.contains("extractor failed"));
+        assert_eq!(requests.lock().unwrap().len(),1);
+        let client=ai("deepseek",json!({"api_key":"test","model":"deepseek-v4-flash"}))?.with_transport(NativeFileTransport{requests:requests.clone()});
+        let mut reject_files=ProviderRouter::new().with_provider("text",client).with_processing(json!({"fallbackBehavior":"error"}));
+        assert!(reject_files.chat(request).unwrap_err().message.contains("Files are not supported"));
+        assert_eq!(requests.lock().unwrap().len(),1);
+        Ok(())
+    }
 
     #[test]
     fn responses_status_is_not_an_http_envelope() -> AxResult<()> {

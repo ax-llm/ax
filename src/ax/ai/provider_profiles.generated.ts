@@ -32,6 +32,9 @@ export const axAIProviderProfiles = {
         "function",
         "json_object"
       ],
+      "files": {
+        "uploadMethod": "upload"
+      },
       "serviceTiers": [
         "standard",
         "flex",
@@ -211,6 +214,9 @@ export const axAIProviderProfiles = {
         "function",
         "json_object"
       ],
+      "files": {
+        "uploadMethod": "upload"
+      },
       "serviceTiers": [
         "standard",
         "flex",

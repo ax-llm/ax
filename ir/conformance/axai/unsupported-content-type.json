@@ -1,5 +1,5 @@
 {
-  "name": "unsupported-file-content",
+  "name": "unsupported-content-type",
   "kind": "ai_error",
   "request": {
     "chat_prompt": [
@@ -7,7 +7,7 @@
         "role": "user",
         "content": [
           {
-            "type": "file",
+            "type": "unknown",
             "mime_type": "application/pdf",
             "data": "AAAA"
           }
@@ -16,5 +16,5 @@
     ]
   },
   "expected_error_type": "AxUnsupportedCapabilityError",
-  "expected_error_contains": "content part type: file"
+  "expected_error_contains": "content part type: unknown"
 }

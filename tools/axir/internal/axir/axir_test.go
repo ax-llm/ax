@@ -1674,7 +1674,7 @@ func generatedCapabilityGuards(target string) []generatedCapabilityGuard {
 					"def transcribe(self, request: dict[str, Any], options: dict[str, Any] | None = None):",
 					"def speak(self, request: dict[str, Any], options: dict[str, Any] | None = None):",
 					"def _selected_provider(self, request: dict[str, Any]):",
-					"processed_request = provider_route_preprocess_request(provider.get_features(), request)",
+					"processed_request = _preprocess_provider_files(provider.get_features(request.get(\"model\")), request, self.processing)",
 					"return provider.embed(request, options)",
 					"return provider.transcribe(request, options)",
 					"return provider.speak(request, options)",

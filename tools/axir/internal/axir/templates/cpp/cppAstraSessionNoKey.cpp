@@ -223,7 +223,44 @@ static void invalid_arguments_and_exhaustion(){
  }
  std::cout<<"cpp invalid arguments, correction continuation, and step exhaustion passed\n";
 }
+class NativeFileTransport final:public Transport {
+ public: std::vector<Value> requests;
+ Value call(Value request) override {requests.push_back(Core::get(request,"json"));return object({{"status",200},{"json",object({{"id","file-response"},{"choices",Value(Array{object({{"index",0},{"message",object({{"role","assistant"},{"content","{\"summary\":\"Read\"}"}})}})})}})}});}
+};
+static void native_files(){
+ auto transport=std::make_shared<NativeFileTransport>();
+ auto client=std::make_shared<OpenAICompatibleClient>("openai","OpenAI",object({{"api_key","test"},{"model","gpt-5.6"}}),transport.get(),"gpt-5.6","");
+ auto balancer=std::make_shared<AxBalancer>(std::vector<std::shared_ptr<AxAIService>>{client});
+ ProviderRouter router({balancer});router.file_to_text([](const std::string&,const std::string&)->std::string{throw std::runtime_error("Native file extracted");});
+ Value message=object({{"role","user"},{"content",Value(Array{object({{"type","text"},{"text","Read"}}),object({{"type","file"},{"filename","report.pdf"},{"mimeType","application/pdf"},{"data","JVBERi0="},{"extractedText","fallback"},{"cache",true}}),object({{"type","text"},{"text","Summarize"}})})}});
+ std::string original=stringify(message);Value prompt=Value(Array{message});Value request=object({{"chatPrompt",prompt},{"modelConfig",object({{"stream",false}})}});
+ router.chat(request);
+ Core::append(prompt,object({{"role","assistant"},{"content","Read"}}));Core::append(prompt,object({{"role","user"},{"content","Continue"}}));Core::set(request,"chatPrompt",prompt);router.chat(request);
+ if(stringify(message)!=original||transport->requests.size()!=2)throw std::runtime_error("History mutated or work replayed");
+ for(auto body:transport->requests){auto parts=Core::get(Core::get(Core::get(body,"messages"),0),"content");
+ if(display(Core::get(Core::get(Core::get(parts,1),"file"),"filename"))!="report.pdf"||display(Core::get(Core::get(Core::get(parts,1),"file"),"file_data"))!="data:application/pdf;base64,JVBERi0="||display(Core::get(Core::get(parts,0),"text"))!="Read"||display(Core::get(Core::get(parts,2),"text"))!="Summarize")throw std::runtime_error("Native file or ordering lost");
+ }
+ auto generated=ax("document:file -> summary:string").forward(router,object({{"document",object({{"filename","report.pdf"},{"mimeType","application/pdf"},{"data","JVBERi0="}})}}));
+ if(display(Core::get(generated,"summary"))!="Read"||transport->requests.size()!=3)throw std::runtime_error("Router lost generator completion");
+
+}
+static void file_extraction(){
+ NativeFileTransport transport;
+ auto client=std::make_shared<OpenAICompatibleClient>("deepseek","DeepSeek",object({{"api_key","test"},{"model","deepseek-v4-flash"}}),&transport,"deepseek-v4-flash","");
+ ProviderRouter router(std::vector<std::shared_ptr<AxAIService>>{client});
+ router.file_to_text([](const std::string& data,const std::string& mime){if(data!="JVBERi0="||mime!="application/pdf")throw std::runtime_error("Extraction arguments lost");return std::string();});
+ auto request=object({{"chatPrompt",Value(Array{object({{"role","user"},{"content",Value(Array{object({{"type","file"},{"data","JVBERi0="},{"mimeType","application/pdf"}})})}})})}});
+ router.chat(request);
+ if(display(Core::get(Core::get(Core::get(transport.requests[0],"messages"),0),"content"))!="")throw std::runtime_error("Empty extraction lost");
+ router.file_to_text([](const std::string&,const std::string&)->std::string{throw std::runtime_error("extractor failed");});
+ bool failed=false;try{router.chat(request);}catch(const AxError& error){failed=std::string(error.what()).find("extractor failed")!=std::string::npos;}
+ if(!failed||transport.requests.size()!=1)throw std::runtime_error("Failed extraction reached transport or error lost");
+ ProviderRouter reject_files(std::vector<std::shared_ptr<AxAIService>>{client},Value::object(),object({{"fallbackBehavior","error"}}));
+ failed=false;try{reject_files.chat(request);}catch(const AxError& error){failed=std::string(error.what()).find("Files are not supported")!=std::string::npos;}
+ if(!failed||transport.requests.size()!=1)throw std::runtime_error("Unsupported file reached transport or error lost");
+}
 int main(){
+ native_files();file_extraction();
   auto gate=std::make_shared<Gate>();auto transport=std::make_shared<GatedTransport>(gate);
   auto client=ai("openai",object({{"api_key","test"},{"model","gpt-6-astra"},{"model_config",object({{"thinkingTokenBudget","low"}})}}));
   dynamic_cast<OpenAICompatibleClient&>(*client).shared_transport(transport);

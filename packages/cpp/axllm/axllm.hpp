@@ -486,10 +486,10 @@ struct Core {
   static Value _openai_copy_config_key_impl(Value payload, Value model_config, Value source, Value target);
   static Value normalize_stream_delta(Value raw, Value state);
   static Value build_embed_request(Value service, Value request, Value options);
-  static Value _openai_message_impl(Value message, Value reasoning_content_mode, Value reasoning_details_mode, Value extended_media);
+  static Value _openai_message_impl(Value message, Value reasoning_content_mode, Value reasoning_details_mode);
   static Value normalize_embed_response(Value raw);
   static Value normalize_token_usage(Value usage);
-  static Value _openai_content_part_impl(Value part, Value extended_media);
+  static Value _openai_content_part_impl(Value part);
   static Value merge_usage_context(Value defaults, Value overrides);
   static Value build_usage_event(Value operation, Value response, Value options, Value streaming);
   static Value _ai_model_usage_impl(Value ai_name, Value model, Value usage);
@@ -524,7 +524,9 @@ struct Core {
   static Value provider_estimate_cost(Value model_usage, Value model_info_overrides);
   static Value provider_route_request_requirements(Value request);
   static Value _provider_features_support(Value features, Value path);
-  static Value provider_route_preprocess_request(Value features, Value request);
+  static Value provider_route_preprocess_request(Value features, Value request, Value processing);
+  static Value _provider_route_file_content(Value features, Value part, Value processing, Value slot);
+  static Value provider_route_file_extractions(Value features, Value request);
   static Value _provider_route_score(Value provider, Value requirements);
   static Value provider_route_recommendation(Value providers, Value request, Value options);
   static Value _provider_route_any_supports(Value providers, Value path);
@@ -1381,6 +1383,8 @@ class MultiServiceRouter : public AxAIService {
 class ProviderRouter : public AIClient {
  public:
   explicit ProviderRouter(Value config);
+  using FileToText = std::function<std::string(const std::string&, const std::string&)>;
+  ProviderRouter& file_to_text(FileToText extractor);
   ProviderRouter(std::vector<std::shared_ptr<AxAIService>> providers, Value routing = Value::object(), Value processing = Value::object());
   Value complete(Value request) override;
   Value features_for_run(Value model) override;
@@ -1405,7 +1409,8 @@ class ProviderRouter : public AIClient {
   std::vector<std::shared_ptr<AxAIService>> providers_;
   Value routing_;
   Value processing_;
-  Value provider_records() const;
+  FileToText file_to_text_;
+  Value provider_records(Value model = Value()) const;
   std::shared_ptr<AxAIService> service_for_name(Value name) const;
 };
 

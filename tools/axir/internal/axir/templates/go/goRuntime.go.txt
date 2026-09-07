@@ -4668,6 +4668,7 @@ func mergedServiceFeatures(services []AxAIService,model string) map[string]Value
 			formats := MutableArray(asSlice(coreGet(dst, "formats", Array()))...)
 			appendUnique(formats, coreGet(src, "formats", Array()))
 			coreSet(dst, "formats", formats.Items)
+            coreSet(outMedia, kind, dst)
 		}
 		files := asMap(coreGet(outMedia, "files", Object()))
 		upload := display(coreGet(coreGet(media, "files", Object()), "uploadMethod", coreGet(coreGet(media, "files", Object()), "upload_method", "")))
@@ -4693,6 +4694,10 @@ func mergedServiceFeatures(services []AxAIService,model string) map[string]Value
 		cacheTypes := MutableArray(asSlice(coreGet(outCaching, "types", Array()))...)
 		appendUnique(cacheTypes, coreGet(caching, "types", Array()))
 		coreSet(outCaching, "types", cacheTypes.Items)
+        coreSet(outMedia, "files", files)
+        coreSet(outMedia, "urls", outUrls)
+        coreSet(features, "media", outMedia)
+        coreSet(features, "caching", outCaching)
 	}
 	if allModesAdvertised {
 		coreSet(features, "structured_output_modes", modes.Items)
@@ -5195,10 +5200,10 @@ func NewProviderRouter(config map[string]Value) *ProviderRouter {
 	routingConfig := asMap(coreGet(config, "routing", Object()))
 	return &ProviderRouter{providers: providers, processing: asMap(coreGet(config, "processing", Object())), routing: asMap(coreGet(routingConfig, "capability", Object()))}
 }
-func (r *ProviderRouter) providerRecords() Value {
+func (r *ProviderRouter) providerRecords(model string) Value {
 	out := Array()
 	for _, provider := range r.providers {
-		out = append(out, Object("name", provider.GetName(), "id", provider.GetID(), "features", provider.GetFeatures("")))
+		out = append(out, Object("name", provider.GetName(), "id", provider.GetID(), "features", provider.GetFeatures(model)))
 	}
 	return out
 }
@@ -5214,7 +5219,7 @@ func (r *ProviderRouter) serviceForName(name Value) AxAIService {
 	return r.providers[0]
 }
 func (r *ProviderRouter) GetRoutingRecommendation(request map[string]Value) map[string]Value {
-	rec := asMap(mustCore(provider_route_recommendation(r.providerRecords(), request, r.routing)))
+	rec := asMap(mustCore(provider_route_recommendation(r.providerRecords(display(coreGet(request,"model",""))), request, r.routing)))
 	out := cloneMap(rec)
 	if service := r.serviceForName(coreGet(out, "providerName", "")); service != nil {
 		coreSet(out, "provider", service)
@@ -5222,22 +5227,43 @@ func (r *ProviderRouter) GetRoutingRecommendation(request map[string]Value) map[
 	return out
 }
 func (r *ProviderRouter) ValidateRequest(request map[string]Value) map[string]Value {
-	return asMap(mustCore(provider_route_validation(r.providerRecords(), request, r.processing, r.routing)))
+	return asMap(mustCore(provider_route_validation(r.providerRecords(display(coreGet(request,"model",""))), request, r.processing, r.routing)))
 }
 func (r *ProviderRouter) GetRoutingStats() map[string]Value {
-	return asMap(mustCore(provider_routing_stats(r.providerRecords())))
+	return asMap(mustCore(provider_routing_stats(r.providerRecords(""))))
 }
-type pinnedProviderChat struct {AIClient}
+// AxFileToText extracts text only when the selected provider cannot accept native files.
+type AxFileToText func(data, mimeType string) (string, error)
+func preprocessProviderFiles(features, request, processing map[string]Value) (map[string]Value, error) {
+  prepared := cloneMap(processing)
+  delete(prepared, "file_texts")
+  raw := coreGet(processing, "fileToText", coreGet(processing, "file_to_text", nil))
+  if raw != nil {
+    extractor, ok := raw.(AxFileToText)
+    if !ok { if fn, yes := raw.(func(string,string)(string,error)); yes {extractor=AxFileToText(fn);ok=true} }
+    if !ok {return nil,fmt.Errorf("fileToText must be an AxFileToText callback")}
+    tasks, err := provider_route_file_extractions(features,request);if err!=nil{return nil,err}
+    texts := map[string]Value{}
+    for _, entry := range asSlice(tasks) {
+      task:=asMap(entry);value,err:=extractor(display(task["data"]),display(task["mime_type"]))
+      if err!=nil{return nil,fmt.Errorf("file content processing failed: %w",err)}
+      texts[display(task["slot"])]=value
+    }
+    prepared["file_texts"]=texts
+  }
+  result,err:=provider_route_preprocess_request(features,request,prepared);if err!=nil{return nil,err};return asMap(result),nil
+}
+type pinnedProviderChat struct {AIClient;processing map[string]Value}
 func (p *pinnedProviderChat) GetFeatures(model string)map[string]Value{return asMap(_core_ai_client_features(p.AIClient,model))}
-func (p *pinnedProviderChat) Chat(ctx context.Context,request,options map[string]Value)(Value,error){processed:=asMap(mustCore(provider_route_preprocess_request(p.GetFeatures(display(coreGet(request,"model",""))),request)));return p.AIClient.Chat(ctx,processed,options)}
+func (p *pinnedProviderChat) Chat(ctx context.Context,request,options map[string]Value)(Value,error){processed,err:=preprocessProviderFiles(p.GetFeatures(display(coreGet(request,"model",""))),request,p.processing);if err!=nil{return nil,err};return p.AIClient.Chat(ctx,processed,options)}
 func (p *pinnedProviderChat) OpenChatSession(ctx context.Context,request,options map[string]Value)(AxChatSession,error){
-    opener,ok:=p.AIClient.(SessionAIClient);if !ok{return nil,fmt.Errorf("selected provider does not support chat sessions")};processed:=asMap(mustCore(provider_route_preprocess_request(p.GetFeatures(display(coreGet(request,"model",""))),request)));return opener.OpenChatSession(ctx,processed,options)
+    opener,ok:=p.AIClient.(SessionAIClient);if !ok{return nil,fmt.Errorf("selected provider does not support chat sessions")};processed,err:=preprocessProviderFiles(p.GetFeatures(display(coreGet(request,"model",""))),request,p.processing);if err!=nil{return nil,err};return opener.OpenChatSession(ctx,processed,options)
 }
 func (r *ProviderRouter) GetFeatures(model string)map[string]Value{return mergedServiceFeatures(r.providers,model)}
 func (r *ProviderRouter) pinChatRun(ctx context.Context,request,options map[string]Value)(AIClient,error){
     _,provider,err:=r.selectedService(request);if err!=nil{return nil,err};var selected AIClient=provider;seen:=map[AIClient]bool{}
     for{selector,ok:=selected.(chatRunSelector);if !ok{break};if seen[selected]{return nil,fmt.Errorf("cyclic run routing")};seen[selected]=true;selected,err=selector.pinChatRun(ctx,request,options);if err!=nil{return nil,err}}
-    return &pinnedProviderChat{AIClient:selected},nil
+    return &pinnedProviderChat{AIClient:selected,processing:r.processing},nil
 }
 func (r *ProviderRouter) OpenChatSession(ctx context.Context,request,options map[string]Value)(AxChatSession,error){selected,err:=r.pinChatRun(ctx,request,options);if err!=nil{return nil,err};return selected.(SessionAIClient).OpenChatSession(ctx,request,options)}
 func (r *ProviderRouter) selectedService(request map[string]Value) (map[string]Value, AxAIService, error) {
@@ -5253,7 +5279,8 @@ func (r *ProviderRouter) Chat(ctx context.Context, request map[string]Value, opt
 	if err != nil {
 		return nil, err
 	}
-	processedRequest := asMap(mustCore(provider_route_preprocess_request(service.GetFeatures(""), request)))
+	processedRequest, err := preprocessProviderFiles(service.GetFeatures(display(coreGet(request,"model",""))), request, r.processing)
+	if err != nil {return nil, err}
 	response, err := service.Chat(ctx, processedRequest, options)
 	if err != nil {
 		return nil, err
@@ -5272,7 +5299,8 @@ func (r *ProviderRouter) StreamEvents(ctx context.Context, request map[string]Va
 	if err != nil {
 		return nil, err
 	}
-	processedRequest := asMap(mustCore(provider_route_preprocess_request(service.GetFeatures(""), request)))
+	processedRequest, err := preprocessProviderFiles(service.GetFeatures(display(coreGet(request,"model",""))), request, r.processing)
+	if err != nil {return nil, err}
 	return openAIServiceStream(ctx, service, processedRequest, options)
 }
 func (r *ProviderRouter) Embed(ctx context.Context, request map[string]Value, options map[string]Value) (Value, error) {
