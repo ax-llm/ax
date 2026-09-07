@@ -678,6 +678,48 @@
               "serviceTiers": ["standard", "flex", "priority"],
               "showThoughts": true,
               "structuredOutputs": true,
+              "temperature": false,
+              "thinkingBudget": true,
+              "thinkingLevels": [
+                "none",
+                "minimal",
+                "low",
+                "medium",
+                "high",
+                "highest"
+              ],
+              "topP": false
+            },
+            "characterIsToken": false,
+            "completionTokenCostPer1M": 7.5,
+            "contextWindow": 1048576,
+            "currency": "usd",
+            "isDefault": false,
+            "maxTokens": 65536,
+            "name": "gemini-3.8-flash",
+            "notSupported": {
+              "temperature": true,
+              "topP": true
+            },
+            "promptTokenCostPer1M": 1.5,
+            "provider": "google-gemini",
+            "supported": {
+              "showThoughts": true,
+              "structuredOutputs": true,
+              "thinkingBudget": true
+            },
+            "type": "text"
+          },
+          {
+            "cacheReadTokenCostPer1M": 0.15,
+            "cacheWriteTokenCostPer1M": 1.5,
+            "capabilities": {
+              "audioInput": false,
+              "audioOutput": false,
+              "imageOutput": false,
+              "serviceTiers": ["standard", "flex", "priority"],
+              "showThoughts": true,
+              "structuredOutputs": true,
               "temperature": true,
               "thinkingBudget": true,
               "thinkingLevels": [
@@ -6705,7 +6747,7 @@
         "name": "baseten-engine"
       }
     ],
-    "modelCount": 194,
+    "modelCount": 195,
     "openaiFirstModel": "gpt-5-nano",
     "openaiModelTypes": ["code", "text"],
     "providerCount": 49,

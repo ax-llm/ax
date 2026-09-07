@@ -1242,10 +1242,12 @@ module @ax.gen version "0.1" {
     type signature = "(json, json) -> json"
     body @entry(%call: json, %result: json) {
       %id = core.get %call["id"]
+      %name = core.get %call["name"]
       %result_json = core.call intrinsic.json.stringify(%result)
       %message = core.map
       core.set %message["role"] = "function"
       core.set %message["function_id"] = %id
+      core.set %message["name"] = %name
       core.set %message["result"] = %result_json
       core.return %message
     }
@@ -1259,6 +1261,7 @@ module @ax.gen version "0.1" {
     type signature = "(json, error) -> json"
     body @entry(%call: json, %error: error) {
       %id = core.get %call["id"]
+      %name = core.get %call["name"]
       %error_text = core.call intrinsic.exception.message(%error)
       %payload = core.map
       core.set %payload["error"] = %error_text
@@ -1266,6 +1269,7 @@ module @ax.gen version "0.1" {
       %message = core.map
       core.set %message["role"] = "function"
       core.set %message["function_id"] = %id
+      core.set %message["name"] = %name
       core.set %message["result"] = %payload_json
       core.set %message["is_error"] = true
       core.return %message

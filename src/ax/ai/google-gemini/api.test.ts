@@ -596,6 +596,7 @@ describe('AxAIGoogleGemini model key preset merging', () => {
   });
 
   it.each([
+    AxAIGoogleGeminiModel.Gemini38Flash,
     AxAIGoogleGeminiModel.Gemini37Flash,
     AxAIGoogleGeminiModel.Gemini36Flash,
     AxAIGoogleGeminiModel.Gemini35FlashLite,
@@ -635,6 +636,53 @@ describe('AxAIGoogleGemini model key preset merging', () => {
     expect(capture.lastBody?.generationConfig).not.toHaveProperty('topP');
     expect(capture.lastBody?.generationConfig).not.toHaveProperty('topK');
   });
+
+  it.each([
+    AxAIGoogleGeminiModel.Gemini38Flash,
+    AxAIGoogleGeminiModel.Gemini37Flash,
+    AxAIGoogleGeminiModel.Gemini36Flash,
+  ])(
+    'omits unsupported candidate and penalty parameters for %s',
+    async (model) => {
+      const capture: { lastBody?: any } = {};
+      const ai = new AxAIGoogleGemini({
+        apiKey: 'key',
+        config: { model, n: 2, frequencyPenalty: 0.4 },
+        models: [],
+        options: {
+          fetch: createMockFetch(
+            {
+              candidates: [
+                {
+                  content: { parts: [{ text: 'ok' }] },
+                  finishReason: 'STOP',
+                },
+              ],
+            },
+            capture
+          ),
+        },
+      });
+
+      await ai.chat(
+        {
+          chatPrompt: [{ role: 'user', content: 'hi' }],
+          modelConfig: { n: 3, frequencyPenalty: 0.2 },
+        },
+        { stream: false }
+      );
+
+      expect(capture.lastBody?.generationConfig).not.toHaveProperty(
+        'candidateCount'
+      );
+      expect(capture.lastBody?.generationConfig).not.toHaveProperty(
+        'frequencyPenalty'
+      );
+      expect(capture.lastBody?.generationConfig).not.toHaveProperty(
+        'presencePenalty'
+      );
+    }
+  );
 
   it('maps numeric thinkingTokenBudget in item config to per-model options and preserves explicit overrides', async () => {
     const ai = new AxAIGoogleGemini({
@@ -700,6 +748,11 @@ describe('AxAIGoogleGemini model key preset merging', () => {
       model: AxAIGoogleGeminiModel.Gemini35Flash,
       requested: 'highest' as const,
       expectedLevel: 'high',
+    },
+    {
+      model: AxAIGoogleGeminiModel.Gemini38Flash,
+      requested: 'minimal' as const,
+      expectedLevel: 'low',
     },
     {
       model: AxAIGoogleGeminiModel.Gemini37Flash,
@@ -815,7 +868,7 @@ describe('AxAIGoogleGemini model key preset merging', () => {
     const ai = new AxAIGoogleGemini({
       apiKey: 'key',
       config: {
-        model: AxAIGoogleGeminiModel.Gemini37Flash,
+        model: AxAIGoogleGeminiModel.Gemini38Flash,
         thinkingLevelMapping: { minimal: 'minimal' },
       },
       models: [],
@@ -852,7 +905,7 @@ describe('AxAIGoogleGemini model key preset merging', () => {
       models: [
         {
           key: 'modern',
-          model: AxAIGoogleGeminiModel.Gemini37Flash,
+          model: AxAIGoogleGeminiModel.Gemini38Flash,
           description: 'Gemini 3 preset',
           thinkingTokenBudget: 'minimal',
           showThoughts: true,
@@ -1240,7 +1293,11 @@ describe('AxAIGoogleGemini model key preset merging', () => {
             content: {
               parts: [
                 {
-                  functionCall: { name: 'foo', args: {} },
+                  functionCall: {
+                    id: 'provider-call-foo',
+                    name: 'foo',
+                    args: {},
+                  },
                   thoughtSignature: 'sig123',
                 },
               ],
@@ -1263,6 +1320,7 @@ describe('AxAIGoogleGemini model key preset merging', () => {
     );
 
     expect(res.results[0]?.functionCalls?.[0].function.name).toBe('foo');
+    expect(res.results[0]?.functionCalls?.[0].id).toBe('provider-call-foo');
     expect(res.results[0]?.thoughtBlocks?.[0]?.signature).toBe('sig123');
 
     // 2. Second turn: User sends function result, Model should receive signature back
@@ -1276,7 +1334,7 @@ describe('AxAIGoogleGemini model key preset merging', () => {
       },
       {
         role: 'function',
-        functionId: 'foo',
+        functionId: 'provider-call-foo',
         result: JSON.stringify({ ok: true }),
       },
     ];
@@ -1292,8 +1350,13 @@ describe('AxAIGoogleGemini model key preset merging', () => {
     // Verify the assistant message in the request contains the signature on the function call part
     const assistantMsg = reqBody.contents[1];
     expect(assistantMsg.role).toBe('model');
+    expect(assistantMsg.parts[0].functionCall.id).toBe('provider-call-foo');
     expect(assistantMsg.parts[0].functionCall.name).toBe('foo');
     expect(assistantMsg.parts[0].thought_signature).toBe('sig123');
+    expect(reqBody.contents[2].parts[0].functionResponse).toMatchObject({
+      id: 'provider-call-foo',
+      name: 'foo',
+    });
   });
 
   it('groups parallel function responses into a single user turn', async () => {
@@ -1331,8 +1394,8 @@ describe('AxAIGoogleGemini model key preset merging', () => {
           },
         ],
       },
-      { role: 'function', functionId: 'f1', result: 'r1' },
-      { role: 'function', functionId: 'f2', result: 'r2' },
+      { role: 'function', functionId: 'id1', result: 'r1' },
+      { role: 'function', functionId: 'id2', result: 'r2' },
     ];
 
     await ai.chat({ chatPrompt: history }, { stream: false });
@@ -1343,7 +1406,11 @@ describe('AxAIGoogleGemini model key preset merging', () => {
     const lastUserMsg = reqBody.contents[2];
     expect(lastUserMsg.role).toBe('user');
     expect(lastUserMsg.parts).toHaveLength(2);
+    expect(reqBody.contents[1].parts[0].functionCall.id).toBe('id1');
+    expect(reqBody.contents[1].parts[1].functionCall.id).toBe('id2');
+    expect(lastUserMsg.parts[0].functionResponse.id).toBe('id1');
     expect(lastUserMsg.parts[0].functionResponse.name).toBe('f1');
+    expect(lastUserMsg.parts[1].functionResponse.id).toBe('id2');
     expect(lastUserMsg.parts[1].functionResponse.name).toBe('f2');
   });
 
@@ -1793,6 +1860,8 @@ describe('AxAIGoogleGemini model key preset merging', () => {
     };
 
     it.each([
+      AxAIGoogleGeminiModel.Gemini38Flash,
+      AxAIGoogleGeminiModel.Gemini37Flash,
       AxAIGoogleGeminiModel.Gemini36Flash,
       AxAIGoogleGeminiModel.Gemini35FlashLite,
     ])(
@@ -1830,6 +1899,10 @@ describe('AxAIGoogleGemini model key preset merging', () => {
         expect(generationConfig).not.toHaveProperty('temperature');
         expect(generationConfig).not.toHaveProperty('topP');
         expect(generationConfig).not.toHaveProperty('topK');
+        if (model !== AxAIGoogleGeminiModel.Gemini35FlashLite) {
+          expect(generationConfig).not.toHaveProperty('candidateCount');
+          expect(generationConfig).not.toHaveProperty('frequencyPenalty');
+        }
       }
     );
 
@@ -2158,9 +2231,15 @@ describe('AxAIGoogleGemini model key preset merging', () => {
       expect(cacheCreateReq.contents[1]?.parts?.[0]?.functionCall?.name).toBe(
         '__axOutput'
       );
+      expect(cacheCreateReq.contents[1]?.parts?.[0]?.functionCall?.id).toBe(
+        'example-0'
+      );
       expect(
         cacheCreateReq.contents[2]?.parts?.[0]?.functionResponse?.name
       ).toBe('__axOutput');
+      expect(cacheCreateReq.contents[2]?.parts?.[0]?.functionResponse?.id).toBe(
+        'example-0'
+      );
 
       const generateReq = capture.calls[1]?.body;
       expect(generateReq.contents).toHaveLength(1);
@@ -2267,8 +2346,14 @@ describe('AxAIGoogleGemini model key preset merging', () => {
       expect(generateReq.contents[1]?.parts?.[0]?.functionCall?.name).toBe(
         '__axOutput'
       );
+      expect(generateReq.contents[1]?.parts?.[0]?.functionCall?.id).toBe(
+        'example-0'
+      );
       expect(generateReq.contents[2]?.parts?.[0]?.functionResponse?.name).toBe(
         '__axOutput'
+      );
+      expect(generateReq.contents[2]?.parts?.[0]?.functionResponse?.id).toBe(
+        'example-0'
       );
       expect(generateReq.contents[3]?.parts?.[0]?.text).toBe('Live question');
     });

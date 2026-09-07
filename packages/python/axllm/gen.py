@@ -3535,10 +3535,12 @@ def _ace_apply_curator_operations(playbook: Any, operations: Any, options: Any, 
 def _tool_result_message_impl(call: Any, result: Any) -> Any:
     _core_coverage_mark("_tool_result_message_impl")
     id = _core_get(call, "id", None)
+    name = _core_get(call, "name", None)
     result_json = _core_json_stringify(result)
     message = {}
     message["role"] = "function"
     message["function_id"] = id
+    message["name"] = name
     message["result"] = result_json
     return message
 
@@ -3546,6 +3548,7 @@ def _tool_result_message_impl(call: Any, result: Any) -> Any:
 def _tool_error_message_impl(call: Any, error: error) -> Any:
     _core_coverage_mark("_tool_error_message_impl")
     id = _core_get(call, "id", None)
+    name = _core_get(call, "name", None)
     error_text = _core_exception_message(error)
     payload = {}
     payload["error"] = error_text
@@ -3553,6 +3556,7 @@ def _tool_error_message_impl(call: Any, error: error) -> Any:
     message = {}
     message["role"] = "function"
     message["function_id"] = id
+    message["name"] = name
     message["result"] = payload_json
     message["is_error"] = True
     return message

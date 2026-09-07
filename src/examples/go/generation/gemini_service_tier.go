@@ -32,7 +32,7 @@ func geminiAPIKey() string {
 func main() {
 	model := os.Getenv("AX_GEMINI_MODEL")
 	if model == "" {
-		model = "gemini-3.7-flash"
+		model = "gemini-3.8-flash"
 	}
 	client := ax.NewAI("google-gemini", map[string]ax.Value{
 		"api_key": geminiAPIKey(),

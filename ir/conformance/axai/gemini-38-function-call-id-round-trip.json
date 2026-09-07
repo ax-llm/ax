@@ -10,10 +10,10 @@
             "function": {
               "name": "search",
               "params": {
-                "query": "Search docs"
+                "query": "Ax function IDs"
               }
             },
-            "id": "gemini-search-1",
+            "id": "provider-call-2",
             "type": "function"
           }
         ],
@@ -22,25 +22,50 @@
     ]
   },
   "expected_transport_request": {
+    "headers": {
+      "x-goog-api-key": "test-key"
+    },
     "json": {
-      "generationConfig": {
-        "candidateCount": 1,
-        "responseJsonSchema": {
-          "properties": {
-            "answer": {
-              "type": "string"
+      "contents": [
+        {
+          "parts": [
+            {
+              "text": "Look up Ax."
             }
-          },
-          "required": ["answer"],
-          "type": "object"
+          ],
+          "role": "user"
         },
-        "responseMimeType": "application/json"
-      },
-      "toolConfig": {
-        "function_calling_config": {
-          "allowed_function_names": ["search"],
-          "mode": "ANY"
+        {
+          "parts": [
+            {
+              "functionCall": {
+                "args": {
+                  "query": "Ax"
+                },
+                "id": "provider-call-1",
+                "name": "search"
+              }
+            }
+          ],
+          "role": "model"
+        },
+        {
+          "parts": [
+            {
+              "functionResponse": {
+                "id": "provider-call-1",
+                "name": "search",
+                "response": {
+                  "result": "{\"found\":true}"
+                }
+              }
+            }
+          ],
+          "role": "user"
         }
+      ],
+      "generationConfig": {
+        "responseMimeType": "text/plain"
       },
       "tools": [
         {
@@ -61,23 +86,41 @@
           ]
         }
       ]
-    }
+    },
+    "method": "POST",
+    "url": "https://generativelanguage.googleapis.com/v1beta/models/gemini-3.8-flash:generateContent"
   },
   "kind": "ai_chat",
-  "name": "gemini-tool-call",
-  "provider": "gemini",
+  "model": "gemini-3.8-flash",
+  "name": "gemini-38-function-call-id-round-trip",
+  "provider": "google-gemini",
   "request": {
     "chat_prompt": [
       {
-        "content": "Search docs",
+        "content": "Look up Ax.",
         "role": "user"
+      },
+      {
+        "functionCalls": [
+          {
+            "function": {
+              "name": "search",
+              "params": {
+                "query": "Ax"
+              }
+            },
+            "id": "provider-call-1",
+            "type": "function"
+          }
+        ],
+        "role": "assistant"
+      },
+      {
+        "functionId": "provider-call-1",
+        "result": "{\"found\":true}",
+        "role": "function"
       }
     ],
-    "function_call": {
-      "function": {
-        "name": "search"
-      }
-    },
     "functions": [
       {
         "description": "Search docs",
@@ -95,21 +138,6 @@
     ],
     "model_config": {
       "stream": false
-    },
-    "response_format": {
-      "schema": {
-        "name": "search_result",
-        "schema": {
-          "properties": {
-            "answer": {
-              "type": "string"
-            }
-          },
-          "required": ["answer"],
-          "type": "object"
-        }
-      },
-      "type": "json_schema"
     }
   },
   "transport_responses": [
@@ -122,9 +150,9 @@
                 {
                   "functionCall": {
                     "args": {
-                      "query": "Search docs"
+                      "query": "Ax function IDs"
                     },
-                    "id": "gemini-search-1",
+                    "id": "provider-call-2",
                     "name": "search"
                   }
                 }

@@ -221,7 +221,7 @@
         "code": [
           "axllm::GoogleGeminiClient client(axllm::object({",
           "    {\"api_key\", key},",
-          "    {\"model\", model == nullptr || std::string(model).empty() ? \"gemini-3.7-flash\" : model},",
+          "    {\"model\", model == nullptr || std::string(model).empty() ? \"gemini-3.8-flash\" : model},",
           "}));",
           "axllm::Value out = client.chat(request, axllm::object({{\"service_tier\", \"flex\"}}));"
         ]

@@ -27,7 +27,9 @@
   "expected_transport_json_absent": [
     "generationConfig.temperature",
     "generationConfig.topP",
-    "generationConfig.topK"
+    "generationConfig.topK",
+    "generationConfig.candidateCount",
+    "generationConfig.frequencyPenalty"
   ],
   "expected_transport_request": {
     "headers": {
@@ -45,7 +47,6 @@
         }
       ],
       "generationConfig": {
-        "candidateCount": 1,
         "maxOutputTokens": 64,
         "responseMimeType": "text/plain"
       }
@@ -65,7 +66,9 @@
       }
     ],
     "model_config": {
+      "frequencyPenalty": 0.4,
       "maxTokens": 64,
+      "n": 2,
       "stream": false,
       "temperature": 0.2,
       "topK": 20,

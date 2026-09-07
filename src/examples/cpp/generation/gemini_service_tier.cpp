@@ -23,7 +23,7 @@ int main() {
   const char* model = std::getenv("AX_GEMINI_MODEL");
   axllm::GoogleGeminiClient client(axllm::object({
       {"api_key", key},
-      {"model", model == nullptr || std::string(model).empty() ? "gemini-3.7-flash" : model},
+      {"model", model == nullptr || std::string(model).empty() ? "gemini-3.8-flash" : model},
   }));
   axllm::Value out = client.chat(axllm::object({
       {"chat_prompt", axllm::array({axllm::object({

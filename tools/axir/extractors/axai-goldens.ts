@@ -6859,10 +6859,27 @@ writeFixture('gemini-service-tier-live-error', {
   expected_error_contains: 'not supported by the Live API',
 });
 
-for (const [fixtureName, model] of [
-  ['gemini-37-flash-server-managed-sampling', 'gemini-3.7-flash'],
-  ['gemini-36-flash-server-managed-sampling', 'gemini-3.6-flash'],
-  ['gemini-35-flash-lite-server-managed-sampling', 'gemini-3.5-flash-lite'],
+for (const { fixtureName, model, strictParameters } of [
+  {
+    fixtureName: 'gemini-38-flash-server-managed-sampling',
+    model: 'gemini-3.8-flash',
+    strictParameters: true,
+  },
+  {
+    fixtureName: 'gemini-37-flash-server-managed-sampling',
+    model: 'gemini-3.7-flash',
+    strictParameters: true,
+  },
+  {
+    fixtureName: 'gemini-36-flash-server-managed-sampling',
+    model: 'gemini-3.6-flash',
+    strictParameters: true,
+  },
+  {
+    fixtureName: 'gemini-35-flash-lite-server-managed-sampling',
+    model: 'gemini-3.5-flash-lite',
+    strictParameters: false,
+  },
 ] as const) {
   writeFixture(fixtureName, {
     kind: 'ai_chat',
@@ -6876,6 +6893,7 @@ for (const [fixtureName, model] of [
         temperature: 0.2,
         topP: 0.8,
         topK: 20,
+        ...(strictParameters ? { n: 2, frequencyPenalty: 0.4 } : {}),
       },
     },
     transport_responses: [
@@ -6926,7 +6944,7 @@ for (const [fixtureName, model] of [
       json: {
         contents: [{ role: 'user', parts: [{ text: 'Answer briefly.' }] }],
         generationConfig: {
-          candidateCount: 1,
+          ...(!strictParameters ? { candidateCount: 1 } : {}),
           maxOutputTokens: 64,
           responseMimeType: 'text/plain',
         },
@@ -6936,9 +6954,146 @@ for (const [fixtureName, model] of [
       'generationConfig.temperature',
       'generationConfig.topP',
       'generationConfig.topK',
+      ...(strictParameters
+        ? [
+            'generationConfig.candidateCount',
+            'generationConfig.frequencyPenalty',
+          ]
+        : []),
     ],
   });
 }
+
+writeFixture('gemini-38-function-call-id-round-trip', {
+  kind: 'ai_chat',
+  provider: 'google-gemini',
+  model: 'gemini-3.8-flash',
+  request: {
+    chat_prompt: [
+      { role: 'user', content: 'Look up Ax.' },
+      {
+        role: 'assistant',
+        functionCalls: [
+          {
+            id: 'provider-call-1',
+            type: 'function',
+            function: { name: 'search', params: { query: 'Ax' } },
+          },
+        ],
+      },
+      {
+        role: 'function',
+        functionId: 'provider-call-1',
+        result: '{"found":true}',
+      },
+    ],
+    functions: [
+      {
+        name: 'search',
+        description: 'Search docs',
+        parameters: {
+          type: 'object',
+          properties: { query: { type: 'string' } },
+          required: ['query'],
+        },
+      },
+    ],
+    model_config: { stream: false },
+  },
+  transport_responses: [
+    {
+      status: 200,
+      json: {
+        candidates: [
+          {
+            finishReason: 'STOP',
+            content: {
+              parts: [
+                {
+                  functionCall: {
+                    id: 'provider-call-2',
+                    name: 'search',
+                    args: { query: 'Ax function IDs' },
+                  },
+                },
+              ],
+            },
+          },
+        ],
+      },
+    },
+  ],
+  expected_output: {
+    results: [
+      {
+        index: 0,
+        content: '',
+        function_calls: [
+          {
+            id: 'provider-call-2',
+            type: 'function',
+            function: {
+              name: 'search',
+              params: { query: 'Ax function IDs' },
+            },
+          },
+        ],
+        finish_reason: 'function_call',
+      },
+    ],
+    model_usage: null,
+  },
+  expected_transport_request: {
+    method: 'POST',
+    url: 'https://generativelanguage.googleapis.com/v1beta/models/gemini-3.8-flash:generateContent',
+    headers: { 'x-goog-api-key': 'test-key' },
+    json: {
+      contents: [
+        { role: 'user', parts: [{ text: 'Look up Ax.' }] },
+        {
+          role: 'model',
+          parts: [
+            {
+              functionCall: {
+                id: 'provider-call-1',
+                name: 'search',
+                args: { query: 'Ax' },
+              },
+            },
+          ],
+        },
+        {
+          role: 'user',
+          parts: [
+            {
+              functionResponse: {
+                id: 'provider-call-1',
+                name: 'search',
+                response: { result: '{"found":true}' },
+              },
+            },
+          ],
+        },
+      ],
+      generationConfig: { responseMimeType: 'text/plain' },
+      tools: [
+        {
+          function_declarations: [
+            {
+              name: 'search',
+              description: 'Search docs',
+              parameters: {
+                type: 'object',
+                properties: { query: { type: 'string' } },
+                required: ['query'],
+              },
+            },
+          ],
+        },
+      ],
+    },
+  },
+});
 
 writeFixture('gemini-tool-call', {
   kind: 'ai_chat',
@@ -6983,6 +7138,7 @@ writeFixture('gemini-tool-call', {
               parts: [
                 {
                   functionCall: {
+                    id: 'gemini-search-1',
                     name: 'search',
                     args: { query: 'Search docs' },
                   },
@@ -7001,7 +7157,7 @@ writeFixture('gemini-tool-call', {
         content: '',
         function_calls: [
           {
-            id: 'search',
+            id: 'gemini-search-1',
             type: 'function',
             function: { name: 'search', params: { query: 'Search docs' } },
           },
@@ -7364,6 +7520,20 @@ for (const {
   expectedLevel,
   expectedThoughts,
 } of [
+  {
+    fixtureName: 'gemini-38-minimal-clamps-to-low',
+    model: 'gemini-3.8-flash',
+    requested: 'minimal',
+    expectedLevel: 'low',
+    expectedThoughts: true,
+  },
+  {
+    fixtureName: 'gemini-38-none-clamps-to-low-and-hides-thoughts',
+    model: 'gemini-3.8-flash',
+    requested: 'none',
+    expectedLevel: 'low',
+    expectedThoughts: false,
+  },
   {
     fixtureName: 'gemini-37-minimal-clamps-to-low',
     model: 'gemini-3.7-flash',

@@ -8,16 +8,16 @@
       "total_lines": 10722
     },
     "axllm/ai.py": {
-      "emitted_lines": 9297,
-      "total_lines": 12304
+      "emitted_lines": 9326,
+      "total_lines": 12333
     },
     "axllm/flow.py": {
       "emitted_lines": 2287,
       "total_lines": 2850
     },
     "axllm/gen.py": {
-      "emitted_lines": 3054,
-      "total_lines": 4155
+      "emitted_lines": 3058,
+      "total_lines": 4159
     },
     "axllm/mcp.py": {
       "emitted_lines": 2192,

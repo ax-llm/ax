@@ -18,7 +18,7 @@ fn api_key() -> AxResult<String> {
 }
 
 fn main() -> AxResult<()> {
-    let model = env::var("AX_GEMINI_MODEL").unwrap_or_else(|_| "gemini-3.7-flash".to_string());
+    let model = env::var("AX_GEMINI_MODEL").unwrap_or_else(|_| "gemini-3.8-flash".to_string());
     let mut client = ai(
         "google-gemini",
         json!({

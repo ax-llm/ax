@@ -19,7 +19,7 @@ if not api_key:
 
 client = GoogleGeminiClient(
     api_key=api_key,
-    model=os.getenv("AX_GEMINI_MODEL", "gemini-3.7-flash"),
+    model=os.getenv("AX_GEMINI_MODEL", "gemini-3.8-flash"),
 )
 out = client.chat(
     {

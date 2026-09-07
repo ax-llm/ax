@@ -1,6 +1,7 @@
 import type { AxModelConfig, AxServiceTier } from '../types.js';
 
 export enum AxAIGoogleGeminiModel {
+  Gemini38Flash = 'gemini-3.8-flash',
   Gemini37Flash = 'gemini-3.7-flash',
   Gemini36Flash = 'gemini-3.6-flash',
   Gemini35Flash = 'gemini-3.5-flash',
@@ -89,12 +90,14 @@ export type AxAIGoogleGeminiContentPart = {
     }
   | {
       functionCall: {
+        id?: string;
         name: string;
         args: object;
       };
     }
   | {
       functionResponse: {
+        id?: string;
         name: string;
         response: object;
       };
@@ -406,6 +409,7 @@ export type AxAIGoogleGeminiCacheUpdateRequest = {
  * Models that support explicit context caching.
  */
 export const GEMINI_CONTEXT_CACHE_SUPPORTED_MODELS = [
+  'gemini-3.8-flash',
   'gemini-3.7-flash',
   'gemini-3.6-flash',
   'gemini-3.5-flash',
