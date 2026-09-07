@@ -6,6 +6,22 @@ import java.util.concurrent.*;
 import java.util.concurrent.atomic.AtomicInteger;
 
 public final class AstraSessionTest {
+  static void manualClockDeadline() throws Exception {
+    var clock = new AxEventClock.ManualClock(0);
+    var token = new AxCancellationToken() {
+      @Override public Subscription subscribe(Runnable callback) {
+        var subscription = super.subscribe(callback);
+        clock.advance(1);
+        return subscription;
+      }
+    };
+    var success = new java.util.concurrent.atomic.AtomicBoolean();
+    var sleeper = new Thread(() -> { try { success.set(clock.sleep(1, token)); } catch (InterruptedException error) { Thread.currentThread().interrupt(); } });
+    sleeper.start(); sleeper.join(1000);
+    try {
+      if (sleeper.isAlive() || !success.get() || token.subscriptionCount() != 0) throw new AssertionError("Manual clock deadline raced with subscription");
+    } finally { token.cancel(); sleeper.join(1000); }
+  }
   @SuppressWarnings("unchecked") static void nativeFiles() throws Exception {
     var requests=new ArrayList<Map<String,Object>>();
     OpenAICompatibleClient.Transport transport=request->{requests.add((Map<String,Object>)request.get("json"));return Map.of("status",200,"json",Map.of("id","file-response","choices",List.of(Map.of("index",0,"message",Map.of("role","assistant","content","{\"summary\":\"Read\"}")))));};
@@ -47,6 +63,7 @@ public final class AstraSessionTest {
   private static void emit(OutputStream output,Object event) throws IOException { output.write(("data: "+Json.stringify(event)+"\n\n").getBytes(StandardCharsets.UTF_8));output.flush(); }
   private static Map<String,Object> completed(String id,String answer) {return Map.of("type","response.completed","response",Map.of("id",id,"model","gpt-6-astra","output",List.of(Map.of("type","message","id","msg-"+id,"content",List.of(Map.of("type","output_text","text",answer))))));}
   public static void main(String[] args) throws Exception {
+    manualClockDeadline();
     nativeFiles();
     CountDownLatch started=new CountDownLatch(1),release=new CountDownLatch(1);
     AtomicInteger calls=new AtomicInteger(),requests=new AtomicInteger();

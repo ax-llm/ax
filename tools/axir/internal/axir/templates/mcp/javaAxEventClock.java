@@ -17,6 +17,14 @@ public interface AxEventClock {
     public synchronized long now(){return current;}
     public synchronized void advance(long milliseconds){current+=milliseconds;notifyAll();}
     public synchronized void sleep(long milliseconds)throws InterruptedException{long target=current+Math.max(0,milliseconds);while(current<target)wait();}
-    public boolean sleep(long milliseconds,AxCancellationToken cancellation)throws InterruptedException{if(cancellation==null){sleep(milliseconds);return true;}AxCancellationToken.Subscription subscription=cancellation.subscribe(()->{synchronized(this){notifyAll();}});try{synchronized(this){long target=current+Math.max(0,milliseconds);while(current<target&&!cancellation.cancelled())wait();return !cancellation.cancelled();}}finally{subscription.close();}}
+    public synchronized boolean sleep(long milliseconds, AxCancellationToken cancellation) throws InterruptedException {
+      if (cancellation == null) { sleep(milliseconds); return true; }
+      long target = current + Math.max(0, milliseconds);
+      AxCancellationToken.Subscription subscription = cancellation.subscribe(() -> { synchronized (this) { notifyAll(); } });
+      try {
+        while (current < target && !cancellation.cancelled()) wait();
+        return !cancellation.cancelled();
+      } finally { subscription.close(); }
+    }
   }
 }
