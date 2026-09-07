@@ -73,6 +73,7 @@ distractor
 dosco
 dspy
 effectful
+endpointing
 Evals
 EWMA
 Ewma
@@ -303,6 +304,7 @@ Persistable
 redrive
 redriven
 reentrancy
+replayable
 scriptable
 specversion
 ucpversion

@@ -150,6 +150,38 @@ describe('OpenAI Responses function-call streaming', () => {
 });
 
 describe('encrypted reasoning replay', () => {
+  it('replays legacy encrypted blocks without exposing ciphertext as a summary', () => {
+    const impl = new AxAIOpenAIResponsesImpl(config, true);
+    const [, request] = impl.createChatReq(
+      {
+        model: AxAIOpenAIResponsesModel.GPT6Astra,
+        modelConfig: {},
+        chatPrompt: [
+          {
+            role: 'assistant',
+            thought: 'provisional plaintext',
+            thoughtBlocks: [
+              {
+                encrypted: true,
+                data: 'opaque-ciphertext',
+                signature: 'rs_legacy',
+              },
+            ],
+          },
+        ],
+      },
+      {}
+    );
+    expect(request.input).toEqual([
+      {
+        type: 'reasoning',
+        id: 'rs_legacy',
+        encrypted_content: 'opaque-ciphertext',
+        summary: [],
+      },
+    ]);
+  });
+
   it('emits completed encrypted items once and preserves separate replay envelopes', () => {
     const impl = new AxAIOpenAIResponsesImpl(config, true);
     const state = {};

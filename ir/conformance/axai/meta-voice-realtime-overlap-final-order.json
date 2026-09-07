@@ -1,0 +1,105 @@
+{
+  "events": [
+    {
+      "audioProcessedMs": 100,
+      "turnId": 1,
+      "type": "speechStart"
+    },
+    {
+      "audioProcessedMs": 200,
+      "turnId": 2,
+      "type": "speechStart"
+    },
+    {
+      "audioProcessedMs": 300,
+      "transcript": "Second.",
+      "turnId": 2,
+      "type": "speechComplete"
+    },
+    {
+      "audioProcessedMs": 400,
+      "transcript": "First.",
+      "turnId": 1,
+      "type": "speechComplete"
+    }
+  ],
+  "expected_output": [
+    {
+      "model_usage": null,
+      "results": [
+        {
+          "audio_processed_ms": 100,
+          "content": "",
+          "finish_reason": null,
+          "function_calls": [],
+          "id": "1",
+          "index": 0
+        }
+      ]
+    },
+    {
+      "model_usage": null,
+      "results": [
+        {
+          "audio_processed_ms": 200,
+          "content": "",
+          "finish_reason": null,
+          "function_calls": [],
+          "id": "2",
+          "index": 0
+        }
+      ]
+    },
+    {
+      "model_usage": null,
+      "results": [
+        {
+          "audio_processed_ms": 300,
+          "content": "",
+          "finish_reason": null,
+          "function_calls": [],
+          "id": "2",
+          "index": 0,
+          "transcript": {
+            "is_final": true,
+            "text": "Second."
+          }
+        }
+      ]
+    },
+    {
+      "model_usage": null,
+      "results": [
+        {
+          "audio_processed_ms": 400,
+          "content": "First.",
+          "finish_reason": null,
+          "function_calls": [],
+          "id": "1",
+          "index": 0,
+          "transcript": {
+            "is_final": true,
+            "text": "First."
+          }
+        },
+        {
+          "content": "Second.",
+          "finish_reason": null,
+          "function_calls": [],
+          "id": "2",
+          "index": 0,
+          "transcript": {
+            "is_final": true,
+            "text": "Second."
+          }
+        }
+      ]
+    }
+  ],
+  "kind": "ai_realtime",
+  "name": "meta-voice-realtime-overlap-final-order",
+  "provider": "meta",
+  "request": {
+    "model": "muse-voice-transcribe-1.0"
+  }
+}

@@ -122,6 +122,7 @@ var coreIntrinsicRust = map[CoreIntrinsic]string{
 	"intrinsic.string.title_from_camel":               "core_string_title_from_camel",
 	"intrinsic.div":                                   "core_div",
 	"intrinsic.exception.message":                     "core_exception_message",
+	"intrinsic.exception.is_aborted":                  "core_exception_is_aborted",
 	"intrinsic.map.keys":                              "core_map_keys",
 	"intrinsic.map.values":                            "core_map_values",
 	"intrinsic.retry.sleep":                           "core_retry_sleep",

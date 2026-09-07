@@ -86,8 +86,9 @@ module @ax.provider version "0.1" {
       %cache_enabled = core.call intrinsic.and(%cache_provider_and_model, %cache_requested)
       %message_index = core.const 0
       %marker_count = core.const 0
+      %extended_media = core.call intrinsic.string.starts_with(%model, "muse-")
       core.for %message in %chat_prompt {
-        %provider_message = core.call @openai_message_impl(%message, %reasoning_content_mode, %reasoning_details_mode)
+        %provider_message = core.call @openai_message_impl(%message, %reasoning_content_mode, %reasoning_details_mode, %extended_media)
         core.if %cache_enabled {
           %is_before_last = core.call intrinsic.lt(%message_index, %last_index)
           %explicit_cache = core.get %message["cache"] default false
@@ -383,8 +384,8 @@ module @ax.provider version "0.1" {
     attr emit_module = "ai"
     attr private = true
     tag "openai-message-core-helper"
-    type signature = "(json, reasoning_content_mode:string, reasoning_details_mode:string) -> json throws"
-    body @entry(%message: json, %reasoning_content_mode: string, %reasoning_details_mode: string) {
+    type signature = "(json, reasoning_content_mode:string, reasoning_details_mode:string, extended_media:bool) -> json throws"
+    body @entry(%message: json, %reasoning_content_mode: string, %reasoning_details_mode: string, %extended_media: bool) {
       %role = core.get %message["role"]
       %content = core.get %message["content"] default ""
       %is_no_reasoning = core.call intrinsic.eq(%reasoning_content_mode, "none")
@@ -402,7 +403,7 @@ module @ax.provider version "0.1" {
         core.if %content_is_list {
           %parts = core.list
           core.for %part in %content {
-            %provider_part = core.call @openai_content_part_impl(%part)
+            %provider_part = core.call @openai_content_part_impl(%part, %extended_media)
             core.append %parts, %provider_part
           }
           %content = core.let %parts
@@ -497,8 +498,8 @@ module @ax.provider version "0.1" {
     attr emit_module = "ai"
     attr private = true
     tag "openai-content-part-core-helper"
-    type signature = "(json) -> json throws"
-    body @entry(%part: json) {
+    type signature = "(json, extended_media:bool) -> json throws"
+    body @entry(%part: json, %extended_media: bool) {
       %type = core.get %part["type"]
       %is_text = core.call intrinsic.eq(%type, "text")
       core.if %is_text {
@@ -552,6 +553,64 @@ module @ax.provider version "0.1" {
         %audio_message = core.call intrinsic.string.format("OpenAI audio chat input supports only wav and mp3 audio, received {}", %format)
         %audio_error = core.call intrinsic.ai.error.unsupported(%audio_message)
         core.raise %audio_error
+      }
+      %is_file = core.call intrinsic.eq(%type, "file")
+      %is_supported_file = core.call intrinsic.and(%is_file, %extended_media)
+      core.if %is_supported_file {
+        %out = core.map
+        %mime_snake = core.get %part["mime_type"] default "application/octet-stream"
+        %mime = core.get %part["mimeType"] default %mime_snake
+        %uri_snake = core.get %part["file_uri"]
+        %uri = core.get %part["fileUri"] default %uri_snake
+        %has_uri = core.call intrinsic.truthy(%uri)
+        %is_image_file = core.call intrinsic.string.starts_with(%mime, "image/")
+        %is_video_file = core.call intrinsic.string.starts_with(%mime, "video/")
+        %is_uri_video = core.call intrinsic.and(%is_video_file, %has_uri)
+        core.if %is_image_file {
+          core.set %out["type"] = "image_url"
+          %image_url = core.map
+          %data = core.get %part["data"] default ""
+          %data_url = core.call intrinsic.string.format("data:{};base64,{}", %mime, %data)
+          %resolved_uri = core.call intrinsic.coalesce(%uri, %data_url)
+          core.set %image_url["url"] = %resolved_uri
+          core.set %image_url["detail"] = "auto"
+          core.set %out["image_url"] = %image_url
+        } else {
+          core.if %is_uri_video {
+            core.set %out["type"] = "video_url"
+            %video_url = core.map
+            core.set %video_url["url"] = %uri
+            core.set %out["video_url"] = %video_url
+          } else {
+            core.set %out["type"] = "file"
+            %file = core.map
+            core.if %has_uri {
+              core.set %file["file_url"] = %uri
+            } else {
+              %data = core.get %part["data"] default ""
+              %file_data = core.call intrinsic.string.format("data:{};base64,{}", %mime, %data)
+              core.set %file["file_data"] = %file_data
+            }
+            %filename = core.get %part["filename"]
+            %has_filename = core.call intrinsic.is_not_none(%filename)
+            core.if %has_filename {
+              core.set %file["filename"] = %filename
+            }
+            core.set %out["file"] = %file
+          }
+        }
+        core.return %out
+      }
+      %is_url = core.call intrinsic.eq(%type, "url")
+      core.if %is_url {
+        %out = core.map
+        core.set %out["type"] = "text"
+        %cached_snake = core.get %part["cached_content"]
+        %cached = core.get %part["cachedContent"] default %cached_snake
+        %url = core.get %part["url"] default ""
+        %text = core.call intrinsic.coalesce(%cached, %url)
+        core.set %out["text"] = %text
+        core.return %out
       }
       %message = core.call intrinsic.string.format("OpenAI-compatible beta does not support content part type: {}", %type)
       %error = core.call intrinsic.ai.error.unsupported(%message)
@@ -2794,8 +2853,8 @@ module @ax.provider version "0.1" {
     attr effect = "throws"
     attr emit_module = "ai"
     tag "provider-realtime-audio-operation"
-    type signature = "(profile:string, model:string, api_key:string) -> json throws"
-    body @entry(%profile: string, %model: string, %api_key: string) {
+    type signature = "(profile:string, model:string, api_key:string, options?:json) -> json throws"
+    body @entry(%profile: string, %model: string, %api_key: string, %options: json) {
       %descriptor = core.call @provider_realtime_audio_descriptor(%profile)
       %grammar = core.get %descriptor["grammar"] default "openai_realtime_compatible"
       %base = core.get %descriptor["url"] default ""
@@ -2808,12 +2867,62 @@ module @ax.provider version "0.1" {
         core.set %out["headers"] = %headers
         core.return %out
       }
+      %is_meta = core.call intrinsic.eq(%grammar, "meta_asr_realtime")
+      core.if %is_meta {
+        %api_url = core.get %options["api_url"]
+        %api_url = core.get %options["apiURL"] default %api_url
+        %base_override = core.get %options["base_url"] default %api_url
+        %base_override = core.get %options["baseUrl"] default %base_override
+        %has_override = core.call intrinsic.truthy(%base_override)
+        core.if %has_override {
+          %trailing_slash = core.call intrinsic.string.ends_with(%base_override, "/")
+          core.if %trailing_slash {
+            %base_length = core.call intrinsic.len(%base_override)
+            %base_end = core.call intrinsic.add(%base_length, -1)
+            %base_override = core.call intrinsic.string.slice(%base_override, 0, %base_end)
+          }
+          %base_override = core.call intrinsic.string.replace(%base_override, "https://", "wss://")
+          %base_override = core.call intrinsic.string.replace(%base_override, "http://", "ws://")
+          %base = core.call intrinsic.string.format("{}/asr/realtime", %base_override)
+        }
+        %session_snake = core.get %options["session_id"]
+        %session = core.get %options["sessionId"] default %session_snake
+        %has_session = core.call intrinsic.truthy(%session)
+        %meta_url = core.let %base
+        core.if %has_session {
+          %meta_url = core.call intrinsic.string.format("{}?sessionId={}", %base, %session)
+        }
+        core.set %out["url"] = %meta_url
+        core.set %out["headers"] = %headers
+        core.return %out
+      }
       %openai_url = core.call intrinsic.string.format("{}?model={}", %base, %model)
       %auth = core.call intrinsic.string.format("Bearer {}", %api_key)
       core.set %headers["Authorization"] = %auth
       core.set %out["url"] = %openai_url
       core.set %out["headers"] = %headers
       core.return %out
+    }
+  }
+
+  op ax.provider.semantic @provider_apply_realtime_credentials {
+    attr core_kind = "func"
+    attr effect = "throws"
+    attr emit_module = "ai"
+    tag "meta-realtime-auth"
+    type signature = "(setup:json, headers:json) -> json throws"
+    body @entry(%setup: json, %headers: json) {
+      %lower = core.get %headers["authorization"]
+      %authorization = core.get %headers["Authorization"] default %lower
+      %has_auth = core.call intrinsic.truthy(%authorization)
+      core.if %has_auth {
+        %auth = core.map
+        core.set %auth["accessToken"] = %authorization
+        core.set %setup["authorization"] = %auth
+        core.return %setup
+      }
+      %error = core.call intrinsic.ai.error.unsupported("Meta realtime credential provider must return an Authorization header")
+      core.raise %error
     }
   }
 
@@ -2867,10 +2976,15 @@ module @ax.provider version "0.1" {
       %descriptor = core.get %operations["realtime"]
       %grammar = core.get %descriptor["grammar"] default "openai_realtime_compatible"
       %is_gemini_live = core.call intrinsic.eq(%grammar, "gemini_live_bidi")
+      %is_meta = core.call intrinsic.eq(%grammar, "meta_asr_realtime")
       core.if %is_gemini_live {
         %service_tier = core.call @gemini_service_tier_impl(%request, %options, %is_vertex, true)
         %setup = core.call @gemini_live_bidi_build_setup(%descriptor, %request)
         core.return %setup
+      }
+      core.if %is_meta {
+        %meta_setup = core.call @meta_asr_realtime_build_setup(%descriptor, %request, %options)
+        core.return %meta_setup
       }
       %openai_setup = core.call @openai_realtime_compatible_build_setup(%descriptor, %request)
       core.return %openai_setup
@@ -2887,12 +3001,230 @@ module @ax.provider version "0.1" {
       %descriptor = core.call @provider_realtime_audio_descriptor(%profile)
       %grammar = core.get %descriptor["grammar"] default "openai_realtime_compatible"
       %is_gemini_live = core.call intrinsic.eq(%grammar, "gemini_live_bidi")
+      %is_meta = core.call intrinsic.eq(%grammar, "meta_asr_realtime")
       core.if %is_gemini_live {
         %input = core.call @gemini_live_bidi_build_input(%descriptor, %request)
         core.return %input
       }
+      core.if %is_meta {
+        %meta_input = core.call @meta_asr_realtime_build_input(%descriptor, %request)
+        core.return %meta_input
+      }
       %openai_input = core.call @openai_realtime_compatible_build_input(%descriptor, %request)
       core.return %openai_input
+    }
+  }
+
+  op ax.provider.semantic @meta_asr_realtime_build_setup {
+    attr core_kind = "func"
+    attr effect = "throws"
+    attr emit_module = "ai"
+    attr private = true
+    tag "meta-realtime-audio-core-helper"
+    type signature = "(descriptor:json, request:json, options:json) -> json throws"
+    body @entry(%descriptor: json, %request: json, %options: json) {
+      %out = core.map
+      %default_model = core.get %descriptor["defaultModel"] default "muse-voice-transcribe-1.0"
+      %model = core.get %request["model"] default %default_model
+      core.set %out["model"] = %model
+      %api_key_snake = core.get %options["api_key"] default ""
+      %api_key = core.get %options["apiKey"] default %api_key_snake
+      %authorization = core.map
+      %access_token = core.call intrinsic.string.format("Bearer {}", %api_key)
+      core.set %authorization["accessToken"] = %access_token
+      core.set %out["authorization"] = %authorization
+      %empty_map = core.map
+      %model_config_snake = core.get %request["model_config"] default %empty_map
+      %model_config = core.get %request["modelConfig"] default %model_config_snake
+      %configured_snake = core.get %options["realtime_transcription"] default %empty_map
+      %configured = core.get %options["realtimeTranscription"] default %configured_snake
+      %request_config_snake = core.get %model_config["realtime_transcription"] default %empty_map
+      %request_config = core.get %model_config["realtimeTranscription"] default %request_config_snake
+      %config = core.call intrinsic.map.merge(%configured, %request_config)
+      %mode = core.get %config["mode"] default "push_to_talk"
+      %mode_wire = core.let %mode
+      %is_push = core.call intrinsic.eq(%mode, "push_to_talk")
+      %is_endpointing = core.call intrinsic.eq(%mode, "endpointing")
+      %is_diarization = core.call intrinsic.eq(%mode, "diarization")
+      core.if %is_push {
+        %mode_wire = core.let "PUSH_TO_TALK"
+      }
+      core.if %is_endpointing {
+        %mode_wire = core.let "ENDPOINTING"
+      }
+      core.if %is_diarization {
+        %mode_wire = core.let "DIARIZATION"
+      }
+      core.set %out["mode"] = %mode_wire
+      %language_bias_snake = core.get %config["language_bias"]
+      %language_bias = core.get %config["languageBias"] default %language_bias_snake
+      %has_language_bias = core.call intrinsic.truthy(%language_bias)
+      core.if %has_language_bias {
+        core.set %out["languageBias"] = %language_bias
+      }
+      %keywords = core.get %config["keywords"]
+      %has_keywords = core.call intrinsic.truthy(%keywords)
+      core.if %has_keywords {
+        core.set %out["keywords"] = %keywords
+      }
+      %partial_snake = core.get %config["partial_mode"]
+      %partial = core.get %config["partialMode"] default %partial_snake
+      %has_partial = core.call intrinsic.is_not_none(%partial)
+      core.if %has_partial {
+        %partial_wire = core.let %partial
+        %is_cumulative = core.call intrinsic.eq(%partial, "cumulative")
+        %is_delta = core.call intrinsic.eq(%partial, "delta")
+        core.if %is_cumulative {
+          %partial_wire = core.let "CUMULATIVE"
+        }
+        core.if %is_delta {
+          %partial_wire = core.let "DELTA"
+        }
+        core.set %out["partialMode"] = %partial_wire
+      }
+      %progress_snake = core.get %config["emit_audio_progress"]
+      %progress = core.get %config["emitAudioProgress"] default %progress_snake
+      %has_progress = core.call intrinsic.is_not_none(%progress)
+      core.if %has_progress {
+        core.set %out["emitAudioProgress"] = %progress
+      }
+      %zdr_snake = core.get %config["zdr_override"]
+      %zdr = core.get %config["zdrOverride"] default %zdr_snake
+      %has_zdr = core.call intrinsic.is_not_none(%zdr)
+      core.if %has_zdr {
+        core.set %out["zdrOverride"] = %zdr
+      }
+      %request_audio = core.get %request["audio"] default %empty_map
+      %request_input = core.get %request_audio["input"] default %empty_map
+      %audio_descriptor = core.get %descriptor["audio"] default %empty_map
+      %input_descriptor = core.get %audio_descriptor["input"] default %empty_map
+      %sample_rate_snake = core.get %request_input["sample_rate"]
+      %sample_rate_camel = core.get %request_input["sampleRate"] default %sample_rate_snake
+      %sample_rate_requested = core.get %request_input["rate"] default %sample_rate_camel
+      %channels_requested = core.get %request_input["channels"]
+      %audio_messages = core.call @realtime_request_user_messages_impl(%request)
+      core.for %audio_message in %audio_messages {
+        %audio_content = core.get %audio_message["content"]
+        %audio_content_list = core.type_is %audio_content type "list"
+        core.if %audio_content_list {
+          core.for %audio_part in %audio_content {
+            %audio_part_type = core.get %audio_part["type"]
+            %is_audio_part = core.call intrinsic.eq(%audio_part_type, "audio")
+            core.if %is_audio_part {
+              %part_rate_snake = core.get %audio_part["sample_rate"]
+              %part_rate = core.get %audio_part["sampleRate"] default %part_rate_snake
+              %has_part_rate = core.call intrinsic.is_not_none(%part_rate)
+              core.if %has_part_rate {
+                %has_requested_rate = core.call intrinsic.is_not_none(%sample_rate_requested)
+                %rate_matches = core.call intrinsic.eq(%sample_rate_requested, %part_rate)
+                %rate_differs = core.call intrinsic.not(%rate_matches)
+                %rate_conflict = core.call intrinsic.and(%has_requested_rate, %rate_differs)
+                core.if %rate_conflict {
+                  %error = core.call intrinsic.ai.error.unsupported("Conflicting realtime audio sample rates")
+                  core.raise %error
+                }
+                %sample_rate_requested = core.let %part_rate
+              }
+              %part_channels = core.get %audio_part["channels"]
+              %has_part_channels = core.call intrinsic.is_not_none(%part_channels)
+              core.if %has_part_channels {
+                %has_requested_channels = core.call intrinsic.is_not_none(%channels_requested)
+                %channels_match = core.call intrinsic.eq(%channels_requested, %part_channels)
+                %channels_differ = core.call intrinsic.not(%channels_match)
+                %channel_conflict = core.call intrinsic.and(%has_requested_channels, %channels_differ)
+                core.if %channel_conflict {
+                  %error = core.call intrinsic.ai.error.unsupported("Conflicting realtime audio channel counts")
+                  core.raise %error
+                }
+                %channels_requested = core.let %part_channels
+              }
+            }
+          }
+        }
+      }
+      %default_rate = core.get %input_descriptor["sampleRate"] default 24000
+      %sample_rate = core.let %sample_rate_requested
+      %has_sample_rate = core.call intrinsic.is_not_none(%sample_rate)
+      core.if %has_sample_rate {
+      } else {
+        %sample_rate = core.let %default_rate
+      }
+      %channels = core.let %channels_requested
+      %has_channels = core.call intrinsic.is_not_none(%channels)
+      core.if %has_channels {
+      } else {
+        %channels = core.let 1
+      }
+      %mono_lower = core.call intrinsic.gte(%channels, 1)
+      %mono_upper = core.call intrinsic.lte(%channels, 1)
+      %mono = core.call intrinsic.and(%mono_lower, %mono_upper)
+      %not_mono = core.call intrinsic.not(%mono)
+      core.if %not_mono {
+        %error = core.call intrinsic.ai.error.unsupported("Meta Voice realtime input requires mono PCM audio")
+        core.raise %error
+      }
+      %is_16k_lower = core.call intrinsic.gte(%sample_rate, 16000)
+      %is_16k_upper = core.call intrinsic.lte(%sample_rate, 16000)
+      %is_16k = core.call intrinsic.and(%is_16k_lower, %is_16k_upper)
+      %is_24k_lower = core.call intrinsic.gte(%sample_rate, 24000)
+      %is_24k_upper = core.call intrinsic.lte(%sample_rate, 24000)
+      %is_24k = core.call intrinsic.and(%is_24k_lower, %is_24k_upper)
+      %valid_rate = core.call intrinsic.or(%is_16k, %is_24k)
+      %invalid_rate = core.call intrinsic.not(%valid_rate)
+      core.if %invalid_rate {
+        %error = core.call intrinsic.ai.error.unsupported("Meta Voice realtime input requires 16000 Hz or 24000 Hz PCM audio")
+        core.raise %error
+      }
+      %encoding = core.let "PCM_24KHZ"
+      core.if %is_16k {
+        %encoding = core.let "PCM_16KHZ"
+      }
+      core.set %out["audioEncoding"] = %encoding
+      core.return %out
+    }
+  }
+
+  op ax.provider.semantic @meta_asr_realtime_build_input {
+    attr core_kind = "func"
+    attr effect = "throws"
+    attr emit_module = "ai"
+    attr private = true
+    tag "meta-realtime-audio-core-helper"
+    type signature = "(descriptor:json, request:json) -> list<json> throws"
+    body @entry(%descriptor: json, %request: json) {
+      %events = core.list
+      %messages = core.call @realtime_request_user_messages_impl(%request)
+      core.for %message in %messages {
+        %content = core.get %message["content"] default ""
+        %is_list = core.type_is %content type "list"
+        core.if %is_list {
+          core.for %part in %content {
+            %part_type = core.get %part["type"] default "text"
+            %is_audio = core.call intrinsic.eq(%part_type, "audio")
+            core.if %is_audio {
+              %format = core.get %part["format"] default "pcm16"
+              %format_lower = core.call intrinsic.string.lower(%format)
+              %is_pcm16 = core.call intrinsic.eq(%format_lower, "pcm16")
+              %is_pcm = core.call intrinsic.eq(%format_lower, "pcm")
+              %valid = core.call intrinsic.or(%is_pcm16, %is_pcm)
+              %invalid = core.call intrinsic.not(%valid)
+              core.if %invalid {
+                %error = core.call intrinsic.ai.error.unsupported("Meta Voice realtime input requires PCM16 audio")
+                core.raise %error
+              }
+              %binary = core.map
+              core.set %binary["type"] = "binary"
+              %data = core.get %part["data"] default ""
+              core.set %binary["data"] = %data
+              core.append %events, %binary
+            }
+          }
+        }
+      }
+      %end_stream = core.map
+      core.set %end_stream["type"] = "endStream"
+      core.append %events, %end_stream
+      core.return %events
     }
   }
 
@@ -3549,8 +3881,8 @@ module @ax.provider version "0.1" {
     attr emit_module = "ai"
     attr private = true
     tag "provider-profile-request-transforms"
-    type signature = "(payload:json, request:json, rules:json) -> json throws"
-    body @entry(%payload: json, %request: json, %rules: json) {
+    type signature = "(payload:json, request:json, rules:json, options:json) -> json throws"
+    body @entry(%payload: json, %request: json, %rules: json, %options: json) {
       %empty_map = core.map
       %empty_list = core.list
       %model_config = core.get %request["model_config"] default %empty_map
@@ -3631,19 +3963,74 @@ module @ax.provider version "0.1" {
         %choice_required = core.call intrinsic.eq(%tool_choice, "required")
         %choice_is_object = core.type_is %tool_choice type "object"
         %ax_generated = core.let false
+        %choice_is_auto_object = core.let false
         core.if %choice_is_object {
+          %choice_type = core.get %tool_choice["type"] default ""
+          %choice_is_auto_object = core.call intrinsic.eq(%choice_type, "auto")
           %choice_function = core.get %tool_choice["function"] default %empty_map
-          %choice_name = core.get %choice_function["name"] default ""
+          %nested_choice_name = core.get %choice_function["name"] default ""
+          %choice_name = core.get %tool_choice["name"] default %nested_choice_name
           %ax_generated = core.call intrinsic.eq(%choice_name, "__axOutput")
         }
         %not_ax_generated = core.call intrinsic.not(%ax_generated)
-        %object_not_ax = core.call intrinsic.and(%choice_is_object, %not_ax_generated)
+        %object_not_auto = core.call intrinsic.and(%choice_is_object, %not_ax_generated)
+        %not_auto_object = core.call intrinsic.not(%choice_is_auto_object)
+        %object_not_ax = core.call intrinsic.and(%object_not_auto, %not_auto_object)
         %caller_forced = core.call intrinsic.or(%choice_required, %object_not_ax)
         core.if %caller_forced {
           %error = core.call intrinsic.ai.error.unsupported("deployment profile does not support explicitly forced tool choices")
           core.raise %error
         }
         core.call intrinsic.map.delete(%payload, "tool_choice")
+      }
+      %no_named = core.call intrinsic.eq(%tool_choice_mode, "no-named")
+      core.if %no_named {
+        %tool_choice = core.get %payload["tool_choice"]
+        %choice_is_object = core.type_is %tool_choice type "object"
+        core.if %choice_is_object {
+          %choice_type = core.get %tool_choice["type"] default ""
+          %is_tool = core.call intrinsic.eq(%choice_type, "tool")
+          %is_function = core.call intrinsic.eq(%choice_type, "function")
+          %is_named = core.call intrinsic.or(%is_tool, %is_function)
+          core.if %is_named {
+            %choice_function = core.get %tool_choice["function"] default %empty_map
+            %nested_choice_name = core.get %choice_function["name"] default ""
+            %choice_name = core.get %tool_choice["name"] default %nested_choice_name
+            %is_output_choice = core.call intrinsic.eq(%choice_name, "__axOutput")
+            %request_source = core.get %request["function_call_source"]
+            %source_snake = core.get %options["function_call_source"] default %request_source
+            %source = core.get %options["functionCallSource"] default %source_snake
+            %ax_source = core.call intrinsic.eq(%source, "ax")
+            %output_tools = core.list
+            %tools = core.get %payload["tools"] default %empty_list
+            core.for %tool in %tools {
+              %tool_function = core.get %tool["function"] default %empty_map
+              %nested_tool_name = core.get %tool_function["name"] default ""
+              %tool_name = core.get %tool["name"] default %nested_tool_name
+              %is_output_tool = core.call intrinsic.eq(%tool_name, "__axOutput")
+              core.if %is_output_tool {
+                core.append %output_tools, %tool
+              }
+            }
+            %output_count = core.call intrinsic.len(%output_tools)
+            %has_output_tool = core.call intrinsic.eq(%output_count, 1)
+            %ax_output = core.call intrinsic.and(%ax_source, %is_output_choice)
+            %can_require_output = core.call intrinsic.and(%ax_output, %has_output_tool)
+            core.if %can_require_output {
+              core.set %payload["tools"] = %output_tools
+              core.if %is_tool {
+                %any_choice = core.map
+                core.set %any_choice["type"] = "any"
+                core.set %payload["tool_choice"] = %any_choice
+              } else {
+                core.set %payload["tool_choice"] = "required"
+              }
+            } else {
+              %error = core.call intrinsic.ai.error.unsupported("deployment profile does not support explicitly named tool choices")
+              core.raise %error
+            }
+          }
+        }
       }
       %drop_when_thinking = core.get %rules["dropWhenThinking"] default %empty_list
       core.if %has_reasoning {
@@ -3837,6 +4224,10 @@ module @ax.provider version "0.1" {
       %payload = core.map
       core.if %is_responses {
         %responses_payload = core.call @openai_responses_build_chat_request(%request)
+        %is_meta = core.call intrinsic.eq(%provider_id, "meta")
+        core.if %is_meta {
+          %responses_payload = core.call @meta_prepare_responses_request(%responses_payload, %request, %options)
+        }
         %payload = core.call @openai_responses_apply_astra_caching(%responses_payload, %request, %options)
       } else {
         core.if %is_gemini {
@@ -3845,7 +4236,11 @@ module @ax.provider version "0.1" {
           %payload = core.let %gemini_payload
         } else {
           core.if %is_anthropic {
-            %anthropic_payload = core.call @anthropic_build_chat_request(%request)
+            %is_meta_messages = core.call intrinsic.eq(%provider_id, "meta-messages")
+            %anthropic_payload = core.call @anthropic_build_chat_request(%request, %is_meta_messages)
+            core.if %is_meta_messages {
+              %anthropic_payload = core.call @meta_prepare_messages_request(%anthropic_payload, %request, %options)
+            }
             %is_vertex = core.get %descriptor["vertex"] default false
             core.if %is_vertex {
               core.call intrinsic.map.delete(%anthropic_payload, "model")
@@ -3855,6 +4250,10 @@ module @ax.provider version "0.1" {
           } else {
             %is_official_openai = core.call intrinsic.eq(%provider_id, "openai")
             %compatible_payload = core.call @openai_build_chat_request_impl(%request, %options, %is_official_openai, %reasoning_content_mode, %reasoning_details_mode)
+            %is_meta_chat = core.call intrinsic.eq(%provider_id, "meta-chat")
+            core.if %is_meta_chat {
+              %compatible_payload = core.call @meta_apply_prompt_cache_options(%compatible_payload, %options, %request)
+            }
             %payload = core.let %compatible_payload
           }
         }
@@ -3862,12 +4261,16 @@ module @ax.provider version "0.1" {
       %empty_rules = core.map
       %empty_list = core.list
       %profile_rules = core.get %descriptor["request"] default %empty_rules
-      %payload = core.call @provider_apply_request_rules(%payload, %request, %profile_rules)
+      %payload = core.call @provider_apply_request_rules(%payload, %request, %profile_rules, %options)
       %model_rule = core.call @provider_resolve_model_rule(%provider_id, %model)
       %model_rules = core.get %model_rule["request"] default %empty_rules
-      %payload = core.call @provider_apply_request_rules(%payload, %request, %model_rules)
+      %payload = core.call @provider_apply_request_rules(%payload, %request, %model_rules, %options)
       %features = core.call @provider_resolve_features(%provider_id, %model, %options)
       %payload = core.call @provider_apply_service_tier(%provider_id, %payload, %request, %options, %features, %profile_rules, %model_rules)
+      %is_meta_messages_final = core.call intrinsic.eq(%provider_id, "meta-messages")
+      core.if %is_meta_messages_final {
+        %payload = core.call @meta_prepare_messages_request(%payload, %request, %options)
+      }
       %response_format = core.get %payload["response_format"] default %empty_rules
       %response_format_type = core.get %response_format["type"] default ""
       %is_json_schema = core.call intrinsic.eq(%response_format_type, "json_schema")
@@ -3897,6 +4300,278 @@ module @ax.provider version "0.1" {
           core.raise %json_object_error
         }
       }
+      core.return %payload
+    }
+  }
+
+  op ax.provider.semantic @meta_prepare_responses_request {
+    attr core_kind = "func"
+    attr effect = "throws"
+    attr emit_module = "ai"
+    attr private = true
+    tag "meta-responses-request"
+    type signature = "(payload:json, request:json, options:json) -> json throws"
+    body @entry(%payload: json, %request: json, %options: json) {
+      core.set %payload["store"] = false
+      %payload = core.call @meta_strip_cache_control(%payload)
+      %payload = core.call @meta_apply_prompt_cache_options(%payload, %options, %request)
+      %empty_list = core.list
+      %empty_reasoning = core.map
+      %reasoning = core.get %payload["reasoning"] default %empty_reasoning
+      %show_snake = core.get %options["show_thoughts"] default true
+      %show = core.get %options["showThoughts"] default %show_snake
+      core.if %show {
+        core.set %reasoning["summary"] = "auto"
+      }
+      core.set %payload["reasoning"] = %reasoning
+      %include = core.get %payload["include"] default %empty_list
+      %has_encrypted = core.call intrinsic.contains(%include, "reasoning.encrypted_content")
+      %needs_encrypted = core.call intrinsic.not(%has_encrypted)
+      core.if %needs_encrypted {
+        core.append %include, "reasoning.encrypted_content"
+      }
+      core.set %payload["include"] = %include
+      %model = core.get %payload["model"] default ""
+      %is_image = core.call intrinsic.eq(%model, "muse-image-1.0")
+      %is_voice = core.call intrinsic.eq(%model, "muse-voice-transcribe-1.0")
+      %empty_functions = core.list
+      %functions = core.get %request["functions"] default %empty_functions
+      %has_functions = core.call intrinsic.truthy(%functions)
+      %restricted_model = core.call intrinsic.or(%is_image, %is_voice)
+      %invalid_functions = core.call intrinsic.and(%restricted_model, %has_functions)
+      core.if %invalid_functions {
+        %error = core.call intrinsic.ai.error.unsupported("Meta Muse Image and Voice models do not permit function tools")
+        core.raise %error
+      }
+      core.if %is_image {
+        %empty_map = core.map
+        %empty_image_input = core.list
+        %image_input = core.get %payload["input"] default %empty_image_input
+        %filtered_input = core.list
+        core.for %item in %image_input {
+          %item_type = core.get %item["type"] default "message"
+          %is_reasoning_item = core.call intrinsic.eq(%item_type, "reasoning")
+          core.if %is_reasoning_item {
+          } else {
+            %is_message_item = core.call intrinsic.eq(%item_type, "message")
+            %is_image_item = core.call intrinsic.eq(%item_type, "image_generation_call")
+            %allowed_item = core.call intrinsic.or(%is_message_item, %is_image_item)
+            core.if %allowed_item {
+            } else {
+              %error = core.call intrinsic.ai.error.unsupported("muse-image-1.0 accepts only text, reference images, and prior generated images")
+              core.raise %error
+            }
+            %empty_item_content = core.list
+            %content = core.get %item["content"] default %empty_item_content
+            %is_content_list = core.type_is %content type "list"
+            core.if %is_content_list {
+              core.for %part in %content {
+                %part_type = core.get %part["type"] default ""
+                %allowed_parts = core.list
+                core.append %allowed_parts, "input_text"
+                core.append %allowed_parts, "output_text"
+                core.append %allowed_parts, "input_image"
+                %allowed_part = core.call intrinsic.contains(%allowed_parts, %part_type)
+                core.if %allowed_part {
+                } else {
+                  %message = core.call intrinsic.string.format("muse-image-1.0 does not support {} input", %part_type)
+                  %error = core.call intrinsic.ai.error.unsupported(%message)
+                  core.raise %error
+                }
+              }
+            }
+            core.append %filtered_input, %item
+          }
+        }
+        core.set %payload["input"] = %filtered_input
+        %model_config_snake = core.get %request["model_config"] default %empty_map
+        %model_config = core.get %request["modelConfig"] default %model_config_snake
+        %image_snake = core.get %model_config["image_generation"] default %empty_map
+        %image_config = core.get %model_config["imageGeneration"] default %image_snake
+        %tool = core.map
+        core.set %tool["type"] = "image_generation"
+        %size = core.get %image_config["size"]
+        %has_size = core.call intrinsic.is_not_none(%size)
+        core.if %has_size {
+          core.set %tool["size"] = %size
+        }
+        %output_format_snake = core.get %image_config["output_format"]
+        %output_format = core.get %image_config["outputFormat"] default %output_format_snake
+        %resolved_output_format = core.call intrinsic.coalesce(%output_format, "webp")
+        core.set %tool["output_format"] = %resolved_output_format
+        %image_search_snake = core.get %image_config["enable_image_search"]
+        %image_search = core.get %image_config["enableImageSearch"] default %image_search_snake
+        %has_image_search = core.call intrinsic.is_not_none(%image_search)
+        core.if %has_image_search {
+          core.set %tool["enable_image_search"] = %image_search
+        }
+        %web_search_snake = core.get %image_config["enable_web_search"]
+        %web_search = core.get %image_config["enableWebSearch"] default %web_search_snake
+        %has_web_search = core.call intrinsic.is_not_none(%web_search)
+        core.if %has_web_search {
+          core.set %tool["enable_web_search"] = %web_search
+        }
+        %shell_snake = core.get %image_config["enable_shell"]
+        %shell = core.get %image_config["enableShell"] default %shell_snake
+        %has_shell = core.call intrinsic.is_not_none(%shell)
+        core.if %has_shell {
+          core.set %tool["enable_shell"] = %shell
+        }
+        %strength_snake = core.get %image_config["reasoning_strength"]
+        %strength = core.get %image_config["reasoningStrength"] default %strength_snake
+        %has_strength = core.call intrinsic.is_not_none(%strength)
+        core.if %has_strength {
+          core.set %tool["reasoning_strength"] = %strength
+        }
+        %tools = core.list
+        core.append %tools, %tool
+        core.set %payload["tools"] = %tools
+        core.call intrinsic.map.delete(%payload, "tool_choice")
+        core.call intrinsic.map.delete(%payload, "reasoning")
+        core.call intrinsic.map.delete(%payload, "include")
+      }
+      core.return %payload
+    }
+  }
+
+  op ax.provider.semantic @meta_prepare_messages_request {
+    attr core_kind = "func"
+    attr emit_module = "ai"
+    attr private = true
+    tag "meta-messages-request"
+    type signature = "(payload:json, request:json, options:json) -> json"
+    body @entry(%payload: json, %request: json, %options: json) {
+      %payload = core.call @meta_strip_cache_control(%payload)
+      %empty_map = core.map
+      %model_config_snake = core.get %request["model_config"] default %empty_map
+      %model_config = core.get %request["modelConfig"] default %model_config_snake
+      %budget_snake = core.get %model_config["thinking_token_budget"]
+      %budget = core.get %model_config["thinkingTokenBudget"] default %budget_snake
+      %has_budget = core.call intrinsic.is_not_none(%budget)
+      core.if %has_budget {
+        %effort = core.let %budget
+        %is_minimal = core.call intrinsic.eq(%budget, "minimal")
+        core.if %is_minimal {
+          %effort = core.let "low"
+        }
+        %is_highest = core.call intrinsic.eq(%budget, "highest")
+        core.if %is_highest {
+          %effort = core.let "xhigh"
+        }
+        %thinking = core.map
+        core.set %thinking["type"] = "adaptive"
+        %show_snake = core.get %options["show_thoughts"] default true
+        %show = core.get %options["showThoughts"] default %show_snake
+        %display = core.let "summarized"
+        %hide = core.call intrinsic.eq(%show, false)
+        core.if %hide {
+          %display = core.let "omitted"
+        }
+        core.set %thinking["display"] = %display
+        core.set %payload["thinking"] = %thinking
+        %empty_output_config = core.map
+        %output_config = core.get %payload["output_config"] default %empty_output_config
+        core.set %output_config["effort"] = %effort
+        core.set %payload["output_config"] = %output_config
+      }
+      core.call intrinsic.map.delete(%payload, "stop_sequences")
+      core.call intrinsic.map.delete(%payload, "top_k")
+      core.call intrinsic.map.delete(%payload, "reasoning_effort")
+      core.return %payload
+    }
+  }
+
+  op ax.provider.semantic @meta_apply_prompt_cache_options {
+    attr core_kind = "func"
+    attr emit_module = "ai"
+    attr private = true
+    tag "meta-prompt-cache-request"
+    type signature = "(payload:json, options:json, request?:json) -> json"
+    body @entry(%payload: json, %options: json, %request: json) {
+      %empty_map = core.map
+      %model_config_snake = core.get %request["model_config"] default %empty_map
+      %model_config = core.get %request["modelConfig"] default %model_config_snake
+      %cache_options = core.call intrinsic.map.merge(%options, %model_config)
+      %key_snake = core.get %cache_options["prompt_cache_key"]
+      %key = core.get %cache_options["promptCacheKey"] default %key_snake
+      %session_snake = core.get %cache_options["session_id"]
+      %session = core.get %cache_options["sessionId"] default %session_snake
+      %resolved_key = core.call intrinsic.coalesce(%key, %session)
+      %has_key = core.call intrinsic.truthy(%resolved_key)
+      core.if %has_key {
+        core.set %payload["prompt_cache_key"] = %resolved_key
+      }
+      %retention_snake = core.get %cache_options["prompt_cache_retention"]
+      %retention = core.get %cache_options["promptCacheRetention"] default %retention_snake
+      %has_retention = core.call intrinsic.truthy(%retention)
+      %input = core.get %payload["input"]
+      %is_responses = core.call intrinsic.is_not_none(%input)
+      %send_retention = core.call intrinsic.and(%has_retention, %is_responses)
+      core.if %send_retention {
+        core.set %payload["prompt_cache_retention"] = %retention
+      }
+      core.return %payload
+    }
+  }
+
+  op ax.provider.semantic @meta_strip_cache_control {
+    attr core_kind = "func"
+    attr emit_module = "ai"
+    attr private = true
+    tag "meta-prompt-cache-request"
+    type signature = "(payload:json) -> json"
+    body @entry(%payload: json) {
+      %empty_list = core.list
+      %input = core.get %payload["input"] default %empty_list
+      %input_is_list = core.type_is %input type "list"
+      core.if %input_is_list {
+        core.for %item in %input {
+          core.call intrinsic.map.delete(%item, "cache_control")
+          %content = core.get %item["content"] default %empty_list
+          %content_is_list = core.type_is %content type "list"
+          core.if %content_is_list {
+            core.for %part in %content {
+              core.call intrinsic.map.delete(%part, "cache_control")
+              %nested = core.get %part["content"] default %empty_list
+              %nested_is_list = core.type_is %nested type "list"
+              core.if %nested_is_list {
+                core.for %nested_part in %nested {
+                  core.call intrinsic.map.delete(%nested_part, "cache_control")
+                }
+              }
+            }
+          }
+        }
+      }
+      %messages = core.get %payload["messages"] default %empty_list
+      core.for %message in %messages {
+        %content = core.get %message["content"] default %empty_list
+        %content_is_list = core.type_is %content type "list"
+        core.if %content_is_list {
+          core.for %part in %content {
+            core.call intrinsic.map.delete(%part, "cache_control")
+            %nested = core.get %part["content"] default %empty_list
+            %nested_is_list = core.type_is %nested type "list"
+            core.if %nested_is_list {
+              core.for %nested_part in %nested {
+                core.call intrinsic.map.delete(%nested_part, "cache_control")
+              }
+            }
+          }
+        }
+      }
+      %system = core.get %payload["system"] default %empty_list
+      %system_is_list = core.type_is %system type "list"
+      core.if %system_is_list {
+        core.for %part in %system {
+          core.call intrinsic.map.delete(%part, "cache_control")
+        }
+      }
+      %tools = core.get %payload["tools"] default %empty_list
+      core.for %tool in %tools {
+        core.call intrinsic.map.delete(%tool, "cache_control")
+      }
+      core.call intrinsic.map.delete(%payload, "prompt_cache_options")
       core.return %payload
     }
   }
@@ -4071,8 +4746,8 @@ module @ax.provider version "0.1" {
     attr effect = "throws"
     attr emit_module = "ai"
     tag "provider-operation-dispatch"
-    type signature = "(profile:string, json, string, string) -> AxChatResponse throws"
-    body @entry(%profile: string, %raw: json, %ai_name: string, %model: string) {
+    type signature = "(profile:string, json, string, string, context?:json) -> AxChatResponse throws"
+    body @entry(%profile: string, %raw: json, %ai_name: string, %model: string, %context: json) {
       %provider_id = core.call @provider_chat_profile(%profile, %model)
       %descriptor = core.call @provider_descriptor(%provider_id)
       %transport = core.get %descriptor["transport"] default "openai-chat"
@@ -4099,6 +4774,7 @@ module @ax.provider version "0.1" {
           }
         }
       }
+      %response = core.call @provider_normalize_image_outputs(%response, %context, %model)
       core.return %response
     }
   }
@@ -4108,8 +4784,8 @@ module @ax.provider version "0.1" {
     attr effect = "throws"
     attr emit_module = "ai"
     tag "provider-operation-dispatch"
-    type signature = "(profile:string, json, json, string, string) -> AxChatResponse throws"
-    body @entry(%profile: string, %raw: json, %state: json, %ai_name: string, %model: string) {
+    type signature = "(profile:string, json, json, string, string, context?:json) -> AxChatResponse throws"
+    body @entry(%profile: string, %raw: json, %state: json, %ai_name: string, %model: string, %context: json) {
       %provider_id = core.call @provider_chat_profile(%profile, %model)
       %descriptor = core.call @provider_descriptor(%provider_id)
       %transport = core.get %descriptor["transport"] default "openai-chat"
@@ -4144,6 +4820,54 @@ module @ax.provider version "0.1" {
         %session_events = core.call @openai_responses_session_event(%raw, %session_state, %model)
         core.set %state["session_wire"] = %session_state
         core.set %response["session_events"] = %session_events
+      }
+      %response = core.call @provider_normalize_image_outputs(%response, %context, %model)
+      core.return %response
+    }
+  }
+
+  op ax.provider.semantic @provider_normalize_image_outputs {
+    attr core_kind = "func"
+    attr emit_module = "ai"
+    attr private = true
+    tag "responses-image-output"
+    type signature = "(response:json, context:json, model:string) -> json"
+    body @entry(%response: json, %context: json, %model: string) {
+      %format = core.let "png"
+      %is_meta_image = core.call intrinsic.eq(%model, "muse-image-1.0")
+      core.if %is_meta_image {
+        %format = core.let "webp"
+      }
+      %empty = core.list
+      %tools = core.get %context["tools"] default %empty
+      core.for %tool in %tools {
+        %type = core.get %tool["type"] default ""
+        %is_image = core.call intrinsic.eq(%type, "image_generation")
+        core.if %is_image {
+          %format = core.get %tool["output_format"] default %format
+        }
+      }
+      %default_mime = core.call intrinsic.string.format("image/{}", %format)
+      %results = core.get %response["results"] default %empty
+      core.for %result in %results {
+        %images = core.get %result["images"] default %empty
+        core.for %image in %images {
+          core.set %image["mime_type"] = %default_mime
+          %url = core.get %image["url"] default ""
+          %is_data_url = core.call intrinsic.string.starts_with(%url, "data:")
+          core.if %is_data_url {
+            %parts = core.call intrinsic.string.split_once(%url, ";base64,")
+            %found = core.get %parts["found"] default false
+            core.if %found {
+              %header = core.get %parts["left"] default ""
+              %mime = core.call intrinsic.string.slice(%header, 5)
+              %data = core.get %parts["right"] default ""
+              core.set %image["mime_type"] = %mime
+              core.set %image["data"] = %data
+              core.call intrinsic.map.delete(%image, "url")
+            }
+          }
+        }
       }
       core.return %response
     }
@@ -4296,6 +5020,7 @@ module @ax.provider version "0.1" {
       %dialect = core.get %operation["dialect"] default "openai-transcription"
       %is_gemini = core.call intrinsic.eq(%dialect, "gemini-generate-content")
       %is_xai = core.call intrinsic.eq(%dialect, "xai-transcription")
+      %is_meta = core.call intrinsic.eq(%dialect, "meta-transcription")
       %payload = core.map
       core.if %is_gemini {
         %gemini_payload = core.call @gemini_build_transcribe_request(%request)
@@ -4305,8 +5030,13 @@ module @ax.provider version "0.1" {
           %xai_payload = core.call @grok_build_transcribe_request(%request)
           %payload = core.let %xai_payload
         } else {
-          %responses_payload = core.call @openai_responses_build_transcribe_request(%request)
-          %payload = core.let %responses_payload
+          core.if %is_meta {
+            %meta_payload = core.call @meta_build_transcribe_request(%request)
+            %payload = core.let %meta_payload
+          } else {
+            %responses_payload = core.call @openai_responses_build_transcribe_request(%request)
+            %payload = core.let %responses_payload
+          }
         }
       }
       core.return %payload
@@ -4344,19 +5074,25 @@ module @ax.provider version "0.1" {
 
   op ax.provider.semantic @provider_normalize_transcribe_response {
     attr core_kind = "func"
+    attr effect = "throws"
     attr emit_module = "ai"
     tag "provider-audio-operation"
-    type signature = "(profile:string, json) -> json"
-    body @entry(%profile: string, %raw: json) {
+    type signature = "(profile:string, json, request?:json) -> json throws"
+    body @entry(%profile: string, %raw: json, %request: json) {
       %provider_id = core.call @provider_normalize_profile(%profile)
       %descriptor = core.call @provider_descriptor(%provider_id)
       %operations = core.get %descriptor["operations"]
       %operation = core.get %operations["transcribe"]
       %dialect = core.get %operation["dialect"] default "openai-transcription"
       %is_gemini = core.call intrinsic.eq(%dialect, "gemini-generate-content")
+      %is_meta = core.call intrinsic.eq(%dialect, "meta-transcription")
       core.if %is_gemini {
         %gemini_out = core.call @gemini_normalize_transcribe_response(%raw)
         core.return %gemini_out
+      }
+      core.if %is_meta {
+        %meta_out = core.call @meta_normalize_transcribe_response(%raw, %request)
+        core.return %meta_out
       }
       %text = core.get %raw["text"] default ""
       %out = core.map
@@ -4370,6 +5106,287 @@ module @ax.provider version "0.1" {
       %has_duration = core.call intrinsic.is_not_none(%duration)
       core.if %has_duration {
         core.set %out["duration"] = %duration
+      }
+      core.return %out
+    }
+  }
+
+  op ax.provider.semantic @meta_build_transcribe_request {
+    attr core_kind = "func"
+    attr effect = "throws"
+    attr emit_module = "ai"
+    attr private = true
+    tag "meta-transcription-request"
+    type signature = "(json) -> json throws"
+    body @entry(%request: json) {
+      %payload = core.map
+      %request_file = core.get %request["file"]
+      %audio = core.get %request["audio"] default %request_file
+      core.set %payload["audio"] = %audio
+      %body = core.map
+      core.set %body["audioEncoding"] = "WAV"
+      %model = core.get %request["model"] default "muse-voice-transcribe-1.0"
+      %model_ok = core.call intrinsic.eq(%model, "muse-voice-transcribe-1.0")
+      %model_bad = core.call intrinsic.not(%model_ok)
+      core.if %model_bad {
+        %error = core.call intrinsic.ai.error.unsupported("Meta Voice transcribe requires muse-voice-transcribe-1.0")
+        core.raise %error
+      }
+      %format = core.get %audio["format"]
+      %has_format = core.call intrinsic.is_not_none(%format)
+      core.if %has_format {
+        %format_ok = core.call intrinsic.eq(%format, "wav")
+        %format_bad = core.call intrinsic.not(%format_ok)
+        core.if %format_bad {
+          %error = core.call intrinsic.ai.error.unsupported("Meta Voice batch transcription requires WAV audio")
+          core.raise %error
+        }
+      }
+      %channels = core.get %audio["channels"]
+      %has_channels = core.call intrinsic.is_not_none(%channels)
+      core.if %has_channels {
+        %mono_low = core.call intrinsic.gte(%channels, 1)
+        %mono_high = core.call intrinsic.lte(%channels, 1)
+        %mono = core.call intrinsic.and(%mono_low, %mono_high)
+        %not_mono = core.call intrinsic.not(%mono)
+        core.if %not_mono {
+          %error = core.call intrinsic.ai.error.unsupported("Meta Voice batch transcription requires mono audio")
+          core.raise %error
+        }
+      }
+      %sample_rate_snake = core.get %audio["sample_rate"]
+      %sample_rate = core.get %audio["sampleRate"] default %sample_rate_snake
+      %has_sample_rate = core.call intrinsic.is_not_none(%sample_rate)
+      core.if %has_sample_rate {
+        %is_16_low = core.call intrinsic.gte(%sample_rate, 16000)
+        %is_16_high = core.call intrinsic.lte(%sample_rate, 16000)
+        %is_16 = core.call intrinsic.and(%is_16_low, %is_16_high)
+        %is_24_low = core.call intrinsic.gte(%sample_rate, 24000)
+        %is_24_high = core.call intrinsic.lte(%sample_rate, 24000)
+        %is_24 = core.call intrinsic.and(%is_24_low, %is_24_high)
+        %rate_ok = core.call intrinsic.or(%is_16, %is_24)
+        %rate_bad = core.call intrinsic.not(%rate_ok)
+        core.if %rate_bad {
+          %error = core.call intrinsic.ai.error.unsupported("Meta Voice batch transcription requires 16000 Hz or 24000 Hz audio")
+          core.raise %error
+        }
+      }
+      %mode = core.get %request["mode"]
+      %has_mode = core.call intrinsic.is_not_none(%mode)
+      %mode_wire = core.let %mode
+      %is_push = core.call intrinsic.eq(%mode, "push_to_talk")
+      %is_endpointing = core.call intrinsic.eq(%mode, "endpointing")
+      %is_diarization = core.call intrinsic.eq(%mode, "diarization")
+      core.if %is_push {
+        %mode_wire = core.let "PUSH_TO_TALK"
+      }
+      core.if %is_endpointing {
+        %mode_wire = core.let "ENDPOINTING"
+      }
+      core.if %is_diarization {
+        %mode_wire = core.let "DIARIZATION"
+      }
+      %language = core.get %request["language"]
+      %has_language = core.call intrinsic.is_not_none(%language)
+      %language_bias_snake = core.get %request["language_bias"]
+      %language_bias = core.get %request["languageBias"] default %language_bias_snake
+      %has_language_bias = core.call intrinsic.truthy(%language_bias)
+      %keywords = core.get %request["keywords"]
+      %has_keywords = core.call intrinsic.truthy(%keywords)
+      %prompt = core.get %request["prompt"]
+      %has_prompt = core.call intrinsic.truthy(%prompt)
+      %has_unsupported_bias = core.call intrinsic.or(%has_language, %has_prompt)
+      core.if %has_unsupported_bias {
+        %error = core.call intrinsic.ai.error.unsupported("Meta Voice uses languageBias and keywords instead of language or prompt")
+        core.raise %error
+      }
+      %partial_snake = core.get %request["partial_mode"]
+      %partial = core.get %request["partialMode"] default %partial_snake
+      %has_partial = core.call intrinsic.is_not_none(%partial)
+      %partial_wire = core.let %partial
+      %is_cumulative = core.call intrinsic.eq(%partial, "cumulative")
+      %is_delta = core.call intrinsic.eq(%partial, "delta")
+      core.if %is_cumulative {
+        %partial_wire = core.let "CUMULATIVE"
+      }
+      core.if %is_delta {
+        %partial_wire = core.let "DELTA"
+      }
+      %progress_snake = core.get %request["emit_audio_progress"]
+      %progress = core.get %request["emitAudioProgress"] default %progress_snake
+      %has_progress = core.call intrinsic.is_not_none(%progress)
+      %session_snake = core.get %request["session_id"]
+      %session = core.get %request["sessionId"] default %session_snake
+      %has_session = core.call intrinsic.is_not_none(%session)
+      core.if %has_progress {
+        core.set %body["emitAudioProgress"] = %progress
+      }
+      core.if %has_keywords {
+        core.set %body["keywords"] = %keywords
+      }
+      core.if %has_language_bias {
+        core.set %body["languageBias"] = %language_bias
+      }
+      core.if %has_mode {
+        core.set %body["mode"] = %mode_wire
+      }
+      core.set %body["model"] = %model
+      core.if %has_partial {
+        core.set %body["partialMode"] = %partial_wire
+      }
+      core.if %has_session {
+        %query = core.map
+        core.set %query["sessionId"] = %session
+        core.set %payload["query"] = %query
+      }
+      %request_json = core.call intrinsic.json.stringify(%body)
+      core.set %payload["request"] = %request_json
+      core.return %payload
+    }
+  }
+
+  op ax.provider.semantic @meta_normalize_transcribe_response {
+    attr core_kind = "func"
+    attr effect = "throws"
+    attr emit_module = "ai"
+    attr private = true
+    tag "meta-transcription-response"
+    type signature = "(json, request?:json) -> json throws"
+    body @entry(%raw: json, %request: json) {
+      %source = core.let %raw
+      %empty_events = core.list
+      %events = core.get %raw["events"] default %empty_events
+      %has_events = core.call intrinsic.truthy(%events)
+      core.if %has_events {
+        %state = core.map
+        %partial_snake = core.get %request["partial_mode"]
+        %partial = core.get %request["partialMode"] default %partial_snake
+        core.set %state["partial_mode"] = %partial
+        core.for %event in %events {
+          %ignored = core.call @meta_asr_realtime_normalize_event(%event, %state, "meta", "muse-voice-transcribe-1.0")
+        }
+        %event_source = core.map
+        %empty_turn_map = core.map
+        %turn_map = core.get %state["turns"] default %empty_turn_map
+        %speaker_map = core.get %state["speakers"] default %empty_turn_map
+        %start_map = core.get %state["turn_starts"] default %empty_turn_map
+        %end_map = core.get %state["turn_ends"] default %empty_turn_map
+        %turn_ids = core.call intrinsic.map.keys(%turn_map)
+        %transcript_parts = core.list
+        %event_turns = core.list
+        core.for %turn_id in %turn_ids {
+          %turn_text = core.get %turn_map[%turn_id] default ""
+          core.append %transcript_parts, %turn_text
+          %turn = core.map
+          core.set %turn["turnId"] = %turn_id
+          core.set %turn["transcript"] = %turn_text
+          %speaker = core.get %speaker_map[%turn_id]
+          %has_speaker = core.call intrinsic.is_not_none(%speaker)
+          core.if %has_speaker {
+            core.set %turn["speaker"] = %speaker
+          }
+          %start = core.get %start_map[%turn_id]
+          %has_start = core.call intrinsic.is_not_none(%start)
+          core.if %has_start {
+            core.set %turn["startMs"] = %start
+          }
+          %end = core.get %end_map[%turn_id]
+          %has_end = core.call intrinsic.is_not_none(%end)
+          core.if %has_end {
+            core.set %turn["endMs"] = %end
+          }
+          core.append %event_turns, %turn
+        }
+        %event_transcript = core.call intrinsic.string.join("\n", %transcript_parts)
+        core.set %event_source["transcript"] = %event_transcript
+        core.set %event_source["turns"] = %event_turns
+        %event_session = core.get %state["session_id"]
+        %has_event_session = core.call intrinsic.is_not_none(%event_session)
+        core.if %has_event_session {
+          core.set %event_source["sessionId"] = %event_session
+        }
+        %event_progress = core.get %state["audio_processed_ms"]
+        %has_event_progress = core.call intrinsic.is_not_none(%event_progress)
+        core.if %has_event_progress {
+          core.set %event_source["audioDurationMs"] = %event_progress
+          core.set %event_source["audioProcessedMs"] = %event_progress
+        }
+        %source = core.let %event_source
+      }
+      %out = core.map
+      %text_raw = core.get %source["text"] default ""
+      %text = core.get %source["transcript"] default %text_raw
+      core.set %out["text"] = %text
+      %language = core.get %source["language"]
+      %has_language = core.call intrinsic.is_not_none(%language)
+      core.if %has_language {
+        core.set %out["language"] = %language
+      }
+      %duration_ms_snake = core.get %source["audio_duration_ms"]
+      %duration_ms = core.get %source["audioDurationMs"] default %duration_ms_snake
+      %has_duration_ms = core.call intrinsic.is_not_none(%duration_ms)
+      core.if %has_duration_ms {
+        %duration = core.call intrinsic.div(%duration_ms, 1000)
+        core.set %out["duration"] = %duration
+      } else {
+        %duration = core.get %source["duration"]
+        %has_duration = core.call intrinsic.is_not_none(%duration)
+        core.if %has_duration {
+          core.set %out["duration"] = %duration
+        }
+      }
+      %session_snake = core.get %source["session_id"]
+      %session = core.get %source["sessionId"] default %session_snake
+      %has_session = core.call intrinsic.is_not_none(%session)
+      core.if %has_session {
+        core.set %out["session_id"] = %session
+      }
+      %empty_turns = core.list
+      %turns = core.get %source["turns"] default %empty_turns
+      %segments = core.list
+      core.for %turn in %turns {
+        %segment = core.map
+        %turn_id_snake = core.get %turn["turn_id"]
+        %turn_id = core.get %turn["turnId"] default %turn_id_snake
+        %has_turn_id = core.call intrinsic.is_not_none(%turn_id)
+        core.if %has_turn_id {
+          core.set %segment["id"] = %turn_id
+        }
+        %turn_text_raw = core.get %turn["text"] default ""
+        %turn_text = core.get %turn["transcript"] default %turn_text_raw
+        core.set %segment["text"] = %turn_text
+        %start_snake = core.get %turn["start_ms"]
+        %start_ms = core.get %turn["startMs"] default %start_snake
+        %has_start = core.call intrinsic.is_not_none(%start_ms)
+        core.if %has_start {
+          %start = core.call intrinsic.div(%start_ms, 1000)
+          core.set %segment["start"] = %start
+        }
+        %end_snake = core.get %turn["end_ms"]
+        %end_ms = core.get %turn["endMs"] default %end_snake
+        %has_end = core.call intrinsic.is_not_none(%end_ms)
+        core.if %has_end {
+          %end = core.call intrinsic.div(%end_ms, 1000)
+          core.set %segment["end"] = %end
+        }
+        %speaker_id_snake = core.get %turn["speaker_id"]
+        %speaker_id = core.get %turn["speakerId"] default %speaker_id_snake
+        %speaker = core.get %turn["speaker"] default %speaker_id
+        %has_speaker = core.call intrinsic.is_not_none(%speaker)
+        core.if %has_speaker {
+          core.set %segment["speaker"] = %speaker
+        }
+        core.append %segments, %segment
+      }
+      %has_segments = core.call intrinsic.truthy(%segments)
+      core.if %has_segments {
+        core.set %out["segments"] = %segments
+      }
+      %audio_progress_snake = core.get %source["audio_processed_ms"]
+      %audio_progress = core.get %source["audioProcessedMs"] default %audio_progress_snake
+      %has_audio_progress = core.call intrinsic.is_not_none(%audio_progress)
+      core.if %has_audio_progress {
+        core.set %out["audio_processed_ms"] = %audio_progress
       }
       core.return %out
     }
@@ -4411,9 +5428,14 @@ module @ax.provider version "0.1" {
       %descriptor = core.call @provider_realtime_audio_descriptor(%provider_id)
       %grammar = core.get %descriptor["grammar"] default "openai_realtime_compatible"
       %is_gemini_live = core.call intrinsic.eq(%grammar, "gemini_live_bidi")
+      %is_meta = core.call intrinsic.eq(%grammar, "meta_asr_realtime")
       core.if %is_gemini_live {
         %gemini_response = core.call @gemini_live_bidi_normalize_realtime_event(%event, %state, %ai_name, %model)
         core.return %gemini_response
+      }
+      core.if %is_meta {
+        %meta_response = core.call @meta_asr_realtime_normalize_event(%event, %state, %ai_name, %model)
+        core.return %meta_response
       }
       %response = core.call @openai_responses_normalize_realtime_event(%event, %state, %ai_name, %model)
       core.return %response
@@ -4443,37 +5465,92 @@ module @ax.provider version "0.1" {
         } else {
           %is_assistant = core.call intrinsic.eq(%role, "assistant")
           core.if %is_assistant {
-            %empty_blocks = core.list
-            %blocks_snake = core.get %message["thought_blocks"] default %empty_blocks
-            %blocks = core.get %message["thoughtBlocks"] default %blocks_snake
-            %has_encrypted_blocks = core.let false
-            core.for %block in %blocks {
-              %encrypted = core.get %block["encrypted"] default false
-              core.if %encrypted {
-                %envelope = core.map
-                %summary = core.list
-                core.set %envelope["type"] = "reasoning"
-                %id = core.get %block["signature"]
-                %has_id = core.call intrinsic.truthy(%id)
-                core.if %has_id {
-                  core.set %envelope["id"] = %id
+            %empty_thought_blocks = core.list
+            %thought_blocks_snake = core.get %message["thought_blocks"] default %empty_thought_blocks
+            %thought_blocks = core.get %message["thoughtBlocks"] default %thought_blocks_snake
+            %has_structured_thought = core.let false
+            core.for %thought_block in %thought_blocks {
+              %block_data = core.get %thought_block["data"] default ""
+              %block_phase = core.get %thought_block["phase"] default ""
+              %is_commentary = core.call intrinsic.eq(%block_phase, "commentary")
+              core.if %is_commentary {
+                %commentary_item = core.map
+                core.set %commentary_item["type"] = "message"
+                core.set %commentary_item["role"] = "assistant"
+                core.set %commentary_item["phase"] = "commentary"
+                %commentary_part = core.map
+                core.set %commentary_part["type"] = "output_text"
+                core.set %commentary_part["text"] = %block_data
+                %commentary_content = core.list
+                core.append %commentary_content, %commentary_part
+                core.set %commentary_item["content"] = %commentary_content
+                core.append %input, %commentary_item
+                %has_structured_thought = core.let true
+              }
+              %legacy_encrypted = core.get %thought_block["encrypted"] default false
+              %legacy_cipher = core.let ""
+              %legacy_summary = core.let %block_data
+              core.if %legacy_encrypted {
+                %legacy_cipher = core.let %block_data
+                %legacy_summary = core.let ""
+              }
+              %encrypted_snake = core.get %thought_block["encrypted_content"] default %legacy_cipher
+              %encrypted = core.get %thought_block["encryptedContent"] default %encrypted_snake
+              %has_encrypted = core.call intrinsic.truthy(%encrypted)
+              core.if %has_encrypted {
+                %reasoning_item = core.map
+                core.set %reasoning_item["type"] = "reasoning"
+                %legacy_id = core.get %thought_block["signature"]
+                %block_id = core.get %thought_block["id"] default %legacy_id
+                %has_block_id = core.call intrinsic.is_not_none(%block_id)
+                core.if %has_block_id {
+                  core.set %reasoning_item["id"] = %block_id
                 }
-                %data = core.get %block["data"]
-                core.set %envelope["encrypted_content"] = %data
-                core.set %envelope["summary"] = %summary
-                core.append %input, %envelope
-                %has_encrypted_blocks = core.let true
+                %summary_text = core.get %thought_block["summary"] default %legacy_summary
+                %summary_part = core.map
+                core.set %summary_part["type"] = "summary_text"
+                core.set %summary_part["text"] = %summary_text
+                %summary = core.list
+                %has_summary_text = core.call intrinsic.truthy(%summary_text)
+                %astra_summary = core.call intrinsic.string.starts_with(%model, "gpt-6-astra")
+                %retain_empty_summary = core.call intrinsic.not(%astra_summary)
+                %include_summary = core.call intrinsic.or(%has_summary_text, %retain_empty_summary)
+                core.if %include_summary {
+                  core.append %summary, %summary_part
+                }
+                core.set %reasoning_item["summary"] = %summary
+                core.set %reasoning_item["encrypted_content"] = %encrypted
+                core.append %input, %reasoning_item
+                %has_structured_thought = core.let true
               }
             }
             %thought = core.get %message["thought"]
-            %thought_present = core.call intrinsic.truthy(%thought)
-            %plain_thought = core.call intrinsic.not(%has_encrypted_blocks)
-            %has_thought = core.call intrinsic.and(%thought_present, %plain_thought)
-            core.if %has_thought {
+            %has_thought = core.call intrinsic.truthy(%thought)
+            %no_structured_thought = core.call intrinsic.not(%has_structured_thought)
+            %use_legacy_thought = core.call intrinsic.and(%has_thought, %no_structured_thought)
+            core.if %use_legacy_thought {
               %reasoning_item = core.map
               core.set %reasoning_item["type"] = "reasoning"
               core.set %reasoning_item["content"] = %thought
               core.append %input, %reasoning_item
+            }
+            %empty_images = core.list
+            %images = core.get %message["images"] default %empty_images
+            core.for %image in %images {
+              %image_item = core.map
+              core.set %image_item["type"] = "image_generation_call"
+              %image_id = core.get %image["id"]
+              %has_image_id = core.call intrinsic.truthy(%image_id)
+              %missing_image_id = core.call intrinsic.not(%has_image_id)
+              core.if %missing_image_id {
+                %error = core.call intrinsic.ai.error.unsupported("Responses image replay requires the provider image id")
+                core.raise %error
+              }
+              core.set %image_item["id"] = %image_id
+              core.set %image_item["status"] = "completed"
+              %no_result = core.call intrinsic.none()
+              core.set %image_item["result"] = %no_result
+              core.append %input, %image_item
             }
             %content = core.get %message["content"]
             %has_content = core.call intrinsic.truthy(%content)
@@ -4741,6 +5818,15 @@ module @ax.provider version "0.1" {
       %out = core.map
       core.set %out["role"] = %role
       core.set %out["content"] = %parts
+      %is_assistant = core.call intrinsic.eq(%role, "assistant")
+      core.if %is_assistant {
+        core.set %out["type"] = "message"
+      }
+      %phase = core.get %message["phase"]
+      %has_phase = core.call intrinsic.is_not_none(%phase)
+      core.if %has_phase {
+        core.set %out["phase"] = %phase
+      }
       core.return %out
     }
   }
@@ -4794,6 +5880,7 @@ module @ax.provider version "0.1" {
         core.set %out["type"] = %out_type
         %part_text = core.get %part["text"] default ""
         core.set %out["text"] = %part_text
+        core.call @openai_responses_copy_cache_control_impl(%out, %part)
         core.return %out
       }
       %is_image = core.call intrinsic.eq(%type, "image")
@@ -4806,10 +5893,9 @@ module @ax.provider version "0.1" {
         %details = core.get %part["details"] default "auto"
         %out = core.map
         core.set %out["type"] = "input_image"
-        %image_url = core.map
-        core.set %image_url["url"] = %url
-        core.set %image_url["details"] = %details
-        core.set %out["image_url"] = %image_url
+        core.set %out["image_url"] = %url
+        core.set %out["detail"] = %details
+        core.call @openai_responses_copy_cache_control_impl(%out, %part)
         core.return %out
       }
       %is_audio = core.call intrinsic.eq(%type, "audio")
@@ -4823,11 +5909,82 @@ module @ax.provider version "0.1" {
         core.set %input_audio["data"] = %data
         core.set %input_audio["format"] = %format
         core.set %out["input_audio"] = %input_audio
+        core.call @openai_responses_copy_cache_control_impl(%out, %part)
+        core.return %out
+      }
+      %is_file = core.call intrinsic.eq(%type, "file")
+      core.if %is_file {
+        %out = core.map
+        %file_uri_snake = core.get %part["file_uri"]
+        %file_uri = core.get %part["fileUri"] default %file_uri_snake
+        %mime_snake = core.get %part["mime_type"] default "application/octet-stream"
+        %mime = core.get %part["mimeType"] default %mime_snake
+        %is_image_file = core.call intrinsic.string.starts_with(%mime, "image/")
+        %is_video = core.call intrinsic.string.starts_with(%mime, "video/")
+        %has_uri = core.call intrinsic.truthy(%file_uri)
+        %uri_video = core.call intrinsic.and(%is_video, %has_uri)
+        core.if %is_image_file {
+          core.set %out["type"] = "input_image"
+          %data = core.get %part["data"] default ""
+          %data_url = core.call intrinsic.string.format("data:{};base64,{}", %mime, %data)
+          %image_url = core.call intrinsic.coalesce(%file_uri, %data_url)
+          core.set %out["image_url"] = %image_url
+          core.set %out["detail"] = "auto"
+        } else {
+          core.if %uri_video {
+            core.set %out["type"] = "input_video"
+            core.set %out["video_url"] = %file_uri
+          } else {
+            core.set %out["type"] = "input_file"
+            core.if %has_uri {
+              core.set %out["file_url"] = %file_uri
+            } else {
+              %data = core.get %part["data"] default ""
+              %file_data = core.call intrinsic.string.format("data:{};base64,{}", %mime, %data)
+              core.set %out["file_data"] = %file_data
+            }
+            %filename = core.get %part["filename"]
+            %has_filename = core.call intrinsic.is_not_none(%filename)
+            core.if %has_filename {
+              core.set %out["filename"] = %filename
+            }
+          }
+        }
+        core.call @openai_responses_copy_cache_control_impl(%out, %part)
+        core.return %out
+      }
+      %is_url = core.call intrinsic.eq(%type, "url")
+      core.if %is_url {
+        %out = core.map
+        core.set %out["type"] = "input_text"
+        %cached_snake = core.get %part["cached_content"]
+        %cached = core.get %part["cachedContent"] default %cached_snake
+        %url = core.get %part["url"] default ""
+        %text = core.call intrinsic.coalesce(%cached, %url)
+        core.set %out["text"] = %text
+        core.call @openai_responses_copy_cache_control_impl(%out, %part)
         core.return %out
       }
       %message = core.call intrinsic.string.format("Unsupported Responses content part: {}", %type)
       %error = core.call intrinsic.ai.error.unsupported(%message)
       core.raise %error
+    }
+  }
+
+  op ax.provider.semantic @openai_responses_copy_cache_control_impl {
+    attr core_kind = "func"
+    attr emit_module = "ai"
+    attr private = true
+    tag "openai-responses-cache-core-helper"
+    type signature = "(target:json, source:json) -> void"
+    body @entry(%target: json, %source: json) {
+      %cache = core.get %source["cache"] default false
+      core.if %cache {
+        %cache_control = core.map
+        core.set %cache_control["type"] = "ephemeral"
+        core.set %target["cache_control"] = %cache_control
+      }
+      core.return
     }
   }
 
@@ -4872,6 +6029,7 @@ module @ax.provider version "0.1" {
     tag "openai-responses-output-core-helper"
     type signature = "(json, json) -> void"
     body @entry(%result: json, %item: json) {
+      %empty_list = core.list
       %type = core.get %item["type"]
       %is_message = core.call intrinsic.eq(%type, "message")
       core.if %is_message {
@@ -4880,7 +6038,25 @@ module @ax.provider version "0.1" {
         %empty_content = core.list
         %item_content = core.get %item["content"] default %empty_content
         %content = core.call @openai_responses_content_to_text_impl(%item_content)
-        core.set %result["content"] = %content
+        %phase = core.get %item["phase"]
+        %is_commentary = core.call intrinsic.eq(%phase, "commentary")
+        core.if %is_commentary {
+          core.set %result["thought"] = %content
+          %existing_blocks = core.get %result["thought_blocks"] default %empty_content
+          %commentary_block = core.map
+          core.set %commentary_block["data"] = %content
+          core.set %commentary_block["encrypted"] = false
+          core.set %commentary_block["id"] = %item_id
+          core.set %commentary_block["phase"] = "commentary"
+          core.append %existing_blocks, %commentary_block
+          core.set %result["thought_blocks"] = %existing_blocks
+        } else {
+          core.set %result["content"] = %content
+          %has_phase = core.call intrinsic.is_not_none(%phase)
+          core.if %has_phase {
+            core.set %result["phase"] = %phase
+          }
+        }
         %citations = core.call @openai_responses_extract_citations_impl(%item_content)
         %has_citations = core.call intrinsic.truthy(%citations)
         core.if %has_citations {
@@ -4892,14 +6068,15 @@ module @ax.provider version "0.1" {
         %item_id = core.get %item["id"] default "0"
         core.set %result["id"] = %item_id
         %call = core.call @openai_responses_function_call_impl(%item)
-        %empty_calls = core.list
-        %calls = core.get %result["function_calls"] default %empty_calls
+        %calls = core.get %result["function_calls"] default %empty_list
         core.append %calls, %call
         core.set %result["function_calls"] = %calls
         core.set %result["finish_reason"] = "function_call"
       }
       %is_reasoning = core.call intrinsic.eq(%type, "reasoning")
       core.if %is_reasoning {
+        %item_id = core.get %item["id"] default "0"
+        core.set %result["id"] = %item_id
         %thought = core.call @openai_responses_reasoning_text_impl(%item)
         %encrypted = core.get %item["encrypted_content"]
         %has_thought = core.call intrinsic.truthy(%thought)
@@ -4908,20 +6085,49 @@ module @ax.provider version "0.1" {
         core.if %has_thought {
           core.set %result["thought"] = %thought
         }
-        core.if %has_block {
-          %empty_blocks = core.list
-          %thought_blocks = core.get %result["thought_blocks"] default %empty_blocks
+        %encrypted = core.get %item["encrypted_content"]
+        %has_encrypted = core.call intrinsic.truthy(%encrypted)
+        %preserve_reasoning = core.call intrinsic.or(%has_thought, %has_encrypted)
+        core.if %preserve_reasoning {
+          %existing_blocks = core.get %result["thought_blocks"] default %empty_list
           %thought_block = core.map
           core.set %thought_block["data"] = %thought
-          core.set %thought_block["encrypted"] = false
+          core.set %thought_block["encrypted"] = %has_encrypted
           core.if %has_encrypted {
-            core.set %thought_block["data"] = %encrypted
-            core.set %thought_block["encrypted"] = true
-            %id = core.get %item["id"]
-            core.set %thought_block["signature"] = %id
+            core.set %thought_block["id"] = %item_id
+            core.set %thought_block["encrypted_content"] = %encrypted
           }
-          core.append %thought_blocks, %thought_block
-          core.set %result["thought_blocks"] = %thought_blocks
+          %summary = core.call @openai_responses_reasoning_summary_impl(%item)
+          %has_summary = core.call intrinsic.truthy(%summary)
+          core.if %has_summary {
+            core.set %thought_block["summary"] = %summary
+          }
+          core.append %existing_blocks, %thought_block
+          core.set %result["thought_blocks"] = %existing_blocks
+        }
+      }
+      %is_image_generation = core.call intrinsic.eq(%type, "image_generation_call")
+      core.if %is_image_generation {
+        %item_id = core.get %item["id"] default "0"
+        core.set %result["id"] = %item_id
+        %image_result = core.get %item["result"]
+        %has_image_result = core.call intrinsic.truthy(%image_result)
+        core.if %has_image_result {
+          %image = core.map
+          core.set %image["id"] = %item_id
+          core.set %image["mime_type"] = "image/png"
+          %is_http = core.call intrinsic.string.starts_with(%image_result, "http")
+          %is_data_url = core.call intrinsic.string.starts_with(%image_result, "data:")
+          %is_url = core.call intrinsic.or(%is_http, %is_data_url)
+          core.if %is_url {
+            core.set %image["url"] = %image_result
+          } else {
+            core.set %image["data"] = %image_result
+          }
+          %images = core.get %result["images"] default %empty_list
+          core.append %images, %image
+          core.set %result["images"] = %images
+          core.set %result["finish_reason"] = "stop"
         }
       }
       core.return
@@ -4954,11 +6160,18 @@ module @ax.provider version "0.1" {
           core.return %content
         }
       }
-      %encrypted = core.get %item["encrypted_content"]
-      %has_encrypted = core.call intrinsic.truthy(%encrypted)
-      core.if %has_encrypted {
-        core.return %encrypted
-      }
+      %summary_text = core.call @openai_responses_reasoning_summary_impl(%item)
+      core.return %summary_text
+    }
+  }
+
+  op ax.provider.semantic @openai_responses_reasoning_summary_impl {
+    attr core_kind = "func"
+    attr emit_module = "ai"
+    attr private = true
+    tag "openai-responses-reasoning-core-helper"
+    type signature = "(json) -> string"
+    body @entry(%item: json) {
       %empty_summary = core.list
       %summary = core.get %item["summary"] default %empty_summary
       %summary_parts = core.list
@@ -5037,7 +6250,9 @@ module @ax.provider version "0.1" {
       %empty_args = core.map
       %args = core.get %item["arguments"] default %empty_args
       %args_is_string = core.type_is %args type "string"
-      core.if %args_is_string {
+      %has_args = core.call intrinsic.truthy(%args)
+      %parse_args = core.call intrinsic.and(%args_is_string, %has_args)
+      core.if %parse_args {
         core.try {
           %parsed = core.call intrinsic.json.parse(%args)
           %args = core.let %parsed
@@ -5068,6 +6283,19 @@ module @ax.provider version "0.1" {
       %type = core.get %event["type"]
       %empty_response = core.map
       %event_response = core.get %event["response"] default %empty_response
+      %is_failed = core.call intrinsic.eq(%type, "response.failed")
+      core.if %is_failed {
+        %provider_error = core.get %event_response["error"] default %empty_response
+        %error_message = core.get %provider_error["message"] default "Responses stream failed"
+        %error = core.call intrinsic.ai.error.response(%error_message, %event_response)
+        core.raise %error
+      }
+      %is_error = core.call intrinsic.eq(%type, "error")
+      core.if %is_error {
+        %error_message = core.get %event["message"] default "Responses stream failed"
+        %error = core.call intrinsic.ai.error.response(%error_message, %event)
+        core.raise %error
+      }
       %event_response_id = core.get %event_response["id"]
       %event_response_id_fallback = core.get %event["response_id"] default %event_response_id
       %remote_id = core.get %event["id"] default %event_response_id_fallback
@@ -5085,12 +6313,36 @@ module @ax.provider version "0.1" {
       core.set %result["function_calls"] = %empty_calls
       %none_finish = core.call intrinsic.none()
       core.set %result["finish_reason"] = %none_finish
+      %empty_phases = core.map
+      %phases = core.get %state["phases"] default %empty_phases
+      %empty_call_ids = core.map
+      %call_ids = core.get %state["function_call_ids"] default %empty_call_ids
       %is_text_delta = core.call intrinsic.eq(%type, "response.output_text.delta")
       core.if %is_text_delta {
         %text_delta = core.get %event["delta"] default ""
-        core.set %result["content"] = %text_delta
+        %delta_phase = core.get %phases[%event_item_id]
+        %is_commentary = core.call intrinsic.eq(%delta_phase, "commentary")
+        core.if %is_commentary {
+          core.set %result["thought"] = %text_delta
+          %thought_blocks = core.list
+          %thought_block = core.map
+          core.set %thought_block["data"] = %text_delta
+          core.set %thought_block["encrypted"] = false
+          core.set %thought_block["id"] = %event_item_id
+          core.set %thought_block["phase"] = "commentary"
+          core.append %thought_blocks, %thought_block
+          core.set %result["thought_blocks"] = %thought_blocks
+        } else {
+          core.set %result["content"] = %text_delta
+          %has_delta_phase = core.call intrinsic.is_not_none(%delta_phase)
+          core.if %has_delta_phase {
+            core.set %result["phase"] = %delta_phase
+          }
+        }
       }
       %is_reasoning_delta = core.call intrinsic.eq(%type, "response.reasoning_text.delta")
+      %is_summary_delta = core.call intrinsic.eq(%type, "response.reasoning_summary_text.delta")
+      %is_reasoning_delta = core.call intrinsic.or(%is_reasoning_delta, %is_summary_delta)
       core.if %is_reasoning_delta {
         %reasoning_delta = core.get %event["delta"] default ""
         core.set %result["thought"] = %reasoning_delta
@@ -5098,10 +6350,18 @@ module @ax.provider version "0.1" {
         %thought_block = core.map
         core.set %thought_block["data"] = %reasoning_delta
         core.set %thought_block["encrypted"] = false
+        %is_meta_model = core.call intrinsic.string.starts_with(%model, "muse-")
+        core.if %is_meta_model {
+          core.set %thought_block["id"] = %event_item_id
+        }
         core.append %thought_blocks, %thought_block
         core.set %result["thought_blocks"] = %thought_blocks
       }
       %is_reasoning_done = core.call intrinsic.eq(%type, "response.reasoning_text.done")
+      %is_summary_text_done = core.call intrinsic.eq(%type, "response.reasoning_summary_text.done")
+      %is_summary_done = core.call intrinsic.eq(%type, "response.reasoning_summary.done")
+      %is_reasoning_done = core.call intrinsic.or(%is_reasoning_done, %is_summary_text_done)
+      %is_reasoning_done = core.call intrinsic.or(%is_reasoning_done, %is_summary_done)
       core.if %is_reasoning_done {
         %reasoning_text = core.get %event["text"] default ""
         core.set %result["thought"] = %reasoning_text
@@ -5109,6 +6369,11 @@ module @ax.provider version "0.1" {
         %thought_block = core.map
         core.set %thought_block["data"] = %reasoning_text
         core.set %thought_block["encrypted"] = false
+        %is_meta_model_done = core.call intrinsic.string.starts_with(%model, "muse-")
+        core.if %is_meta_model_done {
+          core.set %thought_block["id"] = %event_item_id
+          core.set %thought_block["summary"] = %reasoning_text
+        }
         core.append %thought_blocks, %thought_block
         core.set %result["thought_blocks"] = %thought_blocks
       }
@@ -5116,12 +6381,67 @@ module @ax.provider version "0.1" {
       core.if %is_output_added {
         %empty_item = core.map
         %item = core.get %event["item"] default %empty_item
+        %item_type = core.get %item["type"] default ""
+        %is_function_item = core.call intrinsic.eq(%item_type, "function_call")
+        core.if %is_function_item {
+          %function_item_id = core.get %item["id"] default %event_item_id
+          %function_call_id = core.get %item["call_id"] default %function_item_id
+          core.set %call_ids[%function_item_id] = %function_call_id
+          core.set %state["function_call_ids"] = %call_ids
+        }
+        %is_message_item = core.call intrinsic.eq(%item_type, "message")
+        core.if %is_message_item {
+          %item_id = core.get %item["id"] default %event_item_id
+          %item_phase = core.get %item["phase"]
+          %has_item_phase = core.call intrinsic.is_not_none(%item_phase)
+          core.if %has_item_phase {
+            core.set %phases[%item_id] = %item_phase
+            core.set %state["phases"] = %phases
+          }
+        }
         core.call @openai_responses_merge_output_item_impl(%result, %item)
+      }
+      %is_output_done = core.call intrinsic.eq(%type, "response.output_item.done")
+      core.if %is_output_done {
+        %empty_done_item = core.map
+        %done_item = core.get %event["item"] default %empty_done_item
+        core.call @openai_responses_merge_output_item_impl(%result, %done_item)
+        %done_type = core.get %done_item["type"]
+        %done_message = core.call intrinsic.eq(%done_type, "message")
+        core.if %done_message {
+          core.set %result["content"] = ""
+          core.call intrinsic.map.delete(%result, "thought")
+          core.call intrinsic.map.delete(%result, "thought_blocks")
+          %done_status = core.get %done_item["status"] default "completed"
+          %done_success = core.call intrinsic.eq(%done_status, "completed")
+          core.if %done_success {
+            core.set %result["finish_reason"] = "stop"
+          } else {
+            core.set %result["finish_reason"] = "error"
+          }
+        }
+        %done_function = core.call intrinsic.eq(%done_type, "function_call")
+        core.if %done_function {
+          %completed_calls = core.list
+          core.set %result["function_calls"] = %completed_calls
+        }
+      }
+      %is_partial_image = core.call intrinsic.eq(%type, "response.image_generation_call.partial_image")
+      core.if %is_partial_image {
+        %partial_image = core.get %event["partial_image_b64"] default ""
+        %image = core.map
+        core.set %image["id"] = %event_item_id
+        core.set %image["data"] = %partial_image
+        core.set %image["mime_type"] = "image/png"
+        core.set %image["is_delta"] = true
+        %images = core.list
+        core.append %images, %image
+        core.set %result["images"] = %images
       }
       %is_args_delta = core.call intrinsic.eq(%type, "response.function_call_arguments.delta")
       core.if %is_args_delta {
-        %event_call_id = core.get %event["call_id"] default "0"
-        %call_id = core.get %event["item_id"] default %event_call_id
+        %event_call_id = core.get %event["call_id"] default %event_item_id
+        %call_id = core.get %call_ids[%event_item_id] default %event_call_id
         %event_name = core.get %event["name"]
         %event_delta = core.get %event["delta"] default ""
         %function = core.map
@@ -5137,6 +6457,10 @@ module @ax.provider version "0.1" {
         core.set %result["finish_reason"] = "function_call"
       }
       %is_completed = core.call intrinsic.eq(%type, "response.completed")
+      %is_incomplete = core.call intrinsic.eq(%type, "response.incomplete")
+      core.if %is_incomplete {
+        core.set %result["finish_reason"] = "length"
+      }
       %usage = core.call intrinsic.none()
       core.if %is_completed {
         %raw_usage = core.get %event_response["usage"]
@@ -5404,6 +6728,254 @@ module @ax.provider version "0.1" {
       %out = core.map
       core.set %out["audio"] = %audio
       core.set %out["format"] = %format
+      core.return %out
+    }
+  }
+
+  op ax.provider.semantic @meta_asr_realtime_normalize_event {
+    attr core_kind = "func"
+    attr effect = "throws"
+    attr emit_module = "ai"
+    attr private = true
+    tag "meta-realtime-audio-core-helper"
+    type signature = "(json, json, string, string) -> AxChatResponse throws"
+    body @entry(%event: json, %state: json, %ai_name: string, %model: string) {
+      %type = core.get %event["type"] default ""
+      %is_error = core.call intrinsic.eq(%type, "error")
+      core.if %is_error {
+        %empty_error = core.map
+        %error_payload = core.get %event["error"] default %empty_error
+        %nested_message = core.get %error_payload["message"] default "Meta Voice realtime transcription error"
+        %message = core.get %event["message"] default %nested_message
+        %error = core.call intrinsic.ai.error.response(%message, %event)
+        core.raise %error
+      }
+      %result = core.map
+      core.set %result["index"] = 0
+      %turn_snake = core.get %event["turn_id"]
+      %turn_id = core.get %event["turnId"] default %turn_snake
+      %has_turn = core.call intrinsic.is_not_none(%turn_id)
+      core.if %has_turn {
+      } else {
+        %turn_id = core.get %state["latest_turn_id"] default "0"
+      }
+      %turn_id = core.call intrinsic.string.format("{}", %turn_id)
+      core.set %result["id"] = %turn_id
+      core.set %result["content"] = ""
+      %empty_calls = core.list
+      core.set %result["function_calls"] = %empty_calls
+      %none_finish = core.call intrinsic.none()
+      core.set %result["finish_reason"] = %none_finish
+      %session_snake = core.get %event["session_id"]
+      %session = core.get %event["sessionId"] default %session_snake
+      %has_session = core.call intrinsic.is_not_none(%session)
+      core.if %has_session {
+        core.set %state["session_id"] = %session
+      }
+      %is_speech_start = core.call intrinsic.eq(%type, "speechStart")
+      core.if %is_speech_start {
+        core.set %state["latest_turn_id"] = %turn_id
+        %empty_turns = core.map
+        %turns = core.get %state["turns"] default %empty_turns
+        %existing = core.get %turns[%turn_id] default ""
+        core.set %turns[%turn_id] = %existing
+        core.set %state["turns"] = %turns
+      }
+      %progress_snake = core.get %event["audio_processed_ms"]
+      %progress = core.get %event["audioProcessedMs"] default %progress_snake
+      %has_progress = core.call intrinsic.is_not_none(%progress)
+      core.if %has_progress {
+        core.set %result["audio_processed_ms"] = %progress
+        core.set %state["audio_processed_ms"] = %progress
+        %empty_times = core.map
+        %starts = core.get %state["turn_starts"] default %empty_times
+        core.if %is_speech_start {
+          core.set %starts[%turn_id] = %progress
+          core.set %state["turn_starts"] = %starts
+        }
+        %is_speech_end_time = core.call intrinsic.eq(%type, "speechEnd")
+        %is_speech_complete_time = core.call intrinsic.eq(%type, "speechComplete")
+        %is_turn_end = core.call intrinsic.or(%is_speech_end_time, %is_speech_complete_time)
+        core.if %is_turn_end {
+          %ends = core.get %state["turn_ends"] default %empty_times
+          core.set %ends[%turn_id] = %progress
+          core.set %state["turn_ends"] = %ends
+        }
+      }
+      %empty_speakers = core.map
+      %speakers = core.get %state["speakers"] default %empty_speakers
+      %known_speaker = core.get %speakers[%turn_id]
+      %speaker_label = core.get %event["label"]
+      %speaker_event = core.get %event["speaker"] default %speaker_label
+      %speaker = core.call intrinsic.coalesce(%speaker_event, %known_speaker)
+      %has_speaker = core.call intrinsic.is_not_none(%speaker)
+      core.if %has_speaker {
+        core.set %speakers[%turn_id] = %speaker
+        core.set %state["speakers"] = %speakers
+        core.set %result["name"] = %speaker
+      }
+      %is_transcript = core.call intrinsic.eq(%type, "transcript")
+      core.if %is_transcript {
+        %text_raw = core.get %event["text"] default ""
+        %text = core.get %event["transcript"] default %text_raw
+        %empty_turns = core.map
+        %turns = core.get %state["turns"] default %empty_turns
+        %previous = core.get %turns[%turn_id] default ""
+        %state_partial = core.get %state["partial_mode"]
+        %partial_snake = core.get %event["partial_mode"] default %state_partial
+        %partial_mode = core.get %event["partialMode"] default %partial_snake
+        %is_delta_mode = core.call intrinsic.eq(%partial_mode, "DELTA")
+        %is_delta_mode_lower = core.call intrinsic.eq(%partial_mode, "delta")
+        %is_delta_mode = core.call intrinsic.or(%is_delta_mode, %is_delta_mode_lower)
+        %is_final_turn = core.get %event["final"] default false
+        %not_final = core.call intrinsic.not(%is_final_turn)
+        %append = core.call intrinsic.and(%is_delta_mode, %not_final)
+        %complete_text = core.let %text
+        core.if %append {
+          %complete_text = core.call intrinsic.string.format("{}{}", %previous, %text)
+        }
+        core.set %turns[%turn_id] = %complete_text
+        core.set %state["turns"] = %turns
+        %snapshot = core.map
+        core.set %snapshot["text"] = %complete_text
+        core.set %snapshot["is_final"] = %is_final_turn
+        core.set %result["transcript"] = %snapshot
+        %empty_finalized = core.map
+        %finalized = core.get %state["finalized_turns"] default %empty_finalized
+        core.set %finalized[%turn_id] = %is_final_turn
+        core.set %state["finalized_turns"] = %finalized
+      }
+      %is_speech_complete = core.call intrinsic.eq(%type, "speechComplete")
+      core.if %is_speech_complete {
+        %empty_turns = core.map
+        %turns = core.get %state["turns"] default %empty_turns
+        %previous = core.get %turns[%turn_id] default ""
+        %complete = core.get %event["transcript"] default %previous
+        core.set %turns[%turn_id] = %complete
+        core.set %state["turns"] = %turns
+        %snapshot = core.map
+        core.set %snapshot["text"] = %complete
+        core.set %snapshot["is_final"] = true
+        core.set %result["transcript"] = %snapshot
+        %empty_finalized = core.map
+        %finalized = core.get %state["finalized_turns"] default %empty_finalized
+        core.set %finalized[%turn_id] = true
+        core.set %state["finalized_turns"] = %finalized
+      }
+      %results = core.list
+      core.append %results, %result
+      %empty_state = core.map
+      %turns = core.get %state["turns"] default %empty_state
+      %finalized = core.get %state["finalized_turns"] default %empty_state
+      %emitted = core.get %state["emitted_turns"] default %empty_state
+      %ids = core.call intrinsic.map.keys(%turns)
+      %ready = core.let true
+      core.for %id in %ids {
+        %is_final_turn = core.get %finalized[%id] default false
+        %ready = core.call intrinsic.and(%ready, %is_final_turn)
+        %sent = core.get %emitted[%id] default false
+        %unsent = core.call intrinsic.not(%sent)
+        %emit = core.call intrinsic.and(%ready, %unsent)
+        core.if %emit {
+          %committed = core.map
+          core.set %committed["index"] = 0
+          core.set %committed["id"] = %id
+          %text = core.get %turns[%id] default ""
+          core.set %committed["content"] = %text
+          %calls = core.list
+          core.set %committed["function_calls"] = %calls
+          core.set %committed["finish_reason"] = %none_finish
+          %snapshot = core.map
+          core.set %snapshot["text"] = %text
+          core.set %snapshot["is_final"] = true
+          core.set %committed["transcript"] = %snapshot
+          %speaker = core.get %speakers[%id]
+          %has_speaker = core.call intrinsic.is_not_none(%speaker)
+          core.if %has_speaker {
+            core.set %committed["name"] = %speaker
+          }
+          %is_current = core.call intrinsic.eq(%id, %turn_id)
+          core.if %is_current {
+            core.set %result["content"] = %text
+          } else {
+            core.append %results, %committed
+          }
+          core.set %emitted[%id] = true
+        }
+      }
+      core.set %state["emitted_turns"] = %emitted
+      %out = core.map
+      core.set %out["results"] = %results
+      %stable_session = core.get %state["session_id"] default %session
+      %has_stable_session = core.call intrinsic.is_not_none(%stable_session)
+      core.if %has_stable_session {
+        core.set %out["remote_session_id"] = %stable_session
+      }
+      %usage = core.call intrinsic.none()
+      %model_usage = core.call @ai_model_usage_impl(%ai_name, %model, %usage)
+      core.set %out["model_usage"] = %model_usage
+      core.return %out
+    }
+  }
+
+  op ax.provider.semantic @provider_finalize_realtime_response {
+    attr core_kind = "func"
+    attr emit_module = "ai"
+    tag "meta-realtime-audio-core-helper"
+    type signature = "(profile:string, json, json) -> AxChatResponse"
+    body @entry(%profile: string, %state: json, %fallback: json) {
+      %is_meta = core.call intrinsic.eq(%profile, "meta")
+      core.if %is_meta {
+        %results = core.list
+        %empty_turns = core.map
+        %turns = core.get %state["turns"] default %empty_turns
+        %speakers = core.get %state["speakers"] default %empty_turns
+        %ids = core.call intrinsic.map.keys(%turns)
+        core.for %id in %ids {
+          %result = core.map
+          %index = core.call intrinsic.len(%results)
+          core.set %result["index"] = %index
+          core.set %result["id"] = %id
+          %text = core.get %turns[%id] default ""
+          core.set %result["content"] = %text
+          %calls = core.list
+          core.set %result["function_calls"] = %calls
+          core.set %result["finish_reason"] = "stop"
+          %speaker = core.get %speakers[%id]
+          %has_speaker = core.call intrinsic.is_not_none(%speaker)
+          core.if %has_speaker {
+            core.set %result["name"] = %speaker
+          }
+          core.append %results, %result
+        }
+        core.set %fallback["results"] = %results
+        %session = core.get %state["session_id"]
+        core.set %fallback["remote_session_id"] = %session
+        core.set %fallback["remote_id"] = %session
+      }
+      core.return %fallback
+    }
+  }
+
+  op ax.provider.semantic @provider_realtime_terminal_response {
+    attr core_kind = "func"
+    attr emit_module = "ai"
+    tag "meta-realtime-audio-core-helper"
+    type signature = "(response:json) -> AxChatResponse"
+    body @entry(%response: json) {
+      %empty = core.map
+      %out = core.call intrinsic.map.merge(%response, %empty)
+      %results = core.get %response["results"]
+      %terminal_results = core.list
+      core.for %result in %results {
+        %terminal = core.call intrinsic.map.merge(%result, %empty)
+        core.set %terminal["content"] = ""
+        core.call intrinsic.map.delete(%terminal, "audio")
+        %calls = core.list
+        core.set %terminal["function_calls"] = %calls
+        core.append %terminal_results, %terminal
+      }
+      core.set %out["results"] = %terminal_results
       core.return %out
     }
   }
@@ -6598,8 +8170,8 @@ module @ax.provider version "0.1" {
     attr emit_module = "ai"
     attr private = true
     tag "src/ax/ai/anthropic/api.ts"
-    type signature = "(AxChatRequest) -> json throws"
-    body @entry(%request: AxChatRequest) {
+    type signature = "(AxChatRequest, supports_none?:bool) -> json throws"
+    body @entry(%request: AxChatRequest, %supports_none: bool) {
       %payload = core.map
       %model = core.get %request["model"] default "claude-3-7-sonnet-latest"
       core.set %payload["model"] = %model
@@ -6672,7 +8244,7 @@ module @ax.provider version "0.1" {
           core.append %tools, %tool
         }
         core.set %payload["tools"] = %tools
-        %tool_choice = core.call @anthropic_tool_choice_impl(%request)
+        %tool_choice = core.call @anthropic_tool_choice_impl(%request, %supports_none)
         %has_choice = core.call intrinsic.is_not_none(%tool_choice)
         core.if %has_choice {
           core.set %payload["tool_choice"] = %tool_choice
@@ -7063,6 +8635,78 @@ module @ax.provider version "0.1" {
         }
         core.return %out
       }
+      %is_audio = core.call intrinsic.eq(%type, "audio")
+      core.if %is_audio {
+        %out = core.map
+        core.set %out["type"] = "audio"
+        %source = core.map
+        core.set %source["type"] = "base64"
+        %format = core.get %part["format"] default "wav"
+        %media_type = core.call intrinsic.string.format("audio/{}", %format)
+        core.set %source["media_type"] = %media_type
+        %data = core.get %part["data"] default ""
+        core.set %source["data"] = %data
+        core.set %out["source"] = %source
+        %cache = core.get %part["cache"] default false
+        core.if %cache {
+          %cache_control = core.call intrinsic.json.parse("{\"type\":\"ephemeral\"}")
+          core.set %out["cache_control"] = %cache_control
+        }
+        core.return %out
+      }
+      %is_file = core.call intrinsic.eq(%type, "file")
+      core.if %is_file {
+        %out = core.map
+        %mime_snake = core.get %part["mime_type"] default "application/octet-stream"
+        %mime = core.get %part["mimeType"] default %mime_snake
+        %is_video = core.call intrinsic.string.starts_with(%mime, "video/")
+        %is_image_file = core.call intrinsic.string.starts_with(%mime, "image/")
+        core.if %is_image_file {
+          core.set %out["type"] = "image"
+        } else {
+          core.if %is_video {
+            core.set %out["type"] = "video"
+          } else {
+            core.set %out["type"] = "document"
+          }
+        }
+        %source = core.map
+        %file_uri_snake = core.get %part["file_uri"]
+        %file_uri = core.get %part["fileUri"] default %file_uri_snake
+        %has_file_uri = core.call intrinsic.truthy(%file_uri)
+        core.if %has_file_uri {
+          core.set %source["type"] = "url"
+          core.set %source["url"] = %file_uri
+        } else {
+          core.set %source["type"] = "base64"
+          core.set %source["media_type"] = %mime
+          %data = core.get %part["data"] default ""
+          core.set %source["data"] = %data
+        }
+        core.set %out["source"] = %source
+        %cache = core.get %part["cache"] default false
+        core.if %cache {
+          %cache_control = core.call intrinsic.json.parse("{\"type\":\"ephemeral\"}")
+          core.set %out["cache_control"] = %cache_control
+        }
+        core.return %out
+      }
+      %is_url = core.call intrinsic.eq(%type, "url")
+      core.if %is_url {
+        %out = core.map
+        core.set %out["type"] = "text"
+        %cached_snake = core.get %part["cached_content"]
+        %cached = core.get %part["cachedContent"] default %cached_snake
+        %url = core.get %part["url"] default ""
+        %text = core.call intrinsic.coalesce(%cached, %url)
+        core.set %out["text"] = %text
+        %cache = core.get %part["cache"] default false
+        core.if %cache {
+          %cache_control = core.call intrinsic.json.parse("{\"type\":\"ephemeral\"}")
+          core.set %out["cache_control"] = %cache_control
+        }
+        core.return %out
+      }
       %message = core.call intrinsic.string.format("Anthropic content type not supported: {}", %type)
       %error = core.call intrinsic.ai.error.unsupported(%message)
       core.raise %error
@@ -7099,12 +8743,16 @@ module @ax.provider version "0.1" {
     attr emit_module = "ai"
     attr private = true
     tag "anthropic-tool-core-helper"
-    type signature = "(json) -> json throws"
-    body @entry(%request: json) {
+    type signature = "(json, supports_none:bool) -> json throws"
+    body @entry(%request: json, %supports_none: bool) {
       %function_call = core.get %request["function_call"] default "auto"
       %choice = core.map
       %is_none = core.call intrinsic.eq(%function_call, "none")
       core.if %is_none {
+        core.if %supports_none {
+          core.set %choice["type"] = "none"
+          core.return %choice
+        }
         %error = core.call intrinsic.ai.error.unsupported("functionCall none not supported")
         core.raise %error
       }

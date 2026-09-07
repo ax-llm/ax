@@ -160,6 +160,16 @@ export type AxAIAnthropicChatRequest = {
                   source: { type: 'base64'; media_type: string; data: string };
                 } & AxAIAnthropicChatRequestCacheParam)
               | ({
+                  type: 'audio' | 'document' | 'video' | 'image';
+                  source:
+                    | {
+                        type: 'base64';
+                        media_type: string;
+                        data: string;
+                      }
+                    | { type: 'url'; url: string };
+                } & AxAIAnthropicChatRequestCacheParam)
+              | ({
                   type: 'tool_result';
                   is_error?: boolean;
                   tool_use_id: string;
@@ -208,7 +218,9 @@ export type AxAIAnthropicChatRequest = {
       }
   )[];
   tools?: AxAIAnthropicRequestTool[];
-  tool_choice?: { type: 'auto' | 'any' } | { type: 'tool'; name?: string };
+  tool_choice?:
+    | { type: 'auto' | 'any' | 'none' }
+    | { type: 'tool'; name?: string };
   max_tokens?: number; // Maximum number of tokens to generate
   // Optional metadata about the request
   stop_sequences?: string[]; // Custom sequences that trigger the end of generation

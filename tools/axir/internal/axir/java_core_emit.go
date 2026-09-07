@@ -422,6 +422,7 @@ var coreIntrinsicJava = map[CoreIntrinsic]string{
 	IntrinsicValidAudio:              "Core.validAudio",
 	IntrinsicValidFile:               "Core.validFile",
 	IntrinsicValidURLShape:           "Core.validUrlShape",
+	IntrinsicExceptionIsAborted:     "Core.exceptionIsAborted",
 }
 
 func javaAttrValue(op Operation, name string) string {

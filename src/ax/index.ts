@@ -378,6 +378,22 @@ import {
   type AxAIGoogleVertexBatchEmbedRequest,
   type AxAIGoogleVertexBatchEmbedResponse,
 } from './ai/google-gemini/types.js';
+import {
+  axModelInfoMeta,
+  axModelInfoMetaMessages,
+  axModelInfoMetaSpark,
+} from './ai/meta/info.js';
+import {
+  type AxAIMetaArgs,
+  type AxAIMetaChatArgs,
+  type AxAIMetaChatConfig,
+  type AxAIMetaMessagesArgs,
+  type AxAIMetaMessagesConfig,
+  AxAIMetaModel,
+  type AxAIMetaResponsesArgs,
+  type AxAIMetaResponsesConfig,
+  type AxAIMetaSparkModel,
+} from './ai/meta/types.js';
 import type { AxAIMetricsInstruments } from './ai/metrics.js';
 import { axModelInfoMistral } from './ai/mistral/info.js';
 import {
@@ -451,6 +467,7 @@ import {
   type AxAIOpenAIResponsesContentPartAddedEvent,
   type AxAIOpenAIResponsesContentPartDoneEvent,
   type AxAIOpenAIResponsesDefineFunctionTool,
+  type AxAIOpenAIResponsesDefineImageGenerationTool,
   type AxAIOpenAIResponsesErrorEvent,
   type AxAIOpenAIResponsesFileSearchCallCompletedEvent,
   type AxAIOpenAIResponsesFileSearchCallInProgressEvent,
@@ -469,11 +486,13 @@ import {
   type AxAIOpenAIResponsesInputFileContentPart,
   type AxAIOpenAIResponsesInputFunctionCallItem,
   type AxAIOpenAIResponsesInputFunctionCallOutputItem,
+  type AxAIOpenAIResponsesInputImageGenerationCallItem,
   type AxAIOpenAIResponsesInputImageUrlContentPart,
   type AxAIOpenAIResponsesInputItem,
   type AxAIOpenAIResponsesInputMessageItem,
   type AxAIOpenAIResponsesInputReasoningItem,
   type AxAIOpenAIResponsesInputTextContentPart,
+  type AxAIOpenAIResponsesInputVideoContentPart,
   type AxAIOpenAIResponsesLocalShellToolCall,
   type AxAIOpenAIResponsesMCPCallArgumentsDeltaEvent,
   type AxAIOpenAIResponsesMCPCallArgumentsDoneEvent,
@@ -586,6 +605,7 @@ import type {
   AxAIServiceMetrics,
   AxAIServiceOptions,
   AxAppliedServiceTier,
+  AxChatImageOutput,
   AxChatRequest,
   AxChatResponse,
   AxChatResponseResult,
@@ -1361,6 +1381,7 @@ export { AxAIGoogleGeminiSafetyCategory };
 export { AxAIGoogleGeminiSafetyThreshold };
 export { AxAIGrokEmbedModels };
 export { AxAIGrokModel };
+export { AxAIMetaModel };
 export { AxAIMistralEmbedModels };
 export { AxAIMistralModel };
 export { AxAIOpenAI };
@@ -1582,6 +1603,9 @@ export { axModelInfoCohere };
 export { axModelInfoDeepSeek };
 export { axModelInfoGoogleGemini };
 export { axModelInfoGrok };
+export { axModelInfoMeta };
+export { axModelInfoMetaMessages };
+export { axModelInfoMetaSpark };
 export { axModelInfoMistral };
 export { axModelInfoOpenAI };
 export { axModelInfoOpenAIResponses };
@@ -1715,6 +1739,14 @@ export type { AxAIGoogleVertexBatchEmbedRequest };
 export type { AxAIGoogleVertexBatchEmbedResponse };
 export type { AxAIInputModelList };
 export type { AxAIMemory };
+export type { AxAIMetaArgs };
+export type { AxAIMetaChatArgs };
+export type { AxAIMetaChatConfig };
+export type { AxAIMetaMessagesArgs };
+export type { AxAIMetaMessagesConfig };
+export type { AxAIMetaResponsesArgs };
+export type { AxAIMetaResponsesConfig };
+export type { AxAIMetaSparkModel };
 export type { AxAIMetricsInstruments };
 export type { AxAIModelCatalogAudioSupport };
 export type { AxAIModelCatalogFilter };
@@ -1750,6 +1782,7 @@ export type { AxAIOpenAIResponsesConfig };
 export type { AxAIOpenAIResponsesContentPartAddedEvent };
 export type { AxAIOpenAIResponsesContentPartDoneEvent };
 export type { AxAIOpenAIResponsesDefineFunctionTool };
+export type { AxAIOpenAIResponsesDefineImageGenerationTool };
 export type { AxAIOpenAIResponsesErrorEvent };
 export type { AxAIOpenAIResponsesFileSearchCallCompletedEvent };
 export type { AxAIOpenAIResponsesFileSearchCallInProgressEvent };
@@ -1768,11 +1801,13 @@ export type { AxAIOpenAIResponsesInputContentPart };
 export type { AxAIOpenAIResponsesInputFileContentPart };
 export type { AxAIOpenAIResponsesInputFunctionCallItem };
 export type { AxAIOpenAIResponsesInputFunctionCallOutputItem };
+export type { AxAIOpenAIResponsesInputImageGenerationCallItem };
 export type { AxAIOpenAIResponsesInputImageUrlContentPart };
 export type { AxAIOpenAIResponsesInputItem };
 export type { AxAIOpenAIResponsesInputMessageItem };
 export type { AxAIOpenAIResponsesInputReasoningItem };
 export type { AxAIOpenAIResponsesInputTextContentPart };
+export type { AxAIOpenAIResponsesInputVideoContentPart };
 export type { AxAIOpenAIResponsesLocalShellToolCall };
 export type { AxAIOpenAIResponsesMCPCallArgumentsDeltaEvent };
 export type { AxAIOpenAIResponsesMCPCallArgumentsDoneEvent };
@@ -1986,6 +2021,7 @@ export type { AxBestOfNOptions };
 export type { AxBootstrapOptimizerOptions };
 export type { AxChatAudioConfig };
 export type { AxChatAudioOutput };
+export type { AxChatImageOutput };
 export type { AxChatLogEntry };
 export type { AxChatLogMessage };
 export type { AxChatRequest };

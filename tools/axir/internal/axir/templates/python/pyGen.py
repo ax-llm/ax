@@ -11,6 +11,8 @@ from typing import Any
 from .ai import (
     _core_math_floor,
     AIClient,
+    AxAIServiceAbortedError,
+    AxCancellationToken,
     AxMeter,
     AxRateLimiter,
     AxRuntimeHooks,
@@ -21,6 +23,7 @@ from .ai import (
     _runtime_hooks_from_options,
     _strip_runtime_hooks,
     chat_response_to_completion,
+    ai_merge_replay_metadata,
 )
 from .prompt import AxPromptTemplate
 from .schema import AxValidationError, strip_internal, validate_fields, validate_output
@@ -117,6 +120,7 @@ class AxMemory:
         item = {"role": "assistant", "response": result, "session_id": session_id, "tags": []}
         for existing in reversed(self.items):
             if existing.get("role") == "assistant" and existing.get("session_id") == session_id:
+                item["response"] = ai_merge_replay_metadata(existing.get("response") or {}, result)
                 existing.update(item)
                 return self
         self.items.append(item)
@@ -166,7 +170,7 @@ def _ax_memory_response_meaningful(response) -> bool:
     content = response.get("content")
     if isinstance(content, str) and content.strip():
         return True
-    for key in ("function_calls", "functionCalls", "tool_calls", "toolCalls", "thought_blocks", "thoughtBlocks"):
+    for key in ("function_calls", "functionCalls", "tool_calls", "toolCalls", "thought_blocks", "thoughtBlocks", "images"):
         value = response.get(key)
         if isinstance(value, list) and value:
             return True
@@ -561,7 +565,7 @@ class AxGen:
         stream_options = {**self.options, **(options or {}), "stream": True}
         req = self._request(self.prompt_template.render(values), stream_options, client)
         chunks = []
-        for event in client.stream(req):
+        for event in client.stream(req, stream_options):
             chunks.append(event)
             _core_axgen_run_streaming_assertions(self, fold_stream(chunks))
             yield event
@@ -808,12 +812,26 @@ def _core_ai_client_features(client, model):
     return {"functions": True, "structured_outputs": True}
 
 
-def _core_retry_sleep(attempt):
-    time.sleep(min(0.25 * (int(attempt) + 1), 1.0))
+def _core_retry_sleep(attempt, _client=None, options=None):
+    delay = min(0.25 * (int(attempt) + 1), 1.0)
+    token = None
+    if isinstance(options, dict):
+        token = options.get("cancellation") or options.get("cancellationToken") or options.get("cancellation_token")
+    if token is None:
+        time.sleep(delay)
+        return
+    if not isinstance(token, AxCancellationToken):
+        raise TypeError("cancellation must be an AxCancellationToken")
+    token.wait(delay)
+    token.throw_if_cancelled()
 
 
 def _core_exception_message(error):
     return str(error)
+
+
+def _core_exception_is_aborted(error):
+    return isinstance(error, AxAIServiceAbortedError)
 
 
 def _core_regex_match(pattern, value):

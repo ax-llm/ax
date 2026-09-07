@@ -18,6 +18,9 @@ public final class Conformance {
     FixtureError(String message) { super(message); }
   }
 
+  static void fixtureSleep(long milliseconds) { try { Thread.sleep(milliseconds); } catch (InterruptedException error) { Thread.currentThread().interrupt(); throw new FixtureError("fixture sleep interrupted"); } }
+  static void fixtureJoin(Thread thread,long milliseconds) { try { thread.join(milliseconds); } catch (InterruptedException error) { Thread.currentThread().interrupt(); throw new FixtureError("fixture join interrupted"); } }
+
   static final class ConformanceScriptedAI extends AxBaseAI {
     final List<Object> responses;
     final List<Object> streamEvents;
@@ -85,15 +88,18 @@ public final class Conformance {
     }
   }
 
-  static final class ScriptedTransport implements OpenAICompatibleClient.Transport {
+  static class ScriptedTransport implements OpenAICompatibleClient.Transport {
     final List<Object> responses;
     final List<Map<String, Object>> requests = new ArrayList<>();
+    final List<AxCancellationToken> cancellations = new ArrayList<>();
     ScriptedTransport(List<Object> responses) { this.responses = new ArrayList<>(responses); }
     public Object call(Map<String, Object> request) {
       requests.add(new LinkedHashMap<>(request));
       if (responses.isEmpty()) throw new RuntimeException("scripted transport exhausted");
       return responses.remove(0);
     }
+    public Object call(Map<String,Object> request,AxCancellationToken cancellation){cancellations.add(cancellation);return call(request);}
+    public Object stream(Map<String,Object> request,AxCancellationToken cancellation){cancellations.add(cancellation);return call(request);}
   }
 
   static RuntimeException fixtureAIServiceError(Map<String, Object> spec) {
@@ -571,6 +577,7 @@ public final class Conformance {
       case "ai_chat" -> runAIChat(fixture);
       case "ai_embed" -> runAIEmbed(fixture);
       case "ai_stream" -> runAIStream(fixture);
+      case "ai_cancellation" -> runAICancellation(fixture);
       case "ai_usage_observer" -> runAIUsageObserver(fixture);
       case "ai_runtime_hooks" -> runAIRuntimeHooks(fixture);
       case "ai_credential_wrapper" -> runAICredentialWrapper(fixture);
@@ -639,6 +646,10 @@ public final class Conformance {
       case "mapping" -> assertEqual(Core.event_map_input(fixture.get("ingress"),fixture.get("plan"),fixture.get("signature_fields"),null),fixture.get("expected"),"event input mapping");
       case "lifecycle" -> {
         Map<String,Object> route=(Map<String,Object>)fixture.get("route");Map<String,Object> event=(Map<String,Object>)fixture.get("event");AxEventRuntime.PushSource source=new AxEventRuntime.PushSource();AxEventRuntime.Target target=new AxEventRuntime.Target(String.valueOf(route.get("targetId")),(input,context)->Map.of("handled",String.valueOf(((Map<String,Object>)input).get("message"))));AxEventRuntime runtime=new AxEventRuntime(List.of(new AxEventRoute(String.valueOf(route.get("id")),String.valueOf(route.get("action")),(Map<String,Object>)route.get("match"),String.valueOf(route.get("targetId")),false,"strict",0))).registerTarget(target).addSource(source);runtime.start();source.publish(new AxEventEnvelope(String.valueOf(event.get("id")),String.valueOf(event.get("source")),String.valueOf(event.get("type")),event.get("data")));AxEventRuntime.PublishReceipt receipt=runtime.publish(new AxEventEnvelope(String.valueOf(event.get("id"))+"-receipt",String.valueOf(event.get("source")),String.valueOf(event.get("type")),event.get("data")),String.valueOf(fixture.get("identity_scope")),String.valueOf(fixture.get("trust")));AxEventRuntime.Run run=runtime.getRun("run:"+route.get("id")+":"+event.get("id")+":1");assertEqual(receipt.accepted(),true,"event publish receipt");assertEqual(run.output,fixture.get("expected_output"),"event automatic dispatch");runtime.close();
+
+        Map<String,Object> cancellationSpec=(Map<String,Object>)fixture.get("cancellation");String cancellationReason=String.valueOf(cancellationSpec.get("reason"));long cancellationSleep=((Number)cancellationSpec.get("sleep_ms")).longValue();long maxCancellationElapsed=((Number)cancellationSpec.get("max_elapsed_ms")).longValue();AxEventCancellationToken token=new AxEventCancellationToken();int[] removedCalls={0};AxCancellationToken.Subscription removed=token.subscribe(()->removedCalls[0]++);removed.close();if(!token.cancel(cancellationReason)||token.cancel("ignored")||!cancellationReason.equals(token.reason())||removedCalls[0]!=0)throw new FixtureError("event cancellation one-shot or removable subscription mismatch");
+        AxEventClock[] cancellationClocks={new AxEventClock.SystemClock(),new AxEventClock.ManualClock(0)};for(AxEventClock clock:cancellationClocks){AxEventCancellationToken sleepToken=new AxEventCancellationToken();boolean[] sleepResult={true};Thread sleeper=new Thread(()->{try{sleepResult[0]=clock.sleep(cancellationSleep,sleepToken);}catch(InterruptedException error){throw new RuntimeException(error);}});long started=System.nanoTime();sleeper.start();if(clock instanceof AxEventClock.ManualClock){long deadline=System.nanoTime()+1_000_000_000L;while(sleepToken.subscriptionCount()==0&&System.nanoTime()<deadline)Thread.yield();}else fixtureSleep(10);sleepToken.cancel(cancellationReason);fixtureJoin(sleeper,1_000);long elapsed=(System.nanoTime()-started)/1_000_000L;if(sleeper.isAlive()||sleepResult[0]||sleepToken.subscriptionCount()!=0||elapsed>maxCancellationElapsed)throw new FixtureError("event clock cancellation or cleanup mismatch");}
+        AxEventClock.ManualClock successfulClock=new AxEventClock.ManualClock(0);AxEventCancellationToken successfulToken=new AxEventCancellationToken();boolean[] successfulResult={false};Thread successfulSleeper=new Thread(()->{try{successfulResult[0]=successfulClock.sleep(1,successfulToken);}catch(InterruptedException error){throw new RuntimeException(error);}});successfulSleeper.start();long successfulDeadline=System.nanoTime()+1_000_000_000L;while(successfulToken.subscriptionCount()==0&&System.nanoTime()<successfulDeadline)Thread.yield();successfulClock.advance(1);fixtureJoin(successfulSleeper,1_000);if(successfulSleeper.isAlive()||!successfulResult[0]||successfulToken.subscriptionCount()!=0)throw new FixtureError("manual event clock successful sleep cleanup mismatch");
 
         int[] retryCalls={0};AxEventClock.ManualClock retryClock=new AxEventClock.ManualClock(1_000);AxEventRuntime.Target retryTarget=new AxEventRuntime.Target("retry-target",(input,context)->{if(++retryCalls[0]==1)throw new RuntimeException("retry once");return Map.of("attempt",retryCalls[0]);}).retrySafety("idempotent");AxEventRuntime retryRuntime=new AxEventRuntime(List.of(new AxEventRoute("retry-route","wake",Map.of("types",List.of("event.retry")),"retry-target",false,"strict",0)),Map.of("clock",retryClock,"retryBackoffMs",500)).registerTarget(retryTarget);retryRuntime.start();retryRuntime.publish(new AxEventEnvelope("retry-1","test://axevent","event.retry",Map.of()),"anonymous","untrusted");AxEventRuntime.Run retryRun=retryRuntime.getRun("run:retry-route:retry-1:1");assertEqual(List.of(retryRun.attempt,retryRun.status,retryRuntime.nextDueAt()),List.of(1,"queued",1_500L),"event delayed retry");retryClock.advance(500);retryRuntime.runDue();assertEqual(List.of(retryRun.attempt,retryRun.status),List.of(2,"succeeded"),"event retry dispatch");
 
@@ -2126,6 +2137,25 @@ public final class Conformance {
     try { for (Object item : cf.client.stream(Core.asMap(fixture.get("request")))) result.add(item); } catch (Exception e) { throw Core.asRuntime(e); }
     if (fixture.containsKey("expected_output")) assertEqual(result, fixture.get("expected_output"), "ai stream output");
     assertTransport(fixture, cf.transport);
+  }
+
+  static void runAICancellation(Map<String,Object> fixture) {
+    String reason=String.valueOf(fixture.get("reason"));Map<String,Object> request=Core.asMap(fixture.get("request"));long maxElapsed=((Number)fixture.get("max_elapsed_ms")).longValue();long programMaxElapsed=((Number)fixture.getOrDefault("program_max_elapsed_ms",100)).longValue();
+    Map<String,Object> preflightFixture=new LinkedHashMap<>(fixture);preflightFixture.put("transport_responses",List.of(fixture.get("success_response")));ClientFixture preflight=openaiClient(preflightFixture);AxCancellationToken token=new AxCancellationToken();token.cancel(reason);try{preflight.client.chatWithCancellation(request,Map.of(),token);throw new FixtureError("pre-cancelled provider request unexpectedly reached transport");}catch(AxAIServiceAbortedError error){if(!reason.equals(error.reason())||error.retryable)throw new FixtureError("pre-cancelled provider error mismatch");}catch(Exception error){throw Core.asRuntime(error);}if(!preflight.transport.requests.isEmpty())throw new FixtureError("pre-cancelled provider request reached transport");AxCancellationToken forwardedToken=new AxCancellationToken();try{preflight.client.chatWithCancellation(request,Map.of(),forwardedToken);}catch(Exception error){throw Core.asRuntime(error);}if(preflight.transport.cancellations.size()!=1||preflight.transport.cancellations.get(0)!=forwardedToken)throw new FixtureError("Java chat cancellation token was not forwarded to the custom transport");
+
+    int programRequestCount=preflight.transport.requests.size();
+    AxFlow cancellationFlow=Ax.flow(Map.of("id","cancellation-flow")).execute("answer",Ax.ax("question:string -> answer:string"));
+    List<Map.Entry<String,java.util.concurrent.Callable<Map<String,Object>>>> programCalls=List.of(
+      Map.entry("AxGen",()->Ax.ax("question:string -> answer:string").forwardWithCancellation(preflight.client,Map.of("question","cancel"),Map.of("infraRetries",2),token)),
+      Map.entry("AxAgent",()->Ax.agent("question:string -> answer:string",Map.of()).forwardWithCancellation(preflight.client,Map.of("question","cancel"),Map.of("infraRetries",2),token)),
+      Map.entry("AxFlow",()->cancellationFlow.forwardWithCancellation(preflight.client,Map.of("question","cancel"),Map.of("infraRetries",2),token))
+    );
+    for(Map.Entry<String,java.util.concurrent.Callable<Map<String,Object>>> programCall:programCalls){long programStarted=System.nanoTime();try{programCall.getValue().call();throw new FixtureError(programCall.getKey()+" ignored pre-cancelled forwarding");}catch(AxAIServiceAbortedError error){if(!reason.equals(error.reason())||error.retryable)throw new FixtureError(programCall.getKey()+" cancellation error mismatch");}catch(Exception error){throw Core.asRuntime(error);}if((System.nanoTime()-programStarted)/1_000_000L>programMaxElapsed)throw new FixtureError(programCall.getKey()+" cancellation was retried instead of returning promptly");if(preflight.transport.requests.size()!=programRequestCount)throw new FixtureError(programCall.getKey()+" cancellation reached transport");}
+
+    class BackoffTransport extends ScriptedTransport {BackoffTransport(){super(List.of(fixture.get("retry_response")));}@Override public Object stream(Map<String,Object> nextRequest,AxCancellationToken cancellation){cancellations.add(cancellation);Thread canceller=new Thread(()->{fixtureSleep(10);cancellation.cancel(reason);});canceller.setDaemon(true);canceller.start();return call(nextRequest);}}
+    BackoffTransport backoffTransport=new BackoffTransport();Map<String,Object> backoffOptions=new LinkedHashMap<>();backoffOptions.put("model","claude-sonnet-4-5");backoffOptions.put("api_key","test-key");backoffOptions.put("transport",backoffTransport);backoffOptions.put("options",fixture.get("retry_options"));AnthropicClient backoffClient=new AnthropicClient("anthropic",backoffOptions);AxCancellationToken backoffToken=new AxCancellationToken();long started=System.nanoTime();try{for(Object ignored:backoffClient.stream(request,backoffToken)){}throw new FixtureError("provider retry backoff ignored cancellation");}catch(AxAIServiceAbortedError error){if(!reason.equals(error.reason())||error.retryable)throw new FixtureError("provider retry cancellation error mismatch");}catch(Exception error){throw Core.asRuntime(error);}long elapsed=(System.nanoTime()-started)/1_000_000L;if(backoffTransport.requests.size()!=1||backoffTransport.cancellations.size()!=1||backoffTransport.cancellations.get(0)!=backoffToken||elapsed>maxElapsed)throw new FixtureError("provider retry cancellation attempted another request, skipped the custom token, or was not prompt");
+
+    Map<String,Object> streamFixture=new LinkedHashMap<>(fixture);streamFixture.put("transport_responses",List.of(fixture.get("stream_response")));ClientFixture streaming=openaiClient(streamFixture);AxCancellationToken streamToken=new AxCancellationToken();try{java.util.Iterator<Map<String,Object>> iterator=streaming.client.stream(request,streamToken).iterator();if(!iterator.hasNext())throw new FixtureError("provider stream produced no first event");iterator.next();streamToken.cancel(reason);try{iterator.next();throw new FixtureError("provider stream yielded after cancellation");}catch(AxAIServiceAbortedError error){if(!reason.equals(error.reason())||error.retryable)throw new FixtureError("provider stream cancellation error mismatch");}}catch(Exception error){throw Core.asRuntime(error);}if(streaming.transport.requests.size()!=1||streaming.transport.cancellations.size()!=1||streaming.transport.cancellations.get(0)!=streamToken)throw new FixtureError("provider stream cancellation custom transport mismatch");
   }
 
   static void runAIUsageObserver(Map<String, Object> fixture) {

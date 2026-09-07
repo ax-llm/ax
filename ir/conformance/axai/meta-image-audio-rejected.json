@@ -1,0 +1,24 @@
+{
+  "expected_error_contains": "does not support input_audio input",
+  "kind": "ai_chat",
+  "model": "muse-image-1.0",
+  "name": "meta-image-audio-rejected",
+  "provider": "meta",
+  "request": {
+    "chat_prompt": [
+      {
+        "content": [
+          {
+            "data": "AAAA",
+            "format": "wav",
+            "type": "audio"
+          }
+        ],
+        "role": "user"
+      }
+    ],
+    "model_config": {
+      "stream": false
+    }
+  }
+}

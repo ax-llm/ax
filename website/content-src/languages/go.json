@@ -93,6 +93,18 @@
           "return stream.Err()"
         ]
       },
+      "cancellation": {
+        "sourcePath": "src/examples/go/generation/cancellation.go",
+        "verified": true,
+        "requiresCredentials": false,
+        "code": [
+          "ctx, cancel := context.WithCancelCause(context.Background())",
+          "cancel(errors.New(\"user stopped\"))",
+          "_, err := client.Chat(ctx, request, nil)",
+          "var aborted ax.AxAIServiceAbortedError",
+          "if !errors.As(err, &aborted) || aborted.Retryable { panic(err) }"
+        ]
+      },
       "balancer": {
         "sourcePath": "src/examples/go/generation/adaptive_balancer.go",
         "verified": true,

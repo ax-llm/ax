@@ -105,13 +105,17 @@ export function axValidateOpenAIResponseRequest<T>(
       'GPT-6 Astra requires reasoning effort low, medium, high, xhigh, or max'
     );
   }
-  const { temperature: _temperature, top_p: _topP, ...clean } = request;
+  const {
+    temperature: _temperature,
+    top_p: _topP,
+    prompt_cache_retention: _retention,
+    ...clean
+  } = request;
   // Also sanitize dynamically supplied fields, even when callers bypass TS types.
   const result = { ...clean } as AxAIOpenAIResponsesRequest<T> &
     Record<string, unknown>;
   delete result.top_logprobs;
   delete result.logprobs;
-  delete result.prompt_cache_retention;
   return {
     ...result,
     ...(result.include

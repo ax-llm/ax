@@ -19,6 +19,7 @@ import { axModelInfoOpenAIResponses } from './info.js';
 import { axIsGPT6Astra } from './model_family.js';
 import { AxAIOpenAIResponsesImpl } from './responses_api.js';
 import type {
+  AxAIOpenAIResponsesRealtimeAdapter,
   AxAIOpenAIResponsesRequest,
   AxAIOpenAIResponsesResponse,
   OpenAIResponsesResponseDelta,
@@ -74,9 +75,11 @@ interface AxAIOpenAIResponsesBaseArgs<
   modelInfo?: ReadonlyArray<AxModelInfo>;
   models?: AxAIInputModelList<TModel, TEmbedModel, TModelKey>;
   responsesReqUpdater?: (
-    req: Readonly<TResponsesReq>
+    req: Readonly<TResponsesReq>,
+    options: Readonly<AxAIServiceOptions>
   ) => Readonly<TResponsesReq>;
   supportFor?: AxAIFeatures | ((model: TModel) => AxAIFeatures);
+  realtime?: AxAIOpenAIResponsesRealtimeAdapter<TModel>;
 }
 
 /**
@@ -137,6 +140,7 @@ export class AxAIOpenAIResponsesBase<
       thinking: false,
       multiTurn: true,
     },
+    realtime,
   }: Readonly<
     AxAIOpenAIResponsesBaseArgs<TModel, TEmbedModel, TModelKey, TResponsesReq>
   >) {
@@ -153,7 +157,9 @@ export class AxAIOpenAIResponsesBase<
       options?.streamingUsage ?? true,
       options,
       responsesReqUpdater,
-      supportFor
+      supportFor,
+      realtime,
+      apiKey
     );
 
     // Normalize per-model presets: allow provider-specific config on each model list item

@@ -80,6 +80,7 @@ struct ConformanceScriptedAI : AxBaseAI {
 struct ScriptedTransport : Transport {
   Array responses;
   std::vector<Value> requests;
+  std::vector<const AxCancellationToken*> cancellations;
 
   explicit ScriptedTransport(Value values) : responses(as_array(values)) {}
 
@@ -90,6 +91,8 @@ struct ScriptedTransport : Transport {
     responses.erase(responses.begin());
     return out;
   }
+  Value call(Value request, const AxCancellationToken* cancellation) override { cancellations.push_back(cancellation); return call(std::move(request)); }
+  void stream(Value request, AxTransportStreamHandler handler, const AxCancellationToken* cancellation) override { cancellations.push_back(cancellation); Transport::stream(std::move(request), std::move(handler), cancellation); }
 };
 
 static Value router_fixture_default_features() {
@@ -786,10 +789,11 @@ static void run_stream(Value fixture) {
   try {
     for (const auto& event : Core::iter(Core::get(fixture, "stream_events", Value::array()))) {
       Core::append(chunks, event);
+      Value content = Core::fold_stream(chunks);
       for (const auto& raw : Core::iter(Core::get(fixture, "streaming_assertions", Value::array()))) {
         Value needle = Core::get(raw, "not_contains", Core::get(raw, "notContains"));
         if (needle.is_null()) continue;
-        if (display(Core::fold_stream(chunks)).find(display(needle)) != std::string::npos) {
+        if (display(content).find(display(needle)) != std::string::npos) {
           throw AxError("runtime", display(Core::get(raw, "message", "streaming assertion failed")));
         }
       }
@@ -2050,7 +2054,7 @@ struct ClientFixture {
         credential_requests(std::make_shared<Value>(Value::array())),
         client(make_client(fixture, &transport, credential_requests)) {}
 
-  static std::unique_ptr<OpenAICompatibleClient> make_client(Value fixture, ScriptedTransport* transport, std::shared_ptr<Value> credential_requests) {
+  static std::unique_ptr<OpenAICompatibleClient> make_client(Value fixture, Transport* transport, std::shared_ptr<Value> credential_requests) {
     std::string provider = display(Core::provider_normalize_profile(Core::get(fixture, "provider", "openai")));
     Value descriptor = Core::provider_descriptor(provider);
     std::string provider_transport = display(Core::get(descriptor, "transport"));
@@ -2199,6 +2203,28 @@ static void run_ai_stream(Value fixture) {
   Value expected = Core::get(fixture, "expected_output");
   if (!expected.is_null()) assert_equal(out, expected, "ai stream output");
   assert_transport(fixture, cf.transport, *cf.credential_requests);
+}
+
+static void run_ai_cancellation(Value fixture) {
+  auto reason=display(Core::get(fixture,"reason","fixture-stop"));auto request=Core::get(fixture,"request",Value::object());auto max_elapsed=static_cast<long>(Core::number(Core::get(fixture,"max_elapsed_ms",1000)));auto program_max_elapsed=static_cast<long>(Core::number(Core::get(fixture,"program_max_elapsed_ms",100)));
+  Value preflight_fixture=fixture;Core::set(preflight_fixture,"transport_responses",array({Core::get(fixture,"success_response")}));ClientFixture preflight(preflight_fixture);AxCancellationToken token;token.cancel(reason);try{preflight.client->chat(request,Value::object(),&token);throw AxError("fixture","pre-cancelled provider request unexpectedly reached transport");}catch(const AxError& error){if(error.type!="AxAIServiceAbortedError"||error.retryable||std::string(error.what()).find(reason)==std::string::npos)throw;}if(!preflight.transport.requests.empty())throw AxError("fixture","pre-cancelled provider request reached transport");
+
+  AxGen cancellation_gen(Core::parse_signature(Value("question:string -> answer:string")));
+  AxAgent cancellation_agent(Value("question:string -> answer:string"));
+  AxGen cancellation_flow_gen(Core::parse_signature(Value("question:string -> answer:string")));
+  AxFlow cancellation_flow(Value(Object{{"id","cancellation-flow"}}));
+  cancellation_flow.execute("answer",cancellation_flow_gen);
+  std::vector<std::pair<std::string,std::function<Value()>>> program_calls{
+    {"AxGen",[&]{return cancellation_gen.forward(*preflight.client,Value(Object{{"question","cancel"}}),Value(Object{{"infraRetries",2}}),&token);}},
+    {"AxAgent",[&]{return cancellation_agent.forward(*preflight.client,Value(Object{{"question","cancel"}}),Value(Object{{"infraRetries",2}}),&token);}},
+    {"AxFlow",[&]{return cancellation_flow.forward(*preflight.client,Value(Object{{"question","cancel"}}),Value(Object{{"infraRetries",2}}),&token);}}
+  };
+  for(auto& program_call:program_calls){auto program_started=std::chrono::steady_clock::now();try{program_call.second();throw AxError("fixture",program_call.first+" ignored pre-cancelled forwarding");}catch(const AxAIServiceAbortedError& error){if(error.retryable||std::string(error.what()).find(reason)==std::string::npos)throw;}catch(const AxError&){throw AxError("fixture",program_call.first+" did not preserve AxAIServiceAbortedError");}if(std::chrono::steady_clock::now()-program_started>std::chrono::milliseconds(program_max_elapsed))throw AxError("fixture",program_call.first+" cancellation was retried instead of returning promptly");if(!preflight.transport.requests.empty())throw AxError("fixture",program_call.first+" cancellation reached transport");}
+
+  struct BackoffTransport final:ScriptedTransport{AxCancellationToken* cancel_token;std::string reason;BackoffTransport(Value responses,AxCancellationToken* token,std::string value):ScriptedTransport(std::move(responses)),cancel_token(token),reason(std::move(value)){}void stream(Value next_request,AxTransportStreamHandler handler,const AxCancellationToken* cancellation)override{cancellations.push_back(cancellation);std::thread([token=cancel_token,reason=reason]{std::this_thread::sleep_for(std::chrono::milliseconds(10));token->cancel(reason);}).detach();Transport::stream(std::move(next_request),std::move(handler),cancellation);}};
+  AxCancellationToken backoff_token;BackoffTransport backoff_transport(array({Core::get(fixture,"retry_response")}),&backoff_token,reason);Value backoff_fixture=fixture;Core::set(backoff_fixture,"service_options",Core::get(fixture,"retry_options",Value::object()));AnthropicClient backoff_client("anthropic",ClientFixture::options(backoff_fixture),&backoff_transport);auto started=std::chrono::steady_clock::now();try{backoff_client.stream_each(request,[](const Value&){return true;},&backoff_token);throw AxError("fixture","provider retry backoff ignored cancellation");}catch(const AxError& error){if(error.type!="AxAIServiceAbortedError"||error.retryable||std::string(error.what()).find(reason)==std::string::npos)throw;}auto elapsed=std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::steady_clock::now()-started).count();if(backoff_transport.requests.size()!=1||backoff_transport.cancellations.size()!=1||backoff_transport.cancellations.front()!=&backoff_token||elapsed>max_elapsed)throw AxError("fixture","provider retry cancellation attempted another request, skipped the custom token, or was not prompt");
+
+  ScriptedTransport stream_transport(array({Core::get(fixture,"stream_response")}));AnthropicClient stream_client("anthropic",ClientFixture::options(fixture),&stream_transport);AxCancellationToken stream_token;int yielded=0;try{stream_client.stream_each(request,[&](const Value&){if(++yielded==1)stream_token.cancel(reason);return true;},&stream_token);throw AxError("fixture","provider stream yielded after cancellation");}catch(const AxError& error){if(error.type!="AxAIServiceAbortedError"||error.retryable||std::string(error.what()).find(reason)==std::string::npos)throw;}if(yielded!=1||stream_transport.requests.size()!=1||stream_transport.cancellations.size()!=1||stream_transport.cancellations.front()!=&stream_token)throw AxError("fixture","provider stream cancellation custom transport mismatch");
 }
 
 static void run_ai_usage_observer(Value fixture) {
@@ -2967,6 +2993,10 @@ static void run(Value fixture) {
       auto receipt_event=event;receipt_event.id+="-receipt";auto receipt=runtime.publish(receipt_event,display(Core::get(fixture,"identity_scope")),display(Core::get(fixture,"trust")));
       auto run=runtime.get_run("run:"+route.id+":"+event.id+":1");if(!receipt.accepted||!run)throw AxError("fixture","event lifecycle did not dispatch");assert_equal(run->output,Core::get(fixture,"expected_output"),"event automatic dispatch");runtime.close();
 
+      auto cancellation_spec=Core::get(fixture,"cancellation",Value::object());auto cancellation_reason=display(Core::get(cancellation_spec,"reason","fixture-stop"));auto cancellation_sleep=static_cast<long>(Core::number(Core::get(cancellation_spec,"sleep_ms",30000)));auto max_cancellation_elapsed=static_cast<long>(Core::number(Core::get(cancellation_spec,"max_elapsed_ms",1000)));AxEventCancellationToken token;int removed_calls=0;auto removed=token.subscribe([&]{++removed_calls;});removed.reset();if(!token.cancel(cancellation_reason)||token.cancel("ignored")||token.reason()!=cancellation_reason||removed_calls!=0)throw AxError("fixture","event cancellation one-shot or removable subscription mismatch");
+      auto check_cancelled_clock=[&](AxEventClock& clock,bool manual){AxEventCancellationToken sleep_token;bool sleep_result=true;auto started=std::chrono::steady_clock::now();std::thread sleeper([&]{sleep_result=clock.sleep(cancellation_sleep,&sleep_token);});if(manual){auto deadline=std::chrono::steady_clock::now()+std::chrono::seconds(1);while(sleep_token.subscription_count()==0&&std::chrono::steady_clock::now()<deadline)std::this_thread::yield();}else std::this_thread::sleep_for(std::chrono::milliseconds(10));sleep_token.cancel(cancellation_reason);sleeper.join();auto elapsed=std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::steady_clock::now()-started).count();if(sleep_result||sleep_token.subscription_count()!=0||elapsed>max_cancellation_elapsed)throw AxError("fixture","event clock cancellation or cleanup mismatch");};AxSystemEventClock system_clock;check_cancelled_clock(system_clock,false);AxManualEventClock cancellation_clock;check_cancelled_clock(cancellation_clock,true);
+      AxManualEventClock successful_clock;AxEventCancellationToken successful_token;bool successful_result=false;std::thread successful_sleeper([&]{successful_result=successful_clock.sleep(1,&successful_token);});auto successful_deadline=std::chrono::steady_clock::now()+std::chrono::seconds(1);while(successful_token.subscription_count()==0&&std::chrono::steady_clock::now()<successful_deadline)std::this_thread::yield();successful_clock.advance(1);successful_sleeper.join();if(!successful_result||successful_token.subscription_count()!=0)throw AxError("fixture","manual event clock successful sleep cleanup mismatch");
+
       auto make_event=[](std::string id,std::string type,Value data){AxEventEnvelope value;value.id=std::move(id);value.source="test://axevent";value.type=std::move(type);value.data=std::move(data);return value;};
       int retry_calls=0;auto retry_clock=std::make_shared<AxManualEventClock>(1000);AxEventTarget retry_target;retry_target.id="retry-target";retry_target.retrySafety="idempotent";retry_target.invoke=[&](Value,const AxEventInvocationContext&){if(++retry_calls==1)throw std::runtime_error("retry once");return object({{"attempt",retry_calls}});};AxEventRuntime retry_runtime({AxEventRoute{"retry-route","wake",object({{"types",array({"event.retry"})}}),"retry-target"}});retry_runtime.clock(retry_clock).register_target(std::move(retry_target)).start();retry_runtime.publish(make_event("retry-1","event.retry",Value::object()));auto retry_run=retry_runtime.get_run("run:retry-route:retry-1:1");if(!retry_run||retry_run->attempt!=1||retry_run->status!="queued"||retry_runtime.next_due_at()!=2000)throw AxError("fixture","event delayed retry mismatch");retry_clock->advance(1000);retry_runtime.run_due();retry_run=retry_runtime.get_run("run:retry-route:retry-1:1");if(!retry_run||retry_run->attempt!=2||retry_run->status!="succeeded")throw AxError("fixture","event retry dispatch mismatch");
 
@@ -3022,6 +3052,8 @@ static void run(Value fixture) {
     run_ai_embed(fixture);
   } else if (kind == "ai_stream") {
     run_ai_stream(fixture);
+  } else if (kind == "ai_cancellation") {
+    run_ai_cancellation(fixture);
   } else if (kind == "ai_usage_observer") {
     run_ai_usage_observer(fixture);
   } else if (kind == "ai_runtime_hooks") {

@@ -794,6 +794,142 @@
       ],
       "reviewedAt": "2026-08-17"
     },
+    "meta": {
+      "id": "meta",
+      "name": "Meta Model API",
+      "aliases": ["meta", "meta-responses", "meta_responses"],
+      "transport": "openai-responses",
+      "baseURL": "https://api.meta.ai/v1",
+      "requiresApiURL": false,
+      "auth": {"type": "bearer", "required": true},
+      "defaults": {"model": "muse-spark-1.3"},
+      "capabilities": {
+        "functions": true,
+        "streaming": true,
+        "structuredOutputs": true,
+        "thinking": true,
+        "multiTurn": true,
+        "images": true,
+        "audio": true,
+        "files": {"uploadMethod": "inline"},
+        "caching": {"types": ["ephemeral"], "cacheBreakpoints": false},
+        "structuredOutputModes": ["native", "function", "json_object"]
+      },
+      "operations": {
+        "chat": {"path": "/responses", "dialect": "openai-responses"},
+        "transcribe": {"path": "/asr/transcribe", "dialect": "meta-transcription"},
+        "realtime": {
+          "path": "/asr/realtime",
+          "dialect": "meta-realtime",
+          "modelMatch": {"exact": ["muse-voice-transcribe-1.0"]},
+          "url": "wss://api.meta.ai/v1/asr/realtime",
+          "grammar": "meta_asr_realtime",
+          "defaultModel": "muse-voice-transcribe-1.0",
+          "audio": {"input": {"formats": ["pcm16", "pcm"], "sampleRate": 24000}}
+        }
+      },
+      "request": {
+        "toolChoice": "no-named",
+        "reasoningObjectFields": ["effort", "summary"],
+        "unsupportedThinkingLevels": {"none": "Meta Muse Spark does not support reasoning level none"}
+      },
+      "modelRules": [
+        {
+          "match": {"exact": ["muse-image-1.0"]},
+          "capabilities": {
+            "functions": false,
+            "functionEmulation": false,
+            "structuredOutputs": false,
+            "thinking": false,
+            "audio": false,
+            "structuredOutputModes": []
+          }
+        },
+        {
+          "match": {"exact": ["muse-voice-transcribe-1.0"]},
+          "capabilities": {
+            "functions": false,
+            "functionEmulation": false,
+            "structuredOutputs": false,
+            "thinking": false,
+            "images": false,
+            "structuredOutputModes": []
+          }
+        }
+      ],
+      "sources": ["https://dev.meta.ai/docs/protocols/responses"],
+      "reviewedAt": "2026-09-03"
+    },
+    "meta-chat": {
+      "id": "meta-chat",
+      "name": "Meta Model API Chat Completions",
+      "aliases": ["meta-chat", "meta_chat"],
+      "transport": "openai-chat",
+      "baseURL": "https://api.meta.ai/v1",
+      "requiresApiURL": false,
+      "auth": {"type": "bearer", "required": true},
+      "defaults": {"model": "muse-spark-1.3"},
+      "capabilities": {
+        "functions": true,
+        "streaming": true,
+        "structuredOutputs": true,
+        "thinking": true,
+        "multiTurn": true,
+        "images": true,
+        "audio": true,
+        "files": {"uploadMethod": "inline"},
+        "caching": {"types": ["ephemeral"], "cacheBreakpoints": false},
+        "structuredOutputModes": ["native", "function", "json_object"]
+      },
+      "operations": {
+        "chat": {"path": "/chat/completions", "dialect": "openai-chat"}
+      },
+      "request": {
+        "toolChoice": "no-named",
+        "effortMap": {
+          "minimal": "minimal",
+          "low": "low",
+          "medium": "medium",
+          "high": "high",
+          "highest": "xhigh"
+        },
+        "unsupportedThinkingLevels": {"none": "Meta Muse Spark does not support reasoning level none"}
+      },
+      "modelRules": [],
+      "sources": ["https://dev.meta.ai/docs/protocols/chat-completions"],
+      "reviewedAt": "2026-09-03"
+    },
+    "meta-messages": {
+      "id": "meta-messages",
+      "name": "Meta Model API Messages",
+      "aliases": ["meta-messages", "meta_messages"],
+      "transport": "anthropic-messages",
+      "baseURL": "https://api.meta.ai/v1",
+      "requiresApiURL": false,
+      "auth": {"type": "bearer", "required": true},
+      "defaults": {"model": "muse-spark-1.3"},
+      "capabilities": {
+        "functions": true,
+        "streaming": true,
+        "structuredOutputs": true,
+        "thinking": true,
+        "multiTurn": true,
+        "images": true,
+        "audio": true,
+        "files": {"uploadMethod": "inline"},
+        "structuredOutputModes": ["native", "function"]
+      },
+      "operations": {
+        "chat": {"path": "/messages", "dialect": "anthropic-messages"}
+      },
+      "request": {
+        "toolChoice": "no-named",
+        "unsupportedThinkingLevels": {"none": "Meta Muse Spark does not support reasoning level none"}
+      },
+      "modelRules": [],
+      "sources": ["https://dev.meta.ai/docs/protocols/messages"],
+      "reviewedAt": "2026-09-03"
+    },
     "mistral": {
       "id": "mistral",
       "name": "Mistral AI",

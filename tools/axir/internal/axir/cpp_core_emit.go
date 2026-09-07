@@ -170,7 +170,7 @@ func emitCppCoreStmt(names map[string]string, stmt CoreStmt, declared map[string
 		return []string{fmt.Sprintf("return %s;", cppAttrValue(stmt.Op, "value"))}, nil
 	case "raise":
 		if _, ok := Attr(stmt.Op, "error"); ok {
-			return []string{fmt.Sprintf("throw Core::as_error(%s);", cppAttrValue(stmt.Op, "error"))}, nil
+			return []string{fmt.Sprintf("Core::raise_error(%s);", cppAttrValue(stmt.Op, "error"))}, nil
 		}
 		return []string{fmt.Sprintf("throw AxError(\"runtime\", %s);", strconv.Quote(stmt.Message))}, nil
 	default:
@@ -461,6 +461,7 @@ var coreIntrinsicCpp = map[CoreIntrinsic]string{
 	IntrinsicValidAudio:              "Core::valid_audio",
 	IntrinsicValidFile:               "Core::valid_file",
 	IntrinsicValidURLShape:           "Core::valid_url_shape",
+	IntrinsicExceptionIsAborted:     "Core::exception_is_aborted",
 }
 
 func cppAttrValue(op Operation, name string) string {

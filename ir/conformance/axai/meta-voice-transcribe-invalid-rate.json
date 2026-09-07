@@ -1,0 +1,15 @@
+{
+  "expected_error_contains": "requires 16000 Hz or 24000 Hz",
+  "kind": "ai_unsupported",
+  "method": "transcribe",
+  "name": "meta-voice-transcribe-invalid-rate",
+  "provider": "meta",
+  "request": {
+    "audio": {
+      "data": "AAAA",
+      "format": "wav",
+      "sampleRate": 44100
+    },
+    "model": "muse-voice-transcribe-1.0"
+  }
+}

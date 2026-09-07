@@ -471,6 +471,11 @@ final class Core {
   static Object validationError(Object message) { return new AxValidationError(String.valueOf(message)); }
   static Object runtimeError(Object message) { return new RuntimeException(String.valueOf(message)); }
   static Object exceptionMessage(Object error) { return error instanceof Throwable t ? t.getMessage() : String.valueOf(error); }
+  static Object exceptionIsAborted(Object error) {
+    Object current=error;
+    while(current instanceof Throwable throwable){if(throwable instanceof AxAIServiceAbortedError)return true;current=throwable.getCause();}
+    return false;
+  }
   static Object aiErrorResponse(Object message) { return new AxAIServiceResponseError(String.valueOf(message)); }
   static Object aiErrorResponse(Object message, Object responseBody) { return new AxAIServiceResponseError(String.valueOf(message), responseBody); }
   static Object aiErrorRefusal(Object message, Object responseBody) { return new AxAIRefusalError(String.valueOf(message), responseBody); }
@@ -594,7 +599,14 @@ final class Core {
     }
     return Map.of("functions", true, "structured_outputs", true);
   }
-  static Object retrySleep(Object attempt) { return null; }
+  static Object retrySleep(Object attempt,Object client,Object options) {
+    long milliseconds=Math.min(250L*(asInt(attempt)+1L),1000L);
+    Map<String,Object> optionMap=asMap(options);
+    Object raw=optionMap.getOrDefault("cancellation",optionMap.getOrDefault("cancellationToken",optionMap.get("cancellation_token")));
+    if(!(raw instanceof AxCancellationToken cancellation)){try{Thread.sleep(milliseconds);}catch(InterruptedException error){Thread.currentThread().interrupt();throw new RuntimeException(error);}return null;}
+    try{cancellation.await(milliseconds);cancellation.throwIfCancelled();return null;}
+    catch(InterruptedException error){Thread.currentThread().interrupt();cancellation.throwIfCancelled();throw new RuntimeException(error);}
+  }
   static Object toolInvoke(Object fn,Object params){return toolInvoke(fn,params,()->Thread.currentThread().isInterrupted());}
   static Object toolInvoke(Object fn, Object params,java.util.function.BooleanSupplier cancelled) {
     if (!(fn instanceof Tool tool)) throw new RuntimeException("unknown tool");

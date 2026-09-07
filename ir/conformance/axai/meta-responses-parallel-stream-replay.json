@@ -1,0 +1,179 @@
+{
+  "expected_output": [
+    {
+      "model_usage": null,
+      "remote_id": "meta-parallel",
+      "results": [
+        {
+          "content": "",
+          "finish_reason": "function_call",
+          "function_calls": [
+            {
+              "function": {
+                "name": "lookup",
+                "params": ""
+              },
+              "id": "call-one",
+              "type": "function"
+            }
+          ],
+          "id": "item-one",
+          "index": 0
+        }
+      ]
+    },
+    {
+      "model_usage": null,
+      "remote_id": "meta-parallel",
+      "results": [
+        {
+          "content": "",
+          "finish_reason": "function_call",
+          "function_calls": [
+            {
+              "function": {
+                "name": "lookup",
+                "params": ""
+              },
+              "id": "call-two",
+              "type": "function"
+            }
+          ],
+          "id": "item-two",
+          "index": 0
+        }
+      ]
+    },
+    {
+      "model_usage": null,
+      "remote_id": "meta-parallel",
+      "results": [
+        {
+          "content": "",
+          "finish_reason": "function_call",
+          "function_calls": [
+            {
+              "function": {
+                "name": null,
+                "params": "{\"city\":\"one\"}"
+              },
+              "id": "call-one",
+              "type": "function"
+            }
+          ],
+          "id": "item-one",
+          "index": 0
+        }
+      ]
+    },
+    {
+      "model_usage": null,
+      "remote_id": "meta-parallel",
+      "results": [
+        {
+          "content": "",
+          "finish_reason": "function_call",
+          "function_calls": [
+            {
+              "function": {
+                "name": null,
+                "params": "{\"city\":\"two\"}"
+              },
+              "id": "call-two",
+              "type": "function"
+            }
+          ],
+          "id": "item-two",
+          "index": 0
+        }
+      ]
+    },
+    {
+      "model_usage": null,
+      "remote_id": "meta-parallel",
+      "results": [
+        {
+          "content": "",
+          "finish_reason": "function_call",
+          "function_calls": [],
+          "id": "item-one",
+          "index": 0
+        }
+      ]
+    },
+    {
+      "model_usage": null,
+      "remote_id": "meta-parallel",
+      "results": [
+        {
+          "content": "",
+          "finish_reason": "function_call",
+          "function_calls": [],
+          "id": "item-two",
+          "index": 0
+        }
+      ]
+    },
+    {
+      "model_usage": null,
+      "remote_id": "meta-parallel",
+      "results": [
+        {
+          "content": "Done",
+          "finish_reason": null,
+          "function_calls": [],
+          "id": "message-final",
+          "index": 0
+        }
+      ]
+    },
+    {
+      "model_usage": null,
+      "remote_id": "meta-parallel",
+      "results": [
+        {
+          "content": "",
+          "finish_reason": "stop",
+          "function_calls": [],
+          "id": "message-final",
+          "index": 0,
+          "phase": "final_answer"
+        }
+      ]
+    },
+    {
+      "model_usage": null,
+      "remote_id": "meta-parallel",
+      "results": [
+        {
+          "content": "",
+          "finish_reason": "stop",
+          "function_calls": [],
+          "id": "0",
+          "index": 0
+        }
+      ]
+    }
+  ],
+  "kind": "ai_stream",
+  "model": "muse-spark-1.3",
+  "name": "meta-responses-parallel-stream-replay",
+  "options": {
+    "stream": true
+  },
+  "provider": "meta",
+  "request": {
+    "chat_prompt": [
+      {
+        "content": "Look up both cities",
+        "role": "user"
+      }
+    ]
+  },
+  "transport_responses": [
+    {
+      "body": "data: {\"type\":\"response.output_item.added\",\"response_id\":\"meta-parallel\",\"item\":{\"type\":\"function_call\",\"id\":\"item-one\",\"call_id\":\"call-one\",\"name\":\"lookup\",\"arguments\":\"\"}}\n\ndata: {\"type\":\"response.output_item.added\",\"response_id\":\"meta-parallel\",\"item\":{\"type\":\"function_call\",\"id\":\"item-two\",\"call_id\":\"call-two\",\"name\":\"lookup\",\"arguments\":\"\"}}\n\ndata: {\"type\":\"response.function_call_arguments.delta\",\"response_id\":\"meta-parallel\",\"item_id\":\"item-one\",\"delta\":\"{\\\"city\\\":\\\"one\\\"}\"}\n\ndata: {\"type\":\"response.function_call_arguments.delta\",\"response_id\":\"meta-parallel\",\"item_id\":\"item-two\",\"delta\":\"{\\\"city\\\":\\\"two\\\"}\"}\n\ndata: {\"type\":\"response.output_item.done\",\"response_id\":\"meta-parallel\",\"item\":{\"type\":\"function_call\",\"id\":\"item-one\",\"call_id\":\"call-one\",\"name\":\"lookup\",\"arguments\":\"{\\\"city\\\":\\\"one\\\"}\"}}\n\ndata: {\"type\":\"response.output_item.done\",\"response_id\":\"meta-parallel\",\"item\":{\"type\":\"function_call\",\"id\":\"item-two\",\"call_id\":\"call-two\",\"name\":\"lookup\",\"arguments\":\"{\\\"city\\\":\\\"two\\\"}\"}}\n\ndata: {\"type\":\"response.output_text.delta\",\"response_id\":\"meta-parallel\",\"item_id\":\"message-final\",\"delta\":\"Done\"}\n\ndata: {\"type\":\"response.output_item.done\",\"response_id\":\"meta-parallel\",\"item\":{\"type\":\"message\",\"id\":\"message-final\",\"phase\":\"final_answer\",\"status\":\"completed\",\"content\":[{\"type\":\"output_text\",\"text\":\"Done\"}]}}\n\ndata: {\"type\":\"response.completed\",\"response\":{\"id\":\"meta-parallel\"}}\n\n",
+      "status": 200
+    }
+  ]
+}

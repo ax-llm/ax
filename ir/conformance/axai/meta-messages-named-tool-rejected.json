@@ -1,0 +1,37 @@
+{
+  "expected_error_contains": "does not support explicitly named tool choices",
+  "kind": "ai_chat",
+  "model": "muse-spark-1.3",
+  "name": "meta-messages-named-tool-rejected",
+  "provider": "meta-messages",
+  "request": {
+    "chat_prompt": [
+      {
+        "content": "Force a tool",
+        "role": "user"
+      }
+    ],
+    "function_call": {
+      "function": {
+        "name": "lookup"
+      },
+      "type": "function"
+    },
+    "functions": [
+      {
+        "name": "lookup",
+        "parameters": {
+          "properties": {
+            "query": {
+              "type": "string"
+            }
+          },
+          "type": "object"
+        }
+      }
+    ],
+    "model_config": {
+      "stream": false
+    }
+  }
+}

@@ -28,6 +28,7 @@
             "capabilities": {
               "audioInput": false,
               "audioOutput": true,
+              "imageOutput": false,
               "serviceTiers": ["standard", "flex", "priority"],
               "showThoughts": false,
               "structuredOutputs": false,
@@ -53,6 +54,7 @@
             "capabilities": {
               "audioInput": true,
               "audioOutput": true,
+              "imageOutput": false,
               "serviceTiers": [],
               "showThoughts": true,
               "structuredOutputs": false,
@@ -88,6 +90,7 @@
             "capabilities": {
               "audioInput": true,
               "audioOutput": true,
+              "imageOutput": false,
               "serviceTiers": [],
               "showThoughts": true,
               "structuredOutputs": false,
@@ -144,6 +147,7 @@
             "capabilities": {
               "audioInput": true,
               "audioOutput": true,
+              "imageOutput": false,
               "serviceTiers": ["standard", "flex", "priority"],
               "showThoughts": false,
               "structuredOutputs": false,
@@ -165,6 +169,7 @@
             "capabilities": {
               "audioInput": true,
               "audioOutput": true,
+              "imageOutput": false,
               "serviceTiers": ["standard", "flex", "priority"],
               "showThoughts": false,
               "structuredOutputs": false,
@@ -186,6 +191,7 @@
             "capabilities": {
               "audioInput": true,
               "audioOutput": true,
+              "imageOutput": false,
               "serviceTiers": ["standard", "flex", "priority"],
               "showThoughts": false,
               "structuredOutputs": false,
@@ -207,6 +213,7 @@
             "capabilities": {
               "audioInput": true,
               "audioOutput": true,
+              "imageOutput": false,
               "serviceTiers": [],
               "showThoughts": false,
               "structuredOutputs": false,
@@ -228,6 +235,7 @@
             "capabilities": {
               "audioInput": true,
               "audioOutput": true,
+              "imageOutput": false,
               "serviceTiers": [],
               "showThoughts": false,
               "structuredOutputs": false,
@@ -259,6 +267,7 @@
             "capabilities": {
               "audioInput": true,
               "audioOutput": false,
+              "imageOutput": false,
               "serviceTiers": [],
               "showThoughts": false,
               "structuredOutputs": false,
@@ -280,6 +289,7 @@
             "capabilities": {
               "audioInput": true,
               "audioOutput": true,
+              "imageOutput": false,
               "serviceTiers": [],
               "showThoughts": false,
               "structuredOutputs": false,
@@ -416,6 +426,84 @@
       },
       {
         "capabilities": {
+          "serviceTiers": [],
+          "thinking": true,
+          "thinkingLevels": ["minimal", "low", "medium", "high", "highest"]
+        },
+        "defaultModel": "muse-spark-1.3",
+        "displayName": "Meta Model API",
+        "isDynamic": false,
+        "models": [
+          {
+            "audio": {
+              "input": true,
+              "output": false
+            },
+            "capabilities": {
+              "audioInput": true,
+              "audioOutput": false,
+              "imageInput": false,
+              "imageOutput": false,
+              "pdfInput": false,
+              "serviceTiers": [],
+              "showThoughts": false,
+              "structuredOutputs": false,
+              "temperature": false,
+              "textInput": false,
+              "textOutput": true,
+              "thinkingBudget": false,
+              "thinkingLevels": [],
+              "topP": false,
+              "videoInput": false
+            },
+            "dataUse": {
+              "providerTraining": "not-used"
+            },
+            "isDefault": false,
+            "modalities": {
+              "input": ["audio"],
+              "output": ["text"]
+            },
+            "name": "muse-voice-transcribe-1.0",
+            "notSupported": {
+              "temperature": true,
+              "topP": true
+            },
+            "provider": "meta",
+            "supported": {
+              "operations": ["chat", "transcribe"]
+            },
+            "type": "audio"
+          }
+        ],
+        "name": "meta"
+      },
+      {
+        "capabilities": {
+          "serviceTiers": [],
+          "thinking": true,
+          "thinkingLevels": ["minimal", "low", "medium", "high", "highest"]
+        },
+        "defaultModel": "muse-spark-1.3",
+        "displayName": "Meta Model API Chat Completions",
+        "isDynamic": false,
+        "models": [],
+        "name": "meta-chat"
+      },
+      {
+        "capabilities": {
+          "serviceTiers": [],
+          "thinking": true,
+          "thinkingLevels": ["minimal", "low", "medium", "high", "highest"]
+        },
+        "defaultModel": "muse-spark-1.3",
+        "displayName": "Meta Model API Messages",
+        "isDynamic": false,
+        "models": [],
+        "name": "meta-messages"
+      },
+      {
+        "capabilities": {
           "serviceTiers": ["standard", "priority"],
           "thinking": false,
           "thinkingLevels": []
@@ -452,6 +540,7 @@
             "capabilities": {
               "audioInput": true,
               "audioOutput": true,
+              "imageOutput": false,
               "serviceTiers": [],
               "showThoughts": false,
               "structuredOutputs": false,
@@ -470,6 +559,7 @@
             "capabilities": {
               "audioInput": true,
               "audioOutput": true,
+              "imageOutput": false,
               "serviceTiers": [],
               "showThoughts": false,
               "structuredOutputs": false,
@@ -863,10 +953,10 @@
         "name": "baseten-engine"
       }
     ],
-    "modelCount": 12,
+    "modelCount": 13,
     "openaiFirstModel": "gpt-audio",
     "openaiModelTypes": ["audio"],
-    "providerCount": 46,
+    "providerCount": 49,
     "providerNames": [
       "google-gemini",
       "openai",
@@ -877,6 +967,9 @@
       "azure-openai",
       "deepseek",
       "deepseek-responses",
+      "meta",
+      "meta-chat",
+      "meta-messages",
       "mistral",
       "cohere",
       "grok",

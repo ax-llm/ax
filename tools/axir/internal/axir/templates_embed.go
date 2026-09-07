@@ -7,6 +7,9 @@ import _ "embed"
 
 // templates/cpp
 
+//go:embed templates/cpp/cppCancellationNoKey.cpp
+var cppCancellationNoKeyExample string
+
 //go:embed templates/cpp/cppAdaptiveBalancerNoKey.cpp
 var cppAdaptiveBalancerNoKeyExample string
 
@@ -29,6 +32,9 @@ var cppSession string
 var cppAstraSessionNoKeyExample string
 
 // templates/go
+
+//go:embed templates/go/goCancellationNoKeyExample.go.txt
+var goCancellationNoKeyExample string
 
 //go:embed templates/go/goAdaptiveBalancerNoKey.go.txt
 var goAdaptiveBalancerNoKeyExample string
@@ -127,6 +133,9 @@ var goJavaScriptGojaProfileExample string
 
 // templates/java
 
+//go:embed templates/java/javaCancellationNoKey.java
+var javaCancellationNoKeyExample string
+
 //go:embed templates/java/javaAdaptiveBalancerNoKey.java
 var javaAdaptiveBalancerNoKeyExample string
 
@@ -150,6 +159,12 @@ var javaAxChatStream string
 
 //go:embed templates/java/javaAxAIServiceError.java
 var javaAxAIServiceError string
+
+//go:embed templates/java/javaAxAIServiceAbortedError.java
+var javaAxAIServiceAbortedError string
+
+//go:embed templates/java/javaAxCancellationToken.java
+var javaAxCancellationToken string
 
 //go:embed templates/java/javaAxGlobals.java
 var javaAxGlobals string
@@ -375,6 +390,9 @@ var javaAxEventSink string
 //go:embed templates/mcp/javaAxEventClock.java
 var javaAxEventClock string
 
+//go:embed templates/mcp/javaAxEventCancellationToken.java
+var javaAxEventCancellationToken string
+
 //go:embed templates/mcp/javaAxEventStore.java
 var javaAxEventStore string
 
@@ -485,6 +503,9 @@ var pyodideRuntimeHelper string
 var pyodideRuntimePolicyJSON string
 
 // templates/python
+
+//go:embed templates/python/pyCancellationNoKey.py
+var pyCancellationNoKeyExample string
 
 //go:embed templates/python/pyAdaptiveBalancerNoKey.py
 var pyAdaptiveBalancerNoKeyExample string
@@ -632,6 +653,9 @@ var rustCargoToml string
 
 //go:embed templates/rust/rustConformanceMain.rs
 var rustConformanceMain string
+
+//go:embed templates/rust/rustCancellationNoKeyExample.rs
+var rustCancellationNoKeyExample string
 
 //go:embed templates/rust/rustGEPALocalOptimizerExample.rs
 var rustGEPALocalOptimizerExample string

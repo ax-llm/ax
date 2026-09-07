@@ -493,6 +493,8 @@ export interface AxAIFeatures {
   nativeSteering?: boolean;
   reasoningUpdates?: boolean;
   functions: boolean;
+  /** Whether Ax may emulate functions in prompts when native tools are absent. */
+  functionEmulation?: boolean;
   streaming: boolean;
   functionCot?: boolean;
   hasThinkingBudget?: boolean;
@@ -2053,22 +2055,48 @@ export class AxBaseAI<
 
     // After logging, optionally emulate prompt-based function mode centrally
     const providerSupportsFunctions = this.getFeatures(model).functions;
+    const functionEmulation = this.getFeatures(model).functionEmulation;
+    if (
+      !providerSupportsFunctions &&
+      functionEmulation === false &&
+      (req.functions?.length ?? 0) > 0
+    ) {
+      throw new Error(
+        `${this.name} model ${String(model)} does not permit function tools`
+      );
+    }
     const requestedFunctionCallMode = options?.functionCallMode ?? 'auto';
     const shouldEmulatePromptMode =
       requestedFunctionCallMode === 'prompt' ||
-      (requestedFunctionCallMode === 'auto' && !providerSupportsFunctions);
+      (requestedFunctionCallMode === 'auto' &&
+        !providerSupportsFunctions &&
+        functionEmulation !== false);
 
     const effectiveReq = shouldEmulatePromptMode
       ? {
           ...req,
           chatPrompt: req.chatPrompt.map((msg) => {
             if (msg.role === 'assistant') {
-              const { content, name, cache } = msg;
+              const {
+                content,
+                name,
+                cache,
+                thought,
+                thoughtBlocks,
+                audio,
+                images,
+                phase,
+              } = msg;
               return {
                 role: 'assistant' as const,
                 content,
                 name,
                 cache,
+                thought,
+                thoughtBlocks,
+                audio,
+                images,
+                phase,
               } as typeof msg;
             }
             if (msg.role === 'function') {

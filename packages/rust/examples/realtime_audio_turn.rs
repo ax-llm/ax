@@ -56,6 +56,34 @@ fn main() -> AxResult<()> {
     {
         fail("audio chunk not surfaced", &final_response);
     }
+    let meta = ai(
+        "meta",
+        json!({"api_key": "test-key", "model": "muse-voice-transcribe-1.0"}),
+    )?;
+    let meta_request = json!({
+        "model": "muse-voice-transcribe-1.0",
+        "chat_prompt": [{"role": "user", "content": [{"type": "audio", "data": "AAE=", "format": "pcm16"}]}],
+        "audio": {"input": {"sampleRate": 16000, "channels": 1}},
+        "model_config": {"realtimeTranscription": {"partialMode": "delta"}}
+    });
+    let meta_transport = RealtimeTransport::Scripted(ScriptedRealtimeTransport::new(vec![
+        json!({"sessionId": "meta-session"}),
+        json!({"type": "speechStart", "turnId": "one"}),
+        json!({"type": "transcript", "transcript": "Hello"}),
+        json!({"type": "transcript", "transcript": " world"}),
+        json!({"type": "speaker", "speaker": "A"}),
+        json!({"type": "speechStart", "turnId": "two"}),
+        json!({"type": "transcript", "transcript": "Second"}),
+        json!({"type": "speechComplete", "turnId": "one", "transcript": "Hello world!"}),
+        json!({"type": "speechComplete", "turnId": "two", "transcript": "Second turn"}),
+    ]));
+    let meta_final = meta.realtime_chat(meta_request, Some(meta_transport))?;
+    if meta_final["remote_session_id"] != "meta-session"
+        || meta_final["results"][0]["content"] != "Hello world!"
+        || meta_final["results"][1]["content"] != "Second turn"
+    {
+        fail("Meta overlapping turns or session lost", &meta_final);
+    }
     println!("realtime-audio-turn-ok");
     Ok(())
 }

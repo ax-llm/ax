@@ -168,6 +168,7 @@ const (
 	IntrinsicValidAudio              CoreIntrinsic = "intrinsic.media.valid_audio"
 	IntrinsicValidFile               CoreIntrinsic = "intrinsic.media.valid_file"
 	IntrinsicValidURLShape           CoreIntrinsic = "intrinsic.media.valid_url_shape"
+	IntrinsicExceptionIsAborted     CoreIntrinsic = "intrinsic.exception.is_aborted"
 )
 
 var coreIntrinsicPython = map[CoreIntrinsic]string{
@@ -301,6 +302,7 @@ var coreIntrinsicPython = map[CoreIntrinsic]string{
 	IntrinsicValidAudio:              "_valid_audio",
 	IntrinsicValidFile:               "_valid_file",
 	IntrinsicValidURLShape:           "_valid_url_shape",
+	IntrinsicExceptionIsAborted:     "_core_exception_is_aborted",
 }
 
 var knownCoreIntrinsics = map[string]bool{
@@ -345,6 +347,7 @@ var knownCoreIntrinsics = map[string]bool{
 	"intrinsic.ai.client_features":                    true,
 	"intrinsic.retry.sleep":                           true,
 	"intrinsic.exception.message":                     true,
+	"intrinsic.exception.is_aborted":                  true,
 	"intrinsic.error.runtime":                         true,
 	"intrinsic.json.parse":                            true,
 	"intrinsic.json.parse_strict":                     true,
@@ -721,8 +724,9 @@ var coreIntrinsicInfo = map[string]CoreIntrinsicInfo{
 	"intrinsic.ai.complete_once":             intrinsicInfo("intrinsic.ai.complete_once", 3, 3, true, "json"),
 	"intrinsic.ai.client_features":           intrinsicInfo("intrinsic.ai.client_features", 2, 2, false, "json"),
 	"intrinsic.json.parse_strict":            intrinsicInfo("intrinsic.json.parse_strict", 1, 1, true, "json"),
-	"intrinsic.retry.sleep":                  intrinsicInfo("intrinsic.retry.sleep", 1, 1, true, "void"),
+	"intrinsic.retry.sleep":                  intrinsicInfo("intrinsic.retry.sleep", 3, 3, true, "void"),
 	"intrinsic.exception.message":            intrinsicInfo("intrinsic.exception.message", 1, 1, true, "string"),
+	"intrinsic.exception.is_aborted":         intrinsicInfo("intrinsic.exception.is_aborted", 1, 1, true, "bool"),
 	"intrinsic.string.format":                intrinsicInfo("intrinsic.string.format", 1, -1, false, "string"),
 	"intrinsic.string.join":                  intrinsicInfo("intrinsic.string.join", 2, 2, false, "string"),
 	"intrinsic.string.slice":                 intrinsicInfo("intrinsic.string.slice", 2, 3, false, "string"),

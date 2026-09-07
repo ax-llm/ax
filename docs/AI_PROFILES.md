@@ -58,6 +58,30 @@ const custom = ai({
 Unknown profile names fail with the known profile IDs instead of silently
 falling back to the compatibility profile.
 
+## Meta Model API
+
+Meta has three explicit hosted profiles with shared bearer authentication and
+the `https://api.meta.ai/v1` base URL:
+
+- `meta` uses Responses and is the recommended default.
+- `meta-chat` uses OpenAI-compatible Chat Completions.
+- `meta-messages` uses Anthropic-compatible Messages.
+
+All default to `muse-spark-1.3`. The Responses profile also runs
+`muse-image-1.0` through `chat()`, returning generated or edited images in the
+normal `results[].images` field, and routes `muse-voice-transcribe-1.0` through
+`transcribe()` or realtime PCM `chat()`. Ax deliberately does not add direct
+Images, Files, Models, or Responses resource-management methods.
+
+The same profile descriptors, request/stream mappings, image results,
+transcription fields, and realtime event folding are generated for Python, Go,
+Rust, Java, and C++ from AxIR.
+
+Contributor model variants are cataloged with provider-training data-use
+metadata and are never defaults. Muse Glimmer remains self-hosted: use the
+existing `vllm`, `llama-cpp`, `ollama`, or `lm-studio` profile with a server you
+operate. Ax does not download or manage model weights.
+
 ## Capability Resolution
 
 Capabilities resolve in this order:

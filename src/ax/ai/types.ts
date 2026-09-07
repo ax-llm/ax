@@ -104,6 +104,10 @@ export type AxModelInfo = {
     structuredOutputModes?: readonly AxStructuredOutputRung[];
     /** Portable request tiers verified for this exact model. */
     serviceTiers?: readonly AxServiceTier[];
+    /** Whether this model can return generated images from `chat()`. */
+    imageOutput?: boolean;
+    /** Public Ax operations verified for this exact model. */
+    operations?: readonly ('chat' | 'transcribe')[];
   };
   notSupported?: {
     temperature?: boolean;
@@ -113,12 +117,22 @@ export type AxModelInfo = {
     input?: boolean;
     output?: boolean;
   };
+  /** Exact provider-declared model input and output modalities. */
+  modalities?: {
+    input: readonly ('text' | 'image' | 'audio' | 'video' | 'pdf')[];
+    output: readonly ('text' | 'image')[];
+  };
   maxTokens?: number;
   isExpensive?: boolean;
   contextWindow?: number;
   isDeprecated?: boolean;
   /** ISO date (YYYY-MM-DD) the upstream provider will stop serving this model. */
   deprecatedOn?: string;
+  /** Provider data-use policy that materially differs between model variants. */
+  dataUse?: {
+    providerTraining: 'not-used' | 'allowed';
+    appliesTo?: readonly ('prompt' | 'completion')[];
+  };
 };
 
 /** A concrete strategy Ax can use to obtain a typed structured result. */
@@ -427,17 +441,41 @@ export type AxThoughtBlockItem = {
   data: string;
   encrypted: boolean;
   signature?: string;
+  /** Provider output-item identifier required for stateless replay. */
+  id?: string;
+  /** Human-readable reasoning summary, separate from encrypted provider state. */
+  summary?: string;
+  /** Opaque encrypted reasoning state returned by Responses-style APIs. */
+  encryptedContent?: string;
+  /** Output phase used to preserve reasoning/tool ordering across replay. */
+  phase?: 'commentary' | 'final_answer';
+};
+
+/** Generated image returned by an image-capable model through `chat()`. */
+export type AxChatImageOutput = {
+  id?: string;
+  data?: string;
+  url?: string;
+  mimeType?: string;
+  isDelta?: boolean;
 };
 
 export type AxChatResponseResult = {
   index: number;
   content?: string;
+  /** Responses-style output phase for commentary/final-answer ordering. */
+  phase?: 'commentary' | 'final_answer';
   thought?: string;
   /** Array of thinking blocks, each with its own signature */
   thoughtBlocks?: AxThoughtBlockItem[];
   name?: string;
+  /** Latest provider-reported amount of realtime audio processed. */
+  audioProcessedMs?: number;
+  /** Replace the previous snapshot for this result id; content contains only finalized speech. */
+  transcript?: { text: string; isFinal: boolean };
   id?: string;
   audio?: AxChatAudioOutput;
+  images?: AxChatImageOutput[];
   functionCalls?: {
     id: string;
     type: 'function';
@@ -638,6 +676,10 @@ export type AxChatRequest<TModel = string> = {
         thoughtBlocks?: AxThoughtBlockItem[];
         /** Previous assistant audio response reference for audio-capable chat models */
         audio?: { id: string; transcript?: string };
+        /** Generated images retained for stateless Responses replay. */
+        images?: AxChatImageOutput[];
+        /** Responses-style output phase retained for replay. */
+        phase?: 'commentary' | 'final_answer';
         cache?: boolean;
       }
     | {
@@ -1061,10 +1103,12 @@ export type AxAIServiceOptions = {
    *
    * Falls back to `sessionId` when unset.
    *
-   * **Currently used by:** OpenAI, on GPT-5.6 and later models. Earlier families
-   * predate the parameter and it is not sent to them.
+   * **Currently used by:** OpenAI GPT-5.6+ and Meta Responses/Chat Completions.
    */
   promptCacheKey?: string;
+
+  /** Meta Responses prompt-cache retention policy. */
+  promptCacheRetention?: 'in_memory' | '24h';
 
   /**
    * Request-scoped attribution included in normalized usage events.

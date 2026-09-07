@@ -116,6 +116,26 @@ Create a provider client from a named deployment profile and options.
 client := axllm.NewAI("openai", map[string]axllm.Value{"apiKey": os.Getenv("OPENAI_API_KEY")})
 ```
 
+### `context.Context`
+
+Reusable one-shot cancellation for provider calls, streams, retries, and event-clock sleeps. Go uses context.Context.
+
+- Canonical Ax concept: `AxCancellationToken`
+- Kind: `type`
+- Form: `context.WithCancelCause(ctx)`
+- Returns: `cancellation token or context`
+- Important options: first reason wins, removable wake subscriptions, non-retryable cancellation
+
+### `axllm.AxAIServiceAbortedError`
+
+Terminal provider error raised when caller cancellation is observed.
+
+- Canonical Ax concept: `AxAIServiceAbortedError`
+- Kind: `error`
+- Form: `axllm.AxAIServiceAbortedError`
+- Returns: `non-retryable provider error`
+- Important options: reason preservation, no retry, no provider failover
+
 ### `axllm.GetSupportedAIModels`
 
 Return the AxIR-backed provider and model catalog, including dynamic named profiles and portable capability metadata.

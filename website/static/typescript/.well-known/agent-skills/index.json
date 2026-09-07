@@ -11,16 +11,16 @@
     {
       "name": "ax-ai",
       "type": "skill-md",
-      "description": "This skill helps an LLM generate correct AI provider setup and configuration code using @ax-llm/ax. Use when the user asks about ai(), providers, models, routing, adaptive balancing, presets, embeddings, batch audio with ai.transcribe() or ai.speak(), extended thinking, context caching, or mentions OpenAI/Anthropic/Google/Azure/DeepSeek/Mistral/Cohere/Reka/Grok with @ax-llm/ax.",
+      "description": "This skill helps an LLM generate correct AI provider setup and configuration code using @ax-llm/ax. Use when the user asks about ai(), providers, models, routing, adaptive balancing, presets, embeddings, batch audio with ai.transcribe() or ai.speak(), extended thinking, context caching, or mentions OpenAI/Anthropic/Google/Azure/DeepSeek/Meta/Mistral/Cohere/Reka/Grok with @ax-llm/ax.",
       "url": "ax-ai/SKILL.md",
-      "digest": "sha256:f177b22a404bd3d10b6310a1a53fd8982b54bee034e9166533d29317f5677832"
+      "digest": "sha256:4ce6bbf6400da1cebdf7071e7cce85f107d27a5dd7a04e2c17e3e2e97dab8168"
     },
     {
       "name": "ax-audio",
       "type": "skill-md",
       "description": "This skill helps an LLM generate correct audio code with @ax-llm/ax. Use when the user asks about ai.transcribe(), ai.speak(), signature audio inputs or outputs, agent audio behavior, .chat() conversational audio, OpenAI audio or realtime models, Gemini Live native audio, Grok Voice Agent models, voices, formats, transcripts, or how audio fits with structured outputs.",
       "url": "ax-audio/SKILL.md",
-      "digest": "sha256:70746809f4473a21cf03335e36472604c90b7ea3f86a82c2a303c75fceb26ed5"
+      "digest": "sha256:28885c68977c15149744abfe7f474ac9f1ae305983a991b7ed4f20993be8e12e"
     },
     {
       "name": "ax-signature",
@@ -34,7 +34,7 @@
       "type": "skill-md",
       "description": "This skill helps an LLM generate correct AxGen code using @ax-llm/ax. Use when the user asks about ax(), AxGen, generators, forward(), streamingForward(), validation, assertions, streaming assertions, field processors, step hooks, self-tuning, or structured outputs. For MCP clients, transports, prompts, resources, tasks, subscriptions, or authentication use ax-mcp alongside this skill.",
       "url": "ax-gen/SKILL.md",
-      "digest": "sha256:3441ce338d9def17359a5e6f4d67ddb12c3ca11ea1c864ca8f2926eb0f2d7a10"
+      "digest": "sha256:94a185ab4e540d8a48cfdab9dbfc0e9360de97c5c52ce4e620c43c4563dc2f6d"
     },
     {
       "name": "ax-mcp",
@@ -97,7 +97,7 @@
       "type": "skill-md",
       "description": "Use AxEventRuntime to ingest events, explicitly wake or resume AxGen, AxAgent, and AxFlow, persist state and results, and route outputs safely.",
       "url": "ax-event-runtime/SKILL.md",
-      "digest": "sha256:8c8ed96edea4c98512d8262edef001045aa3496e2709181db49316e5f7493872"
+      "digest": "sha256:1b6fa59664397099c4624c18933caa10c9fb01625a88d64cc0984ba553c3f1ef"
     },
     {
       "name": "ax-gepa",

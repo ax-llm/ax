@@ -3,9 +3,11 @@ from .schema import AxValidationError
 from .tool import Tool, fn
 from .ai import (
     AIClient,
+    AxCancellationToken,
     AxAIRefusalError,
     AxAIService,
     AxAIServiceAuthenticationError,
+    AxAIServiceAbortedError,
     AxAIServiceError,
     AxAIServiceNetworkError,
     AxAIServiceResponseError,
@@ -64,9 +66,11 @@ from .runtime_quickjs import AxQuickJsCodeRuntime, AxQuickJsCodeSession
 
 __all__ = [
     "AIClient",
+    "AxCancellationToken",
     "AxAIRefusalError",
     "AxAIService",
     "AxAIServiceAuthenticationError",
+    "AxAIServiceAbortedError",
     "AxAIServiceError",
     "AxAIServiceNetworkError",
     "AxAIServiceResponseError",

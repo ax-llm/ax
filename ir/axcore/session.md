@@ -30,7 +30,8 @@ Go uses an HTTP server observing request cancellation. These complement the
 scripted WebSocket fixtures rather than replacing them.
 
 The TypeScript reference commit is
-`8c138f108c02d3f000d4ac9c03e078770b0c813c`. Provider-backed examples under
+`b83d294b39df41d60c725e0bcaf27f142b0e1127` (the PR copy of original
+`8c138f108c02d3f000d4ac9c03e078770b0c813c`). Provider-backed examples under
 `src/examples/{python,go,java,cpp,rust}/` cover Astra generation, background
 work through generation and agents, flows, steering/reasoning updates, and
 cooperative cancellation. All five live agent and cancellation examples passed

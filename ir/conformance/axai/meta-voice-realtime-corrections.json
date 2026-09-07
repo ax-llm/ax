@@ -1,0 +1,97 @@
+{
+  "events": [
+    {
+      "audioProcessedMs": 0,
+      "turnId": "turn",
+      "type": "speechStart"
+    },
+    {
+      "audioProcessedMs": 100,
+      "transcript": "I scream",
+      "type": "transcript"
+    },
+    {
+      "audioProcessedMs": 200,
+      "transcript": "Ice cream",
+      "type": "transcript"
+    },
+    {
+      "audioProcessedMs": 300,
+      "transcript": "Ice cream.",
+      "turnId": "turn",
+      "type": "speechComplete"
+    }
+  ],
+  "expected_output": [
+    {
+      "model_usage": null,
+      "results": [
+        {
+          "audio_processed_ms": 0,
+          "content": "",
+          "finish_reason": null,
+          "function_calls": [],
+          "id": "turn",
+          "index": 0
+        }
+      ]
+    },
+    {
+      "model_usage": null,
+      "results": [
+        {
+          "audio_processed_ms": 100,
+          "content": "",
+          "finish_reason": null,
+          "function_calls": [],
+          "id": "turn",
+          "index": 0,
+          "transcript": {
+            "is_final": false,
+            "text": "I scream"
+          }
+        }
+      ]
+    },
+    {
+      "model_usage": null,
+      "results": [
+        {
+          "audio_processed_ms": 200,
+          "content": "",
+          "finish_reason": null,
+          "function_calls": [],
+          "id": "turn",
+          "index": 0,
+          "transcript": {
+            "is_final": false,
+            "text": "Ice cream"
+          }
+        }
+      ]
+    },
+    {
+      "model_usage": null,
+      "results": [
+        {
+          "audio_processed_ms": 300,
+          "content": "Ice cream.",
+          "finish_reason": null,
+          "function_calls": [],
+          "id": "turn",
+          "index": 0,
+          "transcript": {
+            "is_final": true,
+            "text": "Ice cream."
+          }
+        }
+      ]
+    }
+  ],
+  "kind": "ai_realtime",
+  "name": "meta-voice-realtime-corrections",
+  "provider": "meta",
+  "request": {
+    "model": "muse-voice-transcribe-1.0"
+  }
+}

@@ -92,6 +92,19 @@
           "    stream.close()"
         ]
       },
+      "cancellation": {
+        "sourcePath": "src/examples/python/generation/cancellation.py",
+        "verified": true,
+        "requiresCredentials": false,
+        "code": [
+          "token = AxCancellationToken()",
+          "token.cancel(\"user stopped\")",
+          "try:",
+          "    client.chat(request, {\"cancellation\": token})",
+          "except AxAIServiceAbortedError as error:",
+          "    assert error.reason == \"user stopped\" and not error.retryable"
+        ]
+      },
       "balancer": {
         "sourcePath": "src/examples/python/generation/adaptive-balancer.py",
         "verified": true,

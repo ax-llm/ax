@@ -32,6 +32,7 @@ var coreIntrinsicGoRaising = map[CoreIntrinsic]bool{
 	IntrinsicStringExtractGroup:      true,
 	IntrinsicStringConsumeOpt:        true,
 	IntrinsicStringExtractSuf:        true,
+	IntrinsicRetrySleep:          true,
 }
 
 func BuildGoCore(model AxRuntimeModel) (string, error) {
@@ -236,7 +237,7 @@ func emitGoCoreStmt(ctx *goEmitCtx, stmt CoreStmt) ([]string, error) {
 	case "raise":
 		errExpr := fmt.Sprintf("AxError{Category: \"runtime\", Message: %s}", strconv.Quote(stmt.Message))
 		if _, ok := Attr(stmt.Op, "error"); ok {
-			errExpr = fmt.Sprintf("asAxError(%s)", goAttrValue(stmt.Op, "error"))
+			errExpr = fmt.Sprintf("asError(%s)", goAttrValue(stmt.Op, "error"))
 		}
 		if ctx.inClosure() {
 			return []string{fmt.Sprintf("return coreFlow{}, %s", errExpr)}, nil

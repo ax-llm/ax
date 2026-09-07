@@ -124,7 +124,10 @@ public final class AxMultiServiceRouter implements AxAIService, AxChatSession.Pr
     return lastUsedService.chat(req, options);
   }
 
-  @Override public AxChatStream openStream(Map<String, Object> request) throws Exception {
+  @Override public AxChatStream openStream(Map<String, Object> request) throws Exception {return openStream(request,null);}
+
+  @Override public AxChatStream openStream(Map<String,Object> request,AxCancellationToken cancellation)throws Exception {
+    if(cancellation!=null)cancellation.throwIfCancelled();
     Object modelKey = request.get("model");
     if (modelKey == null) throw new IllegalArgumentException("Model key must be specified for multi-service");
     Map<String, Object> entry = services.get(String.valueOf(modelKey));
@@ -133,10 +136,11 @@ public final class AxMultiServiceRouter implements AxAIService, AxChatSession.Pr
     Map<String, Object> req = new LinkedHashMap<>(request);
     if (req.containsKey("modelConfig") && !req.containsKey("model_config")) req.put("model_config", req.get("modelConfig"));
     if (!entry.containsKey("model")) req.remove("model");
-    return lastUsedService.openStream(req);
+    return lastUsedService.openStream(req,cancellation);
   }
 
   @Override public AxChatStream stream(Map<String, Object> request) { return AxChatStream.lazy(() -> openStream(request)); }
+  @Override public Iterable<Map<String,Object>> stream(Map<String,Object> request,AxCancellationToken cancellation){return AxChatStream.lazy(()->openStream(request,cancellation));}
 
   public Map<String, Object> embed(Map<String, Object> request) throws Exception {
     return embed(request, Map.of());

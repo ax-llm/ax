@@ -1,0 +1,41 @@
+{
+  "expected_output": {
+    "answer": "Done",
+    "confidence": 1
+  },
+  "expected_request": {
+    "function_call": {
+      "function": {
+        "name": "__axOutput"
+      },
+      "type": "function"
+    },
+    "function_call_source": "ax"
+  },
+  "expected_request_count": 1,
+  "features": {
+    "functions": true,
+    "structured_outputs": false
+  },
+  "input": {
+    "query": "test"
+  },
+  "kind": "forward",
+  "name": "structured-output-ax-choice-source",
+  "responses": [
+    {
+      "content": "",
+      "function_calls": [
+        {
+          "id": "call1",
+          "name": "__axOutput",
+          "params": {
+            "answer": "Done",
+            "confidence": 1
+          }
+        }
+      ]
+    }
+  ],
+  "signature": "query:string -> answer:string, confidence:number"
+}

@@ -24,6 +24,7 @@
             "capabilities": {
               "audioInput": false,
               "audioOutput": false,
+              "imageOutput": false,
               "serviceTiers": ["standard", "flex", "priority"],
               "showThoughts": true,
               "structuredOutputs": true,
@@ -57,6 +58,7 @@
             "capabilities": {
               "audioInput": false,
               "audioOutput": false,
+              "imageOutput": false,
               "serviceTiers": ["standard", "flex", "priority"],
               "showThoughts": true,
               "structuredOutputs": true,
@@ -90,6 +92,7 @@
             "capabilities": {
               "audioInput": false,
               "audioOutput": false,
+              "imageOutput": false,
               "serviceTiers": ["standard", "flex", "priority"],
               "showThoughts": false,
               "structuredOutputs": false,
@@ -111,6 +114,7 @@
             "capabilities": {
               "audioInput": false,
               "audioOutput": false,
+              "imageOutput": false,
               "serviceTiers": ["standard", "flex", "priority"],
               "showThoughts": false,
               "structuredOutputs": true,
@@ -135,6 +139,7 @@
             "capabilities": {
               "audioInput": false,
               "audioOutput": false,
+              "imageOutput": false,
               "serviceTiers": ["standard", "flex", "priority"],
               "showThoughts": false,
               "structuredOutputs": true,
@@ -159,6 +164,7 @@
             "capabilities": {
               "audioInput": false,
               "audioOutput": false,
+              "imageOutput": false,
               "serviceTiers": ["standard", "flex", "priority"],
               "showThoughts": false,
               "structuredOutputs": true,
@@ -187,6 +193,7 @@
             "capabilities": {
               "audioInput": false,
               "audioOutput": false,
+              "imageOutput": false,
               "serviceTiers": ["standard", "flex", "priority"],
               "showThoughts": false,
               "structuredOutputs": true,
@@ -215,6 +222,7 @@
             "capabilities": {
               "audioInput": false,
               "audioOutput": false,
+              "imageOutput": false,
               "serviceTiers": ["standard", "flex", "priority"],
               "showThoughts": true,
               "structuredOutputs": true,
@@ -250,6 +258,7 @@
             "capabilities": {
               "audioInput": false,
               "audioOutput": false,
+              "imageOutput": false,
               "serviceTiers": ["standard", "flex", "priority"],
               "showThoughts": true,
               "structuredOutputs": true,
@@ -285,6 +294,7 @@
             "capabilities": {
               "audioInput": false,
               "audioOutput": false,
+              "imageOutput": false,
               "serviceTiers": ["standard", "flex", "priority"],
               "showThoughts": true,
               "structuredOutputs": true,
@@ -322,6 +332,7 @@
             "capabilities": {
               "audioInput": false,
               "audioOutput": false,
+              "imageOutput": false,
               "serviceTiers": ["standard", "flex", "priority"],
               "showThoughts": true,
               "structuredOutputs": true,
@@ -355,6 +366,7 @@
             "capabilities": {
               "audioInput": false,
               "audioOutput": false,
+              "imageOutput": false,
               "serviceTiers": ["standard", "flex", "priority"],
               "showThoughts": false,
               "structuredOutputs": true,
@@ -376,44 +388,12 @@
             "type": "text"
           },
           {
-            "capabilities": {
-              "audioInput": false,
-              "audioOutput": false,
-              "serviceTiers": ["standard", "flex", "priority"],
-              "showThoughts": true,
-              "structuredOutputs": true,
-              "temperature": true,
-              "thinkingBudget": true,
-              "thinkingLevels": [
-                "none",
-                "minimal",
-                "low",
-                "medium",
-                "high",
-                "highest"
-              ],
-              "topP": true
-            },
-            "characterIsToken": false,
-            "completionTokenCostPer1M": 0.134,
-            "currency": "usd",
-            "isDefault": false,
-            "name": "gemini-3-pro-image-preview",
-            "promptTokenCostPer1M": 2,
-            "provider": "google-gemini",
-            "supported": {
-              "showThoughts": true,
-              "structuredOutputs": true,
-              "thinkingBudget": true
-            },
-            "type": "text"
-          },
-          {
             "cacheReadTokenCostPer1M": 0.03,
             "cacheWriteTokenCostPer1M": 0.3,
             "capabilities": {
               "audioInput": false,
               "audioOutput": false,
+              "imageOutput": false,
               "serviceTiers": ["standard", "flex", "priority"],
               "showThoughts": true,
               "structuredOutputs": true,
@@ -449,6 +429,7 @@
             "capabilities": {
               "audioInput": false,
               "audioOutput": false,
+              "imageOutput": false,
               "serviceTiers": ["standard", "flex", "priority"],
               "showThoughts": true,
               "structuredOutputs": true,
@@ -490,6 +471,7 @@
             "capabilities": {
               "audioInput": false,
               "audioOutput": false,
+              "imageOutput": false,
               "serviceTiers": ["standard", "flex", "priority"],
               "showThoughts": true,
               "structuredOutputs": true,
@@ -525,6 +507,7 @@
             "capabilities": {
               "audioInput": false,
               "audioOutput": false,
+              "imageOutput": false,
               "serviceTiers": ["standard", "flex", "priority"],
               "showThoughts": true,
               "structuredOutputs": true,
@@ -558,30 +541,7 @@
             "capabilities": {
               "audioInput": false,
               "audioOutput": false,
-              "serviceTiers": ["standard", "flex", "priority"],
-              "showThoughts": false,
-              "structuredOutputs": true,
-              "temperature": true,
-              "thinkingBudget": false,
-              "thinkingLevels": [],
-              "topP": true
-            },
-            "characterIsToken": false,
-            "completionTokenCostPer1M": 3,
-            "currency": "usd",
-            "isDefault": false,
-            "name": "gemini-3.1-flash-image-preview",
-            "promptTokenCostPer1M": 0.5,
-            "provider": "google-gemini",
-            "supported": {
-              "structuredOutputs": true
-            },
-            "type": "text"
-          },
-          {
-            "capabilities": {
-              "audioInput": false,
-              "audioOutput": false,
+              "imageOutput": false,
               "serviceTiers": ["standard", "flex", "priority"],
               "showThoughts": false,
               "structuredOutputs": false,
@@ -603,6 +563,7 @@
             "capabilities": {
               "audioInput": false,
               "audioOutput": false,
+              "imageOutput": false,
               "serviceTiers": ["standard", "flex", "priority"],
               "showThoughts": false,
               "structuredOutputs": true,
@@ -629,6 +590,7 @@
             "capabilities": {
               "audioInput": false,
               "audioOutput": false,
+              "imageOutput": false,
               "serviceTiers": ["standard", "flex", "priority"],
               "showThoughts": true,
               "structuredOutputs": true,
@@ -670,6 +632,7 @@
             "capabilities": {
               "audioInput": false,
               "audioOutput": false,
+              "imageOutput": false,
               "serviceTiers": ["standard", "flex", "priority"],
               "showThoughts": true,
               "structuredOutputs": true,
@@ -711,6 +674,7 @@
             "capabilities": {
               "audioInput": false,
               "audioOutput": false,
+              "imageOutput": false,
               "serviceTiers": ["standard", "flex", "priority"],
               "showThoughts": true,
               "structuredOutputs": true,
@@ -752,6 +716,7 @@
             "capabilities": {
               "audioInput": false,
               "audioOutput": false,
+              "imageOutput": false,
               "serviceTiers": ["standard", "flex", "priority"],
               "showThoughts": true,
               "structuredOutputs": true,
@@ -789,6 +754,7 @@
             "capabilities": {
               "audioInput": false,
               "audioOutput": false,
+              "imageOutput": false,
               "serviceTiers": ["standard", "flex", "priority"],
               "showThoughts": true,
               "structuredOutputs": true,
@@ -828,6 +794,7 @@
             "capabilities": {
               "audioInput": false,
               "audioOutput": false,
+              "imageOutput": false,
               "serviceTiers": ["standard", "flex", "priority"],
               "showThoughts": true,
               "structuredOutputs": true,
@@ -867,6 +834,7 @@
             "capabilities": {
               "audioInput": false,
               "audioOutput": false,
+              "imageOutput": false,
               "serviceTiers": ["standard", "flex", "priority"],
               "showThoughts": true,
               "structuredOutputs": true,
@@ -917,6 +885,7 @@
             "capabilities": {
               "audioInput": false,
               "audioOutput": false,
+              "imageOutput": false,
               "serviceTiers": [],
               "showThoughts": false,
               "structuredOutputs": false,
@@ -939,6 +908,7 @@
             "capabilities": {
               "audioInput": false,
               "audioOutput": false,
+              "imageOutput": false,
               "serviceTiers": [],
               "showThoughts": false,
               "structuredOutputs": false,
@@ -961,6 +931,7 @@
             "capabilities": {
               "audioInput": false,
               "audioOutput": false,
+              "imageOutput": false,
               "serviceTiers": [],
               "showThoughts": false,
               "structuredOutputs": false,
@@ -984,6 +955,7 @@
             "capabilities": {
               "audioInput": false,
               "audioOutput": false,
+              "imageOutput": false,
               "serviceTiers": [],
               "showThoughts": false,
               "structuredOutputs": false,
@@ -1006,6 +978,7 @@
             "capabilities": {
               "audioInput": false,
               "audioOutput": false,
+              "imageOutput": false,
               "serviceTiers": [],
               "showThoughts": false,
               "structuredOutputs": false,
@@ -1028,6 +1001,7 @@
             "capabilities": {
               "audioInput": false,
               "audioOutput": false,
+              "imageOutput": false,
               "serviceTiers": [],
               "showThoughts": false,
               "structuredOutputs": false,
@@ -1050,6 +1024,7 @@
             "capabilities": {
               "audioInput": false,
               "audioOutput": false,
+              "imageOutput": false,
               "serviceTiers": [],
               "showThoughts": false,
               "structuredOutputs": false,
@@ -1072,6 +1047,7 @@
             "capabilities": {
               "audioInput": false,
               "audioOutput": false,
+              "imageOutput": false,
               "serviceTiers": [],
               "showThoughts": false,
               "structuredOutputs": false,
@@ -1094,6 +1070,7 @@
             "capabilities": {
               "audioInput": false,
               "audioOutput": false,
+              "imageOutput": false,
               "serviceTiers": [],
               "showThoughts": false,
               "structuredOutputs": false,
@@ -1116,6 +1093,7 @@
             "capabilities": {
               "audioInput": false,
               "audioOutput": false,
+              "imageOutput": false,
               "serviceTiers": [],
               "showThoughts": false,
               "structuredOutputs": false,
@@ -1138,6 +1116,7 @@
             "capabilities": {
               "audioInput": false,
               "audioOutput": false,
+              "imageOutput": false,
               "serviceTiers": [],
               "showThoughts": false,
               "structuredOutputs": false,
@@ -1160,6 +1139,7 @@
             "capabilities": {
               "audioInput": false,
               "audioOutput": false,
+              "imageOutput": false,
               "serviceTiers": [],
               "showThoughts": false,
               "structuredOutputs": false,
@@ -1195,6 +1175,7 @@
             "capabilities": {
               "audioInput": false,
               "audioOutput": false,
+              "imageOutput": false,
               "serviceTiers": ["standard", "priority"],
               "showThoughts": false,
               "structuredOutputs": false,
@@ -1215,6 +1196,7 @@
             "capabilities": {
               "audioInput": false,
               "audioOutput": false,
+              "imageOutput": false,
               "serviceTiers": ["standard", "priority"],
               "showThoughts": false,
               "structuredOutputs": false,
@@ -1235,6 +1217,7 @@
             "capabilities": {
               "audioInput": false,
               "audioOutput": false,
+              "imageOutput": false,
               "serviceTiers": ["standard", "priority"],
               "showThoughts": false,
               "structuredOutputs": false,
@@ -1255,6 +1238,7 @@
             "capabilities": {
               "audioInput": false,
               "audioOutput": false,
+              "imageOutput": false,
               "serviceTiers": ["standard", "priority"],
               "showThoughts": false,
               "structuredOutputs": false,
@@ -1275,6 +1259,7 @@
             "capabilities": {
               "audioInput": false,
               "audioOutput": false,
+              "imageOutput": false,
               "serviceTiers": ["standard", "priority"],
               "showThoughts": false,
               "structuredOutputs": false,
@@ -1295,6 +1280,7 @@
             "capabilities": {
               "audioInput": false,
               "audioOutput": false,
+              "imageOutput": false,
               "serviceTiers": ["standard", "priority"],
               "showThoughts": false,
               "structuredOutputs": false,
@@ -1315,6 +1301,7 @@
             "capabilities": {
               "audioInput": false,
               "audioOutput": false,
+              "imageOutput": false,
               "serviceTiers": ["standard", "priority"],
               "showThoughts": false,
               "structuredOutputs": false,
@@ -1335,6 +1322,7 @@
             "capabilities": {
               "audioInput": false,
               "audioOutput": false,
+              "imageOutput": false,
               "serviceTiers": ["standard", "priority"],
               "showThoughts": false,
               "structuredOutputs": false,
@@ -1377,6 +1365,7 @@
             "capabilities": {
               "audioInput": false,
               "audioOutput": false,
+              "imageOutput": false,
               "serviceTiers": [],
               "showThoughts": true,
               "structuredOutputs": false,
@@ -1412,6 +1401,7 @@
             "capabilities": {
               "audioInput": false,
               "audioOutput": false,
+              "imageOutput": false,
               "serviceTiers": [],
               "showThoughts": true,
               "structuredOutputs": false,
@@ -1468,6 +1458,7 @@
             "capabilities": {
               "audioInput": false,
               "audioOutput": false,
+              "imageOutput": false,
               "serviceTiers": [],
               "showThoughts": true,
               "structuredOutputs": false,
@@ -1503,6 +1494,7 @@
             "capabilities": {
               "audioInput": false,
               "audioOutput": false,
+              "imageOutput": false,
               "serviceTiers": [],
               "showThoughts": true,
               "structuredOutputs": false,
@@ -1558,6 +1550,7 @@
             "capabilities": {
               "audioInput": false,
               "audioOutput": false,
+              "imageOutput": false,
               "serviceTiers": ["standard", "flex", "priority"],
               "showThoughts": false,
               "structuredOutputs": true,
@@ -1585,6 +1578,7 @@
             "capabilities": {
               "audioInput": false,
               "audioOutput": false,
+              "imageOutput": false,
               "serviceTiers": ["standard", "flex", "priority"],
               "showThoughts": false,
               "structuredOutputs": true,
@@ -1608,6 +1602,7 @@
             "capabilities": {
               "audioInput": false,
               "audioOutput": false,
+              "imageOutput": false,
               "serviceTiers": ["standard", "flex", "priority"],
               "showThoughts": false,
               "structuredOutputs": true,
@@ -1633,6 +1628,7 @@
             "capabilities": {
               "audioInput": false,
               "audioOutput": false,
+              "imageOutput": false,
               "serviceTiers": ["standard", "flex", "priority"],
               "showThoughts": false,
               "structuredOutputs": true,
@@ -1674,6 +1670,7 @@
             "capabilities": {
               "audioInput": false,
               "audioOutput": false,
+              "imageOutput": false,
               "serviceTiers": ["standard", "flex", "priority"],
               "showThoughts": false,
               "structuredOutputs": true,
@@ -1701,6 +1698,7 @@
             "capabilities": {
               "audioInput": false,
               "audioOutput": false,
+              "imageOutput": false,
               "serviceTiers": ["standard", "flex", "priority"],
               "showThoughts": false,
               "structuredOutputs": false,
@@ -1721,6 +1719,7 @@
             "capabilities": {
               "audioInput": false,
               "audioOutput": false,
+              "imageOutput": false,
               "serviceTiers": ["standard", "flex", "priority"],
               "showThoughts": false,
               "structuredOutputs": true,
@@ -1744,6 +1743,7 @@
             "capabilities": {
               "audioInput": false,
               "audioOutput": false,
+              "imageOutput": false,
               "serviceTiers": ["standard", "flex", "priority"],
               "showThoughts": false,
               "structuredOutputs": true,
@@ -1771,6 +1771,7 @@
             "capabilities": {
               "audioInput": false,
               "audioOutput": false,
+              "imageOutput": false,
               "serviceTiers": ["standard", "flex", "priority"],
               "showThoughts": false,
               "structuredOutputs": true,
@@ -1798,6 +1799,7 @@
             "capabilities": {
               "audioInput": false,
               "audioOutput": false,
+              "imageOutput": false,
               "serviceTiers": ["standard", "flex", "priority"],
               "showThoughts": false,
               "structuredOutputs": true,
@@ -1825,6 +1827,7 @@
             "capabilities": {
               "audioInput": false,
               "audioOutput": false,
+              "imageOutput": false,
               "serviceTiers": ["standard", "flex", "priority"],
               "showThoughts": false,
               "structuredOutputs": true,
@@ -1848,6 +1851,7 @@
             "capabilities": {
               "audioInput": false,
               "audioOutput": false,
+              "imageOutput": false,
               "serviceTiers": ["standard", "flex", "priority"],
               "showThoughts": false,
               "structuredOutputs": true,
@@ -1871,6 +1875,7 @@
             "capabilities": {
               "audioInput": false,
               "audioOutput": false,
+              "imageOutput": false,
               "serviceTiers": ["standard", "flex", "priority"],
               "showThoughts": false,
               "structuredOutputs": true,
@@ -1894,6 +1899,7 @@
             "capabilities": {
               "audioInput": false,
               "audioOutput": false,
+              "imageOutput": false,
               "serviceTiers": ["standard", "flex", "priority"],
               "showThoughts": false,
               "structuredOutputs": true,
@@ -1917,6 +1923,7 @@
             "capabilities": {
               "audioInput": false,
               "audioOutput": false,
+              "imageOutput": false,
               "serviceTiers": ["standard", "flex", "priority"],
               "showThoughts": false,
               "structuredOutputs": true,
@@ -1944,6 +1951,7 @@
             "capabilities": {
               "audioInput": false,
               "audioOutput": false,
+              "imageOutput": false,
               "serviceTiers": ["standard", "flex", "priority"],
               "showThoughts": false,
               "structuredOutputs": true,
@@ -1971,6 +1979,7 @@
             "capabilities": {
               "audioInput": false,
               "audioOutput": false,
+              "imageOutput": false,
               "serviceTiers": ["standard", "flex", "priority"],
               "showThoughts": false,
               "structuredOutputs": true,
@@ -1998,6 +2007,7 @@
             "capabilities": {
               "audioInput": false,
               "audioOutput": false,
+              "imageOutput": false,
               "serviceTiers": ["standard", "flex", "priority"],
               "showThoughts": false,
               "structuredOutputs": true,
@@ -2025,6 +2035,7 @@
             "capabilities": {
               "audioInput": false,
               "audioOutput": false,
+              "imageOutput": false,
               "serviceTiers": ["standard", "flex", "priority"],
               "showThoughts": false,
               "structuredOutputs": true,
@@ -2052,6 +2063,7 @@
             "capabilities": {
               "audioInput": false,
               "audioOutput": false,
+              "imageOutput": false,
               "serviceTiers": ["standard", "flex", "priority"],
               "showThoughts": false,
               "structuredOutputs": true,
@@ -2079,6 +2091,7 @@
             "capabilities": {
               "audioInput": false,
               "audioOutput": false,
+              "imageOutput": false,
               "serviceTiers": ["standard", "flex", "priority"],
               "showThoughts": false,
               "structuredOutputs": true,
@@ -2106,6 +2119,7 @@
             "capabilities": {
               "audioInput": false,
               "audioOutput": false,
+              "imageOutput": false,
               "serviceTiers": ["standard", "flex", "priority"],
               "showThoughts": false,
               "structuredOutputs": true,
@@ -2133,6 +2147,7 @@
             "capabilities": {
               "audioInput": false,
               "audioOutput": false,
+              "imageOutput": false,
               "serviceTiers": ["standard", "flex", "priority"],
               "showThoughts": false,
               "structuredOutputs": true,
@@ -2158,6 +2173,7 @@
             "capabilities": {
               "audioInput": false,
               "audioOutput": false,
+              "imageOutput": false,
               "serviceTiers": ["standard", "flex", "priority"],
               "showThoughts": false,
               "structuredOutputs": true,
@@ -2199,6 +2215,7 @@
             "capabilities": {
               "audioInput": false,
               "audioOutput": false,
+              "imageOutput": false,
               "serviceTiers": ["standard", "flex", "priority"],
               "showThoughts": false,
               "structuredOutputs": true,
@@ -2226,6 +2243,7 @@
             "capabilities": {
               "audioInput": false,
               "audioOutput": false,
+              "imageOutput": false,
               "serviceTiers": ["standard", "flex", "priority"],
               "showThoughts": false,
               "structuredOutputs": true,
@@ -2253,6 +2271,7 @@
             "capabilities": {
               "audioInput": false,
               "audioOutput": false,
+              "imageOutput": false,
               "serviceTiers": ["standard", "flex", "priority"],
               "showThoughts": false,
               "structuredOutputs": true,
@@ -2280,6 +2299,7 @@
             "capabilities": {
               "audioInput": false,
               "audioOutput": false,
+              "imageOutput": false,
               "serviceTiers": ["standard", "flex", "priority"],
               "showThoughts": false,
               "structuredOutputs": true,
@@ -2307,6 +2327,7 @@
             "capabilities": {
               "audioInput": false,
               "audioOutput": false,
+              "imageOutput": false,
               "serviceTiers": ["standard", "flex", "priority"],
               "showThoughts": false,
               "structuredOutputs": true,
@@ -2331,6 +2352,7 @@
             "capabilities": {
               "audioInput": false,
               "audioOutput": false,
+              "imageOutput": false,
               "serviceTiers": ["standard", "flex", "priority"],
               "showThoughts": false,
               "structuredOutputs": true,
@@ -2374,6 +2396,7 @@
             "capabilities": {
               "audioInput": false,
               "audioOutput": false,
+              "imageOutput": false,
               "serviceTiers": ["standard", "flex", "priority"],
               "showThoughts": false,
               "structuredOutputs": true,
@@ -2415,6 +2438,7 @@
             "capabilities": {
               "audioInput": false,
               "audioOutput": false,
+              "imageOutput": false,
               "serviceTiers": ["standard", "flex", "priority"],
               "showThoughts": false,
               "structuredOutputs": true,
@@ -2440,6 +2464,7 @@
             "capabilities": {
               "audioInput": false,
               "audioOutput": false,
+              "imageOutput": false,
               "serviceTiers": ["standard", "flex", "priority"],
               "showThoughts": false,
               "structuredOutputs": true,
@@ -2476,6 +2501,7 @@
             "capabilities": {
               "audioInput": false,
               "audioOutput": false,
+              "imageOutput": false,
               "serviceTiers": ["standard", "flex", "priority"],
               "showThoughts": false,
               "structuredOutputs": true,
@@ -2499,6 +2525,7 @@
             "capabilities": {
               "audioInput": false,
               "audioOutput": false,
+              "imageOutput": false,
               "serviceTiers": ["standard", "flex", "priority"],
               "showThoughts": false,
               "structuredOutputs": false,
@@ -2519,6 +2546,7 @@
             "capabilities": {
               "audioInput": false,
               "audioOutput": false,
+              "imageOutput": false,
               "serviceTiers": ["standard", "flex", "priority"],
               "showThoughts": false,
               "structuredOutputs": true,
@@ -2546,6 +2574,7 @@
             "capabilities": {
               "audioInput": false,
               "audioOutput": false,
+              "imageOutput": false,
               "serviceTiers": ["standard", "flex", "priority"],
               "showThoughts": false,
               "structuredOutputs": true,
@@ -2573,6 +2602,7 @@
             "capabilities": {
               "audioInput": false,
               "audioOutput": false,
+              "imageOutput": false,
               "serviceTiers": ["standard", "flex", "priority"],
               "showThoughts": false,
               "structuredOutputs": true,
@@ -2634,6 +2664,7 @@
             "capabilities": {
               "audioInput": false,
               "audioOutput": false,
+              "imageOutput": false,
               "serviceTiers": ["standard", "flex", "priority"],
               "showThoughts": true,
               "structuredOutputs": true,
@@ -2670,6 +2701,7 @@
             "capabilities": {
               "audioInput": false,
               "audioOutput": false,
+              "imageOutput": false,
               "serviceTiers": ["standard", "flex", "priority"],
               "showThoughts": false,
               "structuredOutputs": true,
@@ -2693,6 +2725,7 @@
             "capabilities": {
               "audioInput": false,
               "audioOutput": false,
+              "imageOutput": false,
               "serviceTiers": ["standard", "flex", "priority"],
               "showThoughts": false,
               "structuredOutputs": true,
@@ -2718,6 +2751,7 @@
             "capabilities": {
               "audioInput": false,
               "audioOutput": false,
+              "imageOutput": false,
               "serviceTiers": ["standard", "flex", "priority"],
               "showThoughts": true,
               "structuredOutputs": true,
@@ -2760,6 +2794,7 @@
             "capabilities": {
               "audioInput": false,
               "audioOutput": false,
+              "imageOutput": false,
               "serviceTiers": ["standard", "flex", "priority"],
               "showThoughts": true,
               "structuredOutputs": true,
@@ -2796,6 +2831,7 @@
             "capabilities": {
               "audioInput": false,
               "audioOutput": false,
+              "imageOutput": false,
               "serviceTiers": ["standard", "flex", "priority"],
               "showThoughts": false,
               "structuredOutputs": false,
@@ -2816,6 +2852,7 @@
             "capabilities": {
               "audioInput": false,
               "audioOutput": false,
+              "imageOutput": false,
               "serviceTiers": ["standard", "flex", "priority"],
               "showThoughts": false,
               "structuredOutputs": true,
@@ -2839,6 +2876,7 @@
             "capabilities": {
               "audioInput": false,
               "audioOutput": false,
+              "imageOutput": false,
               "serviceTiers": ["standard", "flex", "priority"],
               "showThoughts": true,
               "structuredOutputs": true,
@@ -2875,6 +2913,7 @@
             "capabilities": {
               "audioInput": false,
               "audioOutput": false,
+              "imageOutput": false,
               "serviceTiers": ["standard", "flex", "priority"],
               "showThoughts": true,
               "structuredOutputs": true,
@@ -2911,6 +2950,7 @@
             "capabilities": {
               "audioInput": false,
               "audioOutput": false,
+              "imageOutput": false,
               "serviceTiers": ["standard", "flex", "priority"],
               "showThoughts": true,
               "structuredOutputs": true,
@@ -2947,6 +2987,7 @@
             "capabilities": {
               "audioInput": false,
               "audioOutput": false,
+              "imageOutput": false,
               "serviceTiers": ["standard", "flex", "priority"],
               "showThoughts": true,
               "structuredOutputs": true,
@@ -2979,6 +3020,7 @@
             "capabilities": {
               "audioInput": false,
               "audioOutput": false,
+              "imageOutput": false,
               "serviceTiers": ["standard", "flex", "priority"],
               "showThoughts": true,
               "structuredOutputs": true,
@@ -3011,6 +3053,7 @@
             "capabilities": {
               "audioInput": false,
               "audioOutput": false,
+              "imageOutput": false,
               "serviceTiers": ["standard", "flex", "priority"],
               "showThoughts": false,
               "structuredOutputs": true,
@@ -3034,6 +3077,7 @@
             "capabilities": {
               "audioInput": false,
               "audioOutput": false,
+              "imageOutput": false,
               "serviceTiers": ["standard", "flex", "priority"],
               "showThoughts": true,
               "structuredOutputs": true,
@@ -3066,6 +3110,7 @@
             "capabilities": {
               "audioInput": false,
               "audioOutput": false,
+              "imageOutput": false,
               "serviceTiers": ["standard", "flex", "priority"],
               "showThoughts": true,
               "structuredOutputs": true,
@@ -3102,6 +3147,7 @@
             "capabilities": {
               "audioInput": false,
               "audioOutput": false,
+              "imageOutput": false,
               "serviceTiers": ["standard", "flex", "priority"],
               "showThoughts": true,
               "structuredOutputs": true,
@@ -3138,6 +3184,7 @@
             "capabilities": {
               "audioInput": false,
               "audioOutput": false,
+              "imageOutput": false,
               "serviceTiers": ["standard", "flex", "priority"],
               "showThoughts": true,
               "structuredOutputs": true,
@@ -3174,6 +3221,7 @@
             "capabilities": {
               "audioInput": false,
               "audioOutput": false,
+              "imageOutput": false,
               "serviceTiers": ["standard", "flex", "priority"],
               "showThoughts": true,
               "structuredOutputs": true,
@@ -3210,6 +3258,7 @@
             "capabilities": {
               "audioInput": false,
               "audioOutput": false,
+              "imageOutput": false,
               "serviceTiers": ["standard", "flex", "priority"],
               "showThoughts": true,
               "structuredOutputs": true,
@@ -3246,6 +3295,7 @@
             "capabilities": {
               "audioInput": false,
               "audioOutput": false,
+              "imageOutput": false,
               "serviceTiers": ["standard", "flex", "priority"],
               "showThoughts": true,
               "structuredOutputs": true,
@@ -3282,6 +3332,7 @@
             "capabilities": {
               "audioInput": false,
               "audioOutput": false,
+              "imageOutput": false,
               "serviceTiers": ["standard", "flex", "priority"],
               "showThoughts": true,
               "structuredOutputs": true,
@@ -3318,6 +3369,7 @@
             "capabilities": {
               "audioInput": false,
               "audioOutput": false,
+              "imageOutput": false,
               "serviceTiers": ["standard", "flex", "priority"],
               "showThoughts": true,
               "structuredOutputs": true,
@@ -3354,6 +3406,7 @@
             "capabilities": {
               "audioInput": false,
               "audioOutput": false,
+              "imageOutput": false,
               "serviceTiers": ["standard", "flex", "priority"],
               "showThoughts": false,
               "structuredOutputs": true,
@@ -3379,6 +3432,7 @@
             "capabilities": {
               "audioInput": false,
               "audioOutput": false,
+              "imageOutput": false,
               "serviceTiers": ["standard", "flex", "priority"],
               "showThoughts": true,
               "structuredOutputs": true,
@@ -3421,6 +3475,7 @@
             "capabilities": {
               "audioInput": false,
               "audioOutput": false,
+              "imageOutput": false,
               "serviceTiers": ["standard", "flex", "priority"],
               "showThoughts": true,
               "structuredOutputs": true,
@@ -3457,6 +3512,7 @@
             "capabilities": {
               "audioInput": false,
               "audioOutput": false,
+              "imageOutput": false,
               "serviceTiers": ["standard", "flex", "priority"],
               "showThoughts": true,
               "structuredOutputs": true,
@@ -3493,6 +3549,7 @@
             "capabilities": {
               "audioInput": false,
               "audioOutput": false,
+              "imageOutput": false,
               "serviceTiers": ["standard", "flex", "priority"],
               "showThoughts": true,
               "structuredOutputs": true,
@@ -3529,6 +3586,7 @@
             "capabilities": {
               "audioInput": false,
               "audioOutput": false,
+              "imageOutput": false,
               "serviceTiers": ["standard", "flex", "priority"],
               "showThoughts": true,
               "structuredOutputs": true,
@@ -3565,6 +3623,7 @@
             "capabilities": {
               "audioInput": false,
               "audioOutput": false,
+              "imageOutput": false,
               "serviceTiers": ["standard", "flex", "priority"],
               "showThoughts": false,
               "structuredOutputs": true,
@@ -3589,6 +3648,7 @@
             "capabilities": {
               "audioInput": false,
               "audioOutput": false,
+              "imageOutput": false,
               "serviceTiers": ["standard", "flex", "priority"],
               "showThoughts": true,
               "structuredOutputs": true,
@@ -3633,6 +3693,7 @@
             "capabilities": {
               "audioInput": false,
               "audioOutput": false,
+              "imageOutput": false,
               "serviceTiers": ["standard", "flex", "priority"],
               "showThoughts": true,
               "structuredOutputs": true,
@@ -3675,6 +3736,7 @@
             "capabilities": {
               "audioInput": false,
               "audioOutput": false,
+              "imageOutput": false,
               "serviceTiers": ["standard", "flex", "priority"],
               "showThoughts": false,
               "structuredOutputs": true,
@@ -3700,6 +3762,7 @@
             "capabilities": {
               "audioInput": false,
               "audioOutput": false,
+              "imageOutput": false,
               "serviceTiers": ["standard", "flex", "priority"],
               "showThoughts": true,
               "structuredOutputs": true,
@@ -3736,6 +3799,7 @@
             "capabilities": {
               "audioInput": false,
               "audioOutput": false,
+              "imageOutput": false,
               "serviceTiers": ["standard", "flex", "priority"],
               "showThoughts": true,
               "structuredOutputs": true,
@@ -3768,6 +3832,7 @@
             "capabilities": {
               "audioInput": false,
               "audioOutput": false,
+              "imageOutput": false,
               "serviceTiers": ["standard", "flex", "priority"],
               "showThoughts": false,
               "structuredOutputs": false,
@@ -3788,6 +3853,7 @@
             "capabilities": {
               "audioInput": false,
               "audioOutput": false,
+              "imageOutput": false,
               "serviceTiers": ["standard", "flex", "priority"],
               "showThoughts": true,
               "structuredOutputs": true,
@@ -3821,6 +3887,7 @@
             "capabilities": {
               "audioInput": false,
               "audioOutput": false,
+              "imageOutput": false,
               "serviceTiers": ["standard", "flex", "priority"],
               "showThoughts": true,
               "structuredOutputs": true,
@@ -3857,6 +3924,7 @@
             "capabilities": {
               "audioInput": false,
               "audioOutput": false,
+              "imageOutput": false,
               "serviceTiers": ["standard", "flex", "priority"],
               "showThoughts": true,
               "structuredOutputs": true,
@@ -3893,6 +3961,7 @@
             "capabilities": {
               "audioInput": false,
               "audioOutput": false,
+              "imageOutput": false,
               "serviceTiers": ["standard", "flex", "priority"],
               "showThoughts": true,
               "structuredOutputs": true,
@@ -3934,6 +4003,7 @@
             "capabilities": {
               "audioInput": false,
               "audioOutput": false,
+              "imageOutput": false,
               "serviceTiers": ["standard", "flex", "priority"],
               "showThoughts": true,
               "structuredOutputs": true,
@@ -3982,6 +4052,7 @@
             "capabilities": {
               "audioInput": false,
               "audioOutput": false,
+              "imageOutput": false,
               "serviceTiers": ["standard", "priority"],
               "showThoughts": false,
               "structuredOutputs": true,
@@ -4008,6 +4079,7 @@
             "capabilities": {
               "audioInput": false,
               "audioOutput": false,
+              "imageOutput": false,
               "serviceTiers": ["standard", "priority"],
               "showThoughts": false,
               "structuredOutputs": true,
@@ -4032,6 +4104,7 @@
             "capabilities": {
               "audioInput": false,
               "audioOutput": false,
+              "imageOutput": false,
               "serviceTiers": ["standard", "priority"],
               "showThoughts": false,
               "structuredOutputs": false,
@@ -4060,6 +4133,7 @@
             "capabilities": {
               "audioInput": false,
               "audioOutput": false,
+              "imageOutput": false,
               "serviceTiers": ["standard", "priority"],
               "showThoughts": false,
               "structuredOutputs": true,
@@ -4089,6 +4163,7 @@
             "capabilities": {
               "audioInput": false,
               "audioOutput": false,
+              "imageOutput": false,
               "serviceTiers": ["standard", "priority"],
               "showThoughts": false,
               "structuredOutputs": true,
@@ -4120,6 +4195,7 @@
             "capabilities": {
               "audioInput": false,
               "audioOutput": false,
+              "imageOutput": false,
               "serviceTiers": ["standard", "priority"],
               "showThoughts": false,
               "structuredOutputs": true,
@@ -4146,6 +4222,7 @@
             "capabilities": {
               "audioInput": false,
               "audioOutput": false,
+              "imageOutput": false,
               "serviceTiers": ["standard", "priority"],
               "showThoughts": false,
               "structuredOutputs": true,
@@ -4178,6 +4255,7 @@
             "capabilities": {
               "audioInput": false,
               "audioOutput": false,
+              "imageOutput": false,
               "serviceTiers": ["standard", "priority"],
               "showThoughts": false,
               "structuredOutputs": false,
@@ -4203,6 +4281,7 @@
             "capabilities": {
               "audioInput": false,
               "audioOutput": false,
+              "imageOutput": false,
               "serviceTiers": ["standard", "priority"],
               "showThoughts": false,
               "structuredOutputs": true,
@@ -4228,6 +4307,7 @@
             "capabilities": {
               "audioInput": false,
               "audioOutput": false,
+              "imageOutput": false,
               "serviceTiers": ["standard", "priority"],
               "showThoughts": false,
               "structuredOutputs": false,
@@ -4248,6 +4328,7 @@
             "capabilities": {
               "audioInput": false,
               "audioOutput": false,
+              "imageOutput": false,
               "serviceTiers": ["standard", "priority"],
               "showThoughts": false,
               "structuredOutputs": false,
@@ -4268,6 +4349,7 @@
             "capabilities": {
               "audioInput": false,
               "audioOutput": false,
+              "imageOutput": false,
               "serviceTiers": ["standard", "priority"],
               "showThoughts": false,
               "structuredOutputs": true,
@@ -4303,6 +4385,7 @@
             "capabilities": {
               "audioInput": false,
               "audioOutput": false,
+              "imageOutput": false,
               "serviceTiers": [],
               "showThoughts": false,
               "structuredOutputs": false,
@@ -4323,6 +4406,7 @@
             "capabilities": {
               "audioInput": false,
               "audioOutput": false,
+              "imageOutput": false,
               "serviceTiers": [],
               "showThoughts": false,
               "structuredOutputs": false,
@@ -4343,6 +4427,7 @@
             "capabilities": {
               "audioInput": false,
               "audioOutput": false,
+              "imageOutput": false,
               "serviceTiers": [],
               "showThoughts": false,
               "structuredOutputs": false,
@@ -4363,6 +4448,7 @@
             "capabilities": {
               "audioInput": false,
               "audioOutput": false,
+              "imageOutput": false,
               "serviceTiers": [],
               "showThoughts": false,
               "structuredOutputs": false,
@@ -4396,6 +4482,7 @@
             "capabilities": {
               "audioInput": false,
               "audioOutput": false,
+              "imageOutput": false,
               "serviceTiers": [],
               "showThoughts": false,
               "structuredOutputs": false,
@@ -4416,6 +4503,7 @@
             "capabilities": {
               "audioInput": false,
               "audioOutput": false,
+              "imageOutput": false,
               "serviceTiers": [],
               "showThoughts": false,
               "structuredOutputs": false,
@@ -4436,6 +4524,7 @@
             "capabilities": {
               "audioInput": false,
               "audioOutput": false,
+              "imageOutput": false,
               "serviceTiers": [],
               "showThoughts": false,
               "structuredOutputs": false,
@@ -4478,6 +4567,7 @@
             "capabilities": {
               "audioInput": false,
               "audioOutput": false,
+              "imageOutput": false,
               "serviceTiers": [],
               "showThoughts": false,
               "structuredOutputs": false,
@@ -4501,6 +4591,7 @@
             "capabilities": {
               "audioInput": false,
               "audioOutput": false,
+              "imageOutput": false,
               "serviceTiers": [],
               "showThoughts": false,
               "structuredOutputs": false,
@@ -4522,6 +4613,7 @@
             "capabilities": {
               "audioInput": false,
               "audioOutput": false,
+              "imageOutput": false,
               "serviceTiers": [],
               "showThoughts": false,
               "structuredOutputs": false,
@@ -4545,6 +4637,7 @@
             "capabilities": {
               "audioInput": false,
               "audioOutput": false,
+              "imageOutput": false,
               "serviceTiers": [],
               "showThoughts": false,
               "structuredOutputs": false,
@@ -4568,6 +4661,7 @@
             "capabilities": {
               "audioInput": false,
               "audioOutput": false,
+              "imageOutput": false,
               "serviceTiers": [],
               "showThoughts": false,
               "structuredOutputs": false,
@@ -4591,6 +4685,7 @@
             "capabilities": {
               "audioInput": false,
               "audioOutput": false,
+              "imageOutput": false,
               "serviceTiers": [],
               "showThoughts": true,
               "structuredOutputs": false,
@@ -4625,6 +4720,7 @@
             "capabilities": {
               "audioInput": false,
               "audioOutput": false,
+              "imageOutput": false,
               "serviceTiers": [],
               "showThoughts": true,
               "structuredOutputs": false,
@@ -4659,6 +4755,7 @@
             "capabilities": {
               "audioInput": false,
               "audioOutput": false,
+              "imageOutput": false,
               "serviceTiers": [],
               "showThoughts": true,
               "structuredOutputs": true,
@@ -4695,6 +4792,7 @@
             "capabilities": {
               "audioInput": false,
               "audioOutput": false,
+              "imageOutput": false,
               "serviceTiers": [],
               "showThoughts": true,
               "structuredOutputs": true,
@@ -4731,6 +4829,7 @@
             "capabilities": {
               "audioInput": false,
               "audioOutput": false,
+              "imageOutput": false,
               "serviceTiers": [],
               "showThoughts": false,
               "structuredOutputs": true,
@@ -4757,6 +4856,7 @@
             "capabilities": {
               "audioInput": false,
               "audioOutput": false,
+              "imageOutput": false,
               "serviceTiers": [],
               "showThoughts": true,
               "structuredOutputs": true,
@@ -4792,6 +4892,7 @@
             "capabilities": {
               "audioInput": false,
               "audioOutput": false,
+              "imageOutput": false,
               "serviceTiers": [],
               "showThoughts": false,
               "structuredOutputs": true,
@@ -4818,6 +4919,7 @@
             "capabilities": {
               "audioInput": false,
               "audioOutput": false,
+              "imageOutput": false,
               "serviceTiers": [],
               "showThoughts": true,
               "structuredOutputs": true,
@@ -4853,6 +4955,7 @@
             "capabilities": {
               "audioInput": false,
               "audioOutput": false,
+              "imageOutput": false,
               "serviceTiers": [],
               "showThoughts": true,
               "structuredOutputs": true,
@@ -4888,6 +4991,7 @@
             "capabilities": {
               "audioInput": false,
               "audioOutput": false,
+              "imageOutput": false,
               "serviceTiers": [],
               "showThoughts": false,
               "structuredOutputs": true,
@@ -4914,6 +5018,7 @@
             "capabilities": {
               "audioInput": false,
               "audioOutput": false,
+              "imageOutput": false,
               "serviceTiers": [],
               "showThoughts": true,
               "structuredOutputs": true,
@@ -4949,6 +5054,7 @@
             "capabilities": {
               "audioInput": false,
               "audioOutput": false,
+              "imageOutput": false,
               "serviceTiers": [],
               "showThoughts": true,
               "structuredOutputs": true,
@@ -4984,6 +5090,7 @@
             "capabilities": {
               "audioInput": false,
               "audioOutput": false,
+              "imageOutput": false,
               "serviceTiers": [],
               "showThoughts": true,
               "structuredOutputs": true,
@@ -5019,6 +5126,7 @@
             "capabilities": {
               "audioInput": false,
               "audioOutput": false,
+              "imageOutput": false,
               "serviceTiers": [],
               "showThoughts": true,
               "structuredOutputs": true,
@@ -5054,6 +5162,7 @@
             "capabilities": {
               "audioInput": false,
               "audioOutput": false,
+              "imageOutput": false,
               "serviceTiers": [],
               "showThoughts": true,
               "structuredOutputs": true,
@@ -5089,6 +5198,7 @@
             "capabilities": {
               "audioInput": false,
               "audioOutput": false,
+              "imageOutput": false,
               "serviceTiers": [],
               "showThoughts": true,
               "structuredOutputs": true,
@@ -5124,6 +5234,7 @@
             "capabilities": {
               "audioInput": false,
               "audioOutput": false,
+              "imageOutput": false,
               "serviceTiers": [],
               "showThoughts": true,
               "structuredOutputs": true,
@@ -5159,6 +5270,7 @@
             "capabilities": {
               "audioInput": false,
               "audioOutput": false,
+              "imageOutput": false,
               "serviceTiers": [],
               "showThoughts": true,
               "structuredOutputs": true,
@@ -5194,6 +5306,7 @@
             "capabilities": {
               "audioInput": false,
               "audioOutput": false,
+              "imageOutput": false,
               "serviceTiers": [],
               "showThoughts": true,
               "structuredOutputs": true,
@@ -5234,6 +5347,7 @@
             "capabilities": {
               "audioInput": false,
               "audioOutput": false,
+              "imageOutput": false,
               "serviceTiers": [],
               "showThoughts": true,
               "structuredOutputs": true,
@@ -5270,6 +5384,7 @@
             "capabilities": {
               "audioInput": false,
               "audioOutput": false,
+              "imageOutput": false,
               "serviceTiers": [],
               "showThoughts": true,
               "structuredOutputs": true,
@@ -5310,6 +5425,7 @@
             "capabilities": {
               "audioInput": false,
               "audioOutput": false,
+              "imageOutput": false,
               "serviceTiers": [],
               "showThoughts": true,
               "structuredOutputs": true,
@@ -5346,6 +5462,7 @@
             "capabilities": {
               "audioInput": false,
               "audioOutput": false,
+              "imageOutput": false,
               "serviceTiers": [],
               "showThoughts": true,
               "structuredOutputs": true,
@@ -5386,6 +5503,7 @@
             "capabilities": {
               "audioInput": false,
               "audioOutput": false,
+              "imageOutput": false,
               "serviceTiers": [],
               "showThoughts": true,
               "structuredOutputs": true,
@@ -5420,6 +5538,7 @@
             "capabilities": {
               "audioInput": false,
               "audioOutput": false,
+              "imageOutput": false,
               "serviceTiers": [],
               "showThoughts": false,
               "structuredOutputs": false,
@@ -5443,6 +5562,7 @@
             "capabilities": {
               "audioInput": false,
               "audioOutput": false,
+              "imageOutput": false,
               "serviceTiers": [],
               "showThoughts": false,
               "structuredOutputs": true,
@@ -5469,6 +5589,7 @@
             "capabilities": {
               "audioInput": false,
               "audioOutput": false,
+              "imageOutput": false,
               "serviceTiers": [],
               "showThoughts": false,
               "structuredOutputs": true,
@@ -5495,6 +5616,7 @@
             "capabilities": {
               "audioInput": false,
               "audioOutput": false,
+              "imageOutput": false,
               "serviceTiers": [],
               "showThoughts": true,
               "structuredOutputs": true,
@@ -5530,6 +5652,7 @@
             "capabilities": {
               "audioInput": false,
               "audioOutput": false,
+              "imageOutput": false,
               "serviceTiers": [],
               "showThoughts": true,
               "structuredOutputs": true,
@@ -5565,6 +5688,7 @@
             "capabilities": {
               "audioInput": false,
               "audioOutput": false,
+              "imageOutput": false,
               "serviceTiers": [],
               "showThoughts": true,
               "structuredOutputs": true,
@@ -5600,6 +5724,7 @@
             "capabilities": {
               "audioInput": false,
               "audioOutput": false,
+              "imageOutput": false,
               "serviceTiers": [],
               "showThoughts": true,
               "structuredOutputs": true,
@@ -5660,6 +5785,681 @@
         "isDynamic": true,
         "models": [],
         "name": "azure-openai"
+      },
+      {
+        "capabilities": {
+          "serviceTiers": [],
+          "thinking": true,
+          "thinkingLevels": ["minimal", "low", "medium", "high", "highest"]
+        },
+        "defaultModel": "muse-spark-1.3",
+        "displayName": "Meta Model API",
+        "isDynamic": false,
+        "models": [
+          {
+            "audio": {
+              "input": true,
+              "output": false
+            },
+            "capabilities": {
+              "audioInput": true,
+              "audioOutput": false,
+              "imageInput": true,
+              "imageOutput": false,
+              "pdfInput": true,
+              "serviceTiers": [],
+              "showThoughts": true,
+              "structuredOutputs": true,
+              "temperature": true,
+              "textInput": true,
+              "textOutput": true,
+              "thinkingBudget": true,
+              "thinkingLevels": ["minimal", "low", "medium", "high", "highest"],
+              "topP": true,
+              "videoInput": true
+            },
+            "contextWindow": 1048576,
+            "dataUse": {
+              "providerTraining": "not-used"
+            },
+            "isDefault": true,
+            "modalities": {
+              "input": ["text", "image", "audio", "video", "pdf"],
+              "output": ["text"]
+            },
+            "name": "muse-spark-1.3",
+            "provider": "meta",
+            "supported": {
+              "operations": ["chat"],
+              "showThoughts": true,
+              "structuredOutputModes": ["native", "function", "json_object"],
+              "structuredOutputs": true,
+              "thinkingBudget": true
+            },
+            "type": "text"
+          },
+          {
+            "audio": {
+              "input": true,
+              "output": false
+            },
+            "capabilities": {
+              "audioInput": true,
+              "audioOutput": false,
+              "imageInput": true,
+              "imageOutput": false,
+              "pdfInput": true,
+              "serviceTiers": [],
+              "showThoughts": true,
+              "structuredOutputs": true,
+              "temperature": true,
+              "textInput": true,
+              "textOutput": true,
+              "thinkingBudget": true,
+              "thinkingLevels": ["minimal", "low", "medium", "high", "highest"],
+              "topP": true,
+              "videoInput": true
+            },
+            "contextWindow": 1048576,
+            "dataUse": {
+              "appliesTo": ["prompt", "completion"],
+              "providerTraining": "allowed"
+            },
+            "isDefault": false,
+            "modalities": {
+              "input": ["text", "image", "audio", "video", "pdf"],
+              "output": ["text"]
+            },
+            "name": "muse-spark-1.3-contributor",
+            "provider": "meta",
+            "supported": {
+              "operations": ["chat"],
+              "showThoughts": true,
+              "structuredOutputModes": ["native", "function", "json_object"],
+              "structuredOutputs": true,
+              "thinkingBudget": true
+            },
+            "type": "text"
+          },
+          {
+            "audio": {
+              "input": true,
+              "output": false
+            },
+            "capabilities": {
+              "audioInput": true,
+              "audioOutput": false,
+              "imageInput": true,
+              "imageOutput": false,
+              "pdfInput": true,
+              "serviceTiers": [],
+              "showThoughts": true,
+              "structuredOutputs": true,
+              "temperature": true,
+              "textInput": true,
+              "textOutput": true,
+              "thinkingBudget": true,
+              "thinkingLevels": ["minimal", "low", "medium", "high", "highest"],
+              "topP": true,
+              "videoInput": true
+            },
+            "contextWindow": 1048576,
+            "dataUse": {
+              "providerTraining": "not-used"
+            },
+            "isDefault": false,
+            "modalities": {
+              "input": ["text", "image", "audio", "video", "pdf"],
+              "output": ["text"]
+            },
+            "name": "muse-spark-1.2",
+            "provider": "meta",
+            "supported": {
+              "operations": ["chat"],
+              "showThoughts": true,
+              "structuredOutputModes": ["native", "function", "json_object"],
+              "structuredOutputs": true,
+              "thinkingBudget": true
+            },
+            "type": "text"
+          },
+          {
+            "audio": {
+              "input": true,
+              "output": false
+            },
+            "capabilities": {
+              "audioInput": true,
+              "audioOutput": false,
+              "imageInput": true,
+              "imageOutput": false,
+              "pdfInput": true,
+              "serviceTiers": [],
+              "showThoughts": true,
+              "structuredOutputs": true,
+              "temperature": true,
+              "textInput": true,
+              "textOutput": true,
+              "thinkingBudget": true,
+              "thinkingLevels": ["minimal", "low", "medium", "high", "highest"],
+              "topP": true,
+              "videoInput": true
+            },
+            "contextWindow": 1048576,
+            "dataUse": {
+              "appliesTo": ["prompt", "completion"],
+              "providerTraining": "allowed"
+            },
+            "isDefault": false,
+            "modalities": {
+              "input": ["text", "image", "audio", "video", "pdf"],
+              "output": ["text"]
+            },
+            "name": "muse-spark-1.2-contributor",
+            "provider": "meta",
+            "supported": {
+              "operations": ["chat"],
+              "showThoughts": true,
+              "structuredOutputModes": ["native", "function", "json_object"],
+              "structuredOutputs": true,
+              "thinkingBudget": true
+            },
+            "type": "text"
+          },
+          {
+            "audio": {
+              "input": true,
+              "output": false
+            },
+            "capabilities": {
+              "audioInput": true,
+              "audioOutput": false,
+              "imageInput": true,
+              "imageOutput": false,
+              "pdfInput": true,
+              "serviceTiers": [],
+              "showThoughts": true,
+              "structuredOutputs": true,
+              "temperature": true,
+              "textInput": true,
+              "textOutput": true,
+              "thinkingBudget": true,
+              "thinkingLevels": ["minimal", "low", "medium", "high", "highest"],
+              "topP": true,
+              "videoInput": true
+            },
+            "contextWindow": 1048576,
+            "dataUse": {
+              "providerTraining": "not-used"
+            },
+            "isDefault": false,
+            "modalities": {
+              "input": ["text", "image", "audio", "video", "pdf"],
+              "output": ["text"]
+            },
+            "name": "muse-spark-1.1",
+            "provider": "meta",
+            "supported": {
+              "operations": ["chat"],
+              "showThoughts": true,
+              "structuredOutputModes": ["native", "function", "json_object"],
+              "structuredOutputs": true,
+              "thinkingBudget": true
+            },
+            "type": "text"
+          }
+        ],
+        "name": "meta"
+      },
+      {
+        "capabilities": {
+          "serviceTiers": [],
+          "thinking": true,
+          "thinkingLevels": ["minimal", "low", "medium", "high", "highest"]
+        },
+        "defaultModel": "muse-spark-1.3",
+        "displayName": "Meta Model API Chat Completions",
+        "isDynamic": false,
+        "models": [
+          {
+            "audio": {
+              "input": true,
+              "output": false
+            },
+            "capabilities": {
+              "audioInput": true,
+              "audioOutput": false,
+              "imageInput": true,
+              "imageOutput": false,
+              "pdfInput": true,
+              "serviceTiers": [],
+              "showThoughts": true,
+              "structuredOutputs": true,
+              "temperature": true,
+              "textInput": true,
+              "textOutput": true,
+              "thinkingBudget": true,
+              "thinkingLevels": ["minimal", "low", "medium", "high", "highest"],
+              "topP": true,
+              "videoInput": true
+            },
+            "contextWindow": 1048576,
+            "dataUse": {
+              "providerTraining": "not-used"
+            },
+            "isDefault": true,
+            "modalities": {
+              "input": ["text", "image", "audio", "video", "pdf"],
+              "output": ["text"]
+            },
+            "name": "muse-spark-1.3",
+            "provider": "meta-chat",
+            "supported": {
+              "operations": ["chat"],
+              "showThoughts": true,
+              "structuredOutputModes": ["native", "function", "json_object"],
+              "structuredOutputs": true,
+              "thinkingBudget": true
+            },
+            "type": "text"
+          },
+          {
+            "audio": {
+              "input": true,
+              "output": false
+            },
+            "capabilities": {
+              "audioInput": true,
+              "audioOutput": false,
+              "imageInput": true,
+              "imageOutput": false,
+              "pdfInput": true,
+              "serviceTiers": [],
+              "showThoughts": true,
+              "structuredOutputs": true,
+              "temperature": true,
+              "textInput": true,
+              "textOutput": true,
+              "thinkingBudget": true,
+              "thinkingLevels": ["minimal", "low", "medium", "high", "highest"],
+              "topP": true,
+              "videoInput": true
+            },
+            "contextWindow": 1048576,
+            "dataUse": {
+              "appliesTo": ["prompt", "completion"],
+              "providerTraining": "allowed"
+            },
+            "isDefault": false,
+            "modalities": {
+              "input": ["text", "image", "audio", "video", "pdf"],
+              "output": ["text"]
+            },
+            "name": "muse-spark-1.3-contributor",
+            "provider": "meta-chat",
+            "supported": {
+              "operations": ["chat"],
+              "showThoughts": true,
+              "structuredOutputModes": ["native", "function", "json_object"],
+              "structuredOutputs": true,
+              "thinkingBudget": true
+            },
+            "type": "text"
+          },
+          {
+            "audio": {
+              "input": true,
+              "output": false
+            },
+            "capabilities": {
+              "audioInput": true,
+              "audioOutput": false,
+              "imageInput": true,
+              "imageOutput": false,
+              "pdfInput": true,
+              "serviceTiers": [],
+              "showThoughts": true,
+              "structuredOutputs": true,
+              "temperature": true,
+              "textInput": true,
+              "textOutput": true,
+              "thinkingBudget": true,
+              "thinkingLevels": ["minimal", "low", "medium", "high", "highest"],
+              "topP": true,
+              "videoInput": true
+            },
+            "contextWindow": 1048576,
+            "dataUse": {
+              "providerTraining": "not-used"
+            },
+            "isDefault": false,
+            "modalities": {
+              "input": ["text", "image", "audio", "video", "pdf"],
+              "output": ["text"]
+            },
+            "name": "muse-spark-1.2",
+            "provider": "meta-chat",
+            "supported": {
+              "operations": ["chat"],
+              "showThoughts": true,
+              "structuredOutputModes": ["native", "function", "json_object"],
+              "structuredOutputs": true,
+              "thinkingBudget": true
+            },
+            "type": "text"
+          },
+          {
+            "audio": {
+              "input": true,
+              "output": false
+            },
+            "capabilities": {
+              "audioInput": true,
+              "audioOutput": false,
+              "imageInput": true,
+              "imageOutput": false,
+              "pdfInput": true,
+              "serviceTiers": [],
+              "showThoughts": true,
+              "structuredOutputs": true,
+              "temperature": true,
+              "textInput": true,
+              "textOutput": true,
+              "thinkingBudget": true,
+              "thinkingLevels": ["minimal", "low", "medium", "high", "highest"],
+              "topP": true,
+              "videoInput": true
+            },
+            "contextWindow": 1048576,
+            "dataUse": {
+              "appliesTo": ["prompt", "completion"],
+              "providerTraining": "allowed"
+            },
+            "isDefault": false,
+            "modalities": {
+              "input": ["text", "image", "audio", "video", "pdf"],
+              "output": ["text"]
+            },
+            "name": "muse-spark-1.2-contributor",
+            "provider": "meta-chat",
+            "supported": {
+              "operations": ["chat"],
+              "showThoughts": true,
+              "structuredOutputModes": ["native", "function", "json_object"],
+              "structuredOutputs": true,
+              "thinkingBudget": true
+            },
+            "type": "text"
+          },
+          {
+            "audio": {
+              "input": true,
+              "output": false
+            },
+            "capabilities": {
+              "audioInput": true,
+              "audioOutput": false,
+              "imageInput": true,
+              "imageOutput": false,
+              "pdfInput": true,
+              "serviceTiers": [],
+              "showThoughts": true,
+              "structuredOutputs": true,
+              "temperature": true,
+              "textInput": true,
+              "textOutput": true,
+              "thinkingBudget": true,
+              "thinkingLevels": ["minimal", "low", "medium", "high", "highest"],
+              "topP": true,
+              "videoInput": true
+            },
+            "contextWindow": 1048576,
+            "dataUse": {
+              "providerTraining": "not-used"
+            },
+            "isDefault": false,
+            "modalities": {
+              "input": ["text", "image", "audio", "video", "pdf"],
+              "output": ["text"]
+            },
+            "name": "muse-spark-1.1",
+            "provider": "meta-chat",
+            "supported": {
+              "operations": ["chat"],
+              "showThoughts": true,
+              "structuredOutputModes": ["native", "function", "json_object"],
+              "structuredOutputs": true,
+              "thinkingBudget": true
+            },
+            "type": "text"
+          }
+        ],
+        "name": "meta-chat"
+      },
+      {
+        "capabilities": {
+          "serviceTiers": [],
+          "thinking": true,
+          "thinkingLevels": ["minimal", "low", "medium", "high", "highest"]
+        },
+        "defaultModel": "muse-spark-1.3",
+        "displayName": "Meta Model API Messages",
+        "isDynamic": false,
+        "models": [
+          {
+            "audio": {
+              "input": true,
+              "output": false
+            },
+            "capabilities": {
+              "audioInput": true,
+              "audioOutput": false,
+              "imageInput": true,
+              "imageOutput": false,
+              "pdfInput": true,
+              "serviceTiers": [],
+              "showThoughts": true,
+              "structuredOutputs": true,
+              "temperature": true,
+              "textInput": true,
+              "textOutput": true,
+              "thinkingBudget": true,
+              "thinkingLevels": ["minimal", "low", "medium", "high", "highest"],
+              "topP": true,
+              "videoInput": true
+            },
+            "contextWindow": 1048576,
+            "dataUse": {
+              "providerTraining": "not-used"
+            },
+            "isDefault": true,
+            "modalities": {
+              "input": ["text", "image", "audio", "video", "pdf"],
+              "output": ["text"]
+            },
+            "name": "muse-spark-1.3",
+            "provider": "meta-messages",
+            "supported": {
+              "operations": ["chat"],
+              "showThoughts": true,
+              "structuredOutputModes": ["native", "function"],
+              "structuredOutputs": true,
+              "thinkingBudget": true
+            },
+            "type": "text"
+          },
+          {
+            "audio": {
+              "input": true,
+              "output": false
+            },
+            "capabilities": {
+              "audioInput": true,
+              "audioOutput": false,
+              "imageInput": true,
+              "imageOutput": false,
+              "pdfInput": true,
+              "serviceTiers": [],
+              "showThoughts": true,
+              "structuredOutputs": true,
+              "temperature": true,
+              "textInput": true,
+              "textOutput": true,
+              "thinkingBudget": true,
+              "thinkingLevels": ["minimal", "low", "medium", "high", "highest"],
+              "topP": true,
+              "videoInput": true
+            },
+            "contextWindow": 1048576,
+            "dataUse": {
+              "appliesTo": ["prompt", "completion"],
+              "providerTraining": "allowed"
+            },
+            "isDefault": false,
+            "modalities": {
+              "input": ["text", "image", "audio", "video", "pdf"],
+              "output": ["text"]
+            },
+            "name": "muse-spark-1.3-contributor",
+            "provider": "meta-messages",
+            "supported": {
+              "operations": ["chat"],
+              "showThoughts": true,
+              "structuredOutputModes": ["native", "function"],
+              "structuredOutputs": true,
+              "thinkingBudget": true
+            },
+            "type": "text"
+          },
+          {
+            "audio": {
+              "input": true,
+              "output": false
+            },
+            "capabilities": {
+              "audioInput": true,
+              "audioOutput": false,
+              "imageInput": true,
+              "imageOutput": false,
+              "pdfInput": true,
+              "serviceTiers": [],
+              "showThoughts": true,
+              "structuredOutputs": true,
+              "temperature": true,
+              "textInput": true,
+              "textOutput": true,
+              "thinkingBudget": true,
+              "thinkingLevels": ["minimal", "low", "medium", "high", "highest"],
+              "topP": true,
+              "videoInput": true
+            },
+            "contextWindow": 1048576,
+            "dataUse": {
+              "providerTraining": "not-used"
+            },
+            "isDefault": false,
+            "modalities": {
+              "input": ["text", "image", "audio", "video", "pdf"],
+              "output": ["text"]
+            },
+            "name": "muse-spark-1.2",
+            "provider": "meta-messages",
+            "supported": {
+              "operations": ["chat"],
+              "showThoughts": true,
+              "structuredOutputModes": ["native", "function"],
+              "structuredOutputs": true,
+              "thinkingBudget": true
+            },
+            "type": "text"
+          },
+          {
+            "audio": {
+              "input": true,
+              "output": false
+            },
+            "capabilities": {
+              "audioInput": true,
+              "audioOutput": false,
+              "imageInput": true,
+              "imageOutput": false,
+              "pdfInput": true,
+              "serviceTiers": [],
+              "showThoughts": true,
+              "structuredOutputs": true,
+              "temperature": true,
+              "textInput": true,
+              "textOutput": true,
+              "thinkingBudget": true,
+              "thinkingLevels": ["minimal", "low", "medium", "high", "highest"],
+              "topP": true,
+              "videoInput": true
+            },
+            "contextWindow": 1048576,
+            "dataUse": {
+              "appliesTo": ["prompt", "completion"],
+              "providerTraining": "allowed"
+            },
+            "isDefault": false,
+            "modalities": {
+              "input": ["text", "image", "audio", "video", "pdf"],
+              "output": ["text"]
+            },
+            "name": "muse-spark-1.2-contributor",
+            "provider": "meta-messages",
+            "supported": {
+              "operations": ["chat"],
+              "showThoughts": true,
+              "structuredOutputModes": ["native", "function"],
+              "structuredOutputs": true,
+              "thinkingBudget": true
+            },
+            "type": "text"
+          },
+          {
+            "audio": {
+              "input": true,
+              "output": false
+            },
+            "capabilities": {
+              "audioInput": true,
+              "audioOutput": false,
+              "imageInput": true,
+              "imageOutput": false,
+              "pdfInput": true,
+              "serviceTiers": [],
+              "showThoughts": true,
+              "structuredOutputs": true,
+              "temperature": true,
+              "textInput": true,
+              "textOutput": true,
+              "thinkingBudget": true,
+              "thinkingLevels": ["minimal", "low", "medium", "high", "highest"],
+              "topP": true,
+              "videoInput": true
+            },
+            "contextWindow": 1048576,
+            "dataUse": {
+              "providerTraining": "not-used"
+            },
+            "isDefault": false,
+            "modalities": {
+              "input": ["text", "image", "audio", "video", "pdf"],
+              "output": ["text"]
+            },
+            "name": "muse-spark-1.1",
+            "provider": "meta-messages",
+            "supported": {
+              "operations": ["chat"],
+              "showThoughts": true,
+              "structuredOutputModes": ["native", "function"],
+              "structuredOutputs": true,
+              "thinkingBudget": true
+            },
+            "type": "text"
+          }
+        ],
+        "name": "meta-messages"
       },
       {
         "capabilities": {
@@ -6025,10 +6825,10 @@
         "name": "baseten-engine"
       }
     ],
-    "modelCount": 184,
+    "modelCount": 197,
     "openaiFirstModel": "gpt-5-nano",
     "openaiModelTypes": ["code", "text"],
-    "providerCount": 46,
+    "providerCount": 49,
     "providerNames": [
       "google-gemini",
       "webllm",
@@ -6043,6 +6843,9 @@
       "anthropic",
       "openai-compatible",
       "azure-openai",
+      "meta",
+      "meta-chat",
+      "meta-messages",
       "together",
       "openrouter",
       "orcarouter",

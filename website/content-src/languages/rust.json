@@ -92,6 +92,18 @@
           "}"
         ]
       },
+      "cancellation": {
+        "sourcePath": "src/examples/rust/generation/cancellation.rs",
+        "verified": true,
+        "requiresCredentials": false,
+        "code": [
+          "let token = AxCancellationToken::default();",
+          "token.cancel(\"user stopped\");",
+          "let error = client.chat_with_cancellation(request, json!({}), &token).unwrap_err();",
+          "assert_eq!(error.error_type.as_deref(), Some(\"AxAIServiceAbortedError\"));",
+          "assert!(!error.retryable);"
+        ]
+      },
       "balancer": {
         "sourcePath": "src/examples/rust/generation/adaptive_balancer.rs",
         "verified": true,

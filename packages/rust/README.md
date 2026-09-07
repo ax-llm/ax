@@ -37,6 +37,7 @@ fn main() -> AxResult<()> {
 - AxGen: run structured generation with retries, tool calls, field processors, assertions, traces, usage, and provider-backed output parsing.
 - AxAI: select named deployment profiles independently from model IDs, resolve model-aware structured-output modes, and attach renewable request credentials through one provider boundary.
 - Audio and realtime: `.chat()` accepts `input_audio` content parts, `transcribe()`/`speak()` do batch speech-to-text and text-to-speech, and realtime-capable models stream audio over a WebSocket — transparently through `chat()` or via the productized `realtime_chat()` driver (Go: `RealtimeChat`).
+- Meta Muse: `meta` (Responses), `meta-chat` (Chat Completions), and `meta-messages` (Messages) default to `muse-spark-1.3` with `MODEL_API_KEY`. Muse Image uses chat and `results[].images`; Muse Voice uses batch transcription or realtime streaming chat. Contributor models expose provider-training data-use metadata and are never defaults. Glimmer uses the existing self-hosted profiles; Ax does not manage weights.
 - AxAgent and RLM: let an agent plan and execute actor-code steps while Ax keeps envelopes, state, logs, traces, context, discovery, recall, and final typed responses aligned.
 - AxFlow: compose AxGen, AxAgent, and nested flows into a portable program graph.
 - Optimizers: save, load, apply, and evaluate optimizer artifacts, including the generated GEPA engine.
@@ -62,6 +63,7 @@ Shared Ax behavior is Core-owned. The generated target code stays focused on idi
 - `cargo run --example runtime_hooks_no_key`: runtime-hook globals and typed program surfaces through a scripted transport
 - `cargo run --example adaptive_balancer_no_key`: adaptive balancer state, scoring, and stable route keys without a provider key
 - `cargo run --example provider_stream_no_key`: provider streaming through a scripted SSE transport
+- `cargo run --example cancellation_no_key`: one-shot provider cancellation with no transport attempt
 - `cargo run --example axgen_scripted_client_tool`: AxGen with a scripted client and tool
 - `cargo run --example axflow_program_graph`: AxFlow program graph
 - `cargo run --example flow_mermaid`: portable Mermaid flow parsing and canonical round-trip

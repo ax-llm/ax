@@ -1,0 +1,247 @@
+{
+  "events": [
+    {
+      "audioProcessedMs": 0,
+      "turnId": "turn-1",
+      "type": "speechStart"
+    },
+    {
+      "audioProcessedMs": 100,
+      "transcript": "Hello",
+      "type": "transcript"
+    },
+    {
+      "audioProcessedMs": 100,
+      "label": "speaker-1",
+      "type": "speaker"
+    },
+    {
+      "audioProcessedMs": 150,
+      "turnId": "turn-2",
+      "type": "speechStart"
+    },
+    {
+      "audioProcessedMs": 200,
+      "transcript": "Second",
+      "type": "transcript"
+    },
+    {
+      "audioProcessedMs": 200,
+      "label": "speaker-2",
+      "type": "speaker"
+    },
+    {
+      "audioProcessedMs": 300,
+      "transcript": "Hello world",
+      "turnId": "turn-1",
+      "type": "speechComplete"
+    },
+    {
+      "audioProcessedMs": 400,
+      "transcript": "Second turn",
+      "turnId": "turn-2",
+      "type": "speechComplete"
+    },
+    {
+      "audioProcessedMs": 400,
+      "type": "audioProgress"
+    }
+  ],
+  "expected_input": [
+    {
+      "data": "AAE=",
+      "type": "binary"
+    },
+    {
+      "type": "endStream"
+    }
+  ],
+  "expected_output": [
+    {
+      "model_usage": null,
+      "results": [
+        {
+          "audio_processed_ms": 0,
+          "content": "",
+          "finish_reason": null,
+          "function_calls": [],
+          "id": "turn-1",
+          "index": 0
+        }
+      ]
+    },
+    {
+      "model_usage": null,
+      "results": [
+        {
+          "audio_processed_ms": 100,
+          "content": "",
+          "finish_reason": null,
+          "function_calls": [],
+          "id": "turn-1",
+          "index": 0,
+          "transcript": {
+            "is_final": false,
+            "text": "Hello"
+          }
+        }
+      ]
+    },
+    {
+      "model_usage": null,
+      "results": [
+        {
+          "audio_processed_ms": 100,
+          "content": "",
+          "finish_reason": null,
+          "function_calls": [],
+          "id": "turn-1",
+          "index": 0,
+          "name": "speaker-1"
+        }
+      ]
+    },
+    {
+      "model_usage": null,
+      "results": [
+        {
+          "audio_processed_ms": 150,
+          "content": "",
+          "finish_reason": null,
+          "function_calls": [],
+          "id": "turn-2",
+          "index": 0
+        }
+      ]
+    },
+    {
+      "model_usage": null,
+      "results": [
+        {
+          "audio_processed_ms": 200,
+          "content": "",
+          "finish_reason": null,
+          "function_calls": [],
+          "id": "turn-2",
+          "index": 0,
+          "transcript": {
+            "is_final": false,
+            "text": "Second"
+          }
+        }
+      ]
+    },
+    {
+      "model_usage": null,
+      "results": [
+        {
+          "audio_processed_ms": 200,
+          "content": "",
+          "finish_reason": null,
+          "function_calls": [],
+          "id": "turn-2",
+          "index": 0,
+          "name": "speaker-2"
+        }
+      ]
+    },
+    {
+      "model_usage": null,
+      "results": [
+        {
+          "audio_processed_ms": 300,
+          "content": "Hello world",
+          "finish_reason": null,
+          "function_calls": [],
+          "id": "turn-1",
+          "index": 0,
+          "name": "speaker-1",
+          "transcript": {
+            "is_final": true,
+            "text": "Hello world"
+          }
+        }
+      ]
+    },
+    {
+      "model_usage": null,
+      "results": [
+        {
+          "audio_processed_ms": 400,
+          "content": "Second turn",
+          "finish_reason": null,
+          "function_calls": [],
+          "id": "turn-2",
+          "index": 0,
+          "name": "speaker-2",
+          "transcript": {
+            "is_final": true,
+            "text": "Second turn"
+          }
+        }
+      ]
+    },
+    {
+      "model_usage": null,
+      "results": [
+        {
+          "audio_processed_ms": 400,
+          "content": "",
+          "finish_reason": null,
+          "function_calls": [],
+          "id": "turn-2",
+          "index": 0,
+          "name": "speaker-2"
+        }
+      ]
+    }
+  ],
+  "expected_setup": {
+    "audioEncoding": "PCM_24KHZ",
+    "authorization": {
+      "accessToken": "Bearer meta-key"
+    },
+    "emitAudioProgress": true,
+    "keywords": ["Ax"],
+    "languageBias": ["en"],
+    "mode": "DIARIZATION",
+    "model": "muse-voice-transcribe-1.0",
+    "partialMode": "CUMULATIVE"
+  },
+  "kind": "ai_realtime",
+  "name": "meta-voice-realtime",
+  "options": {
+    "apiKey": "meta-key"
+  },
+  "provider": "meta",
+  "request": {
+    "audio": {
+      "input": {
+        "channels": 1,
+        "sampleRate": 24000
+      }
+    },
+    "chat_prompt": [
+      {
+        "content": [
+          {
+            "data": "AAE=",
+            "format": "pcm16",
+            "type": "audio"
+          }
+        ],
+        "role": "user"
+      }
+    ],
+    "model": "muse-voice-transcribe-1.0",
+    "model_config": {
+      "realtimeTranscription": {
+        "emitAudioProgress": true,
+        "keywords": ["Ax"],
+        "languageBias": ["en"],
+        "mode": "diarization",
+        "partialMode": "cumulative"
+      }
+    }
+  }
+}

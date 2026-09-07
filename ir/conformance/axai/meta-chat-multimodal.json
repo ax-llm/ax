@@ -1,0 +1,109 @@
+{
+  "expected_transport_request": {
+    "json": {
+      "messages": [
+        {
+          "content": [
+            {
+              "text": "Describe these",
+              "type": "text"
+            },
+            {
+              "image_url": {
+                "detail": "auto",
+                "url": "https://example.com/image.png"
+              },
+              "type": "image_url"
+            },
+            {
+              "input_audio": {
+                "data": "AAAA",
+                "format": "wav"
+              },
+              "type": "input_audio"
+            },
+            {
+              "file": {
+                "file_url": "https://example.com/brief.pdf"
+              },
+              "type": "file"
+            },
+            {
+              "type": "video_url",
+              "video_url": {
+                "url": "https://example.com/clip.mp4"
+              }
+            }
+          ],
+          "role": "user"
+        }
+      ]
+    }
+  },
+  "kind": "ai_chat",
+  "model": "muse-spark-1.3",
+  "name": "meta-chat-multimodal",
+  "provider": "meta-chat",
+  "request": {
+    "chat_prompt": [
+      {
+        "content": [
+          {
+            "text": "Describe these",
+            "type": "text"
+          },
+          {
+            "fileUri": "https://example.com/image.png",
+            "mimeType": "image/png",
+            "type": "file"
+          },
+          {
+            "data": "AAAA",
+            "format": "wav",
+            "type": "audio"
+          },
+          {
+            "fileUri": "https://example.com/brief.pdf",
+            "mimeType": "application/pdf",
+            "type": "file"
+          },
+          {
+            "fileUri": "https://example.com/clip.mp4",
+            "mimeType": "video/mp4",
+            "type": "file"
+          }
+        ],
+        "role": "user"
+      }
+    ],
+    "model_config": {
+      "stream": false
+    }
+  },
+  "transport_responses": [
+    {
+      "json": {
+        "choices": [
+          {
+            "finish_reason": "stop",
+            "index": 0,
+            "message": {
+              "content": "ok",
+              "refusal": null,
+              "role": "assistant"
+            }
+          }
+        ],
+        "id": "meta-chat-mm",
+        "model": "muse-spark-1.3",
+        "object": "chat.completion",
+        "usage": {
+          "completion_tokens": 2,
+          "prompt_tokens": 1,
+          "total_tokens": 3
+        }
+      },
+      "status": 200
+    }
+  ]
+}

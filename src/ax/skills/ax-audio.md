@@ -342,9 +342,55 @@ console.log(res.results[0]?.audio?.data);
 
 Grok Voice uses a one-turn WebSocket call under `.chat()`. It expects PCM input for spoken input turns; use `format: 'pcm16'` or `mimeType: 'audio/pcm'`.
 
+## Meta Muse Voice
+
+Use the `meta` profile for both Muse Voice surfaces. Batch transcription stays
+on `transcribe()` and can request endpointing mode, language bias, keywords,
+partial behavior, audio progress, and a caller session ID:
+
+```typescript
+import { ai, AxAIMetaModel } from '@ax-llm/ax';
+
+const meta = ai({
+  name: 'meta',
+  apiKey: process.env.MODEL_API_KEY!,
+});
+
+const transcript = await meta.transcribe({
+  model: AxAIMetaModel.MuseVoiceTranscribe10,
+  audio: { data: base64Wav, format: 'wav' },
+  mode: 'diarization',
+  languageBias: ['en', 'es'],
+  keywords: ['Ax'],
+  partialMode: 'delta',
+  emitAudioProgress: true,
+});
+
+console.log(transcript.text, transcript.segments, transcript.sessionId);
+```
+
+For realtime transcription, select `muse-voice-transcribe-1.0`, pass PCM16
+audio through streaming `chat()`, and provide a WebSocket implementation on
+runtimes that need one. Ax folds cumulative or delta partials, overlapping
+turns, speaker labels, progress events, errors, and graceful `endStream`
+completion into ordinary streaming chat results. Muse Voice is speech-to-text
+only; it does not synthesize audio.
+
+Meta partials can revise or remove earlier words. For live captions, replace the
+snapshot for each result `id` with `result.transcript.text`; `isFinal` marks a
+final snapshot (`is_final` in generated languages). Do not concatenate partial
+snapshots. `content` contains each finalized turn exactly once, in speech-start
+order, and can be accumulated normally. Sending PCM and receiving partials run
+concurrently; cancelling a stream stops pending audio transmission.
+
+Declare the sample rate and channel count on audio items or in `audio.input`;
+when both are present, they must agree. Meta requires mono PCM16 at 16 or 24 kHz.
+A normal connection close succeeds only after the audio upload and `endStream`;
+an earlier close is reported as an error.
+
 ## Streaming Audio
 
-OpenAI audio chat, OpenAI Realtime, Gemini Live, and Grok Voice all default to non-streaming, but each can stream deltas when you pass `{ stream: true }`.
+OpenAI audio chat, OpenAI Realtime, Gemini Live, and Grok Voice default to non-streaming. Meta's Responses profile defaults to streaming. Pass `{ stream: true }` explicitly when consuming audio or transcription deltas.
 
 ```typescript
 const stream = await llm.chat(

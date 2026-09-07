@@ -66,6 +66,7 @@ module @ax.event version "0.1" {
 
   op ax.event.interface @AxEventClock {
     attr contract = "event-clock"
+    attr cancellation = "system and manual sleeps wake promptly and remove cancellation registrations after either cancellation or normal completion"
     attr core_kind = "interface"
     attr public = true
     tag "axevent"

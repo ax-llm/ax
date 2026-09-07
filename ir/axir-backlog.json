@@ -1340,6 +1340,89 @@
       "completedAt": null,
       "completedByCommit": null,
       "verification": null
+    },
+    {
+      "id": "axir-2026-09-06-port-event-clock-cancellation",
+      "status": "done",
+      "title": "Port event clock cancellation",
+      "createdAt": "2026-09-06",
+      "sourcePR": 647,
+      "sourceCommit": "039f1d7e36fc0dd05817d340350264376dd98e75",
+      "tsPaths": ["src/ax/event/types.ts", "src/ax/event/types.test.ts"],
+      "portableSurface": "axprogram",
+      "impact": "Generated system and manual event clocks need the TypeScript cancellation cleanup contract so successful and cancelled sleeps promptly release wake callbacks, timers, waiters, and condition registrations.",
+      "suggestedAxirWork": [
+        "Add or update the TS-derived conformance fixture.",
+        "Update AxIR/Core or descriptor data to match the portable TS behavior.",
+        "Run npm run axir:conformance:check and npm run test:axir."
+      ],
+      "completedAt": "2026-09-06",
+      "completedByCommit": "working-tree",
+      "verification": "axevent lifecycle conformance in Python, Java, C++, Go, and Rust; npm run test:axir; npm run axir:check-packages"
+    },
+    {
+      "id": "axir-2026-09-06-port-provider-request-cancellation",
+      "status": "done",
+      "title": "Port provider request cancellation",
+      "createdAt": "2026-09-06",
+      "sourcePR": 645,
+      "sourceCommit": "2034b04f688bcfe64ffd8f728a4efccaa8045aff",
+      "tsPaths": ["src/ax/util/apicall.ts", "src/ax/util/apicall.test.ts"],
+      "portableSurface": "axai",
+      "impact": "Generated Python, Java, C++, Go, and Rust provider operations need the TypeScript request cancellation cleanup contract across HTTP/SSE, retry, routing, forwarding, and custom transports, with terminal non-retryable aborted errors and no listener or attempt retention.",
+      "suggestedAxirWork": [
+        "Add or update the TS-derived conformance fixture.",
+        "Update AxIR/Core or descriptor data to match the portable TS behavior.",
+        "Run npm run axir:conformance:check and npm run test:axir."
+      ],
+      "completedAt": "2026-09-06",
+      "completedByCommit": "working-tree",
+      "verification": "portable-cancellation conformance in Python, Java, C++, Go, and Rust; npm run test:axir; npm run axir:check-packages"
+    },
+    {
+      "id": "axir-2026-09-06-preserve-meta-stream-failures-and-replay-metadata-and-enable-ax-",
+      "status": "done",
+      "title": "Preserve Meta stream failures and replay metadata and enable Ax output tools",
+      "createdAt": "2026-09-06",
+      "sourcePR": null,
+      "sourceCommit": "781623e58befc00a555cf73ccbac598a72bb700c",
+      "tsPaths": [
+        "src/ax/ai/meta/regressions.test.ts",
+        "src/ax/ai/openai/responses_api.ts",
+        "src/ax/ai/openai/responses_api_base.ts",
+        "src/ax/ai/openai/responses_types.ts",
+        "src/ax/ai/provider_profiles.ts",
+        "src/ax/dsp/response/streaming.ts"
+      ],
+      "portableSurface": "axai",
+      "impact": "Responses terminal failures and token limits must survive provider normalization and program streaming; Meta must accept internally generated output tools without enabling caller-named forced choices; streamed final-answer phases must reach memory.",
+      "suggestedAxirWork": [
+        "Add or update the TS-derived conformance fixture.",
+        "Update AxIR/Core or descriptor data to match the portable TS behavior.",
+        "Run npm run axir:conformance:check and npm run test:axir."
+      ],
+      "completedAt": "2026-09-06",
+      "completedByCommit": "working-tree",
+      "verification": "TypeScript: 3052 tests passed, 1 skipped; type-check and type-tests passed. test:axir passed, including Python/Java/C++/Go/Rust release conformance and package-consumer checks. profiles:check, axir:conformance:check, axir:check-packages, test:examples:generated, and website:check passed."
+    },
+    {
+      "id": "axir-2026-09-07-complete-meta-replay-and-realtime-upload-integrity",
+      "status": "done",
+      "title": "Complete Meta replay and realtime upload integrity",
+      "createdAt": "2026-09-07",
+      "sourcePR": 649,
+      "sourceCommit": "0072270c8f6de37da546f739e6f8ef2c25ff7459",
+      "tsPaths": ["src/ax/ai/openai/responses_api.ts"],
+      "portableSurface": "axai",
+      "impact": "Preserve parallel Responses calls, stream call identities and nonduplicated content, replay-only assistant payloads, and audio item metadata; reject early realtime closes before upload completion.",
+      "suggestedAxirWork": [
+        "Add or update the TS-derived conformance fixture.",
+        "Update AxIR/Core or descriptor data to match the portable TS behavior.",
+        "Run npm run axir:conformance:check and npm run test:axir."
+      ],
+      "completedAt": "2026-09-07",
+      "completedByCommit": "working-tree",
+      "verification": "TypeScript: 3067 passed, 1 skipped, type-check and type tests passed. Meta conformance passed in Python, Java, C++, Go, and Rust; generated examples passed. Go package tests and Rust realtime loopback tests passed. Semantic parity, provider profiles, generated-package freshness, and website checks passed."
     }
   ],
   "nonPortableExemptions": [
