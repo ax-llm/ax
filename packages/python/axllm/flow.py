@@ -1,5 +1,6 @@
 from __future__ import annotations
 import os
+from .session import _core_run_control_aborted
 
 from abc import ABC, abstractmethod
 import copy
@@ -941,6 +942,12 @@ def _flow_cache_read_write(flow: Any, values: Any, options: Any, mode: str, cach
     result["key"] = key
     result["hit"] = False
     result["value"] = none
+    controller = _core_get(opts, "control", None)
+    controlled = _core_is_not_none(controller)
+    if controlled:
+        return result
+    else:
+        pass
     if is_read:
         can_read_store = _core_and(has_store, read_error)
         skip_read = _core_truthy(can_read_store)
@@ -982,6 +989,9 @@ def _flow_check_abort(options: Any, location: str) -> None:
     abort_camel = _core_get(options, "abortBeforeStep", abort_snake)
     aborted = _core_get(options, "aborted", abort_camel)
     abort = _core_get(options, "abort", aborted)
+    controller = _core_get(options, "control", None)
+    control_aborted = _core_run_control_aborted(controller)
+    abort = _core_or(abort, control_aborted)
     if abort:
         message = _core_string_format("Flow aborted at {}", location)
         err = _core_runtime_error(message)
@@ -1077,8 +1087,8 @@ def _flow_record_child_traces(flow: Any, node: str, program: Any) -> Any:
     return traces
 
 
-def _flow_execute_program_node(flow: Any, step: Any, client: Any, state: Any, options: Any) -> Any:
-    _core_coverage_mark("_flow_execute_program_node")
+def _flow_prepare_program_node(flow: Any, step: Any, client: Any, state: Any, options: Any) -> Any:
+    _core_coverage_mark("_flow_prepare_program_node")
     empty_map = {}
     name = _core_get(step, "name", "")
     kind = _core_get(step, "kind", "execute")
@@ -1087,6 +1097,17 @@ def _flow_execute_program_node(flow: Any, step: Any, client: Any, state: Any, op
     base_options = _core_get(flow, "options", empty_map)
     runtime_base = _core_map_merge(base_options, options)
     runtime_options = _core_map_merge(runtime_base, step_options)
+    controller = _core_get(runtime_base, "control", None)
+    controlled = _core_is_not_none(controller)
+    if controlled:
+        parent_path_snake = _core_get(runtime_base, "execution_path", "root")
+        parent_path = _core_get(runtime_base, "executionPath", parent_path_snake)
+        node_path = _core_string_format("{}/{}", parent_path, name)
+        runtime_options["control"] = controller
+        runtime_options["execution_path"] = node_path
+        runtime_options["executionPath"] = node_path
+    else:
+        pass
     trace_label_in = _core_get(options, "traceLabel", "")
     has_trace_label = _core_truthy(trace_label_in)
     trace_label = _core_string_format("Node:{}", name)
@@ -1110,7 +1131,18 @@ def _flow_execute_program_node(flow: Any, step: Any, client: Any, state: Any, op
         raise abort_error
     else:
         pass
-    result = _core_agent_stage_forward(program, client, state, runtime_options)
+    prepared = {}
+    prepared["name"] = name
+    prepared["program"] = program
+    prepared["options"] = runtime_options
+    return prepared
+
+
+def _flow_finish_program_node(flow: Any, prepared: Any, result: Any, state: Any) -> Any:
+    _core_coverage_mark("_flow_finish_program_node")
+    empty_map = {}
+    name = _core_get(prepared, "name", "")
+    program = _core_get(prepared, "program", None)
     out = _core_map_merge(state, empty_map)
     result_key = _core_string_format("{}Result", name)
     out[result_key] = result
@@ -1118,6 +1150,16 @@ def _flow_execute_program_node(flow: Any, step: Any, client: Any, state: Any, op
     _flow_record_child_chat_log(flow, name, program)
     _flow_record_child_usage(flow, name, program)
     _flow_record_child_traces(flow, name, program)
+    return out
+
+
+def _flow_execute_program_node(flow: Any, step: Any, client: Any, state: Any, options: Any) -> Any:
+    _core_coverage_mark("_flow_execute_program_node")
+    prepared = _flow_prepare_program_node(flow, step, client, state, options)
+    program = _core_get(prepared, "program", None)
+    runtime_options = _core_get(prepared, "options", None)
+    result = _core_agent_stage_forward(program, client, state, runtime_options)
+    out = _flow_finish_program_node(flow, prepared, result, state)
     return out
 
 

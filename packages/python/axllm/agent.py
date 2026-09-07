@@ -20,9 +20,12 @@ from .ai import (
     _strip_runtime_hooks,
 )
 
+from .session import _core_run_control_aborted
 from .gen import (
     AxGen,
     _core_ai_complete_once,
+    _core_ai_client_features,
+    _core_tool_invoke,
     _ace_apply_curator_operations,
     _ace_dedupe_playbook,
     _ace_empty_playbook,
@@ -46,6 +49,9 @@ from .gen import (
 )
 from .mcp import resolve_execution_context
 from .signature import AxSignature, parse_signature
+from .gen import (
+    chat_session_mode_enabled,
+)
 from .prompt import (
     render_template_content,
 )
@@ -1672,7 +1678,7 @@ class AxAgent:
         # await inside the runtime. The logic lives in the AxIR-generated helper;
         # this wrapper only registers the host callable that closes over this client.
         if runtime is not None and hasattr(runtime, "register_callable"):
-            runtime.register_callable("llmQuery", lambda params: _agent_run_llm_query(self.llm_query, client, params))
+            runtime.register_callable("llmQuery", lambda params: _agent_run_llm_query(self.llm_query, client, params, options))
         output = _agent_forward(
             self.state,
             self.distiller,
@@ -2196,6 +2202,31 @@ def _core_json_pretty(value):
     return json.dumps(value, indent=2)
 
 
+def _core_agent_native_stage_forward(stage, state, client, values, options, selected):
+    from .tool import Tool
+    from dataclasses import replace
+    tools=[]
+    for descriptor in selected:
+        source=_agent_callable_implementation(state,descriptor["qualified_name"])
+        if not isinstance(source,Tool):
+            raise ValueError("Background agent callables must have a typed fn() implementation")
+        tools.append(replace(source,name=descriptor["native_name"],description=descriptor["description"],execution="background"))
+    original=stage.functions
+    original_base=stage._base_functions
+    previous=stage.function_call_traces
+    stage.functions=[*original,*tools]
+    stage._base_functions=[*original_base,*tools]
+    stage.function_call_traces=[]
+    try:
+        return stage.forward(client,values or {},options or {})
+    finally:
+        records=stage.function_call_traces
+        stage.functions=original
+        stage._base_functions=original_base
+        stage.function_call_traces=[*previous,*records]
+        _agent_record_native_calls(state,selected,records,options or {})
+
+
 def _core_agent_stage_forward(stage, client, values, options):
     return stage.forward(client, values or {}, options or {})
 
@@ -2360,6 +2391,13 @@ def _core_agent_callable_invoke(state, request, options):
     agent_options = _core_get(state, "options", {}) or {}
     qualified = _core_get(request, "qualified_name", _core_get(request, "name", ""))
     args = _core_get(request, "args", {})
+    implementation=_agent_callable_implementation(state,qualified)
+    from .tool import Tool
+    if isinstance(implementation,Tool):
+        from .gen import _core_tool_invoke
+        return {"status":"ok","value":_core_tool_invoke(implementation,args,(options or {}).get("tool_context"))}
+    handler=_core_get(implementation,"handler")
+    if callable(handler):return {"status":"ok","value":handler(args)}
     for group in _core_get(state, "callable_inventory", []) or []:
         for callable_meta in _core_get(group, "callables", []) or []:
             if _core_get(callable_meta, "qualified_name") == qualified:
@@ -6004,6 +6042,16 @@ def _normalize_agent_callable(raw: Any, namespace: str) -> Any:
     out["description"] = description
     out["parameters"] = parameters
     out["always_include"] = always_include
+    execution = _core_get(raw, "execution", "blocking")
+    background = _core_eq(execution, "background")
+    if background:
+        out["execution"] = "background"
+    else:
+        blocking = _core_eq(execution, "blocking")
+        if blocking:
+            pass
+        else:
+            raise RuntimeError("Tool execution must be blocking or background")
     return out
 
 
@@ -6970,10 +7018,107 @@ def _agent_append_guidance(state: Any, payload: Any) -> Any:
     return entry
 
 
+def _agent_native_callables(state: Any, features: Any, options: Any) -> Any:
+    _core_coverage_mark("_agent_native_callables")
+    selected = []
+    enabled = chat_session_mode_enabled(options)
+    supports = _core_get(features, "asyncTools", False)
+    available = _core_and(enabled, supports)
+    if available:
+        empty_list = []
+        empty_map = {}
+        flags = _core_get(state, "policy_flags", empty_map)
+        discovery = _core_get(flags, "discoveryMode", False)
+        all_visible = _core_not(discovery)
+        inventory = _core_get(state, "callable_inventory", empty_list)
+        docs = _core_get(state, "discovered_tool_docs", empty_list)
+        names = {}
+        for group in inventory:
+            group_always = _core_get(group, "always_include", False)
+            group_visible = _core_or(all_visible, group_always)
+            callables = _core_get(group, "callables", empty_list)
+            for callable in callables:
+                execution = _core_get(callable, "execution", "blocking")
+                background = _core_eq(execution, "background")
+                if background:
+                    always = _core_get(callable, "always_include", False)
+                    visible = _core_or(group_visible, always)
+                    qualified = _core_get(callable, "qualified_name", None)
+                    for doc in docs:
+                        doc_name = _core_get(doc, "qualified_name", None)
+                        discovered = _core_eq(qualified, doc_name)
+                        visible = _core_or(visible, discovered)
+                    if visible:
+                        name = _core_regex_replace("[^A-Za-z0-9_-]", "_", qualified)
+                        duplicate_name = _core_map_contains(names, name)
+                        if duplicate_name:
+                            raise RuntimeError("Native agent tool names collide after namespace normalization")
+                        else:
+                            pass
+                        names[name] = True
+                        entry = _core_map_merge(empty_map, callable)
+                        entry["native_name"] = name
+                        description = _core_get(entry, "description", "")
+                        description = _core_string_format("{} Execute through this native tool. Do not call {} from actor code.", description, qualified)
+                        entry["description"] = description
+                        selected.append(entry)
+                    else:
+                        pass
+                else:
+                    pass
+    else:
+        pass
+    return selected
+
+
+def _agent_callable_implementation(state: Any, qualified: str) -> Any:
+    _core_coverage_mark("_agent_callable_implementation")
+    empty_map = {}
+    empty_list = []
+    options = _core_get(state, "options", empty_map)
+    functions = _core_get(options, "functions", empty_list)
+    for item in functions:
+        group_functions = _core_get(item, "functions", None)
+        group = _core_type_is(group_functions, "list")
+        namespace = "tools"
+        candidates = []
+        if group:
+            group_name = _core_get(item, "name", "tools")
+            namespace = _core_get(item, "namespace", group_name)
+            candidates = group_functions
+        else:
+            candidates.append(item)
+        for candidate in candidates:
+            name = _core_get(candidate, "name", "")
+            candidate_name = _core_string_format("{}.{}", namespace, name)
+            matches = _core_eq(candidate_name, qualified)
+            if matches:
+                return candidate
+            else:
+                pass
+    return None
+
+
 def _agent_execute_callable(state: Any, request: Any, options: Any) -> Any:
     _core_coverage_mark("_agent_execute_callable")
     empty_list = []
-    result = _core_agent_callable_invoke(state, request, options)
+    native_names = _core_get(state, "native_tool_names", empty_list)
+    qualified = _core_get(request, "qualified_name", "")
+    native_tool = _core_contains(native_names, qualified)
+    result = {}
+    if native_tool:
+        message = _core_string_format("{} is a native background tool. Use its model tool result; do not invoke it again in code.", qualified)
+        result["status"] = "error"
+        result["error"] = message
+    else:
+        result = _core_agent_callable_invoke(state, request, options)
+    recorded = _agent_record_callable_result(state, request, result, options)
+    return recorded
+
+
+def _agent_record_callable_result(state: Any, request: Any, result: Any, options: Any) -> Any:
+    _core_coverage_mark("_agent_record_callable_result")
+    empty_list = []
     qualified = _core_get(request, "qualified_name", "")
     name = _core_get(request, "name", qualified)
     args = _core_get(request, "args", request)
@@ -6982,6 +7127,12 @@ def _agent_execute_callable(state: Any, request: Any, options: Any) -> Any:
     record = {}
     record["qualified_name"] = qualified
     record["name"] = name
+    call_id = _core_get(request, "call_id", None)
+    has_call_id = _core_is_not_none(call_id)
+    if has_call_id:
+        record["call_id"] = call_id
+    else:
+        pass
     record["arguments"] = args
     record["status"] = status
     record["result"] = result
@@ -6990,6 +7141,10 @@ def _agent_execute_callable(state: Any, request: Any, options: Any) -> Any:
     action_log = _core_get(state, "action_log", empty_list)
     action = {}
     action["type"] = "function_call"
+    if has_call_id:
+        action["call_id"] = call_id
+    else:
+        pass
     action["qualified_name"] = qualified
     action["status"] = status
     action_log.append(action)
@@ -7851,7 +8006,10 @@ def _agent_runtime_execution_options(state: Any, options: Any) -> Any:
     abort_snake = _core_get(options, "abort", False)
     aborted = _core_get(options, "aborted", abort_snake)
     abort_signal = _core_get(options, "abortSignal", aborted)
-    has_abort = _core_truthy(abort_signal)
+    signal_aborted = _core_truthy(abort_signal)
+    control = _core_get(options, "control", None)
+    control_aborted = _core_run_control_aborted(control)
+    has_abort = _core_or(signal_aborted, control_aborted)
     if has_abort:
         runtime_options["abort"] = True
     else:
@@ -9673,6 +9831,77 @@ def _agent_set_state(state: Any, runtime_state: Any) -> Any:
     return runtime_state
 
 
+def _agent_executor_stage_forward(state: Any, stage: Any, client: Any, values: Any, options: Any) -> Any:
+    _core_coverage_mark("_agent_executor_stage_forward")
+    control = _core_get(options, "control", None)
+    aborted = _core_run_control_aborted(control)
+    if aborted:
+        raise RuntimeError("Agent aborted before starting the next stage")
+    else:
+        pass
+    model = _core_get(options, "model", None)
+    features = _core_ai_client_features(client, model)
+    selected = _agent_native_callables(state, features, options)
+    names = []
+    for tool in selected:
+        qualified = _core_get(tool, "qualified_name", None)
+        names.append(qualified)
+    state["native_tool_names"] = names
+    count = _core_len(selected)
+    has_native = _core_gt(count, 0)
+    if has_native:
+        output = _core_agent_native_stage_forward(stage, state, client, values, options, selected)
+        return output
+    else:
+        pass
+    output = _agent_controlled_stage_forward(stage, client, values, options)
+    return output
+
+
+def _agent_record_native_calls(state: Any, selected: Any, traces: Any, options: Any) -> None:
+    _core_coverage_mark("_agent_record_native_calls")
+    empty_map = {}
+    for trace in traces:
+        name = _core_get(trace, "name", "")
+        for tool in selected:
+            native_name = _core_get(tool, "native_name", None)
+            matches = _core_eq(name, native_name)
+            if matches:
+                qualified = _core_get(tool, "qualified_name", None)
+                request = {}
+                id = _core_get(trace, "id", None)
+                args = _core_get(trace, "args", empty_map)
+                request["qualified_name"] = qualified
+                request["call_id"] = id
+                request["args"] = args
+                status = _core_get(trace, "status", "ok")
+                value = _core_get(trace, "result", None)
+                result = {}
+                result["status"] = status
+                ok = _core_eq(status, "ok")
+                if ok:
+                    result["value"] = value
+                else:
+                    result["error"] = value
+                _agent_record_callable_result(state, request, result, options)
+            else:
+                pass
+    return None
+
+
+def _agent_controlled_stage_forward(stage: Any, client: Any, values: Any, options: Any) -> Any:
+    _core_coverage_mark("_agent_controlled_stage_forward")
+    control = _core_get(options, "control", None)
+    aborted = _core_run_control_aborted(control)
+    if aborted:
+        error = _core_runtime_error("Agent aborted before starting the next stage")
+        raise error
+    else:
+        pass
+    output = _core_agent_stage_forward(stage, client, values, options)
+    return output
+
+
 def _agent_stage_options(state: Any, stage: str, forward_options: Any) -> Any:
     _core_coverage_mark("_agent_stage_options")
     empty_map = {}
@@ -9697,6 +9926,18 @@ def _agent_stage_options(state: Any, stage: str, forward_options: Any) -> Any:
     else:
         pass
     out = _core_map_merge(stage_options, forward_options)
+    base_control = _core_get(base_options, "control", None)
+    controller = _core_get(forward_options, "control", base_control)
+    controlled = _core_is_not_none(controller)
+    if controlled:
+        parent_path_snake = _core_get(forward_options, "execution_path", "root")
+        parent_path = _core_get(forward_options, "executionPath", parent_path_snake)
+        stage_path = _core_string_format("{}/{}", parent_path, stage)
+        out["control"] = controller
+        out["execution_path"] = stage_path
+        out["executionPath"] = stage_path
+    else:
+        pass
     top_cache_snake = _core_get(base_options, "context_cache", None)
     top_cache = _core_get(base_options, "contextCache", top_cache_snake)
     stage_cache_snake = _core_get(stage_options, "context_cache", None)
@@ -10325,7 +10566,7 @@ def _agent_transcribe_audio_inputs(state: Any, client: Any, values: Any, options
     return result
 
 
-def _agent_run_llm_query_one(sub_gen: Any, client: Any, item: Any) -> str:
+def _agent_run_llm_query_one(sub_gen: Any, client: Any, item: Any, options: Any) -> str:
     _core_coverage_mark("_agent_run_llm_query_one")
     empty_map = {}
     query = ""
@@ -10339,24 +10580,29 @@ def _agent_run_llm_query_one(sub_gen: Any, client: Any, item: Any) -> str:
     values = {}
     values["task"] = query
     values["context"] = context
-    sub_options = {}
-    output = _core_agent_stage_forward(sub_gen, client, values, sub_options)
+    sub_options = _core_map_merge(empty_map, options)
+    parent_snake = _core_get(options, "execution_path", "root")
+    parent = _core_get(options, "executionPath", parent_snake)
+    path = _core_string_format("{}/llmQuery", parent)
+    sub_options["execution_path"] = path
+    sub_options["executionPath"] = path
+    output = _agent_controlled_stage_forward(sub_gen, client, values, sub_options)
     answer = _core_get(output, "answer", "")
     return answer
 
 
-def _agent_run_llm_query(sub_gen: Any, client: Any, params: Any) -> Any:
+def _agent_run_llm_query(sub_gen: Any, client: Any, params: Any, options: Any) -> Any:
     _core_coverage_mark("_agent_run_llm_query")
     params_is_list = _core_type_is(params, "list")
     if params_is_list:
         answers = []
         for item in params:
-            one = _agent_run_llm_query_one(sub_gen, client, item)
+            one = _agent_run_llm_query_one(sub_gen, client, item, options)
             answers.append(one)
         return answers
     else:
         pass
-    single = _agent_run_llm_query_one(sub_gen, client, params)
+    single = _agent_run_llm_query_one(sub_gen, client, params, options)
     return single
 
 
@@ -10364,6 +10610,7 @@ def _agent_forward(state: Any, distiller: Any, executor: Any, responder: Any, cl
     _core_coverage_mark("_agent_forward")
     empty_list = []
     empty_map = {}
+    state["native_tool_names"] = empty_list
     loaded_memories = []
     used_memories = []
     used_skills = []
@@ -10456,7 +10703,7 @@ def _agent_forward(state: Any, distiller: Any, executor: Any, responder: Any, cl
             distiller_request_event["values"] = distiller_values
             distiller_request_event["component_id"] = "agent.stage.distiller"
             _agent_record_trace_event(state, "stage_request", distiller_request_event)
-            distiller_output = _core_agent_stage_forward(distiller, client, distiller_values, distiller_options)
+            distiller_output = _agent_controlled_stage_forward(distiller, client, distiller_values, distiller_options)
             distiller_response_event = {}
             distiller_response_event["stage"] = "distiller"
             distiller_response_event["step"] = distiller_step
@@ -10505,7 +10752,7 @@ def _agent_forward(state: Any, distiller: Any, executor: Any, responder: Any, cl
         distiller_request_event["values"] = distiller_values
         distiller_request_event["component_id"] = "agent.stage.distiller"
         _agent_record_trace_event(state, "stage_request", distiller_request_event)
-        distiller_output = _core_agent_stage_forward(distiller, client, distiller_values, distiller_options)
+        distiller_output = _agent_controlled_stage_forward(distiller, client, distiller_values, distiller_options)
         distiller_response_event = {}
         distiller_response_event["stage"] = "distiller"
         distiller_response_event["output"] = distiller_output
@@ -10595,7 +10842,7 @@ def _agent_forward(state: Any, distiller: Any, executor: Any, responder: Any, cl
             executor_request_event["values"] = executor_values
             executor_request_event["component_id"] = "agent.stage.executor"
             _agent_record_trace_event(state, "stage_request", executor_request_event)
-            executor_output = _core_agent_stage_forward(executor, client, executor_values, executor_options)
+            executor_output = _agent_executor_stage_forward(state, executor, client, executor_values, executor_options)
             executor_response_event = {}
             executor_response_event["stage"] = "executor"
             executor_response_event["step"] = step
@@ -10645,7 +10892,7 @@ def _agent_forward(state: Any, distiller: Any, executor: Any, responder: Any, cl
         executor_request_event["values"] = executor_values
         executor_request_event["component_id"] = "agent.stage.executor"
         _agent_record_trace_event(state, "stage_request", executor_request_event)
-        executor_output = _core_agent_stage_forward(executor, client, executor_values, executor_options)
+        executor_output = _agent_executor_stage_forward(state, executor, client, executor_values, executor_options)
         executor_response_event = {}
         executor_response_event["stage"] = "executor"
         executor_response_event["output"] = executor_output
@@ -10671,7 +10918,7 @@ def _agent_forward(state: Any, distiller: Any, executor: Any, responder: Any, cl
     responder_request_event["values"] = responder_values
     responder_request_event["component_id"] = "agent.stage.responder"
     _agent_record_trace_event(state, "stage_request", responder_request_event)
-    responder_output = _core_agent_stage_forward(responder, client, responder_values, responder_options)
+    responder_output = _agent_controlled_stage_forward(responder, client, responder_values, responder_options)
     citation_retry_options = {}
     citation_retry_options = _core_map_merge(citation_retry_options, responder_options)
     citations_valid = _agent_validate_citations(state, responder_output)
@@ -10680,7 +10927,7 @@ def _agent_forward(state: Any, distiller: Any, executor: Any, responder: Any, cl
         invalid_citations_output = _core_json_stringify(responder_output)
         citation_retry_feedback = _core_string_format("The previous responder output failed evidence-citation validation: {}. Cite only exact top-level evidence keys or permitted nested record ids present in contextData.evidence, or leave citations empty. Return only corrected JSON.", invalid_citations_output)
         citation_retry_options["validation_feedback"] = citation_retry_feedback
-        responder_output = _core_agent_stage_forward(responder, client, responder_values, citation_retry_options)
+        responder_output = _agent_controlled_stage_forward(responder, client, responder_values, citation_retry_options)
         citations_valid = _agent_validate_citations(state, responder_output)
     else:
         pass
@@ -10689,7 +10936,7 @@ def _agent_forward(state: Any, distiller: Any, executor: Any, responder: Any, cl
         invalid_citations_output = _core_json_stringify(responder_output)
         citation_retry_feedback = _core_string_format("The previous responder output failed evidence-citation validation: {}. Cite only exact top-level evidence keys or permitted nested record ids present in contextData.evidence, or leave citations empty. Return only corrected JSON.", invalid_citations_output)
         citation_retry_options["validation_feedback"] = citation_retry_feedback
-        responder_output = _core_agent_stage_forward(responder, client, responder_values, citation_retry_options)
+        responder_output = _agent_controlled_stage_forward(responder, client, responder_values, citation_retry_options)
         citations_valid = _agent_validate_citations(state, responder_output)
     else:
         pass

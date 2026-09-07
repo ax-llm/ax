@@ -348,6 +348,11 @@ module @ax.flow version "0.1" {
       core.set %result["key"] = %key
       core.set %result["hit"] = false
       core.set %result["value"] = %none
+      %controller = core.get %opts["control"] default null
+      %controlled = core.call intrinsic.is_not_none(%controller)
+      core.if %controlled {
+        core.return %result
+      }
       core.if %is_read {
         %can_read_store = core.call intrinsic.and(%has_store, %read_error)
         %skip_read = core.call intrinsic.truthy(%can_read_store)
@@ -389,6 +394,9 @@ module @ax.flow version "0.1" {
       %abort_camel = core.get %options["abortBeforeStep"] default %abort_snake
       %aborted = core.get %options["aborted"] default %abort_camel
       %abort = core.get %options["abort"] default %aborted
+      %controller = core.get %options["control"] default null
+      %control_aborted = core.call intrinsic.run_control.aborted(%controller)
+      %abort = core.call intrinsic.or(%abort, %control_aborted)
       core.if %abort {
         %message = core.call intrinsic.string.format("Flow aborted at {}", %location)
         %err = core.call intrinsic.error.runtime(%message)
@@ -512,7 +520,7 @@ module @ax.flow version "0.1" {
     }
   }
 
-  op ax.flow.semantic @flow_execute_program_node {
+  op ax.flow.semantic @flow_prepare_program_node {
     attr core_kind = "func"
     attr emit_module = "flow"
     attr private = true
@@ -526,6 +534,16 @@ module @ax.flow version "0.1" {
       %base_options = core.get %flow["options"] default %empty_map
       %runtime_base = core.call intrinsic.map.merge(%base_options, %options)
       %runtime_options = core.call intrinsic.map.merge(%runtime_base, %step_options)
+      %controller = core.get %runtime_base["control"] default null
+      %controlled = core.call intrinsic.is_not_none(%controller)
+      core.if %controlled {
+        %parent_path_snake = core.get %runtime_base["execution_path"] default "root"
+        %parent_path = core.get %runtime_base["executionPath"] default %parent_path_snake
+        %node_path = core.call intrinsic.string.format("{}/{}", %parent_path, %name)
+        core.set %runtime_options["control"] = %controller
+        core.set %runtime_options["execution_path"] = %node_path
+        core.set %runtime_options["executionPath"] = %node_path
+      }
       %trace_label_in = core.get %options["traceLabel"] default ""
       %has_trace_label = core.call intrinsic.truthy(%trace_label_in)
       %trace_label = core.call intrinsic.string.format("Node:{}", %name)
@@ -547,7 +565,23 @@ module @ax.flow version "0.1" {
         %abort_error = core.call intrinsic.error.runtime(%abort_message)
         core.raise %abort_error
       }
-      %result = core.call intrinsic.agent.stage_forward(%program, %client, %state, %runtime_options)
+      %prepared = core.map
+      core.set %prepared["name"] = %name
+      core.set %prepared["program"] = %program
+      core.set %prepared["options"] = %runtime_options
+      core.return %prepared
+    }
+  }
+
+  op ax.flow.semantic @flow_finish_program_node {
+    attr core_kind = "func"
+    attr emit_module = "flow"
+    attr private = true
+    type signature = "(flow:json, prepared:json, result:json, state:json) -> json throws"
+    body @entry(%flow: json, %prepared: json, %result: json, %state: json) {
+      %empty_map = core.map
+      %name = core.get %prepared["name"] default ""
+      %program = core.get %prepared["program"]
       %out = core.call intrinsic.map.merge(%state, %empty_map)
       %result_key = core.call intrinsic.string.format("{}Result", %name)
       core.set %out[%result_key] = %result
@@ -555,6 +589,21 @@ module @ax.flow version "0.1" {
       core.call @flow_record_child_chat_log(%flow, %name, %program)
       core.call @flow_record_child_usage(%flow, %name, %program)
       core.call @flow_record_child_traces(%flow, %name, %program)
+      core.return %out
+    }
+  }
+
+  op ax.flow.semantic @flow_execute_program_node {
+    attr core_kind = "func"
+    attr emit_module = "flow"
+    attr private = true
+    type signature = "(flow:json, step:json, client:json, state:json, options:json) -> json throws"
+    body @entry(%flow: json, %step: json, %client: json, %state: json, %options: json) {
+      %prepared = core.call @flow_prepare_program_node(%flow, %step, %client, %state, %options)
+      %program = core.get %prepared["program"]
+      %runtime_options = core.get %prepared["options"]
+      %result = core.call intrinsic.agent.stage_forward(%program, %client, %state, %runtime_options)
+      %out = core.call @flow_finish_program_node(%flow, %prepared, %result, %state)
       core.return %out
     }
   }

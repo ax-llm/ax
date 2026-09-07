@@ -33,7 +33,7 @@ result := engine.Optimize(request, evaluator)
 
 ## Relevant API Surface
 
-- AxGen: `axllm.NewAx`, `axllm.AxGen`
+- AxGen: `axllm.NewAx`, `axllm.AxGen`, `axllm.RunControl`, `axllm.AxRunControl`
 - Optimizers: `axllm.Optimize`, `axllm.Playbook`, `axllm.AxPlaybook`, `axllm.AxBootstrapFewShot`, `axllm.AxGEPA`, `axllm.OptimizerEngine`, `axllm.OptimizerEvaluator`
 
 ## Guardrails

@@ -1,0 +1,21 @@
+{
+  "expected_error_contains": "Invalid Astra reasoning effort",
+  "expected_transport_request_count": 0,
+  "kind": "ai_chat",
+  "model": "gpt-6-astra",
+  "name": "astra-native-none-rejected",
+  "provider": "openai",
+  "request": {
+    "chat_prompt": [
+      {
+        "content": "reason",
+        "role": "user"
+      }
+    ],
+    "model_config": {
+      "reasoning": {
+        "effort": "none"
+      }
+    }
+  }
+}

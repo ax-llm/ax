@@ -28,7 +28,10 @@ import java.util.concurrent.CancellationException;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ExecutionException;
 
-public class OpenAICompatibleClient extends AxBaseAI {
+public class OpenAICompatibleClient extends AxBaseAI implements AxChatSession.Provider {
+  public AxChatSession openChatSession(Map<String,Object> request,Map<String,Object> options) throws Exception {
+    return new ResponsesChatSession(this,request,options);
+  }
   public interface Transport {
     Object call(Map<String, Object> request) throws Exception;
     default Object stream(Map<String, Object> request) throws Exception { return call(request); }
@@ -36,13 +39,13 @@ public class OpenAICompatibleClient extends AxBaseAI {
     default Object stream(Map<String,Object> request,AxCancellationToken cancellation)throws Exception{if(cancellation!=null)cancellation.throwIfCancelled();Object value=stream(request);if(cancellation!=null)cancellation.throwIfCancelled();return value;}
   }
 
-  private static final class RawSseStream implements AutoCloseable {
+  static final class RawSseStream implements AutoCloseable {
     private final BufferedReader reader;
     private final Iterator<?> events;
     private final AutoCloseable close;
     private final List<String> dataLines = new ArrayList<>();
     private boolean atStart = true;
-    private boolean closed;
+    private volatile boolean closed;
 
     private RawSseStream(BufferedReader reader, Iterator<?> events, AutoCloseable close) {
       this.reader = reader;
@@ -524,6 +527,21 @@ public class OpenAICompatibleClient extends AxBaseAI {
 
   /** Transport seam for the realtime turn driver: a ScriptedRealtimeTransport for
    * deterministic offline turns, the JDK-WebSocket-backed transport for live ones. */
+  @FunctionalInterface public interface SessionWebSocketFactory {
+    RealtimeTransport connect(String url, Map<String,String> headers);
+  }
+  RealtimeTransport openSessionSocket(SessionWebSocketFactory factory, String modelName) throws Exception {
+    String endpoint=operationPath("stream_chat",modelName);
+    String target=endpoint.startsWith("http://") || endpoint.startsWith("https://")?endpoint:baseUrl+endpoint;
+    Map<String,Object> resolved=headers();
+    if(credentialProvider!=null) {
+      Map<String,String> fresh=credentialProvider.credentials(new CredentialRequest(profile,"stream_chat","GET",target));
+      if(fresh==null)throw new AxAIServiceAuthenticationError("credential_provider returned null headers",null,null,null,null);
+      resolved.putAll(fresh);
+    }
+    Map<String,String> headers=new LinkedHashMap<>();resolved.forEach((key,value)->headers.put(key,String.valueOf(value)));
+    return factory.connect(target.replaceFirst("^https:","wss:").replaceFirst("^http:","ws:"),headers);
+  }
   public interface RealtimeTransport {
     void send(Map<String, Object> event);
     Map<String, Object> recv();
@@ -888,6 +906,9 @@ public class OpenAICompatibleClient extends AxBaseAI {
     try { return Json.parse(responseBody); } catch (RuntimeException ignored) { return responseBody; }
   }
 
+  RawSseStream requestSse(String endpoint, Map<String, Object> payload, Object modelName) throws Exception {
+    return requestSse(endpoint,payload,modelName,null);
+  }
   private RawSseStream requestSse(String endpoint, Map<String, Object> payload, Object modelName,AxCancellationToken cancellation) throws Exception {
     if(cancellation!=null)cancellation.throwIfCancelled();
     Map<String, Object> call = new LinkedHashMap<>();
@@ -1014,9 +1035,9 @@ public class OpenAICompatibleClient extends AxBaseAI {
     return operationPath(operation, null);
   }
 
-  private String operationPath(String operation, Object modelName) {
+  String operationPath(String operation, Object modelName) {
     Map<String, Object> desc = Core.asMap(Core.asMap(descriptor.get("operations")).get(operation));
-    String path = String.valueOf(desc.getOrDefault("path", "/" + operation));
+    String path = String.valueOf(Core.provider_chat_operation_path(profile, String.valueOf(modelName), operation, String.valueOf(desc.getOrDefault("path", "/" + operation))));
     if (modelName != null) {
       path = path.replace("{model}", URLEncoder.encode(String.valueOf(modelName), StandardCharsets.UTF_8));
     }

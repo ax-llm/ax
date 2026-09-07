@@ -685,6 +685,9 @@ func verifyPythonTarget(report VerifyTargetReport, conformanceRoot string) (Veri
 		return report, nil
 	}
 	env := runtimeProtocolEnv(conformanceRoot, append(scrubbedEnviron(), "PYTHONPATH="+report.OutDir))
+	if err := runVerifyCommand(&report, "Astra session tests", "", env, python, filepath.Join(report.OutDir, "tests", "astra_session_test.py")); err != nil {
+		return report, err
+	}
 	if err := runVerifyCommand(&report, "compileall", "", env, python, "-m", "compileall", "-q", filepath.Join(report.OutDir, "axllm")); err != nil {
 		return report, err
 	}
@@ -823,10 +826,14 @@ func verifyJavaTarget(report VerifyTargetReport, conformanceRoot string) (Verify
 		return report, err
 	}
 	files = append(files, examples...)
+	files = append(files, filepath.Join(report.OutDir, "tests", "AstraSessionTest.java"))
 	sort.Strings(files)
 	args := append([]string{"-cp", report.OutDir, "-d", report.OutDir}, files...)
 	env := runtimeProtocolEnv(conformanceRoot, scrubbedEnviron())
 	if err := runVerifyCommand(&report, "javac", "", env, javac, args...); err != nil {
+		return report, err
+	}
+	if err := runVerifyCommand(&report, "Astra session tests", "", env, java, "-cp", report.OutDir, "AstraSessionTest"); err != nil {
 		return report, err
 	}
 	for _, className := range []string{
@@ -1196,6 +1203,14 @@ func verifyCppTarget(report VerifyTargetReport, conformanceRoot string) (VerifyT
 		return report, err
 	}
 	if err := runVerifyCommand(&report, "compile mcp.cpp", "", nil, cpp, "-std=c++17", "-I", report.OutDir, "-c", mcpSource, "-o", mcpObj); err != nil {
+		return report, err
+	}
+	// Scripted agent payloads belong in regression tests, not user-facing examples.
+	sessionTest := filepath.Join(buildDir, "astra_session_test")
+	if err := runVerifyCommand(&report, "compile Astra session tests", "", nil, cpp, "-std=c++17", "-I", report.OutDir, filepath.Join(report.OutDir, "tests", "astra_session_test.cpp"), axObj, "-o", sessionTest); err != nil {
+		return report, err
+	}
+	if err := runVerifyCommand(&report, "Astra session tests", "", nil, sessionTest); err != nil {
 		return report, err
 	}
 	examples := []string{

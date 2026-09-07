@@ -400,7 +400,7 @@ function exampleMatchesArg(example, normalized) {
     (candidate) =>
       candidate === normalized ||
       candidate.endsWith(`/${normalized}`) ||
-      normalized.endsWith(`/${candidate}`)
+      (candidate.includes('/') && normalized.endsWith(`/${candidate}`))
   );
 }
 

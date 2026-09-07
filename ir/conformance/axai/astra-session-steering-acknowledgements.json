@@ -1,0 +1,93 @@
+{
+  "cases": [
+    {
+      "event": {
+        "steer": {
+          "id": "s1",
+          "previous_response_id": "r1"
+        },
+        "type": "response.steer.accepted"
+      },
+      "expected_response_id": "r1",
+      "expected_status": "accepted",
+      "expected_types": ["steering"]
+    },
+    {
+      "event": {
+        "steer": {
+          "id": "s1",
+          "previous_response_id": "r1"
+        },
+        "type": "response.steer.accepted"
+      },
+      "expected_types": []
+    },
+    {
+      "event": {
+        "required_input": [
+          {
+            "call_id": "call1"
+          }
+        ],
+        "steer": {
+          "id": "s1",
+          "previous_response_id": "r1"
+        },
+        "type": "response.steer.pending"
+      },
+      "expected_required_call_ids": ["call1"],
+      "expected_status": "pending",
+      "expected_types": ["steering"]
+    },
+    {
+      "event": {
+        "required_input": [
+          {
+            "call_id": "call1"
+          }
+        ],
+        "steer": {
+          "id": "s1",
+          "previous_response_id": "r1"
+        },
+        "type": "response.steer.pending"
+      },
+      "expected_types": []
+    },
+    {
+      "event": {
+        "required_input": [
+          {
+            "call_id": "call2"
+          }
+        ],
+        "steer": {
+          "id": "s1",
+          "previous_response_id": "r1"
+        },
+        "type": "response.steer.pending"
+      },
+      "expected_required_call_ids": ["call2"],
+      "expected_status": "pending",
+      "expected_types": ["steering"]
+    },
+    {
+      "event": {
+        "error": {
+          "message": "already closed"
+        },
+        "steer": {
+          "id": "s2",
+          "previous_response_id": "r1"
+        },
+        "type": "response.steer.failed"
+      },
+      "expected_error": "already closed",
+      "expected_status": "failed",
+      "expected_types": ["steering"]
+    }
+  ],
+  "kind": "ai_session_events",
+  "model": "gpt-6-astra",
+  "name": "astra-session-steering-acknowledgements"
+}

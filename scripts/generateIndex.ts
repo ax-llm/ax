@@ -29,6 +29,23 @@ const internalExportNames = new Set([
   'AxAIOpenAIChatReasoningEffort',
   'AxAIOpenAIResponsesReasoningEffort',
   'AxAIOpenAIResponsesImpl',
+  'AxOpenAIChatSession',
+  'AxAIOpenAIAstraReasoningEffort',
+  'AxAIOpenAIResponsesConfigurationUpdate',
+  'AxAIOpenAIResponsesCustomToolCall',
+  'AxAIOpenAIResponsesCustomToolOutput',
+  'AxAIOpenAIResponsesDefineCustomTool',
+  'AxAIOpenAIResponsesSessionEvent',
+  'AxAIOpenAIResponsesSteerRequest',
+  'AxRunUpdate',
+  'AxAIOpenAIResponsesClient',
+  'AxAIOpenAIResponsesClientConfig',
+  'AxAIOpenAIResponsesSocket',
+  'AxAIOpenAIResponsesOptions',
+  'AxAIOpenAIResponseCreateRequest',
+  'AxAIOpenAIResponsesSession',
+  'axRunChatSession',
+  'axValidateToolArguments',
   'AxAIOpenAIResponsesRealtimeAdapter',
   'AxAIOpenAIResponsesRealtimeRequest',
   'AxAIAnthropicProfile',
@@ -74,6 +91,9 @@ const internalExportNames = new Set([
   'axIsOpenAIPromptCachingEnabled',
   'axResolveOpenAIPromptCacheKey',
   'axIsGPT56Family',
+  'axIsGPT6Astra',
+  'axSupportsOpenAIBreakpointCaching',
+  'axValidateOpenAIResponseRequest',
 ]);
 
 function hasValidPrefix(name: string): boolean {
@@ -83,6 +103,7 @@ function hasValidPrefix(name: string): boolean {
       name.startsWith('Ax') ||
       name === 'f' ||
       name === 'fn' ||
+      name === 'runControl' ||
       name === 's' ||
       name === 'ai' ||
       name === 'agent' ||

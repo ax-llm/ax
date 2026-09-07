@@ -8536,3 +8536,842 @@ writeFixture('openai-service-tier-long-context-cost-fallback', {
   },
   expected_estimated_cost: 0.0175,
 });
+
+// The automatic factory route must agree with the explicit Responses provider.
+for (const provider of ['openai', 'openai-responses']) {
+  for (const budget of [
+    'minimal',
+    'low',
+    'medium',
+    'high',
+    'highest',
+  ] as const) {
+    const model = AxAIOpenAIModel.GPT6Astra;
+    writeFixture(`${provider}-astra-reasoning-${budget}`, {
+      kind: 'ai_chat',
+      provider,
+      model,
+      request: {
+        chat_prompt: [{ role: 'user', content: 'reason' }],
+        model_config: {
+          stream: false,
+          thinkingTokenBudget: budget,
+          temperature: 0.5,
+          topP: 0.9,
+          presencePenalty: 1,
+          frequencyPenalty: 1,
+        },
+      },
+      transport_responses: [
+        {
+          status: 200,
+          json: {
+            id: 'resp_astra',
+            model,
+            usage: { input_tokens: 1, output_tokens: 1, total_tokens: 2 },
+            output: [
+              {
+                id: 'msg_astra',
+                type: 'message',
+                content: [{ type: 'output_text', text: 'ok', annotations: [] }],
+              },
+            ],
+          },
+        },
+      ],
+      expected_transport_request: {
+        method: 'POST',
+        url: 'https://api.openai.com/v1/responses',
+        json: {
+          model,
+          input: [
+            { role: 'user', content: [{ type: 'input_text', text: 'reason' }] },
+          ],
+          reasoning: {
+            effort: axResolveOpenAIResponsesReasoningEffort(model, budget),
+          },
+          stream: false,
+        },
+      },
+      expected_transport_json_absent: [
+        'temperature',
+        'top_p',
+        'presence_penalty',
+        'frequency_penalty',
+      ],
+    });
+  }
+}
+
+writeFixture('astra-session-completed-calls-and-response-boundaries', {
+  kind: 'ai_session_events',
+  model: AxAIOpenAIModel.GPT6Astra,
+  cases: [
+    {
+      event: { type: 'response.created', response: { id: 'r1' } },
+      expected_types: [],
+    },
+    {
+      event: {
+        type: 'response.output_item.added',
+        item: {
+          type: 'function_call',
+          id: 'item1',
+          call_id: 'call1',
+          name: 'lookup',
+          arguments: '',
+        },
+      },
+      expected_types: [],
+    },
+    {
+      event: {
+        type: 'response.function_call_arguments.delta',
+        item_id: 'item1',
+        delta: '{"x":',
+      },
+      expected_types: [],
+    },
+    {
+      event: {
+        type: 'response.output_item.done',
+        item: {
+          type: 'function_call',
+          id: 'item1',
+          call_id: 'call1',
+          name: 'lookup',
+          arguments: '{"x":1}',
+        },
+      },
+      expected_types: ['tool.call'],
+      expected_call: {
+        id: 'call1',
+        type: 'function',
+        function: { name: 'lookup', params: { x: 1 } },
+      },
+      expected_response_id: 'r1',
+    },
+    {
+      event: {
+        type: 'response.output_item.done',
+        item: {
+          type: 'function_call',
+          id: 'item1',
+          call_id: 'call1',
+          name: 'lookup',
+          arguments: '{"x":1}',
+        },
+      },
+      expected_types: [],
+    },
+    {
+      event: {
+        type: 'response.completed',
+        response: {
+          id: 'r1',
+          output: [],
+          usage: { input_tokens: 1, output_tokens: 2, total_tokens: 3 },
+        },
+      },
+      expected_types: ['response.completed'],
+      expected_response_id: 'r1',
+    },
+    {
+      event: { type: 'response.completed', response: { id: 'r1', output: [] } },
+      expected_types: [],
+    },
+    {
+      event: { type: 'response.created', response: { id: 'r2' } },
+      expected_types: [],
+    },
+    {
+      event: { type: 'response.completed', response: { id: 'r2', output: [] } },
+      expected_types: ['response.completed'],
+      expected_response_id: 'r2',
+    },
+  ],
+});
+writeFixture('astra-session-steering-acknowledgements', {
+  kind: 'ai_session_events',
+  model: AxAIOpenAIModel.GPT6Astra,
+  cases: [
+    {
+      event: {
+        type: 'response.steer.accepted',
+        steer: { id: 's1', previous_response_id: 'r1' },
+      },
+      expected_types: ['steering'],
+      expected_status: 'accepted',
+      expected_response_id: 'r1',
+    },
+    {
+      event: {
+        type: 'response.steer.accepted',
+        steer: { id: 's1', previous_response_id: 'r1' },
+      },
+      expected_types: [],
+    },
+    {
+      event: {
+        type: 'response.steer.pending',
+        steer: { id: 's1', previous_response_id: 'r1' },
+        required_input: [{ call_id: 'call1' }],
+      },
+      expected_types: ['steering'],
+      expected_status: 'pending',
+      expected_required_call_ids: ['call1'],
+    },
+    {
+      event: {
+        type: 'response.steer.pending',
+        steer: { id: 's1', previous_response_id: 'r1' },
+        required_input: [{ call_id: 'call1' }],
+      },
+      expected_types: [],
+    },
+    {
+      event: {
+        type: 'response.steer.pending',
+        steer: { id: 's1', previous_response_id: 'r1' },
+        required_input: [{ call_id: 'call2' }],
+      },
+      expected_types: ['steering'],
+      expected_status: 'pending',
+      expected_required_call_ids: ['call2'],
+    },
+    {
+      event: {
+        type: 'response.steer.failed',
+        steer: { id: 's2', previous_response_id: 'r1' },
+        error: { message: 'already closed' },
+      },
+      expected_types: ['steering'],
+      expected_status: 'failed',
+      expected_error: 'already closed',
+    },
+  ],
+});
+
+writeFixture('astra-pending-results-out-of-order', {
+  kind: 'ai_session_state',
+  model: AxAIOpenAIModel.GPT6Astra,
+  path: 'root/left',
+  max_steps: 3,
+  cases: [
+    {
+      event: {
+        type: 'tool.validated',
+        call: { id: 'a' },
+        execution: 'background',
+      },
+      expected_action: { type: 'wait', changed: true },
+    },
+    {
+      event: {
+        type: 'tool.validated',
+        call: { id: 'b' },
+        execution: 'background',
+      },
+      expected_action: { type: 'wait', changed: true },
+    },
+    {
+      event: {
+        type: 'tool.validated',
+        call: { id: 'a' },
+        execution: 'background',
+      },
+      expected_action: { type: 'wait', changed: false },
+    },
+    {
+      event: { type: 'response.completed', id: 'r1' },
+      expected_action: { type: 'wait', changed: true },
+    },
+    {
+      event: {
+        type: 'tool.result',
+        id: 'b',
+        result: { function_id: 'b', result: 'B' },
+      },
+      expected_action: {
+        type: 'submit',
+        results: [{ function_id: 'b', result: 'B' }],
+        changed: true,
+      },
+    },
+    {
+      event: { type: 'results.submitted', ids: ['b'] },
+      expected_action: { type: 'wait', changed: true },
+    },
+    {
+      event: { type: 'response.completed', id: 'r2' },
+      expected_action: { type: 'wait', changed: true },
+    },
+    {
+      event: {
+        type: 'tool.result',
+        id: 'a',
+        result: { function_id: 'a', result: 'A' },
+      },
+      expected_action: {
+        type: 'submit',
+        results: [{ function_id: 'a', result: 'A' }],
+        changed: true,
+      },
+    },
+    {
+      event: { type: 'results.submitted', ids: ['a'] },
+      expected_action: { type: 'wait', changed: true },
+    },
+    {
+      event: { type: 'response.completed', id: 'r3' },
+      expected_action: { type: 'validate', changed: true },
+    },
+    {
+      event: { type: 'validated' },
+      expected_action: { type: 'closed', changed: true },
+    },
+  ],
+  expected_pending: [],
+  expected_steps: 3,
+});
+writeFixture('astra-scoped-updates-and-cancellation', {
+  kind: 'ai_session_state',
+  model: AxAIOpenAIModel.GPT6Astra,
+  path: 'root/left',
+  max_steps: 3,
+  cases: [
+    {
+      event: {
+        type: 'update.queued',
+        update: {
+          id: '1',
+          type: 'steer',
+          target: 'root/right',
+          text: 'Elsewhere',
+        },
+      },
+      expected_action: { type: 'wait', changed: false },
+    },
+    {
+      event: {
+        type: 'update.queued',
+        update: { id: '2', type: 'steer', target: 'root', text: 'Revise' },
+      },
+      expected_action: { type: 'wait', changed: true },
+    },
+    {
+      event: { type: 'update.applied', id: '2' },
+      expected_action: { type: 'wait', changed: true },
+    },
+    {
+      event: { type: 'update.applied', id: '2' },
+      expected_action: { type: 'wait', changed: false },
+    },
+    {
+      event: {
+        type: 'tool.validated',
+        call: { id: 'unresolved' },
+        execution: 'background',
+      },
+      expected_action: { type: 'wait', changed: true },
+    },
+    {
+      event: { type: 'closed' },
+      expected_action: { type: 'closed', changed: true },
+    },
+    {
+      event: { type: 'tool.result', id: 'unresolved', result: 'too late' },
+      expected_action: { type: 'closed', changed: false },
+    },
+  ],
+  expected_pending: ['unresolved'],
+  expected_steps: 0,
+});
+
+for (const inputTokens of [272000, 272001]) {
+  const long = inputTokens > 272000;
+  writeFixture(`astra-cache-cost-threshold-${inputTokens}`, {
+    kind: 'ai_chat',
+    provider: 'openai',
+    model: AxAIOpenAIModel.GPT6Astra,
+    request: {
+      chat_prompt: [{ role: 'user', content: 'measure' }],
+      model_config: { stream: false, thinkingTokenBudget: 'low' },
+    },
+    transport_responses: [
+      {
+        status: 200,
+        json: {
+          id: 'r_cost',
+          model: AxAIOpenAIModel.GPT6Astra,
+          output: [],
+          usage: {
+            input_tokens: inputTokens,
+            output_tokens: 100,
+            total_tokens: inputTokens + 100,
+            input_tokens_details: {
+              cached_tokens: 10000,
+              cache_write_tokens: 20000,
+            },
+          },
+        },
+      },
+    ],
+    expected_estimated_cost:
+      ((inputTokens - 30000) * (long ? 20 : 10) +
+        10000 * (long ? 2 : 1) +
+        20000 * (long ? 25 : 12.5) +
+        100 * (long ? 75 : 50)) /
+      1000000,
+  });
+}
+writeFixture('astra-native-none-rejected', {
+  kind: 'ai_chat',
+  provider: 'openai',
+  model: AxAIOpenAIModel.GPT6Astra,
+  request: {
+    chat_prompt: [{ role: 'user', content: 'reason' }],
+    model_config: { reasoning: { effort: 'none' } },
+  },
+  expected_error_contains: 'Invalid Astra reasoning effort',
+  expected_transport_request_count: 0,
+});
+writeFixture('astra-adjacent-reasoning-updates-rejected', {
+  kind: 'ai_chat',
+  provider: 'openai',
+  model: AxAIOpenAIModel.GPT6Astra,
+  request: {
+    chat_prompt: [{ role: 'user', content: 'reason' }],
+    previous_response_id: 'r1',
+    session_input: [
+      { type: 'configuration_update', reasoning: { effort: 'low' } },
+      { type: 'configuration_update', reasoning: { effort: 'high' } },
+    ],
+  },
+  expected_error_contains: 'Adjacent configuration_update',
+  expected_transport_request_count: 0,
+});
+
+writeFixture('astra-prompt-cache-content-remains-an-array', {
+  kind: 'ai_chat',
+  provider: 'openai',
+  model: AxAIOpenAIModel.GPT6Astra,
+  service_options: { contextCache: {}, promptCacheKey: 'astra-prefix' },
+  request: {
+    chat_prompt: [{ role: 'user', content: 'cached' }],
+    model_config: { thinkingTokenBudget: 'low' },
+  },
+  transport_responses: [
+    {
+      status: 200,
+      json: { id: 'r1', model: AxAIOpenAIModel.GPT6Astra, output: [] },
+    },
+  ],
+  expected_transport_request: {
+    method: 'POST',
+    url: 'https://api.openai.com/v1/responses',
+    json: {
+      model: AxAIOpenAIModel.GPT6Astra,
+      input: [
+        {
+          role: 'user',
+          content: [
+            {
+              type: 'input_text',
+              text: 'cached',
+              prompt_cache_breakpoint: { mode: 'explicit' },
+            },
+          ],
+        },
+      ],
+      reasoning: { effort: 'low' },
+      stream: false,
+      prompt_cache_key: 'astra-prefix',
+      prompt_cache_options: { mode: 'explicit', ttl: '30m' },
+    },
+  },
+});
+
+writeFixture('astra-defer-final-output-with-pending-work', {
+  kind: 'ai_session_state',
+  model: AxAIOpenAIModel.GPT6Astra,
+  path: 'root',
+  max_steps: 3,
+  cases: [
+    {
+      event: {
+        type: 'tool.validated',
+        call: { id: 'background' },
+        execution: 'background',
+      },
+      expected_action: { type: 'wait', changed: true },
+    },
+    {
+      event: { type: 'tool.final', call: { id: 'final' } },
+      expected_action: { type: 'wait', changed: true },
+    },
+    {
+      event: { type: 'tool.final', call: { id: 'final' } },
+      expected_action: { type: 'wait', changed: false },
+    },
+    {
+      event: { type: 'response.completed', id: 'r1' },
+      expected_action: {
+        type: 'submit',
+        changed: true,
+        results: [
+          {
+            function_id: 'final',
+            result:
+              'Not executed: incorporate the background tool results and queued updates before calling this finalization function again.',
+          },
+        ],
+      },
+    },
+    {
+      event: { type: 'results.submitted', ids: ['final'] },
+      expected_action: { type: 'wait', changed: true },
+    },
+    {
+      event: {
+        type: 'tool.result',
+        id: 'background',
+        result: { function_id: 'background', result: 'REF-42' },
+      },
+      expected_action: { type: 'wait', changed: true },
+    },
+    {
+      event: { type: 'response.completed', id: 'r2' },
+      expected_action: {
+        type: 'submit',
+        changed: true,
+        results: [{ function_id: 'background', result: 'REF-42' }],
+      },
+    },
+    {
+      event: { type: 'results.submitted', ids: ['background'] },
+      expected_action: { type: 'wait', changed: true },
+    },
+    {
+      event: { type: 'response.completed', id: 'r3' },
+      expected_action: { type: 'validate', changed: true },
+    },
+    {
+      event: { type: 'validated' },
+      expected_action: { type: 'closed', changed: true },
+    },
+  ],
+  expected_pending: [],
+  expected_steps: 3,
+});
+
+writeFixture('astra-native-steering-successor-no-replay', {
+  kind: 'ai_session_state',
+  model: AxAIOpenAIModel.GPT6Astra,
+  path: 'root',
+  max_steps: 3,
+  cases: [
+    {
+      event: {
+        type: 'update.queued',
+        update: {
+          id: 'u1',
+          type: 'steer',
+          target: 'root',
+          text: 'Use the corrected answer.',
+        },
+      },
+      expected_action: { type: 'wait', changed: true },
+    },
+    {
+      event: { type: 'native.queued', id: 'u1' },
+      expected_action: { type: 'wait', changed: true },
+    },
+    {
+      event: { type: 'response.completed', id: 'parent' },
+      expected_action: { type: 'wait', changed: true },
+    },
+    {
+      event: {
+        type: 'steering',
+        status: 'accepted',
+        steer_id: 's1',
+        response_id: 'parent',
+      },
+      expected_action: { type: 'wait', changed: true, applied_id: 'u1' },
+    },
+    {
+      event: {
+        type: 'steering',
+        status: 'accepted',
+        steer_id: 's1',
+        response_id: 'parent',
+      },
+      expected_action: { type: 'wait', changed: false },
+    },
+    {
+      event: { type: 'response.completed', id: 'successor' },
+      expected_action: { type: 'validate', changed: true },
+    },
+    {
+      event: { type: 'validated' },
+      expected_action: { type: 'closed', changed: true },
+    },
+    {
+      event: {
+        type: 'steering',
+        status: 'pending',
+        steer_id: 's1',
+        response_id: 'parent',
+        required_call_ids: [],
+      },
+      expected_action: { type: 'closed', changed: false },
+    },
+  ],
+  expected_pending: [],
+  expected_steps: 2,
+});
+writeFixture('astra-native-late-pending-input', {
+  kind: 'ai_session_state',
+  model: AxAIOpenAIModel.GPT6Astra,
+  path: 'root',
+  max_steps: 3,
+  cases: [
+    {
+      event: {
+        type: 'tool.validated',
+        call: { id: 'c1' },
+        execution: 'background',
+      },
+      expected_action: { type: 'wait', changed: true },
+    },
+    {
+      event: {
+        type: 'update.queued',
+        update: {
+          id: 'u1',
+          type: 'steer',
+          target: 'root',
+          text: 'Use the pending result.',
+        },
+      },
+      expected_action: { type: 'wait', changed: true },
+    },
+    {
+      event: { type: 'native.queued', id: 'u1' },
+      expected_action: { type: 'wait', changed: true },
+    },
+    {
+      event: {
+        type: 'steering',
+        status: 'accepted',
+        steer_id: 's1',
+        response_id: 'parent',
+      },
+      expected_action: { type: 'wait', changed: true, applied_id: 'u1' },
+    },
+    {
+      event: { type: 'response.completed', id: 'parent' },
+      expected_action: { type: 'wait', changed: true },
+    },
+    {
+      event: {
+        type: 'tool.result',
+        id: 'c1',
+        result: { function_id: 'c1', result: 'REF-42' },
+      },
+      expected_action: { type: 'wait', changed: true },
+    },
+    {
+      event: {
+        type: 'steering',
+        status: 'pending',
+        steer_id: 's1',
+        response_id: 'parent',
+        required_call_ids: ['c1'],
+      },
+      expected_action: {
+        type: 'submit',
+        changed: true,
+        results: [{ function_id: 'c1', result: 'REF-42' }],
+      },
+    },
+    {
+      event: { type: 'results.submitted', ids: ['c1'] },
+      expected_action: { type: 'wait', changed: true },
+    },
+    {
+      event: { type: 'response.completed', id: 'successor' },
+      expected_action: { type: 'validate', changed: true },
+    },
+    {
+      event: { type: 'validated' },
+      expected_action: { type: 'closed', changed: true },
+    },
+  ],
+  expected_pending: [],
+  expected_steps: 2,
+});
+
+writeFixture('astra-native-successor-before-ack', {
+  kind: 'ai_session_state',
+  model: AxAIOpenAIModel.GPT6Astra,
+  path: 'root',
+  max_steps: 4,
+  cases: [
+    {
+      event: { type: 'response.completed', id: 'earlier' },
+      expected_action: { type: 'validate', changed: true },
+    },
+    {
+      event: {
+        type: 'update.queued',
+        update: {
+          id: 'u1',
+          type: 'steer',
+          target: 'root',
+          text: 'Correct the answer.',
+        },
+      },
+      expected_action: { type: 'continue', changed: true },
+    },
+    {
+      event: { type: 'native.queued', id: 'u1' },
+      expected_action: { type: 'wait', changed: true },
+    },
+    {
+      event: { type: 'response.completed', id: 'parent' },
+      expected_action: { type: 'wait', changed: true },
+    },
+    {
+      event: { type: 'response.completed', id: 'successor' },
+      expected_action: { type: 'wait', changed: true },
+    },
+    {
+      event: {
+        type: 'steering',
+        status: 'accepted',
+        steer_id: 's1',
+        response_id: 'parent',
+      },
+      expected_action: { type: 'validate', changed: true, applied_id: 'u1' },
+    },
+    {
+      event: {
+        type: 'steering',
+        status: 'pending',
+        steer_id: 's1',
+        response_id: 'parent',
+        required_call_ids: ['old'],
+      },
+      expected_action: { type: 'validate', changed: false },
+    },
+    {
+      event: {
+        type: 'steering',
+        status: 'accepted',
+        steer_id: 's1',
+        response_id: 'parent',
+      },
+      expected_action: { type: 'validate', changed: false },
+    },
+    {
+      event: { type: 'validated' },
+      expected_action: { type: 'closed', changed: true },
+    },
+  ],
+  expected_pending: [],
+  expected_steps: 3,
+});
+
+writeFixture('astra-session-provider-errors-preserved', {
+  kind: 'ai_session_events',
+  model: AxAIOpenAIModel.GPT6Astra,
+  cases: [
+    {
+      event: {
+        type: 'response.failed',
+        response: {
+          id: 'failed-response',
+          error: { code: 'server_error', message: 'Fixture provider failure' },
+        },
+      },
+      expected_exception: 'Fixture provider failure',
+    },
+    {
+      event: {
+        type: 'error',
+        error: {
+          code: 'invalid_request_error',
+          message: 'Fixture request rejected',
+        },
+      },
+      expected_exception: 'Fixture request rejected',
+    },
+    {
+      event: {
+        type: 'response.incomplete',
+        response: {
+          id: 'limited-response',
+          incomplete_details: { reason: 'max_output_tokens' },
+        },
+      },
+      expected_exception: 'max_output_tokens',
+    },
+  ],
+});
+
+writeFixture('astra-session-transport-cursor', {
+  kind: 'ai_session_events',
+  model: AxAIOpenAIModel.GPT6Astra,
+  cases: [
+    {
+      event: { type: 'response.created', response: { id: 'parent' } },
+      expected_types: [],
+      expected_active_id: 'parent',
+    },
+    {
+      event: { type: 'response.created', response: { id: 'successor' } },
+      expected_types: [],
+      expected_active_id: 'successor',
+    },
+    {
+      event: {
+        type: 'response.completed',
+        response: { id: 'parent', output: [] },
+      },
+      expected_types: ['response.completed'],
+      expected_active_id: 'successor',
+    },
+    {
+      event: { type: 'response.created', response: { id: 'parent' } },
+      expected_types: [],
+      expected_active_id: 'successor',
+    },
+    {
+      event: {
+        type: 'response.incomplete',
+        response: {
+          id: 'successor',
+          output: [],
+          incomplete_details: { reason: 'steered' },
+        },
+      },
+      expected_types: ['response.completed'],
+      expected_active_id: null,
+    },
+    {
+      event: { type: 'response.created', response: { id: 'successor' } },
+      expected_types: [],
+      expected_active_id: null,
+    },
+    {
+      event: {
+        type: 'response.completed',
+        response: { id: 'parent', output: [] },
+      },
+      expected_types: [],
+      expected_active_id: null,
+    },
+  ],
+});

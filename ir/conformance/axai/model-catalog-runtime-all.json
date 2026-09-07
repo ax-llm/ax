@@ -2355,6 +2355,45 @@
             "type": "text"
           },
           {
+            "cacheReadTokenCostPer1M": 1,
+            "cacheWriteTokenCostPer1M": 12.5,
+            "capabilities": {
+              "audioInput": false,
+              "audioOutput": false,
+              "imageOutput": false,
+              "serviceTiers": ["standard", "flex", "priority"],
+              "showThoughts": false,
+              "structuredOutputs": true,
+              "temperature": false,
+              "thinkingBudget": true,
+              "thinkingLevels": ["minimal", "low", "medium", "high", "highest"],
+              "topP": false
+            },
+            "completionTokenCostPer1M": 50,
+            "contextWindow": 1050000,
+            "currency": "usd",
+            "isDefault": false,
+            "longContextCacheReadTokenCostPer1M": 2,
+            "longContextCacheWriteTokenCostPer1M": 25,
+            "longContextCompletionTokenCostPer1M": 75,
+            "longContextPromptTokenCostPer1M": 20,
+            "longContextThreshold": 272000,
+            "maxTokens": 128000,
+            "name": "gpt-6-astra",
+            "notSupported": {
+              "temperature": true,
+              "topP": true
+            },
+            "promptTokenCostPer1M": 10,
+            "provider": "openai",
+            "supported": {
+              "structuredOutputModes": ["native", "json_object"],
+              "structuredOutputs": true,
+              "thinkingBudget": true
+            },
+            "type": "text"
+          },
+          {
             "capabilities": {
               "audioInput": false,
               "audioOutput": false,
@@ -4322,6 +4361,45 @@
             "provider": "openai-responses",
             "supported": {
               "structuredOutputs": true
+            },
+            "type": "text"
+          },
+          {
+            "cacheReadTokenCostPer1M": 1,
+            "cacheWriteTokenCostPer1M": 12.5,
+            "capabilities": {
+              "audioInput": false,
+              "audioOutput": false,
+              "imageOutput": false,
+              "serviceTiers": ["standard", "flex", "priority"],
+              "showThoughts": true,
+              "structuredOutputs": true,
+              "temperature": false,
+              "thinkingBudget": true,
+              "thinkingLevels": ["minimal", "low", "medium", "high", "highest"],
+              "topP": false
+            },
+            "completionTokenCostPer1M": 50,
+            "contextWindow": 1050000,
+            "currency": "usd",
+            "isDefault": false,
+            "longContextCacheReadTokenCostPer1M": 2,
+            "longContextCacheWriteTokenCostPer1M": 25,
+            "longContextCompletionTokenCostPer1M": 75,
+            "longContextPromptTokenCostPer1M": 20,
+            "longContextThreshold": 272000,
+            "maxTokens": 128000,
+            "name": "gpt-6-astra",
+            "notSupported": {
+              "temperature": true,
+              "topP": true
+            },
+            "promptTokenCostPer1M": 10,
+            "provider": "openai-responses",
+            "supported": {
+              "showThoughts": true,
+              "structuredOutputs": true,
+              "thinkingBudget": true
             },
             "type": "text"
           },
@@ -7375,7 +7453,7 @@
         "name": "baseten-engine"
       }
     ],
-    "modelCount": 220,
+    "modelCount": 222,
     "openaiFirstModel": "text-embedding-3-small",
     "openaiModelTypes": ["audio", "code", "embeddings", "text"],
     "providerCount": 49,

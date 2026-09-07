@@ -36,8 +36,8 @@ var llm = Ax.ai("openai", java.util.Map.of("apiKey", System.getenv("OPENAI_API_K
 ## Relevant API Surface
 
 - Signatures: `Ax.s`, `Ax.f`, `AxSignature`
-- AxGen: `Ax.ax`, `AxGen`
-- AxAI: `Ax.ai`, `AxCancellationToken`, `AxAIServiceAbortedError`, `Ax.getSupportedAIModels`, `OpenAICompatibleClient.CredentialRequest`, `OpenAICompatibleClient.CredentialProvider`, `AxChatStream`, `OpenAICompatibleClient`, `OpenAIResponsesClient`, `GoogleGeminiClient`, `AnthropicClient`, `Map<String, Object>`, `AxUsageEvent`, `AxUsageObserver`, `AxGlobals.setUsageObserver`, `AxRuntimeHooks`, `AxRateLimitInfo`, `AxRateLimiter`, `AxTracer`, `AxMeter`, `AxGlobals`, `AxGlobals.setRateLimiter`, `AxGlobals.setTracer`, `AxGlobals.setMeter`, `AxBalancer`, `AxBalancerAdaptiveStrategy`, `AxBalancerStatsStore`, `AxInMemoryBalancerStatsStore`, `AxBalancerAdaptive.createRouteStats`, `AxBalancerAdaptive.updateRouteStats`, `AxBalancerAdaptive.sampleRouteHealth`, `MultiServiceRouter`, `ProviderRouter`
+- AxGen: `Ax.ax`, `AxGen`, `Ax.runControl`, `AxRunControl`
+- AxAI: `Ax.ai`, `AxCancellationToken`, `AxAIServiceAbortedError`, `Ax.getSupportedAIModels`, `OpenAICompatibleClient.CredentialRequest`, `OpenAICompatibleClient.CredentialProvider`, `AxChatSession`, `AxChatStream`, `OpenAICompatibleClient`, `OpenAIResponsesClient`, `GoogleGeminiClient`, `AnthropicClient`, `Map<String, Object>`, `AxUsageEvent`, `AxUsageObserver`, `AxGlobals.setUsageObserver`, `AxRuntimeHooks`, `AxRateLimitInfo`, `AxRateLimiter`, `AxTracer`, `AxMeter`, `AxGlobals`, `AxGlobals.setRateLimiter`, `AxGlobals.setTracer`, `AxGlobals.setMeter`, `AxBalancer`, `AxBalancerAdaptiveStrategy`, `AxBalancerStatsStore`, `AxInMemoryBalancerStatsStore`, `AxBalancerAdaptive.createRouteStats`, `AxBalancerAdaptive.updateRouteStats`, `AxBalancerAdaptive.sampleRouteHealth`, `MultiServiceRouter`, `ProviderRouter`
 - Agents And RLM: `Ax.agent`, `AxAgent`
 - Flow: `Ax.flow`, `AxFlow`
 - Optimizers: `Ax.optimize`, `Ax.playbook`, `AxPlaybook`, `AxBootstrapFewShot`, `AxGEPA`, `OptimizerEngine`, `OptimizerEvaluator`

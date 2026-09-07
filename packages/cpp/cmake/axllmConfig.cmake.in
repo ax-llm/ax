@@ -1,6 +1,7 @@
 @PACKAGE_INIT@
 
 include(CMakeFindDependencyMacro)
+find_dependency(Threads)
 if(@AXLLM_CONFIG_USES_CURL@)
   find_dependency(CURL)
 endif()

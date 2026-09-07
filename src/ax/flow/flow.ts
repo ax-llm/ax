@@ -668,7 +668,9 @@ export class AxFlow<
   ): Promise<OUT> {
     const cachingFunction =
       (options as any)?.cachingFunction ?? axGlobals.cachingFunction;
-    const cacheKey = this.getCacheKey(values, cachingFunction as any);
+    const cacheKey = options?.control
+      ? undefined
+      : this.getCacheKey(values, cachingFunction as any);
     if (cachingFunction && cacheKey) {
       try {
         const cached = await cachingFunction(cacheKey);
@@ -684,6 +686,10 @@ export class AxFlow<
     let flowMetrics: AxFlowMetricsInstruments | undefined;
     const flowMetricAttributes = { 'ax.program.type': 'AxFlow' };
 
+    options?.control?.emit({
+      type: 'started',
+      path: options.executionPath ?? 'root',
+    });
     try {
       this.resetUsage();
       this.resetTraces();
@@ -765,7 +771,10 @@ export class AxFlow<
       );
       const effectiveAbortSignal = mergeAbortSignals(
         runAbortController.signal,
-        mergeAbortSignals(callerAbortSignal, axGlobals.abortSignal)
+        mergeAbortSignals(
+          mergeAbortSignals(callerAbortSignal, options?.control?.signal),
+          axGlobals.abortSignal
+        )
       );
 
       const useAutoParallel =
@@ -861,8 +870,17 @@ export class AxFlow<
         } catch {}
       }
 
+      options?.control?.emit({
+        type: 'completed',
+        path: options.executionPath ?? 'root',
+      });
       return state as OUT;
     } catch (error) {
+      options?.control?.emit({
+        type: 'failed',
+        path: options.executionPath ?? 'root',
+        error,
+      });
       recordFlowMetric(flowMetrics?.errors, 1, flowMetricAttributes);
       this.flowLogger?.({
         name: 'FlowError',

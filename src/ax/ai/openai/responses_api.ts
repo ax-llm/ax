@@ -23,6 +23,8 @@ import type {
 } from '../types.js';
 import { axResolveOpenAIPromptCacheKey } from './caching.js';
 import { axResolveOpenAIResponsesReasoningEffort } from './effort.js';
+import { axIsGPT6Astra } from './model_family.js';
+import { axValidateOpenAIResponseRequest } from './responses_client.js';
 import type {
   AxAIOpenAIResponsesCodeInterpreterToolCall,
   AxAIOpenAIResponsesComputerToolCall,
@@ -106,11 +108,12 @@ export class AxAIOpenAIResponsesImpl<
     private readonly apiKey = ''
   ) {}
 
+  supportsImplicitCaching = (model: TModel): boolean =>
+    axIsGPT6Astra(model) || (this.config.promptCaching ?? false);
+
   getTokenUsage(): Readonly<AxTokenUsage> | undefined {
     return this.tokensUsed;
   }
-
-  supportsImplicitCaching = (): boolean => this.config.promptCaching ?? false;
 
   getModelConfig(): Readonly<AxModelConfig> {
     const { config } = this;
@@ -267,7 +270,8 @@ export class AxAIOpenAIResponsesImpl<
 
   private createResponsesReqInternalInput(
     chatPrompt: ReadonlyArray<AxChatRequest<TModel>['chatPrompt'][number]>,
-    excludeSystemMessages = false // New parameter
+    excludeSystemMessages = false,
+    model: TModel = this.config.model
   ): ReadonlyArray<AxAIOpenAIResponsesInputItem> {
     // Map from AxChatPromptItemType roles to AxAIOpenAI /v1/responses API roles:
     // - 'system' -> 'system' (may be skipped if excludeSystemMessages is true)
@@ -377,20 +381,27 @@ export class AxAIOpenAIResponsesImpl<
               });
             }
             const replayableBlocks = msg.thoughtBlocks?.filter(
-              (block) => block.encryptedContent && block.phase !== 'commentary'
+              (block) =>
+                (block.encryptedContent || (block.encrypted && block.data)) &&
+                block.phase !== 'commentary'
             );
             if (replayableBlocks?.length) {
               for (const block of replayableBlocks) {
                 items.push({
                   type: 'reasoning',
-                  id: block.id,
-                  summary: [
-                    {
-                      type: 'summary_text',
-                      text: block.summary ?? block.data,
-                    },
-                  ],
-                  encrypted_content: block.encryptedContent,
+                  id: block.id ?? block.signature,
+                  summary:
+                    block.summary ||
+                    (block.encryptedContent &&
+                      (block.data || !axIsGPT6Astra(model)))
+                      ? [
+                          {
+                            type: 'summary_text',
+                            text: block.summary ?? block.data,
+                          },
+                        ]
+                      : [],
+                  encrypted_content: block.encryptedContent ?? block.data,
                 } satisfies AxAIOpenAIResponsesInputReasoningItem);
               }
             } else {
@@ -674,7 +685,7 @@ export class AxAIOpenAIResponsesImpl<
           req.responseFormat.type === 'json_schema'
             ? {
                 type: 'json_schema',
-                json_schema: req.responseFormat.schema,
+                ...req.responseFormat.schema,
               }
             : { type: req.responseFormat.type as 'text' | 'json_object' },
       };
@@ -693,7 +704,8 @@ export class AxAIOpenAIResponsesImpl<
     const inputItems = req.chatPrompt
       ? this.createResponsesReqInternalInput(
           req.chatPrompt,
-          systemMessageFoundAndUsed
+          systemMessageFoundAndUsed,
+          model
         )
       : [];
 
@@ -729,6 +741,51 @@ export class AxAIOpenAIResponsesImpl<
       );
     }
 
+    if (axIsGPT6Astra(model)) {
+      if (
+        config.contextCache !== undefined ||
+        req.chatPrompt.some((m) => 'cache' in m && m.cache) ||
+        req.functions?.some((f) => f.cache)
+      ) {
+        const marked = Array.isArray(finalReqToProcess.input)
+          ? finalReqToProcess.input.map((item) => {
+              if (
+                typeof item !== 'object' ||
+                item.type !== 'message' ||
+                !item.content
+              )
+                return item;
+              const content =
+                typeof item.content === 'string'
+                  ? [
+                      {
+                        type:
+                          item.role === 'assistant'
+                            ? 'output_text'
+                            : 'input_text',
+                        text: item.content,
+                      },
+                    ]
+                  : item.content;
+              return {
+                ...item,
+                content: content.map((part: object, index: number) =>
+                  index === content.length - 1
+                    ? { ...part, prompt_cache_breakpoint: { mode: 'explicit' } }
+                    : part
+                ),
+              };
+            })
+          : finalReqToProcess.input;
+        finalReqToProcess = {
+          ...finalReqToProcess,
+          input: marked as typeof finalReqToProcess.input,
+          prompt_cache_options: { mode: 'explicit', ttl: '30m' },
+          prompt_cache_key: config.promptCacheKey ?? config.sessionId,
+        };
+      }
+      finalReqToProcess = axValidateOpenAIResponseRequest(finalReqToProcess);
+    }
     if (this.realtime?.shouldUse(String(model))) {
       if (req.functions?.length) {
         throw new Error(
@@ -1230,6 +1287,7 @@ export class AxAIOpenAIResponsesImpl<
             }
             break;
           case 'reasoning': {
+            if (event.item.encrypted_content) break;
             baseResult.id = event.item.id;
             const thought = reasoningItemToText(event.item);
             if (thought) baseResult.thought = thought;

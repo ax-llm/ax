@@ -5,7 +5,7 @@ module @ax.tool version "0.1" {
     attr core_kind = "record"
     attr public = true
     tag "src/ax/dsp/functions.ts"
-    type fields = "name:string,description:string,parameters:AxFunctionJSONSchema,handler:HostFunction,returns?:list<Field>"
+    type fields = "name:string,description:string,parameters:AxFunctionJSONSchema,handler:HostFunction,returns?:list<Field>,execution?:string"
   }
 
   op ax.tool.record @ToolBuilder {

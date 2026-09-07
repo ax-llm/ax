@@ -8,7 +8,7 @@ import java.util.Map;
 import java.util.Set;
 import java.util.function.Consumer;
 
-public final class AxMultiServiceRouter implements AxAIService {
+public final class AxMultiServiceRouter implements AxAIService, AxChatSession.Provider {
   public static final class Entry {
     public final String key;
     public final AxAIService service;
@@ -97,8 +97,17 @@ public final class AxMultiServiceRouter implements AxAIService {
   }
 
   public Map<String, Object> getFeatures(String model) {
-    if (model != null && services.containsKey(model)) return ((AxAIService) services.get(model).get("service")).getFeatures(model);
+    if (model != null && services.containsKey(model)) return ((AxAIService) services.get(model).get("service")).getFeatures((String) services.get(model).get("model"));
     return Core.defaultRouterFeatures();
+  }
+
+  public AxChatSession openChatSession(Map<String,Object> request,Map<String,Object> options) throws Exception {
+    var entry=services.get(String.valueOf(request.get("model")));
+    if(entry==null)throw new IllegalArgumentException("No service found for model key: "+request.get("model"));
+    lastUsedService=(AxAIService)entry.get("service");
+    if(!(lastUsedService instanceof AxChatSession.Provider provider))throw new IllegalStateException("Selected service does not support sessions");
+    var resolved=Core.asMap(Core.provider_session_route(entry,request,options));
+    return provider.openChatSession(Core.asMap(resolved.get("request")),Core.asMap(resolved.get("options")));
   }
 
   public Map<String, Object> chat(Map<String, Object> request) throws Exception { return chat(request, Map.of()); }

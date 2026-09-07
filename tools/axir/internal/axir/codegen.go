@@ -125,6 +125,8 @@ func EmitPython(model AxRuntimeModel, outDir string) error {
 		"axllm/flow.py":                                               flow,
 		"axllm/mcp.py":                                                mcpModule,
 		"axllm/conformance.py":                                        pyConformance,
+		"axllm/session.py":                                            pySession,
+		"tests/astra_session_test.py":                                 pySessionNoKeyExample,
 		"axllm/providers/__init__.py":                                 pyProvidersInit,
 		"axllm/providers/openai.py":                                   pyOpenAIProvider,
 		"axir-capabilities.json":                                      mustCapabilityManifest(model, "python"),
@@ -270,6 +272,10 @@ func EmitJava(model AxRuntimeModel, outDir string) error {
 		"dev/axllm/ax/AxACE.java":                                     javaAxACE,
 		"dev/axllm/ax/AxGEPA.java":                                    javaAxGEPA,
 		"dev/axllm/ax/AxPlaybook.java":                                javaAxPlaybook,
+		"dev/axllm/ax/AxRunControl.java":                              javaAxRunControl,
+		"dev/axllm/ax/AxChatSession.java":                             javaAxChatSession,
+		"dev/axllm/ax/ResponsesChatSession.java":                      javaResponsesChatSession,
+		"dev/axllm/ax/SessionRun.java":                                javaSessionRun,
 		"dev/axllm/ax/OptimizerEngine.java":                           javaOptimizerEngine,
 		"dev/axllm/ax/OptimizerEvaluator.java":                        javaOptimizerEvaluator,
 		"dev/axllm/ax/Json.java":                                      javaJson,
@@ -279,6 +285,7 @@ func EmitJava(model AxRuntimeModel, outDir string) error {
 		"conformance-coverage.json":                                   mustConformanceCoverageManifest(model, "java"),
 		"examples/SignatureSchemaExample.java":                        javaSignatureSchemaExample,
 		"examples/ModelCatalogExample.java":                           javaModelCatalogExample,
+		"tests/AstraSessionTest.java":                                 javaAstraSessionNoKeyExample,
 		"examples/AxGenScriptedClientToolExample.java":                javaAxGenScriptedClientToolExample,
 		"examples/AxGenOpenAIExample.java":                            javaAxGenOpenAIExample,
 		"examples/VertexGeminiExample.java":                           javaVertexGeminiExample,
@@ -338,6 +345,8 @@ func EmitCpp(model AxRuntimeModel, outDir string) error {
 		"cmake/axllmConfig.cmake.in":                            cppCMakeConfig,
 		"axllm/axllm.hpp":                                       header,
 		"axllm/axllm.cpp":                                       core,
+		"axllm/session.inc":                                     cppSession,
+		"tests/astra_session_test.cpp":                          cppAstraSessionNoKeyExample,
 		"axllm/mcp.hpp":                                         cppMCPHeader,
 		"axllm/mcp.cpp":                                         cppMCPSource,
 		"conformance.cpp":                                       cppConformance,
@@ -398,6 +407,8 @@ func EmitGo(model AxRuntimeModel, outDir string) error {
 		"go.sum":                            goSum,
 		"axllm.go":                          renderPackageTemplate(core, version),
 		"mcp.go":                            goMCP,
+		"session.go":                        goSession,
+		"session_test.go":                   goSessionTest,
 		"errors_test.go":                    goErrorBoundaryTest,
 		"runtime/goja/goja.go":              goGojaRuntime,
 		"runtime/goja/goja_test.go":         goGojaRuntimeTest,
@@ -453,6 +464,7 @@ func EmitRust(model AxRuntimeModel, outDir string) error {
 		"Cargo.toml":                                      renderPackageTemplate(rustCargoToml, version),
 		"src/lib.rs":                                      renderPackageTemplate(core, version),
 		"src/mcp.rs":                                      rustMCP,
+		"src/session.rs":                                  rustSession,
 		"src/runtime/quickjs.rs":                          rustQuickJSRuntime,
 		"src/bin/axllm-conformance.rs":                    rustConformanceMain,
 		"axir-capabilities.json":                          mustCapabilityManifest(model, "rust"),
@@ -1075,8 +1087,10 @@ func apiReferenceSectionsForTarget(target string) []APIReferenceSection {
 			Title:   "AxGen",
 			Summary: "Run structured generation with Core-owned prompts, indexed multi-sampling, result selection, tool loops, retries, streaming folds, traces, usage, examples, and field processors.",
 			Symbols: []APIReferenceSymbol{
-				sym("ax", "function", "Create an AxGen program from a string or parsed signature.", []string{"functions", "examples", "demos", "sample count", "result picker", "modelConfig", "maxRetries", "streaming assertions", "field processors"}, "AxGen"),
+				sym("ax", "function", "Create an AxGen program from a string or parsed signature.", []string{"functions", "examples", "demos", "sample count", "result picker", "modelConfig", "maxRetries", "streaming assertions", "field processors", "control", "asyncMode"}, "AxGen"),
 				sym("AxGen", "type", "Structured generation program with indexed multi-sampling, winner selection, forward, streaming, optimization, trace, usage, and tool-call behavior.", []string{"signature", "functions", "examples", "demos", "sample count", "result picker", "memory", "prompt template"}, "program object"),
+				sym("run_control", "function", "Create a controller for scoped steering, reasoning updates, cancellation, and queued/applied lifecycle events. Pass it through forward options.", nil, "AxRunControl"),
+				sym("AxRunControl", "type", "Run control shared by active and future descendant programs. Cancellation reports unresolved work and does not undo external effects.", []string{"steer", "thinking token budget", "target path", "abort", "event listener"}, "run controller"),
 			},
 		},
 		{
@@ -1090,6 +1104,7 @@ func apiReferenceSectionsForTarget(target string) []APIReferenceSection {
 				sym("get_supported_ai_models", "function", "Return the AxIR-backed provider and model catalog, including dynamic named profiles and portable capability metadata.", []string{"type filter", "thinkingLevels", "serviceTiers", "isDynamic"}, "provider catalog entries"),
 				sym("AxCredentialRequest", "type", "Request metadata passed to a renewable credential callback for every transport attempt.", []string{"profile", "operation", "method", "URL"}, "credential request"),
 				sym("AxCredentialProvider", "interface", "Return fresh request headers that override static profile authentication.", []string{"chat", "stream", "embeddings", "Responses", "audio", "retries"}, "header map or credential error"),
+				sym("AxChatSession", "interface", "Optional normalized session capability for custom provider adapters. High-level programs own tool execution and continuation; chat-only services remain supported.", []string{"normalized events", "completed calls", "submit results", "steering", "reasoning updates", "close"}, "run-owned chat session"),
 				sym("AxProviderStream", "type", "Incremental, closeable provider event stream. Retry and failover stop once content is delivered.", []string{"next event", "terminal error", "consumer cancellation", "upstream close"}, "incremental chat events"),
 				sym("OpenAICompatibleClient", "type", "OpenAI-compatible chat, stream, embedding, audio, and realtime provider boundary.", []string{"api key", "model", "base URL", "transport"}, "provider client"),
 				sym("OpenAIResponsesClient", "type", "OpenAI Responses provider mapping using the same Core-owned request and response contract.", []string{"api key", "model", "audio", "realtime"}, "provider client"),
@@ -1142,7 +1157,7 @@ func apiReferenceSectionsForTarget(target string) []APIReferenceSection {
 			Title:   "Tools",
 			Summary: "Expose host functions to AxGen and AxAgent with typed argument and return schemas.",
 			Symbols: []APIReferenceSymbol{
-				sym("fn", "function", "Build a typed function tool. Rust uses `tool` because `fn` is reserved.", []string{"name", "description", "args", "returns", "handler"}, "tool builder or Tool"),
+				sym("fn", "function", "Build a typed function tool. Rust uses `tool` because `fn` is reserved.", []string{"name", "description", "args", "returns", "handler", "execution: blocking or background", "cancellation-aware handler"}, "tool builder or Tool"),
 				sym("Tool", "type", "Callable tool descriptor with JSON-schema-compatible parameters and a host handler.", []string{"parameters", "returns", "handler"}, "tool descriptor"),
 			},
 		},
@@ -1222,6 +1237,12 @@ func apiReferencePublicName(target, canonical string) string {
 		return mapTarget(target, "s", "Ax.s", "axllm::s", "axllm.S", "s")
 	case "f":
 		return mapTarget(target, "f", "Ax.f", "axllm::FieldType", "axllm.FieldType", "f")
+	case "run_control":
+		return mapTarget(target, "run_control", "Ax.runControl", "axllm::run_control", "axllm.RunControl", "run_control")
+	case "AxChatSession":
+		return mapTarget(target, "AxChatSession", "AxChatSession", "axllm::AxChatSession", "axllm.AxChatSession", "AxChatSession")
+	case "AxRunControl":
+		return mapTarget(target, "AxRunControl", "AxRunControl", "axllm::AxRunControl", "axllm.AxRunControl", "AxRunControl")
 	case "ax":
 		return mapTarget(target, "ax", "Ax.ax", "axllm::ax", "axllm.NewAx", "ax")
 	case "ai":
@@ -1315,6 +1336,8 @@ func apiReferenceForm(target, canonical, publicName string) string {
 		return mapTarget(target, "f().input(...).output(...).build()", "Ax.f().input(...).output(...)", "FieldType / Field descriptors", "FieldType and Field descriptors", "f().input(...).output(...).build()")
 	case "AxSignature":
 		return mapTarget(target, "AxSignature", "AxSignature", "axllm::Value signature", "axllm.AxSignature", "AxSignature")
+	case "run_control":
+		return apiReferencePublicName(target, canonical) + "()"
 	case "ax":
 		return mapTarget(target, "ax(signature, options=None)", "Ax.ax(signature)", "axllm::ax(signature, options)", "axllm.NewAx(signature, options)", "ax(spec: &str)")
 	case "AxGen":
@@ -1471,6 +1494,8 @@ func apiReferenceExample(target, canonical string) string {
 			`sig := axllm.S("question:string -> answer:string")`,
 			`let sig = s("question:string -> answer:string")?;`,
 		)
+	case "run_control":
+		return mapTarget(target, "control = run_control()", "var control = Ax.runControl();", "auto control = axllm::run_control();", "control := axllm.RunControl()", "let control = run_control();")
 	case "ax":
 		return mapTarget(target,
 			`qa = ax("question:string -> answer:string")`,
@@ -1845,6 +1870,8 @@ func BuildConformanceCoverageManifest(model AxRuntimeModel, target string) (Conf
 		{"axgen", "forward", "", "semantic"},
 		{"axgen", "stream", "", "semantic"},
 		{"axai", "ai_chat", "", "transport-boundary"},
+		{"axai", "ai_session_events", "", "semantic"},
+		{"axai", "ai_session_state", "", "semantic"},
 		{"axai", "ai_stream", "", "transport-boundary"},
 		{"axai", "ai_embed", "", "transport-boundary"},
 		{"axai", "ai_usage_observer", "", "semantic"},

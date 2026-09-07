@@ -1192,6 +1192,7 @@ func _core_div(left Value, right Value) Value {
 	return num(left) / d
 }
 func _core_math_abs(value Value) Value             { return math.Abs(num(value)) }
+func _core_math_floor(value Value) Value { return math.Floor(num(value)) }
 func _core_math_log(value Value) Value             { return math.Log(num(value)) }
 func _core_math_exp(value Value) Value             { return math.Exp(num(value)) }
 func _core_math_sqrt(value Value) Value            { return math.Sqrt(num(value)) }
@@ -1350,6 +1351,9 @@ func _core_ai_complete_once(client Value, request Value, options Value) (Value, 
 		if err != nil {
 			return nil, err
 		}
+        original:=c
+        for {bound,ok:=original.(contextBoundAIClient);if !ok{break};original=bound.inner}
+        if _,ok:=original.(*ProviderRouter);ok{out=coreGet(out,"response",out)}
 		return chat_response_to_completion(out)
 	}
 	return nil, AxError{Category: "runtime", Message: "client does not implement AIClient"}
@@ -1981,29 +1985,46 @@ func title(name string) string {
 
 // Tools and AI services.
 type Tool struct {
+    ExecutionMode string
 	Name        string
 	Description string
 	Args        map[string]Field
 	Returns     map[string]Field
 	Handler     func(map[string]Value) (Value, error)
+	ContextHandler func(context.Context, map[string]Value) (Value, error)
 }
 
 func Fn(name string) Tool {
-	return Tool{Name: name, Description: name, Args: map[string]Field{}, Returns: map[string]Field{}}
+	return Tool{ExecutionMode: "blocking", Name: name, Description: name, Args: map[string]Field{}, Returns: map[string]Field{}}
+}
+func (t Tool) Execution(mode string) Tool {
+    if mode != "blocking" && mode != "background" { panic("Tool execution must be blocking or background") }
+    t.ExecutionMode = mode
+    return t
 }
 func (t Tool) WithHandler(handler func(map[string]Value) (Value, error)) Tool {
 	t.Handler = handler
 	return t
 }
+func (t Tool) WithContextHandler(handler func(context.Context, map[string]Value) (Value, error)) Tool {
+    t.ContextHandler = handler
+    t.Handler = func(args map[string]Value) (Value,error) { return handler(context.Background(), args) }
+    return t
+}
 func (t Tool) Call(args map[string]Value) Value { return mustCore(t.invoke(args)) }
 func (t Tool) invoke(args map[string]Value) (Value, error) {
+    return t.invokeContext(context.Background(), args)
+}
+func (t Tool) invokeContext(ctx context.Context, args map[string]Value) (Value, error) {
 	if _, err := validate_fields(toolFields(t.Args), args, "tool."+t.Name+".args"); err != nil {
 		return nil, err
 	}
-	if t.Handler == nil {
+	if t.Handler == nil && t.ContextHandler == nil {
 		return nil, nil
 	}
-	out, err := t.Handler(args)
+    var out Value
+    var err error
+    if t.ContextHandler != nil { out, err = t.ContextHandler(ctx, args) } else { out, err = t.Handler(args) }
 	if err != nil {
 		return nil, AxError{Category: "runtime", Message: err.Error()}
 	}
@@ -2019,7 +2040,15 @@ func runtimeScopedTools(ctx context.Context, tools []Tool) []Tool {
 	out := append([]Tool(nil), tools...)
 	for index := range out {
 		original := out[index].Handler
+        contextual := out[index].ContextHandler
 		name := out[index].Name
+        if contextual != nil {
+            out[index].ContextHandler = func(callCtx context.Context, args map[string]Value) (result Value, err error) {
+                toolCtx, _, finish := beginRuntimeScope(callCtx, AxRuntimeHooks{}, AxRuntimeHooks{}, "ax_gen_tool", "ax_gen_tool", Object("ax.tool.name", name))
+                defer func() { finish(err) }()
+                return contextual(toolCtx, args)
+            }
+        }
 		if original == nil {
 			continue
 		}
@@ -2047,6 +2076,8 @@ func toolFields(fields map[string]Field) []Field {
 }
 func (t Tool) get(key string, fallback Value) Value {
 	switch key {
+	case "execution":
+        if t.ExecutionMode == "" { return "blocking" }; return t.ExecutionMode
 	case "name":
 		return t.Name
 	case "description":
@@ -3167,7 +3198,7 @@ func (c *OpenAICompatibleClient) requestJSON(ctx context.Context, operation stri
 	// `stream` flag, while Gemini and Anthropic select streaming through their
 	// operation endpoint and reject an extra body field.
 	operationDescriptor := mustCore(provider_resolve_operation_descriptor(c.Profile, operation, opts))
-	path := display(coreGet(operationDescriptor, "path", "/chat/completions"))
+	path := display(mustCore(provider_chat_operation_path(c.Profile, coreGet(request, "model", ""), operation, coreGet(operationDescriptor, "path", "/chat/completions"))))
 	descriptor := mustCore(provider_resolve_descriptor(c.Profile, opts))
 	base := display(coreGet(opts, "base_url", coreGet(opts, "baseUrl", coreGet(descriptor, "baseUrl", "https://api.openai.com/v1"))))
 	headers := Object("Content-Type", "application/json")
@@ -3770,7 +3801,7 @@ func (s *sliceProviderStream) Next() (Value, error) {
 	}
 	return nil, io.EOF
 }
-func (s *sliceProviderStream) Close() error { s.index = len(s.values); return nil }
+func (s *sliceProviderStream) Close() error { return nil }
 
 type sseJSONStream struct {
 	reader     *bufio.Reader
@@ -3781,7 +3812,7 @@ type sseJSONStream struct {
 	queuedByte *byte
 	atStart    bool
 	done       bool
-	closed     bool
+	closeOnce sync.Once
 }
 
 func newSSEJSONStream(reader io.Reader, closer io.Closer) *sseJSONStream {
@@ -3789,14 +3820,9 @@ func newSSEJSONStream(reader io.Reader, closer io.Closer) *sseJSONStream {
 }
 
 func (s *sseJSONStream) Close() error {
-	if s.closed {
-		return nil
-	}
-	s.closed = true
-	if s.closer != nil {
-		return s.closer.Close()
-	}
-	return nil
+	var err error
+	s.closeOnce.Do(func() { if s.closer != nil { err = s.closer.Close() } })
+	return err
 }
 
 func (s *sseJSONStream) flushEvent() (Value, bool, error) {
@@ -4101,9 +4127,17 @@ func routerDefaultFeatures() map[string]Value {
 }
 func (r *MultiServiceRouter) GetFeatures(model string) map[string]Value {
 	if entry, ok := r.services[model]; ok {
-		return cloneMap(entry.Service.GetFeatures(model))
+		return cloneMap(entry.Service.GetFeatures(display(entry.Model)))
 	}
 	return routerDefaultFeatures()
+}
+func (r *MultiServiceRouter) OpenChatSession(ctx context.Context, request,options map[string]Value)(AxChatSession,error){
+    key:=display(coreGet(request,"model",""));entry,ok:=r.services[key]
+    if !ok{return nil,fmt.Errorf("No service found for model key: %s",key)}
+    opener,ok:=entry.Service.(SessionAIClient);if !ok{return nil,fmt.Errorf("Selected service does not support sessions")}
+    route:=Object();if entry.HasModel {coreSet(route,"model",entry.Model)}
+    resolved:=mustCore(provider_session_route(route,request,options));r.lastUsedService=entry.Service
+    return opener.OpenChatSession(ctx,asMap(coreGet(resolved,"request",Object())),asMap(coreGet(resolved,"options",Object())))
 }
 func (r *MultiServiceRouter) Chat(ctx context.Context, request map[string]Value, options map[string]Value) (Value, error) {
 	modelKey := display(coreGet(request, "model", ""))
@@ -4286,6 +4320,7 @@ func appendUnique(target *AxArray, values Value) {
 func balancerBaseFeatures() map[string]Value {
 	return Object(
 		"functions", false, "streaming", false, "thinking", false, "multiTurn", false, "structuredOutputs", false,
+        "asyncTools", false, "nativeSteering", false, "reasoningUpdates", false,
 		"media", Object(
 			"images", Object("supported", false, "formats", Array()),
 			"audio", Object("supported", false, "formats", Array()),
@@ -4547,6 +4582,14 @@ func (b *AxBalancer) validateModels() error {
 	}
 	return nil
 }
+func (b *AxBalancer) OpenChatSession(ctx context.Context,request,options map[string]Value)(AxChatSession,error) {
+    selected,err:=b.pinChatRun(ctx,request,options);if err!=nil{return nil,err};opener,ok:=selected.(SessionAIClient);if !ok{return nil,fmt.Errorf("selected service does not support chat sessions")};return opener.OpenChatSession(ctx,request,options)
+}
+func (b *AxBalancer) pinChatRun(ctx context.Context,request,options map[string]Value)(AIClient,error) {
+    var selected AxAIService
+    if b.adaptive!=nil {ranked,err:=b.rankAdaptive(request,options);if err!=nil{return nil,err};if len(ranked)>0{selected=ranked[0].service}} else {candidates,err:=b.candidateServices(request);if err!=nil{return nil,err};for _,service:=range candidates {if b.canRetryService(service){selected=service;break}}}
+    if selected==nil{return nil,fmt.Errorf("no eligible service for this run")};b.currentService=selected;return selected,nil
+}
 func (b *AxBalancer) canRetryService(service AxAIService) bool {
 	return b.serviceFailures[service.GetID()] == 0
 }
@@ -4596,11 +4639,12 @@ func (b *AxBalancer) GetModelList() Value {
 	}
 	return nil
 }
-func (b *AxBalancer) GetFeatures(model string) map[string]Value {
+func (b *AxBalancer) GetFeatures(model string) map[string]Value {return mergedServiceFeatures(b.services,model)}
+func mergedServiceFeatures(services []AxAIService,model string) map[string]Value {
 	features := balancerBaseFeatures()
 	modes := MutableArray()
-	allModesAdvertised := len(b.services) > 0
-	for _, service := range b.services {
+	allModesAdvertised := len(services) > 0
+	for _, service := range services {
 		raw := service.GetFeatures(model)
 		rawModes := coreGet(raw, "structuredOutputModes", coreGet(raw, "structured_output_modes", nil))
 		if rawModes == nil {
@@ -4608,7 +4652,7 @@ func (b *AxBalancer) GetFeatures(model string) map[string]Value {
 		} else {
 			appendUnique(modes, rawModes)
 		}
-		for _, pair := range []struct{ key, alt string }{{"functions", ""}, {"streaming", ""}, {"thinking", ""}, {"multiTurn", "multi_turn"}, {"structuredOutputs", "structured_outputs"}, {"functionCot", "function_cot"}, {"hasThinkingBudget", "has_thinking_budget"}, {"hasShowThoughts", "has_show_thoughts"}} {
+		for _, pair := range []struct{ key, alt string }{{"functions", ""}, {"streaming", ""}, {"thinking", ""}, {"multiTurn", "multi_turn"}, {"structuredOutputs", "structured_outputs"}, {"functionCot", "function_cot"}, {"hasThinkingBudget", "has_thinking_budget"}, {"hasShowThoughts", "has_show_thoughts"}, {"asyncTools", ""}, {"nativeSteering", ""}, {"reasoningUpdates", ""}} {
 			if featureBool(raw, pair.key, pair.alt) {
 				coreSet(features, pair.key, true)
 			}
@@ -5183,6 +5227,19 @@ func (r *ProviderRouter) ValidateRequest(request map[string]Value) map[string]Va
 func (r *ProviderRouter) GetRoutingStats() map[string]Value {
 	return asMap(mustCore(provider_routing_stats(r.providerRecords())))
 }
+type pinnedProviderChat struct {AIClient}
+func (p *pinnedProviderChat) GetFeatures(model string)map[string]Value{return asMap(_core_ai_client_features(p.AIClient,model))}
+func (p *pinnedProviderChat) Chat(ctx context.Context,request,options map[string]Value)(Value,error){processed:=asMap(mustCore(provider_route_preprocess_request(p.GetFeatures(display(coreGet(request,"model",""))),request)));return p.AIClient.Chat(ctx,processed,options)}
+func (p *pinnedProviderChat) OpenChatSession(ctx context.Context,request,options map[string]Value)(AxChatSession,error){
+    opener,ok:=p.AIClient.(SessionAIClient);if !ok{return nil,fmt.Errorf("selected provider does not support chat sessions")};processed:=asMap(mustCore(provider_route_preprocess_request(p.GetFeatures(display(coreGet(request,"model",""))),request)));return opener.OpenChatSession(ctx,processed,options)
+}
+func (r *ProviderRouter) GetFeatures(model string)map[string]Value{return mergedServiceFeatures(r.providers,model)}
+func (r *ProviderRouter) pinChatRun(ctx context.Context,request,options map[string]Value)(AIClient,error){
+    _,provider,err:=r.selectedService(request);if err!=nil{return nil,err};var selected AIClient=provider;seen:=map[AIClient]bool{}
+    for{selector,ok:=selected.(chatRunSelector);if !ok{break};if seen[selected]{return nil,fmt.Errorf("cyclic run routing")};seen[selected]=true;selected,err=selector.pinChatRun(ctx,request,options);if err!=nil{return nil,err}}
+    return &pinnedProviderChat{AIClient:selected},nil
+}
+func (r *ProviderRouter) OpenChatSession(ctx context.Context,request,options map[string]Value)(AxChatSession,error){selected,err:=r.pinChatRun(ctx,request,options);if err!=nil{return nil,err};return selected.(SessionAIClient).OpenChatSession(ctx,request,options)}
 func (r *ProviderRouter) selectedService(request map[string]Value) (map[string]Value, AxAIService, error) {
 	rec := r.GetRoutingRecommendation(request)
 	service, _ := coreGet(rec, "provider", nil).(AxAIService)
@@ -5343,10 +5400,29 @@ func (g *AxGen) ForwardWithHooks(ctx context.Context, client AIClient, values ma
 			}
 			clone.Functions = append(clone.Functions, tools...)
 		}
-		return clone.ForwardWithHooks(ctx, client, values, map[string]Value{"executionContext": callContext}, AxRuntimeHooks{})
+		callOptions := cloneMap(options)
+        callOptions["executionContext"] = callContext
+        return clone.ForwardWithHooks(ctx, client, values, callOptions, AxRuntimeHooks{})
 	}
 	clone := *g
 	clone.Functions = runtimeScopedTools(ctx, g.Functions)
+    control,_ := coreGet(options,"control",nil).(*AxRunControl)
+    selectionClient := client
+    for { bound,ok:=selectionClient.(contextBoundAIClient);if !ok {break};selectionClient=bound.inner }
+    opener,_ := selectionClient.(SessionAIClient)
+    model := display(coreGet(options,"model",""))
+    if model == "" { switch provider:=selectionClient.(type) {case *OpenAICompatibleClient:model=display(coreGet(provider.optionsSnapshot(),"model",""));case *OpenAIResponsesClient:model=display(coreGet(provider.optionsSnapshot(),"model",""))} }
+    if !coreTruthy(mustCore(chat_session_mode_enabled(options))) {opener=nil} else if service,ok:=selectionClient.(interface{GetFeatures(string) map[string]Value}); !ok || !coreTruthy(coreGet(service.GetFeatures(model),"asyncTools",false)) {opener=nil}
+    _, selectable := selectionClient.(chatRunSelector)
+    selectable=selectable && coreTruthy(mustCore(chat_session_mode_enabled(options)))
+    eligible := control!=nil
+    for _,tool:=range clone.Functions { eligible=eligible || ((opener!=nil || selectable) && tool.ExecutionMode=="background") }
+    if eligible {
+        sessionClient:=&genSessionClient{AIClient:client,gen:&clone,opener:opener,options:options,control:control,path:display(coreGet(options,"execution_path",coreGet(options,"executionPath","root"))),deliveries:make(chan sessionDelivery,32),results:make(chan sessionToolResult,32)}
+        client=sessionClient
+        if opener!=nil || selectable {options=cloneMap(options);coreSet(options,"infraRetries",0)}
+        defer func(){sessionClient.close(err)}()
+    }
 	out, err = safeValue(func() Value {
 		return mustCore(_forward_impl(&clone, bindAIClientContext(ctx, client), values, options))
 	})
@@ -5587,7 +5663,7 @@ func (a *AxAgent) ForwardWithHooks(ctx context.Context, client AIClient, values 
 	runtime := coreGet(callOptions, "runtime", coreGet(a.Options, "runtime", nil))
 	if reg, ok := runtime.(runtimeCallableRegistrar); ok {
 		reg.RegisterHostCallable("llmQuery", func(params Value) (Value, error) {
-			return _agent_run_llm_query(a.LlmQuery, boundClient, params)
+			return _agent_run_llm_query(a.LlmQuery, boundClient, params, callOptions)
 		})
 	}
 	output, forwardErr = safeValue(func() Value {
@@ -8511,6 +8587,14 @@ func _core_axgen_record_chat_log(target Value, values ...Value) Value {
 func _core_axgen_record_function_call(target Value, values ...Value) Value {
 	traces := coreGet(target, "function_call_traces", Array())
 	entry := Object()
+	if len(values) > 0 {
+        call := values[0]
+        coreSet(entry, "id", coreGet(call, "id", nil))
+        coreSet(entry, "name", coreGet(call, "name", ""))
+        coreSet(entry, "args", coreGet(call, "args", Object()))
+    }
+    if len(values) > 1 { coreSet(entry, "result", values[1]) }
+    if len(values) > 2 { coreSet(entry, "status", values[2]) }
 	for i, value := range values {
 		coreSet(entry, fmt.Sprintf("item%d", i), value)
 	}
@@ -8520,6 +8604,21 @@ func _core_axgen_record_function_call(target Value, values ...Value) Value {
 	}
 	return traces
 }
+func _core_agent_native_stage_forward(stage,state,client,values,options,selected Value)(Value,error) {
+    program,ok:=stage.(*AxGen);if !ok{return nil,fmt.Errorf("Native agent stage must be an AxGen")}
+    nativeTools:=[]Tool{}
+    for _,descriptor:=range asSlice(selected) {
+        source:=mustCore(_agent_callable_implementation(state,display(coreGet(descriptor,"qualified_name",""))))
+        var tool Tool
+        switch value:=source.(type){case Tool:tool=value;case *Tool:tool=*value;default:return nil,fmt.Errorf("Background agent callables must have a typed Fn implementation")}
+        tool.Name=display(coreGet(descriptor,"native_name",""));tool.Description=display(coreGet(descriptor,"description",""));tool.ExecutionMode="background";nativeTools=append(nativeTools,tool)
+    }
+    original,base,previous:=program.Functions,program.BaseFunctions,program.FunctionCallTraces
+    program.Functions=append(append([]Tool{},original...),nativeTools...);program.FunctionCallTraces=Array();program.BaseFunctions=append(append([]Tool{},base...),nativeTools...)
+    defer func(){records:=program.FunctionCallTraces;program.Functions=original;program.BaseFunctions=base;program.FunctionCallTraces=append(append(Array(),asSlice(previous)...),asSlice(records)...);mustCore(_agent_record_native_calls(state,selected,records,options))}()
+    ai:=client.(AIClient);return program.Forward(contextForAIClient(ai,context.Background()),ai,asMap(values),asMap(options))
+}
+
 func _core_agent_stage_forward(stage Value, client Value, values Value, options Value) (Value, error) {
 	ai := client.(AIClient)
 	ctx := contextForAIClient(ai, context.Background())
@@ -8870,6 +8969,10 @@ func _core_agent_callable_invoke(values ...Value) Value {
 	qualified := display(coreGet(request, "qualified_name", coreGet(request, "name", "")))
 	name := display(coreGet(request, "name", ""))
 	args := asMap(coreGet(request, "args", Object()))
+    implementation:=mustCore(_agent_callable_implementation(state,qualified))
+    ctx:=context.Background();if len(values)>2 {if configured,ok:=coreGet(values[2],"context",nil).(context.Context);ok {ctx=configured}}
+    switch tool:=implementation.(type){case Tool:return Object("status","ok","value",mustCore(tool.invokeContext(ctx,args)));case *Tool:return Object("status","ok","value",mustCore(tool.invokeContext(ctx,args)))}
+    switch handler:=coreGet(implementation,"handler",nil).(type){case func(map[string]Value)Value:return Object("status","ok","value",handler(args));case func(map[string]Value)(Value,error):value,err:=handler(args);if err!=nil{return Object("status","error","error",err.Error())};return Object("status","ok","value",value)}
 	for _, rawGroup := range asSlice(coreGet(state, "callable_inventory", Array())) {
 		for _, rawCallable := range asSlice(coreGet(rawGroup, "callables", Array())) {
 			callable := asMap(rawCallable)
@@ -9043,6 +9146,32 @@ func runConformanceFixture(fixture map[string]Value) {
 		runConformanceStream(fixture)
 	case "forward":
 		runConformanceForward(fixture)
+	case "ai_session_state":
+        state := mustCore(chat_session_create_state(coreGet(fixture,"model",nil),coreGet(fixture,"path",nil),coreGet(fixture,"max_steps",nil)))
+        for _, item := range coreIter(coreGet(fixture,"cases",nil)) {
+            assertEqual(mustCore(chat_session_transition(state,coreGet(item,"event",nil))),coreGet(item,"expected_action",nil),"session transition")
+        }
+        assertEqual(mustCore(chat_session_unresolved(state)),coreGet(fixture,"expected_pending",nil),"unresolved work")
+        assertEqual(coreGet(state,"steps",nil),coreGet(fixture,"expected_steps",nil),"response accounting")
+	case "ai_session_events":
+        state := Object()
+        cursor := Object()
+        for _, rawCase := range coreIter(coreGet(fixture, "cases", Array())) {
+            item := asMap(rawCase)
+            mustCore(openai_responses_transport_cursor(cursor,coreGet(item,"event",nil)))
+            if expected,ok:=item["expected_active_id"];ok {assertEqual(coreGet(cursor,"active_id",nil),expected,"transport active response")}
+            if expected,ok:=item["expected_exception"];ok {
+                _,err:=openai_responses_session_event(coreGet(item,"event",nil),state,coreGet(fixture,"model",""))
+                if err==nil || !strings.Contains(err.Error(),display(expected)){panic(fmt.Sprintf("Expected provider session failure %v, got %v",expected,err))};continue
+            }
+            events := coreIter(mustCore(openai_responses_session_event(coreGet(item, "event", nil), state, coreGet(fixture, "model", ""))))
+            types := Array()
+            for _, event := range events { types = append(types, coreGet(event, "type", nil)) }
+            assertEqual(types, coreGet(item, "expected_types", nil), "session event types")
+            for _, key := range []string{"call", "response_id", "status", "required_call_ids", "error"} {
+                if expected, ok := item["expected_"+key]; ok { assertEqual(coreGet(events[0], key, nil), expected, "session "+key) }
+            }
+        }
 	case "ai_chat":
 		runConformanceAIChat(fixture)
 	case "ai_embed":
@@ -11681,6 +11810,9 @@ func runConformanceAgentRuntimePolicy(fixture map[string]Value) {
 				assertEqual(result, expected, "discover result")
 			}
 		}
+        for _,raw:=range asSlice(coreGet(fixture,"native_cases",Array())) {
+            names:=Array();for _,item:=range asSlice(mustCore(_agent_native_callables(ag.State,coreGet(raw,"features",Object()),coreGet(raw,"options",Object())))){names=append(names,coreGet(item,"qualified_name",nil))};assertEqual(names,coreGet(raw,"expected",Array()),"native agent selection")
+        }
 		if request := coreGet(fixture, "recall", nil); request != nil {
 			result := ag.Recall(request)
 			if expected, ok := fixture["expected_recall_result"]; ok {

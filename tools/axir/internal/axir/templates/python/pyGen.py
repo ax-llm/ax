@@ -9,6 +9,7 @@ import time
 from typing import Any
 
 from .ai import (
+    _core_math_floor,
     AIClient,
     AxAIServiceAbortedError,
     AxCancellationToken,
@@ -450,20 +451,49 @@ class AxGen:
 
     def _forward_unscoped(self, client: AIClient, values: dict[str, Any], options: dict[str, Any] | None = None):
         call_context = resolve_execution_context(options, self.execution_context)
-        if call_context is self.execution_context:
-            return _forward_impl(self, client, values, options)
-        call_gen = copy.copy(self)
-        call_gen.execution_context = call_context
-        call_gen.functions = self._base_functions + (call_context.native_tools() if call_context else [])
-        call_gen.prompt_template = AxPromptTemplate(
-            self.signature,
-            functions=call_gen.functions,
-            structured_output_function_name=self.options.get("structured_output_function_name", self.options.get("structuredOutputFunctionName")),
-            custom_template=self.options.get("custom_template", self.options.get("customTemplate")),
-        )
-        if self.instruction:
-            call_gen.prompt_template.set_instruction(self.instruction)
-        return _forward_impl(call_gen, client, values, options)
+        if call_context is not self.execution_context:
+            call_gen = copy.copy(self)
+            call_gen.execution_context = call_context
+            call_gen.functions = self._base_functions + (call_context.native_tools() if call_context else [])
+            call_gen.prompt_template = AxPromptTemplate(
+                self.signature,
+                functions=call_gen.functions,
+                structured_output_function_name=self.options.get("structured_output_function_name", self.options.get("structuredOutputFunctionName")),
+                custom_template=self.options.get("custom_template", self.options.get("customTemplate")),
+            )
+            if self.instruction:
+                call_gen.prompt_template.set_instruction(self.instruction)
+            return call_gen._forward_unscoped(client, values, options)
+        run_options = {**self.options, **(options or {})}
+        model = str(run_options.get("model") or getattr(client, "model", ""))
+        session_enabled = (chat_session_mode_enabled(run_options)
+            and (callable(getattr(client, "_pin_chat_run", None)) or
+                 (callable(getattr(client, "open_chat_session", None)) and
+                  bool(getattr(client, "get_features", lambda model=None: {})(model or None).get("asyncTools"))))
+            and (run_options.get("control") is not None or any(getattr(tool, "execution", "blocking") == "background" for tool in self.functions)))
+        if session_enabled:
+            from .session import _SessionClient
+            pinned = _SessionClient(self, client, run_options)
+            try:
+                result = self._forward_unscoped(pinned, values, {**run_options, "asyncMode": "off", "async_mode": "off", "infraRetries": 0, "infra_retries": 0})
+            except BaseException as error:
+                pinned.close(error)
+                raise
+            pinned.close()
+            return result
+        from .session import _BoundaryClient
+        if run_options.get("control") is not None and not isinstance(client, (_BoundaryClient,)):
+            from .session import _SessionClient
+            if not isinstance(client, _SessionClient):
+                bounded = _BoundaryClient(client, run_options)
+                try:
+                    result = self._forward_unscoped(bounded, values, run_options)
+                except BaseException as error:
+                    bounded.close(error)
+                    raise
+                bounded.close()
+                return result
+        return _forward_impl(self, client, values, options)
 
     def streaming_forward(
         self,
@@ -482,6 +512,47 @@ class AxGen:
             yield from self._streaming_forward_unscoped(client, values, _strip_runtime_hooks(options))
 
     def _streaming_forward_unscoped(self, client: AIClient, values: dict[str, Any], options: dict[str, Any] | None = None):
+        run_options = {**self.options, **(options or {})}
+        model = str(run_options.get("model") or getattr(client, "model", ""))
+        session_enabled = (chat_session_mode_enabled(run_options)
+            and (callable(getattr(client, "_pin_chat_run", None)) or
+                 (callable(getattr(client, "open_chat_session", None)) and
+                  bool(getattr(client, "get_features", lambda model=None: {})(model or None).get("asyncTools"))))
+            and (run_options.get("control") is not None or any(getattr(tool, "execution", "blocking") == "background" for tool in self.functions)))
+        if session_enabled:
+            import contextvars
+            import queue
+            import threading
+            from .session import run_control
+            deliveries = queue.Queue()
+            control = run_options.get("control") or run_control()
+            stopped = threading.Event()
+            def emit(event):
+                if not stopped.is_set():
+                    deliveries.put(("delta", event))
+            def run():
+                try:
+                    self._forward_unscoped(client, values, {**run_options, "control": control, "_session_delta": emit})
+                    deliveries.put(("done", None))
+                except BaseException as error:
+                    deliveries.put(("error", error))
+            context = contextvars.copy_context()
+            threading.Thread(target=context.run, args=(run,), daemon=True).start()
+            complete = False
+            try:
+                while True:
+                    kind, event = deliveries.get()
+                    if kind == "error":
+                        raise event
+                    if kind == "done":
+                        complete = True
+                        return
+                    yield event
+            finally:
+                stopped.set()
+                if not complete:
+                    control.abort()
+            return
         call_context = resolve_execution_context(options, self.execution_context)
         if call_context is not self.execution_context:
             call_gen = copy.copy(self)
@@ -775,7 +846,7 @@ def _core_validation_error(message):
     return AxValidationError(str(message))
 
 
-def _core_tool_invoke(fn, params):
+def _core_tool_invoke(fn, params, context=None):
     name = str(getattr(fn, "name", "") or "tool")
     with _runtime_hook_scope(
         None,
@@ -784,7 +855,7 @@ def _core_tool_invoke(fn, params):
         attributes={"ax.tool.name": name},
         metric_prefix="ax_gen_tool",
     ):
-        return fn.call(params or {})
+        return fn.call(params or {}, context) if context is not None else fn.call(params or {})
 
 
 def _core_stream_event_content_parts(event) -> list[str]:

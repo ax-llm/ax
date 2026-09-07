@@ -1,6 +1,6 @@
 import type { AxAIServiceOptions } from '../types.js';
 import type { AxAIOpenAIChatRequest } from './chat_types.js';
-import { axIsGPT56Family } from './model_family.js';
+import { axIsGPT6Astra, axIsGPT56Family } from './model_family.js';
 import type { AxAIOpenAIResponsesRequest } from './responses_types.js';
 
 /**
@@ -103,10 +103,15 @@ export function axResolveOpenAIChatReasoningEffort(
   model: unknown,
   budget: ThinkingTokenBudget
 ): AxAIOpenAIChatReasoningEffort | undefined {
+  if (axIsGPT6Astra(model) && budget === 'none') {
+    throw new Error(
+      'GPT-6 Astra does not support disabling reasoning; use low or higher'
+    );
+  }
   if (budget === 'none') {
     return resolveNone(model);
   }
-  return axIsGPT56Family(model)
+  return axIsGPT56Family(model) || axIsGPT6Astra(model)
     ? GPT56_CHAT_LADDER[budget]
     : LEGACY_LADDER[budget];
 }
@@ -120,10 +125,15 @@ export function axResolveOpenAIResponsesReasoningEffort(
   model: unknown,
   budget: ThinkingTokenBudget
 ): AxAIOpenAIResponsesReasoningEffort | undefined {
+  if (axIsGPT6Astra(model) && budget === 'none') {
+    throw new Error(
+      'GPT-6 Astra does not support disabling reasoning; use low or higher'
+    );
+  }
   if (budget === 'none') {
     return resolveNone(model);
   }
-  return axIsGPT56Family(model)
+  return axIsGPT56Family(model) || axIsGPT6Astra(model)
     ? GPT56_RESPONSES_LADDER[budget]
     : LEGACY_LADDER[budget];
 }

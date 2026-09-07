@@ -684,3 +684,23 @@ expiry.
 - Do not create loop conditions that can never change.
 - Do not add unnecessary dependencies between executes (kills auto-parallelism).
 - Do not forget to use optional chaining on branch results after `.merge()`.
+
+## Automatic sessions (TypeScript)
+
+Pass `{ control: runControl() }` to `forward()`. Each node receives its own `root/<nodeName>` scope and conversation. Target that path to restrict an update; root updates also apply to future nodes. Completed nodes are not rerun and controller-attached runs bypass result caching.
+
+
+Runnable TypeScript examples under `src/examples/typescript/flows/`:
+
+- `astra-parallel-tools.ts`: independent background lookups with isolated node results and automatic parallel scheduling.
+- `astra-targeted-control.ts`: steering and reasoning changes scoped to a review node, preserving the completed baseline.
+- `astra-cancel-pending.ts`: cancellation while both branches have host tools pending; the example verifies rejection rather than successful completion.
+
+Deterministic coverage lives in `src/ax/flow/flow.sessions.test.ts`, including both automatic and explicit parallel execution, delayed results, active/future root updates, targeted updates, cache bypass, cancellation, and chat-only provider fallback. These session examples and tests are TypeScript-only.
+
+Generated-language status: the parallel scheduling described above is implemented
+in TypeScript. Python, Go, Java, C++, and Rust currently execute Core's planned
+parallel groups serially. Their Astra flow examples demonstrate sequential node
+isolation and controls, not concurrent node dispatch. Background tool/model
+overlap within a node does not establish overlap between nodes. Keep the AxIR
+session backlog open until actual concurrent dispatch and isolation are verified.

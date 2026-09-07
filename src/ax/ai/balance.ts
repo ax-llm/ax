@@ -275,6 +275,20 @@ export class AxBalancer<
       },
       caching: { supported: false, types: [] },
     };
+    features.asyncTools = this.services.some(
+      (service) =>
+        !!service.openChatSession && !!service.getFeatures(model).asyncTools
+    );
+    features.nativeSteering =
+      features.asyncTools &&
+      this.services.some(
+        (service) => !!service.getFeatures(model).nativeSteering
+      );
+    features.reasoningUpdates =
+      features.asyncTools &&
+      this.services.some(
+        (service) => !!service.getFeatures(model).reasoningUpdates
+      );
     const structuredOutputModes: AxStructuredOutputRung[] = [];
     let allServicesAdvertiseStructuredOutputModes = this.services.length > 0;
 
@@ -961,6 +975,36 @@ export class AxBalancer<
     } catch {
       // Observability must never affect routing.
     }
+  }
+
+  async resolveChatService(
+    req: Readonly<AxChatRequest<TModelKey>>,
+    options?: Readonly<AxAIServiceOptions>
+  ): Promise<{
+    service: Readonly<AxAIService<unknown, unknown, any>>;
+    model?: string;
+  }> {
+    const services = this.getCandidateServices(req, options);
+    const service = this.adaptive
+      ? (await this.rankAdaptiveCandidates(req, options, services))[0]?.service
+      : services.find((candidate) => this.canRetryService(candidate));
+    if (!service) throw new Error('No matching AI service is available');
+    this.currentService = service;
+    return { service, model: req.model as string | undefined };
+  }
+
+  async openChatSession(
+    req: Readonly<AxChatRequest<TModelKey>>,
+    options?: Readonly<AxAIServiceOptions>
+  ) {
+    const services = this.getCandidateServices(req, options);
+    const service = this.adaptive
+      ? (await this.rankAdaptiveCandidates(req, options, services))[0]?.service
+      : services.find((candidate) => this.canRetryService(candidate));
+    if (!service?.openChatSession)
+      throw new Error('Selected AI service does not support chat sessions');
+    this.currentService = service;
+    return await service.openChatSession(req, options);
   }
 
   async chat(

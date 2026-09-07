@@ -9,6 +9,7 @@ import {
   resolveContextPolicy,
 } from '../config.js';
 import type { ActionLogEntry } from '../contextManager.js';
+import { serializeForEval } from '../optimize.js';
 import { buildBootstrapRuntimeGlobals } from '../runtime.js';
 import { computeDynamicRuntimeChars } from '../truncate.js';
 import type { AxAgentUsedMemory } from './memoriesTypes.js';
@@ -236,8 +237,76 @@ export function createRuntimeExecutionContext(
     notes.noteLoadedMemories,
     notes.noteUsed,
     onFunctionCall ?? s.onFunctionCall,
-    notes.getCurrentMemories
+    notes.getCurrentMemories,
+    options
   );
+  const nativeNames = new Set<string>();
+  const nativeActivity: string[] = [];
+  const nativeBindings = (
+    s.agentFunctions as import('../../ai/types.js').AxFunction[]
+  )
+    .filter((fn) => fn.execution === 'background')
+    .map((fn) => {
+      const namespace = fn.namespace ?? 'utils';
+      const qualified = `${namespace}.${fn.name}`;
+      const binding = toolGlobals[namespace]?.[fn.name] as
+        | ((args: unknown) => Promise<unknown>)
+        | undefined;
+      if (binding)
+        toolGlobals[namespace][fn.name] = (...args: unknown[]) => {
+          if (nativeNames.has(qualified))
+            throw new Error(
+              `${qualified} is a native background tool. Use its model tool result; do not invoke it again in code.`
+            );
+          return binding(...(args as [unknown]));
+        };
+      return { fn, qualified, binding };
+    });
+  const getNativeFunctions = (
+    callOptions: import('../../dsp/types.js').AxProgramForwardOptions<string>
+  ) => {
+    nativeNames.clear();
+    if (
+      !ai?.openChatSession ||
+      !ai.getFeatures(callOptions.model).asyncTools ||
+      (callOptions.asyncMode ?? ai.getOptions().asyncMode) === 'off' ||
+      callOptions.functionCallMode === 'prompt' ||
+      !stagePolicy.executesTools
+    )
+      return [];
+    return nativeBindings
+      .filter(
+        ({ fn, qualified, binding }) =>
+          binding &&
+          (!s.functionDiscoveryEnabled ||
+            (fn as any)._alwaysInclude ||
+            s.currentDiscoveryPromptState?.functions.has(qualified) ||
+            s.currentDiscoveryPromptState?.modules.has(fn.namespace ?? 'utils'))
+      )
+      .map(({ fn, qualified, binding }) => {
+        nativeNames.add(qualified);
+        return {
+          ...fn,
+          name: qualified.replace(/[^a-zA-Z0-9_-]/g, '_'),
+          description: `${fn.description} Execute through this native tool. Do not call ${qualified} from actor code.`,
+          func: async (args: unknown) => {
+            try {
+              const result = await binding!(args);
+              nativeActivity.push(
+                `[Native tool ${qualified}] ${(JSON.stringify(serializeForEval(result)) ?? 'done').slice(0, getMaxRuntimeChars())}`
+              );
+              return result;
+            } catch (error) {
+              nativeActivity.push(
+                `[Native tool ${qualified} failed] ${String(error).slice(0, getMaxRuntimeChars())}`
+              );
+              throw error;
+            }
+          },
+        };
+      });
+  };
+
   const agentFunctionNamespaces: string[] = [
     ...new Set(
       (s.agentFunctions as readonly { namespace?: string }[]).map(
@@ -367,6 +436,8 @@ export function createRuntimeExecutionContext(
   });
 
   return {
+    getNativeFunctions,
+    consumeNativeToolActivity: () => nativeActivity.splice(0),
     effectiveContextConfig,
     bootstrapContextSummary: lifecycle.bootstrapContextSummary,
     applyBootstrapRuntimeContext: lifecycle.applyBootstrapRuntimeContext,

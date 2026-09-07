@@ -1,0 +1,38 @@
+{
+  "expected_estimated_cost": 5.36752,
+  "kind": "ai_chat",
+  "model": "gpt-6-astra",
+  "name": "astra-cache-cost-threshold-272001",
+  "provider": "openai",
+  "request": {
+    "chat_prompt": [
+      {
+        "content": "measure",
+        "role": "user"
+      }
+    ],
+    "model_config": {
+      "stream": false,
+      "thinkingTokenBudget": "low"
+    }
+  },
+  "transport_responses": [
+    {
+      "json": {
+        "id": "r_cost",
+        "model": "gpt-6-astra",
+        "output": [],
+        "usage": {
+          "input_tokens": 272001,
+          "input_tokens_details": {
+            "cache_write_tokens": 20000,
+            "cached_tokens": 10000
+          },
+          "output_tokens": 100,
+          "total_tokens": 272101
+        }
+      },
+      "status": 200
+    }
+  ]
+}

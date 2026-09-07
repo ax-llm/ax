@@ -7,6 +7,8 @@
 #include <cmath>
 #include <condition_variable>
 #include <thread>
+#include <condition_variable>
+#include <deque>
 #include <cctype>
 #include <cstdlib>
 #include <cstdint>
@@ -53,6 +55,10 @@ class GoogleGeminiClient;
 class AnthropicClient;
 class AxBootstrapFewShot;
 class AxGEPA;
+class AxChatSession;
+class AxRunControl;
+class ResponsesChatSession;
+class SessionRun;
 class OptimizerEngine;
 class OptimizerEvaluator;
 
@@ -277,6 +283,7 @@ struct Core {
   static Value mul(Value left, Value right);
   static Value div(Value left, Value right);
   static Value math_abs(Value value);
+  static Value math_floor(Value value);
   static Value math_log(Value value);
   static Value math_exp(Value value);
   static Value math_sqrt(Value value);
@@ -391,7 +398,9 @@ struct Core {
   static Value axgen_memory_cleanup_corrections(Value gen);
   static Value axgen_record_chat_log(Value gen, Value request, Value response);
   static Value axgen_record_function_call(Value gen, Value call, Value result, Value status);
+  static Value run_control_aborted(Value control);
   static Value agent_stage_forward(Value stage, Value client, Value values, Value options);
+  static Value agent_native_stage_forward(Value stage,Value state,Value client,Value values,Value options,Value selected);
   static Value agent_stage_chat_log(Value stage);
   static Value agent_stage_usage(Value stage);
   static Value agent_stage_traces(Value stage);
@@ -415,10 +424,37 @@ struct Core {
 
 };
 
+class AxRunControl {
+ public:
+  struct State;
+  AxRunControl();
+  void steer(std::string text, std::string target = "root") const;
+  void set_thinking_token_budget(std::string level, std::string target = "root") const;
+  void abort() const;
+  void on_event(std::function<void(Value)> listener) const;
+  Value value() const;
+ private:
+  std::shared_ptr<State> state_;
+  void enqueue(Value update) const;
+};
+AxRunControl run_control();
+
+class AxChatSession {
+ public:
+  virtual ~AxChatSession() = default;
+  virtual Value next(std::chrono::milliseconds timeout) = 0;
+  virtual void submit(Value results) = 0;
+  virtual std::string update(Value update) = 0;
+  virtual void close() = 0;
+};
+
 class AIClient {
  public:
   virtual ~AIClient() = default;
   virtual Value complete(Value request) = 0;
+  virtual Value features_for_run(Value model) { return {}; }
+  virtual std::shared_ptr<AxChatSession> open_chat_session(Value request, Value options) { return {}; }
+  virtual std::shared_ptr<AIClient> pin_chat_run(Value request, Value options) { return {}; }
   virtual Value chat(Value request);
   virtual Value chat(Value request, Value options) {
     (void)options;
@@ -578,6 +614,8 @@ class AxBalancer : public AxAIService {
   std::string get_name() override;
   Value get_model_list() override;
   Value get_features(Value model = Value()) override;
+  std::shared_ptr<AxChatSession> open_chat_session(Value request,Value options) override;
+  std::shared_ptr<AIClient> pin_chat_run(Value request, Value options) override;
   Value chat(Value request) override;
   Value chat(Value request, Value options) override;
   std::vector<Value> stream(Value request) override;
@@ -647,6 +685,7 @@ class MultiServiceRouter : public AxAIService {
   std::string get_name() override;
   Value get_model_list() override;
   Value get_features(Value model = Value()) override;
+  std::shared_ptr<AxChatSession> open_chat_session(Value request, Value options) override;
   Value chat(Value request) override;
   Value chat(Value request, Value options) override;
   std::vector<Value> stream(Value request) override;
@@ -683,10 +722,14 @@ class MultiServiceRouter : public AxAIService {
   Value options_ = Value::object();
 };
 
-class ProviderRouter {
+class ProviderRouter : public AIClient {
  public:
   explicit ProviderRouter(Value config);
   ProviderRouter(std::vector<std::shared_ptr<AxAIService>> providers, Value routing = Value::object(), Value processing = Value::object());
+  Value complete(Value request) override;
+  Value features_for_run(Value model) override;
+  std::shared_ptr<AIClient> pin_chat_run(Value request,Value options) override;
+  std::shared_ptr<AxChatSession> open_chat_session(Value request,Value options) override;
   Value get_routing_recommendation(Value request);
   Value validate_request(Value request);
   Value get_routing_stats();
@@ -716,6 +759,7 @@ class Transport {
   virtual Value call(Value request) = 0;
   virtual Value call(Value request, const AxCancellationToken* cancellation);
   virtual void stream(Value request, AxTransportStreamHandler handler);
+  virtual void stream_cancellable(Value request, AxTransportStreamHandler handler, std::shared_ptr<std::atomic<bool>> cancelled);
   virtual void stream(Value request, AxTransportStreamHandler handler, const AxCancellationToken* cancellation);
 };
 
@@ -724,7 +768,11 @@ class HttpTransport : public Transport {
   Value call(Value request) override;
   Value call(Value request, const AxCancellationToken* cancellation) override;
   void stream(Value request, AxTransportStreamHandler handler) override;
+  void stream_cancellable(Value request, AxTransportStreamHandler handler, std::shared_ptr<std::atomic<bool>> cancelled) override;
   void stream(Value request, AxTransportStreamHandler handler, const AxCancellationToken* cancellation) override;
+ private:
+  void stream_impl(Value request, AxTransportStreamHandler handler, const AxCancellationToken* cancellation, std::shared_ptr<std::atomic<bool>> cancelled);
+
 };
 
 class AxContextCacheRegistry {
@@ -764,6 +812,10 @@ class ScriptedRealtimeTransport : public RealtimeTransport {
 
 class OpenAICompatibleClient : public AxBaseAI {
  public:
+  std::shared_ptr<AxChatSession> open_chat_session(Value request, Value options) override;
+  OpenAICompatibleClient& shared_transport(std::shared_ptr<Transport> transport);
+  using SessionWebSocketFactory = std::function<std::shared_ptr<RealtimeTransport>(const std::string&, Value)>;
+  OpenAICompatibleClient& session_web_socket_factory(SessionWebSocketFactory factory);
   using AxBaseAI::chat;
   using AxBaseAI::embed;
   using AxAIService::speak;
@@ -789,13 +841,15 @@ class OpenAICompatibleClient : public AxBaseAI {
   Value do_embed(Value request, Value options) override;
 
  private:
+  friend class ResponsesChatSession;
   std::string profile_;
   Value descriptor_;
   std::string base_url_;
   std::string api_key_;
   std::string api_version_;
   double timeout_seconds_;
-  std::unique_ptr<Transport> owned_transport_;
+  std::shared_ptr<Transport> owned_transport_;
+  SessionWebSocketFactory session_socket_factory_;
   Transport* transport_;
   AxContextCacheRegistry* context_cache_registry_ = nullptr;
   AxCredentialProvider credential_provider_;
@@ -832,8 +886,16 @@ class AnthropicClient : public OpenAICompatibleClient {
   AnthropicClient(std::string profile, Value options, Transport* transport = nullptr);
 };
 
+struct AxToolContext {
+  std::shared_ptr<std::atomic<bool>> cancelled;
+  std::string call_id;
+  bool is_cancelled() const {return cancelled && cancelled->load();}
+};
 class Tool {
  public:
+  Tool& context_handler(std::function<Value(Value,const AxToolContext&)> handler);
+  std::string execution_mode = "blocking";
+  Tool& execution(const std::string& mode);
   std::string id;
   std::string name;
   std::string description;

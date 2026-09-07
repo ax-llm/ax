@@ -1,0 +1,42 @@
+{
+  "cases": [
+    {
+      "event": {
+        "response": {
+          "error": {
+            "code": "server_error",
+            "message": "Fixture provider failure"
+          },
+          "id": "failed-response"
+        },
+        "type": "response.failed"
+      },
+      "expected_exception": "Fixture provider failure"
+    },
+    {
+      "event": {
+        "error": {
+          "code": "invalid_request_error",
+          "message": "Fixture request rejected"
+        },
+        "type": "error"
+      },
+      "expected_exception": "Fixture request rejected"
+    },
+    {
+      "event": {
+        "response": {
+          "id": "limited-response",
+          "incomplete_details": {
+            "reason": "max_output_tokens"
+          }
+        },
+        "type": "response.incomplete"
+      },
+      "expected_exception": "max_output_tokens"
+    }
+  ],
+  "kind": "ai_session_events",
+  "model": "gpt-6-astra",
+  "name": "astra-session-provider-errors-preserved"
+}

@@ -71,7 +71,9 @@
             "modelConfig",
             "maxRetries",
             "streaming assertions",
-            "field processors"
+            "field processors",
+            "control",
+            "asyncMode"
           ],
           "returns": "AxResult\u003cAxGen\u003e",
           "example": "let qa = ax(\"question:string -\u003e answer:string\")?;"
@@ -94,6 +96,32 @@
             "prompt template"
           ],
           "returns": "program object"
+        },
+        {
+          "target_name": "rust",
+          "canonical_name": "run_control",
+          "public_name": "run_control",
+          "kind": "function",
+          "description": "Create a controller for scoped steering, reasoning updates, cancellation, and queued/applied lifecycle events. Pass it through forward options.",
+          "form": "run_control()",
+          "returns": "AxRunControl",
+          "example": "let control = run_control();"
+        },
+        {
+          "target_name": "rust",
+          "canonical_name": "AxRunControl",
+          "public_name": "AxRunControl",
+          "kind": "type",
+          "description": "Run control shared by active and future descendant programs. Cancellation reports unresolved work and does not undo external effects.",
+          "form": "AxRunControl",
+          "important_options": [
+            "steer",
+            "thinking token budget",
+            "target path",
+            "abort",
+            "event listener"
+          ],
+          "returns": "run controller"
         }
       ]
     },
@@ -194,6 +222,23 @@
             "retries"
           ],
           "returns": "header map or credential error"
+        },
+        {
+          "target_name": "rust",
+          "canonical_name": "AxChatSession",
+          "public_name": "AxChatSession",
+          "kind": "interface",
+          "description": "Optional normalized session capability for custom provider adapters. High-level programs own tool execution and continuation; chat-only services remain supported.",
+          "form": "AxChatSession",
+          "important_options": [
+            "normalized events",
+            "completed calls",
+            "submit results",
+            "steering",
+            "reasoning updates",
+            "close"
+          ],
+          "returns": "run-owned chat session"
         },
         {
           "target_name": "rust",
@@ -699,7 +744,9 @@
             "description",
             "args",
             "returns",
-            "handler"
+            "handler",
+            "execution: blocking or background",
+            "cancellation-aware handler"
           ],
           "returns": "ToolBuilder",
           "example": "let search = tool(\"search\").description(\"Search docs\").build();"

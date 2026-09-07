@@ -1,4 +1,6 @@
 pub mod mcp;
+mod session;
+pub use session::{run_control, AxRunControl, AxForwardOptions, AxChatSession, AxSessionSocket, AxSessionWebSocketFactory};
 pub use mcp::{event_route, event_target, AxEventCancellationToken, AxEventClock, AxEventCommand, AxEventContinuation, AxEventCorrelationKey, AxEventDeadLetter, AxEventEnvelope, AxEventInputBuilder, AxEventInputPlan, AxEventInvocationContext, AxEventPath, AxEventPublishReceipt, AxEventRoute, AxEventRouteBuilder, AxEventRun, AxEventRuntime, AxEventSink, AxEventSource, AxEventStore, AxEventTarget, AxExecutionContext, AxInMemoryEventStore, AxManualEventClock, AxMCPCatalogSnapshot, AxMCPClient, AxMCPContinuationState, AxMCPEventSource, AxMCPOAuthOptions, AxMCPResourceSubscriptionPolicy, AxMCPScriptedTransport, AxMCPStdioTransport, AxMCPStreamableHTTPTransport, AxMCPTokenSet, AxMCPTransport, AxSystemEventClock, AxUCPBinding, AxUCPClient};
 use reqwest::blocking::Client as HttpClient;
 use serde::{Deserialize, Serialize};
@@ -1365,6 +1367,20 @@ fn bool_key(value: &Value, keys: &[&str]) -> bool {
 pub trait AxAIClient {
     fn chat(&mut self, request: Value) -> AxResult<Value>;
 
+    fn open_chat_session(&mut self, _request: Value, _options: Value) -> AxResult<Option<Box<dyn AxChatSession>>> { Ok(None) }
+    #[doc(hidden)]
+    fn pin_chat_run(&mut self, _request: &Value, _options: &Value) -> AxResult<Option<String>> { Ok(None) }
+    #[doc(hidden)]
+    fn pinned_chat_run_client(&mut self, _route: &str) -> AxResult<&mut dyn AxAIClient> { Err(AxError::validation("Invalid run route")) }
+    #[doc(hidden)]
+    fn preprocess_pinned_chat_run(&self,_route:&str,request:Value)->AxResult<Value>{Ok(request)}
+
+
+    #[doc(hidden)]
+    fn observe_chat_session_response(&mut self, response: &Value, options: &Value) {
+        emit_usage_event("chat", response, options, true);
+    }
+
     fn chat_with_options(&mut self, request: Value, _options: Value) -> AxResult<Value> {
         self.chat(request)
     }
@@ -1737,6 +1753,8 @@ pub struct OpenAICompatibleClient {
     pub model_config: Value,
     pub options: Value,
     pub transport: Option<Box<dyn AxTransport>>,
+    session_transport: Option<Arc<std::sync::Mutex<Box<dyn AxTransport>>>>,
+    session_socket_factory: Option<AxSessionWebSocketFactory>,
     pub credential_provider: Option<Box<dyn AxCredentialProvider>>,
     pub context_cache_registry: Option<Box<dyn AxContextCacheRegistry>>,
     context_cache_entries: BTreeMap<String, Value>,
@@ -1757,6 +1775,8 @@ impl OpenAICompatibleClient {
             model_config: json!({}),
             options: json!({}),
             transport: None,
+            session_transport: None,
+            session_socket_factory: None,
             credential_provider: None,
             context_cache_registry: None,
             context_cache_entries: BTreeMap::new(),
@@ -1765,6 +1785,14 @@ impl OpenAICompatibleClient {
         }
     }
 
+    /// Enable the optional realtime transport for native steering in ordinary runs.
+    #[cfg(feature = "realtime")]
+    pub fn with_native_session_web_socket(self) -> Self {
+        self.with_session_web_socket_factory(session::native_session_socket)
+    }
+    pub fn with_session_web_socket_factory(mut self, factory: impl Fn(&str, &Value) -> AxResult<Arc<dyn AxSessionSocket>> + Send + Sync + 'static) -> Self {
+        self.session_socket_factory=Some(Arc::new(factory));self.options["session_web_socket_available"]=json!(true);self
+    }
     pub fn with_transport(mut self, transport: impl AxTransport + 'static) -> Self {
         self.transport = Some(Box::new(transport));
         self
@@ -1870,6 +1898,10 @@ impl OpenAICompatibleClient {
             .and_then(Value::as_str)
             .unwrap_or("/chat/completions")
             .to_string();
+        path = core_value_to_json(&provider_chat_operation_path(&[
+            CoreValue::from(self.profile.as_str()), CoreValue::from(model),
+            CoreValue::from(operation), CoreValue::from(path.as_str()),
+        ])?).as_str().unwrap_or("/chat/completions").to_string();
         path = path.replace("{model}", &url_component_escape(model));
         let auth = descriptor.get("auth").and_then(Value::as_str).unwrap_or("bearer");
         if auth == "api_key_query" {
@@ -1952,6 +1984,7 @@ impl OpenAICompatibleClient {
         if let Some(transport) = self.transport.as_mut() {
             return match cancellation.as_ref(){Some(token)=>transport.send_with_cancellation(call,token),None=>transport.send(call)};
         }
+        if let Some(transport) = &self.session_transport { return transport.lock().map_err(|_|AxError::runtime("Transport lock poisoned"))?.send(call); }
         let url = call.get("url").and_then(Value::as_str).unwrap_or_default().to_string();
         let method = call.get("method").and_then(Value::as_str).unwrap_or("POST").parse::<reqwest::Method>()
             .map_err(|error| AxError::new("validation", format!("invalid HTTP method: {error}")))?;
@@ -2016,6 +2049,7 @@ impl OpenAICompatibleClient {
             let inner=Self::transport_stream_iter(stream)?;
             return Ok(match cancellation{Some(token)=>Box::new(CancellableProviderIterator{inner,token}) as Box<dyn Iterator<Item=AxResult<Value>>>,None=>inner});
         }
+        if let Some(transport) = &self.session_transport { return Self::transport_stream_iter(transport.lock().map_err(|_|AxError::runtime("Transport lock poisoned"))?.stream(call)?); }
         let url = call.get("url").and_then(Value::as_str).unwrap_or_default().to_string();
         let method = call.get("method").and_then(Value::as_str).unwrap_or("POST").parse::<reqwest::Method>()
             .map_err(|error| AxError::new("validation", format!("invalid HTTP method: {error}")))?;
@@ -3052,6 +3086,16 @@ mod meta_duplex_tests {
 }
 
 impl AxAIClient for OpenAICompatibleClient {
+    fn observe_chat_session_response(&mut self, response: &Value, options: &Value) {
+        self.last_model_usage = response.get("model_usage").cloned();
+        let mut merged=self.options.clone(); merge_object(&mut merged, options);
+        emit_usage_event("chat", response, &merged, true);
+    }
+    fn open_chat_session(&mut self, request: Value, options: Value) -> AxResult<Option<Box<dyn AxChatSession>>> {
+        let model=request.get("model").and_then(Value::as_str).unwrap_or(&self.model);
+        if !["openai","openai-responses"].contains(&self.profile.as_str()) || !model.starts_with("gpt-6-astra") { return Ok(None); }
+        Ok(Some(Box::new(session::ResponsesSession::open(self,request,options)?)))
+    }
     fn get_id(&self) -> String { format!("{}:{}", self.profile, self.model) }
     fn get_name(&self) -> String { self.profile.clone() }
     fn get_features(&self, model: Option<&str>) -> Value {
@@ -3420,10 +3464,11 @@ fn normalize_openai_response(profile: &str, model: &str, response: Value, contex
 // python: _transport_result. Raises openai_normalize_error for status >= 400
 // and unwraps {status, json|body|data} transport envelopes otherwise.
 fn normalize_passthrough_response(response: Value) -> AxResult<Value> {
-    if response.get("status").is_none() {
+    // Responses objects have a string status (for example "completed"). Only
+    // numeric HTTP statuses identify a transport envelope.
+    let Some(status) = response.get("status").and_then(Value::as_u64) else {
         return Ok(response);
-    }
-    let status = response.get("status").and_then(Value::as_u64).unwrap_or(200);
+    };
     let body = response
         .get("json")
         .or_else(|| response.get("body"))
@@ -3530,14 +3575,25 @@ pub(crate) fn parse_sse_events(body: &str) -> AxResult<Vec<Value>> {
 
 #[derive(Clone)]
 pub struct Tool {
+    pub execution: String,
     pub name: String,
     pub description: String,
     pub args: Map<String, Value>,
     handler: Arc<dyn Fn(Value) -> AxResult<Value> + Send + Sync>,
+    context_handler: Option<Arc<dyn Fn(Value, AxToolContext) -> AxResult<Value> + Send + Sync>>,
 }
 
+#[derive(Clone, Default)]
+pub struct AxToolContext {
+    pub call_id: Option<String>,
+    cancelled: Arc<std::sync::atomic::AtomicBool>,
+}
+impl AxToolContext {
+    pub fn is_cancelled(&self)->bool {self.cancelled.load(std::sync::atomic::Ordering::SeqCst)}
+}
 impl Tool {
-    pub fn call(&self, args: Value) -> AxResult<Value> {
+    pub fn call(&self,args:Value)->AxResult<Value>{self.call_with_context(args,AxToolContext::default())}
+    pub fn call_with_context(&self, args: Value, context:AxToolContext) -> AxResult<Value> {
         let mut attributes = BTreeMap::new();
         attributes.insert("ax.tool.name".to_string(), json!(self.name));
         with_runtime_scope(None, None, "ax_gen_tool", "tool", attributes, || {
@@ -3546,12 +3602,13 @@ impl Tool {
             core_value_from_json(&args),
             CoreValue::from_string(format!("tool.{}.args", self.name)),
         ])?;
-        (self.handler)(args)
+        if let Some(handler)=&self.context_handler {handler(args,context)}else{(self.handler)(args)}
         })
     }
 }
 
 pub struct ToolBuilder {
+    execution: String,
     name: String,
     description: String,
     args: Map<String, Value>,
@@ -3559,6 +3616,7 @@ pub struct ToolBuilder {
 
 pub fn tool(name: &str) -> ToolBuilder {
     ToolBuilder {
+        execution: "blocking".to_string(),
         name: name.to_string(),
         description: String::new(),
         args: Map::new(),
@@ -3566,6 +3624,11 @@ pub fn tool(name: &str) -> ToolBuilder {
 }
 
 impl ToolBuilder {
+    pub fn execution(mut self, mode: &str) -> Self {
+        assert!(mode == "blocking" || mode == "background", "Tool execution must be blocking or background");
+        self.execution = mode.to_string();
+        self
+    }
     pub fn description(mut self, description: impl Into<String>) -> Self {
         self.description = description.into();
         self
@@ -3576,15 +3639,22 @@ impl ToolBuilder {
         self
     }
 
+    pub fn context_handler(self,handler:impl Fn(Value,AxToolContext)->AxResult<Value>+Send+Sync+'static)->Tool {
+        let handler=Arc::new(handler);let default=handler.clone();
+        let mut tool=self.handler(move |args|default(args,AxToolContext::default()));
+        tool.context_handler=Some(handler);tool
+    }
     pub fn handler(
         self,
         handler: impl Fn(Value) -> AxResult<Value> + Send + Sync + 'static,
     ) -> Tool {
         Tool {
+            execution: self.execution,
             name: self.name,
             description: self.description,
             args: self.args,
             handler: Arc::new(handler),
+            context_handler: None,
         }
     }
 }
@@ -3731,8 +3801,9 @@ impl AxGen {
         &mut self,
         client: &mut C,
         input: Value,
-        options: Value,
+        options: impl Into<AxForwardOptions>,
     ) -> AxResult<Value> {
+        session::with_control(options.into(), |mut options| {
         let defaults = self.runtime_hooks.clone();
         let mut attributes = BTreeMap::new();
         attributes.insert("ax.program.kind".to_string(), json!("AxGen"));
@@ -3744,20 +3815,27 @@ impl AxGen {
             detached.chat_log.clear();
             detached.function_call_traces.clear();
             detached.traces.clear();
-            let result = detached.forward_with_options(client, input, json!({}))?;
+            let result = detached.forward_with_options(client, input, options.clone())?;
             self.chat_log.extend(detached.chat_log);
             self.function_call_traces.extend(detached.function_call_traces);
             self.traces.extend(detached.traces);
             return Ok(result);
         }
         let state = core_gen_state(self)?;
+        let mut session_run=session::SessionRun::new(state.clone(), self.tools.clone(), options.clone());
+        if session::current_control().is_some() || self.tools.iter().any(|tool|tool.execution=="background") { if !options.is_object(){options=json!({});} options["infraRetries"]=json!(0); }
         let mut chat = |method: &str, request: Value, options: Value| -> AxResult<Value> {
+            if method.starts_with("route_") {return session::dispatch_run_route(client,method,request,options);}
             if method == "transcribe" {
                 client.transcribe(request)
             } else if method == "features" {
                 Ok(client.get_features(request.as_str()))
+            } else if method == "open_session" {
+                Ok(session::publish_open_session(client.open_chat_session(request, options)?))
+            } else if method == "observe_session" {
+                client.observe_chat_session_response(&request, &options); Ok(Value::Null)
             } else {
-                client.chat_with_options(request, options)
+                session_run.chat(client, request, options)
             }
         };
         let result = with_core_client(&mut chat, || {
@@ -3768,8 +3846,11 @@ impl AxGen {
                 core_value_from_json(&options),
             ])
         });
+        drop(chat);
+        session_run.finish(result.as_ref().err());
         core_gen_writeback(self, &state);
         Ok(core_value_to_json(&result?))
+        })
         })
     }
 
@@ -4438,6 +4519,21 @@ pub(crate) fn agent_with_core_options(spec: &str, options: CoreValue) -> AxResul
 }
 
 impl AxAgent {
+    pub fn with_tool_module(mut self,name:&str,tools:Vec<Tool>)->AxResult<Self> {
+        let options=core_get(&self.state,&CoreValue::from("options"),CoreValue::new_map());
+        let functions=core_get(&options,&CoreValue::from("functions"),CoreValue::new_list());
+        let group=core_agent_map(&[("name",CoreValue::from(name)),("functions",CoreValue::list_from(tools.into_iter().map(core_tool_host).collect()))])?;
+        core_append(&functions,group)?;core_set(&options,CoreValue::from("functions"),functions)?;
+        let spec=signature_from_record(&core_get(&self.state,&CoreValue::from("signature"),CoreValue::Null))?.to_string();
+        let mut rebuilt=agent_with_core_options(&spec,options)?;
+        rebuilt.runtime_hooks=self.runtime_hooks;
+        rebuilt.execution_context=self.execution_context;
+        rebuilt.citations_observer=self.citations_observer;
+        rebuilt.playbook_observer=self.playbook_observer;
+        rebuilt.playbook_config=self.playbook_config;
+        rebuilt.playbook_snapshot=self.playbook_snapshot;
+        Ok(rebuilt)
+    }
     pub fn set_signature(&mut self, spec: &str) -> AxResult<&mut Self> {
         let options = core_get(&self.state, &CoreValue::from("options"), CoreValue::Null);
         let hooks = self.runtime_hooks.clone();
@@ -4507,17 +4603,23 @@ impl AxAgent {
         &mut self,
         client: &mut C,
         input: Value,
-        options: Value,
+        options: impl Into<AxForwardOptions>,
     ) -> AxResult<Value> {
+        session::with_control(options.into(), |options| {
         let defaults = self.runtime_hooks.clone();
         let mut attributes = BTreeMap::new();
         attributes.insert("ax.program.kind".to_string(), json!("AxAgent"));
         with_runtime_scope(None, Some(&defaults), "ax_gen_agent_forward", "agent", attributes, || {
         let mut chat = |method: &str, request: Value, options: Value| -> AxResult<Value> {
+            if method.starts_with("route_") {return session::dispatch_run_route(client,method,request,options);}
             if method == "transcribe" {
                 client.transcribe(request)
             } else if method == "features" {
                 Ok(client.get_features(request.as_str()))
+            } else if method == "open_session" {
+                Ok(session::publish_open_session(client.open_chat_session(request, options)?))
+            } else if method == "observe_session" {
+                client.observe_chat_session_response(&request, &options); Ok(Value::Null)
             } else {
                 client.chat_with_options(request, options)
             }
@@ -4533,6 +4635,7 @@ impl AxAgent {
         if let CoreValue::Host(host) = &runtime_host {
             let llm_query_signature = self.llm_query_signature.clone();
             let llm_query_instruction = self.llm_query_instruction.clone();
+            let query_options = options.clone();
             let callable: AxHostCallable = Arc::new(move |params: Value| -> AxResult<Value> {
                 let signature = s(&llm_query_signature)?;
                 let sub_gen = agent_stage_gen(
@@ -4543,6 +4646,7 @@ impl AxAgent {
                     sub_gen,
                     CoreValue::Null,
                     core_value_from_json(&params),
+                    core_value_from_json(&query_options),
                 ])?;
                 Ok(core_value_to_json(&result))
             });
@@ -4567,6 +4671,7 @@ impl AxAgent {
         }
         self.learn_playbook_failures(client, &output);
         Ok(output)
+        })
         })
     }
 
@@ -4674,10 +4779,15 @@ impl AxAgent {
                 "feedback": feedback,
             });
             let mut chat = |method: &str, request: Value, options: Value| -> AxResult<Value> {
+            if method.starts_with("route_") {return session::dispatch_run_route(client,method,request,options);}
                 if method == "transcribe" {
                 client.transcribe(request)
             } else if method == "features" {
                 Ok(client.get_features(request.as_str()))
+            } else if method == "open_session" {
+                Ok(session::publish_open_session(client.open_chat_session(request, options)?))
+            } else if method == "observe_session" {
+                client.observe_chat_session_response(&request, &options); Ok(Value::Null)
             } else {
                 client.chat_with_options(request, options)
             }
@@ -5370,17 +5480,23 @@ impl AxFlow {
         &mut self,
         client: &mut C,
         input: Value,
-        options: Value,
+        options: impl Into<AxForwardOptions>,
     ) -> AxResult<Value> {
+        session::with_control(options.into(), |options| {
         let defaults = self.runtime_hooks.clone();
         let mut attributes = BTreeMap::new();
         attributes.insert("ax.program.kind".to_string(), json!("AxFlow"));
         with_runtime_scope(None, Some(&defaults), "ax_gen_flow_forward", "flow", attributes, || {
         let mut chat = |method: &str, request: Value, options: Value| -> AxResult<Value> {
+            if method.starts_with("route_") {return session::dispatch_run_route(client,method,request,options);}
             if method == "transcribe" {
                 client.transcribe(request)
             } else if method == "features" {
                 Ok(client.get_features(request.as_str()))
+            } else if method == "open_session" {
+                Ok(session::publish_open_session(client.open_chat_session(request, options)?))
+            } else if method == "observe_session" {
+                client.observe_chat_session_response(&request, &options); Ok(Value::Null)
             } else {
                 client.chat_with_options(request, options)
             }
@@ -5394,6 +5510,7 @@ impl AxFlow {
             ])
         })?;
         Ok(core_value_to_json(&result))
+        })
         })
     }
 
@@ -7354,6 +7471,32 @@ pub struct AxBalancerOptions {
     pub input_order: bool,
     pub strategy: Option<AxBalancerAdaptiveStrategy>,
 }
+impl AxAIClient for AxBalancer {
+    fn chat(&mut self,request:Value)->AxResult<Value>{AxBalancer::chat(self,request)}
+    fn get_features(&self,model:Option<&str>)->Value{AxBalancer::get_features(self,model)}
+    fn get_name(&self)->String{self.services.get(self.current).map(|service|service.get_name()).unwrap_or_else(||"balancer".into())}
+    fn get_id(&self)->String{self.services.get(self.current).map(|service|service.get_id()).unwrap_or_else(||"balancer".into())}
+    fn get_model_list(&self)->Value{self.services.first().map(|service|service.get_model_list()).unwrap_or(Value::Null)}
+    fn get_options(&self)->Value{self.services.get(self.current).map(|service|service.get_options()).unwrap_or_else(||json!({}))}
+    fn set_options(&mut self,options:Value){AxBalancer::set_options(self,options)}
+    fn stream_iter(&mut self,request:Value)->AxResult<AxChatStream>{AxBalancer::stream_iter(self,request)}
+    fn embed(&mut self,request:Value)->AxResult<Value>{AxBalancer::embed(self,request)}
+    fn transcribe(&mut self,request:Value)->AxResult<Value>{AxBalancer::transcribe(self,request)}
+    fn speak(&mut self,request:Value)->AxResult<Value>{AxBalancer::speak(self,request)}
+    fn open_chat_session(&mut self,request:Value,options:Value)->AxResult<Option<Box<dyn AxChatSession>>>{
+        let route=self.pin_chat_run(&request,&options)?.ok_or_else(||AxError::runtime("No service selected"))?;
+        self.pinned_chat_run_client(&route)?.open_chat_session(request,options)
+    }
+    fn pin_chat_run(&mut self,request:&Value,_options:&Value)->AxResult<Option<String>> {
+        let index=if self.adaptive.is_some(){self.rank(request)?.first().map(|candidate|candidate.index)}else{self.candidate_indices(request)?.into_iter().find(|index|!self.service_failures.contains_key(&self.services[*index].get_id()))};
+        self.current=index.ok_or_else(||AxError::runtime("No eligible service for this run"))?;Ok(Some(self.current.to_string()))
+    }
+    fn pinned_chat_run_client(&mut self,route:&str)->AxResult<&mut dyn AxAIClient>{
+        let index=route.parse::<usize>().map_err(|_|AxError::validation("Invalid run route"))?;
+        match self.services.get_mut(index){Some(service)=>Ok(service.as_mut()),None=>Err(AxError::validation("Invalid run route"))}
+    }
+}
+
 impl Default for AxBalancerOptions {
     fn default() -> Self {
         Self {
@@ -7561,6 +7704,21 @@ impl Default for AxBalancer {
     }
 }
 
+impl AxAIClient for MultiServiceRouter {
+    fn get_features(&self,model:Option<&str>)->Value {MultiServiceRouter::get_features(self,model)}
+    fn chat(&mut self,request:Value)->AxResult<Value> {self.chat_with_options(request,Value::Null)}
+    fn chat_with_options(&mut self,request:Value,options:Value)->AxResult<Value> {
+        let key=self.service_key(&request)?;
+        let resolved=core_value_to_json(&provider_session_route(&[CoreValue::new_map(),core_value_from_json(&request),core_value_from_json(&options)])?);
+        self.services.get_mut(&key).unwrap().chat_with_options(resolved["request"].clone(),resolved["options"].clone())
+    }
+    fn open_chat_session(&mut self,request:Value,options:Value)->AxResult<Option<Box<dyn AxChatSession>>> {
+        let key=self.service_key(&request)?;
+        let resolved=core_value_to_json(&provider_session_route(&[CoreValue::new_map(),core_value_from_json(&request),core_value_from_json(&options)])?);
+        self.services.get_mut(&key).unwrap().open_chat_session(resolved["request"].clone(),resolved["options"].clone())
+    }
+}
+
 impl MultiServiceRouter {
     pub fn new() -> Self {
         Self {
@@ -7584,7 +7742,7 @@ impl MultiServiceRouter {
     pub fn get_features(&self, model: Option<&str>) -> Value {
         if let Some(model) = model {
             if let Some(service) = self.services.get(model) {
-                return service.get_features(Some(model));
+                return service.get_features(None);
             }
         }
         self.services
@@ -7752,6 +7910,21 @@ impl ProviderRouter {
     pub fn speak(&mut self, request: Value) -> AxResult<Value> {
         self.provider_for(&request)?.speak(request)
     }
+}
+
+impl AxAIClient for ProviderRouter {
+    fn get_features(&self,model:Option<&str>)->Value{merge_balancer_feature_values(self.providers.values().map(|provider|provider.get_features(model)))}
+    fn get_name(&self)->String{"provider-router".into()}
+    fn chat(&mut self,request:Value)->AxResult<Value>{ProviderRouter::chat(self,request)}
+    fn chat_with_options(&mut self,request:Value,options:Value)->AxResult<Value>{let key=self.provider_key(&request)?;let request=self.preprocess_request(&key,&request)?;self.providers.get_mut(&key).unwrap().chat_with_options(request,options)}
+    fn stream_iter(&mut self,request:Value)->AxResult<AxChatStream>{ProviderRouter::stream_iter(self,request)}
+    fn embed(&mut self,request:Value)->AxResult<Value>{ProviderRouter::embed(self,request)}
+    fn transcribe(&mut self,request:Value)->AxResult<Value>{ProviderRouter::transcribe(self,request)}
+    fn speak(&mut self,request:Value)->AxResult<Value>{ProviderRouter::speak(self,request)}
+    fn pin_chat_run(&mut self,request:&Value,_options:&Value)->AxResult<Option<String>>{self.provider_key(request).map(Some)}
+    fn pinned_chat_run_client(&mut self,route:&str)->AxResult<&mut dyn AxAIClient>{match self.providers.get_mut(route){Some(provider)=>Ok(provider),None=>Err(AxError::validation("Invalid run route"))}}
+    fn preprocess_pinned_chat_run(&self,route:&str,request:Value)->AxResult<Value>{self.preprocess_request(route,&request)}
+    fn open_chat_session(&mut self,request:Value,options:Value)->AxResult<Option<Box<dyn AxChatSession>>>{let route=self.provider_key(&request)?;let request=self.preprocess_request(&route,&request)?;self.providers.get_mut(&route).unwrap().open_chat_session(request,options)}
 }
 
 impl Default for ProviderRouter {
@@ -8134,6 +8307,8 @@ pub fn run_conformance_fixture(fixture: Value) -> AxResult<()> {
         "template_validate" => run_template_validate_fixture(&fixture)?,
         "forward" => run_simple_forward_fixture(&fixture)?,
         "stream" => run_stream_fixture(&fixture)?,
+        "ai_session_state" => run_ai_session_state_fixture(&fixture)?,
+        "ai_session_events" => run_ai_session_events_fixture(&fixture)?,
         "ai_chat" => run_ai_chat_fixture(&fixture)?,
         "ai_stream" => run_ai_stream_fixture(&fixture)?,
         "ai_cancellation" => run_ai_cancellation_fixture(&fixture)?,
@@ -9707,6 +9882,7 @@ fn balancer_base_features() -> Value {
         "functions": false,
         "streaming": false,
         "thinking": false,
+        "asyncTools": false, "nativeSteering": false, "reasoningUpdates": false,
         "multiTurn": false,
         "structuredOutputs": false,
         "media": {
@@ -9752,6 +9928,9 @@ fn merge_balancer_feature_values(features: impl IntoIterator<Item = Value>) -> V
         }
         for (key, aliases) in [
             ("functions", vec![]),
+            ("asyncTools", vec![]),
+            ("nativeSteering", vec![]),
+            ("reasoningUpdates", vec![]),
             ("streaming", vec![]),
             ("thinking", vec![]),
             ("multiTurn", vec!["multi_turn"]),
@@ -11713,6 +11892,11 @@ fn run_agent_runtime_policy_fixture(fixture: &Value) -> AxResult<()> {
             "expected agent runtime policy fixture to fail",
         ));
     }
+    for case in fixture["native_cases"].as_array().into_iter().flatten() {
+        let selected=core_value_to_json(&_agent_native_callables(&[agent.state.clone(),core_value_from_json(&case["features"]),core_value_from_json(&case["options"])])?);
+        let names:Vec<Value>=selected.as_array().unwrap().iter().map(|v|v["qualified_name"].clone()).collect();
+        expect_json_equal("native agent selection",&json!(names),&case["expected"])?;
+    }
     if let Some(expected) = fixture.get("expected_runtime_contract_subset") {
         expect_json_subset("runtime contract", &agent.get_runtime_contract(), expected)?;
     }
@@ -11958,10 +12142,15 @@ fn conformance_flow_result(fixture: &Value) -> AxResult<Value> {
         forward_options["cache_store"] = Value::Object(cache_store);
     }
     let mut chat = |method: &str, request: Value, options: Value| -> AxResult<Value> {
+            if method.starts_with("route_") {return session::dispatch_run_route(&mut client,method,request,options);}
         if method == "transcribe" {
                 client.transcribe(request)
             } else if method == "features" {
                 Ok(client.get_features(request.as_str()))
+            } else if method == "open_session" {
+                Ok(session::publish_open_session(client.open_chat_session(request, options)?))
+            } else if method == "observe_session" {
+                client.observe_chat_session_response(&request, &options); Ok(Value::Null)
             } else {
                 client.chat_with_options(request, options)
             }
@@ -14965,6 +15154,10 @@ fn core_number_arg(args: &[CoreValue], index: usize) -> Result<f64, AxError> {
     }
 }
 
+fn core_math_floor(args: &[CoreValue]) -> Result<CoreValue, AxError> {
+    Ok(CoreValue::Num(core_number_arg(args, 0)?.floor()))
+}
+
 fn core_math_abs(args: &[CoreValue]) -> Result<CoreValue, AxError> {
     Ok(CoreValue::Num(core_number_arg(args, 0)?.abs()))
 }
@@ -17098,6 +17291,7 @@ pub(crate) trait CoreHost {
     fn stage_gen_rc(&self) -> Option<Rc<RefCell<AxGen>>> {
         None
     }
+    fn native_tool(&self)->Option<Tool>{None}
 }
 
 struct ResultPickerHost {
@@ -17388,6 +17582,7 @@ impl CoreHost for ToolHost {
         "Tool"
     }
 
+    fn native_tool(&self)->Option<Tool>{Some((*self.tool).clone())}
     fn call_method(&self, name: &str, args: &[CoreValue]) -> Result<CoreValue, AxError> {
         match name {
             "call" => {
@@ -17402,6 +17597,7 @@ impl CoreHost for ToolHost {
             }
             "name" => Ok(CoreValue::from(self.tool.name.as_str())),
             "description" => Ok(CoreValue::from(self.tool.description.as_str())),
+            "execution" => Ok(CoreValue::from(self.tool.execution.as_str())),
             "parameters" | "args" => Ok(core_value_from_json(&Value::Object(
                 self.tool.args.clone(),
             ))),
@@ -17430,6 +17626,7 @@ thread_local! {
     // languages (which pass the real client directly).
     static CORE_CLIENT_STACK: RefCell<Vec<*mut (dyn FnMut(&str, Value, Value) -> AxResult<Value> + 'static)>> =
         RefCell::new(Vec::new());
+    static CORE_REQUEST_STACK: RefCell<Vec<CoreValue>> = const { RefCell::new(Vec::new()) };
 }
 
 #[allow(dead_code)]
@@ -17470,6 +17667,10 @@ pub(crate) fn core_ai_complete_once(args: &[CoreValue]) -> Result<CoreValue, AxE
     // created from is still live. The RefCell borrow is released before the
     // call so the callback may itself push a nested client.
     let chat = unsafe { &mut *ptr };
+    struct RequestGuard;
+    impl Drop for RequestGuard { fn drop(&mut self) { CORE_REQUEST_STACK.with(|stack| { stack.borrow_mut().pop(); }); } }
+    CORE_REQUEST_STACK.with(|stack| stack.borrow_mut().push(request.clone()));
+    let _request_guard = RequestGuard;
     let response = chat(
         "chat",
         core_value_to_json(&request),
@@ -18582,7 +18783,9 @@ fn core_gen_state(gen: &AxGen) -> Result<CoreValue, AxError> {
         let map = CoreValue::new_map();
         core_set(&map, CoreValue::from("name"), entry_method(&entry, "name"))?;
         core_set(&map, CoreValue::from("description"), entry_method(&entry, "description"))?;
+        core_set(&map, CoreValue::from("execution"), CoreValue::from(tool.execution.as_str()))?;
         core_set(&map, CoreValue::from("args"), core_tool_args_fields(&tool.args)?)?;
+        core_set(&map, CoreValue::from("parameters"), to_json_schema(&[core_tool_args_fields(&tool.args)?, CoreValue::from(""), core_value_from_json(&json!({"strict":true}))])?)?;
         core_set(&map, CoreValue::from("__tool_host"), entry)?;
         core_append(&tools, map)?;
     }
@@ -18689,14 +18892,42 @@ fn core_tool_args_fields(args: &Map<String, Value>) -> Result<CoreValue, AxError
 }
 
 
-struct RawScopedClient(*mut dyn FnMut(&str, Value, Value) -> AxResult<Value>);
+struct RawScopedClient(*mut dyn FnMut(&str, Value, Value) -> AxResult<Value>,Vec<String>,Option<Box<RawScopedClient>>);
+impl RawScopedClient {
+    fn routed_call(&self,method:&str,request:Value,options:Value)->AxResult<Value>{
+        // The callback and each routed proxy remain within the enclosing forward.
+        let callback=unsafe{&mut *self.0};
+        if self.1.is_empty()&&!matches!(method,"select"|"preprocess") {callback(method,request,options)}
+        else {callback(&format!("route_{method}"),json!({"route":self.1,"request":request}),options)}
+    }
+}
 
 impl AxAIClient for RawScopedClient {
+    fn pin_chat_run(&mut self,request:&Value,options:&Value)->AxResult<Option<String>> {
+        Ok(self.routed_call("select",request.clone(),options.clone())?.as_str().map(str::to_string))
+    }
+    fn preprocess_pinned_chat_run(&self,route:&str,request:Value)->AxResult<Value>{self.routed_call("preprocess",json!({"selected":route,"request":request}),Value::Null)}
+    fn pinned_chat_run_client(&mut self,route:&str)->AxResult<&mut dyn AxAIClient> {
+        let mut path=self.1.clone();path.push(route.to_string());
+        self.2=Some(Box::new(RawScopedClient(self.0,path,None)));
+        Ok(self.2.as_mut().unwrap().as_mut())
+    }
+
+    fn open_chat_session(&mut self, request: Value, options: Value) -> AxResult<Option<Box<dyn AxChatSession>>> {
+        let model=request.get("model").and_then(Value::as_str);
+        if self.get_features(model).get("asyncTools").and_then(Value::as_bool)!=Some(true) {return Ok(None);}
+        // SAFETY: the callback remains scoped to the enclosing forward call.
+        let opened=self.routed_call("open_session",request,options)?;
+        if opened==true {Ok(session::take_open_session())} else {Ok(None)}
+    }
+    fn observe_chat_session_response(&mut self, response: &Value, options: &Value) {
+        let _=self.routed_call("observe_session",response.clone(),options.clone());
+    }
+
     fn get_features(&self, model: Option<&str>) -> Value {
         // Preserve the outer provider's capability map when an Agent stage
         // wraps the scoped client in its own AxGen forward call.
-        let call = unsafe { &mut *self.0 };
-        call(
+        self.routed_call(
             "features",
             model.map(Value::from).unwrap_or(Value::Null),
             Value::Null,
@@ -18707,25 +18938,22 @@ impl AxAIClient for RawScopedClient {
     fn chat(&mut self, request: Value) -> AxResult<Value> {
         // SAFETY: the pointer was captured from the client stack inside the
         // enclosing with_core_client scope, which outlives this call.
-        let call = unsafe { &mut *self.0 };
-        call("chat", request, Value::Null)
+        self.routed_call("chat", request, Value::Null)
     }
 
     fn chat_with_options(&mut self, request: Value, options: Value) -> AxResult<Value> {
-        let call = unsafe { &mut *self.0 };
-        call("chat", request, options)
+        self.routed_call("chat", request, options)
     }
 
     fn transcribe(&mut self, request: Value) -> AxResult<Value> {
-        let call = unsafe { &mut *self.0 };
-        call("transcribe", request, Value::Null)
+        self.routed_call("transcribe", request, Value::Null)
     }
 }
 
 fn core_scoped_client() -> AxResult<RawScopedClient> {
     let top = CORE_CLIENT_STACK.with(|stack| stack.borrow().last().copied());
     match top {
-        Some(ptr) => Ok(RawScopedClient(ptr)),
+        Some(ptr) => Ok(RawScopedClient(ptr,Vec::new(),None)),
         None => Err(AxError::runtime("no AI client in scope")),
     }
 }
@@ -18936,6 +19164,30 @@ fn core_agent_stage_usage(args: &[CoreValue]) -> Result<CoreValue, AxError> {
         return Ok(items);
     }
     Ok(CoreValue::new_list())
+}
+
+fn core_run_control_aborted(args: &[CoreValue]) -> AxResult<CoreValue> {
+    let control=core_value_to_json(&core_arg(args,0));
+    let aborted=if control==true {session::current_control().as_ref().is_some_and(AxRunControl::is_aborted)} else {control.get("aborted").and_then(Value::as_bool).unwrap_or(false)};
+    Ok(CoreValue::Bool(aborted))
+}
+
+fn core_agent_native_stage_forward(args:&[CoreValue])->AxResult<CoreValue> {
+    let stage=core_arg(args,0);let state=core_arg(args,1);let client=core_arg(args,2);let values=core_arg(args,3);let options=core_arg(args,4);let selected=core_arg(args,5);
+    let gen=if let CoreValue::Host(host)=&stage {host.stage_gen_rc()} else {None}.ok_or_else(||AxError::runtime("Native agent stage must be an AxGen"))?;
+    let mut tools=Vec::new();
+    for descriptor in core_iter(&selected)? {
+        let source=_agent_callable_implementation(&[state.clone(),core_get(&descriptor,&CoreValue::from("qualified_name"),CoreValue::Null)])?;
+        let mut tool=if let CoreValue::Host(host)=source {host.native_tool()}else{None}.ok_or_else(||AxError::runtime("Background agent callables must have a typed tool() implementation"))?;
+        tool.name=core_get(&descriptor,&CoreValue::from("native_name"),CoreValue::Null).text();tool.description=core_get(&descriptor,&CoreValue::from("description"),CoreValue::Null).text();tool.execution="background".into();tools.push(tool);
+    }
+    struct Restore {gen:Rc<RefCell<AxGen>>,tools:Vec<Tool>,base:Vec<Tool>,traces:Vec<Value>}
+    impl Drop for Restore{fn drop(&mut self){let mut gen=self.gen.borrow_mut();gen.tools=std::mem::take(&mut self.tools);gen.base_tools=std::mem::take(&mut self.base);let records=std::mem::take(&mut gen.function_call_traces);gen.function_call_traces=std::mem::take(&mut self.traces);gen.function_call_traces.extend(records);}}
+    let restore={let mut value=gen.borrow_mut();let original=value.tools.clone();let base=value.base_tools.clone();value.base_tools.extend(tools.clone());value.tools.extend(tools);let traces=std::mem::take(&mut value.function_call_traces);Restore{gen:gen.clone(),tools:original,base,traces}};
+    let result=core_agent_stage_forward(&[stage,client,values,options.clone()]);
+    let records=gen.borrow().function_call_traces.clone();drop(restore);
+    _agent_record_native_calls(&[state,selected,core_value_from_json(&json!(records)),options])?;
+    result
 }
 
 fn core_agent_stage_forward(args: &[CoreValue]) -> Result<CoreValue, AxError> {
@@ -19607,6 +19859,10 @@ fn core_agent_callable_invoke(args: &[CoreValue]) -> Result<CoreValue, AxError> 
     let name = core_get(&request, &CoreValue::from("name"), CoreValue::from(""));
     let qualified = core_get(&request, &CoreValue::from("qualified_name"), name.clone());
     let call_args = core_get(&request, &CoreValue::from("args"), CoreValue::new_map());
+    let implementation=_agent_callable_implementation(&[state.clone(),qualified.clone()])?;
+    if let CoreValue::Host(host)=&implementation {let value=host.call_method("call",&[call_args.clone()])?;return core_agent_map(&[("status",CoreValue::from("ok")),("value",value)]);}
+    let handler=core_get(&implementation,&CoreValue::from("handler"),CoreValue::Null);
+    if let CoreValue::Host(host)=&handler {let value=host.call_method("call",&[call_args.clone()])?;return core_agent_map(&[("status",CoreValue::from("ok")),("value",value)]);}
     let inventory = core_get(
         &state,
         &CoreValue::from("callable_inventory"),
@@ -19849,8 +20105,8 @@ fn signature_from_record(record: &CoreValue) -> AxResult<AxSignature> {
     let payload = core_value_to_json(record);
     let mut inputs = Vec::new();
     let mut outputs = Vec::new();
-    for (key, out) in [("inputFields", &mut inputs), ("outputFields", &mut outputs)] {
-        for raw in payload.get(key).and_then(Value::as_array).into_iter().flatten() {
+    for (key, alias, native, out) in [("inputFields", "input_fields", "inputs", &mut inputs), ("outputFields", "output_fields", "outputs", &mut outputs)] {
+        for raw in payload.get(key).or_else(|| payload.get(alias)).or_else(|| payload.get(native)).and_then(Value::as_array).into_iter().flatten() {
             let name = raw.get("name").and_then(Value::as_str).unwrap_or("");
             out.push(field_from_payload(name, raw));
         }
@@ -20172,6 +20428,23 @@ mod request_url_security_tests {
     use super::*;
     use std::sync::Mutex;
 
+    #[test]
+    fn responses_status_is_not_an_http_envelope() -> AxResult<()> {
+        let response = json!({
+            "id": "resp_astra", "status": "completed", "model": "gpt-6-astra",
+            "output": [{"type": "message", "id": "msg_astra", "content": [
+                {"type": "output_text", "text": "answer", "annotations": []}
+            ]}],
+            "usage": {"input_tokens": 3, "output_tokens": 2, "total_tokens": 5}
+        });
+        assert_eq!(normalize_passthrough_response(response.clone())?, response);
+        let normalized = normalize_openai_response("openai", "gpt-6-astra", response, &serde_json::json!({}))?;
+        assert_eq!(normalized["results"][0]["content"], "answer");
+        assert_eq!(normalized["remote_id"], "resp_astra");
+        assert_eq!(normalized["model_usage"]["tokens"]["total_tokens"], 5);
+        Ok(())
+    }
+
     struct CapturingTransport {
         request: Arc<Mutex<Option<Value>>>,
     }
@@ -20235,3 +20508,41 @@ mod request_url_security_tests {
 // ----- END AXIR CORE VALUE RUNTIME -----
 
 // AXIR_CORE_RUST_FUNCTIONS
+
+fn run_ai_session_events_fixture(fixture: &Value) -> AxResult<()> {
+    let state = core_value_from_json(&json!({}));
+    let cursor = core_value_from_json(&json!({}));
+    for case in fixture["cases"].as_array().unwrap() {
+        openai_responses_transport_cursor(&[cursor.clone(),core_value_from_json(&case["event"])])?;
+        if let Some(expected)=case.get("expected_active_id") {expect_json_equal("transport active response",&core_value_to_json(&cursor)["active_id"],expected)?;}
+        if let Some(expected)=case.get("expected_exception").and_then(Value::as_str) {
+            match openai_responses_session_event(&[core_value_from_json(&case["event"]),state.clone(),core_value_from_json(&fixture["model"])]) {
+                Err(error) if error.to_string().contains(expected)=>{},
+                other=>return Err(AxError::new("fixture",format!("Expected provider session failure {expected}, got {other:?}"))),
+            };continue;
+        }
+        let events = core_value_to_json(&openai_responses_session_event(&[
+            core_value_from_json(&case["event"]), state.clone(), core_value_from_json(&fixture["model"]),
+        ])?);
+        let events = events.as_array().unwrap();
+        let types = Value::Array(events.iter().map(|event| event["type"].clone()).collect());
+        expect_json_equal("session event types", &types, &case["expected_types"])?;
+        for key in ["call", "response_id", "status", "required_call_ids", "error"] {
+            if let Some(expected) = case.get(format!("expected_{key}")) {
+                expect_json_equal(&format!("session {key}"), &events[0][key], expected)?;
+            }
+        }
+    }
+    Ok(())
+}
+
+fn run_ai_session_state_fixture(fixture: &Value) -> AxResult<()> {
+    let state = chat_session_create_state(&[core_value_from_json(&fixture["model"]), core_value_from_json(&fixture["path"]), core_value_from_json(&fixture["max_steps"])])?;
+    for case in fixture["cases"].as_array().unwrap() {
+        let action = core_value_to_json(&chat_session_transition(&[state.clone(), core_value_from_json(&case["event"])])?);
+        expect_json_equal("session transition", &action, &case["expected_action"])?;
+    }
+    expect_json_equal("unresolved work", &core_value_to_json(&chat_session_unresolved(&[state.clone()])?), &fixture["expected_pending"])?;
+    expect_json_equal("response accounting", &core_value_to_json(&state)["steps"], &fixture["expected_steps"])?;
+    Ok(())
+}

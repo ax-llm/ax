@@ -54,6 +54,16 @@
       ],
       "option_effect": "Ignoring {member} changes at least one exact lifecycle projection in the public TypeScript oracle.",
       "option_effects": {
+        "constructor.asyncMode": "Selects automatic model sessions or the existing chat loop; generated agent parity remains incomplete. Tracked by ir/axir-backlog.json#axir-2026-09-05-port-shared-chat-sessions-and-run-controls; TypeScript coverage: src/ax/agent/agent.sessions.test.ts.",
+        "constructor.control": "Propagates scoped steering, reasoning updates and cancellation; full generated child targeting and invocation parity remain incomplete. Tracked by ir/axir-backlog.json#axir-2026-09-05-port-shared-chat-sessions-and-run-controls; TypeScript coverage: src/ax/agent/agent.sessions.test.ts.",
+        "constructor.executionPath": "Scopes control delivery to an agent or descendant; full cross-target targeting parity is not yet claimed. Tracked by ir/axir-backlog.json#axir-2026-09-05-port-shared-chat-sessions-and-run-controls; TypeScript coverage: src/ax/agent/agent.sessions.test.ts.",
+        "forward.asyncMode": "Selects automatic model sessions or the existing chat loop; generated agent parity remains incomplete. Tracked by ir/axir-backlog.json#axir-2026-09-05-port-shared-chat-sessions-and-run-controls; TypeScript coverage: src/ax/agent/agent.sessions.test.ts.",
+        "forward.control": "Propagates scoped steering, reasoning updates and cancellation; full generated child targeting and invocation parity remain incomplete. Tracked by ir/axir-backlog.json#axir-2026-09-05-port-shared-chat-sessions-and-run-controls; TypeScript coverage: src/ax/agent/agent.sessions.test.ts.",
+        "forward.executionPath": "Scopes control delivery to an agent or descendant; full cross-target targeting parity is not yet claimed. Tracked by ir/axir-backlog.json#axir-2026-09-05-port-shared-chat-sessions-and-run-controls; TypeScript coverage: src/ax/agent/agent.sessions.test.ts.",
+        "streaming_forward.asyncMode": "Selects automatic model sessions or the existing chat loop; generated agent parity remains incomplete. Tracked by ir/axir-backlog.json#axir-2026-09-05-port-shared-chat-sessions-and-run-controls; TypeScript coverage: src/ax/agent/agent.sessions.test.ts.",
+        "streaming_forward.control": "Propagates scoped steering, reasoning updates and cancellation; full generated child targeting and invocation parity remain incomplete. Tracked by ir/axir-backlog.json#axir-2026-09-05-port-shared-chat-sessions-and-run-controls; TypeScript coverage: src/ax/agent/agent.sessions.test.ts.",
+        "streaming_forward.executionPath": "Scopes control delivery to an agent or descendant; full cross-target targeting parity is not yet claimed. Tracked by ir/axir-backlog.json#axir-2026-09-05-port-shared-chat-sessions-and-run-controls; TypeScript coverage: src/ax/agent/agent.sessions.test.ts.",
+
         "constructor.directResponse": "stageRequests",
         "constructor.memoriesCatalog": "loadedMemories",
         "constructor.onLoadedMemories": "observerTranscript",
@@ -104,7 +114,7 @@
         "method.setState",
         "state.skillsPromptState"
       ],
-      "inventory_sha256": "3b46862a668c51c521d4bd1ec037e61f0536c2baa1e578007ef5ec4ee7017070",
+      "inventory_sha256": "ce49bef050d4920889eeadbc715d836b8ad3083693013931837cdedabe88032b",
       "classification": "target-specific",
       "rationale": "This public TypeScript surface is either a DSP-layer pass-through, an optimizer/coordinator-only surface, streaming-only behavior, or an observable whose generated-language API has a target-native shape. It is inventoried but is not claimed semantically identical by this AxAgent lifecycle enrollment.",
       "contract_id_prefix": "axagent.target",
@@ -114,6 +124,16 @@
       "observable_projection": [],
       "option_effect": "No portable output, state, or callback effect is claimed for {member}; its exclusion remains reviewable through the inventory digest and backlog reference.",
       "option_effects": {
+        "constructor.asyncMode": "Selects automatic model sessions or the existing chat loop; generated agent parity remains incomplete. Tracked by ir/axir-backlog.json#axir-2026-09-05-port-shared-chat-sessions-and-run-controls; TypeScript coverage: src/ax/agent/agent.sessions.test.ts.",
+        "constructor.control": "Propagates scoped steering, reasoning updates and cancellation; full generated child targeting and invocation parity remain incomplete. Tracked by ir/axir-backlog.json#axir-2026-09-05-port-shared-chat-sessions-and-run-controls; TypeScript coverage: src/ax/agent/agent.sessions.test.ts.",
+        "constructor.executionPath": "Scopes control delivery to an agent or descendant; full cross-target targeting parity is not yet claimed. Tracked by ir/axir-backlog.json#axir-2026-09-05-port-shared-chat-sessions-and-run-controls; TypeScript coverage: src/ax/agent/agent.sessions.test.ts.",
+        "forward.asyncMode": "Selects automatic model sessions or the existing chat loop; generated agent parity remains incomplete. Tracked by ir/axir-backlog.json#axir-2026-09-05-port-shared-chat-sessions-and-run-controls; TypeScript coverage: src/ax/agent/agent.sessions.test.ts.",
+        "forward.control": "Propagates scoped steering, reasoning updates and cancellation; full generated child targeting and invocation parity remain incomplete. Tracked by ir/axir-backlog.json#axir-2026-09-05-port-shared-chat-sessions-and-run-controls; TypeScript coverage: src/ax/agent/agent.sessions.test.ts.",
+        "forward.executionPath": "Scopes control delivery to an agent or descendant; full cross-target targeting parity is not yet claimed. Tracked by ir/axir-backlog.json#axir-2026-09-05-port-shared-chat-sessions-and-run-controls; TypeScript coverage: src/ax/agent/agent.sessions.test.ts.",
+        "streaming_forward.asyncMode": "Selects automatic model sessions or the existing chat loop; generated agent parity remains incomplete. Tracked by ir/axir-backlog.json#axir-2026-09-05-port-shared-chat-sessions-and-run-controls; TypeScript coverage: src/ax/agent/agent.sessions.test.ts.",
+        "streaming_forward.control": "Propagates scoped steering, reasoning updates and cancellation; full generated child targeting and invocation parity remain incomplete. Tracked by ir/axir-backlog.json#axir-2026-09-05-port-shared-chat-sessions-and-run-controls; TypeScript coverage: src/ax/agent/agent.sessions.test.ts.",
+        "streaming_forward.executionPath": "Scopes control delivery to an agent or descendant; full cross-target targeting parity is not yet claimed. Tracked by ir/axir-backlog.json#axir-2026-09-05-port-shared-chat-sessions-and-run-controls; TypeScript coverage: src/ax/agent/agent.sessions.test.ts.",
+
         "constructor.promptCacheRetention": "Provider-option pass-through inherited from AxAIServiceOptions; Meta Responses retention is covered by AxAI provider conformance, not the AxAgent lifecycle contract.",
         "forward.promptCacheRetention": "Provider-option pass-through inherited from AxAIServiceOptions; Meta Responses retention is covered by AxAI provider conformance, not the AxAgent lifecycle contract.",
         "streaming_forward.promptCacheRetention": "Provider-option pass-through inherited from AxAIServiceOptions; Meta Responses retention is covered by AxAI provider conformance, not the AxAgent lifecycle contract."

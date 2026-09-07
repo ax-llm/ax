@@ -3748,6 +3748,17 @@ module @ax.agent version "0.1" {
       core.set %out["description"] = %description
       core.set %out["parameters"] = %parameters
       core.set %out["always_include"] = %always_include
+      %execution = core.get %raw["execution"] default "blocking"
+      %background = core.call intrinsic.eq(%execution, "background")
+      core.if %background {
+        core.set %out["execution"] = "background"
+      } else {
+        %blocking = core.call intrinsic.eq(%execution, "blocking")
+        core.if %blocking {
+        } else {
+          core.raise "Tool execution must be blocking or background"
+        }
+      }
       core.return %out
     }
   }
@@ -4833,6 +4844,98 @@ module @ax.agent version "0.1" {
     }
   }
 
+  op ax.agent.policy @agent_native_callables {
+    attr core_kind = "func"
+    attr emit_module = "agent"
+    attr private = true
+    type signature = "(json, json, json) -> json throws"
+    body @entry(%state: json, %features: json, %options: json) {
+      %selected = core.list
+      %enabled = core.call @chat_session_mode_enabled(%options)
+      %supports = core.get %features["asyncTools"] default false
+      %available = core.call intrinsic.and(%enabled, %supports)
+      core.if %available {
+        %empty_list = core.list
+        %empty_map = core.map
+        %flags = core.get %state["policy_flags"] default %empty_map
+        %discovery = core.get %flags["discoveryMode"] default false
+        %all_visible = core.call intrinsic.not(%discovery)
+        %inventory = core.get %state["callable_inventory"] default %empty_list
+        %docs = core.get %state["discovered_tool_docs"] default %empty_list
+        %names = core.map
+        core.for %group in %inventory {
+          %group_always = core.get %group["always_include"] default false
+          %group_visible = core.call intrinsic.or(%all_visible, %group_always)
+          %callables = core.get %group["callables"] default %empty_list
+          core.for %callable in %callables {
+            %execution = core.get %callable["execution"] default "blocking"
+            %background = core.call intrinsic.eq(%execution, "background")
+            core.if %background {
+              %always = core.get %callable["always_include"] default false
+              %visible = core.call intrinsic.or(%group_visible, %always)
+              %qualified = core.get %callable["qualified_name"]
+              core.for %doc in %docs {
+                %doc_name = core.get %doc["qualified_name"]
+                %discovered = core.call intrinsic.eq(%qualified, %doc_name)
+                %visible = core.call intrinsic.or(%visible, %discovered)
+              }
+              core.if %visible {
+                %name = core.call intrinsic.regex.replace("[^A-Za-z0-9_-]", "_", %qualified)
+                %duplicate_name = core.call intrinsic.map.contains(%names, %name)
+                core.if %duplicate_name {
+                  core.raise "Native agent tool names collide after namespace normalization"
+                }
+                core.set %names[%name] = true
+                %entry = core.call intrinsic.map.merge(%empty_map, %callable)
+                core.set %entry["native_name"] = %name
+                %description = core.get %entry["description"] default ""
+                %description = core.call intrinsic.string.format("{} Execute through this native tool. Do not call {} from actor code.", %description, %qualified)
+                core.set %entry["description"] = %description
+                core.append %selected, %entry
+              }
+            }
+          }
+        }
+      }
+      core.return %selected
+    }
+  }
+
+  op ax.agent.policy @agent_callable_implementation {
+    attr core_kind = "func"
+    attr emit_module = "agent"
+    attr private = true
+    type signature = "(json, string) -> json"
+    body @entry(%state: json, %qualified: string) {
+      %empty_map = core.map
+      %empty_list = core.list
+      %options = core.get %state["options"] default %empty_map
+      %functions = core.get %options["functions"] default %empty_list
+      core.for %item in %functions {
+        %group_functions = core.get %item["functions"] default null
+        %group = core.type_is %group_functions type "list"
+        %namespace = core.let "tools"
+        %candidates = core.list
+        core.if %group {
+          %group_name = core.get %item["name"] default "tools"
+          %namespace = core.get %item["namespace"] default %group_name
+          %candidates = core.let %group_functions
+        } else {
+          core.append %candidates, %item
+        }
+        core.for %candidate in %candidates {
+          %name = core.get %candidate["name"] default ""
+          %candidate_name = core.call intrinsic.string.format("{}.{}", %namespace, %name)
+          %matches = core.call intrinsic.eq(%candidate_name, %qualified)
+          core.if %matches {
+            core.return %candidate
+          }
+        }
+      }
+      core.return null
+    }
+  }
+
   op ax.agent.policy @agent_execute_callable {
     attr core_kind = "func"
     attr emit_module = "agent"
@@ -4840,7 +4943,29 @@ module @ax.agent version "0.1" {
     type signature = "(json, json, json) -> json throws"
     body @entry(%state: json, %request: json, %options: json) {
       %empty_list = core.list
-      %result = core.call intrinsic.agent.callable.invoke(%state, %request, %options)
+      %native_names = core.get %state["native_tool_names"] default %empty_list
+      %qualified = core.get %request["qualified_name"] default ""
+      %native_tool = core.call intrinsic.contains(%native_names, %qualified)
+      %result = core.map
+      core.if %native_tool {
+        %message = core.call intrinsic.string.format("{} is a native background tool. Use its model tool result; do not invoke it again in code.", %qualified)
+        core.set %result["status"] = "error"
+        core.set %result["error"] = %message
+      } else {
+        %result = core.call intrinsic.agent.callable.invoke(%state, %request, %options)
+      }
+      %recorded = core.call @agent_record_callable_result(%state, %request, %result, %options)
+      core.return %recorded
+    }
+  }
+
+  op ax.agent.policy @agent_record_callable_result {
+    attr core_kind = "func"
+    attr emit_module = "agent"
+    attr private = true
+    type signature = "(json, json, json, json) -> json throws"
+    body @entry(%state: json, %request: json, %result: json, %options: json) {
+      %empty_list = core.list
       %qualified = core.get %request["qualified_name"] default ""
       %name = core.get %request["name"] default %qualified
       %args = core.get %request["args"] default %request
@@ -4849,6 +4974,11 @@ module @ax.agent version "0.1" {
       %record = core.map
       core.set %record["qualified_name"] = %qualified
       core.set %record["name"] = %name
+      %call_id = core.get %request["call_id"] default null
+      %has_call_id = core.call intrinsic.is_not_none(%call_id)
+      core.if %has_call_id {
+        core.set %record["call_id"] = %call_id
+      }
       core.set %record["arguments"] = %args
       core.set %record["status"] = %status
       core.set %record["result"] = %result
@@ -4857,6 +4987,9 @@ module @ax.agent version "0.1" {
       %action_log = core.get %state["action_log"] default %empty_list
       %action = core.map
       core.set %action["type"] = "function_call"
+      core.if %has_call_id {
+        core.set %action["call_id"] = %call_id
+      }
       core.set %action["qualified_name"] = %qualified
       core.set %action["status"] = %status
       core.append %action_log, %action
@@ -5808,7 +5941,10 @@ module @ax.agent version "0.1" {
       %abort_snake = core.get %options["abort"] default false
       %aborted = core.get %options["aborted"] default %abort_snake
       %abort_signal = core.get %options["abortSignal"] default %aborted
-      %has_abort = core.call intrinsic.truthy(%abort_signal)
+      %signal_aborted = core.call intrinsic.truthy(%abort_signal)
+      %control = core.get %options["control"] default null
+      %control_aborted = core.call intrinsic.run_control.aborted(%control)
+      %has_abort = core.call intrinsic.or(%signal_aborted, %control_aborted)
       core.if %has_abort {
         core.set %runtime_options["abort"] = true
       }
@@ -7817,6 +7953,92 @@ module @ax.agent version "0.1" {
     }
   }
 
+  op ax.agent.semantic @agent_executor_stage_forward {
+    attr core_kind = "func"
+    attr emit_module = "agent"
+    attr private = true
+    type signature = "(json, json, json, json, json) -> json throws"
+    body @entry(%state: json, %stage: json, %client: json, %values: json, %options: json) {
+      %control = core.get %options["control"] default null
+      %aborted = core.call intrinsic.run_control.aborted(%control)
+      core.if %aborted {
+        core.raise "Agent aborted before starting the next stage"
+      }
+      %model = core.get %options["model"] default null
+      %features = core.call intrinsic.ai.client_features(%client, %model)
+      %selected = core.call @agent_native_callables(%state, %features, %options)
+      %names = core.list
+      core.for %tool in %selected {
+        %qualified = core.get %tool["qualified_name"]
+        core.append %names, %qualified
+      }
+      core.set %state["native_tool_names"] = %names
+      %count = core.call intrinsic.len(%selected)
+      %has_native = core.call intrinsic.gt(%count, 0)
+      core.if %has_native {
+        %output = core.call intrinsic.agent.native_stage_forward(%stage, %state, %client, %values, %options, %selected)
+        core.return %output
+      }
+      %output = core.call @agent_controlled_stage_forward(%stage, %client, %values, %options)
+      core.return %output
+    }
+  }
+
+  op ax.agent.semantic @agent_record_native_calls {
+    attr core_kind = "func"
+    attr emit_module = "agent"
+    attr private = true
+    type signature = "(json, json, json, json) -> void throws"
+    body @entry(%state: json, %selected: json, %traces: json, %options: json) {
+      %empty_map = core.map
+      core.for %trace in %traces {
+        %name = core.get %trace["name"] default ""
+        core.for %tool in %selected {
+          %native_name = core.get %tool["native_name"]
+          %matches = core.call intrinsic.eq(%name, %native_name)
+          core.if %matches {
+            %qualified = core.get %tool["qualified_name"]
+            %request = core.map
+            %id = core.get %trace["id"] default null
+            %args = core.get %trace["args"] default %empty_map
+            core.set %request["qualified_name"] = %qualified
+            core.set %request["call_id"] = %id
+            core.set %request["args"] = %args
+            %status = core.get %trace["status"] default "ok"
+            %value = core.get %trace["result"] default null
+            %result = core.map
+            core.set %result["status"] = %status
+            %ok = core.call intrinsic.eq(%status, "ok")
+            core.if %ok {
+              core.set %result["value"] = %value
+            } else {
+              core.set %result["error"] = %value
+            }
+            core.call @agent_record_callable_result(%state, %request, %result, %options)
+          }
+        }
+      }
+      core.return
+    }
+  }
+
+  op ax.agent.semantic @agent_controlled_stage_forward {
+    attr core_kind = "func"
+    attr emit_module = "agent"
+    attr private = true
+    type signature = "(json, json, json, json) -> json throws"
+    body @entry(%stage: json, %client: json, %values: json, %options: json) {
+      %control = core.get %options["control"] default null
+      %aborted = core.call intrinsic.run_control.aborted(%control)
+      core.if %aborted {
+        %error = core.call intrinsic.error.runtime("Agent aborted before starting the next stage")
+        core.raise %error
+      }
+      %output = core.call intrinsic.agent.stage_forward(%stage, %client, %values, %options)
+      core.return %output
+    }
+  }
+
   op ax.agent.semantic @agent_stage_options {
     attr core_kind = "func"
     attr emit_module = "agent"
@@ -7842,6 +8064,17 @@ module @ax.agent version "0.1" {
         %stage_options = core.get %base_options["responder_options"] default %responder_opts_camel
       }
       %out = core.call intrinsic.map.merge(%stage_options, %forward_options)
+      %base_control = core.get %base_options["control"] default null
+      %controller = core.get %forward_options["control"] default %base_control
+      %controlled = core.call intrinsic.is_not_none(%controller)
+      core.if %controlled {
+        %parent_path_snake = core.get %forward_options["execution_path"] default "root"
+        %parent_path = core.get %forward_options["executionPath"] default %parent_path_snake
+        %stage_path = core.call intrinsic.string.format("{}/{}", %parent_path, %stage)
+        core.set %out["control"] = %controller
+        core.set %out["execution_path"] = %stage_path
+        core.set %out["executionPath"] = %stage_path
+      }
       %top_cache_snake = core.get %base_options["context_cache"] default null
       %top_cache = core.get %base_options["contextCache"] default %top_cache_snake
       %stage_cache_snake = core.get %stage_options["context_cache"] default null
@@ -8545,8 +8778,8 @@ module @ax.agent version "0.1" {
     attr core_kind = "func"
     attr emit_module = "agent"
     attr private = true
-    type signature = "(json, json, json) -> string throws"
-    body @entry(%sub_gen: json, %client: json, %item: json) {
+    type signature = "(json, json, json, json) -> string throws"
+    body @entry(%sub_gen: json, %client: json, %item: json, %options: json) {
       %empty_map = core.map
       %query = core.let ""
       %context = core.let %empty_map
@@ -8560,8 +8793,13 @@ module @ax.agent version "0.1" {
       %values = core.map
       core.set %values["task"] = %query
       core.set %values["context"] = %context
-      %sub_options = core.map
-      %output = core.call intrinsic.agent.stage_forward(%sub_gen, %client, %values, %sub_options)
+      %sub_options = core.call intrinsic.map.merge(%empty_map, %options)
+      %parent_snake = core.get %options["execution_path"] default "root"
+      %parent = core.get %options["executionPath"] default %parent_snake
+      %path = core.call intrinsic.string.format("{}/llmQuery", %parent)
+      core.set %sub_options["execution_path"] = %path
+      core.set %sub_options["executionPath"] = %path
+      %output = core.call @agent_controlled_stage_forward(%sub_gen, %client, %values, %sub_options)
       %answer = core.get %output["answer"] default ""
       core.return %answer
     }
@@ -8571,18 +8809,18 @@ module @ax.agent version "0.1" {
     attr core_kind = "func"
     attr emit_module = "agent"
     attr private = true
-    type signature = "(json, json, json) -> json throws"
-    body @entry(%sub_gen: json, %client: json, %params: json) {
+    type signature = "(json, json, json, json) -> json throws"
+    body @entry(%sub_gen: json, %client: json, %params: json, %options: json) {
       %params_is_list = core.type_is %params type "list"
       core.if %params_is_list {
         %answers = core.list
         core.for %item in %params {
-          %one = core.call @agent_run_llm_query_one(%sub_gen, %client, %item)
+          %one = core.call @agent_run_llm_query_one(%sub_gen, %client, %item, %options)
           core.append %answers, %one
         }
         core.return %answers
       }
-      %single = core.call @agent_run_llm_query_one(%sub_gen, %client, %params)
+      %single = core.call @agent_run_llm_query_one(%sub_gen, %client, %params, %options)
       core.return %single
     }
   }
@@ -8595,6 +8833,7 @@ module @ax.agent version "0.1" {
     body @entry(%state: json, %distiller: json, %executor: json, %responder: json, %client: json, %values: json, %options: json) {
       %empty_list = core.list
       %empty_map = core.map
+      core.set %state["native_tool_names"] = %empty_list
       %loaded_memories = core.list
       %used_memories = core.list
       %used_skills = core.list
@@ -8683,7 +8922,7 @@ module @ax.agent version "0.1" {
           core.set %distiller_request_event["values"] = %distiller_values
           core.set %distiller_request_event["component_id"] = "agent.stage.distiller"
           core.call @agent_record_trace_event(%state, "stage_request", %distiller_request_event)
-          %distiller_output = core.call intrinsic.agent.stage_forward(%distiller, %client, %distiller_values, %distiller_options)
+          %distiller_output = core.call @agent_controlled_stage_forward(%distiller, %client, %distiller_values, %distiller_options)
           %distiller_response_event = core.map
           core.set %distiller_response_event["stage"] = "distiller"
           core.set %distiller_response_event["step"] = %distiller_step
@@ -8731,7 +8970,7 @@ module @ax.agent version "0.1" {
         core.set %distiller_request_event["values"] = %distiller_values
         core.set %distiller_request_event["component_id"] = "agent.stage.distiller"
         core.call @agent_record_trace_event(%state, "stage_request", %distiller_request_event)
-        %distiller_output = core.call intrinsic.agent.stage_forward(%distiller, %client, %distiller_values, %distiller_options)
+        %distiller_output = core.call @agent_controlled_stage_forward(%distiller, %client, %distiller_values, %distiller_options)
         %distiller_response_event = core.map
         core.set %distiller_response_event["stage"] = "distiller"
         core.set %distiller_response_event["output"] = %distiller_output
@@ -8818,7 +9057,7 @@ module @ax.agent version "0.1" {
           core.set %executor_request_event["values"] = %executor_values
           core.set %executor_request_event["component_id"] = "agent.stage.executor"
           core.call @agent_record_trace_event(%state, "stage_request", %executor_request_event)
-          %executor_output = core.call intrinsic.agent.stage_forward(%executor, %client, %executor_values, %executor_options)
+          %executor_output = core.call @agent_executor_stage_forward(%state, %executor, %client, %executor_values, %executor_options)
           %executor_response_event = core.map
           core.set %executor_response_event["stage"] = "executor"
           core.set %executor_response_event["step"] = %step
@@ -8864,7 +9103,7 @@ module @ax.agent version "0.1" {
         core.set %executor_request_event["values"] = %executor_values
         core.set %executor_request_event["component_id"] = "agent.stage.executor"
         core.call @agent_record_trace_event(%state, "stage_request", %executor_request_event)
-        %executor_output = core.call intrinsic.agent.stage_forward(%executor, %client, %executor_values, %executor_options)
+        %executor_output = core.call @agent_executor_stage_forward(%state, %executor, %client, %executor_values, %executor_options)
         %executor_response_event = core.map
         core.set %executor_response_event["stage"] = "executor"
         core.set %executor_response_event["output"] = %executor_output
@@ -8888,7 +9127,7 @@ module @ax.agent version "0.1" {
       core.set %responder_request_event["values"] = %responder_values
       core.set %responder_request_event["component_id"] = "agent.stage.responder"
       core.call @agent_record_trace_event(%state, "stage_request", %responder_request_event)
-      %responder_output = core.call intrinsic.agent.stage_forward(%responder, %client, %responder_values, %responder_options)
+      %responder_output = core.call @agent_controlled_stage_forward(%responder, %client, %responder_values, %responder_options)
       %citation_retry_options = core.map
       %citation_retry_options = core.call intrinsic.map.merge(%citation_retry_options, %responder_options)
       %citations_valid = core.call @agent_validate_citations(%state, %responder_output)
@@ -8897,7 +9136,7 @@ module @ax.agent version "0.1" {
         %invalid_citations_output = core.call intrinsic.json.stringify(%responder_output)
         %citation_retry_feedback = core.call intrinsic.string.format("The previous responder output failed evidence-citation validation: {}. Cite only exact top-level evidence keys or permitted nested record ids present in contextData.evidence, or leave citations empty. Return only corrected JSON.", %invalid_citations_output)
         core.set %citation_retry_options["validation_feedback"] = %citation_retry_feedback
-        %responder_output = core.call intrinsic.agent.stage_forward(%responder, %client, %responder_values, %citation_retry_options)
+        %responder_output = core.call @agent_controlled_stage_forward(%responder, %client, %responder_values, %citation_retry_options)
         %citations_valid = core.call @agent_validate_citations(%state, %responder_output)
       }
       %citations_invalid = core.call intrinsic.not(%citations_valid)
@@ -8905,7 +9144,7 @@ module @ax.agent version "0.1" {
         %invalid_citations_output = core.call intrinsic.json.stringify(%responder_output)
         %citation_retry_feedback = core.call intrinsic.string.format("The previous responder output failed evidence-citation validation: {}. Cite only exact top-level evidence keys or permitted nested record ids present in contextData.evidence, or leave citations empty. Return only corrected JSON.", %invalid_citations_output)
         core.set %citation_retry_options["validation_feedback"] = %citation_retry_feedback
-        %responder_output = core.call intrinsic.agent.stage_forward(%responder, %client, %responder_values, %citation_retry_options)
+        %responder_output = core.call @agent_controlled_stage_forward(%responder, %client, %responder_values, %citation_retry_options)
         %citations_valid = core.call @agent_validate_citations(%state, %responder_output)
       }
       %citations_invalid = core.call intrinsic.not(%citations_valid)

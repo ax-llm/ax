@@ -13,7 +13,7 @@
       "type": "skill-md",
       "description": "This skill helps an LLM generate correct AI provider setup and configuration code using @ax-llm/ax. Use when the user asks about ai(), providers, models, routing, adaptive balancing, presets, embeddings, batch audio with ai.transcribe() or ai.speak(), extended thinking, context caching, or mentions OpenAI/Anthropic/Google/Azure/DeepSeek/Meta/Mistral/Cohere/Reka/Grok with @ax-llm/ax.",
       "url": "ax-ai/SKILL.md",
-      "digest": "sha256:cde721d905c3e3ca099e684da9667582a74738a24f50a375b199bb54fb9cc7d0"
+      "digest": "sha256:4ce6bbf6400da1cebdf7071e7cce85f107d27a5dd7a04e2c17e3e2e97dab8168"
     },
     {
       "name": "ax-audio",
@@ -34,7 +34,7 @@
       "type": "skill-md",
       "description": "This skill helps an LLM generate correct AxGen code using @ax-llm/ax. Use when the user asks about ax(), AxGen, generators, forward(), streamingForward(), validation, assertions, streaming assertions, field processors, step hooks, self-tuning, or structured outputs. For MCP clients, transports, prompts, resources, tasks, subscriptions, or authentication use ax-mcp alongside this skill.",
       "url": "ax-gen/SKILL.md",
-      "digest": "sha256:7dc0c958c8151c4d0c2385faa5aa5575f83f51982940902a354a802208f67ae8"
+      "digest": "sha256:94a185ab4e540d8a48cfdab9dbfc0e9360de97c5c52ce4e620c43c4563dc2f6d"
     },
     {
       "name": "ax-mcp",
@@ -48,14 +48,14 @@
       "type": "skill-md",
       "description": "This skill helps an LLM generate correct AxFlow workflow code using @ax-llm/ax. Use when the user asks about flow(), AxFlow, workflow orchestration, parallel execution, DAG workflows, conditional routing, map/reduce patterns, or multi-node AI pipelines.",
       "url": "ax-flow/SKILL.md",
-      "digest": "sha256:4a0aaacae225d84d6cc590c05f898c3ca64d9d9530557a69eab593d1e96b099c"
+      "digest": "sha256:a3e8ac3c579254d57babe142af979c8a831092bc9594eb777d09a933fcca3fda"
     },
     {
       "name": "ax-agent",
       "type": "skill-md",
       "description": "This skill helps an LLM generate correct core AxAgent code using @ax-llm/ax. Use when the user asks about agent(), child agents, namespaced functions, discovery mode, clarification, bubbleErrors, host-side final/clarification protocol, or ordinary agent runtime behavior. For MCP clients, native runtime modules, subscriptions, tasks, or authentication use ax-mcp alongside this skill. For RLM/code-runtime work use ax-agent-rlm; for callbacks and telemetry use ax-agent-observability; for recall/memory/skill loading use ax-agent-memory-skills; for agent.optimize(...) use ax-agent-optimize.",
       "url": "ax-agent/SKILL.md",
-      "digest": "sha256:32120167e5c6dc909c3c58f549973362addb0219b35ac897c9e740f442f90fa7"
+      "digest": "sha256:8835c2e42edae6e8e71b4fadb4f6494220d3c48a506bf27e856b5d679de0a6bf"
     },
     {
       "name": "ax-agent-rlm",

@@ -241,7 +241,7 @@ public final class AxGen implements AxProgram {
       String name = updates.containsKey(programId + "::fn:" + tool.name + ":name") ? String.valueOf(updates.get(programId + "::fn:" + tool.name + ":name")).trim() : tool.name;
       if (!name.matches("^[a-z][a-z0-9_]{0,31}$")) throw new RuntimeException("invalid optimized function name: " + name);
       for (Tool other : functions) if (other != tool && other.name.equals(name)) throw new RuntimeException("duplicate optimized function name: " + name);
-      if (!desc.equals(tool.description) || !name.equals(tool.name)) functions.set(i, new Tool(name, desc, tool.args, tool.returns, tool.handler));
+      if (!desc.equals(tool.description) || !name.equals(tool.name)) functions.set(i, new Tool(name, desc, tool.args, tool.returns, tool.handler,tool.execution,tool.contextHandler));
     }
     return this;
   }
@@ -367,9 +367,11 @@ public final class AxGen implements AxProgram {
   }
 
   private Map<String, Object> forwardUnscoped(AiClient client, Map<String, Object> values, Map<String, Object> forwardOptions) {
+    Map<String,Object> runOptions=new LinkedHashMap<>(options);
+    if(forwardOptions!=null) runOptions.putAll(forwardOptions);
     AxExecutionContext callContext = AxExecutionContext.resolve(forwardOptions, executionContext);
     if (callContext != executionContext) {
-      Map<String, Object> callOptions = new LinkedHashMap<>(options);
+      Map<String, Object> callOptions = new LinkedHashMap<>(runOptions);
       callOptions.put("functions", baseFunctions);
       if (callContext == null) {
         callOptions.remove("mcp");
@@ -382,6 +384,19 @@ public final class AxGen implements AxProgram {
       functionCallTraces.addAll(call.functionCallTraces);
       traces.addAll(call.traces);
       return result;
+    }
+    if(!(client instanceof SessionRun)) {
+      boolean controlled=runOptions.get("control") instanceof AxRunControl;
+      AxChatSession.Provider opener=null;
+      if(client instanceof AxChatSession.Provider provider && Core.truthy(Core.chat_session_mode_enabled(runOptions))) {
+        if(Core.truthy(Core.get(Core.aiClientFeatures(client,runOptions.get("model")),"asyncTools",false)))opener=provider;
+      }
+      if(controlled || ((opener!=null || (client instanceof ChatRunSelector && Core.truthy(Core.chat_session_mode_enabled(runOptions)))) && functions.stream().anyMatch(tool->"background".equals(tool.execution)))) {
+        SessionRun session=new SessionRun(this,client,opener,runOptions);
+        if(opener!=null || client instanceof ChatRunSelector)runOptions.put("infraRetries",0);
+        try {var output=forwardUnscoped(session,values,runOptions);session.finish(null);return output;}
+        catch(RuntimeException|Error error){session.finish(error);throw error;}
+      }
     }
     return Core.asMap(Core._forward_impl(this, client, values, forwardOptions == null ? java.util.Map.of() : forwardOptions));
   }

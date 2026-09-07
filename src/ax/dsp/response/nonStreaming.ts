@@ -40,6 +40,8 @@ export async function* processResponse<OUT extends AxGenOut>({
   onFunctionCall,
   mcpExecutionContext,
   eventContext,
+  control,
+  executionPath,
 }: ProcessResponseBaseArgs): AsyncGenDeltaOut<OUT> {
   const results = res.results ?? [];
   const treatAllFieldsOptional = signatureToolCallingManager !== undefined;
@@ -130,6 +132,8 @@ export async function* processResponse<OUT extends AxGenOut>({
             onFunctionCall,
             mcpExecutionContext,
             eventContext,
+            control,
+            executionPath,
           });
         } catch (e) {
           mem.addRequest(

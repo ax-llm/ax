@@ -80,7 +80,9 @@ module @ax.provider version "0.1" {
       %is_gpt_56_base = core.call intrinsic.eq(%model, "gpt-5.6")
       %is_gpt_56_tier = core.call intrinsic.string.starts_with(%model, "gpt-5.6-")
       %is_gpt_56 = core.call intrinsic.or(%is_gpt_56_base, %is_gpt_56_tier)
-      %cache_provider_and_model = core.call intrinsic.and(%prompt_caching, %is_gpt_56)
+      %is_astra = core.call intrinsic.string.starts_with(%model, "gpt-6-astra")
+      %cache_model = core.call intrinsic.or(%is_gpt_56, %is_astra)
+      %cache_provider_and_model = core.call intrinsic.and(%prompt_caching, %cache_model)
       %cache_enabled = core.call intrinsic.and(%cache_provider_and_model, %cache_requested)
       %message_index = core.const 0
       %marker_count = core.const 0
@@ -230,10 +232,11 @@ module @ax.provider version "0.1" {
 
   op ax.provider.semantic @openai_apply_model_config_impl {
     attr core_kind = "func"
+    attr effect = "throws"
     attr emit_module = "ai"
     attr private = true
     tag "openai-model-config-core-helper"
-    type signature = "(json, json) -> void"
+    type signature = "(json, json) -> void throws"
     body @entry(%payload: json, %model_config: json) {
       core.call @openai_copy_config_key_impl(%payload, %model_config, "max_tokens", "max_completion_tokens")
       core.call @openai_copy_config_key_impl(%payload, %model_config, "maxTokens", "max_completion_tokens")
@@ -274,21 +277,38 @@ module @ax.provider version "0.1" {
         core.set %stream_options["include_usage"] = true
         core.set %payload["stream_options"] = %stream_options
       }
+      %configured_model = core.get %payload["model"] default ""
+      %astra = core.call intrinsic.string.starts_with(%configured_model, "gpt-6-astra")
+      core.if %astra {
+        core.call intrinsic.map.delete(%payload, "temperature")
+        core.call intrinsic.map.delete(%payload, "top_p")
+        core.call intrinsic.map.delete(%payload, "presence_penalty")
+        core.call intrinsic.map.delete(%payload, "frequency_penalty")
+        core.call intrinsic.map.delete(%payload, "logprobs")
+        core.call intrinsic.map.delete(%payload, "top_logprobs")
+        core.call intrinsic.map.delete(%payload, "n")
+      }
       core.return
     }
   }
 
   op ax.provider.semantic @openai_reasoning_effort {
     attr core_kind = "func"
+    attr effect = "throws"
     attr emit_module = "ai"
     tag "openai-reasoning-effort"
-    type signature = "(model:string, budget:json) -> json"
+    type signature = "(model:string, budget:json) -> json throws"
     body @entry(%model: string, %budget: json) {
       %is_gpt56_alias = core.call intrinsic.eq(%model, "gpt-5.6")
       %is_gpt56_suffix = core.call intrinsic.string.starts_with(%model, "gpt-5.6-")
       %is_gpt56 = core.call intrinsic.or(%is_gpt56_alias, %is_gpt56_suffix)
+      %is_astra = core.call intrinsic.string.starts_with(%model, "gpt-6-astra")
+      %modern = core.call intrinsic.or(%is_gpt56, %is_astra)
       %is_none = core.call intrinsic.eq(%budget, "none")
       core.if %is_none {
+        core.if %is_astra {
+          core.raise "GPT-6 Astra does not support disabling reasoning; use low or higher"
+        }
         core.if %is_gpt56 {
           core.return "none"
         }
@@ -299,7 +319,7 @@ module @ax.provider version "0.1" {
       %is_low = core.call intrinsic.eq(%budget, "low")
       %is_medium = core.call intrinsic.eq(%budget, "medium")
       %is_highest = core.call intrinsic.eq(%budget, "highest")
-      core.if %is_gpt56 {
+      core.if %modern {
         core.if %is_minimal {
           core.return "low"
         }
@@ -329,9 +349,10 @@ module @ax.provider version "0.1" {
 
   op ax.provider.semantic @openai_chat_reasoning_effort {
     attr core_kind = "func"
+    attr effect = "throws"
     attr emit_module = "ai"
     tag "openai-chat-reasoning-effort"
-    type signature = "(model:string, budget:json) -> json"
+    type signature = "(model:string, budget:json) -> json throws"
     body @entry(%model: string, %budget: json) {
       %effort = core.call @openai_reasoning_effort(%model, %budget)
       %is_max = core.call intrinsic.eq(%effort, "max")
@@ -3634,6 +3655,7 @@ module @ax.provider version "0.1" {
     tag "provider-profile-model-features"
     type signature = "(profile:string, model:string, options?:json) -> json"
     body @entry(%profile: string, %model: string, %options: json) {
+      %profile = core.call @provider_chat_profile(%profile, %model)
       %descriptor = core.call @provider_descriptor(%profile)
       %empty_map = core.map
       %base_features = core.get %descriptor["features"] default %empty_map
@@ -3758,6 +3780,30 @@ module @ax.provider version "0.1" {
             core.set %features["service_tiers"] = %service_tiers
           }
         }
+      }
+      %session_profile = core.call @provider_chat_profile(%profile, %model)
+      %responses = core.call intrinsic.eq(%session_profile, "openai-responses")
+      %astra_model = core.call intrinsic.string.starts_with(%model, "gpt-6-astra")
+      %astra_cache = core.call intrinsic.and(%responses, %astra_model)
+      core.if %astra_cache {
+        core.set %features["asyncTools"] = true
+        core.set %features["reasoningUpdates"] = true
+        %socket_snake = core.get %options["web_socket_transport"] default null
+        %socket = core.get %options["webSocketTransport"] default %socket_snake
+        %factory_snake = core.get %options["web_socket_factory"] default null
+        %factory = core.get %options["webSocketFactory"] default %factory_snake
+        %has_socket = core.call intrinsic.is_not_none(%socket)
+        %has_factory = core.call intrinsic.is_not_none(%factory)
+        %hook_present = core.call intrinsic.or(%has_socket, %has_factory)
+        %host_available = core.get %options["session_web_socket_available"] default false
+        %can_steer = core.call intrinsic.or(%hook_present, %host_available)
+        core.set %features["nativeSteering"] = %can_steer
+        %cache_features = core.map
+        %cache_types = core.list
+        core.append %cache_types, "ephemeral"
+        core.set %cache_features["supported"] = true
+        core.set %cache_features["types"] = %cache_types
+        core.set %features["caching"] = %cache_features
       }
       core.return %features
     }
@@ -4166,13 +4212,13 @@ module @ax.provider version "0.1" {
     tag "provider-operation-dispatch"
     type signature = "(profile:string, AxChatRequest, options?:json) -> json throws"
     body @entry(%profile: string, %request: AxChatRequest, %options: json) {
-      %provider_id = core.call @provider_normalize_profile(%profile)
+      %model = core.get %request["model"] default ""
+      %provider_id = core.call @provider_chat_profile(%profile, %model)
       %descriptor = core.call @provider_resolve_descriptor(%provider_id, %options)
       %transport = core.get %descriptor["transport"] default "openai-chat"
       %is_responses = core.call intrinsic.eq(%transport, "openai-responses")
       %is_gemini = core.call intrinsic.eq(%transport, "gemini-generate-content")
       %is_anthropic = core.call intrinsic.eq(%transport, "anthropic-messages")
-      %model = core.get %request["model"] default ""
       %reasoning_content_mode = core.call @provider_reasoning_replay_field(%provider_id, %model)
       %reasoning_details_mode = core.call @provider_reasoning_details_replay_field(%provider_id, %model)
       %payload = core.map
@@ -4182,7 +4228,7 @@ module @ax.provider version "0.1" {
         core.if %is_meta {
           %responses_payload = core.call @meta_prepare_responses_request(%responses_payload, %request, %options)
         }
-        %payload = core.let %responses_payload
+        %payload = core.call @openai_responses_apply_astra_caching(%responses_payload, %request, %options)
       } else {
         core.if %is_gemini {
           %is_vertex = core.get %descriptor["vertex"] default false
@@ -4702,7 +4748,7 @@ module @ax.provider version "0.1" {
     tag "provider-operation-dispatch"
     type signature = "(profile:string, json, string, string, context?:json) -> AxChatResponse throws"
     body @entry(%profile: string, %raw: json, %ai_name: string, %model: string, %context: json) {
-      %provider_id = core.call @provider_normalize_profile(%profile)
+      %provider_id = core.call @provider_chat_profile(%profile, %model)
       %descriptor = core.call @provider_descriptor(%provider_id)
       %transport = core.get %descriptor["transport"] default "openai-chat"
       %is_responses = core.call intrinsic.eq(%transport, "openai-responses")
@@ -4740,7 +4786,7 @@ module @ax.provider version "0.1" {
     tag "provider-operation-dispatch"
     type signature = "(profile:string, json, json, string, string, context?:json) -> AxChatResponse throws"
     body @entry(%profile: string, %raw: json, %state: json, %ai_name: string, %model: string, %context: json) {
-      %provider_id = core.call @provider_normalize_profile(%profile)
+      %provider_id = core.call @provider_chat_profile(%profile, %model)
       %descriptor = core.call @provider_descriptor(%provider_id)
       %transport = core.get %descriptor["transport"] default "openai-chat"
       %is_responses = core.call intrinsic.eq(%transport, "openai-responses")
@@ -4765,6 +4811,15 @@ module @ax.provider version "0.1" {
             %response = core.let %compatible_response
           }
         }
+      }
+      %astra = core.call intrinsic.string.starts_with(%model, "gpt-6-astra")
+      %session_capable = core.call intrinsic.and(%is_responses, %astra)
+      core.if %session_capable {
+        %empty_session_state = core.map
+        %session_state = core.get %state["session_wire"] default %empty_session_state
+        %session_events = core.call @openai_responses_session_event(%raw, %session_state, %model)
+        core.set %state["session_wire"] = %session_state
+        core.set %response["session_events"] = %session_events
       }
       %response = core.call @provider_normalize_image_outputs(%response, %context, %model)
       core.return %response
@@ -5432,23 +5487,37 @@ module @ax.provider version "0.1" {
                 core.append %input, %commentary_item
                 %has_structured_thought = core.let true
               }
-              %encrypted_snake = core.get %thought_block["encrypted_content"]
+              %legacy_encrypted = core.get %thought_block["encrypted"] default false
+              %legacy_cipher = core.let ""
+              %legacy_summary = core.let %block_data
+              core.if %legacy_encrypted {
+                %legacy_cipher = core.let %block_data
+                %legacy_summary = core.let ""
+              }
+              %encrypted_snake = core.get %thought_block["encrypted_content"] default %legacy_cipher
               %encrypted = core.get %thought_block["encryptedContent"] default %encrypted_snake
               %has_encrypted = core.call intrinsic.truthy(%encrypted)
               core.if %has_encrypted {
                 %reasoning_item = core.map
                 core.set %reasoning_item["type"] = "reasoning"
-                %block_id = core.get %thought_block["id"]
+                %legacy_id = core.get %thought_block["signature"]
+                %block_id = core.get %thought_block["id"] default %legacy_id
                 %has_block_id = core.call intrinsic.is_not_none(%block_id)
                 core.if %has_block_id {
                   core.set %reasoning_item["id"] = %block_id
                 }
-                %summary_text = core.get %thought_block["summary"] default %block_data
+                %summary_text = core.get %thought_block["summary"] default %legacy_summary
                 %summary_part = core.map
                 core.set %summary_part["type"] = "summary_text"
                 core.set %summary_part["text"] = %summary_text
                 %summary = core.list
-                core.append %summary, %summary_part
+                %has_summary_text = core.call intrinsic.truthy(%summary_text)
+                %astra_summary = core.call intrinsic.string.starts_with(%model, "gpt-6-astra")
+                %retain_empty_summary = core.call intrinsic.not(%astra_summary)
+                %include_summary = core.call intrinsic.or(%has_summary_text, %retain_empty_summary)
+                core.if %include_summary {
+                  core.append %summary, %summary_part
+                }
                 core.set %reasoning_item["summary"] = %summary
                 core.set %reasoning_item["encrypted_content"] = %encrypted
                 core.append %input, %reasoning_item
@@ -5528,6 +5597,13 @@ module @ax.provider version "0.1" {
         %tools = core.list
         core.for %fn in %functions {
           %tool = core.call @openai_responses_tool_spec_impl(%fn)
+          %session_enabled = core.get %request["session_enabled"] default false
+          %execution = core.get %fn["execution"] default "blocking"
+          %background = core.call intrinsic.eq(%execution, "background")
+          %async_enabled = core.call intrinsic.and(%session_enabled, %background)
+          core.if %async_enabled {
+            core.set %tool["async"] = true
+          }
           core.append %tools, %tool
         }
         core.set %payload["tools"] = %tools
@@ -5547,7 +5623,17 @@ module @ax.provider version "0.1" {
         core.if %is_json_schema {
           %schema = core.get %response_format["schema"]
           core.set %format["type"] = "json_schema"
-          core.set %format["json_schema"] = %schema
+          %astra_format = core.call intrinsic.string.starts_with(%model, "gpt-6-astra")
+          core.if %astra_format {
+            %schema_body = core.get %schema["schema"] default %schema
+            %schema_name = core.get %schema["name"] default "output"
+            %schema_strict = core.get %schema["strict"] default true
+            core.set %format["name"] = %schema_name
+            core.set %format["schema"] = %schema_body
+            core.set %format["strict"] = %schema_strict
+          } else {
+            core.set %format["json_schema"] = %schema
+          }
         } else {
           core.set %format["type"] = %format_type
         }
@@ -5575,16 +5661,28 @@ module @ax.provider version "0.1" {
       core.if %has_parallel {
         core.set %payload["parallel_tool_calls"] = %parallel
       }
-      core.return %payload
+      %session_input = core.get %request["session_input"]
+      %has_session_input = core.call intrinsic.is_not_none(%session_input)
+      core.if %has_session_input {
+        core.set %payload["input"] = %session_input
+        %previous_id = core.get %request["previous_response_id"]
+        core.set %payload["previous_response_id"] = %previous_id
+      }
+      core.call @openai_copy_config_key_impl(%payload, %model_config, "truncation", "truncation")
+      core.call @openai_copy_config_key_impl(%payload, %model_config, "context_management", "context_management")
+      core.call @openai_copy_config_key_impl(%payload, %model_config, "agents", "agents")
+      %validated = core.call @openai_responses_validate_session_request(%payload)
+      core.return %validated
     }
   }
 
   op ax.provider.semantic @openai_responses_apply_model_config_impl {
     attr core_kind = "func"
+    attr effect = "throws"
     attr emit_module = "ai"
     attr private = true
     tag "openai-responses-model-config-core-helper"
-    type signature = "(json, json) -> void"
+    type signature = "(json, json) -> void throws"
     body @entry(%payload: json, %model_config: json) {
       core.call @openai_copy_config_key_impl(%payload, %model_config, "maxTokens", "max_output_tokens")
       core.call @openai_copy_config_key_impl(%payload, %model_config, "max_tokens", "max_output_tokens")
@@ -5614,6 +5712,17 @@ module @ax.provider version "0.1" {
         } else {
           core.call intrinsic.map.delete(%payload, "reasoning")
         }
+      }
+      %configured_model = core.get %payload["model"] default ""
+      %astra = core.call intrinsic.string.starts_with(%configured_model, "gpt-6-astra")
+      core.if %astra {
+        core.call intrinsic.map.delete(%payload, "temperature")
+        core.call intrinsic.map.delete(%payload, "top_p")
+        core.call intrinsic.map.delete(%payload, "presence_penalty")
+        core.call intrinsic.map.delete(%payload, "frequency_penalty")
+        core.call intrinsic.map.delete(%payload, "logprobs")
+        core.call intrinsic.map.delete(%payload, "top_logprobs")
+        core.call intrinsic.map.delete(%payload, "n")
       }
       core.return
     }
@@ -5969,7 +6078,10 @@ module @ax.provider version "0.1" {
         %item_id = core.get %item["id"] default "0"
         core.set %result["id"] = %item_id
         %thought = core.call @openai_responses_reasoning_text_impl(%item)
+        %encrypted = core.get %item["encrypted_content"]
         %has_thought = core.call intrinsic.truthy(%thought)
+        %has_encrypted = core.call intrinsic.truthy(%encrypted)
+        %has_block = core.call intrinsic.or(%has_thought, %has_encrypted)
         core.if %has_thought {
           core.set %result["thought"] = %thought
         }
@@ -9210,5 +9322,391 @@ module @ax.provider version "0.1" {
     attr effect = "throws"
     tag "streaming-sse"
     type signature = "(bytes) -> stream<json> throws"
+  }
+
+  op ax.provider.semantic @provider_session_route {
+    attr core_kind = "func"
+    attr emit_module = "ai"
+    tag "src/ax/ai/session.routing.test.ts"
+    type signature = "(entry:json, request:json, options:json) -> json"
+    body @entry(%entry: json, %request: json, %options: json) {
+      %empty = core.map
+      %request = core.call intrinsic.map.merge(%request, %empty)
+      %options = core.call intrinsic.map.merge(%options, %empty)
+      %model = core.get %entry["model"]
+      %has_model = core.call intrinsic.is_not_none(%model)
+      core.if %has_model {
+        core.set %request["model"] = %model
+        core.set %options["model"] = %model
+      } else {
+        core.call intrinsic.map.delete(%request, "model")
+        core.call intrinsic.map.delete(%options, "model")
+      }
+      %out = core.map
+      core.set %out["request"] = %request
+      core.set %out["options"] = %options
+      core.return %out
+    }
+  }
+
+  op ax.provider.semantic @provider_chat_profile {
+    attr core_kind = "func"
+    attr emit_module = "ai"
+    tag "astra-automatic-responses-routing"
+    type signature = "(profile:string, model:string) -> string"
+    body @entry(%profile: string, %model: string) {
+      %normalized = core.call @provider_normalize_profile(%profile)
+      %official = core.call intrinsic.eq(%normalized, "openai")
+      %astra = core.call intrinsic.string.starts_with(%model, "gpt-6-astra")
+      %route = core.call intrinsic.and(%official, %astra)
+      core.if %route {
+        core.return "openai-responses"
+      }
+      core.return %normalized
+    }
+  }
+
+  op ax.provider.semantic @provider_chat_operation_path {
+    attr core_kind = "func"
+    attr emit_module = "ai"
+    tag "astra-automatic-responses-routing"
+    type signature = "(profile:string, model:string, operation:string, path:string) -> string"
+    body @entry(%profile: string, %model: string, %operation: string, %path: string) {
+      %resolved = core.call @provider_chat_profile(%profile, %model)
+      %normalized = core.call @provider_normalize_profile(%profile)
+      %changed = core.call intrinsic.ne(%resolved, %normalized)
+      %chat = core.call intrinsic.eq(%operation, "chat")
+      %stream = core.call intrinsic.eq(%operation, "stream_chat")
+      %chat_op = core.call intrinsic.or(%chat, %stream)
+      %route = core.call intrinsic.and(%changed, %chat_op)
+      core.if %route {
+        core.return "/responses"
+      }
+      core.return %path
+    }
+  }
+
+  op ax.provider.semantic @openai_responses_apply_astra_caching {
+    attr core_kind = "func"
+    attr emit_module = "ai"
+    tag "src/ax/ai/openai/responses_api.ts"
+    type signature = "(payload:json, request:json, options:json) -> json"
+    body @entry(%payload: json, %request: json, %options: json) {
+      %model = core.get %payload["model"] default ""
+      %astra = core.call intrinsic.string.starts_with(%model, "gpt-6-astra")
+      %other = core.call intrinsic.not(%astra)
+      core.if %other {
+        core.return %payload
+      }
+      %empty = core.list
+      %snake = core.call intrinsic.map.contains(%options, "context_cache")
+      %camel = core.call intrinsic.map.contains(%options, "contextCache")
+      %enabled = core.call intrinsic.or(%snake, %camel)
+      %prompt = core.get %request["chat_prompt"] default %empty
+      %functions = core.get %request["functions"] default %empty
+      core.for %message in %prompt {
+        %cache = core.get %message["cache"] default false
+        %enabled = core.call intrinsic.or(%enabled, %cache)
+      }
+      core.for %function in %functions {
+        %cache = core.get %function["cache"] default false
+        %enabled = core.call intrinsic.or(%enabled, %cache)
+      }
+      core.if %enabled {
+        %input = core.get %payload["input"] default %empty
+        %marked_input = core.list
+        core.for %item in %input {
+          %parts = core.get %item["content"] default %empty
+          %is_list = core.type_is %parts type "list"
+          core.if %is_list {
+            %count = core.call intrinsic.len(%parts)
+            %has_parts = core.call intrinsic.gt(%count, 0)
+            core.if %has_parts {
+              %index = core.call intrinsic.add(%count, -1)
+              %part = core.call intrinsic.list.get(%parts, %index, null)
+              %marker = core.map
+              core.set %marker["mode"] = "explicit"
+              core.set %part["prompt_cache_breakpoint"] = %marker
+              %marked_parts = core.list
+              %part_index = core.let 0
+              core.for %original_part in %parts {
+                %last_part = core.call intrinsic.eq(%part_index, %index)
+                core.if %last_part {
+                  core.append %marked_parts, %part
+                } else {
+                  core.append %marked_parts, %original_part
+                }
+                %part_index = core.call intrinsic.add(%part_index, 1)
+              }
+              core.set %item["content"] = %marked_parts
+            }
+          }
+          core.append %marked_input, %item
+        }
+        core.set %payload["input"] = %marked_input
+        %cache_options = core.map
+        core.set %cache_options["mode"] = "explicit"
+        core.set %cache_options["ttl"] = "30m"
+        core.set %payload["prompt_cache_options"] = %cache_options
+        %key_snake = core.get %options["prompt_cache_key"]
+        %key = core.get %options["promptCacheKey"] default %key_snake
+        %session_snake = core.get %options["session_id"]
+        %session = core.get %options["sessionId"] default %session_snake
+        %resolved_key = core.call intrinsic.coalesce(%key, %session)
+        %has_key = core.call intrinsic.is_not_none(%resolved_key)
+        core.if %has_key {
+          core.set %payload["prompt_cache_key"] = %resolved_key
+        }
+      }
+      core.return %payload
+    }
+  }
+  op ax.provider.semantic @openai_responses_transport_cursor {
+    attr core_kind = "func"
+    attr emit_module = "ai"
+    type signature = "(state:json, event:json) -> json"
+    body @entry(%state: json, %event: json) {
+      %empty = core.map
+      %seen = core.get %state["seen"] default %empty
+      %response = core.get %event["response"] default %empty
+      %id = core.get %response["id"] default null
+      %kind = core.get %event["type"] default ""
+      %created = core.call intrinsic.eq(%kind, "response.created")
+      core.if %created {
+        %known = core.call intrinsic.map.contains(%seen, %id)
+        core.if %known {
+        } else {
+          core.set %seen[%id] = true
+          core.set %state["active_id"] = %id
+        }
+      }
+      %terminals = core.list
+      core.append %terminals, "response.completed"
+      core.append %terminals, "response.incomplete"
+      core.append %terminals, "response.failed"
+      core.append %terminals, "response.cancelled"
+      %terminal = core.call intrinsic.contains(%terminals, %kind)
+      core.if %terminal {
+        core.set %seen[%id] = true
+        %active = core.get %state["active_id"] default null
+        %same = core.call intrinsic.eq(%active, %id)
+        core.if %same {
+          core.call intrinsic.map.delete(%state, "active_id")
+        }
+      }
+      core.set %state["seen"] = %seen
+      core.return %state
+    }
+  }
+  op ax.provider.semantic @openai_responses_session_event {
+    attr core_kind = "func"
+    attr effect = "throws"
+    attr emit_module = "ai"
+    tag "src/ax/ai/openai/chat_session.ts"
+    type signature = "(event:json, state:json, model:string) -> list<json> throws"
+    body @entry(%event: json, %state: json, %model: string) {
+      %events = core.list
+      %empty_map = core.map
+      %kind = core.get %event["type"] default ""
+      %response = core.get %event["response"] default %empty_map
+      %created = core.call intrinsic.eq(%kind, "response.created")
+      core.if %created {
+        %id = core.get %response["id"]
+        core.set %state["response_id"] = %id
+      }
+      %response_id = core.get %state["response_id"]
+      %done = core.call intrinsic.eq(%kind, "response.output_item.done")
+      core.if %done {
+        %item = core.get %event["item"]
+        %item_type = core.get %item["type"]
+        %is_function = core.call intrinsic.eq(%item_type, "function_call")
+        core.if %is_function {
+          %id = core.get %item["call_id"]
+          %seen = core.get %state["seen_calls"] default %empty_map
+          %duplicate = core.call intrinsic.map.contains(%seen, %id)
+          %new_event = core.call intrinsic.not(%duplicate)
+          core.if %new_event {
+            %call = core.call @openai_responses_function_call_impl(%item)
+            %notification = core.map
+            core.set %notification["type"] = "tool.call"
+            core.set %notification["response_id"] = %response_id
+            core.set %notification["call"] = %call
+            core.append %events, %notification
+            core.set %seen[%id] = true
+            core.set %state["seen_calls"] = %seen
+          }
+        }
+      }
+      %completed = core.call intrinsic.eq(%kind, "response.completed")
+      %incomplete = core.call intrinsic.eq(%kind, "response.incomplete")
+      %details = core.get %response["incomplete_details"] default %empty_map
+      %reason = core.get %details["reason"]
+      %steered = core.call intrinsic.eq(%reason, "steered")
+      %steered_end = core.call intrinsic.and(%incomplete, %steered)
+      %boundary = core.call intrinsic.or(%completed, %steered_end)
+      core.if %boundary {
+        %id = core.get %response["id"]
+        core.set %state["response_id"] = %id
+        %seen = core.get %state["seen_responses"] default %empty_map
+        %duplicate = core.call intrinsic.map.contains(%seen, %id)
+        %new_event = core.call intrinsic.not(%duplicate)
+        core.if %new_event {
+          %normalized = core.call @openai_responses_normalize_chat_response(%response, "openai-responses", %model)
+          %notification = core.map
+          core.set %notification["type"] = "response.completed"
+          core.set %notification["response_id"] = %id
+          core.set %notification["response"] = %normalized
+          core.append %events, %notification
+          core.set %seen[%id] = true
+          core.set %state["seen_responses"] = %seen
+        }
+        core.return %events
+      }
+      %failed = core.call intrinsic.eq(%kind, "response.failed")
+      %error = core.call intrinsic.eq(%kind, "error")
+      %failure = core.call intrinsic.or(%failed, %error)
+      %failure = core.call intrinsic.or(%failure, %incomplete)
+      core.if %failure {
+        %message = core.call intrinsic.json.stringify(%event)
+        %message = core.call intrinsic.string.format("Responses session failed: {}", %message)
+        %session_error = core.call intrinsic.error.runtime(%message)
+        core.raise %session_error
+      }
+      %accepted = core.call intrinsic.eq(%kind, "response.steer.accepted")
+      %pending = core.call intrinsic.eq(%kind, "response.steer.pending")
+      %rejected = core.call intrinsic.eq(%kind, "response.steer.failed")
+      %steering = core.call intrinsic.or(%accepted, %pending)
+      %steering = core.call intrinsic.or(%steering, %rejected)
+      core.if %steering {
+        %steer = core.get %event["steer"] default %empty_map
+        %sequence = core.get %event["sequence_number"]
+        %id = core.get %steer["id"] default %sequence
+        %empty_list = core.list
+        %required = core.get %event["required_input"] default %empty_list
+        %required_key = core.call intrinsic.json.stringify(%required)
+        %key = core.call intrinsic.string.format("{}:{}:{}", %kind, %id, %required_key)
+        %seen = core.get %state["seen_steering"] default %empty_map
+        %duplicate = core.call intrinsic.map.contains(%seen, %key)
+        core.if %duplicate {
+          core.return %events
+        }
+        core.set %seen[%key] = true
+        core.set %state["seen_steering"] = %seen
+        %notification = core.map
+        core.set %notification["type"] = "steering"
+        core.set %notification["steer_id"] = %id
+        %parent = core.get %steer["previous_response_id"]
+        core.set %notification["response_id"] = %parent
+        core.set %notification["status"] = "accepted"
+        core.if %pending {
+          core.set %notification["status"] = "pending"
+          %ids = core.list
+          core.for %input in %required {
+            %call_id = core.get %input["call_id"]
+            %has_id = core.call intrinsic.truthy(%call_id)
+            core.if %has_id {
+              core.append %ids, %call_id
+            }
+          }
+          core.set %notification["required_call_ids"] = %ids
+        }
+        core.if %rejected {
+          core.set %notification["status"] = "failed"
+          %error_object = core.get %event["error"] default %empty_map
+          %message = core.get %error_object["message"]
+          core.set %notification["error"] = %message
+        }
+        core.append %events, %notification
+      }
+      %text = core.call intrinsic.eq(%kind, "response.output_text.delta")
+      core.if %text {
+        %normalized = core.call @openai_responses_normalize_stream_delta(%event, %state, "openai-responses", %model)
+        %notification = core.map
+        core.set %notification["type"] = "response"
+        core.set %notification["response_id"] = %response_id
+        core.set %notification["response"] = %normalized
+        core.append %events, %notification
+      }
+      core.return %events
+    }
+  }
+  op ax.provider.semantic @openai_responses_validate_session_request {
+    attr core_kind = "func"
+    attr effect = "throws"
+    attr emit_module = "ai"
+    tag "src/ax/ai/openai/responses_client.ts"
+    type signature = "(request:json) -> json throws"
+    body @entry(%request: json) {
+      %model = core.get %request["model"] default ""
+      %astra = core.call intrinsic.string.starts_with(%model, "gpt-6-astra")
+      %empty = core.map
+      %reasoning = core.get %request["reasoning"] default %empty
+      %effort = core.get %reasoning["effort"]
+      %has_effort = core.call intrinsic.is_not_none(%effort)
+      %validate_effort = core.call intrinsic.and(%astra, %has_effort)
+      core.if %validate_effort {
+        core.call @openai_responses_validate_astra_effort(%effort)
+      }
+      %empty_input = core.list
+      %input = core.get %request["input"] default %empty_input
+      %is_list = core.type_is %input type "list"
+      core.if %is_list {
+        %previous_update = core.let false
+        core.for %item in %input {
+          %type = core.get %item["type"]
+          %update = core.call intrinsic.eq(%type, "configuration_update")
+          core.if %update {
+            core.if %previous_update {
+              core.raise "Adjacent configuration_update items are not supported"
+            }
+            %truncation = core.get %request["truncation"]
+            %automatic_truncation = core.call intrinsic.eq(%truncation, "auto")
+            %management = core.get %request["context_management"]
+            %compaction = core.call intrinsic.truthy(%management)
+            %agents_value = core.get %request["agents"]
+            %agents = core.call intrinsic.truthy(%agents_value)
+            %mode = core.get %reasoning["mode"]
+            %pro = core.call intrinsic.eq(%mode, "pro")
+            %wrong_model = core.call intrinsic.not(%astra)
+            %incompatible = core.call intrinsic.or(%wrong_model, %automatic_truncation)
+            %incompatible = core.call intrinsic.or(%incompatible, %compaction)
+            %incompatible = core.call intrinsic.or(%incompatible, %agents)
+            %incompatible = core.call intrinsic.or(%incompatible, %pro)
+            core.if %incompatible {
+              core.raise "configuration_update requires GPT-6 Astra in standard single-agent mode without automatic compaction or truncation"
+            }
+            %update_reasoning = core.get %item["reasoning"] default %empty
+            %update_effort = core.get %update_reasoning["effort"]
+            core.call @openai_responses_validate_astra_effort(%update_effort)
+          }
+          %previous_update = core.let %update
+        }
+      }
+      core.return %request
+    }
+  }
+
+  op ax.provider.semantic @openai_responses_validate_astra_effort {
+    attr core_kind = "func"
+    attr effect = "throws"
+    attr emit_module = "ai"
+    tag "src/ax/ai/openai/responses_client.ts"
+    type signature = "(effort:json) -> void throws"
+    body @entry(%effort: json) {
+      %low = core.call intrinsic.eq(%effort, "low")
+      %medium = core.call intrinsic.eq(%effort, "medium")
+      %high = core.call intrinsic.eq(%effort, "high")
+      %xhigh = core.call intrinsic.eq(%effort, "xhigh")
+      %max = core.call intrinsic.eq(%effort, "max")
+      %valid = core.call intrinsic.or(%low, %medium)
+      %valid = core.call intrinsic.or(%valid, %high)
+      %valid = core.call intrinsic.or(%valid, %xhigh)
+      %valid = core.call intrinsic.or(%valid, %max)
+      %invalid = core.call intrinsic.not(%valid)
+      core.if %invalid {
+        core.raise "Invalid Astra reasoning effort"
+      }
+      core.return
+    }
   }
 }

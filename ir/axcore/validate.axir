@@ -72,7 +72,12 @@ module @ax.validate version "0.1" {
       }
       core.for %field in %fields {
         %field_name = core.get %field["name"]
-        %field_title = core.get %field["title"]
+        %field_title = core.get %field["title"] default %field_name
+        %has_title = core.call intrinsic.truthy(%field_title)
+        core.if %has_title {
+        } else {
+          %field_title = core.let %field_name
+        }
         %is_optional = core.get %field["is_optional"] default false
         %has_value = core.call intrinsic.map.contains(%values, %field_name)
         %missing = core.call intrinsic.not(%has_value)

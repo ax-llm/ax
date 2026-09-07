@@ -35,7 +35,7 @@ result = engine.optimize(request, evaluator)
 
 ## Relevant API Surface
 
-- AxGen: `ax`, `AxGen`
+- AxGen: `ax`, `AxGen`, `run_control`, `AxRunControl`
 - Optimizers: `optimize`, `playbook`, `AxPlaybook`, `AxBootstrapFewShot`, `AxGEPA`, `OptimizerEngine`, `OptimizerEvaluator`
 
 ## Guardrails

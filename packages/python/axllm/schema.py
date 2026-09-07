@@ -318,7 +318,12 @@ def _validate_fields_impl(fields: list[Any], values: Any, context: str) -> None:
         pass
     for field in fields:
         field_name = _core_get(field, "name", None)
-        field_title = _core_get(field, "title", None)
+        field_title = _core_get(field, "title", field_name)
+        has_title = _core_truthy(field_title)
+        if has_title:
+            pass
+        else:
+            field_title = field_name
         is_optional = _core_get(field, "is_optional", False)
         has_value = _core_map_contains(values, field_name)
         missing = _core_not(has_value)

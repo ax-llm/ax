@@ -4630,3 +4630,60 @@ await writeSemanticParityLifecycleOracle();
 await writeSemanticParityStaticDirectSkillOracle();
 await writeSemanticParityForwardResetOracle();
 await writeSemanticParityCatalogRankingOracles();
+
+for (const discovered of [false, true]) {
+  writeFixture(
+    `astra-native-agent-discovery-${discovered ? 'loaded' : 'hidden'}`,
+    {
+      kind: 'agent_runtime_policy',
+      signature: 'question:string -> answer:string',
+      options: {
+        functionDiscovery: true,
+        functions: [
+          {
+            name: 'network',
+            functions: [
+              {
+                name: 'search',
+                description: 'Search records',
+                execution: 'background',
+              },
+              {
+                name: 'mutate',
+                description: 'Update serialized state',
+                execution: 'blocking',
+              },
+              {
+                name: 'warm',
+                description: 'Warm an independent cache',
+                execution: 'background',
+                alwaysInclude: true,
+              },
+            ],
+          },
+        ],
+      },
+      ...(discovered ? { discover: { tools: ['network.search'] } } : {}),
+      native_cases: [
+        {
+          features: { asyncTools: true },
+          options: {},
+          expected: discovered
+            ? ['network.search', 'network.warm']
+            : ['network.warm'],
+        },
+        {
+          features: { asyncTools: true },
+          options: { asyncMode: 'off' },
+          expected: [],
+        },
+        {
+          features: { asyncTools: true },
+          options: { functionCallMode: 'prompt' },
+          expected: [],
+        },
+        { features: { asyncTools: false }, options: {}, expected: [] },
+      ],
+    }
+  );
+}

@@ -43,6 +43,8 @@ export async function* finalizeStreamingResponse<OUT extends AxGenOut>({
   onFunctionCall,
   mcpExecutionContext,
   eventContext,
+  control,
+  executionPath,
 }: FinalizeStreamingResponseArgs) {
   const funcs = !signatureToolCallingManager
     ? parseFunctionCalls(ai, state.functionCalls, state.values, model)
@@ -73,6 +75,8 @@ export async function* finalizeStreamingResponse<OUT extends AxGenOut>({
       onFunctionCall,
       mcpExecutionContext,
       eventContext,
+      control,
+      executionPath,
     });
     state.functionsExecuted = new Set([...state.functionsExecuted, ...fx]);
     state.functionCalls = [];
@@ -165,6 +169,8 @@ export async function* finalizeStreamingResponse<OUT extends AxGenOut>({
           onFunctionCall,
           mcpExecutionContext,
           eventContext,
+          control,
+          executionPath,
         });
         state.functionsExecuted = new Set([...state.functionsExecuted, ...fx]);
 

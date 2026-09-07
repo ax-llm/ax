@@ -1212,11 +1212,11 @@ func TestCapabilityManifestsAndGeneratedPackageShape(t *testing.T) {
 				checkGeneratedFileContains(t, dir, "pom.xml", "<groupId>dev.axllm</groupId>", "<artifactId>ax</artifactId>", "dev/axllm/ax/*.java")
 				checkGeneratedFileContains(t, dir, "build.gradle", "java-library", "dev/axllm/ax/*.java")
 			case "cpp":
-				checkGeneratedFileContains(t, dir, "CMakeLists.txt", "add_library(axllm axllm/axllm.cpp axllm/mcp.cpp)", "add_library(axllm::axllm ALIAS axllm)", "AX_BUILD_QUICKJS_PROFILE", "AX_QUICKJS_CFLAGS", "AX_QUICKJS_LDFLAGS", "add_library(axllm_quickjs", "find_package(CURL QUIET)", "AXLLM_ENABLE_CURL", "AXLLM_ENABLE_MCP_STDIO_BOOST", "AXLLM_ENABLE_REALTIME", "provider_stream_no_key", "flow_openai_api", "audio_responses_mapping", "realtime_audio_events", "gepa_local_optimizer", "mcp_scripted_tools")
-				checkGeneratedFileContains(t, dir, "axllm/axllm.hpp", "class HttpTransport", "std::unique_ptr<Transport> owned_transport_")
+				checkGeneratedFileContains(t, dir, "CMakeLists.txt", "add_library(axllm axllm/axllm.cpp axllm/mcp.cpp)", "add_library(axllm::axllm ALIAS axllm)", "Threads::Threads", "AX_BUILD_QUICKJS_PROFILE", "AX_QUICKJS_CFLAGS", "AX_QUICKJS_LDFLAGS", "add_library(axllm_quickjs", "find_package(CURL QUIET)", "AXLLM_ENABLE_CURL", "AXLLM_ENABLE_MCP_STDIO_BOOST", "AXLLM_ENABLE_REALTIME", "provider_stream_no_key", "flow_openai_api", "audio_responses_mapping", "realtime_audio_events", "gepa_local_optimizer", "mcp_scripted_tools")
+				checkGeneratedFileContains(t, dir, "axllm/axllm.hpp", "class HttpTransport", "std::shared_ptr<Transport> owned_transport_")
 				checkGeneratedFileContains(t, dir, "axllm/mcp.hpp", "class AxMCPClient", "class AxMCPStreamableHTTPTransport", "class AxMCPStdioTransport")
 				checkGeneratedFileContains(t, dir, "axllm/axllm.cpp", "HttpTransport::call", "curl_easy_perform")
-				checkGeneratedFileContains(t, dir, "cmake/axllmConfig.cmake.in", "find_dependency(OpenSSL)", "axllmTargets.cmake")
+				checkGeneratedFileContains(t, dir, "cmake/axllmConfig.cmake.in", "find_dependency(OpenSSL)", "find_dependency(Threads)", "axllmTargets.cmake")
 			case "go":
 				checkGeneratedFileContains(t, dir, "go.mod", "module github.com/ax-llm/ax/packages/go", "go 1.23", "github.com/dop251/goja", "github.com/coder/websocket")
 				checkGeneratedFileContains(t, dir, "axllm.go", "package axllm", "type Value = any", "func NewSignature", "type HTTPTransport struct")
@@ -1408,7 +1408,7 @@ func assertGeneratedSkillFrontmatter(t *testing.T, root, rel, target string) {
 		}
 		wants := []string{"Start from the complete programs under `examples/`", "https://axllm.dev/" + target + "/"}
 		if strings.HasSuffix(wantName, "-flow") {
-			wants = append(wants, "Class decision", "Parallel fan-out and join", "Draft, critique, revise")
+			wants = append(wants, "Class decision", "Fan-out and join", "generated runtime currently executes its nodes serially", "Draft, critique, revise")
 		} else {
 			wants = append(wants, "Simple string contract", "Bounded class output", "JSON schema", "Reuse the signature")
 		}

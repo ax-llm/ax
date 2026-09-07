@@ -1081,6 +1081,13 @@ class ProviderOperationClient(AxBaseAI):
             )
         )
 
+    def open_chat_session(self, request: dict[str, Any], options: dict[str, Any] | None = None):
+        model = str(request.get("model") or self.model)
+        if self.profile not in ("openai", "openai-responses") or not model.startswith("gpt-6-astra"):
+            raise AxUnsupportedCapabilityError("Selected provider/model does not support chat sessions")
+        from .session import _ResponsesChatSession
+        return _ResponsesChatSession(self, request, options)
+
     def _chat(self, request: dict[str, Any], options: dict[str, Any]):
         realtime_model = request.get("model") or self.model
         if provider_should_use_realtime(self.profile, str(realtime_model or ""), request, options):
@@ -1497,7 +1504,7 @@ class ProviderOperationClient(AxBaseAI):
 
     def _operation_path(self, operation: str, model: str | None = None):
         descriptor = (self.descriptor.get("operations") or {}).get(operation) or provider_operation_descriptor(self.profile, operation)
-        path = str(descriptor.get("path", "/" + operation))
+        path = provider_chat_operation_path(self.profile, str(model or self.model), operation, str(descriptor.get("path", "/" + operation)))
         if model is not None:
             path = path.replace("{model}", urllib.parse.quote(str(model), safe=""))
         if self.descriptor.get("auth") == "api_key_query":
@@ -1576,27 +1583,46 @@ class ProviderOperationClient(AxBaseAI):
             if cancellation is not None: cancellation.throw_if_cancelled()
             res = urllib.request.urlopen(req, timeout=self.timeout)
             if stream:
-                def body_chunks():
-                    try:
-                        read = getattr(res, "read1", res.read)
-                        while True:
+                # A generator cannot be closed while another thread is reading it.
+                # Own the response explicitly so cancellation can interrupt that read.
+                import socket
+                import threading
+                class ResponseChunks:
+                    def __init__(self):
+                        self.closed = threading.Event()
+                        self.socket = getattr(getattr(getattr(res, "fp", None), "raw", None), "_sock", None)
+                    def __iter__(self):
+                        return self
+                    def __next__(self):
+                        if cancellation is not None: cancellation.throw_if_cancelled()
+                        if self.closed.is_set():
+                            raise StopIteration
+                        try:
+                            chunk = getattr(res, "read1", res.read)(8192)
                             if cancellation is not None: cancellation.throw_if_cancelled()
-                            chunk = read(8192)
-                            if cancellation is not None: cancellation.throw_if_cancelled()
-                            if not chunk:
-                                return
-                            yield chunk
-                    except AxAIServiceAbortedError:
-                        raise
-                    except TimeoutError as exc:
-                        if cancellation is not None and cancellation.cancelled: cancellation.throw_if_cancelled()
-                        raise AxAIServiceTimeoutError("OpenAI-compatible request timed out", request=call, retryable=True) from exc
-                    except OSError as exc:
-                        if cancellation is not None and cancellation.cancelled: cancellation.throw_if_cancelled()
-                        raise AxAIServiceNetworkError(str(exc), request=call, retryable=True) from exc
-                    finally:
+                        except TimeoutError as exc:
+                            self.close()
+                            if cancellation is not None and cancellation.cancelled: cancellation.throw_if_cancelled()
+                            raise AxAIServiceTimeoutError("OpenAI-compatible request timed out", request=call, retryable=True) from exc
+                        except OSError as exc:
+                            self.close()
+                            if cancellation is not None and cancellation.cancelled: cancellation.throw_if_cancelled()
+                            raise AxAIServiceNetworkError(str(exc), request=call, retryable=True) from exc
+                        if not chunk:
+                            self.close()
+                            raise StopIteration
+                        return chunk
+                    def close(self):
+                        if self.closed.is_set():
+                            return
+                        self.closed.set()
+                        if self.socket is not None:
+                            try:
+                                self.socket.shutdown(socket.SHUT_RDWR)
+                            except OSError:
+                                pass
                         res.close()
-                return body_chunks()
+                return ResponseChunks()
             with res:
                 if binary_response:
                     # Binary operations (e.g. OpenAI /audio/speech returns raw mp3)
@@ -1755,6 +1781,8 @@ class MultiServiceRouter(AxAIService):
                     "service": item["service"],
                     "description": item.get("description", ""),
                     "isInternal": item.get("isInternal", item.get("is_internal")),
+                    **({"model": item["model"], "explicit_model": True} if item.get("model") is not None else {}),
+                    **({"embedModel": item["embedModel"]} if item.get("embedModel") is not None else {}),
                 }
                 continue
             service = item
@@ -1802,8 +1830,16 @@ class MultiServiceRouter(AxAIService):
 
     def get_features(self, model: str | None = None) -> dict[str, Any]:
         if model is not None and model in self.services:
-            return copy.deepcopy(self.services[model]["service"].get_features(model))
+            return copy.deepcopy(self.services[model]["service"].get_features(self.services[model].get("model")))
         return _router_default_features()
+
+    def open_chat_session(self, request, options=None):
+        entry = self.services.get(request.get("model"))
+        if entry is None:
+            raise ValueError("No service found for model key: " + str(request.get("model")))
+        self.last_used_service = entry["service"]
+        resolved = provider_session_route(entry, request, options or {})
+        return entry["service"].open_chat_session(resolved["request"], resolved["options"])
 
     def chat(self, request: dict[str, Any], options: dict[str, Any] | None = None):
         model_key = request.get("model")
@@ -1816,9 +1852,9 @@ class MultiServiceRouter(AxAIService):
         req = copy.deepcopy(request)
         if "modelConfig" in req and "model_config" not in req:
             req["model_config"] = copy.deepcopy(req["modelConfig"])
-        if "model" not in entry:
-            req.pop("model", None)
-            return entry["service"].chat(req, options)
+        if entry.get("explicit_model") or "model" not in entry:
+            resolved = provider_session_route(entry, req, options or {})
+            return entry["service"].chat(resolved["request"], resolved["options"])
         return entry["service"].chat(req, options)
 
     def stream(self, request: dict[str, Any], options: dict[str, Any] | None = None):
@@ -1832,8 +1868,9 @@ class MultiServiceRouter(AxAIService):
         req = copy.deepcopy(request)
         if "modelConfig" in req and "model_config" not in req:
             req["model_config"] = copy.deepcopy(req["modelConfig"])
-        if "model" not in entry:
-            req.pop("model", None)
+        if entry.get("explicit_model") or "model" not in entry:
+            resolved = provider_session_route(entry, req, options or {})
+            return entry["service"].stream(resolved["request"], resolved["options"])
         return entry["service"].stream(req, options)
 
     def embed(self, request: dict[str, Any], options: dict[str, Any] | None = None):
@@ -2069,6 +2106,58 @@ class AxBalancerOptions:
             "maxRetries": self.max_retries,
         }
 
+
+def _merge_service_features(services, model=None):
+    features = {
+        "functions": False,
+        "streaming": False,
+        "thinking": False,
+        "asyncTools": False, "nativeSteering": False, "reasoningUpdates": False,
+        "multiTurn": False,
+        "structuredOutputs": False,
+        "media": {
+            "images": {"supported": False, "formats": []},
+            "audio": {"supported": False, "formats": []},
+            "files": {"supported": False, "formats": [], "uploadMethod": "none"},
+            "urls": {"supported": False, "webSearch": False, "contextFetching": False},
+        },
+        "caching": {"supported": False, "types": []},
+    }
+    structured_output_modes: list[Any] = []
+    all_modes_advertised = bool(services)
+    for service in services:
+        raw = service.get_features(model) or {}
+        raw_modes = raw.get("structuredOutputModes", raw.get("structured_output_modes"))
+        if raw_modes is None:
+            all_modes_advertised = False
+        else:
+            _append_unique(structured_output_modes, list(raw_modes or []))
+        for key in ("functions", "streaming", "thinking", "asyncTools", "nativeSteering", "reasoningUpdates", "multiTurn", "structuredOutputs", "functionCot", "hasThinkingBudget", "hasShowThoughts"):
+            if _feature_bool(raw, key):
+                features[key] = True
+        media = raw.get("media") or {}
+        for kind in ("images", "audio", "files"):
+            src = media.get(kind) or {}
+            if src.get("supported"):
+                features["media"][kind]["supported"] = True
+            _append_unique(features["media"][kind]["formats"], list(src.get("formats") or []))
+        upload = (media.get("files") or {}).get("uploadMethod") or (media.get("files") or {}).get("upload_method")
+        if upload and upload != "none":
+            features["media"]["files"]["uploadMethod"] = upload
+        urls = media.get("urls") or {}
+        if urls.get("supported"):
+            features["media"]["urls"]["supported"] = True
+        if urls.get("webSearch") or urls.get("web_search"):
+            features["media"]["urls"]["webSearch"] = True
+        if urls.get("contextFetching") or urls.get("context_fetching"):
+            features["media"]["urls"]["contextFetching"] = True
+        caching = raw.get("caching") or {}
+        if caching.get("supported"):
+            features["caching"]["supported"] = True
+        _append_unique(features["caching"]["types"], list(caching.get("types") or []))
+    if all_modes_advertised:
+        features["structured_output_modes"] = structured_output_modes
+    return features
 
 class AxBalancer(AxAIService):
     input_order_comparator = "input_order"
@@ -2330,55 +2419,7 @@ class AxBalancer(AxAIService):
         return None
 
     def get_features(self, model: str | None = None) -> dict[str, Any]:
-        features = {
-            "functions": False,
-            "streaming": False,
-            "thinking": False,
-            "multiTurn": False,
-            "structuredOutputs": False,
-            "media": {
-                "images": {"supported": False, "formats": []},
-                "audio": {"supported": False, "formats": []},
-                "files": {"supported": False, "formats": [], "uploadMethod": "none"},
-                "urls": {"supported": False, "webSearch": False, "contextFetching": False},
-            },
-            "caching": {"supported": False, "types": []},
-        }
-        structured_output_modes: list[Any] = []
-        all_modes_advertised = bool(self.services)
-        for service in self.services:
-            raw = service.get_features(model) or {}
-            raw_modes = raw.get("structuredOutputModes", raw.get("structured_output_modes"))
-            if raw_modes is None:
-                all_modes_advertised = False
-            else:
-                _append_unique(structured_output_modes, list(raw_modes or []))
-            for key in ("functions", "streaming", "thinking", "multiTurn", "structuredOutputs", "functionCot", "hasThinkingBudget", "hasShowThoughts"):
-                if _feature_bool(raw, key):
-                    features[key] = True
-            media = raw.get("media") or {}
-            for kind in ("images", "audio", "files"):
-                src = media.get(kind) or {}
-                if src.get("supported"):
-                    features["media"][kind]["supported"] = True
-                _append_unique(features["media"][kind]["formats"], list(src.get("formats") or []))
-            upload = (media.get("files") or {}).get("uploadMethod") or (media.get("files") or {}).get("upload_method")
-            if upload and upload != "none":
-                features["media"]["files"]["uploadMethod"] = upload
-            urls = media.get("urls") or {}
-            if urls.get("supported"):
-                features["media"]["urls"]["supported"] = True
-            if urls.get("webSearch") or urls.get("web_search"):
-                features["media"]["urls"]["webSearch"] = True
-            if urls.get("contextFetching") or urls.get("context_fetching"):
-                features["media"]["urls"]["contextFetching"] = True
-            caching = raw.get("caching") or {}
-            if caching.get("supported"):
-                features["caching"]["supported"] = True
-            _append_unique(features["caching"]["types"], list(caching.get("types") or []))
-        if all_modes_advertised:
-            features["structured_output_modes"] = structured_output_modes
-        return features
+        return _merge_service_features(self.services, model)
 
     def get_metrics(self) -> dict[str, Any]:
         out = default_metrics()
@@ -2414,6 +2455,25 @@ class AxBalancer(AxAIService):
         if embed_count:
             out["latency"]["embed"]["mean"] = embed_sum / embed_count
         return out
+
+    def open_chat_session(self, request, options=None):
+        selected = self._pin_chat_run(request, options or {})
+        opener = getattr(selected, "open_chat_session", None)
+        if not callable(opener):
+            raise AxUnsupportedCapabilityError("Selected service does not support chat sessions")
+        return opener(request, options or {})
+
+    def _pin_chat_run(self, request, options):
+        if self.adaptive is not None:
+            ranked = self._rank_adaptive(request, options)
+            selected = ranked[0]["service"] if ranked else None
+        else:
+            selected = next((service for service in self._candidate_services(request)
+                             if self._can_retry_service(service)), None)
+        if selected is None:
+            raise AxUnsupportedCapabilityError("No eligible service for this run")
+        self.current_service = selected
+        return selected
 
     def chat(self, request: dict[str, Any], options: dict[str, Any] | None = None):
         if self.adaptive is not None:
@@ -2584,6 +2644,24 @@ class AxBalancer(AxAIService):
         return chat_response_to_completion(self.chat(_coerce_chat_request(request)))
 
 
+class _PinnedProviderClient:
+    def __init__(self, provider):
+        self.provider=provider
+    def __getattr__(self,name):
+        if name=="_pin_chat_run":raise AttributeError(name)
+        return getattr(self.provider,name)
+    def get_features(self,model=None):
+        return self.provider.get_features(model)
+    def _request(self,request):
+        return provider_route_preprocess_request(self.get_features(request.get("model")),request)
+    def chat(self,request,options=None):
+        return self.provider.chat(self._request(request),options)
+    def open_chat_session(self,request,options=None):
+        opener=getattr(self.provider,"open_chat_session",None)
+        if not callable(opener):raise AxUnsupportedCapabilityError("Selected provider does not support chat sessions")
+        return opener(self._request(request),options or {})
+
+
 class ProviderRouter:
     def __init__(self, config: dict[str, Any]):
         providers_config = config.get("providers") or {}
@@ -2593,9 +2671,26 @@ class ProviderRouter:
         routing = config.get("routing") or {}
         self.routing = routing.get("capability") or {}
 
-    def _provider_records(self):
+    def get_features(self, model=None):
+        return _merge_service_features(self.providers, model)
+
+    def _pin_chat_run(self, request, options):
+        _, provider=self._selected_provider(request)
+        visited=set()
+        while callable(getattr(provider,"_pin_chat_run",None)):
+            if id(provider) in visited:raise RuntimeError("Cyclic run routing")
+            visited.add(id(provider));provider=provider._pin_chat_run(request,options)
+        return _PinnedProviderClient(provider)
+
+    def open_chat_session(self,request,options=None):
+        return self._pin_chat_run(request,options or {}).open_chat_session(request,options or {})
+
+    def complete(self,request):
+        return chat_response_to_completion(self.chat(request)["response"])
+
+    def _provider_records(self, model=None):
         return [
-            {"name": provider.get_name(), "id": provider.get_id(), "features": copy.deepcopy(provider.get_features())}
+            {"name": provider.get_name(), "id": provider.get_id(), "features": copy.deepcopy(provider.get_features(model))}
             for provider in self.providers
         ]
 
@@ -2606,7 +2701,7 @@ class ProviderRouter:
         return self.providers[0] if self.providers else None
 
     def get_routing_recommendation(self, request: dict[str, Any]):
-        rec = provider_route_recommendation(self._provider_records(), _coerce_chat_request(request), self.routing)
+        rec = provider_route_recommendation(self._provider_records(request.get("model")), _coerce_chat_request(request), self.routing)
         out = copy.deepcopy(rec)
         out["provider"] = self._service_for_name(out.get("providerName"))
         return out
@@ -2655,6 +2750,7 @@ def _core_add(left, right): return left + right
 def _core_mul(left, right): return left * right
 def _core_div(left, right): return float(left or 0) / float(right or 1)
 def _core_math_abs(value): return abs(float(value or 0))
+def _core_math_floor(value): return math.floor(value)
 def _core_math_log(value): return math.log(float(value))
 def _core_math_exp(value): return math.exp(float(value))
 def _core_math_sqrt(value): return math.sqrt(float(value))

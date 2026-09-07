@@ -1,6 +1,7 @@
 package dev.axllm.ax;
 
 public final class Ax {
+  public static AxRunControl runControl() { return new AxRunControl(); }
   public static AxSignature s(String signature) {
     return AxSignature.create(signature);
   }

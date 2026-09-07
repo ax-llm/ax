@@ -97,7 +97,29 @@ export const axAIProviderProfiles = {
         }
       }
     },
-    "modelRules": [],
+    "modelRules": [
+      {
+        "match": {
+          "prefix": [
+            "gpt-6-astra"
+          ]
+        },
+        "request": {
+          "unsupportedThinkingLevels": {
+            "none": "GPT-6 Astra requires reasoning; use low or higher"
+          }
+        },
+        "capabilities": {
+          "audio": false,
+          "audioOutput": false,
+          "functions": true,
+          "structuredOutputModes": [
+            "native",
+            "json_object"
+          ]
+        }
+      }
+    ],
     "sources": [
       "https://platform.openai.com/docs/api-reference/chat"
     ],
@@ -254,7 +276,24 @@ export const axAIProviderProfiles = {
         }
       }
     },
-    "modelRules": [],
+    "modelRules": [
+      {
+        "match": {
+          "prefix": [
+            "gpt-6-astra"
+          ]
+        },
+        "request": {
+          "unsupportedThinkingLevels": {
+            "none": "GPT-6 Astra requires reasoning; use low or higher"
+          }
+        },
+        "capabilities": {
+          "audio": false,
+          "audioOutput": false
+        }
+      }
+    ],
     "sources": [
       "https://platform.openai.com/docs/api-reference/responses"
     ],

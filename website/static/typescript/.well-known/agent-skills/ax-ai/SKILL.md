@@ -815,3 +815,54 @@ Fetch these for full working code:
 - Do not confuse the `amazon-bedrock` OpenAI-compatible profile with the separate AWS-native `AxAIBedrock` client.
 - Do not invent Meta image, file, model-listing, or response-lifecycle methods. Muse Image uses `chat()`, Voice uses `transcribe()` or realtime `chat()`, and inline data/URLs use normal chat content.
 - Do not omit `resourceName` and `deploymentName` for Azure OpenAI.
+
+## GPT-6 Astra and automatic sessions (TypeScript)
+
+Select `ai({ name: 'openai', config: { model: AxAIOpenAIModel.GPT6Astra }, apiKey })`.
+Import `ai` and `AxAIOpenAIModel` from `@ax-llm/ax`. Ax automatically routes
+Astra through Responses. Existing defaults are unchanged.
+Use `thinkingTokenBudget: 'low'` and `serviceTier: 'standard'`. Astra requires
+reasoning; `minimal` maps to `low` and `none` throws. Unsupported sampling and
+log-probability options are removed. EU residency does not support priority processing.
+
+Keep calling `forward()` and `streamingForward()`. Declare independent tools with
+`fn('lookup').description('...').execution('background').handler(...).build()`.
+Ordinary tools default to blocking. JavaScript promises and MCP annotations do
+not opt a tool into background execution. Set `asyncMode: 'off'` to use the
+ordinary tool loop. Providers without session support retain that loop.
+
+Use `const control = runControl()` and pass `{ control }` in forward options.
+Call `control.steer(text)`, `control.setThinkingTokenBudget('high')`, or
+`control.abort()`. `control.onEvent(listener)` observes queued/applied updates,
+run lifecycle, tool activity, and model output activity. Untargeted updates apply
+to the root and future descendants. `{ target: 'root/nodeName' }` restricts an
+update to a flow node and its descendants. Completed nodes are not rerun.
+Controller-attached runs bypass result caching; provider prompt caching remains enabled.
+
+HTTP streaming needs no WebSocket dependency. With a configured host
+`options.webSocket`, steering can apply natively during generation; otherwise it
+applies at the next response boundary. Observe the applied event's `timing`.
+Reasoning updates use continuation input items, retaining the original prefix.
+Steering that awaits tool input is continued even when its pending notification
+arrives after completion. Duplicate acknowledgements do not apply an update twice.
+
+Ax owns tool execution and result submission. Only completed calls execute;
+pending results are incorporated before successful final output. Streaming clients
+reset accumulated output when `version` changes; provisional answers never
+count as successful completion. Sessions pin
+the selected provider and model and do not reconnect or replay calls after a
+failure. Cancellation requests tool cancellation; it does not undo external work.
+The native Responses wire client is internal. Custom providers may implement the
+optional normalized `openChatSession` contract; existing `.chat()` services work.
+Session adapters should expose their transport abort signal so pending host work
+does not prevent cancellation or disconnection from ending the run. Sessions
+preserve provider defaults and model-alias settings; explicit request settings win.
+
+Runnable examples: `typescript/generation/astra.ts`, `astra-async-tools.ts`,
+`astra-steering.ts`, `astra-reasoning-update.ts`, `astra-session-lifecycle.ts`, and
+`typescript/short-agents/astra-background.ts`. Generated-language session support
+is partially implemented in Python, Go, Java, C++, and Rust. Their language
+galleries include provider-backed examples, but full parity remains open in the
+AxIR backlog. Generated flow groups still execute serially; MCP invocation and
+other session coverage remain incomplete. See `docs/COMPILER.md` for the
+implementation status.

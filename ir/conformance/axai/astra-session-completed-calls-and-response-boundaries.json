@@ -1,0 +1,120 @@
+{
+  "cases": [
+    {
+      "event": {
+        "response": {
+          "id": "r1"
+        },
+        "type": "response.created"
+      },
+      "expected_types": []
+    },
+    {
+      "event": {
+        "item": {
+          "arguments": "",
+          "call_id": "call1",
+          "id": "item1",
+          "name": "lookup",
+          "type": "function_call"
+        },
+        "type": "response.output_item.added"
+      },
+      "expected_types": []
+    },
+    {
+      "event": {
+        "delta": "{\"x\":",
+        "item_id": "item1",
+        "type": "response.function_call_arguments.delta"
+      },
+      "expected_types": []
+    },
+    {
+      "event": {
+        "item": {
+          "arguments": "{\"x\":1}",
+          "call_id": "call1",
+          "id": "item1",
+          "name": "lookup",
+          "type": "function_call"
+        },
+        "type": "response.output_item.done"
+      },
+      "expected_call": {
+        "function": {
+          "name": "lookup",
+          "params": {
+            "x": 1
+          }
+        },
+        "id": "call1",
+        "type": "function"
+      },
+      "expected_response_id": "r1",
+      "expected_types": ["tool.call"]
+    },
+    {
+      "event": {
+        "item": {
+          "arguments": "{\"x\":1}",
+          "call_id": "call1",
+          "id": "item1",
+          "name": "lookup",
+          "type": "function_call"
+        },
+        "type": "response.output_item.done"
+      },
+      "expected_types": []
+    },
+    {
+      "event": {
+        "response": {
+          "id": "r1",
+          "output": [],
+          "usage": {
+            "input_tokens": 1,
+            "output_tokens": 2,
+            "total_tokens": 3
+          }
+        },
+        "type": "response.completed"
+      },
+      "expected_response_id": "r1",
+      "expected_types": ["response.completed"]
+    },
+    {
+      "event": {
+        "response": {
+          "id": "r1",
+          "output": []
+        },
+        "type": "response.completed"
+      },
+      "expected_types": []
+    },
+    {
+      "event": {
+        "response": {
+          "id": "r2"
+        },
+        "type": "response.created"
+      },
+      "expected_types": []
+    },
+    {
+      "event": {
+        "response": {
+          "id": "r2",
+          "output": []
+        },
+        "type": "response.completed"
+      },
+      "expected_response_id": "r2",
+      "expected_types": ["response.completed"]
+    }
+  ],
+  "kind": "ai_session_events",
+  "model": "gpt-6-astra",
+  "name": "astra-session-completed-calls-and-response-boundaries"
+}

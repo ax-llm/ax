@@ -1,0 +1,133 @@
+{
+  "cases": [
+    {
+      "event": {
+        "call": {
+          "id": "background"
+        },
+        "execution": "background",
+        "type": "tool.validated"
+      },
+      "expected_action": {
+        "changed": true,
+        "type": "wait"
+      }
+    },
+    {
+      "event": {
+        "call": {
+          "id": "final"
+        },
+        "type": "tool.final"
+      },
+      "expected_action": {
+        "changed": true,
+        "type": "wait"
+      }
+    },
+    {
+      "event": {
+        "call": {
+          "id": "final"
+        },
+        "type": "tool.final"
+      },
+      "expected_action": {
+        "changed": false,
+        "type": "wait"
+      }
+    },
+    {
+      "event": {
+        "id": "r1",
+        "type": "response.completed"
+      },
+      "expected_action": {
+        "changed": true,
+        "results": [
+          {
+            "function_id": "final",
+            "result": "Not executed: incorporate the background tool results and queued updates before calling this finalization function again."
+          }
+        ],
+        "type": "submit"
+      }
+    },
+    {
+      "event": {
+        "ids": ["final"],
+        "type": "results.submitted"
+      },
+      "expected_action": {
+        "changed": true,
+        "type": "wait"
+      }
+    },
+    {
+      "event": {
+        "id": "background",
+        "result": {
+          "function_id": "background",
+          "result": "REF-42"
+        },
+        "type": "tool.result"
+      },
+      "expected_action": {
+        "changed": true,
+        "type": "wait"
+      }
+    },
+    {
+      "event": {
+        "id": "r2",
+        "type": "response.completed"
+      },
+      "expected_action": {
+        "changed": true,
+        "results": [
+          {
+            "function_id": "background",
+            "result": "REF-42"
+          }
+        ],
+        "type": "submit"
+      }
+    },
+    {
+      "event": {
+        "ids": ["background"],
+        "type": "results.submitted"
+      },
+      "expected_action": {
+        "changed": true,
+        "type": "wait"
+      }
+    },
+    {
+      "event": {
+        "id": "r3",
+        "type": "response.completed"
+      },
+      "expected_action": {
+        "changed": true,
+        "type": "validate"
+      }
+    },
+    {
+      "event": {
+        "type": "validated"
+      },
+      "expected_action": {
+        "changed": true,
+        "type": "closed"
+      }
+    }
+  ],
+  "expected_pending": [],
+  "expected_steps": 3,
+  "kind": "ai_session_state",
+  "max_steps": 3,
+  "model": "gpt-6-astra",
+  "name": "astra-defer-final-output-with-pending-work",
+  "path": "root"
+}

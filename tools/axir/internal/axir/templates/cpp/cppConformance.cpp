@@ -1685,6 +1685,11 @@ static void run_agent_runtime_policy(Value fixture) {
       Value result = ag->discover(Core::get(fixture, "discover", Value::object()));
       if (!Core::get(fixture, "expected_discover_result").is_null()) assert_equal(result, Core::get(fixture, "expected_discover_result"), "discover result");
     }
+    if(!Core::get(fixture,"native_cases").is_null()) {
+      Value state=Core::_agent_factory(Core::get(fixture,"signature","question:string -> answer:string"),Core::get(fixture,"options",Value::object()));
+      if(!Core::get(fixture,"discover").is_null())Core::_agent_discover(state,Core::get(fixture,"discover"));
+      for(const auto& item:as_array(Core::get(fixture,"native_cases"))){Value names=Value::array();for(const auto& tool:as_array(Core::_agent_native_callables(state,Core::get(item,"features",Value::object()),Core::get(item,"options",Value::object()))))Core::append(names,Core::get(tool,"qualified_name"));assert_equal(names,Core::get(item,"expected"),"native agent selection");}
+    }
     if (!Core::get(fixture, "recall").is_null()) {
       Value result = ag->recall(Core::get(fixture, "recall", Value::array()));
       if (!Core::get(fixture, "expected_recall_result").is_null()) assert_equal(result, Core::get(fixture, "expected_recall_result"), "recall result");
@@ -3016,6 +3021,31 @@ static void run(Value fixture) {
       Value callback_inputs=Value::array();auto callback_target=event_target("callback-target").signature(signature("url:string -> ok:boolean")).map_input([](const AxEventEnvelope& event,const AxEventContinuation*){return object({{"url",Core::get(event.data,"uri","")},{"secret","drop-me"}});}).invoke([&](Value value,const AxEventInvocationContext&){Core::append(callback_inputs,value);return value;}).build();AxEventRuntime callback_runtime({AxEventRoute{"callback-route","wake",object({{"types",array({"event.callback"})}}),"callback-target"}});callback_runtime.register_target(callback_target).start();callback_runtime.publish(make_event("callback-1","event.callback",object({{"uri","demo://callback"}})));assert_equal(callback_inputs,array({object({{"url","demo://callback"}})}),"event callback signature normalization");
     }
     else throw AxError("fixture","unsupported event operation "+operation);
+  } else if (kind == "ai_session_state") {
+    Value state = Core::chat_session_create_state(Core::get(fixture, "model"), Core::get(fixture, "path"), Core::get(fixture, "max_steps"));
+    for (auto item : Core::iter(Core::get(fixture, "cases"))) {
+      assert_equal(Core::chat_session_transition(state, Core::get(item, "event")), Core::get(item, "expected_action"), "session transition");
+    }
+    assert_equal(Core::chat_session_unresolved(state), Core::get(fixture, "expected_pending"), "unresolved work");
+    assert_equal(Core::get(state, "steps"), Core::get(fixture, "expected_steps"), "response accounting");
+  } else if (kind == "ai_session_events") {
+    Value state = Value::object(), cursor = Value::object();
+    for (auto item : Core::iter(Core::get(fixture, "cases"))) {
+      Core::openai_responses_transport_cursor(cursor,Core::get(item,"event"));
+      if(Core::truthy(Core::map_contains(item,"expected_active_id")))assert_equal(Core::get(cursor,"active_id"),Core::get(item,"expected_active_id"),"transport active response");
+      if(!Core::get(item,"expected_exception").is_null()) {
+        bool failed=false;try{Core::openai_responses_session_event(Core::get(item,"event"),state,Core::get(fixture,"model"));}
+        catch(const AxError& error){failed=true;if(std::string(error.what()).find(display(Core::get(item,"expected_exception")))==std::string::npos)throw;}
+        if(!failed)throw std::runtime_error("Expected provider session failure");continue;
+      }
+      auto events = Core::iter(Core::openai_responses_session_event(Core::get(item, "event"), state, Core::get(fixture, "model")));
+      Value types = Value::array();
+      for (auto event : events) Core::append(types, Core::get(event, "type"));
+      assert_equal(types, Core::get(item, "expected_types"), "session event types");
+      for (std::string key : {"call", "response_id", "status", "required_call_ids", "error"}) {
+        if (Core::truthy(Core::map_contains(item, Value("expected_" + key)))) assert_equal(Core::get(events.at(0), key), Core::get(item, "expected_" + key), "session " + key);
+      }
+    }
   } else if (kind == "ai_chat") {
     run_ai_chat(fixture);
   } else if (kind == "ai_embed") {

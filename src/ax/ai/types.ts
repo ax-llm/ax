@@ -94,6 +94,7 @@ export type AxModelInfo = {
   serviceTierPricing?: Partial<
     Record<'flex' | 'priority', AxServiceTierPricing>
   >;
+  longContextCacheWriteTokenCostPer1M?: number;
   aliases?: string[];
   supported?: {
     thinkingBudget?: boolean;
@@ -367,6 +368,8 @@ export type AxFunctionHandler = (
     traceId?: string;
     debug?: boolean;
     ai?: AxAIService;
+    control?: import('../dsp/runControl.js').AxRunControl;
+    executionPath?: string;
     step?: import('../dsp/types.js').AxStepContext;
     abortSignal?: AbortSignal;
     protocol?: AxAgentCompletionProtocol;
@@ -402,6 +405,8 @@ export type AxFunctionJSONSchema = {
 };
 
 export type AxFunction = {
+  /** Background tools permit independent model work while they execute. */
+  execution?: 'blocking' | 'background';
   name: string;
   description: string;
   componentId?: string;
@@ -725,6 +730,7 @@ export type AxChatRequest<TModel = string> = {
     name: string;
     description: string;
     parameters?: AxFunctionJSONSchema;
+    execution?: 'blocking' | 'background';
     /** Mark this function for caching (creates breakpoint after tools) */
     cache?: boolean;
   }>[];
@@ -1031,6 +1037,11 @@ export type AxContextCacheInfo = {
  * ```
  */
 export type AxAIServiceOptions = {
+  /** Automatically use native async capabilities when available. */
+  asyncMode?: 'auto' | 'off';
+  control?: import('../dsp/runControl.js').AxRunControl;
+  /** Stable execution scope for targeted run updates. */
+  executionPath?: string;
   /** @internal Identifies whether a forced tool choice came from Ax itself. */
   functionCallSource?: 'ax' | 'caller';
   /**
@@ -1278,6 +1289,20 @@ export interface AxAIService<
   getLastUsedEmbedModel(): TEmbedModel | undefined;
   getLastUsedModelConfig(): AxModelConfig | undefined;
 
+  /** Resolve a provider before a controlled/tool run; the returned service is pinned. */
+  resolveChatService?(
+    req: Readonly<AxChatRequest<TModel | TModelKey>>,
+    options?: Readonly<AxAIServiceOptions>
+  ): Promise<{
+    service: Readonly<AxAIService<unknown, unknown, any>>;
+    model?: string;
+  }>;
+
+  openChatSession?(
+    req: Readonly<AxChatRequest<TModel | TModelKey>>,
+    options?: Readonly<AxAIServiceOptions>
+  ): Promise<import('./session.js').AxChatSession>;
+
   chat(
     req: Readonly<AxChatRequest<TModel | TModelKey>>,
     options?: Readonly<AxAIServiceOptions>
@@ -1339,6 +1364,9 @@ export interface AxAIServiceImpl<
   TChatResponseDelta,
   TEmbedResponse,
 > {
+  /** Validate original tools/history before automatic prompt-mode emulation. */
+  validateChatReq?(req: Readonly<AxInternalChatRequest<TModel>>): void;
+
   createChatReq(
     req: Readonly<AxInternalChatRequest<TModel>>,
     config?: Readonly<AxAIServiceOptions>

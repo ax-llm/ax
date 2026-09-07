@@ -1,0 +1,61 @@
+{
+  "expected_transport_request": {
+    "json": {
+      "input": [
+        {
+          "content": [
+            {
+              "prompt_cache_breakpoint": {
+                "mode": "explicit"
+              },
+              "text": "cached",
+              "type": "input_text"
+            }
+          ],
+          "role": "user"
+        }
+      ],
+      "model": "gpt-6-astra",
+      "prompt_cache_key": "astra-prefix",
+      "prompt_cache_options": {
+        "mode": "explicit",
+        "ttl": "30m"
+      },
+      "reasoning": {
+        "effort": "low"
+      },
+      "stream": false
+    },
+    "method": "POST",
+    "url": "https://api.openai.com/v1/responses"
+  },
+  "kind": "ai_chat",
+  "model": "gpt-6-astra",
+  "name": "astra-prompt-cache-content-remains-an-array",
+  "provider": "openai",
+  "request": {
+    "chat_prompt": [
+      {
+        "content": "cached",
+        "role": "user"
+      }
+    ],
+    "model_config": {
+      "thinkingTokenBudget": "low"
+    }
+  },
+  "service_options": {
+    "contextCache": {},
+    "promptCacheKey": "astra-prefix"
+  },
+  "transport_responses": [
+    {
+      "json": {
+        "id": "r1",
+        "model": "gpt-6-astra",
+        "output": []
+      },
+      "status": 200
+    }
+  ]
+}

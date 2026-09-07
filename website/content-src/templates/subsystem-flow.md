@@ -6,7 +6,9 @@ Use `flow()` to compose typed programs into a multi-step workflow the applicatio
 {{flowCode}}
 ```
 
-Each node is a typed program built from a signature. The flow graph — not the model — decides what runs next, and independent steps run in parallel automatically when their state reads and writes do not conflict.
+Each node is a typed program built from a signature. The flow graph determines what runs next. In TypeScript, independent steps run in parallel automatically when their state reads and writes do not conflict.
+
+**Generated-language limitation:** Python, Go, Java, C++, and Rust currently execute planned parallel groups serially. Their Astra examples verify sequential node isolation and controls. A background tool overlapping model work within one node does not mean separate flow nodes execute concurrently.
 
 ## What It Does
 
@@ -23,6 +25,16 @@ flowchart LR
   C --> G["Returns mapping"]
   G --> H["Typed result"]
 ```
+
+## Async flow examples (TypeScript)
+
+These runnable examples use the same `flow()` and `ax()` APIs with GPT-6 Astra:
+
+- `flows/astra-parallel-tools`: independent background lookups whose results stay in separate node conversations until the join.
+- `flows/astra-targeted-control`: instructions and reasoning updates applied only to a review node; the completed baseline is preserved.
+- `flows/astra-cancel-pending`: a controller cancels two pending lookups, and the flow rejects instead of reporting completion.
+
+Run one with `npm run example -- ts flows/astra-parallel-tools`. The examples require an OpenAI API key. The generated-language galleries also contain controlled Astra flow examples. Concurrent node dispatch is still unimplemented in these generated runtimes; full session parity remains open.
 
 ## Core Call Shape
 
@@ -89,7 +101,7 @@ flowchart TD
   salesReply --> send
 ```
 
-Fan-out / fan-in — two perspectives run in parallel, then a judge joins them:
+Fan-out / fan-in — two perspectives feed a judge. TypeScript runs the independent perspectives in parallel; generated runtimes currently execute them serially:
 
 ```text
 flowchart TD

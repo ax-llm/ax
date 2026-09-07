@@ -472,6 +472,12 @@ function escapeGoModPath(value) {
 
 async function runRust(examplePath, rest) {
   const outDir = languagePackageDir('rust');
+  const source = await readFile(examplePath, 'utf8');
+  const features = [];
+  if (exampleNeedsJsRuntime(examplePath)) features.push('runtime-quickjs');
+  if (/\bwith_native_session_web_socket\s*\(/.test(source))
+    features.push('realtime');
+
   const stem = path.basename(examplePath, path.extname(examplePath));
   const scratchDir = path.join(generatedRoot, 'rust-run', stem);
   await rm(scratchDir, { recursive: true, force: true });
@@ -484,7 +490,7 @@ version = "0.0.0"
 edition = "2021"
 
 [dependencies]
-axllm = { path = "${escapeCargoTomlPath(outDir)}"${exampleNeedsJsRuntime(examplePath) ? ', features = ["runtime-quickjs"]' : ''} }
+axllm = { path = "${escapeCargoTomlPath(outDir)}"${features.length ? `, features = ${JSON.stringify(features)}` : ''} }
 serde_json = "1"
 `
   );
@@ -514,21 +520,11 @@ serde_json = "1"
     if (result.stderr) process.stderr.write(result.stderr);
     return;
   }
-  run(
-    'cargo',
-    [
-      cargoAction,
-      '--offline',
-      '--quiet',
-      '--manifest-path',
-      manifestPath,
-      ...rest,
-    ],
-    {
-      cwd: repoRoot,
-      env,
-    }
-  );
+  // A failed example may already have executed tools or external actions.
+  // Preserve its failure; rerunning cargo offline would replay the program.
+  if (result.stdout) process.stdout.write(result.stdout);
+  if (result.stderr) process.stderr.write(result.stderr);
+  process.exit(result.status ?? 1);
 }
 
 function escapeCargoTomlPath(value) {

@@ -9,13 +9,27 @@ public final class Tool {
     Object call(Map<String, Object> args) throws Exception;
   }
 
+  @FunctionalInterface public interface ContextHandler {
+    Object call(Map<String,Object> args, java.util.function.BooleanSupplier cancelled) throws Exception;
+  }
+  public final ContextHandler contextHandler;
   public final String name;
   public final String description;
   public final List<Field> args;
   public final List<Field> returns;
   public final Handler handler;
+  public final String execution;
 
   Tool(String name, String description, List<Field> args, List<Field> returns, Handler handler) {
+    this(name, description, args, returns, handler, "blocking");
+  }
+
+  Tool(String name, String description, List<Field> args, List<Field> returns, Handler handler, String execution) {
+    this(name,description,args,returns,handler,execution,null);
+  }
+  Tool(String name,String description,List<Field> args,List<Field> returns,Handler handler,String execution,ContextHandler contextHandler) {
+    this.contextHandler=contextHandler;
+    this.execution = execution;
     this.name = name;
     this.description = description;
     this.args = List.copyOf(args);
@@ -27,10 +41,11 @@ public final class Tool {
     return Core.asMap(Core.to_json_schema(args, "Schema", java.util.Map.of()));
   }
 
-  public Object call(Map<String, Object> values) {
+  public Object call(Map<String,Object> values) {return call(values,()->Thread.currentThread().isInterrupted());}
+  public Object call(Map<String, Object> values,java.util.function.BooleanSupplier cancelled) {
     Core.validate_fields(args, values, "tool." + name + ".args");
     try {
-      Object result = handler.call(values);
+      Object result = contextHandler==null?handler.call(values):contextHandler.call(values,cancelled);
       if (!returns.isEmpty() && result instanceof Map<?, ?> map) Core.validate_fields(returns, map, "tool." + name + ".return");
       return result;
     } catch (RuntimeException e) {
@@ -46,17 +61,24 @@ public final class Tool {
     private final List<Field> args = new ArrayList<>();
     private final List<Field> returns = new ArrayList<>();
     private Handler handler;
+    private ContextHandler contextHandler;
+    private String execution = "blocking";
 
     public Builder(String name) { this.name = name; }
+    public Builder execution(String mode) {
+      if (!"blocking".equals(mode) && !"background".equals(mode)) throw new IllegalArgumentException("Tool execution must be blocking or background");
+      execution = mode; return this;
+    }
     public Builder description(String text) { description = text; return this; }
     public Builder arg(String name, Field.Fluent field) { args.add(field.toField(name)); return this; }
     public Builder returnsField(String name, Field.Fluent field) { returns.add(field.toField(name)); return this; }
     public Builder handler(Handler handler) { this.handler = handler; return this; }
+    public Builder contextHandler(ContextHandler handler){this.contextHandler=handler;return this;}
     public Tool build() {
       if (name == null || name.isBlank()) throw new IllegalArgumentException("fn() requires a non-empty function name");
       if (description == null || description.isBlank()) throw new IllegalArgumentException("Function '" + name + "' must define a description");
-      if (handler == null) throw new IllegalArgumentException("Function '" + name + "' must define a handler");
-      return new Tool(name, description, args, returns, handler);
+      if (handler == null && contextHandler==null) throw new IllegalArgumentException("Function '" + name + "' must define a handler");
+      return new Tool(name, description, args, returns, handler, execution,contextHandler);
     }
   }
 }

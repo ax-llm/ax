@@ -592,6 +592,7 @@ import {
   axNormalizeRequestedServiceTier,
   axResolveServiceTier,
 } from './ai/service_tier.js';
+import type { AxChatSession, AxChatSessionEvent } from './ai/session.js';
 import type {
   AxAgentCompletionProtocol,
   AxAICredentialProvider,
@@ -849,6 +850,11 @@ import {
   bestOfN,
   refine,
 } from './dsp/refine.js';
+import {
+  AxRunControl,
+  type AxRunControlEvent,
+  runControl,
+} from './dsp/runControl.js';
 import type { AxSamplePickerOptions } from './dsp/samples.js';
 import {
   type AxDateRangeValue,
@@ -1467,6 +1473,7 @@ export { AxPushEventSource };
 export { AxRateLimiterTokenUsage };
 export { AxRefine };
 export { AxRefineError };
+export { AxRunControl };
 export { AxSignature };
 export { AxSignatureBuilder };
 export { AxStopFunctionCallException };
@@ -1655,6 +1662,7 @@ export { optimize };
 export { playbook };
 export { refine };
 export { runAxEventStoreConformance };
+export { runControl };
 export { s };
 
 // Type exports
@@ -2020,6 +2028,8 @@ export type { AxChatRequest };
 export type { AxChatResponse };
 export type { AxChatResponseFunctionCall };
 export type { AxChatResponseResult };
+export type { AxChatSession };
+export type { AxChatSessionEvent };
 export type { AxCheckpointLoadFn };
 export type { AxCheckpointSaveFn };
 export type { AxCitation };
@@ -2402,6 +2412,7 @@ export type { AxRewardFn };
 export type { AxRewardFnArgs };
 export type { AxRolloutTrace };
 export type { AxRoutingResult };
+export type { AxRunControlEvent };
 export type { AxRuntimeCallableFormatArgs };
 export type { AxRuntimeHookFrame };
 export type { AxRuntimeHookFramedOptions };

@@ -1,0 +1,113 @@
+{
+  "cases": [
+    {
+      "event": {
+        "id": "earlier",
+        "type": "response.completed"
+      },
+      "expected_action": {
+        "changed": true,
+        "type": "validate"
+      }
+    },
+    {
+      "event": {
+        "type": "update.queued",
+        "update": {
+          "id": "u1",
+          "target": "root",
+          "text": "Correct the answer.",
+          "type": "steer"
+        }
+      },
+      "expected_action": {
+        "changed": true,
+        "type": "continue"
+      }
+    },
+    {
+      "event": {
+        "id": "u1",
+        "type": "native.queued"
+      },
+      "expected_action": {
+        "changed": true,
+        "type": "wait"
+      }
+    },
+    {
+      "event": {
+        "id": "parent",
+        "type": "response.completed"
+      },
+      "expected_action": {
+        "changed": true,
+        "type": "wait"
+      }
+    },
+    {
+      "event": {
+        "id": "successor",
+        "type": "response.completed"
+      },
+      "expected_action": {
+        "changed": true,
+        "type": "wait"
+      }
+    },
+    {
+      "event": {
+        "response_id": "parent",
+        "status": "accepted",
+        "steer_id": "s1",
+        "type": "steering"
+      },
+      "expected_action": {
+        "applied_id": "u1",
+        "changed": true,
+        "type": "validate"
+      }
+    },
+    {
+      "event": {
+        "required_call_ids": ["old"],
+        "response_id": "parent",
+        "status": "pending",
+        "steer_id": "s1",
+        "type": "steering"
+      },
+      "expected_action": {
+        "changed": false,
+        "type": "validate"
+      }
+    },
+    {
+      "event": {
+        "response_id": "parent",
+        "status": "accepted",
+        "steer_id": "s1",
+        "type": "steering"
+      },
+      "expected_action": {
+        "changed": false,
+        "type": "validate"
+      }
+    },
+    {
+      "event": {
+        "type": "validated"
+      },
+      "expected_action": {
+        "changed": true,
+        "type": "closed"
+      }
+    }
+  ],
+  "expected_pending": [],
+  "expected_steps": 3,
+  "kind": "ai_session_state",
+  "max_steps": 4,
+  "model": "gpt-6-astra",
+  "name": "astra-native-successor-before-ack",
+  "path": "root"
+}

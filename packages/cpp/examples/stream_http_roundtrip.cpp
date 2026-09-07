@@ -73,6 +73,33 @@ void write_response(int fd, const std::string& content_type, const std::string& 
   send(fd, rest.data(), rest.size(), 0);
 }
 
+
+void stalled_http_cancellation() {
+  using namespace axllm;
+  int listener=socket(AF_INET,SOCK_STREAM,0);
+  if(listener<0)throw std::runtime_error("socket failed");
+  sockaddr_in address{};address.sin_family=AF_INET;address.sin_addr.s_addr=htonl(INADDR_LOOPBACK);
+  if(bind(listener,reinterpret_cast<sockaddr*>(&address),sizeof(address))<0||listen(listener,1)<0)throw std::runtime_error("listen failed");
+  socklen_t size=sizeof(address);getsockname(listener,reinterpret_cast<sockaddr*>(&address),&size);
+  std::atomic<bool> closed{false};
+  std::thread server([&]{
+    int connection=accept(listener,nullptr,nullptr);if(connection<0)return;
+    drain_request(connection);timeval timeout{3,0};setsockopt(connection,SOL_SOCKET,SO_RCVTIMEO,&timeout,sizeof(timeout));
+    const std::string event="data: {\"type\":\"response.output_item.done\",\"item\":{\"type\":\"function_call\",\"id\":\"item\",\"call_id\":\"http-pending\",\"name\":\"lookup\",\"arguments\":\"{}\"}}\n\n";
+    const std::string response="HTTP/1.1 200 OK\r\nContent-Type: text/event-stream\r\nContent-Length: 100000\r\n\r\n"+event;
+    size_t offset=0;while(offset<response.size()){auto written=send(connection,response.data()+offset,response.size()-offset,0);if(written<=0)break;offset+=written;}
+    char byte;auto count=recv(connection,&byte,1,0);closed.store(count==0||(count<0&&(errno==ECONNRESET||errno==ECONNABORTED)));close(connection);
+  });
+  auto control=run_control();Tool lookup("lookup","Lookup");lookup.execution("background").context_handler([control](Value,const AxToolContext&){control.abort();return Value("LATE");});
+  auto program=ax("question -> answer");program.add_tool(lookup);
+  auto client=ai("openai",object({{"api_key","test"},{"model","gpt-6-astra"},{"base_url","http://127.0.0.1:"+std::to_string(ntohs(address.sin_port))}}));
+  std::string failure;
+  try{program.forward(*client,object({{"question","Lookup"}}),object({{"control",control.value()}}));}catch(const std::exception& error){failure=error.what();}
+  server.join();close(listener);
+  if(failure.find("http-pending")==std::string::npos||!closed.load())throw std::runtime_error("Cancelled HTTP run retained its connection: "+failure);
+  std::cout<<"cpp cancellation closes a stalled native HTTP connection\n";
+}
+
 }  // namespace
 
 int main() {
@@ -149,6 +176,7 @@ int main() {
     std::cerr << "bad stream fold: " << text << "\n";
     return 1;
   }
+  stalled_http_cancellation();
 
   axllm::AxCancellationToken token;
   bool aborted = false;

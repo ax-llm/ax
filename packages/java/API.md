@@ -58,7 +58,7 @@ Create an AxGen program from a string or parsed signature.
 - Kind: `function`
 - Form: `Ax.ax(signature)`
 - Returns: `AxGen`
-- Important options: functions, examples, demos, sample count, result picker, modelConfig, maxRetries, streaming assertions, field processors
+- Important options: functions, examples, demos, sample count, result picker, modelConfig, maxRetries, streaming assertions, field processors, control, asyncMode
 
 ```java
 AxGen qa = Ax.ax("question:string -> answer:string");
@@ -73,6 +73,29 @@ Structured generation program with indexed multi-sampling, winner selection, for
 - Form: `new AxGen(signature)`
 - Returns: `program object`
 - Important options: signature, functions, examples, demos, sample count, result picker, memory, prompt template
+
+### `Ax.runControl`
+
+Create a controller for scoped steering, reasoning updates, cancellation, and queued/applied lifecycle events. Pass it through forward options.
+
+- Canonical Ax concept: `run_control`
+- Kind: `function`
+- Form: `Ax.runControl()`
+- Returns: `AxRunControl`
+
+```java
+var control = Ax.runControl();
+```
+
+### `AxRunControl`
+
+Run control shared by active and future descendant programs. Cancellation reports unresolved work and does not undo external effects.
+
+- Canonical Ax concept: `AxRunControl`
+- Kind: `type`
+- Form: `AxRunControl`
+- Returns: `run controller`
+- Important options: steer, thinking token budget, target path, abort, event listener
 
 
 ## AxAI
@@ -146,6 +169,16 @@ Return fresh request headers that override static profile authentication.
 - Form: `OpenAICompatibleClient.CredentialProvider`
 - Returns: `header map or credential error`
 - Important options: chat, stream, embeddings, Responses, audio, retries
+
+### `AxChatSession`
+
+Optional normalized session capability for custom provider adapters. High-level programs own tool execution and continuation; chat-only services remain supported.
+
+- Canonical Ax concept: `AxChatSession`
+- Kind: `interface`
+- Form: `AxChatSession`
+- Returns: `run-owned chat session`
+- Important options: normalized events, completed calls, submit results, steering, reasoning updates, close
 
 ### `AxChatStream`
 
@@ -510,7 +543,7 @@ Build a typed function tool. Rust uses `tool` because `fn` is reserved.
 - Kind: `function`
 - Form: `Ax.fn(name).description(...).arg(...).handler(...).build()`
 - Returns: `tool builder or Tool`
-- Important options: name, description, args, returns, handler
+- Important options: name, description, args, returns, handler, execution: blocking or background, cancellation-aware handler
 
 ```java
 Tool search = Ax.fn("search").description("Search docs").build();
