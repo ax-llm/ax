@@ -78,5 +78,32 @@ func main() {
 	if !ok || audio["data"] != "AQI=" {
 		fail("audio chunk not surfaced", final)
 	}
+	meta := ax.NewAI("meta", map[string]ax.Value{"model": "muse-voice-transcribe-1.0", "api_key": "test-key"}).(*ax.OpenAIResponsesClient)
+	metaRequest := map[string]ax.Value{
+		"model": "muse-voice-transcribe-1.0",
+		"chat_prompt": ax.Array(ax.Object("role", "user", "content", ax.Array(ax.Object("type", "audio", "data", "AAE=", "format", "pcm16")))),
+		"audio": ax.Object("input", ax.Object("sampleRate", 16000, "channels", 1)),
+		"model_config": ax.Object("realtimeTranscription", ax.Object("partialMode", "delta")),
+	}
+	metaTransport := ax.NewScriptedRealtimeTransport([]ax.Value{
+		ax.Object("sessionId", "meta-session"),
+		ax.Object("type", "speechStart", "turnId", "one"),
+		ax.Object("type", "transcript", "transcript", "Hello"),
+		ax.Object("type", "transcript", "transcript", " world"),
+		ax.Object("type", "speaker", "speaker", "A"),
+		ax.Object("type", "speechStart", "turnId", "two"),
+		ax.Object("type", "transcript", "transcript", "Second"),
+		ax.Object("type", "speechComplete", "turnId", "one", "transcript", "Hello world!"),
+		ax.Object("type", "speechComplete", "turnId", "two", "transcript", "Second turn"),
+	})
+	metaFinal, err := meta.RealtimeChat(context.Background(), metaRequest, nil, metaTransport)
+	if err != nil { fail(err.Error(), nil) }
+	// Round-trip the public JSON value to avoid depending on Ax's internal array representation.
+	metaJSON, _ := json.Marshal(metaFinal)
+	var metaResponse map[string]ax.Value
+	if err := json.Unmarshal(metaJSON, &metaResponse); err != nil { fail(err.Error(), metaFinal) }
+	metaResults := metaResponse["results"].([]ax.Value)
+	if metaResponse["remote_session_id"] != "meta-session" || len(metaResults) != 2 || metaResults[0].(map[string]ax.Value)["content"] != "Hello world!" || metaResults[1].(map[string]ax.Value)["content"] != "Second turn" { fail("Meta overlapping turns or session lost", metaFinal) }
+	if len(metaTransport.Sent) != 3 || metaTransport.Sent[0].(map[string]ax.Value)["audioEncoding"] != "PCM_16KHZ" || metaTransport.Sent[1].(map[string]ax.Value)["type"] != "binary" || metaTransport.Sent[2].(map[string]ax.Value)["type"] != "endStream" { fail("Meta setup/audio/shutdown order", metaTransport.Sent) }
 	fmt.Println("realtime-audio-turn-ok")
 }

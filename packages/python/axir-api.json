@@ -121,6 +121,34 @@
         },
         {
           "target_name": "python",
+          "canonical_name": "AxCancellationToken",
+          "public_name": "AxCancellationToken",
+          "kind": "type",
+          "description": "Reusable one-shot cancellation for provider calls, streams, retries, and event-clock sleeps. Go uses context.Context.",
+          "form": "AxCancellationToken()",
+          "important_options": [
+            "first reason wins",
+            "removable wake subscriptions",
+            "non-retryable cancellation"
+          ],
+          "returns": "cancellation token or context"
+        },
+        {
+          "target_name": "python",
+          "canonical_name": "AxAIServiceAbortedError",
+          "public_name": "AxAIServiceAbortedError",
+          "kind": "error",
+          "description": "Terminal provider error raised when caller cancellation is observed.",
+          "form": "AxAIServiceAbortedError(reason)",
+          "important_options": [
+            "reason preservation",
+            "no retry",
+            "no provider failover"
+          ],
+          "returns": "non-retryable provider error"
+        },
+        {
+          "target_name": "python",
           "canonical_name": "get_supported_ai_models",
           "public_name": "get_supported_ai_models",
           "kind": "function",

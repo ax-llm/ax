@@ -29,6 +29,9 @@ const internalExportNames = new Set([
   'AxAIOpenAIChatReasoningEffort',
   'AxAIOpenAIResponsesReasoningEffort',
   'AxAIOpenAIResponsesImpl',
+  'AxAIOpenAIResponsesRealtimeAdapter',
+  'AxAIOpenAIResponsesRealtimeRequest',
+  'AxAIAnthropicProfile',
   'AxAgentInternalCompletionPayload',
   'AxAppliedProposal',
   'AxFlowDependencyAnalyzer',
@@ -62,6 +65,9 @@ const internalExportNames = new Set([
   'axResolveOpenAIReasoningEffort',
   'axResolveOpenAIChatReasoningEffort',
   'axResolveOpenAIResponsesReasoningEffort',
+  'axCreateMetaRealtimeApi',
+  'axFetchMetaTranscription',
+  'axNormalizeMetaTranscriptionResponse',
   // OpenAI prompt-caching internals. The breakpoint marker and content-part
   // types stay public because AxAIOpenAIChatRequest is built out of them.
   'axApplyOpenAIPromptCacheBreakpoints',

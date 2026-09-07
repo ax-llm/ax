@@ -5,6 +5,7 @@ import java.util.Map;
 import java.util.UUID;
 
 public abstract class AxBaseAI implements AxAIService {
+  private static final ThreadLocal<AxCancellationToken> ACTIVE_CANCELLATION=new ThreadLocal<>();
   protected final String id = UUID.randomUUID().toString();
   protected final String name;
   protected final String model;
@@ -64,11 +65,22 @@ public abstract class AxBaseAI implements AxAIService {
     return merged;
   }
 
+  protected static AxCancellationToken cancellation(Map<String,Object> options){
+    if(options==null)return null;
+    Object value=options.getOrDefault("cancellation",options.getOrDefault("cancellationToken",options.get("cancellation_token")));
+    if(value==null)return null;
+    if(!(value instanceof AxCancellationToken token))throw new IllegalArgumentException("cancellation must be an AxCancellationToken");
+    return token;
+  }
+  protected static AxCancellationToken activeCancellation(){return ACTIVE_CANCELLATION.get();}
+
   public Map<String, Object> chat(Map<String, Object> request) throws Exception {
     return chat(request, Map.of());
   }
 
   public Map<String, Object> chat(Map<String, Object> request, Map<String, Object> callOptions) throws Exception {
+    AxCancellationToken cancellation=cancellation(callOptions);if(cancellation!=null)cancellation.throwIfCancelled();
+    if(cancellation!=null)ACTIVE_CANCELLATION.set(cancellation);
     AxRuntimeHooks hooks = AxGlobals.effective(callOptions, runtimeHooks);
     Map<String, Object> req = Core.coerceChatRequest(request);
     Core.validate_chat_request(req);
@@ -104,6 +116,7 @@ public abstract class AxBaseAI implements AxAIService {
       if (error instanceof Error fatal) throw fatal;
       throw new RuntimeException(error);
     } finally {
+      if(cancellation!=null)ACTIVE_CANCELLATION.remove();
       if (failure != null) AxGlobals.recordMetric(hooks.meter(), "counter", "ax_llm_errors_total", 1, attributes);
       AxGlobals.recordMetric(hooks.meter(), "histogram", "ax_llm_request_duration_ms", (System.nanoTime() - started) / 1_000_000.0, attributes);
       AxGlobals.finishSpan(span, failure);
@@ -115,6 +128,8 @@ public abstract class AxBaseAI implements AxAIService {
   }
 
   public Map<String, Object> embed(Map<String, Object> request, Map<String, Object> callOptions) throws Exception {
+    AxCancellationToken cancellation=cancellation(callOptions);if(cancellation!=null)cancellation.throwIfCancelled();
+    if(cancellation!=null)ACTIVE_CANCELLATION.set(cancellation);
     AxRuntimeHooks hooks = AxGlobals.effective(callOptions, runtimeHooks);
     Object texts = request.get("texts");
     if (!(texts instanceof java.util.List<?> list) || list.isEmpty()) throw new AxAIServiceResponseError("Embed texts is empty");
@@ -145,6 +160,7 @@ public abstract class AxBaseAI implements AxAIService {
       if (error instanceof Error fatal) throw fatal;
       throw new RuntimeException(error);
     } finally {
+      if(cancellation!=null)ACTIVE_CANCELLATION.remove();
       if (failure != null) AxGlobals.recordMetric(hooks.meter(), "counter", "ax_llm_errors_total", 1, attributes);
       AxGlobals.recordMetric(hooks.meter(), "histogram", "ax_llm_request_duration_ms", (System.nanoTime() - started) / 1_000_000.0, attributes);
       AxGlobals.finishSpan(span, failure);

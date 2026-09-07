@@ -1,0 +1,65 @@
+{
+  "expected_output": {
+    "duration": 2.25,
+    "segments": [
+      {
+        "end": 2.25,
+        "id": "turn-1",
+        "speaker": "speaker-1",
+        "start": 0.25,
+        "text": "Hello world"
+      }
+    ],
+    "session_id": "voice-session",
+    "text": "Hello world"
+  },
+  "expected_transport_request": {
+    "data": {
+      "audio": {
+        "data": "UklGRg==",
+        "filename": "voice.wav",
+        "format": "wav",
+        "mimeType": "audio/wav"
+      },
+      "request": "{\"audioEncoding\":\"WAV\",\"emitAudioProgress\":true,\"keywords\":[\"Ax\"],\"languageBias\":[\"en\",\"es\"],\"mode\":\"DIARIZATION\",\"model\":\"muse-voice-transcribe-1.0\",\"partialMode\":\"DELTA\"}"
+    },
+    "url": "https://api.meta.ai/v1/asr/transcribe?sessionId=caller-session"
+  },
+  "kind": "ai_transcribe",
+  "name": "meta-voice-transcribe",
+  "provider": "meta",
+  "request": {
+    "audio": {
+      "data": "UklGRg==",
+      "filename": "voice.wav",
+      "format": "wav",
+      "mimeType": "audio/wav"
+    },
+    "emitAudioProgress": true,
+    "keywords": ["Ax"],
+    "languageBias": ["en", "es"],
+    "mode": "diarization",
+    "model": "muse-voice-transcribe-1.0",
+    "partialMode": "delta",
+    "sessionId": "caller-session"
+  },
+  "transport_responses": [
+    {
+      "json": {
+        "audioDurationMs": 2250,
+        "sessionId": "voice-session",
+        "transcript": "Hello world",
+        "turns": [
+          {
+            "endMs": 2250,
+            "speaker": "speaker-1",
+            "startMs": 250,
+            "transcript": "Hello world",
+            "turnId": "turn-1"
+          }
+        ]
+      },
+      "status": 200
+    }
+  ]
+}

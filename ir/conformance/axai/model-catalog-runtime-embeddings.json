@@ -24,6 +24,7 @@
             "capabilities": {
               "audioInput": false,
               "audioOutput": false,
+              "imageOutput": false,
               "serviceTiers": [],
               "showThoughts": false,
               "structuredOutputs": false,
@@ -44,6 +45,7 @@
             "capabilities": {
               "audioInput": false,
               "audioOutput": false,
+              "imageOutput": false,
               "serviceTiers": [],
               "showThoughts": false,
               "structuredOutputs": false,
@@ -64,6 +66,7 @@
             "capabilities": {
               "audioInput": false,
               "audioOutput": false,
+              "imageOutput": false,
               "serviceTiers": [],
               "showThoughts": false,
               "structuredOutputs": false,
@@ -105,6 +108,7 @@
             "capabilities": {
               "audioInput": false,
               "audioOutput": false,
+              "imageOutput": false,
               "serviceTiers": [],
               "showThoughts": false,
               "structuredOutputs": false,
@@ -125,6 +129,7 @@
             "capabilities": {
               "audioInput": false,
               "audioOutput": false,
+              "imageOutput": false,
               "serviceTiers": [],
               "showThoughts": false,
               "structuredOutputs": false,
@@ -159,6 +164,7 @@
             "capabilities": {
               "audioInput": false,
               "audioOutput": false,
+              "imageOutput": false,
               "serviceTiers": [],
               "showThoughts": false,
               "structuredOutputs": false,
@@ -179,6 +185,7 @@
             "capabilities": {
               "audioInput": false,
               "audioOutput": false,
+              "imageOutput": false,
               "serviceTiers": [],
               "showThoughts": false,
               "structuredOutputs": false,
@@ -199,6 +206,7 @@
             "capabilities": {
               "audioInput": false,
               "audioOutput": false,
+              "imageOutput": false,
               "serviceTiers": [],
               "showThoughts": false,
               "structuredOutputs": false,
@@ -219,6 +227,7 @@
             "capabilities": {
               "audioInput": false,
               "audioOutput": false,
+              "imageOutput": false,
               "serviceTiers": [],
               "showThoughts": false,
               "structuredOutputs": false,
@@ -355,6 +364,42 @@
         "isDynamic": false,
         "models": [],
         "name": "deepseek-responses"
+      },
+      {
+        "capabilities": {
+          "serviceTiers": [],
+          "thinking": true,
+          "thinkingLevels": ["minimal", "low", "medium", "high", "highest"]
+        },
+        "defaultModel": "muse-spark-1.3",
+        "displayName": "Meta Model API",
+        "isDynamic": false,
+        "models": [],
+        "name": "meta"
+      },
+      {
+        "capabilities": {
+          "serviceTiers": [],
+          "thinking": true,
+          "thinkingLevels": ["minimal", "low", "medium", "high", "highest"]
+        },
+        "defaultModel": "muse-spark-1.3",
+        "displayName": "Meta Model API Chat Completions",
+        "isDynamic": false,
+        "models": [],
+        "name": "meta-chat"
+      },
+      {
+        "capabilities": {
+          "serviceTiers": [],
+          "thinking": true,
+          "thinkingLevels": ["minimal", "low", "medium", "high", "highest"]
+        },
+        "defaultModel": "muse-spark-1.3",
+        "displayName": "Meta Model API Messages",
+        "isDynamic": false,
+        "models": [],
+        "name": "meta-messages"
       },
       {
         "capabilities": {
@@ -759,7 +804,7 @@
     "modelCount": 9,
     "openaiFirstModel": "text-embedding-3-small",
     "openaiModelTypes": ["embeddings"],
-    "providerCount": 46,
+    "providerCount": 49,
     "providerNames": [
       "openai",
       "google-gemini",
@@ -771,6 +816,9 @@
       "azure-openai",
       "deepseek",
       "deepseek-responses",
+      "meta",
+      "meta-chat",
+      "meta-messages",
       "mistral",
       "grok",
       "reka",

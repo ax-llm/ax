@@ -469,6 +469,7 @@ module @ax.gen version "0.1" {
           core.set %forced_function["type"] = "function"
           core.set %forced_function["function"] = %forced_function_ref
           core.set %request["function_call"] = %forced_function
+          core.set %request["function_call_source"] = "ax"
         }
       }
       core.set %request["functions"] = %function_specs
@@ -865,12 +866,16 @@ module @ax.gen version "0.1" {
           %response = core.call intrinsic.ai.complete_once(%client, %request, %options)
           core.return %response
         } catch %error {
+          %aborted = core.call intrinsic.exception.is_aborted(%error)
+          core.if %aborted {
+            core.raise %error
+          }
           %last_error = core.let %error
           %exhausted = core.call intrinsic.gte(%attempt, %retries)
           core.if %exhausted {
             core.raise %error
           }
-          core.call intrinsic.retry.sleep(%attempt)
+          core.call intrinsic.retry.sleep(%attempt, %client, %options)
           %next_attempt = core.call intrinsic.add(%attempt, 1)
           %attempt = core.let %next_attempt
           core.continue
@@ -1192,6 +1197,16 @@ module @ax.gen version "0.1" {
       %has_thought_blocks = core.call intrinsic.is_not_none(%thought_blocks)
       core.if %has_thought_blocks {
         core.set %message["thought_blocks"] = %thought_blocks
+      }
+      %images = core.get %response["images"]
+      %has_images = core.call intrinsic.is_not_none(%images)
+      core.if %has_images {
+        core.set %message["images"] = %images
+      }
+      %phase = core.get %response["phase"]
+      %has_phase = core.call intrinsic.is_not_none(%phase)
+      core.if %has_phase {
+        core.set %message["phase"] = %phase
       }
       core.append %messages, %message
       core.return %messages

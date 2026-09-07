@@ -1,0 +1,86 @@
+{
+  "expected_output": {
+    "model_usage": null,
+    "remote_id": "meta-image-format-png",
+    "results": [
+      {
+        "content": "",
+        "finish_reason": "stop",
+        "function_calls": [],
+        "id": "data-url",
+        "images": [
+          {
+            "data": "AAAA",
+            "id": "base64",
+            "mime_type": "image/png"
+          },
+          {
+            "id": "url",
+            "mime_type": "image/png",
+            "url": "https://example.com/image"
+          },
+          {
+            "data": "BBBB",
+            "id": "data-url",
+            "mime_type": "image/png"
+          }
+        ],
+        "index": 0
+      }
+    ]
+  },
+  "expected_transport_request": {
+    "json": {
+      "tools": [
+        {
+          "output_format": "png",
+          "type": "image_generation"
+        }
+      ]
+    }
+  },
+  "kind": "ai_chat",
+  "model": "muse-image-1.0",
+  "name": "meta-image-format-png",
+  "provider": "meta",
+  "request": {
+    "chat_prompt": [
+      {
+        "content": "Draw a boat",
+        "role": "user"
+      }
+    ],
+    "model_config": {
+      "imageGeneration": {
+        "outputFormat": "png"
+      },
+      "stream": false
+    }
+  },
+  "transport_responses": [
+    {
+      "json": {
+        "id": "meta-image-format-png",
+        "model": "muse-image-1.0",
+        "output": [
+          {
+            "id": "base64",
+            "result": "AAAA",
+            "type": "image_generation_call"
+          },
+          {
+            "id": "url",
+            "result": "https://example.com/image",
+            "type": "image_generation_call"
+          },
+          {
+            "id": "data-url",
+            "result": "data:image/png;base64,BBBB",
+            "type": "image_generation_call"
+          }
+        ]
+      },
+      "status": 200
+    }
+  ]
+}

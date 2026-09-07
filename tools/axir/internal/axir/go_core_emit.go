@@ -12,6 +12,7 @@ import (
 // emitter where raising helpers return Result and pure helpers are total;
 // in Go the split keeps the hot pure path free of error plumbing.
 var coreIntrinsicGoRaising = map[CoreIntrinsic]bool{
+	IntrinsicRetrySleep:          true,
 	IntrinsicToolInvoke:          true,
 	IntrinsicAICompleteOnce:      true,
 	IntrinsicObjectCallMethod:    true,
@@ -235,7 +236,7 @@ func emitGoCoreStmt(ctx *goEmitCtx, stmt CoreStmt) ([]string, error) {
 	case "raise":
 		errExpr := fmt.Sprintf("AxError{Category: \"runtime\", Message: %s}", strconv.Quote(stmt.Message))
 		if _, ok := Attr(stmt.Op, "error"); ok {
-			errExpr = fmt.Sprintf("asAxError(%s)", goAttrValue(stmt.Op, "error"))
+			errExpr = fmt.Sprintf("asError(%s)", goAttrValue(stmt.Op, "error"))
 		}
 		if ctx.inClosure() {
 			return []string{fmt.Sprintf("return coreFlow{}, %s", errExpr)}, nil

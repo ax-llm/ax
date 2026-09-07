@@ -104,7 +104,7 @@
         "method.setState",
         "state.skillsPromptState"
       ],
-      "inventory_sha256": "e9319cce9b0b249d9adb76d12ca27333f4e201ce12ccc2b71c61d65965d6033a",
+      "inventory_sha256": "3b46862a668c51c521d4bd1ec037e61f0536c2baa1e578007ef5ec4ee7017070",
       "classification": "target-specific",
       "rationale": "This public TypeScript surface is either a DSP-layer pass-through, an optimizer/coordinator-only surface, streaming-only behavior, or an observable whose generated-language API has a target-native shape. It is inventoried but is not claimed semantically identical by this AxAgent lifecycle enrollment.",
       "contract_id_prefix": "axagent.target",
@@ -113,6 +113,11 @@
       "oracle_scenario": "No cross-target oracle is claimed until this explicitly inventoried member is enrolled through the referenced backlog item.",
       "observable_projection": [],
       "option_effect": "No portable output, state, or callback effect is claimed for {member}; its exclusion remains reviewable through the inventory digest and backlog reference.",
+      "option_effects": {
+        "constructor.promptCacheRetention": "Provider-option pass-through inherited from AxAIServiceOptions; Meta Responses retention is covered by AxAI provider conformance, not the AxAgent lifecycle contract.",
+        "forward.promptCacheRetention": "Provider-option pass-through inherited from AxAIServiceOptions; Meta Responses retention is covered by AxAI provider conformance, not the AxAgent lifecycle contract.",
+        "streaming_forward.promptCacheRetention": "Provider-option pass-through inherited from AxAIServiceOptions; Meta Responses retention is covered by AxAI provider conformance, not the AxAgent lifecycle contract."
+      },
       "exemption": {
         "reason": "Not part of the portable AxAgent lifecycle contract enrolled in this change; existing narrower AxIR capability entries continue to cover already-ported subsystems.",
         "backlog": "ir/axir-backlog.json#axagent-claim-complete-target-native-surfaces"

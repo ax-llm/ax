@@ -1,4 +1,4 @@
-use crate::{tool, AxError, AxResult, Tool};
+use crate::{tool, AxCancellationToken, AxError, AxResult, Tool};
 use serde_json::{json, Map, Value};
 use std::collections::{HashMap, HashSet};
 use std::fs::File;
@@ -459,9 +459,7 @@ pub struct AxEventRun { pub id:String,pub delivery_id:String,pub route_id:String
 pub struct AxEventDeadLetter { pub id:String,pub delivery_id:String,pub run_id:Option<String>,pub sink_id:Option<String>,pub reason:String }
 #[derive(Debug,Clone,serde::Serialize,serde::Deserialize)]
 pub struct AxEventContinuation { pub id:String,pub target_id:String,pub instance_key:String,pub identity_scope:String,pub correlation:Vec<AxEventCorrelationKey>,pub metadata:Value,pub completed:bool,pub expires_at:Option<i64> }
-#[derive(Debug,Clone,Default)]
-pub struct AxEventCancellationToken { state:Arc<Mutex<(bool,String)>> }
-impl AxEventCancellationToken { pub fn cancel(&self,reason:&str){*self.state.lock().unwrap()=(true,reason.into())}pub fn is_cancelled(&self)->bool{self.state.lock().unwrap().0} }
+pub type AxEventCancellationToken = AxCancellationToken;
 #[derive(Debug,Clone)] pub struct AxEventInvocationContext { pub run_id:String,pub delivery_id:String,pub instance_key:String,pub identity_scope:String,pub idempotency_key:String,pub cancellation:AxEventCancellationToken,pub continuation:Option<AxEventContinuation> }
 pub type AxEventInvoker=Arc<Mutex<dyn FnMut(Value,AxEventInvocationContext)->AxResult<Value>>>;
 pub type AxEventMapper=Arc<dyn Fn(&AxEventEnvelope,Option<&AxEventContinuation>)->AxResult<Value>>;
@@ -479,10 +477,10 @@ pub trait AxEventSource { fn start(&mut self,publish:&mut dyn FnMut(AxEventEnvel
 pub trait AxEventSink { fn write(&mut self,output:Value,context:Value)->AxResult<()>; }
 pub trait AxEventClock:Send+Sync { fn now(&self)->i64;fn sleep(&self,milliseconds:i64,cancellation:Option<&AxEventCancellationToken>)->bool; }
 #[derive(Default)]pub struct AxSystemEventClock;
-impl AxEventClock for AxSystemEventClock{fn now(&self)->i64{SystemTime::now().duration_since(UNIX_EPOCH).unwrap_or_default().as_millis() as i64}fn sleep(&self,milliseconds:i64,cancellation:Option<&AxEventCancellationToken>)->bool{if cancellation.is_some_and(AxEventCancellationToken::is_cancelled){return false}std::thread::sleep(Duration::from_millis(milliseconds.max(0) as u64));!cancellation.is_some_and(AxEventCancellationToken::is_cancelled)}}
-#[derive(Default)]pub struct AxManualEventClock{state:Mutex<i64>,changed:Condvar}
-impl AxManualEventClock{pub fn new(now:i64)->Self{Self{state:Mutex::new(now),changed:Condvar::new()}}pub fn advance(&self,milliseconds:i64){let mut value=self.state.lock().unwrap();*value+=milliseconds;self.changed.notify_all();}}
-impl AxEventClock for AxManualEventClock{fn now(&self)->i64{*self.state.lock().unwrap()}fn sleep(&self,milliseconds:i64,cancellation:Option<&AxEventCancellationToken>)->bool{let target=self.now()+milliseconds.max(0);let mut value=self.state.lock().unwrap();while *value<target{if cancellation.is_some_and(AxEventCancellationToken::is_cancelled){return false}value=self.changed.wait(value).unwrap()}!cancellation.is_some_and(AxEventCancellationToken::is_cancelled)}}
+impl AxEventClock for AxSystemEventClock{fn now(&self)->i64{SystemTime::now().duration_since(UNIX_EPOCH).unwrap_or_default().as_millis() as i64}fn sleep(&self,milliseconds:i64,cancellation:Option<&AxEventCancellationToken>)->bool{let duration=Duration::from_millis(milliseconds.max(0) as u64);match cancellation{Some(token)=>!token.wait_timeout(duration),None=>{std::thread::sleep(duration);true}}}}
+#[derive(Default)]pub struct AxManualEventClock{state:Arc<Mutex<i64>>,changed:Arc<Condvar>}
+impl AxManualEventClock{pub fn new(now:i64)->Self{Self{state:Arc::new(Mutex::new(now)),changed:Arc::new(Condvar::new())}}pub fn advance(&self,milliseconds:i64){let mut value=self.state.lock().unwrap();*value+=milliseconds;self.changed.notify_all();}}
+impl AxEventClock for AxManualEventClock{fn now(&self)->i64{*self.state.lock().unwrap()}fn sleep(&self,milliseconds:i64,cancellation:Option<&AxEventCancellationToken>)->bool{let target=self.now()+milliseconds.max(0);let changed=Arc::clone(&self.changed);let state=Arc::clone(&self.state);let _subscription=cancellation.map(|token|token.subscribe(move||{let _guard=state.lock().unwrap();changed.notify_all();}));let mut value=self.state.lock().unwrap();while *value<target{if cancellation.is_some_and(AxEventCancellationToken::is_cancelled){return false}value=self.changed.wait(value).unwrap()}!cancellation.is_some_and(AxEventCancellationToken::is_cancelled)}}
 pub trait AxEventStore { fn enqueue(&mut self,event:AxEventEnvelope,commands:Vec<AxEventCommand>)->AxResult<()>; }
 #[derive(Debug,Clone)] struct AxEventDelivery { event:AxEventEnvelope,command:AxEventCommand,identity_scope:String,trust:String,status:String,run_id:Option<String>,available_at:i64,sequence:u64,size:usize,attempt:usize }
 pub struct AxInMemoryEventStore { deliveries:HashMap<String,AxEventDelivery>,pub runs:HashMap<String,AxEventRun>,pub dead_letters:HashMap<String,AxEventDeadLetter>,pub continuations:HashMap<String,AxEventContinuation>,pub program_state:HashMap<String,Value>,clock:Arc<dyn AxEventClock>,max_pending:usize,max_queued_bytes:usize,max_envelope_bytes:usize,publish_timeout_ms:i64,queued_bytes:usize,sequence:u64 }

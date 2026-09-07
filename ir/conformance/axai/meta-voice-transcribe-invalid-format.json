@@ -1,0 +1,14 @@
+{
+  "expected_error_contains": "requires WAV audio",
+  "kind": "ai_unsupported",
+  "method": "transcribe",
+  "name": "meta-voice-transcribe-invalid-format",
+  "provider": "meta",
+  "request": {
+    "audio": {
+      "data": "AAAA",
+      "format": "mp3"
+    },
+    "model": "muse-voice-transcribe-1.0"
+  }
+}

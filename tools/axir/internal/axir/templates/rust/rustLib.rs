@@ -9,7 +9,7 @@ use std::fmt;
 use std::io::{BufRead, BufReader, Read, Write};
 use std::process::{Child, ChildStdin, Command, Stdio};
 use std::sync::atomic::{AtomicU64, Ordering};
-use std::sync::{Arc, Mutex, OnceLock, Weak};
+use std::sync::{Arc, Condvar, Mutex, OnceLock, Weak};
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
 #[cfg(feature = "runtime-quickjs")]
@@ -567,6 +567,99 @@ impl fmt::Display for AxError {
 }
 
 impl Error for AxError {}
+
+pub type AxAIServiceAbortedError = AxError;
+
+#[derive(Clone)]
+pub struct AxCancellationToken {
+    state: Arc<(Mutex<AxCancellationState>, Condvar)>,
+}
+
+struct AxCancellationState {
+    cancelled: bool,
+    reason: Option<String>,
+    next_subscription: u64,
+    subscriptions: BTreeMap<u64, Arc<dyn Fn() + Send + Sync>>,
+}
+
+impl fmt::Debug for AxCancellationToken {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("AxCancellationToken")
+            .field("cancelled", &self.is_cancelled())
+            .field("reason", &self.reason())
+            .finish()
+    }
+}
+
+impl Default for AxCancellationToken {
+    fn default() -> Self {
+        Self { state: Arc::new((Mutex::new(AxCancellationState { cancelled: false, reason: None, next_subscription: 0, subscriptions: BTreeMap::new() }), Condvar::new())) }
+    }
+}
+
+impl AxCancellationToken {
+    pub fn cancel(&self, reason: impl Into<String>) -> bool {
+        let callbacks = {
+            let (state, changed) = &*self.state;
+            let mut state = state.lock().unwrap();
+            if state.cancelled { return false; }
+            state.cancelled = true;
+            state.reason = Some(reason.into());
+            let callbacks = state.subscriptions.values().cloned().collect::<Vec<_>>();
+            state.subscriptions.clear();
+            changed.notify_all();
+            callbacks
+        };
+        for callback in callbacks { callback(); }
+        true
+    }
+
+    pub fn is_cancelled(&self) -> bool { self.state.0.lock().unwrap().cancelled }
+    pub fn reason(&self) -> Option<String> { self.state.0.lock().unwrap().reason.clone() }
+    pub fn throw_if_cancelled(&self) -> AxResult<()> {
+        if !self.is_cancelled() { return Ok(()); }
+        let reason = self.reason().unwrap_or_else(|| "cancelled".into());
+        let mut error = AxError::new("aborted", if reason == "cancelled" { "Request aborted".into() } else { format!("Request aborted: {reason}") });
+        error.error_type = Some("AxAIServiceAbortedError".into());
+        Err(error)
+    }
+    pub fn subscribe(&self, callback: impl Fn() + Send + Sync + 'static) -> AxCancellationSubscription {
+        let callback: Arc<dyn Fn() + Send + Sync> = Arc::new(callback);
+        let mut immediate = false;
+        let id = {
+            let mut state = self.state.0.lock().unwrap();
+            if state.cancelled { immediate = true; 0 } else { state.next_subscription += 1; let id = state.next_subscription; state.subscriptions.insert(id, callback.clone()); id }
+        };
+        if immediate { callback(); }
+        AxCancellationSubscription { state: Arc::downgrade(&self.state), id }
+    }
+    pub fn wait_timeout(&self, duration: Duration) -> bool {
+        let (state, changed) = &*self.state;
+        let state = state.lock().unwrap();
+        if state.cancelled { return true; }
+        changed.wait_timeout_while(state, duration, |state| !state.cancelled).unwrap().0.cancelled
+    }
+    pub fn subscription_count(&self) -> usize { self.state.0.lock().unwrap().subscriptions.len() }
+}
+
+pub struct AxCancellationSubscription {
+    state: Weak<(Mutex<AxCancellationState>, Condvar)>,
+    id: u64,
+}
+
+impl Drop for AxCancellationSubscription {
+    fn drop(&mut self) {
+        if self.id == 0 { return; }
+        if let Some(state) = self.state.upgrade() { state.0.lock().unwrap().subscriptions.remove(&self.id); }
+    }
+}
+
+thread_local! { static AX_CANCELLATION_STACK: std::cell::RefCell<Vec<AxCancellationToken>> = const { std::cell::RefCell::new(Vec::new()) }; }
+
+struct AxCancellationScope;
+impl AxCancellationScope { fn enter(token:&AxCancellationToken)->AxResult<Self>{token.throw_if_cancelled()?;AX_CANCELLATION_STACK.with(|stack|stack.borrow_mut().push(token.clone()));Ok(Self)} }
+impl Drop for AxCancellationScope { fn drop(&mut self){AX_CANCELLATION_STACK.with(|stack|{stack.borrow_mut().pop();});} }
+fn current_cancellation_token()->Option<AxCancellationToken>{AX_CANCELLATION_STACK.with(|stack|stack.borrow().last().cloned())}
 
 impl From<serde_json::Error> for AxError {
     fn from(value: serde_json::Error) -> Self {
@@ -1163,8 +1256,8 @@ fn encode_base64(input: &[u8]) -> String {
 
 // Encode a request payload as multipart/form-data and return the raw body
 // bytes plus the matching Content-Type header value. Multipart operations
-// (e.g. OpenAI /audio/transcriptions) carry the audio as a binary `file` part;
-// every other field is a plain form field. The `file` value is a base64 string
+// (e.g. OpenAI /audio/transcriptions) carry audio as a binary `file` or `audio` part;
+// every other field is a plain form field. The binary value is a base64 string
 // (optionally a `data:` URL) or a map {data, mimeType?, filename?}. Mirrors the
 // verified Python `_encode_multipart`; the fixed boundary avoids needing a
 // random/uuid dependency.
@@ -1177,7 +1270,7 @@ fn encode_multipart(payload: &Value) -> (Vec<u8>, String) {
             if value.is_null() {
                 continue;
             }
-            if key == "file" {
+            if key == "file" || key == "audio" {
                 let (raw_data, filename, content_type) = match value {
                     Value::Object(map) => {
                         let data = map.get("data").and_then(Value::as_str).unwrap_or("").to_string();
@@ -1218,7 +1311,7 @@ fn encode_multipart(payload: &Value) -> (Vec<u8>, String) {
                 body.extend_from_slice(BOUNDARY.as_bytes());
                 body.extend_from_slice(CRLF);
                 body.extend_from_slice(
-                    format!("Content-Disposition: form-data; name=\"file\"; filename=\"{filename}\"")
+                    format!("Content-Disposition: form-data; name=\"{key}\"; filename=\"{filename}\"")
                         .as_bytes(),
                 );
                 body.extend_from_slice(CRLF);
@@ -1235,6 +1328,10 @@ fn encode_multipart(payload: &Value) -> (Vec<u8>, String) {
                     format!("Content-Disposition: form-data; name=\"{key}\"").as_bytes(),
                 );
                 body.extend_from_slice(CRLF);
+                if key == "request" {
+                    body.extend_from_slice(b"Content-Type: application/json");
+                    body.extend_from_slice(CRLF);
+                }
                 body.extend_from_slice(CRLF);
                 body.extend_from_slice(value_as_display_string(value).as_bytes());
                 body.extend_from_slice(CRLF);
@@ -1272,6 +1369,8 @@ pub trait AxAIClient {
         self.chat(request)
     }
 
+    fn chat_with_cancellation(&mut self,request:Value,options:Value,cancellation:&AxCancellationToken)->AxResult<Value>{let _scope=AxCancellationScope::enter(cancellation)?;let result=self.chat_with_options(request,options);cancellation.throw_if_cancelled()?;result}
+
     fn chat_with_runtime_hooks(
         &mut self,
         request: Value,
@@ -1291,6 +1390,7 @@ pub trait AxAIClient {
     fn embed(&mut self, _request: Value) -> AxResult<Value> {
         Err(AxError::runtime("embedding is not supported by this AI client"))
     }
+    fn embed_with_cancellation(&mut self,request:Value,cancellation:&AxCancellationToken)->AxResult<Value>{let _scope=AxCancellationScope::enter(cancellation)?;let result=self.embed(request);cancellation.throw_if_cancelled()?;result}
 
 
     fn embed_with_runtime_hooks(
@@ -1311,6 +1411,7 @@ pub trait AxAIClient {
     fn speak(&mut self, _request: Value) -> AxResult<Value> {
         Err(AxError::runtime("speech is not supported by this AI client"))
     }
+    fn speak_with_cancellation(&mut self,request:Value,cancellation:&AxCancellationToken)->AxResult<Value>{let _scope=AxCancellationScope::enter(cancellation)?;let result=self.speak(request);cancellation.throw_if_cancelled()?;result}
 
     fn get_id(&self) -> String { self.get_name() }
     fn get_name(&self) -> String { "ai-service".to_string() }
@@ -1325,6 +1426,7 @@ pub trait AxAIClient {
         let _ = request;
         Ok(json!({"text": ""}))
     }
+    fn transcribe_with_cancellation(&mut self,request:Value,cancellation:&AxCancellationToken)->AxResult<Value>{let _scope=AxCancellationScope::enter(cancellation)?;let result=self.transcribe(request);cancellation.throw_if_cancelled()?;result}
 
     fn complete(&mut self, request: Value) -> AxResult<Value> {
         self.chat(request)
@@ -1344,6 +1446,8 @@ pub trait AxAIClient {
     fn stream_iter(&mut self, request: Value) -> AxResult<AxChatStream> {
         self.stream(request).map(AxChatStream::from_values)
     }
+    fn stream_iter_with_cancellation(&mut self,request:Value,cancellation:&AxCancellationToken)->AxResult<AxChatStream>{let _scope=AxCancellationScope::enter(cancellation)?;let stream=self.stream_iter(request)?;let token=cancellation.clone();Ok(AxChatStream::new(CancellableProviderIterator{inner:Box::new(stream),token},None))}
+    fn stream_with_cancellation(&mut self,request:Value,cancellation:&AxCancellationToken)->AxResult<Vec<Value>>{let mut stream=self.stream_iter_with_cancellation(request,cancellation)?;let mut values=Vec::new();for value in &mut stream{values.push(value?);}Ok(values)}
 
     fn stream_with_runtime_hooks(
         &mut self,
@@ -1437,10 +1541,16 @@ pub enum AxTransportStream {
 pub trait AxTransport: Send {
     fn send(&mut self, request: Value) -> AxResult<Value>;
 
+    fn send_with_cancellation(&mut self,request:Value,cancellation:&AxCancellationToken)->AxResult<Value>{let _scope=AxCancellationScope::enter(cancellation)?;let result=self.send(request);cancellation.throw_if_cancelled()?;result}
+
     fn stream(&mut self, request: Value) -> AxResult<AxTransportStream> {
         self.send(request).map(AxTransportStream::Buffered)
     }
+    fn stream_with_cancellation(&mut self,request:Value,cancellation:&AxCancellationToken)->AxResult<AxTransportStream>{let _scope=AxCancellationScope::enter(cancellation)?;let result=self.stream(request);cancellation.throw_if_cancelled()?;result}
 }
+
+struct CancellableProviderIterator{inner:Box<dyn Iterator<Item=AxResult<Value>>>,token:AxCancellationToken}
+impl Iterator for CancellableProviderIterator{type Item=AxResult<Value>;fn next(&mut self)->Option<Self::Item>{if let Err(error)=self.token.throw_if_cancelled(){return Some(Err(error))}let value=self.inner.next();if self.token.is_cancelled(){return Some(Err(self.token.throw_if_cancelled().unwrap_err()))}value}}
 
 struct SseJsonStream {
     reader: BufReader<Box<dyn Read>>,
@@ -1532,6 +1642,7 @@ struct NormalizedProviderStream {
     profile: String,
     model: String,
     state: CoreValue,
+    context: CoreValue,
 }
 
 impl Iterator for NormalizedProviderStream {
@@ -1547,6 +1658,7 @@ impl Iterator for NormalizedProviderStream {
                 self.state.clone(),
                 provider_ai_display_name(&self.profile),
                 CoreValue::from(self.model.as_str()),
+                self.context.clone(),
             ]);
             match normalized {
                 Ok(value) if value.is_null() => continue,
@@ -1590,6 +1702,7 @@ pub type RuntimeTransport = dyn AxTransport;
 pub struct ScriptedTransport {
     responses: VecDeque<Value>,
     pub requests: Vec<Value>,
+    pub cancellations: Vec<AxCancellationToken>,
 }
 
 impl ScriptedTransport {
@@ -1597,6 +1710,7 @@ impl ScriptedTransport {
         Self {
             responses: responses.into(),
             requests: Vec::new(),
+            cancellations: Vec::new(),
         }
     }
 }
@@ -1608,6 +1722,8 @@ impl AxTransport for ScriptedTransport {
             .pop_front()
             .ok_or_else(|| AxError::runtime("scripted transport exhausted"))
     }
+    fn send_with_cancellation(&mut self,request:Value,cancellation:&AxCancellationToken)->AxResult<Value>{self.cancellations.push(cancellation.clone());self.send(request)}
+    fn stream_with_cancellation(&mut self,request:Value,cancellation:&AxCancellationToken)->AxResult<AxTransportStream>{self.cancellations.push(cancellation.clone());self.stream(request)}
 }
 
 pub struct OpenAICompatibleClient {
@@ -1831,8 +1947,10 @@ impl OpenAICompatibleClient {
     }
 
     fn dispatch_transport_request(&mut self, call: Value) -> AxResult<Value> {
+        let cancellation=current_cancellation_token();
+        if let Some(token)=&cancellation{token.throw_if_cancelled()?;}
         if let Some(transport) = self.transport.as_mut() {
-            return transport.send(call);
+            return match cancellation.as_ref(){Some(token)=>transport.send_with_cancellation(call,token),None=>transport.send(call)};
         }
         let url = call.get("url").and_then(Value::as_str).unwrap_or_default().to_string();
         let method = call.get("method").and_then(Value::as_str).unwrap_or("POST").parse::<reqwest::Method>()
@@ -1861,8 +1979,10 @@ impl OpenAICompatibleClient {
                 .json(&body)
                 .send()?
         };
+        if let Some(token)=&cancellation{token.throw_if_cancelled()?;}
         let status = response.status().as_u16();
         let bytes = response.bytes()?;
+        if let Some(token)=&cancellation{token.throw_if_cancelled()?;}
         let body = if bytes.is_empty() {
             Value::Null
         } else {
@@ -1889,8 +2009,12 @@ impl OpenAICompatibleClient {
     }
 
     fn dispatch_transport_stream(&mut self, call: Value) -> AxResult<Box<dyn Iterator<Item = AxResult<Value>>>> {
+        let cancellation=current_cancellation_token();
+        if let Some(token)=&cancellation{token.throw_if_cancelled()?;}
         if let Some(transport) = self.transport.as_mut() {
-            return Self::transport_stream_iter(transport.stream(call)?);
+            let stream=match cancellation.as_ref(){Some(token)=>transport.stream_with_cancellation(call,token)?,None=>transport.stream(call)?};
+            let inner=Self::transport_stream_iter(stream)?;
+            return Ok(match cancellation{Some(token)=>Box::new(CancellableProviderIterator{inner,token}) as Box<dyn Iterator<Item=AxResult<Value>>>,None=>inner});
         }
         let url = call.get("url").and_then(Value::as_str).unwrap_or_default().to_string();
         let method = call.get("method").and_then(Value::as_str).unwrap_or("POST").parse::<reqwest::Method>()
@@ -1904,8 +2028,10 @@ impl OpenAICompatibleClient {
         }
         let body = call.get("json").cloned().unwrap_or_else(|| json!({}));
         let response = builder.json(&body).send()?;
+        if let Some(token)=&cancellation{token.throw_if_cancelled()?;}
         let status = response.status().as_u16();
-        Self::transport_stream_iter(AxTransportStream::Reader { status, body: Box::new(response) })
+        let inner=Self::transport_stream_iter(AxTransportStream::Reader { status, body: Box::new(response) })?;
+        Ok(match cancellation{Some(token)=>Box::new(CancellableProviderIterator{inner,token}) as Box<dyn Iterator<Item=AxResult<Value>>>,None=>inner})
     }
 
     fn send_json_call(&mut self, call: Value) -> AxResult<Value> {
@@ -2151,6 +2277,9 @@ impl OpenAICompatibleClient {
     fn post_data(&mut self, path: &str, data: Value, operation: &str) -> AxResult<Value> {
         let url = self.endpoint_url(path);
         let mut headers = serde_json::Map::new();
+        if self.profile == "meta" && operation == "transcribe" {
+            headers.insert("Accept".to_string(), json!("text/event-stream"));
+        }
         if !self.api_key.is_empty() { headers.insert("Authorization".to_string(), json!(format!("Bearer {}", self.api_key))); }
         if let Some(provider) = self.credential_provider.as_ref() {
             for (key, value) in provider.credentials(&AxCredentialRequest { profile: self.profile.clone(), operation: operation.to_string(), method: "POST".to_string(), url: url.clone() })? {
@@ -2175,12 +2304,14 @@ impl OpenAICompatibleClient {
         for (key, value) in &headers {
             request_builder = request_builder.header(key, value.as_str().unwrap_or_default());
         }
-        let response: Value = request_builder
+        let response = request_builder
             .header("Content-Type", content_type)
             .body(body)
             .send()?
-            .error_for_status()?
-            .json()?;
+            .error_for_status()?;
+        let bytes = response.bytes()?;
+        let response: Value = serde_json::from_slice(&bytes)
+            .unwrap_or_else(|_| Value::String(String::from_utf8_lossy(&bytes).into_owned()));
         Ok(json!({"status": 200, "json": response}))
     }
 
@@ -2272,10 +2403,30 @@ impl OpenAICompatibleClient {
 
     pub fn transcribe(&mut self, request: Value) -> AxResult<Value> {
         let profile = self.profile.clone();
-        let body = core_value_to_json(&provider_build_transcribe_request(&[
+        let mut body = core_value_to_json(&provider_build_transcribe_request(&[
             CoreValue::from(profile.as_str()),
             core_value_from_json(&request),
         ])?);
+        let descriptor = core_value_to_json(&provider_operation_descriptor(&[
+            CoreValue::from(profile.as_str()),
+            CoreValue::from("transcribe"),
+        ])?);
+        let mut path = descriptor
+            .get("path")
+            .and_then(Value::as_str)
+            .unwrap_or("/audio/transcriptions")
+            .to_string();
+        if let Some(session_id) = body
+            .get("query")
+            .and_then(|query| query.get("sessionId"))
+            .and_then(Value::as_str)
+        {
+            path.push_str(if path.contains('?') { "&sessionId=" } else { "?sessionId=" });
+            path.push_str(session_id);
+        }
+        if let Some(object) = body.as_object_mut() {
+            object.remove("query");
+        }
         let raw = match profile.as_str() {
             "google-gemini" => {
                 let model = string_at(&request, "model").unwrap_or_else(|| self.model.clone());
@@ -2284,10 +2435,16 @@ impl OpenAICompatibleClient {
                 );
                 self.post_json(&path, body, false, "transcribe")?
             }
-            "grok" => self.post_data("/stt", body, "transcribe")?,
-            _ => self.post_data("/audio/transcriptions", body, "transcribe")?,
+            _ => self.post_data(&path, body, "transcribe")?,
         };
-        let payload = normalize_passthrough_response(raw)?;
+        let mut payload = normalize_passthrough_response(raw)?;
+        if profile == "meta" {
+            if let Some(text) = payload.as_str() {
+                let stream = SseJsonStream::new(Box::new(std::io::Cursor::new(text.as_bytes().to_vec())));
+                let events = stream.collect::<AxResult<Vec<Value>>>()?;
+                payload = json!({"events": events});
+            }
+        }
         let normalized = provider_normalize_transcribe_response(&[
             CoreValue::from(profile.as_str()),
             core_value_from_json(&payload),
@@ -2368,6 +2525,14 @@ impl OpenAICompatibleClient {
             core_value_from_json(&request),
             core_value_from_json(&self.options),
         ])?;
+        if self.profile == "meta" {
+            if let Some(provider) = self.credential_provider.as_ref() {
+                let model = request.get("model").and_then(Value::as_str).unwrap_or(&self.model);
+                let (url, _) = self.realtime_ws_target(model);
+                let fresh = provider.credentials(&AxCredentialRequest { profile: self.profile.clone(), operation: "realtime".to_string(), method: "WS".to_string(), url })?;
+                return Ok(core_value_to_json(&provider_apply_realtime_credentials(&[built, core_value_from_json(&json!(fresh))])?));
+            }
+        }
         Ok(core_value_to_json(&built))
     }
 
@@ -2377,6 +2542,57 @@ impl OpenAICompatibleClient {
             core_value_from_json(&audio),
         ])?;
         Ok(core_value_to_json(&built))
+    }
+
+    fn meta_realtime_stream(&self, request: Value) -> AxResult<AxChatStream> {
+        let model = request.get("model").and_then(Value::as_str).unwrap_or(&self.model).to_string();
+        let setup = self.realtime_audio_setup(request.clone())?;
+        let inputs = self.realtime_audio_input(request)?;
+        let mut transport = self.open_realtime_transport(&model)?;
+        transport.send(&setup)?;
+        let profile = self.profile.clone();
+        let state = core_value_from_json(&json!({"partial_mode": setup.get("partialMode")}));
+        let mut ready = false;
+        let mut finished = false;
+        let mut audio_pump: Option<MetaAudioPump> = None;
+        let events = std::iter::from_fn(move || {
+            if finished { return None; }
+            let step = (|| -> AxResult<Value> {
+                loop {
+                    let event = match match audio_pump.as_mut() {
+                        Some(pump) => pump.recv(&mut transport)?,
+                        None => transport.recv()?,
+                    } {
+                        Some(event) => event,
+                        None => {
+                            finished = true;
+                            if !ready { return Err(AxError::runtime("Meta Voice closed before acknowledging setup")); }
+                            if !audio_pump.as_ref().is_some_and(|pump| pump.end_stream_sent) { return Err(AxError::runtime("Meta Voice closed before audio upload completed")); }
+                            let final_response = provider_finalize_realtime_response(&[
+                                CoreValue::from(profile.as_str()), state.clone(), core_value_from_json(&json!({"results": []})),
+                            ])?;
+                            return Ok(core_value_to_json(&provider_realtime_terminal_response(&[final_response])?));
+                        }
+                    };
+                    if event.get("type").and_then(Value::as_str) == Some("error") {
+                        return Err(AxError::runtime(event.get("message").and_then(Value::as_str).unwrap_or("Meta Voice realtime error")));
+                    }
+                    if !ready {
+                        let session = event.get("sessionId").ok_or_else(|| AxError::runtime("Meta Voice server did not acknowledge setup"))?;
+                        core_set(&state, CoreValue::from("session_id"), core_value_from_json(session))?;
+                        ready = true;
+                        audio_pump = Some(MetaAudioPump::new(&setup, &inputs)?);
+                        continue;
+                    }
+                    return Ok(core_value_to_json(&provider_normalize_realtime_event(&[
+                        CoreValue::from(profile.as_str()), core_value_from_json(&event), state.clone(), provider_ai_display_name(&profile), CoreValue::from(model.as_str()),
+                    ])?));
+                }
+            })();
+            if step.is_err() { finished = true; }
+            Some(step)
+        });
+        Ok(AxChatStream::new(events, None))
     }
 
     /// Drive a realtime audio turn over a WebSocket transport: send the
@@ -2398,38 +2614,55 @@ impl OpenAICompatibleClient {
         };
         transport.send(&setup)?;
         let mut input_sent = false;
+        let mut audio_pump: Option<MetaAudioPump> = None;
         let mut events: Vec<Value> = Vec::new();
+        let state = core_value_from_json(&json!({"partial_mode": setup.get("partialMode")}));
         loop {
-            let event = match transport.recv()? {
+            let event = match match audio_pump.as_mut() {
+                Some(pump) => pump.recv(&mut transport)?,
+                None => transport.recv()?,
+            } {
                 Some(event) => event,
                 None => break,
             };
             if event.get("type").and_then(|t| t.as_str()) == Some("error") {
                 let message = event
+                    .get("message")
+                    .and_then(|m| m.as_str())
+                    .or_else(|| event
                     .get("error")
                     .and_then(|err| err.get("message"))
-                    .and_then(|m| m.as_str())
+                    .and_then(|m| m.as_str()))
                     .unwrap_or("realtime error");
                 return Err(AxError::runtime(message));
             }
             if realtime_event_is_ready(&event) {
+                if let Some(session) = event.get("sessionId") {
+                    core_set(&state, CoreValue::from("session_id"), core_value_from_json(session))?;
+                }
                 if !input_sent {
                     input_sent = true;
+                    if setup.get("audioEncoding").is_some() {
+                        audio_pump = Some(MetaAudioPump::new(&setup, &inputs)?);
+                    } else {
                     if let Some(items) = inputs.as_array() {
                         for item in items {
                             transport.send(item)?;
                         }
                     }
+                    }
                 }
                 continue;
             }
+            if setup.get("audioEncoding").is_some() && !input_sent { return Err(AxError::runtime("Meta Voice server did not acknowledge setup")); }
             let done = realtime_event_is_done(&event);
             events.push(event);
             if done {
                 break;
             }
         }
-        let state = CoreValue::new_map();
+        if setup.get("audioEncoding").is_some() && !input_sent { return Err(AxError::runtime("Meta Voice closed before acknowledging setup")); }
+        if setup.get("audioEncoding").is_some() && !audio_pump.as_ref().is_some_and(|pump| pump.end_stream_sent) { return Err(AxError::runtime("Meta Voice closed before audio upload completed")); }
         let ai_name = provider_ai_display_name(&self.profile);
         let mut content = String::new();
         let mut audio_bytes: Vec<u8> = Vec::new();
@@ -2500,11 +2733,12 @@ impl OpenAICompatibleClient {
                 "transcript": content,
             });
         }
-        Ok(json!({
+        let response = json!({
             "results": [result],
             "remote_id": response_id,
             "model_usage": model_usage,
-        }))
+        });
+        Ok(core_value_to_json(&provider_finalize_realtime_response(&[CoreValue::from(self.profile.as_str()), state, core_value_from_json(&response)])?))
     }
 
     fn open_realtime_transport(&self, model: &str) -> AxResult<RealtimeTransport> {
@@ -2531,6 +2765,7 @@ impl OpenAICompatibleClient {
                 CoreValue::from(self.profile.as_str()),
                 CoreValue::from(model),
                 CoreValue::from(self.api_key.as_str()),
+                core_value_from_json(&self.options),
             ])
             .unwrap_or_else(|_| CoreValue::new_map()),
         );
@@ -2577,6 +2812,55 @@ impl RealtimeTransport {
     }
 }
 
+// One socket owner interleaves paced writes with bounded reads. In particular,
+// reading a partial never waits for the remaining recording to be uploaded.
+struct MetaAudioPump {
+    frames: VecDeque<(Value, Duration)>,
+    next_send: std::time::Instant,
+    end_stream_sent: bool,
+}
+
+impl MetaAudioPump {
+    fn new(setup: &Value, inputs: &Value) -> AxResult<Self> {
+        let rate = if setup.get("audioEncoding").and_then(Value::as_str) == Some("PCM_16KHZ") { 16000 } else { 24000 };
+        let mut frames = VecDeque::new();
+        for item in inputs.as_array().into_iter().flatten() {
+            if item.get("type").and_then(Value::as_str) == Some("binary") {
+                let bytes = decode_base64(item.get("data").and_then(Value::as_str).unwrap_or(""));
+                if bytes.len() % 2 != 0 { return Err(AxError::runtime("PCM16 audio must contain complete 16-bit samples")); }
+                for chunk in bytes.chunks(rate * 2 * 80 / 1000) {
+                    frames.push_back((json!({"type": "binary", "data": encode_base64(chunk)}), Duration::from_secs_f64(chunk.len() as f64 / (rate as f64 * 2.0))));
+                }
+            } else { frames.push_back((item.clone(), Duration::ZERO)); }
+        }
+        Ok(Self { frames, next_send: std::time::Instant::now(), end_stream_sent: false })
+    }
+
+    fn recv(&mut self, transport: &mut RealtimeTransport) -> AxResult<Option<Value>> {
+        loop {
+            if self.frames.is_empty() { return transport.recv(); }
+            let now = std::time::Instant::now();
+            if now >= self.next_send {
+                let (event, delay) = self.frames.pop_front().unwrap();
+                transport.send(&event)?;
+                if event.get("type").and_then(Value::as_str) == Some("endStream") { self.end_stream_sent = true; }
+                self.next_send = std::time::Instant::now() + delay;
+                continue;
+            }
+            match transport {
+                RealtimeTransport::Scripted(scripted) => {
+                    if let Some(event) = scripted.inbound.pop_front() { return Ok(Some(event)); }
+                    std::thread::sleep(self.next_send - now);
+                }
+                #[cfg(feature = "realtime")]
+                RealtimeTransport::Live(live) => {
+                    if let Some(event) = live.recv_timeout(self.next_send - now)? { return Ok(event); }
+                }
+            }
+        }
+    }
+}
+
 pub struct ScriptedRealtimeTransport {
     inbound: VecDeque<Value>,
     pub sent: Vec<Value>,
@@ -2592,9 +2876,12 @@ impl ScriptedRealtimeTransport {
 }
 
 fn realtime_event_is_ready(event: &Value) -> bool {
+    if event.get("type").is_none() && event.get("sessionId").is_some() {
+        return true;
+    }
     if matches!(
         event.get("type").and_then(|t| t.as_str()),
-        Some("session.created") | Some("session.updated") | Some("transcription_session.created") | Some("transcription_session.updated")
+        Some("session.created") | Some("session.updated") | Some("transcription_session.created") | Some("transcription_session.updated") | Some("ready") | Some("sessionStarted")
     ) {
         return true;
     }
@@ -2622,6 +2909,20 @@ pub struct WsRealtimeTransport {
 
 #[cfg(feature = "realtime")]
 impl WsRealtimeTransport {
+    fn recv_timeout(&mut self, timeout: Duration) -> AxResult<Option<Option<Value>>> {
+        fn set_timeout(stream: &tungstenite::stream::MaybeTlsStream<std::net::TcpStream>, timeout: Option<Duration>) -> AxResult<()> {
+            let tcp = match stream {
+                tungstenite::stream::MaybeTlsStream::Plain(tcp) => tcp,
+                tungstenite::stream::MaybeTlsStream::Rustls(tls) => &tls.sock,
+                _ => return Err(AxError::runtime("unsupported realtime TLS stream")),
+            };
+            tcp.set_read_timeout(timeout).map_err(|error| AxError::runtime(error.to_string()))
+        }
+        set_timeout(self.socket.get_ref(), Some(timeout.max(Duration::from_millis(1))))?;
+        let result = self.read_event(true);
+        set_timeout(self.socket.get_ref(), Some(Duration::from_secs(30)))?;
+        result
+    }
     fn connect(url: &str, headers: Vec<(String, String)>) -> AxResult<Self> {
         use tungstenite::client::IntoClientRequest;
         let mut request = url.into_client_request().map_err(|e| AxError::runtime(e.to_string()))?;
@@ -2637,6 +2938,13 @@ impl WsRealtimeTransport {
     }
 
     fn send(&mut self, event: &Value) -> AxResult<()> {
+        if event.get("type").and_then(|value| value.as_str()) == Some("binary") {
+            let bytes = decode_base64(event.get("data").and_then(|value| value.as_str()).unwrap_or(""));
+            return self
+                .socket
+                .send(tungstenite::Message::Binary(bytes.into()))
+                .map_err(|e| AxError::runtime(e.to_string()));
+        }
         let text = serde_json::to_string(event).map_err(|e| AxError::runtime(e.to_string()))?;
         self.socket
             .send(tungstenite::Message::Text(text.into()))
@@ -2644,19 +2952,102 @@ impl WsRealtimeTransport {
     }
 
     fn recv(&mut self) -> AxResult<Option<Value>> {
+        Ok(self.read_event(false)?.flatten())
+    }
+
+    fn read_event(&mut self, allow_timeout: bool) -> AxResult<Option<Option<Value>>> {
         loop {
             match self.socket.read() {
                 Ok(tungstenite::Message::Text(text)) => {
-                    return Ok(Some(serde_json::from_str(text.as_str()).map_err(|e| AxError::runtime(e.to_string()))?));
+                    return Ok(Some(Some(serde_json::from_str(text.as_str()).map_err(|e| AxError::runtime(e.to_string()))?)));
                 }
                 Ok(tungstenite::Message::Binary(data)) => {
-                    return Ok(Some(serde_json::from_slice(&data).map_err(|e| AxError::runtime(e.to_string()))?));
+                    return Ok(Some(Some(serde_json::from_slice(&data).map_err(|e| AxError::runtime(e.to_string()))?)));
                 }
-                Ok(tungstenite::Message::Close(_)) => return Ok(None),
+                Ok(tungstenite::Message::Close(frame)) => {
+                    if frame.as_ref().map(|f| f.code) == Some(tungstenite::protocol::frame::coding::CloseCode::Normal) { return Ok(Some(None)); }
+                    return Err(AxError::runtime("realtime WebSocket closed abnormally"));
+                }
                 Ok(_) => continue,
-                Err(_) => return Ok(None),
+                Err(tungstenite::Error::Io(error)) if allow_timeout && matches!(error.kind(), std::io::ErrorKind::WouldBlock | std::io::ErrorKind::TimedOut) => return Ok(None),
+                Err(error) => return Err(AxError::runtime(error.to_string())),
             }
         }
+    }
+}
+
+#[cfg(all(test, feature = "realtime"))]
+mod meta_duplex_tests {
+    use super::*;
+
+    #[test]
+    fn normal_close_before_upload_finishes_is_an_error() {
+        for streaming in [false, true] {
+            let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+            let address = listener.local_addr().unwrap();
+            let server = std::thread::spawn(move || {
+                let (tcp, _) = listener.accept().unwrap();
+                tcp.set_read_timeout(Some(Duration::from_secs(3))).unwrap();
+                let mut socket = tungstenite::accept(tcp).unwrap();
+                socket.read().unwrap();
+                socket.send(tungstenite::Message::Text(json!({"sessionId":"early"}).to_string())).unwrap();
+                assert!(matches!(socket.read().unwrap(), tungstenite::Message::Binary(_)));
+                socket.close(Some(tungstenite::protocol::CloseFrame { code: tungstenite::protocol::frame::coding::CloseCode::Normal, reason: "".into() })).unwrap();
+            });
+            let mut client = ai("meta", json!({"api_key":"test", "model":"muse-voice-transcribe-1.0", "base_url":format!("http://{address}/v1")})).unwrap();
+            let request = json!({"model":"muse-voice-transcribe-1.0", "chat_prompt":[{"role":"user","content":[{"type":"audio","format":"pcm16","data":encode_base64(&vec![0;9600])}]}]});
+            let result = if streaming {
+                client.stream_iter(request).unwrap().collect::<AxResult<Vec<_>>>().map(|_| Value::Null)
+            } else { client.realtime_chat(request, None) };
+            assert!(result.unwrap_err().message.contains("closed before audio upload completed"));
+            server.join().unwrap();
+        }
+    }
+
+    #[test]
+    fn public_stream_receives_before_end_stream() {
+        use std::net::TcpListener;
+        use std::sync::atomic::{AtomicBool, Ordering};
+        let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+        let address = listener.local_addr().unwrap();
+        let ended = Arc::new(AtomicBool::new(false));
+        let server_ended = ended.clone();
+        let server = std::thread::spawn(move || {
+            let (tcp, _) = listener.accept().unwrap();
+            tcp.set_read_timeout(Some(Duration::from_secs(3))).unwrap();
+            let mut socket = tungstenite::accept(tcp).unwrap();
+            let setup: Value = serde_json::from_str(socket.read().unwrap().to_text().unwrap()).unwrap();
+            assert_eq!(setup["authorization"]["accessToken"], "Bearer test");
+            socket.send(tungstenite::Message::Text(json!({"sessionId":"duplex"}).to_string())).unwrap();
+            let mut bytes = 0;
+            loop {
+                match socket.read().unwrap() {
+                    tungstenite::Message::Binary(chunk) => {
+                        if bytes == 0 { socket.send(tungstenite::Message::Text(json!({"type":"transcript","transcript":"wrong hypothesis"}).to_string())).unwrap(); }
+                        bytes += chunk.len();
+                    }
+                    tungstenite::Message::Text(text) => {
+                        assert_eq!(serde_json::from_str::<Value>(&text).unwrap()["type"], "endStream");
+                        server_ended.store(true, Ordering::SeqCst);
+                        socket.send(tungstenite::Message::Text(json!({"type":"transcript","transcript":"Correct final.","final":true}).to_string())).unwrap();
+                        socket.close(Some(tungstenite::protocol::CloseFrame { code: tungstenite::protocol::frame::coding::CloseCode::Normal, reason: "".into() })).unwrap();
+                        break;
+                    }
+                    _ => {}
+                }
+            }
+            assert_eq!(bytes, 9600);
+        });
+        let mut client = ai("meta", json!({"api_key":"test", "model":"muse-voice-transcribe-1.0", "base_url":format!("http://{address}/v1")})).unwrap();
+        let request = json!({"model":"muse-voice-transcribe-1.0", "audio":{"input":{"sampleRate":16000,"channels":1}}, "chat_prompt":[{"role":"user","content":[{"type":"audio","format":"pcm16","data":encode_base64(&vec![0;9600])}]}]});
+        let mut stream = client.stream_iter(request).unwrap();
+        let first = stream.next().unwrap().unwrap();
+        assert_eq!(first["results"][0]["transcript"]["text"], "wrong hypothesis");
+        assert!(!ended.load(Ordering::SeqCst), "partial blocked behind the complete upload");
+        let mut text = String::new();
+        for event in stream { for result in event.unwrap()["results"].as_array().unwrap() { text.push_str(result["content"].as_str().unwrap_or("")); } }
+        assert_eq!(text, "Correct final.");
+        server.join().unwrap();
     }
 }
 
@@ -2778,7 +3169,7 @@ impl AxAIClient for OpenAICompatibleClient {
             None => self.dispatch_transport_request(call)?,
         };
         let profile = self.profile.clone();
-        let response = normalize_openai_response(&profile, &model, raw);
+        let response = normalize_openai_response(&profile, &model, raw, &payload);
         if let Ok(value) = &response {
             emit_usage_event("chat", value, &self.options, false);
         }
@@ -2820,6 +3211,9 @@ impl AxAIClient for OpenAICompatibleClient {
         let mut model_config = req.get("model_config").cloned().unwrap_or_else(|| json!({}));
         model_config["stream"] = json!(true);
         req["model_config"] = model_config;
+        if self.profile == "meta" && req.get("model").and_then(Value::as_str).unwrap_or(&self.model) == "muse-voice-transcribe-1.0" {
+            return self.meta_realtime_stream(req);
+        }
         let payload = core_value_to_json(&provider_build_chat_request(&[
             CoreValue::from(self.profile.as_str()),
             core_value_from_json(&req),
@@ -2839,7 +3233,7 @@ impl AxAIClient for OpenAICompatibleClient {
                 Err(error) if is_retryable_ai_error(&error) && attempt < max_retries => {
                     attempt += 1;
                     let delay = (initial_delay * backoff.powi((attempt - 1) as i32)).min(max_delay);
-                    if delay > 0.0 { std::thread::sleep(Duration::from_millis(delay as u64)); }
+                    cancellation_backoff(Duration::from_millis(delay.max(0.0) as u64))?;
                     continue;
                 }
                 Err(error) => {
@@ -2863,7 +3257,7 @@ impl AxAIClient for OpenAICompatibleClient {
                 Some(Err(error)) if is_retryable_ai_error(&error) && attempt < max_retries => {
                     attempt += 1;
                     let delay = (initial_delay * backoff.powi((attempt - 1) as i32)).min(max_delay);
-                    if delay > 0.0 { std::thread::sleep(Duration::from_millis(delay as u64)); }
+                    cancellation_backoff(Duration::from_millis(delay.max(0.0) as u64))?;
                     continue;
                 }
                 Some(Err(error)) => {
@@ -2880,7 +3274,7 @@ impl AxAIClient for OpenAICompatibleClient {
             if !status.is_null() && core_truthy(&is_retryable_status(&[status.clone()])?) && attempt < max_retries {
                 attempt += 1;
                 let delay = (initial_delay * backoff.powi((attempt - 1) as i32)).min(max_delay);
-                if delay > 0.0 { std::thread::sleep(Duration::from_millis(delay as u64)); }
+                cancellation_backoff(Duration::from_millis(delay.max(0.0) as u64))?;
                 continue;
             }
             let mut normalized = NormalizedProviderStream {
@@ -2889,6 +3283,7 @@ impl AxAIClient for OpenAICompatibleClient {
                 profile: self.profile.clone(),
                 model: model.clone(),
                 state: CoreValue::new_map(),
+                context: core_value_from_json(&payload),
             };
             let first_normalized = match normalized.next() {
                 None => return Ok(AxChatStream::from_values(Vec::new())),
@@ -3007,7 +3402,7 @@ fn provider_defaults(provider: &str) -> Option<ProviderDefaults> {
     })
 }
 
-fn normalize_openai_response(profile: &str, model: &str, response: Value) -> AxResult<Value> {
+fn normalize_openai_response(profile: &str, model: &str, response: Value, context: &Value) -> AxResult<Value> {
     let payload = normalize_passthrough_response(response)?;
     if profile == "openai-compatible" {
         let _ = normalize_chat_response(&[core_value_from_json(&payload)])?;
@@ -3017,6 +3412,7 @@ fn normalize_openai_response(profile: &str, model: &str, response: Value) -> AxR
         core_value_from_json(&payload),
         provider_ai_display_name(profile),
         CoreValue::from(model),
+        core_value_from_json(context),
     ])?;
     Ok(core_value_to_json(&normalized))
 }
@@ -3328,6 +3724,8 @@ impl AxGen {
     pub fn forward<C: AxAIClient>(&mut self, client: &mut C, input: Value) -> AxResult<Value> {
         self.forward_with_options(client, input, Value::Null)
     }
+
+    pub fn forward_with_cancellation<C:AxAIClient>(&mut self,client:&mut C,input:Value,options:Value,cancellation:&AxCancellationToken)->AxResult<Value>{let _scope=AxCancellationScope::enter(cancellation)?;let result=self.forward_with_options(client,input,options);cancellation.throw_if_cancelled()?;result}
 
     pub fn forward_with_options<C: AxAIClient>(
         &mut self,
@@ -4102,6 +4500,8 @@ impl AxAgent {
     pub fn forward<C: AxAIClient>(&mut self, client: &mut C, input: Value) -> AxResult<Value> {
         self.forward_with_options(client, input, json!({}))
     }
+
+    pub fn forward_with_cancellation<C:AxAIClient>(&mut self,client:&mut C,input:Value,options:Value,cancellation:&AxCancellationToken)->AxResult<Value>{let _scope=AxCancellationScope::enter(cancellation)?;let result=self.forward_with_options(client,input,options);cancellation.throw_if_cancelled()?;result}
 
     pub fn forward_with_options<C: AxAIClient>(
         &mut self,
@@ -4963,6 +5363,8 @@ impl AxFlow {
     pub fn forward<C: AxAIClient>(&mut self, client: &mut C, input: Value) -> AxResult<Value> {
         self.forward_with_options(client, input, Value::Null)
     }
+
+    pub fn forward_with_cancellation<C:AxAIClient>(&mut self,client:&mut C,input:Value,options:Value,cancellation:&AxCancellationToken)->AxResult<Value>{let _scope=AxCancellationScope::enter(cancellation)?;let result=self.forward_with_options(client,input,options);cancellation.throw_if_cancelled()?;result}
 
     pub fn forward_with_options<C: AxAIClient>(
         &mut self,
@@ -7734,6 +8136,7 @@ pub fn run_conformance_fixture(fixture: Value) -> AxResult<()> {
         "stream" => run_stream_fixture(&fixture)?,
         "ai_chat" => run_ai_chat_fixture(&fixture)?,
         "ai_stream" => run_ai_stream_fixture(&fixture)?,
+        "ai_cancellation" => run_ai_cancellation_fixture(&fixture)?,
         "ai_embed" => run_ai_embed_fixture(&fixture)?,
         "ai_usage_observer" => run_ai_usage_observer_fixture(&fixture)?,
         "ai_runtime_hooks" => run_ai_runtime_hooks_fixture(&fixture)?,
@@ -7815,6 +8218,11 @@ fn run_event_fixture(fixture:&Value)->AxResult<()>{
             let mut target=AxEventTarget::new(route.target_id.clone().unwrap(),|input,_|Ok(json!({"handled":input["message"]})));target.retry_safety="idempotent".into();
             let event=AxEventEnvelope{specversion:"1.0".into(),id:event_value["id"].as_str().unwrap().into(),source:event_value["source"].as_str().unwrap().into(),r#type:event_value["type"].as_str().unwrap().into(),subject:event_value.get("subject").and_then(Value::as_str).map(str::to_string),data:event_value["data"].clone(),extensions:Map::new(),correlation:vec![]};
             let mut runtime=AxEventRuntime::new(vec![route.clone()],json!({}))?;runtime.register_target(target);runtime.start()?;let receipts=runtime.start_source(&mut FixtureSource(Some(event.clone())),fixture["identity_scope"].as_str().unwrap(),fixture["trust"].as_str().unwrap())?;let run_id=format!("run:{}:{}:1",route.id,event.id);let run=runtime.get_run(&run_id).ok_or_else(||AxError::new("fixture","event lifecycle did not dispatch"))?;if !receipts.first().map(|value|value.accepted).unwrap_or(false)||run.output.as_ref()!=Some(&fixture["expected_output"]){return Err(AxError::new("fixture","event lifecycle mismatch"))}runtime.close()?;
+
+            let cancellation_spec=&fixture["cancellation"];let cancellation_reason=cancellation_spec["reason"].as_str().unwrap_or("fixture-stop").to_string();let cancellation_sleep=Duration::from_millis(cancellation_spec["sleep_ms"].as_u64().unwrap_or(30_000));let max_cancellation_elapsed=Duration::from_millis(cancellation_spec["max_elapsed_ms"].as_u64().unwrap_or(1_000));let token=AxEventCancellationToken::default();let removed_calls=Arc::new(std::sync::atomic::AtomicUsize::new(0));let removed_state=removed_calls.clone();let removed=token.subscribe(move||{removed_state.fetch_add(1,std::sync::atomic::Ordering::SeqCst);});drop(removed);if !token.cancel(cancellation_reason.clone())||token.cancel("ignored")||token.reason().as_deref()!=Some(cancellation_reason.as_str())||removed_calls.load(std::sync::atomic::Ordering::SeqCst)!=0{return Err(AxError::new("fixture","event cancellation one-shot or removable subscription mismatch"))}
+            {let clock=Arc::new(AxSystemEventClock);let sleep_token=AxEventCancellationToken::default();let thread_clock=clock.clone();let thread_token=sleep_token.clone();let started=std::time::Instant::now();let sleeper=std::thread::spawn(move||thread_clock.sleep(cancellation_sleep.as_millis() as i64,Some(&thread_token)));std::thread::sleep(Duration::from_millis(10));sleep_token.cancel(cancellation_reason.clone());let result=sleeper.join().map_err(|_|AxError::new("fixture","system event clock thread panicked"))?;if result||sleep_token.subscription_count()!=0||started.elapsed()>max_cancellation_elapsed{return Err(AxError::new("fixture","system event clock cancellation or cleanup mismatch"))}}
+            {let clock=Arc::new(AxManualEventClock::new(0));let sleep_token=AxEventCancellationToken::default();let thread_clock=clock.clone();let thread_token=sleep_token.clone();let started=std::time::Instant::now();let sleeper=std::thread::spawn(move||thread_clock.sleep(cancellation_sleep.as_millis() as i64,Some(&thread_token)));let deadline=std::time::Instant::now()+Duration::from_secs(1);while sleep_token.subscription_count()==0&&std::time::Instant::now()<deadline{std::thread::yield_now();}sleep_token.cancel(cancellation_reason.clone());let result=sleeper.join().map_err(|_|AxError::new("fixture","manual event clock thread panicked"))?;if result||sleep_token.subscription_count()!=0||started.elapsed()>max_cancellation_elapsed{return Err(AxError::new("fixture","manual event clock cancellation or cleanup mismatch"))}}
+            {let clock=Arc::new(AxManualEventClock::new(0));let sleep_token=AxEventCancellationToken::default();let thread_clock=clock.clone();let thread_token=sleep_token.clone();let sleeper=std::thread::spawn(move||thread_clock.sleep(1,Some(&thread_token)));let deadline=std::time::Instant::now()+Duration::from_secs(1);while sleep_token.subscription_count()==0&&std::time::Instant::now()<deadline{std::thread::yield_now();}clock.advance(1);let result=sleeper.join().map_err(|_|AxError::new("fixture","manual event clock success thread panicked"))?;if !result||sleep_token.subscription_count()!=0{return Err(AxError::new("fixture","manual event clock successful sleep cleanup mismatch"))}}
 
             let retry_calls=std::sync::Arc::new(std::sync::Mutex::new(0usize));let retry_state=retry_calls.clone();
             let mut retry_target=AxEventTarget::new("retry-target",move|_,_|{let mut calls=retry_state.lock().unwrap();*calls+=1;if *calls==1{return Err(AxError::new("fixture","retry once"))}Ok(json!({"attempt":*calls}))});retry_target.retry_safety="idempotent".into();
@@ -8126,7 +8534,10 @@ fn run_stream_fixture(fixture: &Value) -> AxResult<()> {
     let mut folded = String::new();
     for event in events {
         chunks.push(event);
-        folded = fold_fixture_stream(&chunks)?;
+        folded = match fold_fixture_stream(&chunks) {
+            Ok(value) => value,
+            Err(error) => return expect_validation_result(Err(error), fixture),
+        };
         for assertion in &assertions {
             if let Some(needle) = assertion
                 .get("not_contains")
@@ -9508,7 +9919,7 @@ fn balancer_metrics(services: &[RouterFixtureService]) -> Value {
 }
 
 fn is_retryable_ai_error(err: &AxError) -> bool {
-    if err.error_type.as_deref() == Some("AxAIServiceAuthenticationError") {
+    if matches!(err.error_type.as_deref(),Some("AxAIServiceAuthenticationError")|Some("AxAIServiceAbortedError")) {
         return false;
     }
     if err.error_type.as_deref() == Some("AxAIServiceStatusError") {
@@ -9523,6 +9934,8 @@ fn is_retryable_ai_error(err: &AxError) -> bool {
                 | Some("AxAIServiceTimeoutError")
         )
 }
+
+fn cancellation_backoff(duration:Duration)->AxResult<()>{if duration.is_zero(){if let Some(token)=current_cancellation_token(){token.throw_if_cancelled()?;}return Ok(())}if let Some(token)=current_cancellation_token(){if token.wait_timeout(duration){token.throw_if_cancelled()?;}}else{std::thread::sleep(duration);}Ok(())}
 
 fn conformance_balancer_result(fixture: &Value) -> AxResult<Value> {
     let raw_options = fixture.get("options").cloned().unwrap_or_else(|| json!({}));
@@ -13541,6 +13954,38 @@ fn run_ai_stream_fixture(fixture: &Value) -> AxResult<()> {
     Ok(())
 }
 
+struct CancellationRecordingTransport {
+    responses: VecDeque<Value>,
+    requests: Arc<Mutex<Vec<Value>>>,
+    cancellations: Arc<Mutex<Vec<AxCancellationToken>>>,
+    cancel_on_first: Option<(AxCancellationToken,String)>,
+}
+
+impl AxTransport for CancellationRecordingTransport {
+    fn send(&mut self,request:Value)->AxResult<Value>{self.requests.lock().unwrap().push(request);self.responses.pop_front().ok_or_else(||AxError::new("fixture","fixture transport response exhausted"))}
+    fn send_with_cancellation(&mut self,request:Value,cancellation:&AxCancellationToken)->AxResult<Value>{self.cancellations.lock().unwrap().push(cancellation.clone());self.send(request)}
+    fn stream_with_cancellation(&mut self,request:Value,cancellation:&AxCancellationToken)->AxResult<AxTransportStream>{self.cancellations.lock().unwrap().push(cancellation.clone());if let Some((token,reason))=self.cancel_on_first.take(){std::thread::spawn(move||{std::thread::sleep(Duration::from_millis(10));token.cancel(reason);});}self.stream(request)}
+}
+
+fn expect_cancellation_error(error:AxError,reason:&str)->AxResult<()>{if error.error_type.as_deref()!=Some("AxAIServiceAbortedError")||error.retryable||!error.message.contains(reason){return Err(AxError::new("fixture",format!("provider cancellation error mismatch: {error}")))}Ok(())}
+
+fn cancellation_client(fixture:&Value,response:Value,cancel_on_first:Option<(AxCancellationToken,String)>)->AxResult<(OpenAICompatibleClient,Arc<Mutex<Vec<Value>>>,Arc<Mutex<Vec<AxCancellationToken>>>)>{let requests=Arc::new(Mutex::new(Vec::new()));let cancellations=Arc::new(Mutex::new(Vec::new()));let transport=CancellationRecordingTransport{responses:vec![response].into(),requests:requests.clone(),cancellations:cancellations.clone(),cancel_on_first};let mut options=json!({"api_key":"test-key","model":"claude-sonnet-4-5"});if let Some(retry)=fixture.get("retry_options"){if let(Some(target),Some(source))=(options.as_object_mut(),retry.as_object()){for(key,value)in source{target.insert(key.clone(),value.clone());}}}Ok((ai("anthropic",options)?.with_transport(transport),requests,cancellations))}
+
+fn run_ai_cancellation_fixture(fixture:&Value)->AxResult<()> {
+    let reason=fixture["reason"].as_str().unwrap_or("fixture-stop");let request=fixture["request"].clone();let max_elapsed=Duration::from_millis(fixture["max_elapsed_ms"].as_u64().unwrap_or(1_000));let program_max_elapsed=Duration::from_millis(fixture["program_max_elapsed_ms"].as_u64().unwrap_or(100));
+    let (mut preflight,preflight_requests,_)=cancellation_client(fixture,fixture["success_response"].clone(),None)?;let token=AxCancellationToken::default();token.cancel(reason);let error=preflight.chat_with_cancellation(request.clone(),json!({}),&token).expect_err("pre-cancelled provider request unexpectedly succeeded");expect_cancellation_error(error,reason)?;if !preflight_requests.lock().unwrap().is_empty(){return Err(AxError::new("fixture","pre-cancelled provider request reached transport"))}
+
+    let program_input=json!({"question":"cancel"});let program_options=json!({"infraRetries":2});
+    let mut generator=ax("question:string -> answer:string")?;let started=std::time::Instant::now();let error=generator.forward_with_cancellation(&mut preflight,program_input.clone(),program_options.clone(),&token).expect_err("pre-cancelled AxGen request unexpectedly succeeded");expect_cancellation_error(error,reason)?;if started.elapsed()>program_max_elapsed||!preflight_requests.lock().unwrap().is_empty(){return Err(AxError::new("fixture","AxGen cancellation retried or reached transport"))}
+    let mut cancellation_agent=agent("question:string -> answer:string")?;let started=std::time::Instant::now();let error=cancellation_agent.forward_with_cancellation(&mut preflight,program_input.clone(),program_options.clone(),&token).expect_err("pre-cancelled AxAgent request unexpectedly succeeded");expect_cancellation_error(error,reason)?;if started.elapsed()>program_max_elapsed||!preflight_requests.lock().unwrap().is_empty(){return Err(AxError::new("fixture","AxAgent cancellation retried or reached transport"))}
+    let mut cancellation_flow=flow("cancellation-flow").execute("answer",ax("question:string -> answer:string")?);let started=std::time::Instant::now();let error=cancellation_flow.forward_with_cancellation(&mut preflight,program_input,program_options,&token).expect_err("pre-cancelled AxFlow request unexpectedly succeeded");expect_cancellation_error(error,reason)?;if started.elapsed()>program_max_elapsed||!preflight_requests.lock().unwrap().is_empty(){return Err(AxError::new("fixture","AxFlow cancellation retried or reached transport"))}
+
+    let backoff_token=AxCancellationToken::default();let (mut backoff,backoff_requests,backoff_cancellations)=cancellation_client(fixture,fixture["retry_response"].clone(),Some((backoff_token.clone(),reason.into())))?;let started=std::time::Instant::now();let error=backoff.stream_with_cancellation(request.clone(),&backoff_token).expect_err("provider retry backoff ignored cancellation");expect_cancellation_error(error,reason)?;if backoff_requests.lock().unwrap().len()!=1||backoff_cancellations.lock().unwrap().len()!=1||started.elapsed()>max_elapsed{return Err(AxError::new("fixture","provider retry cancellation attempted another request, skipped the custom token, or was not prompt"))}
+
+    let stream_token=AxCancellationToken::default();let (mut streaming,stream_requests,stream_cancellations)=cancellation_client(fixture,fixture["stream_response"].clone(),None)?;let mut stream=streaming.stream_iter_with_cancellation(request,&stream_token)?;if stream.next().transpose()?.is_none(){return Err(AxError::new("fixture","provider stream produced no first event"))}stream_token.cancel(reason);let error=stream.next().expect("provider stream ended before cancellation was observed").expect_err("provider stream yielded after cancellation");expect_cancellation_error(error,reason)?;if stream_requests.lock().unwrap().len()!=1||stream_cancellations.lock().unwrap().len()!=1{return Err(AxError::new("fixture","provider stream cancellation custom transport mismatch"))}
+    Ok(())
+}
+
 fn run_ai_embed_fixture(fixture: &Value) -> AxResult<()> {
     let (mut client, requests, credential_requests) = fixture_client(fixture)?;
     let request = fixture.get("request").cloned().unwrap_or_else(|| json!({}));
@@ -16754,6 +17199,7 @@ fn core_memory_response_meaningful(response: &CoreValue) -> bool {
                 "toolCalls",
                 "thought_blocks",
                 "thoughtBlocks",
+                "images",
             ] {
                 if let Some(CoreValue::List(items)) = map.get(key) {
                     if !items.borrow().is_empty() {
@@ -16811,6 +17257,9 @@ impl CoreHost for CoreMemory {
                         let sid =
                             core_get(existing, &CoreValue::from("session_id"), CoreValue::Null);
                         if role.as_str() == Some("assistant") && sid == session {
+                            let previous = core_get(existing, &CoreValue::from("response"), CoreValue::Null);
+                            let merged = ai_merge_replay_metadata(&[previous, core_arg(args, 0)])?;
+                            core_set(&item, CoreValue::from("response"), merged)?;
                             if let (CoreValue::Map(dst), CoreValue::Map(src)) = (existing, &item) {
                                 let entries = src.borrow().entries.clone();
                                 for (key, value) in entries {
@@ -17123,6 +17572,15 @@ fn core_exception_message(args: &[CoreValue]) -> Result<CoreValue, AxError> {
 }
 
 #[allow(dead_code)]
+fn core_exception_is_aborted(args: &[CoreValue]) -> Result<CoreValue, AxError> {
+    let aborted = match core_arg(args, 0) {
+        CoreValue::Error(error) => error.error_type.as_deref() == Some("AxAIServiceAbortedError") || error.category == "aborted",
+        _ => false,
+    };
+    Ok(CoreValue::Bool(aborted))
+}
+
+#[allow(dead_code)]
 fn core_map_keys(args: &[CoreValue]) -> Result<CoreValue, AxError> {
     match core_arg(args, 0) {
         CoreValue::Map(map) => Ok(CoreValue::list_from(
@@ -17180,7 +17638,7 @@ fn core_retry_sleep(args: &[CoreValue]) -> Result<CoreValue, AxError> {
         }
     };
     let seconds = (0.25 * ((attempt + 1) as f64)).min(1.0).max(0.0);
-    std::thread::sleep(Duration::from_secs_f64(seconds));
+    cancellation_backoff(Duration::from_secs_f64(seconds))?;
     Ok(CoreValue::Null)
 }
 
@@ -19701,6 +20159,16 @@ fn python_repr(value: &Value) -> String {
 
 #[cfg(test)]
 mod request_url_security_tests {
+    #[test]
+    fn meta_replay_metadata_survives_partial_updates() {
+        use super::*;
+        let previous = core_value_from_json(&json!({"thought_blocks": [{"id":"r","data":"Plan"}],"images":[{"id":"image","data":"partial"}]}));
+        let incoming = core_value_from_json(&json!({"thought_blocks": [{"id":"r","data":"Plan.","summary":"Plan.","encrypted_content":"opaque"}]}));
+        let merged = core_value_to_json(&ai_merge_replay_metadata(&[previous, incoming]).unwrap());
+        assert_eq!(merged["thought_blocks"][0]["data"], "Plan.");
+        assert_eq!(merged["thought_blocks"][0]["encrypted_content"], "opaque");
+        assert_eq!(merged["images"][0]["id"], "image");
+    }
     use super::*;
     use std::sync::Mutex;
 

@@ -1,0 +1,50 @@
+{
+  "expected_transport_request": {
+    "json": {
+      "reasoning_effort": "xhigh"
+    },
+    "url": "https://api.meta.ai/v1/chat/completions"
+  },
+  "kind": "ai_chat",
+  "model": "muse-spark-1.3",
+  "name": "meta-chat-reasoning",
+  "provider": "meta-chat",
+  "request": {
+    "chat_prompt": [
+      {
+        "content": "Reason briefly",
+        "role": "user"
+      }
+    ],
+    "model_config": {
+      "stream": false,
+      "thinkingTokenBudget": "highest"
+    }
+  },
+  "transport_responses": [
+    {
+      "json": {
+        "choices": [
+          {
+            "finish_reason": "stop",
+            "index": 0,
+            "message": {
+              "content": "ok",
+              "refusal": null,
+              "role": "assistant"
+            }
+          }
+        ],
+        "id": "meta_chat",
+        "model": "muse-spark-1.3",
+        "object": "chat.completion",
+        "usage": {
+          "completion_tokens": 2,
+          "prompt_tokens": 1,
+          "total_tokens": 3
+        }
+      },
+      "status": 200
+    }
+  ]
+}

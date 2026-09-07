@@ -19,6 +19,7 @@ from typing import Any, Callable
 
 from .signature import AxSignature
 from .tool import Tool
+from .ai import AxCancellationToken
 
 
 _CORE_COVERAGE_SEEN: set[str] = set()
@@ -2536,9 +2537,8 @@ class AxEventContinuation:
     expiresAt: float | None = None
 
 
-class AxEventCancellationToken:
-    def __init__(self): self.cancelled = False; self.reason = None
-    def cancel(self, reason="cancelled"): self.cancelled = True; self.reason = reason
+class AxEventCancellationToken(AxCancellationToken):
+    """Backward-compatible event cancellation token."""
 
 
 @dataclass
@@ -2668,8 +2668,9 @@ class AxSystemEventClock(AxEventClock):
     def now(self) -> float: return time.time() * 1000
     def sleep(self, seconds, cancellation=None):
         if cancellation is not None and cancellation.cancelled: return False
-        time.sleep(max(0.0, seconds))
-        return cancellation is None or not cancellation.cancelled
+        if cancellation is None:
+            time.sleep(max(0.0, seconds)); return True
+        return not cancellation.wait(max(0.0, seconds))
 
 
 class AxManualEventClock(AxEventClock):
@@ -2684,6 +2685,7 @@ class AxManualEventClock(AxEventClock):
             while self._sleepers < count: self._condition.wait()
     def sleep(self, seconds, cancellation=None):
         target = self.now() + max(0.0, seconds) * 1000
+        remove = cancellation.subscribe(self._wake) if cancellation is not None else lambda: None
         with self._condition:
             self._sleepers += 1; self._condition.notify_all()
             try:
@@ -2692,7 +2694,10 @@ class AxManualEventClock(AxEventClock):
                     self._condition.wait()
             finally:
                 self._sleepers -= 1
+                remove()
         return cancellation is None or not cancellation.cancelled
+    def _wake(self):
+        with self._condition: self._condition.notify_all()
 
 
 class AxEventStore:

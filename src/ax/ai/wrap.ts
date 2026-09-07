@@ -13,6 +13,7 @@ import type {
   AxAIGoogleGeminiEmbedModel,
   AxAIGoogleGeminiModel,
 } from './google-gemini/types.js';
+import type { AxAIMetaArgs, AxAIMetaModel } from './meta/types.js';
 import type { AxAIMistralModel } from './mistral/types.js';
 import { AxAIOpenAI, type AxAIOpenAIArgs } from './openai/api.js';
 import type {
@@ -25,6 +26,7 @@ import {
 } from './openai/responses_api_base.js';
 import type { AxAIOpenAIResponsesModel } from './openai/responses_types.js';
 import {
+  AxAIAnthropicProfile,
   type AxAIDeploymentProfileArgs,
   AxAIOpenAIProfile,
   AxAIOpenAIResponsesProfile,
@@ -62,6 +64,7 @@ export type AxAIArgs<TModelKey> =
     >
   | AxAIAnthropicArgs<TModelKey>
   | AxAIGoogleGeminiArgs<TModelKey>
+  | AxAIMetaArgs<TModelKey>
   | AxAIDeploymentProfileArgs<TModelKey>
   // axir-nonportable:start webllm
   | AxAIWebLLMArgs<TModelKey>;
@@ -73,6 +76,7 @@ export type AxAIModels =
   | AxAIGoogleGeminiModel
   | AxAICohereModel
   | AxAIMistralModel
+  | AxAIMetaModel
   | AxAIDeepSeekModel
   // axir-nonportable:start webllm
   | AxAIWebLLMModelId
@@ -211,7 +215,10 @@ export class AxAI<TModelKey = string>
         }
         break;
       case 'anthropic-messages':
-        this.ai = new AxAIAnthropic<TModelKey>(options as any);
+        this.ai =
+          profile.id === 'anthropic'
+            ? new AxAIAnthropic<TModelKey>(options as any)
+            : new AxAIAnthropicProfile<TModelKey>(options as any);
         break;
       case 'gemini-generate-content':
         this.ai = new AxAIGoogleGemini<TModelKey>(options as any);

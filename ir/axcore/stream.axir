@@ -3,12 +3,27 @@ module @ax.stream version "0.1" {
 
   op ax.stream.semantic @fold_stream {
     attr core_kind = "func"
+    attr effect = "throws"
     attr emit_module = "gen"
     tag "src/ax/dsp/response/streaming.ts"
-    type signature = "(list<json>) -> string"
+    type signature = "(list<json>) -> string throws"
     body @entry(%events: list<json>) {
       %chunks = core.list
       core.for %event in %events {
+        %empty_results = core.list
+        %results = core.get %event["results"] default %empty_results
+        core.for %result in %results {
+          %finish_snake = core.get %result["finish_reason"]
+          %finish = core.get %result["finishReason"] default %finish_snake
+          %is_length = core.call intrinsic.eq(%finish, "length")
+          core.if %is_length {
+            core.raise "Max tokens reached before completion"
+          }
+          %is_error = core.call intrinsic.eq(%finish, "error")
+          core.if %is_error {
+            core.raise "Streaming response failed"
+          }
+        }
         %parts = core.call @stream_event_content_parts_impl(%event)
         core.for %part in %parts {
           core.append %chunks, %part

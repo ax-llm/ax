@@ -1,0 +1,51 @@
+{
+  "expected_output": [
+    {
+      "model_usage": null,
+      "remote_id": "r1",
+      "results": [
+        {
+          "content": "Answer: Done",
+          "finish_reason": null,
+          "function_calls": [],
+          "id": "msg1",
+          "index": 0
+        }
+      ]
+    },
+    {
+      "model_usage": null,
+      "remote_id": "r1",
+      "results": [
+        {
+          "content": "",
+          "finish_reason": "length",
+          "function_calls": [],
+          "id": "0",
+          "index": 0
+        }
+      ]
+    }
+  ],
+  "kind": "ai_stream",
+  "model": "muse-spark-1.3",
+  "name": "meta-responses-stream-incomplete",
+  "options": {
+    "stream": true
+  },
+  "provider": "meta",
+  "request": {
+    "chat_prompt": [
+      {
+        "content": "test",
+        "role": "user"
+      }
+    ]
+  },
+  "transport_responses": [
+    {
+      "body": "data: {\"type\":\"response.output_text.delta\",\"item_id\":\"msg1\",\"response_id\":\"r1\",\"delta\":\"Answer: Done\"}\n\ndata: {\"type\":\"response.incomplete\",\"response\":{\"id\":\"r1\",\"incomplete_details\":{\"reason\":\"max_output_tokens\"}}}\n\n",
+      "status": 200
+    }
+  ]
+}

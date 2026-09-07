@@ -47,4 +47,102 @@ assert sent_types == ["session.update", "conversation.item.create", "response.cr
 assert result["content"] == "hello", result
 assert result["finish_reason"] == "stop", result
 assert result.get("audio", {}).get("data") == "AQI=", result
+from axllm import ai
+meta = ai("meta", model="muse-voice-transcribe-1.0", api_key="test-key")
+assert meta.realtime_audio_setup({"model": "muse-voice-transcribe-1.0"})["authorization"]["accessToken"] == "Bearer test-key"
+custom_meta = ai("meta", model="muse-voice-transcribe-1.0", api_key="test-key", base_url="https://proxy.example/v1")
+assert custom_meta._realtime_ws_target("muse-voice-transcribe-1.0")[0] == "wss://proxy.example/v1/asr/realtime"
+meta_request = {
+    "model": "muse-voice-transcribe-1.0",
+    "chat_prompt": [{"role": "user", "content": [{"type": "audio", "data": "AAE=", "format": "pcm16"}]}],
+    "audio": {"input": {"sampleRate": 16000, "channels": 1}},
+    "model_config": {"realtimeTranscription": {"partialMode": "delta"}},
+}
+meta_transport = ScriptedRealtimeTransport([
+    {"sessionId": "meta-session"},
+    {"type": "speechStart", "turnId": "one"},
+    {"type": "transcript", "transcript": "Hello"},
+    {"type": "transcript", "transcript": " world"},
+    {"type": "speaker", "speaker": "A"},
+    {"type": "speechStart", "turnId": "two"},
+    {"type": "transcript", "transcript": "Second"},
+    {"type": "speechComplete", "turnId": "one", "transcript": "Hello world!"},
+    {"type": "speechComplete", "turnId": "two", "transcript": "Second turn"},
+])
+meta_final = meta.realtime_chat(meta_request, transport=meta_transport)
+assert meta_final["remote_session_id"] == "meta-session", meta_final
+assert [r["content"] for r in meta_final["results"]] == ["Hello world!", "Second turn"], meta_final
+assert meta_transport.sent[0]["authorization"]["accessToken"] == "Bearer test-key", meta_transport.sent
+assert [e.get("type") for e in meta_transport.sent] == [None, "binary", "endStream"], meta_transport.sent
+import base64
+import queue
+import importlib
+wire = importlib.import_module('axllm.ai')
+
+class DuplexProbe:
+    instance = None
+    def __init__(self, *args):
+        DuplexProbe.instance = self
+        self.inbound = queue.Queue()
+        self.sent = []
+        self.closed = False
+    def send(self, event):
+        self.sent.append(event)
+        if 'authorization' in event:
+            self.inbound.put({'sessionId': 'duplex'})
+        elif event.get('type') == 'binary' and len(self.sent) == 2:
+            self.inbound.put({'type': 'transcript', 'transcript': 'wrong hypothesis'})
+        elif event.get('type') == 'endStream':
+            self.inbound.put({'type': 'transcript', 'transcript': 'Correct final.', 'final': True})
+            self.inbound.put(None)
+    def recv(self):
+        return self.inbound.get(timeout=3)
+    def close(self):
+        self.closed = True
+        self.inbound.put(None)
+
+original_socket = wire._WebSocketRealtimeTransport
+wire._WebSocketRealtimeTransport = DuplexProbe
+try:
+    duplex_request = {**meta_request, 'model_config': {}, 'chat_prompt': [{'role': 'user', 'content': [{'type': 'audio', 'data': base64.b64encode(bytes(9600)).decode(), 'format': 'pcm16'}]}]}
+    stream = meta.stream(duplex_request)
+    partial = next(stream)
+    assert partial['results'][0]['transcript']['text'] == 'wrong hypothesis', partial
+    assert not any(x.get('type') == 'endStream' for x in DuplexProbe.instance.sent)
+    content = ''.join(r.get('content', '') for chunk in stream for r in chunk['results'])
+    assert content == 'Correct final.', content
+    assert DuplexProbe.instance.closed
+    stream = meta.stream(duplex_request)
+    next(stream)
+    stream.close()
+    assert DuplexProbe.instance.closed
+    assert not any(x.get('type') == 'endStream' for x in DuplexProbe.instance.sent)
+finally:
+    wire._WebSocketRealtimeTransport = original_socket
+class EarlyCloseProbe(DuplexProbe):
+    def send(self, event):
+        super().send(event)
+        if event.get('type') == 'binary':
+            self.inbound.put(None)
+
+wire._WebSocketRealtimeTransport = EarlyCloseProbe
+try:
+    for streaming in (False, True):
+        try:
+            if streaming:
+                list(meta.stream(duplex_request))
+            else:
+                meta.realtime_chat(duplex_request)
+        except Exception as error:
+            assert 'closed before audio upload completed' in str(error), error
+        else:
+            raise AssertionError('early close accepted an incomplete upload')
+finally:
+    wire._WebSocketRealtimeTransport = original_socket
+from axllm import AxMemory
+memory = AxMemory()
+memory.update_result({"thought_blocks": [{"id": "r", "data": "Plan"}], "images": [{"id": "image", "data": "partial"}]})
+memory.update_result({"thought_blocks": [{"id": "r", "data": "Plan.", "summary": "Plan.", "encrypted_content": "opaque"}]})
+assert memory.get_last()["response"]["thought_blocks"] == [{"id": "r", "data": "Plan.", "summary": "Plan.", "encrypted_content": "opaque"}]
+assert memory.get_last()["response"]["images"][0]["id"] == "image"
 print("realtime-audio-turn-ok")

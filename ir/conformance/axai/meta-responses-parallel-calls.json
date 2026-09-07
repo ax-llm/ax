@@ -1,0 +1,75 @@
+{
+  "expected_output": {
+    "model_usage": null,
+    "remote_id": "meta-parallel",
+    "results": [
+      {
+        "content": "",
+        "finish_reason": "function_call",
+        "function_calls": [
+          {
+            "function": {
+              "name": "lookup",
+              "params": {
+                "city": "one"
+              }
+            },
+            "id": "call-one",
+            "type": "function"
+          },
+          {
+            "function": {
+              "name": "lookup",
+              "params": {
+                "city": "two"
+              }
+            },
+            "id": "call-two",
+            "type": "function"
+          }
+        ],
+        "id": "item-two",
+        "index": 0
+      }
+    ]
+  },
+  "kind": "ai_chat",
+  "model": "muse-spark-1.3",
+  "name": "meta-responses-parallel-calls",
+  "provider": "meta",
+  "request": {
+    "chat_prompt": [
+      {
+        "content": "Look up both cities",
+        "role": "user"
+      }
+    ],
+    "model_config": {
+      "stream": false
+    }
+  },
+  "transport_responses": [
+    {
+      "json": {
+        "id": "meta-parallel",
+        "output": [
+          {
+            "arguments": "{\"city\":\"one\"}",
+            "call_id": "call-one",
+            "id": "item-one",
+            "name": "lookup",
+            "type": "function_call"
+          },
+          {
+            "arguments": "{\"city\":\"two\"}",
+            "call_id": "call-two",
+            "id": "item-two",
+            "name": "lookup",
+            "type": "function_call"
+          }
+        ]
+      },
+      "status": 200
+    }
+  ]
+}

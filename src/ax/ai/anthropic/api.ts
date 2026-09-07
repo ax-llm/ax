@@ -5,7 +5,7 @@ import {
   AxAIServiceAuthenticationError,
   AxAIServiceStatusError,
 } from '../../util/apicall.js';
-import { AxBaseAI, axBaseAIDefaultConfig } from '../base.js';
+import { type AxAIFeatures, AxBaseAI, axBaseAIDefaultConfig } from '../base.js';
 import type {
   AxAICredentialProvider,
   AxAIInputModelList,
@@ -16,6 +16,7 @@ import type {
   AxChatResponseResult,
   AxInternalChatRequest,
   AxModelConfig,
+  AxModelInfo,
   AxThoughtBlockItem,
   AxTokenUsage,
 } from '../types.js';
@@ -291,7 +292,13 @@ class AxAIAnthropicImpl
 
   constructor(
     private config: AxAIAnthropicConfig,
-    private isVertex: boolean
+    private isVertex: boolean,
+    private requestUpdater?: (
+      request: AxAIAnthropicChatRequest,
+      options: Readonly<AxAIServiceOptions>
+    ) => AxAIAnthropicChatRequest,
+    private readonly supportsToolChoiceNone = false,
+    private readonly supportsExtendedMedia = false
   ) {}
 
   getTokenUsage(): AxTokenUsage | undefined {
@@ -344,7 +351,12 @@ class AxAIAnthropicImpl
     }
 
     let toolsChoice:
-      | { tool_choice: { type: 'auto' | 'any' | 'tool'; name?: string } }
+      | {
+          tool_choice: {
+            type: 'auto' | 'any' | 'none' | 'tool';
+            name?: string;
+          };
+        }
       | undefined;
 
     if (req.functionCall && req.functions && req.functions.length > 0) {
@@ -357,7 +369,11 @@ class AxAIAnthropicImpl
             toolsChoice = { tool_choice: { type: 'any' as const } };
             break;
           case 'none':
-            throw new Error('functionCall none not supported');
+            if (!this.supportsToolChoiceNone) {
+              throw new Error('functionCall none not supported');
+            }
+            toolsChoice = { tool_choice: { type: 'none' as const } };
+            break;
         }
       } else if ('function' in req.functionCall) {
         toolsChoice = {
@@ -612,7 +628,11 @@ class AxAIAnthropicImpl
     // Alias for use in downstream logic (messages, request building)
     const thinkingEnabled = !!thinkingWire;
 
-    const messages = createMessages(otherMessages, thinkingEnabled);
+    const messages = createMessages(
+      otherMessages,
+      thinkingEnabled,
+      this.supportsExtendedMedia
+    );
 
     // If the outgoing messages include an assistant message that starts with a tool_use
     // block (i.e., we are pre-supplying a function call), Anthropic requires the final
@@ -694,7 +714,10 @@ class AxAIAnthropicImpl
       messages,
     };
 
-    return [apiConfig, reqValue];
+    return [
+      apiConfig,
+      this.requestUpdater ? this.requestUpdater(reqValue, config) : reqValue,
+    ];
   };
 
   createChatResp = (
@@ -1160,13 +1183,34 @@ export class AxAIAnthropic<TModelKey = string> extends AxBaseAI<
     config,
     options,
     models,
-  }: Readonly<Omit<AxAIAnthropicArgs<TModelKey>, 'name'>>) {
+    _profile,
+  }: Readonly<
+    Omit<AxAIAnthropicArgs<TModelKey>, 'name'> & {
+      _profile?: {
+        id: string;
+        name: string;
+        apiURL: string;
+        headers: () => Promise<Record<string, string>>;
+        defaultModel: string;
+        modelInfo: ReadonlyArray<AxModelInfo>;
+        supportFor: (model: string) => AxAIFeatures;
+        requestUpdater?: (
+          request: AxAIAnthropicChatRequest,
+          options: Readonly<AxAIServiceOptions>
+        ) => AxAIAnthropicChatRequest;
+        supportsToolChoiceNone?: boolean;
+      };
+    }
+  >) {
     const isVertex = projectId !== undefined && region !== undefined;
 
     let apiURL: string;
     let headers: () => Promise<Record<string, string>>;
 
-    if (projectId !== undefined && region !== undefined) {
+    if (_profile) {
+      apiURL = _profile.apiURL;
+      headers = _profile.headers;
+    } else if (projectId !== undefined && region !== undefined) {
       if (!apiKey && !credentialProvider) {
         throw new Error(
           'Anthropic Vertex API key or credential provider not set'
@@ -1202,16 +1246,30 @@ export class AxAIAnthropic<TModelKey = string> extends AxBaseAI<
       });
     }
 
-    const Config = {
+    const Config: AxAIAnthropicConfig = {
       ...axAIAnthropicDefaultConfig(),
+      ...(_profile
+        ? {
+            model: _profile.defaultModel as
+              | AxAIAnthropicModel
+              | AxAIAnthropicVertexModel,
+          }
+        : {}),
       ...config,
     };
 
-    const aiImpl = new AxAIAnthropicImpl(Config, isVertex);
+    const aiImpl = new AxAIAnthropicImpl(
+      Config,
+      isVertex,
+      _profile?.requestUpdater,
+      _profile?.supportsToolChoiceNone ?? false,
+      _profile !== undefined
+    );
 
     const supportFor = (
       model: AxAIAnthropicModel | AxAIAnthropicVertexModel
     ) => {
+      if (_profile) return _profile.supportFor(String(model));
       const mi = getModelInfo<
         AxAIAnthropicModel | AxAIAnthropicVertexModel,
         undefined,
@@ -1335,14 +1393,14 @@ export class AxAIAnthropic<TModelKey = string> extends AxBaseAI<
     });
 
     super(aiImpl, {
-      name: 'Anthropic',
+      name: _profile?.name ?? 'Anthropic',
       apiURL,
       headers,
-      modelInfo: axModelInfoAnthropic,
+      modelInfo: _profile?.modelInfo ?? axModelInfoAnthropic,
       defaults: { model: Config.model },
       options,
       credentialProvider,
-      profile: 'anthropic',
+      profile: _profile?.id ?? 'anthropic',
       supportFor,
       models: normalizedModels ?? models,
     });
@@ -1399,7 +1457,8 @@ function anthropicToolResultContent(
 
 function createMessages(
   chatPrompt: Readonly<AxChatRequest['chatPrompt']>,
-  _thinkingEnabled?: boolean
+  _thinkingEnabled?: boolean,
+  supportsExtendedMedia = false
 ): AxAIAnthropicChatRequest['messages'] {
   const items: AxAIAnthropicChatRequest['messages'] = chatPrompt.map((msg) => {
     switch (msg.role) {
@@ -1468,6 +1527,55 @@ function createMessages(
                   media_type: v.mimeType,
                   data: v.image,
                 },
+                ...(v.cache
+                  ? { cache_control: { type: 'ephemeral' as const } }
+                  : {}),
+              };
+            case 'audio':
+              if (!supportsExtendedMedia)
+                throw new Error('Invalid content type');
+              return {
+                type: 'audio' as const,
+                source: {
+                  type: 'base64' as const,
+                  media_type: `audio/${v.format ?? 'wav'}`,
+                  data: v.data,
+                },
+                ...(v.cache
+                  ? { cache_control: { type: 'ephemeral' as const } }
+                  : {}),
+              };
+            case 'file': {
+              if (!supportsExtendedMedia)
+                throw new Error('Invalid content type');
+              const type = v.mimeType.startsWith('image/')
+                ? ('image' as const)
+                : v.mimeType.startsWith('video/')
+                  ? ('video' as const)
+                  : ('document' as const);
+              return {
+                type,
+                source:
+                  'fileUri' in v
+                    ? { type: 'url' as const, url: v.fileUri }
+                    : {
+                        type: 'base64' as const,
+                        media_type: v.mimeType,
+                        data: v.data,
+                      },
+                ...(v.cache
+                  ? { cache_control: { type: 'ephemeral' as const } }
+                  : {}),
+              };
+            }
+            case 'url':
+              if (!supportsExtendedMedia)
+                throw new Error('Invalid content type');
+              return {
+                type: 'text' as const,
+                text:
+                  v.cachedContent ??
+                  [v.title, v.description, v.url].filter(Boolean).join('\n'),
                 ...(v.cache
                   ? { cache_control: { type: 'ephemeral' as const } }
                   : {}),

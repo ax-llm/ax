@@ -7,10 +7,29 @@ module @ax.ai version "0.1" {
     type fields = "message:string,status?:i64,code?:string,response_body?:json,request?:json,retryable?:bool"
   }
 
+  op ax.ai.error @AxAIServiceAbortedError {
+    attr core_kind = "error"
+    attr public = true
+    attr retryable = false
+    attr semantics = "caller cancellation is terminal, preserves the first reason, and must not retry or fail over"
+    tag "src/ax/util/apicall.ts"
+    type fields = "message:string,reason?:string,retryable:bool"
+  }
+
+  op ax.ai.interface @AxCancellationToken {
+    attr core_kind = "interface"
+    attr public = true
+    attr semantics = "thread-safe one-shot cancellation; first reason wins; subscriptions are removable and released after completion"
+    tag "cancellation-host-boundary"
+    type cancel = "(reason?:string) -> bool"
+    type subscribe = "(wake:json) -> json"
+    type throwIfCancelled = "() -> void throws"
+  }
+
   op ax.ai.record @ChatMessage {
     attr core_kind = "record"
     tag "src/ax/ai/types.ts"
-    type fields = "role:string,content:json,name?:string,toolCalls?:list<json>,thought?:string,thoughtBlocks?:list<json>"
+    type fields = "role:string,content:json,name?:string,toolCalls?:list<json>,thought?:string,thoughtBlocks?:list<json>,images?:list<json>,phase?:string"
   }
 
   op ax.ai.record @AxChatRequest {
@@ -46,7 +65,7 @@ module @ax.ai version "0.1" {
   op ax.ai.record @AxAIServiceOptions {
     attr core_kind = "record"
     tag "src/ax/ai/types.ts"
-    type fields = "debug?:bool,stream?:bool,functionCallMode?:string,timeout?:i64,retry?:json,useExpensiveModel?:string,thinkingTokenBudget?:string,showThoughts?:bool,serviceTier?:string,sessionId?:string,promptCacheKey?:string,contextCache?:json,usageContext?:AxUsageContext"
+    type fields = "debug?:bool,stream?:bool,functionCallMode?:string,timeout?:i64,retry?:json,useExpensiveModel?:string,thinkingTokenBudget?:string,showThoughts?:bool,serviceTier?:string,sessionId?:string,promptCacheKey?:string,promptCacheRetention?:string,contextCache?:json,usageContext?:AxUsageContext,cancellation?:AxCancellationToken"
   }
 
   op ax.ai.record @AxTokenUsage {
@@ -303,6 +322,13 @@ module @ax.ai version "0.1" {
         %has_thought = core.call intrinsic.truthy(%thought)
         %has_assistant_payload = core.call intrinsic.or(%has_content, %has_calls)
         %has_assistant_payload = core.call intrinsic.or(%has_assistant_payload, %has_thought)
+        %images = core.get %message["images"]
+        %has_images = core.call intrinsic.truthy(%images)
+        %thought_blocks_snake = core.get %message["thought_blocks"] default %empty_function_calls
+        %thought_blocks = core.get %message["thoughtBlocks"] default %thought_blocks_snake
+        %has_thought_blocks = core.call intrinsic.truthy(%thought_blocks)
+        %has_assistant_payload = core.call intrinsic.or(%has_assistant_payload, %has_images)
+        %has_assistant_payload = core.call intrinsic.or(%has_assistant_payload, %has_thought_blocks)
         %missing_assistant_payload = core.call intrinsic.not(%has_assistant_payload)
         %bad_assistant = core.call intrinsic.and(%is_assistant, %missing_assistant_payload)
         core.if %bad_assistant {
@@ -583,6 +609,93 @@ module @ax.ai version "0.1" {
     }
   }
 
+  op ax.ai.semantic @ai_merge_replay_metadata {
+    attr core_kind = "func"
+    attr emit_module = "ai"
+    tag "src/ax/mem/memory.ts"
+    type signature = "(previous:json, incoming:json) -> json"
+    body @entry(%previous: json, %incoming: json) {
+      %out = core.call intrinsic.map.merge(%previous, %incoming)
+      %empty = core.list
+      %fields = core.list
+      core.append %fields, "images"
+      core.append %fields, "thought_blocks"
+      core.append %fields, "thoughtBlocks"
+      core.for %field in %fields {
+        %old = core.get %previous[%field] default %empty
+        %incoming_items = core.get %incoming[%field] default %empty
+        %merged = core.list
+        core.for %item in %old {
+          core.append %merged, %item
+        }
+        core.for %item in %incoming_items {
+          %id = core.get %item["id"]
+          %has_id = core.call intrinsic.truthy(%id)
+          %found = core.let false
+          %updated = core.list
+          core.for %existing in %merged {
+            %old_id = core.get %existing["id"]
+            %same = core.call intrinsic.eq(%id, %old_id)
+            %same = core.call intrinsic.and(%same, %has_id)
+            core.if %same {
+              %replacement = core.call intrinsic.map.merge(%existing, %item)
+              %is_image = core.call intrinsic.eq(%field, "images")
+              core.if %is_image {
+                %replacement = core.let %item
+              }
+              %has_summary = core.call intrinsic.map.contains(%item, "summary")
+              %encrypted_snake = core.call intrinsic.map.contains(%item, "encrypted_content")
+              %encrypted_camel = core.call intrinsic.map.contains(%item, "encryptedContent")
+              %is_complete = core.call intrinsic.or(%has_summary, %encrypted_snake)
+              %is_complete = core.call intrinsic.or(%is_complete, %encrypted_camel)
+              %is_complete = core.call intrinsic.or(%is_complete, %is_image)
+              core.if %is_complete {
+              } else {
+                %old_data = core.get %existing["data"] default ""
+                %new_data = core.get %item["data"] default ""
+                %data = core.call intrinsic.string.format("{}{}", %old_data, %new_data)
+                core.set %replacement["data"] = %data
+              }
+              core.append %updated, %replacement
+              %found = core.let true
+            } else {
+              core.append %updated, %existing
+            }
+          }
+          core.if %found {
+          } else {
+            core.append %updated, %item
+          }
+          %merged = core.let %updated
+        }
+        %has_items = core.call intrinsic.truthy(%merged)
+        core.if %has_items {
+          core.set %out[%field] = %merged
+        }
+      }
+      %results = core.get %incoming["results"]
+      %has_results = core.call intrinsic.is_not_none(%results)
+      core.if %has_results {
+        %old_results = core.get %previous["results"] default %empty
+        %merged_results = core.list
+        core.for %result in %results {
+          %index = core.get %result["index"] default 0
+          %updated_result = core.let %result
+          core.for %old_result in %old_results {
+            %old_index = core.get %old_result["index"] default 0
+            %same = core.call intrinsic.eq(%index, %old_index)
+            core.if %same {
+              %updated_result = core.call @ai_merge_replay_metadata(%old_result, %result)
+            }
+          }
+          core.append %merged_results, %updated_result
+        }
+        core.set %out["results"] = %merged_results
+      }
+      core.return %out
+    }
+  }
+
   op ax.ai.semantic @chat_result_to_completion {
     attr core_kind = "func"
     attr emit_module = "ai"
@@ -619,6 +732,16 @@ module @ax.ai version "0.1" {
       }
       core.if %has_thought_blocks {
         core.set %completion["thought_blocks"] = %thought_blocks
+      }
+      %images = core.get %result["images"]
+      %has_images = core.call intrinsic.is_not_none(%images)
+      core.if %has_images {
+        core.set %completion["images"] = %images
+      }
+      %phase = core.get %result["phase"]
+      %has_phase = core.call intrinsic.is_not_none(%phase)
+      core.if %has_phase {
+        core.set %completion["phase"] = %phase
       }
       core.return %completion
     }
@@ -660,6 +783,16 @@ module @ax.ai version "0.1" {
       }
       core.if %has_thought_blocks {
         core.set %out["thought_blocks"] = %thought_blocks
+      }
+      %images = core.get %first["images"]
+      %has_images = core.call intrinsic.is_not_none(%images)
+      core.if %has_images {
+        core.set %out["images"] = %images
+      }
+      %phase = core.get %first["phase"]
+      %has_phase = core.call intrinsic.is_not_none(%phase)
+      core.if %has_phase {
+        core.set %out["phase"] = %phase
       }
       core.return %out
     }

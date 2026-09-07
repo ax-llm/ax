@@ -1,0 +1,36 @@
+{
+  "expected_output": {
+    "audio_processed_ms": 200,
+    "duration": 0.2,
+    "segments": [
+      {
+        "id": "first",
+        "start": 0.1,
+        "text": "First."
+      },
+      {
+        "id": "second",
+        "start": 0.2,
+        "text": "Second."
+      }
+    ],
+    "text": "First.\nSecond."
+  },
+  "kind": "ai_transcribe",
+  "name": "meta-voice-transcribe-overlap-order",
+  "provider": "meta",
+  "request": {
+    "audio": {
+      "data": "AAE=",
+      "format": "wav"
+    },
+    "mode": "endpointing",
+    "partialMode": "cumulative"
+  },
+  "transport_responses": [
+    {
+      "body": "data: {\"type\":\"speechStart\",\"turnId\":\"first\",\"audioProcessedMs\":100}\n\ndata: {\"type\":\"speechStart\",\"turnId\":\"second\",\"audioProcessedMs\":200}\n\ndata: {\"type\":\"speechComplete\",\"turnId\":\"second\",\"transcript\":\"Second.\"}\n\ndata: {\"type\":\"speechComplete\",\"turnId\":\"first\",\"transcript\":\"First.\"}\n\n",
+      "status": 200
+    }
+  ]
+}

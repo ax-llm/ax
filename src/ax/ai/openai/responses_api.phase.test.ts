@@ -63,9 +63,7 @@ describe('Responses API type extensions (2026)', () => {
       usage: { prompt_tokens: 1, completion_tokens: 2, total_tokens: 3 },
     } as unknown as AxAIOpenAIResponsesResponse;
 
-    // Verify the response object retains phase at the typed level — the parser
-    // doesn't drop the field, even though it currently isn't surfaced to
-    // AxChatResponse. (Surfacing is a follow-up.)
+    // Verify the response object and normalized result both retain phase.
     const firstOutput = resp.output[0] as any;
     const secondOutput = resp.output[1] as any;
     expect(firstOutput.phase).toBe('commentary');
@@ -76,5 +74,13 @@ describe('Responses API type extensions (2026)', () => {
     expect(chatResp.results.length).toBeGreaterThan(0);
     const joined = chatResp.results.map((r) => r.content ?? '').join(' ');
     expect(joined).toContain('42');
+    expect(chatResp.results[0]?.phase).toBe('final_answer');
+    expect(chatResp.results[0]?.thought).toBe('thinking out loud');
+    expect(chatResp.results[0]?.thoughtBlocks).toContainEqual({
+      id: 'msg_commentary',
+      data: 'thinking out loud',
+      encrypted: false,
+      phase: 'commentary',
+    });
   });
 });

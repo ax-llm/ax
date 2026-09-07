@@ -3,7 +3,10 @@ import type {
   AxAIOpenAIEmbedResponse,
   AxAPI,
 } from '@ax-llm/ax/index.js';
-import { AxAIRefusalError } from '../../util/apicall.js';
+import {
+  AxAIRefusalError,
+  AxAIServiceResponseError,
+} from '../../util/apicall.js';
 import type { AxAIFeatures } from '../base.js';
 import { axResolveServiceTier } from '../service_tier.js';
 import type {
@@ -18,12 +21,14 @@ import type {
   AxModelConfig,
   AxTokenUsage,
 } from '../types.js';
+import { axResolveOpenAIPromptCacheKey } from './caching.js';
 import { axResolveOpenAIResponsesReasoningEffort } from './effort.js';
 import type {
   AxAIOpenAIResponsesCodeInterpreterToolCall,
   AxAIOpenAIResponsesComputerToolCall,
   AxAIOpenAIResponsesConfig,
   AxAIOpenAIResponsesDefineFunctionTool,
+  AxAIOpenAIResponsesDefineImageGenerationTool,
   AxAIOpenAIResponsesFileSearchToolCall,
   AxAIOpenAIResponsesFunctionCallItem,
   AxAIOpenAIResponsesImageGenerationToolCall,
@@ -35,6 +40,7 @@ import type {
   AxAIOpenAIResponsesMCPToolCall,
   AxAIOpenAIResponsesOutputRefusalContentPart,
   AxAIOpenAIResponsesOutputTextContentPart,
+  AxAIOpenAIResponsesRealtimeAdapter,
   AxAIOpenAIResponsesRequest,
   AxAIOpenAIResponsesResponse,
   AxAIOpenAIResponsesStreamEvent,
@@ -95,12 +101,16 @@ export class AxAIOpenAIResponsesImpl<
     >,
     private readonly supportFor?:
       | AxAIFeatures
-      | ((model: TModel) => AxAIFeatures)
+      | ((model: TModel) => AxAIFeatures),
+    private readonly realtime?: AxAIOpenAIResponsesRealtimeAdapter<TModel>,
+    private readonly apiKey = ''
   ) {}
 
   getTokenUsage(): Readonly<AxTokenUsage> | undefined {
     return this.tokensUsed;
   }
+
+  supportsImplicitCaching = (): boolean => this.config.promptCaching ?? false;
 
   getModelConfig(): Readonly<AxModelConfig> {
     const { config } = this;
@@ -122,6 +132,10 @@ export class AxAIOpenAIResponsesImpl<
     const mappedParts: Mutable<AxAIOpenAIResponsesInputContentPart>[] = [];
 
     for (const part of content) {
+      const cacheControl =
+        this.config.promptCaching && part.cache
+          ? { cache_control: { type: 'ephemeral' as const } }
+          : {};
       if (part.type === 'text') {
         if (role === 'assistant') {
           mappedParts.push({
@@ -129,7 +143,11 @@ export class AxAIOpenAIResponsesImpl<
             text: part.text,
           } as unknown as AxAIOpenAIResponsesInputContentPart);
         } else {
-          mappedParts.push({ type: 'input_text', text: part.text });
+          mappedParts.push({
+            type: 'input_text',
+            text: part.text,
+            ...cacheControl,
+          });
         }
         continue;
       }
@@ -143,7 +161,9 @@ export class AxAIOpenAIResponsesImpl<
         const url = `data:${part.mimeType};base64,${part.image}`;
         mappedParts.push({
           type: 'input_image',
-          image_url: { url, details: part.details ?? 'auto' },
+          image_url: url,
+          detail: part.details ?? 'auto',
+          ...cacheControl,
         } as const);
         continue;
       }
@@ -152,9 +172,49 @@ export class AxAIOpenAIResponsesImpl<
           type: 'input_audio',
           input_audio: {
             data: part.data,
-            format: part.format === 'wav' ? 'wav' : undefined,
+            format: part.format,
           },
+          ...cacheControl,
         } as const);
+        continue;
+      }
+      if (part.type === 'file') {
+        if (part.mimeType.startsWith('image/')) {
+          mappedParts.push({
+            type: 'input_image',
+            image_url:
+              part.fileUri ?? `data:${part.mimeType};base64,${part.data ?? ''}`,
+            detail: 'auto',
+            ...cacheControl,
+          });
+        } else if (part.fileUri && part.mimeType.startsWith('video/')) {
+          mappedParts.push({
+            type: 'input_video',
+            video_url: part.fileUri,
+            ...cacheControl,
+          });
+        } else {
+          mappedParts.push({
+            type: 'input_file',
+            ...(part.fileUri
+              ? { file_url: part.fileUri }
+              : {
+                  file_data: `data:${part.mimeType};base64,${part.data ?? ''}`,
+                }),
+            filename: part.filename,
+            ...cacheControl,
+          });
+        }
+        continue;
+      }
+      if (part.type === 'url') {
+        mappedParts.push({
+          type: 'input_text',
+          text:
+            part.cachedContent ??
+            [part.title, part.description, part.url].filter(Boolean).join('\n'),
+          ...cacheControl,
+        });
         continue;
       }
 
@@ -179,10 +239,8 @@ export class AxAIOpenAIResponsesImpl<
       if (part.type === 'image') {
         return {
           type: 'input_image' as const,
-          image_url: {
-            url: `data:${part.mimeType};base64,${part.image}`,
-            details: 'auto' as const,
-          },
+          image_url: `data:${part.mimeType};base64,${part.image}`,
+          detail: 'auto' as const,
         };
       }
       if (part.type === 'audio') {
@@ -237,7 +295,16 @@ export class AxAIOpenAIResponsesImpl<
       ) {
         if (typeof msg.content === 'string') {
           if (msg.role === 'system') {
-            mappedContent = msg.content;
+            mappedContent =
+              this.config.promptCaching && msg.cache
+                ? [
+                    {
+                      type: 'input_text',
+                      text: msg.content,
+                      cache_control: { type: 'ephemeral' },
+                    },
+                  ]
+                : msg.content;
           } else if (msg.role === 'assistant') {
             mappedContent = [
               { type: 'output_text', text: msg.content },
@@ -277,6 +344,18 @@ export class AxAIOpenAIResponsesImpl<
           });
           break;
         case 'user':
+          if (
+            this.config.promptCaching &&
+            msg.cache &&
+            Array.isArray(mappedContent) &&
+            mappedContent.length > 0
+          ) {
+            const last = mappedContent[mappedContent.length - 1]!;
+            mappedContent = [
+              ...mappedContent.slice(0, -1),
+              { ...last, cache_control: { type: 'ephemeral' } },
+            ];
+          }
           items.push({
             type: 'message',
             role: 'user',
@@ -286,14 +365,59 @@ export class AxAIOpenAIResponsesImpl<
           break;
         case 'assistant':
           if (msg.thought || msg.thoughtBlocks?.length) {
-            const thought =
-              msg.thought ??
-              msg.thoughtBlocks?.map((block) => block.data).join('');
-            if (thought) {
+            const commentaryBlocks = msg.thoughtBlocks?.filter(
+              (block) => block.phase === 'commentary'
+            );
+            for (const block of commentaryBlocks ?? []) {
               items.push({
-                type: 'reasoning',
-                content: thought,
-              } satisfies AxAIOpenAIResponsesInputReasoningItem);
+                type: 'message',
+                role: 'assistant',
+                phase: 'commentary',
+                content: [{ type: 'output_text', text: block.data }],
+              });
+            }
+            const replayableBlocks = msg.thoughtBlocks?.filter(
+              (block) => block.encryptedContent && block.phase !== 'commentary'
+            );
+            if (replayableBlocks?.length) {
+              for (const block of replayableBlocks) {
+                items.push({
+                  type: 'reasoning',
+                  id: block.id,
+                  summary: [
+                    {
+                      type: 'summary_text',
+                      text: block.summary ?? block.data,
+                    },
+                  ],
+                  encrypted_content: block.encryptedContent,
+                } satisfies AxAIOpenAIResponsesInputReasoningItem);
+              }
+            } else {
+              const thought =
+                msg.thought ??
+                msg.thoughtBlocks?.map((block) => block.data).join('');
+              if (thought && !commentaryBlocks?.length) {
+                items.push({
+                  type: 'reasoning',
+                  content: thought,
+                } satisfies AxAIOpenAIResponsesInputReasoningItem);
+              }
+            }
+          }
+          if (msg.images?.length) {
+            for (const image of msg.images) {
+              if (!image.id) {
+                throw new Error(
+                  'Responses image replay requires the provider image id'
+                );
+              }
+              items.push({
+                type: 'image_generation_call',
+                id: image.id,
+                status: 'completed',
+                result: null,
+              });
             }
           }
           if (msg.content || msg.functionCalls) {
@@ -303,6 +427,7 @@ export class AxAIOpenAIResponsesImpl<
                 type: 'message',
                 role: 'assistant',
                 content: '',
+                phase: msg.phase,
               }; // Start with empty content
             if (msg.content) {
               assistantMessage.content = mappedContent;
@@ -355,7 +480,7 @@ export class AxAIOpenAIResponsesImpl<
     config: Readonly<AxAIServiceOptions>
   ): [Readonly<AxAPI>, Readonly<AxAIOpenAIResponsesRequest<TModel>>] {
     const model = req.model;
-    const apiConfig: Readonly<AxAPI> = { name: '/responses' };
+    const apiConfig: AxAPI = { name: '/responses' };
     const features =
       typeof this.supportFor === 'function'
         ? this.supportFor(model)
@@ -380,7 +505,11 @@ export class AxAIOpenAIResponsesImpl<
     let systemMessageFoundAndUsed = false;
     if (req.chatPrompt) {
       for (const item of req.chatPrompt) {
-        if (item.role === 'system' && typeof item.content === 'string') {
+        if (
+          item.role === 'system' &&
+          typeof item.content === 'string' &&
+          !this.config.promptCaching
+        ) {
           instructionsFromPrompt = item.content;
           systemMessageFoundAndUsed = true;
           break;
@@ -391,25 +520,43 @@ export class AxAIOpenAIResponsesImpl<
     const finalInstructions =
       instructionsFromPrompt ?? this.config.systemPrompt ?? null;
 
+    const functionTools = req.functions?.map(
+      (
+        v: Readonly<RequestFunctionDefinition>
+      ): AxAIOpenAIResponsesDefineFunctionTool => ({
+        type: 'function' as const,
+        name: v.name,
+        description: v.description,
+        parameters: v.parameters ?? {},
+      })
+    );
+    const imageTool: AxAIOpenAIResponsesDefineImageGenerationTool | undefined =
+      this.config.imageGeneration
+        ? {
+            type: 'image_generation',
+            size: this.config.imageGeneration.size,
+            output_format: this.config.imageGeneration.outputFormat,
+            enable_image_search: this.config.imageGeneration.enableImageSearch,
+            enable_web_search: this.config.imageGeneration.enableWebSearch,
+            enable_shell: this.config.imageGeneration.enableShell,
+            reasoning_strength: this.config.imageGeneration.reasoningStrength,
+          }
+        : undefined;
     const tools: ReadonlyArray<AxAIOpenAIResponsesToolDefinition> | undefined =
-      req.functions?.map(
-        (
-          v: Readonly<RequestFunctionDefinition>
-        ): AxAIOpenAIResponsesDefineFunctionTool => ({
-          type: 'function' as const,
-          name: v.name,
-          description: v.description,
-          parameters: v.parameters ?? {},
-        })
-      );
+      imageTool || functionTools?.length
+        ? [...(imageTool ? [imageTool] : []), ...(functionTools ?? [])]
+        : undefined;
 
     // Set include field based on showThoughts option, but override if thinkingTokenBudget is 'none'
-    const includeFields: // | 'file_search_call.results'
-    'message.input_image.image_url'[] =
+    const includeFields: Array<
+      'message.input_image.image_url' | 'reasoning.encrypted_content'
+    > =
       // | 'computer_call_output.output.image_url'
       // | 'reasoning.encrypted_content'
       // | 'code_interpreter_call.outputs'
-      [];
+      this.config.includeEncryptedReasoning
+        ? ['reasoning.encrypted_content']
+        : [];
 
     const isThinkingModel = isOpenAIResponsesThinkingModel(model as string);
 
@@ -425,10 +572,27 @@ export class AxAIOpenAIResponsesImpl<
 
     // Handle thinkingTokenBudget config parameter
     if (config?.thinkingTokenBudget) {
+      if (
+        config.thinkingTokenBudget === 'none' &&
+        this.config.rejectReasoningNone
+      ) {
+        throw new Error('This provider does not support reasoning level none');
+      }
       reasoningEffort = axResolveOpenAIResponsesReasoningEffort(
         model,
         config.thinkingTokenBudget
       );
+      if (config.thinkingTokenBudget !== 'none') {
+        reasoningEffort =
+          this.config.reasoningEffortMap?.[config.thinkingTokenBudget] ??
+          reasoningEffort;
+      }
+      if (
+        config.thinkingTokenBudget === 'highest' &&
+        this.config.highestReasoningEffort
+      ) {
+        reasoningEffort = this.config.highestReasoningEffort;
+      }
     }
 
     const mutableReq: Mutable<AxAIOpenAIResponsesRequest<TModel>> = {
@@ -493,6 +657,11 @@ export class AxAIOpenAIResponsesImpl<
       truncation: undefined,
       user: this.config.user,
       seed: this.config.seed,
+      prompt_cache_key: axResolveOpenAIPromptCacheKey(config, this.options),
+      prompt_cache_retention:
+        config.promptCacheRetention ??
+        this.options?.promptCacheRetention ??
+        this.config.promptCacheRetention,
     };
 
     // Populate from this.config if properties exist on AxAIOpenAIConfig
@@ -555,8 +724,53 @@ export class AxAIOpenAIResponsesImpl<
 
     if (this.responsesReqUpdater) {
       finalReqToProcess = this.responsesReqUpdater(
-        finalReqToProcess as Readonly<TResponsesReq>
+        finalReqToProcess as Readonly<TResponsesReq>,
+        config
       );
+    }
+
+    if (this.realtime?.shouldUse(String(model))) {
+      if (req.functions?.length) {
+        throw new Error(
+          'Meta Voice realtime transcription does not support tools'
+        );
+      }
+      const audio = req.modelConfig?.audio ?? this.config.audio;
+      let sampleRate = audio?.input?.sampleRate;
+      let channels = audio?.input?.channels;
+      for (const message of req.chatPrompt ?? []) {
+        if (message.role !== 'user' || !Array.isArray(message.content))
+          continue;
+        for (const part of message.content) {
+          if (part.type !== 'audio') continue;
+          if (part.sampleRate !== undefined) {
+            if (sampleRate !== undefined && sampleRate !== part.sampleRate) {
+              throw new Error('Conflicting realtime audio sample rates');
+            }
+            sampleRate = part.sampleRate;
+          }
+          if (part.channels !== undefined) {
+            if (channels !== undefined && channels !== part.channels) {
+              throw new Error('Conflicting realtime audio channel counts');
+            }
+            channels = part.channels;
+          }
+        }
+      }
+      const realtimeApi = this.realtime.createApi({
+        model,
+        request: finalReqToProcess,
+        apiKey: this.apiKey,
+        audio: { ...audio, input: { ...audio?.input, sampleRate, channels } },
+        webSocket: config.webSocket ?? this.options?.webSocket,
+        abortSignal: config.abortSignal ?? this.options?.abortSignal,
+        turnTimeoutMs:
+          req.modelConfig?.audio?.live?.turnTimeoutMs ??
+          this.config.audio?.live?.turnTimeoutMs,
+        sessionId: config.sessionId ?? this.options?.sessionId,
+      });
+      apiConfig.name = realtimeApi.name;
+      apiConfig.localCall = realtimeApi.localCall;
     }
 
     return [apiConfig, finalReqToProcess];
@@ -567,11 +781,22 @@ export class AxAIOpenAIResponsesImpl<
     resp: Readonly<AxAIOpenAIResponsesResponse>
   ): Readonly<AxChatResponse> {
     const { id, output, usage } = resp;
+    const metaResponse = resp as AxAIOpenAIResponsesResponse & {
+      meta_session_id?: string;
+      meta_results?: AxChatResponseResult[];
+    };
 
     this.tokensUsed = axNormalizeOpenAIUsage(
       usage,
       resp.service_tier_used ?? resp.service_tier
     );
+    if (metaResponse.meta_results) {
+      return {
+        results: metaResponse.meta_results,
+        remoteId: id,
+        remoteSessionId: metaResponse.meta_session_id,
+      };
+    }
 
     const currentResult: Partial<AxChatResponseResult> = {};
 
@@ -584,7 +809,24 @@ export class AxAIOpenAIResponsesImpl<
       switch (item.type) {
         case 'message':
           currentResult.id = item.id;
-          currentResult.content = contentToText(item.content, id);
+          {
+            const text = contentToText(item.content, id);
+            if (item.phase === 'commentary') {
+              currentResult.thought = `${currentResult.thought ?? ''}${text}`;
+              currentResult.thoughtBlocks = [
+                ...(currentResult.thoughtBlocks ?? []),
+                {
+                  data: text,
+                  encrypted: false,
+                  id: item.id,
+                  phase: 'commentary',
+                },
+              ];
+            } else {
+              currentResult.content = text;
+              currentResult.phase = item.phase;
+            }
+          }
           currentResult.finishReason =
             item.status === 'completed' ? 'stop' : 'content_filter';
           // Extract annotations from output_text parts
@@ -599,11 +841,16 @@ export class AxAIOpenAIResponsesImpl<
               currentResult.thought = currentResult.thought
                 ? `${currentResult.thought}${thought}`
                 : thought;
+            }
+            if (thought || item.encrypted_content) {
               currentResult.thoughtBlocks = [
                 ...(currentResult.thoughtBlocks ?? []),
                 {
                   data: thought,
                   encrypted: Boolean(item.encrypted_content),
+                  id: item.id,
+                  summary: item.summary?.map((part) => part.text).join('\n'),
+                  encryptedContent: item.encrypted_content ?? undefined,
                 },
               ];
             }
@@ -678,19 +925,18 @@ export class AxAIOpenAIResponsesImpl<
           break;
         case 'image_generation_call':
           currentResult.id = item.id;
-          currentResult.functionCalls = [
-            {
-              id: item.id,
-              type: 'function' as const,
-              function: {
-                name: 'image_generation',
-                params: {
-                  result: item.result,
-                },
-              },
-            },
-          ];
-          currentResult.finishReason = 'function_call';
+          if (item.result) {
+            currentResult.images = [
+              ...(currentResult.images ?? []),
+              normalizeImageOutput(
+                item.id,
+                item.result,
+                this.config.imageGeneration?.outputFormat ??
+                  this.config.defaultImageOutputFormat
+              ),
+            ];
+          }
+          currentResult.finishReason = 'stop';
           break;
         case 'local_shell_call':
           currentResult.id = item.id;
@@ -763,6 +1009,7 @@ export class AxAIOpenAIResponsesImpl<
     const sstate = state as {
       remoteId?: string;
       functionCallIds?: Map<string, string>;
+      phases?: Map<string, 'commentary' | 'final_answer'>;
     };
 
     // Create a basic result structure
@@ -793,10 +1040,27 @@ export class AxAIOpenAIResponsesImpl<
         switch (event.item.type) {
           case 'message':
             baseResult.id = event.item.id;
+            if (event.item.phase) {
+              sstate.phases ??= new Map();
+              sstate.phases.set(event.item.id, event.item.phase);
+            }
+            baseResult.phase = event.item.phase;
             baseResult.content = contentToText(
               event.item.content,
               event.item.id
             );
+            if (event.item.phase === 'commentary' && baseResult.content) {
+              baseResult.thought = baseResult.content;
+              baseResult.thoughtBlocks = [
+                {
+                  data: baseResult.content,
+                  encrypted: false,
+                  id: event.item.id,
+                  phase: 'commentary',
+                },
+              ];
+              baseResult.content = '';
+            }
             baseResult.citations = extractAnnotationsFromContent(
               event.item.content
             );
@@ -912,18 +1176,16 @@ export class AxAIOpenAIResponsesImpl<
               const imageItem =
                 event.item as AxAIOpenAIResponsesImageGenerationToolCall;
               baseResult.id = event.item.id;
-              baseResult.functionCalls = [
-                {
-                  id: imageItem.id,
-                  type: 'function' as const,
-                  function: {
-                    name: 'image_generation',
-                    params: {
-                      result: imageItem.result,
-                    },
-                  },
-                },
-              ];
+              if (imageItem.result) {
+                baseResult.images = [
+                  normalizeImageOutput(
+                    imageItem.id,
+                    imageItem.result,
+                    this.config.imageGeneration?.outputFormat ??
+                      this.config.defaultImageOutputFormat
+                  ),
+                ];
+              }
             }
             break;
           case 'local_shell_call':
@@ -970,12 +1232,17 @@ export class AxAIOpenAIResponsesImpl<
           case 'reasoning': {
             baseResult.id = event.item.id;
             const thought = reasoningItemToText(event.item);
-            if (thought) {
-              baseResult.thought = thought;
+            if (thought) baseResult.thought = thought;
+            if (thought || event.item.encrypted_content) {
               baseResult.thoughtBlocks = [
                 {
                   data: thought,
                   encrypted: Boolean(event.item.encrypted_content),
+                  id: event.item.id,
+                  summary: event.item.summary
+                    ?.map((part) => part.text)
+                    .join('\n'),
+                  encryptedContent: event.item.encrypted_content ?? undefined,
                 },
               ];
             }
@@ -996,7 +1263,24 @@ export class AxAIOpenAIResponsesImpl<
       case 'response.output_text.delta':
         // Text delta - return just the delta content
         baseResult.id = event.item_id;
-        baseResult.content = event.delta;
+        baseResult.name = streamEvent.speaker;
+        baseResult.audioProcessedMs = streamEvent.audioProcessedMs;
+        baseResult.transcript = streamEvent.transcript;
+        if (streamEvent.transcript) baseResult.finishReason = undefined;
+        if (sstate.phases?.get(event.item_id) === 'commentary') {
+          baseResult.thought = event.delta;
+          baseResult.thoughtBlocks = [
+            {
+              data: event.delta,
+              encrypted: false,
+              id: event.item_id,
+              phase: 'commentary',
+            },
+          ];
+        } else {
+          baseResult.content = event.delta;
+          baseResult.phase = sstate.phases?.get(event.item_id);
+        }
         break;
 
       case 'response.output_text.done':
@@ -1032,26 +1316,59 @@ export class AxAIOpenAIResponsesImpl<
         // Reasoning summary delta
         baseResult.id = event.item_id;
         baseResult.thought = event.delta;
-        baseResult.thoughtBlocks = [{ data: event.delta, encrypted: false }];
+        baseResult.thoughtBlocks = [
+          {
+            data: event.delta,
+            encrypted: false,
+            ...(this.config.includeEncryptedReasoning
+              ? { id: event.item_id }
+              : {}),
+          },
+        ];
+        break;
+
+      case 'response.reasoning_summary_text.done':
+      case 'response.reasoning_summary.done':
+        baseResult.id = event.item_id;
+        baseResult.thought = event.text;
+        baseResult.thoughtBlocks = [
+          {
+            data: event.text,
+            encrypted: false,
+            ...(this.config.includeEncryptedReasoning
+              ? { id: event.item_id, summary: event.text }
+              : {}),
+          },
+        ];
         break;
 
       case 'response.reasoning_text.delta':
         baseResult.id = event.item_id;
         baseResult.thought = event.delta;
-        baseResult.thoughtBlocks = [{ data: event.delta, encrypted: false }];
+        baseResult.thoughtBlocks = [
+          {
+            data: event.delta,
+            encrypted: false,
+            ...(this.config.includeEncryptedReasoning
+              ? { id: event.item_id }
+              : {}),
+          },
+        ];
         break;
 
       case 'response.reasoning_text.done':
         baseResult.id = event.item_id;
         baseResult.thought = event.text;
-        baseResult.thoughtBlocks = [{ data: event.text, encrypted: false }];
+        baseResult.thoughtBlocks = [
+          {
+            data: event.text,
+            encrypted: false,
+            ...(this.config.includeEncryptedReasoning
+              ? { id: event.item_id, summary: event.text }
+              : {}),
+          },
+        ];
         break;
-
-      // case 'response.reasoning_summary_text.done':
-      //     // Reasoning summary done
-      //     baseResult.id = event.item_id
-      //     baseResult.thought = event.text
-      //     break
 
       // File search tool events
       case 'response.file_search_call.in_progress':
@@ -1081,18 +1398,28 @@ export class AxAIOpenAIResponsesImpl<
       case 'response.image_generation_call.in_progress':
       case 'response.image_generation_call.generating':
         baseResult.id = event.item_id;
-        baseResult.finishReason = 'function_call';
+        baseResult.finishReason = undefined;
         break;
 
       case 'response.image_generation_call.completed':
         baseResult.id = event.item_id;
-        baseResult.finishReason = 'function_call';
+        baseResult.finishReason = 'stop';
         break;
 
       case 'response.image_generation_call.partial_image':
         baseResult.id = event.item_id;
-        baseResult.finishReason = 'function_call';
-        // Could potentially add partial image data to content or a special field
+        baseResult.finishReason = undefined;
+        baseResult.images = [
+          {
+            id: event.item_id,
+            data: event.partial_image_b64,
+            mimeType: imageMimeType(
+              this.config.imageGeneration?.outputFormat ??
+                this.config.defaultImageOutputFormat
+            ),
+            isDelta: true,
+          },
+        ];
         break;
 
       // MCP tool events
@@ -1150,6 +1477,7 @@ export class AxAIOpenAIResponsesImpl<
         switch (event.item.type) {
           case 'message':
             baseResult.id = event.item.id;
+            baseResult.phase = event.item.phase;
             baseResult.finishReason =
               event.item.status === 'completed' ? 'stop' : 'error';
             if (!baseResult.citations || baseResult.citations.length === 0) {
@@ -1164,22 +1492,41 @@ export class AxAIOpenAIResponsesImpl<
           case 'web_search_call':
           case 'computer_call':
           case 'code_interpreter_call':
-          case 'image_generation_call':
           case 'local_shell_call':
           case 'mcp_call':
             // Tool calls completed - finishReason indicates function execution needed
             baseResult.id = event.item.id;
             baseResult.finishReason = 'function_call';
             break;
+          case 'image_generation_call': {
+            baseResult.id = event.item.id;
+            if (event.item.result) {
+              baseResult.images = [
+                normalizeImageOutput(
+                  event.item.id,
+                  event.item.result,
+                  this.config.imageGeneration?.outputFormat ??
+                    this.config.defaultImageOutputFormat
+                ),
+              ];
+            }
+            baseResult.finishReason = 'stop';
+            break;
+          }
           case 'reasoning': {
             baseResult.id = event.item.id;
             const thought = reasoningItemToText(event.item);
-            if (thought) {
-              baseResult.thought = thought;
+            if (thought) baseResult.thought = thought;
+            if (thought || event.item.encrypted_content) {
               baseResult.thoughtBlocks = [
                 {
                   data: thought,
                   encrypted: Boolean(event.item.encrypted_content),
+                  id: event.item.id,
+                  summary: event.item.summary
+                    ?.map((part) => part.text)
+                    .join('\n'),
+                  encryptedContent: event.item.encrypted_content ?? undefined,
                 },
               ];
             }
@@ -1197,14 +1544,22 @@ export class AxAIOpenAIResponsesImpl<
         remoteId = event.response.id;
         baseResult.id = `${event.response.id}_completed`;
         baseResult.finishReason = 'stop';
+        if (
+          'meta_session_id' in event.response &&
+          typeof event.response.meta_session_id === 'string'
+        ) {
+          (sstate as { remoteSessionId?: string }).remoteSessionId =
+            event.response.meta_session_id;
+        }
         break;
 
       case 'response.failed':
-        // Response failure
-        remoteId = event.response.id;
-        baseResult.id = `${event.response.id}_failed`;
-        baseResult.finishReason = 'error';
-        break;
+        throw new AxAIServiceResponseError(
+          event.response.error?.message || 'Responses stream failed',
+          '',
+          undefined,
+          { response: event.response }
+        );
 
       case 'response.incomplete':
         // Response incomplete
@@ -1214,11 +1569,12 @@ export class AxAIOpenAIResponsesImpl<
         break;
 
       case 'error':
-        // Error event
-        baseResult.id = 'error';
-        baseResult.content = `Error: ${event.message}`;
-        baseResult.finishReason = 'error';
-        break;
+        throw new AxAIServiceResponseError(
+          event.message || 'Responses stream failed',
+          '',
+          undefined,
+          { event }
+        );
 
       default:
         // For unhandled events, return empty result
@@ -1235,6 +1591,7 @@ export class AxAIOpenAIResponsesImpl<
     return {
       results: [baseResult],
       remoteId,
+      remoteSessionId: (sstate as { remoteSessionId?: string }).remoteSessionId,
     } as Readonly<AxChatResponse>;
   };
 
@@ -1279,8 +1636,27 @@ const reasoningItemToText = (
     const text = item.content.map((part) => part.text).join('');
     if (text) return text;
   }
-  if (item.encrypted_content) return item.encrypted_content;
   return item.summary?.map((part) => part.text).join('\n') ?? '';
+};
+
+const imageMimeType = (format: 'png' | 'jpeg' | 'webp' | undefined): string =>
+  `image/${format ?? 'png'}`;
+
+const normalizeImageOutput = (
+  id: string,
+  result: string,
+  format: 'png' | 'jpeg' | 'webp' | undefined
+): NonNullable<AxChatResponseResult['images']>[number] => {
+  if (/^(?:https?:|data:)/.test(result)) {
+    if (result.startsWith('data:')) {
+      const match = /^data:([^;,]+);base64,(.*)$/s.exec(result);
+      if (match) {
+        return { id, mimeType: match[1], data: match[2] };
+      }
+    }
+    return { id, url: result, mimeType: imageMimeType(format) };
+  }
+  return { id, data: result, mimeType: imageMimeType(format) };
 };
 
 const contentToText = (

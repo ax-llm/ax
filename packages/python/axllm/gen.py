@@ -10,6 +10,8 @@ from typing import Any
 
 from .ai import (
     AIClient,
+    AxAIServiceAbortedError,
+    AxCancellationToken,
     AxMeter,
     AxRateLimiter,
     AxRuntimeHooks,
@@ -20,6 +22,7 @@ from .ai import (
     _runtime_hooks_from_options,
     _strip_runtime_hooks,
     chat_response_to_completion,
+    ai_merge_replay_metadata,
 )
 from .prompt import AxPromptTemplate
 from .schema import AxValidationError, strip_internal, validate_fields, validate_output
@@ -118,6 +121,7 @@ class AxMemory:
         item = {"role": "assistant", "response": result, "session_id": session_id, "tags": []}
         for existing in reversed(self.items):
             if existing.get("role") == "assistant" and existing.get("session_id") == session_id:
+                item["response"] = ai_merge_replay_metadata(existing.get("response") or {}, result)
                 existing.update(item)
                 return self
         self.items.append(item)
@@ -167,7 +171,7 @@ def _ax_memory_response_meaningful(response) -> bool:
     content = response.get("content")
     if isinstance(content, str) and content.strip():
         return True
-    for key in ("function_calls", "functionCalls", "tool_calls", "toolCalls", "thought_blocks", "thoughtBlocks"):
+    for key in ("function_calls", "functionCalls", "tool_calls", "toolCalls", "thought_blocks", "thoughtBlocks", "images"):
         value = response.get(key)
         if isinstance(value, list) and value:
             return True
@@ -492,7 +496,7 @@ class AxGen:
         stream_options = {**self.options, **(options or {}), "stream": True}
         req = self._request(self.prompt_template.render(values), stream_options, client)
         chunks = []
-        for event in client.stream(req):
+        for event in client.stream(req, stream_options):
             chunks.append(event)
             _core_axgen_run_streaming_assertions(self, fold_stream(chunks))
             yield event
@@ -739,12 +743,26 @@ def _core_ai_client_features(client, model):
     return {"functions": True, "structured_outputs": True}
 
 
-def _core_retry_sleep(attempt):
-    time.sleep(min(0.25 * (int(attempt) + 1), 1.0))
+def _core_retry_sleep(attempt, _client=None, options=None):
+    delay = min(0.25 * (int(attempt) + 1), 1.0)
+    token = None
+    if isinstance(options, dict):
+        token = options.get("cancellation") or options.get("cancellationToken") or options.get("cancellation_token")
+    if token is None:
+        time.sleep(delay)
+        return
+    if not isinstance(token, AxCancellationToken):
+        raise TypeError("cancellation must be an AxCancellationToken")
+    token.wait(delay)
+    token.throw_if_cancelled()
 
 
 def _core_exception_message(error):
     return str(error)
+
+
+def _core_exception_is_aborted(error):
+    return isinstance(error, AxAIServiceAbortedError)
 
 
 def _core_regex_match(pattern, value):
@@ -1084,6 +1102,21 @@ def fold_stream(events: list[Any]) -> str:
     _core_coverage_mark("fold_stream")
     chunks = []
     for event in events:
+        empty_results = []
+        results = _core_get(event, "results", empty_results)
+        for result in results:
+            finish_snake = _core_get(result, "finish_reason", None)
+            finish = _core_get(result, "finishReason", finish_snake)
+            is_length = _core_eq(finish, "length")
+            if is_length:
+                raise RuntimeError("Max tokens reached before completion")
+            else:
+                pass
+            is_error = _core_eq(finish, "error")
+            if is_error:
+                raise RuntimeError("Streaming response failed")
+            else:
+                pass
         parts = _stream_event_content_parts_impl(event)
         for part in parts:
             chunks.append(part)
@@ -1604,12 +1637,6 @@ def _structured_output_scalar_placeholder(typ: Any) -> Any:
     return "<value>"
 
 
-def _stream_event_content_parts_impl(event: Any) -> list[Any]:
-    _core_coverage_mark("_stream_event_content_parts_impl")
-    parts = _core_stream_event_content_parts(event)
-    return parts
-
-
 def _validate_optimized_artifact_provenance(artifact: Any, components: Any) -> bool:
     _core_coverage_mark("_validate_optimized_artifact_provenance")
     empty_map = {}
@@ -1639,6 +1666,12 @@ def _validate_optimized_artifact_provenance(artifact: Any, components: Any) -> b
         else:
             pass
     return True
+
+
+def _stream_event_content_parts_impl(event: Any) -> list[Any]:
+    _core_coverage_mark("_stream_event_content_parts_impl")
+    parts = _core_stream_event_content_parts(event)
+    return parts
 
 
 def _validate_optimized_artifact(artifact: Any, components: Any) -> Any:
@@ -2010,6 +2043,7 @@ def _build_gen_chat_request(gen: AxGen, messages: list[Any], options: Any, selec
             forced_function["type"] = "function"
             forced_function["function"] = forced_function_ref
             request["function_call"] = forced_function
+            request["function_call_source"] = "ax"
         else:
             pass
     else:
@@ -2720,13 +2754,18 @@ def _complete_with_retries_impl(client: AIClient, request: AxChatRequest, option
             response = _core_ai_complete_once(client, request, options)
             return response
         except Exception as error:
+            aborted = _core_exception_is_aborted(error)
+            if aborted:
+                raise error
+            else:
+                pass
             last_error = error
             exhausted = _core_gte(attempt, retries)
             if exhausted:
                 raise error
             else:
                 pass
-            _core_retry_sleep(attempt)
+            _core_retry_sleep(attempt, client, options)
             next_attempt = _core_add(attempt, 1)
             attempt = next_attempt
             continue
@@ -2738,25 +2777,6 @@ def _parse_output_impl(content: str) -> Any:
     text = str(content).strip()
     output = _core_json_parse_strict(text)
     return output
-
-
-def _is_flexible_json_field(typ: FieldType) -> bool:
-    _core_coverage_mark("_is_flexible_json_field")
-    type_name = _core_get(typ, "name", None)
-    is_json = _core_eq(type_name, "json")
-    is_object = _core_eq(type_name, "object")
-    fields = _core_get(typ, "fields", None)
-    has_fields = _core_truthy(fields)
-    no_fields = _core_not(has_fields)
-    flexible = is_json
-    if is_object:
-        if no_fields:
-            flexible = True
-        else:
-            pass
-    else:
-        pass
-    return flexible
 
 
 def _ace_estimate_token_count(text: str) -> i64:
@@ -2777,21 +2797,23 @@ def _ace_estimate_token_count(text: str) -> i64:
     return tokens
 
 
-def _parse_json_string_value(value: Any) -> Any:
-    _core_coverage_mark("_parse_json_string_value")
-    is_string = _core_type_is(value, "string")
-    not_string = _core_not(is_string)
-    if not_string:
-        return value
+def _is_flexible_json_field(typ: FieldType) -> bool:
+    _core_coverage_mark("_is_flexible_json_field")
+    type_name = _core_get(typ, "name", None)
+    is_json = _core_eq(type_name, "json")
+    is_object = _core_eq(type_name, "object")
+    fields = _core_get(typ, "fields", None)
+    has_fields = _core_truthy(fields)
+    no_fields = _core_not(has_fields)
+    flexible = is_json
+    if is_object:
+        if no_fields:
+            flexible = True
+        else:
+            pass
     else:
         pass
-    result = value
-    try:
-        parsed = _core_json_parse(value)
-        result = parsed
-    except Exception as parse_error:
-        result = value
-    return result
+    return flexible
 
 
 def _ace_recompute_playbook_stats(playbook: Any) -> Any:
@@ -2824,6 +2846,23 @@ def _ace_recompute_playbook_stats(playbook: Any) -> Any:
     stats["tokenEstimate"] = token_estimate
     playbook["stats"] = stats
     return playbook
+
+
+def _parse_json_string_value(value: Any) -> Any:
+    _core_coverage_mark("_parse_json_string_value")
+    is_string = _core_type_is(value, "string")
+    not_string = _core_not(is_string)
+    if not_string:
+        return value
+    else:
+        pass
+    result = value
+    try:
+        parsed = _core_json_parse(value)
+        result = parsed
+    except Exception as parse_error:
+        result = value
+    return result
 
 
 def _parse_json_string_for_field(field: Field, value: Any) -> Any:
@@ -3282,6 +3321,18 @@ def _append_tool_call_messages_impl(messages: list[Any], response: Any, calls: l
         message["thought_blocks"] = thought_blocks
     else:
         pass
+    images = _core_get(response, "images", None)
+    has_images = _core_is_not_none(images)
+    if has_images:
+        message["images"] = images
+    else:
+        pass
+    phase = _core_get(response, "phase", None)
+    has_phase = _core_is_not_none(phase)
+    if has_phase:
+        message["phase"] = phase
+    else:
+        pass
     messages.append(message)
     return messages
 
@@ -3299,19 +3350,6 @@ def _completion_call_to_chat_impl(call: Any) -> Any:
     out["type"] = "function"
     out["function"] = function
     return out
-
-
-def _tool_result_message_impl(call: Any, result: Any) -> Any:
-    _core_coverage_mark("_tool_result_message_impl")
-    id = _core_get(call, "id", None)
-    name = _core_get(call, "name", None)
-    result_json = _core_json_stringify(result)
-    message = {}
-    message["role"] = "function"
-    message["function_id"] = id
-    message["name"] = name
-    message["result"] = result_json
-    return message
 
 
 def _ace_apply_curator_operations(playbook: Any, operations: Any, options: Any, now: str) -> Any:
@@ -3492,6 +3530,19 @@ def _ace_apply_curator_operations(playbook: Any, operations: Any, options: Any, 
     out["updatedBulletIds"] = updated_bullets
     out["autoRemoved"] = auto_removed
     return out
+
+
+def _tool_result_message_impl(call: Any, result: Any) -> Any:
+    _core_coverage_mark("_tool_result_message_impl")
+    id = _core_get(call, "id", None)
+    name = _core_get(call, "name", None)
+    result_json = _core_json_stringify(result)
+    message = {}
+    message["role"] = "function"
+    message["function_id"] = id
+    message["name"] = name
+    message["result"] = result_json
+    return message
 
 
 def _tool_error_message_impl(call: Any, error: error) -> Any:

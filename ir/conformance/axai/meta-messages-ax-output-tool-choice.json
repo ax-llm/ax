@@ -1,0 +1,91 @@
+{
+  "expected_request_count": 1,
+  "expected_transport_request": {
+    "json": {
+      "tool_choice": {
+        "type": "any"
+      },
+      "tools": [
+        {
+          "description": "Emit output",
+          "input_schema": {
+            "properties": {
+              "answer": {
+                "type": "string"
+              }
+            },
+            "required": ["answer"],
+            "type": "object"
+          },
+          "name": "__axOutput"
+        }
+      ]
+    }
+  },
+  "kind": "ai_chat",
+  "model": "muse-spark-1.3",
+  "name": "meta-messages-ax-output-tool-choice",
+  "options": {
+    "functionCallSource": "ax"
+  },
+  "provider": "meta-messages",
+  "request": {
+    "chat_prompt": [
+      {
+        "content": "Return the structured output",
+        "role": "user"
+      }
+    ],
+    "function_call": {
+      "function": {
+        "name": "__axOutput"
+      },
+      "type": "function"
+    },
+    "functions": [
+      {
+        "description": "Look up a fact",
+        "name": "lookup",
+        "parameters": {
+          "properties": {},
+          "type": "object"
+        }
+      },
+      {
+        "description": "Emit output",
+        "name": "__axOutput",
+        "parameters": {
+          "properties": {
+            "answer": {
+              "type": "string"
+            }
+          },
+          "required": ["answer"],
+          "type": "object"
+        }
+      }
+    ],
+    "model_config": {
+      "stream": false
+    }
+  },
+  "transport_responses": [
+    {
+      "json": {
+        "content": [
+          {
+            "text": "Done",
+            "type": "text"
+          }
+        ],
+        "id": "r1",
+        "stop_reason": "end_turn",
+        "usage": {
+          "input_tokens": 1,
+          "output_tokens": 1
+        }
+      },
+      "status": 200
+    }
+  ]
+}
