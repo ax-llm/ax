@@ -2293,6 +2293,26 @@ try:
     assert not any(x.get('type') == 'endStream' for x in DuplexProbe.instance.sent)
 finally:
     wire._WebSocketRealtimeTransport = original_socket
+class EarlyCloseProbe(DuplexProbe):
+    def send(self, event):
+        super().send(event)
+        if event.get('type') == 'binary':
+            self.inbound.put(None)
+
+wire._WebSocketRealtimeTransport = EarlyCloseProbe
+try:
+    for streaming in (False, True):
+        try:
+            if streaming:
+                list(meta.stream(duplex_request))
+            else:
+                meta.realtime_chat(duplex_request)
+        except Exception as error:
+            assert 'closed before audio upload completed' in str(error), error
+        else:
+            raise AssertionError('early close accepted an incomplete upload')
+finally:
+    wire._WebSocketRealtimeTransport = original_socket
 from axllm import AxMemory
 memory = AxMemory()
 memory.update_result({"thought_blocks": [{"id": "r", "data": "Plan"}], "images": [{"id": "image", "data": "partial"}]})
@@ -3054,6 +3074,27 @@ public final class RealtimeAudioTurnExample {
     duplexRequest.put("chat_prompt", List.of(Map.of("role", "user", "content", List.of(Map.of("type", "audio", "format", "pcm16", "data", Base64.getEncoder().encodeToString(new byte[9600]))))));
     Map<String, Object> duplexResult = meta.realtimeChat(duplexRequest, duplex);
     if (!"Correct final.".equals(((Map<?, ?>)((List<?>)duplexResult.get("results")).get(0)).get("content"))) fail("duplex final lost", duplexResult);
+    OpenAICompatibleClient.RealtimeTransport earlyClose = new OpenAICompatibleClient.RealtimeTransport() {
+      final java.util.concurrent.BlockingQueue<Map<String, Object>> frames = new java.util.concurrent.LinkedBlockingQueue<>();
+      public void send(Map<String, Object> event) {
+        if (event.containsKey("authorization")) frames.offer(Map.of("sessionId", "early"));
+        else if ("binary".equals(event.get("type"))) frames.offer(Map.of());
+      }
+      public Map<String, Object> recv() {
+        try {
+          Map<String, Object> event = frames.poll(3, java.util.concurrent.TimeUnit.SECONDS);
+          if (event == null) throw new IllegalStateException("early-close receiver timed out");
+          return event.isEmpty() ? null : event;
+        } catch (InterruptedException error) { Thread.currentThread().interrupt(); throw new IllegalStateException(error); }
+      }
+      public void close() { frames.offer(Map.of()); }
+    };
+    try {
+      meta.realtimeChat(duplexRequest, earlyClose);
+      fail("early close accepted an incomplete upload", Map.of());
+    } catch (RuntimeException error) {
+      if (!error.getMessage().contains("closed before audio upload completed")) throw error;
+    }
     AxMemory memory = new AxMemory();
     memory.updateResult(Map.of("thought_blocks", List.of(Map.of("id", "r", "data", "Plan")), "images", List.of(Map.of("id", "image", "data", "partial"))));
     memory.updateResult(Map.of("thought_blocks", List.of(Map.of("id", "r", "data", "Plan.", "summary", "Plan.", "encrypted_content", "opaque"))));
@@ -4183,6 +4224,23 @@ int main() {
   axllm::Core::set(duplex_request, "chat_prompt", axllm::array({axllm::object({{"role", "user"}, {"content", axllm::array({axllm::object({{"type", "audio"}, {"format", "pcm16"}, {"data", std::string(12800, 'A')}})})}})}));
   auto duplex_final = meta->realtime_chat(duplex_request, &duplex);
   if (axllm::stringify(axllm::Core::get(axllm::Core::iter(axllm::Core::get(duplex_final, "results"))[0], "content")) != "\"Correct final.\"") fail("duplex final lost", duplex_final);
+  class EarlyCloseProbe : public DuplexProbe {
+   public:
+    void send(const axllm::Value& event) override {
+      DuplexProbe::send(event);
+      if (axllm::stringify(axllm::Core::get(event, "type")) == "\"binary\"") {
+        std::lock_guard<std::mutex> lock(mutex);
+        frames.push_back(axllm::Value());
+        ready.notify_all();
+      }
+    }
+  } early_close;
+  try {
+    meta->realtime_chat(duplex_request, &early_close);
+    fail("early close accepted an incomplete upload", axllm::Value());
+  } catch (const std::exception& error) {
+    if (std::string(error.what()).find("closed before audio upload completed") == std::string::npos) throw;
+  }
   axllm::AxMemory memory;
   memory.update_result(axllm::parse_json(R"({"thought_blocks":[{"id":"r","data":"Plan"}],"images":[{"id":"image","data":"partial"}]})"));
   memory.update_result(axllm::parse_json(R"({"thought_blocks":[{"id":"r","data":"Plan.","summary":"Plan.","encrypted_content":"opaque"}]})"));

@@ -3501,6 +3501,8 @@ Value OpenAICompatibleClient::realtime_chat(Value request, RealtimeTransport* tr
   bool input_sent = false;
   Value state = object({{"partial_mode", Core::get(setup, "partialMode")}});
   std::atomic<bool> stop_sending{false};
+  std::atomic<bool> end_stream_sent{false};
+  bool output_cancelled = false;
   std::thread sender;
   std::exception_ptr send_error;
   std::mutex pacing_mutex;
@@ -3542,6 +3544,7 @@ Value OpenAICompatibleClient::realtime_chat(Value request, RealtimeTransport* tr
                 if (pacing_cv.wait_for(lock, std::chrono::duration<double>(chunk.size() / double(rate * 2)), [&] { return stop_sending.load(); })) return;
               }
             } else {
+              if (str(Core::get(item, "type", Value(""))) == "endStream") end_stream_sent = true;
               transport->send(item);
             }
           }
@@ -3559,7 +3562,7 @@ Value OpenAICompatibleClient::realtime_chat(Value request, RealtimeTransport* tr
       bool done = realtime_event_is_done(event);
       Value normalized = Core::provider_normalize_realtime_event(profile_, event, state, name_, model);
       events.push_back(normalized);
-      if (handler && !handler(normalized)) break;
+      if (handler && !handler(normalized)) { output_cancelled = true; break; }
       if (done) break;
     }
   } catch (...) {
@@ -3571,6 +3574,7 @@ Value OpenAICompatibleClient::realtime_chat(Value request, RealtimeTransport* tr
   if (send_error) std::rethrow_exception(send_error);
 
   if (!Core::get(setup, "audioEncoding").is_null() && !input_sent) throw Core::as_error(Core::ai_error_response("Meta Voice closed before acknowledging setup"));
+  if (!Core::get(setup, "audioEncoding").is_null() && !end_stream_sent && !output_cancelled) throw Core::as_error(Core::ai_error_response("Meta Voice closed before audio upload completed"));
   std::string content;
   std::string audio_bytes;
   bool has_audio = false;

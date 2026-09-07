@@ -2948,6 +2948,11 @@ impl OpenAICompatibleClient {
                                     "Meta Voice closed before acknowledging setup",
                                 ));
                             }
+                            if !audio_pump.as_ref().is_some_and(|pump| pump.end_stream_sent) {
+                                return Err(AxError::runtime(
+                                    "Meta Voice closed before audio upload completed",
+                                ));
+                            }
                             let final_response = provider_finalize_realtime_response(&[
                                 CoreValue::from(profile.as_str()),
                                 state.clone(),
@@ -3079,6 +3084,13 @@ impl OpenAICompatibleClient {
         if setup.get("audioEncoding").is_some() && !input_sent {
             return Err(AxError::runtime(
                 "Meta Voice closed before acknowledging setup",
+            ));
+        }
+        if setup.get("audioEncoding").is_some()
+            && !audio_pump.as_ref().is_some_and(|pump| pump.end_stream_sent)
+        {
+            return Err(AxError::runtime(
+                "Meta Voice closed before audio upload completed",
             ));
         }
         let ai_name = provider_ai_display_name(&self.profile);
@@ -3255,6 +3267,7 @@ impl RealtimeTransport {
 struct MetaAudioPump {
     frames: VecDeque<(Value, Duration)>,
     next_send: std::time::Instant,
+    end_stream_sent: bool,
 }
 
 impl MetaAudioPump {
@@ -3286,6 +3299,7 @@ impl MetaAudioPump {
         Ok(Self {
             frames,
             next_send: std::time::Instant::now(),
+            end_stream_sent: false,
         })
     }
 
@@ -3298,6 +3312,9 @@ impl MetaAudioPump {
             if now >= self.next_send {
                 let (event, delay) = self.frames.pop_front().unwrap();
                 transport.send(&event)?;
+                if event.get("type").and_then(Value::as_str) == Some("endStream") {
+                    self.end_stream_sent = true;
+                }
                 self.next_send = std::time::Instant::now() + delay;
                 continue;
             }
@@ -3475,6 +3492,51 @@ impl WsRealtimeTransport {
 #[cfg(all(test, feature = "realtime"))]
 mod meta_duplex_tests {
     use super::*;
+
+    #[test]
+    fn normal_close_before_upload_finishes_is_an_error() {
+        for streaming in [false, true] {
+            let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+            let address = listener.local_addr().unwrap();
+            let server = std::thread::spawn(move || {
+                let (tcp, _) = listener.accept().unwrap();
+                tcp.set_read_timeout(Some(Duration::from_secs(3))).unwrap();
+                let mut socket = tungstenite::accept(tcp).unwrap();
+                socket.read().unwrap();
+                socket
+                    .send(tungstenite::Message::Text(
+                        json!({"sessionId":"early"}).to_string(),
+                    ))
+                    .unwrap();
+                assert!(matches!(
+                    socket.read().unwrap(),
+                    tungstenite::Message::Binary(_)
+                ));
+                socket
+                    .close(Some(tungstenite::protocol::CloseFrame {
+                        code: tungstenite::protocol::frame::coding::CloseCode::Normal,
+                        reason: "".into(),
+                    }))
+                    .unwrap();
+            });
+            let mut client = ai("meta", json!({"api_key":"test", "model":"muse-voice-transcribe-1.0", "base_url":format!("http://{address}/v1")})).unwrap();
+            let request = json!({"model":"muse-voice-transcribe-1.0", "chat_prompt":[{"role":"user","content":[{"type":"audio","format":"pcm16","data":encode_base64(&vec![0;9600])}]}]});
+            let result = if streaming {
+                client
+                    .stream_iter(request)
+                    .unwrap()
+                    .collect::<AxResult<Vec<_>>>()
+                    .map(|_| Value::Null)
+            } else {
+                client.realtime_chat(request, None)
+            };
+            assert!(result
+                .unwrap_err()
+                .message
+                .contains("closed before audio upload completed"));
+            server.join().unwrap();
+        }
+    }
 
     #[test]
     fn public_stream_receives_before_end_stream() {
@@ -29943,8 +30005,11 @@ fn validate_chat_request(args: &[CoreValue]) -> Result<CoreValue, AxError> {
     let mut v_has_assistant_payload = CoreValue::Null;
     let mut v_has_calls = CoreValue::Null;
     let mut v_has_content = CoreValue::Null;
+    let mut v_has_images = CoreValue::Null;
     let mut v_has_realtime = CoreValue::Null;
     let mut v_has_thought = CoreValue::Null;
+    let mut v_has_thought_blocks = CoreValue::Null;
+    let mut v_images = CoreValue::Null;
     let mut v_invalid_role = CoreValue::Null;
     let mut v_is_assistant = CoreValue::Null;
     let mut v_is_function = CoreValue::Null;
@@ -29961,6 +30026,8 @@ fn validate_chat_request(args: &[CoreValue]) -> Result<CoreValue, AxError> {
     let mut v_realtime = CoreValue::Null;
     let mut v_role = CoreValue::Null;
     let mut v_thought = CoreValue::Null;
+    let mut v_thought_blocks = CoreValue::Null;
+    let mut v_thought_blocks_snake = CoreValue::Null;
     let mut v_valid_left = CoreValue::Null;
     let mut v_valid_right = CoreValue::Null;
     let mut v_valid_role = CoreValue::Null;
@@ -30020,6 +30087,25 @@ fn validate_chat_request(args: &[CoreValue]) -> Result<CoreValue, AxError> {
         v_has_assistant_payload = core_or(&[v_has_content.clone(), v_has_calls.clone()])?;
         v_has_assistant_payload =
             core_or(&[v_has_assistant_payload.clone(), v_has_thought.clone()])?;
+        v_images = core_get(&v_message, &CoreValue::from("images"), CoreValue::Null);
+        v_has_images = core_truthy_value(&[v_images.clone()])?;
+        v_thought_blocks_snake = core_get(
+            &v_message,
+            &CoreValue::from("thought_blocks"),
+            v_empty_function_calls.clone(),
+        );
+        v_thought_blocks = core_get(
+            &v_message,
+            &CoreValue::from("thoughtBlocks"),
+            v_thought_blocks_snake.clone(),
+        );
+        v_has_thought_blocks = core_truthy_value(&[v_thought_blocks.clone()])?;
+        v_has_assistant_payload =
+            core_or(&[v_has_assistant_payload.clone(), v_has_images.clone()])?;
+        v_has_assistant_payload = core_or(&[
+            v_has_assistant_payload.clone(),
+            v_has_thought_blocks.clone(),
+        ])?;
         v_missing_assistant_payload = core_not(&[v_has_assistant_payload.clone()])?;
         v_bad_assistant = core_and(&[v_is_assistant.clone(), v_missing_assistant_payload.clone()])?;
         if core_truthy(&v_bad_assistant) {
@@ -30120,21 +30206,6 @@ fn build_chat_request(args: &[CoreValue]) -> Result<CoreValue, AxError> {
     unreachable_code,
     clippy::all
 )]
-fn normalize_chat_response(args: &[CoreValue]) -> Result<CoreValue, AxError> {
-    axir_coverage_mark("normalize_chat_response");
-    let mut v_raw = core_arg(args, 0);
-    let mut v_response = CoreValue::Null;
-    v_response = openai_normalize_chat_response(&[v_raw.clone()])?;
-    return Ok(v_response.clone());
-}
-
-#[allow(
-    unused_variables,
-    unused_assignments,
-    unused_mut,
-    unreachable_code,
-    clippy::all
-)]
 fn openai_chat_reasoning_effort(args: &[CoreValue]) -> Result<CoreValue, AxError> {
     axir_coverage_mark("openai_chat_reasoning_effort");
     let mut v_model = core_arg(args, 0);
@@ -30156,12 +30227,11 @@ fn openai_chat_reasoning_effort(args: &[CoreValue]) -> Result<CoreValue, AxError
     unreachable_code,
     clippy::all
 )]
-fn normalize_stream_delta(args: &[CoreValue]) -> Result<CoreValue, AxError> {
-    axir_coverage_mark("normalize_stream_delta");
+fn normalize_chat_response(args: &[CoreValue]) -> Result<CoreValue, AxError> {
+    axir_coverage_mark("normalize_chat_response");
     let mut v_raw = core_arg(args, 0);
-    let mut v_state = core_arg(args, 1);
     let mut v_response = CoreValue::Null;
-    v_response = openai_normalize_stream_delta(&[v_raw.clone(), v_state.clone()])?;
+    v_response = openai_normalize_chat_response(&[v_raw.clone()])?;
     return Ok(v_response.clone());
 }
 
@@ -30186,6 +30256,22 @@ fn _openai_copy_config_key_impl(args: &[CoreValue]) -> Result<CoreValue, AxError
         core_set(&v_payload, v_target.clone(), v_value.clone())?;
     }
     return Ok(CoreValue::Null);
+}
+
+#[allow(
+    unused_variables,
+    unused_assignments,
+    unused_mut,
+    unreachable_code,
+    clippy::all
+)]
+fn normalize_stream_delta(args: &[CoreValue]) -> Result<CoreValue, AxError> {
+    axir_coverage_mark("normalize_stream_delta");
+    let mut v_raw = core_arg(args, 0);
+    let mut v_state = core_arg(args, 1);
+    let mut v_response = CoreValue::Null;
+    v_response = openai_normalize_stream_delta(&[v_raw.clone(), v_state.clone()])?;
+    return Ok(v_response.clone());
 }
 
 #[allow(
@@ -30747,41 +30833,6 @@ fn normalize_token_usage(args: &[CoreValue]) -> Result<CoreValue, AxError> {
     unreachable_code,
     clippy::all
 )]
-fn merge_usage_context(args: &[CoreValue]) -> Result<CoreValue, AxError> {
-    axir_coverage_mark("merge_usage_context");
-    let mut v_defaults = core_arg(args, 0);
-    let mut v_overrides = core_arg(args, 1);
-    let mut v_attributes = CoreValue::Null;
-    let mut v_default_attributes = CoreValue::Null;
-    let mut v_has_attributes = CoreValue::Null;
-    let mut v_merged = CoreValue::Null;
-    let mut v_override_attributes = CoreValue::Null;
-    v_merged = core_map_merge(&[v_defaults.clone(), v_overrides.clone()])?;
-    v_default_attributes = core_get(&v_defaults, &CoreValue::from("attributes"), CoreValue::Null);
-    v_override_attributes = core_get(
-        &v_overrides,
-        &CoreValue::from("attributes"),
-        CoreValue::Null,
-    );
-    v_attributes = core_map_merge(&[v_default_attributes.clone(), v_override_attributes.clone()])?;
-    v_has_attributes = core_truthy_value(&[v_attributes.clone()])?;
-    if core_truthy(&v_has_attributes) {
-        core_set(
-            &v_merged,
-            CoreValue::from("attributes"),
-            v_attributes.clone(),
-        )?;
-    }
-    return Ok(v_merged.clone());
-}
-
-#[allow(
-    unused_variables,
-    unused_assignments,
-    unused_mut,
-    unreachable_code,
-    clippy::all
-)]
 fn _openai_content_part_impl(args: &[CoreValue]) -> Result<CoreValue, AxError> {
     axir_coverage_mark("_openai_content_part_impl");
     let mut v_part = core_arg(args, 0);
@@ -31000,6 +31051,41 @@ fn _openai_content_part_impl(args: &[CoreValue]) -> Result<CoreValue, AxError> {
     ])?;
     v_error = core_ai_error_unsupported(&[v_message.clone()])?;
     return Err(core_as_error(&v_error));
+}
+
+#[allow(
+    unused_variables,
+    unused_assignments,
+    unused_mut,
+    unreachable_code,
+    clippy::all
+)]
+fn merge_usage_context(args: &[CoreValue]) -> Result<CoreValue, AxError> {
+    axir_coverage_mark("merge_usage_context");
+    let mut v_defaults = core_arg(args, 0);
+    let mut v_overrides = core_arg(args, 1);
+    let mut v_attributes = CoreValue::Null;
+    let mut v_default_attributes = CoreValue::Null;
+    let mut v_has_attributes = CoreValue::Null;
+    let mut v_merged = CoreValue::Null;
+    let mut v_override_attributes = CoreValue::Null;
+    v_merged = core_map_merge(&[v_defaults.clone(), v_overrides.clone()])?;
+    v_default_attributes = core_get(&v_defaults, &CoreValue::from("attributes"), CoreValue::Null);
+    v_override_attributes = core_get(
+        &v_overrides,
+        &CoreValue::from("attributes"),
+        CoreValue::Null,
+    );
+    v_attributes = core_map_merge(&[v_default_attributes.clone(), v_override_attributes.clone()])?;
+    v_has_attributes = core_truthy_value(&[v_attributes.clone()])?;
+    if core_truthy(&v_has_attributes) {
+        core_set(
+            &v_merged,
+            CoreValue::from("attributes"),
+            v_attributes.clone(),
+        )?;
+    }
+    return Ok(v_merged.clone());
 }
 
 #[allow(
@@ -31481,6 +31567,29 @@ fn openai_build_embed_request(args: &[CoreValue]) -> Result<CoreValue, AxError> 
     unreachable_code,
     clippy::all
 )]
+fn openai_normalize_chat_response(args: &[CoreValue]) -> Result<CoreValue, AxError> {
+    axir_coverage_mark("openai_normalize_chat_response");
+    let mut v_raw = core_arg(args, 0);
+    let mut v_ai_name = core_arg(args, 1);
+    let mut v_model = core_arg(args, 2);
+    let mut v_response = CoreValue::Null;
+    v_response = _openai_normalize_chat_response_impl(&[
+        v_raw.clone(),
+        v_ai_name.clone(),
+        v_model.clone(),
+        CoreValue::from("none"),
+        CoreValue::from("none"),
+    ])?;
+    return Ok(v_response.clone());
+}
+
+#[allow(
+    unused_variables,
+    unused_assignments,
+    unused_mut,
+    unreachable_code,
+    clippy::all
+)]
 fn _chat_result_to_completion(args: &[CoreValue]) -> Result<CoreValue, AxError> {
     axir_coverage_mark("_chat_result_to_completion");
     let mut v_result = core_arg(args, 0);
@@ -31567,29 +31676,6 @@ fn _chat_result_to_completion(args: &[CoreValue]) -> Result<CoreValue, AxError> 
         core_set(&v_completion, CoreValue::from("phase"), v_phase.clone())?;
     }
     return Ok(v_completion.clone());
-}
-
-#[allow(
-    unused_variables,
-    unused_assignments,
-    unused_mut,
-    unreachable_code,
-    clippy::all
-)]
-fn openai_normalize_chat_response(args: &[CoreValue]) -> Result<CoreValue, AxError> {
-    axir_coverage_mark("openai_normalize_chat_response");
-    let mut v_raw = core_arg(args, 0);
-    let mut v_ai_name = core_arg(args, 1);
-    let mut v_model = core_arg(args, 2);
-    let mut v_response = CoreValue::Null;
-    v_response = _openai_normalize_chat_response_impl(&[
-        v_raw.clone(),
-        v_ai_name.clone(),
-        v_model.clone(),
-        CoreValue::from("none"),
-        CoreValue::from("none"),
-    ])?;
-    return Ok(v_response.clone());
 }
 
 #[allow(
@@ -36866,9 +36952,19 @@ fn _meta_asr_realtime_build_setup(args: &[CoreValue]) -> Result<CoreValue, AxErr
     let mut v_access_token = CoreValue::Null;
     let mut v_api_key = CoreValue::Null;
     let mut v_api_key_snake = CoreValue::Null;
+    let mut v_audio_content = CoreValue::Null;
+    let mut v_audio_content_list = CoreValue::Null;
     let mut v_audio_descriptor = CoreValue::Null;
+    let mut v_audio_message = CoreValue::Null;
+    let mut v_audio_messages = CoreValue::Null;
+    let mut v_audio_part = CoreValue::Null;
+    let mut v_audio_part_type = CoreValue::Null;
     let mut v_authorization = CoreValue::Null;
+    let mut v_channel_conflict = CoreValue::Null;
     let mut v_channels = CoreValue::Null;
+    let mut v_channels_differ = CoreValue::Null;
+    let mut v_channels_match = CoreValue::Null;
+    let mut v_channels_requested = CoreValue::Null;
     let mut v_config = CoreValue::Null;
     let mut v_configured = CoreValue::Null;
     let mut v_configured_snake = CoreValue::Null;
@@ -36877,10 +36973,15 @@ fn _meta_asr_realtime_build_setup(args: &[CoreValue]) -> Result<CoreValue, AxErr
     let mut v_empty_map = CoreValue::Null;
     let mut v_encoding = CoreValue::Null;
     let mut v_error = CoreValue::Null;
+    let mut v_has_channels = CoreValue::Null;
     let mut v_has_keywords = CoreValue::Null;
     let mut v_has_language_bias = CoreValue::Null;
+    let mut v_has_part_channels = CoreValue::Null;
+    let mut v_has_part_rate = CoreValue::Null;
     let mut v_has_partial = CoreValue::Null;
     let mut v_has_progress = CoreValue::Null;
+    let mut v_has_requested_channels = CoreValue::Null;
+    let mut v_has_requested_rate = CoreValue::Null;
     let mut v_has_sample_rate = CoreValue::Null;
     let mut v_has_zdr = CoreValue::Null;
     let mut v_input_descriptor = CoreValue::Null;
@@ -36891,6 +36992,7 @@ fn _meta_asr_realtime_build_setup(args: &[CoreValue]) -> Result<CoreValue, AxErr
     let mut v_is_24k = CoreValue::Null;
     let mut v_is_24k_lower = CoreValue::Null;
     let mut v_is_24k_upper = CoreValue::Null;
+    let mut v_is_audio_part = CoreValue::Null;
     let mut v_is_cumulative = CoreValue::Null;
     let mut v_is_delta = CoreValue::Null;
     let mut v_is_diarization = CoreValue::Null;
@@ -36909,11 +37011,17 @@ fn _meta_asr_realtime_build_setup(args: &[CoreValue]) -> Result<CoreValue, AxErr
     let mut v_mono_upper = CoreValue::Null;
     let mut v_not_mono = CoreValue::Null;
     let mut v_out = CoreValue::Null;
+    let mut v_part_channels = CoreValue::Null;
+    let mut v_part_rate = CoreValue::Null;
+    let mut v_part_rate_snake = CoreValue::Null;
     let mut v_partial = CoreValue::Null;
     let mut v_partial_snake = CoreValue::Null;
     let mut v_partial_wire = CoreValue::Null;
     let mut v_progress = CoreValue::Null;
     let mut v_progress_snake = CoreValue::Null;
+    let mut v_rate_conflict = CoreValue::Null;
+    let mut v_rate_differs = CoreValue::Null;
+    let mut v_rate_matches = CoreValue::Null;
     let mut v_request_audio = CoreValue::Null;
     let mut v_request_config = CoreValue::Null;
     let mut v_request_config_snake = CoreValue::Null;
@@ -37111,6 +37219,79 @@ fn _meta_asr_realtime_build_setup(args: &[CoreValue]) -> Result<CoreValue, AxErr
         &CoreValue::from("rate"),
         v_sample_rate_camel.clone(),
     );
+    v_channels_requested = core_get(
+        &v_request_input,
+        &CoreValue::from("channels"),
+        CoreValue::Null,
+    );
+    v_audio_messages = _realtime_request_user_messages_impl(&[v_request.clone()])?;
+    for v_audio_message in core_iter(&v_audio_messages)? {
+        let mut v_audio_message = v_audio_message;
+        v_audio_content = core_get(
+            &v_audio_message,
+            &CoreValue::from("content"),
+            CoreValue::Null,
+        );
+        v_audio_content_list = core_type_is(&v_audio_content, CoreValue::from("list"));
+        if core_truthy(&v_audio_content_list) {
+            for v_audio_part in core_iter(&v_audio_content)? {
+                let mut v_audio_part = v_audio_part;
+                v_audio_part_type =
+                    core_get(&v_audio_part, &CoreValue::from("type"), CoreValue::Null);
+                v_is_audio_part = core_eq(&[v_audio_part_type.clone(), CoreValue::from("audio")])?;
+                if core_truthy(&v_is_audio_part) {
+                    v_part_rate_snake = core_get(
+                        &v_audio_part,
+                        &CoreValue::from("sample_rate"),
+                        CoreValue::Null,
+                    );
+                    v_part_rate = core_get(
+                        &v_audio_part,
+                        &CoreValue::from("sampleRate"),
+                        v_part_rate_snake.clone(),
+                    );
+                    v_has_part_rate = core_is_not_none(&[v_part_rate.clone()])?;
+                    if core_truthy(&v_has_part_rate) {
+                        v_has_requested_rate =
+                            core_is_not_none(&[v_sample_rate_requested.clone()])?;
+                        v_rate_matches =
+                            core_eq(&[v_sample_rate_requested.clone(), v_part_rate.clone()])?;
+                        v_rate_differs = core_not(&[v_rate_matches.clone()])?;
+                        v_rate_conflict =
+                            core_and(&[v_has_requested_rate.clone(), v_rate_differs.clone()])?;
+                        if core_truthy(&v_rate_conflict) {
+                            v_error = core_ai_error_unsupported(&[CoreValue::from(
+                                "Conflicting realtime audio sample rates",
+                            )])?;
+                            return Err(core_as_error(&v_error));
+                        }
+                        v_sample_rate_requested = v_part_rate.clone();
+                    }
+                    v_part_channels =
+                        core_get(&v_audio_part, &CoreValue::from("channels"), CoreValue::Null);
+                    v_has_part_channels = core_is_not_none(&[v_part_channels.clone()])?;
+                    if core_truthy(&v_has_part_channels) {
+                        v_has_requested_channels =
+                            core_is_not_none(&[v_channels_requested.clone()])?;
+                        v_channels_match =
+                            core_eq(&[v_channels_requested.clone(), v_part_channels.clone()])?;
+                        v_channels_differ = core_not(&[v_channels_match.clone()])?;
+                        v_channel_conflict = core_and(&[
+                            v_has_requested_channels.clone(),
+                            v_channels_differ.clone(),
+                        ])?;
+                        if core_truthy(&v_channel_conflict) {
+                            v_error = core_ai_error_unsupported(&[CoreValue::from(
+                                "Conflicting realtime audio channel counts",
+                            )])?;
+                            return Err(core_as_error(&v_error));
+                        }
+                        v_channels_requested = v_part_channels.clone();
+                    }
+                }
+            }
+        }
+    }
     v_default_rate = core_get(
         &v_input_descriptor,
         &CoreValue::from("sampleRate"),
@@ -37122,11 +37303,12 @@ fn _meta_asr_realtime_build_setup(args: &[CoreValue]) -> Result<CoreValue, AxErr
     } else {
         v_sample_rate = v_default_rate.clone();
     }
-    v_channels = core_get(
-        &v_request_input,
-        &CoreValue::from("channels"),
-        CoreValue::Num(1f64),
-    );
+    v_channels = v_channels_requested.clone();
+    v_has_channels = core_is_not_none(&[v_channels.clone()])?;
+    if core_truthy(&v_has_channels) {
+    } else {
+        v_channels = CoreValue::Num(1f64);
+    }
     v_mono_lower = core_gte(&[v_channels.clone(), CoreValue::Num(1f64)])?;
     v_mono_upper = core_lte(&[v_channels.clone(), CoreValue::Num(1f64)])?;
     v_mono = core_and(&[v_mono_lower.clone(), v_mono_upper.clone()])?;
@@ -43219,7 +43401,11 @@ fn _openai_responses_merge_output_item_impl(args: &[CoreValue]) -> Result<CoreVa
         v_item_id = core_get(&v_item, &CoreValue::from("id"), CoreValue::from("0"));
         core_set(&v_result, CoreValue::from("id"), v_item_id.clone())?;
         v_call = _openai_responses_function_call_impl(&[v_item.clone()])?;
-        v_calls = CoreValue::new_list();
+        v_calls = core_get(
+            &v_result,
+            &CoreValue::from("function_calls"),
+            v_empty_list.clone(),
+        );
         core_append(&v_calls, v_call.clone())?;
         core_set(
             &v_result,
@@ -43553,9 +43739,17 @@ fn openai_responses_normalize_stream_delta(args: &[CoreValue]) -> Result<CoreVal
     let mut v_model = core_arg(args, 3);
     let mut v_call = CoreValue::Null;
     let mut v_call_id = CoreValue::Null;
+    let mut v_call_ids = CoreValue::Null;
     let mut v_calls = CoreValue::Null;
+    let mut v_completed_calls = CoreValue::Null;
     let mut v_delta_phase = CoreValue::Null;
+    let mut v_done_function = CoreValue::Null;
     let mut v_done_item = CoreValue::Null;
+    let mut v_done_message = CoreValue::Null;
+    let mut v_done_status = CoreValue::Null;
+    let mut v_done_success = CoreValue::Null;
+    let mut v_done_type = CoreValue::Null;
+    let mut v_empty_call_ids = CoreValue::Null;
     let mut v_empty_calls = CoreValue::Null;
     let mut v_empty_done_item = CoreValue::Null;
     let mut v_empty_item = CoreValue::Null;
@@ -43571,6 +43765,8 @@ fn openai_responses_normalize_stream_delta(args: &[CoreValue]) -> Result<CoreVal
     let mut v_event_response_id = CoreValue::Null;
     let mut v_event_response_id_fallback = CoreValue::Null;
     let mut v_function = CoreValue::Null;
+    let mut v_function_call_id = CoreValue::Null;
+    let mut v_function_item_id = CoreValue::Null;
     let mut v_has_delta_phase = CoreValue::Null;
     let mut v_has_item_phase = CoreValue::Null;
     let mut v_has_remote = CoreValue::Null;
@@ -43581,6 +43777,7 @@ fn openai_responses_normalize_stream_delta(args: &[CoreValue]) -> Result<CoreVal
     let mut v_is_completed = CoreValue::Null;
     let mut v_is_error = CoreValue::Null;
     let mut v_is_failed = CoreValue::Null;
+    let mut v_is_function_item = CoreValue::Null;
     let mut v_is_incomplete = CoreValue::Null;
     let mut v_is_message_item = CoreValue::Null;
     let mut v_is_meta_model = CoreValue::Null;
@@ -43684,6 +43881,12 @@ fn openai_responses_normalize_stream_delta(args: &[CoreValue]) -> Result<CoreVal
     )?;
     v_empty_phases = CoreValue::new_map();
     v_phases = core_get(&v_state, &CoreValue::from("phases"), v_empty_phases.clone());
+    v_empty_call_ids = CoreValue::new_map();
+    v_call_ids = core_get(
+        &v_state,
+        &CoreValue::from("function_call_ids"),
+        v_empty_call_ids.clone(),
+    );
     v_is_text_delta = core_eq(&[
         v_type.clone(),
         CoreValue::from("response.output_text.delta"),
@@ -43835,6 +44038,25 @@ fn openai_responses_normalize_stream_delta(args: &[CoreValue]) -> Result<CoreVal
         v_empty_item = CoreValue::new_map();
         v_item = core_get(&v_event, &CoreValue::from("item"), v_empty_item.clone());
         v_item_type = core_get(&v_item, &CoreValue::from("type"), CoreValue::from(""));
+        v_is_function_item = core_eq(&[v_item_type.clone(), CoreValue::from("function_call")])?;
+        if core_truthy(&v_is_function_item) {
+            v_function_item_id = core_get(&v_item, &CoreValue::from("id"), v_event_item_id.clone());
+            v_function_call_id = core_get(
+                &v_item,
+                &CoreValue::from("call_id"),
+                v_function_item_id.clone(),
+            );
+            core_set(
+                &v_call_ids,
+                v_function_item_id.clone(),
+                v_function_call_id.clone(),
+            )?;
+            core_set(
+                &v_state,
+                CoreValue::from("function_call_ids"),
+                v_call_ids.clone(),
+            )?;
+        }
         v_is_message_item = core_eq(&[v_item_type.clone(), CoreValue::from("message")])?;
         if core_truthy(&v_is_message_item) {
             v_item_id = core_get(&v_item, &CoreValue::from("id"), v_event_item_id.clone());
@@ -43856,6 +44078,41 @@ fn openai_responses_normalize_stream_delta(args: &[CoreValue]) -> Result<CoreVal
             v_empty_done_item.clone(),
         );
         _openai_responses_merge_output_item_impl(&[v_result.clone(), v_done_item.clone()])?;
+        v_done_type = core_get(&v_done_item, &CoreValue::from("type"), CoreValue::Null);
+        v_done_message = core_eq(&[v_done_type.clone(), CoreValue::from("message")])?;
+        if core_truthy(&v_done_message) {
+            core_set(&v_result, CoreValue::from("content"), CoreValue::from(""))?;
+            core_map_delete(&[v_result.clone(), CoreValue::from("thought")])?;
+            core_map_delete(&[v_result.clone(), CoreValue::from("thought_blocks")])?;
+            v_done_status = core_get(
+                &v_done_item,
+                &CoreValue::from("status"),
+                CoreValue::from("completed"),
+            );
+            v_done_success = core_eq(&[v_done_status.clone(), CoreValue::from("completed")])?;
+            if core_truthy(&v_done_success) {
+                core_set(
+                    &v_result,
+                    CoreValue::from("finish_reason"),
+                    CoreValue::from("stop"),
+                )?;
+            } else {
+                core_set(
+                    &v_result,
+                    CoreValue::from("finish_reason"),
+                    CoreValue::from("error"),
+                )?;
+            }
+        }
+        v_done_function = core_eq(&[v_done_type.clone(), CoreValue::from("function_call")])?;
+        if core_truthy(&v_done_function) {
+            v_completed_calls = CoreValue::new_list();
+            core_set(
+                &v_result,
+                CoreValue::from("function_calls"),
+                v_completed_calls.clone(),
+            )?;
+        }
     }
     v_is_partial_image = core_eq(&[
         v_type.clone(),
@@ -43885,10 +44142,14 @@ fn openai_responses_normalize_stream_delta(args: &[CoreValue]) -> Result<CoreVal
         CoreValue::from("response.function_call_arguments.delta"),
     ])?;
     if core_truthy(&v_is_args_delta) {
-        v_event_call_id = core_get(&v_event, &CoreValue::from("call_id"), CoreValue::from("0"));
-        v_call_id = core_get(
+        v_event_call_id = core_get(
             &v_event,
-            &CoreValue::from("item_id"),
+            &CoreValue::from("call_id"),
+            v_event_item_id.clone(),
+        );
+        v_call_id = core_get(
+            &v_call_ids,
+            &v_event_item_id.clone(),
             v_event_call_id.clone(),
         );
         v_event_name = core_get(&v_event, &CoreValue::from("name"), CoreValue::Null);

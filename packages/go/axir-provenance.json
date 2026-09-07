@@ -4,8 +4,8 @@
   "emitted_functions": 614,
   "files": {
     "axllm.go": {
-      "emitted_lines": 55553,
-      "total_lines": 69107
+      "emitted_lines": 55729,
+      "total_lines": 69287
     }
   }
 }

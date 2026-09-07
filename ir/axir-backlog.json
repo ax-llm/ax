@@ -1278,6 +1278,25 @@
       "completedAt": "2026-09-06",
       "completedByCommit": "working-tree",
       "verification": "TypeScript: 3052 tests passed, 1 skipped; type-check and type-tests passed. test:axir passed, including Python/Java/C++/Go/Rust release conformance and package-consumer checks. profiles:check, axir:conformance:check, axir:check-packages, test:examples:generated, and website:check passed."
+    },
+    {
+      "id": "axir-2026-09-07-complete-meta-replay-and-realtime-upload-integrity",
+      "status": "open",
+      "title": "Complete Meta replay and realtime upload integrity",
+      "createdAt": "2026-09-07",
+      "sourcePR": 649,
+      "sourceCommit": "0072270c8f6de37da546f739e6f8ef2c25ff7459",
+      "tsPaths": ["src/ax/ai/openai/responses_api.ts"],
+      "portableSurface": "axai",
+      "impact": "Preserve parallel Responses calls, stream call identities and nonduplicated content, replay-only assistant payloads, and audio item metadata; reject early realtime closes before upload completion.",
+      "suggestedAxirWork": [
+        "Add or update the TS-derived conformance fixture.",
+        "Update AxIR/Core or descriptor data to match the portable TS behavior.",
+        "Run npm run axir:conformance:check and npm run test:axir."
+      ],
+      "completedAt": null,
+      "completedByCommit": null,
+      "verification": null
     }
   ],
   "nonPortableExemptions": [

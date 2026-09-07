@@ -625,6 +625,7 @@ public class OpenAICompatibleClient extends AxBaseAI {
     final RealtimeTransport sendingTransport = transport;
     final Map<String, Object> sendingSetup = setup;
     final java.util.concurrent.atomic.AtomicReference<RuntimeException> sendError = new java.util.concurrent.atomic.AtomicReference<>();
+    final java.util.concurrent.atomic.AtomicBoolean endStreamSent = new java.util.concurrent.atomic.AtomicBoolean();
     Thread sender = null;
     try {
       transport.send(setup);
@@ -661,6 +662,7 @@ public class OpenAICompatibleClient extends AxBaseAI {
                   try { Thread.sleep(millis); } catch (InterruptedException interrupted) { Thread.currentThread().interrupt(); return; }
                 }
               } else {
+                if ("endStream".equals(input.get("type"))) endStreamSent.set(true);
                 sendingTransport.send(input);
               }
             }
@@ -685,6 +687,7 @@ public class OpenAICompatibleClient extends AxBaseAI {
         if (done) break;
       }
       if (setup.containsKey("audioEncoding") && !inputSent) throw new AxAIServiceError("Meta Voice closed before acknowledging setup");
+      if (setup.containsKey("audioEncoding") && !endStreamSent.get()) throw new AxAIServiceError("Meta Voice closed before audio upload completed");
       StringBuilder content = new StringBuilder();
       ByteArrayOutputStream audio = new ByteArrayOutputStream();
       boolean hasAudio = false;

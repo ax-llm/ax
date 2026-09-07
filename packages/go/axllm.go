@@ -23,6 +23,7 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/coder/websocket"
@@ -6523,8 +6524,11 @@ func validate_chat_request(args ...Value) (Value, error) {
 	var v_has_assistant_payload Value
 	var v_has_calls Value
 	var v_has_content Value
+	var v_has_images Value
 	var v_has_realtime Value
 	var v_has_thought Value
+	var v_has_thought_blocks Value
+	var v_images Value
 	var v_invalid_role Value
 	var v_is_assistant Value
 	var v_is_function Value
@@ -6541,6 +6545,8 @@ func validate_chat_request(args ...Value) (Value, error) {
 	var v_realtime Value
 	var v_role Value
 	var v_thought Value
+	var v_thought_blocks Value
+	var v_thought_blocks_snake Value
 	var v_valid_left Value
 	var v_valid_right Value
 	var v_valid_role Value
@@ -6556,8 +6562,11 @@ func validate_chat_request(args ...Value) (Value, error) {
 	_ = v_has_assistant_payload
 	_ = v_has_calls
 	_ = v_has_content
+	_ = v_has_images
 	_ = v_has_realtime
 	_ = v_has_thought
+	_ = v_has_thought_blocks
+	_ = v_images
 	_ = v_invalid_role
 	_ = v_is_assistant
 	_ = v_is_function
@@ -6574,6 +6583,8 @@ func validate_chat_request(args ...Value) (Value, error) {
 	_ = v_realtime
 	_ = v_role
 	_ = v_thought
+	_ = v_thought_blocks
+	_ = v_thought_blocks_snake
 	_ = v_valid_left
 	_ = v_valid_right
 	_ = v_valid_role
@@ -6624,6 +6635,13 @@ func validate_chat_request(args ...Value) (Value, error) {
 		v_has_thought = _core_truthy(v_thought)
 		v_has_assistant_payload = _core_or(v_has_content, v_has_calls)
 		v_has_assistant_payload = _core_or(v_has_assistant_payload, v_has_thought)
+		v_images = coreGet(v_message, "images", nil)
+		v_has_images = _core_truthy(v_images)
+		v_thought_blocks_snake = coreGet(v_message, "thought_blocks", v_empty_function_calls)
+		v_thought_blocks = coreGet(v_message, "thoughtBlocks", v_thought_blocks_snake)
+		v_has_thought_blocks = _core_truthy(v_thought_blocks)
+		v_has_assistant_payload = _core_or(v_has_assistant_payload, v_has_images)
+		v_has_assistant_payload = _core_or(v_has_assistant_payload, v_has_thought_blocks)
 		v_missing_assistant_payload = _core_not(v_has_assistant_payload)
 		v_bad_assistant = _core_and(v_is_assistant, v_missing_assistant_payload)
 		if coreTruthy(v_bad_assistant) {
@@ -6742,17 +6760,6 @@ func build_chat_request(args ...Value) (Value, error) {
 	return v_payload, nil
 }
 
-func normalize_chat_response(args ...Value) (Value, error) {
-	axirCoverageMark("normalize_chat_response")
-	var v_raw Value
-	var v_response Value
-	if len(args) > 0 { v_raw = args[0] }
-	_ = v_raw
-	_ = v_response
-	{ v, err := openai_normalize_chat_response(v_raw); if err != nil { return nil, err }; v_response = v }
-	return v_response, nil
-}
-
 func openai_chat_reasoning_effort(args ...Value) (Value, error) {
 	axirCoverageMark("openai_chat_reasoning_effort")
 	var v_model Value
@@ -6775,17 +6782,14 @@ func openai_chat_reasoning_effort(args ...Value) (Value, error) {
 	return v_effort, nil
 }
 
-func normalize_stream_delta(args ...Value) (Value, error) {
-	axirCoverageMark("normalize_stream_delta")
+func normalize_chat_response(args ...Value) (Value, error) {
+	axirCoverageMark("normalize_chat_response")
 	var v_raw Value
-	var v_state Value
 	var v_response Value
 	if len(args) > 0 { v_raw = args[0] }
 	_ = v_raw
-	if len(args) > 1 { v_state = args[1] }
-	_ = v_state
 	_ = v_response
-	{ v, err := openai_normalize_stream_delta(v_raw, v_state); if err != nil { return nil, err }; v_response = v }
+	{ v, err := openai_normalize_chat_response(v_raw); if err != nil { return nil, err }; v_response = v }
 	return v_response, nil
 }
 
@@ -6815,6 +6819,20 @@ func _openai_copy_config_key_impl(args ...Value) (Value, error) {
 	// empty
 	}
 	return nil, nil
+}
+
+func normalize_stream_delta(args ...Value) (Value, error) {
+	axirCoverageMark("normalize_stream_delta")
+	var v_raw Value
+	var v_state Value
+	var v_response Value
+	if len(args) > 0 { v_raw = args[0] }
+	_ = v_raw
+	if len(args) > 1 { v_state = args[1] }
+	_ = v_state
+	_ = v_response
+	{ v, err := openai_normalize_stream_delta(v_raw, v_state); if err != nil { return nil, err }; v_response = v }
+	return v_response, nil
 }
 
 func build_embed_request(args ...Value) (Value, error) {
@@ -7314,37 +7332,6 @@ func normalize_token_usage(args ...Value) (Value, error) {
 	return v_out, nil
 }
 
-func merge_usage_context(args ...Value) (Value, error) {
-	axirCoverageMark("merge_usage_context")
-	var v_defaults Value
-	var v_overrides Value
-	var v_attributes Value
-	var v_default_attributes Value
-	var v_has_attributes Value
-	var v_merged Value
-	var v_override_attributes Value
-	if len(args) > 0 { v_defaults = args[0] }
-	_ = v_defaults
-	if len(args) > 1 { v_overrides = args[1] }
-	_ = v_overrides
-	_ = v_attributes
-	_ = v_default_attributes
-	_ = v_has_attributes
-	_ = v_merged
-	_ = v_override_attributes
-	v_merged = _core_map_merge(v_defaults, v_overrides)
-	v_default_attributes = coreGet(v_defaults, "attributes", nil)
-	v_override_attributes = coreGet(v_overrides, "attributes", nil)
-	v_attributes = _core_map_merge(v_default_attributes, v_override_attributes)
-	v_has_attributes = _core_truthy(v_attributes)
-	if coreTruthy(v_has_attributes) {
-		if err := coreSet(v_merged, "attributes", v_attributes); err != nil { return nil, err }
-	} else {
-	// empty
-	}
-	return v_merged, nil
-}
-
 func _openai_content_part_impl(args ...Value) (Value, error) {
 	axirCoverageMark("_openai_content_part_impl")
 	var v_part Value
@@ -7572,6 +7559,37 @@ func _openai_content_part_impl(args ...Value) (Value, error) {
 	v_message = _core_string_format("OpenAI-compatible beta does not support content part type: {}", v_type)
 	v_error = _core_ai_error_unsupported(v_message)
 	return nil, asAxError(v_error)
+}
+
+func merge_usage_context(args ...Value) (Value, error) {
+	axirCoverageMark("merge_usage_context")
+	var v_defaults Value
+	var v_overrides Value
+	var v_attributes Value
+	var v_default_attributes Value
+	var v_has_attributes Value
+	var v_merged Value
+	var v_override_attributes Value
+	if len(args) > 0 { v_defaults = args[0] }
+	_ = v_defaults
+	if len(args) > 1 { v_overrides = args[1] }
+	_ = v_overrides
+	_ = v_attributes
+	_ = v_default_attributes
+	_ = v_has_attributes
+	_ = v_merged
+	_ = v_override_attributes
+	v_merged = _core_map_merge(v_defaults, v_overrides)
+	v_default_attributes = coreGet(v_defaults, "attributes", nil)
+	v_override_attributes = coreGet(v_overrides, "attributes", nil)
+	v_attributes = _core_map_merge(v_default_attributes, v_override_attributes)
+	v_has_attributes = _core_truthy(v_attributes)
+	if coreTruthy(v_has_attributes) {
+		if err := coreSet(v_merged, "attributes", v_attributes); err != nil { return nil, err }
+	} else {
+	// empty
+	}
+	return v_merged, nil
 }
 
 func build_usage_event(args ...Value) (Value, error) {
@@ -8050,6 +8068,23 @@ func openai_build_embed_request(args ...Value) (Value, error) {
 	return v_payload, nil
 }
 
+func openai_normalize_chat_response(args ...Value) (Value, error) {
+	axirCoverageMark("openai_normalize_chat_response")
+	var v_raw Value
+	var v_ai_name Value
+	var v_model Value
+	var v_response Value
+	if len(args) > 0 { v_raw = args[0] }
+	_ = v_raw
+	if len(args) > 1 { v_ai_name = args[1] }
+	_ = v_ai_name
+	if len(args) > 2 { v_model = args[2] }
+	_ = v_model
+	_ = v_response
+	{ v, err := _openai_normalize_chat_response_impl(v_raw, v_ai_name, v_model, "none", "none"); if err != nil { return nil, err }; v_response = v }
+	return v_response, nil
+}
+
 func _chat_result_to_completion(args ...Value) (Value, error) {
 	axirCoverageMark("_chat_result_to_completion")
 	var v_result Value
@@ -8147,23 +8182,6 @@ func _chat_result_to_completion(args ...Value) (Value, error) {
 	// empty
 	}
 	return v_completion, nil
-}
-
-func openai_normalize_chat_response(args ...Value) (Value, error) {
-	axirCoverageMark("openai_normalize_chat_response")
-	var v_raw Value
-	var v_ai_name Value
-	var v_model Value
-	var v_response Value
-	if len(args) > 0 { v_raw = args[0] }
-	_ = v_raw
-	if len(args) > 1 { v_ai_name = args[1] }
-	_ = v_ai_name
-	if len(args) > 2 { v_model = args[2] }
-	_ = v_model
-	_ = v_response
-	{ v, err := _openai_normalize_chat_response_impl(v_raw, v_ai_name, v_model, "none", "none"); if err != nil { return nil, err }; v_response = v }
-	return v_response, nil
 }
 
 func _openai_usage_with_service_tier(args ...Value) (Value, error) {
@@ -13166,9 +13184,19 @@ func _meta_asr_realtime_build_setup(args ...Value) (Value, error) {
 	var v_access_token Value
 	var v_api_key Value
 	var v_api_key_snake Value
+	var v_audio_content Value
+	var v_audio_content_list Value
 	var v_audio_descriptor Value
+	var v_audio_message Value
+	var v_audio_messages Value
+	var v_audio_part Value
+	var v_audio_part_type Value
 	var v_authorization Value
+	var v_channel_conflict Value
 	var v_channels Value
+	var v_channels_differ Value
+	var v_channels_match Value
+	var v_channels_requested Value
 	var v_config Value
 	var v_configured Value
 	var v_configured_snake Value
@@ -13177,10 +13205,15 @@ func _meta_asr_realtime_build_setup(args ...Value) (Value, error) {
 	var v_empty_map Value
 	var v_encoding Value
 	var v_error Value
+	var v_has_channels Value
 	var v_has_keywords Value
 	var v_has_language_bias Value
+	var v_has_part_channels Value
+	var v_has_part_rate Value
 	var v_has_partial Value
 	var v_has_progress Value
+	var v_has_requested_channels Value
+	var v_has_requested_rate Value
 	var v_has_sample_rate Value
 	var v_has_zdr Value
 	var v_input_descriptor Value
@@ -13191,6 +13224,7 @@ func _meta_asr_realtime_build_setup(args ...Value) (Value, error) {
 	var v_is_24k Value
 	var v_is_24k_lower Value
 	var v_is_24k_upper Value
+	var v_is_audio_part Value
 	var v_is_cumulative Value
 	var v_is_delta Value
 	var v_is_diarization Value
@@ -13209,11 +13243,17 @@ func _meta_asr_realtime_build_setup(args ...Value) (Value, error) {
 	var v_mono_upper Value
 	var v_not_mono Value
 	var v_out Value
+	var v_part_channels Value
+	var v_part_rate Value
+	var v_part_rate_snake Value
 	var v_partial Value
 	var v_partial_snake Value
 	var v_partial_wire Value
 	var v_progress Value
 	var v_progress_snake Value
+	var v_rate_conflict Value
+	var v_rate_differs Value
+	var v_rate_matches Value
 	var v_request_audio Value
 	var v_request_config Value
 	var v_request_config_snake Value
@@ -13234,9 +13274,19 @@ func _meta_asr_realtime_build_setup(args ...Value) (Value, error) {
 	_ = v_access_token
 	_ = v_api_key
 	_ = v_api_key_snake
+	_ = v_audio_content
+	_ = v_audio_content_list
 	_ = v_audio_descriptor
+	_ = v_audio_message
+	_ = v_audio_messages
+	_ = v_audio_part
+	_ = v_audio_part_type
 	_ = v_authorization
+	_ = v_channel_conflict
 	_ = v_channels
+	_ = v_channels_differ
+	_ = v_channels_match
+	_ = v_channels_requested
 	_ = v_config
 	_ = v_configured
 	_ = v_configured_snake
@@ -13245,10 +13295,15 @@ func _meta_asr_realtime_build_setup(args ...Value) (Value, error) {
 	_ = v_empty_map
 	_ = v_encoding
 	_ = v_error
+	_ = v_has_channels
 	_ = v_has_keywords
 	_ = v_has_language_bias
+	_ = v_has_part_channels
+	_ = v_has_part_rate
 	_ = v_has_partial
 	_ = v_has_progress
+	_ = v_has_requested_channels
+	_ = v_has_requested_rate
 	_ = v_has_sample_rate
 	_ = v_has_zdr
 	_ = v_input_descriptor
@@ -13259,6 +13314,7 @@ func _meta_asr_realtime_build_setup(args ...Value) (Value, error) {
 	_ = v_is_24k
 	_ = v_is_24k_lower
 	_ = v_is_24k_upper
+	_ = v_is_audio_part
 	_ = v_is_cumulative
 	_ = v_is_delta
 	_ = v_is_diarization
@@ -13277,11 +13333,17 @@ func _meta_asr_realtime_build_setup(args ...Value) (Value, error) {
 	_ = v_mono_upper
 	_ = v_not_mono
 	_ = v_out
+	_ = v_part_channels
+	_ = v_part_rate
+	_ = v_part_rate_snake
 	_ = v_partial
 	_ = v_partial_snake
 	_ = v_partial_wire
 	_ = v_progress
 	_ = v_progress_snake
+	_ = v_rate_conflict
+	_ = v_rate_differs
+	_ = v_rate_matches
 	_ = v_request_audio
 	_ = v_request_config
 	_ = v_request_config_snake
@@ -13391,6 +13453,59 @@ func _meta_asr_realtime_build_setup(args ...Value) (Value, error) {
 	v_sample_rate_snake = coreGet(v_request_input, "sample_rate", nil)
 	v_sample_rate_camel = coreGet(v_request_input, "sampleRate", v_sample_rate_snake)
 	v_sample_rate_requested = coreGet(v_request_input, "rate", v_sample_rate_camel)
+	v_channels_requested = coreGet(v_request_input, "channels", nil)
+	{ v, err := _realtime_request_user_messages_impl(v_request); if err != nil { return nil, err }; v_audio_messages = v }
+	for _, v_audio_message = range coreIter(v_audio_messages) {
+		v_audio_content = coreGet(v_audio_message, "content", nil)
+		v_audio_content_list = coreTypeIs(v_audio_content, "list")
+		if coreTruthy(v_audio_content_list) {
+			for _, v_audio_part = range coreIter(v_audio_content) {
+				v_audio_part_type = coreGet(v_audio_part, "type", nil)
+				v_is_audio_part = _core_eq(v_audio_part_type, "audio")
+				if coreTruthy(v_is_audio_part) {
+					v_part_rate_snake = coreGet(v_audio_part, "sample_rate", nil)
+					v_part_rate = coreGet(v_audio_part, "sampleRate", v_part_rate_snake)
+					v_has_part_rate = _core_is_not_none(v_part_rate)
+					if coreTruthy(v_has_part_rate) {
+						v_has_requested_rate = _core_is_not_none(v_sample_rate_requested)
+						v_rate_matches = _core_eq(v_sample_rate_requested, v_part_rate)
+						v_rate_differs = _core_not(v_rate_matches)
+						v_rate_conflict = _core_and(v_has_requested_rate, v_rate_differs)
+						if coreTruthy(v_rate_conflict) {
+							v_error = _core_ai_error_unsupported("Conflicting realtime audio sample rates")
+							return nil, asAxError(v_error)
+						} else {
+						// empty
+						}
+						v_sample_rate_requested = v_part_rate
+					} else {
+					// empty
+					}
+					v_part_channels = coreGet(v_audio_part, "channels", nil)
+					v_has_part_channels = _core_is_not_none(v_part_channels)
+					if coreTruthy(v_has_part_channels) {
+						v_has_requested_channels = _core_is_not_none(v_channels_requested)
+						v_channels_match = _core_eq(v_channels_requested, v_part_channels)
+						v_channels_differ = _core_not(v_channels_match)
+						v_channel_conflict = _core_and(v_has_requested_channels, v_channels_differ)
+						if coreTruthy(v_channel_conflict) {
+							v_error = _core_ai_error_unsupported("Conflicting realtime audio channel counts")
+							return nil, asAxError(v_error)
+						} else {
+						// empty
+						}
+						v_channels_requested = v_part_channels
+					} else {
+					// empty
+					}
+				} else {
+				// empty
+				}
+			}
+		} else {
+		// empty
+		}
+	}
 	v_default_rate = coreGet(v_input_descriptor, "sampleRate", 24000)
 	v_sample_rate = v_sample_rate_requested
 	v_has_sample_rate = _core_is_not_none(v_sample_rate)
@@ -13399,7 +13514,13 @@ func _meta_asr_realtime_build_setup(args ...Value) (Value, error) {
 	} else {
 		v_sample_rate = v_default_rate
 	}
-	v_channels = coreGet(v_request_input, "channels", 1)
+	v_channels = v_channels_requested
+	v_has_channels = _core_is_not_none(v_channels)
+	if coreTruthy(v_has_channels) {
+	// empty
+	} else {
+		v_channels = 1
+	}
 	v_mono_lower = _core_gte(v_channels, 1)
 	v_mono_upper = _core_lte(v_channels, 1)
 	v_mono = _core_and(v_mono_lower, v_mono_upper)
@@ -18887,7 +19008,7 @@ func _openai_responses_merge_output_item_impl(args ...Value) (Value, error) {
 		v_item_id = coreGet(v_item, "id", "0")
 		if err := coreSet(v_result, "id", v_item_id); err != nil { return nil, err }
 		{ v, err := _openai_responses_function_call_impl(v_item); if err != nil { return nil, err }; v_call = v }
-		v_calls = MutableArray()
+		v_calls = coreGet(v_result, "function_calls", v_empty_list)
 		v_calls = coreAppend(v_calls, v_call)
 		if err := coreSet(v_result, "function_calls", v_calls); err != nil { return nil, err }
 		if err := coreSet(v_result, "finish_reason", "function_call"); err != nil { return nil, err }
@@ -19200,9 +19321,17 @@ func openai_responses_normalize_stream_delta(args ...Value) (Value, error) {
 	var v_model Value
 	var v_call Value
 	var v_call_id Value
+	var v_call_ids Value
 	var v_calls Value
+	var v_completed_calls Value
 	var v_delta_phase Value
+	var v_done_function Value
 	var v_done_item Value
+	var v_done_message Value
+	var v_done_status Value
+	var v_done_success Value
+	var v_done_type Value
+	var v_empty_call_ids Value
 	var v_empty_calls Value
 	var v_empty_done_item Value
 	var v_empty_item Value
@@ -19218,6 +19347,8 @@ func openai_responses_normalize_stream_delta(args ...Value) (Value, error) {
 	var v_event_response_id Value
 	var v_event_response_id_fallback Value
 	var v_function Value
+	var v_function_call_id Value
+	var v_function_item_id Value
 	var v_has_delta_phase Value
 	var v_has_item_phase Value
 	var v_has_remote Value
@@ -19228,6 +19359,7 @@ func openai_responses_normalize_stream_delta(args ...Value) (Value, error) {
 	var v_is_completed Value
 	var v_is_error Value
 	var v_is_failed Value
+	var v_is_function_item Value
 	var v_is_incomplete Value
 	var v_is_message_item Value
 	var v_is_meta_model Value
@@ -19274,9 +19406,17 @@ func openai_responses_normalize_stream_delta(args ...Value) (Value, error) {
 	_ = v_model
 	_ = v_call
 	_ = v_call_id
+	_ = v_call_ids
 	_ = v_calls
+	_ = v_completed_calls
 	_ = v_delta_phase
+	_ = v_done_function
 	_ = v_done_item
+	_ = v_done_message
+	_ = v_done_status
+	_ = v_done_success
+	_ = v_done_type
+	_ = v_empty_call_ids
 	_ = v_empty_calls
 	_ = v_empty_done_item
 	_ = v_empty_item
@@ -19292,6 +19432,8 @@ func openai_responses_normalize_stream_delta(args ...Value) (Value, error) {
 	_ = v_event_response_id
 	_ = v_event_response_id_fallback
 	_ = v_function
+	_ = v_function_call_id
+	_ = v_function_item_id
 	_ = v_has_delta_phase
 	_ = v_has_item_phase
 	_ = v_has_remote
@@ -19302,6 +19444,7 @@ func openai_responses_normalize_stream_delta(args ...Value) (Value, error) {
 	_ = v_is_completed
 	_ = v_is_error
 	_ = v_is_failed
+	_ = v_is_function_item
 	_ = v_is_incomplete
 	_ = v_is_message_item
 	_ = v_is_meta_model
@@ -19379,6 +19522,8 @@ func openai_responses_normalize_stream_delta(args ...Value) (Value, error) {
 	if err := coreSet(v_result, "finish_reason", v_none_finish); err != nil { return nil, err }
 	v_empty_phases = Object()
 	v_phases = coreGet(v_state, "phases", v_empty_phases)
+	v_empty_call_ids = Object()
+	v_call_ids = coreGet(v_state, "function_call_ids", v_empty_call_ids)
 	v_is_text_delta = _core_eq(v_type, "response.output_text.delta")
 	if coreTruthy(v_is_text_delta) {
 		v_text_delta = coreGet(v_event, "delta", "")
@@ -19456,6 +19601,15 @@ func openai_responses_normalize_stream_delta(args ...Value) (Value, error) {
 		v_empty_item = Object()
 		v_item = coreGet(v_event, "item", v_empty_item)
 		v_item_type = coreGet(v_item, "type", "")
+		v_is_function_item = _core_eq(v_item_type, "function_call")
+		if coreTruthy(v_is_function_item) {
+			v_function_item_id = coreGet(v_item, "id", v_event_item_id)
+			v_function_call_id = coreGet(v_item, "call_id", v_function_item_id)
+			if err := coreSet(v_call_ids, v_function_item_id, v_function_call_id); err != nil { return nil, err }
+			if err := coreSet(v_state, "function_call_ids", v_call_ids); err != nil { return nil, err }
+		} else {
+		// empty
+		}
 		v_is_message_item = _core_eq(v_item_type, "message")
 		if coreTruthy(v_is_message_item) {
 			v_item_id = coreGet(v_item, "id", v_event_item_id)
@@ -19479,6 +19633,29 @@ func openai_responses_normalize_stream_delta(args ...Value) (Value, error) {
 		v_empty_done_item = Object()
 		v_done_item = coreGet(v_event, "item", v_empty_done_item)
 		if _, err := _openai_responses_merge_output_item_impl(v_result, v_done_item); err != nil { return nil, err }
+		v_done_type = coreGet(v_done_item, "type", nil)
+		v_done_message = _core_eq(v_done_type, "message")
+		if coreTruthy(v_done_message) {
+			if err := coreSet(v_result, "content", ""); err != nil { return nil, err }
+			_core_map_delete(v_result, "thought")
+			_core_map_delete(v_result, "thought_blocks")
+			v_done_status = coreGet(v_done_item, "status", "completed")
+			v_done_success = _core_eq(v_done_status, "completed")
+			if coreTruthy(v_done_success) {
+				if err := coreSet(v_result, "finish_reason", "stop"); err != nil { return nil, err }
+			} else {
+				if err := coreSet(v_result, "finish_reason", "error"); err != nil { return nil, err }
+			}
+		} else {
+		// empty
+		}
+		v_done_function = _core_eq(v_done_type, "function_call")
+		if coreTruthy(v_done_function) {
+			v_completed_calls = MutableArray()
+			if err := coreSet(v_result, "function_calls", v_completed_calls); err != nil { return nil, err }
+		} else {
+		// empty
+		}
 	} else {
 	// empty
 	}
@@ -19498,8 +19675,8 @@ func openai_responses_normalize_stream_delta(args ...Value) (Value, error) {
 	}
 	v_is_args_delta = _core_eq(v_type, "response.function_call_arguments.delta")
 	if coreTruthy(v_is_args_delta) {
-		v_event_call_id = coreGet(v_event, "call_id", "0")
-		v_call_id = coreGet(v_event, "item_id", v_event_call_id)
+		v_event_call_id = coreGet(v_event, "call_id", v_event_item_id)
+		v_call_id = coreGet(v_call_ids, v_event_item_id, v_event_call_id)
 		v_event_name = coreGet(v_event, "name", nil)
 		v_event_delta = coreGet(v_event, "delta", "")
 		v_function = Object()
@@ -58926,6 +59103,7 @@ func (c *OpenAICompatibleClient) realtimeChat(ctx context.Context, request map[s
 			}
 		}()
 		inputSent := false
+		var endStreamSent atomic.Bool
 		events := []Value{}
 		state := Object("partial_mode", coreGet(setup, "partialMode", nil))
 		for {
@@ -58962,6 +59140,7 @@ func (c *OpenAICompatibleClient) realtimeChat(ctx context.Context, request map[s
 								}
 							}
 						} else {
+							if display(coreGet(item, "type", "")) == "endStream" { endStreamSent.Store(true) }
 							transport.Send(item)
 						}
 					}
@@ -58989,6 +59168,7 @@ func (c *OpenAICompatibleClient) realtimeChat(ctx context.Context, request map[s
 			}
 		}
 		if coreGet(setup, "audioEncoding", nil) != nil && !inputSent { panic(AxError{Category: "protocol", Message: "Meta Voice closed before acknowledging setup"}) }
+		if coreGet(setup, "audioEncoding", nil) != nil && !endStreamSent.Load() { panic(AxError{Category: "protocol", Message: "Meta Voice closed before audio upload completed"}) }
 		var contents []string
 		var audioChunks []string
 		functionCalls := []Value{}

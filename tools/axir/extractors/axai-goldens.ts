@@ -3983,6 +3983,236 @@ writeFixture('meta-responses-reasoning-image-replay', {
   },
 });
 
+const metaParallelItems = ['one', 'two'].map((id) => ({
+  type: 'function_call',
+  id: `item-${id}`,
+  call_id: `call-${id}`,
+  name: 'lookup',
+  arguments: JSON.stringify({ city: id }),
+}));
+const metaCall = (id: string, params: Json, name: Json = 'lookup'): Json => ({
+  id: `call-${id}`,
+  type: 'function',
+  function: { name, params },
+});
+const metaDelta = (id: string, overrides: Record<string, Json> = {}): Json => ({
+  results: [
+    {
+      index: 0,
+      id,
+      content: '',
+      function_calls: [],
+      finish_reason: null,
+      ...overrides,
+    },
+  ],
+  remote_id: 'meta-parallel',
+  model_usage: null,
+});
+writeFixture('meta-responses-parallel-calls', {
+  kind: 'ai_chat',
+  provider: 'meta',
+  model: 'muse-spark-1.3',
+  request: {
+    chat_prompt: [{ role: 'user', content: 'Look up both cities' }],
+    model_config: { stream: false },
+  },
+  transport_responses: [
+    { status: 200, json: { id: 'meta-parallel', output: metaParallelItems } },
+  ],
+  expected_output: metaDelta('item-two', {
+    function_calls: [
+      metaCall('one', { city: 'one' }),
+      metaCall('two', { city: 'two' }),
+    ],
+    finish_reason: 'function_call',
+  }),
+});
+const metaParallelEvents: Json[] = [
+  ...metaParallelItems.map((item) => ({
+    type: 'response.output_item.added',
+    response_id: 'meta-parallel',
+    item: { ...item, arguments: '' },
+  })),
+  ...metaParallelItems.map((item) => ({
+    type: 'response.function_call_arguments.delta',
+    response_id: 'meta-parallel',
+    item_id: item.id,
+    delta: item.arguments,
+  })),
+  ...metaParallelItems.map((item) => ({
+    type: 'response.output_item.done',
+    response_id: 'meta-parallel',
+    item,
+  })),
+  {
+    type: 'response.output_text.delta',
+    response_id: 'meta-parallel',
+    item_id: 'message-final',
+    delta: 'Done',
+  },
+  {
+    type: 'response.output_item.done',
+    response_id: 'meta-parallel',
+    item: {
+      type: 'message',
+      id: 'message-final',
+      phase: 'final_answer',
+      status: 'completed',
+      content: [{ type: 'output_text', text: 'Done' }],
+    },
+  },
+  { type: 'response.completed', response: { id: 'meta-parallel' } },
+];
+writeFixture('meta-responses-parallel-stream-replay', {
+  kind: 'ai_stream',
+  provider: 'meta',
+  model: 'muse-spark-1.3',
+  request: { chat_prompt: [{ role: 'user', content: 'Look up both cities' }] },
+  options: { stream: true },
+  transport_responses: [
+    {
+      status: 200,
+      body: metaParallelEvents
+        .map((event) => `data: ${JSON.stringify(event)}\n\n`)
+        .join(''),
+    },
+  ],
+  expected_output: [
+    ...['one', 'two'].map((id) =>
+      metaDelta(`item-${id}`, {
+        function_calls: [metaCall(id, '')],
+        finish_reason: 'function_call',
+      })
+    ),
+    ...['one', 'two'].map((id) =>
+      metaDelta(`item-${id}`, {
+        function_calls: [metaCall(id, JSON.stringify({ city: id }), null)],
+        finish_reason: 'function_call',
+      })
+    ),
+    ...['one', 'two'].map((id) =>
+      metaDelta(`item-${id}`, { finish_reason: 'function_call' })
+    ),
+    metaDelta('message-final', { content: 'Done' }),
+    metaDelta('message-final', {
+      phase: 'final_answer',
+      finish_reason: 'stop',
+    }),
+    metaDelta('0', { finish_reason: 'stop' }),
+  ],
+});
+for (const payload of ['image', 'encrypted'] as const) {
+  const image = payload === 'image';
+  writeFixture(`meta-responses-${payload}-only-replay`, {
+    kind: 'ai_chat',
+    provider: 'meta',
+    model: image ? 'muse-image-1.0' : 'muse-spark-1.3',
+    request: {
+      chat_prompt: [
+        {
+          role: 'assistant',
+          ...(image
+            ? {
+                images: [
+                  { id: 'image-old', data: 'AAAA', mime_type: 'image/webp' },
+                ],
+              }
+            : {
+                thought_blocks: [
+                  {
+                    id: 'reasoning-old',
+                    data: '',
+                    encrypted: true,
+                    encrypted_content: 'opaque-old',
+                  },
+                ],
+              }),
+        },
+        { role: 'user', content: 'Continue' },
+      ],
+      model_config: { stream: false },
+    },
+    transport_responses: [
+      { status: 200, json: { id: 'meta-parallel', output: [] } },
+    ],
+    expected_transport_request: {
+      json: {
+        input: [
+          image
+            ? {
+                type: 'image_generation_call',
+                id: 'image-old',
+                status: 'completed',
+                result: null,
+              }
+            : {
+                type: 'reasoning',
+                id: 'reasoning-old',
+                summary: [{ type: 'summary_text', text: '' }],
+                encrypted_content: 'opaque-old',
+              },
+          { role: 'user', content: [{ type: 'input_text', text: 'Continue' }] },
+        ],
+      },
+    },
+    expected_output: metaDelta('0', { finish_reason: 'stop' }),
+  });
+}
+for (const { suffix, part, input, error } of [
+  {
+    suffix: '16khz',
+    part: { sampleRate: 16000, channels: 1 },
+    input: {},
+    error: '',
+  },
+  {
+    suffix: 'stereo-rejected',
+    part: { sampleRate: 16000, channels: 2 },
+    input: {},
+    error: 'requires mono PCM audio',
+  },
+  {
+    suffix: 'rate-conflict-rejected',
+    part: { sampleRate: 16000, channels: 1 },
+    input: { sampleRate: 24000 },
+    error: 'Conflicting realtime audio sample rates',
+  },
+]) {
+  writeFixture(`meta-voice-item-metadata-${suffix}`, {
+    kind: 'ai_realtime',
+    provider: 'meta',
+    model: 'muse-voice-transcribe-1.0',
+    options: { apiKey: 'meta-key' },
+    request: {
+      model: 'muse-voice-transcribe-1.0',
+      audio: { input },
+      chat_prompt: [
+        {
+          role: 'user',
+          content: [{ type: 'audio', format: 'pcm16', data: 'AAE=', ...part }],
+        },
+      ],
+    },
+    expected_setup: error
+      ? {}
+      : {
+          model: 'muse-voice-transcribe-1.0',
+          authorization: { accessToken: 'Bearer meta-key' },
+          mode: 'PUSH_TO_TALK',
+          audioEncoding: 'PCM_16KHZ',
+        },
+    ...(error
+      ? { expected_error_contains: error }
+      : {
+          expected_input: [
+            { type: 'binary', data: 'AAE=' },
+            { type: 'endStream' },
+          ],
+        }),
+  });
+}
+
 writeFixture('meta-responses-encrypted-replay', {
   kind: 'ai_chat',
   provider: 'meta',

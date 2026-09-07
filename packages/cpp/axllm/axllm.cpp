@@ -4590,6 +4590,13 @@ Value Core::validate_chat_request(Value request) {
     Value has_thought = Core::truthy_value(thought);
     Value has_assistant_payload = Core::or_(has_content, has_calls);
     has_assistant_payload = Core::or_(has_assistant_payload, has_thought);
+    Value images = Core::get(message, Value("images"), Value());
+    Value has_images = Core::truthy_value(images);
+    Value thought_blocks_snake = Core::get(message, Value("thought_blocks"), empty_function_calls);
+    Value thought_blocks = Core::get(message, Value("thoughtBlocks"), thought_blocks_snake);
+    Value has_thought_blocks = Core::truthy_value(thought_blocks);
+    has_assistant_payload = Core::or_(has_assistant_payload, has_images);
+    has_assistant_payload = Core::or_(has_assistant_payload, has_thought_blocks);
     Value missing_assistant_payload = Core::not_(has_assistant_payload);
     Value bad_assistant = Core::and_(is_assistant, missing_assistant_payload);
     if (Core::truthy(bad_assistant)) {
@@ -4651,12 +4658,6 @@ Value Core::build_chat_request(Value service, Value request, Value options) {
   return payload;
 }
 
-Value Core::normalize_chat_response(Value raw) {
-  axir_coverage_mark("normalize_chat_response");
-  Value response = Core::openai_normalize_chat_response(raw);
-  return response;
-}
-
 Value Core::openai_chat_reasoning_effort(Value model, Value budget) {
   axir_coverage_mark("openai_chat_reasoning_effort");
   Value effort = Core::openai_reasoning_effort(model, budget);
@@ -4667,9 +4668,9 @@ Value Core::openai_chat_reasoning_effort(Value model, Value budget) {
   return effort;
 }
 
-Value Core::normalize_stream_delta(Value raw, Value state) {
-  axir_coverage_mark("normalize_stream_delta");
-  Value response = Core::openai_normalize_stream_delta(raw, state);
+Value Core::normalize_chat_response(Value raw) {
+  axir_coverage_mark("normalize_chat_response");
+  Value response = Core::openai_normalize_chat_response(raw);
   return response;
 }
 
@@ -4681,6 +4682,12 @@ Value Core::_openai_copy_config_key_impl(Value payload, Value model_config, Valu
     Core::set(payload, target, value);
   }
   return Value();
+}
+
+Value Core::normalize_stream_delta(Value raw, Value state) {
+  axir_coverage_mark("normalize_stream_delta");
+  Value response = Core::openai_normalize_stream_delta(raw, state);
+  return response;
 }
 
 Value Core::build_embed_request(Value service, Value request, Value options) {
@@ -4900,19 +4907,6 @@ Value Core::normalize_token_usage(Value usage) {
   return out;
 }
 
-Value Core::merge_usage_context(Value defaults, Value overrides) {
-  axir_coverage_mark("merge_usage_context");
-  Value merged = Core::map_merge(defaults, overrides);
-  Value default_attributes = Core::get(defaults, Value("attributes"), Value());
-  Value override_attributes = Core::get(overrides, Value("attributes"), Value());
-  Value attributes = Core::map_merge(default_attributes, override_attributes);
-  Value has_attributes = Core::truthy_value(attributes);
-  if (Core::truthy(has_attributes)) {
-    Core::set(merged, Value("attributes"), attributes);
-  }
-  return merged;
-}
-
 Value Core::_openai_content_part_impl(Value part, Value extended_media) {
   axir_coverage_mark("_openai_content_part_impl");
   Value type = Core::get(part, Value("type"), Value());
@@ -5034,6 +5028,19 @@ Value Core::_openai_content_part_impl(Value part, Value extended_media) {
   Value message = Core::string_format(Value("OpenAI-compatible beta does not support content part type: {}"), type);
   Value error = Core::ai_error_unsupported(message);
   throw Core::as_error(error);
+}
+
+Value Core::merge_usage_context(Value defaults, Value overrides) {
+  axir_coverage_mark("merge_usage_context");
+  Value merged = Core::map_merge(defaults, overrides);
+  Value default_attributes = Core::get(defaults, Value("attributes"), Value());
+  Value override_attributes = Core::get(overrides, Value("attributes"), Value());
+  Value attributes = Core::map_merge(default_attributes, override_attributes);
+  Value has_attributes = Core::truthy_value(attributes);
+  if (Core::truthy(has_attributes)) {
+    Core::set(merged, Value("attributes"), attributes);
+  }
+  return merged;
 }
 
 Value Core::build_usage_event(Value operation, Value response, Value options, Value streaming) {
@@ -5264,6 +5271,12 @@ Value Core::openai_build_embed_request(Value request) {
   return payload;
 }
 
+Value Core::openai_normalize_chat_response(Value raw, Value ai_name, Value model) {
+  axir_coverage_mark("openai_normalize_chat_response");
+  Value response = Core::_openai_normalize_chat_response_impl(raw, ai_name, model, Value("none"), Value("none"));
+  return response;
+}
+
 Value Core::_chat_result_to_completion(Value result, Value fallback_index) {
   axir_coverage_mark("_chat_result_to_completion");
   Value content = Core::get(result, Value("content"), Value(""));
@@ -5307,12 +5320,6 @@ Value Core::_chat_result_to_completion(Value result, Value fallback_index) {
     Core::set(completion, Value("phase"), phase);
   }
   return completion;
-}
-
-Value Core::openai_normalize_chat_response(Value raw, Value ai_name, Value model) {
-  axir_coverage_mark("openai_normalize_chat_response");
-  Value response = Core::_openai_normalize_chat_response_impl(raw, ai_name, model, Value("none"), Value("none"));
-  return response;
 }
 
 Value Core::_openai_usage_with_service_tier(Value raw, Value usage) {
@@ -7662,6 +7669,47 @@ Value Core::_meta_asr_realtime_build_setup(Value descriptor, Value request, Valu
   Value sample_rate_snake = Core::get(request_input, Value("sample_rate"), Value());
   Value sample_rate_camel = Core::get(request_input, Value("sampleRate"), sample_rate_snake);
   Value sample_rate_requested = Core::get(request_input, Value("rate"), sample_rate_camel);
+  Value channels_requested = Core::get(request_input, Value("channels"), Value());
+  Value audio_messages = Core::_realtime_request_user_messages_impl(request);
+  for (auto audio_message : Core::iter(audio_messages)) {
+    Value audio_content = Core::get(audio_message, Value("content"), Value());
+    Value audio_content_list = Core::type_is(audio_content, Value("list"));
+    if (Core::truthy(audio_content_list)) {
+      for (auto audio_part : Core::iter(audio_content)) {
+        Value audio_part_type = Core::get(audio_part, Value("type"), Value());
+        Value is_audio_part = Core::eq(audio_part_type, Value("audio"));
+        if (Core::truthy(is_audio_part)) {
+          Value part_rate_snake = Core::get(audio_part, Value("sample_rate"), Value());
+          Value part_rate = Core::get(audio_part, Value("sampleRate"), part_rate_snake);
+          Value has_part_rate = Core::is_not_none(part_rate);
+          if (Core::truthy(has_part_rate)) {
+            Value has_requested_rate = Core::is_not_none(sample_rate_requested);
+            Value rate_matches = Core::eq(sample_rate_requested, part_rate);
+            Value rate_differs = Core::not_(rate_matches);
+            Value rate_conflict = Core::and_(has_requested_rate, rate_differs);
+            if (Core::truthy(rate_conflict)) {
+              Value error = Core::ai_error_unsupported(Value("Conflicting realtime audio sample rates"));
+              throw Core::as_error(error);
+            }
+            sample_rate_requested = part_rate;
+          }
+          Value part_channels = Core::get(audio_part, Value("channels"), Value());
+          Value has_part_channels = Core::is_not_none(part_channels);
+          if (Core::truthy(has_part_channels)) {
+            Value has_requested_channels = Core::is_not_none(channels_requested);
+            Value channels_match = Core::eq(channels_requested, part_channels);
+            Value channels_differ = Core::not_(channels_match);
+            Value channel_conflict = Core::and_(has_requested_channels, channels_differ);
+            if (Core::truthy(channel_conflict)) {
+              Value error = Core::ai_error_unsupported(Value("Conflicting realtime audio channel counts"));
+              throw Core::as_error(error);
+            }
+            channels_requested = part_channels;
+          }
+        }
+      }
+    }
+  }
   Value default_rate = Core::get(input_descriptor, Value("sampleRate"), Value(24000));
   Value sample_rate = sample_rate_requested;
   Value has_sample_rate = Core::is_not_none(sample_rate);
@@ -7671,7 +7719,14 @@ Value Core::_meta_asr_realtime_build_setup(Value descriptor, Value request, Valu
   if (!Core::truthy(has_sample_rate)) {
     sample_rate = default_rate;
   }
-  Value channels = Core::get(request_input, Value("channels"), Value(1));
+  Value channels = channels_requested;
+  Value has_channels = Core::is_not_none(channels);
+  if (Core::truthy(has_channels)) {
+    // empty
+  }
+  if (!Core::truthy(has_channels)) {
+    channels = Value(1);
+  }
   Value mono_lower = Core::gte(channels, Value(1));
   Value mono_upper = Core::lte(channels, Value(1));
   Value mono = Core::and_(mono_lower, mono_upper);
@@ -10254,7 +10309,7 @@ Value Core::_openai_responses_merge_output_item_impl(Value result, Value item) {
     Value item_id = Core::get(item, Value("id"), Value("0"));
     Core::set(result, Value("id"), item_id);
     Value call = Core::_openai_responses_function_call_impl(item);
-    Value calls = Value::array();
+    Value calls = Core::get(result, Value("function_calls"), empty_list);
     Core::append(calls, call);
     Core::set(result, Value("function_calls"), calls);
     Core::set(result, Value("finish_reason"), Value("function_call"));
@@ -10464,6 +10519,8 @@ Value Core::openai_responses_normalize_stream_delta(Value event, Value state, Va
   Core::set(result, Value("finish_reason"), none_finish);
   Value empty_phases = Value::object();
   Value phases = Core::get(state, Value("phases"), empty_phases);
+  Value empty_call_ids = Value::object();
+  Value call_ids = Core::get(state, Value("function_call_ids"), empty_call_ids);
   Value is_text_delta = Core::eq(type, Value("response.output_text.delta"));
   if (Core::truthy(is_text_delta)) {
     Value text_delta = Core::get(event, Value("delta"), Value(""));
@@ -10530,6 +10587,13 @@ Value Core::openai_responses_normalize_stream_delta(Value event, Value state, Va
     Value empty_item = Value::object();
     Value item = Core::get(event, Value("item"), empty_item);
     Value item_type = Core::get(item, Value("type"), Value(""));
+    Value is_function_item = Core::eq(item_type, Value("function_call"));
+    if (Core::truthy(is_function_item)) {
+      Value function_item_id = Core::get(item, Value("id"), event_item_id);
+      Value function_call_id = Core::get(item, Value("call_id"), function_item_id);
+      Core::set(call_ids, function_item_id, function_call_id);
+      Core::set(state, Value("function_call_ids"), call_ids);
+    }
     Value is_message_item = Core::eq(item_type, Value("message"));
     if (Core::truthy(is_message_item)) {
       Value item_id = Core::get(item, Value("id"), event_item_id);
@@ -10547,6 +10611,26 @@ Value Core::openai_responses_normalize_stream_delta(Value event, Value state, Va
     Value empty_done_item = Value::object();
     Value done_item = Core::get(event, Value("item"), empty_done_item);
     Core::_openai_responses_merge_output_item_impl(result, done_item);
+    Value done_type = Core::get(done_item, Value("type"), Value());
+    Value done_message = Core::eq(done_type, Value("message"));
+    if (Core::truthy(done_message)) {
+      Core::set(result, Value("content"), Value(""));
+      Core::map_delete(result, Value("thought"));
+      Core::map_delete(result, Value("thought_blocks"));
+      Value done_status = Core::get(done_item, Value("status"), Value("completed"));
+      Value done_success = Core::eq(done_status, Value("completed"));
+      if (Core::truthy(done_success)) {
+        Core::set(result, Value("finish_reason"), Value("stop"));
+      }
+      if (!Core::truthy(done_success)) {
+        Core::set(result, Value("finish_reason"), Value("error"));
+      }
+    }
+    Value done_function = Core::eq(done_type, Value("function_call"));
+    if (Core::truthy(done_function)) {
+      Value completed_calls = Value::array();
+      Core::set(result, Value("function_calls"), completed_calls);
+    }
   }
   Value is_partial_image = Core::eq(type, Value("response.image_generation_call.partial_image"));
   if (Core::truthy(is_partial_image)) {
@@ -10562,8 +10646,8 @@ Value Core::openai_responses_normalize_stream_delta(Value event, Value state, Va
   }
   Value is_args_delta = Core::eq(type, Value("response.function_call_arguments.delta"));
   if (Core::truthy(is_args_delta)) {
-    Value event_call_id = Core::get(event, Value("call_id"), Value("0"));
-    Value call_id = Core::get(event, Value("item_id"), event_call_id);
+    Value event_call_id = Core::get(event, Value("call_id"), event_item_id);
+    Value call_id = Core::get(call_ids, event_item_id, event_call_id);
     Value event_name = Core::get(event, Value("name"), Value());
     Value event_delta = Core::get(event, Value("delta"), Value(""));
     Value function = Value::object();
@@ -30125,6 +30209,8 @@ Value OpenAICompatibleClient::realtime_chat(Value request, RealtimeTransport* tr
   bool input_sent = false;
   Value state = object({{"partial_mode", Core::get(setup, "partialMode")}});
   std::atomic<bool> stop_sending{false};
+  std::atomic<bool> end_stream_sent{false};
+  bool output_cancelled = false;
   std::thread sender;
   std::exception_ptr send_error;
   std::mutex pacing_mutex;
@@ -30166,6 +30252,7 @@ Value OpenAICompatibleClient::realtime_chat(Value request, RealtimeTransport* tr
                 if (pacing_cv.wait_for(lock, std::chrono::duration<double>(chunk.size() / double(rate * 2)), [&] { return stop_sending.load(); })) return;
               }
             } else {
+              if (str(Core::get(item, "type", Value(""))) == "endStream") end_stream_sent = true;
               transport->send(item);
             }
           }
@@ -30183,7 +30270,7 @@ Value OpenAICompatibleClient::realtime_chat(Value request, RealtimeTransport* tr
       bool done = realtime_event_is_done(event);
       Value normalized = Core::provider_normalize_realtime_event(profile_, event, state, name_, model);
       events.push_back(normalized);
-      if (handler && !handler(normalized)) break;
+      if (handler && !handler(normalized)) { output_cancelled = true; break; }
       if (done) break;
     }
   } catch (...) {
@@ -30195,6 +30282,7 @@ Value OpenAICompatibleClient::realtime_chat(Value request, RealtimeTransport* tr
   if (send_error) std::rethrow_exception(send_error);
 
   if (!Core::get(setup, "audioEncoding").is_null() && !input_sent) throw Core::as_error(Core::ai_error_response("Meta Voice closed before acknowledging setup"));
+  if (!Core::get(setup, "audioEncoding").is_null() && !end_stream_sent && !output_cancelled) throw Core::as_error(Core::ai_error_response("Meta Voice closed before audio upload completed"));
   std::string content;
   std::string audio_bytes;
   bool has_audio = false;

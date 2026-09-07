@@ -112,6 +112,23 @@ int main() {
   axllm::Core::set(duplex_request, "chat_prompt", axllm::array({axllm::object({{"role", "user"}, {"content", axllm::array({axllm::object({{"type", "audio"}, {"format", "pcm16"}, {"data", std::string(12800, 'A')}})})}})}));
   auto duplex_final = meta->realtime_chat(duplex_request, &duplex);
   if (axllm::stringify(axllm::Core::get(axllm::Core::iter(axllm::Core::get(duplex_final, "results"))[0], "content")) != "\"Correct final.\"") fail("duplex final lost", duplex_final);
+  class EarlyCloseProbe : public DuplexProbe {
+   public:
+    void send(const axllm::Value& event) override {
+      DuplexProbe::send(event);
+      if (axllm::stringify(axllm::Core::get(event, "type")) == "\"binary\"") {
+        std::lock_guard<std::mutex> lock(mutex);
+        frames.push_back(axllm::Value());
+        ready.notify_all();
+      }
+    }
+  } early_close;
+  try {
+    meta->realtime_chat(duplex_request, &early_close);
+    fail("early close accepted an incomplete upload", axllm::Value());
+  } catch (const std::exception& error) {
+    if (std::string(error.what()).find("closed before audio upload completed") == std::string::npos) throw;
+  }
   axllm::AxMemory memory;
   memory.update_result(axllm::parse_json(R"({"thought_blocks":[{"id":"r","data":"Plan"}],"images":[{"id":"image","data":"partial"}]})"));
   memory.update_result(axllm::parse_json(R"({"thought_blocks":[{"id":"r","data":"Plan.","summary":"Plan.","encrypted_content":"opaque"}]})"));

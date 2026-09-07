@@ -1,0 +1,76 @@
+{
+  "expected_output": {
+    "model_usage": null,
+    "remote_id": "meta-parallel",
+    "results": [
+      {
+        "content": "",
+        "finish_reason": "stop",
+        "function_calls": [],
+        "id": "0",
+        "index": 0
+      }
+    ]
+  },
+  "expected_transport_request": {
+    "json": {
+      "input": [
+        {
+          "encrypted_content": "opaque-old",
+          "id": "reasoning-old",
+          "summary": [
+            {
+              "text": "",
+              "type": "summary_text"
+            }
+          ],
+          "type": "reasoning"
+        },
+        {
+          "content": [
+            {
+              "text": "Continue",
+              "type": "input_text"
+            }
+          ],
+          "role": "user"
+        }
+      ]
+    }
+  },
+  "kind": "ai_chat",
+  "model": "muse-spark-1.3",
+  "name": "meta-responses-encrypted-only-replay",
+  "provider": "meta",
+  "request": {
+    "chat_prompt": [
+      {
+        "role": "assistant",
+        "thought_blocks": [
+          {
+            "data": "",
+            "encrypted": true,
+            "encrypted_content": "opaque-old",
+            "id": "reasoning-old"
+          }
+        ]
+      },
+      {
+        "content": "Continue",
+        "role": "user"
+      }
+    ],
+    "model_config": {
+      "stream": false
+    }
+  },
+  "transport_responses": [
+    {
+      "json": {
+        "id": "meta-parallel",
+        "output": []
+      },
+      "status": 200
+    }
+  ]
+}

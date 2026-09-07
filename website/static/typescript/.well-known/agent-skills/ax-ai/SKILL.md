@@ -282,6 +282,10 @@ are retained in Ax chat memory so stateless multi-turn replay works.
 Streaming Ax programs also retain the final-answer phase. Responses failure
 events raise errors; token-limited streams are not accepted as completed
 program output.
+Generated Responses clients retain parallel tool calls and their provider call
+IDs, and completion events do not repeat text or arguments already streamed.
+Assistant turns containing only generated images or encrypted reasoning can
+be replayed without adding placeholder text.
 
 All three Spark profiles support function-based structured output. When Ax
 selects its internal `__axOutput` tool, the profiles require that sole tool

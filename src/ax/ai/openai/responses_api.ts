@@ -735,11 +735,33 @@ export class AxAIOpenAIResponsesImpl<
           'Meta Voice realtime transcription does not support tools'
         );
       }
+      const audio = req.modelConfig?.audio ?? this.config.audio;
+      let sampleRate = audio?.input?.sampleRate;
+      let channels = audio?.input?.channels;
+      for (const message of req.chatPrompt ?? []) {
+        if (message.role !== 'user' || !Array.isArray(message.content))
+          continue;
+        for (const part of message.content) {
+          if (part.type !== 'audio') continue;
+          if (part.sampleRate !== undefined) {
+            if (sampleRate !== undefined && sampleRate !== part.sampleRate) {
+              throw new Error('Conflicting realtime audio sample rates');
+            }
+            sampleRate = part.sampleRate;
+          }
+          if (part.channels !== undefined) {
+            if (channels !== undefined && channels !== part.channels) {
+              throw new Error('Conflicting realtime audio channel counts');
+            }
+            channels = part.channels;
+          }
+        }
+      }
       const realtimeApi = this.realtime.createApi({
         model,
         request: finalReqToProcess,
         apiKey: this.apiKey,
-        audio: req.modelConfig?.audio ?? this.config.audio,
+        audio: { ...audio, input: { ...audio?.input, sampleRate, channels } },
         webSocket: config.webSocket ?? this.options?.webSocket,
         abortSignal: config.abortSignal ?? this.options?.abortSignal,
         turnTimeoutMs:

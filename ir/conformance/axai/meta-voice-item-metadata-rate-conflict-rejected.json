@@ -1,0 +1,33 @@
+{
+  "expected_error_contains": "Conflicting realtime audio sample rates",
+  "expected_setup": {},
+  "kind": "ai_realtime",
+  "model": "muse-voice-transcribe-1.0",
+  "name": "meta-voice-item-metadata-rate-conflict-rejected",
+  "options": {
+    "apiKey": "meta-key"
+  },
+  "provider": "meta",
+  "request": {
+    "audio": {
+      "input": {
+        "sampleRate": 24000
+      }
+    },
+    "chat_prompt": [
+      {
+        "content": [
+          {
+            "channels": 1,
+            "data": "AAE=",
+            "format": "pcm16",
+            "sampleRate": 16000,
+            "type": "audio"
+          }
+        ],
+        "role": "user"
+      }
+    ],
+    "model": "muse-voice-transcribe-1.0"
+  }
+}

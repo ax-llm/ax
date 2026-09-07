@@ -383,6 +383,11 @@ snapshots. `content` contains each finalized turn exactly once, in speech-start
 order, and can be accumulated normally. Sending PCM and receiving partials run
 concurrently; cancelling a stream stops pending audio transmission.
 
+Declare the sample rate and channel count on audio items or in `audio.input`;
+when both are present, they must agree. Meta requires mono PCM16 at 16 or 24 kHz.
+A normal connection close succeeds only after the audio upload and `endStream`;
+an earlier close is reported as an error.
+
 ## Streaming Audio
 
 OpenAI audio chat, OpenAI Realtime, Gemini Live, and Grok Voice default to non-streaming. Meta's Responses profile defaults to streaming. Pass `{ stream: true }` explicitly when consuming audio or transcription deltas.

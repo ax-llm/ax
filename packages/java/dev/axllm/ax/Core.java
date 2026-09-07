@@ -3407,6 +3407,13 @@ final class Core {
       Object has_thought = Core.truthyValue(thought);
       Object has_assistant_payload = Core.or(has_content, has_calls);
       has_assistant_payload = Core.or(has_assistant_payload, has_thought);
+      Object images = Core.get(message, "images", null);
+      Object has_images = Core.truthyValue(images);
+      Object thought_blocks_snake = Core.get(message, "thought_blocks", empty_function_calls);
+      Object thought_blocks = Core.get(message, "thoughtBlocks", thought_blocks_snake);
+      Object has_thought_blocks = Core.truthyValue(thought_blocks);
+      has_assistant_payload = Core.or(has_assistant_payload, has_images);
+      has_assistant_payload = Core.or(has_assistant_payload, has_thought_blocks);
       Object missing_assistant_payload = Core.not(has_assistant_payload);
       Object bad_assistant = Core.and(is_assistant, missing_assistant_payload);
       if (Core.truthy(bad_assistant)) {
@@ -3468,12 +3475,6 @@ final class Core {
     return payload;
   }
 
-  static Object normalize_chat_response(Object raw) {
-    axirCoverageMark("normalize_chat_response");
-    Object response = Core.openai_normalize_chat_response(raw);
-    return response;
-  }
-
   static Object openai_chat_reasoning_effort(Object model, Object budget) {
     axirCoverageMark("openai_chat_reasoning_effort");
     Object effort = Core.openai_reasoning_effort(model, budget);
@@ -3484,9 +3485,9 @@ final class Core {
     return effort;
   }
 
-  static Object normalize_stream_delta(Object raw, Object state) {
-    axirCoverageMark("normalize_stream_delta");
-    Object response = Core.openai_normalize_stream_delta(raw, state);
+  static Object normalize_chat_response(Object raw) {
+    axirCoverageMark("normalize_chat_response");
+    Object response = Core.openai_normalize_chat_response(raw);
     return response;
   }
 
@@ -3498,6 +3499,12 @@ final class Core {
       Core.set(payload, target, value);
     }
     return null;
+  }
+
+  static Object normalize_stream_delta(Object raw, Object state) {
+    axirCoverageMark("normalize_stream_delta");
+    Object response = Core.openai_normalize_stream_delta(raw, state);
+    return response;
   }
 
   static Object build_embed_request(Object service, Object request, Object options) {
@@ -3716,19 +3723,6 @@ final class Core {
     return out;
   }
 
-  static Object merge_usage_context(Object defaults, Object overrides) {
-    axirCoverageMark("merge_usage_context");
-    Object merged = Core.mapMerge(defaults, overrides);
-    Object default_attributes = Core.get(defaults, "attributes", null);
-    Object override_attributes = Core.get(overrides, "attributes", null);
-    Object attributes = Core.mapMerge(default_attributes, override_attributes);
-    Object has_attributes = Core.truthyValue(attributes);
-    if (Core.truthy(has_attributes)) {
-      Core.set(merged, "attributes", attributes);
-    }
-    return merged;
-  }
-
   static Object _openai_content_part_impl(Object part, Object extended_media) {
     axirCoverageMark("_openai_content_part_impl");
     Object type = Core.get(part, "type", null);
@@ -3850,6 +3844,19 @@ final class Core {
     Object message = Core.stringFormat("OpenAI-compatible beta does not support content part type: {}", type);
     Object error = Core.aiErrorUnsupported(message);
     throw Core.asRuntime(error);
+  }
+
+  static Object merge_usage_context(Object defaults, Object overrides) {
+    axirCoverageMark("merge_usage_context");
+    Object merged = Core.mapMerge(defaults, overrides);
+    Object default_attributes = Core.get(defaults, "attributes", null);
+    Object override_attributes = Core.get(overrides, "attributes", null);
+    Object attributes = Core.mapMerge(default_attributes, override_attributes);
+    Object has_attributes = Core.truthyValue(attributes);
+    if (Core.truthy(has_attributes)) {
+      Core.set(merged, "attributes", attributes);
+    }
+    return merged;
   }
 
   static Object build_usage_event(Object operation, Object response, Object options, Object streaming) {
@@ -4080,6 +4087,12 @@ final class Core {
     return payload;
   }
 
+  static Object openai_normalize_chat_response(Object raw, Object ai_name, Object model) {
+    axirCoverageMark("openai_normalize_chat_response");
+    Object response = Core._openai_normalize_chat_response_impl(raw, ai_name, model, "none", "none");
+    return response;
+  }
+
   static Object _chat_result_to_completion(Object result, Object fallback_index) {
     axirCoverageMark("_chat_result_to_completion");
     Object content = Core.get(result, "content", "");
@@ -4123,12 +4136,6 @@ final class Core {
       Core.set(completion, "phase", phase);
     }
     return completion;
-  }
-
-  static Object openai_normalize_chat_response(Object raw, Object ai_name, Object model) {
-    axirCoverageMark("openai_normalize_chat_response");
-    Object response = Core._openai_normalize_chat_response_impl(raw, ai_name, model, "none", "none");
-    return response;
   }
 
   static Object _openai_usage_with_service_tier(Object raw, Object usage) {
@@ -6512,6 +6519,47 @@ final class Core {
     Object sample_rate_snake = Core.get(request_input, "sample_rate", null);
     Object sample_rate_camel = Core.get(request_input, "sampleRate", sample_rate_snake);
     Object sample_rate_requested = Core.get(request_input, "rate", sample_rate_camel);
+    Object channels_requested = Core.get(request_input, "channels", null);
+    Object audio_messages = Core._realtime_request_user_messages_impl(request);
+    for (Object audio_message : Core.iter(audio_messages)) {
+      Object audio_content = Core.get(audio_message, "content", null);
+      Object audio_content_list = Core.typeIs(audio_content, "list");
+      if (Core.truthy(audio_content_list)) {
+        for (Object audio_part : Core.iter(audio_content)) {
+          Object audio_part_type = Core.get(audio_part, "type", null);
+          Object is_audio_part = Core.eq(audio_part_type, "audio");
+          if (Core.truthy(is_audio_part)) {
+            Object part_rate_snake = Core.get(audio_part, "sample_rate", null);
+            Object part_rate = Core.get(audio_part, "sampleRate", part_rate_snake);
+            Object has_part_rate = Core.isNotNone(part_rate);
+            if (Core.truthy(has_part_rate)) {
+              Object has_requested_rate = Core.isNotNone(sample_rate_requested);
+              Object rate_matches = Core.eq(sample_rate_requested, part_rate);
+              Object rate_differs = Core.not(rate_matches);
+              Object rate_conflict = Core.and(has_requested_rate, rate_differs);
+              if (Core.truthy(rate_conflict)) {
+                Object error = Core.aiErrorUnsupported("Conflicting realtime audio sample rates");
+                throw Core.asRuntime(error);
+              }
+              sample_rate_requested = part_rate;
+            }
+            Object part_channels = Core.get(audio_part, "channels", null);
+            Object has_part_channels = Core.isNotNone(part_channels);
+            if (Core.truthy(has_part_channels)) {
+              Object has_requested_channels = Core.isNotNone(channels_requested);
+              Object channels_match = Core.eq(channels_requested, part_channels);
+              Object channels_differ = Core.not(channels_match);
+              Object channel_conflict = Core.and(has_requested_channels, channels_differ);
+              if (Core.truthy(channel_conflict)) {
+                Object error = Core.aiErrorUnsupported("Conflicting realtime audio channel counts");
+                throw Core.asRuntime(error);
+              }
+              channels_requested = part_channels;
+            }
+          }
+        }
+      }
+    }
     Object default_rate = Core.get(input_descriptor, "sampleRate", 24000);
     Object sample_rate = sample_rate_requested;
     Object has_sample_rate = Core.isNotNone(sample_rate);
@@ -6521,7 +6569,14 @@ final class Core {
     if (!Core.truthy(has_sample_rate)) {
       sample_rate = default_rate;
     }
-    Object channels = Core.get(request_input, "channels", 1);
+    Object channels = channels_requested;
+    Object has_channels = Core.isNotNone(channels);
+    if (Core.truthy(has_channels)) {
+      // empty
+    }
+    if (!Core.truthy(has_channels)) {
+      channels = 1;
+    }
     Object mono_lower = Core.gte(channels, 1);
     Object mono_upper = Core.lte(channels, 1);
     Object mono = Core.and(mono_lower, mono_upper);
@@ -9104,7 +9159,7 @@ final class Core {
       Object item_id = Core.get(item, "id", "0");
       Core.set(result, "id", item_id);
       Object call = Core._openai_responses_function_call_impl(item);
-      Object calls = new java.util.ArrayList<Object>();
+      Object calls = Core.get(result, "function_calls", empty_list);
       Core.append(calls, call);
       Core.set(result, "function_calls", calls);
       Core.set(result, "finish_reason", "function_call");
@@ -9313,6 +9368,8 @@ final class Core {
     Core.set(result, "finish_reason", none_finish);
     Object empty_phases = new java.util.LinkedHashMap<String, Object>();
     Object phases = Core.get(state, "phases", empty_phases);
+    Object empty_call_ids = new java.util.LinkedHashMap<String, Object>();
+    Object call_ids = Core.get(state, "function_call_ids", empty_call_ids);
     Object is_text_delta = Core.eq(type, "response.output_text.delta");
     if (Core.truthy(is_text_delta)) {
       Object text_delta = Core.get(event, "delta", "");
@@ -9379,6 +9436,13 @@ final class Core {
       Object empty_item = new java.util.LinkedHashMap<String, Object>();
       Object item = Core.get(event, "item", empty_item);
       Object item_type = Core.get(item, "type", "");
+      Object is_function_item = Core.eq(item_type, "function_call");
+      if (Core.truthy(is_function_item)) {
+        Object function_item_id = Core.get(item, "id", event_item_id);
+        Object function_call_id = Core.get(item, "call_id", function_item_id);
+        Core.set(call_ids, function_item_id, function_call_id);
+        Core.set(state, "function_call_ids", call_ids);
+      }
       Object is_message_item = Core.eq(item_type, "message");
       if (Core.truthy(is_message_item)) {
         Object item_id = Core.get(item, "id", event_item_id);
@@ -9396,6 +9460,26 @@ final class Core {
       Object empty_done_item = new java.util.LinkedHashMap<String, Object>();
       Object done_item = Core.get(event, "item", empty_done_item);
       Core._openai_responses_merge_output_item_impl(result, done_item);
+      Object done_type = Core.get(done_item, "type", null);
+      Object done_message = Core.eq(done_type, "message");
+      if (Core.truthy(done_message)) {
+        Core.set(result, "content", "");
+        Core.mapDelete(result, "thought");
+        Core.mapDelete(result, "thought_blocks");
+        Object done_status = Core.get(done_item, "status", "completed");
+        Object done_success = Core.eq(done_status, "completed");
+        if (Core.truthy(done_success)) {
+          Core.set(result, "finish_reason", "stop");
+        }
+        if (!Core.truthy(done_success)) {
+          Core.set(result, "finish_reason", "error");
+        }
+      }
+      Object done_function = Core.eq(done_type, "function_call");
+      if (Core.truthy(done_function)) {
+        Object completed_calls = new java.util.ArrayList<Object>();
+        Core.set(result, "function_calls", completed_calls);
+      }
     }
     Object is_partial_image = Core.eq(type, "response.image_generation_call.partial_image");
     if (Core.truthy(is_partial_image)) {
@@ -9411,8 +9495,8 @@ final class Core {
     }
     Object is_args_delta = Core.eq(type, "response.function_call_arguments.delta");
     if (Core.truthy(is_args_delta)) {
-      Object event_call_id = Core.get(event, "call_id", "0");
-      Object call_id = Core.get(event, "item_id", event_call_id);
+      Object event_call_id = Core.get(event, "call_id", event_item_id);
+      Object call_id = Core.get(call_ids, event_item_id, event_call_id);
       Object event_name = Core.get(event, "name", null);
       Object event_delta = Core.get(event, "delta", "");
       Object function = new java.util.LinkedHashMap<String, Object>();

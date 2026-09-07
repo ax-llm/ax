@@ -13,14 +13,14 @@
       "type": "skill-md",
       "description": "This skill helps an LLM generate correct AI provider setup and configuration code using @ax-llm/ax. Use when the user asks about ai(), providers, models, routing, adaptive balancing, presets, embeddings, batch audio with ai.transcribe() or ai.speak(), extended thinking, context caching, or mentions OpenAI/Anthropic/Google/Azure/DeepSeek/Meta/Mistral/Cohere/Reka/Grok with @ax-llm/ax.",
       "url": "ax-ai/SKILL.md",
-      "digest": "sha256:0fbd92b6a3fca67017e92157c84ff321f6363ad9d14e58ee59f985c4926c47c9"
+      "digest": "sha256:f85b901de87f3186e5790977d25d71198e6ced30ee8abc2a678e7829209f2571"
     },
     {
       "name": "ax-audio",
       "type": "skill-md",
       "description": "This skill helps an LLM generate correct audio code with @ax-llm/ax. Use when the user asks about ai.transcribe(), ai.speak(), signature audio inputs or outputs, agent audio behavior, .chat() conversational audio, OpenAI audio or realtime models, Gemini Live native audio, Grok Voice Agent models, voices, formats, transcripts, or how audio fits with structured outputs.",
       "url": "ax-audio/SKILL.md",
-      "digest": "sha256:4cebdcf28c2a06a869288e49d5f40bcd7d30a6e37a827e30fc0ff2545745e9e6"
+      "digest": "sha256:28885c68977c15149744abfe7f474ac9f1ae305983a991b7ed4f20993be8e12e"
     },
     {
       "name": "ax-signature",

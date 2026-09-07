@@ -36,6 +36,110 @@ function voiceSocket(events: object[]) {
 }
 
 describe('Meta Voice transcript contract', () => {
+  it('uses sample rate and channel metadata from the audio item', async () => {
+    const Socket = voiceSocket([]);
+    const service = ai({
+      name: 'meta',
+      apiKey: 'test',
+      config: { model: AxAIMetaModel.MuseVoiceTranscribe10 },
+      options: { webSocket: Socket },
+    });
+    const stream = await service.chat(
+      {
+        chatPrompt: [
+          {
+            role: 'user',
+            content: [
+              { type: 'audio', ...audio, sampleRate: 16000, channels: 1 },
+            ],
+          },
+        ],
+      },
+      { stream: true }
+    );
+    for await (const _ of stream) {
+    }
+    expect(JSON.parse(String(Socket.instance.sent[0])).audioEncoding).toBe(
+      'PCM_16KHZ'
+    );
+  });
+
+  it.each([
+    { channels: 2, sampleRate: 16000, expected: 'requires mono audio' },
+    {
+      channels: 1,
+      sampleRate: 8000,
+      expected: 'requires 16000 Hz or 24000 Hz audio',
+    },
+  ])(
+    'rejects unsupported item metadata: $channels channels at $sampleRate Hz',
+    async ({ channels, sampleRate, expected }) => {
+      const service = ai({
+        name: 'meta',
+        apiKey: 'test',
+        config: { model: AxAIMetaModel.MuseVoiceTranscribe10 },
+        options: { webSocket: voiceSocket([]) },
+      });
+      await expect(
+        (async () => {
+          const stream = await service.chat(
+            {
+              chatPrompt: [
+                {
+                  role: 'user',
+                  content: [{ type: 'audio', ...audio, channels, sampleRate }],
+                },
+              ],
+            },
+            { stream: true }
+          );
+          for await (const _ of stream) {
+          }
+        })()
+      ).rejects.toThrow(expected);
+    }
+  );
+
+  it('rejects a normal close before the recording has been uploaded', async () => {
+    const BaseSocket = voiceSocket([]);
+    class EarlyCloseSocket extends BaseSocket {
+      override send(data: string | Uint8Array) {
+        super.send(data);
+        if (data instanceof Uint8Array)
+          queueMicrotask(() => this.listeners.get('close')?.({ code: 1000 }));
+      }
+    }
+    const service = ai({
+      name: 'meta',
+      apiKey: 'test',
+      config: { model: AxAIMetaModel.MuseVoiceTranscribe10 },
+      options: { webSocket: EarlyCloseSocket },
+    });
+    await expect(
+      (async () => {
+        const stream = await service.chat(
+          {
+            chatPrompt: [
+              {
+                role: 'user',
+                content: [
+                  {
+                    type: 'audio',
+                    format: 'pcm16',
+                    data: Buffer.alloc(9600).toString('base64'),
+                  },
+                ],
+              },
+            ],
+          },
+          { stream: true }
+        );
+        for await (const _ of stream) {
+        }
+      })()
+    ).rejects.toThrow('closed');
+  });
+
   it.each(['cumulative', 'delta'] as const)(
     'finalizes %s hypotheses exactly once',
     async (partialMode) => {

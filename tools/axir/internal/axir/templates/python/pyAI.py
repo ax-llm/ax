@@ -1268,6 +1268,7 @@ class ProviderOperationClient(AxBaseAI):
         events: list[dict[str, Any]] = []
         state: dict[str, Any] = {"partial_mode": setup.get("partialMode")}
         stopped = threading.Event()
+        end_stream_sent = threading.Event()
         sender = None
         send_errors: list[BaseException] = []
 
@@ -1290,6 +1291,8 @@ class ProviderOperationClient(AxBaseAI):
                             if stopped.wait(len(chunk) / float(rate * 2)):
                                 return
                     else:
+                        if item.get("type") == "endStream":
+                            end_stream_sent.set()
                         transport.send(item)
             except BaseException as error:
                 send_errors.append(error)
@@ -1335,6 +1338,8 @@ class ProviderOperationClient(AxBaseAI):
         # TS makeChatResponse; base64 join can't live in Core, so it stays here).
         if setup.get("audioEncoding") and not input_sent:
             raise AxAIServiceError("Meta Voice closed before acknowledging setup")
+        if setup.get("audioEncoding") and not end_stream_sent.is_set():
+            raise AxAIServiceError("Meta Voice closed before audio upload completed")
         contents: list[str] = []
         audio_chunks: list[str] = []
         function_calls: list[Any] = []

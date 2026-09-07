@@ -18,11 +18,13 @@ type metaDuplexProbe struct {
 	chunks atomic.Int32
 	ended atomic.Bool
 	failSend bool
+	closeEarly bool
 }
 func (p *metaDuplexProbe) Send(event Value) {
 	if coreGet(event, "authorization", nil) != nil { p.frames <- Object("sessionId", "duplex"); return }
 	if coreGet(event, "type", nil) == "binary" {
 		if p.failSend { panic(AxError{Category: "network", Message: "audio send failed"}) }
+		if p.closeEarly { p.Close(); return }
 		if p.chunks.Add(1) == 1 { p.frames <- Object("type", "transcript", "transcript", "wrong hypothesis") }
 	}
 	if coreGet(event, "type", nil) == "endStream" { p.ended.Store(true); p.frames <- Object("type", "transcript", "transcript", "Correct final.", "final", true); p.frames <- nil }
@@ -35,8 +37,9 @@ func (p *metaDuplexProbe) Close() { p.once.Do(func() { close(p.closed) }) }
 func TestMetaDuplexTranscriptAndSenderFailure(t *testing.T) {
 	client := NewAI("meta", map[string]Value{"model": "muse-voice-transcribe-1.0", "api_key": "test"}).(*OpenAIResponsesClient)
 	request := map[string]Value{"model": "muse-voice-transcribe-1.0", "audio": Object("input", Object("sampleRate", 16000, "channels", 1)), "chat_prompt": Array(Object("role", "user", "content", Array(Object("type", "audio", "format", "pcm16", "data", base64.StdEncoding.EncodeToString(make([]byte, 9600))))))}
-	for _, failSend := range []bool{false, true} {
-		probe := &metaDuplexProbe{frames: make(chan Value, 4), closed: make(chan struct{}), failSend: failSend}
+	for _, mode := range []string{"complete", "sender-error", "early-close"} {
+		failSend := mode == "sender-error"
+		probe := &metaDuplexProbe{frames: make(chan Value, 4), closed: make(chan struct{}), failSend: failSend, closeEarly: mode == "early-close"}
 		text := ""
 		sawPartial := false
 		_, err := client.realtimeChat(context.Background(), request, nil, probe, func(chunk Value) {
@@ -46,6 +49,7 @@ func TestMetaDuplexTranscriptAndSenderFailure(t *testing.T) {
 			}
 		})
 		if failSend { if err == nil || err.Error() != "audio send failed" { t.Fatalf("sender error lost: %v", err) }; continue }
+		if probe.closeEarly { if err == nil || err.Error() != "Meta Voice closed before audio upload completed" { t.Fatalf("early close accepted: %v", err) }; continue }
 		if err != nil || !sawPartial || text != "Correct final." || probe.chunks.Load() != 4 || !probe.ended.Load() { t.Fatalf("duplex failure: %v %q %v %d", err, text, sawPartial, probe.chunks.Load()) }
 	}
 }

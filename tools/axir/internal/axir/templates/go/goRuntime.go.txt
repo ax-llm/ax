@@ -23,6 +23,7 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/coder/websocket"
@@ -3373,6 +3374,7 @@ func (c *OpenAICompatibleClient) realtimeChat(ctx context.Context, request map[s
 			}
 		}()
 		inputSent := false
+		var endStreamSent atomic.Bool
 		events := []Value{}
 		state := Object("partial_mode", coreGet(setup, "partialMode", nil))
 		for {
@@ -3409,6 +3411,7 @@ func (c *OpenAICompatibleClient) realtimeChat(ctx context.Context, request map[s
 								}
 							}
 						} else {
+							if display(coreGet(item, "type", "")) == "endStream" { endStreamSent.Store(true) }
 							transport.Send(item)
 						}
 					}
@@ -3436,6 +3439,7 @@ func (c *OpenAICompatibleClient) realtimeChat(ctx context.Context, request map[s
 			}
 		}
 		if coreGet(setup, "audioEncoding", nil) != nil && !inputSent { panic(AxError{Category: "protocol", Message: "Meta Voice closed before acknowledging setup"}) }
+		if coreGet(setup, "audioEncoding", nil) != nil && !endStreamSent.Load() { panic(AxError{Category: "protocol", Message: "Meta Voice closed before audio upload completed"}) }
 		var contents []string
 		var audioChunks []string
 		functionCalls := []Value{}

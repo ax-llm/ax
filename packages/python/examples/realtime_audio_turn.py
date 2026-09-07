@@ -119,6 +119,26 @@ try:
     assert not any(x.get('type') == 'endStream' for x in DuplexProbe.instance.sent)
 finally:
     wire._WebSocketRealtimeTransport = original_socket
+class EarlyCloseProbe(DuplexProbe):
+    def send(self, event):
+        super().send(event)
+        if event.get('type') == 'binary':
+            self.inbound.put(None)
+
+wire._WebSocketRealtimeTransport = EarlyCloseProbe
+try:
+    for streaming in (False, True):
+        try:
+            if streaming:
+                list(meta.stream(duplex_request))
+            else:
+                meta.realtime_chat(duplex_request)
+        except Exception as error:
+            assert 'closed before audio upload completed' in str(error), error
+        else:
+            raise AssertionError('early close accepted an incomplete upload')
+finally:
+    wire._WebSocketRealtimeTransport = original_socket
 from axllm import AxMemory
 memory = AxMemory()
 memory.update_result({"thought_blocks": [{"id": "r", "data": "Plan"}], "images": [{"id": "image", "data": "partial"}]})

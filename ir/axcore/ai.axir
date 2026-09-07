@@ -303,6 +303,13 @@ module @ax.ai version "0.1" {
         %has_thought = core.call intrinsic.truthy(%thought)
         %has_assistant_payload = core.call intrinsic.or(%has_content, %has_calls)
         %has_assistant_payload = core.call intrinsic.or(%has_assistant_payload, %has_thought)
+        %images = core.get %message["images"]
+        %has_images = core.call intrinsic.truthy(%images)
+        %thought_blocks_snake = core.get %message["thought_blocks"] default %empty_function_calls
+        %thought_blocks = core.get %message["thoughtBlocks"] default %thought_blocks_snake
+        %has_thought_blocks = core.call intrinsic.truthy(%thought_blocks)
+        %has_assistant_payload = core.call intrinsic.or(%has_assistant_payload, %has_images)
+        %has_assistant_payload = core.call intrinsic.or(%has_assistant_payload, %has_thought_blocks)
         %missing_assistant_payload = core.call intrinsic.not(%has_assistant_payload)
         %bad_assistant = core.call intrinsic.and(%is_assistant, %missing_assistant_payload)
         core.if %bad_assistant {

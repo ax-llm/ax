@@ -3080,6 +3080,47 @@ module @ax.provider version "0.1" {
       %sample_rate_snake = core.get %request_input["sample_rate"]
       %sample_rate_camel = core.get %request_input["sampleRate"] default %sample_rate_snake
       %sample_rate_requested = core.get %request_input["rate"] default %sample_rate_camel
+      %channels_requested = core.get %request_input["channels"]
+      %audio_messages = core.call @realtime_request_user_messages_impl(%request)
+      core.for %audio_message in %audio_messages {
+        %audio_content = core.get %audio_message["content"]
+        %audio_content_list = core.type_is %audio_content type "list"
+        core.if %audio_content_list {
+          core.for %audio_part in %audio_content {
+            %audio_part_type = core.get %audio_part["type"]
+            %is_audio_part = core.call intrinsic.eq(%audio_part_type, "audio")
+            core.if %is_audio_part {
+              %part_rate_snake = core.get %audio_part["sample_rate"]
+              %part_rate = core.get %audio_part["sampleRate"] default %part_rate_snake
+              %has_part_rate = core.call intrinsic.is_not_none(%part_rate)
+              core.if %has_part_rate {
+                %has_requested_rate = core.call intrinsic.is_not_none(%sample_rate_requested)
+                %rate_matches = core.call intrinsic.eq(%sample_rate_requested, %part_rate)
+                %rate_differs = core.call intrinsic.not(%rate_matches)
+                %rate_conflict = core.call intrinsic.and(%has_requested_rate, %rate_differs)
+                core.if %rate_conflict {
+                  %error = core.call intrinsic.ai.error.unsupported("Conflicting realtime audio sample rates")
+                  core.raise %error
+                }
+                %sample_rate_requested = core.let %part_rate
+              }
+              %part_channels = core.get %audio_part["channels"]
+              %has_part_channels = core.call intrinsic.is_not_none(%part_channels)
+              core.if %has_part_channels {
+                %has_requested_channels = core.call intrinsic.is_not_none(%channels_requested)
+                %channels_match = core.call intrinsic.eq(%channels_requested, %part_channels)
+                %channels_differ = core.call intrinsic.not(%channels_match)
+                %channel_conflict = core.call intrinsic.and(%has_requested_channels, %channels_differ)
+                core.if %channel_conflict {
+                  %error = core.call intrinsic.ai.error.unsupported("Conflicting realtime audio channel counts")
+                  core.raise %error
+                }
+                %channels_requested = core.let %part_channels
+              }
+            }
+          }
+        }
+      }
       %default_rate = core.get %input_descriptor["sampleRate"] default 24000
       %sample_rate = core.let %sample_rate_requested
       %has_sample_rate = core.call intrinsic.is_not_none(%sample_rate)
@@ -3087,7 +3128,12 @@ module @ax.provider version "0.1" {
       } else {
         %sample_rate = core.let %default_rate
       }
-      %channels = core.get %request_input["channels"] default 1
+      %channels = core.let %channels_requested
+      %has_channels = core.call intrinsic.is_not_none(%channels)
+      core.if %has_channels {
+      } else {
+        %channels = core.let 1
+      }
       %mono_lower = core.call intrinsic.gte(%channels, 1)
       %mono_upper = core.call intrinsic.lte(%channels, 1)
       %mono = core.call intrinsic.and(%mono_lower, %mono_upper)
@@ -5913,7 +5959,7 @@ module @ax.provider version "0.1" {
         %item_id = core.get %item["id"] default "0"
         core.set %result["id"] = %item_id
         %call = core.call @openai_responses_function_call_impl(%item)
-        %calls = core.list
+        %calls = core.get %result["function_calls"] default %empty_list
         core.append %calls, %call
         core.set %result["function_calls"] = %calls
         core.set %result["finish_reason"] = "function_call"
@@ -6155,6 +6201,8 @@ module @ax.provider version "0.1" {
       core.set %result["finish_reason"] = %none_finish
       %empty_phases = core.map
       %phases = core.get %state["phases"] default %empty_phases
+      %empty_call_ids = core.map
+      %call_ids = core.get %state["function_call_ids"] default %empty_call_ids
       %is_text_delta = core.call intrinsic.eq(%type, "response.output_text.delta")
       core.if %is_text_delta {
         %text_delta = core.get %event["delta"] default ""
@@ -6220,6 +6268,13 @@ module @ax.provider version "0.1" {
         %empty_item = core.map
         %item = core.get %event["item"] default %empty_item
         %item_type = core.get %item["type"] default ""
+        %is_function_item = core.call intrinsic.eq(%item_type, "function_call")
+        core.if %is_function_item {
+          %function_item_id = core.get %item["id"] default %event_item_id
+          %function_call_id = core.get %item["call_id"] default %function_item_id
+          core.set %call_ids[%function_item_id] = %function_call_id
+          core.set %state["function_call_ids"] = %call_ids
+        }
         %is_message_item = core.call intrinsic.eq(%item_type, "message")
         core.if %is_message_item {
           %item_id = core.get %item["id"] default %event_item_id
@@ -6237,6 +6292,25 @@ module @ax.provider version "0.1" {
         %empty_done_item = core.map
         %done_item = core.get %event["item"] default %empty_done_item
         core.call @openai_responses_merge_output_item_impl(%result, %done_item)
+        %done_type = core.get %done_item["type"]
+        %done_message = core.call intrinsic.eq(%done_type, "message")
+        core.if %done_message {
+          core.set %result["content"] = ""
+          core.call intrinsic.map.delete(%result, "thought")
+          core.call intrinsic.map.delete(%result, "thought_blocks")
+          %done_status = core.get %done_item["status"] default "completed"
+          %done_success = core.call intrinsic.eq(%done_status, "completed")
+          core.if %done_success {
+            core.set %result["finish_reason"] = "stop"
+          } else {
+            core.set %result["finish_reason"] = "error"
+          }
+        }
+        %done_function = core.call intrinsic.eq(%done_type, "function_call")
+        core.if %done_function {
+          %completed_calls = core.list
+          core.set %result["function_calls"] = %completed_calls
+        }
       }
       %is_partial_image = core.call intrinsic.eq(%type, "response.image_generation_call.partial_image")
       core.if %is_partial_image {
@@ -6252,8 +6326,8 @@ module @ax.provider version "0.1" {
       }
       %is_args_delta = core.call intrinsic.eq(%type, "response.function_call_arguments.delta")
       core.if %is_args_delta {
-        %event_call_id = core.get %event["call_id"] default "0"
-        %call_id = core.get %event["item_id"] default %event_call_id
+        %event_call_id = core.get %event["call_id"] default %event_item_id
+        %call_id = core.get %call_ids[%event_item_id] default %event_call_id
         %event_name = core.get %event["name"]
         %event_delta = core.get %event["delta"] default ""
         %function = core.map

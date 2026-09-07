@@ -2447,6 +2447,7 @@ impl OpenAICompatibleClient {
                         None => {
                             finished = true;
                             if !ready { return Err(AxError::runtime("Meta Voice closed before acknowledging setup")); }
+                            if !audio_pump.as_ref().is_some_and(|pump| pump.end_stream_sent) { return Err(AxError::runtime("Meta Voice closed before audio upload completed")); }
                             let final_response = provider_finalize_realtime_response(&[
                                 CoreValue::from(profile.as_str()), state.clone(), core_value_from_json(&json!({"results": []})),
                             ])?;
@@ -2541,6 +2542,7 @@ impl OpenAICompatibleClient {
             }
         }
         if setup.get("audioEncoding").is_some() && !input_sent { return Err(AxError::runtime("Meta Voice closed before acknowledging setup")); }
+        if setup.get("audioEncoding").is_some() && !audio_pump.as_ref().is_some_and(|pump| pump.end_stream_sent) { return Err(AxError::runtime("Meta Voice closed before audio upload completed")); }
         let ai_name = provider_ai_display_name(&self.profile);
         let mut content = String::new();
         let mut audio_bytes: Vec<u8> = Vec::new();
@@ -2695,6 +2697,7 @@ impl RealtimeTransport {
 struct MetaAudioPump {
     frames: VecDeque<(Value, Duration)>,
     next_send: std::time::Instant,
+    end_stream_sent: bool,
 }
 
 impl MetaAudioPump {
@@ -2710,7 +2713,7 @@ impl MetaAudioPump {
                 }
             } else { frames.push_back((item.clone(), Duration::ZERO)); }
         }
-        Ok(Self { frames, next_send: std::time::Instant::now() })
+        Ok(Self { frames, next_send: std::time::Instant::now(), end_stream_sent: false })
     }
 
     fn recv(&mut self, transport: &mut RealtimeTransport) -> AxResult<Option<Value>> {
@@ -2720,6 +2723,7 @@ impl MetaAudioPump {
             if now >= self.next_send {
                 let (event, delay) = self.frames.pop_front().unwrap();
                 transport.send(&event)?;
+                if event.get("type").and_then(Value::as_str) == Some("endStream") { self.end_stream_sent = true; }
                 self.next_send = std::time::Instant::now() + delay;
                 continue;
             }
@@ -2855,6 +2859,30 @@ impl WsRealtimeTransport {
 #[cfg(all(test, feature = "realtime"))]
 mod meta_duplex_tests {
     use super::*;
+
+    #[test]
+    fn normal_close_before_upload_finishes_is_an_error() {
+        for streaming in [false, true] {
+            let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+            let address = listener.local_addr().unwrap();
+            let server = std::thread::spawn(move || {
+                let (tcp, _) = listener.accept().unwrap();
+                tcp.set_read_timeout(Some(Duration::from_secs(3))).unwrap();
+                let mut socket = tungstenite::accept(tcp).unwrap();
+                socket.read().unwrap();
+                socket.send(tungstenite::Message::Text(json!({"sessionId":"early"}).to_string())).unwrap();
+                assert!(matches!(socket.read().unwrap(), tungstenite::Message::Binary(_)));
+                socket.close(Some(tungstenite::protocol::CloseFrame { code: tungstenite::protocol::frame::coding::CloseCode::Normal, reason: "".into() })).unwrap();
+            });
+            let mut client = ai("meta", json!({"api_key":"test", "model":"muse-voice-transcribe-1.0", "base_url":format!("http://{address}/v1")})).unwrap();
+            let request = json!({"model":"muse-voice-transcribe-1.0", "chat_prompt":[{"role":"user","content":[{"type":"audio","format":"pcm16","data":encode_base64(&vec![0;9600])}]}]});
+            let result = if streaming {
+                client.stream_iter(request).unwrap().collect::<AxResult<Vec<_>>>().map(|_| Value::Null)
+            } else { client.realtime_chat(request, None) };
+            assert!(result.unwrap_err().message.contains("closed before audio upload completed"));
+            server.join().unwrap();
+        }
+    }
 
     #[test]
     fn public_stream_receives_before_end_stream() {

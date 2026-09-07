@@ -24,6 +24,13 @@ This ledger tracks portable TypeScript behavior that should be migrated into AxI
   - TS paths: `src/ax/ai/processor.test.ts`, `src/ax/ai/processor.ts`, `src/ax/ai/router.test.ts`, `src/ax/ai/router.ts`
   - Impact: File-capable providers now receive native file content instead of degraded text; generated runtimes need matching provider-aware file pass-through behavior.
   - Suggested AxIR work: Add or update the TS-derived conformance fixture.; Update AxIR/Core or descriptor data to match the portable TS behavior.; Run npm run axir:conformance:check and npm run test:axir.
+- `axir-2026-09-07-complete-meta-replay-and-realtime-upload-integrity` [axai] Complete Meta replay and realtime upload integrity
+  - Status: open
+  - Source PR: #649
+  - Source commit: `0072270c8f6de37da546f739e6f8ef2c25ff7459`
+  - TS paths: `src/ax/ai/openai/responses_api.ts`
+  - Impact: Preserve parallel Responses calls, stream call identities and nonduplicated content, replay-only assistant payloads, and audio item metadata; reject early realtime closes before upload completion.
+  - Suggested AxIR work: Add or update the TS-derived conformance fixture.; Update AxIR/Core or descriptor data to match the portable TS behavior.; Run npm run axir:conformance:check and npm run test:axir.
 
 ## Done
 

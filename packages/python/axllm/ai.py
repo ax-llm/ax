@@ -1267,6 +1267,7 @@ class ProviderOperationClient(AxBaseAI):
         events: list[dict[str, Any]] = []
         state: dict[str, Any] = {"partial_mode": setup.get("partialMode")}
         stopped = threading.Event()
+        end_stream_sent = threading.Event()
         sender = None
         send_errors: list[BaseException] = []
 
@@ -1289,6 +1290,8 @@ class ProviderOperationClient(AxBaseAI):
                             if stopped.wait(len(chunk) / float(rate * 2)):
                                 return
                     else:
+                        if item.get("type") == "endStream":
+                            end_stream_sent.set()
                         transport.send(item)
             except BaseException as error:
                 send_errors.append(error)
@@ -1334,6 +1337,8 @@ class ProviderOperationClient(AxBaseAI):
         # TS makeChatResponse; base64 join can't live in Core, so it stays here).
         if setup.get("audioEncoding") and not input_sent:
             raise AxAIServiceError("Meta Voice closed before acknowledging setup")
+        if setup.get("audioEncoding") and not end_stream_sent.is_set():
+            raise AxAIServiceError("Meta Voice closed before audio upload completed")
         contents: list[str] = []
         audio_chunks: list[str] = []
         function_calls: list[Any] = []
@@ -3001,6 +3006,13 @@ def validate_chat_request(request: AxChatRequest) -> None:
         has_thought = _core_truthy(thought)
         has_assistant_payload = _core_or(has_content, has_calls)
         has_assistant_payload = _core_or(has_assistant_payload, has_thought)
+        images = _core_get(message, "images", None)
+        has_images = _core_truthy(images)
+        thought_blocks_snake = _core_get(message, "thought_blocks", empty_function_calls)
+        thought_blocks = _core_get(message, "thoughtBlocks", thought_blocks_snake)
+        has_thought_blocks = _core_truthy(thought_blocks)
+        has_assistant_payload = _core_or(has_assistant_payload, has_images)
+        has_assistant_payload = _core_or(has_assistant_payload, has_thought_blocks)
         missing_assistant_payload = _core_not(has_assistant_payload)
         bad_assistant = _core_and(is_assistant, missing_assistant_payload)
         if bad_assistant:
@@ -3072,12 +3084,6 @@ def build_chat_request(service: AxAIService, request: AxChatRequest, options: An
     return payload
 
 
-def normalize_chat_response(raw: Any) -> AxChatResponse:
-    _core_coverage_mark("normalize_chat_response")
-    response = openai_normalize_chat_response(raw)
-    return response
-
-
 def openai_chat_reasoning_effort(model: str, budget: Any) -> Any:
     _core_coverage_mark("openai_chat_reasoning_effort")
     effort = openai_reasoning_effort(model, budget)
@@ -3089,9 +3095,9 @@ def openai_chat_reasoning_effort(model: str, budget: Any) -> Any:
     return effort
 
 
-def normalize_stream_delta(raw: Any, state: Any) -> AxChatResponse:
-    _core_coverage_mark("normalize_stream_delta")
-    response = openai_normalize_stream_delta(raw, state)
+def normalize_chat_response(raw: Any) -> AxChatResponse:
+    _core_coverage_mark("normalize_chat_response")
+    response = openai_normalize_chat_response(raw)
     return response
 
 
@@ -3104,6 +3110,12 @@ def _openai_copy_config_key_impl(payload: Any, model_config: Any, source: str, t
     else:
         pass
     return None
+
+
+def normalize_stream_delta(raw: Any, state: Any) -> AxChatResponse:
+    _core_coverage_mark("normalize_stream_delta")
+    response = openai_normalize_stream_delta(raw, state)
+    return response
 
 
 def build_embed_request(service: AxAIService, request: AxEmbedRequest, options: Any = None) -> Any:
@@ -3333,20 +3345,6 @@ def normalize_token_usage(usage: Any) -> Any:
     return out
 
 
-def merge_usage_context(defaults: Any, overrides: Any) -> Any:
-    _core_coverage_mark("merge_usage_context")
-    merged = _core_map_merge(defaults, overrides)
-    default_attributes = _core_get(defaults, "attributes", None)
-    override_attributes = _core_get(overrides, "attributes", None)
-    attributes = _core_map_merge(default_attributes, override_attributes)
-    has_attributes = _core_truthy(attributes)
-    if has_attributes:
-        merged["attributes"] = attributes
-    else:
-        pass
-    return merged
-
-
 def _openai_content_part_impl(part: Any, extended_media: bool) -> Any:
     _core_coverage_mark("_openai_content_part_impl")
     type = _core_get(part, "type", None)
@@ -3467,6 +3465,20 @@ def _openai_content_part_impl(part: Any, extended_media: bool) -> Any:
     message = _core_string_format("OpenAI-compatible beta does not support content part type: {}", type)
     error = _core_ai_error_unsupported(message)
     raise error
+
+
+def merge_usage_context(defaults: Any, overrides: Any) -> Any:
+    _core_coverage_mark("merge_usage_context")
+    merged = _core_map_merge(defaults, overrides)
+    default_attributes = _core_get(defaults, "attributes", None)
+    override_attributes = _core_get(overrides, "attributes", None)
+    attributes = _core_map_merge(default_attributes, override_attributes)
+    has_attributes = _core_truthy(attributes)
+    if has_attributes:
+        merged["attributes"] = attributes
+    else:
+        pass
+    return merged
 
 
 def build_usage_event(operation: str, response: Any, options: Any, streaming: bool) -> Any:
@@ -3696,6 +3708,12 @@ def openai_build_embed_request(request: AxEmbedRequest) -> Any:
     return payload
 
 
+def openai_normalize_chat_response(raw: Any, ai_name: str = "openai", model: str = None) -> AxChatResponse:
+    _core_coverage_mark("openai_normalize_chat_response")
+    response = _openai_normalize_chat_response_impl(raw, ai_name, model, "none", "none")
+    return response
+
+
 def _chat_result_to_completion(result: Any, fallback_index: number) -> Any:
     _core_coverage_mark("_chat_result_to_completion")
     content = _core_get(result, "content", "")
@@ -3742,12 +3760,6 @@ def _chat_result_to_completion(result: Any, fallback_index: number) -> Any:
     else:
         pass
     return completion
-
-
-def openai_normalize_chat_response(raw: Any, ai_name: str = "openai", model: str = None) -> AxChatResponse:
-    _core_coverage_mark("openai_normalize_chat_response")
-    response = _openai_normalize_chat_response_impl(raw, ai_name, model, "none", "none")
-    return response
 
 
 def _openai_usage_with_service_tier(raw: Any, usage: Any) -> Any:
@@ -6242,6 +6254,51 @@ def _meta_asr_realtime_build_setup(descriptor: Any, request: Any, options: Any) 
     sample_rate_snake = _core_get(request_input, "sample_rate", None)
     sample_rate_camel = _core_get(request_input, "sampleRate", sample_rate_snake)
     sample_rate_requested = _core_get(request_input, "rate", sample_rate_camel)
+    channels_requested = _core_get(request_input, "channels", None)
+    audio_messages = _realtime_request_user_messages_impl(request)
+    for audio_message in audio_messages:
+        audio_content = _core_get(audio_message, "content", None)
+        audio_content_list = _core_type_is(audio_content, "list")
+        if audio_content_list:
+            for audio_part in audio_content:
+                audio_part_type = _core_get(audio_part, "type", None)
+                is_audio_part = _core_eq(audio_part_type, "audio")
+                if is_audio_part:
+                    part_rate_snake = _core_get(audio_part, "sample_rate", None)
+                    part_rate = _core_get(audio_part, "sampleRate", part_rate_snake)
+                    has_part_rate = _core_is_not_none(part_rate)
+                    if has_part_rate:
+                        has_requested_rate = _core_is_not_none(sample_rate_requested)
+                        rate_matches = _core_eq(sample_rate_requested, part_rate)
+                        rate_differs = _core_not(rate_matches)
+                        rate_conflict = _core_and(has_requested_rate, rate_differs)
+                        if rate_conflict:
+                            error = _core_ai_error_unsupported("Conflicting realtime audio sample rates")
+                            raise error
+                        else:
+                            pass
+                        sample_rate_requested = part_rate
+                    else:
+                        pass
+                    part_channels = _core_get(audio_part, "channels", None)
+                    has_part_channels = _core_is_not_none(part_channels)
+                    if has_part_channels:
+                        has_requested_channels = _core_is_not_none(channels_requested)
+                        channels_match = _core_eq(channels_requested, part_channels)
+                        channels_differ = _core_not(channels_match)
+                        channel_conflict = _core_and(has_requested_channels, channels_differ)
+                        if channel_conflict:
+                            error = _core_ai_error_unsupported("Conflicting realtime audio channel counts")
+                            raise error
+                        else:
+                            pass
+                        channels_requested = part_channels
+                    else:
+                        pass
+                else:
+                    pass
+        else:
+            pass
     default_rate = _core_get(input_descriptor, "sampleRate", 24000)
     sample_rate = sample_rate_requested
     has_sample_rate = _core_is_not_none(sample_rate)
@@ -6249,7 +6306,12 @@ def _meta_asr_realtime_build_setup(descriptor: Any, request: Any, options: Any) 
         pass
     else:
         sample_rate = default_rate
-    channels = _core_get(request_input, "channels", 1)
+    channels = channels_requested
+    has_channels = _core_is_not_none(channels)
+    if has_channels:
+        pass
+    else:
+        channels = 1
     mono_lower = _core_gte(channels, 1)
     mono_upper = _core_lte(channels, 1)
     mono = _core_and(mono_lower, mono_upper)
@@ -8871,7 +8933,7 @@ def _openai_responses_merge_output_item_impl(result: Any, item: Any) -> None:
         item_id = _core_get(item, "id", "0")
         result["id"] = item_id
         call = _openai_responses_function_call_impl(item)
-        calls = []
+        calls = _core_get(result, "function_calls", empty_list)
         calls.append(call)
         result["function_calls"] = calls
         result["finish_reason"] = "function_call"
@@ -9088,6 +9150,8 @@ def openai_responses_normalize_stream_delta(event: Any, state: Any, ai_name: str
     result["finish_reason"] = none_finish
     empty_phases = {}
     phases = _core_get(state, "phases", empty_phases)
+    empty_call_ids = {}
+    call_ids = _core_get(state, "function_call_ids", empty_call_ids)
     is_text_delta = _core_eq(type, "response.output_text.delta")
     if is_text_delta:
         text_delta = _core_get(event, "delta", "")
@@ -9158,6 +9222,14 @@ def openai_responses_normalize_stream_delta(event: Any, state: Any, ai_name: str
         empty_item = {}
         item = _core_get(event, "item", empty_item)
         item_type = _core_get(item, "type", "")
+        is_function_item = _core_eq(item_type, "function_call")
+        if is_function_item:
+            function_item_id = _core_get(item, "id", event_item_id)
+            function_call_id = _core_get(item, "call_id", function_item_id)
+            call_ids[function_item_id] = function_call_id
+            state["function_call_ids"] = call_ids
+        else:
+            pass
         is_message_item = _core_eq(item_type, "message")
         if is_message_item:
             item_id = _core_get(item, "id", event_item_id)
@@ -9178,6 +9250,26 @@ def openai_responses_normalize_stream_delta(event: Any, state: Any, ai_name: str
         empty_done_item = {}
         done_item = _core_get(event, "item", empty_done_item)
         _openai_responses_merge_output_item_impl(result, done_item)
+        done_type = _core_get(done_item, "type", None)
+        done_message = _core_eq(done_type, "message")
+        if done_message:
+            result["content"] = ""
+            _core_map_delete(result, "thought")
+            _core_map_delete(result, "thought_blocks")
+            done_status = _core_get(done_item, "status", "completed")
+            done_success = _core_eq(done_status, "completed")
+            if done_success:
+                result["finish_reason"] = "stop"
+            else:
+                result["finish_reason"] = "error"
+        else:
+            pass
+        done_function = _core_eq(done_type, "function_call")
+        if done_function:
+            completed_calls = []
+            result["function_calls"] = completed_calls
+        else:
+            pass
     else:
         pass
     is_partial_image = _core_eq(type, "response.image_generation_call.partial_image")
@@ -9195,8 +9287,8 @@ def openai_responses_normalize_stream_delta(event: Any, state: Any, ai_name: str
         pass
     is_args_delta = _core_eq(type, "response.function_call_arguments.delta")
     if is_args_delta:
-        event_call_id = _core_get(event, "call_id", "0")
-        call_id = _core_get(event, "item_id", event_call_id)
+        event_call_id = _core_get(event, "call_id", event_item_id)
+        call_id = _core_get(call_ids, event_item_id, event_call_id)
         event_name = _core_get(event, "name", None)
         event_delta = _core_get(event, "delta", "")
         function = {}
