@@ -170,7 +170,7 @@ func emitCppCoreStmt(names map[string]string, stmt CoreStmt, declared map[string
 		return []string{fmt.Sprintf("return %s;", cppAttrValue(stmt.Op, "value"))}, nil
 	case "raise":
 		if _, ok := Attr(stmt.Op, "error"); ok {
-			return []string{fmt.Sprintf("throw Core::as_error(%s);", cppAttrValue(stmt.Op, "error"))}, nil
+			return []string{fmt.Sprintf("Core::raise_error(%s);", cppAttrValue(stmt.Op, "error"))}, nil
 		}
 		return []string{fmt.Sprintf("throw AxError(\"runtime\", %s);", strconv.Quote(stmt.Message))}, nil
 	default:
@@ -372,6 +372,7 @@ var coreIntrinsicCpp = map[CoreIntrinsic]string{
 	IntrinsicAIClientFeatures:       "Core::ai_client_features",
 	IntrinsicRetrySleep:             "Core::retry_sleep",
 	IntrinsicExceptionMessage:       "Core::exception_message",
+	IntrinsicExceptionIsAborted:     "Core::exception_is_aborted",
 	IntrinsicRuntimeError:           "Core::runtime_error",
 	IntrinsicJSONParse:              "Core::json_parse",
 	IntrinsicJSONParseStrict:        "Core::json_parse_strict",

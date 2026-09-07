@@ -10,6 +10,8 @@ from typing import Any
 
 from .ai import (
     AIClient,
+    AxAIServiceAbortedError,
+    AxCancellationToken,
     AxMeter,
     AxRateLimiter,
     AxRuntimeHooks,
@@ -492,7 +494,7 @@ class AxGen:
         stream_options = {**self.options, **(options or {}), "stream": True}
         req = self._request(self.prompt_template.render(values), stream_options, client)
         chunks = []
-        for event in client.stream(req):
+        for event in client.stream(req, stream_options):
             chunks.append(event)
             _core_axgen_run_streaming_assertions(self, fold_stream(chunks))
             yield event
@@ -739,12 +741,26 @@ def _core_ai_client_features(client, model):
     return {"functions": True, "structured_outputs": True}
 
 
-def _core_retry_sleep(attempt):
-    time.sleep(min(0.25 * (int(attempt) + 1), 1.0))
+def _core_retry_sleep(attempt, _client=None, options=None):
+    delay = min(0.25 * (int(attempt) + 1), 1.0)
+    token = None
+    if isinstance(options, dict):
+        token = options.get("cancellation") or options.get("cancellationToken") or options.get("cancellation_token")
+    if token is None:
+        time.sleep(delay)
+        return
+    if not isinstance(token, AxCancellationToken):
+        raise TypeError("cancellation must be an AxCancellationToken")
+    token.wait(delay)
+    token.throw_if_cancelled()
 
 
 def _core_exception_message(error):
     return str(error)
+
+
+def _core_exception_is_aborted(error):
+    return isinstance(error, AxAIServiceAbortedError)
 
 
 def _core_regex_match(pattern, value):

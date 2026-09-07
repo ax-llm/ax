@@ -6138,7 +6138,9 @@ module @ax.provider version "0.1" {
       %empty_args = core.map
       %args = core.get %item["arguments"] default %empty_args
       %args_is_string = core.type_is %args type "string"
-      core.if %args_is_string {
+      %has_args = core.call intrinsic.truthy(%args)
+      %parse_args = core.call intrinsic.and(%args_is_string, %has_args)
+      core.if %parse_args {
         core.try {
           %parsed = core.call intrinsic.json.parse(%args)
           %args = core.let %parsed

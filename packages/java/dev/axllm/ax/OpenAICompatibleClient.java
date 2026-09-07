@@ -24,11 +24,16 @@ import java.util.List;
 import java.util.Locale;
 import java.util.Map;
 import java.util.UUID;
+import java.util.concurrent.CancellationException;
+import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.ExecutionException;
 
 public class OpenAICompatibleClient extends AxBaseAI {
   public interface Transport {
     Object call(Map<String, Object> request) throws Exception;
     default Object stream(Map<String, Object> request) throws Exception { return call(request); }
+    default Object call(Map<String,Object> request,AxCancellationToken cancellation)throws Exception{if(cancellation!=null)cancellation.throwIfCancelled();Object value=call(request);if(cancellation!=null)cancellation.throwIfCancelled();return value;}
+    default Object stream(Map<String,Object> request,AxCancellationToken cancellation)throws Exception{if(cancellation!=null)cancellation.throwIfCancelled();Object value=stream(request);if(cancellation!=null)cancellation.throwIfCancelled();return value;}
   }
 
   private static final class RawSseStream implements AutoCloseable {
@@ -198,7 +203,7 @@ public class OpenAICompatibleClient extends AxBaseAI {
     Object stream = payload.get("stream");
     if (Boolean.TRUE.equals(stream)) {
       Object modelName = request.getOrDefault("model", payload.getOrDefault("model", model));
-      return Map.of("results", streamEvents(payload, modelName));
+      return Map.of("results", streamEvents(payload, modelName, cancellation(options)));
     }
     Object modelName = request.getOrDefault("model", payload.getOrDefault("model", model));
     Object raw = contextCacheChat(request, options, payload, modelName);
@@ -316,15 +321,16 @@ public class OpenAICompatibleClient extends AxBaseAI {
     }
   }
 
-  protected List<Map<String, Object>> streamEvents(Map<String, Object> payload, Object modelName) throws Exception {
+  protected List<Map<String, Object>> streamEvents(Map<String, Object> payload, Object modelName, AxCancellationToken cancellation) throws Exception {
     List<Map<String, Object>> out = new ArrayList<>();
-    try (AxChatStream stream = streamEventsIncremental(payload, modelName)) {
+    try (AxChatStream stream = streamEventsIncremental(payload, modelName, cancellation)) {
       for (Map<String, Object> event : stream) out.add(event);
     }
     return out;
   }
 
-  protected AxChatStream streamEventsIncremental(Map<String, Object> payload, Object modelName) throws Exception {
+  protected AxChatStream streamEventsIncremental(Map<String, Object> payload, Object modelName, AxCancellationToken cancellation) throws Exception {
+    if(cancellation!=null)cancellation.throwIfCancelled();
     Map<String, Object> retryCfg = Core.asMap(Core.resolve_stream_retry(options));
     int maxRetries = Core.asInt(retryCfg.getOrDefault("max_retries", 3));
     double initialDelay = Core.asDouble(retryCfg.getOrDefault("initial_delay_ms", 1000));
@@ -335,22 +341,22 @@ public class OpenAICompatibleClient extends AxBaseAI {
       RawSseStream raw = null;
       Object first;
       try {
-        raw = requestSse(operationPath("stream_chat", modelName), payload, modelName);
+        raw = requestSse(operationPath("stream_chat", modelName), payload, modelName, cancellation);
         first = raw.nextEvent();
       } catch (Exception failure) {
         if (raw != null) try { raw.close(); } catch (Exception ignored) {}
         AxAIServiceError error = failure instanceof AxAIServiceError serviceError
             ? serviceError
             : new AxAIServiceNetworkError(failure.getMessage() == null ? failure.toString() : failure.getMessage());
-        boolean retryable = error instanceof AxAIServiceNetworkError
+        boolean retryable = !(error instanceof AxAIServiceAbortedError) && (error instanceof AxAIServiceNetworkError
             || error instanceof AxAIServiceResponseError
             || error instanceof AxAIServiceStreamTerminatedError
             || error instanceof AxAIServiceTimeoutError
-            || error instanceof AxAIServiceStatusError && error.status != null && Core.truthy(Core.is_retryable_status(error.status));
+            || error instanceof AxAIServiceStatusError && error.status != null && Core.truthy(Core.is_retryable_status(error.status)));
         if (!retryable || attempt >= maxRetries) throw error;
         attempt++;
         double delay = Math.min(initialDelay * Math.pow(backoff, attempt - 1), maxDelay);
-        if (delay > 0) Thread.sleep((long) delay);
+        waitBackoff((long)delay,cancellation);
         continue;
       }
       // Pre-content streaming retry: peek the first raw SSE event before any stateful normalize
@@ -363,7 +369,7 @@ public class OpenAICompatibleClient extends AxBaseAI {
           raw.close();
           attempt++;
           double delay = Math.min(initialDelay * Math.pow(backoff, attempt - 1), maxDelay);
-          if (delay > 0) Thread.sleep((long) delay);
+          waitBackoff((long)delay,cancellation);
           continue;
         }
       }
@@ -373,13 +379,16 @@ public class OpenAICompatibleClient extends AxBaseAI {
       RawSseStream selectedRaw = raw;
       return new AxChatStream(
         () -> {
+          if(cancellation!=null)cancellation.throwIfCancelled();
           if (emitFirst[0]) { emitFirst[0] = false; return firstNormalized; }
           try {
             Object event = selectedRaw.nextEvent();
+            if(cancellation!=null)cancellation.throwIfCancelled();
             return event == null ? null : Core.asMap(Core.provider_normalize_stream_delta(profile, event, state, name, modelName, payload));
           } catch (AxAIServiceError error) {
             throw error;
           } catch (Exception error) {
+            if(cancellation!=null&&cancellation.cancelled())cancellation.throwIfCancelled();
             throw new AxAIServiceStreamTerminatedError(error.getMessage() == null ? error.toString() : error.getMessage(), null, true);
           }
         },
@@ -388,7 +397,10 @@ public class OpenAICompatibleClient extends AxBaseAI {
     }
   }
 
-  @Override public AxChatStream openStream(Map<String, Object> request) throws Exception {
+  @Override public AxChatStream openStream(Map<String, Object> request) throws Exception {return openStream(request,null);}
+
+  @Override public AxChatStream openStream(Map<String,Object> request,AxCancellationToken cancellation)throws Exception {
+    if(cancellation!=null)cancellation.throwIfCancelled();
     Map<String, Object> req = Core.coerceChatRequest(request);
     Core.validate_chat_request(req);
     AxRuntimeHooks hooks = AxGlobals.effective(Map.of("stream", true), runtimeHooks);
@@ -396,7 +408,8 @@ public class OpenAICompatibleClient extends AxBaseAI {
     modelConfig.put("stream", true);
     req.put("model", req.getOrDefault("model", model));
     req.put("model_config", modelConfig);
-    Map<String, Object> streamOptions = mergedOptions(Map.of("stream", true));
+    Map<String,Object> callOptions=new LinkedHashMap<>(Map.of("stream",true));if(cancellation!=null)callOptions.put("cancellation",cancellation);
+    Map<String, Object> streamOptions = mergedOptions(callOptions);
     Map<String, Object> payload = Core.asMap(Core.provider_build_chat_request(profile, req, streamOptions));
     Object modelName = req.getOrDefault("model", payload.getOrDefault("model", model));
     String selectedModel = String.valueOf(modelName);
@@ -409,7 +422,7 @@ public class OpenAICompatibleClient extends AxBaseAI {
     Throwable failure = null;
     try {
       AxRequestExecutor next = () -> Boolean.TRUE.equals(Core.provider_should_use_realtime(profile, selectedModel, req, streamOptions))
-          ? realtimeStream(req) : streamEventsIncremental(payload, modelName);
+          ? realtimeStream(req) : streamEventsIncremental(payload, modelName, cancellation);
       Object raw = hooks.rateLimiter() == null
           ? next.execute()
           : hooks.rateLimiter().run(next, new AxRateLimitInfo("chat", name, selectedModel, true, lastModelUsage == null ? null : new LinkedHashMap<>(lastModelUsage)));
@@ -418,6 +431,7 @@ public class OpenAICompatibleClient extends AxBaseAI {
       Map<String, Object>[] lastUsage = new Map[] {null};
       return new AxChatStream(
         () -> {
+          if(cancellation!=null)cancellation.throwIfCancelled();
           if (!iterator.hasNext()) return null;
           Map<String, Object> value = iterator.next();
           if (value.get("model_usage") instanceof Map<?, ?> || value.get("modelUsage") instanceof Map<?, ?>) lastUsage[0] = value;
@@ -448,8 +462,14 @@ public class OpenAICompatibleClient extends AxBaseAI {
   }
 
   @Override public AxChatStream stream(Map<String, Object> request) { return AxChatStream.lazy(() -> openStream(request)); }
+  @Override public Iterable<Map<String,Object>> stream(Map<String,Object> request,AxCancellationToken cancellation){return AxChatStream.lazy(()->openStream(request,cancellation));}
 
   public Map<String, Object> transcribe(Map<String, Object> request) throws Exception {
+    return transcribe(request,Map.of());
+  }
+
+  @Override public Map<String,Object> transcribe(Map<String,Object> request,Map<String,Object> options)throws Exception{
+    AxCancellationToken cancellation=cancellation(options);if(cancellation!=null)cancellation.throwIfCancelled();
     Map<String, Object> payload = Core.asMap(Core.provider_build_transcribe_request(profile, request));
     Object modelName = request.getOrDefault("model", model);
     Map<String, Object> descriptor = Core.asMap(Core.provider_operation_descriptor(profile, "transcribe"));
@@ -463,7 +483,7 @@ public class OpenAICompatibleClient extends AxBaseAI {
       }
       endpoint += (endpoint.contains("?") ? "&" : "?") + String.join("&", parts);
     }
-    Object raw = requestJson(endpoint, payload, false, bodyKey, false, operationMethod("transcribe"), "transcribe");
+    Object raw = requestJson(endpoint, payload, false, bodyKey, false, operationMethod("transcribe"), "transcribe", cancellation);
     if ("meta".equals(profile) && raw instanceof String) {
       List<Object> events = new ArrayList<>();
       for (Object event : iterSseJson(raw)) events.add(event);
@@ -473,12 +493,17 @@ public class OpenAICompatibleClient extends AxBaseAI {
   }
 
   public Map<String, Object> speak(Map<String, Object> request) throws Exception {
+    return speak(request,Map.of());
+  }
+
+  @Override public Map<String,Object> speak(Map<String,Object> request,Map<String,Object> options)throws Exception{
+    AxCancellationToken cancellation=cancellation(options);if(cancellation!=null)cancellation.throwIfCancelled();
     Map<String, Object> payload = Core.asMap(Core.provider_build_speak_request(profile, request));
     Object modelName = request.getOrDefault("model", model);
     Map<String, Object> descriptor = Core.asMap(Core.provider_operation_descriptor(profile, "speak"));
     String bodyKey = "multipart".equals(String.valueOf(descriptor.getOrDefault("body", "json"))) ? "data" : "json";
     boolean binary = "binary".equals(String.valueOf(descriptor.get("response")));
-    Object raw = requestJson(operationPath("speak", modelName), payload, false, bodyKey, binary, operationMethod("speak"), "speak");
+    Object raw = requestJson(operationPath("speak", modelName), payload, false, bodyKey, binary, operationMethod("speak"), "speak",cancellation);
     return Core.asMap(Core.provider_normalize_speak_response(profile, raw, request));
   }
 
@@ -798,6 +823,11 @@ public class OpenAICompatibleClient extends AxBaseAI {
   }
 
   private Object requestJson(String endpoint, Map<String, Object> payload, boolean stream, String bodyKey, boolean binaryResponse, String method, String operation) throws Exception {
+    return requestJson(endpoint,payload,stream,bodyKey,binaryResponse,method,operation,activeCancellation());
+  }
+
+  private Object requestJson(String endpoint, Map<String, Object> payload, boolean stream, String bodyKey, boolean binaryResponse, String method, String operation,AxCancellationToken cancellation) throws Exception {
+    if(cancellation!=null)cancellation.throwIfCancelled();
     Map<String, Object> call = new LinkedHashMap<>();
     method = method == null || method.isBlank() ? "POST" : method.toUpperCase(Locale.ROOT);
     call.put("method", method);
@@ -816,7 +846,7 @@ public class OpenAICompatibleClient extends AxBaseAI {
     String resolvedBodyKey = bodyKey == null || bodyKey.isBlank() ? "json" : bodyKey;
     call.put(resolvedBodyKey, payload);
     call.put("stream", stream);
-    if (transport != null) return transportResult(transport.call(call), call);
+    if (transport != null){Object value=transport.call(call,cancellation);if(cancellation!=null)cancellation.throwIfCancelled();return transportResult(value,call);}
     if (apiKey == null || apiKey.isBlank() || "null".equals(apiKey)) throw new AxAIServiceAuthenticationError("OPENAI_API_KEY is required", null, null, null, call);
     HttpRequest.Builder builder = HttpRequest.newBuilder()
       .uri(URI.create(requestUrl))
@@ -835,7 +865,7 @@ public class OpenAICompatibleClient extends AxBaseAI {
     if (binaryResponse) {
       // Binary operations (e.g. OpenAI /audio/speech returns raw mp3) must not be UTF-8
       // decoded; read the response as bytes and return them as a base64 String.
-      HttpResponse<byte[]> res = http.send(req, HttpResponse.BodyHandlers.ofByteArray());
+      HttpResponse<byte[]> res = sendCancellable(req, HttpResponse.BodyHandlers.ofByteArray(), cancellation);
       if (res.statusCode() >= 400) {
         String errorBody = new String(res.body(), StandardCharsets.UTF_8);
         Object parsed;
@@ -844,7 +874,7 @@ public class OpenAICompatibleClient extends AxBaseAI {
       }
       return Base64.getEncoder().encodeToString(res.body());
     }
-    HttpResponse<String> res = http.send(req, HttpResponse.BodyHandlers.ofString());
+    HttpResponse<String> res = sendCancellable(req, HttpResponse.BodyHandlers.ofString(), cancellation);
     String responseBody = res.body();
     if (res.statusCode() >= 400) {
       Object parsed;
@@ -858,7 +888,8 @@ public class OpenAICompatibleClient extends AxBaseAI {
     try { return Json.parse(responseBody); } catch (RuntimeException ignored) { return responseBody; }
   }
 
-  private RawSseStream requestSse(String endpoint, Map<String, Object> payload, Object modelName) throws Exception {
+  private RawSseStream requestSse(String endpoint, Map<String, Object> payload, Object modelName,AxCancellationToken cancellation) throws Exception {
+    if(cancellation!=null)cancellation.throwIfCancelled();
     Map<String, Object> call = new LinkedHashMap<>();
     String method = operationMethod("stream_chat").toUpperCase(Locale.ROOT);
     String requestUrl = endpoint.startsWith("http://") || endpoint.startsWith("https://") ? endpoint : baseUrl + endpoint;
@@ -873,14 +904,14 @@ public class OpenAICompatibleClient extends AxBaseAI {
     call.put("headers", resolvedHeaders);
     call.put("json", payload);
     call.put("stream", true);
-    if (transport != null) return RawSseStream.from(transportResult(transport.stream(call), call));
+    if (transport != null) return RawSseStream.from(transportResult(transport.stream(call,cancellation), call));
     if (apiKey == null || apiKey.isBlank() || "null".equals(apiKey)) throw new AxAIServiceAuthenticationError("OPENAI_API_KEY is required", null, null, null, call);
     HttpRequest.Builder builder = HttpRequest.newBuilder()
       .uri(URI.create(requestUrl))
       .timeout(Duration.ofMillis((long) (timeoutSeconds * 1000)));
     for (Map.Entry<String, Object> header : resolvedHeaders.entrySet()) builder.header(header.getKey(), String.valueOf(header.getValue()));
     HttpRequest req = builder.method(method, HttpRequest.BodyPublishers.ofString(Json.stringify(payload))).build();
-    HttpResponse<InputStream> res = http.send(req, HttpResponse.BodyHandlers.ofInputStream());
+    HttpResponse<InputStream> res = sendCancellable(req, HttpResponse.BodyHandlers.ofInputStream(), cancellation);
     if (res.statusCode() >= 400) {
       try (InputStream body = res.body()) {
         String errorBody = new String(body.readAllBytes(), StandardCharsets.UTF_8);
@@ -889,7 +920,26 @@ public class OpenAICompatibleClient extends AxBaseAI {
         throw Core.asRuntime(Core.openai_normalize_error(res.statusCode(), parsed, call));
       }
     }
-    return RawSseStream.from(res.body());
+    InputStream body=res.body();
+    AxCancellationToken.Subscription subscription=cancellation==null?()->{}:cancellation.subscribe(()->{try{body.close();}catch(IOException ignored){}});
+    return new RawSseStream(new BufferedReader(new InputStreamReader(body,StandardCharsets.UTF_8)),null,()->{subscription.close();body.close();});
+  }
+
+  private static void waitBackoff(long milliseconds,AxCancellationToken cancellation)throws InterruptedException{
+    if(milliseconds<=0){if(cancellation!=null)cancellation.throwIfCancelled();return;}
+    if(cancellation==null){Thread.sleep(milliseconds);return;}
+    if(cancellation.await(milliseconds))cancellation.throwIfCancelled();
+  }
+
+  private <T> HttpResponse<T> sendCancellable(HttpRequest request,HttpResponse.BodyHandler<T> handler,AxCancellationToken cancellation)throws Exception{
+    if(cancellation!=null)cancellation.throwIfCancelled();
+    CompletableFuture<HttpResponse<T>> future=http.sendAsync(request,handler);
+    AxCancellationToken.Subscription subscription=cancellation==null?()->{}:cancellation.subscribe(()->future.cancel(true));
+    try{return future.get();}
+    catch(CancellationException error){if(cancellation!=null)cancellation.throwIfCancelled();throw error;}
+    catch(ExecutionException error){if(cancellation!=null&&cancellation.cancelled())cancellation.throwIfCancelled();Throwable cause=error.getCause();if(cause instanceof Exception exception)throw exception;if(cause instanceof Error fatal)throw fatal;throw new RuntimeException(cause);}
+    catch(InterruptedException error){Thread.currentThread().interrupt();if(cancellation!=null&&cancellation.cancelled())cancellation.throwIfCancelled();throw error;}
+    finally{subscription.close();}
   }
 
   // Encode a request payload as multipart/form-data. Multipart operations (e.g. OpenAI

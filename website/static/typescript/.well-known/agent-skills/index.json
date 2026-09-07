@@ -13,7 +13,7 @@
       "type": "skill-md",
       "description": "This skill helps an LLM generate correct AI provider setup and configuration code using @ax-llm/ax. Use when the user asks about ai(), providers, models, routing, adaptive balancing, presets, embeddings, batch audio with ai.transcribe() or ai.speak(), extended thinking, context caching, or mentions OpenAI/Anthropic/Google/Azure/DeepSeek/Meta/Mistral/Cohere/Reka/Grok with @ax-llm/ax.",
       "url": "ax-ai/SKILL.md",
-      "digest": "sha256:f85b901de87f3186e5790977d25d71198e6ced30ee8abc2a678e7829209f2571"
+      "digest": "sha256:0b09be7b3228aefdf0751c2f065185a1f26f9c33aeeabe0dc653808f7110d0ab"
     },
     {
       "name": "ax-audio",
@@ -97,7 +97,7 @@
       "type": "skill-md",
       "description": "Use AxEventRuntime to ingest events, explicitly wake or resume AxGen, AxAgent, and AxFlow, persist state and results, and route outputs safely.",
       "url": "ax-event-runtime/SKILL.md",
-      "digest": "sha256:8c8ed96edea4c98512d8262edef001045aa3496e2709181db49316e5f7493872"
+      "digest": "sha256:1b6fa59664397099c4624c18933caa10c9fb01625a88d64cc0984ba553c3f1ef"
     },
     {
       "name": "ax-gepa",

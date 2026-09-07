@@ -63,6 +63,7 @@ Shared Ax behavior is Core-owned. The generated target code stays focused on idi
 - `cargo run --example runtime_hooks_no_key`: runtime-hook globals and typed program surfaces through a scripted transport
 - `cargo run --example adaptive_balancer_no_key`: adaptive balancer state, scoring, and stable route keys without a provider key
 - `cargo run --example provider_stream_no_key`: provider streaming through a scripted SSE transport
+- `cargo run --example cancellation_no_key`: one-shot provider cancellation with no transport attempt
 - `cargo run --example axgen_scripted_client_tool`: AxGen with a scripted client and tool
 - `cargo run --example axflow_program_graph`: AxFlow program graph
 - `cargo run --example flow_mermaid`: portable Mermaid flow parsing and canonical round-trip

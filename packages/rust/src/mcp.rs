@@ -1,4 +1,4 @@
-use crate::{tool, AxError, AxResult, Tool};
+use crate::{tool, AxCancellationToken, AxError, AxResult, Tool};
 use serde_json::{json, Map, Value};
 use std::collections::{HashMap, HashSet};
 use std::fs::File;
@@ -2036,18 +2036,7 @@ pub struct AxEventContinuation {
     pub completed: bool,
     pub expires_at: Option<i64>,
 }
-#[derive(Debug, Clone, Default)]
-pub struct AxEventCancellationToken {
-    state: Arc<Mutex<(bool, String)>>,
-}
-impl AxEventCancellationToken {
-    pub fn cancel(&self, reason: &str) {
-        *self.state.lock().unwrap() = (true, reason.into())
-    }
-    pub fn is_cancelled(&self) -> bool {
-        self.state.lock().unwrap().0
-    }
-}
+pub type AxEventCancellationToken = AxCancellationToken;
 #[derive(Debug, Clone)]
 pub struct AxEventInvocationContext {
     pub run_id: String,
@@ -2369,23 +2358,26 @@ impl AxEventClock for AxSystemEventClock {
             .as_millis() as i64
     }
     fn sleep(&self, milliseconds: i64, cancellation: Option<&AxEventCancellationToken>) -> bool {
-        if cancellation.is_some_and(AxEventCancellationToken::is_cancelled) {
-            return false;
+        let duration = Duration::from_millis(milliseconds.max(0) as u64);
+        match cancellation {
+            Some(token) => !token.wait_timeout(duration),
+            None => {
+                std::thread::sleep(duration);
+                true
+            }
         }
-        std::thread::sleep(Duration::from_millis(milliseconds.max(0) as u64));
-        !cancellation.is_some_and(AxEventCancellationToken::is_cancelled)
     }
 }
 #[derive(Default)]
 pub struct AxManualEventClock {
-    state: Mutex<i64>,
-    changed: Condvar,
+    state: Arc<Mutex<i64>>,
+    changed: Arc<Condvar>,
 }
 impl AxManualEventClock {
     pub fn new(now: i64) -> Self {
         Self {
-            state: Mutex::new(now),
-            changed: Condvar::new(),
+            state: Arc::new(Mutex::new(now)),
+            changed: Arc::new(Condvar::new()),
         }
     }
     pub fn advance(&self, milliseconds: i64) {
@@ -2400,6 +2392,14 @@ impl AxEventClock for AxManualEventClock {
     }
     fn sleep(&self, milliseconds: i64, cancellation: Option<&AxEventCancellationToken>) -> bool {
         let target = self.now() + milliseconds.max(0);
+        let changed = Arc::clone(&self.changed);
+        let state = Arc::clone(&self.state);
+        let _subscription = cancellation.map(|token| {
+            token.subscribe(move || {
+                let _guard = state.lock().unwrap();
+                changed.notify_all();
+            })
+        });
         let mut value = self.state.lock().unwrap();
         while *value < target {
             if cancellation.is_some_and(AxEventCancellationToken::is_cancelled) {

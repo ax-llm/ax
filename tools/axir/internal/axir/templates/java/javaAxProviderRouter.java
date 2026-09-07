@@ -70,13 +70,20 @@ public final class AxProviderRouter {
   }
 
   public Iterable<Map<String, Object>> stream(Map<String, Object> request, Map<String, Object> options) throws Exception {
-    return AxChatStream.lazy(() -> openStream(request));
+    Object raw=options==null?null:options.getOrDefault("cancellation",options.getOrDefault("cancellationToken",options.get("cancellation_token")));
+    AxCancellationToken cancellation=raw instanceof AxCancellationToken token?token:null;
+    return AxChatStream.lazy(() -> openStream(request,cancellation));
   }
 
   public AxChatStream openStream(Map<String, Object> request) throws Exception {
+    return openStream(request,null);
+  }
+
+  public AxChatStream openStream(Map<String,Object> request,AxCancellationToken cancellation)throws Exception{
+    if(cancellation!=null)cancellation.throwIfCancelled();
     AxAIService provider = selectedProvider(request);
     Map<String, Object> processedRequest = Core.asMap(Core.provider_route_preprocess_request(provider.getFeatures(null), request));
-    return provider.openStream(processedRequest);
+    return provider.openStream(processedRequest,cancellation);
   }
 
   public Map<String, Object> embed(Map<String, Object> request, Map<String, Object> options) throws Exception {

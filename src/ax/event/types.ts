@@ -68,15 +68,21 @@ export class AxSystemEventClock implements AxEventClock {
   sleep(ms: number, signal?: AbortSignal): Promise<void> {
     if (signal?.aborted) return Promise.reject(signal.reason);
     return new Promise((resolve, reject) => {
-      const timeout = setTimeout(resolve, Math.max(0, ms));
-      signal?.addEventListener(
-        'abort',
+      // The timer firing never triggers the abort listener, so both the timer
+      // and the listener must be cleaned up on every path to avoid leaking a
+      // listener on a long-lived signal reused across many sleep() calls.
+      const onAbort = () => {
+        clearTimeout(timeout);
+        reject(signal?.reason);
+      };
+      const timeout = setTimeout(
         () => {
-          clearTimeout(timeout);
-          reject(signal.reason);
+          if (signal) signal.removeEventListener('abort', onAbort);
+          resolve();
         },
-        { once: true }
+        Math.max(0, ms)
       );
+      signal?.addEventListener('abort', onAbort, { once: true });
     });
   }
 }
@@ -99,16 +105,23 @@ export class AxManualEventClock implements AxEventClock {
     if (signal?.aborted) return Promise.reject(signal.reason);
     if (ms <= 0) return Promise.resolve();
     return new Promise((resolve, reject) => {
-      const sleeper = { at: this.value + ms, resolve, reject };
-      this.sleepers.push(sleeper);
-      signal?.addEventListener(
-        'abort',
-        () => {
-          this.sleepers = this.sleepers.filter((value) => value !== sleeper);
-          reject(signal.reason);
+      // advanceBy() resolves sleepers directly and never fires the abort
+      // listener, so the settling path removes the listener to avoid leaking
+      // one on a long-lived signal reused across many sleep() calls.
+      const onAbort = () => {
+        this.sleepers = this.sleepers.filter((value) => value !== sleeper);
+        reject(signal?.reason);
+      };
+      const sleeper = {
+        at: this.value + ms,
+        resolve: () => {
+          if (signal) signal.removeEventListener('abort', onAbort);
+          resolve();
         },
-        { once: true }
-      );
+        reject,
+      };
+      this.sleepers.push(sleeper);
+      signal?.addEventListener('abort', onAbort, { once: true });
     });
   }
 

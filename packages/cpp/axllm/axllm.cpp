@@ -21,6 +21,12 @@
 
 namespace axllm {
 
+thread_local const AxCancellationToken* ax_current_cancellation_token = nullptr;
+
+const AxCancellationToken* current_cancellation_token() { return ax_current_cancellation_token; }
+AxCancellationScope::AxCancellationScope(const AxCancellationToken* token) : previous_(ax_current_cancellation_token) { ax_current_cancellation_token = token; if (token) token->throw_if_cancelled(); }
+AxCancellationScope::~AxCancellationScope() { ax_current_cancellation_token = previous_; }
+
 Value::Value() : data(nullptr) {}
 Value::Value(std::nullptr_t) : data(nullptr) {}
 Value::Value(bool value) : data(value) {}
@@ -385,7 +391,31 @@ void Transport::stream(Value request, AxTransportStreamHandler handler) {
   handler(call(std::move(request)));
 }
 
+Value Transport::call(Value request, const AxCancellationToken* cancellation) {
+  if (cancellation) cancellation->throw_if_cancelled();
+  AxCancellationScope scope(cancellation);
+  Value response = call(std::move(request));
+  if (cancellation) cancellation->throw_if_cancelled();
+  return response;
+}
+
+void Transport::stream(Value request, AxTransportStreamHandler handler, const AxCancellationToken* cancellation) {
+  if (cancellation) cancellation->throw_if_cancelled();
+  AxCancellationScope scope(cancellation);
+  stream(std::move(request), [&](Value chunk) {
+    if (cancellation) cancellation->throw_if_cancelled();
+    bool keep_going = handler(std::move(chunk));
+    if (cancellation) cancellation->throw_if_cancelled();
+    return keep_going;
+  });
+}
+
 void HttpTransport::stream(Value request, AxTransportStreamHandler handler) {
+  stream(std::move(request), std::move(handler), current_cancellation_token());
+}
+
+void HttpTransport::stream(Value request, AxTransportStreamHandler handler, const AxCancellationToken* cancellation) {
+  if (cancellation) cancellation->throw_if_cancelled();
 #if !defined(AXLLM_ENABLE_CURL)
   (void)request;
   (void)handler;
@@ -414,8 +444,9 @@ void HttpTransport::stream(Value request, AxTransportStreamHandler handler) {
     AxTransportStreamHandler* handler = nullptr;
     std::string* error_body = nullptr;
     bool cancelled = false;
+    const AxCancellationToken* cancellation = nullptr;
     std::exception_ptr exception;
-  } context{curl, &handler, &error_body, false, nullptr};
+  } context{curl, &handler, &error_body, false, cancellation, nullptr};
 
   curl_easy_setopt(curl, CURLOPT_URL, url.c_str());
   curl_easy_setopt(curl, CURLOPT_ERRORBUFFER, error_buffer);
@@ -438,6 +469,9 @@ void HttpTransport::stream(Value request, AxTransportStreamHandler handler) {
     }
   });
   curl_easy_setopt(curl, CURLOPT_WRITEDATA, &context);
+  curl_easy_setopt(curl, CURLOPT_NOPROGRESS, 0L);
+  curl_easy_setopt(curl, CURLOPT_XFERINFOFUNCTION, +[](void* userdata, curl_off_t, curl_off_t, curl_off_t, curl_off_t) -> int {auto* context=static_cast<StreamContext*>(userdata);return context->cancellation&&context->cancellation->is_cancelled()?1:0;});
+  curl_easy_setopt(curl, CURLOPT_XFERINFODATA, &context);
   if (timeout > 0) curl_easy_setopt(curl, CURLOPT_TIMEOUT_MS, static_cast<long>(timeout * 1000.0));
   if (method == "POST") curl_easy_setopt(curl, CURLOPT_POST, 1L);
   else curl_easy_setopt(curl, CURLOPT_CUSTOMREQUEST, method.c_str());
@@ -450,6 +484,7 @@ void HttpTransport::stream(Value request, AxTransportStreamHandler handler) {
   curl_slist_free_all(headers);
   curl_easy_cleanup(curl);
   if (context.exception) std::rethrow_exception(context.exception);
+  if (cancellation && cancellation->is_cancelled()) throw AxAIServiceAbortedError(cancellation->reason());
   // Returning false is the transport seam's normal cancellation signal. libcurl
   // may report it as CURLE_WRITE_ERROR (or another callback-abort code), but the
   // handler decision is authoritative once callback exceptions are excluded.
@@ -468,6 +503,11 @@ void HttpTransport::stream(Value request, AxTransportStreamHandler handler) {
 }
 
 Value HttpTransport::call(Value request) {
+  return call(std::move(request), current_cancellation_token());
+}
+
+Value HttpTransport::call(Value request, const AxCancellationToken* cancellation) {
+  if (cancellation) cancellation->throw_if_cancelled();
 #if !defined(AXLLM_ENABLE_CURL)
   (void)request;
   throw Core::as_error(Core::ai_error_unsupported("C++ HTTP transport requires libcurl. Build with CMake and AXLLM_ENABLE_CURL=ON, or pass a custom Transport."));
@@ -547,6 +587,9 @@ Value HttpTransport::call(Value request) {
     return size * nmemb;
   });
   curl_easy_setopt(curl, CURLOPT_HEADERDATA, &response_headers);
+  curl_easy_setopt(curl, CURLOPT_NOPROGRESS, 0L);
+  curl_easy_setopt(curl, CURLOPT_XFERINFOFUNCTION, +[](void* userdata, curl_off_t, curl_off_t, curl_off_t, curl_off_t) -> int {auto* token=static_cast<const AxCancellationToken*>(userdata);return token&&token->is_cancelled()?1:0;});
+  curl_easy_setopt(curl, CURLOPT_XFERINFODATA, const_cast<AxCancellationToken*>(cancellation));
   if (timeout > 0) curl_easy_setopt(curl, CURLOPT_TIMEOUT_MS, static_cast<long>(timeout * 1000.0));
   if (method == "POST") {
     curl_easy_setopt(curl, CURLOPT_POST, 1L);
@@ -571,6 +614,8 @@ Value HttpTransport::call(Value request) {
   std::string content_type = response_content_type != nullptr ? std::string(response_content_type) : std::string();
   curl_slist_free_all(headers);
   curl_easy_cleanup(curl);
+
+  if (cancellation && cancellation->is_cancelled()) throw AxAIServiceAbortedError(cancellation->reason());
 
   if (rc != CURLE_OK) {
     std::string message = error_buffer[0] ? error_buffer : curl_easy_strerror(rc);
@@ -1095,12 +1140,26 @@ Value Core::exception_message(Value error) {
   if (error.is_object() && has_key(error, "message")) return get_key(error, "message");
   return Value(str(error));
 }
+Value Core::exception_is_aborted(Value error) {
+  return Value(error.is_object() &&
+               (str(get_key(error, "__type")) == "AxAIServiceAbortedError" ||
+                str(get_key(error, "__error")) == "aborted"));
+}
 AxError Core::as_error(Value error) {
   if (error.is_object() && has_key(error, "__error")) {
     int status = get_key(error, "status").is_null() ? 0 : static_cast<int>(num(get_key(error, "status")));
     return AxError(str(get_key(error, "__error")), str(get_key(error, "message")), str(get_key(error, "__type")), status, str(get_key(error, "code")), truthy(get_key(error, "retryable")), get_key(error, "response_body"));
   }
   return AxError("runtime", str(error));
+}
+[[noreturn]] void Core::raise_error(Value error) {
+  if (truthy(exception_is_aborted(error))) {
+    std::string message = str(get_key(error, "message"));
+    const std::string prefix = "Request aborted: ";
+    std::string reason = message.rfind(prefix, 0) == 0 ? message.substr(prefix.size()) : "cancelled";
+    throw AxAIServiceAbortedError(reason);
+  }
+  throw as_error(std::move(error));
 }
 Value Core::coerce_chat_request(Value request) {
   if (has_key(request, "chat_prompt")) return Value(object_ref(request));
@@ -1216,7 +1275,16 @@ Value Core::agent_transcribe(Value client, Value request, Value options) {
   if (registered == nullptr) return object({{"text", std::string("")}});
   return registered->transcribe(request, options);
 }
-Value Core::retry_sleep(Value) { return Value(); }
+Value Core::retry_sleep(Value attempt, Value, Value) {
+  auto duration = std::chrono::milliseconds(std::min(250LL * (static_cast<long long>(num(attempt)) + 1LL), 1000LL));
+  if (const AxCancellationToken* cancellation = current_cancellation_token()) {
+    cancellation->wait_for(duration);
+    cancellation->throw_if_cancelled();
+  } else {
+    std::this_thread::sleep_for(duration);
+  }
+  return Value();
+}
 Value Core::tool_invoke(Value fn, Value params) {
   Value args = get_key(fn, "args", Value::array());
   if (truthy(args)) validate_fields(args, params, "tool." + str(get_key(fn, "name")) + ".args");
@@ -2295,7 +2363,7 @@ Value Core::_signature_parse_impl(Value signature) {
   Value is_empty = Core::eq(text_len, Value(0));
   if (Core::truthy(is_empty)) {
     Value error = Core::signature_error(Value("Empty signature provided"));
-    throw Core::as_error(error);
+    Core::raise_error(error);
   }
   Value prefix = Core::string_consume_optional_quoted_prefix(text);
   Value description = Core::get(prefix, Value("value"), Value());
@@ -2309,10 +2377,10 @@ Value Core::_signature_parse_impl(Value signature) {
     Value has_open_brace = Core::not_(brace_missing);
     if (Core::truthy(has_open_brace)) {
       Value error = Core::signature_error(Value("unbalanced \"{\" in object type"));
-      throw Core::as_error(error);
+      Core::raise_error(error);
     }
     Value error = Core::signature_error(Value("Expected \"->\""));
-    throw Core::as_error(error);
+    Core::raise_error(error);
   }
   Value left_raw = Core::string_slice(body, Value(0), arrow);
   Value left = Core::string_trim(left_raw);
@@ -2323,13 +2391,13 @@ Value Core::_signature_parse_impl(Value signature) {
   Value left_empty = Core::eq(left_len, Value(0));
   if (Core::truthy(left_empty)) {
     Value error = Core::signature_error(Value("No input fields specified"));
-    throw Core::as_error(error);
+    Core::raise_error(error);
   }
   Value right_len = Core::len(right);
   Value right_empty = Core::eq(right_len, Value(0));
   if (Core::truthy(right_empty)) {
     Value error = Core::signature_error(Value("No output fields specified"));
-    throw Core::as_error(error);
+    Core::raise_error(error);
   }
   Value inputs = Core::_signature_parse_fields_impl(left, Value(false));
   Value outputs = Core::_signature_parse_fields_impl(right, Value(true));
@@ -2350,7 +2418,7 @@ Value Core::_signature_parse_fields_impl(Value text, Value output) {
     Value empty = Core::eq(trimmed, Value(""));
     if (Core::truthy(empty)) {
       Value error = Core::signature_error(Value("Unexpected content after signature"));
-      throw Core::as_error(error);
+      Core::raise_error(error);
     }
     Value field = Core::_signature_parse_field_impl(part, output);
     Core::append(fields, field);
@@ -2413,7 +2481,7 @@ Value Core::_signature_parse_field_common_impl(Value raw, Value output, Value ne
     Value has_extra = Core::truthy_value(rest_after_quote);
     if (Core::truthy(has_extra)) {
       Value error = Core::signature_error(Value("Unexpected content after signature"));
-      throw Core::as_error(error);
+      Core::raise_error(error);
     }
     Value quoted_head = Core::get(quoted_info, Value("head"), Value());
     Core::set(state, Value("name_part"), quoted_head);
@@ -2431,7 +2499,7 @@ Value Core::_signature_parse_field_common_impl(Value raw, Value output, Value ne
     Value qualified = Core::string_format(Value("{}.{}"), parent, name);
     Value message = Core::string_format(Value("Object field \"{}\" cannot use the internal marker \"!\""), qualified);
     Value error = Core::signature_error(message);
-    throw Core::as_error(error);
+    Core::raise_error(error);
   }
   Value field_type = Core::get(state, Value("type"), Value());
   Value description = Core::get(state, Value("description"), Value());
@@ -2491,14 +2559,14 @@ Value Core::_signature_parse_description_impl(Value raw, Value fallback) {
   Value missing = Core::not_(found);
   if (Core::truthy(missing)) {
     Value error = Core::signature_error(Value("Unexpected content after signature"));
-    throw Core::as_error(error);
+    Core::raise_error(error);
   }
   Value rest_raw = Core::get(quoted, Value("rest"), Value());
   Value rest = Core::string_trim(rest_raw);
   Value has_extra = Core::truthy_value(rest);
   if (Core::truthy(has_extra)) {
     Value error = Core::signature_error(Value("Unexpected content after signature"));
-    throw Core::as_error(error);
+    Core::raise_error(error);
   }
   Value value_raw = Core::get(quoted, Value("value"), Value());
   Value value = Core::string_trim(value_raw);
@@ -2563,7 +2631,7 @@ Value Core::_signature_parse_base_type_impl(Value raw) {
     Value word = Core::list_get(words, Value(0), Value("empty"));
     Value message = Core::string_format(Value("Invalid type \"{}\""), word);
     Value error = Core::signature_error(message);
-    throw Core::as_error(error);
+    Core::raise_error(error);
   }
   return state;
 }
@@ -2584,20 +2652,20 @@ Value Core::_signature_parse_type_expr_impl(Value raw, Value section, Value fiel
   if (Core::truthy(nested_media)) {
     Value message = Core::string_format(Value("Object field \"{}\": {} type is not allowed in nested object fields"), field_name, type_name);
     Value error = Core::signature_error(message);
-    throw Core::as_error(error);
+    Core::raise_error(error);
   }
   Value is_class = Core::eq(type_name, Value("class"));
   if (Core::truthy(is_class)) {
     Value input = Core::eq(section, Value("input"));
     if (Core::truthy(input)) {
       Value error = Core::signature_error(Value("Input field cannot use the \"class\" type"));
-      throw Core::as_error(error);
+      Core::raise_error(error);
     }
     Value bag = Core::string_starts_with(rest, Value("("));
     if (Core::truthy(bag)) {
       Value message = Core::string_format(Value("Field \"{}\": constraints are not supported on class fields"), field_name);
       Value error = Core::signature_error(message);
-      throw Core::as_error(error);
+      Core::raise_error(error);
     }
     Value is_array = Core::string_starts_with(rest, Value("[]"));
     if (Core::truthy(is_array)) {
@@ -2608,7 +2676,7 @@ Value Core::_signature_parse_type_expr_impl(Value raw, Value section, Value fiel
     if (Core::truthy(bag_after)) {
       Value message = Core::string_format(Value("Field \"{}\": constraints are not supported on class fields"), field_name);
       Value error = Core::signature_error(message);
-      throw Core::as_error(error);
+      Core::raise_error(error);
     }
     Value quoted = Core::string_consume_optional_quoted_prefix(rest);
     Value has_options = Core::get(quoted, Value("found"), Value(false));
@@ -2620,7 +2688,7 @@ Value Core::_signature_parse_type_expr_impl(Value raw, Value section, Value fiel
       Value empty_options = Core::eq(option_count, Value(0));
       if (Core::truthy(empty_options)) {
         Value error = Core::signature_error(Value("Missing class options after \"class\" type"));
-        throw Core::as_error(error);
+        Core::raise_error(error);
       }
       Value attrs = Value::object();
       Core::set(attrs, Value("name"), Value("class"));
@@ -2635,7 +2703,7 @@ Value Core::_signature_parse_type_expr_impl(Value raw, Value section, Value fiel
       return out;
     }
     Value error = Core::signature_error(Value("Missing class options after \"class\" type"));
-    throw Core::as_error(error);
+    Core::raise_error(error);
   }
   Value is_object = Core::eq(type_name, Value("object"));
   Value starts_object_fields = Core::string_starts_with(rest, Value("{"));
@@ -2647,7 +2715,7 @@ Value Core::_signature_parse_type_expr_impl(Value raw, Value section, Value fiel
     if (Core::truthy(unbalanced)) {
       Value message = Core::string_format(Value("Field \"{}\": unbalanced \"{\" in object type"), field_name);
       Value error = Core::signature_error(message);
-      throw Core::as_error(error);
+      Core::raise_error(error);
     }
     Value group_text = Core::get(group, Value("group"), Value());
     Value fields = Core::_signature_parse_object_fields_impl(group_text, section, field_name);
@@ -2685,7 +2753,7 @@ Value Core::_signature_parse_type_expr_impl(Value raw, Value section, Value fiel
     if (Core::truthy(unbalanced)) {
       Value message = Core::string_format(Value("Field \"{}\": expected \",\" or \")\" in modifier list"), field_name);
       Value error = Core::signature_error(message);
-      throw Core::as_error(error);
+      Core::raise_error(error);
     }
     Value group_text = Core::get(group, Value("group"), Value());
     Value parsed = Core::_signature_parse_modifier_bag_impl(type_name, section, field_name, group_text);
@@ -2713,7 +2781,7 @@ Value Core::_signature_parse_type_expr_impl(Value raw, Value section, Value fiel
   if (Core::truthy(item_without_array)) {
     Value message = Core::string_format(Value("Field \"{}\": the \"item\" modifier requires an array type"), field_name);
     Value error = Core::signature_error(message);
-    throw Core::as_error(error);
+    Core::raise_error(error);
   }
   if (Core::truthy(has_item)) {
     Core::set(type_attrs, Value("description"), item_description);
@@ -2734,7 +2802,7 @@ Value Core::_signature_parse_modifier_bag_impl(Value type_name, Value section, V
   if (Core::truthy(empty)) {
     Value message = Core::string_format(Value("Field \"{}\": empty modifier list \"()\""), field_name);
     Value error = Core::signature_error(message);
-    throw Core::as_error(error);
+    Core::raise_error(error);
   }
   Value parts = Core::string_split_top_level(raw, Value(","));
   Value attrs = Value::object();
@@ -2749,7 +2817,7 @@ Value Core::_signature_parse_modifier_bag_impl(Value type_name, Value section, V
     if (Core::truthy(entry_empty)) {
       Value message = Core::string_format(Value("Field \"{}\": trailing comma in modifier list"), field_name);
       Value error = Core::signature_error(message);
-      throw Core::as_error(error);
+      Core::raise_error(error);
     }
     Value words = Core::string_words(entry);
     Value token = Core::list_get(words, Value(0), Value(""));
@@ -2766,7 +2834,7 @@ Value Core::_signature_parse_modifier_bag_impl(Value type_name, Value section, V
       if (Core::truthy(duplicate)) {
         Value message = Core::string_format(Value("Field \"{}\": duplicate \"{}\" modifier"), field_name, token);
         Value error = Core::signature_error(message);
-        throw Core::as_error(error);
+        Core::raise_error(error);
       }
       Core::append(seen, token);
       Value is_string = Core::eq(type_name, Value("string"));
@@ -2776,14 +2844,14 @@ Value Core::_signature_parse_modifier_bag_impl(Value type_name, Value section, V
       if (Core::truthy(not_allowed)) {
         Value message = Core::string_format(Value("Field \"{}\": \"{}\" is not supported for type \"{}\""), field_name, token, type_name);
         Value error = Core::signature_error(message);
-        throw Core::as_error(error);
+        Core::raise_error(error);
       }
       Value numeric = Core::regex_match(Value("^-?[0-9]+(\\.[0-9]+)?$"), arg);
       Value not_numeric = Core::not_(numeric);
       if (Core::truthy(not_numeric)) {
         Value message = Core::string_format(Value("Field \"{}\": \"{}\" requires a numeric value"), field_name, token);
         Value error = Core::signature_error(message);
-        throw Core::as_error(error);
+        Core::raise_error(error);
       }
       Value value = Core::json_parse(arg);
       if (Core::truthy(is_string)) {
@@ -2810,7 +2878,7 @@ Value Core::_signature_parse_modifier_bag_impl(Value type_name, Value section, V
       if (Core::truthy(duplicate)) {
         Value message = Core::string_format(Value("Field \"{}\": duplicate \"format\" modifier"), field_name);
         Value error = Core::signature_error(message);
-        throw Core::as_error(error);
+        Core::raise_error(error);
       }
       Core::append(seen, Value("format"));
       Value is_string = Core::eq(type_name, Value("string"));
@@ -2818,7 +2886,7 @@ Value Core::_signature_parse_modifier_bag_impl(Value type_name, Value section, V
       if (Core::truthy(not_string)) {
         Value message = Core::string_format(Value("Field \"{}\": \"format\" is not supported for type \"{}\""), field_name, type_name);
         Value error = Core::signature_error(message);
-        throw Core::as_error(error);
+        Core::raise_error(error);
       }
       Value formats = Value::array();
       Core::append(formats, Value("email"));
@@ -2830,7 +2898,7 @@ Value Core::_signature_parse_modifier_bag_impl(Value type_name, Value section, V
       if (Core::truthy(unknown)) {
         Value message = Core::string_format(Value("Field \"{}\": unknown format \"{}\""), field_name, arg);
         Value error = Core::signature_error(message);
-        throw Core::as_error(error);
+        Core::raise_error(error);
       }
       Core::set(attrs, Value("format"), arg);
       Core::set(handled, Value("value"), Value(true));
@@ -2841,7 +2909,7 @@ Value Core::_signature_parse_modifier_bag_impl(Value type_name, Value section, V
       if (Core::truthy(duplicate)) {
         Value message = Core::string_format(Value("Field \"{}\": duplicate \"pattern\" modifier"), field_name);
         Value error = Core::signature_error(message);
-        throw Core::as_error(error);
+        Core::raise_error(error);
       }
       Core::append(seen, Value("pattern"));
       Value is_string = Core::eq(type_name, Value("string"));
@@ -2849,7 +2917,7 @@ Value Core::_signature_parse_modifier_bag_impl(Value type_name, Value section, V
       if (Core::truthy(not_string)) {
         Value message = Core::string_format(Value("Field \"{}\": \"pattern\" is not supported for type \"{}\""), field_name, type_name);
         Value error = Core::signature_error(message);
-        throw Core::as_error(error);
+        Core::raise_error(error);
       }
       Value quoted = Core::string_consume_optional_quoted_prefix(arg);
       Value found = Core::get(quoted, Value("found"), Value(false));
@@ -2857,7 +2925,7 @@ Value Core::_signature_parse_modifier_bag_impl(Value type_name, Value section, V
       if (Core::truthy(missing)) {
         Value message = Core::string_format(Value("Field \"{}\": \"pattern\" requires a quoted regular expression"), field_name);
         Value error = Core::signature_error(message);
-        throw Core::as_error(error);
+        Core::raise_error(error);
       }
       Value pattern_value = Core::get(quoted, Value("value"), Value());
       Core::set(attrs, Value("pattern"), pattern_value);
@@ -2871,7 +2939,7 @@ Value Core::_signature_parse_modifier_bag_impl(Value type_name, Value section, V
         if (Core::truthy(desc_missing)) {
           Value message = Core::string_format(Value("Field \"{}\": expected \",\" or \")\" in modifier list"), field_name);
           Value error = Core::signature_error(message);
-          throw Core::as_error(error);
+          Core::raise_error(error);
         }
         Value desc_rest_raw = Core::get(desc, Value("rest"), Value());
         Value desc_rest = Core::string_trim(desc_rest_raw);
@@ -2879,7 +2947,7 @@ Value Core::_signature_parse_modifier_bag_impl(Value type_name, Value section, V
         if (Core::truthy(desc_extra)) {
           Value message = Core::string_format(Value("Field \"{}\": expected \",\" or \")\" in modifier list"), field_name);
           Value error = Core::signature_error(message);
-          throw Core::as_error(error);
+          Core::raise_error(error);
         }
         Value desc_value = Core::get(desc, Value("value"), Value());
         Core::set(attrs, Value("patternDescription"), desc_value);
@@ -2892,7 +2960,7 @@ Value Core::_signature_parse_modifier_bag_impl(Value type_name, Value section, V
       if (Core::truthy(duplicate)) {
         Value message = Core::string_format(Value("Field \"{}\": duplicate \"cache\" modifier"), field_name);
         Value error = Core::signature_error(message);
-        throw Core::as_error(error);
+        Core::raise_error(error);
       }
       Core::append(seen, Value("cache"));
       Value input = Core::eq(section, Value("input"));
@@ -2900,13 +2968,13 @@ Value Core::_signature_parse_modifier_bag_impl(Value type_name, Value section, V
       if (Core::truthy(not_input)) {
         Value message = Core::string_format(Value("Field \"{}\": \"cache\" is only supported on top-level input fields"), field_name);
         Value error = Core::signature_error(message);
-        throw Core::as_error(error);
+        Core::raise_error(error);
       }
       Value extra = Core::truthy_value(arg);
       if (Core::truthy(extra)) {
         Value message = Core::string_format(Value("Field \"{}\": expected \",\" or \")\" in modifier list"), field_name);
         Value error = Core::signature_error(message);
-        throw Core::as_error(error);
+        Core::raise_error(error);
       }
       Core::set(state, Value("is_cached"), Value(true));
       Core::set(handled, Value("value"), Value(true));
@@ -2917,14 +2985,14 @@ Value Core::_signature_parse_modifier_bag_impl(Value type_name, Value section, V
       if (Core::truthy(duplicate)) {
         Value message = Core::string_format(Value("Field \"{}\": duplicate \"item\" modifier"), field_name);
         Value error = Core::signature_error(message);
-        throw Core::as_error(error);
+        Core::raise_error(error);
       }
       Core::append(seen, Value("item"));
       Value nested = Core::eq(section, Value("nested"));
       if (Core::truthy(nested)) {
         Value message = Core::string_format(Value("Field \"{}\": \"item\" is not supported inside object fields"), field_name);
         Value error = Core::signature_error(message);
-        throw Core::as_error(error);
+        Core::raise_error(error);
       }
       Value quoted = Core::string_consume_optional_quoted_prefix(arg);
       Value found = Core::get(quoted, Value("found"), Value(false));
@@ -2932,7 +3000,7 @@ Value Core::_signature_parse_modifier_bag_impl(Value type_name, Value section, V
       if (Core::truthy(missing)) {
         Value message = Core::string_format(Value("Field \"{}\": \"item\" requires a quoted description"), field_name);
         Value error = Core::signature_error(message);
-        throw Core::as_error(error);
+        Core::raise_error(error);
       }
       Value remaining_raw = Core::get(quoted, Value("rest"), Value());
       Value remaining = Core::string_trim(remaining_raw);
@@ -2940,7 +3008,7 @@ Value Core::_signature_parse_modifier_bag_impl(Value type_name, Value section, V
       if (Core::truthy(extra)) {
         Value message = Core::string_format(Value("Field \"{}\": expected \",\" or \")\" in modifier list"), field_name);
         Value error = Core::signature_error(message);
-        throw Core::as_error(error);
+        Core::raise_error(error);
       }
       Value item_value = Core::get(quoted, Value("value"), Value());
       Core::set(state, Value("item_description"), item_value);
@@ -2955,13 +3023,13 @@ Value Core::_signature_parse_modifier_bag_impl(Value type_name, Value section, V
         if (Core::truthy(duplicate)) {
           Value message = Core::string_format(Value("Field \"{}\": duplicate \"language\" modifier"), field_name);
           Value error = Core::signature_error(message);
-          throw Core::as_error(error);
+          Core::raise_error(error);
         }
         Value extra = Core::truthy_value(arg);
         if (Core::truthy(extra)) {
           Value message = Core::string_format(Value("Field \"{}\": expected \",\" or \")\" in modifier list"), field_name);
           Value error = Core::signature_error(message);
-          throw Core::as_error(error);
+          Core::raise_error(error);
         }
         Core::append(seen, Value("language"));
         Core::set(attrs, Value("language"), token);
@@ -2969,7 +3037,7 @@ Value Core::_signature_parse_modifier_bag_impl(Value type_name, Value section, V
       if (!Core::truthy(is_code)) {
         Value message = Core::string_format(Value("Field \"{}\": unknown modifier \"{}\" for type \"{}\""), field_name, token, type_name);
         Value error = Core::signature_error(message);
-        throw Core::as_error(error);
+        Core::raise_error(error);
       }
     }
   }
@@ -2989,7 +3057,7 @@ Value Core::_signature_parse_object_fields_impl(Value raw, Value section, Value 
   if (Core::truthy(empty)) {
     Value message = Core::string_format(Value("Field \"{}\": object type requires at least one field"), parent);
     Value error = Core::signature_error(message);
-    throw Core::as_error(error);
+    Core::raise_error(error);
   }
   Value parts = Core::string_split_top_level(raw, Value(","));
   Value fields = Value::object();
@@ -3000,7 +3068,7 @@ Value Core::_signature_parse_object_fields_impl(Value raw, Value section, Value 
     if (Core::truthy(entry_empty)) {
       Value message = Core::string_format(Value("Field \"{}\": trailing comma in object type"), parent);
       Value error = Core::signature_error(message);
-      throw Core::as_error(error);
+      Core::raise_error(error);
     }
     Value field = Core::_signature_parse_field_common_impl(entry, output, Value(true), parent);
     Value name = Core::get(field, Value("name"), Value());
@@ -3008,7 +3076,7 @@ Value Core::_signature_parse_object_fields_impl(Value raw, Value section, Value 
     if (Core::truthy(duplicate)) {
       Value message = Core::string_format(Value("Field \"{}\": duplicate object field name \"{}\""), parent, name);
       Value error = Core::signature_error(message);
-      throw Core::as_error(error);
+      Core::raise_error(error);
     }
     Core::set(fields, name, field);
   }
@@ -3245,12 +3313,12 @@ Value Core::_signature_validate_field_shape_impl(Value field, Value output, Valu
     if (Core::truthy(starts_number)) {
       Value message = Core::string_format(Value("Field name \"{}\" cannot start with a number"), name);
       Value error = Core::signature_error(message);
-      throw Core::as_error(error);
+      Core::raise_error(error);
     }
     if (!Core::truthy(starts_number)) {
       Value message = Core::string_format(Value("Invalid field name: \"{}\""), name);
       Value error = Core::signature_error(message);
-      throw Core::as_error(error);
+      Core::raise_error(error);
     }
   }
   Value typ = Core::get(field, Value("type"), Value());
@@ -3276,7 +3344,7 @@ Value Core::_signature_validate_field_shape_impl(Value field, Value output, Valu
   if (Core::truthy(unknown_type)) {
     Value message = Core::string_format(Value("Invalid type \"{}\""), type_name);
     Value error = Core::signature_error(message);
-    throw Core::as_error(error);
+    Core::raise_error(error);
   }
   Value media_types = Value::array();
   Core::append(media_types, Value("image"));
@@ -3287,7 +3355,7 @@ Value Core::_signature_validate_field_shape_impl(Value field, Value output, Valu
   if (Core::truthy(nested_media)) {
     Value message = Core::string_format(Value("Media type '{}' is not allowed in nested object fields"), type_name);
     Value error = Core::signature_error(message);
-    throw Core::as_error(error);
+    Core::raise_error(error);
   }
   Value is_class = Core::eq(type_name, Value("class"));
   Value is_input = Core::not_(output);
@@ -3296,7 +3364,7 @@ Value Core::_signature_validate_field_shape_impl(Value field, Value output, Valu
   Value input_class = Core::and_(input_class_base, top_level);
   if (Core::truthy(input_class)) {
     Value error = Core::signature_error(Value("Input field cannot use the \"class\" type"));
-    throw Core::as_error(error);
+    Core::raise_error(error);
   }
   Value class_options = Core::get(typ, Value("options"), Value());
   Value has_class_options = Core::truthy_value(class_options);
@@ -3304,25 +3372,25 @@ Value Core::_signature_validate_field_shape_impl(Value field, Value output, Valu
   Value class_without_options = Core::and_(is_class, missing_class_options);
   if (Core::truthy(class_without_options)) {
     Value error = Core::signature_error(Value("Missing class options after \"class\" type"));
-    throw Core::as_error(error);
+    Core::raise_error(error);
   }
   Value is_internal = Core::get(field, Value("is_internal"), Value(false));
   Value internal_input = Core::and_(is_internal, is_input);
   if (Core::truthy(internal_input)) {
     Value error = Core::signature_error(Value("Input field cannot use the internal marker"));
-    throw Core::as_error(error);
+    Core::raise_error(error);
   }
   Value is_image = Core::eq(type_name, Value("image"));
   Value output_image = Core::and_(output, is_image);
   if (Core::truthy(output_image)) {
     Value error = Core::signature_error(Value("Image type is not supported in output fields"));
-    throw Core::as_error(error);
+    Core::raise_error(error);
   }
   Value is_file = Core::eq(type_name, Value("file"));
   Value output_file = Core::and_(output, is_file);
   if (Core::truthy(output_file)) {
     Value error = Core::signature_error(Value("File type is not supported in output fields"));
-    throw Core::as_error(error);
+    Core::raise_error(error);
   }
   Value is_audio = Core::eq(type_name, Value("audio"));
   Value is_array = Core::get(typ, Value("is_array"), Value(false));
@@ -3330,7 +3398,7 @@ Value Core::_signature_validate_field_shape_impl(Value field, Value output, Valu
   Value output_audio_array = Core::and_(output_audio, is_array);
   if (Core::truthy(output_audio_array)) {
     Value error = Core::signature_error(Value("Arrays of audio are not supported in output fields"));
-    throw Core::as_error(error);
+    Core::raise_error(error);
   }
   Value nested_map = Core::get(typ, Value("fields"), Value());
   Value has_nested = Core::truthy_value(nested_map);
@@ -3351,13 +3419,13 @@ Value Core::_signature_validate_impl(Value signature) {
   Value no_inputs = Core::eq(input_count, Value(0));
   if (Core::truthy(no_inputs)) {
     Value error = Core::signature_error(Value("No input fields specified"));
-    throw Core::as_error(error);
+    Core::raise_error(error);
   }
   Value output_count = Core::len(outputs);
   Value no_outputs = Core::eq(output_count, Value(0));
   if (Core::truthy(no_outputs)) {
     Value error = Core::signature_error(Value("No output fields specified"));
-    throw Core::as_error(error);
+    Core::raise_error(error);
   }
   Value seen_inputs = Value::array();
   for (auto field : Core::iter(inputs)) {
@@ -3367,7 +3435,7 @@ Value Core::_signature_validate_impl(Value signature) {
     if (Core::truthy(duplicate)) {
       Value message = Core::string_format(Value("Duplicate input field name: \"{}\""), field_name);
       Value error = Core::signature_error(message);
-      throw Core::as_error(error);
+      Core::raise_error(error);
     }
     Core::append(seen_inputs, field_name);
   }
@@ -3379,13 +3447,13 @@ Value Core::_signature_validate_impl(Value signature) {
     if (Core::truthy(collision)) {
       Value message = Core::string_format(Value("Field name \"{}\" appears in both inputs and outputs"), field_name);
       Value error = Core::signature_error(message);
-      throw Core::as_error(error);
+      Core::raise_error(error);
     }
     Value duplicate = Core::contains(seen_outputs, field_name);
     if (Core::truthy(duplicate)) {
       Value message = Core::string_format(Value("Duplicate output field name: \"{}\""), field_name);
       Value error = Core::signature_error(message);
-      throw Core::as_error(error);
+      Core::raise_error(error);
     }
     Core::append(seen_outputs, field_name);
   }
@@ -3457,7 +3525,7 @@ Value Core::_validate_fields_impl(Value fields, Value values, Value context) {
   if (Core::truthy(values_not_object)) {
     Value message = Core::string_format(Value("{} must be an object"), context);
     Value error = Core::validation_error(message);
-    throw Core::as_error(error);
+    Core::raise_error(error);
   }
   for (auto field : Core::iter(fields)) {
     Value field_name = Core::get(field, Value("name"), Value());
@@ -3473,7 +3541,7 @@ Value Core::_validate_fields_impl(Value fields, Value values, Value context) {
       if (Core::truthy(required_missing)) {
         Value message = Core::string_format(Value("Required field is missing: '{}'"), field_title);
         Value error = Core::validation_error(message);
-        throw Core::as_error(error);
+        Core::raise_error(error);
       }
     }
     if (!Core::truthy(missing_or_null)) {
@@ -3627,7 +3695,7 @@ Value Core::_schema_enhance_description_impl(Value base, Value typ) {
     if (Core::truthy(missing_pattern_description)) {
       Value message = Core::string_format(Value("Field with pattern '{}' must include a patternDescription to explain the pattern to the LLM"), pattern);
       Value error = Core::validation_error(message);
-      throw Core::as_error(error);
+      Core::raise_error(error);
     }
     if (!Core::truthy(missing_pattern_description)) {
       Core::append(constraints, pattern_description);
@@ -3671,7 +3739,7 @@ Value Core::_validate_string_constraints_impl(Value value, Value field) {
     if (Core::truthy(too_short)) {
       Value message = Core::string_format(Value("Field '{}' failed validation: String must be at least {} characters long."), title, min_length);
       Value error = Core::validation_error(message);
-      throw Core::as_error(error);
+      Core::raise_error(error);
     }
   }
   Value max_length = Core::get(typ, Value("max_length"), Value());
@@ -3682,7 +3750,7 @@ Value Core::_validate_string_constraints_impl(Value value, Value field) {
     if (Core::truthy(too_long)) {
       Value message = Core::string_format(Value("Field '{}' failed validation: String must be at most {} characters long."), title, max_length);
       Value error = Core::validation_error(message);
-      throw Core::as_error(error);
+      Core::raise_error(error);
     }
   }
   Value pattern = Core::get(typ, Value("pattern"), Value());
@@ -3693,7 +3761,7 @@ Value Core::_validate_string_constraints_impl(Value value, Value field) {
     if (Core::truthy(pattern_failed)) {
       Value message = Core::string_format(Value("Field '{}' failed validation: String must match pattern /{}/."), title, pattern);
       Value error = Core::validation_error(message);
-      throw Core::as_error(error);
+      Core::raise_error(error);
     }
   }
   Value format = Core::get(typ, Value("format"), Value());
@@ -3704,7 +3772,7 @@ Value Core::_validate_string_constraints_impl(Value value, Value field) {
     if (Core::truthy(invalid_email)) {
       Value message = Core::string_format(Value("Field '{}' failed validation: String must be a valid email address."), title);
       Value error = Core::validation_error(message);
-      throw Core::as_error(error);
+      Core::raise_error(error);
     }
   }
   Value url_formats = Value::array();
@@ -3717,7 +3785,7 @@ Value Core::_validate_string_constraints_impl(Value value, Value field) {
     if (Core::truthy(invalid_url)) {
       Value message = Core::string_format(Value("Invalid URL for '{}': Invalid URL format."), title);
       Value error = Core::validation_error(message);
-      throw Core::as_error(error);
+      Core::raise_error(error);
     }
   }
   return Value();
@@ -3734,7 +3802,7 @@ Value Core::_validate_number_constraints_impl(Value value, Value field) {
     if (Core::truthy(too_small)) {
       Value message = Core::string_format(Value("Field '{}' failed validation: Number must be at least {}."), title, minimum);
       Value error = Core::validation_error(message);
-      throw Core::as_error(error);
+      Core::raise_error(error);
     }
   }
   Value maximum = Core::get(typ, Value("maximum"), Value());
@@ -3744,7 +3812,7 @@ Value Core::_validate_number_constraints_impl(Value value, Value field) {
     if (Core::truthy(too_large)) {
       Value message = Core::string_format(Value("Field '{}' failed validation: Number must be at most {}."), title, maximum);
       Value error = Core::validation_error(message);
-      throw Core::as_error(error);
+      Core::raise_error(error);
     }
   }
   return Value();
@@ -3830,7 +3898,7 @@ Value Core::_validate_value_impl(Value field, Value value, Value path) {
     if (Core::truthy(not_list)) {
       Value message = Core::string_format(Value("{} must be an array"), path);
       Value error = Core::validation_error(message);
-      throw Core::as_error(error);
+      Core::raise_error(error);
     }
     Value item_field = Core::field_item(field);
     for (auto item : Core::iter(value)) {
@@ -3845,7 +3913,7 @@ Value Core::_validate_value_impl(Value field, Value value, Value path) {
     if (Core::truthy(invalid_image)) {
       Value message = Core::string_format(Value("Validation failed: Expected '{}' to be type 'object ({{ mimeType: string; data: string }})'"), field_name);
       Value error = Core::validation_error(message);
-      throw Core::as_error(error);
+      Core::raise_error(error);
     }
     return Value();
   }
@@ -3856,7 +3924,7 @@ Value Core::_validate_value_impl(Value field, Value value, Value path) {
     if (Core::truthy(invalid_audio)) {
       Value message = Core::string_format(Value("Validation failed: Expected '{}' to be type 'string or object ({{ data: string; format?: string }})'"), field_name);
       Value error = Core::validation_error(message);
-      throw Core::as_error(error);
+      Core::raise_error(error);
     }
     return Value();
   }
@@ -3867,7 +3935,7 @@ Value Core::_validate_value_impl(Value field, Value value, Value path) {
     if (Core::truthy(invalid_file)) {
       Value message = Core::string_format(Value("Validation failed: Expected '{}' to be type 'object ({{ mimeType: string; data: string }} | {{ mimeType: string; fileUri: string }})'"), field_name);
       Value error = Core::validation_error(message);
-      throw Core::as_error(error);
+      Core::raise_error(error);
     }
     return Value();
   }
@@ -3878,7 +3946,7 @@ Value Core::_validate_value_impl(Value field, Value value, Value path) {
     if (Core::truthy(invalid_url_shape)) {
       Value message = Core::string_format(Value("Validation failed: Expected '{}' to be type 'string or object ({{ url: string; title?: string; description?: string }})'"), field_name);
       Value error = Core::validation_error(message);
-      throw Core::as_error(error);
+      Core::raise_error(error);
     }
     Value url_is_string = Core::type_is(value, Value("string"));
     if (Core::truthy(url_is_string)) {
@@ -3888,7 +3956,7 @@ Value Core::_validate_value_impl(Value field, Value value, Value path) {
         Value field_title = Core::get(field, Value("title"), Value());
         Value message = Core::string_format(Value("Invalid URL for '{}': Invalid URL format. Expected a valid URL like https://example.com. Use a valid URL format (e.g., https://example.com). You provided: {}."), field_title, value);
         Value error = Core::validation_error(message);
-        throw Core::as_error(error);
+        Core::raise_error(error);
       }
     }
     return Value();
@@ -3907,7 +3975,7 @@ Value Core::_validate_value_impl(Value field, Value value, Value path) {
     if (Core::truthy(not_string)) {
       Value message = Core::string_format(Value("Validation failed: Expected '{}' to be a {}"), field_name, type_name);
       Value error = Core::validation_error(message);
-      throw Core::as_error(error);
+      Core::raise_error(error);
     }
     Core::_validate_string_constraints_impl(value, field);
     return Value();
@@ -3919,7 +3987,7 @@ Value Core::_validate_value_impl(Value field, Value value, Value path) {
     if (Core::truthy(not_number)) {
       Value message = Core::string_format(Value("Validation failed: Expected '{}' to be a number"), field_name);
       Value error = Core::validation_error(message);
-      throw Core::as_error(error);
+      Core::raise_error(error);
     }
     Core::_validate_number_constraints_impl(value, field);
     return Value();
@@ -3931,7 +3999,7 @@ Value Core::_validate_value_impl(Value field, Value value, Value path) {
     if (Core::truthy(not_boolean)) {
       Value message = Core::string_format(Value("Validation failed: Expected '{}' to be a boolean"), field_name);
       Value error = Core::validation_error(message);
-      throw Core::as_error(error);
+      Core::raise_error(error);
     }
     return Value();
   }
@@ -3942,7 +4010,7 @@ Value Core::_validate_value_impl(Value field, Value value, Value path) {
     if (Core::truthy(not_class_string)) {
       Value message = Core::string_format(Value("Validation failed: Expected '{}' to be a class"), field_name);
       Value error = Core::validation_error(message);
-      throw Core::as_error(error);
+      Core::raise_error(error);
     }
     Value options = Core::get(typ, Value("options"), Value());
     Value has_options = Core::truthy_value(options);
@@ -3952,7 +4020,7 @@ Value Core::_validate_value_impl(Value field, Value value, Value path) {
       if (Core::truthy(unknown_class)) {
         Value message = Core::string_format(Value("{} must be one of {}"), path, options);
         Value error = Core::validation_error(message);
-        throw Core::as_error(error);
+        Core::raise_error(error);
       }
     }
     return Value();
@@ -3964,7 +4032,7 @@ Value Core::_validate_value_impl(Value field, Value value, Value path) {
     if (Core::truthy(not_json)) {
       Value message = Core::string_format(Value("Validation failed: Expected '{}' to be JSON"), field_name);
       Value error = Core::validation_error(message);
-      throw Core::as_error(error);
+      Core::raise_error(error);
     }
     return Value();
   }
@@ -3975,7 +4043,7 @@ Value Core::_validate_value_impl(Value field, Value value, Value path) {
     if (Core::truthy(not_object)) {
       Value message = Core::string_format(Value("{} must be an object"), path);
       Value error = Core::validation_error(message);
-      throw Core::as_error(error);
+      Core::raise_error(error);
     }
     Value nested_map = Core::get(typ, Value("fields"), Value());
     Value has_nested = Core::truthy_value(nested_map);
@@ -4064,7 +4132,7 @@ Value Core::_schema_field_schema_impl(Value field, Value is_nested, Value option
   if (Core::truthy(nested_media)) {
     Value message = Core::string_format(Value("Media type '{}' is not allowed in nested object fields"), type_name);
     Value error = Core::validation_error(message);
-    throw Core::as_error(error);
+    Core::raise_error(error);
   }
   Value schema = Value::object();
   Value field_description = Core::get(field, Value("description"), Value());
@@ -4553,7 +4621,7 @@ Value Core::validate_chat_request(Value request) {
   Value has_realtime = Core::truthy_value(realtime);
   if (Core::truthy(has_realtime)) {
     Value error = Core::ai_error_unsupported(Value("OpenAI-compatible beta does not support realtime requests"));
-    throw Core::as_error(error);
+    Core::raise_error(error);
   }
   Value prompt = Core::get(request, Value("chat_prompt"), Value());
   Value prompt_is_list = Core::type_is(prompt, Value("list"));
@@ -4563,7 +4631,7 @@ Value Core::validate_chat_request(Value request) {
   Value bad_prompt = Core::or_(prompt_not_list, prompt_empty);
   if (Core::truthy(bad_prompt)) {
     Value error = Core::ai_error_response(Value("Chat prompt is empty"));
-    throw Core::as_error(error);
+    Core::raise_error(error);
   }
   for (auto message : Core::iter(prompt)) {
     Value role = Core::get(message, Value("role"), Value());
@@ -4578,7 +4646,7 @@ Value Core::validate_chat_request(Value request) {
     if (Core::truthy(invalid_role)) {
       Value message_text = Core::string_format(Value("Invalid chat message role: {}"), role);
       Value error = Core::ai_error_response(message_text);
-      throw Core::as_error(error);
+      Core::raise_error(error);
     }
     Value content = Core::get(message, Value("content"), Value());
     Value empty_function_calls = Value::array();
@@ -4601,7 +4669,7 @@ Value Core::validate_chat_request(Value request) {
     Value bad_assistant = Core::and_(is_assistant, missing_assistant_payload);
     if (Core::truthy(bad_assistant)) {
       Value error = Core::ai_error_response(Value("Assistant content is required when no tool calls are provided"));
-      throw Core::as_error(error);
+      Core::raise_error(error);
     }
   }
   return Value();
@@ -4651,13 +4719,6 @@ Value Core::openai_reasoning_effort(Value model, Value budget) {
   return Value("high");
 }
 
-Value Core::build_chat_request(Value service, Value request, Value options) {
-  axir_coverage_mark("build_chat_request");
-  Core::validate_chat_request(request);
-  Value payload = Core::openai_build_chat_request(request, options, Value(true));
-  return payload;
-}
-
 Value Core::openai_chat_reasoning_effort(Value model, Value budget) {
   axir_coverage_mark("openai_chat_reasoning_effort");
   Value effort = Core::openai_reasoning_effort(model, budget);
@@ -4668,10 +4729,11 @@ Value Core::openai_chat_reasoning_effort(Value model, Value budget) {
   return effort;
 }
 
-Value Core::normalize_chat_response(Value raw) {
-  axir_coverage_mark("normalize_chat_response");
-  Value response = Core::openai_normalize_chat_response(raw);
-  return response;
+Value Core::build_chat_request(Value service, Value request, Value options) {
+  axir_coverage_mark("build_chat_request");
+  Core::validate_chat_request(request);
+  Value payload = Core::openai_build_chat_request(request, options, Value(true));
+  return payload;
 }
 
 Value Core::_openai_copy_config_key_impl(Value payload, Value model_config, Value source, Value target) {
@@ -4684,16 +4746,10 @@ Value Core::_openai_copy_config_key_impl(Value payload, Value model_config, Valu
   return Value();
 }
 
-Value Core::normalize_stream_delta(Value raw, Value state) {
-  axir_coverage_mark("normalize_stream_delta");
-  Value response = Core::openai_normalize_stream_delta(raw, state);
+Value Core::normalize_chat_response(Value raw) {
+  axir_coverage_mark("normalize_chat_response");
+  Value response = Core::openai_normalize_chat_response(raw);
   return response;
-}
-
-Value Core::build_embed_request(Value service, Value request, Value options) {
-  axir_coverage_mark("build_embed_request");
-  Value payload = Core::openai_build_embed_request(request);
-  return payload;
 }
 
 Value Core::_openai_message_impl(Value message, Value reasoning_content_mode, Value reasoning_details_mode, Value extended_media) {
@@ -4805,7 +4861,19 @@ Value Core::_openai_message_impl(Value message, Value reasoning_content_mode, Va
   }
   Value message_text = Core::string_format(Value("Invalid role: {}"), role);
   Value error = Core::ai_error_response(message_text);
-  throw Core::as_error(error);
+  Core::raise_error(error);
+}
+
+Value Core::normalize_stream_delta(Value raw, Value state) {
+  axir_coverage_mark("normalize_stream_delta");
+  Value response = Core::openai_normalize_stream_delta(raw, state);
+  return response;
+}
+
+Value Core::build_embed_request(Value service, Value request, Value options) {
+  axir_coverage_mark("build_embed_request");
+  Value payload = Core::openai_build_embed_request(request);
+  return payload;
 }
 
 Value Core::normalize_embed_response(Value raw) {
@@ -4962,7 +5030,7 @@ Value Core::_openai_content_part_impl(Value part, Value extended_media) {
     }
     Value audio_message = Core::string_format(Value("OpenAI audio chat input supports only wav and mp3 audio, received {}"), format);
     Value audio_error = Core::ai_error_unsupported(audio_message);
-    throw Core::as_error(audio_error);
+    Core::raise_error(audio_error);
   }
   Value is_file = Core::eq(type, Value("file"));
   Value is_supported_file = Core::and_(is_file, extended_media);
@@ -5027,7 +5095,7 @@ Value Core::_openai_content_part_impl(Value part, Value extended_media) {
   }
   Value message = Core::string_format(Value("OpenAI-compatible beta does not support content part type: {}"), type);
   Value error = Core::ai_error_unsupported(message);
-  throw Core::as_error(error);
+  Core::raise_error(error);
 }
 
 Value Core::merge_usage_context(Value defaults, Value overrides) {
@@ -5125,6 +5193,30 @@ Value Core::_ai_model_usage_impl(Value ai_name, Value model, Value usage) {
   return out;
 }
 
+Value Core::_openai_tool_call_to_provider_impl(Value call) {
+  axir_coverage_mark("_openai_tool_call_to_provider_impl");
+  Value fn = Core::get(call, Value("function"), Value());
+  Value params = Core::get(fn, Value("params"), Value());
+  Value params_is_string = Core::type_is(params, Value("string"));
+  if (Core::truthy(params_is_string)) {
+    // empty
+  }
+  if (!Core::truthy(params_is_string)) {
+    Value params_json = Core::json_stringify(params);
+    params = params_json;
+  }
+  Value id = Core::get(call, Value("id"), Value());
+  Value name = Core::get(fn, Value("name"), Value());
+  Value function = Value::object();
+  Core::set(function, Value("name"), name);
+  Core::set(function, Value("arguments"), params);
+  Value out = Value::object();
+  Core::set(out, Value("id"), id);
+  Core::set(out, Value("type"), Value("function"));
+  Core::set(out, Value("function"), function);
+  return out;
+}
+
 Value Core::ai_merge_replay_metadata(Value previous, Value incoming) {
   axir_coverage_mark("ai_merge_replay_metadata");
   Value out = Core::map_merge(previous, incoming);
@@ -5212,30 +5304,6 @@ Value Core::ai_merge_replay_metadata(Value previous, Value incoming) {
   return out;
 }
 
-Value Core::_openai_tool_call_to_provider_impl(Value call) {
-  axir_coverage_mark("_openai_tool_call_to_provider_impl");
-  Value fn = Core::get(call, Value("function"), Value());
-  Value params = Core::get(fn, Value("params"), Value());
-  Value params_is_string = Core::type_is(params, Value("string"));
-  if (Core::truthy(params_is_string)) {
-    // empty
-  }
-  if (!Core::truthy(params_is_string)) {
-    Value params_json = Core::json_stringify(params);
-    params = params_json;
-  }
-  Value id = Core::get(call, Value("id"), Value());
-  Value name = Core::get(fn, Value("name"), Value());
-  Value function = Value::object();
-  Core::set(function, Value("name"), name);
-  Core::set(function, Value("arguments"), params);
-  Value out = Value::object();
-  Core::set(out, Value("id"), id);
-  Core::set(out, Value("type"), Value("function"));
-  Core::set(out, Value("function"), function);
-  return out;
-}
-
 Value Core::_openai_tool_spec_impl(Value fn) {
   axir_coverage_mark("_openai_tool_spec_impl");
   Value name = Core::get(fn, Value("name"), Value());
@@ -5275,6 +5343,27 @@ Value Core::openai_normalize_chat_response(Value raw, Value ai_name, Value model
   axir_coverage_mark("openai_normalize_chat_response");
   Value response = Core::_openai_normalize_chat_response_impl(raw, ai_name, model, Value("none"), Value("none"));
   return response;
+}
+
+Value Core::_openai_usage_with_service_tier(Value raw, Value usage) {
+  axir_coverage_mark("_openai_usage_with_service_tier");
+  Value has_usage = Core::is_not_none(usage);
+  if (Core::truthy(has_usage)) {
+    // empty
+  }
+  if (!Core::truthy(has_usage)) {
+    return usage;
+  }
+  Value empty = Value::object();
+  Value out = Core::map_merge(empty, usage);
+  Value usage_tier = Core::get(usage, Value("service_tier"), Value());
+  Value raw_tier = Core::get(raw, Value("service_tier"), usage_tier);
+  Value tier = Core::get(raw, Value("service_tier_used"), raw_tier);
+  Value has_tier = Core::is_not_none(tier);
+  if (Core::truthy(has_tier)) {
+    Core::set(out, Value("service_tier"), tier);
+  }
+  return out;
 }
 
 Value Core::_chat_result_to_completion(Value result, Value fallback_index) {
@@ -5322,48 +5411,27 @@ Value Core::_chat_result_to_completion(Value result, Value fallback_index) {
   return completion;
 }
 
-Value Core::_openai_usage_with_service_tier(Value raw, Value usage) {
-  axir_coverage_mark("_openai_usage_with_service_tier");
-  Value has_usage = Core::is_not_none(usage);
-  if (Core::truthy(has_usage)) {
-    // empty
-  }
-  if (!Core::truthy(has_usage)) {
-    return usage;
-  }
-  Value empty = Value::object();
-  Value out = Core::map_merge(empty, usage);
-  Value usage_tier = Core::get(usage, Value("service_tier"), Value());
-  Value raw_tier = Core::get(raw, Value("service_tier"), usage_tier);
-  Value tier = Core::get(raw, Value("service_tier_used"), raw_tier);
-  Value has_tier = Core::is_not_none(tier);
-  if (Core::truthy(has_tier)) {
-    Core::set(out, Value("service_tier"), tier);
-  }
-  return out;
-}
-
 Value Core::_openai_normalize_chat_response_impl(Value raw, Value ai_name, Value model, Value reasoning_content_mode, Value reasoning_details_mode) {
   axir_coverage_mark("_openai_normalize_chat_response_impl");
   Value raw_is_object = Core::type_is(raw, Value("object"));
   Value raw_not_object = Core::not_(raw_is_object);
   if (Core::truthy(raw_not_object)) {
     Value error = Core::ai_error_response(Value("provider response must be a JSON object"), raw);
-    throw Core::as_error(error);
+    Core::raise_error(error);
   }
   Value provider_error = Core::get(raw, Value("error"), Value());
   Value has_provider_error = Core::truthy_value(provider_error);
   if (Core::truthy(has_provider_error)) {
     Value message = Core::get(provider_error, Value("message"), Value("provider response error"));
     Value error = Core::ai_error_response(message, raw);
-    throw Core::as_error(error);
+    Core::raise_error(error);
   }
   Value choices = Core::get(raw, Value("choices"), Value());
   Value choices_is_list = Core::type_is(choices, Value("list"));
   Value bad_choices = Core::not_(choices_is_list);
   if (Core::truthy(bad_choices)) {
     Value error = Core::ai_error_response(Value("provider response missing choices"), raw);
-    throw Core::as_error(error);
+    Core::raise_error(error);
   }
   Value results = Value::array();
   for (auto choice : Core::iter(choices)) {
@@ -5437,7 +5505,7 @@ Value Core::_openai_normalize_choice_impl(Value choice, Value raw, Value reasoni
   Value has_refusal = Core::truthy_value(refusal);
   if (Core::truthy(has_refusal)) {
     Value error = Core::ai_error_refusal(refusal, raw);
-    throw Core::as_error(error);
+    Core::raise_error(error);
   }
   Value index = Core::get(choice, Value("index"), Value(0));
   Value id = Core::string_str(index);
@@ -5543,6 +5611,36 @@ Value Core::ai_context_cache_expiry(Value provider_expire_time, Value now) {
   return Value(0);
 }
 
+Value Core::_openai_normalize_tool_calls_impl(Value calls) {
+  axir_coverage_mark("_openai_normalize_tool_calls_impl");
+  Value out = Value::array();
+  for (auto call : Core::iter(calls)) {
+    Value fn = Core::get(call, Value("function"), Value());
+    Value params = Core::get(fn, Value("arguments"), Value());
+    Value params_is_string = Core::type_is(params, Value("string"));
+    if (Core::truthy(params_is_string)) {
+      try {
+        Value parsed_params = Core::json_parse(params);
+        params = parsed_params;
+      } catch (const std::exception& e) {
+        Value parse_error = Core::exception_value(e);
+        // empty
+      }
+    }
+    Value id = Core::get(call, Value("id"), Value());
+    Value name = Core::get(fn, Value("name"), Value());
+    Value function = Value::object();
+    Core::set(function, Value("name"), name);
+    Core::set(function, Value("params"), params);
+    Value normalized = Value::object();
+    Core::set(normalized, Value("id"), id);
+    Core::set(normalized, Value("type"), Value("function"));
+    Core::set(normalized, Value("function"), function);
+    Core::append(out, normalized);
+  }
+  return out;
+}
+
 Value Core::ai_context_cache_plan(Value configured, Value supported, Value explicit_name, Value existing, Value now, Value refresh_window_ms, Value create_eligible) {
   axir_coverage_mark("ai_context_cache_plan");
   Value out = Value::object();
@@ -5589,36 +5687,6 @@ Value Core::ai_context_cache_plan(Value configured, Value supported, Value expli
   return out;
 }
 
-Value Core::_openai_normalize_tool_calls_impl(Value calls) {
-  axir_coverage_mark("_openai_normalize_tool_calls_impl");
-  Value out = Value::array();
-  for (auto call : Core::iter(calls)) {
-    Value fn = Core::get(call, Value("function"), Value());
-    Value params = Core::get(fn, Value("arguments"), Value());
-    Value params_is_string = Core::type_is(params, Value("string"));
-    if (Core::truthy(params_is_string)) {
-      try {
-        Value parsed_params = Core::json_parse(params);
-        params = parsed_params;
-      } catch (const std::exception& e) {
-        Value parse_error = Core::exception_value(e);
-        // empty
-      }
-    }
-    Value id = Core::get(call, Value("id"), Value());
-    Value name = Core::get(fn, Value("name"), Value());
-    Value function = Value::object();
-    Core::set(function, Value("name"), name);
-    Core::set(function, Value("params"), params);
-    Value normalized = Value::object();
-    Core::set(normalized, Value("id"), id);
-    Core::set(normalized, Value("type"), Value("function"));
-    Core::set(normalized, Value("function"), function);
-    Core::append(out, normalized);
-  }
-  return out;
-}
-
 Value Core::_openai_finish_reason_impl(Value value) {
   axir_coverage_mark("_openai_finish_reason_impl");
   Value is_stop = Core::eq(value, Value("stop"));
@@ -5641,6 +5709,28 @@ Value Core::_openai_finish_reason_impl(Value value) {
   }
   Value none = Core::none();
   return none;
+}
+
+Value Core::openai_normalize_embed_response(Value raw, Value ai_name, Value model) {
+  axir_coverage_mark("openai_normalize_embed_response");
+  Value embeddings = Value::array();
+  Value empty_data = Value::array();
+  Value data = Core::get(raw, Value("data"), empty_data);
+  for (auto item : Core::iter(data)) {
+    Value embedding = Core::get(item, Value("embedding"), Value());
+    Core::append(embeddings, embedding);
+  }
+  Value raw_model = Core::get(raw, Value("model"), Value());
+  Value used_model = Core::coalesce(raw_model, model);
+  Value raw_usage = Core::get(raw, Value("usage"), Value());
+  Value usage = Core::_openai_usage_with_service_tier(raw, raw_usage);
+  Value model_usage = Core::_ai_model_usage_impl(ai_name, used_model, usage);
+  Value remote_id = Core::get(raw, Value("id"), Value());
+  Value out = Value::object();
+  Core::set(out, Value("embeddings"), embeddings);
+  Core::set(out, Value("remote_id"), remote_id);
+  Core::set(out, Value("model_usage"), model_usage);
+  return out;
 }
 
 Value Core::ai_context_cache_recovery(Value current_entry, Value cache_name, Value external_registry) {
@@ -5668,26 +5758,10 @@ Value Core::ai_context_cache_recovery(Value current_entry, Value cache_name, Val
   return out;
 }
 
-Value Core::openai_normalize_embed_response(Value raw, Value ai_name, Value model) {
-  axir_coverage_mark("openai_normalize_embed_response");
-  Value embeddings = Value::array();
-  Value empty_data = Value::array();
-  Value data = Core::get(raw, Value("data"), empty_data);
-  for (auto item : Core::iter(data)) {
-    Value embedding = Core::get(item, Value("embedding"), Value());
-    Core::append(embeddings, embedding);
-  }
-  Value raw_model = Core::get(raw, Value("model"), Value());
-  Value used_model = Core::coalesce(raw_model, model);
-  Value raw_usage = Core::get(raw, Value("usage"), Value());
-  Value usage = Core::_openai_usage_with_service_tier(raw, raw_usage);
-  Value model_usage = Core::_ai_model_usage_impl(ai_name, used_model, usage);
-  Value remote_id = Core::get(raw, Value("id"), Value());
-  Value out = Value::object();
-  Core::set(out, Value("embeddings"), embeddings);
-  Core::set(out, Value("remote_id"), remote_id);
-  Core::set(out, Value("model_usage"), model_usage);
-  return out;
+Value Core::openai_normalize_stream_delta(Value raw, Value state, Value ai_name, Value model) {
+  axir_coverage_mark("openai_normalize_stream_delta");
+  Value response = Core::_openai_normalize_stream_delta_impl(raw, state, ai_name, model, Value("none"), Value("none"));
+  return response;
 }
 
 Value Core::ai_gemini_cache_ops(Value cache_name, Value ttl_seconds, Value api_key, Value model, Value create_body, Value options) {
@@ -5751,26 +5825,20 @@ Value Core::ai_gemini_cache_ops(Value cache_name, Value ttl_seconds, Value api_k
   return out;
 }
 
-Value Core::openai_normalize_stream_delta(Value raw, Value state, Value ai_name, Value model) {
-  axir_coverage_mark("openai_normalize_stream_delta");
-  Value response = Core::_openai_normalize_stream_delta_impl(raw, state, ai_name, model, Value("none"), Value("none"));
-  return response;
-}
-
 Value Core::_openai_normalize_stream_delta_impl(Value raw, Value state, Value ai_name, Value model, Value reasoning_content_mode, Value reasoning_details_mode) {
   axir_coverage_mark("_openai_normalize_stream_delta_impl");
   Value raw_is_object = Core::type_is(raw, Value("object"));
   Value raw_not_object = Core::not_(raw_is_object);
   if (Core::truthy(raw_not_object)) {
     Value error = Core::ai_error_stream(Value("provider stream event must be a JSON object"), raw, Value(true));
-    throw Core::as_error(error);
+    Core::raise_error(error);
   }
   Value provider_error = Core::get(raw, Value("error"), Value());
   Value has_provider_error = Core::truthy_value(provider_error);
   if (Core::truthy(has_provider_error)) {
     Value message = Core::get(provider_error, Value("message"), Value("provider stream error"));
     Value error = Core::ai_error_stream(message, raw, Value(true));
-    throw Core::as_error(error);
+    Core::raise_error(error);
   }
   Value index_ids = Core::get(state, Value("index_ids"), Value());
   Value missing_index_ids = Core::is_none(index_ids);
@@ -6521,7 +6589,7 @@ Value Core::provider_route_recommendation(Value providers, Value request, Value 
   Value no_providers = Core::not_(has_providers);
   if (Core::truthy(no_providers)) {
     Value error = Core::runtime_error(Value("Provider selection failed: No providers available"));
-    throw Core::as_error(error);
+    Core::raise_error(error);
   }
   Value requirements = Core::provider_route_request_requirements(request);
   Value best = Core::list_get(providers, Value(0), Value());
@@ -6546,7 +6614,7 @@ Value Core::provider_route_recommendation(Value providers, Value request, Value 
       Value missing_text = Core::string_join(Value(", "), best_missing);
       Value message = Core::string_format(Value("Provider selection failed: No providers fully support the request requirements: {}"), missing_text);
       Value error_exact = Core::runtime_error(message);
-      throw Core::as_error(error_exact);
+      Core::raise_error(error_exact);
     }
   }
   Value degradation_disallowed = Core::not_(allow_degradation);
@@ -6556,7 +6624,7 @@ Value Core::provider_route_recommendation(Value providers, Value request, Value 
       Value missing_text_no_degrade = Core::string_join(Value(", "), best_missing);
       Value message_no_degrade = Core::string_format(Value("Provider selection failed: Best available provider ({}) is missing: {}"), best_name_for_error, missing_text_no_degrade);
       Value error_no_degrade = Core::runtime_error(message_no_degrade);
-      throw Core::as_error(error_no_degrade);
+      Core::raise_error(error_no_degrade);
     }
   }
   Value features = Core::get(best, Value("features"), Value());
@@ -6791,7 +6859,7 @@ Value Core::provider_balancer_adaptive_policy(Value strategy) {
   Value deadline_bad = Core::lte(deadline, Value(0));
   if (Core::truthy(deadline_bad)) {
     Value error = Core::runtime_error(Value("Adaptive deadlineMs must be finite and greater than zero."));
-    throw Core::as_error(error);
+    Core::raise_error(error);
   }
   Value bad_outcome = Core::get(strategy, Value("badOutcomeCost"), Value());
   Value bad_outcome_missing = Core::is_none(bad_outcome);
@@ -6801,7 +6869,7 @@ Value Core::provider_balancer_adaptive_policy(Value strategy) {
   Value bad_outcome_bad = Core::lt(bad_outcome, Value(0));
   if (Core::truthy(bad_outcome_bad)) {
     Value error = Core::runtime_error(Value("Adaptive badOutcomeCost must be finite and non-negative."));
-    throw Core::as_error(error);
+    Core::raise_error(error);
   }
   Value out = Value::object();
   Core::set(out, Value("type"), Value("adaptive"));
@@ -7082,12 +7150,12 @@ Value Core::provider_balancer_validate_route_key(Value route_key, Value seen_key
   Value empty = Core::eq(key, Value(""));
   if (Core::truthy(empty)) {
     Value error = Core::runtime_error(Value("Adaptive route keys must be non-empty."));
-    throw Core::as_error(error);
+    Core::raise_error(error);
   }
   Value duplicate = Core::contains(seen_keys, key);
   if (Core::truthy(duplicate)) {
     Value error = Core::runtime_error(Value("Adaptive route keys must be unique."));
-    throw Core::as_error(error);
+    Core::raise_error(error);
   }
   return key;
 }
@@ -7286,7 +7354,7 @@ Value Core::provider_resolve_descriptor(Value profile, Value options) {
       if (Core::truthy(missing_required_value)) {
         Value message = Core::string_format(Value("deployment profile {} requires endpoint option {}"), provider_id, required_field);
         Value error = Core::ai_error_unsupported(message);
-        throw Core::as_error(error);
+        Core::raise_error(error);
       }
     }
     Value host_field = Core::get(endpoint_config, Value("hostField"), Value());
@@ -7427,7 +7495,7 @@ Value Core::provider_operation_descriptor(Value profile, Value operation) {
   if (Core::truthy(missing)) {
     Value message = Core::string_format(Value("provider operation is not supported: {}"), operation);
     Value error = Core::ai_error_unsupported(message);
-    throw Core::as_error(error);
+    Core::raise_error(error);
   }
   return operation_desc;
 }
@@ -7441,7 +7509,7 @@ Value Core::provider_resolve_operation_descriptor(Value profile, Value operation
   if (Core::truthy(missing)) {
     Value message = Core::string_format(Value("provider operation is not supported: {}"), operation);
     Value error = Core::ai_error_unsupported(message);
-    throw Core::as_error(error);
+    Core::raise_error(error);
   }
   return operation_desc;
 }
@@ -7515,7 +7583,7 @@ Value Core::provider_apply_realtime_credentials(Value setup, Value headers) {
     return setup;
   }
   Value error = Core::ai_error_unsupported(Value("Meta realtime credential provider must return an Authorization header"));
-  throw Core::as_error(error);
+  Core::raise_error(error);
 }
 
 Value Core::provider_should_use_realtime(Value profile, Value model, Value request, Value options) {
@@ -7689,7 +7757,7 @@ Value Core::_meta_asr_realtime_build_setup(Value descriptor, Value request, Valu
             Value rate_conflict = Core::and_(has_requested_rate, rate_differs);
             if (Core::truthy(rate_conflict)) {
               Value error = Core::ai_error_unsupported(Value("Conflicting realtime audio sample rates"));
-              throw Core::as_error(error);
+              Core::raise_error(error);
             }
             sample_rate_requested = part_rate;
           }
@@ -7702,7 +7770,7 @@ Value Core::_meta_asr_realtime_build_setup(Value descriptor, Value request, Valu
             Value channel_conflict = Core::and_(has_requested_channels, channels_differ);
             if (Core::truthy(channel_conflict)) {
               Value error = Core::ai_error_unsupported(Value("Conflicting realtime audio channel counts"));
-              throw Core::as_error(error);
+              Core::raise_error(error);
             }
             channels_requested = part_channels;
           }
@@ -7733,7 +7801,7 @@ Value Core::_meta_asr_realtime_build_setup(Value descriptor, Value request, Valu
   Value not_mono = Core::not_(mono);
   if (Core::truthy(not_mono)) {
     Value error = Core::ai_error_unsupported(Value("Meta Voice realtime input requires mono PCM audio"));
-    throw Core::as_error(error);
+    Core::raise_error(error);
   }
   Value is_16k_lower = Core::gte(sample_rate, Value(16000));
   Value is_16k_upper = Core::lte(sample_rate, Value(16000));
@@ -7745,7 +7813,7 @@ Value Core::_meta_asr_realtime_build_setup(Value descriptor, Value request, Valu
   Value invalid_rate = Core::not_(valid_rate);
   if (Core::truthy(invalid_rate)) {
     Value error = Core::ai_error_unsupported(Value("Meta Voice realtime input requires 16000 Hz or 24000 Hz PCM audio"));
-    throw Core::as_error(error);
+    Core::raise_error(error);
   }
   Value encoding = Value("PCM_24KHZ");
   if (Core::truthy(is_16k)) {
@@ -7775,7 +7843,7 @@ Value Core::_meta_asr_realtime_build_input(Value descriptor, Value request) {
           Value invalid = Core::not_(valid);
           if (Core::truthy(invalid)) {
             Value error = Core::ai_error_unsupported(Value("Meta Voice realtime input requires PCM16 audio"));
-            throw Core::as_error(error);
+            Core::raise_error(error);
           }
           Value binary = Value::object();
           Core::set(binary, Value("type"), Value("binary"));
@@ -7890,7 +7958,7 @@ Value Core::_gemini_live_bidi_build_setup(Value descriptor, Value request) {
   Value has_response_format = Core::truthy_value(response_format);
   if (Core::truthy(has_response_format)) {
     Value error = Core::ai_error_unsupported(Value("Gemini Live audio does not support structured response formats"));
-    throw Core::as_error(error);
+    Core::raise_error(error);
   }
   Value default_model = Core::get(descriptor, Value("defaultModel"), Value("gemini-2.5-flash-native-audio-preview-12-2025"));
   Value request_model = Core::get(request, Value("model"), default_model);
@@ -7977,7 +8045,7 @@ Value Core::_gemini_live_bidi_build_input(Value descriptor, Value request) {
           }
           if (!Core::truthy(valid_pcm)) {
             Value error = Core::ai_error_unsupported(Value("Gemini Live audio input must be PCM"));
-            throw Core::as_error(error);
+            Core::raise_error(error);
           }
           Value data = Core::get(part, Value("data"), Value(""));
           Value sample_rate = Core::get(part, Value("sampleRate"), Value());
@@ -8366,7 +8434,7 @@ Value Core::_provider_apply_request_rules(Value payload, Value request, Value ru
   if (Core::truthy(unsupported_thinking_level)) {
     Value unsupported_thinking_message = Core::get(unsupported_thinking_levels, requested_effort, Value());
     Value unsupported_thinking_error = Core::ai_error_unsupported(unsupported_thinking_message);
-    throw Core::as_error(unsupported_thinking_error);
+    Core::raise_error(unsupported_thinking_error);
   }
   Value effort_map = Core::get(rules, Value("effortMap"), empty_map);
   Value has_requested_effort = Core::is_not_none(requested_effort);
@@ -8450,7 +8518,7 @@ Value Core::_provider_apply_request_rules(Value payload, Value request, Value ru
     Value caller_forced = Core::or_(choice_required, object_not_ax);
     if (Core::truthy(caller_forced)) {
       Value error = Core::ai_error_unsupported(Value("deployment profile does not support explicitly forced tool choices"));
-      throw Core::as_error(error);
+      Core::raise_error(error);
     }
     Core::map_delete(payload, Value("tool_choice"));
   }
@@ -8500,7 +8568,7 @@ Value Core::_provider_apply_request_rules(Value payload, Value request, Value ru
         }
         if (!Core::truthy(can_require_output)) {
           Value error = Core::ai_error_unsupported(Value("deployment profile does not support explicitly named tool choices"));
-          throw Core::as_error(error);
+          Core::raise_error(error);
         }
       }
     }
@@ -8647,7 +8715,7 @@ Value Core::_provider_apply_service_tier(Value profile, Value payload, Value req
     Value model = Core::get(request, Value("model"), Value(""));
     Value message = Core::string_format(Value("service tier {} is not verified for profile {} model {}"), normalized_tier, profile, model);
     Value error = Core::ai_error_unsupported(message);
-    throw Core::as_error(error);
+    Core::raise_error(error);
   }
   Value profile_map = Core::get(profile_rules, Value("serviceTierMap"), empty_map);
   Value model_map = Core::get(model_rules, Value("serviceTierMap"), empty_map);
@@ -8746,7 +8814,7 @@ Value Core::provider_build_chat_request(Value profile, Value request, Value opti
     if (Core::truthy(native_unsupported)) {
       Value native_message = Core::string_format(Value("native JSON Schema output is not supported by profile {} model {}"), provider_id, model);
       Value native_error = Core::ai_error_unsupported(native_message);
-      throw Core::as_error(native_error);
+      Core::raise_error(native_error);
     }
   }
   Value is_json_object = Core::eq(response_format_type, Value("json_object"));
@@ -8763,7 +8831,7 @@ Value Core::provider_build_chat_request(Value profile, Value request, Value opti
     if (Core::truthy(json_object_unsupported)) {
       Value json_object_message = Core::string_format(Value("JSON object output is not supported by profile {} model {}"), provider_id, model);
       Value json_object_error = Core::ai_error_unsupported(json_object_message);
-      throw Core::as_error(json_object_error);
+      Core::raise_error(json_object_error);
     }
   }
   return payload;
@@ -8800,7 +8868,7 @@ Value Core::_meta_prepare_responses_request(Value payload, Value request, Value 
   Value invalid_functions = Core::and_(restricted_model, has_functions);
   if (Core::truthy(invalid_functions)) {
     Value error = Core::ai_error_unsupported(Value("Meta Muse Image and Voice models do not permit function tools"));
-    throw Core::as_error(error);
+    Core::raise_error(error);
   }
   if (Core::truthy(is_image)) {
     Value empty_map = Value::object();
@@ -8822,7 +8890,7 @@ Value Core::_meta_prepare_responses_request(Value payload, Value request, Value 
         }
         if (!Core::truthy(allowed_item)) {
           Value error = Core::ai_error_unsupported(Value("muse-image-1.0 accepts only text, reference images, and prior generated images"));
-          throw Core::as_error(error);
+          Core::raise_error(error);
         }
         Value empty_item_content = Value::array();
         Value content = Core::get(item, Value("content"), empty_item_content);
@@ -8841,7 +8909,7 @@ Value Core::_meta_prepare_responses_request(Value payload, Value request, Value 
             if (!Core::truthy(allowed_part)) {
               Value message = Core::string_format(Value("muse-image-1.0 does not support {} input"), part_type);
               Value error = Core::ai_error_unsupported(message);
-              throw Core::as_error(error);
+              Core::raise_error(error);
             }
           }
         }
@@ -9163,7 +9231,7 @@ Value Core::provider_build_embed_request(Value profile, Value request, Value opt
   if (!Core::truthy(is_gemini)) {
     if (Core::truthy(is_anthropic)) {
       Value error = Core::ai_error_unsupported(Value("embed is not supported by Anthropic provider"));
-      throw Core::as_error(error);
+      Core::raise_error(error);
     }
     if (!Core::truthy(is_anthropic)) {
       Value openai_payload = Core::openai_build_embed_request(request);
@@ -9492,7 +9560,7 @@ Value Core::_meta_build_transcribe_request(Value request) {
   Value model_bad = Core::not_(model_ok);
   if (Core::truthy(model_bad)) {
     Value error = Core::ai_error_unsupported(Value("Meta Voice transcribe requires muse-voice-transcribe-1.0"));
-    throw Core::as_error(error);
+    Core::raise_error(error);
   }
   Value format = Core::get(audio, Value("format"), Value());
   Value has_format = Core::is_not_none(format);
@@ -9501,7 +9569,7 @@ Value Core::_meta_build_transcribe_request(Value request) {
     Value format_bad = Core::not_(format_ok);
     if (Core::truthy(format_bad)) {
       Value error = Core::ai_error_unsupported(Value("Meta Voice batch transcription requires WAV audio"));
-      throw Core::as_error(error);
+      Core::raise_error(error);
     }
   }
   Value channels = Core::get(audio, Value("channels"), Value());
@@ -9513,7 +9581,7 @@ Value Core::_meta_build_transcribe_request(Value request) {
     Value not_mono = Core::not_(mono);
     if (Core::truthy(not_mono)) {
       Value error = Core::ai_error_unsupported(Value("Meta Voice batch transcription requires mono audio"));
-      throw Core::as_error(error);
+      Core::raise_error(error);
     }
   }
   Value sample_rate_snake = Core::get(audio, Value("sample_rate"), Value());
@@ -9530,7 +9598,7 @@ Value Core::_meta_build_transcribe_request(Value request) {
     Value rate_bad = Core::not_(rate_ok);
     if (Core::truthy(rate_bad)) {
       Value error = Core::ai_error_unsupported(Value("Meta Voice batch transcription requires 16000 Hz or 24000 Hz audio"));
-      throw Core::as_error(error);
+      Core::raise_error(error);
     }
   }
   Value mode = Core::get(request, Value("mode"), Value());
@@ -9560,7 +9628,7 @@ Value Core::_meta_build_transcribe_request(Value request) {
   Value has_unsupported_bias = Core::or_(has_language, has_prompt);
   if (Core::truthy(has_unsupported_bias)) {
     Value error = Core::ai_error_unsupported(Value("Meta Voice uses languageBias and keywords instead of language or prompt"));
-    throw Core::as_error(error);
+    Core::raise_error(error);
   }
   Value partial_snake = Core::get(request, Value("partial_mode"), Value());
   Value partial = Core::get(request, Value("partialMode"), partial_snake);
@@ -9870,7 +9938,7 @@ Value Core::openai_responses_build_chat_request(Value request) {
           Value missing_image_id = Core::not_(has_image_id);
           if (Core::truthy(missing_image_id)) {
             Value error = Core::ai_error_unsupported(Value("Responses image replay requires the provider image id"));
-            throw Core::as_error(error);
+            Core::raise_error(error);
           }
           Core::set(image_item, Value("id"), image_id);
           Core::set(image_item, Value("status"), Value("completed"));
@@ -10225,7 +10293,7 @@ Value Core::_openai_responses_content_part_impl(Value part, Value role) {
   }
   Value message = Core::string_format(Value("Unsupported Responses content part: {}"), type);
   Value error = Core::ai_error_unsupported(message);
-  throw Core::as_error(error);
+  Core::raise_error(error);
 }
 
 Value Core::_openai_responses_copy_cache_control_impl(Value target, Value source) {
@@ -10460,7 +10528,9 @@ Value Core::_openai_responses_function_call_impl(Value item) {
   Value empty_args = Value::object();
   Value args = Core::get(item, Value("arguments"), empty_args);
   Value args_is_string = Core::type_is(args, Value("string"));
-  if (Core::truthy(args_is_string)) {
+  Value has_args = Core::truthy_value(args);
+  Value parse_args = Core::and_(args_is_string, has_args);
+  if (Core::truthy(parse_args)) {
     try {
       Value parsed = Core::json_parse(args);
       args = parsed;
@@ -10492,13 +10562,13 @@ Value Core::openai_responses_normalize_stream_delta(Value event, Value state, Va
     Value provider_error = Core::get(event_response, Value("error"), empty_response);
     Value error_message = Core::get(provider_error, Value("message"), Value("Responses stream failed"));
     Value error = Core::ai_error_response(error_message, event_response);
-    throw Core::as_error(error);
+    Core::raise_error(error);
   }
   Value is_error = Core::eq(type, Value("error"));
   if (Core::truthy(is_error)) {
     Value error_message = Core::get(event, Value("message"), Value("Responses stream failed"));
     Value error = Core::ai_error_response(error_message, event);
-    throw Core::as_error(error);
+    Core::raise_error(error);
   }
   Value event_response_id = Core::get(event_response, Value("id"), Value());
   Value event_response_id_fallback = Core::get(event, Value("response_id"), event_response_id);
@@ -10906,7 +10976,7 @@ Value Core::_meta_asr_realtime_normalize_event(Value event, Value state, Value a
     Value nested_message = Core::get(error_payload, Value("message"), Value("Meta Voice realtime transcription error"));
     Value message = Core::get(event, Value("message"), nested_message);
     Value error = Core::ai_error_response(message, event);
-    throw Core::as_error(error);
+    Core::raise_error(error);
   }
   Value result = Value::object();
   Core::set(result, Value("index"), Value(0));
@@ -11139,7 +11209,7 @@ Value Core::openai_responses_normalize_realtime_event(Value event, Value state, 
     Value error_payload = Core::get(event, Value("error"), empty_error_payload);
     Value error_message = Core::get(error_payload, Value("message"), Value("realtime audio provider error"));
     Value error = Core::ai_error_response(error_message, event);
-    throw Core::as_error(error);
+    Core::raise_error(error);
   }
   Value result = Value::object();
   Core::set(result, Value("index"), Value(0));
@@ -11213,7 +11283,7 @@ Value Core::_gemini_live_bidi_normalize_realtime_event(Value event, Value state,
   if (Core::truthy(has_error)) {
     Value error_message = Core::get(error_payload, Value("message"), Value("Gemini Live realtime audio provider error"));
     Value error = Core::ai_error_response(error_message, event);
-    throw Core::as_error(error);
+    Core::raise_error(error);
   }
   Value result = Value::object();
   Core::set(result, Value("index"), Value(0));
@@ -11317,11 +11387,11 @@ Value Core::_gemini_service_tier_impl(Value request, Value options, Value vertex
     }
     if (Core::truthy(vertex)) {
       Value error = Core::ai_error_unsupported(Value("Gemini inference service tiers are not supported by Vertex AI"));
-      throw Core::as_error(error);
+      Core::raise_error(error);
     }
     if (Core::truthy(live)) {
       Value error = Core::ai_error_unsupported(Value("Gemini inference service tiers are not supported by the Live API"));
-      throw Core::as_error(error);
+      Core::raise_error(error);
     }
   }
   return service_tier;
@@ -11444,7 +11514,7 @@ Value Core::_gemini_clamp_thinking_level_impl(Value model, Value level) {
   if (!Core::truthy(is_supported_level)) {
     Value message = Core::string_format(Value("unsupported Gemini thinking level: {}"), level);
     Value error = Core::ai_error_unsupported(message);
-    throw Core::as_error(error);
+    Core::raise_error(error);
   }
   Value is_gemini3 = Core::contains(model, Value("gemini-3"));
   Value is_image_name = Core::contains(model, Value("-image"));
@@ -11502,14 +11572,14 @@ Value Core::_gemini_apply_thinking_config_impl(Value payload, Value model, Value
       if (Core::truthy(budget_is_number)) {
         Value message = Core::string_format(Value("Gemini 3 model {} does not support numeric thinkingTokenBudget"), model);
         Value error = Core::ai_error_unsupported(message);
-        throw Core::as_error(error);
+        Core::raise_error(error);
       }
       if (Core::truthy(budget_is_string)) {
         // empty
       }
       if (!Core::truthy(budget_is_string)) {
         Value error = Core::ai_error_unsupported(Value("Gemini thinkingTokenBudget must be a number or logical level"));
-        throw Core::as_error(error);
+        Core::raise_error(error);
       }
       Value level = Value("");
       Value is_none = Core::eq(budget, Value("none"));
@@ -11541,7 +11611,7 @@ Value Core::_gemini_apply_thinking_config_impl(Value payload, Value model, Value
       if (Core::truthy(unknown_level)) {
         Value message = Core::string_format(Value("unsupported Gemini thinkingTokenBudget level: {}"), budget);
         Value error = Core::ai_error_unsupported(message);
-        throw Core::as_error(error);
+        Core::raise_error(error);
       }
       Value mapping_key = budget;
       if (Core::truthy(is_none)) {
@@ -11567,7 +11637,7 @@ Value Core::_gemini_apply_thinking_config_impl(Value payload, Value model, Value
         }
         if (!Core::truthy(budget_is_string)) {
           Value error = Core::ai_error_unsupported(Value("Gemini thinkingTokenBudget must be a number or logical level"));
-          throw Core::as_error(error);
+          Core::raise_error(error);
         }
         Value numeric_budget = Value(-1);
         Value is_none = Core::eq(budget, Value("none"));
@@ -11602,7 +11672,7 @@ Value Core::_gemini_apply_thinking_config_impl(Value payload, Value model, Value
         if (Core::truthy(unknown_level)) {
           Value message = Core::string_format(Value("unsupported Gemini thinkingTokenBudget level: {}"), budget);
           Value error = Core::ai_error_unsupported(message);
-          throw Core::as_error(error);
+          Core::raise_error(error);
         }
         Core::set(thinking_config, Value("thinkingBudget"), numeric_budget);
       }
@@ -11620,7 +11690,7 @@ Value Core::_gemini_apply_thinking_config_impl(Value payload, Value model, Value
     }
     if (!Core::truthy(level_is_string)) {
       Value error = Core::ai_error_unsupported(Value("Gemini thinkingLevel must be a logical level"));
-      throw Core::as_error(error);
+      Core::raise_error(error);
     }
     Value clamped_level = Core::_gemini_clamp_thinking_level_impl(model, explicit_level);
     Core::map_delete(thinking_config, Value("thinkingBudget"));
@@ -11820,7 +11890,7 @@ Value Core::_gemini_content_part_impl(Value part) {
   }
   Value message = Core::string_format(Value("Chat prompt content type not supported: {}"), type);
   Value error = Core::ai_error_unsupported(message);
-  throw Core::as_error(error);
+  Core::raise_error(error);
 }
 
 Value Core::_gemini_function_declaration_impl(Value fn) {
@@ -11958,7 +12028,7 @@ Value Core::_gemini_normalize_chat_response(Value raw, Value ai_name, Value mode
       if (!Core::truthy(is_stop)) {
         Value message = Core::string_format(Value("Gemini finish reason was blocked: {}"), finish);
         Value error = Core::ai_error_refusal(message, raw);
-        throw Core::as_error(error);
+        Core::raise_error(error);
       }
     }
     Value empty_content = Value::object();
@@ -12297,7 +12367,7 @@ Value Core::_anthropic_apply_model_config_impl(Value payload, Value model_config
     Value too_many = Core::gt(n, Value(1));
     if (Core::truthy(too_many)) {
       Value error = Core::ai_error_unsupported(Value("Anthropic does not support sampling (n > 1)"));
-      throw Core::as_error(error);
+      Core::raise_error(error);
     }
   }
   Value budget = Core::get(model_config, Value("thinkingTokenBudget"), Value());
@@ -12698,7 +12768,7 @@ Value Core::_anthropic_content_part_impl(Value part) {
   }
   Value message = Core::string_format(Value("Anthropic content type not supported: {}"), type);
   Value error = Core::ai_error_unsupported(message);
-  throw Core::as_error(error);
+  Core::raise_error(error);
 }
 
 Value Core::_anthropic_tool_spec_impl(Value fn) {
@@ -12730,7 +12800,7 @@ Value Core::_anthropic_tool_choice_impl(Value request, Value supports_none) {
       return choice;
     }
     Value error = Core::ai_error_unsupported(Value("functionCall none not supported"));
-    throw Core::as_error(error);
+    Core::raise_error(error);
   }
   Value is_required = Core::eq(function_call, Value("required"));
   if (Core::truthy(is_required)) {
@@ -12821,7 +12891,7 @@ Value Core::_anthropic_normalize_chat_response(Value raw, Value ai_name, Value m
   if (Core::truthy(is_error)) {
     Value error_body = Core::get(raw, Value("error"), Value());
     Value error = Core::_anthropic_map_error_event(error_body, raw);
-    throw Core::as_error(error);
+    Core::raise_error(error);
   }
   Value stop_reason = Core::get(raw, Value("stop_reason"), Value());
   Value is_refusal = Core::eq(stop_reason, Value("refusal"));
@@ -12829,7 +12899,7 @@ Value Core::_anthropic_normalize_chat_response(Value raw, Value ai_name, Value m
     Value details = Core::get(raw, Value("stop_details"), Value());
     Value message = Core::get(details, Value("explanation"), Value("Anthropic refused to fulfill this request"));
     Value error = Core::ai_error_refusal(message, raw);
-    throw Core::as_error(error);
+    Core::raise_error(error);
   }
   Value text_parts = Value::array();
   Value function_calls = Value::array();
@@ -13029,7 +13099,7 @@ Value Core::_anthropic_normalize_stream_delta(Value event, Value state, Value ai
   if (Core::truthy(is_error)) {
     Value error_body = Core::get(event, Value("error"), Value());
     Value error = Core::_anthropic_map_error_event(error_body, event);
-    throw Core::as_error(error);
+    Core::raise_error(error);
   }
   Value index = Value(0);
   Value is_start = Core::eq(type, Value("message_start"));
@@ -13198,7 +13268,7 @@ Value Core::_anthropic_normalize_stream_delta(Value event, Value state, Value ai
       Value details = Core::get(delta, Value("stop_details"), Value());
       Value message = Core::get(details, Value("explanation"), Value("Anthropic refused to fulfill this request"));
       Value error = Core::ai_error_refusal(message, event);
-      throw Core::as_error(error);
+      Core::raise_error(error);
     }
     Value usage_delta = Core::get(event, Value("usage"), Value());
     Value usage_existing = Core::get(state, Value("usage"), usage_delta);
@@ -13448,7 +13518,7 @@ Value Core::_execute_tool_call(Value functions, Value call) {
   Value available = Core::string_default_if_empty(available_joined, Value("(none)"));
   Value message = Core::string_format(Value("Function not found: {}. Available functions: {}. Call one of these exact function names."), name, available);
   Value error = Core::validation_error(message);
-  throw Core::as_error(error);
+  Core::raise_error(error);
 }
 
 Value Core::stream_extraction_route(Value has_complex_fields) {
@@ -13585,7 +13655,7 @@ Value Core::_validate_optimization_component_value(Value component, Value value)
       Value id = Core::get(component, Value("id"), Value(""));
       Value message = Core::string_format(Value("invalid optimized component value for {}"), id);
       Value error = Core::runtime_error(message);
-      throw Core::as_error(error);
+      Core::raise_error(error);
     }
   }
   Value current_is_object = Core::type_is(current, Value("object"));
@@ -13596,7 +13666,7 @@ Value Core::_validate_optimization_component_value(Value component, Value value)
       Value id_object = Core::get(component, Value("id"), Value(""));
       Value message_object = Core::string_format(Value("invalid optimized component value for {}"), id_object);
       Value error_object = Core::runtime_error(message_object);
-      throw Core::as_error(error_object);
+      Core::raise_error(error_object);
     }
   }
   Value current_is_list = Core::type_is(current, Value("list"));
@@ -13607,7 +13677,7 @@ Value Core::_validate_optimization_component_value(Value component, Value value)
       Value id_list = Core::get(component, Value("id"), Value(""));
       Value message_list = Core::string_format(Value("invalid optimized component value for {}"), id_list);
       Value error_list = Core::runtime_error(message_list);
-      throw Core::as_error(error_list);
+      Core::raise_error(error_list);
     }
   }
   Value current_is_number = Core::type_is(current, Value("number"));
@@ -13618,7 +13688,7 @@ Value Core::_validate_optimization_component_value(Value component, Value value)
       Value id_number = Core::get(component, Value("id"), Value(""));
       Value message_number = Core::string_format(Value("invalid optimized component value for {}"), id_number);
       Value error_number = Core::runtime_error(message_number);
-      throw Core::as_error(error_number);
+      Core::raise_error(error_number);
     }
   }
   Value current_is_boolean = Core::type_is(current, Value("boolean"));
@@ -13629,7 +13699,7 @@ Value Core::_validate_optimization_component_value(Value component, Value value)
       Value id_boolean = Core::get(component, Value("id"), Value(""));
       Value message_boolean = Core::string_format(Value("invalid optimized component value for {}"), id_boolean);
       Value error_boolean = Core::runtime_error(message_boolean);
-      throw Core::as_error(error_boolean);
+      Core::raise_error(error_boolean);
     }
   }
   Value format = Core::get(component, Value("format"), Value(""));
@@ -13639,7 +13709,7 @@ Value Core::_validate_optimization_component_value(Value component, Value value)
     Value bad_snake = Core::not_(snake_ok);
     if (Core::truthy(bad_snake)) {
       Value error_snake = Core::runtime_error(Value("invalid optimized function name"));
-      throw Core::as_error(error_snake);
+      Core::raise_error(error_snake);
     }
   }
   return Value(true);
@@ -13661,7 +13731,7 @@ Value Core::_validate_optimization_component_map(Value components, Value compone
     if (Core::truthy(bad)) {
       Value message = Core::string_format(Value("unknown optimized component id: {}"), id);
       Value error = Core::runtime_error(message);
-      throw Core::as_error(error);
+      Core::raise_error(error);
     }
     Value component = Core::get(component_by_id, id, Value());
     Value value = Core::get(component_map, id, Value());
@@ -13756,7 +13826,7 @@ Value Core::_validate_optimized_artifact_provenance(Value artifact, Value compon
   Value bad_owners = Core::not_(owners_is_object);
   if (Core::truthy(bad_owners)) {
     Value owners_error = Core::runtime_error(Value("optimized artifact provenance componentOwners must be an object"));
-    throw Core::as_error(owners_error);
+    Core::raise_error(owners_error);
   }
   for (auto component : Core::iter(components)) {
     Value id = Core::get(component, Value("id"), Value(""));
@@ -13769,7 +13839,7 @@ Value Core::_validate_optimized_artifact_provenance(Value artifact, Value compon
       if (Core::truthy(stale_owner)) {
         Value message = Core::string_format(Value("stale optimized component owner: {}"), id);
         Value error = Core::runtime_error(message);
-        throw Core::as_error(error);
+        Core::raise_error(error);
       }
     }
   }
@@ -13788,14 +13858,14 @@ Value Core::_validate_optimized_artifact(Value artifact, Value components) {
   Value not_object = Core::not_(is_object);
   if (Core::truthy(not_object)) {
     Value error = Core::runtime_error(Value("optimized artifact must be an object"));
-    throw Core::as_error(error);
+    Core::raise_error(error);
   }
   Value version = Core::get(artifact, Value("artifactVersion"), Value(""));
   Value version_ok = Core::eq(version, Value("axir-optimized-artifact-v1"));
   Value bad_version = Core::not_(version_ok);
   if (Core::truthy(bad_version)) {
     Value error_version = Core::runtime_error(Value("unsupported optimized artifact version"));
-    throw Core::as_error(error_version);
+    Core::raise_error(error_version);
   }
   Value optimizer_name = Core::get(artifact, Value("optimizerName"), Value(""));
   Value name_is_string = Core::type_is(optimizer_name, Value("string"));
@@ -13804,7 +13874,7 @@ Value Core::_validate_optimized_artifact(Value artifact, Value components) {
   Value bad_name = Core::or_(bad_name_type, name_empty);
   if (Core::truthy(bad_name)) {
     Value name_error = Core::runtime_error(Value("optimized artifact optimizerName must be a non-empty string"));
-    throw Core::as_error(name_error);
+    Core::raise_error(name_error);
   }
   Value optimizer_version = Core::get(artifact, Value("optimizerVersion"), Value(""));
   Value version_is_string = Core::type_is(optimizer_version, Value("string"));
@@ -13813,7 +13883,7 @@ Value Core::_validate_optimized_artifact(Value artifact, Value components) {
   Value bad_optimizer_version = Core::or_(bad_optimizer_version_type, optimizer_version_empty);
   if (Core::truthy(bad_optimizer_version)) {
     Value optimizer_version_error = Core::runtime_error(Value("optimized artifact optimizerVersion must be a non-empty string"));
-    throw Core::as_error(optimizer_version_error);
+    Core::raise_error(optimizer_version_error);
   }
   Value empty_map = Value::object();
   Value component_map = Core::get(artifact, Value("componentMap"), empty_map);
@@ -13821,28 +13891,28 @@ Value Core::_validate_optimized_artifact(Value artifact, Value components) {
   Value bad_component_map = Core::not_(component_map_is_object);
   if (Core::truthy(bad_component_map)) {
     Value error_map = Core::runtime_error(Value("optimized artifact componentMap must be an object"));
-    throw Core::as_error(error_map);
+    Core::raise_error(error_map);
   }
   Value metadata = Core::get(artifact, Value("metadata"), Value());
   Value metadata_is_object = Core::type_is(metadata, Value("object"));
   Value bad_metadata = Core::not_(metadata_is_object);
   if (Core::truthy(bad_metadata)) {
     Value metadata_error = Core::runtime_error(Value("optimized artifact metadata must be an object"));
-    throw Core::as_error(metadata_error);
+    Core::raise_error(metadata_error);
   }
   Value provenance = Core::get(artifact, Value("provenance"), Value());
   Value provenance_is_object = Core::type_is(provenance, Value("object"));
   Value bad_provenance = Core::not_(provenance_is_object);
   if (Core::truthy(bad_provenance)) {
     Value provenance_error = Core::runtime_error(Value("optimized artifact provenance must be an object"));
-    throw Core::as_error(provenance_error);
+    Core::raise_error(provenance_error);
   }
   Value evidence = Core::get(artifact, Value("evidence"), Value());
   Value evidence_is_object = Core::type_is(evidence, Value("object"));
   Value bad_evidence = Core::not_(evidence_is_object);
   if (Core::truthy(bad_evidence)) {
     Value evidence_error = Core::runtime_error(Value("optimized artifact evidence must be an object"));
-    throw Core::as_error(evidence_error);
+    Core::raise_error(evidence_error);
   }
   Core::_validate_optimization_component_map(components, component_map);
   Core::_validate_optimized_artifact_provenance(artifact, components);
@@ -14328,7 +14398,7 @@ Value Core::_select_sample_index(Value samples, Value options) {
     Value max_index = Core::add(sample_count, Value(-1));
     Value message = Core::string_format(Value("Result picker returned invalid index: {}. Must be between 0 and {}"), selected, max_index);
     Value error = Core::runtime_error(message);
-    throw Core::as_error(error);
+    Core::raise_error(error);
   }
   return selected;
 }
@@ -14435,7 +14505,7 @@ Value Core::_forward_impl(Value gen, Value client, Value values, Value options) 
           Value structured_validation_error = Core::exception_value(e);
           Value structured_retries_exhausted = Core::gte(attempt, validation_retries);
           if (Core::truthy(structured_retries_exhausted)) {
-            throw Core::as_error(structured_validation_error);
+            Core::raise_error(structured_validation_error);
           }
           Value structured_next_attempt = Core::add(attempt, Value(1));
           attempt = structured_next_attempt;
@@ -14485,7 +14555,7 @@ Value Core::_forward_impl(Value gen, Value client, Value values, Value options) 
         Value validation_error = Core::exception_value(e);
         Value retries_exhausted = Core::gte(attempt, validation_retries);
         if (Core::truthy(retries_exhausted)) {
-          throw Core::as_error(validation_error);
+          Core::raise_error(validation_error);
         }
         Value next_attempt = Core::add(attempt, Value(1));
         attempt = next_attempt;
@@ -14564,7 +14634,7 @@ Value Core::_filter_optimization_components(Value components, Value target) {
   if (Core::truthy(empty)) {
     Value message = Core::string_format(Value("no optimizable components match target: {}"), target);
     Value error = Core::runtime_error(message);
-    throw Core::as_error(error);
+    Core::raise_error(error);
   }
   return out;
 }
@@ -14624,7 +14694,7 @@ Value Core::_normalize_optimizer_engine_response(Value response, Value engine_na
   Value bad_response = Core::not_(response_is_object);
   if (Core::truthy(bad_response)) {
     Value error = Core::runtime_error(Value("optimizer engine must return an optimized artifact"));
-    throw Core::as_error(error);
+    Core::raise_error(error);
   }
   Value empty_map = Value::object();
   Value has_artifact = Core::map_contains(response, Value("artifact"));
@@ -14638,7 +14708,7 @@ Value Core::_normalize_optimizer_engine_response(Value response, Value engine_na
   Value bad_artifact = Core::not_(artifact_is_object);
   if (Core::truthy(bad_artifact)) {
     Value artifact_error = Core::runtime_error(Value("optimizer engine must return an optimized artifact"));
-    throw Core::as_error(artifact_error);
+    Core::raise_error(artifact_error);
   }
   Value version = Core::get(artifact, Value("artifactVersion"), Value());
   Value missing_version = Core::is_none(version);
@@ -14822,18 +14892,22 @@ Value Core::_complete_with_retries_impl(Value client, Value request, Value optio
       return response;
     } catch (const std::exception& e) {
       Value error = Core::exception_value(e);
+      Value aborted = Core::exception_is_aborted(error);
+      if (Core::truthy(aborted)) {
+        Core::raise_error(error);
+      }
       last_error = error;
       Value exhausted = Core::gte(attempt, retries);
       if (Core::truthy(exhausted)) {
-        throw Core::as_error(error);
+        Core::raise_error(error);
       }
-      Core::retry_sleep(attempt);
+      Core::retry_sleep(attempt, client, options);
       Value next_attempt = Core::add(attempt, Value(1));
       attempt = next_attempt;
       continue;
     }
   }
-  throw Core::as_error(last_error);
+  Core::raise_error(last_error);
 }
 
 Value Core::_parse_output_impl(Value content) {
@@ -14841,23 +14915,6 @@ Value Core::_parse_output_impl(Value content) {
   Value text = Core::string_trim(content);
   Value output = Core::json_parse_strict(text);
   return output;
-}
-
-Value Core::_is_flexible_json_field(Value typ) {
-  axir_coverage_mark("_is_flexible_json_field");
-  Value type_name = Core::get(typ, Value("name"), Value());
-  Value is_json = Core::eq(type_name, Value("json"));
-  Value is_object = Core::eq(type_name, Value("object"));
-  Value fields = Core::get(typ, Value("fields"), Value());
-  Value has_fields = Core::truthy_value(fields);
-  Value no_fields = Core::not_(has_fields);
-  Value flexible = is_json;
-  if (Core::truthy(is_object)) {
-    if (Core::truthy(no_fields)) {
-      flexible = Value(true);
-    }
-  }
-  return flexible;
 }
 
 Value Core::_ace_estimate_token_count(Value text) {
@@ -14878,22 +14935,21 @@ Value Core::_ace_estimate_token_count(Value text) {
   return tokens;
 }
 
-Value Core::_parse_json_string_value(Value value) {
-  axir_coverage_mark("_parse_json_string_value");
-  Value is_string = Core::type_is(value, Value("string"));
-  Value not_string = Core::not_(is_string);
-  if (Core::truthy(not_string)) {
-    return value;
+Value Core::_is_flexible_json_field(Value typ) {
+  axir_coverage_mark("_is_flexible_json_field");
+  Value type_name = Core::get(typ, Value("name"), Value());
+  Value is_json = Core::eq(type_name, Value("json"));
+  Value is_object = Core::eq(type_name, Value("object"));
+  Value fields = Core::get(typ, Value("fields"), Value());
+  Value has_fields = Core::truthy_value(fields);
+  Value no_fields = Core::not_(has_fields);
+  Value flexible = is_json;
+  if (Core::truthy(is_object)) {
+    if (Core::truthy(no_fields)) {
+      flexible = Value(true);
+    }
   }
-  Value result = value;
-  try {
-    Value parsed = Core::json_parse(value);
-    result = parsed;
-  } catch (const std::exception& e) {
-    Value parse_error = Core::exception_value(e);
-    result = value;
-  }
-  return result;
+  return flexible;
 }
 
 Value Core::_ace_recompute_playbook_stats(Value playbook) {
@@ -14928,6 +14984,24 @@ Value Core::_ace_recompute_playbook_stats(Value playbook) {
   Core::set(stats, Value("tokenEstimate"), token_estimate);
   Core::set(playbook, Value("stats"), stats);
   return playbook;
+}
+
+Value Core::_parse_json_string_value(Value value) {
+  axir_coverage_mark("_parse_json_string_value");
+  Value is_string = Core::type_is(value, Value("string"));
+  Value not_string = Core::not_(is_string);
+  if (Core::truthy(not_string)) {
+    return value;
+  }
+  Value result = value;
+  try {
+    Value parsed = Core::json_parse(value);
+    result = parsed;
+  } catch (const std::exception& e) {
+    Value parse_error = Core::exception_value(e);
+    result = value;
+  }
+  return result;
 }
 
 Value Core::_parse_json_string_for_field(Value field, Value value) {
@@ -15155,7 +15229,7 @@ Value Core::_validate_exact_output_keys(Value fields, Value values, Value contex
   if (Core::truthy(not_object)) {
     Value object_message = Core::string_format(Value("{} must be one JSON object"), context);
     Value object_error = Core::validation_error(object_message);
-    throw Core::as_error(object_error);
+    Core::raise_error(object_error);
   }
   Value keys = Core::map_keys(values);
   for (auto key : Core::iter(keys)) {
@@ -15171,7 +15245,7 @@ Value Core::_validate_exact_output_keys(Value fields, Value values, Value contex
     if (Core::truthy(unknown)) {
       Value unknown_message = Core::string_format(Value("Unexpected field '{}' in {}. Use only the exact declared wire keys."), key, context);
       Value unknown_error = Core::validation_error(unknown_message);
-      throw Core::as_error(unknown_error);
+      Core::raise_error(unknown_error);
     }
   }
   for (auto field : Core::iter(fields)) {
@@ -16189,7 +16263,7 @@ Value Core::_agent_factory(Value signature, Value options) {
     if (Core::truthy(missing)) {
       Value message = Core::string_format(Value("context field not found: {}"), ctx);
       Value error = Core::runtime_error(message);
-      throw Core::as_error(error);
+      Core::raise_error(error);
     }
   }
   Value chat_log = Value::array();
@@ -16643,32 +16717,32 @@ Value Core::_resolve_agent_auto_upgrade(Value options) {
   Value above_bad_type = Core::not_(above_is_number);
   if (Core::truthy(above_bad_type)) {
     Value error = Core::runtime_error(Value("autoUpgrade.functionDiscovery.aboveFunctionDocChars must be a finite number > 0"));
-    throw Core::as_error(error);
+    Core::raise_error(error);
   }
   Value above_too_low = Core::lte(above, Value(0));
   if (Core::truthy(above_too_low)) {
     Value error2 = Core::runtime_error(Value("autoUpgrade.functionDiscovery.aboveFunctionDocChars must be a finite number > 0"));
-    throw Core::as_error(error2);
+    Core::raise_error(error2);
   }
   Value promote_bad_type = Core::not_(promote_is_number);
   if (Core::truthy(promote_bad_type)) {
     Value error3 = Core::runtime_error(Value("autoUpgrade.contextFields.promoteAboveChars must be a finite number > 0"));
-    throw Core::as_error(error3);
+    Core::raise_error(error3);
   }
   Value promote_too_low = Core::lte(promote, Value(0));
   if (Core::truthy(promote_too_low)) {
     Value error4 = Core::runtime_error(Value("autoUpgrade.contextFields.promoteAboveChars must be a finite number > 0"));
-    throw Core::as_error(error4);
+    Core::raise_error(error4);
   }
   Value preview_bad_type = Core::not_(preview_is_number);
   if (Core::truthy(preview_bad_type)) {
     Value error5 = Core::runtime_error(Value("autoUpgrade.contextFields.previewChars must be a finite number > -1"));
-    throw Core::as_error(error5);
+    Core::raise_error(error5);
   }
   Value preview_too_low = Core::lt(preview, Value(0));
   if (Core::truthy(preview_too_low)) {
     Value error6 = Core::runtime_error(Value("autoUpgrade.contextFields.previewChars must be a finite number > -1"));
-    throw Core::as_error(error6);
+    Core::raise_error(error6);
   }
   Value function = Value::object();
   Core::set(function, Value("enabled"), function_enabled);
@@ -16884,7 +16958,7 @@ Value Core::_agent_policy_flags(Value options, Value callable_split, Value auto_
   Value direct_response_invalid = Core::not_(direct_response_valid);
   if (Core::truthy(direct_response_invalid)) {
     Value direct_response_error = Core::runtime_error(Value("directResponse must be 'auto' or 'off'"));
-    throw Core::as_error(direct_response_error);
+    Core::raise_error(direct_response_error);
   }
   Value direct_respond_enabled = Core::not_(direct_response_is_off);
   Value inline_callables = Core::get(callable_split, Value("inline"), empty_list);
@@ -17414,7 +17488,7 @@ Value Core::_validate_policy_reserved_names(Value registry, Value name) {
   if (Core::truthy(conflicts)) {
     Value message = Core::string_format(Value("agent callable namespace conflicts with reserved runtime name: {}"), name);
     Value error = Core::runtime_error(message);
-    throw Core::as_error(error);
+    Core::raise_error(error);
   }
   Value none = Core::none();
   return none;
@@ -17915,7 +17989,7 @@ Value Core::_resolve_agent_context_policy(Value options) {
     if (Core::truthy(disallowed)) {
       Value error_message = Core::_agent_context_policy_migration_error(key);
       Value error_policy = Core::runtime_error(error_message);
-      throw Core::as_error(error_policy);
+      Core::raise_error(error_policy);
     }
   }
   Value default_preset = Core::get(context_registry, Value("default_preset"), Value("checkpointed"));
@@ -18018,7 +18092,7 @@ Value Core::_resolve_agent_executor_model_policy(Value options) {
   }
   if (!Core::truthy(is_list)) {
     Value error_shape = Core::runtime_error(migration_error);
-    throw Core::as_error(error_shape);
+    Core::raise_error(error_shape);
   }
   Value out = Value::array();
   Value index = Value(0);
@@ -18030,7 +18104,7 @@ Value Core::_resolve_agent_executor_model_policy(Value options) {
     if (!Core::truthy(entry_is_map)) {
       Value message_entry = Core::string_format(Value("executorModelPolicy[{}] must be an object"), index);
       Value error_entry = Core::runtime_error(message_entry);
-      throw Core::as_error(error_entry);
+      Core::raise_error(error_entry);
     }
     Value legacy_any = Value(false);
     for (auto legacy_key : Core::iter(legacy_keys)) {
@@ -18041,14 +18115,14 @@ Value Core::_resolve_agent_executor_model_policy(Value options) {
     }
     if (Core::truthy(legacy_any)) {
       Value error_legacy = Core::runtime_error(migration_error);
-      throw Core::as_error(error_legacy);
+      Core::raise_error(error_legacy);
     }
     Value model = Core::get(entry, Value("model"), Value(""));
     Value model_missing = Core::eq(model, Value(""));
     if (Core::truthy(model_missing)) {
       Value message_model = Core::string_format(Value("executorModelPolicy[{}].model must be a non-empty string"), index);
       Value error_model = Core::runtime_error(message_model);
-      throw Core::as_error(error_model);
+      Core::raise_error(error_model);
     }
     Value above = Core::get(entry, Value("aboveErrorTurns"), Value());
     Value namespaces = Core::get(entry, Value("namespaces"), Value());
@@ -18062,7 +18136,7 @@ Value Core::_resolve_agent_executor_model_policy(Value options) {
       if (Core::truthy(above_invalid)) {
         Value message_above = Core::string_format(Value("executorModelPolicy[{}].aboveErrorTurns must be a finite number >= 0"), index);
         Value error_above = Core::runtime_error(message_above);
-        throw Core::as_error(error_above);
+        Core::raise_error(error_above);
       }
     }
     if (Core::truthy(has_namespaces)) {
@@ -18081,7 +18155,7 @@ Value Core::_resolve_agent_executor_model_policy(Value options) {
       if (Core::truthy(no_valid_namespaces)) {
         Value message_namespaces = Core::string_format(Value("executorModelPolicy[{}].namespaces must contain at least one non-empty string"), index);
         Value error_namespaces = Core::runtime_error(message_namespaces);
-        throw Core::as_error(error_namespaces);
+        Core::raise_error(error_namespaces);
       }
     }
     Value has_trigger = Core::or_(has_above, has_namespaces);
@@ -18091,7 +18165,7 @@ Value Core::_resolve_agent_executor_model_policy(Value options) {
     if (!Core::truthy(has_trigger)) {
       Value message_trigger = Core::string_format(Value("executorModelPolicy[{}] must define at least one of aboveErrorTurns or namespaces"), index);
       Value error_trigger = Core::runtime_error(message_trigger);
-      throw Core::as_error(error_trigger);
+      Core::raise_error(error_trigger);
     }
     Value normalized = Value::object();
     Core::set(normalized, Value("model"), model);
@@ -18108,7 +18182,7 @@ Value Core::_resolve_agent_executor_model_policy(Value options) {
   Value empty = Core::eq(count, Value(0));
   if (Core::truthy(empty)) {
     Value error_empty = Core::runtime_error(Value("executorModelPolicy must contain at least one entry"));
-    throw Core::as_error(error_empty);
+    Core::raise_error(error_empty);
   }
   return out;
 }
@@ -19703,7 +19777,7 @@ Value Core::_normalize_agent_callable(Value raw, Value namespace_) {
   Value missing_name = Core::eq(name, Value(""));
   if (Core::truthy(missing_name)) {
     Value error = Core::runtime_error(Value("agent callable name is required"));
-    throw Core::as_error(error);
+    Core::raise_error(error);
   }
   Value kind = Core::get(raw, Value("kind"), Value("tool"));
   Value description = Core::get(raw, Value("description"), Value(""));
@@ -19732,7 +19806,7 @@ Value Core::_normalize_agent_group(Value raw) {
   if (Core::truthy(conflicts)) {
     Value message = Core::string_format(Value("agent callable namespace conflicts with reserved runtime name: {}"), namespace_);
     Value error = Core::runtime_error(message);
-    throw Core::as_error(error);
+    Core::raise_error(error);
   }
   Value title = Core::get(raw, Value("title"), namespace_);
   Value description = Core::get(raw, Value("description"), Value(""));
@@ -19771,7 +19845,7 @@ Value Core::_normalize_agent_callable_inventory(Value options) {
       has_group = Value(true);
       if (Core::truthy(has_flat)) {
         Value error = Core::runtime_error(Value("agent functions cannot mix grouped modules and flat functions"));
-        throw Core::as_error(error);
+        Core::raise_error(error);
       }
       Value group = Core::_normalize_agent_group(item);
       Core::append(groups, group);
@@ -19780,7 +19854,7 @@ Value Core::_normalize_agent_callable_inventory(Value options) {
       has_flat = Value(true);
       if (Core::truthy(has_group)) {
         Value error = Core::runtime_error(Value("agent functions cannot mix grouped modules and flat functions"));
-        throw Core::as_error(error);
+        Core::raise_error(error);
       }
       Value callable = Core::_normalize_agent_callable(item, Value("tools"));
       Core::append(flat_callables, callable);
@@ -19862,7 +19936,7 @@ Value Core::_normalize_agent_string_list(Value value, Value label) {
     if (Core::truthy(empty)) {
       Value message = Core::string_format(Value("{} entries must be non-empty strings"), label);
       Value error = Core::runtime_error(message);
-      throw Core::as_error(error);
+      Core::raise_error(error);
     }
     if (!Core::truthy(empty)) {
       Core::append(out, trimmed);
@@ -19874,7 +19948,7 @@ Value Core::_normalize_agent_string_list(Value value, Value label) {
     if (Core::truthy(not_list)) {
       Value message = Core::string_format(Value("{} must be a string or string[]"), label);
       Value error = Core::runtime_error(message);
-      throw Core::as_error(error);
+      Core::raise_error(error);
     }
     if (!Core::truthy(not_list)) {
       for (auto item : Core::iter(value)) {
@@ -19883,7 +19957,7 @@ Value Core::_normalize_agent_string_list(Value value, Value label) {
         if (Core::truthy(bad_item)) {
           Value message = Core::string_format(Value("{} entries must be strings"), label);
           Value error = Core::runtime_error(message);
-          throw Core::as_error(error);
+          Core::raise_error(error);
         }
         if (!Core::truthy(bad_item)) {
           Value trimmed_item = Core::string_trim(item);
@@ -19891,7 +19965,7 @@ Value Core::_normalize_agent_string_list(Value value, Value label) {
           if (Core::truthy(empty_item)) {
             Value message = Core::string_format(Value("{} entries must be non-empty strings"), label);
             Value error = Core::runtime_error(message);
-            throw Core::as_error(error);
+            Core::raise_error(error);
           }
           if (!Core::truthy(empty_item)) {
             Value already = Core::contains(out, trimmed_item);
@@ -19909,7 +19983,7 @@ Value Core::_normalize_agent_string_list(Value value, Value label) {
   if (Core::truthy(empty_out)) {
     Value message = Core::string_format(Value("{} requires at least one entry"), label);
     Value error = Core::runtime_error(message);
-    throw Core::as_error(error);
+    Core::raise_error(error);
   }
   return out;
 }
@@ -19931,7 +20005,7 @@ Value Core::_normalize_agent_discover_request(Value state, Value request) {
     Value bad = Core::not_(is_map);
     if (Core::truthy(bad)) {
       Value error = Core::runtime_error(Value("discover(...) expects a string, string[], or { tools?, skills? }"));
-      throw Core::as_error(error);
+      Core::raise_error(error);
     }
     if (!Core::truthy(bad)) {
       Value has_tools = Core::map_contains(request, Value("tools"));
@@ -19940,7 +20014,7 @@ Value Core::_normalize_agent_discover_request(Value state, Value request) {
       Value missing_any = Core::not_(has_any);
       if (Core::truthy(missing_any)) {
         Value error = Core::runtime_error(Value("discover(...) requires at least one of tools or skills"));
-        throw Core::as_error(error);
+        Core::raise_error(error);
       }
       if (Core::truthy(has_tools)) {
         Value raw_tools = Core::get(request, Value("tools"), empty_list);
@@ -19963,12 +20037,12 @@ Value Core::_normalize_agent_discover_request(Value state, Value request) {
   Value bad_tools = Core::and_(has_tool_items, tools_disabled);
   if (Core::truthy(bad_tools)) {
     Value error = Core::runtime_error(Value("discover({ tools }) requires function discovery to be enabled"));
-    throw Core::as_error(error);
+    Core::raise_error(error);
   }
   Value bad_skills = Core::and_(has_skill_items, skills_disabled);
   if (Core::truthy(bad_skills)) {
     Value error = Core::runtime_error(Value("discover({ skills }) requires skill discovery to be enabled"));
-    throw Core::as_error(error);
+    Core::raise_error(error);
   }
   Value out = Value::object();
   Core::set(out, Value("tools"), tools);
@@ -20404,7 +20478,7 @@ Value Core::_normalize_agent_recall_request(Value state, Value request) {
   Value disabled = Core::not_(enabled);
   if (Core::truthy(disabled)) {
     Value error = Core::runtime_error(Value("recall(...) requires memory search to be enabled"));
-    throw Core::as_error(error);
+    Core::raise_error(error);
   }
   Value searches = Core::_normalize_agent_string_list(request, Value("recall searches"));
   Value out = Value::object();
@@ -20570,7 +20644,7 @@ Value Core::_normalize_agent_used_request(Value request, Value default_stage) {
   Value missing = Core::eq(id, Value(""));
   if (Core::truthy(missing)) {
     Value error = Core::runtime_error(Value("used(...) requires a non-empty loaded memory or skill id"));
-    throw Core::as_error(error);
+    Core::raise_error(error);
   }
   Value out = Value::object();
   Core::set(out, Value("id"), id);
@@ -20587,7 +20661,7 @@ Value Core::_agent_used(Value state, Value request, Value stage) {
   Value disabled = Core::not_(enabled);
   if (Core::truthy(disabled)) {
     Value error = Core::runtime_error(Value("used(...) requires usage tracking to be enabled"));
-    throw Core::as_error(error);
+    Core::raise_error(error);
   }
   Value normalized = Core::_normalize_agent_used_request(request, stage);
   Value id = Core::get(normalized, Value("id"), Value());
@@ -20663,7 +20737,7 @@ Value Core::_normalize_agent_guidance_payload(Value value, Value triggered_by) {
   Value missing = Core::eq(guidance, Value(""));
   if (Core::truthy(missing)) {
     Value error = Core::runtime_error(Value("guideAgent() requires a non-empty string guidance"));
-    throw Core::as_error(error);
+    Core::raise_error(error);
   }
   Value out = Value::object();
   Core::set(out, Value("type"), Value("guide_agent"));
@@ -20797,7 +20871,7 @@ Value Core::_normalize_agent_clarification_payload(Value value) {
   Value missing = Core::eq(question, Value(""));
   if (Core::truthy(missing)) {
     Value error = Core::runtime_error(Value("agent clarification question is required"));
-    throw Core::as_error(error);
+    Core::raise_error(error);
   }
   Value args = Value::array();
   Core::append(args, payload);
@@ -21119,7 +21193,7 @@ Value Core::_agent_replay_trace(Value trace, Value fixtures) {
     if (Core::truthy(mismatch)) {
       Value message = Core::string_format(Value("agent replay event sequence mismatch: expected {} got {}"), expected_text, actual_text);
       Value error = Core::runtime_error(message);
-      throw Core::as_error(error);
+      Core::raise_error(error);
     }
   }
   Value output = Core::get(trace, Value("final_output"), Value());
@@ -21133,7 +21207,7 @@ Value Core::_agent_replay_trace(Value trace, Value fixtures) {
     if (Core::truthy(output_mismatch)) {
       Value message = Core::string_format(Value("agent replay output mismatch: expected {} got {}"), expected_output_text, actual_output_text);
       Value error = Core::runtime_error(message);
-      throw Core::as_error(error);
+      Core::raise_error(error);
     }
   }
   Value event_count = Core::len(events);
@@ -21326,7 +21400,7 @@ Value Core::_agent_runtime_build_globals(Value state, Value values) {
     if (Core::truthy(conflict)) {
       Value message = Core::string_format(Value("agent runtime global conflicts with reserved name: {}"), key);
       Value error = Core::runtime_error(message);
-      throw Core::as_error(error);
+      Core::raise_error(error);
     }
     if (!Core::truthy(conflict)) {
       Value value = Core::get(values, key, Value());
@@ -21368,7 +21442,7 @@ Value Core::_normalize_agent_runtime_snapshot(Value state, Value snapshot) {
   }
   if (!Core::truthy(snapshot_is_map)) {
     Value error = Core::runtime_error(Value("runtime session snapshot must be an object"));
-    throw Core::as_error(error);
+    Core::raise_error(error);
   }
   Value raw_globals = Core::get(snapshot, Value("globals"), Value());
   Value raw_bindings = Core::get(snapshot, Value("bindings"), Value());
@@ -21380,7 +21454,7 @@ Value Core::_normalize_agent_runtime_snapshot(Value state, Value snapshot) {
   }
   if (!Core::truthy(has_any)) {
     Value error2 = Core::runtime_error(Value("runtime session snapshot globals must be an object"));
-    throw Core::as_error(error2);
+    Core::raise_error(error2);
   }
   Value bindings = raw_globals;
   if (Core::truthy(has_bindings)) {
@@ -21567,7 +21641,7 @@ Value Core::_normalize_agent_runtime_step_result(Value raw, Value code) {
   if (Core::truthy(should_escape)) {
     Value escape_message = Core::string_format(Value("runtime host boundary escaped {}: {}"), error_category, error_message);
     Value escape_error = Core::runtime_error(escape_message);
-    throw Core::as_error(escape_error);
+    Core::raise_error(escape_error);
   }
   return out;
 }
@@ -22566,7 +22640,7 @@ Value Core::_agent_runtime_test(Value state, Value runtime, Value code, Value va
     Value runtime_test_error = Core::exception_value(e);
     Value error_session = Core::get(state, Value("runtime_session"), session);
     Core::_agent_runtime_close_session(state, error_session);
-    throw Core::as_error(runtime_test_error);
+    Core::raise_error(runtime_test_error);
   }
   Value active_session = Core::get(state, Value("runtime_session"), session);
   Core::_agent_runtime_close_session(state, active_session);
@@ -22981,12 +23055,12 @@ Value Core::_resolve_agent_citations(Value options, Value sig) {
     if (Core::truthy(bad_field)) {
       Value message = Core::string_format(Value("citations.field must be a valid field name, got {}"), field);
       Value error = Core::runtime_error(message);
-      throw Core::as_error(error);
+      Core::raise_error(error);
     }
     Value is_context_data = Core::eq(field, Value("contextData"));
     if (Core::truthy(is_context_data)) {
       Value error = Core::runtime_error(Value("AxAgent: citations.field cannot be contextData; it is the reserved responder evidence input"));
-      throw Core::as_error(error);
+      Core::raise_error(error);
     }
     Value is_output = Core::eq(surface, Value("output"));
     Value is_hidden = Core::eq(surface, Value("hidden"));
@@ -22994,7 +23068,7 @@ Value Core::_resolve_agent_citations(Value options, Value sig) {
     Value bad_surface = Core::not_(valid_surface);
     if (Core::truthy(bad_surface)) {
       Value error = Core::runtime_error(Value("citations.surface must be output or hidden"));
-      throw Core::as_error(error);
+      Core::raise_error(error);
     }
     Value empty_list = Value::array();
     Value outputs = Core::get(sig, Value("output_fields"), empty_list);
@@ -23004,7 +23078,7 @@ Value Core::_resolve_agent_citations(Value options, Value sig) {
       if (Core::truthy(collision)) {
         Value message = Core::string_format(Value("AxAgent: citations.field {} collides with an output field of the agent signature"), field);
         Value error = Core::runtime_error(message);
-        throw Core::as_error(error);
+        Core::raise_error(error);
       }
     }
   }
@@ -23305,7 +23379,7 @@ Value Core::_normalize_agent_completion_payload(Value output) {
   if (Core::truthy(invalid)) {
     Value message = Core::string_format(Value("agent stage did not return a completion payload (a live model returns prose, but this stage expects a structured completion): pass options.runtime with a code engine so the executor runs model-generated code that calls final(...), or use a client that returns a structured final/askClarification completion. got: {}"), payload);
     Value error = Core::runtime_error(message);
-    throw Core::as_error(error);
+    Core::raise_error(error);
   }
   return payload;
 }
@@ -23316,7 +23390,7 @@ Value Core::_throw_agent_clarification(Value payload, Value state) {
   Value is_clarification = Core::eq(type, Value("askClarification"));
   if (Core::truthy(is_clarification)) {
     Value error = Core::agent_clarification_error(payload, state);
-    throw Core::as_error(error);
+    Core::raise_error(error);
   }
   Value none = Core::none();
   return none;
@@ -23559,7 +23633,7 @@ Value Core::_extract_agent_runtime_code(Value state, Value executor_output) {
   if (Core::truthy(missing)) {
     Value message = Core::string_format(Value("agent executor did not return runtime code field: {}"), code_field_name);
     Value error = Core::runtime_error(message);
-    throw Core::as_error(error);
+    Core::raise_error(error);
   }
   return code;
 }
@@ -24144,7 +24218,7 @@ Value Core::_agent_forward(Value state, Value distiller, Value executor, Value r
         Core::set(distiller_error_event, Value("stage"), Value("distiller"));
         Core::_agent_record_trace_event(state, Value("error"), distiller_error_event);
         Value distiller_error = Core::runtime_error(Value("agent distiller loop exceeded max steps"));
-        throw Core::as_error(distiller_error);
+        Core::raise_error(distiller_error);
       }
       Value distiller_values = Core::_build_distiller_inputs(state, values);
       Value distiller_request_event = Value::object();
@@ -24227,7 +24301,7 @@ Value Core::_agent_forward(Value state, Value distiller, Value executor, Value r
     Value skip_disabled = Core::not_(skip_enabled);
     if (Core::truthy(skip_disabled)) {
       Value skip_error = Core::runtime_error(Value("agent distiller produced a respond() payload while directResponse is 'off'"));
-      throw Core::as_error(skip_error);
+      Core::raise_error(skip_error);
     }
     Value skip_args_empty = Value::array();
     Value skip_args = Core::get(distiller_payload, Value("args"), skip_args_empty);
@@ -24283,7 +24357,7 @@ Value Core::_agent_forward(Value state, Value distiller, Value executor, Value r
         Core::set(error_event, Value("stage"), Value("executor"));
         Core::_agent_record_trace_event(state, Value("error"), error_event);
         Value error = Core::runtime_error(Value("agent actor loop exceeded max steps"));
-        throw Core::as_error(error);
+        Core::raise_error(error);
       }
       Value executor_values = Core::_build_executor_inputs(state, values, distiller_payload);
       Value executor_request_event = Value::object();
@@ -24385,7 +24459,7 @@ Value Core::_agent_forward(Value state, Value distiller, Value executor, Value r
   citations_invalid = Core::not_(citations_valid);
   if (Core::truthy(citations_invalid)) {
     Value error = Core::runtime_error(Value("AxAgent responder returned citations that do not exist in the run evidence"));
-    throw Core::as_error(error);
+    Core::raise_error(error);
   }
   responder_output = Core::_agent_finalize_citations(state, responder_output);
   Value responder_response_event = Value::object();
@@ -24471,7 +24545,7 @@ Value Core::_flow_step(Value kind, Value name, Value program, Value options) {
   Value missing_name = Core::eq(trimmed, Value(""));
   if (Core::truthy(missing_name)) {
     Value err = Core::runtime_error(Value("flow step name is required"));
-    throw Core::as_error(err);
+    Core::raise_error(err);
   }
   Value empty_map = Value::object();
   Value opts_missing = Core::is_none(options);
@@ -24564,7 +24638,7 @@ Value Core::_flow_add_step(Value flow, Value step) {
     if (Core::truthy(duplicate)) {
       Value message = Core::string_format(Value("duplicate flow step: {}"), name);
       Value err = Core::runtime_error(message);
-      throw Core::as_error(err);
+      Core::raise_error(err);
     }
   }
   Core::append(steps, step);
@@ -24819,7 +24893,7 @@ Value Core::_flow_check_abort(Value options, Value location) {
   if (Core::truthy(abort)) {
     Value message = Core::string_format(Value("Flow aborted at {}"), location);
     Value err = Core::runtime_error(message);
-    throw Core::as_error(err);
+    Core::raise_error(err);
   }
   return none;
 }
@@ -24944,7 +25018,7 @@ Value Core::_flow_execute_program_node(Value flow, Value step, Value client, Val
   if (Core::truthy(abort_now)) {
     Value abort_message = Core::string_format(Value("Flow aborted at flow-node-{}"), name);
     Value abort_error = Core::runtime_error(abort_message);
-    throw Core::as_error(abort_error);
+    Core::raise_error(abort_error);
   }
   Value result = Core::agent_stage_forward(program, client, state, runtime_options);
   Value out = Core::map_merge(state, empty_map);
@@ -25047,7 +25121,7 @@ Value Core::_flow_execute_step(Value flow, Value step, Value plan_step, Value cl
       if (Core::truthy(too_many)) {
         Value message = Core::string_format(Value("While loop exceeded maximum iterations ({})"), max_iterations);
         Value err = Core::runtime_error(message);
-        throw Core::as_error(err);
+        Core::raise_error(err);
       }
       Core::_flow_check_abort(options, Value("flow-while"));
       current = Core::_flow_execute_nested_steps(flow, client, body_steps, current, options);
@@ -25113,7 +25187,7 @@ Value Core::_flow_execute_step(Value flow, Value step, Value plan_step, Value cl
     Value bad_results = Core::not_(results_is_list);
     if (Core::truthy(bad_results)) {
       Value err = Core::runtime_error(Value("No parallel results found for merge"));
-      throw Core::as_error(err);
+      Core::raise_error(err);
     }
     Value merge_output_snake = Core::get(step_options, Value("merge_output"), results);
     Value merge_output = Core::get(step_options, Value("mergeOutput"), merge_output_snake);
@@ -25343,7 +25417,7 @@ Value Core::_flow_apply_optimized_components(Value flow, Value component_map) {
     Value bad_graph = Core::not_(graph_is_object);
     if (Core::truthy(bad_graph)) {
       Value err = Core::runtime_error(Value("optimized flow graph-plan component must be an object"));
-      throw Core::as_error(err);
+      Core::raise_error(err);
     }
     Core::set(flow, Value("optimized_graph_plan"), graph_update);
   }
@@ -25408,7 +25482,7 @@ Value Core::_flow_evaluate_optimization(Value flow, Value client, Value dataset,
       if (Core::truthy(too_many)) {
         Value message = Core::string_format(Value("max metric calls exceeded: {}"), max_calls);
         Value err = Core::runtime_error(message);
-        throw Core::as_error(err);
+        Core::raise_error(err);
       }
       Value next_calls = Core::add(calls, Value(1));
       calls = next_calls;
@@ -25464,7 +25538,7 @@ Value Core::_flow_evaluate_optimization(Value flow, Value client, Value dataset,
   } catch (const std::exception& e) {
     Value outer_error = Core::exception_value(e);
     Core::_flow_restore_components(flow, original);
-    throw Core::as_error(outer_error);
+    Core::raise_error(outer_error);
   }
   return result;
 }
@@ -25533,7 +25607,7 @@ Value Core::_flow_mermaid_fail(Value message, Value line) {
   axir_coverage_mark("_flow_mermaid_fail");
   Value with_line = Core::string_format(Value("{} (line {})"), message, line);
   Value err = Core::runtime_error(with_line);
-  throw Core::as_error(err);
+  Core::raise_error(err);
 }
 
 Value Core::_flow_mermaid_register_node(Value ast, Value id, Value shape, Value label, Value line) {
@@ -27373,7 +27447,7 @@ Value Core::mcp_param_header_bindings(Value input_schema) {
   Value root_annotated = Core::map_contains(input_schema, Value("x-mcp-header"));
   if (Core::truthy(root_annotated)) {
     Value root_error = Core::validation_error(Value("x-mcp-header at inputSchema is not statically reachable through properties"));
-    throw Core::as_error(root_error);
+    Core::raise_error(root_error);
   }
   Value seen_names = Value::array();
   Value properties = Core::get(input_schema, Value("properties"), Value());
@@ -27391,27 +27465,27 @@ Value Core::mcp_param_header_bindings(Value input_schema) {
           Value header_not_string = Core::not_(header_string);
           if (Core::truthy(header_not_string)) {
             Value name_type_error = Core::validation_error(Value("x-mcp-header must be a non-empty string"));
-            throw Core::as_error(name_type_error);
+            Core::raise_error(name_type_error);
           }
           Value header_length = Core::len(header_name);
           Value header_nonempty = Core::gt(header_length, Value(0));
           Value header_invalid = Core::not_(header_nonempty);
           if (Core::truthy(header_invalid)) {
             Value name_error = Core::validation_error(Value("x-mcp-header must be a non-empty string"));
-            throw Core::as_error(name_error);
+            Core::raise_error(name_error);
           }
           Value token_valid = Core::regex_match(Value("^[!#$%&'*+\\-.^_`|~0-9A-Za-z]+$"), header_name);
           Value token_invalid = Core::not_(token_valid);
           if (Core::truthy(token_invalid)) {
             Value token_error = Core::validation_error(Value("x-mcp-header value is not an RFC 9110 field-name token"));
-            throw Core::as_error(token_error);
+            Core::raise_error(token_error);
           }
           Value normalized_name = Core::string_lower(header_name);
           Value normalized_full_name = Core::string_format(Value("mcp-param-{}"), normalized_name);
           Value duplicate = Core::contains(seen_names, normalized_full_name);
           if (Core::truthy(duplicate)) {
             Value duplicate_error = Core::validation_error(Value("x-mcp-header value is not case-insensitively unique"));
-            throw Core::as_error(duplicate_error);
+            Core::raise_error(duplicate_error);
           }
           Core::append(seen_names, normalized_full_name);
           Value property_type = Core::get(property_schema, Value("type"), Value());
@@ -27423,7 +27497,7 @@ Value Core::mcp_param_header_bindings(Value input_schema) {
           Value type_invalid = Core::not_(type_valid);
           if (Core::truthy(type_invalid)) {
             Value type_error = Core::validation_error(Value("x-mcp-header requires type string, integer, or boolean"));
-            throw Core::as_error(type_error);
+            Core::raise_error(type_error);
           }
           Value binding = Value::object();
           Value full_header_name = Core::string_format(Value("Mcp-Param-{}"), header_name);
@@ -27444,7 +27518,7 @@ Value Core::mcp_param_header_bindings(Value input_schema) {
           Value child_duplicate = Core::contains(seen_names, child_normalized);
           if (Core::truthy(child_duplicate)) {
             Value child_duplicate_error = Core::validation_error(Value("x-mcp-header value is not case-insensitively unique"));
-            throw Core::as_error(child_duplicate_error);
+            Core::raise_error(child_duplicate_error);
           }
           Core::append(seen_names, child_normalized);
           Value child_path = Core::get(child_binding, Value("path"), Value());
@@ -27476,7 +27550,7 @@ Value Core::mcp_param_header_bindings(Value input_schema) {
         Value keyword_annotated = Core::gt(keyword_binding_count, Value(0));
         if (Core::truthy(keyword_annotated)) {
           Value keyword_error = Core::validation_error(Value("x-mcp-header is not statically reachable through properties"));
-          throw Core::as_error(keyword_error);
+          Core::raise_error(keyword_error);
         }
       }
       Value keyword_list = Core::type_is(keyword_value, Value("list"));
@@ -27489,7 +27563,7 @@ Value Core::mcp_param_header_bindings(Value input_schema) {
             Value item_annotated = Core::gt(item_binding_count, Value(0));
             if (Core::truthy(item_annotated)) {
               Value item_error = Core::validation_error(Value("x-mcp-header is not statically reachable through properties"));
-              throw Core::as_error(item_error);
+              Core::raise_error(item_error);
             }
           }
         }
@@ -27615,7 +27689,7 @@ Value Core::mcp_param_header_values(Value bindings, Value arguments) {
         Value invalid_string = Core::not_(is_string);
         if (Core::truthy(invalid_string)) {
           Value string_error = Core::validation_error(Value("MCP parameter header expected string"));
-          throw Core::as_error(string_error);
+          Core::raise_error(string_error);
         }
         Core::set(out, header_name, current);
       }
@@ -27626,7 +27700,7 @@ Value Core::mcp_param_header_values(Value bindings, Value arguments) {
           Value invalid_boolean = Core::not_(is_boolean);
           if (Core::truthy(invalid_boolean)) {
             Value boolean_error = Core::validation_error(Value("MCP parameter header expected boolean"));
-            throw Core::as_error(boolean_error);
+            Core::raise_error(boolean_error);
           }
           if (Core::truthy(current)) {
             Core::set(out, header_name, Value("true"));
@@ -27640,7 +27714,7 @@ Value Core::mcp_param_header_values(Value bindings, Value arguments) {
           Value not_number = Core::not_(is_number);
           if (Core::truthy(not_number)) {
             Value number_error = Core::validation_error(Value("MCP parameter header expected integer"));
-            throw Core::as_error(number_error);
+            Core::raise_error(number_error);
           }
           Value number_text = Core::json_stringify(current);
           Value is_integer = Core::regex_match(Value("^-?(0|[1-9][0-9]*)$"), number_text);
@@ -27652,7 +27726,7 @@ Value Core::mcp_param_header_values(Value bindings, Value arguments) {
           Value invalid_integer = Core::not_(valid_integer);
           if (Core::truthy(invalid_integer)) {
             Value integer_error = Core::validation_error(Value("MCP parameter header expected integer"));
-            throw Core::as_error(integer_error);
+            Core::raise_error(integer_error);
           }
           Core::set(out, header_name, number_text);
         }
@@ -29142,6 +29216,12 @@ bool equal(const Value& left, const Value& right) {
 Value AIClient::chat(Value request) {
   return Core::legacy_response_to_chat_response(complete(std::move(request)));
 }
+Value AIClient::chat(Value request, Value options, const AxCancellationToken* cancellation) {
+  if (cancellation) cancellation->throw_if_cancelled();
+  AxCancellationScope scope(cancellation);
+  try { Value response = chat(std::move(request), std::move(options)); if (cancellation) cancellation->throw_if_cancelled(); return response; }
+  catch (...) { if(cancellation&&cancellation->is_cancelled())throw AxAIServiceAbortedError(cancellation->reason());throw; }
+}
 
 std::string AxAIService::get_id() { return get_name() + "-id"; }
 std::string AxAIService::get_name() { return "ai"; }
@@ -29152,10 +29232,18 @@ std::vector<Value> AxAIService::stream(Value request) { return {chat(std::move(r
 void AxAIService::stream_each(Value request, AxStreamHandler handler) {
   for (const auto& event : stream(std::move(request))) if (!handler(event)) break;
 }
+void AxAIService::stream_each(Value request, AxStreamHandler handler, const AxCancellationToken* cancellation) {
+  if (cancellation) cancellation->throw_if_cancelled();
+  AxCancellationScope scope(cancellation);
+  stream_each(std::move(request), [&](Value event) { if (cancellation) cancellation->throw_if_cancelled(); return handler(std::move(event)); });
+}
 Value AxAIService::embed(Value request, Value) { return embed(std::move(request)); }
+Value AxAIService::embed(Value request, Value options, const AxCancellationToken* cancellation) { if(cancellation)cancellation->throw_if_cancelled();AxCancellationScope scope(cancellation);Value response=embed(std::move(request),std::move(options));if(cancellation)cancellation->throw_if_cancelled();return response; }
 Value AxAIService::embed(Value request, Value options, const AxRuntimeHooks&) { return embed(std::move(request), std::move(options)); }
 Value AxAIService::transcribe(Value request, Value) { return transcribe(std::move(request)); }
+Value AxAIService::transcribe(Value request, Value options, const AxCancellationToken* cancellation) { if(cancellation)cancellation->throw_if_cancelled();AxCancellationScope scope(cancellation);Value response=transcribe(std::move(request),std::move(options));if(cancellation)cancellation->throw_if_cancelled();return response; }
 Value AxAIService::speak(Value request, Value) { return speak(std::move(request)); }
+Value AxAIService::speak(Value request, Value options, const AxCancellationToken* cancellation) { if(cancellation)cancellation->throw_if_cancelled();AxCancellationScope scope(cancellation);Value response=speak(std::move(request),std::move(options));if(cancellation)cancellation->throw_if_cancelled();return response; }
 Value AxAIService::get_features(Value) {
   return Value(Object{{"functions", true}, {"streaming", true}, {"structured_outputs", true}, {"multi_turn", true}});
 }
@@ -29885,7 +29973,8 @@ class IncrementalSSEDecoder {
 };
 
 static bool stream_error_retryable(const AxError& error) {
-  if (error.type == "AxAIServiceAuthenticationError") return false;
+  if(auto token=current_cancellation_token();token&&token->is_cancelled())return false;
+  if (error.type == "AxAIServiceAuthenticationError" || error.type == "AxAIServiceAbortedError") return false;
   if (error.type == "AxAIServiceStatusError") return Core::truthy(Core::is_retryable_status(error.status));
   return error.retryable || error.category == "network" || error.type == "AxAIServiceNetworkError" || error.type == "AxAIServiceResponseError" || error.type == "AxAIServiceStreamTerminatedError" || error.type == "AxAIServiceTimeoutError";
 }
@@ -29969,9 +30058,11 @@ void OpenAICompatibleClient::stream_each(Value request, AxStreamHandler handler)
           return decoder.feed(display(raw));
         };
         try {
-          transport_->stream(call, consume);
+          transport_->stream(call, consume, current_cancellation_token());
           if (!retry_requested && !cancelled && !decoder.done_marker()) decoder.finish();
         } catch (const AxError& error) {
+          if (error.type == "AxAIServiceAbortedError") throw;
+          if (auto token = current_cancellation_token(); token && token->is_cancelled()) throw AxAIServiceAbortedError(token->reason());
           if (provider_error) throw;
           // Retry transport/open failures before any SSE event. Once a provider
           // event exists, its normalized error is authoritative unless the
@@ -29983,7 +30074,7 @@ void OpenAICompatibleClient::stream_each(Value request, AxStreamHandler handler)
         if (retry_requested) {
           ++attempt;
           double delay = std::min(initial_delay * std::pow(backoff, attempt - 1), max_delay);
-          if (delay > 0) std::this_thread::sleep_for(std::chrono::milliseconds(static_cast<long>(delay)));
+          if (delay > 0) {auto token=current_cancellation_token();auto duration=std::chrono::milliseconds(static_cast<long>(delay));if(token&&token->wait_for(duration))token->throw_if_cancelled();else if(!token)std::this_thread::sleep_for(duration);}
           continue;
         }
         Value response = object({{"results", results}});
@@ -30367,7 +30458,7 @@ std::string OpenAICompatibleClient::operation_method(const std::string& operatio
 
 Value OpenAICompatibleClient::request_json(const std::string& endpoint, Value payload, bool stream, const std::string& body_key, bool binary_response, const std::string& method) {
   Value call = build_request(endpoint, std::move(payload), stream, body_key, binary_response, method);
-  if (transport_ != nullptr) return transport_result(transport_->call(call), call);
+  if (transport_ != nullptr) return transport_result(transport_->call(call, current_cancellation_token()), call);
   throw Core::as_error(Core::ai_error_unsupported("C++ HTTP transport is not available; build with AXLLM_ENABLE_CURL=ON or pass a custom Transport"));
 }
 
@@ -32264,6 +32355,10 @@ Value AxGen::forward(AIClient& client, Value values, Value options) {
   return forward(client, std::move(values), std::move(options), AxRuntimeHooks{});
 }
 
+Value AxGen::forward(AIClient& client, Value values, Value options, const AxCancellationToken* cancellation) {
+  if(cancellation)cancellation->throw_if_cancelled();AxCancellationScope scope(cancellation);return forward(client,std::move(values),std::move(options));
+}
+
 Value AxGen::forward(AIClient& client, Value values, Value options, const AxRuntimeHooks& hooks) {
   AxRuntimeHooks program_hooks = *std::atomic_load(&runtime_hooks_);
   RuntimeHookScope scope(hooks, program_hooks, "ax_gen_forward", "ax_gen_generation",
@@ -32442,6 +32537,10 @@ Value AxFlow::forward(AIClient& client, Value values, Value options) {
   return forward(client, std::move(values), std::move(options), AxRuntimeHooks{});
 }
 
+Value AxFlow::forward(AIClient& client, Value values, Value options, const AxCancellationToken* cancellation) {
+  if(cancellation)cancellation->throw_if_cancelled();AxCancellationScope scope(cancellation);return forward(client,std::move(values),std::move(options));
+}
+
 Value AxFlow::forward(AIClient& client, Value values, Value options, const AxRuntimeHooks& hooks) {
   AxRuntimeHooks program_hooks = *std::atomic_load(&runtime_hooks_);
   RuntimeHookScope scope(hooks, program_hooks, "ax_gen_flow_forward", "ax_gen_flow",
@@ -32566,6 +32665,10 @@ AxAgent& AxAgent::add_actor_instruction(Value addendum) {
 
 Value AxAgent::forward(AIClient& client, Value values, Value options) {
   return forward(client, std::move(values), std::move(options), AxRuntimeHooks{});
+}
+
+Value AxAgent::forward(AIClient& client, Value values, Value options, const AxCancellationToken* cancellation) {
+  if(cancellation)cancellation->throw_if_cancelled();AxCancellationScope scope(cancellation);return forward(client,std::move(values),std::move(options));
 }
 
 Value AxAgent::forward(AIClient& client, Value values, Value options, const AxRuntimeHooks& hooks) {
@@ -33325,8 +33428,9 @@ void AxBalancer::handle_success(const std::shared_ptr<AxAIService>& service) {
 }
 
 bool AxBalancer::retryable(const AxError& error) const {
+  if(auto token=current_cancellation_token();token&&token->is_cancelled())return false;
   if (error.category != "ai") return false;
-  if (error.type == "AxAIServiceAuthenticationError") return false;
+  if (error.type == "AxAIServiceAuthenticationError" || error.type == "AxAIServiceAbortedError") return false;
   if (error.type == "AxAIServiceStatusError") {
     return error.status == 408 || error.status == 429 || error.status == 500 || error.status == 502 || error.status == 503 || error.status == 504 || error.status == 529;
   }
@@ -33872,11 +33976,14 @@ Value ProviderRouter::validate_request(Value request) {
 
 Value ProviderRouter::get_routing_stats() { return Core::provider_routing_stats(provider_records()); }
 Value ProviderRouter::chat(Value request, Value options) {
+  return chat(std::move(request), std::move(options), nullptr);
+}
+Value ProviderRouter::chat(Value request, Value options, const AxCancellationToken* cancellation) {
   Value rec = get_routing_recommendation(request);
   auto provider = service_for_name(Core::get(rec, "providerName"));
   if (!provider) throw Core::as_error(Core::ai_error_unsupported("No provider selected"));
   Value processed_request = Core::provider_route_preprocess_request(provider->get_features(Value()), request);
-  return object({{"response", provider->chat(processed_request, options)}, {"routing", rec}});
+  return object({{"response", provider->chat(processed_request, options, cancellation)}, {"routing", rec}});
 }
 
 std::vector<Value> ProviderRouter::stream(Value request) {
@@ -33886,32 +33993,44 @@ std::vector<Value> ProviderRouter::stream(Value request) {
 }
 
 void ProviderRouter::stream_each(Value request, AxStreamHandler handler) {
+  stream_each(std::move(request), std::move(handler), nullptr);
+}
+void ProviderRouter::stream_each(Value request, AxStreamHandler handler, const AxCancellationToken* cancellation) {
   Value rec = get_routing_recommendation(request);
   auto provider = service_for_name(Core::get(rec, "providerName"));
   if (!provider) throw Core::as_error(Core::ai_error_unsupported("No provider selected"));
   Value processed_request = Core::provider_route_preprocess_request(provider->get_features(Value()), request);
-  provider->stream_each(std::move(processed_request), std::move(handler));
+  provider->stream_each(std::move(processed_request), std::move(handler), cancellation);
 }
 
 Value ProviderRouter::embed(Value request, Value options) {
+  return embed(std::move(request), std::move(options), nullptr);
+}
+Value ProviderRouter::embed(Value request, Value options, const AxCancellationToken* cancellation) {
   Value rec = get_routing_recommendation(request);
   auto provider = service_for_name(Core::get(rec, "providerName"));
   if (!provider) throw Core::as_error(Core::ai_error_unsupported("No provider selected"));
-  return provider->embed(std::move(request), std::move(options));
+  return provider->embed(std::move(request), std::move(options), cancellation);
 }
 
 Value ProviderRouter::transcribe(Value request, Value options) {
+  return transcribe(std::move(request), std::move(options), nullptr);
+}
+Value ProviderRouter::transcribe(Value request, Value options, const AxCancellationToken* cancellation) {
   Value rec = get_routing_recommendation(request);
   auto provider = service_for_name(Core::get(rec, "providerName"));
   if (!provider) throw Core::as_error(Core::ai_error_unsupported("No provider selected"));
-  return provider->transcribe(std::move(request), std::move(options));
+  return provider->transcribe(std::move(request), std::move(options), cancellation);
 }
 
 Value ProviderRouter::speak(Value request, Value options) {
+  return speak(std::move(request), std::move(options), nullptr);
+}
+Value ProviderRouter::speak(Value request, Value options, const AxCancellationToken* cancellation) {
   Value rec = get_routing_recommendation(request);
   auto provider = service_for_name(Core::get(rec, "providerName"));
   if (!provider) throw Core::as_error(Core::ai_error_unsupported("No provider selected"));
-  return provider->speak(std::move(request), std::move(options));
+  return provider->speak(std::move(request), std::move(options), cancellation);
 }
 
 Value to_json_schema(Value fields, const std::string& title, Value options) { return Core::to_json_schema(fields, title, options); }

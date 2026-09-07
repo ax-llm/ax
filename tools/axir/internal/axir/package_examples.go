@@ -471,6 +471,7 @@ fn main() -> AxResult<()> {
 
 const cppContextCacheRecoveryExample = `#include "axllm/axllm.hpp"
 #include <chrono>
+#include <csignal>
 #include <iostream>
 
 struct Script : axllm::Transport {
@@ -2802,6 +2803,7 @@ import java.util.*;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.concurrent.atomic.AtomicInteger;
 
 // Drive a streaming stream() through the REAL HttpClient transport against an
 // in-process com.sun.net.httpserver loopback that returns a spec-legal
@@ -2826,7 +2828,9 @@ public final class StreamHTTPRoundtripExample {
     byte[] firstBytes = sseFirst.getBytes(StandardCharsets.UTF_8);
     byte[] restBytes = sseRest.getBytes(StandardCharsets.UTF_8);
     CountDownLatch releaseRest = new CountDownLatch(1);
+    CountDownLatch releaseCancelledRest = new CountDownLatch(1);
     AtomicBoolean releaseTimedOut = new AtomicBoolean(false);
+    AtomicInteger requests = new AtomicInteger();
 
     HttpServer server = HttpServer.create(new InetSocketAddress("127.0.0.1", 0), 0);
     server.createContext(
@@ -2838,7 +2842,8 @@ public final class StreamHTTPRoundtripExample {
           try (OutputStream os = exchange.getResponseBody()) {
             for (byte value : firstBytes) { os.write(value); os.flush(); }
             try {
-              if (!releaseRest.await(5, TimeUnit.SECONDS)) releaseTimedOut.set(true);
+              CountDownLatch release = requests.incrementAndGet() == 2 ? releaseCancelledRest : releaseRest;
+              if (!release.await(5, TimeUnit.SECONDS)) releaseTimedOut.set(true);
             } catch (InterruptedException error) {
               Thread.currentThread().interrupt();
               releaseTimedOut.set(true);
@@ -2876,7 +2881,32 @@ public final class StreamHTTPRoundtripExample {
         throw new RuntimeException("multi-line data: event was not folded into one JSON value: " + deltas);
       if (!"Hello 🌍 world".equals(String.join("", deltas)))
         throw new RuntimeException("bad stream fold: " + deltas);
+
+      AxCancellationToken token = new AxCancellationToken();
+      try (AxChatStream cancelled = client.openStream(
+          Map.of("chat_prompt", List.of(Map.of("role", "user", "content", "cancel stream"))), token)) {
+        Iterator<Map<String, Object>> iterator = cancelled.iterator();
+        if (!iterator.hasNext()) throw new RuntimeException("cancel stream ended before first event");
+        iterator.next();
+        long cancelStarted = System.nanoTime();
+        token.cancel("loopback stopped");
+        try {
+          iterator.hasNext();
+          throw new RuntimeException("cancelled stream did not raise an aborted error");
+        } catch (AxAIServiceAbortedError error) {
+          if (!"loopback stopped".equals(error.reason()) || error.retryable)
+            throw new RuntimeException("wrong cancellation error", error);
+        }
+        if (TimeUnit.NANOSECONDS.toMillis(System.nanoTime() - cancelStarted) > 1000)
+          throw new RuntimeException("cancelled stream did not return promptly");
+        if (token.subscriptionCount() != 0)
+          throw new RuntimeException("cancelled stream retained a body-close subscription");
+      } finally {
+        releaseCancelledRest.countDown();
+      }
     } finally {
+      releaseRest.countDown();
+      releaseCancelledRest.countDown();
       server.stop(0);
     }
     System.out.println("stream-http-roundtrip-ok");
@@ -3845,7 +3875,8 @@ void drain_request(int fd) {
   }
 }
 
-void write_response(int fd, const std::string& content_type, const std::string& first, const std::string& rest) {
+void write_response(int fd, const std::string& content_type, const std::string& first, const std::string& rest,
+                    std::chrono::milliseconds delay) {
   std::string out = "HTTP/1.1 200 OK\r\nContent-Type: " + content_type +
                     "\r\nContent-Length: " + std::to_string(first.size() + rest.size()) +
                     "\r\nConnection: close\r\n\r\n";
@@ -3856,13 +3887,14 @@ void write_response(int fd, const std::string& content_type, const std::string& 
     off += static_cast<size_t>(n);
   }
   for (char byte : first) send(fd, &byte, 1, 0);
-  std::this_thread::sleep_for(std::chrono::milliseconds(300));
+  std::this_thread::sleep_for(delay);
   send(fd, rest.data(), rest.size(), 0);
 }
 
 }  // namespace
 
 int main() {
+  ::signal(SIGPIPE, SIG_IGN);
   // One logical delta whose JSON is split across two data: lines (folded with
   // "\n"), then a single-line delta accepted at EOF without a delimiter.
   const std::string event1a =
@@ -3897,11 +3929,14 @@ int main() {
   int port = ntohs(addr.sin_port);
 
   std::thread server([&]() {
-    int fd = accept(server_fd, nullptr, nullptr);
-    if (fd < 0) return;
-    drain_request(fd);
-    write_response(fd, "text/event-stream", sse_first, sse_rest);
-    close(fd);
+    for (int request = 0; request < 2; ++request) {
+      int fd = accept(server_fd, nullptr, nullptr);
+      if (fd < 0) return;
+      drain_request(fd);
+      write_response(fd, "text/event-stream", sse_first, sse_rest,
+                     request == 0 ? std::chrono::milliseconds(300) : std::chrono::milliseconds(1500));
+      close(fd);
+    }
   });
 
   axllm::OpenAICompatibleClient client(
@@ -3922,9 +3957,6 @@ int main() {
   auto completed = std::chrono::steady_clock::now();
   if (completed - first_at < std::chrono::milliseconds(200)) { std::cerr << "first event was not incremental\n"; return 1; }
 
-  server.join();
-  close(server_fd);
-
   if (deltas.empty() || deltas.front() != "Hello 🌍 ") {
     std::cerr << "multi-line data: event was not folded into one JSON value\n";
     return 1;
@@ -3935,6 +3967,36 @@ int main() {
     std::cerr << "bad stream fold: " << text << "\n";
     return 1;
   }
+
+  axllm::AxCancellationToken token;
+  bool aborted = false;
+  std::chrono::steady_clock::time_point cancel_started;
+  try {
+    client.stream_each(
+        axllm::object({{"chat_prompt", axllm::array({axllm::object({
+            {"role", "user"}, {"content", "cancel stream"}})})}}),
+        [&](const axllm::Value&) {
+          cancel_started = std::chrono::steady_clock::now();
+          token.cancel("loopback stopped");
+          return true;
+        },
+        &token);
+  } catch (const axllm::AxAIServiceAbortedError& error) {
+    aborted = true;
+    if (error.retryable || std::string(error.what()).find("loopback stopped") == std::string::npos) {
+      std::cerr << "wrong cancellation error: " << error.what() << "\n";
+      return 1;
+    }
+  }
+  auto cancel_completed = std::chrono::steady_clock::now();
+  if (!aborted || cancel_started.time_since_epoch().count() == 0 ||
+      cancel_completed - cancel_started > std::chrono::milliseconds(750)) {
+    std::cerr << "real HTTP stream cancellation was not prompt\n";
+    return 1;
+  }
+
+  server.join();
+  close(server_fd);
   std::cout << "stream-http-roundtrip-ok\n";
   return 0;
 }

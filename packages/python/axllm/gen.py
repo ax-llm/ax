@@ -10,6 +10,8 @@ from typing import Any
 
 from .ai import (
     AIClient,
+    AxAIServiceAbortedError,
+    AxCancellationToken,
     AxMeter,
     AxRateLimiter,
     AxRuntimeHooks,
@@ -494,7 +496,7 @@ class AxGen:
         stream_options = {**self.options, **(options or {}), "stream": True}
         req = self._request(self.prompt_template.render(values), stream_options, client)
         chunks = []
-        for event in client.stream(req):
+        for event in client.stream(req, stream_options):
             chunks.append(event)
             _core_axgen_run_streaming_assertions(self, fold_stream(chunks))
             yield event
@@ -741,12 +743,26 @@ def _core_ai_client_features(client, model):
     return {"functions": True, "structured_outputs": True}
 
 
-def _core_retry_sleep(attempt):
-    time.sleep(min(0.25 * (int(attempt) + 1), 1.0))
+def _core_retry_sleep(attempt, _client=None, options=None):
+    delay = min(0.25 * (int(attempt) + 1), 1.0)
+    token = None
+    if isinstance(options, dict):
+        token = options.get("cancellation") or options.get("cancellationToken") or options.get("cancellation_token")
+    if token is None:
+        time.sleep(delay)
+        return
+    if not isinstance(token, AxCancellationToken):
+        raise TypeError("cancellation must be an AxCancellationToken")
+    token.wait(delay)
+    token.throw_if_cancelled()
 
 
 def _core_exception_message(error):
     return str(error)
+
+
+def _core_exception_is_aborted(error):
+    return isinstance(error, AxAIServiceAbortedError)
 
 
 def _core_regex_match(pattern, value):
@@ -2738,13 +2754,18 @@ def _complete_with_retries_impl(client: AIClient, request: AxChatRequest, option
             response = _core_ai_complete_once(client, request, options)
             return response
         except Exception as error:
+            aborted = _core_exception_is_aborted(error)
+            if aborted:
+                raise error
+            else:
+                pass
             last_error = error
             exhausted = _core_gte(attempt, retries)
             if exhausted:
                 raise error
             else:
                 pass
-            _core_retry_sleep(attempt)
+            _core_retry_sleep(attempt, client, options)
             next_attempt = _core_add(attempt, 1)
             attempt = next_attempt
             continue
@@ -2756,25 +2777,6 @@ def _parse_output_impl(content: str) -> Any:
     text = str(content).strip()
     output = _core_json_parse_strict(text)
     return output
-
-
-def _is_flexible_json_field(typ: FieldType) -> bool:
-    _core_coverage_mark("_is_flexible_json_field")
-    type_name = _core_get(typ, "name", None)
-    is_json = _core_eq(type_name, "json")
-    is_object = _core_eq(type_name, "object")
-    fields = _core_get(typ, "fields", None)
-    has_fields = _core_truthy(fields)
-    no_fields = _core_not(has_fields)
-    flexible = is_json
-    if is_object:
-        if no_fields:
-            flexible = True
-        else:
-            pass
-    else:
-        pass
-    return flexible
 
 
 def _ace_estimate_token_count(text: str) -> i64:
@@ -2795,21 +2797,23 @@ def _ace_estimate_token_count(text: str) -> i64:
     return tokens
 
 
-def _parse_json_string_value(value: Any) -> Any:
-    _core_coverage_mark("_parse_json_string_value")
-    is_string = _core_type_is(value, "string")
-    not_string = _core_not(is_string)
-    if not_string:
-        return value
+def _is_flexible_json_field(typ: FieldType) -> bool:
+    _core_coverage_mark("_is_flexible_json_field")
+    type_name = _core_get(typ, "name", None)
+    is_json = _core_eq(type_name, "json")
+    is_object = _core_eq(type_name, "object")
+    fields = _core_get(typ, "fields", None)
+    has_fields = _core_truthy(fields)
+    no_fields = _core_not(has_fields)
+    flexible = is_json
+    if is_object:
+        if no_fields:
+            flexible = True
+        else:
+            pass
     else:
         pass
-    result = value
-    try:
-        parsed = _core_json_parse(value)
-        result = parsed
-    except Exception as parse_error:
-        result = value
-    return result
+    return flexible
 
 
 def _ace_recompute_playbook_stats(playbook: Any) -> Any:
@@ -2842,6 +2846,23 @@ def _ace_recompute_playbook_stats(playbook: Any) -> Any:
     stats["tokenEstimate"] = token_estimate
     playbook["stats"] = stats
     return playbook
+
+
+def _parse_json_string_value(value: Any) -> Any:
+    _core_coverage_mark("_parse_json_string_value")
+    is_string = _core_type_is(value, "string")
+    not_string = _core_not(is_string)
+    if not_string:
+        return value
+    else:
+        pass
+    result = value
+    try:
+        parsed = _core_json_parse(value)
+        result = parsed
+    except Exception as parse_error:
+        result = value
+    return result
 
 
 def _parse_json_string_for_field(field: Field, value: Any) -> Any:

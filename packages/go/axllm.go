@@ -400,6 +400,36 @@ type SignatureError struct{ AxError }
 type ValidationError struct{ AxError }
 type AIServiceError struct{ AxError }
 
+// AxAIServiceAbortedError is returned when the caller cancels an in-flight
+// provider operation. Cancellation is always terminal and never retryable.
+type AxAIServiceAbortedError struct{ AIServiceError }
+
+func (e AxAIServiceAbortedError) Unwrap() error { return e.AIServiceError }
+
+func newAIServiceAbortedError(reason string) error {
+	message := "Request aborted"
+	if reason != "" && reason != context.Canceled.Error() {
+		message += ": " + reason
+	}
+	return AxAIServiceAbortedError{AIServiceError{AxError{Category: "aborted", Type: "AxAIServiceAbortedError", Message: message, Retryable: false}}}
+}
+
+func normalizeContextError(ctx context.Context, err error) error {
+	if ctx == nil {
+		return err
+	}
+	if errors.Is(ctx.Err(), context.Canceled) || (err != nil && errors.Is(err, context.Canceled)) {
+		reason := context.Canceled.Error()
+		if cause := context.Cause(ctx); cause != nil {
+			reason = cause.Error()
+		}
+		return newAIServiceAbortedError(reason)
+	}
+	return err
+}
+
+func contextCancellationError(ctx context.Context) error { if ctx == nil { return nil }; return normalizeContextError(ctx, ctx.Err()) }
+
 // Unwrap exposes the embedded envelope so errors.As(err, &AxError{}) reaches
 // Status, Code, and Retryable without the caller having to know which concrete
 // Ax error type carries them. Embedding alone does not satisfy errors.As: the
@@ -430,7 +460,7 @@ func IsRetryable(err error) bool {
 	var serviceErr AIServiceError
 	if errors.As(err, &serviceErr) {
 		switch serviceErr.Type {
-		case "AxAIServiceAuthenticationError":
+		case "AxAIServiceAuthenticationError", "AxAIServiceAbortedError":
 			return false
 		case "AxAIServiceStatusError":
 			return coreTruthy(mustCore(is_retryable_status(serviceErr.Status)))
@@ -1055,15 +1085,21 @@ func runtimeJSONValue(value Value) any {
 	}
 }
 
+func axErrorValue(v AxError) Value {
+	return Object("__error", v.Category, "message", v.Message, "__type", v.Type, "status", float64(v.Status), "code", v.Code, "retryable", v.Retryable, "response_body", v.Payload)
+}
+
 func errorValue(raw any) Value {
-	switch v := raw.(type) {
-	case AxError:
-		return Object("__error", v.Category, "message", v.Message, "__type", v.Type, "status", float64(v.Status), "code", v.Code, "retryable", v.Retryable, "response_body", v.Payload)
-	case error:
-		return Object("__error", "runtime", "message", v.Error())
-	default:
-		return Object("__error", "runtime", "message", display(v))
+	if err, ok := raw.(error); ok {
+		var aborted AxAIServiceAbortedError
+		if errors.As(err, &aborted) { return axErrorValue(aborted.AIServiceError.AxError) }
+		var service AIServiceError
+		if errors.As(err, &service) { return axErrorValue(service.AxError) }
+		var axErr AxError
+		if errors.As(err, &axErr) { return axErrorValue(axErr) }
+		return Object("__error", "runtime", "message", err.Error())
 	}
+	return Object("__error", "runtime", "message", display(raw))
 }
 
 func asAxError(value Value) AxError {
@@ -1075,6 +1111,15 @@ func asAxError(value Value) AxError {
 		return AxError{Category: cat, Message: display(m["message"]), Type: display(m["__type"]), Status: int(num(m["status"])), Code: display(m["code"]), Retryable: coreTruthy(m["retryable"]), Payload: coreGet(m, "response_body", m["payload"])}
 	}
 	return AxError{Category: "runtime", Message: display(value)}
+}
+
+func asError(value Value) error {
+	if err, ok := value.(error); ok { return err }
+	axErr := asAxError(value)
+	if axErr.Type == "AxAIServiceAbortedError" || axErr.Category == "aborted" {
+		return AxAIServiceAbortedError{AIServiceError{axErr}}
+	}
+	return axErr
 }
 
 func coreRegexMatch(pattern Value, value Value) Value {
@@ -1322,8 +1367,24 @@ func _core_ai_client_features(client Value, model Value) Value {
 	}
 	return Object("functions", true, "structured_outputs", true)
 }
-func _core_retry_sleep(attempt Value) Value   { return nil }
+func _core_retry_sleep(attempt Value, client Value, _ Value) (Value, error) {
+	delay := time.Duration(math.Min(0.25*(num(attempt)+1), 1.0) * float64(time.Second))
+	ctx := context.Background()
+	if aiClient, ok := client.(AIClient); ok { ctx = contextForAIClient(aiClient, ctx) }
+	timer := time.NewTimer(delay)
+	defer timer.Stop()
+	select {
+	case <-ctx.Done():
+		return nil, normalizeContextError(ctx, ctx.Err())
+	case <-timer.C:
+		return nil, nil
+	}
+}
 func _core_exception_message(err Value) Value { return display(coreGet(err, "message", err)) }
+func _core_exception_is_aborted(err Value) Value {
+	structured := asAxError(err)
+	return structured.Type == "AxAIServiceAbortedError" || structured.Category == "aborted"
+}
 func _core_runtime_error(message Value) Value {
 	return Object("__error", "runtime", "message", display(message))
 }
@@ -1910,7 +1971,7 @@ func _signature_parse_impl(args ...Value) (Value, error) {
 	v_is_empty = _core_eq(v_text_len, 0)
 	if coreTruthy(v_is_empty) {
 		v_error = _core_signature_error("Empty signature provided")
-		return nil, asAxError(v_error)
+		return nil, asError(v_error)
 	} else {
 	// empty
 	}
@@ -1926,12 +1987,12 @@ func _signature_parse_impl(args ...Value) (Value, error) {
 		v_has_open_brace = _core_not(v_brace_missing)
 		if coreTruthy(v_has_open_brace) {
 			v_error = _core_signature_error("unbalanced \"{\" in object type")
-			return nil, asAxError(v_error)
+			return nil, asError(v_error)
 		} else {
 		// empty
 		}
 		v_error = _core_signature_error("Expected \"->\"")
-		return nil, asAxError(v_error)
+		return nil, asError(v_error)
 	} else {
 	// empty
 	}
@@ -1944,7 +2005,7 @@ func _signature_parse_impl(args ...Value) (Value, error) {
 	v_left_empty = _core_eq(v_left_len, 0)
 	if coreTruthy(v_left_empty) {
 		v_error = _core_signature_error("No input fields specified")
-		return nil, asAxError(v_error)
+		return nil, asError(v_error)
 	} else {
 	// empty
 	}
@@ -1952,7 +2013,7 @@ func _signature_parse_impl(args ...Value) (Value, error) {
 	v_right_empty = _core_eq(v_right_len, 0)
 	if coreTruthy(v_right_empty) {
 		v_error = _core_signature_error("No output fields specified")
-		return nil, asAxError(v_error)
+		return nil, asError(v_error)
 	} else {
 	// empty
 	}
@@ -1995,7 +2056,7 @@ func _signature_parse_fields_impl(args ...Value) (Value, error) {
 		v_empty = _core_eq(v_trimmed, "")
 		if coreTruthy(v_empty) {
 			v_error = _core_signature_error("Unexpected content after signature")
-			return nil, asAxError(v_error)
+			return nil, asError(v_error)
 		} else {
 		// empty
 		}
@@ -2193,7 +2254,7 @@ func _signature_parse_field_common_impl(args ...Value) (Value, error) {
 		v_has_extra = _core_truthy(v_rest_after_quote)
 		if coreTruthy(v_has_extra) {
 			v_error = _core_signature_error("Unexpected content after signature")
-			return nil, asAxError(v_error)
+			return nil, asError(v_error)
 		} else {
 		// empty
 		}
@@ -2213,7 +2274,7 @@ func _signature_parse_field_common_impl(args ...Value) (Value, error) {
 		v_qualified = _core_string_format("{}.{}", v_parent, v_name)
 		v_message = _core_string_format("Object field \"{}\" cannot use the internal marker \"!\"", v_qualified)
 		v_error = _core_signature_error(v_message)
-		return nil, asAxError(v_error)
+		return nil, asError(v_error)
 	} else {
 	// empty
 	}
@@ -2307,7 +2368,7 @@ func _signature_parse_description_impl(args ...Value) (Value, error) {
 	v_missing = _core_not(v_found)
 	if coreTruthy(v_missing) {
 		v_error = _core_signature_error("Unexpected content after signature")
-		return nil, asAxError(v_error)
+		return nil, asError(v_error)
 	} else {
 	// empty
 	}
@@ -2316,7 +2377,7 @@ func _signature_parse_description_impl(args ...Value) (Value, error) {
 	v_has_extra = _core_truthy(v_rest)
 	if coreTruthy(v_has_extra) {
 		v_error = _core_signature_error("Unexpected content after signature")
-		return nil, asAxError(v_error)
+		return nil, asError(v_error)
 	} else {
 	// empty
 	}
@@ -2438,7 +2499,7 @@ func _signature_parse_base_type_impl(args ...Value) (Value, error) {
 		v_word = _core_list_get(v_words, 0, "empty")
 		v_message = _core_string_format("Invalid type \"{}\"", v_word)
 		v_error = _core_signature_error(v_message)
-		return nil, asAxError(v_error)
+		return nil, asError(v_error)
 	} else {
 	// empty
 	}
@@ -2574,7 +2635,7 @@ func _signature_parse_type_expr_impl(args ...Value) (Value, error) {
 	if coreTruthy(v_nested_media) {
 		v_message = _core_string_format("Object field \"{}\": {} type is not allowed in nested object fields", v_field_name, v_type_name)
 		v_error = _core_signature_error(v_message)
-		return nil, asAxError(v_error)
+		return nil, asError(v_error)
 	} else {
 	// empty
 	}
@@ -2583,7 +2644,7 @@ func _signature_parse_type_expr_impl(args ...Value) (Value, error) {
 		v_input = _core_eq(v_section, "input")
 		if coreTruthy(v_input) {
 			v_error = _core_signature_error("Input field cannot use the \"class\" type")
-			return nil, asAxError(v_error)
+			return nil, asError(v_error)
 		} else {
 		// empty
 		}
@@ -2591,7 +2652,7 @@ func _signature_parse_type_expr_impl(args ...Value) (Value, error) {
 		if coreTruthy(v_bag) {
 			v_message = _core_string_format("Field \"{}\": constraints are not supported on class fields", v_field_name)
 			v_error = _core_signature_error(v_message)
-			return nil, asAxError(v_error)
+			return nil, asError(v_error)
 		} else {
 		// empty
 		}
@@ -2606,7 +2667,7 @@ func _signature_parse_type_expr_impl(args ...Value) (Value, error) {
 		if coreTruthy(v_bag_after) {
 			v_message = _core_string_format("Field \"{}\": constraints are not supported on class fields", v_field_name)
 			v_error = _core_signature_error(v_message)
-			return nil, asAxError(v_error)
+			return nil, asError(v_error)
 		} else {
 		// empty
 		}
@@ -2620,7 +2681,7 @@ func _signature_parse_type_expr_impl(args ...Value) (Value, error) {
 			v_empty_options = _core_eq(v_option_count, 0)
 			if coreTruthy(v_empty_options) {
 				v_error = _core_signature_error("Missing class options after \"class\" type")
-				return nil, asAxError(v_error)
+				return nil, asError(v_error)
 			} else {
 			// empty
 			}
@@ -2639,7 +2700,7 @@ func _signature_parse_type_expr_impl(args ...Value) (Value, error) {
 		// empty
 		}
 		v_error = _core_signature_error("Missing class options after \"class\" type")
-		return nil, asAxError(v_error)
+		return nil, asError(v_error)
 	} else {
 	// empty
 	}
@@ -2653,7 +2714,7 @@ func _signature_parse_type_expr_impl(args ...Value) (Value, error) {
 		if coreTruthy(v_unbalanced) {
 			v_message = _core_string_format("Field \"{}\": unbalanced \"{\" in object type", v_field_name)
 			v_error = _core_signature_error(v_message)
-			return nil, asAxError(v_error)
+			return nil, asError(v_error)
 		} else {
 		// empty
 		}
@@ -2697,7 +2758,7 @@ func _signature_parse_type_expr_impl(args ...Value) (Value, error) {
 		if coreTruthy(v_unbalanced) {
 			v_message = _core_string_format("Field \"{}\": expected \",\" or \")\" in modifier list", v_field_name)
 			v_error = _core_signature_error(v_message)
-			return nil, asAxError(v_error)
+			return nil, asError(v_error)
 		} else {
 		// empty
 		}
@@ -2731,7 +2792,7 @@ func _signature_parse_type_expr_impl(args ...Value) (Value, error) {
 	if coreTruthy(v_item_without_array) {
 		v_message = _core_string_format("Field \"{}\": the \"item\" modifier requires an array type", v_field_name)
 		v_error = _core_signature_error(v_message)
-		return nil, asAxError(v_error)
+		return nil, asError(v_error)
 	} else {
 	// empty
 	}
@@ -2896,7 +2957,7 @@ func _signature_parse_modifier_bag_impl(args ...Value) (Value, error) {
 	if coreTruthy(v_empty) {
 		v_message = _core_string_format("Field \"{}\": empty modifier list \"()\"", v_field_name)
 		v_error = _core_signature_error(v_message)
-		return nil, asAxError(v_error)
+		return nil, asError(v_error)
 	} else {
 	// empty
 	}
@@ -2913,7 +2974,7 @@ func _signature_parse_modifier_bag_impl(args ...Value) (Value, error) {
 		if coreTruthy(v_entry_empty) {
 			v_message = _core_string_format("Field \"{}\": trailing comma in modifier list", v_field_name)
 			v_error = _core_signature_error(v_message)
-			return nil, asAxError(v_error)
+			return nil, asError(v_error)
 		} else {
 		// empty
 		}
@@ -2932,7 +2993,7 @@ func _signature_parse_modifier_bag_impl(args ...Value) (Value, error) {
 			if coreTruthy(v_duplicate) {
 				v_message = _core_string_format("Field \"{}\": duplicate \"{}\" modifier", v_field_name, v_token)
 				v_error = _core_signature_error(v_message)
-				return nil, asAxError(v_error)
+				return nil, asError(v_error)
 			} else {
 			// empty
 			}
@@ -2944,7 +3005,7 @@ func _signature_parse_modifier_bag_impl(args ...Value) (Value, error) {
 			if coreTruthy(v_not_allowed) {
 				v_message = _core_string_format("Field \"{}\": \"{}\" is not supported for type \"{}\"", v_field_name, v_token, v_type_name)
 				v_error = _core_signature_error(v_message)
-				return nil, asAxError(v_error)
+				return nil, asError(v_error)
 			} else {
 			// empty
 			}
@@ -2953,7 +3014,7 @@ func _signature_parse_modifier_bag_impl(args ...Value) (Value, error) {
 			if coreTruthy(v_not_numeric) {
 				v_message = _core_string_format("Field \"{}\": \"{}\" requires a numeric value", v_field_name, v_token)
 				v_error = _core_signature_error(v_message)
-				return nil, asAxError(v_error)
+				return nil, asError(v_error)
 			} else {
 			// empty
 			}
@@ -2981,7 +3042,7 @@ func _signature_parse_modifier_bag_impl(args ...Value) (Value, error) {
 			if coreTruthy(v_duplicate) {
 				v_message = _core_string_format("Field \"{}\": duplicate \"format\" modifier", v_field_name)
 				v_error = _core_signature_error(v_message)
-				return nil, asAxError(v_error)
+				return nil, asError(v_error)
 			} else {
 			// empty
 			}
@@ -2991,7 +3052,7 @@ func _signature_parse_modifier_bag_impl(args ...Value) (Value, error) {
 			if coreTruthy(v_not_string) {
 				v_message = _core_string_format("Field \"{}\": \"format\" is not supported for type \"{}\"", v_field_name, v_type_name)
 				v_error = _core_signature_error(v_message)
-				return nil, asAxError(v_error)
+				return nil, asError(v_error)
 			} else {
 			// empty
 			}
@@ -3005,7 +3066,7 @@ func _signature_parse_modifier_bag_impl(args ...Value) (Value, error) {
 			if coreTruthy(v_unknown) {
 				v_message = _core_string_format("Field \"{}\": unknown format \"{}\"", v_field_name, v_arg)
 				v_error = _core_signature_error(v_message)
-				return nil, asAxError(v_error)
+				return nil, asError(v_error)
 			} else {
 			// empty
 			}
@@ -3020,7 +3081,7 @@ func _signature_parse_modifier_bag_impl(args ...Value) (Value, error) {
 			if coreTruthy(v_duplicate) {
 				v_message = _core_string_format("Field \"{}\": duplicate \"pattern\" modifier", v_field_name)
 				v_error = _core_signature_error(v_message)
-				return nil, asAxError(v_error)
+				return nil, asError(v_error)
 			} else {
 			// empty
 			}
@@ -3030,7 +3091,7 @@ func _signature_parse_modifier_bag_impl(args ...Value) (Value, error) {
 			if coreTruthy(v_not_string) {
 				v_message = _core_string_format("Field \"{}\": \"pattern\" is not supported for type \"{}\"", v_field_name, v_type_name)
 				v_error = _core_signature_error(v_message)
-				return nil, asAxError(v_error)
+				return nil, asError(v_error)
 			} else {
 			// empty
 			}
@@ -3040,7 +3101,7 @@ func _signature_parse_modifier_bag_impl(args ...Value) (Value, error) {
 			if coreTruthy(v_missing) {
 				v_message = _core_string_format("Field \"{}\": \"pattern\" requires a quoted regular expression", v_field_name)
 				v_error = _core_signature_error(v_message)
-				return nil, asAxError(v_error)
+				return nil, asError(v_error)
 			} else {
 			// empty
 			}
@@ -3056,7 +3117,7 @@ func _signature_parse_modifier_bag_impl(args ...Value) (Value, error) {
 				if coreTruthy(v_desc_missing) {
 					v_message = _core_string_format("Field \"{}\": expected \",\" or \")\" in modifier list", v_field_name)
 					v_error = _core_signature_error(v_message)
-					return nil, asAxError(v_error)
+					return nil, asError(v_error)
 				} else {
 				// empty
 				}
@@ -3066,7 +3127,7 @@ func _signature_parse_modifier_bag_impl(args ...Value) (Value, error) {
 				if coreTruthy(v_desc_extra) {
 					v_message = _core_string_format("Field \"{}\": expected \",\" or \")\" in modifier list", v_field_name)
 					v_error = _core_signature_error(v_message)
-					return nil, asAxError(v_error)
+					return nil, asError(v_error)
 				} else {
 				// empty
 				}
@@ -3085,7 +3146,7 @@ func _signature_parse_modifier_bag_impl(args ...Value) (Value, error) {
 			if coreTruthy(v_duplicate) {
 				v_message = _core_string_format("Field \"{}\": duplicate \"cache\" modifier", v_field_name)
 				v_error = _core_signature_error(v_message)
-				return nil, asAxError(v_error)
+				return nil, asError(v_error)
 			} else {
 			// empty
 			}
@@ -3095,7 +3156,7 @@ func _signature_parse_modifier_bag_impl(args ...Value) (Value, error) {
 			if coreTruthy(v_not_input) {
 				v_message = _core_string_format("Field \"{}\": \"cache\" is only supported on top-level input fields", v_field_name)
 				v_error = _core_signature_error(v_message)
-				return nil, asAxError(v_error)
+				return nil, asError(v_error)
 			} else {
 			// empty
 			}
@@ -3103,7 +3164,7 @@ func _signature_parse_modifier_bag_impl(args ...Value) (Value, error) {
 			if coreTruthy(v_extra) {
 				v_message = _core_string_format("Field \"{}\": expected \",\" or \")\" in modifier list", v_field_name)
 				v_error = _core_signature_error(v_message)
-				return nil, asAxError(v_error)
+				return nil, asError(v_error)
 			} else {
 			// empty
 			}
@@ -3118,7 +3179,7 @@ func _signature_parse_modifier_bag_impl(args ...Value) (Value, error) {
 			if coreTruthy(v_duplicate) {
 				v_message = _core_string_format("Field \"{}\": duplicate \"item\" modifier", v_field_name)
 				v_error = _core_signature_error(v_message)
-				return nil, asAxError(v_error)
+				return nil, asError(v_error)
 			} else {
 			// empty
 			}
@@ -3127,7 +3188,7 @@ func _signature_parse_modifier_bag_impl(args ...Value) (Value, error) {
 			if coreTruthy(v_nested) {
 				v_message = _core_string_format("Field \"{}\": \"item\" is not supported inside object fields", v_field_name)
 				v_error = _core_signature_error(v_message)
-				return nil, asAxError(v_error)
+				return nil, asError(v_error)
 			} else {
 			// empty
 			}
@@ -3137,7 +3198,7 @@ func _signature_parse_modifier_bag_impl(args ...Value) (Value, error) {
 			if coreTruthy(v_missing) {
 				v_message = _core_string_format("Field \"{}\": \"item\" requires a quoted description", v_field_name)
 				v_error = _core_signature_error(v_message)
-				return nil, asAxError(v_error)
+				return nil, asError(v_error)
 			} else {
 			// empty
 			}
@@ -3147,7 +3208,7 @@ func _signature_parse_modifier_bag_impl(args ...Value) (Value, error) {
 			if coreTruthy(v_extra) {
 				v_message = _core_string_format("Field \"{}\": expected \",\" or \")\" in modifier list", v_field_name)
 				v_error = _core_signature_error(v_message)
-				return nil, asAxError(v_error)
+				return nil, asError(v_error)
 			} else {
 			// empty
 			}
@@ -3166,7 +3227,7 @@ func _signature_parse_modifier_bag_impl(args ...Value) (Value, error) {
 				if coreTruthy(v_duplicate) {
 					v_message = _core_string_format("Field \"{}\": duplicate \"language\" modifier", v_field_name)
 					v_error = _core_signature_error(v_message)
-					return nil, asAxError(v_error)
+					return nil, asError(v_error)
 				} else {
 				// empty
 				}
@@ -3174,7 +3235,7 @@ func _signature_parse_modifier_bag_impl(args ...Value) (Value, error) {
 				if coreTruthy(v_extra) {
 					v_message = _core_string_format("Field \"{}\": expected \",\" or \")\" in modifier list", v_field_name)
 					v_error = _core_signature_error(v_message)
-					return nil, asAxError(v_error)
+					return nil, asError(v_error)
 				} else {
 				// empty
 				}
@@ -3183,7 +3244,7 @@ func _signature_parse_modifier_bag_impl(args ...Value) (Value, error) {
 			} else {
 				v_message = _core_string_format("Field \"{}\": unknown modifier \"{}\" for type \"{}\"", v_field_name, v_token, v_type_name)
 				v_error = _core_signature_error(v_message)
-				return nil, asAxError(v_error)
+				return nil, asError(v_error)
 			}
 		} else {
 		// empty
@@ -3240,7 +3301,7 @@ func _signature_parse_object_fields_impl(args ...Value) (Value, error) {
 	if coreTruthy(v_empty) {
 		v_message = _core_string_format("Field \"{}\": object type requires at least one field", v_parent)
 		v_error = _core_signature_error(v_message)
-		return nil, asAxError(v_error)
+		return nil, asError(v_error)
 	} else {
 	// empty
 	}
@@ -3253,7 +3314,7 @@ func _signature_parse_object_fields_impl(args ...Value) (Value, error) {
 		if coreTruthy(v_entry_empty) {
 			v_message = _core_string_format("Field \"{}\": trailing comma in object type", v_parent)
 			v_error = _core_signature_error(v_message)
-			return nil, asAxError(v_error)
+			return nil, asError(v_error)
 		} else {
 		// empty
 		}
@@ -3263,7 +3324,7 @@ func _signature_parse_object_fields_impl(args ...Value) (Value, error) {
 		if coreTruthy(v_duplicate) {
 			v_message = _core_string_format("Field \"{}\": duplicate object field name \"{}\"", v_parent, v_name)
 			v_error = _core_signature_error(v_message)
-			return nil, asAxError(v_error)
+			return nil, asError(v_error)
 		} else {
 		// empty
 		}
@@ -3869,11 +3930,11 @@ func _signature_validate_field_shape_impl(args ...Value) (Value, error) {
 		if coreTruthy(v_starts_number) {
 			v_message = _core_string_format("Field name \"{}\" cannot start with a number", v_name)
 			v_error = _core_signature_error(v_message)
-			return nil, asAxError(v_error)
+			return nil, asError(v_error)
 		} else {
 			v_message = _core_string_format("Invalid field name: \"{}\"", v_name)
 			v_error = _core_signature_error(v_message)
-			return nil, asAxError(v_error)
+			return nil, asError(v_error)
 		}
 	} else {
 	// empty
@@ -3901,7 +3962,7 @@ func _signature_validate_field_shape_impl(args ...Value) (Value, error) {
 	if coreTruthy(v_unknown_type) {
 		v_message = _core_string_format("Invalid type \"{}\"", v_type_name)
 		v_error = _core_signature_error(v_message)
-		return nil, asAxError(v_error)
+		return nil, asError(v_error)
 	} else {
 	// empty
 	}
@@ -3914,7 +3975,7 @@ func _signature_validate_field_shape_impl(args ...Value) (Value, error) {
 	if coreTruthy(v_nested_media) {
 		v_message = _core_string_format("Media type '{}' is not allowed in nested object fields", v_type_name)
 		v_error = _core_signature_error(v_message)
-		return nil, asAxError(v_error)
+		return nil, asError(v_error)
 	} else {
 	// empty
 	}
@@ -3925,7 +3986,7 @@ func _signature_validate_field_shape_impl(args ...Value) (Value, error) {
 	v_input_class = _core_and(v_input_class_base, v_top_level)
 	if coreTruthy(v_input_class) {
 		v_error = _core_signature_error("Input field cannot use the \"class\" type")
-		return nil, asAxError(v_error)
+		return nil, asError(v_error)
 	} else {
 	// empty
 	}
@@ -3935,7 +3996,7 @@ func _signature_validate_field_shape_impl(args ...Value) (Value, error) {
 	v_class_without_options = _core_and(v_is_class, v_missing_class_options)
 	if coreTruthy(v_class_without_options) {
 		v_error = _core_signature_error("Missing class options after \"class\" type")
-		return nil, asAxError(v_error)
+		return nil, asError(v_error)
 	} else {
 	// empty
 	}
@@ -3943,7 +4004,7 @@ func _signature_validate_field_shape_impl(args ...Value) (Value, error) {
 	v_internal_input = _core_and(v_is_internal, v_is_input)
 	if coreTruthy(v_internal_input) {
 		v_error = _core_signature_error("Input field cannot use the internal marker")
-		return nil, asAxError(v_error)
+		return nil, asError(v_error)
 	} else {
 	// empty
 	}
@@ -3951,7 +4012,7 @@ func _signature_validate_field_shape_impl(args ...Value) (Value, error) {
 	v_output_image = _core_and(v_output, v_is_image)
 	if coreTruthy(v_output_image) {
 		v_error = _core_signature_error("Image type is not supported in output fields")
-		return nil, asAxError(v_error)
+		return nil, asError(v_error)
 	} else {
 	// empty
 	}
@@ -3959,7 +4020,7 @@ func _signature_validate_field_shape_impl(args ...Value) (Value, error) {
 	v_output_file = _core_and(v_output, v_is_file)
 	if coreTruthy(v_output_file) {
 		v_error = _core_signature_error("File type is not supported in output fields")
-		return nil, asAxError(v_error)
+		return nil, asError(v_error)
 	} else {
 	// empty
 	}
@@ -3969,7 +4030,7 @@ func _signature_validate_field_shape_impl(args ...Value) (Value, error) {
 	v_output_audio_array = _core_and(v_output_audio, v_is_array)
 	if coreTruthy(v_output_audio_array) {
 		v_error = _core_signature_error("Arrays of audio are not supported in output fields")
-		return nil, asAxError(v_error)
+		return nil, asError(v_error)
 	} else {
 	// empty
 	}
@@ -4025,7 +4086,7 @@ func _signature_validate_impl(args ...Value) (Value, error) {
 	v_no_inputs = _core_eq(v_input_count, 0)
 	if coreTruthy(v_no_inputs) {
 		v_error = _core_signature_error("No input fields specified")
-		return nil, asAxError(v_error)
+		return nil, asError(v_error)
 	} else {
 	// empty
 	}
@@ -4033,7 +4094,7 @@ func _signature_validate_impl(args ...Value) (Value, error) {
 	v_no_outputs = _core_eq(v_output_count, 0)
 	if coreTruthy(v_no_outputs) {
 		v_error = _core_signature_error("No output fields specified")
-		return nil, asAxError(v_error)
+		return nil, asError(v_error)
 	} else {
 	// empty
 	}
@@ -4045,7 +4106,7 @@ func _signature_validate_impl(args ...Value) (Value, error) {
 		if coreTruthy(v_duplicate) {
 			v_message = _core_string_format("Duplicate input field name: \"{}\"", v_field_name)
 			v_error = _core_signature_error(v_message)
-			return nil, asAxError(v_error)
+			return nil, asError(v_error)
 		} else {
 		// empty
 		}
@@ -4059,7 +4120,7 @@ func _signature_validate_impl(args ...Value) (Value, error) {
 		if coreTruthy(v_collision) {
 			v_message = _core_string_format("Field name \"{}\" appears in both inputs and outputs", v_field_name)
 			v_error = _core_signature_error(v_message)
-			return nil, asAxError(v_error)
+			return nil, asError(v_error)
 		} else {
 		// empty
 		}
@@ -4067,7 +4128,7 @@ func _signature_validate_impl(args ...Value) (Value, error) {
 		if coreTruthy(v_duplicate) {
 			v_message = _core_string_format("Duplicate output field name: \"{}\"", v_field_name)
 			v_error = _core_signature_error(v_message)
-			return nil, asAxError(v_error)
+			return nil, asError(v_error)
 		} else {
 		// empty
 		}
@@ -4273,7 +4334,7 @@ func _validate_fields_impl(args ...Value) (Value, error) {
 	if coreTruthy(v_values_not_object) {
 		v_message = _core_string_format("{} must be an object", v_context)
 		v_error = _core_validation_error(v_message)
-		return nil, asAxError(v_error)
+		return nil, asError(v_error)
 	} else {
 	// empty
 	}
@@ -4291,7 +4352,7 @@ func _validate_fields_impl(args ...Value) (Value, error) {
 			if coreTruthy(v_required_missing) {
 				v_message = _core_string_format("Required field is missing: '{}'", v_field_title)
 				v_error = _core_validation_error(v_message)
-				return nil, asAxError(v_error)
+				return nil, asError(v_error)
 			} else {
 			// empty
 			}
@@ -4581,7 +4642,7 @@ func _schema_enhance_description_impl(args ...Value) (Value, error) {
 		if coreTruthy(v_missing_pattern_description) {
 			v_message = _core_string_format("Field with pattern '{}' must include a patternDescription to explain the pattern to the LLM", v_pattern)
 			v_error = _core_validation_error(v_message)
-			return nil, asAxError(v_error)
+			return nil, asError(v_error)
 		} else {
 			v_constraints = coreAppend(v_constraints, v_pattern_description)
 		}
@@ -4688,7 +4749,7 @@ func _validate_string_constraints_impl(args ...Value) (Value, error) {
 		if coreTruthy(v_too_short) {
 			v_message = _core_string_format("Field '{}' failed validation: String must be at least {} characters long.", v_title, v_min_length)
 			v_error = _core_validation_error(v_message)
-			return nil, asAxError(v_error)
+			return nil, asError(v_error)
 		} else {
 		// empty
 		}
@@ -4703,7 +4764,7 @@ func _validate_string_constraints_impl(args ...Value) (Value, error) {
 		if coreTruthy(v_too_long) {
 			v_message = _core_string_format("Field '{}' failed validation: String must be at most {} characters long.", v_title, v_max_length)
 			v_error = _core_validation_error(v_message)
-			return nil, asAxError(v_error)
+			return nil, asError(v_error)
 		} else {
 		// empty
 		}
@@ -4718,7 +4779,7 @@ func _validate_string_constraints_impl(args ...Value) (Value, error) {
 		if coreTruthy(v_pattern_failed) {
 			v_message = _core_string_format("Field '{}' failed validation: String must match pattern /{}/.", v_title, v_pattern)
 			v_error = _core_validation_error(v_message)
-			return nil, asAxError(v_error)
+			return nil, asError(v_error)
 		} else {
 		// empty
 		}
@@ -4733,7 +4794,7 @@ func _validate_string_constraints_impl(args ...Value) (Value, error) {
 		if coreTruthy(v_invalid_email) {
 			v_message = _core_string_format("Field '{}' failed validation: String must be a valid email address.", v_title)
 			v_error = _core_validation_error(v_message)
-			return nil, asAxError(v_error)
+			return nil, asError(v_error)
 		} else {
 		// empty
 		}
@@ -4750,7 +4811,7 @@ func _validate_string_constraints_impl(args ...Value) (Value, error) {
 		if coreTruthy(v_invalid_url) {
 			v_message = _core_string_format("Invalid URL for '{}': Invalid URL format.", v_title)
 			v_error = _core_validation_error(v_message)
-			return nil, asAxError(v_error)
+			return nil, asError(v_error)
 		} else {
 		// empty
 		}
@@ -4797,7 +4858,7 @@ func _validate_number_constraints_impl(args ...Value) (Value, error) {
 		if coreTruthy(v_too_small) {
 			v_message = _core_string_format("Field '{}' failed validation: Number must be at least {}.", v_title, v_minimum)
 			v_error = _core_validation_error(v_message)
-			return nil, asAxError(v_error)
+			return nil, asError(v_error)
 		} else {
 		// empty
 		}
@@ -4811,7 +4872,7 @@ func _validate_number_constraints_impl(args ...Value) (Value, error) {
 		if coreTruthy(v_too_large) {
 			v_message = _core_string_format("Field '{}' failed validation: Number must be at most {}.", v_title, v_maximum)
 			v_error = _core_validation_error(v_message)
-			return nil, asAxError(v_error)
+			return nil, asError(v_error)
 		} else {
 		// empty
 		}
@@ -5085,7 +5146,7 @@ func _validate_value_impl(args ...Value) (Value, error) {
 		if coreTruthy(v_not_list) {
 			v_message = _core_string_format("{} must be an array", v_path)
 			v_error = _core_validation_error(v_message)
-			return nil, asAxError(v_error)
+			return nil, asError(v_error)
 		} else {
 		// empty
 		}
@@ -5104,7 +5165,7 @@ func _validate_value_impl(args ...Value) (Value, error) {
 		if coreTruthy(v_invalid_image) {
 			v_message = _core_string_format("Validation failed: Expected '{}' to be type 'object ({{ mimeType: string; data: string }})'", v_field_name)
 			v_error = _core_validation_error(v_message)
-			return nil, asAxError(v_error)
+			return nil, asError(v_error)
 		} else {
 		// empty
 		}
@@ -5119,7 +5180,7 @@ func _validate_value_impl(args ...Value) (Value, error) {
 		if coreTruthy(v_invalid_audio) {
 			v_message = _core_string_format("Validation failed: Expected '{}' to be type 'string or object ({{ data: string; format?: string }})'", v_field_name)
 			v_error = _core_validation_error(v_message)
-			return nil, asAxError(v_error)
+			return nil, asError(v_error)
 		} else {
 		// empty
 		}
@@ -5134,7 +5195,7 @@ func _validate_value_impl(args ...Value) (Value, error) {
 		if coreTruthy(v_invalid_file) {
 			v_message = _core_string_format("Validation failed: Expected '{}' to be type 'object ({{ mimeType: string; data: string }} | {{ mimeType: string; fileUri: string }})'", v_field_name)
 			v_error = _core_validation_error(v_message)
-			return nil, asAxError(v_error)
+			return nil, asError(v_error)
 		} else {
 		// empty
 		}
@@ -5149,7 +5210,7 @@ func _validate_value_impl(args ...Value) (Value, error) {
 		if coreTruthy(v_invalid_url_shape) {
 			v_message = _core_string_format("Validation failed: Expected '{}' to be type 'string or object ({{ url: string; title?: string; description?: string }})'", v_field_name)
 			v_error = _core_validation_error(v_message)
-			return nil, asAxError(v_error)
+			return nil, asError(v_error)
 		} else {
 		// empty
 		}
@@ -5161,7 +5222,7 @@ func _validate_value_impl(args ...Value) (Value, error) {
 				v_field_title = coreGet(v_field, "title", nil)
 				v_message = _core_string_format("Invalid URL for '{}': Invalid URL format. Expected a valid URL like https://example.com. Use a valid URL format (e.g., https://example.com). You provided: {}.", v_field_title, v_value)
 				v_error = _core_validation_error(v_message)
-				return nil, asAxError(v_error)
+				return nil, asError(v_error)
 			} else {
 			// empty
 			}
@@ -5186,7 +5247,7 @@ func _validate_value_impl(args ...Value) (Value, error) {
 		if coreTruthy(v_not_string) {
 			v_message = _core_string_format("Validation failed: Expected '{}' to be a {}", v_field_name, v_type_name)
 			v_error = _core_validation_error(v_message)
-			return nil, asAxError(v_error)
+			return nil, asError(v_error)
 		} else {
 		// empty
 		}
@@ -5202,7 +5263,7 @@ func _validate_value_impl(args ...Value) (Value, error) {
 		if coreTruthy(v_not_number) {
 			v_message = _core_string_format("Validation failed: Expected '{}' to be a number", v_field_name)
 			v_error = _core_validation_error(v_message)
-			return nil, asAxError(v_error)
+			return nil, asError(v_error)
 		} else {
 		// empty
 		}
@@ -5218,7 +5279,7 @@ func _validate_value_impl(args ...Value) (Value, error) {
 		if coreTruthy(v_not_boolean) {
 			v_message = _core_string_format("Validation failed: Expected '{}' to be a boolean", v_field_name)
 			v_error = _core_validation_error(v_message)
-			return nil, asAxError(v_error)
+			return nil, asError(v_error)
 		} else {
 		// empty
 		}
@@ -5233,7 +5294,7 @@ func _validate_value_impl(args ...Value) (Value, error) {
 		if coreTruthy(v_not_class_string) {
 			v_message = _core_string_format("Validation failed: Expected '{}' to be a class", v_field_name)
 			v_error = _core_validation_error(v_message)
-			return nil, asAxError(v_error)
+			return nil, asError(v_error)
 		} else {
 		// empty
 		}
@@ -5245,7 +5306,7 @@ func _validate_value_impl(args ...Value) (Value, error) {
 			if coreTruthy(v_unknown_class) {
 				v_message = _core_string_format("{} must be one of {}", v_path, v_options)
 				v_error = _core_validation_error(v_message)
-				return nil, asAxError(v_error)
+				return nil, asError(v_error)
 			} else {
 			// empty
 			}
@@ -5263,7 +5324,7 @@ func _validate_value_impl(args ...Value) (Value, error) {
 		if coreTruthy(v_not_json) {
 			v_message = _core_string_format("Validation failed: Expected '{}' to be JSON", v_field_name)
 			v_error = _core_validation_error(v_message)
-			return nil, asAxError(v_error)
+			return nil, asError(v_error)
 		} else {
 		// empty
 		}
@@ -5278,7 +5339,7 @@ func _validate_value_impl(args ...Value) (Value, error) {
 		if coreTruthy(v_not_object) {
 			v_message = _core_string_format("{} must be an object", v_path)
 			v_error = _core_validation_error(v_message)
-			return nil, asAxError(v_error)
+			return nil, asError(v_error)
 		} else {
 		// empty
 		}
@@ -5529,7 +5590,7 @@ func _schema_field_schema_impl(args ...Value) (Value, error) {
 	if coreTruthy(v_nested_media) {
 		v_message = _core_string_format("Media type '{}' is not allowed in nested object fields", v_type_name)
 		v_error = _core_validation_error(v_message)
-		return nil, asAxError(v_error)
+		return nil, asError(v_error)
 	} else {
 	// empty
 	}
@@ -6592,7 +6653,7 @@ func validate_chat_request(args ...Value) (Value, error) {
 	v_has_realtime = _core_truthy(v_realtime)
 	if coreTruthy(v_has_realtime) {
 		v_error = _core_ai_error_unsupported("OpenAI-compatible beta does not support realtime requests")
-		return nil, asAxError(v_error)
+		return nil, asError(v_error)
 	} else {
 	// empty
 	}
@@ -6604,7 +6665,7 @@ func validate_chat_request(args ...Value) (Value, error) {
 	v_bad_prompt = _core_or(v_prompt_not_list, v_prompt_empty)
 	if coreTruthy(v_bad_prompt) {
 		v_error = _core_ai_error_response("Chat prompt is empty")
-		return nil, asAxError(v_error)
+		return nil, asError(v_error)
 	} else {
 	// empty
 	}
@@ -6621,7 +6682,7 @@ func validate_chat_request(args ...Value) (Value, error) {
 		if coreTruthy(v_invalid_role) {
 			v_message_text = _core_string_format("Invalid chat message role: {}", v_role)
 			v_error = _core_ai_error_response(v_message_text)
-			return nil, asAxError(v_error)
+			return nil, asError(v_error)
 		} else {
 		// empty
 		}
@@ -6646,7 +6707,7 @@ func validate_chat_request(args ...Value) (Value, error) {
 		v_bad_assistant = _core_and(v_is_assistant, v_missing_assistant_payload)
 		if coreTruthy(v_bad_assistant) {
 			v_error = _core_ai_error_response("Assistant content is required when no tool calls are provided")
-			return nil, asAxError(v_error)
+			return nil, asError(v_error)
 		} else {
 		// empty
 		}
@@ -6742,24 +6803,6 @@ func openai_reasoning_effort(args ...Value) (Value, error) {
 	return "high", nil
 }
 
-func build_chat_request(args ...Value) (Value, error) {
-	axirCoverageMark("build_chat_request")
-	var v_service Value
-	var v_request Value
-	var v_options Value
-	var v_payload Value
-	if len(args) > 0 { v_service = args[0] }
-	_ = v_service
-	if len(args) > 1 { v_request = args[1] }
-	_ = v_request
-	if len(args) > 2 { v_options = args[2] }
-	_ = v_options
-	_ = v_payload
-	if _, err := validate_chat_request(v_request); err != nil { return nil, err }
-	{ v, err := openai_build_chat_request(v_request, v_options, true); if err != nil { return nil, err }; v_payload = v }
-	return v_payload, nil
-}
-
 func openai_chat_reasoning_effort(args ...Value) (Value, error) {
 	axirCoverageMark("openai_chat_reasoning_effort")
 	var v_model Value
@@ -6782,15 +6825,22 @@ func openai_chat_reasoning_effort(args ...Value) (Value, error) {
 	return v_effort, nil
 }
 
-func normalize_chat_response(args ...Value) (Value, error) {
-	axirCoverageMark("normalize_chat_response")
-	var v_raw Value
-	var v_response Value
-	if len(args) > 0 { v_raw = args[0] }
-	_ = v_raw
-	_ = v_response
-	{ v, err := openai_normalize_chat_response(v_raw); if err != nil { return nil, err }; v_response = v }
-	return v_response, nil
+func build_chat_request(args ...Value) (Value, error) {
+	axirCoverageMark("build_chat_request")
+	var v_service Value
+	var v_request Value
+	var v_options Value
+	var v_payload Value
+	if len(args) > 0 { v_service = args[0] }
+	_ = v_service
+	if len(args) > 1 { v_request = args[1] }
+	_ = v_request
+	if len(args) > 2 { v_options = args[2] }
+	_ = v_options
+	_ = v_payload
+	if _, err := validate_chat_request(v_request); err != nil { return nil, err }
+	{ v, err := openai_build_chat_request(v_request, v_options, true); if err != nil { return nil, err }; v_payload = v }
+	return v_payload, nil
 }
 
 func _openai_copy_config_key_impl(args ...Value) (Value, error) {
@@ -6821,35 +6871,15 @@ func _openai_copy_config_key_impl(args ...Value) (Value, error) {
 	return nil, nil
 }
 
-func normalize_stream_delta(args ...Value) (Value, error) {
-	axirCoverageMark("normalize_stream_delta")
+func normalize_chat_response(args ...Value) (Value, error) {
+	axirCoverageMark("normalize_chat_response")
 	var v_raw Value
-	var v_state Value
 	var v_response Value
 	if len(args) > 0 { v_raw = args[0] }
 	_ = v_raw
-	if len(args) > 1 { v_state = args[1] }
-	_ = v_state
 	_ = v_response
-	{ v, err := openai_normalize_stream_delta(v_raw, v_state); if err != nil { return nil, err }; v_response = v }
+	{ v, err := openai_normalize_chat_response(v_raw); if err != nil { return nil, err }; v_response = v }
 	return v_response, nil
-}
-
-func build_embed_request(args ...Value) (Value, error) {
-	axirCoverageMark("build_embed_request")
-	var v_service Value
-	var v_request Value
-	var v_options Value
-	var v_payload Value
-	if len(args) > 0 { v_service = args[0] }
-	_ = v_service
-	if len(args) > 1 { v_request = args[1] }
-	_ = v_request
-	if len(args) > 2 { v_options = args[2] }
-	_ = v_options
-	_ = v_payload
-	{ v, err := openai_build_embed_request(v_request); if err != nil { return nil, err }; v_payload = v }
-	return v_payload, nil
 }
 
 func _openai_message_impl(args ...Value) (Value, error) {
@@ -7088,7 +7118,38 @@ func _openai_message_impl(args ...Value) (Value, error) {
 	}
 	v_message_text = _core_string_format("Invalid role: {}", v_role)
 	v_error = _core_ai_error_response(v_message_text)
-	return nil, asAxError(v_error)
+	return nil, asError(v_error)
+}
+
+func normalize_stream_delta(args ...Value) (Value, error) {
+	axirCoverageMark("normalize_stream_delta")
+	var v_raw Value
+	var v_state Value
+	var v_response Value
+	if len(args) > 0 { v_raw = args[0] }
+	_ = v_raw
+	if len(args) > 1 { v_state = args[1] }
+	_ = v_state
+	_ = v_response
+	{ v, err := openai_normalize_stream_delta(v_raw, v_state); if err != nil { return nil, err }; v_response = v }
+	return v_response, nil
+}
+
+func build_embed_request(args ...Value) (Value, error) {
+	axirCoverageMark("build_embed_request")
+	var v_service Value
+	var v_request Value
+	var v_options Value
+	var v_payload Value
+	if len(args) > 0 { v_service = args[0] }
+	_ = v_service
+	if len(args) > 1 { v_request = args[1] }
+	_ = v_request
+	if len(args) > 2 { v_options = args[2] }
+	_ = v_options
+	_ = v_payload
+	{ v, err := openai_build_embed_request(v_request); if err != nil { return nil, err }; v_payload = v }
+	return v_payload, nil
 }
 
 func normalize_embed_response(args ...Value) (Value, error) {
@@ -7488,7 +7549,7 @@ func _openai_content_part_impl(args ...Value) (Value, error) {
 		}
 		v_audio_message = _core_string_format("OpenAI audio chat input supports only wav and mp3 audio, received {}", v_format)
 		v_audio_error = _core_ai_error_unsupported(v_audio_message)
-		return nil, asAxError(v_audio_error)
+		return nil, asError(v_audio_error)
 	} else {
 	// empty
 	}
@@ -7558,7 +7619,7 @@ func _openai_content_part_impl(args ...Value) (Value, error) {
 	}
 	v_message = _core_string_format("OpenAI-compatible beta does not support content part type: {}", v_type)
 	v_error = _core_ai_error_unsupported(v_message)
-	return nil, asAxError(v_error)
+	return nil, asError(v_error)
 }
 
 func merge_usage_context(args ...Value) (Value, error) {
@@ -7789,6 +7850,48 @@ func _ai_model_usage_impl(args ...Value) (Value, error) {
 	return v_out, nil
 }
 
+func _openai_tool_call_to_provider_impl(args ...Value) (Value, error) {
+	axirCoverageMark("_openai_tool_call_to_provider_impl")
+	var v_call Value
+	var v_fn Value
+	var v_function Value
+	var v_id Value
+	var v_name Value
+	var v_out Value
+	var v_params Value
+	var v_params_is_string Value
+	var v_params_json Value
+	if len(args) > 0 { v_call = args[0] }
+	_ = v_call
+	_ = v_fn
+	_ = v_function
+	_ = v_id
+	_ = v_name
+	_ = v_out
+	_ = v_params
+	_ = v_params_is_string
+	_ = v_params_json
+	v_fn = coreGet(v_call, "function", nil)
+	v_params = coreGet(v_fn, "params", nil)
+	v_params_is_string = coreTypeIs(v_params, "string")
+	if coreTruthy(v_params_is_string) {
+	// empty
+	} else {
+		v_params_json = _core_json_stringify(v_params)
+		v_params = v_params_json
+	}
+	v_id = coreGet(v_call, "id", nil)
+	v_name = coreGet(v_fn, "name", nil)
+	v_function = Object()
+	if err := coreSet(v_function, "name", v_name); err != nil { return nil, err }
+	if err := coreSet(v_function, "arguments", v_params); err != nil { return nil, err }
+	v_out = Object()
+	if err := coreSet(v_out, "id", v_id); err != nil { return nil, err }
+	if err := coreSet(v_out, "type", "function"); err != nil { return nil, err }
+	if err := coreSet(v_out, "function", v_function); err != nil { return nil, err }
+	return v_out, nil
+}
+
 func ai_merge_replay_metadata(args ...Value) (Value, error) {
 	axirCoverageMark("ai_merge_replay_metadata")
 	var v_previous Value
@@ -7955,48 +8058,6 @@ func ai_merge_replay_metadata(args ...Value) (Value, error) {
 	return v_out, nil
 }
 
-func _openai_tool_call_to_provider_impl(args ...Value) (Value, error) {
-	axirCoverageMark("_openai_tool_call_to_provider_impl")
-	var v_call Value
-	var v_fn Value
-	var v_function Value
-	var v_id Value
-	var v_name Value
-	var v_out Value
-	var v_params Value
-	var v_params_is_string Value
-	var v_params_json Value
-	if len(args) > 0 { v_call = args[0] }
-	_ = v_call
-	_ = v_fn
-	_ = v_function
-	_ = v_id
-	_ = v_name
-	_ = v_out
-	_ = v_params
-	_ = v_params_is_string
-	_ = v_params_json
-	v_fn = coreGet(v_call, "function", nil)
-	v_params = coreGet(v_fn, "params", nil)
-	v_params_is_string = coreTypeIs(v_params, "string")
-	if coreTruthy(v_params_is_string) {
-	// empty
-	} else {
-		v_params_json = _core_json_stringify(v_params)
-		v_params = v_params_json
-	}
-	v_id = coreGet(v_call, "id", nil)
-	v_name = coreGet(v_fn, "name", nil)
-	v_function = Object()
-	if err := coreSet(v_function, "name", v_name); err != nil { return nil, err }
-	if err := coreSet(v_function, "arguments", v_params); err != nil { return nil, err }
-	v_out = Object()
-	if err := coreSet(v_out, "id", v_id); err != nil { return nil, err }
-	if err := coreSet(v_out, "type", "function"); err != nil { return nil, err }
-	if err := coreSet(v_out, "function", v_function); err != nil { return nil, err }
-	return v_out, nil
-}
-
 func _openai_tool_spec_impl(args ...Value) (Value, error) {
 	axirCoverageMark("_openai_tool_spec_impl")
 	var v_fn Value
@@ -8083,6 +8144,48 @@ func openai_normalize_chat_response(args ...Value) (Value, error) {
 	_ = v_response
 	{ v, err := _openai_normalize_chat_response_impl(v_raw, v_ai_name, v_model, "none", "none"); if err != nil { return nil, err }; v_response = v }
 	return v_response, nil
+}
+
+func _openai_usage_with_service_tier(args ...Value) (Value, error) {
+	axirCoverageMark("_openai_usage_with_service_tier")
+	var v_raw Value
+	var v_usage Value
+	var v_empty Value
+	var v_has_tier Value
+	var v_has_usage Value
+	var v_out Value
+	var v_raw_tier Value
+	var v_tier Value
+	var v_usage_tier Value
+	if len(args) > 0 { v_raw = args[0] }
+	_ = v_raw
+	if len(args) > 1 { v_usage = args[1] }
+	_ = v_usage
+	_ = v_empty
+	_ = v_has_tier
+	_ = v_has_usage
+	_ = v_out
+	_ = v_raw_tier
+	_ = v_tier
+	_ = v_usage_tier
+	v_has_usage = _core_is_not_none(v_usage)
+	if coreTruthy(v_has_usage) {
+	// empty
+	} else {
+		return v_usage, nil
+	}
+	v_empty = Object()
+	v_out = _core_map_merge(v_empty, v_usage)
+	v_usage_tier = coreGet(v_usage, "service_tier", nil)
+	v_raw_tier = coreGet(v_raw, "service_tier", v_usage_tier)
+	v_tier = coreGet(v_raw, "service_tier_used", v_raw_tier)
+	v_has_tier = _core_is_not_none(v_tier)
+	if coreTruthy(v_has_tier) {
+		if err := coreSet(v_out, "service_tier", v_tier); err != nil { return nil, err }
+	} else {
+	// empty
+	}
+	return v_out, nil
 }
 
 func _chat_result_to_completion(args ...Value) (Value, error) {
@@ -8184,48 +8287,6 @@ func _chat_result_to_completion(args ...Value) (Value, error) {
 	return v_completion, nil
 }
 
-func _openai_usage_with_service_tier(args ...Value) (Value, error) {
-	axirCoverageMark("_openai_usage_with_service_tier")
-	var v_raw Value
-	var v_usage Value
-	var v_empty Value
-	var v_has_tier Value
-	var v_has_usage Value
-	var v_out Value
-	var v_raw_tier Value
-	var v_tier Value
-	var v_usage_tier Value
-	if len(args) > 0 { v_raw = args[0] }
-	_ = v_raw
-	if len(args) > 1 { v_usage = args[1] }
-	_ = v_usage
-	_ = v_empty
-	_ = v_has_tier
-	_ = v_has_usage
-	_ = v_out
-	_ = v_raw_tier
-	_ = v_tier
-	_ = v_usage_tier
-	v_has_usage = _core_is_not_none(v_usage)
-	if coreTruthy(v_has_usage) {
-	// empty
-	} else {
-		return v_usage, nil
-	}
-	v_empty = Object()
-	v_out = _core_map_merge(v_empty, v_usage)
-	v_usage_tier = coreGet(v_usage, "service_tier", nil)
-	v_raw_tier = coreGet(v_raw, "service_tier", v_usage_tier)
-	v_tier = coreGet(v_raw, "service_tier_used", v_raw_tier)
-	v_has_tier = _core_is_not_none(v_tier)
-	if coreTruthy(v_has_tier) {
-		if err := coreSet(v_out, "service_tier", v_tier); err != nil { return nil, err }
-	} else {
-	// empty
-	}
-	return v_out, nil
-}
-
 func _openai_normalize_chat_response_impl(args ...Value) (Value, error) {
 	axirCoverageMark("_openai_normalize_chat_response_impl")
 	var v_raw Value
@@ -8285,7 +8346,7 @@ func _openai_normalize_chat_response_impl(args ...Value) (Value, error) {
 	v_raw_not_object = _core_not(v_raw_is_object)
 	if coreTruthy(v_raw_not_object) {
 		v_error = _core_ai_error_response("provider response must be a JSON object", v_raw)
-		return nil, asAxError(v_error)
+		return nil, asError(v_error)
 	} else {
 	// empty
 	}
@@ -8294,7 +8355,7 @@ func _openai_normalize_chat_response_impl(args ...Value) (Value, error) {
 	if coreTruthy(v_has_provider_error) {
 		v_message = coreGet(v_provider_error, "message", "provider response error")
 		v_error = _core_ai_error_response(v_message, v_raw)
-		return nil, asAxError(v_error)
+		return nil, asError(v_error)
 	} else {
 	// empty
 	}
@@ -8303,7 +8364,7 @@ func _openai_normalize_chat_response_impl(args ...Value) (Value, error) {
 	v_bad_choices = _core_not(v_choices_is_list)
 	if coreTruthy(v_bad_choices) {
 		v_error = _core_ai_error_response("provider response missing choices", v_raw)
-		return nil, asAxError(v_error)
+		return nil, asError(v_error)
 	} else {
 	// empty
 	}
@@ -8518,7 +8579,7 @@ func _openai_normalize_choice_impl(args ...Value) (Value, error) {
 	v_has_refusal = _core_truthy(v_refusal)
 	if coreTruthy(v_has_refusal) {
 		v_error = _core_ai_error_refusal(v_refusal, v_raw)
-		return nil, asAxError(v_error)
+		return nil, asError(v_error)
 	} else {
 	// empty
 	}
@@ -8701,6 +8762,68 @@ func ai_context_cache_expiry(args ...Value) (Value, error) {
 	return 0, nil
 }
 
+func _openai_normalize_tool_calls_impl(args ...Value) (Value, error) {
+	axirCoverageMark("_openai_normalize_tool_calls_impl")
+	var v_calls Value
+	var v_call Value
+	var v_fn Value
+	var v_function Value
+	var v_id Value
+	var v_name Value
+	var v_normalized Value
+	var v_out Value
+	var v_params Value
+	var v_params_is_string Value
+	var v_parse_error Value
+	var v_parsed_params Value
+	if len(args) > 0 { v_calls = args[0] }
+	_ = v_calls
+	_ = v_call
+	_ = v_fn
+	_ = v_function
+	_ = v_id
+	_ = v_name
+	_ = v_normalized
+	_ = v_out
+	_ = v_params
+	_ = v_params_is_string
+	_ = v_parse_error
+	_ = v_parsed_params
+	v_out = MutableArray()
+	for _, v_call = range coreIter(v_calls) {
+		v_fn = coreGet(v_call, "function", nil)
+		v_params = coreGet(v_fn, "arguments", nil)
+		v_params_is_string = coreTypeIs(v_params, "string")
+		if coreTruthy(v_params_is_string) {
+			{
+				__flow, __err := func() (coreFlow, error) {
+					{ v, err := _core_json_parse(v_params); if err != nil { return coreFlow{}, err }; v_parsed_params = v }
+					v_params = v_parsed_params
+					return coreFlow{}, nil
+				}()
+				if __err == nil && __flow.kind == coreFlowReturn { return __flow.value, nil }
+				if __err != nil {
+					v_parse_error = errorValue(__err)
+				// empty
+				}
+			}
+		} else {
+		// empty
+		}
+		v_id = coreGet(v_call, "id", nil)
+		v_name = coreGet(v_fn, "name", nil)
+		v_function = Object()
+		if err := coreSet(v_function, "name", v_name); err != nil { return nil, err }
+		if err := coreSet(v_function, "params", v_params); err != nil { return nil, err }
+		v_normalized = Object()
+		if err := coreSet(v_normalized, "id", v_id); err != nil { return nil, err }
+		if err := coreSet(v_normalized, "type", "function"); err != nil { return nil, err }
+		if err := coreSet(v_normalized, "function", v_function); err != nil { return nil, err }
+		v_out = coreAppend(v_out, v_normalized)
+	}
+	return v_out, nil
+}
+
 func ai_context_cache_plan(args ...Value) (Value, error) {
 	axirCoverageMark("ai_context_cache_plan")
 	var v_configured Value
@@ -8805,68 +8928,6 @@ func ai_context_cache_plan(args ...Value) (Value, error) {
 	return v_out, nil
 }
 
-func _openai_normalize_tool_calls_impl(args ...Value) (Value, error) {
-	axirCoverageMark("_openai_normalize_tool_calls_impl")
-	var v_calls Value
-	var v_call Value
-	var v_fn Value
-	var v_function Value
-	var v_id Value
-	var v_name Value
-	var v_normalized Value
-	var v_out Value
-	var v_params Value
-	var v_params_is_string Value
-	var v_parse_error Value
-	var v_parsed_params Value
-	if len(args) > 0 { v_calls = args[0] }
-	_ = v_calls
-	_ = v_call
-	_ = v_fn
-	_ = v_function
-	_ = v_id
-	_ = v_name
-	_ = v_normalized
-	_ = v_out
-	_ = v_params
-	_ = v_params_is_string
-	_ = v_parse_error
-	_ = v_parsed_params
-	v_out = MutableArray()
-	for _, v_call = range coreIter(v_calls) {
-		v_fn = coreGet(v_call, "function", nil)
-		v_params = coreGet(v_fn, "arguments", nil)
-		v_params_is_string = coreTypeIs(v_params, "string")
-		if coreTruthy(v_params_is_string) {
-			{
-				__flow, __err := func() (coreFlow, error) {
-					{ v, err := _core_json_parse(v_params); if err != nil { return coreFlow{}, err }; v_parsed_params = v }
-					v_params = v_parsed_params
-					return coreFlow{}, nil
-				}()
-				if __err == nil && __flow.kind == coreFlowReturn { return __flow.value, nil }
-				if __err != nil {
-					v_parse_error = errorValue(__err)
-				// empty
-				}
-			}
-		} else {
-		// empty
-		}
-		v_id = coreGet(v_call, "id", nil)
-		v_name = coreGet(v_fn, "name", nil)
-		v_function = Object()
-		if err := coreSet(v_function, "name", v_name); err != nil { return nil, err }
-		if err := coreSet(v_function, "params", v_params); err != nil { return nil, err }
-		v_normalized = Object()
-		if err := coreSet(v_normalized, "id", v_id); err != nil { return nil, err }
-		if err := coreSet(v_normalized, "type", "function"); err != nil { return nil, err }
-		if err := coreSet(v_normalized, "function", v_function); err != nil { return nil, err }
-		v_out = coreAppend(v_out, v_normalized)
-	}
-	return v_out, nil
-}
-
 func _openai_finish_reason_impl(args ...Value) (Value, error) {
 	axirCoverageMark("_openai_finish_reason_impl")
 	var v_value Value
@@ -8914,55 +8975,6 @@ func _openai_finish_reason_impl(args ...Value) (Value, error) {
 	}
 	v_none = _core_none()
 	return v_none, nil
-}
-
-func ai_context_cache_recovery(args ...Value) (Value, error) {
-	axirCoverageMark("ai_context_cache_recovery")
-	var v_current_entry Value
-	var v_cache_name Value
-	var v_external_registry Value
-	var v_current_name Value
-	var v_empty Value
-	var v_entry_object Value
-	var v_matches Value
-	var v_out Value
-	var v_tombstone Value
-	if len(args) > 0 { v_current_entry = args[0] }
-	_ = v_current_entry
-	if len(args) > 1 { v_cache_name = args[1] }
-	_ = v_cache_name
-	if len(args) > 2 { v_external_registry = args[2] }
-	_ = v_external_registry
-	_ = v_current_name
-	_ = v_empty
-	_ = v_entry_object
-	_ = v_matches
-	_ = v_out
-	_ = v_tombstone
-	v_out = Object()
-	if err := coreSet(v_out, "invalidated", false); err != nil { return nil, err }
-	if err := coreSet(v_out, "deleteInMemory", false); err != nil { return nil, err }
-	v_entry_object = coreTypeIs(v_current_entry, "object")
-	if coreTruthy(v_entry_object) {
-		v_current_name = coreGet(v_current_entry, "cacheName", "")
-		v_matches = _core_eq(v_current_name, v_cache_name)
-		if coreTruthy(v_matches) {
-			if err := coreSet(v_out, "invalidated", true); err != nil { return nil, err }
-			if coreTruthy(v_external_registry) {
-				v_empty = Object()
-				v_tombstone = _core_map_merge(v_current_entry, v_empty)
-				if err := coreSet(v_tombstone, "expiresAt", 0); err != nil { return nil, err }
-				if err := coreSet(v_out, "externalEntry", v_tombstone); err != nil { return nil, err }
-			} else {
-				if err := coreSet(v_out, "deleteInMemory", true); err != nil { return nil, err }
-			}
-		} else {
-		// empty
-		}
-	} else {
-	// empty
-	}
-	return v_out, nil
 }
 
 func openai_normalize_embed_response(args ...Value) (Value, error) {
@@ -9018,6 +9030,75 @@ func openai_normalize_embed_response(args ...Value) (Value, error) {
 	if err := coreSet(v_out, "remote_id", v_remote_id); err != nil { return nil, err }
 	if err := coreSet(v_out, "model_usage", v_model_usage); err != nil { return nil, err }
 	return v_out, nil
+}
+
+func ai_context_cache_recovery(args ...Value) (Value, error) {
+	axirCoverageMark("ai_context_cache_recovery")
+	var v_current_entry Value
+	var v_cache_name Value
+	var v_external_registry Value
+	var v_current_name Value
+	var v_empty Value
+	var v_entry_object Value
+	var v_matches Value
+	var v_out Value
+	var v_tombstone Value
+	if len(args) > 0 { v_current_entry = args[0] }
+	_ = v_current_entry
+	if len(args) > 1 { v_cache_name = args[1] }
+	_ = v_cache_name
+	if len(args) > 2 { v_external_registry = args[2] }
+	_ = v_external_registry
+	_ = v_current_name
+	_ = v_empty
+	_ = v_entry_object
+	_ = v_matches
+	_ = v_out
+	_ = v_tombstone
+	v_out = Object()
+	if err := coreSet(v_out, "invalidated", false); err != nil { return nil, err }
+	if err := coreSet(v_out, "deleteInMemory", false); err != nil { return nil, err }
+	v_entry_object = coreTypeIs(v_current_entry, "object")
+	if coreTruthy(v_entry_object) {
+		v_current_name = coreGet(v_current_entry, "cacheName", "")
+		v_matches = _core_eq(v_current_name, v_cache_name)
+		if coreTruthy(v_matches) {
+			if err := coreSet(v_out, "invalidated", true); err != nil { return nil, err }
+			if coreTruthy(v_external_registry) {
+				v_empty = Object()
+				v_tombstone = _core_map_merge(v_current_entry, v_empty)
+				if err := coreSet(v_tombstone, "expiresAt", 0); err != nil { return nil, err }
+				if err := coreSet(v_out, "externalEntry", v_tombstone); err != nil { return nil, err }
+			} else {
+				if err := coreSet(v_out, "deleteInMemory", true); err != nil { return nil, err }
+			}
+		} else {
+		// empty
+		}
+	} else {
+	// empty
+	}
+	return v_out, nil
+}
+
+func openai_normalize_stream_delta(args ...Value) (Value, error) {
+	axirCoverageMark("openai_normalize_stream_delta")
+	var v_raw Value
+	var v_state Value
+	var v_ai_name Value
+	var v_model Value
+	var v_response Value
+	if len(args) > 0 { v_raw = args[0] }
+	_ = v_raw
+	if len(args) > 1 { v_state = args[1] }
+	_ = v_state
+	if len(args) > 2 { v_ai_name = args[2] }
+	_ = v_ai_name
+	if len(args) > 3 { v_model = args[3] }
+	_ = v_model
+	_ = v_response
+	{ v, err := _openai_normalize_stream_delta_impl(v_raw, v_state, v_ai_name, v_model, "none", "none"); if err != nil { return nil, err }; v_response = v }
+	return v_response, nil
 }
 
 func ai_gemini_cache_ops(args ...Value) (Value, error) {
@@ -9151,26 +9232,6 @@ func ai_gemini_cache_ops(args ...Value) (Value, error) {
 	return v_out, nil
 }
 
-func openai_normalize_stream_delta(args ...Value) (Value, error) {
-	axirCoverageMark("openai_normalize_stream_delta")
-	var v_raw Value
-	var v_state Value
-	var v_ai_name Value
-	var v_model Value
-	var v_response Value
-	if len(args) > 0 { v_raw = args[0] }
-	_ = v_raw
-	if len(args) > 1 { v_state = args[1] }
-	_ = v_state
-	if len(args) > 2 { v_ai_name = args[2] }
-	_ = v_ai_name
-	if len(args) > 3 { v_model = args[3] }
-	_ = v_model
-	_ = v_response
-	{ v, err := _openai_normalize_stream_delta_impl(v_raw, v_state, v_ai_name, v_model, "none", "none"); if err != nil { return nil, err }; v_response = v }
-	return v_response, nil
-}
-
 func _openai_normalize_stream_delta_impl(args ...Value) (Value, error) {
 	axirCoverageMark("_openai_normalize_stream_delta_impl")
 	var v_raw Value
@@ -9241,7 +9302,7 @@ func _openai_normalize_stream_delta_impl(args ...Value) (Value, error) {
 	v_raw_not_object = _core_not(v_raw_is_object)
 	if coreTruthy(v_raw_not_object) {
 		v_error = _core_ai_error_stream("provider stream event must be a JSON object", v_raw, true)
-		return nil, asAxError(v_error)
+		return nil, asError(v_error)
 	} else {
 	// empty
 	}
@@ -9250,7 +9311,7 @@ func _openai_normalize_stream_delta_impl(args ...Value) (Value, error) {
 	if coreTruthy(v_has_provider_error) {
 		v_message = coreGet(v_provider_error, "message", "provider stream error")
 		v_error = _core_ai_error_stream(v_message, v_raw, true)
-		return nil, asAxError(v_error)
+		return nil, asError(v_error)
 	} else {
 	// empty
 	}
@@ -10868,7 +10929,7 @@ func provider_route_recommendation(args ...Value) (Value, error) {
 	v_no_providers = _core_not(v_has_providers)
 	if coreTruthy(v_no_providers) {
 		v_error = _core_runtime_error("Provider selection failed: No providers available")
-		return nil, asAxError(v_error)
+		return nil, asError(v_error)
 	} else {
 	// empty
 	}
@@ -10897,7 +10958,7 @@ func provider_route_recommendation(args ...Value) (Value, error) {
 			v_missing_text = _core_string_join(", ", v_best_missing)
 			v_message = _core_string_format("Provider selection failed: No providers fully support the request requirements: {}", v_missing_text)
 			v_error_exact = _core_runtime_error(v_message)
-			return nil, asAxError(v_error_exact)
+			return nil, asError(v_error_exact)
 		} else {
 		// empty
 		}
@@ -10911,7 +10972,7 @@ func provider_route_recommendation(args ...Value) (Value, error) {
 			v_missing_text_no_degrade = _core_string_join(", ", v_best_missing)
 			v_message_no_degrade = _core_string_format("Provider selection failed: Best available provider ({}) is missing: {}", v_best_name_for_error, v_missing_text_no_degrade)
 			v_error_no_degrade = _core_runtime_error(v_message_no_degrade)
-			return nil, asAxError(v_error_no_degrade)
+			return nil, asError(v_error_no_degrade)
 		} else {
 		// empty
 		}
@@ -11395,7 +11456,7 @@ func provider_balancer_adaptive_policy(args ...Value) (Value, error) {
 	v_deadline_bad = _core_lte(v_deadline, 0)
 	if coreTruthy(v_deadline_bad) {
 		v_error = _core_runtime_error("Adaptive deadlineMs must be finite and greater than zero.")
-		return nil, asAxError(v_error)
+		return nil, asError(v_error)
 	} else {
 	// empty
 	}
@@ -11409,7 +11470,7 @@ func provider_balancer_adaptive_policy(args ...Value) (Value, error) {
 	v_bad_outcome_bad = _core_lt(v_bad_outcome, 0)
 	if coreTruthy(v_bad_outcome_bad) {
 		v_error = _core_runtime_error("Adaptive badOutcomeCost must be finite and non-negative.")
-		return nil, asAxError(v_error)
+		return nil, asError(v_error)
 	} else {
 	// empty
 	}
@@ -12043,14 +12104,14 @@ func provider_balancer_validate_route_key(args ...Value) (Value, error) {
 	v_empty = _core_eq(v_key, "")
 	if coreTruthy(v_empty) {
 		v_error = _core_runtime_error("Adaptive route keys must be non-empty.")
-		return nil, asAxError(v_error)
+		return nil, asError(v_error)
 	} else {
 	// empty
 	}
 	v_duplicate = _core_contains(v_seen_keys, v_key)
 	if coreTruthy(v_duplicate) {
 		v_error = _core_runtime_error("Adaptive route keys must be unique.")
-		return nil, asAxError(v_error)
+		return nil, asError(v_error)
 	} else {
 	// empty
 	}
@@ -12599,7 +12660,7 @@ func provider_resolve_descriptor(args ...Value) (Value, error) {
 			if coreTruthy(v_missing_required_value) {
 				v_message = _core_string_format("deployment profile {} requires endpoint option {}", v_provider_id, v_required_field)
 				v_error = _core_ai_error_unsupported(v_message)
-				return nil, asAxError(v_error)
+				return nil, asError(v_error)
 			} else {
 			// empty
 			}
@@ -12791,7 +12852,7 @@ func provider_operation_descriptor(args ...Value) (Value, error) {
 	if coreTruthy(v_missing) {
 		v_message = _core_string_format("provider operation is not supported: {}", v_operation)
 		v_error = _core_ai_error_unsupported(v_message)
-		return nil, asAxError(v_error)
+		return nil, asError(v_error)
 	} else {
 	// empty
 	}
@@ -12828,7 +12889,7 @@ func provider_resolve_operation_descriptor(args ...Value) (Value, error) {
 	if coreTruthy(v_missing) {
 		v_message = _core_string_format("provider operation is not supported: {}", v_operation)
 		v_error = _core_ai_error_unsupported(v_message)
-		return nil, asAxError(v_error)
+		return nil, asError(v_error)
 	} else {
 	// empty
 	}
@@ -12989,7 +13050,7 @@ func provider_apply_realtime_credentials(args ...Value) (Value, error) {
 	// empty
 	}
 	v_error = _core_ai_error_unsupported("Meta realtime credential provider must return an Authorization header")
-	return nil, asAxError(v_error)
+	return nil, asError(v_error)
 }
 
 func provider_should_use_realtime(args ...Value) (Value, error) {
@@ -13473,7 +13534,7 @@ func _meta_asr_realtime_build_setup(args ...Value) (Value, error) {
 						v_rate_conflict = _core_and(v_has_requested_rate, v_rate_differs)
 						if coreTruthy(v_rate_conflict) {
 							v_error = _core_ai_error_unsupported("Conflicting realtime audio sample rates")
-							return nil, asAxError(v_error)
+							return nil, asError(v_error)
 						} else {
 						// empty
 						}
@@ -13490,7 +13551,7 @@ func _meta_asr_realtime_build_setup(args ...Value) (Value, error) {
 						v_channel_conflict = _core_and(v_has_requested_channels, v_channels_differ)
 						if coreTruthy(v_channel_conflict) {
 							v_error = _core_ai_error_unsupported("Conflicting realtime audio channel counts")
-							return nil, asAxError(v_error)
+							return nil, asError(v_error)
 						} else {
 						// empty
 						}
@@ -13527,7 +13588,7 @@ func _meta_asr_realtime_build_setup(args ...Value) (Value, error) {
 	v_not_mono = _core_not(v_mono)
 	if coreTruthy(v_not_mono) {
 		v_error = _core_ai_error_unsupported("Meta Voice realtime input requires mono PCM audio")
-		return nil, asAxError(v_error)
+		return nil, asError(v_error)
 	} else {
 	// empty
 	}
@@ -13541,7 +13602,7 @@ func _meta_asr_realtime_build_setup(args ...Value) (Value, error) {
 	v_invalid_rate = _core_not(v_valid_rate)
 	if coreTruthy(v_invalid_rate) {
 		v_error = _core_ai_error_unsupported("Meta Voice realtime input requires 16000 Hz or 24000 Hz PCM audio")
-		return nil, asAxError(v_error)
+		return nil, asError(v_error)
 	} else {
 	// empty
 	}
@@ -13617,7 +13678,7 @@ func _meta_asr_realtime_build_input(args ...Value) (Value, error) {
 					v_invalid = _core_not(v_valid)
 					if coreTruthy(v_invalid) {
 						v_error = _core_ai_error_unsupported("Meta Voice realtime input requires PCM16 audio")
-						return nil, asAxError(v_error)
+						return nil, asError(v_error)
 					} else {
 					// empty
 					}
@@ -13898,7 +13959,7 @@ func _gemini_live_bidi_build_setup(args ...Value) (Value, error) {
 	v_has_response_format = _core_truthy(v_response_format)
 	if coreTruthy(v_has_response_format) {
 		v_error = _core_ai_error_unsupported("Gemini Live audio does not support structured response formats")
-		return nil, asAxError(v_error)
+		return nil, asError(v_error)
 	} else {
 	// empty
 	}
@@ -14075,7 +14136,7 @@ func _gemini_live_bidi_build_input(args ...Value) (Value, error) {
 					// empty
 					} else {
 						v_error = _core_ai_error_unsupported("Gemini Live audio input must be PCM")
-						return nil, asAxError(v_error)
+						return nil, asError(v_error)
 					}
 					v_data = coreGet(v_part, "data", "")
 					v_sample_rate = coreGet(v_part, "sampleRate", nil)
@@ -15045,7 +15106,7 @@ func _provider_apply_request_rules(args ...Value) (Value, error) {
 	if coreTruthy(v_unsupported_thinking_level) {
 		v_unsupported_thinking_message = coreGet(v_unsupported_thinking_levels, v_requested_effort, nil)
 		v_unsupported_thinking_error = _core_ai_error_unsupported(v_unsupported_thinking_message)
-		return nil, asAxError(v_unsupported_thinking_error)
+		return nil, asError(v_unsupported_thinking_error)
 	} else {
 	// empty
 	}
@@ -15143,7 +15204,7 @@ func _provider_apply_request_rules(args ...Value) (Value, error) {
 		v_caller_forced = _core_or(v_choice_required, v_object_not_ax)
 		if coreTruthy(v_caller_forced) {
 			v_error = _core_ai_error_unsupported("deployment profile does not support explicitly forced tool choices")
-			return nil, asAxError(v_error)
+			return nil, asError(v_error)
 		} else {
 		// empty
 		}
@@ -15197,7 +15258,7 @@ func _provider_apply_request_rules(args ...Value) (Value, error) {
 					}
 				} else {
 					v_error = _core_ai_error_unsupported("deployment profile does not support explicitly named tool choices")
-					return nil, asAxError(v_error)
+					return nil, asError(v_error)
 				}
 			} else {
 			// empty
@@ -15470,7 +15531,7 @@ func _provider_apply_service_tier(args ...Value) (Value, error) {
 		v_model = coreGet(v_request, "model", "")
 		v_message = _core_string_format("service tier {} is not verified for profile {} model {}", v_normalized_tier, v_profile, v_model)
 		v_error = _core_ai_error_unsupported(v_message)
-		return nil, asAxError(v_error)
+		return nil, asError(v_error)
 	} else {
 	// empty
 	}
@@ -15674,7 +15735,7 @@ func provider_build_chat_request(args ...Value) (Value, error) {
 		if coreTruthy(v_native_unsupported) {
 			v_native_message = _core_string_format("native JSON Schema output is not supported by profile {} model {}", v_provider_id, v_model)
 			v_native_error = _core_ai_error_unsupported(v_native_message)
-			return nil, asAxError(v_native_error)
+			return nil, asError(v_native_error)
 		} else {
 		// empty
 		}
@@ -15697,7 +15758,7 @@ func provider_build_chat_request(args ...Value) (Value, error) {
 		if coreTruthy(v_json_object_unsupported) {
 			v_json_object_message = _core_string_format("JSON object output is not supported by profile {} model {}", v_provider_id, v_model)
 			v_json_object_error = _core_ai_error_unsupported(v_json_object_message)
-			return nil, asAxError(v_json_object_error)
+			return nil, asError(v_json_object_error)
 		} else {
 		// empty
 		}
@@ -15867,7 +15928,7 @@ func _meta_prepare_responses_request(args ...Value) (Value, error) {
 	v_invalid_functions = _core_and(v_restricted_model, v_has_functions)
 	if coreTruthy(v_invalid_functions) {
 		v_error = _core_ai_error_unsupported("Meta Muse Image and Voice models do not permit function tools")
-		return nil, asAxError(v_error)
+		return nil, asError(v_error)
 	} else {
 	// empty
 	}
@@ -15889,7 +15950,7 @@ func _meta_prepare_responses_request(args ...Value) (Value, error) {
 				// empty
 				} else {
 					v_error = _core_ai_error_unsupported("muse-image-1.0 accepts only text, reference images, and prior generated images")
-					return nil, asAxError(v_error)
+					return nil, asError(v_error)
 				}
 				v_empty_item_content = MutableArray()
 				v_content = coreGet(v_item, "content", v_empty_item_content)
@@ -15907,7 +15968,7 @@ func _meta_prepare_responses_request(args ...Value) (Value, error) {
 						} else {
 							v_message = _core_string_format("muse-image-1.0 does not support {} input", v_part_type)
 							v_error = _core_ai_error_unsupported(v_message)
-							return nil, asAxError(v_error)
+							return nil, asError(v_error)
 						}
 					}
 				} else {
@@ -16569,7 +16630,7 @@ func provider_build_embed_request(args ...Value) (Value, error) {
 	} else {
 		if coreTruthy(v_is_anthropic) {
 			v_error = _core_ai_error_unsupported("embed is not supported by Anthropic provider")
-			return nil, asAxError(v_error)
+			return nil, asError(v_error)
 		} else {
 			{ v, err := openai_build_embed_request(v_request); if err != nil { return nil, err }; v_openai_payload = v }
 			v_payload = v_openai_payload
@@ -17387,7 +17448,7 @@ func _meta_build_transcribe_request(args ...Value) (Value, error) {
 	v_model_bad = _core_not(v_model_ok)
 	if coreTruthy(v_model_bad) {
 		v_error = _core_ai_error_unsupported("Meta Voice transcribe requires muse-voice-transcribe-1.0")
-		return nil, asAxError(v_error)
+		return nil, asError(v_error)
 	} else {
 	// empty
 	}
@@ -17398,7 +17459,7 @@ func _meta_build_transcribe_request(args ...Value) (Value, error) {
 		v_format_bad = _core_not(v_format_ok)
 		if coreTruthy(v_format_bad) {
 			v_error = _core_ai_error_unsupported("Meta Voice batch transcription requires WAV audio")
-			return nil, asAxError(v_error)
+			return nil, asError(v_error)
 		} else {
 		// empty
 		}
@@ -17414,7 +17475,7 @@ func _meta_build_transcribe_request(args ...Value) (Value, error) {
 		v_not_mono = _core_not(v_mono)
 		if coreTruthy(v_not_mono) {
 			v_error = _core_ai_error_unsupported("Meta Voice batch transcription requires mono audio")
-			return nil, asAxError(v_error)
+			return nil, asError(v_error)
 		} else {
 		// empty
 		}
@@ -17435,7 +17496,7 @@ func _meta_build_transcribe_request(args ...Value) (Value, error) {
 		v_rate_bad = _core_not(v_rate_ok)
 		if coreTruthy(v_rate_bad) {
 			v_error = _core_ai_error_unsupported("Meta Voice batch transcription requires 16000 Hz or 24000 Hz audio")
-			return nil, asAxError(v_error)
+			return nil, asError(v_error)
 		} else {
 		// empty
 		}
@@ -17475,7 +17536,7 @@ func _meta_build_transcribe_request(args ...Value) (Value, error) {
 	v_has_unsupported_bias = _core_or(v_has_language, v_has_prompt)
 	if coreTruthy(v_has_unsupported_bias) {
 		v_error = _core_ai_error_unsupported("Meta Voice uses languageBias and keywords instead of language or prompt")
-		return nil, asAxError(v_error)
+		return nil, asError(v_error)
 	} else {
 	// empty
 	}
@@ -18204,7 +18265,7 @@ func openai_responses_build_chat_request(args ...Value) (Value, error) {
 					v_missing_image_id = _core_not(v_has_image_id)
 					if coreTruthy(v_missing_image_id) {
 						v_error = _core_ai_error_unsupported("Responses image replay requires the provider image id")
-						return nil, asAxError(v_error)
+						return nil, asError(v_error)
 					} else {
 					// empty
 					}
@@ -18800,7 +18861,7 @@ func _openai_responses_content_part_impl(args ...Value) (Value, error) {
 	}
 	v_message = _core_string_format("Unsupported Responses content part: {}", v_type)
 	v_error = _core_ai_error_unsupported(v_message)
-	return nil, asAxError(v_error)
+	return nil, asError(v_error)
 }
 
 func _openai_responses_copy_cache_control_impl(args ...Value) (Value, error) {
@@ -19265,8 +19326,10 @@ func _openai_responses_function_call_impl(args ...Value) (Value, error) {
 	var v_call_id Value
 	var v_empty_args Value
 	var v_function Value
+	var v_has_args Value
 	var v_item_id Value
 	var v_item_name Value
+	var v_parse_args Value
 	var v_parse_error Value
 	var v_parsed Value
 	if len(args) > 0 { v_item = args[0] }
@@ -19277,14 +19340,18 @@ func _openai_responses_function_call_impl(args ...Value) (Value, error) {
 	_ = v_call_id
 	_ = v_empty_args
 	_ = v_function
+	_ = v_has_args
 	_ = v_item_id
 	_ = v_item_name
+	_ = v_parse_args
 	_ = v_parse_error
 	_ = v_parsed
 	v_empty_args = Object()
 	v_args = coreGet(v_item, "arguments", v_empty_args)
 	v_args_is_string = coreTypeIs(v_args, "string")
-	if coreTruthy(v_args_is_string) {
+	v_has_args = _core_truthy(v_args)
+	v_parse_args = _core_and(v_args_is_string, v_has_args)
+	if coreTruthy(v_parse_args) {
 		{
 			__flow, __err := func() (coreFlow, error) {
 				{ v, err := _core_json_parse(v_args); if err != nil { return coreFlow{}, err }; v_parsed = v }
@@ -19489,7 +19556,7 @@ func openai_responses_normalize_stream_delta(args ...Value) (Value, error) {
 		v_provider_error = coreGet(v_event_response, "error", v_empty_response)
 		v_error_message = coreGet(v_provider_error, "message", "Responses stream failed")
 		v_error = _core_ai_error_response(v_error_message, v_event_response)
-		return nil, asAxError(v_error)
+		return nil, asError(v_error)
 	} else {
 	// empty
 	}
@@ -19497,7 +19564,7 @@ func openai_responses_normalize_stream_delta(args ...Value) (Value, error) {
 	if coreTruthy(v_is_error) {
 		v_error_message = coreGet(v_event, "message", "Responses stream failed")
 		v_error = _core_ai_error_response(v_error_message, v_event)
-		return nil, asAxError(v_error)
+		return nil, asError(v_error)
 	} else {
 	// empty
 	}
@@ -20311,7 +20378,7 @@ func _meta_asr_realtime_normalize_event(args ...Value) (Value, error) {
 		v_nested_message = coreGet(v_error_payload, "message", "Meta Voice realtime transcription error")
 		v_message = coreGet(v_event, "message", v_nested_message)
 		v_error = _core_ai_error_response(v_message, v_event)
-		return nil, asAxError(v_error)
+		return nil, asError(v_error)
 	} else {
 	// empty
 	}
@@ -20712,7 +20779,7 @@ func openai_responses_normalize_realtime_event(args ...Value) (Value, error) {
 		v_error_payload = coreGet(v_event, "error", v_empty_error_payload)
 		v_error_message = coreGet(v_error_payload, "message", "realtime audio provider error")
 		v_error = _core_ai_error_response(v_error_message, v_event)
-		return nil, asAxError(v_error)
+		return nil, asError(v_error)
 	} else {
 	// empty
 	}
@@ -20893,7 +20960,7 @@ func _gemini_live_bidi_normalize_realtime_event(args ...Value) (Value, error) {
 	if coreTruthy(v_has_error) {
 		v_error_message = coreGet(v_error_payload, "message", "Gemini Live realtime audio provider error")
 		v_error = _core_ai_error_response(v_error_message, v_event)
-		return nil, asAxError(v_error)
+		return nil, asError(v_error)
 	} else {
 	// empty
 	}
@@ -21046,13 +21113,13 @@ func _gemini_service_tier_impl(args ...Value) (Value, error) {
 		}
 		if coreTruthy(v_vertex) {
 			v_error = _core_ai_error_unsupported("Gemini inference service tiers are not supported by Vertex AI")
-			return nil, asAxError(v_error)
+			return nil, asError(v_error)
 		} else {
 		// empty
 		}
 		if coreTruthy(v_live) {
 			v_error = _core_ai_error_unsupported("Gemini inference service tiers are not supported by the Live API")
-			return nil, asAxError(v_error)
+			return nil, asError(v_error)
 		} else {
 		// empty
 		}
@@ -21343,7 +21410,7 @@ func _gemini_clamp_thinking_level_impl(args ...Value) (Value, error) {
 	} else {
 		v_message = _core_string_format("unsupported Gemini thinking level: {}", v_level)
 		v_error = _core_ai_error_unsupported(v_message)
-		return nil, asAxError(v_error)
+		return nil, asError(v_error)
 	}
 	v_is_gemini3 = _core_contains(v_model, "gemini-3")
 	v_is_image_name = _core_contains(v_model, "-image")
@@ -21510,7 +21577,7 @@ func _gemini_apply_thinking_config_impl(args ...Value) (Value, error) {
 			if coreTruthy(v_budget_is_number) {
 				v_message = _core_string_format("Gemini 3 model {} does not support numeric thinkingTokenBudget", v_model)
 				v_error = _core_ai_error_unsupported(v_message)
-				return nil, asAxError(v_error)
+				return nil, asError(v_error)
 			} else {
 			// empty
 			}
@@ -21518,7 +21585,7 @@ func _gemini_apply_thinking_config_impl(args ...Value) (Value, error) {
 			// empty
 			} else {
 				v_error = _core_ai_error_unsupported("Gemini thinkingTokenBudget must be a number or logical level")
-				return nil, asAxError(v_error)
+				return nil, asError(v_error)
 			}
 			v_level = ""
 			v_is_none = _core_eq(v_budget, "none")
@@ -21562,7 +21629,7 @@ func _gemini_apply_thinking_config_impl(args ...Value) (Value, error) {
 			if coreTruthy(v_unknown_level) {
 				v_message = _core_string_format("unsupported Gemini thinkingTokenBudget level: {}", v_budget)
 				v_error = _core_ai_error_unsupported(v_message)
-				return nil, asAxError(v_error)
+				return nil, asError(v_error)
 			} else {
 			// empty
 			}
@@ -21591,7 +21658,7 @@ func _gemini_apply_thinking_config_impl(args ...Value) (Value, error) {
 				// empty
 				} else {
 					v_error = _core_ai_error_unsupported("Gemini thinkingTokenBudget must be a number or logical level")
-					return nil, asAxError(v_error)
+					return nil, asError(v_error)
 				}
 				v_numeric_budget = -1
 				v_is_none = _core_eq(v_budget, "none")
@@ -21640,7 +21707,7 @@ func _gemini_apply_thinking_config_impl(args ...Value) (Value, error) {
 				if coreTruthy(v_unknown_level) {
 					v_message = _core_string_format("unsupported Gemini thinkingTokenBudget level: {}", v_budget)
 					v_error = _core_ai_error_unsupported(v_message)
-					return nil, asAxError(v_error)
+					return nil, asError(v_error)
 				} else {
 				// empty
 				}
@@ -21661,7 +21728,7 @@ func _gemini_apply_thinking_config_impl(args ...Value) (Value, error) {
 		// empty
 		} else {
 			v_error = _core_ai_error_unsupported("Gemini thinkingLevel must be a logical level")
-			return nil, asAxError(v_error)
+			return nil, asError(v_error)
 		}
 		{ v, err := _gemini_clamp_thinking_level_impl(v_model, v_explicit_level); if err != nil { return nil, err }; v_clamped_level = v }
 		_core_map_delete(v_thinking_config, "thinkingBudget")
@@ -22019,7 +22086,7 @@ func _gemini_content_part_impl(args ...Value) (Value, error) {
 	}
 	v_message = _core_string_format("Chat prompt content type not supported: {}", v_type)
 	v_error = _core_ai_error_unsupported(v_message)
-	return nil, asAxError(v_error)
+	return nil, asError(v_error)
 }
 
 func _gemini_function_declaration_impl(args ...Value) (Value, error) {
@@ -22352,7 +22419,7 @@ func _gemini_normalize_chat_response(args ...Value) (Value, error) {
 			} else {
 				v_message = _core_string_format("Gemini finish reason was blocked: {}", v_finish)
 				v_error = _core_ai_error_refusal(v_message, v_raw)
-				return nil, asAxError(v_error)
+				return nil, asError(v_error)
 			}
 		}
 		v_empty_content = Object()
@@ -23033,7 +23100,7 @@ func _anthropic_apply_model_config_impl(args ...Value) (Value, error) {
 		v_too_many = _core_gt(v_n, 1)
 		if coreTruthy(v_too_many) {
 			v_error = _core_ai_error_unsupported("Anthropic does not support sampling (n > 1)")
-			return nil, asAxError(v_error)
+			return nil, asError(v_error)
 		} else {
 		// empty
 		}
@@ -23735,7 +23802,7 @@ func _anthropic_content_part_impl(args ...Value) (Value, error) {
 	}
 	v_message = _core_string_format("Anthropic content type not supported: {}", v_type)
 	v_error = _core_ai_error_unsupported(v_message)
-	return nil, asAxError(v_error)
+	return nil, asError(v_error)
 }
 
 func _anthropic_tool_spec_impl(args ...Value) (Value, error) {
@@ -23814,7 +23881,7 @@ func _anthropic_tool_choice_impl(args ...Value) (Value, error) {
 		// empty
 		}
 		v_error = _core_ai_error_unsupported("functionCall none not supported")
-		return nil, asAxError(v_error)
+		return nil, asError(v_error)
 	} else {
 	// empty
 	}
@@ -24057,7 +24124,7 @@ func _anthropic_normalize_chat_response(args ...Value) (Value, error) {
 	if coreTruthy(v_is_error) {
 		v_error_body = coreGet(v_raw, "error", nil)
 		{ v, err := _anthropic_map_error_event(v_error_body, v_raw); if err != nil { return nil, err }; v_error = v }
-		return nil, asAxError(v_error)
+		return nil, asError(v_error)
 	} else {
 	// empty
 	}
@@ -24067,7 +24134,7 @@ func _anthropic_normalize_chat_response(args ...Value) (Value, error) {
 		v_details = coreGet(v_raw, "stop_details", nil)
 		v_message = coreGet(v_details, "explanation", "Anthropic refused to fulfill this request")
 		v_error = _core_ai_error_refusal(v_message, v_raw)
-		return nil, asAxError(v_error)
+		return nil, asError(v_error)
 	} else {
 	// empty
 	}
@@ -24558,7 +24625,7 @@ func _anthropic_normalize_stream_delta(args ...Value) (Value, error) {
 	if coreTruthy(v_is_error) {
 		v_error_body = coreGet(v_event, "error", nil)
 		{ v, err := _anthropic_map_error_event(v_error_body, v_event); if err != nil { return nil, err }; v_error = v }
-		return nil, asAxError(v_error)
+		return nil, asError(v_error)
 	} else {
 	// empty
 	}
@@ -24749,7 +24816,7 @@ func _anthropic_normalize_stream_delta(args ...Value) (Value, error) {
 			v_details = coreGet(v_delta, "stop_details", nil)
 			v_message = coreGet(v_details, "explanation", "Anthropic refused to fulfill this request")
 			v_error = _core_ai_error_refusal(v_message, v_event)
-			return nil, asAxError(v_error)
+			return nil, asError(v_error)
 		} else {
 		// empty
 		}
@@ -25240,7 +25307,7 @@ func _execute_tool_call(args ...Value) (Value, error) {
 	v_available = _core_string_default_if_empty(v_available_joined, "(none)")
 	v_message = _core_string_format("Function not found: {}. Available functions: {}. Call one of these exact function names.", v_name, v_available)
 	v_error = _core_validation_error(v_message)
-	return nil, asAxError(v_error)
+	return nil, asError(v_error)
 }
 
 func stream_extraction_route(args ...Value) (Value, error) {
@@ -25584,7 +25651,7 @@ func _validate_optimization_component_value(args ...Value) (Value, error) {
 			v_id = coreGet(v_component, "id", "")
 			v_message = _core_string_format("invalid optimized component value for {}", v_id)
 			v_error = _core_runtime_error(v_message)
-			return nil, asAxError(v_error)
+			return nil, asError(v_error)
 		} else {
 		// empty
 		}
@@ -25599,7 +25666,7 @@ func _validate_optimization_component_value(args ...Value) (Value, error) {
 			v_id_object = coreGet(v_component, "id", "")
 			v_message_object = _core_string_format("invalid optimized component value for {}", v_id_object)
 			v_error_object = _core_runtime_error(v_message_object)
-			return nil, asAxError(v_error_object)
+			return nil, asError(v_error_object)
 		} else {
 		// empty
 		}
@@ -25614,7 +25681,7 @@ func _validate_optimization_component_value(args ...Value) (Value, error) {
 			v_id_list = coreGet(v_component, "id", "")
 			v_message_list = _core_string_format("invalid optimized component value for {}", v_id_list)
 			v_error_list = _core_runtime_error(v_message_list)
-			return nil, asAxError(v_error_list)
+			return nil, asError(v_error_list)
 		} else {
 		// empty
 		}
@@ -25629,7 +25696,7 @@ func _validate_optimization_component_value(args ...Value) (Value, error) {
 			v_id_number = coreGet(v_component, "id", "")
 			v_message_number = _core_string_format("invalid optimized component value for {}", v_id_number)
 			v_error_number = _core_runtime_error(v_message_number)
-			return nil, asAxError(v_error_number)
+			return nil, asError(v_error_number)
 		} else {
 		// empty
 		}
@@ -25644,7 +25711,7 @@ func _validate_optimization_component_value(args ...Value) (Value, error) {
 			v_id_boolean = coreGet(v_component, "id", "")
 			v_message_boolean = _core_string_format("invalid optimized component value for {}", v_id_boolean)
 			v_error_boolean = _core_runtime_error(v_message_boolean)
-			return nil, asAxError(v_error_boolean)
+			return nil, asError(v_error_boolean)
 		} else {
 		// empty
 		}
@@ -25658,7 +25725,7 @@ func _validate_optimization_component_value(args ...Value) (Value, error) {
 		v_bad_snake = _core_not(v_snake_ok)
 		if coreTruthy(v_bad_snake) {
 			v_error_snake = _core_runtime_error("invalid optimized function name")
-			return nil, asAxError(v_error_snake)
+			return nil, asError(v_error_snake)
 		} else {
 		// empty
 		}
@@ -25710,7 +25777,7 @@ func _validate_optimization_component_map(args ...Value) (Value, error) {
 		if coreTruthy(v_bad) {
 			v_message = _core_string_format("unknown optimized component id: {}", v_id)
 			v_error = _core_runtime_error(v_message)
-			return nil, asAxError(v_error)
+			return nil, asError(v_error)
 		} else {
 		// empty
 		}
@@ -25928,7 +25995,7 @@ func _validate_optimized_artifact_provenance(args ...Value) (Value, error) {
 	v_bad_owners = _core_not(v_owners_is_object)
 	if coreTruthy(v_bad_owners) {
 		v_owners_error = _core_runtime_error("optimized artifact provenance componentOwners must be an object")
-		return nil, asAxError(v_owners_error)
+		return nil, asError(v_owners_error)
 	} else {
 	// empty
 	}
@@ -25943,7 +26010,7 @@ func _validate_optimized_artifact_provenance(args ...Value) (Value, error) {
 			if coreTruthy(v_stale_owner) {
 				v_message = _core_string_format("stale optimized component owner: {}", v_id)
 				v_error = _core_runtime_error(v_message)
-				return nil, asAxError(v_error)
+				return nil, asError(v_error)
 			} else {
 			// empty
 			}
@@ -26049,7 +26116,7 @@ func _validate_optimized_artifact(args ...Value) (Value, error) {
 	v_not_object = _core_not(v_is_object)
 	if coreTruthy(v_not_object) {
 		v_error = _core_runtime_error("optimized artifact must be an object")
-		return nil, asAxError(v_error)
+		return nil, asError(v_error)
 	} else {
 	// empty
 	}
@@ -26058,7 +26125,7 @@ func _validate_optimized_artifact(args ...Value) (Value, error) {
 	v_bad_version = _core_not(v_version_ok)
 	if coreTruthy(v_bad_version) {
 		v_error_version = _core_runtime_error("unsupported optimized artifact version")
-		return nil, asAxError(v_error_version)
+		return nil, asError(v_error_version)
 	} else {
 	// empty
 	}
@@ -26069,7 +26136,7 @@ func _validate_optimized_artifact(args ...Value) (Value, error) {
 	v_bad_name = _core_or(v_bad_name_type, v_name_empty)
 	if coreTruthy(v_bad_name) {
 		v_name_error = _core_runtime_error("optimized artifact optimizerName must be a non-empty string")
-		return nil, asAxError(v_name_error)
+		return nil, asError(v_name_error)
 	} else {
 	// empty
 	}
@@ -26080,7 +26147,7 @@ func _validate_optimized_artifact(args ...Value) (Value, error) {
 	v_bad_optimizer_version = _core_or(v_bad_optimizer_version_type, v_optimizer_version_empty)
 	if coreTruthy(v_bad_optimizer_version) {
 		v_optimizer_version_error = _core_runtime_error("optimized artifact optimizerVersion must be a non-empty string")
-		return nil, asAxError(v_optimizer_version_error)
+		return nil, asError(v_optimizer_version_error)
 	} else {
 	// empty
 	}
@@ -26090,7 +26157,7 @@ func _validate_optimized_artifact(args ...Value) (Value, error) {
 	v_bad_component_map = _core_not(v_component_map_is_object)
 	if coreTruthy(v_bad_component_map) {
 		v_error_map = _core_runtime_error("optimized artifact componentMap must be an object")
-		return nil, asAxError(v_error_map)
+		return nil, asError(v_error_map)
 	} else {
 	// empty
 	}
@@ -26099,7 +26166,7 @@ func _validate_optimized_artifact(args ...Value) (Value, error) {
 	v_bad_metadata = _core_not(v_metadata_is_object)
 	if coreTruthy(v_bad_metadata) {
 		v_metadata_error = _core_runtime_error("optimized artifact metadata must be an object")
-		return nil, asAxError(v_metadata_error)
+		return nil, asError(v_metadata_error)
 	} else {
 	// empty
 	}
@@ -26108,7 +26175,7 @@ func _validate_optimized_artifact(args ...Value) (Value, error) {
 	v_bad_provenance = _core_not(v_provenance_is_object)
 	if coreTruthy(v_bad_provenance) {
 		v_provenance_error = _core_runtime_error("optimized artifact provenance must be an object")
-		return nil, asAxError(v_provenance_error)
+		return nil, asError(v_provenance_error)
 	} else {
 	// empty
 	}
@@ -26117,7 +26184,7 @@ func _validate_optimized_artifact(args ...Value) (Value, error) {
 	v_bad_evidence = _core_not(v_evidence_is_object)
 	if coreTruthy(v_bad_evidence) {
 		v_evidence_error = _core_runtime_error("optimized artifact evidence must be an object")
-		return nil, asAxError(v_evidence_error)
+		return nil, asError(v_evidence_error)
 	} else {
 	// empty
 	}
@@ -27189,7 +27256,7 @@ func _select_sample_index(args ...Value) (Value, error) {
 		v_max_index = _core_add(v_sample_count, -1)
 		v_message = _core_string_format("Result picker returned invalid index: {}. Must be between 0 and {}", v_selected, v_max_index)
 		v_error = _core_runtime_error(v_message)
-		return nil, asAxError(v_error)
+		return nil, asError(v_error)
 	} else {
 	// empty
 	}
@@ -27478,7 +27545,7 @@ func _forward_impl(args ...Value) (Value, error) {
 						v_structured_validation_error = errorValue(__err)
 						v_structured_retries_exhausted = _core_gte(v_attempt, v_validation_retries)
 						if coreTruthy(v_structured_retries_exhausted) {
-							return nil, asAxError(v_structured_validation_error)
+							return nil, asError(v_structured_validation_error)
 						} else {
 						// empty
 						}
@@ -27540,7 +27607,7 @@ func _forward_impl(args ...Value) (Value, error) {
 					v_validation_error = errorValue(__err)
 					v_retries_exhausted = _core_gte(v_attempt, v_validation_retries)
 					if coreTruthy(v_retries_exhausted) {
-						return nil, asAxError(v_validation_error)
+						return nil, asError(v_validation_error)
 					} else {
 					// empty
 					}
@@ -27697,7 +27764,7 @@ func _filter_optimization_components(args ...Value) (Value, error) {
 	if coreTruthy(v_empty) {
 		v_message = _core_string_format("no optimizable components match target: {}", v_target)
 		v_error = _core_runtime_error(v_message)
-		return nil, asAxError(v_error)
+		return nil, asError(v_error)
 	} else {
 	// empty
 	}
@@ -27902,7 +27969,7 @@ func _normalize_optimizer_engine_response(args ...Value) (Value, error) {
 	v_bad_response = _core_not(v_response_is_object)
 	if coreTruthy(v_bad_response) {
 		v_error = _core_runtime_error("optimizer engine must return an optimized artifact")
-		return nil, asAxError(v_error)
+		return nil, asError(v_error)
 	} else {
 	// empty
 	}
@@ -27920,7 +27987,7 @@ func _normalize_optimizer_engine_response(args ...Value) (Value, error) {
 	v_bad_artifact = _core_not(v_artifact_is_object)
 	if coreTruthy(v_bad_artifact) {
 		v_artifact_error = _core_runtime_error("optimizer engine must return an optimized artifact")
-		return nil, asAxError(v_artifact_error)
+		return nil, asError(v_artifact_error)
 	} else {
 	// empty
 	}
@@ -28247,6 +28314,7 @@ func _complete_with_retries_impl(args ...Value) (Value, error) {
 	var v_request Value
 	var v_options Value
 	var v_retries Value
+	var v_aborted Value
 	var v_attempt Value
 	var v_error Value
 	var v_exhausted Value
@@ -28261,6 +28329,7 @@ func _complete_with_retries_impl(args ...Value) (Value, error) {
 	_ = v_options
 	if len(args) > 3 { v_retries = args[3] }
 	_ = v_retries
+	_ = v_aborted
 	_ = v_attempt
 	_ = v_error
 	_ = v_exhausted
@@ -28278,14 +28347,20 @@ func _complete_with_retries_impl(args ...Value) (Value, error) {
 			if __err == nil && __flow.kind == coreFlowReturn { return __flow.value, nil }
 			if __err != nil {
 				v_error = errorValue(__err)
-				v_last_error = v_error
-				v_exhausted = _core_gte(v_attempt, v_retries)
-				if coreTruthy(v_exhausted) {
-					return nil, asAxError(v_error)
+				v_aborted = _core_exception_is_aborted(v_error)
+				if coreTruthy(v_aborted) {
+					return nil, asError(v_error)
 				} else {
 				// empty
 				}
-				_core_retry_sleep(v_attempt)
+				v_last_error = v_error
+				v_exhausted = _core_gte(v_attempt, v_retries)
+				if coreTruthy(v_exhausted) {
+					return nil, asError(v_error)
+				} else {
+				// empty
+				}
+				if _, err := _core_retry_sleep(v_attempt, v_client, v_options); err != nil { return nil, err }
 				v_next_attempt = _core_add(v_attempt, 1)
 				v_attempt = v_next_attempt
 				continue
@@ -28306,6 +28381,41 @@ func _parse_output_impl(args ...Value) (Value, error) {
 	v_text = coreStringTrim(v_content)
 	{ v, err := _core_json_parse_strict(v_text); if err != nil { return nil, err }; v_output = v }
 	return v_output, nil
+}
+
+func _ace_estimate_token_count(args ...Value) (Value, error) {
+	axirCoverageMark("_ace_estimate_token_count")
+	var v_text Value
+	var v_done Value
+	var v_len Value
+	var v_remaining Value
+	var v_remaining_next Value
+	var v_tokens Value
+	var v_tokens_next Value
+	if len(args) > 0 { v_text = args[0] }
+	_ = v_text
+	_ = v_done
+	_ = v_len
+	_ = v_remaining
+	_ = v_remaining_next
+	_ = v_tokens
+	_ = v_tokens_next
+	v_len = _core_len(v_text)
+	v_tokens = 0
+	v_remaining = v_len
+	for {
+		v_done = _core_lte(v_remaining, 0)
+		if coreTruthy(v_done) {
+			break
+		} else {
+		// empty
+		}
+		v_tokens_next = _core_add(v_tokens, 1)
+		v_tokens = v_tokens_next
+		v_remaining_next = _core_add(v_remaining, -4)
+		v_remaining = v_remaining_next
+	}
+	return v_tokens, nil
 }
 
 func _is_flexible_json_field(args ...Value) (Value, error) {
@@ -28344,79 +28454,6 @@ func _is_flexible_json_field(args ...Value) (Value, error) {
 	// empty
 	}
 	return v_flexible, nil
-}
-
-func _ace_estimate_token_count(args ...Value) (Value, error) {
-	axirCoverageMark("_ace_estimate_token_count")
-	var v_text Value
-	var v_done Value
-	var v_len Value
-	var v_remaining Value
-	var v_remaining_next Value
-	var v_tokens Value
-	var v_tokens_next Value
-	if len(args) > 0 { v_text = args[0] }
-	_ = v_text
-	_ = v_done
-	_ = v_len
-	_ = v_remaining
-	_ = v_remaining_next
-	_ = v_tokens
-	_ = v_tokens_next
-	v_len = _core_len(v_text)
-	v_tokens = 0
-	v_remaining = v_len
-	for {
-		v_done = _core_lte(v_remaining, 0)
-		if coreTruthy(v_done) {
-			break
-		} else {
-		// empty
-		}
-		v_tokens_next = _core_add(v_tokens, 1)
-		v_tokens = v_tokens_next
-		v_remaining_next = _core_add(v_remaining, -4)
-		v_remaining = v_remaining_next
-	}
-	return v_tokens, nil
-}
-
-func _parse_json_string_value(args ...Value) (Value, error) {
-	axirCoverageMark("_parse_json_string_value")
-	var v_value Value
-	var v_is_string Value
-	var v_not_string Value
-	var v_parse_error Value
-	var v_parsed Value
-	var v_result Value
-	if len(args) > 0 { v_value = args[0] }
-	_ = v_value
-	_ = v_is_string
-	_ = v_not_string
-	_ = v_parse_error
-	_ = v_parsed
-	_ = v_result
-	v_is_string = coreTypeIs(v_value, "string")
-	v_not_string = _core_not(v_is_string)
-	if coreTruthy(v_not_string) {
-		return v_value, nil
-	} else {
-	// empty
-	}
-	v_result = v_value
-	{
-		__flow, __err := func() (coreFlow, error) {
-			{ v, err := _core_json_parse(v_value); if err != nil { return coreFlow{}, err }; v_parsed = v }
-			v_result = v_parsed
-			return coreFlow{}, nil
-		}()
-		if __err == nil && __flow.kind == coreFlowReturn { return __flow.value, nil }
-		if __err != nil {
-			v_parse_error = errorValue(__err)
-			v_result = v_value
-		}
-	}
-	return v_result, nil
 }
 
 func _ace_recompute_playbook_stats(args ...Value) (Value, error) {
@@ -28490,6 +28527,44 @@ func _ace_recompute_playbook_stats(args ...Value) (Value, error) {
 	if err := coreSet(v_stats, "tokenEstimate", v_token_estimate); err != nil { return nil, err }
 	if err := coreSet(v_playbook, "stats", v_stats); err != nil { return nil, err }
 	return v_playbook, nil
+}
+
+func _parse_json_string_value(args ...Value) (Value, error) {
+	axirCoverageMark("_parse_json_string_value")
+	var v_value Value
+	var v_is_string Value
+	var v_not_string Value
+	var v_parse_error Value
+	var v_parsed Value
+	var v_result Value
+	if len(args) > 0 { v_value = args[0] }
+	_ = v_value
+	_ = v_is_string
+	_ = v_not_string
+	_ = v_parse_error
+	_ = v_parsed
+	_ = v_result
+	v_is_string = coreTypeIs(v_value, "string")
+	v_not_string = _core_not(v_is_string)
+	if coreTruthy(v_not_string) {
+		return v_value, nil
+	} else {
+	// empty
+	}
+	v_result = v_value
+	{
+		__flow, __err := func() (coreFlow, error) {
+			{ v, err := _core_json_parse(v_value); if err != nil { return coreFlow{}, err }; v_parsed = v }
+			v_result = v_parsed
+			return coreFlow{}, nil
+		}()
+		if __err == nil && __flow.kind == coreFlowReturn { return __flow.value, nil }
+		if __err != nil {
+			v_parse_error = errorValue(__err)
+			v_result = v_value
+		}
+	}
+	return v_result, nil
 }
 
 func _parse_json_string_for_field(args ...Value) (Value, error) {
@@ -29026,7 +29101,7 @@ func _validate_exact_output_keys(args ...Value) (Value, error) {
 	if coreTruthy(v_not_object) {
 		v_object_message = _core_string_format("{} must be one JSON object", v_context)
 		v_object_error = _core_validation_error(v_object_message)
-		return nil, asAxError(v_object_error)
+		return nil, asError(v_object_error)
 	} else {
 	// empty
 	}
@@ -29046,7 +29121,7 @@ func _validate_exact_output_keys(args ...Value) (Value, error) {
 		if coreTruthy(v_unknown) {
 			v_unknown_message = _core_string_format("Unexpected field '{}' in {}. Use only the exact declared wire keys.", v_key, v_context)
 			v_unknown_error = _core_validation_error(v_unknown_message)
-			return nil, asAxError(v_unknown_error)
+			return nil, asError(v_unknown_error)
 		} else {
 		// empty
 		}
@@ -31322,7 +31397,7 @@ func _agent_factory(args ...Value) (Value, error) {
 		if coreTruthy(v_missing) {
 			v_message = _core_string_format("context field not found: {}", v_ctx)
 			v_error = _core_runtime_error(v_message)
-			return nil, asAxError(v_error)
+			return nil, asError(v_error)
 		} else {
 		// empty
 		}
@@ -32089,42 +32164,42 @@ func _resolve_agent_auto_upgrade(args ...Value) (Value, error) {
 	v_above_bad_type = _core_not(v_above_is_number)
 	if coreTruthy(v_above_bad_type) {
 		v_error = _core_runtime_error("autoUpgrade.functionDiscovery.aboveFunctionDocChars must be a finite number > 0")
-		return nil, asAxError(v_error)
+		return nil, asError(v_error)
 	} else {
 	// empty
 	}
 	v_above_too_low = _core_lte(v_above, 0)
 	if coreTruthy(v_above_too_low) {
 		v_error2 = _core_runtime_error("autoUpgrade.functionDiscovery.aboveFunctionDocChars must be a finite number > 0")
-		return nil, asAxError(v_error2)
+		return nil, asError(v_error2)
 	} else {
 	// empty
 	}
 	v_promote_bad_type = _core_not(v_promote_is_number)
 	if coreTruthy(v_promote_bad_type) {
 		v_error3 = _core_runtime_error("autoUpgrade.contextFields.promoteAboveChars must be a finite number > 0")
-		return nil, asAxError(v_error3)
+		return nil, asError(v_error3)
 	} else {
 	// empty
 	}
 	v_promote_too_low = _core_lte(v_promote, 0)
 	if coreTruthy(v_promote_too_low) {
 		v_error4 = _core_runtime_error("autoUpgrade.contextFields.promoteAboveChars must be a finite number > 0")
-		return nil, asAxError(v_error4)
+		return nil, asError(v_error4)
 	} else {
 	// empty
 	}
 	v_preview_bad_type = _core_not(v_preview_is_number)
 	if coreTruthy(v_preview_bad_type) {
 		v_error5 = _core_runtime_error("autoUpgrade.contextFields.previewChars must be a finite number > -1")
-		return nil, asAxError(v_error5)
+		return nil, asError(v_error5)
 	} else {
 	// empty
 	}
 	v_preview_too_low = _core_lt(v_preview, 0)
 	if coreTruthy(v_preview_too_low) {
 		v_error6 = _core_runtime_error("autoUpgrade.contextFields.previewChars must be a finite number > -1")
-		return nil, asAxError(v_error6)
+		return nil, asError(v_error6)
 	} else {
 	// empty
 	}
@@ -32637,7 +32712,7 @@ func _agent_policy_flags(args ...Value) (Value, error) {
 	v_direct_response_invalid = _core_not(v_direct_response_valid)
 	if coreTruthy(v_direct_response_invalid) {
 		v_direct_response_error = _core_runtime_error("directResponse must be 'auto' or 'off'")
-		return nil, asAxError(v_direct_response_error)
+		return nil, asError(v_direct_response_error)
 	} else {
 	// empty
 	}
@@ -33537,7 +33612,7 @@ func _validate_policy_reserved_names(args ...Value) (Value, error) {
 	if coreTruthy(v_conflicts) {
 		v_message = _core_string_format("agent callable namespace conflicts with reserved runtime name: {}", v_name)
 		v_error = _core_runtime_error(v_message)
-		return nil, asAxError(v_error)
+		return nil, asError(v_error)
 	} else {
 	// empty
 	}
@@ -34696,7 +34771,7 @@ func _resolve_agent_context_policy(args ...Value) (Value, error) {
 		if coreTruthy(v_disallowed) {
 			{ v, err := _agent_context_policy_migration_error(v_key); if err != nil { return nil, err }; v_error_message = v }
 			v_error_policy = _core_runtime_error(v_error_message)
-			return nil, asAxError(v_error_policy)
+			return nil, asError(v_error_policy)
 		} else {
 		// empty
 		}
@@ -34910,7 +34985,7 @@ func _resolve_agent_executor_model_policy(args ...Value) (Value, error) {
 	// empty
 	} else {
 		v_error_shape = _core_runtime_error(v_migration_error)
-		return nil, asAxError(v_error_shape)
+		return nil, asError(v_error_shape)
 	}
 	v_out = MutableArray()
 	v_index = 0
@@ -34921,7 +34996,7 @@ func _resolve_agent_executor_model_policy(args ...Value) (Value, error) {
 		} else {
 			v_message_entry = _core_string_format("executorModelPolicy[{}] must be an object", v_index)
 			v_error_entry = _core_runtime_error(v_message_entry)
-			return nil, asAxError(v_error_entry)
+			return nil, asError(v_error_entry)
 		}
 		v_legacy_any = false
 		for _, v_legacy_key = range coreIter(v_legacy_keys) {
@@ -34934,7 +35009,7 @@ func _resolve_agent_executor_model_policy(args ...Value) (Value, error) {
 		}
 		if coreTruthy(v_legacy_any) {
 			v_error_legacy = _core_runtime_error(v_migration_error)
-			return nil, asAxError(v_error_legacy)
+			return nil, asError(v_error_legacy)
 		} else {
 		// empty
 		}
@@ -34943,7 +35018,7 @@ func _resolve_agent_executor_model_policy(args ...Value) (Value, error) {
 		if coreTruthy(v_model_missing) {
 			v_message_model = _core_string_format("executorModelPolicy[{}].model must be a non-empty string", v_index)
 			v_error_model = _core_runtime_error(v_message_model)
-			return nil, asAxError(v_error_model)
+			return nil, asError(v_error_model)
 		} else {
 		// empty
 		}
@@ -34959,7 +35034,7 @@ func _resolve_agent_executor_model_policy(args ...Value) (Value, error) {
 			if coreTruthy(v_above_invalid) {
 				v_message_above = _core_string_format("executorModelPolicy[{}].aboveErrorTurns must be a finite number >= 0", v_index)
 				v_error_above = _core_runtime_error(v_message_above)
-				return nil, asAxError(v_error_above)
+				return nil, asError(v_error_above)
 			} else {
 			// empty
 			}
@@ -34986,7 +35061,7 @@ func _resolve_agent_executor_model_policy(args ...Value) (Value, error) {
 			if coreTruthy(v_no_valid_namespaces) {
 				v_message_namespaces = _core_string_format("executorModelPolicy[{}].namespaces must contain at least one non-empty string", v_index)
 				v_error_namespaces = _core_runtime_error(v_message_namespaces)
-				return nil, asAxError(v_error_namespaces)
+				return nil, asError(v_error_namespaces)
 			} else {
 			// empty
 			}
@@ -34999,7 +35074,7 @@ func _resolve_agent_executor_model_policy(args ...Value) (Value, error) {
 		} else {
 			v_message_trigger = _core_string_format("executorModelPolicy[{}] must define at least one of aboveErrorTurns or namespaces", v_index)
 			v_error_trigger = _core_runtime_error(v_message_trigger)
-			return nil, asAxError(v_error_trigger)
+			return nil, asError(v_error_trigger)
 		}
 		v_normalized = Object()
 		if err := coreSet(v_normalized, "model", v_model); err != nil { return nil, err }
@@ -35020,7 +35095,7 @@ func _resolve_agent_executor_model_policy(args ...Value) (Value, error) {
 	v_empty = _core_eq(v_count, 0)
 	if coreTruthy(v_empty) {
 		v_error_empty = _core_runtime_error("executorModelPolicy must contain at least one entry")
-		return nil, asAxError(v_error_empty)
+		return nil, asError(v_error_empty)
 	} else {
 	// empty
 	}
@@ -38485,7 +38560,7 @@ func _normalize_agent_callable(args ...Value) (Value, error) {
 	v_missing_name = _core_eq(v_name, "")
 	if coreTruthy(v_missing_name) {
 		v_error = _core_runtime_error("agent callable name is required")
-		return nil, asAxError(v_error)
+		return nil, asError(v_error)
 	} else {
 	// empty
 	}
@@ -38555,7 +38630,7 @@ func _normalize_agent_group(args ...Value) (Value, error) {
 	if coreTruthy(v_conflicts) {
 		v_message = _core_string_format("agent callable namespace conflicts with reserved runtime name: {}", v_namespace)
 		v_error = _core_runtime_error(v_message)
-		return nil, asAxError(v_error)
+		return nil, asError(v_error)
 	} else {
 	// empty
 	}
@@ -38629,7 +38704,7 @@ func _normalize_agent_callable_inventory(args ...Value) (Value, error) {
 			v_has_group = true
 			if coreTruthy(v_has_flat) {
 				v_error = _core_runtime_error("agent functions cannot mix grouped modules and flat functions")
-				return nil, asAxError(v_error)
+				return nil, asError(v_error)
 			} else {
 			// empty
 			}
@@ -38639,7 +38714,7 @@ func _normalize_agent_callable_inventory(args ...Value) (Value, error) {
 			v_has_flat = true
 			if coreTruthy(v_has_group) {
 				v_error = _core_runtime_error("agent functions cannot mix grouped modules and flat functions")
-				return nil, asAxError(v_error)
+				return nil, asError(v_error)
 			} else {
 			// empty
 			}
@@ -38804,7 +38879,7 @@ func _normalize_agent_string_list(args ...Value) (Value, error) {
 		if coreTruthy(v_empty) {
 			v_message = _core_string_format("{} entries must be non-empty strings", v_label)
 			v_error = _core_runtime_error(v_message)
-			return nil, asAxError(v_error)
+			return nil, asError(v_error)
 		} else {
 			v_out = coreAppend(v_out, v_trimmed)
 		}
@@ -38814,7 +38889,7 @@ func _normalize_agent_string_list(args ...Value) (Value, error) {
 		if coreTruthy(v_not_list) {
 			v_message = _core_string_format("{} must be a string or string[]", v_label)
 			v_error = _core_runtime_error(v_message)
-			return nil, asAxError(v_error)
+			return nil, asError(v_error)
 		} else {
 			for _, v_item = range coreIter(v_value) {
 				v_item_is_string = coreTypeIs(v_item, "string")
@@ -38822,14 +38897,14 @@ func _normalize_agent_string_list(args ...Value) (Value, error) {
 				if coreTruthy(v_bad_item) {
 					v_message = _core_string_format("{} entries must be strings", v_label)
 					v_error = _core_runtime_error(v_message)
-					return nil, asAxError(v_error)
+					return nil, asError(v_error)
 				} else {
 					v_trimmed_item = coreStringTrim(v_item)
 					v_empty_item = _core_eq(v_trimmed_item, "")
 					if coreTruthy(v_empty_item) {
 						v_message = _core_string_format("{} entries must be non-empty strings", v_label)
 						v_error = _core_runtime_error(v_message)
-						return nil, asAxError(v_error)
+						return nil, asError(v_error)
 					} else {
 						v_already = _core_contains(v_out, v_trimmed_item)
 						v_fresh = _core_not(v_already)
@@ -38848,7 +38923,7 @@ func _normalize_agent_string_list(args ...Value) (Value, error) {
 	if coreTruthy(v_empty_out) {
 		v_message = _core_string_format("{} requires at least one entry", v_label)
 		v_error = _core_runtime_error(v_message)
-		return nil, asAxError(v_error)
+		return nil, asError(v_error)
 	} else {
 	// empty
 	}
@@ -38931,7 +39006,7 @@ func _normalize_agent_discover_request(args ...Value) (Value, error) {
 		v_bad = _core_not(v_is_map)
 		if coreTruthy(v_bad) {
 			v_error = _core_runtime_error("discover(...) expects a string, string[], or { tools?, skills? }")
-			return nil, asAxError(v_error)
+			return nil, asError(v_error)
 		} else {
 			v_has_tools = _core_map_contains(v_request, "tools")
 			v_has_skills = _core_map_contains(v_request, "skills")
@@ -38939,7 +39014,7 @@ func _normalize_agent_discover_request(args ...Value) (Value, error) {
 			v_missing_any = _core_not(v_has_any)
 			if coreTruthy(v_missing_any) {
 				v_error = _core_runtime_error("discover(...) requires at least one of tools or skills")
-				return nil, asAxError(v_error)
+				return nil, asError(v_error)
 			} else {
 			// empty
 			}
@@ -38968,14 +39043,14 @@ func _normalize_agent_discover_request(args ...Value) (Value, error) {
 	v_bad_tools = _core_and(v_has_tool_items, v_tools_disabled)
 	if coreTruthy(v_bad_tools) {
 		v_error = _core_runtime_error("discover({ tools }) requires function discovery to be enabled")
-		return nil, asAxError(v_error)
+		return nil, asError(v_error)
 	} else {
 	// empty
 	}
 	v_bad_skills = _core_and(v_has_skill_items, v_skills_disabled)
 	if coreTruthy(v_bad_skills) {
 		v_error = _core_runtime_error("discover({ skills }) requires skill discovery to be enabled")
-		return nil, asAxError(v_error)
+		return nil, asError(v_error)
 	} else {
 	// empty
 	}
@@ -39880,7 +39955,7 @@ func _normalize_agent_recall_request(args ...Value) (Value, error) {
 	v_disabled = _core_not(v_enabled)
 	if coreTruthy(v_disabled) {
 		v_error = _core_runtime_error("recall(...) requires memory search to be enabled")
-		return nil, asAxError(v_error)
+		return nil, asError(v_error)
 	} else {
 	// empty
 	}
@@ -40240,7 +40315,7 @@ func _normalize_agent_used_request(args ...Value) (Value, error) {
 	v_missing = _core_eq(v_id, "")
 	if coreTruthy(v_missing) {
 		v_error = _core_runtime_error("used(...) requires a non-empty loaded memory or skill id")
-		return nil, asAxError(v_error)
+		return nil, asError(v_error)
 	} else {
 	// empty
 	}
@@ -40320,7 +40395,7 @@ func _agent_used(args ...Value) (Value, error) {
 	v_disabled = _core_not(v_enabled)
 	if coreTruthy(v_disabled) {
 		v_error = _core_runtime_error("used(...) requires usage tracking to be enabled")
-		return nil, asAxError(v_error)
+		return nil, asError(v_error)
 	} else {
 	// empty
 	}
@@ -40423,7 +40498,7 @@ func _normalize_agent_guidance_payload(args ...Value) (Value, error) {
 	v_missing = _core_eq(v_guidance, "")
 	if coreTruthy(v_missing) {
 		v_error = _core_runtime_error("guideAgent() requires a non-empty string guidance")
-		return nil, asAxError(v_error)
+		return nil, asError(v_error)
 	} else {
 	// empty
 	}
@@ -40686,7 +40761,7 @@ func _normalize_agent_clarification_payload(args ...Value) (Value, error) {
 	v_missing = _core_eq(v_question, "")
 	if coreTruthy(v_missing) {
 		v_error = _core_runtime_error("agent clarification question is required")
-		return nil, asAxError(v_error)
+		return nil, asError(v_error)
 	} else {
 	// empty
 	}
@@ -41343,7 +41418,7 @@ func _agent_replay_trace(args ...Value) (Value, error) {
 		if coreTruthy(v_mismatch) {
 			v_message = _core_string_format("agent replay event sequence mismatch: expected {} got {}", v_expected_text, v_actual_text)
 			v_error = _core_runtime_error(v_message)
-			return nil, asAxError(v_error)
+			return nil, asError(v_error)
 		} else {
 		// empty
 		}
@@ -41361,7 +41436,7 @@ func _agent_replay_trace(args ...Value) (Value, error) {
 		if coreTruthy(v_output_mismatch) {
 			v_message = _core_string_format("agent replay output mismatch: expected {} got {}", v_expected_output_text, v_actual_output_text)
 			v_error = _core_runtime_error(v_message)
-			return nil, asAxError(v_error)
+			return nil, asError(v_error)
 		} else {
 		// empty
 		}
@@ -41750,7 +41825,7 @@ func _agent_runtime_build_globals(args ...Value) (Value, error) {
 		if coreTruthy(v_conflict) {
 			v_message = _core_string_format("agent runtime global conflicts with reserved name: {}", v_key)
 			v_error = _core_runtime_error(v_message)
-			return nil, asAxError(v_error)
+			return nil, asError(v_error)
 		} else {
 			v_value = coreGet(v_values, v_key, nil)
 			if err := coreSet(v_globals, v_key, v_value); err != nil { return nil, err }
@@ -41857,7 +41932,7 @@ func _normalize_agent_runtime_snapshot(args ...Value) (Value, error) {
 	// empty
 	} else {
 		v_error = _core_runtime_error("runtime session snapshot must be an object")
-		return nil, asAxError(v_error)
+		return nil, asError(v_error)
 	}
 	v_raw_globals = coreGet(v_snapshot, "globals", nil)
 	v_raw_bindings = coreGet(v_snapshot, "bindings", nil)
@@ -41868,7 +41943,7 @@ func _normalize_agent_runtime_snapshot(args ...Value) (Value, error) {
 	// empty
 	} else {
 		v_error2 = _core_runtime_error("runtime session snapshot globals must be an object")
-		return nil, asAxError(v_error2)
+		return nil, asError(v_error2)
 	}
 	v_bindings = v_raw_globals
 	if coreTruthy(v_has_bindings) {
@@ -42188,7 +42263,7 @@ func _normalize_agent_runtime_step_result(args ...Value) (Value, error) {
 	if coreTruthy(v_should_escape) {
 		v_escape_message = _core_string_format("runtime host boundary escaped {}: {}", v_error_category, v_error_message)
 		v_escape_error = _core_runtime_error(v_escape_message)
-		return nil, asAxError(v_escape_error)
+		return nil, asError(v_escape_error)
 	} else {
 	// empty
 	}
@@ -44373,7 +44448,7 @@ func _agent_runtime_test(args ...Value) (Value, error) {
 			v_runtime_test_error = errorValue(__err)
 			v_error_session = coreGet(v_state, "runtime_session", v_session)
 			if _, err := _agent_runtime_close_session(v_state, v_error_session); err != nil { return nil, err }
-			return nil, asAxError(v_runtime_test_error)
+			return nil, asError(v_runtime_test_error)
 		}
 	}
 	v_active_session = coreGet(v_state, "runtime_session", v_session)
@@ -45290,14 +45365,14 @@ func _resolve_agent_citations(args ...Value) (Value, error) {
 		if coreTruthy(v_bad_field) {
 			v_message = _core_string_format("citations.field must be a valid field name, got {}", v_field)
 			v_error = _core_runtime_error(v_message)
-			return nil, asAxError(v_error)
+			return nil, asError(v_error)
 		} else {
 		// empty
 		}
 		v_is_context_data = _core_eq(v_field, "contextData")
 		if coreTruthy(v_is_context_data) {
 			v_error = _core_runtime_error("AxAgent: citations.field cannot be contextData; it is the reserved responder evidence input")
-			return nil, asAxError(v_error)
+			return nil, asError(v_error)
 		} else {
 		// empty
 		}
@@ -45307,7 +45382,7 @@ func _resolve_agent_citations(args ...Value) (Value, error) {
 		v_bad_surface = _core_not(v_valid_surface)
 		if coreTruthy(v_bad_surface) {
 			v_error = _core_runtime_error("citations.surface must be output or hidden")
-			return nil, asAxError(v_error)
+			return nil, asError(v_error)
 		} else {
 		// empty
 		}
@@ -45319,7 +45394,7 @@ func _resolve_agent_citations(args ...Value) (Value, error) {
 			if coreTruthy(v_collision) {
 				v_message = _core_string_format("AxAgent: citations.field {} collides with an output field of the agent signature", v_field)
 				v_error = _core_runtime_error(v_message)
-				return nil, asAxError(v_error)
+				return nil, asError(v_error)
 			} else {
 			// empty
 			}
@@ -45972,7 +46047,7 @@ func _normalize_agent_completion_payload(args ...Value) (Value, error) {
 	if coreTruthy(v_invalid) {
 		v_message = _core_string_format("agent stage did not return a completion payload (a live model returns prose, but this stage expects a structured completion): pass options.runtime with a code engine so the executor runs model-generated code that calls final(...), or use a client that returns a structured final/askClarification completion. got: {}", v_payload)
 		v_error = _core_runtime_error(v_message)
-		return nil, asAxError(v_error)
+		return nil, asError(v_error)
 	} else {
 	// empty
 	}
@@ -45999,7 +46074,7 @@ func _throw_agent_clarification(args ...Value) (Value, error) {
 	v_is_clarification = _core_eq(v_type, "askClarification")
 	if coreTruthy(v_is_clarification) {
 		v_error = _core_agent_clarification_error(v_payload, v_state)
-		return nil, asAxError(v_error)
+		return nil, asError(v_error)
 	} else {
 	// empty
 	}
@@ -46491,7 +46566,7 @@ func _extract_agent_runtime_code(args ...Value) (Value, error) {
 	if coreTruthy(v_missing) {
 		v_message = _core_string_format("agent executor did not return runtime code field: {}", v_code_field_name)
 		v_error = _core_runtime_error(v_message)
-		return nil, asAxError(v_error)
+		return nil, asError(v_error)
 	} else {
 	// empty
 	}
@@ -47987,7 +48062,7 @@ func _agent_forward(args ...Value) (Value, error) {
 				if err := coreSet(v_distiller_error_event, "stage", "distiller"); err != nil { return nil, err }
 				if _, err := _agent_record_trace_event(v_state, "error", v_distiller_error_event); err != nil { return nil, err }
 				v_distiller_error = _core_runtime_error("agent distiller loop exceeded max steps")
-				return nil, asAxError(v_distiller_error)
+				return nil, asError(v_distiller_error)
 			} else {
 			// empty
 			}
@@ -48076,7 +48151,7 @@ func _agent_forward(args ...Value) (Value, error) {
 		v_skip_disabled = _core_not(v_skip_enabled)
 		if coreTruthy(v_skip_disabled) {
 			v_skip_error = _core_runtime_error("agent distiller produced a respond() payload while directResponse is 'off'")
-			return nil, asAxError(v_skip_error)
+			return nil, asError(v_skip_error)
 		} else {
 		// empty
 		}
@@ -48137,7 +48212,7 @@ func _agent_forward(args ...Value) (Value, error) {
 				if err := coreSet(v_error_event, "stage", "executor"); err != nil { return nil, err }
 				if _, err := _agent_record_trace_event(v_state, "error", v_error_event); err != nil { return nil, err }
 				v_error = _core_runtime_error("agent actor loop exceeded max steps")
-				return nil, asAxError(v_error)
+				return nil, asError(v_error)
 			} else {
 			// empty
 			}
@@ -48259,7 +48334,7 @@ func _agent_forward(args ...Value) (Value, error) {
 	v_citations_invalid = _core_not(v_citations_valid)
 	if coreTruthy(v_citations_invalid) {
 		v_error = _core_runtime_error("AxAgent responder returned citations that do not exist in the run evidence")
-		return nil, asAxError(v_error)
+		return nil, asError(v_error)
 	} else {
 	// empty
 	}
@@ -48466,7 +48541,7 @@ func _flow_step(args ...Value) (Value, error) {
 	v_missing_name = _core_eq(v_trimmed, "")
 	if coreTruthy(v_missing_name) {
 		v_err = _core_runtime_error("flow step name is required")
-		return nil, asAxError(v_err)
+		return nil, asError(v_err)
 	} else {
 	// empty
 	}
@@ -48642,7 +48717,7 @@ func _flow_add_step(args ...Value) (Value, error) {
 		if coreTruthy(v_duplicate) {
 			v_message = _core_string_format("duplicate flow step: {}", v_name)
 			v_err = _core_runtime_error(v_message)
-			return nil, asAxError(v_err)
+			return nil, asError(v_err)
 		} else {
 		// empty
 		}
@@ -49160,7 +49235,7 @@ func _flow_check_abort(args ...Value) (Value, error) {
 	if coreTruthy(v_abort) {
 		v_message = _core_string_format("Flow aborted at {}", v_location)
 		v_err = _core_runtime_error(v_message)
-		return nil, asAxError(v_err)
+		return nil, asError(v_err)
 	} else {
 	// empty
 	}
@@ -49461,7 +49536,7 @@ func _flow_execute_program_node(args ...Value) (Value, error) {
 	if coreTruthy(v_abort_now) {
 		v_abort_message = _core_string_format("Flow aborted at flow-node-{}", v_name)
 		v_abort_error = _core_runtime_error(v_abort_message)
-		return nil, asAxError(v_abort_error)
+		return nil, asError(v_abort_error)
 	} else {
 	// empty
 	}
@@ -49756,7 +49831,7 @@ func _flow_execute_step(args ...Value) (Value, error) {
 			if coreTruthy(v_too_many) {
 				v_message = _core_string_format("While loop exceeded maximum iterations ({})", v_max_iterations)
 				v_err = _core_runtime_error(v_message)
-				return nil, asAxError(v_err)
+				return nil, asError(v_err)
 			} else {
 			// empty
 			}
@@ -49838,7 +49913,7 @@ func _flow_execute_step(args ...Value) (Value, error) {
 		v_bad_results = _core_not(v_results_is_list)
 		if coreTruthy(v_bad_results) {
 			v_err = _core_runtime_error("No parallel results found for merge")
-			return nil, asAxError(v_err)
+			return nil, asError(v_err)
 		} else {
 		// empty
 		}
@@ -50327,7 +50402,7 @@ func _flow_apply_optimized_components(args ...Value) (Value, error) {
 		v_bad_graph = _core_not(v_graph_is_object)
 		if coreTruthy(v_bad_graph) {
 			v_err = _core_runtime_error("optimized flow graph-plan component must be an object")
-			return nil, asAxError(v_err)
+			return nil, asError(v_err)
 		} else {
 		// empty
 		}
@@ -50523,7 +50598,7 @@ func _flow_evaluate_optimization(args ...Value) (Value, error) {
 				if coreTruthy(v_too_many) {
 					v_message = _core_string_format("max metric calls exceeded: {}", v_max_calls)
 					v_err = _core_runtime_error(v_message)
-					return coreFlow{}, asAxError(v_err)
+					return coreFlow{}, asError(v_err)
 				} else {
 				// empty
 				}
@@ -50591,7 +50666,7 @@ func _flow_evaluate_optimization(args ...Value) (Value, error) {
 		if __err != nil {
 			v_outer_error = errorValue(__err)
 			if _, err := _flow_restore_components(v_flow, v_original); err != nil { return nil, err }
-			return nil, asAxError(v_outer_error)
+			return nil, asError(v_outer_error)
 		}
 	}
 	return v_result, nil
@@ -50760,7 +50835,7 @@ func _flow_mermaid_fail(args ...Value) (Value, error) {
 	_ = v_with_line
 	v_with_line = _core_string_format("{} (line {})", v_message, v_line)
 	v_err = _core_runtime_error(v_with_line)
-	return nil, asAxError(v_err)
+	return nil, asError(v_err)
 }
 
 func _flow_mermaid_register_node(args ...Value) (Value, error) {
@@ -54678,7 +54753,7 @@ func mcp_param_header_bindings(args ...Value) (Value, error) {
 	v_root_annotated = _core_map_contains(v_input_schema, "x-mcp-header")
 	if coreTruthy(v_root_annotated) {
 		v_root_error = _core_validation_error("x-mcp-header at inputSchema is not statically reachable through properties")
-		return nil, asAxError(v_root_error)
+		return nil, asError(v_root_error)
 	} else {
 	// empty
 	}
@@ -54698,7 +54773,7 @@ func mcp_param_header_bindings(args ...Value) (Value, error) {
 					v_header_not_string = _core_not(v_header_string)
 					if coreTruthy(v_header_not_string) {
 						v_name_type_error = _core_validation_error("x-mcp-header must be a non-empty string")
-						return nil, asAxError(v_name_type_error)
+						return nil, asError(v_name_type_error)
 					} else {
 					// empty
 					}
@@ -54707,7 +54782,7 @@ func mcp_param_header_bindings(args ...Value) (Value, error) {
 					v_header_invalid = _core_not(v_header_nonempty)
 					if coreTruthy(v_header_invalid) {
 						v_name_error = _core_validation_error("x-mcp-header must be a non-empty string")
-						return nil, asAxError(v_name_error)
+						return nil, asError(v_name_error)
 					} else {
 					// empty
 					}
@@ -54715,7 +54790,7 @@ func mcp_param_header_bindings(args ...Value) (Value, error) {
 					v_token_invalid = _core_not(v_token_valid)
 					if coreTruthy(v_token_invalid) {
 						v_token_error = _core_validation_error("x-mcp-header value is not an RFC 9110 field-name token")
-						return nil, asAxError(v_token_error)
+						return nil, asError(v_token_error)
 					} else {
 					// empty
 					}
@@ -54724,7 +54799,7 @@ func mcp_param_header_bindings(args ...Value) (Value, error) {
 					v_duplicate = _core_contains(v_seen_names, v_normalized_full_name)
 					if coreTruthy(v_duplicate) {
 						v_duplicate_error = _core_validation_error("x-mcp-header value is not case-insensitively unique")
-						return nil, asAxError(v_duplicate_error)
+						return nil, asError(v_duplicate_error)
 					} else {
 					// empty
 					}
@@ -54738,7 +54813,7 @@ func mcp_param_header_bindings(args ...Value) (Value, error) {
 					v_type_invalid = _core_not(v_type_valid)
 					if coreTruthy(v_type_invalid) {
 						v_type_error = _core_validation_error("x-mcp-header requires type string, integer, or boolean")
-						return nil, asAxError(v_type_error)
+						return nil, asError(v_type_error)
 					} else {
 					// empty
 					}
@@ -54763,7 +54838,7 @@ func mcp_param_header_bindings(args ...Value) (Value, error) {
 					v_child_duplicate = _core_contains(v_seen_names, v_child_normalized)
 					if coreTruthy(v_child_duplicate) {
 						v_child_duplicate_error = _core_validation_error("x-mcp-header value is not case-insensitively unique")
-						return nil, asAxError(v_child_duplicate_error)
+						return nil, asError(v_child_duplicate_error)
 					} else {
 					// empty
 					}
@@ -54801,7 +54876,7 @@ func mcp_param_header_bindings(args ...Value) (Value, error) {
 				v_keyword_annotated = _core_gt(v_keyword_binding_count, 0)
 				if coreTruthy(v_keyword_annotated) {
 					v_keyword_error = _core_validation_error("x-mcp-header is not statically reachable through properties")
-					return nil, asAxError(v_keyword_error)
+					return nil, asError(v_keyword_error)
 				} else {
 				// empty
 				}
@@ -54818,7 +54893,7 @@ func mcp_param_header_bindings(args ...Value) (Value, error) {
 						v_item_annotated = _core_gt(v_item_binding_count, 0)
 						if coreTruthy(v_item_annotated) {
 							v_item_error = _core_validation_error("x-mcp-header is not statically reachable through properties")
-							return nil, asAxError(v_item_error)
+							return nil, asError(v_item_error)
 						} else {
 						// empty
 						}
@@ -55123,7 +55198,7 @@ func mcp_param_header_values(args ...Value) (Value, error) {
 				v_invalid_string = _core_not(v_is_string)
 				if coreTruthy(v_invalid_string) {
 					v_string_error = _core_validation_error("MCP parameter header expected string")
-					return nil, asAxError(v_string_error)
+					return nil, asError(v_string_error)
 				} else {
 				// empty
 				}
@@ -55135,7 +55210,7 @@ func mcp_param_header_values(args ...Value) (Value, error) {
 					v_invalid_boolean = _core_not(v_is_boolean)
 					if coreTruthy(v_invalid_boolean) {
 						v_boolean_error = _core_validation_error("MCP parameter header expected boolean")
-						return nil, asAxError(v_boolean_error)
+						return nil, asError(v_boolean_error)
 					} else {
 					// empty
 					}
@@ -55149,7 +55224,7 @@ func mcp_param_header_values(args ...Value) (Value, error) {
 					v_not_number = _core_not(v_is_number)
 					if coreTruthy(v_not_number) {
 						v_number_error = _core_validation_error("MCP parameter header expected integer")
-						return nil, asAxError(v_number_error)
+						return nil, asError(v_number_error)
 					} else {
 					// empty
 					}
@@ -55163,7 +55238,7 @@ func mcp_param_header_values(args ...Value) (Value, error) {
 					v_invalid_integer = _core_not(v_valid_integer)
 					if coreTruthy(v_invalid_integer) {
 						v_integer_error = _core_validation_error("MCP parameter header expected integer")
-						return nil, asAxError(v_integer_error)
+						return nil, asError(v_integer_error)
 					} else {
 					// empty
 					}
@@ -57905,12 +57980,14 @@ type StreamingTransport interface {
 type ScriptedTransport struct {
 	Responses []Value
 	Requests  []Value
+	Contexts  []context.Context
 }
 
 func NewScriptedTransport(responses []Value) *ScriptedTransport {
 	return &ScriptedTransport{Responses: append([]Value(nil), responses...)}
 }
 func (t *ScriptedTransport) Call(ctx context.Context, request Value) (Value, error) {
+	t.Contexts = append(t.Contexts, ctx)
 	t.Requests = append(t.Requests, request)
 	if len(t.Responses) == 0 {
 		return Object("status", float64(200), "json", Object()), nil
@@ -58025,10 +58102,13 @@ func (t HTTPTransport) Call(ctx context.Context, request Value) (Value, error) {
 	}
 	resp, err := client.Do(httpReq)
 	if err != nil {
-		return nil, err
+		return nil, normalizeContextError(ctx, err)
 	}
 	defer resp.Body.Close()
-	data, _ := io.ReadAll(resp.Body)
+	data, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return nil, normalizeContextError(ctx, err)
+	}
 	out := Object("status", float64(resp.StatusCode))
 	if coreTruthy(coreGet(req, "binaryResponse", false)) {
 		// Binary operations (e.g. OpenAI /audio/speech returns raw mp3) must not
@@ -58060,7 +58140,7 @@ func (t HTTPTransport) Stream(ctx context.Context, request Value) (AxHTTPStreamR
 	}
 	resp, err := client.Do(httpReq)
 	if err != nil {
-		return AxHTTPStreamResponse{}, err
+		return AxHTTPStreamResponse{}, normalizeContextError(ctx, err)
 	}
 	return AxHTTPStreamResponse{Status: resp.StatusCode, Body: resp.Body}, nil
 }
@@ -58264,6 +58344,7 @@ func finishAIOperation(hooks AxRuntimeHooks, attributes map[string]Value, span A
 }
 
 func (c *OpenAICompatibleClient) Chat(ctx context.Context, request map[string]Value, options map[string]Value) (Value, error) {
+	if err := contextCancellationError(ctx); err != nil { return nil, err }
 	hooks, previousUsage := c.runtimeHooksSnapshot()
 	hooks = effectiveRuntimeHooks(ctx, options, hooks)
 	mergedOptions := mergeAIOptions(c.optionsSnapshot(), stripRuntimeHooks(options))
@@ -58298,6 +58379,7 @@ func (c *OpenAICompatibleClient) Chat(ctx context.Context, request map[string]Va
 		})
 	}
 	response, err := invokeRuntimeLimiter(hooks.RateLimiter, next, AxRateLimitInfo{Operation: "chat", Provider: c.Name, Model: modelName, Streaming: streaming, PreviousModelUsage: previousUsage})
+	err = normalizeContextError(ctx, err)
 	finishAIOperation(hooks, attributes, span, started, err)
 	if err == nil {
 		c.setLastUsage(coreGet(response, "model_usage", coreGet(response, "modelUsage", nil)))
@@ -58321,6 +58403,7 @@ func (c *OpenAICompatibleClient) contextCacheChat(ctx context.Context, request m
 	tryCall := func(call Value) (Value, error) {
 		raw, err := c.Transport.Call(ctx, call)
 		if err != nil {
+			if ctx.Err() != nil { return nil, normalizeContextError(ctx, err) }
 			return nil, AxError{Category: "network", Message: err.Error()}
 		}
 		return safeValue(func() Value { return normalizeTransportPayload(raw) })
@@ -58424,6 +58507,7 @@ func (c *OpenAICompatibleClient) contextCacheChat(ctx context.Context, request m
 		ops := mustCore(ai_gemini_cache_ops("", float64(ttlSeconds), apiKey, display(model), cacheBody, options))
 		created, err := opCall(coreGet(ops, "create", Object()))
 		if err != nil {
+			if ctx.Err() != nil { panic(err) }
 			return false
 		}
 		cacheName = display(coreGet(created, "name", ""))
@@ -58438,6 +58522,7 @@ func (c *OpenAICompatibleClient) contextCacheChat(ctx context.Context, request m
 	case "refresh":
 		ops := mustCore(ai_gemini_cache_ops(cacheName, float64(ttlSeconds), apiKey, display(model), cacheBody, options))
 		refreshed, err := opCall(coreGet(ops, "update", Object()))
+		if err != nil && ctx.Err() != nil { panic(err) }
 		if err != nil || expiry(refreshed) == 0 {
 			if !create() {
 				body, fullErr := tryCall(fullCall)
@@ -58500,6 +58585,7 @@ func (c *OpenAICompatibleClient) contextCacheChat(ctx context.Context, request m
 	return body, true
 }
 func (c *OpenAICompatibleClient) Embed(ctx context.Context, request map[string]Value, options map[string]Value) (Value, error) {
+	if err := contextCancellationError(ctx); err != nil { return nil, err }
 	hooks, previousUsage := c.runtimeHooksSnapshot()
 	hooks = effectiveRuntimeHooks(ctx, options, hooks)
 	mergedOptions := mergeAIOptions(c.optionsSnapshot(), stripRuntimeHooks(options))
@@ -58523,6 +58609,7 @@ func (c *OpenAICompatibleClient) Embed(ctx context.Context, request map[string]V
 		})
 	}
 	response, err := invokeRuntimeLimiter(hooks.RateLimiter, next, AxRateLimitInfo{Operation: "embed", Provider: c.Name, Model: modelName, Streaming: false, PreviousModelUsage: previousUsage})
+	err = normalizeContextError(ctx, err)
 	finishAIOperation(hooks, attributes, span, started, err)
 	if err == nil {
 		c.setLastUsage(coreGet(response, "model_usage", coreGet(response, "modelUsage", nil)))
@@ -58557,7 +58644,7 @@ func waitStreamRetry(ctx context.Context, delay float64) error {
 	case <-timer.C:
 		return nil
 	case <-ctx.Done():
-		return ctx.Err()
+		return normalizeContextError(ctx, ctx.Err())
 	}
 }
 
@@ -58565,6 +58652,7 @@ func (c *OpenAICompatibleClient) openProviderStream(ctx context.Context, request
 	if transport, ok := c.Transport.(StreamingTransport); ok {
 		response, err := transport.Stream(ctx, request)
 		if err != nil {
+			if ctx.Err() != nil { return nil, normalizeContextError(ctx, err) }
 			return nil, AxError{Category: "network", Type: "AxAIServiceNetworkError", Message: err.Error(), Retryable: true}
 		}
 		if response.Body == nil {
@@ -58589,6 +58677,7 @@ func (c *OpenAICompatibleClient) openProviderStream(ctx context.Context, request
 
 	raw, err := c.Transport.Call(ctx, request)
 	if err != nil {
+		if ctx.Err() != nil { return nil, normalizeContextError(ctx, err) }
 		return nil, AxError{Category: "network", Type: "AxAIServiceNetworkError", Message: err.Error(), Retryable: true}
 	}
 	body, normalizedErr := safeValue(func() Value { return normalizeTransportPayload(raw) })
@@ -58604,6 +58693,7 @@ func (c *OpenAICompatibleClient) openProviderStream(ctx context.Context, request
 }
 
 func (c *OpenAICompatibleClient) StreamEvents(ctx context.Context, request map[string]Value, options map[string]Value) (AxChatStream, error) {
+	if err := contextCancellationError(ctx); err != nil { return nil, err }
 	prepared, prepareErr := safeValue(func() Value { return c.prepareChatRequest(request, Object("stream", true)) })
 	if prepareErr != nil { return nil, prepareErr }
 	realtimeRequest := asMap(prepared)
@@ -58661,6 +58751,7 @@ func (c *OpenAICompatibleClient) StreamEvents(ctx context.Context, request map[s
 				firstRaw, firstErr := raw.Next()
 				if firstErr != nil && !errors.Is(firstErr, io.EOF) {
 					_ = raw.Close()
+					if ctx.Err() != nil { panic(normalizeContextError(ctx, firstErr)) }
 					wrapped := AxError{Category: "network", Type: "AxAIServiceNetworkError", Message: firstErr.Error(), Retryable: true}
 					if attempt < maxRetries {
 						attempt++
@@ -58709,12 +58800,14 @@ func (c *OpenAICompatibleClient) StreamEvents(ctx context.Context, request map[s
 				}
 				firstPending := true
 				return newAxChatStream(func() (Value, error) {
+					if ctx.Err() != nil { return nil, normalizeContextError(ctx, ctx.Err()) }
 					if firstPending {
 						firstPending = false
 						return first, nil
 					}
 					event, eventErr := raw.Next()
 					if eventErr != nil {
+						if ctx.Err() != nil { return nil, normalizeContextError(ctx, eventErr) }
 						if errors.Is(eventErr, io.EOF) {
 							return nil, io.EOF
 						}
@@ -58730,6 +58823,7 @@ func (c *OpenAICompatibleClient) StreamEvents(ctx context.Context, request map[s
 		})
 	}
 	value, err := invokeRuntimeLimiter(hooks.RateLimiter, open, AxRateLimitInfo{Operation: "chat", Provider: c.Name, Model: modelName, Streaming: true, PreviousModelUsage: previousUsage})
+	err = normalizeContextError(ctx, err)
 	if err != nil {
 		finishAIOperation(hooks, attributes, span, started, err)
 		return nil, err
@@ -58742,9 +58836,10 @@ func (c *OpenAICompatibleClient) StreamEvents(ctx context.Context, request map[s
 	}
 	chunks := Array()
 	return newAxChatStream(func() (Value, error) {
+		if ctx.Err() != nil { return nil, normalizeContextError(ctx, ctx.Err()) }
 		if !source.Next() {
 			if source.Err() != nil {
-				return nil, source.Err()
+				return nil, normalizeContextError(ctx, source.Err())
 			}
 			return nil, io.EOF
 		}
@@ -58905,7 +59000,8 @@ func normalizeTransportPayload(raw Value) Value {
 }
 
 func (c *OpenAICompatibleClient) Transcribe(ctx context.Context, request map[string]Value, options map[string]Value) (Value, error) {
-	return safeValue(func() Value {
+	if err := contextCancellationError(ctx); err != nil { return nil, err }
+	value, err := safeValue(func() Value {
 		transportReq := c.requestJSON(ctx, "transcribe", request, false, options)
 		raw, err := c.Transport.Call(ctx, transportReq)
 		if err != nil {
@@ -58917,9 +59013,11 @@ func (c *OpenAICompatibleClient) Transcribe(ctx context.Context, request map[str
 		}
 		return mustCore(provider_normalize_transcribe_response(c.Profile, payload, request))
 	})
+	return value, normalizeContextError(ctx, err)
 }
 func (c *OpenAICompatibleClient) Speak(ctx context.Context, request map[string]Value, options map[string]Value) (Value, error) {
-	return safeValue(func() Value {
+	if err := contextCancellationError(ctx); err != nil { return nil, err }
+	value, err := safeValue(func() Value {
 		transportReq := c.requestJSON(ctx, "speak", request, false, options)
 		raw, err := c.Transport.Call(ctx, transportReq)
 		if err != nil {
@@ -58927,6 +59025,7 @@ func (c *OpenAICompatibleClient) Speak(ctx context.Context, request map[string]V
 		}
 		return mustCore(provider_normalize_speak_response(c.Profile, normalizeTransportPayload(raw), request))
 	})
+	return value, normalizeContextError(ctx, err)
 }
 func (c *OpenAICompatibleClient) RealtimeAudioSetup(request map[string]Value, options map[string]Value) Value {
 	return mustCore(provider_build_realtime_audio_setup(c.Profile, request, options))
@@ -64693,6 +64792,8 @@ func runConformanceFixture(fixture map[string]Value) {
 		runConformanceAIEmbed(fixture)
 	case "ai_stream":
 		runConformanceAIStream(fixture)
+	case "ai_cancellation":
+		runConformanceAICancellation(fixture)
 	case "ai_usage_observer":
 		runConformanceAIUsageObserver(fixture)
 	case "ai_runtime_hooks":
@@ -64868,6 +64969,45 @@ func runConformanceEvent(fixture map[string]Value) {
 		}
 		assertEqual(run.Output, fixture["expected_output"], "event automatic dispatch")
 		_ = runtime.Close()
+
+		cancellationSpec := asMap(coreGet(fixture, "cancellation", Object()))
+		cancellationReason := display(coreGet(cancellationSpec, "reason", "fixture-stop"))
+		cancellationSleep := time.Duration(int64(num(coreGet(cancellationSpec, "sleep_ms", 30_000)))) * time.Millisecond
+		maxCancellationElapsed := time.Duration(int64(num(coreGet(cancellationSpec, "max_elapsed_ms", 1_000)))) * time.Millisecond
+		token := &AxEventCancellationToken{}
+		removedCalls := 0
+		remove := token.Subscribe(func() { removedCalls++ })
+		remove()
+		if !token.Cancel(cancellationReason) || token.Cancel("ignored") || token.CancellationReason() != cancellationReason || removedCalls != 0 {
+			panic(AxError{Category: "fixture", Message: "event cancellation one-shot or removable subscription mismatch"})
+		}
+		checkCancelledClock := func(clock AxEventClock, manual bool) {
+			sleepToken := &AxEventCancellationToken{}
+			result := make(chan bool, 1)
+			started := time.Now()
+			go func() { result <- clock.Sleep(cancellationSleep, sleepToken) }()
+			if manual {
+				deadline := time.Now().Add(time.Second)
+				for sleepToken.SubscriptionCount() == 0 && time.Now().Before(deadline) { time.Sleep(time.Millisecond) }
+			} else { time.Sleep(10 * time.Millisecond) }
+			sleepToken.Cancel(cancellationReason)
+			select {
+			case completed := <-result:
+				if completed || sleepToken.SubscriptionCount() != 0 || time.Since(started) > maxCancellationElapsed { panic(AxError{Category: "fixture", Message: "event clock cancellation or cleanup mismatch"}) }
+			case <-time.After(maxCancellationElapsed):
+				panic(AxError{Category: "fixture", Message: "event clock cancellation was not prompt"})
+			}
+		}
+		checkCancelledClock(AxSystemEventClock{}, false)
+		checkCancelledClock(NewAxManualEventClock(0), true)
+		successClock := NewAxManualEventClock(0)
+		successToken := &AxEventCancellationToken{}
+		success := make(chan bool, 1)
+		go func() { success <- successClock.Sleep(time.Millisecond, successToken) }()
+		successDeadline := time.Now().Add(time.Second)
+		for successToken.SubscriptionCount() == 0 && time.Now().Before(successDeadline) { time.Sleep(time.Millisecond) }
+		successClock.Advance(1)
+		if !<-success || successToken.SubscriptionCount() != 0 { panic(AxError{Category: "fixture", Message: "manual event clock successful sleep cleanup mismatch"}) }
 
 		makeEvent := func(id, eventType string, data Value, correlation []map[string]string) AxEventEnvelope {
 			return AxEventEnvelope{SpecVersion: "1.0", ID: id, Source: "test://axevent", Type: eventType, Data: data, Correlation: correlation}
@@ -66163,6 +66303,87 @@ func runConformanceAIStream(fixture map[string]Value) {
 		assertEqual(output, expected, "ai stream output")
 	}
 	assertTransportRequest(fixture, transport)
+}
+
+type conformanceCancellationTransport struct {
+	response Value
+	cancel context.CancelCauseFunc
+	reason string
+	calls int
+	contexts []context.Context
+}
+
+func (t *conformanceCancellationTransport) Call(ctx context.Context, request Value) (Value, error) {
+	t.calls++
+	t.contexts = append(t.contexts, ctx)
+	if t.calls == 1 && t.cancel != nil { go func() { time.Sleep(10 * time.Millisecond); t.cancel(errors.New(t.reason)) }() }
+	return cloneValue(t.response), nil
+}
+
+func assertConformanceAborted(err error, reason string) {
+	var aborted AxAIServiceAbortedError
+	structured, ok := AsAxError(err)
+	if !errors.As(err, &aborted) || !ok || structured.Retryable || structured.Type != "AxAIServiceAbortedError" || !strings.Contains(err.Error(), reason) {
+		panic(AxError{Category: "fixture", Message: "provider cancellation error mismatch: " + display(err)})
+	}
+}
+
+func runConformanceAICancellation(fixture map[string]Value) {
+	reason := display(coreGet(fixture, "reason", "fixture-stop"))
+	request := asMap(coreGet(fixture, "request", Object()))
+	maxElapsed := time.Duration(int64(num(coreGet(fixture, "max_elapsed_ms", 1_000)))) * time.Millisecond
+	programMaxElapsed := time.Duration(int64(num(coreGet(fixture, "program_max_elapsed_ms", 100)))) * time.Millisecond
+
+	preflightFixture := cloneMap(fixture)
+	preflightFixture["transport_responses"] = []Value{coreGet(fixture, "success_response", Object())}
+	preflight, preflightTransport := conformanceAIClient(preflightFixture)
+	preflightCtx, preflightCancel := context.WithCancelCause(context.Background())
+	preflightCancel(errors.New(reason))
+	_, err := preflight.Chat(preflightCtx, request, nil)
+	assertConformanceAborted(err, reason)
+	if len(preflightTransport.Requests) != 0 { panic(AxError{Category: "fixture", Message: "pre-cancelled provider request reached transport"}) }
+
+	flowGen := NewAx("question:string -> answer:string", nil)
+	cancellationFlow := NewFlow(Object("id", "cancellation-flow"))
+	cancellationFlow.Execute("answer", flowGen, nil)
+	cancellationGen := NewAx("question:string -> answer:string", nil)
+	cancellationAgent := NewAgent("question:string -> answer:string", nil)
+	programs := []struct{name string; forward func() (Value, error)}{
+		{"AxGen", func() (Value, error) { return cancellationGen.Forward(preflightCtx, preflight, Object("question", "cancel"), Object("infraRetries", 2)) }},
+		{"AxAgent", func() (Value, error) { return cancellationAgent.Forward(preflightCtx, preflight, Object("question", "cancel"), Object("infraRetries", 2)) }},
+		{"AxFlow", func() (Value, error) { return cancellationFlow.Forward(preflightCtx, preflight, Object("question", "cancel"), Object("infraRetries", 2)) }},
+	}
+	for _, program := range programs {
+		programStarted := time.Now()
+		_, programErr := program.forward()
+		assertConformanceAborted(programErr, reason)
+		if time.Since(programStarted) > programMaxElapsed { panic(AxError{Category: "fixture", Message: program.name + " cancellation was retried instead of returning promptly"}) }
+		if len(preflightTransport.Requests) != 0 { panic(AxError{Category: "fixture", Message: program.name + " cancellation reached transport"}) }
+	}
+
+	backoffCtx, backoffCancel := context.WithCancelCause(context.Background())
+	backoffTransport := &conformanceCancellationTransport{response: coreGet(fixture, "retry_response", Object()), cancel: backoffCancel, reason: reason}
+	backoffOptions := cloneMap(asMap(coreGet(fixture, "retry_options", Object())))
+	backoffOptions["api_key"] = "test-key"
+	backoffOptions["model"] = "claude-sonnet-4-5"
+	backoffOptions["transport"] = backoffTransport
+	backoffClient := NewAnthropicClient(backoffOptions).OpenAICompatibleClient
+	started := time.Now()
+	_, err = backoffClient.Stream(backoffCtx, request, nil)
+	assertConformanceAborted(err, reason)
+	if backoffTransport.calls != 1 || len(backoffTransport.contexts) != 1 || time.Since(started) > maxElapsed { panic(AxError{Category: "fixture", Message: "provider retry cancellation attempted another request, skipped the custom context, or was not prompt"}) }
+
+	streamFixture := cloneMap(fixture)
+	streamFixture["transport_responses"] = []Value{coreGet(fixture, "stream_response", Object())}
+	streamClient, streamTransport := conformanceAIClient(streamFixture)
+	streamCtx, streamCancel := context.WithCancelCause(context.Background())
+	stream, err := streamClient.StreamEvents(streamCtx, request, nil)
+	if err != nil || !stream.Next() { panic(AxError{Category: "fixture", Message: "provider stream produced no first event"}) }
+	streamCancel(errors.New(reason))
+	if stream.Next() { panic(AxError{Category: "fixture", Message: "provider stream yielded after cancellation"}) }
+	assertConformanceAborted(stream.Err(), reason)
+	_ = stream.Close()
+	if len(streamTransport.Requests) != 1 || len(streamTransport.Contexts) != 1 { panic(AxError{Category: "fixture", Message: "provider stream cancellation custom transport mismatch"}) }
 }
 func runConformanceProviderOperation(fixture map[string]Value, op string) {
 	if op == "transcribe" || op == "speak" {

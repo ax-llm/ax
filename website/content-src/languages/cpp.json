@@ -103,6 +103,20 @@
           "});"
         ]
       },
+      "cancellation": {
+        "sourcePath": "src/examples/cpp/generation/cancellation.cpp",
+        "verified": true,
+        "requiresCredentials": false,
+        "code": [
+          "axllm::AxCancellationToken token;",
+          "token.cancel(\"user stopped\");",
+          "try {",
+          "  client.chat(request, axllm::Value::object(), &token);",
+          "} catch (const axllm::AxAIServiceAbortedError& error) {",
+          "  assert(!error.retryable);",
+          "}"
+        ]
+      },
       "balancer": {
         "sourcePath": "src/examples/cpp/generation/adaptive_balancer.cpp",
         "verified": true,

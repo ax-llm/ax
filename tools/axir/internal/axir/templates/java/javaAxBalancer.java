@@ -127,7 +127,7 @@ public final class AxBalancer implements AxAIService {
   private void handleSuccess(AxAIService service) { serviceFailures.remove(service.getId()); }
 
   private boolean retryable(AxAIServiceError error) {
-    if (error instanceof AxAIServiceAuthenticationError) return false;
+    if (error instanceof AxAIServiceAuthenticationError || error instanceof AxAIServiceAbortedError) return false;
     if (error instanceof AxAIServiceStatusError) {
       return error.status != null && List.of(408, 429, 500, 502, 503, 504, 529).contains(error.status);
     }
@@ -435,7 +435,10 @@ public final class AxBalancer implements AxAIService {
     }
   }
 
-  @Override public AxChatStream openStream(Map<String, Object> request) throws Exception {
+  @Override public AxChatStream openStream(Map<String, Object> request) throws Exception {return openStream(request,null);}
+
+  @Override public AxChatStream openStream(Map<String,Object> request,AxCancellationToken cancellation)throws Exception {
+    if(cancellation!=null)cancellation.throwIfCancelled();
     if (adaptive == null) {
       List<AxAIService> candidates = candidateServices(request);
       AxAIServiceError last = null;
@@ -444,7 +447,7 @@ public final class AxBalancer implements AxAIService {
         while (canRetryService(service)) {
           AxChatStream stream = null;
           try {
-            stream = service.openStream(request);
+            stream = service.openStream(request,cancellation);
             Iterator<Map<String, Object>> iterator = stream.iterator();
             Map<String, Object> first = iterator.hasNext() ? iterator.next() : null;
             boolean[] firstPending = {first != null};
@@ -470,14 +473,15 @@ public final class AxBalancer implements AxAIService {
       if (last != null) throw last;
       throw new IllegalArgumentException("All candidate services exhausted (tried " + candidates.size() + " service(s))");
     }
-    List<AdaptiveCandidate> ranked = rankAdaptive(request, Map.of()); AxAIServiceError last = null;
+    Map<String,Object> streamOptions=new LinkedHashMap<>();if(cancellation!=null)streamOptions.put("cancellation",cancellation);
+    List<AdaptiveCandidate> ranked = rankAdaptive(request, streamOptions); AxAIServiceError last = null;
     for (int index = 0; index < ranked.size(); index++) {
       AdaptiveCandidate candidate = ranked.get(index); currentService = candidate.service(); Map<String, Object> selected = eventBase("selected", candidate.statsKey());
       selected.put("routeKey", candidate.routeKey()); selected.put("serviceName", candidate.service().getName()); selected.put("attempt", index + 1); emitRoutingEvent(selected);
       long started = System.nanoTime();
       AxChatStream stream = null;
       try {
-        stream = candidate.service().openStream(request);
+        stream = candidate.service().openStream(request,cancellation);
         Iterator<Map<String, Object>> iterator = stream.iterator();
         Map<String, Object> first = iterator.hasNext() ? iterator.next() : null;
         boolean[] firstPending = {first != null};
@@ -507,6 +511,7 @@ public final class AxBalancer implements AxAIService {
   }
 
   @Override public AxChatStream stream(Map<String, Object> request) { return AxChatStream.lazy(() -> openStream(request)); }
+  @Override public Iterable<Map<String,Object>> stream(Map<String,Object> request,AxCancellationToken cancellation){return AxChatStream.lazy(()->openStream(request,cancellation));}
 
   public Map<String, Object> embed(Map<String, Object> request) throws Exception { return embed(request, Map.of()); }
 

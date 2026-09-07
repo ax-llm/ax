@@ -171,6 +171,12 @@ Generated Python, Java, Go, Rust, and C++ provider clients expose each SSE event
 
 {{aiProviderStreamExample}}
 
+### Portable cancellation
+
+Generated Python, Java, Rust, and C++ calls accept a shared, thread-safe `AxCancellationToken`; Go continues to use `context.Context`. Cancellation is one-shot and first-reason-wins, propagates through provider retries and routing, and always becomes a non-retryable `AxAIServiceAbortedError`. A pre-cancelled call makes no transport attempt, retry backoff wakes promptly, and an active stream stops after its current I/O boundary. Realtime WebSocket turns use their existing lifecycle and are outside this contract.
+
+{{aiCancellationExample}}
+
 ### Provider clients
 
 {{aiProviderExamples}}

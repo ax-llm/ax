@@ -491,6 +491,7 @@ async function renderContext(language, page) {
     aiCatalogExample: snippetBlock(language, 'ai.catalog'),
     aiServiceTierExample: snippetBlock(language, 'ai.serviceTier'),
     aiProviderStreamExample: snippetBlock(language, 'ai.providerStream'),
+    aiCancellationExample: snippetBlock(language, 'ai.cancellation'),
     aiBalancerExample:
       language.id === 'typescript' ? snippetBlock(language, 'ai.balancer') : '',
     aiProviderExamples: aiProviderExamples(language),
