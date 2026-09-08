@@ -48,6 +48,12 @@ class AxMCPTransport {
   virtual ~AxMCPTransport() = default;
   virtual Value send(Value message) = 0;
   virtual Value send_with_headers(Value message, Value headers) { (void)headers; return send(std::move(message)); }
+  virtual Value send_with_context(Value message,Value headers,const AxToolContext& context){
+    if(context.is_cancelled())throw AxAIServiceAbortedError("MCP invocation cancelled");
+    auto result=send_with_headers(std::move(message),std::move(headers));
+    if(context.is_cancelled())throw AxAIServiceAbortedError("MCP invocation cancelled");
+    return result;
+  }
   virtual void send_notification(Value message) = 0;
   virtual void send_response(Value message) { send_notification(std::move(message)); }
   virtual void set_message_handler(std::function<void(Value)>) {}
@@ -100,6 +106,7 @@ class AxMCPClient {
   Value ping();
   Value list_tools(const std::string& cursor = "");
   Value call_tool(const std::string& name, Value arguments = Value::object());
+  Value call_tool(const std::string& name,Value arguments,const AxToolContext& context);
   Value list_prompts(const std::string& cursor = "");
   Value get_prompt(const std::string& name, Value arguments = Value::object());
   Value list_resources(const std::string& cursor = "");
@@ -365,6 +372,7 @@ class AxMCPStreamableHTTPTransport : public AxMCPTransport {
   explicit AxMCPStreamableHTTPTransport(std::string endpoint, Value options = Value::object());
   Value send(Value message) override;
   Value send_with_headers(Value message, Value headers) override;
+  Value send_with_context(Value message,Value headers,const AxToolContext& context) override;
   void send_notification(Value message) override;
   void set_message_handler(std::function<void(Value)> handler) override {message_handler_=std::move(handler);}
   void set_lifecycle_handler(std::function<void(std::string)> handler) override {lifecycle_handler_=std::move(handler);}

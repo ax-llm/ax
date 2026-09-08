@@ -646,7 +646,7 @@ impl SessionRun {
         let inherited=RUNTIME_HOOK_FRAMES.with(|frames|frames.borrow().clone());
         std::thread::spawn(move || {
             RUNTIME_HOOK_FRAMES.with(|frames|*frames.borrow_mut()=inherited);
-            let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| tool.call_with_context(args,AxToolContext{call_id:call["id"].as_str().map(str::to_string),cancelled:cancelled.clone()})))
+            let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| tool.call_with_context(args,AxToolContext{call_id:call["id"].as_str().map(str::to_string),cancelled:cancelled.clone(),..AxToolContext::default()})))
                 .unwrap_or_else(|_| Err(AxError::runtime("Tool handler panicked")));
             if !cancelled.load(Ordering::SeqCst) {
                 let _ = sender.send(ToolResult { call, result });

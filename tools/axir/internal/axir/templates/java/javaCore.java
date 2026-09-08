@@ -1108,7 +1108,10 @@ final class Core {
     String qualified = String.valueOf(get(request, "qualified_name", get(request, "name", "")));
     Object implementation=_agent_callable_implementation(state,qualified);
     Object values=get(request,"args",Map.of());
-    if(implementation instanceof Tool tool){var result=new LinkedHashMap<String,Object>();result.put("status","ok");result.put("value",toolInvoke(tool,values));return result;}
+    java.util.function.BooleanSupplier cancelled=()->Thread.currentThread().isInterrupted()
+      || get(optionsArg,"control",null) instanceof AxRunControl control && control.isAborted()
+      || get(optionsArg,"cancellation",get(optionsArg,"cancellationToken",get(optionsArg,"cancellation_token",null))) instanceof AxCancellationToken token && token.cancelled();
+    if(implementation instanceof Tool tool){var result=new LinkedHashMap<String,Object>();result.put("status","ok");result.put("value",toolInvoke(tool,values,cancelled));return result;}
     Object handler=get(implementation,"handler",null);
     if(handler instanceof Tool.Handler callback){try{Object value=callback.call(asMap(values));var result=new LinkedHashMap<String,Object>();result.put("status","ok");result.put("value",value);return result;}catch(Exception error){throw asRuntime(error);}}
     Object scripted = options.getOrDefault("callable_results", options.get("callableResults"));

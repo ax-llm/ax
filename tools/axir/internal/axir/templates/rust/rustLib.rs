@@ -3618,9 +3618,11 @@ pub struct Tool {
 pub struct AxToolContext {
     pub call_id: Option<String>,
     cancelled: Arc<std::sync::atomic::AtomicBool>,
+    control: Option<AxRunControl>,
+    cancellation: Option<AxCancellationToken>,
 }
 impl AxToolContext {
-    pub fn is_cancelled(&self)->bool {self.cancelled.load(std::sync::atomic::Ordering::SeqCst)}
+    pub fn is_cancelled(&self)->bool {self.cancelled.load(std::sync::atomic::Ordering::SeqCst) || self.control.as_ref().is_some_and(AxRunControl::is_aborted) || self.cancellation.as_ref().is_some_and(AxCancellationToken::is_cancelled)}
 }
 impl Tool {
     pub fn schema(&self) -> AxResult<Value> {
@@ -3628,7 +3630,10 @@ impl Tool {
         Ok(core_value_to_json(&to_json_schema(&[core_tool_args_fields(&self.args)?, CoreValue::from(""), core_value_from_json(&json!({"strict":true}))])?))
     }
     pub fn call(&self,args:Value)->AxResult<Value>{self.call_with_context(args,AxToolContext::default())}
-    pub fn call_with_context(&self, args: Value, context:AxToolContext) -> AxResult<Value> {
+    pub fn call_with_context(&self, args: Value, mut context:AxToolContext) -> AxResult<Value> {
+        if context.control.is_none() { context.control = session::current_control(); }
+        if context.cancellation.is_none() { context.cancellation = current_cancellation_token(); }
+        if context.is_cancelled() { return Err(AxError::new("aborted", "Tool invocation cancelled")); }
         let mut attributes = BTreeMap::new();
         attributes.insert("ax.tool.name".to_string(), json!(self.name));
         with_runtime_scope(None, None, "ax_gen_tool", "tool", attributes, || {
@@ -3867,19 +3872,6 @@ impl AxGen {
         let mut attributes = BTreeMap::new();
         attributes.insert("ax.program.kind".to_string(), json!("AxGen"));
         with_runtime_scope(None, Some(&defaults), "ax_gen_forward", "gen", attributes, || {
-        if options.get("mcpInheritance").and_then(Value::as_str) == Some("none") && self.execution_context.is_some() {
-            let mut detached = self.clone();
-            detached.execution_context = None;
-            detached.tools = detached.base_tools.clone();
-            detached.chat_log.clear();
-            detached.function_call_traces.clear();
-            detached.traces.clear();
-            let result = detached.forward_with_options(client, input, options.clone())?;
-            self.chat_log.extend(detached.chat_log);
-            self.function_call_traces.extend(detached.function_call_traces);
-            self.traces.extend(detached.traces);
-            return Ok(result);
-        }
         let state = core_gen_state(self)?;
         let mut session_run=session::SessionRun::new(state.clone(), self.tools.clone(), options.clone());
         if session::current_control().is_some() || self.tools.iter().any(|tool|tool.execution=="background") { if !options.is_object(){options=json!({});} options["infraRetries"]=json!(0); }

@@ -4760,10 +4760,17 @@ pub struct Tool {
 pub struct AxToolContext {
     pub call_id: Option<String>,
     cancelled: Arc<std::sync::atomic::AtomicBool>,
+    control: Option<AxRunControl>,
+    cancellation: Option<AxCancellationToken>,
 }
 impl AxToolContext {
     pub fn is_cancelled(&self) -> bool {
         self.cancelled.load(std::sync::atomic::Ordering::SeqCst)
+            || self.control.as_ref().is_some_and(AxRunControl::is_aborted)
+            || self
+                .cancellation
+                .as_ref()
+                .is_some_and(AxCancellationToken::is_cancelled)
     }
 }
 impl Tool {
@@ -4780,7 +4787,16 @@ impl Tool {
     pub fn call(&self, args: Value) -> AxResult<Value> {
         self.call_with_context(args, AxToolContext::default())
     }
-    pub fn call_with_context(&self, args: Value, context: AxToolContext) -> AxResult<Value> {
+    pub fn call_with_context(&self, args: Value, mut context: AxToolContext) -> AxResult<Value> {
+        if context.control.is_none() {
+            context.control = session::current_control();
+        }
+        if context.cancellation.is_none() {
+            context.cancellation = current_cancellation_token();
+        }
+        if context.is_cancelled() {
+            return Err(AxError::new("aborted", "Tool invocation cancelled"));
+        }
         let mut attributes = BTreeMap::new();
         attributes.insert("ax.tool.name".to_string(), json!(self.name));
         with_runtime_scope(None, None, "ax_gen_tool", "tool", attributes, || {
@@ -5071,23 +5087,6 @@ impl AxGen {
                 "gen",
                 attributes,
                 || {
-                    if options.get("mcpInheritance").and_then(Value::as_str) == Some("none")
-                        && self.execution_context.is_some()
-                    {
-                        let mut detached = self.clone();
-                        detached.execution_context = None;
-                        detached.tools = detached.base_tools.clone();
-                        detached.chat_log.clear();
-                        detached.function_call_traces.clear();
-                        detached.traces.clear();
-                        let result =
-                            detached.forward_with_options(client, input, options.clone())?;
-                        self.chat_log.extend(detached.chat_log);
-                        self.function_call_traces
-                            .extend(detached.function_call_traces);
-                        self.traces.extend(detached.traces);
-                        return Ok(result);
-                    }
                     let state = core_gen_state(self)?;
                     let mut session_run = session::SessionRun::new(
                         state.clone(),

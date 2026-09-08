@@ -49,6 +49,12 @@ static std::shared_ptr<AxRunControl::State> resolve_control(Value options) {
   std::lock_guard<std::mutex> lock(control_registry_mutex);auto it=control_registry.find(display(Core::get(marker,"__run_control_id")));
   if(it==control_registry.end() || it->second.expired())throw AxError("validation","Run control handle has expired");return it->second.lock();
 }
+static std::function<bool()> agent_cancellation_check(Value options){
+  auto control=resolve_control(options);
+  auto token=current_cancellation_token();
+  std::optional<AxCancellationToken> owned=token?std::optional<AxCancellationToken>(*token):std::nullopt;
+  return [control,owned]{return (control&&control->is_aborted())||(owned&&owned->is_cancelled());};
+}
 Value Core::run_control_aborted(Value control) {
   if(!Core::get(control,"__run_control_id").is_null()) {auto resolved=resolve_control(object({{"control",control}}));return Value(resolved && resolved->is_aborted());}
   return Value(Core::truthy(Core::get(control,"aborted",false)));

@@ -20,6 +20,7 @@
 #endif
 
 namespace axllm {
+static std::function<bool()> agent_cancellation_check(Value options);
 namespace detail {
 static thread_local std::shared_ptr<AgentExecutionContext> active_mcp_context;
 MCPRunScope::MCPRunScope(std::shared_ptr<AgentExecutionContext> context) : previous_(std::move(active_mcp_context)) { active_mcp_context = std::move(context); }
@@ -533,11 +534,30 @@ void HttpTransport::stream_impl(Value request, AxTransportStreamHandler handler,
 #endif
 }
 
+#if defined(AXLLM_ENABLE_CURL)
+static CURLcode ax_curl_perform(CURL* curl,const std::function<bool()>& cancelled){
+  CURLM* multi=curl_multi_init();if(!multi)return CURLE_FAILED_INIT;
+  if(curl_multi_add_handle(multi,curl)!=CURLM_OK){curl_multi_cleanup(multi);return CURLE_FAILED_INIT;}
+  int running=0;CURLcode result=CURLE_OK;CURLMcode code=curl_multi_perform(multi,&running);
+  while(code==CURLM_OK&&running&&!cancelled()){
+    code=curl_multi_poll(multi,nullptr,0,20,nullptr);
+    if(code==CURLM_OK)code=curl_multi_perform(multi,&running);
+  }
+  if(cancelled())result=CURLE_ABORTED_BY_CALLBACK;
+  else if(code!=CURLM_OK)result=CURLE_RECV_ERROR;
+  else{int remaining=0;while(auto* message=curl_multi_info_read(multi,&remaining))if(message->msg==CURLMSG_DONE)result=message->data.result;}
+  curl_multi_remove_handle(multi,curl);curl_multi_cleanup(multi);return result;
+}
+#endif
+
 Value HttpTransport::call(Value request) {
   return call(std::move(request), current_cancellation_token());
 }
 
-Value HttpTransport::call(Value request, const AxCancellationToken* cancellation) {
+Value HttpTransport::call(Value request, const AxCancellationToken* cancellation) {return call_impl(std::move(request),cancellation,{});}
+Value HttpTransport::call_cancellable(Value request,std::function<bool()> cancelled){return call_impl(std::move(request),current_cancellation_token(),std::move(cancelled));}
+Value HttpTransport::call_impl(Value request,const AxCancellationToken* cancellation,std::function<bool()> cancelled) {
+  if(cancelled&&cancelled())throw AxAIServiceAbortedError("MCP invocation cancelled");
   if (cancellation) cancellation->throw_if_cancelled();
 #if !defined(AXLLM_ENABLE_CURL)
   (void)request;
@@ -635,7 +655,7 @@ Value HttpTransport::call(Value request, const AxCancellationToken* cancellation
     curl_easy_setopt(curl, CURLOPT_POSTFIELDSIZE, static_cast<long>(payload.size()));
   }
 
-  CURLcode rc = curl_easy_perform(curl);
+  CURLcode rc = ax_curl_perform(curl,[&]{return (cancellation&&cancellation->is_cancelled())||(cancelled&&cancelled());});
   long status = 0;
   curl_easy_getinfo(curl, CURLINFO_RESPONSE_CODE, &status);
   // Capture the response Content-Type before cleanup so callers (e.g. the MCP
@@ -647,6 +667,7 @@ Value HttpTransport::call(Value request, const AxCancellationToken* cancellation
   curl_easy_cleanup(curl);
 
   if (cancellation && cancellation->is_cancelled()) throw AxAIServiceAbortedError(cancellation->reason());
+  if(cancelled&&cancelled())throw AxAIServiceAbortedError("MCP invocation cancelled");
 
   if (rc != CURLE_OK) {
     std::string message = error_buffer[0] ? error_buffer : curl_easy_strerror(rc);
@@ -1335,13 +1356,16 @@ Value Core::retry_sleep(Value attempt, Value, Value) {
   }
   return Value();
 }
-Value Core::tool_invoke(Value fn, Value params) {
+Value Core::tool_invoke(Value fn, Value params) {return tool_invoke(std::move(fn),std::move(params),AxToolContext{});}
+Value Core::tool_invoke(Value fn,Value params,const AxToolContext& context) {
+  if(context.is_cancelled())throw AxAIServiceAbortedError("Tool invocation cancelled");
   Value args = get_key(fn, "args", Value::array());
   if (truthy(args)) validate_fields(args, params, "tool." + str(get_key(fn, "name")) + ".args");
   std::string id = str(get_key(fn, "__tool_id"));
-  auto handler = registered_tool(id).first;
+  auto handlers = registered_tool(id);
   Value result = invoke_runtime_tool(str(get_key(fn, "name")), [&]() {
-    return handler(params.is_null() ? Value::object() : params);
+    auto values=params.is_null()?Value::object():params;
+    return handlers.second?handlers.second(values,context):handlers.first(values);
   });
   Value returns = get_key(fn, "returns", Value::array());
   if (truthy(returns) && result.is_object()) validate_fields(returns, result, "tool." + str(get_key(fn, "name")) + ".return");
@@ -1575,7 +1599,8 @@ Value Core::agent_callable_invoke(Value state, Value request, Value options_arg)
   std::string qualified = str(get_key(request, "qualified_name", get_key(request, "name", Value(""))));
   std::string name = str(get_key(request, "name", Value("")));
   Value implementation=_agent_callable_implementation(state,qualified);
-  if(!get_key(implementation,"__tool_id",Value()).is_null())return object({{"status","ok"},{"value",tool_invoke(implementation,get_key(request,"args",Value::object()))}});
+  AxToolContext context;context.call_id=str(get_key(request,"call_id",""));context.cancellation_requested=agent_cancellation_check(options_arg);
+  if(!get_key(implementation,"__tool_id",Value()).is_null())return object({{"status","ok"},{"value",tool_invoke(implementation,get_key(request,"args",Value::object()),context)}});
   Value scripted = get_key(options, "callable_results", get_key(options, "callableResults", Value::object()));
   if (scripted.is_object()) {
     Value result = get_key(scripted, qualified, Value());

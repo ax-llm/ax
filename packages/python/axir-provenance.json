@@ -5,7 +5,7 @@
   "files": {
     "axllm/agent.py": {
       "emitted_lines": 8909,
-      "total_lines": 11391
+      "total_lines": 11399
     },
     "axllm/ai.py": {
       "emitted_lines": 9935,
@@ -21,7 +21,7 @@
     },
     "axllm/mcp.py": {
       "emitted_lines": 2290,
-      "total_lines": 5376
+      "total_lines": 5455
     },
     "axllm/prompt.py": {
       "emitted_lines": 79,
