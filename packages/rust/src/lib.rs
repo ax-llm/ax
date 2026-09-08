@@ -5873,6 +5873,24 @@ pub struct AxAgent {
     runtime_hooks: AxRuntimeHooks,
 }
 
+thread_local! {
+    static AGENT_RUN_BINDINGS: RefCell<BTreeMap<u64, CoreValue>> = RefCell::new(BTreeMap::new());
+}
+static AGENT_RUN_BINDING_ID: AtomicU64 = AtomicU64::new(1);
+struct AgentRunBinding(u64);
+impl AgentRunBinding {
+    fn new(state: CoreValue) -> Self {
+        let id = AGENT_RUN_BINDING_ID.fetch_add(1, Ordering::Relaxed);
+        AGENT_RUN_BINDINGS.with(|bindings| bindings.borrow_mut().insert(id, state));
+        Self(id)
+    }
+}
+impl Drop for AgentRunBinding {
+    fn drop(&mut self) {
+        AGENT_RUN_BINDINGS.with(|bindings| bindings.borrow_mut().remove(&self.0));
+    }
+}
+
 pub fn agent(spec: &str) -> AxResult<AxAgent> {
     agent_with_options(spec, json!({}))
 }
@@ -6323,12 +6341,37 @@ impl AxAgent {
                         core_get(&self.state, &CoreValue::from("options"), CoreValue::Null);
                     let runtime_host =
                         core_get(&state_options, &CoreValue::from("runtime"), CoreValue::Null);
+                    let invocation_binding = AgentRunBinding::new(self.state.clone());
                     if let CoreValue::Host(host) = &runtime_host {
+                        for raw_name in
+                            core_iter(&_agent_runtime_callable_names(&[self.state.clone()])?)?
+                        {
+                            let qualified = raw_name.text();
+                            let binding_id = invocation_binding.0;
+                            let callback_name = qualified.clone();
+                            let callback: AxHostCallable = Arc::new(move |arguments| {
+                                let state = AGENT_RUN_BINDINGS.with(|bindings| bindings.borrow().get(&binding_id).cloned())
+                        .ok_or_else(|| AxError::runtime("Agent invocation is closed or is not on the owning run thread"))?;
+                                let result = _agent_runtime_invoke_callable(&[
+                                    state,
+                                    CoreValue::from(&callback_name),
+                                    core_value_from_json(&arguments),
+                                ])?;
+                                Ok(core_value_to_json(&result))
+                            });
+                            host.register_runtime_callable(&qualified, callback);
+                        }
                         let llm_query_signature = self.llm_query_signature.clone();
                         let llm_query_instruction = self.llm_query_instruction.clone();
                         let query_options = options.clone();
+                        let binding_id = invocation_binding.0;
                         let callable: AxHostCallable = Arc::new(
                             move |params: Value| -> AxResult<Value> {
+                                if !AGENT_RUN_BINDINGS
+                                    .with(|bindings| bindings.borrow().contains_key(&binding_id))
+                                {
+                                    return Err(AxError::runtime("Agent invocation is closed or is not on the owning run thread"));
+                                }
                                 let signature = s(&llm_query_signature)?;
                                 let sub_gen = agent_stage_gen(
                                     signature,
@@ -15518,10 +15561,21 @@ fn run_agent_forward_contract_fixture(fixture: &Value) -> AxResult<()> {
         .into_iter()
         .flatten()
     {
-        let program = agent_with_options(
+        let mut program = agent_with_options(
             child["signature"].as_str().unwrap_or_default(),
             child.get("options").cloned().unwrap_or_else(|| json!({})),
         )?;
+        if child.get("runtime_engine").is_some() {
+            #[cfg(feature = "runtime-quickjs")]
+            {
+                program = program
+                    .with_runtime(Box::new(crate::runtime::quickjs::QuickJsCodeRuntime::new()))?;
+            }
+            #[cfg(not(feature = "runtime-quickjs"))]
+            {
+                return Err(AxError::runtime("Child runtime requires runtime-quickjs"));
+            }
+        }
         agent = agent.with_child_agent(
             child["namespace"].as_str().unwrap_or_default(),
             child["name"].as_str().unwrap_or_default(),
@@ -19368,10 +19422,15 @@ impl AxAIClient for FixtureClient {
 
     fn chat(&mut self, request: Value) -> AxResult<Value> {
         self.requests.push(request);
-        let response = self
-            .responses
-            .pop_front()
-            .ok_or_else(|| AxError::new("fixture", "fixture response exhausted"))?;
+        let response = self.responses.pop_front().ok_or_else(|| {
+            AxError::new(
+                "fixture",
+                format!(
+                    "fixture response exhausted; request: {}",
+                    self.requests.last().unwrap_or(&Value::Null)
+                ),
+            )
+        })?;
         if response.get("results").is_some() {
             return Ok(response);
         }
@@ -74153,6 +74212,22 @@ fn _agent_execute_callable(args: &[CoreValue]) -> Result<CoreValue, AxError> {
                 Ok(CoreFlow::Continue) => unreachable!("continue outside loop"),
                 Err(__core_caught) => {
                     v_child_error = CoreValue::Error(std::rc::Rc::new(__core_caught));
+                    v_children_usage = core_get(
+                        &v_state,
+                        &CoreValue::from("children_usage"),
+                        v_empty_map.clone(),
+                    );
+                    v_child_usage = core_agent_stage_usage(&[v_program.clone()])?;
+                    core_set(
+                        &v_children_usage,
+                        v_qualified.clone(),
+                        v_child_usage.clone(),
+                    )?;
+                    core_set(
+                        &v_state,
+                        CoreValue::from("children_usage"),
+                        v_children_usage.clone(),
+                    )?;
                     v_message =
                         core_string_format(&[CoreValue::from("{}"), v_child_error.clone()])?;
                     core_set(
@@ -84047,6 +84122,225 @@ fn _agent_forward(args: &[CoreValue]) -> Result<CoreValue, AxError> {
     unreachable_code,
     clippy::all
 )]
+fn _agent_runtime_callable_names(args: &[CoreValue]) -> Result<CoreValue, AxError> {
+    axir_coverage_mark("_agent_runtime_callable_names");
+    let mut v_state = core_arg(args, 0);
+    let mut v_callable = CoreValue::Null;
+    let mut v_callables = CoreValue::Null;
+    let mut v_empty_list = CoreValue::Null;
+    let mut v_group = CoreValue::Null;
+    let mut v_inventory = CoreValue::Null;
+    let mut v_name = CoreValue::Null;
+    let mut v_names = CoreValue::Null;
+    v_empty_list = CoreValue::new_list();
+    v_inventory = core_get(
+        &v_state,
+        &CoreValue::from("callable_inventory"),
+        v_empty_list.clone(),
+    );
+    v_names = CoreValue::new_list();
+    for v_group in core_iter(&v_inventory)? {
+        let mut v_group = v_group;
+        v_callables = core_get(
+            &v_group,
+            &CoreValue::from("callables"),
+            v_empty_list.clone(),
+        );
+        for v_callable in core_iter(&v_callables)? {
+            let mut v_callable = v_callable;
+            v_name = core_get(
+                &v_callable,
+                &CoreValue::from("qualified_name"),
+                CoreValue::from(""),
+            );
+            core_append(&v_names, v_name.clone())?;
+        }
+    }
+    return Ok(v_names.clone());
+}
+
+#[allow(
+    unused_variables,
+    unused_assignments,
+    unused_mut,
+    unreachable_code,
+    clippy::all
+)]
+fn _agent_callable_visible(args: &[CoreValue]) -> Result<CoreValue, AxError> {
+    axir_coverage_mark("_agent_callable_visible");
+    let mut v_state = core_arg(args, 0);
+    let mut v_qualified = core_arg(args, 1);
+    let mut v_all_visible = CoreValue::Null;
+    let mut v_always = CoreValue::Null;
+    let mut v_callable = CoreValue::Null;
+    let mut v_callables = CoreValue::Null;
+    let mut v_discovered = CoreValue::Null;
+    let mut v_discovery = CoreValue::Null;
+    let mut v_doc = CoreValue::Null;
+    let mut v_doc_name = CoreValue::Null;
+    let mut v_docs = CoreValue::Null;
+    let mut v_empty_list = CoreValue::Null;
+    let mut v_empty_map = CoreValue::Null;
+    let mut v_flags = CoreValue::Null;
+    let mut v_group = CoreValue::Null;
+    let mut v_group_always = CoreValue::Null;
+    let mut v_group_visible = CoreValue::Null;
+    let mut v_inventory = CoreValue::Null;
+    let mut v_matches = CoreValue::Null;
+    let mut v_name = CoreValue::Null;
+    let mut v_visible = CoreValue::Null;
+    v_empty_map = CoreValue::new_map();
+    v_empty_list = CoreValue::new_list();
+    v_flags = core_get(
+        &v_state,
+        &CoreValue::from("policy_flags"),
+        v_empty_map.clone(),
+    );
+    v_discovery = core_get(
+        &v_flags,
+        &CoreValue::from("discoveryMode"),
+        CoreValue::Bool(false),
+    );
+    v_all_visible = core_not(&[v_discovery.clone()])?;
+    v_inventory = core_get(
+        &v_state,
+        &CoreValue::from("callable_inventory"),
+        v_empty_list.clone(),
+    );
+    v_docs = core_get(
+        &v_state,
+        &CoreValue::from("discovered_tool_docs"),
+        v_empty_list.clone(),
+    );
+    for v_group in core_iter(&v_inventory)? {
+        let mut v_group = v_group;
+        v_group_always = core_get(
+            &v_group,
+            &CoreValue::from("always_include"),
+            CoreValue::Bool(false),
+        );
+        v_group_visible = core_or(&[v_all_visible.clone(), v_group_always.clone()])?;
+        v_callables = core_get(
+            &v_group,
+            &CoreValue::from("callables"),
+            v_empty_list.clone(),
+        );
+        for v_callable in core_iter(&v_callables)? {
+            let mut v_callable = v_callable;
+            v_name = core_get(
+                &v_callable,
+                &CoreValue::from("qualified_name"),
+                CoreValue::from(""),
+            );
+            v_matches = core_eq(&[v_name.clone(), v_qualified.clone()])?;
+            if core_truthy(&v_matches) {
+                v_always = core_get(
+                    &v_callable,
+                    &CoreValue::from("always_include"),
+                    CoreValue::Bool(false),
+                );
+                v_visible = core_or(&[v_group_visible.clone(), v_always.clone()])?;
+                for v_doc in core_iter(&v_docs)? {
+                    let mut v_doc = v_doc;
+                    v_doc_name = core_get(
+                        &v_doc,
+                        &CoreValue::from("qualified_name"),
+                        CoreValue::from(""),
+                    );
+                    v_discovered = core_eq(&[v_doc_name.clone(), v_qualified.clone()])?;
+                    v_visible = core_or(&[v_visible.clone(), v_discovered.clone()])?;
+                }
+                return Ok(v_visible.clone());
+            }
+        }
+    }
+    return Ok(CoreValue::Bool(false));
+}
+
+#[allow(
+    unused_variables,
+    unused_assignments,
+    unused_mut,
+    unreachable_code,
+    clippy::all
+)]
+fn _agent_runtime_invoke_callable(args: &[CoreValue]) -> Result<CoreValue, AxError> {
+    axir_coverage_mark("_agent_runtime_invoke_callable");
+    let mut v_state = core_arg(args, 0);
+    let mut v_qualified = core_arg(args, 1);
+    let mut v_arguments = core_arg(args, 2);
+    let mut v_active = CoreValue::Null;
+    let mut v_active_options = CoreValue::Null;
+    let mut v_base = CoreValue::Null;
+    let mut v_empty_map = CoreValue::Null;
+    let mut v_error = CoreValue::Null;
+    let mut v_failed = CoreValue::Null;
+    let mut v_message = CoreValue::Null;
+    let mut v_options = CoreValue::Null;
+    let mut v_request = CoreValue::Null;
+    let mut v_result = CoreValue::Null;
+    let mut v_status = CoreValue::Null;
+    let mut v_value = CoreValue::Null;
+    let mut v_visible = CoreValue::Null;
+    v_active = core_get(
+        &v_state,
+        &CoreValue::from("forward_active"),
+        CoreValue::Bool(false),
+    );
+    if core_truthy(&v_active) {
+    } else {
+        v_error =
+            core_runtime_error(&[CoreValue::from("Agent invocation belongs to a closed run")])?;
+        return Err(core_as_error(&v_error));
+    }
+    v_visible = _agent_callable_visible(&[v_state.clone(), v_qualified.clone()])?;
+    if core_truthy(&v_visible) {
+    } else {
+        v_message = core_string_format(&[
+            CoreValue::from("Agent callable is not discovered: {}"),
+            v_qualified.clone(),
+        ])?;
+        v_error = core_runtime_error(&[v_message.clone()])?;
+        return Err(core_as_error(&v_error));
+    }
+    v_empty_map = CoreValue::new_map();
+    v_base = core_get(&v_state, &CoreValue::from("options"), v_empty_map.clone());
+    v_active_options = core_get(
+        &v_state,
+        &CoreValue::from("active_forward_options"),
+        v_empty_map.clone(),
+    );
+    v_options = core_map_merge(&[v_base.clone(), v_active_options.clone()])?;
+    v_request = CoreValue::new_map();
+    core_set(
+        &v_request,
+        CoreValue::from("qualified_name"),
+        v_qualified.clone(),
+    )?;
+    core_set(&v_request, CoreValue::from("args"), v_arguments.clone())?;
+    v_result = _agent_execute_callable(&[v_state.clone(), v_request.clone(), v_options.clone()])?;
+    v_status = core_get(&v_result, &CoreValue::from("status"), CoreValue::from("ok"));
+    v_failed = core_eq(&[v_status.clone(), CoreValue::from("error")])?;
+    if core_truthy(&v_failed) {
+        v_message = core_get(
+            &v_result,
+            &CoreValue::from("error"),
+            CoreValue::from("Agent callable failed"),
+        );
+        v_error = core_runtime_error(&[v_message.clone()])?;
+        return Err(core_as_error(&v_error));
+    }
+    v_value = core_get(&v_result, &CoreValue::from("value"), v_result.clone());
+    return Ok(v_value.clone());
+}
+
+#[allow(
+    unused_variables,
+    unused_assignments,
+    unused_mut,
+    unreachable_code,
+    clippy::all
+)]
 fn _flow_factory(args: &[CoreValue]) -> Result<CoreValue, AxError> {
     axir_coverage_mark("_flow_factory");
     let mut v_options = core_arg(args, 0);
@@ -93624,7 +93918,7 @@ fn _mcp_tool_authorization_result(args: &[CoreValue]) -> Result<CoreValue, AxErr
     return Ok(v_decision.clone());
 }
 
-// END AXIR CORE EMITTED FUNCTIONS (666 of 666 core functions)
+// END AXIR CORE EMITTED FUNCTIONS (669 of 669 core functions)
 
 fn run_ai_session_events_fixture(fixture: &Value) -> AxResult<()> {
     let state = core_value_from_json(&json!({}));

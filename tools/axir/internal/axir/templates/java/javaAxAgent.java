@@ -146,10 +146,29 @@ public final class AxAgent implements AxProgram {
     // AxIR-generated helper; this only registers the host callable.
     Object runtimeObj = callOptions.get("runtime");
     if (runtimeObj == null) runtimeObj = options.get("runtime");
+    var bindingActive = new java.util.concurrent.atomic.AtomicBoolean(true);
     if (runtimeObj instanceof AxCodeRuntime runtime) {
-      runtime.registerHostCallable("llmQuery", params -> Core._agent_run_llm_query(llmQuery, client, params, callOptions));
+      java.lang.ref.WeakReference<AxAgent> parent = new java.lang.ref.WeakReference<>(this);
+      Thread owner = Thread.currentThread();
+      for (Object rawName : Core.asList(Core._agent_runtime_callable_names(state))) {
+        String qualified = String.valueOf(rawName);
+        runtime.registerHostCallable(qualified, arguments -> {
+          if (!bindingActive.get()) throw new IllegalStateException("Agent invocation belongs to a closed run");
+          AxAgent active = parent.get();
+          if (active == null) throw new IllegalStateException("Agent invocation belongs to a closed run");
+          if (Thread.currentThread() != owner) throw new IllegalStateException("Agent runtime callbacks must execute on the owning run thread");
+          return Core._agent_runtime_invoke_callable(active.state, qualified, arguments);
+        });
+      }
+      runtime.registerHostCallable("llmQuery", params -> {
+        if (!bindingActive.get()) throw new IllegalStateException("Agent invocation belongs to a closed run");
+        if (Thread.currentThread() != owner) throw new IllegalStateException("Agent runtime callbacks must execute on the owning run thread");
+        return Core._agent_run_llm_query(llmQuery, client, params, callOptions);
+      });
     }
-    Map<String, Object> output = Core.asMap(Core._agent_forward(
+    Map<String, Object> output;
+    try {
+      output = Core.asMap(Core._agent_forward(
       state,
       distiller,
       executor,
@@ -158,6 +177,7 @@ public final class AxAgent implements AxProgram {
       values == null ? Map.of() : values,
       callOptions
     ));
+    } finally { bindingActive.set(false); }
     Object citationConfig = this.options.get("citations");
     if (citationConfig instanceof Map<?, ?> rawCitationConfig) {
       Map<String, Object> config = Core.asMap(rawCitationConfig);

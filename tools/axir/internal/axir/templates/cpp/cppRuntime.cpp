@@ -6085,6 +6085,8 @@ Value AxAgent::forward(AIClient& client, Value values, Value options, const AxRu
   // options (the same runtime the actor loop will create sessions on),
   // mirroring the Go/Python/Rust/Java wrappers. The logic lives in the
   // AxIR-generated helper; this only registers the host callable.
+  auto invocation_binding = std::make_shared<std::pair<Value, std::thread::id>>(state_, std::this_thread::get_id());
+  std::weak_ptr<std::pair<Value, std::thread::id>> weak_binding = invocation_binding;
   Value runtime_ref = Core::get(options, "runtime", Value());
   if (runtime_ref.is_null()) {
     runtime_ref = Core::get(Core::get(state_, "options", Value::object()), "runtime", Value());
@@ -6093,9 +6095,21 @@ Value AxAgent::forward(AIClient& client, Value values, Value options, const AxRu
   if (!runtime_id.empty()) {
     auto it = code_runtime_registry().find(runtime_id);
     if (it != code_runtime_registry().end() && it->second != nullptr) {
+      for (Value raw_name : Core::iter(Core::_agent_runtime_callable_names(state_))) {
+        std::string qualified = str(raw_name);
+        it->second->register_host_callable(qualified, [weak_binding, qualified](Value arguments) -> Value {
+          auto binding = weak_binding.lock();
+          if (!binding) throw AxError("runtime", "Agent invocation belongs to a closed run");
+          if (binding->second != std::this_thread::get_id()) throw AxError("runtime", "Agent runtime callbacks must execute on the owning run thread");
+          return Core::_agent_runtime_invoke_callable(binding->first, qualified, arguments);
+        });
+      }
       AxGen* sub = llm_query_.get();
       AIClient* client_ptr = &client;
-      it->second->register_host_callable("llmQuery", [sub, client_ptr, options](Value params) -> Value {
+      it->second->register_host_callable("llmQuery", [weak_binding, sub, client_ptr, options](Value params) -> Value {
+        auto binding = weak_binding.lock();
+        if (!binding) throw AxError("runtime", "Agent invocation belongs to a closed run");
+        if (binding->second != std::this_thread::get_id()) throw AxError("runtime", "Agent runtime callbacks must execute on the owning run thread");
         return Core::_agent_run_llm_query(Core::agent_stage_ref(*sub), Core::client_ref(*client_ptr), std::move(params), options);
       });
     }
@@ -6144,7 +6158,14 @@ AxAgent& AxAgent::set_playbook_observer(std::function<void(Value)> observer) {
 
 AxAgent& AxAgent::add_child_agent(std::string namespace_name, std::string name, std::shared_ptr<AxAgent> child) {
   if (!child) throw std::invalid_argument("Child agent is required");
-  if (child.get() == this) throw std::invalid_argument("An agent cannot own itself as a child");
+  std::vector<const AxAgent*> pending{child.get()};
+  std::set<const AxAgent*> visited;
+  while (!pending.empty()) {
+    const AxAgent* candidate = pending.back(); pending.pop_back();
+    if (candidate == this) throw std::invalid_argument("Child agent ownership cannot contain a cycle");
+    if (!visited.insert(candidate).second) continue;
+    for (const auto& descendant : candidate->child_agents_) pending.push_back(descendant.get());
+  }
   Value updated = Core::_agent_register_child(options_, namespace_name, name, Core::agent_stage_ref(*child), Core::get(child->state_, "signature"));
   options_ = updated;
   Core::set(state_, "options", updated);

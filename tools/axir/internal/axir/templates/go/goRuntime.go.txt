@@ -5886,7 +5886,16 @@ func (a *AxAgent) ForwardWithHooks(ctx context.Context, client AIClient, values 
 	// this wrapper only registers the host callable that closes over this client.
 	runtime := coreGet(callOptions, "runtime", coreGet(a.Options, "runtime", nil))
 	if reg, ok := runtime.(runtimeCallableRegistrar); ok {
+        bindingActive:=&atomic.Bool{};bindingActive.Store(true);defer bindingActive.Store(false)
+        for _, rawName := range asSlice(mustCore(_agent_runtime_callable_names(a.State))) {
+            qualified:=display(rawName)
+            reg.RegisterHostCallable(qualified,func(arguments Value)(Value,error){
+                if !bindingActive.Load(){return nil,fmt.Errorf("Agent invocation belongs to a closed run")}
+                return _agent_runtime_invoke_callable(a.State,qualified,arguments)
+            })
+        }
 		reg.RegisterHostCallable("llmQuery", func(params Value) (Value, error) {
+            if !bindingActive.Load(){return nil,fmt.Errorf("Agent invocation belongs to a closed run")}
 			return _agent_run_llm_query(a.LlmQuery, boundClient, params, callOptions)
 		})
 	}
@@ -8876,7 +8885,7 @@ func _core_agent_stage_usage(stage Value) Value {
 	case *AxFlow:
 		return coreGet(s.State, "usage", Object())
 	case *AxAgent:
-		return coreGet(s.State, "usage", Object())
+		return s.GetUsage()
 	default:
 		return Object()
 	}
@@ -12208,6 +12217,16 @@ func runConformanceAgentRuntimeReal(fixture map[string]Value) {
 	options := cloneMap(asMap(coreGet(fixture, "options", Object())))
 	coreSet(options, "runtime", runtime)
 	ag := NewAgent(display(coreGet(fixture, "signature", "question:string -> answer:string")), options)
+	for _, rawChild := range asSlice(coreGet(fixture, "child_agents", Array())) {
+		child := asMap(rawChild)
+		childOptions := cloneMap(asMap(coreGet(child, "options", Object())))
+        if coreGet(child, "runtime_engine", nil) != nil {
+            childRuntime, childErr := factory(asMap(coreGet(child, "runtime_options", Object())))
+            if childErr != nil { panic(childErr) }
+            childOptions["runtime"] = childRuntime
+        }
+        ag.AddChildAgent(display(child["namespace"]), display(child["name"]), NewAgent(display(child["signature"]), childOptions))
+	}
 	output, forwardErr := ag.Forward(context.Background(), client, asMap(coreGet(fixture, "input", Object())), asMap(coreGet(fixture, "forward_options", Object())))
 	if forwardErr != nil {
 		panic(forwardErr)

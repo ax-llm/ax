@@ -1642,7 +1642,12 @@ public final class Conformance {
       agent = Ax.agent(String.valueOf(fixture.get("signature")), agentOptions);
       for (Object rawChild : Core.asList(fixture.getOrDefault("child_agents", List.of()))) {
         Map<String, Object> child = Core.asMap(rawChild);
-        agent.addChildAgent(String.valueOf(child.get("namespace")), String.valueOf(child.get("name")), Ax.agent(String.valueOf(child.get("signature")), Core.asMap(child.getOrDefault("options", Map.of()))));
+        Map<String, Object> childOptions = new LinkedHashMap<>(Core.asMap(child.getOrDefault("options", Map.of())));
+        if (child.containsKey("runtime_engine")) {
+          try { childOptions.put("runtime", Class.forName("dev.axllm.ax.runtime.quickjs.AxQuickJsCodeRuntime").getDeclaredConstructor().newInstance()); }
+          catch (ReflectiveOperationException e) { throw new RuntimeException(e); }
+        }
+        agent.addChildAgent(String.valueOf(child.get("namespace")), String.valueOf(child.get("name")), Ax.agent(String.valueOf(child.get("signature")), childOptions));
       }
       if (fixture.containsKey("set_instruction")) agent.setInstruction(String.valueOf(fixture.get("set_instruction")));
       if (fixture.containsKey("add_actor_instruction")) agent.addActorInstruction(String.valueOf(fixture.get("add_actor_instruction")));

@@ -63,6 +63,7 @@ static Value merge_runtime_policy(Value base, Value options) {
 }
 
 static const char* bootstrap_source = R"JS(
+{{AX_HOST_NAMESPACES_RAW}}
 const __ax_builtin_reserved = [
   "Object", "Function", "Array", "Number", "parseFloat", "parseInt", "Infinity", "NaN",
   "undefined", "Boolean", "String", "Symbol", "Date", "Promise", "RegExp", "Error",
@@ -127,6 +128,7 @@ function __ax_install_host_callables() {
       globalThis[key] = __ax_make_host_callable(key, value);
     }
   }
+  __ax_bind_host_namespaces();
 }
 function final() { return __ax_complete({ type: "final", args: Array.from(arguments) }); }
 function respond() { return __ax_complete({ type: "respond", args: Array.from(arguments) }); }

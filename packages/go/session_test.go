@@ -732,7 +732,8 @@ func TestNativeMCPAgentDiscoveryAndInvocation(t *testing.T){
     if authorizations.Load()!=2{t.Fatal("Invalid arguments or actor replay reached authorization")}
 }
 
-type childControlRuntime struct{ delegated bool; closed int }
+type childControlRuntime struct{ delegated bool; closed int; callbacks map[string]func(Value)(Value,error) }
+func(r *childControlRuntime)RegisterHostCallable(name string, callback func(Value)(Value,error)){if r.callbacks==nil{r.callbacks=map[string]func(Value)(Value,error){}};r.callbacks[name]=callback}
 func(r *childControlRuntime)Language()string{return "JavaScript"}
 func(r *childControlRuntime)UsageInstructions()string{return ""}
 func(r *childControlRuntime)CreateSession(map[string]Value,map[string]Value)(CodeSession,error){return &childControlSession{r},nil}
@@ -775,6 +776,8 @@ func TestOwnedChildControlsAndCancellation(t *testing.T){
    usage,_:=json.Marshal(coreGet(coreGet(parent.GetUsage(),"children",nil),"team.researcher",nil));expected,_:=json.Marshal(child.GetUsage());if string(usage)!=string(expected){t.Fatalf("child usage: %s expected %s",usage,expected)}
   }
   count:=0;for _,item:=range asSlice(parent.GetActionLog()){if coreGet(item,"call_id",nil)=="child-call"{count++;expected:="ok";if cancel{expected="error"};if coreGet(item,"status",nil)!=expected{t.Fatalf("child status: %v",item)}}};if count!=1{t.Fatalf("child call count %d",count)}
+  childUsage,_:=json.Marshal(coreGet(coreGet(parent.GetUsage(),"children",nil),"team.researcher",nil));actualChildUsage,_:=json.Marshal(child.GetUsage());if string(childUsage)!=string(actualChildUsage){t.Fatalf("Child failure usage lost: parent=%s child=%s",childUsage,actualChildUsage)}
+  for _,name:=range []string{"team.researcher","llmQuery"}{if _,lateErr:=runtime.callbacks[name](Object("question","Late request"));lateErr==nil||!strings.Contains(lateErr.Error(),"closed run"){t.Fatalf("late callback %s: %v",name,lateErr)}}
   if coreTruthy(parent.State["forward_active"])||parent.State["active_client"]!=nil||coreTruthy(child.State["forward_active"])||child.State["active_client"]!=nil{t.Fatal("active client retained")}
  }
 }

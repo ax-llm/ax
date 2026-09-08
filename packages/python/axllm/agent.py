@@ -1683,20 +1683,57 @@ class AxAgent:
         runtime = options.get("runtime")
         if runtime is None:
             runtime = self.options.get("runtime")
+        invocation_binding = None
+        if runtime is not None and hasattr(runtime, "register_callable"):
+            import threading
+            import weakref
+            class InvocationBinding:
+                def __init__(self, state, sub_gen, client, options):
+                    self.state = state
+                    self.sub_gen = sub_gen
+                    self.client = client
+                    self.options = options
+                    self.owner = threading.get_ident()
+                    self.active = True
+            invocation_binding = InvocationBinding(self.state, self.llm_query, client, options)
+            binding_ref = weakref.ref(invocation_binding)
+            for qualified in _agent_runtime_callable_names(self.state):
+                def invoke(arguments, qualified=qualified):
+                    binding = binding_ref()
+                    if binding is None or not binding.active:
+                        raise RuntimeError("Agent invocation belongs to a closed run")
+                    if threading.get_ident() != binding.owner:
+                        raise RuntimeError("Agent runtime callbacks must execute on the owning run thread")
+                    return _agent_runtime_invoke_callable(binding.state, qualified, arguments)
+                runtime.register_callable(qualified, invoke)
         # Wire the built-in llmQuery primitive: a focused sub-query the model can
         # await inside the runtime. The logic lives in the AxIR-generated helper;
         # this wrapper only registers the host callable that closes over this client.
         if runtime is not None and hasattr(runtime, "register_callable"):
-            runtime.register_callable("llmQuery", lambda params: _agent_run_llm_query(self.llm_query, client, params, options))
-        output = _agent_forward(
-            self.state,
-            self.distiller,
-            self.executor,
-            self.responder,
-            client,
-            values or {},
-            options,
-        )
+            def llm_query(params):
+                binding = binding_ref()
+                if binding is None or not binding.active:
+                    raise RuntimeError("Agent invocation belongs to a closed run")
+                if threading.get_ident() != binding.owner:
+                    raise RuntimeError("Agent runtime callbacks must execute on the owning run thread")
+                return _agent_run_llm_query(binding.sub_gen, binding.client, params, binding.options)
+            runtime.register_callable("llmQuery", llm_query)
+        try:
+            output = _agent_forward(
+                self.state,
+                self.distiller,
+                self.executor,
+                self.responder,
+                client,
+                values or {},
+                options,
+            )
+        finally:
+            if invocation_binding is not None:
+                invocation_binding.active = False
+                invocation_binding.client = None
+                invocation_binding.sub_gen = None
+                invocation_binding.options = None
         citations = self.options.get("citations")
         citation_callback = citations.get("onCitations") or citations.get("on_citations") if isinstance(citations, dict) else None
         if callable(citation_callback):
@@ -7146,6 +7183,10 @@ def _agent_execute_callable(state: Any, request: Any, options: Any) -> Any:
                 child_options = _agent_child_options(state, qualified, options)
                 value = _core_agent_stage_forward(program, client, arguments, child_options)
             except Exception as child_error:
+                children_usage = _core_get(state, "children_usage", empty_map)
+                child_usage = _core_agent_stage_usage(program)
+                children_usage[qualified] = child_usage
+                state["children_usage"] = children_usage
                 message = _core_string_format("{}", child_error)
                 result["status"] = "error"
                 result["error"] = message
@@ -11134,5 +11175,82 @@ def _agent_forward(state: Any, distiller: Any, executor: Any, responder: Any, cl
     state["active_client"] = none
     state["active_forward_options"] = none
     return output
+
+
+def _agent_runtime_callable_names(state: Any) -> Any:
+    _core_coverage_mark("_agent_runtime_callable_names")
+    empty_list = []
+    inventory = _core_get(state, "callable_inventory", empty_list)
+    names = []
+    for group in inventory:
+        callables = _core_get(group, "callables", empty_list)
+        for callable in callables:
+            name = _core_get(callable, "qualified_name", "")
+            names.append(name)
+    return names
+
+
+def _agent_callable_visible(state: Any, qualified: str) -> bool:
+    _core_coverage_mark("_agent_callable_visible")
+    empty_map = {}
+    empty_list = []
+    flags = _core_get(state, "policy_flags", empty_map)
+    discovery = _core_get(flags, "discoveryMode", False)
+    all_visible = _core_not(discovery)
+    inventory = _core_get(state, "callable_inventory", empty_list)
+    docs = _core_get(state, "discovered_tool_docs", empty_list)
+    for group in inventory:
+        group_always = _core_get(group, "always_include", False)
+        group_visible = _core_or(all_visible, group_always)
+        callables = _core_get(group, "callables", empty_list)
+        for callable in callables:
+            name = _core_get(callable, "qualified_name", "")
+            matches = _core_eq(name, qualified)
+            if matches:
+                always = _core_get(callable, "always_include", False)
+                visible = _core_or(group_visible, always)
+                for doc in docs:
+                    doc_name = _core_get(doc, "qualified_name", "")
+                    discovered = _core_eq(doc_name, qualified)
+                    visible = _core_or(visible, discovered)
+                return visible
+            else:
+                pass
+    return False
+
+
+def _agent_runtime_invoke_callable(state: Any, qualified: str, arguments: Any) -> Any:
+    _core_coverage_mark("_agent_runtime_invoke_callable")
+    active = _core_get(state, "forward_active", False)
+    if active:
+        pass
+    else:
+        error = _core_runtime_error("Agent invocation belongs to a closed run")
+        raise error
+    visible = _agent_callable_visible(state, qualified)
+    if visible:
+        pass
+    else:
+        message = _core_string_format("Agent callable is not discovered: {}", qualified)
+        error = _core_runtime_error(message)
+        raise error
+    empty_map = {}
+    base = _core_get(state, "options", empty_map)
+    active_options = _core_get(state, "active_forward_options", empty_map)
+    options = _core_map_merge(base, active_options)
+    request = {}
+    request["qualified_name"] = qualified
+    request["args"] = arguments
+    result = _agent_execute_callable(state, request, options)
+    status = _core_get(result, "status", "ok")
+    failed = _core_eq(status, "error")
+    if failed:
+        message = _core_get(result, "error", "Agent callable failed")
+        error = _core_runtime_error(message)
+        raise error
+    else:
+        pass
+    value = _core_get(result, "value", result)
+    return value
 
 # END AXIR CORE EMITTED FUNCTIONS

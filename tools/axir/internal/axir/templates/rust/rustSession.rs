@@ -1421,9 +1421,10 @@ mod tests {
             Ok(AxTransportStream::Buffered(json!({"status":200,"body":String::from_utf8(sse(completed("executor2","{\"completion\":{\"type\":\"final\",\"args\":[\"Report reference\",{\"answer\":\"REF-42\"}]}}"))).unwrap()})))
         }
     }
-    struct ChildControlRuntime {delegated:Arc<AtomicBool>,closed:Arc<AtomicUsize>}
+    struct ChildControlRuntime {delegated:Arc<AtomicBool>,closed:Arc<AtomicUsize>,callbacks:Arc<Mutex<std::collections::BTreeMap<String,AxHostCallable>>>}
     struct ChildControlSession {delegated:Arc<AtomicBool>,closed:Arc<AtomicUsize>}
     impl AxCodeRuntime for ChildControlRuntime {
+        fn register_host_callable(&mut self,name:&str,callable:AxHostCallable)->AxResult<()>{self.callbacks.lock().unwrap().insert(name.to_string(),callable);Ok(())}
         fn language(&self)->&str{"JavaScript"}
         fn create_session(&mut self,_:Value,_:Value)->AxResult<Box<dyn AxCodeSession>>{Ok(Box::new(ChildControlSession{delegated:self.delegated.clone(),closed:self.closed.clone()}))}
     }
@@ -1460,7 +1461,8 @@ mod tests {
             control.steer("ROOT-UPDATE")?;control.steer_at("CHILD-ONLY","root/team.researcher")?;control.set_thinking_token_budget_at("medium","root/team.researcher/executor")?;
             let delegated=Arc::new(AtomicBool::new(false));let closed=Arc::new(AtomicUsize::new(0));let requests=Arc::new(Mutex::new(Vec::new()));
             let child=agent_with_options("question -> answer",json!({"directResponse":"off"}))?;
-            let mut parent=agent_with_options("question -> answer",json!({"directResponse":"off"}))?.with_child_agent("team","researcher",child)?.with_runtime(Box::new(ChildControlRuntime{delegated:delegated.clone(),closed:closed.clone()}))?;
+            let callbacks=Arc::new(Mutex::new(std::collections::BTreeMap::new()));
+            let mut parent=agent_with_options("question -> answer",json!({"directResponse":"off"}))?.with_child_agent("team","researcher",child)?.with_runtime(Box::new(ChildControlRuntime{delegated:delegated.clone(),closed:closed.clone(),callbacks:callbacks.clone()}))?;
             let mut client=ai("openai",json!({"api_key":"test","model":"gpt-6-astra"}))?.with_transport(ChildControlTransport{requests:requests.clone(),delegated});
             let result=parent.forward_with_options(&mut client,json!({"question":"Find reference"}),AxForwardOptions::default().with_control(control));
             if cancel{let error=result.expect_err("cancelled child returned success");assert!(error.to_string().to_lowercase().contains("abort"),"{error}");assert!((6..=7).contains(&requests.lock().unwrap().len()));assert_eq!(closed.load(Ordering::SeqCst),1);}else{
@@ -1468,6 +1470,8 @@ mod tests {
                 let usage=parent.get_usage();let child=&usage["children"]["team.researcher"];assert_eq!(child["chat_log_entries"],6);assert_eq!(child["actor"].as_array().unwrap().len(),4);assert_eq!(child["responder"].as_array().unwrap().len(),2);
             }
             let calls:Vec<Value>=parent.get_action_log().into_iter().filter(|item|item["call_id"]=="child-call").collect();assert_eq!(calls.len(),1);assert_eq!(calls[0]["status"],if cancel{"error"}else{"ok"});
+            assert!(parent.get_usage()["children"]["team.researcher"]["chat_log_entries"].as_u64().unwrap_or(0)>0,"Child failure usage lost");
+            for name in ["team.researcher","llmQuery"]{let callback=callbacks.lock().unwrap().get(name).unwrap().clone();let error=callback(json!({"question":"Late request"})).expect_err("late callback executed");assert!(error.to_string().contains("closed"),"{error}");}
             let error=parent.invoke_callable("team.researcher",json!({"question":"Find reference"}),json!({})).expect_err("parent retained active client");assert!(error.to_string().contains("active parent forward"),"{error}");
         }
         Ok(())

@@ -51,17 +51,23 @@ _PRELUDE = (
 )
 
 
+_HOST_NAMESPACES = {{AX_HOST_NAMESPACES_QUOTED}}
+
+
 class AxQuickJsCodeSession(AxCodeSession):
     def __init__(self, runtime, globals_, options=None):
         self.runtime = runtime
+        self.host_callables = dict(runtime.host_callables)
         self.closed = False
         self.ctx = runtime._quickjs.Context()
         self.ctx.add_callable("__ax_host_call", self._host_call)
         self.ctx.eval(_PRELUDE)
-        for name in runtime.host_callables:
+        for name in self.host_callables:
             self.ctx.eval("globalThis[%s]=axHc(%s);" % (json.dumps(name), json.dumps(name)))
         for key, value in (globals_ or {}).items():
             self.ctx.eval("globalThis[%s]=JSON.parse(%s);" % (json.dumps(key), json.dumps(json.dumps(value))))
+        self.ctx.eval(_HOST_NAMESPACES)
+        self.ctx.eval("__ax_bind_host_namespaces()")
         # Baseline of reserved globals: every name present before the agent runs any
         # code (JS built-ins like Math/JSON/Reflect, the prelude helpers, host callables,
         # and injected inputs). axSnap excludes these so the runtime-state summary shows
@@ -70,7 +76,7 @@ class AxQuickJsCodeSession(AxCodeSession):
         self.ctx.eval("globalThis.__ax_reserved=Object.create(null);Object.getOwnPropertyNames(globalThis).forEach(function(k){globalThis.__ax_reserved[k]=1;});")
 
     def _host_call(self, name, params_json):
-        handler = self.runtime.host_callables.get(name)
+        handler = self.host_callables.get(name)
         if handler is None:
             return json.dumps({"ok": False, "category": "runtime", "error": "unknown host callable: " + name})
         try:

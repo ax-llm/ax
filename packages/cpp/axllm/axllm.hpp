@@ -985,6 +985,9 @@ struct Core {
   static Value _agent_register_child(Value options, Value namespace_, Value name, Value program, Value signature);
   static Value _agent_child_options(Value state, Value qualified, Value options);
   static Value _agent_forward(Value state, Value distiller, Value executor, Value responder, Value client, Value values, Value options);
+  static Value _agent_runtime_callable_names(Value state);
+  static Value _agent_callable_visible(Value state, Value qualified);
+  static Value _agent_runtime_invoke_callable(Value state, Value qualified, Value arguments);
   static Value _flow_factory(Value options);
   static Value _program_descriptor(Value kind, Value id, Value metadata);
   static Value _program_trace_event(Value program_id, Value kind, Value payload);

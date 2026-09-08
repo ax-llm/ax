@@ -91,6 +91,22 @@ fn main() -> AxResult<()> {
         session.execute("final(marker())", json!({}))?.payload["args"][0]["ok"],
         true
     );
+    let logged = session.execute(
+        "console.log('reference', {id:'REF-42'}); console.warn('pending'); final('done')",
+        json!({}),
+    )?;
+    assert_eq!(
+        logged.payload["logs"],
+        json!(["reference {\"id\":\"REF-42\"}", "pending"])
+    );
+    assert!(
+        session
+            .execute("final('next')", json!({}))?
+            .payload
+            .get("logs")
+            .is_none(),
+        "console output replayed across turns"
+    );
     let caught = session.execute("let caught = ''; let category = ''; try { badTool({}); } catch (error) { caught = String(error); category = String(error.error_category || ''); } final({caught, category})", json!({}))?;
     assert!(caught.payload["args"][0]["caught"]
         .as_str()

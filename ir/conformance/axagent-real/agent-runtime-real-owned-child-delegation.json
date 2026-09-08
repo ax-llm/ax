@@ -1,0 +1,70 @@
+{
+  "kind": "agent_runtime_real",
+  "name": "agent-runtime-real-owned-child-delegation",
+  "signature": "question:string -> answer:string",
+  "options": {
+    "directResponse": "off"
+  },
+  "child_agents": [
+    {
+      "namespace": "team",
+      "name": "researcher",
+      "signature": "question:string -> answer:string",
+      "options": {
+        "directResponse": "off"
+      },
+      "runtime_engine": "javascript"
+    }
+  ],
+  "input": {
+    "question": "Find reference"
+  },
+  "responses": [
+    {
+      "content": "{\"javascriptCode\": \"final(\\\"Find reference\\\", {});\"}"
+    },
+    {
+      "content": "{\"javascriptCode\": \"const child = await team.researcher({question:\\\"Find reference\\\"}); console.log(child); final(\\\"Answer using the child result\\\", child);\"}"
+    },
+    {
+      "content": "{\"javascriptCode\": \"final(\\\"Find reference\\\", {});\"}"
+    },
+    {
+      "content": "{\"javascriptCode\": \"final(\\\"Find reference\\\", {});\"}"
+    },
+    {
+      "content": "{\"answer\": \"REF-42\"}"
+    },
+    {
+      "content": "{\"answer\": \"REF-42\"}"
+    }
+  ],
+  "expected_output": {
+    "answer": "REF-42"
+  },
+  "expected_request_count": 6,
+  "runtime_engine": "javascript",
+  "expected_function_call_traces_subset": [
+    {
+      "qualified_name": "team.researcher",
+      "arguments": {
+        "question": "Find reference"
+      },
+      "status": "ok",
+      "result": {
+        "status": "ok",
+        "value": {
+          "answer": "REF-42"
+        }
+      }
+    }
+  ],
+  "expected_action_log_subset": [
+    {
+      "type": "function_call",
+      "qualified_name": "team.researcher",
+      "status": "ok"
+    }
+  ],
+  "expected_request_contains": ["REF-42"]
+}

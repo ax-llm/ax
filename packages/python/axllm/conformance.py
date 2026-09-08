@@ -1822,7 +1822,10 @@ def _run_agent_forward(fixture):
     try:
         ag = agent(fixture.get("signature"), agent_options)
         for child_spec in fixture.get("child_agents") or []:
-            child = agent(child_spec["signature"], child_spec.get("options") or {})
+            child_options = dict(child_spec.get("options") or {})
+            if "runtime_engine" in child_spec:
+                child_options["runtime"] = _AxQuickJsRuntime()
+            child = agent(child_spec["signature"], child_options)
             ag.add_child_agent(child_spec["namespace"], child_spec["name"], child)
         if "set_instruction" in fixture:
             ag.set_instruction(fixture.get("set_instruction") or "")

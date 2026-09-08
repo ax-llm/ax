@@ -168,6 +168,9 @@ func (r *Runtime) CreateSession(globals map[string]ax.Value, options map[string]
 		session.reserved[name] = true
 	}
 	session.installBuiltins()
+    if _, err := session.vm.RunString({{AX_HOST_NAMESPACES_QUOTED}}); err != nil { return nil, err }
+    if _, err := session.vm.RunString("__ax_bind_host_namespaces()"); err != nil { return nil, err }
+    for name := range hostCallables { if strings.Contains(name, ".") { session.reserved[strings.SplitN(name,".",2)[0]]=true } }
 	return session, nil
 }
 

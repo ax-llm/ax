@@ -21613,6 +21613,10 @@ final class Core {
           Object child_options = Core._agent_child_options(state, qualified, options);
           value = Core.agentStageForward(program, client, arguments, child_options);
         } catch (RuntimeException child_error) {
+          Object children_usage = Core.get(state, "children_usage", empty_map);
+          Object child_usage = Core.agentStageUsage(program);
+          Core.set(children_usage, qualified, child_usage);
+          Core.set(state, "children_usage", children_usage);
           Object message = Core.stringFormat("{}", child_error);
           Core.set(result, "status", "error");
           Core.set(result, "error", message);
@@ -25563,6 +25567,90 @@ final class Core {
     Core.set(state, "active_client", none);
     Core.set(state, "active_forward_options", none);
     return output;
+  }
+
+  static Object _agent_runtime_callable_names(Object state) {
+    axirCoverageMark("_agent_runtime_callable_names");
+    Object empty_list = new java.util.ArrayList<Object>();
+    Object inventory = Core.get(state, "callable_inventory", empty_list);
+    Object names = new java.util.ArrayList<Object>();
+    for (Object group : Core.iter(inventory)) {
+      Object callables = Core.get(group, "callables", empty_list);
+      for (Object callable : Core.iter(callables)) {
+        Object name = Core.get(callable, "qualified_name", "");
+        Core.append(names, name);
+      }
+    }
+    return names;
+  }
+
+  static Object _agent_callable_visible(Object state, Object qualified) {
+    axirCoverageMark("_agent_callable_visible");
+    Object empty_map = new java.util.LinkedHashMap<String, Object>();
+    Object empty_list = new java.util.ArrayList<Object>();
+    Object flags = Core.get(state, "policy_flags", empty_map);
+    Object discovery = Core.get(flags, "discoveryMode", Boolean.FALSE);
+    Object all_visible = Core.not(discovery);
+    Object inventory = Core.get(state, "callable_inventory", empty_list);
+    Object docs = Core.get(state, "discovered_tool_docs", empty_list);
+    for (Object group : Core.iter(inventory)) {
+      Object group_always = Core.get(group, "always_include", Boolean.FALSE);
+      Object group_visible = Core.or(all_visible, group_always);
+      Object callables = Core.get(group, "callables", empty_list);
+      for (Object callable : Core.iter(callables)) {
+        Object name = Core.get(callable, "qualified_name", "");
+        Object matches = Core.eq(name, qualified);
+        if (Core.truthy(matches)) {
+          Object always = Core.get(callable, "always_include", Boolean.FALSE);
+          Object visible = Core.or(group_visible, always);
+          for (Object doc : Core.iter(docs)) {
+            Object doc_name = Core.get(doc, "qualified_name", "");
+            Object discovered = Core.eq(doc_name, qualified);
+            visible = Core.or(visible, discovered);
+          }
+          return visible;
+        }
+      }
+    }
+    return Boolean.FALSE;
+  }
+
+  static Object _agent_runtime_invoke_callable(Object state, Object qualified, Object arguments) {
+    axirCoverageMark("_agent_runtime_invoke_callable");
+    Object active = Core.get(state, "forward_active", Boolean.FALSE);
+    if (Core.truthy(active)) {
+      // empty
+    }
+    if (!Core.truthy(active)) {
+      Object error = Core.runtimeError("Agent invocation belongs to a closed run");
+      throw Core.asRuntime(error);
+    }
+    Object visible = Core._agent_callable_visible(state, qualified);
+    if (Core.truthy(visible)) {
+      // empty
+    }
+    if (!Core.truthy(visible)) {
+      Object message = Core.stringFormat("Agent callable is not discovered: {}", qualified);
+      Object error = Core.runtimeError(message);
+      throw Core.asRuntime(error);
+    }
+    Object empty_map = new java.util.LinkedHashMap<String, Object>();
+    Object base = Core.get(state, "options", empty_map);
+    Object active_options = Core.get(state, "active_forward_options", empty_map);
+    Object options = Core.mapMerge(base, active_options);
+    Object request = new java.util.LinkedHashMap<String, Object>();
+    Core.set(request, "qualified_name", qualified);
+    Core.set(request, "args", arguments);
+    Object result = Core._agent_execute_callable(state, request, options);
+    Object status = Core.get(result, "status", "ok");
+    Object failed = Core.eq(status, "error");
+    if (Core.truthy(failed)) {
+      Object message = Core.get(result, "error", "Agent callable failed");
+      Object error = Core.runtimeError(message);
+      throw Core.asRuntime(error);
+    }
+    Object value = Core.get(result, "value", result);
+    return value;
   }
 
   static Object _flow_factory(Object options) {

@@ -2621,12 +2621,20 @@ mod tests {
     struct ChildControlRuntime {
         delegated: Arc<AtomicBool>,
         closed: Arc<AtomicUsize>,
+        callbacks: Arc<Mutex<std::collections::BTreeMap<String, AxHostCallable>>>,
     }
     struct ChildControlSession {
         delegated: Arc<AtomicBool>,
         closed: Arc<AtomicUsize>,
     }
     impl AxCodeRuntime for ChildControlRuntime {
+        fn register_host_callable(&mut self, name: &str, callable: AxHostCallable) -> AxResult<()> {
+            self.callbacks
+                .lock()
+                .unwrap()
+                .insert(name.to_string(), callable);
+            Ok(())
+        }
         fn language(&self) -> &str {
             "JavaScript"
         }
@@ -2760,12 +2768,14 @@ mod tests {
             let closed = Arc::new(AtomicUsize::new(0));
             let requests = Arc::new(Mutex::new(Vec::new()));
             let child = agent_with_options("question -> answer", json!({"directResponse":"off"}))?;
+            let callbacks = Arc::new(Mutex::new(std::collections::BTreeMap::new()));
             let mut parent =
                 agent_with_options("question -> answer", json!({"directResponse":"off"}))?
                     .with_child_agent("team", "researcher", child)?
                     .with_runtime(Box::new(ChildControlRuntime {
                         delegated: delegated.clone(),
                         closed: closed.clone(),
+                        callbacks: callbacks.clone(),
                     }))?;
             let mut client = ai("openai", json!({"api_key":"test","model":"gpt-6-astra"}))?
                 .with_transport(ChildControlTransport {
@@ -2810,6 +2820,19 @@ mod tests {
                 .collect();
             assert_eq!(calls.len(), 1);
             assert_eq!(calls[0]["status"], if cancel { "error" } else { "ok" });
+            assert!(
+                parent.get_usage()["children"]["team.researcher"]["chat_log_entries"]
+                    .as_u64()
+                    .unwrap_or(0)
+                    > 0,
+                "Child failure usage lost"
+            );
+            for name in ["team.researcher", "llmQuery"] {
+                let callback = callbacks.lock().unwrap().get(name).unwrap().clone();
+                let error = callback(json!({"question":"Late request"}))
+                    .expect_err("late callback executed");
+                assert!(error.to_string().contains("closed"), "{error}");
+            }
             let error = parent
                 .invoke_callable(
                     "team.researcher",

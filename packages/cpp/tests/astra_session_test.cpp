@@ -465,9 +465,20 @@ struct ChildControlRuntime final:AxCodeRuntime {
     Value close()override{++runtime.closed;return object({{"closed",true}});}
   };
   bool delegated=false;int closed=0;std::vector<std::unique_ptr<Session>> sessions;
+  std::map<std::string,std::function<Value(Value)>> callbacks;
+  void register_host_callable(std::string name,std::function<Value(Value)> callback)override{callbacks[name]=std::move(callback);}
   AxCodeSession* create_session(Value,Value)override{sessions.push_back(std::make_unique<Session>(*this));return sessions.back().get();}
 };
 static void owned_child_controls(){
+  std::weak_ptr<AxAgent> released;
+  {
+    auto parent=std::make_shared<AxAgent>("question -> answer");auto child=std::make_shared<AxAgent>("question -> answer");released=parent;
+    parent->add_child_agent("team","child",child);
+    try{child->add_child_agent("team","parent",parent);throw std::runtime_error("Ownership cycle accepted");}
+    catch(const std::invalid_argument& error){if(std::string(error.what()).find("cycle")==std::string::npos)throw;}
+  }
+  if(!released.expired())throw std::runtime_error("Child ownership retained a cycle");
+
   const std::vector<std::string> stages{"root/distiller","root/executor","root/team.researcher/distiller","root/team.researcher/executor","root/team.researcher/responder","root/executor","root/responder"};
   for(bool cancel:{false,true}){
     auto control=run_control();std::vector<Value> observed;auto runtime=std::make_shared<ChildControlRuntime>();
@@ -506,6 +517,8 @@ static void owned_child_controls(){
       if(stringify(Core::get(Core::get(parent.get_usage(),"children"),"team.researcher"))!=stringify(child->get_usage()))throw std::runtime_error("Child usage lost");
     }catch(const std::exception& error){if(!cancel)throw;std::string message=error.what();if(message.find("abort")==std::string::npos&&message.find("Abort")==std::string::npos)throw;if((transport->requests.size()<6||transport->requests.size()>7)||runtime->closed!=1)throw std::runtime_error("Child cancellation cleanup failed");}
     int calls=0;for(auto item:Core::iter(parent.get_action_log()))if(stringify(Core::get(item,"call_id"))=="\"child-call\""){++calls;if(stringify(Core::get(item,"status"))!=stringify(Value(cancel?"error":"ok")))throw std::runtime_error("Child status lost");}if(calls!=1)throw std::runtime_error("Child action missing or duplicated");
+    if(stringify(Core::get(Core::get(parent.get_usage(),"children"),"team.researcher"))!=stringify(child->get_usage()))throw std::runtime_error("Child failure usage lost");
+    for(const auto& name:{"team.researcher","llmQuery"}){try{runtime->callbacks.at(name)(object({{"question","Late request"}}));throw std::runtime_error("Late callback executed");}catch(const std::exception& error){if(std::string(error.what()).find("closed run")==std::string::npos)throw;}}
     try{parent.invoke_callable("team.researcher",object({{"question","Find reference"}}));throw std::runtime_error("Active client retained");}catch(const std::exception& error){if(std::string(error.what()).find("active parent forward")==std::string::npos)throw;}
   }
   std::cout<<"cpp actual child delegation, scoped controls, usage, and cancellation passed\n";

@@ -615,7 +615,8 @@ def test_owned_child_controls():
         control.steer('CHILD-ONLY',target='root/team.researcher')
         control.set_thinking_token_budget('medium',target='root/team.researcher/executor')
         class Runtime(AxCodeRuntime):
-            def __init__(self):self.delegated=False;self.closed=0
+            def __init__(self):self.delegated=False;self.closed=0;self.callbacks={}
+            def register_callable(self,name,callback):self.callbacks[name]=callback
             def create_session(self,globals,options=None):
                 runtime=self
                 class Session(AxCodeSession):
@@ -664,6 +665,12 @@ def test_owned_child_controls():
             assert 6 <= len(requests) <= 7 and runtime.closed==1,(len(requests),runtime.closed)
             activity=[item for item in parent.state['function_call_traces'] if item.get('call_id')=='child-call']
             assert len(activity)==1 and activity[0]['status']=='error',activity
+        assert parent.get_usage()["children"]["team.researcher"]==child.get_usage(),"Child failure usage lost"
+        before = len(requests)
+        for name in ('team.researcher','llmQuery'):
+            try:runtime.callbacks[name]({'question':'Late request'});raise AssertionError('Late callback executed')
+            except RuntimeError as error:assert 'closed run' in str(error),error
+        assert len(requests)==before,'Late callback sent a request'
         assert parent.state['forward_active'] is False and parent.state['active_client'] is None
         assert child.state['forward_active'] is False and child.state['active_client'] is None
     print('python actual child delegation, scoped controls, usage, and cancellation passed')

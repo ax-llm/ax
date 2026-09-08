@@ -155,9 +155,9 @@ Each gate runs as a required pipeline phase, aggregated by the `ci-summary` job:
   "folded in" step: it was held out of the default enumeration until the port landed, and now that
   the prompt renders green everywhere it runs by default.
 - **G1** — the `axir-agent-antidote` job runs the real-engine antidote in-process for **Go** (goja),
-  **Python** (quickjs wheel), **Rust** (rquickjs), and **Java** (quickjs4j/Chicory from Maven
-  Central). All five in-process engines pass the antidote locally; **cpp** is the only one not wired
-  to CI (it needs a native libquickjs). Reproduce the cpp antidote with:
+  **Python** (quickjs wheel), **Rust** (rquickjs), **Java** (quickjs4j/Chicory from Maven
+  Central), and **C++** (native QuickJS). The suite includes owned child delegation
+  through actual parent and child actor code. Reproduce the C++ checks with:
 
 ```
 QJS=$(brew --prefix quickjs)   # any quickjs install exposing quickjs.h + libquickjs.a

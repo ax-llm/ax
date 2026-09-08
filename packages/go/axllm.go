@@ -44718,6 +44718,10 @@ func _agent_execute_callable(args ...Value) (Value, error) {
 				if __err == nil && __flow.kind == coreFlowReturn { return __flow.value, nil }
 				if __err != nil {
 					v_child_error = errorValue(__err)
+					v_children_usage = coreGet(v_state, "children_usage", v_empty_map)
+					v_child_usage = _core_agent_stage_usage(v_program)
+					if err := coreSet(v_children_usage, v_qualified, v_child_usage); err != nil { return nil, err }
+					if err := coreSet(v_state, "children_usage", v_children_usage); err != nil { return nil, err }
 					v_message = _core_string_format("{}", v_child_error)
 					if err := coreSet(v_result, "status", "error"); err != nil { return nil, err }
 					if err := coreSet(v_result, "error", v_message); err != nil { return nil, err }
@@ -53045,6 +53049,188 @@ func _agent_forward(args ...Value) (Value, error) {
 	if err := coreSet(v_state, "active_client", v_none); err != nil { return nil, err }
 	if err := coreSet(v_state, "active_forward_options", v_none); err != nil { return nil, err }
 	return v_output, nil
+}
+
+func _agent_runtime_callable_names(args ...Value) (Value, error) {
+	axirCoverageMark("_agent_runtime_callable_names")
+	var v_state Value
+	var v_callable Value
+	var v_callables Value
+	var v_empty_list Value
+	var v_group Value
+	var v_inventory Value
+	var v_name Value
+	var v_names Value
+	if len(args) > 0 { v_state = args[0] }
+	_ = v_state
+	_ = v_callable
+	_ = v_callables
+	_ = v_empty_list
+	_ = v_group
+	_ = v_inventory
+	_ = v_name
+	_ = v_names
+	v_empty_list = MutableArray()
+	v_inventory = coreGet(v_state, "callable_inventory", v_empty_list)
+	v_names = MutableArray()
+	for _, v_group = range coreIter(v_inventory) {
+		v_callables = coreGet(v_group, "callables", v_empty_list)
+		for _, v_callable = range coreIter(v_callables) {
+			v_name = coreGet(v_callable, "qualified_name", "")
+			v_names = coreAppend(v_names, v_name)
+		}
+	}
+	return v_names, nil
+}
+
+func _agent_callable_visible(args ...Value) (Value, error) {
+	axirCoverageMark("_agent_callable_visible")
+	var v_state Value
+	var v_qualified Value
+	var v_all_visible Value
+	var v_always Value
+	var v_callable Value
+	var v_callables Value
+	var v_discovered Value
+	var v_discovery Value
+	var v_doc Value
+	var v_doc_name Value
+	var v_docs Value
+	var v_empty_list Value
+	var v_empty_map Value
+	var v_flags Value
+	var v_group Value
+	var v_group_always Value
+	var v_group_visible Value
+	var v_inventory Value
+	var v_matches Value
+	var v_name Value
+	var v_visible Value
+	if len(args) > 0 { v_state = args[0] }
+	_ = v_state
+	if len(args) > 1 { v_qualified = args[1] }
+	_ = v_qualified
+	_ = v_all_visible
+	_ = v_always
+	_ = v_callable
+	_ = v_callables
+	_ = v_discovered
+	_ = v_discovery
+	_ = v_doc
+	_ = v_doc_name
+	_ = v_docs
+	_ = v_empty_list
+	_ = v_empty_map
+	_ = v_flags
+	_ = v_group
+	_ = v_group_always
+	_ = v_group_visible
+	_ = v_inventory
+	_ = v_matches
+	_ = v_name
+	_ = v_visible
+	v_empty_map = Object()
+	v_empty_list = MutableArray()
+	v_flags = coreGet(v_state, "policy_flags", v_empty_map)
+	v_discovery = coreGet(v_flags, "discoveryMode", false)
+	v_all_visible = _core_not(v_discovery)
+	v_inventory = coreGet(v_state, "callable_inventory", v_empty_list)
+	v_docs = coreGet(v_state, "discovered_tool_docs", v_empty_list)
+	for _, v_group = range coreIter(v_inventory) {
+		v_group_always = coreGet(v_group, "always_include", false)
+		v_group_visible = _core_or(v_all_visible, v_group_always)
+		v_callables = coreGet(v_group, "callables", v_empty_list)
+		for _, v_callable = range coreIter(v_callables) {
+			v_name = coreGet(v_callable, "qualified_name", "")
+			v_matches = _core_eq(v_name, v_qualified)
+			if coreTruthy(v_matches) {
+				v_always = coreGet(v_callable, "always_include", false)
+				v_visible = _core_or(v_group_visible, v_always)
+				for _, v_doc = range coreIter(v_docs) {
+					v_doc_name = coreGet(v_doc, "qualified_name", "")
+					v_discovered = _core_eq(v_doc_name, v_qualified)
+					v_visible = _core_or(v_visible, v_discovered)
+				}
+				return v_visible, nil
+			} else {
+			// empty
+			}
+		}
+	}
+	return false, nil
+}
+
+func _agent_runtime_invoke_callable(args ...Value) (Value, error) {
+	axirCoverageMark("_agent_runtime_invoke_callable")
+	var v_state Value
+	var v_qualified Value
+	var v_arguments Value
+	var v_active Value
+	var v_active_options Value
+	var v_base Value
+	var v_empty_map Value
+	var v_error Value
+	var v_failed Value
+	var v_message Value
+	var v_options Value
+	var v_request Value
+	var v_result Value
+	var v_status Value
+	var v_value Value
+	var v_visible Value
+	if len(args) > 0 { v_state = args[0] }
+	_ = v_state
+	if len(args) > 1 { v_qualified = args[1] }
+	_ = v_qualified
+	if len(args) > 2 { v_arguments = args[2] }
+	_ = v_arguments
+	_ = v_active
+	_ = v_active_options
+	_ = v_base
+	_ = v_empty_map
+	_ = v_error
+	_ = v_failed
+	_ = v_message
+	_ = v_options
+	_ = v_request
+	_ = v_result
+	_ = v_status
+	_ = v_value
+	_ = v_visible
+	v_active = coreGet(v_state, "forward_active", false)
+	if coreTruthy(v_active) {
+	// empty
+	} else {
+		v_error = _core_runtime_error("Agent invocation belongs to a closed run")
+		return nil, asError(v_error)
+	}
+	{ v, err := _agent_callable_visible(v_state, v_qualified); if err != nil { return nil, err }; v_visible = v }
+	if coreTruthy(v_visible) {
+	// empty
+	} else {
+		v_message = _core_string_format("Agent callable is not discovered: {}", v_qualified)
+		v_error = _core_runtime_error(v_message)
+		return nil, asError(v_error)
+	}
+	v_empty_map = Object()
+	v_base = coreGet(v_state, "options", v_empty_map)
+	v_active_options = coreGet(v_state, "active_forward_options", v_empty_map)
+	v_options = _core_map_merge(v_base, v_active_options)
+	v_request = Object()
+	if err := coreSet(v_request, "qualified_name", v_qualified); err != nil { return nil, err }
+	if err := coreSet(v_request, "args", v_arguments); err != nil { return nil, err }
+	{ v, err := _agent_execute_callable(v_state, v_request, v_options); if err != nil { return nil, err }; v_result = v }
+	v_status = coreGet(v_result, "status", "ok")
+	v_failed = _core_eq(v_status, "error")
+	if coreTruthy(v_failed) {
+		v_message = coreGet(v_result, "error", "Agent callable failed")
+		v_error = _core_runtime_error(v_message)
+		return nil, asError(v_error)
+	} else {
+	// empty
+	}
+	v_value = coreGet(v_result, "value", v_result)
+	return v_value, nil
 }
 
 func _flow_factory(args ...Value) (Value, error) {
@@ -66484,7 +66670,16 @@ func (a *AxAgent) ForwardWithHooks(ctx context.Context, client AIClient, values 
 	// this wrapper only registers the host callable that closes over this client.
 	runtime := coreGet(callOptions, "runtime", coreGet(a.Options, "runtime", nil))
 	if reg, ok := runtime.(runtimeCallableRegistrar); ok {
+        bindingActive:=&atomic.Bool{};bindingActive.Store(true);defer bindingActive.Store(false)
+        for _, rawName := range asSlice(mustCore(_agent_runtime_callable_names(a.State))) {
+            qualified:=display(rawName)
+            reg.RegisterHostCallable(qualified,func(arguments Value)(Value,error){
+                if !bindingActive.Load(){return nil,fmt.Errorf("Agent invocation belongs to a closed run")}
+                return _agent_runtime_invoke_callable(a.State,qualified,arguments)
+            })
+        }
 		reg.RegisterHostCallable("llmQuery", func(params Value) (Value, error) {
+            if !bindingActive.Load(){return nil,fmt.Errorf("Agent invocation belongs to a closed run")}
 			return _agent_run_llm_query(a.LlmQuery, boundClient, params, callOptions)
 		})
 	}
@@ -69474,7 +69669,7 @@ func _core_agent_stage_usage(stage Value) Value {
 	case *AxFlow:
 		return coreGet(s.State, "usage", Object())
 	case *AxAgent:
-		return coreGet(s.State, "usage", Object())
+		return s.GetUsage()
 	default:
 		return Object()
 	}
@@ -72806,6 +73001,16 @@ func runConformanceAgentRuntimeReal(fixture map[string]Value) {
 	options := cloneMap(asMap(coreGet(fixture, "options", Object())))
 	coreSet(options, "runtime", runtime)
 	ag := NewAgent(display(coreGet(fixture, "signature", "question:string -> answer:string")), options)
+	for _, rawChild := range asSlice(coreGet(fixture, "child_agents", Array())) {
+		child := asMap(rawChild)
+		childOptions := cloneMap(asMap(coreGet(child, "options", Object())))
+        if coreGet(child, "runtime_engine", nil) != nil {
+            childRuntime, childErr := factory(asMap(coreGet(child, "runtime_options", Object())))
+            if childErr != nil { panic(childErr) }
+            childOptions["runtime"] = childRuntime
+        }
+        ag.AddChildAgent(display(child["namespace"]), display(child["name"]), NewAgent(display(child["signature"]), childOptions))
+	}
 	output, forwardErr := ag.Forward(context.Background(), client, asMap(coreGet(fixture, "input", Object())), asMap(coreGet(fixture, "forward_options", Object())))
 	if forwardErr != nil {
 		panic(forwardErr)

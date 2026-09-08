@@ -1459,6 +1459,7 @@ static void run_agent_forward(Value fixture) {
   }
 #ifdef AX_CONFORMANCE_QUICKJS
   std::unique_ptr<axllm::runtime::quickjs::QuickJsCodeRuntime> real_runtime;
+  std::vector<std::unique_ptr<axllm::runtime::quickjs::QuickJsCodeRuntime>> child_runtimes;
   if (!Core::get(fixture, "runtime_engine").is_null()) {
     real_runtime = std::make_unique<axllm::runtime::quickjs::QuickJsCodeRuntime>();
     Core::set(agent_options, "runtime", Core::code_runtime_ref(*real_runtime));
@@ -1476,7 +1477,16 @@ static void run_agent_forward(Value fixture) {
   try {
     ag = std::make_unique<AxAgent>(Core::get(fixture, "signature"), agent_options);
     for (const auto& child : Core::iter(Core::get(fixture, "child_agents", Value::array()))) {
-      ag->add_child_agent(display(Core::get(child, "namespace")), display(Core::get(child, "name")), std::make_shared<AxAgent>(Core::get(child, "signature"), Core::get(child, "options", Value::object())));
+      Value child_options = Core::get(child, "options", Value::object());
+#ifdef AX_CONFORMANCE_QUICKJS
+      if (!Core::get(child, "runtime_engine").is_null()) {
+        child_runtimes.push_back(std::make_unique<axllm::runtime::quickjs::QuickJsCodeRuntime>());
+        Core::set(child_options, "runtime", Core::code_runtime_ref(*child_runtimes.back()));
+      }
+#else
+      if (!Core::get(child, "runtime_engine").is_null()) throw AxError("fixture", "Child runtime requires AX_CONFORMANCE_QUICKJS");
+#endif
+      ag->add_child_agent(display(Core::get(child, "namespace")), display(Core::get(child, "name")), std::make_shared<AxAgent>(Core::get(child, "signature"), child_options));
     }
     if (!Core::get(fixture, "set_instruction").is_null()) ag->set_instruction(Core::get(fixture, "set_instruction"));
     if (!Core::get(fixture, "add_actor_instruction").is_null()) ag->add_actor_instruction(Core::get(fixture, "add_actor_instruction"));

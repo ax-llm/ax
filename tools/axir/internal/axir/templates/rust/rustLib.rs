@@ -4460,6 +4460,22 @@ pub struct AxAgent {
     runtime_hooks: AxRuntimeHooks,
 }
 
+thread_local! {
+    static AGENT_RUN_BINDINGS: RefCell<BTreeMap<u64, CoreValue>> = RefCell::new(BTreeMap::new());
+}
+static AGENT_RUN_BINDING_ID: AtomicU64 = AtomicU64::new(1);
+struct AgentRunBinding(u64);
+impl AgentRunBinding {
+    fn new(state: CoreValue) -> Self {
+        let id = AGENT_RUN_BINDING_ID.fetch_add(1, Ordering::Relaxed);
+        AGENT_RUN_BINDINGS.with(|bindings| bindings.borrow_mut().insert(id, state));
+        Self(id)
+    }
+}
+impl Drop for AgentRunBinding {
+    fn drop(&mut self) { AGENT_RUN_BINDINGS.with(|bindings| bindings.borrow_mut().remove(&self.0)); }
+}
+
 pub fn agent(spec: &str) -> AxResult<AxAgent> {
     agent_with_options(spec, json!({}))
 }
@@ -4770,11 +4786,28 @@ impl AxAgent {
         // here resolves to that binding), so it captures only Send + Sync data.
         let state_options = core_get(&self.state, &CoreValue::from("options"), CoreValue::Null);
         let runtime_host = core_get(&state_options, &CoreValue::from("runtime"), CoreValue::Null);
+        let invocation_binding = AgentRunBinding::new(self.state.clone());
         if let CoreValue::Host(host) = &runtime_host {
+            for raw_name in core_iter(&_agent_runtime_callable_names(&[self.state.clone()])?)? {
+                let qualified = raw_name.text();
+                let binding_id = invocation_binding.0;
+                let callback_name = qualified.clone();
+                let callback: AxHostCallable = Arc::new(move |arguments| {
+                    let state = AGENT_RUN_BINDINGS.with(|bindings| bindings.borrow().get(&binding_id).cloned())
+                        .ok_or_else(|| AxError::runtime("Agent invocation is closed or is not on the owning run thread"))?;
+                    let result = _agent_runtime_invoke_callable(&[state, CoreValue::from(&callback_name), core_value_from_json(&arguments)])?;
+                    Ok(core_value_to_json(&result))
+                });
+                host.register_runtime_callable(&qualified, callback);
+            }
             let llm_query_signature = self.llm_query_signature.clone();
             let llm_query_instruction = self.llm_query_instruction.clone();
             let query_options = options.clone();
+            let binding_id = invocation_binding.0;
             let callable: AxHostCallable = Arc::new(move |params: Value| -> AxResult<Value> {
+                if !AGENT_RUN_BINDINGS.with(|bindings| bindings.borrow().contains_key(&binding_id)) {
+                    return Err(AxError::runtime("Agent invocation is closed or is not on the owning run thread"));
+                }
                 let signature = s(&llm_query_signature)?;
                 let sub_gen = agent_stage_gen(
                     signature,
@@ -10787,7 +10820,13 @@ fn run_agent_forward_contract_fixture(fixture: &Value) -> AxResult<()> {
         }
     };
     for child in fixture.get("child_agents").and_then(Value::as_array).into_iter().flatten() {
-        let program = agent_with_options(child["signature"].as_str().unwrap_or_default(), child.get("options").cloned().unwrap_or_else(|| json!({})))?;
+        let mut program = agent_with_options(child["signature"].as_str().unwrap_or_default(), child.get("options").cloned().unwrap_or_else(|| json!({})))?;
+        if child.get("runtime_engine").is_some() {
+            #[cfg(feature = "runtime-quickjs")]
+            { program = program.with_runtime(Box::new(crate::runtime::quickjs::QuickJsCodeRuntime::new()))?; }
+            #[cfg(not(feature = "runtime-quickjs"))]
+            { return Err(AxError::runtime("Child runtime requires runtime-quickjs")); }
+        }
         agent = agent.with_child_agent(child["namespace"].as_str().unwrap_or_default(), child["name"].as_str().unwrap_or_default(), program)?;
     }
     let observer_called = Rc::new(std::cell::Cell::new(false));
@@ -14073,7 +14112,7 @@ impl AxAIClient for FixtureClient {
         let response = self
             .responses
             .pop_front()
-            .ok_or_else(|| AxError::new("fixture", "fixture response exhausted"))?;
+            .ok_or_else(|| AxError::new("fixture", format!("fixture response exhausted; request: {}", self.requests.last().unwrap_or(&Value::Null))))?;
         if response.get("results").is_some() {
             return Ok(response);
         }

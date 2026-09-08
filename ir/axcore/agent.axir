@@ -4975,6 +4975,10 @@ module @ax.agent version "0.1" {
             %child_options = core.call @agent_child_options(%state, %qualified, %options)
             %value = core.call intrinsic.agent.stage_forward(%program, %client, %arguments, %child_options)
           } catch %child_error {
+            %children_usage = core.get %state["children_usage"] default %empty_map
+            %child_usage = core.call intrinsic.agent.stage_usage(%program)
+            core.set %children_usage[%qualified] = %child_usage
+            core.set %state["children_usage"] = %children_usage
             %message = core.call intrinsic.string.format("{}", %child_error)
             core.set %result["status"] = "error"
             core.set %result["error"] = %message
@@ -9336,6 +9340,100 @@ module @ax.agent version "0.1" {
       core.set %state["active_client"] = %none
       core.set %state["active_forward_options"] = %none
       core.return %output
+    }
+  }
+  op ax.agent.semantic @agent_runtime_callable_names {
+    attr core_kind = "func"
+    attr emit_module = "agent"
+    attr private = true
+    type signature = "(json) -> json"
+    body @entry(%state: json) {
+      %empty_list = core.list
+      %inventory = core.get %state["callable_inventory"] default %empty_list
+      %names = core.list
+      core.for %group in %inventory {
+        %callables = core.get %group["callables"] default %empty_list
+        core.for %callable in %callables {
+          %name = core.get %callable["qualified_name"] default ""
+          core.append %names, %name
+        }
+      }
+      core.return %names
+    }
+  }
+
+  op ax.agent.semantic @agent_callable_visible {
+    attr core_kind = "func"
+    attr emit_module = "agent"
+    attr private = true
+    type signature = "(json, string) -> bool"
+    body @entry(%state: json, %qualified: string) {
+      %empty_map = core.map
+      %empty_list = core.list
+      %flags = core.get %state["policy_flags"] default %empty_map
+      %discovery = core.get %flags["discoveryMode"] default false
+      %all_visible = core.call intrinsic.not(%discovery)
+      %inventory = core.get %state["callable_inventory"] default %empty_list
+      %docs = core.get %state["discovered_tool_docs"] default %empty_list
+      core.for %group in %inventory {
+        %group_always = core.get %group["always_include"] default false
+        %group_visible = core.call intrinsic.or(%all_visible, %group_always)
+        %callables = core.get %group["callables"] default %empty_list
+        core.for %callable in %callables {
+          %name = core.get %callable["qualified_name"] default ""
+          %matches = core.call intrinsic.eq(%name, %qualified)
+          core.if %matches {
+            %always = core.get %callable["always_include"] default false
+            %visible = core.call intrinsic.or(%group_visible, %always)
+            core.for %doc in %docs {
+              %doc_name = core.get %doc["qualified_name"] default ""
+              %discovered = core.call intrinsic.eq(%doc_name, %qualified)
+              %visible = core.call intrinsic.or(%visible, %discovered)
+            }
+            core.return %visible
+          }
+        }
+      }
+      core.return false
+    }
+  }
+
+  op ax.agent.semantic @agent_runtime_invoke_callable {
+    attr core_kind = "func"
+    attr emit_module = "agent"
+    attr private = true
+    type signature = "(json, string, json) -> json throws"
+    body @entry(%state: json, %qualified: string, %arguments: json) {
+      %active = core.get %state["forward_active"] default false
+      core.if %active {
+      } else {
+        %error = core.call intrinsic.error.runtime("Agent invocation belongs to a closed run")
+        core.raise %error
+      }
+      %visible = core.call @agent_callable_visible(%state, %qualified)
+      core.if %visible {
+      } else {
+        %message = core.call intrinsic.string.format("Agent callable is not discovered: {}", %qualified)
+        %error = core.call intrinsic.error.runtime(%message)
+        core.raise %error
+      }
+      %empty_map = core.map
+      %base = core.get %state["options"] default %empty_map
+      %active_options = core.get %state["active_forward_options"] default %empty_map
+      %options = core.call intrinsic.map.merge(%base, %active_options)
+      %request = core.map
+      core.set %request["qualified_name"] = %qualified
+      core.set %request["args"] = %arguments
+      %result = core.call @agent_execute_callable(%state, %request, %options)
+      %status = core.get %result["status"] default "ok"
+      %failed = core.call intrinsic.eq(%status, "error")
+      core.if %failed {
+        %message = core.get %result["error"] default "Agent callable failed"
+        %error = core.call intrinsic.error.runtime(%message)
+        core.raise %error
+      }
+      %value = core.get %result["value"] default %result
+      core.return %value
     }
   }
 }

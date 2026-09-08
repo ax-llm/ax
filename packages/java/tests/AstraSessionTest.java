@@ -206,6 +206,8 @@ public final class AstraSessionTest {
       control.steer("ROOT-UPDATE");control.steer("CHILD-ONLY","root/team.researcher");control.setThinkingTokenBudget("medium","root/team.researcher/executor");
       class Runtime implements AxCodeRuntime {
         boolean delegated;int closed;
+        Map<String,AxCodeRuntime.HostCallable> callbacks=new LinkedHashMap<>();
+        public void registerHostCallable(String name,AxCodeRuntime.HostCallable callback){callbacks.put(name,callback);}
         public AxCodeSession createSession(Map<String,Object> globals,Map<String,Object> options){return new AxCodeSession(){
           public Object execute(String code,Map<String,Object> opts){
             if(code.equals("delegate")){delegated=true;return Map.of("callable",Map.of("qualified_name","team.researcher","args",Map.of("question","Find reference"),"call_id","child-call"));}
@@ -246,6 +248,8 @@ public final class AstraSessionTest {
       }catch(RuntimeException error){if(!cancel)throw error;if(!error.toString().toLowerCase().contains("abort")||(requests.size()<6||requests.size()>7)||runtime.closed!=1)throw new AssertionError("Child cancellation cleanup failed",error);}
       var calls=parent.getActionLog().stream().filter(item->item instanceof Map<?,?> record&&"child-call".equals(record.get("call_id"))).toList();
       if(calls.size()!=1||!(cancel?"error":"ok").equals(((Map<?,?>)calls.get(0)).get("status")))throw new AssertionError("Child action missing or duplicated");
+      if(!((Map<?,?>)parent.getUsage().get("children")).get("team.researcher").equals(child.getUsage()))throw new AssertionError("Child failure usage lost");
+      for(String name:List.of("team.researcher","llmQuery")){try{runtime.callbacks.get(name).call(Map.of("question","Late request"));throw new AssertionError("Late callback executed");}catch(RuntimeException error){if(!error.getMessage().contains("closed run"))throw error;}}
       try{parent.invokeCallable("team.researcher",Map.of("question","Find reference"));throw new AssertionError("Parent retained active client");}catch(RuntimeException error){if(!error.getMessage().contains("active parent forward"))throw error;}
     }
     System.out.println("java actual child delegation, scoped controls, usage, and cancellation passed");

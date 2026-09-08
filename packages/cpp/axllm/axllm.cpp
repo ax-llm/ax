@@ -22780,6 +22780,10 @@ Value Core::_agent_execute_callable(Value state, Value request, Value options) {
         value = Core::agent_stage_forward(program, client, arguments, child_options);
       } catch (const std::exception& e) {
         Value child_error = Core::exception_value(e);
+        Value children_usage = Core::get(state, Value("children_usage"), empty_map);
+        Value child_usage = Core::agent_stage_usage(program);
+        Core::set(children_usage, qualified, child_usage);
+        Core::set(state, Value("children_usage"), children_usage);
         Value message = Core::string_format(Value("{}"), child_error);
         Core::set(result, Value("status"), Value("error"));
         Core::set(result, Value("error"), message);
@@ -26733,6 +26737,90 @@ Value Core::_agent_forward(Value state, Value distiller, Value executor, Value r
   Core::set(state, Value("active_client"), none);
   Core::set(state, Value("active_forward_options"), none);
   return output;
+}
+
+Value Core::_agent_runtime_callable_names(Value state) {
+  axir_coverage_mark("_agent_runtime_callable_names");
+  Value empty_list = Value::array();
+  Value inventory = Core::get(state, Value("callable_inventory"), empty_list);
+  Value names = Value::array();
+  for (auto group : Core::iter(inventory)) {
+    Value callables = Core::get(group, Value("callables"), empty_list);
+    for (auto callable : Core::iter(callables)) {
+      Value name = Core::get(callable, Value("qualified_name"), Value(""));
+      Core::append(names, name);
+    }
+  }
+  return names;
+}
+
+Value Core::_agent_callable_visible(Value state, Value qualified) {
+  axir_coverage_mark("_agent_callable_visible");
+  Value empty_map = Value::object();
+  Value empty_list = Value::array();
+  Value flags = Core::get(state, Value("policy_flags"), empty_map);
+  Value discovery = Core::get(flags, Value("discoveryMode"), Value(false));
+  Value all_visible = Core::not_(discovery);
+  Value inventory = Core::get(state, Value("callable_inventory"), empty_list);
+  Value docs = Core::get(state, Value("discovered_tool_docs"), empty_list);
+  for (auto group : Core::iter(inventory)) {
+    Value group_always = Core::get(group, Value("always_include"), Value(false));
+    Value group_visible = Core::or_(all_visible, group_always);
+    Value callables = Core::get(group, Value("callables"), empty_list);
+    for (auto callable : Core::iter(callables)) {
+      Value name = Core::get(callable, Value("qualified_name"), Value(""));
+      Value matches = Core::eq(name, qualified);
+      if (Core::truthy(matches)) {
+        Value always = Core::get(callable, Value("always_include"), Value(false));
+        Value visible = Core::or_(group_visible, always);
+        for (auto doc : Core::iter(docs)) {
+          Value doc_name = Core::get(doc, Value("qualified_name"), Value(""));
+          Value discovered = Core::eq(doc_name, qualified);
+          visible = Core::or_(visible, discovered);
+        }
+        return visible;
+      }
+    }
+  }
+  return Value(false);
+}
+
+Value Core::_agent_runtime_invoke_callable(Value state, Value qualified, Value arguments) {
+  axir_coverage_mark("_agent_runtime_invoke_callable");
+  Value active = Core::get(state, Value("forward_active"), Value(false));
+  if (Core::truthy(active)) {
+    // empty
+  }
+  if (!Core::truthy(active)) {
+    Value error = Core::runtime_error(Value("Agent invocation belongs to a closed run"));
+    Core::raise_error(error);
+  }
+  Value visible = Core::_agent_callable_visible(state, qualified);
+  if (Core::truthy(visible)) {
+    // empty
+  }
+  if (!Core::truthy(visible)) {
+    Value message = Core::string_format(Value("Agent callable is not discovered: {}"), qualified);
+    Value error = Core::runtime_error(message);
+    Core::raise_error(error);
+  }
+  Value empty_map = Value::object();
+  Value base = Core::get(state, Value("options"), empty_map);
+  Value active_options = Core::get(state, Value("active_forward_options"), empty_map);
+  Value options = Core::map_merge(base, active_options);
+  Value request = Value::object();
+  Core::set(request, Value("qualified_name"), qualified);
+  Core::set(request, Value("args"), arguments);
+  Value result = Core::_agent_execute_callable(state, request, options);
+  Value status = Core::get(result, Value("status"), Value("ok"));
+  Value failed = Core::eq(status, Value("error"));
+  if (Core::truthy(failed)) {
+    Value message = Core::get(result, Value("error"), Value("Agent callable failed"));
+    Value error = Core::runtime_error(message);
+    Core::raise_error(error);
+  }
+  Value value = Core::get(result, Value("value"), result);
+  return value;
 }
 
 Value Core::_flow_factory(Value options) {
@@ -35153,6 +35241,8 @@ Value AxAgent::forward(AIClient& client, Value values, Value options, const AxRu
   // options (the same runtime the actor loop will create sessions on),
   // mirroring the Go/Python/Rust/Java wrappers. The logic lives in the
   // AxIR-generated helper; this only registers the host callable.
+  auto invocation_binding = std::make_shared<std::pair<Value, std::thread::id>>(state_, std::this_thread::get_id());
+  std::weak_ptr<std::pair<Value, std::thread::id>> weak_binding = invocation_binding;
   Value runtime_ref = Core::get(options, "runtime", Value());
   if (runtime_ref.is_null()) {
     runtime_ref = Core::get(Core::get(state_, "options", Value::object()), "runtime", Value());
@@ -35161,9 +35251,21 @@ Value AxAgent::forward(AIClient& client, Value values, Value options, const AxRu
   if (!runtime_id.empty()) {
     auto it = code_runtime_registry().find(runtime_id);
     if (it != code_runtime_registry().end() && it->second != nullptr) {
+      for (Value raw_name : Core::iter(Core::_agent_runtime_callable_names(state_))) {
+        std::string qualified = str(raw_name);
+        it->second->register_host_callable(qualified, [weak_binding, qualified](Value arguments) -> Value {
+          auto binding = weak_binding.lock();
+          if (!binding) throw AxError("runtime", "Agent invocation belongs to a closed run");
+          if (binding->second != std::this_thread::get_id()) throw AxError("runtime", "Agent runtime callbacks must execute on the owning run thread");
+          return Core::_agent_runtime_invoke_callable(binding->first, qualified, arguments);
+        });
+      }
       AxGen* sub = llm_query_.get();
       AIClient* client_ptr = &client;
-      it->second->register_host_callable("llmQuery", [sub, client_ptr, options](Value params) -> Value {
+      it->second->register_host_callable("llmQuery", [weak_binding, sub, client_ptr, options](Value params) -> Value {
+        auto binding = weak_binding.lock();
+        if (!binding) throw AxError("runtime", "Agent invocation belongs to a closed run");
+        if (binding->second != std::this_thread::get_id()) throw AxError("runtime", "Agent runtime callbacks must execute on the owning run thread");
         return Core::_agent_run_llm_query(Core::agent_stage_ref(*sub), Core::client_ref(*client_ptr), std::move(params), options);
       });
     }
@@ -35212,7 +35314,14 @@ AxAgent& AxAgent::set_playbook_observer(std::function<void(Value)> observer) {
 
 AxAgent& AxAgent::add_child_agent(std::string namespace_name, std::string name, std::shared_ptr<AxAgent> child) {
   if (!child) throw std::invalid_argument("Child agent is required");
-  if (child.get() == this) throw std::invalid_argument("An agent cannot own itself as a child");
+  std::vector<const AxAgent*> pending{child.get()};
+  std::set<const AxAgent*> visited;
+  while (!pending.empty()) {
+    const AxAgent* candidate = pending.back(); pending.pop_back();
+    if (candidate == this) throw std::invalid_argument("Child agent ownership cannot contain a cycle");
+    if (!visited.insert(candidate).second) continue;
+    for (const auto& descendant : candidate->child_agents_) pending.push_back(descendant.get());
+  }
   Value updated = Core::_agent_register_child(options_, namespace_name, name, Core::agent_stage_ref(*child), Core::get(child->state_, "signature"));
   options_ = updated;
   Core::set(state_, "options", updated);
