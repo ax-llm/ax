@@ -63346,6 +63346,7 @@ func (t Tool) invoke(args map[string]Value) (Value, error) {
     return t.invokeContext(context.Background(), args)
 }
 func (t Tool) invokeContext(ctx context.Context, args map[string]Value) (Value, error) {
+ if err:=ctx.Err();err!=nil{return nil,normalizeContextError(ctx,err)}
 	if _, err := validate_fields(toolFields(t.Args), args, "tool."+t.Name+".args"); err != nil {
 		return nil, err
 	}
@@ -63356,6 +63357,7 @@ func (t Tool) invokeContext(ctx context.Context, args map[string]Value) (Value, 
     var err error
     if t.ContextHandler != nil { out, err = t.ContextHandler(ctx, args) } else { out, err = t.Handler(args) }
 	if err != nil {
+        if ctx.Err()!=nil{return nil,normalizeContextError(ctx,err)}
 		return nil, AxError{Category: "runtime", Message: err.Error()}
 	}
 	if len(t.Returns) > 0 {

@@ -200,7 +200,7 @@ func (c *AxMCPClient) RefreshWithOptions(force bool) error {
 	return nil
 }
 
-func (c *AxMCPClient) collectCatalog(method,field string)([]map[string]Value,error){out:=[]map[string]Value{};pages:=[]Value{};cursor:="";seen:=map[string]bool{};maxPages:=1000;if value,ok:=c.options["maxPaginationPages"].(int);ok{maxPages=value};for page:=0;page<maxPages;page++{result,err:=c.request(method,cursorParams(cursor));if err!=nil{return nil,err};pages=append(pages,result);for _,item:=range asSlice(coreGet(result,field,Array())){out=append(out,cloneMCPMap(asMap(item)))};cursor=display(coreGet(result,"nextCursor",""));if cursor==""{if name:=map[string]string{"tools/list":"tools","prompts/list":"prompts","resources/list":"resources","resources/templates/list":"resourceTemplates"}[method];name!=""{c.catalogCache[name]=asMap(mustCore(mcp_fold_cache_info(pages,time.Now().UnixMilli())))};return out,nil};if seen[cursor]{return nil,fmt.Errorf("MCP %s repeated pagination cursor %s",method,cursor)};seen[cursor]=true};return nil,fmt.Errorf("MCP %s exceeded %d pagination pages",method,maxPages)}
+func (c *AxMCPClient) collectCatalog(method,field string,contexts ...context.Context)([]map[string]Value,error){out:=[]map[string]Value{};pages:=[]Value{};cursor:="";seen:=map[string]bool{};maxPages:=1000;if value,ok:=c.options["maxPaginationPages"].(int);ok{maxPages=value};for page:=0;page<maxPages;page++{result,err:=c.requestWithHeaders(method,cursorParams(cursor),nil,true,mcpCallContext(contexts));if err!=nil{return nil,err};pages=append(pages,result);for _,item:=range asSlice(coreGet(result,field,Array())){out=append(out,cloneMCPMap(asMap(item)))};cursor=display(coreGet(result,"nextCursor",""));if cursor==""{if name:=map[string]string{"tools/list":"tools","prompts/list":"prompts","resources/list":"resources","resources/templates/list":"resourceTemplates"}[method];name!=""{c.catalogCache[name]=asMap(mustCore(mcp_fold_cache_info(pages,time.Now().UnixMilli())))};return out,nil};if seen[cursor]{return nil,fmt.Errorf("MCP %s repeated pagination cursor %s",method,cursor)};seen[cursor]=true};return nil,fmt.Errorf("MCP %s exceeded %d pagination pages",method,maxPages)}
 func(c *AxMCPClient)catalogCacheFresh(name string)bool{return coreTruthy(mustCore(mcp_cache_freshness(c.catalogCache[name],time.Now().UnixMilli())))}
 
 type AxMCPCatalogSnapshot struct{Namespace,ProtocolVersion string;Revision int64;ServerInfo,ServerCapabilities map[string]Value;Tools,Prompts,Resources,ResourceTemplates []map[string]Value;Subscriptions []string}
@@ -213,7 +213,8 @@ func (c *AxMCPClient) Resources() []map[string]Value { return append([]map[strin
 func (c *AxMCPClient) ResourceTemplates() []map[string]Value { return append([]map[string]Value(nil), c.resourceTemplates...) }
 func (c *AxMCPClient) Ping() (map[string]Value, error) { return c.request("ping", map[string]Value{}) }
 func (c *AxMCPClient) ListTools(cursor string) (map[string]Value, error) { return c.request("tools/list", cursorParams(cursor)) }
-func (c *AxMCPClient) CallTool(name string, args map[string]Value) (map[string]Value, error) {if args==nil{args=map[string]Value{}};
+func (c *AxMCPClient) CallTool(name string, args map[string]Value) (map[string]Value, error) {return c.CallToolWithContext(context.Background(),name,args)}
+func (c *AxMCPClient) CallToolWithContext(ctx context.Context,name string,args map[string]Value)(map[string]Value,error){if ctx==nil{ctx=context.Background()};if err:=ctx.Err();err!=nil{return nil,err};if args==nil{args=map[string]Value{}};
   if authorize:=coreGet(c.options,"authorizeToolCall",coreGet(c.options,"authorize_tool_call",nil));authorize!=nil{
     tools:=make([]Value,len(c.tools));for index,tool:=range c.tools{tools[index]=tool};raw,err:=_mcp_tool_authorization_context(tools,c.Namespace(),name,args);if err!=nil{return nil,err};call:=asMap(raw);call["client"]=c
     var decision Value
@@ -226,8 +227,8 @@ func (c *AxMCPClient) CallTool(name string, args map[string]Value) (map[string]V
     }
     if err!=nil{return nil,err};if _,err=_mcp_tool_authorization_result(name,decision);err!=nil{return nil,err}
   }
-headers:=c.toolHeaders(name,args);result,err:=c.requestWithInputRounds("tools/call",map[string]Value{"name":name,"arguments":args},headers);if protocol,ok:=err.(AxMCPProtocolError);ok&&c.era=="modern"&&protocol.Code==-32020{values,refreshErr:=c.collectCatalog("tools/list","tools");if refreshErr!=nil{return nil,refreshErr};c.tools=nil;for _,tool:=range values{if _,bindErr:=mcp_param_header_bindings(coreGet(tool,"inputSchema",Object()));bindErr==nil{c.tools=append(c.tools,tool)}};result,err=c.requestWithInputRounds("tools/call",map[string]Value{"name":name,"arguments":args},c.toolHeaders(name,args))};if err!=nil{return nil,err};if display(coreGet(result,"resultType",""))!="task"{return result,nil};if !c.hasTasksCapability(){return nil,fmt.Errorf("MCP protocol violation: server returned a task without negotiating io.modelcontextprotocol/tasks")};if !coreTruthy(mustCore(mcp_validate_modern_task(result))){return nil,fmt.Errorf("MCP protocol violation: invalid CreateTaskResult")};return c.awaitModernTask(display(result["taskId"]))}
-func(c *AxMCPClient)awaitModernTask(taskID string)(map[string]Value,error){max:=1000;if value,ok:=c.options["maxTaskPolls"].(int);ok{max=value};for poll:=0;poll<max;poll++{task,err:=c.GetTask(taskID);if err!=nil{return nil,err};outcome:=asMap(mustCore(mcp_task_terminal_outcome(task)));switch display(outcome["kind"]){case "result":return cloneMCPMap(asMap(outcome["result"])),nil;case "protocol_error":return nil,AxMCPProtocolError{Code:mcpInt(outcome["code"]),Message:display(outcome["message"]),Data:outcome["data"]};case "violation","failure","cancelled":return nil,fmt.Errorf("%s",display(outcome["message"]));case "input_required":handler,hasHandler:=c.elicitationHandler();fulfillment:=asMap(mustCore(mcp_mrtr_plan_fulfillment(coreGet(outcome,"inputRequests",Object()),coreGet(c.options,"roots",nil),hasHandler,false)));if !coreTruthy(fulfillment["ok"]){return nil,fmt.Errorf("%s",display(fulfillment["message"]))};responses:=asMap(coreGet(fulfillment,"responses",Object()));for key,rawPending:=range asMap(coreGet(fulfillment,"pending",Object())){if key=="__order"{continue};pending:=asMap(rawPending);if !hasHandler||display(coreGet(pending,"method",""))!="elicitation/create"{return nil,fmt.Errorf("MCP protocol violation: unsupported pending task input request method %s",display(coreGet(pending,"method","")))};response,handlerErr:=handler(asMap(coreGet(pending,"params",Object())),map[string]Value{"client":c,"namespace":c.Namespace()});if handlerErr!=nil{return nil,handlerErr};responses[key]=response};if err:=c.ProvideTaskInput(taskID,responses);err!=nil{return nil,err}}};return nil,fmt.Errorf("MCP task %s exceeded %d polls",taskID,max)}
+headers:=c.toolHeaders(name,args);result,err:=c.requestWithInputRounds("tools/call",map[string]Value{"name":name,"arguments":args},headers,ctx);if protocol,ok:=err.(AxMCPProtocolError);ok&&c.era=="modern"&&protocol.Code==-32020{values,refreshErr:=c.collectCatalog("tools/list","tools",ctx);if refreshErr!=nil{return nil,refreshErr};c.tools=nil;for _,tool:=range values{if _,bindErr:=mcp_param_header_bindings(coreGet(tool,"inputSchema",Object()));bindErr==nil{c.tools=append(c.tools,tool)}};result,err=c.requestWithInputRounds("tools/call",map[string]Value{"name":name,"arguments":args},c.toolHeaders(name,args),ctx)};if err!=nil{return nil,err};if display(coreGet(result,"resultType",""))!="task"{return result,nil};if !c.hasTasksCapability(){return nil,fmt.Errorf("MCP protocol violation: server returned a task without negotiating io.modelcontextprotocol/tasks")};if !coreTruthy(mustCore(mcp_validate_modern_task(result))){return nil,fmt.Errorf("MCP protocol violation: invalid CreateTaskResult")};return c.awaitModernTask(display(result["taskId"]),ctx)}
+func(c *AxMCPClient)awaitModernTask(taskID string,contexts ...context.Context)(map[string]Value,error){max:=1000;if value,ok:=c.options["maxTaskPolls"].(int);ok{max=value};for poll:=0;poll<max;poll++{task,err:=c.getTaskWithContext(mcpCallContext(contexts),taskID);if err!=nil{return nil,err};outcome:=asMap(mustCore(mcp_task_terminal_outcome(task)));switch display(outcome["kind"]){case "result":return cloneMCPMap(asMap(outcome["result"])),nil;case "protocol_error":return nil,AxMCPProtocolError{Code:mcpInt(outcome["code"]),Message:display(outcome["message"]),Data:outcome["data"]};case "violation","failure","cancelled":return nil,fmt.Errorf("%s",display(outcome["message"]));case "input_required":handler,hasHandler:=c.elicitationHandler();fulfillment:=asMap(mustCore(mcp_mrtr_plan_fulfillment(coreGet(outcome,"inputRequests",Object()),coreGet(c.options,"roots",nil),hasHandler,false)));if !coreTruthy(fulfillment["ok"]){return nil,fmt.Errorf("%s",display(fulfillment["message"]))};responses:=asMap(coreGet(fulfillment,"responses",Object()));for key,rawPending:=range asMap(coreGet(fulfillment,"pending",Object())){if key=="__order"{continue};pending:=asMap(rawPending);if !hasHandler||display(coreGet(pending,"method",""))!="elicitation/create"{return nil,fmt.Errorf("MCP protocol violation: unsupported pending task input request method %s",display(coreGet(pending,"method","")))};response,handlerErr:=handler(asMap(coreGet(pending,"params",Object())),map[string]Value{"client":c,"namespace":c.Namespace()});if handlerErr!=nil{return nil,handlerErr};responses[key]=response};if err:=c.provideTaskInputWithContext(mcpCallContext(contexts),taskID,responses);err!=nil{return nil,err}}};return nil,fmt.Errorf("MCP task %s exceeded %d polls",taskID,max)}
 func(c *AxMCPClient)toolHeaders(name string,args map[string]Value)map[string]string{out:=map[string]string{};if c.era!="modern"{return out};for _,tool:=range c.tools{if display(coreGet(tool,"name",""))==name{bindings,err:=mcp_param_header_bindings(coreGet(tool,"inputSchema",Object()));if err!=nil{return out};values,err:=mcp_param_header_values(bindings,args);if err!=nil{return out};for key,value:=range asMap(values){out[key]=display(value)};break}};return out}
 func (c *AxMCPClient) ListPrompts(cursor string) (map[string]Value, error) { return c.request("prompts/list", cursorParams(cursor)) }
 func (c *AxMCPClient) GetPrompt(name string, args map[string]Value) (map[string]Value, error) { if args == nil { args = map[string]Value{} }; return c.requestWithInputRounds("prompts/get", map[string]Value{"name":name, "arguments":args},nil) }
@@ -243,11 +244,13 @@ func(c *AxMCPClient)restartModernListener()error{if c.era!="modern"||!c.hasActiv
 func (c *AxMCPClient) SubscribeResource(uri string)(map[string]Value,error){return c.AcquireResourceSubscription(uri,"manual")}
 func (c *AxMCPClient) UnsubscribeResource(uri string)(map[string]Value,error){return c.ReleaseResourceSubscription(uri,"manual")}
 func(c *AxMCPClient)hasTasksCapability()bool{if c.era=="modern"{_,ok:=c.negotiatedExtensions["io.modelcontextprotocol/tasks"];return ok};return c.capability("tasks")}
-func (c *AxMCPClient) GetTask(taskID string)(map[string]Value,error){if !c.hasTasksCapability(){return nil,fmt.Errorf("Tasks are not supported")};result,err:=c.request("tasks/get",map[string]Value{"taskId":taskID});if err==nil&&c.era=="modern"&&!coreTruthy(mustCore(mcp_validate_modern_task(result))){return nil,fmt.Errorf("MCP protocol violation: invalid tasks/get result")};return result,err}
+func (c *AxMCPClient) GetTask(taskID string)(map[string]Value,error){return c.getTaskWithContext(context.Background(),taskID)}
+func(c *AxMCPClient)getTaskWithContext(ctx context.Context,taskID string)(map[string]Value,error){if !c.hasTasksCapability(){return nil,fmt.Errorf("Tasks are not supported")};result,err:=c.requestWithHeaders("tasks/get",map[string]Value{"taskId":taskID},nil,true,ctx);if err==nil&&c.era=="modern"&&!coreTruthy(mustCore(mcp_validate_modern_task(result))){return nil,fmt.Errorf("MCP protocol violation: invalid tasks/get result")};return result,err}
 func (c *AxMCPClient) CancelTask(taskID string)(map[string]Value,error){if !c.hasTasksCapability(){return nil,fmt.Errorf("Tasks are not supported")};result,err:=c.request("tasks/cancel",map[string]Value{"taskId":taskID});if c.era=="modern"&&err==nil{return map[string]Value{},nil};return result,err}
 func(c *AxMCPClient)ListTasks(cursor string)(map[string]Value,error){if c.era=="modern"{return nil,fmt.Errorf("tasks/list is only available for legacy MCP tasks")};if !c.hasTasksCapability(){return nil,fmt.Errorf("Tasks are not supported")};return c.request("tasks/list",cursorParams(cursor))}
 func(c *AxMCPClient)GetTaskResult(taskID string)(map[string]Value,error){if c.era=="modern"{return nil,fmt.Errorf("tasks/result is only available for legacy MCP tasks; modern results are embedded in tasks/get")};if !c.hasTasksCapability(){return nil,fmt.Errorf("Tasks are not supported")};return c.request("tasks/result",map[string]Value{"taskId":taskID})}
-func(c *AxMCPClient)ProvideTaskInput(taskID string,inputResponses map[string]Value)error{if c.era!="modern"||!c.hasTasksCapability(){return fmt.Errorf("tasks/update is only available for modern MCP Tasks v2")};_,err:=c.request("tasks/update",map[string]Value{"taskId":taskID,"inputResponses":inputResponses});return err}
+func(c *AxMCPClient)ProvideTaskInput(taskID string,inputResponses map[string]Value)error{return c.provideTaskInputWithContext(context.Background(),taskID,inputResponses)}
+func(c *AxMCPClient)provideTaskInputWithContext(ctx context.Context,taskID string,inputResponses map[string]Value)error{if c.era!="modern"||!c.hasTasksCapability(){return fmt.Errorf("tasks/update is only available for modern MCP Tasks v2")};_,err:=c.requestWithHeaders("tasks/update",map[string]Value{"taskId":taskID,"inputResponses":inputResponses},nil,true,ctx);return err}
 func (c *AxMCPClient) ListResourceTemplates(cursor string) (map[string]Value, error) { return c.request("resources/templates/list", cursorParams(cursor)) }
 
 func (c *AxMCPClient) Notify(method string, params map[string]Value) error {
@@ -283,7 +286,7 @@ func (c *AxMCPClient) NativeTools() []Tool {
 		desc := c.overrideDescription(spec)
 		out = append(out, Tool{Name:name, Description:desc, Parameters:cloneValue(coreGet(spec,"inputSchema",Object())), Args:map[string]Field{}, Returns:map[string]Field{}, Handler: func(args map[string]Value) (Value, error) {
 			return c.CallTool(original, args)
-		}})
+		},ContextHandler:func(ctx context.Context,args map[string]Value)(Value,error){return c.CallToolWithContext(ctx,original,args)}})
 	}
 	return out
 }
@@ -590,10 +593,10 @@ func ResolveAxExecutionContext(options map[string]Value,parent *AxExecutionConte
 func (c *AxMCPClient) request(method string, params map[string]Value) (map[string]Value, error) {
 	return c.requestWithHeaders(method,params,nil,true)
 }
-func(c *AxMCPClient)requestWithInputRounds(method string,baseParams map[string]Value,headers map[string]string)(map[string]Value,error){
+func(c *AxMCPClient)requestWithInputRounds(method string,baseParams map[string]Value,headers map[string]string,contexts ...context.Context)(map[string]Value,error){
 	params:=cloneMCPMap(baseParams);maxRounds:=coreGet(c.options,"maxInputRounds",nil)
 	for round:=0;;round++{
-		result,err:=c.requestWithHeaders(method,params,headers,true);if err!=nil{return nil,err}
+		result,err:=c.requestWithHeaders(method,params,headers,true,mcpCallContext(contexts));if err!=nil{return nil,err}
 		rawPlan,err:=mcp_mrtr_plan_round(result,c.era,method,round,maxRounds);if err!=nil{return nil,err};plan:=asMap(rawPlan)
 		switch display(plan["action"]){case "complete":return result,nil;case "violation":return nil,fmt.Errorf("%s",display(plan["message"]))}
 		var inputResponses Value
@@ -609,16 +612,20 @@ func(c *AxMCPClient)requestWithInputRounds(method string,baseParams map[string]V
 		rawNext,nextErr:=mcp_mrtr_next_params(baseParams,inputResponses,requestState);if nextErr!=nil{return nil,nextErr};params=asMap(rawNext)
 	}
 }
-func (c *AxMCPClient) requestWithHeaders(method string, params map[string]Value, headers map[string]string, allowVersionRetry bool) (map[string]Value, error) {
+func mcpCallContext(values []context.Context)context.Context{if len(values)>0&&values[0]!=nil{return values[0]};return context.Background()}
+func (c *AxMCPClient) requestWithHeaders(method string, params map[string]Value, headers map[string]string, allowVersionRetry bool,contexts ...context.Context) (map[string]Value, error) {
+ ctx:=mcpCallContext(contexts);if err:=ctx.Err();err!=nil{return nil,err}
 	id := fmt.Sprintf("%d", c.nextID.Add(1))
 	msg := map[string]Value{"jsonrpc":"2.0", "id":id, "method":method}
 	requestParams:=cloneMCPMap(params);if c.era=="modern"{existing:=asMap(coreGet(requestParams,"_meta",Object()));meta:=mustCore(mcp_build_request_meta(existing,c.negotiatedProtocolVersion,c.clientCapabilities(),map[string]Value{"name":"AxMCPClient","title":"Ax MCP Client","version":"1.0.0"},coreGet(c.options,"logLevel",nil),nil,nil));requestParams["_meta"]=meta}
 	if params != nil { msg["params"] = requestParams }
-	response, err := c.transport.SendWithHeaders(msg,headers)
+	var response map[string]Value;var err error
+ if transport,ok:=c.transport.(interface{SendWithContext(context.Context,map[string]Value,map[string]string)(map[string]Value,error)});ok{response,err=transport.SendWithContext(ctx,msg,headers)}else{response,err=c.transport.SendWithHeaders(msg,headers)}
+ if ctx.Err()!=nil{return nil,ctx.Err()}
 	if err != nil { return nil, err }
 	if rawErr := coreGet(response, "error", nil); rawErr != nil {
 		er := asMap(rawErr)
-		protocol:=AxMCPProtocolError{Code:mcpInt(coreGet(er,"code",0)),Message:display(coreGet(er,"message","MCP JSON-RPC error")),Data:coreGet(er,"data",nil)};if c.era=="modern"&&allowVersionRetry&&protocol.Code==-32022{version:=display(mustCore(mcp_select_mutual_version(protocol.Data,stringValues(AX_MCP_SUPPORTED_PROTOCOL_VERSIONS))));if version!=""{c.negotiatedProtocolVersion=version;c.transport.SetProtocolVersion(version);return c.requestWithHeaders(method,params,headers,false)}};return nil,protocol
+		protocol:=AxMCPProtocolError{Code:mcpInt(coreGet(er,"code",0)),Message:display(coreGet(er,"message","MCP JSON-RPC error")),Data:coreGet(er,"data",nil)};if c.era=="modern"&&allowVersionRetry&&protocol.Code==-32022{version:=display(mustCore(mcp_select_mutual_version(protocol.Data,stringValues(AX_MCP_SUPPORTED_PROTOCOL_VERSIONS))));if version!=""{c.negotiatedProtocolVersion=version;c.transport.SetProtocolVersion(version);return c.requestWithHeaders(method,params,headers,false,ctx)}};return nil,protocol
 	}
 	result:=asMap(coreGet(response,"result",Object()));if c.era=="modern"{meta:=asMap(coreGet(result,"_meta",Object()));info:=asMap(coreGet(meta,"io.modelcontextprotocol/serverInfo",Object()));if display(coreGet(info,"name",""))!=""&&display(coreGet(info,"version",""))!=""{c.setServerInfo(info)}};return result,nil
 }
@@ -673,12 +680,13 @@ func (c *AxMCPClient) toolToFunction(tool map[string]Value) Tool {
 	original := display(coreGet(tool, "name", ""))
 	name := c.overrideName(original)
 	desc := c.overrideDescription(tool)
-	return Tool{Name:name, Description:desc, Parameters:cloneValue(coreGet(tool,"inputSchema",Object())), Args:map[string]Field{}, Returns:map[string]Field{}, Handler: func(args map[string]Value) (Value, error) {
-		result, err := c.CallTool(original, args)
+	invoke:=func(ctx context.Context,args map[string]Value)(Value,error){
+		result, err := c.CallToolWithContext(ctx,original,args)
 		if err != nil { return nil, err }
 		if value := coreGet(result, "structuredContent", nil); value != nil { return value, nil }
 		return map[string]Value{"content": contentText(asSlice(coreGet(result, "content", Array())))}, nil
-	}}
+	}
+	return Tool{Name:name, Description:desc, Parameters:cloneValue(coreGet(tool,"inputSchema",Object())),Args:map[string]Field{},Returns:map[string]Field{},Handler:func(args map[string]Value)(Value,error){return invoke(context.Background(),args)},ContextHandler:invoke}
 }
 
 func (c *AxMCPClient) promptToFunction(prompt map[string]Value) Tool {
@@ -752,9 +760,10 @@ func (t *AxMCPStreamableHTTPTransport) Send(message map[string]Value) (map[strin
 	return t.SendWithHeaders(message, nil)
 }
 
-func (t *AxMCPStreamableHTTPTransport) SendWithHeaders(message map[string]Value, extraHeaders map[string]string) (map[string]Value, error) {
+func (t *AxMCPStreamableHTTPTransport) SendWithHeaders(message map[string]Value, extraHeaders map[string]string) (map[string]Value, error) {return t.SendWithContext(context.Background(),message,extraHeaders)}
+func(t *AxMCPStreamableHTTPTransport)SendWithContext(ctx context.Context,message map[string]Value,extraHeaders map[string]string)(map[string]Value,error){
 	body, _ := json.Marshal(message)
-	req, err := http.NewRequest("POST", t.Endpoint, bytes.NewReader(body))
+	req, err := http.NewRequestWithContext(ctx,"POST", t.Endpoint, bytes.NewReader(body))
 	if err != nil { return nil, err }
 	method := display(coreGet(message, "method", ""))
 	extra := map[string]Value{}; for key, value := range extraHeaders { extra[key] = value }
@@ -763,9 +772,10 @@ func (t *AxMCPStreamableHTTPTransport) SendWithHeaders(message map[string]Value,
 	if err != nil { return nil, err }
 	defer res.Body.Close()
 	t.recordSessionID(res.Header.Get("MCP-Session-Id"))
-	if res.StatusCode == 401 { challenge := res.Header.Get("WWW-Authenticate"); _, _ = io.Copy(io.Discard, res.Body); _ = res.Body.Close(); applied, oauthErr := t.ApplyOAuth(challenge); if oauthErr != nil { return nil, oauthErr }; if applied { return t.SendWithHeaders(message, extraHeaders) } }
+	if res.StatusCode == 401 { challenge := res.Header.Get("WWW-Authenticate"); _, _ = io.Copy(io.Discard, res.Body); _ = res.Body.Close(); applied, oauthErr := t.ApplyOAuth(challenge); if oauthErr != nil { return nil, oauthErr }; if applied { return t.SendWithContext(ctx,message,extraHeaders) } }
 	if res.StatusCode < 200 || res.StatusCode >= 300 { return nil, AxError{Category:"mcp", Message:fmt.Sprintf("HTTP error %d", res.StatusCode)} }
-	data, _ := io.ReadAll(res.Body)
+	data, readErr := io.ReadAll(res.Body)
+ if ctx.Err()!=nil{return nil,ctx.Err()};if readErr!=nil{return nil,readErr}
 	if len(strings.TrimSpace(string(data))) == 0 { return map[string]Value{"jsonrpc":"2.0", "id":coreGet(message, "id", nil), "result":map[string]Value{}}, nil }
 	// A spec-compliant MCP server may answer a JSON-RPC POST with an SSE stream
 	// (Content-Type: text/event-stream) carrying the response — and any interleaved

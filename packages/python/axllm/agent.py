@@ -9,6 +9,7 @@ import re
 from typing import Any
 
 from .ai import (
+    _cancellation_token,
     AxMeter,
     AxRateLimiter,
     AxRuntimeHooks,
@@ -2455,7 +2456,14 @@ def _core_agent_callable_invoke(state, request, options):
     from .tool import Tool
     if isinstance(implementation,Tool):
         from .gen import _core_tool_invoke
-        return {"status":"ok","value":_core_tool_invoke(implementation,args,(options or {}).get("tool_context"))}
+        context = (options or {}).get("tool_context")
+        if context is None:
+            import threading
+            token = _cancellation_token(options)
+            control = (options or {}).get("control")
+            signal = control.signal if control is not None else token._event if token is not None else threading.Event()
+            context = {"signal": signal, "cancellation": token, "call_id": _core_get(request,"call_id")}
+        return {"status":"ok","value":_core_tool_invoke(implementation,args,context)}
     handler=_core_get(implementation,"handler")
     if callable(handler):return {"status":"ok","value":handler(args)}
     for group in _core_get(state, "callable_inventory", []) or []:

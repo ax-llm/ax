@@ -676,3 +676,64 @@ def test_owned_child_controls():
     print('python actual child delegation, scoped controls, usage, and cancellation passed')
 
 test_owned_child_controls()
+
+
+def test_mcp_http_invocation_cancellation():
+    import threading,socket,json,time
+    from axllm.mcp import AxMCPClient,AxMCPStreamableHTTPTransport
+    from axllm.ai import AxAIServiceAbortedError
+    listener=socket.socket();listener.bind(('127.0.0.1',0));listener.listen(1)
+    started=threading.Event();disconnected=threading.Event();wire=[]
+    def serve():
+     conn,_=listener.accept()
+     with conn:
+      conn.settimeout(3);raw=b''
+      while b'\r\n\r\n' not in raw:raw+=conn.recv(4096)
+      head,body=raw.split(b'\r\n\r\n',1);length=int(next(l.split(b':',1)[1] for l in head.split(b'\r\n') if l.lower().startswith(b'content-length:')))
+      while len(body)<length:body+=conn.recv(4096)
+      wire.append((head,json.loads(body)))
+      conn.sendall(b'HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: 100\r\n\r\n');started.set()
+      if conn.recv(1)==b'':disconnected.set()
+    server=threading.Thread(target=serve,daemon=True);server.start()
+    t=AxMCPStreamableHTTPTransport('http://127.0.0.1:'+str(listener.getsockname()[1]),{'ssrfProtection':{'allowLocalhost':True,'allowPrivateNetworks':True,'requireHttps':False},'headers':{'X-Tenant':'fixture'}})
+    c=AxMCPClient(t,{'namespace':'inventory'});c.tools=[{'name':'lookup','inputSchema':{'type':'object'}}];signal=threading.Event();context={'signal':signal,'call_id':'model-call'};errors=[]
+    def invoke():
+     try:c.native_tools()[0].call({'query':'probe'},context)
+     except Exception as e:errors.append(e)
+    worker=threading.Thread(target=invoke);worker.start();assert started.wait(2)
+    start=time.monotonic();signal.set();worker.join(1);assert not worker.is_alive();assert time.monotonic()-start<1;assert len(errors)==1 and isinstance(errors[0],AxAIServiceAbortedError),errors
+    assert disconnected.wait(1);server.join();listener.close();assert wire[0][1]['params']['arguments']=={'query':'probe'};assert b'X-Tenant: fixture' in wire[0][0]
+    try:c.native_tools()[0].call({'query':'never'},context)
+    except AxAIServiceAbortedError:pass
+    else:raise AssertionError('pre-cancelled tool sent a request')
+    print('Python MCP native context, HTTP cancellation, cleanup, and preflight passed')
+
+test_mcp_http_invocation_cancellation()
+
+def test_actor_mcp_cancellation_context():
+    from axllm import agent, run_control
+    from axllm.ai import AxAIServiceAbortedError
+    control = run_control()
+    calls = []
+    class MCP(AxMCPTransport):
+        def send_notification(self, message): pass
+        def send(self, message): raise AssertionError('Actor dropped invocation context')
+        def send_with_context(self, message, headers=None, context=None):
+            assert message['method'] == 'tools/call'
+            assert context is not None and context['signal'] is control.signal
+            calls.append(message)
+            control.abort()
+            assert context['signal'].is_set()
+            raise AxAIServiceAbortedError('MCP invocation cancelled')
+    client = AxMCPClient(MCP(), {'namespace':'inventory'})
+    client.tools = [{'name':'lookup','inputSchema':{'type':'object'}}]
+    program = agent('question -> answer', {'functions':client.native_tools(),'functionDiscovery':False})
+    try:
+        result = program.invoke_callable('tools.lookup', {'query':'probe'}, {'control':control})
+        assert result['status']=='error' and 'cancel' in str(result).lower(), result
+    except AxAIServiceAbortedError:
+        pass
+    assert len(calls)==1
+    print('Python actor invocation forwards MCP cancellation context')
+
+test_actor_mcp_cancellation_context()

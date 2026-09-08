@@ -898,6 +898,7 @@ impl SessionRun {
                     AxToolContext {
                         call_id: call["id"].as_str().map(str::to_string),
                         cancelled: cancelled.clone(),
+                        ..AxToolContext::default()
                     },
                 )
             }))

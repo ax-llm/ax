@@ -523,7 +523,56 @@ static void owned_child_controls(){
   }
   std::cout<<"cpp actual child delegation, scoped controls, usage, and cancellation passed\n";
 }
+#if defined(AXLLM_ENABLE_CURL)
+#include <sys/socket.h>
+#include <netinet/in.h>
+#include <unistd.h>
+static void mcp_http_context_cancellation(){
+  int listener=::socket(AF_INET,SOCK_STREAM,0);if(listener<0)throw std::runtime_error("socket failed");
+  sockaddr_in address{};address.sin_family=AF_INET;address.sin_addr.s_addr=htonl(INADDR_LOOPBACK);
+  if(bind(listener,reinterpret_cast<sockaddr*>(&address),sizeof(address))||listen(listener,1))throw std::runtime_error("listen failed");
+  socklen_t size=sizeof(address);getsockname(listener,reinterpret_cast<sockaddr*>(&address),&size);
+  std::promise<void> started;auto ready=started.get_future();
+  auto server=std::async(std::launch::async,[listener,&started]{
+    int connection=accept(listener,nullptr,nullptr);close(listener);if(connection<0)throw std::runtime_error("accept failed");
+    timeval timeout{3,0};setsockopt(connection,SOL_SOCKET,SO_RCVTIMEO,&timeout,sizeof(timeout));
+    std::string request;char byte;while(request.find("\r\n\r\n")==std::string::npos){if(recv(connection,&byte,1,0)!=1)throw std::runtime_error("missing headers");request+=byte;}
+    auto lower=request;std::transform(lower.begin(),lower.end(),lower.begin(),[](unsigned char c){return std::tolower(c);});
+    if(lower.find("x-tenant: fixture")==std::string::npos)throw std::runtime_error("lost configured headers");
+    auto pos=lower.find("content-length:");auto length=std::stoul(lower.substr(pos+15));std::string body(length,' ');
+    size_t read=0;while(read<length){auto n=recv(connection,&body[read],length-read,0);if(n<=0)throw std::runtime_error("missing body");read+=n;}
+    if(body.find("probe")==std::string::npos)throw std::runtime_error("lost tool arguments");
+    std::string response="HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: 100\r\n\r\n";send(connection,response.data(),response.size(),0);started.set_value();
+    auto n=recv(connection,&byte,1,0);close(connection);if(n!=0)throw std::runtime_error("cancelled HTTP stayed open");
+  });
+  class NativeTransport final:public AxMCPTransport{
+   public: AxMCPStreamableHTTPTransport http;int calls=0;
+    explicit NativeTransport(int port):http("http://127.0.0.1:"+std::to_string(port),object({{"headers",object({{"X-Tenant","fixture"}})},{"ssrfProtection",object({{"requireHttps",false},{"allowLocalhost",true},{"allowPrivateNetworks",true}})}})){}
+    void send_notification(Value)override{}
+    Value send(Value message)override{auto method=display(Core::get(message,"method"));Value result;
+      if(method=="initialize")result=object({{"protocolVersion","2025-11-25"},{"capabilities",object({{"tools",Value::object()}})},{"serverInfo",object({{"name","fixture"},{"version","1"}})}});
+      else result=object({{"tools",Value(Array{object({{"name","lookup"},{"inputSchema",object({{"type","object"}})}})})}});
+      return object({{"jsonrpc","2.0"},{"id",Core::get(message,"id")},{"result",result}});
+    }
+    Value send_with_context(Value message,Value headers,const AxToolContext& context)override{
+      if(display(Core::get(message,"method"))!="tools/call")return AxMCPTransport::send_with_context(message,headers,context);
+      ++calls;return http.send_with_context(message,headers,context);
+    }
+  };
+  auto transport=std::make_shared<NativeTransport>(ntohs(address.sin_port));AxMCPClient client(transport,object({{"namespace","inventory"},{"era","legacy"}}));client.init();auto native=client.native_tools().at(0);
+  AxToolContext context{std::make_shared<std::atomic<bool>>(false),"call-1",{}};
+  auto worker=std::async(std::launch::async,[&]{try{Core::tool_invoke(native.value(),object({{"query","probe"}}),context);throw std::runtime_error("cancelled tool succeeded");}catch(const AxAIServiceAbortedError&){};});
+  if(ready.wait_for(std::chrono::seconds(3))!=std::future_status::ready)throw std::runtime_error("HTTP did not start");ready.get();context.cancelled->store(true);
+  if(worker.wait_for(std::chrono::seconds(1))!=std::future_status::ready)throw std::runtime_error("MCP cancellation blocked");worker.get();server.get();
+  try{Core::tool_invoke(native.value(),object({{"query","never"}}),context);throw std::runtime_error("pre-cancelled tool succeeded");}catch(const AxAIServiceAbortedError&){}
+  if(transport->calls!=1)throw std::runtime_error("MCP call replayed");
+}
+#else
+static void mcp_http_context_cancellation(){}
+#endif
+
 int main(int argc,char** argv){
+  mcp_http_context_cancellation();
   owned_child_controls();
   owned_flow_failure();
   owned_flow_overlap();

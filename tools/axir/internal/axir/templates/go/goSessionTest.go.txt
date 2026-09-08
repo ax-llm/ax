@@ -781,3 +781,28 @@ func TestOwnedChildControlsAndCancellation(t *testing.T){
   if coreTruthy(parent.State["forward_active"])||parent.State["active_client"]!=nil||coreTruthy(child.State["forward_active"])||child.State["active_client"]!=nil{t.Fatal("active client retained")}
  }
 }
+
+func TestMCPNativeCancellationContext(t *testing.T){
+ started:=make(chan struct{});closed:=make(chan struct{});var calls atomic.Int32
+ server:=httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter,r *http.Request){calls.Add(1);if r.Header.Get("X-Tenant")!="fixture"{t.Error("lost configured headers")};w.Header().Set("Content-Length","100");w.WriteHeader(200);w.(http.Flusher).Flush();close(started);<-r.Context().Done();close(closed)}));defer server.Close()
+ transport,err:=NewAxMCPStreamableHTTPTransport(server.URL,Object("ssrfProtection",Object("requireHttps",false,"allowLocalhost",true,"allowPrivateNetworks",true),"headers",Object("X-Tenant","fixture")));if err!=nil{t.Fatal(err)}
+ client:=NewAxMCPClient(transport,Object("namespace","inventory"));client.tools=[]map[string]Value{Object("name","lookup","inputSchema",Object("type","object"))}
+ tool:=client.NativeTools()[0];ctx,cancel:=context.WithCancel(context.Background());defer cancel();result:=make(chan error,1);go func(){_,e:=tool.invokeContext(ctx,Object("query","probe"));result<-e}()
+ select{case <-started:case <-time.After(2*time.Second):t.Fatal("request did not start")};cancel()
+ select{case e:=<-result:if e==nil{t.Fatal("cancelled invocation succeeded")};case <-time.After(time.Second):t.Fatal("tool cancellation blocked")}
+ select{case <-closed:case <-time.After(time.Second):t.Fatal("HTTP connection remained open")}
+ if _,err:=tool.invokeContext(ctx,Object());err==nil{t.Fatal("pre-cancelled invocation succeeded")};if calls.Load()!=1{t.Fatal("cancelled invocation replayed")}
+}
+
+type actorMCPCancellationTransport struct{*AxMCPScriptedTransport;cancel context.CancelFunc;calls int}
+func(t *actorMCPCancellationTransport)Send(map[string]Value)(map[string]Value,error){return nil,fmt.Errorf("actor dropped MCP invocation context")}
+func(t *actorMCPCancellationTransport)SendNotification(map[string]Value)error{return nil}
+func(t *actorMCPCancellationTransport)SendWithContext(ctx context.Context,m map[string]Value,_ map[string]string)(map[string]Value,error){
+ if m["method"]!="tools/call"{return nil,fmt.Errorf("unexpected method")};t.calls++;t.cancel();if ctx.Err()==nil{return nil,fmt.Errorf("actor lost cancellation context")};return nil,ctx.Err()
+}
+func TestActorMCPInvocationCancellation(t *testing.T){
+ ctx,cancel:=context.WithCancel(context.Background());defer cancel();transport:=&actorMCPCancellationTransport{AxMCPScriptedTransport:NewAxMCPScriptedTransport(nil),cancel:cancel};client:=NewAxMCPClient(transport,Object("namespace","inventory"));client.tools=[]map[string]Value{Object("name","lookup","inputSchema",Object("type","object"))}
+ program:=NewAgent("question -> answer",Object("functions",Array(client.NativeTools()[0]),"functionDiscovery",false))
+ defer func(){failure:=recover();if failure==nil||transport.calls!=1{t.Fatal("expected one aborted invocation",failure,transport.calls)};if _,ok:=failure.(AxAIServiceAbortedError);!ok{t.Fatalf("unexpected invocation failure: %T %v",failure,failure)}}()
+ program.InvokeCallable("tools.lookup",Object("query","probe"),Object("context",ctx))
+}

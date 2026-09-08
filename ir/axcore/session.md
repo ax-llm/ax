@@ -62,7 +62,12 @@ delegation. Each run refreshes callable inventory and removes stale protocol
 modules. Explicit child configuration takes precedence. Live client handles stay
 out of model and runtime wire options. C++ core-only programs retain their
 independent build; an optional owned context interface bridges MCP when attached.
-Cancellation propagation through delegated MCP requests remains outstanding.
+Imported MCP tool invocations carry cancellation into their transport, including
+version retries and task polling. Built-in HTTP requests close on cancellation;
+custom transports can implement the optional context-aware send method. Legacy
+custom transports retain their old method with cancellation checks before and
+after it. A noncooperative custom transport may finish later; the run discards
+its delivery. Complete delegated-program acceptance remains outstanding.
 
 ## Routing, controls, and transport
 
@@ -131,6 +136,7 @@ Scripted agent fixtures belong under package tests, not public examples.
 | Native MCP schemas and modern continuation | `native-tools-modern-roundtrip.json` | All-five native agent tests assert discovery boundaries, exact schemas, invalid-argument correction, overlap, raw result continuation, responder output, action logs, and duplicate prevention |
 | Owned child delegation | `owned-child-delegation-through-parent-runtime.json` | All-five native session tests assert parent continuation input, isolated histories, scoped controls, cache prefixes, child usage, and cancellation cleanup |
 | Real actor child calls | `axagent-real/agent-runtime-real-owned-child-delegation.json` | All five real engines execute parent and child actor code; assert child result, action log, and parent continuation. Native suites reject retained callbacks after success and cancellation. The public `astra_child_agent` / `AstraChildAgentExample` examples exercise live Astra child-scoped controls. The current Python, Go, C++, and Rust runs passed. Java initially omitted the child result; a diagnostic rerun with the same request passed and recorded actual delegation. Both outcomes are retained as evidence, rather than treating the initial run as successful |
+| MCP invocation cancellation | Native HTTP tests in all five session suites | Stalled response bodies close on abort; configured headers and arguments survive; pre-cancelled calls do not send or replay. Python/Go/Rust actor invocation tests and a Java high-level agent test exercise controller propagation. Rust also retains a generator's own configured clients with `mcpInheritance: none`, including result history and continuation |
 | MCP host authorization | `native-tool-host-authorization.json`, extracted by calling the TypeScript MCP client | All-five native agent tests exercise denied and allowed calls, retained context, no transport call after denial, and no authorization after invalid arguments or actor replay |
 | Completed calls and pending work | `astra-session-completed-calls-and-response-boundaries.json`, `astra-pending-results-out-of-order.json` | Delayed tools, blocking barriers, partial arguments, and provisional answers |
 | Steering and reasoning history | `astra-native-steering-successor-no-replay.json`, `astra-native-late-pending-input.json`, `astra-session-transport-cursor.json` | Scripted sockets and delayed HTTP cleanup |
