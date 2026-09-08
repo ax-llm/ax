@@ -112,8 +112,11 @@ final class Core {
   static Object not(Object value) { return !truthy(value); }
   static Object and(Object left, Object right) { return truthy(left) && truthy(right); }
   static Object or(Object left, Object right) { return truthy(left) || truthy(right); }
-  static Object eq(Object left, Object right) { return java.util.Objects.equals(left, right); }
-  static Object ne(Object left, Object right) { return !java.util.Objects.equals(left, right); }
+  static Object eq(Object left, Object right) {
+    if (left instanceof Number a && right instanceof Number b) return a.doubleValue() == b.doubleValue();
+    return java.util.Objects.equals(left, right);
+  }
+  static Object ne(Object left, Object right) { return !truthy(eq(left, right)); }
   static Object lt(Object left, Object right) { return asDouble(left) < asDouble(right); }
   static Object lte(Object left, Object right) { return asDouble(left) <= asDouble(right); }
   static Object gt(Object left, Object right) { return asDouble(left) > asDouble(right); }
@@ -128,6 +131,11 @@ final class Core {
     return asDouble(left) / (denom == 0.0 ? 1.0 : denom);
   }
   static Object mathAbs(Object value) { return Math.abs(asDouble(value)); }
+  static Object stringUTF16Units(Object value) {
+    List<Object> units=new ArrayList<>();String text=String.valueOf(value);
+    for(int index=0;index<text.length();index++)units.add((int)text.charAt(index));
+    return units;
+  }
   static Object stringCodepointLength(Object value) { String text = String.valueOf(value); return text.codePointCount(0, text.length()); }
   static Object mathIsFinite(Object value) { return Double.isFinite(asDouble(value)); }
   static Object mathFloor(Object value) { return Math.floor(asDouble(value)); }

@@ -103,7 +103,7 @@ public final class AstraSessionTest {
     System.out.println("java owned balancer shares failure accounting");
   }
   @SuppressWarnings("unchecked") static void nativeMCPAgentDiscovery() throws Exception {
-    var schema=(Map<String,Object>)Json.parse("{\"type\":\"object\",\"$defs\":{\"reference\":{\"type\":\"string\",\"minLength\":3}},\"properties\":{\"query\":{\"$ref\":\"#/$defs/reference\"}},\"required\":[\"query\"],\"additionalProperties\":false}");
+    var schema=(Map<String,Object>)Json.parse("{\"type\":\"object\",\"$defs\":{\"reference\":{\"type\":\"string\",\"minLength\":3,\"pattern\":\"^(?=REF-[0-9]+$)(?<ref>REF)-[0-9]+$\"}},\"properties\":{\"query\":{\"$ref\":\"#/$defs/reference\"}},\"required\":[\"query\"],\"additionalProperties\":false}");
     var started=new CountDownLatch(1);var release=new CountDownLatch(1);var calls=new CopyOnWriteArrayList<Map<String,Object>>();var requests=new ArrayList<Map<String,Object>>();var hidden=new java.util.concurrent.atomic.AtomicBoolean(true);
     AxMCPTransport mcpTransport=new AxMCPTransport(){
       public void sendNotification(Map<String,Object> message){throw new AssertionError("Modern discovery initialized");}
@@ -204,8 +204,8 @@ public final class AstraSessionTest {
   @SuppressWarnings("unchecked") static void ownedChildControls() throws Exception {
     var stages=List.of("root/distiller","root/executor","root/team.researcher/distiller","root/team.researcher/executor","root/team.researcher/responder","root/executor","root/responder");
     for(boolean cancel:List.of(false,true)) {
-      var control=Ax.runControl();var observed=new ArrayList<Map<String,Object>>();var requests=new ArrayList<Map<String,Object>>();
-      control.onEvent(event->{observed.add(event);if(cancel&&"started".equals(event.get("type"))&&"root/team.researcher/executor".equals(event.get("path")))control.abort();});
+      var control=Ax.runControl();var observed=Collections.synchronizedList(new ArrayList<Map<String,Object>>());var requests=new ArrayList<Map<String,Object>>();
+      control.onEvent(observed::add);
       control.steer("ROOT-UPDATE");control.steer("CHILD-ONLY","root/team.researcher");control.setThinkingTokenBudget("medium","root/team.researcher/executor");
       class Runtime implements AxCodeRuntime {
         boolean delegated;int closed;
@@ -237,10 +237,30 @@ public final class AstraSessionTest {
         if(stage.startsWith("root/team.researcher"))output=stage.endsWith("/responder")?Map.of("answer","REF-42"):Map.of("completion",Map.of("type","final","args",List.of("Find reference",Map.of())));
         else if(stage.equals("root/responder"))output=Map.of("answer","REF-42");
         else output=Map.of("javascriptCode",stage.equals("root/executor")&&!runtime.delegated?"delegate":"parent-final");
-        var response=Map.of("id","child-r"+(number+1),"model","gpt-6-astra","usage",Map.of("input_tokens",2,"output_tokens",1,"total_tokens",3),"output",List.of(Map.of("type","message","id","message","content",List.of(Map.of("type","output_text","text",Json.stringify(output))))));
+        var response=new LinkedHashMap<String,Object>(Map.of("id","child-r"+(number+1),"model","gpt-6-astra","usage",Map.of("input_tokens",2,"output_tokens",1,"total_tokens",3),"output",List.of(Map.of("type","message","id","message","content",List.of(Map.of("type","output_text","text",Json.stringify(output)))))));
+        if(cancel&&number==6)response.put("output",List.of(Map.of("type","function_call","name","tools_lookup","call_id","child-mcp","arguments","{}","status","completed")));
         return new ByteArrayInputStream(("data: "+Json.stringify(Map.of("type","response.completed","response",response))+"\n\n").getBytes(StandardCharsets.UTF_8));
       };
-      var child=Ax.agent("question -> answer",Map.of("directResponse","off"));
+      var mcpCalls=new AtomicInteger();var settled=new CountDownLatch(1);
+      AxMCPTransport mcpTransport=new AxMCPTransport(){
+        public void sendNotification(Map<String,Object> message){}
+        public Map<String,Object> send(Map<String,Object> message){
+          var result="initialize".equals(message.get("method"))?Map.of("protocolVersion","2025-11-25","serverInfo",Map.of("name","fixture","version","1"),"capabilities",Map.of("tools",Map.of())):Map.of("tools",List.of(Map.of("name","lookup","inputSchema",Map.of("type","object","additionalProperties",false))));
+          return Map.of("jsonrpc","2.0","id",message.get("id"),"result",result);
+        }
+        public Map<String,Object> sendWithContext(Map<String,Object> message,Map<String,String> headers,java.util.function.BooleanSupplier cancelled){
+          if(!"tools/call".equals(message.get("method")))return AxMCPTransport.super.sendWithContext(message,headers,cancelled);
+          if(!"lookup".equals(((Map<?,?>)message.get("params")).get("name")))throw new AssertionError("Wrong delegated tool");
+          mcpCalls.incrementAndGet();control.abort();long deadline=System.nanoTime()+TimeUnit.SECONDS.toNanos(1);
+          while(!cancelled.getAsBoolean()&&System.nanoTime()<deadline)Thread.onSpinWait();
+          if(!cancelled.getAsBoolean())throw new AssertionError("Child MCP cancellation did not propagate");
+          settled.countDown();throw new AxAIServiceAbortedError("Child MCP invocation aborted");
+        }
+      };
+      var mcp=new AxMCPClient(mcpTransport,Map.of("era","legacy","namespace","inventory"));mcp.init();var imported=mcp.nativeTools().get(0);
+      var childOptions=new LinkedHashMap<String,Object>(Map.of("directResponse","off"));
+      if(cancel){childOptions.put("functionDiscovery",false);childOptions.put("functions",List.of(Ax.fn(imported.name).description("Lookup").parameters(imported.schema()).execution("background").contextHandler(imported::call).build()));}
+      var child=Ax.agent("question -> answer",childOptions);
       var parent=Ax.agent("question -> answer",Map.of("directResponse","off","runtime",runtime)).addChildAgent("team","researcher",child);
       var client=Ax.ai("openai",Map.of("api_key","test","model","gpt-6-astra","transport",transport));
       try {
@@ -249,6 +269,7 @@ public final class AstraSessionTest {
         if(observed.stream().filter(event->"applied".equals(event.get("type"))).count()!=11)throw new AssertionError("Control duplicated or lost");
         if(!((Map<?,?>)parent.getUsage().get("children")).get("team.researcher").equals(child.getUsage()))throw new AssertionError("Child usage lost");
       }catch(RuntimeException error){if(!cancel)throw error;if(!error.toString().toLowerCase().contains("abort")||(requests.size()<6||requests.size()>7)||runtime.closed!=1)throw new AssertionError("Child cancellation cleanup failed",error);}
+      if(cancel&&(!settled.await(1,TimeUnit.SECONDS)||mcpCalls.get()!=1))throw new AssertionError("Child MCP work leaked or replayed");
       var calls=parent.getActionLog().stream().filter(item->item instanceof Map<?,?> record&&"child-call".equals(record.get("call_id"))).toList();
       if(calls.size()!=1||!(cancel?"error":"ok").equals(((Map<?,?>)calls.get(0)).get("status")))throw new AssertionError("Child action missing or duplicated");
       if(!((Map<?,?>)parent.getUsage().get("children")).get("team.researcher").equals(child.getUsage()))throw new AssertionError("Child failure usage lost");

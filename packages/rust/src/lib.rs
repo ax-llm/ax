@@ -21235,6 +21235,15 @@ fn core_number_arg(args: &[CoreValue], index: usize) -> Result<f64, AxError> {
     }
 }
 
+fn core_string_utf16_units(args: &[CoreValue]) -> Result<CoreValue, AxError> {
+    let units = core_arg(args, 0)
+        .text()
+        .encode_utf16()
+        .map(|unit| CoreValue::Num(unit as f64))
+        .collect();
+    Ok(CoreValue::list_from(units))
+}
+
 fn core_string_codepoint_length(args: &[CoreValue]) -> Result<CoreValue, AxError> {
     Ok(CoreValue::Num(
         core_arg(args, 0).text().chars().count() as f64
@@ -53913,6 +53922,40 @@ fn _select_structured_output_rung(args: &[CoreValue]) -> Result<CoreValue, AxErr
     unreachable_code,
     clippy::all
 )]
+fn _regex_peek(args: &[CoreValue]) -> Result<CoreValue, AxError> {
+    axir_coverage_mark("_regex_peek");
+    let mut v_s = core_arg(args, 0);
+    let mut v_t1 = CoreValue::Null;
+    let mut v_t2 = CoreValue::Null;
+    let mut v_t3 = CoreValue::Null;
+    let mut v_t4 = CoreValue::Null;
+    let mut v_t5 = CoreValue::Null;
+    let mut v_t6 = CoreValue::Null;
+    let mut v_t7 = CoreValue::Null;
+    let mut v_t8 = CoreValue::Null;
+    let mut v_t9 = CoreValue::Null;
+    v_t1 = core_get(&v_s, &CoreValue::from("p"), CoreValue::Null);
+    v_t2 = core_get(&v_s, &CoreValue::from("u"), CoreValue::Null);
+    v_t3 = core_len(&[v_t2.clone()])?;
+    v_t4 = core_gte(&[v_t1.clone(), v_t3.clone()])?;
+    if core_truthy(&v_t4) {
+        v_t5 = core_mul(&[CoreValue::Num(-1f64), CoreValue::Num(1f64)])?;
+        v_t6 = core_math_floor(&[v_t5.clone()])?;
+        return Ok(v_t6.clone());
+    }
+    v_t7 = core_get(&v_s, &CoreValue::from("u"), CoreValue::Null);
+    v_t8 = core_get(&v_s, &CoreValue::from("p"), CoreValue::Null);
+    v_t9 = core_get(&v_t7, &v_t8.clone(), CoreValue::Null);
+    return Ok(v_t9.clone());
+}
+
+#[allow(
+    unused_variables,
+    unused_assignments,
+    unused_mut,
+    unreachable_code,
+    clippy::all
+)]
 fn chat_session_validate_required_arguments(args: &[CoreValue]) -> Result<CoreValue, AxError> {
     axir_coverage_mark("chat_session_validate_required_arguments");
     let mut v_schema = core_arg(args, 0);
@@ -54018,6 +54061,29 @@ fn _execute_tool_call(args: &[CoreValue]) -> Result<CoreValue, AxError> {
     v_message = core_string_format(&[CoreValue::from("Function not found: {}. Available functions: {}. Call one of these exact function names."), v_name.clone(), v_available.clone()])?;
     v_error = core_validation_error(&[v_message.clone()])?;
     return Err(core_as_error(&v_error));
+}
+
+#[allow(
+    unused_variables,
+    unused_assignments,
+    unused_mut,
+    unreachable_code,
+    clippy::all
+)]
+fn _regex_take(args: &[CoreValue]) -> Result<CoreValue, AxError> {
+    axir_coverage_mark("_regex_take");
+    let mut v_s = core_arg(args, 0);
+    let mut v_c = CoreValue::Null;
+    let mut v_t1 = CoreValue::Null;
+    let mut v_t2 = CoreValue::Null;
+    let mut v_t3 = CoreValue::Null;
+    v_c = core_none(&[])?;
+    v_t1 = _regex_peek(&[v_s.clone()])?;
+    v_c = v_t1.clone();
+    v_t2 = core_get(&v_s, &CoreValue::from("p"), CoreValue::Null);
+    v_t3 = core_add(&[v_t2.clone(), CoreValue::Num(1f64)])?;
+    core_set(&v_s, CoreValue::from("p"), v_t3.clone())?;
+    return Ok(v_c.clone());
 }
 
 #[allow(
@@ -54165,6 +54231,28 @@ fn _chat_session_argument_equal(args: &[CoreValue]) -> Result<CoreValue, AxError
     }
     v_same = core_eq(&[v_left.clone(), v_right.clone()])?;
     return Ok(v_same.clone());
+}
+
+#[allow(
+    unused_variables,
+    unused_assignments,
+    unused_mut,
+    unreachable_code,
+    clippy::all
+)]
+fn _regex_digit(args: &[CoreValue]) -> Result<CoreValue, AxError> {
+    axir_coverage_mark("_regex_digit");
+    let mut v_c = core_arg(args, 0);
+    let mut v_t1 = CoreValue::Null;
+    let mut v_t2 = CoreValue::Null;
+    let mut v_t3 = CoreValue::Null;
+    v_t1 = core_gte(&[v_c.clone(), CoreValue::Num(48f64)])?;
+    v_t2 = v_t1.clone();
+    if core_truthy(&v_t2) {
+        v_t3 = core_lte(&[v_c.clone(), CoreValue::Num(57f64)])?;
+        v_t2 = v_t3.clone();
+    }
+    return Ok(v_t2.clone());
 }
 
 #[allow(
@@ -54488,6 +54576,103 @@ fn _validate_optimization_component_value(args: &[CoreValue]) -> Result<CoreValu
         }
     }
     return Ok(CoreValue::Bool(true));
+}
+
+#[allow(
+    unused_variables,
+    unused_assignments,
+    unused_mut,
+    unreachable_code,
+    clippy::all
+)]
+fn _regex_hexdigit(args: &[CoreValue]) -> Result<CoreValue, AxError> {
+    axir_coverage_mark("_regex_hexdigit");
+    let mut v_c = core_arg(args, 0);
+    let mut v_t1 = CoreValue::Null;
+    let mut v_t10 = CoreValue::Null;
+    let mut v_t11 = CoreValue::Null;
+    let mut v_t12 = CoreValue::Null;
+    let mut v_t13 = CoreValue::Null;
+    let mut v_t14 = CoreValue::Null;
+    let mut v_t15 = CoreValue::Null;
+    let mut v_t16 = CoreValue::Null;
+    let mut v_t17 = CoreValue::Null;
+    let mut v_t18 = CoreValue::Null;
+    let mut v_t2 = CoreValue::Null;
+    let mut v_t3 = CoreValue::Null;
+    let mut v_t4 = CoreValue::Null;
+    let mut v_t5 = CoreValue::Null;
+    let mut v_t6 = CoreValue::Null;
+    let mut v_t7 = CoreValue::Null;
+    let mut v_t8 = CoreValue::Null;
+    let mut v_t9 = CoreValue::Null;
+    v_t1 = _regex_digit(&[v_c.clone()])?;
+    if core_truthy(&v_t1) {
+        v_t2 = core_mul(&[CoreValue::Num(-1f64), CoreValue::Num(48f64)])?;
+        v_t3 = core_add(&[v_c.clone(), v_t2.clone()])?;
+        v_t4 = core_math_floor(&[v_t3.clone()])?;
+        return Ok(v_t4.clone());
+    }
+    v_t5 = core_gte(&[v_c.clone(), CoreValue::Num(65f64)])?;
+    v_t6 = v_t5.clone();
+    if core_truthy(&v_t6) {
+        v_t7 = core_lte(&[v_c.clone(), CoreValue::Num(70f64)])?;
+        v_t6 = v_t7.clone();
+    }
+    if core_truthy(&v_t6) {
+        v_t8 = core_mul(&[CoreValue::Num(-1f64), CoreValue::Num(55f64)])?;
+        v_t9 = core_add(&[v_c.clone(), v_t8.clone()])?;
+        v_t10 = core_math_floor(&[v_t9.clone()])?;
+        return Ok(v_t10.clone());
+    }
+    v_t11 = core_gte(&[v_c.clone(), CoreValue::Num(97f64)])?;
+    v_t12 = v_t11.clone();
+    if core_truthy(&v_t12) {
+        v_t13 = core_lte(&[v_c.clone(), CoreValue::Num(102f64)])?;
+        v_t12 = v_t13.clone();
+    }
+    if core_truthy(&v_t12) {
+        v_t14 = core_mul(&[CoreValue::Num(-1f64), CoreValue::Num(87f64)])?;
+        v_t15 = core_add(&[v_c.clone(), v_t14.clone()])?;
+        v_t16 = core_math_floor(&[v_t15.clone()])?;
+        return Ok(v_t16.clone());
+    }
+    v_t17 = core_mul(&[CoreValue::Num(-1f64), CoreValue::Num(1f64)])?;
+    v_t18 = core_math_floor(&[v_t17.clone()])?;
+    return Ok(v_t18.clone());
+}
+
+#[allow(
+    unused_variables,
+    unused_assignments,
+    unused_mut,
+    unreachable_code,
+    clippy::all
+)]
+fn _regex_node(args: &[CoreValue]) -> Result<CoreValue, AxError> {
+    axir_coverage_mark("_regex_node");
+    let mut v_k = core_arg(args, 0);
+    let mut v_t1 = CoreValue::Null;
+    v_t1 = CoreValue::new_map();
+    core_set(&v_t1, CoreValue::from("k"), v_k.clone())?;
+    return Ok(v_t1.clone());
+}
+
+#[allow(
+    unused_variables,
+    unused_assignments,
+    unused_mut,
+    unreachable_code,
+    clippy::all
+)]
+fn _regex_literal(args: &[CoreValue]) -> Result<CoreValue, AxError> {
+    axir_coverage_mark("_regex_literal");
+    let mut v_c = core_arg(args, 0);
+    let mut v_t1 = CoreValue::Null;
+    v_t1 = CoreValue::new_map();
+    core_set(&v_t1, CoreValue::from("k"), CoreValue::from("char"))?;
+    core_set(&v_t1, CoreValue::from("c"), v_c.clone())?;
+    return Ok(v_t1.clone());
 }
 
 #[allow(
@@ -54928,7 +55113,7 @@ fn _chat_session_argument_errors(args: &[CoreValue]) -> Result<CoreValue, AxErro
         }
         v_pattern = core_get(&v_schema, &CoreValue::from("pattern"), CoreValue::from(""));
         if core_truthy(&v_pattern) {
-            v_matches = core_regex_match(v_pattern.clone(), &v_arguments)?;
+            v_matches = _regex_test(&[v_pattern.clone(), v_arguments.clone()])?;
             if core_truthy(&v_matches) {
             } else {
                 v_message = core_string_format(&[
@@ -55084,6 +55269,191 @@ fn _chat_session_argument_errors(args: &[CoreValue]) -> Result<CoreValue, AxErro
         }
     }
     return Ok(v_errors.clone());
+}
+
+#[allow(
+    unused_variables,
+    unused_assignments,
+    unused_mut,
+    unreachable_code,
+    clippy::all
+)]
+fn _regex_scan_groups(args: &[CoreValue]) -> Result<CoreValue, AxError> {
+    axir_coverage_mark("_regex_scan_groups");
+    let mut v_u = core_arg(args, 0);
+    let mut v_c = CoreValue::Null;
+    let mut v_count = CoreValue::Null;
+    let mut v_i = CoreValue::Null;
+    let mut v_ids = CoreValue::Null;
+    let mut v_inside = CoreValue::Null;
+    let mut v_name = CoreValue::Null;
+    let mut v_named = CoreValue::Null;
+    let mut v_names = CoreValue::Null;
+    let mut v_parser = CoreValue::Null;
+    let mut v_special = CoreValue::Null;
+    let mut v_t1 = CoreValue::Null;
+    let mut v_t10 = CoreValue::Null;
+    let mut v_t11 = CoreValue::Null;
+    let mut v_t12 = CoreValue::Null;
+    let mut v_t13 = CoreValue::Null;
+    let mut v_t14 = CoreValue::Null;
+    let mut v_t15 = CoreValue::Null;
+    let mut v_t16 = CoreValue::Null;
+    let mut v_t17 = CoreValue::Null;
+    let mut v_t18 = CoreValue::Null;
+    let mut v_t19 = CoreValue::Null;
+    let mut v_t2 = CoreValue::Null;
+    let mut v_t20 = CoreValue::Null;
+    let mut v_t21 = CoreValue::Null;
+    let mut v_t22 = CoreValue::Null;
+    let mut v_t23 = CoreValue::Null;
+    let mut v_t24 = CoreValue::Null;
+    let mut v_t25 = CoreValue::Null;
+    let mut v_t26 = CoreValue::Null;
+    let mut v_t27 = CoreValue::Null;
+    let mut v_t28 = CoreValue::Null;
+    let mut v_t29 = CoreValue::Null;
+    let mut v_t3 = CoreValue::Null;
+    let mut v_t30 = CoreValue::Null;
+    let mut v_t31 = CoreValue::Null;
+    let mut v_t32 = CoreValue::Null;
+    let mut v_t33 = CoreValue::Null;
+    let mut v_t34 = CoreValue::Null;
+    let mut v_t35 = CoreValue::Null;
+    let mut v_t36 = CoreValue::Null;
+    let mut v_t37 = CoreValue::Null;
+    let mut v_t38 = CoreValue::Null;
+    let mut v_t39 = CoreValue::Null;
+    let mut v_t4 = CoreValue::Null;
+    let mut v_t40 = CoreValue::Null;
+    let mut v_t41 = CoreValue::Null;
+    let mut v_t42 = CoreValue::Null;
+    let mut v_t43 = CoreValue::Null;
+    let mut v_t44 = CoreValue::Null;
+    let mut v_t5 = CoreValue::Null;
+    let mut v_t6 = CoreValue::Null;
+    let mut v_t7 = CoreValue::Null;
+    let mut v_t8 = CoreValue::Null;
+    let mut v_t9 = CoreValue::Null;
+    v_c = core_none(&[])?;
+    v_count = core_none(&[])?;
+    v_i = core_none(&[])?;
+    v_ids = core_none(&[])?;
+    v_inside = core_none(&[])?;
+    v_name = core_none(&[])?;
+    v_named = core_none(&[])?;
+    v_names = core_none(&[])?;
+    v_parser = core_none(&[])?;
+    v_special = core_none(&[])?;
+    v_count = CoreValue::Num(0f64);
+    v_i = CoreValue::Num(0f64);
+    v_inside = CoreValue::Bool(false);
+    v_t1 = CoreValue::new_map();
+    v_names = v_t1.clone();
+    loop {
+        v_t2 = core_len(&[v_u.clone()])?;
+        v_t3 = core_lt(&[v_i.clone(), v_t2.clone()])?;
+        v_t4 = core_not(&[v_t3.clone()])?;
+        if core_truthy(&v_t4) {
+            break;
+        }
+        v_t5 = core_get(&v_u, &v_i.clone(), CoreValue::Null);
+        v_c = v_t5.clone();
+        v_t6 = core_add(&[v_i.clone(), CoreValue::Num(1f64)])?;
+        v_i = v_t6.clone();
+        v_t7 = core_eq(&[v_c.clone(), CoreValue::Num(92f64)])?;
+        if core_truthy(&v_t7) {
+            v_t8 = core_add(&[v_i.clone(), CoreValue::Num(1f64)])?;
+            v_i = v_t8.clone();
+            continue;
+        }
+        v_t9 = core_eq(&[v_c.clone(), CoreValue::Num(91f64)])?;
+        if core_truthy(&v_t9) {
+            v_inside = CoreValue::Bool(true);
+        }
+        v_t10 = core_eq(&[v_c.clone(), CoreValue::Num(93f64)])?;
+        if core_truthy(&v_t10) {
+            v_inside = CoreValue::Bool(false);
+        }
+        v_t11 = core_eq(&[v_c.clone(), CoreValue::Num(40f64)])?;
+        v_t12 = v_t11.clone();
+        if core_truthy(&v_t12) {
+            v_t13 = core_not(&[v_inside.clone()])?;
+            v_t12 = v_t13.clone();
+        }
+        if core_truthy(&v_t12) {
+            v_t14 = core_len(&[v_u.clone()])?;
+            v_t15 = core_lt(&[v_i.clone(), v_t14.clone()])?;
+            v_t16 = v_t15.clone();
+            if core_truthy(&v_t16) {
+                v_t17 = core_get(&v_u, &v_i.clone(), CoreValue::Null);
+                v_t18 = core_eq(&[v_t17.clone(), CoreValue::Num(63f64)])?;
+                v_t16 = v_t18.clone();
+            }
+            v_special = v_t16.clone();
+            v_t19 = v_special.clone();
+            if core_truthy(&v_t19) {
+                v_t20 = core_add(&[v_i.clone(), CoreValue::Num(2f64)])?;
+                v_t21 = core_len(&[v_u.clone()])?;
+                v_t22 = core_lt(&[v_t20.clone(), v_t21.clone()])?;
+                v_t19 = v_t22.clone();
+            }
+            if core_truthy(&v_t19) {
+                v_t23 = core_add(&[v_i.clone(), CoreValue::Num(1f64)])?;
+                v_t24 = core_get(&v_u, &v_t23.clone(), CoreValue::Null);
+                v_t25 = core_eq(&[v_t24.clone(), CoreValue::Num(60f64)])?;
+                v_t19 = v_t25.clone();
+            }
+            if core_truthy(&v_t19) {
+                v_t26 = core_add(&[v_i.clone(), CoreValue::Num(2f64)])?;
+                v_t27 = core_get(&v_u, &v_t26.clone(), CoreValue::Null);
+                v_t28 = core_ne(&[v_t27.clone(), CoreValue::Num(61f64)])?;
+                v_t19 = v_t28.clone();
+            }
+            if core_truthy(&v_t19) {
+                v_t29 = core_add(&[v_i.clone(), CoreValue::Num(2f64)])?;
+                v_t30 = core_get(&v_u, &v_t29.clone(), CoreValue::Null);
+                v_t31 = core_ne(&[v_t30.clone(), CoreValue::Num(33f64)])?;
+                v_t19 = v_t31.clone();
+            }
+            v_named = v_t19.clone();
+            v_t32 = core_not(&[v_special.clone()])?;
+            v_t33 = v_t32.clone();
+            v_t34 = core_not(&[v_t33.clone()])?;
+            if core_truthy(&v_t34) {
+                v_t33 = v_named.clone();
+            }
+            if core_truthy(&v_t33) {
+                v_t35 = core_add(&[v_count.clone(), CoreValue::Num(1f64)])?;
+                v_count = v_t35.clone();
+                if core_truthy(&v_named) {
+                    v_t36 = CoreValue::new_map();
+                    core_set(&v_t36, CoreValue::from("u"), v_u.clone())?;
+                    v_t37 = core_add(&[v_i.clone(), CoreValue::Num(2f64)])?;
+                    core_set(&v_t36, CoreValue::from("p"), v_t37.clone())?;
+                    v_parser = v_t36.clone();
+                    v_t38 = _regex_read_name(&[v_parser.clone()])?;
+                    v_name = v_t38.clone();
+                    v_t39 = core_get(&v_parser, &CoreValue::from("p"), CoreValue::Null);
+                    v_i = v_t39.clone();
+                    v_t40 = core_get(&v_names, &v_name.clone(), CoreValue::Null);
+                    v_ids = v_t40.clone();
+                    v_t41 = core_none(&[])?;
+                    v_t42 = core_eq(&[v_ids.clone(), v_t41.clone()])?;
+                    if core_truthy(&v_t42) {
+                        v_t43 = CoreValue::new_list();
+                        v_ids = v_t43.clone();
+                    }
+                    core_append(&v_ids, v_count.clone())?;
+                    core_set(&v_names, v_name.clone(), v_ids.clone())?;
+                }
+            }
+        }
+    }
+    v_t44 = CoreValue::new_map();
+    core_set(&v_t44, CoreValue::from("count"), v_count.clone())?;
+    core_set(&v_t44, CoreValue::from("names"), v_names.clone())?;
+    return Ok(v_t44.clone());
 }
 
 #[allow(
@@ -55553,6 +55923,517 @@ fn _serialize_optimized_artifact(args: &[CoreValue]) -> Result<CoreValue, AxErro
     let mut v_text = CoreValue::Null;
     v_text = core_json_stringify(&[v_artifact.clone()])?;
     return Ok(v_text.clone());
+}
+
+#[allow(
+    unused_variables,
+    unused_assignments,
+    unused_mut,
+    unreachable_code,
+    clippy::all
+)]
+fn _regex_escaped(args: &[CoreValue]) -> Result<CoreValue, AxError> {
+    axir_coverage_mark("_regex_escaped");
+    let mut v_s = core_arg(args, 0);
+    let mut v_inside = core_arg(args, 1);
+    let mut v_c = CoreValue::Null;
+    let mut v_d = CoreValue::Null;
+    let mut v_i = CoreValue::Null;
+    let mut v_limit = CoreValue::Null;
+    let mut v_n = CoreValue::Null;
+    let mut v_name = CoreValue::Null;
+    let mut v_start = CoreValue::Null;
+    let mut v_t1 = CoreValue::Null;
+    let mut v_t10 = CoreValue::Null;
+    let mut v_t100 = CoreValue::Null;
+    let mut v_t101 = CoreValue::Null;
+    let mut v_t102 = CoreValue::Null;
+    let mut v_t103 = CoreValue::Null;
+    let mut v_t104 = CoreValue::Null;
+    let mut v_t105 = CoreValue::Null;
+    let mut v_t106 = CoreValue::Null;
+    let mut v_t107 = CoreValue::Null;
+    let mut v_t108 = CoreValue::Null;
+    let mut v_t109 = CoreValue::Null;
+    let mut v_t11 = CoreValue::Null;
+    let mut v_t110 = CoreValue::Null;
+    let mut v_t111 = CoreValue::Null;
+    let mut v_t112 = CoreValue::Null;
+    let mut v_t113 = CoreValue::Null;
+    let mut v_t114 = CoreValue::Null;
+    let mut v_t115 = CoreValue::Null;
+    let mut v_t116 = CoreValue::Null;
+    let mut v_t117 = CoreValue::Null;
+    let mut v_t118 = CoreValue::Null;
+    let mut v_t119 = CoreValue::Null;
+    let mut v_t12 = CoreValue::Null;
+    let mut v_t120 = CoreValue::Null;
+    let mut v_t121 = CoreValue::Null;
+    let mut v_t122 = CoreValue::Null;
+    let mut v_t123 = CoreValue::Null;
+    let mut v_t124 = CoreValue::Null;
+    let mut v_t125 = CoreValue::Null;
+    let mut v_t126 = CoreValue::Null;
+    let mut v_t127 = CoreValue::Null;
+    let mut v_t128 = CoreValue::Null;
+    let mut v_t129 = CoreValue::Null;
+    let mut v_t13 = CoreValue::Null;
+    let mut v_t130 = CoreValue::Null;
+    let mut v_t131 = CoreValue::Null;
+    let mut v_t132 = CoreValue::Null;
+    let mut v_t133 = CoreValue::Null;
+    let mut v_t134 = CoreValue::Null;
+    let mut v_t135 = CoreValue::Null;
+    let mut v_t136 = CoreValue::Null;
+    let mut v_t137 = CoreValue::Null;
+    let mut v_t138 = CoreValue::Null;
+    let mut v_t139 = CoreValue::Null;
+    let mut v_t14 = CoreValue::Null;
+    let mut v_t140 = CoreValue::Null;
+    let mut v_t141 = CoreValue::Null;
+    let mut v_t142 = CoreValue::Null;
+    let mut v_t143 = CoreValue::Null;
+    let mut v_t144 = CoreValue::Null;
+    let mut v_t145 = CoreValue::Null;
+    let mut v_t146 = CoreValue::Null;
+    let mut v_t147 = CoreValue::Null;
+    let mut v_t148 = CoreValue::Null;
+    let mut v_t15 = CoreValue::Null;
+    let mut v_t16 = CoreValue::Null;
+    let mut v_t17 = CoreValue::Null;
+    let mut v_t18 = CoreValue::Null;
+    let mut v_t19 = CoreValue::Null;
+    let mut v_t2 = CoreValue::Null;
+    let mut v_t20 = CoreValue::Null;
+    let mut v_t21 = CoreValue::Null;
+    let mut v_t22 = CoreValue::Null;
+    let mut v_t23 = CoreValue::Null;
+    let mut v_t24 = CoreValue::Null;
+    let mut v_t25 = CoreValue::Null;
+    let mut v_t26 = CoreValue::Null;
+    let mut v_t27 = CoreValue::Null;
+    let mut v_t28 = CoreValue::Null;
+    let mut v_t29 = CoreValue::Null;
+    let mut v_t3 = CoreValue::Null;
+    let mut v_t30 = CoreValue::Null;
+    let mut v_t31 = CoreValue::Null;
+    let mut v_t32 = CoreValue::Null;
+    let mut v_t33 = CoreValue::Null;
+    let mut v_t34 = CoreValue::Null;
+    let mut v_t35 = CoreValue::Null;
+    let mut v_t36 = CoreValue::Null;
+    let mut v_t37 = CoreValue::Null;
+    let mut v_t38 = CoreValue::Null;
+    let mut v_t39 = CoreValue::Null;
+    let mut v_t4 = CoreValue::Null;
+    let mut v_t40 = CoreValue::Null;
+    let mut v_t41 = CoreValue::Null;
+    let mut v_t42 = CoreValue::Null;
+    let mut v_t43 = CoreValue::Null;
+    let mut v_t44 = CoreValue::Null;
+    let mut v_t45 = CoreValue::Null;
+    let mut v_t46 = CoreValue::Null;
+    let mut v_t47 = CoreValue::Null;
+    let mut v_t48 = CoreValue::Null;
+    let mut v_t49 = CoreValue::Null;
+    let mut v_t5 = CoreValue::Null;
+    let mut v_t50 = CoreValue::Null;
+    let mut v_t51 = CoreValue::Null;
+    let mut v_t52 = CoreValue::Null;
+    let mut v_t53 = CoreValue::Null;
+    let mut v_t54 = CoreValue::Null;
+    let mut v_t55 = CoreValue::Null;
+    let mut v_t56 = CoreValue::Null;
+    let mut v_t57 = CoreValue::Null;
+    let mut v_t58 = CoreValue::Null;
+    let mut v_t59 = CoreValue::Null;
+    let mut v_t6 = CoreValue::Null;
+    let mut v_t60 = CoreValue::Null;
+    let mut v_t61 = CoreValue::Null;
+    let mut v_t62 = CoreValue::Null;
+    let mut v_t63 = CoreValue::Null;
+    let mut v_t64 = CoreValue::Null;
+    let mut v_t65 = CoreValue::Null;
+    let mut v_t66 = CoreValue::Null;
+    let mut v_t67 = CoreValue::Null;
+    let mut v_t68 = CoreValue::Null;
+    let mut v_t69 = CoreValue::Null;
+    let mut v_t7 = CoreValue::Null;
+    let mut v_t70 = CoreValue::Null;
+    let mut v_t71 = CoreValue::Null;
+    let mut v_t72 = CoreValue::Null;
+    let mut v_t73 = CoreValue::Null;
+    let mut v_t74 = CoreValue::Null;
+    let mut v_t75 = CoreValue::Null;
+    let mut v_t76 = CoreValue::Null;
+    let mut v_t77 = CoreValue::Null;
+    let mut v_t78 = CoreValue::Null;
+    let mut v_t79 = CoreValue::Null;
+    let mut v_t8 = CoreValue::Null;
+    let mut v_t80 = CoreValue::Null;
+    let mut v_t81 = CoreValue::Null;
+    let mut v_t82 = CoreValue::Null;
+    let mut v_t83 = CoreValue::Null;
+    let mut v_t84 = CoreValue::Null;
+    let mut v_t85 = CoreValue::Null;
+    let mut v_t86 = CoreValue::Null;
+    let mut v_t87 = CoreValue::Null;
+    let mut v_t88 = CoreValue::Null;
+    let mut v_t89 = CoreValue::Null;
+    let mut v_t9 = CoreValue::Null;
+    let mut v_t90 = CoreValue::Null;
+    let mut v_t91 = CoreValue::Null;
+    let mut v_t92 = CoreValue::Null;
+    let mut v_t93 = CoreValue::Null;
+    let mut v_t94 = CoreValue::Null;
+    let mut v_t95 = CoreValue::Null;
+    let mut v_t96 = CoreValue::Null;
+    let mut v_t97 = CoreValue::Null;
+    let mut v_t98 = CoreValue::Null;
+    let mut v_t99 = CoreValue::Null;
+    let mut v_value = CoreValue::Null;
+    v_c = core_none(&[])?;
+    v_d = core_none(&[])?;
+    v_i = core_none(&[])?;
+    v_limit = core_none(&[])?;
+    v_n = core_none(&[])?;
+    v_name = core_none(&[])?;
+    v_start = core_none(&[])?;
+    v_value = core_none(&[])?;
+    v_t1 = _regex_take(&[v_s.clone()])?;
+    v_c = v_t1.clone();
+    v_t2 = core_lt(&[v_c.clone(), CoreValue::Num(0f64)])?;
+    if core_truthy(&v_t2) {
+        v_t3 = core_string_format(&[
+            CoreValue::from("Invalid regular expression: {}"),
+            CoreValue::from("Trailing escape"),
+        ])?;
+        v_t4 = core_validation_error(&[v_t3.clone()])?;
+        return Err(core_as_error(&v_t4));
+    }
+    v_t5 = core_eq(&[v_c.clone(), CoreValue::Num(100f64)])?;
+    v_t6 = v_t5.clone();
+    v_t7 = core_not(&[v_t6.clone()])?;
+    if core_truthy(&v_t7) {
+        v_t8 = core_eq(&[v_c.clone(), CoreValue::Num(68f64)])?;
+        v_t6 = v_t8.clone();
+    }
+    v_t9 = core_not(&[v_t6.clone()])?;
+    if core_truthy(&v_t9) {
+        v_t10 = core_eq(&[v_c.clone(), CoreValue::Num(119f64)])?;
+        v_t6 = v_t10.clone();
+    }
+    v_t11 = core_not(&[v_t6.clone()])?;
+    if core_truthy(&v_t11) {
+        v_t12 = core_eq(&[v_c.clone(), CoreValue::Num(87f64)])?;
+        v_t6 = v_t12.clone();
+    }
+    v_t13 = core_not(&[v_t6.clone()])?;
+    if core_truthy(&v_t13) {
+        v_t14 = core_eq(&[v_c.clone(), CoreValue::Num(115f64)])?;
+        v_t6 = v_t14.clone();
+    }
+    v_t15 = core_not(&[v_t6.clone()])?;
+    if core_truthy(&v_t15) {
+        v_t16 = core_eq(&[v_c.clone(), CoreValue::Num(83f64)])?;
+        v_t6 = v_t16.clone();
+    }
+    if core_truthy(&v_t6) {
+        v_t17 = CoreValue::new_map();
+        core_set(
+            &v_t17,
+            CoreValue::from("k"),
+            CoreValue::from("class_escape"),
+        )?;
+        core_set(&v_t17, CoreValue::from("c"), v_c.clone())?;
+        return Ok(v_t17.clone());
+    }
+    v_t18 = core_eq(&[v_c.clone(), CoreValue::Num(98f64)])?;
+    if core_truthy(&v_t18) {
+        if core_truthy(&v_inside) {
+            v_t19 = _regex_literal(&[CoreValue::Num(8f64)])?;
+            return Ok(v_t19.clone());
+        }
+        v_t20 = CoreValue::new_map();
+        core_set(&v_t20, CoreValue::from("k"), CoreValue::from("boundary"))?;
+        core_set(&v_t20, CoreValue::from("negative"), CoreValue::Bool(false))?;
+        return Ok(v_t20.clone());
+    }
+    v_t21 = core_eq(&[v_c.clone(), CoreValue::Num(66f64)])?;
+    v_t22 = v_t21.clone();
+    if core_truthy(&v_t22) {
+        v_t23 = core_not(&[v_inside.clone()])?;
+        v_t22 = v_t23.clone();
+    }
+    if core_truthy(&v_t22) {
+        v_t24 = CoreValue::new_map();
+        core_set(&v_t24, CoreValue::from("k"), CoreValue::from("boundary"))?;
+        core_set(&v_t24, CoreValue::from("negative"), CoreValue::Bool(true))?;
+        return Ok(v_t24.clone());
+    }
+    v_t25 = core_eq(&[v_c.clone(), CoreValue::Num(102f64)])?;
+    if core_truthy(&v_t25) {
+        v_t26 = _regex_literal(&[CoreValue::Num(12f64)])?;
+        return Ok(v_t26.clone());
+    }
+    v_t27 = core_eq(&[v_c.clone(), CoreValue::Num(110f64)])?;
+    if core_truthy(&v_t27) {
+        v_t28 = _regex_literal(&[CoreValue::Num(10f64)])?;
+        return Ok(v_t28.clone());
+    }
+    v_t29 = core_eq(&[v_c.clone(), CoreValue::Num(114f64)])?;
+    if core_truthy(&v_t29) {
+        v_t30 = _regex_literal(&[CoreValue::Num(13f64)])?;
+        return Ok(v_t30.clone());
+    }
+    v_t31 = core_eq(&[v_c.clone(), CoreValue::Num(116f64)])?;
+    if core_truthy(&v_t31) {
+        v_t32 = _regex_literal(&[CoreValue::Num(9f64)])?;
+        return Ok(v_t32.clone());
+    }
+    v_t33 = core_eq(&[v_c.clone(), CoreValue::Num(118f64)])?;
+    if core_truthy(&v_t33) {
+        v_t34 = _regex_literal(&[CoreValue::Num(11f64)])?;
+        return Ok(v_t34.clone());
+    }
+    v_t35 = core_eq(&[v_c.clone(), CoreValue::Num(120f64)])?;
+    v_t36 = v_t35.clone();
+    v_t37 = core_not(&[v_t36.clone()])?;
+    if core_truthy(&v_t37) {
+        v_t38 = core_eq(&[v_c.clone(), CoreValue::Num(117f64)])?;
+        v_t36 = v_t38.clone();
+    }
+    if core_truthy(&v_t36) {
+        v_n = CoreValue::Num(2f64);
+        v_t39 = core_eq(&[v_c.clone(), CoreValue::Num(117f64)])?;
+        if core_truthy(&v_t39) {
+            v_n = CoreValue::Num(4f64);
+        }
+        v_t40 = core_get(&v_s, &CoreValue::from("p"), CoreValue::Null);
+        v_start = v_t40.clone();
+        v_value = CoreValue::Num(0f64);
+        v_i = CoreValue::Num(0f64);
+        loop {
+            v_t41 = core_lt(&[v_i.clone(), v_n.clone()])?;
+            v_t42 = v_t41.clone();
+            if core_truthy(&v_t42) {
+                v_t43 = _regex_peek(&[v_s.clone()])?;
+                v_t44 = _regex_hexdigit(&[v_t43.clone()])?;
+                v_t45 = core_gte(&[v_t44.clone(), CoreValue::Num(0f64)])?;
+                v_t42 = v_t45.clone();
+            }
+            v_t46 = core_not(&[v_t42.clone()])?;
+            if core_truthy(&v_t46) {
+                break;
+            }
+            v_t47 = core_mul(&[v_value.clone(), CoreValue::Num(16f64)])?;
+            v_t48 = core_math_floor(&[v_t47.clone()])?;
+            v_t49 = _regex_take(&[v_s.clone()])?;
+            v_t50 = _regex_hexdigit(&[v_t49.clone()])?;
+            v_t51 = core_add(&[v_t48.clone(), v_t50.clone()])?;
+            v_value = v_t51.clone();
+            v_t52 = core_add(&[v_i.clone(), CoreValue::Num(1f64)])?;
+            v_i = v_t52.clone();
+        }
+        v_t53 = core_eq(&[v_i.clone(), v_n.clone()])?;
+        if core_truthy(&v_t53) {
+            v_t54 = _regex_literal(&[v_value.clone()])?;
+            return Ok(v_t54.clone());
+        }
+        core_set(&v_s, CoreValue::from("p"), v_start.clone())?;
+        v_t55 = _regex_literal(&[v_c.clone()])?;
+        return Ok(v_t55.clone());
+    }
+    v_t56 = core_eq(&[v_c.clone(), CoreValue::Num(99f64)])?;
+    if core_truthy(&v_t56) {
+        v_t57 = _regex_peek(&[v_s.clone()])?;
+        v_d = v_t57.clone();
+        v_t58 = core_gte(&[v_d.clone(), CoreValue::Num(65f64)])?;
+        v_t59 = v_t58.clone();
+        if core_truthy(&v_t59) {
+            v_t60 = core_lte(&[v_d.clone(), CoreValue::Num(90f64)])?;
+            v_t59 = v_t60.clone();
+        }
+        v_t61 = v_t59.clone();
+        v_t62 = core_not(&[v_t61.clone()])?;
+        if core_truthy(&v_t62) {
+            v_t63 = core_gte(&[v_d.clone(), CoreValue::Num(97f64)])?;
+            v_t64 = v_t63.clone();
+            if core_truthy(&v_t64) {
+                v_t65 = core_lte(&[v_d.clone(), CoreValue::Num(122f64)])?;
+                v_t64 = v_t65.clone();
+            }
+            v_t61 = v_t64.clone();
+        }
+        v_t66 = core_not(&[v_t61.clone()])?;
+        if core_truthy(&v_t66) {
+            v_t67 = v_inside.clone();
+            if core_truthy(&v_t67) {
+                v_t68 = _regex_digit(&[v_d.clone()])?;
+                v_t69 = v_t68.clone();
+                v_t70 = core_not(&[v_t69.clone()])?;
+                if core_truthy(&v_t70) {
+                    v_t71 = core_eq(&[v_d.clone(), CoreValue::Num(95f64)])?;
+                    v_t69 = v_t71.clone();
+                }
+                v_t67 = v_t69.clone();
+            }
+            v_t61 = v_t67.clone();
+        }
+        if core_truthy(&v_t61) {
+            v_t72 = _regex_take(&[v_s.clone()])?;
+            v_t73 = core_div(&[v_d.clone(), CoreValue::Num(32f64)])?;
+            v_t74 = core_math_floor(&[v_t73.clone()])?;
+            v_t75 = core_mul(&[CoreValue::Num(32f64), v_t74.clone()])?;
+            v_t76 = core_mul(&[CoreValue::Num(-1f64), v_t75.clone()])?;
+            v_t77 = core_add(&[v_d.clone(), v_t76.clone()])?;
+            v_t78 = core_math_floor(&[v_t77.clone()])?;
+            v_t79 = _regex_literal(&[v_t78.clone()])?;
+            return Ok(v_t79.clone());
+        }
+        v_t80 = core_get(&v_s, &CoreValue::from("p"), CoreValue::Null);
+        v_t81 = core_mul(&[CoreValue::Num(-1f64), CoreValue::Num(1f64)])?;
+        v_t82 = core_add(&[v_t80.clone(), v_t81.clone()])?;
+        v_t83 = core_math_floor(&[v_t82.clone()])?;
+        core_set(&v_s, CoreValue::from("p"), v_t83.clone())?;
+        v_t84 = _regex_literal(&[CoreValue::Num(92f64)])?;
+        return Ok(v_t84.clone());
+    }
+    v_t85 = _regex_digit(&[v_c.clone()])?;
+    if core_truthy(&v_t85) {
+        v_t86 = core_get(&v_s, &CoreValue::from("p"), CoreValue::Null);
+        v_start = v_t86.clone();
+        v_t87 = core_mul(&[CoreValue::Num(-1f64), CoreValue::Num(48f64)])?;
+        v_t88 = core_add(&[v_c.clone(), v_t87.clone()])?;
+        v_t89 = core_math_floor(&[v_t88.clone()])?;
+        v_value = v_t89.clone();
+        loop {
+            v_t90 = _regex_peek(&[v_s.clone()])?;
+            v_t91 = _regex_digit(&[v_t90.clone()])?;
+            v_t92 = core_not(&[v_t91.clone()])?;
+            if core_truthy(&v_t92) {
+                break;
+            }
+            v_t93 = core_mul(&[v_value.clone(), CoreValue::Num(10f64)])?;
+            v_t94 = core_math_floor(&[v_t93.clone()])?;
+            v_t95 = _regex_take(&[v_s.clone()])?;
+            v_t96 = core_add(&[v_t94.clone(), v_t95.clone()])?;
+            v_t97 = core_mul(&[CoreValue::Num(-1f64), CoreValue::Num(48f64)])?;
+            v_t98 = core_add(&[v_t96.clone(), v_t97.clone()])?;
+            v_t99 = core_math_floor(&[v_t98.clone()])?;
+            v_value = v_t99.clone();
+        }
+        v_t100 = core_ne(&[v_c.clone(), CoreValue::Num(48f64)])?;
+        v_t101 = v_t100.clone();
+        if core_truthy(&v_t101) {
+            v_t102 = core_not(&[v_inside.clone()])?;
+            v_t101 = v_t102.clone();
+        }
+        if core_truthy(&v_t101) {
+            v_t103 = core_get(&v_s, &CoreValue::from("total"), CoreValue::Null);
+            v_t104 = core_lte(&[v_value.clone(), v_t103.clone()])?;
+            v_t101 = v_t104.clone();
+        }
+        if core_truthy(&v_t101) {
+            v_t105 = CoreValue::new_map();
+            core_set(&v_t105, CoreValue::from("k"), CoreValue::from("ref"))?;
+            v_t106 = CoreValue::new_list();
+            core_append(&v_t106, v_value.clone())?;
+            core_set(&v_t105, CoreValue::from("ids"), v_t106.clone())?;
+            return Ok(v_t105.clone());
+        }
+        core_set(&v_s, CoreValue::from("p"), v_start.clone())?;
+        v_t107 = core_lte(&[v_c.clone(), CoreValue::Num(55f64)])?;
+        if core_truthy(&v_t107) {
+            v_t108 = core_mul(&[CoreValue::Num(-1f64), CoreValue::Num(48f64)])?;
+            v_t109 = core_add(&[v_c.clone(), v_t108.clone()])?;
+            v_t110 = core_math_floor(&[v_t109.clone()])?;
+            v_value = v_t110.clone();
+            v_n = CoreValue::Num(1f64);
+            v_limit = CoreValue::Num(3f64);
+            v_t111 = core_gt(&[v_c.clone(), CoreValue::Num(51f64)])?;
+            if core_truthy(&v_t111) {
+                v_limit = CoreValue::Num(2f64);
+            }
+            loop {
+                v_t112 = core_lt(&[v_n.clone(), v_limit.clone()])?;
+                v_t113 = v_t112.clone();
+                if core_truthy(&v_t113) {
+                    v_t114 = _regex_peek(&[v_s.clone()])?;
+                    v_t115 = core_gte(&[v_t114.clone(), CoreValue::Num(48f64)])?;
+                    v_t113 = v_t115.clone();
+                }
+                if core_truthy(&v_t113) {
+                    v_t116 = _regex_peek(&[v_s.clone()])?;
+                    v_t117 = core_lte(&[v_t116.clone(), CoreValue::Num(55f64)])?;
+                    v_t113 = v_t117.clone();
+                }
+                v_t118 = core_not(&[v_t113.clone()])?;
+                if core_truthy(&v_t118) {
+                    break;
+                }
+                v_t119 = core_mul(&[v_value.clone(), CoreValue::Num(8f64)])?;
+                v_t120 = core_math_floor(&[v_t119.clone()])?;
+                v_t121 = _regex_take(&[v_s.clone()])?;
+                v_t122 = core_add(&[v_t120.clone(), v_t121.clone()])?;
+                v_t123 = core_mul(&[CoreValue::Num(-1f64), CoreValue::Num(48f64)])?;
+                v_t124 = core_add(&[v_t122.clone(), v_t123.clone()])?;
+                v_t125 = core_math_floor(&[v_t124.clone()])?;
+                v_value = v_t125.clone();
+                v_t126 = core_add(&[v_n.clone(), CoreValue::Num(1f64)])?;
+                v_n = v_t126.clone();
+            }
+            v_t127 = _regex_literal(&[v_value.clone()])?;
+            return Ok(v_t127.clone());
+        }
+        v_t128 = _regex_literal(&[v_c.clone()])?;
+        return Ok(v_t128.clone());
+    }
+    v_t129 = core_eq(&[v_c.clone(), CoreValue::Num(107f64)])?;
+    v_t130 = v_t129.clone();
+    if core_truthy(&v_t130) {
+        v_t131 = core_not(&[v_inside.clone()])?;
+        v_t130 = v_t131.clone();
+    }
+    if core_truthy(&v_t130) {
+        v_t132 = core_get(&v_s, &CoreValue::from("names"), CoreValue::Null);
+        v_t133 = core_len(&[v_t132.clone()])?;
+        v_t134 = core_gt(&[v_t133.clone(), CoreValue::Num(0f64)])?;
+        v_t130 = v_t134.clone();
+    }
+    if core_truthy(&v_t130) {
+        v_t135 = _regex_take(&[v_s.clone()])?;
+        v_t136 = core_ne(&[v_t135.clone(), CoreValue::Num(60f64)])?;
+        if core_truthy(&v_t136) {
+            v_t137 = core_string_format(&[
+                CoreValue::from("Invalid regular expression: {}"),
+                CoreValue::from("Invalid named backreference"),
+            ])?;
+            v_t138 = core_validation_error(&[v_t137.clone()])?;
+            return Err(core_as_error(&v_t138));
+        }
+        v_t139 = _regex_read_name(&[v_s.clone()])?;
+        v_name = v_t139.clone();
+        v_t140 = core_get(&v_s, &CoreValue::from("names"), CoreValue::Null);
+        v_t141 = core_map_contains(&[v_t140.clone(), v_name.clone()])?;
+        v_t142 = core_not(&[v_t141.clone()])?;
+        if core_truthy(&v_t142) {
+            v_t143 = core_string_format(&[
+                CoreValue::from("Invalid regular expression: {}"),
+                CoreValue::from("Unknown named backreference"),
+            ])?;
+            v_t144 = core_validation_error(&[v_t143.clone()])?;
+            return Err(core_as_error(&v_t144));
+        }
+        v_t145 = CoreValue::new_map();
+        core_set(&v_t145, CoreValue::from("k"), CoreValue::from("ref"))?;
+        v_t146 = core_get(&v_s, &CoreValue::from("names"), CoreValue::Null);
+        v_t147 = core_get(&v_t146, &v_name.clone(), CoreValue::Null);
+        core_set(&v_t145, CoreValue::from("ids"), v_t147.clone())?;
+        return Ok(v_t145.clone());
+    }
+    v_t148 = _regex_literal(&[v_c.clone()])?;
+    return Ok(v_t148.clone());
 }
 
 #[allow(
@@ -57531,6 +58412,33 @@ fn _filter_optimization_components(args: &[CoreValue]) -> Result<CoreValue, AxEr
     unreachable_code,
     clippy::all
 )]
+fn _regex_class_atom(args: &[CoreValue]) -> Result<CoreValue, AxError> {
+    axir_coverage_mark("_regex_class_atom");
+    let mut v_s = core_arg(args, 0);
+    let mut v_c = CoreValue::Null;
+    let mut v_t1 = CoreValue::Null;
+    let mut v_t2 = CoreValue::Null;
+    let mut v_t3 = CoreValue::Null;
+    let mut v_t4 = CoreValue::Null;
+    v_c = core_none(&[])?;
+    v_t1 = _regex_take(&[v_s.clone()])?;
+    v_c = v_t1.clone();
+    v_t2 = core_eq(&[v_c.clone(), CoreValue::Num(92f64)])?;
+    if core_truthy(&v_t2) {
+        v_t3 = _regex_escaped(&[v_s.clone(), CoreValue::Bool(true)])?;
+        return Ok(v_t3.clone());
+    }
+    v_t4 = _regex_literal(&[v_c.clone()])?;
+    return Ok(v_t4.clone());
+}
+
+#[allow(
+    unused_variables,
+    unused_assignments,
+    unused_mut,
+    unreachable_code,
+    clippy::all
+)]
 fn chat_session_register_call(args: &[CoreValue]) -> Result<CoreValue, AxError> {
     axir_coverage_mark("chat_session_register_call");
     let mut v_state = core_arg(args, 0);
@@ -57571,6 +58479,163 @@ fn chat_session_register_call(args: &[CoreValue]) -> Result<CoreValue, AxError> 
     core_set(&v_pending, v_id.clone(), v_record.clone())?;
     core_set(&v_state, CoreValue::from("pending"), v_pending.clone())?;
     return Ok(CoreValue::Bool(true));
+}
+
+#[allow(
+    unused_variables,
+    unused_assignments,
+    unused_mut,
+    unreachable_code,
+    clippy::all
+)]
+fn _regex_character_class(args: &[CoreValue]) -> Result<CoreValue, AxError> {
+    axir_coverage_mark("_regex_character_class");
+    let mut v_s = core_arg(args, 0);
+    let mut v_first = CoreValue::Null;
+    let mut v_last = CoreValue::Null;
+    let mut v_negative = CoreValue::Null;
+    let mut v_t1 = CoreValue::Null;
+    let mut v_t10 = CoreValue::Null;
+    let mut v_t11 = CoreValue::Null;
+    let mut v_t12 = CoreValue::Null;
+    let mut v_t13 = CoreValue::Null;
+    let mut v_t14 = CoreValue::Null;
+    let mut v_t15 = CoreValue::Null;
+    let mut v_t16 = CoreValue::Null;
+    let mut v_t17 = CoreValue::Null;
+    let mut v_t18 = CoreValue::Null;
+    let mut v_t19 = CoreValue::Null;
+    let mut v_t2 = CoreValue::Null;
+    let mut v_t20 = CoreValue::Null;
+    let mut v_t21 = CoreValue::Null;
+    let mut v_t22 = CoreValue::Null;
+    let mut v_t23 = CoreValue::Null;
+    let mut v_t24 = CoreValue::Null;
+    let mut v_t25 = CoreValue::Null;
+    let mut v_t26 = CoreValue::Null;
+    let mut v_t27 = CoreValue::Null;
+    let mut v_t28 = CoreValue::Null;
+    let mut v_t29 = CoreValue::Null;
+    let mut v_t3 = CoreValue::Null;
+    let mut v_t30 = CoreValue::Null;
+    let mut v_t31 = CoreValue::Null;
+    let mut v_t32 = CoreValue::Null;
+    let mut v_t33 = CoreValue::Null;
+    let mut v_t34 = CoreValue::Null;
+    let mut v_t35 = CoreValue::Null;
+    let mut v_t36 = CoreValue::Null;
+    let mut v_t37 = CoreValue::Null;
+    let mut v_t38 = CoreValue::Null;
+    let mut v_t39 = CoreValue::Null;
+    let mut v_t4 = CoreValue::Null;
+    let mut v_t40 = CoreValue::Null;
+    let mut v_t41 = CoreValue::Null;
+    let mut v_t42 = CoreValue::Null;
+    let mut v_t43 = CoreValue::Null;
+    let mut v_t5 = CoreValue::Null;
+    let mut v_t6 = CoreValue::Null;
+    let mut v_t7 = CoreValue::Null;
+    let mut v_t8 = CoreValue::Null;
+    let mut v_t9 = CoreValue::Null;
+    let mut v_terms = CoreValue::Null;
+    v_first = core_none(&[])?;
+    v_last = core_none(&[])?;
+    v_negative = core_none(&[])?;
+    v_terms = core_none(&[])?;
+    v_negative = CoreValue::Bool(false);
+    v_t1 = CoreValue::new_list();
+    v_terms = v_t1.clone();
+    v_t2 = _regex_peek(&[v_s.clone()])?;
+    v_t3 = core_eq(&[v_t2.clone(), CoreValue::Num(94f64)])?;
+    if core_truthy(&v_t3) {
+        v_t4 = _regex_take(&[v_s.clone()])?;
+        v_negative = CoreValue::Bool(true);
+    }
+    loop {
+        v_t5 = _regex_peek(&[v_s.clone()])?;
+        v_t6 = core_ne(&[v_t5.clone(), CoreValue::Num(93f64)])?;
+        v_t7 = core_not(&[v_t6.clone()])?;
+        if core_truthy(&v_t7) {
+            break;
+        }
+        v_t8 = _regex_peek(&[v_s.clone()])?;
+        v_t9 = core_lt(&[v_t8.clone(), CoreValue::Num(0f64)])?;
+        if core_truthy(&v_t9) {
+            v_t10 = core_string_format(&[
+                CoreValue::from("Invalid regular expression: {}"),
+                CoreValue::from("Unterminated character class"),
+            ])?;
+            v_t11 = core_validation_error(&[v_t10.clone()])?;
+            return Err(core_as_error(&v_t11));
+        }
+        v_t12 = _regex_class_atom(&[v_s.clone()])?;
+        v_first = v_t12.clone();
+        v_t13 = _regex_peek(&[v_s.clone()])?;
+        v_t14 = core_eq(&[v_t13.clone(), CoreValue::Num(45f64)])?;
+        v_t15 = v_t14.clone();
+        if core_truthy(&v_t15) {
+            v_t16 = core_get(&v_s, &CoreValue::from("p"), CoreValue::Null);
+            v_t17 = core_add(&[v_t16.clone(), CoreValue::Num(1f64)])?;
+            v_t18 = core_get(&v_s, &CoreValue::from("u"), CoreValue::Null);
+            v_t19 = core_len(&[v_t18.clone()])?;
+            v_t20 = core_lt(&[v_t17.clone(), v_t19.clone()])?;
+            v_t15 = v_t20.clone();
+        }
+        if core_truthy(&v_t15) {
+            v_t21 = core_get(&v_s, &CoreValue::from("u"), CoreValue::Null);
+            v_t22 = core_get(&v_s, &CoreValue::from("p"), CoreValue::Null);
+            v_t23 = core_add(&[v_t22.clone(), CoreValue::Num(1f64)])?;
+            v_t24 = core_get(&v_t21, &v_t23.clone(), CoreValue::Null);
+            v_t25 = core_ne(&[v_t24.clone(), CoreValue::Num(93f64)])?;
+            v_t15 = v_t25.clone();
+        }
+        if core_truthy(&v_t15) {
+            v_t26 = _regex_take(&[v_s.clone()])?;
+            v_t27 = _regex_class_atom(&[v_s.clone()])?;
+            v_last = v_t27.clone();
+            v_t28 = core_get(&v_first, &CoreValue::from("k"), CoreValue::Null);
+            v_t29 = core_eq(&[v_t28.clone(), CoreValue::from("char")])?;
+            v_t30 = v_t29.clone();
+            if core_truthy(&v_t30) {
+                v_t31 = core_get(&v_last, &CoreValue::from("k"), CoreValue::Null);
+                v_t32 = core_eq(&[v_t31.clone(), CoreValue::from("char")])?;
+                v_t30 = v_t32.clone();
+            }
+            if core_truthy(&v_t30) {
+                v_t33 = core_get(&v_first, &CoreValue::from("c"), CoreValue::Null);
+                v_t34 = core_get(&v_last, &CoreValue::from("c"), CoreValue::Null);
+                v_t35 = core_gt(&[v_t33.clone(), v_t34.clone()])?;
+                if core_truthy(&v_t35) {
+                    v_t36 = core_string_format(&[
+                        CoreValue::from("Invalid regular expression: {}"),
+                        CoreValue::from("Invalid character range"),
+                    ])?;
+                    v_t37 = core_validation_error(&[v_t36.clone()])?;
+                    return Err(core_as_error(&v_t37));
+                }
+                v_t38 = CoreValue::new_map();
+                core_set(&v_t38, CoreValue::from("k"), CoreValue::from("range"))?;
+                v_t39 = core_get(&v_first, &CoreValue::from("c"), CoreValue::Null);
+                core_set(&v_t38, CoreValue::from("lo"), v_t39.clone())?;
+                v_t40 = core_get(&v_last, &CoreValue::from("c"), CoreValue::Null);
+                core_set(&v_t38, CoreValue::from("hi"), v_t40.clone())?;
+                core_append(&v_terms, v_t38.clone())?;
+            } else {
+                core_append(&v_terms, v_first.clone())?;
+                v_t41 = _regex_literal(&[CoreValue::Num(45f64)])?;
+                core_append(&v_terms, v_t41.clone())?;
+                core_append(&v_terms, v_last.clone())?;
+            }
+        } else {
+            core_append(&v_terms, v_first.clone())?;
+        }
+    }
+    v_t42 = _regex_take(&[v_s.clone()])?;
+    v_t43 = CoreValue::new_map();
+    core_set(&v_t43, CoreValue::from("k"), CoreValue::from("class"))?;
+    core_set(&v_t43, CoreValue::from("negative"), v_negative.clone())?;
+    core_set(&v_t43, CoreValue::from("terms"), v_terms.clone())?;
+    return Ok(v_t43.clone());
 }
 
 #[allow(
@@ -57837,6 +58902,268 @@ fn chat_session_defer_final_call(args: &[CoreValue]) -> Result<CoreValue, AxErro
         return Ok(v_registered.clone());
     }
     return Ok(CoreValue::Bool(false));
+}
+
+#[allow(
+    unused_variables,
+    unused_assignments,
+    unused_mut,
+    unreachable_code,
+    clippy::all
+)]
+fn _regex_atom(args: &[CoreValue]) -> Result<CoreValue, AxError> {
+    axir_coverage_mark("_regex_atom");
+    let mut v_s = core_arg(args, 0);
+    let mut v_c = CoreValue::Null;
+    let mut v_candidate = CoreValue::Null;
+    let mut v_capture = CoreValue::Null;
+    let mut v_child = CoreValue::Null;
+    let mut v_direction = CoreValue::Null;
+    let mut v_kind = CoreValue::Null;
+    let mut v_mode = CoreValue::Null;
+    let mut v_name = CoreValue::Null;
+    let mut v_negative = CoreValue::Null;
+    let mut v_t1 = CoreValue::Null;
+    let mut v_t10 = CoreValue::Null;
+    let mut v_t11 = CoreValue::Null;
+    let mut v_t12 = CoreValue::Null;
+    let mut v_t13 = CoreValue::Null;
+    let mut v_t14 = CoreValue::Null;
+    let mut v_t15 = CoreValue::Null;
+    let mut v_t16 = CoreValue::Null;
+    let mut v_t17 = CoreValue::Null;
+    let mut v_t18 = CoreValue::Null;
+    let mut v_t19 = CoreValue::Null;
+    let mut v_t2 = CoreValue::Null;
+    let mut v_t20 = CoreValue::Null;
+    let mut v_t21 = CoreValue::Null;
+    let mut v_t22 = CoreValue::Null;
+    let mut v_t23 = CoreValue::Null;
+    let mut v_t24 = CoreValue::Null;
+    let mut v_t25 = CoreValue::Null;
+    let mut v_t26 = CoreValue::Null;
+    let mut v_t27 = CoreValue::Null;
+    let mut v_t28 = CoreValue::Null;
+    let mut v_t29 = CoreValue::Null;
+    let mut v_t3 = CoreValue::Null;
+    let mut v_t30 = CoreValue::Null;
+    let mut v_t31 = CoreValue::Null;
+    let mut v_t32 = CoreValue::Null;
+    let mut v_t33 = CoreValue::Null;
+    let mut v_t34 = CoreValue::Null;
+    let mut v_t35 = CoreValue::Null;
+    let mut v_t36 = CoreValue::Null;
+    let mut v_t37 = CoreValue::Null;
+    let mut v_t38 = CoreValue::Null;
+    let mut v_t39 = CoreValue::Null;
+    let mut v_t4 = CoreValue::Null;
+    let mut v_t40 = CoreValue::Null;
+    let mut v_t41 = CoreValue::Null;
+    let mut v_t42 = CoreValue::Null;
+    let mut v_t43 = CoreValue::Null;
+    let mut v_t44 = CoreValue::Null;
+    let mut v_t45 = CoreValue::Null;
+    let mut v_t46 = CoreValue::Null;
+    let mut v_t47 = CoreValue::Null;
+    let mut v_t48 = CoreValue::Null;
+    let mut v_t49 = CoreValue::Null;
+    let mut v_t5 = CoreValue::Null;
+    let mut v_t50 = CoreValue::Null;
+    let mut v_t51 = CoreValue::Null;
+    let mut v_t52 = CoreValue::Null;
+    let mut v_t53 = CoreValue::Null;
+    let mut v_t54 = CoreValue::Null;
+    let mut v_t55 = CoreValue::Null;
+    let mut v_t56 = CoreValue::Null;
+    let mut v_t57 = CoreValue::Null;
+    let mut v_t58 = CoreValue::Null;
+    let mut v_t59 = CoreValue::Null;
+    let mut v_t6 = CoreValue::Null;
+    let mut v_t60 = CoreValue::Null;
+    let mut v_t61 = CoreValue::Null;
+    let mut v_t62 = CoreValue::Null;
+    let mut v_t63 = CoreValue::Null;
+    let mut v_t64 = CoreValue::Null;
+    let mut v_t65 = CoreValue::Null;
+    let mut v_t66 = CoreValue::Null;
+    let mut v_t67 = CoreValue::Null;
+    let mut v_t68 = CoreValue::Null;
+    let mut v_t7 = CoreValue::Null;
+    let mut v_t8 = CoreValue::Null;
+    let mut v_t9 = CoreValue::Null;
+    v_c = core_none(&[])?;
+    v_candidate = core_none(&[])?;
+    v_capture = core_none(&[])?;
+    v_child = core_none(&[])?;
+    v_direction = core_none(&[])?;
+    v_kind = core_none(&[])?;
+    v_mode = core_none(&[])?;
+    v_name = core_none(&[])?;
+    v_negative = core_none(&[])?;
+    v_t1 = _regex_take(&[v_s.clone()])?;
+    v_c = v_t1.clone();
+    v_t2 = core_eq(&[v_c.clone(), CoreValue::Num(46f64)])?;
+    if core_truthy(&v_t2) {
+        v_t3 = _regex_node(&[CoreValue::from("dot")])?;
+        return Ok(v_t3.clone());
+    }
+    v_t4 = core_eq(&[v_c.clone(), CoreValue::Num(94f64)])?;
+    if core_truthy(&v_t4) {
+        v_t5 = _regex_node(&[CoreValue::from("start")])?;
+        return Ok(v_t5.clone());
+    }
+    v_t6 = core_eq(&[v_c.clone(), CoreValue::Num(36f64)])?;
+    if core_truthy(&v_t6) {
+        v_t7 = _regex_node(&[CoreValue::from("end")])?;
+        return Ok(v_t7.clone());
+    }
+    v_t8 = core_eq(&[v_c.clone(), CoreValue::Num(92f64)])?;
+    if core_truthy(&v_t8) {
+        v_t9 = _regex_escaped(&[v_s.clone(), CoreValue::Bool(false)])?;
+        return Ok(v_t9.clone());
+    }
+    v_t10 = core_eq(&[v_c.clone(), CoreValue::Num(91f64)])?;
+    if core_truthy(&v_t10) {
+        v_t11 = _regex_character_class(&[v_s.clone()])?;
+        return Ok(v_t11.clone());
+    }
+    v_t12 = core_eq(&[v_c.clone(), CoreValue::Num(42f64)])?;
+    v_t13 = v_t12.clone();
+    v_t14 = core_not(&[v_t13.clone()])?;
+    if core_truthy(&v_t14) {
+        v_t15 = core_eq(&[v_c.clone(), CoreValue::Num(43f64)])?;
+        v_t13 = v_t15.clone();
+    }
+    v_t16 = core_not(&[v_t13.clone()])?;
+    if core_truthy(&v_t16) {
+        v_t17 = core_eq(&[v_c.clone(), CoreValue::Num(63f64)])?;
+        v_t13 = v_t17.clone();
+    }
+    if core_truthy(&v_t13) {
+        v_t18 = core_string_format(&[
+            CoreValue::from("Invalid regular expression: {}"),
+            CoreValue::from("Nothing to repeat"),
+        ])?;
+        v_t19 = core_validation_error(&[v_t18.clone()])?;
+        return Err(core_as_error(&v_t19));
+    }
+    v_t20 = core_eq(&[v_c.clone(), CoreValue::Num(40f64)])?;
+    if core_truthy(&v_t20) {
+        v_kind = CoreValue::from("capture");
+        v_negative = CoreValue::Bool(false);
+        v_direction = CoreValue::Num(1f64);
+        v_capture = CoreValue::Num(0f64);
+        v_t21 = core_none(&[])?;
+        v_name = v_t21.clone();
+        v_t22 = _regex_peek(&[v_s.clone()])?;
+        v_t23 = core_eq(&[v_t22.clone(), CoreValue::Num(63f64)])?;
+        if core_truthy(&v_t23) {
+            v_t24 = _regex_take(&[v_s.clone()])?;
+            v_t25 = _regex_take(&[v_s.clone()])?;
+            v_mode = v_t25.clone();
+            v_t26 = core_eq(&[v_mode.clone(), CoreValue::Num(58f64)])?;
+            if core_truthy(&v_t26) {
+                v_kind = CoreValue::from("group");
+            } else {
+                v_t27 = core_eq(&[v_mode.clone(), CoreValue::Num(61f64)])?;
+                v_t28 = v_t27.clone();
+                v_t29 = core_not(&[v_t28.clone()])?;
+                if core_truthy(&v_t29) {
+                    v_t30 = core_eq(&[v_mode.clone(), CoreValue::Num(33f64)])?;
+                    v_t28 = v_t30.clone();
+                }
+                if core_truthy(&v_t28) {
+                    v_kind = CoreValue::from("look");
+                    v_t31 = core_eq(&[v_mode.clone(), CoreValue::Num(33f64)])?;
+                    v_negative = v_t31.clone();
+                } else {
+                    v_t32 = core_eq(&[v_mode.clone(), CoreValue::Num(60f64)])?;
+                    if core_truthy(&v_t32) {
+                        v_t33 = _regex_peek(&[v_s.clone()])?;
+                        v_t34 = core_eq(&[v_t33.clone(), CoreValue::Num(61f64)])?;
+                        v_t35 = v_t34.clone();
+                        v_t36 = core_not(&[v_t35.clone()])?;
+                        if core_truthy(&v_t36) {
+                            v_t37 = _regex_peek(&[v_s.clone()])?;
+                            v_t38 = core_eq(&[v_t37.clone(), CoreValue::Num(33f64)])?;
+                            v_t35 = v_t38.clone();
+                        }
+                        if core_truthy(&v_t35) {
+                            v_kind = CoreValue::from("look");
+                            v_t39 = _regex_take(&[v_s.clone()])?;
+                            v_t40 = core_eq(&[v_t39.clone(), CoreValue::Num(33f64)])?;
+                            v_negative = v_t40.clone();
+                            v_t41 = core_mul(&[CoreValue::Num(-1f64), CoreValue::Num(1f64)])?;
+                            v_t42 = core_math_floor(&[v_t41.clone()])?;
+                            v_direction = v_t42.clone();
+                        } else {
+                            v_t43 = _regex_read_name(&[v_s.clone()])?;
+                            v_name = v_t43.clone();
+                        }
+                    } else {
+                        v_t44 = core_string_format(&[
+                            CoreValue::from("Invalid regular expression: {}"),
+                            CoreValue::from("Invalid group"),
+                        ])?;
+                        v_t45 = core_validation_error(&[v_t44.clone()])?;
+                        return Err(core_as_error(&v_t45));
+                    }
+                }
+            }
+        }
+        v_t46 = core_eq(&[v_kind.clone(), CoreValue::from("capture")])?;
+        if core_truthy(&v_t46) {
+            v_t47 = core_get(&v_s, &CoreValue::from("next"), CoreValue::Null);
+            v_t48 = core_add(&[v_t47.clone(), CoreValue::Num(1f64)])?;
+            core_set(&v_s, CoreValue::from("next"), v_t48.clone())?;
+            v_t49 = core_get(&v_s, &CoreValue::from("next"), CoreValue::Null);
+            v_capture = v_t49.clone();
+        }
+        v_t50 = _regex_alternative(&[v_s.clone()])?;
+        v_child = v_t50.clone();
+        v_t51 = _regex_take(&[v_s.clone()])?;
+        v_t52 = core_ne(&[v_t51.clone(), CoreValue::Num(41f64)])?;
+        if core_truthy(&v_t52) {
+            v_t53 = core_string_format(&[
+                CoreValue::from("Invalid regular expression: {}"),
+                CoreValue::from("Unterminated group"),
+            ])?;
+            v_t54 = core_validation_error(&[v_t53.clone()])?;
+            return Err(core_as_error(&v_t54));
+        }
+        v_t55 = CoreValue::new_map();
+        core_set(&v_t55, CoreValue::from("k"), v_kind.clone())?;
+        core_set(&v_t55, CoreValue::from("child"), v_child.clone())?;
+        core_set(&v_t55, CoreValue::from("id"), v_capture.clone())?;
+        core_set(&v_t55, CoreValue::from("negative"), v_negative.clone())?;
+        core_set(&v_t55, CoreValue::from("direction"), v_direction.clone())?;
+        core_set(&v_t55, CoreValue::from("name"), v_name.clone())?;
+        return Ok(v_t55.clone());
+    }
+    v_t56 = core_eq(&[v_c.clone(), CoreValue::Num(123f64)])?;
+    if core_truthy(&v_t56) {
+        v_t57 = core_get(&v_s, &CoreValue::from("p"), CoreValue::Null);
+        v_t58 = core_mul(&[CoreValue::Num(-1f64), CoreValue::Num(1f64)])?;
+        v_t59 = core_add(&[v_t57.clone(), v_t58.clone()])?;
+        v_t60 = core_math_floor(&[v_t59.clone()])?;
+        core_set(&v_s, CoreValue::from("p"), v_t60.clone())?;
+        v_t61 = _regex_node(&[CoreValue::from("empty")])?;
+        v_t62 = _regex_quantifier(&[v_s.clone(), v_t61.clone()])?;
+        v_candidate = v_t62.clone();
+        v_t63 = core_get(&v_candidate, &CoreValue::from("k"), CoreValue::Null);
+        v_t64 = core_eq(&[v_t63.clone(), CoreValue::from("repeat")])?;
+        if core_truthy(&v_t64) {
+            v_t65 = core_string_format(&[
+                CoreValue::from("Invalid regular expression: {}"),
+                CoreValue::from("Nothing to repeat"),
+            ])?;
+            v_t66 = core_validation_error(&[v_t65.clone()])?;
+            return Err(core_as_error(&v_t66));
+        }
+        v_t67 = _regex_take(&[v_s.clone()])?;
+    }
+    v_t68 = _regex_literal(&[v_c.clone()])?;
+    return Ok(v_t68.clone());
 }
 
 #[allow(
@@ -58920,6 +60247,258 @@ fn _parse_output_impl(args: &[CoreValue]) -> Result<CoreValue, AxError> {
     unreachable_code,
     clippy::all
 )]
+fn _regex_quantifier(args: &[CoreValue]) -> Result<CoreValue, AxError> {
+    axir_coverage_mark("_regex_quantifier");
+    let mut v_s = core_arg(args, 0);
+    let mut v_child = core_arg(args, 1);
+    let mut v_c = CoreValue::Null;
+    let mut v_hi = CoreValue::Null;
+    let mut v_lazy = CoreValue::Null;
+    let mut v_lo = CoreValue::Null;
+    let mut v_start = CoreValue::Null;
+    let mut v_t1 = CoreValue::Null;
+    let mut v_t10 = CoreValue::Null;
+    let mut v_t11 = CoreValue::Null;
+    let mut v_t12 = CoreValue::Null;
+    let mut v_t13 = CoreValue::Null;
+    let mut v_t14 = CoreValue::Null;
+    let mut v_t15 = CoreValue::Null;
+    let mut v_t16 = CoreValue::Null;
+    let mut v_t17 = CoreValue::Null;
+    let mut v_t18 = CoreValue::Null;
+    let mut v_t19 = CoreValue::Null;
+    let mut v_t2 = CoreValue::Null;
+    let mut v_t20 = CoreValue::Null;
+    let mut v_t21 = CoreValue::Null;
+    let mut v_t22 = CoreValue::Null;
+    let mut v_t23 = CoreValue::Null;
+    let mut v_t24 = CoreValue::Null;
+    let mut v_t25 = CoreValue::Null;
+    let mut v_t26 = CoreValue::Null;
+    let mut v_t27 = CoreValue::Null;
+    let mut v_t28 = CoreValue::Null;
+    let mut v_t29 = CoreValue::Null;
+    let mut v_t3 = CoreValue::Null;
+    let mut v_t30 = CoreValue::Null;
+    let mut v_t31 = CoreValue::Null;
+    let mut v_t32 = CoreValue::Null;
+    let mut v_t33 = CoreValue::Null;
+    let mut v_t34 = CoreValue::Null;
+    let mut v_t35 = CoreValue::Null;
+    let mut v_t36 = CoreValue::Null;
+    let mut v_t37 = CoreValue::Null;
+    let mut v_t38 = CoreValue::Null;
+    let mut v_t39 = CoreValue::Null;
+    let mut v_t4 = CoreValue::Null;
+    let mut v_t40 = CoreValue::Null;
+    let mut v_t41 = CoreValue::Null;
+    let mut v_t42 = CoreValue::Null;
+    let mut v_t43 = CoreValue::Null;
+    let mut v_t44 = CoreValue::Null;
+    let mut v_t45 = CoreValue::Null;
+    let mut v_t46 = CoreValue::Null;
+    let mut v_t47 = CoreValue::Null;
+    let mut v_t48 = CoreValue::Null;
+    let mut v_t49 = CoreValue::Null;
+    let mut v_t5 = CoreValue::Null;
+    let mut v_t50 = CoreValue::Null;
+    let mut v_t51 = CoreValue::Null;
+    let mut v_t52 = CoreValue::Null;
+    let mut v_t53 = CoreValue::Null;
+    let mut v_t54 = CoreValue::Null;
+    let mut v_t55 = CoreValue::Null;
+    let mut v_t56 = CoreValue::Null;
+    let mut v_t57 = CoreValue::Null;
+    let mut v_t58 = CoreValue::Null;
+    let mut v_t59 = CoreValue::Null;
+    let mut v_t6 = CoreValue::Null;
+    let mut v_t60 = CoreValue::Null;
+    let mut v_t61 = CoreValue::Null;
+    let mut v_t62 = CoreValue::Null;
+    let mut v_t63 = CoreValue::Null;
+    let mut v_t64 = CoreValue::Null;
+    let mut v_t65 = CoreValue::Null;
+    let mut v_t66 = CoreValue::Null;
+    let mut v_t67 = CoreValue::Null;
+    let mut v_t68 = CoreValue::Null;
+    let mut v_t69 = CoreValue::Null;
+    let mut v_t7 = CoreValue::Null;
+    let mut v_t70 = CoreValue::Null;
+    let mut v_t71 = CoreValue::Null;
+    let mut v_t72 = CoreValue::Null;
+    let mut v_t73 = CoreValue::Null;
+    let mut v_t8 = CoreValue::Null;
+    let mut v_t9 = CoreValue::Null;
+    v_c = core_none(&[])?;
+    v_hi = core_none(&[])?;
+    v_lazy = core_none(&[])?;
+    v_lo = core_none(&[])?;
+    v_start = core_none(&[])?;
+    v_t1 = core_get(&v_s, &CoreValue::from("p"), CoreValue::Null);
+    v_start = v_t1.clone();
+    v_t2 = _regex_peek(&[v_s.clone()])?;
+    v_c = v_t2.clone();
+    v_lo = CoreValue::Num(0f64);
+    v_t3 = core_mul(&[CoreValue::Num(-1f64), CoreValue::Num(1f64)])?;
+    v_t4 = core_math_floor(&[v_t3.clone()])?;
+    v_hi = v_t4.clone();
+    v_t5 = core_eq(&[v_c.clone(), CoreValue::Num(42f64)])?;
+    if core_truthy(&v_t5) {
+        v_t6 = _regex_take(&[v_s.clone()])?;
+    } else {
+        v_t7 = core_eq(&[v_c.clone(), CoreValue::Num(43f64)])?;
+        if core_truthy(&v_t7) {
+            v_t8 = _regex_take(&[v_s.clone()])?;
+            v_lo = CoreValue::Num(1f64);
+        } else {
+            v_t9 = core_eq(&[v_c.clone(), CoreValue::Num(63f64)])?;
+            if core_truthy(&v_t9) {
+                v_t10 = _regex_take(&[v_s.clone()])?;
+                v_hi = CoreValue::Num(1f64);
+            } else {
+                v_t11 = core_eq(&[v_c.clone(), CoreValue::Num(123f64)])?;
+                if core_truthy(&v_t11) {
+                    v_t12 = _regex_take(&[v_s.clone()])?;
+                    v_t13 = _regex_peek(&[v_s.clone()])?;
+                    v_t14 = _regex_digit(&[v_t13.clone()])?;
+                    v_t15 = core_not(&[v_t14.clone()])?;
+                    if core_truthy(&v_t15) {
+                        core_set(&v_s, CoreValue::from("p"), v_start.clone())?;
+                        return Ok(v_child.clone());
+                    }
+                    loop {
+                        v_t16 = _regex_peek(&[v_s.clone()])?;
+                        v_t17 = _regex_digit(&[v_t16.clone()])?;
+                        v_t18 = core_not(&[v_t17.clone()])?;
+                        if core_truthy(&v_t18) {
+                            break;
+                        }
+                        v_t19 = core_mul(&[v_lo.clone(), CoreValue::Num(10f64)])?;
+                        v_t20 = core_math_floor(&[v_t19.clone()])?;
+                        v_t21 = _regex_take(&[v_s.clone()])?;
+                        v_t22 = core_add(&[v_t20.clone(), v_t21.clone()])?;
+                        v_t23 = core_mul(&[CoreValue::Num(-1f64), CoreValue::Num(48f64)])?;
+                        v_t24 = core_add(&[v_t22.clone(), v_t23.clone()])?;
+                        v_t25 = core_math_floor(&[v_t24.clone()])?;
+                        v_lo = v_t25.clone();
+                    }
+                    v_hi = v_lo.clone();
+                    v_t26 = _regex_peek(&[v_s.clone()])?;
+                    v_t27 = core_eq(&[v_t26.clone(), CoreValue::Num(44f64)])?;
+                    if core_truthy(&v_t27) {
+                        v_t28 = _regex_take(&[v_s.clone()])?;
+                        v_t29 = core_mul(&[CoreValue::Num(-1f64), CoreValue::Num(1f64)])?;
+                        v_t30 = core_math_floor(&[v_t29.clone()])?;
+                        v_hi = v_t30.clone();
+                        v_t31 = _regex_peek(&[v_s.clone()])?;
+                        v_t32 = _regex_digit(&[v_t31.clone()])?;
+                        if core_truthy(&v_t32) {
+                            v_hi = CoreValue::Num(0f64);
+                            loop {
+                                v_t33 = _regex_peek(&[v_s.clone()])?;
+                                v_t34 = _regex_digit(&[v_t33.clone()])?;
+                                v_t35 = core_not(&[v_t34.clone()])?;
+                                if core_truthy(&v_t35) {
+                                    break;
+                                }
+                                v_t36 = core_mul(&[v_hi.clone(), CoreValue::Num(10f64)])?;
+                                v_t37 = core_math_floor(&[v_t36.clone()])?;
+                                v_t38 = _regex_take(&[v_s.clone()])?;
+                                v_t39 = core_add(&[v_t37.clone(), v_t38.clone()])?;
+                                v_t40 = core_mul(&[CoreValue::Num(-1f64), CoreValue::Num(48f64)])?;
+                                v_t41 = core_add(&[v_t39.clone(), v_t40.clone()])?;
+                                v_t42 = core_math_floor(&[v_t41.clone()])?;
+                                v_hi = v_t42.clone();
+                            }
+                        }
+                    }
+                    v_t43 = _regex_peek(&[v_s.clone()])?;
+                    v_t44 = core_ne(&[v_t43.clone(), CoreValue::Num(125f64)])?;
+                    if core_truthy(&v_t44) {
+                        core_set(&v_s, CoreValue::from("p"), v_start.clone())?;
+                        return Ok(v_child.clone());
+                    }
+                    v_t45 = _regex_take(&[v_s.clone()])?;
+                    v_t46 = core_gte(&[v_hi.clone(), CoreValue::Num(0f64)])?;
+                    v_t47 = v_t46.clone();
+                    if core_truthy(&v_t47) {
+                        v_t48 = core_lt(&[v_hi.clone(), v_lo.clone()])?;
+                        v_t47 = v_t48.clone();
+                    }
+                    if core_truthy(&v_t47) {
+                        v_t49 = core_string_format(&[
+                            CoreValue::from("Invalid regular expression: {}"),
+                            CoreValue::from("Invalid quantifier range"),
+                        ])?;
+                        v_t50 = core_validation_error(&[v_t49.clone()])?;
+                        return Err(core_as_error(&v_t50));
+                    }
+                } else {
+                    return Ok(v_child.clone());
+                }
+            }
+        }
+    }
+    v_t51 = core_get(&v_child, &CoreValue::from("k"), CoreValue::Null);
+    v_t52 = core_eq(&[v_t51.clone(), CoreValue::from("start")])?;
+    v_t53 = v_t52.clone();
+    v_t54 = core_not(&[v_t53.clone()])?;
+    if core_truthy(&v_t54) {
+        v_t55 = core_get(&v_child, &CoreValue::from("k"), CoreValue::Null);
+        v_t56 = core_eq(&[v_t55.clone(), CoreValue::from("end")])?;
+        v_t53 = v_t56.clone();
+    }
+    v_t57 = core_not(&[v_t53.clone()])?;
+    if core_truthy(&v_t57) {
+        v_t58 = core_get(&v_child, &CoreValue::from("k"), CoreValue::Null);
+        v_t59 = core_eq(&[v_t58.clone(), CoreValue::from("boundary")])?;
+        v_t53 = v_t59.clone();
+    }
+    v_t60 = core_not(&[v_t53.clone()])?;
+    if core_truthy(&v_t60) {
+        v_t61 = core_get(&v_child, &CoreValue::from("k"), CoreValue::Null);
+        v_t62 = core_eq(&[v_t61.clone(), CoreValue::from("look")])?;
+        v_t63 = v_t62.clone();
+        if core_truthy(&v_t63) {
+            v_t64 = core_get(&v_child, &CoreValue::from("direction"), CoreValue::Null);
+            v_t65 = core_mul(&[CoreValue::Num(-1f64), CoreValue::Num(1f64)])?;
+            v_t66 = core_math_floor(&[v_t65.clone()])?;
+            v_t67 = core_eq(&[v_t64.clone(), v_t66.clone()])?;
+            v_t63 = v_t67.clone();
+        }
+        v_t53 = v_t63.clone();
+    }
+    if core_truthy(&v_t53) {
+        v_t68 = core_string_format(&[
+            CoreValue::from("Invalid regular expression: {}"),
+            CoreValue::from("Invalid quantified assertion"),
+        ])?;
+        v_t69 = core_validation_error(&[v_t68.clone()])?;
+        return Err(core_as_error(&v_t69));
+    }
+    v_lazy = CoreValue::Bool(false);
+    v_t70 = _regex_peek(&[v_s.clone()])?;
+    v_t71 = core_eq(&[v_t70.clone(), CoreValue::Num(63f64)])?;
+    if core_truthy(&v_t71) {
+        v_t72 = _regex_take(&[v_s.clone()])?;
+        v_lazy = CoreValue::Bool(true);
+    }
+    v_t73 = CoreValue::new_map();
+    core_set(&v_t73, CoreValue::from("k"), CoreValue::from("repeat"))?;
+    core_set(&v_t73, CoreValue::from("child"), v_child.clone())?;
+    core_set(&v_t73, CoreValue::from("lo"), v_lo.clone())?;
+    core_set(&v_t73, CoreValue::from("hi"), v_hi.clone())?;
+    core_set(&v_t73, CoreValue::from("lazy"), v_lazy.clone())?;
+    return Ok(v_t73.clone());
+}
+
+#[allow(
+    unused_variables,
+    unused_assignments,
+    unused_mut,
+    unreachable_code,
+    clippy::all
+)]
 fn _ace_estimate_token_count(args: &[CoreValue]) -> Result<CoreValue, AxError> {
     axir_coverage_mark("_ace_estimate_token_count");
     let mut v_text = core_arg(args, 0);
@@ -59776,6 +61355,80 @@ fn _validate_exact_output_keys(args: &[CoreValue]) -> Result<CoreValue, AxError>
     unreachable_code,
     clippy::all
 )]
+fn _regex_alternative(args: &[CoreValue]) -> Result<CoreValue, AxError> {
+    axir_coverage_mark("_regex_alternative");
+    let mut v_s = core_arg(args, 0);
+    let mut v_choices = CoreValue::Null;
+    let mut v_t1 = CoreValue::Null;
+    let mut v_t10 = CoreValue::Null;
+    let mut v_t11 = CoreValue::Null;
+    let mut v_t12 = CoreValue::Null;
+    let mut v_t13 = CoreValue::Null;
+    let mut v_t14 = CoreValue::Null;
+    let mut v_t15 = CoreValue::Null;
+    let mut v_t16 = CoreValue::Null;
+    let mut v_t17 = CoreValue::Null;
+    let mut v_t2 = CoreValue::Null;
+    let mut v_t3 = CoreValue::Null;
+    let mut v_t4 = CoreValue::Null;
+    let mut v_t5 = CoreValue::Null;
+    let mut v_t6 = CoreValue::Null;
+    let mut v_t7 = CoreValue::Null;
+    let mut v_t8 = CoreValue::Null;
+    let mut v_t9 = CoreValue::Null;
+    let mut v_terms = CoreValue::Null;
+    v_choices = core_none(&[])?;
+    v_terms = core_none(&[])?;
+    v_t1 = CoreValue::new_list();
+    v_choices = v_t1.clone();
+    v_t2 = CoreValue::new_list();
+    v_terms = v_t2.clone();
+    loop {
+        v_t3 = _regex_peek(&[v_s.clone()])?;
+        v_t4 = core_gte(&[v_t3.clone(), CoreValue::Num(0f64)])?;
+        v_t5 = v_t4.clone();
+        if core_truthy(&v_t5) {
+            v_t6 = _regex_peek(&[v_s.clone()])?;
+            v_t7 = core_ne(&[v_t6.clone(), CoreValue::Num(41f64)])?;
+            v_t5 = v_t7.clone();
+        }
+        v_t8 = core_not(&[v_t5.clone()])?;
+        if core_truthy(&v_t8) {
+            break;
+        }
+        v_t9 = _regex_peek(&[v_s.clone()])?;
+        v_t10 = core_eq(&[v_t9.clone(), CoreValue::Num(124f64)])?;
+        if core_truthy(&v_t10) {
+            v_t11 = _regex_take(&[v_s.clone()])?;
+            v_t12 = CoreValue::new_map();
+            core_set(&v_t12, CoreValue::from("k"), CoreValue::from("seq"))?;
+            core_set(&v_t12, CoreValue::from("terms"), v_terms.clone())?;
+            core_append(&v_choices, v_t12.clone())?;
+            v_t13 = CoreValue::new_list();
+            v_terms = v_t13.clone();
+        } else {
+            v_t14 = _regex_atom(&[v_s.clone()])?;
+            v_t15 = _regex_quantifier(&[v_s.clone(), v_t14.clone()])?;
+            core_append(&v_terms, v_t15.clone())?;
+        }
+    }
+    v_t16 = CoreValue::new_map();
+    core_set(&v_t16, CoreValue::from("k"), CoreValue::from("seq"))?;
+    core_set(&v_t16, CoreValue::from("terms"), v_terms.clone())?;
+    core_append(&v_choices, v_t16.clone())?;
+    v_t17 = CoreValue::new_map();
+    core_set(&v_t17, CoreValue::from("k"), CoreValue::from("alt"))?;
+    core_set(&v_t17, CoreValue::from("terms"), v_choices.clone())?;
+    return Ok(v_t17.clone());
+}
+
+#[allow(
+    unused_variables,
+    unused_assignments,
+    unused_mut,
+    unreachable_code,
+    clippy::all
+)]
 fn chat_session_mark_submitted(args: &[CoreValue]) -> Result<CoreValue, AxError> {
     axir_coverage_mark("chat_session_mark_submitted");
     let mut v_state = core_arg(args, 0);
@@ -59975,6 +61628,65 @@ fn _ace_dedupe_playbook(args: &[CoreValue]) -> Result<CoreValue, AxError> {
     core_set(&v_playbook, CoreValue::from("sections"), v_sections.clone())?;
     v_recomputed = _ace_recompute_playbook_stats(&[v_playbook.clone()])?;
     return Ok(v_recomputed.clone());
+}
+
+#[allow(
+    unused_variables,
+    unused_assignments,
+    unused_mut,
+    unreachable_code,
+    clippy::all
+)]
+fn _regex_word(args: &[CoreValue]) -> Result<CoreValue, AxError> {
+    axir_coverage_mark("_regex_word");
+    let mut v_c = core_arg(args, 0);
+    let mut v_t1 = CoreValue::Null;
+    let mut v_t10 = CoreValue::Null;
+    let mut v_t11 = CoreValue::Null;
+    let mut v_t12 = CoreValue::Null;
+    let mut v_t13 = CoreValue::Null;
+    let mut v_t14 = CoreValue::Null;
+    let mut v_t2 = CoreValue::Null;
+    let mut v_t3 = CoreValue::Null;
+    let mut v_t4 = CoreValue::Null;
+    let mut v_t5 = CoreValue::Null;
+    let mut v_t6 = CoreValue::Null;
+    let mut v_t7 = CoreValue::Null;
+    let mut v_t8 = CoreValue::Null;
+    let mut v_t9 = CoreValue::Null;
+    v_t1 = core_gte(&[v_c.clone(), CoreValue::Num(48f64)])?;
+    v_t2 = v_t1.clone();
+    if core_truthy(&v_t2) {
+        v_t3 = core_lte(&[v_c.clone(), CoreValue::Num(57f64)])?;
+        v_t2 = v_t3.clone();
+    }
+    v_t4 = v_t2.clone();
+    v_t5 = core_not(&[v_t4.clone()])?;
+    if core_truthy(&v_t5) {
+        v_t6 = core_gte(&[v_c.clone(), CoreValue::Num(65f64)])?;
+        v_t7 = v_t6.clone();
+        if core_truthy(&v_t7) {
+            v_t8 = core_lte(&[v_c.clone(), CoreValue::Num(90f64)])?;
+            v_t7 = v_t8.clone();
+        }
+        v_t4 = v_t7.clone();
+    }
+    v_t9 = core_not(&[v_t4.clone()])?;
+    if core_truthy(&v_t9) {
+        v_t10 = core_gte(&[v_c.clone(), CoreValue::Num(97f64)])?;
+        v_t11 = v_t10.clone();
+        if core_truthy(&v_t11) {
+            v_t12 = core_lte(&[v_c.clone(), CoreValue::Num(122f64)])?;
+            v_t11 = v_t12.clone();
+        }
+        v_t4 = v_t11.clone();
+    }
+    v_t13 = core_not(&[v_t4.clone()])?;
+    if core_truthy(&v_t13) {
+        v_t14 = core_eq(&[v_c.clone(), CoreValue::Num(95f64)])?;
+        v_t4 = v_t14.clone();
+    }
+    return Ok(v_t4.clone());
 }
 
 #[allow(
@@ -60473,6 +62185,128 @@ fn chat_session_transition(args: &[CoreValue]) -> Result<CoreValue, AxError> {
     v_action = chat_session_boundary_action(&[v_state.clone()])?;
     core_set(&v_action, CoreValue::from("changed"), v_changed.clone())?;
     return Ok(v_action.clone());
+}
+
+#[allow(
+    unused_variables,
+    unused_assignments,
+    unused_mut,
+    unreachable_code,
+    clippy::all
+)]
+fn _regex_space(args: &[CoreValue]) -> Result<CoreValue, AxError> {
+    axir_coverage_mark("_regex_space");
+    let mut v_c = core_arg(args, 0);
+    let mut v_t1 = CoreValue::Null;
+    let mut v_t10 = CoreValue::Null;
+    let mut v_t11 = CoreValue::Null;
+    let mut v_t12 = CoreValue::Null;
+    let mut v_t13 = CoreValue::Null;
+    let mut v_t14 = CoreValue::Null;
+    let mut v_t15 = CoreValue::Null;
+    let mut v_t16 = CoreValue::Null;
+    let mut v_t17 = CoreValue::Null;
+    let mut v_t18 = CoreValue::Null;
+    let mut v_t19 = CoreValue::Null;
+    let mut v_t2 = CoreValue::Null;
+    let mut v_t20 = CoreValue::Null;
+    let mut v_t21 = CoreValue::Null;
+    let mut v_t22 = CoreValue::Null;
+    let mut v_t23 = CoreValue::Null;
+    let mut v_t24 = CoreValue::Null;
+    let mut v_t25 = CoreValue::Null;
+    let mut v_t26 = CoreValue::Null;
+    let mut v_t27 = CoreValue::Null;
+    let mut v_t28 = CoreValue::Null;
+    let mut v_t29 = CoreValue::Null;
+    let mut v_t3 = CoreValue::Null;
+    let mut v_t30 = CoreValue::Null;
+    let mut v_t31 = CoreValue::Null;
+    let mut v_t32 = CoreValue::Null;
+    let mut v_t4 = CoreValue::Null;
+    let mut v_t5 = CoreValue::Null;
+    let mut v_t6 = CoreValue::Null;
+    let mut v_t7 = CoreValue::Null;
+    let mut v_t8 = CoreValue::Null;
+    let mut v_t9 = CoreValue::Null;
+    v_t1 = core_eq(&[v_c.clone(), CoreValue::Num(9f64)])?;
+    v_t2 = v_t1.clone();
+    v_t3 = core_not(&[v_t2.clone()])?;
+    if core_truthy(&v_t3) {
+        v_t4 = core_eq(&[v_c.clone(), CoreValue::Num(10f64)])?;
+        v_t2 = v_t4.clone();
+    }
+    v_t5 = core_not(&[v_t2.clone()])?;
+    if core_truthy(&v_t5) {
+        v_t6 = core_eq(&[v_c.clone(), CoreValue::Num(11f64)])?;
+        v_t2 = v_t6.clone();
+    }
+    v_t7 = core_not(&[v_t2.clone()])?;
+    if core_truthy(&v_t7) {
+        v_t8 = core_eq(&[v_c.clone(), CoreValue::Num(12f64)])?;
+        v_t2 = v_t8.clone();
+    }
+    v_t9 = core_not(&[v_t2.clone()])?;
+    if core_truthy(&v_t9) {
+        v_t10 = core_eq(&[v_c.clone(), CoreValue::Num(13f64)])?;
+        v_t2 = v_t10.clone();
+    }
+    v_t11 = core_not(&[v_t2.clone()])?;
+    if core_truthy(&v_t11) {
+        v_t12 = core_eq(&[v_c.clone(), CoreValue::Num(32f64)])?;
+        v_t2 = v_t12.clone();
+    }
+    v_t13 = core_not(&[v_t2.clone()])?;
+    if core_truthy(&v_t13) {
+        v_t14 = core_eq(&[v_c.clone(), CoreValue::Num(160f64)])?;
+        v_t2 = v_t14.clone();
+    }
+    v_t15 = core_not(&[v_t2.clone()])?;
+    if core_truthy(&v_t15) {
+        v_t16 = core_eq(&[v_c.clone(), CoreValue::Num(5760f64)])?;
+        v_t2 = v_t16.clone();
+    }
+    v_t17 = core_not(&[v_t2.clone()])?;
+    if core_truthy(&v_t17) {
+        v_t18 = core_gte(&[v_c.clone(), CoreValue::Num(8192f64)])?;
+        v_t19 = v_t18.clone();
+        if core_truthy(&v_t19) {
+            v_t20 = core_lte(&[v_c.clone(), CoreValue::Num(8202f64)])?;
+            v_t19 = v_t20.clone();
+        }
+        v_t2 = v_t19.clone();
+    }
+    v_t21 = core_not(&[v_t2.clone()])?;
+    if core_truthy(&v_t21) {
+        v_t22 = core_eq(&[v_c.clone(), CoreValue::Num(8232f64)])?;
+        v_t2 = v_t22.clone();
+    }
+    v_t23 = core_not(&[v_t2.clone()])?;
+    if core_truthy(&v_t23) {
+        v_t24 = core_eq(&[v_c.clone(), CoreValue::Num(8233f64)])?;
+        v_t2 = v_t24.clone();
+    }
+    v_t25 = core_not(&[v_t2.clone()])?;
+    if core_truthy(&v_t25) {
+        v_t26 = core_eq(&[v_c.clone(), CoreValue::Num(8239f64)])?;
+        v_t2 = v_t26.clone();
+    }
+    v_t27 = core_not(&[v_t2.clone()])?;
+    if core_truthy(&v_t27) {
+        v_t28 = core_eq(&[v_c.clone(), CoreValue::Num(8287f64)])?;
+        v_t2 = v_t28.clone();
+    }
+    v_t29 = core_not(&[v_t2.clone()])?;
+    if core_truthy(&v_t29) {
+        v_t30 = core_eq(&[v_c.clone(), CoreValue::Num(12288f64)])?;
+        v_t2 = v_t30.clone();
+    }
+    v_t31 = core_not(&[v_t2.clone()])?;
+    if core_truthy(&v_t31) {
+        v_t32 = core_eq(&[v_c.clone(), CoreValue::Num(65279f64)])?;
+        v_t2 = v_t32.clone();
+    }
+    return Ok(v_t2.clone());
 }
 
 #[allow(
@@ -61028,6 +62862,187 @@ fn _tool_result_message_impl(args: &[CoreValue]) -> Result<CoreValue, AxError> {
     unreachable_code,
     clippy::all
 )]
+fn _regex_member(args: &[CoreValue]) -> Result<CoreValue, AxError> {
+    axir_coverage_mark("_regex_member");
+    let mut v_n = core_arg(args, 0);
+    let mut v_c = core_arg(args, 1);
+    let mut v_e = CoreValue::Null;
+    let mut v_iter_43 = CoreValue::Null;
+    let mut v_k = CoreValue::Null;
+    let mut v_t1 = CoreValue::Null;
+    let mut v_t10 = CoreValue::Null;
+    let mut v_t11 = CoreValue::Null;
+    let mut v_t12 = CoreValue::Null;
+    let mut v_t13 = CoreValue::Null;
+    let mut v_t14 = CoreValue::Null;
+    let mut v_t15 = CoreValue::Null;
+    let mut v_t16 = CoreValue::Null;
+    let mut v_t17 = CoreValue::Null;
+    let mut v_t18 = CoreValue::Null;
+    let mut v_t19 = CoreValue::Null;
+    let mut v_t2 = CoreValue::Null;
+    let mut v_t20 = CoreValue::Null;
+    let mut v_t21 = CoreValue::Null;
+    let mut v_t22 = CoreValue::Null;
+    let mut v_t23 = CoreValue::Null;
+    let mut v_t24 = CoreValue::Null;
+    let mut v_t25 = CoreValue::Null;
+    let mut v_t26 = CoreValue::Null;
+    let mut v_t27 = CoreValue::Null;
+    let mut v_t28 = CoreValue::Null;
+    let mut v_t29 = CoreValue::Null;
+    let mut v_t3 = CoreValue::Null;
+    let mut v_t30 = CoreValue::Null;
+    let mut v_t31 = CoreValue::Null;
+    let mut v_t32 = CoreValue::Null;
+    let mut v_t33 = CoreValue::Null;
+    let mut v_t34 = CoreValue::Null;
+    let mut v_t35 = CoreValue::Null;
+    let mut v_t36 = CoreValue::Null;
+    let mut v_t37 = CoreValue::Null;
+    let mut v_t38 = CoreValue::Null;
+    let mut v_t39 = CoreValue::Null;
+    let mut v_t4 = CoreValue::Null;
+    let mut v_t40 = CoreValue::Null;
+    let mut v_t41 = CoreValue::Null;
+    let mut v_t42 = CoreValue::Null;
+    let mut v_t44 = CoreValue::Null;
+    let mut v_t45 = CoreValue::Null;
+    let mut v_t46 = CoreValue::Null;
+    let mut v_t5 = CoreValue::Null;
+    let mut v_t6 = CoreValue::Null;
+    let mut v_t7 = CoreValue::Null;
+    let mut v_t8 = CoreValue::Null;
+    let mut v_t9 = CoreValue::Null;
+    let mut v_term = CoreValue::Null;
+    let mut v_yes = CoreValue::Null;
+    v_e = core_none(&[])?;
+    v_k = core_none(&[])?;
+    v_term = core_none(&[])?;
+    v_yes = core_none(&[])?;
+    v_t1 = core_get(&v_n, &CoreValue::from("k"), CoreValue::Null);
+    v_k = v_t1.clone();
+    v_t2 = core_eq(&[v_k.clone(), CoreValue::from("char")])?;
+    if core_truthy(&v_t2) {
+        v_t3 = core_get(&v_n, &CoreValue::from("c"), CoreValue::Null);
+        v_t4 = core_eq(&[v_c.clone(), v_t3.clone()])?;
+        return Ok(v_t4.clone());
+    }
+    v_t5 = core_eq(&[v_k.clone(), CoreValue::from("range")])?;
+    if core_truthy(&v_t5) {
+        v_t6 = core_get(&v_n, &CoreValue::from("lo"), CoreValue::Null);
+        v_t7 = core_gte(&[v_c.clone(), v_t6.clone()])?;
+        v_t8 = v_t7.clone();
+        if core_truthy(&v_t8) {
+            v_t9 = core_get(&v_n, &CoreValue::from("hi"), CoreValue::Null);
+            v_t10 = core_lte(&[v_c.clone(), v_t9.clone()])?;
+            v_t8 = v_t10.clone();
+        }
+        return Ok(v_t8.clone());
+    }
+    v_t11 = core_eq(&[v_k.clone(), CoreValue::from("dot")])?;
+    if core_truthy(&v_t11) {
+        v_t12 = core_ne(&[v_c.clone(), CoreValue::Num(10f64)])?;
+        v_t13 = v_t12.clone();
+        if core_truthy(&v_t13) {
+            v_t14 = core_ne(&[v_c.clone(), CoreValue::Num(13f64)])?;
+            v_t13 = v_t14.clone();
+        }
+        if core_truthy(&v_t13) {
+            v_t15 = core_ne(&[v_c.clone(), CoreValue::Num(8232f64)])?;
+            v_t13 = v_t15.clone();
+        }
+        if core_truthy(&v_t13) {
+            v_t16 = core_ne(&[v_c.clone(), CoreValue::Num(8233f64)])?;
+            v_t13 = v_t16.clone();
+        }
+        return Ok(v_t13.clone());
+    }
+    v_t17 = core_eq(&[v_k.clone(), CoreValue::from("class_escape")])?;
+    if core_truthy(&v_t17) {
+        v_t18 = core_get(&v_n, &CoreValue::from("c"), CoreValue::Null);
+        v_e = v_t18.clone();
+        v_yes = CoreValue::Bool(false);
+        v_t19 = core_eq(&[v_e.clone(), CoreValue::Num(100f64)])?;
+        v_t20 = v_t19.clone();
+        v_t21 = core_not(&[v_t20.clone()])?;
+        if core_truthy(&v_t21) {
+            v_t22 = core_eq(&[v_e.clone(), CoreValue::Num(68f64)])?;
+            v_t20 = v_t22.clone();
+        }
+        if core_truthy(&v_t20) {
+            v_t23 = _regex_digit(&[v_c.clone()])?;
+            v_yes = v_t23.clone();
+        }
+        v_t24 = core_eq(&[v_e.clone(), CoreValue::Num(119f64)])?;
+        v_t25 = v_t24.clone();
+        v_t26 = core_not(&[v_t25.clone()])?;
+        if core_truthy(&v_t26) {
+            v_t27 = core_eq(&[v_e.clone(), CoreValue::Num(87f64)])?;
+            v_t25 = v_t27.clone();
+        }
+        if core_truthy(&v_t25) {
+            v_t28 = _regex_word(&[v_c.clone()])?;
+            v_yes = v_t28.clone();
+        }
+        v_t29 = core_eq(&[v_e.clone(), CoreValue::Num(115f64)])?;
+        v_t30 = v_t29.clone();
+        v_t31 = core_not(&[v_t30.clone()])?;
+        if core_truthy(&v_t31) {
+            v_t32 = core_eq(&[v_e.clone(), CoreValue::Num(83f64)])?;
+            v_t30 = v_t32.clone();
+        }
+        if core_truthy(&v_t30) {
+            v_t33 = _regex_space(&[v_c.clone()])?;
+            v_yes = v_t33.clone();
+        }
+        v_t34 = core_eq(&[v_e.clone(), CoreValue::Num(68f64)])?;
+        v_t35 = v_t34.clone();
+        v_t36 = core_not(&[v_t35.clone()])?;
+        if core_truthy(&v_t36) {
+            v_t37 = core_eq(&[v_e.clone(), CoreValue::Num(87f64)])?;
+            v_t35 = v_t37.clone();
+        }
+        v_t38 = core_not(&[v_t35.clone()])?;
+        if core_truthy(&v_t38) {
+            v_t39 = core_eq(&[v_e.clone(), CoreValue::Num(83f64)])?;
+            v_t35 = v_t39.clone();
+        }
+        if core_truthy(&v_t35) {
+            v_t40 = core_not(&[v_yes.clone()])?;
+            return Ok(v_t40.clone());
+        }
+        return Ok(v_yes.clone());
+    }
+    v_t41 = core_eq(&[v_k.clone(), CoreValue::from("class")])?;
+    if core_truthy(&v_t41) {
+        v_yes = CoreValue::Bool(false);
+        v_t42 = core_get(&v_n, &CoreValue::from("terms"), CoreValue::Null);
+        for v_iter_43 in core_iter(&v_t42)? {
+            let mut v_iter_43 = v_iter_43;
+            v_term = v_iter_43.clone();
+            v_t44 = _regex_member(&[v_term.clone(), v_c.clone()])?;
+            if core_truthy(&v_t44) {
+                v_yes = CoreValue::Bool(true);
+            }
+        }
+        v_t45 = core_get(&v_n, &CoreValue::from("negative"), CoreValue::Null);
+        if core_truthy(&v_t45) {
+            v_t46 = core_not(&[v_yes.clone()])?;
+            return Ok(v_t46.clone());
+        }
+        return Ok(v_yes.clone());
+    }
+    return Ok(CoreValue::Bool(false));
+}
+
+#[allow(
+    unused_variables,
+    unused_assignments,
+    unused_mut,
+    unreachable_code,
+    clippy::all
+)]
 fn _tool_error_message_impl(args: &[CoreValue]) -> Result<CoreValue, AxError> {
     axir_coverage_mark("_tool_error_message_impl");
     let mut v_call = core_arg(args, 0);
@@ -61122,6 +63137,102 @@ fn _append_validation_retry_messages_impl(args: &[CoreValue]) -> Result<CoreValu
     )?;
     core_append(&v_messages, v_retry_message.clone())?;
     return Ok(CoreValue::Null);
+}
+
+#[allow(
+    unused_variables,
+    unused_assignments,
+    unused_mut,
+    unreachable_code,
+    clippy::all
+)]
+fn _regex_state(args: &[CoreValue]) -> Result<CoreValue, AxError> {
+    axir_coverage_mark("_regex_state");
+    let mut v_pos = core_arg(args, 0);
+    let mut v_caps = core_arg(args, 1);
+    let mut v_t1 = CoreValue::Null;
+    let mut v_t2 = CoreValue::Null;
+    v_t1 = CoreValue::new_map();
+    core_set(&v_t1, CoreValue::from("pos"), v_pos.clone())?;
+    v_t2 = _regex_copy_map(&[v_caps.clone()])?;
+    core_set(&v_t1, CoreValue::from("caps"), v_t2.clone())?;
+    return Ok(v_t1.clone());
+}
+
+#[allow(
+    unused_variables,
+    unused_assignments,
+    unused_mut,
+    unreachable_code,
+    clippy::all
+)]
+fn _regex_capture_ids(args: &[CoreValue]) -> Result<CoreValue, AxError> {
+    axir_coverage_mark("_regex_capture_ids");
+    let mut v_n = core_arg(args, 0);
+    let mut v_i = CoreValue::Null;
+    let mut v_iter_14 = CoreValue::Null;
+    let mut v_iter_16 = CoreValue::Null;
+    let mut v_iter_8 = CoreValue::Null;
+    let mut v_k = CoreValue::Null;
+    let mut v_out = CoreValue::Null;
+    let mut v_t1 = CoreValue::Null;
+    let mut v_t10 = CoreValue::Null;
+    let mut v_t11 = CoreValue::Null;
+    let mut v_t12 = CoreValue::Null;
+    let mut v_t13 = CoreValue::Null;
+    let mut v_t15 = CoreValue::Null;
+    let mut v_t2 = CoreValue::Null;
+    let mut v_t3 = CoreValue::Null;
+    let mut v_t4 = CoreValue::Null;
+    let mut v_t5 = CoreValue::Null;
+    let mut v_t6 = CoreValue::Null;
+    let mut v_t7 = CoreValue::Null;
+    let mut v_t9 = CoreValue::Null;
+    let mut v_term = CoreValue::Null;
+    v_i = core_none(&[])?;
+    v_k = core_none(&[])?;
+    v_out = core_none(&[])?;
+    v_term = core_none(&[])?;
+    v_t1 = CoreValue::new_list();
+    v_out = v_t1.clone();
+    v_t2 = core_get(&v_n, &CoreValue::from("k"), CoreValue::Null);
+    v_k = v_t2.clone();
+    v_t3 = core_eq(&[v_k.clone(), CoreValue::from("capture")])?;
+    if core_truthy(&v_t3) {
+        v_t4 = core_get(&v_n, &CoreValue::from("id"), CoreValue::Null);
+        core_append(&v_out, v_t4.clone())?;
+    }
+    v_t5 = core_map_contains(&[v_n.clone(), CoreValue::from("child")])?;
+    if core_truthy(&v_t5) {
+        v_t6 = core_get(&v_n, &CoreValue::from("child"), CoreValue::Null);
+        v_t7 = _regex_capture_ids(&[v_t6.clone()])?;
+        for v_iter_8 in core_iter(&v_t7)? {
+            let mut v_iter_8 = v_iter_8;
+            v_i = v_iter_8.clone();
+            core_append(&v_out, v_i.clone())?;
+        }
+    }
+    v_t9 = core_eq(&[v_k.clone(), CoreValue::from("seq")])?;
+    v_t10 = v_t9.clone();
+    v_t11 = core_not(&[v_t10.clone()])?;
+    if core_truthy(&v_t11) {
+        v_t12 = core_eq(&[v_k.clone(), CoreValue::from("alt")])?;
+        v_t10 = v_t12.clone();
+    }
+    if core_truthy(&v_t10) {
+        v_t13 = core_get(&v_n, &CoreValue::from("terms"), CoreValue::Null);
+        for v_iter_14 in core_iter(&v_t13)? {
+            let mut v_iter_14 = v_iter_14;
+            v_term = v_iter_14.clone();
+            v_t15 = _regex_capture_ids(&[v_term.clone()])?;
+            for v_iter_16 in core_iter(&v_t15)? {
+                let mut v_iter_16 = v_iter_16;
+                v_i = v_iter_16.clone();
+                core_append(&v_out, v_i.clone())?;
+            }
+        }
+    }
+    return Ok(v_out.clone());
 }
 
 #[allow(
@@ -61299,6 +63410,837 @@ fn _ace_is_noop_acknowledgment(args: &[CoreValue]) -> Result<CoreValue, AxError>
         }
     }
     return Ok(v_is_noop.clone());
+}
+
+#[allow(
+    unused_variables,
+    unused_assignments,
+    unused_mut,
+    unreachable_code,
+    clippy::all
+)]
+fn _regex_push(args: &[CoreValue]) -> Result<CoreValue, AxError> {
+    axir_coverage_mark("_regex_push");
+    let mut v_stack = core_arg(args, 0);
+    let mut v_top = core_arg(args, 1);
+    let mut v_value = core_arg(args, 2);
+    let mut v_t1 = CoreValue::Null;
+    let mut v_t2 = CoreValue::Null;
+    v_t1 = core_string_format(&[CoreValue::from("{}"), v_top.clone()])?;
+    core_set(&v_stack, v_t1.clone(), v_value.clone())?;
+    v_t2 = core_add(&[v_top.clone(), CoreValue::Num(1f64)])?;
+    return Ok(v_t2.clone());
+}
+
+#[allow(
+    unused_variables,
+    unused_assignments,
+    unused_mut,
+    unreachable_code,
+    clippy::all
+)]
+fn _regex_task(args: &[CoreValue]) -> Result<CoreValue, AxError> {
+    axir_coverage_mark("_regex_task");
+    let mut v_n = core_arg(args, 0);
+    let mut v_next = core_arg(args, 1);
+    let mut v_t1 = CoreValue::Null;
+    v_t1 = CoreValue::new_map();
+    core_set(&v_t1, CoreValue::from("node"), v_n.clone())?;
+    core_set(&v_t1, CoreValue::from("next"), v_next.clone())?;
+    return Ok(v_t1.clone());
+}
+
+#[allow(
+    unused_variables,
+    unused_assignments,
+    unused_mut,
+    unreachable_code,
+    clippy::all
+)]
+fn _regex_frame(args: &[CoreValue]) -> Result<CoreValue, AxError> {
+    axir_coverage_mark("_regex_frame");
+    let mut v_todo = core_arg(args, 0);
+    let mut v_st = core_arg(args, 1);
+    let mut v_t1 = CoreValue::Null;
+    v_t1 = CoreValue::new_map();
+    core_set(&v_t1, CoreValue::from("todo"), v_todo.clone())?;
+    core_set(&v_t1, CoreValue::from("st"), v_st.clone())?;
+    return Ok(v_t1.clone());
+}
+
+#[allow(
+    unused_variables,
+    unused_assignments,
+    unused_mut,
+    unreachable_code,
+    clippy::all
+)]
+fn _regex_search(args: &[CoreValue]) -> Result<CoreValue, AxError> {
+    axir_coverage_mark("_regex_search");
+    let mut v_n = core_arg(args, 0);
+    let mut v_u = core_arg(args, 1);
+    let mut v_initial = core_arg(args, 2);
+    let mut v_d = core_arg(args, 3);
+    let mut v_accept = CoreValue::Null;
+    let mut v_after = CoreValue::Null;
+    let mut v_at = CoreValue::Null;
+    let mut v_before = CoreValue::Null;
+    let mut v_begin = CoreValue::Null;
+    let mut v_caps = CoreValue::Null;
+    let mut v_capture = CoreValue::Null;
+    let mut v_capture_id = CoreValue::Null;
+    let mut v_clean = CoreValue::Null;
+    let mut v_copied = CoreValue::Null;
+    let mut v_count = CoreValue::Null;
+    let mut v_current = CoreValue::Null;
+    let mut v_end = CoreValue::Null;
+    let mut v_equal = CoreValue::Null;
+    let mut v_hi = CoreValue::Null;
+    let mut v_i = CoreValue::Null;
+    let mut v_iter_113 = CoreValue::Null;
+    let mut v_iter_169 = CoreValue::Null;
+    let mut v_k = CoreValue::Null;
+    let mut v_lo = CoreValue::Null;
+    let mut v_matched = CoreValue::Null;
+    let mut v_more = CoreValue::Null;
+    let mut v_moreframe = CoreValue::Null;
+    let mut v_next = CoreValue::Null;
+    let mut v_nextcount = CoreValue::Null;
+    let mut v_p = CoreValue::Null;
+    let mut v_pending = CoreValue::Null;
+    let mut v_repeat = CoreValue::Null;
+    let mut v_rest = CoreValue::Null;
+    let mut v_size = CoreValue::Null;
+    let mut v_st = CoreValue::Null;
+    let mut v_t1 = CoreValue::Null;
+    let mut v_t10 = CoreValue::Null;
+    let mut v_t100 = CoreValue::Null;
+    let mut v_t101 = CoreValue::Null;
+    let mut v_t102 = CoreValue::Null;
+    let mut v_t103 = CoreValue::Null;
+    let mut v_t104 = CoreValue::Null;
+    let mut v_t105 = CoreValue::Null;
+    let mut v_t106 = CoreValue::Null;
+    let mut v_t107 = CoreValue::Null;
+    let mut v_t108 = CoreValue::Null;
+    let mut v_t109 = CoreValue::Null;
+    let mut v_t11 = CoreValue::Null;
+    let mut v_t110 = CoreValue::Null;
+    let mut v_t111 = CoreValue::Null;
+    let mut v_t112 = CoreValue::Null;
+    let mut v_t114 = CoreValue::Null;
+    let mut v_t115 = CoreValue::Null;
+    let mut v_t116 = CoreValue::Null;
+    let mut v_t117 = CoreValue::Null;
+    let mut v_t118 = CoreValue::Null;
+    let mut v_t119 = CoreValue::Null;
+    let mut v_t12 = CoreValue::Null;
+    let mut v_t120 = CoreValue::Null;
+    let mut v_t121 = CoreValue::Null;
+    let mut v_t122 = CoreValue::Null;
+    let mut v_t123 = CoreValue::Null;
+    let mut v_t124 = CoreValue::Null;
+    let mut v_t125 = CoreValue::Null;
+    let mut v_t126 = CoreValue::Null;
+    let mut v_t127 = CoreValue::Null;
+    let mut v_t128 = CoreValue::Null;
+    let mut v_t129 = CoreValue::Null;
+    let mut v_t13 = CoreValue::Null;
+    let mut v_t130 = CoreValue::Null;
+    let mut v_t131 = CoreValue::Null;
+    let mut v_t132 = CoreValue::Null;
+    let mut v_t133 = CoreValue::Null;
+    let mut v_t134 = CoreValue::Null;
+    let mut v_t135 = CoreValue::Null;
+    let mut v_t136 = CoreValue::Null;
+    let mut v_t137 = CoreValue::Null;
+    let mut v_t138 = CoreValue::Null;
+    let mut v_t139 = CoreValue::Null;
+    let mut v_t14 = CoreValue::Null;
+    let mut v_t140 = CoreValue::Null;
+    let mut v_t141 = CoreValue::Null;
+    let mut v_t142 = CoreValue::Null;
+    let mut v_t143 = CoreValue::Null;
+    let mut v_t144 = CoreValue::Null;
+    let mut v_t145 = CoreValue::Null;
+    let mut v_t146 = CoreValue::Null;
+    let mut v_t147 = CoreValue::Null;
+    let mut v_t148 = CoreValue::Null;
+    let mut v_t149 = CoreValue::Null;
+    let mut v_t15 = CoreValue::Null;
+    let mut v_t150 = CoreValue::Null;
+    let mut v_t151 = CoreValue::Null;
+    let mut v_t152 = CoreValue::Null;
+    let mut v_t153 = CoreValue::Null;
+    let mut v_t154 = CoreValue::Null;
+    let mut v_t155 = CoreValue::Null;
+    let mut v_t156 = CoreValue::Null;
+    let mut v_t157 = CoreValue::Null;
+    let mut v_t158 = CoreValue::Null;
+    let mut v_t159 = CoreValue::Null;
+    let mut v_t16 = CoreValue::Null;
+    let mut v_t160 = CoreValue::Null;
+    let mut v_t161 = CoreValue::Null;
+    let mut v_t162 = CoreValue::Null;
+    let mut v_t163 = CoreValue::Null;
+    let mut v_t164 = CoreValue::Null;
+    let mut v_t165 = CoreValue::Null;
+    let mut v_t166 = CoreValue::Null;
+    let mut v_t167 = CoreValue::Null;
+    let mut v_t168 = CoreValue::Null;
+    let mut v_t17 = CoreValue::Null;
+    let mut v_t170 = CoreValue::Null;
+    let mut v_t171 = CoreValue::Null;
+    let mut v_t172 = CoreValue::Null;
+    let mut v_t173 = CoreValue::Null;
+    let mut v_t174 = CoreValue::Null;
+    let mut v_t175 = CoreValue::Null;
+    let mut v_t176 = CoreValue::Null;
+    let mut v_t177 = CoreValue::Null;
+    let mut v_t178 = CoreValue::Null;
+    let mut v_t179 = CoreValue::Null;
+    let mut v_t18 = CoreValue::Null;
+    let mut v_t180 = CoreValue::Null;
+    let mut v_t181 = CoreValue::Null;
+    let mut v_t182 = CoreValue::Null;
+    let mut v_t183 = CoreValue::Null;
+    let mut v_t184 = CoreValue::Null;
+    let mut v_t185 = CoreValue::Null;
+    let mut v_t186 = CoreValue::Null;
+    let mut v_t187 = CoreValue::Null;
+    let mut v_t188 = CoreValue::Null;
+    let mut v_t189 = CoreValue::Null;
+    let mut v_t19 = CoreValue::Null;
+    let mut v_t190 = CoreValue::Null;
+    let mut v_t191 = CoreValue::Null;
+    let mut v_t192 = CoreValue::Null;
+    let mut v_t193 = CoreValue::Null;
+    let mut v_t194 = CoreValue::Null;
+    let mut v_t195 = CoreValue::Null;
+    let mut v_t196 = CoreValue::Null;
+    let mut v_t197 = CoreValue::Null;
+    let mut v_t198 = CoreValue::Null;
+    let mut v_t199 = CoreValue::Null;
+    let mut v_t2 = CoreValue::Null;
+    let mut v_t20 = CoreValue::Null;
+    let mut v_t200 = CoreValue::Null;
+    let mut v_t201 = CoreValue::Null;
+    let mut v_t202 = CoreValue::Null;
+    let mut v_t203 = CoreValue::Null;
+    let mut v_t204 = CoreValue::Null;
+    let mut v_t205 = CoreValue::Null;
+    let mut v_t206 = CoreValue::Null;
+    let mut v_t207 = CoreValue::Null;
+    let mut v_t208 = CoreValue::Null;
+    let mut v_t209 = CoreValue::Null;
+    let mut v_t21 = CoreValue::Null;
+    let mut v_t210 = CoreValue::Null;
+    let mut v_t211 = CoreValue::Null;
+    let mut v_t212 = CoreValue::Null;
+    let mut v_t213 = CoreValue::Null;
+    let mut v_t214 = CoreValue::Null;
+    let mut v_t215 = CoreValue::Null;
+    let mut v_t216 = CoreValue::Null;
+    let mut v_t217 = CoreValue::Null;
+    let mut v_t218 = CoreValue::Null;
+    let mut v_t219 = CoreValue::Null;
+    let mut v_t22 = CoreValue::Null;
+    let mut v_t220 = CoreValue::Null;
+    let mut v_t221 = CoreValue::Null;
+    let mut v_t222 = CoreValue::Null;
+    let mut v_t223 = CoreValue::Null;
+    let mut v_t224 = CoreValue::Null;
+    let mut v_t225 = CoreValue::Null;
+    let mut v_t23 = CoreValue::Null;
+    let mut v_t24 = CoreValue::Null;
+    let mut v_t25 = CoreValue::Null;
+    let mut v_t26 = CoreValue::Null;
+    let mut v_t27 = CoreValue::Null;
+    let mut v_t28 = CoreValue::Null;
+    let mut v_t29 = CoreValue::Null;
+    let mut v_t3 = CoreValue::Null;
+    let mut v_t30 = CoreValue::Null;
+    let mut v_t31 = CoreValue::Null;
+    let mut v_t32 = CoreValue::Null;
+    let mut v_t33 = CoreValue::Null;
+    let mut v_t34 = CoreValue::Null;
+    let mut v_t35 = CoreValue::Null;
+    let mut v_t36 = CoreValue::Null;
+    let mut v_t37 = CoreValue::Null;
+    let mut v_t38 = CoreValue::Null;
+    let mut v_t39 = CoreValue::Null;
+    let mut v_t4 = CoreValue::Null;
+    let mut v_t40 = CoreValue::Null;
+    let mut v_t41 = CoreValue::Null;
+    let mut v_t42 = CoreValue::Null;
+    let mut v_t43 = CoreValue::Null;
+    let mut v_t44 = CoreValue::Null;
+    let mut v_t45 = CoreValue::Null;
+    let mut v_t46 = CoreValue::Null;
+    let mut v_t47 = CoreValue::Null;
+    let mut v_t48 = CoreValue::Null;
+    let mut v_t49 = CoreValue::Null;
+    let mut v_t5 = CoreValue::Null;
+    let mut v_t50 = CoreValue::Null;
+    let mut v_t51 = CoreValue::Null;
+    let mut v_t52 = CoreValue::Null;
+    let mut v_t53 = CoreValue::Null;
+    let mut v_t54 = CoreValue::Null;
+    let mut v_t55 = CoreValue::Null;
+    let mut v_t56 = CoreValue::Null;
+    let mut v_t57 = CoreValue::Null;
+    let mut v_t58 = CoreValue::Null;
+    let mut v_t59 = CoreValue::Null;
+    let mut v_t6 = CoreValue::Null;
+    let mut v_t60 = CoreValue::Null;
+    let mut v_t61 = CoreValue::Null;
+    let mut v_t62 = CoreValue::Null;
+    let mut v_t63 = CoreValue::Null;
+    let mut v_t64 = CoreValue::Null;
+    let mut v_t65 = CoreValue::Null;
+    let mut v_t66 = CoreValue::Null;
+    let mut v_t67 = CoreValue::Null;
+    let mut v_t68 = CoreValue::Null;
+    let mut v_t69 = CoreValue::Null;
+    let mut v_t7 = CoreValue::Null;
+    let mut v_t70 = CoreValue::Null;
+    let mut v_t71 = CoreValue::Null;
+    let mut v_t72 = CoreValue::Null;
+    let mut v_t73 = CoreValue::Null;
+    let mut v_t74 = CoreValue::Null;
+    let mut v_t75 = CoreValue::Null;
+    let mut v_t76 = CoreValue::Null;
+    let mut v_t77 = CoreValue::Null;
+    let mut v_t78 = CoreValue::Null;
+    let mut v_t79 = CoreValue::Null;
+    let mut v_t8 = CoreValue::Null;
+    let mut v_t80 = CoreValue::Null;
+    let mut v_t81 = CoreValue::Null;
+    let mut v_t82 = CoreValue::Null;
+    let mut v_t83 = CoreValue::Null;
+    let mut v_t84 = CoreValue::Null;
+    let mut v_t85 = CoreValue::Null;
+    let mut v_t86 = CoreValue::Null;
+    let mut v_t87 = CoreValue::Null;
+    let mut v_t88 = CoreValue::Null;
+    let mut v_t89 = CoreValue::Null;
+    let mut v_t9 = CoreValue::Null;
+    let mut v_t90 = CoreValue::Null;
+    let mut v_t91 = CoreValue::Null;
+    let mut v_t92 = CoreValue::Null;
+    let mut v_t93 = CoreValue::Null;
+    let mut v_t94 = CoreValue::Null;
+    let mut v_t95 = CoreValue::Null;
+    let mut v_t96 = CoreValue::Null;
+    let mut v_t97 = CoreValue::Null;
+    let mut v_t98 = CoreValue::Null;
+    let mut v_t99 = CoreValue::Null;
+    let mut v_terms = CoreValue::Null;
+    let mut v_todo = CoreValue::Null;
+    let mut v_top = CoreValue::Null;
+    let mut v_yes = CoreValue::Null;
+    v_accept = core_none(&[])?;
+    v_after = core_none(&[])?;
+    v_at = core_none(&[])?;
+    v_before = core_none(&[])?;
+    v_begin = core_none(&[])?;
+    v_caps = core_none(&[])?;
+    v_capture = core_none(&[])?;
+    v_capture_id = core_none(&[])?;
+    v_clean = core_none(&[])?;
+    v_copied = core_none(&[])?;
+    v_count = core_none(&[])?;
+    v_current = core_none(&[])?;
+    v_end = core_none(&[])?;
+    v_equal = core_none(&[])?;
+    v_hi = core_none(&[])?;
+    v_i = core_none(&[])?;
+    v_k = core_none(&[])?;
+    v_lo = core_none(&[])?;
+    v_matched = core_none(&[])?;
+    v_more = core_none(&[])?;
+    v_moreframe = core_none(&[])?;
+    v_next = core_none(&[])?;
+    v_nextcount = core_none(&[])?;
+    v_p = core_none(&[])?;
+    v_pending = core_none(&[])?;
+    v_repeat = core_none(&[])?;
+    v_rest = core_none(&[])?;
+    v_size = core_none(&[])?;
+    v_st = core_none(&[])?;
+    v_terms = core_none(&[])?;
+    v_todo = core_none(&[])?;
+    v_top = core_none(&[])?;
+    v_yes = core_none(&[])?;
+    v_t1 = CoreValue::new_map();
+    v_t2 = core_none(&[])?;
+    v_t3 = _regex_task(&[v_n.clone(), v_t2.clone()])?;
+    v_t4 = _regex_frame(&[v_t3.clone(), v_initial.clone()])?;
+    core_set(&v_t1, CoreValue::from("0"), v_t4.clone())?;
+    v_pending = v_t1.clone();
+    v_top = CoreValue::Num(1f64);
+    loop {
+        v_t5 = core_gt(&[v_top.clone(), CoreValue::Num(0f64)])?;
+        v_t6 = core_not(&[v_t5.clone()])?;
+        if core_truthy(&v_t6) {
+            break;
+        }
+        v_t7 = core_mul(&[CoreValue::Num(-1f64), CoreValue::Num(1f64)])?;
+        v_t8 = core_add(&[v_top.clone(), v_t7.clone()])?;
+        v_t9 = core_math_floor(&[v_t8.clone()])?;
+        v_top = v_t9.clone();
+        v_t10 = core_string_format(&[CoreValue::from("{}"), v_top.clone()])?;
+        v_t11 = core_get(&v_pending, &v_t10.clone(), CoreValue::Null);
+        v_current = v_t11.clone();
+        v_t12 = core_get(&v_current, &CoreValue::from("todo"), CoreValue::Null);
+        v_todo = v_t12.clone();
+        v_t13 = core_get(&v_current, &CoreValue::from("st"), CoreValue::Null);
+        v_st = v_t13.clone();
+        v_t14 = core_none(&[])?;
+        v_t15 = core_eq(&[v_todo.clone(), v_t14.clone()])?;
+        if core_truthy(&v_t15) {
+            return Ok(v_st.clone());
+        }
+        v_t16 = core_get(&v_todo, &CoreValue::from("node"), CoreValue::Null);
+        v_n = v_t16.clone();
+        v_t17 = core_get(&v_todo, &CoreValue::from("next"), CoreValue::Null);
+        v_rest = v_t17.clone();
+        v_t18 = core_get(&v_n, &CoreValue::from("k"), CoreValue::Null);
+        v_k = v_t18.clone();
+        v_t19 = core_get(&v_st, &CoreValue::from("pos"), CoreValue::Null);
+        v_p = v_t19.clone();
+        v_t20 = core_get(&v_st, &CoreValue::from("caps"), CoreValue::Null);
+        v_caps = v_t20.clone();
+        v_t21 = core_eq(&[v_k.clone(), CoreValue::from("seq")])?;
+        if core_truthy(&v_t21) {
+            v_t22 = core_get(&v_n, &CoreValue::from("terms"), CoreValue::Null);
+            v_terms = v_t22.clone();
+            v_t23 = core_len(&[v_terms.clone()])?;
+            v_t24 = core_mul(&[CoreValue::Num(-1f64), CoreValue::Num(1f64)])?;
+            v_t25 = core_add(&[v_t23.clone(), v_t24.clone()])?;
+            v_t26 = core_math_floor(&[v_t25.clone()])?;
+            v_i = v_t26.clone();
+            v_t27 = core_lt(&[v_d.clone(), CoreValue::Num(0f64)])?;
+            if core_truthy(&v_t27) {
+                v_i = CoreValue::Num(0f64);
+            }
+            loop {
+                v_t28 = core_gte(&[v_i.clone(), CoreValue::Num(0f64)])?;
+                v_t29 = v_t28.clone();
+                if core_truthy(&v_t29) {
+                    v_t30 = core_len(&[v_terms.clone()])?;
+                    v_t31 = core_lt(&[v_i.clone(), v_t30.clone()])?;
+                    v_t29 = v_t31.clone();
+                }
+                v_t32 = core_not(&[v_t29.clone()])?;
+                if core_truthy(&v_t32) {
+                    break;
+                }
+                v_t33 = core_get(&v_terms, &v_i.clone(), CoreValue::Null);
+                v_t34 = _regex_task(&[v_t33.clone(), v_rest.clone()])?;
+                v_rest = v_t34.clone();
+                v_t35 = core_mul(&[CoreValue::Num(-1f64), v_d.clone()])?;
+                v_t36 = core_add(&[v_i.clone(), v_t35.clone()])?;
+                v_t37 = core_math_floor(&[v_t36.clone()])?;
+                v_i = v_t37.clone();
+            }
+            v_t38 = _regex_frame(&[v_rest.clone(), v_st.clone()])?;
+            v_t39 = _regex_push(&[v_pending.clone(), v_top.clone(), v_t38.clone()])?;
+            v_top = v_t39.clone();
+            continue;
+        }
+        v_t40 = core_eq(&[v_k.clone(), CoreValue::from("alt")])?;
+        if core_truthy(&v_t40) {
+            v_t41 = core_get(&v_n, &CoreValue::from("terms"), CoreValue::Null);
+            v_t42 = core_len(&[v_t41.clone()])?;
+            v_t43 = core_mul(&[CoreValue::Num(-1f64), CoreValue::Num(1f64)])?;
+            v_t44 = core_add(&[v_t42.clone(), v_t43.clone()])?;
+            v_t45 = core_math_floor(&[v_t44.clone()])?;
+            v_i = v_t45.clone();
+            loop {
+                v_t46 = core_gte(&[v_i.clone(), CoreValue::Num(0f64)])?;
+                v_t47 = core_not(&[v_t46.clone()])?;
+                if core_truthy(&v_t47) {
+                    break;
+                }
+                v_t48 = core_get(&v_n, &CoreValue::from("terms"), CoreValue::Null);
+                v_t49 = core_get(&v_t48, &v_i.clone(), CoreValue::Null);
+                v_t50 = _regex_task(&[v_t49.clone(), v_rest.clone()])?;
+                v_t51 = _regex_frame(&[v_t50.clone(), v_st.clone()])?;
+                v_t52 = _regex_push(&[v_pending.clone(), v_top.clone(), v_t51.clone()])?;
+                v_top = v_t52.clone();
+                v_t53 = core_mul(&[CoreValue::Num(-1f64), CoreValue::Num(1f64)])?;
+                v_t54 = core_add(&[v_i.clone(), v_t53.clone()])?;
+                v_t55 = core_math_floor(&[v_t54.clone()])?;
+                v_i = v_t55.clone();
+            }
+            continue;
+        }
+        v_t56 = core_eq(&[v_k.clone(), CoreValue::from("group")])?;
+        if core_truthy(&v_t56) {
+            v_t57 = core_get(&v_n, &CoreValue::from("child"), CoreValue::Null);
+            v_t58 = _regex_task(&[v_t57.clone(), v_rest.clone()])?;
+            v_t59 = _regex_frame(&[v_t58.clone(), v_st.clone()])?;
+            v_t60 = _regex_push(&[v_pending.clone(), v_top.clone(), v_t59.clone()])?;
+            v_top = v_t60.clone();
+            continue;
+        }
+        v_t61 = core_eq(&[v_k.clone(), CoreValue::from("capture")])?;
+        if core_truthy(&v_t61) {
+            v_t62 = CoreValue::new_map();
+            core_set(&v_t62, CoreValue::from("k"), CoreValue::from("capture_end"))?;
+            v_t63 = core_get(&v_n, &CoreValue::from("id"), CoreValue::Null);
+            core_set(&v_t62, CoreValue::from("id"), v_t63.clone())?;
+            core_set(&v_t62, CoreValue::from("begin"), v_p.clone())?;
+            v_t64 = _regex_task(&[v_t62.clone(), v_rest.clone()])?;
+            v_end = v_t64.clone();
+            v_t65 = core_get(&v_n, &CoreValue::from("child"), CoreValue::Null);
+            v_t66 = _regex_task(&[v_t65.clone(), v_end.clone()])?;
+            v_t67 = _regex_frame(&[v_t66.clone(), v_st.clone()])?;
+            v_t68 = _regex_push(&[v_pending.clone(), v_top.clone(), v_t67.clone()])?;
+            v_top = v_t68.clone();
+            continue;
+        }
+        v_t69 = core_eq(&[v_k.clone(), CoreValue::from("capture_end")])?;
+        if core_truthy(&v_t69) {
+            v_t70 = core_get(&v_n, &CoreValue::from("begin"), CoreValue::Null);
+            v_lo = v_t70.clone();
+            v_hi = v_p.clone();
+            v_t71 = core_lt(&[v_d.clone(), CoreValue::Num(0f64)])?;
+            if core_truthy(&v_t71) {
+                v_lo = v_p.clone();
+                v_t72 = core_get(&v_n, &CoreValue::from("begin"), CoreValue::Null);
+                v_hi = v_t72.clone();
+            }
+            v_t73 = _regex_state(&[v_p.clone(), v_caps.clone()])?;
+            v_copied = v_t73.clone();
+            v_t74 = CoreValue::new_list();
+            core_append(&v_t74, v_lo.clone())?;
+            core_append(&v_t74, v_hi.clone())?;
+            v_t75 = core_get(&v_copied, &CoreValue::from("caps"), CoreValue::Null);
+            v_t76 = core_get(&v_n, &CoreValue::from("id"), CoreValue::Null);
+            core_set(&v_t75, v_t76.clone(), v_t74.clone())?;
+            v_t77 = _regex_frame(&[v_rest.clone(), v_copied.clone()])?;
+            v_t78 = _regex_push(&[v_pending.clone(), v_top.clone(), v_t77.clone()])?;
+            v_top = v_t78.clone();
+            continue;
+        }
+        v_t79 = core_eq(&[v_k.clone(), CoreValue::from("look")])?;
+        if core_truthy(&v_t79) {
+            v_t80 = core_get(&v_n, &CoreValue::from("child"), CoreValue::Null);
+            v_t81 = core_get(&v_n, &CoreValue::from("direction"), CoreValue::Null);
+            v_t82 = _regex_search(&[v_t80.clone(), v_u.clone(), v_st.clone(), v_t81.clone()])?;
+            v_matched = v_t82.clone();
+            v_t83 = core_get(&v_n, &CoreValue::from("negative"), CoreValue::Null);
+            if core_truthy(&v_t83) {
+                v_t84 = core_none(&[])?;
+                v_t85 = core_eq(&[v_matched.clone(), v_t84.clone()])?;
+                if core_truthy(&v_t85) {
+                    v_t86 = _regex_frame(&[v_rest.clone(), v_st.clone()])?;
+                    v_t87 = _regex_push(&[v_pending.clone(), v_top.clone(), v_t86.clone()])?;
+                    v_top = v_t87.clone();
+                }
+            } else {
+                v_t88 = core_none(&[])?;
+                v_t89 = core_ne(&[v_matched.clone(), v_t88.clone()])?;
+                if core_truthy(&v_t89) {
+                    v_t90 = core_get(&v_matched, &CoreValue::from("caps"), CoreValue::Null);
+                    v_t91 = _regex_state(&[v_p.clone(), v_t90.clone()])?;
+                    v_t92 = _regex_frame(&[v_rest.clone(), v_t91.clone()])?;
+                    v_t93 = _regex_push(&[v_pending.clone(), v_top.clone(), v_t92.clone()])?;
+                    v_top = v_t93.clone();
+                }
+            }
+            continue;
+        }
+        v_t94 = core_eq(&[v_k.clone(), CoreValue::from("repeat")])?;
+        v_t95 = v_t94.clone();
+        v_t96 = core_not(&[v_t95.clone()])?;
+        if core_truthy(&v_t96) {
+            v_t97 = core_eq(&[v_k.clone(), CoreValue::from("repeat_step")])?;
+            v_t95 = v_t97.clone();
+        }
+        if core_truthy(&v_t95) {
+            v_count = CoreValue::Num(0f64);
+            v_repeat = v_n.clone();
+            v_t98 = core_eq(&[v_k.clone(), CoreValue::from("repeat_step")])?;
+            if core_truthy(&v_t98) {
+                v_t99 = core_get(&v_n, &CoreValue::from("count"), CoreValue::Null);
+                v_count = v_t99.clone();
+                v_t100 = core_get(&v_n, &CoreValue::from("repeat"), CoreValue::Null);
+                v_repeat = v_t100.clone();
+            }
+            v_t101 = core_get(&v_repeat, &CoreValue::from("lo"), CoreValue::Null);
+            v_t102 = core_gte(&[v_count.clone(), v_t101.clone()])?;
+            v_accept = v_t102.clone();
+            v_t103 = core_get(&v_repeat, &CoreValue::from("hi"), CoreValue::Null);
+            v_t104 = core_lt(&[v_t103.clone(), CoreValue::Num(0f64)])?;
+            v_t105 = v_t104.clone();
+            v_t106 = core_not(&[v_t105.clone()])?;
+            if core_truthy(&v_t106) {
+                v_t107 = core_get(&v_repeat, &CoreValue::from("hi"), CoreValue::Null);
+                v_t108 = core_lt(&[v_count.clone(), v_t107.clone()])?;
+                v_t105 = v_t108.clone();
+            }
+            v_more = v_t105.clone();
+            v_t109 = core_none(&[])?;
+            v_moreframe = v_t109.clone();
+            if core_truthy(&v_more) {
+                v_t110 = _regex_state(&[v_p.clone(), v_caps.clone()])?;
+                v_clean = v_t110.clone();
+                v_t111 = core_get(&v_repeat, &CoreValue::from("child"), CoreValue::Null);
+                v_t112 = _regex_capture_ids(&[v_t111.clone()])?;
+                for v_iter_113 in core_iter(&v_t112)? {
+                    let mut v_iter_113 = v_iter_113;
+                    v_i = v_iter_113.clone();
+                    v_t114 = core_none(&[])?;
+                    v_t115 = core_get(&v_clean, &CoreValue::from("caps"), CoreValue::Null);
+                    core_set(&v_t115, v_i.clone(), v_t114.clone())?;
+                }
+                v_t116 = CoreValue::new_map();
+                core_set(
+                    &v_t116,
+                    CoreValue::from("k"),
+                    CoreValue::from("repeat_after"),
+                )?;
+                core_set(&v_t116, CoreValue::from("repeat"), v_repeat.clone())?;
+                core_set(&v_t116, CoreValue::from("count"), v_count.clone())?;
+                core_set(&v_t116, CoreValue::from("begin"), v_p.clone())?;
+                v_t117 = _regex_task(&[v_t116.clone(), v_rest.clone()])?;
+                v_after = v_t117.clone();
+                v_t118 = core_get(&v_repeat, &CoreValue::from("child"), CoreValue::Null);
+                v_t119 = _regex_task(&[v_t118.clone(), v_after.clone()])?;
+                v_t120 = _regex_frame(&[v_t119.clone(), v_clean.clone()])?;
+                v_moreframe = v_t120.clone();
+            }
+            v_t121 = core_get(&v_repeat, &CoreValue::from("lazy"), CoreValue::Null);
+            if core_truthy(&v_t121) {
+                if core_truthy(&v_more) {
+                    v_t122 = _regex_push(&[v_pending.clone(), v_top.clone(), v_moreframe.clone()])?;
+                    v_top = v_t122.clone();
+                }
+                if core_truthy(&v_accept) {
+                    v_t123 = _regex_frame(&[v_rest.clone(), v_st.clone()])?;
+                    v_t124 = _regex_push(&[v_pending.clone(), v_top.clone(), v_t123.clone()])?;
+                    v_top = v_t124.clone();
+                }
+            } else {
+                if core_truthy(&v_accept) {
+                    v_t125 = _regex_frame(&[v_rest.clone(), v_st.clone()])?;
+                    v_t126 = _regex_push(&[v_pending.clone(), v_top.clone(), v_t125.clone()])?;
+                    v_top = v_t126.clone();
+                }
+                if core_truthy(&v_more) {
+                    v_t127 = _regex_push(&[v_pending.clone(), v_top.clone(), v_moreframe.clone()])?;
+                    v_top = v_t127.clone();
+                }
+            }
+            continue;
+        }
+        v_t128 = core_eq(&[v_k.clone(), CoreValue::from("repeat_after")])?;
+        if core_truthy(&v_t128) {
+            v_t129 = core_get(&v_n, &CoreValue::from("count"), CoreValue::Null);
+            v_count = v_t129.clone();
+            v_t130 = core_get(&v_n, &CoreValue::from("repeat"), CoreValue::Null);
+            v_repeat = v_t130.clone();
+            v_t131 = core_add(&[v_count.clone(), CoreValue::Num(1f64)])?;
+            v_nextcount = v_t131.clone();
+            v_t132 = core_get(&v_n, &CoreValue::from("begin"), CoreValue::Null);
+            v_t133 = core_eq(&[v_p.clone(), v_t132.clone()])?;
+            if core_truthy(&v_t133) {
+                v_t134 = core_get(&v_repeat, &CoreValue::from("lo"), CoreValue::Null);
+                v_t135 = core_gte(&[v_count.clone(), v_t134.clone()])?;
+                if core_truthy(&v_t135) {
+                    continue;
+                }
+                v_t136 = core_get(&v_repeat, &CoreValue::from("lo"), CoreValue::Null);
+                v_nextcount = v_t136.clone();
+            }
+            v_t137 = CoreValue::new_map();
+            core_set(
+                &v_t137,
+                CoreValue::from("k"),
+                CoreValue::from("repeat_step"),
+            )?;
+            core_set(&v_t137, CoreValue::from("repeat"), v_repeat.clone())?;
+            core_set(&v_t137, CoreValue::from("count"), v_nextcount.clone())?;
+            v_t138 = _regex_task(&[v_t137.clone(), v_rest.clone()])?;
+            v_next = v_t138.clone();
+            v_t139 = _regex_frame(&[v_next.clone(), v_st.clone()])?;
+            v_t140 = _regex_push(&[v_pending.clone(), v_top.clone(), v_t139.clone()])?;
+            v_top = v_t140.clone();
+            continue;
+        }
+        v_t141 = core_eq(&[v_k.clone(), CoreValue::from("start")])?;
+        if core_truthy(&v_t141) {
+            v_t142 = core_eq(&[v_p.clone(), CoreValue::Num(0f64)])?;
+            if core_truthy(&v_t142) {
+                v_t143 = _regex_frame(&[v_rest.clone(), v_st.clone()])?;
+                v_t144 = _regex_push(&[v_pending.clone(), v_top.clone(), v_t143.clone()])?;
+                v_top = v_t144.clone();
+            }
+            continue;
+        }
+        v_t145 = core_eq(&[v_k.clone(), CoreValue::from("end")])?;
+        if core_truthy(&v_t145) {
+            v_t146 = core_len(&[v_u.clone()])?;
+            v_t147 = core_eq(&[v_p.clone(), v_t146.clone()])?;
+            if core_truthy(&v_t147) {
+                v_t148 = _regex_frame(&[v_rest.clone(), v_st.clone()])?;
+                v_t149 = _regex_push(&[v_pending.clone(), v_top.clone(), v_t148.clone()])?;
+                v_top = v_t149.clone();
+            }
+            continue;
+        }
+        v_t150 = core_eq(&[v_k.clone(), CoreValue::from("boundary")])?;
+        if core_truthy(&v_t150) {
+            v_before = CoreValue::Bool(false);
+            v_after = CoreValue::Bool(false);
+            v_t151 = core_gt(&[v_p.clone(), CoreValue::Num(0f64)])?;
+            if core_truthy(&v_t151) {
+                v_t152 = core_mul(&[CoreValue::Num(-1f64), CoreValue::Num(1f64)])?;
+                v_t153 = core_add(&[v_p.clone(), v_t152.clone()])?;
+                v_t154 = core_math_floor(&[v_t153.clone()])?;
+                v_t155 = core_get(&v_u, &v_t154.clone(), CoreValue::Null);
+                v_t156 = _regex_word(&[v_t155.clone()])?;
+                v_before = v_t156.clone();
+            }
+            v_t157 = core_len(&[v_u.clone()])?;
+            v_t158 = core_lt(&[v_p.clone(), v_t157.clone()])?;
+            if core_truthy(&v_t158) {
+                v_t159 = core_get(&v_u, &v_p.clone(), CoreValue::Null);
+                v_t160 = _regex_word(&[v_t159.clone()])?;
+                v_after = v_t160.clone();
+            }
+            v_t161 = core_ne(&[v_before.clone(), v_after.clone()])?;
+            v_yes = v_t161.clone();
+            v_t162 = core_get(&v_n, &CoreValue::from("negative"), CoreValue::Null);
+            if core_truthy(&v_t162) {
+                v_t163 = core_not(&[v_yes.clone()])?;
+                v_yes = v_t163.clone();
+            }
+            if core_truthy(&v_yes) {
+                v_t164 = _regex_frame(&[v_rest.clone(), v_st.clone()])?;
+                v_t165 = _regex_push(&[v_pending.clone(), v_top.clone(), v_t164.clone()])?;
+                v_top = v_t165.clone();
+            }
+            continue;
+        }
+        v_t166 = core_eq(&[v_k.clone(), CoreValue::from("ref")])?;
+        if core_truthy(&v_t166) {
+            v_t167 = core_none(&[])?;
+            v_capture = v_t167.clone();
+            v_t168 = core_get(&v_n, &CoreValue::from("ids"), CoreValue::Null);
+            for v_iter_169 in core_iter(&v_t168)? {
+                let mut v_iter_169 = v_iter_169;
+                v_capture_id = v_iter_169.clone();
+                v_t170 = core_get(&v_caps, &v_capture_id.clone(), CoreValue::Null);
+                v_t171 = core_none(&[])?;
+                v_t172 = core_ne(&[v_t170.clone(), v_t171.clone()])?;
+                if core_truthy(&v_t172) {
+                    v_t173 = core_get(&v_caps, &v_capture_id.clone(), CoreValue::Null);
+                    v_capture = v_t173.clone();
+                }
+            }
+            v_t174 = core_none(&[])?;
+            v_t175 = core_eq(&[v_capture.clone(), v_t174.clone()])?;
+            if core_truthy(&v_t175) {
+                v_t176 = _regex_frame(&[v_rest.clone(), v_st.clone()])?;
+                v_t177 = _regex_push(&[v_pending.clone(), v_top.clone(), v_t176.clone()])?;
+                v_top = v_t177.clone();
+                continue;
+            }
+            v_t178 = CoreValue::Num(1f64);
+            v_t179 = core_get(&v_capture, &v_t178.clone(), CoreValue::Null);
+            v_t180 = CoreValue::Num(0f64);
+            v_t181 = core_get(&v_capture, &v_t180.clone(), CoreValue::Null);
+            v_t182 = core_mul(&[CoreValue::Num(-1f64), v_t181.clone()])?;
+            v_t183 = core_add(&[v_t179.clone(), v_t182.clone()])?;
+            v_t184 = core_math_floor(&[v_t183.clone()])?;
+            v_size = v_t184.clone();
+            v_begin = v_p.clone();
+            v_t185 = core_lt(&[v_d.clone(), CoreValue::Num(0f64)])?;
+            if core_truthy(&v_t185) {
+                v_t186 = core_mul(&[CoreValue::Num(-1f64), v_size.clone()])?;
+                v_t187 = core_add(&[v_p.clone(), v_t186.clone()])?;
+                v_t188 = core_math_floor(&[v_t187.clone()])?;
+                v_begin = v_t188.clone();
+            }
+            v_t189 = core_lt(&[v_begin.clone(), CoreValue::Num(0f64)])?;
+            v_t190 = v_t189.clone();
+            v_t191 = core_not(&[v_t190.clone()])?;
+            if core_truthy(&v_t191) {
+                v_t192 = core_add(&[v_begin.clone(), v_size.clone()])?;
+                v_t193 = core_len(&[v_u.clone()])?;
+                v_t194 = core_gt(&[v_t192.clone(), v_t193.clone()])?;
+                v_t190 = v_t194.clone();
+            }
+            if core_truthy(&v_t190) {
+                continue;
+            }
+            v_i = CoreValue::Num(0f64);
+            v_equal = CoreValue::Bool(true);
+            loop {
+                v_t195 = core_lt(&[v_i.clone(), v_size.clone()])?;
+                v_t196 = core_not(&[v_t195.clone()])?;
+                if core_truthy(&v_t196) {
+                    break;
+                }
+                v_t197 = core_add(&[v_begin.clone(), v_i.clone()])?;
+                v_t198 = core_get(&v_u, &v_t197.clone(), CoreValue::Null);
+                v_t199 = CoreValue::Num(0f64);
+                v_t200 = core_get(&v_capture, &v_t199.clone(), CoreValue::Null);
+                v_t201 = core_add(&[v_t200.clone(), v_i.clone()])?;
+                v_t202 = core_get(&v_u, &v_t201.clone(), CoreValue::Null);
+                v_t203 = core_ne(&[v_t198.clone(), v_t202.clone()])?;
+                if core_truthy(&v_t203) {
+                    v_equal = CoreValue::Bool(false);
+                    break;
+                }
+                v_t204 = core_add(&[v_i.clone(), CoreValue::Num(1f64)])?;
+                v_i = v_t204.clone();
+            }
+            if core_truthy(&v_equal) {
+                v_t205 = core_mul(&[v_d.clone(), v_size.clone()])?;
+                v_t206 = core_math_floor(&[v_t205.clone()])?;
+                v_t207 = core_add(&[v_p.clone(), v_t206.clone()])?;
+                v_t208 = _regex_state(&[v_t207.clone(), v_caps.clone()])?;
+                v_t209 = _regex_frame(&[v_rest.clone(), v_t208.clone()])?;
+                v_t210 = _regex_push(&[v_pending.clone(), v_top.clone(), v_t209.clone()])?;
+                v_top = v_t210.clone();
+            }
+            continue;
+        }
+        v_at = v_p.clone();
+        v_t211 = core_lt(&[v_d.clone(), CoreValue::Num(0f64)])?;
+        if core_truthy(&v_t211) {
+            v_t212 = core_mul(&[CoreValue::Num(-1f64), CoreValue::Num(1f64)])?;
+            v_t213 = core_add(&[v_p.clone(), v_t212.clone()])?;
+            v_t214 = core_math_floor(&[v_t213.clone()])?;
+            v_at = v_t214.clone();
+        }
+        v_t215 = core_gte(&[v_at.clone(), CoreValue::Num(0f64)])?;
+        v_t216 = v_t215.clone();
+        if core_truthy(&v_t216) {
+            v_t217 = core_len(&[v_u.clone()])?;
+            v_t218 = core_lt(&[v_at.clone(), v_t217.clone()])?;
+            v_t216 = v_t218.clone();
+        }
+        if core_truthy(&v_t216) {
+            v_t219 = core_get(&v_u, &v_at.clone(), CoreValue::Null);
+            v_t220 = _regex_member(&[v_n.clone(), v_t219.clone()])?;
+            v_t216 = v_t220.clone();
+        }
+        if core_truthy(&v_t216) {
+            v_t221 = core_add(&[v_p.clone(), v_d.clone()])?;
+            v_t222 = _regex_state(&[v_t221.clone(), v_caps.clone()])?;
+            v_t223 = _regex_frame(&[v_rest.clone(), v_t222.clone()])?;
+            v_t224 = _regex_push(&[v_pending.clone(), v_top.clone(), v_t223.clone()])?;
+            v_top = v_t224.clone();
+        }
+    }
+    v_t225 = core_none(&[])?;
+    return Ok(v_t225.clone());
 }
 
 #[allow(
@@ -62062,6 +65004,796 @@ fn _ace_dequeue_section_candidate(args: &[CoreValue]) -> Result<CoreValue, AxErr
         }
     }
     return Ok(v_picked.clone());
+}
+
+#[allow(
+    unused_variables,
+    unused_assignments,
+    unused_mut,
+    unreachable_code,
+    clippy::all
+)]
+fn _regex_test(args: &[CoreValue]) -> Result<CoreValue, AxError> {
+    axir_coverage_mark("_regex_test");
+    let mut v_pattern = core_arg(args, 0);
+    let mut v_value = core_arg(args, 1);
+    let mut v_groups = CoreValue::Null;
+    let mut v_i = CoreValue::Null;
+    let mut v_s = CoreValue::Null;
+    let mut v_t1 = CoreValue::Null;
+    let mut v_t10 = CoreValue::Null;
+    let mut v_t11 = CoreValue::Null;
+    let mut v_t12 = CoreValue::Null;
+    let mut v_t13 = CoreValue::Null;
+    let mut v_t14 = CoreValue::Null;
+    let mut v_t15 = CoreValue::Null;
+    let mut v_t16 = CoreValue::Null;
+    let mut v_t17 = CoreValue::Null;
+    let mut v_t18 = CoreValue::Null;
+    let mut v_t19 = CoreValue::Null;
+    let mut v_t2 = CoreValue::Null;
+    let mut v_t20 = CoreValue::Null;
+    let mut v_t21 = CoreValue::Null;
+    let mut v_t22 = CoreValue::Null;
+    let mut v_t23 = CoreValue::Null;
+    let mut v_t24 = CoreValue::Null;
+    let mut v_t25 = CoreValue::Null;
+    let mut v_t3 = CoreValue::Null;
+    let mut v_t4 = CoreValue::Null;
+    let mut v_t5 = CoreValue::Null;
+    let mut v_t6 = CoreValue::Null;
+    let mut v_t7 = CoreValue::Null;
+    let mut v_t8 = CoreValue::Null;
+    let mut v_t9 = CoreValue::Null;
+    let mut v_text = CoreValue::Null;
+    let mut v_tree = CoreValue::Null;
+    let mut v_u = CoreValue::Null;
+    v_groups = core_none(&[])?;
+    v_i = core_none(&[])?;
+    v_s = core_none(&[])?;
+    v_text = core_none(&[])?;
+    v_tree = core_none(&[])?;
+    v_u = core_none(&[])?;
+    v_t1 = core_string_utf16_units(&[v_pattern.clone()])?;
+    v_u = v_t1.clone();
+    v_t2 = _regex_scan_groups(&[v_u.clone()])?;
+    v_groups = v_t2.clone();
+    v_t3 = CoreValue::new_map();
+    core_set(&v_t3, CoreValue::from("u"), v_u.clone())?;
+    core_set(&v_t3, CoreValue::from("p"), CoreValue::Num(0f64))?;
+    v_t4 = core_get(&v_groups, &CoreValue::from("count"), CoreValue::Null);
+    core_set(&v_t3, CoreValue::from("total"), v_t4.clone())?;
+    v_t5 = core_get(&v_groups, &CoreValue::from("names"), CoreValue::Null);
+    core_set(&v_t3, CoreValue::from("names"), v_t5.clone())?;
+    core_set(&v_t3, CoreValue::from("next"), CoreValue::Num(0f64))?;
+    v_s = v_t3.clone();
+    v_t6 = _regex_alternative(&[v_s.clone()])?;
+    v_tree = v_t6.clone();
+    v_t7 = core_get(&v_s, &CoreValue::from("p"), CoreValue::Null);
+    v_t8 = core_len(&[v_u.clone()])?;
+    v_t9 = core_ne(&[v_t7.clone(), v_t8.clone()])?;
+    if core_truthy(&v_t9) {
+        v_t10 = core_string_format(&[
+            CoreValue::from("Invalid regular expression: {}"),
+            CoreValue::from("Unmatched group"),
+        ])?;
+        v_t11 = core_validation_error(&[v_t10.clone()])?;
+        return Err(core_as_error(&v_t11));
+    }
+    v_t12 = CoreValue::new_map();
+    v_t13 = CoreValue::new_map();
+    v_t14 = CoreValue::new_map();
+    core_set(&v_t14, CoreValue::from("next"), CoreValue::Num(0f64))?;
+    v_t15 = _regex_validate_names(&[v_tree.clone(), v_t12.clone(), v_t13.clone(), v_t14.clone()])?;
+    v_t16 = core_string_utf16_units(&[v_value.clone()])?;
+    v_text = v_t16.clone();
+    v_i = CoreValue::Num(0f64);
+    loop {
+        v_t17 = core_len(&[v_text.clone()])?;
+        v_t18 = core_lte(&[v_i.clone(), v_t17.clone()])?;
+        v_t19 = core_not(&[v_t18.clone()])?;
+        if core_truthy(&v_t19) {
+            break;
+        }
+        v_t20 = CoreValue::new_map();
+        v_t21 = _regex_state(&[v_i.clone(), v_t20.clone()])?;
+        v_t22 = _regex_search(&[
+            v_tree.clone(),
+            v_text.clone(),
+            v_t21.clone(),
+            CoreValue::Num(1f64),
+        ])?;
+        v_t23 = core_none(&[])?;
+        v_t24 = core_ne(&[v_t22.clone(), v_t23.clone()])?;
+        if core_truthy(&v_t24) {
+            return Ok(CoreValue::Bool(true));
+        }
+        v_t25 = core_add(&[v_i.clone(), CoreValue::Num(1f64)])?;
+        v_i = v_t25.clone();
+    }
+    return Ok(CoreValue::Bool(false));
+}
+
+#[allow(
+    unused_variables,
+    unused_assignments,
+    unused_mut,
+    unreachable_code,
+    clippy::all
+)]
+fn _regex_identifier(args: &[CoreValue]) -> Result<CoreValue, AxError> {
+    axir_coverage_mark("_regex_identifier");
+    let mut v_c = core_arg(args, 0);
+    let mut v_first = core_arg(args, 1);
+    let mut v_entry = CoreValue::Null;
+    let mut v_hi = CoreValue::Null;
+    let mut v_lo = CoreValue::Null;
+    let mut v_mid = CoreValue::Null;
+    let mut v_ranges = CoreValue::Null;
+    let mut v_t1 = CoreValue::Null;
+    let mut v_t10 = CoreValue::Null;
+    let mut v_t11 = CoreValue::Null;
+    let mut v_t12 = CoreValue::Null;
+    let mut v_t13 = CoreValue::Null;
+    let mut v_t14 = CoreValue::Null;
+    let mut v_t15 = CoreValue::Null;
+    let mut v_t16 = CoreValue::Null;
+    let mut v_t17 = CoreValue::Null;
+    let mut v_t18 = CoreValue::Null;
+    let mut v_t19 = CoreValue::Null;
+    let mut v_t2 = CoreValue::Null;
+    let mut v_t20 = CoreValue::Null;
+    let mut v_t21 = CoreValue::Null;
+    let mut v_t22 = CoreValue::Null;
+    let mut v_t23 = CoreValue::Null;
+    let mut v_t24 = CoreValue::Null;
+    let mut v_t25 = CoreValue::Null;
+    let mut v_t26 = CoreValue::Null;
+    let mut v_t3 = CoreValue::Null;
+    let mut v_t4 = CoreValue::Null;
+    let mut v_t5 = CoreValue::Null;
+    let mut v_t6 = CoreValue::Null;
+    let mut v_t7 = CoreValue::Null;
+    let mut v_t8 = CoreValue::Null;
+    let mut v_t9 = CoreValue::Null;
+    v_entry = core_none(&[])?;
+    v_hi = core_none(&[])?;
+    v_lo = core_none(&[])?;
+    v_mid = core_none(&[])?;
+    v_ranges = core_none(&[])?;
+    v_t1 = core_eq(&[v_c.clone(), CoreValue::Num(36f64)])?;
+    v_t2 = v_t1.clone();
+    v_t3 = core_not(&[v_t2.clone()])?;
+    if core_truthy(&v_t3) {
+        v_t4 = core_eq(&[v_c.clone(), CoreValue::Num(95f64)])?;
+        v_t2 = v_t4.clone();
+    }
+    if core_truthy(&v_t2) {
+        return Ok(CoreValue::Bool(true));
+    }
+    v_t5 = core_not(&[v_first.clone()])?;
+    v_t6 = v_t5.clone();
+    if core_truthy(&v_t6) {
+        v_t7 = core_eq(&[v_c.clone(), CoreValue::Num(8204f64)])?;
+        v_t8 = v_t7.clone();
+        v_t9 = core_not(&[v_t8.clone()])?;
+        if core_truthy(&v_t9) {
+            v_t10 = core_eq(&[v_c.clone(), CoreValue::Num(8205f64)])?;
+            v_t8 = v_t10.clone();
+        }
+        v_t6 = v_t8.clone();
+    }
+    if core_truthy(&v_t6) {
+        return Ok(CoreValue::Bool(true));
+    }
+    v_t11 = _regex_id_continue_ranges(&[])?;
+    v_ranges = v_t11.clone();
+    if core_truthy(&v_first) {
+        v_t12 = _regex_id_start_ranges(&[])?;
+        v_ranges = v_t12.clone();
+    }
+    v_lo = CoreValue::Num(0f64);
+    v_t13 = core_len(&[v_ranges.clone()])?;
+    v_hi = v_t13.clone();
+    loop {
+        v_t14 = core_lt(&[v_lo.clone(), v_hi.clone()])?;
+        v_t15 = core_not(&[v_t14.clone()])?;
+        if core_truthy(&v_t15) {
+            break;
+        }
+        v_t16 = core_add(&[v_lo.clone(), v_hi.clone()])?;
+        v_t17 = core_div(&[v_t16.clone(), CoreValue::Num(2f64)])?;
+        v_t18 = core_math_floor(&[v_t17.clone()])?;
+        v_mid = v_t18.clone();
+        v_t19 = core_get(&v_ranges, &v_mid.clone(), CoreValue::Null);
+        v_entry = v_t19.clone();
+        v_t20 = CoreValue::Num(0f64);
+        v_t21 = core_get(&v_entry, &v_t20.clone(), CoreValue::Null);
+        v_t22 = core_lt(&[v_c.clone(), v_t21.clone()])?;
+        if core_truthy(&v_t22) {
+            v_hi = v_mid.clone();
+        } else {
+            v_t23 = CoreValue::Num(1f64);
+            v_t24 = core_get(&v_entry, &v_t23.clone(), CoreValue::Null);
+            v_t25 = core_gt(&[v_c.clone(), v_t24.clone()])?;
+            if core_truthy(&v_t25) {
+                v_t26 = core_add(&[v_mid.clone(), CoreValue::Num(1f64)])?;
+                v_lo = v_t26.clone();
+            } else {
+                return Ok(CoreValue::Bool(true));
+            }
+        }
+    }
+    return Ok(CoreValue::Bool(false));
+}
+
+#[allow(
+    unused_variables,
+    unused_assignments,
+    unused_mut,
+    unreachable_code,
+    clippy::all
+)]
+fn _regex_read_name(args: &[CoreValue]) -> Result<CoreValue, AxError> {
+    axir_coverage_mark("_regex_read_name");
+    let mut v_s = core_arg(args, 0);
+    let mut v_c = CoreValue::Null;
+    let mut v_i = CoreValue::Null;
+    let mut v_n = CoreValue::Null;
+    let mut v_name = CoreValue::Null;
+    let mut v_t1 = CoreValue::Null;
+    let mut v_t10 = CoreValue::Null;
+    let mut v_t11 = CoreValue::Null;
+    let mut v_t12 = CoreValue::Null;
+    let mut v_t13 = CoreValue::Null;
+    let mut v_t14 = CoreValue::Null;
+    let mut v_t15 = CoreValue::Null;
+    let mut v_t16 = CoreValue::Null;
+    let mut v_t17 = CoreValue::Null;
+    let mut v_t18 = CoreValue::Null;
+    let mut v_t19 = CoreValue::Null;
+    let mut v_t2 = CoreValue::Null;
+    let mut v_t20 = CoreValue::Null;
+    let mut v_t21 = CoreValue::Null;
+    let mut v_t22 = CoreValue::Null;
+    let mut v_t23 = CoreValue::Null;
+    let mut v_t24 = CoreValue::Null;
+    let mut v_t25 = CoreValue::Null;
+    let mut v_t26 = CoreValue::Null;
+    let mut v_t27 = CoreValue::Null;
+    let mut v_t28 = CoreValue::Null;
+    let mut v_t29 = CoreValue::Null;
+    let mut v_t3 = CoreValue::Null;
+    let mut v_t30 = CoreValue::Null;
+    let mut v_t31 = CoreValue::Null;
+    let mut v_t32 = CoreValue::Null;
+    let mut v_t33 = CoreValue::Null;
+    let mut v_t34 = CoreValue::Null;
+    let mut v_t35 = CoreValue::Null;
+    let mut v_t36 = CoreValue::Null;
+    let mut v_t37 = CoreValue::Null;
+    let mut v_t38 = CoreValue::Null;
+    let mut v_t39 = CoreValue::Null;
+    let mut v_t4 = CoreValue::Null;
+    let mut v_t40 = CoreValue::Null;
+    let mut v_t41 = CoreValue::Null;
+    let mut v_t42 = CoreValue::Null;
+    let mut v_t43 = CoreValue::Null;
+    let mut v_t44 = CoreValue::Null;
+    let mut v_t45 = CoreValue::Null;
+    let mut v_t46 = CoreValue::Null;
+    let mut v_t47 = CoreValue::Null;
+    let mut v_t48 = CoreValue::Null;
+    let mut v_t49 = CoreValue::Null;
+    let mut v_t5 = CoreValue::Null;
+    let mut v_t50 = CoreValue::Null;
+    let mut v_t51 = CoreValue::Null;
+    let mut v_t52 = CoreValue::Null;
+    let mut v_t53 = CoreValue::Null;
+    let mut v_t54 = CoreValue::Null;
+    let mut v_t55 = CoreValue::Null;
+    let mut v_t56 = CoreValue::Null;
+    let mut v_t57 = CoreValue::Null;
+    let mut v_t58 = CoreValue::Null;
+    let mut v_t59 = CoreValue::Null;
+    let mut v_t6 = CoreValue::Null;
+    let mut v_t60 = CoreValue::Null;
+    let mut v_t61 = CoreValue::Null;
+    let mut v_t62 = CoreValue::Null;
+    let mut v_t63 = CoreValue::Null;
+    let mut v_t64 = CoreValue::Null;
+    let mut v_t65 = CoreValue::Null;
+    let mut v_t66 = CoreValue::Null;
+    let mut v_t67 = CoreValue::Null;
+    let mut v_t68 = CoreValue::Null;
+    let mut v_t69 = CoreValue::Null;
+    let mut v_t7 = CoreValue::Null;
+    let mut v_t70 = CoreValue::Null;
+    let mut v_t71 = CoreValue::Null;
+    let mut v_t72 = CoreValue::Null;
+    let mut v_t73 = CoreValue::Null;
+    let mut v_t74 = CoreValue::Null;
+    let mut v_t75 = CoreValue::Null;
+    let mut v_t76 = CoreValue::Null;
+    let mut v_t77 = CoreValue::Null;
+    let mut v_t78 = CoreValue::Null;
+    let mut v_t79 = CoreValue::Null;
+    let mut v_t8 = CoreValue::Null;
+    let mut v_t80 = CoreValue::Null;
+    let mut v_t81 = CoreValue::Null;
+    let mut v_t82 = CoreValue::Null;
+    let mut v_t83 = CoreValue::Null;
+    let mut v_t84 = CoreValue::Null;
+    let mut v_t85 = CoreValue::Null;
+    let mut v_t86 = CoreValue::Null;
+    let mut v_t87 = CoreValue::Null;
+    let mut v_t88 = CoreValue::Null;
+    let mut v_t89 = CoreValue::Null;
+    let mut v_t9 = CoreValue::Null;
+    let mut v_t90 = CoreValue::Null;
+    let mut v_t91 = CoreValue::Null;
+    let mut v_t92 = CoreValue::Null;
+    let mut v_values = CoreValue::Null;
+    v_c = core_none(&[])?;
+    v_i = core_none(&[])?;
+    v_n = core_none(&[])?;
+    v_name = core_none(&[])?;
+    v_values = core_none(&[])?;
+    v_t1 = CoreValue::new_list();
+    v_values = v_t1.clone();
+    loop {
+        v_t2 = _regex_peek(&[v_s.clone()])?;
+        v_t3 = core_ne(&[v_t2.clone(), CoreValue::Num(62f64)])?;
+        v_t4 = v_t3.clone();
+        if core_truthy(&v_t4) {
+            v_t5 = _regex_peek(&[v_s.clone()])?;
+            v_t6 = core_gte(&[v_t5.clone(), CoreValue::Num(0f64)])?;
+            v_t4 = v_t6.clone();
+        }
+        v_t7 = core_not(&[v_t4.clone()])?;
+        if core_truthy(&v_t7) {
+            break;
+        }
+        v_t8 = _regex_take(&[v_s.clone()])?;
+        v_c = v_t8.clone();
+        v_t9 = core_eq(&[v_c.clone(), CoreValue::Num(92f64)])?;
+        if core_truthy(&v_t9) {
+            v_t10 = _regex_take(&[v_s.clone()])?;
+            v_t11 = core_ne(&[v_t10.clone(), CoreValue::Num(117f64)])?;
+            if core_truthy(&v_t11) {
+                v_t12 = core_string_format(&[
+                    CoreValue::from("Invalid regular expression: {}"),
+                    CoreValue::from("Invalid capture name escape"),
+                ])?;
+                v_t13 = core_validation_error(&[v_t12.clone()])?;
+                return Err(core_as_error(&v_t13));
+            }
+            v_c = CoreValue::Num(0f64);
+            v_n = CoreValue::Num(0f64);
+            v_t14 = _regex_peek(&[v_s.clone()])?;
+            v_t15 = core_eq(&[v_t14.clone(), CoreValue::Num(123f64)])?;
+            if core_truthy(&v_t15) {
+                v_t16 = _regex_take(&[v_s.clone()])?;
+                loop {
+                    v_t17 = _regex_peek(&[v_s.clone()])?;
+                    v_t18 = _regex_hexdigit(&[v_t17.clone()])?;
+                    v_t19 = core_gte(&[v_t18.clone(), CoreValue::Num(0f64)])?;
+                    v_t20 = core_not(&[v_t19.clone()])?;
+                    if core_truthy(&v_t20) {
+                        break;
+                    }
+                    v_t21 = core_mul(&[v_c.clone(), CoreValue::Num(16f64)])?;
+                    v_t22 = core_math_floor(&[v_t21.clone()])?;
+                    v_t23 = _regex_take(&[v_s.clone()])?;
+                    v_t24 = _regex_hexdigit(&[v_t23.clone()])?;
+                    v_t25 = core_add(&[v_t22.clone(), v_t24.clone()])?;
+                    v_c = v_t25.clone();
+                    v_t26 = core_add(&[v_n.clone(), CoreValue::Num(1f64)])?;
+                    v_n = v_t26.clone();
+                }
+                v_t27 = core_eq(&[v_n.clone(), CoreValue::Num(0f64)])?;
+                v_t28 = v_t27.clone();
+                v_t29 = core_not(&[v_t28.clone()])?;
+                if core_truthy(&v_t29) {
+                    v_t30 = _regex_take(&[v_s.clone()])?;
+                    v_t31 = core_ne(&[v_t30.clone(), CoreValue::Num(125f64)])?;
+                    v_t28 = v_t31.clone();
+                }
+                v_t32 = core_not(&[v_t28.clone()])?;
+                if core_truthy(&v_t32) {
+                    v_t33 = core_gt(&[v_c.clone(), CoreValue::Num(1114111f64)])?;
+                    v_t28 = v_t33.clone();
+                }
+                if core_truthy(&v_t28) {
+                    v_t34 = core_string_format(&[
+                        CoreValue::from("Invalid regular expression: {}"),
+                        CoreValue::from("Invalid Unicode capture name"),
+                    ])?;
+                    v_t35 = core_validation_error(&[v_t34.clone()])?;
+                    return Err(core_as_error(&v_t35));
+                }
+            } else {
+                loop {
+                    v_t36 = core_lt(&[v_n.clone(), CoreValue::Num(4f64)])?;
+                    v_t37 = v_t36.clone();
+                    if core_truthy(&v_t37) {
+                        v_t38 = _regex_peek(&[v_s.clone()])?;
+                        v_t39 = _regex_hexdigit(&[v_t38.clone()])?;
+                        v_t40 = core_gte(&[v_t39.clone(), CoreValue::Num(0f64)])?;
+                        v_t37 = v_t40.clone();
+                    }
+                    v_t41 = core_not(&[v_t37.clone()])?;
+                    if core_truthy(&v_t41) {
+                        break;
+                    }
+                    v_t42 = core_mul(&[v_c.clone(), CoreValue::Num(16f64)])?;
+                    v_t43 = core_math_floor(&[v_t42.clone()])?;
+                    v_t44 = _regex_take(&[v_s.clone()])?;
+                    v_t45 = _regex_hexdigit(&[v_t44.clone()])?;
+                    v_t46 = core_add(&[v_t43.clone(), v_t45.clone()])?;
+                    v_c = v_t46.clone();
+                    v_t47 = core_add(&[v_n.clone(), CoreValue::Num(1f64)])?;
+                    v_n = v_t47.clone();
+                }
+                v_t48 = core_ne(&[v_n.clone(), CoreValue::Num(4f64)])?;
+                if core_truthy(&v_t48) {
+                    v_t49 = core_string_format(&[
+                        CoreValue::from("Invalid regular expression: {}"),
+                        CoreValue::from("Invalid Unicode capture name"),
+                    ])?;
+                    v_t50 = core_validation_error(&[v_t49.clone()])?;
+                    return Err(core_as_error(&v_t50));
+                }
+            }
+        }
+        core_append(&v_values, v_c.clone())?;
+    }
+    v_t51 = _regex_take(&[v_s.clone()])?;
+    v_t52 = core_ne(&[v_t51.clone(), CoreValue::Num(62f64)])?;
+    v_t53 = v_t52.clone();
+    v_t54 = core_not(&[v_t53.clone()])?;
+    if core_truthy(&v_t54) {
+        v_t55 = core_len(&[v_values.clone()])?;
+        v_t56 = core_eq(&[v_t55.clone(), CoreValue::Num(0f64)])?;
+        v_t53 = v_t56.clone();
+    }
+    if core_truthy(&v_t53) {
+        v_t57 = core_string_format(&[
+            CoreValue::from("Invalid regular expression: {}"),
+            CoreValue::from("Invalid capture name"),
+        ])?;
+        v_t58 = core_validation_error(&[v_t57.clone()])?;
+        return Err(core_as_error(&v_t58));
+    }
+    v_name = CoreValue::from("");
+    v_i = CoreValue::Num(0f64);
+    loop {
+        v_t59 = core_len(&[v_values.clone()])?;
+        v_t60 = core_lt(&[v_i.clone(), v_t59.clone()])?;
+        v_t61 = core_not(&[v_t60.clone()])?;
+        if core_truthy(&v_t61) {
+            break;
+        }
+        v_t62 = core_get(&v_values, &v_i.clone(), CoreValue::Null);
+        v_c = v_t62.clone();
+        v_t63 = core_add(&[v_i.clone(), CoreValue::Num(1f64)])?;
+        v_i = v_t63.clone();
+        v_t64 = core_gte(&[v_c.clone(), CoreValue::Num(55296f64)])?;
+        v_t65 = v_t64.clone();
+        if core_truthy(&v_t65) {
+            v_t66 = core_lte(&[v_c.clone(), CoreValue::Num(56319f64)])?;
+            v_t65 = v_t66.clone();
+        }
+        if core_truthy(&v_t65) {
+            v_t67 = core_len(&[v_values.clone()])?;
+            v_t68 = core_lt(&[v_i.clone(), v_t67.clone()])?;
+            v_t65 = v_t68.clone();
+        }
+        if core_truthy(&v_t65) {
+            v_t69 = core_get(&v_values, &v_i.clone(), CoreValue::Null);
+            v_t70 = core_gte(&[v_t69.clone(), CoreValue::Num(56320f64)])?;
+            v_t65 = v_t70.clone();
+        }
+        if core_truthy(&v_t65) {
+            v_t71 = core_get(&v_values, &v_i.clone(), CoreValue::Null);
+            v_t72 = core_lte(&[v_t71.clone(), CoreValue::Num(57343f64)])?;
+            v_t65 = v_t72.clone();
+        }
+        if core_truthy(&v_t65) {
+            v_t73 = core_mul(&[CoreValue::Num(-1f64), CoreValue::Num(55296f64)])?;
+            v_t74 = core_add(&[v_c.clone(), v_t73.clone()])?;
+            v_t75 = core_math_floor(&[v_t74.clone()])?;
+            v_t76 = core_mul(&[v_t75.clone(), CoreValue::Num(1024f64)])?;
+            v_t77 = core_math_floor(&[v_t76.clone()])?;
+            v_t78 = core_add(&[CoreValue::Num(65536f64), v_t77.clone()])?;
+            v_t79 = core_get(&v_values, &v_i.clone(), CoreValue::Null);
+            v_t80 = core_add(&[v_t78.clone(), v_t79.clone()])?;
+            v_t81 = core_mul(&[CoreValue::Num(-1f64), CoreValue::Num(56320f64)])?;
+            v_t82 = core_add(&[v_t80.clone(), v_t81.clone()])?;
+            v_t83 = core_math_floor(&[v_t82.clone()])?;
+            v_c = v_t83.clone();
+            v_t84 = core_add(&[v_i.clone(), CoreValue::Num(1f64)])?;
+            v_i = v_t84.clone();
+        }
+        v_t85 = core_eq(&[v_name.clone(), CoreValue::from("")])?;
+        v_t86 = _regex_identifier(&[v_c.clone(), v_t85.clone()])?;
+        v_t87 = core_not(&[v_t86.clone()])?;
+        if core_truthy(&v_t87) {
+            v_t88 = core_string_format(&[
+                CoreValue::from("Invalid regular expression: {}"),
+                CoreValue::from("Invalid capture identifier"),
+            ])?;
+            v_t89 = core_validation_error(&[v_t88.clone()])?;
+            return Err(core_as_error(&v_t89));
+        }
+        v_t90 = core_string_format(&[CoreValue::from("{}"), v_c.clone()])?;
+        v_t91 = core_add(&[v_t90.clone(), CoreValue::from(",")])?;
+        v_t92 = core_add(&[v_name.clone(), v_t91.clone()])?;
+        v_name = v_t92.clone();
+    }
+    return Ok(v_name.clone());
+}
+
+#[allow(
+    unused_variables,
+    unused_assignments,
+    unused_mut,
+    unreachable_code,
+    clippy::all
+)]
+fn _regex_validate_names(args: &[CoreValue]) -> Result<CoreValue, AxError> {
+    axir_coverage_mark("_regex_validate_names");
+    let mut v_n = core_arg(args, 0);
+    let mut v_path = core_arg(args, 1);
+    let mut v_seen = core_arg(args, 2);
+    let mut v_counter = core_arg(args, 3);
+    let mut v_branch = CoreValue::Null;
+    let mut v_exclusive = CoreValue::Null;
+    let mut v_index = CoreValue::Null;
+    let mut v_iter_12 = CoreValue::Null;
+    let mut v_iter_14 = CoreValue::Null;
+    let mut v_iter_31 = CoreValue::Null;
+    let mut v_iter_37 = CoreValue::Null;
+    let mut v_k = CoreValue::Null;
+    let mut v_key = CoreValue::Null;
+    let mut v_name = CoreValue::Null;
+    let mut v_other = CoreValue::Null;
+    let mut v_previous = CoreValue::Null;
+    let mut v_t1 = CoreValue::Null;
+    let mut v_t10 = CoreValue::Null;
+    let mut v_t11 = CoreValue::Null;
+    let mut v_t13 = CoreValue::Null;
+    let mut v_t15 = CoreValue::Null;
+    let mut v_t16 = CoreValue::Null;
+    let mut v_t17 = CoreValue::Null;
+    let mut v_t18 = CoreValue::Null;
+    let mut v_t19 = CoreValue::Null;
+    let mut v_t2 = CoreValue::Null;
+    let mut v_t20 = CoreValue::Null;
+    let mut v_t21 = CoreValue::Null;
+    let mut v_t22 = CoreValue::Null;
+    let mut v_t23 = CoreValue::Null;
+    let mut v_t24 = CoreValue::Null;
+    let mut v_t25 = CoreValue::Null;
+    let mut v_t26 = CoreValue::Null;
+    let mut v_t27 = CoreValue::Null;
+    let mut v_t28 = CoreValue::Null;
+    let mut v_t29 = CoreValue::Null;
+    let mut v_t3 = CoreValue::Null;
+    let mut v_t30 = CoreValue::Null;
+    let mut v_t32 = CoreValue::Null;
+    let mut v_t33 = CoreValue::Null;
+    let mut v_t34 = CoreValue::Null;
+    let mut v_t35 = CoreValue::Null;
+    let mut v_t36 = CoreValue::Null;
+    let mut v_t38 = CoreValue::Null;
+    let mut v_t39 = CoreValue::Null;
+    let mut v_t4 = CoreValue::Null;
+    let mut v_t40 = CoreValue::Null;
+    let mut v_t41 = CoreValue::Null;
+    let mut v_t42 = CoreValue::Null;
+    let mut v_t43 = CoreValue::Null;
+    let mut v_t5 = CoreValue::Null;
+    let mut v_t6 = CoreValue::Null;
+    let mut v_t7 = CoreValue::Null;
+    let mut v_t8 = CoreValue::Null;
+    let mut v_t9 = CoreValue::Null;
+    let mut v_term = CoreValue::Null;
+    v_branch = core_none(&[])?;
+    v_exclusive = core_none(&[])?;
+    v_index = core_none(&[])?;
+    v_k = core_none(&[])?;
+    v_key = core_none(&[])?;
+    v_name = core_none(&[])?;
+    v_other = core_none(&[])?;
+    v_previous = core_none(&[])?;
+    v_term = core_none(&[])?;
+    v_t1 = core_get(&v_n, &CoreValue::from("k"), CoreValue::Null);
+    v_k = v_t1.clone();
+    v_t2 = core_eq(&[v_k.clone(), CoreValue::from("capture")])?;
+    v_t3 = v_t2.clone();
+    if core_truthy(&v_t3) {
+        v_t4 = core_get(&v_n, &CoreValue::from("name"), CoreValue::Null);
+        v_t5 = core_none(&[])?;
+        v_t6 = core_ne(&[v_t4.clone(), v_t5.clone()])?;
+        v_t3 = v_t6.clone();
+    }
+    if core_truthy(&v_t3) {
+        v_t7 = core_get(&v_n, &CoreValue::from("name"), CoreValue::Null);
+        v_name = v_t7.clone();
+        v_t8 = core_get(&v_seen, &v_name.clone(), CoreValue::Null);
+        v_previous = v_t8.clone();
+        v_t9 = core_none(&[])?;
+        v_t10 = core_eq(&[v_previous.clone(), v_t9.clone()])?;
+        if core_truthy(&v_t10) {
+            v_t11 = CoreValue::new_list();
+            v_previous = v_t11.clone();
+        }
+        for v_iter_12 in core_iter(&v_previous)? {
+            let mut v_iter_12 = v_iter_12;
+            v_other = v_iter_12.clone();
+            v_exclusive = CoreValue::Bool(false);
+            v_t13 = core_map_keys(&[v_path.clone()])?;
+            for v_iter_14 in core_iter(&v_t13)? {
+                let mut v_iter_14 = v_iter_14;
+                v_key = v_iter_14.clone();
+                v_t15 = core_get(&v_other, &v_key.clone(), CoreValue::Null);
+                v_t16 = core_none(&[])?;
+                v_t17 = core_ne(&[v_t15.clone(), v_t16.clone()])?;
+                v_t18 = v_t17.clone();
+                if core_truthy(&v_t18) {
+                    v_t19 = core_get(&v_other, &v_key.clone(), CoreValue::Null);
+                    v_t20 = core_get(&v_path, &v_key.clone(), CoreValue::Null);
+                    v_t21 = core_ne(&[v_t19.clone(), v_t20.clone()])?;
+                    v_t18 = v_t21.clone();
+                }
+                if core_truthy(&v_t18) {
+                    v_exclusive = CoreValue::Bool(true);
+                }
+            }
+            v_t22 = core_not(&[v_exclusive.clone()])?;
+            if core_truthy(&v_t22) {
+                v_t23 = core_string_format(&[
+                    CoreValue::from("Invalid regular expression: {}"),
+                    CoreValue::from("Duplicate capture name"),
+                ])?;
+                v_t24 = core_validation_error(&[v_t23.clone()])?;
+                return Err(core_as_error(&v_t24));
+            }
+        }
+        v_t25 = _regex_copy_map(&[v_path.clone()])?;
+        core_append(&v_previous, v_t25.clone())?;
+        core_set(&v_seen, v_name.clone(), v_previous.clone())?;
+    }
+    v_t26 = core_eq(&[v_k.clone(), CoreValue::from("alt")])?;
+    if core_truthy(&v_t26) {
+        v_t27 = core_get(&v_counter, &CoreValue::from("next"), CoreValue::Null);
+        v_t28 = core_add(&[v_t27.clone(), CoreValue::Num(1f64)])?;
+        core_set(&v_counter, CoreValue::from("next"), v_t28.clone())?;
+        v_t29 = core_get(&v_counter, &CoreValue::from("next"), CoreValue::Null);
+        v_key = v_t29.clone();
+        v_index = CoreValue::Num(0f64);
+        v_t30 = core_get(&v_n, &CoreValue::from("terms"), CoreValue::Null);
+        for v_iter_31 in core_iter(&v_t30)? {
+            let mut v_iter_31 = v_iter_31;
+            v_term = v_iter_31.clone();
+            v_t32 = _regex_copy_map(&[v_path.clone()])?;
+            v_branch = v_t32.clone();
+            core_set(&v_branch, v_key.clone(), v_index.clone())?;
+            v_t33 = core_add(&[v_index.clone(), CoreValue::Num(1f64)])?;
+            v_index = v_t33.clone();
+            v_t34 = _regex_validate_names(&[
+                v_term.clone(),
+                v_branch.clone(),
+                v_seen.clone(),
+                v_counter.clone(),
+            ])?;
+        }
+    } else {
+        v_t35 = core_eq(&[v_k.clone(), CoreValue::from("seq")])?;
+        if core_truthy(&v_t35) {
+            v_t36 = core_get(&v_n, &CoreValue::from("terms"), CoreValue::Null);
+            for v_iter_37 in core_iter(&v_t36)? {
+                let mut v_iter_37 = v_iter_37;
+                v_term = v_iter_37.clone();
+                v_t38 = _regex_validate_names(&[
+                    v_term.clone(),
+                    v_path.clone(),
+                    v_seen.clone(),
+                    v_counter.clone(),
+                ])?;
+            }
+        } else {
+            v_t39 = core_get(&v_n, &CoreValue::from("child"), CoreValue::Null);
+            v_t40 = core_none(&[])?;
+            v_t41 = core_ne(&[v_t39.clone(), v_t40.clone()])?;
+            if core_truthy(&v_t41) {
+                v_t42 = core_get(&v_n, &CoreValue::from("child"), CoreValue::Null);
+                v_t43 = _regex_validate_names(&[
+                    v_t42.clone(),
+                    v_path.clone(),
+                    v_seen.clone(),
+                    v_counter.clone(),
+                ])?;
+            }
+        }
+    }
+    return Ok(CoreValue::Null);
+}
+
+#[allow(
+    unused_variables,
+    unused_assignments,
+    unused_mut,
+    unreachable_code,
+    clippy::all
+)]
+fn _regex_id_start_ranges(args: &[CoreValue]) -> Result<CoreValue, AxError> {
+    axir_coverage_mark("_regex_id_start_ranges");
+    let mut v_t1 = CoreValue::Null;
+    v_t1 = core_json_parse(&[CoreValue::from("[[65,90],[97,122],[170,170],[181,181],[186,186],[192,214],[216,246],[248,705],[710,721],[736,740],[748,748],[750,750],[880,884],[886,887],[890,893],[895,895],[902,902],[904,906],[908,908],[910,929],[931,1013],[1015,1153],[1162,1327],[1329,1366],[1369,1369],[1376,1416],[1488,1514],[1519,1522],[1568,1610],[1646,1647],[1649,1747],[1749,1749],[1765,1766],[1774,1775],[1786,1788],[1791,1791],[1808,1808],[1810,1839],[1869,1957],[1969,1969],[1994,2026],[2036,2037],[2042,2042],[2048,2069],[2074,2074],[2084,2084],[2088,2088],[2112,2136],[2144,2154],[2160,2183],[2185,2191],[2208,2249],[2308,2361],[2365,2365],[2384,2384],[2392,2401],[2417,2432],[2437,2444],[2447,2448],[2451,2472],[2474,2480],[2482,2482],[2486,2489],[2493,2493],[2510,2510],[2524,2525],[2527,2529],[2544,2545],[2556,2556],[2565,2570],[2575,2576],[2579,2600],[2602,2608],[2610,2611],[2613,2614],[2616,2617],[2649,2652],[2654,2654],[2674,2676],[2693,2701],[2703,2705],[2707,2728],[2730,2736],[2738,2739],[2741,2745],[2749,2749],[2768,2768],[2784,2785],[2809,2809],[2821,2828],[2831,2832],[2835,2856],[2858,2864],[2866,2867],[2869,2873],[2877,2877],[2908,2909],[2911,2913],[2929,2929],[2947,2947],[2949,2954],[2958,2960],[2962,2965],[2969,2970],[2972,2972],[2974,2975],[2979,2980],[2984,2986],[2990,3001],[3024,3024],[3077,3084],[3086,3088],[3090,3112],[3114,3129],[3133,3133],[3160,3162],[3164,3165],[3168,3169],[3200,3200],[3205,3212],[3214,3216],[3218,3240],[3242,3251],[3253,3257],[3261,3261],[3292,3294],[3296,3297],[3313,3314],[3332,3340],[3342,3344],[3346,3386],[3389,3389],[3406,3406],[3412,3414],[3423,3425],[3450,3455],[3461,3478],[3482,3505],[3507,3515],[3517,3517],[3520,3526],[3585,3632],[3634,3635],[3648,3654],[3713,3714],[3716,3716],[3718,3722],[3724,3747],[3749,3749],[3751,3760],[3762,3763],[3773,3773],[3776,3780],[3782,3782],[3804,3807],[3840,3840],[3904,3911],[3913,3948],[3976,3980],[4096,4138],[4159,4159],[4176,4181],[4186,4189],[4193,4193],[4197,4198],[4206,4208],[4213,4225],[4238,4238],[4256,4293],[4295,4295],[4301,4301],[4304,4346],[4348,4680],[4682,4685],[4688,4694],[4696,4696],[4698,4701],[4704,4744],[4746,4749],[4752,4784],[4786,4789],[4792,4798],[4800,4800],[4802,4805],[4808,4822],[4824,4880],[4882,4885],[4888,4954],[4992,5007],[5024,5109],[5112,5117],[5121,5740],[5743,5759],[5761,5786],[5792,5866],[5870,5880],[5888,5905],[5919,5937],[5952,5969],[5984,5996],[5998,6000],[6016,6067],[6103,6103],[6108,6108],[6176,6264],[6272,6312],[6314,6314],[6320,6389],[6400,6430],[6480,6509],[6512,6516],[6528,6571],[6576,6601],[6656,6678],[6688,6740],[6823,6823],[6917,6963],[6981,6988],[7043,7072],[7086,7087],[7098,7141],[7168,7203],[7245,7247],[7258,7293],[7296,7306],[7312,7354],[7357,7359],[7401,7404],[7406,7411],[7413,7414],[7418,7418],[7424,7615],[7680,7957],[7960,7965],[7968,8005],[8008,8013],[8016,8023],[8025,8025],[8027,8027],[8029,8029],[8031,8061],[8064,8116],[8118,8124],[8126,8126],[8130,8132],[8134,8140],[8144,8147],[8150,8155],[8160,8172],[8178,8180],[8182,8188],[8305,8305],[8319,8319],[8336,8348],[8450,8450],[8455,8455],[8458,8467],[8469,8469],[8472,8477],[8484,8484],[8486,8486],[8488,8488],[8490,8505],[8508,8511],[8517,8521],[8526,8526],[8544,8584],[11264,11492],[11499,11502],[11506,11507],[11520,11557],[11559,11559],[11565,11565],[11568,11623],[11631,11631],[11648,11670],[11680,11686],[11688,11694],[11696,11702],[11704,11710],[11712,11718],[11720,11726],[11728,11734],[11736,11742],[12293,12295],[12321,12329],[12337,12341],[12344,12348],[12353,12438],[12443,12447],[12449,12538],[12540,12543],[12549,12591],[12593,12686],[12704,12735],[12784,12799],[13312,19903],[19968,42124],[42192,42237],[42240,42508],[42512,42527],[42538,42539],[42560,42606],[42623,42653],[42656,42735],[42775,42783],[42786,42888],[42891,42972],[42993,43009],[43011,43013],[43015,43018],[43020,43042],[43072,43123],[43138,43187],[43250,43255],[43259,43259],[43261,43262],[43274,43301],[43312,43334],[43360,43388],[43396,43442],[43471,43471],[43488,43492],[43494,43503],[43514,43518],[43520,43560],[43584,43586],[43588,43595],[43616,43638],[43642,43642],[43646,43695],[43697,43697],[43701,43702],[43705,43709],[43712,43712],[43714,43714],[43739,43741],[43744,43754],[43762,43764],[43777,43782],[43785,43790],[43793,43798],[43808,43814],[43816,43822],[43824,43866],[43868,43881],[43888,44002],[44032,55203],[55216,55238],[55243,55291],[63744,64109],[64112,64217],[64256,64262],[64275,64279],[64285,64285],[64287,64296],[64298,64310],[64312,64316],[64318,64318],[64320,64321],[64323,64324],[64326,64433],[64467,64829],[64848,64911],[64914,64967],[65008,65019],[65136,65140],[65142,65276],[65313,65338],[65345,65370],[65382,65470],[65474,65479],[65482,65487],[65490,65495],[65498,65500],[65536,65547],[65549,65574],[65576,65594],[65596,65597],[65599,65613],[65616,65629],[65664,65786],[65856,65908],[66176,66204],[66208,66256],[66304,66335],[66349,66378],[66384,66421],[66432,66461],[66464,66499],[66504,66511],[66513,66517],[66560,66717],[66736,66771],[66776,66811],[66816,66855],[66864,66915],[66928,66938],[66940,66954],[66956,66962],[66964,66965],[66967,66977],[66979,66993],[66995,67001],[67003,67004],[67008,67059],[67072,67382],[67392,67413],[67424,67431],[67456,67461],[67463,67504],[67506,67514],[67584,67589],[67592,67592],[67594,67637],[67639,67640],[67644,67644],[67647,67669],[67680,67702],[67712,67742],[67808,67826],[67828,67829],[67840,67861],[67872,67897],[67904,67929],[67968,68023],[68030,68031],[68096,68096],[68112,68115],[68117,68119],[68121,68149],[68192,68220],[68224,68252],[68288,68295],[68297,68324],[68352,68405],[68416,68437],[68448,68466],[68480,68497],[68608,68680],[68736,68786],[68800,68850],[68864,68899],[68938,68965],[68975,68997],[69248,69289],[69296,69297],[69314,69319],[69376,69404],[69415,69415],[69424,69445],[69488,69505],[69552,69572],[69600,69622],[69635,69687],[69745,69746],[69749,69749],[69763,69807],[69840,69864],[69891,69926],[69956,69956],[69959,69959],[69968,70002],[70006,70006],[70019,70066],[70081,70084],[70106,70106],[70108,70108],[70144,70161],[70163,70187],[70207,70208],[70272,70278],[70280,70280],[70282,70285],[70287,70301],[70303,70312],[70320,70366],[70405,70412],[70415,70416],[70419,70440],[70442,70448],[70450,70451],[70453,70457],[70461,70461],[70480,70480],[70493,70497],[70528,70537],[70539,70539],[70542,70542],[70544,70581],[70583,70583],[70609,70609],[70611,70611],[70656,70708],[70727,70730],[70751,70753],[70784,70831],[70852,70853],[70855,70855],[71040,71086],[71128,71131],[71168,71215],[71236,71236],[71296,71338],[71352,71352],[71424,71450],[71488,71494],[71680,71723],[71840,71903],[71935,71942],[71945,71945],[71948,71955],[71957,71958],[71960,71983],[71999,71999],[72001,72001],[72096,72103],[72106,72144],[72161,72161],[72163,72163],[72192,72192],[72203,72242],[72250,72250],[72272,72272],[72284,72329],[72349,72349],[72368,72440],[72640,72672],[72704,72712],[72714,72750],[72768,72768],[72818,72847],[72960,72966],[72968,72969],[72971,73008],[73030,73030],[73056,73061],[73063,73064],[73066,73097],[73112,73112],[73136,73179],[73440,73458],[73474,73474],[73476,73488],[73490,73523],[73648,73648],[73728,74649],[74752,74862],[74880,75075],[77712,77808],[77824,78895],[78913,78918],[78944,82938],[82944,83526],[90368,90397],[92160,92728],[92736,92766],[92784,92862],[92880,92909],[92928,92975],[92992,92995],[93027,93047],[93053,93071],[93504,93548],[93760,93823],[93856,93880],[93883,93907],[93952,94026],[94032,94032],[94099,94111],[94176,94177],[94179,94179],[94194,94198],[94208,101589],[101631,101662],[101760,101874],[110576,110579],[110581,110587],[110589,110590],[110592,110882],[110898,110898],[110928,110930],[110933,110933],[110948,110951],[110960,111355],[113664,113770],[113776,113788],[113792,113800],[113808,113817],[119808,119892],[119894,119964],[119966,119967],[119970,119970],[119973,119974],[119977,119980],[119982,119993],[119995,119995],[119997,120003],[120005,120069],[120071,120074],[120077,120084],[120086,120092],[120094,120121],[120123,120126],[120128,120132],[120134,120134],[120138,120144],[120146,120485],[120488,120512],[120514,120538],[120540,120570],[120572,120596],[120598,120628],[120630,120654],[120656,120686],[120688,120712],[120714,120744],[120746,120770],[120772,120779],[122624,122654],[122661,122666],[122928,122989],[123136,123180],[123191,123197],[123214,123214],[123536,123565],[123584,123627],[124112,124139],[124368,124397],[124400,124400],[124608,124638],[124640,124642],[124644,124645],[124647,124653],[124656,124660],[124670,124671],[124896,124902],[124904,124907],[124909,124910],[124912,124926],[124928,125124],[125184,125251],[125259,125259],[126464,126467],[126469,126495],[126497,126498],[126500,126500],[126503,126503],[126505,126514],[126516,126519],[126521,126521],[126523,126523],[126530,126530],[126535,126535],[126537,126537],[126539,126539],[126541,126543],[126545,126546],[126548,126548],[126551,126551],[126553,126553],[126555,126555],[126557,126557],[126559,126559],[126561,126562],[126564,126564],[126567,126570],[126572,126578],[126580,126583],[126585,126588],[126590,126590],[126592,126601],[126603,126619],[126625,126627],[126629,126633],[126635,126651],[131072,173791],[173824,178205],[178208,183981],[183984,191456],[191472,192093],[194560,195101],[196608,201546],[201552,210041]]")])?;
+    return Ok(v_t1.clone());
+}
+
+#[allow(
+    unused_variables,
+    unused_assignments,
+    unused_mut,
+    unreachable_code,
+    clippy::all
+)]
+fn _regex_id_continue_ranges(args: &[CoreValue]) -> Result<CoreValue, AxError> {
+    axir_coverage_mark("_regex_id_continue_ranges");
+    let mut v_t1 = CoreValue::Null;
+    v_t1 = core_json_parse(&[CoreValue::from("[[48,57],[65,90],[95,95],[97,122],[170,170],[181,181],[183,183],[186,186],[192,214],[216,246],[248,705],[710,721],[736,740],[748,748],[750,750],[768,884],[886,887],[890,893],[895,895],[902,906],[908,908],[910,929],[931,1013],[1015,1153],[1155,1159],[1162,1327],[1329,1366],[1369,1369],[1376,1416],[1425,1469],[1471,1471],[1473,1474],[1476,1477],[1479,1479],[1488,1514],[1519,1522],[1552,1562],[1568,1641],[1646,1747],[1749,1756],[1759,1768],[1770,1788],[1791,1791],[1808,1866],[1869,1969],[1984,2037],[2042,2042],[2045,2045],[2048,2093],[2112,2139],[2144,2154],[2160,2183],[2185,2191],[2199,2273],[2275,2403],[2406,2415],[2417,2435],[2437,2444],[2447,2448],[2451,2472],[2474,2480],[2482,2482],[2486,2489],[2492,2500],[2503,2504],[2507,2510],[2519,2519],[2524,2525],[2527,2531],[2534,2545],[2556,2556],[2558,2558],[2561,2563],[2565,2570],[2575,2576],[2579,2600],[2602,2608],[2610,2611],[2613,2614],[2616,2617],[2620,2620],[2622,2626],[2631,2632],[2635,2637],[2641,2641],[2649,2652],[2654,2654],[2662,2677],[2689,2691],[2693,2701],[2703,2705],[2707,2728],[2730,2736],[2738,2739],[2741,2745],[2748,2757],[2759,2761],[2763,2765],[2768,2768],[2784,2787],[2790,2799],[2809,2815],[2817,2819],[2821,2828],[2831,2832],[2835,2856],[2858,2864],[2866,2867],[2869,2873],[2876,2884],[2887,2888],[2891,2893],[2901,2903],[2908,2909],[2911,2915],[2918,2927],[2929,2929],[2946,2947],[2949,2954],[2958,2960],[2962,2965],[2969,2970],[2972,2972],[2974,2975],[2979,2980],[2984,2986],[2990,3001],[3006,3010],[3014,3016],[3018,3021],[3024,3024],[3031,3031],[3046,3055],[3072,3084],[3086,3088],[3090,3112],[3114,3129],[3132,3140],[3142,3144],[3146,3149],[3157,3158],[3160,3162],[3164,3165],[3168,3171],[3174,3183],[3200,3203],[3205,3212],[3214,3216],[3218,3240],[3242,3251],[3253,3257],[3260,3268],[3270,3272],[3274,3277],[3285,3286],[3292,3294],[3296,3299],[3302,3311],[3313,3315],[3328,3340],[3342,3344],[3346,3396],[3398,3400],[3402,3406],[3412,3415],[3423,3427],[3430,3439],[3450,3455],[3457,3459],[3461,3478],[3482,3505],[3507,3515],[3517,3517],[3520,3526],[3530,3530],[3535,3540],[3542,3542],[3544,3551],[3558,3567],[3570,3571],[3585,3642],[3648,3662],[3664,3673],[3713,3714],[3716,3716],[3718,3722],[3724,3747],[3749,3749],[3751,3773],[3776,3780],[3782,3782],[3784,3790],[3792,3801],[3804,3807],[3840,3840],[3864,3865],[3872,3881],[3893,3893],[3895,3895],[3897,3897],[3902,3911],[3913,3948],[3953,3972],[3974,3991],[3993,4028],[4038,4038],[4096,4169],[4176,4253],[4256,4293],[4295,4295],[4301,4301],[4304,4346],[4348,4680],[4682,4685],[4688,4694],[4696,4696],[4698,4701],[4704,4744],[4746,4749],[4752,4784],[4786,4789],[4792,4798],[4800,4800],[4802,4805],[4808,4822],[4824,4880],[4882,4885],[4888,4954],[4957,4959],[4969,4977],[4992,5007],[5024,5109],[5112,5117],[5121,5740],[5743,5759],[5761,5786],[5792,5866],[5870,5880],[5888,5909],[5919,5940],[5952,5971],[5984,5996],[5998,6000],[6002,6003],[6016,6099],[6103,6103],[6108,6109],[6112,6121],[6155,6157],[6159,6169],[6176,6264],[6272,6314],[6320,6389],[6400,6430],[6432,6443],[6448,6459],[6470,6509],[6512,6516],[6528,6571],[6576,6601],[6608,6618],[6656,6683],[6688,6750],[6752,6780],[6783,6793],[6800,6809],[6823,6823],[6832,6845],[6847,6877],[6880,6891],[6912,6988],[6992,7001],[7019,7027],[7040,7155],[7168,7223],[7232,7241],[7245,7293],[7296,7306],[7312,7354],[7357,7359],[7376,7378],[7380,7418],[7424,7957],[7960,7965],[7968,8005],[8008,8013],[8016,8023],[8025,8025],[8027,8027],[8029,8029],[8031,8061],[8064,8116],[8118,8124],[8126,8126],[8130,8132],[8134,8140],[8144,8147],[8150,8155],[8160,8172],[8178,8180],[8182,8188],[8204,8205],[8255,8256],[8276,8276],[8305,8305],[8319,8319],[8336,8348],[8400,8412],[8417,8417],[8421,8432],[8450,8450],[8455,8455],[8458,8467],[8469,8469],[8472,8477],[8484,8484],[8486,8486],[8488,8488],[8490,8505],[8508,8511],[8517,8521],[8526,8526],[8544,8584],[11264,11492],[11499,11507],[11520,11557],[11559,11559],[11565,11565],[11568,11623],[11631,11631],[11647,11670],[11680,11686],[11688,11694],[11696,11702],[11704,11710],[11712,11718],[11720,11726],[11728,11734],[11736,11742],[11744,11775],[12293,12295],[12321,12335],[12337,12341],[12344,12348],[12353,12438],[12441,12447],[12449,12543],[12549,12591],[12593,12686],[12704,12735],[12784,12799],[13312,19903],[19968,42124],[42192,42237],[42240,42508],[42512,42539],[42560,42607],[42612,42621],[42623,42737],[42775,42783],[42786,42888],[42891,42972],[42993,43047],[43052,43052],[43072,43123],[43136,43205],[43216,43225],[43232,43255],[43259,43259],[43261,43309],[43312,43347],[43360,43388],[43392,43456],[43471,43481],[43488,43518],[43520,43574],[43584,43597],[43600,43609],[43616,43638],[43642,43714],[43739,43741],[43744,43759],[43762,43766],[43777,43782],[43785,43790],[43793,43798],[43808,43814],[43816,43822],[43824,43866],[43868,43881],[43888,44010],[44012,44013],[44016,44025],[44032,55203],[55216,55238],[55243,55291],[63744,64109],[64112,64217],[64256,64262],[64275,64279],[64285,64296],[64298,64310],[64312,64316],[64318,64318],[64320,64321],[64323,64324],[64326,64433],[64467,64829],[64848,64911],[64914,64967],[65008,65019],[65024,65039],[65056,65071],[65075,65076],[65101,65103],[65136,65140],[65142,65276],[65296,65305],[65313,65338],[65343,65343],[65345,65370],[65381,65470],[65474,65479],[65482,65487],[65490,65495],[65498,65500],[65536,65547],[65549,65574],[65576,65594],[65596,65597],[65599,65613],[65616,65629],[65664,65786],[65856,65908],[66045,66045],[66176,66204],[66208,66256],[66272,66272],[66304,66335],[66349,66378],[66384,66426],[66432,66461],[66464,66499],[66504,66511],[66513,66517],[66560,66717],[66720,66729],[66736,66771],[66776,66811],[66816,66855],[66864,66915],[66928,66938],[66940,66954],[66956,66962],[66964,66965],[66967,66977],[66979,66993],[66995,67001],[67003,67004],[67008,67059],[67072,67382],[67392,67413],[67424,67431],[67456,67461],[67463,67504],[67506,67514],[67584,67589],[67592,67592],[67594,67637],[67639,67640],[67644,67644],[67647,67669],[67680,67702],[67712,67742],[67808,67826],[67828,67829],[67840,67861],[67872,67897],[67904,67929],[67968,68023],[68030,68031],[68096,68099],[68101,68102],[68108,68115],[68117,68119],[68121,68149],[68152,68154],[68159,68159],[68192,68220],[68224,68252],[68288,68295],[68297,68326],[68352,68405],[68416,68437],[68448,68466],[68480,68497],[68608,68680],[68736,68786],[68800,68850],[68864,68903],[68912,68921],[68928,68965],[68969,68973],[68975,68997],[69248,69289],[69291,69292],[69296,69297],[69314,69319],[69370,69404],[69415,69415],[69424,69456],[69488,69509],[69552,69572],[69600,69622],[69632,69702],[69734,69749],[69759,69818],[69826,69826],[69840,69864],[69872,69881],[69888,69940],[69942,69951],[69956,69959],[69968,70003],[70006,70006],[70016,70084],[70089,70092],[70094,70106],[70108,70108],[70144,70161],[70163,70199],[70206,70209],[70272,70278],[70280,70280],[70282,70285],[70287,70301],[70303,70312],[70320,70378],[70384,70393],[70400,70403],[70405,70412],[70415,70416],[70419,70440],[70442,70448],[70450,70451],[70453,70457],[70459,70468],[70471,70472],[70475,70477],[70480,70480],[70487,70487],[70493,70499],[70502,70508],[70512,70516],[70528,70537],[70539,70539],[70542,70542],[70544,70581],[70583,70592],[70594,70594],[70597,70597],[70599,70602],[70604,70611],[70625,70626],[70656,70730],[70736,70745],[70750,70753],[70784,70853],[70855,70855],[70864,70873],[71040,71093],[71096,71104],[71128,71133],[71168,71232],[71236,71236],[71248,71257],[71296,71352],[71360,71369],[71376,71395],[71424,71450],[71453,71467],[71472,71481],[71488,71494],[71680,71738],[71840,71913],[71935,71942],[71945,71945],[71948,71955],[71957,71958],[71960,71989],[71991,71992],[71995,72003],[72016,72025],[72096,72103],[72106,72151],[72154,72161],[72163,72164],[72192,72254],[72263,72263],[72272,72345],[72349,72349],[72368,72440],[72544,72551],[72640,72672],[72688,72697],[72704,72712],[72714,72758],[72760,72768],[72784,72793],[72818,72847],[72850,72871],[72873,72886],[72960,72966],[72968,72969],[72971,73014],[73018,73018],[73020,73021],[73023,73031],[73040,73049],[73056,73061],[73063,73064],[73066,73102],[73104,73105],[73107,73112],[73120,73129],[73136,73179],[73184,73193],[73440,73462],[73472,73488],[73490,73530],[73534,73538],[73552,73562],[73648,73648],[73728,74649],[74752,74862],[74880,75075],[77712,77808],[77824,78895],[78912,78933],[78944,82938],[82944,83526],[90368,90425],[92160,92728],[92736,92766],[92768,92777],[92784,92862],[92864,92873],[92880,92909],[92912,92916],[92928,92982],[92992,92995],[93008,93017],[93027,93047],[93053,93071],[93504,93548],[93552,93561],[93760,93823],[93856,93880],[93883,93907],[93952,94026],[94031,94087],[94095,94111],[94176,94177],[94179,94180],[94192,94198],[94208,101589],[101631,101662],[101760,101874],[110576,110579],[110581,110587],[110589,110590],[110592,110882],[110898,110898],[110928,110930],[110933,110933],[110948,110951],[110960,111355],[113664,113770],[113776,113788],[113792,113800],[113808,113817],[113821,113822],[118000,118009],[118528,118573],[118576,118598],[119141,119145],[119149,119154],[119163,119170],[119173,119179],[119210,119213],[119362,119364],[119808,119892],[119894,119964],[119966,119967],[119970,119970],[119973,119974],[119977,119980],[119982,119993],[119995,119995],[119997,120003],[120005,120069],[120071,120074],[120077,120084],[120086,120092],[120094,120121],[120123,120126],[120128,120132],[120134,120134],[120138,120144],[120146,120485],[120488,120512],[120514,120538],[120540,120570],[120572,120596],[120598,120628],[120630,120654],[120656,120686],[120688,120712],[120714,120744],[120746,120770],[120772,120779],[120782,120831],[121344,121398],[121403,121452],[121461,121461],[121476,121476],[121499,121503],[121505,121519],[122624,122654],[122661,122666],[122880,122886],[122888,122904],[122907,122913],[122915,122916],[122918,122922],[122928,122989],[123023,123023],[123136,123180],[123184,123197],[123200,123209],[123214,123214],[123536,123566],[123584,123641],[124112,124153],[124368,124410],[124608,124638],[124640,124661],[124670,124671],[124896,124902],[124904,124907],[124909,124910],[124912,124926],[124928,125124],[125136,125142],[125184,125259],[125264,125273],[126464,126467],[126469,126495],[126497,126498],[126500,126500],[126503,126503],[126505,126514],[126516,126519],[126521,126521],[126523,126523],[126530,126530],[126535,126535],[126537,126537],[126539,126539],[126541,126543],[126545,126546],[126548,126548],[126551,126551],[126553,126553],[126555,126555],[126557,126557],[126559,126559],[126561,126562],[126564,126564],[126567,126570],[126572,126578],[126580,126583],[126585,126588],[126590,126590],[126592,126601],[126603,126619],[126625,126627],[126629,126633],[126635,126651],[130032,130041],[131072,173791],[173824,178205],[178208,183981],[183984,191456],[191472,192093],[194560,195101],[196608,201546],[201552,210041],[917760,917999]]")])?;
+    return Ok(v_t1.clone());
+}
+
+#[allow(
+    unused_variables,
+    unused_assignments,
+    unused_mut,
+    unreachable_code,
+    clippy::all
+)]
+fn _regex_clear_capture(args: &[CoreValue]) -> Result<CoreValue, AxError> {
+    axir_coverage_mark("_regex_clear_capture");
+    let mut v_caps = core_arg(args, 0);
+    let mut v_key = core_arg(args, 1);
+    let mut v_t1 = CoreValue::Null;
+    v_t1 = core_none(&[])?;
+    core_set(&v_caps, v_key.clone(), v_t1.clone())?;
+    return Ok(CoreValue::Null);
+}
+
+#[allow(
+    unused_variables,
+    unused_assignments,
+    unused_mut,
+    unreachable_code,
+    clippy::all
+)]
+fn _regex_copy_map(args: &[CoreValue]) -> Result<CoreValue, AxError> {
+    axir_coverage_mark("_regex_copy_map");
+    let mut v_value = core_arg(args, 0);
+    let mut v_iter_3 = CoreValue::Null;
+    let mut v_key = CoreValue::Null;
+    let mut v_out = CoreValue::Null;
+    let mut v_t1 = CoreValue::Null;
+    let mut v_t2 = CoreValue::Null;
+    let mut v_t4 = CoreValue::Null;
+    v_key = core_none(&[])?;
+    v_out = core_none(&[])?;
+    v_t1 = CoreValue::new_map();
+    v_out = v_t1.clone();
+    v_t2 = core_map_keys(&[v_value.clone()])?;
+    for v_iter_3 in core_iter(&v_t2)? {
+        let mut v_iter_3 = v_iter_3;
+        v_key = v_iter_3.clone();
+        v_t4 = core_get(&v_value, &v_key.clone(), CoreValue::Null);
+        core_set(&v_out, v_key.clone(), v_t4.clone())?;
+    }
+    return Ok(v_out.clone());
 }
 
 #[allow(
@@ -94444,7 +98176,7 @@ fn _mcp_inheritance_plan(args: &[CoreValue]) -> Result<CoreValue, AxError> {
     return Ok(v_out.clone());
 }
 
-// END AXIR CORE EMITTED FUNCTIONS (672 of 672 core functions)
+// END AXIR CORE EMITTED FUNCTIONS (702 of 702 core functions)
 
 fn run_ai_session_events_fixture(fixture: &Value) -> AxResult<()> {
     let state = core_value_from_json(&json!({}));

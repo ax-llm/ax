@@ -9594,3 +9594,105 @@ writeFixture('session-raw-argument-validation', {
     return { ...item, valid };
   }),
 });
+const ecmaSchemaPatterns: readonly string[] = [
+  '(?<=a+)b',
+  '(?<!a)b',
+  '(a|b)\\1',
+  '(?<x>a+)b\\k<x>',
+  '\\1(a)',
+  '(a)?b\\1',
+  '(a|(b))+\\2',
+  '(?=(a+))a*b\\1',
+  '(?<=([ab]+)([bc]+))$',
+  '^.$',
+  '^..$',
+  '\\w',
+  '\\d',
+  '\\s',
+  'a$',
+  '[^]',
+  '[]',
+  '[^a-c]',
+  '[\\d-a]',
+  '\\c_',
+  '[\\c_]',
+  '\\u{61}',
+  '\\u12',
+  '\\xzz',
+  '\\8',
+  '\\123',
+  'a{,2}',
+  'a{2,1}',
+  '(?=a)?a',
+  '(a*)*b',
+  '(?:a|ab)*?b',
+  '(a?){2}\\1',
+  '(?<x>a)\\k<bad>',
+  '{2}',
+  '(?<1>a)',
+  '(?<=\\1(a))b',
+  '(?<x>a)|(?<x>b)',
+  '(?:(?<x>a)|(?<x>b))+\\k<x>',
+  '(?<\\u0061>a)\\k<a>',
+  '(?<π>a)\\k<π>',
+  '(?<😀>a)',
+  '(?<x>a)(?<x>b)',
+  '^a[ab]$',
+];
+const ecmaSchemaInputs: readonly string[] = [
+  '',
+  'a',
+  'b',
+  'ab',
+  'aa',
+  'aaa',
+  'aaab',
+  'aabaaa',
+  'abc',
+  'aba',
+  'abab',
+  'ba',
+  'a\n',
+  '😀',
+  'é',
+  '١',
+  ' ',
+  ' ',
+  '﻿',
+  'S',
+  'u{61}',
+  'u12',
+  'xzz',
+  '8',
+  '\\c_',
+  '\u001f',
+  'baaabac',
+];
+writeFixture('session-ecmascript-pattern-validation', {
+  kind: 'ai_session_state',
+  model: 'gpt-6-astra',
+  path: 'root',
+  max_steps: 3,
+  cases: [],
+  expected_pending: [],
+  expected_steps: 0,
+  validation_cases: [
+    ...ecmaSchemaPatterns.flatMap((pattern) =>
+      ecmaSchemaInputs.map((input) => ({
+        schema: { pattern },
+        arguments: input,
+      }))
+    ),
+    { schema: { pattern: '^(a|a)*$' }, arguments: 'a'.repeat(10000) },
+    { schema: { pattern: '^.+$' }, arguments: 'a'.repeat(10000) },
+    { schema: { pattern: '^(){1000}$' }, arguments: '' },
+  ].map((item) => {
+    let valid = true;
+    try {
+      axValidateToolArguments(item.schema, item.arguments);
+    } catch {
+      valid = false;
+    }
+    return { ...item, valid };
+  }),
+});

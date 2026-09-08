@@ -2449,7 +2449,7 @@ mod tests {
     }
     #[test]
     fn discovered_mcp_native_agent_invocation() -> AxResult<()> {
-        let schema = json!({"type":"object","$defs":{"reference":{"type":"string","minLength":3}},"properties":{"query":{"$ref":"#/$defs/reference"}},"required":["query"],"additionalProperties":false});
+        let schema = json!({"type":"object","$defs":{"reference":{"type":"string","minLength":3,"pattern":"^(?=REF-[0-9]+$)(?<ref>REF)-[0-9]+$"}},"properties":{"query":{"$ref":"#/$defs/reference"}},"required":["query"],"additionalProperties":false});
         let gate = Arc::new(MCPAgentGate {
             started: AtomicBool::new(false),
             release: Mutex::new(false),
@@ -2666,9 +2666,51 @@ mod tests {
             Ok(json!({"closed":true}))
         }
     }
+    struct ChildMCPCancellation {
+        control: AxRunControl,
+        calls: Arc<AtomicUsize>,
+        settled: Arc<AtomicBool>,
+    }
+    impl AxMCPTransport for ChildMCPCancellation {
+        fn send_notification(&mut self, _: Value) -> AxResult<()> {
+            Ok(())
+        }
+        fn send(&mut self, message: Value) -> AxResult<Value> {
+            let result = if message["method"] == "initialize" {
+                json!({"protocolVersion":"2025-11-25","capabilities":{"tools":{}},"serverInfo":{"name":"fixture","version":"1"}})
+            } else {
+                json!({"tools":[{"name":"lookup","inputSchema":{"type":"object","additionalProperties":false}}]})
+            };
+            Ok(json!({"jsonrpc":"2.0","id":message["id"],"result":result}))
+        }
+        fn send_with_context(
+            &mut self,
+            message: Value,
+            _: serde_json::Map<String, Value>,
+            context: &AxToolContext,
+        ) -> AxResult<Value> {
+            if message["method"] != "tools/call" {
+                return self.send(message);
+            }
+            assert_eq!(message["params"]["name"], "lookup");
+            self.calls.fetch_add(1, Ordering::SeqCst);
+            self.control.abort();
+            let deadline = Instant::now();
+            while !context.is_cancelled() && deadline.elapsed() < Duration::from_secs(1) {
+                std::thread::sleep(Duration::from_millis(1));
+            }
+            assert!(
+                context.is_cancelled(),
+                "Child MCP cancellation did not propagate"
+            );
+            self.settled.store(true, Ordering::SeqCst);
+            Err(AxError::new("aborted", "Child MCP invocation aborted"))
+        }
+    }
     struct ChildControlTransport {
         requests: Arc<Mutex<Vec<Value>>>,
         delegated: Arc<AtomicBool>,
+        cancel: bool,
     }
     impl AxTransport for ChildControlTransport {
         fn send(&mut self, _: Value) -> AxResult<Value> {
@@ -2741,6 +2783,9 @@ mod tests {
             let mut event = completed(&format!("child-r{}", number + 1), &output.to_string());
             event["response"]["usage"] =
                 json!({"input_tokens":2,"output_tokens":1,"total_tokens":3});
+            if self.cancel && number == 6 {
+                event["response"]["output"] = json!([{"type":"function_call","name":"tools_lookup","call_id":"child-mcp","arguments":"{}","status":"completed"}]);
+            }
             Ok(AxTransportStream::Buffered(
                 json!({"status":200,"body":String::from_utf8(sse(event)).unwrap()}),
             ))
@@ -2752,15 +2797,8 @@ mod tests {
             let control = run_control();
             let observed = Arc::new(Mutex::new(Vec::new()));
             let seen = observed.clone();
-            let stop = control.clone();
             control.on_event(move |event| {
                 seen.lock().unwrap().push(event.clone());
-                if cancel
-                    && event["type"] == "started"
-                    && event["path"] == "root/team.researcher/executor"
-                {
-                    stop.abort();
-                }
             });
             control.steer("ROOT-UPDATE")?;
             control.steer_at("CHILD-ONLY", "root/team.researcher")?;
@@ -2768,7 +2806,26 @@ mod tests {
             let delegated = Arc::new(AtomicBool::new(false));
             let closed = Arc::new(AtomicUsize::new(0));
             let requests = Arc::new(Mutex::new(Vec::new()));
-            let child = agent_with_options("question -> answer", json!({"directResponse":"off"}))?;
+            let mcp_calls = Arc::new(AtomicUsize::new(0));
+            let settled = Arc::new(AtomicBool::new(false));
+            let mut mcp = AxMCPClient::new(
+                Box::new(ChildMCPCancellation {
+                    control: control.clone(),
+                    calls: mcp_calls.clone(),
+                    settled: settled.clone(),
+                }),
+                json!({"era":"legacy","namespace":"inventory"}),
+            );
+            mcp.init()?;
+            let mut child = agent_with_options(
+                "question -> answer",
+                json!({"directResponse":"off","functionDiscovery":false}),
+            )?;
+            if cancel {
+                let mut native = mcp.native_tools().remove(0);
+                native.execution = "background".into();
+                child = child.with_tool_module("tools", vec![native])?;
+            }
             let callbacks = Arc::new(Mutex::new(std::collections::BTreeMap::new()));
             let mut parent =
                 agent_with_options("question -> answer", json!({"directResponse":"off"}))?
@@ -2782,6 +2839,7 @@ mod tests {
                 .with_transport(ChildControlTransport {
                     requests: requests.clone(),
                     delegated,
+                    cancel,
                 });
             let result = parent.forward_with_options(
                 &mut client,
@@ -2813,6 +2871,18 @@ mod tests {
                 assert_eq!(child["chat_log_entries"], 6);
                 assert_eq!(child["actor"].as_array().unwrap().len(), 4);
                 assert_eq!(child["responder"].as_array().unwrap().len(), 2);
+            }
+            if cancel {
+                let deadline = Instant::now();
+                while !settled.load(Ordering::SeqCst) && deadline.elapsed() < Duration::from_secs(1)
+                {
+                    std::thread::sleep(Duration::from_millis(1));
+                }
+                assert!(
+                    settled.load(Ordering::SeqCst),
+                    "Child MCP cancellation did not settle"
+                );
+                assert_eq!(mcp_calls.load(Ordering::SeqCst), 1);
             }
             let calls: Vec<Value> = parent
                 .get_action_log()

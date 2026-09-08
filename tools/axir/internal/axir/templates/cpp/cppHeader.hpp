@@ -287,6 +287,7 @@ struct Core {
   static Value div(Value left, Value right);
   static Value math_abs(Value value);
   static Value string_codepoint_length(Value value);
+  static Value string_utf16_units(Value value);
   static Value math_is_finite(Value value);
   static Value math_floor(Value value);
   static Value math_log(Value value);

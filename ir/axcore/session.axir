@@ -335,7 +335,7 @@ module @ax.session version "0.1" {
         }
         %pattern = core.get %schema["pattern"] default ""
         core.if %pattern {
-          %matches = core.regex_match %arguments pattern %pattern
+          %matches = core.call @regex_test(%pattern, %arguments)
           core.if %matches {
           } else {
             %message = core.call intrinsic.string.format("{}: String does not match pattern", %path)

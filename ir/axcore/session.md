@@ -42,9 +42,10 @@ rejects the call; an absent decision permits it. Invalid model arguments never
 reach the authorization callback. Ordinary
 non-session tool invocation keeps its existing validation behavior.
 
-Host regular-expression engines evaluate patterns; advanced expressions outside
-the shared engine subset require additional compatibility evidence. The current
-fixtures cover anchors, search semantics, character classes, and quantifiers.
+Raw schema patterns use the shared [ECMAScript matcher](regex.md), including
+UTF-16 semantics, lookarounds, named captures, and backreferences. Invalid patterns
+fail validation before a handler starts. This matches the flagless TypeScript
+validator without depending on a target language's regular-expression engine.
 
 MCP inheritance selection is shared in `mcp.axir`. It preserves selected client
 order within MCP and UCP groups, rejects unknown or duplicate namespaces, and
@@ -67,7 +68,9 @@ version retries and task polling. Built-in HTTP requests close on cancellation;
 custom transports can implement the optional context-aware send method. Legacy
 custom transports retain their old method with cancellation checks before and
 after it. A noncooperative custom transport may finish later; the run discards
-its delivery. Complete delegated-program acceptance remains outstanding.
+its delivery. Cancellation also reaches an MCP tool started by a delegated child.
+The parent retains child failure usage and a single failed child action; closed
+parent callbacks reject later invocations.
 
 ## Routing, controls, and transport
 
@@ -129,20 +132,20 @@ Scripted agent fixtures belong under package tests, not public examples.
 
 | Behavior | Shared evidence | Native evidence |
 | --- | --- | --- |
-| Raw schema validation | `session-raw-argument-validation.json`, evaluated against TypeScript | Invalid calls, correction requests, unchanged call IDs, and step exhaustion in all five session suites |
+| Raw schema validation | `session-raw-argument-validation.json` and `session-ecmascript-pattern-validation.json`, evaluated against TypeScript | Invalid calls, correction requests, unchanged call IDs, and step exhaustion in all five session suites |
 | MCP inheritance and attachment | `execution-context-inheritance.json`, `execution-context-inheritance-requests.json`, and `execution-context-agent-attachment.json` | Selected namespace order, invalid selections, exact MCP requests through agent invocation, retained ordinary tools, and subsequent parent requests in all five targets |
 | Child MCP execution | `owned-child-mcp-inheritance-{all,none,allowlist,empty,child-config,reuse}.json`; TypeScript `src/ax/mcp/execution.test.ts` | Actual parent and child forwards, selected MCP requests, denied namespaces, parent continuation, child configuration precedence, actor request filtering, and removal of inherited clients on a later run of the same child in all five targets |
 | Ordinary tools with owned children | `owned-child-delegation-preserves-existing-tools.json` | Existing tool invocation, child invocation, both action-log records, and final output across all five targets |
 | Native MCP schemas and modern continuation | `native-tools-modern-roundtrip.json` | All-five native agent tests assert discovery boundaries, exact schemas, invalid-argument correction, overlap, raw result continuation, responder output, action logs, and duplicate prevention |
 | Owned child delegation | `owned-child-delegation-through-parent-runtime.json` | All-five native session tests assert parent continuation input, isolated histories, scoped controls, cache prefixes, child usage, and cancellation cleanup |
 | Real actor child calls | `axagent-real/agent-runtime-real-owned-child-delegation.json` | All five real engines execute parent and child actor code; assert child result, action log, and parent continuation. Native suites reject retained callbacks after success and cancellation. The public `astra_child_agent` / `AstraChildAgentExample` examples exercise live Astra child-scoped controls. The current Python, Go, C++, and Rust runs passed. Java initially omitted the child result; a diagnostic rerun with the same request passed and recorded actual delegation. Both outcomes are retained as evidence, rather than treating the initial run as successful |
-| MCP invocation cancellation | Native HTTP tests in all five session suites | Stalled response bodies close on abort; configured headers and arguments survive; pre-cancelled calls do not send or replay. Python/Go/Rust actor invocation tests and a Java high-level agent test exercise controller propagation. Rust also retains a generator's own configured clients with `mcpInheritance: none`, including result history and continuation |
+| MCP invocation cancellation | Native HTTP tests in all five session suites | Stalled response bodies close on abort; configured headers and arguments survive (including C++ constructor headers); pre-cancelled calls do not send or replay. Python/Go/Rust actor invocation tests and a Java high-level agent test exercise controller propagation. Rust also retains a generator's own configured clients with `mcpInheritance: none`, including result history and continuation. C++ release verification runs an additional libcurl-enabled session binary so the actual HTTP fixture cannot be mistaken for core-only coverage |
 | MCP host authorization | `native-tool-host-authorization.json`, extracted by calling the TypeScript MCP client | All-five native agent tests exercise denied and allowed calls, retained context, no transport call after denial, and no authorization after invalid arguments or actor replay |
 | Completed calls and pending work | `astra-session-completed-calls-and-response-boundaries.json`, `astra-pending-results-out-of-order.json` | Delayed tools, blocking barriers, partial arguments, and provisional answers |
 | Steering and reasoning history | `astra-native-steering-successor-no-replay.json`, `astra-native-late-pending-input.json`, `astra-session-transport-cursor.json` | Scripted sockets and delayed HTTP cleanup |
 | Scope and cancellation | `astra-scoped-updates-and-cancellation.json` | Root/future-node controls, per-node histories, noncooperative handlers, and aborts; all-five native agent tests assert stage-specific steering and reasoning continuations |
 | Concurrent flow groups | `flow.axir` dispatch and deterministic merge contract; `owned-workers-custom-client-serial-fallback.json` | All-five coordinated overlap and failure tests; Go and C++ race detection; Rust nested/custom non-Send programs; live parallel examples |
-| Complete agent invocation and targeting | **Outstanding** | Child targeting, cancellation context through delegated programs, and serialized runtime state need expanded acceptance coverage |
+| Delegated MCP cancellation | Native owned-child tests in all five session suites | Abort after the child starts an imported background MCP tool; assert one request, cooperative settlement, parent runtime closure, failed child action, retained usage, and rejection of late callbacks |
 
 Native session suites:
 

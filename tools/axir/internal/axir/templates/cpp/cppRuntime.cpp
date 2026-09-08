@@ -254,7 +254,8 @@ static std::string key_string(const Value& key) {
 }
 
 static Value get_key(const Value& object, const std::string& key, Value fallback = Value()) {
-  const auto& obj = object_ref(object);
+  if (!object.is_object()) return fallback;
+  const auto& obj = *std::get<std::shared_ptr<Object>>(object.data);
   auto it = obj.find(key);
   if (it != obj.end()) return it->second;
   static const std::map<std::string, std::string> aliases = {
@@ -740,6 +741,17 @@ Value Core::div(Value left, Value right) {
   return Value(num(left) / (denom == 0.0 ? 1.0 : denom));
 }
 Value Core::math_abs(Value value) { return Value(std::abs(num(value))); }
+Value Core::string_utf16_units(Value value) {
+  Array units;const auto text=str(value);size_t index=0;
+  while(index<text.size()) {
+    unsigned int point=static_cast<unsigned char>(text[index++]);int trailing=0;
+    if(point>=0xf0){point&=7;trailing=3;}else if(point>=0xe0){point&=15;trailing=2;}else if(point>=0xc0){point&=31;trailing=1;}
+    while(trailing-->0&&index<text.size())point=(point<<6)|(static_cast<unsigned char>(text[index++])&63);
+    if(point>0xffff){point-=0x10000;units.emplace_back(static_cast<double>(0xd800+(point>>10)));units.emplace_back(static_cast<double>(0xdc00+(point&1023)));}
+    else units.emplace_back(static_cast<double>(point));
+  }
+  return Value(units);
+}
 Value Core::string_codepoint_length(Value value) { size_t count = 0; for (unsigned char byte : str(value)) if ((byte & 0xc0) != 0x80) ++count; return Value(static_cast<double>(count)); }
 Value Core::math_is_finite(Value value) { return Value(std::isfinite(num(value))); }
 Value Core::math_floor(Value value) { return Value(std::floor(num(value))); }
@@ -770,7 +782,7 @@ Value Core::contains(Value container, Value item) {
 }
 Value Core::len(Value value) {
   if (value.is_string()) return Value(static_cast<double>(str(value).size()));
-  if (value.is_array()) return Value(static_cast<double>(array_ref(value).size()));
+  if (value.is_array()) return Value(static_cast<double>(std::get<std::shared_ptr<Array>>(value.data)->size()));
   if (value.is_object()) return Value(static_cast<double>(entries(value).size()));
   return Value(0);
 }
@@ -786,7 +798,7 @@ Value Core::get(Value target, Value key, Value default_value) {
   if (target.is_object()) return get_key(target, key_string(key), default_value);
   if (target.is_array() && key.is_number()) {
     int idx = static_cast<int>(num(key));
-    const auto& arr = array_ref(target);
+    const auto& arr = *std::get<std::shared_ptr<Array>>(target.data);
     return idx >= 0 && static_cast<size_t>(idx) < arr.size() ? arr[idx] : default_value;
   }
   return default_value;

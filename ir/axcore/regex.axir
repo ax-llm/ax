@@ -1,0 +1,2487 @@
+module @ax.regex version "0.1" {
+  dialect @ax.gen version "0.1"
+
+  // Flagless ECMAScript schema patterns use UTF-16 code units.
+  // The work stack preserves branch priority and stops on first success.
+  // Lookarounds run an atomic nested search. See regex.md.
+  // Capture-name identifier ranges use Unicode 17.0.
+
+  op ax.gen.semantic @regex_peek {
+    attr core_kind = "func"
+    attr emit_module = "gen"
+    attr private = true
+    attr effect = "throws"
+    type signature = "(s:json) -> json"
+    body @entry(%s: json) {
+      %t1 = core.get %s["p"] default null
+      %t2 = core.get %s["u"] default null
+      %t3 = core.call intrinsic.len(%t2)
+      %t4 = core.call intrinsic.gte(%t1, %t3)
+      core.if %t4 {
+        %t5 = core.call intrinsic.mul(-1, 1)
+        %t6 = core.call intrinsic.math.floor(%t5)
+        core.return %t6
+      }
+      %t7 = core.get %s["u"] default null
+      %t8 = core.get %s["p"] default null
+      %t9 = core.get %t7[%t8] default null
+      core.return %t9
+    }
+  }
+
+  op ax.gen.semantic @regex_take {
+    attr core_kind = "func"
+    attr emit_module = "gen"
+    attr private = true
+    attr effect = "throws"
+    type signature = "(s:json) -> json"
+    body @entry(%s: json) {
+      %c = core.call intrinsic.none()
+      %t1 = core.call @regex_peek(%s)
+      %c = core.let %t1
+      %t2 = core.get %s["p"] default null
+      %t3 = core.call intrinsic.add(%t2, 1)
+      core.set %s["p"] = %t3
+      core.return %c
+    }
+  }
+
+  op ax.gen.semantic @regex_digit {
+    attr core_kind = "func"
+    attr emit_module = "gen"
+    attr private = true
+    attr effect = "throws"
+    type signature = "(c:json) -> json"
+    body @entry(%c: json) {
+      %t1 = core.call intrinsic.gte(%c, 48)
+      %t2 = core.let %t1
+      core.if %t2 {
+        %t3 = core.call intrinsic.lte(%c, 57)
+        %t2 = core.let %t3
+      }
+      core.return %t2
+    }
+  }
+
+  op ax.gen.semantic @regex_hexdigit {
+    attr core_kind = "func"
+    attr emit_module = "gen"
+    attr private = true
+    attr effect = "throws"
+    type signature = "(c:json) -> json"
+    body @entry(%c: json) {
+      %t1 = core.call @regex_digit(%c)
+      core.if %t1 {
+        %t2 = core.call intrinsic.mul(-1, 48)
+        %t3 = core.call intrinsic.add(%c, %t2)
+        %t4 = core.call intrinsic.math.floor(%t3)
+        core.return %t4
+      }
+      %t5 = core.call intrinsic.gte(%c, 65)
+      %t6 = core.let %t5
+      core.if %t6 {
+        %t7 = core.call intrinsic.lte(%c, 70)
+        %t6 = core.let %t7
+      }
+      core.if %t6 {
+        %t8 = core.call intrinsic.mul(-1, 55)
+        %t9 = core.call intrinsic.add(%c, %t8)
+        %t10 = core.call intrinsic.math.floor(%t9)
+        core.return %t10
+      }
+      %t11 = core.call intrinsic.gte(%c, 97)
+      %t12 = core.let %t11
+      core.if %t12 {
+        %t13 = core.call intrinsic.lte(%c, 102)
+        %t12 = core.let %t13
+      }
+      core.if %t12 {
+        %t14 = core.call intrinsic.mul(-1, 87)
+        %t15 = core.call intrinsic.add(%c, %t14)
+        %t16 = core.call intrinsic.math.floor(%t15)
+        core.return %t16
+      }
+      %t17 = core.call intrinsic.mul(-1, 1)
+      %t18 = core.call intrinsic.math.floor(%t17)
+      core.return %t18
+    }
+  }
+
+  op ax.gen.semantic @regex_node {
+    attr core_kind = "func"
+    attr emit_module = "gen"
+    attr private = true
+    attr effect = "throws"
+    type signature = "(k:json) -> json"
+    body @entry(%k: json) {
+      %t1 = core.map
+      core.set %t1["k"] = %k
+      core.return %t1
+    }
+  }
+
+  op ax.gen.semantic @regex_literal {
+    attr core_kind = "func"
+    attr emit_module = "gen"
+    attr private = true
+    attr effect = "throws"
+    type signature = "(c:json) -> json"
+    body @entry(%c: json) {
+      %t1 = core.map
+      core.set %t1["k"] = "char"
+      core.set %t1["c"] = %c
+      core.return %t1
+    }
+  }
+
+  op ax.gen.semantic @regex_scan_groups {
+    attr core_kind = "func"
+    attr emit_module = "gen"
+    attr private = true
+    attr effect = "throws"
+    type signature = "(u:json) -> json"
+    body @entry(%u: json) {
+      %c = core.call intrinsic.none()
+      %count = core.call intrinsic.none()
+      %i = core.call intrinsic.none()
+      %ids = core.call intrinsic.none()
+      %inside = core.call intrinsic.none()
+      %name = core.call intrinsic.none()
+      %named = core.call intrinsic.none()
+      %names = core.call intrinsic.none()
+      %parser = core.call intrinsic.none()
+      %special = core.call intrinsic.none()
+      %count = core.let 0
+      %i = core.let 0
+      %inside = core.let false
+      %t1 = core.map
+      %names = core.let %t1
+      core.loop {
+        %t2 = core.call intrinsic.len(%u)
+        %t3 = core.call intrinsic.lt(%i, %t2)
+        %t4 = core.call intrinsic.not(%t3)
+        core.if %t4 {
+          core.break
+        }
+        %t5 = core.get %u[%i] default null
+        %c = core.let %t5
+        %t6 = core.call intrinsic.add(%i, 1)
+        %i = core.let %t6
+        %t7 = core.call intrinsic.eq(%c, 92)
+        core.if %t7 {
+          %t8 = core.call intrinsic.add(%i, 1)
+          %i = core.let %t8
+          core.continue
+        }
+        %t9 = core.call intrinsic.eq(%c, 91)
+        core.if %t9 {
+          %inside = core.let true
+        }
+        %t10 = core.call intrinsic.eq(%c, 93)
+        core.if %t10 {
+          %inside = core.let false
+        }
+        %t11 = core.call intrinsic.eq(%c, 40)
+        %t12 = core.let %t11
+        core.if %t12 {
+          %t13 = core.call intrinsic.not(%inside)
+          %t12 = core.let %t13
+        }
+        core.if %t12 {
+          %t14 = core.call intrinsic.len(%u)
+          %t15 = core.call intrinsic.lt(%i, %t14)
+          %t16 = core.let %t15
+          core.if %t16 {
+            %t17 = core.get %u[%i] default null
+            %t18 = core.call intrinsic.eq(%t17, 63)
+            %t16 = core.let %t18
+          }
+          %special = core.let %t16
+          %t19 = core.let %special
+          core.if %t19 {
+            %t20 = core.call intrinsic.add(%i, 2)
+            %t21 = core.call intrinsic.len(%u)
+            %t22 = core.call intrinsic.lt(%t20, %t21)
+            %t19 = core.let %t22
+          }
+          core.if %t19 {
+            %t23 = core.call intrinsic.add(%i, 1)
+            %t24 = core.get %u[%t23] default null
+            %t25 = core.call intrinsic.eq(%t24, 60)
+            %t19 = core.let %t25
+          }
+          core.if %t19 {
+            %t26 = core.call intrinsic.add(%i, 2)
+            %t27 = core.get %u[%t26] default null
+            %t28 = core.call intrinsic.ne(%t27, 61)
+            %t19 = core.let %t28
+          }
+          core.if %t19 {
+            %t29 = core.call intrinsic.add(%i, 2)
+            %t30 = core.get %u[%t29] default null
+            %t31 = core.call intrinsic.ne(%t30, 33)
+            %t19 = core.let %t31
+          }
+          %named = core.let %t19
+          %t32 = core.call intrinsic.not(%special)
+          %t33 = core.let %t32
+          %t34 = core.call intrinsic.not(%t33)
+          core.if %t34 {
+            %t33 = core.let %named
+          }
+          core.if %t33 {
+            %t35 = core.call intrinsic.add(%count, 1)
+            %count = core.let %t35
+            core.if %named {
+              %t36 = core.map
+              core.set %t36["u"] = %u
+              %t37 = core.call intrinsic.add(%i, 2)
+              core.set %t36["p"] = %t37
+              %parser = core.let %t36
+              %t38 = core.call @regex_read_name(%parser)
+              %name = core.let %t38
+              %t39 = core.get %parser["p"] default null
+              %i = core.let %t39
+              %t40 = core.get %names[%name] default null
+              %ids = core.let %t40
+              %t41 = core.call intrinsic.none()
+              %t42 = core.call intrinsic.eq(%ids, %t41)
+              core.if %t42 {
+                %t43 = core.list
+                %ids = core.let %t43
+              }
+              core.append %ids, %count
+              core.set %names[%name] = %ids
+            }
+          }
+        }
+      }
+      %t44 = core.map
+      core.set %t44["count"] = %count
+      core.set %t44["names"] = %names
+      core.return %t44
+    }
+  }
+
+  op ax.gen.semantic @regex_escaped {
+    attr core_kind = "func"
+    attr emit_module = "gen"
+    attr private = true
+    attr effect = "throws"
+    type signature = "(s:json, inside:json) -> json"
+    body @entry(%s: json, %inside: json) {
+      %c = core.call intrinsic.none()
+      %d = core.call intrinsic.none()
+      %i = core.call intrinsic.none()
+      %limit = core.call intrinsic.none()
+      %n = core.call intrinsic.none()
+      %name = core.call intrinsic.none()
+      %start = core.call intrinsic.none()
+      %value = core.call intrinsic.none()
+      %t1 = core.call @regex_take(%s)
+      %c = core.let %t1
+      %t2 = core.call intrinsic.lt(%c, 0)
+      core.if %t2 {
+        %t3 = core.call intrinsic.string.format("Invalid regular expression: {}", "Trailing escape")
+        %t4 = core.call intrinsic.error.validation(%t3)
+        core.raise %t4
+      }
+      %t5 = core.call intrinsic.eq(%c, 100)
+      %t6 = core.let %t5
+      %t7 = core.call intrinsic.not(%t6)
+      core.if %t7 {
+        %t8 = core.call intrinsic.eq(%c, 68)
+        %t6 = core.let %t8
+      }
+      %t9 = core.call intrinsic.not(%t6)
+      core.if %t9 {
+        %t10 = core.call intrinsic.eq(%c, 119)
+        %t6 = core.let %t10
+      }
+      %t11 = core.call intrinsic.not(%t6)
+      core.if %t11 {
+        %t12 = core.call intrinsic.eq(%c, 87)
+        %t6 = core.let %t12
+      }
+      %t13 = core.call intrinsic.not(%t6)
+      core.if %t13 {
+        %t14 = core.call intrinsic.eq(%c, 115)
+        %t6 = core.let %t14
+      }
+      %t15 = core.call intrinsic.not(%t6)
+      core.if %t15 {
+        %t16 = core.call intrinsic.eq(%c, 83)
+        %t6 = core.let %t16
+      }
+      core.if %t6 {
+        %t17 = core.map
+        core.set %t17["k"] = "class_escape"
+        core.set %t17["c"] = %c
+        core.return %t17
+      }
+      %t18 = core.call intrinsic.eq(%c, 98)
+      core.if %t18 {
+        core.if %inside {
+          %t19 = core.call @regex_literal(8)
+          core.return %t19
+        }
+        %t20 = core.map
+        core.set %t20["k"] = "boundary"
+        core.set %t20["negative"] = false
+        core.return %t20
+      }
+      %t21 = core.call intrinsic.eq(%c, 66)
+      %t22 = core.let %t21
+      core.if %t22 {
+        %t23 = core.call intrinsic.not(%inside)
+        %t22 = core.let %t23
+      }
+      core.if %t22 {
+        %t24 = core.map
+        core.set %t24["k"] = "boundary"
+        core.set %t24["negative"] = true
+        core.return %t24
+      }
+      %t25 = core.call intrinsic.eq(%c, 102)
+      core.if %t25 {
+        %t26 = core.call @regex_literal(12)
+        core.return %t26
+      }
+      %t27 = core.call intrinsic.eq(%c, 110)
+      core.if %t27 {
+        %t28 = core.call @regex_literal(10)
+        core.return %t28
+      }
+      %t29 = core.call intrinsic.eq(%c, 114)
+      core.if %t29 {
+        %t30 = core.call @regex_literal(13)
+        core.return %t30
+      }
+      %t31 = core.call intrinsic.eq(%c, 116)
+      core.if %t31 {
+        %t32 = core.call @regex_literal(9)
+        core.return %t32
+      }
+      %t33 = core.call intrinsic.eq(%c, 118)
+      core.if %t33 {
+        %t34 = core.call @regex_literal(11)
+        core.return %t34
+      }
+      %t35 = core.call intrinsic.eq(%c, 120)
+      %t36 = core.let %t35
+      %t37 = core.call intrinsic.not(%t36)
+      core.if %t37 {
+        %t38 = core.call intrinsic.eq(%c, 117)
+        %t36 = core.let %t38
+      }
+      core.if %t36 {
+        %n = core.let 2
+        %t39 = core.call intrinsic.eq(%c, 117)
+        core.if %t39 {
+          %n = core.let 4
+        }
+        %t40 = core.get %s["p"] default null
+        %start = core.let %t40
+        %value = core.let 0
+        %i = core.let 0
+        core.loop {
+          %t41 = core.call intrinsic.lt(%i, %n)
+          %t42 = core.let %t41
+          core.if %t42 {
+            %t43 = core.call @regex_peek(%s)
+            %t44 = core.call @regex_hexdigit(%t43)
+            %t45 = core.call intrinsic.gte(%t44, 0)
+            %t42 = core.let %t45
+          }
+          %t46 = core.call intrinsic.not(%t42)
+          core.if %t46 {
+            core.break
+          }
+          %t47 = core.call intrinsic.mul(%value, 16)
+          %t48 = core.call intrinsic.math.floor(%t47)
+          %t49 = core.call @regex_take(%s)
+          %t50 = core.call @regex_hexdigit(%t49)
+          %t51 = core.call intrinsic.add(%t48, %t50)
+          %value = core.let %t51
+          %t52 = core.call intrinsic.add(%i, 1)
+          %i = core.let %t52
+        }
+        %t53 = core.call intrinsic.eq(%i, %n)
+        core.if %t53 {
+          %t54 = core.call @regex_literal(%value)
+          core.return %t54
+        }
+        core.set %s["p"] = %start
+        %t55 = core.call @regex_literal(%c)
+        core.return %t55
+      }
+      %t56 = core.call intrinsic.eq(%c, 99)
+      core.if %t56 {
+        %t57 = core.call @regex_peek(%s)
+        %d = core.let %t57
+        %t58 = core.call intrinsic.gte(%d, 65)
+        %t59 = core.let %t58
+        core.if %t59 {
+          %t60 = core.call intrinsic.lte(%d, 90)
+          %t59 = core.let %t60
+        }
+        %t61 = core.let %t59
+        %t62 = core.call intrinsic.not(%t61)
+        core.if %t62 {
+          %t63 = core.call intrinsic.gte(%d, 97)
+          %t64 = core.let %t63
+          core.if %t64 {
+            %t65 = core.call intrinsic.lte(%d, 122)
+            %t64 = core.let %t65
+          }
+          %t61 = core.let %t64
+        }
+        %t66 = core.call intrinsic.not(%t61)
+        core.if %t66 {
+          %t67 = core.let %inside
+          core.if %t67 {
+            %t68 = core.call @regex_digit(%d)
+            %t69 = core.let %t68
+            %t70 = core.call intrinsic.not(%t69)
+            core.if %t70 {
+              %t71 = core.call intrinsic.eq(%d, 95)
+              %t69 = core.let %t71
+            }
+            %t67 = core.let %t69
+          }
+          %t61 = core.let %t67
+        }
+        core.if %t61 {
+          %t72 = core.call @regex_take(%s)
+          %t73 = core.call intrinsic.div(%d, 32)
+          %t74 = core.call intrinsic.math.floor(%t73)
+          %t75 = core.call intrinsic.mul(32, %t74)
+          %t76 = core.call intrinsic.mul(-1, %t75)
+          %t77 = core.call intrinsic.add(%d, %t76)
+          %t78 = core.call intrinsic.math.floor(%t77)
+          %t79 = core.call @regex_literal(%t78)
+          core.return %t79
+        }
+        %t80 = core.get %s["p"] default null
+        %t81 = core.call intrinsic.mul(-1, 1)
+        %t82 = core.call intrinsic.add(%t80, %t81)
+        %t83 = core.call intrinsic.math.floor(%t82)
+        core.set %s["p"] = %t83
+        %t84 = core.call @regex_literal(92)
+        core.return %t84
+      }
+      %t85 = core.call @regex_digit(%c)
+      core.if %t85 {
+        %t86 = core.get %s["p"] default null
+        %start = core.let %t86
+        %t87 = core.call intrinsic.mul(-1, 48)
+        %t88 = core.call intrinsic.add(%c, %t87)
+        %t89 = core.call intrinsic.math.floor(%t88)
+        %value = core.let %t89
+        core.loop {
+          %t90 = core.call @regex_peek(%s)
+          %t91 = core.call @regex_digit(%t90)
+          %t92 = core.call intrinsic.not(%t91)
+          core.if %t92 {
+            core.break
+          }
+          %t93 = core.call intrinsic.mul(%value, 10)
+          %t94 = core.call intrinsic.math.floor(%t93)
+          %t95 = core.call @regex_take(%s)
+          %t96 = core.call intrinsic.add(%t94, %t95)
+          %t97 = core.call intrinsic.mul(-1, 48)
+          %t98 = core.call intrinsic.add(%t96, %t97)
+          %t99 = core.call intrinsic.math.floor(%t98)
+          %value = core.let %t99
+        }
+        %t100 = core.call intrinsic.ne(%c, 48)
+        %t101 = core.let %t100
+        core.if %t101 {
+          %t102 = core.call intrinsic.not(%inside)
+          %t101 = core.let %t102
+        }
+        core.if %t101 {
+          %t103 = core.get %s["total"] default null
+          %t104 = core.call intrinsic.lte(%value, %t103)
+          %t101 = core.let %t104
+        }
+        core.if %t101 {
+          %t105 = core.map
+          core.set %t105["k"] = "ref"
+          %t106 = core.list
+          core.append %t106, %value
+          core.set %t105["ids"] = %t106
+          core.return %t105
+        }
+        core.set %s["p"] = %start
+        %t107 = core.call intrinsic.lte(%c, 55)
+        core.if %t107 {
+          %t108 = core.call intrinsic.mul(-1, 48)
+          %t109 = core.call intrinsic.add(%c, %t108)
+          %t110 = core.call intrinsic.math.floor(%t109)
+          %value = core.let %t110
+          %n = core.let 1
+          %limit = core.let 3
+          %t111 = core.call intrinsic.gt(%c, 51)
+          core.if %t111 {
+            %limit = core.let 2
+          }
+          core.loop {
+            %t112 = core.call intrinsic.lt(%n, %limit)
+            %t113 = core.let %t112
+            core.if %t113 {
+              %t114 = core.call @regex_peek(%s)
+              %t115 = core.call intrinsic.gte(%t114, 48)
+              %t113 = core.let %t115
+            }
+            core.if %t113 {
+              %t116 = core.call @regex_peek(%s)
+              %t117 = core.call intrinsic.lte(%t116, 55)
+              %t113 = core.let %t117
+            }
+            %t118 = core.call intrinsic.not(%t113)
+            core.if %t118 {
+              core.break
+            }
+            %t119 = core.call intrinsic.mul(%value, 8)
+            %t120 = core.call intrinsic.math.floor(%t119)
+            %t121 = core.call @regex_take(%s)
+            %t122 = core.call intrinsic.add(%t120, %t121)
+            %t123 = core.call intrinsic.mul(-1, 48)
+            %t124 = core.call intrinsic.add(%t122, %t123)
+            %t125 = core.call intrinsic.math.floor(%t124)
+            %value = core.let %t125
+            %t126 = core.call intrinsic.add(%n, 1)
+            %n = core.let %t126
+          }
+          %t127 = core.call @regex_literal(%value)
+          core.return %t127
+        }
+        %t128 = core.call @regex_literal(%c)
+        core.return %t128
+      }
+      %t129 = core.call intrinsic.eq(%c, 107)
+      %t130 = core.let %t129
+      core.if %t130 {
+        %t131 = core.call intrinsic.not(%inside)
+        %t130 = core.let %t131
+      }
+      core.if %t130 {
+        %t132 = core.get %s["names"] default null
+        %t133 = core.call intrinsic.len(%t132)
+        %t134 = core.call intrinsic.gt(%t133, 0)
+        %t130 = core.let %t134
+      }
+      core.if %t130 {
+        %t135 = core.call @regex_take(%s)
+        %t136 = core.call intrinsic.ne(%t135, 60)
+        core.if %t136 {
+          %t137 = core.call intrinsic.string.format("Invalid regular expression: {}", "Invalid named backreference")
+          %t138 = core.call intrinsic.error.validation(%t137)
+          core.raise %t138
+        }
+        %t139 = core.call @regex_read_name(%s)
+        %name = core.let %t139
+        %t140 = core.get %s["names"] default null
+        %t141 = core.call intrinsic.map.contains(%t140, %name)
+        %t142 = core.call intrinsic.not(%t141)
+        core.if %t142 {
+          %t143 = core.call intrinsic.string.format("Invalid regular expression: {}", "Unknown named backreference")
+          %t144 = core.call intrinsic.error.validation(%t143)
+          core.raise %t144
+        }
+        %t145 = core.map
+        core.set %t145["k"] = "ref"
+        %t146 = core.get %s["names"] default null
+        %t147 = core.get %t146[%name] default null
+        core.set %t145["ids"] = %t147
+        core.return %t145
+      }
+      %t148 = core.call @regex_literal(%c)
+      core.return %t148
+    }
+  }
+
+  op ax.gen.semantic @regex_class_atom {
+    attr core_kind = "func"
+    attr emit_module = "gen"
+    attr private = true
+    attr effect = "throws"
+    type signature = "(s:json) -> json"
+    body @entry(%s: json) {
+      %c = core.call intrinsic.none()
+      %t1 = core.call @regex_take(%s)
+      %c = core.let %t1
+      %t2 = core.call intrinsic.eq(%c, 92)
+      core.if %t2 {
+        %t3 = core.call @regex_escaped(%s, true)
+        core.return %t3
+      }
+      %t4 = core.call @regex_literal(%c)
+      core.return %t4
+    }
+  }
+
+  op ax.gen.semantic @regex_character_class {
+    attr core_kind = "func"
+    attr emit_module = "gen"
+    attr private = true
+    attr effect = "throws"
+    type signature = "(s:json) -> json"
+    body @entry(%s: json) {
+      %first = core.call intrinsic.none()
+      %last = core.call intrinsic.none()
+      %negative = core.call intrinsic.none()
+      %terms = core.call intrinsic.none()
+      %negative = core.let false
+      %t1 = core.list
+      %terms = core.let %t1
+      %t2 = core.call @regex_peek(%s)
+      %t3 = core.call intrinsic.eq(%t2, 94)
+      core.if %t3 {
+        %t4 = core.call @regex_take(%s)
+        %negative = core.let true
+      }
+      core.loop {
+        %t5 = core.call @regex_peek(%s)
+        %t6 = core.call intrinsic.ne(%t5, 93)
+        %t7 = core.call intrinsic.not(%t6)
+        core.if %t7 {
+          core.break
+        }
+        %t8 = core.call @regex_peek(%s)
+        %t9 = core.call intrinsic.lt(%t8, 0)
+        core.if %t9 {
+          %t10 = core.call intrinsic.string.format("Invalid regular expression: {}", "Unterminated character class")
+          %t11 = core.call intrinsic.error.validation(%t10)
+          core.raise %t11
+        }
+        %t12 = core.call @regex_class_atom(%s)
+        %first = core.let %t12
+        %t13 = core.call @regex_peek(%s)
+        %t14 = core.call intrinsic.eq(%t13, 45)
+        %t15 = core.let %t14
+        core.if %t15 {
+          %t16 = core.get %s["p"] default null
+          %t17 = core.call intrinsic.add(%t16, 1)
+          %t18 = core.get %s["u"] default null
+          %t19 = core.call intrinsic.len(%t18)
+          %t20 = core.call intrinsic.lt(%t17, %t19)
+          %t15 = core.let %t20
+        }
+        core.if %t15 {
+          %t21 = core.get %s["u"] default null
+          %t22 = core.get %s["p"] default null
+          %t23 = core.call intrinsic.add(%t22, 1)
+          %t24 = core.get %t21[%t23] default null
+          %t25 = core.call intrinsic.ne(%t24, 93)
+          %t15 = core.let %t25
+        }
+        core.if %t15 {
+          %t26 = core.call @regex_take(%s)
+          %t27 = core.call @regex_class_atom(%s)
+          %last = core.let %t27
+          %t28 = core.get %first["k"] default null
+          %t29 = core.call intrinsic.eq(%t28, "char")
+          %t30 = core.let %t29
+          core.if %t30 {
+            %t31 = core.get %last["k"] default null
+            %t32 = core.call intrinsic.eq(%t31, "char")
+            %t30 = core.let %t32
+          }
+          core.if %t30 {
+            %t33 = core.get %first["c"] default null
+            %t34 = core.get %last["c"] default null
+            %t35 = core.call intrinsic.gt(%t33, %t34)
+            core.if %t35 {
+              %t36 = core.call intrinsic.string.format("Invalid regular expression: {}", "Invalid character range")
+              %t37 = core.call intrinsic.error.validation(%t36)
+              core.raise %t37
+            }
+            %t38 = core.map
+            core.set %t38["k"] = "range"
+            %t39 = core.get %first["c"] default null
+            core.set %t38["lo"] = %t39
+            %t40 = core.get %last["c"] default null
+            core.set %t38["hi"] = %t40
+            core.append %terms, %t38
+          } else {
+            core.append %terms, %first
+            %t41 = core.call @regex_literal(45)
+            core.append %terms, %t41
+            core.append %terms, %last
+          }
+        } else {
+          core.append %terms, %first
+        }
+      }
+      %t42 = core.call @regex_take(%s)
+      %t43 = core.map
+      core.set %t43["k"] = "class"
+      core.set %t43["negative"] = %negative
+      core.set %t43["terms"] = %terms
+      core.return %t43
+    }
+  }
+
+  op ax.gen.semantic @regex_atom {
+    attr core_kind = "func"
+    attr emit_module = "gen"
+    attr private = true
+    attr effect = "throws"
+    type signature = "(s:json) -> json"
+    body @entry(%s: json) {
+      %c = core.call intrinsic.none()
+      %candidate = core.call intrinsic.none()
+      %capture = core.call intrinsic.none()
+      %child = core.call intrinsic.none()
+      %direction = core.call intrinsic.none()
+      %kind = core.call intrinsic.none()
+      %mode = core.call intrinsic.none()
+      %name = core.call intrinsic.none()
+      %negative = core.call intrinsic.none()
+      %t1 = core.call @regex_take(%s)
+      %c = core.let %t1
+      %t2 = core.call intrinsic.eq(%c, 46)
+      core.if %t2 {
+        %t3 = core.call @regex_node("dot")
+        core.return %t3
+      }
+      %t4 = core.call intrinsic.eq(%c, 94)
+      core.if %t4 {
+        %t5 = core.call @regex_node("start")
+        core.return %t5
+      }
+      %t6 = core.call intrinsic.eq(%c, 36)
+      core.if %t6 {
+        %t7 = core.call @regex_node("end")
+        core.return %t7
+      }
+      %t8 = core.call intrinsic.eq(%c, 92)
+      core.if %t8 {
+        %t9 = core.call @regex_escaped(%s, false)
+        core.return %t9
+      }
+      %t10 = core.call intrinsic.eq(%c, 91)
+      core.if %t10 {
+        %t11 = core.call @regex_character_class(%s)
+        core.return %t11
+      }
+      %t12 = core.call intrinsic.eq(%c, 42)
+      %t13 = core.let %t12
+      %t14 = core.call intrinsic.not(%t13)
+      core.if %t14 {
+        %t15 = core.call intrinsic.eq(%c, 43)
+        %t13 = core.let %t15
+      }
+      %t16 = core.call intrinsic.not(%t13)
+      core.if %t16 {
+        %t17 = core.call intrinsic.eq(%c, 63)
+        %t13 = core.let %t17
+      }
+      core.if %t13 {
+        %t18 = core.call intrinsic.string.format("Invalid regular expression: {}", "Nothing to repeat")
+        %t19 = core.call intrinsic.error.validation(%t18)
+        core.raise %t19
+      }
+      %t20 = core.call intrinsic.eq(%c, 40)
+      core.if %t20 {
+        %kind = core.let "capture"
+        %negative = core.let false
+        %direction = core.let 1
+        %capture = core.let 0
+        %t21 = core.call intrinsic.none()
+        %name = core.let %t21
+        %t22 = core.call @regex_peek(%s)
+        %t23 = core.call intrinsic.eq(%t22, 63)
+        core.if %t23 {
+          %t24 = core.call @regex_take(%s)
+          %t25 = core.call @regex_take(%s)
+          %mode = core.let %t25
+          %t26 = core.call intrinsic.eq(%mode, 58)
+          core.if %t26 {
+            %kind = core.let "group"
+          } else {
+            %t27 = core.call intrinsic.eq(%mode, 61)
+            %t28 = core.let %t27
+            %t29 = core.call intrinsic.not(%t28)
+            core.if %t29 {
+              %t30 = core.call intrinsic.eq(%mode, 33)
+              %t28 = core.let %t30
+            }
+            core.if %t28 {
+              %kind = core.let "look"
+              %t31 = core.call intrinsic.eq(%mode, 33)
+              %negative = core.let %t31
+            } else {
+              %t32 = core.call intrinsic.eq(%mode, 60)
+              core.if %t32 {
+                %t33 = core.call @regex_peek(%s)
+                %t34 = core.call intrinsic.eq(%t33, 61)
+                %t35 = core.let %t34
+                %t36 = core.call intrinsic.not(%t35)
+                core.if %t36 {
+                  %t37 = core.call @regex_peek(%s)
+                  %t38 = core.call intrinsic.eq(%t37, 33)
+                  %t35 = core.let %t38
+                }
+                core.if %t35 {
+                  %kind = core.let "look"
+                  %t39 = core.call @regex_take(%s)
+                  %t40 = core.call intrinsic.eq(%t39, 33)
+                  %negative = core.let %t40
+                  %t41 = core.call intrinsic.mul(-1, 1)
+                  %t42 = core.call intrinsic.math.floor(%t41)
+                  %direction = core.let %t42
+                } else {
+                  %t43 = core.call @regex_read_name(%s)
+                  %name = core.let %t43
+                }
+              } else {
+                %t44 = core.call intrinsic.string.format("Invalid regular expression: {}", "Invalid group")
+                %t45 = core.call intrinsic.error.validation(%t44)
+                core.raise %t45
+              }
+            }
+          }
+        }
+        %t46 = core.call intrinsic.eq(%kind, "capture")
+        core.if %t46 {
+          %t47 = core.get %s["next"] default null
+          %t48 = core.call intrinsic.add(%t47, 1)
+          core.set %s["next"] = %t48
+          %t49 = core.get %s["next"] default null
+          %capture = core.let %t49
+        }
+        %t50 = core.call @regex_alternative(%s)
+        %child = core.let %t50
+        %t51 = core.call @regex_take(%s)
+        %t52 = core.call intrinsic.ne(%t51, 41)
+        core.if %t52 {
+          %t53 = core.call intrinsic.string.format("Invalid regular expression: {}", "Unterminated group")
+          %t54 = core.call intrinsic.error.validation(%t53)
+          core.raise %t54
+        }
+        %t55 = core.map
+        core.set %t55["k"] = %kind
+        core.set %t55["child"] = %child
+        core.set %t55["id"] = %capture
+        core.set %t55["negative"] = %negative
+        core.set %t55["direction"] = %direction
+        core.set %t55["name"] = %name
+        core.return %t55
+      }
+      %t56 = core.call intrinsic.eq(%c, 123)
+      core.if %t56 {
+        %t57 = core.get %s["p"] default null
+        %t58 = core.call intrinsic.mul(-1, 1)
+        %t59 = core.call intrinsic.add(%t57, %t58)
+        %t60 = core.call intrinsic.math.floor(%t59)
+        core.set %s["p"] = %t60
+        %t61 = core.call @regex_node("empty")
+        %t62 = core.call @regex_quantifier(%s, %t61)
+        %candidate = core.let %t62
+        %t63 = core.get %candidate["k"] default null
+        %t64 = core.call intrinsic.eq(%t63, "repeat")
+        core.if %t64 {
+          %t65 = core.call intrinsic.string.format("Invalid regular expression: {}", "Nothing to repeat")
+          %t66 = core.call intrinsic.error.validation(%t65)
+          core.raise %t66
+        }
+        %t67 = core.call @regex_take(%s)
+      }
+      %t68 = core.call @regex_literal(%c)
+      core.return %t68
+    }
+  }
+
+  op ax.gen.semantic @regex_quantifier {
+    attr core_kind = "func"
+    attr emit_module = "gen"
+    attr private = true
+    attr effect = "throws"
+    type signature = "(s:json, child:json) -> json"
+    body @entry(%s: json, %child: json) {
+      %c = core.call intrinsic.none()
+      %hi = core.call intrinsic.none()
+      %lazy = core.call intrinsic.none()
+      %lo = core.call intrinsic.none()
+      %start = core.call intrinsic.none()
+      %t1 = core.get %s["p"] default null
+      %start = core.let %t1
+      %t2 = core.call @regex_peek(%s)
+      %c = core.let %t2
+      %lo = core.let 0
+      %t3 = core.call intrinsic.mul(-1, 1)
+      %t4 = core.call intrinsic.math.floor(%t3)
+      %hi = core.let %t4
+      %t5 = core.call intrinsic.eq(%c, 42)
+      core.if %t5 {
+        %t6 = core.call @regex_take(%s)
+      } else {
+        %t7 = core.call intrinsic.eq(%c, 43)
+        core.if %t7 {
+          %t8 = core.call @regex_take(%s)
+          %lo = core.let 1
+        } else {
+          %t9 = core.call intrinsic.eq(%c, 63)
+          core.if %t9 {
+            %t10 = core.call @regex_take(%s)
+            %hi = core.let 1
+          } else {
+            %t11 = core.call intrinsic.eq(%c, 123)
+            core.if %t11 {
+              %t12 = core.call @regex_take(%s)
+              %t13 = core.call @regex_peek(%s)
+              %t14 = core.call @regex_digit(%t13)
+              %t15 = core.call intrinsic.not(%t14)
+              core.if %t15 {
+                core.set %s["p"] = %start
+                core.return %child
+              }
+              core.loop {
+                %t16 = core.call @regex_peek(%s)
+                %t17 = core.call @regex_digit(%t16)
+                %t18 = core.call intrinsic.not(%t17)
+                core.if %t18 {
+                  core.break
+                }
+                %t19 = core.call intrinsic.mul(%lo, 10)
+                %t20 = core.call intrinsic.math.floor(%t19)
+                %t21 = core.call @regex_take(%s)
+                %t22 = core.call intrinsic.add(%t20, %t21)
+                %t23 = core.call intrinsic.mul(-1, 48)
+                %t24 = core.call intrinsic.add(%t22, %t23)
+                %t25 = core.call intrinsic.math.floor(%t24)
+                %lo = core.let %t25
+              }
+              %hi = core.let %lo
+              %t26 = core.call @regex_peek(%s)
+              %t27 = core.call intrinsic.eq(%t26, 44)
+              core.if %t27 {
+                %t28 = core.call @regex_take(%s)
+                %t29 = core.call intrinsic.mul(-1, 1)
+                %t30 = core.call intrinsic.math.floor(%t29)
+                %hi = core.let %t30
+                %t31 = core.call @regex_peek(%s)
+                %t32 = core.call @regex_digit(%t31)
+                core.if %t32 {
+                  %hi = core.let 0
+                  core.loop {
+                    %t33 = core.call @regex_peek(%s)
+                    %t34 = core.call @regex_digit(%t33)
+                    %t35 = core.call intrinsic.not(%t34)
+                    core.if %t35 {
+                      core.break
+                    }
+                    %t36 = core.call intrinsic.mul(%hi, 10)
+                    %t37 = core.call intrinsic.math.floor(%t36)
+                    %t38 = core.call @regex_take(%s)
+                    %t39 = core.call intrinsic.add(%t37, %t38)
+                    %t40 = core.call intrinsic.mul(-1, 48)
+                    %t41 = core.call intrinsic.add(%t39, %t40)
+                    %t42 = core.call intrinsic.math.floor(%t41)
+                    %hi = core.let %t42
+                  }
+                }
+              }
+              %t43 = core.call @regex_peek(%s)
+              %t44 = core.call intrinsic.ne(%t43, 125)
+              core.if %t44 {
+                core.set %s["p"] = %start
+                core.return %child
+              }
+              %t45 = core.call @regex_take(%s)
+              %t46 = core.call intrinsic.gte(%hi, 0)
+              %t47 = core.let %t46
+              core.if %t47 {
+                %t48 = core.call intrinsic.lt(%hi, %lo)
+                %t47 = core.let %t48
+              }
+              core.if %t47 {
+                %t49 = core.call intrinsic.string.format("Invalid regular expression: {}", "Invalid quantifier range")
+                %t50 = core.call intrinsic.error.validation(%t49)
+                core.raise %t50
+              }
+            } else {
+              core.return %child
+            }
+          }
+        }
+      }
+      %t51 = core.get %child["k"] default null
+      %t52 = core.call intrinsic.eq(%t51, "start")
+      %t53 = core.let %t52
+      %t54 = core.call intrinsic.not(%t53)
+      core.if %t54 {
+        %t55 = core.get %child["k"] default null
+        %t56 = core.call intrinsic.eq(%t55, "end")
+        %t53 = core.let %t56
+      }
+      %t57 = core.call intrinsic.not(%t53)
+      core.if %t57 {
+        %t58 = core.get %child["k"] default null
+        %t59 = core.call intrinsic.eq(%t58, "boundary")
+        %t53 = core.let %t59
+      }
+      %t60 = core.call intrinsic.not(%t53)
+      core.if %t60 {
+        %t61 = core.get %child["k"] default null
+        %t62 = core.call intrinsic.eq(%t61, "look")
+        %t63 = core.let %t62
+        core.if %t63 {
+          %t64 = core.get %child["direction"] default null
+          %t65 = core.call intrinsic.mul(-1, 1)
+          %t66 = core.call intrinsic.math.floor(%t65)
+          %t67 = core.call intrinsic.eq(%t64, %t66)
+          %t63 = core.let %t67
+        }
+        %t53 = core.let %t63
+      }
+      core.if %t53 {
+        %t68 = core.call intrinsic.string.format("Invalid regular expression: {}", "Invalid quantified assertion")
+        %t69 = core.call intrinsic.error.validation(%t68)
+        core.raise %t69
+      }
+      %lazy = core.let false
+      %t70 = core.call @regex_peek(%s)
+      %t71 = core.call intrinsic.eq(%t70, 63)
+      core.if %t71 {
+        %t72 = core.call @regex_take(%s)
+        %lazy = core.let true
+      }
+      %t73 = core.map
+      core.set %t73["k"] = "repeat"
+      core.set %t73["child"] = %child
+      core.set %t73["lo"] = %lo
+      core.set %t73["hi"] = %hi
+      core.set %t73["lazy"] = %lazy
+      core.return %t73
+    }
+  }
+
+  op ax.gen.semantic @regex_alternative {
+    attr core_kind = "func"
+    attr emit_module = "gen"
+    attr private = true
+    attr effect = "throws"
+    type signature = "(s:json) -> json"
+    body @entry(%s: json) {
+      %choices = core.call intrinsic.none()
+      %terms = core.call intrinsic.none()
+      %t1 = core.list
+      %choices = core.let %t1
+      %t2 = core.list
+      %terms = core.let %t2
+      core.loop {
+        %t3 = core.call @regex_peek(%s)
+        %t4 = core.call intrinsic.gte(%t3, 0)
+        %t5 = core.let %t4
+        core.if %t5 {
+          %t6 = core.call @regex_peek(%s)
+          %t7 = core.call intrinsic.ne(%t6, 41)
+          %t5 = core.let %t7
+        }
+        %t8 = core.call intrinsic.not(%t5)
+        core.if %t8 {
+          core.break
+        }
+        %t9 = core.call @regex_peek(%s)
+        %t10 = core.call intrinsic.eq(%t9, 124)
+        core.if %t10 {
+          %t11 = core.call @regex_take(%s)
+          %t12 = core.map
+          core.set %t12["k"] = "seq"
+          core.set %t12["terms"] = %terms
+          core.append %choices, %t12
+          %t13 = core.list
+          %terms = core.let %t13
+        } else {
+          %t14 = core.call @regex_atom(%s)
+          %t15 = core.call @regex_quantifier(%s, %t14)
+          core.append %terms, %t15
+        }
+      }
+      %t16 = core.map
+      core.set %t16["k"] = "seq"
+      core.set %t16["terms"] = %terms
+      core.append %choices, %t16
+      %t17 = core.map
+      core.set %t17["k"] = "alt"
+      core.set %t17["terms"] = %choices
+      core.return %t17
+    }
+  }
+
+  op ax.gen.semantic @regex_word {
+    attr core_kind = "func"
+    attr emit_module = "gen"
+    attr private = true
+    attr effect = "throws"
+    type signature = "(c:json) -> json"
+    body @entry(%c: json) {
+      %t1 = core.call intrinsic.gte(%c, 48)
+      %t2 = core.let %t1
+      core.if %t2 {
+        %t3 = core.call intrinsic.lte(%c, 57)
+        %t2 = core.let %t3
+      }
+      %t4 = core.let %t2
+      %t5 = core.call intrinsic.not(%t4)
+      core.if %t5 {
+        %t6 = core.call intrinsic.gte(%c, 65)
+        %t7 = core.let %t6
+        core.if %t7 {
+          %t8 = core.call intrinsic.lte(%c, 90)
+          %t7 = core.let %t8
+        }
+        %t4 = core.let %t7
+      }
+      %t9 = core.call intrinsic.not(%t4)
+      core.if %t9 {
+        %t10 = core.call intrinsic.gte(%c, 97)
+        %t11 = core.let %t10
+        core.if %t11 {
+          %t12 = core.call intrinsic.lte(%c, 122)
+          %t11 = core.let %t12
+        }
+        %t4 = core.let %t11
+      }
+      %t13 = core.call intrinsic.not(%t4)
+      core.if %t13 {
+        %t14 = core.call intrinsic.eq(%c, 95)
+        %t4 = core.let %t14
+      }
+      core.return %t4
+    }
+  }
+
+  op ax.gen.semantic @regex_space {
+    attr core_kind = "func"
+    attr emit_module = "gen"
+    attr private = true
+    attr effect = "throws"
+    type signature = "(c:json) -> json"
+    body @entry(%c: json) {
+      %t1 = core.call intrinsic.eq(%c, 9)
+      %t2 = core.let %t1
+      %t3 = core.call intrinsic.not(%t2)
+      core.if %t3 {
+        %t4 = core.call intrinsic.eq(%c, 10)
+        %t2 = core.let %t4
+      }
+      %t5 = core.call intrinsic.not(%t2)
+      core.if %t5 {
+        %t6 = core.call intrinsic.eq(%c, 11)
+        %t2 = core.let %t6
+      }
+      %t7 = core.call intrinsic.not(%t2)
+      core.if %t7 {
+        %t8 = core.call intrinsic.eq(%c, 12)
+        %t2 = core.let %t8
+      }
+      %t9 = core.call intrinsic.not(%t2)
+      core.if %t9 {
+        %t10 = core.call intrinsic.eq(%c, 13)
+        %t2 = core.let %t10
+      }
+      %t11 = core.call intrinsic.not(%t2)
+      core.if %t11 {
+        %t12 = core.call intrinsic.eq(%c, 32)
+        %t2 = core.let %t12
+      }
+      %t13 = core.call intrinsic.not(%t2)
+      core.if %t13 {
+        %t14 = core.call intrinsic.eq(%c, 160)
+        %t2 = core.let %t14
+      }
+      %t15 = core.call intrinsic.not(%t2)
+      core.if %t15 {
+        %t16 = core.call intrinsic.eq(%c, 5760)
+        %t2 = core.let %t16
+      }
+      %t17 = core.call intrinsic.not(%t2)
+      core.if %t17 {
+        %t18 = core.call intrinsic.gte(%c, 8192)
+        %t19 = core.let %t18
+        core.if %t19 {
+          %t20 = core.call intrinsic.lte(%c, 8202)
+          %t19 = core.let %t20
+        }
+        %t2 = core.let %t19
+      }
+      %t21 = core.call intrinsic.not(%t2)
+      core.if %t21 {
+        %t22 = core.call intrinsic.eq(%c, 8232)
+        %t2 = core.let %t22
+      }
+      %t23 = core.call intrinsic.not(%t2)
+      core.if %t23 {
+        %t24 = core.call intrinsic.eq(%c, 8233)
+        %t2 = core.let %t24
+      }
+      %t25 = core.call intrinsic.not(%t2)
+      core.if %t25 {
+        %t26 = core.call intrinsic.eq(%c, 8239)
+        %t2 = core.let %t26
+      }
+      %t27 = core.call intrinsic.not(%t2)
+      core.if %t27 {
+        %t28 = core.call intrinsic.eq(%c, 8287)
+        %t2 = core.let %t28
+      }
+      %t29 = core.call intrinsic.not(%t2)
+      core.if %t29 {
+        %t30 = core.call intrinsic.eq(%c, 12288)
+        %t2 = core.let %t30
+      }
+      %t31 = core.call intrinsic.not(%t2)
+      core.if %t31 {
+        %t32 = core.call intrinsic.eq(%c, 65279)
+        %t2 = core.let %t32
+      }
+      core.return %t2
+    }
+  }
+
+  op ax.gen.semantic @regex_member {
+    attr core_kind = "func"
+    attr emit_module = "gen"
+    attr private = true
+    attr effect = "throws"
+    type signature = "(n:json, c:json) -> json"
+    body @entry(%n: json, %c: json) {
+      %e = core.call intrinsic.none()
+      %k = core.call intrinsic.none()
+      %term = core.call intrinsic.none()
+      %yes = core.call intrinsic.none()
+      %t1 = core.get %n["k"] default null
+      %k = core.let %t1
+      %t2 = core.call intrinsic.eq(%k, "char")
+      core.if %t2 {
+        %t3 = core.get %n["c"] default null
+        %t4 = core.call intrinsic.eq(%c, %t3)
+        core.return %t4
+      }
+      %t5 = core.call intrinsic.eq(%k, "range")
+      core.if %t5 {
+        %t6 = core.get %n["lo"] default null
+        %t7 = core.call intrinsic.gte(%c, %t6)
+        %t8 = core.let %t7
+        core.if %t8 {
+          %t9 = core.get %n["hi"] default null
+          %t10 = core.call intrinsic.lte(%c, %t9)
+          %t8 = core.let %t10
+        }
+        core.return %t8
+      }
+      %t11 = core.call intrinsic.eq(%k, "dot")
+      core.if %t11 {
+        %t12 = core.call intrinsic.ne(%c, 10)
+        %t13 = core.let %t12
+        core.if %t13 {
+          %t14 = core.call intrinsic.ne(%c, 13)
+          %t13 = core.let %t14
+        }
+        core.if %t13 {
+          %t15 = core.call intrinsic.ne(%c, 8232)
+          %t13 = core.let %t15
+        }
+        core.if %t13 {
+          %t16 = core.call intrinsic.ne(%c, 8233)
+          %t13 = core.let %t16
+        }
+        core.return %t13
+      }
+      %t17 = core.call intrinsic.eq(%k, "class_escape")
+      core.if %t17 {
+        %t18 = core.get %n["c"] default null
+        %e = core.let %t18
+        %yes = core.let false
+        %t19 = core.call intrinsic.eq(%e, 100)
+        %t20 = core.let %t19
+        %t21 = core.call intrinsic.not(%t20)
+        core.if %t21 {
+          %t22 = core.call intrinsic.eq(%e, 68)
+          %t20 = core.let %t22
+        }
+        core.if %t20 {
+          %t23 = core.call @regex_digit(%c)
+          %yes = core.let %t23
+        }
+        %t24 = core.call intrinsic.eq(%e, 119)
+        %t25 = core.let %t24
+        %t26 = core.call intrinsic.not(%t25)
+        core.if %t26 {
+          %t27 = core.call intrinsic.eq(%e, 87)
+          %t25 = core.let %t27
+        }
+        core.if %t25 {
+          %t28 = core.call @regex_word(%c)
+          %yes = core.let %t28
+        }
+        %t29 = core.call intrinsic.eq(%e, 115)
+        %t30 = core.let %t29
+        %t31 = core.call intrinsic.not(%t30)
+        core.if %t31 {
+          %t32 = core.call intrinsic.eq(%e, 83)
+          %t30 = core.let %t32
+        }
+        core.if %t30 {
+          %t33 = core.call @regex_space(%c)
+          %yes = core.let %t33
+        }
+        %t34 = core.call intrinsic.eq(%e, 68)
+        %t35 = core.let %t34
+        %t36 = core.call intrinsic.not(%t35)
+        core.if %t36 {
+          %t37 = core.call intrinsic.eq(%e, 87)
+          %t35 = core.let %t37
+        }
+        %t38 = core.call intrinsic.not(%t35)
+        core.if %t38 {
+          %t39 = core.call intrinsic.eq(%e, 83)
+          %t35 = core.let %t39
+        }
+        core.if %t35 {
+          %t40 = core.call intrinsic.not(%yes)
+          core.return %t40
+        }
+        core.return %yes
+      }
+      %t41 = core.call intrinsic.eq(%k, "class")
+      core.if %t41 {
+        %yes = core.let false
+        %t42 = core.get %n["terms"] default null
+        core.for %iter_43 in %t42 {
+          %term = core.let %iter_43
+          %t44 = core.call @regex_member(%term, %c)
+          core.if %t44 {
+            %yes = core.let true
+          }
+        }
+        %t45 = core.get %n["negative"] default null
+        core.if %t45 {
+          %t46 = core.call intrinsic.not(%yes)
+          core.return %t46
+        }
+        core.return %yes
+      }
+      core.return false
+    }
+  }
+
+  op ax.gen.semantic @regex_state {
+    attr core_kind = "func"
+    attr emit_module = "gen"
+    attr private = true
+    attr effect = "throws"
+    type signature = "(pos:json, caps:json) -> json"
+    body @entry(%pos: json, %caps: json) {
+      %t1 = core.map
+      core.set %t1["pos"] = %pos
+      %t2 = core.call @regex_copy_map(%caps)
+      core.set %t1["caps"] = %t2
+      core.return %t1
+    }
+  }
+
+  op ax.gen.semantic @regex_capture_ids {
+    attr core_kind = "func"
+    attr emit_module = "gen"
+    attr private = true
+    attr effect = "throws"
+    type signature = "(n:json) -> json"
+    body @entry(%n: json) {
+      %i = core.call intrinsic.none()
+      %k = core.call intrinsic.none()
+      %out = core.call intrinsic.none()
+      %term = core.call intrinsic.none()
+      %t1 = core.list
+      %out = core.let %t1
+      %t2 = core.get %n["k"] default null
+      %k = core.let %t2
+      %t3 = core.call intrinsic.eq(%k, "capture")
+      core.if %t3 {
+        %t4 = core.get %n["id"] default null
+        core.append %out, %t4
+      }
+      %t5 = core.call intrinsic.map.contains(%n, "child")
+      core.if %t5 {
+        %t6 = core.get %n["child"] default null
+        %t7 = core.call @regex_capture_ids(%t6)
+        core.for %iter_8 in %t7 {
+          %i = core.let %iter_8
+          core.append %out, %i
+        }
+      }
+      %t9 = core.call intrinsic.eq(%k, "seq")
+      %t10 = core.let %t9
+      %t11 = core.call intrinsic.not(%t10)
+      core.if %t11 {
+        %t12 = core.call intrinsic.eq(%k, "alt")
+        %t10 = core.let %t12
+      }
+      core.if %t10 {
+        %t13 = core.get %n["terms"] default null
+        core.for %iter_14 in %t13 {
+          %term = core.let %iter_14
+          %t15 = core.call @regex_capture_ids(%term)
+          core.for %iter_16 in %t15 {
+            %i = core.let %iter_16
+            core.append %out, %i
+          }
+        }
+      }
+      core.return %out
+    }
+  }
+
+  op ax.gen.semantic @regex_push {
+    attr core_kind = "func"
+    attr emit_module = "gen"
+    attr private = true
+    attr effect = "throws"
+    type signature = "(stack:json, top:json, value:json) -> json"
+    body @entry(%stack: json, %top: json, %value: json) {
+      %t1 = core.call intrinsic.string.format("{}", %top)
+      core.set %stack[%t1] = %value
+      %t2 = core.call intrinsic.add(%top, 1)
+      core.return %t2
+    }
+  }
+
+  op ax.gen.semantic @regex_task {
+    attr core_kind = "func"
+    attr emit_module = "gen"
+    attr private = true
+    attr effect = "throws"
+    type signature = "(n:json, next:json) -> json"
+    body @entry(%n: json, %next: json) {
+      %t1 = core.map
+      core.set %t1["node"] = %n
+      core.set %t1["next"] = %next
+      core.return %t1
+    }
+  }
+
+  op ax.gen.semantic @regex_frame {
+    attr core_kind = "func"
+    attr emit_module = "gen"
+    attr private = true
+    attr effect = "throws"
+    type signature = "(todo:json, st:json) -> json"
+    body @entry(%todo: json, %st: json) {
+      %t1 = core.map
+      core.set %t1["todo"] = %todo
+      core.set %t1["st"] = %st
+      core.return %t1
+    }
+  }
+
+  op ax.gen.semantic @regex_search {
+    attr core_kind = "func"
+    attr emit_module = "gen"
+    attr private = true
+    attr effect = "throws"
+    type signature = "(n:json, u:json, initial:json, d:json) -> json"
+    body @entry(%n: json, %u: json, %initial: json, %d: json) {
+      %accept = core.call intrinsic.none()
+      %after = core.call intrinsic.none()
+      %at = core.call intrinsic.none()
+      %before = core.call intrinsic.none()
+      %begin = core.call intrinsic.none()
+      %caps = core.call intrinsic.none()
+      %capture = core.call intrinsic.none()
+      %capture_id = core.call intrinsic.none()
+      %clean = core.call intrinsic.none()
+      %copied = core.call intrinsic.none()
+      %count = core.call intrinsic.none()
+      %current = core.call intrinsic.none()
+      %end = core.call intrinsic.none()
+      %equal = core.call intrinsic.none()
+      %hi = core.call intrinsic.none()
+      %i = core.call intrinsic.none()
+      %k = core.call intrinsic.none()
+      %lo = core.call intrinsic.none()
+      %matched = core.call intrinsic.none()
+      %more = core.call intrinsic.none()
+      %moreframe = core.call intrinsic.none()
+      %next = core.call intrinsic.none()
+      %nextcount = core.call intrinsic.none()
+      %p = core.call intrinsic.none()
+      %pending = core.call intrinsic.none()
+      %repeat = core.call intrinsic.none()
+      %rest = core.call intrinsic.none()
+      %size = core.call intrinsic.none()
+      %st = core.call intrinsic.none()
+      %terms = core.call intrinsic.none()
+      %todo = core.call intrinsic.none()
+      %top = core.call intrinsic.none()
+      %yes = core.call intrinsic.none()
+      %t1 = core.map
+      %t2 = core.call intrinsic.none()
+      %t3 = core.call @regex_task(%n, %t2)
+      %t4 = core.call @regex_frame(%t3, %initial)
+      core.set %t1["0"] = %t4
+      %pending = core.let %t1
+      %top = core.let 1
+      core.loop {
+        %t5 = core.call intrinsic.gt(%top, 0)
+        %t6 = core.call intrinsic.not(%t5)
+        core.if %t6 {
+          core.break
+        }
+        %t7 = core.call intrinsic.mul(-1, 1)
+        %t8 = core.call intrinsic.add(%top, %t7)
+        %t9 = core.call intrinsic.math.floor(%t8)
+        %top = core.let %t9
+        %t10 = core.call intrinsic.string.format("{}", %top)
+        %t11 = core.get %pending[%t10] default null
+        %current = core.let %t11
+        %t12 = core.get %current["todo"] default null
+        %todo = core.let %t12
+        %t13 = core.get %current["st"] default null
+        %st = core.let %t13
+        %t14 = core.call intrinsic.none()
+        %t15 = core.call intrinsic.eq(%todo, %t14)
+        core.if %t15 {
+          core.return %st
+        }
+        %t16 = core.get %todo["node"] default null
+        %n = core.let %t16
+        %t17 = core.get %todo["next"] default null
+        %rest = core.let %t17
+        %t18 = core.get %n["k"] default null
+        %k = core.let %t18
+        %t19 = core.get %st["pos"] default null
+        %p = core.let %t19
+        %t20 = core.get %st["caps"] default null
+        %caps = core.let %t20
+        %t21 = core.call intrinsic.eq(%k, "seq")
+        core.if %t21 {
+          %t22 = core.get %n["terms"] default null
+          %terms = core.let %t22
+          %t23 = core.call intrinsic.len(%terms)
+          %t24 = core.call intrinsic.mul(-1, 1)
+          %t25 = core.call intrinsic.add(%t23, %t24)
+          %t26 = core.call intrinsic.math.floor(%t25)
+          %i = core.let %t26
+          %t27 = core.call intrinsic.lt(%d, 0)
+          core.if %t27 {
+            %i = core.let 0
+          }
+          core.loop {
+            %t28 = core.call intrinsic.gte(%i, 0)
+            %t29 = core.let %t28
+            core.if %t29 {
+              %t30 = core.call intrinsic.len(%terms)
+              %t31 = core.call intrinsic.lt(%i, %t30)
+              %t29 = core.let %t31
+            }
+            %t32 = core.call intrinsic.not(%t29)
+            core.if %t32 {
+              core.break
+            }
+            %t33 = core.get %terms[%i] default null
+            %t34 = core.call @regex_task(%t33, %rest)
+            %rest = core.let %t34
+            %t35 = core.call intrinsic.mul(-1, %d)
+            %t36 = core.call intrinsic.add(%i, %t35)
+            %t37 = core.call intrinsic.math.floor(%t36)
+            %i = core.let %t37
+          }
+          %t38 = core.call @regex_frame(%rest, %st)
+          %t39 = core.call @regex_push(%pending, %top, %t38)
+          %top = core.let %t39
+          core.continue
+        }
+        %t40 = core.call intrinsic.eq(%k, "alt")
+        core.if %t40 {
+          %t41 = core.get %n["terms"] default null
+          %t42 = core.call intrinsic.len(%t41)
+          %t43 = core.call intrinsic.mul(-1, 1)
+          %t44 = core.call intrinsic.add(%t42, %t43)
+          %t45 = core.call intrinsic.math.floor(%t44)
+          %i = core.let %t45
+          core.loop {
+            %t46 = core.call intrinsic.gte(%i, 0)
+            %t47 = core.call intrinsic.not(%t46)
+            core.if %t47 {
+              core.break
+            }
+            %t48 = core.get %n["terms"] default null
+            %t49 = core.get %t48[%i] default null
+            %t50 = core.call @regex_task(%t49, %rest)
+            %t51 = core.call @regex_frame(%t50, %st)
+            %t52 = core.call @regex_push(%pending, %top, %t51)
+            %top = core.let %t52
+            %t53 = core.call intrinsic.mul(-1, 1)
+            %t54 = core.call intrinsic.add(%i, %t53)
+            %t55 = core.call intrinsic.math.floor(%t54)
+            %i = core.let %t55
+          }
+          core.continue
+        }
+        %t56 = core.call intrinsic.eq(%k, "group")
+        core.if %t56 {
+          %t57 = core.get %n["child"] default null
+          %t58 = core.call @regex_task(%t57, %rest)
+          %t59 = core.call @regex_frame(%t58, %st)
+          %t60 = core.call @regex_push(%pending, %top, %t59)
+          %top = core.let %t60
+          core.continue
+        }
+        %t61 = core.call intrinsic.eq(%k, "capture")
+        core.if %t61 {
+          %t62 = core.map
+          core.set %t62["k"] = "capture_end"
+          %t63 = core.get %n["id"] default null
+          core.set %t62["id"] = %t63
+          core.set %t62["begin"] = %p
+          %t64 = core.call @regex_task(%t62, %rest)
+          %end = core.let %t64
+          %t65 = core.get %n["child"] default null
+          %t66 = core.call @regex_task(%t65, %end)
+          %t67 = core.call @regex_frame(%t66, %st)
+          %t68 = core.call @regex_push(%pending, %top, %t67)
+          %top = core.let %t68
+          core.continue
+        }
+        %t69 = core.call intrinsic.eq(%k, "capture_end")
+        core.if %t69 {
+          %t70 = core.get %n["begin"] default null
+          %lo = core.let %t70
+          %hi = core.let %p
+          %t71 = core.call intrinsic.lt(%d, 0)
+          core.if %t71 {
+            %lo = core.let %p
+            %t72 = core.get %n["begin"] default null
+            %hi = core.let %t72
+          }
+          %t73 = core.call @regex_state(%p, %caps)
+          %copied = core.let %t73
+          %t74 = core.list
+          core.append %t74, %lo
+          core.append %t74, %hi
+          %t75 = core.get %copied["caps"] default null
+          %t76 = core.get %n["id"] default null
+          core.set %t75[%t76] = %t74
+          %t77 = core.call @regex_frame(%rest, %copied)
+          %t78 = core.call @regex_push(%pending, %top, %t77)
+          %top = core.let %t78
+          core.continue
+        }
+        %t79 = core.call intrinsic.eq(%k, "look")
+        core.if %t79 {
+          %t80 = core.get %n["child"] default null
+          %t81 = core.get %n["direction"] default null
+          %t82 = core.call @regex_search(%t80, %u, %st, %t81)
+          %matched = core.let %t82
+          %t83 = core.get %n["negative"] default null
+          core.if %t83 {
+            %t84 = core.call intrinsic.none()
+            %t85 = core.call intrinsic.eq(%matched, %t84)
+            core.if %t85 {
+              %t86 = core.call @regex_frame(%rest, %st)
+              %t87 = core.call @regex_push(%pending, %top, %t86)
+              %top = core.let %t87
+            }
+          } else {
+            %t88 = core.call intrinsic.none()
+            %t89 = core.call intrinsic.ne(%matched, %t88)
+            core.if %t89 {
+              %t90 = core.get %matched["caps"] default null
+              %t91 = core.call @regex_state(%p, %t90)
+              %t92 = core.call @regex_frame(%rest, %t91)
+              %t93 = core.call @regex_push(%pending, %top, %t92)
+              %top = core.let %t93
+            }
+          }
+          core.continue
+        }
+        %t94 = core.call intrinsic.eq(%k, "repeat")
+        %t95 = core.let %t94
+        %t96 = core.call intrinsic.not(%t95)
+        core.if %t96 {
+          %t97 = core.call intrinsic.eq(%k, "repeat_step")
+          %t95 = core.let %t97
+        }
+        core.if %t95 {
+          %count = core.let 0
+          %repeat = core.let %n
+          %t98 = core.call intrinsic.eq(%k, "repeat_step")
+          core.if %t98 {
+            %t99 = core.get %n["count"] default null
+            %count = core.let %t99
+            %t100 = core.get %n["repeat"] default null
+            %repeat = core.let %t100
+          }
+          %t101 = core.get %repeat["lo"] default null
+          %t102 = core.call intrinsic.gte(%count, %t101)
+          %accept = core.let %t102
+          %t103 = core.get %repeat["hi"] default null
+          %t104 = core.call intrinsic.lt(%t103, 0)
+          %t105 = core.let %t104
+          %t106 = core.call intrinsic.not(%t105)
+          core.if %t106 {
+            %t107 = core.get %repeat["hi"] default null
+            %t108 = core.call intrinsic.lt(%count, %t107)
+            %t105 = core.let %t108
+          }
+          %more = core.let %t105
+          %t109 = core.call intrinsic.none()
+          %moreframe = core.let %t109
+          core.if %more {
+            %t110 = core.call @regex_state(%p, %caps)
+            %clean = core.let %t110
+            %t111 = core.get %repeat["child"] default null
+            %t112 = core.call @regex_capture_ids(%t111)
+            core.for %iter_113 in %t112 {
+              %i = core.let %iter_113
+              %t114 = core.call intrinsic.none()
+              %t115 = core.get %clean["caps"] default null
+              core.set %t115[%i] = %t114
+            }
+            %t116 = core.map
+            core.set %t116["k"] = "repeat_after"
+            core.set %t116["repeat"] = %repeat
+            core.set %t116["count"] = %count
+            core.set %t116["begin"] = %p
+            %t117 = core.call @regex_task(%t116, %rest)
+            %after = core.let %t117
+            %t118 = core.get %repeat["child"] default null
+            %t119 = core.call @regex_task(%t118, %after)
+            %t120 = core.call @regex_frame(%t119, %clean)
+            %moreframe = core.let %t120
+          }
+          %t121 = core.get %repeat["lazy"] default null
+          core.if %t121 {
+            core.if %more {
+              %t122 = core.call @regex_push(%pending, %top, %moreframe)
+              %top = core.let %t122
+            }
+            core.if %accept {
+              %t123 = core.call @regex_frame(%rest, %st)
+              %t124 = core.call @regex_push(%pending, %top, %t123)
+              %top = core.let %t124
+            }
+          } else {
+            core.if %accept {
+              %t125 = core.call @regex_frame(%rest, %st)
+              %t126 = core.call @regex_push(%pending, %top, %t125)
+              %top = core.let %t126
+            }
+            core.if %more {
+              %t127 = core.call @regex_push(%pending, %top, %moreframe)
+              %top = core.let %t127
+            }
+          }
+          core.continue
+        }
+        %t128 = core.call intrinsic.eq(%k, "repeat_after")
+        core.if %t128 {
+          %t129 = core.get %n["count"] default null
+          %count = core.let %t129
+          %t130 = core.get %n["repeat"] default null
+          %repeat = core.let %t130
+          %t131 = core.call intrinsic.add(%count, 1)
+          %nextcount = core.let %t131
+          %t132 = core.get %n["begin"] default null
+          %t133 = core.call intrinsic.eq(%p, %t132)
+          core.if %t133 {
+            %t134 = core.get %repeat["lo"] default null
+            %t135 = core.call intrinsic.gte(%count, %t134)
+            core.if %t135 {
+              core.continue
+            }
+            %t136 = core.get %repeat["lo"] default null
+            %nextcount = core.let %t136
+          }
+          %t137 = core.map
+          core.set %t137["k"] = "repeat_step"
+          core.set %t137["repeat"] = %repeat
+          core.set %t137["count"] = %nextcount
+          %t138 = core.call @regex_task(%t137, %rest)
+          %next = core.let %t138
+          %t139 = core.call @regex_frame(%next, %st)
+          %t140 = core.call @regex_push(%pending, %top, %t139)
+          %top = core.let %t140
+          core.continue
+        }
+        %t141 = core.call intrinsic.eq(%k, "start")
+        core.if %t141 {
+          %t142 = core.call intrinsic.eq(%p, 0)
+          core.if %t142 {
+            %t143 = core.call @regex_frame(%rest, %st)
+            %t144 = core.call @regex_push(%pending, %top, %t143)
+            %top = core.let %t144
+          }
+          core.continue
+        }
+        %t145 = core.call intrinsic.eq(%k, "end")
+        core.if %t145 {
+          %t146 = core.call intrinsic.len(%u)
+          %t147 = core.call intrinsic.eq(%p, %t146)
+          core.if %t147 {
+            %t148 = core.call @regex_frame(%rest, %st)
+            %t149 = core.call @regex_push(%pending, %top, %t148)
+            %top = core.let %t149
+          }
+          core.continue
+        }
+        %t150 = core.call intrinsic.eq(%k, "boundary")
+        core.if %t150 {
+          %before = core.let false
+          %after = core.let false
+          %t151 = core.call intrinsic.gt(%p, 0)
+          core.if %t151 {
+            %t152 = core.call intrinsic.mul(-1, 1)
+            %t153 = core.call intrinsic.add(%p, %t152)
+            %t154 = core.call intrinsic.math.floor(%t153)
+            %t155 = core.get %u[%t154] default null
+            %t156 = core.call @regex_word(%t155)
+            %before = core.let %t156
+          }
+          %t157 = core.call intrinsic.len(%u)
+          %t158 = core.call intrinsic.lt(%p, %t157)
+          core.if %t158 {
+            %t159 = core.get %u[%p] default null
+            %t160 = core.call @regex_word(%t159)
+            %after = core.let %t160
+          }
+          %t161 = core.call intrinsic.ne(%before, %after)
+          %yes = core.let %t161
+          %t162 = core.get %n["negative"] default null
+          core.if %t162 {
+            %t163 = core.call intrinsic.not(%yes)
+            %yes = core.let %t163
+          }
+          core.if %yes {
+            %t164 = core.call @regex_frame(%rest, %st)
+            %t165 = core.call @regex_push(%pending, %top, %t164)
+            %top = core.let %t165
+          }
+          core.continue
+        }
+        %t166 = core.call intrinsic.eq(%k, "ref")
+        core.if %t166 {
+          %t167 = core.call intrinsic.none()
+          %capture = core.let %t167
+          %t168 = core.get %n["ids"] default null
+          core.for %iter_169 in %t168 {
+            %capture_id = core.let %iter_169
+            %t170 = core.get %caps[%capture_id] default null
+            %t171 = core.call intrinsic.none()
+            %t172 = core.call intrinsic.ne(%t170, %t171)
+            core.if %t172 {
+              %t173 = core.get %caps[%capture_id] default null
+              %capture = core.let %t173
+            }
+          }
+          %t174 = core.call intrinsic.none()
+          %t175 = core.call intrinsic.eq(%capture, %t174)
+          core.if %t175 {
+            %t176 = core.call @regex_frame(%rest, %st)
+            %t177 = core.call @regex_push(%pending, %top, %t176)
+            %top = core.let %t177
+            core.continue
+          }
+          %t178 = core.let 1
+          %t179 = core.get %capture[%t178] default null
+          %t180 = core.let 0
+          %t181 = core.get %capture[%t180] default null
+          %t182 = core.call intrinsic.mul(-1, %t181)
+          %t183 = core.call intrinsic.add(%t179, %t182)
+          %t184 = core.call intrinsic.math.floor(%t183)
+          %size = core.let %t184
+          %begin = core.let %p
+          %t185 = core.call intrinsic.lt(%d, 0)
+          core.if %t185 {
+            %t186 = core.call intrinsic.mul(-1, %size)
+            %t187 = core.call intrinsic.add(%p, %t186)
+            %t188 = core.call intrinsic.math.floor(%t187)
+            %begin = core.let %t188
+          }
+          %t189 = core.call intrinsic.lt(%begin, 0)
+          %t190 = core.let %t189
+          %t191 = core.call intrinsic.not(%t190)
+          core.if %t191 {
+            %t192 = core.call intrinsic.add(%begin, %size)
+            %t193 = core.call intrinsic.len(%u)
+            %t194 = core.call intrinsic.gt(%t192, %t193)
+            %t190 = core.let %t194
+          }
+          core.if %t190 {
+            core.continue
+          }
+          %i = core.let 0
+          %equal = core.let true
+          core.loop {
+            %t195 = core.call intrinsic.lt(%i, %size)
+            %t196 = core.call intrinsic.not(%t195)
+            core.if %t196 {
+              core.break
+            }
+            %t197 = core.call intrinsic.add(%begin, %i)
+            %t198 = core.get %u[%t197] default null
+            %t199 = core.let 0
+            %t200 = core.get %capture[%t199] default null
+            %t201 = core.call intrinsic.add(%t200, %i)
+            %t202 = core.get %u[%t201] default null
+            %t203 = core.call intrinsic.ne(%t198, %t202)
+            core.if %t203 {
+              %equal = core.let false
+              core.break
+            }
+            %t204 = core.call intrinsic.add(%i, 1)
+            %i = core.let %t204
+          }
+          core.if %equal {
+            %t205 = core.call intrinsic.mul(%d, %size)
+            %t206 = core.call intrinsic.math.floor(%t205)
+            %t207 = core.call intrinsic.add(%p, %t206)
+            %t208 = core.call @regex_state(%t207, %caps)
+            %t209 = core.call @regex_frame(%rest, %t208)
+            %t210 = core.call @regex_push(%pending, %top, %t209)
+            %top = core.let %t210
+          }
+          core.continue
+        }
+        %at = core.let %p
+        %t211 = core.call intrinsic.lt(%d, 0)
+        core.if %t211 {
+          %t212 = core.call intrinsic.mul(-1, 1)
+          %t213 = core.call intrinsic.add(%p, %t212)
+          %t214 = core.call intrinsic.math.floor(%t213)
+          %at = core.let %t214
+        }
+        %t215 = core.call intrinsic.gte(%at, 0)
+        %t216 = core.let %t215
+        core.if %t216 {
+          %t217 = core.call intrinsic.len(%u)
+          %t218 = core.call intrinsic.lt(%at, %t217)
+          %t216 = core.let %t218
+        }
+        core.if %t216 {
+          %t219 = core.get %u[%at] default null
+          %t220 = core.call @regex_member(%n, %t219)
+          %t216 = core.let %t220
+        }
+        core.if %t216 {
+          %t221 = core.call intrinsic.add(%p, %d)
+          %t222 = core.call @regex_state(%t221, %caps)
+          %t223 = core.call @regex_frame(%rest, %t222)
+          %t224 = core.call @regex_push(%pending, %top, %t223)
+          %top = core.let %t224
+        }
+      }
+      %t225 = core.call intrinsic.none()
+      core.return %t225
+    }
+  }
+
+  op ax.gen.semantic @regex_test {
+    attr core_kind = "func"
+    attr emit_module = "gen"
+    attr private = true
+    attr effect = "throws"
+    type signature = "(pattern:json, value:json) -> json"
+    body @entry(%pattern: json, %value: json) {
+      %groups = core.call intrinsic.none()
+      %i = core.call intrinsic.none()
+      %s = core.call intrinsic.none()
+      %text = core.call intrinsic.none()
+      %tree = core.call intrinsic.none()
+      %u = core.call intrinsic.none()
+      %t1 = core.call intrinsic.string.utf16_units(%pattern)
+      %u = core.let %t1
+      %t2 = core.call @regex_scan_groups(%u)
+      %groups = core.let %t2
+      %t3 = core.map
+      core.set %t3["u"] = %u
+      core.set %t3["p"] = 0
+      %t4 = core.get %groups["count"] default null
+      core.set %t3["total"] = %t4
+      %t5 = core.get %groups["names"] default null
+      core.set %t3["names"] = %t5
+      core.set %t3["next"] = 0
+      %s = core.let %t3
+      %t6 = core.call @regex_alternative(%s)
+      %tree = core.let %t6
+      %t7 = core.get %s["p"] default null
+      %t8 = core.call intrinsic.len(%u)
+      %t9 = core.call intrinsic.ne(%t7, %t8)
+      core.if %t9 {
+        %t10 = core.call intrinsic.string.format("Invalid regular expression: {}", "Unmatched group")
+        %t11 = core.call intrinsic.error.validation(%t10)
+        core.raise %t11
+      }
+      %t12 = core.map
+      %t13 = core.map
+      %t14 = core.map
+      core.set %t14["next"] = 0
+      %t15 = core.call @regex_validate_names(%tree, %t12, %t13, %t14)
+      %t16 = core.call intrinsic.string.utf16_units(%value)
+      %text = core.let %t16
+      %i = core.let 0
+      core.loop {
+        %t17 = core.call intrinsic.len(%text)
+        %t18 = core.call intrinsic.lte(%i, %t17)
+        %t19 = core.call intrinsic.not(%t18)
+        core.if %t19 {
+          core.break
+        }
+        %t20 = core.map
+        %t21 = core.call @regex_state(%i, %t20)
+        %t22 = core.call @regex_search(%tree, %text, %t21, 1)
+        %t23 = core.call intrinsic.none()
+        %t24 = core.call intrinsic.ne(%t22, %t23)
+        core.if %t24 {
+          core.return true
+        }
+        %t25 = core.call intrinsic.add(%i, 1)
+        %i = core.let %t25
+      }
+      core.return false
+    }
+  }
+
+  op ax.gen.semantic @regex_identifier {
+    attr core_kind = "func"
+    attr emit_module = "gen"
+    attr private = true
+    attr effect = "throws"
+    type signature = "(c:json, first:json) -> json"
+    body @entry(%c: json, %first: json) {
+      %entry = core.call intrinsic.none()
+      %hi = core.call intrinsic.none()
+      %lo = core.call intrinsic.none()
+      %mid = core.call intrinsic.none()
+      %ranges = core.call intrinsic.none()
+      %t1 = core.call intrinsic.eq(%c, 36)
+      %t2 = core.let %t1
+      %t3 = core.call intrinsic.not(%t2)
+      core.if %t3 {
+        %t4 = core.call intrinsic.eq(%c, 95)
+        %t2 = core.let %t4
+      }
+      core.if %t2 {
+        core.return true
+      }
+      %t5 = core.call intrinsic.not(%first)
+      %t6 = core.let %t5
+      core.if %t6 {
+        %t7 = core.call intrinsic.eq(%c, 8204)
+        %t8 = core.let %t7
+        %t9 = core.call intrinsic.not(%t8)
+        core.if %t9 {
+          %t10 = core.call intrinsic.eq(%c, 8205)
+          %t8 = core.let %t10
+        }
+        %t6 = core.let %t8
+      }
+      core.if %t6 {
+        core.return true
+      }
+      %t11 = core.call @regex_id_continue_ranges()
+      %ranges = core.let %t11
+      core.if %first {
+        %t12 = core.call @regex_id_start_ranges()
+        %ranges = core.let %t12
+      }
+      %lo = core.let 0
+      %t13 = core.call intrinsic.len(%ranges)
+      %hi = core.let %t13
+      core.loop {
+        %t14 = core.call intrinsic.lt(%lo, %hi)
+        %t15 = core.call intrinsic.not(%t14)
+        core.if %t15 {
+          core.break
+        }
+        %t16 = core.call intrinsic.add(%lo, %hi)
+        %t17 = core.call intrinsic.div(%t16, 2)
+        %t18 = core.call intrinsic.math.floor(%t17)
+        %mid = core.let %t18
+        %t19 = core.get %ranges[%mid] default null
+        %entry = core.let %t19
+        %t20 = core.let 0
+        %t21 = core.get %entry[%t20] default null
+        %t22 = core.call intrinsic.lt(%c, %t21)
+        core.if %t22 {
+          %hi = core.let %mid
+        } else {
+          %t23 = core.let 1
+          %t24 = core.get %entry[%t23] default null
+          %t25 = core.call intrinsic.gt(%c, %t24)
+          core.if %t25 {
+            %t26 = core.call intrinsic.add(%mid, 1)
+            %lo = core.let %t26
+          } else {
+            core.return true
+          }
+        }
+      }
+      core.return false
+    }
+  }
+
+  op ax.gen.semantic @regex_read_name {
+    attr core_kind = "func"
+    attr emit_module = "gen"
+    attr private = true
+    attr effect = "throws"
+    type signature = "(s:json) -> json"
+    body @entry(%s: json) {
+      %c = core.call intrinsic.none()
+      %i = core.call intrinsic.none()
+      %n = core.call intrinsic.none()
+      %name = core.call intrinsic.none()
+      %values = core.call intrinsic.none()
+      %t1 = core.list
+      %values = core.let %t1
+      core.loop {
+        %t2 = core.call @regex_peek(%s)
+        %t3 = core.call intrinsic.ne(%t2, 62)
+        %t4 = core.let %t3
+        core.if %t4 {
+          %t5 = core.call @regex_peek(%s)
+          %t6 = core.call intrinsic.gte(%t5, 0)
+          %t4 = core.let %t6
+        }
+        %t7 = core.call intrinsic.not(%t4)
+        core.if %t7 {
+          core.break
+        }
+        %t8 = core.call @regex_take(%s)
+        %c = core.let %t8
+        %t9 = core.call intrinsic.eq(%c, 92)
+        core.if %t9 {
+          %t10 = core.call @regex_take(%s)
+          %t11 = core.call intrinsic.ne(%t10, 117)
+          core.if %t11 {
+            %t12 = core.call intrinsic.string.format("Invalid regular expression: {}", "Invalid capture name escape")
+            %t13 = core.call intrinsic.error.validation(%t12)
+            core.raise %t13
+          }
+          %c = core.let 0
+          %n = core.let 0
+          %t14 = core.call @regex_peek(%s)
+          %t15 = core.call intrinsic.eq(%t14, 123)
+          core.if %t15 {
+            %t16 = core.call @regex_take(%s)
+            core.loop {
+              %t17 = core.call @regex_peek(%s)
+              %t18 = core.call @regex_hexdigit(%t17)
+              %t19 = core.call intrinsic.gte(%t18, 0)
+              %t20 = core.call intrinsic.not(%t19)
+              core.if %t20 {
+                core.break
+              }
+              %t21 = core.call intrinsic.mul(%c, 16)
+              %t22 = core.call intrinsic.math.floor(%t21)
+              %t23 = core.call @regex_take(%s)
+              %t24 = core.call @regex_hexdigit(%t23)
+              %t25 = core.call intrinsic.add(%t22, %t24)
+              %c = core.let %t25
+              %t26 = core.call intrinsic.add(%n, 1)
+              %n = core.let %t26
+            }
+            %t27 = core.call intrinsic.eq(%n, 0)
+            %t28 = core.let %t27
+            %t29 = core.call intrinsic.not(%t28)
+            core.if %t29 {
+              %t30 = core.call @regex_take(%s)
+              %t31 = core.call intrinsic.ne(%t30, 125)
+              %t28 = core.let %t31
+            }
+            %t32 = core.call intrinsic.not(%t28)
+            core.if %t32 {
+              %t33 = core.call intrinsic.gt(%c, 1114111)
+              %t28 = core.let %t33
+            }
+            core.if %t28 {
+              %t34 = core.call intrinsic.string.format("Invalid regular expression: {}", "Invalid Unicode capture name")
+              %t35 = core.call intrinsic.error.validation(%t34)
+              core.raise %t35
+            }
+          } else {
+            core.loop {
+              %t36 = core.call intrinsic.lt(%n, 4)
+              %t37 = core.let %t36
+              core.if %t37 {
+                %t38 = core.call @regex_peek(%s)
+                %t39 = core.call @regex_hexdigit(%t38)
+                %t40 = core.call intrinsic.gte(%t39, 0)
+                %t37 = core.let %t40
+              }
+              %t41 = core.call intrinsic.not(%t37)
+              core.if %t41 {
+                core.break
+              }
+              %t42 = core.call intrinsic.mul(%c, 16)
+              %t43 = core.call intrinsic.math.floor(%t42)
+              %t44 = core.call @regex_take(%s)
+              %t45 = core.call @regex_hexdigit(%t44)
+              %t46 = core.call intrinsic.add(%t43, %t45)
+              %c = core.let %t46
+              %t47 = core.call intrinsic.add(%n, 1)
+              %n = core.let %t47
+            }
+            %t48 = core.call intrinsic.ne(%n, 4)
+            core.if %t48 {
+              %t49 = core.call intrinsic.string.format("Invalid regular expression: {}", "Invalid Unicode capture name")
+              %t50 = core.call intrinsic.error.validation(%t49)
+              core.raise %t50
+            }
+          }
+        }
+        core.append %values, %c
+      }
+      %t51 = core.call @regex_take(%s)
+      %t52 = core.call intrinsic.ne(%t51, 62)
+      %t53 = core.let %t52
+      %t54 = core.call intrinsic.not(%t53)
+      core.if %t54 {
+        %t55 = core.call intrinsic.len(%values)
+        %t56 = core.call intrinsic.eq(%t55, 0)
+        %t53 = core.let %t56
+      }
+      core.if %t53 {
+        %t57 = core.call intrinsic.string.format("Invalid regular expression: {}", "Invalid capture name")
+        %t58 = core.call intrinsic.error.validation(%t57)
+        core.raise %t58
+      }
+      %name = core.let ""
+      %i = core.let 0
+      core.loop {
+        %t59 = core.call intrinsic.len(%values)
+        %t60 = core.call intrinsic.lt(%i, %t59)
+        %t61 = core.call intrinsic.not(%t60)
+        core.if %t61 {
+          core.break
+        }
+        %t62 = core.get %values[%i] default null
+        %c = core.let %t62
+        %t63 = core.call intrinsic.add(%i, 1)
+        %i = core.let %t63
+        %t64 = core.call intrinsic.gte(%c, 55296)
+        %t65 = core.let %t64
+        core.if %t65 {
+          %t66 = core.call intrinsic.lte(%c, 56319)
+          %t65 = core.let %t66
+        }
+        core.if %t65 {
+          %t67 = core.call intrinsic.len(%values)
+          %t68 = core.call intrinsic.lt(%i, %t67)
+          %t65 = core.let %t68
+        }
+        core.if %t65 {
+          %t69 = core.get %values[%i] default null
+          %t70 = core.call intrinsic.gte(%t69, 56320)
+          %t65 = core.let %t70
+        }
+        core.if %t65 {
+          %t71 = core.get %values[%i] default null
+          %t72 = core.call intrinsic.lte(%t71, 57343)
+          %t65 = core.let %t72
+        }
+        core.if %t65 {
+          %t73 = core.call intrinsic.mul(-1, 55296)
+          %t74 = core.call intrinsic.add(%c, %t73)
+          %t75 = core.call intrinsic.math.floor(%t74)
+          %t76 = core.call intrinsic.mul(%t75, 1024)
+          %t77 = core.call intrinsic.math.floor(%t76)
+          %t78 = core.call intrinsic.add(65536, %t77)
+          %t79 = core.get %values[%i] default null
+          %t80 = core.call intrinsic.add(%t78, %t79)
+          %t81 = core.call intrinsic.mul(-1, 56320)
+          %t82 = core.call intrinsic.add(%t80, %t81)
+          %t83 = core.call intrinsic.math.floor(%t82)
+          %c = core.let %t83
+          %t84 = core.call intrinsic.add(%i, 1)
+          %i = core.let %t84
+        }
+        %t85 = core.call intrinsic.eq(%name, "")
+        %t86 = core.call @regex_identifier(%c, %t85)
+        %t87 = core.call intrinsic.not(%t86)
+        core.if %t87 {
+          %t88 = core.call intrinsic.string.format("Invalid regular expression: {}", "Invalid capture identifier")
+          %t89 = core.call intrinsic.error.validation(%t88)
+          core.raise %t89
+        }
+        %t90 = core.call intrinsic.string.format("{}", %c)
+        %t91 = core.call intrinsic.add(%t90, ",")
+        %t92 = core.call intrinsic.add(%name, %t91)
+        %name = core.let %t92
+      }
+      core.return %name
+    }
+  }
+
+  op ax.gen.semantic @regex_validate_names {
+    attr core_kind = "func"
+    attr emit_module = "gen"
+    attr private = true
+    attr effect = "throws"
+    type signature = "(n:json, path:json, seen:json, counter:json) -> json"
+    body @entry(%n: json, %path: json, %seen: json, %counter: json) {
+      %branch = core.call intrinsic.none()
+      %exclusive = core.call intrinsic.none()
+      %index = core.call intrinsic.none()
+      %k = core.call intrinsic.none()
+      %key = core.call intrinsic.none()
+      %name = core.call intrinsic.none()
+      %other = core.call intrinsic.none()
+      %previous = core.call intrinsic.none()
+      %term = core.call intrinsic.none()
+      %t1 = core.get %n["k"] default null
+      %k = core.let %t1
+      %t2 = core.call intrinsic.eq(%k, "capture")
+      %t3 = core.let %t2
+      core.if %t3 {
+        %t4 = core.get %n["name"] default null
+        %t5 = core.call intrinsic.none()
+        %t6 = core.call intrinsic.ne(%t4, %t5)
+        %t3 = core.let %t6
+      }
+      core.if %t3 {
+        %t7 = core.get %n["name"] default null
+        %name = core.let %t7
+        %t8 = core.get %seen[%name] default null
+        %previous = core.let %t8
+        %t9 = core.call intrinsic.none()
+        %t10 = core.call intrinsic.eq(%previous, %t9)
+        core.if %t10 {
+          %t11 = core.list
+          %previous = core.let %t11
+        }
+        core.for %iter_12 in %previous {
+          %other = core.let %iter_12
+          %exclusive = core.let false
+          %t13 = core.call intrinsic.map.keys(%path)
+          core.for %iter_14 in %t13 {
+            %key = core.let %iter_14
+            %t15 = core.get %other[%key] default null
+            %t16 = core.call intrinsic.none()
+            %t17 = core.call intrinsic.ne(%t15, %t16)
+            %t18 = core.let %t17
+            core.if %t18 {
+              %t19 = core.get %other[%key] default null
+              %t20 = core.get %path[%key] default null
+              %t21 = core.call intrinsic.ne(%t19, %t20)
+              %t18 = core.let %t21
+            }
+            core.if %t18 {
+              %exclusive = core.let true
+            }
+          }
+          %t22 = core.call intrinsic.not(%exclusive)
+          core.if %t22 {
+            %t23 = core.call intrinsic.string.format("Invalid regular expression: {}", "Duplicate capture name")
+            %t24 = core.call intrinsic.error.validation(%t23)
+            core.raise %t24
+          }
+        }
+        %t25 = core.call @regex_copy_map(%path)
+        core.append %previous, %t25
+        core.set %seen[%name] = %previous
+      }
+      %t26 = core.call intrinsic.eq(%k, "alt")
+      core.if %t26 {
+        %t27 = core.get %counter["next"] default null
+        %t28 = core.call intrinsic.add(%t27, 1)
+        core.set %counter["next"] = %t28
+        %t29 = core.get %counter["next"] default null
+        %key = core.let %t29
+        %index = core.let 0
+        %t30 = core.get %n["terms"] default null
+        core.for %iter_31 in %t30 {
+          %term = core.let %iter_31
+          %t32 = core.call @regex_copy_map(%path)
+          %branch = core.let %t32
+          core.set %branch[%key] = %index
+          %t33 = core.call intrinsic.add(%index, 1)
+          %index = core.let %t33
+          %t34 = core.call @regex_validate_names(%term, %branch, %seen, %counter)
+        }
+      } else {
+        %t35 = core.call intrinsic.eq(%k, "seq")
+        core.if %t35 {
+          %t36 = core.get %n["terms"] default null
+          core.for %iter_37 in %t36 {
+            %term = core.let %iter_37
+            %t38 = core.call @regex_validate_names(%term, %path, %seen, %counter)
+          }
+        } else {
+          %t39 = core.get %n["child"] default null
+          %t40 = core.call intrinsic.none()
+          %t41 = core.call intrinsic.ne(%t39, %t40)
+          core.if %t41 {
+            %t42 = core.get %n["child"] default null
+            %t43 = core.call @regex_validate_names(%t42, %path, %seen, %counter)
+          }
+        }
+      }
+      core.return null
+    }
+  }
+
+  op ax.gen.semantic @regex_id_start_ranges {
+    attr core_kind = "func"
+    attr emit_module = "gen"
+    attr private = true
+    attr effect = "throws"
+    type signature = "() -> json"
+    body @entry() {
+      %t1 = core.call intrinsic.json.parse("[[65,90],[97,122],[170,170],[181,181],[186,186],[192,214],[216,246],[248,705],[710,721],[736,740],[748,748],[750,750],[880,884],[886,887],[890,893],[895,895],[902,902],[904,906],[908,908],[910,929],[931,1013],[1015,1153],[1162,1327],[1329,1366],[1369,1369],[1376,1416],[1488,1514],[1519,1522],[1568,1610],[1646,1647],[1649,1747],[1749,1749],[1765,1766],[1774,1775],[1786,1788],[1791,1791],[1808,1808],[1810,1839],[1869,1957],[1969,1969],[1994,2026],[2036,2037],[2042,2042],[2048,2069],[2074,2074],[2084,2084],[2088,2088],[2112,2136],[2144,2154],[2160,2183],[2185,2191],[2208,2249],[2308,2361],[2365,2365],[2384,2384],[2392,2401],[2417,2432],[2437,2444],[2447,2448],[2451,2472],[2474,2480],[2482,2482],[2486,2489],[2493,2493],[2510,2510],[2524,2525],[2527,2529],[2544,2545],[2556,2556],[2565,2570],[2575,2576],[2579,2600],[2602,2608],[2610,2611],[2613,2614],[2616,2617],[2649,2652],[2654,2654],[2674,2676],[2693,2701],[2703,2705],[2707,2728],[2730,2736],[2738,2739],[2741,2745],[2749,2749],[2768,2768],[2784,2785],[2809,2809],[2821,2828],[2831,2832],[2835,2856],[2858,2864],[2866,2867],[2869,2873],[2877,2877],[2908,2909],[2911,2913],[2929,2929],[2947,2947],[2949,2954],[2958,2960],[2962,2965],[2969,2970],[2972,2972],[2974,2975],[2979,2980],[2984,2986],[2990,3001],[3024,3024],[3077,3084],[3086,3088],[3090,3112],[3114,3129],[3133,3133],[3160,3162],[3164,3165],[3168,3169],[3200,3200],[3205,3212],[3214,3216],[3218,3240],[3242,3251],[3253,3257],[3261,3261],[3292,3294],[3296,3297],[3313,3314],[3332,3340],[3342,3344],[3346,3386],[3389,3389],[3406,3406],[3412,3414],[3423,3425],[3450,3455],[3461,3478],[3482,3505],[3507,3515],[3517,3517],[3520,3526],[3585,3632],[3634,3635],[3648,3654],[3713,3714],[3716,3716],[3718,3722],[3724,3747],[3749,3749],[3751,3760],[3762,3763],[3773,3773],[3776,3780],[3782,3782],[3804,3807],[3840,3840],[3904,3911],[3913,3948],[3976,3980],[4096,4138],[4159,4159],[4176,4181],[4186,4189],[4193,4193],[4197,4198],[4206,4208],[4213,4225],[4238,4238],[4256,4293],[4295,4295],[4301,4301],[4304,4346],[4348,4680],[4682,4685],[4688,4694],[4696,4696],[4698,4701],[4704,4744],[4746,4749],[4752,4784],[4786,4789],[4792,4798],[4800,4800],[4802,4805],[4808,4822],[4824,4880],[4882,4885],[4888,4954],[4992,5007],[5024,5109],[5112,5117],[5121,5740],[5743,5759],[5761,5786],[5792,5866],[5870,5880],[5888,5905],[5919,5937],[5952,5969],[5984,5996],[5998,6000],[6016,6067],[6103,6103],[6108,6108],[6176,6264],[6272,6312],[6314,6314],[6320,6389],[6400,6430],[6480,6509],[6512,6516],[6528,6571],[6576,6601],[6656,6678],[6688,6740],[6823,6823],[6917,6963],[6981,6988],[7043,7072],[7086,7087],[7098,7141],[7168,7203],[7245,7247],[7258,7293],[7296,7306],[7312,7354],[7357,7359],[7401,7404],[7406,7411],[7413,7414],[7418,7418],[7424,7615],[7680,7957],[7960,7965],[7968,8005],[8008,8013],[8016,8023],[8025,8025],[8027,8027],[8029,8029],[8031,8061],[8064,8116],[8118,8124],[8126,8126],[8130,8132],[8134,8140],[8144,8147],[8150,8155],[8160,8172],[8178,8180],[8182,8188],[8305,8305],[8319,8319],[8336,8348],[8450,8450],[8455,8455],[8458,8467],[8469,8469],[8472,8477],[8484,8484],[8486,8486],[8488,8488],[8490,8505],[8508,8511],[8517,8521],[8526,8526],[8544,8584],[11264,11492],[11499,11502],[11506,11507],[11520,11557],[11559,11559],[11565,11565],[11568,11623],[11631,11631],[11648,11670],[11680,11686],[11688,11694],[11696,11702],[11704,11710],[11712,11718],[11720,11726],[11728,11734],[11736,11742],[12293,12295],[12321,12329],[12337,12341],[12344,12348],[12353,12438],[12443,12447],[12449,12538],[12540,12543],[12549,12591],[12593,12686],[12704,12735],[12784,12799],[13312,19903],[19968,42124],[42192,42237],[42240,42508],[42512,42527],[42538,42539],[42560,42606],[42623,42653],[42656,42735],[42775,42783],[42786,42888],[42891,42972],[42993,43009],[43011,43013],[43015,43018],[43020,43042],[43072,43123],[43138,43187],[43250,43255],[43259,43259],[43261,43262],[43274,43301],[43312,43334],[43360,43388],[43396,43442],[43471,43471],[43488,43492],[43494,43503],[43514,43518],[43520,43560],[43584,43586],[43588,43595],[43616,43638],[43642,43642],[43646,43695],[43697,43697],[43701,43702],[43705,43709],[43712,43712],[43714,43714],[43739,43741],[43744,43754],[43762,43764],[43777,43782],[43785,43790],[43793,43798],[43808,43814],[43816,43822],[43824,43866],[43868,43881],[43888,44002],[44032,55203],[55216,55238],[55243,55291],[63744,64109],[64112,64217],[64256,64262],[64275,64279],[64285,64285],[64287,64296],[64298,64310],[64312,64316],[64318,64318],[64320,64321],[64323,64324],[64326,64433],[64467,64829],[64848,64911],[64914,64967],[65008,65019],[65136,65140],[65142,65276],[65313,65338],[65345,65370],[65382,65470],[65474,65479],[65482,65487],[65490,65495],[65498,65500],[65536,65547],[65549,65574],[65576,65594],[65596,65597],[65599,65613],[65616,65629],[65664,65786],[65856,65908],[66176,66204],[66208,66256],[66304,66335],[66349,66378],[66384,66421],[66432,66461],[66464,66499],[66504,66511],[66513,66517],[66560,66717],[66736,66771],[66776,66811],[66816,66855],[66864,66915],[66928,66938],[66940,66954],[66956,66962],[66964,66965],[66967,66977],[66979,66993],[66995,67001],[67003,67004],[67008,67059],[67072,67382],[67392,67413],[67424,67431],[67456,67461],[67463,67504],[67506,67514],[67584,67589],[67592,67592],[67594,67637],[67639,67640],[67644,67644],[67647,67669],[67680,67702],[67712,67742],[67808,67826],[67828,67829],[67840,67861],[67872,67897],[67904,67929],[67968,68023],[68030,68031],[68096,68096],[68112,68115],[68117,68119],[68121,68149],[68192,68220],[68224,68252],[68288,68295],[68297,68324],[68352,68405],[68416,68437],[68448,68466],[68480,68497],[68608,68680],[68736,68786],[68800,68850],[68864,68899],[68938,68965],[68975,68997],[69248,69289],[69296,69297],[69314,69319],[69376,69404],[69415,69415],[69424,69445],[69488,69505],[69552,69572],[69600,69622],[69635,69687],[69745,69746],[69749,69749],[69763,69807],[69840,69864],[69891,69926],[69956,69956],[69959,69959],[69968,70002],[70006,70006],[70019,70066],[70081,70084],[70106,70106],[70108,70108],[70144,70161],[70163,70187],[70207,70208],[70272,70278],[70280,70280],[70282,70285],[70287,70301],[70303,70312],[70320,70366],[70405,70412],[70415,70416],[70419,70440],[70442,70448],[70450,70451],[70453,70457],[70461,70461],[70480,70480],[70493,70497],[70528,70537],[70539,70539],[70542,70542],[70544,70581],[70583,70583],[70609,70609],[70611,70611],[70656,70708],[70727,70730],[70751,70753],[70784,70831],[70852,70853],[70855,70855],[71040,71086],[71128,71131],[71168,71215],[71236,71236],[71296,71338],[71352,71352],[71424,71450],[71488,71494],[71680,71723],[71840,71903],[71935,71942],[71945,71945],[71948,71955],[71957,71958],[71960,71983],[71999,71999],[72001,72001],[72096,72103],[72106,72144],[72161,72161],[72163,72163],[72192,72192],[72203,72242],[72250,72250],[72272,72272],[72284,72329],[72349,72349],[72368,72440],[72640,72672],[72704,72712],[72714,72750],[72768,72768],[72818,72847],[72960,72966],[72968,72969],[72971,73008],[73030,73030],[73056,73061],[73063,73064],[73066,73097],[73112,73112],[73136,73179],[73440,73458],[73474,73474],[73476,73488],[73490,73523],[73648,73648],[73728,74649],[74752,74862],[74880,75075],[77712,77808],[77824,78895],[78913,78918],[78944,82938],[82944,83526],[90368,90397],[92160,92728],[92736,92766],[92784,92862],[92880,92909],[92928,92975],[92992,92995],[93027,93047],[93053,93071],[93504,93548],[93760,93823],[93856,93880],[93883,93907],[93952,94026],[94032,94032],[94099,94111],[94176,94177],[94179,94179],[94194,94198],[94208,101589],[101631,101662],[101760,101874],[110576,110579],[110581,110587],[110589,110590],[110592,110882],[110898,110898],[110928,110930],[110933,110933],[110948,110951],[110960,111355],[113664,113770],[113776,113788],[113792,113800],[113808,113817],[119808,119892],[119894,119964],[119966,119967],[119970,119970],[119973,119974],[119977,119980],[119982,119993],[119995,119995],[119997,120003],[120005,120069],[120071,120074],[120077,120084],[120086,120092],[120094,120121],[120123,120126],[120128,120132],[120134,120134],[120138,120144],[120146,120485],[120488,120512],[120514,120538],[120540,120570],[120572,120596],[120598,120628],[120630,120654],[120656,120686],[120688,120712],[120714,120744],[120746,120770],[120772,120779],[122624,122654],[122661,122666],[122928,122989],[123136,123180],[123191,123197],[123214,123214],[123536,123565],[123584,123627],[124112,124139],[124368,124397],[124400,124400],[124608,124638],[124640,124642],[124644,124645],[124647,124653],[124656,124660],[124670,124671],[124896,124902],[124904,124907],[124909,124910],[124912,124926],[124928,125124],[125184,125251],[125259,125259],[126464,126467],[126469,126495],[126497,126498],[126500,126500],[126503,126503],[126505,126514],[126516,126519],[126521,126521],[126523,126523],[126530,126530],[126535,126535],[126537,126537],[126539,126539],[126541,126543],[126545,126546],[126548,126548],[126551,126551],[126553,126553],[126555,126555],[126557,126557],[126559,126559],[126561,126562],[126564,126564],[126567,126570],[126572,126578],[126580,126583],[126585,126588],[126590,126590],[126592,126601],[126603,126619],[126625,126627],[126629,126633],[126635,126651],[131072,173791],[173824,178205],[178208,183981],[183984,191456],[191472,192093],[194560,195101],[196608,201546],[201552,210041]]")
+      core.return %t1
+    }
+  }
+
+  op ax.gen.semantic @regex_id_continue_ranges {
+    attr core_kind = "func"
+    attr emit_module = "gen"
+    attr private = true
+    attr effect = "throws"
+    type signature = "() -> json"
+    body @entry() {
+      %t1 = core.call intrinsic.json.parse("[[48,57],[65,90],[95,95],[97,122],[170,170],[181,181],[183,183],[186,186],[192,214],[216,246],[248,705],[710,721],[736,740],[748,748],[750,750],[768,884],[886,887],[890,893],[895,895],[902,906],[908,908],[910,929],[931,1013],[1015,1153],[1155,1159],[1162,1327],[1329,1366],[1369,1369],[1376,1416],[1425,1469],[1471,1471],[1473,1474],[1476,1477],[1479,1479],[1488,1514],[1519,1522],[1552,1562],[1568,1641],[1646,1747],[1749,1756],[1759,1768],[1770,1788],[1791,1791],[1808,1866],[1869,1969],[1984,2037],[2042,2042],[2045,2045],[2048,2093],[2112,2139],[2144,2154],[2160,2183],[2185,2191],[2199,2273],[2275,2403],[2406,2415],[2417,2435],[2437,2444],[2447,2448],[2451,2472],[2474,2480],[2482,2482],[2486,2489],[2492,2500],[2503,2504],[2507,2510],[2519,2519],[2524,2525],[2527,2531],[2534,2545],[2556,2556],[2558,2558],[2561,2563],[2565,2570],[2575,2576],[2579,2600],[2602,2608],[2610,2611],[2613,2614],[2616,2617],[2620,2620],[2622,2626],[2631,2632],[2635,2637],[2641,2641],[2649,2652],[2654,2654],[2662,2677],[2689,2691],[2693,2701],[2703,2705],[2707,2728],[2730,2736],[2738,2739],[2741,2745],[2748,2757],[2759,2761],[2763,2765],[2768,2768],[2784,2787],[2790,2799],[2809,2815],[2817,2819],[2821,2828],[2831,2832],[2835,2856],[2858,2864],[2866,2867],[2869,2873],[2876,2884],[2887,2888],[2891,2893],[2901,2903],[2908,2909],[2911,2915],[2918,2927],[2929,2929],[2946,2947],[2949,2954],[2958,2960],[2962,2965],[2969,2970],[2972,2972],[2974,2975],[2979,2980],[2984,2986],[2990,3001],[3006,3010],[3014,3016],[3018,3021],[3024,3024],[3031,3031],[3046,3055],[3072,3084],[3086,3088],[3090,3112],[3114,3129],[3132,3140],[3142,3144],[3146,3149],[3157,3158],[3160,3162],[3164,3165],[3168,3171],[3174,3183],[3200,3203],[3205,3212],[3214,3216],[3218,3240],[3242,3251],[3253,3257],[3260,3268],[3270,3272],[3274,3277],[3285,3286],[3292,3294],[3296,3299],[3302,3311],[3313,3315],[3328,3340],[3342,3344],[3346,3396],[3398,3400],[3402,3406],[3412,3415],[3423,3427],[3430,3439],[3450,3455],[3457,3459],[3461,3478],[3482,3505],[3507,3515],[3517,3517],[3520,3526],[3530,3530],[3535,3540],[3542,3542],[3544,3551],[3558,3567],[3570,3571],[3585,3642],[3648,3662],[3664,3673],[3713,3714],[3716,3716],[3718,3722],[3724,3747],[3749,3749],[3751,3773],[3776,3780],[3782,3782],[3784,3790],[3792,3801],[3804,3807],[3840,3840],[3864,3865],[3872,3881],[3893,3893],[3895,3895],[3897,3897],[3902,3911],[3913,3948],[3953,3972],[3974,3991],[3993,4028],[4038,4038],[4096,4169],[4176,4253],[4256,4293],[4295,4295],[4301,4301],[4304,4346],[4348,4680],[4682,4685],[4688,4694],[4696,4696],[4698,4701],[4704,4744],[4746,4749],[4752,4784],[4786,4789],[4792,4798],[4800,4800],[4802,4805],[4808,4822],[4824,4880],[4882,4885],[4888,4954],[4957,4959],[4969,4977],[4992,5007],[5024,5109],[5112,5117],[5121,5740],[5743,5759],[5761,5786],[5792,5866],[5870,5880],[5888,5909],[5919,5940],[5952,5971],[5984,5996],[5998,6000],[6002,6003],[6016,6099],[6103,6103],[6108,6109],[6112,6121],[6155,6157],[6159,6169],[6176,6264],[6272,6314],[6320,6389],[6400,6430],[6432,6443],[6448,6459],[6470,6509],[6512,6516],[6528,6571],[6576,6601],[6608,6618],[6656,6683],[6688,6750],[6752,6780],[6783,6793],[6800,6809],[6823,6823],[6832,6845],[6847,6877],[6880,6891],[6912,6988],[6992,7001],[7019,7027],[7040,7155],[7168,7223],[7232,7241],[7245,7293],[7296,7306],[7312,7354],[7357,7359],[7376,7378],[7380,7418],[7424,7957],[7960,7965],[7968,8005],[8008,8013],[8016,8023],[8025,8025],[8027,8027],[8029,8029],[8031,8061],[8064,8116],[8118,8124],[8126,8126],[8130,8132],[8134,8140],[8144,8147],[8150,8155],[8160,8172],[8178,8180],[8182,8188],[8204,8205],[8255,8256],[8276,8276],[8305,8305],[8319,8319],[8336,8348],[8400,8412],[8417,8417],[8421,8432],[8450,8450],[8455,8455],[8458,8467],[8469,8469],[8472,8477],[8484,8484],[8486,8486],[8488,8488],[8490,8505],[8508,8511],[8517,8521],[8526,8526],[8544,8584],[11264,11492],[11499,11507],[11520,11557],[11559,11559],[11565,11565],[11568,11623],[11631,11631],[11647,11670],[11680,11686],[11688,11694],[11696,11702],[11704,11710],[11712,11718],[11720,11726],[11728,11734],[11736,11742],[11744,11775],[12293,12295],[12321,12335],[12337,12341],[12344,12348],[12353,12438],[12441,12447],[12449,12543],[12549,12591],[12593,12686],[12704,12735],[12784,12799],[13312,19903],[19968,42124],[42192,42237],[42240,42508],[42512,42539],[42560,42607],[42612,42621],[42623,42737],[42775,42783],[42786,42888],[42891,42972],[42993,43047],[43052,43052],[43072,43123],[43136,43205],[43216,43225],[43232,43255],[43259,43259],[43261,43309],[43312,43347],[43360,43388],[43392,43456],[43471,43481],[43488,43518],[43520,43574],[43584,43597],[43600,43609],[43616,43638],[43642,43714],[43739,43741],[43744,43759],[43762,43766],[43777,43782],[43785,43790],[43793,43798],[43808,43814],[43816,43822],[43824,43866],[43868,43881],[43888,44010],[44012,44013],[44016,44025],[44032,55203],[55216,55238],[55243,55291],[63744,64109],[64112,64217],[64256,64262],[64275,64279],[64285,64296],[64298,64310],[64312,64316],[64318,64318],[64320,64321],[64323,64324],[64326,64433],[64467,64829],[64848,64911],[64914,64967],[65008,65019],[65024,65039],[65056,65071],[65075,65076],[65101,65103],[65136,65140],[65142,65276],[65296,65305],[65313,65338],[65343,65343],[65345,65370],[65381,65470],[65474,65479],[65482,65487],[65490,65495],[65498,65500],[65536,65547],[65549,65574],[65576,65594],[65596,65597],[65599,65613],[65616,65629],[65664,65786],[65856,65908],[66045,66045],[66176,66204],[66208,66256],[66272,66272],[66304,66335],[66349,66378],[66384,66426],[66432,66461],[66464,66499],[66504,66511],[66513,66517],[66560,66717],[66720,66729],[66736,66771],[66776,66811],[66816,66855],[66864,66915],[66928,66938],[66940,66954],[66956,66962],[66964,66965],[66967,66977],[66979,66993],[66995,67001],[67003,67004],[67008,67059],[67072,67382],[67392,67413],[67424,67431],[67456,67461],[67463,67504],[67506,67514],[67584,67589],[67592,67592],[67594,67637],[67639,67640],[67644,67644],[67647,67669],[67680,67702],[67712,67742],[67808,67826],[67828,67829],[67840,67861],[67872,67897],[67904,67929],[67968,68023],[68030,68031],[68096,68099],[68101,68102],[68108,68115],[68117,68119],[68121,68149],[68152,68154],[68159,68159],[68192,68220],[68224,68252],[68288,68295],[68297,68326],[68352,68405],[68416,68437],[68448,68466],[68480,68497],[68608,68680],[68736,68786],[68800,68850],[68864,68903],[68912,68921],[68928,68965],[68969,68973],[68975,68997],[69248,69289],[69291,69292],[69296,69297],[69314,69319],[69370,69404],[69415,69415],[69424,69456],[69488,69509],[69552,69572],[69600,69622],[69632,69702],[69734,69749],[69759,69818],[69826,69826],[69840,69864],[69872,69881],[69888,69940],[69942,69951],[69956,69959],[69968,70003],[70006,70006],[70016,70084],[70089,70092],[70094,70106],[70108,70108],[70144,70161],[70163,70199],[70206,70209],[70272,70278],[70280,70280],[70282,70285],[70287,70301],[70303,70312],[70320,70378],[70384,70393],[70400,70403],[70405,70412],[70415,70416],[70419,70440],[70442,70448],[70450,70451],[70453,70457],[70459,70468],[70471,70472],[70475,70477],[70480,70480],[70487,70487],[70493,70499],[70502,70508],[70512,70516],[70528,70537],[70539,70539],[70542,70542],[70544,70581],[70583,70592],[70594,70594],[70597,70597],[70599,70602],[70604,70611],[70625,70626],[70656,70730],[70736,70745],[70750,70753],[70784,70853],[70855,70855],[70864,70873],[71040,71093],[71096,71104],[71128,71133],[71168,71232],[71236,71236],[71248,71257],[71296,71352],[71360,71369],[71376,71395],[71424,71450],[71453,71467],[71472,71481],[71488,71494],[71680,71738],[71840,71913],[71935,71942],[71945,71945],[71948,71955],[71957,71958],[71960,71989],[71991,71992],[71995,72003],[72016,72025],[72096,72103],[72106,72151],[72154,72161],[72163,72164],[72192,72254],[72263,72263],[72272,72345],[72349,72349],[72368,72440],[72544,72551],[72640,72672],[72688,72697],[72704,72712],[72714,72758],[72760,72768],[72784,72793],[72818,72847],[72850,72871],[72873,72886],[72960,72966],[72968,72969],[72971,73014],[73018,73018],[73020,73021],[73023,73031],[73040,73049],[73056,73061],[73063,73064],[73066,73102],[73104,73105],[73107,73112],[73120,73129],[73136,73179],[73184,73193],[73440,73462],[73472,73488],[73490,73530],[73534,73538],[73552,73562],[73648,73648],[73728,74649],[74752,74862],[74880,75075],[77712,77808],[77824,78895],[78912,78933],[78944,82938],[82944,83526],[90368,90425],[92160,92728],[92736,92766],[92768,92777],[92784,92862],[92864,92873],[92880,92909],[92912,92916],[92928,92982],[92992,92995],[93008,93017],[93027,93047],[93053,93071],[93504,93548],[93552,93561],[93760,93823],[93856,93880],[93883,93907],[93952,94026],[94031,94087],[94095,94111],[94176,94177],[94179,94180],[94192,94198],[94208,101589],[101631,101662],[101760,101874],[110576,110579],[110581,110587],[110589,110590],[110592,110882],[110898,110898],[110928,110930],[110933,110933],[110948,110951],[110960,111355],[113664,113770],[113776,113788],[113792,113800],[113808,113817],[113821,113822],[118000,118009],[118528,118573],[118576,118598],[119141,119145],[119149,119154],[119163,119170],[119173,119179],[119210,119213],[119362,119364],[119808,119892],[119894,119964],[119966,119967],[119970,119970],[119973,119974],[119977,119980],[119982,119993],[119995,119995],[119997,120003],[120005,120069],[120071,120074],[120077,120084],[120086,120092],[120094,120121],[120123,120126],[120128,120132],[120134,120134],[120138,120144],[120146,120485],[120488,120512],[120514,120538],[120540,120570],[120572,120596],[120598,120628],[120630,120654],[120656,120686],[120688,120712],[120714,120744],[120746,120770],[120772,120779],[120782,120831],[121344,121398],[121403,121452],[121461,121461],[121476,121476],[121499,121503],[121505,121519],[122624,122654],[122661,122666],[122880,122886],[122888,122904],[122907,122913],[122915,122916],[122918,122922],[122928,122989],[123023,123023],[123136,123180],[123184,123197],[123200,123209],[123214,123214],[123536,123566],[123584,123641],[124112,124153],[124368,124410],[124608,124638],[124640,124661],[124670,124671],[124896,124902],[124904,124907],[124909,124910],[124912,124926],[124928,125124],[125136,125142],[125184,125259],[125264,125273],[126464,126467],[126469,126495],[126497,126498],[126500,126500],[126503,126503],[126505,126514],[126516,126519],[126521,126521],[126523,126523],[126530,126530],[126535,126535],[126537,126537],[126539,126539],[126541,126543],[126545,126546],[126548,126548],[126551,126551],[126553,126553],[126555,126555],[126557,126557],[126559,126559],[126561,126562],[126564,126564],[126567,126570],[126572,126578],[126580,126583],[126585,126588],[126590,126590],[126592,126601],[126603,126619],[126625,126627],[126629,126633],[126635,126651],[130032,130041],[131072,173791],[173824,178205],[178208,183981],[183984,191456],[191472,192093],[194560,195101],[196608,201546],[201552,210041],[917760,917999]]")
+      core.return %t1
+    }
+  }
+
+  op ax.gen.semantic @regex_clear_capture {
+    attr core_kind = "func"
+    attr emit_module = "gen"
+    attr private = true
+    attr effect = "throws"
+    type signature = "(caps:json, key:json) -> json"
+    body @entry(%caps: json, %key: json) {
+      %t1 = core.call intrinsic.none()
+      core.set %caps[%key] = %t1
+      core.return null
+    }
+  }
+
+  op ax.gen.semantic @regex_copy_map {
+    attr core_kind = "func"
+    attr emit_module = "gen"
+    attr private = true
+    attr effect = "throws"
+    type signature = "(value:json) -> json"
+    body @entry(%value: json) {
+      %key = core.call intrinsic.none()
+      %out = core.call intrinsic.none()
+      %t1 = core.map
+      %out = core.let %t1
+      %t2 = core.call intrinsic.map.keys(%value)
+      core.for %iter_3 in %t2 {
+        %key = core.let %iter_3
+        %t4 = core.get %value[%key] default null
+        core.set %out[%key] = %t4
+      }
+      core.return %out
+    }
+  }
+}

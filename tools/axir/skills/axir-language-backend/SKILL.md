@@ -57,3 +57,17 @@ Use this for work on generated Ax libraries such as Python, Java, C++, Go, or fu
 - Do not present scripted/no-key examples as provider API examples or claim registry publishing before workflows and credentials exist.
 - Do not widen runtime profile semantics while adding a language backend unless a concrete conformance gap proves it is necessary.
 - Do not ship a thinner v1 target by leaving stream/audio/realtime/router/runtime/optimizer methods as placeholders while the manifest or README claims full AxIR support.
+
+## Session validation and cancellation
+
+Raw session schema patterns are defined in `ir/axcore/regex.axir`; see `regex.md`
+for UTF-16 semantics and matcher invariants. Keep pattern decisions in Core and
+run the TypeScript-derived `session-ecmascript-pattern-validation.json` fixture
+in every target. Native agent tests must also exercise valid invocation after
+invalid-argument correction, not only pattern matching in isolation.
+
+For cancellation changes, run the native transport tests as well as scripted
+session tests. C++ release verification builds a second session test binary with
+libcurl enabled so stalled HTTP cleanup is exercised; the core-only binary cannot
+prove that behavior. Delegated MCP tests abort only after the child starts its
+imported tool and assert settlement, retained usage, and closed parent callbacks.
