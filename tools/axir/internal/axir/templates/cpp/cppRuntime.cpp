@@ -807,9 +807,12 @@ void Core::set(Value& target, Value key, Value value) {
   std::string k = key_string(key);
   Object& obj = object_mut(target);
   if (obj.count(k) == 0) {
-    Array order = array_ref(obj["__order"]);
-    order.emplace_back(k);
-    obj["__order"] = order;
+    // Copied maps retain independent ordering; a unique list can grow in place.
+    Value& order = obj["__order"];
+    if (auto shared = std::get_if<std::shared_ptr<Array>>(&order.data); shared && !shared->unique()) {
+      order = Value(**shared);
+    }
+    array_mut(order).emplace_back(k);
   }
   obj[k] = std::move(value);
 }

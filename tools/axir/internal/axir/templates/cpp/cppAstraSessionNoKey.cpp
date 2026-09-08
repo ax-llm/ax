@@ -596,6 +596,9 @@ static void mcp_http_context_cancellation(){}
 #endif
 
 int main(int argc,char** argv){
+  Value original=object({{"a",1}});Value copied=Core::map_merge(original,Value::object());
+  Core::set(copied,"z",2);Core::set(original,"b",3);Core::set(original,"z",4);
+  if(stringify(Value(Core::iter(original)))!="[\"a\",\"b\",\"z\"]"||stringify(Value(Core::iter(copied)))!="[\"a\",\"z\"]")throw std::runtime_error("Copied map insertion order leaked");
   mcp_http_context_cancellation();
   owned_child_controls();
   owned_flow_failure();
