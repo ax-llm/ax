@@ -13,7 +13,7 @@ import (
 	"context"
 	"fmt"
 	ax "github.com/ax-llm/ax/packages/go"
- axgoja "github.com/ax-llm/ax/packages/go/runtime/goja"
+	axgoja "github.com/ax-llm/ax/packages/go/runtime/goja"
 	"os"
 	"strings"
 	"sync"
@@ -32,7 +32,7 @@ func main() {
 	client := ax.NewAI("openai", ax.Object("api_key", key, "model", "gpt-6-astra", "model_config", ax.Object("thinkingTokenBudget", "low", "max_tokens", 4096)))
 	pending := make(chan struct{})
 	var finished, overlap atomic.Bool
-	var queued sync.Once
+	var queued, pendingOnce sync.Once
 	var applied atomic.Int32
 	control := ax.RunControl()
 	control.OnEvent(func(event map[string]ax.Value) {
@@ -51,7 +51,7 @@ func main() {
 		}
 	})
 	slow := ax.Fn("slow_reference").Execution("background").WithContextHandler(func(ctx context.Context, _ map[string]ax.Value) (ax.Value, error) {
-		close(pending)
+		pendingOnce.Do(func() { close(pending) })
 		select {
 		case <-time.After(6 * time.Second):
 			finished.Store(true)

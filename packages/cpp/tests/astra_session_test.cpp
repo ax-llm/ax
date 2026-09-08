@@ -110,35 +110,35 @@ void native_agent(){
   std::cout<<"cpp native agent tools, authority boundaries, action logs, and duplicate prevention passed\n";
 }
 void cancellation(){
-  auto socket=std::make_shared<SteeringSocket>();socket->pending=true;auto control=run_control();auto settled=std::make_shared<std::atomic<bool>>(false);
+  auto socket=std::make_shared<SteeringSocket>();socket->pending=true;auto control=run_control();auto settled=std::make_shared<std::atomic<bool>>(false);auto interrupted_at=std::make_shared<std::atomic<long long>>(0);
   auto client=ai("openai",object({{"api_key","test"},{"model","gpt-6-astra"}}));dynamic_cast<OpenAICompatibleClient&>(*client).session_web_socket_factory([socket](const std::string&,Value){return socket;});
-  Tool lookup("lookup","Lookup");lookup.execution("background").context_handler([control,settled](Value,const AxToolContext& context){if(context.call_id!="pending-call")throw std::runtime_error("Lost context call ID");control.abort();auto deadline=std::chrono::steady_clock::now()+std::chrono::seconds(2);while(!context.is_cancelled()&&std::chrono::steady_clock::now()<deadline)std::this_thread::sleep_for(std::chrono::milliseconds(1));if(!context.is_cancelled())throw std::runtime_error("Tool missed cancellation");settled->store(true);return Value("LATE");});
-  auto program=ax("question -> answer");program.add_tool(lookup);auto start=std::chrono::steady_clock::now();
+  Tool lookup("lookup","Lookup");lookup.execution("background").context_handler([control,settled,interrupted_at](Value,const AxToolContext& context){if(context.call_id!="pending-call")throw std::runtime_error("Lost context call ID");interrupted_at->store(std::chrono::steady_clock::now().time_since_epoch().count());control.abort();auto deadline=std::chrono::steady_clock::now()+std::chrono::seconds(2);while(!context.is_cancelled()&&std::chrono::steady_clock::now()<deadline)std::this_thread::sleep_for(std::chrono::milliseconds(1));if(!context.is_cancelled())throw std::runtime_error("Tool missed cancellation");settled->store(true);return Value("LATE");});
+  auto program=ax("question -> answer");program.add_tool(lookup);
   try{program.forward(*client,object({{"question","Find answer"}}),object({{"control",control.value()}}));throw std::runtime_error("Cancelled run returned success");}catch(const std::exception& error){if(std::string(error.what()).find("pending-call")==std::string::npos)throw;}
-  if(std::chrono::steady_clock::now()-start>std::chrono::seconds(2))throw std::runtime_error("Cancellation blocked the caller");
+  if(!interrupted_at->load()||std::chrono::steady_clock::now()-std::chrono::steady_clock::time_point(std::chrono::steady_clock::duration(interrupted_at->load()))>std::chrono::seconds(2))throw std::runtime_error("Cancellation blocked the caller");
   auto deadline=std::chrono::steady_clock::now()+std::chrono::seconds(2);while(!settled->load()&&std::chrono::steady_clock::now()<deadline)std::this_thread::sleep_for(std::chrono::milliseconds(1));
   {std::lock_guard<std::mutex> lock(socket->mutex);if(!socket->closed||socket->sent.size()!=1||!settled->load())throw std::runtime_error("Cancellation leaked or replayed work");}
   std::cout<<"cpp cancellation context, pending IDs, and late-result isolation passed\n";
 }
 void disconnect_pending(){
-  auto socket=std::make_shared<SteeringSocket>();socket->pending=true;auto control=run_control();auto settled=std::make_shared<std::atomic<bool>>(false);
+  auto socket=std::make_shared<SteeringSocket>();socket->pending=true;auto control=run_control();auto settled=std::make_shared<std::atomic<bool>>(false);auto interrupted_at=std::make_shared<std::atomic<long long>>(0);
   auto client=ai("openai",object({{"api_key","test"},{"model","gpt-6-astra"}}));dynamic_cast<OpenAICompatibleClient&>(*client).session_web_socket_factory([socket](const std::string&,Value){return socket;});
-  Tool lookup("lookup","Lookup");lookup.execution("background").context_handler([socket,settled](Value,const AxToolContext& context){if(context.call_id!="pending-call")throw std::runtime_error("Lost context call ID");socket->close();auto deadline=std::chrono::steady_clock::now()+std::chrono::seconds(2);while(!context.is_cancelled()&&std::chrono::steady_clock::now()<deadline)std::this_thread::sleep_for(std::chrono::milliseconds(1));if(!context.is_cancelled())throw std::runtime_error("Tool missed cancellation");settled->store(true);return Value("LATE");});
-  auto program=ax("question -> answer");program.add_tool(lookup);auto start=std::chrono::steady_clock::now();
+  Tool lookup("lookup","Lookup");lookup.execution("background").context_handler([socket,settled,interrupted_at](Value,const AxToolContext& context){if(context.call_id!="pending-call")throw std::runtime_error("Lost context call ID");interrupted_at->store(std::chrono::steady_clock::now().time_since_epoch().count());socket->close();auto deadline=std::chrono::steady_clock::now()+std::chrono::seconds(2);while(!context.is_cancelled()&&std::chrono::steady_clock::now()<deadline)std::this_thread::sleep_for(std::chrono::milliseconds(1));if(!context.is_cancelled())throw std::runtime_error("Tool missed cancellation");settled->store(true);return Value("LATE");});
+  auto program=ax("question -> answer");program.add_tool(lookup);
   try{program.forward(*client,object({{"question","Find answer"}}),object({{"control",control.value()}}));throw std::runtime_error("Cancelled run returned success");}catch(const std::exception& error){if(std::string(error.what()).find("pending-call")==std::string::npos)throw;}
-  if(std::chrono::steady_clock::now()-start>std::chrono::seconds(2))throw std::runtime_error("Cancellation blocked the caller");
+  if(!interrupted_at->load()||std::chrono::steady_clock::now()-std::chrono::steady_clock::time_point(std::chrono::steady_clock::duration(interrupted_at->load()))>std::chrono::seconds(2))throw std::runtime_error("Cancellation blocked the caller");
   auto deadline=std::chrono::steady_clock::now()+std::chrono::seconds(2);while(!settled->load()&&std::chrono::steady_clock::now()<deadline)std::this_thread::sleep_for(std::chrono::milliseconds(1));
   {std::lock_guard<std::mutex> lock(socket->mutex);if(!socket->closed||socket->sent.size()!=1||!settled->load())throw std::runtime_error("Cancellation leaked or replayed work");}
   std::cout<<"cpp disconnect preserves pending call IDs and cancels tool work\n";
 }
 void noncooperative_cancellation(){
-  auto socket=std::make_shared<SteeringSocket>();socket->pending=true;auto control=run_control();auto settled=std::make_shared<std::atomic<bool>>(false);
+  auto socket=std::make_shared<SteeringSocket>();socket->pending=true;auto control=run_control();auto settled=std::make_shared<std::atomic<bool>>(false);auto interrupted_at=std::make_shared<std::atomic<long long>>(0);
   auto client=ai("openai",object({{"api_key","test"},{"model","gpt-6-astra"}}));dynamic_cast<OpenAICompatibleClient&>(*client).session_web_socket_factory([socket](const std::string&,Value){return socket;});
   auto release=std::make_shared<std::atomic<bool>>(false);
-  Tool lookup("lookup","Lookup");lookup.execution("background").context_handler([control,settled,release](Value,const AxToolContext& context){if(context.call_id!="pending-call")throw std::runtime_error("Lost context call ID");control.abort();auto deadline=std::chrono::steady_clock::now()+std::chrono::seconds(3);while(!release->load()&&std::chrono::steady_clock::now()<deadline)std::this_thread::sleep_for(std::chrono::milliseconds(1));if(!release->load())throw std::runtime_error("Caller waited for noncooperative work");settled->store(true);return Value("LATE");});
-  auto program=ax("question -> answer");program.add_tool(lookup);auto start=std::chrono::steady_clock::now();
+  Tool lookup("lookup","Lookup");lookup.execution("background").context_handler([control,settled,release,interrupted_at](Value,const AxToolContext& context){if(context.call_id!="pending-call")throw std::runtime_error("Lost context call ID");interrupted_at->store(std::chrono::steady_clock::now().time_since_epoch().count());control.abort();auto deadline=std::chrono::steady_clock::now()+std::chrono::seconds(3);while(!release->load()&&std::chrono::steady_clock::now()<deadline)std::this_thread::sleep_for(std::chrono::milliseconds(1));if(!release->load())throw std::runtime_error("Caller waited for noncooperative work");settled->store(true);return Value("LATE");});
+  auto program=ax("question -> answer");program.add_tool(lookup);
   try{program.forward(*client,object({{"question","Find answer"}}),object({{"control",control.value()}}));throw std::runtime_error("Cancelled run returned success");}catch(const std::exception& error){if(std::string(error.what()).find("pending-call")==std::string::npos)throw;}
-  if(std::chrono::steady_clock::now()-start>std::chrono::seconds(2))throw std::runtime_error("Cancellation blocked the caller");
+  if(!interrupted_at->load()||std::chrono::steady_clock::now()-std::chrono::steady_clock::time_point(std::chrono::steady_clock::duration(interrupted_at->load()))>std::chrono::seconds(2))throw std::runtime_error("Cancellation blocked the caller");
   auto unresolved=program.get_function_call_traces();if(Core::iter(unresolved).size()!=1||display(Core::get(Core::get(unresolved,0),"id"))!="pending-call"||display(Core::get(Core::get(unresolved,0),"status"))!="unresolved")throw std::runtime_error("Unresolved action missing from tool traces");
   if(settled->load())throw std::runtime_error("Caller waited for tool completion");release->store(true);
   auto deadline=std::chrono::steady_clock::now()+std::chrono::seconds(2);while(!settled->load()&&std::chrono::steady_clock::now()<deadline)std::this_thread::sleep_for(std::chrono::milliseconds(1));
@@ -382,7 +382,7 @@ void concurrent_native_mcp(){
 class MCPAgentTransport final:public AxMCPTransport {
  public:
   std::shared_ptr<Gate> gate;Value schema;std::vector<Value> calls;
-  explicit MCPAgentTransport(std::shared_ptr<Gate> gate):gate(gate),schema(parse_json(R"({"type":"object","$defs":{"reference":{"type":"string","minLength":3}},"properties":{"query":{"$ref":"#/$defs/reference"}},"required":["query"],"additionalProperties":false})")){}
+  explicit MCPAgentTransport(std::shared_ptr<Gate> gate):gate(gate),schema(parse_json(R"({"type":"object","$defs":{"reference":{"type":"string","minLength":3,"pattern":"^(?=REF-[0-9]+$)(?<ref>REF)-[0-9]+$"}},"properties":{"query":{"$ref":"#/$defs/reference"}},"required":["query"],"additionalProperties":false})")){}
   void send_notification(Value)override{throw std::runtime_error("Modern discovery initialized");}
   Value send(Value message)override{
     auto method=display(Core::get(message,"method"));Value result;
@@ -481,13 +481,13 @@ static void owned_child_controls(){
 
   const std::vector<std::string> stages{"root/distiller","root/executor","root/team.researcher/distiller","root/team.researcher/executor","root/team.researcher/responder","root/executor","root/responder"};
   for(bool cancel:{false,true}){
-    auto control=run_control();std::vector<Value> observed;auto runtime=std::make_shared<ChildControlRuntime>();
-    control.on_event([&](Value event){observed.push_back(event);if(cancel&&stringify(Core::get(event,"type"))=="\"started\""&&stringify(Core::get(event,"path"))=="\"root/team.researcher/executor\"")control.abort();});
+    auto control=run_control();std::vector<Value> observed;std::mutex observed_mutex;auto runtime=std::make_shared<ChildControlRuntime>();
+    control.on_event([&](Value event){std::lock_guard<std::mutex> lock(observed_mutex);observed.push_back(event);});
     control.steer("ROOT-UPDATE");control.steer("CHILD-ONLY","root/team.researcher");control.set_thinking_token_budget("medium","root/team.researcher/executor");
     class ChildTransport final:public Transport {
      public:
-      std::shared_ptr<ChildControlRuntime> runtime;std::vector<Value> requests;std::vector<std::string> stages;
-      ChildTransport(std::shared_ptr<ChildControlRuntime> r,std::vector<std::string> s):runtime(r),stages(s){}
+      std::shared_ptr<ChildControlRuntime> runtime;std::vector<Value> requests;std::vector<std::string> stages;bool cancel;
+      ChildTransport(std::shared_ptr<ChildControlRuntime> r,std::vector<std::string> s,bool c):runtime(r),stages(s),cancel(c){}
       Value call(Value)override{throw std::runtime_error("Expected session streaming");}
       void stream(Value request,AxTransportStreamHandler handler)override{
         Value body=Core::get(request,"json");size_t number=requests.size();std::string stage=stages.at(number/2);requests.push_back(body);
@@ -504,11 +504,29 @@ static void owned_child_controls(){
         if(stage.rfind("root/team.researcher",0)==0)output=stage=="root/team.researcher/responder"?object({{"answer","REF-42"}}):object({{"completion",object({{"type","final"},{"args",Value(Array{"Find reference",Value::object()})}})}});
         else if(stage=="root/responder")output=object({{"answer","REF-42"}});
         else output=object({{"javascriptCode",stage=="root/executor"&&!runtime->delegated?"delegate":"parent-final"}});
-        Value event=completed("child-r"+std::to_string(number+1),stringify(output));Value response=Core::get(event,"response");Core::set(response,"usage",object({{"input_tokens",2},{"output_tokens",1},{"total_tokens",3}}));Core::set(event,"response",response);handler(event);
+        Value event=completed("child-r"+std::to_string(number+1),stringify(output));Value response=Core::get(event,"response");Core::set(response,"usage",object({{"input_tokens",2},{"output_tokens",1},{"total_tokens",3}}));if(cancel&&number==6)Core::set(response,"output",Value(Array{object({{"type","function_call"},{"name","tools_lookup"},{"call_id","child-mcp"},{"arguments","{}"},{"status","completed"}})}));Core::set(event,"response",response);handler(event);
       }
     };
-    auto transport=std::make_shared<ChildTransport>(runtime,stages);auto client=ai("openai",object({{"api_key","test"},{"model","gpt-6-astra"}}));dynamic_cast<OpenAICompatibleClient&>(*client).shared_transport(transport);
-    auto child=std::make_shared<AxAgent>("question -> answer",object({{"directResponse","off"}}));
+    auto transport=std::make_shared<ChildTransport>(runtime,stages,cancel);auto client=ai("openai",object({{"api_key","test"},{"model","gpt-6-astra"}}));dynamic_cast<OpenAICompatibleClient&>(*client).shared_transport(transport);
+    class ChildMCP final:public AxMCPTransport {
+     public: AxRunControl control;std::atomic<int> calls{0};std::atomic<bool> settled{false};
+      explicit ChildMCP(AxRunControl c):control(c){}
+      void send_notification(Value)override{}
+      Value send(Value message)override{
+        Value result=display(Core::get(message,"method"))=="initialize"?object({{"protocolVersion","2025-11-25"},{"capabilities",object({{"tools",Value::object()}})},{"serverInfo",object({{"name","fixture"},{"version","1"}})}}):object({{"tools",Value(Array{object({{"name","lookup"},{"inputSchema",object({{"type","object"},{"additionalProperties",false}})}})})}});
+        return object({{"jsonrpc","2.0"},{"id",Core::get(message,"id")},{"result",result}});
+      }
+      Value send_with_context(Value message,Value headers,const AxToolContext& context)override{
+        if(display(Core::get(message,"method"))!="tools/call")return AxMCPTransport::send_with_context(message,headers,context);
+        if(display(Core::get(Core::get(message,"params"),"name"))!="lookup")throw std::runtime_error("Wrong delegated tool");
+        ++calls;control.abort();auto deadline=std::chrono::steady_clock::now()+std::chrono::seconds(1);
+        while(!context.is_cancelled()&&std::chrono::steady_clock::now()<deadline)std::this_thread::sleep_for(std::chrono::milliseconds(1));
+        if(!context.is_cancelled())throw std::runtime_error("Child MCP cancellation did not propagate");
+        settled.store(true);throw AxAIServiceAbortedError("Child MCP invocation aborted");
+      }
+    };
+    auto mcp_transport=std::make_shared<ChildMCP>(control);AxMCPClient mcp(mcp_transport,object({{"era","legacy"},{"namespace","inventory"}}));mcp.init();auto native=mcp.native_tools().at(0);native.execution("background");
+    auto child=std::make_shared<AxAgent>("question -> answer",object({{"directResponse","off"},{"functionDiscovery",false}}));if(cancel)child->add_tool_module("tools",std::vector<Tool>{native});
     auto parent=agent("question -> answer",object({{"directResponse","off"},{"runtime",Core::code_runtime_ref(*runtime)}}));parent.add_child_agent("team","researcher",child);
     try{
       Value result=parent.forward(*client,object({{"question","Find reference"}}),object({{"control",control.value()}}));
@@ -516,6 +534,7 @@ static void owned_child_controls(){
       int applied=0;for(auto event:observed)if(stringify(Core::get(event,"type"))=="\"applied\"")++applied;if(applied!=11)throw std::runtime_error("Control duplicated or lost");
       if(stringify(Core::get(Core::get(parent.get_usage(),"children"),"team.researcher"))!=stringify(child->get_usage()))throw std::runtime_error("Child usage lost");
     }catch(const std::exception& error){if(!cancel)throw;std::string message=error.what();if(message.find("abort")==std::string::npos&&message.find("Abort")==std::string::npos)throw;if((transport->requests.size()<6||transport->requests.size()>7)||runtime->closed!=1)throw std::runtime_error("Child cancellation cleanup failed");}
+    if(cancel){auto deadline=std::chrono::steady_clock::now()+std::chrono::seconds(1);while(!mcp_transport->settled.load()&&std::chrono::steady_clock::now()<deadline)std::this_thread::sleep_for(std::chrono::milliseconds(1));if(!mcp_transport->settled.load()||mcp_transport->calls.load()!=1)throw std::runtime_error("Child MCP work leaked or replayed");}
     int calls=0;for(auto item:Core::iter(parent.get_action_log()))if(stringify(Core::get(item,"call_id"))=="\"child-call\""){++calls;if(stringify(Core::get(item,"status"))!=stringify(Value(cancel?"error":"ok")))throw std::runtime_error("Child status lost");}if(calls!=1)throw std::runtime_error("Child action missing or duplicated");
     if(stringify(Core::get(Core::get(parent.get_usage(),"children"),"team.researcher"))!=stringify(child->get_usage()))throw std::runtime_error("Child failure usage lost");
     for(const auto& name:{"team.researcher","llmQuery"}){try{runtime->callbacks.at(name)(object({{"question","Late request"}}));throw std::runtime_error("Late callback executed");}catch(const std::exception& error){if(std::string(error.what()).find("closed run")==std::string::npos)throw;}}
@@ -533,8 +552,12 @@ static void mcp_http_context_cancellation(){
   if(bind(listener,reinterpret_cast<sockaddr*>(&address),sizeof(address))||listen(listener,1))throw std::runtime_error("listen failed");
   socklen_t size=sizeof(address);getsockname(listener,reinterpret_cast<sockaddr*>(&address),&size);
   std::promise<void> started;auto ready=started.get_future();
-  auto server=std::async(std::launch::async,[listener,&started]{
-    int connection=accept(listener,nullptr,nullptr);close(listener);if(connection<0)throw std::runtime_error("accept failed");
+  auto server=std::async(std::launch::async,[listener,&started]()mutable{
+    int connection=-1;bool announced=false;
+    try {
+    fd_set readable;FD_ZERO(&readable);FD_SET(listener,&readable);timeval accept_timeout{3,0};
+    if(select(listener+1,&readable,nullptr,nullptr,&accept_timeout)!=1)throw std::runtime_error("MCP HTTP connection did not arrive");
+    connection=accept(listener,nullptr,nullptr);close(listener);listener=-1;if(connection<0)throw std::runtime_error("accept failed");
     timeval timeout{3,0};setsockopt(connection,SOL_SOCKET,SO_RCVTIMEO,&timeout,sizeof(timeout));
     std::string request;char byte;while(request.find("\r\n\r\n")==std::string::npos){if(recv(connection,&byte,1,0)!=1)throw std::runtime_error("missing headers");request+=byte;}
     auto lower=request;std::transform(lower.begin(),lower.end(),lower.begin(),[](unsigned char c){return std::tolower(c);});
@@ -542,8 +565,9 @@ static void mcp_http_context_cancellation(){
     auto pos=lower.find("content-length:");auto length=std::stoul(lower.substr(pos+15));std::string body(length,' ');
     size_t read=0;while(read<length){auto n=recv(connection,&body[read],length-read,0);if(n<=0)throw std::runtime_error("missing body");read+=n;}
     if(body.find("probe")==std::string::npos)throw std::runtime_error("lost tool arguments");
-    std::string response="HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: 100\r\n\r\n";send(connection,response.data(),response.size(),0);started.set_value();
-    auto n=recv(connection,&byte,1,0);close(connection);if(n!=0)throw std::runtime_error("cancelled HTTP stayed open");
+    std::string response="HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: 100\r\n\r\n";send(connection,response.data(),response.size(),0);started.set_value();announced=true;
+    auto n=recv(connection,&byte,1,0);close(connection);connection=-1;if(n!=0)throw std::runtime_error("cancelled HTTP stayed open");
+    }catch(...){if(connection>=0)close(connection);if(listener>=0)close(listener);if(!announced)started.set_exception(std::current_exception());throw;}
   });
   class NativeTransport final:public AxMCPTransport{
    public: AxMCPStreamableHTTPTransport http;int calls=0;
@@ -562,7 +586,7 @@ static void mcp_http_context_cancellation(){
   auto transport=std::make_shared<NativeTransport>(ntohs(address.sin_port));AxMCPClient client(transport,object({{"namespace","inventory"},{"era","legacy"}}));client.init();auto native=client.native_tools().at(0);
   AxToolContext context{std::make_shared<std::atomic<bool>>(false),"call-1",{}};
   auto worker=std::async(std::launch::async,[&]{try{Core::tool_invoke(native.value(),object({{"query","probe"}}),context);throw std::runtime_error("cancelled tool succeeded");}catch(const AxAIServiceAbortedError&){};});
-  if(ready.wait_for(std::chrono::seconds(3))!=std::future_status::ready)throw std::runtime_error("HTTP did not start");ready.get();context.cancelled->store(true);
+  if(ready.wait_for(std::chrono::seconds(4))!=std::future_status::ready)throw std::runtime_error("HTTP did not start");ready.get();context.cancelled->store(true);
   if(worker.wait_for(std::chrono::seconds(1))!=std::future_status::ready)throw std::runtime_error("MCP cancellation blocked");worker.get();server.get();
   try{Core::tool_invoke(native.value(),object({{"query","never"}}),context);throw std::runtime_error("pre-cancelled tool succeeded");}catch(const AxAIServiceAbortedError&){}
   if(transport->calls!=1)throw std::runtime_error("MCP call replayed");
@@ -572,6 +596,9 @@ static void mcp_http_context_cancellation(){}
 #endif
 
 int main(int argc,char** argv){
+  Value original=object({{"a",1}});Value copied=Core::map_merge(original,Value::object());
+  Core::set(copied,"z",2);Core::set(original,"b",3);Core::set(original,"z",4);
+  if(stringify(Value(Core::iter(original)))!="[\"a\",\"b\",\"z\"]"||stringify(Value(Core::iter(copied)))!="[\"a\",\"z\"]")throw std::runtime_error("Copied map insertion order leaked");
   mcp_http_context_cancellation();
   owned_child_controls();
   owned_flow_failure();

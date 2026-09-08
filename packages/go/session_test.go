@@ -716,7 +716,7 @@ func(t *mcpAgentModelTransport) response(request Value)(Value,io.ReadCloser,erro
 func(t *mcpAgentModelTransport) Call(_ context.Context,request Value)(Value,error){event,reader,err:=t.response(request);if reader!=nil{reader.Close();return nil,fmt.Errorf("Expected incremental transport")};if err!=nil{return nil,err};return coreGet(event,"response",nil),nil}
 func(t *mcpAgentModelTransport) Stream(_ context.Context,request Value)(AxHTTPStreamResponse,error){event,reader,err:=t.response(request);if err!=nil{return AxHTTPStreamResponse{},err};if reader==nil{var text strings.Builder;sessionSSE(&text,event);reader=io.NopCloser(strings.NewReader(text.String()))};return AxHTTPStreamResponse{Status:200,Body:reader},nil}
 func TestNativeMCPAgentDiscoveryAndInvocation(t *testing.T){
-    schema:=parseJSON(`{"type":"object","$defs":{"reference":{"type":"string","minLength":3}},"properties":{"query":{"$ref":"#/$defs/reference"}},"required":["query"],"additionalProperties":false}`)
+    schema:=parseJSON(`{"type":"object","$defs":{"reference":{"type":"string","minLength":3,"pattern":"^(?=REF-[0-9]+$)(?<ref>REF)-[0-9]+$"}},"properties":{"query":{"$ref":"#/$defs/reference"}},"required":["query"],"additionalProperties":false}`)
     transport:=&nativeMCPAgentTransport{AxMCPTransport:NewAxMCPScriptedTransport(nil),schema:schema,started:make(chan struct{}),release:make(chan struct{})}
     var allowed atomic.Bool;var authorizations atomic.Int32;var mcp *AxMCPClient
     authorize:=func(call map[string]Value)(bool,error){if call["client"]!=mcp||call["namespace"]!="orders"||coreGet(coreGet(call,"arguments",nil),"query",nil)!="REF-42"||stableStringify(coreGet(coreGet(call,"tool",nil),"inputSchema",nil))!=stableStringify(schema){return false,fmt.Errorf("Lost MCP authorization context")};authorizations.Add(1);return allowed.Load(),nil}
@@ -743,11 +743,17 @@ func(s *childControlSession)Inspect(map[string]Value)Value{return Object()}
 func(s *childControlSession)SnapshotGlobals(map[string]Value)Value{return Object("globals",Object())}
 func(s *childControlSession)PatchGlobals(v Value,_ map[string]Value)Value{return v}
 func(s *childControlSession)Close()Value{s.runtime.closed++;return Object("closed",true)}
+type childMCPCancellationTransport struct{*AxMCPScriptedTransport;control *AxRunControl;calls atomic.Int32;settled chan struct{}}
+func(t *childMCPCancellationTransport)Send(map[string]Value)(map[string]Value,error){return nil,fmt.Errorf("child dropped MCP invocation context")}
+func(t *childMCPCancellationTransport)SendWithContext(ctx context.Context,m map[string]Value,_ map[string]string)(map[string]Value,error){
+ if m["method"]!="tools/call"||coreGet(m["params"],"name",nil)!="lookup"{return nil,fmt.Errorf("unexpected child MCP method")};t.calls.Add(1);t.control.Abort()
+ select{case <-ctx.Done():close(t.settled);return nil,ctx.Err();case <-time.After(time.Second):return nil,fmt.Errorf("child lost cancellation context")}
+}
 func TestOwnedChildControlsAndCancellation(t *testing.T){
  stages:=[]string{"root/distiller","root/executor","root/team.researcher/distiller","root/team.researcher/executor","root/team.researcher/responder","root/executor","root/responder"}
  for _,cancel:=range []bool{false,true}{
-  control:=RunControl();observed:=[]map[string]Value{};requests:=[]Value{};var requestMu sync.Mutex;runtime:=&childControlRuntime{}
-  control.OnEvent(func(event map[string]Value){observed=append(observed,event);if cancel&&event["type"]=="started"&&event["path"]=="root/team.researcher/executor"{control.Abort()}})
+  control:=RunControl();observed:=[]map[string]Value{};requests:=[]Value{};var requestMu sync.Mutex;var observedMu sync.Mutex;runtime:=&childControlRuntime{}
+  control.OnEvent(func(event map[string]Value){observedMu.Lock();defer observedMu.Unlock();observed=append(observed,event)})
   if err:=control.Steer("ROOT-UPDATE");err!=nil{t.Fatal(err)};if err:=control.Steer("CHILD-ONLY","root/team.researcher");err!=nil{t.Fatal(err)};if err:=control.SetThinkingTokenBudget("medium","root/team.researcher/executor");err!=nil{t.Fatal(err)}
   transport:=&sessionTestTransport{}
   transport.stream=func(ctx context.Context,request Value,n int)(AxHTTPStreamResponse,error){
@@ -763,10 +769,10 @@ func TestOwnedChildControlsAndCancellation(t *testing.T){
    if number==10{raw,_:=json.Marshal(body);if !strings.Contains(string(raw),"REF-42"){return AxHTTPStreamResponse{},fmt.Errorf("parent continued without child result")}}
    var output Value
    if strings.HasPrefix(stage,"root/team.researcher"){if strings.HasSuffix(stage,"/responder"){output=Object("answer","REF-42")}else{output=Object("completion",Object("type","final","args",Array("Find reference",Object())))}}else if stage=="root/responder"{output=Object("answer","REF-42")}else{code:="parent-final";if stage=="root/executor"&&!runtime.delegated{code="delegate"};output=Object("javascriptCode",code)}
-   raw,_:=json.Marshal(output);var data strings.Builder;sessionSSE(&data,sessionCompleted(fmt.Sprintf("child-r%d",n),string(raw)))
+   raw,_:=json.Marshal(output);var data strings.Builder;event:=sessionCompleted(fmt.Sprintf("child-r%d",n),string(raw));if cancel&&number==6{coreSet(coreGet(event,"response",nil),"output",Array(Object("type","function_call","name","tools_lookup","call_id","child-mcp","arguments","{}","status","completed")))};sessionSSE(&data,event)
    return AxHTTPStreamResponse{Status:200,Body:io.NopCloser(strings.NewReader(data.String()))},nil
   }
-  child:=NewAgent("question -> answer",Object("directResponse","off"));parent:=NewAgent("question -> answer",Object("directResponse","off","runtime",runtime)).AddChildAgent("team","researcher",child)
+  mcpTransport:=&childMCPCancellationTransport{AxMCPScriptedTransport:NewAxMCPScriptedTransport(nil),control:control,settled:make(chan struct{})};mcp:=NewAxMCPClient(mcpTransport,Object("namespace","inventory"));mcp.tools=[]map[string]Value{Object("name","lookup","inputSchema",Object("type","object","additionalProperties",false))};childOptions:=Object("directResponse","off");if cancel{childOptions["functionDiscovery"]=false;childOptions["functions"]=Array(mcp.NativeTools()[0].Execution("background"))};child:=NewAgent("question -> answer",childOptions);parent:=NewAgent("question -> answer",Object("directResponse","off","runtime",runtime)).AddChildAgent("team","researcher",child)
   client:=NewAI("openai",Object("model","gpt-6-astra","api_key","test","transport",transport))
   result,err:=parent.Forward(context.Background(),client,Object("question","Find reference"),Object("control",control))
   requestMu.Lock();requestCount:=len(requests);requestMu.Unlock()
@@ -775,6 +781,7 @@ func TestOwnedChildControlsAndCancellation(t *testing.T){
    applied:=0;for _,event:=range observed{if event["type"]=="applied"{applied++}};if applied!=11{t.Fatalf("lost/duplicate controls: %v",observed)}
    usage,_:=json.Marshal(coreGet(coreGet(parent.GetUsage(),"children",nil),"team.researcher",nil));expected,_:=json.Marshal(child.GetUsage());if string(usage)!=string(expected){t.Fatalf("child usage: %s expected %s",usage,expected)}
   }
+  if cancel{select{case <-mcpTransport.settled:case <-time.After(time.Second):t.Fatal("Child MCP cancellation did not settle")};if mcpTransport.calls.Load()!=1{t.Fatal("Child MCP replayed")}}
   count:=0;for _,item:=range asSlice(parent.GetActionLog()){if coreGet(item,"call_id",nil)=="child-call"{count++;expected:="ok";if cancel{expected="error"};if coreGet(item,"status",nil)!=expected{t.Fatalf("child status: %v",item)}}};if count!=1{t.Fatalf("child call count %d",count)}
   childUsage,_:=json.Marshal(coreGet(coreGet(parent.GetUsage(),"children",nil),"team.researcher",nil));actualChildUsage,_:=json.Marshal(child.GetUsage());if string(childUsage)!=string(actualChildUsage){t.Fatalf("Child failure usage lost: parent=%s child=%s",childUsage,actualChildUsage)}
   for _,name:=range []string{"team.researcher","llmQuery"}{if _,lateErr:=runtime.callbacks[name](Object("question","Late request"));lateErr==nil||!strings.Contains(lateErr.Error(),"closed run"){t.Fatalf("late callback %s: %v",name,lateErr)}}

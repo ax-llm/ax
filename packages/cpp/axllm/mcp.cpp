@@ -466,7 +466,7 @@ static std::string ax_mcp_encode_header_value(const std::string& value) {
 
 AxMCPStreamableHTTPTransport::AxMCPStreamableHTTPTransport(std::string endpoint, Value options)
     : endpoint_(ax_mcp_validate_endpoint(endpoint, Core::get(options, "ssrfProtection", Value::object()))),
-      options_(std::move(options)), era_cache_key_(ax_mcp_origin(endpoint_)) {}
+      options_(std::move(options)), headers_(Core::get(options_, "headers", Value::object())), era_cache_key_(ax_mcp_origin(endpoint_)) {}
 
 static std::vector<Value> ax_mcp_parse_sse(const std::string& body) {
   // Extract JSON-RPC messages from the `data:` frames of an SSE body.

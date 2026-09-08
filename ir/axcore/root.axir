@@ -10,6 +10,7 @@ module @ax.root version "0.1" {
   import @ax.tool from "tool.axir"
   import @ax.gen from "gen.axir"
   import @ax.session from "session.axir"
+  import @ax.regex from "regex.axir"
   import @ax.stream from "stream.axir"
   import @ax.provider from "provider.axir"
   import @ax.agent from "agent.axir"

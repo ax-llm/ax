@@ -621,6 +621,10 @@ def _core_gte(left, right): return left >= right
 def _core_add(left, right): return left + right
 def _core_mul(left, right): return float(left or 0) * float(right or 0)
 def _core_div(left, right): return float(left or 0) / float(right or 1)
+def _core_string_utf16_units(value):
+    raw = value.encode("utf-16-le", "surrogatepass")
+    return [raw[index] + 256 * raw[index + 1] for index in range(0, len(raw), 2)]
+
 def _core_string_codepoint_length(value): return len(value)
 
 def _core_math_is_finite(value): return math.isfinite(value)

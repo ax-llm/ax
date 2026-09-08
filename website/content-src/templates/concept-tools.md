@@ -122,3 +122,5 @@ The model sees typed capabilities. Your host code owns credentials, authz, input
 - Trace tool calls, errors, retries, latency, token usage, and final typed outputs together.
 
 See [Signatures]({{langRoot}}/concepts/signatures/), [ax() generation]({{langRoot}}/subsystems/ax/), [agent() agents]({{langRoot}}/subsystems/agent/), and [MCP]({{langRoot}}/concepts/mcp/).
+
+Generated-language model sessions validate completed raw arguments before starting a handler. Their shared validator supports local schema references, unions, nested constraints, and flagless ECMAScript patterns, including lookarounds and named backreferences. Partial or invalid arguments enter correction; they do not execute the tool.

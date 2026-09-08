@@ -19,6 +19,7 @@ import (
 	"os/exec"
 	"reflect"
 	"regexp"
+ "unicode/utf16"
 	"sort"
 	"strconv"
 	"strings"
@@ -1192,6 +1193,8 @@ func _core_div(left Value, right Value) Value {
 	return num(left) / d
 }
 func _core_math_abs(value Value) Value             { return math.Abs(num(value)) }
+func _core_string_utf16_units(value Value) Value { units:=utf16.Encode([]rune(display(value)));out:=[]Value{};for _,unit:=range units{out=append(out,int(unit))};return out }
+
 func _core_string_codepoint_length(value Value) Value { return len([]rune(display(value))) }
 func _core_math_is_finite(value Value) Value { return !math.IsNaN(num(value)) && !math.IsInf(num(value), 0) }
 

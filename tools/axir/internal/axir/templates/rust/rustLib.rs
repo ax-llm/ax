@@ -15435,6 +15435,11 @@ fn core_number_arg(args: &[CoreValue], index: usize) -> Result<f64, AxError> {
     }
 }
 
+fn core_string_utf16_units(args: &[CoreValue]) -> Result<CoreValue, AxError> {
+    let units=core_arg(args,0).text().encode_utf16().map(|unit|CoreValue::Num(unit as f64)).collect();
+    Ok(CoreValue::list_from(units))
+}
+
 fn core_string_codepoint_length(args: &[CoreValue]) -> Result<CoreValue, AxError> {
     Ok(CoreValue::Num(core_arg(args, 0).text().chars().count() as f64))
 }

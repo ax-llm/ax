@@ -345,6 +345,7 @@ var coreIntrinsicCpp = map[CoreIntrinsic]string{
 	IntrinsicDiv:                     "Core::div",
 	IntrinsicMathAbs:                 "Core::math_abs",
 	IntrinsicStringCodepointLength:   "Core::string_codepoint_length",
+	IntrinsicStringUTF16Units:        "Core::string_utf16_units",
 	IntrinsicMathIsFinite:            "Core::math_is_finite",
 	IntrinsicMathFloor:               "Core::math_floor",
 	IntrinsicMathLog:                 "Core::math_log",

@@ -521,7 +521,7 @@ owned_balancer_failure_accounting()
 def native_mcp_agent_discovery():
     from dataclasses import replace
     from axllm import agent
-    schema={'type':'object','$defs':{'reference':{'type':'string','minLength':3}},'properties':{'query':{'$ref':'#/$defs/reference'}},'required':['query'],'additionalProperties':False}
+    schema={'type':'object','$defs':{'reference':{'type':'string','minLength':3,'pattern':'^(?=REF-[0-9]+$)(?<ref>REF)-[0-9]+$'}},'properties':{'query':{'$ref':'#/$defs/reference'}},'required':['query'],'additionalProperties':False}
     started=threading.Event();release=threading.Event();calls=[];requests=[]
     class MCP(AxMCPTransport):
         def send_notification(self,message): raise AssertionError('Modern discovery sent initialize')
@@ -603,13 +603,15 @@ native_mcp_agent_discovery()
 
 def test_owned_child_controls():
     from axllm import agent
+    from dataclasses import replace
+    from axllm.ai import AxAIServiceAbortedError
     from axllm.agent import AxCodeRuntime, AxCodeSession
     stages=['root/distiller','root/executor','root/team.researcher/distiller','root/team.researcher/executor','root/team.researcher/responder','root/executor','root/responder']
     for cancel in (False,True):
-        control=run_control(); observed=[]; requests=[]
+        control=run_control(); observed=[]; requests=[]; mcp_calls=[]; mcp_settled=threading.Event()
         def observe(event):
             observed.append(event)
-            if cancel and event['type']=='started' and event['path']=='root/team.researcher/executor':control.abort()
+
         control.on_event(observe)
         control.steer('ROOT-UPDATE')
         control.steer('CHILD-ONLY',target='root/team.researcher')
@@ -647,8 +649,22 @@ def test_owned_child_controls():
             elif stage=='root/responder':output={'answer':'REF-42'}
             else:output={'javascriptCode':'delegate' if stage=='root/executor' and not runtime.delegated else 'parent-final'}
             response={'id':'child-r'+str(number+1),'model':'gpt-6-astra','usage':{'input_tokens':2,'output_tokens':1,'total_tokens':3},'output':[{'type':'message','id':'message','content':[{'type':'output_text','text':json.dumps(output)}]}]}
+            if cancel and number==6:
+                response['output']=[{'type':'function_call','name':'tools_lookup','call_id':'child-mcp','arguments':'{}','status':'completed'}]
             return {'status':200,'body':'data: '+json.dumps({'type':'response.completed','response':response})+'\n\n'}
-        child=agent('question -> answer',{'directResponse':'off'})
+        class MCP(AxMCPTransport):
+            def send(self,message): raise AssertionError('Child dropped MCP cancellation context')
+            def send_with_context(self,message,headers=None,context=None):
+                assert message['method']=='tools/call' and message['params']['name']=='lookup'
+                mcp_calls.append(message);control.abort()
+                assert context and context['signal'].wait(1),'Child MCP cancellation did not propagate'
+                mcp_settled.set()
+                raise AxAIServiceAbortedError('Child MCP invocation aborted')
+        mcp=AxMCPClient(MCP(),{'namespace':'inventory'})
+        mcp.tools=[{'name':'lookup','inputSchema':{'type':'object','additionalProperties':False}}]
+        child_options={'directResponse':'off'}
+        if cancel:child_options.update({'functionDiscovery':False,'functions':[replace(mcp.native_tools()[0],execution='background')]})
+        child=agent('question -> answer',child_options)
         parent=agent('question -> answer',{'directResponse':'off','runtime':runtime}).add_child_agent('team','researcher',child)
         client=ai('openai',model='gpt-6-astra',api_key='test',transport=transport)
         try:
@@ -665,6 +681,7 @@ def test_owned_child_controls():
             assert 6 <= len(requests) <= 7 and runtime.closed==1,(len(requests),runtime.closed)
             activity=[item for item in parent.state['function_call_traces'] if item.get('call_id')=='child-call']
             assert len(activity)==1 and activity[0]['status']=='error',activity
+        if cancel:assert mcp_settled.wait(1) and len(mcp_calls)==1,'Child MCP work did not settle exactly once'
         assert parent.get_usage()["children"]["team.researcher"]==child.get_usage(),"Child failure usage lost"
         before = len(requests)
         for name in ('team.researcher','llmQuery'):

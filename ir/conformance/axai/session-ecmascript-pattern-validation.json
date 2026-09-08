@@ -1,0 +1,8160 @@
+{
+  "cases": [],
+  "expected_pending": [],
+  "expected_steps": 0,
+  "kind": "ai_session_state",
+  "max_steps": 3,
+  "model": "gpt-6-astra",
+  "name": "session-ecmascript-pattern-validation",
+  "path": "root",
+  "validation_cases": [
+    {
+      "schema": {
+        "pattern": "(?<=a+)b"
+      },
+      "arguments": "",
+      "valid": false
+    },
+    {
+      "schema": {
+        "pattern": "(?<=a+)b"
+      },
+      "arguments": "a",
+      "valid": false
+    },
+    {
+      "schema": {
+        "pattern": "(?<=a+)b"
+      },
+      "arguments": "b",
+      "valid": false
+    },
+    {
+      "schema": {
+        "pattern": "(?<=a+)b"
+      },
+      "arguments": "ab",
+      "valid": true
+    },
+    {
+      "schema": {
+        "pattern": "(?<=a+)b"
+      },
+      "arguments": "aa",
+      "valid": false
+    },
+    {
+      "schema": {
+        "pattern": "(?<=a+)b"
+      },
+      "arguments": "aaa",
+      "valid": false
+    },
+    {
+      "schema": {
+        "pattern": "(?<=a+)b"
+      },
+      "arguments": "aaab",
+      "valid": true
+    },
+    {
+      "schema": {
+        "pattern": "(?<=a+)b"
+      },
+      "arguments": "aabaaa",
+      "valid": true
+    },
+    {
+      "schema": {
+        "pattern": "(?<=a+)b"
+      },
+      "arguments": "abc",
+      "valid": true
+    },
+    {
+      "schema": {
+        "pattern": "(?<=a+)b"
+      },
+      "arguments": "aba",
+      "valid": true
+    },
+    {
+      "schema": {
+        "pattern": "(?<=a+)b"
+      },
+      "arguments": "abab",
+      "valid": true
+    },
+    {
+      "schema": {
+        "pattern": "(?<=a+)b"
+      },
+      "arguments": "ba",
+      "valid": false
+    },
+    {
+      "schema": {
+        "pattern": "(?<=a+)b"
+      },
+      "arguments": "a\n",
+      "valid": false
+    },
+    {
+      "schema": {
+        "pattern": "(?<=a+)b"
+      },
+      "arguments": "😀",
+      "valid": false
+    },
+    {
+      "schema": {
+        "pattern": "(?<=a+)b"
+      },
+      "arguments": "é",
+      "valid": false
+    },
+    {
+      "schema": {
+        "pattern": "(?<=a+)b"
+      },
+      "arguments": "١",
+      "valid": false
+    },
+    {
+      "schema": {
+        "pattern": "(?<=a+)b"
+      },
+      "arguments": " ",
+      "valid": false
+    },
+    {
+      "schema": {
+        "pattern": "(?<=a+)b"
+      },
+      "arguments": " ",
+      "valid": false
+    },
+    {
+      "schema": {
+        "pattern": "(?<=a+)b"
+      },
+      "arguments": "﻿",
+      "valid": false
+    },
+    {
+      "schema": {
+        "pattern": "(?<=a+)b"
+      },
+      "arguments": "S",
+      "valid": false
+    },
+    {
+      "schema": {
+        "pattern": "(?<=a+)b"
+      },
+      "arguments": "u{61}",
+      "valid": false
+    },
+    {
+      "schema": {
+        "pattern": "(?<=a+)b"
+      },
+      "arguments": "u12",
+      "valid": false
+    },
+    {
+      "schema": {
+        "pattern": "(?<=a+)b"
+      },
+      "arguments": "xzz",
+      "valid": false
+    },
+    {
+      "schema": {
+        "pattern": "(?<=a+)b"
+      },
+      "arguments": "8",
+      "valid": false
+    },
+    {
+      "schema": {
+        "pattern": "(?<=a+)b"
+      },
+      "arguments": "\\c_",
+      "valid": false
+    },
+    {
+      "schema": {
+        "pattern": "(?<=a+)b"
+      },
+      "arguments": "\u001f",
+      "valid": false
+    },
+    {
+      "schema": {
+        "pattern": "(?<=a+)b"
+      },
+      "arguments": "baaabac",
+      "valid": true
+    },
+    {
+      "schema": {
+        "pattern": "(?<!a)b"
+      },
+      "arguments": "",
+      "valid": false
+    },
+    {
+      "schema": {
+        "pattern": "(?<!a)b"
+      },
+      "arguments": "a",
+      "valid": false
+    },
+    {
+      "schema": {
+        "pattern": "(?<!a)b"
+      },
+      "arguments": "b",
+      "valid": true
+    },
+    {
+      "schema": {
+        "pattern": "(?<!a)b"
+      },
+      "arguments": "ab",
+      "valid": false
+    },
+    {
+      "schema": {
+        "pattern": "(?<!a)b"
+      },
+      "arguments": "aa",
+      "valid": false
+    },
+    {
+      "schema": {
+        "pattern": "(?<!a)b"
+      },
+      "arguments": "aaa",
+      "valid": false
+    },
+    {
+      "schema": {
+        "pattern": "(?<!a)b"
+      },
+      "arguments": "aaab",
+      "valid": false
+    },
+    {
+      "schema": {
+        "pattern": "(?<!a)b"
+      },
+      "arguments": "aabaaa",
+      "valid": false
+    },
+    {
+      "schema": {
+        "pattern": "(?<!a)b"
+      },
+      "arguments": "abc",
+      "valid": false
+    },
+    {
+      "schema": {
+        "pattern": "(?<!a)b"
+      },
+      "arguments": "aba",
+      "valid": false
+    },
+    {
+      "schema": {
+        "pattern": "(?<!a)b"
+      },
+      "arguments": "abab",
+      "valid": false
+    },
+    {
+      "schema": {
+        "pattern": "(?<!a)b"
+      },
+      "arguments": "ba",
+      "valid": true
+    },
+    {
+      "schema": {
+        "pattern": "(?<!a)b"
+      },
+      "arguments": "a\n",
+      "valid": false
+    },
+    {
+      "schema": {
+        "pattern": "(?<!a)b"
+      },
+      "arguments": "😀",
+      "valid": false
+    },
+    {
+      "schema": {
+        "pattern": "(?<!a)b"
+      },
+      "arguments": "é",
+      "valid": false
+    },
+    {
+      "schema": {
+        "pattern": "(?<!a)b"
+      },
+      "arguments": "١",
+      "valid": false
+    },
+    {
+      "schema": {
+        "pattern": "(?<!a)b"
+      },
+      "arguments": " ",
+      "valid": false
+    },
+    {
+      "schema": {
+        "pattern": "(?<!a)b"
+      },
+      "arguments": " ",
+      "valid": false
+    },
+    {
+      "schema": {
+        "pattern": "(?<!a)b"
+      },
+      "arguments": "﻿",
+      "valid": false
+    },
+    {
+      "schema": {
+        "pattern": "(?<!a)b"
+      },
+      "arguments": "S",
+      "valid": false
+    },
+    {
+      "schema": {
+        "pattern": "(?<!a)b"
+      },
+      "arguments": "u{61}",
+      "valid": false
+    },
+    {
+      "schema": {
+        "pattern": "(?<!a)b"
+      },
+      "arguments": "u12",
+      "valid": false
+    },
+    {
+      "schema": {
+        "pattern": "(?<!a)b"
+      },
+      "arguments": "xzz",
+      "valid": false
+    },
+    {
+      "schema": {
+        "pattern": "(?<!a)b"
+      },
+      "arguments": "8",
+      "valid": false
+    },
+    {
+      "schema": {
+        "pattern": "(?<!a)b"
+      },
+      "arguments": "\\c_",
+      "valid": false
+    },
+    {
+      "schema": {
+        "pattern": "(?<!a)b"
+      },
+      "arguments": "\u001f",
+      "valid": false
+    },
+    {
+      "schema": {
+        "pattern": "(?<!a)b"
+      },
+      "arguments": "baaabac",
+      "valid": true
+    },
+    {
+      "schema": {
+        "pattern": "(a|b)\\1"
+      },
+      "arguments": "",
+      "valid": false
+    },
+    {
+      "schema": {
+        "pattern": "(a|b)\\1"
+      },
+      "arguments": "a",
+      "valid": false
+    },
+    {
+      "schema": {
+        "pattern": "(a|b)\\1"
+      },
+      "arguments": "b",
+      "valid": false
+    },
+    {
+      "schema": {
+        "pattern": "(a|b)\\1"
+      },
+      "arguments": "ab",
+      "valid": false
+    },
+    {
+      "schema": {
+        "pattern": "(a|b)\\1"
+      },
+      "arguments": "aa",
+      "valid": true
+    },
+    {
+      "schema": {
+        "pattern": "(a|b)\\1"
+      },
+      "arguments": "aaa",
+      "valid": true
+    },
+    {
+      "schema": {
+        "pattern": "(a|b)\\1"
+      },
+      "arguments": "aaab",
+      "valid": true
+    },
+    {
+      "schema": {
+        "pattern": "(a|b)\\1"
+      },
+      "arguments": "aabaaa",
+      "valid": true
+    },
+    {
+      "schema": {
+        "pattern": "(a|b)\\1"
+      },
+      "arguments": "abc",
+      "valid": false
+    },
+    {
+      "schema": {
+        "pattern": "(a|b)\\1"
+      },
+      "arguments": "aba",
+      "valid": false
+    },
+    {
+      "schema": {
+        "pattern": "(a|b)\\1"
+      },
+      "arguments": "abab",
+      "valid": false
+    },
+    {
+      "schema": {
+        "pattern": "(a|b)\\1"
+      },
+      "arguments": "ba",
+      "valid": false
+    },
+    {
+      "schema": {
+        "pattern": "(a|b)\\1"
+      },
+      "arguments": "a\n",
+      "valid": false
+    },
+    {
+      "schema": {
+        "pattern": "(a|b)\\1"
+      },
+      "arguments": "😀",
+      "valid": false
+    },
+    {
+      "schema": {
+        "pattern": "(a|b)\\1"
+      },
+      "arguments": "é",
+      "valid": false
+    },
+    {
+      "schema": {
+        "pattern": "(a|b)\\1"
+      },
+      "arguments": "١",
+      "valid": false
+    },
+    {
+      "schema": {
+        "pattern": "(a|b)\\1"
+      },
+      "arguments": " ",
+      "valid": false
+    },
+    {
+      "schema": {
+        "pattern": "(a|b)\\1"
+      },
+      "arguments": " ",
+      "valid": false
+    },
+    {
+      "schema": {
+        "pattern": "(a|b)\\1"
+      },
+      "arguments": "﻿",
+      "valid": false
+    },
+    {
+      "schema": {
+        "pattern": "(a|b)\\1"
+      },
+      "arguments": "S",
+      "valid": false
+    },
+    {
+      "schema": {
+        "pattern": "(a|b)\\1"
+      },
+      "arguments": "u{61}",
+      "valid": false
+    },
+    {
+      "schema": {
+        "pattern": "(a|b)\\1"
+      },
+      "arguments": "u12",
+      "valid": false
+    },
+    {
+      "schema": {
+        "pattern": "(a|b)\\1"
+      },
+      "arguments": "xzz",
+      "valid": false
+    },
+    {
+      "schema": {
+        "pattern": "(a|b)\\1"
+      },
+      "arguments": "8",
+      "valid": false
+    },
+    {
+      "schema": {
+        "pattern": "(a|b)\\1"
+      },
+      "arguments": "\\c_",
+      "valid": false
+    },
+    {
+      "schema": {
+        "pattern": "(a|b)\\1"
+      },
+      "arguments": "\u001f",
+      "valid": false
+    },
+    {
+      "schema": {
+        "pattern": "(a|b)\\1"
+      },
+      "arguments": "baaabac",
+      "valid": true
+    },
+    {
+      "schema": {
+        "pattern": "(?<x>a+)b\\k<x>"
+      },
+      "arguments": "",
+      "valid": false
+    },
+    {
+      "schema": {
+        "pattern": "(?<x>a+)b\\k<x>"
+      },
+      "arguments": "a",
+      "valid": false
+    },
+    {
+      "schema": {
+        "pattern": "(?<x>a+)b\\k<x>"
+      },
+      "arguments": "b",
+      "valid": false
+    },
+    {
+      "schema": {
+        "pattern": "(?<x>a+)b\\k<x>"
+      },
+      "arguments": "ab",
+      "valid": false
+    },
+    {
+      "schema": {
+        "pattern": "(?<x>a+)b\\k<x>"
+      },
+      "arguments": "aa",
+      "valid": false
+    },
+    {
+      "schema": {
+        "pattern": "(?<x>a+)b\\k<x>"
+      },
+      "arguments": "aaa",
+      "valid": false
+    },
+    {
+      "schema": {
+        "pattern": "(?<x>a+)b\\k<x>"
+      },
+      "arguments": "aaab",
+      "valid": false
+    },
+    {
+      "schema": {
+        "pattern": "(?<x>a+)b\\k<x>"
+      },
+      "arguments": "aabaaa",
+      "valid": true
+    },
+    {
+      "schema": {
+        "pattern": "(?<x>a+)b\\k<x>"
+      },
+      "arguments": "abc",
+      "valid": false
+    },
+    {
+      "schema": {
+        "pattern": "(?<x>a+)b\\k<x>"
+      },
+      "arguments": "aba",
+      "valid": true
+    },
+    {
+      "schema": {
+        "pattern": "(?<x>a+)b\\k<x>"
+      },
+      "arguments": "abab",
+      "valid": true
+    },
+    {
+      "schema": {
+        "pattern": "(?<x>a+)b\\k<x>"
+      },
+      "arguments": "ba",
+      "valid": false
+    },
+    {
+      "schema": {
+        "pattern": "(?<x>a+)b\\k<x>"
+      },
+      "arguments": "a\n",
+      "valid": false
+    },
+    {
+      "schema": {
+        "pattern": "(?<x>a+)b\\k<x>"
+      },
+      "arguments": "😀",
+      "valid": false
+    },
+    {
+      "schema": {
+        "pattern": "(?<x>a+)b\\k<x>"
+      },
+      "arguments": "é",
+      "valid": false
+    },
+    {
+      "schema": {
+        "pattern": "(?<x>a+)b\\k<x>"
+      },
+      "arguments": "١",
+      "valid": false
+    },
+    {
+      "schema": {
+        "pattern": "(?<x>a+)b\\k<x>"
+      },
+      "arguments": " ",
+      "valid": false
+    },
+    {
+      "schema": {
+        "pattern": "(?<x>a+)b\\k<x>"
+      },
+      "arguments": " ",
+      "valid": false
+    },
+    {
+      "schema": {
+        "pattern": "(?<x>a+)b\\k<x>"
+      },
+      "arguments": "﻿",
+      "valid": false
+    },
+    {
+      "schema": {
+        "pattern": "(?<x>a+)b\\k<x>"
+      },
+      "arguments": "S",
+      "valid": false
+    },
+    {
+      "schema": {
+        "pattern": "(?<x>a+)b\\k<x>"
+      },
+      "arguments": "u{61}",
+      "valid": false
+    },
+    {
+      "schema": {
+        "pattern": "(?<x>a+)b\\k<x>"
+      },
+      "arguments": "u12",
+      "valid": false
+    },
+    {
+      "schema": {
+        "pattern": "(?<x>a+)b\\k<x>"
+      },
+      "arguments": "xzz",
+      "valid": false
+    },
+    {
+      "schema": {
+        "pattern": "(?<x>a+)b\\k<x>"
+      },
+      "arguments": "8",
+      "valid": false
+    },
+    {
+      "schema": {
+        "pattern": "(?<x>a+)b\\k<x>"
+      },
+      "arguments": "\\c_",
+      "valid": false
+    },
+    {
+      "schema": {
+        "pattern": "(?<x>a+)b\\k<x>"
+      },
+      "arguments": "\u001f",
+      "valid": false
+    },
+    {
+      "schema": {
+        "pattern": "(?<x>a+)b\\k<x>"
+      },
+      "arguments": "baaabac",
+      "valid": true
+    },
+    {
+      "schema": {
+        "pattern": "\\1(a)"
+      },
+      "arguments": "",
+      "valid": false
+    },
+    {
+      "schema": {
+        "pattern": "\\1(a)"
+      },
+      "arguments": "a",
+      "valid": true
+    },
+    {
+      "schema": {
+        "pattern": "\\1(a)"
+      },
+      "arguments": "b",
+      "valid": false
+    },
+    {
+      "schema": {
+        "pattern": "\\1(a)"
+      },
+      "arguments": "ab",
+      "valid": true
+    },
+    {
+      "schema": {
+        "pattern": "\\1(a)"
+      },
+      "arguments": "aa",
+      "valid": true
+    },
+    {
+      "schema": {
+        "pattern": "\\1(a)"
+      },
+      "arguments": "aaa",
+      "valid": true
+    },
+    {
+      "schema": {
+        "pattern": "\\1(a)"
+      },
+      "arguments": "aaab",
+      "valid": true
+    },
+    {
+      "schema": {
+        "pattern": "\\1(a)"
+      },
+      "arguments": "aabaaa",
+      "valid": true
+    },
+    {
+      "schema": {
+        "pattern": "\\1(a)"
+      },
+      "arguments": "abc",
+      "valid": true
+    },
+    {
+      "schema": {
+        "pattern": "\\1(a)"
+      },
+      "arguments": "aba",
+      "valid": true
+    },
+    {
+      "schema": {
+        "pattern": "\\1(a)"
+      },
+      "arguments": "abab",
+      "valid": true
+    },
+    {
+      "schema": {
+        "pattern": "\\1(a)"
+      },
+      "arguments": "ba",
+      "valid": true
+    },
+    {
+      "schema": {
+        "pattern": "\\1(a)"
+      },
+      "arguments": "a\n",
+      "valid": true
+    },
+    {
+      "schema": {
+        "pattern": "\\1(a)"
+      },
+      "arguments": "😀",
+      "valid": false
+    },
+    {
+      "schema": {
+        "pattern": "\\1(a)"
+      },
+      "arguments": "é",
+      "valid": false
+    },
+    {
+      "schema": {
+        "pattern": "\\1(a)"
+      },
+      "arguments": "١",
+      "valid": false
+    },
+    {
+      "schema": {
+        "pattern": "\\1(a)"
+      },
+      "arguments": " ",
+      "valid": false
+    },
+    {
+      "schema": {
+        "pattern": "\\1(a)"
+      },
+      "arguments": " ",
+      "valid": false
+    },
+    {
+      "schema": {
+        "pattern": "\\1(a)"
+      },
+      "arguments": "﻿",
+      "valid": false
+    },
+    {
+      "schema": {
+        "pattern": "\\1(a)"
+      },
+      "arguments": "S",
+      "valid": false
+    },
+    {
+      "schema": {
+        "pattern": "\\1(a)"
+      },
+      "arguments": "u{61}",
+      "valid": false
+    },
+    {
+      "schema": {
+        "pattern": "\\1(a)"
+      },
+      "arguments": "u12",
+      "valid": false
+    },
+    {
+      "schema": {
+        "pattern": "\\1(a)"
+      },
+      "arguments": "xzz",
+      "valid": false
+    },
+    {
+      "schema": {
+        "pattern": "\\1(a)"
+      },
+      "arguments": "8",
+      "valid": false
+    },
+    {
+      "schema": {
+        "pattern": "\\1(a)"
+      },
+      "arguments": "\\c_",
+      "valid": false
+    },
+    {
+      "schema": {
+        "pattern": "\\1(a)"
+      },
+      "arguments": "\u001f",
+      "valid": false
+    },
+    {
+      "schema": {
+        "pattern": "\\1(a)"
+      },
+      "arguments": "baaabac",
+      "valid": true
+    },
+    {
+      "schema": {
+        "pattern": "(a)?b\\1"
+      },
+      "arguments": "",
+      "valid": false
+    },
+    {
+      "schema": {
+        "pattern": "(a)?b\\1"
+      },
+      "arguments": "a",
+      "valid": false
+    },
+    {
+      "schema": {
+        "pattern": "(a)?b\\1"
+      },
+      "arguments": "b",
+      "valid": true
+    },
+    {
+      "schema": {
+        "pattern": "(a)?b\\1"
+      },
+      "arguments": "ab",
+      "valid": true
+    },
+    {
+      "schema": {
+        "pattern": "(a)?b\\1"
+      },
+      "arguments": "aa",
+      "valid": false
+    },
+    {
+      "schema": {
+        "pattern": "(a)?b\\1"
+      },
+      "arguments": "aaa",
+      "valid": false
+    },
+    {
+      "schema": {
+        "pattern": "(a)?b\\1"
+      },
+      "arguments": "aaab",
+      "valid": true
+    },
+    {
+      "schema": {
+        "pattern": "(a)?b\\1"
+      },
+      "arguments": "aabaaa",
+      "valid": true
+    },
+    {
+      "schema": {
+        "pattern": "(a)?b\\1"
+      },
+      "arguments": "abc",
+      "valid": true
+    },
+    {
+      "schema": {
+        "pattern": "(a)?b\\1"
+      },
+      "arguments": "aba",
+      "valid": true
+    },
+    {
+      "schema": {
+        "pattern": "(a)?b\\1"
+      },
+      "arguments": "abab",
+      "valid": true
+    },
+    {
+      "schema": {
+        "pattern": "(a)?b\\1"
+      },
+      "arguments": "ba",
+      "valid": true
+    },
+    {
+      "schema": {
+        "pattern": "(a)?b\\1"
+      },
+      "arguments": "a\n",
+      "valid": false
+    },
+    {
+      "schema": {
+        "pattern": "(a)?b\\1"
+      },
+      "arguments": "😀",
+      "valid": false
+    },
+    {
+      "schema": {
+        "pattern": "(a)?b\\1"
+      },
+      "arguments": "é",
+      "valid": false
+    },
+    {
+      "schema": {
+        "pattern": "(a)?b\\1"
+      },
+      "arguments": "١",
+      "valid": false
+    },
+    {
+      "schema": {
+        "pattern": "(a)?b\\1"
+      },
+      "arguments": " ",
+      "valid": false
+    },
+    {
+      "schema": {
+        "pattern": "(a)?b\\1"
+      },
+      "arguments": " ",
+      "valid": false
+    },
+    {
+      "schema": {
+        "pattern": "(a)?b\\1"
+      },
+      "arguments": "﻿",
+      "valid": false
+    },
+    {
+      "schema": {
+        "pattern": "(a)?b\\1"
+      },
+      "arguments": "S",
+      "valid": false
+    },
+    {
+      "schema": {
+        "pattern": "(a)?b\\1"
+      },
+      "arguments": "u{61}",
+      "valid": false
+    },
+    {
+      "schema": {
+        "pattern": "(a)?b\\1"
+      },
+      "arguments": "u12",
+      "valid": false
+    },
+    {
+      "schema": {
+        "pattern": "(a)?b\\1"
+      },
+      "arguments": "xzz",
+      "valid": false
+    },
+    {
+      "schema": {
+        "pattern": "(a)?b\\1"
+      },
+      "arguments": "8",
+      "valid": false
+    },
+    {
+      "schema": {
+        "pattern": "(a)?b\\1"
+      },
+      "arguments": "\\c_",
+      "valid": false
+    },
+    {
+      "schema": {
+        "pattern": "(a)?b\\1"
+      },
+      "arguments": "\u001f",
+      "valid": false
+    },
+    {
+      "schema": {
+        "pattern": "(a)?b\\1"
+      },
+      "arguments": "baaabac",
+      "valid": true
+    },
+    {
+      "schema": {
+        "pattern": "(a|(b))+\\2"
+      },
+      "arguments": "",
+      "valid": false
+    },
+    {
+      "schema": {
+        "pattern": "(a|(b))+\\2"
+      },
+      "arguments": "a",
+      "valid": true
+    },
+    {
+      "schema": {
+        "pattern": "(a|(b))+\\2"
+      },
+      "arguments": "b",
+      "valid": false
+    },
+    {
+      "schema": {
+        "pattern": "(a|(b))+\\2"
+      },
+      "arguments": "ab",
+      "valid": true
+    },
+    {
+      "schema": {
+        "pattern": "(a|(b))+\\2"
+      },
+      "arguments": "aa",
+      "valid": true
+    },
+    {
+      "schema": {
+        "pattern": "(a|(b))+\\2"
+      },
+      "arguments": "aaa",
+      "valid": true
+    },
+    {
+      "schema": {
+        "pattern": "(a|(b))+\\2"
+      },
+      "arguments": "aaab",
+      "valid": true
+    },
+    {
+      "schema": {
+        "pattern": "(a|(b))+\\2"
+      },
+      "arguments": "aabaaa",
+      "valid": true
+    },
+    {
+      "schema": {
+        "pattern": "(a|(b))+\\2"
+      },
+      "arguments": "abc",
+      "valid": true
+    },
+    {
+      "schema": {
+        "pattern": "(a|(b))+\\2"
+      },
+      "arguments": "aba",
+      "valid": true
+    },
+    {
+      "schema": {
+        "pattern": "(a|(b))+\\2"
+      },
+      "arguments": "abab",
+      "valid": true
+    },
+    {
+      "schema": {
+        "pattern": "(a|(b))+\\2"
+      },
+      "arguments": "ba",
+      "valid": true
+    },
+    {
+      "schema": {
+        "pattern": "(a|(b))+\\2"
+      },
+      "arguments": "a\n",
+      "valid": true
+    },
+    {
+      "schema": {
+        "pattern": "(a|(b))+\\2"
+      },
+      "arguments": "😀",
+      "valid": false
+    },
+    {
+      "schema": {
+        "pattern": "(a|(b))+\\2"
+      },
+      "arguments": "é",
+      "valid": false
+    },
+    {
+      "schema": {
+        "pattern": "(a|(b))+\\2"
+      },
+      "arguments": "١",
+      "valid": false
+    },
+    {
+      "schema": {
+        "pattern": "(a|(b))+\\2"
+      },
+      "arguments": " ",
+      "valid": false
+    },
+    {
+      "schema": {
+        "pattern": "(a|(b))+\\2"
+      },
+      "arguments": " ",
+      "valid": false
+    },
+    {
+      "schema": {
+        "pattern": "(a|(b))+\\2"
+      },
+      "arguments": "﻿",
+      "valid": false
+    },
+    {
+      "schema": {
+        "pattern": "(a|(b))+\\2"
+      },
+      "arguments": "S",
+      "valid": false
+    },
+    {
+      "schema": {
+        "pattern": "(a|(b))+\\2"
+      },
+      "arguments": "u{61}",
+      "valid": false
+    },
+    {
+      "schema": {
+        "pattern": "(a|(b))+\\2"
+      },
+      "arguments": "u12",
+      "valid": false
+    },
+    {
+      "schema": {
+        "pattern": "(a|(b))+\\2"
+      },
+      "arguments": "xzz",
+      "valid": false
+    },
+    {
+      "schema": {
+        "pattern": "(a|(b))+\\2"
+      },
+      "arguments": "8",
+      "valid": false
+    },
+    {
+      "schema": {
+        "pattern": "(a|(b))+\\2"
+      },
+      "arguments": "\\c_",
+      "valid": false
+    },
+    {
+      "schema": {
+        "pattern": "(a|(b))+\\2"
+      },
+      "arguments": "\u001f",
+      "valid": false
+    },
+    {
+      "schema": {
+        "pattern": "(a|(b))+\\2"
+      },
+      "arguments": "baaabac",
+      "valid": true
+    },
+    {
+      "schema": {
+        "pattern": "(?=(a+))a*b\\1"
+      },
+      "arguments": "",
+      "valid": false
+    },
+    {
+      "schema": {
+        "pattern": "(?=(a+))a*b\\1"
+      },
+      "arguments": "a",
+      "valid": false
+    },
+    {
+      "schema": {
+        "pattern": "(?=(a+))a*b\\1"
+      },
+      "arguments": "b",
+      "valid": false
+    },
+    {
+      "schema": {
+        "pattern": "(?=(a+))a*b\\1"
+      },
+      "arguments": "ab",
+      "valid": false
+    },
+    {
+      "schema": {
+        "pattern": "(?=(a+))a*b\\1"
+      },
+      "arguments": "aa",
+      "valid": false
+    },
+    {
+      "schema": {
+        "pattern": "(?=(a+))a*b\\1"
+      },
+      "arguments": "aaa",
+      "valid": false
+    },
+    {
+      "schema": {
+        "pattern": "(?=(a+))a*b\\1"
+      },
+      "arguments": "aaab",
+      "valid": false
+    },
+    {
+      "schema": {
+        "pattern": "(?=(a+))a*b\\1"
+      },
+      "arguments": "aabaaa",
+      "valid": true
+    },
+    {
+      "schema": {
+        "pattern": "(?=(a+))a*b\\1"
+      },
+      "arguments": "abc",
+      "valid": false
+    },
+    {
+      "schema": {
+        "pattern": "(?=(a+))a*b\\1"
+      },
+      "arguments": "aba",
+      "valid": true
+    },
+    {
+      "schema": {
+        "pattern": "(?=(a+))a*b\\1"
+      },
+      "arguments": "abab",
+      "valid": true
+    },
+    {
+      "schema": {
+        "pattern": "(?=(a+))a*b\\1"
+      },
+      "arguments": "ba",
+      "valid": false
+    },
+    {
+      "schema": {
+        "pattern": "(?=(a+))a*b\\1"
+      },
+      "arguments": "a\n",
+      "valid": false
+    },
+    {
+      "schema": {
+        "pattern": "(?=(a+))a*b\\1"
+      },
+      "arguments": "😀",
+      "valid": false
+    },
+    {
+      "schema": {
+        "pattern": "(?=(a+))a*b\\1"
+      },
+      "arguments": "é",
+      "valid": false
+    },
+    {
+      "schema": {
+        "pattern": "(?=(a+))a*b\\1"
+      },
+      "arguments": "١",
+      "valid": false
+    },
+    {
+      "schema": {
+        "pattern": "(?=(a+))a*b\\1"
+      },
+      "arguments": " ",
+      "valid": false
+    },
+    {
+      "schema": {
+        "pattern": "(?=(a+))a*b\\1"
+      },
+      "arguments": " ",
+      "valid": false
+    },
+    {
+      "schema": {
+        "pattern": "(?=(a+))a*b\\1"
+      },
+      "arguments": "﻿",
+      "valid": false
+    },
+    {
+      "schema": {
+        "pattern": "(?=(a+))a*b\\1"
+      },
+      "arguments": "S",
+      "valid": false
+    },
+    {
+      "schema": {
+        "pattern": "(?=(a+))a*b\\1"
+      },
+      "arguments": "u{61}",
+      "valid": false
+    },
+    {
+      "schema": {
+        "pattern": "(?=(a+))a*b\\1"
+      },
+      "arguments": "u12",
+      "valid": false
+    },
+    {
+      "schema": {
+        "pattern": "(?=(a+))a*b\\1"
+      },
+      "arguments": "xzz",
+      "valid": false
+    },
+    {
+      "schema": {
+        "pattern": "(?=(a+))a*b\\1"
+      },
+      "arguments": "8",
+      "valid": false
+    },
+    {
+      "schema": {
+        "pattern": "(?=(a+))a*b\\1"
+      },
+      "arguments": "\\c_",
+      "valid": false
+    },
+    {
+      "schema": {
+        "pattern": "(?=(a+))a*b\\1"
+      },
+      "arguments": "\u001f",
+      "valid": false
+    },
+    {
+      "schema": {
+        "pattern": "(?=(a+))a*b\\1"
+      },
+      "arguments": "baaabac",
+      "valid": true
+    },
+    {
+      "schema": {
+        "pattern": "(?<=([ab]+)([bc]+))$"
+      },
+      "arguments": "",
+      "valid": false
+    },
+    {
+      "schema": {
+        "pattern": "(?<=([ab]+)([bc]+))$"
+      },
+      "arguments": "a",
+      "valid": false
+    },
+    {
+      "schema": {
+        "pattern": "(?<=([ab]+)([bc]+))$"
+      },
+      "arguments": "b",
+      "valid": false
+    },
+    {
+      "schema": {
+        "pattern": "(?<=([ab]+)([bc]+))$"
+      },
+      "arguments": "ab",
+      "valid": true
+    },
+    {
+      "schema": {
+        "pattern": "(?<=([ab]+)([bc]+))$"
+      },
+      "arguments": "aa",
+      "valid": false
+    },
+    {
+      "schema": {
+        "pattern": "(?<=([ab]+)([bc]+))$"
+      },
+      "arguments": "aaa",
+      "valid": false
+    },
+    {
+      "schema": {
+        "pattern": "(?<=([ab]+)([bc]+))$"
+      },
+      "arguments": "aaab",
+      "valid": true
+    },
+    {
+      "schema": {
+        "pattern": "(?<=([ab]+)([bc]+))$"
+      },
+      "arguments": "aabaaa",
+      "valid": false
+    },
+    {
+      "schema": {
+        "pattern": "(?<=([ab]+)([bc]+))$"
+      },
+      "arguments": "abc",
+      "valid": true
+    },
+    {
+      "schema": {
+        "pattern": "(?<=([ab]+)([bc]+))$"
+      },
+      "arguments": "aba",
+      "valid": false
+    },
+    {
+      "schema": {
+        "pattern": "(?<=([ab]+)([bc]+))$"
+      },
+      "arguments": "abab",
+      "valid": true
+    },
+    {
+      "schema": {
+        "pattern": "(?<=([ab]+)([bc]+))$"
+      },
+      "arguments": "ba",
+      "valid": false
+    },
+    {
+      "schema": {
+        "pattern": "(?<=([ab]+)([bc]+))$"
+      },
+      "arguments": "a\n",
+      "valid": false
+    },
+    {
+      "schema": {
+        "pattern": "(?<=([ab]+)([bc]+))$"
+      },
+      "arguments": "😀",
+      "valid": false
+    },
+    {
+      "schema": {
+        "pattern": "(?<=([ab]+)([bc]+))$"
+      },
+      "arguments": "é",
+      "valid": false
+    },
+    {
+      "schema": {
+        "pattern": "(?<=([ab]+)([bc]+))$"
+      },
+      "arguments": "١",
+      "valid": false
+    },
+    {
+      "schema": {
+        "pattern": "(?<=([ab]+)([bc]+))$"
+      },
+      "arguments": " ",
+      "valid": false
+    },
+    {
+      "schema": {
+        "pattern": "(?<=([ab]+)([bc]+))$"
+      },
+      "arguments": " ",
+      "valid": false
+    },
+    {
+      "schema": {
+        "pattern": "(?<=([ab]+)([bc]+))$"
+      },
+      "arguments": "﻿",
+      "valid": false
+    },
+    {
+      "schema": {
+        "pattern": "(?<=([ab]+)([bc]+))$"
+      },
+      "arguments": "S",
+      "valid": false
+    },
+    {
+      "schema": {
+        "pattern": "(?<=([ab]+)([bc]+))$"
+      },
+      "arguments": "u{61}",
+      "valid": false
+    },
+    {
+      "schema": {
+        "pattern": "(?<=([ab]+)([bc]+))$"
+      },
+      "arguments": "u12",
+      "valid": false
+    },
+    {
+      "schema": {
+        "pattern": "(?<=([ab]+)([bc]+))$"
+      },
+      "arguments": "xzz",
+      "valid": false
+    },
+    {
+      "schema": {
+        "pattern": "(?<=([ab]+)([bc]+))$"
+      },
+      "arguments": "8",
+      "valid": false
+    },
+    {
+      "schema": {
+        "pattern": "(?<=([ab]+)([bc]+))$"
+      },
+      "arguments": "\\c_",
+      "valid": false
+    },
+    {
+      "schema": {
+        "pattern": "(?<=([ab]+)([bc]+))$"
+      },
+      "arguments": "\u001f",
+      "valid": false
+    },
+    {
+      "schema": {
+        "pattern": "(?<=([ab]+)([bc]+))$"
+      },
+      "arguments": "baaabac",
+      "valid": true
+    },
+    {
+      "schema": {
+        "pattern": "^.$"
+      },
+      "arguments": "",
+      "valid": false
+    },
+    {
+      "schema": {
+        "pattern": "^.$"
+      },
+      "arguments": "a",
+      "valid": true
+    },
+    {
+      "schema": {
+        "pattern": "^.$"
+      },
+      "arguments": "b",
+      "valid": true
+    },
+    {
+      "schema": {
+        "pattern": "^.$"
+      },
+      "arguments": "ab",
+      "valid": false
+    },
+    {
+      "schema": {
+        "pattern": "^.$"
+      },
+      "arguments": "aa",
+      "valid": false
+    },
+    {
+      "schema": {
+        "pattern": "^.$"
+      },
+      "arguments": "aaa",
+      "valid": false
+    },
+    {
+      "schema": {
+        "pattern": "^.$"
+      },
+      "arguments": "aaab",
+      "valid": false
+    },
+    {
+      "schema": {
+        "pattern": "^.$"
+      },
+      "arguments": "aabaaa",
+      "valid": false
+    },
+    {
+      "schema": {
+        "pattern": "^.$"
+      },
+      "arguments": "abc",
+      "valid": false
+    },
+    {
+      "schema": {
+        "pattern": "^.$"
+      },
+      "arguments": "aba",
+      "valid": false
+    },
+    {
+      "schema": {
+        "pattern": "^.$"
+      },
+      "arguments": "abab",
+      "valid": false
+    },
+    {
+      "schema": {
+        "pattern": "^.$"
+      },
+      "arguments": "ba",
+      "valid": false
+    },
+    {
+      "schema": {
+        "pattern": "^.$"
+      },
+      "arguments": "a\n",
+      "valid": false
+    },
+    {
+      "schema": {
+        "pattern": "^.$"
+      },
+      "arguments": "😀",
+      "valid": false
+    },
+    {
+      "schema": {
+        "pattern": "^.$"
+      },
+      "arguments": "é",
+      "valid": true
+    },
+    {
+      "schema": {
+        "pattern": "^.$"
+      },
+      "arguments": "١",
+      "valid": true
+    },
+    {
+      "schema": {
+        "pattern": "^.$"
+      },
+      "arguments": " ",
+      "valid": true
+    },
+    {
+      "schema": {
+        "pattern": "^.$"
+      },
+      "arguments": " ",
+      "valid": false
+    },
+    {
+      "schema": {
+        "pattern": "^.$"
+      },
+      "arguments": "﻿",
+      "valid": true
+    },
+    {
+      "schema": {
+        "pattern": "^.$"
+      },
+      "arguments": "S",
+      "valid": true
+    },
+    {
+      "schema": {
+        "pattern": "^.$"
+      },
+      "arguments": "u{61}",
+      "valid": false
+    },
+    {
+      "schema": {
+        "pattern": "^.$"
+      },
+      "arguments": "u12",
+      "valid": false
+    },
+    {
+      "schema": {
+        "pattern": "^.$"
+      },
+      "arguments": "xzz",
+      "valid": false
+    },
+    {
+      "schema": {
+        "pattern": "^.$"
+      },
+      "arguments": "8",
+      "valid": true
+    },
+    {
+      "schema": {
+        "pattern": "^.$"
+      },
+      "arguments": "\\c_",
+      "valid": false
+    },
+    {
+      "schema": {
+        "pattern": "^.$"
+      },
+      "arguments": "\u001f",
+      "valid": true
+    },
+    {
+      "schema": {
+        "pattern": "^.$"
+      },
+      "arguments": "baaabac",
+      "valid": false
+    },
+    {
+      "schema": {
+        "pattern": "^..$"
+      },
+      "arguments": "",
+      "valid": false
+    },
+    {
+      "schema": {
+        "pattern": "^..$"
+      },
+      "arguments": "a",
+      "valid": false
+    },
+    {
+      "schema": {
+        "pattern": "^..$"
+      },
+      "arguments": "b",
+      "valid": false
+    },
+    {
+      "schema": {
+        "pattern": "^..$"
+      },
+      "arguments": "ab",
+      "valid": true
+    },
+    {
+      "schema": {
+        "pattern": "^..$"
+      },
+      "arguments": "aa",
+      "valid": true
+    },
+    {
+      "schema": {
+        "pattern": "^..$"
+      },
+      "arguments": "aaa",
+      "valid": false
+    },
+    {
+      "schema": {
+        "pattern": "^..$"
+      },
+      "arguments": "aaab",
+      "valid": false
+    },
+    {
+      "schema": {
+        "pattern": "^..$"
+      },
+      "arguments": "aabaaa",
+      "valid": false
+    },
+    {
+      "schema": {
+        "pattern": "^..$"
+      },
+      "arguments": "abc",
+      "valid": false
+    },
+    {
+      "schema": {
+        "pattern": "^..$"
+      },
+      "arguments": "aba",
+      "valid": false
+    },
+    {
+      "schema": {
+        "pattern": "^..$"
+      },
+      "arguments": "abab",
+      "valid": false
+    },
+    {
+      "schema": {
+        "pattern": "^..$"
+      },
+      "arguments": "ba",
+      "valid": true
+    },
+    {
+      "schema": {
+        "pattern": "^..$"
+      },
+      "arguments": "a\n",
+      "valid": false
+    },
+    {
+      "schema": {
+        "pattern": "^..$"
+      },
+      "arguments": "😀",
+      "valid": true
+    },
+    {
+      "schema": {
+        "pattern": "^..$"
+      },
+      "arguments": "é",
+      "valid": false
+    },
+    {
+      "schema": {
+        "pattern": "^..$"
+      },
+      "arguments": "١",
+      "valid": false
+    },
+    {
+      "schema": {
+        "pattern": "^..$"
+      },
+      "arguments": " ",
+      "valid": false
+    },
+    {
+      "schema": {
+        "pattern": "^..$"
+      },
+      "arguments": " ",
+      "valid": false
+    },
+    {
+      "schema": {
+        "pattern": "^..$"
+      },
+      "arguments": "﻿",
+      "valid": false
+    },
+    {
+      "schema": {
+        "pattern": "^..$"
+      },
+      "arguments": "S",
+      "valid": false
+    },
+    {
+      "schema": {
+        "pattern": "^..$"
+      },
+      "arguments": "u{61}",
+      "valid": false
+    },
+    {
+      "schema": {
+        "pattern": "^..$"
+      },
+      "arguments": "u12",
+      "valid": false
+    },
+    {
+      "schema": {
+        "pattern": "^..$"
+      },
+      "arguments": "xzz",
+      "valid": false
+    },
+    {
+      "schema": {
+        "pattern": "^..$"
+      },
+      "arguments": "8",
+      "valid": false
+    },
+    {
+      "schema": {
+        "pattern": "^..$"
+      },
+      "arguments": "\\c_",
+      "valid": false
+    },
+    {
+      "schema": {
+        "pattern": "^..$"
+      },
+      "arguments": "\u001f",
+      "valid": false
+    },
+    {
+      "schema": {
+        "pattern": "^..$"
+      },
+      "arguments": "baaabac",
+      "valid": false
+    },
+    {
+      "schema": {
+        "pattern": "\\w"
+      },
+      "arguments": "",
+      "valid": false
+    },
+    {
+      "schema": {
+        "pattern": "\\w"
+      },
+      "arguments": "a",
+      "valid": true
+    },
+    {
+      "schema": {
+        "pattern": "\\w"
+      },
+      "arguments": "b",
+      "valid": true
+    },
+    {
+      "schema": {
+        "pattern": "\\w"
+      },
+      "arguments": "ab",
+      "valid": true
+    },
+    {
+      "schema": {
+        "pattern": "\\w"
+      },
+      "arguments": "aa",
+      "valid": true
+    },
+    {
+      "schema": {
+        "pattern": "\\w"
+      },
+      "arguments": "aaa",
+      "valid": true
+    },
+    {
+      "schema": {
+        "pattern": "\\w"
+      },
+      "arguments": "aaab",
+      "valid": true
+    },
+    {
+      "schema": {
+        "pattern": "\\w"
+      },
+      "arguments": "aabaaa",
+      "valid": true
+    },
+    {
+      "schema": {
+        "pattern": "\\w"
+      },
+      "arguments": "abc",
+      "valid": true
+    },
+    {
+      "schema": {
+        "pattern": "\\w"
+      },
+      "arguments": "aba",
+      "valid": true
+    },
+    {
+      "schema": {
+        "pattern": "\\w"
+      },
+      "arguments": "abab",
+      "valid": true
+    },
+    {
+      "schema": {
+        "pattern": "\\w"
+      },
+      "arguments": "ba",
+      "valid": true
+    },
+    {
+      "schema": {
+        "pattern": "\\w"
+      },
+      "arguments": "a\n",
+      "valid": true
+    },
+    {
+      "schema": {
+        "pattern": "\\w"
+      },
+      "arguments": "😀",
+      "valid": false
+    },
+    {
+      "schema": {
+        "pattern": "\\w"
+      },
+      "arguments": "é",
+      "valid": false
+    },
+    {
+      "schema": {
+        "pattern": "\\w"
+      },
+      "arguments": "١",
+      "valid": false
+    },
+    {
+      "schema": {
+        "pattern": "\\w"
+      },
+      "arguments": " ",
+      "valid": false
+    },
+    {
+      "schema": {
+        "pattern": "\\w"
+      },
+      "arguments": " ",
+      "valid": false
+    },
+    {
+      "schema": {
+        "pattern": "\\w"
+      },
+      "arguments": "﻿",
+      "valid": false
+    },
+    {
+      "schema": {
+        "pattern": "\\w"
+      },
+      "arguments": "S",
+      "valid": true
+    },
+    {
+      "schema": {
+        "pattern": "\\w"
+      },
+      "arguments": "u{61}",
+      "valid": true
+    },
+    {
+      "schema": {
+        "pattern": "\\w"
+      },
+      "arguments": "u12",
+      "valid": true
+    },
+    {
+      "schema": {
+        "pattern": "\\w"
+      },
+      "arguments": "xzz",
+      "valid": true
+    },
+    {
+      "schema": {
+        "pattern": "\\w"
+      },
+      "arguments": "8",
+      "valid": true
+    },
+    {
+      "schema": {
+        "pattern": "\\w"
+      },
+      "arguments": "\\c_",
+      "valid": true
+    },
+    {
+      "schema": {
+        "pattern": "\\w"
+      },
+      "arguments": "\u001f",
+      "valid": false
+    },
+    {
+      "schema": {
+        "pattern": "\\w"
+      },
+      "arguments": "baaabac",
+      "valid": true
+    },
+    {
+      "schema": {
+        "pattern": "\\d"
+      },
+      "arguments": "",
+      "valid": false
+    },
+    {
+      "schema": {
+        "pattern": "\\d"
+      },
+      "arguments": "a",
+      "valid": false
+    },
+    {
+      "schema": {
+        "pattern": "\\d"
+      },
+      "arguments": "b",
+      "valid": false
+    },
+    {
+      "schema": {
+        "pattern": "\\d"
+      },
+      "arguments": "ab",
+      "valid": false
+    },
+    {
+      "schema": {
+        "pattern": "\\d"
+      },
+      "arguments": "aa",
+      "valid": false
+    },
+    {
+      "schema": {
+        "pattern": "\\d"
+      },
+      "arguments": "aaa",
+      "valid": false
+    },
+    {
+      "schema": {
+        "pattern": "\\d"
+      },
+      "arguments": "aaab",
+      "valid": false
+    },
+    {
+      "schema": {
+        "pattern": "\\d"
+      },
+      "arguments": "aabaaa",
+      "valid": false
+    },
+    {
+      "schema": {
+        "pattern": "\\d"
+      },
+      "arguments": "abc",
+      "valid": false
+    },
+    {
+      "schema": {
+        "pattern": "\\d"
+      },
+      "arguments": "aba",
+      "valid": false
+    },
+    {
+      "schema": {
+        "pattern": "\\d"
+      },
+      "arguments": "abab",
+      "valid": false
+    },
+    {
+      "schema": {
+        "pattern": "\\d"
+      },
+      "arguments": "ba",
+      "valid": false
+    },
+    {
+      "schema": {
+        "pattern": "\\d"
+      },
+      "arguments": "a\n",
+      "valid": false
+    },
+    {
+      "schema": {
+        "pattern": "\\d"
+      },
+      "arguments": "😀",
+      "valid": false
+    },
+    {
+      "schema": {
+        "pattern": "\\d"
+      },
+      "arguments": "é",
+      "valid": false
+    },
+    {
+      "schema": {
+        "pattern": "\\d"
+      },
+      "arguments": "١",
+      "valid": false
+    },
+    {
+      "schema": {
+        "pattern": "\\d"
+      },
+      "arguments": " ",
+      "valid": false
+    },
+    {
+      "schema": {
+        "pattern": "\\d"
+      },
+      "arguments": " ",
+      "valid": false
+    },
+    {
+      "schema": {
+        "pattern": "\\d"
+      },
+      "arguments": "﻿",
+      "valid": false
+    },
+    {
+      "schema": {
+        "pattern": "\\d"
+      },
+      "arguments": "S",
+      "valid": false
+    },
+    {
+      "schema": {
+        "pattern": "\\d"
+      },
+      "arguments": "u{61}",
+      "valid": true
+    },
+    {
+      "schema": {
+        "pattern": "\\d"
+      },
+      "arguments": "u12",
+      "valid": true
+    },
+    {
+      "schema": {
+        "pattern": "\\d"
+      },
+      "arguments": "xzz",
+      "valid": false
+    },
+    {
+      "schema": {
+        "pattern": "\\d"
+      },
+      "arguments": "8",
+      "valid": true
+    },
+    {
+      "schema": {
+        "pattern": "\\d"
+      },
+      "arguments": "\\c_",
+      "valid": false
+    },
+    {
+      "schema": {
+        "pattern": "\\d"
+      },
+      "arguments": "\u001f",
+      "valid": false
+    },
+    {
+      "schema": {
+        "pattern": "\\d"
+      },
+      "arguments": "baaabac",
+      "valid": false
+    },
+    {
+      "schema": {
+        "pattern": "\\s"
+      },
+      "arguments": "",
+      "valid": false
+    },
+    {
+      "schema": {
+        "pattern": "\\s"
+      },
+      "arguments": "a",
+      "valid": false
+    },
+    {
+      "schema": {
+        "pattern": "\\s"
+      },
+      "arguments": "b",
+      "valid": false
+    },
+    {
+      "schema": {
+        "pattern": "\\s"
+      },
+      "arguments": "ab",
+      "valid": false
+    },
+    {
+      "schema": {
+        "pattern": "\\s"
+      },
+      "arguments": "aa",
+      "valid": false
+    },
+    {
+      "schema": {
+        "pattern": "\\s"
+      },
+      "arguments": "aaa",
+      "valid": false
+    },
+    {
+      "schema": {
+        "pattern": "\\s"
+      },
+      "arguments": "aaab",
+      "valid": false
+    },
+    {
+      "schema": {
+        "pattern": "\\s"
+      },
+      "arguments": "aabaaa",
+      "valid": false
+    },
+    {
+      "schema": {
+        "pattern": "\\s"
+      },
+      "arguments": "abc",
+      "valid": false
+    },
+    {
+      "schema": {
+        "pattern": "\\s"
+      },
+      "arguments": "aba",
+      "valid": false
+    },
+    {
+      "schema": {
+        "pattern": "\\s"
+      },
+      "arguments": "abab",
+      "valid": false
+    },
+    {
+      "schema": {
+        "pattern": "\\s"
+      },
+      "arguments": "ba",
+      "valid": false
+    },
+    {
+      "schema": {
+        "pattern": "\\s"
+      },
+      "arguments": "a\n",
+      "valid": true
+    },
+    {
+      "schema": {
+        "pattern": "\\s"
+      },
+      "arguments": "😀",
+      "valid": false
+    },
+    {
+      "schema": {
+        "pattern": "\\s"
+      },
+      "arguments": "é",
+      "valid": false
+    },
+    {
+      "schema": {
+        "pattern": "\\s"
+      },
+      "arguments": "١",
+      "valid": false
+    },
+    {
+      "schema": {
+        "pattern": "\\s"
+      },
+      "arguments": " ",
+      "valid": true
+    },
+    {
+      "schema": {
+        "pattern": "\\s"
+      },
+      "arguments": " ",
+      "valid": true
+    },
+    {
+      "schema": {
+        "pattern": "\\s"
+      },
+      "arguments": "﻿",
+      "valid": true
+    },
+    {
+      "schema": {
+        "pattern": "\\s"
+      },
+      "arguments": "S",
+      "valid": false
+    },
+    {
+      "schema": {
+        "pattern": "\\s"
+      },
+      "arguments": "u{61}",
+      "valid": false
+    },
+    {
+      "schema": {
+        "pattern": "\\s"
+      },
+      "arguments": "u12",
+      "valid": false
+    },
+    {
+      "schema": {
+        "pattern": "\\s"
+      },
+      "arguments": "xzz",
+      "valid": false
+    },
+    {
+      "schema": {
+        "pattern": "\\s"
+      },
+      "arguments": "8",
+      "valid": false
+    },
+    {
+      "schema": {
+        "pattern": "\\s"
+      },
+      "arguments": "\\c_",
+      "valid": false
+    },
+    {
+      "schema": {
+        "pattern": "\\s"
+      },
+      "arguments": "\u001f",
+      "valid": false
+    },
+    {
+      "schema": {
+        "pattern": "\\s"
+      },
+      "arguments": "baaabac",
+      "valid": false
+    },
+    {
+      "schema": {
+        "pattern": "a$"
+      },
+      "arguments": "",
+      "valid": false
+    },
+    {
+      "schema": {
+        "pattern": "a$"
+      },
+      "arguments": "a",
+      "valid": true
+    },
+    {
+      "schema": {
+        "pattern": "a$"
+      },
+      "arguments": "b",
+      "valid": false
+    },
+    {
+      "schema": {
+        "pattern": "a$"
+      },
+      "arguments": "ab",
+      "valid": false
+    },
+    {
+      "schema": {
+        "pattern": "a$"
+      },
+      "arguments": "aa",
+      "valid": true
+    },
+    {
+      "schema": {
+        "pattern": "a$"
+      },
+      "arguments": "aaa",
+      "valid": true
+    },
+    {
+      "schema": {
+        "pattern": "a$"
+      },
+      "arguments": "aaab",
+      "valid": false
+    },
+    {
+      "schema": {
+        "pattern": "a$"
+      },
+      "arguments": "aabaaa",
+      "valid": true
+    },
+    {
+      "schema": {
+        "pattern": "a$"
+      },
+      "arguments": "abc",
+      "valid": false
+    },
+    {
+      "schema": {
+        "pattern": "a$"
+      },
+      "arguments": "aba",
+      "valid": true
+    },
+    {
+      "schema": {
+        "pattern": "a$"
+      },
+      "arguments": "abab",
+      "valid": false
+    },
+    {
+      "schema": {
+        "pattern": "a$"
+      },
+      "arguments": "ba",
+      "valid": true
+    },
+    {
+      "schema": {
+        "pattern": "a$"
+      },
+      "arguments": "a\n",
+      "valid": false
+    },
+    {
+      "schema": {
+        "pattern": "a$"
+      },
+      "arguments": "😀",
+      "valid": false
+    },
+    {
+      "schema": {
+        "pattern": "a$"
+      },
+      "arguments": "é",
+      "valid": false
+    },
+    {
+      "schema": {
+        "pattern": "a$"
+      },
+      "arguments": "١",
+      "valid": false
+    },
+    {
+      "schema": {
+        "pattern": "a$"
+      },
+      "arguments": " ",
+      "valid": false
+    },
+    {
+      "schema": {
+        "pattern": "a$"
+      },
+      "arguments": " ",
+      "valid": false
+    },
+    {
+      "schema": {
+        "pattern": "a$"
+      },
+      "arguments": "﻿",
+      "valid": false
+    },
+    {
+      "schema": {
+        "pattern": "a$"
+      },
+      "arguments": "S",
+      "valid": false
+    },
+    {
+      "schema": {
+        "pattern": "a$"
+      },
+      "arguments": "u{61}",
+      "valid": false
+    },
+    {
+      "schema": {
+        "pattern": "a$"
+      },
+      "arguments": "u12",
+      "valid": false
+    },
+    {
+      "schema": {
+        "pattern": "a$"
+      },
+      "arguments": "xzz",
+      "valid": false
+    },
+    {
+      "schema": {
+        "pattern": "a$"
+      },
+      "arguments": "8",
+      "valid": false
+    },
+    {
+      "schema": {
+        "pattern": "a$"
+      },
+      "arguments": "\\c_",
+      "valid": false
+    },
+    {
+      "schema": {
+        "pattern": "a$"
+      },
+      "arguments": "\u001f",
+      "valid": false
+    },
+    {
+      "schema": {
+        "pattern": "a$"
+      },
+      "arguments": "baaabac",
+      "valid": false
+    },
+    {
+      "schema": {
+        "pattern": "[^]"
+      },
+      "arguments": "",
+      "valid": false
+    },
+    {
+      "schema": {
+        "pattern": "[^]"
+      },
+      "arguments": "a",
+      "valid": true
+    },
+    {
+      "schema": {
+        "pattern": "[^]"
+      },
+      "arguments": "b",
+      "valid": true
+    },
+    {
+      "schema": {
+        "pattern": "[^]"
+      },
+      "arguments": "ab",
+      "valid": true
+    },
+    {
+      "schema": {
+        "pattern": "[^]"
+      },
+      "arguments": "aa",
+      "valid": true
+    },
+    {
+      "schema": {
+        "pattern": "[^]"
+      },
+      "arguments": "aaa",
+      "valid": true
+    },
+    {
+      "schema": {
+        "pattern": "[^]"
+      },
+      "arguments": "aaab",
+      "valid": true
+    },
+    {
+      "schema": {
+        "pattern": "[^]"
+      },
+      "arguments": "aabaaa",
+      "valid": true
+    },
+    {
+      "schema": {
+        "pattern": "[^]"
+      },
+      "arguments": "abc",
+      "valid": true
+    },
+    {
+      "schema": {
+        "pattern": "[^]"
+      },
+      "arguments": "aba",
+      "valid": true
+    },
+    {
+      "schema": {
+        "pattern": "[^]"
+      },
+      "arguments": "abab",
+      "valid": true
+    },
+    {
+      "schema": {
+        "pattern": "[^]"
+      },
+      "arguments": "ba",
+      "valid": true
+    },
+    {
+      "schema": {
+        "pattern": "[^]"
+      },
+      "arguments": "a\n",
+      "valid": true
+    },
+    {
+      "schema": {
+        "pattern": "[^]"
+      },
+      "arguments": "😀",
+      "valid": true
+    },
+    {
+      "schema": {
+        "pattern": "[^]"
+      },
+      "arguments": "é",
+      "valid": true
+    },
+    {
+      "schema": {
+        "pattern": "[^]"
+      },
+      "arguments": "١",
+      "valid": true
+    },
+    {
+      "schema": {
+        "pattern": "[^]"
+      },
+      "arguments": " ",
+      "valid": true
+    },
+    {
+      "schema": {
+        "pattern": "[^]"
+      },
+      "arguments": " ",
+      "valid": true
+    },
+    {
+      "schema": {
+        "pattern": "[^]"
+      },
+      "arguments": "﻿",
+      "valid": true
+    },
+    {
+      "schema": {
+        "pattern": "[^]"
+      },
+      "arguments": "S",
+      "valid": true
+    },
+    {
+      "schema": {
+        "pattern": "[^]"
+      },
+      "arguments": "u{61}",
+      "valid": true
+    },
+    {
+      "schema": {
+        "pattern": "[^]"
+      },
+      "arguments": "u12",
+      "valid": true
+    },
+    {
+      "schema": {
+        "pattern": "[^]"
+      },
+      "arguments": "xzz",
+      "valid": true
+    },
+    {
+      "schema": {
+        "pattern": "[^]"
+      },
+      "arguments": "8",
+      "valid": true
+    },
+    {
+      "schema": {
+        "pattern": "[^]"
+      },
+      "arguments": "\\c_",
+      "valid": true
+    },
+    {
+      "schema": {
+        "pattern": "[^]"
+      },
+      "arguments": "\u001f",
+      "valid": true
+    },
+    {
+      "schema": {
+        "pattern": "[^]"
+      },
+      "arguments": "baaabac",
+      "valid": true
+    },
+    {
+      "schema": {
+        "pattern": "[]"
+      },
+      "arguments": "",
+      "valid": false
+    },
+    {
+      "schema": {
+        "pattern": "[]"
+      },
+      "arguments": "a",
+      "valid": false
+    },
+    {
+      "schema": {
+        "pattern": "[]"
+      },
+      "arguments": "b",
+      "valid": false
+    },
+    {
+      "schema": {
+        "pattern": "[]"
+      },
+      "arguments": "ab",
+      "valid": false
+    },
+    {
+      "schema": {
+        "pattern": "[]"
+      },
+      "arguments": "aa",
+      "valid": false
+    },
+    {
+      "schema": {
+        "pattern": "[]"
+      },
+      "arguments": "aaa",
+      "valid": false
+    },
+    {
+      "schema": {
+        "pattern": "[]"
+      },
+      "arguments": "aaab",
+      "valid": false
+    },
+    {
+      "schema": {
+        "pattern": "[]"
+      },
+      "arguments": "aabaaa",
+      "valid": false
+    },
+    {
+      "schema": {
+        "pattern": "[]"
+      },
+      "arguments": "abc",
+      "valid": false
+    },
+    {
+      "schema": {
+        "pattern": "[]"
+      },
+      "arguments": "aba",
+      "valid": false
+    },
+    {
+      "schema": {
+        "pattern": "[]"
+      },
+      "arguments": "abab",
+      "valid": false
+    },
+    {
+      "schema": {
+        "pattern": "[]"
+      },
+      "arguments": "ba",
+      "valid": false
+    },
+    {
+      "schema": {
+        "pattern": "[]"
+      },
+      "arguments": "a\n",
+      "valid": false
+    },
+    {
+      "schema": {
+        "pattern": "[]"
+      },
+      "arguments": "😀",
+      "valid": false
+    },
+    {
+      "schema": {
+        "pattern": "[]"
+      },
+      "arguments": "é",
+      "valid": false
+    },
+    {
+      "schema": {
+        "pattern": "[]"
+      },
+      "arguments": "١",
+      "valid": false
+    },
+    {
+      "schema": {
+        "pattern": "[]"
+      },
+      "arguments": " ",
+      "valid": false
+    },
+    {
+      "schema": {
+        "pattern": "[]"
+      },
+      "arguments": " ",
+      "valid": false
+    },
+    {
+      "schema": {
+        "pattern": "[]"
+      },
+      "arguments": "﻿",
+      "valid": false
+    },
+    {
+      "schema": {
+        "pattern": "[]"
+      },
+      "arguments": "S",
+      "valid": false
+    },
+    {
+      "schema": {
+        "pattern": "[]"
+      },
+      "arguments": "u{61}",
+      "valid": false
+    },
+    {
+      "schema": {
+        "pattern": "[]"
+      },
+      "arguments": "u12",
+      "valid": false
+    },
+    {
+      "schema": {
+        "pattern": "[]"
+      },
+      "arguments": "xzz",
+      "valid": false
+    },
+    {
+      "schema": {
+        "pattern": "[]"
+      },
+      "arguments": "8",
+      "valid": false
+    },
+    {
+      "schema": {
+        "pattern": "[]"
+      },
+      "arguments": "\\c_",
+      "valid": false
+    },
+    {
+      "schema": {
+        "pattern": "[]"
+      },
+      "arguments": "\u001f",
+      "valid": false
+    },
+    {
+      "schema": {
+        "pattern": "[]"
+      },
+      "arguments": "baaabac",
+      "valid": false
+    },
+    {
+      "schema": {
+        "pattern": "[^a-c]"
+      },
+      "arguments": "",
+      "valid": false
+    },
+    {
+      "schema": {
+        "pattern": "[^a-c]"
+      },
+      "arguments": "a",
+      "valid": false
+    },
+    {
+      "schema": {
+        "pattern": "[^a-c]"
+      },
+      "arguments": "b",
+      "valid": false
+    },
+    {
+      "schema": {
+        "pattern": "[^a-c]"
+      },
+      "arguments": "ab",
+      "valid": false
+    },
+    {
+      "schema": {
+        "pattern": "[^a-c]"
+      },
+      "arguments": "aa",
+      "valid": false
+    },
+    {
+      "schema": {
+        "pattern": "[^a-c]"
+      },
+      "arguments": "aaa",
+      "valid": false
+    },
+    {
+      "schema": {
+        "pattern": "[^a-c]"
+      },
+      "arguments": "aaab",
+      "valid": false
+    },
+    {
+      "schema": {
+        "pattern": "[^a-c]"
+      },
+      "arguments": "aabaaa",
+      "valid": false
+    },
+    {
+      "schema": {
+        "pattern": "[^a-c]"
+      },
+      "arguments": "abc",
+      "valid": false
+    },
+    {
+      "schema": {
+        "pattern": "[^a-c]"
+      },
+      "arguments": "aba",
+      "valid": false
+    },
+    {
+      "schema": {
+        "pattern": "[^a-c]"
+      },
+      "arguments": "abab",
+      "valid": false
+    },
+    {
+      "schema": {
+        "pattern": "[^a-c]"
+      },
+      "arguments": "ba",
+      "valid": false
+    },
+    {
+      "schema": {
+        "pattern": "[^a-c]"
+      },
+      "arguments": "a\n",
+      "valid": true
+    },
+    {
+      "schema": {
+        "pattern": "[^a-c]"
+      },
+      "arguments": "😀",
+      "valid": true
+    },
+    {
+      "schema": {
+        "pattern": "[^a-c]"
+      },
+      "arguments": "é",
+      "valid": true
+    },
+    {
+      "schema": {
+        "pattern": "[^a-c]"
+      },
+      "arguments": "١",
+      "valid": true
+    },
+    {
+      "schema": {
+        "pattern": "[^a-c]"
+      },
+      "arguments": " ",
+      "valid": true
+    },
+    {
+      "schema": {
+        "pattern": "[^a-c]"
+      },
+      "arguments": " ",
+      "valid": true
+    },
+    {
+      "schema": {
+        "pattern": "[^a-c]"
+      },
+      "arguments": "﻿",
+      "valid": true
+    },
+    {
+      "schema": {
+        "pattern": "[^a-c]"
+      },
+      "arguments": "S",
+      "valid": true
+    },
+    {
+      "schema": {
+        "pattern": "[^a-c]"
+      },
+      "arguments": "u{61}",
+      "valid": true
+    },
+    {
+      "schema": {
+        "pattern": "[^a-c]"
+      },
+      "arguments": "u12",
+      "valid": true
+    },
+    {
+      "schema": {
+        "pattern": "[^a-c]"
+      },
+      "arguments": "xzz",
+      "valid": true
+    },
+    {
+      "schema": {
+        "pattern": "[^a-c]"
+      },
+      "arguments": "8",
+      "valid": true
+    },
+    {
+      "schema": {
+        "pattern": "[^a-c]"
+      },
+      "arguments": "\\c_",
+      "valid": true
+    },
+    {
+      "schema": {
+        "pattern": "[^a-c]"
+      },
+      "arguments": "\u001f",
+      "valid": true
+    },
+    {
+      "schema": {
+        "pattern": "[^a-c]"
+      },
+      "arguments": "baaabac",
+      "valid": false
+    },
+    {
+      "schema": {
+        "pattern": "[\\d-a]"
+      },
+      "arguments": "",
+      "valid": false
+    },
+    {
+      "schema": {
+        "pattern": "[\\d-a]"
+      },
+      "arguments": "a",
+      "valid": true
+    },
+    {
+      "schema": {
+        "pattern": "[\\d-a]"
+      },
+      "arguments": "b",
+      "valid": false
+    },
+    {
+      "schema": {
+        "pattern": "[\\d-a]"
+      },
+      "arguments": "ab",
+      "valid": true
+    },
+    {
+      "schema": {
+        "pattern": "[\\d-a]"
+      },
+      "arguments": "aa",
+      "valid": true
+    },
+    {
+      "schema": {
+        "pattern": "[\\d-a]"
+      },
+      "arguments": "aaa",
+      "valid": true
+    },
+    {
+      "schema": {
+        "pattern": "[\\d-a]"
+      },
+      "arguments": "aaab",
+      "valid": true
+    },
+    {
+      "schema": {
+        "pattern": "[\\d-a]"
+      },
+      "arguments": "aabaaa",
+      "valid": true
+    },
+    {
+      "schema": {
+        "pattern": "[\\d-a]"
+      },
+      "arguments": "abc",
+      "valid": true
+    },
+    {
+      "schema": {
+        "pattern": "[\\d-a]"
+      },
+      "arguments": "aba",
+      "valid": true
+    },
+    {
+      "schema": {
+        "pattern": "[\\d-a]"
+      },
+      "arguments": "abab",
+      "valid": true
+    },
+    {
+      "schema": {
+        "pattern": "[\\d-a]"
+      },
+      "arguments": "ba",
+      "valid": true
+    },
+    {
+      "schema": {
+        "pattern": "[\\d-a]"
+      },
+      "arguments": "a\n",
+      "valid": true
+    },
+    {
+      "schema": {
+        "pattern": "[\\d-a]"
+      },
+      "arguments": "😀",
+      "valid": false
+    },
+    {
+      "schema": {
+        "pattern": "[\\d-a]"
+      },
+      "arguments": "é",
+      "valid": false
+    },
+    {
+      "schema": {
+        "pattern": "[\\d-a]"
+      },
+      "arguments": "١",
+      "valid": false
+    },
+    {
+      "schema": {
+        "pattern": "[\\d-a]"
+      },
+      "arguments": " ",
+      "valid": false
+    },
+    {
+      "schema": {
+        "pattern": "[\\d-a]"
+      },
+      "arguments": " ",
+      "valid": false
+    },
+    {
+      "schema": {
+        "pattern": "[\\d-a]"
+      },
+      "arguments": "﻿",
+      "valid": false
+    },
+    {
+      "schema": {
+        "pattern": "[\\d-a]"
+      },
+      "arguments": "S",
+      "valid": false
+    },
+    {
+      "schema": {
+        "pattern": "[\\d-a]"
+      },
+      "arguments": "u{61}",
+      "valid": true
+    },
+    {
+      "schema": {
+        "pattern": "[\\d-a]"
+      },
+      "arguments": "u12",
+      "valid": true
+    },
+    {
+      "schema": {
+        "pattern": "[\\d-a]"
+      },
+      "arguments": "xzz",
+      "valid": false
+    },
+    {
+      "schema": {
+        "pattern": "[\\d-a]"
+      },
+      "arguments": "8",
+      "valid": true
+    },
+    {
+      "schema": {
+        "pattern": "[\\d-a]"
+      },
+      "arguments": "\\c_",
+      "valid": false
+    },
+    {
+      "schema": {
+        "pattern": "[\\d-a]"
+      },
+      "arguments": "\u001f",
+      "valid": false
+    },
+    {
+      "schema": {
+        "pattern": "[\\d-a]"
+      },
+      "arguments": "baaabac",
+      "valid": true
+    },
+    {
+      "schema": {
+        "pattern": "\\c_"
+      },
+      "arguments": "",
+      "valid": false
+    },
+    {
+      "schema": {
+        "pattern": "\\c_"
+      },
+      "arguments": "a",
+      "valid": false
+    },
+    {
+      "schema": {
+        "pattern": "\\c_"
+      },
+      "arguments": "b",
+      "valid": false
+    },
+    {
+      "schema": {
+        "pattern": "\\c_"
+      },
+      "arguments": "ab",
+      "valid": false
+    },
+    {
+      "schema": {
+        "pattern": "\\c_"
+      },
+      "arguments": "aa",
+      "valid": false
+    },
+    {
+      "schema": {
+        "pattern": "\\c_"
+      },
+      "arguments": "aaa",
+      "valid": false
+    },
+    {
+      "schema": {
+        "pattern": "\\c_"
+      },
+      "arguments": "aaab",
+      "valid": false
+    },
+    {
+      "schema": {
+        "pattern": "\\c_"
+      },
+      "arguments": "aabaaa",
+      "valid": false
+    },
+    {
+      "schema": {
+        "pattern": "\\c_"
+      },
+      "arguments": "abc",
+      "valid": false
+    },
+    {
+      "schema": {
+        "pattern": "\\c_"
+      },
+      "arguments": "aba",
+      "valid": false
+    },
+    {
+      "schema": {
+        "pattern": "\\c_"
+      },
+      "arguments": "abab",
+      "valid": false
+    },
+    {
+      "schema": {
+        "pattern": "\\c_"
+      },
+      "arguments": "ba",
+      "valid": false
+    },
+    {
+      "schema": {
+        "pattern": "\\c_"
+      },
+      "arguments": "a\n",
+      "valid": false
+    },
+    {
+      "schema": {
+        "pattern": "\\c_"
+      },
+      "arguments": "😀",
+      "valid": false
+    },
+    {
+      "schema": {
+        "pattern": "\\c_"
+      },
+      "arguments": "é",
+      "valid": false
+    },
+    {
+      "schema": {
+        "pattern": "\\c_"
+      },
+      "arguments": "١",
+      "valid": false
+    },
+    {
+      "schema": {
+        "pattern": "\\c_"
+      },
+      "arguments": " ",
+      "valid": false
+    },
+    {
+      "schema": {
+        "pattern": "\\c_"
+      },
+      "arguments": " ",
+      "valid": false
+    },
+    {
+      "schema": {
+        "pattern": "\\c_"
+      },
+      "arguments": "﻿",
+      "valid": false
+    },
+    {
+      "schema": {
+        "pattern": "\\c_"
+      },
+      "arguments": "S",
+      "valid": false
+    },
+    {
+      "schema": {
+        "pattern": "\\c_"
+      },
+      "arguments": "u{61}",
+      "valid": false
+    },
+    {
+      "schema": {
+        "pattern": "\\c_"
+      },
+      "arguments": "u12",
+      "valid": false
+    },
+    {
+      "schema": {
+        "pattern": "\\c_"
+      },
+      "arguments": "xzz",
+      "valid": false
+    },
+    {
+      "schema": {
+        "pattern": "\\c_"
+      },
+      "arguments": "8",
+      "valid": false
+    },
+    {
+      "schema": {
+        "pattern": "\\c_"
+      },
+      "arguments": "\\c_",
+      "valid": true
+    },
+    {
+      "schema": {
+        "pattern": "\\c_"
+      },
+      "arguments": "\u001f",
+      "valid": false
+    },
+    {
+      "schema": {
+        "pattern": "\\c_"
+      },
+      "arguments": "baaabac",
+      "valid": false
+    },
+    {
+      "schema": {
+        "pattern": "[\\c_]"
+      },
+      "arguments": "",
+      "valid": false
+    },
+    {
+      "schema": {
+        "pattern": "[\\c_]"
+      },
+      "arguments": "a",
+      "valid": false
+    },
+    {
+      "schema": {
+        "pattern": "[\\c_]"
+      },
+      "arguments": "b",
+      "valid": false
+    },
+    {
+      "schema": {
+        "pattern": "[\\c_]"
+      },
+      "arguments": "ab",
+      "valid": false
+    },
+    {
+      "schema": {
+        "pattern": "[\\c_]"
+      },
+      "arguments": "aa",
+      "valid": false
+    },
+    {
+      "schema": {
+        "pattern": "[\\c_]"
+      },
+      "arguments": "aaa",
+      "valid": false
+    },
+    {
+      "schema": {
+        "pattern": "[\\c_]"
+      },
+      "arguments": "aaab",
+      "valid": false
+    },
+    {
+      "schema": {
+        "pattern": "[\\c_]"
+      },
+      "arguments": "aabaaa",
+      "valid": false
+    },
+    {
+      "schema": {
+        "pattern": "[\\c_]"
+      },
+      "arguments": "abc",
+      "valid": false
+    },
+    {
+      "schema": {
+        "pattern": "[\\c_]"
+      },
+      "arguments": "aba",
+      "valid": false
+    },
+    {
+      "schema": {
+        "pattern": "[\\c_]"
+      },
+      "arguments": "abab",
+      "valid": false
+    },
+    {
+      "schema": {
+        "pattern": "[\\c_]"
+      },
+      "arguments": "ba",
+      "valid": false
+    },
+    {
+      "schema": {
+        "pattern": "[\\c_]"
+      },
+      "arguments": "a\n",
+      "valid": false
+    },
+    {
+      "schema": {
+        "pattern": "[\\c_]"
+      },
+      "arguments": "😀",
+      "valid": false
+    },
+    {
+      "schema": {
+        "pattern": "[\\c_]"
+      },
+      "arguments": "é",
+      "valid": false
+    },
+    {
+      "schema": {
+        "pattern": "[\\c_]"
+      },
+      "arguments": "١",
+      "valid": false
+    },
+    {
+      "schema": {
+        "pattern": "[\\c_]"
+      },
+      "arguments": " ",
+      "valid": false
+    },
+    {
+      "schema": {
+        "pattern": "[\\c_]"
+      },
+      "arguments": " ",
+      "valid": false
+    },
+    {
+      "schema": {
+        "pattern": "[\\c_]"
+      },
+      "arguments": "﻿",
+      "valid": false
+    },
+    {
+      "schema": {
+        "pattern": "[\\c_]"
+      },
+      "arguments": "S",
+      "valid": false
+    },
+    {
+      "schema": {
+        "pattern": "[\\c_]"
+      },
+      "arguments": "u{61}",
+      "valid": false
+    },
+    {
+      "schema": {
+        "pattern": "[\\c_]"
+      },
+      "arguments": "u12",
+      "valid": false
+    },
+    {
+      "schema": {
+        "pattern": "[\\c_]"
+      },
+      "arguments": "xzz",
+      "valid": false
+    },
+    {
+      "schema": {
+        "pattern": "[\\c_]"
+      },
+      "arguments": "8",
+      "valid": false
+    },
+    {
+      "schema": {
+        "pattern": "[\\c_]"
+      },
+      "arguments": "\\c_",
+      "valid": false
+    },
+    {
+      "schema": {
+        "pattern": "[\\c_]"
+      },
+      "arguments": "\u001f",
+      "valid": true
+    },
+    {
+      "schema": {
+        "pattern": "[\\c_]"
+      },
+      "arguments": "baaabac",
+      "valid": false
+    },
+    {
+      "schema": {
+        "pattern": "\\u{61}"
+      },
+      "arguments": "",
+      "valid": false
+    },
+    {
+      "schema": {
+        "pattern": "\\u{61}"
+      },
+      "arguments": "a",
+      "valid": false
+    },
+    {
+      "schema": {
+        "pattern": "\\u{61}"
+      },
+      "arguments": "b",
+      "valid": false
+    },
+    {
+      "schema": {
+        "pattern": "\\u{61}"
+      },
+      "arguments": "ab",
+      "valid": false
+    },
+    {
+      "schema": {
+        "pattern": "\\u{61}"
+      },
+      "arguments": "aa",
+      "valid": false
+    },
+    {
+      "schema": {
+        "pattern": "\\u{61}"
+      },
+      "arguments": "aaa",
+      "valid": false
+    },
+    {
+      "schema": {
+        "pattern": "\\u{61}"
+      },
+      "arguments": "aaab",
+      "valid": false
+    },
+    {
+      "schema": {
+        "pattern": "\\u{61}"
+      },
+      "arguments": "aabaaa",
+      "valid": false
+    },
+    {
+      "schema": {
+        "pattern": "\\u{61}"
+      },
+      "arguments": "abc",
+      "valid": false
+    },
+    {
+      "schema": {
+        "pattern": "\\u{61}"
+      },
+      "arguments": "aba",
+      "valid": false
+    },
+    {
+      "schema": {
+        "pattern": "\\u{61}"
+      },
+      "arguments": "abab",
+      "valid": false
+    },
+    {
+      "schema": {
+        "pattern": "\\u{61}"
+      },
+      "arguments": "ba",
+      "valid": false
+    },
+    {
+      "schema": {
+        "pattern": "\\u{61}"
+      },
+      "arguments": "a\n",
+      "valid": false
+    },
+    {
+      "schema": {
+        "pattern": "\\u{61}"
+      },
+      "arguments": "😀",
+      "valid": false
+    },
+    {
+      "schema": {
+        "pattern": "\\u{61}"
+      },
+      "arguments": "é",
+      "valid": false
+    },
+    {
+      "schema": {
+        "pattern": "\\u{61}"
+      },
+      "arguments": "١",
+      "valid": false
+    },
+    {
+      "schema": {
+        "pattern": "\\u{61}"
+      },
+      "arguments": " ",
+      "valid": false
+    },
+    {
+      "schema": {
+        "pattern": "\\u{61}"
+      },
+      "arguments": " ",
+      "valid": false
+    },
+    {
+      "schema": {
+        "pattern": "\\u{61}"
+      },
+      "arguments": "﻿",
+      "valid": false
+    },
+    {
+      "schema": {
+        "pattern": "\\u{61}"
+      },
+      "arguments": "S",
+      "valid": false
+    },
+    {
+      "schema": {
+        "pattern": "\\u{61}"
+      },
+      "arguments": "u{61}",
+      "valid": false
+    },
+    {
+      "schema": {
+        "pattern": "\\u{61}"
+      },
+      "arguments": "u12",
+      "valid": false
+    },
+    {
+      "schema": {
+        "pattern": "\\u{61}"
+      },
+      "arguments": "xzz",
+      "valid": false
+    },
+    {
+      "schema": {
+        "pattern": "\\u{61}"
+      },
+      "arguments": "8",
+      "valid": false
+    },
+    {
+      "schema": {
+        "pattern": "\\u{61}"
+      },
+      "arguments": "\\c_",
+      "valid": false
+    },
+    {
+      "schema": {
+        "pattern": "\\u{61}"
+      },
+      "arguments": "\u001f",
+      "valid": false
+    },
+    {
+      "schema": {
+        "pattern": "\\u{61}"
+      },
+      "arguments": "baaabac",
+      "valid": false
+    },
+    {
+      "schema": {
+        "pattern": "\\u12"
+      },
+      "arguments": "",
+      "valid": false
+    },
+    {
+      "schema": {
+        "pattern": "\\u12"
+      },
+      "arguments": "a",
+      "valid": false
+    },
+    {
+      "schema": {
+        "pattern": "\\u12"
+      },
+      "arguments": "b",
+      "valid": false
+    },
+    {
+      "schema": {
+        "pattern": "\\u12"
+      },
+      "arguments": "ab",
+      "valid": false
+    },
+    {
+      "schema": {
+        "pattern": "\\u12"
+      },
+      "arguments": "aa",
+      "valid": false
+    },
+    {
+      "schema": {
+        "pattern": "\\u12"
+      },
+      "arguments": "aaa",
+      "valid": false
+    },
+    {
+      "schema": {
+        "pattern": "\\u12"
+      },
+      "arguments": "aaab",
+      "valid": false
+    },
+    {
+      "schema": {
+        "pattern": "\\u12"
+      },
+      "arguments": "aabaaa",
+      "valid": false
+    },
+    {
+      "schema": {
+        "pattern": "\\u12"
+      },
+      "arguments": "abc",
+      "valid": false
+    },
+    {
+      "schema": {
+        "pattern": "\\u12"
+      },
+      "arguments": "aba",
+      "valid": false
+    },
+    {
+      "schema": {
+        "pattern": "\\u12"
+      },
+      "arguments": "abab",
+      "valid": false
+    },
+    {
+      "schema": {
+        "pattern": "\\u12"
+      },
+      "arguments": "ba",
+      "valid": false
+    },
+    {
+      "schema": {
+        "pattern": "\\u12"
+      },
+      "arguments": "a\n",
+      "valid": false
+    },
+    {
+      "schema": {
+        "pattern": "\\u12"
+      },
+      "arguments": "😀",
+      "valid": false
+    },
+    {
+      "schema": {
+        "pattern": "\\u12"
+      },
+      "arguments": "é",
+      "valid": false
+    },
+    {
+      "schema": {
+        "pattern": "\\u12"
+      },
+      "arguments": "١",
+      "valid": false
+    },
+    {
+      "schema": {
+        "pattern": "\\u12"
+      },
+      "arguments": " ",
+      "valid": false
+    },
+    {
+      "schema": {
+        "pattern": "\\u12"
+      },
+      "arguments": " ",
+      "valid": false
+    },
+    {
+      "schema": {
+        "pattern": "\\u12"
+      },
+      "arguments": "﻿",
+      "valid": false
+    },
+    {
+      "schema": {
+        "pattern": "\\u12"
+      },
+      "arguments": "S",
+      "valid": false
+    },
+    {
+      "schema": {
+        "pattern": "\\u12"
+      },
+      "arguments": "u{61}",
+      "valid": false
+    },
+    {
+      "schema": {
+        "pattern": "\\u12"
+      },
+      "arguments": "u12",
+      "valid": true
+    },
+    {
+      "schema": {
+        "pattern": "\\u12"
+      },
+      "arguments": "xzz",
+      "valid": false
+    },
+    {
+      "schema": {
+        "pattern": "\\u12"
+      },
+      "arguments": "8",
+      "valid": false
+    },
+    {
+      "schema": {
+        "pattern": "\\u12"
+      },
+      "arguments": "\\c_",
+      "valid": false
+    },
+    {
+      "schema": {
+        "pattern": "\\u12"
+      },
+      "arguments": "\u001f",
+      "valid": false
+    },
+    {
+      "schema": {
+        "pattern": "\\u12"
+      },
+      "arguments": "baaabac",
+      "valid": false
+    },
+    {
+      "schema": {
+        "pattern": "\\xzz"
+      },
+      "arguments": "",
+      "valid": false
+    },
+    {
+      "schema": {
+        "pattern": "\\xzz"
+      },
+      "arguments": "a",
+      "valid": false
+    },
+    {
+      "schema": {
+        "pattern": "\\xzz"
+      },
+      "arguments": "b",
+      "valid": false
+    },
+    {
+      "schema": {
+        "pattern": "\\xzz"
+      },
+      "arguments": "ab",
+      "valid": false
+    },
+    {
+      "schema": {
+        "pattern": "\\xzz"
+      },
+      "arguments": "aa",
+      "valid": false
+    },
+    {
+      "schema": {
+        "pattern": "\\xzz"
+      },
+      "arguments": "aaa",
+      "valid": false
+    },
+    {
+      "schema": {
+        "pattern": "\\xzz"
+      },
+      "arguments": "aaab",
+      "valid": false
+    },
+    {
+      "schema": {
+        "pattern": "\\xzz"
+      },
+      "arguments": "aabaaa",
+      "valid": false
+    },
+    {
+      "schema": {
+        "pattern": "\\xzz"
+      },
+      "arguments": "abc",
+      "valid": false
+    },
+    {
+      "schema": {
+        "pattern": "\\xzz"
+      },
+      "arguments": "aba",
+      "valid": false
+    },
+    {
+      "schema": {
+        "pattern": "\\xzz"
+      },
+      "arguments": "abab",
+      "valid": false
+    },
+    {
+      "schema": {
+        "pattern": "\\xzz"
+      },
+      "arguments": "ba",
+      "valid": false
+    },
+    {
+      "schema": {
+        "pattern": "\\xzz"
+      },
+      "arguments": "a\n",
+      "valid": false
+    },
+    {
+      "schema": {
+        "pattern": "\\xzz"
+      },
+      "arguments": "😀",
+      "valid": false
+    },
+    {
+      "schema": {
+        "pattern": "\\xzz"
+      },
+      "arguments": "é",
+      "valid": false
+    },
+    {
+      "schema": {
+        "pattern": "\\xzz"
+      },
+      "arguments": "١",
+      "valid": false
+    },
+    {
+      "schema": {
+        "pattern": "\\xzz"
+      },
+      "arguments": " ",
+      "valid": false
+    },
+    {
+      "schema": {
+        "pattern": "\\xzz"
+      },
+      "arguments": " ",
+      "valid": false
+    },
+    {
+      "schema": {
+        "pattern": "\\xzz"
+      },
+      "arguments": "﻿",
+      "valid": false
+    },
+    {
+      "schema": {
+        "pattern": "\\xzz"
+      },
+      "arguments": "S",
+      "valid": false
+    },
+    {
+      "schema": {
+        "pattern": "\\xzz"
+      },
+      "arguments": "u{61}",
+      "valid": false
+    },
+    {
+      "schema": {
+        "pattern": "\\xzz"
+      },
+      "arguments": "u12",
+      "valid": false
+    },
+    {
+      "schema": {
+        "pattern": "\\xzz"
+      },
+      "arguments": "xzz",
+      "valid": true
+    },
+    {
+      "schema": {
+        "pattern": "\\xzz"
+      },
+      "arguments": "8",
+      "valid": false
+    },
+    {
+      "schema": {
+        "pattern": "\\xzz"
+      },
+      "arguments": "\\c_",
+      "valid": false
+    },
+    {
+      "schema": {
+        "pattern": "\\xzz"
+      },
+      "arguments": "\u001f",
+      "valid": false
+    },
+    {
+      "schema": {
+        "pattern": "\\xzz"
+      },
+      "arguments": "baaabac",
+      "valid": false
+    },
+    {
+      "schema": {
+        "pattern": "\\8"
+      },
+      "arguments": "",
+      "valid": false
+    },
+    {
+      "schema": {
+        "pattern": "\\8"
+      },
+      "arguments": "a",
+      "valid": false
+    },
+    {
+      "schema": {
+        "pattern": "\\8"
+      },
+      "arguments": "b",
+      "valid": false
+    },
+    {
+      "schema": {
+        "pattern": "\\8"
+      },
+      "arguments": "ab",
+      "valid": false
+    },
+    {
+      "schema": {
+        "pattern": "\\8"
+      },
+      "arguments": "aa",
+      "valid": false
+    },
+    {
+      "schema": {
+        "pattern": "\\8"
+      },
+      "arguments": "aaa",
+      "valid": false
+    },
+    {
+      "schema": {
+        "pattern": "\\8"
+      },
+      "arguments": "aaab",
+      "valid": false
+    },
+    {
+      "schema": {
+        "pattern": "\\8"
+      },
+      "arguments": "aabaaa",
+      "valid": false
+    },
+    {
+      "schema": {
+        "pattern": "\\8"
+      },
+      "arguments": "abc",
+      "valid": false
+    },
+    {
+      "schema": {
+        "pattern": "\\8"
+      },
+      "arguments": "aba",
+      "valid": false
+    },
+    {
+      "schema": {
+        "pattern": "\\8"
+      },
+      "arguments": "abab",
+      "valid": false
+    },
+    {
+      "schema": {
+        "pattern": "\\8"
+      },
+      "arguments": "ba",
+      "valid": false
+    },
+    {
+      "schema": {
+        "pattern": "\\8"
+      },
+      "arguments": "a\n",
+      "valid": false
+    },
+    {
+      "schema": {
+        "pattern": "\\8"
+      },
+      "arguments": "😀",
+      "valid": false
+    },
+    {
+      "schema": {
+        "pattern": "\\8"
+      },
+      "arguments": "é",
+      "valid": false
+    },
+    {
+      "schema": {
+        "pattern": "\\8"
+      },
+      "arguments": "١",
+      "valid": false
+    },
+    {
+      "schema": {
+        "pattern": "\\8"
+      },
+      "arguments": " ",
+      "valid": false
+    },
+    {
+      "schema": {
+        "pattern": "\\8"
+      },
+      "arguments": " ",
+      "valid": false
+    },
+    {
+      "schema": {
+        "pattern": "\\8"
+      },
+      "arguments": "﻿",
+      "valid": false
+    },
+    {
+      "schema": {
+        "pattern": "\\8"
+      },
+      "arguments": "S",
+      "valid": false
+    },
+    {
+      "schema": {
+        "pattern": "\\8"
+      },
+      "arguments": "u{61}",
+      "valid": false
+    },
+    {
+      "schema": {
+        "pattern": "\\8"
+      },
+      "arguments": "u12",
+      "valid": false
+    },
+    {
+      "schema": {
+        "pattern": "\\8"
+      },
+      "arguments": "xzz",
+      "valid": false
+    },
+    {
+      "schema": {
+        "pattern": "\\8"
+      },
+      "arguments": "8",
+      "valid": true
+    },
+    {
+      "schema": {
+        "pattern": "\\8"
+      },
+      "arguments": "\\c_",
+      "valid": false
+    },
+    {
+      "schema": {
+        "pattern": "\\8"
+      },
+      "arguments": "\u001f",
+      "valid": false
+    },
+    {
+      "schema": {
+        "pattern": "\\8"
+      },
+      "arguments": "baaabac",
+      "valid": false
+    },
+    {
+      "schema": {
+        "pattern": "\\123"
+      },
+      "arguments": "",
+      "valid": false
+    },
+    {
+      "schema": {
+        "pattern": "\\123"
+      },
+      "arguments": "a",
+      "valid": false
+    },
+    {
+      "schema": {
+        "pattern": "\\123"
+      },
+      "arguments": "b",
+      "valid": false
+    },
+    {
+      "schema": {
+        "pattern": "\\123"
+      },
+      "arguments": "ab",
+      "valid": false
+    },
+    {
+      "schema": {
+        "pattern": "\\123"
+      },
+      "arguments": "aa",
+      "valid": false
+    },
+    {
+      "schema": {
+        "pattern": "\\123"
+      },
+      "arguments": "aaa",
+      "valid": false
+    },
+    {
+      "schema": {
+        "pattern": "\\123"
+      },
+      "arguments": "aaab",
+      "valid": false
+    },
+    {
+      "schema": {
+        "pattern": "\\123"
+      },
+      "arguments": "aabaaa",
+      "valid": false
+    },
+    {
+      "schema": {
+        "pattern": "\\123"
+      },
+      "arguments": "abc",
+      "valid": false
+    },
+    {
+      "schema": {
+        "pattern": "\\123"
+      },
+      "arguments": "aba",
+      "valid": false
+    },
+    {
+      "schema": {
+        "pattern": "\\123"
+      },
+      "arguments": "abab",
+      "valid": false
+    },
+    {
+      "schema": {
+        "pattern": "\\123"
+      },
+      "arguments": "ba",
+      "valid": false
+    },
+    {
+      "schema": {
+        "pattern": "\\123"
+      },
+      "arguments": "a\n",
+      "valid": false
+    },
+    {
+      "schema": {
+        "pattern": "\\123"
+      },
+      "arguments": "😀",
+      "valid": false
+    },
+    {
+      "schema": {
+        "pattern": "\\123"
+      },
+      "arguments": "é",
+      "valid": false
+    },
+    {
+      "schema": {
+        "pattern": "\\123"
+      },
+      "arguments": "١",
+      "valid": false
+    },
+    {
+      "schema": {
+        "pattern": "\\123"
+      },
+      "arguments": " ",
+      "valid": false
+    },
+    {
+      "schema": {
+        "pattern": "\\123"
+      },
+      "arguments": " ",
+      "valid": false
+    },
+    {
+      "schema": {
+        "pattern": "\\123"
+      },
+      "arguments": "﻿",
+      "valid": false
+    },
+    {
+      "schema": {
+        "pattern": "\\123"
+      },
+      "arguments": "S",
+      "valid": true
+    },
+    {
+      "schema": {
+        "pattern": "\\123"
+      },
+      "arguments": "u{61}",
+      "valid": false
+    },
+    {
+      "schema": {
+        "pattern": "\\123"
+      },
+      "arguments": "u12",
+      "valid": false
+    },
+    {
+      "schema": {
+        "pattern": "\\123"
+      },
+      "arguments": "xzz",
+      "valid": false
+    },
+    {
+      "schema": {
+        "pattern": "\\123"
+      },
+      "arguments": "8",
+      "valid": false
+    },
+    {
+      "schema": {
+        "pattern": "\\123"
+      },
+      "arguments": "\\c_",
+      "valid": false
+    },
+    {
+      "schema": {
+        "pattern": "\\123"
+      },
+      "arguments": "\u001f",
+      "valid": false
+    },
+    {
+      "schema": {
+        "pattern": "\\123"
+      },
+      "arguments": "baaabac",
+      "valid": false
+    },
+    {
+      "schema": {
+        "pattern": "a{,2}"
+      },
+      "arguments": "",
+      "valid": false
+    },
+    {
+      "schema": {
+        "pattern": "a{,2}"
+      },
+      "arguments": "a",
+      "valid": false
+    },
+    {
+      "schema": {
+        "pattern": "a{,2}"
+      },
+      "arguments": "b",
+      "valid": false
+    },
+    {
+      "schema": {
+        "pattern": "a{,2}"
+      },
+      "arguments": "ab",
+      "valid": false
+    },
+    {
+      "schema": {
+        "pattern": "a{,2}"
+      },
+      "arguments": "aa",
+      "valid": false
+    },
+    {
+      "schema": {
+        "pattern": "a{,2}"
+      },
+      "arguments": "aaa",
+      "valid": false
+    },
+    {
+      "schema": {
+        "pattern": "a{,2}"
+      },
+      "arguments": "aaab",
+      "valid": false
+    },
+    {
+      "schema": {
+        "pattern": "a{,2}"
+      },
+      "arguments": "aabaaa",
+      "valid": false
+    },
+    {
+      "schema": {
+        "pattern": "a{,2}"
+      },
+      "arguments": "abc",
+      "valid": false
+    },
+    {
+      "schema": {
+        "pattern": "a{,2}"
+      },
+      "arguments": "aba",
+      "valid": false
+    },
+    {
+      "schema": {
+        "pattern": "a{,2}"
+      },
+      "arguments": "abab",
+      "valid": false
+    },
+    {
+      "schema": {
+        "pattern": "a{,2}"
+      },
+      "arguments": "ba",
+      "valid": false
+    },
+    {
+      "schema": {
+        "pattern": "a{,2}"
+      },
+      "arguments": "a\n",
+      "valid": false
+    },
+    {
+      "schema": {
+        "pattern": "a{,2}"
+      },
+      "arguments": "😀",
+      "valid": false
+    },
+    {
+      "schema": {
+        "pattern": "a{,2}"
+      },
+      "arguments": "é",
+      "valid": false
+    },
+    {
+      "schema": {
+        "pattern": "a{,2}"
+      },
+      "arguments": "١",
+      "valid": false
+    },
+    {
+      "schema": {
+        "pattern": "a{,2}"
+      },
+      "arguments": " ",
+      "valid": false
+    },
+    {
+      "schema": {
+        "pattern": "a{,2}"
+      },
+      "arguments": " ",
+      "valid": false
+    },
+    {
+      "schema": {
+        "pattern": "a{,2}"
+      },
+      "arguments": "﻿",
+      "valid": false
+    },
+    {
+      "schema": {
+        "pattern": "a{,2}"
+      },
+      "arguments": "S",
+      "valid": false
+    },
+    {
+      "schema": {
+        "pattern": "a{,2}"
+      },
+      "arguments": "u{61}",
+      "valid": false
+    },
+    {
+      "schema": {
+        "pattern": "a{,2}"
+      },
+      "arguments": "u12",
+      "valid": false
+    },
+    {
+      "schema": {
+        "pattern": "a{,2}"
+      },
+      "arguments": "xzz",
+      "valid": false
+    },
+    {
+      "schema": {
+        "pattern": "a{,2}"
+      },
+      "arguments": "8",
+      "valid": false
+    },
+    {
+      "schema": {
+        "pattern": "a{,2}"
+      },
+      "arguments": "\\c_",
+      "valid": false
+    },
+    {
+      "schema": {
+        "pattern": "a{,2}"
+      },
+      "arguments": "\u001f",
+      "valid": false
+    },
+    {
+      "schema": {
+        "pattern": "a{,2}"
+      },
+      "arguments": "baaabac",
+      "valid": false
+    },
+    {
+      "schema": {
+        "pattern": "a{2,1}"
+      },
+      "arguments": "",
+      "valid": false
+    },
+    {
+      "schema": {
+        "pattern": "a{2,1}"
+      },
+      "arguments": "a",
+      "valid": false
+    },
+    {
+      "schema": {
+        "pattern": "a{2,1}"
+      },
+      "arguments": "b",
+      "valid": false
+    },
+    {
+      "schema": {
+        "pattern": "a{2,1}"
+      },
+      "arguments": "ab",
+      "valid": false
+    },
+    {
+      "schema": {
+        "pattern": "a{2,1}"
+      },
+      "arguments": "aa",
+      "valid": false
+    },
+    {
+      "schema": {
+        "pattern": "a{2,1}"
+      },
+      "arguments": "aaa",
+      "valid": false
+    },
+    {
+      "schema": {
+        "pattern": "a{2,1}"
+      },
+      "arguments": "aaab",
+      "valid": false
+    },
+    {
+      "schema": {
+        "pattern": "a{2,1}"
+      },
+      "arguments": "aabaaa",
+      "valid": false
+    },
+    {
+      "schema": {
+        "pattern": "a{2,1}"
+      },
+      "arguments": "abc",
+      "valid": false
+    },
+    {
+      "schema": {
+        "pattern": "a{2,1}"
+      },
+      "arguments": "aba",
+      "valid": false
+    },
+    {
+      "schema": {
+        "pattern": "a{2,1}"
+      },
+      "arguments": "abab",
+      "valid": false
+    },
+    {
+      "schema": {
+        "pattern": "a{2,1}"
+      },
+      "arguments": "ba",
+      "valid": false
+    },
+    {
+      "schema": {
+        "pattern": "a{2,1}"
+      },
+      "arguments": "a\n",
+      "valid": false
+    },
+    {
+      "schema": {
+        "pattern": "a{2,1}"
+      },
+      "arguments": "😀",
+      "valid": false
+    },
+    {
+      "schema": {
+        "pattern": "a{2,1}"
+      },
+      "arguments": "é",
+      "valid": false
+    },
+    {
+      "schema": {
+        "pattern": "a{2,1}"
+      },
+      "arguments": "١",
+      "valid": false
+    },
+    {
+      "schema": {
+        "pattern": "a{2,1}"
+      },
+      "arguments": " ",
+      "valid": false
+    },
+    {
+      "schema": {
+        "pattern": "a{2,1}"
+      },
+      "arguments": " ",
+      "valid": false
+    },
+    {
+      "schema": {
+        "pattern": "a{2,1}"
+      },
+      "arguments": "﻿",
+      "valid": false
+    },
+    {
+      "schema": {
+        "pattern": "a{2,1}"
+      },
+      "arguments": "S",
+      "valid": false
+    },
+    {
+      "schema": {
+        "pattern": "a{2,1}"
+      },
+      "arguments": "u{61}",
+      "valid": false
+    },
+    {
+      "schema": {
+        "pattern": "a{2,1}"
+      },
+      "arguments": "u12",
+      "valid": false
+    },
+    {
+      "schema": {
+        "pattern": "a{2,1}"
+      },
+      "arguments": "xzz",
+      "valid": false
+    },
+    {
+      "schema": {
+        "pattern": "a{2,1}"
+      },
+      "arguments": "8",
+      "valid": false
+    },
+    {
+      "schema": {
+        "pattern": "a{2,1}"
+      },
+      "arguments": "\\c_",
+      "valid": false
+    },
+    {
+      "schema": {
+        "pattern": "a{2,1}"
+      },
+      "arguments": "\u001f",
+      "valid": false
+    },
+    {
+      "schema": {
+        "pattern": "a{2,1}"
+      },
+      "arguments": "baaabac",
+      "valid": false
+    },
+    {
+      "schema": {
+        "pattern": "(?=a)?a"
+      },
+      "arguments": "",
+      "valid": false
+    },
+    {
+      "schema": {
+        "pattern": "(?=a)?a"
+      },
+      "arguments": "a",
+      "valid": true
+    },
+    {
+      "schema": {
+        "pattern": "(?=a)?a"
+      },
+      "arguments": "b",
+      "valid": false
+    },
+    {
+      "schema": {
+        "pattern": "(?=a)?a"
+      },
+      "arguments": "ab",
+      "valid": true
+    },
+    {
+      "schema": {
+        "pattern": "(?=a)?a"
+      },
+      "arguments": "aa",
+      "valid": true
+    },
+    {
+      "schema": {
+        "pattern": "(?=a)?a"
+      },
+      "arguments": "aaa",
+      "valid": true
+    },
+    {
+      "schema": {
+        "pattern": "(?=a)?a"
+      },
+      "arguments": "aaab",
+      "valid": true
+    },
+    {
+      "schema": {
+        "pattern": "(?=a)?a"
+      },
+      "arguments": "aabaaa",
+      "valid": true
+    },
+    {
+      "schema": {
+        "pattern": "(?=a)?a"
+      },
+      "arguments": "abc",
+      "valid": true
+    },
+    {
+      "schema": {
+        "pattern": "(?=a)?a"
+      },
+      "arguments": "aba",
+      "valid": true
+    },
+    {
+      "schema": {
+        "pattern": "(?=a)?a"
+      },
+      "arguments": "abab",
+      "valid": true
+    },
+    {
+      "schema": {
+        "pattern": "(?=a)?a"
+      },
+      "arguments": "ba",
+      "valid": true
+    },
+    {
+      "schema": {
+        "pattern": "(?=a)?a"
+      },
+      "arguments": "a\n",
+      "valid": true
+    },
+    {
+      "schema": {
+        "pattern": "(?=a)?a"
+      },
+      "arguments": "😀",
+      "valid": false
+    },
+    {
+      "schema": {
+        "pattern": "(?=a)?a"
+      },
+      "arguments": "é",
+      "valid": false
+    },
+    {
+      "schema": {
+        "pattern": "(?=a)?a"
+      },
+      "arguments": "١",
+      "valid": false
+    },
+    {
+      "schema": {
+        "pattern": "(?=a)?a"
+      },
+      "arguments": " ",
+      "valid": false
+    },
+    {
+      "schema": {
+        "pattern": "(?=a)?a"
+      },
+      "arguments": " ",
+      "valid": false
+    },
+    {
+      "schema": {
+        "pattern": "(?=a)?a"
+      },
+      "arguments": "﻿",
+      "valid": false
+    },
+    {
+      "schema": {
+        "pattern": "(?=a)?a"
+      },
+      "arguments": "S",
+      "valid": false
+    },
+    {
+      "schema": {
+        "pattern": "(?=a)?a"
+      },
+      "arguments": "u{61}",
+      "valid": false
+    },
+    {
+      "schema": {
+        "pattern": "(?=a)?a"
+      },
+      "arguments": "u12",
+      "valid": false
+    },
+    {
+      "schema": {
+        "pattern": "(?=a)?a"
+      },
+      "arguments": "xzz",
+      "valid": false
+    },
+    {
+      "schema": {
+        "pattern": "(?=a)?a"
+      },
+      "arguments": "8",
+      "valid": false
+    },
+    {
+      "schema": {
+        "pattern": "(?=a)?a"
+      },
+      "arguments": "\\c_",
+      "valid": false
+    },
+    {
+      "schema": {
+        "pattern": "(?=a)?a"
+      },
+      "arguments": "\u001f",
+      "valid": false
+    },
+    {
+      "schema": {
+        "pattern": "(?=a)?a"
+      },
+      "arguments": "baaabac",
+      "valid": true
+    },
+    {
+      "schema": {
+        "pattern": "(a*)*b"
+      },
+      "arguments": "",
+      "valid": false
+    },
+    {
+      "schema": {
+        "pattern": "(a*)*b"
+      },
+      "arguments": "a",
+      "valid": false
+    },
+    {
+      "schema": {
+        "pattern": "(a*)*b"
+      },
+      "arguments": "b",
+      "valid": true
+    },
+    {
+      "schema": {
+        "pattern": "(a*)*b"
+      },
+      "arguments": "ab",
+      "valid": true
+    },
+    {
+      "schema": {
+        "pattern": "(a*)*b"
+      },
+      "arguments": "aa",
+      "valid": false
+    },
+    {
+      "schema": {
+        "pattern": "(a*)*b"
+      },
+      "arguments": "aaa",
+      "valid": false
+    },
+    {
+      "schema": {
+        "pattern": "(a*)*b"
+      },
+      "arguments": "aaab",
+      "valid": true
+    },
+    {
+      "schema": {
+        "pattern": "(a*)*b"
+      },
+      "arguments": "aabaaa",
+      "valid": true
+    },
+    {
+      "schema": {
+        "pattern": "(a*)*b"
+      },
+      "arguments": "abc",
+      "valid": true
+    },
+    {
+      "schema": {
+        "pattern": "(a*)*b"
+      },
+      "arguments": "aba",
+      "valid": true
+    },
+    {
+      "schema": {
+        "pattern": "(a*)*b"
+      },
+      "arguments": "abab",
+      "valid": true
+    },
+    {
+      "schema": {
+        "pattern": "(a*)*b"
+      },
+      "arguments": "ba",
+      "valid": true
+    },
+    {
+      "schema": {
+        "pattern": "(a*)*b"
+      },
+      "arguments": "a\n",
+      "valid": false
+    },
+    {
+      "schema": {
+        "pattern": "(a*)*b"
+      },
+      "arguments": "😀",
+      "valid": false
+    },
+    {
+      "schema": {
+        "pattern": "(a*)*b"
+      },
+      "arguments": "é",
+      "valid": false
+    },
+    {
+      "schema": {
+        "pattern": "(a*)*b"
+      },
+      "arguments": "١",
+      "valid": false
+    },
+    {
+      "schema": {
+        "pattern": "(a*)*b"
+      },
+      "arguments": " ",
+      "valid": false
+    },
+    {
+      "schema": {
+        "pattern": "(a*)*b"
+      },
+      "arguments": " ",
+      "valid": false
+    },
+    {
+      "schema": {
+        "pattern": "(a*)*b"
+      },
+      "arguments": "﻿",
+      "valid": false
+    },
+    {
+      "schema": {
+        "pattern": "(a*)*b"
+      },
+      "arguments": "S",
+      "valid": false
+    },
+    {
+      "schema": {
+        "pattern": "(a*)*b"
+      },
+      "arguments": "u{61}",
+      "valid": false
+    },
+    {
+      "schema": {
+        "pattern": "(a*)*b"
+      },
+      "arguments": "u12",
+      "valid": false
+    },
+    {
+      "schema": {
+        "pattern": "(a*)*b"
+      },
+      "arguments": "xzz",
+      "valid": false
+    },
+    {
+      "schema": {
+        "pattern": "(a*)*b"
+      },
+      "arguments": "8",
+      "valid": false
+    },
+    {
+      "schema": {
+        "pattern": "(a*)*b"
+      },
+      "arguments": "\\c_",
+      "valid": false
+    },
+    {
+      "schema": {
+        "pattern": "(a*)*b"
+      },
+      "arguments": "\u001f",
+      "valid": false
+    },
+    {
+      "schema": {
+        "pattern": "(a*)*b"
+      },
+      "arguments": "baaabac",
+      "valid": true
+    },
+    {
+      "schema": {
+        "pattern": "(?:a|ab)*?b"
+      },
+      "arguments": "",
+      "valid": false
+    },
+    {
+      "schema": {
+        "pattern": "(?:a|ab)*?b"
+      },
+      "arguments": "a",
+      "valid": false
+    },
+    {
+      "schema": {
+        "pattern": "(?:a|ab)*?b"
+      },
+      "arguments": "b",
+      "valid": true
+    },
+    {
+      "schema": {
+        "pattern": "(?:a|ab)*?b"
+      },
+      "arguments": "ab",
+      "valid": true
+    },
+    {
+      "schema": {
+        "pattern": "(?:a|ab)*?b"
+      },
+      "arguments": "aa",
+      "valid": false
+    },
+    {
+      "schema": {
+        "pattern": "(?:a|ab)*?b"
+      },
+      "arguments": "aaa",
+      "valid": false
+    },
+    {
+      "schema": {
+        "pattern": "(?:a|ab)*?b"
+      },
+      "arguments": "aaab",
+      "valid": true
+    },
+    {
+      "schema": {
+        "pattern": "(?:a|ab)*?b"
+      },
+      "arguments": "aabaaa",
+      "valid": true
+    },
+    {
+      "schema": {
+        "pattern": "(?:a|ab)*?b"
+      },
+      "arguments": "abc",
+      "valid": true
+    },
+    {
+      "schema": {
+        "pattern": "(?:a|ab)*?b"
+      },
+      "arguments": "aba",
+      "valid": true
+    },
+    {
+      "schema": {
+        "pattern": "(?:a|ab)*?b"
+      },
+      "arguments": "abab",
+      "valid": true
+    },
+    {
+      "schema": {
+        "pattern": "(?:a|ab)*?b"
+      },
+      "arguments": "ba",
+      "valid": true
+    },
+    {
+      "schema": {
+        "pattern": "(?:a|ab)*?b"
+      },
+      "arguments": "a\n",
+      "valid": false
+    },
+    {
+      "schema": {
+        "pattern": "(?:a|ab)*?b"
+      },
+      "arguments": "😀",
+      "valid": false
+    },
+    {
+      "schema": {
+        "pattern": "(?:a|ab)*?b"
+      },
+      "arguments": "é",
+      "valid": false
+    },
+    {
+      "schema": {
+        "pattern": "(?:a|ab)*?b"
+      },
+      "arguments": "١",
+      "valid": false
+    },
+    {
+      "schema": {
+        "pattern": "(?:a|ab)*?b"
+      },
+      "arguments": " ",
+      "valid": false
+    },
+    {
+      "schema": {
+        "pattern": "(?:a|ab)*?b"
+      },
+      "arguments": " ",
+      "valid": false
+    },
+    {
+      "schema": {
+        "pattern": "(?:a|ab)*?b"
+      },
+      "arguments": "﻿",
+      "valid": false
+    },
+    {
+      "schema": {
+        "pattern": "(?:a|ab)*?b"
+      },
+      "arguments": "S",
+      "valid": false
+    },
+    {
+      "schema": {
+        "pattern": "(?:a|ab)*?b"
+      },
+      "arguments": "u{61}",
+      "valid": false
+    },
+    {
+      "schema": {
+        "pattern": "(?:a|ab)*?b"
+      },
+      "arguments": "u12",
+      "valid": false
+    },
+    {
+      "schema": {
+        "pattern": "(?:a|ab)*?b"
+      },
+      "arguments": "xzz",
+      "valid": false
+    },
+    {
+      "schema": {
+        "pattern": "(?:a|ab)*?b"
+      },
+      "arguments": "8",
+      "valid": false
+    },
+    {
+      "schema": {
+        "pattern": "(?:a|ab)*?b"
+      },
+      "arguments": "\\c_",
+      "valid": false
+    },
+    {
+      "schema": {
+        "pattern": "(?:a|ab)*?b"
+      },
+      "arguments": "\u001f",
+      "valid": false
+    },
+    {
+      "schema": {
+        "pattern": "(?:a|ab)*?b"
+      },
+      "arguments": "baaabac",
+      "valid": true
+    },
+    {
+      "schema": {
+        "pattern": "(a?){2}\\1"
+      },
+      "arguments": "",
+      "valid": true
+    },
+    {
+      "schema": {
+        "pattern": "(a?){2}\\1"
+      },
+      "arguments": "a",
+      "valid": true
+    },
+    {
+      "schema": {
+        "pattern": "(a?){2}\\1"
+      },
+      "arguments": "b",
+      "valid": true
+    },
+    {
+      "schema": {
+        "pattern": "(a?){2}\\1"
+      },
+      "arguments": "ab",
+      "valid": true
+    },
+    {
+      "schema": {
+        "pattern": "(a?){2}\\1"
+      },
+      "arguments": "aa",
+      "valid": true
+    },
+    {
+      "schema": {
+        "pattern": "(a?){2}\\1"
+      },
+      "arguments": "aaa",
+      "valid": true
+    },
+    {
+      "schema": {
+        "pattern": "(a?){2}\\1"
+      },
+      "arguments": "aaab",
+      "valid": true
+    },
+    {
+      "schema": {
+        "pattern": "(a?){2}\\1"
+      },
+      "arguments": "aabaaa",
+      "valid": true
+    },
+    {
+      "schema": {
+        "pattern": "(a?){2}\\1"
+      },
+      "arguments": "abc",
+      "valid": true
+    },
+    {
+      "schema": {
+        "pattern": "(a?){2}\\1"
+      },
+      "arguments": "aba",
+      "valid": true
+    },
+    {
+      "schema": {
+        "pattern": "(a?){2}\\1"
+      },
+      "arguments": "abab",
+      "valid": true
+    },
+    {
+      "schema": {
+        "pattern": "(a?){2}\\1"
+      },
+      "arguments": "ba",
+      "valid": true
+    },
+    {
+      "schema": {
+        "pattern": "(a?){2}\\1"
+      },
+      "arguments": "a\n",
+      "valid": true
+    },
+    {
+      "schema": {
+        "pattern": "(a?){2}\\1"
+      },
+      "arguments": "😀",
+      "valid": true
+    },
+    {
+      "schema": {
+        "pattern": "(a?){2}\\1"
+      },
+      "arguments": "é",
+      "valid": true
+    },
+    {
+      "schema": {
+        "pattern": "(a?){2}\\1"
+      },
+      "arguments": "١",
+      "valid": true
+    },
+    {
+      "schema": {
+        "pattern": "(a?){2}\\1"
+      },
+      "arguments": " ",
+      "valid": true
+    },
+    {
+      "schema": {
+        "pattern": "(a?){2}\\1"
+      },
+      "arguments": " ",
+      "valid": true
+    },
+    {
+      "schema": {
+        "pattern": "(a?){2}\\1"
+      },
+      "arguments": "﻿",
+      "valid": true
+    },
+    {
+      "schema": {
+        "pattern": "(a?){2}\\1"
+      },
+      "arguments": "S",
+      "valid": true
+    },
+    {
+      "schema": {
+        "pattern": "(a?){2}\\1"
+      },
+      "arguments": "u{61}",
+      "valid": true
+    },
+    {
+      "schema": {
+        "pattern": "(a?){2}\\1"
+      },
+      "arguments": "u12",
+      "valid": true
+    },
+    {
+      "schema": {
+        "pattern": "(a?){2}\\1"
+      },
+      "arguments": "xzz",
+      "valid": true
+    },
+    {
+      "schema": {
+        "pattern": "(a?){2}\\1"
+      },
+      "arguments": "8",
+      "valid": true
+    },
+    {
+      "schema": {
+        "pattern": "(a?){2}\\1"
+      },
+      "arguments": "\\c_",
+      "valid": true
+    },
+    {
+      "schema": {
+        "pattern": "(a?){2}\\1"
+      },
+      "arguments": "\u001f",
+      "valid": true
+    },
+    {
+      "schema": {
+        "pattern": "(a?){2}\\1"
+      },
+      "arguments": "baaabac",
+      "valid": true
+    },
+    {
+      "schema": {
+        "pattern": "(?<x>a)\\k<bad>"
+      },
+      "arguments": "",
+      "valid": false
+    },
+    {
+      "schema": {
+        "pattern": "(?<x>a)\\k<bad>"
+      },
+      "arguments": "a",
+      "valid": false
+    },
+    {
+      "schema": {
+        "pattern": "(?<x>a)\\k<bad>"
+      },
+      "arguments": "b",
+      "valid": false
+    },
+    {
+      "schema": {
+        "pattern": "(?<x>a)\\k<bad>"
+      },
+      "arguments": "ab",
+      "valid": false
+    },
+    {
+      "schema": {
+        "pattern": "(?<x>a)\\k<bad>"
+      },
+      "arguments": "aa",
+      "valid": false
+    },
+    {
+      "schema": {
+        "pattern": "(?<x>a)\\k<bad>"
+      },
+      "arguments": "aaa",
+      "valid": false
+    },
+    {
+      "schema": {
+        "pattern": "(?<x>a)\\k<bad>"
+      },
+      "arguments": "aaab",
+      "valid": false
+    },
+    {
+      "schema": {
+        "pattern": "(?<x>a)\\k<bad>"
+      },
+      "arguments": "aabaaa",
+      "valid": false
+    },
+    {
+      "schema": {
+        "pattern": "(?<x>a)\\k<bad>"
+      },
+      "arguments": "abc",
+      "valid": false
+    },
+    {
+      "schema": {
+        "pattern": "(?<x>a)\\k<bad>"
+      },
+      "arguments": "aba",
+      "valid": false
+    },
+    {
+      "schema": {
+        "pattern": "(?<x>a)\\k<bad>"
+      },
+      "arguments": "abab",
+      "valid": false
+    },
+    {
+      "schema": {
+        "pattern": "(?<x>a)\\k<bad>"
+      },
+      "arguments": "ba",
+      "valid": false
+    },
+    {
+      "schema": {
+        "pattern": "(?<x>a)\\k<bad>"
+      },
+      "arguments": "a\n",
+      "valid": false
+    },
+    {
+      "schema": {
+        "pattern": "(?<x>a)\\k<bad>"
+      },
+      "arguments": "😀",
+      "valid": false
+    },
+    {
+      "schema": {
+        "pattern": "(?<x>a)\\k<bad>"
+      },
+      "arguments": "é",
+      "valid": false
+    },
+    {
+      "schema": {
+        "pattern": "(?<x>a)\\k<bad>"
+      },
+      "arguments": "١",
+      "valid": false
+    },
+    {
+      "schema": {
+        "pattern": "(?<x>a)\\k<bad>"
+      },
+      "arguments": " ",
+      "valid": false
+    },
+    {
+      "schema": {
+        "pattern": "(?<x>a)\\k<bad>"
+      },
+      "arguments": " ",
+      "valid": false
+    },
+    {
+      "schema": {
+        "pattern": "(?<x>a)\\k<bad>"
+      },
+      "arguments": "﻿",
+      "valid": false
+    },
+    {
+      "schema": {
+        "pattern": "(?<x>a)\\k<bad>"
+      },
+      "arguments": "S",
+      "valid": false
+    },
+    {
+      "schema": {
+        "pattern": "(?<x>a)\\k<bad>"
+      },
+      "arguments": "u{61}",
+      "valid": false
+    },
+    {
+      "schema": {
+        "pattern": "(?<x>a)\\k<bad>"
+      },
+      "arguments": "u12",
+      "valid": false
+    },
+    {
+      "schema": {
+        "pattern": "(?<x>a)\\k<bad>"
+      },
+      "arguments": "xzz",
+      "valid": false
+    },
+    {
+      "schema": {
+        "pattern": "(?<x>a)\\k<bad>"
+      },
+      "arguments": "8",
+      "valid": false
+    },
+    {
+      "schema": {
+        "pattern": "(?<x>a)\\k<bad>"
+      },
+      "arguments": "\\c_",
+      "valid": false
+    },
+    {
+      "schema": {
+        "pattern": "(?<x>a)\\k<bad>"
+      },
+      "arguments": "\u001f",
+      "valid": false
+    },
+    {
+      "schema": {
+        "pattern": "(?<x>a)\\k<bad>"
+      },
+      "arguments": "baaabac",
+      "valid": false
+    },
+    {
+      "schema": {
+        "pattern": "{2}"
+      },
+      "arguments": "",
+      "valid": false
+    },
+    {
+      "schema": {
+        "pattern": "{2}"
+      },
+      "arguments": "a",
+      "valid": false
+    },
+    {
+      "schema": {
+        "pattern": "{2}"
+      },
+      "arguments": "b",
+      "valid": false
+    },
+    {
+      "schema": {
+        "pattern": "{2}"
+      },
+      "arguments": "ab",
+      "valid": false
+    },
+    {
+      "schema": {
+        "pattern": "{2}"
+      },
+      "arguments": "aa",
+      "valid": false
+    },
+    {
+      "schema": {
+        "pattern": "{2}"
+      },
+      "arguments": "aaa",
+      "valid": false
+    },
+    {
+      "schema": {
+        "pattern": "{2}"
+      },
+      "arguments": "aaab",
+      "valid": false
+    },
+    {
+      "schema": {
+        "pattern": "{2}"
+      },
+      "arguments": "aabaaa",
+      "valid": false
+    },
+    {
+      "schema": {
+        "pattern": "{2}"
+      },
+      "arguments": "abc",
+      "valid": false
+    },
+    {
+      "schema": {
+        "pattern": "{2}"
+      },
+      "arguments": "aba",
+      "valid": false
+    },
+    {
+      "schema": {
+        "pattern": "{2}"
+      },
+      "arguments": "abab",
+      "valid": false
+    },
+    {
+      "schema": {
+        "pattern": "{2}"
+      },
+      "arguments": "ba",
+      "valid": false
+    },
+    {
+      "schema": {
+        "pattern": "{2}"
+      },
+      "arguments": "a\n",
+      "valid": false
+    },
+    {
+      "schema": {
+        "pattern": "{2}"
+      },
+      "arguments": "😀",
+      "valid": false
+    },
+    {
+      "schema": {
+        "pattern": "{2}"
+      },
+      "arguments": "é",
+      "valid": false
+    },
+    {
+      "schema": {
+        "pattern": "{2}"
+      },
+      "arguments": "١",
+      "valid": false
+    },
+    {
+      "schema": {
+        "pattern": "{2}"
+      },
+      "arguments": " ",
+      "valid": false
+    },
+    {
+      "schema": {
+        "pattern": "{2}"
+      },
+      "arguments": " ",
+      "valid": false
+    },
+    {
+      "schema": {
+        "pattern": "{2}"
+      },
+      "arguments": "﻿",
+      "valid": false
+    },
+    {
+      "schema": {
+        "pattern": "{2}"
+      },
+      "arguments": "S",
+      "valid": false
+    },
+    {
+      "schema": {
+        "pattern": "{2}"
+      },
+      "arguments": "u{61}",
+      "valid": false
+    },
+    {
+      "schema": {
+        "pattern": "{2}"
+      },
+      "arguments": "u12",
+      "valid": false
+    },
+    {
+      "schema": {
+        "pattern": "{2}"
+      },
+      "arguments": "xzz",
+      "valid": false
+    },
+    {
+      "schema": {
+        "pattern": "{2}"
+      },
+      "arguments": "8",
+      "valid": false
+    },
+    {
+      "schema": {
+        "pattern": "{2}"
+      },
+      "arguments": "\\c_",
+      "valid": false
+    },
+    {
+      "schema": {
+        "pattern": "{2}"
+      },
+      "arguments": "\u001f",
+      "valid": false
+    },
+    {
+      "schema": {
+        "pattern": "{2}"
+      },
+      "arguments": "baaabac",
+      "valid": false
+    },
+    {
+      "schema": {
+        "pattern": "(?<1>a)"
+      },
+      "arguments": "",
+      "valid": false
+    },
+    {
+      "schema": {
+        "pattern": "(?<1>a)"
+      },
+      "arguments": "a",
+      "valid": false
+    },
+    {
+      "schema": {
+        "pattern": "(?<1>a)"
+      },
+      "arguments": "b",
+      "valid": false
+    },
+    {
+      "schema": {
+        "pattern": "(?<1>a)"
+      },
+      "arguments": "ab",
+      "valid": false
+    },
+    {
+      "schema": {
+        "pattern": "(?<1>a)"
+      },
+      "arguments": "aa",
+      "valid": false
+    },
+    {
+      "schema": {
+        "pattern": "(?<1>a)"
+      },
+      "arguments": "aaa",
+      "valid": false
+    },
+    {
+      "schema": {
+        "pattern": "(?<1>a)"
+      },
+      "arguments": "aaab",
+      "valid": false
+    },
+    {
+      "schema": {
+        "pattern": "(?<1>a)"
+      },
+      "arguments": "aabaaa",
+      "valid": false
+    },
+    {
+      "schema": {
+        "pattern": "(?<1>a)"
+      },
+      "arguments": "abc",
+      "valid": false
+    },
+    {
+      "schema": {
+        "pattern": "(?<1>a)"
+      },
+      "arguments": "aba",
+      "valid": false
+    },
+    {
+      "schema": {
+        "pattern": "(?<1>a)"
+      },
+      "arguments": "abab",
+      "valid": false
+    },
+    {
+      "schema": {
+        "pattern": "(?<1>a)"
+      },
+      "arguments": "ba",
+      "valid": false
+    },
+    {
+      "schema": {
+        "pattern": "(?<1>a)"
+      },
+      "arguments": "a\n",
+      "valid": false
+    },
+    {
+      "schema": {
+        "pattern": "(?<1>a)"
+      },
+      "arguments": "😀",
+      "valid": false
+    },
+    {
+      "schema": {
+        "pattern": "(?<1>a)"
+      },
+      "arguments": "é",
+      "valid": false
+    },
+    {
+      "schema": {
+        "pattern": "(?<1>a)"
+      },
+      "arguments": "١",
+      "valid": false
+    },
+    {
+      "schema": {
+        "pattern": "(?<1>a)"
+      },
+      "arguments": " ",
+      "valid": false
+    },
+    {
+      "schema": {
+        "pattern": "(?<1>a)"
+      },
+      "arguments": " ",
+      "valid": false
+    },
+    {
+      "schema": {
+        "pattern": "(?<1>a)"
+      },
+      "arguments": "﻿",
+      "valid": false
+    },
+    {
+      "schema": {
+        "pattern": "(?<1>a)"
+      },
+      "arguments": "S",
+      "valid": false
+    },
+    {
+      "schema": {
+        "pattern": "(?<1>a)"
+      },
+      "arguments": "u{61}",
+      "valid": false
+    },
+    {
+      "schema": {
+        "pattern": "(?<1>a)"
+      },
+      "arguments": "u12",
+      "valid": false
+    },
+    {
+      "schema": {
+        "pattern": "(?<1>a)"
+      },
+      "arguments": "xzz",
+      "valid": false
+    },
+    {
+      "schema": {
+        "pattern": "(?<1>a)"
+      },
+      "arguments": "8",
+      "valid": false
+    },
+    {
+      "schema": {
+        "pattern": "(?<1>a)"
+      },
+      "arguments": "\\c_",
+      "valid": false
+    },
+    {
+      "schema": {
+        "pattern": "(?<1>a)"
+      },
+      "arguments": "\u001f",
+      "valid": false
+    },
+    {
+      "schema": {
+        "pattern": "(?<1>a)"
+      },
+      "arguments": "baaabac",
+      "valid": false
+    },
+    {
+      "schema": {
+        "pattern": "(?<=\\1(a))b"
+      },
+      "arguments": "",
+      "valid": false
+    },
+    {
+      "schema": {
+        "pattern": "(?<=\\1(a))b"
+      },
+      "arguments": "a",
+      "valid": false
+    },
+    {
+      "schema": {
+        "pattern": "(?<=\\1(a))b"
+      },
+      "arguments": "b",
+      "valid": false
+    },
+    {
+      "schema": {
+        "pattern": "(?<=\\1(a))b"
+      },
+      "arguments": "ab",
+      "valid": false
+    },
+    {
+      "schema": {
+        "pattern": "(?<=\\1(a))b"
+      },
+      "arguments": "aa",
+      "valid": false
+    },
+    {
+      "schema": {
+        "pattern": "(?<=\\1(a))b"
+      },
+      "arguments": "aaa",
+      "valid": false
+    },
+    {
+      "schema": {
+        "pattern": "(?<=\\1(a))b"
+      },
+      "arguments": "aaab",
+      "valid": true
+    },
+    {
+      "schema": {
+        "pattern": "(?<=\\1(a))b"
+      },
+      "arguments": "aabaaa",
+      "valid": true
+    },
+    {
+      "schema": {
+        "pattern": "(?<=\\1(a))b"
+      },
+      "arguments": "abc",
+      "valid": false
+    },
+    {
+      "schema": {
+        "pattern": "(?<=\\1(a))b"
+      },
+      "arguments": "aba",
+      "valid": false
+    },
+    {
+      "schema": {
+        "pattern": "(?<=\\1(a))b"
+      },
+      "arguments": "abab",
+      "valid": false
+    },
+    {
+      "schema": {
+        "pattern": "(?<=\\1(a))b"
+      },
+      "arguments": "ba",
+      "valid": false
+    },
+    {
+      "schema": {
+        "pattern": "(?<=\\1(a))b"
+      },
+      "arguments": "a\n",
+      "valid": false
+    },
+    {
+      "schema": {
+        "pattern": "(?<=\\1(a))b"
+      },
+      "arguments": "😀",
+      "valid": false
+    },
+    {
+      "schema": {
+        "pattern": "(?<=\\1(a))b"
+      },
+      "arguments": "é",
+      "valid": false
+    },
+    {
+      "schema": {
+        "pattern": "(?<=\\1(a))b"
+      },
+      "arguments": "١",
+      "valid": false
+    },
+    {
+      "schema": {
+        "pattern": "(?<=\\1(a))b"
+      },
+      "arguments": " ",
+      "valid": false
+    },
+    {
+      "schema": {
+        "pattern": "(?<=\\1(a))b"
+      },
+      "arguments": " ",
+      "valid": false
+    },
+    {
+      "schema": {
+        "pattern": "(?<=\\1(a))b"
+      },
+      "arguments": "﻿",
+      "valid": false
+    },
+    {
+      "schema": {
+        "pattern": "(?<=\\1(a))b"
+      },
+      "arguments": "S",
+      "valid": false
+    },
+    {
+      "schema": {
+        "pattern": "(?<=\\1(a))b"
+      },
+      "arguments": "u{61}",
+      "valid": false
+    },
+    {
+      "schema": {
+        "pattern": "(?<=\\1(a))b"
+      },
+      "arguments": "u12",
+      "valid": false
+    },
+    {
+      "schema": {
+        "pattern": "(?<=\\1(a))b"
+      },
+      "arguments": "xzz",
+      "valid": false
+    },
+    {
+      "schema": {
+        "pattern": "(?<=\\1(a))b"
+      },
+      "arguments": "8",
+      "valid": false
+    },
+    {
+      "schema": {
+        "pattern": "(?<=\\1(a))b"
+      },
+      "arguments": "\\c_",
+      "valid": false
+    },
+    {
+      "schema": {
+        "pattern": "(?<=\\1(a))b"
+      },
+      "arguments": "\u001f",
+      "valid": false
+    },
+    {
+      "schema": {
+        "pattern": "(?<=\\1(a))b"
+      },
+      "arguments": "baaabac",
+      "valid": true
+    },
+    {
+      "schema": {
+        "pattern": "(?<x>a)|(?<x>b)"
+      },
+      "arguments": "",
+      "valid": false
+    },
+    {
+      "schema": {
+        "pattern": "(?<x>a)|(?<x>b)"
+      },
+      "arguments": "a",
+      "valid": true
+    },
+    {
+      "schema": {
+        "pattern": "(?<x>a)|(?<x>b)"
+      },
+      "arguments": "b",
+      "valid": true
+    },
+    {
+      "schema": {
+        "pattern": "(?<x>a)|(?<x>b)"
+      },
+      "arguments": "ab",
+      "valid": true
+    },
+    {
+      "schema": {
+        "pattern": "(?<x>a)|(?<x>b)"
+      },
+      "arguments": "aa",
+      "valid": true
+    },
+    {
+      "schema": {
+        "pattern": "(?<x>a)|(?<x>b)"
+      },
+      "arguments": "aaa",
+      "valid": true
+    },
+    {
+      "schema": {
+        "pattern": "(?<x>a)|(?<x>b)"
+      },
+      "arguments": "aaab",
+      "valid": true
+    },
+    {
+      "schema": {
+        "pattern": "(?<x>a)|(?<x>b)"
+      },
+      "arguments": "aabaaa",
+      "valid": true
+    },
+    {
+      "schema": {
+        "pattern": "(?<x>a)|(?<x>b)"
+      },
+      "arguments": "abc",
+      "valid": true
+    },
+    {
+      "schema": {
+        "pattern": "(?<x>a)|(?<x>b)"
+      },
+      "arguments": "aba",
+      "valid": true
+    },
+    {
+      "schema": {
+        "pattern": "(?<x>a)|(?<x>b)"
+      },
+      "arguments": "abab",
+      "valid": true
+    },
+    {
+      "schema": {
+        "pattern": "(?<x>a)|(?<x>b)"
+      },
+      "arguments": "ba",
+      "valid": true
+    },
+    {
+      "schema": {
+        "pattern": "(?<x>a)|(?<x>b)"
+      },
+      "arguments": "a\n",
+      "valid": true
+    },
+    {
+      "schema": {
+        "pattern": "(?<x>a)|(?<x>b)"
+      },
+      "arguments": "😀",
+      "valid": false
+    },
+    {
+      "schema": {
+        "pattern": "(?<x>a)|(?<x>b)"
+      },
+      "arguments": "é",
+      "valid": false
+    },
+    {
+      "schema": {
+        "pattern": "(?<x>a)|(?<x>b)"
+      },
+      "arguments": "١",
+      "valid": false
+    },
+    {
+      "schema": {
+        "pattern": "(?<x>a)|(?<x>b)"
+      },
+      "arguments": " ",
+      "valid": false
+    },
+    {
+      "schema": {
+        "pattern": "(?<x>a)|(?<x>b)"
+      },
+      "arguments": " ",
+      "valid": false
+    },
+    {
+      "schema": {
+        "pattern": "(?<x>a)|(?<x>b)"
+      },
+      "arguments": "﻿",
+      "valid": false
+    },
+    {
+      "schema": {
+        "pattern": "(?<x>a)|(?<x>b)"
+      },
+      "arguments": "S",
+      "valid": false
+    },
+    {
+      "schema": {
+        "pattern": "(?<x>a)|(?<x>b)"
+      },
+      "arguments": "u{61}",
+      "valid": false
+    },
+    {
+      "schema": {
+        "pattern": "(?<x>a)|(?<x>b)"
+      },
+      "arguments": "u12",
+      "valid": false
+    },
+    {
+      "schema": {
+        "pattern": "(?<x>a)|(?<x>b)"
+      },
+      "arguments": "xzz",
+      "valid": false
+    },
+    {
+      "schema": {
+        "pattern": "(?<x>a)|(?<x>b)"
+      },
+      "arguments": "8",
+      "valid": false
+    },
+    {
+      "schema": {
+        "pattern": "(?<x>a)|(?<x>b)"
+      },
+      "arguments": "\\c_",
+      "valid": false
+    },
+    {
+      "schema": {
+        "pattern": "(?<x>a)|(?<x>b)"
+      },
+      "arguments": "\u001f",
+      "valid": false
+    },
+    {
+      "schema": {
+        "pattern": "(?<x>a)|(?<x>b)"
+      },
+      "arguments": "baaabac",
+      "valid": true
+    },
+    {
+      "schema": {
+        "pattern": "(?:(?<x>a)|(?<x>b))+\\k<x>"
+      },
+      "arguments": "",
+      "valid": false
+    },
+    {
+      "schema": {
+        "pattern": "(?:(?<x>a)|(?<x>b))+\\k<x>"
+      },
+      "arguments": "a",
+      "valid": false
+    },
+    {
+      "schema": {
+        "pattern": "(?:(?<x>a)|(?<x>b))+\\k<x>"
+      },
+      "arguments": "b",
+      "valid": false
+    },
+    {
+      "schema": {
+        "pattern": "(?:(?<x>a)|(?<x>b))+\\k<x>"
+      },
+      "arguments": "ab",
+      "valid": false
+    },
+    {
+      "schema": {
+        "pattern": "(?:(?<x>a)|(?<x>b))+\\k<x>"
+      },
+      "arguments": "aa",
+      "valid": true
+    },
+    {
+      "schema": {
+        "pattern": "(?:(?<x>a)|(?<x>b))+\\k<x>"
+      },
+      "arguments": "aaa",
+      "valid": true
+    },
+    {
+      "schema": {
+        "pattern": "(?:(?<x>a)|(?<x>b))+\\k<x>"
+      },
+      "arguments": "aaab",
+      "valid": true
+    },
+    {
+      "schema": {
+        "pattern": "(?:(?<x>a)|(?<x>b))+\\k<x>"
+      },
+      "arguments": "aabaaa",
+      "valid": true
+    },
+    {
+      "schema": {
+        "pattern": "(?:(?<x>a)|(?<x>b))+\\k<x>"
+      },
+      "arguments": "abc",
+      "valid": false
+    },
+    {
+      "schema": {
+        "pattern": "(?:(?<x>a)|(?<x>b))+\\k<x>"
+      },
+      "arguments": "aba",
+      "valid": false
+    },
+    {
+      "schema": {
+        "pattern": "(?:(?<x>a)|(?<x>b))+\\k<x>"
+      },
+      "arguments": "abab",
+      "valid": false
+    },
+    {
+      "schema": {
+        "pattern": "(?:(?<x>a)|(?<x>b))+\\k<x>"
+      },
+      "arguments": "ba",
+      "valid": false
+    },
+    {
+      "schema": {
+        "pattern": "(?:(?<x>a)|(?<x>b))+\\k<x>"
+      },
+      "arguments": "a\n",
+      "valid": false
+    },
+    {
+      "schema": {
+        "pattern": "(?:(?<x>a)|(?<x>b))+\\k<x>"
+      },
+      "arguments": "😀",
+      "valid": false
+    },
+    {
+      "schema": {
+        "pattern": "(?:(?<x>a)|(?<x>b))+\\k<x>"
+      },
+      "arguments": "é",
+      "valid": false
+    },
+    {
+      "schema": {
+        "pattern": "(?:(?<x>a)|(?<x>b))+\\k<x>"
+      },
+      "arguments": "١",
+      "valid": false
+    },
+    {
+      "schema": {
+        "pattern": "(?:(?<x>a)|(?<x>b))+\\k<x>"
+      },
+      "arguments": " ",
+      "valid": false
+    },
+    {
+      "schema": {
+        "pattern": "(?:(?<x>a)|(?<x>b))+\\k<x>"
+      },
+      "arguments": " ",
+      "valid": false
+    },
+    {
+      "schema": {
+        "pattern": "(?:(?<x>a)|(?<x>b))+\\k<x>"
+      },
+      "arguments": "﻿",
+      "valid": false
+    },
+    {
+      "schema": {
+        "pattern": "(?:(?<x>a)|(?<x>b))+\\k<x>"
+      },
+      "arguments": "S",
+      "valid": false
+    },
+    {
+      "schema": {
+        "pattern": "(?:(?<x>a)|(?<x>b))+\\k<x>"
+      },
+      "arguments": "u{61}",
+      "valid": false
+    },
+    {
+      "schema": {
+        "pattern": "(?:(?<x>a)|(?<x>b))+\\k<x>"
+      },
+      "arguments": "u12",
+      "valid": false
+    },
+    {
+      "schema": {
+        "pattern": "(?:(?<x>a)|(?<x>b))+\\k<x>"
+      },
+      "arguments": "xzz",
+      "valid": false
+    },
+    {
+      "schema": {
+        "pattern": "(?:(?<x>a)|(?<x>b))+\\k<x>"
+      },
+      "arguments": "8",
+      "valid": false
+    },
+    {
+      "schema": {
+        "pattern": "(?:(?<x>a)|(?<x>b))+\\k<x>"
+      },
+      "arguments": "\\c_",
+      "valid": false
+    },
+    {
+      "schema": {
+        "pattern": "(?:(?<x>a)|(?<x>b))+\\k<x>"
+      },
+      "arguments": "\u001f",
+      "valid": false
+    },
+    {
+      "schema": {
+        "pattern": "(?:(?<x>a)|(?<x>b))+\\k<x>"
+      },
+      "arguments": "baaabac",
+      "valid": true
+    },
+    {
+      "schema": {
+        "pattern": "(?<\\u0061>a)\\k<a>"
+      },
+      "arguments": "",
+      "valid": false
+    },
+    {
+      "schema": {
+        "pattern": "(?<\\u0061>a)\\k<a>"
+      },
+      "arguments": "a",
+      "valid": false
+    },
+    {
+      "schema": {
+        "pattern": "(?<\\u0061>a)\\k<a>"
+      },
+      "arguments": "b",
+      "valid": false
+    },
+    {
+      "schema": {
+        "pattern": "(?<\\u0061>a)\\k<a>"
+      },
+      "arguments": "ab",
+      "valid": false
+    },
+    {
+      "schema": {
+        "pattern": "(?<\\u0061>a)\\k<a>"
+      },
+      "arguments": "aa",
+      "valid": true
+    },
+    {
+      "schema": {
+        "pattern": "(?<\\u0061>a)\\k<a>"
+      },
+      "arguments": "aaa",
+      "valid": true
+    },
+    {
+      "schema": {
+        "pattern": "(?<\\u0061>a)\\k<a>"
+      },
+      "arguments": "aaab",
+      "valid": true
+    },
+    {
+      "schema": {
+        "pattern": "(?<\\u0061>a)\\k<a>"
+      },
+      "arguments": "aabaaa",
+      "valid": true
+    },
+    {
+      "schema": {
+        "pattern": "(?<\\u0061>a)\\k<a>"
+      },
+      "arguments": "abc",
+      "valid": false
+    },
+    {
+      "schema": {
+        "pattern": "(?<\\u0061>a)\\k<a>"
+      },
+      "arguments": "aba",
+      "valid": false
+    },
+    {
+      "schema": {
+        "pattern": "(?<\\u0061>a)\\k<a>"
+      },
+      "arguments": "abab",
+      "valid": false
+    },
+    {
+      "schema": {
+        "pattern": "(?<\\u0061>a)\\k<a>"
+      },
+      "arguments": "ba",
+      "valid": false
+    },
+    {
+      "schema": {
+        "pattern": "(?<\\u0061>a)\\k<a>"
+      },
+      "arguments": "a\n",
+      "valid": false
+    },
+    {
+      "schema": {
+        "pattern": "(?<\\u0061>a)\\k<a>"
+      },
+      "arguments": "😀",
+      "valid": false
+    },
+    {
+      "schema": {
+        "pattern": "(?<\\u0061>a)\\k<a>"
+      },
+      "arguments": "é",
+      "valid": false
+    },
+    {
+      "schema": {
+        "pattern": "(?<\\u0061>a)\\k<a>"
+      },
+      "arguments": "١",
+      "valid": false
+    },
+    {
+      "schema": {
+        "pattern": "(?<\\u0061>a)\\k<a>"
+      },
+      "arguments": " ",
+      "valid": false
+    },
+    {
+      "schema": {
+        "pattern": "(?<\\u0061>a)\\k<a>"
+      },
+      "arguments": " ",
+      "valid": false
+    },
+    {
+      "schema": {
+        "pattern": "(?<\\u0061>a)\\k<a>"
+      },
+      "arguments": "﻿",
+      "valid": false
+    },
+    {
+      "schema": {
+        "pattern": "(?<\\u0061>a)\\k<a>"
+      },
+      "arguments": "S",
+      "valid": false
+    },
+    {
+      "schema": {
+        "pattern": "(?<\\u0061>a)\\k<a>"
+      },
+      "arguments": "u{61}",
+      "valid": false
+    },
+    {
+      "schema": {
+        "pattern": "(?<\\u0061>a)\\k<a>"
+      },
+      "arguments": "u12",
+      "valid": false
+    },
+    {
+      "schema": {
+        "pattern": "(?<\\u0061>a)\\k<a>"
+      },
+      "arguments": "xzz",
+      "valid": false
+    },
+    {
+      "schema": {
+        "pattern": "(?<\\u0061>a)\\k<a>"
+      },
+      "arguments": "8",
+      "valid": false
+    },
+    {
+      "schema": {
+        "pattern": "(?<\\u0061>a)\\k<a>"
+      },
+      "arguments": "\\c_",
+      "valid": false
+    },
+    {
+      "schema": {
+        "pattern": "(?<\\u0061>a)\\k<a>"
+      },
+      "arguments": "\u001f",
+      "valid": false
+    },
+    {
+      "schema": {
+        "pattern": "(?<\\u0061>a)\\k<a>"
+      },
+      "arguments": "baaabac",
+      "valid": true
+    },
+    {
+      "schema": {
+        "pattern": "(?<π>a)\\k<π>"
+      },
+      "arguments": "",
+      "valid": false
+    },
+    {
+      "schema": {
+        "pattern": "(?<π>a)\\k<π>"
+      },
+      "arguments": "a",
+      "valid": false
+    },
+    {
+      "schema": {
+        "pattern": "(?<π>a)\\k<π>"
+      },
+      "arguments": "b",
+      "valid": false
+    },
+    {
+      "schema": {
+        "pattern": "(?<π>a)\\k<π>"
+      },
+      "arguments": "ab",
+      "valid": false
+    },
+    {
+      "schema": {
+        "pattern": "(?<π>a)\\k<π>"
+      },
+      "arguments": "aa",
+      "valid": true
+    },
+    {
+      "schema": {
+        "pattern": "(?<π>a)\\k<π>"
+      },
+      "arguments": "aaa",
+      "valid": true
+    },
+    {
+      "schema": {
+        "pattern": "(?<π>a)\\k<π>"
+      },
+      "arguments": "aaab",
+      "valid": true
+    },
+    {
+      "schema": {
+        "pattern": "(?<π>a)\\k<π>"
+      },
+      "arguments": "aabaaa",
+      "valid": true
+    },
+    {
+      "schema": {
+        "pattern": "(?<π>a)\\k<π>"
+      },
+      "arguments": "abc",
+      "valid": false
+    },
+    {
+      "schema": {
+        "pattern": "(?<π>a)\\k<π>"
+      },
+      "arguments": "aba",
+      "valid": false
+    },
+    {
+      "schema": {
+        "pattern": "(?<π>a)\\k<π>"
+      },
+      "arguments": "abab",
+      "valid": false
+    },
+    {
+      "schema": {
+        "pattern": "(?<π>a)\\k<π>"
+      },
+      "arguments": "ba",
+      "valid": false
+    },
+    {
+      "schema": {
+        "pattern": "(?<π>a)\\k<π>"
+      },
+      "arguments": "a\n",
+      "valid": false
+    },
+    {
+      "schema": {
+        "pattern": "(?<π>a)\\k<π>"
+      },
+      "arguments": "😀",
+      "valid": false
+    },
+    {
+      "schema": {
+        "pattern": "(?<π>a)\\k<π>"
+      },
+      "arguments": "é",
+      "valid": false
+    },
+    {
+      "schema": {
+        "pattern": "(?<π>a)\\k<π>"
+      },
+      "arguments": "١",
+      "valid": false
+    },
+    {
+      "schema": {
+        "pattern": "(?<π>a)\\k<π>"
+      },
+      "arguments": " ",
+      "valid": false
+    },
+    {
+      "schema": {
+        "pattern": "(?<π>a)\\k<π>"
+      },
+      "arguments": " ",
+      "valid": false
+    },
+    {
+      "schema": {
+        "pattern": "(?<π>a)\\k<π>"
+      },
+      "arguments": "﻿",
+      "valid": false
+    },
+    {
+      "schema": {
+        "pattern": "(?<π>a)\\k<π>"
+      },
+      "arguments": "S",
+      "valid": false
+    },
+    {
+      "schema": {
+        "pattern": "(?<π>a)\\k<π>"
+      },
+      "arguments": "u{61}",
+      "valid": false
+    },
+    {
+      "schema": {
+        "pattern": "(?<π>a)\\k<π>"
+      },
+      "arguments": "u12",
+      "valid": false
+    },
+    {
+      "schema": {
+        "pattern": "(?<π>a)\\k<π>"
+      },
+      "arguments": "xzz",
+      "valid": false
+    },
+    {
+      "schema": {
+        "pattern": "(?<π>a)\\k<π>"
+      },
+      "arguments": "8",
+      "valid": false
+    },
+    {
+      "schema": {
+        "pattern": "(?<π>a)\\k<π>"
+      },
+      "arguments": "\\c_",
+      "valid": false
+    },
+    {
+      "schema": {
+        "pattern": "(?<π>a)\\k<π>"
+      },
+      "arguments": "\u001f",
+      "valid": false
+    },
+    {
+      "schema": {
+        "pattern": "(?<π>a)\\k<π>"
+      },
+      "arguments": "baaabac",
+      "valid": true
+    },
+    {
+      "schema": {
+        "pattern": "(?<😀>a)"
+      },
+      "arguments": "",
+      "valid": false
+    },
+    {
+      "schema": {
+        "pattern": "(?<😀>a)"
+      },
+      "arguments": "a",
+      "valid": false
+    },
+    {
+      "schema": {
+        "pattern": "(?<😀>a)"
+      },
+      "arguments": "b",
+      "valid": false
+    },
+    {
+      "schema": {
+        "pattern": "(?<😀>a)"
+      },
+      "arguments": "ab",
+      "valid": false
+    },
+    {
+      "schema": {
+        "pattern": "(?<😀>a)"
+      },
+      "arguments": "aa",
+      "valid": false
+    },
+    {
+      "schema": {
+        "pattern": "(?<😀>a)"
+      },
+      "arguments": "aaa",
+      "valid": false
+    },
+    {
+      "schema": {
+        "pattern": "(?<😀>a)"
+      },
+      "arguments": "aaab",
+      "valid": false
+    },
+    {
+      "schema": {
+        "pattern": "(?<😀>a)"
+      },
+      "arguments": "aabaaa",
+      "valid": false
+    },
+    {
+      "schema": {
+        "pattern": "(?<😀>a)"
+      },
+      "arguments": "abc",
+      "valid": false
+    },
+    {
+      "schema": {
+        "pattern": "(?<😀>a)"
+      },
+      "arguments": "aba",
+      "valid": false
+    },
+    {
+      "schema": {
+        "pattern": "(?<😀>a)"
+      },
+      "arguments": "abab",
+      "valid": false
+    },
+    {
+      "schema": {
+        "pattern": "(?<😀>a)"
+      },
+      "arguments": "ba",
+      "valid": false
+    },
+    {
+      "schema": {
+        "pattern": "(?<😀>a)"
+      },
+      "arguments": "a\n",
+      "valid": false
+    },
+    {
+      "schema": {
+        "pattern": "(?<😀>a)"
+      },
+      "arguments": "😀",
+      "valid": false
+    },
+    {
+      "schema": {
+        "pattern": "(?<😀>a)"
+      },
+      "arguments": "é",
+      "valid": false
+    },
+    {
+      "schema": {
+        "pattern": "(?<😀>a)"
+      },
+      "arguments": "١",
+      "valid": false
+    },
+    {
+      "schema": {
+        "pattern": "(?<😀>a)"
+      },
+      "arguments": " ",
+      "valid": false
+    },
+    {
+      "schema": {
+        "pattern": "(?<😀>a)"
+      },
+      "arguments": " ",
+      "valid": false
+    },
+    {
+      "schema": {
+        "pattern": "(?<😀>a)"
+      },
+      "arguments": "﻿",
+      "valid": false
+    },
+    {
+      "schema": {
+        "pattern": "(?<😀>a)"
+      },
+      "arguments": "S",
+      "valid": false
+    },
+    {
+      "schema": {
+        "pattern": "(?<😀>a)"
+      },
+      "arguments": "u{61}",
+      "valid": false
+    },
+    {
+      "schema": {
+        "pattern": "(?<😀>a)"
+      },
+      "arguments": "u12",
+      "valid": false
+    },
+    {
+      "schema": {
+        "pattern": "(?<😀>a)"
+      },
+      "arguments": "xzz",
+      "valid": false
+    },
+    {
+      "schema": {
+        "pattern": "(?<😀>a)"
+      },
+      "arguments": "8",
+      "valid": false
+    },
+    {
+      "schema": {
+        "pattern": "(?<😀>a)"
+      },
+      "arguments": "\\c_",
+      "valid": false
+    },
+    {
+      "schema": {
+        "pattern": "(?<😀>a)"
+      },
+      "arguments": "\u001f",
+      "valid": false
+    },
+    {
+      "schema": {
+        "pattern": "(?<😀>a)"
+      },
+      "arguments": "baaabac",
+      "valid": false
+    },
+    {
+      "schema": {
+        "pattern": "(?<x>a)(?<x>b)"
+      },
+      "arguments": "",
+      "valid": false
+    },
+    {
+      "schema": {
+        "pattern": "(?<x>a)(?<x>b)"
+      },
+      "arguments": "a",
+      "valid": false
+    },
+    {
+      "schema": {
+        "pattern": "(?<x>a)(?<x>b)"
+      },
+      "arguments": "b",
+      "valid": false
+    },
+    {
+      "schema": {
+        "pattern": "(?<x>a)(?<x>b)"
+      },
+      "arguments": "ab",
+      "valid": false
+    },
+    {
+      "schema": {
+        "pattern": "(?<x>a)(?<x>b)"
+      },
+      "arguments": "aa",
+      "valid": false
+    },
+    {
+      "schema": {
+        "pattern": "(?<x>a)(?<x>b)"
+      },
+      "arguments": "aaa",
+      "valid": false
+    },
+    {
+      "schema": {
+        "pattern": "(?<x>a)(?<x>b)"
+      },
+      "arguments": "aaab",
+      "valid": false
+    },
+    {
+      "schema": {
+        "pattern": "(?<x>a)(?<x>b)"
+      },
+      "arguments": "aabaaa",
+      "valid": false
+    },
+    {
+      "schema": {
+        "pattern": "(?<x>a)(?<x>b)"
+      },
+      "arguments": "abc",
+      "valid": false
+    },
+    {
+      "schema": {
+        "pattern": "(?<x>a)(?<x>b)"
+      },
+      "arguments": "aba",
+      "valid": false
+    },
+    {
+      "schema": {
+        "pattern": "(?<x>a)(?<x>b)"
+      },
+      "arguments": "abab",
+      "valid": false
+    },
+    {
+      "schema": {
+        "pattern": "(?<x>a)(?<x>b)"
+      },
+      "arguments": "ba",
+      "valid": false
+    },
+    {
+      "schema": {
+        "pattern": "(?<x>a)(?<x>b)"
+      },
+      "arguments": "a\n",
+      "valid": false
+    },
+    {
+      "schema": {
+        "pattern": "(?<x>a)(?<x>b)"
+      },
+      "arguments": "😀",
+      "valid": false
+    },
+    {
+      "schema": {
+        "pattern": "(?<x>a)(?<x>b)"
+      },
+      "arguments": "é",
+      "valid": false
+    },
+    {
+      "schema": {
+        "pattern": "(?<x>a)(?<x>b)"
+      },
+      "arguments": "١",
+      "valid": false
+    },
+    {
+      "schema": {
+        "pattern": "(?<x>a)(?<x>b)"
+      },
+      "arguments": " ",
+      "valid": false
+    },
+    {
+      "schema": {
+        "pattern": "(?<x>a)(?<x>b)"
+      },
+      "arguments": " ",
+      "valid": false
+    },
+    {
+      "schema": {
+        "pattern": "(?<x>a)(?<x>b)"
+      },
+      "arguments": "﻿",
+      "valid": false
+    },
+    {
+      "schema": {
+        "pattern": "(?<x>a)(?<x>b)"
+      },
+      "arguments": "S",
+      "valid": false
+    },
+    {
+      "schema": {
+        "pattern": "(?<x>a)(?<x>b)"
+      },
+      "arguments": "u{61}",
+      "valid": false
+    },
+    {
+      "schema": {
+        "pattern": "(?<x>a)(?<x>b)"
+      },
+      "arguments": "u12",
+      "valid": false
+    },
+    {
+      "schema": {
+        "pattern": "(?<x>a)(?<x>b)"
+      },
+      "arguments": "xzz",
+      "valid": false
+    },
+    {
+      "schema": {
+        "pattern": "(?<x>a)(?<x>b)"
+      },
+      "arguments": "8",
+      "valid": false
+    },
+    {
+      "schema": {
+        "pattern": "(?<x>a)(?<x>b)"
+      },
+      "arguments": "\\c_",
+      "valid": false
+    },
+    {
+      "schema": {
+        "pattern": "(?<x>a)(?<x>b)"
+      },
+      "arguments": "\u001f",
+      "valid": false
+    },
+    {
+      "schema": {
+        "pattern": "(?<x>a)(?<x>b)"
+      },
+      "arguments": "baaabac",
+      "valid": false
+    },
+    {
+      "schema": {
+        "pattern": "^a[ab]$"
+      },
+      "arguments": "",
+      "valid": false
+    },
+    {
+      "schema": {
+        "pattern": "^a[ab]$"
+      },
+      "arguments": "a",
+      "valid": false
+    },
+    {
+      "schema": {
+        "pattern": "^a[ab]$"
+      },
+      "arguments": "b",
+      "valid": false
+    },
+    {
+      "schema": {
+        "pattern": "^a[ab]$"
+      },
+      "arguments": "ab",
+      "valid": true
+    },
+    {
+      "schema": {
+        "pattern": "^a[ab]$"
+      },
+      "arguments": "aa",
+      "valid": true
+    },
+    {
+      "schema": {
+        "pattern": "^a[ab]$"
+      },
+      "arguments": "aaa",
+      "valid": false
+    },
+    {
+      "schema": {
+        "pattern": "^a[ab]$"
+      },
+      "arguments": "aaab",
+      "valid": false
+    },
+    {
+      "schema": {
+        "pattern": "^a[ab]$"
+      },
+      "arguments": "aabaaa",
+      "valid": false
+    },
+    {
+      "schema": {
+        "pattern": "^a[ab]$"
+      },
+      "arguments": "abc",
+      "valid": false
+    },
+    {
+      "schema": {
+        "pattern": "^a[ab]$"
+      },
+      "arguments": "aba",
+      "valid": false
+    },
+    {
+      "schema": {
+        "pattern": "^a[ab]$"
+      },
+      "arguments": "abab",
+      "valid": false
+    },
+    {
+      "schema": {
+        "pattern": "^a[ab]$"
+      },
+      "arguments": "ba",
+      "valid": false
+    },
+    {
+      "schema": {
+        "pattern": "^a[ab]$"
+      },
+      "arguments": "a\n",
+      "valid": false
+    },
+    {
+      "schema": {
+        "pattern": "^a[ab]$"
+      },
+      "arguments": "😀",
+      "valid": false
+    },
+    {
+      "schema": {
+        "pattern": "^a[ab]$"
+      },
+      "arguments": "é",
+      "valid": false
+    },
+    {
+      "schema": {
+        "pattern": "^a[ab]$"
+      },
+      "arguments": "١",
+      "valid": false
+    },
+    {
+      "schema": {
+        "pattern": "^a[ab]$"
+      },
+      "arguments": " ",
+      "valid": false
+    },
+    {
+      "schema": {
+        "pattern": "^a[ab]$"
+      },
+      "arguments": " ",
+      "valid": false
+    },
+    {
+      "schema": {
+        "pattern": "^a[ab]$"
+      },
+      "arguments": "﻿",
+      "valid": false
+    },
+    {
+      "schema": {
+        "pattern": "^a[ab]$"
+      },
+      "arguments": "S",
+      "valid": false
+    },
+    {
+      "schema": {
+        "pattern": "^a[ab]$"
+      },
+      "arguments": "u{61}",
+      "valid": false
+    },
+    {
+      "schema": {
+        "pattern": "^a[ab]$"
+      },
+      "arguments": "u12",
+      "valid": false
+    },
+    {
+      "schema": {
+        "pattern": "^a[ab]$"
+      },
+      "arguments": "xzz",
+      "valid": false
+    },
+    {
+      "schema": {
+        "pattern": "^a[ab]$"
+      },
+      "arguments": "8",
+      "valid": false
+    },
+    {
+      "schema": {
+        "pattern": "^a[ab]$"
+      },
+      "arguments": "\\c_",
+      "valid": false
+    },
+    {
+      "schema": {
+        "pattern": "^a[ab]$"
+      },
+      "arguments": "\u001f",
+      "valid": false
+    },
+    {
+      "schema": {
+        "pattern": "^a[ab]$"
+      },
+      "arguments": "baaabac",
+      "valid": false
+    },
+    {
+      "schema": {
+        "pattern": "^(a|a)*$"
+      },
+      "arguments": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "valid": true
+    },
+    {
+      "schema": {
+        "pattern": "^.+$"
+      },
+      "arguments": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "valid": true
+    },
+    {
+      "schema": {
+        "pattern": "^(){1000}$"
+      },
+      "arguments": "",
+      "valid": true
+    }
+  ]
+}
