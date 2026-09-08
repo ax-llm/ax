@@ -5814,6 +5814,10 @@ func (a *AxAgent) SetRateLimiter(limiter AxRateLimiter) *AxAgent {
 }
 func (a *AxAgent) SetTracer(tracer AxTracer) *AxAgent { a.RuntimeHooks.Tracer = tracer; return a }
 func (a *AxAgent) SetMeter(meter AxMeter) *AxAgent    { a.RuntimeHooks.Meter = meter; return a }
+func (a *AxAgent) AddChildAgent(namespace, name string, child *AxAgent) *AxAgent {
+    a.Options = asMap(mustCore(_agent_register_child(a.Options, namespace, name, child, coreGet(child.State, "signature", nil))))
+    return a.SetSignature(a.Signature.String())
+}
 func (a *AxAgent) SetSignature(signature string) *AxAgent {
 	state := asMap(mustCore(_agent_factory(signature, a.Options)))
 	a.Signature = NewSignature(signature)
@@ -12416,6 +12420,10 @@ func runConformanceAgentForward(fixture map[string]Value) {
 	stateRoundtripProjection := Object()
 	_, err := safeValue(func() Value {
 		ag = NewAgent(display(coreGet(fixture, "signature", "question:string -> answer:string")), options)
+        for _, rawChild := range asSlice(coreGet(fixture, "child_agents", Array())) {
+            child := asMap(rawChild)
+            ag.AddChildAgent(display(child["namespace"]), display(child["name"]), NewAgent(display(child["signature"]), asMap(coreGet(child,"options",Object()))))
+        }
 		if instruction := coreGet(fixture, "set_instruction", nil); instruction != nil {
 			ag.SetInstruction(display(instruction))
 		}

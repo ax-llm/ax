@@ -456,7 +456,62 @@ void concurrent_owned_tool_registration(){
   if(ids.size()!=800)throw std::runtime_error("Concurrent tool IDs collided");
   std::cout<<"cpp concurrent owned tool registration preserves each handler\n";
 }
+struct ChildControlRuntime final:AxCodeRuntime {
+  struct Session final:AxCodeSession {
+    ChildControlRuntime& runtime;explicit Session(ChildControlRuntime& r):runtime(r){}
+    Value execute(Value code,Value)override{if(stringify(code)=="\"delegate\""){runtime.delegated=true;return object({{"callable",object({{"qualified_name","team.researcher"},{"args",object({{"question","Find reference"}})},{"call_id","child-call"}})}});}return object({{"type","final"},{"args",Value(Array{"Find reference",Value::object()})}});}
+    Value snapshot_globals(Value)override{return object({{"globals",Value::object()}});}
+    Value patch_globals(Value snapshot,Value)override{return snapshot;}
+    Value close()override{++runtime.closed;return object({{"closed",true}});}
+  };
+  bool delegated=false;int closed=0;std::vector<std::unique_ptr<Session>> sessions;
+  AxCodeSession* create_session(Value,Value)override{sessions.push_back(std::make_unique<Session>(*this));return sessions.back().get();}
+};
+static void owned_child_controls(){
+  const std::vector<std::string> stages{"root/distiller","root/executor","root/team.researcher/distiller","root/team.researcher/executor","root/team.researcher/responder","root/executor","root/responder"};
+  for(bool cancel:{false,true}){
+    auto control=run_control();std::vector<Value> observed;auto runtime=std::make_shared<ChildControlRuntime>();
+    control.on_event([&](Value event){observed.push_back(event);if(cancel&&stringify(Core::get(event,"type"))=="\"started\""&&stringify(Core::get(event,"path"))=="\"root/team.researcher/executor\"")control.abort();});
+    control.steer("ROOT-UPDATE");control.steer("CHILD-ONLY","root/team.researcher");control.set_thinking_token_budget("medium","root/team.researcher/executor");
+    class ChildTransport final:public Transport {
+     public:
+      std::shared_ptr<ChildControlRuntime> runtime;std::vector<Value> requests;std::vector<std::string> stages;
+      ChildTransport(std::shared_ptr<ChildControlRuntime> r,std::vector<std::string> s):runtime(r),stages(s){}
+      Value call(Value)override{throw std::runtime_error("Expected session streaming");}
+      void stream(Value request,AxTransportStreamHandler handler)override{
+        Value body=Core::get(request,"json");size_t number=requests.size();std::string stage=stages.at(number/2);requests.push_back(body);
+        if(number%2){
+          std::string input=stringify(Core::get(body,"input"));
+          if(stringify(Core::get(body,"previous_response_id"))!=stringify(Value("child-r"+std::to_string(number)))||input.find("ROOT-UPDATE")==std::string::npos||(input.find("CHILD-ONLY")!=std::string::npos)!=(stage.rfind("root/team.researcher",0)==0))throw std::runtime_error("Child controls lost");
+          std::vector<Value> updates;for(auto item:Core::iter(Core::get(body,"input")))if(stringify(Core::get(item,"type"))=="\"configuration_update\"")updates.push_back(item);
+          if(!updates.empty()!=(stage=="root/team.researcher/executor"))throw std::runtime_error("Reasoning scope lost");
+          if(!updates.empty()&&stringify(Core::get(Core::get(updates[0],"reasoning"),"effort"))!="\"medium\"")throw std::runtime_error("Reasoning value lost");
+          if(stringify(Core::get(body,"reasoning"))!=stringify(Core::get(requests[number-1],"reasoning")))throw std::runtime_error("Cache prefix changed");
+        }else if(!Core::get(body,"previous_response_id").is_null())throw std::runtime_error("Child inherited conversation");
+        if(number==10&&stringify(body).find("REF-42")==std::string::npos)throw std::runtime_error("Parent continued without child result");
+        Value output;
+        if(stage.rfind("root/team.researcher",0)==0)output=stage=="root/team.researcher/responder"?object({{"answer","REF-42"}}):object({{"completion",object({{"type","final"},{"args",Value(Array{"Find reference",Value::object()})}})}});
+        else if(stage=="root/responder")output=object({{"answer","REF-42"}});
+        else output=object({{"javascriptCode",stage=="root/executor"&&!runtime->delegated?"delegate":"parent-final"}});
+        Value event=completed("child-r"+std::to_string(number+1),stringify(output));Value response=Core::get(event,"response");Core::set(response,"usage",object({{"input_tokens",2},{"output_tokens",1},{"total_tokens",3}}));Core::set(event,"response",response);handler(event);
+      }
+    };
+    auto transport=std::make_shared<ChildTransport>(runtime,stages);auto client=ai("openai",object({{"api_key","test"},{"model","gpt-6-astra"}}));dynamic_cast<OpenAICompatibleClient&>(*client).shared_transport(transport);
+    auto child=std::make_shared<AxAgent>("question -> answer",object({{"directResponse","off"}}));
+    auto parent=agent("question -> answer",object({{"directResponse","off"},{"runtime",Core::code_runtime_ref(*runtime)}}));parent.add_child_agent("team","researcher",child);
+    try{
+      Value result=parent.forward(*client,object({{"question","Find reference"}}),object({{"control",control.value()}}));
+      if(cancel||stringify(result)!=stringify(object({{"answer","REF-42"}}))||transport->requests.size()!=14)throw std::runtime_error("Child completion failed");
+      int applied=0;for(auto event:observed)if(stringify(Core::get(event,"type"))=="\"applied\"")++applied;if(applied!=11)throw std::runtime_error("Control duplicated or lost");
+      if(stringify(Core::get(Core::get(parent.get_usage(),"children"),"team.researcher"))!=stringify(child->get_usage()))throw std::runtime_error("Child usage lost");
+    }catch(const std::exception& error){if(!cancel)throw;std::string message=error.what();if(message.find("abort")==std::string::npos&&message.find("Abort")==std::string::npos)throw;if((transport->requests.size()<6||transport->requests.size()>7)||runtime->closed!=1)throw std::runtime_error("Child cancellation cleanup failed");}
+    int calls=0;for(auto item:Core::iter(parent.get_action_log()))if(stringify(Core::get(item,"call_id"))=="\"child-call\""){++calls;if(stringify(Core::get(item,"status"))!=stringify(Value(cancel?"error":"ok")))throw std::runtime_error("Child status lost");}if(calls!=1)throw std::runtime_error("Child action missing or duplicated");
+    try{parent.invoke_callable("team.researcher",object({{"question","Find reference"}}));throw std::runtime_error("Active client retained");}catch(const std::exception& error){if(std::string(error.what()).find("active parent forward")==std::string::npos)throw;}
+  }
+  std::cout<<"cpp actual child delegation, scoped controls, usage, and cancellation passed\n";
+}
 int main(int argc,char** argv){
+  owned_child_controls();
   owned_flow_failure();
   owned_flow_overlap();
   concurrent_mcp_header_state();owned_balancer_failure_accounting();native_mcp_owned_lifetime();concurrent_owned_tool_registration();

@@ -698,6 +698,22 @@
             "playbook"
           ],
           "returns": "agent program"
+        },
+        {
+          "target_name": "rust",
+          "canonical_name": "add_child_agent",
+          "public_name": "AxAgent::with_child_agent",
+          "kind": "method",
+          "description": "Register an owned child agent for serialized delegation through the parent invocation boundary. Scoped controls use parent/namespace.name paths.",
+          "form": "AxAgent::with_child_agent(namespace, name, child)",
+          "important_options": [
+            "namespace",
+            "name",
+            "child",
+            "independent conversation",
+            "child usage"
+          ],
+          "returns": "parent agent"
         }
       ]
     },

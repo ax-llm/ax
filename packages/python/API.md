@@ -511,6 +511,16 @@ RLM agent with Core-owned envelopes, complete runtime-state export/restore, trac
 - Returns: `agent program`
 - Important options: executor model, runtime, policy, context, skills, memories, relevance ranking, observers, runtime state, optimizer metadata, citations, playbook
 
+### `AxAgent.add_child_agent`
+
+Register an owned child agent for serialized delegation through the parent invocation boundary. Scoped controls use parent/namespace.name paths.
+
+- Canonical Ax concept: `add_child_agent`
+- Kind: `method`
+- Form: `AxAgent.add_child_agent(namespace, name, child)`
+- Returns: `parent agent`
+- Important options: namespace, name, child, independent conversation, child usage
+
 
 ## Flow
 

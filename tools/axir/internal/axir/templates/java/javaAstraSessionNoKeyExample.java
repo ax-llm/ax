@@ -198,7 +198,60 @@ public final class AstraSessionTest {
     if(requests.size()!=32||requests.stream().map(value->value.get("id")).distinct().count()!=32)throw new AssertionError("Duplicate native MCP request IDs");
     System.out.println("java concurrent native MCP identities and results passed");
   }
+  @SuppressWarnings("unchecked") static void ownedChildControls() throws Exception {
+    var stages=List.of("root/distiller","root/executor","root/team.researcher/distiller","root/team.researcher/executor","root/team.researcher/responder","root/executor","root/responder");
+    for(boolean cancel:List.of(false,true)) {
+      var control=Ax.runControl();var observed=new ArrayList<Map<String,Object>>();var requests=new ArrayList<Map<String,Object>>();
+      control.onEvent(event->{observed.add(event);if(cancel&&"started".equals(event.get("type"))&&"root/team.researcher/executor".equals(event.get("path")))control.abort();});
+      control.steer("ROOT-UPDATE");control.steer("CHILD-ONLY","root/team.researcher");control.setThinkingTokenBudget("medium","root/team.researcher/executor");
+      class Runtime implements AxCodeRuntime {
+        boolean delegated;int closed;
+        public AxCodeSession createSession(Map<String,Object> globals,Map<String,Object> options){return new AxCodeSession(){
+          public Object execute(String code,Map<String,Object> opts){
+            if(code.equals("delegate")){delegated=true;return Map.of("callable",Map.of("qualified_name","team.researcher","args",Map.of("question","Find reference"),"call_id","child-call"));}
+            return Map.of("type","final","args",List.of("Find reference",Map.of()));
+          }
+          public Object snapshotGlobals(Map<String,Object> opts){return Map.of("globals",Map.of());}
+          public Object patchGlobals(Object snapshot,Map<String,Object> opts){return snapshot;}
+          public Object close(){closed++;return Map.of("closed",true);}
+        };}
+      }
+      var runtime=new Runtime();
+      OpenAICompatibleClient.Transport transport=request->{
+        var body=(Map<String,Object>)request.get("json");int number=requests.size();String stage=stages.get(number/2);requests.add(body);
+        if(number%2==1){
+          String input=Json.stringify(body.get("input"));
+          if(!("child-r"+number).equals(body.get("previous_response_id"))||!input.contains("ROOT-UPDATE")||input.contains("CHILD-ONLY")!=stage.startsWith("root/team.researcher"))throw new AssertionError("Child control scope lost: "+body);
+          var updates=((List<Map<String,Object>>)body.get("input")).stream().filter(item->"configuration_update".equals(item.get("type"))).toList();
+          if(!updates.isEmpty()!=stage.equals("root/team.researcher/executor"))throw new AssertionError("Reasoning scope lost");
+          if(!updates.isEmpty()&&!updates.equals(List.of(Map.of("type","configuration_update","reasoning",Map.of("effort","medium")))))throw new AssertionError("Reasoning value lost");
+          if(!Objects.equals(body.get("reasoning"),requests.get(number-1).get("reasoning")))throw new AssertionError("Cache prefix changed");
+        }else if(body.containsKey("previous_response_id"))throw new AssertionError("Child inherited conversation");
+        if(number==10&&!Json.stringify(body).contains("REF-42"))throw new AssertionError("Parent continued without child result");
+        Object output;
+        if(stage.startsWith("root/team.researcher"))output=stage.endsWith("/responder")?Map.of("answer","REF-42"):Map.of("completion",Map.of("type","final","args",List.of("Find reference",Map.of())));
+        else if(stage.equals("root/responder"))output=Map.of("answer","REF-42");
+        else output=Map.of("javascriptCode",stage.equals("root/executor")&&!runtime.delegated?"delegate":"parent-final");
+        var response=Map.of("id","child-r"+(number+1),"model","gpt-6-astra","usage",Map.of("input_tokens",2,"output_tokens",1,"total_tokens",3),"output",List.of(Map.of("type","message","id","message","content",List.of(Map.of("type","output_text","text",Json.stringify(output))))));
+        return new ByteArrayInputStream(("data: "+Json.stringify(Map.of("type","response.completed","response",response))+"\n\n").getBytes(StandardCharsets.UTF_8));
+      };
+      var child=Ax.agent("question -> answer",Map.of("directResponse","off"));
+      var parent=Ax.agent("question -> answer",Map.of("directResponse","off","runtime",runtime)).addChildAgent("team","researcher",child);
+      var client=Ax.ai("openai",Map.of("api_key","test","model","gpt-6-astra","transport",transport));
+      try {
+        var result=parent.forward(client,Map.of("question","Find reference"),Map.of("control",control));
+        if(cancel||!result.equals(Map.of("answer","REF-42"))||requests.size()!=14)throw new AssertionError("Child completion failed");
+        if(observed.stream().filter(event->"applied".equals(event.get("type"))).count()!=11)throw new AssertionError("Control duplicated or lost");
+        if(!((Map<?,?>)parent.getUsage().get("children")).get("team.researcher").equals(child.getUsage()))throw new AssertionError("Child usage lost");
+      }catch(RuntimeException error){if(!cancel)throw error;if(!error.toString().toLowerCase().contains("abort")||(requests.size()<6||requests.size()>7)||runtime.closed!=1)throw new AssertionError("Child cancellation cleanup failed",error);}
+      var calls=parent.getActionLog().stream().filter(item->item instanceof Map<?,?> record&&"child-call".equals(record.get("call_id"))).toList();
+      if(calls.size()!=1||!(cancel?"error":"ok").equals(((Map<?,?>)calls.get(0)).get("status")))throw new AssertionError("Child action missing or duplicated");
+      try{parent.invokeCallable("team.researcher",Map.of("question","Find reference"));throw new AssertionError("Parent retained active client");}catch(RuntimeException error){if(!error.getMessage().contains("active parent forward"))throw error;}
+    }
+    System.out.println("java actual child delegation, scoped controls, usage, and cancellation passed");
+  }
   public static void main(String[] args) throws Exception {
+    ownedChildControls();
     ownedFlowFailure();ownedBalancerFailureAccounting();
     ownedFlowOverlap();
     manualClockDeadline();

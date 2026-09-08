@@ -6142,6 +6142,16 @@ AxAgent& AxAgent::set_playbook_observer(std::function<void(Value)> observer) {
   return *this;
 }
 
+AxAgent& AxAgent::add_child_agent(std::string namespace_name, std::string name, std::shared_ptr<AxAgent> child) {
+  if (!child) throw std::invalid_argument("Child agent is required");
+  if (child.get() == this) throw std::invalid_argument("An agent cannot own itself as a child");
+  Value updated = Core::_agent_register_child(options_, namespace_name, name, Core::agent_stage_ref(*child), Core::get(child->state_, "signature"));
+  options_ = updated;
+  Core::set(state_, "options", updated);
+  child_agents_.push_back(std::move(child));
+  return set_signature(Core::get(state_, "signature"));
+}
+
 AxAgent& AxAgent::add_tool_module(std::string name, const std::vector<Tool>& tools) {
   Array functions;
   for (const auto& tool : tools) {

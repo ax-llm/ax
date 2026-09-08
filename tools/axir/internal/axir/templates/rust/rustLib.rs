@@ -4642,6 +4642,20 @@ pub(crate) fn agent_with_core_options(spec: &str, options: CoreValue) -> AxResul
 }
 
 impl AxAgent {
+    pub fn with_child_agent(mut self, namespace: &str, name: &str, child: AxAgent) -> AxResult<Self> {
+        let child_signature = core_get(&child.state, &CoreValue::from("signature"), CoreValue::Null);
+        let options = core_get(&self.state, &CoreValue::from("options"), CoreValue::new_map());
+        let options = _agent_register_child(&[options, CoreValue::from(namespace), CoreValue::from(name), AgentHost::new(child), child_signature])?;
+        let spec = signature_from_record(&core_get(&self.state, &CoreValue::from("signature"), CoreValue::Null))?.to_string();
+        let mut rebuilt = agent_with_core_options(&spec, options)?;
+        rebuilt.runtime_hooks = self.runtime_hooks;
+        rebuilt.execution_context = self.execution_context;
+        rebuilt.citations_observer = self.citations_observer;
+        rebuilt.playbook_observer = self.playbook_observer;
+        rebuilt.playbook_config = self.playbook_config;
+        rebuilt.playbook_snapshot = self.playbook_snapshot;
+        Ok(rebuilt)
+    }
     pub fn with_tool_module(mut self,name:&str,tools:Vec<Tool>)->AxResult<Self> {
         let options=core_get(&self.state,&CoreValue::from("options"),CoreValue::new_map());
         let functions=core_get(&options,&CoreValue::from("functions"),CoreValue::new_list());
@@ -5233,8 +5247,18 @@ impl AxAgent {
             core_runtime_capabilities_full(),
         );
         let options = core_get(&self.state, &CoreValue::from("options"), CoreValue::Null);
+        let previous = core_get(&options, &CoreValue::from("runtime"), CoreValue::Null);
         core_set(&options, CoreValue::from("runtime"), host)?;
-        Ok(self)
+        if !matches!(previous, CoreValue::Null) { return Ok(self); }
+        let spec = signature_from_record(&core_get(&self.state, &CoreValue::from("signature"), CoreValue::Null))?.to_string();
+        let mut rebuilt = agent_with_core_options(&spec, options)?;
+        rebuilt.runtime_hooks = self.runtime_hooks;
+        rebuilt.execution_context = self.execution_context;
+        rebuilt.citations_observer = self.citations_observer;
+        rebuilt.playbook_observer = self.playbook_observer;
+        rebuilt.playbook_config = self.playbook_config;
+        rebuilt.playbook_snapshot = self.playbook_snapshot;
+        Ok(rebuilt)
     }
 
     /// Apply an optimizer artifact to the agent's stages: validate (or deserialize)
@@ -10762,6 +10786,10 @@ fn run_agent_forward_contract_fixture(fixture: &Value) -> AxResult<()> {
             return Err(error);
         }
     };
+    for child in fixture.get("child_agents").and_then(Value::as_array).into_iter().flatten() {
+        let program = agent_with_options(child["signature"].as_str().unwrap_or_default(), child.get("options").cloned().unwrap_or_else(|| json!({})))?;
+        agent = agent.with_child_agent(child["namespace"].as_str().unwrap_or_default(), child["name"].as_str().unwrap_or_default(), program)?;
+    }
     let observer_called = Rc::new(std::cell::Cell::new(false));
     if fixture
         .get("observer_throws")

@@ -1640,6 +1640,10 @@ public final class Conformance {
     Map<String, Object> stateRoundtripProjection = new LinkedHashMap<>();
     try {
       agent = Ax.agent(String.valueOf(fixture.get("signature")), agentOptions);
+      for (Object rawChild : Core.asList(fixture.getOrDefault("child_agents", List.of()))) {
+        Map<String, Object> child = Core.asMap(rawChild);
+        agent.addChildAgent(String.valueOf(child.get("namespace")), String.valueOf(child.get("name")), Ax.agent(String.valueOf(child.get("signature")), Core.asMap(child.getOrDefault("options", Map.of()))));
+      }
       if (fixture.containsKey("set_instruction")) agent.setInstruction(String.valueOf(fixture.get("set_instruction")));
       if (fixture.containsKey("add_actor_instruction")) agent.addActorInstruction(String.valueOf(fixture.get("add_actor_instruction")));
       if (fixture.containsKey("set_state")) agent.setState(Core.asMap(fixture.get("set_state")));

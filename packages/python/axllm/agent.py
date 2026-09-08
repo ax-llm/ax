@@ -51,9 +51,13 @@ from .mcp import resolve_execution_context
 from .signature import AxSignature, parse_signature
 from .gen import (
     chat_session_mode_enabled,
+    chat_session_validate_required_arguments,
 )
 from .prompt import (
     render_template_content,
+)
+from .schema import (
+    _schema_to_json_schema_impl,
 )
 
 
@@ -1628,6 +1632,11 @@ class AxAgent:
         self.executor = AxGen(_core_get(self.state, "executor_signature"), {"validation_retries": actor_validation_retries, "id": "task.root.actor", "instruction": _core_get(self.state, "executor_description", "")})
         self.responder = AxGen(_core_get(self.state, "responder_signature", self.signature), {"validation_retries": self.options.get("validation_retries", 2), "id": "task.root.responder", "instruction": _core_get(self.state, "responder_description", "")})
         self.llm_query = AxGen(_core_get(self.state, "llm_query_signature", "task:string, context:json -> answer:string"), {"validation_retries": 1, "id": "rlm.llmquery", "instruction": _core_get(self.state, "llm_query_description", "")})
+
+    def add_child_agent(self, namespace: str, name: str, child: "AxAgent"):
+        self.options = _agent_register_child(self.options, namespace, name, child, child.signature)
+        self._rebuild_from_signature(self.signature)
+        return self
 
     def set_signature(self, signature):
         self._rebuild_from_signature(signature)
@@ -5774,6 +5783,12 @@ def _agent_sanitize_action_log_entries(entries: Any) -> list[Any]:
             clean["qualified_name"] = qualified_name
         else:
             pass
+        public_call_id = _core_get(entry, "call_id", None)
+        has_call_id = _core_is_not_none(public_call_id)
+        if has_call_id:
+            clean["call_id"] = public_call_id
+        else:
+            pass
         entry_name = _core_get(entry, "name", "")
         has_entry_name = _core_ne(entry_name, "")
         if has_entry_name:
@@ -7111,7 +7126,39 @@ def _agent_execute_callable(state: Any, request: Any, options: Any) -> Any:
         result["status"] = "error"
         result["error"] = message
     else:
-        result = _core_agent_callable_invoke(state, request, options)
+        implementation = _agent_callable_implementation(state, qualified)
+        program = _core_get(implementation, "program", None)
+        child = _core_is_not_none(program)
+        if child:
+            empty_map = {}
+            arguments = _core_get(request, "args", empty_map)
+            schema = _core_get(implementation, "parameters", empty_map)
+            value = {}
+            try:
+                chat_session_validate_required_arguments(schema, arguments, qualified)
+                active = _core_get(state, "forward_active", False)
+                if active:
+                    pass
+                else:
+                    error = _core_runtime_error("Child agent delegation requires an active parent forward call")
+                    raise error
+                client = _core_get(state, "active_client", None)
+                child_options = _agent_child_options(state, qualified, options)
+                value = _core_agent_stage_forward(program, client, arguments, child_options)
+            except Exception as child_error:
+                message = _core_string_format("{}", child_error)
+                result["status"] = "error"
+                result["error"] = message
+                _agent_record_callable_result(state, request, result, options)
+                raise child_error
+            children_usage = _core_get(state, "children_usage", empty_map)
+            child_usage = _core_agent_stage_usage(program)
+            children_usage[qualified] = child_usage
+            state["children_usage"] = children_usage
+            result["status"] = "ok"
+            result["value"] = value
+        else:
+            result = _core_agent_callable_invoke(state, request, options)
     recorded = _agent_record_callable_result(state, request, result, options)
     return recorded
 
@@ -7146,6 +7193,8 @@ def _agent_record_callable_result(state: Any, request: Any, result: Any, options
     else:
         pass
     action["qualified_name"] = qualified
+    rendered_result = _core_json_stringify(result)
+    action["output"] = rendered_result
     action["status"] = status
     action_log.append(action)
     state["action_log"] = action_log
@@ -9814,6 +9863,14 @@ def _merge_agent_usage(state: Any, distiller: Any, executor: Any, responder: Any
     usage["chat_log_entries"] = count
     usage["actor"] = actor
     usage["responder"] = responder_usage
+    empty_map = {}
+    children = _core_get(state, "children_usage", empty_map)
+    children_count = _core_len(children)
+    has_children = _core_gt(children_count, 0)
+    if has_children:
+        usage["children"] = children
+    else:
+        pass
     state["usage"] = usage
     return usage
 
@@ -10606,8 +10663,8 @@ def _agent_run_llm_query(sub_gen: Any, client: Any, params: Any, options: Any) -
     return single
 
 
-def _agent_forward(state: Any, distiller: Any, executor: Any, responder: Any, client: Any, values: Any, options: Any) -> Any:
-    _core_coverage_mark("_agent_forward")
+def _agent_forward_impl(state: Any, distiller: Any, executor: Any, responder: Any, client: Any, values: Any, options: Any) -> Any:
+    _core_coverage_mark("_agent_forward_impl")
     empty_list = []
     empty_map = {}
     state["native_tool_names"] = empty_list
@@ -10964,5 +11021,118 @@ def _agent_forward(state: Any, distiller: Any, executor: Any, responder: Any, cl
     _agent_build_failure_signals(state)
     _agent_finalize_trace(state, "completed", responder_output)
     return responder_output
+
+
+def _agent_register_child(options: Any, namespace: str, name: str, program: Any, signature: Any) -> Any:
+    _core_coverage_mark("_agent_register_child")
+    empty_map = {}
+    empty_list = []
+    out = _core_map_merge(empty_map, options)
+    fields = _core_get(signature, "input_fields", empty_list)
+    schema = _schema_to_json_schema_impl(fields, name, empty_map)
+    child = {}
+    child["name"] = name
+    child["kind"] = "agent"
+    child["execution"] = "blocking"
+    child["parameters"] = schema
+    child["program"] = program
+    description = _core_get(signature, "description", "Delegate to a child agent")
+    child["description"] = description
+    functions = _core_get(options, "functions", empty_list)
+    modules = []
+    found = False
+    for module in functions:
+        default_name = _core_get(module, "name", "tools")
+        module_namespace = _core_get(module, "namespace", default_name)
+        matches = _core_eq(module_namespace, namespace)
+        members = _core_get(module, "functions", None)
+        group = _core_type_is(members, "list")
+        matches = _core_and(matches, group)
+        if matches:
+            copy = _core_map_merge(empty_map, module)
+            children = []
+            for member in members:
+                children.append(member)
+            children.append(child)
+            copy["functions"] = children
+            modules.append(copy)
+            found = True
+        else:
+            modules.append(module)
+    if found:
+        pass
+    else:
+        module = {}
+        children = []
+        children.append(child)
+        module["namespace"] = namespace
+        module["functions"] = children
+        modules.append(module)
+    out["functions"] = modules
+    return out
+
+
+def _agent_child_options(state: Any, qualified: str, options: Any) -> Any:
+    _core_coverage_mark("_agent_child_options")
+    empty_map = {}
+    base = _core_get(state, "options", empty_map)
+    active = _core_get(state, "active_forward_options", empty_map)
+    parent = _core_map_merge(base, active)
+    parent = _core_map_merge(parent, options)
+    out = {}
+    keys = []
+    keys.append("control")
+    keys.append("asyncMode")
+    keys.append("async_mode")
+    keys.append("abortSignal")
+    keys.append("abort_signal")
+    keys.append("cancellation")
+    keys.append("executionContext")
+    keys.append("eventContext")
+    keys.append("protocol")
+    for key in keys:
+        value = _core_get(parent, key, None)
+        present = _core_is_not_none(value)
+        if present:
+            out[key] = value
+        else:
+            pass
+    snake_path = _core_get(parent, "execution_path", "root")
+    parent_path = _core_get(parent, "executionPath", snake_path)
+    path = _core_string_format("{}/{}", parent_path, qualified)
+    out["executionPath"] = path
+    out["execution_path"] = path
+    return out
+
+
+def _agent_forward(state: Any, distiller: Any, executor: Any, responder: Any, client: Any, values: Any, options: Any) -> Any:
+    _core_coverage_mark("_agent_forward")
+    none = _core_none()
+    active = _core_get(state, "forward_active", False)
+    if active:
+        error = _core_runtime_error("An agent cannot delegate recursively to an already active agent")
+        raise error
+    else:
+        pass
+    state["forward_active"] = True
+    state["active_client"] = client
+    state["active_forward_options"] = options
+    output = {}
+    try:
+        output = _agent_forward_impl(state, distiller, executor, responder, client, values, options)
+    except Exception as forward_error:
+        state["forward_active"] = False
+        state["active_client"] = none
+        state["active_forward_options"] = none
+        session = _core_get(state, "runtime_session", None)
+        try:
+            _agent_runtime_close_session(state, session)
+        except Exception as close_error:
+            pass
+        raise forward_error
+    state["forward_active"] = False
+    state["active_client"] = none
+    state["active_forward_options"] = none
+    return output
 
 # END AXIR CORE EMITTED FUNCTIONS

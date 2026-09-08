@@ -1421,6 +1421,57 @@ mod tests {
             Ok(AxTransportStream::Buffered(json!({"status":200,"body":String::from_utf8(sse(completed("executor2","{\"completion\":{\"type\":\"final\",\"args\":[\"Report reference\",{\"answer\":\"REF-42\"}]}}"))).unwrap()})))
         }
     }
+    struct ChildControlRuntime {delegated:Arc<AtomicBool>,closed:Arc<AtomicUsize>}
+    struct ChildControlSession {delegated:Arc<AtomicBool>,closed:Arc<AtomicUsize>}
+    impl AxCodeRuntime for ChildControlRuntime {
+        fn language(&self)->&str{"JavaScript"}
+        fn create_session(&mut self,_:Value,_:Value)->AxResult<Box<dyn AxCodeSession>>{Ok(Box::new(ChildControlSession{delegated:self.delegated.clone(),closed:self.closed.clone()}))}
+    }
+    impl AxCodeSession for ChildControlSession {
+        fn execute(&mut self,code:&str,_:Value)->AxResult<RuntimeEnvelope>{
+            if code=="delegate"{self.delegated.store(true,Ordering::SeqCst);return Ok(RuntimeEnvelope{payload:json!({"callable":{"qualified_name":"team.researcher","args":{"question":"Find reference"},"call_id":"child-call"}})});}
+            Ok(RuntimeEnvelope{payload:json!({"type":"final","args":["Find reference",{}]})})
+        }
+        fn snapshot_globals(&mut self,_:Value)->AxResult<Value>{Ok(json!({"globals":{}}))}
+        fn close(&mut self)->AxResult<Value>{self.closed.fetch_add(1,Ordering::SeqCst);Ok(json!({"closed":true}))}
+    }
+    struct ChildControlTransport {requests:Arc<Mutex<Vec<Value>>>,delegated:Arc<AtomicBool>}
+    impl AxTransport for ChildControlTransport {
+        fn send(&mut self,_:Value)->AxResult<Value>{Err(AxError::runtime("Expected session streaming"))}
+        fn stream(&mut self,request:Value)->AxResult<AxTransportStream>{
+            let stages=["root/distiller","root/executor","root/team.researcher/distiller","root/team.researcher/executor","root/team.researcher/responder","root/executor","root/responder"];
+            let body=request["json"].clone();let mut requests=self.requests.lock().unwrap();let number=requests.len();let stage=stages[number/2];requests.push(body.clone());
+            if number%2==1{
+                assert_eq!(body["previous_response_id"],format!("child-r{number}"));let input=body["input"].to_string();assert!(input.contains("ROOT-UPDATE"));assert_eq!(input.contains("CHILD-ONLY"),stage.starts_with("root/team.researcher"));
+                let updates:Vec<&Value>=body["input"].as_array().unwrap().iter().filter(|item|item["type"]=="configuration_update").collect();assert_eq!(!updates.is_empty(),stage=="root/team.researcher/executor");if !updates.is_empty(){assert_eq!(updates[0]["reasoning"]["effort"],"medium");}
+                assert_eq!(body["reasoning"],requests[number-1]["reasoning"],"cache prefix changed");
+            }else{assert!(body["previous_response_id"].is_null(),"child inherited conversation at request {number}: {body}");}
+            if number==10{assert!(body.to_string().contains("REF-42"),"parent continued without child result");}
+            let output=if stage.starts_with("root/team.researcher"){if stage.ends_with("/responder"){json!({"answer":"REF-42"})}else{json!({"completion":{"type":"final","args":["Find reference",{}]}})}}else if stage=="root/responder"{json!({"answer":"REF-42"})}else{json!({"javascriptCode":if stage=="root/executor"&&!self.delegated.load(Ordering::SeqCst){"delegate"}else{"parent-final"}})};
+            let mut event=completed(&format!("child-r{}",number+1),&output.to_string());event["response"]["usage"]=json!({"input_tokens":2,"output_tokens":1,"total_tokens":3});
+            Ok(AxTransportStream::Buffered(json!({"status":200,"body":String::from_utf8(sse(event)).unwrap()})))
+        }
+    }
+    #[test]
+    fn owned_child_controls_and_cancellation()->AxResult<()> {
+        for cancel in [false,true]{
+            let control=run_control();let observed=Arc::new(Mutex::new(Vec::new()));let seen=observed.clone();let stop=control.clone();
+            control.on_event(move |event|{seen.lock().unwrap().push(event.clone());if cancel&&event["type"]=="started"&&event["path"]=="root/team.researcher/executor"{stop.abort();}});
+            control.steer("ROOT-UPDATE")?;control.steer_at("CHILD-ONLY","root/team.researcher")?;control.set_thinking_token_budget_at("medium","root/team.researcher/executor")?;
+            let delegated=Arc::new(AtomicBool::new(false));let closed=Arc::new(AtomicUsize::new(0));let requests=Arc::new(Mutex::new(Vec::new()));
+            let child=agent_with_options("question -> answer",json!({"directResponse":"off"}))?;
+            let mut parent=agent_with_options("question -> answer",json!({"directResponse":"off"}))?.with_child_agent("team","researcher",child)?.with_runtime(Box::new(ChildControlRuntime{delegated:delegated.clone(),closed:closed.clone()}))?;
+            let mut client=ai("openai",json!({"api_key":"test","model":"gpt-6-astra"}))?.with_transport(ChildControlTransport{requests:requests.clone(),delegated});
+            let result=parent.forward_with_options(&mut client,json!({"question":"Find reference"}),AxForwardOptions::default().with_control(control));
+            if cancel{let error=result.expect_err("cancelled child returned success");assert!(error.to_string().to_lowercase().contains("abort"),"{error}");assert!((6..=7).contains(&requests.lock().unwrap().len()));assert_eq!(closed.load(Ordering::SeqCst),1);}else{
+                assert_eq!(result?,json!({"answer":"REF-42"}));assert_eq!(requests.lock().unwrap().len(),14);assert_eq!(observed.lock().unwrap().iter().filter(|event|event["type"]=="applied").count(),11);
+                let usage=parent.get_usage();let child=&usage["children"]["team.researcher"];assert_eq!(child["chat_log_entries"],6);assert_eq!(child["actor"].as_array().unwrap().len(),4);assert_eq!(child["responder"].as_array().unwrap().len(),2);
+            }
+            let calls:Vec<Value>=parent.get_action_log().into_iter().filter(|item|item["call_id"]=="child-call").collect();assert_eq!(calls.len(),1);assert_eq!(calls[0]["status"],if cancel{"error"}else{"ok"});
+            let error=parent.invoke_callable("team.researcher",json!({"question":"Find reference"}),json!({})).expect_err("parent retained active client");assert!(error.to_string().contains("active parent forward"),"{error}");
+        }
+        Ok(())
+    }
     #[test]
     fn native_agent_tools_and_action_log()->AxResult<()> {
         let control=run_control();control.steer("ROOT-GUIDANCE")?;control.steer_at("RESPONDER-ONLY","root/responder")?;control.set_thinking_token_budget_at("medium","root/executor")?;

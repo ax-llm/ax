@@ -1142,6 +1142,7 @@ func apiReferenceSectionsForTarget(target string) []APIReferenceSection {
 			Symbols: []APIReferenceSymbol{
 				sym("agent", "function", "Create an AxAgent from a signature and agent/runtime options.", []string{"name", "description", "runtime", "maxSteps", "context fields", "discovery", "recall", "functions", "skills", "skillsCatalog", "memoriesCatalog", "relevanceRanking", "load observers", "used observers", "citations", "playbook", "instruction", "instructionAddenda"}, "AxAgent"),
 				sym("AxAgent", "type", "RLM agent with Core-owned envelopes, complete runtime-state export/restore, traces, discovery, recall, loaded skills and memories, usage observers, delegation, validated citations, stage instructions, persistent run-end learning, and verified playbook evolution.", []string{"executor model", "runtime", "policy", "context", "skills", "memories", "relevance ranking", "observers", "runtime state", "optimizer metadata", "citations", "playbook"}, "agent program"),
+				sym("add_child_agent", "method", "Register an owned child agent for serialized delegation through the parent invocation boundary. Scoped controls use parent/namespace.name paths.", []string{"namespace", "name", "child", "independent conversation", "child usage"}, "parent agent"),
 			},
 		},
 		{
@@ -1245,6 +1246,8 @@ func apiReferencePublicName(target, canonical string) string {
 		return mapTarget(target, "AxChatSession", "AxChatSession", "axllm::AxChatSession", "axllm.AxChatSession", "AxChatSession")
 	case "owned_client_factory":
 		return mapTarget(target, "AIClient.owned_worker_factory", "AiClient.ownedWorkerFactory", "axllm::AIClient::owned_worker_factory", "AxOwnedClientFactory.OwnedWorkerFactory", "AxAIClient::owned_worker_factory")
+	case "add_child_agent":
+		return mapTarget(target, "AxAgent.add_child_agent", "AxAgent.addChildAgent", "axllm::AxAgent::add_child_agent", "AxAgent.AddChildAgent", "AxAgent::with_child_agent")
 	case "owned_program_factory":
 		return mapTarget(target, "AxProgram.owned_worker_factory", "AxProgram.ownedWorkerFactory", "axllm::AxProgram::owned_worker_factory", "AxOwnedProgramFactory.OwnedWorkerFactory", "AxExecutableProgram::owned_worker_factory")
 	case "AxRunControl":
@@ -1344,6 +1347,8 @@ func apiReferenceForm(target, canonical, publicName string) string {
 		return mapTarget(target, "f().input(...).output(...).build()", "Ax.f().input(...).output(...)", "FieldType / Field descriptors", "FieldType and Field descriptors", "f().input(...).output(...).build()")
 	case "AxSignature":
 		return mapTarget(target, "AxSignature", "AxSignature", "axllm::Value signature", "axllm.AxSignature", "AxSignature")
+	case "add_child_agent":
+		return apiReferencePublicName(target, canonical) + "(namespace, name, child)"
 	case "run_control":
 		return apiReferencePublicName(target, canonical) + "()"
 	case "ax":

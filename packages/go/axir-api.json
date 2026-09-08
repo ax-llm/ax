@@ -698,6 +698,22 @@
             "playbook"
           ],
           "returns": "agent program"
+        },
+        {
+          "target_name": "go",
+          "canonical_name": "add_child_agent",
+          "public_name": "AxAgent.AddChildAgent",
+          "kind": "method",
+          "description": "Register an owned child agent for serialized delegation through the parent invocation boundary. Scoped controls use parent/namespace.name paths.",
+          "form": "AxAgent.AddChildAgent(namespace, name, child)",
+          "important_options": [
+            "namespace",
+            "name",
+            "child",
+            "independent conversation",
+            "child usage"
+          ],
+          "returns": "parent agent"
         }
       ]
     },

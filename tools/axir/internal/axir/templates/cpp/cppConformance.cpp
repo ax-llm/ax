@@ -1475,6 +1475,9 @@ static void run_agent_forward(Value fixture) {
   Value state_roundtrip_projection = Value::object();
   try {
     ag = std::make_unique<AxAgent>(Core::get(fixture, "signature"), agent_options);
+    for (const auto& child : Core::iter(Core::get(fixture, "child_agents", Value::array()))) {
+      ag->add_child_agent(display(Core::get(child, "namespace")), display(Core::get(child, "name")), std::make_shared<AxAgent>(Core::get(child, "signature"), Core::get(child, "options", Value::object())));
+    }
     if (!Core::get(fixture, "set_instruction").is_null()) ag->set_instruction(Core::get(fixture, "set_instruction"));
     if (!Core::get(fixture, "add_actor_instruction").is_null()) ag->add_actor_instruction(Core::get(fixture, "add_actor_instruction"));
     if (Core::truthy(Core::get(fixture, "observer_throws", false))) {

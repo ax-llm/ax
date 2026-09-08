@@ -34,7 +34,7 @@ let result = engine.optimize(request, evaluator)?;
 
 ## Relevant API Surface
 
-- Agents And RLM: `agent`, `AxAgent`
+- Agents And RLM: `agent`, `AxAgent`, `AxAgent::with_child_agent`
 - Optimizers: `optimize`, `playbook`, `AxPlaybook`, `AxBootstrapFewShot`, `AxGEPA`, `OptimizerEngine`, `OptimizerEvaluator`
 
 ## Guardrails

@@ -38,7 +38,7 @@ auto llm = axllm::ai("openai", { {"apiKey", std::getenv("OPENAI_API_KEY")} });
 - Signatures: `axllm::s`, `axllm::FieldType`, `axllm::AxSignature`
 - AxGen: `axllm::ax`, `axllm::AxGen`, `axllm::run_control`, `axllm::AxRunControl`
 - AxAI: `axllm::ai`, `axllm::AxCancellationToken`, `axllm::AxAIServiceAbortedError`, `axllm::get_supported_ai_models`, `axllm::AxCredentialRequest`, `axllm::AxCredentialProvider`, `axllm::AIClient::owned_worker_factory`, `axllm::AxChatSession`, `axllm::AxStreamHandler`, `axllm::OpenAICompatibleClient`, `axllm::OpenAIResponsesClient`, `axllm::GoogleGeminiClient`, `axllm::AnthropicClient`, `axllm::AxUsageContext`, `axllm::AxUsageEvent`, `axllm::AxUsageObserver`, `axllm::set_usage_observer`, `axllm::AxRuntimeHooks`, `axllm::AxRateLimitInfo`, `axllm::AxRateLimiter`, `axllm::AxTracer`, `axllm::AxMeter`, `axllm::AxGlobals`, `axllm::set_rate_limiter`, `axllm::set_tracer`, `axllm::set_meter`, `axllm::AxBalancer`, `axllm::AxBalancerAdaptiveStrategy`, `axllm::AxBalancerStatsStore`, `axllm::AxInMemoryBalancerStatsStore`, `axllm::create_balancer_route_stats`, `axllm::update_balancer_route_stats`, `axllm::sample_balancer_route_health`, `axllm::MultiServiceRouter`, `axllm::ProviderRouter`
-- Agents And RLM: `axllm::agent`, `axllm::AxAgent`
+- Agents And RLM: `axllm::agent`, `axllm::AxAgent`, `axllm::AxAgent::add_child_agent`
 - Flow: `axllm::flow`, `axllm::AxFlow`, `axllm::AxProgram::owned_worker_factory`
 - Optimizers: `axllm::optimize`, `axllm::playbook`, `axllm::AxPlaybook`, `axllm::AxBootstrapFewShot`, `axllm::AxGEPA`, `axllm::OptimizerEngine`, `axllm::OptimizerEvaluator`
 

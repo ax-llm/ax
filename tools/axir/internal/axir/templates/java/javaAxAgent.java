@@ -68,6 +68,14 @@ public final class AxAgent implements AxProgram {
     return out;
   }
 
+  public AxAgent addChildAgent(String namespace, String name, AxAgent child) {
+    Map<String, Object> updated = Core.asMap(Core._agent_register_child(options, namespace, name, child, child.signature));
+    options.clear();
+    options.putAll(updated);
+    rebuildFromSignature(signature);
+    return this;
+  }
+
   public AxAgent setSignature(String signature) {
     return setSignature((Object) signature);
   }

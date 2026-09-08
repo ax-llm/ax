@@ -54,6 +54,16 @@ steering or started tools. HTTP streaming supports background tools without a
 WebSocket dependency. Optional WebSocket adapters support native steering;
 otherwise controls apply at a later response boundary and report that timing.
 
+Child registration retains the child's program and signature schema. The shared
+invocation boundary validates inputs, runs the child serially, and assigns paths
+such as `root/team.researcher/executor`. Root controls reach future child stages;
+child-targeted controls do not change parent stages. Each child owns its history.
+The parent records the child's result in its next prompt and retains usage under
+`children`. Exported action logs preserve call IDs. Failures clear active client
+bindings and close the parent code session. Recursive delegation into an active
+agent is rejected. Tests cover this dispatch boundary; direct binding of these
+children into real engine namespaces remains an acceptance item.
+
 Queued updates and applied updates are distinct. Root updates propagate to
 matching descendant paths. Reasoning configuration updates retain conversation
 order and the original cache prefix. The provider event adapter suppresses
@@ -90,6 +100,7 @@ Scripted agent fixtures belong under package tests, not public examples.
 | --- | --- | --- |
 | Raw schema validation | `session-raw-argument-validation.json`, evaluated against TypeScript | Invalid calls, correction requests, unchanged call IDs, and step exhaustion in all five session suites |
 | Native MCP schemas and modern continuation | `native-tools-modern-roundtrip.json` | All-five native agent tests assert discovery boundaries, exact schemas, invalid-argument correction, overlap, raw result continuation, responder output, action logs, and duplicate prevention |
+| Owned child delegation | `owned-child-delegation-through-parent-runtime.json` | All-five native session tests assert parent continuation input, isolated histories, scoped controls, cache prefixes, child usage, and cancellation cleanup |
 | MCP host authorization | `native-tool-host-authorization.json`, extracted by calling the TypeScript MCP client | All-five native agent tests exercise denied and allowed calls, retained context, no transport call after denial, and no authorization after invalid arguments or actor replay |
 | Completed calls and pending work | `astra-session-completed-calls-and-response-boundaries.json`, `astra-pending-results-out-of-order.json` | Delayed tools, blocking barriers, partial arguments, and provisional answers |
 | Steering and reasoning history | `astra-native-steering-successor-no-replay.json`, `astra-native-late-pending-input.json`, `astra-session-transport-cursor.json` | Scripted sockets and delayed HTTP cleanup |

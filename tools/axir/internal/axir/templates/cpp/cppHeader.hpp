@@ -1316,6 +1316,7 @@ class AxAgent : public AxProgram {
   Value used(Value id, Value reason = Value(""), Value stage = Value("executor"));
   Value invoke_callable(Value qualified_name, Value args = Value::object(), Value options = Value::object());
   AxAgent& add_tool_module(std::string name, const std::vector<Tool>& tools);
+  AxAgent& add_child_agent(std::string namespace_name, std::string name, std::shared_ptr<AxAgent> child);
   Value export_runtime_state() const;
   Value restore_runtime_state(Value snapshot);
   Value get_optimizer_metadata() const;
@@ -1331,6 +1332,7 @@ class AxAgent : public AxProgram {
   AxPlaybook* get_playbook() const;
 
  private:
+  std::vector<std::shared_ptr<AxAgent>> child_agents_;
   Value state_;
   std::unique_ptr<AxGen> distiller_;
   std::unique_ptr<AxGen> executor_;

@@ -20252,6 +20252,11 @@ final class Core {
       if (Core.truthy(has_qualified_name)) {
         Core.set(clean, "qualified_name", qualified_name);
       }
+      Object public_call_id = Core.get(entry, "call_id", null);
+      Object has_call_id = Core.isNotNone(public_call_id);
+      if (Core.truthy(has_call_id)) {
+        Core.set(clean, "call_id", public_call_id);
+      }
       Object entry_name = Core.get(entry, "name", "");
       Object has_entry_name = Core.ne(entry_name, "");
       if (Core.truthy(has_entry_name)) {
@@ -21586,7 +21591,44 @@ final class Core {
       Core.set(result, "error", message);
     }
     if (!Core.truthy(native_tool)) {
-      result = Core.agentCallableInvoke(state, request, options);
+      Object implementation = Core._agent_callable_implementation(state, qualified);
+      Object program = Core.get(implementation, "program", null);
+      Object child = Core.isNotNone(program);
+      if (Core.truthy(child)) {
+        Object empty_map = new java.util.LinkedHashMap<String, Object>();
+        Object arguments = Core.get(request, "args", empty_map);
+        Object schema = Core.get(implementation, "parameters", empty_map);
+        Object value = new java.util.LinkedHashMap<String, Object>();
+        try {
+          Core.chat_session_validate_required_arguments(schema, arguments, qualified);
+          Object active = Core.get(state, "forward_active", Boolean.FALSE);
+          if (Core.truthy(active)) {
+            // empty
+          }
+          if (!Core.truthy(active)) {
+            Object error = Core.runtimeError("Child agent delegation requires an active parent forward call");
+            throw Core.asRuntime(error);
+          }
+          Object client = Core.get(state, "active_client", null);
+          Object child_options = Core._agent_child_options(state, qualified, options);
+          value = Core.agentStageForward(program, client, arguments, child_options);
+        } catch (RuntimeException child_error) {
+          Object message = Core.stringFormat("{}", child_error);
+          Core.set(result, "status", "error");
+          Core.set(result, "error", message);
+          Core._agent_record_callable_result(state, request, result, options);
+          throw Core.asRuntime(child_error);
+        }
+        Object children_usage = Core.get(state, "children_usage", empty_map);
+        Object child_usage = Core.agentStageUsage(program);
+        Core.set(children_usage, qualified, child_usage);
+        Core.set(state, "children_usage", children_usage);
+        Core.set(result, "status", "ok");
+        Core.set(result, "value", value);
+      }
+      if (!Core.truthy(child)) {
+        result = Core.agentCallableInvoke(state, request, options);
+      }
     }
     Object recorded = Core._agent_record_callable_result(state, request, result, options);
     return recorded;
@@ -21620,6 +21662,8 @@ final class Core {
       Core.set(action, "call_id", call_id);
     }
     Core.set(action, "qualified_name", qualified);
+    Object rendered_result = Core.jsonStringify(result);
+    Core.set(action, "output", rendered_result);
     Core.set(action, "status", status);
     Core.append(action_log, action);
     Core.set(state, "action_log", action_log);
@@ -24268,6 +24312,13 @@ final class Core {
     Core.set(usage, "chat_log_entries", count);
     Core.set(usage, "actor", actor);
     Core.set(usage, "responder", responder_usage);
+    Object empty_map = new java.util.LinkedHashMap<String, Object>();
+    Object children = Core.get(state, "children_usage", empty_map);
+    Object children_count = Core.len(children);
+    Object has_children = Core.gt(children_count, 0);
+    if (Core.truthy(has_children)) {
+      Core.set(usage, "children", children);
+    }
     Core.set(state, "usage", usage);
     return usage;
   }
@@ -25047,8 +25098,8 @@ final class Core {
     return single;
   }
 
-  static Object _agent_forward(Object state, Object distiller, Object executor, Object responder, Object client, Object values, Object options) {
-    axirCoverageMark("_agent_forward");
+  static Object _agent_forward_impl(Object state, Object distiller, Object executor, Object responder, Object client, Object values, Object options) {
+    axirCoverageMark("_agent_forward_impl");
     Object empty_list = new java.util.ArrayList<Object>();
     Object empty_map = new java.util.LinkedHashMap<String, Object>();
     Core.set(state, "native_tool_names", empty_list);
@@ -25392,6 +25443,126 @@ final class Core {
     Core._agent_build_failure_signals(state);
     Core._agent_finalize_trace(state, "completed", responder_output);
     return responder_output;
+  }
+
+  static Object _agent_register_child(Object options, Object namespace, Object name, Object program, Object signature) {
+    axirCoverageMark("_agent_register_child");
+    Object empty_map = new java.util.LinkedHashMap<String, Object>();
+    Object empty_list = new java.util.ArrayList<Object>();
+    Object out = Core.mapMerge(empty_map, options);
+    Object fields = Core.get(signature, "input_fields", empty_list);
+    Object schema = Core._schema_to_json_schema_impl(fields, name, empty_map);
+    Object child = new java.util.LinkedHashMap<String, Object>();
+    Core.set(child, "name", name);
+    Core.set(child, "kind", "agent");
+    Core.set(child, "execution", "blocking");
+    Core.set(child, "parameters", schema);
+    Core.set(child, "program", program);
+    Object description = Core.get(signature, "description", "Delegate to a child agent");
+    Core.set(child, "description", description);
+    Object functions = Core.get(options, "functions", empty_list);
+    Object modules = new java.util.ArrayList<Object>();
+    Object found = Boolean.FALSE;
+    for (Object module : Core.iter(functions)) {
+      Object default_name = Core.get(module, "name", "tools");
+      Object module_namespace = Core.get(module, "namespace", default_name);
+      Object matches = Core.eq(module_namespace, namespace);
+      Object members = Core.get(module, "functions", null);
+      Object group = Core.typeIs(members, "list");
+      matches = Core.and(matches, group);
+      if (Core.truthy(matches)) {
+        Object copy = Core.mapMerge(empty_map, module);
+        Object children = new java.util.ArrayList<Object>();
+        for (Object member : Core.iter(members)) {
+          Core.append(children, member);
+        }
+        Core.append(children, child);
+        Core.set(copy, "functions", children);
+        Core.append(modules, copy);
+        found = Boolean.TRUE;
+      }
+      if (!Core.truthy(matches)) {
+        Core.append(modules, module);
+      }
+    }
+    if (Core.truthy(found)) {
+      // empty
+    }
+    if (!Core.truthy(found)) {
+      Object module = new java.util.LinkedHashMap<String, Object>();
+      Object children = new java.util.ArrayList<Object>();
+      Core.append(children, child);
+      Core.set(module, "namespace", namespace);
+      Core.set(module, "functions", children);
+      Core.append(modules, module);
+    }
+    Core.set(out, "functions", modules);
+    return out;
+  }
+
+  static Object _agent_child_options(Object state, Object qualified, Object options) {
+    axirCoverageMark("_agent_child_options");
+    Object empty_map = new java.util.LinkedHashMap<String, Object>();
+    Object base = Core.get(state, "options", empty_map);
+    Object active = Core.get(state, "active_forward_options", empty_map);
+    Object parent = Core.mapMerge(base, active);
+    parent = Core.mapMerge(parent, options);
+    Object out = new java.util.LinkedHashMap<String, Object>();
+    Object keys = new java.util.ArrayList<Object>();
+    Core.append(keys, "control");
+    Core.append(keys, "asyncMode");
+    Core.append(keys, "async_mode");
+    Core.append(keys, "abortSignal");
+    Core.append(keys, "abort_signal");
+    Core.append(keys, "cancellation");
+    Core.append(keys, "executionContext");
+    Core.append(keys, "eventContext");
+    Core.append(keys, "protocol");
+    for (Object key : Core.iter(keys)) {
+      Object value = Core.get(parent, key, null);
+      Object present = Core.isNotNone(value);
+      if (Core.truthy(present)) {
+        Core.set(out, key, value);
+      }
+    }
+    Object snake_path = Core.get(parent, "execution_path", "root");
+    Object parent_path = Core.get(parent, "executionPath", snake_path);
+    Object path = Core.stringFormat("{}/{}", parent_path, qualified);
+    Core.set(out, "executionPath", path);
+    Core.set(out, "execution_path", path);
+    return out;
+  }
+
+  static Object _agent_forward(Object state, Object distiller, Object executor, Object responder, Object client, Object values, Object options) {
+    axirCoverageMark("_agent_forward");
+    Object none = Core.none();
+    Object active = Core.get(state, "forward_active", Boolean.FALSE);
+    if (Core.truthy(active)) {
+      Object error = Core.runtimeError("An agent cannot delegate recursively to an already active agent");
+      throw Core.asRuntime(error);
+    }
+    Core.set(state, "forward_active", Boolean.TRUE);
+    Core.set(state, "active_client", client);
+    Core.set(state, "active_forward_options", options);
+    Object output = new java.util.LinkedHashMap<String, Object>();
+    try {
+      output = Core._agent_forward_impl(state, distiller, executor, responder, client, values, options);
+    } catch (RuntimeException forward_error) {
+      Core.set(state, "forward_active", Boolean.FALSE);
+      Core.set(state, "active_client", none);
+      Core.set(state, "active_forward_options", none);
+      Object session = Core.get(state, "runtime_session", null);
+      try {
+        Core._agent_runtime_close_session(state, session);
+      } catch (RuntimeException close_error) {
+        // empty
+      }
+      throw Core.asRuntime(forward_error);
+    }
+    Core.set(state, "forward_active", Boolean.FALSE);
+    Core.set(state, "active_client", none);
+    Core.set(state, "active_forward_options", none);
+    return output;
   }
 
   static Object _flow_factory(Object options) {

@@ -1821,6 +1821,9 @@ def _run_agent_forward(fixture):
     state_roundtrip_projection = {}
     try:
         ag = agent(fixture.get("signature"), agent_options)
+        for child_spec in fixture.get("child_agents") or []:
+            child = agent(child_spec["signature"], child_spec.get("options") or {})
+            ag.add_child_agent(child_spec["namespace"], child_spec["name"], child)
         if "set_instruction" in fixture:
             ag.set_instruction(fixture.get("set_instruction") or "")
         if "add_actor_instruction" in fixture:

@@ -41820,6 +41820,7 @@ func _agent_sanitize_action_log_entries(args ...Value) (Value, error) {
 	var v_entry_namespace Value
 	var v_error_category Value
 	var v_guidance Value
+	var v_has_call_id Value
 	var v_has_entry_error Value
 	var v_has_entry_message Value
 	var v_has_entry_name Value
@@ -41844,6 +41845,7 @@ func _agent_sanitize_action_log_entries(args ...Value) (Value, error) {
 	var v_produced Value
 	var v_produced_is_list Value
 	var v_public_action Value
+	var v_public_call_id Value
 	var v_public_kind Value
 	var v_public_reason Value
 	var v_public_status Value
@@ -41880,6 +41882,7 @@ func _agent_sanitize_action_log_entries(args ...Value) (Value, error) {
 	_ = v_entry_namespace
 	_ = v_error_category
 	_ = v_guidance
+	_ = v_has_call_id
 	_ = v_has_entry_error
 	_ = v_has_entry_message
 	_ = v_has_entry_name
@@ -41904,6 +41907,7 @@ func _agent_sanitize_action_log_entries(args ...Value) (Value, error) {
 	_ = v_produced
 	_ = v_produced_is_list
 	_ = v_public_action
+	_ = v_public_call_id
 	_ = v_public_kind
 	_ = v_public_reason
 	_ = v_public_status
@@ -41971,6 +41975,13 @@ func _agent_sanitize_action_log_entries(args ...Value) (Value, error) {
 		v_has_qualified_name = _core_ne(v_qualified_name, "")
 		if coreTruthy(v_has_qualified_name) {
 			if err := coreSet(v_clean, "qualified_name", v_qualified_name); err != nil { return nil, err }
+		} else {
+		// empty
+		}
+		v_public_call_id = coreGet(v_entry, "call_id", nil)
+		v_has_call_id = _core_is_not_none(v_public_call_id)
+		if coreTruthy(v_has_call_id) {
+			if err := coreSet(v_clean, "call_id", v_public_call_id); err != nil { return nil, err }
 		} else {
 		// empty
 		}
@@ -44623,26 +44634,54 @@ func _agent_execute_callable(args ...Value) (Value, error) {
 	var v_state Value
 	var v_request Value
 	var v_options Value
+	var v_active Value
+	var v_arguments Value
+	var v_child Value
+	var v_child_error Value
+	var v_child_options Value
+	var v_child_usage Value
+	var v_children_usage Value
+	var v_client Value
 	var v_empty_list Value
+	var v_empty_map Value
+	var v_error Value
+	var v_implementation Value
 	var v_message Value
 	var v_native_names Value
 	var v_native_tool Value
+	var v_program Value
 	var v_qualified Value
 	var v_recorded Value
 	var v_result Value
+	var v_schema Value
+	var v_value Value
 	if len(args) > 0 { v_state = args[0] }
 	_ = v_state
 	if len(args) > 1 { v_request = args[1] }
 	_ = v_request
 	if len(args) > 2 { v_options = args[2] }
 	_ = v_options
+	_ = v_active
+	_ = v_arguments
+	_ = v_child
+	_ = v_child_error
+	_ = v_child_options
+	_ = v_child_usage
+	_ = v_children_usage
+	_ = v_client
 	_ = v_empty_list
+	_ = v_empty_map
+	_ = v_error
+	_ = v_implementation
 	_ = v_message
 	_ = v_native_names
 	_ = v_native_tool
+	_ = v_program
 	_ = v_qualified
 	_ = v_recorded
 	_ = v_result
+	_ = v_schema
+	_ = v_value
 	v_empty_list = MutableArray()
 	v_native_names = coreGet(v_state, "native_tool_names", v_empty_list)
 	v_qualified = coreGet(v_request, "qualified_name", "")
@@ -44653,7 +44692,48 @@ func _agent_execute_callable(args ...Value) (Value, error) {
 		if err := coreSet(v_result, "status", "error"); err != nil { return nil, err }
 		if err := coreSet(v_result, "error", v_message); err != nil { return nil, err }
 	} else {
-		v_result = _core_agent_callable_invoke(v_state, v_request, v_options)
+		{ v, err := _agent_callable_implementation(v_state, v_qualified); if err != nil { return nil, err }; v_implementation = v }
+		v_program = coreGet(v_implementation, "program", nil)
+		v_child = _core_is_not_none(v_program)
+		if coreTruthy(v_child) {
+			v_empty_map = Object()
+			v_arguments = coreGet(v_request, "args", v_empty_map)
+			v_schema = coreGet(v_implementation, "parameters", v_empty_map)
+			v_value = Object()
+			{
+				__flow, __err := func() (coreFlow, error) {
+					if _, err := chat_session_validate_required_arguments(v_schema, v_arguments, v_qualified); err != nil { return coreFlow{}, err }
+					v_active = coreGet(v_state, "forward_active", false)
+					if coreTruthy(v_active) {
+					// empty
+					} else {
+						v_error = _core_runtime_error("Child agent delegation requires an active parent forward call")
+						return coreFlow{}, asError(v_error)
+					}
+					v_client = coreGet(v_state, "active_client", nil)
+					{ v, err := _agent_child_options(v_state, v_qualified, v_options); if err != nil { return coreFlow{}, err }; v_child_options = v }
+					{ v, err := _core_agent_stage_forward(v_program, v_client, v_arguments, v_child_options); if err != nil { return coreFlow{}, err }; v_value = v }
+					return coreFlow{}, nil
+				}()
+				if __err == nil && __flow.kind == coreFlowReturn { return __flow.value, nil }
+				if __err != nil {
+					v_child_error = errorValue(__err)
+					v_message = _core_string_format("{}", v_child_error)
+					if err := coreSet(v_result, "status", "error"); err != nil { return nil, err }
+					if err := coreSet(v_result, "error", v_message); err != nil { return nil, err }
+					if _, err := _agent_record_callable_result(v_state, v_request, v_result, v_options); err != nil { return nil, err }
+					return nil, asError(v_child_error)
+				}
+			}
+			v_children_usage = coreGet(v_state, "children_usage", v_empty_map)
+			v_child_usage = _core_agent_stage_usage(v_program)
+			if err := coreSet(v_children_usage, v_qualified, v_child_usage); err != nil { return nil, err }
+			if err := coreSet(v_state, "children_usage", v_children_usage); err != nil { return nil, err }
+			if err := coreSet(v_result, "status", "ok"); err != nil { return nil, err }
+			if err := coreSet(v_result, "value", v_value); err != nil { return nil, err }
+		} else {
+			v_result = _core_agent_callable_invoke(v_state, v_request, v_options)
+		}
 	}
 	{ v, err := _agent_record_callable_result(v_state, v_request, v_result, v_options); if err != nil { return nil, err }; v_recorded = v }
 	return v_recorded, nil
@@ -44678,6 +44758,7 @@ func _agent_record_callable_result(args ...Value) (Value, error) {
 	var v_payload Value
 	var v_qualified Value
 	var v_record Value
+	var v_rendered_result Value
 	var v_status Value
 	var v_trace Value
 	if len(args) > 0 { v_state = args[0] }
@@ -44701,6 +44782,7 @@ func _agent_record_callable_result(args ...Value) (Value, error) {
 	_ = v_payload
 	_ = v_qualified
 	_ = v_record
+	_ = v_rendered_result
 	_ = v_status
 	_ = v_trace
 	v_empty_list = MutableArray()
@@ -44733,6 +44815,8 @@ func _agent_record_callable_result(args ...Value) (Value, error) {
 	// empty
 	}
 	if err := coreSet(v_action, "qualified_name", v_qualified); err != nil { return nil, err }
+	v_rendered_result = _core_json_stringify(v_result)
+	if err := coreSet(v_action, "output", v_rendered_result); err != nil { return nil, err }
 	if err := coreSet(v_action, "status", v_status); err != nil { return nil, err }
 	v_action_log = coreAppend(v_action_log, v_action)
 	if err := coreSet(v_state, "action_log", v_action_log); err != nil { return nil, err }
@@ -50251,11 +50335,15 @@ func _merge_agent_usage(args ...Value) (Value, error) {
 	var v_responder Value
 	var v_actor Value
 	var v_chat_log Value
+	var v_children Value
+	var v_children_count Value
 	var v_count Value
 	var v_distiller_usage Value
 	var v_empty_list Value
+	var v_empty_map Value
 	var v_entry Value
 	var v_executor_usage Value
+	var v_has_children Value
 	var v_responder_stage_usage Value
 	var v_responder_usage Value
 	var v_usage Value
@@ -50269,11 +50357,15 @@ func _merge_agent_usage(args ...Value) (Value, error) {
 	_ = v_responder
 	_ = v_actor
 	_ = v_chat_log
+	_ = v_children
+	_ = v_children_count
 	_ = v_count
 	_ = v_distiller_usage
 	_ = v_empty_list
+	_ = v_empty_map
 	_ = v_entry
 	_ = v_executor_usage
+	_ = v_has_children
 	_ = v_responder_stage_usage
 	_ = v_responder_usage
 	_ = v_usage
@@ -50298,6 +50390,15 @@ func _merge_agent_usage(args ...Value) (Value, error) {
 	if err := coreSet(v_usage, "chat_log_entries", v_count); err != nil { return nil, err }
 	if err := coreSet(v_usage, "actor", v_actor); err != nil { return nil, err }
 	if err := coreSet(v_usage, "responder", v_responder_usage); err != nil { return nil, err }
+	v_empty_map = Object()
+	v_children = coreGet(v_state, "children_usage", v_empty_map)
+	v_children_count = _core_len(v_children)
+	v_has_children = _core_gt(v_children_count, 0)
+	if coreTruthy(v_has_children) {
+		if err := coreSet(v_usage, "children", v_children); err != nil { return nil, err }
+	} else {
+	// empty
+	}
 	if err := coreSet(v_state, "usage", v_usage); err != nil { return nil, err }
 	return v_usage, nil
 }
@@ -52022,8 +52123,8 @@ func _agent_run_llm_query(args ...Value) (Value, error) {
 	return v_single, nil
 }
 
-func _agent_forward(args ...Value) (Value, error) {
-	axirCoverageMark("_agent_forward")
+func _agent_forward_impl(args ...Value) (Value, error) {
+	axirCoverageMark("_agent_forward_impl")
 	var v_state Value
 	var v_distiller Value
 	var v_executor Value
@@ -52689,6 +52790,261 @@ func _agent_forward(args ...Value) (Value, error) {
 	if _, err := _agent_build_failure_signals(v_state); err != nil { return nil, err }
 	if _, err := _agent_finalize_trace(v_state, "completed", v_responder_output); err != nil { return nil, err }
 	return v_responder_output, nil
+}
+
+func _agent_register_child(args ...Value) (Value, error) {
+	axirCoverageMark("_agent_register_child")
+	var v_options Value
+	var v_namespace Value
+	var v_name Value
+	var v_program Value
+	var v_signature Value
+	var v_child Value
+	var v_children Value
+	var v_copy Value
+	var v_default_name Value
+	var v_description Value
+	var v_empty_list Value
+	var v_empty_map Value
+	var v_fields Value
+	var v_found Value
+	var v_functions Value
+	var v_group Value
+	var v_matches Value
+	var v_member Value
+	var v_members Value
+	var v_module Value
+	var v_module_namespace Value
+	var v_modules Value
+	var v_out Value
+	var v_schema Value
+	if len(args) > 0 { v_options = args[0] }
+	_ = v_options
+	if len(args) > 1 { v_namespace = args[1] }
+	_ = v_namespace
+	if len(args) > 2 { v_name = args[2] }
+	_ = v_name
+	if len(args) > 3 { v_program = args[3] }
+	_ = v_program
+	if len(args) > 4 { v_signature = args[4] }
+	_ = v_signature
+	_ = v_child
+	_ = v_children
+	_ = v_copy
+	_ = v_default_name
+	_ = v_description
+	_ = v_empty_list
+	_ = v_empty_map
+	_ = v_fields
+	_ = v_found
+	_ = v_functions
+	_ = v_group
+	_ = v_matches
+	_ = v_member
+	_ = v_members
+	_ = v_module
+	_ = v_module_namespace
+	_ = v_modules
+	_ = v_out
+	_ = v_schema
+	v_empty_map = Object()
+	v_empty_list = MutableArray()
+	v_out = _core_map_merge(v_empty_map, v_options)
+	v_fields = coreGet(v_signature, "input_fields", v_empty_list)
+	{ v, err := _schema_to_json_schema_impl(v_fields, v_name, v_empty_map); if err != nil { return nil, err }; v_schema = v }
+	v_child = Object()
+	if err := coreSet(v_child, "name", v_name); err != nil { return nil, err }
+	if err := coreSet(v_child, "kind", "agent"); err != nil { return nil, err }
+	if err := coreSet(v_child, "execution", "blocking"); err != nil { return nil, err }
+	if err := coreSet(v_child, "parameters", v_schema); err != nil { return nil, err }
+	if err := coreSet(v_child, "program", v_program); err != nil { return nil, err }
+	v_description = coreGet(v_signature, "description", "Delegate to a child agent")
+	if err := coreSet(v_child, "description", v_description); err != nil { return nil, err }
+	v_functions = coreGet(v_options, "functions", v_empty_list)
+	v_modules = MutableArray()
+	v_found = false
+	for _, v_module = range coreIter(v_functions) {
+		v_default_name = coreGet(v_module, "name", "tools")
+		v_module_namespace = coreGet(v_module, "namespace", v_default_name)
+		v_matches = _core_eq(v_module_namespace, v_namespace)
+		v_members = coreGet(v_module, "functions", nil)
+		v_group = coreTypeIs(v_members, "list")
+		v_matches = _core_and(v_matches, v_group)
+		if coreTruthy(v_matches) {
+			v_copy = _core_map_merge(v_empty_map, v_module)
+			v_children = MutableArray()
+			for _, v_member = range coreIter(v_members) {
+				v_children = coreAppend(v_children, v_member)
+			}
+			v_children = coreAppend(v_children, v_child)
+			if err := coreSet(v_copy, "functions", v_children); err != nil { return nil, err }
+			v_modules = coreAppend(v_modules, v_copy)
+			v_found = true
+		} else {
+			v_modules = coreAppend(v_modules, v_module)
+		}
+	}
+	if coreTruthy(v_found) {
+	// empty
+	} else {
+		v_module = Object()
+		v_children = MutableArray()
+		v_children = coreAppend(v_children, v_child)
+		if err := coreSet(v_module, "namespace", v_namespace); err != nil { return nil, err }
+		if err := coreSet(v_module, "functions", v_children); err != nil { return nil, err }
+		v_modules = coreAppend(v_modules, v_module)
+	}
+	if err := coreSet(v_out, "functions", v_modules); err != nil { return nil, err }
+	return v_out, nil
+}
+
+func _agent_child_options(args ...Value) (Value, error) {
+	axirCoverageMark("_agent_child_options")
+	var v_state Value
+	var v_qualified Value
+	var v_options Value
+	var v_active Value
+	var v_base Value
+	var v_empty_map Value
+	var v_key Value
+	var v_keys Value
+	var v_out Value
+	var v_parent Value
+	var v_parent_path Value
+	var v_path Value
+	var v_present Value
+	var v_snake_path Value
+	var v_value Value
+	if len(args) > 0 { v_state = args[0] }
+	_ = v_state
+	if len(args) > 1 { v_qualified = args[1] }
+	_ = v_qualified
+	if len(args) > 2 { v_options = args[2] }
+	_ = v_options
+	_ = v_active
+	_ = v_base
+	_ = v_empty_map
+	_ = v_key
+	_ = v_keys
+	_ = v_out
+	_ = v_parent
+	_ = v_parent_path
+	_ = v_path
+	_ = v_present
+	_ = v_snake_path
+	_ = v_value
+	v_empty_map = Object()
+	v_base = coreGet(v_state, "options", v_empty_map)
+	v_active = coreGet(v_state, "active_forward_options", v_empty_map)
+	v_parent = _core_map_merge(v_base, v_active)
+	v_parent = _core_map_merge(v_parent, v_options)
+	v_out = Object()
+	v_keys = MutableArray()
+	v_keys = coreAppend(v_keys, "control")
+	v_keys = coreAppend(v_keys, "asyncMode")
+	v_keys = coreAppend(v_keys, "async_mode")
+	v_keys = coreAppend(v_keys, "abortSignal")
+	v_keys = coreAppend(v_keys, "abort_signal")
+	v_keys = coreAppend(v_keys, "cancellation")
+	v_keys = coreAppend(v_keys, "executionContext")
+	v_keys = coreAppend(v_keys, "eventContext")
+	v_keys = coreAppend(v_keys, "protocol")
+	for _, v_key = range coreIter(v_keys) {
+		v_value = coreGet(v_parent, v_key, nil)
+		v_present = _core_is_not_none(v_value)
+		if coreTruthy(v_present) {
+			if err := coreSet(v_out, v_key, v_value); err != nil { return nil, err }
+		} else {
+		// empty
+		}
+	}
+	v_snake_path = coreGet(v_parent, "execution_path", "root")
+	v_parent_path = coreGet(v_parent, "executionPath", v_snake_path)
+	v_path = _core_string_format("{}/{}", v_parent_path, v_qualified)
+	if err := coreSet(v_out, "executionPath", v_path); err != nil { return nil, err }
+	if err := coreSet(v_out, "execution_path", v_path); err != nil { return nil, err }
+	return v_out, nil
+}
+
+func _agent_forward(args ...Value) (Value, error) {
+	axirCoverageMark("_agent_forward")
+	var v_state Value
+	var v_distiller Value
+	var v_executor Value
+	var v_responder Value
+	var v_client Value
+	var v_values Value
+	var v_options Value
+	var v_active Value
+	var v_close_error Value
+	var v_error Value
+	var v_forward_error Value
+	var v_none Value
+	var v_output Value
+	var v_session Value
+	if len(args) > 0 { v_state = args[0] }
+	_ = v_state
+	if len(args) > 1 { v_distiller = args[1] }
+	_ = v_distiller
+	if len(args) > 2 { v_executor = args[2] }
+	_ = v_executor
+	if len(args) > 3 { v_responder = args[3] }
+	_ = v_responder
+	if len(args) > 4 { v_client = args[4] }
+	_ = v_client
+	if len(args) > 5 { v_values = args[5] }
+	_ = v_values
+	if len(args) > 6 { v_options = args[6] }
+	_ = v_options
+	_ = v_active
+	_ = v_close_error
+	_ = v_error
+	_ = v_forward_error
+	_ = v_none
+	_ = v_output
+	_ = v_session
+	v_none = _core_none()
+	v_active = coreGet(v_state, "forward_active", false)
+	if coreTruthy(v_active) {
+		v_error = _core_runtime_error("An agent cannot delegate recursively to an already active agent")
+		return nil, asError(v_error)
+	} else {
+	// empty
+	}
+	if err := coreSet(v_state, "forward_active", true); err != nil { return nil, err }
+	if err := coreSet(v_state, "active_client", v_client); err != nil { return nil, err }
+	if err := coreSet(v_state, "active_forward_options", v_options); err != nil { return nil, err }
+	v_output = Object()
+	{
+		__flow, __err := func() (coreFlow, error) {
+			{ v, err := _agent_forward_impl(v_state, v_distiller, v_executor, v_responder, v_client, v_values, v_options); if err != nil { return coreFlow{}, err }; v_output = v }
+			return coreFlow{}, nil
+		}()
+		if __err == nil && __flow.kind == coreFlowReturn { return __flow.value, nil }
+		if __err != nil {
+			v_forward_error = errorValue(__err)
+			if err := coreSet(v_state, "forward_active", false); err != nil { return nil, err }
+			if err := coreSet(v_state, "active_client", v_none); err != nil { return nil, err }
+			if err := coreSet(v_state, "active_forward_options", v_none); err != nil { return nil, err }
+			v_session = coreGet(v_state, "runtime_session", nil)
+			{
+				__flow, __err := func() (coreFlow, error) {
+					if _, err := _agent_runtime_close_session(v_state, v_session); err != nil { return coreFlow{}, err }
+					return coreFlow{}, nil
+				}()
+				if __err == nil && __flow.kind == coreFlowReturn { return __flow.value, nil }
+				if __err != nil {
+					v_close_error = errorValue(__err)
+				// empty
+				}
+			}
+			return nil, asError(v_forward_error)
+		}
+	}
+	if err := coreSet(v_state, "forward_active", false); err != nil { return nil, err }
+	if err := coreSet(v_state, "active_client", v_none); err != nil { return nil, err }
+	if err := coreSet(v_state, "active_forward_options", v_none); err != nil { return nil, err }
+	return v_output, nil
 }
 
 func _flow_factory(args ...Value) (Value, error) {
@@ -66056,6 +66412,10 @@ func (a *AxAgent) SetRateLimiter(limiter AxRateLimiter) *AxAgent {
 }
 func (a *AxAgent) SetTracer(tracer AxTracer) *AxAgent { a.RuntimeHooks.Tracer = tracer; return a }
 func (a *AxAgent) SetMeter(meter AxMeter) *AxAgent    { a.RuntimeHooks.Meter = meter; return a }
+func (a *AxAgent) AddChildAgent(namespace, name string, child *AxAgent) *AxAgent {
+    a.Options = asMap(mustCore(_agent_register_child(a.Options, namespace, name, child, coreGet(child.State, "signature", nil))))
+    return a.SetSignature(a.Signature.String())
+}
 func (a *AxAgent) SetSignature(signature string) *AxAgent {
 	state := asMap(mustCore(_agent_factory(signature, a.Options)))
 	a.Signature = NewSignature(signature)
@@ -72658,6 +73018,10 @@ func runConformanceAgentForward(fixture map[string]Value) {
 	stateRoundtripProjection := Object()
 	_, err := safeValue(func() Value {
 		ag = NewAgent(display(coreGet(fixture, "signature", "question:string -> answer:string")), options)
+        for _, rawChild := range asSlice(coreGet(fixture, "child_agents", Array())) {
+            child := asMap(rawChild)
+            ag.AddChildAgent(display(child["namespace"]), display(child["name"]), NewAgent(display(child["signature"]), asMap(coreGet(child,"options",Object()))))
+        }
 		if instruction := coreGet(fixture, "set_instruction", nil); instruction != nil {
 			ag.SetInstruction(display(instruction))
 		}

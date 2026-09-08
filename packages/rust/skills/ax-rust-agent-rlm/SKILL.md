@@ -33,7 +33,7 @@ let out = helper.forward(&llm, inputs, None)?;
 
 ## Relevant API Surface
 
-- Agents And RLM: `agent`, `AxAgent`
+- Agents And RLM: `agent`, `AxAgent`, `AxAgent::with_child_agent`
 - Runtime Profiles: `ProcessCodeRuntime`, `RuntimeCapabilities`, `RuntimeEnvelope`, `javascript-quickjs`
 
 ## Guardrails

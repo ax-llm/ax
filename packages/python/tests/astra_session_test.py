@@ -600,3 +600,72 @@ def native_mcp_agent_discovery():
     assert len(authorizations)==2, 'Invalid arguments or actor replay reached authorization'
     print('python discovered MCP native agent schema, correction, overlap, result and action log passed')
 native_mcp_agent_discovery()
+
+def test_owned_child_controls():
+    from axllm import agent
+    from axllm.agent import AxCodeRuntime, AxCodeSession
+    stages=['root/distiller','root/executor','root/team.researcher/distiller','root/team.researcher/executor','root/team.researcher/responder','root/executor','root/responder']
+    for cancel in (False,True):
+        control=run_control(); observed=[]; requests=[]
+        def observe(event):
+            observed.append(event)
+            if cancel and event['type']=='started' and event['path']=='root/team.researcher/executor':control.abort()
+        control.on_event(observe)
+        control.steer('ROOT-UPDATE')
+        control.steer('CHILD-ONLY',target='root/team.researcher')
+        control.set_thinking_token_budget('medium',target='root/team.researcher/executor')
+        class Runtime(AxCodeRuntime):
+            def __init__(self):self.delegated=False;self.closed=0
+            def create_session(self,globals,options=None):
+                runtime=self
+                class Session(AxCodeSession):
+                    def execute(self,code,options=None):
+                        if code=='delegate':
+                            runtime.delegated=True
+                            return {'callable':{'qualified_name':'team.researcher','args':{'question':'Find reference'},'call_id':'child-call'}}
+                        return {'type':'final','args':['Find reference',{}]}
+                    def snapshot_globals(self,options=None):return {'globals':{}}
+                    def patch_globals(self,globals,options=None):return globals
+                    def close(self):runtime.closed+=1;return {'closed':True}
+                return Session()
+        runtime=Runtime()
+        def transport(req):
+            body=req['json'];number=len(requests);stage=stages[number//2];requests.append(body)
+            if number%2:
+                assert body['previous_response_id']=='child-r'+str(number),body
+                assert 'ROOT-UPDATE' in json.dumps(body['input']),body
+                assert ('CHILD-ONLY' in json.dumps(body['input']))==stage.startswith('root/team.researcher'),body
+                updates=[item for item in body['input'] if item.get('type')=='configuration_update']
+                assert bool(updates)==(stage=='root/team.researcher/executor'),body
+                if updates:assert updates==[{'type':'configuration_update','reasoning':{'effort':'medium'}}],updates
+                assert body.get('reasoning')==requests[-2].get('reasoning'),'cache prefix changed'
+            else:assert not body.get('previous_response_id'),'child inherited a different conversation'
+            if number==10:assert 'REF-42' in json.dumps(body),'parent continued without the child result'
+            if stage.startswith('root/team.researcher'):
+                output={'answer':'REF-42'} if stage.endswith('/responder') else {'completion':{'type':'final','args':['Find reference',{}]}}
+            elif stage=='root/responder':output={'answer':'REF-42'}
+            else:output={'javascriptCode':'delegate' if stage=='root/executor' and not runtime.delegated else 'parent-final'}
+            response={'id':'child-r'+str(number+1),'model':'gpt-6-astra','usage':{'input_tokens':2,'output_tokens':1,'total_tokens':3},'output':[{'type':'message','id':'message','content':[{'type':'output_text','text':json.dumps(output)}]}]}
+            return {'status':200,'body':'data: '+json.dumps({'type':'response.completed','response':response})+'\n\n'}
+        child=agent('question -> answer',{'directResponse':'off'})
+        parent=agent('question -> answer',{'directResponse':'off','runtime':runtime}).add_child_agent('team','researcher',child)
+        client=ai('openai',model='gpt-6-astra',api_key='test',transport=transport)
+        try:
+            result=parent.forward(client,{'question':'Find reference'},{'control':control})
+            assert not cancel,'cancelled child returned success'
+            assert result=={'answer':'REF-42'} and len(requests)==14,(result,len(requests))
+            assert len([event for event in observed if event['type']=='applied'])==11,observed
+            activity=[item for item in parent.state['function_call_traces'] if item.get('call_id')=='child-call']
+            assert len(activity)==1 and activity[0]['result']['value']=={'answer':'REF-42'},activity
+            assert parent.get_usage()['children']['team.researcher']==child.get_usage(),'child usage lost or duplicated'
+        except RuntimeError as error:
+            if not cancel:raise
+            assert 'abort' in str(error).lower(),error
+            assert 6 <= len(requests) <= 7 and runtime.closed==1,(len(requests),runtime.closed)
+            activity=[item for item in parent.state['function_call_traces'] if item.get('call_id')=='child-call']
+            assert len(activity)==1 and activity[0]['status']=='error',activity
+        assert parent.state['forward_active'] is False and parent.state['active_client'] is None
+        assert child.state['forward_active'] is False and child.state['active_client'] is None
+    print('python actual child delegation, scoped controls, usage, and cancellation passed')
+
+test_owned_child_controls()

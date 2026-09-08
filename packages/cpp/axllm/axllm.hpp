@@ -981,6 +981,9 @@ struct Core {
   static Value _agent_transcribe_audio_inputs(Value state, Value client, Value values, Value options);
   static Value _agent_run_llm_query_one(Value sub_gen, Value client, Value item, Value options);
   static Value _agent_run_llm_query(Value sub_gen, Value client, Value params, Value options);
+  static Value _agent_forward_impl(Value state, Value distiller, Value executor, Value responder, Value client, Value values, Value options);
+  static Value _agent_register_child(Value options, Value namespace_, Value name, Value program, Value signature);
+  static Value _agent_child_options(Value state, Value qualified, Value options);
   static Value _agent_forward(Value state, Value distiller, Value executor, Value responder, Value client, Value values, Value options);
   static Value _flow_factory(Value options);
   static Value _program_descriptor(Value kind, Value id, Value metadata);
@@ -1980,6 +1983,7 @@ class AxAgent : public AxProgram {
   Value used(Value id, Value reason = Value(""), Value stage = Value("executor"));
   Value invoke_callable(Value qualified_name, Value args = Value::object(), Value options = Value::object());
   AxAgent& add_tool_module(std::string name, const std::vector<Tool>& tools);
+  AxAgent& add_child_agent(std::string namespace_name, std::string name, std::shared_ptr<AxAgent> child);
   Value export_runtime_state() const;
   Value restore_runtime_state(Value snapshot);
   Value get_optimizer_metadata() const;
@@ -1995,6 +1999,7 @@ class AxAgent : public AxProgram {
   AxPlaybook* get_playbook() const;
 
  private:
+  std::vector<std::shared_ptr<AxAgent>> child_agents_;
   Value state_;
   std::unique_ptr<AxGen> distiller_;
   std::unique_ptr<AxGen> executor_;

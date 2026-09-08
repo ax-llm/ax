@@ -1624,6 +1624,11 @@ class AxAgent:
         self.responder = AxGen(_core_get(self.state, "responder_signature", self.signature), {"validation_retries": self.options.get("validation_retries", 2), "id": "task.root.responder", "instruction": _core_get(self.state, "responder_description", "")})
         self.llm_query = AxGen(_core_get(self.state, "llm_query_signature", "task:string, context:json -> answer:string"), {"validation_retries": 1, "id": "rlm.llmquery", "instruction": _core_get(self.state, "llm_query_description", "")})
 
+    def add_child_agent(self, namespace: str, name: str, child: "AxAgent"):
+        self.options = _agent_register_child(self.options, namespace, name, child, child.signature)
+        self._rebuild_from_signature(self.signature)
+        return self
+
     def set_signature(self, signature):
         self._rebuild_from_signature(signature)
         return self

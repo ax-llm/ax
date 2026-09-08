@@ -21418,6 +21418,11 @@ Value Core::_agent_sanitize_action_log_entries(Value entries) {
     if (Core::truthy(has_qualified_name)) {
       Core::set(clean, Value("qualified_name"), qualified_name);
     }
+    Value public_call_id = Core::get(entry, Value("call_id"), Value());
+    Value has_call_id = Core::is_not_none(public_call_id);
+    if (Core::truthy(has_call_id)) {
+      Core::set(clean, Value("call_id"), public_call_id);
+    }
     Value entry_name = Core::get(entry, Value("name"), Value(""));
     Value has_entry_name = Core::ne(entry_name, Value(""));
     if (Core::truthy(has_entry_name)) {
@@ -22752,7 +22757,45 @@ Value Core::_agent_execute_callable(Value state, Value request, Value options) {
     Core::set(result, Value("error"), message);
   }
   if (!Core::truthy(native_tool)) {
-    result = Core::agent_callable_invoke(state, request, options);
+    Value implementation = Core::_agent_callable_implementation(state, qualified);
+    Value program = Core::get(implementation, Value("program"), Value());
+    Value child = Core::is_not_none(program);
+    if (Core::truthy(child)) {
+      Value empty_map = Value::object();
+      Value arguments = Core::get(request, Value("args"), empty_map);
+      Value schema = Core::get(implementation, Value("parameters"), empty_map);
+      Value value = Value::object();
+      try {
+        Core::chat_session_validate_required_arguments(schema, arguments, qualified);
+        Value active = Core::get(state, Value("forward_active"), Value(false));
+        if (Core::truthy(active)) {
+          // empty
+        }
+        if (!Core::truthy(active)) {
+          Value error = Core::runtime_error(Value("Child agent delegation requires an active parent forward call"));
+          Core::raise_error(error);
+        }
+        Value client = Core::get(state, Value("active_client"), Value());
+        Value child_options = Core::_agent_child_options(state, qualified, options);
+        value = Core::agent_stage_forward(program, client, arguments, child_options);
+      } catch (const std::exception& e) {
+        Value child_error = Core::exception_value(e);
+        Value message = Core::string_format(Value("{}"), child_error);
+        Core::set(result, Value("status"), Value("error"));
+        Core::set(result, Value("error"), message);
+        Core::_agent_record_callable_result(state, request, result, options);
+        Core::raise_error(child_error);
+      }
+      Value children_usage = Core::get(state, Value("children_usage"), empty_map);
+      Value child_usage = Core::agent_stage_usage(program);
+      Core::set(children_usage, qualified, child_usage);
+      Core::set(state, Value("children_usage"), children_usage);
+      Core::set(result, Value("status"), Value("ok"));
+      Core::set(result, Value("value"), value);
+    }
+    if (!Core::truthy(child)) {
+      result = Core::agent_callable_invoke(state, request, options);
+    }
   }
   Value recorded = Core::_agent_record_callable_result(state, request, result, options);
   return recorded;
@@ -22786,6 +22829,8 @@ Value Core::_agent_record_callable_result(Value state, Value request, Value resu
     Core::set(action, Value("call_id"), call_id);
   }
   Core::set(action, Value("qualified_name"), qualified);
+  Value rendered_result = Core::json_stringify(result);
+  Core::set(action, Value("output"), rendered_result);
   Core::set(action, Value("status"), status);
   Core::append(action_log, action);
   Core::set(state, Value("action_log"), action_log);
@@ -25435,6 +25480,13 @@ Value Core::_merge_agent_usage(Value state, Value distiller, Value executor, Val
   Core::set(usage, Value("chat_log_entries"), count);
   Core::set(usage, Value("actor"), actor);
   Core::set(usage, Value("responder"), responder_usage);
+  Value empty_map = Value::object();
+  Value children = Core::get(state, Value("children_usage"), empty_map);
+  Value children_count = Core::len(children);
+  Value has_children = Core::gt(children_count, Value(0));
+  if (Core::truthy(has_children)) {
+    Core::set(usage, Value("children"), children);
+  }
   Core::set(state, Value("usage"), usage);
   return usage;
 }
@@ -26214,8 +26266,8 @@ Value Core::_agent_run_llm_query(Value sub_gen, Value client, Value params, Valu
   return single;
 }
 
-Value Core::_agent_forward(Value state, Value distiller, Value executor, Value responder, Value client, Value values, Value options) {
-  axir_coverage_mark("_agent_forward");
+Value Core::_agent_forward_impl(Value state, Value distiller, Value executor, Value responder, Value client, Value values, Value options) {
+  axir_coverage_mark("_agent_forward_impl");
   Value empty_list = Value::array();
   Value empty_map = Value::object();
   Core::set(state, Value("native_tool_names"), empty_list);
@@ -26559,6 +26611,128 @@ Value Core::_agent_forward(Value state, Value distiller, Value executor, Value r
   Core::_agent_build_failure_signals(state);
   Core::_agent_finalize_trace(state, Value("completed"), responder_output);
   return responder_output;
+}
+
+Value Core::_agent_register_child(Value options, Value namespace_, Value name, Value program, Value signature) {
+  axir_coverage_mark("_agent_register_child");
+  Value empty_map = Value::object();
+  Value empty_list = Value::array();
+  Value out = Core::map_merge(empty_map, options);
+  Value fields = Core::get(signature, Value("input_fields"), empty_list);
+  Value schema = Core::_schema_to_json_schema_impl(fields, name, empty_map);
+  Value child = Value::object();
+  Core::set(child, Value("name"), name);
+  Core::set(child, Value("kind"), Value("agent"));
+  Core::set(child, Value("execution"), Value("blocking"));
+  Core::set(child, Value("parameters"), schema);
+  Core::set(child, Value("program"), program);
+  Value description = Core::get(signature, Value("description"), Value("Delegate to a child agent"));
+  Core::set(child, Value("description"), description);
+  Value functions = Core::get(options, Value("functions"), empty_list);
+  Value modules = Value::array();
+  Value found = Value(false);
+  for (auto module : Core::iter(functions)) {
+    Value default_name = Core::get(module, Value("name"), Value("tools"));
+    Value module_namespace = Core::get(module, Value("namespace"), default_name);
+    Value matches = Core::eq(module_namespace, namespace_);
+    Value members = Core::get(module, Value("functions"), Value());
+    Value group = Core::type_is(members, Value("list"));
+    matches = Core::and_(matches, group);
+    if (Core::truthy(matches)) {
+      Value copy = Core::map_merge(empty_map, module);
+      Value children = Value::array();
+      for (auto member : Core::iter(members)) {
+        Core::append(children, member);
+      }
+      Core::append(children, child);
+      Core::set(copy, Value("functions"), children);
+      Core::append(modules, copy);
+      found = Value(true);
+    }
+    if (!Core::truthy(matches)) {
+      Core::append(modules, module);
+    }
+  }
+  if (Core::truthy(found)) {
+    // empty
+  }
+  if (!Core::truthy(found)) {
+    Value module = Value::object();
+    Value children = Value::array();
+    Core::append(children, child);
+    Core::set(module, Value("namespace"), namespace_);
+    Core::set(module, Value("functions"), children);
+    Core::append(modules, module);
+  }
+  Core::set(out, Value("functions"), modules);
+  return out;
+}
+
+Value Core::_agent_child_options(Value state, Value qualified, Value options) {
+  axir_coverage_mark("_agent_child_options");
+  Value empty_map = Value::object();
+  Value base = Core::get(state, Value("options"), empty_map);
+  Value active = Core::get(state, Value("active_forward_options"), empty_map);
+  Value parent = Core::map_merge(base, active);
+  parent = Core::map_merge(parent, options);
+  Value out = Value::object();
+  Value keys = Value::array();
+  Core::append(keys, Value("control"));
+  Core::append(keys, Value("asyncMode"));
+  Core::append(keys, Value("async_mode"));
+  Core::append(keys, Value("abortSignal"));
+  Core::append(keys, Value("abort_signal"));
+  Core::append(keys, Value("cancellation"));
+  Core::append(keys, Value("executionContext"));
+  Core::append(keys, Value("eventContext"));
+  Core::append(keys, Value("protocol"));
+  for (auto key : Core::iter(keys)) {
+    Value value = Core::get(parent, key, Value());
+    Value present = Core::is_not_none(value);
+    if (Core::truthy(present)) {
+      Core::set(out, key, value);
+    }
+  }
+  Value snake_path = Core::get(parent, Value("execution_path"), Value("root"));
+  Value parent_path = Core::get(parent, Value("executionPath"), snake_path);
+  Value path = Core::string_format(Value("{}/{}"), parent_path, qualified);
+  Core::set(out, Value("executionPath"), path);
+  Core::set(out, Value("execution_path"), path);
+  return out;
+}
+
+Value Core::_agent_forward(Value state, Value distiller, Value executor, Value responder, Value client, Value values, Value options) {
+  axir_coverage_mark("_agent_forward");
+  Value none = Core::none();
+  Value active = Core::get(state, Value("forward_active"), Value(false));
+  if (Core::truthy(active)) {
+    Value error = Core::runtime_error(Value("An agent cannot delegate recursively to an already active agent"));
+    Core::raise_error(error);
+  }
+  Core::set(state, Value("forward_active"), Value(true));
+  Core::set(state, Value("active_client"), client);
+  Core::set(state, Value("active_forward_options"), options);
+  Value output = Value::object();
+  try {
+    output = Core::_agent_forward_impl(state, distiller, executor, responder, client, values, options);
+  } catch (const std::exception& e) {
+    Value forward_error = Core::exception_value(e);
+    Core::set(state, Value("forward_active"), Value(false));
+    Core::set(state, Value("active_client"), none);
+    Core::set(state, Value("active_forward_options"), none);
+    Value session = Core::get(state, Value("runtime_session"), Value());
+    try {
+      Core::_agent_runtime_close_session(state, session);
+    } catch (const std::exception& e) {
+      Value close_error = Core::exception_value(e);
+      // empty
+    }
+    Core::raise_error(forward_error);
+  }
+  Core::set(state, Value("forward_active"), Value(false));
+  Core::set(state, Value("active_client"), none);
+  Core::set(state, Value("active_forward_options"), none);
+  return output;
 }
 
 Value Core::_flow_factory(Value options) {
@@ -35034,6 +35208,16 @@ AxAgent& AxAgent::set_citations_observer(std::function<void(Value)> observer) {
 AxAgent& AxAgent::set_playbook_observer(std::function<void(Value)> observer) {
   playbook_observer_ = std::move(observer);
   return *this;
+}
+
+AxAgent& AxAgent::add_child_agent(std::string namespace_name, std::string name, std::shared_ptr<AxAgent> child) {
+  if (!child) throw std::invalid_argument("Child agent is required");
+  if (child.get() == this) throw std::invalid_argument("An agent cannot own itself as a child");
+  Value updated = Core::_agent_register_child(options_, namespace_name, name, Core::agent_stage_ref(*child), Core::get(child->state_, "signature"));
+  options_ = updated;
+  Core::set(state_, "options", updated);
+  child_agents_.push_back(std::move(child));
+  return set_signature(Core::get(state_, "signature"));
 }
 
 AxAgent& AxAgent::add_tool_module(std::string name, const std::vector<Tool>& tools) {

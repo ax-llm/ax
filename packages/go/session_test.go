@@ -731,3 +731,50 @@ func TestNativeMCPAgentDiscoveryAndInvocation(t *testing.T){
     duplicate:=program.InvokeCallable("orders.lookup",Object("query","REF-42"),nil);if coreGet(duplicate,"status",nil)!="error"||transport.calls.Load()!=1{t.Fatal("Native MCP call replayed through actor code")}
     if authorizations.Load()!=2{t.Fatal("Invalid arguments or actor replay reached authorization")}
 }
+
+type childControlRuntime struct{ delegated bool; closed int }
+func(r *childControlRuntime)Language()string{return "JavaScript"}
+func(r *childControlRuntime)UsageInstructions()string{return ""}
+func(r *childControlRuntime)CreateSession(map[string]Value,map[string]Value)(CodeSession,error){return &childControlSession{r},nil}
+type childControlSession struct{runtime *childControlRuntime}
+func(s *childControlSession)Execute(code string,_ map[string]Value)Value{if code=="delegate"{s.runtime.delegated=true;return Object("callable",Object("qualified_name","team.researcher","args",Object("question","Find reference"),"call_id","child-call"))};return Object("type","final","args",Array("Find reference",Object()))}
+func(s *childControlSession)Inspect(map[string]Value)Value{return Object()}
+func(s *childControlSession)SnapshotGlobals(map[string]Value)Value{return Object("globals",Object())}
+func(s *childControlSession)PatchGlobals(v Value,_ map[string]Value)Value{return v}
+func(s *childControlSession)Close()Value{s.runtime.closed++;return Object("closed",true)}
+func TestOwnedChildControlsAndCancellation(t *testing.T){
+ stages:=[]string{"root/distiller","root/executor","root/team.researcher/distiller","root/team.researcher/executor","root/team.researcher/responder","root/executor","root/responder"}
+ for _,cancel:=range []bool{false,true}{
+  control:=RunControl();observed:=[]map[string]Value{};requests:=[]Value{};var requestMu sync.Mutex;runtime:=&childControlRuntime{}
+  control.OnEvent(func(event map[string]Value){observed=append(observed,event);if cancel&&event["type"]=="started"&&event["path"]=="root/team.researcher/executor"{control.Abort()}})
+  if err:=control.Steer("ROOT-UPDATE");err!=nil{t.Fatal(err)};if err:=control.Steer("CHILD-ONLY","root/team.researcher");err!=nil{t.Fatal(err)};if err:=control.SetThinkingTokenBudget("medium","root/team.researcher/executor");err!=nil{t.Fatal(err)}
+  transport:=&sessionTestTransport{}
+  transport.stream=func(ctx context.Context,request Value,n int)(AxHTTPStreamResponse,error){
+   requestMu.Lock();defer requestMu.Unlock();number:=n-1;body:=coreGet(request,"json",Object());stage:=stages[number/2];requests=append(requests,body)
+   if number%2==1{
+    raw,_:=json.Marshal(coreGet(body,"input",Array()));input:=string(raw)
+    if coreGet(body,"previous_response_id",nil)!=fmt.Sprintf("child-r%d",number)||!strings.Contains(input,"ROOT-UPDATE")||strings.Contains(input,"CHILD-ONLY")!=strings.HasPrefix(stage,"root/team.researcher"){return AxHTTPStreamResponse{},fmt.Errorf("child controls lost: %s",input)}
+    updates:=[]Value{};for _,item:=range asSlice(coreGet(body,"input",Array())){if coreGet(item,"type",nil)=="configuration_update"{updates=append(updates,item)}}
+    if (len(updates)>0)!=(stage=="root/team.researcher/executor"){return AxHTTPStreamResponse{},fmt.Errorf("reasoning scope lost")}
+    if len(updates)>0&&coreGet(coreGet(updates[0],"reasoning",nil),"effort",nil)!="medium"{return AxHTTPStreamResponse{},fmt.Errorf("reasoning value lost")}
+    before,_:=json.Marshal(coreGet(requests[number-1],"reasoning",nil));after,_:=json.Marshal(coreGet(body,"reasoning",nil));if string(before)!=string(after){return AxHTTPStreamResponse{},fmt.Errorf("cache prefix changed")}
+   }else if coreGet(body,"previous_response_id",nil)!=nil{return AxHTTPStreamResponse{},fmt.Errorf("child inherited conversation")}
+   if number==10{raw,_:=json.Marshal(body);if !strings.Contains(string(raw),"REF-42"){return AxHTTPStreamResponse{},fmt.Errorf("parent continued without child result")}}
+   var output Value
+   if strings.HasPrefix(stage,"root/team.researcher"){if strings.HasSuffix(stage,"/responder"){output=Object("answer","REF-42")}else{output=Object("completion",Object("type","final","args",Array("Find reference",Object())))}}else if stage=="root/responder"{output=Object("answer","REF-42")}else{code:="parent-final";if stage=="root/executor"&&!runtime.delegated{code="delegate"};output=Object("javascriptCode",code)}
+   raw,_:=json.Marshal(output);var data strings.Builder;sessionSSE(&data,sessionCompleted(fmt.Sprintf("child-r%d",n),string(raw)))
+   return AxHTTPStreamResponse{Status:200,Body:io.NopCloser(strings.NewReader(data.String()))},nil
+  }
+  child:=NewAgent("question -> answer",Object("directResponse","off"));parent:=NewAgent("question -> answer",Object("directResponse","off","runtime",runtime)).AddChildAgent("team","researcher",child)
+  client:=NewAI("openai",Object("model","gpt-6-astra","api_key","test","transport",transport))
+  result,err:=parent.Forward(context.Background(),client,Object("question","Find reference"),Object("control",control))
+  requestMu.Lock();requestCount:=len(requests);requestMu.Unlock()
+  if cancel{if err==nil||!strings.Contains(strings.ToLower(err.Error()),"abort")||(requestCount<6||requestCount>7)||runtime.closed!=1{t.Fatalf("child cancellation cleanup: %v requests=%d closed=%d",err,requestCount,runtime.closed)}}else{
+   if err!=nil||coreGet(result,"answer",nil)!="REF-42"||requestCount!=14{t.Fatalf("child completion: %v %v requests=%d",result,err,requestCount)}
+   applied:=0;for _,event:=range observed{if event["type"]=="applied"{applied++}};if applied!=11{t.Fatalf("lost/duplicate controls: %v",observed)}
+   usage,_:=json.Marshal(coreGet(coreGet(parent.GetUsage(),"children",nil),"team.researcher",nil));expected,_:=json.Marshal(child.GetUsage());if string(usage)!=string(expected){t.Fatalf("child usage: %s expected %s",usage,expected)}
+  }
+  count:=0;for _,item:=range asSlice(parent.GetActionLog()){if coreGet(item,"call_id",nil)=="child-call"{count++;expected:="ok";if cancel{expected="error"};if coreGet(item,"status",nil)!=expected{t.Fatalf("child status: %v",item)}}};if count!=1{t.Fatalf("child call count %d",count)}
+  if coreTruthy(parent.State["forward_active"])||parent.State["active_client"]!=nil||coreTruthy(child.State["forward_active"])||child.State["active_client"]!=nil{t.Fatal("active client retained")}
+ }
+}
