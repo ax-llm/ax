@@ -13,7 +13,7 @@
       "type": "skill-md",
       "description": "Use when writing Java code with `dev.axllm:ax` for named deployment profiles, generic provider clients, model selection, OpenAI-compatible calls, Responses, Gemini, Anthropic, routers, and balancers.",
       "url": "ax-java-ai/SKILL.md",
-      "digest": "sha256:7f8ef55c69dcfb1bc546f85d31afeb26d440a8c221c850268a8bc7044d7f8a5f"
+      "digest": "sha256:4ba9fbde84de599e41833a40ad114f2871d802f26bf581600eebc5116e578998"
     },
     {
       "name": "ax-java-audio",
@@ -34,21 +34,21 @@
       "type": "skill-md",
       "description": "Use when writing Java code with `dev.axllm:ax` for AxGen programs, forward calls, indexed multi-sampling, result pickers, streaming, tools, assertions, traces, usage, and output parsing.",
       "url": "ax-java-gen/SKILL.md",
-      "digest": "sha256:e721b1aa3bbd5109c93b84a11235873e52ec70401492a72eede0c0a7f4cd2adb"
+      "digest": "sha256:1d13f5c77fc4726ed6103b15d63ca5f7ff231ef60dde47a588a6162cfcf0351a"
     },
     {
       "name": "ax-java-flow",
       "type": "skill-md",
       "description": "Use when writing Java code with `dev.axllm:ax` for flows, nodes, program graphs, nested programs, dynamic options, caching, and optimizer components.",
       "url": "ax-java-flow/SKILL.md",
-      "digest": "sha256:031b1c17b576c16a391cc9c6b11300f7df922db2f6605390641aa6a13ee65e93"
+      "digest": "sha256:3b7073ab8abf42cf4f7f621114a09330e4a1aaa5e5a7ffb0c6684cae05533659"
     },
     {
       "name": "ax-java-agent",
       "type": "skill-md",
       "description": "Use when writing Java code with `dev.axllm:ax` for agents, child delegation, tools, MCP, citations, persistent playbook learning, stage instructions, runtime state, final typed responses, and direct-respond executor skipping.",
       "url": "ax-java-agent/SKILL.md",
-      "digest": "sha256:b9afd4fc9ad389174cc1896d88313fa341bc2f17b99ce3e6816d2da1393a0dbc"
+      "digest": "sha256:609c4baf971e547655f161e5c1e9ac5494a28041a2bc26883856650d36ade7c6"
     },
     {
       "name": "ax-java-agent-rlm",

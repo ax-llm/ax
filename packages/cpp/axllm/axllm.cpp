@@ -31222,6 +31222,38 @@ Value Core::mcp_oauth_validate_issuer(Value response, Value expected_issuer, Val
   return out;
 }
 
+Value Core::_mcp_tool_authorization_context(Value tools, Value namespace_, Value name, Value arguments) {
+  axir_coverage_mark("_mcp_tool_authorization_context");
+  for (auto tool : Core::iter(tools)) {
+    Value candidate = Core::get(tool, Value("name"), Value(""));
+    Value matches = Core::eq(candidate, name);
+    if (Core::truthy(matches)) {
+      Value context = Value::object();
+      Core::set(context, Value("namespace"), namespace_);
+      Core::set(context, Value("tool"), tool);
+      Core::set(context, Value("arguments"), arguments);
+      return context;
+    }
+  }
+  Value message = Core::string_format(Value("MCP tool not found: {}"), name);
+  Value error = Core::runtime_error(message);
+  Core::raise_error(error);
+}
+
+Value Core::_mcp_tool_authorization_result(Value name, Value decision) {
+  axir_coverage_mark("_mcp_tool_authorization_result");
+  Value is_boolean = Core::type_is(decision, Value("boolean"));
+  if (Core::truthy(is_boolean)) {
+    Value denied = Core::not_(decision);
+    if (Core::truthy(denied)) {
+      Value message = Core::string_format(Value("MCP tool call denied by host policy: {}"), name);
+      Value error = Core::runtime_error(message);
+      Core::raise_error(error);
+    }
+  }
+  return decision;
+}
+
 // END AXIR CORE EMITTED FUNCTIONS
 
 Value parse_json(const std::string& source) {

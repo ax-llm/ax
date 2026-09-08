@@ -13,7 +13,7 @@
       "type": "skill-md",
       "description": "Use when writing Go code with `github.com/ax-llm/ax/packages/go` for named deployment profiles, generic provider clients, model selection, OpenAI-compatible calls, Responses, Gemini, Anthropic, routers, and balancers.",
       "url": "ax-go-ai/SKILL.md",
-      "digest": "sha256:5439f5e5078af9eb991669a83231733d44e3aba6349fa046fb7ce2d0a58acfc8"
+      "digest": "sha256:f43290e341da219feb9a910ff7f875b3a84353dd3b1ee52d7b1b19db251fb8b6"
     },
     {
       "name": "ax-go-audio",
@@ -34,21 +34,21 @@
       "type": "skill-md",
       "description": "Use when writing Go code with `github.com/ax-llm/ax/packages/go` for AxGen programs, forward calls, indexed multi-sampling, result pickers, streaming, tools, assertions, traces, usage, and output parsing.",
       "url": "ax-go-gen/SKILL.md",
-      "digest": "sha256:6130021730caae86f6e649526ed0dd2ecc4b4a19f7d45f545bea797dea435040"
+      "digest": "sha256:166ae675079e2e4826af509ebb00bdb8757d8c2107d625e2b7e0658ef4c4a567"
     },
     {
       "name": "ax-go-flow",
       "type": "skill-md",
       "description": "Use when writing Go code with `github.com/ax-llm/ax/packages/go` for flows, nodes, program graphs, nested programs, dynamic options, caching, and optimizer components.",
       "url": "ax-go-flow/SKILL.md",
-      "digest": "sha256:66d52bd5d92b6a9c55c6397f6c3d54195a00d82c98e0cfb23c1e46246ce2121d"
+      "digest": "sha256:fcbe59de952140ee11de1666394c7338bb30da821c255e8f8b566115736a65d3"
     },
     {
       "name": "ax-go-agent",
       "type": "skill-md",
       "description": "Use when writing Go code with `github.com/ax-llm/ax/packages/go` for agents, child delegation, tools, MCP, citations, persistent playbook learning, stage instructions, runtime state, final typed responses, and direct-respond executor skipping.",
       "url": "ax-go-agent/SKILL.md",
-      "digest": "sha256:d382c8e26a445c3fb5a7eb2ce67c4a8aaebc74878a5d85e4eac1561e33c9c764"
+      "digest": "sha256:3231f048a70decb8c011fe3ea031fce3f705f4e0d98117d30bd507c95932ebd8"
     },
     {
       "name": "ax-go-agent-rlm",

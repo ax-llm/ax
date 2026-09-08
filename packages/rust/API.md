@@ -592,7 +592,7 @@ MCP client that lists tools/prompts/resources and converts MCP tools to Ax funct
 - Kind: `type`
 - Form: `AxMCPClient::new(transport, options)`
 - Returns: `MCP client`
-- Important options: transport, client info, roots, tool overrides
+- Important options: transport, client info, roots, tool overrides, host tool authorization
 
 ```rust
 let client = AxMCPClient::new(transport, json!({}));

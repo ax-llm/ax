@@ -348,6 +348,12 @@ async function runSync({ repoRoot, write }) {
     runConformanceExtractor(
       repoRoot,
       tempRoot,
+      'mcp-authorization-goldens.ts',
+      'AxMCP'
+    );
+    runConformanceExtractor(
+      repoRoot,
+      tempRoot,
       'optimize-goldens.ts',
       'AxOptimize'
     );
@@ -361,6 +367,7 @@ async function runSync({ repoRoot, write }) {
       ...compareGeneratedFixtures(repoRoot, tempRoot, 'axgen', write),
       ...compareGeneratedFixtures(repoRoot, tempRoot, 'axflow', write),
       ...compareGeneratedFixtures(repoRoot, tempRoot, 'axprogram', write),
+      ...compareGeneratedFixtures(repoRoot, tempRoot, 'axmcp', write),
       ...compareGeneratedFixtures(repoRoot, tempRoot, 'axoptimize', write),
       ...compareGeneratedFixtures(repoRoot, tempRoot, 'axagent', write),
       ...(await checkProviderCatalog(repoRoot, tempRoot, write)),

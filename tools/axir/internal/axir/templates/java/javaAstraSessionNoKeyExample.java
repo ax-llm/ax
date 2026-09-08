@@ -112,7 +112,10 @@ public final class AstraSessionTest {
         return Map.of("jsonrpc","2.0","id",message.get("id"),"result",result);
       }
     };
-    var mcp=new AxMCPClient(mcpTransport,Map.of("era","modern","namespace","orders"));mcp.init();var original=mcp.nativeTools().get(0);if(!"blocking".equals(original.execution))throw new AssertionError("MCP hint enabled background work");
+    var allowed=new java.util.concurrent.atomic.AtomicBoolean();var authorizations=new AtomicInteger();var clientRef=new java.util.concurrent.atomic.AtomicReference<AxMCPClient>();
+    java.util.function.Predicate<Map<String,Object>> authorize=call->{if(call.get("client")!=clientRef.get()||!"orders".equals(call.get("namespace"))||!schema.equals(((Map<?,?>)call.get("tool")).get("inputSchema"))||!Map.of("query","REF-42").equals(call.get("arguments")))throw new AssertionError("Lost MCP authorization context");authorizations.incrementAndGet();return allowed.get();};
+    var mcp=new AxMCPClient(mcpTransport,Map.of("era","modern","namespace","orders","authorizeToolCall",authorize));clientRef.set(mcp);mcp.init();var original=mcp.nativeTools().get(0);if(!"blocking".equals(original.execution))throw new AssertionError("MCP hint enabled background work");
+    try{original.handler.call(Map.of("query","REF-42"));throw new AssertionError("Denied MCP tool executed");}catch(RuntimeException error){if(!error.getMessage().contains("MCP tool call denied by host policy: lookup"))throw error;}if(!calls.isEmpty())throw new AssertionError("Denied MCP request reached transport");allowed.set(true);
     var nativeTool=Ax.fn(original.name).description(original.description).parameters(original.schema()).execution("background").handler(original.handler).build();
     var program=Ax.agent("question -> answer",Map.of("functions",List.of(Map.of("namespace","orders","functions",List.of(nativeTool))),"functionDiscovery",true,"directResponse","off"));
     OpenAICompatibleClient.Transport transport=new OpenAICompatibleClient.Transport(){
@@ -142,6 +145,7 @@ public final class AstraSessionTest {
     if(!"REF-42".equals(program.forward(client,Map.of("question","Find reference")).get("answer"))||calls.size()!=1||requests.size()!=5)throw new AssertionError("Native MCP execution failed");
     boolean recorded=program.getActionLog().stream().anyMatch(entry->entry instanceof Map<?,?> record&&"orders.lookup".equals(record.get("qualified_name"))&&"mcp-call".equals(record.get("call_id"))&&"ok".equals(record.get("status")));if(!recorded)throw new AssertionError("Native MCP activity missing");
     var duplicate=(Map<String,Object>)program.invokeCallable("orders.lookup",Map.of("query","REF-42"));if(!"error".equals(duplicate.get("status"))||calls.size()!=1)throw new AssertionError("Native MCP call replayed through actor");
+    if(authorizations.get()!=2)throw new AssertionError("Invalid arguments or actor replay reached authorization");
     System.out.println("java discovered MCP native agent schema, correction, overlap, result and action log passed");
   }
   static void ownedFlowFailure() throws Exception {

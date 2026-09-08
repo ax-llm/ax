@@ -35,7 +35,11 @@ renaming. Native actor calls use the imported MCP handler, preserving modern
 request metadata and raw structured results. Discovery controls exposure; an
 invalid call is corrected before the MCP handler runs. The responder sees the
 incorporated result, and the action log records the qualified name and call ID.
-Actor code cannot execute the same native callable again. Ordinary
+Actor code cannot execute the same native callable again. MCP host authorization
+runs through the imported handler before a tool request is sent. Its context
+retains the client, namespace, tool schema, and arguments. A false decision
+rejects the call; an absent decision permits it. Invalid model arguments never
+reach the authorization callback. Ordinary
 non-session tool invocation keeps its existing validation behavior.
 
 Host regular-expression engines evaluate patterns; advanced expressions outside
@@ -86,11 +90,12 @@ Scripted agent fixtures belong under package tests, not public examples.
 | --- | --- | --- |
 | Raw schema validation | `session-raw-argument-validation.json`, evaluated against TypeScript | Invalid calls, correction requests, unchanged call IDs, and step exhaustion in all five session suites |
 | Native MCP schemas and modern continuation | `native-tools-modern-roundtrip.json` | All-five native agent tests assert discovery boundaries, exact schemas, invalid-argument correction, overlap, raw result continuation, responder output, action logs, and duplicate prevention |
+| MCP host authorization | `native-tool-host-authorization.json`, extracted by calling the TypeScript MCP client | All-five native agent tests exercise denied and allowed calls, retained context, no transport call after denial, and no authorization after invalid arguments or actor replay |
 | Completed calls and pending work | `astra-session-completed-calls-and-response-boundaries.json`, `astra-pending-results-out-of-order.json` | Delayed tools, blocking barriers, partial arguments, and provisional answers |
 | Steering and reasoning history | `astra-native-steering-successor-no-replay.json`, `astra-native-late-pending-input.json`, `astra-session-transport-cursor.json` | Scripted sockets and delayed HTTP cleanup |
 | Scope and cancellation | `astra-scoped-updates-and-cancellation.json` | Root/future-node controls, per-node histories, noncooperative handlers, and aborts; all-five native agent tests assert stage-specific steering and reasoning continuations |
 | Concurrent flow groups | `flow.axir` dispatch and deterministic merge contract; `owned-workers-custom-client-serial-fallback.json` | All-five coordinated overlap and failure tests; Go and C++ race detection; Rust nested/custom non-Send programs; live parallel examples |
-| Complete agent invocation and targeting | **Outstanding** | MCP permissions/context, child targeting, and serialized runtime state need expanded acceptance coverage |
+| Complete agent invocation and targeting | **Outstanding** | Child targeting, cancellation context through delegated programs, and serialized runtime state need expanded acceptance coverage |
 
 Native session suites:
 

@@ -436,6 +436,13 @@
       {
         "suite": "axmcp",
         "kind": "mcp",
+        "operation": "tool_authorization",
+        "runner": "java:axmcp.tool_authorization",
+        "category": "transport-boundary"
+      },
+      {
+        "suite": "axmcp",
+        "kind": "mcp",
         "operation": "mrtr_violations",
         "runner": "java:axmcp.mrtr_violations",
         "category": "semantic"

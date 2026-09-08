@@ -34,6 +34,10 @@ def _core_coverage_mark(name):
         handle.write(name + "\n")
 
 
+def _core_runtime_error(message):
+    return RuntimeError(str(message))
+
+
 def _core_get(target, key, default=None):
     if target is None:
         return default
@@ -2313,6 +2317,40 @@ def mcp_oauth_validate_issuer(response: Any, expected_issuer: str, require_iss: 
     out["ok"] = True
     return out
 
+
+def _mcp_tool_authorization_context(tools: Any, namespace: str, name: str, arguments: Any) -> Any:
+    _core_coverage_mark("_mcp_tool_authorization_context")
+    for tool in tools:
+        candidate = _core_get(tool, "name", "")
+        matches = _core_eq(candidate, name)
+        if matches:
+            context = {}
+            context["namespace"] = namespace
+            context["tool"] = tool
+            context["arguments"] = arguments
+            return context
+        else:
+            pass
+    message = _core_string_format("MCP tool not found: {}", name)
+    error = _core_runtime_error(message)
+    raise error
+
+
+def _mcp_tool_authorization_result(name: str, decision: Any) -> Any:
+    _core_coverage_mark("_mcp_tool_authorization_result")
+    is_boolean = _core_type_is(decision, "boolean")
+    if is_boolean:
+        denied = _core_not(decision)
+        if denied:
+            message = _core_string_format("MCP tool call denied by host policy: {}", name)
+            error = _core_runtime_error(message)
+            raise error
+        else:
+            pass
+    else:
+        pass
+    return decision
+
 # END AXIR CORE EMITTED FUNCTIONS
 
 
@@ -3399,6 +3437,11 @@ class AxMCPClient:
 
     def call_tool(self, name: str, arguments: dict[str, Any] | None = None) -> dict[str, Any]:
         args = arguments or {}
+        authorize = self.options.get("authorizeToolCall", self.options.get("authorize_tool_call"))
+        if authorize is not None:
+            context = _mcp_tool_authorization_context(self.tools, self.namespace(), name, args)
+            context["client"] = self
+            _mcp_tool_authorization_result(name, authorize(context))
         headers: dict[str, str] = {}
         if self.era == "modern":
             tool = next((item for item in self.tools if item.get("name") == name), None)
@@ -4657,6 +4700,30 @@ def run_mcp_conformance_fixture(fixture: dict[str, Any]) -> None:
     operation = fixture.get("operation", "initialize")
     expected_error = fixture.get("expected_error_contains")
     try:
+        if operation == "tool_authorization":
+            for case in fixture["cases"]:
+                transport = AxMCPScriptedTransport(fixture["responses"])
+                observed = []
+                def authorize(call):
+                    assert call["client"] is client
+                    observed.append({key: value for key, value in call.items() if key != "client"})
+                    return case["decision"]
+                client = AxMCPClient(transport, {**fixture["client_options"], "authorizeToolCall": authorize})
+                client.init()
+                error = None
+                try:
+                    result = client.call_tool(case["name"], {"query": "REF-42"})
+                except Exception as caught:
+                    error = str(caught)
+                assert error == case.get("expected_error"), (error, case)
+                if error is None: assert result == case["expected_result"]
+                assert len(observed) == case["expected_authorization_calls"]
+                if observed: assert observed[0] == case["expected_context"]
+                sent = [request for request in transport.requests if request["method"] == "tools/call"]
+                assert len(sent) == case["expected_tool_requests"]
+                for request in sent:
+                    assert request["params"]["name"] == case["name"] and request["params"]["arguments"] == {"query": "REF-42"}
+            return
         if operation == "ssrf":
             ax_mcp_validate_endpoint(fixture.get("endpoint", "https://127.0.0.1/mcp"), fixture.get("ssrfProtection"))
             if expected_error:

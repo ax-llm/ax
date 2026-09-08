@@ -812,7 +812,8 @@
             "transport",
             "client info",
             "roots",
-            "tool overrides"
+            "tool overrides",
+            "host tool authorization"
           ],
           "returns": "MCP client",
           "example": "AxMCPClient client = new AxMCPClient(transport);"

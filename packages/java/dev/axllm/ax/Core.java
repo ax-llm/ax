@@ -30052,6 +30052,38 @@ final class Core {
     return out;
   }
 
+  static Object _mcp_tool_authorization_context(Object tools, Object namespace, Object name, Object arguments) {
+    axirCoverageMark("_mcp_tool_authorization_context");
+    for (Object tool : Core.iter(tools)) {
+      Object candidate = Core.get(tool, "name", "");
+      Object matches = Core.eq(candidate, name);
+      if (Core.truthy(matches)) {
+        Object context = new java.util.LinkedHashMap<String, Object>();
+        Core.set(context, "namespace", namespace);
+        Core.set(context, "tool", tool);
+        Core.set(context, "arguments", arguments);
+        return context;
+      }
+    }
+    Object message = Core.stringFormat("MCP tool not found: {}", name);
+    Object error = Core.runtimeError(message);
+    throw Core.asRuntime(error);
+  }
+
+  static Object _mcp_tool_authorization_result(Object name, Object decision) {
+    axirCoverageMark("_mcp_tool_authorization_result");
+    Object is_boolean = Core.typeIs(decision, "boolean");
+    if (Core.truthy(is_boolean)) {
+      Object denied = Core.not(decision);
+      if (Core.truthy(denied)) {
+        Object message = Core.stringFormat("MCP tool call denied by host policy: {}", name);
+        Object error = Core.runtimeError(message);
+        throw Core.asRuntime(error);
+      }
+    }
+    return decision;
+  }
+
   // END AXIR CORE EMITTED FUNCTIONS
 }
 

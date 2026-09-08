@@ -68,6 +68,8 @@ impl AxMCPTokenStore for AxMCPFixtureTokenStore {
     }
 }
 
+pub type AxMCPToolAuthorizer =
+    Arc<dyn Fn(&AxMCPClient, Value) -> AxResult<Option<bool>> + Send + Sync>;
 pub type AxMCPElicitationHandler = Arc<dyn Fn(Value, Value) -> AxResult<Value> + Send + Sync>;
 pub type AxMCPRequestHandler = Arc<dyn Fn(Value) -> Value + Send + Sync>;
 
@@ -168,6 +170,7 @@ pub struct AxMCPClient {
     subscription_ready: bool,
     catalog_revision: u64,
     elicitation_handler: Option<AxMCPElicitationHandler>,
+    tool_authorizer: Option<AxMCPToolAuthorizer>,
     initialized: bool,
 }
 
@@ -206,10 +209,17 @@ impl AxMCPClient {
             subscription_ready: false,
             catalog_revision: 0,
             elicitation_handler: None,
+            tool_authorizer: None,
             initialized: false,
         }
     }
 
+    pub fn set_tool_authorizer(
+        &mut self,
+        handler: impl Fn(&AxMCPClient, Value) -> AxResult<Option<bool>> + Send + Sync + 'static,
+    ) {
+        self.tool_authorizer = Some(Arc::new(handler));
+    }
     pub fn set_elicitation_handler(
         &mut self,
         handler: impl Fn(Value, Value) -> AxResult<Value> + Send + Sync + 'static,
@@ -649,6 +659,22 @@ impl AxMCPClient {
         self.request("tools/list", cursor_params(cursor))
     }
     pub fn call_tool(&mut self, name: &str, arguments: Value) -> AxResult<Value> {
+        if let Some(authorize) = &self.tool_authorizer {
+            let context = core_mcp(
+                &crate::_mcp_tool_authorization_context,
+                &[
+                    json!(self.tools),
+                    json!(self.namespace()),
+                    json!(name),
+                    arguments.clone(),
+                ],
+            )?;
+            let decision = authorize(self, context)?;
+            core_mcp(
+                &crate::_mcp_tool_authorization_result,
+                &[json!(name), json!(decision)],
+            )?;
+        }
         let args = if arguments.is_null() {
             json!({})
         } else {
@@ -1334,6 +1360,7 @@ impl AxMCPClient {
         let subscription_owners = self.subscription_owners.clone();
         let active_subscription_id = self.active_subscription_id.clone();
         let elicitation_handler = self.elicitation_handler.clone();
+        let tool_authorizer = self.tool_authorizer.clone();
         let initialized = self.initialized;
         let subscription_ready = self.subscription_ready;
         let catalog_revision = self.catalog_revision;
@@ -1357,6 +1384,7 @@ impl AxMCPClient {
             client.subscription_owners = subscription_owners.clone();
             client.active_subscription_id = active_subscription_id.clone();
             client.elicitation_handler = elicitation_handler.clone();
+            client.tool_authorizer = tool_authorizer.clone();
             client.initialized = initialized;
             client.subscription_ready = subscription_ready;
             client.catalog_revision = catalog_revision;
@@ -5246,6 +5274,56 @@ pub fn run_mcp_conformance_fixture(fixture: &Value) -> AxResult<()> {
         .get("operation")
         .and_then(Value::as_str)
         .unwrap_or("initialize");
+    if operation == "tool_authorization" {
+        for case in fixture["cases"].as_array().unwrap() {
+            let transport = Arc::new(Mutex::new(Box::new(AxMCPScriptedTransport::new(
+                fixture["responses"].as_array().unwrap().clone(),
+            )) as Box<dyn AxMCPTransport>));
+            let mut client = AxMCPClient::from_shared_transport(
+                transport.clone(),
+                fixture["client_options"].clone(),
+            );
+            client.init()?;
+            let observed = Arc::new(Mutex::new(Vec::<Value>::new()));
+            let captured = observed.clone();
+            let decision = case["decision"].as_bool();
+            client.set_tool_authorizer(move |caller, call| {
+                assert_eq!(caller.namespace(), call["namespace"].as_str().unwrap());
+                captured.lock().unwrap().push(call);
+                Ok(decision)
+            });
+            let result =
+                client.call_tool(case["name"].as_str().unwrap(), json!({"query":"REF-42"}));
+            if let Some(expected) = case.get("expected_error").and_then(Value::as_str) {
+                assert_eq!(result.unwrap_err().message, expected);
+            } else {
+                assert_eq!(result?, case["expected_result"]);
+            }
+            let observed = observed.lock().unwrap();
+            assert_eq!(
+                observed.len(),
+                case["expected_authorization_calls"].as_u64().unwrap() as usize
+            );
+            if !observed.is_empty() {
+                assert_eq!(observed[0], case["expected_context"]);
+            }
+            let sent = transport.lock().unwrap().sent_requests();
+            let sent = sent
+                .iter()
+                .filter(|request| request["method"] == "tools/call")
+                .collect::<Vec<_>>();
+            assert_eq!(
+                sent.len(),
+                case["expected_tool_requests"].as_u64().unwrap() as usize
+            );
+            for request in sent {
+                assert_eq!(request["params"]["name"], case["name"]);
+                assert_eq!(request["params"]["arguments"], json!({"query":"REF-42"}));
+            }
+        }
+        return Ok(());
+    }
+
     let result = run_mcp_conformance_fixture_inner(fixture, operation);
     if let Some(expected) = fixture
         .get("expected_error_contains")

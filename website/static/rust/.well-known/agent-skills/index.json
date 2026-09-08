@@ -13,7 +13,7 @@
       "type": "skill-md",
       "description": "Use when writing Rust code with `axllm` for named deployment profiles, generic provider clients, model selection, OpenAI-compatible calls, Responses, Gemini, Anthropic, routers, and balancers.",
       "url": "ax-rust-ai/SKILL.md",
-      "digest": "sha256:2cb4529e51be7de62133e6c8b8e0cf0b66dd8388fc2707fd7201e57da1d5c31a"
+      "digest": "sha256:2a140d707ebd55a5bcbe6bcb23148da7051a51b6c70fe7921b03156d3dea36fb"
     },
     {
       "name": "ax-rust-audio",
@@ -34,21 +34,21 @@
       "type": "skill-md",
       "description": "Use when writing Rust code with `axllm` for AxGen programs, forward calls, indexed multi-sampling, result pickers, streaming, tools, assertions, traces, usage, and output parsing.",
       "url": "ax-rust-gen/SKILL.md",
-      "digest": "sha256:978b8ddbc285b4414e586ea9ca6a066af5ddaa9b835c846e85cb4e3a071dfc6b"
+      "digest": "sha256:782723b80f03a61a1ef48ee62eb559a6c1f216f661d7eba91dd7462e5a8bf1a9"
     },
     {
       "name": "ax-rust-flow",
       "type": "skill-md",
       "description": "Use when writing Rust code with `axllm` for flows, nodes, program graphs, nested programs, dynamic options, caching, and optimizer components.",
       "url": "ax-rust-flow/SKILL.md",
-      "digest": "sha256:ed91677c56d0c10435084b1373b6e6cbc9a5dd5e2ba9d5c5215492ba84eb2ab9"
+      "digest": "sha256:9833a83060da342bbed385d7b508227abdc22f64de731aa4b62a496b90f1f7b6"
     },
     {
       "name": "ax-rust-agent",
       "type": "skill-md",
       "description": "Use when writing Rust code with `axllm` for agents, child delegation, tools, MCP, citations, persistent playbook learning, stage instructions, runtime state, final typed responses, and direct-respond executor skipping.",
       "url": "ax-rust-agent/SKILL.md",
-      "digest": "sha256:169b905f5eda677e7c9f5be08297949643a0f134486f9029ba8e7d860b4abbd8"
+      "digest": "sha256:da567c7b64dad84e4b6fc75c1a370b1f22722503b3230fd95c01f4d428363b73"
     },
     {
       "name": "ax-rust-agent-rlm",

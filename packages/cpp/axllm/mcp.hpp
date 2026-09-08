@@ -127,6 +127,7 @@ class AxMCPClient {
   std::string namespace_name() const;
   Value request(const std::string& method, Value params = Value::object());
   void set_elicitation_handler(std::function<Value(Value, Value)> handler);
+  void set_tool_authorizer(std::function<std::optional<bool>(const AxMCPClient&, Value)> handler);
   std::string get_era() const { return state_->era_; }
   Value discover();
   int add_notification_listener(std::function<void(Value)> listener){int id=state_->next_listener_id_++;state_->notification_listeners_[id]=std::move(listener);return id;}
@@ -165,6 +166,7 @@ class AxMCPClient {
   std::map<int,std::function<void(Value)>> notification_listeners_;
   std::map<int,std::function<void(std::string)>> lifecycle_listeners_;
   std::function<Value(Value,Value)> elicitation_handler_;
+  std::function<std::optional<bool>(const AxMCPClient&, Value)> tool_authorizer_;
   bool initialized_=false;
   };
   std::shared_ptr<State> state_;

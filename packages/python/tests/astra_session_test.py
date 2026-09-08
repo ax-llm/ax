@@ -536,8 +536,20 @@ def native_mcp_agent_discovery():
                 calls.append(message);started.set();assert release.wait(3),'MCP tool did not overlap the model'
                 result={'resultType':'complete','structuredContent':{'reference':'REF-42'},'content':[{'type':'text','text':'REF-42'}]}
             return {'jsonrpc':'2.0','id':message['id'],'result':result}
-    mcp=AxMCPClient(MCP(),{'era':'modern','namespace':'orders'});mcp.init()
+    allowed=threading.Event();authorizations=[]
+    def authorize(call):
+        assert call['client'] is mcp and call['namespace']=='orders'
+        assert call['tool']['inputSchema']==schema and call['arguments']=={'query':'REF-42'}
+        authorizations.append(call['arguments']);return allowed.is_set()
+    mcp=AxMCPClient(MCP(),{'era':'modern','namespace':'orders','authorizeToolCall':authorize});mcp.init()
     native=mcp.native_tools()[0];assert native.execution=='blocking'
+    try:
+        native.handler({'query':'REF-42'})
+        raise AssertionError('Denied MCP tool executed')
+    except Exception as error:
+        assert 'MCP tool call denied by host policy: lookup' in str(error),error
+    assert not calls
+    allowed.set()
     native=replace(native,execution='background')
     program=agent('question -> answer',{'functions':[{'namespace':'orders','functions':[native]}],'functionDiscovery':True,'directResponse':'off'})
     hidden=True
@@ -585,5 +597,6 @@ def native_mcp_agent_discovery():
     assert any(entry.get('qualified_name')=='orders.lookup' and entry.get('call_id')=='mcp-call' and entry.get('status')=='ok' for entry in activity),activity
     assert program.invoke_callable('orders.lookup',{'query':'REF-42'})['status']=='error'
     assert len(calls)==1,'MCP native call was replayed through actor code'
+    assert len(authorizations)==2, 'Invalid arguments or actor replay reached authorization'
     print('python discovered MCP native agent schema, correction, overlap, result and action log passed')
 native_mcp_agent_discovery()

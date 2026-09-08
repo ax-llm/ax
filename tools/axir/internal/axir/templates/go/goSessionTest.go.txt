@@ -718,7 +718,10 @@ func(t *mcpAgentModelTransport) Stream(_ context.Context,request Value)(AxHTTPSt
 func TestNativeMCPAgentDiscoveryAndInvocation(t *testing.T){
     schema:=parseJSON(`{"type":"object","$defs":{"reference":{"type":"string","minLength":3}},"properties":{"query":{"$ref":"#/$defs/reference"}},"required":["query"],"additionalProperties":false}`)
     transport:=&nativeMCPAgentTransport{AxMCPTransport:NewAxMCPScriptedTransport(nil),schema:schema,started:make(chan struct{}),release:make(chan struct{})}
-    mcp:=NewAxMCPClient(transport,Object("era","modern","namespace","orders"));if err:=mcp.Init();err!=nil{t.Fatal(err)};native:=mcp.NativeTools()[0];if native.ExecutionMode=="background"{t.Fatal("MCP hints enabled background work")};native=native.Execution("background")
+    var allowed atomic.Bool;var authorizations atomic.Int32;var mcp *AxMCPClient
+    authorize:=func(call map[string]Value)(bool,error){if call["client"]!=mcp||call["namespace"]!="orders"||coreGet(coreGet(call,"arguments",nil),"query",nil)!="REF-42"||stableStringify(coreGet(coreGet(call,"tool",nil),"inputSchema",nil))!=stableStringify(schema){return false,fmt.Errorf("Lost MCP authorization context")};authorizations.Add(1);return allowed.Load(),nil}
+    mcp=NewAxMCPClient(transport,Object("era","modern","namespace","orders","authorizeToolCall",authorize));if err:=mcp.Init();err!=nil{t.Fatal(err)};native:=mcp.NativeTools()[0];if native.ExecutionMode=="background"{t.Fatal("MCP hints enabled background work")};native=native.Execution("background")
+    if _,err:=native.Handler(Object("query","REF-42"));err==nil||!strings.Contains(err.Error(),"MCP tool call denied by host policy: lookup"){t.Fatalf("Denied MCP tool executed: %v",err)};if transport.calls.Load()!=0{t.Fatal("Denied MCP request reached transport")};allowed.Store(true)
     program:=NewAgent("question -> answer",Object("functions",Array(Object("namespace","orders","functions",Array(native))),"functionDiscovery",true,"directResponse","off"))
     model:=&mcpAgentModelTransport{mcp:transport,hidden:true};client:=NewAI("openai",Object("api_key","test","model","gpt-6-astra","transport",model))
     output,err:=program.Forward(context.Background(),client,Object("question","Find reference"),nil);if err!=nil||coreGet(output,"answer",nil)!="not discovered"||transport.calls.Load()!=0||model.requests!=3{t.Fatalf("Discovery boundary failed: %v %v",output,err)}
@@ -726,4 +729,5 @@ func TestNativeMCPAgentDiscoveryAndInvocation(t *testing.T){
     output,err=program.Forward(context.Background(),client,Object("question","Find reference"),nil);if err!=nil||coreGet(output,"answer",nil)!="REF-42"||transport.calls.Load()!=1||model.requests!=5{t.Fatalf("Native MCP invocation failed: %v %v",output,err)}
     recorded:=false;for _,entry:=range asSlice(coreGet(program.State,"action_log",Array())){if coreGet(entry,"qualified_name",nil)=="orders.lookup"&&coreGet(entry,"call_id",nil)=="mcp-call"&&coreGet(entry,"status",nil)=="ok"{recorded=true}};if !recorded{t.Fatal("Native MCP activity missing")}
     duplicate:=program.InvokeCallable("orders.lookup",Object("query","REF-42"),nil);if coreGet(duplicate,"status",nil)!="error"||transport.calls.Load()!=1{t.Fatal("Native MCP call replayed through actor code")}
+    if authorizations.Load()!=2{t.Fatal("Invalid arguments or actor replay reached authorization")}
 }

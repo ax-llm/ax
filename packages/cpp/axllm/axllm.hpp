@@ -1086,6 +1086,8 @@ struct Core {
   static Value mcp_oauth_parse_token_response(Value response, Value now_ms, Value previous_refresh_token, Value issuer);
   static Value mcp_oauth_plan_ensure_token(Value token, Value now_ms, Value force_refresh, Value grant_type, Value has_on_auth_code);
   static Value mcp_oauth_validate_issuer(Value response, Value expected_issuer, Value require_iss);
+  static Value _mcp_tool_authorization_context(Value tools, Value namespace_, Value name, Value arguments);
+  static Value _mcp_tool_authorization_result(Value name, Value decision);
   // END AXIR CORE EMITTED DECLARATIONS
 
 };

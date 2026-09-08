@@ -56,6 +56,7 @@ impl AxMCPTokenStore for AxMCPFixtureTokenStore {
     fn clear_token(&mut self,key:&str)->AxResult<()>{self.tokens.remove(key);Ok(())}
 }
 
+pub type AxMCPToolAuthorizer = Arc<dyn Fn(&AxMCPClient, Value) -> AxResult<Option<bool>> + Send + Sync>;
 pub type AxMCPElicitationHandler = Arc<dyn Fn(Value, Value) -> AxResult<Value> + Send + Sync>;
 pub type AxMCPRequestHandler = Arc<dyn Fn(Value) -> Value + Send + Sync>;
 
@@ -112,6 +113,7 @@ pub struct AxMCPClient {
     subscription_ready:bool,
     catalog_revision:u64,
     elicitation_handler:Option<AxMCPElicitationHandler>,
+    tool_authorizer:Option<AxMCPToolAuthorizer>,
     initialized:bool,
 }
 
@@ -146,11 +148,12 @@ impl AxMCPClient {
             active_subscription_id:None,
             subscription_ready:false,
             catalog_revision:0,
-            elicitation_handler:None,
+            elicitation_handler:None,tool_authorizer:None,
             initialized:false,
         }
     }
 
+    pub fn set_tool_authorizer(&mut self,handler:impl Fn(&AxMCPClient,Value)->AxResult<Option<bool>>+Send+Sync+'static){self.tool_authorizer=Some(Arc::new(handler));}
     pub fn set_elicitation_handler(&mut self,handler:impl Fn(Value,Value)->AxResult<Value>+Send+Sync+'static){self.elicitation_handler=Some(Arc::new(handler));}
 
     pub fn init(&mut self) -> AxResult<()> {
@@ -232,7 +235,7 @@ impl AxMCPClient {
     pub fn protocol_version(&self) -> Option<String> { self.negotiated_protocol_version.lock().unwrap().clone() }
     pub fn ping(&mut self) -> AxResult<Value> { self.request("ping", json!({})) }
     pub fn list_tools(&mut self, cursor: Option<&str>) -> AxResult<Value> { self.request("tools/list", cursor_params(cursor)) }
-    pub fn call_tool(&mut self,name:&str,arguments:Value)->AxResult<Value>{let args=if arguments.is_null(){json!({})}else{arguments};let params=json!({"name":name,"arguments":args});let headers=self.tool_headers(name,&args)?;let result=match self.request_with_input_rounds("tools/call",params.clone(),headers){Ok(value)=>value,Err(error)if self.era.as_deref()==Some("modern")&&error.code.as_deref()==Some("-32020")=>{self.tools=self.collect_catalog("tools/list","tools")?.into_iter().filter(|tool|core_mcp(&crate::mcp_param_header_bindings,&[tool.get("inputSchema").cloned().unwrap_or_else(||json!({}))]).is_ok()).collect();self.request_with_input_rounds("tools/call",params,self.tool_headers(name,&args)?)?},Err(error)=>return Err(error)};if result.get("resultType").and_then(Value::as_str)!=Some("task"){return Ok(result)}if !self.has_tasks_capability(){return Err(AxError::new("mcp","MCP protocol violation: server returned a task without negotiating io.modelcontextprotocol/tasks"))}if core_mcp(&crate::mcp_validate_modern_task,&[result.clone()])?.as_bool()!=Some(true){return Err(AxError::new("mcp","MCP protocol violation: invalid CreateTaskResult"))}self.await_modern_task(result.get("taskId").and_then(Value::as_str).unwrap_or_default())}
+    pub fn call_tool(&mut self,name:&str,arguments:Value)->AxResult<Value>{if let Some(authorize)=&self.tool_authorizer{let context=core_mcp(&crate::_mcp_tool_authorization_context,&[json!(self.tools),json!(self.namespace()),json!(name),arguments.clone()])?;let decision=authorize(self,context)?;core_mcp(&crate::_mcp_tool_authorization_result,&[json!(name),json!(decision)])?;}let args=if arguments.is_null(){json!({})}else{arguments};let params=json!({"name":name,"arguments":args});let headers=self.tool_headers(name,&args)?;let result=match self.request_with_input_rounds("tools/call",params.clone(),headers){Ok(value)=>value,Err(error)if self.era.as_deref()==Some("modern")&&error.code.as_deref()==Some("-32020")=>{self.tools=self.collect_catalog("tools/list","tools")?.into_iter().filter(|tool|core_mcp(&crate::mcp_param_header_bindings,&[tool.get("inputSchema").cloned().unwrap_or_else(||json!({}))]).is_ok()).collect();self.request_with_input_rounds("tools/call",params,self.tool_headers(name,&args)?)?},Err(error)=>return Err(error)};if result.get("resultType").and_then(Value::as_str)!=Some("task"){return Ok(result)}if !self.has_tasks_capability(){return Err(AxError::new("mcp","MCP protocol violation: server returned a task without negotiating io.modelcontextprotocol/tasks"))}if core_mcp(&crate::mcp_validate_modern_task,&[result.clone()])?.as_bool()!=Some(true){return Err(AxError::new("mcp","MCP protocol violation: invalid CreateTaskResult"))}self.await_modern_task(result.get("taskId").and_then(Value::as_str).unwrap_or_default())}
     fn await_modern_task(&mut self,task_id:&str)->AxResult<Value>{let max=self.options.get("maxTaskPolls").and_then(Value::as_u64).unwrap_or(1000);for _ in 0..max{let task=self.get_task(task_id)?;let outcome=core_mcp(&crate::mcp_task_terminal_outcome,&[task])?;match outcome.get("kind").and_then(Value::as_str).unwrap_or_default(){"result"=>return Ok(outcome.get("result").cloned().unwrap_or(Value::Null)),"protocol_error"=>{let mut error=AxError::new("mcp",outcome.get("message").and_then(Value::as_str).unwrap_or("MCP task failed"));error.code=Some(outcome.get("code").map(ToString::to_string).unwrap_or_default());return Err(error)},"violation"|"failure"|"cancelled"=>return Err(AxError::new("mcp",outcome.get("message").and_then(Value::as_str).unwrap_or("MCP task failed"))),"input_required"=>{let fulfillment=core_mcp(&crate::mcp_mrtr_plan_fulfillment,&[outcome.get("inputRequests").cloned().unwrap_or_else(||json!({})),self.options.get("roots").cloned().unwrap_or(Value::Null),json!(self.elicitation_handler.is_some()),json!(false)])?;if fulfillment.get("ok").and_then(Value::as_bool)!=Some(true){return Err(AxError::new("mcp",fulfillment.get("message").and_then(Value::as_str).unwrap_or("MCP protocol violation")))}let mut responses=fulfillment.get("responses").and_then(Value::as_object).cloned().unwrap_or_default();for(key,pending)in fulfillment.get("pending").and_then(Value::as_object).cloned().unwrap_or_default(){let method=pending.get("method").and_then(Value::as_str).unwrap_or_default();let handler=self.elicitation_handler.as_ref().ok_or_else(||AxError::new("mcp",format!("MCP protocol violation: unsupported pending task input request method {method}")))?;if method!="elicitation/create"{return Err(AxError::new("mcp",format!("MCP protocol violation: unsupported pending task input request method {method}")))}responses.insert(key,handler(pending.get("params").cloned().unwrap_or_else(||json!({})),json!({"client":"AxMCPClient","namespace":self.namespace()}))?);}self.provide_task_input(task_id,Value::Object(responses))?},_=>{}}}Err(AxError::new("mcp",format!("MCP task {task_id} exceeded {max} polls")))}
     fn tool_headers(&self,name:&str,args:&Value)->AxResult<Map<String,Value>>{let mut out=Map::new();if self.era.as_deref()!=Some("modern"){return Ok(out)}if let Some(tool)=self.tools.iter().find(|tool|tool.get("name").and_then(Value::as_str)==Some(name)){let bindings=core_mcp(&crate::mcp_param_header_bindings,&[tool.get("inputSchema").cloned().unwrap_or_else(||json!({}))])?;if let Some(values)=core_mcp(&crate::mcp_param_header_values,&[bindings,args.clone()])?.as_object(){out=values.clone()}}Ok(out)}
     pub fn list_prompts(&mut self, cursor: Option<&str>) -> AxResult<Value> { self.request("prompts/list", cursor_params(cursor)) }
@@ -309,6 +312,7 @@ impl AxMCPClient {
         let subscription_owners = self.subscription_owners.clone();
         let active_subscription_id = self.active_subscription_id.clone();
         let elicitation_handler = self.elicitation_handler.clone();
+        let tool_authorizer = self.tool_authorizer.clone();
         let initialized = self.initialized;
         let subscription_ready = self.subscription_ready;
         let catalog_revision = self.catalog_revision;
@@ -332,6 +336,7 @@ impl AxMCPClient {
             client.subscription_owners = subscription_owners.clone();
             client.active_subscription_id = active_subscription_id.clone();
             client.elicitation_handler = elicitation_handler.clone();
+            client.tool_authorizer = tool_authorizer.clone();
             client.initialized = initialized;
             client.subscription_ready = subscription_ready;
             client.catalog_revision = catalog_revision;
@@ -1104,6 +1109,11 @@ pub fn ax_mcp_validate_endpoint(endpoint: &str, options: &Value) -> AxResult<Str
 
 pub fn run_mcp_conformance_fixture(fixture: &Value) -> AxResult<()> {
     let operation = fixture.get("operation").and_then(Value::as_str).unwrap_or("initialize");
+    if operation=="tool_authorization" {
+      for case in fixture["cases"].as_array().unwrap(){let transport=Arc::new(Mutex::new(Box::new(AxMCPScriptedTransport::new(fixture["responses"].as_array().unwrap().clone())) as Box<dyn AxMCPTransport>));let mut client=AxMCPClient::from_shared_transport(transport.clone(),fixture["client_options"].clone());client.init()?;let observed=Arc::new(Mutex::new(Vec::<Value>::new()));let captured=observed.clone();let decision=case["decision"].as_bool();client.set_tool_authorizer(move|caller,call|{assert_eq!(caller.namespace(),call["namespace"].as_str().unwrap());captured.lock().unwrap().push(call);Ok(decision)});let result=client.call_tool(case["name"].as_str().unwrap(),json!({"query":"REF-42"}));if let Some(expected)=case.get("expected_error").and_then(Value::as_str){assert_eq!(result.unwrap_err().message,expected);}else{assert_eq!(result?,case["expected_result"]);}let observed=observed.lock().unwrap();assert_eq!(observed.len(),case["expected_authorization_calls"].as_u64().unwrap() as usize);if !observed.is_empty(){assert_eq!(observed[0],case["expected_context"]);}let sent=transport.lock().unwrap().sent_requests();let sent=sent.iter().filter(|request|request["method"]=="tools/call").collect::<Vec<_>>();assert_eq!(sent.len(),case["expected_tool_requests"].as_u64().unwrap() as usize);for request in sent{assert_eq!(request["params"]["name"],case["name"]);assert_eq!(request["params"]["arguments"],json!({"query":"REF-42"}));}
+      }return Ok(());
+    }
+
     let result = run_mcp_conformance_fixture_inner(fixture, operation);
     if let Some(expected) = fixture.get("expected_error_contains").and_then(Value::as_str) {
         return match result {

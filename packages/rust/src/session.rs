@@ -2461,9 +2461,28 @@ mod tests {
             json!({"era":"modern","namespace":"orders"}),
         );
         mcp.init()?;
+        let allowed = Arc::new(AtomicBool::new(false));
+        let authorizations = Arc::new(AtomicUsize::new(0));
+        let permission = allowed.clone();
+        let counted = authorizations.clone();
+        let schema = gate.schema.clone();
+        mcp.set_tool_authorizer(move |client, call| {
+            assert_eq!(client.namespace(), "orders");
+            assert_eq!(call["namespace"], "orders");
+            assert_eq!(call["tool"]["inputSchema"], schema);
+            assert_eq!(call["arguments"], json!({"query":"REF-42"}));
+            counted.fetch_add(1, Ordering::SeqCst);
+            Ok(Some(permission.load(Ordering::SeqCst)))
+        });
         let mut native = mcp.native_tools().remove(0);
         assert_eq!(native.execution, "blocking");
         native.execution = "background".into();
+        let denied = native.call(json!({"query":"REF-42"})).unwrap_err();
+        assert!(denied
+            .to_string()
+            .contains("MCP tool call denied by host policy: lookup"));
+        assert_eq!(gate.calls.load(Ordering::SeqCst), 0);
+        allowed.store(true, Ordering::SeqCst);
         let mut program = agent_with_options(
             "question -> answer",
             json!({"functionDiscovery":true,"directResponse":"off"}),
@@ -2504,6 +2523,7 @@ mod tests {
             "error"
         );
         assert_eq!(gate.calls.load(Ordering::SeqCst), 1);
+        assert_eq!(authorizations.load(Ordering::SeqCst), 2);
         Ok(())
     }
 

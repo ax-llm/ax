@@ -1168,7 +1168,7 @@ func apiReferenceSectionsForTarget(target string) []APIReferenceSection {
 			Title:   "MCP",
 			Summary: "Use MCP clients and transports while keeping JSON-RPC lifecycle, tools, prompts, resources, OAuth, cancellation, and SSRF checks aligned.",
 			Symbols: []APIReferenceSymbol{
-				sym("AxMCPClient", "type", "MCP client that lists tools/prompts/resources and converts MCP tools to Ax functions.", []string{"transport", "client info", "roots", "tool overrides"}, "MCP client"),
+				sym("AxMCPClient", "type", "MCP client that lists tools/prompts/resources and converts MCP tools to Ax functions.", []string{"transport", "client info", "roots", "tool overrides", "host tool authorization"}, "MCP client"),
 				sym("AxMCPStreamableHTTPTransport", "type", "Streamable HTTP transport with session headers, OAuth options, and SSRF protection.", []string{"endpoint", "headers", "OAuth", "SSRF protection"}, "MCP transport"),
 				sym("AxMCPStdioTransport", "type", "Stdio transport with JSON-RPC framing for local MCP servers.", []string{"command", "args", "env"}, "MCP transport"),
 			},
@@ -1942,6 +1942,7 @@ func BuildConformanceCoverageManifest(model AxRuntimeModel, target string) (Conf
 		{"axmcp", "mcp", "server_requests_legacy", "transport-boundary"},
 		{"axmcp", "mcp", "mrtr_roots", "transport-boundary"},
 		{"axmcp", "mcp", "mrtr_elicitation", "transport-boundary"},
+		{"axmcp", "mcp", "tool_authorization", "transport-boundary"},
 		{"axmcp", "mcp", "mrtr_violations", "semantic"},
 		{"axmcp", "mcp", "subscriptions_listen", "transport-boundary"},
 		{"axmcp", "mcp", "ping", "transport-boundary"},

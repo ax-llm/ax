@@ -93042,7 +93042,81 @@ fn mcp_oauth_validate_issuer(args: &[CoreValue]) -> Result<CoreValue, AxError> {
     return Ok(v_out.clone());
 }
 
-// END AXIR CORE EMITTED FUNCTIONS (661 of 661 core functions)
+#[allow(
+    unused_variables,
+    unused_assignments,
+    unused_mut,
+    unreachable_code,
+    clippy::all
+)]
+fn _mcp_tool_authorization_context(args: &[CoreValue]) -> Result<CoreValue, AxError> {
+    axir_coverage_mark("_mcp_tool_authorization_context");
+    let mut v_tools = core_arg(args, 0);
+    let mut v_namespace = core_arg(args, 1);
+    let mut v_name = core_arg(args, 2);
+    let mut v_arguments = core_arg(args, 3);
+    let mut v_candidate = CoreValue::Null;
+    let mut v_context = CoreValue::Null;
+    let mut v_error = CoreValue::Null;
+    let mut v_matches = CoreValue::Null;
+    let mut v_message = CoreValue::Null;
+    let mut v_tool = CoreValue::Null;
+    for v_tool in core_iter(&v_tools)? {
+        let mut v_tool = v_tool;
+        v_candidate = core_get(&v_tool, &CoreValue::from("name"), CoreValue::from(""));
+        v_matches = core_eq(&[v_candidate.clone(), v_name.clone()])?;
+        if core_truthy(&v_matches) {
+            v_context = CoreValue::new_map();
+            core_set(
+                &v_context,
+                CoreValue::from("namespace"),
+                v_namespace.clone(),
+            )?;
+            core_set(&v_context, CoreValue::from("tool"), v_tool.clone())?;
+            core_set(
+                &v_context,
+                CoreValue::from("arguments"),
+                v_arguments.clone(),
+            )?;
+            return Ok(v_context.clone());
+        }
+    }
+    v_message = core_string_format(&[CoreValue::from("MCP tool not found: {}"), v_name.clone()])?;
+    v_error = core_runtime_error(&[v_message.clone()])?;
+    return Err(core_as_error(&v_error));
+}
+
+#[allow(
+    unused_variables,
+    unused_assignments,
+    unused_mut,
+    unreachable_code,
+    clippy::all
+)]
+fn _mcp_tool_authorization_result(args: &[CoreValue]) -> Result<CoreValue, AxError> {
+    axir_coverage_mark("_mcp_tool_authorization_result");
+    let mut v_name = core_arg(args, 0);
+    let mut v_decision = core_arg(args, 1);
+    let mut v_denied = CoreValue::Null;
+    let mut v_error = CoreValue::Null;
+    let mut v_is_boolean = CoreValue::Null;
+    let mut v_message = CoreValue::Null;
+    v_is_boolean = core_type_is(&v_decision, CoreValue::from("boolean"));
+    if core_truthy(&v_is_boolean) {
+        v_denied = core_not(&[v_decision.clone()])?;
+        if core_truthy(&v_denied) {
+            v_message = core_string_format(&[
+                CoreValue::from("MCP tool call denied by host policy: {}"),
+                v_name.clone(),
+            ])?;
+            v_error = core_runtime_error(&[v_message.clone()])?;
+            return Err(core_as_error(&v_error));
+        }
+    }
+    return Ok(v_decision.clone());
+}
+
+// END AXIR CORE EMITTED FUNCTIONS (663 of 663 core functions)
 
 fn run_ai_session_events_fixture(fixture: &Value) -> AxResult<()> {
     let state = core_value_from_json(&json!({}));

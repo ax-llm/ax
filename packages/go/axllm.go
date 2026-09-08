@@ -62152,6 +62152,82 @@ func mcp_oauth_validate_issuer(args ...Value) (Value, error) {
 	return v_out, nil
 }
 
+func _mcp_tool_authorization_context(args ...Value) (Value, error) {
+	axirCoverageMark("_mcp_tool_authorization_context")
+	var v_tools Value
+	var v_namespace Value
+	var v_name Value
+	var v_arguments Value
+	var v_candidate Value
+	var v_context Value
+	var v_error Value
+	var v_matches Value
+	var v_message Value
+	var v_tool Value
+	if len(args) > 0 { v_tools = args[0] }
+	_ = v_tools
+	if len(args) > 1 { v_namespace = args[1] }
+	_ = v_namespace
+	if len(args) > 2 { v_name = args[2] }
+	_ = v_name
+	if len(args) > 3 { v_arguments = args[3] }
+	_ = v_arguments
+	_ = v_candidate
+	_ = v_context
+	_ = v_error
+	_ = v_matches
+	_ = v_message
+	_ = v_tool
+	for _, v_tool = range coreIter(v_tools) {
+		v_candidate = coreGet(v_tool, "name", "")
+		v_matches = _core_eq(v_candidate, v_name)
+		if coreTruthy(v_matches) {
+			v_context = Object()
+			if err := coreSet(v_context, "namespace", v_namespace); err != nil { return nil, err }
+			if err := coreSet(v_context, "tool", v_tool); err != nil { return nil, err }
+			if err := coreSet(v_context, "arguments", v_arguments); err != nil { return nil, err }
+			return v_context, nil
+		} else {
+		// empty
+		}
+	}
+	v_message = _core_string_format("MCP tool not found: {}", v_name)
+	v_error = _core_runtime_error(v_message)
+	return nil, asError(v_error)
+}
+
+func _mcp_tool_authorization_result(args ...Value) (Value, error) {
+	axirCoverageMark("_mcp_tool_authorization_result")
+	var v_name Value
+	var v_decision Value
+	var v_denied Value
+	var v_error Value
+	var v_is_boolean Value
+	var v_message Value
+	if len(args) > 0 { v_name = args[0] }
+	_ = v_name
+	if len(args) > 1 { v_decision = args[1] }
+	_ = v_decision
+	_ = v_denied
+	_ = v_error
+	_ = v_is_boolean
+	_ = v_message
+	v_is_boolean = coreTypeIs(v_decision, "boolean")
+	if coreTruthy(v_is_boolean) {
+		v_denied = _core_not(v_decision)
+		if coreTruthy(v_denied) {
+			v_message = _core_string_format("MCP tool call denied by host policy: {}", v_name)
+			v_error = _core_runtime_error(v_message)
+			return nil, asError(v_error)
+		} else {
+		// empty
+		}
+	} else {
+	// empty
+	}
+	return v_decision, nil
+}
+
 // END AXIR CORE EMITTED FUNCTIONS
 
 // Public signature/schema surface.
