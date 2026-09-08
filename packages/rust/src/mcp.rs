@@ -3714,10 +3714,11 @@ impl AxExecutionContext {
     }
     pub fn initialize(&self) -> AxResult<()> {
         let mut initialized = self.initialized.lock().unwrap();
-        for (index, client) in self.mcp.iter().enumerate() {
-            if !initialized.contains(&index) {
+        for client in &self.mcp {
+            let identity = Arc::as_ptr(client) as usize;
+            if !initialized.contains(&identity) {
                 client.lock().unwrap().init()?;
-                initialized.push(index)
+                initialized.push(identity)
             }
         }
         Ok(())
@@ -3750,30 +3751,48 @@ impl AxExecutionContext {
             .chain(self.ucp.iter().map(AxUCPClient::namespace))
             .collect()
     }
-    pub fn derive(&self, inheritance: &Value) -> Self {
-        if inheritance.as_str() == Some("none") {
-            return Self::default();
+    pub fn try_derive(&self, inheritance: &Value) -> AxResult<Self> {
+        let mcp_names = self
+            .mcp
+            .iter()
+            .map(|client| client.lock().unwrap().namespace())
+            .collect::<Vec<_>>();
+        let ucp_names = self
+            .ucp
+            .iter()
+            .map(AxUCPClient::namespace)
+            .collect::<Vec<_>>();
+        let plan = core_mcp(
+            &crate::_mcp_inheritance_plan,
+            &[json!(mcp_names), json!(ucp_names), inheritance.clone()],
+        )?;
+        let mut mcp = Vec::new();
+        let mut ucp = Vec::new();
+        for name in plan["mcp"].as_array().unwrap() {
+            let index = mcp_names
+                .iter()
+                .position(|candidate| Some(candidate.as_str()) == name.as_str())
+                .unwrap();
+            mcp.push(self.mcp[index].clone());
         }
-        let Some(allowed) = inheritance.as_array() else {
-            return self.clone();
-        };
-        let allowed = allowed.iter().filter_map(Value::as_str).collect::<Vec<_>>();
-        Self {
-            mcp: self
-                .mcp
+        for name in plan["ucp"].as_array().unwrap() {
+            let index = ucp_names
                 .iter()
-                .filter(|c| allowed.contains(&c.lock().unwrap().namespace().as_str()))
-                .cloned()
-                .collect(),
-            ucp: self
-                .ucp
-                .iter()
-                .filter(|c| allowed.contains(&c.namespace().as_str()))
-                .cloned()
-                .collect(),
+                .position(|candidate| Some(candidate.as_str()) == name.as_str())
+                .unwrap();
+            ucp.push(self.ucp[index].clone());
+        }
+        Ok(Self {
+            mcp,
+            ucp,
             initialized: self.initialized.clone(),
-        }
+        })
     }
+    pub fn derive(&self, inheritance: &Value) -> Self {
+        self.try_derive(inheritance)
+            .expect("Invalid MCP inheritance")
+    }
+
     pub fn continuation_state(&self) -> AxMCPContinuationState {
         let namespaces = self.namespaces();
         let digest = ax_mcp_sha256(namespaces.join("\n").as_bytes());
@@ -5274,6 +5293,123 @@ pub fn run_mcp_conformance_fixture(fixture: &Value) -> AxResult<()> {
         .get("operation")
         .and_then(Value::as_str)
         .unwrap_or("initialize");
+    if operation == "inheritance_context" || operation == "inheritance_agent_context" {
+        for test in fixture["cases"].as_array().unwrap() {
+            let mut clients = Vec::new();
+            let mut transports = Vec::new();
+            for spec in fixture["clients"].as_array().unwrap() {
+                let name = spec["namespace"].as_str().unwrap().to_string();
+                let transport = Arc::new(Mutex::new(Box::new(AxMCPScriptedTransport::new(
+                    spec["responses"].as_array().unwrap().clone(),
+                )) as Box<dyn AxMCPTransport>));
+                clients.push(Arc::new(Mutex::new(AxMCPClient::from_shared_transport(
+                    transport.clone(),
+                    json!({"namespace":name,"era":"modern"}),
+                ))));
+                transports.push((name, transport));
+            }
+            let context = AxExecutionContext::new(clients, vec![])?;
+            let mut results = Vec::new();
+            let mut selected = Vec::new();
+            let outcome = context.try_derive(&test["inheritance"]).and_then(|child| {
+                selected = child.namespaces();
+                if operation == "inheritance_agent_context" {
+                    let mut program = crate::agent_with_execution_context(
+                        "question:string -> answer:string",
+                        fixture["agent_options"].clone(),
+                        child.clone(),
+                    )?;
+                    assert_eq!(
+                        program.invoke_callable("tools.local_echo", json!({}), json!({}))?,
+                        fixture["expected_local_result"]
+                    );
+                    for client in &child.mcp {
+                        let (name, tools) = {
+                            let client = client.lock().unwrap();
+                            (client.namespace(), client.native_tools())
+                        };
+                        for tool in tools {
+                            let result = program.invoke_callable(
+                                &format!("mcp.{name}.tools.{}", tool.name),
+                                json!({"query":"scope-probe"}),
+                                json!({}),
+                            )?;
+                            assert_eq!(result["status"], "ok");
+                            results.push(result["value"].clone());
+                        }
+                    }
+                } else {
+                    for tool in child.native_tools()? {
+                        results.push(tool.call(json!({"query":"scope-probe"}))?);
+                    }
+                }
+                Ok(())
+            });
+            if let Some(expected) = test.get("expected_error").and_then(Value::as_str) {
+                assert_eq!(
+                    outcome.expect_err("Expected inheritance rejection").message,
+                    expected
+                );
+            } else {
+                outcome?;
+                assert_eq!(json!(selected), test["expected_namespaces"]);
+            }
+            assert_eq!(json!(results), test["expected_results"]);
+            for (name, transport) in &transports {
+                let requests = transport.lock().unwrap().sent_requests();
+                let methods = requests
+                    .iter()
+                    .map(|request| request["method"].clone())
+                    .collect::<Vec<_>>();
+                assert_eq!(json!(methods), test["expected_methods"][name]);
+                for request in requests {
+                    if request["method"] == "tools/call" {
+                        assert_eq!(
+                            request["params"]["arguments"],
+                            json!({"query":"scope-probe"})
+                        );
+                    }
+                }
+            }
+            let mut parent_results = Vec::new();
+            for tool in context.native_tools()? {
+                parent_results.push(tool.call(json!({"query":"parent-probe"}))?);
+            }
+            assert_eq!(json!(parent_results), test["expected_parent_results"]);
+            for (name, transport) in &transports {
+                let requests = transport.lock().unwrap().sent_requests();
+                let methods = requests
+                    .iter()
+                    .map(|request| request["method"].clone())
+                    .collect::<Vec<_>>();
+                let calls=requests.iter().filter(|request|request["method"]=="tools/call").map(|request|json!({"name":request["params"]["name"],"arguments":request["params"]["arguments"]})).collect::<Vec<_>>();
+                assert_eq!(json!(methods), test["expected_parent_methods"][name]);
+                assert_eq!(json!(calls), test["expected_calls"][name]);
+            }
+        }
+        return Ok(());
+    }
+    if operation == "inheritance_plan" {
+        for test in fixture["cases"].as_array().unwrap() {
+            let result = core_mcp(
+                &crate::_mcp_inheritance_plan,
+                &[
+                    fixture["mcp"].clone(),
+                    fixture["ucp"].clone(),
+                    test["inheritance"].clone(),
+                ],
+            );
+            if let Some(expected) = test.get("expected_error").and_then(Value::as_str) {
+                assert_eq!(
+                    result.expect_err("Expected inheritance rejection").message,
+                    expected
+                );
+            } else {
+                assert_eq!(result?, test["expected"]);
+            }
+        }
+        return Ok(());
+    }
     if operation == "tool_authorization" {
         for case in fixture["cases"].as_array().unwrap() {
             let transport = Arc::new(Mutex::new(Box::new(AxMCPScriptedTransport::new(

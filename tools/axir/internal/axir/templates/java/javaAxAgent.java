@@ -33,9 +33,8 @@ public final class AxAgent implements AxProgram {
     this.options = AxRuntimeHooks.strip(options);
     this.executionContext = AxExecutionContext.resolve(this.options, null);
     if (executionContext != null) {
-      List<Object> functions = new ArrayList<>(Core.asList(this.options.getOrDefault("functions", List.of())));
-      functions.addAll(executionContext.runtimeModules());
-      this.options.put("functions", functions);
+      executionContext.initialize();
+      this.options.putAll(Core.asMap(Core._agent_append_runtime_modules(this.options, executionContext.runtimeModules())));
       this.options.put("executionContext", executionContext);
     }
     this.playbookConfig = this.options.get("playbook");

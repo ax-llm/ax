@@ -26617,8 +26617,45 @@ Value Core::_agent_forward_impl(Value state, Value distiller, Value executor, Va
   return responder_output;
 }
 
+Value Core::_agent_append_runtime_modules(Value options, Value additional) {
+  axir_coverage_mark("_agent_append_runtime_modules");
+  Value empty_map = Value::object();
+  Value empty_list = Value::array();
+  Value out = Core::map_merge(empty_map, options);
+  Value functions = Core::get(options, Value("functions"), empty_list);
+  Value modules = Value::array();
+  Value flat = Value::array();
+  for (auto item : Core::iter(functions)) {
+    Value members = Core::get(item, Value("functions"), Value());
+    Value group = Core::type_is(members, Value("list"));
+    if (Core::truthy(group)) {
+      Core::append(modules, item);
+    }
+    if (!Core::truthy(group)) {
+      Core::append(flat, item);
+    }
+  }
+  Value count = Core::len(flat);
+  Value has_flat = Core::gt(count, Value(0));
+  if (Core::truthy(has_flat)) {
+    Value module = Value::object();
+    Core::set(module, Value("namespace"), Value("tools"));
+    Core::set(module, Value("title"), Value("Tools"));
+    Core::set(module, Value("alwaysInclude"), Value(true));
+    Core::set(module, Value("functions"), flat);
+    Core::append(modules, module);
+  }
+  for (auto module : Core::iter(additional)) {
+    Core::append(modules, module);
+  }
+  Core::set(out, Value("functions"), modules);
+  return out;
+}
+
 Value Core::_agent_register_child(Value options, Value namespace_, Value name, Value program, Value signature) {
   axir_coverage_mark("_agent_register_child");
+  Value additional = Value::array();
+  options = Core::_agent_append_runtime_modules(options, additional);
   Value empty_map = Value::object();
   Value empty_list = Value::array();
   Value out = Core::map_merge(empty_map, options);
@@ -31516,6 +31553,69 @@ Value Core::_mcp_tool_authorization_result(Value name, Value decision) {
   return decision;
 }
 
+Value Core::_mcp_inheritance_plan(Value mcp, Value ucp, Value inheritance) {
+  axir_coverage_mark("_mcp_inheritance_plan");
+  Value out = Value::object();
+  Value selected_mcp = Value::array();
+  Value selected_ucp = Value::array();
+  Value all = Core::eq(inheritance, Value("all"));
+  Value unset = Core::is_none(inheritance);
+  all = Core::or_(all, unset);
+  if (Core::truthy(all)) {
+    Core::set(out, Value("mcp"), mcp);
+    Core::set(out, Value("ucp"), ucp);
+    return out;
+  }
+  Value none = Core::eq(inheritance, Value("none"));
+  if (Core::truthy(none)) {
+    Core::set(out, Value("mcp"), selected_mcp);
+    Core::set(out, Value("ucp"), selected_ucp);
+    return out;
+  }
+  Value list = Core::type_is(inheritance, Value("list"));
+  if (Core::truthy(list)) {
+    // empty
+  }
+  if (!Core::truthy(list)) {
+    Value error = Core::runtime_error(Value("MCP inheritance must be all, none, or a namespace list"));
+    Core::raise_error(error);
+  }
+  for (auto namespace_ : Core::iter(inheritance)) {
+    Value has_mcp = Core::contains(mcp, namespace_);
+    Value has_ucp = Core::contains(ucp, namespace_);
+    Value known = Core::or_(has_mcp, has_ucp);
+    if (Core::truthy(known)) {
+      // empty
+    }
+    if (!Core::truthy(known)) {
+      Value message = Core::string_format(Value("Unknown inherited MCP client namespace: {}"), namespace_);
+      Value error = Core::runtime_error(message);
+      Core::raise_error(error);
+    }
+    Value prior_mcp = Core::contains(selected_mcp, namespace_);
+    Value prior_ucp = Core::contains(selected_ucp, namespace_);
+    Value duplicate = Core::or_(prior_mcp, prior_ucp);
+    if (Core::truthy(duplicate)) {
+      Value protocol = Value("MCP");
+      if (Core::truthy(has_ucp)) {
+        protocol = Value("MCP/UCP");
+      }
+      Value message = Core::string_format(Value("Duplicate {} client namespace: {}"), protocol, namespace_);
+      Value error = Core::runtime_error(message);
+      Core::raise_error(error);
+    }
+    if (Core::truthy(has_mcp)) {
+      Core::append(selected_mcp, namespace_);
+    }
+    if (Core::truthy(has_ucp)) {
+      Core::append(selected_ucp, namespace_);
+    }
+  }
+  Core::set(out, Value("mcp"), selected_mcp);
+  Core::set(out, Value("ucp"), selected_ucp);
+  return out;
+}
+
 // END AXIR CORE EMITTED FUNCTIONS
 
 Value parse_json(const std::string& source) {
@@ -35335,9 +35435,7 @@ AxAgent& AxAgent::add_tool_module(std::string name, const std::vector<Tool>& too
     functions.push_back(tool.value());
   }
   Value options = Core::get(state_, "options", Value::object());
-  Value modules = Core::get(options, "functions", Value::array());
-  Core::append(modules, object({{"name", std::move(name)}, {"functions", Value(functions)}}));
-  Core::set(options, "functions", modules);
+  options = Core::_agent_append_runtime_modules(options, Value(Array{object({{"name", std::move(name)}, {"functions", Value(functions)}})}));
   options_ = options;
   state_ = Core::_agent_factory(Core::get(state_, "signature"), options);
   Value actor_validation_retries = Core::get(options, "validation_retries", Core::get(options, "validationRetries", 1));

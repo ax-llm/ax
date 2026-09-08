@@ -52796,6 +52796,72 @@ func _agent_forward_impl(args ...Value) (Value, error) {
 	return v_responder_output, nil
 }
 
+func _agent_append_runtime_modules(args ...Value) (Value, error) {
+	axirCoverageMark("_agent_append_runtime_modules")
+	var v_options Value
+	var v_additional Value
+	var v_count Value
+	var v_empty_list Value
+	var v_empty_map Value
+	var v_flat Value
+	var v_functions Value
+	var v_group Value
+	var v_has_flat Value
+	var v_item Value
+	var v_members Value
+	var v_module Value
+	var v_modules Value
+	var v_out Value
+	if len(args) > 0 { v_options = args[0] }
+	_ = v_options
+	if len(args) > 1 { v_additional = args[1] }
+	_ = v_additional
+	_ = v_count
+	_ = v_empty_list
+	_ = v_empty_map
+	_ = v_flat
+	_ = v_functions
+	_ = v_group
+	_ = v_has_flat
+	_ = v_item
+	_ = v_members
+	_ = v_module
+	_ = v_modules
+	_ = v_out
+	v_empty_map = Object()
+	v_empty_list = MutableArray()
+	v_out = _core_map_merge(v_empty_map, v_options)
+	v_functions = coreGet(v_options, "functions", v_empty_list)
+	v_modules = MutableArray()
+	v_flat = MutableArray()
+	for _, v_item = range coreIter(v_functions) {
+		v_members = coreGet(v_item, "functions", nil)
+		v_group = coreTypeIs(v_members, "list")
+		if coreTruthy(v_group) {
+			v_modules = coreAppend(v_modules, v_item)
+		} else {
+			v_flat = coreAppend(v_flat, v_item)
+		}
+	}
+	v_count = _core_len(v_flat)
+	v_has_flat = _core_gt(v_count, 0)
+	if coreTruthy(v_has_flat) {
+		v_module = Object()
+		if err := coreSet(v_module, "namespace", "tools"); err != nil { return nil, err }
+		if err := coreSet(v_module, "title", "Tools"); err != nil { return nil, err }
+		if err := coreSet(v_module, "alwaysInclude", true); err != nil { return nil, err }
+		if err := coreSet(v_module, "functions", v_flat); err != nil { return nil, err }
+		v_modules = coreAppend(v_modules, v_module)
+	} else {
+	// empty
+	}
+	for _, v_module = range coreIter(v_additional) {
+		v_modules = coreAppend(v_modules, v_module)
+	}
+	if err := coreSet(v_out, "functions", v_modules); err != nil { return nil, err }
+	return v_out, nil
+}
+
 func _agent_register_child(args ...Value) (Value, error) {
 	axirCoverageMark("_agent_register_child")
 	var v_options Value
@@ -52803,6 +52869,7 @@ func _agent_register_child(args ...Value) (Value, error) {
 	var v_name Value
 	var v_program Value
 	var v_signature Value
+	var v_additional Value
 	var v_child Value
 	var v_children Value
 	var v_copy Value
@@ -52832,6 +52899,7 @@ func _agent_register_child(args ...Value) (Value, error) {
 	_ = v_program
 	if len(args) > 4 { v_signature = args[4] }
 	_ = v_signature
+	_ = v_additional
 	_ = v_child
 	_ = v_children
 	_ = v_copy
@@ -52851,6 +52919,8 @@ func _agent_register_child(args ...Value) (Value, error) {
 	_ = v_modules
 	_ = v_out
 	_ = v_schema
+	v_additional = MutableArray()
+	{ v, err := _agent_append_runtime_modules(v_options, v_additional); if err != nil { return nil, err }; v_options = v }
 	v_empty_map = Object()
 	v_empty_list = MutableArray()
 	v_out = _core_map_merge(v_empty_map, v_options)
@@ -62770,6 +62840,122 @@ func _mcp_tool_authorization_result(args ...Value) (Value, error) {
 	return v_decision, nil
 }
 
+func _mcp_inheritance_plan(args ...Value) (Value, error) {
+	axirCoverageMark("_mcp_inheritance_plan")
+	var v_mcp Value
+	var v_ucp Value
+	var v_inheritance Value
+	var v_all Value
+	var v_duplicate Value
+	var v_error Value
+	var v_has_mcp Value
+	var v_has_ucp Value
+	var v_known Value
+	var v_list Value
+	var v_message Value
+	var v_namespace Value
+	var v_none Value
+	var v_out Value
+	var v_prior_mcp Value
+	var v_prior_ucp Value
+	var v_protocol Value
+	var v_selected_mcp Value
+	var v_selected_ucp Value
+	var v_unset Value
+	if len(args) > 0 { v_mcp = args[0] }
+	_ = v_mcp
+	if len(args) > 1 { v_ucp = args[1] }
+	_ = v_ucp
+	if len(args) > 2 { v_inheritance = args[2] }
+	_ = v_inheritance
+	_ = v_all
+	_ = v_duplicate
+	_ = v_error
+	_ = v_has_mcp
+	_ = v_has_ucp
+	_ = v_known
+	_ = v_list
+	_ = v_message
+	_ = v_namespace
+	_ = v_none
+	_ = v_out
+	_ = v_prior_mcp
+	_ = v_prior_ucp
+	_ = v_protocol
+	_ = v_selected_mcp
+	_ = v_selected_ucp
+	_ = v_unset
+	v_out = Object()
+	v_selected_mcp = MutableArray()
+	v_selected_ucp = MutableArray()
+	v_all = _core_eq(v_inheritance, "all")
+	v_unset = _core_is_none(v_inheritance)
+	v_all = _core_or(v_all, v_unset)
+	if coreTruthy(v_all) {
+		if err := coreSet(v_out, "mcp", v_mcp); err != nil { return nil, err }
+		if err := coreSet(v_out, "ucp", v_ucp); err != nil { return nil, err }
+		return v_out, nil
+	} else {
+	// empty
+	}
+	v_none = _core_eq(v_inheritance, "none")
+	if coreTruthy(v_none) {
+		if err := coreSet(v_out, "mcp", v_selected_mcp); err != nil { return nil, err }
+		if err := coreSet(v_out, "ucp", v_selected_ucp); err != nil { return nil, err }
+		return v_out, nil
+	} else {
+	// empty
+	}
+	v_list = coreTypeIs(v_inheritance, "list")
+	if coreTruthy(v_list) {
+	// empty
+	} else {
+		v_error = _core_runtime_error("MCP inheritance must be all, none, or a namespace list")
+		return nil, asError(v_error)
+	}
+	for _, v_namespace = range coreIter(v_inheritance) {
+		v_has_mcp = _core_contains(v_mcp, v_namespace)
+		v_has_ucp = _core_contains(v_ucp, v_namespace)
+		v_known = _core_or(v_has_mcp, v_has_ucp)
+		if coreTruthy(v_known) {
+		// empty
+		} else {
+			v_message = _core_string_format("Unknown inherited MCP client namespace: {}", v_namespace)
+			v_error = _core_runtime_error(v_message)
+			return nil, asError(v_error)
+		}
+		v_prior_mcp = _core_contains(v_selected_mcp, v_namespace)
+		v_prior_ucp = _core_contains(v_selected_ucp, v_namespace)
+		v_duplicate = _core_or(v_prior_mcp, v_prior_ucp)
+		if coreTruthy(v_duplicate) {
+			v_protocol = "MCP"
+			if coreTruthy(v_has_ucp) {
+				v_protocol = "MCP/UCP"
+			} else {
+			// empty
+			}
+			v_message = _core_string_format("Duplicate {} client namespace: {}", v_protocol, v_namespace)
+			v_error = _core_runtime_error(v_message)
+			return nil, asError(v_error)
+		} else {
+		// empty
+		}
+		if coreTruthy(v_has_mcp) {
+			v_selected_mcp = coreAppend(v_selected_mcp, v_namespace)
+		} else {
+		// empty
+		}
+		if coreTruthy(v_has_ucp) {
+			v_selected_ucp = coreAppend(v_selected_ucp, v_namespace)
+		} else {
+		// empty
+		}
+	}
+	if err := coreSet(v_out, "mcp", v_selected_mcp); err != nil { return nil, err }
+	if err := coreSet(v_out, "ucp", v_selected_ucp); err != nil { return nil, err }
+	return v_out, nil
+}
+
 // END AXIR CORE EMITTED FUNCTIONS
 
 // Public signature/schema surface.
@@ -66569,9 +66755,8 @@ func NewAgent(signature string, options map[string]Value) *AxAgent {
 	options = stripRuntimeHooks(options)
 	executionContext, contextErr := ResolveAxExecutionContext(options, nil)
 	if executionContext != nil {
-		functions := asSlice(coreGet(options, "functions", Array()))
-		functions = append(functions, executionContext.RuntimeModules()...)
-		options["functions"] = functions
+		if err := executionContext.Initialize(); err != nil { panic(err) }
+		options = asMap(mustCore(_agent_append_runtime_modules(options, executionContext.RuntimeModules())))
 		options["executionContext"] = executionContext
 	}
 	state := asMap(mustCore(_agent_factory(signature, options)))

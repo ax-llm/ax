@@ -982,6 +982,7 @@ struct Core {
   static Value _agent_run_llm_query_one(Value sub_gen, Value client, Value item, Value options);
   static Value _agent_run_llm_query(Value sub_gen, Value client, Value params, Value options);
   static Value _agent_forward_impl(Value state, Value distiller, Value executor, Value responder, Value client, Value values, Value options);
+  static Value _agent_append_runtime_modules(Value options, Value additional);
   static Value _agent_register_child(Value options, Value namespace_, Value name, Value program, Value signature);
   static Value _agent_child_options(Value state, Value qualified, Value options);
   static Value _agent_forward(Value state, Value distiller, Value executor, Value responder, Value client, Value values, Value options);
@@ -1094,6 +1095,7 @@ struct Core {
   static Value mcp_oauth_validate_issuer(Value response, Value expected_issuer, Value require_iss);
   static Value _mcp_tool_authorization_context(Value tools, Value namespace_, Value name, Value arguments);
   static Value _mcp_tool_authorization_result(Value name, Value decision);
+  static Value _mcp_inheritance_plan(Value mcp, Value ucp, Value inheritance);
   // END AXIR CORE EMITTED DECLARATIONS
 
 };

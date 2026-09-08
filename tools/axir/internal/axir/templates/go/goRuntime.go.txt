@@ -5785,9 +5785,8 @@ func NewAgent(signature string, options map[string]Value) *AxAgent {
 	options = stripRuntimeHooks(options)
 	executionContext, contextErr := ResolveAxExecutionContext(options, nil)
 	if executionContext != nil {
-		functions := asSlice(coreGet(options, "functions", Array()))
-		functions = append(functions, executionContext.RuntimeModules()...)
-		options["functions"] = functions
+		if err := executionContext.Initialize(); err != nil { panic(err) }
+		options = asMap(mustCore(_agent_append_runtime_modules(options, executionContext.RuntimeModules())))
 		options["executionContext"] = executionContext
 	}
 	state := asMap(mustCore(_agent_factory(signature, options)))

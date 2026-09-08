@@ -1593,8 +1593,8 @@ class AxAgent:
         self.options = _strip_runtime_hooks(options)
         self.execution_context = resolve_execution_context(self.options)
         if self.execution_context:
-            existing = list(self.options.get("functions") or [])
-            self.options["functions"] = existing + self.execution_context.runtime_modules()
+            self.execution_context.initialize()
+            self.options = _agent_append_runtime_modules(self.options, self.execution_context.runtime_modules())
             self.options["executionContext"] = self.execution_context
         self._playbook_handle = None
         self._agent_playbook = None

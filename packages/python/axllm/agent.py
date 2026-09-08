@@ -1602,8 +1602,8 @@ class AxAgent:
         self.options = _strip_runtime_hooks(options)
         self.execution_context = resolve_execution_context(self.options)
         if self.execution_context:
-            existing = list(self.options.get("functions") or [])
-            self.options["functions"] = existing + self.execution_context.runtime_modules()
+            self.execution_context.initialize()
+            self.options = _agent_append_runtime_modules(self.options, self.execution_context.runtime_modules())
             self.options["executionContext"] = self.execution_context
         self._playbook_handle = None
         self._agent_playbook = None
@@ -11064,8 +11064,42 @@ def _agent_forward_impl(state: Any, distiller: Any, executor: Any, responder: An
     return responder_output
 
 
+def _agent_append_runtime_modules(options: Any, additional: Any) -> Any:
+    _core_coverage_mark("_agent_append_runtime_modules")
+    empty_map = {}
+    empty_list = []
+    out = _core_map_merge(empty_map, options)
+    functions = _core_get(options, "functions", empty_list)
+    modules = []
+    flat = []
+    for item in functions:
+        members = _core_get(item, "functions", None)
+        group = _core_type_is(members, "list")
+        if group:
+            modules.append(item)
+        else:
+            flat.append(item)
+    count = _core_len(flat)
+    has_flat = _core_gt(count, 0)
+    if has_flat:
+        module = {}
+        module["namespace"] = "tools"
+        module["title"] = "Tools"
+        module["alwaysInclude"] = True
+        module["functions"] = flat
+        modules.append(module)
+    else:
+        pass
+    for module in additional:
+        modules.append(module)
+    out["functions"] = modules
+    return out
+
+
 def _agent_register_child(options: Any, namespace: str, name: str, program: Any, signature: Any) -> Any:
     _core_coverage_mark("_agent_register_child")
+    additional = []
+    options = _agent_append_runtime_modules(options, additional)
     empty_map = {}
     empty_list = []
     out = _core_map_merge(empty_map, options)

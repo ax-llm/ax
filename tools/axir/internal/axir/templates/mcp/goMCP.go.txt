@@ -571,10 +571,21 @@ func (c *AxExecutionContext) RuntimeModules() []Value {
 }
 
 func (c *AxExecutionContext) Namespaces() []string { out:=[]string{};for _,client:=range c.MCP{out=append(out,client.Namespace())};for _,client:=range c.UCP{out=append(out,client.Namespace())};return out }
-func (c *AxExecutionContext) Derive(inheritance Value) *AxExecutionContext { if display(inheritance)=="none"{empty,_:=NewAxExecutionContext(nil,nil);return empty};allowed:=map[string]bool{};for _,raw:=range asSlice(inheritance){allowed[display(raw)]=true};if len(allowed)==0{return c};mcp:=[]*AxMCPClient{};ucp:=[]*AxUCPClient{};for _,x:=range c.MCP{if allowed[x.Namespace()]{mcp=append(mcp,x)}};for _,x:=range c.UCP{if allowed[x.Namespace()]{ucp=append(ucp,x)}};out,_:=NewAxExecutionContext(mcp,ucp);return out }
+func (c *AxExecutionContext) DeriveChecked(inheritance Value) (*AxExecutionContext,error) {
+    mcpNames,ucpNames:=Array(),Array();byMcp:=map[string]*AxMCPClient{};byUcp:=map[string]*AxUCPClient{}
+    for _,client:=range c.MCP{mcpNames=append(mcpNames,client.Namespace());byMcp[client.Namespace()]=client}
+    for _,client:=range c.UCP{ucpNames=append(ucpNames,client.Namespace());byUcp[client.Namespace()]=client}
+    plan,err:=_mcp_inheritance_plan(mcpNames,ucpNames,inheritance);if err!=nil{return nil,err}
+    mcp:=[]*AxMCPClient{};ucp:=[]*AxUCPClient{}
+    for _,name:=range asSlice(coreGet(plan,"mcp",Array())){mcp=append(mcp,byMcp[display(name)])}
+    for _,name:=range asSlice(coreGet(plan,"ucp",Array())){ucp=append(ucp,byUcp[display(name)])}
+    return NewAxExecutionContext(mcp,ucp)
+}
+func (c *AxExecutionContext) Derive(inheritance Value) *AxExecutionContext {child,err:=c.DeriveChecked(inheritance);if err!=nil{panic(err)};return child}
+
 func (c *AxExecutionContext) ContinuationState() AxMCPContinuationState { names:=c.Namespaces();sum:=sha256.Sum256([]byte(strings.Join(names,"\n")));return AxMCPContinuationState{Namespaces:names,Tasks:[]map[string]Value{},Subscriptions:[]map[string]Value{},CatalogFingerprint:fmt.Sprintf("%x",sum)} }
 
-func ResolveAxExecutionContext(options map[string]Value,parent *AxExecutionContext)(*AxExecutionContext,error){if options==nil{options=map[string]Value{}};if raw:=coreGet(options,"executionContext",coreGet(options,"mcpExecutionContext",nil));raw!=nil{if c,ok:=raw.(*AxExecutionContext);ok{return c.Derive(coreGet(options,"mcpInheritance","all")),nil}};if _,ok:=options["mcp"];ok||options["ucp"]!=nil{mcp:=[]*AxMCPClient{};for _,raw:=range asSlice(coreGet(options,"mcp",Array())){if c,ok:=raw.(*AxMCPClient);ok{mcp=append(mcp,c)}};if c,ok:=coreGet(options,"mcp",nil).(*AxMCPClient);ok{mcp=append(mcp,c)};ucp:=[]*AxUCPClient{};for _,raw:=range asSlice(coreGet(options,"ucp",Array())){if c,ok:=raw.(*AxUCPClient);ok{ucp=append(ucp,c)}};if c,ok:=coreGet(options,"ucp",nil).(*AxUCPClient);ok{ucp=append(ucp,c)};return NewAxExecutionContext(mcp,ucp)};if parent!=nil{return parent.Derive(coreGet(options,"mcpInheritance","all")),nil};return nil,nil}
+func ResolveAxExecutionContext(options map[string]Value,parent *AxExecutionContext)(*AxExecutionContext,error){if options==nil{options=map[string]Value{}};if raw:=coreGet(options,"executionContext",coreGet(options,"mcpExecutionContext",nil));raw!=nil{if c,ok:=raw.(*AxExecutionContext);ok{return c.DeriveChecked(coreGet(options,"mcpInheritance","all"))}};if _,ok:=options["mcp"];ok||options["ucp"]!=nil{mcp:=[]*AxMCPClient{};for _,raw:=range asSlice(coreGet(options,"mcp",Array())){if c,ok:=raw.(*AxMCPClient);ok{mcp=append(mcp,c)}};if c,ok:=coreGet(options,"mcp",nil).(*AxMCPClient);ok{mcp=append(mcp,c)};ucp:=[]*AxUCPClient{};for _,raw:=range asSlice(coreGet(options,"ucp",Array())){if c,ok:=raw.(*AxUCPClient);ok{ucp=append(ucp,c)}};if c,ok:=coreGet(options,"ucp",nil).(*AxUCPClient);ok{ucp=append(ucp,c)};return NewAxExecutionContext(mcp,ucp)};if parent!=nil{return parent.DeriveChecked(coreGet(options,"mcpInheritance","all"))};return nil,nil}
 
 func (c *AxMCPClient) request(method string, params map[string]Value) (map[string]Value, error) {
 	return c.requestWithHeaders(method,params,nil,true)
@@ -1097,6 +1108,22 @@ func AxMCPValidateEndpoint(endpoint string, options map[string]Value) (string, e
 
 func runMCPConformanceFixture(fixture map[string]Value) {
 	op := display(coreGet(fixture, "operation", "initialize"))
+  if op=="inheritance_context" || op=="inheritance_agent_context" {
+    for _,raw:=range asSlice(fixture["cases"]){test:=asMap(raw);clients:=[]*AxMCPClient{};transports:=map[string]*AxMCPScriptedTransport{}
+      for _,item:=range asSlice(fixture["clients"]){spec:=asMap(item);name:=display(spec["namespace"]);transport:=NewAxMCPScriptedTransport(asSlice(spec["responses"]));transports[name]=transport;clients=append(clients,NewAxMCPClient(transport,Object("namespace",name,"era","modern")))}
+      context,err:=NewAxExecutionContext(clients,nil);if err!=nil{panic(err)};child,err:=context.DeriveChecked(test["inheritance"]);results:=Array();selected:=Array()
+      if err==nil{for _,name:=range child.Namespaces(){selected=append(selected,name)};if op=="inheritance_agent_context"{options:=Object();for key,value:=range asMap(fixture["agent_options"]){options[key]=value};options["executionContext"]=child;program:=NewAgent("question:string -> answer:string",options);assertEqual(program.InvokeCallable("tools.local_echo",Object(),Object()),fixture["expected_local_result"],"Existing tool result");for _,client:=range child.MCP{for _,tool:=range client.NativeTools(){result:=program.InvokeCallable("mcp."+client.Namespace()+".tools."+tool.Name,Object("query","scope-probe"),Object());assertEqual(coreGet(result,"status",nil),"ok","Attached MCP invocation");results=append(results,coreGet(result,"value",nil))}}}else{var functions []Tool;functions,err=child.NativeTools();if err==nil{for _,tool:=range functions{var result Value;result,err=tool.invoke(Object("query","scope-probe"));if err!=nil{break};results=append(results,result)}}}}
+      message:="";if err!=nil{message=err.Error()};if message!=display(coreGet(test,"expected_error","")){panic(fmt.Sprintf("Inheritance error: %s",message))};if err==nil{assertEqual(selected,test["expected_namespaces"],"selected client order")};assertEqual(results,test["expected_results"],"inherited tool results")
+      for name,transport:=range transports{methods:=Array();for _,request:=range transport.Requests{methods=append(methods,request["method"]);if request["method"]=="tools/call"{assertEqual(coreGet(coreGet(request,"params",nil),"arguments",nil),Object("query","scope-probe"),"inherited tool arguments")}};assertEqual(methods,coreGet(test["expected_methods"],name,nil),"inherited client requests")}
+      parentTools,parentErr:=context.NativeTools();if parentErr!=nil{panic(parentErr)};parentResults:=Array();for _,tool:=range parentTools{parentResults=append(parentResults,tool.Call(Object("query","parent-probe")))};assertEqual(parentResults,test["expected_parent_results"],"parent continuation results")
+      for name,transport:=range transports{methods,calls:=Array(),Array();for _,request:=range transport.Requests{methods=append(methods,request["method"]);if request["method"]=="tools/call"{params:=coreGet(request,"params",Object());calls=append(calls,Object("name",coreGet(params,"name",nil),"arguments",coreGet(params,"arguments",nil)))}};assertEqual(methods,coreGet(test["expected_parent_methods"],name,nil),"parent continuation methods");assertEqual(calls,coreGet(test["expected_calls"],name,nil),"parent continuation calls")}
+    };return
+  }
+  if op=="inheritance_plan" {
+    for _,raw:=range asSlice(fixture["cases"]){test:=asMap(raw);result,err:=_mcp_inheritance_plan(fixture["mcp"],fixture["ucp"],test["inheritance"])
+      if expected:=coreGet(test,"expected_error",nil);expected!=nil{if err==nil||err.Error()!=display(expected){panic(fmt.Sprintf("Inheritance error mismatch: %v expected %v",err,expected))}}else{if err!=nil{panic(err)};assertEqual(result,test["expected"],"MCP inheritance selection")}
+    };return
+  }
   if op=="tool_authorization" {
     for _,raw:=range asSlice(coreGet(fixture,"cases",Array())){testCase:=asMap(raw);transport:=NewAxMCPScriptedTransport(asSlice(fixture["responses"]));observed:=[]Value{};var client *AxMCPClient;options:=cloneMCPMap(asMap(fixture["client_options"]))
       options["authorizeToolCall"]=func(call map[string]Value)Value{if call["client"]!=client{panic("Lost authorization client")};copied:=map[string]Value{};for key,value:=range call{if key!="client"{copied[key]=value}};observed=append(observed,copied);return testCase["decision"]}

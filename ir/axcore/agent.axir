@@ -9221,12 +9221,48 @@ module @ax.agent version "0.1" {
     }
   }
 
+  op ax.agent.semantic @agent_append_runtime_modules {
+    attr core_kind = "func"
+    attr emit_module = "agent"
+    attr private = true
+    type signature = "(json, json) -> json throws"
+    body @entry(%options: json, %additional: json) {
+      %empty_map = core.map
+      %empty_list = core.list
+      %out = core.call intrinsic.map.merge(%empty_map, %options)
+      %functions = core.get %options["functions"] default %empty_list
+      %modules = core.list
+      %flat = core.list
+      core.for %item in %functions {
+        %members = core.get %item["functions"] default null
+        %group = core.type_is %members type "list"
+        core.if %group { core.append %modules, %item }
+        else { core.append %flat, %item }
+      }
+      %count = core.call intrinsic.len(%flat)
+      %has_flat = core.call intrinsic.gt(%count, 0)
+      core.if %has_flat {
+        %module = core.map
+        core.set %module["namespace"] = "tools"
+        core.set %module["title"] = "Tools"
+        core.set %module["alwaysInclude"] = true
+        core.set %module["functions"] = %flat
+        core.append %modules, %module
+      }
+      core.for %module in %additional { core.append %modules, %module }
+      core.set %out["functions"] = %modules
+      core.return %out
+    }
+  }
+
   op ax.agent.semantic @agent_register_child {
     attr core_kind = "func"
     attr emit_module = "agent"
     attr private = true
     type signature = "(json, string, string, json, json) -> json throws"
     body @entry(%options: json, %namespace: string, %name: string, %program: json, %signature: json) {
+      %additional = core.list
+      %options = core.call @agent_append_runtime_modules(%options, %additional)
       %empty_map = core.map
       %empty_list = core.list
       %out = core.call intrinsic.map.merge(%empty_map, %options)

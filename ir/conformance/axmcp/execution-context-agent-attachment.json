@@ -1,0 +1,697 @@
+{
+  "kind": "mcp",
+  "operation": "inheritance_agent_context",
+  "name": "execution-context-agent-attachment",
+  "source": {
+    "tsDerived": true,
+    "extractor": "tools/axir/extractors/mcp-inheritance-goldens.ts",
+    "reference": ["src/ax/mcp/execution.ts"],
+    "notes": "Replays the TypeScript context request oracle through generated agent invocation and checks preservation of an ordinary tool."
+  },
+  "agent_options": {
+    "functions": [
+      {
+        "name": "local_echo",
+        "description": "Return the local reference",
+        "parameters": {
+          "type": "object",
+          "properties": {}
+        }
+      }
+    ],
+    "callable_results": {
+      "tools.local_echo": {
+        "value": "LOCAL-17"
+      }
+    }
+  },
+  "expected_local_result": {
+    "status": "ok",
+    "value": "LOCAL-17"
+  },
+  "clients": [
+    {
+      "namespace": "inventory",
+      "responses": [
+        {
+          "jsonrpc": "2.0",
+          "result": {
+            "resultType": "complete",
+            "supportedVersions": ["2026-07-28"],
+            "ttlMs": 60000,
+            "cacheScope": "private",
+            "capabilities": {
+              "tools": {}
+            }
+          }
+        },
+        {
+          "jsonrpc": "2.0",
+          "result": {
+            "tools": [
+              {
+                "name": "lookup_inventory",
+                "description": "Read the selected namespace",
+                "inputSchema": {
+                  "type": "object",
+                  "properties": {
+                    "query": {
+                      "type": "string"
+                    }
+                  },
+                  "required": ["query"],
+                  "additionalProperties": false
+                }
+              }
+            ]
+          }
+        },
+        {
+          "jsonrpc": "2.0",
+          "result": {
+            "resultType": "complete",
+            "structuredContent": {
+              "namespace": "inventory",
+              "reference": "inventory-REF"
+            },
+            "content": [
+              {
+                "type": "text",
+                "text": "inventory-REF"
+              }
+            ]
+          }
+        },
+        {
+          "jsonrpc": "2.0",
+          "result": {
+            "resultType": "complete",
+            "structuredContent": {
+              "namespace": "inventory",
+              "reference": "inventory-REF"
+            },
+            "content": [
+              {
+                "type": "text",
+                "text": "inventory-REF"
+              }
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "namespace": "orders",
+      "responses": [
+        {
+          "jsonrpc": "2.0",
+          "result": {
+            "resultType": "complete",
+            "supportedVersions": ["2026-07-28"],
+            "ttlMs": 60000,
+            "cacheScope": "private",
+            "capabilities": {
+              "tools": {}
+            }
+          }
+        },
+        {
+          "jsonrpc": "2.0",
+          "result": {
+            "tools": [
+              {
+                "name": "lookup_orders",
+                "description": "Read the selected namespace",
+                "inputSchema": {
+                  "type": "object",
+                  "properties": {
+                    "query": {
+                      "type": "string"
+                    }
+                  },
+                  "required": ["query"],
+                  "additionalProperties": false
+                }
+              }
+            ]
+          }
+        },
+        {
+          "jsonrpc": "2.0",
+          "result": {
+            "resultType": "complete",
+            "structuredContent": {
+              "namespace": "orders",
+              "reference": "orders-REF"
+            },
+            "content": [
+              {
+                "type": "text",
+                "text": "orders-REF"
+              }
+            ]
+          }
+        },
+        {
+          "jsonrpc": "2.0",
+          "result": {
+            "resultType": "complete",
+            "structuredContent": {
+              "namespace": "orders",
+              "reference": "orders-REF"
+            },
+            "content": [
+              {
+                "type": "text",
+                "text": "orders-REF"
+              }
+            ]
+          }
+        }
+      ]
+    }
+  ],
+  "cases": [
+    {
+      "inheritance": "all",
+      "expected_namespaces": ["inventory", "orders"],
+      "expected_results": [
+        {
+          "resultType": "complete",
+          "structuredContent": {
+            "namespace": "inventory",
+            "reference": "inventory-REF"
+          },
+          "content": [
+            {
+              "type": "text",
+              "text": "inventory-REF"
+            }
+          ]
+        },
+        {
+          "resultType": "complete",
+          "structuredContent": {
+            "namespace": "orders",
+            "reference": "orders-REF"
+          },
+          "content": [
+            {
+              "type": "text",
+              "text": "orders-REF"
+            }
+          ]
+        }
+      ],
+      "expected_methods": {
+        "inventory": ["server/discover", "tools/list", "tools/call"],
+        "orders": ["server/discover", "tools/list", "tools/call"]
+      },
+      "expected_parent_results": [
+        {
+          "resultType": "complete",
+          "structuredContent": {
+            "namespace": "inventory",
+            "reference": "inventory-REF"
+          },
+          "content": [
+            {
+              "type": "text",
+              "text": "inventory-REF"
+            }
+          ]
+        },
+        {
+          "resultType": "complete",
+          "structuredContent": {
+            "namespace": "orders",
+            "reference": "orders-REF"
+          },
+          "content": [
+            {
+              "type": "text",
+              "text": "orders-REF"
+            }
+          ]
+        }
+      ],
+      "expected_parent_methods": {
+        "inventory": [
+          "server/discover",
+          "tools/list",
+          "tools/call",
+          "tools/call"
+        ],
+        "orders": ["server/discover", "tools/list", "tools/call", "tools/call"]
+      },
+      "expected_calls": {
+        "inventory": [
+          {
+            "name": "lookup_inventory",
+            "arguments": {
+              "query": "scope-probe"
+            }
+          },
+          {
+            "name": "lookup_inventory",
+            "arguments": {
+              "query": "parent-probe"
+            }
+          }
+        ],
+        "orders": [
+          {
+            "name": "lookup_orders",
+            "arguments": {
+              "query": "scope-probe"
+            }
+          },
+          {
+            "name": "lookup_orders",
+            "arguments": {
+              "query": "parent-probe"
+            }
+          }
+        ]
+      }
+    },
+    {
+      "inheritance": "none",
+      "expected_namespaces": [],
+      "expected_results": [],
+      "expected_methods": {
+        "inventory": [],
+        "orders": []
+      },
+      "expected_parent_results": [
+        {
+          "resultType": "complete",
+          "structuredContent": {
+            "namespace": "inventory",
+            "reference": "inventory-REF"
+          },
+          "content": [
+            {
+              "type": "text",
+              "text": "inventory-REF"
+            }
+          ]
+        },
+        {
+          "resultType": "complete",
+          "structuredContent": {
+            "namespace": "orders",
+            "reference": "orders-REF"
+          },
+          "content": [
+            {
+              "type": "text",
+              "text": "orders-REF"
+            }
+          ]
+        }
+      ],
+      "expected_parent_methods": {
+        "inventory": ["server/discover", "tools/list", "tools/call"],
+        "orders": ["server/discover", "tools/list", "tools/call"]
+      },
+      "expected_calls": {
+        "inventory": [
+          {
+            "name": "lookup_inventory",
+            "arguments": {
+              "query": "parent-probe"
+            }
+          }
+        ],
+        "orders": [
+          {
+            "name": "lookup_orders",
+            "arguments": {
+              "query": "parent-probe"
+            }
+          }
+        ]
+      }
+    },
+    {
+      "inheritance": [],
+      "expected_namespaces": [],
+      "expected_results": [],
+      "expected_methods": {
+        "inventory": [],
+        "orders": []
+      },
+      "expected_parent_results": [
+        {
+          "resultType": "complete",
+          "structuredContent": {
+            "namespace": "inventory",
+            "reference": "inventory-REF"
+          },
+          "content": [
+            {
+              "type": "text",
+              "text": "inventory-REF"
+            }
+          ]
+        },
+        {
+          "resultType": "complete",
+          "structuredContent": {
+            "namespace": "orders",
+            "reference": "orders-REF"
+          },
+          "content": [
+            {
+              "type": "text",
+              "text": "orders-REF"
+            }
+          ]
+        }
+      ],
+      "expected_parent_methods": {
+        "inventory": ["server/discover", "tools/list", "tools/call"],
+        "orders": ["server/discover", "tools/list", "tools/call"]
+      },
+      "expected_calls": {
+        "inventory": [
+          {
+            "name": "lookup_inventory",
+            "arguments": {
+              "query": "parent-probe"
+            }
+          }
+        ],
+        "orders": [
+          {
+            "name": "lookup_orders",
+            "arguments": {
+              "query": "parent-probe"
+            }
+          }
+        ]
+      }
+    },
+    {
+      "inheritance": ["orders"],
+      "expected_namespaces": ["orders"],
+      "expected_results": [
+        {
+          "resultType": "complete",
+          "structuredContent": {
+            "namespace": "orders",
+            "reference": "orders-REF"
+          },
+          "content": [
+            {
+              "type": "text",
+              "text": "orders-REF"
+            }
+          ]
+        }
+      ],
+      "expected_methods": {
+        "inventory": [],
+        "orders": ["server/discover", "tools/list", "tools/call"]
+      },
+      "expected_parent_results": [
+        {
+          "resultType": "complete",
+          "structuredContent": {
+            "namespace": "inventory",
+            "reference": "inventory-REF"
+          },
+          "content": [
+            {
+              "type": "text",
+              "text": "inventory-REF"
+            }
+          ]
+        },
+        {
+          "resultType": "complete",
+          "structuredContent": {
+            "namespace": "orders",
+            "reference": "orders-REF"
+          },
+          "content": [
+            {
+              "type": "text",
+              "text": "orders-REF"
+            }
+          ]
+        }
+      ],
+      "expected_parent_methods": {
+        "inventory": ["server/discover", "tools/list", "tools/call"],
+        "orders": ["server/discover", "tools/list", "tools/call", "tools/call"]
+      },
+      "expected_calls": {
+        "inventory": [
+          {
+            "name": "lookup_inventory",
+            "arguments": {
+              "query": "parent-probe"
+            }
+          }
+        ],
+        "orders": [
+          {
+            "name": "lookup_orders",
+            "arguments": {
+              "query": "scope-probe"
+            }
+          },
+          {
+            "name": "lookup_orders",
+            "arguments": {
+              "query": "parent-probe"
+            }
+          }
+        ]
+      }
+    },
+    {
+      "inheritance": ["orders", "inventory"],
+      "expected_namespaces": ["orders", "inventory"],
+      "expected_results": [
+        {
+          "resultType": "complete",
+          "structuredContent": {
+            "namespace": "orders",
+            "reference": "orders-REF"
+          },
+          "content": [
+            {
+              "type": "text",
+              "text": "orders-REF"
+            }
+          ]
+        },
+        {
+          "resultType": "complete",
+          "structuredContent": {
+            "namespace": "inventory",
+            "reference": "inventory-REF"
+          },
+          "content": [
+            {
+              "type": "text",
+              "text": "inventory-REF"
+            }
+          ]
+        }
+      ],
+      "expected_methods": {
+        "inventory": ["server/discover", "tools/list", "tools/call"],
+        "orders": ["server/discover", "tools/list", "tools/call"]
+      },
+      "expected_parent_results": [
+        {
+          "resultType": "complete",
+          "structuredContent": {
+            "namespace": "inventory",
+            "reference": "inventory-REF"
+          },
+          "content": [
+            {
+              "type": "text",
+              "text": "inventory-REF"
+            }
+          ]
+        },
+        {
+          "resultType": "complete",
+          "structuredContent": {
+            "namespace": "orders",
+            "reference": "orders-REF"
+          },
+          "content": [
+            {
+              "type": "text",
+              "text": "orders-REF"
+            }
+          ]
+        }
+      ],
+      "expected_parent_methods": {
+        "inventory": [
+          "server/discover",
+          "tools/list",
+          "tools/call",
+          "tools/call"
+        ],
+        "orders": ["server/discover", "tools/list", "tools/call", "tools/call"]
+      },
+      "expected_calls": {
+        "inventory": [
+          {
+            "name": "lookup_inventory",
+            "arguments": {
+              "query": "scope-probe"
+            }
+          },
+          {
+            "name": "lookup_inventory",
+            "arguments": {
+              "query": "parent-probe"
+            }
+          }
+        ],
+        "orders": [
+          {
+            "name": "lookup_orders",
+            "arguments": {
+              "query": "scope-probe"
+            }
+          },
+          {
+            "name": "lookup_orders",
+            "arguments": {
+              "query": "parent-probe"
+            }
+          }
+        ]
+      }
+    },
+    {
+      "inheritance": ["missing"],
+      "expected_error": "Unknown inherited MCP client namespace: missing",
+      "expected_results": [],
+      "expected_methods": {
+        "inventory": [],
+        "orders": []
+      },
+      "expected_parent_results": [
+        {
+          "resultType": "complete",
+          "structuredContent": {
+            "namespace": "inventory",
+            "reference": "inventory-REF"
+          },
+          "content": [
+            {
+              "type": "text",
+              "text": "inventory-REF"
+            }
+          ]
+        },
+        {
+          "resultType": "complete",
+          "structuredContent": {
+            "namespace": "orders",
+            "reference": "orders-REF"
+          },
+          "content": [
+            {
+              "type": "text",
+              "text": "orders-REF"
+            }
+          ]
+        }
+      ],
+      "expected_parent_methods": {
+        "inventory": ["server/discover", "tools/list", "tools/call"],
+        "orders": ["server/discover", "tools/list", "tools/call"]
+      },
+      "expected_calls": {
+        "inventory": [
+          {
+            "name": "lookup_inventory",
+            "arguments": {
+              "query": "parent-probe"
+            }
+          }
+        ],
+        "orders": [
+          {
+            "name": "lookup_orders",
+            "arguments": {
+              "query": "parent-probe"
+            }
+          }
+        ]
+      }
+    },
+    {
+      "inheritance": ["inventory", "inventory"],
+      "expected_error": "Duplicate MCP client namespace: inventory",
+      "expected_results": [],
+      "expected_methods": {
+        "inventory": [],
+        "orders": []
+      },
+      "expected_parent_results": [
+        {
+          "resultType": "complete",
+          "structuredContent": {
+            "namespace": "inventory",
+            "reference": "inventory-REF"
+          },
+          "content": [
+            {
+              "type": "text",
+              "text": "inventory-REF"
+            }
+          ]
+        },
+        {
+          "resultType": "complete",
+          "structuredContent": {
+            "namespace": "orders",
+            "reference": "orders-REF"
+          },
+          "content": [
+            {
+              "type": "text",
+              "text": "orders-REF"
+            }
+          ]
+        }
+      ],
+      "expected_parent_methods": {
+        "inventory": ["server/discover", "tools/list", "tools/call"],
+        "orders": ["server/discover", "tools/list", "tools/call"]
+      },
+      "expected_calls": {
+        "inventory": [
+          {
+            "name": "lookup_inventory",
+            "arguments": {
+              "query": "parent-probe"
+            }
+          }
+        ],
+        "orders": [
+          {
+            "name": "lookup_orders",
+            "arguments": {
+              "query": "parent-probe"
+            }
+          }
+        ]
+      }
+    }
+  ]
+}

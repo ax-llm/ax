@@ -46,6 +46,18 @@ Host regular-expression engines evaluate patterns; advanced expressions outside
 the shared engine subset require additional compatibility evidence. The current
 fixtures cover anchors, search semantics, character classes, and quantifiers.
 
+MCP inheritance selection is shared in `mcp.axir`. It preserves selected client
+order within MCP and UCP groups, rejects unknown or duplicate namespaces, and
+treats both `none` and an empty allowlist as no inherited clients. Derived
+contexts retain the original client handles. Agent attachment initializes the
+selected catalogs and preserves ordinary tools under their existing `tools`
+namespace. Child registration uses the same Core module composition rule.
+Filtering or initializing a child
+must not remove access to the parent's other clients. TypeScript-derived request
+fixtures exercise child selection, tool results, and subsequent parent requests
+in all five targets. This context-level evidence does not yet establish full
+child-agent inheritance and cancellation parity.
+
 ## Routing, controls, and transport
 
 Routing and model aliases resolve before session creation. The selected client
@@ -107,6 +119,8 @@ Scripted agent fixtures belong under package tests, not public examples.
 | Behavior | Shared evidence | Native evidence |
 | --- | --- | --- |
 | Raw schema validation | `session-raw-argument-validation.json`, evaluated against TypeScript | Invalid calls, correction requests, unchanged call IDs, and step exhaustion in all five session suites |
+| MCP inheritance and attachment | `execution-context-inheritance.json`, `execution-context-inheritance-requests.json`, and `execution-context-agent-attachment.json` | Selected namespace order, invalid selections, exact MCP requests through agent invocation, retained ordinary tools, and subsequent parent requests in all five targets |
+| Ordinary tools with owned children | `owned-child-delegation-preserves-existing-tools.json` | Existing tool invocation, child invocation, both action-log records, and final output across all five targets |
 | Native MCP schemas and modern continuation | `native-tools-modern-roundtrip.json` | All-five native agent tests assert discovery boundaries, exact schemas, invalid-argument correction, overlap, raw result continuation, responder output, action logs, and duplicate prevention |
 | Owned child delegation | `owned-child-delegation-through-parent-runtime.json` | All-five native session tests assert parent continuation input, isolated histories, scoped controls, cache prefixes, child usage, and cancellation cleanup |
 | Real actor child calls | `axagent-real/agent-runtime-real-owned-child-delegation.json` | All five real engines execute parent and child actor code; assert child result, action log, and parent continuation. Native suites reject retained callbacks after success and cancellation. The five public `astra_child_agent` / `AstraChildAgentExample` examples passed with live Astra, including child-scoped controls |

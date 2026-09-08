@@ -2351,6 +2351,70 @@ def _mcp_tool_authorization_result(name: str, decision: Any) -> Any:
         pass
     return decision
 
+
+def _mcp_inheritance_plan(mcp: Any, ucp: Any, inheritance: Any) -> Any:
+    _core_coverage_mark("_mcp_inheritance_plan")
+    out = {}
+    selected_mcp = []
+    selected_ucp = []
+    all = _core_eq(inheritance, "all")
+    unset = _core_is_none(inheritance)
+    all = _core_or(all, unset)
+    if all:
+        out["mcp"] = mcp
+        out["ucp"] = ucp
+        return out
+    else:
+        pass
+    none = _core_eq(inheritance, "none")
+    if none:
+        out["mcp"] = selected_mcp
+        out["ucp"] = selected_ucp
+        return out
+    else:
+        pass
+    list = _core_type_is(inheritance, "list")
+    if list:
+        pass
+    else:
+        error = _core_runtime_error("MCP inheritance must be all, none, or a namespace list")
+        raise error
+    for namespace in inheritance:
+        has_mcp = _core_contains(mcp, namespace)
+        has_ucp = _core_contains(ucp, namespace)
+        known = _core_or(has_mcp, has_ucp)
+        if known:
+            pass
+        else:
+            message = _core_string_format("Unknown inherited MCP client namespace: {}", namespace)
+            error = _core_runtime_error(message)
+            raise error
+        prior_mcp = _core_contains(selected_mcp, namespace)
+        prior_ucp = _core_contains(selected_ucp, namespace)
+        duplicate = _core_or(prior_mcp, prior_ucp)
+        if duplicate:
+            protocol = "MCP"
+            if has_ucp:
+                protocol = "MCP/UCP"
+            else:
+                pass
+            message = _core_string_format("Duplicate {} client namespace: {}", protocol, namespace)
+            error = _core_runtime_error(message)
+            raise error
+        else:
+            pass
+        if has_mcp:
+            selected_mcp.append(namespace)
+        else:
+            pass
+        if has_ucp:
+            selected_ucp.append(namespace)
+        else:
+            pass
+    out["mcp"] = selected_mcp
+    out["ucp"] = selected_ucp
+    return out
+
 # END AXIR CORE EMITTED FUNCTIONS
 
 
@@ -4101,16 +4165,12 @@ class AxExecutionContext:
         return modules
 
     def derive(self, inheritance: Any = "all"):
-        if inheritance == "none":
-            return AxExecutionContext()
-        if isinstance(inheritance, (list, tuple, set)):
-            allowed = set(map(str, inheritance))
-            return AxExecutionContext(
-                [client for client in self.mcp if client.namespace() in allowed],
-                [client for client in self.ucp if client.namespace() in allowed],
-                self.options,
-            )
-        return self
+        by_mcp = {client.namespace(): client for client in self.mcp}
+        by_ucp = {client.namespace(): client for client in self.ucp}
+        plan = _mcp_inheritance_plan(list(by_mcp), list(by_ucp), inheritance)
+        child = AxExecutionContext([by_mcp[name] for name in plan["mcp"]], [by_ucp[name] for name in plan["ucp"]], self.options)
+        child._initialized = self._initialized
+        return child
 
     def continuation_state(self) -> dict[str, Any]:
         namespaces = [client.namespace() for client in [*self.mcp, *self.ucp]]
@@ -4700,6 +4760,54 @@ def run_mcp_conformance_fixture(fixture: dict[str, Any]) -> None:
     operation = fixture.get("operation", "initialize")
     expected_error = fixture.get("expected_error_contains")
     try:
+        if operation in ("inheritance_context", "inheritance_agent_context"):
+            for case in fixture["cases"]:
+                clients, transports = [], {}
+                for spec in fixture["clients"]:
+                    transport = AxMCPScriptedTransport(spec["responses"])
+                    transports[spec["namespace"]] = transport
+                    clients.append(AxMCPClient(transport, {"namespace":spec["namespace"], "era":"modern"}))
+                context = AxExecutionContext(clients)
+                results, selected, error = [], [], None
+                try:
+                    child = context.derive(case["inheritance"])
+                    selected = [client.namespace() for client in child.mcp]
+                    if operation == "inheritance_agent_context":
+                        from .agent import AxAgent
+                        program = AxAgent("question:string -> answer:string", {**fixture["agent_options"], "executionContext": child})
+                        assert program.invoke_callable("tools.local_echo", {}) == fixture["expected_local_result"]
+                        for client in child.mcp:
+                            for tool in client.native_tools():
+                                result = program.invoke_callable(f"mcp.{client.namespace()}.tools.{tool.name}", {"query":"scope-probe"})
+                                assert result["status"] == "ok", result
+                                results.append(result["value"])
+                    else:
+                        results = [tool.call({"query":"scope-probe"}) for tool in child.native_tools()]
+                except Exception as caught:
+                    error = str(caught)
+                assert error == case.get("expected_error"), (error, case)
+                if error is None: assert selected == case["expected_namespaces"], (selected, case)
+                assert results == case["expected_results"], (results, case)
+                for namespace, transport in transports.items():
+                    assert [request["method"] for request in transport.requests] == case["expected_methods"][namespace]
+                    for request in transport.requests:
+                        if request["method"] == "tools/call": assert request["params"]["arguments"] == {"query":"scope-probe"}
+                parent_results = [tool.call({"query":"parent-probe"}) for tool in context.native_tools()]
+                assert parent_results == case["expected_parent_results"], (parent_results, case)
+                for namespace, transport in transports.items():
+                    assert [request["method"] for request in transport.requests] == case["expected_parent_methods"][namespace]
+                    calls = [{key:request["params"][key] for key in ("name","arguments")} for request in transport.requests if request["method"] == "tools/call"]
+                    assert calls == case["expected_calls"][namespace], calls
+            return
+        if operation == "inheritance_plan":
+            for case in fixture["cases"]:
+                try:
+                    result = _mcp_inheritance_plan(fixture["mcp"], fixture["ucp"], case["inheritance"])
+                except Exception as error:
+                    assert str(error) == case.get("expected_error"), (error, case)
+                else:
+                    assert "expected_error" not in case and result == case["expected"], (result, case)
+            return
         if operation == "tool_authorization":
             for case in fixture["cases"]:
                 transport = AxMCPScriptedTransport(fixture["responses"])

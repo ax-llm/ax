@@ -5931,6 +5931,7 @@ pub fn agent_with_execution_context(
     options: Value,
     context: AxExecutionContext,
 ) -> AxResult<AxAgent> {
+    context.initialize()?;
     let options = core_value_from_json(&options);
     let modules = CoreValue::new_list();
     for client in &context.mcp {
@@ -5964,7 +5965,7 @@ pub fn agent_with_execution_context(
         core_set(&module, CoreValue::from("functions"), functions)?;
         core_append(&modules, module)?;
     }
-    core_set(&options, CoreValue::from("functions"), modules)?;
+    let options = _agent_append_runtime_modules(&[options, modules])?;
     let mut agent = agent_with_core_options(spec, options)?;
     agent.execution_context = Some(context);
     Ok(agent)
@@ -83824,6 +83825,79 @@ fn _agent_forward_impl(args: &[CoreValue]) -> Result<CoreValue, AxError> {
     unreachable_code,
     clippy::all
 )]
+fn _agent_append_runtime_modules(args: &[CoreValue]) -> Result<CoreValue, AxError> {
+    axir_coverage_mark("_agent_append_runtime_modules");
+    let mut v_options = core_arg(args, 0);
+    let mut v_additional = core_arg(args, 1);
+    let mut v_count = CoreValue::Null;
+    let mut v_empty_list = CoreValue::Null;
+    let mut v_empty_map = CoreValue::Null;
+    let mut v_flat = CoreValue::Null;
+    let mut v_functions = CoreValue::Null;
+    let mut v_group = CoreValue::Null;
+    let mut v_has_flat = CoreValue::Null;
+    let mut v_item = CoreValue::Null;
+    let mut v_members = CoreValue::Null;
+    let mut v_module = CoreValue::Null;
+    let mut v_modules = CoreValue::Null;
+    let mut v_out = CoreValue::Null;
+    v_empty_map = CoreValue::new_map();
+    v_empty_list = CoreValue::new_list();
+    v_out = core_map_merge(&[v_empty_map.clone(), v_options.clone()])?;
+    v_functions = core_get(
+        &v_options,
+        &CoreValue::from("functions"),
+        v_empty_list.clone(),
+    );
+    v_modules = CoreValue::new_list();
+    v_flat = CoreValue::new_list();
+    for v_item in core_iter(&v_functions)? {
+        let mut v_item = v_item;
+        v_members = core_get(&v_item, &CoreValue::from("functions"), CoreValue::Null);
+        v_group = core_type_is(&v_members, CoreValue::from("list"));
+        if core_truthy(&v_group) {
+            core_append(&v_modules, v_item.clone())?;
+        } else {
+            core_append(&v_flat, v_item.clone())?;
+        }
+    }
+    v_count = core_len(&[v_flat.clone()])?;
+    v_has_flat = core_gt(&[v_count.clone(), CoreValue::Num(0f64)])?;
+    if core_truthy(&v_has_flat) {
+        v_module = CoreValue::new_map();
+        core_set(
+            &v_module,
+            CoreValue::from("namespace"),
+            CoreValue::from("tools"),
+        )?;
+        core_set(
+            &v_module,
+            CoreValue::from("title"),
+            CoreValue::from("Tools"),
+        )?;
+        core_set(
+            &v_module,
+            CoreValue::from("alwaysInclude"),
+            CoreValue::Bool(true),
+        )?;
+        core_set(&v_module, CoreValue::from("functions"), v_flat.clone())?;
+        core_append(&v_modules, v_module.clone())?;
+    }
+    for v_module in core_iter(&v_additional)? {
+        let mut v_module = v_module;
+        core_append(&v_modules, v_module.clone())?;
+    }
+    core_set(&v_out, CoreValue::from("functions"), v_modules.clone())?;
+    return Ok(v_out.clone());
+}
+
+#[allow(
+    unused_variables,
+    unused_assignments,
+    unused_mut,
+    unreachable_code,
+    clippy::all
+)]
 fn _agent_register_child(args: &[CoreValue]) -> Result<CoreValue, AxError> {
     axir_coverage_mark("_agent_register_child");
     let mut v_options = core_arg(args, 0);
@@ -83831,6 +83905,7 @@ fn _agent_register_child(args: &[CoreValue]) -> Result<CoreValue, AxError> {
     let mut v_name = core_arg(args, 2);
     let mut v_program = core_arg(args, 3);
     let mut v_signature = core_arg(args, 4);
+    let mut v_additional = CoreValue::Null;
     let mut v_child = CoreValue::Null;
     let mut v_children = CoreValue::Null;
     let mut v_copy = CoreValue::Null;
@@ -83850,6 +83925,8 @@ fn _agent_register_child(args: &[CoreValue]) -> Result<CoreValue, AxError> {
     let mut v_modules = CoreValue::Null;
     let mut v_out = CoreValue::Null;
     let mut v_schema = CoreValue::Null;
+    v_additional = CoreValue::new_list();
+    v_options = _agent_append_runtime_modules(&[v_options.clone(), v_additional.clone()])?;
     v_empty_map = CoreValue::new_map();
     v_empty_list = CoreValue::new_list();
     v_out = core_map_merge(&[v_empty_map.clone(), v_options.clone()])?;
@@ -93918,7 +93995,103 @@ fn _mcp_tool_authorization_result(args: &[CoreValue]) -> Result<CoreValue, AxErr
     return Ok(v_decision.clone());
 }
 
-// END AXIR CORE EMITTED FUNCTIONS (669 of 669 core functions)
+#[allow(
+    unused_variables,
+    unused_assignments,
+    unused_mut,
+    unreachable_code,
+    clippy::all
+)]
+fn _mcp_inheritance_plan(args: &[CoreValue]) -> Result<CoreValue, AxError> {
+    axir_coverage_mark("_mcp_inheritance_plan");
+    let mut v_mcp = core_arg(args, 0);
+    let mut v_ucp = core_arg(args, 1);
+    let mut v_inheritance = core_arg(args, 2);
+    let mut v_all = CoreValue::Null;
+    let mut v_duplicate = CoreValue::Null;
+    let mut v_error = CoreValue::Null;
+    let mut v_has_mcp = CoreValue::Null;
+    let mut v_has_ucp = CoreValue::Null;
+    let mut v_known = CoreValue::Null;
+    let mut v_list = CoreValue::Null;
+    let mut v_message = CoreValue::Null;
+    let mut v_namespace = CoreValue::Null;
+    let mut v_none = CoreValue::Null;
+    let mut v_out = CoreValue::Null;
+    let mut v_prior_mcp = CoreValue::Null;
+    let mut v_prior_ucp = CoreValue::Null;
+    let mut v_protocol = CoreValue::Null;
+    let mut v_selected_mcp = CoreValue::Null;
+    let mut v_selected_ucp = CoreValue::Null;
+    let mut v_unset = CoreValue::Null;
+    v_out = CoreValue::new_map();
+    v_selected_mcp = CoreValue::new_list();
+    v_selected_ucp = CoreValue::new_list();
+    v_all = core_eq(&[v_inheritance.clone(), CoreValue::from("all")])?;
+    v_unset = core_is_none(&[v_inheritance.clone()])?;
+    v_all = core_or(&[v_all.clone(), v_unset.clone()])?;
+    if core_truthy(&v_all) {
+        core_set(&v_out, CoreValue::from("mcp"), v_mcp.clone())?;
+        core_set(&v_out, CoreValue::from("ucp"), v_ucp.clone())?;
+        return Ok(v_out.clone());
+    }
+    v_none = core_eq(&[v_inheritance.clone(), CoreValue::from("none")])?;
+    if core_truthy(&v_none) {
+        core_set(&v_out, CoreValue::from("mcp"), v_selected_mcp.clone())?;
+        core_set(&v_out, CoreValue::from("ucp"), v_selected_ucp.clone())?;
+        return Ok(v_out.clone());
+    }
+    v_list = core_type_is(&v_inheritance, CoreValue::from("list"));
+    if core_truthy(&v_list) {
+    } else {
+        v_error = core_runtime_error(&[CoreValue::from(
+            "MCP inheritance must be all, none, or a namespace list",
+        )])?;
+        return Err(core_as_error(&v_error));
+    }
+    for v_namespace in core_iter(&v_inheritance)? {
+        let mut v_namespace = v_namespace;
+        v_has_mcp = core_contains(&[v_mcp.clone(), v_namespace.clone()])?;
+        v_has_ucp = core_contains(&[v_ucp.clone(), v_namespace.clone()])?;
+        v_known = core_or(&[v_has_mcp.clone(), v_has_ucp.clone()])?;
+        if core_truthy(&v_known) {
+        } else {
+            v_message = core_string_format(&[
+                CoreValue::from("Unknown inherited MCP client namespace: {}"),
+                v_namespace.clone(),
+            ])?;
+            v_error = core_runtime_error(&[v_message.clone()])?;
+            return Err(core_as_error(&v_error));
+        }
+        v_prior_mcp = core_contains(&[v_selected_mcp.clone(), v_namespace.clone()])?;
+        v_prior_ucp = core_contains(&[v_selected_ucp.clone(), v_namespace.clone()])?;
+        v_duplicate = core_or(&[v_prior_mcp.clone(), v_prior_ucp.clone()])?;
+        if core_truthy(&v_duplicate) {
+            v_protocol = CoreValue::from("MCP");
+            if core_truthy(&v_has_ucp) {
+                v_protocol = CoreValue::from("MCP/UCP");
+            }
+            v_message = core_string_format(&[
+                CoreValue::from("Duplicate {} client namespace: {}"),
+                v_protocol.clone(),
+                v_namespace.clone(),
+            ])?;
+            v_error = core_runtime_error(&[v_message.clone()])?;
+            return Err(core_as_error(&v_error));
+        }
+        if core_truthy(&v_has_mcp) {
+            core_append(&v_selected_mcp, v_namespace.clone())?;
+        }
+        if core_truthy(&v_has_ucp) {
+            core_append(&v_selected_ucp, v_namespace.clone())?;
+        }
+    }
+    core_set(&v_out, CoreValue::from("mcp"), v_selected_mcp.clone())?;
+    core_set(&v_out, CoreValue::from("ucp"), v_selected_ucp.clone())?;
+    return Ok(v_out.clone());
+}
+
+// END AXIR CORE EMITTED FUNCTIONS (671 of 671 core functions)
 
 fn run_ai_session_events_fixture(fixture: &Value) -> AxResult<()> {
     let state = core_value_from_json(&json!({}));

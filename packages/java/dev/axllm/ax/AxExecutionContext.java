@@ -47,12 +47,12 @@ public final class AxExecutionContext {
   }
 
   public AxExecutionContext derive(Object inheritance) {
-    if ("none".equals(inheritance)) return new AxExecutionContext(List.of(), List.of());
-    if (inheritance instanceof List<?> allowedRaw) {
-      Set<String> allowed = new HashSet<>(allowedRaw.stream().map(String::valueOf).toList());
-      return new AxExecutionContext(mcp.stream().filter(c -> allowed.contains(c.namespace())).toList(), ucp.stream().filter(c -> allowed.contains(c.namespace())).toList());
-    }
-    return this;
+    Map<String, AxMCPClient> byMcp = new LinkedHashMap<>();
+    Map<String, AxUCPClient> byUcp = new LinkedHashMap<>();
+    for (AxMCPClient client : mcp) byMcp.put(client.namespace(), client);
+    for (AxUCPClient client : ucp) byUcp.put(client.namespace(), client);
+    Map<String, Object> plan = Core.asMap(Core._mcp_inheritance_plan(new ArrayList<>(byMcp.keySet()), new ArrayList<>(byUcp.keySet()), inheritance));
+    return new AxExecutionContext(Core.asList(plan.get("mcp")).stream().map(name -> byMcp.get(String.valueOf(name))).toList(), Core.asList(plan.get("ucp")).stream().map(name -> byUcp.get(String.valueOf(name))).toList());
   }
 
   public List<String> namespaces() {

@@ -4512,6 +4512,7 @@ where
 }
 
 pub fn agent_with_execution_context(spec: &str, options: Value, context: AxExecutionContext) -> AxResult<AxAgent> {
+    context.initialize()?;
     let options = core_value_from_json(&options);
     let modules = CoreValue::new_list();
     for client in &context.mcp {
@@ -4533,7 +4534,7 @@ pub fn agent_with_execution_context(spec: &str, options: Value, context: AxExecu
         core_set(&module, CoreValue::from("functions"), functions)?;
         core_append(&modules, module)?;
     }
-    core_set(&options, CoreValue::from("functions"), modules)?;
+    let options = _agent_append_runtime_modules(&[options, modules])?;
     let mut agent = agent_with_core_options(spec, options)?;
     agent.execution_context = Some(context);
     Ok(agent)

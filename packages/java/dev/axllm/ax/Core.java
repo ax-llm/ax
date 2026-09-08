@@ -25449,8 +25449,45 @@ final class Core {
     return responder_output;
   }
 
+  static Object _agent_append_runtime_modules(Object options, Object additional) {
+    axirCoverageMark("_agent_append_runtime_modules");
+    Object empty_map = new java.util.LinkedHashMap<String, Object>();
+    Object empty_list = new java.util.ArrayList<Object>();
+    Object out = Core.mapMerge(empty_map, options);
+    Object functions = Core.get(options, "functions", empty_list);
+    Object modules = new java.util.ArrayList<Object>();
+    Object flat = new java.util.ArrayList<Object>();
+    for (Object item : Core.iter(functions)) {
+      Object members = Core.get(item, "functions", null);
+      Object group = Core.typeIs(members, "list");
+      if (Core.truthy(group)) {
+        Core.append(modules, item);
+      }
+      if (!Core.truthy(group)) {
+        Core.append(flat, item);
+      }
+    }
+    Object count = Core.len(flat);
+    Object has_flat = Core.gt(count, 0);
+    if (Core.truthy(has_flat)) {
+      Object module = new java.util.LinkedHashMap<String, Object>();
+      Core.set(module, "namespace", "tools");
+      Core.set(module, "title", "Tools");
+      Core.set(module, "alwaysInclude", Boolean.TRUE);
+      Core.set(module, "functions", flat);
+      Core.append(modules, module);
+    }
+    for (Object module : Core.iter(additional)) {
+      Core.append(modules, module);
+    }
+    Core.set(out, "functions", modules);
+    return out;
+  }
+
   static Object _agent_register_child(Object options, Object namespace, Object name, Object program, Object signature) {
     axirCoverageMark("_agent_register_child");
+    Object additional = new java.util.ArrayList<Object>();
+    options = Core._agent_append_runtime_modules(options, additional);
     Object empty_map = new java.util.LinkedHashMap<String, Object>();
     Object empty_list = new java.util.ArrayList<Object>();
     Object out = Core.mapMerge(empty_map, options);
@@ -30341,6 +30378,69 @@ final class Core {
       }
     }
     return decision;
+  }
+
+  static Object _mcp_inheritance_plan(Object mcp, Object ucp, Object inheritance) {
+    axirCoverageMark("_mcp_inheritance_plan");
+    Object out = new java.util.LinkedHashMap<String, Object>();
+    Object selected_mcp = new java.util.ArrayList<Object>();
+    Object selected_ucp = new java.util.ArrayList<Object>();
+    Object all = Core.eq(inheritance, "all");
+    Object unset = Core.isNone(inheritance);
+    all = Core.or(all, unset);
+    if (Core.truthy(all)) {
+      Core.set(out, "mcp", mcp);
+      Core.set(out, "ucp", ucp);
+      return out;
+    }
+    Object none = Core.eq(inheritance, "none");
+    if (Core.truthy(none)) {
+      Core.set(out, "mcp", selected_mcp);
+      Core.set(out, "ucp", selected_ucp);
+      return out;
+    }
+    Object list = Core.typeIs(inheritance, "list");
+    if (Core.truthy(list)) {
+      // empty
+    }
+    if (!Core.truthy(list)) {
+      Object error = Core.runtimeError("MCP inheritance must be all, none, or a namespace list");
+      throw Core.asRuntime(error);
+    }
+    for (Object namespace : Core.iter(inheritance)) {
+      Object has_mcp = Core.contains(mcp, namespace);
+      Object has_ucp = Core.contains(ucp, namespace);
+      Object known = Core.or(has_mcp, has_ucp);
+      if (Core.truthy(known)) {
+        // empty
+      }
+      if (!Core.truthy(known)) {
+        Object message = Core.stringFormat("Unknown inherited MCP client namespace: {}", namespace);
+        Object error = Core.runtimeError(message);
+        throw Core.asRuntime(error);
+      }
+      Object prior_mcp = Core.contains(selected_mcp, namespace);
+      Object prior_ucp = Core.contains(selected_ucp, namespace);
+      Object duplicate = Core.or(prior_mcp, prior_ucp);
+      if (Core.truthy(duplicate)) {
+        Object protocol = "MCP";
+        if (Core.truthy(has_ucp)) {
+          protocol = "MCP/UCP";
+        }
+        Object message = Core.stringFormat("Duplicate {} client namespace: {}", protocol, namespace);
+        Object error = Core.runtimeError(message);
+        throw Core.asRuntime(error);
+      }
+      if (Core.truthy(has_mcp)) {
+        Core.append(selected_mcp, namespace);
+      }
+      if (Core.truthy(has_ucp)) {
+        Core.append(selected_ucp, namespace);
+      }
+    }
+    Core.set(out, "mcp", selected_mcp);
+    Core.set(out, "ucp", selected_ucp);
+    return out;
   }
 
   // END AXIR CORE EMITTED FUNCTIONS

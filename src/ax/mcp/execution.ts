@@ -526,9 +526,10 @@ export function axMCPChildExecutionOptions<
     ucp: _ucp,
     mcpContext: _context,
     eventContext: _eventContext,
+    _mcpExecutionContext,
     ...rest
   } = options;
-  const child = options._mcpExecutionContext?.forChild();
+  const child = _mcpExecutionContext?.forChild();
   return {
     ...rest,
     ...(child ? { _mcpExecutionContext: child } : {}),

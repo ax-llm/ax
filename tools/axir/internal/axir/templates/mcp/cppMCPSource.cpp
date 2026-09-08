@@ -372,13 +372,16 @@ Value AxExecutionContext::runtime_modules() {
 std::vector<std::string> AxExecutionContext::namespaces() const { std::vector<std::string> out; for (auto& client : mcp_) out.push_back(client->namespace_name()); for (auto& client : ucp_) out.push_back(client->namespace_name()); return out; }
 
 AxExecutionContext AxExecutionContext::derive(Value inheritance) const {
-  if (display(inheritance) == "none") return AxExecutionContext();
-  auto allowed_values = as_array_local(inheritance);
-  if (allowed_values.empty()) return AxExecutionContext(mcp_, ucp_);
-  std::set<std::string> allowed; for (auto value : allowed_values) allowed.insert(display(value));
-  std::vector<std::shared_ptr<AxMCPClient>> mcp; std::vector<std::shared_ptr<AxUCPClient>> ucp;
-  for (auto& client : mcp_) if (allowed.count(client->namespace_name())) mcp.push_back(client);
-  for (auto& client : ucp_) if (allowed.count(client->namespace_name())) ucp.push_back(client);
+  Array mcp_names, ucp_names;
+  std::map<std::string, std::shared_ptr<AxMCPClient>> by_mcp;
+  std::map<std::string, std::shared_ptr<AxUCPClient>> by_ucp;
+  for (auto& client : mcp_) { mcp_names.push_back(client->namespace_name()); by_mcp[client->namespace_name()] = client; }
+  for (auto& client : ucp_) { ucp_names.push_back(client->namespace_name()); by_ucp[client->namespace_name()] = client; }
+  Value plan = Core::_mcp_inheritance_plan(Value(mcp_names), Value(ucp_names), inheritance);
+  std::vector<std::shared_ptr<AxMCPClient>> mcp;
+  std::vector<std::shared_ptr<AxUCPClient>> ucp;
+  for (auto name : Core::iter(Core::get(plan, "mcp"))) mcp.push_back(by_mcp.at(display(name)));
+  for (auto name : Core::iter(Core::get(plan, "ucp"))) ucp.push_back(by_ucp.at(display(name)));
   return AxExecutionContext(std::move(mcp), std::move(ucp));
 }
 
@@ -792,6 +795,26 @@ class FixtureUCPBinding final : public AxUCPBinding {
 
 void run_mcp_conformance_fixture(Value fixture) {
   std::string op = display(Core::get(fixture, "operation", "initialize"));
+  if(op=="inheritance_context"||op=="inheritance_agent_context"){
+    for(auto test:Core::iter(Core::get(fixture,"cases"))){std::vector<std::shared_ptr<AxMCPClient>> clients;std::map<std::string,std::shared_ptr<AxMCPScriptedTransport>> transports;
+      for(auto spec:Core::iter(Core::get(fixture,"clients"))){std::string name=display(Core::get(spec,"namespace"));auto transport=std::make_shared<AxMCPScriptedTransport>(Core::get(spec,"responses"));transports[name]=transport;clients.push_back(std::make_shared<AxMCPClient>(transport,object({{"namespace",name},{"era","modern"}})));}
+      AxExecutionContext context(clients,{});Array results,selected;std::string error;
+      try{auto child=context.derive(Core::get(test,"inheritance"));for(auto name:child.namespaces())selected.push_back(name);if(op=="inheritance_agent_context"){auto program=agent("question:string -> answer:string",Core::get(fixture,"agent_options"));child.attach(program);auto local=program.invoke_callable("tools.local_echo",Value::object());auto expected=Core::get(fixture,"expected_local_result");expect_subset_local(local,expected,"Existing tool result");expect_subset_local(expected,local,"Existing tool fields");for(auto& name:child.namespaces()){for(auto& client:clients){if(client->namespace_name()!=name)continue;for(auto& tool:client->native_tools()){auto result=program.invoke_callable("mcp."+name+".tools."+tool.name,object({{"query","scope-probe"}}));if(display(Core::get(result,"status"))!="ok")throw AxError("fixture",stringify(result));results.push_back(Core::get(result,"value"));}}}}else{for(auto& tool:child.native_tools())results.push_back(tool.handler(object({{"query","scope-probe"}})));}}catch(const std::exception& failure){error=failure.what();}
+      if(error!=display(Core::get(test,"expected_error","")))throw AxError("fixture","Inheritance error: "+error);
+      if(error.empty()&&stringify(Value(selected))!=stringify(Core::get(test,"expected_namespaces")))throw AxError("fixture","Selected client order mismatch");
+      expect_subset_local(Value(results),Core::get(test,"expected_results"),"Inherited results");expect_subset_local(Core::get(test,"expected_results"),Value(results),"Inherited result fields");
+      for(auto& entry:transports){Array methods;for(auto request:entry.second->requests){methods.push_back(Core::get(request,"method"));if(display(Core::get(request,"method"))=="tools/call"&&stringify(Core::get(Core::get(request,"params"),"arguments"))!=stringify(object({{"query","scope-probe"}})))throw AxError("fixture","Inherited tool arguments");}if(stringify(Value(methods))!=stringify(Core::get(Core::get(test,"expected_methods"),entry.first)))throw AxError("fixture","Inherited client requests: "+stringify(Value(methods)));}
+      Array parent_results;for(auto& tool:context.native_tools())parent_results.push_back(tool.handler(object({{"query","parent-probe"}})));expect_subset_local(Value(parent_results),Core::get(test,"expected_parent_results"),"Parent results");expect_subset_local(Core::get(test,"expected_parent_results"),Value(parent_results),"Parent result fields");
+      for(auto& entry:transports){Array methods,calls;for(auto request:entry.second->requests){methods.push_back(Core::get(request,"method"));if(display(Core::get(request,"method"))=="tools/call"){auto params=Core::get(request,"params");calls.push_back(object({{"name",Core::get(params,"name")},{"arguments",Core::get(params,"arguments")}}));}}if(stringify(Value(methods))!=stringify(Core::get(Core::get(test,"expected_parent_methods"),entry.first)))throw AxError("fixture","Parent continuation methods");auto expected=Core::get(Core::get(test,"expected_calls"),entry.first);expect_subset_local(Value(calls),expected,"Parent calls");expect_subset_local(expected,Value(calls),"Parent call fields");}
+    }return;
+  }
+  if(op=="inheritance_plan"){
+    for(auto test:Core::iter(Core::get(fixture,"cases"))){Value result;std::string error;
+      try{result=Core::_mcp_inheritance_plan(Core::get(fixture,"mcp"),Core::get(fixture,"ucp"),Core::get(test,"inheritance"));}catch(const std::exception& failure){error=failure.what();}
+      if(error!=display(Core::get(test,"expected_error","")))throw AxError("fixture","Inheritance error mismatch: "+error);
+      if(error.empty()&&stringify(result)!=stringify(Core::get(test,"expected")))throw AxError("fixture","Inheritance selection mismatch: "+stringify(result));
+    }return;
+  }
   if(op=="tool_authorization"){
     for(auto test:Core::iter(Core::get(fixture,"cases"))){auto transport=std::make_shared<AxMCPScriptedTransport>(Core::get(fixture,"responses"));AxMCPClient client(transport,Core::get(fixture,"client_options"));client.init();std::vector<Value> observed;client.set_tool_authorizer([&](const AxMCPClient& caller,Value call)->std::optional<bool>{if(caller.namespace_name()!=client.namespace_name())throw AxError("fixture","Lost authorization client");observed.push_back(call);auto decision=Core::get(test,"decision");return decision.is_null()?std::nullopt:std::optional<bool>(Core::truthy(decision));});auto name=display(Core::get(test,"name"));Value result;std::string error;try{result=client.call_tool(name,object({{"query","REF-42"}}));}catch(const std::exception& caught){error=caught.what();}if(error!=display(Core::get(test,"expected_error","")))throw AxError("fixture","MCP authorization error mismatch: "+error);if(error.empty()){expect_subset_local(result,Core::get(test,"expected_result"),"authorized result");expect_subset_local(Core::get(test,"expected_result"),result,"authorized result fields");}if(observed.size()!=Core::number(Core::get(test,"expected_authorization_calls")))throw AxError("fixture","Authorization call count mismatch");if(!observed.empty()){expect_subset_local(observed[0],Core::get(test,"expected_context"),"authorization context");expect_subset_local(Core::get(test,"expected_context"),observed[0],"authorization context fields");}int count=0;for(auto request:transport->requests)if(display(Core::get(request,"method"))=="tools/call"){++count;expect_subset_local(request,object({{"params",object({{"name",name},{"arguments",object({{"query","REF-42"}})}})}}),"authorized request");}if(count!=Core::number(Core::get(test,"expected_tool_requests")))throw AxError("fixture","Denied MCP request reached transport");
     }return;

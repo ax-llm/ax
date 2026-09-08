@@ -1,0 +1,174 @@
+{
+  "kind": "agent_forward",
+  "name": "owned-child-delegation-preserves-existing-tools",
+  "signature": "question:string -> answer:string",
+  "options": {
+    "directResponse": "off",
+    "functions": [
+      {
+        "name": "lookup",
+        "description": "Read the existing reference",
+        "parameters": {
+          "type": "object",
+          "properties": {
+            "query": {
+              "type": "string"
+            }
+          },
+          "required": ["query"]
+        }
+      }
+    ],
+    "callable_results": {
+      "tools.lookup": {
+        "value": {
+          "reference": "LOCAL-17"
+        }
+      }
+    }
+  },
+  "child_agents": [
+    {
+      "namespace": "team",
+      "name": "researcher",
+      "signature": "question:string -> answer:string",
+      "options": {
+        "directResponse": "off"
+      }
+    }
+  ],
+  "input": {
+    "question": "Find reference"
+  },
+  "responses": [
+    {
+      "content": "{\"javascriptCode\": \"plan\"}"
+    },
+    {
+      "content": "{\"javascriptCode\": \"lookup\"}"
+    },
+    {
+      "content": "{\"javascriptCode\": \"delegate\"}"
+    },
+    {
+      "content": "{\"completion\": {\"type\": \"final\", \"args\": [\"Find reference\", {\"answer\": \"REF-42\"}]}}"
+    },
+    {
+      "content": "{\"completion\": {\"type\": \"final\", \"args\": [\"Find reference\", {\"answer\": \"REF-42\"}]}}"
+    },
+    {
+      "content": "{\"answer\": \"REF-42\"}"
+    },
+    {
+      "content": "{\"javascriptCode\": \"finish\"}"
+    },
+    {
+      "content": "{\"answer\": \"LOCAL-17 and REF-42\"}"
+    }
+  ],
+  "runtime_script": [
+    {
+      "expected_code": "plan",
+      "result": {
+        "type": "final",
+        "args": [
+          "Find reference",
+          {
+            "answer": "REF-42"
+          }
+        ]
+      }
+    },
+    {
+      "expected_code": "lookup",
+      "result": {
+        "callable": {
+          "qualified_name": "tools.lookup",
+          "args": {
+            "query": "Find local reference"
+          },
+          "call_id": "ordinary-call"
+        }
+      }
+    },
+    {
+      "expected_code": "delegate",
+      "result": {
+        "callable": {
+          "qualified_name": "team.researcher",
+          "args": {
+            "question": "Find REF-42"
+          },
+          "call_id": "child-call"
+        }
+      }
+    },
+    {
+      "expected_code": "finish",
+      "result": {
+        "type": "final",
+        "args": [
+          "Find reference",
+          {
+            "answer": "LOCAL-17 and REF-42"
+          }
+        ]
+      }
+    }
+  ],
+  "expected_output": {
+    "answer": "LOCAL-17 and REF-42"
+  },
+  "expected_request_count": 8,
+  "expected_executed": ["plan", "lookup", "delegate", "finish"],
+  "expected_function_call_traces_subset": [
+    {
+      "qualified_name": "tools.lookup",
+      "call_id": "ordinary-call",
+      "arguments": {
+        "query": "Find local reference"
+      },
+      "status": "ok",
+      "result": {
+        "status": "ok",
+        "value": {
+          "reference": "LOCAL-17"
+        }
+      }
+    },
+    {
+      "qualified_name": "team.researcher",
+      "call_id": "child-call",
+      "arguments": {
+        "question": "Find REF-42"
+      },
+      "status": "ok",
+      "result": {
+        "status": "ok",
+        "value": {
+          "answer": "REF-42"
+        }
+      }
+    }
+  ],
+  "expected_action_log_subset": [
+    {
+      "type": "function_call",
+      "qualified_name": "tools.lookup",
+      "call_id": "ordinary-call",
+      "status": "ok"
+    },
+    {
+      "type": "function_call",
+      "qualified_name": "team.researcher",
+      "call_id": "child-call",
+      "status": "ok"
+    }
+  ],
+  "expected_request_contains": [
+    "LOCAL-17",
+    "REF-42",
+    "tools.lookup",
+    "team.researcher"
+  ]
+}

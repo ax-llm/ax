@@ -6179,9 +6179,7 @@ AxAgent& AxAgent::add_tool_module(std::string name, const std::vector<Tool>& too
     functions.push_back(tool.value());
   }
   Value options = Core::get(state_, "options", Value::object());
-  Value modules = Core::get(options, "functions", Value::array());
-  Core::append(modules, object({{"name", std::move(name)}, {"functions", Value(functions)}}));
-  Core::set(options, "functions", modules);
+  options = Core::_agent_append_runtime_modules(options, Value(Array{object({{"name", std::move(name)}, {"functions", Value(functions)}})}));
   options_ = options;
   state_ = Core::_agent_factory(Core::get(state_, "signature"), options);
   Value actor_validation_retries = Core::get(options, "validation_retries", Core::get(options, "validationRetries", 1));
