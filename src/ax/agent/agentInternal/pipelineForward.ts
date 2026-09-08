@@ -256,6 +256,9 @@ function applyDirectRespondState(p: any): void {
   p.executor.stateError = p.distiller.stateError;
 }
 
+// Actor stages belong to this agent; only delegated programs inherit a filtered context.
+const actorMCPContext = Symbol('actorMCPContext');
+
 class ActorStageProgram {
   private id = '';
 
@@ -274,6 +277,13 @@ class ActorStageProgram {
     const directRespondRun = values?.[AX_DIRECT_RESPOND_RUN_KEY];
     if (directRespondRun) {
       return directRespondRun;
+    }
+    if (values && actorMCPContext in values) {
+      const { [actorMCPContext]: context, ...inputs } = values;
+      return this.actor.run(ai, inputs, {
+        ...options,
+        _mcpExecutionContext: context,
+      });
     }
     return this.actor.run(ai, values, options);
   }
@@ -819,13 +829,20 @@ export function buildPipelineFlow<IN extends AxGenIn, OUT extends AxGenOut>(
     )
     .execute(
       'distiller',
-      (state) => state.agentValues as any,
+      (state) =>
+        ({
+          ...state.agentValues,
+          [actorMCPContext]: state.forwardOptions?._mcpExecutionContext,
+        }) as any,
       p.distillerAi ? { ai: p.distillerAi } : undefined
     )
     .map((state) => buildExecutorInputsFromDistiller(p, state))
     .execute(
       'executor',
-      (state) => (state as any).executorInputs,
+      (state) => ({
+        ...(state as any).executorInputs,
+        [actorMCPContext]: state.forwardOptions?._mcpExecutionContext,
+      }),
       p.executorAi ? { ai: p.executorAi } : undefined
     )
     .map((state) => buildResponderInputFromExecutor(p, state))

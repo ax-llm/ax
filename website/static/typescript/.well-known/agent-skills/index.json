@@ -55,7 +55,7 @@
       "type": "skill-md",
       "description": "This skill helps an LLM generate correct core AxAgent code using @ax-llm/ax. Use when the user asks about agent(), child agents, namespaced functions, discovery mode, clarification, bubbleErrors, host-side final/clarification protocol, or ordinary agent runtime behavior. For MCP clients, native runtime modules, subscriptions, tasks, or authentication use ax-mcp alongside this skill. For RLM/code-runtime work use ax-agent-rlm; for callbacks and telemetry use ax-agent-observability; for recall/memory/skill loading use ax-agent-memory-skills; for agent.optimize(...) use ax-agent-optimize.",
       "url": "ax-agent/SKILL.md",
-      "digest": "sha256:8835c2e42edae6e8e71b4fadb4f6494220d3c48a506bf27e856b5d679de0a6bf"
+      "digest": "sha256:6f690e090a6fc1df54c5feae5f219a8f910984966a40f004eb9ec40a315b4fc0"
     },
     {
       "name": "ax-agent-rlm",

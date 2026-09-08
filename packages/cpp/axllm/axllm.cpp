@@ -20,6 +20,13 @@
 #endif
 
 namespace axllm {
+namespace detail {
+static thread_local std::shared_ptr<AgentExecutionContext> active_mcp_context;
+MCPRunScope::MCPRunScope(std::shared_ptr<AgentExecutionContext> context) : previous_(std::move(active_mcp_context)) { active_mcp_context = std::move(context); }
+MCPRunScope::~MCPRunScope() { active_mcp_context = std::move(previous_); }
+std::shared_ptr<AgentExecutionContext> MCPRunScope::current() { return active_mcp_context; }
+}
+
 
 thread_local const AxCancellationToken* ax_current_cancellation_token = nullptr;
 
@@ -1369,6 +1376,12 @@ Value Core::agent_stage_forward(Value stage, Value client, Value values, Value o
   AIClient* registered = registered_client(client_id);
   if (registered == nullptr) {
     throw AxError("runtime", "client does not implement AIClient");
+  }
+  if (dynamic_cast<AxAgent*>(stage_ptr) && Core::truthy(Core::map_contains(options,"mcpInheritanceFromParent"))) {
+    auto parent=detail::MCPRunScope::current();
+    auto child=parent ? parent->shared_derived(Core::get(options,"mcpInheritanceFromParent")) : nullptr;
+    detail::MCPRunScope scope(std::move(child));
+    return stage_ptr->forward(*registered,values,options);
   }
   return stage_ptr->forward(*registered, values, options);
 }
@@ -23689,6 +23702,13 @@ Value Core::_agent_runtime_execution_options(Value state, Value options) {
   Value reserved_names = Core::_agent_runtime_reserved_names_for_state(state);
   Value runtime_options = Core::map_merge(empty_map, options);
   Core::map_delete(runtime_options, Value("runtime"));
+  Core::map_delete(runtime_options, Value("executionContext"));
+  Core::map_delete(runtime_options, Value("inheritedExecutionContext"));
+  Core::map_delete(runtime_options, Value("mcpExecutionContext"));
+  Core::map_delete(runtime_options, Value("mcp"));
+  Core::map_delete(runtime_options, Value("ucp"));
+  Core::map_delete(runtime_options, Value("mcpContext"));
+  Core::map_delete(runtime_options, Value("functions"));
   Core::set(runtime_options, Value("reservedNames"), reserved_names);
   Value timeout_ms = Core::get(options, Value("timeout_ms"), Value());
   Value timeout = Core::get(options, Value("timeout"), timeout_ms);
@@ -25600,7 +25620,27 @@ Value Core::_agent_stage_options(Value state, Value stage, Value forward_options
     Value responder_opts_camel = Core::get(base_options, Value("responderOptions"), empty_map);
     stage_options = Core::get(base_options, Value("responder_options"), responder_opts_camel);
   }
-  Value out = Core::map_merge(stage_options, forward_options);
+  Value merged = Core::map_merge(stage_options, forward_options);
+  Value out = Value::object();
+  Value host_keys = Value::array();
+  Core::append(host_keys, Value("executionContext"));
+  Core::append(host_keys, Value("inheritedExecutionContext"));
+  Core::append(host_keys, Value("mcpExecutionContext"));
+  Core::append(host_keys, Value("mcp"));
+  Core::append(host_keys, Value("ucp"));
+  Core::append(host_keys, Value("mcpContext"));
+  Core::append(host_keys, Value("functions"));
+  Core::append(host_keys, Value("runtime"));
+  for (auto key : Core::iter(merged)) {
+    Value host = Core::contains(host_keys, key);
+    if (Core::truthy(host)) {
+      // empty
+    }
+    if (!Core::truthy(host)) {
+      Value value = Core::get(merged, key, Value());
+      Core::set(out, key, value);
+    }
+  }
   Value base_control = Core::get(base_options, Value("control"), Value());
   Value controller = Core::get(forward_options, Value("control"), base_control);
   Value controlled = Core::is_not_none(controller);
@@ -26617,6 +26657,71 @@ Value Core::_agent_forward_impl(Value state, Value distiller, Value executor, Va
   return responder_output;
 }
 
+Value Core::_agent_apply_run_context(Value state, Value configured, Value call, Value modules) {
+  axir_coverage_mark("_agent_apply_run_context");
+  Value empty_list = Value::array();
+  Value options = Core::map_merge(configured, call);
+  Value functions = Core::get(options, Value("functions"), empty_list);
+  Value retained = Value::array();
+  for (auto function : Core::iter(functions)) {
+    Value default_name = Core::get(function, Value("name"), Value(""));
+    Value namespace_ = Core::get(function, Value("namespace"), default_name);
+    Value mcp = Core::string_starts_with(namespace_, Value("mcp."));
+    Value ucp = Core::string_starts_with(namespace_, Value("ucp."));
+    Value protocol = Core::or_(mcp, ucp);
+    if (Core::truthy(protocol)) {
+      // empty
+    }
+    if (!Core::truthy(protocol)) {
+      Core::append(retained, function);
+    }
+  }
+  Core::set(options, Value("functions"), retained);
+  options = Core::_agent_append_runtime_modules(options, modules);
+  Value inventory = Core::_normalize_agent_callable_inventory(options);
+  Value split = Core::_split_agent_callable_inventory(inventory);
+  Value catalog = Core::_render_agent_discovery_catalog(split);
+  Core::set(state, Value("options"), options);
+  Core::set(state, Value("callable_inventory"), inventory);
+  Core::set(state, Value("callable_split"), split);
+  Core::set(state, Value("discovery_catalog"), catalog);
+  Value upgrade = Core::_resolve_agent_auto_upgrade(options);
+  Value flags = Core::_agent_policy_flags(options, split, upgrade);
+  Value policy = Core::_normalize_agent_policy(options);
+  Value registry = Core::_agent_policy_registry(policy, flags);
+  Core::set(state, Value("policy_flags"), flags);
+  Core::set(state, Value("policy_registry"), registry);
+  Value docs = Core::get(state, Value("discovered_tool_docs"), empty_list);
+  Value retained_docs = Value::array();
+  for (auto doc : Core::iter(docs)) {
+    Value name = Core::get(doc, Value("qualified_name"), Value(""));
+    Value mcp = Core::string_starts_with(name, Value("mcp."));
+    Value ucp = Core::string_starts_with(name, Value("ucp."));
+    Value protocol = Core::or_(mcp, ucp);
+    if (Core::truthy(protocol)) {
+      // empty
+    }
+    if (!Core::truthy(protocol)) {
+      Core::append(retained_docs, doc);
+    }
+  }
+  Core::set(state, Value("discovered_tool_docs"), retained_docs);
+  Value prompt = Core::_build_agent_actor_prompt_policy(state);
+  Core::set(state, Value("actor_prompt_policy"), prompt);
+  Value runtime = Core::get(state, Value("runtime_enabled"), Value(false));
+  if (Core::truthy(runtime)) {
+    Value executor = Core::_render_rlm_executor_description(state, options);
+    Value distiller = Core::_render_rlm_distiller_description(state, options);
+    Value responder = Core::_render_rlm_responder_description(state, options);
+    Core::set(state, Value("executor_description_base"), executor);
+    Core::set(state, Value("distiller_description"), distiller);
+    Core::set(state, Value("responder_description"), responder);
+    Core::_agent_refresh_actor_instruction(state);
+  }
+  Core::set(state, Value("mcp_run_context_active"), Value(true));
+  return call;
+}
+
 Value Core::_agent_append_runtime_modules(Value options, Value additional) {
   axir_coverage_mark("_agent_append_runtime_modules");
   Value empty_map = Value::object();
@@ -26734,6 +26839,8 @@ Value Core::_agent_child_options(Value state, Value qualified, Value options) {
       Core::set(out, key, value);
     }
   }
+  Value inheritance = Core::get(parent, Value("mcpInheritance"), Value("all"));
+  Core::set(out, Value("mcpInheritanceFromParent"), inheritance);
   Value snake_path = Core::get(parent, Value("execution_path"), Value("root"));
   Value parent_path = Core::get(parent, Value("executionPath"), snake_path);
   Value path = Core::string_format(Value("{}/{}"), parent_path, qualified);
@@ -35300,7 +35407,7 @@ AxAgent::AxAgent(Value signature, Value options, AxRuntimeHooks hooks)
 }
 
 AxAgent& AxAgent::set_signature(Value signature) {
-  Value options = Core::get(state_, "options", Value::object());
+  Value options = options_;
   state_ = Core::_agent_factory(std::move(signature), options);
   Value actor_validation_retries = Core::get(options, "validation_retries", Core::get(options, "validationRetries", 1));
   distiller_ = std::make_unique<AxGen>(s(str(Core::get(state_, "distiller_signature"))), object({{"validation_retries", actor_validation_retries}, {"id", "ctx.root.actor"}, {"instruction", Core::get(state_, "distiller_description", "")}}));
@@ -35336,6 +35443,17 @@ Value AxAgent::forward(AIClient& client, Value values, Value options, const AxRu
   AxRuntimeHooks program_hooks = *std::atomic_load(&runtime_hooks_);
   RuntimeHookScope scope(hooks, program_hooks, "ax_gen_agent_forward", "ax_gen_agent",
                          object({{"ax.program.id", "root.agent"}, {"ax.program.type", "AxAgent"}}));
+  auto call_context=execution_context_ ? execution_context_ : detail::MCPRunScope::current();
+  detail::MCPRunScope context_scope(call_context);
+  if(call_context || Core::truthy(Core::get(state_,"mcp_run_context_active",false))) {
+    Value modules=call_context ? call_context->agent_modules() : Value::array();
+    Core::_agent_apply_run_context(state_,options_,options,modules);
+    if(Core::truthy(Core::get(state_,"runtime_enabled",false))) {
+      distiller_->set_instruction(Core::get(state_,"distiller_description"));
+      executor_->set_instruction(Core::get(state_,"executor_description"));
+      responder_->set_instruction(Core::get(state_,"responder_description"));
+    }
+  }
   ensure_configured_playbook(client);
   // Wire the built-in llmQuery primitive onto the runtime carried in agent
   // options (the same runtime the actor loop will create sessions on),
@@ -35434,7 +35552,7 @@ AxAgent& AxAgent::add_tool_module(std::string name, const std::vector<Tool>& too
   for (const auto& tool : tools) {
     functions.push_back(tool.value());
   }
-  Value options = Core::get(state_, "options", Value::object());
+  Value options = options_;
   options = Core::_agent_append_runtime_modules(options, Value(Array{object({{"name", std::move(name)}, {"functions", Value(functions)}})}));
   options_ = options;
   state_ = Core::_agent_factory(Core::get(state_, "signature"), options);

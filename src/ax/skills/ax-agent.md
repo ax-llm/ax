@@ -256,9 +256,14 @@ const parent = agent('query:string -> answer:string', {
   contextFields: [],
 });
 
-// A child can restrict inheritance to selected namespaces or `none`.
+// Restrict what this agent passes to its children.
 await parent.forward(llm, { query }, { mcpInheritance: ['memory'] });
 ```
+
+The agent's own distiller and executor retain its attached clients. Apply
+`mcpInheritance` when delegating to a child, not between stages of the same
+agent. A child's explicitly configured clients take precedence over inherited
+clients. `none` and an empty namespace list pass no parent clients.
 
 Rules:
 

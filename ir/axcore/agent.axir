@@ -5974,6 +5974,13 @@ module @ax.agent version "0.1" {
       %reserved_names = core.call @agent_runtime_reserved_names_for_state(%state)
       %runtime_options = core.call intrinsic.map.merge(%empty_map, %options)
       core.call intrinsic.map.delete(%runtime_options, "runtime")
+      core.call intrinsic.map.delete(%runtime_options, "executionContext")
+      core.call intrinsic.map.delete(%runtime_options, "inheritedExecutionContext")
+      core.call intrinsic.map.delete(%runtime_options, "mcpExecutionContext")
+      core.call intrinsic.map.delete(%runtime_options, "mcp")
+      core.call intrinsic.map.delete(%runtime_options, "ucp")
+      core.call intrinsic.map.delete(%runtime_options, "mcpContext")
+      core.call intrinsic.map.delete(%runtime_options, "functions")
       core.set %runtime_options["reservedNames"] = %reserved_names
       %timeout_ms = core.get %options["timeout_ms"] default null
       %timeout = core.get %options["timeout"] default %timeout_ms
@@ -8111,7 +8118,24 @@ module @ax.agent version "0.1" {
         %responder_opts_camel = core.get %base_options["responderOptions"] default %empty_map
         %stage_options = core.get %base_options["responder_options"] default %responder_opts_camel
       }
-      %out = core.call intrinsic.map.merge(%stage_options, %forward_options)
+      %merged = core.call intrinsic.map.merge(%stage_options, %forward_options)
+      %out = core.map
+      %host_keys = core.list
+      core.append %host_keys, "executionContext"
+      core.append %host_keys, "inheritedExecutionContext"
+      core.append %host_keys, "mcpExecutionContext"
+      core.append %host_keys, "mcp"
+      core.append %host_keys, "ucp"
+      core.append %host_keys, "mcpContext"
+      core.append %host_keys, "functions"
+      core.append %host_keys, "runtime"
+      core.for %key in %merged {
+        %host = core.call intrinsic.contains(%host_keys, %key)
+        core.if %host {} else {
+          %value = core.get %merged[%key]
+          core.set %out[%key] = %value
+        }
+      }
       %base_control = core.get %base_options["control"] default null
       %controller = core.get %forward_options["control"] default %base_control
       %controlled = core.call intrinsic.is_not_none(%controller)
@@ -9221,6 +9245,66 @@ module @ax.agent version "0.1" {
     }
   }
 
+  op ax.agent.semantic @agent_apply_run_context {
+    attr core_kind = "func"
+    attr emit_module = "agent"
+    attr private = true
+    type signature = "(json, json, json, json) -> json throws"
+    body @entry(%state: json, %configured: json, %call: json, %modules: json) {
+      %empty_list = core.list
+      %options = core.call intrinsic.map.merge(%configured, %call)
+      %functions = core.get %options["functions"] default %empty_list
+      %retained = core.list
+      core.for %function in %functions {
+        %default_name = core.get %function["name"] default ""
+        %namespace = core.get %function["namespace"] default %default_name
+        %mcp = core.call intrinsic.string.starts_with(%namespace, "mcp.")
+        %ucp = core.call intrinsic.string.starts_with(%namespace, "ucp.")
+        %protocol = core.call intrinsic.or(%mcp, %ucp)
+        core.if %protocol {} else { core.append %retained, %function }
+      }
+      core.set %options["functions"] = %retained
+      %options = core.call @agent_append_runtime_modules(%options, %modules)
+      %inventory = core.call @normalize_agent_callable_inventory(%options)
+      %split = core.call @split_agent_callable_inventory(%inventory)
+      %catalog = core.call @render_agent_discovery_catalog(%split)
+      core.set %state["options"] = %options
+      core.set %state["callable_inventory"] = %inventory
+      core.set %state["callable_split"] = %split
+      core.set %state["discovery_catalog"] = %catalog
+      %upgrade = core.call @resolve_agent_auto_upgrade(%options)
+      %flags = core.call @agent_policy_flags(%options, %split, %upgrade)
+      %policy = core.call @normalize_agent_policy(%options)
+      %registry = core.call @agent_policy_registry(%policy, %flags)
+      core.set %state["policy_flags"] = %flags
+      core.set %state["policy_registry"] = %registry
+      %docs = core.get %state["discovered_tool_docs"] default %empty_list
+      %retained_docs = core.list
+      core.for %doc in %docs {
+        %name = core.get %doc["qualified_name"] default ""
+        %mcp = core.call intrinsic.string.starts_with(%name, "mcp.")
+        %ucp = core.call intrinsic.string.starts_with(%name, "ucp.")
+        %protocol = core.call intrinsic.or(%mcp, %ucp)
+        core.if %protocol {} else { core.append %retained_docs, %doc }
+      }
+      core.set %state["discovered_tool_docs"] = %retained_docs
+      %prompt = core.call @build_agent_actor_prompt_policy(%state)
+      core.set %state["actor_prompt_policy"] = %prompt
+      %runtime = core.get %state["runtime_enabled"] default false
+      core.if %runtime {
+        %executor = core.call @render_rlm_executor_description(%state, %options)
+        %distiller = core.call @render_rlm_distiller_description(%state, %options)
+        %responder = core.call @render_rlm_responder_description(%state, %options)
+        core.set %state["executor_description_base"] = %executor
+        core.set %state["distiller_description"] = %distiller
+        core.set %state["responder_description"] = %responder
+        core.call @agent_refresh_actor_instruction(%state)
+      }
+      core.set %state["mcp_run_context_active"] = true
+      core.return %call
+    }
+  }
+
   op ax.agent.semantic @agent_append_runtime_modules {
     attr core_kind = "func"
     attr emit_module = "agent"
@@ -9337,6 +9421,8 @@ module @ax.agent version "0.1" {
         %present = core.call intrinsic.is_not_none(%value)
         core.if %present { core.set %out[%key] = %value }
       }
+      %inheritance = core.get %parent["mcpInheritance"] default "all"
+      core.set %out["mcpInheritanceFromParent"] = %inheritance
       %snake_path = core.get %parent["execution_path"] default "root"
       %parent_path = core.get %parent["executionPath"] default %snake_path
       %path = core.call intrinsic.string.format("{}/{}", %parent_path, %qualified)

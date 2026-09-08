@@ -387,7 +387,15 @@ AxExecutionContext AxExecutionContext::derive(Value inheritance) const {
 
 AxMCPContinuationState AxExecutionContext::continuation_state() const { auto names = namespaces(); std::string joined; for (auto& name : names) joined += name + "\n"; return {names, Value::array(), Value::array(), ax_mcp_pkce_challenge(joined)}; }
 void AxExecutionContext::attach(AxGen& gen) { for (const auto& tool : native_tools()) gen.add_tool(tool); }
-void AxExecutionContext::attach(AxAgent& agent) { initialize(); for (auto& client : mcp_) agent.add_tool_module("mcp." + client->namespace_name() + ".tools", client->native_tools()); for (auto& client : ucp_) agent.add_tool_module("ucp." + client->namespace_name(), client->runtime_tools()); }
+void AxExecutionContext::attach(AxAgent& agent) { initialize(); agent.execution_context_ = shared_derived("all"); for (auto& client : mcp_) agent.add_tool_module("mcp." + client->namespace_name() + ".tools", client->native_tools()); for (auto& client : ucp_) agent.add_tool_module("ucp." + client->namespace_name(), client->runtime_tools()); }
+
+std::shared_ptr<detail::AgentExecutionContext> AxExecutionContext::shared_derived(Value inheritance) const { auto child=derive(inheritance); return std::make_shared<AxExecutionContext>(child.mcp_,child.ucp_); }
+Value AxExecutionContext::agent_modules() {
+  initialize(); Array modules;
+  for (auto& client:mcp_) { Array functions; for(auto& tool:client->native_tools())functions.push_back(tool.value());modules.push_back(object({{"name","mcp."+client->namespace_name()+".tools"},{"functions",Value(functions)}})); }
+  for (auto& client:ucp_) { Array functions; for(auto& tool:client->runtime_tools())functions.push_back(tool.value());modules.push_back(object({{"name","ucp."+client->namespace_name()},{"functions",Value(functions)}})); }
+  return Value(modules);
+}
 
 Tool AxMCPClient::tool_to_function(Value spec) {
   std::string original = display(Core::get(spec, "name", ""));

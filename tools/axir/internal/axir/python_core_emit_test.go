@@ -22,6 +22,25 @@ func TestPythonModuleMissingHelpers(t *testing.T) {
 			text: "def _core_and(a, b):\n    return a and b\n\ndef use(x, y):\n    return _core_and(x, y)\n",
 		},
 		{
+			name: "foreign runtime entrypoint in a string is not a Python call",
+			text: "ctx.eval(\"__ax_bind_host_namespaces()\")\nctx.eval('__ax_other()')\n",
+		},
+		{
+			name: "embedded guest source does not define Python helpers",
+			text: "source = \"function __ax_guest() { return _missing(); }\"\n_missing()\n",
+			want: []string{"_missing"},
+		},
+		{
+			name: "comments do not define Python helpers",
+			text: "# def _missing():\n_missing()\n",
+			want: []string{"_missing"},
+		},
+		{
+			name: "formatted string expressions remain checked",
+			text: "value = f'{_missing_helper()}'\n",
+			want: []string{"_missing_helper"},
+		},
+		{
 			name: "missing def is reported",
 			text: "def use(x, y):\n    return _core_and(x, y)\n",
 			want: []string{"_core_and"},

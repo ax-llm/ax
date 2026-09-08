@@ -43,6 +43,7 @@ class AxMemory;
 class AxProgram;
 class AxGen;
 class AxAgent;
+class AxExecutionContext;
 class AxFlow;
 class AxCodeRuntime;
 class AxCodeSession;
@@ -1277,6 +1278,29 @@ class AxPlaybook {
   void inject();
 };
 
+namespace detail {
+// Optional owned protocol context; core-only programs need no MCP implementation.
+class AgentExecutionContext {
+ public:
+  virtual ~AgentExecutionContext() = default;
+  virtual Value agent_modules() = 0;
+  virtual std::shared_ptr<AgentExecutionContext> shared_derived(Value inheritance) const = 0;
+};
+}
+
+namespace detail {
+class MCPRunScope {
+ public:
+  explicit MCPRunScope(std::shared_ptr<AgentExecutionContext> context);
+  ~MCPRunScope();
+  MCPRunScope(const MCPRunScope&) = delete;
+  MCPRunScope& operator=(const MCPRunScope&) = delete;
+  static std::shared_ptr<AgentExecutionContext> current();
+ private:
+  std::shared_ptr<AgentExecutionContext> previous_;
+};
+}
+
 class AxAgent : public AxProgram {
  public:
   explicit AxAgent(Value signature, Value options = Value::object(), AxRuntimeHooks hooks = {});
@@ -1332,6 +1356,8 @@ class AxAgent : public AxProgram {
   AxPlaybook* get_playbook() const;
 
  private:
+  friend class AxExecutionContext;
+  std::shared_ptr<detail::AgentExecutionContext> execution_context_;
   std::vector<std::shared_ptr<AxAgent>> child_agents_;
   Value state_;
   std::unique_ptr<AxGen> distiller_;

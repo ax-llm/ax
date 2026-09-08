@@ -5873,11 +5873,14 @@ func (a *AxAgent) ForwardWithHooks(ctx context.Context, client AIClient, values 
 	if err != nil {
 		return nil, err
 	}
-	if executionContext != nil {
-		callOptions["executionContext"] = executionContext
-		functions := asSlice(coreGet(callOptions, "functions", Array()))
-		functions = append(functions, executionContext.RuntimeModules()...)
-		callOptions["functions"] = functions
+	if executionContext != nil || coreTruthy(coreGet(a.State,"mcp_run_context_active",false)) {
+        modules:=Array()
+        if executionContext!=nil{if err:=executionContext.Initialize();err!=nil{return nil,err};modules=executionContext.RuntimeModules()}
+        callOptions["executionContext"]=executionContext
+        if _,err:=_agent_apply_run_context(a.State,a.Options,callOptions,modules);err!=nil{return nil,err}
+        if coreTruthy(coreGet(a.State,"runtime_enabled",false)) {
+            for field,stage:=range map[string]*AxGen{"distiller_description":a.Distiller,"executor_description":a.Executor,"responder_description":a.Responder}{stage.Instruction=display(coreGet(a.State,field,""));coreSet(stage.Options,"instruction",stage.Instruction)}
+        }
 	}
 	boundClient := bindAIClientContext(ctx, client)
 	// Wire the built-in llmQuery primitive: a focused sub-query the model can
@@ -8860,7 +8863,12 @@ func _core_agent_stage_forward(stage Value, client Value, values Value, options 
 	case *AxFlow:
 		return p.Forward(ctx, ai, asMap(values), asMap(options))
 	case *AxAgent:
-		return p.Forward(ctx, ai, asMap(values), asMap(options))
+        forwarded:=Object();for key,value:=range asMap(options){forwarded[key]=value}
+        if policy,ok:=forwarded["mcpInheritanceFromParent"];ok{
+            parent,_:=forwarded["executionContext"].(*AxExecutionContext);delete(forwarded,"executionContext");delete(forwarded,"mcpInheritanceFromParent")
+            if parent!=nil{inherited,err:=parent.DeriveChecked(policy);if err!=nil{return nil,err};forwarded["inheritedExecutionContext"]=inherited}
+        }
+		return p.Forward(ctx, ai, asMap(values), forwarded)
 	}
     if program,ok := stage.(AxExecutableProgram);ok {return program.Forward(ctx,ai,asMap(values),asMap(options))}
     return nil,fmt.Errorf("Flow program has no executable forward method")
@@ -12423,6 +12431,10 @@ func runConformanceAgentForward(fixture map[string]Value) {
 		})
 		coreSet(options, "citations", citations)
 	}
+    mcpTransports:=map[string]*AxMCPScriptedTransport{};contextClients:=map[string][]*AxMCPClient{};contexts:=map[string]*AxExecutionContext{}
+    for _,raw:=range asSlice(coreGet(fixture,"mcp_clients",Array())){spec:=asMap(raw);owner,namespace:=display(coreGet(spec,"owner","parent")),display(spec["namespace"]);transport:=NewAxMCPScriptedTransport(asSlice(spec["responses"]));mcpTransports[owner+"/"+namespace]=transport;contextClients[owner]=append(contextClients[owner],NewAxMCPClient(transport,Object("namespace",namespace,"era","modern")))}
+    for owner,clients:=range contextClients{context,err:=NewAxExecutionContext(clients,nil);if err!=nil{panic(err)};contexts[owner]=context}
+    if context:=contexts["parent"];context!=nil{options["executionContext"]=context}
 	var runtime *conformanceScriptedCodeRuntime
 	if script := coreGet(fixture, "runtime_script", nil); script != nil {
 		runtimeConfig := asMap(coreGet(options, "runtime", Object()))
@@ -12440,7 +12452,10 @@ func runConformanceAgentForward(fixture map[string]Value) {
 		ag = NewAgent(display(coreGet(fixture, "signature", "question:string -> answer:string")), options)
         for _, rawChild := range asSlice(coreGet(fixture, "child_agents", Array())) {
             child := asMap(rawChild)
-            ag.AddChildAgent(display(child["namespace"]), display(child["name"]), NewAgent(display(child["signature"]), asMap(coreGet(child,"options",Object()))))
+            childOptions:=cloneMap(asMap(coreGet(child,"options",Object())));owner:=display(child["namespace"])+"."+display(child["name"])
+            if context:=contexts[owner];context!=nil{childOptions["executionContext"]=context}
+            if script:=coreGet(child,"runtime_script",nil);script!=nil{childOptions["runtime"]=newConformanceScriptedCodeRuntime(script,Object())}
+            ag.AddChildAgent(display(child["namespace"]), display(child["name"]), NewAgent(display(child["signature"]),childOptions))
         }
 		if instruction := coreGet(fixture, "set_instruction", nil); instruction != nil {
 			ag.SetInstruction(display(instruction))
@@ -12617,6 +12632,8 @@ func runConformanceAgentForward(fixture map[string]Value) {
 		}
 		assertEqual(actualStageRequests, expectedStageRequests, "exact agent stage request projection")
 	}
+    expectedMCPCalls:=asMap(coreGet(fixture,"expected_mcp_calls",Object()));for _,key:=range orderedKeys(expectedMCPCalls){expected:=expectedMCPCalls[key];actual:=Array();for _,request:=range mcpTransports[key].Requests{if request["method"]=="tools/call"{params:=coreGet(request,"params",Object());actual=append(actual,Object("name",coreGet(params,"name",nil),"arguments",coreGet(params,"arguments",nil)))}};assertEqual(actual,expected,"delegated MCP calls "+key)}
+    for _,raw:=range asSlice(coreGet(fixture,"expected_request_checks",Array())){check:=asMap(raw);request:=client.Requests[int(num(check["index"]))];text:=stableStringify(request);for _,value:=range asSlice(coreGet(check,"contains",Array())){if !strings.Contains(text,display(value)){panic("Child request missing "+display(value))}};for _,value:=range asSlice(coreGet(check,"not_contains",Array())){if strings.Contains(text,display(value)){panic("Child request exposed "+display(value))}};if coreTruthy(check["functions_absent"])&&coreTruthy(coreGet(request,"functions",nil)){panic("Agent runtime tools leaked into native functions")}}
 	if expected := coreGet(fixture, "expected_request_contains", nil); expected != nil {
 		text := stableStringify(client.Requests)
 		for _, item := range asSlice(expected) {

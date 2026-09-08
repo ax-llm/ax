@@ -46513,6 +46513,13 @@ func _agent_runtime_execution_options(args ...Value) (Value, error) {
 	{ v, err := _agent_runtime_reserved_names_for_state(v_state); if err != nil { return nil, err }; v_reserved_names = v }
 	v_runtime_options = _core_map_merge(v_empty_map, v_options)
 	_core_map_delete(v_runtime_options, "runtime")
+	_core_map_delete(v_runtime_options, "executionContext")
+	_core_map_delete(v_runtime_options, "inheritedExecutionContext")
+	_core_map_delete(v_runtime_options, "mcpExecutionContext")
+	_core_map_delete(v_runtime_options, "mcp")
+	_core_map_delete(v_runtime_options, "ucp")
+	_core_map_delete(v_runtime_options, "mcpContext")
+	_core_map_delete(v_runtime_options, "functions")
 	if err := coreSet(v_runtime_options, "reservedNames", v_reserved_names); err != nil { return nil, err }
 	v_timeout_ms = coreGet(v_options, "timeout_ms", nil)
 	v_timeout = coreGet(v_options, "timeout", v_timeout_ms)
@@ -50627,9 +50634,13 @@ func _agent_stage_options(args ...Value) (Value, error) {
 	var v_has_cache Value
 	var v_has_call_cache Value
 	var v_has_stage_cache Value
+	var v_host Value
+	var v_host_keys Value
 	var v_is_distiller Value
 	var v_is_executor Value
 	var v_is_responder Value
+	var v_key Value
+	var v_merged Value
 	var v_out Value
 	var v_parent_path Value
 	var v_parent_path_snake Value
@@ -50640,6 +50651,7 @@ func _agent_stage_options(args ...Value) (Value, error) {
 	var v_stage_path Value
 	var v_top_cache Value
 	var v_top_cache_snake Value
+	var v_value Value
 	if len(args) > 0 { v_state = args[0] }
 	_ = v_state
 	if len(args) > 1 { v_stage = args[1] }
@@ -50659,9 +50671,13 @@ func _agent_stage_options(args ...Value) (Value, error) {
 	_ = v_has_cache
 	_ = v_has_call_cache
 	_ = v_has_stage_cache
+	_ = v_host
+	_ = v_host_keys
 	_ = v_is_distiller
 	_ = v_is_executor
 	_ = v_is_responder
+	_ = v_key
+	_ = v_merged
 	_ = v_out
 	_ = v_parent_path
 	_ = v_parent_path_snake
@@ -50672,6 +50688,7 @@ func _agent_stage_options(args ...Value) (Value, error) {
 	_ = v_stage_path
 	_ = v_top_cache
 	_ = v_top_cache_snake
+	_ = v_value
 	v_empty_map = Object()
 	v_base_options = coreGet(v_state, "options", v_empty_map)
 	v_stage_options = Object()
@@ -50696,7 +50713,26 @@ func _agent_stage_options(args ...Value) (Value, error) {
 	} else {
 	// empty
 	}
-	v_out = _core_map_merge(v_stage_options, v_forward_options)
+	v_merged = _core_map_merge(v_stage_options, v_forward_options)
+	v_out = Object()
+	v_host_keys = MutableArray()
+	v_host_keys = coreAppend(v_host_keys, "executionContext")
+	v_host_keys = coreAppend(v_host_keys, "inheritedExecutionContext")
+	v_host_keys = coreAppend(v_host_keys, "mcpExecutionContext")
+	v_host_keys = coreAppend(v_host_keys, "mcp")
+	v_host_keys = coreAppend(v_host_keys, "ucp")
+	v_host_keys = coreAppend(v_host_keys, "mcpContext")
+	v_host_keys = coreAppend(v_host_keys, "functions")
+	v_host_keys = coreAppend(v_host_keys, "runtime")
+	for _, v_key = range coreIter(v_merged) {
+		v_host = _core_contains(v_host_keys, v_key)
+		if coreTruthy(v_host) {
+		// empty
+		} else {
+			v_value = coreGet(v_merged, v_key, nil)
+			if err := coreSet(v_out, v_key, v_value); err != nil { return nil, err }
+		}
+	}
 	v_base_control = coreGet(v_base_options, "control", nil)
 	v_controller = coreGet(v_forward_options, "control", v_base_control)
 	v_controlled = _core_is_not_none(v_controller)
@@ -52796,6 +52832,135 @@ func _agent_forward_impl(args ...Value) (Value, error) {
 	return v_responder_output, nil
 }
 
+func _agent_apply_run_context(args ...Value) (Value, error) {
+	axirCoverageMark("_agent_apply_run_context")
+	var v_state Value
+	var v_configured Value
+	var v_call Value
+	var v_modules Value
+	var v_catalog Value
+	var v_default_name Value
+	var v_distiller Value
+	var v_doc Value
+	var v_docs Value
+	var v_empty_list Value
+	var v_executor Value
+	var v_flags Value
+	var v_function Value
+	var v_functions Value
+	var v_inventory Value
+	var v_mcp Value
+	var v_name Value
+	var v_namespace Value
+	var v_options Value
+	var v_policy Value
+	var v_prompt Value
+	var v_protocol Value
+	var v_registry Value
+	var v_responder Value
+	var v_retained Value
+	var v_retained_docs Value
+	var v_runtime Value
+	var v_split Value
+	var v_ucp Value
+	var v_upgrade Value
+	if len(args) > 0 { v_state = args[0] }
+	_ = v_state
+	if len(args) > 1 { v_configured = args[1] }
+	_ = v_configured
+	if len(args) > 2 { v_call = args[2] }
+	_ = v_call
+	if len(args) > 3 { v_modules = args[3] }
+	_ = v_modules
+	_ = v_catalog
+	_ = v_default_name
+	_ = v_distiller
+	_ = v_doc
+	_ = v_docs
+	_ = v_empty_list
+	_ = v_executor
+	_ = v_flags
+	_ = v_function
+	_ = v_functions
+	_ = v_inventory
+	_ = v_mcp
+	_ = v_name
+	_ = v_namespace
+	_ = v_options
+	_ = v_policy
+	_ = v_prompt
+	_ = v_protocol
+	_ = v_registry
+	_ = v_responder
+	_ = v_retained
+	_ = v_retained_docs
+	_ = v_runtime
+	_ = v_split
+	_ = v_ucp
+	_ = v_upgrade
+	v_empty_list = MutableArray()
+	v_options = _core_map_merge(v_configured, v_call)
+	v_functions = coreGet(v_options, "functions", v_empty_list)
+	v_retained = MutableArray()
+	for _, v_function = range coreIter(v_functions) {
+		v_default_name = coreGet(v_function, "name", "")
+		v_namespace = coreGet(v_function, "namespace", v_default_name)
+		v_mcp = _core_string_starts_with(v_namespace, "mcp.")
+		v_ucp = _core_string_starts_with(v_namespace, "ucp.")
+		v_protocol = _core_or(v_mcp, v_ucp)
+		if coreTruthy(v_protocol) {
+		// empty
+		} else {
+			v_retained = coreAppend(v_retained, v_function)
+		}
+	}
+	if err := coreSet(v_options, "functions", v_retained); err != nil { return nil, err }
+	{ v, err := _agent_append_runtime_modules(v_options, v_modules); if err != nil { return nil, err }; v_options = v }
+	{ v, err := _normalize_agent_callable_inventory(v_options); if err != nil { return nil, err }; v_inventory = v }
+	{ v, err := _split_agent_callable_inventory(v_inventory); if err != nil { return nil, err }; v_split = v }
+	{ v, err := _render_agent_discovery_catalog(v_split); if err != nil { return nil, err }; v_catalog = v }
+	if err := coreSet(v_state, "options", v_options); err != nil { return nil, err }
+	if err := coreSet(v_state, "callable_inventory", v_inventory); err != nil { return nil, err }
+	if err := coreSet(v_state, "callable_split", v_split); err != nil { return nil, err }
+	if err := coreSet(v_state, "discovery_catalog", v_catalog); err != nil { return nil, err }
+	{ v, err := _resolve_agent_auto_upgrade(v_options); if err != nil { return nil, err }; v_upgrade = v }
+	{ v, err := _agent_policy_flags(v_options, v_split, v_upgrade); if err != nil { return nil, err }; v_flags = v }
+	{ v, err := _normalize_agent_policy(v_options); if err != nil { return nil, err }; v_policy = v }
+	{ v, err := _agent_policy_registry(v_policy, v_flags); if err != nil { return nil, err }; v_registry = v }
+	if err := coreSet(v_state, "policy_flags", v_flags); err != nil { return nil, err }
+	if err := coreSet(v_state, "policy_registry", v_registry); err != nil { return nil, err }
+	v_docs = coreGet(v_state, "discovered_tool_docs", v_empty_list)
+	v_retained_docs = MutableArray()
+	for _, v_doc = range coreIter(v_docs) {
+		v_name = coreGet(v_doc, "qualified_name", "")
+		v_mcp = _core_string_starts_with(v_name, "mcp.")
+		v_ucp = _core_string_starts_with(v_name, "ucp.")
+		v_protocol = _core_or(v_mcp, v_ucp)
+		if coreTruthy(v_protocol) {
+		// empty
+		} else {
+			v_retained_docs = coreAppend(v_retained_docs, v_doc)
+		}
+	}
+	if err := coreSet(v_state, "discovered_tool_docs", v_retained_docs); err != nil { return nil, err }
+	{ v, err := _build_agent_actor_prompt_policy(v_state); if err != nil { return nil, err }; v_prompt = v }
+	if err := coreSet(v_state, "actor_prompt_policy", v_prompt); err != nil { return nil, err }
+	v_runtime = coreGet(v_state, "runtime_enabled", false)
+	if coreTruthy(v_runtime) {
+		{ v, err := _render_rlm_executor_description(v_state, v_options); if err != nil { return nil, err }; v_executor = v }
+		{ v, err := _render_rlm_distiller_description(v_state, v_options); if err != nil { return nil, err }; v_distiller = v }
+		{ v, err := _render_rlm_responder_description(v_state, v_options); if err != nil { return nil, err }; v_responder = v }
+		if err := coreSet(v_state, "executor_description_base", v_executor); err != nil { return nil, err }
+		if err := coreSet(v_state, "distiller_description", v_distiller); err != nil { return nil, err }
+		if err := coreSet(v_state, "responder_description", v_responder); err != nil { return nil, err }
+		if _, err := _agent_refresh_actor_instruction(v_state); err != nil { return nil, err }
+	} else {
+	// empty
+	}
+	if err := coreSet(v_state, "mcp_run_context_active", true); err != nil { return nil, err }
+	return v_call, nil
+}
+
 func _agent_append_runtime_modules(args ...Value) (Value, error) {
 	axirCoverageMark("_agent_append_runtime_modules")
 	var v_options Value
@@ -52980,6 +53145,7 @@ func _agent_child_options(args ...Value) (Value, error) {
 	var v_active Value
 	var v_base Value
 	var v_empty_map Value
+	var v_inheritance Value
 	var v_key Value
 	var v_keys Value
 	var v_out Value
@@ -52998,6 +53164,7 @@ func _agent_child_options(args ...Value) (Value, error) {
 	_ = v_active
 	_ = v_base
 	_ = v_empty_map
+	_ = v_inheritance
 	_ = v_key
 	_ = v_keys
 	_ = v_out
@@ -53032,6 +53199,8 @@ func _agent_child_options(args ...Value) (Value, error) {
 		// empty
 		}
 	}
+	v_inheritance = coreGet(v_parent, "mcpInheritance", "all")
+	if err := coreSet(v_out, "mcpInheritanceFromParent", v_inheritance); err != nil { return nil, err }
 	v_snake_path = coreGet(v_parent, "execution_path", "root")
 	v_parent_path = coreGet(v_parent, "executionPath", v_snake_path)
 	v_path = _core_string_format("{}/{}", v_parent_path, v_qualified)
@@ -66843,11 +67012,14 @@ func (a *AxAgent) ForwardWithHooks(ctx context.Context, client AIClient, values 
 	if err != nil {
 		return nil, err
 	}
-	if executionContext != nil {
-		callOptions["executionContext"] = executionContext
-		functions := asSlice(coreGet(callOptions, "functions", Array()))
-		functions = append(functions, executionContext.RuntimeModules()...)
-		callOptions["functions"] = functions
+	if executionContext != nil || coreTruthy(coreGet(a.State,"mcp_run_context_active",false)) {
+        modules:=Array()
+        if executionContext!=nil{if err:=executionContext.Initialize();err!=nil{return nil,err};modules=executionContext.RuntimeModules()}
+        callOptions["executionContext"]=executionContext
+        if _,err:=_agent_apply_run_context(a.State,a.Options,callOptions,modules);err!=nil{return nil,err}
+        if coreTruthy(coreGet(a.State,"runtime_enabled",false)) {
+            for field,stage:=range map[string]*AxGen{"distiller_description":a.Distiller,"executor_description":a.Executor,"responder_description":a.Responder}{stage.Instruction=display(coreGet(a.State,field,""));coreSet(stage.Options,"instruction",stage.Instruction)}
+        }
 	}
 	boundClient := bindAIClientContext(ctx, client)
 	// Wire the built-in llmQuery primitive: a focused sub-query the model can
@@ -69830,7 +70002,12 @@ func _core_agent_stage_forward(stage Value, client Value, values Value, options 
 	case *AxFlow:
 		return p.Forward(ctx, ai, asMap(values), asMap(options))
 	case *AxAgent:
-		return p.Forward(ctx, ai, asMap(values), asMap(options))
+        forwarded:=Object();for key,value:=range asMap(options){forwarded[key]=value}
+        if policy,ok:=forwarded["mcpInheritanceFromParent"];ok{
+            parent,_:=forwarded["executionContext"].(*AxExecutionContext);delete(forwarded,"executionContext");delete(forwarded,"mcpInheritanceFromParent")
+            if parent!=nil{inherited,err:=parent.DeriveChecked(policy);if err!=nil{return nil,err};forwarded["inheritedExecutionContext"]=inherited}
+        }
+		return p.Forward(ctx, ai, asMap(values), forwarded)
 	}
     if program,ok := stage.(AxExecutableProgram);ok {return program.Forward(ctx,ai,asMap(values),asMap(options))}
     return nil,fmt.Errorf("Flow program has no executable forward method")
@@ -73393,6 +73570,10 @@ func runConformanceAgentForward(fixture map[string]Value) {
 		})
 		coreSet(options, "citations", citations)
 	}
+    mcpTransports:=map[string]*AxMCPScriptedTransport{};contextClients:=map[string][]*AxMCPClient{};contexts:=map[string]*AxExecutionContext{}
+    for _,raw:=range asSlice(coreGet(fixture,"mcp_clients",Array())){spec:=asMap(raw);owner,namespace:=display(coreGet(spec,"owner","parent")),display(spec["namespace"]);transport:=NewAxMCPScriptedTransport(asSlice(spec["responses"]));mcpTransports[owner+"/"+namespace]=transport;contextClients[owner]=append(contextClients[owner],NewAxMCPClient(transport,Object("namespace",namespace,"era","modern")))}
+    for owner,clients:=range contextClients{context,err:=NewAxExecutionContext(clients,nil);if err!=nil{panic(err)};contexts[owner]=context}
+    if context:=contexts["parent"];context!=nil{options["executionContext"]=context}
 	var runtime *conformanceScriptedCodeRuntime
 	if script := coreGet(fixture, "runtime_script", nil); script != nil {
 		runtimeConfig := asMap(coreGet(options, "runtime", Object()))
@@ -73410,7 +73591,10 @@ func runConformanceAgentForward(fixture map[string]Value) {
 		ag = NewAgent(display(coreGet(fixture, "signature", "question:string -> answer:string")), options)
         for _, rawChild := range asSlice(coreGet(fixture, "child_agents", Array())) {
             child := asMap(rawChild)
-            ag.AddChildAgent(display(child["namespace"]), display(child["name"]), NewAgent(display(child["signature"]), asMap(coreGet(child,"options",Object()))))
+            childOptions:=cloneMap(asMap(coreGet(child,"options",Object())));owner:=display(child["namespace"])+"."+display(child["name"])
+            if context:=contexts[owner];context!=nil{childOptions["executionContext"]=context}
+            if script:=coreGet(child,"runtime_script",nil);script!=nil{childOptions["runtime"]=newConformanceScriptedCodeRuntime(script,Object())}
+            ag.AddChildAgent(display(child["namespace"]), display(child["name"]), NewAgent(display(child["signature"]),childOptions))
         }
 		if instruction := coreGet(fixture, "set_instruction", nil); instruction != nil {
 			ag.SetInstruction(display(instruction))
@@ -73587,6 +73771,8 @@ func runConformanceAgentForward(fixture map[string]Value) {
 		}
 		assertEqual(actualStageRequests, expectedStageRequests, "exact agent stage request projection")
 	}
+    expectedMCPCalls:=asMap(coreGet(fixture,"expected_mcp_calls",Object()));for _,key:=range orderedKeys(expectedMCPCalls){expected:=expectedMCPCalls[key];actual:=Array();for _,request:=range mcpTransports[key].Requests{if request["method"]=="tools/call"{params:=coreGet(request,"params",Object());actual=append(actual,Object("name",coreGet(params,"name",nil),"arguments",coreGet(params,"arguments",nil)))}};assertEqual(actual,expected,"delegated MCP calls "+key)}
+    for _,raw:=range asSlice(coreGet(fixture,"expected_request_checks",Array())){check:=asMap(raw);request:=client.Requests[int(num(check["index"]))];text:=stableStringify(request);for _,value:=range asSlice(coreGet(check,"contains",Array())){if !strings.Contains(text,display(value)){panic("Child request missing "+display(value))}};for _,value:=range asSlice(coreGet(check,"not_contains",Array())){if strings.Contains(text,display(value)){panic("Child request exposed "+display(value))}};if coreTruthy(check["functions_absent"])&&coreTruthy(coreGet(request,"functions",nil)){panic("Agent runtime tools leaked into native functions")}}
 	if expected := coreGet(fixture, "expected_request_contains", nil); expected != nil {
 		text := stableStringify(client.Requests)
 		for _, item := range asSlice(expected) {

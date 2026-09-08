@@ -13,10 +13,11 @@ import { AxMCPClient } from './client.js';
 import {
   AxMCPExecutionContext,
   axMCPChildExecutionOptions,
+  axResolveMCPExecutionContext,
 } from './execution.js';
 import type { AxMCPTransport } from './transport.js';
 
-function createInventoryClient() {
+function createInventoryClient(namespace = 'inventory') {
   const calls: string[] = [];
   const transport: AxMCPTransport = {
     send: async (request) => {
@@ -39,7 +40,7 @@ function createInventoryClient() {
           result: {
             tools: [
               {
-                name: 'lookup_inventory',
+                name: `lookup_${namespace}`,
                 description: 'Look up inventory',
                 inputSchema: {
                   type: 'object',
@@ -78,7 +79,7 @@ function createInventoryClient() {
     sendNotification: async () => {},
   };
   return {
-    client: new AxMCPClient(transport, { namespace: 'inventory' }),
+    client: new AxMCPClient(transport, { namespace }),
     calls,
   };
 }
@@ -134,6 +135,137 @@ function chatSystemText(req: Readonly<AxChatRequest<unknown>>): string {
 }
 
 describe('native MCP execution', () => {
+  it.each(
+    [
+      { policy: 'all' as const, allowed: ['inventory', 'orders'], own: false },
+      { policy: 'none' as const, allowed: [], own: false },
+      { policy: ['orders'], allowed: ['orders'], own: false },
+      { policy: [], allowed: [], own: false },
+      { policy: ['orders'], allowed: ['inventory'], own: true },
+    ].flatMap((testCase) =>
+      [false, true].map((streaming) => ({ ...testCase, streaming }))
+    )
+  )(
+    'applies child inheritance $policy through actual agent delegation (own=$own, streaming=$streaming)',
+    async ({ policy, allowed, own, streaming }) => {
+      const inventory = createInventoryClient();
+      const orders = createInventoryClient('orders');
+      const childInventory = createInventoryClient();
+      const expected = allowed.join(',') || 'NO-ACCESS';
+      const code = (body: string) =>
+        `Javascript Code: \`\`\`javascript\n${body}\n\`\`\``;
+      const responses = [
+        code('await final("Delegate inventory lookup", {});'),
+        code(
+          'var delegated = await team.researcher({ question: "lookup" }); console.log(delegated);'
+        ),
+        code('await final("Look up allowed inventory", {});'),
+        code(
+          'var observed = []; try { var first = await mcp.inventory.tools.lookup_inventory({sku:"sku-1"}); observed.push("inventory"); } catch (error) { console.log(String(error)); }'
+        ),
+        code(
+          'try { var second = await mcp.orders.tools.lookup_orders({sku:"sku-1"}); observed.push("orders"); } catch (error) { console.log(String(error)); }'
+        ),
+        code('await final("Report allowed namespaces", {observed});'),
+        expected,
+        code('await final("Report delegated result", {delegated});'),
+        expected,
+      ];
+      const requests: Readonly<AxChatRequest<unknown>>[] = [];
+      const llm = new AxMockAIService({
+        features: { functions: true, streaming: false },
+        chatResponse: async (request) => {
+          requests.push(request);
+          const content = responses.shift();
+          if (!content) throw new Error('Unexpected model continuation');
+          return {
+            results: [{ index: 0, content, finishReason: 'stop' as const }],
+          };
+        },
+      });
+      const child = agent('question:string -> answer:string', {
+        agentIdentity: {
+          name: 'researcher',
+          description: 'Look up allowed inventory',
+        },
+        contextFields: [],
+        runtime: new AxJSRuntime(),
+        functionDiscovery: false,
+        directResponse: 'off',
+        ...(own ? { mcp: [childInventory.client] } : {}),
+      });
+      const parent = agent('userQuery:string -> answer:string', {
+        functions: [
+          {
+            namespace: 'team',
+            title: 'Researchers',
+            description: 'Delegation',
+            functions: [child.getFunction()],
+          },
+        ],
+        mcp: [inventory.client, orders.client],
+        mcpInheritance: policy,
+        contextFields: [],
+        runtime: new AxJSRuntime(),
+        functionDiscovery: false,
+        directResponse: 'off',
+      });
+      if (streaming) {
+        let answer = '';
+        for await (const chunk of parent.streamingForward(llm, {
+          userQuery: 'Look up inventory',
+        }))
+          answer += chunk.delta.answer ?? '';
+        expect(answer).toBe(expected);
+      } else {
+        expect(
+          (await parent.forward(llm, { userQuery: 'Look up inventory' })).answer
+        ).toBe(expected);
+      }
+      expect(responses).toHaveLength(0);
+      expect(
+        inventory.calls.filter((method) => method === 'tools/call')
+      ).toHaveLength(!own && allowed.includes('inventory') ? 1 : 0);
+      expect(
+        orders.calls.filter((method) => method === 'tools/call')
+      ).toHaveLength(allowed.includes('orders') ? 1 : 0);
+      expect(
+        childInventory.calls.filter((method) => method === 'tools/call')
+      ).toHaveLength(own ? 1 : 0);
+      for (const namespace of ['inventory', 'orders']) {
+        expect(chatSystemText(requests[1]!)).toContain(
+          `mcp.${namespace}.tools.lookup_${namespace}`
+        );
+        expect(
+          chatSystemText(requests[3]!).includes(
+            `mcp.${namespace}.tools.lookup_${namespace}`
+          )
+        ).toBe(allowed.includes(namespace));
+      }
+      expect(JSON.stringify(requests[7])).toContain(expected);
+      for (const index of [0, 1, 2, 3, 4, 5, 7])
+        expect(
+          requests[index]?.functions?.map((fn) => fn.name) ?? []
+        ).not.toContain('lookup_inventory');
+    }
+  );
+
+  it('keeps explicitly configured child clients ahead of inherited parent clients', async () => {
+    const parent = createInventoryClient('parent');
+    const child = createInventoryClient('child');
+    const inherited = new AxMCPExecutionContext(parent.client);
+    const resolved = await axResolveMCPExecutionContext(
+      { _mcpExecutionContext: inherited },
+      { mcp: child.client, mcpInheritance: 'none' }
+    );
+    expect(resolved).not.toBe(inherited);
+    expect(resolved?.clients).toEqual([child.client]);
+    expect(resolved?.inheritance).toBe('none');
+    expect(child.calls).toContain('tools/list');
+    expect(parent.calls).toEqual([]);
+    expect(resolved?.forChild()).toBeUndefined();
+  });
+
   it('removes the inherited MCP context when child inheritance is none', () => {
     const { client } = createInventoryClient();
     const context = new AxMCPExecutionContext(client, 'none');

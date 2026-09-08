@@ -1634,6 +1634,11 @@ public final class Conformance {
         throw new RuntimeException("agent_runtime_real requires the quickjs profile (dev.axllm.ax.runtime.quickjs.AxQuickJsCodeRuntime) and quickjs4j on the classpath: " + e);
       }
     }
+    var mcpTransports = new LinkedHashMap<String,AxMCPScriptedTransport>();
+    var contextClients = new LinkedHashMap<String,List<AxMCPClient>>();
+    for(Object raw:Core.asList(fixture.get("mcp_clients"))){var spec=Core.asMap(raw);String owner=String.valueOf(spec.getOrDefault("owner","parent")),namespace=String.valueOf(spec.get("namespace"));var transport=new AxMCPScriptedTransport(Core.asList(spec.get("responses")));mcpTransports.put(owner+"/"+namespace,transport);contextClients.computeIfAbsent(owner,key->new ArrayList<>()).add(new AxMCPClient(transport,Map.of("namespace",namespace,"era","modern")));}
+    var contexts=new LinkedHashMap<String,AxExecutionContext>();for(var entry:contextClients.entrySet())contexts.put(entry.getKey(),new AxExecutionContext(entry.getValue(),List.of()));
+    if(contexts.containsKey("parent"))agentOptions.put("executionContext",contexts.get("parent"));
     AxAgent agent = null;
     List<Object> runStateProjections = new ArrayList<>();
     Map<String, Object> savedRuntimeState = null;
@@ -1643,6 +1648,9 @@ public final class Conformance {
       for (Object rawChild : Core.asList(fixture.getOrDefault("child_agents", List.of()))) {
         Map<String, Object> child = Core.asMap(rawChild);
         Map<String, Object> childOptions = new LinkedHashMap<>(Core.asMap(child.getOrDefault("options", Map.of())));
+        String owner=String.valueOf(child.get("namespace"))+"."+String.valueOf(child.get("name"));
+        if(contexts.containsKey(owner))childOptions.put("executionContext",contexts.get(owner));
+        if(child.containsKey("runtime_script"))childOptions.put("runtime",new ScriptedCodeRuntime(Core.asList(child.get("runtime_script")),"JavaScript",""));
         if (child.containsKey("runtime_engine")) {
           try { childOptions.put("runtime", Class.forName("dev.axllm.ax.runtime.quickjs.AxQuickJsCodeRuntime").getDeclaredConstructor().newInstance()); }
           catch (ReflectiveOperationException e) { throw new RuntimeException(e); }
@@ -1776,6 +1784,8 @@ public final class Conformance {
       }
       assertEqual(actualStageRequests, exactProjection.get("stageRequests"), "exact agent stage request projection");
     }
+    for(var entry:Core.asMap(fixture.get("expected_mcp_calls")).entrySet()){var actual=new ArrayList<Object>();for(Object raw:mcpTransports.get(entry.getKey()).requests){var request=Core.asMap(raw);if("tools/call".equals(request.get("method"))){var params=Core.asMap(request.get("params"));actual.add(Map.of("name",params.get("name"),"arguments",params.get("arguments")));}}assertEqual(actual,entry.getValue(),"delegated MCP calls "+entry.getKey());}
+    for(Object raw:Core.asList(fixture.get("expected_request_checks"))){var check=Core.asMap(raw);var request=Core.asMap(client.requests.get(Core.asInt(check.get("index"))));String text=Json.stringify(request);for(Object value:Core.asList(check.get("contains")))if(!text.contains(String.valueOf(value)))throw new FixtureError("Child request missing "+value);for(Object value:Core.asList(check.get("not_contains")))if(text.contains(String.valueOf(value)))throw new FixtureError("Child request exposed "+value);if(Core.truthy(check.get("functions_absent"))&&Core.truthy(request.get("functions")))throw new FixtureError("Agent runtime tools leaked into native functions");}
     if (fixture.containsKey("expected_request_contains")) {
       String text = Json.stringify(client.requests);
       for (Object item : Core.asList(fixture.get("expected_request_contains"))) if (!text.contains(String.valueOf(item))) throw new FixtureError("agent request missing " + item + ": " + text);
@@ -2154,9 +2164,11 @@ public final class Conformance {
 
     int programRequestCount=preflight.transport.requests.size();
     AxFlow cancellationFlow=Ax.flow(Map.of("id","cancellation-flow")).execute("answer",Ax.ax("question:string -> answer:string"));
+    AxGen cancellationGen=Ax.ax("question:string -> answer:string");
+    AxAgent cancellationAgent=Ax.agent("question:string -> answer:string",Map.of());
     List<Map.Entry<String,java.util.concurrent.Callable<Map<String,Object>>>> programCalls=List.of(
-      Map.entry("AxGen",()->Ax.ax("question:string -> answer:string").forwardWithCancellation(preflight.client,Map.of("question","cancel"),Map.of("infraRetries",2),token)),
-      Map.entry("AxAgent",()->Ax.agent("question:string -> answer:string",Map.of()).forwardWithCancellation(preflight.client,Map.of("question","cancel"),Map.of("infraRetries",2),token)),
+      Map.entry("AxGen",()->cancellationGen.forwardWithCancellation(preflight.client,Map.of("question","cancel"),Map.of("infraRetries",2),token)),
+      Map.entry("AxAgent",()->cancellationAgent.forwardWithCancellation(preflight.client,Map.of("question","cancel"),Map.of("infraRetries",2),token)),
       Map.entry("AxFlow",()->cancellationFlow.forwardWithCancellation(preflight.client,Map.of("question","cancel"),Map.of("infraRetries",2),token))
     );
     for(Map.Entry<String,java.util.concurrent.Callable<Map<String,Object>>> programCall:programCalls){long programStarted=System.nanoTime();try{programCall.getValue().call();throw new FixtureError(programCall.getKey()+" ignored pre-cancelled forwarding");}catch(AxAIServiceAbortedError error){if(!reason.equals(error.reason())||error.retryable)throw new FixtureError(programCall.getKey()+" cancellation error mismatch");}catch(Exception error){throw Core.asRuntime(error);}if((System.nanoTime()-programStarted)/1_000_000L>programMaxElapsed)throw new FixtureError(programCall.getKey()+" cancellation was retried instead of returning promptly");if(preflight.transport.requests.size()!=programRequestCount)throw new FixtureError(programCall.getKey()+" cancellation reached transport");}

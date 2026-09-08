@@ -20,6 +20,13 @@
 #endif
 
 namespace axllm {
+namespace detail {
+static thread_local std::shared_ptr<AgentExecutionContext> active_mcp_context;
+MCPRunScope::MCPRunScope(std::shared_ptr<AgentExecutionContext> context) : previous_(std::move(active_mcp_context)) { active_mcp_context = std::move(context); }
+MCPRunScope::~MCPRunScope() { active_mcp_context = std::move(previous_); }
+std::shared_ptr<AgentExecutionContext> MCPRunScope::current() { return active_mcp_context; }
+}
+
 
 thread_local const AxCancellationToken* ax_current_cancellation_token = nullptr;
 
@@ -1369,6 +1376,12 @@ Value Core::agent_stage_forward(Value stage, Value client, Value values, Value o
   AIClient* registered = registered_client(client_id);
   if (registered == nullptr) {
     throw AxError("runtime", "client does not implement AIClient");
+  }
+  if (dynamic_cast<AxAgent*>(stage_ptr) && Core::truthy(Core::map_contains(options,"mcpInheritanceFromParent"))) {
+    auto parent=detail::MCPRunScope::current();
+    auto child=parent ? parent->shared_derived(Core::get(options,"mcpInheritanceFromParent")) : nullptr;
+    detail::MCPRunScope scope(std::move(child));
+    return stage_ptr->forward(*registered,values,options);
   }
   return stage_ptr->forward(*registered, values, options);
 }
@@ -6044,7 +6057,7 @@ AxAgent::AxAgent(Value signature, Value options, AxRuntimeHooks hooks)
 }
 
 AxAgent& AxAgent::set_signature(Value signature) {
-  Value options = Core::get(state_, "options", Value::object());
+  Value options = options_;
   state_ = Core::_agent_factory(std::move(signature), options);
   Value actor_validation_retries = Core::get(options, "validation_retries", Core::get(options, "validationRetries", 1));
   distiller_ = std::make_unique<AxGen>(s(str(Core::get(state_, "distiller_signature"))), object({{"validation_retries", actor_validation_retries}, {"id", "ctx.root.actor"}, {"instruction", Core::get(state_, "distiller_description", "")}}));
@@ -6080,6 +6093,17 @@ Value AxAgent::forward(AIClient& client, Value values, Value options, const AxRu
   AxRuntimeHooks program_hooks = *std::atomic_load(&runtime_hooks_);
   RuntimeHookScope scope(hooks, program_hooks, "ax_gen_agent_forward", "ax_gen_agent",
                          object({{"ax.program.id", "root.agent"}, {"ax.program.type", "AxAgent"}}));
+  auto call_context=execution_context_ ? execution_context_ : detail::MCPRunScope::current();
+  detail::MCPRunScope context_scope(call_context);
+  if(call_context || Core::truthy(Core::get(state_,"mcp_run_context_active",false))) {
+    Value modules=call_context ? call_context->agent_modules() : Value::array();
+    Core::_agent_apply_run_context(state_,options_,options,modules);
+    if(Core::truthy(Core::get(state_,"runtime_enabled",false))) {
+      distiller_->set_instruction(Core::get(state_,"distiller_description"));
+      executor_->set_instruction(Core::get(state_,"executor_description"));
+      responder_->set_instruction(Core::get(state_,"responder_description"));
+    }
+  }
   ensure_configured_playbook(client);
   // Wire the built-in llmQuery primitive onto the runtime carried in agent
   // options (the same runtime the actor loop will create sessions on),
@@ -6178,7 +6202,7 @@ AxAgent& AxAgent::add_tool_module(std::string name, const std::vector<Tool>& too
   for (const auto& tool : tools) {
     functions.push_back(tool.value());
   }
-  Value options = Core::get(state_, "options", Value::object());
+  Value options = options_;
   options = Core::_agent_append_runtime_modules(options, Value(Array{object({{"name", std::move(name)}, {"functions", Value(functions)}})}));
   options_ = options;
   state_ = Core::_agent_factory(Core::get(state_, "signature"), options);

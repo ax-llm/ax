@@ -1295,6 +1295,8 @@
         "src/ax/agent/AxAgent.ts",
         "src/ax/agent/agent.sessions.test.ts",
         "src/ax/agent/agentInternal/actorLoopTurn.ts",
+        "src/ax/agent/agentInternal/coordinator.ts",
+        "src/ax/agent/agentInternal/pipelineForward.ts",
         "src/ax/agent/agentInternal/agentInternalTypes.ts",
         "src/ax/agent/agentInternal/runtimeExecution.ts",
         "src/ax/agent/agentInternal/runtimeExecutionLlmQuery.ts",
