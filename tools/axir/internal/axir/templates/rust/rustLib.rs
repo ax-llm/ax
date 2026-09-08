@@ -1364,7 +1364,11 @@ fn bool_key(value: &Value, keys: &[&str]) -> bool {
         .any(|key| value.get(*key).and_then(Value::as_bool).unwrap_or(false))
 }
 
+pub type AxOwnedClientFactory = Box<dyn FnOnce() -> Box<dyn AxAIClient> + Send>;
+pub type AxOwnedTransportFactory = Box<dyn FnOnce() -> Box<dyn AxTransport> + Send>;
+
 pub trait AxAIClient {
+    fn owned_worker_factory(&mut self) -> Option<AxOwnedClientFactory> { None }
     fn chat(&mut self, request: Value) -> AxResult<Value>;
 
     fn open_chat_session(&mut self, _request: Value, _options: Value) -> AxResult<Option<Box<dyn AxChatSession>>> { Ok(None) }
@@ -1555,6 +1559,7 @@ pub enum AxTransportStream {
 }
 
 pub trait AxTransport: Send {
+    fn owned_worker_factory(&self) -> Option<AxOwnedTransportFactory> { None }
     fn send(&mut self, request: Value) -> AxResult<Value>;
 
     fn send_with_cancellation(&mut self,request:Value,cancellation:&AxCancellationToken)->AxResult<Value>{let _scope=AxCancellationScope::enter(cancellation)?;let result=self.send(request);cancellation.throw_if_cancelled()?;result}
@@ -1713,6 +1718,11 @@ pub trait AxContextCacheRegistry: Send {
     fn set(&mut self, namespace: &str, key: &str, entry: Value);
 }
 
+struct OwnedCacheRegistry(Arc<Mutex<Box<dyn AxContextCacheRegistry>>>);
+impl AxContextCacheRegistry for OwnedCacheRegistry {
+    fn get(&mut self,namespace:&str,key:&str)->Option<Value>{self.0.lock().ok()?.get(namespace,key)}
+    fn set(&mut self,namespace:&str,key:&str,entry:Value){if let Ok(mut registry)=self.0.lock(){registry.set(namespace,key,entry)}}
+}
 pub type RuntimeTransport = dyn AxTransport;
 
 pub struct ScriptedTransport {
@@ -1763,6 +1773,22 @@ pub struct OpenAICompatibleClient {
 }
 
 impl OpenAICompatibleClient {
+    fn owned_provider_factory(&mut self) -> Option<Box<dyn FnOnce() -> OpenAICompatibleClient + Send>> {
+        let transport_factory = if let Some(transport)=&self.transport { Some(transport.owned_worker_factory()?) }
+            else if let Some(transport)=&self.session_transport {Some(transport.lock().ok()?.owned_worker_factory()?)} else {None};
+        // Promote owned authentication/registry hooks to shared ownership rather
+        // than moving borrowed hooks into another thread.
+        let credentials = self.credential_provider.take().map(Arc::<dyn AxCredentialProvider>::from);
+        if let Some(shared)=&credentials {let shared=shared.clone();self.credential_provider=Some(Box::new(move |request:&AxCredentialRequest|shared.credentials(request)));}
+        let registry = self.context_cache_registry.take().map(|registry|Arc::new(Mutex::new(registry)));
+        if let Some(shared)=&registry {self.context_cache_registry=Some(Box::new(OwnedCacheRegistry(shared.clone())));}
+        let mut owned=OpenAICompatibleClient::new(self.api_key.clone(),self.model.clone());
+        owned.api_url=self.api_url.clone();owned.base_url_override=self.base_url_override.clone();owned.api_version=self.api_version.clone();owned.embed_model=self.embed_model.clone();owned.profile=self.profile.clone();owned.model_config=self.model_config.clone();owned.options=self.options.clone();owned.session_socket_factory=self.session_socket_factory.clone();owned.context_cache_entries=self.context_cache_entries.clone();owned.runtime_hooks=self.runtime_hooks.clone();
+        if let Some(shared)=credentials {owned.credential_provider=Some(Box::new(move |request:&AxCredentialRequest|shared.credentials(request)));}
+        if let Some(shared)=registry {owned.context_cache_registry=Some(Box::new(OwnedCacheRegistry(shared)));}
+        Some(Box::new(move || {if let Some(create)=transport_factory {owned.transport=Some(create());}owned}))
+    }
+
     pub fn new(api_key: impl Into<String>, model: impl Into<String>) -> Self {
         Self {
             api_key: api_key.into(),
@@ -3086,6 +3112,10 @@ mod meta_duplex_tests {
 }
 
 impl AxAIClient for OpenAICompatibleClient {
+    fn owned_worker_factory(&mut self) -> Option<AxOwnedClientFactory> {
+        let create = self.owned_provider_factory()?;
+        Some(Box::new(move || Box::new(create())))
+    }
     fn observe_chat_session_response(&mut self, response: &Value, options: &Value) {
         self.last_model_usage = response.get("model_usage").cloned();
         let mut merged=self.options.clone(); merge_object(&mut merged, options);
@@ -3575,6 +3605,7 @@ pub(crate) fn parse_sse_events(body: &str) -> AxResult<Vec<Value>> {
 
 #[derive(Clone)]
 pub struct Tool {
+    pub parameters: Option<Value>,
     pub execution: String,
     pub name: String,
     pub description: String,
@@ -3592,6 +3623,10 @@ impl AxToolContext {
     pub fn is_cancelled(&self)->bool {self.cancelled.load(std::sync::atomic::Ordering::SeqCst)}
 }
 impl Tool {
+    pub fn schema(&self) -> AxResult<Value> {
+        if let Some(schema) = &self.parameters { return Ok(schema.clone()); }
+        Ok(core_value_to_json(&to_json_schema(&[core_tool_args_fields(&self.args)?, CoreValue::from(""), core_value_from_json(&json!({"strict":true}))])?))
+    }
     pub fn call(&self,args:Value)->AxResult<Value>{self.call_with_context(args,AxToolContext::default())}
     pub fn call_with_context(&self, args: Value, context:AxToolContext) -> AxResult<Value> {
         let mut attributes = BTreeMap::new();
@@ -3608,6 +3643,7 @@ impl Tool {
 }
 
 pub struct ToolBuilder {
+    parameters: Option<Value>,
     execution: String,
     name: String,
     description: String,
@@ -3616,6 +3652,7 @@ pub struct ToolBuilder {
 
 pub fn tool(name: &str) -> ToolBuilder {
     ToolBuilder {
+        parameters: None,
         execution: "blocking".to_string(),
         name: name.to_string(),
         description: String::new(),
@@ -3624,6 +3661,7 @@ pub fn tool(name: &str) -> ToolBuilder {
 }
 
 impl ToolBuilder {
+    pub fn parameters(mut self, schema: Value) -> Self { self.parameters = Some(schema); self }
     pub fn execution(mut self, mode: &str) -> Self {
         assert!(mode == "blocking" || mode == "background", "Tool execution must be blocking or background");
         self.execution = mode.to_string();
@@ -3649,6 +3687,7 @@ impl ToolBuilder {
         handler: impl Fn(Value) -> AxResult<Value> + Send + Sync + 'static,
     ) -> Tool {
         Tool {
+            parameters: self.parameters,
             execution: self.execution,
             name: self.name,
             description: self.description,
@@ -3696,6 +3735,26 @@ pub fn ax_with_runtime_hooks(spec: &str, hooks: AxRuntimeHooks) -> AxResult<AxGe
 }
 
 impl AxGen {
+    pub fn owned_worker_factory(&self) -> Option<Box<dyn FnOnce() -> AxGen + Send>> {
+        if self.execution_context.is_some() {return None;}
+        let signature=self.signature.clone();
+        let options=self.options.clone();
+        let function_call_traces=self.function_call_traces.clone();
+        let tools=self.tools.clone();
+        let base_tools=self.base_tools.clone();
+        let assertions=self.assertions.clone();
+        let examples=self.examples.clone();
+        let demos=self.demos.clone();
+        let field_processors=self.field_processors.clone();
+        let stop_functions=self.stop_functions.clone();
+        let memory=self.memory.clone();
+        let traces=self.traces.clone();
+        let chat_log=self.chat_log.clone();
+        let result_picker=self.result_picker.clone();
+        let runtime_hooks=self.runtime_hooks.clone();
+        Some(Box::new(move || AxGen {execution_context:None,signature,options,function_call_traces,tools,base_tools,assertions,examples,demos,field_processors,stop_functions,memory,traces,chat_log,result_picker,runtime_hooks}))
+    }
+
     pub fn new(spec: &str) -> AxResult<Self> {
         Ok(Self {
             signature: s(spec)?,
@@ -3825,6 +3884,7 @@ impl AxGen {
         let mut session_run=session::SessionRun::new(state.clone(), self.tools.clone(), options.clone());
         if session::current_control().is_some() || self.tools.iter().any(|tool|tool.execution=="background") { if !options.is_object(){options=json!({});} options["infraRetries"]=json!(0); }
         let mut chat = |method: &str, request: Value, options: Value| -> AxResult<Value> {
+            if method=="owned_worker" {return Ok(publish_owned_client_factory(client.owned_worker_factory()));}
             if method.starts_with("route_") {return session::dispatch_run_route(client,method,request,options);}
             if method == "transcribe" {
                 client.transcribe(request)
@@ -4308,6 +4368,69 @@ fn assertion_subject<'a>(assertion: &Value, output: &'a Value) -> &'a Value {
         .unwrap_or(output)
 }
 
+/// A factory transfers owned configuration; the resulting program stays on its worker.
+pub type AxOwnedProgramFactory = Box<dyn FnOnce() -> Box<dyn AxExecutableProgram> + Send>;
+
+/// Executable flow programs need no thread-safety bounds. Factory opt-in enables parallel groups.
+pub trait AxExecutableProgram: AxProgram {
+    fn forward(&mut self, client: &mut dyn AxAIClient, input: Value, options: AxForwardOptions) -> AxResult<Value>;
+    fn owned_worker_factory(&self) -> Option<AxOwnedProgramFactory> { None }
+    fn get_chat_log(&self) -> Vec<Value> { Vec::new() }
+    fn get_traces(&self) -> Vec<Value> { Vec::new() }
+    fn get_usage(&self) -> Value { Value::Null }
+}
+
+// This adapter is borrowed only within forward; no borrowed client crosses a thread boundary.
+struct ProgramClient<'a>(&'a mut dyn AxAIClient);
+impl AxAIClient for ProgramClient<'_> {
+    fn owned_worker_factory(&mut self)->Option<AxOwnedClientFactory>{self.0.owned_worker_factory()}
+    fn chat(&mut self,r:Value)->AxResult<Value>{self.0.chat(r)}
+    fn chat_with_options(&mut self,r:Value,o:Value)->AxResult<Value>{self.0.chat_with_options(r,o)}
+    fn open_chat_session(&mut self,r:Value,o:Value)->AxResult<Option<Box<dyn AxChatSession>>>{self.0.open_chat_session(r,o)}
+    fn pin_chat_run(&mut self,r:&Value,o:&Value)->AxResult<Option<String>>{self.0.pin_chat_run(r,o)}
+    fn pinned_chat_run_client(&mut self,r:&str)->AxResult<&mut dyn AxAIClient>{self.0.pinned_chat_run_client(r)}
+    fn preprocess_pinned_chat_run(&self,r:&str,v:Value)->AxResult<Value>{self.0.preprocess_pinned_chat_run(r,v)}
+    fn observe_chat_session_response(&mut self,r:&Value,o:&Value){self.0.observe_chat_session_response(r,o)}
+    fn get_features(&self,m:Option<&str>)->Value{self.0.get_features(m)}
+    fn get_id(&self)->String{self.0.get_id()}
+    fn get_name(&self)->String{self.0.get_name()}
+    fn get_model_list(&self)->Value{self.0.get_model_list()}
+    fn get_metrics(&self)->Value{self.0.get_metrics()}
+    fn get_estimated_cost(&self,u:&Value)->f64{self.0.get_estimated_cost(u)}
+    fn get_options(&self)->Value{self.0.get_options()}
+    fn set_options(&mut self,o:Value){self.0.set_options(o)}
+    fn transcribe(&mut self,r:Value)->AxResult<Value>{self.0.transcribe(r)}
+    fn embed(&mut self,r:Value)->AxResult<Value>{self.0.embed(r)}
+    fn speak(&mut self,r:Value)->AxResult<Value>{self.0.speak(r)}
+    fn complete(&mut self,r:Value)->AxResult<Value>{self.0.complete(r)}
+    fn stream(&mut self,r:Value)->AxResult<Vec<Value>>{self.0.stream(r)}
+    fn stream_iter(&mut self,r:Value)->AxResult<AxChatStream>{self.0.stream_iter(r)}
+}
+
+impl AxExecutableProgram for AxGen {
+    fn forward(&mut self,client:&mut dyn AxAIClient,input:Value,options:AxForwardOptions)->AxResult<Value>{
+        self.forward_with_options(&mut ProgramClient(client),input,options)
+    }
+    fn owned_worker_factory(&self)->Option<AxOwnedProgramFactory>{
+        let create=AxGen::owned_worker_factory(self)?;Some(Box::new(move ||Box::new(create())))
+    }
+    fn get_chat_log(&self)->Vec<Value>{self.chat_log.clone()}
+    fn get_traces(&self)->Vec<Value>{self.traces.clone()}
+    fn get_usage(&self)->Value{json!(self.chat_log.iter().filter_map(|entry|entry.get("usage")).collect::<Vec<_>>())}
+}
+
+impl AxExecutableProgram for AxFlow {
+    fn forward(&mut self,client:&mut dyn AxAIClient,input:Value,options:AxForwardOptions)->AxResult<Value>{
+        self.forward_with_options(&mut ProgramClient(client),input,options)
+    }
+    fn owned_worker_factory(&self)->Option<AxOwnedProgramFactory>{
+        let create=AxFlow::owned_worker_factory(self)?;Some(Box::new(move ||Box::new(create())))
+    }
+    fn get_chat_log(&self)->Vec<Value>{core_value_to_json(&core_get(&self.state,&CoreValue::from("chat_log"),CoreValue::Null)).as_array().cloned().unwrap_or_default()}
+    fn get_traces(&self)->Vec<Value>{core_value_to_json(&core_get(&self.state,&CoreValue::from("traces"),CoreValue::Null)).as_array().cloned().unwrap_or_default()}
+    fn get_usage(&self)->Value{core_value_to_json(&core_get(&self.state,&CoreValue::from("usage"),CoreValue::Null))}
+}
+
 pub trait AxProgram {
     fn program_kind(&self) -> &'static str;
 }
@@ -4335,6 +4458,22 @@ pub struct AxAgent {
     citations_observer: Option<Box<dyn FnMut(Value)>>,
     playbook_observer: Option<Box<dyn FnMut(Value)>>,
     runtime_hooks: AxRuntimeHooks,
+}
+
+thread_local! {
+    static AGENT_RUN_BINDINGS: RefCell<BTreeMap<u64, CoreValue>> = RefCell::new(BTreeMap::new());
+}
+static AGENT_RUN_BINDING_ID: AtomicU64 = AtomicU64::new(1);
+struct AgentRunBinding(u64);
+impl AgentRunBinding {
+    fn new(state: CoreValue) -> Self {
+        let id = AGENT_RUN_BINDING_ID.fetch_add(1, Ordering::Relaxed);
+        AGENT_RUN_BINDINGS.with(|bindings| bindings.borrow_mut().insert(id, state));
+        Self(id)
+    }
+}
+impl Drop for AgentRunBinding {
+    fn drop(&mut self) { AGENT_RUN_BINDINGS.with(|bindings| bindings.borrow_mut().remove(&self.0)); }
 }
 
 pub fn agent(spec: &str) -> AxResult<AxAgent> {
@@ -4373,6 +4512,7 @@ where
 }
 
 pub fn agent_with_execution_context(spec: &str, options: Value, context: AxExecutionContext) -> AxResult<AxAgent> {
+    context.initialize()?;
     let options = core_value_from_json(&options);
     let modules = CoreValue::new_list();
     for client in &context.mcp {
@@ -4394,7 +4534,7 @@ pub fn agent_with_execution_context(spec: &str, options: Value, context: AxExecu
         core_set(&module, CoreValue::from("functions"), functions)?;
         core_append(&modules, module)?;
     }
-    core_set(&options, CoreValue::from("functions"), modules)?;
+    let options = _agent_append_runtime_modules(&[options, modules])?;
     let mut agent = agent_with_core_options(spec, options)?;
     agent.execution_context = Some(context);
     Ok(agent)
@@ -4519,6 +4659,20 @@ pub(crate) fn agent_with_core_options(spec: &str, options: CoreValue) -> AxResul
 }
 
 impl AxAgent {
+    pub fn with_child_agent(mut self, namespace: &str, name: &str, child: AxAgent) -> AxResult<Self> {
+        let child_signature = core_get(&child.state, &CoreValue::from("signature"), CoreValue::Null);
+        let options = core_get(&self.state, &CoreValue::from("options"), CoreValue::new_map());
+        let options = _agent_register_child(&[options, CoreValue::from(namespace), CoreValue::from(name), AgentHost::new(child), child_signature])?;
+        let spec = signature_from_record(&core_get(&self.state, &CoreValue::from("signature"), CoreValue::Null))?.to_string();
+        let mut rebuilt = agent_with_core_options(&spec, options)?;
+        rebuilt.runtime_hooks = self.runtime_hooks;
+        rebuilt.execution_context = self.execution_context;
+        rebuilt.citations_observer = self.citations_observer;
+        rebuilt.playbook_observer = self.playbook_observer;
+        rebuilt.playbook_config = self.playbook_config;
+        rebuilt.playbook_snapshot = self.playbook_snapshot;
+        Ok(rebuilt)
+    }
     pub fn with_tool_module(mut self,name:&str,tools:Vec<Tool>)->AxResult<Self> {
         let options=core_get(&self.state,&CoreValue::from("options"),CoreValue::new_map());
         let functions=core_get(&options,&CoreValue::from("functions"),CoreValue::new_list());
@@ -4611,6 +4765,7 @@ impl AxAgent {
         attributes.insert("ax.program.kind".to_string(), json!("AxAgent"));
         with_runtime_scope(None, Some(&defaults), "ax_gen_agent_forward", "agent", attributes, || {
         let mut chat = |method: &str, request: Value, options: Value| -> AxResult<Value> {
+            if method=="owned_worker" {return Ok(publish_owned_client_factory(client.owned_worker_factory()));}
             if method.starts_with("route_") {return session::dispatch_run_route(client,method,request,options);}
             if method == "transcribe" {
                 client.transcribe(request)
@@ -4632,11 +4787,28 @@ impl AxAgent {
         // here resolves to that binding), so it captures only Send + Sync data.
         let state_options = core_get(&self.state, &CoreValue::from("options"), CoreValue::Null);
         let runtime_host = core_get(&state_options, &CoreValue::from("runtime"), CoreValue::Null);
+        let invocation_binding = AgentRunBinding::new(self.state.clone());
         if let CoreValue::Host(host) = &runtime_host {
+            for raw_name in core_iter(&_agent_runtime_callable_names(&[self.state.clone()])?)? {
+                let qualified = raw_name.text();
+                let binding_id = invocation_binding.0;
+                let callback_name = qualified.clone();
+                let callback: AxHostCallable = Arc::new(move |arguments| {
+                    let state = AGENT_RUN_BINDINGS.with(|bindings| bindings.borrow().get(&binding_id).cloned())
+                        .ok_or_else(|| AxError::runtime("Agent invocation is closed or is not on the owning run thread"))?;
+                    let result = _agent_runtime_invoke_callable(&[state, CoreValue::from(&callback_name), core_value_from_json(&arguments)])?;
+                    Ok(core_value_to_json(&result))
+                });
+                host.register_runtime_callable(&qualified, callback);
+            }
             let llm_query_signature = self.llm_query_signature.clone();
             let llm_query_instruction = self.llm_query_instruction.clone();
             let query_options = options.clone();
+            let binding_id = invocation_binding.0;
             let callable: AxHostCallable = Arc::new(move |params: Value| -> AxResult<Value> {
+                if !AGENT_RUN_BINDINGS.with(|bindings| bindings.borrow().contains_key(&binding_id)) {
+                    return Err(AxError::runtime("Agent invocation is closed or is not on the owning run thread"));
+                }
                 let signature = s(&llm_query_signature)?;
                 let sub_gen = agent_stage_gen(
                     signature,
@@ -4779,6 +4951,7 @@ impl AxAgent {
                 "feedback": feedback,
             });
             let mut chat = |method: &str, request: Value, options: Value| -> AxResult<Value> {
+            if method=="owned_worker" {return Ok(publish_owned_client_factory(client.owned_worker_factory()));}
             if method.starts_with("route_") {return session::dispatch_run_route(client,method,request,options);}
                 if method == "transcribe" {
                 client.transcribe(request)
@@ -5108,8 +5281,18 @@ impl AxAgent {
             core_runtime_capabilities_full(),
         );
         let options = core_get(&self.state, &CoreValue::from("options"), CoreValue::Null);
+        let previous = core_get(&options, &CoreValue::from("runtime"), CoreValue::Null);
         core_set(&options, CoreValue::from("runtime"), host)?;
-        Ok(self)
+        if !matches!(previous, CoreValue::Null) { return Ok(self); }
+        let spec = signature_from_record(&core_get(&self.state, &CoreValue::from("signature"), CoreValue::Null))?.to_string();
+        let mut rebuilt = agent_with_core_options(&spec, options)?;
+        rebuilt.runtime_hooks = self.runtime_hooks;
+        rebuilt.execution_context = self.execution_context;
+        rebuilt.citations_observer = self.citations_observer;
+        rebuilt.playbook_observer = self.playbook_observer;
+        rebuilt.playbook_config = self.playbook_config;
+        rebuilt.playbook_snapshot = self.playbook_snapshot;
+        Ok(rebuilt)
     }
 
     /// Apply an optimizer artifact to the agent's stages: validate (or deserialize)
@@ -5417,6 +5600,11 @@ pub fn flow_with_execution_context(id: &str, context: AxExecutionContext) -> AxF
 }
 
 impl AxFlow {
+    pub fn owned_worker_factory(&self)->Option<Box<dyn FnOnce()->AxFlow+Send>> {
+        if self.execution_context.is_some(){return None;}
+        let state=owned_core_factory(&self.state)?;let hooks=self.runtime_hooks.clone();
+        Some(Box::new(move || AxFlow{state:state(),execution_context:None,runtime_hooks:hooks}))
+    }
     pub fn with_runtime_hooks(mut self, hooks: AxRuntimeHooks) -> Self {
         self.runtime_hooks = hooks;
         self
@@ -5439,6 +5627,14 @@ impl AxFlow {
 
     pub fn to_string_with_options(&self, options: &Value) -> AxResult<String> {
         Ok(_flow_to_mermaid(&[self.state.clone(), core_value_from_json(options)])?.text())
+    }
+
+    /// Add a nested flow or a custom executable program using the existing dependency options.
+    pub fn execute_program<P: AxExecutableProgram + 'static>(self, name: &str, program: P, options: &Value) -> Self {
+        let options=if options.is_null(){json!({})}else{options.clone()};
+        let step=_flow_step(&[CoreValue::from("execute"),CoreValue::from(name),ExecutableProgramHost::new(Box::new(program)),core_value_from_json(&options)]);
+        if let Ok(step)=step {let _=_flow_add_step(&[self.state.clone(),step]);}
+        self
     }
 
     pub fn execute(self, name: &str, program: AxGen) -> Self {
@@ -5488,6 +5684,7 @@ impl AxFlow {
         attributes.insert("ax.program.kind".to_string(), json!("AxFlow"));
         with_runtime_scope(None, Some(&defaults), "ax_gen_flow_forward", "flow", attributes, || {
         let mut chat = |method: &str, request: Value, options: Value| -> AxResult<Value> {
+            if method=="owned_worker" {return Ok(publish_owned_client_factory(client.owned_worker_factory()));}
             if method.starts_with("route_") {return session::dispatch_run_route(client,method,request,options);}
             if method == "transcribe" {
                 client.transcribe(request)
@@ -7461,6 +7658,7 @@ pub type AxBalancerEstimateCost = Arc<dyn Fn(&dyn AxAIClient,&Value)->f64+Send+S
 pub type AxBalancerSlice = Arc<dyn Fn(&Value)->String+Send+Sync>;
 pub type AxBalancerRouteKey = Arc<dyn Fn(&dyn AxAIClient,usize)->String+Send+Sync>;
 pub type AxBalancerEventHook = Arc<dyn Fn(AxBalancerRoutingEvent)+Send+Sync>;
+#[derive(Clone)]
 pub struct AxBalancerAdaptiveStrategy { pub deadline_ms:f64,pub bad_outcome_cost:f64,pub expected_tokens:Option<Value>,pub estimate_cost:Option<AxBalancerEstimateCost>,pub namespace:String,pub slice:Option<AxBalancerSlice>,pub route_key:Option<AxBalancerRouteKey>,pub stats_store:Option<Arc<dyn AxBalancerStatsStore>>,pub on_routing_event:Option<AxBalancerEventHook> }
 impl AxBalancerAdaptiveStrategy { pub fn new(deadline_ms:f64,bad_outcome_cost:f64)->Self{Self{deadline_ms,bad_outcome_cost,expected_tokens:None,estimate_cost:None,namespace:"default".into(),slice:None,route_key:None,stats_store:None,on_routing_event:None}} pub fn with_expected_tokens(mut self,prompt:u64,completion:u64)->Self{self.expected_tokens=Some(json!({"promptTokens":prompt,"completionTokens":completion}));self} pub fn with_namespace(mut self,value:impl Into<String>)->Self{self.namespace=value.into();self} pub fn with_store(mut self,value:Arc<dyn AxBalancerStatsStore>)->Self{self.stats_store=Some(value);self} pub fn with_route_key(mut self,value:AxBalancerRouteKey)->Self{self.route_key=Some(value);self} pub fn with_slice(mut self,value:AxBalancerSlice)->Self{self.slice=Some(value);self} pub fn with_estimate_cost(mut self,value:AxBalancerEstimateCost)->Self{self.estimate_cost=Some(value);self} pub fn on_routing_event(mut self,value:AxBalancerEventHook)->Self{self.on_routing_event=Some(value);self} }
 pub struct AxBalancerOptions {
@@ -7472,6 +7670,12 @@ pub struct AxBalancerOptions {
     pub strategy: Option<AxBalancerAdaptiveStrategy>,
 }
 impl AxAIClient for AxBalancer {
+    fn owned_worker_factory(&mut self)->Option<AxOwnedClientFactory>{
+        let mut factories=Vec::new();for client in &mut self.services{factories.push(client.owned_worker_factory()?);}
+        let current=self.current;let adaptive=self.adaptive.clone();let adaptive_store=self.adaptive_store.clone();let route_keys=self.route_keys.clone();let service_failures=self.service_failures.clone();let max_retries=self.max_retries;
+        Some(Box::new(move ||Box::new(AxBalancer{services:factories.into_iter().map(|create|create()).collect(),current,adaptive,adaptive_store,route_keys,service_failures,max_retries})))
+    }
+
     fn chat(&mut self,request:Value)->AxResult<Value>{AxBalancer::chat(self,request)}
     fn get_features(&self,model:Option<&str>)->Value{AxBalancer::get_features(self,model)}
     fn get_name(&self)->String{self.services.get(self.current).map(|service|service.get_name()).unwrap_or_else(||"balancer".into())}
@@ -7488,7 +7692,7 @@ impl AxAIClient for AxBalancer {
         self.pinned_chat_run_client(&route)?.open_chat_session(request,options)
     }
     fn pin_chat_run(&mut self,request:&Value,_options:&Value)->AxResult<Option<String>> {
-        let index=if self.adaptive.is_some(){self.rank(request)?.first().map(|candidate|candidate.index)}else{self.candidate_indices(request)?.into_iter().find(|index|!self.service_failures.contains_key(&self.services[*index].get_id()))};
+        let index=if self.adaptive.is_some(){self.rank(request)?.first().map(|candidate|candidate.index)}else{self.candidate_indices(request)?.into_iter().find(|index|self.failure_count(&self.services[*index].get_id()) == 0)};
         self.current=index.ok_or_else(||AxError::runtime("No eligible service for this run"))?;Ok(Some(self.current.to_string()))
     }
     fn pinned_chat_run_client(&mut self,route:&str)->AxResult<&mut dyn AxAIClient>{
@@ -7517,7 +7721,7 @@ pub struct AxBalancer {
     adaptive: Option<AxBalancerAdaptiveStrategy>,
     adaptive_store: Option<Arc<dyn AxBalancerStatsStore>>,
     route_keys: Vec<String>,
-    service_failures: BTreeMap<String, usize>,
+    service_failures: Arc<Mutex<BTreeMap<String, usize>>>,
     max_retries: usize,
 }
 
@@ -7532,8 +7736,11 @@ pub struct ProviderRouter {
 }
 
 impl AxBalancer {
+    fn failure_count(&self,id:&str)->usize{self.service_failures.lock().unwrap_or_else(|error|error.into_inner()).get(id).copied().unwrap_or(0)}
+    fn clear_failure(&self,id:&str){self.service_failures.lock().unwrap_or_else(|error|error.into_inner()).remove(id);}
+    fn record_failure(&self,id:&str){*self.service_failures.lock().unwrap_or_else(|error|error.into_inner()).entry(id.into()).or_insert(0)+=1;}
     pub fn new() -> Self {
-        Self { services: Vec::new(), current: 0, adaptive:None, adaptive_store:None, route_keys:Vec::new(), service_failures:BTreeMap::new(), max_retries:3 }
+        Self { services: Vec::new(), current: 0, adaptive:None, adaptive_store:None, route_keys:Vec::new(), service_failures:Arc::new(Mutex::new(BTreeMap::new())), max_retries:3 }
     }
 
     pub fn from_services(services: Vec<OpenAICompatibleClient>) -> Self {
@@ -7548,7 +7755,7 @@ impl AxBalancer {
             let right = score(right.get_metrics());
             left.total_cmp(&right)
         });
-        Self { services, current: 0, adaptive:None, adaptive_store:None, route_keys:Vec::new(), service_failures:BTreeMap::new(), max_retries:3 }
+        Self { services, current: 0, adaptive:None, adaptive_store:None, route_keys:Vec::new(), service_failures:Arc::new(Mutex::new(BTreeMap::new())), max_retries:3 }
     }
 
     pub fn from_clients(services:Vec<Box<dyn AxAIClient>>,mut options:AxBalancerOptions)->AxResult<Self>{
@@ -7561,7 +7768,7 @@ impl AxBalancer {
         }))])?);
         let max_retries=policy.get("maxRetries").and_then(Value::as_u64).unwrap_or(options.max_retries as u64) as usize;
         let input_order=policy.get("strategy").and_then(Value::as_str)==Some("input_order");
-        let mut value=Self{services,current:0,adaptive:None,adaptive_store:None,route_keys:Vec::new(),service_failures:BTreeMap::new(),max_retries:max_retries.max(1)};
+        let mut value=Self{services,current:0,adaptive:None,adaptive_store:None,route_keys:Vec::new(),service_failures:Arc::new(Mutex::new(BTreeMap::new())),max_retries:max_retries.max(1)};
         if value.services.is_empty(){return Err(AxError::validation("AxBalancer requires at least one service"))}
         value.validate_models()?;
         if let Some(strategy)=options.strategy.take(){
@@ -7617,7 +7824,7 @@ impl AxBalancer {
     fn rank(&self,request:&Value)->AxResult<Vec<AxAdaptiveCandidate>>{let strategy=self.adaptive.as_ref().unwrap();let logical=request.get("model").and_then(Value::as_str).unwrap_or("default").to_string();let context=json!({"model":request.get("model"),"options":{}});let slice=strategy.slice.as_ref().map(|callback|callback(&context)).unwrap_or_else(||"default".into());if slice.trim().is_empty(){return Err(AxError::runtime("Adaptive slice must be non-empty."))}let mut ranked=Vec::new();for(order,index)in self.candidate_indices(request)?.into_iter().enumerate(){let key=AxBalancerStatsKey{namespace:strategy.namespace.clone(),slice:slice.clone(),logical_model:logical.clone(),route_key:self.route_keys[index].clone()};let health=sample_balancer_route_health(self.read_stats(&key).as_ref(),strategy.deadline_ms)?;let failure=health.get("failureProbability").and_then(Value::as_f64).unwrap_or(0.05);let late=health.get("deadlineMissProbability").and_then(Value::as_f64).unwrap_or(0.0);let estimated=self.adaptive_cost(index,&key.route_key,request)?;let score=core_value_to_json(&provider_balancer_adaptive_score(&[CoreValue::Num(estimated),CoreValue::Num(strategy.bad_outcome_cost),CoreValue::Num(failure),CoreValue::Num(late)])?).as_f64().unwrap_or(f64::INFINITY);ranked.push(AxAdaptiveCandidate{index,order,route_key:key.route_key.clone(),stats_key:key,score,estimated_cost:estimated,failure_probability:failure,deadline_miss_probability:late})}let rank_input=Value::Array(ranked.iter().map(|value|json!({"routeKey":value.route_key,"score":value.score,"order":value.order})).collect());let core_ranked=core_value_to_json(&provider_balancer_rank_candidates(&[core_value_from_json(&rank_input)])?);let mut ranked_by_key=ranked.into_iter().map(|value|(value.route_key.clone(),value)).collect::<BTreeMap<_,_>>();let ranked=core_ranked.as_array().into_iter().flatten().filter_map(|value|value.get("routeKey").and_then(Value::as_str).and_then(|key|ranked_by_key.remove(key))).collect::<Vec<_>>();let candidates=ranked.iter().map(|value|json!({"routeKey":value.route_key,"serviceName":self.services[value.index].get_name(),"score":value.score,"estimatedCost":value.estimated_cost,"failureProbability":value.failure_probability,"deadlineMissProbability":value.deadline_miss_probability})).collect::<Vec<_>>();let mut event=Self::event_base("ranked",&ranked[0].stats_key);event.insert("candidates".into(),json!(candidates));self.emit(Value::Object(event));Ok(ranked)}
 
     pub fn chat(&mut self, request: Value) -> AxResult<Value> {
-        if self.adaptive.is_none(){let candidates=self.candidate_indices(&request)?;for index in candidates.iter().copied(){self.current=index;let id=self.services[index].get_id();while self.service_failures.get(&id).copied().unwrap_or(0)<self.max_retries{match self.services[index].chat(request.clone()){Ok(response)=>{self.service_failures.remove(&id);return Ok(response)},Err(error)if is_retryable_ai_error(&error)=>{*self.service_failures.entry(id.clone()).or_insert(0)+=1},Err(error)=>return Err(error)}}}return Err(AxError::runtime(format!("All candidate services exhausted (tried {} service(s))",candidates.len())))}let ranked=self.rank(&request)?;let mut last=None;for(attempt,candidate)in ranked.iter().enumerate(){self.current=candidate.index;let mut selected=Self::event_base("selected",&candidate.stats_key);selected.insert("routeKey".into(),json!(candidate.route_key));selected.insert("serviceName".into(),json!(self.services[candidate.index].get_name()));selected.insert("attempt".into(),json!(attempt+1));self.emit(Value::Object(selected));let started=Instant::now();match self.services[candidate.index].chat(request.clone()){Ok(response)=>{self.observe(candidate,AxBalancerStatsObservation{outcome:"success".into(),latency_ms:Some(started.elapsed().as_secs_f64()*1000.0)},false,None,None);return Ok(response)},Err(error)if is_retryable_ai_error(&error)=>{let reason=adaptive_failure_reason(&error);self.observe(candidate,AxBalancerStatsObservation{outcome:"failure".into(),latency_ms:None},false,Some(reason),error.status);let mut fallback=Self::event_base("fallback",&candidate.stats_key);fallback.insert("fromRouteKey".into(),json!(candidate.route_key));fallback.insert("toRouteKey".into(),ranked.get(attempt+1).map(|value|json!(value.route_key)).unwrap_or(Value::Null));fallback.insert("reason".into(),json!(reason));fallback.insert("status".into(),json!(error.status));self.emit(Value::Object(fallback));last=Some(error)},Err(error)=>return Err(error)}}Err(last.unwrap_or_else(||AxError::runtime(format!("All candidate services exhausted (tried {} service(s))",ranked.len()))))
+        if self.adaptive.is_none(){let candidates=self.candidate_indices(&request)?;for index in candidates.iter().copied(){self.current=index;let id=self.services[index].get_id();while self.failure_count(&id)<self.max_retries{match self.services[index].chat(request.clone()){Ok(response)=>{self.clear_failure(&id);return Ok(response)},Err(error)if is_retryable_ai_error(&error)=>{self.record_failure(&id)},Err(error)=>return Err(error)}}}return Err(AxError::runtime(format!("All candidate services exhausted (tried {} service(s))",candidates.len())))}let ranked=self.rank(&request)?;let mut last=None;for(attempt,candidate)in ranked.iter().enumerate(){self.current=candidate.index;let mut selected=Self::event_base("selected",&candidate.stats_key);selected.insert("routeKey".into(),json!(candidate.route_key));selected.insert("serviceName".into(),json!(self.services[candidate.index].get_name()));selected.insert("attempt".into(),json!(attempt+1));self.emit(Value::Object(selected));let started=Instant::now();match self.services[candidate.index].chat(request.clone()){Ok(response)=>{self.observe(candidate,AxBalancerStatsObservation{outcome:"success".into(),latency_ms:Some(started.elapsed().as_secs_f64()*1000.0)},false,None,None);return Ok(response)},Err(error)if is_retryable_ai_error(&error)=>{let reason=adaptive_failure_reason(&error);self.observe(candidate,AxBalancerStatsObservation{outcome:"failure".into(),latency_ms:None},false,Some(reason),error.status);let mut fallback=Self::event_base("fallback",&candidate.stats_key);fallback.insert("fromRouteKey".into(),json!(candidate.route_key));fallback.insert("toRouteKey".into(),ranked.get(attempt+1).map(|value|json!(value.route_key)).unwrap_or(Value::Null));fallback.insert("reason".into(),json!(reason));fallback.insert("status".into(),json!(error.status));self.emit(Value::Object(fallback));last=Some(error)},Err(error)=>return Err(error)}}Err(last.unwrap_or_else(||AxError::runtime(format!("All candidate services exhausted (tried {} service(s))",ranked.len()))))
     }
 
     pub fn stream_iter(&mut self, request: Value) -> AxResult<AxChatStream> {
@@ -7627,11 +7834,11 @@ impl AxBalancer {
             for index in candidates.iter().copied() {
                 self.current = index;
                 let id = self.services[index].get_id();
-                while self.service_failures.get(&id).copied().unwrap_or(0) < self.max_retries {
+                while self.failure_count(&id) < self.max_retries {
                     match self.services[index].stream_iter(request.clone()) {
-                        Ok(stream) => { self.service_failures.remove(&id); return Ok(stream); }
+                        Ok(stream) => { self.clear_failure(&id); return Ok(stream); }
                         Err(error) if is_retryable_ai_error(&error) => {
-                            *self.service_failures.entry(id.clone()).or_insert(0) += 1;
+                            self.record_failure(&id);
                             last = Some(error);
                         }
                         Err(error) => return Err(error),
@@ -7707,6 +7914,11 @@ impl Default for AxBalancer {
 }
 
 impl AxAIClient for MultiServiceRouter {
+    fn owned_worker_factory(&mut self)->Option<AxOwnedClientFactory>{
+        let mut factories=Vec::new();for (key,client) in &mut self.services{factories.push((key.clone(),client.owned_provider_factory()?));}
+        Some(Box::new(move ||Box::new(MultiServiceRouter{services:factories.into_iter().map(|(key,create)|(key,create())).collect()})))
+    }
+
     fn get_features(&self,model:Option<&str>)->Value {MultiServiceRouter::get_features(self,model)}
     fn chat(&mut self,request:Value)->AxResult<Value> {self.chat_with_options(request,Value::Null)}
     fn chat_with_options(&mut self,request:Value,options:Value)->AxResult<Value> {
@@ -7932,6 +8144,12 @@ impl ProviderRouter {
 }
 
 impl AxAIClient for ProviderRouter {
+    fn owned_worker_factory(&mut self)->Option<AxOwnedClientFactory>{
+        let mut factories=Vec::new();for (key,client) in &mut self.providers{factories.push((key.clone(),client.owned_provider_factory()?));}
+        let processing=self.processing.clone();let file_to_text=self.file_to_text.clone();
+        Some(Box::new(move ||Box::new(ProviderRouter{providers:factories.into_iter().map(|(key,create)|(key,create())).collect(),processing,file_to_text})))
+    }
+
     fn get_features(&self,model:Option<&str>)->Value{merge_balancer_feature_values(self.providers.values().map(|provider|provider.get_features(model)))}
     fn get_name(&self)->String{"provider-router".into()}
     fn chat(&mut self,request:Value)->AxResult<Value>{ProviderRouter::chat(self,request)}
@@ -8971,6 +9189,18 @@ fn run_flow_fixture(fixture: &Value) -> AxResult<()> {
         {
             return Err(AxError::new("fixture", "flow cache key distinctness mismatch"));
         }
+    }
+    if let Some(expected) = fixture.get("expected_request_count") {
+        expect_json_equal("flow request count", &json!(actual["requests"].as_array().map_or(0,Vec::len)), expected)?;
+    }
+    for (expectation, field) in [("expected_trace_subset","traces"),("expected_chat_log_subset","chat_log")] {
+        if let Some(expected)=fixture.get(expectation).and_then(Value::as_array) {
+            expect_json_list_subset(field, &actual[field], expected)?;
+        }
+    }
+    if let Some(expected)=fixture.get("expected_trace_kinds") {
+        let kinds:Vec<Value>=actual["traces"].as_array().into_iter().flatten().map(|v|v["kind"].clone()).collect();
+        expect_json_equal("flow trace kinds", &json!(kinds), expected)?;
     }
     Ok(())
 }
@@ -10590,6 +10820,16 @@ fn run_agent_forward_contract_fixture(fixture: &Value) -> AxResult<()> {
             return Err(error);
         }
     };
+    for child in fixture.get("child_agents").and_then(Value::as_array).into_iter().flatten() {
+        let mut program = agent_with_options(child["signature"].as_str().unwrap_or_default(), child.get("options").cloned().unwrap_or_else(|| json!({})))?;
+        if child.get("runtime_engine").is_some() {
+            #[cfg(feature = "runtime-quickjs")]
+            { program = program.with_runtime(Box::new(crate::runtime::quickjs::QuickJsCodeRuntime::new()))?; }
+            #[cfg(not(feature = "runtime-quickjs"))]
+            { return Err(AxError::runtime("Child runtime requires runtime-quickjs")); }
+        }
+        agent = agent.with_child_agent(child["namespace"].as_str().unwrap_or_default(), child["name"].as_str().unwrap_or_default(), program)?;
+    }
     let observer_called = Rc::new(std::cell::Cell::new(false));
     if fixture
         .get("observer_throws")
@@ -12162,6 +12402,7 @@ fn conformance_flow_result(fixture: &Value) -> AxResult<Value> {
         forward_options["cache_store"] = Value::Object(cache_store);
     }
     let mut chat = |method: &str, request: Value, options: Value| -> AxResult<Value> {
+            if method=="owned_worker" {return Ok(publish_owned_client_factory(client.owned_worker_factory()));}
             if method.starts_with("route_") {return session::dispatch_run_route(&mut client,method,request,options);}
         if method == "transcribe" {
                 client.transcribe(request)
@@ -12189,6 +12430,10 @@ fn conformance_flow_result(fixture: &Value) -> AxResult<Value> {
         json!([])
     };
     Ok(json!({
+        "requests": client.requests,
+        "traces": core_value_to_json(&core_get(&state, &CoreValue::from("traces"), CoreValue::Null)),
+        "chat_log": core_value_to_json(&core_get(&state, &CoreValue::from("chat_log"), CoreValue::Null)),
+        "usage": core_value_to_json(&core_get(&state, &CoreValue::from("usage"), CoreValue::Null)),
         "plan": plan,
         "output": output,
         "streaming_output": streaming_output,
@@ -13868,7 +14113,7 @@ impl AxAIClient for FixtureClient {
         let response = self
             .responses
             .pop_front()
-            .ok_or_else(|| AxError::new("fixture", "fixture response exhausted"))?;
+            .ok_or_else(|| AxError::new("fixture", format!("fixture response exhausted; request: {}", self.requests.last().unwrap_or(&Value::Null))))?;
         if response.get("results").is_some() {
             return Ok(response);
         }
@@ -15172,6 +15417,13 @@ fn core_number_arg(args: &[CoreValue], index: usize) -> Result<f64, AxError> {
         CoreValue::Num(value) => Ok(value),
         _ => Err(AxError::runtime("expected numeric operand")),
     }
+}
+
+fn core_string_codepoint_length(args: &[CoreValue]) -> Result<CoreValue, AxError> {
+    Ok(CoreValue::Num(core_arg(args, 0).text().chars().count() as f64))
+}
+fn core_math_is_finite(args: &[CoreValue]) -> Result<CoreValue, AxError> {
+    Ok(CoreValue::Bool(core_number_arg(args, 0)?.is_finite()))
 }
 
 fn core_math_floor(args: &[CoreValue]) -> Result<CoreValue, AxError> {
@@ -17296,6 +17548,7 @@ fn provider_ai_display_name(profile: &str) -> CoreValue {
 
 #[allow(dead_code)]
 pub(crate) trait CoreHost {
+    fn owned_worker_factory(&self)->Option<OwnedCoreFactory>{None}
     fn host_type(&self) -> &'static str;
     fn call_method(&self, name: &str, args: &[CoreValue]) -> Result<CoreValue, AxError>;
     /// Register a host callable on the wrapped runtime, if this host wraps one.
@@ -18805,7 +19058,7 @@ fn core_gen_state(gen: &AxGen) -> Result<CoreValue, AxError> {
         core_set(&map, CoreValue::from("description"), entry_method(&entry, "description"))?;
         core_set(&map, CoreValue::from("execution"), CoreValue::from(tool.execution.as_str()))?;
         core_set(&map, CoreValue::from("args"), core_tool_args_fields(&tool.args)?)?;
-        core_set(&map, CoreValue::from("parameters"), to_json_schema(&[core_tool_args_fields(&tool.args)?, CoreValue::from(""), core_value_from_json(&json!({"strict":true}))])?)?;
+        core_set(&map, CoreValue::from("parameters"), core_value_from_json(&tool.schema()?))?;
         core_set(&map, CoreValue::from("__tool_host"), entry)?;
         core_append(&tools, map)?;
     }
@@ -18923,6 +19176,10 @@ impl RawScopedClient {
 }
 
 impl AxAIClient for RawScopedClient {
+    fn owned_worker_factory(&mut self)->Option<AxOwnedClientFactory>{
+        if self.routed_call("owned_worker",Value::Null,Value::Null).ok()? != true{return None;}
+        OWNED_CLIENT_FACTORY.with(|slot|slot.borrow_mut().take())
+    }
     fn pin_chat_run(&mut self,request:&Value,options:&Value)->AxResult<Option<String>> {
         Ok(self.routed_call("select",request.clone(),options.clone())?.as_str().map(str::to_string))
     }
@@ -18978,6 +19235,30 @@ fn core_scoped_client() -> AxResult<RawScopedClient> {
     }
 }
 
+struct ExecutableProgramHost { program: RefCell<Box<dyn AxExecutableProgram>> }
+impl ExecutableProgramHost {
+    fn new(program:Box<dyn AxExecutableProgram>)->CoreValue {CoreValue::Host(Rc::new(Self{program:RefCell::new(program)}))}
+}
+impl CoreHost for ExecutableProgramHost {
+    fn host_type(&self)->&'static str {self.program.borrow().program_kind()}
+    fn owned_worker_factory(&self)->Option<OwnedCoreFactory>{
+        let create=self.program.borrow().owned_worker_factory()?;Some(Box::new(move ||Self::new(create())))
+    }
+    fn call_method(&self,name:&str,args:&[CoreValue])->AxResult<CoreValue>{
+        match name {
+            "forward"=>{
+                let mut client=core_scoped_client()?;
+                let result=self.program.borrow_mut().forward(&mut client,core_value_to_json(&core_arg(args,1)),core_value_to_json(&core_arg(args,2)).into())?;
+                Ok(core_value_from_json(&result))
+            },
+            "get_chat_log"=>Ok(core_value_from_json(&json!(self.program.borrow().get_chat_log()))),
+            "get_traces"=>Ok(core_value_from_json(&json!(self.program.borrow().get_traces()))),
+            "get_usage"=>Ok(core_value_from_json(&self.program.borrow().get_usage())),
+            other=>Err(AxError::runtime(format!("Executable program has no method '{other}'"))),
+        }
+    }
+}
+
 pub(crate) struct GenHost {
     gen: Rc<RefCell<AxGen>>,
 }
@@ -18989,6 +19270,9 @@ impl GenHost {
 }
 
 impl CoreHost for GenHost {
+    fn owned_worker_factory(&self)->Option<OwnedCoreFactory>{
+        let create=self.gen.borrow().owned_worker_factory()?;Some(Box::new(move || GenHost::new(create())))
+    }
     fn host_type(&self) -> &'static str {
         "AxGen"
     }
@@ -19044,6 +19328,9 @@ impl FlowHost {
 }
 
 impl CoreHost for FlowHost {
+    fn owned_worker_factory(&self)->Option<OwnedCoreFactory>{
+        let create=self.flow.borrow().owned_worker_factory()?;Some(Box::new(move || FlowHost::new(create())))
+    }
     fn host_type(&self) -> &'static str {
         "AxFlow"
     }
@@ -20606,6 +20893,12 @@ fn run_ai_session_events_fixture(fixture: &Value) -> AxResult<()> {
 }
 
 fn run_ai_session_state_fixture(fixture: &Value) -> AxResult<()> {
+    if let Some(cases) = fixture["validation_cases"].as_array() {
+        for case in cases {
+            let valid = chat_session_validate_required_arguments(&[core_value_from_json(&case["schema"]), core_value_from_json(&case["arguments"]), CoreValue::from("arguments")]).is_ok();
+            expect_json_equal(&format!("raw argument validation: {case}"), &json!(valid), &case["valid"])?;
+        }
+    }
     let state = chat_session_create_state(&[core_value_from_json(&fixture["model"]), core_value_from_json(&fixture["path"]), core_value_from_json(&fixture["max_steps"])])?;
     for case in fixture["cases"].as_array().unwrap() {
         let action = core_value_to_json(&chat_session_transition(&[state.clone(), core_value_from_json(&case["event"])])?);
@@ -20614,4 +20907,105 @@ fn run_ai_session_state_fixture(fixture: &Value) -> AxResult<()> {
     expect_json_equal("unresolved work", &core_value_to_json(&chat_session_unresolved(&[state.clone()])?), &fixture["expected_pending"])?;
     expect_json_equal("response accounting", &core_value_to_json(&state)["steps"], &fixture["expected_steps"])?;
     Ok(())
+}
+
+thread_local! {static OWNED_CLIENT_FACTORY:RefCell<Option<AxOwnedClientFactory>>=const{RefCell::new(None)};}
+fn publish_owned_client_factory(factory:Option<AxOwnedClientFactory>)->Value {
+    let available=factory.is_some();OWNED_CLIENT_FACTORY.with(|slot|*slot.borrow_mut()=factory);json!(available)
+}
+type OwnedCoreFactory=Box<dyn FnOnce()->CoreValue+Send>;
+fn owned_core_factory(value:&CoreValue)->Option<OwnedCoreFactory>{
+    match value {
+        CoreValue::Host(host)=>host.owned_worker_factory(),
+        CoreValue::List(values)=>{
+            let factories=values.borrow().iter().map(owned_core_factory).collect::<Option<Vec<_>>>()?;
+            Some(Box::new(move || CoreValue::List(Rc::new(RefCell::new(factories.into_iter().map(|create|create()).collect())))))
+        },
+        CoreValue::Map(values)=>{
+            let factories=values.borrow().entries.iter().map(|(key,value)|Some((key.clone(),owned_core_factory(value)?))).collect::<Option<Vec<_>>>()?;
+            Some(Box::new(move || CoreValue::Map(Rc::new(RefCell::new(CoreMap{entries:factories.into_iter().map(|(key,create)|(key,create())).collect()})))))
+        },
+        CoreValue::Error(_)=>None,
+        _=>{let snapshot=core_value_to_json(value);Some(Box::new(move || core_value_from_json(&snapshot)))},
+    }
+}
+fn owned_worker_client_call(client:&mut dyn AxAIClient,method:&str,request:Value,options:Value)->AxResult<Value>{
+    if method=="owned_worker"{return Ok(publish_owned_client_factory(client.owned_worker_factory()));}
+    if method.starts_with("route_"){return session::dispatch_run_route(client,method,request,options);}
+    match method {
+        "features"=>Ok(client.get_features(request.as_str())),
+        "open_session"=>Ok(session::publish_open_session(client.open_chat_session(request,options)?)),
+        "observe_session"=>{client.observe_chat_session_response(&request,&options);Ok(Value::Null)},
+        "transcribe"=>client.transcribe(request),
+        _=>client.chat_with_options(request,options),
+    }
+}
+fn core_flow_dispatch_group(args:&[CoreValue])->AxResult<CoreValue>{
+    let flow=core_arg(args,0);let plans=core_iter(&core_arg(args,2))?;let state=core_value_to_json(&core_arg(args,3));let options=core_value_to_json(&core_arg(args,4));
+    let steps=core_get(&flow,&CoreValue::from("steps"),CoreValue::new_list());
+    let blueprint=CoreValue::new_map();
+    for key in ["options","program_id"]{core_set(&blueprint,CoreValue::from(key),core_get(&flow,&CoreValue::from(key),CoreValue::Null))?;}
+    let mut client=core_scoped_client()?;
+    let mut tasks=Vec::new();let mut indices=Vec::new();
+    for plan in plans {
+        let index=core_get(&plan,&CoreValue::from("stepIndex"),CoreValue::Num(0.0));
+        let step=core_get(&steps,&index,CoreValue::Null);
+        if core_get(&step,&CoreValue::from("kind"),CoreValue::from("execute")).text()!="execute" {return Ok(CoreValue::Null);}
+        let program=core_get(&step,&CoreValue::from("program"),CoreValue::Null);
+        let (Some(program_factory),Some(client_factory),Some(flow_factory))=(owned_core_factory(&program),client.owned_worker_factory(),owned_core_factory(&blueprint)) else{return Ok(CoreValue::Null)};
+        indices.push(index);
+        tasks.push((program_factory,client_factory,flow_factory,core_value_to_json(&step),core_value_to_json(&plan)));
+    }
+    enum Delivery{Event(Value),Report(usize,Value,Option<OwnedCoreFactory>)}
+    let (sender,receiver)=std::sync::mpsc::channel();
+    let parent_control=session::current_control();let parent_cancel=current_cancellation_token();
+    let mut tokens=Vec::new();let count=tasks.len();
+    for (position,(program_factory,client_factory,flow_factory,step,plan)) in tasks.into_iter().enumerate(){
+        let sender=sender.clone();let event_sender=sender.clone();let state=state.clone();let options=options.clone();let token=AxCancellationToken::default();tokens.push(token.clone());
+        let control=session::worker_control(parent_control.clone(),move |event|{let _=event_sender.send(Delivery::Event(event));});
+        std::thread::spawn(move || {
+            let result=std::panic::catch_unwind(std::panic::AssertUnwindSafe(||->AxResult<(Value,Option<OwnedCoreFactory>)>{
+                let _cancellation=AxCancellationScope::enter(&token)?;
+                let program=program_factory();let mut client=client_factory();let step=core_value_from_json(&step);core_set(&step,CoreValue::from("program"),program.clone())?;
+                let mut callback=|method:&str,request:Value,options:Value|owned_worker_client_call(client.as_mut(),method,request,options);
+                let report=session::with_control(AxForwardOptions::from(options).with_control(control),|options|with_core_client(&mut callback,||flow_execute_owned_worker(&[flow_factory(),step,core_value_from_json(&plan),CoreValue::Null,core_value_from_json(&state),core_value_from_json(&options)])))?;
+                let restore=owned_core_factory(&program);let mut report=core_value_to_json(&report);
+                if restore.is_none()&&report.get("error").is_none(){report["error"]=json!("Worker cannot transfer completed program state");}
+                Ok((report,restore))
+            }));
+            let (report,restore)=match result{Ok(Ok(value))=>value,Ok(Err(error))=>(json!({"error":error.to_string()}),None),Err(_)=>(json!({"error":"Flow worker panicked"}),None)};
+            let _=sender.send(Delivery::Report(position,report,restore));
+        });
+    }
+    drop(sender);
+    struct WorkerCleanup(Vec<AxCancellationToken>);
+    impl Drop for WorkerCleanup{fn drop(&mut self){for token in &self.0{token.cancel("Flow dispatcher closed");}}}
+    let _cleanup=WorkerCleanup(tokens.clone());
+    let mut reports=vec![None;count];let mut remaining=count;let mut deadline=None;let mut pending=BTreeSet::new();
+    while remaining>0{
+        if parent_control.as_ref().is_some_and(|control|control.is_aborted())||parent_cancel.as_ref().is_some_and(|token|token.is_cancelled()){
+            if deadline.is_none(){deadline=Some(std::time::Instant::now()+Duration::from_millis(100));for token in &tokens{token.cancel("Flow group cancelled");}}
+        }
+        match receiver.recv_timeout(Duration::from_millis(20)){
+            Ok(Delivery::Event(event))=>{
+                let key=format!("{}:{}",event["path"],event["call_id"]);
+                if event["type"]=="tool.started"{pending.insert(key.clone());}
+                if event["type"]=="tool.completed"||event["type"]=="tool.failed"{pending.remove(&key);}
+                if let Some(control)=&parent_control{session::emit_worker_event(control,event);}
+            },
+            Ok(Delivery::Report(position,report,restore))=>{
+                if reports[position].is_some(){continue;}
+                if report.get("error").is_some(){if deadline.is_none(){deadline=Some(std::time::Instant::now()+Duration::from_millis(100));for token in &tokens{token.cancel("Flow sibling failed");}}}
+                else if let Some(restore)=restore{let original=core_get(&steps,&indices[position],CoreValue::Null);core_set(&original,CoreValue::from("program"),restore())?;}
+                reports[position]=Some(report);remaining-=1;
+            },
+            Err(std::sync::mpsc::RecvTimeoutError::Disconnected)=>{deadline=Some(std::time::Instant::now());},
+            Err(std::sync::mpsc::RecvTimeoutError::Timeout)=>{},
+        }
+        if deadline.is_some_and(|deadline|std::time::Instant::now()>=deadline){
+            for position in 0..count{if reports[position].is_none(){let step=core_get(&steps,&indices[position],CoreValue::Null);reports[position]=Some(json!({"error":format!("Flow cancelled; unresolved node: {}; unresolved calls: {:?}",core_get(&step,&CoreValue::from("name"),CoreValue::Null).text(),pending)}));remaining-=1;}}
+        }
+    }
+    for token in tokens{token.cancel("Flow dispatcher closed");}
+    Ok(core_value_from_json(&Value::Array(reports.into_iter().map(Option::unwrap).collect())))
 }

@@ -10,6 +10,12 @@ public final class AxProviderRouter implements AiClient,ChatRunSelector,AxChatSe
   private final Map<String, Object> routing;
   private final Map<String, Object> processing;
 
+  public java.util.function.Supplier<AiClient> ownedWorkerFactory() {
+    var factories=new ArrayList<java.util.function.Supplier<AiClient>>();for(var provider:providers){var factory=provider.ownedWorkerFactory();if(factory==null)return null;factories.add(factory);}
+    var processing=Core.asMap(Core.ownedCopy(this.processing));var routing=Core.asMap(Core.ownedCopy(this.routing));
+    return ()->{var worker=new AxProviderRouter(Map.of("processing",Core.ownedCopy(processing),"routing",Map.of("capability",Core.ownedCopy(routing))));for(var factory:factories)worker.providers.add((AxAIService)factory.get());return worker;};
+  }
+
   public AxProviderRouter(Map<String, Object> config) {
     Map<String, Object> providersConfig = Core.asMap(config.getOrDefault("providers", Map.of()));
     Object primary = providersConfig.get("primary");

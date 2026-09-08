@@ -1408,7 +1408,7 @@ func assertGeneratedSkillFrontmatter(t *testing.T, root, rel, target string) {
 		}
 		wants := []string{"Start from the complete programs under `examples/`", "https://axllm.dev/" + target + "/"}
 		if strings.HasSuffix(wantName, "-flow") {
-			wants = append(wants, "Class decision", "Fan-out and join", "generated runtime currently executes its nodes serially", "Draft, critique, revise")
+			wants = append(wants, "Class decision", "Fan-out and join", "Owned clients and programs run concurrently; unsupported custom workers use a traced serial fallback.", "Draft, critique, revise")
 		} else {
 			wants = append(wants, "Simple string contract", "Bounded class output", "JSON schema", "Reuse the signature")
 		}

@@ -358,6 +358,7 @@ class _SessionClient:
             if tool is None:
                 raise ValueError(f"Function {name!r} not found")
             validate_fields(tool.args, args, f"tool.{name}.args")
+            core.chat_session_validate_required_arguments(tool.parameters, args, f"tool.{name}.args")
         except Exception as error:
             core.chat_session_register_call(self.state, call, "blocking")
             message = core._tool_error_message_impl(call, error)
@@ -510,7 +511,8 @@ class _SessionClient:
         self._cancel.set()
         pending = []
         if self.state:
-            from .gen import chat_session_close_state
+            from .gen import chat_session_close_state, chat_session_record_unresolved
+            chat_session_record_unresolved(self.gen, self.state)
             pending = chat_session_close_state(self.state)
         if self.session:
             self.session.close()

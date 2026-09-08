@@ -3,6 +3,7 @@ package dev.axllm.ax;
 import java.util.Map;
 
 public interface AiClient {
+  default java.util.function.Supplier<AiClient> ownedWorkerFactory() { return null; }
   Map<String, Object> complete(Map<String, Object> request) throws Exception;
 
   default Map<String, Object> chat(Map<String, Object> request) throws Exception {

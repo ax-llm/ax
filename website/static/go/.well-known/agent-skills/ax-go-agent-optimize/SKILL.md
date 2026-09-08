@@ -34,7 +34,7 @@ result := engine.Optimize(request, evaluator)
 
 ## Relevant API Surface
 
-- Agents And RLM: `axllm.NewAgent`, `axllm.AxAgent`
+- Agents And RLM: `axllm.NewAgent`, `axllm.AxAgent`, `AxAgent.AddChildAgent`
 - Optimizers: `axllm.Optimize`, `axllm.Playbook`, `axllm.AxPlaybook`, `axllm.AxBootstrapFewShot`, `axllm.AxGEPA`, `axllm.OptimizerEngine`, `axllm.OptimizerEvaluator`
 
 ## Guardrails

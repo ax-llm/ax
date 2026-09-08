@@ -8,7 +8,7 @@ Use `flow()` to compose typed programs into a multi-step workflow the applicatio
 
 Each node is a typed program built from a signature. The flow graph determines what runs next. In TypeScript, independent steps run in parallel automatically when their state reads and writes do not conflict.
 
-**Generated-language limitation:** Python, Go, Java, C++, and Rust currently execute planned parallel groups serially. Their Astra examples verify sequential node isolation and controls. A background tool overlapping model work within one node does not mean separate flow nodes execute concurrently.
+Python, Go, Java, C++, and Rust execute independent nodes concurrently when their clients and programs provide owned workers. Custom implementations without that capability use a serial group and report the fallback in execution traces. Each node retains its own conversation and pending tools; successful results merge in plan order.
 
 ## What It Does
 
@@ -34,7 +34,7 @@ These runnable examples use the same `flow()` and `ax()` APIs with GPT-6 Astra:
 - `flows/astra-targeted-control`: instructions and reasoning updates applied only to a review node; the completed baseline is preserved.
 - `flows/astra-cancel-pending`: a controller cancels two pending lookups, and the flow rejects instead of reporting completion.
 
-Run one with `npm run example -- ts flows/astra-parallel-tools`. The examples require an OpenAI API key. The generated-language galleries also contain controlled Astra flow examples. Concurrent node dispatch is still unimplemented in these generated runtimes; full session parity remains open.
+Run one with `npm run example -- ts flows/astra-parallel-tools`. The examples require an OpenAI API key. The generated-language galleries contain controlled and concurrent Astra flow examples. Python, Go, Java, C++, and Rust run independent nodes concurrently when their clients and programs supply owned workers. Built-in providers, routers, and balancers support this automatically; custom implementations without the capability use a serial group and emit a `flow_parallel_fallback` trace. Full session acceptance remains tracked in the AxIR backlog.
 
 ## Core Call Shape
 
@@ -101,7 +101,7 @@ flowchart TD
   salesReply --> send
 ```
 
-Fan-out / fan-in — two perspectives feed a judge. TypeScript runs the independent perspectives in parallel; generated runtimes currently execute them serially:
+Fan-out / fan-in — two perspectives feed a judge. Independent perspectives run in parallel. Generated runtimes use owned workers, with a traced serial fallback for custom clients or programs that cannot supply them:
 
 ```text
 flowchart TD

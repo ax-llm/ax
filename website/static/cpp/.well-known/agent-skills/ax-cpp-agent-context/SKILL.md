@@ -33,7 +33,7 @@ auto out = helper.forward(llm, { {"question", "How should I proceed?"} });
 
 ## Relevant API Surface
 
-- Agents And RLM: `axllm::agent`, `axllm::AxAgent`
+- Agents And RLM: `axllm::agent`, `axllm::AxAgent`, `axllm::AxAgent::add_child_agent`
 - Runtime Profiles: `axllm::ProcessCodeRuntime`, `axllm::RuntimeCapabilities`, `axllm::RuntimeEnvelope`, `javascript-quickjs`, `python-pyodide`
 - Optimizers: `axllm::optimize`, `axllm::playbook`, `axllm::AxPlaybook`, `axllm::AxBootstrapFewShot`, `axllm::AxGEPA`, `axllm::OptimizerEngine`, `axllm::OptimizerEvaluator`
 

@@ -170,6 +170,16 @@ Return fresh request headers that override static profile authentication.
 - Returns: `header map or credential error`
 - Important options: chat, stream, embeddings, Responses, audio, retries
 
+### `axllm::AIClient::owned_worker_factory`
+
+Optional factory for an independent client worker with preserved configuration, authentication and routing. Built-in providers supply it; custom services may omit it without changing chat compatibility.
+
+- Canonical Ax concept: `owned_client_factory`
+- Kind: `method`
+- Form: `axllm::AIClient::owned_worker_factory()`
+- Returns: `worker factory or unavailable`
+- Important options: owned configuration, shared balancer accounting, no borrowed client transfer
+
 ### `axllm::AxChatSession`
 
 Optional normalized session capability for custom provider adapters. High-level programs own tool execution and continuation; chat-only services remain supported.
@@ -501,6 +511,16 @@ RLM agent with Core-owned envelopes, complete runtime-state export/restore, trac
 - Returns: `agent program`
 - Important options: executor model, runtime, policy, context, skills, memories, relevance ranking, observers, runtime state, optimizer metadata, citations, playbook
 
+### `axllm::AxAgent::add_child_agent`
+
+Register an owned child agent for serialized delegation through the parent invocation boundary. Scoped controls use parent/namespace.name paths.
+
+- Canonical Ax concept: `add_child_agent`
+- Kind: `method`
+- Form: `axllm::AxAgent::add_child_agent(namespace, name, child)`
+- Returns: `parent agent`
+- Important options: namespace, name, child, independent conversation, child usage
+
 
 ## Flow
 
@@ -529,6 +549,16 @@ Workflow graph with Core-owned planning, cache keys, state merge, child aggregat
 - Form: `axllm::AxFlow(optionsOrMermaid, bindings)`
 - Returns: `flow program`
 - Important options: steps, state, parallel groups, returns
+
+### `axllm::AxProgram::owned_worker_factory`
+
+Optional factory for independent program state. Parallel groups require both client and program factories; otherwise the whole group runs serially with a fallback trace.
+
+- Canonical Ax concept: `owned_program_factory`
+- Kind: `method`
+- Form: `axllm::AxProgram::owned_worker_factory()`
+- Returns: `worker factory or unavailable`
+- Important options: owned memory, per-node controls, deterministic result merge, cooperative cancellation
 
 
 ## Tools
@@ -572,7 +602,7 @@ MCP client that lists tools/prompts/resources and converts MCP tools to Ax funct
 - Kind: `type`
 - Form: `axllm::AxMCPClient(transport, options)`
 - Returns: `MCP client`
-- Important options: transport, client info, roots, tool overrides
+- Important options: transport, client info, roots, tool overrides, host tool authorization
 
 ```cpp
 axllm::AxMCPClient client(transport);

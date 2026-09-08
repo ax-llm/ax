@@ -51,17 +51,23 @@ _PRELUDE = (
 )
 
 
+_HOST_NAMESPACES = "var __ax_host_namespaces = Object.create(null);\nfunction __ax_bind_host_namespaces() {\n  const roots = [];\n  for (const name of Object.getOwnPropertyNames(globalThis)) {\n    if (name.indexOf('.') < 0) continue;\n    const callable = Object.getOwnPropertyDescriptor(globalThis, name);\n    if (!callable || typeof callable.value !== 'function') continue;\n    const parts = name.split('.');\n    if (parts.some(part => !part)) {\n      throw new Error('Invalid host callable namespace: ' + name);\n    }\n    let target = globalThis;\n    let path = '';\n    for (let index = 0; index < parts.length - 1; index++) {\n      const part = parts[index];\n      path += (index ? '.' : '') + part;\n      let entry = Object.getOwnPropertyDescriptor(target, part);\n      if (!entry) {\n        const value = Object.create(null);\n        Object.defineProperty(target, part, {value, enumerable: true});\n        __ax_host_namespaces[path] = value;\n        entry = {value};\n      }\n      if (entry.value !== __ax_host_namespaces[path]) {\n        throw new Error('Host callable namespace conflicts with a global: ' + path);\n      }\n      target = entry.value;\n    }\n    const leaf = parts[parts.length - 1];\n    const existing = Object.getOwnPropertyDescriptor(target, leaf);\n    if (existing && existing.value !== callable.value) {\n      throw new Error('Host callable name conflicts with a namespace: ' + name);\n    }\n    if (!existing) Object.defineProperty(target, leaf, {value: callable.value, enumerable: true});\n    if (roots.indexOf(parts[0]) < 0) roots.push(parts[0]);\n  }\n  if (Array.isArray(globalThis.__ax_session_reserved)) {\n    for (const root of roots) {\n      if (globalThis.__ax_session_reserved.indexOf(root) < 0) globalThis.__ax_session_reserved.push(root);\n    }\n  }\n  return roots;\n}\n"
+
+
 class AxQuickJsCodeSession(AxCodeSession):
     def __init__(self, runtime, globals_, options=None):
         self.runtime = runtime
+        self.host_callables = dict(runtime.host_callables)
         self.closed = False
         self.ctx = runtime._quickjs.Context()
         self.ctx.add_callable("__ax_host_call", self._host_call)
         self.ctx.eval(_PRELUDE)
-        for name in runtime.host_callables:
+        for name in self.host_callables:
             self.ctx.eval("globalThis[%s]=axHc(%s);" % (json.dumps(name), json.dumps(name)))
         for key, value in (globals_ or {}).items():
             self.ctx.eval("globalThis[%s]=JSON.parse(%s);" % (json.dumps(key), json.dumps(json.dumps(value))))
+        self.ctx.eval(_HOST_NAMESPACES)
+        self.ctx.eval("__ax_bind_host_namespaces()")
         # Baseline of reserved globals: every name present before the agent runs any
         # code (JS built-ins like Math/JSON/Reflect, the prelude helpers, host callables,
         # and injected inputs). axSnap excludes these so the runtime-state summary shows
@@ -70,7 +76,7 @@ class AxQuickJsCodeSession(AxCodeSession):
         self.ctx.eval("globalThis.__ax_reserved=Object.create(null);Object.getOwnPropertyNames(globalThis).forEach(function(k){globalThis.__ax_reserved[k]=1;});")
 
     def _host_call(self, name, params_json):
-        handler = self.runtime.host_callables.get(name)
+        handler = self.host_callables.get(name)
         if handler is None:
             return json.dumps({"ok": False, "category": "runtime", "error": "unknown host callable: " + name})
         try:

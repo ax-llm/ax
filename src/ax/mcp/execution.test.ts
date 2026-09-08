@@ -10,7 +10,10 @@ import { AxMemory } from '../mem/memory.js';
 import { AxUCPClient } from '../ucp/client.js';
 import { AX_UCP_VERSION } from '../ucp/types.js';
 import { AxMCPClient } from './client.js';
-import { AxMCPExecutionContext } from './execution.js';
+import {
+  AxMCPExecutionContext,
+  axMCPChildExecutionOptions,
+} from './execution.js';
 import type { AxMCPTransport } from './transport.js';
 
 function createInventoryClient() {
@@ -131,6 +134,24 @@ function chatSystemText(req: Readonly<AxChatRequest<unknown>>): string {
 }
 
 describe('native MCP execution', () => {
+  it('removes the inherited MCP context when child inheritance is none', () => {
+    const { client } = createInventoryClient();
+    const context = new AxMCPExecutionContext(client, 'none');
+    const control = { token: 'same-controller' };
+    const options = axMCPChildExecutionOptions({
+      _mcpExecutionContext: context,
+      mcp: client,
+      mcpContext: { requestId: 'parent-request' },
+      control,
+      eventContext: { eventId: 'event-1' },
+    });
+    expect(options).not.toHaveProperty('_mcpExecutionContext');
+    expect(options).not.toHaveProperty('mcp');
+    expect(options).not.toHaveProperty('mcpContext');
+    expect(options.control).toBe(control);
+    expect(options.eventContext).toEqual({ eventId: 'event-1' });
+  });
+
   afterEach(() => vi.unstubAllGlobals());
   it('exposes modern required tasks and registers a continuation', async () => {
     const transport: AxMCPTransport = {

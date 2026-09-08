@@ -52,6 +52,9 @@ fn main() -> AxResult<()> {
     assert_eq!(session.execute("guideAgent('try this')", json!({}))?.payload["type"], "guide_agent");
     assert_eq!(session.execute("final(search({query: inputs.question}))", json!({}))?.payload["args"][0]["answer"], "result for host");
     assert_eq!(session.execute("final(marker())", json!({}))?.payload["args"][0]["ok"], true);
+    let logged = session.execute("console.log('reference', {id:'REF-42'}); console.warn('pending'); final('done')", json!({}))?;
+    assert_eq!(logged.payload["logs"], json!(["reference {\"id\":\"REF-42\"}", "pending"]));
+    assert!(session.execute("final('next')", json!({}))?.payload.get("logs").is_none(), "console output replayed across turns");
     let caught = session.execute("let caught = ''; let category = ''; try { badTool({}); } catch (error) { caught = String(error); category = String(error.error_category || ''); } final({caught, category})", json!({}))?;
     assert!(caught.payload["args"][0]["caught"].as_str().unwrap_or("").contains("bad tool failed"));
     assert_eq!(caught.payload["args"][0]["category"], "runtime");

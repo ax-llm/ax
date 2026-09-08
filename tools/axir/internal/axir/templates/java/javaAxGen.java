@@ -6,6 +6,23 @@ import java.util.List;
 import java.util.Map;
 
 public final class AxGen implements AxProgram {
+  public java.util.function.Supplier<AxProgram> ownedWorkerFactory() {
+    if(executionContext!=null)return null;
+    Map<String,Object> snapshot=Core.asMap(Core.ownedCopy(options));
+    snapshot.put("functions",new ArrayList<>(functions));snapshot.put("memory",memory.ownedCopy());
+    snapshot.put("examples",Core.ownedCopy(examples));snapshot.put("demos",Core.ownedCopy(demos));
+    snapshot.put("assertions",Core.ownedCopy(assertions));snapshot.put("streaming_assertions",Core.ownedCopy(streamingAssertions));
+    snapshot.put("field_processors",Core.ownedCopy(fieldProcessors));snapshot.put("stop_functions",new ArrayList<>(stopFunctions));
+    Object log=Core.ownedCopy(chatLog),calls=Core.ownedCopy(functionCallTraces),trace=Core.ownedCopy(traces);
+    String instructions=instruction;AxRuntimeHooks hooks=runtimeHooks;
+    return ()->{
+      AxGen owned=new AxGen(signature,Core.asMap(Core.ownedCopy(snapshot)),hooks);owned.setInstruction(instructions);
+      for(Object item:Core.iter(Core.ownedCopy(log)))owned.chatLog.add(Core.asMap(item));
+      for(Object item:Core.iter(Core.ownedCopy(calls)))owned.functionCallTraces.add(Core.asMap(item));
+      for(Object item:Core.iter(Core.ownedCopy(trace)))owned.traces.add(Core.asMap(item));
+      return owned;
+    };
+  }
   public interface AssertionCallback { Object apply(Map<String, Object> output); }
   public interface FieldProcessorCallback { Object apply(Object value); }
   public interface FunctionCallHook { void accept(Map<String, Object> record); }

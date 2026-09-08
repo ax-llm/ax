@@ -1408,9 +1408,122 @@ const writeMermaidFixtures = () => {
   }
 };
 
+// Observe TS dependency semantics and results; the traced serial fallback is
+// the explicit owned-worker compatibility policy of the generated targets.
+const writeOwnedWorkerFallbackFixture = async () => {
+  const left = new ScriptedProgram('question:string -> left:string', {
+    left: 'l',
+  });
+  const right = new ScriptedProgram('question:string -> right:string', {
+    right: 'r',
+  });
+  const program = flow<{ question: string }, { left: string; right: string }>()
+    .node('left', left)
+    .node('right', right)
+    .execute('left', (state) => ({ question: state.question }))
+    .execute('right', (state) => ({ question: state.question }))
+    .returns((state) => ({
+      left: String((state as any).leftResult.left),
+      right: String((state as any).rightResult.right),
+    }));
+  const output = await program.forward(
+    { name: 'mock' } as unknown as AxAIService,
+    { question: 'override?' },
+    { autoParallel: false }
+  );
+  const fixture = {
+    kind: 'flow',
+    name: 'owned-workers-custom-client-serial-fallback',
+    input: {
+      question: 'override?',
+    },
+    steps: [
+      {
+        kind: 'execute',
+        name: 'left',
+        signature: 'question:string -> left:string',
+        options: {
+          reads: ['question'],
+          writes: ['leftResult'],
+          isBarrier: false,
+        },
+      },
+      {
+        kind: 'execute',
+        name: 'right',
+        signature: 'question:string -> right:string',
+        options: {
+          reads: ['question'],
+          writes: ['rightResult'],
+          isBarrier: false,
+        },
+      },
+    ],
+    returns: {
+      left: 'leftResult.left',
+      right: 'rightResult.right',
+    },
+    forward_options: {},
+    responses: [
+      {
+        content: '{"left":"l"}',
+      },
+      {
+        content: '{"right":"r"}',
+      },
+    ],
+    expected_trace_subset: [
+      {
+        kind: 'flow_parallel_fallback',
+        payload: {
+          reason: 'owned-worker-unavailable',
+        },
+      },
+      {
+        kind: 'flow_step',
+        payload: {
+          name: 'left',
+        },
+      },
+      {
+        kind: 'flow_step',
+        payload: {
+          name: 'right',
+        },
+      },
+    ],
+    expected_chat_log_subset: [
+      {
+        name: 'left',
+        response: {
+          content: '{"left":"l"}',
+        },
+      },
+      {
+        name: 'right',
+        response: {
+          content: '{"right":"r"}',
+        },
+      },
+    ],
+  };
+  writeFixture(flowDir, 'owned-workers-custom-client-serial-fallback.json', {
+    ...fixture,
+    source: source(fixture.name, {
+      output,
+      nodeCalls: left.calls.length + right.calls.length,
+      generatedCompatibilityPolicy:
+        'Clients without owned workers preserve the TS plan and result, execute the group serially, and report flow_parallel_fallback.',
+    }),
+    expected_output: output,
+    expected_request_count: left.calls.length + right.calls.length,
+  });
+};
+
 writeProgramFixtures();
 writePlanFixtures();
 await runSimpleForward();
+await writeOwnedWorkerFallbackFixture();
 await writeExecutionRuntimeFixtures();
 await writeMapAndCacheFixtures();
 await writeControlFlowRuntimeFixtures();

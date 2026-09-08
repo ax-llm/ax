@@ -56,6 +56,7 @@ impl AxMCPTokenStore for AxMCPFixtureTokenStore {
     fn clear_token(&mut self,key:&str)->AxResult<()>{self.tokens.remove(key);Ok(())}
 }
 
+pub type AxMCPToolAuthorizer = Arc<dyn Fn(&AxMCPClient, Value) -> AxResult<Option<bool>> + Send + Sync>;
 pub type AxMCPElicitationHandler = Arc<dyn Fn(Value, Value) -> AxResult<Value> + Send + Sync>;
 pub type AxMCPRequestHandler = Arc<dyn Fn(Value) -> Value + Send + Sync>;
 
@@ -112,13 +113,18 @@ pub struct AxMCPClient {
     subscription_ready:bool,
     catalog_revision:u64,
     elicitation_handler:Option<AxMCPElicitationHandler>,
+    tool_authorizer:Option<AxMCPToolAuthorizer>,
     initialized:bool,
 }
 
 impl AxMCPClient {
     pub fn new(transport: Box<dyn AxMCPTransport>, options: Value) -> Self {
+        Self::from_shared_transport(Arc::new(Mutex::new(transport)), options)
+    }
+
+    fn from_shared_transport(transport: Arc<Mutex<Box<dyn AxMCPTransport>>>, options: Value) -> Self {
         Self {
-            transport: Arc::new(Mutex::new(transport)),
+            transport,
             options,
             server_capabilities: json!({}),
             server_info: Arc::new(Mutex::new(json!({}))),
@@ -142,11 +148,12 @@ impl AxMCPClient {
             active_subscription_id:None,
             subscription_ready:false,
             catalog_revision:0,
-            elicitation_handler:None,
+            elicitation_handler:None,tool_authorizer:None,
             initialized:false,
         }
     }
 
+    pub fn set_tool_authorizer(&mut self,handler:impl Fn(&AxMCPClient,Value)->AxResult<Option<bool>>+Send+Sync+'static){self.tool_authorizer=Some(Arc::new(handler));}
     pub fn set_elicitation_handler(&mut self,handler:impl Fn(Value,Value)->AxResult<Value>+Send+Sync+'static){self.elicitation_handler=Some(Arc::new(handler));}
 
     pub fn init(&mut self) -> AxResult<()> {
@@ -228,7 +235,7 @@ impl AxMCPClient {
     pub fn protocol_version(&self) -> Option<String> { self.negotiated_protocol_version.lock().unwrap().clone() }
     pub fn ping(&mut self) -> AxResult<Value> { self.request("ping", json!({})) }
     pub fn list_tools(&mut self, cursor: Option<&str>) -> AxResult<Value> { self.request("tools/list", cursor_params(cursor)) }
-    pub fn call_tool(&mut self,name:&str,arguments:Value)->AxResult<Value>{let args=if arguments.is_null(){json!({})}else{arguments};let params=json!({"name":name,"arguments":args});let headers=self.tool_headers(name,&args)?;let result=match self.request_with_input_rounds("tools/call",params.clone(),headers){Ok(value)=>value,Err(error)if self.era.as_deref()==Some("modern")&&error.code.as_deref()==Some("-32020")=>{self.tools=self.collect_catalog("tools/list","tools")?.into_iter().filter(|tool|core_mcp(&crate::mcp_param_header_bindings,&[tool.get("inputSchema").cloned().unwrap_or_else(||json!({}))]).is_ok()).collect();self.request_with_input_rounds("tools/call",params,self.tool_headers(name,&args)?)?},Err(error)=>return Err(error)};if result.get("resultType").and_then(Value::as_str)!=Some("task"){return Ok(result)}if !self.has_tasks_capability(){return Err(AxError::new("mcp","MCP protocol violation: server returned a task without negotiating io.modelcontextprotocol/tasks"))}if core_mcp(&crate::mcp_validate_modern_task,&[result.clone()])?.as_bool()!=Some(true){return Err(AxError::new("mcp","MCP protocol violation: invalid CreateTaskResult"))}self.await_modern_task(result.get("taskId").and_then(Value::as_str).unwrap_or_default())}
+    pub fn call_tool(&mut self,name:&str,arguments:Value)->AxResult<Value>{if let Some(authorize)=&self.tool_authorizer{let context=core_mcp(&crate::_mcp_tool_authorization_context,&[json!(self.tools),json!(self.namespace()),json!(name),arguments.clone()])?;let decision=authorize(self,context)?;core_mcp(&crate::_mcp_tool_authorization_result,&[json!(name),json!(decision)])?;}let args=if arguments.is_null(){json!({})}else{arguments};let params=json!({"name":name,"arguments":args});let headers=self.tool_headers(name,&args)?;let result=match self.request_with_input_rounds("tools/call",params.clone(),headers){Ok(value)=>value,Err(error)if self.era.as_deref()==Some("modern")&&error.code.as_deref()==Some("-32020")=>{self.tools=self.collect_catalog("tools/list","tools")?.into_iter().filter(|tool|core_mcp(&crate::mcp_param_header_bindings,&[tool.get("inputSchema").cloned().unwrap_or_else(||json!({}))]).is_ok()).collect();self.request_with_input_rounds("tools/call",params,self.tool_headers(name,&args)?)?},Err(error)=>return Err(error)};if result.get("resultType").and_then(Value::as_str)!=Some("task"){return Ok(result)}if !self.has_tasks_capability(){return Err(AxError::new("mcp","MCP protocol violation: server returned a task without negotiating io.modelcontextprotocol/tasks"))}if core_mcp(&crate::mcp_validate_modern_task,&[result.clone()])?.as_bool()!=Some(true){return Err(AxError::new("mcp","MCP protocol violation: invalid CreateTaskResult"))}self.await_modern_task(result.get("taskId").and_then(Value::as_str).unwrap_or_default())}
     fn await_modern_task(&mut self,task_id:&str)->AxResult<Value>{let max=self.options.get("maxTaskPolls").and_then(Value::as_u64).unwrap_or(1000);for _ in 0..max{let task=self.get_task(task_id)?;let outcome=core_mcp(&crate::mcp_task_terminal_outcome,&[task])?;match outcome.get("kind").and_then(Value::as_str).unwrap_or_default(){"result"=>return Ok(outcome.get("result").cloned().unwrap_or(Value::Null)),"protocol_error"=>{let mut error=AxError::new("mcp",outcome.get("message").and_then(Value::as_str).unwrap_or("MCP task failed"));error.code=Some(outcome.get("code").map(ToString::to_string).unwrap_or_default());return Err(error)},"violation"|"failure"|"cancelled"=>return Err(AxError::new("mcp",outcome.get("message").and_then(Value::as_str).unwrap_or("MCP task failed"))),"input_required"=>{let fulfillment=core_mcp(&crate::mcp_mrtr_plan_fulfillment,&[outcome.get("inputRequests").cloned().unwrap_or_else(||json!({})),self.options.get("roots").cloned().unwrap_or(Value::Null),json!(self.elicitation_handler.is_some()),json!(false)])?;if fulfillment.get("ok").and_then(Value::as_bool)!=Some(true){return Err(AxError::new("mcp",fulfillment.get("message").and_then(Value::as_str).unwrap_or("MCP protocol violation")))}let mut responses=fulfillment.get("responses").and_then(Value::as_object).cloned().unwrap_or_default();for(key,pending)in fulfillment.get("pending").and_then(Value::as_object).cloned().unwrap_or_default(){let method=pending.get("method").and_then(Value::as_str).unwrap_or_default();let handler=self.elicitation_handler.as_ref().ok_or_else(||AxError::new("mcp",format!("MCP protocol violation: unsupported pending task input request method {method}")))?;if method!="elicitation/create"{return Err(AxError::new("mcp",format!("MCP protocol violation: unsupported pending task input request method {method}")))}responses.insert(key,handler(pending.get("params").cloned().unwrap_or_else(||json!({})),json!({"client":"AxMCPClient","namespace":self.namespace()}))?);}self.provide_task_input(task_id,Value::Object(responses))?},_=>{}}}Err(AxError::new("mcp",format!("MCP task {task_id} exceeded {max} polls")))}
     fn tool_headers(&self,name:&str,args:&Value)->AxResult<Map<String,Value>>{let mut out=Map::new();if self.era.as_deref()!=Some("modern"){return Ok(out)}if let Some(tool)=self.tools.iter().find(|tool|tool.get("name").and_then(Value::as_str)==Some(name)){let bindings=core_mcp(&crate::mcp_param_header_bindings,&[tool.get("inputSchema").cloned().unwrap_or_else(||json!({}))])?;if let Some(values)=core_mcp(&crate::mcp_param_header_values,&[bindings,args.clone()])?.as_object(){out=values.clone()}}Ok(out)}
     pub fn list_prompts(&mut self, cursor: Option<&str>) -> AxResult<Value> { self.request("prompts/list", cursor_params(cursor)) }
@@ -281,16 +288,72 @@ impl AxMCPClient {
         out
     }
 
+    // Invocation views retain transport ownership and negotiated protocol state.
+    // Non-Send listener callbacks remain on the owning client; workers leave
+    // inbound notifications queued for that client to dispatch.
+    fn invocation_factory(&self) -> impl Fn() -> AxMCPClient + Send + Sync + 'static {
+        let transport = self.transport.clone();
+        let options = self.options.clone();
+        let server_capabilities = self.server_capabilities.clone();
+        let server_info = self.server_info.clone();
+        let negotiated_protocol_version = self.negotiated_protocol_version.clone();
+        let era = self.era.clone();
+        let discover_result = self.discover_result.clone();
+        let negotiated_extensions = self.negotiated_extensions.clone();
+        let tools = self.tools.clone();
+        let prompts = self.prompts.clone();
+        let resources = self.resources.clone();
+        let resource_templates = self.resource_templates.clone();
+        let catalog_cache = self.catalog_cache.clone();
+        let resource_read_cache = self.resource_read_cache.clone();
+        let next_id = self.next_id.clone();
+        let inbound_messages = self.inbound_messages.clone();
+        let inbound_lifecycle = self.inbound_lifecycle.clone();
+        let subscription_owners = self.subscription_owners.clone();
+        let active_subscription_id = self.active_subscription_id.clone();
+        let elicitation_handler = self.elicitation_handler.clone();
+        let tool_authorizer = self.tool_authorizer.clone();
+        let initialized = self.initialized;
+        let subscription_ready = self.subscription_ready;
+        let catalog_revision = self.catalog_revision;
+        move || {
+            let mut client = AxMCPClient::from_shared_transport(transport.clone(), options.clone());
+            client.server_capabilities = server_capabilities.clone();
+            client.server_info = server_info.clone();
+            client.negotiated_protocol_version = negotiated_protocol_version.clone();
+            client.era = era.clone();
+            client.discover_result = discover_result.clone();
+            client.negotiated_extensions = negotiated_extensions.clone();
+            client.tools = tools.clone();
+            client.prompts = prompts.clone();
+            client.resources = resources.clone();
+            client.resource_templates = resource_templates.clone();
+            client.catalog_cache = catalog_cache.clone();
+            client.resource_read_cache = resource_read_cache.clone();
+            client.next_id = next_id.clone();
+            client.inbound_messages = inbound_messages.clone();
+            client.inbound_lifecycle = inbound_lifecycle.clone();
+            client.subscription_owners = subscription_owners.clone();
+            client.active_subscription_id = active_subscription_id.clone();
+            client.elicitation_handler = elicitation_handler.clone();
+            client.tool_authorizer = tool_authorizer.clone();
+            client.initialized = initialized;
+            client.subscription_ready = subscription_ready;
+            client.catalog_revision = catalog_revision;
+            client
+        }
+    }
+
     pub fn native_tools(&self) -> Vec<Tool> {
         let mut out = Vec::new();
         for spec in &self.tools {
             let original = spec.get("name").and_then(Value::as_str).unwrap_or_default().to_string();
             let name = override_name(&self.options, &original);
             let description = override_description(&self.options, spec);
-            let transport = self.transport.clone();
-            let next_id = self.next_id.clone();
-            out.push(tool(&name).description(description).handler(move |args| {
-                mcp_transport_request(&transport, &next_id, "tools/call", json!({"name": original, "arguments": args}))
+            let invoke = self.invocation_factory();
+            let schema = spec.get("inputSchema").cloned().unwrap_or_else(||json!({}));
+            out.push(tool(&name).description(description).parameters(schema).handler(move |args| {
+                invoke().call_tool(&original, args)
             }));
         }
         out
@@ -328,10 +391,10 @@ impl AxMCPClient {
         let original = spec.get("name").and_then(Value::as_str).unwrap_or_default().to_string();
         let name = override_name(&self.options, &original);
         let description = override_description(&self.options, &spec);
-        let transport = self.transport.clone();
-        let next_id = self.next_id.clone();
-        tool(&name).description(description).handler(move |args| {
-            let result = mcp_transport_request(&transport, &next_id, "tools/call", json!({"name": original, "arguments": args}))?;
+        let invoke = self.invocation_factory();
+        let schema = spec.get("inputSchema").cloned().unwrap_or_else(||json!({}));
+        tool(&name).description(description).parameters(schema).handler(move |args| {
+            let result = invoke().call_tool(&original, args)?;
             if let Some(value) = result.get("structuredContent") { return Ok(value.clone()); }
             Ok(json!({"content": content_text(result.get("content").and_then(Value::as_array).cloned().unwrap_or_default())}))
         })
@@ -608,11 +671,21 @@ pub struct AxExecutionContext { pub mcp:Vec<Arc<Mutex<AxMCPClient>>>,pub ucp:Vec
 
 impl AxExecutionContext {
     pub fn new(mcp:Vec<Arc<Mutex<AxMCPClient>>>,ucp:Vec<AxUCPClient>)->AxResult<Self>{let out=Self{mcp,ucp,initialized:Arc::new(Mutex::new(Vec::new()))};let names=out.namespaces();let mut unique=names.clone();unique.sort();unique.dedup();if unique.len()!=names.len(){return Err(AxError::new("mcp","MCP/UCP namespace collision"));}Ok(out)}
-    pub fn initialize(&self)->AxResult<()>{let mut initialized=self.initialized.lock().unwrap();for(index,client)in self.mcp.iter().enumerate(){if !initialized.contains(&index){client.lock().unwrap().init()?;initialized.push(index)}}Ok(())}
+    pub fn initialize(&self)->AxResult<()>{let mut initialized=self.initialized.lock().unwrap();for client in &self.mcp{let identity=Arc::as_ptr(client) as usize;if !initialized.contains(&identity){client.lock().unwrap().init()?;initialized.push(identity)}}Ok(())}
     pub fn native_tools(&self)->AxResult<Vec<Tool>>{self.initialize()?;let mut out=Vec::new();for client in &self.mcp{out.extend(client.lock().unwrap().native_tools())}for client in &self.ucp{out.extend(client.native_tools())}let mut names=out.iter().map(|tool|tool.name.clone()).collect::<Vec<_>>();let count=names.len();names.sort();names.dedup();if names.len()!=count{return Err(AxError::new("mcp","MCP/UCP tool collision"));}Ok(out)}
     pub fn runtime_modules(&self)->Value{Value::Array(self.mcp.iter().map(|client|{let locked=client.lock().unwrap();json!({"name":format!("mcp.{}.tools",locked.namespace()),"functions":locked.native_tools().iter().map(|tool|tool.name.clone()).collect::<Vec<_>>()})}).chain(self.ucp.iter().map(|client|json!({"name":format!("ucp.{}",client.namespace()),"functions":client.runtime_tools().iter().map(|tool|tool.name.clone()).collect::<Vec<_>>() }))).collect())}
     pub fn namespaces(&self)->Vec<String>{self.mcp.iter().map(|client|client.lock().unwrap().namespace()).chain(self.ucp.iter().map(AxUCPClient::namespace)).collect()}
-    pub fn derive(&self,inheritance:&Value)->Self{if inheritance.as_str()==Some("none"){return Self::default()}let Some(allowed)=inheritance.as_array()else{return self.clone()};let allowed=allowed.iter().filter_map(Value::as_str).collect::<Vec<_>>();Self{mcp:self.mcp.iter().filter(|c|allowed.contains(&c.lock().unwrap().namespace().as_str())).cloned().collect(),ucp:self.ucp.iter().filter(|c|allowed.contains(&c.namespace().as_str())).cloned().collect(),initialized:self.initialized.clone()}}
+    pub fn try_derive(&self,inheritance:&Value)->AxResult<Self>{
+        let mcp_names=self.mcp.iter().map(|client|client.lock().unwrap().namespace()).collect::<Vec<_>>();
+        let ucp_names=self.ucp.iter().map(AxUCPClient::namespace).collect::<Vec<_>>();
+        let plan=core_mcp(&crate::_mcp_inheritance_plan,&[json!(mcp_names),json!(ucp_names),inheritance.clone()])?;
+        let mut mcp=Vec::new();let mut ucp=Vec::new();
+        for name in plan["mcp"].as_array().unwrap(){let index=mcp_names.iter().position(|candidate|Some(candidate.as_str())==name.as_str()).unwrap();mcp.push(self.mcp[index].clone());}
+        for name in plan["ucp"].as_array().unwrap(){let index=ucp_names.iter().position(|candidate|Some(candidate.as_str())==name.as_str()).unwrap();ucp.push(self.ucp[index].clone());}
+        Ok(Self{mcp,ucp,initialized:self.initialized.clone()})
+    }
+    pub fn derive(&self,inheritance:&Value)->Self{self.try_derive(inheritance).expect("Invalid MCP inheritance")}
+
     pub fn continuation_state(&self)->AxMCPContinuationState{let namespaces=self.namespaces();let digest=ax_mcp_sha256(namespaces.join("\n").as_bytes());AxMCPContinuationState{namespaces,tasks:vec![],subscriptions:vec![],catalog_fingerprint:digest.iter().map(|b|format!("{b:02x}")).collect()}}
 }
 
@@ -1046,6 +1119,28 @@ pub fn ax_mcp_validate_endpoint(endpoint: &str, options: &Value) -> AxResult<Str
 
 pub fn run_mcp_conformance_fixture(fixture: &Value) -> AxResult<()> {
     let operation = fixture.get("operation").and_then(Value::as_str).unwrap_or("initialize");
+    if operation=="inheritance_context" || operation=="inheritance_agent_context" {
+      for test in fixture["cases"].as_array().unwrap(){let mut clients=Vec::new();let mut transports=Vec::new();
+        for spec in fixture["clients"].as_array().unwrap(){let name=spec["namespace"].as_str().unwrap().to_string();let transport=Arc::new(Mutex::new(Box::new(AxMCPScriptedTransport::new(spec["responses"].as_array().unwrap().clone())) as Box<dyn AxMCPTransport>));clients.push(Arc::new(Mutex::new(AxMCPClient::from_shared_transport(transport.clone(),json!({"namespace":name,"era":"modern"})))));transports.push((name,transport));}
+        let context=AxExecutionContext::new(clients,vec![])?;let mut results=Vec::new();let mut selected=Vec::new();
+        let outcome=context.try_derive(&test["inheritance"]).and_then(|child|{selected=child.namespaces();if operation=="inheritance_agent_context"{let mut program=crate::agent_with_execution_context("question:string -> answer:string",fixture["agent_options"].clone(),child.clone())?;assert_eq!(program.invoke_callable("tools.local_echo",json!({}),json!({}))?,fixture["expected_local_result"]);for client in &child.mcp{let (name,tools)={let client=client.lock().unwrap();(client.namespace(),client.native_tools())};for tool in tools{let result=program.invoke_callable(&format!("mcp.{name}.tools.{}",tool.name),json!({"query":"scope-probe"}),json!({}))?;assert_eq!(result["status"],"ok");results.push(result["value"].clone());}}}else{for tool in child.native_tools()?{results.push(tool.call(json!({"query":"scope-probe"}))?);}}Ok(())});
+        if let Some(expected)=test.get("expected_error").and_then(Value::as_str){assert_eq!(outcome.expect_err("Expected inheritance rejection").message,expected);}else{outcome?;assert_eq!(json!(selected),test["expected_namespaces"]);}
+        assert_eq!(json!(results),test["expected_results"]);
+        for(name,transport)in &transports{let requests=transport.lock().unwrap().sent_requests();let methods=requests.iter().map(|request|request["method"].clone()).collect::<Vec<_>>();assert_eq!(json!(methods),test["expected_methods"][name]);for request in requests{if request["method"]=="tools/call"{assert_eq!(request["params"]["arguments"],json!({"query":"scope-probe"}));}}}
+        let mut parent_results=Vec::new();for tool in context.native_tools()?{parent_results.push(tool.call(json!({"query":"parent-probe"}))?);}assert_eq!(json!(parent_results),test["expected_parent_results"]);
+        for(name,transport)in &transports{let requests=transport.lock().unwrap().sent_requests();let methods=requests.iter().map(|request|request["method"].clone()).collect::<Vec<_>>();let calls=requests.iter().filter(|request|request["method"]=="tools/call").map(|request|json!({"name":request["params"]["name"],"arguments":request["params"]["arguments"]})).collect::<Vec<_>>();assert_eq!(json!(methods),test["expected_parent_methods"][name]);assert_eq!(json!(calls),test["expected_calls"][name]);}
+      }return Ok(());
+    }
+    if operation=="inheritance_plan" {
+      for test in fixture["cases"].as_array().unwrap(){let result=core_mcp(&crate::_mcp_inheritance_plan,&[fixture["mcp"].clone(),fixture["ucp"].clone(),test["inheritance"].clone()]);
+        if let Some(expected)=test.get("expected_error").and_then(Value::as_str){assert_eq!(result.expect_err("Expected inheritance rejection").message,expected);}else{assert_eq!(result?,test["expected"]);}
+      }return Ok(());
+    }
+    if operation=="tool_authorization" {
+      for case in fixture["cases"].as_array().unwrap(){let transport=Arc::new(Mutex::new(Box::new(AxMCPScriptedTransport::new(fixture["responses"].as_array().unwrap().clone())) as Box<dyn AxMCPTransport>));let mut client=AxMCPClient::from_shared_transport(transport.clone(),fixture["client_options"].clone());client.init()?;let observed=Arc::new(Mutex::new(Vec::<Value>::new()));let captured=observed.clone();let decision=case["decision"].as_bool();client.set_tool_authorizer(move|caller,call|{assert_eq!(caller.namespace(),call["namespace"].as_str().unwrap());captured.lock().unwrap().push(call);Ok(decision)});let result=client.call_tool(case["name"].as_str().unwrap(),json!({"query":"REF-42"}));if let Some(expected)=case.get("expected_error").and_then(Value::as_str){assert_eq!(result.unwrap_err().message,expected);}else{assert_eq!(result?,case["expected_result"]);}let observed=observed.lock().unwrap();assert_eq!(observed.len(),case["expected_authorization_calls"].as_u64().unwrap() as usize);if !observed.is_empty(){assert_eq!(observed[0],case["expected_context"]);}let sent=transport.lock().unwrap().sent_requests();let sent=sent.iter().filter(|request|request["method"]=="tools/call").collect::<Vec<_>>();assert_eq!(sent.len(),case["expected_tool_requests"].as_u64().unwrap() as usize);for request in sent{assert_eq!(request["params"]["name"],case["name"]);assert_eq!(request["params"]["arguments"],json!({"query":"REF-42"}));}
+      }return Ok(());
+    }
+
     let result = run_mcp_conformance_fixture_inner(fixture, operation);
     if let Some(expected) = fixture.get("expected_error_contains").and_then(Value::as_str) {
         return match result {
@@ -1303,6 +1398,11 @@ fn run_mcp_conformance_fixture_inner(fixture: &Value, operation: &str) -> AxResu
                 "ping" => client.ping().map(|_| ()),
                 "tools" => {
                     let functions = client.native_tools();
+                    for function in &functions {
+                        if let Some(expected) = fixture.get("expected_schemas").and_then(|schemas| schemas.get(&function.name)) {
+                            if &function.schema()? != expected { return Err(AxError::new("fixture","Native tool schema was altered")); }
+                        }
+                    }
                     if let Some(expected) = fixture.get("expected_function_names") {
                         let names = Value::Array(functions.iter().map(|tool| json!(tool.name)).collect());
                         expect_subset("function names", &names, expected)?;
@@ -1313,6 +1413,11 @@ fn run_mcp_conformance_fixture_inner(fixture: &Value, operation: &str) -> AxResu
                         let function = functions.iter().find(|tool| tool.name == name).ok_or_else(|| AxError::new("fixture", "missing MCP function"))?;
                         let result = function.call(args)?;
                         expect_subset("tool result", &result, fixture.get("expected_call_result").unwrap_or(&Value::Null))?;
+                    }
+                    let requests = client.transport.lock().unwrap().sent_requests();
+                    if let Some(expected) = fixture.get("expected_requests").and_then(Value::as_array) {
+                        if requests.len() != expected.len() { return Err(AxError::new("fixture","Native MCP request count mismatch")); }
+                        for (request, expected) in requests.iter().zip(expected) { expect_subset("native MCP request", request, expected)?; }
                     }
                     Ok(())
                 }

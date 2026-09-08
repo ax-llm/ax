@@ -3,6 +3,7 @@ import os
 
 import copy
 import inspect
+import math
 import json
 import re
 import time
@@ -25,9 +26,9 @@ from .ai import (
     chat_response_to_completion,
     ai_merge_replay_metadata,
 )
-from .prompt import AxPromptTemplate
+from .prompt import AxPromptTemplate, _core_string_split
 from .schema import AxValidationError, strip_internal, validate_fields, validate_output
-from .signature import AxSignature
+from .signature import AxSignature, _core_string_replace
 from .mcp import resolve_execution_context
 from .schema import (
     _schema_to_json_schema_impl,
@@ -180,6 +181,13 @@ def _ax_memory_response_meaningful(response) -> bool:
 
 
 class AxGen:
+    def owned_worker_factory(self):
+        if self.execution_context is not None: return None
+        memo = {id(self.runtime_hooks):self.runtime_hooks}
+        try: snapshot = copy.deepcopy(self, dict(memo))
+        except (TypeError, ValueError): return None
+        return lambda: copy.deepcopy(snapshot, dict(memo))
+
     def __init__(self, signature, options: dict[str, Any] | None = None, hooks: AxRuntimeHooks | None = None):
         self.signature = signature if isinstance(signature, AxSignature) else AxSignature(signature)
         self.runtime_hooks = _merge_runtime_hooks(_coerce_runtime_hooks(hooks), _runtime_hooks_from_options(options))
@@ -615,6 +623,10 @@ def _core_gte(left, right): return left >= right
 def _core_add(left, right): return left + right
 def _core_mul(left, right): return float(left or 0) * float(right or 0)
 def _core_div(left, right): return float(left or 0) / float(right or 1)
+def _core_string_codepoint_length(value): return len(value)
+
+def _core_math_is_finite(value): return math.isfinite(value)
+
 def _core_len(value): return len(value)
 def _core_contains(container, item): return False if container is None else item in container
 def _core_truthy(value): return bool(value)
@@ -1359,104 +1371,13 @@ def _select_structured_output_rung(signature: AxSignature, features: Any, option
 
 def chat_session_validate_required_arguments(schema: Any, arguments: Any, path: str) -> None:
     _core_coverage_mark("chat_session_validate_required_arguments")
-    declared_type = _core_get(schema, "type", None)
-    has_type = _core_is_not_none(declared_type)
-    if has_type:
-        types = []
-        is_union = _core_type_is(declared_type, "list")
-        if is_union:
-            types = declared_type
-        else:
-            types.append(declared_type)
-        matches = False
-        for type in types:
-            wants_string = _core_eq(type, "string")
-            if wants_string:
-                value_string = _core_type_is(arguments, "string")
-                matches = _core_or(matches, value_string)
-            else:
-                pass
-            wants_object = _core_eq(type, "object")
-            if wants_object:
-                value_object = _core_type_is(arguments, "object")
-                matches = _core_or(matches, value_object)
-            else:
-                pass
-            wants_array = _core_eq(type, "array")
-            if wants_array:
-                value_array = _core_type_is(arguments, "list")
-                matches = _core_or(matches, value_array)
-            else:
-                pass
-            wants_number = _core_eq(type, "number")
-            if wants_number:
-                value_number = _core_type_is(arguments, "number")
-                matches = _core_or(matches, value_number)
-            else:
-                pass
-            wants_boolean = _core_eq(type, "boolean")
-            if wants_boolean:
-                value_boolean = _core_type_is(arguments, "boolean")
-                matches = _core_or(matches, value_boolean)
-            else:
-                pass
-            wants_null = _core_eq(type, "null")
-            if wants_null:
-                value_null = _core_is_none(arguments)
-                matches = _core_or(matches, value_null)
-            else:
-                pass
-            wants_integer = _core_eq(type, "integer")
-            if wants_integer:
-                numeric = _core_type_is(arguments, "number")
-                if numeric:
-                    whole = _core_math_floor(arguments)
-                    value_integer = _core_eq(whole, arguments)
-                    matches = _core_or(matches, value_integer)
-                else:
-                    pass
-            else:
-                pass
-        if matches:
-            pass
-        else:
-            message = _core_string_format("Validation failed: Expected '{}' to have type {}", path, declared_type)
-            error = _core_validation_error(message)
-            raise error
-    else:
-        pass
-    object = _core_type_is(arguments, "object")
-    if object:
-        empty = []
-        required = _core_get(schema, "required", empty)
-        for name in required:
-            present = _core_map_contains(arguments, name)
-            if present:
-                pass
-            else:
-                message = _core_string_format("Required field is missing: '{}.{}'", path, name)
-                error = _core_validation_error(message)
-                raise error
-        empty_map = {}
-        properties = _core_get(schema, "properties", empty_map)
-        names = _core_map_keys(properties)
-        for name in names:
-            present = _core_map_contains(arguments, name)
-            if present:
-                child = _core_get(arguments, name, None)
-                child_schema = _core_get(properties, name, None)
-                child_path = _core_string_format("{}.{}", path, name)
-                chat_session_validate_required_arguments(child_schema, child, child_path)
-            else:
-                pass
-    else:
-        pass
-    array = _core_type_is(arguments, "list")
-    if array:
-        empty_map = {}
-        items = _core_get(schema, "items", empty_map)
-        for item in arguments:
-            chat_session_validate_required_arguments(items, item, path)
+    errors = _chat_session_argument_errors(schema, schema, arguments, path, 0)
+    count = _core_len(errors)
+    invalid = _core_gt(count, 0)
+    if invalid:
+        message = _core_string_join("; ", errors)
+        error = _core_validation_error(message)
+        raise error
     else:
         pass
     return None
@@ -1513,6 +1434,92 @@ def stream_extraction_route(has_complex_fields: bool) -> str:
     else:
         pass
     return "prompt_extraction"
+
+
+def _chat_session_argument_equal(left: Any, right: Any, depth: int) -> bool:
+    _core_coverage_mark("_chat_session_argument_equal")
+    too_deep = _core_gt(depth, 64)
+    if too_deep:
+        return False
+    else:
+        pass
+    next = _core_add(depth, 1)
+    left_list = _core_type_is(left, "list")
+    right_list = _core_type_is(right, "list")
+    same_list = _core_eq(left_list, right_list)
+    if same_list:
+        pass
+    else:
+        return False
+    left_object = _core_type_is(left, "object")
+    right_object = _core_type_is(right, "object")
+    same_object = _core_eq(left_object, right_object)
+    if same_object:
+        pass
+    else:
+        return False
+    left_string = _core_type_is(left, "string")
+    right_string = _core_type_is(right, "string")
+    same_string = _core_eq(left_string, right_string)
+    if same_string:
+        pass
+    else:
+        return False
+    left_number = _core_type_is(left, "number")
+    right_number = _core_type_is(right, "number")
+    same_number = _core_eq(left_number, right_number)
+    if same_number:
+        pass
+    else:
+        return False
+    left_boolean = _core_type_is(left, "boolean")
+    right_boolean = _core_type_is(right, "boolean")
+    same_boolean = _core_eq(left_boolean, right_boolean)
+    if same_boolean:
+        pass
+    else:
+        return False
+    if left_list:
+        left_size = _core_len(left)
+        right_size = _core_len(right)
+        same_size = _core_eq(left_size, right_size)
+        if same_size:
+            pass
+        else:
+            return False
+        index = 0
+        for value in left:
+            other = _core_get(right, index, None)
+            same = _chat_session_argument_equal(value, other, next)
+            if same:
+                pass
+            else:
+                return False
+            index = _core_add(index, 1)
+        return True
+    else:
+        pass
+    if left_object:
+        left_keys = _core_map_keys(left)
+        right_keys = _core_map_keys(right)
+        same_keys = _chat_session_argument_equal(left_keys, right_keys, next)
+        if same_keys:
+            pass
+        else:
+            return False
+        for key in left_keys:
+            value = _core_get(left, key, None)
+            other = _core_get(right, key, None)
+            same = _chat_session_argument_equal(value, other, next)
+            if same:
+                pass
+            else:
+                return False
+        return True
+    else:
+        pass
+    same = _core_eq(left, right)
+    return same
 
 
 def stream_structured_delta(fields: list[Any], parsed_values: Any, previous_values: Any, partial_array_incomplete: bool) -> Any:
@@ -1713,32 +1720,6 @@ def _validate_optimization_component_value(component: Any, value: Any) -> bool:
     return True
 
 
-def chat_session_record_result(gen: Any, state: Any, call: Any, result: Any, ok: bool) -> bool:
-    _core_coverage_mark("chat_session_record_result")
-    id = _core_get(call, "id", None)
-    text = result
-    is_string = _core_type_is(result, "string")
-    if is_string:
-        pass
-    else:
-        text = _core_json_stringify(result)
-    output = {}
-    output["function_id"] = id
-    output["result"] = text
-    changed = chat_session_complete_call(state, id, output)
-    if changed:
-        status = "error"
-        if ok:
-            status = "ok"
-        else:
-            pass
-        _core_axgen_memory_add_function_result(gen, call, result, ok)
-        _core_axgen_record_function_call(gen, call, result, status)
-    else:
-        pass
-    return changed
-
-
 def _validate_optimization_component_map(components: Any, component_map: Any) -> bool:
     _core_coverage_mark("_validate_optimization_component_map")
     known = []
@@ -1761,6 +1742,326 @@ def _validate_optimization_component_map(components: Any, component_map: Any) ->
         value = _core_get(component_map, id, None)
         _validate_optimization_component_value(component, value)
     return True
+
+
+def _chat_session_argument_errors(root: Any, schema: Any, arguments: Any, path: str, depth: int) -> Any:
+    _core_coverage_mark("_chat_session_argument_errors")
+    errors = []
+    empty = {}
+    empty_list = []
+    too_deep = _core_gt(depth, 64)
+    if too_deep:
+        message = _core_string_format("{}: Arguments exceed schema nesting limit", path)
+        errors.append(message)
+        return errors
+    else:
+        pass
+    next_depth = _core_add(depth, 1)
+    reference = _core_get(schema, "$ref", "")
+    if reference:
+        local = _core_string_starts_with(reference, "#/")
+        if local:
+            tail = _core_string_slice(reference, 2)
+            parts = _core_string_split(tail, "/")
+            target = root
+            for part in parts:
+                slash = _core_string_replace(part, "~1", "/")
+                key = _core_string_replace(slash, "~0", "~")
+                array_target = _core_type_is(target, "list")
+                if array_target:
+                    found = _core_get(empty, "not_found", None)
+                    index = 0
+                    for entry in target:
+                        index_key = _core_string_format("{}", index)
+                        same_index = _core_eq(index_key, key)
+                        if same_index:
+                            found = entry
+                        else:
+                            pass
+                        index = _core_add(index, 1)
+                    target = found
+                else:
+                    target = _core_get(target, key, None)
+            missing = _core_is_none(target)
+            target_boolean = _core_type_is(target, "boolean")
+            if target_boolean:
+                is_false = _core_not(target)
+                missing = _core_or(missing, is_false)
+            else:
+                pass
+            target_number = _core_type_is(target, "number")
+            if target_number:
+                is_zero = _core_eq(target, 0)
+                missing = _core_or(missing, is_zero)
+            else:
+                pass
+            target_string = _core_type_is(target, "string")
+            if target_string:
+                is_empty = _core_eq(target, "")
+                missing = _core_or(missing, is_empty)
+            else:
+                pass
+            if missing:
+                message = _core_string_format("{}: Unresolved schema reference", path)
+                errors.append(message)
+                return errors
+            else:
+                pass
+            referenced_errors = _chat_session_argument_errors(root, target, arguments, path, next_depth)
+            return referenced_errors
+        else:
+            message = _core_string_format("{}: External schema references are unsupported", path)
+            errors.append(message)
+            return errors
+    else:
+        pass
+    all = _core_get(schema, "allOf", empty_list)
+    for branch in all:
+        branch_errors = _chat_session_argument_errors(root, branch, arguments, path, next_depth)
+        for error in branch_errors:
+            errors.append(error)
+    keywords = []
+    keywords.append("anyOf")
+    keywords.append("oneOf")
+    for keyword in keywords:
+        branches = _core_get(schema, keyword, None)
+        union_branches = _core_type_is(branches, "list")
+        if union_branches:
+            matches = 0
+            for branch in branches:
+                branch_errors = _chat_session_argument_errors(root, branch, arguments, path, next_depth)
+                error_count = _core_len(branch_errors)
+                match = _core_eq(error_count, 0)
+                if match:
+                    matches = _core_add(matches, 1)
+                else:
+                    pass
+            no_match = _core_eq(matches, 0)
+            one = _core_eq(keyword, "oneOf")
+            ambiguous = _core_gt(matches, 1)
+            too_many = _core_and(one, ambiguous)
+            invalid_union = _core_or(no_match, too_many)
+            if invalid_union:
+                message = _core_string_format("{}: Arguments do not match {}", path, keyword)
+                errors.append(message)
+            else:
+                pass
+        else:
+            pass
+    declared_type = _core_get(schema, "type", None)
+    has_type = _core_is_not_none(declared_type)
+    if has_type:
+        types = []
+        is_union = _core_type_is(declared_type, "list")
+        if is_union:
+            types = declared_type
+        else:
+            types.append(declared_type)
+        matches = False
+        for type in types:
+            wants_string = _core_eq(type, "string")
+            if wants_string:
+                value_string = _core_type_is(arguments, "string")
+                matches = _core_or(matches, value_string)
+            else:
+                pass
+            wants_object = _core_eq(type, "object")
+            if wants_object:
+                value_object = _core_type_is(arguments, "object")
+                matches = _core_or(matches, value_object)
+            else:
+                pass
+            wants_array = _core_eq(type, "array")
+            if wants_array:
+                value_array = _core_type_is(arguments, "list")
+                matches = _core_or(matches, value_array)
+            else:
+                pass
+            wants_number = _core_eq(type, "number")
+            if wants_number:
+                value_number = _core_type_is(arguments, "number")
+                matches = _core_or(matches, value_number)
+            else:
+                pass
+            wants_boolean = _core_eq(type, "boolean")
+            if wants_boolean:
+                value_boolean = _core_type_is(arguments, "boolean")
+                matches = _core_or(matches, value_boolean)
+            else:
+                pass
+            wants_null = _core_eq(type, "null")
+            if wants_null:
+                value_null = _core_is_none(arguments)
+                matches = _core_or(matches, value_null)
+            else:
+                pass
+            wants_integer = _core_eq(type, "integer")
+            if wants_integer:
+                numeric = _core_type_is(arguments, "number")
+                if numeric:
+                    finite = _core_math_is_finite(arguments)
+                    if finite:
+                        whole = _core_math_floor(arguments)
+                        value_integer = _core_eq(whole, arguments)
+                        matches = _core_or(matches, value_integer)
+                    else:
+                        pass
+                else:
+                    pass
+            else:
+                pass
+        if matches:
+            pass
+        else:
+            message = _core_string_format("Validation failed: Expected '{}' to have type {}", path, declared_type)
+            errors.append(message)
+            return errors
+    else:
+        pass
+    enum_values = _core_get(schema, "enum", None)
+    has_enum = _core_type_is(enum_values, "list")
+    if has_enum:
+        allowed = False
+        for choice in enum_values:
+            same = _chat_session_argument_equal(choice, arguments, 0)
+            allowed = _core_or(allowed, same)
+        if allowed:
+            pass
+        else:
+            message = _core_string_format("{}: Value is not in the allowed enum", path)
+            errors.append(message)
+    else:
+        pass
+    has_const = _core_map_contains(schema, "const")
+    if has_const:
+        constant = _core_get(schema, "const", None)
+        same = _chat_session_argument_equal(constant, arguments, 0)
+        if same:
+            pass
+        else:
+            message = _core_string_format("{}: Value does not match const", path)
+            errors.append(message)
+    else:
+        pass
+    string = _core_type_is(arguments, "string")
+    if string:
+        length = _core_string_codepoint_length(arguments)
+        minimum = _core_get(schema, "minLength", 0)
+        maximum = _core_get(schema, "maxLength", length)
+        too_short = _core_lt(length, minimum)
+        too_long = _core_gt(length, maximum)
+        if too_short:
+            message = _core_string_format("{}: String is too short", path)
+            errors.append(message)
+        else:
+            pass
+        if too_long:
+            message = _core_string_format("{}: String is too long", path)
+            errors.append(message)
+        else:
+            pass
+        pattern = _core_get(schema, "pattern", "")
+        if pattern:
+            matches = _core_regex_match(pattern, arguments)
+            if matches:
+                pass
+            else:
+                message = _core_string_format("{}: String does not match pattern", path)
+                errors.append(message)
+        else:
+            pass
+    else:
+        pass
+    number = _core_type_is(arguments, "number")
+    if number:
+        finite = _core_math_is_finite(arguments)
+        if finite:
+            pass
+        else:
+            message = _core_string_format("{}: Number must be finite", path)
+            errors.append(message)
+        minimum = _core_get(schema, "minimum", arguments)
+        maximum = _core_get(schema, "maximum", arguments)
+        low = _core_lt(arguments, minimum)
+        high = _core_gt(arguments, maximum)
+        if low:
+            message = _core_string_format("{}: Number is below minimum", path)
+            errors.append(message)
+        else:
+            pass
+        if high:
+            message = _core_string_format("{}: Number is above maximum", path)
+            errors.append(message)
+        else:
+            pass
+    else:
+        pass
+    object = _core_type_is(arguments, "object")
+    if object:
+        required = _core_get(schema, "required", empty_list)
+        for name in required:
+            present = _core_map_contains(arguments, name)
+            if present:
+                pass
+            else:
+                message = _core_string_format("Required field is missing: '{}.{}'", path, name)
+                errors.append(message)
+        properties = _core_get(schema, "properties", empty)
+        additional = _core_get(schema, "additionalProperties", True)
+        forbidden = _core_eq(additional, False)
+        additional_schema = _core_type_is(additional, "object")
+        names = _core_map_keys(arguments)
+        for name in names:
+            child = _core_get(arguments, name, None)
+            child_path = _core_string_format("{}.{}", path, name)
+            child_schema = _core_get(properties, name, None)
+            known = _core_is_not_none(child_schema)
+            if known:
+                child_errors = _chat_session_argument_errors(root, child_schema, child, child_path, next_depth)
+                for error in child_errors:
+                    errors.append(error)
+            else:
+                if forbidden:
+                    message = _core_string_format("{}: Unexpected property: {}", path, name)
+                    errors.append(message)
+                else:
+                    pass
+                if additional_schema:
+                    child_errors = _chat_session_argument_errors(root, additional, child, child_path, next_depth)
+                    for error in child_errors:
+                        errors.append(error)
+                else:
+                    pass
+    else:
+        pass
+    array = _core_type_is(arguments, "list")
+    if array:
+        length = _core_len(arguments)
+        minimum = _core_get(schema, "minItems", 0)
+        maximum = _core_get(schema, "maxItems", length)
+        too_short = _core_lt(length, minimum)
+        too_long = _core_gt(length, maximum)
+        if too_short:
+            message = _core_string_format("{}: Too few items", path)
+            errors.append(message)
+        else:
+            pass
+        if too_long:
+            message = _core_string_format("{}: Too many items", path)
+            errors.append(message)
+        else:
+            pass
+        items = _core_get(schema, "items", empty)
+        index = 0
+        for item in arguments:
+            child_path = _core_string_format("{}[{}]", path, index)
+            child_errors = _chat_session_argument_errors(root, items, item, child_path, next_depth)
+            for error in child_errors:
+                errors.append(error)
+            index = _core_add(index, 1)
+    else:
+        pass
+    return errors
 
 
 def _structured_output_scalar_placeholder(typ: Any) -> Any:
@@ -1850,47 +2151,6 @@ def _structured_output_scalar_placeholder(typ: Any) -> Any:
     else:
         pass
     return "<value>"
-
-
-def chat_session_observe_output(gen: Any, state: Any, event: Any) -> Any:
-    _core_coverage_mark("chat_session_observe_output")
-    empty_map = {}
-    empty_list = []
-    texts = _core_get(state, "texts", empty_map)
-    id = _core_get(event, "response_id", None)
-    text = _core_get(texts, id, "")
-    response = _core_get(event, "response", None)
-    results = _core_get(response, "results", empty_list)
-    for result in results:
-        delta = _core_get(result, "content", "")
-        text = _core_string_format("{}{}", text, delta)
-    texts[id] = text
-    state["texts"] = texts
-    assertions = _core_get(gen, "streaming_assertions", empty_list)
-    for assertion in assertions:
-        is_map = _core_type_is(assertion, "object")
-        if is_map:
-            needle_camel = _core_get(assertion, "notContains", None)
-            needle = _core_get(assertion, "not_contains", needle_camel)
-            has_needle = _core_is_not_none(needle)
-            if has_needle:
-                found = _core_contains(text, needle)
-                if found:
-                    message = _core_get(assertion, "message", "streaming assertion failed")
-                    error = _core_runtime_error(message)
-                    raise error
-                else:
-                    pass
-            else:
-                pass
-        else:
-            pass
-    version = _core_get(state, "version", 0)
-    output = {}
-    output["response_id"] = id
-    output["text"] = text
-    output["version"] = version
-    return output
 
 
 def _validate_optimized_artifact_provenance(artifact: Any, components: Any) -> bool:
@@ -2005,42 +2265,6 @@ def _validate_optimized_artifact(artifact: Any, components: Any) -> Any:
     return artifact
 
 
-def chat_session_apply_boundary_updates(request: Any, updates: list[Any], level: Any) -> Any:
-    _core_coverage_mark("chat_session_apply_boundary_updates")
-    empty = {}
-    config = _core_get(request, "model_config", empty)
-    config = _core_map_merge(config, empty)
-    messages = _core_get(request, "chat_prompt", None)
-    current_level = level
-    applied = []
-    for update in updates:
-        kind = _core_get(update, "type", None)
-        steering = _core_eq(kind, "steer")
-        if steering:
-            message = {}
-            text = _core_get(update, "text", None)
-            message["role"] = "user"
-            message["content"] = text
-            messages.append(message)
-        else:
-            next_level = _core_get(update, "level", None)
-            current_level = next_level
-        id = _core_get(update, "id", None)
-        applied.append(id)
-    has_level = _core_is_not_none(current_level)
-    if has_level:
-        config["thinkingTokenBudget"] = current_level
-    else:
-        pass
-    request["model_config"] = config
-    request["chat_prompt"] = messages
-    result = {}
-    result["request"] = request
-    result["level"] = current_level
-    result["applied"] = applied
-    return result
-
-
 def _structured_output_type_placeholder(typ: Any) -> Any:
     _core_coverage_mark("_structured_output_type_placeholder")
     placeholder = _structured_output_scalar_placeholder(typ)
@@ -2053,25 +2277,6 @@ def _structured_output_type_placeholder(typ: Any) -> Any:
     else:
         pass
     return placeholder
-
-
-def chat_session_create_state(model: str, path: str, max_steps: Any) -> Any:
-    _core_coverage_mark("chat_session_create_state")
-    state = {}
-    pending = {}
-    responses = {}
-    updates = {}
-    state["model"] = model
-    state["path"] = path
-    state["max_steps"] = max_steps
-    state["steps"] = 0
-    state["version"] = 0
-    state["pending"] = pending
-    state["responses"] = responses
-    state["updates"] = updates
-    state["boundary"] = False
-    state["terminal"] = False
-    return state
 
 
 def _structured_output_shape(output_fields: list[Any]) -> str:
@@ -2096,15 +2301,6 @@ def _serialize_optimized_artifact(artifact: Any) -> str:
     _core_coverage_mark("_serialize_optimized_artifact")
     text = _core_json_stringify(artifact)
     return text
-
-
-def chat_session_target_matches(target: str, path: str) -> bool:
-    _core_coverage_mark("chat_session_target_matches")
-    exact = _core_eq(target, path)
-    prefix = _core_string_format("{}/", target)
-    descendant = _core_string_starts_with(path, prefix)
-    matches = _core_or(exact, descendant)
-    return matches
 
 
 def _append_structured_output_instruction(messages: list[Any], output_fields: list[Any], selection: Any) -> None:
@@ -2133,23 +2329,6 @@ def _deserialize_optimized_artifact(text: str, components: Any) -> Any:
     artifact = _core_json_parse(text)
     validated = _validate_optimized_artifact(artifact, components)
     return validated
-
-
-def chat_session_unresolved(state: Any) -> list[Any]:
-    _core_coverage_mark("chat_session_unresolved")
-    out = []
-    pending = _core_get(state, "pending", None)
-    ids = _core_map_keys(pending)
-    for id in ids:
-        call = _core_get(pending, id, None)
-        status = _core_get(call, "status", None)
-        sent = _core_eq(status, "sent")
-        unresolved = _core_not(sent)
-        if unresolved:
-            out.append(id)
-        else:
-            pass
-    return out
 
 
 def _optimization_changed_components(components: Any, component_map: Any) -> list[Any]:
@@ -2184,34 +2363,6 @@ def _assert_no_reserved_output_functions(functions: list[Any]) -> None:
         else:
             pass
     return None
-
-
-def chat_session_register_call(state: Any, call: Any, execution: str) -> bool:
-    _core_coverage_mark("chat_session_register_call")
-    terminal = _core_get(state, "terminal", False)
-    if terminal:
-        return False
-    else:
-        pass
-    id = _core_get(call, "id", "")
-    missing = _core_eq(id, "")
-    if missing:
-        raise RuntimeError("Completed tool calls require a call ID")
-    else:
-        pass
-    pending = _core_get(state, "pending", None)
-    exists = _core_map_contains(pending, id)
-    if exists:
-        return False
-    else:
-        pass
-    record = {}
-    record["call"] = call
-    record["execution"] = execution
-    record["status"] = "running"
-    pending[id] = record
-    state["pending"] = pending
-    return True
 
 
 def _optimization_component_current_map(components: Any) -> Any:
@@ -2260,21 +2411,6 @@ def _normalize_optimization_dataset(dataset: Any) -> Any:
     return out_list
 
 
-def chat_session_result(response: Any, id: str) -> Any:
-    _core_coverage_mark("chat_session_result")
-    empty = {}
-    response = _core_map_merge(response, empty)
-    response["__session_response_id"] = id
-    return response
-
-
-def chat_session_completion(response: Any, id: str) -> Any:
-    _core_coverage_mark("chat_session_completion")
-    completion = chat_response_to_completion(response)
-    completion["remote_id"] = id
-    return completion
-
-
 def _structured_output_call_args(call: Any) -> Any:
     _core_coverage_mark("_structured_output_call_args")
     fn = _core_get(call, "function", None)
@@ -2312,17 +2448,6 @@ def _normalize_optimization_metric_scores(raw: Any) -> Any:
     out_zero = {}
     out_zero["score"] = 0
     return out_zero
-
-
-def chat_session_has_continuation_work(state: Any) -> bool:
-    _core_coverage_mark("chat_session_has_continuation_work")
-    pending = chat_session_unresolved(state)
-    pending = _core_truthy(pending)
-    native_wait = chat_session_native_wait(state)
-    continuation = _core_get(state, "needs_continuation", False)
-    work = _core_or(pending, native_wait)
-    work = _core_or(work, continuation)
-    return work
 
 
 def _build_gen_chat_request(gen: AxGen, messages: list[Any], options: Any, selection: Any) -> AxChatRequest:
@@ -2472,22 +2597,6 @@ def _build_gen_chat_request(gen: AxGen, messages: list[Any], options: Any, selec
     return request
 
 
-def chat_session_normalize_call(call: Any) -> Any:
-    _core_coverage_mark("chat_session_normalize_call")
-    function = _core_get(call, "function", None)
-    missing = _core_is_none(function)
-    if missing:
-        call = _completion_call_to_chat_impl(call)
-        function = _core_get(call, "function", None)
-    else:
-        pass
-    name = _core_get(function, "name", None)
-    params = _core_get(function, "params", None)
-    call["name"] = name
-    call["params"] = params
-    return call
-
-
 def _scalarize_optimization_scores(scores: Any, options: Any) -> f64:
     _core_coverage_mark("_scalarize_optimization_scores")
     metric_key = _core_get(options, "paretoMetricKey", "")
@@ -2514,28 +2623,6 @@ def _scalarize_optimization_scores(scores: Any, options: Any) -> f64:
     return avg
 
 
-def chat_session_defer_final_call(state: Any, call: Any) -> bool:
-    _core_coverage_mark("chat_session_defer_final_call")
-    unresolved = chat_session_unresolved(state)
-    pending = _core_truthy(unresolved)
-    updates = _core_get(state, "needs_continuation", False)
-    defer = _core_or(pending, updates)
-    if defer:
-        registered = chat_session_register_call(state, call, "blocking")
-        if registered:
-            id = _core_get(call, "id", None)
-            result = {}
-            result["function_id"] = id
-            result["result"] = "Not executed: incorporate the background tool results and queued updates before calling this finalization function again."
-            chat_session_complete_call(state, id, result)
-        else:
-            pass
-        return registered
-    else:
-        pass
-    return False
-
-
 def _optimization_action_name_matches(expected: str, call: Any) -> bool:
     _core_coverage_mark("_optimization_action_name_matches")
     qualified = _core_get(call, "qualifiedName", "")
@@ -2547,34 +2634,6 @@ def _optimization_action_name_matches(expected: str, call: Any) -> bool:
     direct_match = _core_or(qualified_match, name_match)
     any_match = _core_or(direct_match, suffix_match)
     return any_match
-
-
-def chat_session_complete_call(state: Any, id: str, result: Any) -> bool:
-    _core_coverage_mark("chat_session_complete_call")
-    terminal = _core_get(state, "terminal", False)
-    if terminal:
-        return False
-    else:
-        pass
-    pending = _core_get(state, "pending", None)
-    exists = _core_map_contains(pending, id)
-    missing = _core_not(exists)
-    if missing:
-        raise RuntimeError("Tool result has no registered call")
-    else:
-        pass
-    record = _core_get(pending, id, None)
-    status = _core_get(record, "status", None)
-    running = _core_eq(status, "running")
-    if running:
-        record["result"] = result
-        record["status"] = "ready"
-        pending[id] = record
-        state["pending"] = pending
-        return True
-    else:
-        pass
-    return False
 
 
 def _adjust_optimization_score_for_actions(score: Any, task: Any, prediction: Any) -> f64:
@@ -2624,69 +2683,71 @@ def _adjust_optimization_score_for_actions(score: Any, task: Any, prediction: An
     return adjusted
 
 
-def chat_session_complete_response(state: Any, id: str) -> bool:
-    _core_coverage_mark("chat_session_complete_response")
-    terminal = _core_get(state, "terminal", False)
-    if terminal:
-        return False
-    else:
+def chat_session_record_result(gen: Any, state: Any, call: Any, result: Any, ok: bool) -> bool:
+    _core_coverage_mark("chat_session_record_result")
+    id = _core_get(call, "id", None)
+    text = result
+    is_string = _core_type_is(result, "string")
+    if is_string:
         pass
-    responses = _core_get(state, "responses", None)
-    duplicate = _core_map_contains(responses, id)
-    if duplicate:
-        return False
     else:
-        pass
-    steps = _core_get(state, "steps", 0)
-    limit = _core_get(state, "max_steps", None)
-    exhausted = _core_gte(steps, limit)
-    if exhausted:
-        raise RuntimeError("Maximum model steps exhausted before final completion")
-    else:
-        pass
-    next = _core_add(steps, 1)
-    responses[id] = True
-    state["responses"] = responses
-    state["response_id"] = id
-    state["steps"] = next
-    state["boundary"] = True
-    updates = _core_get(state, "updates", None)
-    update_ids = _core_map_keys(updates)
-    had_successor = False
-    for update_id in update_ids:
-        record = _core_get(updates, update_id, None)
-        parent = _core_get(record, "native_parent", None)
-        has_parent = _core_is_not_none(parent)
-        successor = _core_ne(parent, id)
-        finished = _core_and(has_parent, successor)
-        if finished:
-            had_successor = True
-            record["native_state"] = "done"
-            updates[update_id] = record
+        text = _core_json_stringify(result)
+    output = {}
+    output["function_id"] = id
+    output["result"] = text
+    changed = chat_session_complete_call(state, id, output)
+    if changed:
+        status = "error"
+        if ok:
+            status = "ok"
         else:
             pass
-    state["updates"] = updates
-    if had_successor:
-        queued = chat_session_has_queued_updates(state)
-        state["needs_continuation"] = queued
+        _core_axgen_memory_add_function_result(gen, call, result, ok)
+        _core_axgen_record_function_call(gen, call, result, status)
     else:
         pass
-    return True
+    return changed
 
 
-def chat_session_has_queued_updates(state: Any) -> bool:
-    _core_coverage_mark("chat_session_has_queued_updates")
-    updates = _core_get(state, "updates", None)
-    ids = _core_map_keys(updates)
-    for id in ids:
-        record = _core_get(updates, id, None)
-        status = _core_get(record, "status", None)
-        queued = _core_eq(status, "queued")
-        if queued:
-            return True
+def chat_session_observe_output(gen: Any, state: Any, event: Any) -> Any:
+    _core_coverage_mark("chat_session_observe_output")
+    empty_map = {}
+    empty_list = []
+    texts = _core_get(state, "texts", empty_map)
+    id = _core_get(event, "response_id", None)
+    text = _core_get(texts, id, "")
+    response = _core_get(event, "response", None)
+    results = _core_get(response, "results", empty_list)
+    for result in results:
+        delta = _core_get(result, "content", "")
+        text = _core_string_format("{}{}", text, delta)
+    texts[id] = text
+    state["texts"] = texts
+    assertions = _core_get(gen, "streaming_assertions", empty_list)
+    for assertion in assertions:
+        is_map = _core_type_is(assertion, "object")
+        if is_map:
+            needle_camel = _core_get(assertion, "notContains", None)
+            needle = _core_get(assertion, "not_contains", needle_camel)
+            has_needle = _core_is_not_none(needle)
+            if has_needle:
+                found = _core_contains(text, needle)
+                if found:
+                    message = _core_get(assertion, "message", "streaming assertion failed")
+                    error = _core_runtime_error(message)
+                    raise error
+                else:
+                    pass
+            else:
+                pass
         else:
             pass
-    return False
+    version = _core_get(state, "version", 0)
+    output = {}
+    output["response_id"] = id
+    output["text"] = text
+    output["version"] = version
+    return output
 
 
 def _parse_sample_outputs(gen: AxGen, output_fields: list[Any], response: Any, validate_exact_json: bool) -> Any:
@@ -2729,50 +2790,40 @@ def _parse_sample_outputs(gen: AxGen, output_fields: list[Any], response: Any, v
     return bundle
 
 
-def chat_session_native_update(state: Any, id: str) -> bool:
-    _core_coverage_mark("chat_session_native_update")
-    terminal = _core_get(state, "terminal", False)
-    if terminal:
-        return False
-    else:
-        pass
-    updates = _core_get(state, "updates", None)
-    record = _core_get(updates, id, None)
-    native_state = _core_get(record, "native_state", None)
-    new_native = _core_is_none(native_state)
-    if new_native:
-        record["native_state"] = "awaiting_ack"
-        responses = _core_get(state, "responses", None)
-        empty_baseline = {}
-        baseline = _core_map_merge(empty_baseline, responses)
-        record["native_responses"] = baseline
-        updates[id] = record
-        state["updates"] = updates
-    else:
-        pass
-    return new_native
-
-
-def chat_session_native_wait(state: Any) -> bool:
-    _core_coverage_mark("chat_session_native_wait")
-    updates = _core_get(state, "updates", None)
-    ids = _core_map_keys(updates)
-    for id in ids:
-        record = _core_get(updates, id, None)
-        native_state = _core_get(record, "native_state", None)
-        has_native = _core_is_not_none(native_state)
-        if has_native:
-            status = _core_get(record, "status", None)
-            queued = _core_eq(status, "queued")
-            successor = _core_eq(native_state, "awaiting_successor")
-            waiting = _core_or(queued, successor)
-            if waiting:
-                return True
-            else:
-                pass
+def chat_session_apply_boundary_updates(request: Any, updates: list[Any], level: Any) -> Any:
+    _core_coverage_mark("chat_session_apply_boundary_updates")
+    empty = {}
+    config = _core_get(request, "model_config", empty)
+    config = _core_map_merge(config, empty)
+    messages = _core_get(request, "chat_prompt", None)
+    current_level = level
+    applied = []
+    for update in updates:
+        kind = _core_get(update, "type", None)
+        steering = _core_eq(kind, "steer")
+        if steering:
+            message = {}
+            text = _core_get(update, "text", None)
+            message["role"] = "user"
+            message["content"] = text
+            messages.append(message)
         else:
-            pass
-    return False
+            next_level = _core_get(update, "level", None)
+            current_level = next_level
+        id = _core_get(update, "id", None)
+        applied.append(id)
+    has_level = _core_is_not_none(current_level)
+    if has_level:
+        config["thinkingTokenBudget"] = current_level
+    else:
+        pass
+    request["model_config"] = config
+    request["chat_prompt"] = messages
+    result = {}
+    result["request"] = request
+    result["level"] = current_level
+    result["applied"] = applied
+    return result
 
 
 def _build_optimization_eval_row(task: Any, prediction: Any, scores: Any, scalar: Any, trace: Any, error: Any) -> Any:
@@ -2823,128 +2874,23 @@ def _select_sample_index(samples: list[Any], options: Any) -> number:
     return selected
 
 
-def chat_session_native_event(state: Any, event: Any) -> Any:
-    _core_coverage_mark("chat_session_native_event")
-    result = {}
-    result["changed"] = False
-    terminal = _core_get(state, "terminal", False)
-    if terminal:
-        return result
-    else:
-        pass
-    status = _core_get(event, "status", None)
-    failed = _core_eq(status, "failed")
-    if failed:
-        error = _core_get(event, "error", "Provider rejected steering")
-        raise error
-    else:
-        pass
-    updates = _core_get(state, "updates", None)
-    ids = _core_map_keys(updates)
-    steer_id = _core_get(event, "steer_id", None)
-    selected = _core_none()
-    for id in ids:
-        record = _core_get(updates, id, None)
-        record_steer = _core_get(record, "steer_id", None)
-        same = _core_eq(record_steer, steer_id)
-        has_steer = _core_is_not_none(steer_id)
-        matches = _core_and(same, has_steer)
-        if matches:
-            selected = id
-        else:
-            pass
-    missing = _core_is_none(selected)
-    if missing:
-        for id in ids:
-            record = _core_get(updates, id, None)
-            native_state = _core_get(record, "native_state", None)
-            record_steer = _core_get(record, "steer_id", None)
-            waiting = _core_eq(native_state, "awaiting_ack")
-            unassigned = _core_is_none(record_steer)
-            missing = _core_is_none(selected)
-            candidate = _core_and(waiting, unassigned)
-            choose_record = _core_and(missing, candidate)
-            if choose_record:
-                selected = id
-            else:
-                pass
-    else:
-        pass
-    found = _core_is_not_none(selected)
-    if found:
-        record = _core_get(updates, selected, None)
-        record["steer_id"] = steer_id
-        parent = _core_get(event, "response_id", None)
-        record["native_parent"] = parent
-        native_state = _core_get(record, "native_state", None)
-        empty_map = {}
-        baseline = _core_get(record, "native_responses", empty_map)
-        responses = _core_get(state, "responses", None)
-        response_ids = _core_map_keys(responses)
-        for response_id in response_ids:
-            old_response = _core_map_contains(baseline, response_id)
-            new_response = _core_not(old_response)
-            not_parent = _core_ne(response_id, parent)
-            successor_seen = _core_and(new_response, not_parent)
-            if successor_seen:
-                native_state = "done"
-                record["native_state"] = "done"
-            else:
-                pass
-        pending_status = _core_eq(status, "pending")
-        done = _core_eq(native_state, "done")
-        not_done = _core_not(done)
-        pending = _core_and(pending_status, not_done)
-        if pending:
-            changed_state = _core_ne(native_state, "pending_input")
-            record["native_state"] = "pending_input"
-            empty = []
-            required = _core_get(event, "required_call_ids", empty)
-            old_required = _core_get(record, "required_call_ids", empty)
-            changed_ids = _core_ne(required, old_required)
-            changed = _core_or(changed_state, changed_ids)
-            record["required_call_ids"] = required
-            state["needs_continuation"] = True
-            result["changed"] = changed
-        else:
-            accepted = _core_eq(status, "accepted")
-            if accepted:
-                record_status = _core_get(record, "status", None)
-                queued = _core_eq(record_status, "queued")
-                if queued:
-                    pending_input = _core_eq(native_state, "pending_input")
-                    done = _core_eq(native_state, "done")
-                    settled = _core_or(pending_input, done)
-                    await_successor = _core_not(settled)
-                    if await_successor:
-                        record["native_state"] = "awaiting_successor"
-                    else:
-                        pass
-                    record["status"] = "applied"
-                    version = _core_get(state, "version", 0)
-                    version = _core_add(version, 1)
-                    state["version"] = version
-                    result["changed"] = True
-                    result["applied_id"] = selected
-                else:
-                    pass
-            else:
-                pass
-        updates[selected] = record
-        state["updates"] = updates
-        accepted = _core_eq(status, "accepted")
-        native_state = _core_get(record, "native_state", None)
-        pending_input = _core_eq(native_state, "pending_input")
-        not_pending = _core_not(pending_input)
-        can_clear = _core_and(accepted, not_pending)
-        if can_clear:
-            queued = chat_session_has_queued_updates(state)
-            state["needs_continuation"] = queued
-        else:
-            pass
-    else:
-        pass
-    return result
+def chat_session_create_state(model: str, path: str, max_steps: Any) -> Any:
+    _core_coverage_mark("chat_session_create_state")
+    state = {}
+    pending = {}
+    responses = {}
+    updates = {}
+    state["model"] = model
+    state["path"] = path
+    state["max_steps"] = max_steps
+    state["steps"] = 0
+    state["version"] = 0
+    state["pending"] = pending
+    state["responses"] = responses
+    state["updates"] = updates
+    state["boundary"] = False
+    state["terminal"] = False
+    return state
 
 
 def _build_optimization_eval_result(rows: Any, candidate_map: Any, phase: str) -> Any:
@@ -2972,6 +2918,15 @@ def _build_optimization_eval_result(rows: Any, candidate_map: Any, phase: str) -
     out["avg"] = avg
     out["count"] = count
     return out
+
+
+def chat_session_target_matches(target: str, path: str) -> bool:
+    _core_coverage_mark("chat_session_target_matches")
+    exact = _core_eq(target, path)
+    prefix = _core_string_format("{}/", target)
+    descendant = _core_string_starts_with(path, prefix)
+    matches = _core_or(exact, descendant)
+    return matches
 
 
 def _forward_impl(gen: AxGen, client: AIClient, values: Any, options: Any) -> Any:
@@ -3110,6 +3065,23 @@ def _forward_impl(gen: AxGen, client: AIClient, values: Any, options: Any) -> An
     raise RuntimeError("unreachable AxGen forward loop exit")
 
 
+def chat_session_unresolved(state: Any) -> list[Any]:
+    _core_coverage_mark("chat_session_unresolved")
+    out = []
+    pending = _core_get(state, "pending", None)
+    ids = _core_map_keys(pending)
+    for id in ids:
+        call = _core_get(pending, id, None)
+        status = _core_get(call, "status", None)
+        sent = _core_eq(status, "sent")
+        unresolved = _core_not(sent)
+        if unresolved:
+            out.append(id)
+        else:
+            pass
+    return out
+
+
 def _filter_optimization_components(components: Any, target: Any) -> list[Any]:
     _core_coverage_mark("_filter_optimization_components")
     out = []
@@ -3184,6 +3156,60 @@ def _filter_optimization_components(components: Any, target: Any) -> list[Any]:
     return out
 
 
+def chat_session_register_call(state: Any, call: Any, execution: str) -> bool:
+    _core_coverage_mark("chat_session_register_call")
+    terminal = _core_get(state, "terminal", False)
+    if terminal:
+        return False
+    else:
+        pass
+    id = _core_get(call, "id", "")
+    missing = _core_eq(id, "")
+    if missing:
+        raise RuntimeError("Completed tool calls require a call ID")
+    else:
+        pass
+    pending = _core_get(state, "pending", None)
+    exists = _core_map_contains(pending, id)
+    if exists:
+        return False
+    else:
+        pass
+    record = {}
+    record["call"] = call
+    record["execution"] = execution
+    record["status"] = "running"
+    pending[id] = record
+    state["pending"] = pending
+    return True
+
+
+def chat_session_result(response: Any, id: str) -> Any:
+    _core_coverage_mark("chat_session_result")
+    empty = {}
+    response = _core_map_merge(response, empty)
+    response["__session_response_id"] = id
+    return response
+
+
+def chat_session_completion(response: Any, id: str) -> Any:
+    _core_coverage_mark("chat_session_completion")
+    completion = chat_response_to_completion(response)
+    completion["remote_id"] = id
+    return completion
+
+
+def chat_session_has_continuation_work(state: Any) -> bool:
+    _core_coverage_mark("chat_session_has_continuation_work")
+    pending = chat_session_unresolved(state)
+    pending = _core_truthy(pending)
+    native_wait = chat_session_native_wait(state)
+    continuation = _core_get(state, "needs_continuation", False)
+    work = _core_or(pending, native_wait)
+    work = _core_or(work, continuation)
+    return work
+
+
 def _build_optimizer_request(program_kind: str, components: Any, dataset: Any, options: Any, trace: Any) -> Any:
     _core_coverage_mark("_build_optimizer_request")
     out = {}
@@ -3204,68 +3230,20 @@ def _build_optimizer_request(program_kind: str, components: Any, dataset: Any, o
     return out
 
 
-def chat_session_boundary_action(state: Any) -> Any:
-    _core_coverage_mark("chat_session_boundary_action")
-    action = {}
-    action["type"] = "wait"
-    terminal = _core_get(state, "terminal", False)
-    if terminal:
-        action["type"] = "closed"
-        return action
+def chat_session_normalize_call(call: Any) -> Any:
+    _core_coverage_mark("chat_session_normalize_call")
+    function = _core_get(call, "function", None)
+    missing = _core_is_none(function)
+    if missing:
+        call = _completion_call_to_chat_impl(call)
+        function = _core_get(call, "function", None)
     else:
         pass
-    native_wait = chat_session_native_wait(state)
-    if native_wait:
-        return action
-    else:
-        pass
-    boundary = _core_get(state, "boundary", False)
-    active = _core_not(boundary)
-    if active:
-        return action
-    else:
-        pass
-    pending = _core_get(state, "pending", None)
-    ids = _core_map_keys(pending)
-    results = []
-    running = False
-    blocking = False
-    for id in ids:
-        record = _core_get(pending, id, None)
-        status = _core_get(record, "status", None)
-        is_running = _core_eq(status, "running")
-        execution = _core_get(record, "execution", None)
-        is_blocking = _core_eq(execution, "blocking")
-        running_barrier = _core_and(is_running, is_blocking)
-        blocking = _core_or(blocking, running_barrier)
-        running = _core_or(running, is_running)
-        ready = _core_eq(status, "ready")
-        if ready:
-            result = _core_get(record, "result", None)
-            results.append(result)
-        else:
-            pass
-    if blocking:
-        return action
-    else:
-        pass
-    has_results = _core_truthy(results)
-    if has_results:
-        action["type"] = "submit"
-        action["results"] = results
-        return action
-    else:
-        pass
-    if running:
-        return action
-    else:
-        pass
-    needs_continuation = _core_get(state, "needs_continuation", False)
-    if needs_continuation:
-        action["type"] = "continue"
-    else:
-        action["type"] = "validate"
-    return action
+    name = _core_get(function, "name", None)
+    params = _core_get(function, "params", None)
+    call["name"] = name
+    call["params"] = params
+    return call
 
 
 def _prepare_optimizer_run(program_kind: str, components: Any, dataset: Any, options: Any, trace: Any, evaluator_available: bool) -> Any:
@@ -3296,6 +3274,56 @@ def _prepare_optimizer_run(program_kind: str, components: Any, dataset: Any, opt
     out["options"] = request_options
     out["request"] = request
     return out
+
+
+def chat_session_defer_final_call(state: Any, call: Any) -> bool:
+    _core_coverage_mark("chat_session_defer_final_call")
+    unresolved = chat_session_unresolved(state)
+    pending = _core_truthy(unresolved)
+    updates = _core_get(state, "needs_continuation", False)
+    defer = _core_or(pending, updates)
+    if defer:
+        registered = chat_session_register_call(state, call, "blocking")
+        if registered:
+            id = _core_get(call, "id", None)
+            result = {}
+            result["function_id"] = id
+            result["result"] = "Not executed: incorporate the background tool results and queued updates before calling this finalization function again."
+            chat_session_complete_call(state, id, result)
+        else:
+            pass
+        return registered
+    else:
+        pass
+    return False
+
+
+def chat_session_complete_call(state: Any, id: str, result: Any) -> bool:
+    _core_coverage_mark("chat_session_complete_call")
+    terminal = _core_get(state, "terminal", False)
+    if terminal:
+        return False
+    else:
+        pass
+    pending = _core_get(state, "pending", None)
+    exists = _core_map_contains(pending, id)
+    missing = _core_not(exists)
+    if missing:
+        raise RuntimeError("Tool result has no registered call")
+    else:
+        pass
+    record = _core_get(pending, id, None)
+    status = _core_get(record, "status", None)
+    running = _core_eq(status, "running")
+    if running:
+        record["result"] = result
+        record["status"] = "ready"
+        pending[id] = record
+        state["pending"] = pending
+        return True
+    else:
+        pass
+    return False
 
 
 def _normalize_optimizer_engine_response(response: Any, engine_name: str, engine_version: str, components: Any) -> Any:
@@ -3391,54 +3419,60 @@ def _set_demos(gen: AxGen, demos: list[Any]) -> AxGen:
     return gen
 
 
-def chat_session_mark_submitted(state: Any, ids: list[Any]) -> None:
-    _core_coverage_mark("chat_session_mark_submitted")
-    pending = _core_get(state, "pending", None)
-    for id in ids:
-        record = _core_get(pending, id, None)
-        record["status"] = "sent"
-        pending[id] = record
-    state["pending"] = pending
-    state["boundary"] = False
-    state["needs_continuation"] = False
-    return None
+def chat_session_complete_response(state: Any, id: str) -> bool:
+    _core_coverage_mark("chat_session_complete_response")
+    terminal = _core_get(state, "terminal", False)
+    if terminal:
+        return False
+    else:
+        pass
+    responses = _core_get(state, "responses", None)
+    duplicate = _core_map_contains(responses, id)
+    if duplicate:
+        return False
+    else:
+        pass
+    steps = _core_get(state, "steps", 0)
+    limit = _core_get(state, "max_steps", None)
+    exhausted = _core_gte(steps, limit)
+    if exhausted:
+        raise RuntimeError("Maximum model steps exhausted before final completion")
+    else:
+        pass
+    next = _core_add(steps, 1)
+    responses[id] = True
+    state["responses"] = responses
+    state["response_id"] = id
+    state["steps"] = next
+    state["boundary"] = True
+    updates = _core_get(state, "updates", None)
+    update_ids = _core_map_keys(updates)
+    had_successor = False
+    for update_id in update_ids:
+        record = _core_get(updates, update_id, None)
+        parent = _core_get(record, "native_parent", None)
+        has_parent = _core_is_not_none(parent)
+        successor = _core_ne(parent, id)
+        finished = _core_and(has_parent, successor)
+        if finished:
+            had_successor = True
+            record["native_state"] = "done"
+            updates[update_id] = record
+        else:
+            pass
+    state["updates"] = updates
+    if had_successor:
+        queued = chat_session_has_queued_updates(state)
+        state["needs_continuation"] = queued
+    else:
+        pass
+    return True
 
 
 def _render_examples(gen: AxGen) -> list[Any]:
     _core_coverage_mark("_render_examples")
     messages = _core_axgen_render_examples(gen)
     return messages
-
-
-def chat_session_queue_update(state: Any, update: Any) -> bool:
-    _core_coverage_mark("chat_session_queue_update")
-    terminal = _core_get(state, "terminal", False)
-    if terminal:
-        return False
-    else:
-        pass
-    target = _core_get(update, "target", "root")
-    path = _core_get(state, "path", None)
-    matches = chat_session_target_matches(target, path)
-    unmatched = _core_not(matches)
-    if unmatched:
-        return False
-    else:
-        pass
-    id = _core_get(update, "id", None)
-    updates = _core_get(state, "updates", None)
-    exists = _core_map_contains(updates, id)
-    if exists:
-        return False
-    else:
-        pass
-    record = {}
-    record["update"] = update
-    record["status"] = "queued"
-    updates[id] = record
-    state["updates"] = updates
-    state["needs_continuation"] = True
-    return True
 
 
 def _render_demos(gen: AxGen) -> list[Any]:
@@ -3527,11 +3561,19 @@ def _build_optimizer_evidence_batch(eval_result: Any, components: Any) -> Any:
     return out
 
 
-def chat_session_close_state(state: Any) -> list[Any]:
-    _core_coverage_mark("chat_session_close_state")
-    state["terminal"] = True
-    unresolved = chat_session_unresolved(state)
-    return unresolved
+def chat_session_has_queued_updates(state: Any) -> bool:
+    _core_coverage_mark("chat_session_has_queued_updates")
+    updates = _core_get(state, "updates", None)
+    ids = _core_map_keys(updates)
+    for id in ids:
+        record = _core_get(updates, id, None)
+        status = _core_get(record, "status", None)
+        queued = _core_eq(status, "queued")
+        if queued:
+            return True
+        else:
+            pass
+    return False
 
 
 def _append_assertion_retry_messages(messages: list[Any], response: Any, error: error) -> None:
@@ -3540,120 +3582,34 @@ def _append_assertion_retry_messages(messages: list[Any], response: Any, error: 
     return None
 
 
-def chat_session_transition(state: Any, event: Any) -> Any:
-    _core_coverage_mark("chat_session_transition")
-    type = _core_get(event, "type", None)
-    call = _core_eq(type, "tool.validated")
-    result = _core_eq(type, "tool.result")
-    response = _core_eq(type, "response.completed")
-    update = _core_eq(type, "update.queued")
-    submitted = _core_eq(type, "results.submitted")
-    closed = _core_eq(type, "closed")
-    validated = _core_eq(type, "validated")
-    applied = _core_eq(type, "update.applied")
-    changed = False
-    native_queued = _core_eq(type, "native.queued")
-    if native_queued:
-        id = _core_get(event, "id", None)
-        changed = chat_session_native_update(state, id)
-        action = chat_session_boundary_action(state)
-        action["changed"] = changed
-        return action
-    else:
-        pass
-    steering = _core_eq(type, "steering")
-    if steering:
-        change = chat_session_native_event(state, event)
-        action = chat_session_boundary_action(state)
-        action = _core_map_merge(action, change)
-        return action
-    else:
-        pass
-    final_call = _core_eq(type, "tool.final")
-    if final_call:
-        tool_call = _core_get(event, "call", None)
-        changed = chat_session_defer_final_call(state, tool_call)
-        action = chat_session_boundary_action(state)
-        action["changed"] = changed
-        return action
-    else:
-        pass
-    if call:
-        tool_call = _core_get(event, "call", None)
-        execution = _core_get(event, "execution", "blocking")
-        changed = chat_session_register_call(state, tool_call, execution)
-    else:
-        if result:
-            id = _core_get(event, "id", None)
-            value = _core_get(event, "result", None)
-            changed = chat_session_complete_call(state, id, value)
-        else:
-            if response:
-                id = _core_get(event, "id", None)
-                changed = chat_session_complete_response(state, id)
-            else:
-                if update:
-                    item = _core_get(event, "update", None)
-                    changed = chat_session_queue_update(state, item)
-                else:
-                    if submitted:
-                        ids = _core_get(event, "ids", None)
-                        chat_session_mark_submitted(state, ids)
-                        changed = True
-                    else:
-                        if closed:
-                            chat_session_close_state(state)
-                            changed = True
-                        else:
-                            if validated:
-                                action = chat_session_boundary_action(state)
-                                action_type = _core_get(action, "type", None)
-                                ready = _core_eq(action_type, "validate")
-                                not_ready = _core_not(ready)
-                                if not_ready:
-                                    raise RuntimeError("Cannot finalize while model or tool work is unresolved")
-                                else:
-                                    pass
-                                state["terminal"] = True
-                                changed = True
-                            else:
-                                if applied:
-                                    id = _core_get(event, "id", None)
-                                    updates = _core_get(state, "updates", None)
-                                    exists = _core_map_contains(updates, id)
-                                    if exists:
-                                        record = _core_get(updates, id, None)
-                                        status = _core_get(record, "status", None)
-                                        queued = _core_eq(status, "queued")
-                                        if queued:
-                                            record["status"] = "applied"
-                                            updates[id] = record
-                                            state["updates"] = updates
-                                            item = _core_get(record, "update", None)
-                                            kind = _core_get(item, "type", None)
-                                            steer = _core_eq(kind, "steer")
-                                            if steer:
-                                                version = _core_get(state, "version", 0)
-                                                next_version = _core_add(version, 1)
-                                                state["version"] = next_version
-                                            else:
-                                                pass
-                                            changed = True
-                                        else:
-                                            pass
-                                    else:
-                                        pass
-                                else:
-                                    raise RuntimeError("Unknown chat session transition")
-    action = chat_session_boundary_action(state)
-    action["changed"] = changed
-    return action
-
-
 def _record_trace(gen: AxGen, input: Any, output: Any, status: str) -> None:
     _core_coverage_mark("_record_trace")
     _core_axgen_record_trace(gen, input, output, status)
     return None
+
+
+def chat_session_native_update(state: Any, id: str) -> bool:
+    _core_coverage_mark("chat_session_native_update")
+    terminal = _core_get(state, "terminal", False)
+    if terminal:
+        return False
+    else:
+        pass
+    updates = _core_get(state, "updates", None)
+    record = _core_get(updates, id, None)
+    native_state = _core_get(record, "native_state", None)
+    new_native = _core_is_none(native_state)
+    if new_native:
+        record["native_state"] = "awaiting_ack"
+        responses = _core_get(state, "responses", None)
+        empty_baseline = {}
+        baseline = _core_map_merge(empty_baseline, responses)
+        record["native_responses"] = baseline
+        updates[id] = record
+        state["updates"] = updates
+    else:
+        pass
+    return new_native
 
 
 def _should_continue_steps(gen: AxGen, calls: list[Any]) -> bool:
@@ -3687,6 +3643,152 @@ def _complete_with_retries_impl(client: AIClient, request: AxChatRequest, option
             attempt = next_attempt
             continue
     raise last_error
+
+
+def chat_session_native_wait(state: Any) -> bool:
+    _core_coverage_mark("chat_session_native_wait")
+    updates = _core_get(state, "updates", None)
+    ids = _core_map_keys(updates)
+    for id in ids:
+        record = _core_get(updates, id, None)
+        native_state = _core_get(record, "native_state", None)
+        has_native = _core_is_not_none(native_state)
+        if has_native:
+            status = _core_get(record, "status", None)
+            queued = _core_eq(status, "queued")
+            successor = _core_eq(native_state, "awaiting_successor")
+            waiting = _core_or(queued, successor)
+            if waiting:
+                return True
+            else:
+                pass
+        else:
+            pass
+    return False
+
+
+def chat_session_native_event(state: Any, event: Any) -> Any:
+    _core_coverage_mark("chat_session_native_event")
+    result = {}
+    result["changed"] = False
+    terminal = _core_get(state, "terminal", False)
+    if terminal:
+        return result
+    else:
+        pass
+    status = _core_get(event, "status", None)
+    failed = _core_eq(status, "failed")
+    if failed:
+        error = _core_get(event, "error", "Provider rejected steering")
+        raise error
+    else:
+        pass
+    updates = _core_get(state, "updates", None)
+    ids = _core_map_keys(updates)
+    steer_id = _core_get(event, "steer_id", None)
+    selected = _core_none()
+    for id in ids:
+        record = _core_get(updates, id, None)
+        record_steer = _core_get(record, "steer_id", None)
+        same = _core_eq(record_steer, steer_id)
+        has_steer = _core_is_not_none(steer_id)
+        matches = _core_and(same, has_steer)
+        if matches:
+            selected = id
+        else:
+            pass
+    missing = _core_is_none(selected)
+    if missing:
+        for id in ids:
+            record = _core_get(updates, id, None)
+            native_state = _core_get(record, "native_state", None)
+            record_steer = _core_get(record, "steer_id", None)
+            waiting = _core_eq(native_state, "awaiting_ack")
+            unassigned = _core_is_none(record_steer)
+            missing = _core_is_none(selected)
+            candidate = _core_and(waiting, unassigned)
+            choose_record = _core_and(missing, candidate)
+            if choose_record:
+                selected = id
+            else:
+                pass
+    else:
+        pass
+    found = _core_is_not_none(selected)
+    if found:
+        record = _core_get(updates, selected, None)
+        record["steer_id"] = steer_id
+        parent = _core_get(event, "response_id", None)
+        record["native_parent"] = parent
+        native_state = _core_get(record, "native_state", None)
+        empty_map = {}
+        baseline = _core_get(record, "native_responses", empty_map)
+        responses = _core_get(state, "responses", None)
+        response_ids = _core_map_keys(responses)
+        for response_id in response_ids:
+            old_response = _core_map_contains(baseline, response_id)
+            new_response = _core_not(old_response)
+            not_parent = _core_ne(response_id, parent)
+            successor_seen = _core_and(new_response, not_parent)
+            if successor_seen:
+                native_state = "done"
+                record["native_state"] = "done"
+            else:
+                pass
+        pending_status = _core_eq(status, "pending")
+        done = _core_eq(native_state, "done")
+        not_done = _core_not(done)
+        pending = _core_and(pending_status, not_done)
+        if pending:
+            changed_state = _core_ne(native_state, "pending_input")
+            record["native_state"] = "pending_input"
+            empty = []
+            required = _core_get(event, "required_call_ids", empty)
+            old_required = _core_get(record, "required_call_ids", empty)
+            changed_ids = _core_ne(required, old_required)
+            changed = _core_or(changed_state, changed_ids)
+            record["required_call_ids"] = required
+            state["needs_continuation"] = True
+            result["changed"] = changed
+        else:
+            accepted = _core_eq(status, "accepted")
+            if accepted:
+                record_status = _core_get(record, "status", None)
+                queued = _core_eq(record_status, "queued")
+                if queued:
+                    pending_input = _core_eq(native_state, "pending_input")
+                    done = _core_eq(native_state, "done")
+                    settled = _core_or(pending_input, done)
+                    await_successor = _core_not(settled)
+                    if await_successor:
+                        record["native_state"] = "awaiting_successor"
+                    else:
+                        pass
+                    record["status"] = "applied"
+                    version = _core_get(state, "version", 0)
+                    version = _core_add(version, 1)
+                    state["version"] = version
+                    result["changed"] = True
+                    result["applied_id"] = selected
+                else:
+                    pass
+            else:
+                pass
+        updates[selected] = record
+        state["updates"] = updates
+        accepted = _core_eq(status, "accepted")
+        native_state = _core_get(record, "native_state", None)
+        pending_input = _core_eq(native_state, "pending_input")
+        not_pending = _core_not(pending_input)
+        can_clear = _core_and(accepted, not_pending)
+        if can_clear:
+            queued = chat_session_has_queued_updates(state)
+            state["needs_continuation"] = queued
+        else:
+            pass
+    else:
+        pass
+    return result
 
 
 def _parse_output_impl(content: str) -> Any:
@@ -3917,6 +4019,70 @@ def _ace_render_playbook(playbook: Any) -> str:
     return result
 
 
+def chat_session_boundary_action(state: Any) -> Any:
+    _core_coverage_mark("chat_session_boundary_action")
+    action = {}
+    action["type"] = "wait"
+    terminal = _core_get(state, "terminal", False)
+    if terminal:
+        action["type"] = "closed"
+        return action
+    else:
+        pass
+    native_wait = chat_session_native_wait(state)
+    if native_wait:
+        return action
+    else:
+        pass
+    boundary = _core_get(state, "boundary", False)
+    active = _core_not(boundary)
+    if active:
+        return action
+    else:
+        pass
+    pending = _core_get(state, "pending", None)
+    ids = _core_map_keys(pending)
+    results = []
+    running = False
+    blocking = False
+    for id in ids:
+        record = _core_get(pending, id, None)
+        status = _core_get(record, "status", None)
+        is_running = _core_eq(status, "running")
+        execution = _core_get(record, "execution", None)
+        is_blocking = _core_eq(execution, "blocking")
+        running_barrier = _core_and(is_running, is_blocking)
+        blocking = _core_or(blocking, running_barrier)
+        running = _core_or(running, is_running)
+        ready = _core_eq(status, "ready")
+        if ready:
+            result = _core_get(record, "result", None)
+            results.append(result)
+        else:
+            pass
+    if blocking:
+        return action
+    else:
+        pass
+    has_results = _core_truthy(results)
+    if has_results:
+        action["type"] = "submit"
+        action["results"] = results
+        return action
+    else:
+        pass
+    if running:
+        return action
+    else:
+        pass
+    needs_continuation = _core_get(state, "needs_continuation", False)
+    if needs_continuation:
+        action["type"] = "continue"
+    else:
+        action["type"] = "validate"
+    return action
+
+
 def _parse_json_string_fields(output_fields: list[Any], values: Any) -> Any:
     _core_coverage_mark("_parse_json_string_fields")
     values_is_map = _core_type_is(values, "object")
@@ -4057,6 +4223,50 @@ def _validate_exact_output_keys(fields: list[Any], values: Any, context: str) ->
     return None
 
 
+def chat_session_mark_submitted(state: Any, ids: list[Any]) -> None:
+    _core_coverage_mark("chat_session_mark_submitted")
+    pending = _core_get(state, "pending", None)
+    for id in ids:
+        record = _core_get(pending, id, None)
+        record["status"] = "sent"
+        pending[id] = record
+    state["pending"] = pending
+    state["boundary"] = False
+    state["needs_continuation"] = False
+    return None
+
+
+def chat_session_queue_update(state: Any, update: Any) -> bool:
+    _core_coverage_mark("chat_session_queue_update")
+    terminal = _core_get(state, "terminal", False)
+    if terminal:
+        return False
+    else:
+        pass
+    target = _core_get(update, "target", "root")
+    path = _core_get(state, "path", None)
+    matches = chat_session_target_matches(target, path)
+    unmatched = _core_not(matches)
+    if unmatched:
+        return False
+    else:
+        pass
+    id = _core_get(update, "id", None)
+    updates = _core_get(state, "updates", None)
+    exists = _core_map_contains(updates, id)
+    if exists:
+        return False
+    else:
+        pass
+    record = {}
+    record["update"] = update
+    record["status"] = "queued"
+    updates[id] = record
+    state["updates"] = updates
+    state["needs_continuation"] = True
+    return True
+
+
 def _ace_dedupe_playbook(playbook: Any) -> Any:
     _core_coverage_mark("_ace_dedupe_playbook")
     empty_map = {}
@@ -4108,6 +4318,29 @@ def _tool_spec_impl(fn: Tool) -> Any:
     else:
         pass
     return spec
+
+
+def chat_session_record_unresolved(gen: Any, state: Any) -> None:
+    _core_coverage_mark("chat_session_record_unresolved")
+    pending = _core_get(state, "pending", None)
+    ids = _core_map_keys(pending)
+    for id in ids:
+        record = _core_get(pending, id, None)
+        status = _core_get(record, "status", None)
+        running = _core_eq(status, "running")
+        recorded = _core_get(record, "diagnostic_recorded", False)
+        not_recorded = _core_not(recorded)
+        needed = _core_and(running, not_recorded)
+        if needed:
+            call = _core_get(record, "call", None)
+            message = "Run closed before the started tool settled; its external effects may still complete"
+            _core_axgen_record_function_call(gen, call, message, "unresolved")
+            record["diagnostic_recorded"] = True
+            pending[id] = record
+        else:
+            pass
+    state["pending"] = pending
+    return None
 
 
 def _ace_prune_section_for_addition(section: Any, protected_ids: Any) -> Any:
@@ -4212,6 +4445,123 @@ def _function_call_mode_impl(mode: Any) -> str:
     else:
         pass
     return mode
+
+
+def chat_session_close_state(state: Any) -> list[Any]:
+    _core_coverage_mark("chat_session_close_state")
+    state["terminal"] = True
+    unresolved = chat_session_unresolved(state)
+    return unresolved
+
+
+def chat_session_transition(state: Any, event: Any) -> Any:
+    _core_coverage_mark("chat_session_transition")
+    type = _core_get(event, "type", None)
+    call = _core_eq(type, "tool.validated")
+    result = _core_eq(type, "tool.result")
+    response = _core_eq(type, "response.completed")
+    update = _core_eq(type, "update.queued")
+    submitted = _core_eq(type, "results.submitted")
+    closed = _core_eq(type, "closed")
+    validated = _core_eq(type, "validated")
+    applied = _core_eq(type, "update.applied")
+    changed = False
+    native_queued = _core_eq(type, "native.queued")
+    if native_queued:
+        id = _core_get(event, "id", None)
+        changed = chat_session_native_update(state, id)
+        action = chat_session_boundary_action(state)
+        action["changed"] = changed
+        return action
+    else:
+        pass
+    steering = _core_eq(type, "steering")
+    if steering:
+        change = chat_session_native_event(state, event)
+        action = chat_session_boundary_action(state)
+        action = _core_map_merge(action, change)
+        return action
+    else:
+        pass
+    final_call = _core_eq(type, "tool.final")
+    if final_call:
+        tool_call = _core_get(event, "call", None)
+        changed = chat_session_defer_final_call(state, tool_call)
+        action = chat_session_boundary_action(state)
+        action["changed"] = changed
+        return action
+    else:
+        pass
+    if call:
+        tool_call = _core_get(event, "call", None)
+        execution = _core_get(event, "execution", "blocking")
+        changed = chat_session_register_call(state, tool_call, execution)
+    else:
+        if result:
+            id = _core_get(event, "id", None)
+            value = _core_get(event, "result", None)
+            changed = chat_session_complete_call(state, id, value)
+        else:
+            if response:
+                id = _core_get(event, "id", None)
+                changed = chat_session_complete_response(state, id)
+            else:
+                if update:
+                    item = _core_get(event, "update", None)
+                    changed = chat_session_queue_update(state, item)
+                else:
+                    if submitted:
+                        ids = _core_get(event, "ids", None)
+                        chat_session_mark_submitted(state, ids)
+                        changed = True
+                    else:
+                        if closed:
+                            chat_session_close_state(state)
+                            changed = True
+                        else:
+                            if validated:
+                                action = chat_session_boundary_action(state)
+                                action_type = _core_get(action, "type", None)
+                                ready = _core_eq(action_type, "validate")
+                                not_ready = _core_not(ready)
+                                if not_ready:
+                                    raise RuntimeError("Cannot finalize while model or tool work is unresolved")
+                                else:
+                                    pass
+                                state["terminal"] = True
+                                changed = True
+                            else:
+                                if applied:
+                                    id = _core_get(event, "id", None)
+                                    updates = _core_get(state, "updates", None)
+                                    exists = _core_map_contains(updates, id)
+                                    if exists:
+                                        record = _core_get(updates, id, None)
+                                        status = _core_get(record, "status", None)
+                                        queued = _core_eq(status, "queued")
+                                        if queued:
+                                            record["status"] = "applied"
+                                            updates[id] = record
+                                            state["updates"] = updates
+                                            item = _core_get(record, "update", None)
+                                            kind = _core_get(item, "type", None)
+                                            steer = _core_eq(kind, "steer")
+                                            if steer:
+                                                version = _core_get(state, "version", 0)
+                                                next_version = _core_add(version, 1)
+                                                state["version"] = next_version
+                                            else:
+                                                pass
+                                            changed = True
+                                        else:
+                                            pass
+                                    else:
+                                        pass
+                                else:
+                                    raise RuntimeError("Unknown chat session transition")
+    action = chat_session_boundary_action(state)
+    action["changed"] = changed
+    return action
 
 
 def _response_function_calls_impl(response: Any) -> list[Any]:

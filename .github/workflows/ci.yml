@@ -323,11 +323,8 @@ jobs:
     # model turns, but the completion MUST be produced by the engine run -- a hollow agent that
     # fabricates a completion payload cannot pass. Go uses the bundled goja engine; Python the optional
     # quickjs wheel (axllm[runtime-quickjs]); Rust the rquickjs feature; Java the pure-JVM quickjs4j
-    # engine from Maven Central. cpp is verified locally (all five real engines pass) -- it needs a
-    # native libquickjs: g++ -std=c++17 -DAX_CONFORMANCE_QUICKJS -I packages/cpp -I <quickjs-include>
-    # packages/cpp/conformance.cpp packages/cpp/axllm/axllm.cpp packages/cpp/axllm/mcp.cpp
-    # packages/cpp/axllm/runtime/quickjs/quickjs_runtime.cpp -L <quickjs-lib> -lquickjs (see
-    # docs/AXIR_GATES.md). TestRLMStagesSymmetric + TestRealEngineFixturesRunCode (go test) statically
+    # engine from Maven Central. C++ uses the same native QuickJS package as generated
+    # example verification. TestRLMStagesSymmetric + TestRealEngineFixturesRunCode
     # guard that every actor stage has a code signature + runtime loop and that these fixtures run code,
     # not a hand-fed completion.
     name: AxIR Agent Real-Engine Antidote
@@ -345,6 +342,15 @@ jobs:
       - name: Go in-process engine antidote (goja, bundled)
         if: contains(fromJSON(needs.changes.outputs.axir_targets), 'go')
         run: cd packages/go && go run ./conformance ../../ir/conformance/axagent-real
+      - name: C++ in-process engine antidote (QuickJS)
+        if: contains(fromJSON(needs.changes.outputs.axir_targets), 'cpp')
+        run: |
+          sudo apt-get update && sudo apt-get install --yes libquickjs
+          g++ -std=c++17 -DAX_CONFORMANCE_QUICKJS -I packages/cpp -I /usr/include/quickjs \
+            packages/cpp/conformance.cpp packages/cpp/axllm/axllm.cpp packages/cpp/axllm/mcp.cpp \
+            packages/cpp/axllm/runtime/quickjs/quickjs_runtime.cpp \
+            /usr/lib/quickjs/libquickjs.a -lm -ldl -pthread -o /tmp/ax-cpp-agent-real
+          /tmp/ax-cpp-agent-real ir/conformance/axagent-real
       - name: Setup Python
         if: contains(fromJSON(needs.changes.outputs.axir_targets), 'python')
         uses: actions/setup-python@v6

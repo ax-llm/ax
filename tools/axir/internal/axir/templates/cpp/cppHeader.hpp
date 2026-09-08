@@ -20,6 +20,7 @@
 #include <map>
 #include <limits>
 #include <memory>
+#include <optional>
 #include <mutex>
 #include <regex>
 #include <set>
@@ -283,6 +284,8 @@ struct Core {
   static Value mul(Value left, Value right);
   static Value div(Value left, Value right);
   static Value math_abs(Value value);
+  static Value string_codepoint_length(Value value);
+  static Value math_is_finite(Value value);
   static Value math_floor(Value value);
   static Value math_log(Value value);
   static Value math_exp(Value value);
@@ -420,6 +423,7 @@ struct Core {
   static Value openai_normalize_chat_response(Value raw);
   static Value openai_normalize_stream_delta(Value raw, Value state);
   static Value openai_normalize_embed_response(Value raw);
+  static Value flow_dispatch_group(Value flow, Value client, Value plans, Value state, Value options);
   // AXIR_CORE_CPP_DECLARATIONS
 
 };
@@ -451,6 +455,7 @@ class AxChatSession {
 class AIClient {
  public:
   virtual ~AIClient() = default;
+  virtual std::function<std::shared_ptr<AIClient>()> owned_worker_factory() { return {}; }
   virtual Value complete(Value request) = 0;
   virtual Value features_for_run(Value model) { return {}; }
   virtual std::shared_ptr<AxChatSession> open_chat_session(Value request, Value options) { return {}; }
@@ -602,6 +607,7 @@ struct AxBalancerOptions {
 
 class AxBalancer : public AxAIService {
  public:
+  std::function<std::shared_ptr<AIClient>()> owned_worker_factory() override;
   using AxAIService::chat;
   using AxAIService::embed;
   using AxAIService::speak;
@@ -640,7 +646,9 @@ class AxBalancer : public AxAIService {
   std::vector<std::shared_ptr<AxAIService>> services_;
   std::shared_ptr<AxAIService> current_service_;
   size_t current_service_index_ = 0;
-  std::map<std::string, int> service_failures_;
+  struct FailureState { std::mutex mutex; std::map<std::string,int> counts; };
+  std::shared_ptr<FailureState> service_failures_ = std::make_shared<FailureState>();
+  int failure_count(const std::shared_ptr<AxAIService>& service) const;
   Value policy_ = Value::object();
   int max_retries_ = 3;
   std::shared_ptr<AxBalancerAdaptiveStrategy> adaptive_;
@@ -673,6 +681,7 @@ class AxBalancer : public AxAIService {
 
 class MultiServiceRouter : public AxAIService {
  public:
+  std::function<std::shared_ptr<AIClient>()> owned_worker_factory() override;
   using AxAIService::chat;
   using AxAIService::embed;
   using AxAIService::speak;
@@ -724,6 +733,7 @@ class MultiServiceRouter : public AxAIService {
 
 class ProviderRouter : public AIClient {
  public:
+  std::function<std::shared_ptr<AIClient>()> owned_worker_factory() override;
   explicit ProviderRouter(Value config);
   using FileToText = std::function<std::string(const std::string&, const std::string&)>;
   ProviderRouter& file_to_text(FileToText extractor);
@@ -759,6 +769,7 @@ class ProviderRouter : public AIClient {
 class Transport {
  public:
   virtual ~Transport() = default;
+  virtual std::function<std::shared_ptr<Transport>()> owned_worker_factory() { return {}; }
   virtual Value call(Value request) = 0;
   virtual Value call(Value request, const AxCancellationToken* cancellation);
   virtual void stream(Value request, AxTransportStreamHandler handler);
@@ -768,6 +779,7 @@ class Transport {
 
 class HttpTransport : public Transport {
  public:
+  std::function<std::shared_ptr<Transport>()> owned_worker_factory() override { return [] { return std::make_shared<HttpTransport>(); }; }
   Value call(Value request) override;
   Value call(Value request, const AxCancellationToken* cancellation) override;
   void stream(Value request, AxTransportStreamHandler handler) override;
@@ -815,6 +827,7 @@ class ScriptedRealtimeTransport : public RealtimeTransport {
 
 class OpenAICompatibleClient : public AxBaseAI {
  public:
+  std::function<std::shared_ptr<AIClient>()> owned_worker_factory() override;
   std::shared_ptr<AxChatSession> open_chat_session(Value request, Value options) override;
   OpenAICompatibleClient& shared_transport(std::shared_ptr<Transport> transport);
   using SessionWebSocketFactory = std::function<std::shared_ptr<RealtimeTransport>(const std::string&, Value)>;
@@ -936,6 +949,7 @@ class AxMemory {
 class AxProgram {
  public:
   virtual ~AxProgram() = default;
+  virtual std::function<std::shared_ptr<AxProgram>()> owned_worker_factory() const { return {}; }
   virtual Value forward(AIClient& client, Value values, Value options = Value::object()) = 0;
   virtual Value forward(AIClient& client, Value values, Value options, const AxRuntimeHooks& hooks) = 0;
   virtual Value get_optimizable_components() const { return Value::array(); }
@@ -947,6 +961,7 @@ class AxProgram {
 
 class AxGen : public AxProgram {
  public:
+  std::function<std::shared_ptr<AxProgram>()> owned_worker_factory() const override;
   explicit AxGen(Value signature, Value options = Value::object(), AxRuntimeHooks hooks = {});
   Value forward(AIClient& client, Value values, Value options = Value::object());
   Value forward(AIClient& client, Value values, Value options, const AxCancellationToken* cancellation);
@@ -991,6 +1006,7 @@ class AxGen : public AxProgram {
 
 class AxFlow : public AxProgram {
  public:
+  std::function<std::shared_ptr<AxProgram>()> owned_worker_factory() const override;
   explicit AxFlow(Value options = Value::object(), AxRuntimeHooks hooks = {});
   explicit AxFlow(std::string mermaid, Value bindings = Value::object(), AxRuntimeHooks hooks = {});
   AxFlow& execute(std::string name, AxProgram& program, Value options = Value::object());
@@ -1029,6 +1045,7 @@ class AxFlow : public AxProgram {
  private:
   Value state_;
   std::vector<std::shared_ptr<AxGen>> mermaid_programs_;
+  std::shared_ptr<std::vector<std::shared_ptr<AxProgram>>> owned_programs_ = std::make_shared<std::vector<std::shared_ptr<AxProgram>>>();
   std::shared_ptr<const AxRuntimeHooks> runtime_hooks_;
   AxFlow& add_step(Value kind, Value name, Value program, Value options);
   Value hydrate_mermaid_steps(Value steps, Value bindings);
@@ -1299,6 +1316,7 @@ class AxAgent : public AxProgram {
   Value used(Value id, Value reason = Value(""), Value stage = Value("executor"));
   Value invoke_callable(Value qualified_name, Value args = Value::object(), Value options = Value::object());
   AxAgent& add_tool_module(std::string name, const std::vector<Tool>& tools);
+  AxAgent& add_child_agent(std::string namespace_name, std::string name, std::shared_ptr<AxAgent> child);
   Value export_runtime_state() const;
   Value restore_runtime_state(Value snapshot);
   Value get_optimizer_metadata() const;
@@ -1314,6 +1332,7 @@ class AxAgent : public AxProgram {
   AxPlaybook* get_playbook() const;
 
  private:
+  std::vector<std::shared_ptr<AxAgent>> child_agents_;
   Value state_;
   std::unique_ptr<AxGen> distiller_;
   std::unique_ptr<AxGen> executor_;

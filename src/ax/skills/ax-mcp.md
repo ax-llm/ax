@@ -167,7 +167,10 @@ Modern modules also expose task input/update behavior through the client.
 `tasks.list()` and `tasks.result()` are legacy task-draft compatibility APIs and
 reject modern servers.
 
-Use `mcpInheritance: 'all'`, `'none'`, or a namespace allowlist. The resulting
+Use `mcpInheritance: 'all'`, `'none'`, or a namespace allowlist. An empty
+allowlist inherits no clients. Unknown or repeated namespaces are errors.
+Restricting a child leaves the parent's clients available; `none` removes the
+inherited context from child options. The resulting
 live execution context propagates through Agent stages, `llmQuery`, RLM, and
 child programs. Large catalogs participate in Agent discovery; do not copy
 their tools into an inline `functions` array.

@@ -68,17 +68,20 @@ function flagValue(flags, key, fallback = undefined) {
 // stay stable regardless of producer key order.
 const STABLE_ORDER_PRESERVING_KEYS = new Set(['sections']);
 
-function stable(value, parentKey = '') {
-  if (Array.isArray(value)) return value.map((item) => stable(item, parentKey));
+function stable(value, parentKey = '', preserveOrder = false) {
+  const keepOrder = preserveOrder || parentKey === 'validation_cases';
+  if (Array.isArray(value))
+    return value.map((item) => stable(item, parentKey, keepOrder));
   if (value && typeof value === 'object') {
     const entries = Object.entries(value).filter(
       ([, item]) => item !== undefined
     );
-    const ordered = STABLE_ORDER_PRESERVING_KEYS.has(parentKey)
-      ? entries
-      : entries.sort(([a], [b]) => a.localeCompare(b));
+    const ordered =
+      keepOrder || STABLE_ORDER_PRESERVING_KEYS.has(parentKey)
+        ? entries
+        : entries.sort(([a], [b]) => a.localeCompare(b));
     return Object.fromEntries(
-      ordered.map(([key, item]) => [key, stable(item, key)])
+      ordered.map(([key, item]) => [key, stable(item, key, keepOrder)])
     );
   }
   return value;
@@ -341,6 +344,19 @@ async function runSync({ repoRoot, write }) {
       'AxSchema'
     );
     runConformanceExtractor(repoRoot, tempRoot, 'axgen-goldens.ts', 'AxGen');
+    runConformanceExtractor(repoRoot, tempRoot, 'flow-goldens.ts', 'AxFlow');
+    runConformanceExtractor(
+      repoRoot,
+      tempRoot,
+      'mcp-authorization-goldens.ts',
+      'AxMCP'
+    );
+    runConformanceExtractor(
+      repoRoot,
+      tempRoot,
+      'mcp-inheritance-goldens.ts',
+      'AxMCP'
+    );
     runConformanceExtractor(
       repoRoot,
       tempRoot,
@@ -355,6 +371,9 @@ async function runSync({ repoRoot, write }) {
       ...compareGeneratedFixtures(repoRoot, tempRoot, 'schema', write),
       ...compareGeneratedFixtures(repoRoot, tempRoot, 'validation', write),
       ...compareGeneratedFixtures(repoRoot, tempRoot, 'axgen', write),
+      ...compareGeneratedFixtures(repoRoot, tempRoot, 'axflow', write),
+      ...compareGeneratedFixtures(repoRoot, tempRoot, 'axprogram', write),
+      ...compareGeneratedFixtures(repoRoot, tempRoot, 'axmcp', write),
       ...compareGeneratedFixtures(repoRoot, tempRoot, 'axoptimize', write),
       ...compareGeneratedFixtures(repoRoot, tempRoot, 'axagent', write),
       ...(await checkProviderCatalog(repoRoot, tempRoot, write)),

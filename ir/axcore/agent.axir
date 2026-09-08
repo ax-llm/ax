@@ -3500,6 +3500,9 @@ module @ax.agent version "0.1" {
         core.if %has_qualified_name {
           core.set %clean["qualified_name"] = %qualified_name
         }
+        %public_call_id = core.get %entry["call_id"] default null
+        %has_call_id = core.call intrinsic.is_not_none(%public_call_id)
+        core.if %has_call_id { core.set %clean["call_id"] = %public_call_id }
         %entry_name = core.get %entry["name"] default ""
         %has_entry_name = core.call intrinsic.ne(%entry_name, "")
         core.if %has_entry_name {
@@ -4952,7 +4955,45 @@ module @ax.agent version "0.1" {
         core.set %result["status"] = "error"
         core.set %result["error"] = %message
       } else {
-        %result = core.call intrinsic.agent.callable.invoke(%state, %request, %options)
+        %implementation = core.call @agent_callable_implementation(%state, %qualified)
+        %program = core.get %implementation["program"] default null
+        %child = core.call intrinsic.is_not_none(%program)
+        core.if %child {
+          %empty_map = core.map
+          %arguments = core.get %request["args"] default %empty_map
+          %schema = core.get %implementation["parameters"] default %empty_map
+          %value = core.map
+          core.try {
+            core.call @chat_session_validate_required_arguments(%schema, %arguments, %qualified)
+            %active = core.get %state["forward_active"] default false
+            core.if %active {
+            } else {
+              %error = core.call intrinsic.error.runtime("Child agent delegation requires an active parent forward call")
+              core.raise %error
+            }
+            %client = core.get %state["active_client"] default null
+            %child_options = core.call @agent_child_options(%state, %qualified, %options)
+            %value = core.call intrinsic.agent.stage_forward(%program, %client, %arguments, %child_options)
+          } catch %child_error {
+            %children_usage = core.get %state["children_usage"] default %empty_map
+            %child_usage = core.call intrinsic.agent.stage_usage(%program)
+            core.set %children_usage[%qualified] = %child_usage
+            core.set %state["children_usage"] = %children_usage
+            %message = core.call intrinsic.string.format("{}", %child_error)
+            core.set %result["status"] = "error"
+            core.set %result["error"] = %message
+            core.call @agent_record_callable_result(%state, %request, %result, %options)
+            core.raise %child_error
+          }
+          %children_usage = core.get %state["children_usage"] default %empty_map
+          %child_usage = core.call intrinsic.agent.stage_usage(%program)
+          core.set %children_usage[%qualified] = %child_usage
+          core.set %state["children_usage"] = %children_usage
+          core.set %result["status"] = "ok"
+          core.set %result["value"] = %value
+        } else {
+          %result = core.call intrinsic.agent.callable.invoke(%state, %request, %options)
+        }
       }
       %recorded = core.call @agent_record_callable_result(%state, %request, %result, %options)
       core.return %recorded
@@ -4991,6 +5032,8 @@ module @ax.agent version "0.1" {
         core.set %action["call_id"] = %call_id
       }
       core.set %action["qualified_name"] = %qualified
+      %rendered_result = core.call intrinsic.json.stringify(%result)
+      core.set %action["output"] = %rendered_result
       core.set %action["status"] = %status
       core.append %action_log, %action
       core.set %state["action_log"] = %action_log
@@ -7925,6 +7968,11 @@ module @ax.agent version "0.1" {
       core.set %usage["chat_log_entries"] = %count
       core.set %usage["actor"] = %actor
       core.set %usage["responder"] = %responder_usage
+      %empty_map = core.map
+      %children = core.get %state["children_usage"] default %empty_map
+      %children_count = core.call intrinsic.len(%children)
+      %has_children = core.call intrinsic.gt(%children_count, 0)
+      core.if %has_children { core.set %usage["children"] = %children }
       core.set %state["usage"] = %usage
       core.return %usage
     }
@@ -8825,7 +8873,7 @@ module @ax.agent version "0.1" {
     }
   }
 
-  op ax.agent.semantic @agent_forward {
+  op ax.agent.semantic @agent_forward_impl {
     attr core_kind = "func"
     attr emit_module = "agent"
     attr private = true
@@ -9170,6 +9218,258 @@ module @ax.agent version "0.1" {
       core.call @agent_build_failure_signals(%state)
       core.call @agent_finalize_trace(%state, "completed", %responder_output)
       core.return %responder_output
+    }
+  }
+
+  op ax.agent.semantic @agent_append_runtime_modules {
+    attr core_kind = "func"
+    attr emit_module = "agent"
+    attr private = true
+    type signature = "(json, json) -> json throws"
+    body @entry(%options: json, %additional: json) {
+      %empty_map = core.map
+      %empty_list = core.list
+      %out = core.call intrinsic.map.merge(%empty_map, %options)
+      %functions = core.get %options["functions"] default %empty_list
+      %modules = core.list
+      %flat = core.list
+      core.for %item in %functions {
+        %members = core.get %item["functions"] default null
+        %group = core.type_is %members type "list"
+        core.if %group { core.append %modules, %item }
+        else { core.append %flat, %item }
+      }
+      %count = core.call intrinsic.len(%flat)
+      %has_flat = core.call intrinsic.gt(%count, 0)
+      core.if %has_flat {
+        %module = core.map
+        core.set %module["namespace"] = "tools"
+        core.set %module["title"] = "Tools"
+        core.set %module["alwaysInclude"] = true
+        core.set %module["functions"] = %flat
+        core.append %modules, %module
+      }
+      core.for %module in %additional { core.append %modules, %module }
+      core.set %out["functions"] = %modules
+      core.return %out
+    }
+  }
+
+  op ax.agent.semantic @agent_register_child {
+    attr core_kind = "func"
+    attr emit_module = "agent"
+    attr private = true
+    type signature = "(json, string, string, json, json) -> json throws"
+    body @entry(%options: json, %namespace: string, %name: string, %program: json, %signature: json) {
+      %additional = core.list
+      %options = core.call @agent_append_runtime_modules(%options, %additional)
+      %empty_map = core.map
+      %empty_list = core.list
+      %out = core.call intrinsic.map.merge(%empty_map, %options)
+      %fields = core.get %signature["input_fields"] default %empty_list
+      %schema = core.call @schema_to_json_schema_impl(%fields, %name, %empty_map)
+      %child = core.map
+      core.set %child["name"] = %name
+      core.set %child["kind"] = "agent"
+      core.set %child["execution"] = "blocking"
+      core.set %child["parameters"] = %schema
+      core.set %child["program"] = %program
+      %description = core.get %signature["description"] default "Delegate to a child agent"
+      core.set %child["description"] = %description
+      %functions = core.get %options["functions"] default %empty_list
+      %modules = core.list
+      %found = core.let false
+      core.for %module in %functions {
+        %default_name = core.get %module["name"] default "tools"
+        %module_namespace = core.get %module["namespace"] default %default_name
+        %matches = core.call intrinsic.eq(%module_namespace, %namespace)
+        %members = core.get %module["functions"] default null
+        %group = core.type_is %members type "list"
+        %matches = core.call intrinsic.and(%matches, %group)
+        core.if %matches {
+          %copy = core.call intrinsic.map.merge(%empty_map, %module)
+          %children = core.list
+          core.for %member in %members { core.append %children, %member }
+          core.append %children, %child
+          core.set %copy["functions"] = %children
+          core.append %modules, %copy
+          %found = core.let true
+        } else { core.append %modules, %module }
+      }
+      core.if %found {
+      } else {
+        %module = core.map
+        %children = core.list
+        core.append %children, %child
+        core.set %module["namespace"] = %namespace
+        core.set %module["functions"] = %children
+        core.append %modules, %module
+      }
+      core.set %out["functions"] = %modules
+      core.return %out
+    }
+  }
+
+  op ax.agent.semantic @agent_child_options {
+    attr core_kind = "func"
+    attr emit_module = "agent"
+    attr private = true
+    type signature = "(json, string, json) -> json"
+    body @entry(%state: json, %qualified: string, %options: json) {
+      %empty_map = core.map
+      %base = core.get %state["options"] default %empty_map
+      %active = core.get %state["active_forward_options"] default %empty_map
+      %parent = core.call intrinsic.map.merge(%base, %active)
+      %parent = core.call intrinsic.map.merge(%parent, %options)
+      %out = core.map
+      %keys = core.list
+      core.append %keys, "control"
+      core.append %keys, "asyncMode"
+      core.append %keys, "async_mode"
+      core.append %keys, "abortSignal"
+      core.append %keys, "abort_signal"
+      core.append %keys, "cancellation"
+      core.append %keys, "executionContext"
+      core.append %keys, "eventContext"
+      core.append %keys, "protocol"
+      core.for %key in %keys {
+        %value = core.get %parent[%key] default null
+        %present = core.call intrinsic.is_not_none(%value)
+        core.if %present { core.set %out[%key] = %value }
+      }
+      %snake_path = core.get %parent["execution_path"] default "root"
+      %parent_path = core.get %parent["executionPath"] default %snake_path
+      %path = core.call intrinsic.string.format("{}/{}", %parent_path, %qualified)
+      core.set %out["executionPath"] = %path
+      core.set %out["execution_path"] = %path
+      core.return %out
+    }
+  }
+
+  op ax.agent.semantic @agent_forward {
+    attr core_kind = "func"
+    attr emit_module = "agent"
+    attr private = true
+    type signature = "(json, json, json, json, json, json, json) -> json throws"
+    body @entry(%state: json, %distiller: json, %executor: json, %responder: json, %client: json, %values: json, %options: json) {
+      %none = core.call intrinsic.none()
+      %active = core.get %state["forward_active"] default false
+      core.if %active {
+        %error = core.call intrinsic.error.runtime("An agent cannot delegate recursively to an already active agent")
+        core.raise %error
+      }
+      core.set %state["forward_active"] = true
+      core.set %state["active_client"] = %client
+      core.set %state["active_forward_options"] = %options
+      %output = core.map
+      core.try {
+        %output = core.call @agent_forward_impl(%state, %distiller, %executor, %responder, %client, %values, %options)
+      } catch %forward_error {
+        core.set %state["forward_active"] = false
+        core.set %state["active_client"] = %none
+        core.set %state["active_forward_options"] = %none
+        %session = core.get %state["runtime_session"] default null
+        core.try { core.call @agent_runtime_close_session(%state, %session) } catch %close_error { }
+        core.raise %forward_error
+      }
+      core.set %state["forward_active"] = false
+      core.set %state["active_client"] = %none
+      core.set %state["active_forward_options"] = %none
+      core.return %output
+    }
+  }
+  op ax.agent.semantic @agent_runtime_callable_names {
+    attr core_kind = "func"
+    attr emit_module = "agent"
+    attr private = true
+    type signature = "(json) -> json"
+    body @entry(%state: json) {
+      %empty_list = core.list
+      %inventory = core.get %state["callable_inventory"] default %empty_list
+      %names = core.list
+      core.for %group in %inventory {
+        %callables = core.get %group["callables"] default %empty_list
+        core.for %callable in %callables {
+          %name = core.get %callable["qualified_name"] default ""
+          core.append %names, %name
+        }
+      }
+      core.return %names
+    }
+  }
+
+  op ax.agent.semantic @agent_callable_visible {
+    attr core_kind = "func"
+    attr emit_module = "agent"
+    attr private = true
+    type signature = "(json, string) -> bool"
+    body @entry(%state: json, %qualified: string) {
+      %empty_map = core.map
+      %empty_list = core.list
+      %flags = core.get %state["policy_flags"] default %empty_map
+      %discovery = core.get %flags["discoveryMode"] default false
+      %all_visible = core.call intrinsic.not(%discovery)
+      %inventory = core.get %state["callable_inventory"] default %empty_list
+      %docs = core.get %state["discovered_tool_docs"] default %empty_list
+      core.for %group in %inventory {
+        %group_always = core.get %group["always_include"] default false
+        %group_visible = core.call intrinsic.or(%all_visible, %group_always)
+        %callables = core.get %group["callables"] default %empty_list
+        core.for %callable in %callables {
+          %name = core.get %callable["qualified_name"] default ""
+          %matches = core.call intrinsic.eq(%name, %qualified)
+          core.if %matches {
+            %always = core.get %callable["always_include"] default false
+            %visible = core.call intrinsic.or(%group_visible, %always)
+            core.for %doc in %docs {
+              %doc_name = core.get %doc["qualified_name"] default ""
+              %discovered = core.call intrinsic.eq(%doc_name, %qualified)
+              %visible = core.call intrinsic.or(%visible, %discovered)
+            }
+            core.return %visible
+          }
+        }
+      }
+      core.return false
+    }
+  }
+
+  op ax.agent.semantic @agent_runtime_invoke_callable {
+    attr core_kind = "func"
+    attr emit_module = "agent"
+    attr private = true
+    type signature = "(json, string, json) -> json throws"
+    body @entry(%state: json, %qualified: string, %arguments: json) {
+      %active = core.get %state["forward_active"] default false
+      core.if %active {
+      } else {
+        %error = core.call intrinsic.error.runtime("Agent invocation belongs to a closed run")
+        core.raise %error
+      }
+      %visible = core.call @agent_callable_visible(%state, %qualified)
+      core.if %visible {
+      } else {
+        %message = core.call intrinsic.string.format("Agent callable is not discovered: {}", %qualified)
+        %error = core.call intrinsic.error.runtime(%message)
+        core.raise %error
+      }
+      %empty_map = core.map
+      %base = core.get %state["options"] default %empty_map
+      %active_options = core.get %state["active_forward_options"] default %empty_map
+      %options = core.call intrinsic.map.merge(%base, %active_options)
+      %request = core.map
+      core.set %request["qualified_name"] = %qualified
+      core.set %request["args"] = %arguments
+      %result = core.call @agent_execute_callable(%state, %request, %options)
+      %status = core.get %result["status"] default "ok"
+      %failed = core.call intrinsic.eq(%status, "error")
+      core.if %failed {
+        %message = core.get %result["error"] default "Agent callable failed"
+        %error = core.call intrinsic.error.runtime(%message)
+        core.raise %error
+      }
+      %value = core.get %result["value"] default %result
+      core.return %value
     }
   }
 }

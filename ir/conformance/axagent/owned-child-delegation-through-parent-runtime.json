@@ -1,0 +1,111 @@
+{
+  "kind": "agent_forward",
+  "name": "owned-child-delegation-through-parent-runtime",
+  "signature": "question:string -> answer:string",
+  "options": {
+    "directResponse": "off"
+  },
+  "child_agents": [
+    {
+      "namespace": "team",
+      "name": "researcher",
+      "signature": "question:string -> answer:string",
+      "options": {
+        "directResponse": "off"
+      }
+    }
+  ],
+  "input": {
+    "question": "Find reference"
+  },
+  "responses": [
+    {
+      "content": "{\"javascriptCode\": \"plan\"}"
+    },
+    {
+      "content": "{\"javascriptCode\": \"delegate\"}"
+    },
+    {
+      "content": "{\"completion\": {\"type\": \"final\", \"args\": [\"Find reference\", {\"answer\": \"REF-42\"}]}}"
+    },
+    {
+      "content": "{\"completion\": {\"type\": \"final\", \"args\": [\"Find reference\", {\"answer\": \"REF-42\"}]}}"
+    },
+    {
+      "content": "{\"answer\": \"REF-42\"}"
+    },
+    {
+      "content": "{\"javascriptCode\": \"finish\"}"
+    },
+    {
+      "content": "{\"answer\": \"REF-42\"}"
+    }
+  ],
+  "runtime_script": [
+    {
+      "expected_code": "plan",
+      "result": {
+        "type": "final",
+        "args": [
+          "Find reference",
+          {
+            "answer": "REF-42"
+          }
+        ]
+      }
+    },
+    {
+      "expected_code": "delegate",
+      "result": {
+        "callable": {
+          "qualified_name": "team.researcher",
+          "args": {
+            "question": "Find REF-42"
+          },
+          "call_id": "child-call"
+        }
+      }
+    },
+    {
+      "expected_code": "finish",
+      "result": {
+        "type": "final",
+        "args": [
+          "Find reference",
+          {
+            "answer": "REF-42"
+          }
+        ]
+      }
+    }
+  ],
+  "expected_output": {
+    "answer": "REF-42"
+  },
+  "expected_request_count": 7,
+  "expected_executed": ["plan", "delegate", "finish"],
+  "expected_function_call_traces_subset": [
+    {
+      "qualified_name": "team.researcher",
+      "call_id": "child-call",
+      "arguments": {
+        "question": "Find REF-42"
+      },
+      "status": "ok",
+      "result": {
+        "status": "ok",
+        "value": {
+          "answer": "REF-42"
+        }
+      }
+    }
+  ],
+  "expected_action_log_subset": [
+    {
+      "type": "function_call",
+      "qualified_name": "team.researcher",
+      "call_id": "child-call",
+      "status": "ok"
+    }
+  ]
+}

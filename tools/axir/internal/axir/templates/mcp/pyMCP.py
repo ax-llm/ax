@@ -35,6 +35,10 @@ def _core_coverage_mark(name):
         handle.write(name + "\n")
 
 
+def _core_runtime_error(message):
+    return RuntimeError(str(message))
+
+
 def _core_get(target, key, default=None):
     if target is None:
         return default
@@ -996,6 +1000,7 @@ class AxMCPClient:
         self._subscription_ready = threading.Event()
         self._subscription_restart_lock = threading.Lock()
         self._next_id = 1
+        self._request_id_lock = threading.Lock()
         self._notification_listeners: list[Callable[[dict[str, Any]], None]] = []
         self._lifecycle_listeners: list[Callable[[str], None]] = []
         self._initialized = False
@@ -1207,6 +1212,11 @@ class AxMCPClient:
 
     def call_tool(self, name: str, arguments: dict[str, Any] | None = None) -> dict[str, Any]:
         args = arguments or {}
+        authorize = self.options.get("authorizeToolCall", self.options.get("authorize_tool_call"))
+        if authorize is not None:
+            context = _mcp_tool_authorization_context(self.tools, self.namespace(), name, args)
+            context["client"] = self
+            _mcp_tool_authorization_result(name, authorize(context))
         headers: dict[str, str] = {}
         if self.era == "modern":
             tool = next((item for item in self.tools if item.get("name") == name), None)
@@ -1518,8 +1528,9 @@ class AxMCPClient:
             round_index += 1
 
     def _request(self, method: str, params: dict[str, Any] | None = None, *, extra_headers: dict[str, str] | None = None, allow_version_retry: bool = True) -> dict[str, Any]:
-        request_id = str(self._next_id)
-        self._next_id += 1
+        with self._request_id_lock:
+            request_id = str(self._next_id)
+            self._next_id += 1
         message: dict[str, Any] = {"jsonrpc": "2.0", "id": request_id, "method": method}
         request_params = dict(params or {})
         if self.era == "modern":
@@ -1865,16 +1876,12 @@ class AxExecutionContext:
         return modules
 
     def derive(self, inheritance: Any = "all"):
-        if inheritance == "none":
-            return AxExecutionContext()
-        if isinstance(inheritance, (list, tuple, set)):
-            allowed = set(map(str, inheritance))
-            return AxExecutionContext(
-                [client for client in self.mcp if client.namespace() in allowed],
-                [client for client in self.ucp if client.namespace() in allowed],
-                self.options,
-            )
-        return self
+        by_mcp = {client.namespace(): client for client in self.mcp}
+        by_ucp = {client.namespace(): client for client in self.ucp}
+        plan = _mcp_inheritance_plan(list(by_mcp), list(by_ucp), inheritance)
+        child = AxExecutionContext([by_mcp[name] for name in plan["mcp"]], [by_ucp[name] for name in plan["ucp"]], self.options)
+        child._initialized = self._initialized
+        return child
 
     def continuation_state(self) -> dict[str, Any]:
         namespaces = [client.namespace() for client in [*self.mcp, *self.ucp]]
@@ -2464,6 +2471,78 @@ def run_mcp_conformance_fixture(fixture: dict[str, Any]) -> None:
     operation = fixture.get("operation", "initialize")
     expected_error = fixture.get("expected_error_contains")
     try:
+        if operation in ("inheritance_context", "inheritance_agent_context"):
+            for case in fixture["cases"]:
+                clients, transports = [], {}
+                for spec in fixture["clients"]:
+                    transport = AxMCPScriptedTransport(spec["responses"])
+                    transports[spec["namespace"]] = transport
+                    clients.append(AxMCPClient(transport, {"namespace":spec["namespace"], "era":"modern"}))
+                context = AxExecutionContext(clients)
+                results, selected, error = [], [], None
+                try:
+                    child = context.derive(case["inheritance"])
+                    selected = [client.namespace() for client in child.mcp]
+                    if operation == "inheritance_agent_context":
+                        from .agent import AxAgent
+                        program = AxAgent("question:string -> answer:string", {**fixture["agent_options"], "executionContext": child})
+                        assert program.invoke_callable("tools.local_echo", {}) == fixture["expected_local_result"]
+                        for client in child.mcp:
+                            for tool in client.native_tools():
+                                result = program.invoke_callable(f"mcp.{client.namespace()}.tools.{tool.name}", {"query":"scope-probe"})
+                                assert result["status"] == "ok", result
+                                results.append(result["value"])
+                    else:
+                        results = [tool.call({"query":"scope-probe"}) for tool in child.native_tools()]
+                except Exception as caught:
+                    error = str(caught)
+                assert error == case.get("expected_error"), (error, case)
+                if error is None: assert selected == case["expected_namespaces"], (selected, case)
+                assert results == case["expected_results"], (results, case)
+                for namespace, transport in transports.items():
+                    assert [request["method"] for request in transport.requests] == case["expected_methods"][namespace]
+                    for request in transport.requests:
+                        if request["method"] == "tools/call": assert request["params"]["arguments"] == {"query":"scope-probe"}
+                parent_results = [tool.call({"query":"parent-probe"}) for tool in context.native_tools()]
+                assert parent_results == case["expected_parent_results"], (parent_results, case)
+                for namespace, transport in transports.items():
+                    assert [request["method"] for request in transport.requests] == case["expected_parent_methods"][namespace]
+                    calls = [{key:request["params"][key] for key in ("name","arguments")} for request in transport.requests if request["method"] == "tools/call"]
+                    assert calls == case["expected_calls"][namespace], calls
+            return
+        if operation == "inheritance_plan":
+            for case in fixture["cases"]:
+                try:
+                    result = _mcp_inheritance_plan(fixture["mcp"], fixture["ucp"], case["inheritance"])
+                except Exception as error:
+                    assert str(error) == case.get("expected_error"), (error, case)
+                else:
+                    assert "expected_error" not in case and result == case["expected"], (result, case)
+            return
+        if operation == "tool_authorization":
+            for case in fixture["cases"]:
+                transport = AxMCPScriptedTransport(fixture["responses"])
+                observed = []
+                def authorize(call):
+                    assert call["client"] is client
+                    observed.append({key: value for key, value in call.items() if key != "client"})
+                    return case["decision"]
+                client = AxMCPClient(transport, {**fixture["client_options"], "authorizeToolCall": authorize})
+                client.init()
+                error = None
+                try:
+                    result = client.call_tool(case["name"], {"query": "REF-42"})
+                except Exception as caught:
+                    error = str(caught)
+                assert error == case.get("expected_error"), (error, case)
+                if error is None: assert result == case["expected_result"]
+                assert len(observed) == case["expected_authorization_calls"]
+                if observed: assert observed[0] == case["expected_context"]
+                sent = [request for request in transport.requests if request["method"] == "tools/call"]
+                assert len(sent) == case["expected_tool_requests"]
+                for request in sent:
+                    assert request["params"]["name"] == case["name"] and request["params"]["arguments"] == {"query": "REF-42"}
+            return
         if operation == "ssrf":
             ax_mcp_validate_endpoint(fixture.get("endpoint", "https://127.0.0.1/mcp"), fixture.get("ssrfProtection"))
             if expected_error:
@@ -2938,6 +3017,10 @@ def run_mcp_conformance_fixture(fixture: dict[str, Any]) -> None:
             return
         if operation == "tools":
             functions = client.native_tools()
+            for function in functions:
+                if function.name in (fixture.get("expected_schemas") or {}):
+                    if function.parameters != fixture["expected_schemas"][function.name]:
+                        raise AssertionError("Native tool schema was altered")
             names = [fn.name for fn in functions]
             if fixture.get("expected_function_names") and names != fixture["expected_function_names"]:
                 raise AssertionError(f"function names mismatch: {names!r}")

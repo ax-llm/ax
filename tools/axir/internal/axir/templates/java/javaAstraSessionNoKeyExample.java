@@ -62,9 +62,204 @@ public final class AstraSessionTest {
   }
   private static void emit(OutputStream output,Object event) throws IOException { output.write(("data: "+Json.stringify(event)+"\n\n").getBytes(StandardCharsets.UTF_8));output.flush(); }
   private static Map<String,Object> completed(String id,String answer) {return Map.of("type","response.completed","response",Map.of("id",id,"model","gpt-6-astra","output",List.of(Map.of("type","message","id","msg-"+id,"content",List.of(Map.of("type","output_text","text",answer))))));}
+  static void ownedFlowOverlap() throws Exception {
+    var barrier=new CyclicBarrier(2);var requests=new java.util.concurrent.CopyOnWriteArrayList<Object>();
+    var server=com.sun.net.httpserver.HttpServer.create(new java.net.InetSocketAddress("127.0.0.1",0),0);
+    var executor=Executors.newCachedThreadPool();server.setExecutor(executor);
+    server.createContext("/",exchange->{try{
+      if(!"Bearer worker-test".equals(exchange.getRequestHeaders().getFirst("Authorization")))throw new AssertionError("Worker lost authentication");
+      requests.add(Json.parse(new String(exchange.getRequestBody().readAllBytes(),StandardCharsets.UTF_8)));
+      barrier.await(3,TimeUnit.SECONDS);
+      byte[] body=Json.stringify(Map.of("id","reply","choices",List.of(Map.of("index",0,"message",Map.of("role","assistant","content","{\"answer\":\"DONE\"}"),"finish_reason","stop")),"usage",Map.of("prompt_tokens",2,"completion_tokens",1,"total_tokens",3))).getBytes(StandardCharsets.UTF_8);
+      exchange.getResponseHeaders().set("Content-Type","application/json");exchange.sendResponseHeaders(200,body.length);exchange.getResponseBody().write(body);
+    }catch(Exception error){exchange.sendResponseHeaders(500,0);}finally{exchange.close();}});
+    server.start();try{
+      var client=Ax.ai("openai",Map.of("api_key","worker-test","model","gpt-5.6","base_url","http://127.0.0.1:"+server.getAddress().getPort()));
+      var aliases=new AxMultiServiceRouter(List.of(new AxMultiServiceRouter.Entry("smart",new AxBalancer(List.of(client)),"Worker alias")));
+      var router=new AxProviderRouter(Map.of("providers",Map.of("primary",aliases)));
+      var program=Ax.ax("question -> answer");
+      if(program.ownedWorkerFactory().get()==program.ownedWorkerFactory().get())throw new AssertionError("Program workers share state");
+      var workflow=Ax.flow().execute("first",program).execute("second",program).returns(Map.of("first","firstResult","second","secondResult"));
+      var result=workflow.forward(router,Map.of("question","Ready"),Map.of("stream",false,"model","smart"));
+      if(!result.equals(Map.of("first",Map.of("answer","DONE"),"second",Map.of("answer","DONE")))||requests.size()!=2||workflow.getChatLog().size()!=2)throw new AssertionError("Owned flow result or history incorrect: "+result);
+    }finally{server.stop(0);executor.shutdownNow();}
+    System.out.println("java owned flow HTTP barrier passed");
+  }
+  static void ownedBalancerFailureAccounting() throws Exception {
+    var calls=new AtomicInteger();
+    class FailingTransport implements OpenAICompatibleClient.Transport {
+      public java.util.function.Supplier<OpenAICompatibleClient.Transport> ownedWorkerFactory(){return FailingTransport::new;}
+      public Object call(Map<String,Object> request){calls.incrementAndGet();return Map.of("status",429,"json",Map.of("error",Map.of("message","fixture rate limit")));}
+    }
+    var owner=new AxBalancer(List.of(Ax.ai("openai",Map.of("api_key","test","model","gpt-5.6","transport",new FailingTransport()))),Map.of("maxRetries",1,"initialBackoffMs",0));
+    var worker=owner.ownedWorkerFactory().get();var request=Map.<String,Object>of("chat_prompt",List.of(Map.of("role","user","content","Hello")),"model_config",Map.of("stream",false));
+    try{worker.chat(request);throw new AssertionError("Failed route returned success");}catch(Exception expected){}
+    int first=calls.get();if(first==0)throw new AssertionError("No provider request");
+    try{owner.chat(request);throw new AssertionError("Failed parent route returned success");}catch(Exception expected){}
+    if(calls.get()!=first)throw new AssertionError("Parent forgot worker failure and replayed route");
+    System.out.println("java owned balancer shares failure accounting");
+  }
+  @SuppressWarnings("unchecked") static void nativeMCPAgentDiscovery() throws Exception {
+    var schema=(Map<String,Object>)Json.parse("{\"type\":\"object\",\"$defs\":{\"reference\":{\"type\":\"string\",\"minLength\":3}},\"properties\":{\"query\":{\"$ref\":\"#/$defs/reference\"}},\"required\":[\"query\"],\"additionalProperties\":false}");
+    var started=new CountDownLatch(1);var release=new CountDownLatch(1);var calls=new CopyOnWriteArrayList<Map<String,Object>>();var requests=new ArrayList<Map<String,Object>>();var hidden=new java.util.concurrent.atomic.AtomicBoolean(true);
+    AxMCPTransport mcpTransport=new AxMCPTransport(){
+      public void sendNotification(Map<String,Object> message){throw new AssertionError("Modern discovery initialized");}
+      public Map<String,Object> send(Map<String,Object> message){
+        String method=String.valueOf(message.get("method"));Object result;
+        if(method.equals("server/discover"))result=Map.of("resultType","complete","supportedVersions",List.of("2026-07-28"),"ttlMs",60000,"cacheScope","private","capabilities",Map.of("tools",Map.of()));
+        else if(method.equals("tools/list"))result=Map.of("tools",List.of(Map.of("name","lookup","description","Find reference","inputSchema",schema)));
+        else {var params=(Map<String,Object>)message.get("params");if(!method.equals("tools/call")||!"lookup".equals(params.get("name"))||!Map.of("query","REF-42").equals(params.get("arguments"))||!(params.get("_meta") instanceof Map))throw new AssertionError("Lost MCP invocation: "+message);calls.add(message);started.countDown();try{if(!release.await(3,TimeUnit.SECONDS))throw new AssertionError("MCP tool did not overlap model");}catch(InterruptedException error){throw new RuntimeException(error);}result=Map.of("resultType","complete","structuredContent",Map.of("reference","REF-42"),"content",List.of(Map.of("type","text","text","REF-42")));}
+        return Map.of("jsonrpc","2.0","id",message.get("id"),"result",result);
+      }
+    };
+    var allowed=new java.util.concurrent.atomic.AtomicBoolean();var authorizations=new AtomicInteger();var clientRef=new java.util.concurrent.atomic.AtomicReference<AxMCPClient>();
+    java.util.function.Predicate<Map<String,Object>> authorize=call->{if(call.get("client")!=clientRef.get()||!"orders".equals(call.get("namespace"))||!schema.equals(((Map<?,?>)call.get("tool")).get("inputSchema"))||!Map.of("query","REF-42").equals(call.get("arguments")))throw new AssertionError("Lost MCP authorization context");authorizations.incrementAndGet();return allowed.get();};
+    var mcp=new AxMCPClient(mcpTransport,Map.of("era","modern","namespace","orders","authorizeToolCall",authorize));clientRef.set(mcp);mcp.init();var original=mcp.nativeTools().get(0);if(!"blocking".equals(original.execution))throw new AssertionError("MCP hint enabled background work");
+    try{original.handler.call(Map.of("query","REF-42"));throw new AssertionError("Denied MCP tool executed");}catch(RuntimeException error){if(!error.getMessage().contains("MCP tool call denied by host policy: lookup"))throw error;}if(!calls.isEmpty())throw new AssertionError("Denied MCP request reached transport");allowed.set(true);
+    var nativeTool=Ax.fn(original.name).description(original.description).parameters(original.schema()).execution("background").handler(original.handler).build();
+    var program=Ax.agent("question -> answer",Map.of("functions",List.of(Map.of("namespace","orders","functions",List.of(nativeTool))),"functionDiscovery",true,"directResponse","off"));
+    OpenAICompatibleClient.Transport transport=new OpenAICompatibleClient.Transport(){
+      public Object call(Map<String,Object> request)throws Exception{return event(request,false);}
+      public Object stream(Map<String,Object> request)throws Exception{return event(request,true);}
+      private Object event(Map<String,Object> request,boolean streaming)throws Exception {
+        var body=(Map<String,Object>)request.get("json");requests.add(body);int number=requests.size();var tools=(List<Map<String,Object>>)body.getOrDefault("tools",List.of());var actor=tools.stream().filter(tool->Boolean.TRUE.equals(tool.get("async"))).toList();Map<String,Object> event;
+        if(hidden.get()){
+          if(!actor.isEmpty())throw new AssertionError("Undiscovered tool exposed");event=completed("hidden-"+number,number<3?"{\"completion\":{\"type\":\"final\",\"args\":[\"No discovered tools\",{}]}}":"{\"answer\":\"not discovered\"}");
+        }else if(number==1||number==5){
+          if(!actor.isEmpty())throw new AssertionError("Native authority escaped executor");if(number==5&&!Json.stringify(body).contains("REF-42"))throw new AssertionError("Responder preceded result incorporation");event=completed("stage-"+number,number==1?"{\"completion\":{\"type\":\"final\",\"args\":[\"Find reference\",{}]}}":"{\"answer\":\"REF-42\"}");
+        }else if(number==2){
+          if(actor.size()!=1||!"orders_lookup".equals(actor.get(0).get("name"))||!schema.equals(actor.get(0).get("parameters")))throw new AssertionError("Lost native MCP schema: "+actor);
+          event=Map.of("type","response.completed","response",Map.of("id","invalid-response","model","gpt-6-astra","output",List.of(Map.of("type","function_call","id","invalid","call_id","invalid-call","name","orders_lookup","arguments","{\"query\":\"X\"}"))));
+        }else if(number==3){
+          if(!calls.isEmpty()||!"invalid-response".equals(body.get("previous_response_id")))throw new AssertionError("Invalid args reached MCP or lost correction");
+          var pipe=new java.io.PipedInputStream();var writer=new java.io.PipedOutputStream(pipe);new Thread(()->{try(writer){writer.write(("data: "+Json.stringify(Map.of("type","response.output_item.done","item",Map.of("type","function_call","id","valid","call_id","mcp-call","name","orders_lookup","arguments","{\"query\":\"REF-42\"}")))+"\n\n").getBytes(java.nio.charset.StandardCharsets.UTF_8));writer.flush();if(!started.await(3,TimeUnit.SECONDS))throw new AssertionError("MCP tool did not start");release.countDown();writer.write(("data: "+Json.stringify(completed("tool-response","{\"completion\":{\"type\":\"final\",\"args\":[\"Report\",{\"answer\":\"provisional\"}]}}"))+"\n\n").getBytes(java.nio.charset.StandardCharsets.UTF_8));}catch(Exception error){throw new RuntimeException(error);}},"mcp-agent-fixture").start();return pipe;
+        }else{
+          if(number!=4||!"tool-response".equals(body.get("previous_response_id")))throw new AssertionError("Unexpected continuation");var input=(List<Map<String,Object>>)body.get("input");var result=input.get(input.size()-1);if(!"mcp-call".equals(result.get("call_id"))||!Json.stringify(Json.parse(String.valueOf(result.get("output")))).contains("REF-42"))throw new AssertionError("MCP result lost");event=completed("final-response","{\"completion\":{\"type\":\"final\",\"args\":[\"Report\",{\"answer\":\"REF-42\"}]}}");
+        }
+        return streaming?"data: "+Json.stringify(event)+"\n\n":Map.of("status",200,"json",event.get("response"));
+      }
+    };
+    var client=Ax.ai("openai",Map.of("api_key","test","model","gpt-6-astra","transport",transport));
+    if(!"not discovered".equals(program.forward(client,Map.of("question","Find reference")).get("answer"))||!calls.isEmpty()||requests.size()!=3)throw new AssertionError("Discovery boundary failed");
+    program.discover(Map.of("tools",List.of("orders")));hidden.set(false);requests.clear();
+    if(!"REF-42".equals(program.forward(client,Map.of("question","Find reference")).get("answer"))||calls.size()!=1||requests.size()!=5)throw new AssertionError("Native MCP execution failed");
+    boolean recorded=program.getActionLog().stream().anyMatch(entry->entry instanceof Map<?,?> record&&"orders.lookup".equals(record.get("qualified_name"))&&"mcp-call".equals(record.get("call_id"))&&"ok".equals(record.get("status")));if(!recorded)throw new AssertionError("Native MCP activity missing");
+    var duplicate=(Map<String,Object>)program.invokeCallable("orders.lookup",Map.of("query","REF-42"));if(!"error".equals(duplicate.get("status"))||calls.size()!=1)throw new AssertionError("Native MCP call replayed through actor");
+    if(authorizations.get()!=2)throw new AssertionError("Invalid arguments or actor replay reached authorization");
+    System.out.println("java discovered MCP native agent schema, correction, overlap, result and action log passed");
+  }
+  static void ownedFlowFailure() throws Exception {
+    var gate=new CyclicBarrier(3);var release=new CountDownLatch(1);var fast=new CountDownLatch(1);var late=new CountDownLatch(1);var requests=new AtomicInteger();
+    class Transport implements OpenAICompatibleClient.Transport {
+      public java.util.function.Supplier<OpenAICompatibleClient.Transport> ownedWorkerFactory(){return Transport::new;}
+      public Object call(Map<String,Object> request)throws Exception {
+        String body=Json.stringify(request.get("json"));requests.incrementAndGet();gate.await(3,TimeUnit.SECONDS);String content="{\"fastAnswer\":\"DONE\"}";
+        if(body.contains("lateAnswer")){
+          // Deliberately ignore interrupts to exercise retained worker ownership.
+          long deadline=System.nanoTime()+3_000_000_000L;while(release.getCount()!=0&&System.nanoTime()<deadline){try{release.await(20,TimeUnit.MILLISECONDS);}catch(InterruptedException ignored){}}
+          if(release.getCount()!=0)throw new AssertionError("Late worker was not released");content="{\"lateAnswer\":\"LATE\"}";late.countDown();
+        }else if(body.contains("failAnswer")){if(!fast.await(3,TimeUnit.SECONDS))throw new AssertionError("Completed sibling was not reported");content="{\"wrong\":\"invalid\"}";}
+        return Map.of("status",200,"json",Map.of("id","reply","choices",List.of(Map.of("index",0,"message",Map.of("role","assistant","content",content),"finish_reason","stop"))));
+      }
+    }
+    var control=Ax.runControl();control.onEvent(event->{if("completed".equals(event.get("type"))&&"root/fast".equals(event.get("path")))fast.countDown();});
+    var client=Ax.ai("openai",Map.of("api_key","test","model","gpt-5.6","transport",new Transport()));
+    var workflow=Ax.flow().execute("fast",Ax.ax("question -> fastAnswer")).execute("fail",Ax.ax("question -> failAnswer")).execute("late",Ax.ax("question -> lateAnswer"));
+    String snapshot;
+    try{
+      long started=System.nanoTime();
+      try{workflow.forward(client,Map.of("question","Ready"),Map.of("control",control,"stream",false,"maxSteps",1,"validationRetries",0,"infraRetries",0));throw new AssertionError("Failed group returned success");}
+      catch(RuntimeException error){if(!error.toString().contains("late"))throw new AssertionError("Unresolved node missing",error);}
+      if(System.nanoTime()-started>2_000_000_000L||late.getCount()==0)throw new AssertionError("Flow waited for noncooperative work");
+      snapshot=Json.stringify(workflow.getChatLog());if(!snapshot.contains("DONE")||snapshot.contains("LATE"))throw new AssertionError("Lost completed sibling diagnostics: "+snapshot);
+    }finally{release.countDown();}
+    if(!late.await(3,TimeUnit.SECONDS)||requests.get()!=3||!snapshot.equals(Json.stringify(workflow.getChatLog())))throw new AssertionError("Late work changed state or requests were replayed");
+    System.out.println("java parallel failure preserves completed state and discards late work");
+  }
+
+  @SuppressWarnings("unchecked") static void concurrentNativeMCP() throws Exception {
+    var requests=new CopyOnWriteArrayList<Map<String,Object>>();var barrier=new CyclicBarrier(32);
+    AxMCPTransport transport=new AxMCPTransport(){
+      public void sendNotification(Map<String,Object> message){if(!"notifications/initialized".equals(message.get("method")))throw new AssertionError(message);}
+      public Map<String,Object> send(Map<String,Object> message){
+        String method=String.valueOf(message.get("method"));Object result;
+        if(method.equals("server/discover"))result=Map.of("resultType","complete","supportedVersions",List.of("2026-07-28"),"ttlMs",60000,"cacheScope","private","capabilities",Map.of("tools",Map.of()));
+        else if(method.equals("initialize"))result=Map.of("protocolVersion","2025-11-25","serverInfo",Map.of("name","orders","version","1"),"capabilities",Map.of("tools",Map.of()));
+        else if(method.equals("tools/list"))result=Map.of("tools",List.of(Map.of("name","lookup","inputSchema",Map.of("type","object","properties",Map.of("index",Map.of("type","integer"))))));
+        else {var params=(Map<String,Object>)message.get("params");if(!method.equals("tools/call")||!"lookup".equals(params.get("name")))throw new AssertionError(message);requests.add(message);try{barrier.await(3,TimeUnit.SECONDS);}catch(Exception error){throw new RuntimeException(error);}result=Map.of("resultType","complete","_meta",Map.of("io.modelcontextprotocol/serverInfo",Map.of("name","orders","version",message.get("id"))),"structuredContent",params.get("arguments"));}
+        return Map.of("jsonrpc","2.0","id",message.get("id"),"result",result);
+      }
+    };
+    var client=new AxMCPClient(transport,Map.of("era","modern","namespace","orders"));client.init();var nativeTool=client.nativeTools().get(0);
+    var pool=Executors.newFixedThreadPool(32);
+    try {var results=new ArrayList<Future<Object>>();for(int index=0;index<32;index++){final int value=index;results.add(pool.submit(()->nativeTool.call(Map.of("index",value))));}
+      for(int index=0;index<32;index++){var result=(Map<String,Object>)results.get(index).get(5,TimeUnit.SECONDS);if(!Integer.valueOf(index).equals(((Map<String,Object>)result.get("structuredContent")).get("index")))throw new AssertionError(result);}
+    } finally {pool.shutdownNow();if(!pool.awaitTermination(5,TimeUnit.SECONDS))throw new AssertionError("MCP workers did not stop");}
+    if(requests.size()!=32||requests.stream().map(value->value.get("id")).distinct().count()!=32)throw new AssertionError("Duplicate native MCP request IDs");
+    System.out.println("java concurrent native MCP identities and results passed");
+  }
+  @SuppressWarnings("unchecked") static void ownedChildControls() throws Exception {
+    var stages=List.of("root/distiller","root/executor","root/team.researcher/distiller","root/team.researcher/executor","root/team.researcher/responder","root/executor","root/responder");
+    for(boolean cancel:List.of(false,true)) {
+      var control=Ax.runControl();var observed=new ArrayList<Map<String,Object>>();var requests=new ArrayList<Map<String,Object>>();
+      control.onEvent(event->{observed.add(event);if(cancel&&"started".equals(event.get("type"))&&"root/team.researcher/executor".equals(event.get("path")))control.abort();});
+      control.steer("ROOT-UPDATE");control.steer("CHILD-ONLY","root/team.researcher");control.setThinkingTokenBudget("medium","root/team.researcher/executor");
+      class Runtime implements AxCodeRuntime {
+        boolean delegated;int closed;
+        Map<String,AxCodeRuntime.HostCallable> callbacks=new LinkedHashMap<>();
+        public void registerHostCallable(String name,AxCodeRuntime.HostCallable callback){callbacks.put(name,callback);}
+        public AxCodeSession createSession(Map<String,Object> globals,Map<String,Object> options){return new AxCodeSession(){
+          public Object execute(String code,Map<String,Object> opts){
+            if(code.equals("delegate")){delegated=true;return Map.of("callable",Map.of("qualified_name","team.researcher","args",Map.of("question","Find reference"),"call_id","child-call"));}
+            return Map.of("type","final","args",List.of("Find reference",Map.of()));
+          }
+          public Object snapshotGlobals(Map<String,Object> opts){return Map.of("globals",Map.of());}
+          public Object patchGlobals(Object snapshot,Map<String,Object> opts){return snapshot;}
+          public Object close(){closed++;return Map.of("closed",true);}
+        };}
+      }
+      var runtime=new Runtime();
+      OpenAICompatibleClient.Transport transport=request->{
+        var body=(Map<String,Object>)request.get("json");int number=requests.size();String stage=stages.get(number/2);requests.add(body);
+        if(number%2==1){
+          String input=Json.stringify(body.get("input"));
+          if(!("child-r"+number).equals(body.get("previous_response_id"))||!input.contains("ROOT-UPDATE")||input.contains("CHILD-ONLY")!=stage.startsWith("root/team.researcher"))throw new AssertionError("Child control scope lost: "+body);
+          var updates=((List<Map<String,Object>>)body.get("input")).stream().filter(item->"configuration_update".equals(item.get("type"))).toList();
+          if(!updates.isEmpty()!=stage.equals("root/team.researcher/executor"))throw new AssertionError("Reasoning scope lost");
+          if(!updates.isEmpty()&&!updates.equals(List.of(Map.of("type","configuration_update","reasoning",Map.of("effort","medium")))))throw new AssertionError("Reasoning value lost");
+          if(!Objects.equals(body.get("reasoning"),requests.get(number-1).get("reasoning")))throw new AssertionError("Cache prefix changed");
+        }else if(body.containsKey("previous_response_id"))throw new AssertionError("Child inherited conversation");
+        if(number==10&&!Json.stringify(body).contains("REF-42"))throw new AssertionError("Parent continued without child result");
+        Object output;
+        if(stage.startsWith("root/team.researcher"))output=stage.endsWith("/responder")?Map.of("answer","REF-42"):Map.of("completion",Map.of("type","final","args",List.of("Find reference",Map.of())));
+        else if(stage.equals("root/responder"))output=Map.of("answer","REF-42");
+        else output=Map.of("javascriptCode",stage.equals("root/executor")&&!runtime.delegated?"delegate":"parent-final");
+        var response=Map.of("id","child-r"+(number+1),"model","gpt-6-astra","usage",Map.of("input_tokens",2,"output_tokens",1,"total_tokens",3),"output",List.of(Map.of("type","message","id","message","content",List.of(Map.of("type","output_text","text",Json.stringify(output))))));
+        return new ByteArrayInputStream(("data: "+Json.stringify(Map.of("type","response.completed","response",response))+"\n\n").getBytes(StandardCharsets.UTF_8));
+      };
+      var child=Ax.agent("question -> answer",Map.of("directResponse","off"));
+      var parent=Ax.agent("question -> answer",Map.of("directResponse","off","runtime",runtime)).addChildAgent("team","researcher",child);
+      var client=Ax.ai("openai",Map.of("api_key","test","model","gpt-6-astra","transport",transport));
+      try {
+        var result=parent.forward(client,Map.of("question","Find reference"),Map.of("control",control));
+        if(cancel||!result.equals(Map.of("answer","REF-42"))||requests.size()!=14)throw new AssertionError("Child completion failed");
+        if(observed.stream().filter(event->"applied".equals(event.get("type"))).count()!=11)throw new AssertionError("Control duplicated or lost");
+        if(!((Map<?,?>)parent.getUsage().get("children")).get("team.researcher").equals(child.getUsage()))throw new AssertionError("Child usage lost");
+      }catch(RuntimeException error){if(!cancel)throw error;if(!error.toString().toLowerCase().contains("abort")||(requests.size()<6||requests.size()>7)||runtime.closed!=1)throw new AssertionError("Child cancellation cleanup failed",error);}
+      var calls=parent.getActionLog().stream().filter(item->item instanceof Map<?,?> record&&"child-call".equals(record.get("call_id"))).toList();
+      if(calls.size()!=1||!(cancel?"error":"ok").equals(((Map<?,?>)calls.get(0)).get("status")))throw new AssertionError("Child action missing or duplicated");
+      if(!((Map<?,?>)parent.getUsage().get("children")).get("team.researcher").equals(child.getUsage()))throw new AssertionError("Child failure usage lost");
+      for(String name:List.of("team.researcher","llmQuery")){try{runtime.callbacks.get(name).call(Map.of("question","Late request"));throw new AssertionError("Late callback executed");}catch(RuntimeException error){if(!error.getMessage().contains("closed run"))throw error;}}
+      try{parent.invokeCallable("team.researcher",Map.of("question","Find reference"));throw new AssertionError("Parent retained active client");}catch(RuntimeException error){if(!error.getMessage().contains("active parent forward"))throw error;}
+    }
+    System.out.println("java actual child delegation, scoped controls, usage, and cancellation passed");
+  }
   public static void main(String[] args) throws Exception {
+    ownedChildControls();
+    ownedFlowFailure();ownedBalancerFailureAccounting();
+    ownedFlowOverlap();
     manualClockDeadline();
-    nativeFiles();
+    nativeFiles();nativeMCPAgentDiscovery();
     CountDownLatch started=new CountDownLatch(1),release=new CountDownLatch(1);
     AtomicInteger calls=new AtomicInteger(),requests=new AtomicInteger();
     OpenAICompatibleClient.Transport transport=new OpenAICompatibleClient.Transport(){
@@ -108,20 +303,21 @@ public final class AstraSessionTest {
     stalledHttpCancellation();
     mixedBalancer();
     nativeAgent();
+    concurrentNativeMCP();
   }
   @SuppressWarnings("unchecked") static void invalidArgumentsAndExhaustion() {
-    for(boolean exhausted:List.of(false,true)) {
+    for(boolean exhausted:List.of(false,true)) for(String rawArguments:List.of("{}", "{\"query\":\"ab\"}")) {
       var requests=new AtomicInteger();var calls=new AtomicInteger();
       OpenAICompatibleClient.Transport transport=new OpenAICompatibleClient.Transport(){
         public Object call(Map<String,Object> request){throw new AssertionError("Expected streaming");}
         public Object stream(Map<String,Object> request){int n=requests.incrementAndGet();Map<String,Object> event;
-          if(n==1)event=Map.of("type","response.completed","response",Map.of("id","invalid","model","gpt-6-astra","output",List.of(Map.of("type","function_call","id","invalid-item","call_id","invalid-call","name","validated_lookup","arguments","{}"))));
+          if(n==1)event=Map.of("type","response.completed","response",Map.of("id","invalid","model","gpt-6-astra","output",List.of(Map.of("type","function_call","id","invalid-item","call_id","invalid-call","name","validated_lookup","arguments",rawArguments))));
           else {if(exhausted||n!=2)throw new AssertionError("Work replayed after exhaustion");var body=(Map<String,Object>)request.get("json");var outputs=(List<Map<String,Object>>)body.get("input");if(!"invalid".equals(body.get("previous_response_id"))||outputs.size()!=1||!"invalid-call".equals(outputs.get(0).get("call_id"))||!String.valueOf(outputs.get(0).get("output")).toLowerCase(Locale.ROOT).contains("query"))throw new AssertionError("Invalid correction continuation: "+body);event=completed("corrected","{\"answer\":\"CORRECTED\"}");}
           return "data: "+Json.stringify(event)+"\n\n";
         }
       };
       var client=Ax.ai("openai",Map.of("api_key","test","model","gpt-6-astra","transport",transport));
-      var tool=Ax.fn("validated_lookup").description("Requires a query").arg("query",Ax.f().string()).execution("background").handler(args->{calls.incrementAndGet();return "unexpected";}).build();
+      var tool=Ax.fn("validated_lookup").description("Requires a query").parameters((Map<String,Object>)Json.parse("{\"type\":\"object\",\"$defs\":{\"query\":{\"type\":\"string\",\"minLength\":3,\"pattern\":\"^[A-Z]+$\"}},\"properties\":{\"query\":{\"$ref\":\"#/$defs/query\"}},\"required\":[\"query\"],\"additionalProperties\":false}")).arg("query",Ax.f().string()).execution("background").handler(args->{calls.incrementAndGet();return "unexpected";}).build();
       var program=Ax.ax("question -> answer").addTool(tool);
       try {var result=program.forward(client,Map.of("question","Find reference"),Map.of("maxSteps",exhausted?1:3));if(exhausted||!"CORRECTED".equals(result.get("answer")))throw new AssertionError("Invalid terminal outcome: "+result);}
       catch(RuntimeException error){if(!exhausted||!error.getMessage().contains("steps"))throw error;}
@@ -130,6 +326,7 @@ public final class AstraSessionTest {
     System.out.println("java invalid arguments, correction continuation, and step exhaustion passed");
   }
   @SuppressWarnings("unchecked") static void nativeAgent() throws Exception {
+    var control=Ax.runControl();control.steer("ROOT-GUIDANCE");control.steer("RESPONDER-ONLY","root/responder");control.setThinkingTokenBudget("medium","root/executor");
     var requests=new AtomicInteger();var calls=new AtomicInteger();var started=new CountDownLatch(1);var release=new CountDownLatch(1);
     OpenAICompatibleClient.Transport transport=new OpenAICompatibleClient.Transport(){
       public Object call(Map<String,Object> request){int number=requests.incrementAndGet();var body=(Map<String,Object>)request.get("json");for(var tool:(List<Map<String,Object>>)body.getOrDefault("tools",List.of()))if(Boolean.TRUE.equals(tool.get("async")))throw new AssertionError("Actor authority leaked to another stage");
@@ -137,16 +334,24 @@ public final class AstraSessionTest {
         if(number!=4||!Json.stringify(body).contains("REF-42"))throw new AssertionError("Responder ran before final result incorporation");return completed("responder","{\"answer\":\"REF-42\"}").get("response");
       }
       public Object stream(Map<String,Object> request)throws Exception {int number=requests.incrementAndGet();var body=(Map<String,Object>)request.get("json");
-        if(number==2){var tools=(List<Map<String,Object>>)body.get("tools");if(tools.size()!=1||!"tools_lookup".equals(tools.get(0).get("name"))||!Boolean.TRUE.equals(tools.get(0).get("async")))throw new AssertionError("Missing native actor tool");
+        if(number==1||number==2||number==5||number==6){
+          for(var t:(List<Map<String,Object>>)body.getOrDefault("tools",List.of()))if(Boolean.TRUE.equals(t.get("async")))throw new AssertionError("Actor authority leaked");
+          String stage=number<3?"distiller":"responder",suffix=(number==1||number==5)?"-start":"-final";
+          if(number==2||number==6){String input=Json.stringify(body.get("input"));if(!((stage+"-start").equals(body.get("previous_response_id")))||!input.contains("ROOT-GUIDANCE")||input.contains("RESPONDER-ONLY")!=(number==6))throw new AssertionError("Scoped stage update mismatch: "+body);}
+          if(number==5&&!Json.stringify(body).contains("REF-42"))throw new AssertionError("Responder started before incorporation");
+          return "data: "+Json.stringify(completed(stage+suffix,number<3?"{\"completion\":{\"type\":\"final\",\"args\":[\"Find reference\",{}]}}":"{\"answer\":\"REF-42\"}"))+"\n\n";
+        }
+        if(number==3){var tools=(List<Map<String,Object>>)body.get("tools");if(tools.size()!=1||!"tools_lookup".equals(tools.get(0).get("name"))||!Boolean.TRUE.equals(tools.get(0).get("async")))throw new AssertionError("Missing native actor tool");
           var input=new PipedInputStream(8192);var output=new PipedOutputStream(input);Thread worker=new Thread(()->{try(output){emit(output,Map.of("type","response.output_item.done","item",Map.of("type","function_call","id","item","call_id","agent-call","name","tools_lookup","arguments","{\"query\":\"REF-42\"}")));if(!started.await(2,TimeUnit.SECONDS))throw new AssertionError("Agent tool did not overlap model work");release.countDown();emit(output,completed("executor1","{\"completion\":{\"type\":\"final\",\"args\":[\"Report reference\",{\"answer\":\"provisional\"}]}}"));}catch(Exception error){throw new RuntimeException(error);}});worker.setDaemon(true);worker.start();return input;
         }
-        if(number!=3||!"executor1".equals(body.get("previous_response_id"))||!Json.stringify(body.get("input")).contains("REF-42"))throw new AssertionError("Lost native result");
+        if(number!=4||!"executor1".equals(body.get("previous_response_id"))||!Json.stringify(body.get("input")).contains("REF-42"))throw new AssertionError("Lost native result");
+        String updates=Json.stringify(body.get("input"));if(!updates.contains("ROOT-GUIDANCE")||updates.contains("RESPONDER-ONLY")||!updates.contains("configuration_update")||!updates.contains("medium"))throw new AssertionError("Missing executor update");
         return "data: "+Json.stringify(completed("executor2","{\"completion\":{\"type\":\"final\",\"args\":[\"Report reference\",{\"answer\":\"REF-42\"}]}}"))+"\n\n";
       }
     };
     var tool=Ax.fn("lookup").description("Lookup").arg("query",Ax.f().string()).execution("background").handler(args->{calls.incrementAndGet();started.countDown();if(!release.await(2,TimeUnit.SECONDS))throw new AssertionError("Model did not overlap the handler");return args.get("query");}).build();
     var program=Ax.agent("question -> answer",Map.of("functions",List.of(tool),"directResponse","off"));var client=Ax.ai("openai",Map.of("api_key","test","model","gpt-6-astra","transport",transport));
-    var result=program.forward(client,Map.of("question","Find reference"));if(!"REF-42".equals(result.get("answer"))||calls.get()!=1||requests.get()!=4)throw new AssertionError("Invalid native agent result");
+    var result=program.forward(client,Map.of("question","Find reference"),Map.of("control",control));if(!"REF-42".equals(result.get("answer"))||calls.get()!=1||requests.get()!=6)throw new AssertionError("Invalid native agent result");
     var activity=program.getActionLog().stream().map(entry->(Map<String,Object>)entry).filter(entry->"function_call".equals(entry.get("type"))).toList();
     if(activity.size()!=1||!"tools.lookup".equals(activity.get(0).get("qualified_name"))||!"agent-call".equals(activity.get(0).get("call_id")))throw new AssertionError("Lost native activity: "+activity);
     var duplicate=(Map<String,Object>)program.invokeCallable("tools.lookup",Map.of("query","REF-42"));if(!"error".equals(duplicate.get("status"))||calls.get()!=1)throw new AssertionError("Native call replayed through actor machinery");
@@ -163,7 +368,8 @@ public final class AstraSessionTest {
     var release=new CountDownLatch(1);
     var tool=Ax.fn("lookup").description("Lookup").execution("background").contextHandler((args,cancelled)->{controller.abort();long deadline=System.nanoTime()+TimeUnit.SECONDS.toNanos(3);boolean done=false;while(!done && System.nanoTime()<deadline){try{done=release.await(20,TimeUnit.MILLISECONDS);}catch(InterruptedException ignored){}}if(!done)throw new AssertionError("Caller waited for noncooperative work");settled.countDown();return "LATE";}).build();
     var client=Ax.ai("openai",Map.of("api_key","test","model","gpt-6-astra","webSocketTransport",socket));
-    long start=System.nanoTime();try{Ax.ax("question -> answer").addTool(tool).forward(client,Map.of("question","Find answer"),Map.of("control",controller));throw new AssertionError("Cancelled run returned success");}catch(Exception error){if(!error.toString().contains("pending-call"))throw error;}
+    var pendingProgram=Ax.ax("question -> answer").addTool(tool);long start=System.nanoTime();try{pendingProgram.forward(client,Map.of("question","Find answer"),Map.of("control",controller));throw new AssertionError("Cancelled run returned success");}catch(Exception error){if(!error.toString().contains("pending-call"))throw error;}
+    var unresolved=pendingProgram.getFunctionCallTraces();if(unresolved.size()!=1||!"pending-call".equals(unresolved.get(0).get("id"))||!"unresolved".equals(unresolved.get(0).get("status")))throw new AssertionError("Unresolved action missing: "+unresolved);
     if(settled.getCount()!=1||!closed.get())throw new AssertionError("Caller waited for tool completion");release.countDown();
     if(System.nanoTime()-start>TimeUnit.SECONDS.toNanos(2)||!closed.get()||!settled.await(2,TimeUnit.SECONDS)||sends.get()!=1)throw new AssertionError("Cancellation leaked or replayed work");
     if(!List.of("pending-call").equals(events.get(events.size()-1).get("pending_call_ids")))throw new AssertionError("Lost unresolved IDs");

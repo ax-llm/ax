@@ -8,9 +8,24 @@ use std::sync::{
 pub struct AxRunControl(Arc<ControlState>);
 #[derive(Default)]
 struct ControlState {
+    parent: Option<AxRunControl>,
+    relay: Option<Arc<dyn Fn(Value) + Send + Sync>>,
     aborted: AtomicBool,
     updates: Mutex<Vec<Value>>,
     listeners: Mutex<Vec<Arc<dyn Fn(Value) + Send + Sync>>>,
+}
+pub(crate) fn worker_control(
+    parent: Option<AxRunControl>,
+    relay: impl Fn(Value) + Send + Sync + 'static,
+) -> AxRunControl {
+    AxRunControl(Arc::new(ControlState {
+        parent,
+        relay: Some(Arc::new(relay)),
+        ..ControlState::default()
+    }))
+}
+pub(crate) fn emit_worker_event(control: &AxRunControl, event: Value) {
+    control.emit(event)
 }
 pub fn run_control() -> AxRunControl {
     AxRunControl::default()
@@ -23,6 +38,11 @@ impl AxRunControl {
     }
     pub fn is_aborted(&self) -> bool {
         self.0.aborted.load(Ordering::SeqCst)
+            || self
+                .0
+                .parent
+                .as_ref()
+                .is_some_and(|parent| parent.is_aborted())
     }
     pub fn on_event(&self, listener: impl Fn(Value) + Send + Sync + 'static) {
         self.0.listeners.lock().unwrap().push(Arc::new(listener));
@@ -59,12 +79,19 @@ impl AxRunControl {
         Ok(())
     }
     fn emit(&self, event: Value) {
+        if let Some(relay) = &self.0.relay {
+            relay(event);
+            return;
+        }
         let listeners = self.0.listeners.lock().unwrap().clone();
         for listener in listeners {
             listener(event.clone());
         }
     }
     fn pending(&self, path: &str, after: usize) -> AxResult<(Vec<Value>, usize)> {
+        if let Some(parent) = &self.0.parent {
+            return parent.pending(path, after);
+        }
         let updates = self.0.updates.lock().unwrap();
         let mut out = Vec::new();
         for update in updates.iter().skip(after) {
@@ -669,6 +696,7 @@ pub(crate) fn dispatch_run_route(
     let client = resolve(client, &routes)?;
     let request = envelope["request"].clone();
     match method {
+        "route_owned_worker" => Ok(publish_owned_client_factory(client.owned_worker_factory())),
         "route_select" => Ok(client
             .pin_chat_run(&request, &options)?
             .map(Value::String)
@@ -748,6 +776,7 @@ pub(crate) struct SessionRun {
     waiting: Vec<Value>,
     level: Value,
     fallback_started: bool,
+    finished: bool,
 }
 impl SessionRun {
     pub(crate) fn new(gen: CoreValue, tools: Vec<Tool>, options: Value) -> Self {
@@ -778,6 +807,7 @@ impl SessionRun {
             waiting: Vec::new(),
             level: Value::Null,
             fallback_started: false,
+            finished: false,
         }
     }
     fn emit(&self, kind: &str, mut event: Value) {
@@ -817,6 +847,12 @@ impl SessionRun {
                 .ok_or_else(|| AxError::runtime(format!("Function '{name}' not found")))?;
             validate_fields(&[
                 core_tool_args_fields(&tool.args)?,
+                core_value_from_json(&args),
+                CoreValue::from_string(format!("tool.{name}.args")),
+            ])?;
+            let schema = core_value_from_json(&tool.schema()?);
+            chat_session_validate_required_arguments(&[
+                schema,
                 core_value_from_json(&args),
                 CoreValue::from_string(format!("tool.{name}.args")),
             ])?;
@@ -1156,20 +1192,27 @@ impl SessionRun {
         Ok(())
     }
     pub(crate) fn finish(&mut self, error: Option<&AxError>) {
+        if self.finished {
+            return;
+        }
+        self.finished = true;
         self.cancelled.store(true, Ordering::SeqCst);
-        if let Some(session) = &mut self.session {
+        let pending = if let Some(session) = &mut self.session {
             session.close();
-            let pending = chat_session_close_state(&[self.state.clone()])
+            let _ = chat_session_record_unresolved(&[self.gen.clone(), self.state.clone()]);
+            chat_session_close_state(&[self.state.clone()])
                 .map(|v| core_value_to_json(&v))
-                .unwrap_or(Value::Null);
-            if let Some(error) = error {
-                self.emit(
-                    "failed",
-                    json!({"error":error.to_string(),"pending_call_ids":pending}),
-                );
-            } else {
-                self.emit("completed", json!({}));
-            }
+                .unwrap_or(Value::Null)
+        } else {
+            json!([])
+        };
+        if let Some(error) = error {
+            self.emit(
+                "failed",
+                json!({"error":error.to_string(),"pending_call_ids":pending}),
+            );
+        } else {
+            self.emit("completed", json!({}));
         }
     }
 }
@@ -1184,8 +1227,266 @@ impl Drop for SessionRun {
 
 #[cfg(test)]
 mod tests {
+    struct OwnedTestProgram {
+        gen: AxGen,
+        owner_state: Rc<RefCell<usize>>,
+    }
+    impl AxProgram for OwnedTestProgram {
+        fn program_kind(&self) -> &'static str {
+            "OwnedTestProgram"
+        }
+    }
+    impl AxExecutableProgram for OwnedTestProgram {
+        fn forward(
+            &mut self,
+            client: &mut dyn AxAIClient,
+            input: Value,
+            options: AxForwardOptions,
+        ) -> AxResult<Value> {
+            *self.owner_state.borrow_mut() += 1;
+            AxExecutableProgram::forward(&mut self.gen, client, input, options)
+        }
+        fn owned_worker_factory(&self) -> Option<AxOwnedProgramFactory> {
+            let create = self.gen.owned_worker_factory()?;
+            let count = *self.owner_state.borrow();
+            Some(Box::new(move || {
+                Box::new(Self {
+                    gen: create(),
+                    owner_state: Rc::new(RefCell::new(count)),
+                })
+            }))
+        }
+        fn get_chat_log(&self) -> Vec<Value> {
+            self.gen.chat_log.clone()
+        }
+        fn get_traces(&self) -> Vec<Value> {
+            self.gen.traces.clone()
+        }
+    }
+    #[test]
+    fn owned_flow_workers_overlap_http() -> AxResult<()> {
+        use std::io::{Read, Write};
+        let listener = std::net::TcpListener::bind("127.0.0.1:0")?;
+        listener.set_nonblocking(true)?;
+        let endpoint = format!("http://{}", listener.local_addr()?);
+        let (arrived_tx, arrived_rx) = mpsc::channel();
+        let gate = Arc::new((Mutex::new(false), std::sync::Condvar::new()));
+        let server_gate = gate.clone();
+        let server = std::thread::spawn(move || {
+            let deadline = Instant::now() + Duration::from_secs(5);
+            let mut workers = Vec::new();
+            while workers.len() < 2 && Instant::now() < deadline {
+                match listener.accept() {
+                    Ok((mut socket, _)) => {
+                        socket.set_nonblocking(false).unwrap();
+                        let sender = arrived_tx.clone();
+                        let gate = server_gate.clone();
+                        workers.push(std::thread::spawn(move ||->Result<(),String>{
+                        socket.set_read_timeout(Some(Duration::from_secs(3))).unwrap();let mut request=Vec::new();let mut byte=[0u8;1];
+                        while !request.ends_with(b"\r\n\r\n"){socket.read_exact(&mut byte).map_err(|e|e.to_string())?;request.push(byte[0]);}
+                        let headers=String::from_utf8(request).unwrap();assert!(headers.to_ascii_lowercase().contains("authorization: bearer worker-test"));
+                        let length=headers.lines().find_map(|line|line.to_ascii_lowercase().strip_prefix("content-length:").map(|v|v.trim().parse::<usize>().unwrap())).unwrap();let mut body=vec![0;length];socket.read_exact(&mut body).unwrap();sender.send(serde_json::from_slice::<Value>(&body).unwrap()).unwrap();
+                        let released=gate.0.lock().unwrap();let (released,timeout)=gate.1.wait_timeout_while(released,Duration::from_secs(3),|released|!*released).unwrap();if timeout.timed_out()&&!*released{return Err("Independent requests did not overlap".into());}drop(released);
+                        let body=json!({"id":"reply","choices":[{"index":0,"message":{"role":"assistant","content":"{\"answer\":\"DONE\"}"},"finish_reason":"stop"}],"usage":{"prompt_tokens":2,"completion_tokens":1,"total_tokens":3}}).to_string();
+                        write!(socket,"HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{}",body.len(),body).map_err(|e|e.to_string())?;Ok(())
+                    }));
+                    }
+                    Err(error) if error.kind() == std::io::ErrorKind::WouldBlock => {
+                        std::thread::sleep(Duration::from_millis(1))
+                    }
+                    Err(error) => panic!("{error}"),
+                }
+            }
+            assert_eq!(workers.len(), 2, "Both nodes must start");
+            for worker in workers {
+                worker.join().unwrap().unwrap();
+            }
+        });
+        let release = std::thread::spawn(move || {
+            let first = arrived_rx.recv_timeout(Duration::from_secs(3));
+            let second = arrived_rx.recv_timeout(Duration::from_secs(3));
+            *gate.0.lock().unwrap() = true;
+            gate.1.notify_all();
+            assert!(
+                first.is_ok() && second.is_ok(),
+                "Parallel barrier not reached"
+            );
+        });
+        let mut client = ai(
+            "openai",
+            json!({"api_key":"worker-test","model":"gpt-5.6","api_url":endpoint}),
+        )?;
+        let client = MultiServiceRouter::new().with_service("smart", client);
+        let mut client =
+            AxBalancer::from_clients(vec![Box::new(client)], AxBalancerOptions::default())?;
+        let nested = flow("nested")
+            .execute("inner", ax("question -> answer")?)
+            .returns(json!({"answer":"innerResult.answer"}));
+        let custom = OwnedTestProgram {
+            gen: ax("question -> answer")?,
+            owner_state: Rc::new(RefCell::new(0)),
+        };
+        let mut workflow = flow("overlap")
+            .execute_program(
+                "first",
+                nested,
+                &json!({"reads":["question"],"writes":["firstResult"],"isBarrier":false}),
+            )
+            .execute_program(
+                "second",
+                custom,
+                &json!({"reads":["question"],"writes":["secondResult"],"isBarrier":false}),
+            )
+            .returns(json!({"first":"firstResult","second":"secondResult"}));
+        let result = workflow.forward_with_options(
+            &mut client,
+            json!({"question":"Ready"}),
+            json!({"stream":false,"model":"smart"}),
+        );
+        release.join().unwrap();
+        server.join().unwrap();
+        assert_eq!(
+            result?,
+            json!({"first":{"answer":"DONE"},"second":{"answer":"DONE"}})
+        );
+        assert_eq!(
+            core_iter(&core_get(
+                &workflow.state,
+                &CoreValue::from("chat_log"),
+                CoreValue::new_list()
+            ))?
+            .len(),
+            2
+        );
+        Ok(())
+    }
+
     use super::*;
     use std::sync::atomic::AtomicUsize;
+    struct FailureGate {
+        started: AtomicUsize,
+        all: std::sync::Condvar,
+        lock: Mutex<()>,
+        release: AtomicBool,
+        fast: AtomicBool,
+        late: AtomicBool,
+    }
+    struct FailureTransport(Arc<FailureGate>);
+    impl AxTransport for FailureTransport {
+        fn owned_worker_factory(&self) -> Option<AxOwnedTransportFactory> {
+            let gate = self.0.clone();
+            Some(Box::new(move || Box::new(FailureTransport(gate))))
+        }
+        fn send(&mut self, request: Value) -> AxResult<Value> {
+            let body = request["json"].to_string();
+            let gate = &self.0;
+            gate.started.fetch_add(1, Ordering::SeqCst);
+            gate.all.notify_all();
+            let lock = gate.lock.lock().unwrap();
+            let (guard, timeout) = gate
+                .all
+                .wait_timeout_while(lock, Duration::from_secs(3), |_| {
+                    gate.started.load(Ordering::SeqCst) < 3
+                })
+                .unwrap();
+            drop(guard);
+            if timeout.timed_out() {
+                return Err(AxError::runtime("Independent nodes did not overlap"));
+            }
+            let content = if body.contains("lateAnswer") {
+                let start = Instant::now();
+                while !gate.release.load(Ordering::SeqCst)
+                    && start.elapsed() < Duration::from_secs(3)
+                {
+                    std::thread::sleep(Duration::from_millis(1));
+                }
+                assert!(gate.release.load(Ordering::SeqCst));
+                gate.late.store(true, Ordering::SeqCst);
+                json!({"lateAnswer":"LATE"})
+            } else if body.contains("failAnswer") {
+                let start = Instant::now();
+                while !gate.fast.load(Ordering::SeqCst) && start.elapsed() < Duration::from_secs(3)
+                {
+                    std::thread::sleep(Duration::from_millis(1));
+                }
+                assert!(gate.fast.load(Ordering::SeqCst));
+                json!({"wrong":"invalid"})
+            } else {
+                json!({"fastAnswer":"DONE"})
+            };
+            Ok(
+                json!({"status":200,"json":{"id":"reply","choices":[{"index":0,"message":{"role":"assistant","content":content.to_string()},"finish_reason":"stop"}]}}),
+            )
+        }
+    }
+    #[test]
+    fn owned_flow_failure_discards_late_work() -> AxResult<()> {
+        let gate = Arc::new(FailureGate {
+            started: AtomicUsize::new(0),
+            all: std::sync::Condvar::new(),
+            lock: Mutex::new(()),
+            release: AtomicBool::new(false),
+            fast: AtomicBool::new(false),
+            late: AtomicBool::new(false),
+        });
+        struct Release(Arc<FailureGate>);
+        impl Drop for Release {
+            fn drop(&mut self) {
+                self.0.release.store(true, Ordering::SeqCst);
+            }
+        }
+        let _release = Release(gate.clone());
+        let observed = gate.clone();
+        let control = run_control();
+        control.on_event(move |event| {
+            if event["type"] == "completed" && event["path"] == "root/fast" {
+                observed.fast.store(true, Ordering::SeqCst);
+            }
+        });
+        let mut client = ai("openai", json!({"api_key":"test","model":"gpt-5.6"}))?
+            .with_transport(FailureTransport(gate.clone()));
+        let mut workflow = flow("failure")
+            .execute("fast", ax("question -> fastAnswer")?)
+            .execute("fail", ax("question -> failAnswer")?)
+            .execute("late", ax("question -> lateAnswer")?);
+        let started = Instant::now();
+        let error = workflow
+            .forward_with_options(
+                &mut client,
+                json!({"question":"Ready"}),
+                AxForwardOptions::from(
+                    json!({"stream":false,"maxSteps":1,"validationRetries":0,"infraRetries":0}),
+                )
+                .with_control(control),
+            )
+            .unwrap_err();
+        assert!(error.to_string().contains("late"), "{error}");
+        assert!(started.elapsed() < Duration::from_secs(2));
+        assert!(!gate.late.load(Ordering::SeqCst));
+        let state = core_value_to_json(&core_get(
+            &workflow.state,
+            &CoreValue::from("completed_state"),
+            CoreValue::Null,
+        ));
+        assert_eq!(state["fastResult"], json!({"fastAnswer":"DONE"}));
+        gate.release.store(true, Ordering::SeqCst);
+        let started = Instant::now();
+        while !gate.late.load(Ordering::SeqCst) && started.elapsed() < Duration::from_secs(3) {
+            std::thread::sleep(Duration::from_millis(1));
+        }
+        assert!(gate.late.load(Ordering::SeqCst));
+        assert_eq!(
+            core_value_to_json(&core_get(
+                &workflow.state,
+                &CoreValue::from("completed_state"),
+                CoreValue::Null
+            )),
+            state
+        );
+        assert_eq!(gate.started.load(Ordering::SeqCst), 3);
+        Ok(())
+    }
+
     struct ChannelReader {
         source: mpsc::Receiver<Vec<u8>>,
         current: std::io::Cursor<Vec<u8>>,
@@ -1303,6 +1604,7 @@ mod tests {
     struct InvalidArgumentsTransport {
         requests: Arc<AtomicUsize>,
         exhausted: bool,
+        arguments: String,
     }
     impl AxTransport for InvalidArgumentsTransport {
         fn send(&mut self, _: Value) -> AxResult<Value> {
@@ -1311,7 +1613,7 @@ mod tests {
         fn stream(&mut self, request: Value) -> AxResult<AxTransportStream> {
             let n = self.requests.fetch_add(1, Ordering::SeqCst) + 1;
             let event = if n == 1 {
-                json!({"type":"response.completed","response":{"id":"invalid","model":"gpt-6-astra","output":[{"type":"function_call","id":"invalid-item","call_id":"invalid-call","name":"validated_lookup","arguments":"{}"}]}})
+                json!({"type":"response.completed","response":{"id":"invalid","model":"gpt-6-astra","output":[{"type":"function_call","id":"invalid-item","call_id":"invalid-call","name":"validated_lookup","arguments":self.arguments}]}})
             } else {
                 assert!(!self.exhausted && n == 2, "Work replayed after exhaustion");
                 let body = &request["json"];
@@ -1334,38 +1636,34 @@ mod tests {
     #[test]
     fn invalid_arguments_correction_and_step_exhaustion() -> AxResult<()> {
         for exhausted in [false, true] {
-            let requests = Arc::new(AtomicUsize::new(0));
-            let calls = Arc::new(AtomicUsize::new(0));
-            let called = calls.clone();
-            let mut client = ai("openai", json!({"api_key":"test","model":"gpt-6-astra"}))?
-                .with_transport(InvalidArgumentsTransport {
-                    requests: requests.clone(),
-                    exhausted,
-                });
-            let lookup = tool("validated_lookup")
-                .description("Requires a query")
-                .arg("query", FieldType::string())
-                .execution("background")
-                .handler(move |_| {
-                    called.fetch_add(1, Ordering::SeqCst);
-                    Ok(json!("unexpected"))
-                });
-            let mut program = ax("question -> answer")?.with_tool(lookup);
-            let result = program.forward_with_options(
-                &mut client,
-                json!({"question":"Find reference"}),
-                json!({"maxSteps":if exhausted{1}else{3}}),
-            );
-            if exhausted {
-                assert!(result.unwrap_err().message.contains("steps"));
-            } else {
-                assert_eq!(result?, json!({"answer":"CORRECTED"}));
+            for arguments in ["{}", r#"{"query":"ab"}"#] {
+                let requests = Arc::new(AtomicUsize::new(0));
+                let calls = Arc::new(AtomicUsize::new(0));
+                let called = calls.clone();
+                let mut client = ai("openai", json!({"api_key":"test","model":"gpt-6-astra"}))?
+                    .with_transport(InvalidArgumentsTransport {
+                        requests: requests.clone(),
+                        exhausted,
+                        arguments: arguments.to_string(),
+                    });
+                let lookup=tool("validated_lookup").description("Requires a query").parameters(json!({"type":"object","$defs":{"query":{"type":"string","minLength":3,"pattern":"^[A-Z]+$"}},"properties":{"query":{"$ref":"#/$defs/query"}},"required":["query"],"additionalProperties":false})).arg("query",FieldType::string()).execution("background").handler(move |_|{called.fetch_add(1,Ordering::SeqCst);Ok(json!("unexpected"))});
+                let mut program = ax("question -> answer")?.with_tool(lookup);
+                let result = program.forward_with_options(
+                    &mut client,
+                    json!({"question":"Find reference"}),
+                    json!({"maxSteps":if exhausted{1}else{3}}),
+                );
+                if exhausted {
+                    assert!(result.unwrap_err().message.contains("steps"));
+                } else {
+                    assert_eq!(result?, json!({"answer":"CORRECTED"}));
+                }
+                assert_eq!(calls.load(Ordering::SeqCst), 0);
+                assert_eq!(
+                    requests.load(Ordering::SeqCst),
+                    if exhausted { 1 } else { 2 }
+                );
             }
-            assert_eq!(calls.load(Ordering::SeqCst), 0);
-            assert_eq!(
-                requests.load(Ordering::SeqCst),
-                if exhausted { 1 } else { 2 }
-            );
         }
         Ok(())
     }
@@ -1884,6 +2182,9 @@ mod tests {
         assert!(!settled.load(Ordering::SeqCst));
         assert!(socket.closed.load(Ordering::SeqCst));
         let traces = program.function_call_traces.clone();
+        assert_eq!(traces.len(), 1);
+        assert_eq!(traces[0]["id"], "pending-call");
+        assert_eq!(traces[0]["status"], "unresolved");
         release.send(()).unwrap();
         let start = Instant::now();
         while !settled.load(Ordering::SeqCst) && start.elapsed() < Duration::from_secs(2) {
@@ -1893,6 +2194,336 @@ mod tests {
         assert!(settled.load(Ordering::SeqCst));
         assert!(socket.closed.load(Ordering::SeqCst));
         assert_eq!(socket.sent.lock().unwrap().len(), 1);
+        Ok(())
+    }
+
+    struct ConcurrentMCPTransport(Arc<Mutex<Vec<Value>>>);
+    impl AxMCPTransport for ConcurrentMCPTransport {
+        fn send_notification(&mut self, message: Value) -> AxResult<()> {
+            assert_eq!(message["method"], "notifications/initialized");
+            Ok(())
+        }
+        fn send(&mut self, message: Value) -> AxResult<Value> {
+            let result = match message["method"].as_str().unwrap() {
+                "server/discover" => {
+                    json!({"resultType":"complete","supportedVersions":["2026-07-28"],"ttlMs":60000,"cacheScope":"private","capabilities":{"tools":{}}})
+                }
+                "initialize" => {
+                    json!({"protocolVersion":"2025-11-25","serverInfo":{"name":"orders","version":"1"},"capabilities":{"tools":{}}})
+                }
+                "tools/list" => {
+                    json!({"tools":[{"name":"lookup","inputSchema":{"type":"object","properties":{"index":{"type":"integer"}}}}]})
+                }
+                "tools/call" => {
+                    assert_eq!(message["params"]["name"], "lookup");
+                    self.0.lock().unwrap().push(message.clone());
+                    json!({"resultType":"complete","_meta":{"io.modelcontextprotocol/serverInfo":{"name":"orders","version":message["id"]}},"structuredContent":message["params"]["arguments"]})
+                }
+                other => panic!("Unexpected MCP method {other}"),
+            };
+            Ok(json!({"jsonrpc":"2.0","id":message["id"],"result":result}))
+        }
+    }
+    #[test]
+    fn concurrent_native_mcp_request_ids() -> AxResult<()> {
+        let requests = Arc::new(Mutex::new(Vec::new()));
+        let mut client = AxMCPClient::new(
+            Box::new(ConcurrentMCPTransport(requests.clone())),
+            json!({"era":"modern","namespace":"orders"}),
+        );
+        client.init()?;
+        let native = client.native_tools().remove(0);
+        let barrier = Arc::new(std::sync::Barrier::new(32));
+        let mut workers = Vec::new();
+        for index in 0..32 {
+            let native = native.clone();
+            let barrier = barrier.clone();
+            workers.push(std::thread::spawn(move || {
+                barrier.wait();
+                native.call(json!({"index":index}))
+            }));
+        }
+        for (index, worker) in workers.into_iter().enumerate() {
+            let result = worker.join().expect("native MCP worker panicked")?;
+            assert_eq!(result["structuredContent"]["index"], index);
+        }
+        let requests = requests.lock().unwrap();
+        let ids: std::collections::BTreeSet<String> = requests
+            .iter()
+            .map(|request| request["id"].as_str().unwrap().to_string())
+            .collect();
+        assert_eq!(requests.len(), 32);
+        assert_eq!(ids.len(), 32);
+        Ok(())
+    }
+
+    #[test]
+    fn owned_balancer_shares_failure_accounting() -> AxResult<()> {
+        struct FailingTransport(Arc<AtomicUsize>);
+        impl AxTransport for FailingTransport {
+            fn owned_worker_factory(&self) -> Option<AxOwnedTransportFactory> {
+                let calls = self.0.clone();
+                Some(Box::new(move || Box::new(FailingTransport(calls))))
+            }
+            fn send(&mut self, _: Value) -> AxResult<Value> {
+                self.0.fetch_add(1, Ordering::SeqCst);
+                let mut error = AxError::new("ai", "fixture rate limit");
+                error.error_type = Some("AxAIServiceStatusError".into());
+                error.status = Some(429);
+                error.retryable = true;
+                Err(error)
+            }
+        }
+        let calls = Arc::new(AtomicUsize::new(0));
+        let client = ai("openai", json!({"api_key":"test","model":"gpt-5.6"}))?
+            .with_transport(FailingTransport(calls.clone()));
+        let mut owner = AxBalancer::from_clients(
+            vec![Box::new(client)],
+            AxBalancerOptions {
+                max_retries: 1,
+                ..AxBalancerOptions::default()
+            },
+        )?;
+        let mut worker = owner.owned_worker_factory().expect("built-in owned client")();
+        let request = json!({"chat_prompt":[{"role":"user","content":"Hello"}],"model_config":{"stream":false}});
+        assert!(worker.chat(request.clone()).is_err());
+        let first = calls.load(Ordering::SeqCst);
+        assert!(first > 0);
+        assert!(owner.chat(request).is_err());
+        assert_eq!(
+            calls.load(Ordering::SeqCst),
+            first,
+            "Parent forgot worker failure and replayed route"
+        );
+        Ok(())
+    }
+
+    struct MCPAgentGate {
+        started: AtomicBool,
+        release: Mutex<bool>,
+        ready: Condvar,
+        calls: AtomicUsize,
+        schema: Value,
+    }
+    struct MCPAgentTransport(Arc<MCPAgentGate>);
+    impl AxMCPTransport for MCPAgentTransport {
+        fn send_notification(&mut self, _: Value) -> AxResult<()> {
+            panic!("Modern discovery initialized")
+        }
+        fn send(&mut self, message: Value) -> AxResult<Value> {
+            let result = match message["method"].as_str().unwrap_or("") {
+                "server/discover" => {
+                    json!({"resultType":"complete","supportedVersions":["2026-07-28"],"ttlMs":60000,"cacheScope":"private","capabilities":{"tools":{}}})
+                }
+                "tools/list" => {
+                    json!({"tools":[{"name":"lookup","description":"Find reference","inputSchema":self.0.schema}]})
+                }
+                "tools/call" => {
+                    assert_eq!(message["params"]["name"], "lookup");
+                    assert_eq!(message["params"]["arguments"], json!({"query":"REF-42"}));
+                    assert!(message["params"]["_meta"].is_object());
+                    self.0.calls.fetch_add(1, Ordering::SeqCst);
+                    self.0.started.store(true, Ordering::SeqCst);
+                    self.0.ready.notify_all();
+                    let release = self.0.release.lock().unwrap();
+                    let (release, timeout) = self
+                        .0
+                        .ready
+                        .wait_timeout_while(release, Duration::from_secs(3), |value| !*value)
+                        .unwrap();
+                    assert!(
+                        !timeout.timed_out() || *release,
+                        "MCP tool did not overlap model"
+                    );
+                    json!({"resultType":"complete","structuredContent":{"reference":"REF-42"},"content":[{"type":"text","text":"REF-42"}]})
+                }
+                method => panic!("Unexpected MCP method {method}"),
+            };
+            Ok(json!({"jsonrpc":"2.0","id":message["id"],"result":result}))
+        }
+    }
+    struct MCPAgentModel {
+        gate: Arc<MCPAgentGate>,
+        hidden: Arc<AtomicBool>,
+        requests: Arc<AtomicUsize>,
+    }
+    impl MCPAgentModel {
+        fn event(&self, request: &Value, number: usize) -> Value {
+            let body = &request["json"];
+            let actor: Vec<_> = body["tools"]
+                .as_array()
+                .into_iter()
+                .flatten()
+                .filter(|tool| tool["async"] == true)
+                .collect();
+            if self.hidden.load(Ordering::SeqCst) {
+                assert!(actor.is_empty(), "Undiscovered MCP tool exposed");
+                return completed(
+                    &format!("hidden-{number}"),
+                    if number < 3 {
+                        "{\"completion\":{\"type\":\"final\",\"args\":[\"No discovered tools\",{}]}}"
+                    } else {
+                        "{\"answer\":\"not discovered\"}"
+                    },
+                );
+            }
+            if number == 1 || number == 5 {
+                assert!(actor.is_empty(), "Native authority escaped executor");
+                if number == 5 {
+                    assert!(
+                        body.to_string().contains("REF-42"),
+                        "Responder preceded result incorporation"
+                    );
+                }
+                return completed(
+                    &format!("stage-{number}"),
+                    if number == 1 {
+                        "{\"completion\":{\"type\":\"final\",\"args\":[\"Find reference\",{}]}}"
+                    } else {
+                        "{\"answer\":\"REF-42\"}"
+                    },
+                );
+            }
+            if number == 2 {
+                assert_eq!(actor.len(), 1);
+                assert_eq!(actor[0]["name"], "orders_lookup");
+                assert_eq!(actor[0]["parameters"], self.gate.schema);
+                return json!({"type":"response.completed","response":{"id":"invalid-response","model":"gpt-6-astra","output":[{"type":"function_call","id":"invalid","call_id":"invalid-call","name":"orders_lookup","arguments":"{\"query\":\"X\"}"}]}});
+            }
+            assert_eq!(number, 4);
+            assert_eq!(body["previous_response_id"], "tool-response");
+            let result = body["input"].as_array().unwrap().last().unwrap();
+            assert_eq!(result["call_id"], "mcp-call");
+            let output: Value = serde_json::from_str(result["output"].as_str().unwrap()).unwrap();
+            assert_eq!(output["structuredContent"]["reference"], "REF-42");
+            completed("final-response","{\"completion\":{\"type\":\"final\",\"args\":[\"Report\",{\"answer\":\"REF-42\"}]}}")
+        }
+    }
+    impl AxTransport for MCPAgentModel {
+        fn send(&mut self, request: Value) -> AxResult<Value> {
+            let number = self.requests.fetch_add(1, Ordering::SeqCst) + 1;
+            Ok(self.event(&request, number)["response"].clone())
+        }
+        fn stream(&mut self, request: Value) -> AxResult<AxTransportStream> {
+            let number = self.requests.fetch_add(1, Ordering::SeqCst) + 1;
+            if !self.hidden.load(Ordering::SeqCst) && number == 3 {
+                assert_eq!(
+                    self.gate.calls.load(Ordering::SeqCst),
+                    0,
+                    "Invalid arguments invoked MCP"
+                );
+                assert_eq!(request["json"]["previous_response_id"], "invalid-response");
+                let (sender, receiver) = mpsc::channel();
+                let gate = self.gate.clone();
+                std::thread::spawn(move || {
+                    sender.send(sse(json!({"type":"response.output_item.done","item":{"type":"function_call","id":"valid","call_id":"mcp-call","name":"orders_lookup","arguments":"{\"query\":\"REF-42\"}"}}))).unwrap();
+                    let release = gate.release.lock().unwrap();
+                    let (mut release, timeout) = gate
+                        .ready
+                        .wait_timeout_while(release, Duration::from_secs(3), |_| {
+                            !gate.started.load(Ordering::SeqCst)
+                        })
+                        .unwrap();
+                    assert!(
+                        !timeout.timed_out() || gate.started.load(Ordering::SeqCst),
+                        "MCP tool did not start"
+                    );
+                    *release = true;
+                    gate.ready.notify_all();
+                    drop(release);
+                    sender.send(sse(completed("tool-response","{\"completion\":{\"type\":\"final\",\"args\":[\"Report\",{\"answer\":\"provisional\"}]}}"))).unwrap();
+                });
+                return Ok(AxTransportStream::Reader {
+                    status: 200,
+                    body: Box::new(ChannelReader {
+                        source: receiver,
+                        current: std::io::Cursor::new(Vec::new()),
+                    }),
+                });
+            }
+            Ok(AxTransportStream::Buffered(
+                json!({"status":200,"body":String::from_utf8(sse(self.event(&request,number))).unwrap()}),
+            ))
+        }
+    }
+    #[test]
+    fn discovered_mcp_native_agent_invocation() -> AxResult<()> {
+        let schema = json!({"type":"object","$defs":{"reference":{"type":"string","minLength":3}},"properties":{"query":{"$ref":"#/$defs/reference"}},"required":["query"],"additionalProperties":false});
+        let gate = Arc::new(MCPAgentGate {
+            started: AtomicBool::new(false),
+            release: Mutex::new(false),
+            ready: Condvar::new(),
+            calls: AtomicUsize::new(0),
+            schema,
+        });
+        let mut mcp = AxMCPClient::new(
+            Box::new(MCPAgentTransport(gate.clone())),
+            json!({"era":"modern","namespace":"orders"}),
+        );
+        mcp.init()?;
+        let allowed = Arc::new(AtomicBool::new(false));
+        let authorizations = Arc::new(AtomicUsize::new(0));
+        let permission = allowed.clone();
+        let counted = authorizations.clone();
+        let schema = gate.schema.clone();
+        mcp.set_tool_authorizer(move |client, call| {
+            assert_eq!(client.namespace(), "orders");
+            assert_eq!(call["namespace"], "orders");
+            assert_eq!(call["tool"]["inputSchema"], schema);
+            assert_eq!(call["arguments"], json!({"query":"REF-42"}));
+            counted.fetch_add(1, Ordering::SeqCst);
+            Ok(Some(permission.load(Ordering::SeqCst)))
+        });
+        let mut native = mcp.native_tools().remove(0);
+        assert_eq!(native.execution, "blocking");
+        native.execution = "background".into();
+        let denied = native.call(json!({"query":"REF-42"})).unwrap_err();
+        assert!(denied
+            .to_string()
+            .contains("MCP tool call denied by host policy: lookup"));
+        assert_eq!(gate.calls.load(Ordering::SeqCst), 0);
+        allowed.store(true, Ordering::SeqCst);
+        let mut program = agent_with_options(
+            "question -> answer",
+            json!({"functionDiscovery":true,"directResponse":"off"}),
+        )?
+        .with_tool_module("orders", vec![native])?;
+        let hidden = Arc::new(AtomicBool::new(true));
+        let requests = Arc::new(AtomicUsize::new(0));
+        let mut client = ai("openai", json!({"api_key":"test","model":"gpt-6-astra"}))?
+            .with_transport(MCPAgentModel {
+                gate: gate.clone(),
+                hidden: hidden.clone(),
+                requests: requests.clone(),
+            });
+        assert_eq!(
+            program.forward(&mut client, json!({"question":"Find reference"}))?,
+            json!({"answer":"not discovered"})
+        );
+        assert_eq!(gate.calls.load(Ordering::SeqCst), 0);
+        assert_eq!(requests.load(Ordering::SeqCst), 3);
+        program.discover(json!({"tools":["orders"]}))?;
+        hidden.store(false, Ordering::SeqCst);
+        requests.store(0, Ordering::SeqCst);
+        assert_eq!(
+            program.forward(&mut client, json!({"question":"Find reference"}))?,
+            json!({"answer":"REF-42"})
+        );
+        assert_eq!(gate.calls.load(Ordering::SeqCst), 1);
+        assert_eq!(requests.load(Ordering::SeqCst), 5);
+        assert!(program
+            .get_action_log()
+            .iter()
+            .any(|entry| entry["qualified_name"] == "orders.lookup"
+                && entry["call_id"] == "mcp-call"
+                && entry["status"] == "ok"));
+        assert_eq!(
+            program.invoke_callable("orders.lookup", json!({"query":"REF-42"}), json!({}))?
+                ["status"],
+            "error"
+        );
+        assert_eq!(gate.calls.load(Ordering::SeqCst), 1);
+        assert_eq!(authorizations.load(Ordering::SeqCst), 2);
         Ok(())
     }
 
@@ -1925,7 +2556,29 @@ mod tests {
         fn stream(&mut self, request: Value) -> AxResult<AxTransportStream> {
             let n = self.requests.fetch_add(1, Ordering::SeqCst) + 1;
             let body = &request["json"];
-            if n == 2 {
+            if matches!(n, 1 | 2 | 5 | 6) {
+                for t in body["tools"].as_array().into_iter().flatten() {
+                    assert_ne!(t["async"], true, "Actor authority leaked");
+                }
+                let stage = if n < 3 { "distiller" } else { "responder" };
+                let suffix = if n == 1 || n == 5 { "-start" } else { "-final" };
+                if n == 2 || n == 6 {
+                    assert_eq!(body["previous_response_id"], format!("{stage}-start"));
+                    let input = body["input"].to_string();
+                    assert!(input.contains("ROOT-GUIDANCE"));
+                    assert_eq!(input.contains("RESPONDER-ONLY"), n == 6);
+                }
+                if n == 5 {
+                    assert!(
+                        body.to_string().contains("REF-42"),
+                        "Responder started before incorporation"
+                    );
+                }
+                return Ok(AxTransportStream::Buffered(
+                    json!({"status":200,"body":String::from_utf8(sse(completed(&format!("{stage}{suffix}"),if n<3{"{\"completion\":{\"type\":\"final\",\"args\":[\"Find reference\",{}]}}"}else{"{\"answer\":\"REF-42\"}"}))).unwrap()}),
+                ));
+            }
+            if n == 3 {
                 assert_eq!(body["tools"][0]["name"], "tools_lookup");
                 assert_eq!(body["tools"][0]["async"], true);
                 let started = self.started.take().unwrap();
@@ -1947,19 +2600,259 @@ mod tests {
                     }),
                 });
             }
-            assert_eq!(n, 3);
+            assert_eq!(n, 4);
             assert_eq!(body["previous_response_id"], "executor1");
             assert_eq!(
-                body["input"],
-                json!([{"type":"function_call_output","call_id":"agent-call","output":"REF-42"}])
+                body["input"].as_array().unwrap().last().unwrap(),
+                &json!({"type":"function_call_output","call_id":"agent-call","output":"REF-42"})
+            );
+            let input = body["input"].to_string();
+            assert!(
+                input.contains("ROOT-GUIDANCE")
+                    && !input.contains("RESPONDER-ONLY")
+                    && input.contains("configuration_update")
+                    && input.contains("medium")
             );
             Ok(AxTransportStream::Buffered(
                 json!({"status":200,"body":String::from_utf8(sse(completed("executor2","{\"completion\":{\"type\":\"final\",\"args\":[\"Report reference\",{\"answer\":\"REF-42\"}]}}"))).unwrap()}),
             ))
         }
     }
+    struct ChildControlRuntime {
+        delegated: Arc<AtomicBool>,
+        closed: Arc<AtomicUsize>,
+        callbacks: Arc<Mutex<std::collections::BTreeMap<String, AxHostCallable>>>,
+    }
+    struct ChildControlSession {
+        delegated: Arc<AtomicBool>,
+        closed: Arc<AtomicUsize>,
+    }
+    impl AxCodeRuntime for ChildControlRuntime {
+        fn register_host_callable(&mut self, name: &str, callable: AxHostCallable) -> AxResult<()> {
+            self.callbacks
+                .lock()
+                .unwrap()
+                .insert(name.to_string(), callable);
+            Ok(())
+        }
+        fn language(&self) -> &str {
+            "JavaScript"
+        }
+        fn create_session(&mut self, _: Value, _: Value) -> AxResult<Box<dyn AxCodeSession>> {
+            Ok(Box::new(ChildControlSession {
+                delegated: self.delegated.clone(),
+                closed: self.closed.clone(),
+            }))
+        }
+    }
+    impl AxCodeSession for ChildControlSession {
+        fn execute(&mut self, code: &str, _: Value) -> AxResult<RuntimeEnvelope> {
+            if code == "delegate" {
+                self.delegated.store(true, Ordering::SeqCst);
+                return Ok(RuntimeEnvelope {
+                    payload: json!({"callable":{"qualified_name":"team.researcher","args":{"question":"Find reference"},"call_id":"child-call"}}),
+                });
+            }
+            Ok(RuntimeEnvelope {
+                payload: json!({"type":"final","args":["Find reference",{}]}),
+            })
+        }
+        fn snapshot_globals(&mut self, _: Value) -> AxResult<Value> {
+            Ok(json!({"globals":{}}))
+        }
+        fn close(&mut self) -> AxResult<Value> {
+            self.closed.fetch_add(1, Ordering::SeqCst);
+            Ok(json!({"closed":true}))
+        }
+    }
+    struct ChildControlTransport {
+        requests: Arc<Mutex<Vec<Value>>>,
+        delegated: Arc<AtomicBool>,
+    }
+    impl AxTransport for ChildControlTransport {
+        fn send(&mut self, _: Value) -> AxResult<Value> {
+            Err(AxError::runtime("Expected session streaming"))
+        }
+        fn stream(&mut self, request: Value) -> AxResult<AxTransportStream> {
+            let stages = [
+                "root/distiller",
+                "root/executor",
+                "root/team.researcher/distiller",
+                "root/team.researcher/executor",
+                "root/team.researcher/responder",
+                "root/executor",
+                "root/responder",
+            ];
+            let body = request["json"].clone();
+            let mut requests = self.requests.lock().unwrap();
+            let number = requests.len();
+            let stage = stages[number / 2];
+            requests.push(body.clone());
+            if number % 2 == 1 {
+                assert_eq!(body["previous_response_id"], format!("child-r{number}"));
+                let input = body["input"].to_string();
+                assert!(input.contains("ROOT-UPDATE"));
+                assert_eq!(
+                    input.contains("CHILD-ONLY"),
+                    stage.starts_with("root/team.researcher")
+                );
+                let updates: Vec<&Value> = body["input"]
+                    .as_array()
+                    .unwrap()
+                    .iter()
+                    .filter(|item| item["type"] == "configuration_update")
+                    .collect();
+                assert_eq!(
+                    !updates.is_empty(),
+                    stage == "root/team.researcher/executor"
+                );
+                if !updates.is_empty() {
+                    assert_eq!(updates[0]["reasoning"]["effort"], "medium");
+                }
+                assert_eq!(
+                    body["reasoning"],
+                    requests[number - 1]["reasoning"],
+                    "cache prefix changed"
+                );
+            } else {
+                assert!(
+                    body["previous_response_id"].is_null(),
+                    "child inherited conversation at request {number}: {body}"
+                );
+            }
+            if number == 10 {
+                assert!(
+                    body.to_string().contains("REF-42"),
+                    "parent continued without child result"
+                );
+            }
+            let output = if stage.starts_with("root/team.researcher") {
+                if stage.ends_with("/responder") {
+                    json!({"answer":"REF-42"})
+                } else {
+                    json!({"completion":{"type":"final","args":["Find reference",{}]}})
+                }
+            } else if stage == "root/responder" {
+                json!({"answer":"REF-42"})
+            } else {
+                json!({"javascriptCode":if stage=="root/executor"&&!self.delegated.load(Ordering::SeqCst){"delegate"}else{"parent-final"}})
+            };
+            let mut event = completed(&format!("child-r{}", number + 1), &output.to_string());
+            event["response"]["usage"] =
+                json!({"input_tokens":2,"output_tokens":1,"total_tokens":3});
+            Ok(AxTransportStream::Buffered(
+                json!({"status":200,"body":String::from_utf8(sse(event)).unwrap()}),
+            ))
+        }
+    }
+    #[test]
+    fn owned_child_controls_and_cancellation() -> AxResult<()> {
+        for cancel in [false, true] {
+            let control = run_control();
+            let observed = Arc::new(Mutex::new(Vec::new()));
+            let seen = observed.clone();
+            let stop = control.clone();
+            control.on_event(move |event| {
+                seen.lock().unwrap().push(event.clone());
+                if cancel
+                    && event["type"] == "started"
+                    && event["path"] == "root/team.researcher/executor"
+                {
+                    stop.abort();
+                }
+            });
+            control.steer("ROOT-UPDATE")?;
+            control.steer_at("CHILD-ONLY", "root/team.researcher")?;
+            control.set_thinking_token_budget_at("medium", "root/team.researcher/executor")?;
+            let delegated = Arc::new(AtomicBool::new(false));
+            let closed = Arc::new(AtomicUsize::new(0));
+            let requests = Arc::new(Mutex::new(Vec::new()));
+            let child = agent_with_options("question -> answer", json!({"directResponse":"off"}))?;
+            let callbacks = Arc::new(Mutex::new(std::collections::BTreeMap::new()));
+            let mut parent =
+                agent_with_options("question -> answer", json!({"directResponse":"off"}))?
+                    .with_child_agent("team", "researcher", child)?
+                    .with_runtime(Box::new(ChildControlRuntime {
+                        delegated: delegated.clone(),
+                        closed: closed.clone(),
+                        callbacks: callbacks.clone(),
+                    }))?;
+            let mut client = ai("openai", json!({"api_key":"test","model":"gpt-6-astra"}))?
+                .with_transport(ChildControlTransport {
+                    requests: requests.clone(),
+                    delegated,
+                });
+            let result = parent.forward_with_options(
+                &mut client,
+                json!({"question":"Find reference"}),
+                AxForwardOptions::default().with_control(control),
+            );
+            if cancel {
+                let error = result.expect_err("cancelled child returned success");
+                assert!(
+                    error.to_string().to_lowercase().contains("abort"),
+                    "{error}"
+                );
+                assert!((6..=7).contains(&requests.lock().unwrap().len()));
+                assert_eq!(closed.load(Ordering::SeqCst), 1);
+            } else {
+                assert_eq!(result?, json!({"answer":"REF-42"}));
+                assert_eq!(requests.lock().unwrap().len(), 14);
+                assert_eq!(
+                    observed
+                        .lock()
+                        .unwrap()
+                        .iter()
+                        .filter(|event| event["type"] == "applied")
+                        .count(),
+                    11
+                );
+                let usage = parent.get_usage();
+                let child = &usage["children"]["team.researcher"];
+                assert_eq!(child["chat_log_entries"], 6);
+                assert_eq!(child["actor"].as_array().unwrap().len(), 4);
+                assert_eq!(child["responder"].as_array().unwrap().len(), 2);
+            }
+            let calls: Vec<Value> = parent
+                .get_action_log()
+                .into_iter()
+                .filter(|item| item["call_id"] == "child-call")
+                .collect();
+            assert_eq!(calls.len(), 1);
+            assert_eq!(calls[0]["status"], if cancel { "error" } else { "ok" });
+            assert!(
+                parent.get_usage()["children"]["team.researcher"]["chat_log_entries"]
+                    .as_u64()
+                    .unwrap_or(0)
+                    > 0,
+                "Child failure usage lost"
+            );
+            for name in ["team.researcher", "llmQuery"] {
+                let callback = callbacks.lock().unwrap().get(name).unwrap().clone();
+                let error = callback(json!({"question":"Late request"}))
+                    .expect_err("late callback executed");
+                assert!(error.to_string().contains("closed"), "{error}");
+            }
+            let error = parent
+                .invoke_callable(
+                    "team.researcher",
+                    json!({"question":"Find reference"}),
+                    json!({}),
+                )
+                .expect_err("parent retained active client");
+            assert!(
+                error.to_string().contains("active parent forward"),
+                "{error}"
+            );
+        }
+        Ok(())
+    }
     #[test]
     fn native_agent_tools_and_action_log() -> AxResult<()> {
+        let control = run_control();
+        control.steer("ROOT-GUIDANCE")?;
+        control.steer_at("RESPONDER-ONLY", "root/responder")?;
+        control.set_thinking_token_budget_at("medium", "root/executor")?;
         let requests = Arc::new(AtomicUsize::new(0));
         let calls = Arc::new(AtomicUsize::new(0));
         let called = calls.clone();
@@ -1992,11 +2885,15 @@ mod tests {
             agent_with_options("question -> answer", json!({"directResponse":"off"}))?
                 .with_tool_module("tools", vec![lookup])?;
         assert_eq!(
-            program.forward(&mut client, json!({"question":"Find reference"}))?,
+            program.forward_with_options(
+                &mut client,
+                json!({"question":"Find reference"}),
+                AxForwardOptions::from(json!({})).with_control(control)
+            )?,
             json!({"answer":"REF-42"})
         );
         assert_eq!(calls.load(Ordering::SeqCst), 1);
-        assert_eq!(requests.load(Ordering::SeqCst), 4);
+        assert_eq!(requests.load(Ordering::SeqCst), 6);
         let activity: Vec<Value> = program
             .get_action_log()
             .into_iter()

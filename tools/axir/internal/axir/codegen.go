@@ -8,6 +8,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"regexp"
+	"strconv"
 	"strings"
 )
 
@@ -117,7 +118,7 @@ func EmitPython(model AxRuntimeModel, outDir string) error {
 		"axllm/schema.py":                                             schema,
 		"axllm/tool.py":                                               pyTool,
 		"axllm/runtime.py":                                            pyRuntime,
-		"axllm/runtime_quickjs.py":                                    pyRuntimeQuickjs,
+		"axllm/runtime_quickjs.py":                                    renderRuntimeHostNamespaces(pyRuntimeQuickjs),
 		"axllm/prompt.py":                                             prompt,
 		"axllm/ai.py":                                                 ai,
 		"axllm/gen.py":                                                gen,
@@ -260,7 +261,7 @@ func EmitJava(model AxRuntimeModel, outDir string) error {
 		"dev/axllm/ax/AxProcessCodeRuntime.java":                      javaAxProcessCodeRuntime,
 		"dev/axllm/ax/AxProcessCodeSession.java":                      javaAxProcessCodeSession,
 		"dev/axllm/ax/runtime/quickjs/AxQuickJsCodeRuntime.java":      javaQuickJSCodeRuntime,
-		"dev/axllm/ax/runtime/quickjs/AxQuickJsCodeSession.java":      javaQuickJSCodeSession,
+		"dev/axllm/ax/runtime/quickjs/AxQuickJsCodeSession.java":      renderRuntimeHostNamespaces(javaQuickJSCodeSession),
 		"dev/axllm/ax/runtime/quickjs/AxQuickJsHostCallable.java":     javaQuickJSHostCallable,
 		"dev/axllm/ax/runtime/quickjs/AxQuickJsProtocolServer.java":   javaQuickJSProtocolServer,
 		"dev/axllm/ax/OpenAICompatibleClient.java":                    javaOpenAI,
@@ -366,7 +367,7 @@ func EmitCpp(model AxRuntimeModel, outDir string) error {
 		"examples/runtime_adapter.cpp":                          cppRuntimeAdapterExample,
 		"examples/runtime_protocol.cpp":                         cppRuntimeProtocolExample,
 		"axllm/runtime/quickjs/quickjs_runtime.hpp":             cppQuickJSRuntimeHeader,
-		"axllm/runtime/quickjs/quickjs_runtime.cpp":             cppQuickJSRuntimeSource,
+		"axllm/runtime/quickjs/quickjs_runtime.cpp":             renderRuntimeHostNamespaces(cppQuickJSRuntimeSource),
 		"examples/runtime_profiles/javascript_quickjs.cpp":      cppJavaScriptQuickJSProfileExample,
 		"examples/runtime_profiles/python_pyodide.cpp":          cppPythonPyodideProfileExample,
 		"examples/runtime_profiles/quickjs-runtime-policy.json": quickJSRuntimePolicyJSON,
@@ -410,7 +411,7 @@ func EmitGo(model AxRuntimeModel, outDir string) error {
 		"session.go":                        goSession,
 		"session_test.go":                   goSessionTest,
 		"errors_test.go":                    goErrorBoundaryTest,
-		"runtime/goja/goja.go":              goGojaRuntime,
+		"runtime/goja/goja.go":              renderRuntimeHostNamespaces(goGojaRuntime),
 		"runtime/goja/goja_test.go":         goGojaRuntimeTest,
 		"axir-capabilities.json":            mustCapabilityManifest(model, "go"),
 		"axir-api.json":                     mustAPIReferenceManifest(model, "go"),
@@ -465,7 +466,7 @@ func EmitRust(model AxRuntimeModel, outDir string) error {
 		"src/lib.rs":                                      renderPackageTemplate(core, version),
 		"src/mcp.rs":                                      rustMCP,
 		"src/session.rs":                                  rustSession,
-		"src/runtime/quickjs.rs":                          rustQuickJSRuntime,
+		"src/runtime/quickjs.rs":                          renderRuntimeHostNamespaces(rustQuickJSRuntime),
 		"src/bin/axllm-conformance.rs":                    rustConformanceMain,
 		"axir-capabilities.json":                          mustCapabilityManifest(model, "rust"),
 		"axir-api.json":                                   mustAPIReferenceManifest(model, "rust"),
@@ -1104,6 +1105,7 @@ func apiReferenceSectionsForTarget(target string) []APIReferenceSection {
 				sym("get_supported_ai_models", "function", "Return the AxIR-backed provider and model catalog, including dynamic named profiles and portable capability metadata.", []string{"type filter", "thinkingLevels", "serviceTiers", "isDynamic"}, "provider catalog entries"),
 				sym("AxCredentialRequest", "type", "Request metadata passed to a renewable credential callback for every transport attempt.", []string{"profile", "operation", "method", "URL"}, "credential request"),
 				sym("AxCredentialProvider", "interface", "Return fresh request headers that override static profile authentication.", []string{"chat", "stream", "embeddings", "Responses", "audio", "retries"}, "header map or credential error"),
+				sym("owned_client_factory", "method", "Optional factory for an independent client worker with preserved configuration, authentication and routing. Built-in providers supply it; custom services may omit it without changing chat compatibility.", []string{"owned configuration", "shared balancer accounting", "no borrowed client transfer"}, "worker factory or unavailable"),
 				sym("AxChatSession", "interface", "Optional normalized session capability for custom provider adapters. High-level programs own tool execution and continuation; chat-only services remain supported.", []string{"normalized events", "completed calls", "submit results", "steering", "reasoning updates", "close"}, "run-owned chat session"),
 				sym("AxProviderStream", "type", "Incremental, closeable provider event stream. Retry and failover stop once content is delivered.", []string{"next event", "terminal error", "consumer cancellation", "upstream close"}, "incremental chat events"),
 				sym("OpenAICompatibleClient", "type", "OpenAI-compatible chat, stream, embedding, audio, and realtime provider boundary.", []string{"api key", "model", "base URL", "transport"}, "provider client"),
@@ -1141,6 +1143,7 @@ func apiReferenceSectionsForTarget(target string) []APIReferenceSection {
 			Symbols: []APIReferenceSymbol{
 				sym("agent", "function", "Create an AxAgent from a signature and agent/runtime options.", []string{"name", "description", "runtime", "maxSteps", "context fields", "discovery", "recall", "functions", "skills", "skillsCatalog", "memoriesCatalog", "relevanceRanking", "load observers", "used observers", "citations", "playbook", "instruction", "instructionAddenda"}, "AxAgent"),
 				sym("AxAgent", "type", "RLM agent with Core-owned envelopes, complete runtime-state export/restore, traces, discovery, recall, loaded skills and memories, usage observers, delegation, validated citations, stage instructions, persistent run-end learning, and verified playbook evolution.", []string{"executor model", "runtime", "policy", "context", "skills", "memories", "relevance ranking", "observers", "runtime state", "optimizer metadata", "citations", "playbook"}, "agent program"),
+				sym("add_child_agent", "method", "Register an owned child agent for serialized delegation through the parent invocation boundary. Scoped controls use parent/namespace.name paths.", []string{"namespace", "name", "child", "independent conversation", "child usage"}, "parent agent"),
 			},
 		},
 		{
@@ -1150,6 +1153,7 @@ func apiReferenceSectionsForTarget(target string) []APIReferenceSection {
 			Symbols: []APIReferenceSymbol{
 				sym("flow", "function", "Create an AxFlow program graph or compile the portable Mermaid shorthand.", []string{"nodes", "execute mappers", "conditions", "cache", "returns", "Mermaid roundtrip"}, "AxFlow"),
 				sym("AxFlow", "type", "Workflow graph with Core-owned planning, cache keys, state merge, child aggregation, optimization, and returns projection.", []string{"steps", "state", "parallel groups", "returns"}, "flow program"),
+				sym("owned_program_factory", "method", "Optional factory for independent program state. Parallel groups require both client and program factories; otherwise the whole group runs serially with a fallback trace.", []string{"owned memory", "per-node controls", "deterministic result merge", "cooperative cancellation"}, "worker factory or unavailable"),
 			},
 		},
 		{
@@ -1166,7 +1170,7 @@ func apiReferenceSectionsForTarget(target string) []APIReferenceSection {
 			Title:   "MCP",
 			Summary: "Use MCP clients and transports while keeping JSON-RPC lifecycle, tools, prompts, resources, OAuth, cancellation, and SSRF checks aligned.",
 			Symbols: []APIReferenceSymbol{
-				sym("AxMCPClient", "type", "MCP client that lists tools/prompts/resources and converts MCP tools to Ax functions.", []string{"transport", "client info", "roots", "tool overrides"}, "MCP client"),
+				sym("AxMCPClient", "type", "MCP client that lists tools/prompts/resources and converts MCP tools to Ax functions.", []string{"transport", "client info", "roots", "tool overrides", "host tool authorization"}, "MCP client"),
 				sym("AxMCPStreamableHTTPTransport", "type", "Streamable HTTP transport with session headers, OAuth options, and SSRF protection.", []string{"endpoint", "headers", "OAuth", "SSRF protection"}, "MCP transport"),
 				sym("AxMCPStdioTransport", "type", "Stdio transport with JSON-RPC framing for local MCP servers.", []string{"command", "args", "env"}, "MCP transport"),
 			},
@@ -1241,6 +1245,12 @@ func apiReferencePublicName(target, canonical string) string {
 		return mapTarget(target, "run_control", "Ax.runControl", "axllm::run_control", "axllm.RunControl", "run_control")
 	case "AxChatSession":
 		return mapTarget(target, "AxChatSession", "AxChatSession", "axllm::AxChatSession", "axllm.AxChatSession", "AxChatSession")
+	case "owned_client_factory":
+		return mapTarget(target, "AIClient.owned_worker_factory", "AiClient.ownedWorkerFactory", "axllm::AIClient::owned_worker_factory", "AxOwnedClientFactory.OwnedWorkerFactory", "AxAIClient::owned_worker_factory")
+	case "add_child_agent":
+		return mapTarget(target, "AxAgent.add_child_agent", "AxAgent.addChildAgent", "axllm::AxAgent::add_child_agent", "AxAgent.AddChildAgent", "AxAgent::with_child_agent")
+	case "owned_program_factory":
+		return mapTarget(target, "AxProgram.owned_worker_factory", "AxProgram.ownedWorkerFactory", "axllm::AxProgram::owned_worker_factory", "AxOwnedProgramFactory.OwnedWorkerFactory", "AxExecutableProgram::owned_worker_factory")
 	case "AxRunControl":
 		return mapTarget(target, "AxRunControl", "AxRunControl", "axllm::AxRunControl", "axllm.AxRunControl", "AxRunControl")
 	case "ax":
@@ -1330,12 +1340,16 @@ func apiReferenceQualifiedName(target, name string) string {
 
 func apiReferenceForm(target, canonical, publicName string) string {
 	switch canonical {
+	case "owned_client_factory", "owned_program_factory":
+		return publicName + "()"
 	case "s":
 		return mapTarget(target, "s(signature: str)", "Ax.s(String signature)", "axllm::s(const std::string& signature)", "axllm.S(signature string)", "s(spec: &str)")
 	case "f":
 		return mapTarget(target, "f().input(...).output(...).build()", "Ax.f().input(...).output(...)", "FieldType / Field descriptors", "FieldType and Field descriptors", "f().input(...).output(...).build()")
 	case "AxSignature":
 		return mapTarget(target, "AxSignature", "AxSignature", "axllm::Value signature", "axllm.AxSignature", "AxSignature")
+	case "add_child_agent":
+		return apiReferencePublicName(target, canonical) + "(namespace, name, child)"
 	case "run_control":
 		return apiReferencePublicName(target, canonical) + "()"
 	case "ax":
@@ -1934,6 +1948,7 @@ func BuildConformanceCoverageManifest(model AxRuntimeModel, target string) (Conf
 		{"axmcp", "mcp", "server_requests_legacy", "transport-boundary"},
 		{"axmcp", "mcp", "mrtr_roots", "transport-boundary"},
 		{"axmcp", "mcp", "mrtr_elicitation", "transport-boundary"},
+		{"axmcp", "mcp", "tool_authorization", "transport-boundary"},
 		{"axmcp", "mcp", "mrtr_violations", "semantic"},
 		{"axmcp", "mcp", "subscriptions_listen", "transport-boundary"},
 		{"axmcp", "mcp", "ping", "transport-boundary"},
@@ -2691,4 +2706,9 @@ func packageReadmeConfigForTarget(target string, network string) packageReadmeCo
 
 func readmeLines(lines ...string) string {
 	return strings.Join(lines, "\n")
+}
+
+func renderRuntimeHostNamespaces(template string) string {
+	template = strings.ReplaceAll(template, "{{AX_HOST_NAMESPACES_RAW}}", runtimeHostNamespaces)
+	return strings.ReplaceAll(template, "{{AX_HOST_NAMESPACES_QUOTED}}", strconv.Quote(runtimeHostNamespaces))
 }

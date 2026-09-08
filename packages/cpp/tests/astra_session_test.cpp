@@ -1,5 +1,7 @@
 #include "axllm/axllm.hpp"
+#include "axllm/mcp.hpp"
 #include <iostream>
+#include <future>
 using namespace axllm;
 struct Gate {
   std::mutex mutex;std::condition_variable ready;bool started=false,released=false;std::atomic<int> calls{0};
@@ -79,20 +81,29 @@ class AgentSessionTransport final:public Transport {
     if(number!=4||stringify(body).find("REF-42")==std::string::npos)throw std::runtime_error("Responder ran before final incorporation");return Core::get(completed("responder","{\"answer\":\"REF-42\"}"),"response");
   }
   void stream(Value request,AxTransportStreamHandler handler)override{
-    int number=++requests;Value body=Core::get(request,"json");if(number==2){Value tool=Core::get(Core::get(body,"tools"),0);if(stringify(Core::get(tool,"name"))!="\"tools_lookup\""||!Core::truthy(Core::get(tool,"async")))throw std::runtime_error("Missing native actor tool");
+    int number=++requests;Value body=Core::get(request,"json");if(number==1||number==2||number==5||number==6){
+      for(const auto& t:Core::iter(Core::get(body,"tools",Value::array())))if(Core::truthy(Core::get(t,"async")))throw std::runtime_error("Actor authority leaked");
+      std::string stage=number<3?"distiller":"responder",suffix=(number==1||number==5)?"-start":"-final";
+      if(number==2||number==6){std::string input=stringify(Core::get(body,"input"));if(display(Core::get(body,"previous_response_id"))!=stage+"-start"||input.find("ROOT-GUIDANCE")==std::string::npos||(input.find("RESPONDER-ONLY")!=std::string::npos)!=(number==6))throw std::runtime_error("Scoped stage update mismatch");}
+      if(number==5&&stringify(body).find("REF-42")==std::string::npos)throw std::runtime_error("Responder started before incorporation");
+      handler(completed(stage+suffix,number<3?"{\"completion\":{\"type\":\"final\",\"args\":[\"Find reference\",{}]}}":"{\"answer\":\"REF-42\"}"));return;
+    }
+    if(number==3){Value tool=Core::get(Core::get(body,"tools"),0);if(stringify(Core::get(tool,"name"))!="\"tools_lookup\""||!Core::truthy(Core::get(tool,"async")))throw std::runtime_error("Missing native actor tool");
       handler(object({{"type","response.output_item.done"},{"item",object({{"type","function_call"},{"id","item"},{"call_id","agent-call"},{"name","tools_lookup"},{"arguments","{\"query\":\"REF-42\"}"}})}}));
       {std::unique_lock<std::mutex> lock(gate->mutex);if(!gate->ready.wait_for(lock,std::chrono::seconds(2),[&]{return gate->started;}))throw std::runtime_error("Agent handler did not overlap model work");gate->released=true;gate->ready.notify_all();}
       handler(completed("executor1","{\"completion\":{\"type\":\"final\",\"args\":[\"Report reference\",{\"answer\":\"provisional\"}]}}"));return;
     }
-    if(number!=3||stringify(Core::get(body,"previous_response_id"))!="\"executor1\""||stringify(Core::get(body,"input")).find("REF-42")==std::string::npos)throw std::runtime_error("Lost native tool result");
+    if(number!=4||stringify(Core::get(body,"previous_response_id"))!="\"executor1\""||stringify(Core::get(body,"input")).find("REF-42")==std::string::npos)throw std::runtime_error("Lost native tool result");
+    std::string updates=stringify(Core::get(body,"input"));if(updates.find("ROOT-GUIDANCE")==std::string::npos||updates.find("RESPONDER-ONLY")!=std::string::npos||updates.find("configuration_update")==std::string::npos||updates.find("medium")==std::string::npos)throw std::runtime_error("Missing executor update");
     handler(completed("executor2","{\"completion\":{\"type\":\"final\",\"args\":[\"Report reference\",{\"answer\":\"REF-42\"}]}}"));
   }
 };
 void native_agent(){
+  auto control=run_control();control.steer("ROOT-GUIDANCE");control.steer("RESPONDER-ONLY","root/responder");control.set_thinking_token_budget("medium","root/executor");
   auto gate=std::make_shared<Gate>();auto transport=std::make_shared<AgentSessionTransport>(gate);auto client=ai("openai",object({{"api_key","test"},{"model","gpt-6-astra"}}));dynamic_cast<OpenAICompatibleClient&>(*client).shared_transport(transport);
   Tool lookup("lookup","Lookup",object({{"type","object"},{"properties",object({{"query",object({{"type","string"}})}})},{"required",Value(Array{"query"})}}),[gate](Value args){++gate->calls;std::unique_lock<std::mutex> lock(gate->mutex);gate->started=true;gate->ready.notify_all();if(!gate->ready.wait_for(lock,std::chrono::seconds(2),[&]{return gate->released;}))throw std::runtime_error("Agent model did not overlap tool");return Core::get(args,"query");});lookup.execution("background");
-  auto program=agent("question -> answer",object({{"directResponse","off"}}));program.add_tool_module("tools",std::vector<Tool>{lookup});Value result=program.forward(*client,object({{"question","Find reference"}}));
-  if(stringify(Core::get(result,"answer"))!="\"REF-42\""||gate->calls.load()!=1||transport->requests.load()!=4)throw std::runtime_error("Invalid native agent result");
+  auto program=agent("question -> answer",object({{"directResponse","off"}}));program.add_tool_module("tools",std::vector<Tool>{lookup});Value result=program.forward(*client,object({{"question","Find reference"}}),object({{"control",control.value()}}));
+  if(stringify(Core::get(result,"answer"))!="\"REF-42\""||gate->calls.load()!=1||transport->requests.load()!=6)throw std::runtime_error("Invalid native agent result");
   Value activity=Value::array();for(const auto& entry:Core::iter(program.get_action_log()))if(stringify(Core::get(entry,"type"))=="\"function_call\"")Core::append(activity,entry);
   if(Core::iter(activity).size()!=1||stringify(Core::get(Core::get(activity,0),"qualified_name"))!="\"tools.lookup\""||stringify(Core::get(Core::get(activity,0),"call_id"))!="\"agent-call\"")throw std::runtime_error("Lost native activity: "+stringify(activity));
   Value duplicate=program.invoke_callable("tools.lookup",object({{"query","REF-42"}}));if(stringify(Core::get(duplicate,"status"))!="\"error\""||gate->calls.load()!=1)throw std::runtime_error("Native call replayed through actor machinery");
@@ -128,6 +139,7 @@ void noncooperative_cancellation(){
   auto program=ax("question -> answer");program.add_tool(lookup);auto start=std::chrono::steady_clock::now();
   try{program.forward(*client,object({{"question","Find answer"}}),object({{"control",control.value()}}));throw std::runtime_error("Cancelled run returned success");}catch(const std::exception& error){if(std::string(error.what()).find("pending-call")==std::string::npos)throw;}
   if(std::chrono::steady_clock::now()-start>std::chrono::seconds(2))throw std::runtime_error("Cancellation blocked the caller");
+  auto unresolved=program.get_function_call_traces();if(Core::iter(unresolved).size()!=1||display(Core::get(Core::get(unresolved,0),"id"))!="pending-call"||display(Core::get(Core::get(unresolved,0),"status"))!="unresolved")throw std::runtime_error("Unresolved action missing from tool traces");
   if(settled->load())throw std::runtime_error("Caller waited for tool completion");release->store(true);
   auto deadline=std::chrono::steady_clock::now()+std::chrono::seconds(2);while(!settled->load()&&std::chrono::steady_clock::now()<deadline)std::this_thread::sleep_for(std::chrono::milliseconds(1));
   {std::lock_guard<std::mutex> lock(socket->mutex);if(!socket->closed||socket->sent.size()!=1||!settled->load())throw std::runtime_error("Cancellation leaked or replayed work");}
@@ -214,10 +226,10 @@ class InvalidArgumentsTransport final: public Transport {
   }
 };
 static void invalid_arguments_and_exhaustion(){
- for(const std::string arguments:{"{}","{\"query\":123}","{\"query\":false}","{\"query\":null}"}) for(bool exhausted:{false,true}){
+ for(const std::string arguments:{"{}","{\"query\":123}","{\"query\":false}","{\"query\":null}","{\"query\":\"ab\"}"}) for(bool exhausted:{false,true}){
   auto transport=std::make_shared<InvalidArgumentsTransport>(exhausted,arguments);auto calls=std::make_shared<std::atomic<int>>(0);
   auto client=ai("openai",object({{"api_key","test"},{"model","gpt-6-astra"}}));dynamic_cast<OpenAICompatibleClient&>(*client).shared_transport(transport);
-  Tool lookup("validated_lookup","Requires a query",object({{"type","object"},{"properties",object({{"query",object({{"type","string"}})}})},{"required",Value(Array{"query"})}}),[calls](Value){++*calls;return Value("unexpected");});lookup.execution("background");auto program=ax("question -> answer");program.add_tool(lookup);
+  Tool lookup("validated_lookup","Requires a query",parse_json(R"schema({"type":"object","$defs":{"query":{"type":"string","minLength":3,"pattern":"^[A-Z]+$"}},"properties":{"query":{"$ref":"#/$defs/query"}},"required":["query"],"additionalProperties":false})schema"),[calls](Value){++*calls;return Value("unexpected");});lookup.execution("background");auto program=ax("question -> answer");program.add_tool(lookup);
   bool failed=false;try{Value result=program.forward(*client,object({{"question","Find reference"}}),object({{"maxSteps",exhausted?1:3}}));if(display(Core::get(result,"answer"))!="CORRECTED")throw std::logic_error("Incorrect final answer");}catch(const AxError& error){failed=true;if(!exhausted||std::string(error.what()).find("steps")==std::string::npos)throw;}
   if(failed!=exhausted||calls->load()!=0||transport->requests!=(exhausted?1:2))throw std::runtime_error("Invalid terminal outcome, handler execution, or replay");
  }
@@ -259,8 +271,265 @@ static void file_extraction(){
  failed=false;try{reject_files.chat(request);}catch(const AxError& error){failed=std::string(error.what()).find("Files are not supported")!=std::string::npos;}
  if(!failed||transport.requests.size()!=1)throw std::runtime_error("Unsupported file reached transport or error lost");
 }
-int main(){
- native_files();file_extraction();
+struct OverlapGate {std::mutex mutex;std::condition_variable ready;int requests=0;};
+class OwnedOverlapTransport final:public Transport {
+  std::shared_ptr<OverlapGate> gate;
+ public:
+  explicit OwnedOverlapTransport(std::shared_ptr<OverlapGate> gate):gate(std::move(gate)){}
+  std::function<std::shared_ptr<Transport>()> owned_worker_factory() override {auto shared=gate;return [shared]{return std::make_shared<OwnedOverlapTransport>(shared);};}
+  Value call(Value request) override {
+    if(display(Core::get(Core::get(request,"headers"),"Authorization"))!="Bearer worker-test")throw std::runtime_error("Worker lost authentication");
+    {std::unique_lock<std::mutex> lock(gate->mutex);++gate->requests;gate->ready.notify_all();if(!gate->ready.wait_for(lock,std::chrono::seconds(3),[&]{return gate->requests==2;}))throw std::runtime_error("Independent nodes did not overlap");}
+    return parse_json(R"({"status":200,"json":{"id":"reply","choices":[{"index":0,"message":{"role":"assistant","content":"{\"answer\":\"DONE\"}"},"finish_reason":"stop"}],"usage":{"prompt_tokens":2,"completion_tokens":1,"total_tokens":3}}})");
+  }
+};
+static void owned_flow_overlap(){
+  auto gate=std::make_shared<OverlapGate>();auto transport=std::make_shared<OwnedOverlapTransport>(gate);
+  auto client=ai("openai",object({{"api_key","worker-test"},{"model","gpt-5.6"}}));
+  dynamic_cast<OpenAICompatibleClient&>(*client).shared_transport(transport);
+  auto balancer=std::make_shared<AxBalancer>(std::vector<std::shared_ptr<AxAIService>>{client});
+  auto aliases=std::make_shared<MultiServiceRouter>();aliases->set_service_entry("smart",balancer);
+  ProviderRouter router(std::vector<std::shared_ptr<AxAIService>>{aliases});
+  auto program=ax("question -> answer");auto workflow=flow().execute("first",program).execute("second",program).returns(object({{"first","firstResult"},{"second","secondResult"}}));
+  auto result=workflow.forward(router,object({{"question","Ready"}}),object({{"stream",false},{"model","smart"}}));
+  if(stringify(result)!=stringify(parse_json(R"({"first":{"answer":"DONE"},"second":{"answer":"DONE"}})"))||Core::iter(workflow.get_chat_log()).size()!=2||gate->requests!=2)throw std::runtime_error("Owned flow result or history incorrect: "+stringify(result));
+  std::cout<<"cpp owned flow transport barrier passed\n";
+}
+
+struct FailureGate {std::mutex mutex;std::condition_variable ready;int requests=0;bool fast=false,released=false,late=false;std::chrono::steady_clock::time_point failure;};
+class FailureTransport final:public Transport {
+  std::shared_ptr<FailureGate> gate;
+ public:
+  explicit FailureTransport(std::shared_ptr<FailureGate> gate):gate(std::move(gate)){}
+  std::function<std::shared_ptr<Transport>()> owned_worker_factory() override {auto shared=gate;return [shared]{return std::make_shared<FailureTransport>(shared);};}
+  Value call(Value request) override {
+    auto body=stringify(Core::get(request,"json"));std::unique_lock<std::mutex> lock(gate->mutex);++gate->requests;gate->ready.notify_all();
+    if(!gate->ready.wait_for(lock,std::chrono::seconds(3),[&]{return gate->requests==3;}))throw std::runtime_error("Independent nodes did not overlap");
+    std::string content=R"({"fastAnswer":"DONE"})";
+    if(body.find("lateAnswer")!=std::string::npos){if(!gate->ready.wait_for(lock,std::chrono::seconds(3),[&]{return gate->released;}))throw std::runtime_error("Late worker was not released");content=R"({"lateAnswer":"LATE"})";gate->late=true;gate->ready.notify_all();}
+    else if(body.find("failAnswer")!=std::string::npos){if(!gate->ready.wait_for(lock,std::chrono::seconds(3),[&]{return gate->fast;}))throw std::runtime_error("Completed sibling was not reported");content=R"({"wrong":"invalid"})";}
+    return object({{"status",200},{"json",object({{"id","reply"},{"choices",Value(Array{object({{"index",0},{"message",object({{"role","assistant"},{"content",content}})},{"finish_reason","stop"}})})}})}});
+  }
+};
+static void owned_flow_failure(){
+  auto gate=std::make_shared<FailureGate>();struct Release{std::shared_ptr<FailureGate> gate;~Release(){std::lock_guard<std::mutex> lock(gate->mutex);gate->released=true;gate->ready.notify_all();}} release{gate};
+  auto control=run_control();control.on_event([gate](Value event){if(display(Core::get(event,"type"))=="failed"&&display(Core::get(event,"path"))=="root/fail")gate->failure=std::chrono::steady_clock::now();if(display(Core::get(event,"type"))=="completed"&&display(Core::get(event,"path"))=="root/fast"){std::lock_guard<std::mutex> lock(gate->mutex);gate->fast=true;gate->ready.notify_all();}});
+  auto client=ai("openai",object({{"api_key","test"},{"model","gpt-5.6"}}));dynamic_cast<OpenAICompatibleClient&>(*client).shared_transport(std::make_shared<FailureTransport>(gate));
+  auto fast=ax("question -> fastAnswer"),fail=ax("question -> failAnswer"),late=ax("question -> lateAnswer");auto workflow=flow().execute("fast",fast).execute("fail",fail).execute("late",late);
+  auto started=std::chrono::steady_clock::now();bool failed=false;std::string failure_message;
+  try{workflow.forward(*client,object({{"question","Ready"}}),object({{"control",control.value()},{"stream",false},{"maxSteps",1},{"validationRetries",0},{"infraRetries",0}}));}catch(const std::exception& error){failure_message=error.what();failed=failure_message.find("late")!=std::string::npos;}
+  if(!failed||gate->failure==std::chrono::steady_clock::time_point{}||std::chrono::steady_clock::now()-gate->failure>std::chrono::seconds(2))throw std::runtime_error("Flow failed to promptly report unresolved work: "+failure_message+"; elapsed_ms="+std::to_string(std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::steady_clock::now()-started).count()));
+  auto state=stringify(Core::get(workflow.value(),"completed_state"));if(display(Core::get(Core::get(Core::get(workflow.value(),"completed_state"),"fastResult"),"fastAnswer"))!="DONE")throw std::runtime_error("Completed node lost");
+  {std::unique_lock<std::mutex> lock(gate->mutex);if(gate->late)throw std::runtime_error("Flow waited for late work");gate->released=true;gate->ready.notify_all();if(!gate->ready.wait_for(lock,std::chrono::seconds(3),[&]{return gate->late;}))throw std::runtime_error("Late work did not finish");if(gate->requests!=3)throw std::runtime_error("Started work replayed");}
+  if(state!=stringify(Core::get(workflow.value(),"completed_state")))throw std::runtime_error("Late delivery changed completed state");
+  std::cout<<"cpp parallel failure preserves completed state and discards late work\n";
+}
+
+class ConcurrentMCPTransport final: public AxMCPTransport {
+ public:
+  std::mutex mutex;std::condition_variable ready;std::vector<Value> requests;
+  void send_notification(Value message)override{if(display(Core::get(message,"method"))!="notifications/initialized")throw std::runtime_error("Unexpected MCP notification");}
+  Value send(Value message)override {
+    auto method=display(Core::get(message,"method"));Value result;
+    if(method=="server/discover")result=object({{"resultType","complete"},{"supportedVersions",Value(Array{"2026-07-28"})},{"ttlMs",60000},{"cacheScope","private"},{"capabilities",object({{"tools",Value::object()}})}});
+    else if(method=="initialize")result=object({{"protocolVersion","2025-11-25"},{"serverInfo",object({{"name","orders"},{"version","1"}})},{"capabilities",object({{"tools",Value::object()}})}});
+    else if(method=="tools/list")result=object({{"tools",Value(Array{object({{"name","lookup"},{"inputSchema",object({{"type","object"},{"properties",object({{"index",object({{"type","integer"}})}})}})}})})}});
+    else {auto params=Core::get(message,"params");if(method!="tools/call"||display(Core::get(params,"name"))!="lookup")throw std::runtime_error("Unexpected native request");
+      {std::unique_lock<std::mutex> lock(mutex);requests.push_back(message);ready.notify_all();if(!ready.wait_for(lock,std::chrono::seconds(3),[&]{return requests.size()==32;}))throw std::runtime_error("MCP calls did not overlap");}
+      result=object({{"resultType","complete"},{"_meta",object({{"io.modelcontextprotocol/serverInfo",object({{"name","orders"},{"version",Core::get(message,"id")}})}})},{"structuredContent",Core::get(params,"arguments")}});
+    }
+    return object({{"jsonrpc","2.0"},{"id",Core::get(message,"id")},{"result",result}});
+  }
+};
+void owned_balancer_failure_accounting(){
+  struct FailingTransport:Transport {
+    std::shared_ptr<std::atomic<int>> calls;explicit FailingTransport(std::shared_ptr<std::atomic<int>> calls):calls(calls){}
+    std::function<std::shared_ptr<Transport>()> owned_worker_factory() override {auto counter=calls;return [counter]{return std::make_shared<FailingTransport>(counter);};}
+    Value call(Value) override {++*calls;return object({{"status",429},{"json",object({{"error",object({{"message","fixture rate limit"}})}})}});}
+  };
+  auto calls=std::make_shared<std::atomic<int>>(0);auto client=ai("openai",object({{"api_key","test"},{"model","gpt-5.6"}}));dynamic_cast<OpenAICompatibleClient&>(*client).shared_transport(std::make_shared<FailingTransport>(calls));
+  AxBalancer owner(std::vector<std::shared_ptr<AxAIService>>{client},object({{"maxRetries",1},{"initialBackoffMs",0}}));auto worker=owner.owned_worker_factory()();
+  auto request=object({{"chat_prompt",array({object({{"role","user"},{"content","Hello"}})})},{"model_config",object({{"stream",false}})}});
+  bool failed=false;try{worker->chat(request);}catch(const AxError&){failed=true;}if(!failed||calls->load()==0)throw std::runtime_error("Worker failure was not exercised");int first=calls->load();failed=false;try{owner.chat(request);}catch(const AxError&){failed=true;}if(!failed||calls->load()!=first)throw std::runtime_error("Parent forgot worker failure and replayed route");
+  std::cout<<"cpp owned balancer shares failure accounting\n";
+}
+void concurrent_mcp_header_state(){
+  AxMCPStreamableHTTPTransport transport("https://example.com/mcp");
+  std::vector<std::future<void>> workers;
+  for(int index=0;index<8;++index)workers.push_back(std::async(std::launch::async,[&,index]{
+    for(int attempt=0;attempt<200;++attempt){
+      transport.set_era(attempt%2 ? "modern" : "legacy");
+      transport.set_protocol_version("2026-07-28");
+      transport.set_session_id("session-"+std::to_string(index));
+      auto headers=transport.build_headers(Value::object(),true,"tools/call",object({{"name","lookup"}}));
+      if(!headers.is_object())throw std::runtime_error("Invalid concurrent MCP headers");
+      (void)transport.headers();transport.terminate_session();
+    }
+  }));
+  for(auto& worker:workers)worker.get();
+  transport.set_era("modern");transport.set_session_id("legacy-session");
+  auto headers=transport.build_headers(Value::object(),true,"tools/call",object({{"name","lookup"}}));
+  if(!Core::get(headers,"MCP-Session-Id").is_null()||display(Core::get(headers,"MCP-Protocol-Version"))!="2026-07-28")throw std::runtime_error("Modern MCP headers retained legacy state");
+  std::cout<<"cpp concurrent MCP header state passed\n";
+}
+void concurrent_native_mcp(){
+  auto transport=std::make_shared<ConcurrentMCPTransport>();AxMCPClient client(transport,object({{"era","modern"},{"namespace","orders"}}));client.init();auto native=client.native_tools().at(0);
+  std::vector<std::future<Value>> results;for(int index=0;index<32;index++)results.push_back(std::async(std::launch::async,[native,index]()mutable{return native.handler(object({{"index",index}}));}));
+  for(int index=0;index<32;index++){auto result=results[index].get();if(Core::number(Core::get(Core::get(result,"structuredContent"),"index"))!=index)throw std::runtime_error("Lost native MCP result");}
+  std::set<std::string> ids;for(const auto& request:transport->requests)ids.insert(display(Core::get(request,"id")));if(ids.size()!=32||transport->requests.size()!=32)throw std::runtime_error("Duplicate native MCP request IDs");
+  std::cout<<"cpp concurrent native MCP identities and results passed\n";
+}
+class MCPAgentTransport final:public AxMCPTransport {
+ public:
+  std::shared_ptr<Gate> gate;Value schema;std::vector<Value> calls;
+  explicit MCPAgentTransport(std::shared_ptr<Gate> gate):gate(gate),schema(parse_json(R"({"type":"object","$defs":{"reference":{"type":"string","minLength":3}},"properties":{"query":{"$ref":"#/$defs/reference"}},"required":["query"],"additionalProperties":false})")){}
+  void send_notification(Value)override{throw std::runtime_error("Modern discovery initialized");}
+  Value send(Value message)override{
+    auto method=display(Core::get(message,"method"));Value result;
+    if(method=="server/discover")result=parse_json(R"({"resultType":"complete","supportedVersions":["2026-07-28"],"ttlMs":60000,"cacheScope":"private","capabilities":{"tools":{}}})");
+    else if(method=="tools/list")result=object({{"tools",array({object({{"name","lookup"},{"description","Find a reference"},{"inputSchema",schema}})})}});
+    else{
+      auto params=Core::get(message,"params");if(method!="tools/call"||display(Core::get(params,"name"))!="lookup"||display(Core::get(Core::get(params,"arguments"),"query"))!="REF-42"||!Core::get(params,"_meta").is_object())throw std::runtime_error("Invalid MCP invocation");
+      std::unique_lock<std::mutex> lock(gate->mutex);calls.push_back(message);++gate->calls;gate->started=true;gate->ready.notify_all();if(!gate->ready.wait_for(lock,std::chrono::seconds(3),[&]{return gate->released;}))throw std::runtime_error("MCP handler failed to overlap");
+      result=parse_json(R"({"resultType":"complete","structuredContent":{"reference":"REF-42"},"content":[]})");
+    }
+    return object({{"jsonrpc","2.0"},{"id",Core::get(message,"id")},{"result",result}});
+  }
+};
+class MCPAgentModel final:public Transport {
+ public:
+  std::shared_ptr<MCPAgentTransport> mcp;bool hidden=true;int requests=0;
+  explicit MCPAgentModel(std::shared_ptr<MCPAgentTransport> mcp):mcp(mcp){}
+  Value respond(Value request,AxTransportStreamHandler handler){
+    int number=++requests;auto body=Core::get(request,"json");Value actor=Value::array();for(auto tool:Core::iter(Core::get(body,"tools",Value::array())))if(Core::truthy(Core::get(tool,"async")))Core::append(actor,tool);
+    auto stage=[](const std::string& answer){return std::string("{\"completion\":{\"type\":\"final\",\"args\":[\"Report reference\",{\"answer\":\"")+answer+"\"}]}}";};Value event;
+    if(hidden){if(!Core::iter(actor).empty())throw std::runtime_error("Undiscovered native tool exposed");event=completed("hidden-"+std::to_string(number),number<3?stage("not discovered"):"{\"answer\":\"not discovered\"}");}
+    else if(number==1)event=completed("distiller",stage("Find reference"));
+    else if(number==2||number==3){
+      if(Core::iter(actor).size()!=1)throw std::runtime_error("Missing discovered native MCP tool");auto tool=Core::get(actor,0);if(display(Core::get(tool,"name"))!="orders_lookup"||stringify(Core::get(tool,"parameters"))!=stringify(mcp->schema))throw std::runtime_error("Lost native MCP schema: "+stringify(tool));
+      if(number==3&&(mcp->gate->calls.load()!=0||display(Core::get(body,"previous_response_id"))!="invalid-response"))throw std::runtime_error("Invalid MCP arguments executed or correction lost");
+      std::string id=number==2?"invalid-call":"mcp-call";handler(object({{"type","response.output_item.done"},{"item",object({{"type","function_call"},{"id",id},{"call_id",id},{"name","orders_lookup"},{"arguments",number==2?"{\"query\":\"X\"}":"{\"query\":\"REF-42\"}"}})}}));
+      if(number==3){auto gate=mcp->gate;std::unique_lock<std::mutex> lock(gate->mutex);if(!gate->ready.wait_for(lock,std::chrono::seconds(3),[&]{return gate->started;}))throw std::runtime_error("Native MCP work did not start");gate->released=true;gate->ready.notify_all();}
+      event=completed(number==2?"invalid-response":"mcp-response",stage("provisional"));
+    }else if(number==4){auto input=Core::get(body,"input");bool found=false;for(auto item:Core::iter(input))if(display(Core::get(item,"call_id"))=="mcp-call"){auto result=parse_json(display(Core::get(item,"output")));found=display(Core::get(Core::get(result,"structuredContent"),"reference"))=="REF-42";}if(!found||display(Core::get(body,"previous_response_id"))!="mcp-response")throw std::runtime_error("Lost raw MCP continuation: "+stringify(body));event=completed("actor-final",stage("REF-42"));}
+    else{if(number!=5||!Core::iter(actor).empty()||stringify(body).find("REF-42")==std::string::npos)throw std::runtime_error("Responder ran before MCP incorporation");event=completed("responder","{\"answer\":\"REF-42\"}");}
+    return event;
+  }
+  Value call(Value request)override{return Core::get(respond(request,[](Value)->bool{throw std::runtime_error("Expected streaming tool call");}),"response");}
+  void stream(Value request,AxTransportStreamHandler handler)override{handler(respond(request,handler));}
+};
+void native_mcp_agent_discovery(){
+  auto gate=std::make_shared<Gate>();auto transport=std::make_shared<MCPAgentTransport>(gate);AxMCPClient mcp(transport,object({{"era","modern"},{"namespace","orders"}}));mcp.init();auto allowed=std::make_shared<std::atomic<bool>>(false);auto authorizations=std::make_shared<std::atomic<int>>(0);mcp.set_tool_authorizer([allowed,authorizations,schema=transport->schema](const AxMCPClient& client,Value call)->std::optional<bool>{if(client.namespace_name()!="orders"||display(Core::get(call,"namespace"))!="orders"||stringify(Core::get(Core::get(call,"tool"),"inputSchema"))!=stringify(schema)||display(Core::get(Core::get(call,"arguments"),"query"))!="REF-42")throw std::runtime_error("Lost MCP authorization context");++*authorizations;return allowed->load();});auto tool=mcp.native_tools().at(0);if(tool.execution_mode!="blocking")throw std::runtime_error("MCP inferred background permission");tool.execution("background");
+  bool denied=false;try{tool.handler(object({{"query","REF-42"}}));}catch(const std::exception& error){denied=std::string(error.what()).find("MCP tool call denied by host policy: lookup")!=std::string::npos;}if(!denied||gate->calls.load()!=0)throw std::runtime_error("Denied MCP request reached transport");allowed->store(true);
+  auto model=std::make_shared<MCPAgentModel>(transport);auto client=ai("openai",object({{"api_key","test"},{"model","gpt-6-astra"}}));dynamic_cast<OpenAICompatibleClient&>(*client).shared_transport(model);
+  auto program=agent("question -> answer",object({{"functionDiscovery",true},{"directResponse","off"}}));program.add_tool_module("orders",std::vector<Tool>{tool});
+  auto result=program.forward(*client,object({{"question","Find reference"}}));if(display(Core::get(result,"answer"))!="not discovered"||gate->calls.load()!=0||model->requests!=3)throw std::runtime_error("MCP discovery boundary failed");
+  program.discover(object({{"tools",array({"orders"})}}));model->hidden=false;model->requests=0;result=program.forward(*client,object({{"question","Find reference"}}));if(display(Core::get(result,"answer"))!="REF-42"||gate->calls.load()!=1||model->requests!=5)throw std::runtime_error("MCP agent final output failed");
+  int logged=0;for(auto entry:Core::iter(program.get_action_log()))if(display(Core::get(entry,"call_id"))=="mcp-call"&&display(Core::get(entry,"qualified_name"))=="orders.lookup"&&display(Core::get(entry,"status"))=="ok")++logged;if(logged!=1)throw std::runtime_error("Lost native MCP action log: "+stringify(program.get_action_log()));
+  auto duplicate=program.invoke_callable("orders.lookup",object({{"query","REF-42"}}));if(display(Core::get(duplicate,"status"))!="error"||gate->calls.load()!=1)throw std::runtime_error("MCP call replayed through actor code");
+  if(authorizations->load()!=2)throw std::runtime_error("Invalid arguments or actor replay reached authorization");
+  std::cout<<"cpp discovered MCP native agent schema, correction, overlap, result and action log passed\n";
+}
+void native_mcp_owned_lifetime(){
+  auto gate=std::make_shared<Gate>();auto transport=std::make_shared<MCPAgentTransport>(gate);std::optional<Tool> tool;std::future<Value> result;
+  {
+    AxMCPClient client(transport,object({{"era","modern"},{"namespace","orders"}}));client.init();tool=client.native_tools().at(0);
+    result=std::async(std::launch::async,[handler=tool->handler]{return handler(object({{"query","REF-42"}}));});
+    std::unique_lock<std::mutex> lock(gate->mutex);if(!gate->ready.wait_for(lock,std::chrono::seconds(3),[&]{return gate->started;}))throw std::runtime_error("MCP lifetime test did not start");
+  }
+  tool.reset(); // Public client and caller tool are gone while the worker is pending.
+  {std::lock_guard<std::mutex> lock(gate->mutex);gate->released=true;gate->ready.notify_all();}
+  auto output=result.get();if(display(Core::get(Core::get(output,"structuredContent"),"reference"))!="REF-42")throw std::runtime_error("Owned MCP result was lost");
+  std::cout<<"cpp native MCP worker retains invocation state after caller destruction\n";
+}
+
+void concurrent_owned_tool_registration(){
+  std::vector<std::future<std::vector<Value>>> workers;
+  for(int worker=0;worker<8;++worker)workers.push_back(std::async(std::launch::async,[worker]{
+    std::vector<Value> values;
+    for(int index=0;index<100;++index){int expected=worker*100+index;Tool tool("lookup","Lookup",Value::object(),[expected](Value){return Value(expected);});
+      if(index%2)tool.context_handler([expected](Value,const AxToolContext&){return Value(expected);});values.push_back(tool.value());}
+    return values;
+  }));
+  std::set<std::string> ids;
+  for(int worker=0;worker<8;++worker){auto values=workers[worker].get();for(int index=0;index<100;++index){auto descriptor=values[index];ids.insert(display(Core::get(descriptor,"__tool_id")));auto output=Core::tool_invoke(descriptor,Value::object());if(Core::number(output)!=worker*100+index)throw std::runtime_error("Tool registration rebound another worker's handler");}}
+  if(ids.size()!=800)throw std::runtime_error("Concurrent tool IDs collided");
+  std::cout<<"cpp concurrent owned tool registration preserves each handler\n";
+}
+struct ChildControlRuntime final:AxCodeRuntime {
+  struct Session final:AxCodeSession {
+    ChildControlRuntime& runtime;explicit Session(ChildControlRuntime& r):runtime(r){}
+    Value execute(Value code,Value)override{if(stringify(code)=="\"delegate\""){runtime.delegated=true;return object({{"callable",object({{"qualified_name","team.researcher"},{"args",object({{"question","Find reference"}})},{"call_id","child-call"}})}});}return object({{"type","final"},{"args",Value(Array{"Find reference",Value::object()})}});}
+    Value snapshot_globals(Value)override{return object({{"globals",Value::object()}});}
+    Value patch_globals(Value snapshot,Value)override{return snapshot;}
+    Value close()override{++runtime.closed;return object({{"closed",true}});}
+  };
+  bool delegated=false;int closed=0;std::vector<std::unique_ptr<Session>> sessions;
+  std::map<std::string,std::function<Value(Value)>> callbacks;
+  void register_host_callable(std::string name,std::function<Value(Value)> callback)override{callbacks[name]=std::move(callback);}
+  AxCodeSession* create_session(Value,Value)override{sessions.push_back(std::make_unique<Session>(*this));return sessions.back().get();}
+};
+static void owned_child_controls(){
+  std::weak_ptr<AxAgent> released;
+  {
+    auto parent=std::make_shared<AxAgent>("question -> answer");auto child=std::make_shared<AxAgent>("question -> answer");released=parent;
+    parent->add_child_agent("team","child",child);
+    try{child->add_child_agent("team","parent",parent);throw std::runtime_error("Ownership cycle accepted");}
+    catch(const std::invalid_argument& error){if(std::string(error.what()).find("cycle")==std::string::npos)throw;}
+  }
+  if(!released.expired())throw std::runtime_error("Child ownership retained a cycle");
+
+  const std::vector<std::string> stages{"root/distiller","root/executor","root/team.researcher/distiller","root/team.researcher/executor","root/team.researcher/responder","root/executor","root/responder"};
+  for(bool cancel:{false,true}){
+    auto control=run_control();std::vector<Value> observed;auto runtime=std::make_shared<ChildControlRuntime>();
+    control.on_event([&](Value event){observed.push_back(event);if(cancel&&stringify(Core::get(event,"type"))=="\"started\""&&stringify(Core::get(event,"path"))=="\"root/team.researcher/executor\"")control.abort();});
+    control.steer("ROOT-UPDATE");control.steer("CHILD-ONLY","root/team.researcher");control.set_thinking_token_budget("medium","root/team.researcher/executor");
+    class ChildTransport final:public Transport {
+     public:
+      std::shared_ptr<ChildControlRuntime> runtime;std::vector<Value> requests;std::vector<std::string> stages;
+      ChildTransport(std::shared_ptr<ChildControlRuntime> r,std::vector<std::string> s):runtime(r),stages(s){}
+      Value call(Value)override{throw std::runtime_error("Expected session streaming");}
+      void stream(Value request,AxTransportStreamHandler handler)override{
+        Value body=Core::get(request,"json");size_t number=requests.size();std::string stage=stages.at(number/2);requests.push_back(body);
+        if(number%2){
+          std::string input=stringify(Core::get(body,"input"));
+          if(stringify(Core::get(body,"previous_response_id"))!=stringify(Value("child-r"+std::to_string(number)))||input.find("ROOT-UPDATE")==std::string::npos||(input.find("CHILD-ONLY")!=std::string::npos)!=(stage.rfind("root/team.researcher",0)==0))throw std::runtime_error("Child controls lost");
+          std::vector<Value> updates;for(auto item:Core::iter(Core::get(body,"input")))if(stringify(Core::get(item,"type"))=="\"configuration_update\"")updates.push_back(item);
+          if(!updates.empty()!=(stage=="root/team.researcher/executor"))throw std::runtime_error("Reasoning scope lost");
+          if(!updates.empty()&&stringify(Core::get(Core::get(updates[0],"reasoning"),"effort"))!="\"medium\"")throw std::runtime_error("Reasoning value lost");
+          if(stringify(Core::get(body,"reasoning"))!=stringify(Core::get(requests[number-1],"reasoning")))throw std::runtime_error("Cache prefix changed");
+        }else if(!Core::get(body,"previous_response_id").is_null())throw std::runtime_error("Child inherited conversation");
+        if(number==10&&stringify(body).find("REF-42")==std::string::npos)throw std::runtime_error("Parent continued without child result");
+        Value output;
+        if(stage.rfind("root/team.researcher",0)==0)output=stage=="root/team.researcher/responder"?object({{"answer","REF-42"}}):object({{"completion",object({{"type","final"},{"args",Value(Array{"Find reference",Value::object()})}})}});
+        else if(stage=="root/responder")output=object({{"answer","REF-42"}});
+        else output=object({{"javascriptCode",stage=="root/executor"&&!runtime->delegated?"delegate":"parent-final"}});
+        Value event=completed("child-r"+std::to_string(number+1),stringify(output));Value response=Core::get(event,"response");Core::set(response,"usage",object({{"input_tokens",2},{"output_tokens",1},{"total_tokens",3}}));Core::set(event,"response",response);handler(event);
+      }
+    };
+    auto transport=std::make_shared<ChildTransport>(runtime,stages);auto client=ai("openai",object({{"api_key","test"},{"model","gpt-6-astra"}}));dynamic_cast<OpenAICompatibleClient&>(*client).shared_transport(transport);
+    auto child=std::make_shared<AxAgent>("question -> answer",object({{"directResponse","off"}}));
+    auto parent=agent("question -> answer",object({{"directResponse","off"},{"runtime",Core::code_runtime_ref(*runtime)}}));parent.add_child_agent("team","researcher",child);
+    try{
+      Value result=parent.forward(*client,object({{"question","Find reference"}}),object({{"control",control.value()}}));
+      if(cancel||stringify(result)!=stringify(object({{"answer","REF-42"}}))||transport->requests.size()!=14)throw std::runtime_error("Child completion failed");
+      int applied=0;for(auto event:observed)if(stringify(Core::get(event,"type"))=="\"applied\"")++applied;if(applied!=11)throw std::runtime_error("Control duplicated or lost");
+      if(stringify(Core::get(Core::get(parent.get_usage(),"children"),"team.researcher"))!=stringify(child->get_usage()))throw std::runtime_error("Child usage lost");
+    }catch(const std::exception& error){if(!cancel)throw;std::string message=error.what();if(message.find("abort")==std::string::npos&&message.find("Abort")==std::string::npos)throw;if((transport->requests.size()<6||transport->requests.size()>7)||runtime->closed!=1)throw std::runtime_error("Child cancellation cleanup failed");}
+    int calls=0;for(auto item:Core::iter(parent.get_action_log()))if(stringify(Core::get(item,"call_id"))=="\"child-call\""){++calls;if(stringify(Core::get(item,"status"))!=stringify(Value(cancel?"error":"ok")))throw std::runtime_error("Child status lost");}if(calls!=1)throw std::runtime_error("Child action missing or duplicated");
+    if(stringify(Core::get(Core::get(parent.get_usage(),"children"),"team.researcher"))!=stringify(child->get_usage()))throw std::runtime_error("Child failure usage lost");
+    for(const auto& name:{"team.researcher","llmQuery"}){try{runtime->callbacks.at(name)(object({{"question","Late request"}}));throw std::runtime_error("Late callback executed");}catch(const std::exception& error){if(std::string(error.what()).find("closed run")==std::string::npos)throw;}}
+    try{parent.invoke_callable("team.researcher",object({{"question","Find reference"}}));throw std::runtime_error("Active client retained");}catch(const std::exception& error){if(std::string(error.what()).find("active parent forward")==std::string::npos)throw;}
+  }
+  std::cout<<"cpp actual child delegation, scoped controls, usage, and cancellation passed\n";
+}
+int main(int argc,char** argv){
+  owned_child_controls();
+  owned_flow_failure();
+  owned_flow_overlap();
+  concurrent_mcp_header_state();owned_balancer_failure_accounting();native_mcp_owned_lifetime();concurrent_owned_tool_registration();
+  if(argc>1&&std::string(argv[1])=="--owned-only")return 0;
+ native_files();file_extraction();native_mcp_agent_discovery();
   auto gate=std::make_shared<Gate>();auto transport=std::make_shared<GatedTransport>(gate);
   auto client=ai("openai",object({{"api_key","test"},{"model","gpt-6-astra"},{"model_config",object({{"thinkingTokenBudget","low"}})}}));
   dynamic_cast<OpenAICompatibleClient&>(*client).shared_transport(transport);
@@ -270,5 +539,5 @@ int main(){
   Value result=program.forward(routed,object({{"question","Find reference"}}));
   if(stringify(Core::get(result,"answer"))!="\"REF-42\""||gate->calls.load()!=1)throw std::runtime_error("Provisional output escaped");
   std::cout<<"cpp high-level async overlap and final incorporation passed\n";
-  invalid_arguments_and_exhaustion();flow_isolation();native_steering();buffered_steering_boundary();cancellation();disconnect_pending();noncooperative_cancellation();native_agent();mixed_balancer();
+  invalid_arguments_and_exhaustion();flow_isolation();native_steering();buffered_steering_boundary();cancellation();disconnect_pending();noncooperative_cancellation();native_agent();concurrent_native_mcp();mixed_balancer();
 }

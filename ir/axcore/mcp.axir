@@ -2030,4 +2030,103 @@ module @ax.mcp version "0.1" {
       core.return %out
     }
   }
+  op ax.mcp.semantic @mcp_tool_authorization_context {
+    attr core_kind = "func"
+    attr emit_module = "mcp"
+    attr private = true
+    type signature = "(json, string, string, json) -> json throws"
+    body @entry(%tools: json, %namespace: string, %name: string, %arguments: json) {
+      core.for %tool in %tools {
+        %candidate = core.get %tool["name"] default ""
+        %matches = core.call intrinsic.eq(%candidate, %name)
+        core.if %matches {
+          %context = core.map
+          core.set %context["namespace"] = %namespace
+          core.set %context["tool"] = %tool
+          core.set %context["arguments"] = %arguments
+          core.return %context
+        }
+      }
+      %message = core.call intrinsic.string.format("MCP tool not found: {}", %name)
+      %error = core.call intrinsic.error.runtime(%message)
+      core.raise %error
+    }
+  }
+
+  op ax.mcp.semantic @mcp_tool_authorization_result {
+    attr core_kind = "func"
+    attr emit_module = "mcp"
+    attr private = true
+    type signature = "(string, json) -> json throws"
+    body @entry(%name: string, %decision: json) {
+      %is_boolean = core.type_is %decision type "boolean"
+      core.if %is_boolean {
+        %denied = core.call intrinsic.not(%decision)
+        core.if %denied {
+          %message = core.call intrinsic.string.format("MCP tool call denied by host policy: {}", %name)
+          %error = core.call intrinsic.error.runtime(%message)
+          core.raise %error
+        }
+      }
+      core.return %decision
+    }
+  }
+
+  op ax.mcp.semantic @mcp_inheritance_plan {
+    attr core_kind = "func"
+    attr emit_module = "mcp"
+    attr private = true
+    type signature = "(json, json, json) -> json throws"
+    body @entry(%mcp: json, %ucp: json, %inheritance: json) {
+      %out = core.map
+      %selected_mcp = core.list
+      %selected_ucp = core.list
+      %all = core.call intrinsic.eq(%inheritance, "all")
+      %unset = core.call intrinsic.is_none(%inheritance)
+      %all = core.call intrinsic.or(%all, %unset)
+      core.if %all {
+        core.set %out["mcp"] = %mcp
+        core.set %out["ucp"] = %ucp
+        core.return %out
+      }
+      %none = core.call intrinsic.eq(%inheritance, "none")
+      core.if %none {
+        core.set %out["mcp"] = %selected_mcp
+        core.set %out["ucp"] = %selected_ucp
+        core.return %out
+      }
+      %list = core.type_is %inheritance type "list"
+      core.if %list {
+      } else {
+        %error = core.call intrinsic.error.runtime("MCP inheritance must be all, none, or a namespace list")
+        core.raise %error
+      }
+      core.for %namespace in %inheritance {
+        %has_mcp = core.call intrinsic.contains(%mcp, %namespace)
+        %has_ucp = core.call intrinsic.contains(%ucp, %namespace)
+        %known = core.call intrinsic.or(%has_mcp, %has_ucp)
+        core.if %known {
+        } else {
+          %message = core.call intrinsic.string.format("Unknown inherited MCP client namespace: {}", %namespace)
+          %error = core.call intrinsic.error.runtime(%message)
+          core.raise %error
+        }
+        %prior_mcp = core.call intrinsic.contains(%selected_mcp, %namespace)
+        %prior_ucp = core.call intrinsic.contains(%selected_ucp, %namespace)
+        %duplicate = core.call intrinsic.or(%prior_mcp, %prior_ucp)
+        core.if %duplicate {
+          %protocol = core.let "MCP"
+          core.if %has_ucp { %protocol = core.let "MCP/UCP" }
+          %message = core.call intrinsic.string.format("Duplicate {} client namespace: {}", %protocol, %namespace)
+          %error = core.call intrinsic.error.runtime(%message)
+          core.raise %error
+        }
+        core.if %has_mcp { core.append %selected_mcp, %namespace }
+        core.if %has_ucp { core.append %selected_ucp, %namespace }
+      }
+      core.set %out["mcp"] = %selected_mcp
+      core.set %out["ucp"] = %selected_ucp
+      core.return %out
+    }
+  }
 }

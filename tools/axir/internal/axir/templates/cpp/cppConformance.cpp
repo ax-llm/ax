@@ -1459,6 +1459,7 @@ static void run_agent_forward(Value fixture) {
   }
 #ifdef AX_CONFORMANCE_QUICKJS
   std::unique_ptr<axllm::runtime::quickjs::QuickJsCodeRuntime> real_runtime;
+  std::vector<std::unique_ptr<axllm::runtime::quickjs::QuickJsCodeRuntime>> child_runtimes;
   if (!Core::get(fixture, "runtime_engine").is_null()) {
     real_runtime = std::make_unique<axllm::runtime::quickjs::QuickJsCodeRuntime>();
     Core::set(agent_options, "runtime", Core::code_runtime_ref(*real_runtime));
@@ -1475,6 +1476,18 @@ static void run_agent_forward(Value fixture) {
   Value state_roundtrip_projection = Value::object();
   try {
     ag = std::make_unique<AxAgent>(Core::get(fixture, "signature"), agent_options);
+    for (const auto& child : Core::iter(Core::get(fixture, "child_agents", Value::array()))) {
+      Value child_options = Core::get(child, "options", Value::object());
+#ifdef AX_CONFORMANCE_QUICKJS
+      if (!Core::get(child, "runtime_engine").is_null()) {
+        child_runtimes.push_back(std::make_unique<axllm::runtime::quickjs::QuickJsCodeRuntime>());
+        Core::set(child_options, "runtime", Core::code_runtime_ref(*child_runtimes.back()));
+      }
+#else
+      if (!Core::get(child, "runtime_engine").is_null()) throw AxError("fixture", "Child runtime requires AX_CONFORMANCE_QUICKJS");
+#endif
+      ag->add_child_agent(display(Core::get(child, "namespace")), display(Core::get(child, "name")), std::make_shared<AxAgent>(Core::get(child, "signature"), child_options));
+    }
     if (!Core::get(fixture, "set_instruction").is_null()) ag->set_instruction(Core::get(fixture, "set_instruction"));
     if (!Core::get(fixture, "add_actor_instruction").is_null()) ag->add_actor_instruction(Core::get(fixture, "add_actor_instruction"));
     if (Core::truthy(Core::get(fixture, "observer_throws", false))) {
@@ -3022,6 +3035,12 @@ static void run(Value fixture) {
     }
     else throw AxError("fixture","unsupported event operation "+operation);
   } else if (kind == "ai_session_state") {
+    for (auto item : Core::iter(Core::get(fixture, "validation_cases", Value::array()))) {
+      bool valid = true;
+      try { Core::chat_session_validate_required_arguments(Core::get(item,"schema"), Core::get(item,"arguments"), "arguments"); }
+      catch (const AxError&) { valid = false; }
+      assert_equal(Value(valid), Core::get(item,"valid"), "raw argument validation: " + display(item));
+    }
     Value state = Core::chat_session_create_state(Core::get(fixture, "model"), Core::get(fixture, "path"), Core::get(fixture, "max_steps"));
     for (auto item : Core::iter(Core::get(fixture, "cases"))) {
       assert_equal(Core::chat_session_transition(state, Core::get(item, "event")), Core::get(item, "expected_action"), "session transition");

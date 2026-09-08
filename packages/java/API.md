@@ -170,6 +170,16 @@ Return fresh request headers that override static profile authentication.
 - Returns: `header map or credential error`
 - Important options: chat, stream, embeddings, Responses, audio, retries
 
+### `AiClient.ownedWorkerFactory`
+
+Optional factory for an independent client worker with preserved configuration, authentication and routing. Built-in providers supply it; custom services may omit it without changing chat compatibility.
+
+- Canonical Ax concept: `owned_client_factory`
+- Kind: `method`
+- Form: `AiClient.ownedWorkerFactory()`
+- Returns: `worker factory or unavailable`
+- Important options: owned configuration, shared balancer accounting, no borrowed client transfer
+
 ### `AxChatSession`
 
 Optional normalized session capability for custom provider adapters. High-level programs own tool execution and continuation; chat-only services remain supported.
@@ -501,6 +511,16 @@ RLM agent with Core-owned envelopes, complete runtime-state export/restore, trac
 - Returns: `agent program`
 - Important options: executor model, runtime, policy, context, skills, memories, relevance ranking, observers, runtime state, optimizer metadata, citations, playbook
 
+### `AxAgent.addChildAgent`
+
+Register an owned child agent for serialized delegation through the parent invocation boundary. Scoped controls use parent/namespace.name paths.
+
+- Canonical Ax concept: `add_child_agent`
+- Kind: `method`
+- Form: `AxAgent.addChildAgent(namespace, name, child)`
+- Returns: `parent agent`
+- Important options: namespace, name, child, independent conversation, child usage
+
 
 ## Flow
 
@@ -529,6 +549,16 @@ Workflow graph with Core-owned planning, cache keys, state merge, child aggregat
 - Form: `new AxFlow(optionsOrMermaid, bindings)`
 - Returns: `flow program`
 - Important options: steps, state, parallel groups, returns
+
+### `AxProgram.ownedWorkerFactory`
+
+Optional factory for independent program state. Parallel groups require both client and program factories; otherwise the whole group runs serially with a fallback trace.
+
+- Canonical Ax concept: `owned_program_factory`
+- Kind: `method`
+- Form: `AxProgram.ownedWorkerFactory()`
+- Returns: `worker factory or unavailable`
+- Important options: owned memory, per-node controls, deterministic result merge, cooperative cancellation
 
 
 ## Tools
@@ -572,7 +602,7 @@ MCP client that lists tools/prompts/resources and converts MCP tools to Ax funct
 - Kind: `type`
 - Form: `new AxMCPClient(transport, options)`
 - Returns: `MCP client`
-- Important options: transport, client info, roots, tool overrides
+- Important options: transport, client info, roots, tool overrides, host tool authorization
 
 ```java
 AxMCPClient client = new AxMCPClient(transport);

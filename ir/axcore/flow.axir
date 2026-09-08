@@ -851,6 +851,45 @@ module @ax.flow version "0.1" {
     }
   }
 
+  op ax.flow.semantic @flow_execute_owned_worker {
+    attr core_kind = "func"
+    attr emit_module = "flow"
+    type signature = "(flow:json, step:json, plan_step:json, client:json, state:json, options:json) -> json throws"
+    body @entry(%flow: json, %step: json, %plan_step: json, %client: json, %state: json, %options: json) {
+      %empty_map = core.map
+      %traces = core.list
+      %chat_log = core.list
+      %usage = core.map
+      core.set %flow["traces"] = %traces
+      core.set %flow["chat_log"] = %chat_log
+      core.set %flow["usage"] = %usage
+      %report = core.map
+      core.try {
+        %result_state = core.call @flow_execute_step(%flow, %step, %plan_step, %client, %state, %options)
+        core.set %report["state"] = %result_state
+      } catch %error {
+        %message = core.call intrinsic.exception.message(%error)
+        %name = core.get %step["name"] default ""
+        %message = core.call intrinsic.string.format("Flow node {} failed: {}", %name, %message)
+        core.set %report["error"] = %message
+        %program = core.get %step["program"] default null
+        %has_program = core.call intrinsic.is_not_none(%program)
+        core.if %has_program {
+          core.call @flow_record_child_chat_log(%flow, %name, %program)
+          core.call @flow_record_child_usage(%flow, %name, %program)
+          core.call @flow_record_child_traces(%flow, %name, %program)
+        }
+      }
+      %traces = core.get %flow["traces"]
+      %chat_log = core.get %flow["chat_log"]
+      %usage = core.get %flow["usage"]
+      core.set %report["traces"] = %traces
+      core.set %report["chat_log"] = %chat_log
+      core.set %report["usage"] = %usage
+      core.return %report
+    }
+  }
+
   op ax.flow.semantic @flow_execute_steps {
     attr core_kind = "func"
     attr emit_module = "flow"
@@ -906,11 +945,63 @@ module @ax.flow version "0.1" {
         %is_parallel_group = core.call intrinsic.gt(%group_count, 1)
         core.if %is_parallel_group {
           %group_start = core.call intrinsic.map.merge(%current, %empty_map)
-          core.for %plan_step in %group_steps {
-            %index = core.get %plan_step["stepIndex"] default 0
-            %step = core.call intrinsic.list.get(%steps, %index, null)
-            %result_state = core.call @flow_execute_step(%flow, %step, %plan_step, %client, %group_start, %options)
-            %current = core.call @flow_merge_parallel_results(%current, %result_state)
+          %reports = core.call intrinsic.flow.dispatch_group(%flow, %client, %group_steps, %group_start, %options)
+          %fallback = core.call intrinsic.is_none(%reports)
+          core.if %fallback {
+            %traces = core.get %flow["traces"] default %empty_list
+            %program_id = core.get %flow["program_id"] default "root.flow"
+            %payload = core.map
+            core.set %payload["level"] = %level
+            core.set %payload["reason"] = "owned-worker-unavailable"
+            %fallback_event = core.call @program_trace_event(%program_id, "flow_parallel_fallback", %payload)
+            core.append %traces, %fallback_event
+            core.for %plan_step in %group_steps {
+              %index = core.get %plan_step["stepIndex"] default 0
+              %step = core.call intrinsic.list.get(%steps, %index, null)
+              %result_state = core.call @flow_execute_step(%flow, %step, %plan_step, %client, %group_start, %options)
+              %current = core.call @flow_merge_parallel_results(%current, %result_state)
+            }
+          } else {
+            %report_count = core.call intrinsic.len(%reports)
+            %complete_reports = core.call intrinsic.eq(%report_count, %group_count)
+            core.if %complete_reports {
+            } else {
+              %error = core.call intrinsic.error.runtime("Flow dispatcher omitted node outcomes")
+              core.raise %error
+            }
+            %failures = core.list
+            core.for %report in %reports {
+              %worker_traces = core.get %report["traces"] default %empty_list
+              %traces = core.get %flow["traces"] default %empty_list
+              core.for %trace in %worker_traces {
+                core.append %traces, %trace
+              }
+              %worker_log = core.get %report["chat_log"] default %empty_list
+              %chat_log = core.get %flow["chat_log"] default %empty_list
+              core.for %entry in %worker_log {
+                core.append %chat_log, %entry
+              }
+              %worker_usage = core.get %report["usage"] default %empty_map
+              %usage = core.get %flow["usage"] default %empty_map
+              %merged_usage = core.call intrinsic.map.merge(%usage, %worker_usage)
+              core.set %flow["usage"] = %merged_usage
+              %failure = core.get %report["error"] default null
+              %failed = core.call intrinsic.is_not_none(%failure)
+              core.if %failed {
+                core.append %failures, %failure
+              } else {
+                %result_state = core.get %report["state"]
+                %current = core.call @flow_merge_parallel_results(%current, %result_state)
+              }
+            }
+            %failure_count = core.call intrinsic.len(%failures)
+            %failed = core.call intrinsic.gt(%failure_count, 0)
+            core.if %failed {
+              core.set %flow["completed_state"] = %current
+              %message = core.string_join %failures sep "; "
+              %error = core.call intrinsic.error.runtime(%message)
+              core.raise %error
+            }
           }
         } else {
           core.for %plan_step in %group_steps {

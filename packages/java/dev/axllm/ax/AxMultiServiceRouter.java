@@ -29,6 +29,13 @@ public final class AxMultiServiceRouter implements AxAIService, AxChatSession.Pr
   private AxAIService lastUsedService;
   private Map<String, Object> options = new LinkedHashMap<>();
 
+  public java.util.function.Supplier<AiClient> ownedWorkerFactory() {
+    var factories=new LinkedHashMap<String,java.util.function.Supplier<AiClient>>();var metadata=new LinkedHashMap<String,Map<String,Object>>();
+    for(var item:services.entrySet()){var factory=((AxAIService)item.getValue().get("service")).ownedWorkerFactory();if(factory==null)return null;factories.put(item.getKey(),factory);var entry=new LinkedHashMap<>(item.getValue());entry.remove("service");metadata.put(item.getKey(),Core.asMap(Core.ownedCopy(entry)));}
+    var options=Core.asMap(Core.ownedCopy(this.options));
+    return ()->{var entries=new ArrayList<Object>();for(var key:factories.keySet()){var entry=Core.asMap(Core.ownedCopy(metadata.get(key)));entry.put("key",key);entry.put("service",factories.get(key).get());entries.add(entry);}var worker=new AxMultiServiceRouter(entries);worker.services.clear();for(var entry:entries){var value=Core.asMap(entry);String key=String.valueOf(value.remove("key"));worker.services.put(key,value);}worker.options=Core.asMap(Core.ownedCopy(options));return worker;};
+  }
+
   public AxMultiServiceRouter(List<?> items) {
     if (items == null || items.isEmpty()) throw new IllegalArgumentException("No AI services provided.");
     int index = 0;

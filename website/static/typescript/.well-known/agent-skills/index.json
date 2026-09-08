@@ -13,7 +13,7 @@
       "type": "skill-md",
       "description": "This skill helps an LLM generate correct AI provider setup and configuration code using @ax-llm/ax. Use when the user asks about ai(), providers, models, routing, adaptive balancing, presets, embeddings, batch audio with ai.transcribe() or ai.speak(), extended thinking, context caching, or mentions OpenAI/Anthropic/Google/Azure/DeepSeek/Meta/Mistral/Cohere/Reka/Grok with @ax-llm/ax.",
       "url": "ax-ai/SKILL.md",
-      "digest": "sha256:696cbbb030e5fe62bf68fbe9b0e44a4d3f32c362b80e2b03cdf0d27d7ef1ba6b"
+      "digest": "sha256:668965c083382e6f69c06391e9c452ea096193ec66ba0ff2e3fb8926665321e9"
     },
     {
       "name": "ax-audio",
@@ -41,14 +41,14 @@
       "type": "skill-md",
       "description": "This skill helps an LLM build correct native Model Context Protocol integrations with @ax-llm/ax. Use when the user asks about AxMCPClient, MCP transports, tools, prompts, resources, subscriptions, tasks, sampling, elicitation, roots, authentication, OAuth, MCP Apps, recording/replay, or MCP integration with AxGen, AxAgent, AxFlow, chat, optimization, and AxEventRuntime.",
       "url": "ax-mcp/SKILL.md",
-      "digest": "sha256:ccee9d60012c4d7db307c8db792e99e737022c797e49cad437ef972b84a209b5"
+      "digest": "sha256:1126809db78f04aeb041e5360e4fb31a7527291f4ae8c11e580a0bd1a074f256"
     },
     {
       "name": "ax-flow",
       "type": "skill-md",
       "description": "This skill helps an LLM generate correct AxFlow workflow code using @ax-llm/ax. Use when the user asks about flow(), AxFlow, workflow orchestration, parallel execution, DAG workflows, conditional routing, map/reduce patterns, or multi-node AI pipelines.",
       "url": "ax-flow/SKILL.md",
-      "digest": "sha256:a3e8ac3c579254d57babe142af979c8a831092bc9594eb777d09a933fcca3fda"
+      "digest": "sha256:f3a687cf173153ef18616680778b52cc93ccfde548ee41dbe7483695b6c8f69c"
     },
     {
       "name": "ax-agent",

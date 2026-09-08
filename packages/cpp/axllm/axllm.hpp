@@ -20,6 +20,7 @@
 #include <map>
 #include <limits>
 #include <memory>
+#include <optional>
 #include <mutex>
 #include <regex>
 #include <set>
@@ -283,6 +284,8 @@ struct Core {
   static Value mul(Value left, Value right);
   static Value div(Value left, Value right);
   static Value math_abs(Value value);
+  static Value string_codepoint_length(Value value);
+  static Value math_is_finite(Value value);
   static Value math_floor(Value value);
   static Value math_log(Value value);
   static Value math_exp(Value value);
@@ -420,6 +423,7 @@ struct Core {
   static Value openai_normalize_chat_response(Value raw);
   static Value openai_normalize_stream_delta(Value raw, Value state);
   static Value openai_normalize_embed_response(Value raw);
+  static Value flow_dispatch_group(Value flow, Value client, Value plans, Value state, Value options);
   // BEGIN AXIR CORE EMITTED DECLARATIONS
   static Value parse_signature(Value signature);
   static Value validate_signature(Value signature);
@@ -676,72 +680,69 @@ struct Core {
   static Value chat_session_validate_required_arguments(Value schema, Value arguments, Value path);
   static Value _execute_tool_call(Value functions, Value call);
   static Value stream_extraction_route(Value has_complex_fields);
+  static Value _chat_session_argument_equal(Value left, Value right, Value depth);
   static Value stream_structured_delta(Value fields, Value parsed_values, Value previous_values, Value partial_array_incomplete);
   static Value _validate_optimization_component_value(Value component, Value value);
-  static Value chat_session_record_result(Value gen, Value state, Value call, Value result, Value ok);
   static Value _validate_optimization_component_map(Value components, Value component_map);
+  static Value _chat_session_argument_errors(Value root, Value schema, Value arguments, Value path, Value depth);
   static Value _structured_output_scalar_placeholder(Value typ);
-  static Value chat_session_observe_output(Value gen, Value state, Value event);
   static Value _validate_optimized_artifact_provenance(Value artifact, Value components);
   static Value _stream_event_content_parts_impl(Value event);
   static Value _validate_optimized_artifact(Value artifact, Value components);
-  static Value chat_session_apply_boundary_updates(Value request, Value updates, Value level);
   static Value _structured_output_type_placeholder(Value typ);
-  static Value chat_session_create_state(Value model, Value path, Value max_steps);
   static Value _structured_output_shape(Value output_fields);
   static Value _serialize_optimized_artifact(Value artifact);
-  static Value chat_session_target_matches(Value target, Value path);
   static Value _append_structured_output_instruction(Value messages, Value output_fields, Value selection);
   static Value _deserialize_optimized_artifact(Value text, Value components);
-  static Value chat_session_unresolved(Value state);
   static Value _optimization_changed_components(Value components, Value component_map);
   static Value _assert_no_reserved_output_functions(Value functions);
-  static Value chat_session_register_call(Value state, Value call, Value execution);
   static Value _optimization_component_current_map(Value components);
   static Value _find_structured_output_call(Value calls);
   static Value _normalize_optimization_dataset(Value dataset);
-  static Value chat_session_result(Value response, Value id);
-  static Value chat_session_completion(Value response, Value id);
   static Value _structured_output_call_args(Value call);
   static Value _normalize_optimization_metric_scores(Value raw);
-  static Value chat_session_has_continuation_work(Value state);
   static Value _build_gen_chat_request(Value gen, Value messages, Value options, Value selection);
-  static Value chat_session_normalize_call(Value call);
   static Value _scalarize_optimization_scores(Value scores, Value options);
-  static Value chat_session_defer_final_call(Value state, Value call);
   static Value _optimization_action_name_matches(Value expected, Value call);
-  static Value chat_session_complete_call(Value state, Value id, Value result);
   static Value _adjust_optimization_score_for_actions(Value score, Value task, Value prediction);
-  static Value chat_session_complete_response(Value state, Value id);
-  static Value chat_session_has_queued_updates(Value state);
+  static Value chat_session_record_result(Value gen, Value state, Value call, Value result, Value ok);
+  static Value chat_session_observe_output(Value gen, Value state, Value event);
   static Value _parse_sample_outputs(Value gen, Value output_fields, Value response, Value validate_exact_json);
-  static Value chat_session_native_update(Value state, Value id);
-  static Value chat_session_native_wait(Value state);
+  static Value chat_session_apply_boundary_updates(Value request, Value updates, Value level);
   static Value _build_optimization_eval_row(Value task, Value prediction, Value scores, Value scalar, Value trace, Value error);
   static Value _select_sample_index(Value samples, Value options);
-  static Value chat_session_native_event(Value state, Value event);
+  static Value chat_session_create_state(Value model, Value path, Value max_steps);
   static Value _build_optimization_eval_result(Value rows, Value candidate_map, Value phase);
+  static Value chat_session_target_matches(Value target, Value path);
   static Value _forward_impl(Value gen, Value client, Value values, Value options);
+  static Value chat_session_unresolved(Value state);
   static Value _filter_optimization_components(Value components, Value target);
+  static Value chat_session_register_call(Value state, Value call, Value execution);
+  static Value chat_session_result(Value response, Value id);
+  static Value chat_session_completion(Value response, Value id);
+  static Value chat_session_has_continuation_work(Value state);
   static Value _build_optimizer_request(Value program_kind, Value components, Value dataset, Value options, Value trace);
-  static Value chat_session_boundary_action(Value state);
+  static Value chat_session_normalize_call(Value call);
   static Value _prepare_optimizer_run(Value program_kind, Value components, Value dataset, Value options, Value trace, Value evaluator_available);
+  static Value chat_session_defer_final_call(Value state, Value call);
+  static Value chat_session_complete_call(Value state, Value id, Value result);
   static Value _normalize_optimizer_engine_response(Value response, Value engine_name, Value engine_version, Value components);
   static Value _set_examples(Value gen, Value examples);
   static Value _set_demos(Value gen, Value demos);
-  static Value chat_session_mark_submitted(Value state, Value ids);
+  static Value chat_session_complete_response(Value state, Value id);
   static Value _render_examples(Value gen);
-  static Value chat_session_queue_update(Value state, Value update);
   static Value _render_demos(Value gen);
   static Value _apply_field_processors(Value gen, Value output);
   static Value _run_assertions(Value gen, Value output);
   static Value _build_optimizer_evidence_batch(Value eval_result, Value components);
-  static Value chat_session_close_state(Value state);
+  static Value chat_session_has_queued_updates(Value state);
   static Value _append_assertion_retry_messages(Value messages, Value response, Value error);
-  static Value chat_session_transition(Value state, Value event);
   static Value _record_trace(Value gen, Value input, Value output, Value status);
+  static Value chat_session_native_update(Value state, Value id);
   static Value _should_continue_steps(Value gen, Value calls);
   static Value _complete_with_retries_impl(Value client, Value request, Value options, Value retries);
+  static Value chat_session_native_wait(Value state);
+  static Value chat_session_native_event(Value state, Value event);
   static Value _parse_output_impl(Value content);
   static Value _ace_estimate_token_count(Value text);
   static Value _is_flexible_json_field(Value typ);
@@ -750,14 +751,20 @@ struct Core {
   static Value _parse_json_string_for_field(Value field, Value value);
   static Value _ace_empty_playbook(Value description, Value now);
   static Value _ace_render_playbook(Value playbook);
+  static Value chat_session_boundary_action(Value state);
   static Value _parse_json_string_fields(Value output_fields, Value values);
   static Value _parse_json_string_for_fields(Value fields_map, Value values);
   static Value _ace_update_bullet_feedback(Value playbook, Value bullet_id, Value tag, Value now);
   static Value _validate_exact_output_keys(Value fields, Value values, Value context);
+  static Value chat_session_mark_submitted(Value state, Value ids);
+  static Value chat_session_queue_update(Value state, Value update);
   static Value _ace_dedupe_playbook(Value playbook);
   static Value _tool_spec_impl(Value fn);
+  static Value chat_session_record_unresolved(Value gen, Value state);
   static Value _ace_prune_section_for_addition(Value section, Value protected_ids);
   static Value _function_call_mode_impl(Value mode);
+  static Value chat_session_close_state(Value state);
+  static Value chat_session_transition(Value state, Value event);
   static Value _response_function_calls_impl(Value response);
   static Value _append_tool_call_messages_impl(Value messages, Value response, Value calls);
   static Value _completion_call_to_chat_impl(Value call);
@@ -974,7 +981,14 @@ struct Core {
   static Value _agent_transcribe_audio_inputs(Value state, Value client, Value values, Value options);
   static Value _agent_run_llm_query_one(Value sub_gen, Value client, Value item, Value options);
   static Value _agent_run_llm_query(Value sub_gen, Value client, Value params, Value options);
+  static Value _agent_forward_impl(Value state, Value distiller, Value executor, Value responder, Value client, Value values, Value options);
+  static Value _agent_append_runtime_modules(Value options, Value additional);
+  static Value _agent_register_child(Value options, Value namespace_, Value name, Value program, Value signature);
+  static Value _agent_child_options(Value state, Value qualified, Value options);
   static Value _agent_forward(Value state, Value distiller, Value executor, Value responder, Value client, Value values, Value options);
+  static Value _agent_runtime_callable_names(Value state);
+  static Value _agent_callable_visible(Value state, Value qualified);
+  static Value _agent_runtime_invoke_callable(Value state, Value qualified, Value arguments);
   static Value _flow_factory(Value options);
   static Value _program_descriptor(Value kind, Value id, Value metadata);
   static Value _program_trace_event(Value program_id, Value kind, Value payload);
@@ -1001,6 +1015,7 @@ struct Core {
   static Value _flow_execute_step(Value flow, Value step, Value plan_step, Value client, Value state, Value options);
   static Value _flow_merge_parallel_results(Value state, Value result);
   static Value _flow_execute_nested_steps(Value flow, Value client, Value steps, Value state, Value options);
+  static Value flow_execute_owned_worker(Value flow, Value step, Value plan_step, Value client, Value state, Value options);
   static Value _flow_execute_steps(Value flow, Value client, Value state, Value options);
   static Value _flow_forward(Value flow, Value client, Value values, Value options);
   static Value _flow_get_optimizable_components(Value flow);
@@ -1078,6 +1093,9 @@ struct Core {
   static Value mcp_oauth_parse_token_response(Value response, Value now_ms, Value previous_refresh_token, Value issuer);
   static Value mcp_oauth_plan_ensure_token(Value token, Value now_ms, Value force_refresh, Value grant_type, Value has_on_auth_code);
   static Value mcp_oauth_validate_issuer(Value response, Value expected_issuer, Value require_iss);
+  static Value _mcp_tool_authorization_context(Value tools, Value namespace_, Value name, Value arguments);
+  static Value _mcp_tool_authorization_result(Value name, Value decision);
+  static Value _mcp_inheritance_plan(Value mcp, Value ucp, Value inheritance);
   // END AXIR CORE EMITTED DECLARATIONS
 
 };
@@ -1109,6 +1127,7 @@ class AxChatSession {
 class AIClient {
  public:
   virtual ~AIClient() = default;
+  virtual std::function<std::shared_ptr<AIClient>()> owned_worker_factory() { return {}; }
   virtual Value complete(Value request) = 0;
   virtual Value features_for_run(Value model) { return {}; }
   virtual std::shared_ptr<AxChatSession> open_chat_session(Value request, Value options) { return {}; }
@@ -1260,6 +1279,7 @@ struct AxBalancerOptions {
 
 class AxBalancer : public AxAIService {
  public:
+  std::function<std::shared_ptr<AIClient>()> owned_worker_factory() override;
   using AxAIService::chat;
   using AxAIService::embed;
   using AxAIService::speak;
@@ -1298,7 +1318,9 @@ class AxBalancer : public AxAIService {
   std::vector<std::shared_ptr<AxAIService>> services_;
   std::shared_ptr<AxAIService> current_service_;
   size_t current_service_index_ = 0;
-  std::map<std::string, int> service_failures_;
+  struct FailureState { std::mutex mutex; std::map<std::string,int> counts; };
+  std::shared_ptr<FailureState> service_failures_ = std::make_shared<FailureState>();
+  int failure_count(const std::shared_ptr<AxAIService>& service) const;
   Value policy_ = Value::object();
   int max_retries_ = 3;
   std::shared_ptr<AxBalancerAdaptiveStrategy> adaptive_;
@@ -1331,6 +1353,7 @@ class AxBalancer : public AxAIService {
 
 class MultiServiceRouter : public AxAIService {
  public:
+  std::function<std::shared_ptr<AIClient>()> owned_worker_factory() override;
   using AxAIService::chat;
   using AxAIService::embed;
   using AxAIService::speak;
@@ -1382,6 +1405,7 @@ class MultiServiceRouter : public AxAIService {
 
 class ProviderRouter : public AIClient {
  public:
+  std::function<std::shared_ptr<AIClient>()> owned_worker_factory() override;
   explicit ProviderRouter(Value config);
   using FileToText = std::function<std::string(const std::string&, const std::string&)>;
   ProviderRouter& file_to_text(FileToText extractor);
@@ -1417,6 +1441,7 @@ class ProviderRouter : public AIClient {
 class Transport {
  public:
   virtual ~Transport() = default;
+  virtual std::function<std::shared_ptr<Transport>()> owned_worker_factory() { return {}; }
   virtual Value call(Value request) = 0;
   virtual Value call(Value request, const AxCancellationToken* cancellation);
   virtual void stream(Value request, AxTransportStreamHandler handler);
@@ -1426,6 +1451,7 @@ class Transport {
 
 class HttpTransport : public Transport {
  public:
+  std::function<std::shared_ptr<Transport>()> owned_worker_factory() override { return [] { return std::make_shared<HttpTransport>(); }; }
   Value call(Value request) override;
   Value call(Value request, const AxCancellationToken* cancellation) override;
   void stream(Value request, AxTransportStreamHandler handler) override;
@@ -1473,6 +1499,7 @@ class ScriptedRealtimeTransport : public RealtimeTransport {
 
 class OpenAICompatibleClient : public AxBaseAI {
  public:
+  std::function<std::shared_ptr<AIClient>()> owned_worker_factory() override;
   std::shared_ptr<AxChatSession> open_chat_session(Value request, Value options) override;
   OpenAICompatibleClient& shared_transport(std::shared_ptr<Transport> transport);
   using SessionWebSocketFactory = std::function<std::shared_ptr<RealtimeTransport>(const std::string&, Value)>;
@@ -1594,6 +1621,7 @@ class AxMemory {
 class AxProgram {
  public:
   virtual ~AxProgram() = default;
+  virtual std::function<std::shared_ptr<AxProgram>()> owned_worker_factory() const { return {}; }
   virtual Value forward(AIClient& client, Value values, Value options = Value::object()) = 0;
   virtual Value forward(AIClient& client, Value values, Value options, const AxRuntimeHooks& hooks) = 0;
   virtual Value get_optimizable_components() const { return Value::array(); }
@@ -1605,6 +1633,7 @@ class AxProgram {
 
 class AxGen : public AxProgram {
  public:
+  std::function<std::shared_ptr<AxProgram>()> owned_worker_factory() const override;
   explicit AxGen(Value signature, Value options = Value::object(), AxRuntimeHooks hooks = {});
   Value forward(AIClient& client, Value values, Value options = Value::object());
   Value forward(AIClient& client, Value values, Value options, const AxCancellationToken* cancellation);
@@ -1649,6 +1678,7 @@ class AxGen : public AxProgram {
 
 class AxFlow : public AxProgram {
  public:
+  std::function<std::shared_ptr<AxProgram>()> owned_worker_factory() const override;
   explicit AxFlow(Value options = Value::object(), AxRuntimeHooks hooks = {});
   explicit AxFlow(std::string mermaid, Value bindings = Value::object(), AxRuntimeHooks hooks = {});
   AxFlow& execute(std::string name, AxProgram& program, Value options = Value::object());
@@ -1687,6 +1717,7 @@ class AxFlow : public AxProgram {
  private:
   Value state_;
   std::vector<std::shared_ptr<AxGen>> mermaid_programs_;
+  std::shared_ptr<std::vector<std::shared_ptr<AxProgram>>> owned_programs_ = std::make_shared<std::vector<std::shared_ptr<AxProgram>>>();
   std::shared_ptr<const AxRuntimeHooks> runtime_hooks_;
   AxFlow& add_step(Value kind, Value name, Value program, Value options);
   Value hydrate_mermaid_steps(Value steps, Value bindings);
@@ -1957,6 +1988,7 @@ class AxAgent : public AxProgram {
   Value used(Value id, Value reason = Value(""), Value stage = Value("executor"));
   Value invoke_callable(Value qualified_name, Value args = Value::object(), Value options = Value::object());
   AxAgent& add_tool_module(std::string name, const std::vector<Tool>& tools);
+  AxAgent& add_child_agent(std::string namespace_name, std::string name, std::shared_ptr<AxAgent> child);
   Value export_runtime_state() const;
   Value restore_runtime_state(Value snapshot);
   Value get_optimizer_metadata() const;
@@ -1972,6 +2004,7 @@ class AxAgent : public AxProgram {
   AxPlaybook* get_playbook() const;
 
  private:
+  std::vector<std::shared_ptr<AxAgent>> child_agents_;
   Value state_;
   std::unique_ptr<AxGen> distiller_;
   std::unique_ptr<AxGen> executor_;

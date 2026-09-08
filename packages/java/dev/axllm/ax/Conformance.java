@@ -1640,6 +1640,15 @@ public final class Conformance {
     Map<String, Object> stateRoundtripProjection = new LinkedHashMap<>();
     try {
       agent = Ax.agent(String.valueOf(fixture.get("signature")), agentOptions);
+      for (Object rawChild : Core.asList(fixture.getOrDefault("child_agents", List.of()))) {
+        Map<String, Object> child = Core.asMap(rawChild);
+        Map<String, Object> childOptions = new LinkedHashMap<>(Core.asMap(child.getOrDefault("options", Map.of())));
+        if (child.containsKey("runtime_engine")) {
+          try { childOptions.put("runtime", Class.forName("dev.axllm.ax.runtime.quickjs.AxQuickJsCodeRuntime").getDeclaredConstructor().newInstance()); }
+          catch (ReflectiveOperationException e) { throw new RuntimeException(e); }
+        }
+        agent.addChildAgent(String.valueOf(child.get("namespace")), String.valueOf(child.get("name")), Ax.agent(String.valueOf(child.get("signature")), childOptions));
+      }
       if (fixture.containsKey("set_instruction")) agent.setInstruction(String.valueOf(fixture.get("set_instruction")));
       if (fixture.containsKey("add_actor_instruction")) agent.addActorInstruction(String.valueOf(fixture.get("add_actor_instruction")));
       if (fixture.containsKey("set_state")) agent.setState(Core.asMap(fixture.get("set_state")));
@@ -2848,6 +2857,13 @@ public final class Conformance {
   }
 
   private static void runAISessionState(Map<String, Object> fixture) {
+    for (Object raw : Core.iter(fixture.get("validation_cases"))) {
+      Map<String,Object> item = Core.asMap(raw);
+      boolean valid = true;
+      try { Core.chat_session_validate_required_arguments(item.get("schema"), item.get("arguments"), "arguments"); }
+      catch (RuntimeException error) { valid = false; }
+      assertEqual(valid, item.get("valid"), "raw argument validation: " + item);
+    }
     Object state = Core.chat_session_create_state(fixture.get("model"), fixture.get("path"), fixture.get("max_steps"));
     for (Object rawCase : Core.iter(fixture.get("cases"))) {
       Map<String, Object> item = Core.asMap(rawCase);

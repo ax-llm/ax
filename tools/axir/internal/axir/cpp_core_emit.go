@@ -344,6 +344,8 @@ var coreIntrinsicCpp = map[CoreIntrinsic]string{
 	IntrinsicMul:                     "Core::mul",
 	IntrinsicDiv:                     "Core::div",
 	IntrinsicMathAbs:                 "Core::math_abs",
+	IntrinsicStringCodepointLength:   "Core::string_codepoint_length",
+	IntrinsicMathIsFinite:            "Core::math_is_finite",
 	IntrinsicMathFloor:               "Core::math_floor",
 	IntrinsicMathLog:                 "Core::math_log",
 	IntrinsicMathExp:                 "Core::math_exp",
@@ -432,6 +434,7 @@ var coreIntrinsicCpp = map[CoreIntrinsic]string{
 	IntrinsicAxGenRecordChatLog:      "Core::axgen_record_chat_log",
 	IntrinsicAxGenRecordFunction:     "Core::axgen_record_function_call",
 	IntrinsicRunControlAborted:       "Core::run_control_aborted",
+	IntrinsicFlowDispatchGroup:       "Core::flow_dispatch_group",
 	IntrinsicAgentStageForward:       "Core::agent_stage_forward",
 	IntrinsicAgentNativeStageForward: "Core::agent_native_stage_forward",
 	IntrinsicAgentStageChatLog:       "Core::agent_stage_chat_log",
@@ -461,7 +464,7 @@ var coreIntrinsicCpp = map[CoreIntrinsic]string{
 	IntrinsicValidAudio:              "Core::valid_audio",
 	IntrinsicValidFile:               "Core::valid_file",
 	IntrinsicValidURLShape:           "Core::valid_url_shape",
-	IntrinsicExceptionIsAborted:     "Core::exception_is_aborted",
+	IntrinsicExceptionIsAborted:      "Core::exception_is_aborted",
 }
 
 func cppAttrValue(op Operation, name string) string {

@@ -21,7 +21,8 @@
       "childCallOptions": {
         "model": "gpt-flow-fixture",
         "traceLabel": "Node:qa (outer)",
-        "abortSignal": {}
+        "abortSignal": {},
+        "executionPath": "root/qa"
       }
     }
   },

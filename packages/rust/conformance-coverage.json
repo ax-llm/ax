@@ -436,6 +436,13 @@
       {
         "suite": "axmcp",
         "kind": "mcp",
+        "operation": "tool_authorization",
+        "runner": "rust:axmcp.tool_authorization",
+        "category": "transport-boundary"
+      },
+      {
+        "suite": "axmcp",
+        "kind": "mcp",
         "operation": "mrtr_violations",
         "runner": "rust:axmcp.mrtr_violations",
         "category": "semantic"

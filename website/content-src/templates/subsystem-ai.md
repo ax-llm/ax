@@ -170,15 +170,16 @@ Runnable examples: `typescript/generation/astra.ts`, `astra-async-tools.ts`,
 `typescript/short-agents/astra-background.ts`. Python, Go, Java, C++, and Rust
 have provider-backed Astra generation, agent, flow, and cancellation examples in
 their language galleries. Their broader session parity is still being verified
-in the AxIR backlog. Generated flow groups currently execute serially; native
-MCP invocation and other session coverage remain incomplete.
+in the AxIR backlog. Independent flow groups now dispatch owned workers, with a traced serial
+fallback for unsupported custom clients or programs. Remaining agent invocation
+and session acceptance evidence is tracked in the backlog.
 
 The Java, C++, and Rust WebSocket adapters track response activity as frames
 arrive. A completed response cannot become active again when an older buffered
 event is consumed. When no response is active, steering is queued for the next
 response; an active successor can still receive native steering. Observe lifecycle
 timing rather than assuming that every update applies natively.
-C++ session tools also reject invalid raw-schema argument types before invoking
+All five session adapters also reject invalid raw-schema arguments before invoking
 the handler, allowing the model to correct its call within the step limit.
 These fixes have deterministic regression coverage; they do not establish full
 generated-language parity.

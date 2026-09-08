@@ -6,6 +6,11 @@ import java.util.List;
 import java.util.Map;
 
 public final class AxMemory {
+  AxMemory ownedCopy() {
+    AxMemory copy=new AxMemory();
+    for(var item:items)copy.items.add(Core.asMap(Core.ownedCopy(item)));
+    return copy;
+  }
   private final List<Map<String, Object>> items = new ArrayList<>();
 
   public AxMemory addRequest(Object messages) {

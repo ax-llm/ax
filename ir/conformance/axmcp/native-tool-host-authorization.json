@@ -1,0 +1,179 @@
+{
+  "cases": [
+    {
+      "decision": true,
+      "expected_authorization_calls": 1,
+      "expected_context": {
+        "arguments": {
+          "query": "REF-42"
+        },
+        "namespace": "orders",
+        "tool": {
+          "description": "Find a reference",
+          "inputSchema": {
+            "additionalProperties": false,
+            "properties": {
+              "query": {
+                "type": "string"
+              }
+            },
+            "required": ["query"],
+            "type": "object"
+          },
+          "name": "lookup"
+        }
+      },
+      "expected_result": {
+        "content": [
+          {
+            "text": "REF-42",
+            "type": "text"
+          }
+        ],
+        "resultType": "complete",
+        "structuredContent": {
+          "reference": "REF-42"
+        }
+      },
+      "expected_tool_requests": 1,
+      "name": "lookup"
+    },
+    {
+      "decision": false,
+      "expected_authorization_calls": 1,
+      "expected_context": {
+        "arguments": {
+          "query": "REF-42"
+        },
+        "namespace": "orders",
+        "tool": {
+          "description": "Find a reference",
+          "inputSchema": {
+            "additionalProperties": false,
+            "properties": {
+              "query": {
+                "type": "string"
+              }
+            },
+            "required": ["query"],
+            "type": "object"
+          },
+          "name": "lookup"
+        }
+      },
+      "expected_error": "MCP tool call denied by host policy: lookup",
+      "expected_tool_requests": 0,
+      "name": "lookup"
+    },
+    {
+      "decision": null,
+      "expected_authorization_calls": 1,
+      "expected_context": {
+        "arguments": {
+          "query": "REF-42"
+        },
+        "namespace": "orders",
+        "tool": {
+          "description": "Find a reference",
+          "inputSchema": {
+            "additionalProperties": false,
+            "properties": {
+              "query": {
+                "type": "string"
+              }
+            },
+            "required": ["query"],
+            "type": "object"
+          },
+          "name": "lookup"
+        }
+      },
+      "expected_result": {
+        "content": [
+          {
+            "text": "REF-42",
+            "type": "text"
+          }
+        ],
+        "resultType": "complete",
+        "structuredContent": {
+          "reference": "REF-42"
+        }
+      },
+      "expected_tool_requests": 1,
+      "name": "lookup"
+    },
+    {
+      "decision": true,
+      "expected_authorization_calls": 0,
+      "expected_error": "MCP tool not found: missing",
+      "expected_tool_requests": 0,
+      "name": "missing"
+    }
+  ],
+  "client_options": {
+    "era": "modern",
+    "namespace": "orders"
+  },
+  "kind": "mcp",
+  "name": "native-tool-host-authorization",
+  "operation": "tool_authorization",
+  "responses": [
+    {
+      "id": "fixture",
+      "jsonrpc": "2.0",
+      "result": {
+        "cacheScope": "private",
+        "capabilities": {
+          "tools": {}
+        },
+        "resultType": "complete",
+        "supportedVersions": ["2026-07-28"],
+        "ttlMs": 60000
+      }
+    },
+    {
+      "id": "fixture",
+      "jsonrpc": "2.0",
+      "result": {
+        "tools": [
+          {
+            "description": "Find a reference",
+            "inputSchema": {
+              "additionalProperties": false,
+              "properties": {
+                "query": {
+                  "type": "string"
+                }
+              },
+              "required": ["query"],
+              "type": "object"
+            },
+            "name": "lookup"
+          }
+        ]
+      }
+    },
+    {
+      "id": "fixture",
+      "jsonrpc": "2.0",
+      "result": {
+        "content": [
+          {
+            "text": "REF-42",
+            "type": "text"
+          }
+        ],
+        "resultType": "complete",
+        "structuredContent": {
+          "reference": "REF-42"
+        }
+      }
+    }
+  ],
+  "source": {
+    "extractor": "tools/axir/extractors/mcp-authorization-goldens.ts",
+    "reference": ["src/ax/mcp/client.ts"],
+    "tsDerived": true
+  }
+}

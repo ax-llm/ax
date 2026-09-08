@@ -1,0 +1,196 @@
+{
+  "name": "native MCP tools retain raw schemas and modern invocation rounds",
+  "kind": "mcp",
+  "operation": "tools",
+  "client_options": {
+    "era": "modern",
+    "roots": [
+      {
+        "uri": "file:///workspace",
+        "name": "workspace",
+        "_meta": {
+          "tenant": {
+            "id": "tenant-1"
+          }
+        }
+      }
+    ]
+  },
+  "responses": [
+    {
+      "method": "server/discover",
+      "result": {
+        "resultType": "complete",
+        "supportedVersions": ["2026-07-28"],
+        "capabilities": {
+          "tools": {}
+        },
+        "ttlMs": 60000,
+        "cacheScope": "private"
+      }
+    },
+    {
+      "method": "tools/list",
+      "result": {
+        "resultType": "complete",
+        "tools": [
+          {
+            "name": "work",
+            "inputSchema": {
+              "type": "object",
+              "$defs": {
+                "value": {
+                  "type": "integer",
+                  "minimum": 1
+                }
+              },
+              "properties": {
+                "value": {
+                  "$ref": "#/$defs/value"
+                }
+              },
+              "required": ["value"],
+              "additionalProperties": false
+            }
+          }
+        ],
+        "ttlMs": 60000,
+        "cacheScope": "private"
+      }
+    },
+    {
+      "method": "tools/call",
+      "result": {
+        "resultType": "input_required",
+        "inputRequests": {
+          "workspace": {
+            "method": "roots/list"
+          }
+        },
+        "requestState": "\u0000opaque-state-\ud83d\udd25"
+      }
+    },
+    {
+      "method": "tools/call",
+      "result": {
+        "resultType": "input_required",
+        "inputRequests": {
+          "current": {
+            "method": "roots/list"
+          }
+        }
+      }
+    },
+    {
+      "method": "tools/call",
+      "result": {
+        "resultType": "complete",
+        "content": [
+          {
+            "type": "text",
+            "text": "done"
+          }
+        ],
+        "structuredContent": {
+          "done": true
+        }
+      }
+    }
+  ],
+  "expected_function_names": ["work"],
+  "expected_schemas": {
+    "work": {
+      "type": "object",
+      "$defs": {
+        "value": {
+          "type": "integer",
+          "minimum": 1
+        }
+      },
+      "properties": {
+        "value": {
+          "$ref": "#/$defs/value"
+        }
+      },
+      "required": ["value"],
+      "additionalProperties": false
+    }
+  },
+  "call_function": {
+    "name": "work",
+    "arguments": {
+      "value": 1
+    }
+  },
+  "expected_call_result": {
+    "structuredContent": {
+      "done": true
+    }
+  },
+  "expected_requests": [
+    {
+      "method": "server/discover"
+    },
+    {
+      "method": "tools/list"
+    },
+    {
+      "method": "tools/call",
+      "params": {
+        "name": "work",
+        "arguments": {
+          "value": 1
+        }
+      }
+    },
+    {
+      "method": "tools/call",
+      "params": {
+        "name": "work",
+        "arguments": {
+          "value": 1
+        },
+        "inputResponses": {
+          "workspace": {
+            "roots": [
+              {
+                "uri": "file:///workspace",
+                "name": "workspace",
+                "_meta": {
+                  "tenant": {
+                    "id": "tenant-1"
+                  }
+                }
+              }
+            ]
+          }
+        },
+        "requestState": "\u0000opaque-state-\ud83d\udd25"
+      }
+    },
+    {
+      "method": "tools/call",
+      "params": {
+        "name": "work",
+        "arguments": {
+          "value": 1
+        },
+        "inputResponses": {
+          "current": {
+            "roots": [
+              {
+                "uri": "file:///workspace",
+                "name": "workspace",
+                "_meta": {
+                  "tenant": {
+                    "id": "tenant-1"
+                  }
+                }
+              }
+            ]
+          }
+        }
+      }
+    }
+  ]
+}

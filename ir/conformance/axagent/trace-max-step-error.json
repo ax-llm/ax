@@ -46,7 +46,8 @@
     "runtime_lifecycle",
     "runtime_execute",
     "status",
-    "error"
+    "error",
+    "runtime_lifecycle"
   ],
   "forward_options": {
     "max_actor_steps": 1

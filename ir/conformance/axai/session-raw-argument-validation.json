@@ -1,0 +1,496 @@
+{
+  "cases": [],
+  "expected_pending": [],
+  "expected_steps": 0,
+  "kind": "ai_session_state",
+  "max_steps": 3,
+  "model": "gpt-6-astra",
+  "name": "session-raw-argument-validation",
+  "path": "root",
+  "validation_cases": [
+    {
+      "schema": {
+        "const": {}
+      },
+      "arguments": null,
+      "valid": false
+    },
+    {
+      "schema": {
+        "const": null
+      },
+      "arguments": {},
+      "valid": false
+    },
+    {
+      "schema": {
+        "const": false
+      },
+      "arguments": 0,
+      "valid": false
+    },
+    {
+      "schema": {
+        "enum": [true]
+      },
+      "arguments": 1,
+      "valid": false
+    },
+    {
+      "schema": {
+        "const": {
+          "z": 1,
+          "a": 2
+        }
+      },
+      "arguments": {
+        "z": 1,
+        "a": 2
+      },
+      "valid": true
+    },
+    {
+      "schema": {
+        "const": {
+          "z": 1,
+          "a": 2
+        }
+      },
+      "arguments": {
+        "a": 2,
+        "z": 1
+      },
+      "valid": false
+    },
+    {
+      "schema": {
+        "enum": [
+          {
+            "nested": [
+              1,
+              null,
+              {
+                "z": true,
+                "a": false
+              }
+            ]
+          }
+        ]
+      },
+      "arguments": {
+        "nested": [
+          1,
+          null,
+          {
+            "a": false,
+            "z": true
+          }
+        ]
+      },
+      "valid": false
+    },
+    {
+      "schema": {
+        "$defs": {
+          "target": false
+        },
+        "$ref": "#/$defs/target"
+      },
+      "arguments": 2,
+      "valid": false
+    },
+    {
+      "schema": {
+        "$defs": {
+          "target": {}
+        },
+        "$ref": "#/$defs/target"
+      },
+      "arguments": 2,
+      "valid": true
+    },
+    {
+      "schema": {
+        "allOf": [
+          {
+            "type": "integer"
+          }
+        ],
+        "$ref": "#/allOf/0"
+      },
+      "arguments": 2,
+      "valid": true
+    },
+    {
+      "schema": {
+        "allOf": [
+          {
+            "type": "integer"
+          }
+        ],
+        "$ref": "#/allOf/0"
+      },
+      "arguments": "2",
+      "valid": false
+    },
+    {
+      "schema": {
+        "allOf": [
+          {
+            "type": "integer"
+          }
+        ],
+        "$ref": "#/allOf/00"
+      },
+      "arguments": 2,
+      "valid": false
+    },
+    {
+      "schema": {
+        "type": "integer"
+      },
+      "arguments": 1.5,
+      "valid": false
+    },
+    {
+      "schema": {
+        "type": ["string", "null"]
+      },
+      "arguments": null,
+      "valid": true
+    },
+    {
+      "schema": {
+        "type": ["string", "null"]
+      },
+      "arguments": 3,
+      "valid": false
+    },
+    {
+      "schema": {
+        "minimum": 2,
+        "maximum": 4
+      },
+      "arguments": 2,
+      "valid": true
+    },
+    {
+      "schema": {
+        "minimum": 2,
+        "maximum": 4
+      },
+      "arguments": 1,
+      "valid": false
+    },
+    {
+      "schema": {
+        "minimum": 2,
+        "maximum": 4
+      },
+      "arguments": 5,
+      "valid": false
+    },
+    {
+      "schema": {
+        "minLength": 2,
+        "maxLength": 2
+      },
+      "arguments": "😀a",
+      "valid": true
+    },
+    {
+      "schema": {
+        "minLength": 2
+      },
+      "arguments": "😀",
+      "valid": false
+    },
+    {
+      "schema": {
+        "maxLength": 1
+      },
+      "arguments": "😀a",
+      "valid": false
+    },
+    {
+      "schema": {
+        "pattern": "[A-Z]{2}[0-9]+"
+      },
+      "arguments": "prefix AB12 suffix",
+      "valid": true
+    },
+    {
+      "schema": {
+        "pattern": "^[A-Z]{2}[0-9]+$"
+      },
+      "arguments": "prefix AB12 suffix",
+      "valid": false
+    },
+    {
+      "schema": {
+        "enum": ["a", 2, null]
+      },
+      "arguments": null,
+      "valid": true
+    },
+    {
+      "schema": {
+        "enum": ["a", 2, null]
+      },
+      "arguments": "2",
+      "valid": false
+    },
+    {
+      "schema": {
+        "const": {
+          "a": [1, true]
+        }
+      },
+      "arguments": {
+        "a": [1, true]
+      },
+      "valid": true
+    },
+    {
+      "schema": {
+        "const": null
+      },
+      "arguments": false,
+      "valid": false
+    },
+    {
+      "schema": {
+        "allOf": [
+          {
+            "minimum": 2
+          },
+          {
+            "maximum": 4
+          }
+        ]
+      },
+      "arguments": 5,
+      "valid": false
+    },
+    {
+      "schema": {
+        "anyOf": [
+          {
+            "type": "integer"
+          },
+          {
+            "const": "yes"
+          }
+        ]
+      },
+      "arguments": "yes",
+      "valid": true
+    },
+    {
+      "schema": {
+        "anyOf": [
+          {
+            "type": "integer"
+          },
+          {
+            "const": "yes"
+          }
+        ]
+      },
+      "arguments": "no",
+      "valid": false
+    },
+    {
+      "schema": {
+        "oneOf": [
+          {
+            "type": "number"
+          },
+          {
+            "type": "integer"
+          }
+        ]
+      },
+      "arguments": 2,
+      "valid": false
+    },
+    {
+      "schema": {
+        "oneOf": [
+          {
+            "type": "number"
+          },
+          {
+            "type": "integer"
+          }
+        ]
+      },
+      "arguments": 2.5,
+      "valid": true
+    },
+    {
+      "schema": {
+        "anyOf": []
+      },
+      "arguments": {},
+      "valid": false
+    },
+    {
+      "schema": {
+        "type": "array",
+        "minItems": 2,
+        "maxItems": 3,
+        "items": {
+          "type": "integer"
+        }
+      },
+      "arguments": [1, 2],
+      "valid": true
+    },
+    {
+      "schema": {
+        "minItems": 2
+      },
+      "arguments": [1],
+      "valid": false
+    },
+    {
+      "schema": {
+        "maxItems": 1
+      },
+      "arguments": [1, 2],
+      "valid": false
+    },
+    {
+      "schema": {
+        "items": {
+          "type": "integer"
+        }
+      },
+      "arguments": [1, "2"],
+      "valid": false
+    },
+    {
+      "schema": {
+        "type": "object",
+        "required": ["a"],
+        "properties": {
+          "a": {
+            "type": "string"
+          }
+        },
+        "additionalProperties": false
+      },
+      "arguments": {
+        "a": "ok",
+        "extra": true
+      },
+      "valid": false
+    },
+    {
+      "schema": {
+        "required": ["a"]
+      },
+      "arguments": {},
+      "valid": false
+    },
+    {
+      "schema": {
+        "additionalProperties": {
+          "type": "integer",
+          "minimum": 0
+        }
+      },
+      "arguments": {
+        "a": 1,
+        "b": -1
+      },
+      "valid": false
+    },
+    {
+      "schema": {
+        "additionalProperties": {
+          "type": "integer",
+          "minimum": 0
+        }
+      },
+      "arguments": {
+        "a": 1,
+        "b": 2
+      },
+      "valid": true
+    },
+    {
+      "schema": {
+        "$defs": {
+          "a/b~c": {
+            "type": "integer",
+            "minimum": 2
+          }
+        },
+        "$ref": "#/$defs/a~1b~0c"
+      },
+      "arguments": 3,
+      "valid": true
+    },
+    {
+      "schema": {
+        "$defs": {
+          "n": {
+            "type": "integer"
+          }
+        },
+        "properties": {
+          "nested": {
+            "items": {
+              "$ref": "#/$defs/n"
+            }
+          }
+        }
+      },
+      "arguments": {
+        "nested": [1, "bad"]
+      },
+      "valid": false
+    },
+    {
+      "schema": {
+        "$ref": "#/missing"
+      },
+      "arguments": {},
+      "valid": false
+    },
+    {
+      "schema": {
+        "$ref": "https://example.com/schema"
+      },
+      "arguments": {},
+      "valid": false
+    },
+    {
+      "schema": {
+        "$defs": {
+          "loop": {
+            "$ref": "#/$defs/loop"
+          }
+        },
+        "$ref": "#/$defs/loop"
+      },
+      "arguments": {},
+      "valid": false
+    },
+    {
+      "schema": {
+        "$defs": {
+          "n": {
+            "type": "integer"
+          }
+        },
+        "$ref": "#/$defs/n",
+        "type": "string"
+      },
+      "arguments": 3,
+      "valid": true
+    }
+  ]
+}

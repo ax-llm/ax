@@ -283,7 +283,7 @@ impl AxCodeSession for QuickJsCodeSession {
             "with (globalThis) {{\n{code}\n{persist_suffix}\n}}"
         ))?;
         let run_source = format!(
-            "globalThis.__ax_completion = undefined; globalThis.__ax_error = undefined; globalThis.__ax_error_category = undefined; __ax_install_host_callables(); (async function(){{}}).constructor({body_literal})().then(function(){{}}, function(e){{ globalThis.__ax_error_category = String((e && (e.error_category || e.category)) || 'runtime'); globalThis.__ax_error = String((e && e.message) ? ((e.name ? e.name + ': ' : '') + e.message + (e.stack ? (' ' + e.stack) : '')) : ((e && e.stack) ? e.stack : e)); }});"
+            "globalThis.__ax_completion = undefined; globalThis.__ax_error = undefined; globalThis.__ax_error_category = undefined; globalThis.__ax_logs = []; __ax_install_host_callables(); (async function(){{}}).constructor({body_literal})().then(function(){{}}, function(e){{ globalThis.__ax_error_category = String((e && (e.error_category || e.category)) || 'runtime'); globalThis.__ax_error = String((e && e.message) ? ((e.name ? e.name + ': ' : '') + e.message + (e.stack ? (' ' + e.stack) : '')) : ((e && e.stack) ? e.stack : e)); }});"
         );
         let run_result = self
             .context
@@ -324,9 +324,17 @@ impl AxCodeSession for QuickJsCodeSession {
             "JSON.stringify(globalThis.__ax_completion === undefined ? {kind: 'result', result: null} : globalThis.__ax_completion)"
                 .to_string(),
         )?;
-        let payload: Value = serde_json::from_str(&completion).map_err(|error| {
+        let mut payload: Value = serde_json::from_str(&completion).map_err(|error| {
             AxError::runtime(format!("malformed QuickJS actor output: {error}"))
         })?;
+        let logs: Value = serde_json::from_str(
+            &self.eval_json_string("JSON.stringify(globalThis.__ax_logs || [])".to_string())?,
+        )?;
+        if logs.as_array().is_some_and(|items| !items.is_empty()) {
+            if let Some(fields) = payload.as_object_mut() {
+                fields.insert("logs".to_string(), logs);
+            }
+        }
         Ok(RuntimeEnvelope { payload })
     }
 
@@ -560,6 +568,50 @@ fn is_builtin_reserved_name(name: &str) -> bool {
 }
 
 const QUICKJS_BOOTSTRAP: &str = r#"
+var __ax_host_namespaces = Object.create(null);
+function __ax_bind_host_namespaces() {
+  const roots = [];
+  for (const name of Object.getOwnPropertyNames(globalThis)) {
+    if (name.indexOf('.') < 0) continue;
+    const callable = Object.getOwnPropertyDescriptor(globalThis, name);
+    if (!callable || typeof callable.value !== 'function') continue;
+    const parts = name.split('.');
+    if (parts.some(part => !part)) {
+      throw new Error('Invalid host callable namespace: ' + name);
+    }
+    let target = globalThis;
+    let path = '';
+    for (let index = 0; index < parts.length - 1; index++) {
+      const part = parts[index];
+      path += (index ? '.' : '') + part;
+      let entry = Object.getOwnPropertyDescriptor(target, part);
+      if (!entry) {
+        const value = Object.create(null);
+        Object.defineProperty(target, part, {value, enumerable: true});
+        __ax_host_namespaces[path] = value;
+        entry = {value};
+      }
+      if (entry.value !== __ax_host_namespaces[path]) {
+        throw new Error('Host callable namespace conflicts with a global: ' + path);
+      }
+      target = entry.value;
+    }
+    const leaf = parts[parts.length - 1];
+    const existing = Object.getOwnPropertyDescriptor(target, leaf);
+    if (existing && existing.value !== callable.value) {
+      throw new Error('Host callable name conflicts with a namespace: ' + name);
+    }
+    if (!existing) Object.defineProperty(target, leaf, {value: callable.value, enumerable: true});
+    if (roots.indexOf(parts[0]) < 0) roots.push(parts[0]);
+  }
+  if (Array.isArray(globalThis.__ax_session_reserved)) {
+    for (const root of roots) {
+      if (globalThis.__ax_session_reserved.indexOf(root) < 0) globalThis.__ax_session_reserved.push(root);
+    }
+  }
+  return roots;
+}
+
 function axPersistSuffix(src){try{var n=[],s={},re=/(?:^|[\n;{}])\s*(?:export\s+)?(?:async\s+)?(?:function|class|const|let|var)\s+([A-Za-z_$][A-Za-z0-9_$]*)/g,m;while((m=re.exec(src))){if(!s[m[1]]){s[m[1]]=1;n.push(m[1]);}}return n.map(function(x){return 'try{globalThis['+JSON.stringify(x)+']='+x+';}catch(__e){}';}).join('');}catch(__e){return '';}}
 const __ax_builtin_reserved = [
   "Object", "Function", "Array", "Number", "parseFloat", "parseInt", "Infinity", "NaN",
@@ -578,6 +630,15 @@ function __ax_has_name(values, name) {
   }
   return false;
 }
+globalThis.__ax_logs = [];
+function __ax_log() {
+  var parts = Array.prototype.slice.call(arguments).map(function (x) {
+    if (typeof x === "string") return x;
+    try { return JSON.stringify(x); } catch (e) { return String(x); }
+  });
+  globalThis.__ax_logs.push(parts.join(" "));
+}
+globalThis.console = { log: __ax_log, error: __ax_log, warn: __ax_log, info: __ax_log, debug: __ax_log };
 function __ax_complete(value) { globalThis.__ax_completion = value; return value; }
 function __ax_clone_json(value) {
   if (value === undefined) return null;
@@ -610,6 +671,7 @@ function __ax_install_host_callables() {
       globalThis[key] = __ax_make_host_callable(key, value);
     }
   }
+  __ax_bind_host_namespaces();
 }
 function final() { return __ax_complete({ type: "final", args: Array.from(arguments) }); }
 function respond() { return __ax_complete({ type: "respond", args: Array.from(arguments) }); }

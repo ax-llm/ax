@@ -36,14 +36,14 @@ public final class AxMCPClient {
   private boolean subscriptionReady;
   private long catalogRevision;
   private Map<String, Object> serverCapabilities = new LinkedHashMap<>();
-  private Map<String, Object> serverInfo = new LinkedHashMap<>();
+  private volatile Map<String, Object> serverInfo = new LinkedHashMap<>();
   private String serverInstructions;
   private String negotiatedProtocolVersion;
   private String era;
   private Map<String,Object> discoverResult = new LinkedHashMap<>();
   private Map<String,Object> negotiatedExtensions = new LinkedHashMap<>();
   private static final Map<String,String> ERA_CACHE = new LinkedHashMap<>();
-  private int nextId = 1;
+  private final java.util.concurrent.atomic.AtomicLong nextId = new java.util.concurrent.atomic.AtomicLong(1);
   private int nextListenerId = 1;
   private final Map<Integer,Consumer<Map<String,Object>>> notificationListeners = new LinkedHashMap<>();
   private final Map<Integer,Consumer<String>> lifecycleListeners = new LinkedHashMap<>();
@@ -136,7 +136,18 @@ public final class AxMCPClient {
 
   public Map<String, Object> ping() { return request("ping", Map.of()); }
   public Map<String, Object> listTools(String cursor) { return request("tools/list", cursor == null ? Map.of() : Map.of("cursor", cursor)); }
-  public Map<String, Object> callTool(String name, Map<String, Object> arguments) {Map<String,Object> args=arguments==null?Map.of():arguments;Map<String,String> headers=toolHeaders(name,args);Map<String,Object> result;try{result=requestWithInputRounds("tools/call",Map.of("name",name,"arguments",args),headers);}catch(AxMCPError error){if(!"modern".equals(era)||error.code!=-32020)throw error;tools.clear();for(Map<String,Object> tool:collectCatalog("tools/list","tools")){try{Core.mcp_param_header_bindings(tool.getOrDefault("inputSchema",Map.of()));tools.add(tool);}catch(RuntimeException ignored){}}result=requestWithInputRounds("tools/call",Map.of("name",name,"arguments",args),toolHeaders(name,args));}if(!"task".equals(String.valueOf(result.get("resultType"))))return result;if(!hasTasksCapability())throw new AxMCPError("MCP protocol violation: server returned a task without negotiating io.modelcontextprotocol/tasks");if(!Boolean.TRUE.equals(Core.mcp_validate_modern_task(result)))throw new AxMCPError("MCP protocol violation: invalid CreateTaskResult");return awaitModernTask(String.valueOf(result.get("taskId")));}
+  @SuppressWarnings("unchecked")
+  public Map<String, Object> callTool(String name, Map<String, Object> arguments) {Map<String,Object> args=arguments==null?Map.of():arguments;
+    Object authorize=options.getOrDefault("authorizeToolCall",options.get("authorize_tool_call"));
+    if(authorize!=null){
+      Map<String,Object> call=Core.asMap(Core._mcp_tool_authorization_context(tools,namespace(),name,args));call.put("client",this);
+      Object decision;
+      if(authorize instanceof java.util.function.Function<?,?> function)decision=((java.util.function.Function<Map<String,Object>,Object>)function).apply(call);
+      else if(authorize instanceof java.util.function.Predicate<?> predicate)decision=((java.util.function.Predicate<Map<String,Object>>)predicate).test(call);
+      else throw new IllegalArgumentException("authorizeToolCall must be a host callback");
+      Core._mcp_tool_authorization_result(name,decision);
+    }
+Map<String,String> headers=toolHeaders(name,args);Map<String,Object> result;try{result=requestWithInputRounds("tools/call",Map.of("name",name,"arguments",args),headers);}catch(AxMCPError error){if(!"modern".equals(era)||error.code!=-32020)throw error;tools.clear();for(Map<String,Object> tool:collectCatalog("tools/list","tools")){try{Core.mcp_param_header_bindings(tool.getOrDefault("inputSchema",Map.of()));tools.add(tool);}catch(RuntimeException ignored){}}result=requestWithInputRounds("tools/call",Map.of("name",name,"arguments",args),toolHeaders(name,args));}if(!"task".equals(String.valueOf(result.get("resultType"))))return result;if(!hasTasksCapability())throw new AxMCPError("MCP protocol violation: server returned a task without negotiating io.modelcontextprotocol/tasks");if(!Boolean.TRUE.equals(Core.mcp_validate_modern_task(result)))throw new AxMCPError("MCP protocol violation: invalid CreateTaskResult");return awaitModernTask(String.valueOf(result.get("taskId")));}
   private Map<String,Object> awaitModernTask(String taskId){int max=((Number)options.getOrDefault("maxTaskPolls",1000)).intValue();for(int poll=0;poll<max;poll++){Map<String,Object> outcome=Core.asMap(Core.mcp_task_terminal_outcome(getTask(taskId)));String kind=String.valueOf(outcome.get("kind"));if("result".equals(kind))return cloneMap(Core.asMap(outcome.get("result")));if("protocol_error".equals(kind))throw new AxMCPError(String.valueOf(outcome.get("message")),((Number)outcome.getOrDefault("code",0)).intValue(),outcome.get("data"));if(List.of("violation","failure","cancelled").contains(kind))throw new AxMCPError(String.valueOf(outcome.get("message")));if("input_required".equals(kind)){BiFunction<Map<String,Object>,Map<String,Object>,Map<String,Object>> handler=elicitationHandler();Map<String,Object> fulfillment=Core.asMap(Core.mcp_mrtr_plan_fulfillment(outcome.get("inputRequests"),options.get("roots"),handler!=null,false));if(!Boolean.TRUE.equals(fulfillment.get("ok")))throw new AxMCPError(String.valueOf(fulfillment.get("message")));Map<String,Object> responses=new LinkedHashMap<>(Core.asMap(fulfillment.get("responses")));for(Map.Entry<String,Object> entry:Core.asMap(fulfillment.get("pending")).entrySet()){Map<String,Object> pending=Core.asMap(entry.getValue());if(handler==null||!"elicitation/create".equals(pending.get("method")))throw new AxMCPError("MCP protocol violation: unsupported pending task input request method "+pending.get("method"));responses.put(entry.getKey(),handler.apply(Core.asMap(pending.get("params")),Map.of("client",this,"namespace",namespace())));}provideTaskInput(taskId,responses);}}throw new AxMCPError("MCP task "+taskId+" exceeded "+max+" polls");}
   private Map<String,String> toolHeaders(String name,Map<String,Object> args){Map<String,String> out=new LinkedHashMap<>();if(!"modern".equals(era))return out;for(Map<String,Object> tool:tools)if(name.equals(String.valueOf(tool.get("name")))){Object bindings=Core.mcp_param_header_bindings(tool.getOrDefault("inputSchema",Map.of()));for(Map.Entry<String,Object> entry:Core.asMap(Core.mcp_param_header_values(bindings,args)).entrySet())out.put(entry.getKey(),String.valueOf(entry.getValue()));break;}return out;}
   public Map<String, Object> listPrompts(String cursor) { return request("prompts/list", cursor == null ? Map.of() : Map.of("cursor", cursor)); }
@@ -184,7 +195,7 @@ public final class AxMCPClient {
     List<Tool> out = new ArrayList<>();
     for (Map<String, Object> tool : tools) {
       String original = String.valueOf(tool.getOrDefault("name", ""));
-      out.add(new Tool(overrideName(original), overrideDescription(tool), List.of(), List.of(), args -> callTool(original, args)));
+      out.add(new Tool(overrideName(original), overrideDescription(tool), List.of(), List.of(), args -> callTool(original, args)).parameters(Core.asMap(tool.getOrDefault("inputSchema",Map.of()))));
     }
     return out;
   }
@@ -212,7 +223,7 @@ public final class AxMCPClient {
   private Map<String,Object> requestWithHeaders(String method,Map<String,Object> params,Map<String,String> headers,boolean allowVersionRetry){
     Map<String, Object> message = new LinkedHashMap<>();
     message.put("jsonrpc", "2.0");
-    message.put("id", String.valueOf(nextId++));
+    message.put("id", String.valueOf(nextId.getAndIncrement()));
     message.put("method", method);
     Map<String,Object> requestParams=new LinkedHashMap<>(params==null?Map.of():params);if("modern".equals(era)){Map<String,Object> info=new LinkedHashMap<>(Map.of("name","AxMCPClient","title","Ax MCP Client","version","1.0.0"));info.putAll(Core.asMap(options.get("clientInfo")));requestParams.put("_meta",Core.mcp_build_request_meta(Core.asMap(requestParams.get("_meta")),negotiatedProtocolVersion,clientCapabilities(),info,options.get("logLevel"),null,null));}
     if (params != null) message.put("params", requestParams);
@@ -274,7 +285,7 @@ public final class AxMCPClient {
       Map<String, Object> result = callTool(original, args);
       if (result.containsKey("structuredContent")) return result.get("structuredContent");
       return Map.of("content", contentText(Core.asList(result.get("content"))));
-    });
+    }).parameters(Core.asMap(tool.getOrDefault("inputSchema",Map.of())));
   }
 
   private Tool promptToFunction(Map<String, Object> prompt) {
@@ -361,6 +372,32 @@ public final class AxMCPClient {
 
   public static void runConformanceFixture(Map<String, Object> fixture) {
     String operation = String.valueOf(fixture.getOrDefault("operation", "initialize"));
+    if(operation.equals("inheritance_context")||operation.equals("inheritance_agent_context")){
+      for(Object raw:Core.asList(fixture.get("cases"))){var test=Core.asMap(raw);var clients=new ArrayList<AxMCPClient>();var transports=new LinkedHashMap<String,AxMCPScriptedTransport>();
+        for(Object item:Core.asList(fixture.get("clients"))){var spec=Core.asMap(item);String name=String.valueOf(spec.get("namespace"));var transport=new AxMCPScriptedTransport(Core.asList(spec.get("responses")));transports.put(name,transport);clients.add(new AxMCPClient(transport,Map.of("namespace",name,"era","modern")));}
+        var context=new AxExecutionContext(clients,List.of());var results=new ArrayList<Object>();List<String> selected=List.of();String error=null;
+        try{var child=context.derive(test.get("inheritance"));selected=child.namespaces();if(operation.equals("inheritance_agent_context")){var options=new LinkedHashMap<String,Object>(Core.asMap(fixture.get("agent_options")));options.put("executionContext",child);var program=new AxAgent("question:string -> answer:string",options);if(!program.invokeCallable("tools.local_echo",Map.of()).equals(fixture.get("expected_local_result")))throw new AssertionError("Existing tool lost on attachment");for(var client:child.mcp())for(var tool:client.nativeTools()){var result=Core.asMap(program.invokeCallable("mcp."+client.namespace()+".tools."+tool.name,Map.of("query","scope-probe")));if(!"ok".equals(result.get("status")))throw new AssertionError(result);results.add(result.get("value"));}}else{for(Tool tool:child.nativeTools())results.add(tool.call(Map.of("query","scope-probe")));}}catch(RuntimeException failure){error=failure.getMessage();}
+        if(!java.util.Objects.equals(error,test.get("expected_error")))throw new AssertionError("Inheritance error: "+error);
+        if(error==null&&!selected.equals(test.get("expected_namespaces")))throw new AssertionError("Selected client order: "+selected);
+        if(!results.equals(test.get("expected_results")))throw new AssertionError("Inherited tool results: "+results);
+        for(var entry:transports.entrySet()){var methods=new ArrayList<String>();for(Object rawRequest:entry.getValue().requests){var request=Core.asMap(rawRequest);methods.add(String.valueOf(request.get("method")));if("tools/call".equals(request.get("method"))&&!Map.of("query","scope-probe").equals(Core.asMap(request.get("params")).get("arguments")))throw new AssertionError("Inherited tool arguments");}if(!methods.equals(Core.asMap(test.get("expected_methods")).get(entry.getKey())))throw new AssertionError("Inherited client requests: "+methods);}
+        var parentResults=new ArrayList<Object>();for(Tool tool:context.nativeTools())parentResults.add(tool.call(Map.of("query","parent-probe")));if(!parentResults.equals(test.get("expected_parent_results")))throw new AssertionError("Parent continuation results: "+parentResults);
+        for(var entry:transports.entrySet()){var methods=new ArrayList<String>();var calls=new ArrayList<Object>();for(Object rawRequest:entry.getValue().requests){var request=Core.asMap(rawRequest);methods.add(String.valueOf(request.get("method")));if("tools/call".equals(request.get("method"))){var params=Core.asMap(request.get("params"));calls.add(Map.of("name",params.get("name"),"arguments",params.get("arguments")));}}if(!methods.equals(Core.asMap(test.get("expected_parent_methods")).get(entry.getKey()))||!calls.equals(Core.asMap(test.get("expected_calls")).get(entry.getKey())))throw new AssertionError("Parent continuation requests: "+methods+calls);}
+      }return;
+    }
+    if(operation.equals("inheritance_plan")){
+      for(Object raw:Core.asList(fixture.get("cases"))){Map<String,Object> test=Core.asMap(raw);Object result=null;String error=null;
+        try{result=Core._mcp_inheritance_plan(fixture.get("mcp"),fixture.get("ucp"),test.get("inheritance"));}catch(RuntimeException failure){error=failure.getMessage();}
+        if(!java.util.Objects.equals(error,test.get("expected_error")))throw new AssertionError("Inheritance error mismatch: "+error);
+        if(error==null&&!java.util.Objects.equals(result,test.get("expected")))throw new AssertionError("Inheritance selection mismatch: "+result);
+      }return;
+    }
+    if(operation.equals("tool_authorization")){
+      for(Object raw:Core.asList(fixture.get("cases"))){Map<String,Object> test=Core.asMap(raw);var transport=new AxMCPScriptedTransport(Core.asList(fixture.get("responses")));List<Map<String,Object>> observed=new ArrayList<>();var clientRef=new java.util.concurrent.atomic.AtomicReference<AxMCPClient>();Map<String,Object> config=new LinkedHashMap<>(Core.asMap(fixture.get("client_options")));
+        config.put("authorizeToolCall",(java.util.function.Function<Map<String,Object>,Object>)call->{if(call.get("client")!=clientRef.get())throw new AssertionError("Lost authorization client");var copy=new LinkedHashMap<>(call);copy.remove("client");observed.add(copy);return test.get("decision");});var client=new AxMCPClient(transport,config);clientRef.set(client);client.init();String name=String.valueOf(test.get("name"));Map<String,Object> result=null;String error=null;try{result=client.callTool(name,Map.of("query","REF-42"));}catch(RuntimeException caught){error=caught.getMessage();}if(!java.util.Objects.equals(error,test.get("expected_error")))throw new AssertionError("MCP authorization error mismatch: "+error);if(error==null&&!result.equals(test.get("expected_result")))throw new AssertionError("Lost authorized MCP result");if(observed.size()!=((Number)test.get("expected_authorization_calls")).intValue())throw new AssertionError("Authorization call count mismatch");if(!observed.isEmpty()&&!observed.get(0).equals(test.get("expected_context")))throw new AssertionError("Lost authorization context");var sent=transport.requests.stream().filter(request->"tools/call".equals(request.get("method"))).toList();if(sent.size()!=((Number)test.get("expected_tool_requests")).intValue())throw new AssertionError("Denied MCP request reached transport");for(var request:sent)assertSubset(request,Map.of("params",Map.of("name",name,"arguments",Map.of("query","REF-42"))),"authorized request");
+      }return;
+    }
+
     String expectedError = fixture.containsKey("expected_error_contains") ? String.valueOf(fixture.get("expected_error_contains")) : null;
     try {
       if ("ssrf".equals(operation)) {
@@ -588,6 +625,8 @@ public final class AxMCPClient {
         assertRequests(transport.requests, fixture);
       } else if ("tools".equals(operation)) {
         List<Tool> functions = client.nativeTools();
+        Map<String,Object> schemas = Core.asMap(fixture.getOrDefault("expected_schemas",Map.of()));
+        for (Tool function : functions) if (schemas.containsKey(function.name) && !function.schema().equals(schemas.get(function.name))) throw new AssertionError("Native tool schema was altered");
         List<String> names = functions.stream().map(tool -> tool.name).toList();
         if (fixture.get("expected_function_names") != null && !names.equals(Core.asList(fixture.get("expected_function_names")).stream().map(String::valueOf).toList())) throw new AssertionError("function names mismatch: " + names);
         if (fixture.get("call_function") != null) {

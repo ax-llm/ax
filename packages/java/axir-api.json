@@ -225,6 +225,20 @@
         },
         {
           "target_name": "java",
+          "canonical_name": "owned_client_factory",
+          "public_name": "AiClient.ownedWorkerFactory",
+          "kind": "method",
+          "description": "Optional factory for an independent client worker with preserved configuration, authentication and routing. Built-in providers supply it; custom services may omit it without changing chat compatibility.",
+          "form": "AiClient.ownedWorkerFactory()",
+          "important_options": [
+            "owned configuration",
+            "shared balancer accounting",
+            "no borrowed client transfer"
+          ],
+          "returns": "worker factory or unavailable"
+        },
+        {
+          "target_name": "java",
           "canonical_name": "AxChatSession",
           "public_name": "AxChatSession",
           "kind": "interface",
@@ -684,6 +698,22 @@
             "playbook"
           ],
           "returns": "agent program"
+        },
+        {
+          "target_name": "java",
+          "canonical_name": "add_child_agent",
+          "public_name": "AxAgent.addChildAgent",
+          "kind": "method",
+          "description": "Register an owned child agent for serialized delegation through the parent invocation boundary. Scoped controls use parent/namespace.name paths.",
+          "form": "AxAgent.addChildAgent(namespace, name, child)",
+          "important_options": [
+            "namespace",
+            "name",
+            "child",
+            "independent conversation",
+            "child usage"
+          ],
+          "returns": "parent agent"
         }
       ]
     },
@@ -724,6 +754,21 @@
             "returns"
           ],
           "returns": "flow program"
+        },
+        {
+          "target_name": "java",
+          "canonical_name": "owned_program_factory",
+          "public_name": "AxProgram.ownedWorkerFactory",
+          "kind": "method",
+          "description": "Optional factory for independent program state. Parallel groups require both client and program factories; otherwise the whole group runs serially with a fallback trace.",
+          "form": "AxProgram.ownedWorkerFactory()",
+          "important_options": [
+            "owned memory",
+            "per-node controls",
+            "deterministic result merge",
+            "cooperative cancellation"
+          ],
+          "returns": "worker factory or unavailable"
         }
       ]
     },
@@ -783,7 +828,8 @@
             "transport",
             "client info",
             "roots",
-            "tool overrides"
+            "tool overrides",
+            "host tool authorization"
           ],
           "returns": "MCP client",
           "example": "AxMCPClient client = new AxMCPClient(transport);"

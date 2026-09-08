@@ -1,0 +1,68 @@
+{
+  "kind": "mcp",
+  "operation": "inheritance_plan",
+  "name": "execution-context-inheritance",
+  "source": {
+    "tsDerived": true,
+    "extractor": "tools/axir/extractors/mcp-inheritance-goldens.ts",
+    "reference": ["src/ax/mcp/execution.ts", "src/ax/mcp/execution.test.ts"]
+  },
+  "mcp": ["inventory", "orders"],
+  "ucp": ["merchant"],
+  "cases": [
+    {
+      "inheritance": "all",
+      "expected": {
+        "mcp": ["inventory", "orders"],
+        "ucp": ["merchant"]
+      }
+    },
+    {
+      "inheritance": "none",
+      "expected": {
+        "mcp": [],
+        "ucp": []
+      }
+    },
+    {
+      "inheritance": [],
+      "expected": {
+        "mcp": [],
+        "ucp": []
+      }
+    },
+    {
+      "inheritance": ["orders"],
+      "expected": {
+        "mcp": ["orders"],
+        "ucp": []
+      }
+    },
+    {
+      "inheritance": ["orders", "inventory"],
+      "expected": {
+        "mcp": ["orders", "inventory"],
+        "ucp": []
+      }
+    },
+    {
+      "inheritance": ["merchant", "orders"],
+      "expected": {
+        "mcp": ["orders"],
+        "ucp": ["merchant"]
+      }
+    },
+    {
+      "inheritance": ["missing"],
+      "expected_error": "Unknown inherited MCP client namespace: missing"
+    },
+    {
+      "inheritance": ["inventory", "inventory"],
+      "expected_error": "Duplicate MCP client namespace: inventory"
+    },
+    {
+      "inheritance": ["merchant", "merchant"],
+      "expected_error": "Duplicate MCP/UCP client namespace: merchant"
+    }
+  ]
+}

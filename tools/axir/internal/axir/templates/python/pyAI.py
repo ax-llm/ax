@@ -820,7 +820,9 @@ class AxAIService(ABC):
 
 
 class AIClient(AxAIService):
-    pass
+    def owned_worker_factory(self):
+        """Optional factory for an independently owned concurrent client."""
+        return None
 
 
 class AxBaseAI(AIClient):
@@ -845,6 +847,7 @@ class AxBaseAI(AIClient):
         self.options = _strip_runtime_hooks(options)
         self.features = copy.deepcopy(features or default_features())
         self.metrics = default_metrics()
+        self._metrics_lock = threading.RLock()
         self.last_used_chat_model = None
         self.last_used_embed_model = None
         self.last_used_model_config = None
@@ -868,7 +871,7 @@ class AxBaseAI(AIClient):
         return models
 
     def get_metrics(self) -> dict[str, Any]:
-        return copy.deepcopy(self.metrics)
+        with self._metrics_lock: return copy.deepcopy(self.metrics)
 
     def get_last_used_chat_model(self):
         return self.last_used_chat_model
@@ -998,21 +1001,38 @@ class AxBaseAI(AIClient):
         ...
 
     def _record_metrics(self, kind: str, duration_seconds: float, is_error: bool):
-        bucket = self.metrics["latency"][kind]
-        bucket["samples"].append(duration_seconds * 1000)
-        samples = bucket["samples"]
-        bucket["mean"] = sum(samples) / len(samples)
-        ordered = sorted(samples)
-        bucket["p95"] = ordered[min(len(ordered) - 1, int(len(ordered) * 0.95))]
-        bucket["p99"] = ordered[min(len(ordered) - 1, int(len(ordered) * 0.99))]
-        errors = self.metrics["errors"][kind]
-        errors["total"] += 1
-        if is_error:
-            errors["count"] += 1
-        errors["rate"] = errors["count"] / errors["total"] if errors["total"] else 0.0
+        with self._metrics_lock:
+            bucket = self.metrics["latency"][kind]
+            bucket["samples"].append(duration_seconds * 1000)
+            samples = bucket["samples"]
+            bucket["mean"] = sum(samples) / len(samples)
+            ordered = sorted(samples)
+            bucket["p95"] = ordered[min(len(ordered) - 1, int(len(ordered) * 0.95))]
+            bucket["p99"] = ordered[min(len(ordered) - 1, int(len(ordered) * 0.99))]
+            errors = self.metrics["errors"][kind]
+            errors["total"] += 1
+            if is_error:
+                errors["count"] += 1
+            errors["rate"] = errors["count"] / errors["total"] if errors["total"] else 0.0
 
 
 class ProviderOperationClient(AxBaseAI):
+    def owned_worker_factory(self):
+        transport_factory = None
+        if self.transport is not None:
+            method = getattr(self.transport, "owned_worker_factory", None)
+            transport_factory = method() if callable(method) else None
+            if transport_factory is None: return None
+        memo = {id(self.runtime_hooks):self.runtime_hooks, id(self.metrics):self.metrics, id(self._metrics_lock):self._metrics_lock}
+        if self.transport is not None: memo[id(self.transport)] = self.transport
+        if self.credential_provider is not None: memo[id(self.credential_provider)] = self.credential_provider
+        try: snapshot = copy.deepcopy(self, dict(memo))
+        except (TypeError, ValueError): return None
+        def factory():
+            owned = copy.deepcopy(snapshot, dict(memo))
+            if transport_factory is not None: owned.transport = transport_factory()
+            return owned
+        return factory
     def __init__(
         self,
         profile: str,
@@ -1766,6 +1786,21 @@ def _router_default_features() -> dict[str, Any]:
 
 
 class MultiServiceRouter(AxAIService):
+    def owned_worker_factory(self):
+        factories = {}
+        for key, entry in self.services.items():
+            factory = getattr(entry['service'], 'owned_worker_factory', lambda: None)()
+            if factory is None: return None
+            factories[key] = factory
+        metadata = {key: copy.deepcopy({k:v for k,v in entry.items() if k != 'service'}) for key,entry in self.services.items()}
+        options = copy.deepcopy(self.options)
+        def create():
+            worker = object.__new__(MultiServiceRouter)
+            worker.services = {key: {**copy.deepcopy(metadata[key]), 'service': factory()} for key,factory in factories.items()}
+            worker.options = copy.deepcopy(options); worker.last_used_service = None
+            return worker
+        return create
+
     def __init__(self, services):
         if not services:
             raise ValueError("No AI services provided.")
@@ -2160,6 +2195,25 @@ def _merge_service_features(services, model=None):
     return features
 
 class AxBalancer(AxAIService):
+    def owned_worker_factory(self):
+        factories = [getattr(service, 'owned_worker_factory', lambda: None)() for service in self.services]
+        if any(factory is None for factory in factories): return None
+        snapshot = copy.copy(self)
+        policy = copy.deepcopy(self.policy)
+        adaptive = self.adaptive
+        keys = [adaptive['route_keys'][id(service)] for service in self.services] if adaptive else []
+        indices = [adaptive['indices'][id(service)] for service in self.services] if adaptive else []
+        def create():
+            worker = copy.copy(snapshot)
+            worker.services = [factory() for factory in factories]
+            worker.current_service = worker.services[worker.current_service_index]
+            worker.policy = copy.deepcopy(policy)
+            if adaptive:
+                # All node workers observe the same adaptive accounting store.
+                worker.adaptive = {**adaptive, 'route_keys': {id(service): keys[i] for i,service in enumerate(worker.services)}, 'indices': {id(service): indices[i] for i,service in enumerate(worker.services)}}
+            return worker
+        return create
+
     input_order_comparator = "input_order"
 
     @staticmethod
@@ -2183,6 +2237,7 @@ class AxBalancer(AxAIService):
         self.initial_backoff_ms = int(self.policy.get("initialBackoffMs", 1000))
         self.max_backoff_ms = int(self.policy.get("maxBackoffMs", 32000))
         self.service_failures: dict[str, dict[str, Any]] = {}
+        self._failures_lock = threading.Lock()
         self.services = list(services)
         self._validate_models()
         if self.policy.get("strategy") != "input_order":
@@ -2241,14 +2296,15 @@ class AxBalancer(AxAIService):
         self.current_service = self.services[0]
 
     def _can_retry_service(self, service: AxAIService) -> bool:
-        return service.get_id() not in self.service_failures
+        with self._failures_lock: return service.get_id() not in self.service_failures
 
     def _handle_failure(self, service: AxAIService, exc: AxAIServiceError):
-        failure = self.service_failures.get(service.get_id(), {"retries": 0})
-        self.service_failures[service.get_id()] = {"retries": int(failure.get("retries", 0)) + 1}
+        with self._failures_lock:
+            failure = self.service_failures.get(service.get_id(), {"retries": 0})
+            self.service_failures[service.get_id()] = {"retries": int(failure.get("retries", 0)) + 1}
 
     def _handle_success(self, service: AxAIService):
-        self.service_failures.pop(service.get_id(), None)
+        with self._failures_lock: self.service_failures.pop(service.get_id(), None)
 
     def _candidate_services(self, request: dict[str, Any]):
         candidates = [service for service in self.services if provider_balancer_candidate_allowed(service.get_features(str(request.get("model"))) or {}, request)]
@@ -2679,6 +2735,17 @@ class _PinnedProviderClient:
 
 
 class ProviderRouter:
+    def owned_worker_factory(self):
+        factories = [getattr(service, 'owned_worker_factory', lambda: None)() for service in self.providers]
+        if any(factory is None for factory in factories): return None
+        processing, routing = copy.deepcopy(self.processing), copy.deepcopy(self.routing)
+        def create():
+            worker = object.__new__(ProviderRouter)
+            worker.providers = [factory() for factory in factories]
+            worker.processing, worker.routing = copy.deepcopy(processing), copy.deepcopy(routing)
+            return worker
+        return create
+
     def __init__(self, config: dict[str, Any]):
         providers_config = config.get("providers") or {}
         self.providers = [providers_config.get("primary"), *(providers_config.get("alternatives") or [])]

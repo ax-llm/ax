@@ -1,0 +1,103 @@
+{
+  "kind": "flow",
+  "name": "owned-workers-custom-client-serial-fallback",
+  "input": {
+    "question": "override?"
+  },
+  "steps": [
+    {
+      "kind": "execute",
+      "name": "left",
+      "signature": "question:string -> left:string",
+      "options": {
+        "reads": ["question"],
+        "writes": ["leftResult"],
+        "isBarrier": false
+      }
+    },
+    {
+      "kind": "execute",
+      "name": "right",
+      "signature": "question:string -> right:string",
+      "options": {
+        "reads": ["question"],
+        "writes": ["rightResult"],
+        "isBarrier": false
+      }
+    }
+  ],
+  "returns": {
+    "left": "leftResult.left",
+    "right": "rightResult.right"
+  },
+  "forward_options": {},
+  "responses": [
+    {
+      "content": "{\"left\":\"l\"}"
+    },
+    {
+      "content": "{\"right\":\"r\"}"
+    }
+  ],
+  "expected_trace_subset": [
+    {
+      "kind": "flow_parallel_fallback",
+      "payload": {
+        "reason": "owned-worker-unavailable"
+      }
+    },
+    {
+      "kind": "flow_step",
+      "payload": {
+        "name": "left"
+      }
+    },
+    {
+      "kind": "flow_step",
+      "payload": {
+        "name": "right"
+      }
+    }
+  ],
+  "expected_chat_log_subset": [
+    {
+      "name": "left",
+      "response": {
+        "content": "{\"left\":\"l\"}"
+      }
+    },
+    {
+      "name": "right",
+      "response": {
+        "content": "{\"right\":\"r\"}"
+      }
+    }
+  ],
+  "source": {
+    "tsDerived": true,
+    "extractor": "tools/axir/extractors/flow-goldens.ts",
+    "reference": [
+      "src/ax/flow/flow.ts",
+      "src/ax/flow/steps.ts",
+      "src/ax/flow/executor.ts",
+      "src/ax/flow/executionPlanner.ts",
+      "src/ax/flow/mermaid.ts",
+      "src/ax/flow/dependencyAnalyzer.ts",
+      "src/ax/dsp/program.ts"
+    ],
+    "name": "owned-workers-custom-client-serial-fallback",
+    "observed": {
+      "output": {
+        "left": "l",
+        "right": "r"
+      },
+      "nodeCalls": 2,
+      "generatedCompatibilityPolicy": "Clients without owned workers preserve the TS plan and result, execute the group serially, and report flow_parallel_fallback."
+    }
+  },
+  "expected_output": {
+    "left": "l",
+    "right": "r"
+  },
+  "expected_request_count": 2
+}

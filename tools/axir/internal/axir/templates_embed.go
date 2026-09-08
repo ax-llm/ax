@@ -709,3 +709,6 @@ var pySession string
 
 //go:embed templates/python/pySessionNoKeyExample.py
 var pySessionNoKeyExample string
+
+//go:embed templates/runtime/hostNamespaces.js
+var runtimeHostNamespaces string

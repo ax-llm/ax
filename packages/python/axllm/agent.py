@@ -51,9 +51,13 @@ from .mcp import resolve_execution_context
 from .signature import AxSignature, parse_signature
 from .gen import (
     chat_session_mode_enabled,
+    chat_session_validate_required_arguments,
 )
 from .prompt import (
     render_template_content,
+)
+from .schema import (
+    _schema_to_json_schema_impl,
 )
 
 
@@ -1598,8 +1602,8 @@ class AxAgent:
         self.options = _strip_runtime_hooks(options)
         self.execution_context = resolve_execution_context(self.options)
         if self.execution_context:
-            existing = list(self.options.get("functions") or [])
-            self.options["functions"] = existing + self.execution_context.runtime_modules()
+            self.execution_context.initialize()
+            self.options = _agent_append_runtime_modules(self.options, self.execution_context.runtime_modules())
             self.options["executionContext"] = self.execution_context
         self._playbook_handle = None
         self._agent_playbook = None
@@ -1628,6 +1632,11 @@ class AxAgent:
         self.executor = AxGen(_core_get(self.state, "executor_signature"), {"validation_retries": actor_validation_retries, "id": "task.root.actor", "instruction": _core_get(self.state, "executor_description", "")})
         self.responder = AxGen(_core_get(self.state, "responder_signature", self.signature), {"validation_retries": self.options.get("validation_retries", 2), "id": "task.root.responder", "instruction": _core_get(self.state, "responder_description", "")})
         self.llm_query = AxGen(_core_get(self.state, "llm_query_signature", "task:string, context:json -> answer:string"), {"validation_retries": 1, "id": "rlm.llmquery", "instruction": _core_get(self.state, "llm_query_description", "")})
+
+    def add_child_agent(self, namespace: str, name: str, child: "AxAgent"):
+        self.options = _agent_register_child(self.options, namespace, name, child, child.signature)
+        self._rebuild_from_signature(self.signature)
+        return self
 
     def set_signature(self, signature):
         self._rebuild_from_signature(signature)
@@ -1674,20 +1683,57 @@ class AxAgent:
         runtime = options.get("runtime")
         if runtime is None:
             runtime = self.options.get("runtime")
+        invocation_binding = None
+        if runtime is not None and hasattr(runtime, "register_callable"):
+            import threading
+            import weakref
+            class InvocationBinding:
+                def __init__(self, state, sub_gen, client, options):
+                    self.state = state
+                    self.sub_gen = sub_gen
+                    self.client = client
+                    self.options = options
+                    self.owner = threading.get_ident()
+                    self.active = True
+            invocation_binding = InvocationBinding(self.state, self.llm_query, client, options)
+            binding_ref = weakref.ref(invocation_binding)
+            for qualified in _agent_runtime_callable_names(self.state):
+                def invoke(arguments, qualified=qualified):
+                    binding = binding_ref()
+                    if binding is None or not binding.active:
+                        raise RuntimeError("Agent invocation belongs to a closed run")
+                    if threading.get_ident() != binding.owner:
+                        raise RuntimeError("Agent runtime callbacks must execute on the owning run thread")
+                    return _agent_runtime_invoke_callable(binding.state, qualified, arguments)
+                runtime.register_callable(qualified, invoke)
         # Wire the built-in llmQuery primitive: a focused sub-query the model can
         # await inside the runtime. The logic lives in the AxIR-generated helper;
         # this wrapper only registers the host callable that closes over this client.
         if runtime is not None and hasattr(runtime, "register_callable"):
-            runtime.register_callable("llmQuery", lambda params: _agent_run_llm_query(self.llm_query, client, params, options))
-        output = _agent_forward(
-            self.state,
-            self.distiller,
-            self.executor,
-            self.responder,
-            client,
-            values or {},
-            options,
-        )
+            def llm_query(params):
+                binding = binding_ref()
+                if binding is None or not binding.active:
+                    raise RuntimeError("Agent invocation belongs to a closed run")
+                if threading.get_ident() != binding.owner:
+                    raise RuntimeError("Agent runtime callbacks must execute on the owning run thread")
+                return _agent_run_llm_query(binding.sub_gen, binding.client, params, binding.options)
+            runtime.register_callable("llmQuery", llm_query)
+        try:
+            output = _agent_forward(
+                self.state,
+                self.distiller,
+                self.executor,
+                self.responder,
+                client,
+                values or {},
+                options,
+            )
+        finally:
+            if invocation_binding is not None:
+                invocation_binding.active = False
+                invocation_binding.client = None
+                invocation_binding.sub_gen = None
+                invocation_binding.options = None
         citations = self.options.get("citations")
         citation_callback = citations.get("onCitations") or citations.get("on_citations") if isinstance(citations, dict) else None
         if callable(citation_callback):
@@ -5774,6 +5820,12 @@ def _agent_sanitize_action_log_entries(entries: Any) -> list[Any]:
             clean["qualified_name"] = qualified_name
         else:
             pass
+        public_call_id = _core_get(entry, "call_id", None)
+        has_call_id = _core_is_not_none(public_call_id)
+        if has_call_id:
+            clean["call_id"] = public_call_id
+        else:
+            pass
         entry_name = _core_get(entry, "name", "")
         has_entry_name = _core_ne(entry_name, "")
         if has_entry_name:
@@ -7111,7 +7163,43 @@ def _agent_execute_callable(state: Any, request: Any, options: Any) -> Any:
         result["status"] = "error"
         result["error"] = message
     else:
-        result = _core_agent_callable_invoke(state, request, options)
+        implementation = _agent_callable_implementation(state, qualified)
+        program = _core_get(implementation, "program", None)
+        child = _core_is_not_none(program)
+        if child:
+            empty_map = {}
+            arguments = _core_get(request, "args", empty_map)
+            schema = _core_get(implementation, "parameters", empty_map)
+            value = {}
+            try:
+                chat_session_validate_required_arguments(schema, arguments, qualified)
+                active = _core_get(state, "forward_active", False)
+                if active:
+                    pass
+                else:
+                    error = _core_runtime_error("Child agent delegation requires an active parent forward call")
+                    raise error
+                client = _core_get(state, "active_client", None)
+                child_options = _agent_child_options(state, qualified, options)
+                value = _core_agent_stage_forward(program, client, arguments, child_options)
+            except Exception as child_error:
+                children_usage = _core_get(state, "children_usage", empty_map)
+                child_usage = _core_agent_stage_usage(program)
+                children_usage[qualified] = child_usage
+                state["children_usage"] = children_usage
+                message = _core_string_format("{}", child_error)
+                result["status"] = "error"
+                result["error"] = message
+                _agent_record_callable_result(state, request, result, options)
+                raise child_error
+            children_usage = _core_get(state, "children_usage", empty_map)
+            child_usage = _core_agent_stage_usage(program)
+            children_usage[qualified] = child_usage
+            state["children_usage"] = children_usage
+            result["status"] = "ok"
+            result["value"] = value
+        else:
+            result = _core_agent_callable_invoke(state, request, options)
     recorded = _agent_record_callable_result(state, request, result, options)
     return recorded
 
@@ -7146,6 +7234,8 @@ def _agent_record_callable_result(state: Any, request: Any, result: Any, options
     else:
         pass
     action["qualified_name"] = qualified
+    rendered_result = _core_json_stringify(result)
+    action["output"] = rendered_result
     action["status"] = status
     action_log.append(action)
     state["action_log"] = action_log
@@ -9814,6 +9904,14 @@ def _merge_agent_usage(state: Any, distiller: Any, executor: Any, responder: Any
     usage["chat_log_entries"] = count
     usage["actor"] = actor
     usage["responder"] = responder_usage
+    empty_map = {}
+    children = _core_get(state, "children_usage", empty_map)
+    children_count = _core_len(children)
+    has_children = _core_gt(children_count, 0)
+    if has_children:
+        usage["children"] = children
+    else:
+        pass
     state["usage"] = usage
     return usage
 
@@ -10606,8 +10704,8 @@ def _agent_run_llm_query(sub_gen: Any, client: Any, params: Any, options: Any) -
     return single
 
 
-def _agent_forward(state: Any, distiller: Any, executor: Any, responder: Any, client: Any, values: Any, options: Any) -> Any:
-    _core_coverage_mark("_agent_forward")
+def _agent_forward_impl(state: Any, distiller: Any, executor: Any, responder: Any, client: Any, values: Any, options: Any) -> Any:
+    _core_coverage_mark("_agent_forward_impl")
     empty_list = []
     empty_map = {}
     state["native_tool_names"] = empty_list
@@ -10964,5 +11062,229 @@ def _agent_forward(state: Any, distiller: Any, executor: Any, responder: Any, cl
     _agent_build_failure_signals(state)
     _agent_finalize_trace(state, "completed", responder_output)
     return responder_output
+
+
+def _agent_append_runtime_modules(options: Any, additional: Any) -> Any:
+    _core_coverage_mark("_agent_append_runtime_modules")
+    empty_map = {}
+    empty_list = []
+    out = _core_map_merge(empty_map, options)
+    functions = _core_get(options, "functions", empty_list)
+    modules = []
+    flat = []
+    for item in functions:
+        members = _core_get(item, "functions", None)
+        group = _core_type_is(members, "list")
+        if group:
+            modules.append(item)
+        else:
+            flat.append(item)
+    count = _core_len(flat)
+    has_flat = _core_gt(count, 0)
+    if has_flat:
+        module = {}
+        module["namespace"] = "tools"
+        module["title"] = "Tools"
+        module["alwaysInclude"] = True
+        module["functions"] = flat
+        modules.append(module)
+    else:
+        pass
+    for module in additional:
+        modules.append(module)
+    out["functions"] = modules
+    return out
+
+
+def _agent_register_child(options: Any, namespace: str, name: str, program: Any, signature: Any) -> Any:
+    _core_coverage_mark("_agent_register_child")
+    additional = []
+    options = _agent_append_runtime_modules(options, additional)
+    empty_map = {}
+    empty_list = []
+    out = _core_map_merge(empty_map, options)
+    fields = _core_get(signature, "input_fields", empty_list)
+    schema = _schema_to_json_schema_impl(fields, name, empty_map)
+    child = {}
+    child["name"] = name
+    child["kind"] = "agent"
+    child["execution"] = "blocking"
+    child["parameters"] = schema
+    child["program"] = program
+    description = _core_get(signature, "description", "Delegate to a child agent")
+    child["description"] = description
+    functions = _core_get(options, "functions", empty_list)
+    modules = []
+    found = False
+    for module in functions:
+        default_name = _core_get(module, "name", "tools")
+        module_namespace = _core_get(module, "namespace", default_name)
+        matches = _core_eq(module_namespace, namespace)
+        members = _core_get(module, "functions", None)
+        group = _core_type_is(members, "list")
+        matches = _core_and(matches, group)
+        if matches:
+            copy = _core_map_merge(empty_map, module)
+            children = []
+            for member in members:
+                children.append(member)
+            children.append(child)
+            copy["functions"] = children
+            modules.append(copy)
+            found = True
+        else:
+            modules.append(module)
+    if found:
+        pass
+    else:
+        module = {}
+        children = []
+        children.append(child)
+        module["namespace"] = namespace
+        module["functions"] = children
+        modules.append(module)
+    out["functions"] = modules
+    return out
+
+
+def _agent_child_options(state: Any, qualified: str, options: Any) -> Any:
+    _core_coverage_mark("_agent_child_options")
+    empty_map = {}
+    base = _core_get(state, "options", empty_map)
+    active = _core_get(state, "active_forward_options", empty_map)
+    parent = _core_map_merge(base, active)
+    parent = _core_map_merge(parent, options)
+    out = {}
+    keys = []
+    keys.append("control")
+    keys.append("asyncMode")
+    keys.append("async_mode")
+    keys.append("abortSignal")
+    keys.append("abort_signal")
+    keys.append("cancellation")
+    keys.append("executionContext")
+    keys.append("eventContext")
+    keys.append("protocol")
+    for key in keys:
+        value = _core_get(parent, key, None)
+        present = _core_is_not_none(value)
+        if present:
+            out[key] = value
+        else:
+            pass
+    snake_path = _core_get(parent, "execution_path", "root")
+    parent_path = _core_get(parent, "executionPath", snake_path)
+    path = _core_string_format("{}/{}", parent_path, qualified)
+    out["executionPath"] = path
+    out["execution_path"] = path
+    return out
+
+
+def _agent_forward(state: Any, distiller: Any, executor: Any, responder: Any, client: Any, values: Any, options: Any) -> Any:
+    _core_coverage_mark("_agent_forward")
+    none = _core_none()
+    active = _core_get(state, "forward_active", False)
+    if active:
+        error = _core_runtime_error("An agent cannot delegate recursively to an already active agent")
+        raise error
+    else:
+        pass
+    state["forward_active"] = True
+    state["active_client"] = client
+    state["active_forward_options"] = options
+    output = {}
+    try:
+        output = _agent_forward_impl(state, distiller, executor, responder, client, values, options)
+    except Exception as forward_error:
+        state["forward_active"] = False
+        state["active_client"] = none
+        state["active_forward_options"] = none
+        session = _core_get(state, "runtime_session", None)
+        try:
+            _agent_runtime_close_session(state, session)
+        except Exception as close_error:
+            pass
+        raise forward_error
+    state["forward_active"] = False
+    state["active_client"] = none
+    state["active_forward_options"] = none
+    return output
+
+
+def _agent_runtime_callable_names(state: Any) -> Any:
+    _core_coverage_mark("_agent_runtime_callable_names")
+    empty_list = []
+    inventory = _core_get(state, "callable_inventory", empty_list)
+    names = []
+    for group in inventory:
+        callables = _core_get(group, "callables", empty_list)
+        for callable in callables:
+            name = _core_get(callable, "qualified_name", "")
+            names.append(name)
+    return names
+
+
+def _agent_callable_visible(state: Any, qualified: str) -> bool:
+    _core_coverage_mark("_agent_callable_visible")
+    empty_map = {}
+    empty_list = []
+    flags = _core_get(state, "policy_flags", empty_map)
+    discovery = _core_get(flags, "discoveryMode", False)
+    all_visible = _core_not(discovery)
+    inventory = _core_get(state, "callable_inventory", empty_list)
+    docs = _core_get(state, "discovered_tool_docs", empty_list)
+    for group in inventory:
+        group_always = _core_get(group, "always_include", False)
+        group_visible = _core_or(all_visible, group_always)
+        callables = _core_get(group, "callables", empty_list)
+        for callable in callables:
+            name = _core_get(callable, "qualified_name", "")
+            matches = _core_eq(name, qualified)
+            if matches:
+                always = _core_get(callable, "always_include", False)
+                visible = _core_or(group_visible, always)
+                for doc in docs:
+                    doc_name = _core_get(doc, "qualified_name", "")
+                    discovered = _core_eq(doc_name, qualified)
+                    visible = _core_or(visible, discovered)
+                return visible
+            else:
+                pass
+    return False
+
+
+def _agent_runtime_invoke_callable(state: Any, qualified: str, arguments: Any) -> Any:
+    _core_coverage_mark("_agent_runtime_invoke_callable")
+    active = _core_get(state, "forward_active", False)
+    if active:
+        pass
+    else:
+        error = _core_runtime_error("Agent invocation belongs to a closed run")
+        raise error
+    visible = _agent_callable_visible(state, qualified)
+    if visible:
+        pass
+    else:
+        message = _core_string_format("Agent callable is not discovered: {}", qualified)
+        error = _core_runtime_error(message)
+        raise error
+    empty_map = {}
+    base = _core_get(state, "options", empty_map)
+    active_options = _core_get(state, "active_forward_options", empty_map)
+    options = _core_map_merge(base, active_options)
+    request = {}
+    request["qualified_name"] = qualified
+    request["args"] = arguments
+    result = _agent_execute_callable(state, request, options)
+    status = _core_get(result, "status", "ok")
+    failed = _core_eq(status, "error")
+    if failed:
+        message = _core_get(result, "error", "Agent callable failed")
+        error = _core_runtime_error(message)
+        raise error
+    else:
+        pass
+    value = _core_get(result, "value", result)
+    return value
 
 # END AXIR CORE EMITTED FUNCTIONS

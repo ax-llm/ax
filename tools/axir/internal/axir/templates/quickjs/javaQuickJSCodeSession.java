@@ -154,18 +154,62 @@ public final class AxQuickJsCodeSession implements AxCodeSession {
     }
   }
 
+  private record HostCall(String name, String params, java.util.concurrent.CompletableFuture<String> result) {}
+
   private String runQuickJs(String payloadJson, int timeoutMs) throws Exception {
-    Builtins hostBuiltins = Builtins.builder("axir_host")
-      .add(new HostFunction("__ax_host_call", List.of(String.class, String.class), String.class, args -> callHost(String.valueOf(args.get(0)), String.valueOf(args.get(1)))))
-      .build();
-    Engine engine = Engine.builder().addInvokables(INVOKABLES).addBuiltins(hostBuiltins).build();
-    try (Runner runner = Runner.builder().withEngine(engine).withTimeoutMs(timeoutMs).build()) {
-      Object raw = runner.invokeGuestFunction("axir", "__ax_run", List.of(payloadJson), QUICKJS_SOURCE);
-      return String.valueOf(raw);
+    var calls = new java.util.concurrent.LinkedBlockingQueue<HostCall>();
+    var finished = new java.util.concurrent.CompletableFuture<String>();
+    var accepting = new java.util.concurrent.atomic.AtomicBoolean(true);
+    Thread engineWorker = new Thread(() -> {
+      try {
+        Builtins hostBuiltins = Builtins.builder("axir_host")
+          .add(new HostFunction("__ax_host_call", List.of(String.class, String.class), String.class, args -> {
+            var call = new HostCall(String.valueOf(args.get(0)), String.valueOf(args.get(1)), new java.util.concurrent.CompletableFuture<>());
+            synchronized (calls) {
+              if (!accepting.get()) throw new IllegalStateException("QuickJS invocation is closed");
+              calls.add(call);
+            }
+            return call.result().join();
+          }))
+          .build();
+        Engine engine = Engine.builder().addInvokables(INVOKABLES).addBuiltins(hostBuiltins).build();
+        String output;
+        try (Runner runner = Runner.builder().withEngine(engine).withTimeoutMs(timeoutMs).build()) {
+          output = String.valueOf(runner.invokeGuestFunction("axir", "__ax_run", List.of(payloadJson), QUICKJS_SOURCE));
+        }
+        finished.complete(output);
+      } catch (Throwable failure) {
+        finished.completeExceptionally(failure);
+      }
+    }, "ax-quickjs-engine");
+    engineWorker.setDaemon(true);
+    engineWorker.start();
+    long deadline = System.nanoTime() + java.util.concurrent.TimeUnit.MILLISECONDS.toNanos(timeoutMs);
+    try {
+      while (!finished.isDone()) {
+        if (System.nanoTime() >= deadline) throw new java.util.concurrent.TimeoutException("QuickJS execution timed out");
+        HostCall call = calls.poll(10, java.util.concurrent.TimeUnit.MILLISECONDS);
+        if (call != null) {
+          // All agent state and borrowed clients stay on the execute() caller.
+          try { call.result().complete(callHost(call.name(), call.params())); }
+          catch (Throwable failure) { call.result().completeExceptionally(failure); }
+        }
+      }
+      return finished.get();
+    } finally {
+      synchronized (calls) {
+        accepting.set(false);
+        HostCall call;
+        while ((call = calls.poll()) != null) {
+          call.result().completeExceptionally(new IllegalStateException("QuickJS invocation is closed"));
+        }
+      }
+      engineWorker.interrupt();
     }
   }
 
   private static final String QUICKJS_SOURCE = """
+{{AX_HOST_NAMESPACES_RAW}}
 // Persistence: top-level const/let/var declared this turn are block-scoped to the async
 // wrapper and would vanish next turn, but the RLM prompt promises a long-running REPL.
 // Extract the declared names so they can be assigned onto globalThis (which persists),
@@ -214,6 +258,7 @@ async function __ax_run(payloadJson) {
       globalThis[key] = isHostCallable(value) ? makeHostCallable(key, value) : value;
     }
   }
+  for (const name of __ax_bind_host_namespaces()) reserved.add(name);
   function complete(value) { globalThis.__ax_completion = value; return value; }
   globalThis.final = function() { return complete({type: "final", args: Array.from(arguments)}); };
   globalThis.respond = function() { return complete({type: "respond", args: Array.from(arguments)}); };
