@@ -147,7 +147,75 @@ var (
 // module scope, or imports from a sibling. Because every helper body is part of
 // the scanned text, transitive references (a helper that calls another helper,
 // e.g. _core_fields_from_map -> _nested_field) are covered too.
+// Ignore literal source text (including embedded guest-language programs) when
+// auditing Python calls. Keep formatted strings visible: their expressions may
+// call Python helpers and must remain covered by the reference audit.
+func pythonMaskStringLiterals(text string) string {
+	out := []byte(text)
+	mask := func(start, end int) {
+		for k := start; k < end; k++ {
+			if out[k] != '\n' && out[k] != '\r' {
+				out[k] = ' '
+			}
+		}
+	}
+	for i := 0; i < len(text); {
+		if text[i] == '#' {
+			end := i
+			for end < len(text) && text[end] != '\n' {
+				end++
+			}
+			mask(i, end)
+			i = end
+			continue
+		}
+		quote := text[i]
+		if quote != '\'' && quote != '"' {
+			i++
+			continue
+		}
+		start := i
+		prefixStart := i
+		for prefixStart > 0 && ((text[prefixStart-1] >= 'a' && text[prefixStart-1] <= 'z') || (text[prefixStart-1] >= 'A' && text[prefixStart-1] <= 'Z')) {
+			prefixStart--
+		}
+		prefix := strings.ToLower(text[prefixStart:i])
+		formatted := prefix == "f" || prefix == "fr" || prefix == "rf"
+		width := 1
+		if i+2 < len(text) && text[i+1] == quote && text[i+2] == quote {
+			width = 3
+		}
+		i += width
+		for i < len(text) {
+			if text[i] == '\\' {
+				i += 2
+				if i > len(text) {
+					i = len(text)
+				}
+				continue
+			}
+			if formatted && width == 1 {
+				if text[i] == '\n' {
+					break
+				}
+				i++
+				continue
+			}
+			if text[i] == quote && (width == 1 || i+2 < len(text) && text[i+1] == quote && text[i+2] == quote) {
+				i += width
+				break
+			}
+			i++
+		}
+		if !formatted {
+			mask(start, i)
+		}
+	}
+	return string(out)
+}
+
 func pythonModuleMissingHelpers(text string) []string {
+	text = pythonMaskStringLiterals(text)
 	allowed := map[string]bool{}
 	for _, m := range pythonHelperDefRe.FindAllStringSubmatch(text, -1) {
 		allowed[m[1]] = true
