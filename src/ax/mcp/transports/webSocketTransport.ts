@@ -134,9 +134,18 @@ export class AxMCPWebSocketTransport implements AxMCPTransport {
           options?.signal?.removeEventListener('abort', abort);
           resolve(response);
         },
-        reject,
+        reject: (error) => {
+          options?.signal?.removeEventListener('abort', abort);
+          reject(error);
+        },
       });
-      this.socket!.send(JSON.stringify(message));
+      try {
+        this.socket!.send(JSON.stringify(message));
+      } catch (error) {
+        const pending = this.pending.get(message.id);
+        this.pending.delete(message.id);
+        pending?.reject(error);
+      }
     });
   }
 
@@ -173,15 +182,22 @@ export class AxMCPWebSocketTransport implements AxMCPTransport {
               options?.signal?.removeEventListener('abort', abort);
               resolve(response);
             },
-            reject,
+            reject: (error) => {
+              options?.signal?.removeEventListener('abort', abort);
+              reject(error);
+            },
           });
         })
     );
     try {
       this.socket!.send(JSON.stringify(messages));
     } catch (error) {
-      for (const message of messages) this.pending.delete(message.id);
-      throw error;
+      for (const message of messages) {
+        const pending = this.pending.get(message.id);
+        this.pending.delete(message.id);
+        pending?.reject(error);
+      }
+      return Promise.all(promises);
     }
     return Promise.all(promises);
   }
