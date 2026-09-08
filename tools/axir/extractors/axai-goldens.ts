@@ -9668,6 +9668,23 @@ const ecmaSchemaInputs: readonly string[] = [
   '\u001f',
   'baaabac',
 ];
+// Node 22 rejects disjoint duplicate capture names. These two exact rewrites
+// preserve their matching semantics on older reference runtimes: alternatives
+// clear unmatched captures, and an unmatched backreference matches empty text.
+// Keep the original patterns in the fixture so every generated target exercises
+// the modern syntax. Runtimes that accept it must agree with the rewrites.
+const ecmaPortableOracles: Readonly<Record<string, string>> = {
+  '(?<x>a)|(?<x>b)': '(a)|(b)',
+  '(?:(?<x>a)|(?<x>b))+\\k<x>': '(?:(a)|(b))+\\1\\2',
+};
+const ecmaPatternValid = (pattern: string, input: string): boolean => {
+  try {
+    axValidateToolArguments({ pattern }, input);
+    return true;
+  } catch {
+    return false;
+  }
+};
 writeFixture('session-ecmascript-pattern-validation', {
   kind: 'ai_session_state',
   model: 'gpt-6-astra',
@@ -9687,11 +9704,22 @@ writeFixture('session-ecmascript-pattern-validation', {
     { schema: { pattern: '^.+$' }, arguments: 'a'.repeat(10000) },
     { schema: { pattern: '^(){1000}$' }, arguments: '' },
   ].map((item) => {
-    let valid = true;
-    try {
-      axValidateToolArguments(item.schema, item.arguments);
-    } catch {
-      valid = false;
+    const pattern = item.schema.pattern;
+    const oracle = ecmaPortableOracles[pattern];
+    const valid = ecmaPatternValid(oracle ?? pattern, item.arguments);
+    if (oracle) {
+      let nativeSyntaxSupported = true;
+      try {
+        new RegExp(pattern);
+      } catch {
+        nativeSyntaxSupported = false;
+      }
+      if (
+        nativeSyntaxSupported &&
+        ecmaPatternValid(pattern, item.arguments) !== valid
+      ) {
+        throw new Error(`Portable regex oracle differs for ${pattern}`);
+      }
     }
     return { ...item, valid };
   }),

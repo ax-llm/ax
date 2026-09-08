@@ -138,7 +138,7 @@ Scripted agent fixtures belong under package tests, not public examples.
 | Ordinary tools with owned children | `owned-child-delegation-preserves-existing-tools.json` | Existing tool invocation, child invocation, both action-log records, and final output across all five targets |
 | Native MCP schemas and modern continuation | `native-tools-modern-roundtrip.json` | All-five native agent tests assert discovery boundaries, exact schemas, invalid-argument correction, overlap, raw result continuation, responder output, action logs, and duplicate prevention |
 | Owned child delegation | `owned-child-delegation-through-parent-runtime.json` | All-five native session tests assert parent continuation input, isolated histories, scoped controls, cache prefixes, child usage, and cancellation cleanup |
-| Real actor child calls | `axagent-real/agent-runtime-real-owned-child-delegation.json` | All five real engines execute parent and child actor code; assert child result, action log, and parent continuation. Native suites reject retained callbacks after success and cancellation. The public `astra_child_agent` / `AstraChildAgentExample` examples exercise live Astra child-scoped controls. The current Python, Go, C++, and Rust runs passed. Java initially omitted the child result; a diagnostic rerun with the same request passed and recorded actual delegation. Both outcomes are retained as evidence, rather than treating the initial run as successful |
+| Real actor child calls | `axagent-real/agent-runtime-real-owned-child-delegation.json` | All five real engines execute parent and child actor code and assert the result, action log, and parent continuation. Native suites reject retained callbacks after success and cancellation. Live `astra_child_agent` / `AstraChildAgentExample` runs passed in all five languages with child-scoped controls |
 | MCP invocation cancellation | Native HTTP tests in all five session suites | Stalled response bodies close on abort; configured headers and arguments survive (including C++ constructor headers); pre-cancelled calls do not send or replay. Python/Go/Rust actor invocation tests and a Java high-level agent test exercise controller propagation. Rust also retains a generator's own configured clients with `mcpInheritance: none`, including result history and continuation. C++ release verification runs an additional libcurl-enabled session binary so the actual HTTP fixture cannot be mistaken for core-only coverage |
 | MCP host authorization | `native-tool-host-authorization.json`, extracted by calling the TypeScript MCP client | All-five native agent tests exercise denied and allowed calls, retained context, no transport call after denial, and no authorization after invalid arguments or actor replay |
 | Completed calls and pending work | `astra-session-completed-calls-and-response-boundaries.json`, `astra-pending-results-out-of-order.json` | Delayed tools, blocking barriers, partial arguments, and provisional answers |
@@ -156,11 +156,14 @@ Native session suites:
 - Rust: tests in `packages/rust/src/session.rs`
 
 Public provider-backed examples are under each language's `generation`,
-`short-agents`, and `flows` directories in `src/examples/`. Earlier live example
-runs establish only their exercised behavior. The second delivery must rerun
-all five languages with the completed concurrency and control implementation.
+`short-agents`, and `flows` directories in `src/examples/`. All 30 live scenarios
+passed across the five languages; optional Rust native WebSocket steering also
+passed. Corrected Go examples and the final C++ package were rerun successfully.
 
-Both Astra backlog entries remain open. Closure requires actual coordinated
-parallel overlap, owned-worker compatibility/fallback, complete agent and scoped
-control behavior, live evidence, and all repository acceptance gates. Passing
-the existing release suite does not establish those outstanding behaviors.
+The two Astra entries are complete in [PR #657](https://github.com/ax-llm/ax/pull/657).
+The implementation source is `1771913118be0ea8a6be950ba4a011a7648e3c2a`. The full all-target compiler/release
+suite, final C++ release follow-up, race checks, package freshness, conformance,
+public type checks, generated examples, profiles, build, style, and website gates
+passed. See [the verification record](session-verification.md) for commands,
+live scenarios, and the issues discovered during acceptance. Package publication
+is outside this delivery.
