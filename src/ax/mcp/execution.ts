@@ -63,7 +63,10 @@ export async function axResolveMCPExecutionContext(
   }> = {}
 ): Promise<AxMCPExecutionContext | undefined> {
   const hasExplicitClients =
-    options.mcp !== undefined || options.ucp !== undefined;
+    options.mcp !== undefined ||
+    options.ucp !== undefined ||
+    defaults.mcp !== undefined ||
+    defaults.ucp !== undefined;
   if (options._mcpExecutionContext && !hasExplicitClients) {
     return options._mcpExecutionContext;
   }

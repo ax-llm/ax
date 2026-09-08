@@ -5856,6 +5856,7 @@ impl AxProgram for AxGen {
 
 pub struct AxAgent {
     state: CoreValue,
+    configured_options: CoreValue,
     distiller: CoreValue,
     executor: CoreValue,
     responder: CoreValue,
@@ -5926,13 +5927,8 @@ where
     json!({"__agent_observer_id": id})
 }
 
-pub fn agent_with_execution_context(
-    spec: &str,
-    options: Value,
-    context: AxExecutionContext,
-) -> AxResult<AxAgent> {
+fn agent_context_modules(context: &AxExecutionContext) -> AxResult<CoreValue> {
     context.initialize()?;
-    let options = core_value_from_json(&options);
     let modules = CoreValue::new_list();
     for client in &context.mcp {
         let locked = client.lock().unwrap();
@@ -5965,7 +5961,15 @@ pub fn agent_with_execution_context(
         core_set(&module, CoreValue::from("functions"), functions)?;
         core_append(&modules, module)?;
     }
-    let options = _agent_append_runtime_modules(&[options, modules])?;
+    Ok(modules)
+}
+pub fn agent_with_execution_context(
+    spec: &str,
+    options: Value,
+    context: AxExecutionContext,
+) -> AxResult<AxAgent> {
+    let modules = agent_context_modules(&context)?;
+    let options = _agent_append_runtime_modules(&[core_value_from_json(&options), modules])?;
     let mut agent = agent_with_core_options(spec, options)?;
     agent.execution_context = Some(context);
     Ok(agent)
@@ -6116,6 +6120,7 @@ pub(crate) fn agent_with_core_options(spec: &str, options: CoreValue) -> AxResul
         CoreValue::from(""),
     ));
     Ok(AxAgent {
+        configured_options: options.clone(),
         state,
         distiller: agent_stage_gen(
             distiller_signature,
@@ -6153,11 +6158,7 @@ impl AxAgent {
     ) -> AxResult<Self> {
         let child_signature =
             core_get(&child.state, &CoreValue::from("signature"), CoreValue::Null);
-        let options = core_get(
-            &self.state,
-            &CoreValue::from("options"),
-            CoreValue::new_map(),
-        );
+        let options = core_deep_clone(&self.configured_options);
         let options = _agent_register_child(&[
             options,
             CoreValue::from(namespace),
@@ -6181,11 +6182,7 @@ impl AxAgent {
         Ok(rebuilt)
     }
     pub fn with_tool_module(mut self, name: &str, tools: Vec<Tool>) -> AxResult<Self> {
-        let options = core_get(
-            &self.state,
-            &CoreValue::from("options"),
-            CoreValue::new_map(),
-        );
+        let options = core_deep_clone(&self.configured_options);
         let functions = core_get(
             &options,
             &CoreValue::from("functions"),
@@ -6216,7 +6213,7 @@ impl AxAgent {
         Ok(rebuilt)
     }
     pub fn set_signature(&mut self, spec: &str) -> AxResult<&mut Self> {
-        let options = core_get(&self.state, &CoreValue::from("options"), CoreValue::Null);
+        let options = core_deep_clone(&self.configured_options);
         let hooks = self.runtime_hooks.clone();
         let mut rebuilt = agent_with_core_options(spec, options)?;
         rebuilt.runtime_hooks = hooks;
@@ -6307,6 +6304,53 @@ impl AxAgent {
                 "agent",
                 attributes,
                 || {
+                    let call_context = self
+                        .execution_context
+                        .clone()
+                        .or_else(mcp::MCPRunScope::current);
+                    let _context_scope = mcp::MCPRunScope::enter(call_context.clone());
+                    if call_context.is_some()
+                        || core_truthy(&core_get(
+                            &self.state,
+                            &CoreValue::from("mcp_run_context_active"),
+                            CoreValue::Bool(false),
+                        ))
+                    {
+                        let modules = match &call_context {
+                            Some(context) => agent_context_modules(context)?,
+                            None => CoreValue::new_list(),
+                        };
+                        _agent_apply_run_context(&[
+                            self.state.clone(),
+                            self.configured_options.clone(),
+                            core_value_from_json(&options),
+                            modules,
+                        ])?;
+                        if core_truthy(&core_get(
+                            &self.state,
+                            &CoreValue::from("runtime_enabled"),
+                            CoreValue::Bool(false),
+                        )) {
+                            for (field, stage) in [
+                                ("distiller_description", &self.distiller),
+                                ("executor_description", &self.executor),
+                                ("responder_description", &self.responder),
+                            ] {
+                                if let CoreValue::Host(host) = stage {
+                                    if let Some(gen) = host.stage_gen_rc() {
+                                        gen.borrow_mut().set_instruction(
+                                            &core_get(
+                                                &self.state,
+                                                &CoreValue::from(field),
+                                                CoreValue::from(""),
+                                            )
+                                            .text(),
+                                        );
+                                    }
+                                }
+                            }
+                        }
+                    }
                     let mut chat = |method: &str,
                                     request: Value,
                                     options: Value|
@@ -6949,12 +6993,8 @@ impl AxAgent {
             Rc::new(RefCell::new(runtime)),
             core_runtime_capabilities_full(),
         );
-        let options = core_get(&self.state, &CoreValue::from("options"), CoreValue::Null);
-        let previous = core_get(&options, &CoreValue::from("runtime"), CoreValue::Null);
+        let options = core_deep_clone(&self.configured_options);
         core_set(&options, CoreValue::from("runtime"), host)?;
-        if !matches!(previous, CoreValue::Null) {
-            return Ok(self);
-        }
         let spec = signature_from_record(&core_get(
             &self.state,
             &CoreValue::from("signature"),
@@ -15538,6 +15578,36 @@ fn run_agent_forward_contract_fixture(fixture: &Value) -> AxResult<()> {
             ));
         }
     }
+    let mut mcp_transports = Vec::new();
+    let mut context_clients: BTreeMap<String, Vec<Arc<Mutex<AxMCPClient>>>> = BTreeMap::new();
+    for spec in fixture
+        .get("mcp_clients")
+        .and_then(Value::as_array)
+        .into_iter()
+        .flatten()
+    {
+        let owner = spec
+            .get("owner")
+            .and_then(Value::as_str)
+            .unwrap_or("parent")
+            .to_string();
+        let namespace = spec["namespace"].as_str().unwrap();
+        let transport = Arc::new(Mutex::new(Box::new(AxMCPScriptedTransport::new(
+            spec["responses"].as_array().unwrap().clone(),
+        )) as Box<dyn AxMCPTransport>));
+        context_clients
+            .entry(owner.clone())
+            .or_default()
+            .push(Arc::new(Mutex::new(AxMCPClient::from_shared_transport(
+                transport.clone(),
+                json!({"namespace":namespace,"era":"modern"}),
+            ))));
+        mcp_transports.push((format!("{owner}/{namespace}"), transport));
+    }
+    let mut contexts = BTreeMap::new();
+    for (owner, clients) in context_clients {
+        contexts.insert(owner, AxExecutionContext::new(clients, vec![])?);
+    }
     let signature = fixture
         .get("signature")
         .and_then(Value::as_str)
@@ -15556,6 +15626,7 @@ fn run_agent_forward_contract_fixture(fixture: &Value) -> AxResult<()> {
             return Err(error);
         }
     };
+    agent.execution_context = contexts.get("parent").cloned();
     for child in fixture
         .get("child_agents")
         .and_then(Value::as_array)
@@ -15566,6 +15637,19 @@ fn run_agent_forward_contract_fixture(fixture: &Value) -> AxResult<()> {
             child["signature"].as_str().unwrap_or_default(),
             child.get("options").cloned().unwrap_or_else(|| json!({})),
         )?;
+        if let Some(script) = child.get("runtime_script").and_then(Value::as_array) {
+            program = program.with_runtime(Box::new(ScriptedCodeRuntime::new(
+                script.clone(),
+                "JavaScript".to_string(),
+                String::new(),
+            )))?;
+        }
+        let owner = format!(
+            "{}.{}",
+            child["namespace"].as_str().unwrap(),
+            child["name"].as_str().unwrap()
+        );
+        program.execution_context = contexts.get(&owner).cloned();
         if child.get("runtime_engine").is_some() {
             #[cfg(feature = "runtime-quickjs")]
             {
@@ -15889,6 +15973,61 @@ fn run_agent_forward_contract_fixture(fixture: &Value) -> AxResult<()> {
             &actual_stage_requests,
             expected_stage_requests,
         )?;
+    }
+    if let Some(expected) = fixture.get("expected_mcp_calls").and_then(Value::as_object) {
+        for (key, calls) in expected {
+            let transport = &mcp_transports
+                .iter()
+                .find(|(name, _)| name == key)
+                .ok_or_else(|| AxError::runtime("Missing MCP test transport"))?
+                .1;
+            let requests = transport.lock().unwrap().sent_requests();
+            let actual = requests
+                .iter()
+                .filter(|r| r["method"] == "tools/call")
+                .map(|r| json!({"name":r["params"]["name"],"arguments":r["params"]["arguments"]}))
+                .collect::<Vec<_>>();
+            expect_json_equal(&format!("delegated MCP calls {key}"), &json!(actual), calls)?;
+        }
+    }
+    for check in fixture
+        .get("expected_request_checks")
+        .and_then(Value::as_array)
+        .into_iter()
+        .flatten()
+    {
+        let request = &client.requests[check["index"].as_u64().unwrap() as usize];
+        let text = stable_stringify(request);
+        for value in check
+            .get("contains")
+            .and_then(Value::as_array)
+            .into_iter()
+            .flatten()
+        {
+            if !text.contains(value.as_str().unwrap()) {
+                return Err(AxError::runtime(format!("Child request missing {value}")));
+            }
+        }
+        for value in check
+            .get("not_contains")
+            .and_then(Value::as_array)
+            .into_iter()
+            .flatten()
+        {
+            if text.contains(value.as_str().unwrap()) {
+                return Err(AxError::runtime(format!("Child request exposed {value}")));
+            }
+        }
+        if check["functions_absent"] == true
+            && request
+                .get("functions")
+                .and_then(Value::as_array)
+                .is_some_and(|functions| !functions.is_empty())
+        {
+            return Err(AxError::runtime(
+                "Agent runtime tools leaked into native functions",
+            ));
+        }
     }
     if let Some(items) = fixture
         .get("expected_request_contains")
@@ -25627,6 +25766,14 @@ impl CoreHost for AgentHost {
             "forward" => {
                 let values = core_value_to_json(&core_arg(args, 1));
                 let options = core_value_to_json(&core_arg(args, 2));
+                let _context_scope = if let Some(policy) = options.get("mcpInheritanceFromParent") {
+                    let inherited = mcp::MCPRunScope::current()
+                        .map(|context| context.try_derive(policy))
+                        .transpose()?;
+                    Some(mcp::MCPRunScope::enter(inherited))
+                } else {
+                    None
+                };
                 let mut client = core_scoped_client()?;
                 let output =
                     self.agent
@@ -76646,6 +76793,22 @@ fn _agent_runtime_execution_options(args: &[CoreValue]) -> Result<CoreValue, AxE
     v_reserved_names = _agent_runtime_reserved_names_for_state(&[v_state.clone()])?;
     v_runtime_options = core_map_merge(&[v_empty_map.clone(), v_options.clone()])?;
     core_map_delete(&[v_runtime_options.clone(), CoreValue::from("runtime")])?;
+    core_map_delete(&[
+        v_runtime_options.clone(),
+        CoreValue::from("executionContext"),
+    ])?;
+    core_map_delete(&[
+        v_runtime_options.clone(),
+        CoreValue::from("inheritedExecutionContext"),
+    ])?;
+    core_map_delete(&[
+        v_runtime_options.clone(),
+        CoreValue::from("mcpExecutionContext"),
+    ])?;
+    core_map_delete(&[v_runtime_options.clone(), CoreValue::from("mcp")])?;
+    core_map_delete(&[v_runtime_options.clone(), CoreValue::from("ucp")])?;
+    core_map_delete(&[v_runtime_options.clone(), CoreValue::from("mcpContext")])?;
+    core_map_delete(&[v_runtime_options.clone(), CoreValue::from("functions")])?;
     core_set(
         &v_runtime_options,
         CoreValue::from("reservedNames"),
@@ -81134,9 +81297,13 @@ fn _agent_stage_options(args: &[CoreValue]) -> Result<CoreValue, AxError> {
     let mut v_has_cache = CoreValue::Null;
     let mut v_has_call_cache = CoreValue::Null;
     let mut v_has_stage_cache = CoreValue::Null;
+    let mut v_host = CoreValue::Null;
+    let mut v_host_keys = CoreValue::Null;
     let mut v_is_distiller = CoreValue::Null;
     let mut v_is_executor = CoreValue::Null;
     let mut v_is_responder = CoreValue::Null;
+    let mut v_key = CoreValue::Null;
+    let mut v_merged = CoreValue::Null;
     let mut v_out = CoreValue::Null;
     let mut v_parent_path = CoreValue::Null;
     let mut v_parent_path_snake = CoreValue::Null;
@@ -81147,6 +81314,7 @@ fn _agent_stage_options(args: &[CoreValue]) -> Result<CoreValue, AxError> {
     let mut v_stage_path = CoreValue::Null;
     let mut v_top_cache = CoreValue::Null;
     let mut v_top_cache_snake = CoreValue::Null;
+    let mut v_value = CoreValue::Null;
     v_empty_map = CoreValue::new_map();
     v_base_options = core_get(&v_state, &CoreValue::from("options"), v_empty_map.clone());
     v_stage_options = CoreValue::new_map();
@@ -81189,7 +81357,26 @@ fn _agent_stage_options(args: &[CoreValue]) -> Result<CoreValue, AxError> {
             v_responder_opts_camel.clone(),
         );
     }
-    v_out = core_map_merge(&[v_stage_options.clone(), v_forward_options.clone()])?;
+    v_merged = core_map_merge(&[v_stage_options.clone(), v_forward_options.clone()])?;
+    v_out = CoreValue::new_map();
+    v_host_keys = CoreValue::new_list();
+    core_append(&v_host_keys, CoreValue::from("executionContext"))?;
+    core_append(&v_host_keys, CoreValue::from("inheritedExecutionContext"))?;
+    core_append(&v_host_keys, CoreValue::from("mcpExecutionContext"))?;
+    core_append(&v_host_keys, CoreValue::from("mcp"))?;
+    core_append(&v_host_keys, CoreValue::from("ucp"))?;
+    core_append(&v_host_keys, CoreValue::from("mcpContext"))?;
+    core_append(&v_host_keys, CoreValue::from("functions"))?;
+    core_append(&v_host_keys, CoreValue::from("runtime"))?;
+    for v_key in core_iter(&v_merged)? {
+        let mut v_key = v_key;
+        v_host = core_contains(&[v_host_keys.clone(), v_key.clone()])?;
+        if core_truthy(&v_host) {
+        } else {
+            v_value = core_get(&v_merged, &v_key.clone(), CoreValue::Null);
+            core_set(&v_out, v_key.clone(), v_value.clone())?;
+        }
+    }
     v_base_control = core_get(
         &v_base_options,
         &CoreValue::from("control"),
@@ -83825,6 +84012,162 @@ fn _agent_forward_impl(args: &[CoreValue]) -> Result<CoreValue, AxError> {
     unreachable_code,
     clippy::all
 )]
+fn _agent_apply_run_context(args: &[CoreValue]) -> Result<CoreValue, AxError> {
+    axir_coverage_mark("_agent_apply_run_context");
+    let mut v_state = core_arg(args, 0);
+    let mut v_configured = core_arg(args, 1);
+    let mut v_call = core_arg(args, 2);
+    let mut v_modules = core_arg(args, 3);
+    let mut v_catalog = CoreValue::Null;
+    let mut v_default_name = CoreValue::Null;
+    let mut v_distiller = CoreValue::Null;
+    let mut v_doc = CoreValue::Null;
+    let mut v_docs = CoreValue::Null;
+    let mut v_empty_list = CoreValue::Null;
+    let mut v_executor = CoreValue::Null;
+    let mut v_flags = CoreValue::Null;
+    let mut v_function = CoreValue::Null;
+    let mut v_functions = CoreValue::Null;
+    let mut v_inventory = CoreValue::Null;
+    let mut v_mcp = CoreValue::Null;
+    let mut v_name = CoreValue::Null;
+    let mut v_namespace = CoreValue::Null;
+    let mut v_options = CoreValue::Null;
+    let mut v_policy = CoreValue::Null;
+    let mut v_prompt = CoreValue::Null;
+    let mut v_protocol = CoreValue::Null;
+    let mut v_registry = CoreValue::Null;
+    let mut v_responder = CoreValue::Null;
+    let mut v_retained = CoreValue::Null;
+    let mut v_retained_docs = CoreValue::Null;
+    let mut v_runtime = CoreValue::Null;
+    let mut v_split = CoreValue::Null;
+    let mut v_ucp = CoreValue::Null;
+    let mut v_upgrade = CoreValue::Null;
+    v_empty_list = CoreValue::new_list();
+    v_options = core_map_merge(&[v_configured.clone(), v_call.clone()])?;
+    v_functions = core_get(
+        &v_options,
+        &CoreValue::from("functions"),
+        v_empty_list.clone(),
+    );
+    v_retained = CoreValue::new_list();
+    for v_function in core_iter(&v_functions)? {
+        let mut v_function = v_function;
+        v_default_name = core_get(&v_function, &CoreValue::from("name"), CoreValue::from(""));
+        v_namespace = core_get(
+            &v_function,
+            &CoreValue::from("namespace"),
+            v_default_name.clone(),
+        );
+        v_mcp = core_string_starts_with(&[v_namespace.clone(), CoreValue::from("mcp.")])?;
+        v_ucp = core_string_starts_with(&[v_namespace.clone(), CoreValue::from("ucp.")])?;
+        v_protocol = core_or(&[v_mcp.clone(), v_ucp.clone()])?;
+        if core_truthy(&v_protocol) {
+        } else {
+            core_append(&v_retained, v_function.clone())?;
+        }
+    }
+    core_set(&v_options, CoreValue::from("functions"), v_retained.clone())?;
+    v_options = _agent_append_runtime_modules(&[v_options.clone(), v_modules.clone()])?;
+    v_inventory = _normalize_agent_callable_inventory(&[v_options.clone()])?;
+    v_split = _split_agent_callable_inventory(&[v_inventory.clone()])?;
+    v_catalog = _render_agent_discovery_catalog(&[v_split.clone()])?;
+    core_set(&v_state, CoreValue::from("options"), v_options.clone())?;
+    core_set(
+        &v_state,
+        CoreValue::from("callable_inventory"),
+        v_inventory.clone(),
+    )?;
+    core_set(&v_state, CoreValue::from("callable_split"), v_split.clone())?;
+    core_set(
+        &v_state,
+        CoreValue::from("discovery_catalog"),
+        v_catalog.clone(),
+    )?;
+    v_upgrade = _resolve_agent_auto_upgrade(&[v_options.clone()])?;
+    v_flags = _agent_policy_flags(&[v_options.clone(), v_split.clone(), v_upgrade.clone()])?;
+    v_policy = _normalize_agent_policy(&[v_options.clone()])?;
+    v_registry = _agent_policy_registry(&[v_policy.clone(), v_flags.clone()])?;
+    core_set(&v_state, CoreValue::from("policy_flags"), v_flags.clone())?;
+    core_set(
+        &v_state,
+        CoreValue::from("policy_registry"),
+        v_registry.clone(),
+    )?;
+    v_docs = core_get(
+        &v_state,
+        &CoreValue::from("discovered_tool_docs"),
+        v_empty_list.clone(),
+    );
+    v_retained_docs = CoreValue::new_list();
+    for v_doc in core_iter(&v_docs)? {
+        let mut v_doc = v_doc;
+        v_name = core_get(
+            &v_doc,
+            &CoreValue::from("qualified_name"),
+            CoreValue::from(""),
+        );
+        v_mcp = core_string_starts_with(&[v_name.clone(), CoreValue::from("mcp.")])?;
+        v_ucp = core_string_starts_with(&[v_name.clone(), CoreValue::from("ucp.")])?;
+        v_protocol = core_or(&[v_mcp.clone(), v_ucp.clone()])?;
+        if core_truthy(&v_protocol) {
+        } else {
+            core_append(&v_retained_docs, v_doc.clone())?;
+        }
+    }
+    core_set(
+        &v_state,
+        CoreValue::from("discovered_tool_docs"),
+        v_retained_docs.clone(),
+    )?;
+    v_prompt = _build_agent_actor_prompt_policy(&[v_state.clone()])?;
+    core_set(
+        &v_state,
+        CoreValue::from("actor_prompt_policy"),
+        v_prompt.clone(),
+    )?;
+    v_runtime = core_get(
+        &v_state,
+        &CoreValue::from("runtime_enabled"),
+        CoreValue::Bool(false),
+    );
+    if core_truthy(&v_runtime) {
+        v_executor = _render_rlm_executor_description(&[v_state.clone(), v_options.clone()])?;
+        v_distiller = _render_rlm_distiller_description(&[v_state.clone(), v_options.clone()])?;
+        v_responder = _render_rlm_responder_description(&[v_state.clone(), v_options.clone()])?;
+        core_set(
+            &v_state,
+            CoreValue::from("executor_description_base"),
+            v_executor.clone(),
+        )?;
+        core_set(
+            &v_state,
+            CoreValue::from("distiller_description"),
+            v_distiller.clone(),
+        )?;
+        core_set(
+            &v_state,
+            CoreValue::from("responder_description"),
+            v_responder.clone(),
+        )?;
+        _agent_refresh_actor_instruction(&[v_state.clone()])?;
+    }
+    core_set(
+        &v_state,
+        CoreValue::from("mcp_run_context_active"),
+        CoreValue::Bool(true),
+    )?;
+    return Ok(v_call.clone());
+}
+
+#[allow(
+    unused_variables,
+    unused_assignments,
+    unused_mut,
+    unreachable_code,
+    clippy::all
+)]
 fn _agent_append_runtime_modules(args: &[CoreValue]) -> Result<CoreValue, AxError> {
     axir_coverage_mark("_agent_append_runtime_modules");
     let mut v_options = core_arg(args, 0);
@@ -84023,6 +84366,7 @@ fn _agent_child_options(args: &[CoreValue]) -> Result<CoreValue, AxError> {
     let mut v_active = CoreValue::Null;
     let mut v_base = CoreValue::Null;
     let mut v_empty_map = CoreValue::Null;
+    let mut v_inheritance = CoreValue::Null;
     let mut v_key = CoreValue::Null;
     let mut v_keys = CoreValue::Null;
     let mut v_out = CoreValue::Null;
@@ -84060,6 +84404,16 @@ fn _agent_child_options(args: &[CoreValue]) -> Result<CoreValue, AxError> {
             core_set(&v_out, v_key.clone(), v_value.clone())?;
         }
     }
+    v_inheritance = core_get(
+        &v_parent,
+        &CoreValue::from("mcpInheritance"),
+        CoreValue::from("all"),
+    );
+    core_set(
+        &v_out,
+        CoreValue::from("mcpInheritanceFromParent"),
+        v_inheritance.clone(),
+    )?;
     v_snake_path = core_get(
         &v_parent,
         &CoreValue::from("execution_path"),
@@ -94091,7 +94445,7 @@ fn _mcp_inheritance_plan(args: &[CoreValue]) -> Result<CoreValue, AxError> {
     return Ok(v_out.clone());
 }
 
-// END AXIR CORE EMITTED FUNCTIONS (671 of 671 core functions)
+// END AXIR CORE EMITTED FUNCTIONS (672 of 672 core functions)
 
 fn run_ai_session_events_fixture(fixture: &Value) -> AxResult<()> {
     let state = core_value_from_json(&json!({}));

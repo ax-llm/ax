@@ -1893,12 +1893,12 @@ def resolve_execution_context(options: dict[str, Any] | None, parent: AxExecutio
     opts = options or {}
     explicit = opts.get("executionContext") or opts.get("mcpExecutionContext")
     if isinstance(explicit, AxExecutionContext):
-        return explicit.derive(opts.get("mcpInheritance", "all"))
+        return explicit
     mcp = opts.get("mcp")
     ucp = opts.get("ucp")
     if mcp is not None or ucp is not None:
         return AxExecutionContext(mcp if isinstance(mcp, (list, tuple)) else [mcp] if mcp else [], ucp if isinstance(ucp, (list, tuple)) else [ucp] if ucp else [], opts)
-    return parent.derive(opts.get("mcpInheritance", "all")) if parent else None
+    return parent if parent is not None else opts.get("inheritedExecutionContext")
 
 
 def _ax_mcp_encode_header_value(value: str) -> str:

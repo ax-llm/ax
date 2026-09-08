@@ -179,7 +179,7 @@ impl AxMCPClient {
         Self::from_shared_transport(Arc::new(Mutex::new(transport)), options)
     }
 
-    fn from_shared_transport(
+    pub(crate) fn from_shared_transport(
         transport: Arc<Mutex<Box<dyn AxMCPTransport>>>,
         options: Value,
     ) -> Self {
@@ -3694,6 +3694,24 @@ pub struct AxExecutionContext {
     pub mcp: Vec<Arc<Mutex<AxMCPClient>>>,
     pub ucp: Vec<AxUCPClient>,
     initialized: Arc<Mutex<Vec<usize>>>,
+}
+
+thread_local! { static MCP_RUN_CONTEXT: std::cell::RefCell<Option<AxExecutionContext>> = const { std::cell::RefCell::new(None) }; }
+pub(crate) struct MCPRunScope(Option<AxExecutionContext>);
+impl MCPRunScope {
+    pub(crate) fn current() -> Option<AxExecutionContext> {
+        MCP_RUN_CONTEXT.with(|context| context.borrow().clone())
+    }
+    pub(crate) fn enter(context: Option<AxExecutionContext>) -> Self {
+        Self(MCP_RUN_CONTEXT.with(|active| active.replace(context)))
+    }
+}
+impl Drop for MCPRunScope {
+    fn drop(&mut self) {
+        MCP_RUN_CONTEXT.with(|active| {
+            active.replace(self.0.take());
+        });
+    }
 }
 
 impl AxExecutionContext {

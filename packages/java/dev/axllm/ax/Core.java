@@ -959,7 +959,13 @@ final class Core {
   static Object agentStageForward(Object stage, Object client, Object values, Object options) {
     if (!(stage instanceof AxProgram program)) throw new RuntimeException("agent stage is not AxProgram");
     if (!(client instanceof AiClient ai)) throw new RuntimeException("client does not implement AiClient");
-    return program.forward(ai, asMap(values), asMap(options));
+    Map<String,Object> forwarded = new LinkedHashMap<>(asMap(options));
+    if (stage instanceof AxAgent && forwarded.containsKey("mcpInheritanceFromParent")) {
+      Object context = forwarded.remove("executionContext");
+      Object policy = forwarded.remove("mcpInheritanceFromParent");
+      if (context instanceof AxExecutionContext parent) forwarded.put("inheritedExecutionContext", parent.derive(policy));
+    }
+    return program.forward(ai, asMap(values), forwarded);
   }
   static Object agentStageChatLog(Object stage) {
     if (stage instanceof AxProgram program) return program.getChatLog();
@@ -22522,6 +22528,13 @@ final class Core {
     Object reserved_names = Core._agent_runtime_reserved_names_for_state(state);
     Object runtime_options = Core.mapMerge(empty_map, options);
     Core.mapDelete(runtime_options, "runtime");
+    Core.mapDelete(runtime_options, "executionContext");
+    Core.mapDelete(runtime_options, "inheritedExecutionContext");
+    Core.mapDelete(runtime_options, "mcpExecutionContext");
+    Core.mapDelete(runtime_options, "mcp");
+    Core.mapDelete(runtime_options, "ucp");
+    Core.mapDelete(runtime_options, "mcpContext");
+    Core.mapDelete(runtime_options, "functions");
     Core.set(runtime_options, "reservedNames", reserved_names);
     Object timeout_ms = Core.get(options, "timeout_ms", null);
     Object timeout = Core.get(options, "timeout", timeout_ms);
@@ -24432,7 +24445,27 @@ final class Core {
       Object responder_opts_camel = Core.get(base_options, "responderOptions", empty_map);
       stage_options = Core.get(base_options, "responder_options", responder_opts_camel);
     }
-    Object out = Core.mapMerge(stage_options, forward_options);
+    Object merged = Core.mapMerge(stage_options, forward_options);
+    Object out = new java.util.LinkedHashMap<String, Object>();
+    Object host_keys = new java.util.ArrayList<Object>();
+    Core.append(host_keys, "executionContext");
+    Core.append(host_keys, "inheritedExecutionContext");
+    Core.append(host_keys, "mcpExecutionContext");
+    Core.append(host_keys, "mcp");
+    Core.append(host_keys, "ucp");
+    Core.append(host_keys, "mcpContext");
+    Core.append(host_keys, "functions");
+    Core.append(host_keys, "runtime");
+    for (Object key : Core.iter(merged)) {
+      Object host = Core.contains(host_keys, key);
+      if (Core.truthy(host)) {
+        // empty
+      }
+      if (!Core.truthy(host)) {
+        Object value = Core.get(merged, key, null);
+        Core.set(out, key, value);
+      }
+    }
     Object base_control = Core.get(base_options, "control", null);
     Object controller = Core.get(forward_options, "control", base_control);
     Object controlled = Core.isNotNone(controller);
@@ -25449,6 +25482,71 @@ final class Core {
     return responder_output;
   }
 
+  static Object _agent_apply_run_context(Object state, Object configured, Object call, Object modules) {
+    axirCoverageMark("_agent_apply_run_context");
+    Object empty_list = new java.util.ArrayList<Object>();
+    Object options = Core.mapMerge(configured, call);
+    Object functions = Core.get(options, "functions", empty_list);
+    Object retained = new java.util.ArrayList<Object>();
+    for (Object function : Core.iter(functions)) {
+      Object default_name = Core.get(function, "name", "");
+      Object namespace = Core.get(function, "namespace", default_name);
+      Object mcp = Core.stringStartsWith(namespace, "mcp.");
+      Object ucp = Core.stringStartsWith(namespace, "ucp.");
+      Object protocol = Core.or(mcp, ucp);
+      if (Core.truthy(protocol)) {
+        // empty
+      }
+      if (!Core.truthy(protocol)) {
+        Core.append(retained, function);
+      }
+    }
+    Core.set(options, "functions", retained);
+    options = Core._agent_append_runtime_modules(options, modules);
+    Object inventory = Core._normalize_agent_callable_inventory(options);
+    Object split = Core._split_agent_callable_inventory(inventory);
+    Object catalog = Core._render_agent_discovery_catalog(split);
+    Core.set(state, "options", options);
+    Core.set(state, "callable_inventory", inventory);
+    Core.set(state, "callable_split", split);
+    Core.set(state, "discovery_catalog", catalog);
+    Object upgrade = Core._resolve_agent_auto_upgrade(options);
+    Object flags = Core._agent_policy_flags(options, split, upgrade);
+    Object policy = Core._normalize_agent_policy(options);
+    Object registry = Core._agent_policy_registry(policy, flags);
+    Core.set(state, "policy_flags", flags);
+    Core.set(state, "policy_registry", registry);
+    Object docs = Core.get(state, "discovered_tool_docs", empty_list);
+    Object retained_docs = new java.util.ArrayList<Object>();
+    for (Object doc : Core.iter(docs)) {
+      Object name = Core.get(doc, "qualified_name", "");
+      Object mcp = Core.stringStartsWith(name, "mcp.");
+      Object ucp = Core.stringStartsWith(name, "ucp.");
+      Object protocol = Core.or(mcp, ucp);
+      if (Core.truthy(protocol)) {
+        // empty
+      }
+      if (!Core.truthy(protocol)) {
+        Core.append(retained_docs, doc);
+      }
+    }
+    Core.set(state, "discovered_tool_docs", retained_docs);
+    Object prompt = Core._build_agent_actor_prompt_policy(state);
+    Core.set(state, "actor_prompt_policy", prompt);
+    Object runtime = Core.get(state, "runtime_enabled", Boolean.FALSE);
+    if (Core.truthy(runtime)) {
+      Object executor = Core._render_rlm_executor_description(state, options);
+      Object distiller = Core._render_rlm_distiller_description(state, options);
+      Object responder = Core._render_rlm_responder_description(state, options);
+      Core.set(state, "executor_description_base", executor);
+      Core.set(state, "distiller_description", distiller);
+      Core.set(state, "responder_description", responder);
+      Core._agent_refresh_actor_instruction(state);
+    }
+    Core.set(state, "mcp_run_context_active", Boolean.TRUE);
+    return call;
+  }
+
   static Object _agent_append_runtime_modules(Object options, Object additional) {
     axirCoverageMark("_agent_append_runtime_modules");
     Object empty_map = new java.util.LinkedHashMap<String, Object>();
@@ -25566,6 +25664,8 @@ final class Core {
         Core.set(out, key, value);
       }
     }
+    Object inheritance = Core.get(parent, "mcpInheritance", "all");
+    Core.set(out, "mcpInheritanceFromParent", inheritance);
     Object snake_path = Core.get(parent, "execution_path", "root");
     Object parent_path = Core.get(parent, "executionPath", snake_path);
     Object path = Core.stringFormat("{}/{}", parent_path, qualified);

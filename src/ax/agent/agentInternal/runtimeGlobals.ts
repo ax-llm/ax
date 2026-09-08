@@ -139,7 +139,9 @@ export function wrapFunction(
   runOptions?: Pick<
     import('../../ai/types.js').AxAIServiceOptions,
     'control' | 'executionPath'
-  >
+  > & {
+    _mcpExecutionContext?: import('../../mcp/execution.js').AxMCPExecutionContext;
+  }
 ): (...args: unknown[]) => Promise<unknown> {
   return async (...args: unknown[]) => {
     let callArgs: Record<string, unknown>;
@@ -181,6 +183,7 @@ export function wrapFunction(
         ai,
         protocol,
         eventContext,
+        _mcpExecutionContext: runOptions?._mcpExecutionContext,
         control: runOptions?.control,
         executionPath: `${runOptions?.executionPath ?? 'root'}/${normalizedQualifiedName}`,
       });
@@ -316,7 +319,7 @@ export function buildRuntimeGlobals(
           agentFn._kind ?? 'external',
           onFunctionCall,
           eventContext,
-          runOptions
+          { ...runOptions, _mcpExecutionContext: s._activeMCPExecutionContext }
         )
       : buildStageToolStub(qualifiedName);
     if (agentFn._alwaysInclude !== true) {
@@ -358,7 +361,10 @@ export function buildRuntimeGlobals(
               'external',
               onFunctionCall,
               eventContext,
-              runOptions
+              {
+                ...runOptions,
+                _mcpExecutionContext: s._activeMCPExecutionContext,
+              }
             )
           : buildStageToolStub(qualifiedName);
         registerCallable(
@@ -446,7 +452,10 @@ export function buildRuntimeGlobals(
               'external',
               onFunctionCall,
               eventContext,
-              runOptions
+              {
+                ...runOptions,
+                _mcpExecutionContext: s._activeMCPExecutionContext,
+              }
             )
           : buildStageToolStub(qualifiedName);
         registerCallable(

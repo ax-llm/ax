@@ -15,6 +15,7 @@ import type {
   AxProgramForwardOptionsWithModels,
   AxProgramTrace,
 } from '../../dsp/types.js';
+import { axMCPChildExecutionOptions } from '../../mcp/execution.js';
 import { ActorAgentRLM } from '../AxAgent.js';
 import {
   type AxResolvedAutoUpgrade,
@@ -479,7 +480,11 @@ export class AxAgent<IN extends AxGenIn, OUT extends AxGenOut>
           if (!ai) {
             throw new Error('AI service is required to run the agent');
           }
-          const ret = await coordForward(ai, funcValues, funcOptions);
+          const ret = await coordForward(
+            ai,
+            funcValues,
+            funcOptions ? axMCPChildExecutionOptions(funcOptions) : funcOptions
+          );
           const outFields = coordSig.getOutputFields();
           return Object.keys(ret as Record<string, unknown>)
             .map((k) => {

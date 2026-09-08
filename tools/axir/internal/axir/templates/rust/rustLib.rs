@@ -4443,6 +4443,7 @@ impl AxProgram for AxGen {
 
 pub struct AxAgent {
     state: CoreValue,
+    configured_options: CoreValue,
     distiller: CoreValue,
     executor: CoreValue,
     responder: CoreValue,
@@ -4511,9 +4512,8 @@ where
     json!({"__agent_observer_id": id})
 }
 
-pub fn agent_with_execution_context(spec: &str, options: Value, context: AxExecutionContext) -> AxResult<AxAgent> {
+fn agent_context_modules(context:&AxExecutionContext)->AxResult<CoreValue>{
     context.initialize()?;
-    let options = core_value_from_json(&options);
     let modules = CoreValue::new_list();
     for client in &context.mcp {
         let locked = client.lock().unwrap();
@@ -4534,9 +4534,13 @@ pub fn agent_with_execution_context(spec: &str, options: Value, context: AxExecu
         core_set(&module, CoreValue::from("functions"), functions)?;
         core_append(&modules, module)?;
     }
-    let options = _agent_append_runtime_modules(&[options, modules])?;
-    let mut agent = agent_with_core_options(spec, options)?;
-    agent.execution_context = Some(context);
+    Ok(modules)
+}
+pub fn agent_with_execution_context(spec: &str, options: Value, context: AxExecutionContext) -> AxResult<AxAgent> {
+    let modules=agent_context_modules(&context)?;
+    let options=_agent_append_runtime_modules(&[core_value_from_json(&options),modules])?;
+    let mut agent=agent_with_core_options(spec,options)?;
+    agent.execution_context=Some(context);
     Ok(agent)
 }
 
@@ -4633,6 +4637,7 @@ pub(crate) fn agent_with_core_options(spec: &str, options: CoreValue) -> AxResul
     .text();
     let llm_query_instruction = core_value_to_json(&core_get(&state, &CoreValue::from("llm_query_description"), CoreValue::from("")));
     Ok(AxAgent {
+        configured_options: options.clone(),
         state,
         distiller: agent_stage_gen(
             distiller_signature,
@@ -4661,7 +4666,7 @@ pub(crate) fn agent_with_core_options(spec: &str, options: CoreValue) -> AxResul
 impl AxAgent {
     pub fn with_child_agent(mut self, namespace: &str, name: &str, child: AxAgent) -> AxResult<Self> {
         let child_signature = core_get(&child.state, &CoreValue::from("signature"), CoreValue::Null);
-        let options = core_get(&self.state, &CoreValue::from("options"), CoreValue::new_map());
+        let options = core_deep_clone(&self.configured_options);
         let options = _agent_register_child(&[options, CoreValue::from(namespace), CoreValue::from(name), AgentHost::new(child), child_signature])?;
         let spec = signature_from_record(&core_get(&self.state, &CoreValue::from("signature"), CoreValue::Null))?.to_string();
         let mut rebuilt = agent_with_core_options(&spec, options)?;
@@ -4674,7 +4679,7 @@ impl AxAgent {
         Ok(rebuilt)
     }
     pub fn with_tool_module(mut self,name:&str,tools:Vec<Tool>)->AxResult<Self> {
-        let options=core_get(&self.state,&CoreValue::from("options"),CoreValue::new_map());
+        let options=core_deep_clone(&self.configured_options);
         let functions=core_get(&options,&CoreValue::from("functions"),CoreValue::new_list());
         let group=core_agent_map(&[("name",CoreValue::from(name)),("functions",CoreValue::list_from(tools.into_iter().map(core_tool_host).collect()))])?;
         core_append(&functions,group)?;core_set(&options,CoreValue::from("functions"),functions)?;
@@ -4689,7 +4694,7 @@ impl AxAgent {
         Ok(rebuilt)
     }
     pub fn set_signature(&mut self, spec: &str) -> AxResult<&mut Self> {
-        let options = core_get(&self.state, &CoreValue::from("options"), CoreValue::Null);
+        let options = core_deep_clone(&self.configured_options);
         let hooks = self.runtime_hooks.clone();
         let mut rebuilt = agent_with_core_options(spec, options)?;
         rebuilt.runtime_hooks = hooks;
@@ -4764,6 +4769,17 @@ impl AxAgent {
         let mut attributes = BTreeMap::new();
         attributes.insert("ax.program.kind".to_string(), json!("AxAgent"));
         with_runtime_scope(None, Some(&defaults), "ax_gen_agent_forward", "agent", attributes, || {
+        let call_context=self.execution_context.clone().or_else(mcp::MCPRunScope::current);
+        let _context_scope=mcp::MCPRunScope::enter(call_context.clone());
+        if call_context.is_some() || core_truthy(&core_get(&self.state,&CoreValue::from("mcp_run_context_active"),CoreValue::Bool(false))) {
+            let modules=match &call_context {Some(context)=>agent_context_modules(context)?,None=>CoreValue::new_list()};
+            _agent_apply_run_context(&[self.state.clone(),self.configured_options.clone(),core_value_from_json(&options),modules])?;
+            if core_truthy(&core_get(&self.state,&CoreValue::from("runtime_enabled"),CoreValue::Bool(false))) {
+                for (field,stage) in [("distiller_description",&self.distiller),("executor_description",&self.executor),("responder_description",&self.responder)] {
+                    if let CoreValue::Host(host)=stage { if let Some(gen)=host.stage_gen_rc(){gen.borrow_mut().set_instruction(&core_get(&self.state,&CoreValue::from(field),CoreValue::from("")).text());} }
+                }
+            }
+        }
         let mut chat = |method: &str, request: Value, options: Value| -> AxResult<Value> {
             if method=="owned_worker" {return Ok(publish_owned_client_factory(client.owned_worker_factory()));}
             if method.starts_with("route_") {return session::dispatch_run_route(client,method,request,options);}
@@ -5280,10 +5296,8 @@ impl AxAgent {
             Rc::new(RefCell::new(runtime)),
             core_runtime_capabilities_full(),
         );
-        let options = core_get(&self.state, &CoreValue::from("options"), CoreValue::Null);
-        let previous = core_get(&options, &CoreValue::from("runtime"), CoreValue::Null);
+        let options = core_deep_clone(&self.configured_options);
         core_set(&options, CoreValue::from("runtime"), host)?;
-        if !matches!(previous, CoreValue::Null) { return Ok(self); }
         let spec = signature_from_record(&core_get(&self.state, &CoreValue::from("signature"), CoreValue::Null))?.to_string();
         let mut rebuilt = agent_with_core_options(&spec, options)?;
         rebuilt.runtime_hooks = self.runtime_hooks;
@@ -10805,6 +10819,10 @@ fn run_agent_forward_contract_fixture(fixture: &Value) -> AxResult<()> {
             ));
         }
     }
+    let mut mcp_transports=Vec::new();
+    let mut context_clients:BTreeMap<String,Vec<Arc<Mutex<AxMCPClient>>>>=BTreeMap::new();
+    for spec in fixture.get("mcp_clients").and_then(Value::as_array).into_iter().flatten(){let owner=spec.get("owner").and_then(Value::as_str).unwrap_or("parent").to_string();let namespace=spec["namespace"].as_str().unwrap();let transport=Arc::new(Mutex::new(Box::new(AxMCPScriptedTransport::new(spec["responses"].as_array().unwrap().clone())) as Box<dyn AxMCPTransport>));context_clients.entry(owner.clone()).or_default().push(Arc::new(Mutex::new(AxMCPClient::from_shared_transport(transport.clone(),json!({"namespace":namespace,"era":"modern"})))));mcp_transports.push((format!("{owner}/{namespace}"),transport));}
+    let mut contexts=BTreeMap::new();for (owner,clients) in context_clients{contexts.insert(owner,AxExecutionContext::new(clients,vec![])?);}
     let signature = fixture
         .get("signature")
         .and_then(Value::as_str)
@@ -10820,8 +10838,12 @@ fn run_agent_forward_contract_fixture(fixture: &Value) -> AxResult<()> {
             return Err(error);
         }
     };
+    agent.execution_context=contexts.get("parent").cloned();
     for child in fixture.get("child_agents").and_then(Value::as_array).into_iter().flatten() {
         let mut program = agent_with_options(child["signature"].as_str().unwrap_or_default(), child.get("options").cloned().unwrap_or_else(|| json!({})))?;
+        if let Some(script)=child.get("runtime_script").and_then(Value::as_array){program=program.with_runtime(Box::new(ScriptedCodeRuntime::new(script.clone(),"JavaScript".to_string(),String::new())))?;}
+        let owner=format!("{}.{}",child["namespace"].as_str().unwrap(),child["name"].as_str().unwrap());
+        program.execution_context=contexts.get(&owner).cloned();
         if child.get("runtime_engine").is_some() {
             #[cfg(feature = "runtime-quickjs")]
             { program = program.with_runtime(Box::new(crate::runtime::quickjs::QuickJsCodeRuntime::new()))?; }
@@ -11108,6 +11130,8 @@ fn run_agent_forward_contract_fixture(fixture: &Value) -> AxResult<()> {
             expected_stage_requests,
         )?;
     }
+    if let Some(expected)=fixture.get("expected_mcp_calls").and_then(Value::as_object){for (key,calls) in expected{let transport=&mcp_transports.iter().find(|(name,_)|name==key).ok_or_else(||AxError::runtime("Missing MCP test transport"))?.1;let requests=transport.lock().unwrap().sent_requests();let actual=requests.iter().filter(|r|r["method"]=="tools/call").map(|r|json!({"name":r["params"]["name"],"arguments":r["params"]["arguments"]})).collect::<Vec<_>>();expect_json_equal(&format!("delegated MCP calls {key}"),&json!(actual),calls)?;}}
+    for check in fixture.get("expected_request_checks").and_then(Value::as_array).into_iter().flatten(){let request=&client.requests[check["index"].as_u64().unwrap() as usize];let text=stable_stringify(request);for value in check.get("contains").and_then(Value::as_array).into_iter().flatten(){if !text.contains(value.as_str().unwrap()){return Err(AxError::runtime(format!("Child request missing {value}")));}}for value in check.get("not_contains").and_then(Value::as_array).into_iter().flatten(){if text.contains(value.as_str().unwrap()){return Err(AxError::runtime(format!("Child request exposed {value}")));}}if check["functions_absent"]==true&&request.get("functions").and_then(Value::as_array).is_some_and(|functions|!functions.is_empty()){return Err(AxError::runtime("Agent runtime tools leaked into native functions"));}}
     if let Some(items) = fixture.get("expected_request_contains").and_then(Value::as_array) {
         let request_text = stable_stringify(&Value::Array(client.requests.clone()));
         for item in items {
@@ -19399,6 +19423,10 @@ impl CoreHost for AgentHost {
             "forward" => {
                 let values = core_value_to_json(&core_arg(args, 1));
                 let options = core_value_to_json(&core_arg(args, 2));
+                let _context_scope=if let Some(policy)=options.get("mcpInheritanceFromParent") {
+                    let inherited=mcp::MCPRunScope::current().map(|context|context.try_derive(policy)).transpose()?;
+                    Some(mcp::MCPRunScope::enter(inherited))
+                }else{None};
                 let mut client = core_scoped_client()?;
                 let output = self
                     .agent

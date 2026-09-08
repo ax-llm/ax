@@ -1469,6 +1469,12 @@ static void run_agent_forward(Value fixture) {
     throw AxError("fixture", "agent_runtime_real requires building conformance with -DAX_CONFORMANCE_QUICKJS and the quickjs runtime");
   }
 #endif
+  std::map<std::string,std::shared_ptr<AxMCPScriptedTransport>> mcp_transports;
+  std::map<std::string,std::vector<std::shared_ptr<AxMCPClient>>> context_clients;
+  std::map<std::string,std::shared_ptr<AxExecutionContext>> contexts;
+  std::vector<std::unique_ptr<ScriptedCodeRuntime>> child_scripts;
+  for(auto spec:Core::iter(Core::get(fixture,"mcp_clients",Value::array()))){std::string owner=display(Core::get(spec,"owner","parent")),name=display(Core::get(spec,"namespace"));auto transport=std::make_shared<AxMCPScriptedTransport>(Core::get(spec,"responses"));mcp_transports[owner+"/"+name]=transport;context_clients[owner].push_back(std::make_shared<AxMCPClient>(transport,object({{"namespace",name},{"era","modern"}})));}
+  for(auto& entry:context_clients)contexts[entry.first]=std::make_shared<AxExecutionContext>(entry.second);
   std::unique_ptr<AxAgent> ag;
   bool observer_called = false;
   Value run_state_projections = Value::array();
@@ -1476,8 +1482,10 @@ static void run_agent_forward(Value fixture) {
   Value state_roundtrip_projection = Value::object();
   try {
     ag = std::make_unique<AxAgent>(Core::get(fixture, "signature"), agent_options);
+    if(contexts.count("parent"))contexts.at("parent")->attach(*ag);
     for (const auto& child : Core::iter(Core::get(fixture, "child_agents", Value::array()))) {
       Value child_options = Core::get(child, "options", Value::object());
+      if(!Core::get(child,"runtime_script").is_null()){child_scripts.push_back(std::make_unique<ScriptedCodeRuntime>(Core::get(child,"runtime_script"),"JavaScript",""));Core::set(child_options,"runtime",Core::code_runtime_ref(*child_scripts.back()));}
 #ifdef AX_CONFORMANCE_QUICKJS
       if (!Core::get(child, "runtime_engine").is_null()) {
         child_runtimes.push_back(std::make_unique<axllm::runtime::quickjs::QuickJsCodeRuntime>());
@@ -1486,7 +1494,10 @@ static void run_agent_forward(Value fixture) {
 #else
       if (!Core::get(child, "runtime_engine").is_null()) throw AxError("fixture", "Child runtime requires AX_CONFORMANCE_QUICKJS");
 #endif
-      ag->add_child_agent(display(Core::get(child, "namespace")), display(Core::get(child, "name")), std::make_shared<AxAgent>(Core::get(child, "signature"), child_options));
+      auto program=std::make_shared<AxAgent>(Core::get(child,"signature"),child_options);
+      std::string owner=display(Core::get(child,"namespace"))+"."+display(Core::get(child,"name"));
+      if(contexts.count(owner))contexts.at(owner)->attach(*program);
+      ag->add_child_agent(display(Core::get(child, "namespace")), display(Core::get(child, "name")),program);
     }
     if (!Core::get(fixture, "set_instruction").is_null()) ag->set_instruction(Core::get(fixture, "set_instruction"));
     if (!Core::get(fixture, "add_actor_instruction").is_null()) ag->add_actor_instruction(Core::get(fixture, "add_actor_instruction"));
@@ -1613,6 +1624,8 @@ static void run_agent_forward(Value fixture) {
     }
     assert_equal(actual_stage_requests, expected_stage_requests, "exact agent stage request projection");
   }
+  for(auto key:Core::iter(Core::map_keys(Core::get(fixture,"expected_mcp_calls",Value::object())))){Array actual;for(auto request:mcp_transports.at(display(key))->requests){if(display(Core::get(request,"method"))=="tools/call"){auto params=Core::get(request,"params");actual.push_back(object({{"name",Core::get(params,"name")},{"arguments",Core::get(params,"arguments")}}));}}auto expected=Core::get(Core::get(fixture,"expected_mcp_calls"),key);assert_subset(Value(actual),expected,"delegated MCP calls");assert_subset(expected,Value(actual),"delegated MCP call fields");}
+  for(auto check:Core::iter(Core::get(fixture,"expected_request_checks",Value::array()))){auto request=client.requests.at(static_cast<size_t>(std::stoul(display(Core::get(check,"index")))));auto text=stringify(request);for(auto value:Core::iter(Core::get(check,"contains",Value::array())))if(text.find(display(value))==std::string::npos)throw AxError("fixture","Child request missing "+display(value));for(auto value:Core::iter(Core::get(check,"not_contains",Value::array())))if(text.find(display(value))!=std::string::npos)throw AxError("fixture","Child request exposed "+display(value));if(Core::truthy(Core::get(check,"functions_absent"))&&Core::truthy(Core::get(request,"functions")))throw AxError("fixture","Agent runtime tools leaked into native functions");}
   Value expected_contains = Core::get(fixture, "expected_request_contains");
   if (!expected_contains.is_null()) {
     std::string request_text = stringify(Value(client.requests));

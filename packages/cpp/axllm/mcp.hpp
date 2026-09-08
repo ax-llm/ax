@@ -337,7 +337,7 @@ class AxEventRuntime {
   std::vector<AxEventRoute> routes_;Value options_;Value descriptor_;AxInMemoryEventStore store_;std::shared_ptr<AxEventClock> clock_;std::map<std::string,AxEventTarget> targets_;std::vector<std::shared_ptr<AxEventSource>> sources_;std::map<std::string,std::shared_ptr<AxEventCancellationToken>> active_;bool started_=false;int maxAttempts_=3;long retryBackoffMs_=1000;
 };
 
-class AxExecutionContext {
+class AxExecutionContext : public detail::AgentExecutionContext {
  public:
   AxExecutionContext(std::vector<std::shared_ptr<AxMCPClient>> mcp = {}, std::vector<std::shared_ptr<AxUCPClient>> ucp = {});
   void initialize();
@@ -350,6 +350,10 @@ class AxExecutionContext {
   void attach(AxAgent& agent);
 
  private:
+  friend class AxAgent;
+  friend struct Core;
+  Value agent_modules() override;
+  std::shared_ptr<detail::AgentExecutionContext> shared_derived(Value inheritance) const override;
   std::vector<std::shared_ptr<AxMCPClient>> mcp_;
   std::vector<std::shared_ptr<AxUCPClient>> ucp_;
   std::set<AxMCPClient*> initialized_;

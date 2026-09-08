@@ -1,0 +1,310 @@
+{
+  "kind": "agent_forward",
+  "name": "owned-child-mcp-inheritance-empty",
+  "signature": "question:string -> answer:string",
+  "options": {
+    "directResponse": "off",
+    "mcpInheritance": []
+  },
+  "mcp_clients": [
+    {
+      "namespace": "inventory",
+      "responses": [
+        {
+          "jsonrpc": "2.0",
+          "result": {
+            "resultType": "complete",
+            "supportedVersions": ["2026-07-28"],
+            "ttlMs": 60000,
+            "cacheScope": "private",
+            "capabilities": {
+              "tools": {}
+            }
+          }
+        },
+        {
+          "jsonrpc": "2.0",
+          "result": {
+            "tools": [
+              {
+                "name": "lookup_inventory",
+                "description": "Read the selected namespace",
+                "inputSchema": {
+                  "type": "object",
+                  "properties": {
+                    "query": {
+                      "type": "string"
+                    }
+                  },
+                  "required": ["query"],
+                  "additionalProperties": false
+                }
+              }
+            ]
+          }
+        },
+        {
+          "jsonrpc": "2.0",
+          "result": {
+            "resultType": "complete",
+            "structuredContent": {
+              "namespace": "inventory",
+              "reference": "inventory-REF"
+            },
+            "content": [
+              {
+                "type": "text",
+                "text": "inventory-REF"
+              }
+            ]
+          }
+        },
+        {
+          "jsonrpc": "2.0",
+          "result": {
+            "resultType": "complete",
+            "structuredContent": {
+              "namespace": "inventory",
+              "reference": "inventory-REF"
+            },
+            "content": [
+              {
+                "type": "text",
+                "text": "inventory-REF"
+              }
+            ]
+          }
+        }
+      ],
+      "owner": "parent"
+    },
+    {
+      "namespace": "orders",
+      "responses": [
+        {
+          "jsonrpc": "2.0",
+          "result": {
+            "resultType": "complete",
+            "supportedVersions": ["2026-07-28"],
+            "ttlMs": 60000,
+            "cacheScope": "private",
+            "capabilities": {
+              "tools": {}
+            }
+          }
+        },
+        {
+          "jsonrpc": "2.0",
+          "result": {
+            "tools": [
+              {
+                "name": "lookup_orders",
+                "description": "Read the selected namespace",
+                "inputSchema": {
+                  "type": "object",
+                  "properties": {
+                    "query": {
+                      "type": "string"
+                    }
+                  },
+                  "required": ["query"],
+                  "additionalProperties": false
+                }
+              }
+            ]
+          }
+        },
+        {
+          "jsonrpc": "2.0",
+          "result": {
+            "resultType": "complete",
+            "structuredContent": {
+              "namespace": "orders",
+              "reference": "orders-REF"
+            },
+            "content": [
+              {
+                "type": "text",
+                "text": "orders-REF"
+              }
+            ]
+          }
+        },
+        {
+          "jsonrpc": "2.0",
+          "result": {
+            "resultType": "complete",
+            "structuredContent": {
+              "namespace": "orders",
+              "reference": "orders-REF"
+            },
+            "content": [
+              {
+                "type": "text",
+                "text": "orders-REF"
+              }
+            ]
+          }
+        }
+      ],
+      "owner": "parent"
+    }
+  ],
+  "runtime_script": [
+    {
+      "expected_code": "plan",
+      "result": {
+        "type": "final",
+        "args": [
+          "Finish",
+          {
+            "answer": "plan"
+          }
+        ]
+      }
+    },
+    {
+      "expected_code": "delegate",
+      "result": {
+        "callable": {
+          "qualified_name": "team.researcher",
+          "args": {
+            "question": "Read permitted references"
+          },
+          "call_id": "child-call"
+        }
+      }
+    },
+    {
+      "expected_code": "finish",
+      "result": {
+        "type": "final",
+        "args": [
+          "Finish",
+          {
+            "answer": "NO-ACCESS"
+          }
+        ]
+      }
+    }
+  ],
+  "child_agents": [
+    {
+      "namespace": "team",
+      "name": "researcher",
+      "signature": "question:string -> answer:string",
+      "options": {
+        "directResponse": "off"
+      },
+      "runtime_script": [
+        {
+          "expected_code": "childplan",
+          "result": {
+            "type": "final",
+            "args": [
+              "Finish",
+              {
+                "answer": "plan"
+              }
+            ]
+          }
+        },
+        {
+          "expected_code": "inventory",
+          "result": {
+            "callable": {
+              "qualified_name": "mcp.inventory.tools.lookup_inventory",
+              "args": {
+                "query": "scope-probe"
+              },
+              "call_id": "inventory-call"
+            }
+          }
+        },
+        {
+          "expected_code": "orders",
+          "result": {
+            "callable": {
+              "qualified_name": "mcp.orders.tools.lookup_orders",
+              "args": {
+                "query": "scope-probe"
+              },
+              "call_id": "orders-call"
+            }
+          }
+        },
+        {
+          "expected_code": "childfinish",
+          "result": {
+            "type": "final",
+            "args": [
+              "Finish",
+              {
+                "answer": "NO-ACCESS"
+              }
+            ]
+          }
+        }
+      ]
+    }
+  ],
+  "responses": [
+    {
+      "content": "{\"javascriptCode\": \"plan\"}"
+    },
+    {
+      "content": "{\"javascriptCode\": \"delegate\"}"
+    },
+    {
+      "content": "{\"javascriptCode\": \"childplan\"}"
+    },
+    {
+      "content": "{\"javascriptCode\": \"inventory\"}"
+    },
+    {
+      "content": "{\"javascriptCode\": \"orders\"}"
+    },
+    {
+      "content": "{\"javascriptCode\": \"childfinish\"}"
+    },
+    {
+      "content": "{\"answer\": \"NO-ACCESS\"}"
+    },
+    {
+      "content": "{\"javascriptCode\": \"finish\"}"
+    },
+    {
+      "content": "{\"answer\": \"NO-ACCESS\"}"
+    }
+  ],
+  "input": {
+    "question": "Read permitted references"
+  },
+  "expected_output": {
+    "answer": "NO-ACCESS"
+  },
+  "expected_request_count": 9,
+  "expected_executed": ["plan", "delegate", "finish"],
+  "expected_mcp_calls": {
+    "parent/inventory": [],
+    "parent/orders": []
+  },
+  "expected_request_checks": [
+    {
+      "index": 1,
+      "contains": ["mcp.inventory.tools", "mcp.orders.tools"],
+      "functions_absent": true
+    },
+    {
+      "index": 3,
+      "contains": [],
+      "not_contains": ["mcp.inventory.tools", "mcp.orders.tools"],
+      "functions_absent": true
+    },
+    {
+      "index": 7,
+      "contains": ["NO-ACCESS"],
+      "functions_absent": true
+    }
+  ]
+}

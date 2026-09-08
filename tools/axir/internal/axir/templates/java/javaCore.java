@@ -959,7 +959,13 @@ final class Core {
   static Object agentStageForward(Object stage, Object client, Object values, Object options) {
     if (!(stage instanceof AxProgram program)) throw new RuntimeException("agent stage is not AxProgram");
     if (!(client instanceof AiClient ai)) throw new RuntimeException("client does not implement AiClient");
-    return program.forward(ai, asMap(values), asMap(options));
+    Map<String,Object> forwarded = new LinkedHashMap<>(asMap(options));
+    if (stage instanceof AxAgent && forwarded.containsKey("mcpInheritanceFromParent")) {
+      Object context = forwarded.remove("executionContext");
+      Object policy = forwarded.remove("mcpInheritanceFromParent");
+      if (context instanceof AxExecutionContext parent) forwarded.put("inheritedExecutionContext", parent.derive(policy));
+    }
+    return program.forward(ai, asMap(values), forwarded);
   }
   static Object agentStageChatLog(Object stage) {
     if (stage instanceof AxProgram program) return program.getChatLog();
