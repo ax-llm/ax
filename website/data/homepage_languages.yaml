@@ -65,7 +65,7 @@ languages:
     agent:
       filename: audit.ts
       runtimeLabel: JS runtime session
-      status: Gemini Flash matches plain-code ground truth — to the cent
+      status: Illustrative audit result — see the runnable example and measurements
       output: |
         {
           "total": 9161.10,
@@ -105,10 +105,10 @@ languages:
       extraction: ax("document:string -> names:string[], dates:date[]")
       qa: ax("context:string, question:string -> answer:string")
       multimodal: ax("photo:image, question:string -> answer:string")
-      validation: ax("email:string, score:number -> valid:boolean")
-      streaming: ax("topic:string -> chunk:string")
+      decision: ax("email:string, score:number -> valid:boolean")
+      generation: ax("topic:string -> chunk:string")
       translation: ax("text:string, targetLanguage:string -> translation:string")
-      workflows: ax("doc:string -> summary:string, keyPoints:string[]")
+      summarization: ax("doc:string -> summary:string, keyPoints:string[]")
   - id: python
     label: Python
     shortLabel: Python
@@ -172,7 +172,7 @@ languages:
     agent:
       filename: audit.py
       runtimeLabel: Python host session
-      status: The ledger stays in the host session — the answer comes back exact
+      status: Illustrative audit result — see the runnable example and measurements
       output: |
         {
           "total": 9161.10,
@@ -211,10 +211,10 @@ languages:
       extraction: ax("document:string -> names:string[], dates:date[]")
       qa: ax("context:string, question:string -> answer:string")
       multimodal: ax("photo:image, question:string -> answer:string")
-      validation: ax("email:string, score:number -> valid:boolean")
-      streaming: ax("topic:string -> chunk:string")
+      decision: ax("email:string, score:number -> valid:boolean")
+      generation: ax("topic:string -> chunk:string")
       translation: ax("text:string, targetLanguage:string -> translation:string")
-      workflows: ax("doc:string -> summary:string, keyPoints:string[]")
+      summarization: ax("doc:string -> summary:string, keyPoints:string[]")
   - id: java
     label: Java
     shortLabel: Java
@@ -282,7 +282,7 @@ languages:
     agent:
       filename: Audit.java
       runtimeLabel: JVM host session
-      status: Bulky data stays runtime-side; typed, exact results out
+      status: Illustrative audit result — see the runnable example and measurements
       output: |
         {
           "total": 9161.10,
@@ -322,10 +322,10 @@ languages:
       extraction: Ax.ax("document:string -> names:string[], dates:date[]")
       qa: Ax.ax("context:string, question:string -> answer:string")
       multimodal: Ax.ax("photo:image, question:string -> answer:string")
-      validation: Ax.ax("email:string, score:number -> valid:boolean")
-      streaming: Ax.ax("topic:string -> chunk:string")
+      decision: Ax.ax("email:string, score:number -> valid:boolean")
+      generation: Ax.ax("topic:string -> chunk:string")
       translation: Ax.ax("text:string, targetLanguage:string -> translation:string")
-      workflows: Ax.ax("doc:string -> summary:string, keyPoints:string[]")
+      summarization: Ax.ax("doc:string -> summary:string, keyPoints:string[]")
   - id: cpp
     label: C++
     shortLabel: C++
@@ -389,7 +389,7 @@ languages:
     agent:
       filename: audit.cpp
       runtimeLabel: C++ host session
-      status: Same audit, same exact answer — native C++ surface
+      status: Illustrative audit result — see the runnable example and measurements
       output: |
         {
           "total": 9161.10,
@@ -428,10 +428,10 @@ languages:
       extraction: axllm::ax("document:string -> names:string[], dates:date[]")
       qa: axllm::ax("context:string, question:string -> answer:string")
       multimodal: axllm::ax("photo:image, question:string -> answer:string")
-      validation: axllm::ax("email:string, score:number -> valid:boolean")
-      streaming: axllm::ax("topic:string -> chunk:string")
+      decision: axllm::ax("email:string, score:number -> valid:boolean")
+      generation: axllm::ax("topic:string -> chunk:string")
       translation: axllm::ax("text:string, targetLanguage:string -> translation:string")
-      workflows: axllm::ax("doc:string -> summary:string, keyPoints:string[]")
+      summarization: axllm::ax("doc:string -> summary:string, keyPoints:string[]")
   - id: go
     label: Go
     shortLabel: Go
@@ -501,7 +501,7 @@ languages:
     agent:
       filename: audit.go
       runtimeLabel: Go host session
-      status: Prompt stays bounded at any ledger size — output is exact
+      status: Illustrative audit result — see the runnable example and measurements
       output: |
         {
           "total": 9161.10,
@@ -540,10 +540,10 @@ languages:
       extraction: ax.NewAx("document:string -> names:string[], dates:date[]", nil)
       qa: ax.NewAx("context:string, question:string -> answer:string", nil)
       multimodal: ax.NewAx("photo:image, question:string -> answer:string", nil)
-      validation: ax.NewAx("email:string, score:number -> valid:boolean", nil)
-      streaming: ax.NewAx("topic:string -> chunk:string", nil)
+      decision: ax.NewAx("email:string, score:number -> valid:boolean", nil)
+      generation: ax.NewAx("topic:string -> chunk:string", nil)
       translation: ax.NewAx("text:string, targetLanguage:string -> translation:string", nil)
-      workflows: ax.NewAx("doc:string -> summary:string, keyPoints:string[]", nil)
+      summarization: ax.NewAx("doc:string -> summary:string, keyPoints:string[]", nil)
   - id: rust
     label: Rust
     shortLabel: Rust
@@ -611,7 +611,7 @@ languages:
     agent:
       filename: audit.rs
       runtimeLabel: Rust host session
-      status: Exact totals from a runtime-grounded agent
+      status: Illustrative audit result — see the runnable example and measurements
       output: |
         {
           "total": 9161.10,
@@ -648,7 +648,7 @@ languages:
       extraction: ax("document:string -> names:string[], dates:date[]")?
       qa: ax("context:string, question:string -> answer:string")?
       multimodal: ax("photo:image, question:string -> answer:string")?
-      validation: ax("email:string, score:number -> valid:boolean")?
-      streaming: ax("topic:string -> chunk:string")?
+      decision: ax("email:string, score:number -> valid:boolean")?
+      generation: ax("topic:string -> chunk:string")?
       translation: ax("text:string, targetLanguage:string -> translation:string")?
-      workflows: ax("doc:string -> summary:string, keyPoints:string[]")?
+      summarization: ax("doc:string -> summary:string, keyPoints:string[]")?

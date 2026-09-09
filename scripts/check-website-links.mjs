@@ -358,7 +358,24 @@ try {
     const html = await readFile(file, 'utf8');
     const rel = path.relative(destination, file).replaceAll(path.sep, '/');
     if (isAcademyPage(rel)) academyHtmlFiles.push(rel);
-    for (const ref of localRefs(html)) {
+    const refs = localRefs(html);
+    if (rel === 'index.html') {
+      for (const [tag] of html.matchAll(/<a\b[^>]*>/gi)) {
+        const route = attrValue(tag, 'data-home-lang-href');
+        if (!route) continue;
+        for (const language of [
+          'typescript',
+          'python',
+          'java',
+          'cpp',
+          'go',
+          'rust',
+        ]) {
+          refs.push(`/${language}/${route}`);
+        }
+      }
+    }
+    for (const ref of new Set(refs)) {
       const target = resolveRef(file, ref);
       if (!target) continue;
       if (!(await exists(target))) {
@@ -727,35 +744,30 @@ function collectQualityFailures(rel, html, failures) {
       failures.push(`${rel}: homepage section headings must stay left-aligned`);
     }
     if (
-      !/<h1[^>]*>[\s\S]*?Stop prompting\.[\s\S]*?Start programming\.[\s\S]*?<\/h1>/.test(
+      !/<h1[^>]*>[\s\S]*?Build AI features[\s\S]*?and agents[\s\S]*?in your app\.[\s\S]*?<\/h1>/.test(
         html
       )
     ) {
-      failures.push(
-        `${rel}: homepage h1 missing programming-not-prompting hero hook`
-      );
+      failures.push(`${rel}: homepage h1 must explain what visitors can build`);
     }
-    if (
-      !/<span[^>]*\bhome-h1-line\b[^>]*>Stop prompting\.<\/span>/.test(html)
-    ) {
-      failures.push(
-        `${rel}: homepage h1 sentences must sit on their own lines (home-h1-line)`
-      );
+    if (!hasClass(firstFold, 'span', 'home-h1-line')) {
+      failures.push(`${rel}: homepage h1 missing controlled phrase breaks`);
     }
     if (html.includes('The universal way to build with LLMs')) {
       failures.push(`${rel}: homepage still has abstract universal hero`);
     }
-    if (!html.includes('hands back typed data')) {
+    if (!hasClass(firstFold, 'p', 'home-lede')) {
       failures.push(`${rel}: homepage missing newcomer lede`);
     }
     if (!hasClass(html, 'div', 'home-proof-row')) {
       failures.push(`${rel}: homepage missing proof points`);
     }
     for (const proof of [
-      'Typed, validated outputs',
-      'Agents on any model',
-      'RLM research inside',
-      'Native in your language',
+      'DSPy-style programming',
+      'RLM-powered agents',
+      'One compiled framework',
+      'Open-source AI library',
+      'Native in six languages',
     ]) {
       if (!firstFold.includes(proof)) {
         failures.push(`${rel}: homepage first fold missing ${proof}`);
@@ -765,7 +777,7 @@ function collectQualityFailures(rel, html, failures) {
       failures.push(`${rel}: homepage missing sticky language bar`);
     }
     if (!hasClass(html, 'div', 'home-proof-strip')) {
-      failures.push(`${rel}: homepage missing six-wide proof strip`);
+      failures.push(`${rel}: homepage missing shared-framework explanation`);
     }
     if (!hasClass(html, 'div', 'home-example-tabs')) {
       failures.push(`${rel}: homepage missing hero example tabs`);
@@ -818,37 +830,30 @@ function collectQualityFailures(rel, html, failures) {
     if (!hasClass(html, 'div', 'home-hero-panel')) {
       failures.push(`${rel}: homepage missing polished hero panel`);
     }
-    const researchIndex = html.indexOf('home-research-section');
-    const capabilityIndex = html.indexOf('home-capability-grid');
-    if (
-      researchIndex < 0 ||
-      capabilityIndex < 0 ||
-      researchIndex > capabilityIndex
-    ) {
-      failures.push(
-        `${rel}: homepage research section must appear before capabilities`
-      );
-    }
     if (!hasClass(html, 'div', 'home-capability-grid')) {
       failures.push(`${rel}: homepage missing capability grid`);
     }
-    if (countOccurrences(html, 'home-marketing-card') < 19) {
-      failures.push(`${rel}: homepage missing capability/production cards`);
+    for (const foundation of ['dspy', 'rlm', 'compiled']) {
+      if (
+        !hasAttributeValue(html, 'article', 'data-home-foundation', foundation)
+      ) {
+        failures.push(`${rel}: homepage missing ${foundation} explanation`);
+      }
     }
     for (const capability of [
-      'Structured generation',
-      'Signatures',
-      'Tools and MCP',
-      'Agents',
-      'Audio',
-      'Workflows',
-      'Optimization',
-      'Providers',
-      'Telemetry',
-      'Native packages',
+      'extraction',
+      'classification',
+      'answers',
+      'agents',
+      'voice',
+      'workflows',
     ]) {
-      if (!html.includes(capability)) {
-        failures.push(`${rel}: homepage missing capability ${capability}`);
+      if (
+        !hasAttributeValue(html, 'article', 'data-home-use-case', capability)
+      ) {
+        failures.push(
+          `${rel}: homepage missing practical use case ${capability}`
+        );
       }
     }
     if (!hasClass(html, 'section', 'home-audio-section')) {
@@ -989,10 +994,8 @@ function collectQualityFailures(rel, html, failures) {
     }
     for (const compilerTerm of [
       'AxIR compiler',
-      "We didn't port Ax six times. We compiled it.",
       'portable intermediate representation',
       'TypeScript is the reference runtime',
-      'native package surfaces',
       'axir verify',
     ]) {
       if (!html.includes(compilerTerm)) {
@@ -1032,10 +1035,8 @@ function collectQualityFailures(rel, html, failures) {
       'RLM',
       'PEEK',
       'context management',
-      'built-in memory',
       'skills',
-      'typed signatures',
-      'computes on your data instead of reading it',
+      'runtime session',
       'grounded-audit example',
       'Long-horizon',
       'agent.optimize',
@@ -1047,7 +1048,7 @@ function collectQualityFailures(rel, html, failures) {
     for (const feature of [
       'Discovery',
       'Context maps',
-      'Memory + skills',
+      'memory',
       'Optimization',
     ]) {
       if (!html.includes(feature)) {
@@ -1082,7 +1083,6 @@ function collectQualityFailures(rel, html, failures) {
       );
     }
     for (const providerTerm of [
-      'Use any model.',
       'OpenAI-compatible',
       'Need routing, embeddings, audio, or context caching?',
     ]) {
@@ -1095,38 +1095,55 @@ function collectQualityFailures(rel, html, failures) {
     if (!hasClass(html, 'section', 'home-graphjin')) {
       failures.push(`${rel}: homepage missing GraphJin cross-promo`);
     }
-    const codeStoryIndex = html.indexOf('home-code-story');
-    const compilerIndex = html.indexOf('home-compiler-section');
-    const agentIndex = html.indexOf('home-agent-section');
-    const graphjinIndex = html.indexOf('home-graphjin');
-    const audioIndex = html.indexOf('home-audio-section');
-    const finalCtaIndex = html.indexOf('home-final-cta');
-    if (
-      codeStoryIndex < 0 ||
-      compilerIndex < 0 ||
-      agentIndex < 0 ||
-      codeStoryIndex > compilerIndex ||
-      compilerIndex > researchIndex ||
-      researchIndex > agentIndex
-    ) {
-      failures.push(
-        `${rel}: homepage must order signatures, compiler, research, then agents`
+    const sections = [
+      ...html.matchAll(/<section\b[^>]*>[\s\S]*?<\/section>/gi),
+    ];
+    let previousSectionIndex = -1;
+    for (const sectionClass of [
+      'home-foundations',
+      'home-use-cases',
+      'home-graphjin',
+      'home-quick-install',
+      'home-code-story',
+      'home-agent-section',
+      'home-audio-section',
+      'home-optimization-section',
+      'home-model-section',
+      'home-production-section',
+      'home-compiler-section',
+      'home-research-section',
+      'home-academy-cta',
+      'home-final-cta',
+    ]) {
+      const sectionIndex = sections.findIndex((section) =>
+        hasClass(section[0], 'section', sectionClass)
       );
+      if (sectionIndex < 0 || sectionIndex <= previousSectionIndex) {
+        failures.push(
+          `${rel}: homepage section missing or out of order: ${sectionClass}`
+        );
+      }
+      previousSectionIndex = sectionIndex;
     }
-    if (
-      graphjinIndex < 0 ||
-      graphjinIndex < agentIndex ||
-      audioIndex < 0 ||
-      graphjinIndex > audioIndex ||
-      finalCtaIndex < 0 ||
-      graphjinIndex > finalCtaIndex
-    ) {
-      failures.push(
-        `${rel}: homepage must place GraphJin after agents and before audio`
-      );
+    // Explicit package badges keep their own language. Other homepage links
+    // must follow the language selected for examples and installation.
+    for (const [section] of sections) {
+      if (hasClass(section, 'section', 'home-compiler-section')) continue;
+      for (const [tag] of section.matchAll(/<a\b[^>]*>/gi)) {
+        const href = attrValue(tag, 'href');
+        if (
+          href.startsWith('/typescript/') &&
+          attrValue(tag, 'data-home-lang-href') !==
+            href.slice('/typescript/'.length)
+        ) {
+          failures.push(
+            `${rel}: homepage link does not follow selected language: ${href}`
+          );
+        }
+      }
     }
-    if (!html.includes('GraphJin runs on Ax')) {
-      failures.push(`${rel}: homepage missing GraphJin case-study heading`);
+    if (!html.includes('Connect your databases to AI with GraphJin')) {
+      failures.push(`${rel}: homepage missing database benefit heading`);
     }
     if (html.includes('Also checkout')) {
       failures.push(`${rel}: homepage still uses the old GraphJin cross-promo`);

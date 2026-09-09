@@ -1773,7 +1773,7 @@ pre.mermaid {
   letter-spacing: -0.04em;
 }
 
-/* One sentence per line — a natural wrap orphans "Start" / "programming." */
+/* Keep the hero's short phrases together as the viewport changes. */
 .home-h1-line {
   display: block;
 }
@@ -2320,6 +2320,14 @@ pre.mermaid {
   letter-spacing: 0.14em;
   margin: 0 0 0.72rem;
   text-transform: uppercase;
+}
+
+.home-hero .home-kicker {
+  font-family: var(--font-sans);
+  font-size: 0.85rem;
+  line-height: 1.5;
+  letter-spacing: 0;
+  text-transform: none;
 }
 
 .home-lede {
@@ -2969,7 +2977,7 @@ pre.mermaid {
 }
 
 .home-capability-grid {
-  grid-template-columns: repeat(5, minmax(0, 1fr));
+  grid-template-columns: repeat(3, minmax(0, 1fr));
 }
 
 .home-provider-grid {
@@ -3014,6 +3022,19 @@ pre.mermaid {
   font-weight: 620;
   letter-spacing: 0;
   margin-top: 0.16rem;
+}
+
+.home-marketing-card .home-card-eyebrow {
+  margin-bottom: 0.5rem;
+  color: var(--accent-2);
+  font-size: 0.8rem;
+  font-weight: 700;
+}
+
+.home-card-link {
+  display: inline-block;
+  margin-top: 0.85rem;
+  font-size: 0.92rem;
 }
 
 .home-method-list {
