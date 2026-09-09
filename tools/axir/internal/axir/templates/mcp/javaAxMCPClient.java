@@ -136,6 +136,14 @@ public final class AxMCPClient {
 
   public Map<String, Object> ping() { return request("ping", Map.of()); }
   public Map<String, Object> listTools(String cursor) { return request("tools/list", cursor == null ? Map.of() : Map.of("cursor", cursor)); }
+  private final ThreadLocal<java.util.function.BooleanSupplier> invocationCancellation=new ThreadLocal<>();
+  private java.util.function.BooleanSupplier cancellation(){var current=invocationCancellation.get();return current==null?()->false:current;}
+  public Map<String,Object> callToolWithCancellation(String name,Map<String,Object> arguments,java.util.function.BooleanSupplier cancelled){
+    if(cancelled==null)cancelled=()->false;
+    if(cancelled.getAsBoolean())throw new AxAIServiceAbortedError("MCP invocation cancelled");
+    var previous=invocationCancellation.get();invocationCancellation.set(cancelled);
+    try{return callTool(name,arguments);}finally{if(previous==null)invocationCancellation.remove();else invocationCancellation.set(previous);}
+  }
   @SuppressWarnings("unchecked")
   public Map<String, Object> callTool(String name, Map<String, Object> arguments) {Map<String,Object> args=arguments==null?Map.of():arguments;
     Object authorize=options.getOrDefault("authorizeToolCall",options.get("authorize_tool_call"));
@@ -195,7 +203,7 @@ Map<String,String> headers=toolHeaders(name,args);Map<String,Object> result;try{
     List<Tool> out = new ArrayList<>();
     for (Map<String, Object> tool : tools) {
       String original = String.valueOf(tool.getOrDefault("name", ""));
-      out.add(new Tool(overrideName(original), overrideDescription(tool), List.of(), List.of(), args -> callTool(original, args)).parameters(Core.asMap(tool.getOrDefault("inputSchema",Map.of()))));
+      out.add(new Tool(overrideName(original), overrideDescription(tool), List.of(), List.of(), args -> callTool(original, args),"blocking",(args,cancelled)->callToolWithCancellation(original,args,cancelled)).parameters(Core.asMap(tool.getOrDefault("inputSchema",Map.of()))));
     }
     return out;
   }
@@ -227,7 +235,7 @@ Map<String,String> headers=toolHeaders(name,args);Map<String,Object> result;try{
     message.put("method", method);
     Map<String,Object> requestParams=new LinkedHashMap<>(params==null?Map.of():params);if("modern".equals(era)){Map<String,Object> info=new LinkedHashMap<>(Map.of("name","AxMCPClient","title","Ax MCP Client","version","1.0.0"));info.putAll(Core.asMap(options.get("clientInfo")));requestParams.put("_meta",Core.mcp_build_request_meta(Core.asMap(requestParams.get("_meta")),negotiatedProtocolVersion,clientCapabilities(),info,options.get("logLevel"),null,null));}
     if (params != null) message.put("params", requestParams);
-    Map<String, Object> response = transport.sendWithHeaders(message,headers);
+    Map<String, Object> response = transport.sendWithContext(message,headers,cancellation());
     if (response.containsKey("error")) {
       Map<String, Object> error = Core.asMap(response.get("error"));
       int code=error.get("code") instanceof Number number?number.intValue():0;AxMCPError protocol=new AxMCPError(String.valueOf(error.getOrDefault("message","MCP JSON-RPC error")),code,error.get("data"));if("modern".equals(era)&&allowVersionRetry&&code==-32022){String version=String.valueOf(Core.mcp_select_mutual_version(error.get("data"),AX_MCP_SUPPORTED_PROTOCOL_VERSIONS));if(!version.isBlank()){negotiatedProtocolVersion=version;transport.setProtocolVersion(version);return requestWithHeaders(method,params,headers,false);}}throw protocol;
@@ -277,15 +285,14 @@ Map<String,String> headers=toolHeaders(name,args);Map<String,Object> result;try{
     catch(RuntimeException error){return new LinkedHashMap<>(Map.of("jsonrpc","2.0","id",plan.get("id"),"error",Map.of("code",-32603,"message",error.toString())));}
   }
 
-  private Tool toolToFunction(Map<String, Object> tool) {
-    String original = String.valueOf(tool.getOrDefault("name", ""));
-    String name = overrideName(original);
-    String description = overrideDescription(tool);
-    return new Tool(name, description, List.of(), List.of(), args -> {
-      Map<String, Object> result = callTool(original, args);
-      if (result.containsKey("structuredContent")) return result.get("structuredContent");
-      return Map.of("content", contentText(Core.asList(result.get("content"))));
-    }).parameters(Core.asMap(tool.getOrDefault("inputSchema",Map.of())));
+  private Tool toolToFunction(Map<String,Object> tool) {
+    String original=String.valueOf(tool.getOrDefault("name",""));
+    Tool.ContextHandler invoke=(args,cancelled)->{
+      Map<String,Object> result=callToolWithCancellation(original,args,cancelled);
+      if(result.containsKey("structuredContent"))return result.get("structuredContent");
+      return Map.of("content",contentText(Core.asList(result.get("content"))));
+    };
+    return new Tool(overrideName(original),overrideDescription(tool),List.of(),List.of(),args->invoke.call(args,()->false),"blocking",invoke).parameters(Core.asMap(tool.getOrDefault("inputSchema",Map.of())));
   }
 
   private Tool promptToFunction(Map<String, Object> prompt) {

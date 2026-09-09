@@ -112,8 +112,11 @@ final class Core {
   static Object not(Object value) { return !truthy(value); }
   static Object and(Object left, Object right) { return truthy(left) && truthy(right); }
   static Object or(Object left, Object right) { return truthy(left) || truthy(right); }
-  static Object eq(Object left, Object right) { return java.util.Objects.equals(left, right); }
-  static Object ne(Object left, Object right) { return !java.util.Objects.equals(left, right); }
+  static Object eq(Object left, Object right) {
+    if (left instanceof Number a && right instanceof Number b) return a.doubleValue() == b.doubleValue();
+    return java.util.Objects.equals(left, right);
+  }
+  static Object ne(Object left, Object right) { return !truthy(eq(left, right)); }
   static Object lt(Object left, Object right) { return asDouble(left) < asDouble(right); }
   static Object lte(Object left, Object right) { return asDouble(left) <= asDouble(right); }
   static Object gt(Object left, Object right) { return asDouble(left) > asDouble(right); }
@@ -128,6 +131,11 @@ final class Core {
     return asDouble(left) / (denom == 0.0 ? 1.0 : denom);
   }
   static Object mathAbs(Object value) { return Math.abs(asDouble(value)); }
+  static Object stringUTF16Units(Object value) {
+    List<Object> units=new ArrayList<>();String text=String.valueOf(value);
+    for(int index=0;index<text.length();index++)units.add((int)text.charAt(index));
+    return units;
+  }
   static Object stringCodepointLength(Object value) { String text = String.valueOf(value); return text.codePointCount(0, text.length()); }
   static Object mathIsFinite(Object value) { return Double.isFinite(asDouble(value)); }
   static Object mathFloor(Object value) { return Math.floor(asDouble(value)); }
@@ -959,7 +967,13 @@ final class Core {
   static Object agentStageForward(Object stage, Object client, Object values, Object options) {
     if (!(stage instanceof AxProgram program)) throw new RuntimeException("agent stage is not AxProgram");
     if (!(client instanceof AiClient ai)) throw new RuntimeException("client does not implement AiClient");
-    return program.forward(ai, asMap(values), asMap(options));
+    Map<String,Object> forwarded = new LinkedHashMap<>(asMap(options));
+    if (stage instanceof AxAgent && forwarded.containsKey("mcpInheritanceFromParent")) {
+      Object context = forwarded.remove("executionContext");
+      Object policy = forwarded.remove("mcpInheritanceFromParent");
+      if (context instanceof AxExecutionContext parent) forwarded.put("inheritedExecutionContext", parent.derive(policy));
+    }
+    return program.forward(ai, asMap(values), forwarded);
   }
   static Object agentStageChatLog(Object stage) {
     if (stage instanceof AxProgram program) return program.getChatLog();
@@ -1102,7 +1116,10 @@ final class Core {
     String qualified = String.valueOf(get(request, "qualified_name", get(request, "name", "")));
     Object implementation=_agent_callable_implementation(state,qualified);
     Object values=get(request,"args",Map.of());
-    if(implementation instanceof Tool tool){var result=new LinkedHashMap<String,Object>();result.put("status","ok");result.put("value",toolInvoke(tool,values));return result;}
+    java.util.function.BooleanSupplier cancelled=()->Thread.currentThread().isInterrupted()
+      || get(optionsArg,"control",null) instanceof AxRunControl control && control.isAborted()
+      || get(optionsArg,"cancellation",get(optionsArg,"cancellationToken",get(optionsArg,"cancellation_token",null))) instanceof AxCancellationToken token && token.cancelled();
+    if(implementation instanceof Tool tool){var result=new LinkedHashMap<String,Object>();result.put("status","ok");result.put("value",toolInvoke(tool,values,cancelled));return result;}
     Object handler=get(implementation,"handler",null);
     if(handler instanceof Tool.Handler callback){try{Object value=callback.call(asMap(values));var result=new LinkedHashMap<String,Object>();result.put("status","ok");result.put("value",value);return result;}catch(Exception error){throw asRuntime(error);}}
     Object scripted = options.getOrDefault("callable_results", options.get("callableResults"));

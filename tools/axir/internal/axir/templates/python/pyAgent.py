@@ -9,6 +9,7 @@ import re
 from typing import Any
 
 from .ai import (
+    _cancellation_token,
     AxMeter,
     AxRateLimiter,
     AxRuntimeHooks,
@@ -1668,9 +1669,17 @@ class AxAgent:
     def _forward_unscoped(self, client, values: dict[str, Any], options: dict[str, Any] | None = None):
         options = dict(options or {})
         call_context = resolve_execution_context(options, self.execution_context)
-        if call_context:
+        if call_context is not None or self.state.get("mcp_run_context_active"):
+            modules = []
+            if call_context is not None:
+                call_context.initialize()
+                modules = call_context.runtime_modules()
             options["executionContext"] = call_context
-            options["functions"] = list(options.get("functions") or []) + call_context.runtime_modules()
+            options = _agent_apply_run_context(self.state, self.options, options, modules)
+            if self.state.get("runtime_enabled"):
+                self.distiller.set_instruction(self.state["distiller_description"])
+                self.executor.set_instruction(self.state["executor_description"])
+                self.responder.set_instruction(self.state["responder_description"])
         runtime = options.get("runtime")
         if runtime is None:
             runtime = self.options.get("runtime")
@@ -2265,7 +2274,13 @@ def _core_agent_native_stage_forward(stage, state, client, values, options, sele
 
 
 def _core_agent_stage_forward(stage, client, values, options):
-    return stage.forward(client, values or {}, options or {})
+    options = dict(options or {})
+    if isinstance(stage, AxAgent) and "mcpInheritanceFromParent" in options:
+        context = options.pop("executionContext", None)
+        policy = options.pop("mcpInheritanceFromParent")
+        if context is not None:
+            options["inheritedExecutionContext"] = context.derive(policy)
+    return stage.forward(client, values or {}, options)
 
 
 def _core_agent_stage_chat_log(stage):
@@ -2432,7 +2447,14 @@ def _core_agent_callable_invoke(state, request, options):
     from .tool import Tool
     if isinstance(implementation,Tool):
         from .gen import _core_tool_invoke
-        return {"status":"ok","value":_core_tool_invoke(implementation,args,(options or {}).get("tool_context"))}
+        context = (options or {}).get("tool_context")
+        if context is None:
+            import threading
+            token = _cancellation_token(options)
+            control = (options or {}).get("control")
+            signal = control.signal if control is not None else token._event if token is not None else threading.Event()
+            context = {"signal": signal, "cancellation": token, "call_id": _core_get(request,"call_id")}
+        return {"status":"ok","value":_core_tool_invoke(implementation,args,context)}
     handler=_core_get(implementation,"handler")
     if callable(handler):return {"status":"ok","value":handler(args)}
     for group in _core_get(state, "callable_inventory", []) or []:

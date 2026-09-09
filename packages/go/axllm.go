@@ -19,6 +19,7 @@ import (
 	"os/exec"
 	"reflect"
 	"regexp"
+ "unicode/utf16"
 	"sort"
 	"strconv"
 	"strings"
@@ -1192,6 +1193,8 @@ func _core_div(left Value, right Value) Value {
 	return num(left) / d
 }
 func _core_math_abs(value Value) Value             { return math.Abs(num(value)) }
+func _core_string_utf16_units(value Value) Value { units:=utf16.Encode([]rune(display(value)));out:=[]Value{};for _,unit:=range units{out=append(out,int(unit))};return out }
+
 func _core_string_codepoint_length(value Value) Value { return len([]rune(display(value))) }
 func _core_math_is_finite(value Value) Value { return !math.IsNaN(num(value)) && !math.IsInf(num(value), 0) }
 
@@ -26747,6 +26750,46 @@ func _select_structured_output_rung(args ...Value) (Value, error) {
 	return v_selection, nil
 }
 
+func _regex_peek(args ...Value) (Value, error) {
+	axirCoverageMark("_regex_peek")
+	var v_s Value
+	var v_t1 Value
+	var v_t2 Value
+	var v_t3 Value
+	var v_t4 Value
+	var v_t5 Value
+	var v_t6 Value
+	var v_t7 Value
+	var v_t8 Value
+	var v_t9 Value
+	if len(args) > 0 { v_s = args[0] }
+	_ = v_s
+	_ = v_t1
+	_ = v_t2
+	_ = v_t3
+	_ = v_t4
+	_ = v_t5
+	_ = v_t6
+	_ = v_t7
+	_ = v_t8
+	_ = v_t9
+	v_t1 = coreGet(v_s, "p", nil)
+	v_t2 = coreGet(v_s, "u", nil)
+	v_t3 = _core_len(v_t2)
+	v_t4 = _core_gte(v_t1, v_t3)
+	if coreTruthy(v_t4) {
+		v_t5 = _core_mul(-1, 1)
+		v_t6 = _core_math_floor(v_t5)
+		return v_t6, nil
+	} else {
+	// empty
+	}
+	v_t7 = coreGet(v_s, "u", nil)
+	v_t8 = coreGet(v_s, "p", nil)
+	v_t9 = coreGet(v_t7, v_t8, nil)
+	return v_t9, nil
+}
+
 func chat_session_validate_required_arguments(args ...Value) (Value, error) {
 	axirCoverageMark("chat_session_validate_required_arguments")
 	var v_schema Value
@@ -26877,6 +26920,28 @@ func _execute_tool_call(args ...Value) (Value, error) {
 	v_message = _core_string_format("Function not found: {}. Available functions: {}. Call one of these exact function names.", v_name, v_available)
 	v_error = _core_validation_error(v_message)
 	return nil, asError(v_error)
+}
+
+func _regex_take(args ...Value) (Value, error) {
+	axirCoverageMark("_regex_take")
+	var v_s Value
+	var v_c Value
+	var v_t1 Value
+	var v_t2 Value
+	var v_t3 Value
+	if len(args) > 0 { v_s = args[0] }
+	_ = v_s
+	_ = v_c
+	_ = v_t1
+	_ = v_t2
+	_ = v_t3
+	v_c = _core_none()
+	{ v, err := _regex_peek(v_s); if err != nil { return nil, err }; v_t1 = v }
+	v_c = v_t1
+	v_t2 = coreGet(v_s, "p", nil)
+	v_t3 = _core_add(v_t2, 1)
+	if err := coreSet(v_s, "p", v_t3); err != nil { return nil, err }
+	return v_c, nil
 }
 
 func stream_extraction_route(args ...Value) (Value, error) {
@@ -27055,6 +27120,28 @@ func _chat_session_argument_equal(args ...Value) (Value, error) {
 	}
 	v_same = _core_eq(v_left, v_right)
 	return v_same, nil
+}
+
+func _regex_digit(args ...Value) (Value, error) {
+	axirCoverageMark("_regex_digit")
+	var v_c Value
+	var v_t1 Value
+	var v_t2 Value
+	var v_t3 Value
+	if len(args) > 0 { v_c = args[0] }
+	_ = v_c
+	_ = v_t1
+	_ = v_t2
+	_ = v_t3
+	v_t1 = _core_gte(v_c, 48)
+	v_t2 = v_t1
+	if coreTruthy(v_t2) {
+		v_t3 = _core_lte(v_c, 57)
+		v_t2 = v_t3
+	} else {
+	// empty
+	}
+	return v_t2, nil
 }
 
 func stream_structured_delta(args ...Value) (Value, error) {
@@ -27467,6 +27554,118 @@ func _validate_optimization_component_value(args ...Value) (Value, error) {
 	// empty
 	}
 	return true, nil
+}
+
+func _regex_hexdigit(args ...Value) (Value, error) {
+	axirCoverageMark("_regex_hexdigit")
+	var v_c Value
+	var v_t1 Value
+	var v_t10 Value
+	var v_t11 Value
+	var v_t12 Value
+	var v_t13 Value
+	var v_t14 Value
+	var v_t15 Value
+	var v_t16 Value
+	var v_t17 Value
+	var v_t18 Value
+	var v_t2 Value
+	var v_t3 Value
+	var v_t4 Value
+	var v_t5 Value
+	var v_t6 Value
+	var v_t7 Value
+	var v_t8 Value
+	var v_t9 Value
+	if len(args) > 0 { v_c = args[0] }
+	_ = v_c
+	_ = v_t1
+	_ = v_t10
+	_ = v_t11
+	_ = v_t12
+	_ = v_t13
+	_ = v_t14
+	_ = v_t15
+	_ = v_t16
+	_ = v_t17
+	_ = v_t18
+	_ = v_t2
+	_ = v_t3
+	_ = v_t4
+	_ = v_t5
+	_ = v_t6
+	_ = v_t7
+	_ = v_t8
+	_ = v_t9
+	{ v, err := _regex_digit(v_c); if err != nil { return nil, err }; v_t1 = v }
+	if coreTruthy(v_t1) {
+		v_t2 = _core_mul(-1, 48)
+		v_t3 = _core_add(v_c, v_t2)
+		v_t4 = _core_math_floor(v_t3)
+		return v_t4, nil
+	} else {
+	// empty
+	}
+	v_t5 = _core_gte(v_c, 65)
+	v_t6 = v_t5
+	if coreTruthy(v_t6) {
+		v_t7 = _core_lte(v_c, 70)
+		v_t6 = v_t7
+	} else {
+	// empty
+	}
+	if coreTruthy(v_t6) {
+		v_t8 = _core_mul(-1, 55)
+		v_t9 = _core_add(v_c, v_t8)
+		v_t10 = _core_math_floor(v_t9)
+		return v_t10, nil
+	} else {
+	// empty
+	}
+	v_t11 = _core_gte(v_c, 97)
+	v_t12 = v_t11
+	if coreTruthy(v_t12) {
+		v_t13 = _core_lte(v_c, 102)
+		v_t12 = v_t13
+	} else {
+	// empty
+	}
+	if coreTruthy(v_t12) {
+		v_t14 = _core_mul(-1, 87)
+		v_t15 = _core_add(v_c, v_t14)
+		v_t16 = _core_math_floor(v_t15)
+		return v_t16, nil
+	} else {
+	// empty
+	}
+	v_t17 = _core_mul(-1, 1)
+	v_t18 = _core_math_floor(v_t17)
+	return v_t18, nil
+}
+
+func _regex_node(args ...Value) (Value, error) {
+	axirCoverageMark("_regex_node")
+	var v_k Value
+	var v_t1 Value
+	if len(args) > 0 { v_k = args[0] }
+	_ = v_k
+	_ = v_t1
+	v_t1 = Object()
+	if err := coreSet(v_t1, "k", v_k); err != nil { return nil, err }
+	return v_t1, nil
+}
+
+func _regex_literal(args ...Value) (Value, error) {
+	axirCoverageMark("_regex_literal")
+	var v_c Value
+	var v_t1 Value
+	if len(args) > 0 { v_c = args[0] }
+	_ = v_c
+	_ = v_t1
+	v_t1 = Object()
+	if err := coreSet(v_t1, "k", "char"); err != nil { return nil, err }
+	if err := coreSet(v_t1, "c", v_c); err != nil { return nil, err }
+	return v_t1, nil
 }
 
 func _validate_optimization_component_map(args ...Value) (Value, error) {
@@ -27993,7 +28192,7 @@ func _chat_session_argument_errors(args ...Value) (Value, error) {
 		}
 		v_pattern = coreGet(v_schema, "pattern", "")
 		if coreTruthy(v_pattern) {
-			v_matches = coreRegexMatch(v_pattern, v_arguments)
+			{ v, err := _regex_test(v_pattern, v_arguments); if err != nil { return nil, err }; v_matches = v }
 			if coreTruthy(v_matches) {
 			// empty
 			} else {
@@ -28114,6 +28313,270 @@ func _chat_session_argument_errors(args ...Value) (Value, error) {
 	// empty
 	}
 	return v_errors, nil
+}
+
+func _regex_scan_groups(args ...Value) (Value, error) {
+	axirCoverageMark("_regex_scan_groups")
+	var v_u Value
+	var v_c Value
+	var v_count Value
+	var v_i Value
+	var v_ids Value
+	var v_inside Value
+	var v_name Value
+	var v_named Value
+	var v_names Value
+	var v_parser Value
+	var v_special Value
+	var v_t1 Value
+	var v_t10 Value
+	var v_t11 Value
+	var v_t12 Value
+	var v_t13 Value
+	var v_t14 Value
+	var v_t15 Value
+	var v_t16 Value
+	var v_t17 Value
+	var v_t18 Value
+	var v_t19 Value
+	var v_t2 Value
+	var v_t20 Value
+	var v_t21 Value
+	var v_t22 Value
+	var v_t23 Value
+	var v_t24 Value
+	var v_t25 Value
+	var v_t26 Value
+	var v_t27 Value
+	var v_t28 Value
+	var v_t29 Value
+	var v_t3 Value
+	var v_t30 Value
+	var v_t31 Value
+	var v_t32 Value
+	var v_t33 Value
+	var v_t34 Value
+	var v_t35 Value
+	var v_t36 Value
+	var v_t37 Value
+	var v_t38 Value
+	var v_t39 Value
+	var v_t4 Value
+	var v_t40 Value
+	var v_t41 Value
+	var v_t42 Value
+	var v_t43 Value
+	var v_t44 Value
+	var v_t5 Value
+	var v_t6 Value
+	var v_t7 Value
+	var v_t8 Value
+	var v_t9 Value
+	if len(args) > 0 { v_u = args[0] }
+	_ = v_u
+	_ = v_c
+	_ = v_count
+	_ = v_i
+	_ = v_ids
+	_ = v_inside
+	_ = v_name
+	_ = v_named
+	_ = v_names
+	_ = v_parser
+	_ = v_special
+	_ = v_t1
+	_ = v_t10
+	_ = v_t11
+	_ = v_t12
+	_ = v_t13
+	_ = v_t14
+	_ = v_t15
+	_ = v_t16
+	_ = v_t17
+	_ = v_t18
+	_ = v_t19
+	_ = v_t2
+	_ = v_t20
+	_ = v_t21
+	_ = v_t22
+	_ = v_t23
+	_ = v_t24
+	_ = v_t25
+	_ = v_t26
+	_ = v_t27
+	_ = v_t28
+	_ = v_t29
+	_ = v_t3
+	_ = v_t30
+	_ = v_t31
+	_ = v_t32
+	_ = v_t33
+	_ = v_t34
+	_ = v_t35
+	_ = v_t36
+	_ = v_t37
+	_ = v_t38
+	_ = v_t39
+	_ = v_t4
+	_ = v_t40
+	_ = v_t41
+	_ = v_t42
+	_ = v_t43
+	_ = v_t44
+	_ = v_t5
+	_ = v_t6
+	_ = v_t7
+	_ = v_t8
+	_ = v_t9
+	v_c = _core_none()
+	v_count = _core_none()
+	v_i = _core_none()
+	v_ids = _core_none()
+	v_inside = _core_none()
+	v_name = _core_none()
+	v_named = _core_none()
+	v_names = _core_none()
+	v_parser = _core_none()
+	v_special = _core_none()
+	v_count = 0
+	v_i = 0
+	v_inside = false
+	v_t1 = Object()
+	v_names = v_t1
+	for {
+		v_t2 = _core_len(v_u)
+		v_t3 = _core_lt(v_i, v_t2)
+		v_t4 = _core_not(v_t3)
+		if coreTruthy(v_t4) {
+			break
+		} else {
+		// empty
+		}
+		v_t5 = coreGet(v_u, v_i, nil)
+		v_c = v_t5
+		v_t6 = _core_add(v_i, 1)
+		v_i = v_t6
+		v_t7 = _core_eq(v_c, 92)
+		if coreTruthy(v_t7) {
+			v_t8 = _core_add(v_i, 1)
+			v_i = v_t8
+			continue
+		} else {
+		// empty
+		}
+		v_t9 = _core_eq(v_c, 91)
+		if coreTruthy(v_t9) {
+			v_inside = true
+		} else {
+		// empty
+		}
+		v_t10 = _core_eq(v_c, 93)
+		if coreTruthy(v_t10) {
+			v_inside = false
+		} else {
+		// empty
+		}
+		v_t11 = _core_eq(v_c, 40)
+		v_t12 = v_t11
+		if coreTruthy(v_t12) {
+			v_t13 = _core_not(v_inside)
+			v_t12 = v_t13
+		} else {
+		// empty
+		}
+		if coreTruthy(v_t12) {
+			v_t14 = _core_len(v_u)
+			v_t15 = _core_lt(v_i, v_t14)
+			v_t16 = v_t15
+			if coreTruthy(v_t16) {
+				v_t17 = coreGet(v_u, v_i, nil)
+				v_t18 = _core_eq(v_t17, 63)
+				v_t16 = v_t18
+			} else {
+			// empty
+			}
+			v_special = v_t16
+			v_t19 = v_special
+			if coreTruthy(v_t19) {
+				v_t20 = _core_add(v_i, 2)
+				v_t21 = _core_len(v_u)
+				v_t22 = _core_lt(v_t20, v_t21)
+				v_t19 = v_t22
+			} else {
+			// empty
+			}
+			if coreTruthy(v_t19) {
+				v_t23 = _core_add(v_i, 1)
+				v_t24 = coreGet(v_u, v_t23, nil)
+				v_t25 = _core_eq(v_t24, 60)
+				v_t19 = v_t25
+			} else {
+			// empty
+			}
+			if coreTruthy(v_t19) {
+				v_t26 = _core_add(v_i, 2)
+				v_t27 = coreGet(v_u, v_t26, nil)
+				v_t28 = _core_ne(v_t27, 61)
+				v_t19 = v_t28
+			} else {
+			// empty
+			}
+			if coreTruthy(v_t19) {
+				v_t29 = _core_add(v_i, 2)
+				v_t30 = coreGet(v_u, v_t29, nil)
+				v_t31 = _core_ne(v_t30, 33)
+				v_t19 = v_t31
+			} else {
+			// empty
+			}
+			v_named = v_t19
+			v_t32 = _core_not(v_special)
+			v_t33 = v_t32
+			v_t34 = _core_not(v_t33)
+			if coreTruthy(v_t34) {
+				v_t33 = v_named
+			} else {
+			// empty
+			}
+			if coreTruthy(v_t33) {
+				v_t35 = _core_add(v_count, 1)
+				v_count = v_t35
+				if coreTruthy(v_named) {
+					v_t36 = Object()
+					if err := coreSet(v_t36, "u", v_u); err != nil { return nil, err }
+					v_t37 = _core_add(v_i, 2)
+					if err := coreSet(v_t36, "p", v_t37); err != nil { return nil, err }
+					v_parser = v_t36
+					{ v, err := _regex_read_name(v_parser); if err != nil { return nil, err }; v_t38 = v }
+					v_name = v_t38
+					v_t39 = coreGet(v_parser, "p", nil)
+					v_i = v_t39
+					v_t40 = coreGet(v_names, v_name, nil)
+					v_ids = v_t40
+					v_t41 = _core_none()
+					v_t42 = _core_eq(v_ids, v_t41)
+					if coreTruthy(v_t42) {
+						v_t43 = MutableArray()
+						v_ids = v_t43
+					} else {
+					// empty
+					}
+					v_ids = coreAppend(v_ids, v_count)
+					if err := coreSet(v_names, v_name, v_ids); err != nil { return nil, err }
+				} else {
+				// empty
+				}
+			} else {
+			// empty
+			}
+		} else {
+		// empty
+		}
+	}
+	v_t44 = Object()
+	if err := coreSet(v_t44, "count", v_count); err != nil { return nil, err }
+	if err := coreSet(v_t44, "names", v_names); err != nil { return nil, err }
+	return v_t44, nil
 }
 
 func _structured_output_scalar_placeholder(args ...Value) (Value, error) {
@@ -28597,6 +29060,747 @@ func _serialize_optimized_artifact(args ...Value) (Value, error) {
 	_ = v_text
 	v_text = _core_json_stringify(v_artifact)
 	return v_text, nil
+}
+
+func _regex_escaped(args ...Value) (Value, error) {
+	axirCoverageMark("_regex_escaped")
+	var v_s Value
+	var v_inside Value
+	var v_c Value
+	var v_d Value
+	var v_i Value
+	var v_limit Value
+	var v_n Value
+	var v_name Value
+	var v_start Value
+	var v_t1 Value
+	var v_t10 Value
+	var v_t100 Value
+	var v_t101 Value
+	var v_t102 Value
+	var v_t103 Value
+	var v_t104 Value
+	var v_t105 Value
+	var v_t106 Value
+	var v_t107 Value
+	var v_t108 Value
+	var v_t109 Value
+	var v_t11 Value
+	var v_t110 Value
+	var v_t111 Value
+	var v_t112 Value
+	var v_t113 Value
+	var v_t114 Value
+	var v_t115 Value
+	var v_t116 Value
+	var v_t117 Value
+	var v_t118 Value
+	var v_t119 Value
+	var v_t12 Value
+	var v_t120 Value
+	var v_t121 Value
+	var v_t122 Value
+	var v_t123 Value
+	var v_t124 Value
+	var v_t125 Value
+	var v_t126 Value
+	var v_t127 Value
+	var v_t128 Value
+	var v_t129 Value
+	var v_t13 Value
+	var v_t130 Value
+	var v_t131 Value
+	var v_t132 Value
+	var v_t133 Value
+	var v_t134 Value
+	var v_t135 Value
+	var v_t136 Value
+	var v_t137 Value
+	var v_t138 Value
+	var v_t139 Value
+	var v_t14 Value
+	var v_t140 Value
+	var v_t141 Value
+	var v_t142 Value
+	var v_t143 Value
+	var v_t144 Value
+	var v_t145 Value
+	var v_t146 Value
+	var v_t147 Value
+	var v_t148 Value
+	var v_t15 Value
+	var v_t16 Value
+	var v_t17 Value
+	var v_t18 Value
+	var v_t19 Value
+	var v_t2 Value
+	var v_t20 Value
+	var v_t21 Value
+	var v_t22 Value
+	var v_t23 Value
+	var v_t24 Value
+	var v_t25 Value
+	var v_t26 Value
+	var v_t27 Value
+	var v_t28 Value
+	var v_t29 Value
+	var v_t3 Value
+	var v_t30 Value
+	var v_t31 Value
+	var v_t32 Value
+	var v_t33 Value
+	var v_t34 Value
+	var v_t35 Value
+	var v_t36 Value
+	var v_t37 Value
+	var v_t38 Value
+	var v_t39 Value
+	var v_t4 Value
+	var v_t40 Value
+	var v_t41 Value
+	var v_t42 Value
+	var v_t43 Value
+	var v_t44 Value
+	var v_t45 Value
+	var v_t46 Value
+	var v_t47 Value
+	var v_t48 Value
+	var v_t49 Value
+	var v_t5 Value
+	var v_t50 Value
+	var v_t51 Value
+	var v_t52 Value
+	var v_t53 Value
+	var v_t54 Value
+	var v_t55 Value
+	var v_t56 Value
+	var v_t57 Value
+	var v_t58 Value
+	var v_t59 Value
+	var v_t6 Value
+	var v_t60 Value
+	var v_t61 Value
+	var v_t62 Value
+	var v_t63 Value
+	var v_t64 Value
+	var v_t65 Value
+	var v_t66 Value
+	var v_t67 Value
+	var v_t68 Value
+	var v_t69 Value
+	var v_t7 Value
+	var v_t70 Value
+	var v_t71 Value
+	var v_t72 Value
+	var v_t73 Value
+	var v_t74 Value
+	var v_t75 Value
+	var v_t76 Value
+	var v_t77 Value
+	var v_t78 Value
+	var v_t79 Value
+	var v_t8 Value
+	var v_t80 Value
+	var v_t81 Value
+	var v_t82 Value
+	var v_t83 Value
+	var v_t84 Value
+	var v_t85 Value
+	var v_t86 Value
+	var v_t87 Value
+	var v_t88 Value
+	var v_t89 Value
+	var v_t9 Value
+	var v_t90 Value
+	var v_t91 Value
+	var v_t92 Value
+	var v_t93 Value
+	var v_t94 Value
+	var v_t95 Value
+	var v_t96 Value
+	var v_t97 Value
+	var v_t98 Value
+	var v_t99 Value
+	var v_value Value
+	if len(args) > 0 { v_s = args[0] }
+	_ = v_s
+	if len(args) > 1 { v_inside = args[1] }
+	_ = v_inside
+	_ = v_c
+	_ = v_d
+	_ = v_i
+	_ = v_limit
+	_ = v_n
+	_ = v_name
+	_ = v_start
+	_ = v_t1
+	_ = v_t10
+	_ = v_t100
+	_ = v_t101
+	_ = v_t102
+	_ = v_t103
+	_ = v_t104
+	_ = v_t105
+	_ = v_t106
+	_ = v_t107
+	_ = v_t108
+	_ = v_t109
+	_ = v_t11
+	_ = v_t110
+	_ = v_t111
+	_ = v_t112
+	_ = v_t113
+	_ = v_t114
+	_ = v_t115
+	_ = v_t116
+	_ = v_t117
+	_ = v_t118
+	_ = v_t119
+	_ = v_t12
+	_ = v_t120
+	_ = v_t121
+	_ = v_t122
+	_ = v_t123
+	_ = v_t124
+	_ = v_t125
+	_ = v_t126
+	_ = v_t127
+	_ = v_t128
+	_ = v_t129
+	_ = v_t13
+	_ = v_t130
+	_ = v_t131
+	_ = v_t132
+	_ = v_t133
+	_ = v_t134
+	_ = v_t135
+	_ = v_t136
+	_ = v_t137
+	_ = v_t138
+	_ = v_t139
+	_ = v_t14
+	_ = v_t140
+	_ = v_t141
+	_ = v_t142
+	_ = v_t143
+	_ = v_t144
+	_ = v_t145
+	_ = v_t146
+	_ = v_t147
+	_ = v_t148
+	_ = v_t15
+	_ = v_t16
+	_ = v_t17
+	_ = v_t18
+	_ = v_t19
+	_ = v_t2
+	_ = v_t20
+	_ = v_t21
+	_ = v_t22
+	_ = v_t23
+	_ = v_t24
+	_ = v_t25
+	_ = v_t26
+	_ = v_t27
+	_ = v_t28
+	_ = v_t29
+	_ = v_t3
+	_ = v_t30
+	_ = v_t31
+	_ = v_t32
+	_ = v_t33
+	_ = v_t34
+	_ = v_t35
+	_ = v_t36
+	_ = v_t37
+	_ = v_t38
+	_ = v_t39
+	_ = v_t4
+	_ = v_t40
+	_ = v_t41
+	_ = v_t42
+	_ = v_t43
+	_ = v_t44
+	_ = v_t45
+	_ = v_t46
+	_ = v_t47
+	_ = v_t48
+	_ = v_t49
+	_ = v_t5
+	_ = v_t50
+	_ = v_t51
+	_ = v_t52
+	_ = v_t53
+	_ = v_t54
+	_ = v_t55
+	_ = v_t56
+	_ = v_t57
+	_ = v_t58
+	_ = v_t59
+	_ = v_t6
+	_ = v_t60
+	_ = v_t61
+	_ = v_t62
+	_ = v_t63
+	_ = v_t64
+	_ = v_t65
+	_ = v_t66
+	_ = v_t67
+	_ = v_t68
+	_ = v_t69
+	_ = v_t7
+	_ = v_t70
+	_ = v_t71
+	_ = v_t72
+	_ = v_t73
+	_ = v_t74
+	_ = v_t75
+	_ = v_t76
+	_ = v_t77
+	_ = v_t78
+	_ = v_t79
+	_ = v_t8
+	_ = v_t80
+	_ = v_t81
+	_ = v_t82
+	_ = v_t83
+	_ = v_t84
+	_ = v_t85
+	_ = v_t86
+	_ = v_t87
+	_ = v_t88
+	_ = v_t89
+	_ = v_t9
+	_ = v_t90
+	_ = v_t91
+	_ = v_t92
+	_ = v_t93
+	_ = v_t94
+	_ = v_t95
+	_ = v_t96
+	_ = v_t97
+	_ = v_t98
+	_ = v_t99
+	_ = v_value
+	v_c = _core_none()
+	v_d = _core_none()
+	v_i = _core_none()
+	v_limit = _core_none()
+	v_n = _core_none()
+	v_name = _core_none()
+	v_start = _core_none()
+	v_value = _core_none()
+	{ v, err := _regex_take(v_s); if err != nil { return nil, err }; v_t1 = v }
+	v_c = v_t1
+	v_t2 = _core_lt(v_c, 0)
+	if coreTruthy(v_t2) {
+		v_t3 = _core_string_format("Invalid regular expression: {}", "Trailing escape")
+		v_t4 = _core_validation_error(v_t3)
+		return nil, asError(v_t4)
+	} else {
+	// empty
+	}
+	v_t5 = _core_eq(v_c, 100)
+	v_t6 = v_t5
+	v_t7 = _core_not(v_t6)
+	if coreTruthy(v_t7) {
+		v_t8 = _core_eq(v_c, 68)
+		v_t6 = v_t8
+	} else {
+	// empty
+	}
+	v_t9 = _core_not(v_t6)
+	if coreTruthy(v_t9) {
+		v_t10 = _core_eq(v_c, 119)
+		v_t6 = v_t10
+	} else {
+	// empty
+	}
+	v_t11 = _core_not(v_t6)
+	if coreTruthy(v_t11) {
+		v_t12 = _core_eq(v_c, 87)
+		v_t6 = v_t12
+	} else {
+	// empty
+	}
+	v_t13 = _core_not(v_t6)
+	if coreTruthy(v_t13) {
+		v_t14 = _core_eq(v_c, 115)
+		v_t6 = v_t14
+	} else {
+	// empty
+	}
+	v_t15 = _core_not(v_t6)
+	if coreTruthy(v_t15) {
+		v_t16 = _core_eq(v_c, 83)
+		v_t6 = v_t16
+	} else {
+	// empty
+	}
+	if coreTruthy(v_t6) {
+		v_t17 = Object()
+		if err := coreSet(v_t17, "k", "class_escape"); err != nil { return nil, err }
+		if err := coreSet(v_t17, "c", v_c); err != nil { return nil, err }
+		return v_t17, nil
+	} else {
+	// empty
+	}
+	v_t18 = _core_eq(v_c, 98)
+	if coreTruthy(v_t18) {
+		if coreTruthy(v_inside) {
+			{ v, err := _regex_literal(8); if err != nil { return nil, err }; v_t19 = v }
+			return v_t19, nil
+		} else {
+		// empty
+		}
+		v_t20 = Object()
+		if err := coreSet(v_t20, "k", "boundary"); err != nil { return nil, err }
+		if err := coreSet(v_t20, "negative", false); err != nil { return nil, err }
+		return v_t20, nil
+	} else {
+	// empty
+	}
+	v_t21 = _core_eq(v_c, 66)
+	v_t22 = v_t21
+	if coreTruthy(v_t22) {
+		v_t23 = _core_not(v_inside)
+		v_t22 = v_t23
+	} else {
+	// empty
+	}
+	if coreTruthy(v_t22) {
+		v_t24 = Object()
+		if err := coreSet(v_t24, "k", "boundary"); err != nil { return nil, err }
+		if err := coreSet(v_t24, "negative", true); err != nil { return nil, err }
+		return v_t24, nil
+	} else {
+	// empty
+	}
+	v_t25 = _core_eq(v_c, 102)
+	if coreTruthy(v_t25) {
+		{ v, err := _regex_literal(12); if err != nil { return nil, err }; v_t26 = v }
+		return v_t26, nil
+	} else {
+	// empty
+	}
+	v_t27 = _core_eq(v_c, 110)
+	if coreTruthy(v_t27) {
+		{ v, err := _regex_literal(10); if err != nil { return nil, err }; v_t28 = v }
+		return v_t28, nil
+	} else {
+	// empty
+	}
+	v_t29 = _core_eq(v_c, 114)
+	if coreTruthy(v_t29) {
+		{ v, err := _regex_literal(13); if err != nil { return nil, err }; v_t30 = v }
+		return v_t30, nil
+	} else {
+	// empty
+	}
+	v_t31 = _core_eq(v_c, 116)
+	if coreTruthy(v_t31) {
+		{ v, err := _regex_literal(9); if err != nil { return nil, err }; v_t32 = v }
+		return v_t32, nil
+	} else {
+	// empty
+	}
+	v_t33 = _core_eq(v_c, 118)
+	if coreTruthy(v_t33) {
+		{ v, err := _regex_literal(11); if err != nil { return nil, err }; v_t34 = v }
+		return v_t34, nil
+	} else {
+	// empty
+	}
+	v_t35 = _core_eq(v_c, 120)
+	v_t36 = v_t35
+	v_t37 = _core_not(v_t36)
+	if coreTruthy(v_t37) {
+		v_t38 = _core_eq(v_c, 117)
+		v_t36 = v_t38
+	} else {
+	// empty
+	}
+	if coreTruthy(v_t36) {
+		v_n = 2
+		v_t39 = _core_eq(v_c, 117)
+		if coreTruthy(v_t39) {
+			v_n = 4
+		} else {
+		// empty
+		}
+		v_t40 = coreGet(v_s, "p", nil)
+		v_start = v_t40
+		v_value = 0
+		v_i = 0
+		for {
+			v_t41 = _core_lt(v_i, v_n)
+			v_t42 = v_t41
+			if coreTruthy(v_t42) {
+				{ v, err := _regex_peek(v_s); if err != nil { return nil, err }; v_t43 = v }
+				{ v, err := _regex_hexdigit(v_t43); if err != nil { return nil, err }; v_t44 = v }
+				v_t45 = _core_gte(v_t44, 0)
+				v_t42 = v_t45
+			} else {
+			// empty
+			}
+			v_t46 = _core_not(v_t42)
+			if coreTruthy(v_t46) {
+				break
+			} else {
+			// empty
+			}
+			v_t47 = _core_mul(v_value, 16)
+			v_t48 = _core_math_floor(v_t47)
+			{ v, err := _regex_take(v_s); if err != nil { return nil, err }; v_t49 = v }
+			{ v, err := _regex_hexdigit(v_t49); if err != nil { return nil, err }; v_t50 = v }
+			v_t51 = _core_add(v_t48, v_t50)
+			v_value = v_t51
+			v_t52 = _core_add(v_i, 1)
+			v_i = v_t52
+		}
+		v_t53 = _core_eq(v_i, v_n)
+		if coreTruthy(v_t53) {
+			{ v, err := _regex_literal(v_value); if err != nil { return nil, err }; v_t54 = v }
+			return v_t54, nil
+		} else {
+		// empty
+		}
+		if err := coreSet(v_s, "p", v_start); err != nil { return nil, err }
+		{ v, err := _regex_literal(v_c); if err != nil { return nil, err }; v_t55 = v }
+		return v_t55, nil
+	} else {
+	// empty
+	}
+	v_t56 = _core_eq(v_c, 99)
+	if coreTruthy(v_t56) {
+		{ v, err := _regex_peek(v_s); if err != nil { return nil, err }; v_t57 = v }
+		v_d = v_t57
+		v_t58 = _core_gte(v_d, 65)
+		v_t59 = v_t58
+		if coreTruthy(v_t59) {
+			v_t60 = _core_lte(v_d, 90)
+			v_t59 = v_t60
+		} else {
+		// empty
+		}
+		v_t61 = v_t59
+		v_t62 = _core_not(v_t61)
+		if coreTruthy(v_t62) {
+			v_t63 = _core_gte(v_d, 97)
+			v_t64 = v_t63
+			if coreTruthy(v_t64) {
+				v_t65 = _core_lte(v_d, 122)
+				v_t64 = v_t65
+			} else {
+			// empty
+			}
+			v_t61 = v_t64
+		} else {
+		// empty
+		}
+		v_t66 = _core_not(v_t61)
+		if coreTruthy(v_t66) {
+			v_t67 = v_inside
+			if coreTruthy(v_t67) {
+				{ v, err := _regex_digit(v_d); if err != nil { return nil, err }; v_t68 = v }
+				v_t69 = v_t68
+				v_t70 = _core_not(v_t69)
+				if coreTruthy(v_t70) {
+					v_t71 = _core_eq(v_d, 95)
+					v_t69 = v_t71
+				} else {
+				// empty
+				}
+				v_t67 = v_t69
+			} else {
+			// empty
+			}
+			v_t61 = v_t67
+		} else {
+		// empty
+		}
+		if coreTruthy(v_t61) {
+			{ v, err := _regex_take(v_s); if err != nil { return nil, err }; v_t72 = v }
+			v_t73 = _core_div(v_d, 32)
+			v_t74 = _core_math_floor(v_t73)
+			v_t75 = _core_mul(32, v_t74)
+			v_t76 = _core_mul(-1, v_t75)
+			v_t77 = _core_add(v_d, v_t76)
+			v_t78 = _core_math_floor(v_t77)
+			{ v, err := _regex_literal(v_t78); if err != nil { return nil, err }; v_t79 = v }
+			return v_t79, nil
+		} else {
+		// empty
+		}
+		v_t80 = coreGet(v_s, "p", nil)
+		v_t81 = _core_mul(-1, 1)
+		v_t82 = _core_add(v_t80, v_t81)
+		v_t83 = _core_math_floor(v_t82)
+		if err := coreSet(v_s, "p", v_t83); err != nil { return nil, err }
+		{ v, err := _regex_literal(92); if err != nil { return nil, err }; v_t84 = v }
+		return v_t84, nil
+	} else {
+	// empty
+	}
+	{ v, err := _regex_digit(v_c); if err != nil { return nil, err }; v_t85 = v }
+	if coreTruthy(v_t85) {
+		v_t86 = coreGet(v_s, "p", nil)
+		v_start = v_t86
+		v_t87 = _core_mul(-1, 48)
+		v_t88 = _core_add(v_c, v_t87)
+		v_t89 = _core_math_floor(v_t88)
+		v_value = v_t89
+		for {
+			{ v, err := _regex_peek(v_s); if err != nil { return nil, err }; v_t90 = v }
+			{ v, err := _regex_digit(v_t90); if err != nil { return nil, err }; v_t91 = v }
+			v_t92 = _core_not(v_t91)
+			if coreTruthy(v_t92) {
+				break
+			} else {
+			// empty
+			}
+			v_t93 = _core_mul(v_value, 10)
+			v_t94 = _core_math_floor(v_t93)
+			{ v, err := _regex_take(v_s); if err != nil { return nil, err }; v_t95 = v }
+			v_t96 = _core_add(v_t94, v_t95)
+			v_t97 = _core_mul(-1, 48)
+			v_t98 = _core_add(v_t96, v_t97)
+			v_t99 = _core_math_floor(v_t98)
+			v_value = v_t99
+		}
+		v_t100 = _core_ne(v_c, 48)
+		v_t101 = v_t100
+		if coreTruthy(v_t101) {
+			v_t102 = _core_not(v_inside)
+			v_t101 = v_t102
+		} else {
+		// empty
+		}
+		if coreTruthy(v_t101) {
+			v_t103 = coreGet(v_s, "total", nil)
+			v_t104 = _core_lte(v_value, v_t103)
+			v_t101 = v_t104
+		} else {
+		// empty
+		}
+		if coreTruthy(v_t101) {
+			v_t105 = Object()
+			if err := coreSet(v_t105, "k", "ref"); err != nil { return nil, err }
+			v_t106 = MutableArray()
+			v_t106 = coreAppend(v_t106, v_value)
+			if err := coreSet(v_t105, "ids", v_t106); err != nil { return nil, err }
+			return v_t105, nil
+		} else {
+		// empty
+		}
+		if err := coreSet(v_s, "p", v_start); err != nil { return nil, err }
+		v_t107 = _core_lte(v_c, 55)
+		if coreTruthy(v_t107) {
+			v_t108 = _core_mul(-1, 48)
+			v_t109 = _core_add(v_c, v_t108)
+			v_t110 = _core_math_floor(v_t109)
+			v_value = v_t110
+			v_n = 1
+			v_limit = 3
+			v_t111 = _core_gt(v_c, 51)
+			if coreTruthy(v_t111) {
+				v_limit = 2
+			} else {
+			// empty
+			}
+			for {
+				v_t112 = _core_lt(v_n, v_limit)
+				v_t113 = v_t112
+				if coreTruthy(v_t113) {
+					{ v, err := _regex_peek(v_s); if err != nil { return nil, err }; v_t114 = v }
+					v_t115 = _core_gte(v_t114, 48)
+					v_t113 = v_t115
+				} else {
+				// empty
+				}
+				if coreTruthy(v_t113) {
+					{ v, err := _regex_peek(v_s); if err != nil { return nil, err }; v_t116 = v }
+					v_t117 = _core_lte(v_t116, 55)
+					v_t113 = v_t117
+				} else {
+				// empty
+				}
+				v_t118 = _core_not(v_t113)
+				if coreTruthy(v_t118) {
+					break
+				} else {
+				// empty
+				}
+				v_t119 = _core_mul(v_value, 8)
+				v_t120 = _core_math_floor(v_t119)
+				{ v, err := _regex_take(v_s); if err != nil { return nil, err }; v_t121 = v }
+				v_t122 = _core_add(v_t120, v_t121)
+				v_t123 = _core_mul(-1, 48)
+				v_t124 = _core_add(v_t122, v_t123)
+				v_t125 = _core_math_floor(v_t124)
+				v_value = v_t125
+				v_t126 = _core_add(v_n, 1)
+				v_n = v_t126
+			}
+			{ v, err := _regex_literal(v_value); if err != nil { return nil, err }; v_t127 = v }
+			return v_t127, nil
+		} else {
+		// empty
+		}
+		{ v, err := _regex_literal(v_c); if err != nil { return nil, err }; v_t128 = v }
+		return v_t128, nil
+	} else {
+	// empty
+	}
+	v_t129 = _core_eq(v_c, 107)
+	v_t130 = v_t129
+	if coreTruthy(v_t130) {
+		v_t131 = _core_not(v_inside)
+		v_t130 = v_t131
+	} else {
+	// empty
+	}
+	if coreTruthy(v_t130) {
+		v_t132 = coreGet(v_s, "names", nil)
+		v_t133 = _core_len(v_t132)
+		v_t134 = _core_gt(v_t133, 0)
+		v_t130 = v_t134
+	} else {
+	// empty
+	}
+	if coreTruthy(v_t130) {
+		{ v, err := _regex_take(v_s); if err != nil { return nil, err }; v_t135 = v }
+		v_t136 = _core_ne(v_t135, 60)
+		if coreTruthy(v_t136) {
+			v_t137 = _core_string_format("Invalid regular expression: {}", "Invalid named backreference")
+			v_t138 = _core_validation_error(v_t137)
+			return nil, asError(v_t138)
+		} else {
+		// empty
+		}
+		{ v, err := _regex_read_name(v_s); if err != nil { return nil, err }; v_t139 = v }
+		v_name = v_t139
+		v_t140 = coreGet(v_s, "names", nil)
+		v_t141 = _core_map_contains(v_t140, v_name)
+		v_t142 = _core_not(v_t141)
+		if coreTruthy(v_t142) {
+			v_t143 = _core_string_format("Invalid regular expression: {}", "Unknown named backreference")
+			v_t144 = _core_validation_error(v_t143)
+			return nil, asError(v_t144)
+		} else {
+		// empty
+		}
+		v_t145 = Object()
+		if err := coreSet(v_t145, "k", "ref"); err != nil { return nil, err }
+		v_t146 = coreGet(v_s, "names", nil)
+		v_t147 = coreGet(v_t146, v_name, nil)
+		if err := coreSet(v_t145, "ids", v_t147); err != nil { return nil, err }
+		return v_t145, nil
+	} else {
+	// empty
+	}
+	{ v, err := _regex_literal(v_c); if err != nil { return nil, err }; v_t148 = v }
+	return v_t148, nil
 }
 
 func _append_structured_output_instruction(args ...Value) (Value, error) {
@@ -30423,6 +31627,35 @@ func _filter_optimization_components(args ...Value) (Value, error) {
 	return v_out, nil
 }
 
+func _regex_class_atom(args ...Value) (Value, error) {
+	axirCoverageMark("_regex_class_atom")
+	var v_s Value
+	var v_c Value
+	var v_t1 Value
+	var v_t2 Value
+	var v_t3 Value
+	var v_t4 Value
+	if len(args) > 0 { v_s = args[0] }
+	_ = v_s
+	_ = v_c
+	_ = v_t1
+	_ = v_t2
+	_ = v_t3
+	_ = v_t4
+	v_c = _core_none()
+	{ v, err := _regex_take(v_s); if err != nil { return nil, err }; v_t1 = v }
+	v_c = v_t1
+	v_t2 = _core_eq(v_c, 92)
+	if coreTruthy(v_t2) {
+		{ v, err := _regex_escaped(v_s, true); if err != nil { return nil, err }; v_t3 = v }
+		return v_t3, nil
+	} else {
+	// empty
+	}
+	{ v, err := _regex_literal(v_c); if err != nil { return nil, err }; v_t4 = v }
+	return v_t4, nil
+}
+
 func chat_session_register_call(args ...Value) (Value, error) {
 	axirCoverageMark("chat_session_register_call")
 	var v_state Value
@@ -30473,6 +31706,213 @@ func chat_session_register_call(args ...Value) (Value, error) {
 	if err := coreSet(v_pending, v_id, v_record); err != nil { return nil, err }
 	if err := coreSet(v_state, "pending", v_pending); err != nil { return nil, err }
 	return true, nil
+}
+
+func _regex_character_class(args ...Value) (Value, error) {
+	axirCoverageMark("_regex_character_class")
+	var v_s Value
+	var v_first Value
+	var v_last Value
+	var v_negative Value
+	var v_t1 Value
+	var v_t10 Value
+	var v_t11 Value
+	var v_t12 Value
+	var v_t13 Value
+	var v_t14 Value
+	var v_t15 Value
+	var v_t16 Value
+	var v_t17 Value
+	var v_t18 Value
+	var v_t19 Value
+	var v_t2 Value
+	var v_t20 Value
+	var v_t21 Value
+	var v_t22 Value
+	var v_t23 Value
+	var v_t24 Value
+	var v_t25 Value
+	var v_t26 Value
+	var v_t27 Value
+	var v_t28 Value
+	var v_t29 Value
+	var v_t3 Value
+	var v_t30 Value
+	var v_t31 Value
+	var v_t32 Value
+	var v_t33 Value
+	var v_t34 Value
+	var v_t35 Value
+	var v_t36 Value
+	var v_t37 Value
+	var v_t38 Value
+	var v_t39 Value
+	var v_t4 Value
+	var v_t40 Value
+	var v_t41 Value
+	var v_t42 Value
+	var v_t43 Value
+	var v_t5 Value
+	var v_t6 Value
+	var v_t7 Value
+	var v_t8 Value
+	var v_t9 Value
+	var v_terms Value
+	if len(args) > 0 { v_s = args[0] }
+	_ = v_s
+	_ = v_first
+	_ = v_last
+	_ = v_negative
+	_ = v_t1
+	_ = v_t10
+	_ = v_t11
+	_ = v_t12
+	_ = v_t13
+	_ = v_t14
+	_ = v_t15
+	_ = v_t16
+	_ = v_t17
+	_ = v_t18
+	_ = v_t19
+	_ = v_t2
+	_ = v_t20
+	_ = v_t21
+	_ = v_t22
+	_ = v_t23
+	_ = v_t24
+	_ = v_t25
+	_ = v_t26
+	_ = v_t27
+	_ = v_t28
+	_ = v_t29
+	_ = v_t3
+	_ = v_t30
+	_ = v_t31
+	_ = v_t32
+	_ = v_t33
+	_ = v_t34
+	_ = v_t35
+	_ = v_t36
+	_ = v_t37
+	_ = v_t38
+	_ = v_t39
+	_ = v_t4
+	_ = v_t40
+	_ = v_t41
+	_ = v_t42
+	_ = v_t43
+	_ = v_t5
+	_ = v_t6
+	_ = v_t7
+	_ = v_t8
+	_ = v_t9
+	_ = v_terms
+	v_first = _core_none()
+	v_last = _core_none()
+	v_negative = _core_none()
+	v_terms = _core_none()
+	v_negative = false
+	v_t1 = MutableArray()
+	v_terms = v_t1
+	{ v, err := _regex_peek(v_s); if err != nil { return nil, err }; v_t2 = v }
+	v_t3 = _core_eq(v_t2, 94)
+	if coreTruthy(v_t3) {
+		{ v, err := _regex_take(v_s); if err != nil { return nil, err }; v_t4 = v }
+		v_negative = true
+	} else {
+	// empty
+	}
+	for {
+		{ v, err := _regex_peek(v_s); if err != nil { return nil, err }; v_t5 = v }
+		v_t6 = _core_ne(v_t5, 93)
+		v_t7 = _core_not(v_t6)
+		if coreTruthy(v_t7) {
+			break
+		} else {
+		// empty
+		}
+		{ v, err := _regex_peek(v_s); if err != nil { return nil, err }; v_t8 = v }
+		v_t9 = _core_lt(v_t8, 0)
+		if coreTruthy(v_t9) {
+			v_t10 = _core_string_format("Invalid regular expression: {}", "Unterminated character class")
+			v_t11 = _core_validation_error(v_t10)
+			return nil, asError(v_t11)
+		} else {
+		// empty
+		}
+		{ v, err := _regex_class_atom(v_s); if err != nil { return nil, err }; v_t12 = v }
+		v_first = v_t12
+		{ v, err := _regex_peek(v_s); if err != nil { return nil, err }; v_t13 = v }
+		v_t14 = _core_eq(v_t13, 45)
+		v_t15 = v_t14
+		if coreTruthy(v_t15) {
+			v_t16 = coreGet(v_s, "p", nil)
+			v_t17 = _core_add(v_t16, 1)
+			v_t18 = coreGet(v_s, "u", nil)
+			v_t19 = _core_len(v_t18)
+			v_t20 = _core_lt(v_t17, v_t19)
+			v_t15 = v_t20
+		} else {
+		// empty
+		}
+		if coreTruthy(v_t15) {
+			v_t21 = coreGet(v_s, "u", nil)
+			v_t22 = coreGet(v_s, "p", nil)
+			v_t23 = _core_add(v_t22, 1)
+			v_t24 = coreGet(v_t21, v_t23, nil)
+			v_t25 = _core_ne(v_t24, 93)
+			v_t15 = v_t25
+		} else {
+		// empty
+		}
+		if coreTruthy(v_t15) {
+			{ v, err := _regex_take(v_s); if err != nil { return nil, err }; v_t26 = v }
+			{ v, err := _regex_class_atom(v_s); if err != nil { return nil, err }; v_t27 = v }
+			v_last = v_t27
+			v_t28 = coreGet(v_first, "k", nil)
+			v_t29 = _core_eq(v_t28, "char")
+			v_t30 = v_t29
+			if coreTruthy(v_t30) {
+				v_t31 = coreGet(v_last, "k", nil)
+				v_t32 = _core_eq(v_t31, "char")
+				v_t30 = v_t32
+			} else {
+			// empty
+			}
+			if coreTruthy(v_t30) {
+				v_t33 = coreGet(v_first, "c", nil)
+				v_t34 = coreGet(v_last, "c", nil)
+				v_t35 = _core_gt(v_t33, v_t34)
+				if coreTruthy(v_t35) {
+					v_t36 = _core_string_format("Invalid regular expression: {}", "Invalid character range")
+					v_t37 = _core_validation_error(v_t36)
+					return nil, asError(v_t37)
+				} else {
+				// empty
+				}
+				v_t38 = Object()
+				if err := coreSet(v_t38, "k", "range"); err != nil { return nil, err }
+				v_t39 = coreGet(v_first, "c", nil)
+				if err := coreSet(v_t38, "lo", v_t39); err != nil { return nil, err }
+				v_t40 = coreGet(v_last, "c", nil)
+				if err := coreSet(v_t38, "hi", v_t40); err != nil { return nil, err }
+				v_terms = coreAppend(v_terms, v_t38)
+			} else {
+				v_terms = coreAppend(v_terms, v_first)
+				{ v, err := _regex_literal(45); if err != nil { return nil, err }; v_t41 = v }
+				v_terms = coreAppend(v_terms, v_t41)
+				v_terms = coreAppend(v_terms, v_last)
+			}
+		} else {
+			v_terms = coreAppend(v_terms, v_first)
+		}
+	}
+	{ v, err := _regex_take(v_s); if err != nil { return nil, err }; v_t42 = v }
+	v_t43 = Object()
+	if err := coreSet(v_t43, "k", "class"); err != nil { return nil, err }
+	if err := coreSet(v_t43, "negative", v_negative); err != nil { return nil, err }
+	if err := coreSet(v_t43, "terms", v_terms); err != nil { return nil, err }
+	return v_t43, nil
 }
 
 func chat_session_result(args ...Value) (Value, error) {
@@ -30708,6 +32148,360 @@ func chat_session_defer_final_call(args ...Value) (Value, error) {
 	// empty
 	}
 	return false, nil
+}
+
+func _regex_atom(args ...Value) (Value, error) {
+	axirCoverageMark("_regex_atom")
+	var v_s Value
+	var v_c Value
+	var v_candidate Value
+	var v_capture Value
+	var v_child Value
+	var v_direction Value
+	var v_kind Value
+	var v_mode Value
+	var v_name Value
+	var v_negative Value
+	var v_t1 Value
+	var v_t10 Value
+	var v_t11 Value
+	var v_t12 Value
+	var v_t13 Value
+	var v_t14 Value
+	var v_t15 Value
+	var v_t16 Value
+	var v_t17 Value
+	var v_t18 Value
+	var v_t19 Value
+	var v_t2 Value
+	var v_t20 Value
+	var v_t21 Value
+	var v_t22 Value
+	var v_t23 Value
+	var v_t24 Value
+	var v_t25 Value
+	var v_t26 Value
+	var v_t27 Value
+	var v_t28 Value
+	var v_t29 Value
+	var v_t3 Value
+	var v_t30 Value
+	var v_t31 Value
+	var v_t32 Value
+	var v_t33 Value
+	var v_t34 Value
+	var v_t35 Value
+	var v_t36 Value
+	var v_t37 Value
+	var v_t38 Value
+	var v_t39 Value
+	var v_t4 Value
+	var v_t40 Value
+	var v_t41 Value
+	var v_t42 Value
+	var v_t43 Value
+	var v_t44 Value
+	var v_t45 Value
+	var v_t46 Value
+	var v_t47 Value
+	var v_t48 Value
+	var v_t49 Value
+	var v_t5 Value
+	var v_t50 Value
+	var v_t51 Value
+	var v_t52 Value
+	var v_t53 Value
+	var v_t54 Value
+	var v_t55 Value
+	var v_t56 Value
+	var v_t57 Value
+	var v_t58 Value
+	var v_t59 Value
+	var v_t6 Value
+	var v_t60 Value
+	var v_t61 Value
+	var v_t62 Value
+	var v_t63 Value
+	var v_t64 Value
+	var v_t65 Value
+	var v_t66 Value
+	var v_t67 Value
+	var v_t68 Value
+	var v_t7 Value
+	var v_t8 Value
+	var v_t9 Value
+	if len(args) > 0 { v_s = args[0] }
+	_ = v_s
+	_ = v_c
+	_ = v_candidate
+	_ = v_capture
+	_ = v_child
+	_ = v_direction
+	_ = v_kind
+	_ = v_mode
+	_ = v_name
+	_ = v_negative
+	_ = v_t1
+	_ = v_t10
+	_ = v_t11
+	_ = v_t12
+	_ = v_t13
+	_ = v_t14
+	_ = v_t15
+	_ = v_t16
+	_ = v_t17
+	_ = v_t18
+	_ = v_t19
+	_ = v_t2
+	_ = v_t20
+	_ = v_t21
+	_ = v_t22
+	_ = v_t23
+	_ = v_t24
+	_ = v_t25
+	_ = v_t26
+	_ = v_t27
+	_ = v_t28
+	_ = v_t29
+	_ = v_t3
+	_ = v_t30
+	_ = v_t31
+	_ = v_t32
+	_ = v_t33
+	_ = v_t34
+	_ = v_t35
+	_ = v_t36
+	_ = v_t37
+	_ = v_t38
+	_ = v_t39
+	_ = v_t4
+	_ = v_t40
+	_ = v_t41
+	_ = v_t42
+	_ = v_t43
+	_ = v_t44
+	_ = v_t45
+	_ = v_t46
+	_ = v_t47
+	_ = v_t48
+	_ = v_t49
+	_ = v_t5
+	_ = v_t50
+	_ = v_t51
+	_ = v_t52
+	_ = v_t53
+	_ = v_t54
+	_ = v_t55
+	_ = v_t56
+	_ = v_t57
+	_ = v_t58
+	_ = v_t59
+	_ = v_t6
+	_ = v_t60
+	_ = v_t61
+	_ = v_t62
+	_ = v_t63
+	_ = v_t64
+	_ = v_t65
+	_ = v_t66
+	_ = v_t67
+	_ = v_t68
+	_ = v_t7
+	_ = v_t8
+	_ = v_t9
+	v_c = _core_none()
+	v_candidate = _core_none()
+	v_capture = _core_none()
+	v_child = _core_none()
+	v_direction = _core_none()
+	v_kind = _core_none()
+	v_mode = _core_none()
+	v_name = _core_none()
+	v_negative = _core_none()
+	{ v, err := _regex_take(v_s); if err != nil { return nil, err }; v_t1 = v }
+	v_c = v_t1
+	v_t2 = _core_eq(v_c, 46)
+	if coreTruthy(v_t2) {
+		{ v, err := _regex_node("dot"); if err != nil { return nil, err }; v_t3 = v }
+		return v_t3, nil
+	} else {
+	// empty
+	}
+	v_t4 = _core_eq(v_c, 94)
+	if coreTruthy(v_t4) {
+		{ v, err := _regex_node("start"); if err != nil { return nil, err }; v_t5 = v }
+		return v_t5, nil
+	} else {
+	// empty
+	}
+	v_t6 = _core_eq(v_c, 36)
+	if coreTruthy(v_t6) {
+		{ v, err := _regex_node("end"); if err != nil { return nil, err }; v_t7 = v }
+		return v_t7, nil
+	} else {
+	// empty
+	}
+	v_t8 = _core_eq(v_c, 92)
+	if coreTruthy(v_t8) {
+		{ v, err := _regex_escaped(v_s, false); if err != nil { return nil, err }; v_t9 = v }
+		return v_t9, nil
+	} else {
+	// empty
+	}
+	v_t10 = _core_eq(v_c, 91)
+	if coreTruthy(v_t10) {
+		{ v, err := _regex_character_class(v_s); if err != nil { return nil, err }; v_t11 = v }
+		return v_t11, nil
+	} else {
+	// empty
+	}
+	v_t12 = _core_eq(v_c, 42)
+	v_t13 = v_t12
+	v_t14 = _core_not(v_t13)
+	if coreTruthy(v_t14) {
+		v_t15 = _core_eq(v_c, 43)
+		v_t13 = v_t15
+	} else {
+	// empty
+	}
+	v_t16 = _core_not(v_t13)
+	if coreTruthy(v_t16) {
+		v_t17 = _core_eq(v_c, 63)
+		v_t13 = v_t17
+	} else {
+	// empty
+	}
+	if coreTruthy(v_t13) {
+		v_t18 = _core_string_format("Invalid regular expression: {}", "Nothing to repeat")
+		v_t19 = _core_validation_error(v_t18)
+		return nil, asError(v_t19)
+	} else {
+	// empty
+	}
+	v_t20 = _core_eq(v_c, 40)
+	if coreTruthy(v_t20) {
+		v_kind = "capture"
+		v_negative = false
+		v_direction = 1
+		v_capture = 0
+		v_t21 = _core_none()
+		v_name = v_t21
+		{ v, err := _regex_peek(v_s); if err != nil { return nil, err }; v_t22 = v }
+		v_t23 = _core_eq(v_t22, 63)
+		if coreTruthy(v_t23) {
+			{ v, err := _regex_take(v_s); if err != nil { return nil, err }; v_t24 = v }
+			{ v, err := _regex_take(v_s); if err != nil { return nil, err }; v_t25 = v }
+			v_mode = v_t25
+			v_t26 = _core_eq(v_mode, 58)
+			if coreTruthy(v_t26) {
+				v_kind = "group"
+			} else {
+				v_t27 = _core_eq(v_mode, 61)
+				v_t28 = v_t27
+				v_t29 = _core_not(v_t28)
+				if coreTruthy(v_t29) {
+					v_t30 = _core_eq(v_mode, 33)
+					v_t28 = v_t30
+				} else {
+				// empty
+				}
+				if coreTruthy(v_t28) {
+					v_kind = "look"
+					v_t31 = _core_eq(v_mode, 33)
+					v_negative = v_t31
+				} else {
+					v_t32 = _core_eq(v_mode, 60)
+					if coreTruthy(v_t32) {
+						{ v, err := _regex_peek(v_s); if err != nil { return nil, err }; v_t33 = v }
+						v_t34 = _core_eq(v_t33, 61)
+						v_t35 = v_t34
+						v_t36 = _core_not(v_t35)
+						if coreTruthy(v_t36) {
+							{ v, err := _regex_peek(v_s); if err != nil { return nil, err }; v_t37 = v }
+							v_t38 = _core_eq(v_t37, 33)
+							v_t35 = v_t38
+						} else {
+						// empty
+						}
+						if coreTruthy(v_t35) {
+							v_kind = "look"
+							{ v, err := _regex_take(v_s); if err != nil { return nil, err }; v_t39 = v }
+							v_t40 = _core_eq(v_t39, 33)
+							v_negative = v_t40
+							v_t41 = _core_mul(-1, 1)
+							v_t42 = _core_math_floor(v_t41)
+							v_direction = v_t42
+						} else {
+							{ v, err := _regex_read_name(v_s); if err != nil { return nil, err }; v_t43 = v }
+							v_name = v_t43
+						}
+					} else {
+						v_t44 = _core_string_format("Invalid regular expression: {}", "Invalid group")
+						v_t45 = _core_validation_error(v_t44)
+						return nil, asError(v_t45)
+					}
+				}
+			}
+		} else {
+		// empty
+		}
+		v_t46 = _core_eq(v_kind, "capture")
+		if coreTruthy(v_t46) {
+			v_t47 = coreGet(v_s, "next", nil)
+			v_t48 = _core_add(v_t47, 1)
+			if err := coreSet(v_s, "next", v_t48); err != nil { return nil, err }
+			v_t49 = coreGet(v_s, "next", nil)
+			v_capture = v_t49
+		} else {
+		// empty
+		}
+		{ v, err := _regex_alternative(v_s); if err != nil { return nil, err }; v_t50 = v }
+		v_child = v_t50
+		{ v, err := _regex_take(v_s); if err != nil { return nil, err }; v_t51 = v }
+		v_t52 = _core_ne(v_t51, 41)
+		if coreTruthy(v_t52) {
+			v_t53 = _core_string_format("Invalid regular expression: {}", "Unterminated group")
+			v_t54 = _core_validation_error(v_t53)
+			return nil, asError(v_t54)
+		} else {
+		// empty
+		}
+		v_t55 = Object()
+		if err := coreSet(v_t55, "k", v_kind); err != nil { return nil, err }
+		if err := coreSet(v_t55, "child", v_child); err != nil { return nil, err }
+		if err := coreSet(v_t55, "id", v_capture); err != nil { return nil, err }
+		if err := coreSet(v_t55, "negative", v_negative); err != nil { return nil, err }
+		if err := coreSet(v_t55, "direction", v_direction); err != nil { return nil, err }
+		if err := coreSet(v_t55, "name", v_name); err != nil { return nil, err }
+		return v_t55, nil
+	} else {
+	// empty
+	}
+	v_t56 = _core_eq(v_c, 123)
+	if coreTruthy(v_t56) {
+		v_t57 = coreGet(v_s, "p", nil)
+		v_t58 = _core_mul(-1, 1)
+		v_t59 = _core_add(v_t57, v_t58)
+		v_t60 = _core_math_floor(v_t59)
+		if err := coreSet(v_s, "p", v_t60); err != nil { return nil, err }
+		{ v, err := _regex_node("empty"); if err != nil { return nil, err }; v_t61 = v }
+		{ v, err := _regex_quantifier(v_s, v_t61); if err != nil { return nil, err }; v_t62 = v }
+		v_candidate = v_t62
+		v_t63 = coreGet(v_candidate, "k", nil)
+		v_t64 = _core_eq(v_t63, "repeat")
+		if coreTruthy(v_t64) {
+			v_t65 = _core_string_format("Invalid regular expression: {}", "Nothing to repeat")
+			v_t66 = _core_validation_error(v_t65)
+			return nil, asError(v_t66)
+		} else {
+		// empty
+		}
+		{ v, err := _regex_take(v_s); if err != nil { return nil, err }; v_t67 = v }
+	} else {
+	// empty
+	}
+	{ v, err := _regex_literal(v_c); if err != nil { return nil, err }; v_t68 = v }
+	return v_t68, nil
 }
 
 func chat_session_complete_call(args ...Value) (Value, error) {
@@ -31737,6 +33531,355 @@ func _parse_output_impl(args ...Value) (Value, error) {
 	return v_output, nil
 }
 
+func _regex_quantifier(args ...Value) (Value, error) {
+	axirCoverageMark("_regex_quantifier")
+	var v_s Value
+	var v_child Value
+	var v_c Value
+	var v_hi Value
+	var v_lazy Value
+	var v_lo Value
+	var v_start Value
+	var v_t1 Value
+	var v_t10 Value
+	var v_t11 Value
+	var v_t12 Value
+	var v_t13 Value
+	var v_t14 Value
+	var v_t15 Value
+	var v_t16 Value
+	var v_t17 Value
+	var v_t18 Value
+	var v_t19 Value
+	var v_t2 Value
+	var v_t20 Value
+	var v_t21 Value
+	var v_t22 Value
+	var v_t23 Value
+	var v_t24 Value
+	var v_t25 Value
+	var v_t26 Value
+	var v_t27 Value
+	var v_t28 Value
+	var v_t29 Value
+	var v_t3 Value
+	var v_t30 Value
+	var v_t31 Value
+	var v_t32 Value
+	var v_t33 Value
+	var v_t34 Value
+	var v_t35 Value
+	var v_t36 Value
+	var v_t37 Value
+	var v_t38 Value
+	var v_t39 Value
+	var v_t4 Value
+	var v_t40 Value
+	var v_t41 Value
+	var v_t42 Value
+	var v_t43 Value
+	var v_t44 Value
+	var v_t45 Value
+	var v_t46 Value
+	var v_t47 Value
+	var v_t48 Value
+	var v_t49 Value
+	var v_t5 Value
+	var v_t50 Value
+	var v_t51 Value
+	var v_t52 Value
+	var v_t53 Value
+	var v_t54 Value
+	var v_t55 Value
+	var v_t56 Value
+	var v_t57 Value
+	var v_t58 Value
+	var v_t59 Value
+	var v_t6 Value
+	var v_t60 Value
+	var v_t61 Value
+	var v_t62 Value
+	var v_t63 Value
+	var v_t64 Value
+	var v_t65 Value
+	var v_t66 Value
+	var v_t67 Value
+	var v_t68 Value
+	var v_t69 Value
+	var v_t7 Value
+	var v_t70 Value
+	var v_t71 Value
+	var v_t72 Value
+	var v_t73 Value
+	var v_t8 Value
+	var v_t9 Value
+	if len(args) > 0 { v_s = args[0] }
+	_ = v_s
+	if len(args) > 1 { v_child = args[1] }
+	_ = v_child
+	_ = v_c
+	_ = v_hi
+	_ = v_lazy
+	_ = v_lo
+	_ = v_start
+	_ = v_t1
+	_ = v_t10
+	_ = v_t11
+	_ = v_t12
+	_ = v_t13
+	_ = v_t14
+	_ = v_t15
+	_ = v_t16
+	_ = v_t17
+	_ = v_t18
+	_ = v_t19
+	_ = v_t2
+	_ = v_t20
+	_ = v_t21
+	_ = v_t22
+	_ = v_t23
+	_ = v_t24
+	_ = v_t25
+	_ = v_t26
+	_ = v_t27
+	_ = v_t28
+	_ = v_t29
+	_ = v_t3
+	_ = v_t30
+	_ = v_t31
+	_ = v_t32
+	_ = v_t33
+	_ = v_t34
+	_ = v_t35
+	_ = v_t36
+	_ = v_t37
+	_ = v_t38
+	_ = v_t39
+	_ = v_t4
+	_ = v_t40
+	_ = v_t41
+	_ = v_t42
+	_ = v_t43
+	_ = v_t44
+	_ = v_t45
+	_ = v_t46
+	_ = v_t47
+	_ = v_t48
+	_ = v_t49
+	_ = v_t5
+	_ = v_t50
+	_ = v_t51
+	_ = v_t52
+	_ = v_t53
+	_ = v_t54
+	_ = v_t55
+	_ = v_t56
+	_ = v_t57
+	_ = v_t58
+	_ = v_t59
+	_ = v_t6
+	_ = v_t60
+	_ = v_t61
+	_ = v_t62
+	_ = v_t63
+	_ = v_t64
+	_ = v_t65
+	_ = v_t66
+	_ = v_t67
+	_ = v_t68
+	_ = v_t69
+	_ = v_t7
+	_ = v_t70
+	_ = v_t71
+	_ = v_t72
+	_ = v_t73
+	_ = v_t8
+	_ = v_t9
+	v_c = _core_none()
+	v_hi = _core_none()
+	v_lazy = _core_none()
+	v_lo = _core_none()
+	v_start = _core_none()
+	v_t1 = coreGet(v_s, "p", nil)
+	v_start = v_t1
+	{ v, err := _regex_peek(v_s); if err != nil { return nil, err }; v_t2 = v }
+	v_c = v_t2
+	v_lo = 0
+	v_t3 = _core_mul(-1, 1)
+	v_t4 = _core_math_floor(v_t3)
+	v_hi = v_t4
+	v_t5 = _core_eq(v_c, 42)
+	if coreTruthy(v_t5) {
+		{ v, err := _regex_take(v_s); if err != nil { return nil, err }; v_t6 = v }
+	} else {
+		v_t7 = _core_eq(v_c, 43)
+		if coreTruthy(v_t7) {
+			{ v, err := _regex_take(v_s); if err != nil { return nil, err }; v_t8 = v }
+			v_lo = 1
+		} else {
+			v_t9 = _core_eq(v_c, 63)
+			if coreTruthy(v_t9) {
+				{ v, err := _regex_take(v_s); if err != nil { return nil, err }; v_t10 = v }
+				v_hi = 1
+			} else {
+				v_t11 = _core_eq(v_c, 123)
+				if coreTruthy(v_t11) {
+					{ v, err := _regex_take(v_s); if err != nil { return nil, err }; v_t12 = v }
+					{ v, err := _regex_peek(v_s); if err != nil { return nil, err }; v_t13 = v }
+					{ v, err := _regex_digit(v_t13); if err != nil { return nil, err }; v_t14 = v }
+					v_t15 = _core_not(v_t14)
+					if coreTruthy(v_t15) {
+						if err := coreSet(v_s, "p", v_start); err != nil { return nil, err }
+						return v_child, nil
+					} else {
+					// empty
+					}
+					for {
+						{ v, err := _regex_peek(v_s); if err != nil { return nil, err }; v_t16 = v }
+						{ v, err := _regex_digit(v_t16); if err != nil { return nil, err }; v_t17 = v }
+						v_t18 = _core_not(v_t17)
+						if coreTruthy(v_t18) {
+							break
+						} else {
+						// empty
+						}
+						v_t19 = _core_mul(v_lo, 10)
+						v_t20 = _core_math_floor(v_t19)
+						{ v, err := _regex_take(v_s); if err != nil { return nil, err }; v_t21 = v }
+						v_t22 = _core_add(v_t20, v_t21)
+						v_t23 = _core_mul(-1, 48)
+						v_t24 = _core_add(v_t22, v_t23)
+						v_t25 = _core_math_floor(v_t24)
+						v_lo = v_t25
+					}
+					v_hi = v_lo
+					{ v, err := _regex_peek(v_s); if err != nil { return nil, err }; v_t26 = v }
+					v_t27 = _core_eq(v_t26, 44)
+					if coreTruthy(v_t27) {
+						{ v, err := _regex_take(v_s); if err != nil { return nil, err }; v_t28 = v }
+						v_t29 = _core_mul(-1, 1)
+						v_t30 = _core_math_floor(v_t29)
+						v_hi = v_t30
+						{ v, err := _regex_peek(v_s); if err != nil { return nil, err }; v_t31 = v }
+						{ v, err := _regex_digit(v_t31); if err != nil { return nil, err }; v_t32 = v }
+						if coreTruthy(v_t32) {
+							v_hi = 0
+							for {
+								{ v, err := _regex_peek(v_s); if err != nil { return nil, err }; v_t33 = v }
+								{ v, err := _regex_digit(v_t33); if err != nil { return nil, err }; v_t34 = v }
+								v_t35 = _core_not(v_t34)
+								if coreTruthy(v_t35) {
+									break
+								} else {
+								// empty
+								}
+								v_t36 = _core_mul(v_hi, 10)
+								v_t37 = _core_math_floor(v_t36)
+								{ v, err := _regex_take(v_s); if err != nil { return nil, err }; v_t38 = v }
+								v_t39 = _core_add(v_t37, v_t38)
+								v_t40 = _core_mul(-1, 48)
+								v_t41 = _core_add(v_t39, v_t40)
+								v_t42 = _core_math_floor(v_t41)
+								v_hi = v_t42
+							}
+						} else {
+						// empty
+						}
+					} else {
+					// empty
+					}
+					{ v, err := _regex_peek(v_s); if err != nil { return nil, err }; v_t43 = v }
+					v_t44 = _core_ne(v_t43, 125)
+					if coreTruthy(v_t44) {
+						if err := coreSet(v_s, "p", v_start); err != nil { return nil, err }
+						return v_child, nil
+					} else {
+					// empty
+					}
+					{ v, err := _regex_take(v_s); if err != nil { return nil, err }; v_t45 = v }
+					v_t46 = _core_gte(v_hi, 0)
+					v_t47 = v_t46
+					if coreTruthy(v_t47) {
+						v_t48 = _core_lt(v_hi, v_lo)
+						v_t47 = v_t48
+					} else {
+					// empty
+					}
+					if coreTruthy(v_t47) {
+						v_t49 = _core_string_format("Invalid regular expression: {}", "Invalid quantifier range")
+						v_t50 = _core_validation_error(v_t49)
+						return nil, asError(v_t50)
+					} else {
+					// empty
+					}
+				} else {
+					return v_child, nil
+				}
+			}
+		}
+	}
+	v_t51 = coreGet(v_child, "k", nil)
+	v_t52 = _core_eq(v_t51, "start")
+	v_t53 = v_t52
+	v_t54 = _core_not(v_t53)
+	if coreTruthy(v_t54) {
+		v_t55 = coreGet(v_child, "k", nil)
+		v_t56 = _core_eq(v_t55, "end")
+		v_t53 = v_t56
+	} else {
+	// empty
+	}
+	v_t57 = _core_not(v_t53)
+	if coreTruthy(v_t57) {
+		v_t58 = coreGet(v_child, "k", nil)
+		v_t59 = _core_eq(v_t58, "boundary")
+		v_t53 = v_t59
+	} else {
+	// empty
+	}
+	v_t60 = _core_not(v_t53)
+	if coreTruthy(v_t60) {
+		v_t61 = coreGet(v_child, "k", nil)
+		v_t62 = _core_eq(v_t61, "look")
+		v_t63 = v_t62
+		if coreTruthy(v_t63) {
+			v_t64 = coreGet(v_child, "direction", nil)
+			v_t65 = _core_mul(-1, 1)
+			v_t66 = _core_math_floor(v_t65)
+			v_t67 = _core_eq(v_t64, v_t66)
+			v_t63 = v_t67
+		} else {
+		// empty
+		}
+		v_t53 = v_t63
+	} else {
+	// empty
+	}
+	if coreTruthy(v_t53) {
+		v_t68 = _core_string_format("Invalid regular expression: {}", "Invalid quantified assertion")
+		v_t69 = _core_validation_error(v_t68)
+		return nil, asError(v_t69)
+	} else {
+	// empty
+	}
+	v_lazy = false
+	{ v, err := _regex_peek(v_s); if err != nil { return nil, err }; v_t70 = v }
+	v_t71 = _core_eq(v_t70, 63)
+	if coreTruthy(v_t71) {
+		{ v, err := _regex_take(v_s); if err != nil { return nil, err }; v_t72 = v }
+		v_lazy = true
+	} else {
+	// empty
+	}
+	v_t73 = Object()
+	if err := coreSet(v_t73, "k", "repeat"); err != nil { return nil, err }
+	if err := coreSet(v_t73, "child", v_child); err != nil { return nil, err }
+	if err := coreSet(v_t73, "lo", v_lo); err != nil { return nil, err }
+	if err := coreSet(v_t73, "hi", v_hi); err != nil { return nil, err }
+	if err := coreSet(v_t73, "lazy", v_lazy); err != nil { return nil, err }
+	return v_t73, nil
+}
+
 func _ace_estimate_token_count(args ...Value) (Value, error) {
 	axirCoverageMark("_ace_estimate_token_count")
 	var v_text Value
@@ -32628,6 +34771,98 @@ func _validate_exact_output_keys(args ...Value) (Value, error) {
 	return nil, nil
 }
 
+func _regex_alternative(args ...Value) (Value, error) {
+	axirCoverageMark("_regex_alternative")
+	var v_s Value
+	var v_choices Value
+	var v_t1 Value
+	var v_t10 Value
+	var v_t11 Value
+	var v_t12 Value
+	var v_t13 Value
+	var v_t14 Value
+	var v_t15 Value
+	var v_t16 Value
+	var v_t17 Value
+	var v_t2 Value
+	var v_t3 Value
+	var v_t4 Value
+	var v_t5 Value
+	var v_t6 Value
+	var v_t7 Value
+	var v_t8 Value
+	var v_t9 Value
+	var v_terms Value
+	if len(args) > 0 { v_s = args[0] }
+	_ = v_s
+	_ = v_choices
+	_ = v_t1
+	_ = v_t10
+	_ = v_t11
+	_ = v_t12
+	_ = v_t13
+	_ = v_t14
+	_ = v_t15
+	_ = v_t16
+	_ = v_t17
+	_ = v_t2
+	_ = v_t3
+	_ = v_t4
+	_ = v_t5
+	_ = v_t6
+	_ = v_t7
+	_ = v_t8
+	_ = v_t9
+	_ = v_terms
+	v_choices = _core_none()
+	v_terms = _core_none()
+	v_t1 = MutableArray()
+	v_choices = v_t1
+	v_t2 = MutableArray()
+	v_terms = v_t2
+	for {
+		{ v, err := _regex_peek(v_s); if err != nil { return nil, err }; v_t3 = v }
+		v_t4 = _core_gte(v_t3, 0)
+		v_t5 = v_t4
+		if coreTruthy(v_t5) {
+			{ v, err := _regex_peek(v_s); if err != nil { return nil, err }; v_t6 = v }
+			v_t7 = _core_ne(v_t6, 41)
+			v_t5 = v_t7
+		} else {
+		// empty
+		}
+		v_t8 = _core_not(v_t5)
+		if coreTruthy(v_t8) {
+			break
+		} else {
+		// empty
+		}
+		{ v, err := _regex_peek(v_s); if err != nil { return nil, err }; v_t9 = v }
+		v_t10 = _core_eq(v_t9, 124)
+		if coreTruthy(v_t10) {
+			{ v, err := _regex_take(v_s); if err != nil { return nil, err }; v_t11 = v }
+			v_t12 = Object()
+			if err := coreSet(v_t12, "k", "seq"); err != nil { return nil, err }
+			if err := coreSet(v_t12, "terms", v_terms); err != nil { return nil, err }
+			v_choices = coreAppend(v_choices, v_t12)
+			v_t13 = MutableArray()
+			v_terms = v_t13
+		} else {
+			{ v, err := _regex_atom(v_s); if err != nil { return nil, err }; v_t14 = v }
+			{ v, err := _regex_quantifier(v_s, v_t14); if err != nil { return nil, err }; v_t15 = v }
+			v_terms = coreAppend(v_terms, v_t15)
+		}
+	}
+	v_t16 = Object()
+	if err := coreSet(v_t16, "k", "seq"); err != nil { return nil, err }
+	if err := coreSet(v_t16, "terms", v_terms); err != nil { return nil, err }
+	v_choices = coreAppend(v_choices, v_t16)
+	v_t17 = Object()
+	if err := coreSet(v_t17, "k", "alt"); err != nil { return nil, err }
+	if err := coreSet(v_t17, "terms", v_choices); err != nil { return nil, err }
+	return v_t17, nil
+}
+
 func chat_session_mark_submitted(args ...Value) (Value, error) {
 	axirCoverageMark("chat_session_mark_submitted")
 	var v_state Value
@@ -32793,6 +35028,86 @@ func _ace_dedupe_playbook(args ...Value) (Value, error) {
 	if err := coreSet(v_playbook, "sections", v_sections); err != nil { return nil, err }
 	{ v, err := _ace_recompute_playbook_stats(v_playbook); if err != nil { return nil, err }; v_recomputed = v }
 	return v_recomputed, nil
+}
+
+func _regex_word(args ...Value) (Value, error) {
+	axirCoverageMark("_regex_word")
+	var v_c Value
+	var v_t1 Value
+	var v_t10 Value
+	var v_t11 Value
+	var v_t12 Value
+	var v_t13 Value
+	var v_t14 Value
+	var v_t2 Value
+	var v_t3 Value
+	var v_t4 Value
+	var v_t5 Value
+	var v_t6 Value
+	var v_t7 Value
+	var v_t8 Value
+	var v_t9 Value
+	if len(args) > 0 { v_c = args[0] }
+	_ = v_c
+	_ = v_t1
+	_ = v_t10
+	_ = v_t11
+	_ = v_t12
+	_ = v_t13
+	_ = v_t14
+	_ = v_t2
+	_ = v_t3
+	_ = v_t4
+	_ = v_t5
+	_ = v_t6
+	_ = v_t7
+	_ = v_t8
+	_ = v_t9
+	v_t1 = _core_gte(v_c, 48)
+	v_t2 = v_t1
+	if coreTruthy(v_t2) {
+		v_t3 = _core_lte(v_c, 57)
+		v_t2 = v_t3
+	} else {
+	// empty
+	}
+	v_t4 = v_t2
+	v_t5 = _core_not(v_t4)
+	if coreTruthy(v_t5) {
+		v_t6 = _core_gte(v_c, 65)
+		v_t7 = v_t6
+		if coreTruthy(v_t7) {
+			v_t8 = _core_lte(v_c, 90)
+			v_t7 = v_t8
+		} else {
+		// empty
+		}
+		v_t4 = v_t7
+	} else {
+	// empty
+	}
+	v_t9 = _core_not(v_t4)
+	if coreTruthy(v_t9) {
+		v_t10 = _core_gte(v_c, 97)
+		v_t11 = v_t10
+		if coreTruthy(v_t11) {
+			v_t12 = _core_lte(v_c, 122)
+			v_t11 = v_t12
+		} else {
+		// empty
+		}
+		v_t4 = v_t11
+	} else {
+	// empty
+	}
+	v_t13 = _core_not(v_t4)
+	if coreTruthy(v_t13) {
+		v_t14 = _core_eq(v_c, 95)
+		v_t4 = v_t14
+	} else {
+	// empty
+	}
+	return v_t4, nil
 }
 
 func _tool_spec_impl(args ...Value) (Value, error) {
@@ -33290,6 +35605,185 @@ func chat_session_transition(args ...Value) (Value, error) {
 	{ v, err := chat_session_boundary_action(v_state); if err != nil { return nil, err }; v_action = v }
 	if err := coreSet(v_action, "changed", v_changed); err != nil { return nil, err }
 	return v_action, nil
+}
+
+func _regex_space(args ...Value) (Value, error) {
+	axirCoverageMark("_regex_space")
+	var v_c Value
+	var v_t1 Value
+	var v_t10 Value
+	var v_t11 Value
+	var v_t12 Value
+	var v_t13 Value
+	var v_t14 Value
+	var v_t15 Value
+	var v_t16 Value
+	var v_t17 Value
+	var v_t18 Value
+	var v_t19 Value
+	var v_t2 Value
+	var v_t20 Value
+	var v_t21 Value
+	var v_t22 Value
+	var v_t23 Value
+	var v_t24 Value
+	var v_t25 Value
+	var v_t26 Value
+	var v_t27 Value
+	var v_t28 Value
+	var v_t29 Value
+	var v_t3 Value
+	var v_t30 Value
+	var v_t31 Value
+	var v_t32 Value
+	var v_t4 Value
+	var v_t5 Value
+	var v_t6 Value
+	var v_t7 Value
+	var v_t8 Value
+	var v_t9 Value
+	if len(args) > 0 { v_c = args[0] }
+	_ = v_c
+	_ = v_t1
+	_ = v_t10
+	_ = v_t11
+	_ = v_t12
+	_ = v_t13
+	_ = v_t14
+	_ = v_t15
+	_ = v_t16
+	_ = v_t17
+	_ = v_t18
+	_ = v_t19
+	_ = v_t2
+	_ = v_t20
+	_ = v_t21
+	_ = v_t22
+	_ = v_t23
+	_ = v_t24
+	_ = v_t25
+	_ = v_t26
+	_ = v_t27
+	_ = v_t28
+	_ = v_t29
+	_ = v_t3
+	_ = v_t30
+	_ = v_t31
+	_ = v_t32
+	_ = v_t4
+	_ = v_t5
+	_ = v_t6
+	_ = v_t7
+	_ = v_t8
+	_ = v_t9
+	v_t1 = _core_eq(v_c, 9)
+	v_t2 = v_t1
+	v_t3 = _core_not(v_t2)
+	if coreTruthy(v_t3) {
+		v_t4 = _core_eq(v_c, 10)
+		v_t2 = v_t4
+	} else {
+	// empty
+	}
+	v_t5 = _core_not(v_t2)
+	if coreTruthy(v_t5) {
+		v_t6 = _core_eq(v_c, 11)
+		v_t2 = v_t6
+	} else {
+	// empty
+	}
+	v_t7 = _core_not(v_t2)
+	if coreTruthy(v_t7) {
+		v_t8 = _core_eq(v_c, 12)
+		v_t2 = v_t8
+	} else {
+	// empty
+	}
+	v_t9 = _core_not(v_t2)
+	if coreTruthy(v_t9) {
+		v_t10 = _core_eq(v_c, 13)
+		v_t2 = v_t10
+	} else {
+	// empty
+	}
+	v_t11 = _core_not(v_t2)
+	if coreTruthy(v_t11) {
+		v_t12 = _core_eq(v_c, 32)
+		v_t2 = v_t12
+	} else {
+	// empty
+	}
+	v_t13 = _core_not(v_t2)
+	if coreTruthy(v_t13) {
+		v_t14 = _core_eq(v_c, 160)
+		v_t2 = v_t14
+	} else {
+	// empty
+	}
+	v_t15 = _core_not(v_t2)
+	if coreTruthy(v_t15) {
+		v_t16 = _core_eq(v_c, 5760)
+		v_t2 = v_t16
+	} else {
+	// empty
+	}
+	v_t17 = _core_not(v_t2)
+	if coreTruthy(v_t17) {
+		v_t18 = _core_gte(v_c, 8192)
+		v_t19 = v_t18
+		if coreTruthy(v_t19) {
+			v_t20 = _core_lte(v_c, 8202)
+			v_t19 = v_t20
+		} else {
+		// empty
+		}
+		v_t2 = v_t19
+	} else {
+	// empty
+	}
+	v_t21 = _core_not(v_t2)
+	if coreTruthy(v_t21) {
+		v_t22 = _core_eq(v_c, 8232)
+		v_t2 = v_t22
+	} else {
+	// empty
+	}
+	v_t23 = _core_not(v_t2)
+	if coreTruthy(v_t23) {
+		v_t24 = _core_eq(v_c, 8233)
+		v_t2 = v_t24
+	} else {
+	// empty
+	}
+	v_t25 = _core_not(v_t2)
+	if coreTruthy(v_t25) {
+		v_t26 = _core_eq(v_c, 8239)
+		v_t2 = v_t26
+	} else {
+	// empty
+	}
+	v_t27 = _core_not(v_t2)
+	if coreTruthy(v_t27) {
+		v_t28 = _core_eq(v_c, 8287)
+		v_t2 = v_t28
+	} else {
+	// empty
+	}
+	v_t29 = _core_not(v_t2)
+	if coreTruthy(v_t29) {
+		v_t30 = _core_eq(v_c, 12288)
+		v_t2 = v_t30
+	} else {
+	// empty
+	}
+	v_t31 = _core_not(v_t2)
+	if coreTruthy(v_t31) {
+		v_t32 = _core_eq(v_c, 65279)
+		v_t2 = v_t32
+	} else {
+	// empty
+	}
+	return v_t2, nil
 }
 
 func _response_function_calls_impl(args ...Value) (Value, error) {
@@ -33795,6 +36289,273 @@ func _tool_result_message_impl(args ...Value) (Value, error) {
 	return v_message, nil
 }
 
+func _regex_member(args ...Value) (Value, error) {
+	axirCoverageMark("_regex_member")
+	var v_n Value
+	var v_c Value
+	var v_e Value
+	var v_iter_43 Value
+	var v_k Value
+	var v_t1 Value
+	var v_t10 Value
+	var v_t11 Value
+	var v_t12 Value
+	var v_t13 Value
+	var v_t14 Value
+	var v_t15 Value
+	var v_t16 Value
+	var v_t17 Value
+	var v_t18 Value
+	var v_t19 Value
+	var v_t2 Value
+	var v_t20 Value
+	var v_t21 Value
+	var v_t22 Value
+	var v_t23 Value
+	var v_t24 Value
+	var v_t25 Value
+	var v_t26 Value
+	var v_t27 Value
+	var v_t28 Value
+	var v_t29 Value
+	var v_t3 Value
+	var v_t30 Value
+	var v_t31 Value
+	var v_t32 Value
+	var v_t33 Value
+	var v_t34 Value
+	var v_t35 Value
+	var v_t36 Value
+	var v_t37 Value
+	var v_t38 Value
+	var v_t39 Value
+	var v_t4 Value
+	var v_t40 Value
+	var v_t41 Value
+	var v_t42 Value
+	var v_t44 Value
+	var v_t45 Value
+	var v_t46 Value
+	var v_t5 Value
+	var v_t6 Value
+	var v_t7 Value
+	var v_t8 Value
+	var v_t9 Value
+	var v_term Value
+	var v_yes Value
+	if len(args) > 0 { v_n = args[0] }
+	_ = v_n
+	if len(args) > 1 { v_c = args[1] }
+	_ = v_c
+	_ = v_e
+	_ = v_iter_43
+	_ = v_k
+	_ = v_t1
+	_ = v_t10
+	_ = v_t11
+	_ = v_t12
+	_ = v_t13
+	_ = v_t14
+	_ = v_t15
+	_ = v_t16
+	_ = v_t17
+	_ = v_t18
+	_ = v_t19
+	_ = v_t2
+	_ = v_t20
+	_ = v_t21
+	_ = v_t22
+	_ = v_t23
+	_ = v_t24
+	_ = v_t25
+	_ = v_t26
+	_ = v_t27
+	_ = v_t28
+	_ = v_t29
+	_ = v_t3
+	_ = v_t30
+	_ = v_t31
+	_ = v_t32
+	_ = v_t33
+	_ = v_t34
+	_ = v_t35
+	_ = v_t36
+	_ = v_t37
+	_ = v_t38
+	_ = v_t39
+	_ = v_t4
+	_ = v_t40
+	_ = v_t41
+	_ = v_t42
+	_ = v_t44
+	_ = v_t45
+	_ = v_t46
+	_ = v_t5
+	_ = v_t6
+	_ = v_t7
+	_ = v_t8
+	_ = v_t9
+	_ = v_term
+	_ = v_yes
+	v_e = _core_none()
+	v_k = _core_none()
+	v_term = _core_none()
+	v_yes = _core_none()
+	v_t1 = coreGet(v_n, "k", nil)
+	v_k = v_t1
+	v_t2 = _core_eq(v_k, "char")
+	if coreTruthy(v_t2) {
+		v_t3 = coreGet(v_n, "c", nil)
+		v_t4 = _core_eq(v_c, v_t3)
+		return v_t4, nil
+	} else {
+	// empty
+	}
+	v_t5 = _core_eq(v_k, "range")
+	if coreTruthy(v_t5) {
+		v_t6 = coreGet(v_n, "lo", nil)
+		v_t7 = _core_gte(v_c, v_t6)
+		v_t8 = v_t7
+		if coreTruthy(v_t8) {
+			v_t9 = coreGet(v_n, "hi", nil)
+			v_t10 = _core_lte(v_c, v_t9)
+			v_t8 = v_t10
+		} else {
+		// empty
+		}
+		return v_t8, nil
+	} else {
+	// empty
+	}
+	v_t11 = _core_eq(v_k, "dot")
+	if coreTruthy(v_t11) {
+		v_t12 = _core_ne(v_c, 10)
+		v_t13 = v_t12
+		if coreTruthy(v_t13) {
+			v_t14 = _core_ne(v_c, 13)
+			v_t13 = v_t14
+		} else {
+		// empty
+		}
+		if coreTruthy(v_t13) {
+			v_t15 = _core_ne(v_c, 8232)
+			v_t13 = v_t15
+		} else {
+		// empty
+		}
+		if coreTruthy(v_t13) {
+			v_t16 = _core_ne(v_c, 8233)
+			v_t13 = v_t16
+		} else {
+		// empty
+		}
+		return v_t13, nil
+	} else {
+	// empty
+	}
+	v_t17 = _core_eq(v_k, "class_escape")
+	if coreTruthy(v_t17) {
+		v_t18 = coreGet(v_n, "c", nil)
+		v_e = v_t18
+		v_yes = false
+		v_t19 = _core_eq(v_e, 100)
+		v_t20 = v_t19
+		v_t21 = _core_not(v_t20)
+		if coreTruthy(v_t21) {
+			v_t22 = _core_eq(v_e, 68)
+			v_t20 = v_t22
+		} else {
+		// empty
+		}
+		if coreTruthy(v_t20) {
+			{ v, err := _regex_digit(v_c); if err != nil { return nil, err }; v_t23 = v }
+			v_yes = v_t23
+		} else {
+		// empty
+		}
+		v_t24 = _core_eq(v_e, 119)
+		v_t25 = v_t24
+		v_t26 = _core_not(v_t25)
+		if coreTruthy(v_t26) {
+			v_t27 = _core_eq(v_e, 87)
+			v_t25 = v_t27
+		} else {
+		// empty
+		}
+		if coreTruthy(v_t25) {
+			{ v, err := _regex_word(v_c); if err != nil { return nil, err }; v_t28 = v }
+			v_yes = v_t28
+		} else {
+		// empty
+		}
+		v_t29 = _core_eq(v_e, 115)
+		v_t30 = v_t29
+		v_t31 = _core_not(v_t30)
+		if coreTruthy(v_t31) {
+			v_t32 = _core_eq(v_e, 83)
+			v_t30 = v_t32
+		} else {
+		// empty
+		}
+		if coreTruthy(v_t30) {
+			{ v, err := _regex_space(v_c); if err != nil { return nil, err }; v_t33 = v }
+			v_yes = v_t33
+		} else {
+		// empty
+		}
+		v_t34 = _core_eq(v_e, 68)
+		v_t35 = v_t34
+		v_t36 = _core_not(v_t35)
+		if coreTruthy(v_t36) {
+			v_t37 = _core_eq(v_e, 87)
+			v_t35 = v_t37
+		} else {
+		// empty
+		}
+		v_t38 = _core_not(v_t35)
+		if coreTruthy(v_t38) {
+			v_t39 = _core_eq(v_e, 83)
+			v_t35 = v_t39
+		} else {
+		// empty
+		}
+		if coreTruthy(v_t35) {
+			v_t40 = _core_not(v_yes)
+			return v_t40, nil
+		} else {
+		// empty
+		}
+		return v_yes, nil
+	} else {
+	// empty
+	}
+	v_t41 = _core_eq(v_k, "class")
+	if coreTruthy(v_t41) {
+		v_yes = false
+		v_t42 = coreGet(v_n, "terms", nil)
+		for _, v_iter_43 = range coreIter(v_t42) {
+			v_term = v_iter_43
+			{ v, err := _regex_member(v_term, v_c); if err != nil { return nil, err }; v_t44 = v }
+			if coreTruthy(v_t44) {
+				v_yes = true
+			} else {
+			// empty
+			}
+		}
+		v_t45 = coreGet(v_n, "negative", nil)
+		if coreTruthy(v_t45) {
+			v_t46 = _core_not(v_yes)
+			return v_t46, nil
+		} else {
+		// empty
+		}
+		return v_yes, nil
+	} else {
+	// empty
+	}
+	return false, nil
+}
+
 func _tool_error_message_impl(args ...Value) (Value, error) {
 	axirCoverageMark("_tool_error_message_impl")
 	var v_call Value
@@ -33866,6 +36627,121 @@ func _append_validation_retry_messages_impl(args ...Value) (Value, error) {
 	if err := coreSet(v_retry_message, "content", v_retry_content); err != nil { return nil, err }
 	v_messages = coreAppend(v_messages, v_retry_message)
 	return nil, nil
+}
+
+func _regex_state(args ...Value) (Value, error) {
+	axirCoverageMark("_regex_state")
+	var v_pos Value
+	var v_caps Value
+	var v_t1 Value
+	var v_t2 Value
+	if len(args) > 0 { v_pos = args[0] }
+	_ = v_pos
+	if len(args) > 1 { v_caps = args[1] }
+	_ = v_caps
+	_ = v_t1
+	_ = v_t2
+	v_t1 = Object()
+	if err := coreSet(v_t1, "pos", v_pos); err != nil { return nil, err }
+	{ v, err := _regex_copy_map(v_caps); if err != nil { return nil, err }; v_t2 = v }
+	if err := coreSet(v_t1, "caps", v_t2); err != nil { return nil, err }
+	return v_t1, nil
+}
+
+func _regex_capture_ids(args ...Value) (Value, error) {
+	axirCoverageMark("_regex_capture_ids")
+	var v_n Value
+	var v_i Value
+	var v_iter_14 Value
+	var v_iter_16 Value
+	var v_iter_8 Value
+	var v_k Value
+	var v_out Value
+	var v_t1 Value
+	var v_t10 Value
+	var v_t11 Value
+	var v_t12 Value
+	var v_t13 Value
+	var v_t15 Value
+	var v_t2 Value
+	var v_t3 Value
+	var v_t4 Value
+	var v_t5 Value
+	var v_t6 Value
+	var v_t7 Value
+	var v_t9 Value
+	var v_term Value
+	if len(args) > 0 { v_n = args[0] }
+	_ = v_n
+	_ = v_i
+	_ = v_iter_14
+	_ = v_iter_16
+	_ = v_iter_8
+	_ = v_k
+	_ = v_out
+	_ = v_t1
+	_ = v_t10
+	_ = v_t11
+	_ = v_t12
+	_ = v_t13
+	_ = v_t15
+	_ = v_t2
+	_ = v_t3
+	_ = v_t4
+	_ = v_t5
+	_ = v_t6
+	_ = v_t7
+	_ = v_t9
+	_ = v_term
+	v_i = _core_none()
+	v_k = _core_none()
+	v_out = _core_none()
+	v_term = _core_none()
+	v_t1 = MutableArray()
+	v_out = v_t1
+	v_t2 = coreGet(v_n, "k", nil)
+	v_k = v_t2
+	v_t3 = _core_eq(v_k, "capture")
+	if coreTruthy(v_t3) {
+		v_t4 = coreGet(v_n, "id", nil)
+		v_out = coreAppend(v_out, v_t4)
+	} else {
+	// empty
+	}
+	v_t5 = _core_map_contains(v_n, "child")
+	if coreTruthy(v_t5) {
+		v_t6 = coreGet(v_n, "child", nil)
+		{ v, err := _regex_capture_ids(v_t6); if err != nil { return nil, err }; v_t7 = v }
+		for _, v_iter_8 = range coreIter(v_t7) {
+			v_i = v_iter_8
+			v_out = coreAppend(v_out, v_i)
+		}
+	} else {
+	// empty
+	}
+	v_t9 = _core_eq(v_k, "seq")
+	v_t10 = v_t9
+	v_t11 = _core_not(v_t10)
+	if coreTruthy(v_t11) {
+		v_t12 = _core_eq(v_k, "alt")
+		v_t10 = v_t12
+	} else {
+	// empty
+	}
+	if coreTruthy(v_t10) {
+		v_t13 = coreGet(v_n, "terms", nil)
+		for _, v_iter_14 = range coreIter(v_t13) {
+			v_term = v_iter_14
+			{ v, err := _regex_capture_ids(v_term); if err != nil { return nil, err }; v_t15 = v }
+			for _, v_iter_16 = range coreIter(v_t15) {
+				v_i = v_iter_16
+				v_out = coreAppend(v_out, v_i)
+			}
+		}
+	} else {
+	// empty
+	}
+	return v_out, nil
 }
 
 func _ace_is_noop_acknowledgment(args ...Value) (Value, error) {
@@ -34086,6 +36962,1181 @@ func _ace_is_noop_acknowledgment(args ...Value) (Value, error) {
 	// empty
 	}
 	return v_is_noop, nil
+}
+
+func _regex_push(args ...Value) (Value, error) {
+	axirCoverageMark("_regex_push")
+	var v_stack Value
+	var v_top Value
+	var v_value Value
+	var v_t1 Value
+	var v_t2 Value
+	if len(args) > 0 { v_stack = args[0] }
+	_ = v_stack
+	if len(args) > 1 { v_top = args[1] }
+	_ = v_top
+	if len(args) > 2 { v_value = args[2] }
+	_ = v_value
+	_ = v_t1
+	_ = v_t2
+	v_t1 = _core_string_format("{}", v_top)
+	if err := coreSet(v_stack, v_t1, v_value); err != nil { return nil, err }
+	v_t2 = _core_add(v_top, 1)
+	return v_t2, nil
+}
+
+func _regex_task(args ...Value) (Value, error) {
+	axirCoverageMark("_regex_task")
+	var v_n Value
+	var v_next Value
+	var v_t1 Value
+	if len(args) > 0 { v_n = args[0] }
+	_ = v_n
+	if len(args) > 1 { v_next = args[1] }
+	_ = v_next
+	_ = v_t1
+	v_t1 = Object()
+	if err := coreSet(v_t1, "node", v_n); err != nil { return nil, err }
+	if err := coreSet(v_t1, "next", v_next); err != nil { return nil, err }
+	return v_t1, nil
+}
+
+func _regex_frame(args ...Value) (Value, error) {
+	axirCoverageMark("_regex_frame")
+	var v_todo Value
+	var v_st Value
+	var v_t1 Value
+	if len(args) > 0 { v_todo = args[0] }
+	_ = v_todo
+	if len(args) > 1 { v_st = args[1] }
+	_ = v_st
+	_ = v_t1
+	v_t1 = Object()
+	if err := coreSet(v_t1, "todo", v_todo); err != nil { return nil, err }
+	if err := coreSet(v_t1, "st", v_st); err != nil { return nil, err }
+	return v_t1, nil
+}
+
+func _regex_search(args ...Value) (Value, error) {
+	axirCoverageMark("_regex_search")
+	var v_n Value
+	var v_u Value
+	var v_initial Value
+	var v_d Value
+	var v_accept Value
+	var v_after Value
+	var v_at Value
+	var v_before Value
+	var v_begin Value
+	var v_caps Value
+	var v_capture Value
+	var v_capture_id Value
+	var v_clean Value
+	var v_copied Value
+	var v_count Value
+	var v_current Value
+	var v_end Value
+	var v_equal Value
+	var v_hi Value
+	var v_i Value
+	var v_iter_113 Value
+	var v_iter_169 Value
+	var v_k Value
+	var v_lo Value
+	var v_matched Value
+	var v_more Value
+	var v_moreframe Value
+	var v_next Value
+	var v_nextcount Value
+	var v_p Value
+	var v_pending Value
+	var v_repeat Value
+	var v_rest Value
+	var v_size Value
+	var v_st Value
+	var v_t1 Value
+	var v_t10 Value
+	var v_t100 Value
+	var v_t101 Value
+	var v_t102 Value
+	var v_t103 Value
+	var v_t104 Value
+	var v_t105 Value
+	var v_t106 Value
+	var v_t107 Value
+	var v_t108 Value
+	var v_t109 Value
+	var v_t11 Value
+	var v_t110 Value
+	var v_t111 Value
+	var v_t112 Value
+	var v_t114 Value
+	var v_t115 Value
+	var v_t116 Value
+	var v_t117 Value
+	var v_t118 Value
+	var v_t119 Value
+	var v_t12 Value
+	var v_t120 Value
+	var v_t121 Value
+	var v_t122 Value
+	var v_t123 Value
+	var v_t124 Value
+	var v_t125 Value
+	var v_t126 Value
+	var v_t127 Value
+	var v_t128 Value
+	var v_t129 Value
+	var v_t13 Value
+	var v_t130 Value
+	var v_t131 Value
+	var v_t132 Value
+	var v_t133 Value
+	var v_t134 Value
+	var v_t135 Value
+	var v_t136 Value
+	var v_t137 Value
+	var v_t138 Value
+	var v_t139 Value
+	var v_t14 Value
+	var v_t140 Value
+	var v_t141 Value
+	var v_t142 Value
+	var v_t143 Value
+	var v_t144 Value
+	var v_t145 Value
+	var v_t146 Value
+	var v_t147 Value
+	var v_t148 Value
+	var v_t149 Value
+	var v_t15 Value
+	var v_t150 Value
+	var v_t151 Value
+	var v_t152 Value
+	var v_t153 Value
+	var v_t154 Value
+	var v_t155 Value
+	var v_t156 Value
+	var v_t157 Value
+	var v_t158 Value
+	var v_t159 Value
+	var v_t16 Value
+	var v_t160 Value
+	var v_t161 Value
+	var v_t162 Value
+	var v_t163 Value
+	var v_t164 Value
+	var v_t165 Value
+	var v_t166 Value
+	var v_t167 Value
+	var v_t168 Value
+	var v_t17 Value
+	var v_t170 Value
+	var v_t171 Value
+	var v_t172 Value
+	var v_t173 Value
+	var v_t174 Value
+	var v_t175 Value
+	var v_t176 Value
+	var v_t177 Value
+	var v_t178 Value
+	var v_t179 Value
+	var v_t18 Value
+	var v_t180 Value
+	var v_t181 Value
+	var v_t182 Value
+	var v_t183 Value
+	var v_t184 Value
+	var v_t185 Value
+	var v_t186 Value
+	var v_t187 Value
+	var v_t188 Value
+	var v_t189 Value
+	var v_t19 Value
+	var v_t190 Value
+	var v_t191 Value
+	var v_t192 Value
+	var v_t193 Value
+	var v_t194 Value
+	var v_t195 Value
+	var v_t196 Value
+	var v_t197 Value
+	var v_t198 Value
+	var v_t199 Value
+	var v_t2 Value
+	var v_t20 Value
+	var v_t200 Value
+	var v_t201 Value
+	var v_t202 Value
+	var v_t203 Value
+	var v_t204 Value
+	var v_t205 Value
+	var v_t206 Value
+	var v_t207 Value
+	var v_t208 Value
+	var v_t209 Value
+	var v_t21 Value
+	var v_t210 Value
+	var v_t211 Value
+	var v_t212 Value
+	var v_t213 Value
+	var v_t214 Value
+	var v_t215 Value
+	var v_t216 Value
+	var v_t217 Value
+	var v_t218 Value
+	var v_t219 Value
+	var v_t22 Value
+	var v_t220 Value
+	var v_t221 Value
+	var v_t222 Value
+	var v_t223 Value
+	var v_t224 Value
+	var v_t225 Value
+	var v_t23 Value
+	var v_t24 Value
+	var v_t25 Value
+	var v_t26 Value
+	var v_t27 Value
+	var v_t28 Value
+	var v_t29 Value
+	var v_t3 Value
+	var v_t30 Value
+	var v_t31 Value
+	var v_t32 Value
+	var v_t33 Value
+	var v_t34 Value
+	var v_t35 Value
+	var v_t36 Value
+	var v_t37 Value
+	var v_t38 Value
+	var v_t39 Value
+	var v_t4 Value
+	var v_t40 Value
+	var v_t41 Value
+	var v_t42 Value
+	var v_t43 Value
+	var v_t44 Value
+	var v_t45 Value
+	var v_t46 Value
+	var v_t47 Value
+	var v_t48 Value
+	var v_t49 Value
+	var v_t5 Value
+	var v_t50 Value
+	var v_t51 Value
+	var v_t52 Value
+	var v_t53 Value
+	var v_t54 Value
+	var v_t55 Value
+	var v_t56 Value
+	var v_t57 Value
+	var v_t58 Value
+	var v_t59 Value
+	var v_t6 Value
+	var v_t60 Value
+	var v_t61 Value
+	var v_t62 Value
+	var v_t63 Value
+	var v_t64 Value
+	var v_t65 Value
+	var v_t66 Value
+	var v_t67 Value
+	var v_t68 Value
+	var v_t69 Value
+	var v_t7 Value
+	var v_t70 Value
+	var v_t71 Value
+	var v_t72 Value
+	var v_t73 Value
+	var v_t74 Value
+	var v_t75 Value
+	var v_t76 Value
+	var v_t77 Value
+	var v_t78 Value
+	var v_t79 Value
+	var v_t8 Value
+	var v_t80 Value
+	var v_t81 Value
+	var v_t82 Value
+	var v_t83 Value
+	var v_t84 Value
+	var v_t85 Value
+	var v_t86 Value
+	var v_t87 Value
+	var v_t88 Value
+	var v_t89 Value
+	var v_t9 Value
+	var v_t90 Value
+	var v_t91 Value
+	var v_t92 Value
+	var v_t93 Value
+	var v_t94 Value
+	var v_t95 Value
+	var v_t96 Value
+	var v_t97 Value
+	var v_t98 Value
+	var v_t99 Value
+	var v_terms Value
+	var v_todo Value
+	var v_top Value
+	var v_yes Value
+	if len(args) > 0 { v_n = args[0] }
+	_ = v_n
+	if len(args) > 1 { v_u = args[1] }
+	_ = v_u
+	if len(args) > 2 { v_initial = args[2] }
+	_ = v_initial
+	if len(args) > 3 { v_d = args[3] }
+	_ = v_d
+	_ = v_accept
+	_ = v_after
+	_ = v_at
+	_ = v_before
+	_ = v_begin
+	_ = v_caps
+	_ = v_capture
+	_ = v_capture_id
+	_ = v_clean
+	_ = v_copied
+	_ = v_count
+	_ = v_current
+	_ = v_end
+	_ = v_equal
+	_ = v_hi
+	_ = v_i
+	_ = v_iter_113
+	_ = v_iter_169
+	_ = v_k
+	_ = v_lo
+	_ = v_matched
+	_ = v_more
+	_ = v_moreframe
+	_ = v_next
+	_ = v_nextcount
+	_ = v_p
+	_ = v_pending
+	_ = v_repeat
+	_ = v_rest
+	_ = v_size
+	_ = v_st
+	_ = v_t1
+	_ = v_t10
+	_ = v_t100
+	_ = v_t101
+	_ = v_t102
+	_ = v_t103
+	_ = v_t104
+	_ = v_t105
+	_ = v_t106
+	_ = v_t107
+	_ = v_t108
+	_ = v_t109
+	_ = v_t11
+	_ = v_t110
+	_ = v_t111
+	_ = v_t112
+	_ = v_t114
+	_ = v_t115
+	_ = v_t116
+	_ = v_t117
+	_ = v_t118
+	_ = v_t119
+	_ = v_t12
+	_ = v_t120
+	_ = v_t121
+	_ = v_t122
+	_ = v_t123
+	_ = v_t124
+	_ = v_t125
+	_ = v_t126
+	_ = v_t127
+	_ = v_t128
+	_ = v_t129
+	_ = v_t13
+	_ = v_t130
+	_ = v_t131
+	_ = v_t132
+	_ = v_t133
+	_ = v_t134
+	_ = v_t135
+	_ = v_t136
+	_ = v_t137
+	_ = v_t138
+	_ = v_t139
+	_ = v_t14
+	_ = v_t140
+	_ = v_t141
+	_ = v_t142
+	_ = v_t143
+	_ = v_t144
+	_ = v_t145
+	_ = v_t146
+	_ = v_t147
+	_ = v_t148
+	_ = v_t149
+	_ = v_t15
+	_ = v_t150
+	_ = v_t151
+	_ = v_t152
+	_ = v_t153
+	_ = v_t154
+	_ = v_t155
+	_ = v_t156
+	_ = v_t157
+	_ = v_t158
+	_ = v_t159
+	_ = v_t16
+	_ = v_t160
+	_ = v_t161
+	_ = v_t162
+	_ = v_t163
+	_ = v_t164
+	_ = v_t165
+	_ = v_t166
+	_ = v_t167
+	_ = v_t168
+	_ = v_t17
+	_ = v_t170
+	_ = v_t171
+	_ = v_t172
+	_ = v_t173
+	_ = v_t174
+	_ = v_t175
+	_ = v_t176
+	_ = v_t177
+	_ = v_t178
+	_ = v_t179
+	_ = v_t18
+	_ = v_t180
+	_ = v_t181
+	_ = v_t182
+	_ = v_t183
+	_ = v_t184
+	_ = v_t185
+	_ = v_t186
+	_ = v_t187
+	_ = v_t188
+	_ = v_t189
+	_ = v_t19
+	_ = v_t190
+	_ = v_t191
+	_ = v_t192
+	_ = v_t193
+	_ = v_t194
+	_ = v_t195
+	_ = v_t196
+	_ = v_t197
+	_ = v_t198
+	_ = v_t199
+	_ = v_t2
+	_ = v_t20
+	_ = v_t200
+	_ = v_t201
+	_ = v_t202
+	_ = v_t203
+	_ = v_t204
+	_ = v_t205
+	_ = v_t206
+	_ = v_t207
+	_ = v_t208
+	_ = v_t209
+	_ = v_t21
+	_ = v_t210
+	_ = v_t211
+	_ = v_t212
+	_ = v_t213
+	_ = v_t214
+	_ = v_t215
+	_ = v_t216
+	_ = v_t217
+	_ = v_t218
+	_ = v_t219
+	_ = v_t22
+	_ = v_t220
+	_ = v_t221
+	_ = v_t222
+	_ = v_t223
+	_ = v_t224
+	_ = v_t225
+	_ = v_t23
+	_ = v_t24
+	_ = v_t25
+	_ = v_t26
+	_ = v_t27
+	_ = v_t28
+	_ = v_t29
+	_ = v_t3
+	_ = v_t30
+	_ = v_t31
+	_ = v_t32
+	_ = v_t33
+	_ = v_t34
+	_ = v_t35
+	_ = v_t36
+	_ = v_t37
+	_ = v_t38
+	_ = v_t39
+	_ = v_t4
+	_ = v_t40
+	_ = v_t41
+	_ = v_t42
+	_ = v_t43
+	_ = v_t44
+	_ = v_t45
+	_ = v_t46
+	_ = v_t47
+	_ = v_t48
+	_ = v_t49
+	_ = v_t5
+	_ = v_t50
+	_ = v_t51
+	_ = v_t52
+	_ = v_t53
+	_ = v_t54
+	_ = v_t55
+	_ = v_t56
+	_ = v_t57
+	_ = v_t58
+	_ = v_t59
+	_ = v_t6
+	_ = v_t60
+	_ = v_t61
+	_ = v_t62
+	_ = v_t63
+	_ = v_t64
+	_ = v_t65
+	_ = v_t66
+	_ = v_t67
+	_ = v_t68
+	_ = v_t69
+	_ = v_t7
+	_ = v_t70
+	_ = v_t71
+	_ = v_t72
+	_ = v_t73
+	_ = v_t74
+	_ = v_t75
+	_ = v_t76
+	_ = v_t77
+	_ = v_t78
+	_ = v_t79
+	_ = v_t8
+	_ = v_t80
+	_ = v_t81
+	_ = v_t82
+	_ = v_t83
+	_ = v_t84
+	_ = v_t85
+	_ = v_t86
+	_ = v_t87
+	_ = v_t88
+	_ = v_t89
+	_ = v_t9
+	_ = v_t90
+	_ = v_t91
+	_ = v_t92
+	_ = v_t93
+	_ = v_t94
+	_ = v_t95
+	_ = v_t96
+	_ = v_t97
+	_ = v_t98
+	_ = v_t99
+	_ = v_terms
+	_ = v_todo
+	_ = v_top
+	_ = v_yes
+	v_accept = _core_none()
+	v_after = _core_none()
+	v_at = _core_none()
+	v_before = _core_none()
+	v_begin = _core_none()
+	v_caps = _core_none()
+	v_capture = _core_none()
+	v_capture_id = _core_none()
+	v_clean = _core_none()
+	v_copied = _core_none()
+	v_count = _core_none()
+	v_current = _core_none()
+	v_end = _core_none()
+	v_equal = _core_none()
+	v_hi = _core_none()
+	v_i = _core_none()
+	v_k = _core_none()
+	v_lo = _core_none()
+	v_matched = _core_none()
+	v_more = _core_none()
+	v_moreframe = _core_none()
+	v_next = _core_none()
+	v_nextcount = _core_none()
+	v_p = _core_none()
+	v_pending = _core_none()
+	v_repeat = _core_none()
+	v_rest = _core_none()
+	v_size = _core_none()
+	v_st = _core_none()
+	v_terms = _core_none()
+	v_todo = _core_none()
+	v_top = _core_none()
+	v_yes = _core_none()
+	v_t1 = Object()
+	v_t2 = _core_none()
+	{ v, err := _regex_task(v_n, v_t2); if err != nil { return nil, err }; v_t3 = v }
+	{ v, err := _regex_frame(v_t3, v_initial); if err != nil { return nil, err }; v_t4 = v }
+	if err := coreSet(v_t1, "0", v_t4); err != nil { return nil, err }
+	v_pending = v_t1
+	v_top = 1
+	for {
+		v_t5 = _core_gt(v_top, 0)
+		v_t6 = _core_not(v_t5)
+		if coreTruthy(v_t6) {
+			break
+		} else {
+		// empty
+		}
+		v_t7 = _core_mul(-1, 1)
+		v_t8 = _core_add(v_top, v_t7)
+		v_t9 = _core_math_floor(v_t8)
+		v_top = v_t9
+		v_t10 = _core_string_format("{}", v_top)
+		v_t11 = coreGet(v_pending, v_t10, nil)
+		v_current = v_t11
+		v_t12 = coreGet(v_current, "todo", nil)
+		v_todo = v_t12
+		v_t13 = coreGet(v_current, "st", nil)
+		v_st = v_t13
+		v_t14 = _core_none()
+		v_t15 = _core_eq(v_todo, v_t14)
+		if coreTruthy(v_t15) {
+			return v_st, nil
+		} else {
+		// empty
+		}
+		v_t16 = coreGet(v_todo, "node", nil)
+		v_n = v_t16
+		v_t17 = coreGet(v_todo, "next", nil)
+		v_rest = v_t17
+		v_t18 = coreGet(v_n, "k", nil)
+		v_k = v_t18
+		v_t19 = coreGet(v_st, "pos", nil)
+		v_p = v_t19
+		v_t20 = coreGet(v_st, "caps", nil)
+		v_caps = v_t20
+		v_t21 = _core_eq(v_k, "seq")
+		if coreTruthy(v_t21) {
+			v_t22 = coreGet(v_n, "terms", nil)
+			v_terms = v_t22
+			v_t23 = _core_len(v_terms)
+			v_t24 = _core_mul(-1, 1)
+			v_t25 = _core_add(v_t23, v_t24)
+			v_t26 = _core_math_floor(v_t25)
+			v_i = v_t26
+			v_t27 = _core_lt(v_d, 0)
+			if coreTruthy(v_t27) {
+				v_i = 0
+			} else {
+			// empty
+			}
+			for {
+				v_t28 = _core_gte(v_i, 0)
+				v_t29 = v_t28
+				if coreTruthy(v_t29) {
+					v_t30 = _core_len(v_terms)
+					v_t31 = _core_lt(v_i, v_t30)
+					v_t29 = v_t31
+				} else {
+				// empty
+				}
+				v_t32 = _core_not(v_t29)
+				if coreTruthy(v_t32) {
+					break
+				} else {
+				// empty
+				}
+				v_t33 = coreGet(v_terms, v_i, nil)
+				{ v, err := _regex_task(v_t33, v_rest); if err != nil { return nil, err }; v_t34 = v }
+				v_rest = v_t34
+				v_t35 = _core_mul(-1, v_d)
+				v_t36 = _core_add(v_i, v_t35)
+				v_t37 = _core_math_floor(v_t36)
+				v_i = v_t37
+			}
+			{ v, err := _regex_frame(v_rest, v_st); if err != nil { return nil, err }; v_t38 = v }
+			{ v, err := _regex_push(v_pending, v_top, v_t38); if err != nil { return nil, err }; v_t39 = v }
+			v_top = v_t39
+			continue
+		} else {
+		// empty
+		}
+		v_t40 = _core_eq(v_k, "alt")
+		if coreTruthy(v_t40) {
+			v_t41 = coreGet(v_n, "terms", nil)
+			v_t42 = _core_len(v_t41)
+			v_t43 = _core_mul(-1, 1)
+			v_t44 = _core_add(v_t42, v_t43)
+			v_t45 = _core_math_floor(v_t44)
+			v_i = v_t45
+			for {
+				v_t46 = _core_gte(v_i, 0)
+				v_t47 = _core_not(v_t46)
+				if coreTruthy(v_t47) {
+					break
+				} else {
+				// empty
+				}
+				v_t48 = coreGet(v_n, "terms", nil)
+				v_t49 = coreGet(v_t48, v_i, nil)
+				{ v, err := _regex_task(v_t49, v_rest); if err != nil { return nil, err }; v_t50 = v }
+				{ v, err := _regex_frame(v_t50, v_st); if err != nil { return nil, err }; v_t51 = v }
+				{ v, err := _regex_push(v_pending, v_top, v_t51); if err != nil { return nil, err }; v_t52 = v }
+				v_top = v_t52
+				v_t53 = _core_mul(-1, 1)
+				v_t54 = _core_add(v_i, v_t53)
+				v_t55 = _core_math_floor(v_t54)
+				v_i = v_t55
+			}
+			continue
+		} else {
+		// empty
+		}
+		v_t56 = _core_eq(v_k, "group")
+		if coreTruthy(v_t56) {
+			v_t57 = coreGet(v_n, "child", nil)
+			{ v, err := _regex_task(v_t57, v_rest); if err != nil { return nil, err }; v_t58 = v }
+			{ v, err := _regex_frame(v_t58, v_st); if err != nil { return nil, err }; v_t59 = v }
+			{ v, err := _regex_push(v_pending, v_top, v_t59); if err != nil { return nil, err }; v_t60 = v }
+			v_top = v_t60
+			continue
+		} else {
+		// empty
+		}
+		v_t61 = _core_eq(v_k, "capture")
+		if coreTruthy(v_t61) {
+			v_t62 = Object()
+			if err := coreSet(v_t62, "k", "capture_end"); err != nil { return nil, err }
+			v_t63 = coreGet(v_n, "id", nil)
+			if err := coreSet(v_t62, "id", v_t63); err != nil { return nil, err }
+			if err := coreSet(v_t62, "begin", v_p); err != nil { return nil, err }
+			{ v, err := _regex_task(v_t62, v_rest); if err != nil { return nil, err }; v_t64 = v }
+			v_end = v_t64
+			v_t65 = coreGet(v_n, "child", nil)
+			{ v, err := _regex_task(v_t65, v_end); if err != nil { return nil, err }; v_t66 = v }
+			{ v, err := _regex_frame(v_t66, v_st); if err != nil { return nil, err }; v_t67 = v }
+			{ v, err := _regex_push(v_pending, v_top, v_t67); if err != nil { return nil, err }; v_t68 = v }
+			v_top = v_t68
+			continue
+		} else {
+		// empty
+		}
+		v_t69 = _core_eq(v_k, "capture_end")
+		if coreTruthy(v_t69) {
+			v_t70 = coreGet(v_n, "begin", nil)
+			v_lo = v_t70
+			v_hi = v_p
+			v_t71 = _core_lt(v_d, 0)
+			if coreTruthy(v_t71) {
+				v_lo = v_p
+				v_t72 = coreGet(v_n, "begin", nil)
+				v_hi = v_t72
+			} else {
+			// empty
+			}
+			{ v, err := _regex_state(v_p, v_caps); if err != nil { return nil, err }; v_t73 = v }
+			v_copied = v_t73
+			v_t74 = MutableArray()
+			v_t74 = coreAppend(v_t74, v_lo)
+			v_t74 = coreAppend(v_t74, v_hi)
+			v_t75 = coreGet(v_copied, "caps", nil)
+			v_t76 = coreGet(v_n, "id", nil)
+			if err := coreSet(v_t75, v_t76, v_t74); err != nil { return nil, err }
+			{ v, err := _regex_frame(v_rest, v_copied); if err != nil { return nil, err }; v_t77 = v }
+			{ v, err := _regex_push(v_pending, v_top, v_t77); if err != nil { return nil, err }; v_t78 = v }
+			v_top = v_t78
+			continue
+		} else {
+		// empty
+		}
+		v_t79 = _core_eq(v_k, "look")
+		if coreTruthy(v_t79) {
+			v_t80 = coreGet(v_n, "child", nil)
+			v_t81 = coreGet(v_n, "direction", nil)
+			{ v, err := _regex_search(v_t80, v_u, v_st, v_t81); if err != nil { return nil, err }; v_t82 = v }
+			v_matched = v_t82
+			v_t83 = coreGet(v_n, "negative", nil)
+			if coreTruthy(v_t83) {
+				v_t84 = _core_none()
+				v_t85 = _core_eq(v_matched, v_t84)
+				if coreTruthy(v_t85) {
+					{ v, err := _regex_frame(v_rest, v_st); if err != nil { return nil, err }; v_t86 = v }
+					{ v, err := _regex_push(v_pending, v_top, v_t86); if err != nil { return nil, err }; v_t87 = v }
+					v_top = v_t87
+				} else {
+				// empty
+				}
+			} else {
+				v_t88 = _core_none()
+				v_t89 = _core_ne(v_matched, v_t88)
+				if coreTruthy(v_t89) {
+					v_t90 = coreGet(v_matched, "caps", nil)
+					{ v, err := _regex_state(v_p, v_t90); if err != nil { return nil, err }; v_t91 = v }
+					{ v, err := _regex_frame(v_rest, v_t91); if err != nil { return nil, err }; v_t92 = v }
+					{ v, err := _regex_push(v_pending, v_top, v_t92); if err != nil { return nil, err }; v_t93 = v }
+					v_top = v_t93
+				} else {
+				// empty
+				}
+			}
+			continue
+		} else {
+		// empty
+		}
+		v_t94 = _core_eq(v_k, "repeat")
+		v_t95 = v_t94
+		v_t96 = _core_not(v_t95)
+		if coreTruthy(v_t96) {
+			v_t97 = _core_eq(v_k, "repeat_step")
+			v_t95 = v_t97
+		} else {
+		// empty
+		}
+		if coreTruthy(v_t95) {
+			v_count = 0
+			v_repeat = v_n
+			v_t98 = _core_eq(v_k, "repeat_step")
+			if coreTruthy(v_t98) {
+				v_t99 = coreGet(v_n, "count", nil)
+				v_count = v_t99
+				v_t100 = coreGet(v_n, "repeat", nil)
+				v_repeat = v_t100
+			} else {
+			// empty
+			}
+			v_t101 = coreGet(v_repeat, "lo", nil)
+			v_t102 = _core_gte(v_count, v_t101)
+			v_accept = v_t102
+			v_t103 = coreGet(v_repeat, "hi", nil)
+			v_t104 = _core_lt(v_t103, 0)
+			v_t105 = v_t104
+			v_t106 = _core_not(v_t105)
+			if coreTruthy(v_t106) {
+				v_t107 = coreGet(v_repeat, "hi", nil)
+				v_t108 = _core_lt(v_count, v_t107)
+				v_t105 = v_t108
+			} else {
+			// empty
+			}
+			v_more = v_t105
+			v_t109 = _core_none()
+			v_moreframe = v_t109
+			if coreTruthy(v_more) {
+				{ v, err := _regex_state(v_p, v_caps); if err != nil { return nil, err }; v_t110 = v }
+				v_clean = v_t110
+				v_t111 = coreGet(v_repeat, "child", nil)
+				{ v, err := _regex_capture_ids(v_t111); if err != nil { return nil, err }; v_t112 = v }
+				for _, v_iter_113 = range coreIter(v_t112) {
+					v_i = v_iter_113
+					v_t114 = _core_none()
+					v_t115 = coreGet(v_clean, "caps", nil)
+					if err := coreSet(v_t115, v_i, v_t114); err != nil { return nil, err }
+				}
+				v_t116 = Object()
+				if err := coreSet(v_t116, "k", "repeat_after"); err != nil { return nil, err }
+				if err := coreSet(v_t116, "repeat", v_repeat); err != nil { return nil, err }
+				if err := coreSet(v_t116, "count", v_count); err != nil { return nil, err }
+				if err := coreSet(v_t116, "begin", v_p); err != nil { return nil, err }
+				{ v, err := _regex_task(v_t116, v_rest); if err != nil { return nil, err }; v_t117 = v }
+				v_after = v_t117
+				v_t118 = coreGet(v_repeat, "child", nil)
+				{ v, err := _regex_task(v_t118, v_after); if err != nil { return nil, err }; v_t119 = v }
+				{ v, err := _regex_frame(v_t119, v_clean); if err != nil { return nil, err }; v_t120 = v }
+				v_moreframe = v_t120
+			} else {
+			// empty
+			}
+			v_t121 = coreGet(v_repeat, "lazy", nil)
+			if coreTruthy(v_t121) {
+				if coreTruthy(v_more) {
+					{ v, err := _regex_push(v_pending, v_top, v_moreframe); if err != nil { return nil, err }; v_t122 = v }
+					v_top = v_t122
+				} else {
+				// empty
+				}
+				if coreTruthy(v_accept) {
+					{ v, err := _regex_frame(v_rest, v_st); if err != nil { return nil, err }; v_t123 = v }
+					{ v, err := _regex_push(v_pending, v_top, v_t123); if err != nil { return nil, err }; v_t124 = v }
+					v_top = v_t124
+				} else {
+				// empty
+				}
+			} else {
+				if coreTruthy(v_accept) {
+					{ v, err := _regex_frame(v_rest, v_st); if err != nil { return nil, err }; v_t125 = v }
+					{ v, err := _regex_push(v_pending, v_top, v_t125); if err != nil { return nil, err }; v_t126 = v }
+					v_top = v_t126
+				} else {
+				// empty
+				}
+				if coreTruthy(v_more) {
+					{ v, err := _regex_push(v_pending, v_top, v_moreframe); if err != nil { return nil, err }; v_t127 = v }
+					v_top = v_t127
+				} else {
+				// empty
+				}
+			}
+			continue
+		} else {
+		// empty
+		}
+		v_t128 = _core_eq(v_k, "repeat_after")
+		if coreTruthy(v_t128) {
+			v_t129 = coreGet(v_n, "count", nil)
+			v_count = v_t129
+			v_t130 = coreGet(v_n, "repeat", nil)
+			v_repeat = v_t130
+			v_t131 = _core_add(v_count, 1)
+			v_nextcount = v_t131
+			v_t132 = coreGet(v_n, "begin", nil)
+			v_t133 = _core_eq(v_p, v_t132)
+			if coreTruthy(v_t133) {
+				v_t134 = coreGet(v_repeat, "lo", nil)
+				v_t135 = _core_gte(v_count, v_t134)
+				if coreTruthy(v_t135) {
+					continue
+				} else {
+				// empty
+				}
+				v_t136 = coreGet(v_repeat, "lo", nil)
+				v_nextcount = v_t136
+			} else {
+			// empty
+			}
+			v_t137 = Object()
+			if err := coreSet(v_t137, "k", "repeat_step"); err != nil { return nil, err }
+			if err := coreSet(v_t137, "repeat", v_repeat); err != nil { return nil, err }
+			if err := coreSet(v_t137, "count", v_nextcount); err != nil { return nil, err }
+			{ v, err := _regex_task(v_t137, v_rest); if err != nil { return nil, err }; v_t138 = v }
+			v_next = v_t138
+			{ v, err := _regex_frame(v_next, v_st); if err != nil { return nil, err }; v_t139 = v }
+			{ v, err := _regex_push(v_pending, v_top, v_t139); if err != nil { return nil, err }; v_t140 = v }
+			v_top = v_t140
+			continue
+		} else {
+		// empty
+		}
+		v_t141 = _core_eq(v_k, "start")
+		if coreTruthy(v_t141) {
+			v_t142 = _core_eq(v_p, 0)
+			if coreTruthy(v_t142) {
+				{ v, err := _regex_frame(v_rest, v_st); if err != nil { return nil, err }; v_t143 = v }
+				{ v, err := _regex_push(v_pending, v_top, v_t143); if err != nil { return nil, err }; v_t144 = v }
+				v_top = v_t144
+			} else {
+			// empty
+			}
+			continue
+		} else {
+		// empty
+		}
+		v_t145 = _core_eq(v_k, "end")
+		if coreTruthy(v_t145) {
+			v_t146 = _core_len(v_u)
+			v_t147 = _core_eq(v_p, v_t146)
+			if coreTruthy(v_t147) {
+				{ v, err := _regex_frame(v_rest, v_st); if err != nil { return nil, err }; v_t148 = v }
+				{ v, err := _regex_push(v_pending, v_top, v_t148); if err != nil { return nil, err }; v_t149 = v }
+				v_top = v_t149
+			} else {
+			// empty
+			}
+			continue
+		} else {
+		// empty
+		}
+		v_t150 = _core_eq(v_k, "boundary")
+		if coreTruthy(v_t150) {
+			v_before = false
+			v_after = false
+			v_t151 = _core_gt(v_p, 0)
+			if coreTruthy(v_t151) {
+				v_t152 = _core_mul(-1, 1)
+				v_t153 = _core_add(v_p, v_t152)
+				v_t154 = _core_math_floor(v_t153)
+				v_t155 = coreGet(v_u, v_t154, nil)
+				{ v, err := _regex_word(v_t155); if err != nil { return nil, err }; v_t156 = v }
+				v_before = v_t156
+			} else {
+			// empty
+			}
+			v_t157 = _core_len(v_u)
+			v_t158 = _core_lt(v_p, v_t157)
+			if coreTruthy(v_t158) {
+				v_t159 = coreGet(v_u, v_p, nil)
+				{ v, err := _regex_word(v_t159); if err != nil { return nil, err }; v_t160 = v }
+				v_after = v_t160
+			} else {
+			// empty
+			}
+			v_t161 = _core_ne(v_before, v_after)
+			v_yes = v_t161
+			v_t162 = coreGet(v_n, "negative", nil)
+			if coreTruthy(v_t162) {
+				v_t163 = _core_not(v_yes)
+				v_yes = v_t163
+			} else {
+			// empty
+			}
+			if coreTruthy(v_yes) {
+				{ v, err := _regex_frame(v_rest, v_st); if err != nil { return nil, err }; v_t164 = v }
+				{ v, err := _regex_push(v_pending, v_top, v_t164); if err != nil { return nil, err }; v_t165 = v }
+				v_top = v_t165
+			} else {
+			// empty
+			}
+			continue
+		} else {
+		// empty
+		}
+		v_t166 = _core_eq(v_k, "ref")
+		if coreTruthy(v_t166) {
+			v_t167 = _core_none()
+			v_capture = v_t167
+			v_t168 = coreGet(v_n, "ids", nil)
+			for _, v_iter_169 = range coreIter(v_t168) {
+				v_capture_id = v_iter_169
+				v_t170 = coreGet(v_caps, v_capture_id, nil)
+				v_t171 = _core_none()
+				v_t172 = _core_ne(v_t170, v_t171)
+				if coreTruthy(v_t172) {
+					v_t173 = coreGet(v_caps, v_capture_id, nil)
+					v_capture = v_t173
+				} else {
+				// empty
+				}
+			}
+			v_t174 = _core_none()
+			v_t175 = _core_eq(v_capture, v_t174)
+			if coreTruthy(v_t175) {
+				{ v, err := _regex_frame(v_rest, v_st); if err != nil { return nil, err }; v_t176 = v }
+				{ v, err := _regex_push(v_pending, v_top, v_t176); if err != nil { return nil, err }; v_t177 = v }
+				v_top = v_t177
+				continue
+			} else {
+			// empty
+			}
+			v_t178 = 1
+			v_t179 = coreGet(v_capture, v_t178, nil)
+			v_t180 = 0
+			v_t181 = coreGet(v_capture, v_t180, nil)
+			v_t182 = _core_mul(-1, v_t181)
+			v_t183 = _core_add(v_t179, v_t182)
+			v_t184 = _core_math_floor(v_t183)
+			v_size = v_t184
+			v_begin = v_p
+			v_t185 = _core_lt(v_d, 0)
+			if coreTruthy(v_t185) {
+				v_t186 = _core_mul(-1, v_size)
+				v_t187 = _core_add(v_p, v_t186)
+				v_t188 = _core_math_floor(v_t187)
+				v_begin = v_t188
+			} else {
+			// empty
+			}
+			v_t189 = _core_lt(v_begin, 0)
+			v_t190 = v_t189
+			v_t191 = _core_not(v_t190)
+			if coreTruthy(v_t191) {
+				v_t192 = _core_add(v_begin, v_size)
+				v_t193 = _core_len(v_u)
+				v_t194 = _core_gt(v_t192, v_t193)
+				v_t190 = v_t194
+			} else {
+			// empty
+			}
+			if coreTruthy(v_t190) {
+				continue
+			} else {
+			// empty
+			}
+			v_i = 0
+			v_equal = true
+			for {
+				v_t195 = _core_lt(v_i, v_size)
+				v_t196 = _core_not(v_t195)
+				if coreTruthy(v_t196) {
+					break
+				} else {
+				// empty
+				}
+				v_t197 = _core_add(v_begin, v_i)
+				v_t198 = coreGet(v_u, v_t197, nil)
+				v_t199 = 0
+				v_t200 = coreGet(v_capture, v_t199, nil)
+				v_t201 = _core_add(v_t200, v_i)
+				v_t202 = coreGet(v_u, v_t201, nil)
+				v_t203 = _core_ne(v_t198, v_t202)
+				if coreTruthy(v_t203) {
+					v_equal = false
+					break
+				} else {
+				// empty
+				}
+				v_t204 = _core_add(v_i, 1)
+				v_i = v_t204
+			}
+			if coreTruthy(v_equal) {
+				v_t205 = _core_mul(v_d, v_size)
+				v_t206 = _core_math_floor(v_t205)
+				v_t207 = _core_add(v_p, v_t206)
+				{ v, err := _regex_state(v_t207, v_caps); if err != nil { return nil, err }; v_t208 = v }
+				{ v, err := _regex_frame(v_rest, v_t208); if err != nil { return nil, err }; v_t209 = v }
+				{ v, err := _regex_push(v_pending, v_top, v_t209); if err != nil { return nil, err }; v_t210 = v }
+				v_top = v_t210
+			} else {
+			// empty
+			}
+			continue
+		} else {
+		// empty
+		}
+		v_at = v_p
+		v_t211 = _core_lt(v_d, 0)
+		if coreTruthy(v_t211) {
+			v_t212 = _core_mul(-1, 1)
+			v_t213 = _core_add(v_p, v_t212)
+			v_t214 = _core_math_floor(v_t213)
+			v_at = v_t214
+		} else {
+		// empty
+		}
+		v_t215 = _core_gte(v_at, 0)
+		v_t216 = v_t215
+		if coreTruthy(v_t216) {
+			v_t217 = _core_len(v_u)
+			v_t218 = _core_lt(v_at, v_t217)
+			v_t216 = v_t218
+		} else {
+		// empty
+		}
+		if coreTruthy(v_t216) {
+			v_t219 = coreGet(v_u, v_at, nil)
+			{ v, err := _regex_member(v_n, v_t219); if err != nil { return nil, err }; v_t220 = v }
+			v_t216 = v_t220
+		} else {
+		// empty
+		}
+		if coreTruthy(v_t216) {
+			v_t221 = _core_add(v_p, v_d)
+			{ v, err := _regex_state(v_t221, v_caps); if err != nil { return nil, err }; v_t222 = v }
+			{ v, err := _regex_frame(v_rest, v_t222); if err != nil { return nil, err }; v_t223 = v }
+			{ v, err := _regex_push(v_pending, v_top, v_t223); if err != nil { return nil, err }; v_t224 = v }
+			v_top = v_t224
+		} else {
+		// empty
+		}
+	}
+	v_t225 = _core_none()
+	return v_t225, nil
 }
 
 func _ace_normalize_curator_operations(args ...Value) (Value, error) {
@@ -34974,6 +39025,1012 @@ func _ace_dequeue_section_candidate(args ...Value) (Value, error) {
 	// empty
 	}
 	return v_picked, nil
+}
+
+func _regex_test(args ...Value) (Value, error) {
+	axirCoverageMark("_regex_test")
+	var v_pattern Value
+	var v_value Value
+	var v_groups Value
+	var v_i Value
+	var v_s Value
+	var v_t1 Value
+	var v_t10 Value
+	var v_t11 Value
+	var v_t12 Value
+	var v_t13 Value
+	var v_t14 Value
+	var v_t15 Value
+	var v_t16 Value
+	var v_t17 Value
+	var v_t18 Value
+	var v_t19 Value
+	var v_t2 Value
+	var v_t20 Value
+	var v_t21 Value
+	var v_t22 Value
+	var v_t23 Value
+	var v_t24 Value
+	var v_t25 Value
+	var v_t3 Value
+	var v_t4 Value
+	var v_t5 Value
+	var v_t6 Value
+	var v_t7 Value
+	var v_t8 Value
+	var v_t9 Value
+	var v_text Value
+	var v_tree Value
+	var v_u Value
+	if len(args) > 0 { v_pattern = args[0] }
+	_ = v_pattern
+	if len(args) > 1 { v_value = args[1] }
+	_ = v_value
+	_ = v_groups
+	_ = v_i
+	_ = v_s
+	_ = v_t1
+	_ = v_t10
+	_ = v_t11
+	_ = v_t12
+	_ = v_t13
+	_ = v_t14
+	_ = v_t15
+	_ = v_t16
+	_ = v_t17
+	_ = v_t18
+	_ = v_t19
+	_ = v_t2
+	_ = v_t20
+	_ = v_t21
+	_ = v_t22
+	_ = v_t23
+	_ = v_t24
+	_ = v_t25
+	_ = v_t3
+	_ = v_t4
+	_ = v_t5
+	_ = v_t6
+	_ = v_t7
+	_ = v_t8
+	_ = v_t9
+	_ = v_text
+	_ = v_tree
+	_ = v_u
+	v_groups = _core_none()
+	v_i = _core_none()
+	v_s = _core_none()
+	v_text = _core_none()
+	v_tree = _core_none()
+	v_u = _core_none()
+	v_t1 = _core_string_utf16_units(v_pattern)
+	v_u = v_t1
+	{ v, err := _regex_scan_groups(v_u); if err != nil { return nil, err }; v_t2 = v }
+	v_groups = v_t2
+	v_t3 = Object()
+	if err := coreSet(v_t3, "u", v_u); err != nil { return nil, err }
+	if err := coreSet(v_t3, "p", 0); err != nil { return nil, err }
+	v_t4 = coreGet(v_groups, "count", nil)
+	if err := coreSet(v_t3, "total", v_t4); err != nil { return nil, err }
+	v_t5 = coreGet(v_groups, "names", nil)
+	if err := coreSet(v_t3, "names", v_t5); err != nil { return nil, err }
+	if err := coreSet(v_t3, "next", 0); err != nil { return nil, err }
+	v_s = v_t3
+	{ v, err := _regex_alternative(v_s); if err != nil { return nil, err }; v_t6 = v }
+	v_tree = v_t6
+	v_t7 = coreGet(v_s, "p", nil)
+	v_t8 = _core_len(v_u)
+	v_t9 = _core_ne(v_t7, v_t8)
+	if coreTruthy(v_t9) {
+		v_t10 = _core_string_format("Invalid regular expression: {}", "Unmatched group")
+		v_t11 = _core_validation_error(v_t10)
+		return nil, asError(v_t11)
+	} else {
+	// empty
+	}
+	v_t12 = Object()
+	v_t13 = Object()
+	v_t14 = Object()
+	if err := coreSet(v_t14, "next", 0); err != nil { return nil, err }
+	{ v, err := _regex_validate_names(v_tree, v_t12, v_t13, v_t14); if err != nil { return nil, err }; v_t15 = v }
+	v_t16 = _core_string_utf16_units(v_value)
+	v_text = v_t16
+	v_i = 0
+	for {
+		v_t17 = _core_len(v_text)
+		v_t18 = _core_lte(v_i, v_t17)
+		v_t19 = _core_not(v_t18)
+		if coreTruthy(v_t19) {
+			break
+		} else {
+		// empty
+		}
+		v_t20 = Object()
+		{ v, err := _regex_state(v_i, v_t20); if err != nil { return nil, err }; v_t21 = v }
+		{ v, err := _regex_search(v_tree, v_text, v_t21, 1); if err != nil { return nil, err }; v_t22 = v }
+		v_t23 = _core_none()
+		v_t24 = _core_ne(v_t22, v_t23)
+		if coreTruthy(v_t24) {
+			return true, nil
+		} else {
+		// empty
+		}
+		v_t25 = _core_add(v_i, 1)
+		v_i = v_t25
+	}
+	return false, nil
+}
+
+func _regex_identifier(args ...Value) (Value, error) {
+	axirCoverageMark("_regex_identifier")
+	var v_c Value
+	var v_first Value
+	var v_entry Value
+	var v_hi Value
+	var v_lo Value
+	var v_mid Value
+	var v_ranges Value
+	var v_t1 Value
+	var v_t10 Value
+	var v_t11 Value
+	var v_t12 Value
+	var v_t13 Value
+	var v_t14 Value
+	var v_t15 Value
+	var v_t16 Value
+	var v_t17 Value
+	var v_t18 Value
+	var v_t19 Value
+	var v_t2 Value
+	var v_t20 Value
+	var v_t21 Value
+	var v_t22 Value
+	var v_t23 Value
+	var v_t24 Value
+	var v_t25 Value
+	var v_t26 Value
+	var v_t3 Value
+	var v_t4 Value
+	var v_t5 Value
+	var v_t6 Value
+	var v_t7 Value
+	var v_t8 Value
+	var v_t9 Value
+	if len(args) > 0 { v_c = args[0] }
+	_ = v_c
+	if len(args) > 1 { v_first = args[1] }
+	_ = v_first
+	_ = v_entry
+	_ = v_hi
+	_ = v_lo
+	_ = v_mid
+	_ = v_ranges
+	_ = v_t1
+	_ = v_t10
+	_ = v_t11
+	_ = v_t12
+	_ = v_t13
+	_ = v_t14
+	_ = v_t15
+	_ = v_t16
+	_ = v_t17
+	_ = v_t18
+	_ = v_t19
+	_ = v_t2
+	_ = v_t20
+	_ = v_t21
+	_ = v_t22
+	_ = v_t23
+	_ = v_t24
+	_ = v_t25
+	_ = v_t26
+	_ = v_t3
+	_ = v_t4
+	_ = v_t5
+	_ = v_t6
+	_ = v_t7
+	_ = v_t8
+	_ = v_t9
+	v_entry = _core_none()
+	v_hi = _core_none()
+	v_lo = _core_none()
+	v_mid = _core_none()
+	v_ranges = _core_none()
+	v_t1 = _core_eq(v_c, 36)
+	v_t2 = v_t1
+	v_t3 = _core_not(v_t2)
+	if coreTruthy(v_t3) {
+		v_t4 = _core_eq(v_c, 95)
+		v_t2 = v_t4
+	} else {
+	// empty
+	}
+	if coreTruthy(v_t2) {
+		return true, nil
+	} else {
+	// empty
+	}
+	v_t5 = _core_not(v_first)
+	v_t6 = v_t5
+	if coreTruthy(v_t6) {
+		v_t7 = _core_eq(v_c, 8204)
+		v_t8 = v_t7
+		v_t9 = _core_not(v_t8)
+		if coreTruthy(v_t9) {
+			v_t10 = _core_eq(v_c, 8205)
+			v_t8 = v_t10
+		} else {
+		// empty
+		}
+		v_t6 = v_t8
+	} else {
+	// empty
+	}
+	if coreTruthy(v_t6) {
+		return true, nil
+	} else {
+	// empty
+	}
+	{ v, err := _regex_id_continue_ranges(); if err != nil { return nil, err }; v_t11 = v }
+	v_ranges = v_t11
+	if coreTruthy(v_first) {
+		{ v, err := _regex_id_start_ranges(); if err != nil { return nil, err }; v_t12 = v }
+		v_ranges = v_t12
+	} else {
+	// empty
+	}
+	v_lo = 0
+	v_t13 = _core_len(v_ranges)
+	v_hi = v_t13
+	for {
+		v_t14 = _core_lt(v_lo, v_hi)
+		v_t15 = _core_not(v_t14)
+		if coreTruthy(v_t15) {
+			break
+		} else {
+		// empty
+		}
+		v_t16 = _core_add(v_lo, v_hi)
+		v_t17 = _core_div(v_t16, 2)
+		v_t18 = _core_math_floor(v_t17)
+		v_mid = v_t18
+		v_t19 = coreGet(v_ranges, v_mid, nil)
+		v_entry = v_t19
+		v_t20 = 0
+		v_t21 = coreGet(v_entry, v_t20, nil)
+		v_t22 = _core_lt(v_c, v_t21)
+		if coreTruthy(v_t22) {
+			v_hi = v_mid
+		} else {
+			v_t23 = 1
+			v_t24 = coreGet(v_entry, v_t23, nil)
+			v_t25 = _core_gt(v_c, v_t24)
+			if coreTruthy(v_t25) {
+				v_t26 = _core_add(v_mid, 1)
+				v_lo = v_t26
+			} else {
+				return true, nil
+			}
+		}
+	}
+	return false, nil
+}
+
+func _regex_read_name(args ...Value) (Value, error) {
+	axirCoverageMark("_regex_read_name")
+	var v_s Value
+	var v_c Value
+	var v_i Value
+	var v_n Value
+	var v_name Value
+	var v_t1 Value
+	var v_t10 Value
+	var v_t11 Value
+	var v_t12 Value
+	var v_t13 Value
+	var v_t14 Value
+	var v_t15 Value
+	var v_t16 Value
+	var v_t17 Value
+	var v_t18 Value
+	var v_t19 Value
+	var v_t2 Value
+	var v_t20 Value
+	var v_t21 Value
+	var v_t22 Value
+	var v_t23 Value
+	var v_t24 Value
+	var v_t25 Value
+	var v_t26 Value
+	var v_t27 Value
+	var v_t28 Value
+	var v_t29 Value
+	var v_t3 Value
+	var v_t30 Value
+	var v_t31 Value
+	var v_t32 Value
+	var v_t33 Value
+	var v_t34 Value
+	var v_t35 Value
+	var v_t36 Value
+	var v_t37 Value
+	var v_t38 Value
+	var v_t39 Value
+	var v_t4 Value
+	var v_t40 Value
+	var v_t41 Value
+	var v_t42 Value
+	var v_t43 Value
+	var v_t44 Value
+	var v_t45 Value
+	var v_t46 Value
+	var v_t47 Value
+	var v_t48 Value
+	var v_t49 Value
+	var v_t5 Value
+	var v_t50 Value
+	var v_t51 Value
+	var v_t52 Value
+	var v_t53 Value
+	var v_t54 Value
+	var v_t55 Value
+	var v_t56 Value
+	var v_t57 Value
+	var v_t58 Value
+	var v_t59 Value
+	var v_t6 Value
+	var v_t60 Value
+	var v_t61 Value
+	var v_t62 Value
+	var v_t63 Value
+	var v_t64 Value
+	var v_t65 Value
+	var v_t66 Value
+	var v_t67 Value
+	var v_t68 Value
+	var v_t69 Value
+	var v_t7 Value
+	var v_t70 Value
+	var v_t71 Value
+	var v_t72 Value
+	var v_t73 Value
+	var v_t74 Value
+	var v_t75 Value
+	var v_t76 Value
+	var v_t77 Value
+	var v_t78 Value
+	var v_t79 Value
+	var v_t8 Value
+	var v_t80 Value
+	var v_t81 Value
+	var v_t82 Value
+	var v_t83 Value
+	var v_t84 Value
+	var v_t85 Value
+	var v_t86 Value
+	var v_t87 Value
+	var v_t88 Value
+	var v_t89 Value
+	var v_t9 Value
+	var v_t90 Value
+	var v_t91 Value
+	var v_t92 Value
+	var v_values Value
+	if len(args) > 0 { v_s = args[0] }
+	_ = v_s
+	_ = v_c
+	_ = v_i
+	_ = v_n
+	_ = v_name
+	_ = v_t1
+	_ = v_t10
+	_ = v_t11
+	_ = v_t12
+	_ = v_t13
+	_ = v_t14
+	_ = v_t15
+	_ = v_t16
+	_ = v_t17
+	_ = v_t18
+	_ = v_t19
+	_ = v_t2
+	_ = v_t20
+	_ = v_t21
+	_ = v_t22
+	_ = v_t23
+	_ = v_t24
+	_ = v_t25
+	_ = v_t26
+	_ = v_t27
+	_ = v_t28
+	_ = v_t29
+	_ = v_t3
+	_ = v_t30
+	_ = v_t31
+	_ = v_t32
+	_ = v_t33
+	_ = v_t34
+	_ = v_t35
+	_ = v_t36
+	_ = v_t37
+	_ = v_t38
+	_ = v_t39
+	_ = v_t4
+	_ = v_t40
+	_ = v_t41
+	_ = v_t42
+	_ = v_t43
+	_ = v_t44
+	_ = v_t45
+	_ = v_t46
+	_ = v_t47
+	_ = v_t48
+	_ = v_t49
+	_ = v_t5
+	_ = v_t50
+	_ = v_t51
+	_ = v_t52
+	_ = v_t53
+	_ = v_t54
+	_ = v_t55
+	_ = v_t56
+	_ = v_t57
+	_ = v_t58
+	_ = v_t59
+	_ = v_t6
+	_ = v_t60
+	_ = v_t61
+	_ = v_t62
+	_ = v_t63
+	_ = v_t64
+	_ = v_t65
+	_ = v_t66
+	_ = v_t67
+	_ = v_t68
+	_ = v_t69
+	_ = v_t7
+	_ = v_t70
+	_ = v_t71
+	_ = v_t72
+	_ = v_t73
+	_ = v_t74
+	_ = v_t75
+	_ = v_t76
+	_ = v_t77
+	_ = v_t78
+	_ = v_t79
+	_ = v_t8
+	_ = v_t80
+	_ = v_t81
+	_ = v_t82
+	_ = v_t83
+	_ = v_t84
+	_ = v_t85
+	_ = v_t86
+	_ = v_t87
+	_ = v_t88
+	_ = v_t89
+	_ = v_t9
+	_ = v_t90
+	_ = v_t91
+	_ = v_t92
+	_ = v_values
+	v_c = _core_none()
+	v_i = _core_none()
+	v_n = _core_none()
+	v_name = _core_none()
+	v_values = _core_none()
+	v_t1 = MutableArray()
+	v_values = v_t1
+	for {
+		{ v, err := _regex_peek(v_s); if err != nil { return nil, err }; v_t2 = v }
+		v_t3 = _core_ne(v_t2, 62)
+		v_t4 = v_t3
+		if coreTruthy(v_t4) {
+			{ v, err := _regex_peek(v_s); if err != nil { return nil, err }; v_t5 = v }
+			v_t6 = _core_gte(v_t5, 0)
+			v_t4 = v_t6
+		} else {
+		// empty
+		}
+		v_t7 = _core_not(v_t4)
+		if coreTruthy(v_t7) {
+			break
+		} else {
+		// empty
+		}
+		{ v, err := _regex_take(v_s); if err != nil { return nil, err }; v_t8 = v }
+		v_c = v_t8
+		v_t9 = _core_eq(v_c, 92)
+		if coreTruthy(v_t9) {
+			{ v, err := _regex_take(v_s); if err != nil { return nil, err }; v_t10 = v }
+			v_t11 = _core_ne(v_t10, 117)
+			if coreTruthy(v_t11) {
+				v_t12 = _core_string_format("Invalid regular expression: {}", "Invalid capture name escape")
+				v_t13 = _core_validation_error(v_t12)
+				return nil, asError(v_t13)
+			} else {
+			// empty
+			}
+			v_c = 0
+			v_n = 0
+			{ v, err := _regex_peek(v_s); if err != nil { return nil, err }; v_t14 = v }
+			v_t15 = _core_eq(v_t14, 123)
+			if coreTruthy(v_t15) {
+				{ v, err := _regex_take(v_s); if err != nil { return nil, err }; v_t16 = v }
+				for {
+					{ v, err := _regex_peek(v_s); if err != nil { return nil, err }; v_t17 = v }
+					{ v, err := _regex_hexdigit(v_t17); if err != nil { return nil, err }; v_t18 = v }
+					v_t19 = _core_gte(v_t18, 0)
+					v_t20 = _core_not(v_t19)
+					if coreTruthy(v_t20) {
+						break
+					} else {
+					// empty
+					}
+					v_t21 = _core_mul(v_c, 16)
+					v_t22 = _core_math_floor(v_t21)
+					{ v, err := _regex_take(v_s); if err != nil { return nil, err }; v_t23 = v }
+					{ v, err := _regex_hexdigit(v_t23); if err != nil { return nil, err }; v_t24 = v }
+					v_t25 = _core_add(v_t22, v_t24)
+					v_c = v_t25
+					v_t26 = _core_add(v_n, 1)
+					v_n = v_t26
+				}
+				v_t27 = _core_eq(v_n, 0)
+				v_t28 = v_t27
+				v_t29 = _core_not(v_t28)
+				if coreTruthy(v_t29) {
+					{ v, err := _regex_take(v_s); if err != nil { return nil, err }; v_t30 = v }
+					v_t31 = _core_ne(v_t30, 125)
+					v_t28 = v_t31
+				} else {
+				// empty
+				}
+				v_t32 = _core_not(v_t28)
+				if coreTruthy(v_t32) {
+					v_t33 = _core_gt(v_c, 1114111)
+					v_t28 = v_t33
+				} else {
+				// empty
+				}
+				if coreTruthy(v_t28) {
+					v_t34 = _core_string_format("Invalid regular expression: {}", "Invalid Unicode capture name")
+					v_t35 = _core_validation_error(v_t34)
+					return nil, asError(v_t35)
+				} else {
+				// empty
+				}
+			} else {
+				for {
+					v_t36 = _core_lt(v_n, 4)
+					v_t37 = v_t36
+					if coreTruthy(v_t37) {
+						{ v, err := _regex_peek(v_s); if err != nil { return nil, err }; v_t38 = v }
+						{ v, err := _regex_hexdigit(v_t38); if err != nil { return nil, err }; v_t39 = v }
+						v_t40 = _core_gte(v_t39, 0)
+						v_t37 = v_t40
+					} else {
+					// empty
+					}
+					v_t41 = _core_not(v_t37)
+					if coreTruthy(v_t41) {
+						break
+					} else {
+					// empty
+					}
+					v_t42 = _core_mul(v_c, 16)
+					v_t43 = _core_math_floor(v_t42)
+					{ v, err := _regex_take(v_s); if err != nil { return nil, err }; v_t44 = v }
+					{ v, err := _regex_hexdigit(v_t44); if err != nil { return nil, err }; v_t45 = v }
+					v_t46 = _core_add(v_t43, v_t45)
+					v_c = v_t46
+					v_t47 = _core_add(v_n, 1)
+					v_n = v_t47
+				}
+				v_t48 = _core_ne(v_n, 4)
+				if coreTruthy(v_t48) {
+					v_t49 = _core_string_format("Invalid regular expression: {}", "Invalid Unicode capture name")
+					v_t50 = _core_validation_error(v_t49)
+					return nil, asError(v_t50)
+				} else {
+				// empty
+				}
+			}
+		} else {
+		// empty
+		}
+		v_values = coreAppend(v_values, v_c)
+	}
+	{ v, err := _regex_take(v_s); if err != nil { return nil, err }; v_t51 = v }
+	v_t52 = _core_ne(v_t51, 62)
+	v_t53 = v_t52
+	v_t54 = _core_not(v_t53)
+	if coreTruthy(v_t54) {
+		v_t55 = _core_len(v_values)
+		v_t56 = _core_eq(v_t55, 0)
+		v_t53 = v_t56
+	} else {
+	// empty
+	}
+	if coreTruthy(v_t53) {
+		v_t57 = _core_string_format("Invalid regular expression: {}", "Invalid capture name")
+		v_t58 = _core_validation_error(v_t57)
+		return nil, asError(v_t58)
+	} else {
+	// empty
+	}
+	v_name = ""
+	v_i = 0
+	for {
+		v_t59 = _core_len(v_values)
+		v_t60 = _core_lt(v_i, v_t59)
+		v_t61 = _core_not(v_t60)
+		if coreTruthy(v_t61) {
+			break
+		} else {
+		// empty
+		}
+		v_t62 = coreGet(v_values, v_i, nil)
+		v_c = v_t62
+		v_t63 = _core_add(v_i, 1)
+		v_i = v_t63
+		v_t64 = _core_gte(v_c, 55296)
+		v_t65 = v_t64
+		if coreTruthy(v_t65) {
+			v_t66 = _core_lte(v_c, 56319)
+			v_t65 = v_t66
+		} else {
+		// empty
+		}
+		if coreTruthy(v_t65) {
+			v_t67 = _core_len(v_values)
+			v_t68 = _core_lt(v_i, v_t67)
+			v_t65 = v_t68
+		} else {
+		// empty
+		}
+		if coreTruthy(v_t65) {
+			v_t69 = coreGet(v_values, v_i, nil)
+			v_t70 = _core_gte(v_t69, 56320)
+			v_t65 = v_t70
+		} else {
+		// empty
+		}
+		if coreTruthy(v_t65) {
+			v_t71 = coreGet(v_values, v_i, nil)
+			v_t72 = _core_lte(v_t71, 57343)
+			v_t65 = v_t72
+		} else {
+		// empty
+		}
+		if coreTruthy(v_t65) {
+			v_t73 = _core_mul(-1, 55296)
+			v_t74 = _core_add(v_c, v_t73)
+			v_t75 = _core_math_floor(v_t74)
+			v_t76 = _core_mul(v_t75, 1024)
+			v_t77 = _core_math_floor(v_t76)
+			v_t78 = _core_add(65536, v_t77)
+			v_t79 = coreGet(v_values, v_i, nil)
+			v_t80 = _core_add(v_t78, v_t79)
+			v_t81 = _core_mul(-1, 56320)
+			v_t82 = _core_add(v_t80, v_t81)
+			v_t83 = _core_math_floor(v_t82)
+			v_c = v_t83
+			v_t84 = _core_add(v_i, 1)
+			v_i = v_t84
+		} else {
+		// empty
+		}
+		v_t85 = _core_eq(v_name, "")
+		{ v, err := _regex_identifier(v_c, v_t85); if err != nil { return nil, err }; v_t86 = v }
+		v_t87 = _core_not(v_t86)
+		if coreTruthy(v_t87) {
+			v_t88 = _core_string_format("Invalid regular expression: {}", "Invalid capture identifier")
+			v_t89 = _core_validation_error(v_t88)
+			return nil, asError(v_t89)
+		} else {
+		// empty
+		}
+		v_t90 = _core_string_format("{}", v_c)
+		v_t91 = _core_add(v_t90, ",")
+		v_t92 = _core_add(v_name, v_t91)
+		v_name = v_t92
+	}
+	return v_name, nil
+}
+
+func _regex_validate_names(args ...Value) (Value, error) {
+	axirCoverageMark("_regex_validate_names")
+	var v_n Value
+	var v_path Value
+	var v_seen Value
+	var v_counter Value
+	var v_branch Value
+	var v_exclusive Value
+	var v_index Value
+	var v_iter_12 Value
+	var v_iter_14 Value
+	var v_iter_31 Value
+	var v_iter_37 Value
+	var v_k Value
+	var v_key Value
+	var v_name Value
+	var v_other Value
+	var v_previous Value
+	var v_t1 Value
+	var v_t10 Value
+	var v_t11 Value
+	var v_t13 Value
+	var v_t15 Value
+	var v_t16 Value
+	var v_t17 Value
+	var v_t18 Value
+	var v_t19 Value
+	var v_t2 Value
+	var v_t20 Value
+	var v_t21 Value
+	var v_t22 Value
+	var v_t23 Value
+	var v_t24 Value
+	var v_t25 Value
+	var v_t26 Value
+	var v_t27 Value
+	var v_t28 Value
+	var v_t29 Value
+	var v_t3 Value
+	var v_t30 Value
+	var v_t32 Value
+	var v_t33 Value
+	var v_t34 Value
+	var v_t35 Value
+	var v_t36 Value
+	var v_t38 Value
+	var v_t39 Value
+	var v_t4 Value
+	var v_t40 Value
+	var v_t41 Value
+	var v_t42 Value
+	var v_t43 Value
+	var v_t5 Value
+	var v_t6 Value
+	var v_t7 Value
+	var v_t8 Value
+	var v_t9 Value
+	var v_term Value
+	if len(args) > 0 { v_n = args[0] }
+	_ = v_n
+	if len(args) > 1 { v_path = args[1] }
+	_ = v_path
+	if len(args) > 2 { v_seen = args[2] }
+	_ = v_seen
+	if len(args) > 3 { v_counter = args[3] }
+	_ = v_counter
+	_ = v_branch
+	_ = v_exclusive
+	_ = v_index
+	_ = v_iter_12
+	_ = v_iter_14
+	_ = v_iter_31
+	_ = v_iter_37
+	_ = v_k
+	_ = v_key
+	_ = v_name
+	_ = v_other
+	_ = v_previous
+	_ = v_t1
+	_ = v_t10
+	_ = v_t11
+	_ = v_t13
+	_ = v_t15
+	_ = v_t16
+	_ = v_t17
+	_ = v_t18
+	_ = v_t19
+	_ = v_t2
+	_ = v_t20
+	_ = v_t21
+	_ = v_t22
+	_ = v_t23
+	_ = v_t24
+	_ = v_t25
+	_ = v_t26
+	_ = v_t27
+	_ = v_t28
+	_ = v_t29
+	_ = v_t3
+	_ = v_t30
+	_ = v_t32
+	_ = v_t33
+	_ = v_t34
+	_ = v_t35
+	_ = v_t36
+	_ = v_t38
+	_ = v_t39
+	_ = v_t4
+	_ = v_t40
+	_ = v_t41
+	_ = v_t42
+	_ = v_t43
+	_ = v_t5
+	_ = v_t6
+	_ = v_t7
+	_ = v_t8
+	_ = v_t9
+	_ = v_term
+	v_branch = _core_none()
+	v_exclusive = _core_none()
+	v_index = _core_none()
+	v_k = _core_none()
+	v_key = _core_none()
+	v_name = _core_none()
+	v_other = _core_none()
+	v_previous = _core_none()
+	v_term = _core_none()
+	v_t1 = coreGet(v_n, "k", nil)
+	v_k = v_t1
+	v_t2 = _core_eq(v_k, "capture")
+	v_t3 = v_t2
+	if coreTruthy(v_t3) {
+		v_t4 = coreGet(v_n, "name", nil)
+		v_t5 = _core_none()
+		v_t6 = _core_ne(v_t4, v_t5)
+		v_t3 = v_t6
+	} else {
+	// empty
+	}
+	if coreTruthy(v_t3) {
+		v_t7 = coreGet(v_n, "name", nil)
+		v_name = v_t7
+		v_t8 = coreGet(v_seen, v_name, nil)
+		v_previous = v_t8
+		v_t9 = _core_none()
+		v_t10 = _core_eq(v_previous, v_t9)
+		if coreTruthy(v_t10) {
+			v_t11 = MutableArray()
+			v_previous = v_t11
+		} else {
+		// empty
+		}
+		for _, v_iter_12 = range coreIter(v_previous) {
+			v_other = v_iter_12
+			v_exclusive = false
+			v_t13 = _core_map_keys(v_path)
+			for _, v_iter_14 = range coreIter(v_t13) {
+				v_key = v_iter_14
+				v_t15 = coreGet(v_other, v_key, nil)
+				v_t16 = _core_none()
+				v_t17 = _core_ne(v_t15, v_t16)
+				v_t18 = v_t17
+				if coreTruthy(v_t18) {
+					v_t19 = coreGet(v_other, v_key, nil)
+					v_t20 = coreGet(v_path, v_key, nil)
+					v_t21 = _core_ne(v_t19, v_t20)
+					v_t18 = v_t21
+				} else {
+				// empty
+				}
+				if coreTruthy(v_t18) {
+					v_exclusive = true
+				} else {
+				// empty
+				}
+			}
+			v_t22 = _core_not(v_exclusive)
+			if coreTruthy(v_t22) {
+				v_t23 = _core_string_format("Invalid regular expression: {}", "Duplicate capture name")
+				v_t24 = _core_validation_error(v_t23)
+				return nil, asError(v_t24)
+			} else {
+			// empty
+			}
+		}
+		{ v, err := _regex_copy_map(v_path); if err != nil { return nil, err }; v_t25 = v }
+		v_previous = coreAppend(v_previous, v_t25)
+		if err := coreSet(v_seen, v_name, v_previous); err != nil { return nil, err }
+	} else {
+	// empty
+	}
+	v_t26 = _core_eq(v_k, "alt")
+	if coreTruthy(v_t26) {
+		v_t27 = coreGet(v_counter, "next", nil)
+		v_t28 = _core_add(v_t27, 1)
+		if err := coreSet(v_counter, "next", v_t28); err != nil { return nil, err }
+		v_t29 = coreGet(v_counter, "next", nil)
+		v_key = v_t29
+		v_index = 0
+		v_t30 = coreGet(v_n, "terms", nil)
+		for _, v_iter_31 = range coreIter(v_t30) {
+			v_term = v_iter_31
+			{ v, err := _regex_copy_map(v_path); if err != nil { return nil, err }; v_t32 = v }
+			v_branch = v_t32
+			if err := coreSet(v_branch, v_key, v_index); err != nil { return nil, err }
+			v_t33 = _core_add(v_index, 1)
+			v_index = v_t33
+			{ v, err := _regex_validate_names(v_term, v_branch, v_seen, v_counter); if err != nil { return nil, err }; v_t34 = v }
+		}
+	} else {
+		v_t35 = _core_eq(v_k, "seq")
+		if coreTruthy(v_t35) {
+			v_t36 = coreGet(v_n, "terms", nil)
+			for _, v_iter_37 = range coreIter(v_t36) {
+				v_term = v_iter_37
+				{ v, err := _regex_validate_names(v_term, v_path, v_seen, v_counter); if err != nil { return nil, err }; v_t38 = v }
+			}
+		} else {
+			v_t39 = coreGet(v_n, "child", nil)
+			v_t40 = _core_none()
+			v_t41 = _core_ne(v_t39, v_t40)
+			if coreTruthy(v_t41) {
+				v_t42 = coreGet(v_n, "child", nil)
+				{ v, err := _regex_validate_names(v_t42, v_path, v_seen, v_counter); if err != nil { return nil, err }; v_t43 = v }
+			} else {
+			// empty
+			}
+		}
+	}
+	return nil, nil
+}
+
+func _regex_id_start_ranges(args ...Value) (Value, error) {
+	axirCoverageMark("_regex_id_start_ranges")
+	var v_t1 Value
+	_ = v_t1
+	{ v, err := _core_json_parse("[[65,90],[97,122],[170,170],[181,181],[186,186],[192,214],[216,246],[248,705],[710,721],[736,740],[748,748],[750,750],[880,884],[886,887],[890,893],[895,895],[902,902],[904,906],[908,908],[910,929],[931,1013],[1015,1153],[1162,1327],[1329,1366],[1369,1369],[1376,1416],[1488,1514],[1519,1522],[1568,1610],[1646,1647],[1649,1747],[1749,1749],[1765,1766],[1774,1775],[1786,1788],[1791,1791],[1808,1808],[1810,1839],[1869,1957],[1969,1969],[1994,2026],[2036,2037],[2042,2042],[2048,2069],[2074,2074],[2084,2084],[2088,2088],[2112,2136],[2144,2154],[2160,2183],[2185,2191],[2208,2249],[2308,2361],[2365,2365],[2384,2384],[2392,2401],[2417,2432],[2437,2444],[2447,2448],[2451,2472],[2474,2480],[2482,2482],[2486,2489],[2493,2493],[2510,2510],[2524,2525],[2527,2529],[2544,2545],[2556,2556],[2565,2570],[2575,2576],[2579,2600],[2602,2608],[2610,2611],[2613,2614],[2616,2617],[2649,2652],[2654,2654],[2674,2676],[2693,2701],[2703,2705],[2707,2728],[2730,2736],[2738,2739],[2741,2745],[2749,2749],[2768,2768],[2784,2785],[2809,2809],[2821,2828],[2831,2832],[2835,2856],[2858,2864],[2866,2867],[2869,2873],[2877,2877],[2908,2909],[2911,2913],[2929,2929],[2947,2947],[2949,2954],[2958,2960],[2962,2965],[2969,2970],[2972,2972],[2974,2975],[2979,2980],[2984,2986],[2990,3001],[3024,3024],[3077,3084],[3086,3088],[3090,3112],[3114,3129],[3133,3133],[3160,3162],[3164,3165],[3168,3169],[3200,3200],[3205,3212],[3214,3216],[3218,3240],[3242,3251],[3253,3257],[3261,3261],[3292,3294],[3296,3297],[3313,3314],[3332,3340],[3342,3344],[3346,3386],[3389,3389],[3406,3406],[3412,3414],[3423,3425],[3450,3455],[3461,3478],[3482,3505],[3507,3515],[3517,3517],[3520,3526],[3585,3632],[3634,3635],[3648,3654],[3713,3714],[3716,3716],[3718,3722],[3724,3747],[3749,3749],[3751,3760],[3762,3763],[3773,3773],[3776,3780],[3782,3782],[3804,3807],[3840,3840],[3904,3911],[3913,3948],[3976,3980],[4096,4138],[4159,4159],[4176,4181],[4186,4189],[4193,4193],[4197,4198],[4206,4208],[4213,4225],[4238,4238],[4256,4293],[4295,4295],[4301,4301],[4304,4346],[4348,4680],[4682,4685],[4688,4694],[4696,4696],[4698,4701],[4704,4744],[4746,4749],[4752,4784],[4786,4789],[4792,4798],[4800,4800],[4802,4805],[4808,4822],[4824,4880],[4882,4885],[4888,4954],[4992,5007],[5024,5109],[5112,5117],[5121,5740],[5743,5759],[5761,5786],[5792,5866],[5870,5880],[5888,5905],[5919,5937],[5952,5969],[5984,5996],[5998,6000],[6016,6067],[6103,6103],[6108,6108],[6176,6264],[6272,6312],[6314,6314],[6320,6389],[6400,6430],[6480,6509],[6512,6516],[6528,6571],[6576,6601],[6656,6678],[6688,6740],[6823,6823],[6917,6963],[6981,6988],[7043,7072],[7086,7087],[7098,7141],[7168,7203],[7245,7247],[7258,7293],[7296,7306],[7312,7354],[7357,7359],[7401,7404],[7406,7411],[7413,7414],[7418,7418],[7424,7615],[7680,7957],[7960,7965],[7968,8005],[8008,8013],[8016,8023],[8025,8025],[8027,8027],[8029,8029],[8031,8061],[8064,8116],[8118,8124],[8126,8126],[8130,8132],[8134,8140],[8144,8147],[8150,8155],[8160,8172],[8178,8180],[8182,8188],[8305,8305],[8319,8319],[8336,8348],[8450,8450],[8455,8455],[8458,8467],[8469,8469],[8472,8477],[8484,8484],[8486,8486],[8488,8488],[8490,8505],[8508,8511],[8517,8521],[8526,8526],[8544,8584],[11264,11492],[11499,11502],[11506,11507],[11520,11557],[11559,11559],[11565,11565],[11568,11623],[11631,11631],[11648,11670],[11680,11686],[11688,11694],[11696,11702],[11704,11710],[11712,11718],[11720,11726],[11728,11734],[11736,11742],[12293,12295],[12321,12329],[12337,12341],[12344,12348],[12353,12438],[12443,12447],[12449,12538],[12540,12543],[12549,12591],[12593,12686],[12704,12735],[12784,12799],[13312,19903],[19968,42124],[42192,42237],[42240,42508],[42512,42527],[42538,42539],[42560,42606],[42623,42653],[42656,42735],[42775,42783],[42786,42888],[42891,42972],[42993,43009],[43011,43013],[43015,43018],[43020,43042],[43072,43123],[43138,43187],[43250,43255],[43259,43259],[43261,43262],[43274,43301],[43312,43334],[43360,43388],[43396,43442],[43471,43471],[43488,43492],[43494,43503],[43514,43518],[43520,43560],[43584,43586],[43588,43595],[43616,43638],[43642,43642],[43646,43695],[43697,43697],[43701,43702],[43705,43709],[43712,43712],[43714,43714],[43739,43741],[43744,43754],[43762,43764],[43777,43782],[43785,43790],[43793,43798],[43808,43814],[43816,43822],[43824,43866],[43868,43881],[43888,44002],[44032,55203],[55216,55238],[55243,55291],[63744,64109],[64112,64217],[64256,64262],[64275,64279],[64285,64285],[64287,64296],[64298,64310],[64312,64316],[64318,64318],[64320,64321],[64323,64324],[64326,64433],[64467,64829],[64848,64911],[64914,64967],[65008,65019],[65136,65140],[65142,65276],[65313,65338],[65345,65370],[65382,65470],[65474,65479],[65482,65487],[65490,65495],[65498,65500],[65536,65547],[65549,65574],[65576,65594],[65596,65597],[65599,65613],[65616,65629],[65664,65786],[65856,65908],[66176,66204],[66208,66256],[66304,66335],[66349,66378],[66384,66421],[66432,66461],[66464,66499],[66504,66511],[66513,66517],[66560,66717],[66736,66771],[66776,66811],[66816,66855],[66864,66915],[66928,66938],[66940,66954],[66956,66962],[66964,66965],[66967,66977],[66979,66993],[66995,67001],[67003,67004],[67008,67059],[67072,67382],[67392,67413],[67424,67431],[67456,67461],[67463,67504],[67506,67514],[67584,67589],[67592,67592],[67594,67637],[67639,67640],[67644,67644],[67647,67669],[67680,67702],[67712,67742],[67808,67826],[67828,67829],[67840,67861],[67872,67897],[67904,67929],[67968,68023],[68030,68031],[68096,68096],[68112,68115],[68117,68119],[68121,68149],[68192,68220],[68224,68252],[68288,68295],[68297,68324],[68352,68405],[68416,68437],[68448,68466],[68480,68497],[68608,68680],[68736,68786],[68800,68850],[68864,68899],[68938,68965],[68975,68997],[69248,69289],[69296,69297],[69314,69319],[69376,69404],[69415,69415],[69424,69445],[69488,69505],[69552,69572],[69600,69622],[69635,69687],[69745,69746],[69749,69749],[69763,69807],[69840,69864],[69891,69926],[69956,69956],[69959,69959],[69968,70002],[70006,70006],[70019,70066],[70081,70084],[70106,70106],[70108,70108],[70144,70161],[70163,70187],[70207,70208],[70272,70278],[70280,70280],[70282,70285],[70287,70301],[70303,70312],[70320,70366],[70405,70412],[70415,70416],[70419,70440],[70442,70448],[70450,70451],[70453,70457],[70461,70461],[70480,70480],[70493,70497],[70528,70537],[70539,70539],[70542,70542],[70544,70581],[70583,70583],[70609,70609],[70611,70611],[70656,70708],[70727,70730],[70751,70753],[70784,70831],[70852,70853],[70855,70855],[71040,71086],[71128,71131],[71168,71215],[71236,71236],[71296,71338],[71352,71352],[71424,71450],[71488,71494],[71680,71723],[71840,71903],[71935,71942],[71945,71945],[71948,71955],[71957,71958],[71960,71983],[71999,71999],[72001,72001],[72096,72103],[72106,72144],[72161,72161],[72163,72163],[72192,72192],[72203,72242],[72250,72250],[72272,72272],[72284,72329],[72349,72349],[72368,72440],[72640,72672],[72704,72712],[72714,72750],[72768,72768],[72818,72847],[72960,72966],[72968,72969],[72971,73008],[73030,73030],[73056,73061],[73063,73064],[73066,73097],[73112,73112],[73136,73179],[73440,73458],[73474,73474],[73476,73488],[73490,73523],[73648,73648],[73728,74649],[74752,74862],[74880,75075],[77712,77808],[77824,78895],[78913,78918],[78944,82938],[82944,83526],[90368,90397],[92160,92728],[92736,92766],[92784,92862],[92880,92909],[92928,92975],[92992,92995],[93027,93047],[93053,93071],[93504,93548],[93760,93823],[93856,93880],[93883,93907],[93952,94026],[94032,94032],[94099,94111],[94176,94177],[94179,94179],[94194,94198],[94208,101589],[101631,101662],[101760,101874],[110576,110579],[110581,110587],[110589,110590],[110592,110882],[110898,110898],[110928,110930],[110933,110933],[110948,110951],[110960,111355],[113664,113770],[113776,113788],[113792,113800],[113808,113817],[119808,119892],[119894,119964],[119966,119967],[119970,119970],[119973,119974],[119977,119980],[119982,119993],[119995,119995],[119997,120003],[120005,120069],[120071,120074],[120077,120084],[120086,120092],[120094,120121],[120123,120126],[120128,120132],[120134,120134],[120138,120144],[120146,120485],[120488,120512],[120514,120538],[120540,120570],[120572,120596],[120598,120628],[120630,120654],[120656,120686],[120688,120712],[120714,120744],[120746,120770],[120772,120779],[122624,122654],[122661,122666],[122928,122989],[123136,123180],[123191,123197],[123214,123214],[123536,123565],[123584,123627],[124112,124139],[124368,124397],[124400,124400],[124608,124638],[124640,124642],[124644,124645],[124647,124653],[124656,124660],[124670,124671],[124896,124902],[124904,124907],[124909,124910],[124912,124926],[124928,125124],[125184,125251],[125259,125259],[126464,126467],[126469,126495],[126497,126498],[126500,126500],[126503,126503],[126505,126514],[126516,126519],[126521,126521],[126523,126523],[126530,126530],[126535,126535],[126537,126537],[126539,126539],[126541,126543],[126545,126546],[126548,126548],[126551,126551],[126553,126553],[126555,126555],[126557,126557],[126559,126559],[126561,126562],[126564,126564],[126567,126570],[126572,126578],[126580,126583],[126585,126588],[126590,126590],[126592,126601],[126603,126619],[126625,126627],[126629,126633],[126635,126651],[131072,173791],[173824,178205],[178208,183981],[183984,191456],[191472,192093],[194560,195101],[196608,201546],[201552,210041]]"); if err != nil { return nil, err }; v_t1 = v }
+	return v_t1, nil
+}
+
+func _regex_id_continue_ranges(args ...Value) (Value, error) {
+	axirCoverageMark("_regex_id_continue_ranges")
+	var v_t1 Value
+	_ = v_t1
+	{ v, err := _core_json_parse("[[48,57],[65,90],[95,95],[97,122],[170,170],[181,181],[183,183],[186,186],[192,214],[216,246],[248,705],[710,721],[736,740],[748,748],[750,750],[768,884],[886,887],[890,893],[895,895],[902,906],[908,908],[910,929],[931,1013],[1015,1153],[1155,1159],[1162,1327],[1329,1366],[1369,1369],[1376,1416],[1425,1469],[1471,1471],[1473,1474],[1476,1477],[1479,1479],[1488,1514],[1519,1522],[1552,1562],[1568,1641],[1646,1747],[1749,1756],[1759,1768],[1770,1788],[1791,1791],[1808,1866],[1869,1969],[1984,2037],[2042,2042],[2045,2045],[2048,2093],[2112,2139],[2144,2154],[2160,2183],[2185,2191],[2199,2273],[2275,2403],[2406,2415],[2417,2435],[2437,2444],[2447,2448],[2451,2472],[2474,2480],[2482,2482],[2486,2489],[2492,2500],[2503,2504],[2507,2510],[2519,2519],[2524,2525],[2527,2531],[2534,2545],[2556,2556],[2558,2558],[2561,2563],[2565,2570],[2575,2576],[2579,2600],[2602,2608],[2610,2611],[2613,2614],[2616,2617],[2620,2620],[2622,2626],[2631,2632],[2635,2637],[2641,2641],[2649,2652],[2654,2654],[2662,2677],[2689,2691],[2693,2701],[2703,2705],[2707,2728],[2730,2736],[2738,2739],[2741,2745],[2748,2757],[2759,2761],[2763,2765],[2768,2768],[2784,2787],[2790,2799],[2809,2815],[2817,2819],[2821,2828],[2831,2832],[2835,2856],[2858,2864],[2866,2867],[2869,2873],[2876,2884],[2887,2888],[2891,2893],[2901,2903],[2908,2909],[2911,2915],[2918,2927],[2929,2929],[2946,2947],[2949,2954],[2958,2960],[2962,2965],[2969,2970],[2972,2972],[2974,2975],[2979,2980],[2984,2986],[2990,3001],[3006,3010],[3014,3016],[3018,3021],[3024,3024],[3031,3031],[3046,3055],[3072,3084],[3086,3088],[3090,3112],[3114,3129],[3132,3140],[3142,3144],[3146,3149],[3157,3158],[3160,3162],[3164,3165],[3168,3171],[3174,3183],[3200,3203],[3205,3212],[3214,3216],[3218,3240],[3242,3251],[3253,3257],[3260,3268],[3270,3272],[3274,3277],[3285,3286],[3292,3294],[3296,3299],[3302,3311],[3313,3315],[3328,3340],[3342,3344],[3346,3396],[3398,3400],[3402,3406],[3412,3415],[3423,3427],[3430,3439],[3450,3455],[3457,3459],[3461,3478],[3482,3505],[3507,3515],[3517,3517],[3520,3526],[3530,3530],[3535,3540],[3542,3542],[3544,3551],[3558,3567],[3570,3571],[3585,3642],[3648,3662],[3664,3673],[3713,3714],[3716,3716],[3718,3722],[3724,3747],[3749,3749],[3751,3773],[3776,3780],[3782,3782],[3784,3790],[3792,3801],[3804,3807],[3840,3840],[3864,3865],[3872,3881],[3893,3893],[3895,3895],[3897,3897],[3902,3911],[3913,3948],[3953,3972],[3974,3991],[3993,4028],[4038,4038],[4096,4169],[4176,4253],[4256,4293],[4295,4295],[4301,4301],[4304,4346],[4348,4680],[4682,4685],[4688,4694],[4696,4696],[4698,4701],[4704,4744],[4746,4749],[4752,4784],[4786,4789],[4792,4798],[4800,4800],[4802,4805],[4808,4822],[4824,4880],[4882,4885],[4888,4954],[4957,4959],[4969,4977],[4992,5007],[5024,5109],[5112,5117],[5121,5740],[5743,5759],[5761,5786],[5792,5866],[5870,5880],[5888,5909],[5919,5940],[5952,5971],[5984,5996],[5998,6000],[6002,6003],[6016,6099],[6103,6103],[6108,6109],[6112,6121],[6155,6157],[6159,6169],[6176,6264],[6272,6314],[6320,6389],[6400,6430],[6432,6443],[6448,6459],[6470,6509],[6512,6516],[6528,6571],[6576,6601],[6608,6618],[6656,6683],[6688,6750],[6752,6780],[6783,6793],[6800,6809],[6823,6823],[6832,6845],[6847,6877],[6880,6891],[6912,6988],[6992,7001],[7019,7027],[7040,7155],[7168,7223],[7232,7241],[7245,7293],[7296,7306],[7312,7354],[7357,7359],[7376,7378],[7380,7418],[7424,7957],[7960,7965],[7968,8005],[8008,8013],[8016,8023],[8025,8025],[8027,8027],[8029,8029],[8031,8061],[8064,8116],[8118,8124],[8126,8126],[8130,8132],[8134,8140],[8144,8147],[8150,8155],[8160,8172],[8178,8180],[8182,8188],[8204,8205],[8255,8256],[8276,8276],[8305,8305],[8319,8319],[8336,8348],[8400,8412],[8417,8417],[8421,8432],[8450,8450],[8455,8455],[8458,8467],[8469,8469],[8472,8477],[8484,8484],[8486,8486],[8488,8488],[8490,8505],[8508,8511],[8517,8521],[8526,8526],[8544,8584],[11264,11492],[11499,11507],[11520,11557],[11559,11559],[11565,11565],[11568,11623],[11631,11631],[11647,11670],[11680,11686],[11688,11694],[11696,11702],[11704,11710],[11712,11718],[11720,11726],[11728,11734],[11736,11742],[11744,11775],[12293,12295],[12321,12335],[12337,12341],[12344,12348],[12353,12438],[12441,12447],[12449,12543],[12549,12591],[12593,12686],[12704,12735],[12784,12799],[13312,19903],[19968,42124],[42192,42237],[42240,42508],[42512,42539],[42560,42607],[42612,42621],[42623,42737],[42775,42783],[42786,42888],[42891,42972],[42993,43047],[43052,43052],[43072,43123],[43136,43205],[43216,43225],[43232,43255],[43259,43259],[43261,43309],[43312,43347],[43360,43388],[43392,43456],[43471,43481],[43488,43518],[43520,43574],[43584,43597],[43600,43609],[43616,43638],[43642,43714],[43739,43741],[43744,43759],[43762,43766],[43777,43782],[43785,43790],[43793,43798],[43808,43814],[43816,43822],[43824,43866],[43868,43881],[43888,44010],[44012,44013],[44016,44025],[44032,55203],[55216,55238],[55243,55291],[63744,64109],[64112,64217],[64256,64262],[64275,64279],[64285,64296],[64298,64310],[64312,64316],[64318,64318],[64320,64321],[64323,64324],[64326,64433],[64467,64829],[64848,64911],[64914,64967],[65008,65019],[65024,65039],[65056,65071],[65075,65076],[65101,65103],[65136,65140],[65142,65276],[65296,65305],[65313,65338],[65343,65343],[65345,65370],[65381,65470],[65474,65479],[65482,65487],[65490,65495],[65498,65500],[65536,65547],[65549,65574],[65576,65594],[65596,65597],[65599,65613],[65616,65629],[65664,65786],[65856,65908],[66045,66045],[66176,66204],[66208,66256],[66272,66272],[66304,66335],[66349,66378],[66384,66426],[66432,66461],[66464,66499],[66504,66511],[66513,66517],[66560,66717],[66720,66729],[66736,66771],[66776,66811],[66816,66855],[66864,66915],[66928,66938],[66940,66954],[66956,66962],[66964,66965],[66967,66977],[66979,66993],[66995,67001],[67003,67004],[67008,67059],[67072,67382],[67392,67413],[67424,67431],[67456,67461],[67463,67504],[67506,67514],[67584,67589],[67592,67592],[67594,67637],[67639,67640],[67644,67644],[67647,67669],[67680,67702],[67712,67742],[67808,67826],[67828,67829],[67840,67861],[67872,67897],[67904,67929],[67968,68023],[68030,68031],[68096,68099],[68101,68102],[68108,68115],[68117,68119],[68121,68149],[68152,68154],[68159,68159],[68192,68220],[68224,68252],[68288,68295],[68297,68326],[68352,68405],[68416,68437],[68448,68466],[68480,68497],[68608,68680],[68736,68786],[68800,68850],[68864,68903],[68912,68921],[68928,68965],[68969,68973],[68975,68997],[69248,69289],[69291,69292],[69296,69297],[69314,69319],[69370,69404],[69415,69415],[69424,69456],[69488,69509],[69552,69572],[69600,69622],[69632,69702],[69734,69749],[69759,69818],[69826,69826],[69840,69864],[69872,69881],[69888,69940],[69942,69951],[69956,69959],[69968,70003],[70006,70006],[70016,70084],[70089,70092],[70094,70106],[70108,70108],[70144,70161],[70163,70199],[70206,70209],[70272,70278],[70280,70280],[70282,70285],[70287,70301],[70303,70312],[70320,70378],[70384,70393],[70400,70403],[70405,70412],[70415,70416],[70419,70440],[70442,70448],[70450,70451],[70453,70457],[70459,70468],[70471,70472],[70475,70477],[70480,70480],[70487,70487],[70493,70499],[70502,70508],[70512,70516],[70528,70537],[70539,70539],[70542,70542],[70544,70581],[70583,70592],[70594,70594],[70597,70597],[70599,70602],[70604,70611],[70625,70626],[70656,70730],[70736,70745],[70750,70753],[70784,70853],[70855,70855],[70864,70873],[71040,71093],[71096,71104],[71128,71133],[71168,71232],[71236,71236],[71248,71257],[71296,71352],[71360,71369],[71376,71395],[71424,71450],[71453,71467],[71472,71481],[71488,71494],[71680,71738],[71840,71913],[71935,71942],[71945,71945],[71948,71955],[71957,71958],[71960,71989],[71991,71992],[71995,72003],[72016,72025],[72096,72103],[72106,72151],[72154,72161],[72163,72164],[72192,72254],[72263,72263],[72272,72345],[72349,72349],[72368,72440],[72544,72551],[72640,72672],[72688,72697],[72704,72712],[72714,72758],[72760,72768],[72784,72793],[72818,72847],[72850,72871],[72873,72886],[72960,72966],[72968,72969],[72971,73014],[73018,73018],[73020,73021],[73023,73031],[73040,73049],[73056,73061],[73063,73064],[73066,73102],[73104,73105],[73107,73112],[73120,73129],[73136,73179],[73184,73193],[73440,73462],[73472,73488],[73490,73530],[73534,73538],[73552,73562],[73648,73648],[73728,74649],[74752,74862],[74880,75075],[77712,77808],[77824,78895],[78912,78933],[78944,82938],[82944,83526],[90368,90425],[92160,92728],[92736,92766],[92768,92777],[92784,92862],[92864,92873],[92880,92909],[92912,92916],[92928,92982],[92992,92995],[93008,93017],[93027,93047],[93053,93071],[93504,93548],[93552,93561],[93760,93823],[93856,93880],[93883,93907],[93952,94026],[94031,94087],[94095,94111],[94176,94177],[94179,94180],[94192,94198],[94208,101589],[101631,101662],[101760,101874],[110576,110579],[110581,110587],[110589,110590],[110592,110882],[110898,110898],[110928,110930],[110933,110933],[110948,110951],[110960,111355],[113664,113770],[113776,113788],[113792,113800],[113808,113817],[113821,113822],[118000,118009],[118528,118573],[118576,118598],[119141,119145],[119149,119154],[119163,119170],[119173,119179],[119210,119213],[119362,119364],[119808,119892],[119894,119964],[119966,119967],[119970,119970],[119973,119974],[119977,119980],[119982,119993],[119995,119995],[119997,120003],[120005,120069],[120071,120074],[120077,120084],[120086,120092],[120094,120121],[120123,120126],[120128,120132],[120134,120134],[120138,120144],[120146,120485],[120488,120512],[120514,120538],[120540,120570],[120572,120596],[120598,120628],[120630,120654],[120656,120686],[120688,120712],[120714,120744],[120746,120770],[120772,120779],[120782,120831],[121344,121398],[121403,121452],[121461,121461],[121476,121476],[121499,121503],[121505,121519],[122624,122654],[122661,122666],[122880,122886],[122888,122904],[122907,122913],[122915,122916],[122918,122922],[122928,122989],[123023,123023],[123136,123180],[123184,123197],[123200,123209],[123214,123214],[123536,123566],[123584,123641],[124112,124153],[124368,124410],[124608,124638],[124640,124661],[124670,124671],[124896,124902],[124904,124907],[124909,124910],[124912,124926],[124928,125124],[125136,125142],[125184,125259],[125264,125273],[126464,126467],[126469,126495],[126497,126498],[126500,126500],[126503,126503],[126505,126514],[126516,126519],[126521,126521],[126523,126523],[126530,126530],[126535,126535],[126537,126537],[126539,126539],[126541,126543],[126545,126546],[126548,126548],[126551,126551],[126553,126553],[126555,126555],[126557,126557],[126559,126559],[126561,126562],[126564,126564],[126567,126570],[126572,126578],[126580,126583],[126585,126588],[126590,126590],[126592,126601],[126603,126619],[126625,126627],[126629,126633],[126635,126651],[130032,130041],[131072,173791],[173824,178205],[178208,183981],[183984,191456],[191472,192093],[194560,195101],[196608,201546],[201552,210041],[917760,917999]]"); if err != nil { return nil, err }; v_t1 = v }
+	return v_t1, nil
+}
+
+func _regex_clear_capture(args ...Value) (Value, error) {
+	axirCoverageMark("_regex_clear_capture")
+	var v_caps Value
+	var v_key Value
+	var v_t1 Value
+	if len(args) > 0 { v_caps = args[0] }
+	_ = v_caps
+	if len(args) > 1 { v_key = args[1] }
+	_ = v_key
+	_ = v_t1
+	v_t1 = _core_none()
+	if err := coreSet(v_caps, v_key, v_t1); err != nil { return nil, err }
+	return nil, nil
+}
+
+func _regex_copy_map(args ...Value) (Value, error) {
+	axirCoverageMark("_regex_copy_map")
+	var v_value Value
+	var v_iter_3 Value
+	var v_key Value
+	var v_out Value
+	var v_t1 Value
+	var v_t2 Value
+	var v_t4 Value
+	if len(args) > 0 { v_value = args[0] }
+	_ = v_value
+	_ = v_iter_3
+	_ = v_key
+	_ = v_out
+	_ = v_t1
+	_ = v_t2
+	_ = v_t4
+	v_key = _core_none()
+	v_out = _core_none()
+	v_t1 = Object()
+	v_out = v_t1
+	v_t2 = _core_map_keys(v_value)
+	for _, v_iter_3 = range coreIter(v_t2) {
+		v_key = v_iter_3
+		v_t4 = coreGet(v_value, v_key, nil)
+		if err := coreSet(v_out, v_key, v_t4); err != nil { return nil, err }
+	}
+	return v_out, nil
 }
 
 func _agent_factory(args ...Value) (Value, error) {
@@ -46513,6 +51570,13 @@ func _agent_runtime_execution_options(args ...Value) (Value, error) {
 	{ v, err := _agent_runtime_reserved_names_for_state(v_state); if err != nil { return nil, err }; v_reserved_names = v }
 	v_runtime_options = _core_map_merge(v_empty_map, v_options)
 	_core_map_delete(v_runtime_options, "runtime")
+	_core_map_delete(v_runtime_options, "executionContext")
+	_core_map_delete(v_runtime_options, "inheritedExecutionContext")
+	_core_map_delete(v_runtime_options, "mcpExecutionContext")
+	_core_map_delete(v_runtime_options, "mcp")
+	_core_map_delete(v_runtime_options, "ucp")
+	_core_map_delete(v_runtime_options, "mcpContext")
+	_core_map_delete(v_runtime_options, "functions")
 	if err := coreSet(v_runtime_options, "reservedNames", v_reserved_names); err != nil { return nil, err }
 	v_timeout_ms = coreGet(v_options, "timeout_ms", nil)
 	v_timeout = coreGet(v_options, "timeout", v_timeout_ms)
@@ -50627,9 +55691,13 @@ func _agent_stage_options(args ...Value) (Value, error) {
 	var v_has_cache Value
 	var v_has_call_cache Value
 	var v_has_stage_cache Value
+	var v_host Value
+	var v_host_keys Value
 	var v_is_distiller Value
 	var v_is_executor Value
 	var v_is_responder Value
+	var v_key Value
+	var v_merged Value
 	var v_out Value
 	var v_parent_path Value
 	var v_parent_path_snake Value
@@ -50640,6 +55708,7 @@ func _agent_stage_options(args ...Value) (Value, error) {
 	var v_stage_path Value
 	var v_top_cache Value
 	var v_top_cache_snake Value
+	var v_value Value
 	if len(args) > 0 { v_state = args[0] }
 	_ = v_state
 	if len(args) > 1 { v_stage = args[1] }
@@ -50659,9 +55728,13 @@ func _agent_stage_options(args ...Value) (Value, error) {
 	_ = v_has_cache
 	_ = v_has_call_cache
 	_ = v_has_stage_cache
+	_ = v_host
+	_ = v_host_keys
 	_ = v_is_distiller
 	_ = v_is_executor
 	_ = v_is_responder
+	_ = v_key
+	_ = v_merged
 	_ = v_out
 	_ = v_parent_path
 	_ = v_parent_path_snake
@@ -50672,6 +55745,7 @@ func _agent_stage_options(args ...Value) (Value, error) {
 	_ = v_stage_path
 	_ = v_top_cache
 	_ = v_top_cache_snake
+	_ = v_value
 	v_empty_map = Object()
 	v_base_options = coreGet(v_state, "options", v_empty_map)
 	v_stage_options = Object()
@@ -50696,7 +55770,26 @@ func _agent_stage_options(args ...Value) (Value, error) {
 	} else {
 	// empty
 	}
-	v_out = _core_map_merge(v_stage_options, v_forward_options)
+	v_merged = _core_map_merge(v_stage_options, v_forward_options)
+	v_out = Object()
+	v_host_keys = MutableArray()
+	v_host_keys = coreAppend(v_host_keys, "executionContext")
+	v_host_keys = coreAppend(v_host_keys, "inheritedExecutionContext")
+	v_host_keys = coreAppend(v_host_keys, "mcpExecutionContext")
+	v_host_keys = coreAppend(v_host_keys, "mcp")
+	v_host_keys = coreAppend(v_host_keys, "ucp")
+	v_host_keys = coreAppend(v_host_keys, "mcpContext")
+	v_host_keys = coreAppend(v_host_keys, "functions")
+	v_host_keys = coreAppend(v_host_keys, "runtime")
+	for _, v_key = range coreIter(v_merged) {
+		v_host = _core_contains(v_host_keys, v_key)
+		if coreTruthy(v_host) {
+		// empty
+		} else {
+			v_value = coreGet(v_merged, v_key, nil)
+			if err := coreSet(v_out, v_key, v_value); err != nil { return nil, err }
+		}
+	}
 	v_base_control = coreGet(v_base_options, "control", nil)
 	v_controller = coreGet(v_forward_options, "control", v_base_control)
 	v_controlled = _core_is_not_none(v_controller)
@@ -52796,6 +57889,135 @@ func _agent_forward_impl(args ...Value) (Value, error) {
 	return v_responder_output, nil
 }
 
+func _agent_apply_run_context(args ...Value) (Value, error) {
+	axirCoverageMark("_agent_apply_run_context")
+	var v_state Value
+	var v_configured Value
+	var v_call Value
+	var v_modules Value
+	var v_catalog Value
+	var v_default_name Value
+	var v_distiller Value
+	var v_doc Value
+	var v_docs Value
+	var v_empty_list Value
+	var v_executor Value
+	var v_flags Value
+	var v_function Value
+	var v_functions Value
+	var v_inventory Value
+	var v_mcp Value
+	var v_name Value
+	var v_namespace Value
+	var v_options Value
+	var v_policy Value
+	var v_prompt Value
+	var v_protocol Value
+	var v_registry Value
+	var v_responder Value
+	var v_retained Value
+	var v_retained_docs Value
+	var v_runtime Value
+	var v_split Value
+	var v_ucp Value
+	var v_upgrade Value
+	if len(args) > 0 { v_state = args[0] }
+	_ = v_state
+	if len(args) > 1 { v_configured = args[1] }
+	_ = v_configured
+	if len(args) > 2 { v_call = args[2] }
+	_ = v_call
+	if len(args) > 3 { v_modules = args[3] }
+	_ = v_modules
+	_ = v_catalog
+	_ = v_default_name
+	_ = v_distiller
+	_ = v_doc
+	_ = v_docs
+	_ = v_empty_list
+	_ = v_executor
+	_ = v_flags
+	_ = v_function
+	_ = v_functions
+	_ = v_inventory
+	_ = v_mcp
+	_ = v_name
+	_ = v_namespace
+	_ = v_options
+	_ = v_policy
+	_ = v_prompt
+	_ = v_protocol
+	_ = v_registry
+	_ = v_responder
+	_ = v_retained
+	_ = v_retained_docs
+	_ = v_runtime
+	_ = v_split
+	_ = v_ucp
+	_ = v_upgrade
+	v_empty_list = MutableArray()
+	v_options = _core_map_merge(v_configured, v_call)
+	v_functions = coreGet(v_options, "functions", v_empty_list)
+	v_retained = MutableArray()
+	for _, v_function = range coreIter(v_functions) {
+		v_default_name = coreGet(v_function, "name", "")
+		v_namespace = coreGet(v_function, "namespace", v_default_name)
+		v_mcp = _core_string_starts_with(v_namespace, "mcp.")
+		v_ucp = _core_string_starts_with(v_namespace, "ucp.")
+		v_protocol = _core_or(v_mcp, v_ucp)
+		if coreTruthy(v_protocol) {
+		// empty
+		} else {
+			v_retained = coreAppend(v_retained, v_function)
+		}
+	}
+	if err := coreSet(v_options, "functions", v_retained); err != nil { return nil, err }
+	{ v, err := _agent_append_runtime_modules(v_options, v_modules); if err != nil { return nil, err }; v_options = v }
+	{ v, err := _normalize_agent_callable_inventory(v_options); if err != nil { return nil, err }; v_inventory = v }
+	{ v, err := _split_agent_callable_inventory(v_inventory); if err != nil { return nil, err }; v_split = v }
+	{ v, err := _render_agent_discovery_catalog(v_split); if err != nil { return nil, err }; v_catalog = v }
+	if err := coreSet(v_state, "options", v_options); err != nil { return nil, err }
+	if err := coreSet(v_state, "callable_inventory", v_inventory); err != nil { return nil, err }
+	if err := coreSet(v_state, "callable_split", v_split); err != nil { return nil, err }
+	if err := coreSet(v_state, "discovery_catalog", v_catalog); err != nil { return nil, err }
+	{ v, err := _resolve_agent_auto_upgrade(v_options); if err != nil { return nil, err }; v_upgrade = v }
+	{ v, err := _agent_policy_flags(v_options, v_split, v_upgrade); if err != nil { return nil, err }; v_flags = v }
+	{ v, err := _normalize_agent_policy(v_options); if err != nil { return nil, err }; v_policy = v }
+	{ v, err := _agent_policy_registry(v_policy, v_flags); if err != nil { return nil, err }; v_registry = v }
+	if err := coreSet(v_state, "policy_flags", v_flags); err != nil { return nil, err }
+	if err := coreSet(v_state, "policy_registry", v_registry); err != nil { return nil, err }
+	v_docs = coreGet(v_state, "discovered_tool_docs", v_empty_list)
+	v_retained_docs = MutableArray()
+	for _, v_doc = range coreIter(v_docs) {
+		v_name = coreGet(v_doc, "qualified_name", "")
+		v_mcp = _core_string_starts_with(v_name, "mcp.")
+		v_ucp = _core_string_starts_with(v_name, "ucp.")
+		v_protocol = _core_or(v_mcp, v_ucp)
+		if coreTruthy(v_protocol) {
+		// empty
+		} else {
+			v_retained_docs = coreAppend(v_retained_docs, v_doc)
+		}
+	}
+	if err := coreSet(v_state, "discovered_tool_docs", v_retained_docs); err != nil { return nil, err }
+	{ v, err := _build_agent_actor_prompt_policy(v_state); if err != nil { return nil, err }; v_prompt = v }
+	if err := coreSet(v_state, "actor_prompt_policy", v_prompt); err != nil { return nil, err }
+	v_runtime = coreGet(v_state, "runtime_enabled", false)
+	if coreTruthy(v_runtime) {
+		{ v, err := _render_rlm_executor_description(v_state, v_options); if err != nil { return nil, err }; v_executor = v }
+		{ v, err := _render_rlm_distiller_description(v_state, v_options); if err != nil { return nil, err }; v_distiller = v }
+		{ v, err := _render_rlm_responder_description(v_state, v_options); if err != nil { return nil, err }; v_responder = v }
+		if err := coreSet(v_state, "executor_description_base", v_executor); err != nil { return nil, err }
+		if err := coreSet(v_state, "distiller_description", v_distiller); err != nil { return nil, err }
+		if err := coreSet(v_state, "responder_description", v_responder); err != nil { return nil, err }
+		if _, err := _agent_refresh_actor_instruction(v_state); err != nil { return nil, err }
+	} else {
+	// empty
+	}
+	if err := coreSet(v_state, "mcp_run_context_active", true); err != nil { return nil, err }
+	return v_call, nil
+}
+
 func _agent_append_runtime_modules(args ...Value) (Value, error) {
 	axirCoverageMark("_agent_append_runtime_modules")
 	var v_options Value
@@ -52980,6 +58202,7 @@ func _agent_child_options(args ...Value) (Value, error) {
 	var v_active Value
 	var v_base Value
 	var v_empty_map Value
+	var v_inheritance Value
 	var v_key Value
 	var v_keys Value
 	var v_out Value
@@ -52998,6 +58221,7 @@ func _agent_child_options(args ...Value) (Value, error) {
 	_ = v_active
 	_ = v_base
 	_ = v_empty_map
+	_ = v_inheritance
 	_ = v_key
 	_ = v_keys
 	_ = v_out
@@ -53032,6 +58256,8 @@ func _agent_child_options(args ...Value) (Value, error) {
 		// empty
 		}
 	}
+	v_inheritance = coreGet(v_parent, "mcpInheritance", "all")
+	if err := coreSet(v_out, "mcpInheritanceFromParent", v_inheritance); err != nil { return nil, err }
 	v_snake_path = coreGet(v_parent, "execution_path", "root")
 	v_parent_path = coreGet(v_parent, "executionPath", v_snake_path)
 	v_path = _core_string_format("{}/{}", v_parent_path, v_qualified)
@@ -63177,6 +68403,7 @@ func (t Tool) invoke(args map[string]Value) (Value, error) {
     return t.invokeContext(context.Background(), args)
 }
 func (t Tool) invokeContext(ctx context.Context, args map[string]Value) (Value, error) {
+ if err:=ctx.Err();err!=nil{return nil,normalizeContextError(ctx,err)}
 	if _, err := validate_fields(toolFields(t.Args), args, "tool."+t.Name+".args"); err != nil {
 		return nil, err
 	}
@@ -63187,6 +68414,7 @@ func (t Tool) invokeContext(ctx context.Context, args map[string]Value) (Value, 
     var err error
     if t.ContextHandler != nil { out, err = t.ContextHandler(ctx, args) } else { out, err = t.Handler(args) }
 	if err != nil {
+        if ctx.Err()!=nil{return nil,normalizeContextError(ctx,err)}
 		return nil, AxError{Category: "runtime", Message: err.Error()}
 	}
 	if len(t.Returns) > 0 {
@@ -66843,11 +72071,14 @@ func (a *AxAgent) ForwardWithHooks(ctx context.Context, client AIClient, values 
 	if err != nil {
 		return nil, err
 	}
-	if executionContext != nil {
-		callOptions["executionContext"] = executionContext
-		functions := asSlice(coreGet(callOptions, "functions", Array()))
-		functions = append(functions, executionContext.RuntimeModules()...)
-		callOptions["functions"] = functions
+	if executionContext != nil || coreTruthy(coreGet(a.State,"mcp_run_context_active",false)) {
+        modules:=Array()
+        if executionContext!=nil{if err:=executionContext.Initialize();err!=nil{return nil,err};modules=executionContext.RuntimeModules()}
+        callOptions["executionContext"]=executionContext
+        if _,err:=_agent_apply_run_context(a.State,a.Options,callOptions,modules);err!=nil{return nil,err}
+        if coreTruthy(coreGet(a.State,"runtime_enabled",false)) {
+            for field,stage:=range map[string]*AxGen{"distiller_description":a.Distiller,"executor_description":a.Executor,"responder_description":a.Responder}{stage.Instruction=display(coreGet(a.State,field,""));coreSet(stage.Options,"instruction",stage.Instruction)}
+        }
 	}
 	boundClient := bindAIClientContext(ctx, client)
 	// Wire the built-in llmQuery primitive: a focused sub-query the model can
@@ -69830,7 +75061,12 @@ func _core_agent_stage_forward(stage Value, client Value, values Value, options 
 	case *AxFlow:
 		return p.Forward(ctx, ai, asMap(values), asMap(options))
 	case *AxAgent:
-		return p.Forward(ctx, ai, asMap(values), asMap(options))
+        forwarded:=Object();for key,value:=range asMap(options){forwarded[key]=value}
+        if policy,ok:=forwarded["mcpInheritanceFromParent"];ok{
+            parent,_:=forwarded["executionContext"].(*AxExecutionContext);delete(forwarded,"executionContext");delete(forwarded,"mcpInheritanceFromParent")
+            if parent!=nil{inherited,err:=parent.DeriveChecked(policy);if err!=nil{return nil,err};forwarded["inheritedExecutionContext"]=inherited}
+        }
+		return p.Forward(ctx, ai, asMap(values), forwarded)
 	}
     if program,ok := stage.(AxExecutableProgram);ok {return program.Forward(ctx,ai,asMap(values),asMap(options))}
     return nil,fmt.Errorf("Flow program has no executable forward method")
@@ -73393,6 +78629,10 @@ func runConformanceAgentForward(fixture map[string]Value) {
 		})
 		coreSet(options, "citations", citations)
 	}
+    mcpTransports:=map[string]*AxMCPScriptedTransport{};contextClients:=map[string][]*AxMCPClient{};contexts:=map[string]*AxExecutionContext{}
+    for _,raw:=range asSlice(coreGet(fixture,"mcp_clients",Array())){spec:=asMap(raw);owner,namespace:=display(coreGet(spec,"owner","parent")),display(spec["namespace"]);transport:=NewAxMCPScriptedTransport(asSlice(spec["responses"]));mcpTransports[owner+"/"+namespace]=transport;contextClients[owner]=append(contextClients[owner],NewAxMCPClient(transport,Object("namespace",namespace,"era","modern")))}
+    for owner,clients:=range contextClients{context,err:=NewAxExecutionContext(clients,nil);if err!=nil{panic(err)};contexts[owner]=context}
+    if context:=contexts["parent"];context!=nil{options["executionContext"]=context}
 	var runtime *conformanceScriptedCodeRuntime
 	if script := coreGet(fixture, "runtime_script", nil); script != nil {
 		runtimeConfig := asMap(coreGet(options, "runtime", Object()))
@@ -73410,7 +78650,10 @@ func runConformanceAgentForward(fixture map[string]Value) {
 		ag = NewAgent(display(coreGet(fixture, "signature", "question:string -> answer:string")), options)
         for _, rawChild := range asSlice(coreGet(fixture, "child_agents", Array())) {
             child := asMap(rawChild)
-            ag.AddChildAgent(display(child["namespace"]), display(child["name"]), NewAgent(display(child["signature"]), asMap(coreGet(child,"options",Object()))))
+            childOptions:=cloneMap(asMap(coreGet(child,"options",Object())));owner:=display(child["namespace"])+"."+display(child["name"])
+            if context:=contexts[owner];context!=nil{childOptions["executionContext"]=context}
+            if script:=coreGet(child,"runtime_script",nil);script!=nil{childOptions["runtime"]=newConformanceScriptedCodeRuntime(script,Object())}
+            ag.AddChildAgent(display(child["namespace"]), display(child["name"]), NewAgent(display(child["signature"]),childOptions))
         }
 		if instruction := coreGet(fixture, "set_instruction", nil); instruction != nil {
 			ag.SetInstruction(display(instruction))
@@ -73587,6 +78830,8 @@ func runConformanceAgentForward(fixture map[string]Value) {
 		}
 		assertEqual(actualStageRequests, expectedStageRequests, "exact agent stage request projection")
 	}
+    expectedMCPCalls:=asMap(coreGet(fixture,"expected_mcp_calls",Object()));for _,key:=range orderedKeys(expectedMCPCalls){expected:=expectedMCPCalls[key];actual:=Array();for _,request:=range mcpTransports[key].Requests{if request["method"]=="tools/call"{params:=coreGet(request,"params",Object());actual=append(actual,Object("name",coreGet(params,"name",nil),"arguments",coreGet(params,"arguments",nil)))}};assertEqual(actual,expected,"delegated MCP calls "+key)}
+    for _,raw:=range asSlice(coreGet(fixture,"expected_request_checks",Array())){check:=asMap(raw);request:=client.Requests[int(num(check["index"]))];text:=stableStringify(request);for _,value:=range asSlice(coreGet(check,"contains",Array())){if !strings.Contains(text,display(value)){panic("Child request missing "+display(value))}};for _,value:=range asSlice(coreGet(check,"not_contains",Array())){if strings.Contains(text,display(value)){panic("Child request exposed "+display(value))}};if coreTruthy(check["functions_absent"])&&coreTruthy(coreGet(request,"functions",nil)){panic("Agent runtime tools leaked into native functions")}}
 	if expected := coreGet(fixture, "expected_request_contains", nil); expected != nil {
 		text := stableStringify(client.Requests)
 		for _, item := range asSlice(expected) {
@@ -75114,4 +80359,4 @@ func extractQuotedSuffix(s string) (Value, error) {
 
 func _core_type_is_json(value Value) Value { return true }
 
-func Version() string { return "24.0.17" }
+func Version() string { return "24.0.18" }

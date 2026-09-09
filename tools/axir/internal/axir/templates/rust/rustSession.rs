@@ -646,7 +646,7 @@ impl SessionRun {
         let inherited=RUNTIME_HOOK_FRAMES.with(|frames|frames.borrow().clone());
         std::thread::spawn(move || {
             RUNTIME_HOOK_FRAMES.with(|frames|*frames.borrow_mut()=inherited);
-            let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| tool.call_with_context(args,AxToolContext{call_id:call["id"].as_str().map(str::to_string),cancelled:cancelled.clone()})))
+            let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| tool.call_with_context(args,AxToolContext{call_id:call["id"].as_str().map(str::to_string),cancelled:cancelled.clone(),..AxToolContext::default()})))
                 .unwrap_or_else(|_| Err(AxError::runtime("Tool handler panicked")));
             if !cancelled.load(Ordering::SeqCst) {
                 let _ = sender.send(ToolResult { call, result });
@@ -1382,7 +1382,7 @@ mod tests {
     }
     #[test]
     fn discovered_mcp_native_agent_invocation()->AxResult<()> {
-        let schema=json!({"type":"object","$defs":{"reference":{"type":"string","minLength":3}},"properties":{"query":{"$ref":"#/$defs/reference"}},"required":["query"],"additionalProperties":false});
+        let schema=json!({"type":"object","$defs":{"reference":{"type":"string","minLength":3,"pattern":"^(?=REF-[0-9]+$)(?<ref>REF)-[0-9]+$"}},"properties":{"query":{"$ref":"#/$defs/reference"}},"required":["query"],"additionalProperties":false});
         let gate=Arc::new(MCPAgentGate{started:AtomicBool::new(false),release:Mutex::new(false),ready:Condvar::new(),calls:AtomicUsize::new(0),schema});
         let mut mcp=AxMCPClient::new(Box::new(MCPAgentTransport(gate.clone())),json!({"era":"modern","namespace":"orders"}));mcp.init()?;let allowed=Arc::new(AtomicBool::new(false));let authorizations=Arc::new(AtomicUsize::new(0));let permission=allowed.clone();let counted=authorizations.clone();let schema=gate.schema.clone();mcp.set_tool_authorizer(move|client,call|{assert_eq!(client.namespace(),"orders");assert_eq!(call["namespace"],"orders");assert_eq!(call["tool"]["inputSchema"],schema);assert_eq!(call["arguments"],json!({"query":"REF-42"}));counted.fetch_add(1,Ordering::SeqCst);Ok(Some(permission.load(Ordering::SeqCst)))});let mut native=mcp.native_tools().remove(0);assert_eq!(native.execution,"blocking");native.execution="background".into();
         let denied=native.call(json!({"query":"REF-42"})).unwrap_err();assert!(denied.to_string().contains("MCP tool call denied by host policy: lookup"));assert_eq!(gate.calls.load(Ordering::SeqCst),0);allowed.store(true,Ordering::SeqCst);
@@ -1436,7 +1436,21 @@ mod tests {
         fn snapshot_globals(&mut self,_:Value)->AxResult<Value>{Ok(json!({"globals":{}}))}
         fn close(&mut self)->AxResult<Value>{self.closed.fetch_add(1,Ordering::SeqCst);Ok(json!({"closed":true}))}
     }
-    struct ChildControlTransport {requests:Arc<Mutex<Vec<Value>>>,delegated:Arc<AtomicBool>}
+    struct ChildMCPCancellation {control:AxRunControl,calls:Arc<AtomicUsize>,settled:Arc<AtomicBool>}
+    impl AxMCPTransport for ChildMCPCancellation {
+        fn send_notification(&mut self,_:Value)->AxResult<()>{Ok(())}
+        fn send(&mut self,message:Value)->AxResult<Value>{
+            let result=if message["method"]=="initialize"{json!({"protocolVersion":"2025-11-25","capabilities":{"tools":{}},"serverInfo":{"name":"fixture","version":"1"}})}else{json!({"tools":[{"name":"lookup","inputSchema":{"type":"object","additionalProperties":false}}]})};
+            Ok(json!({"jsonrpc":"2.0","id":message["id"],"result":result}))
+        }
+        fn send_with_context(&mut self,message:Value,_:serde_json::Map<String,Value>,context:&AxToolContext)->AxResult<Value>{
+            if message["method"]!="tools/call"{return self.send(message);}
+            assert_eq!(message["params"]["name"],"lookup");self.calls.fetch_add(1,Ordering::SeqCst);self.control.abort();let deadline=Instant::now();
+            while !context.is_cancelled()&&deadline.elapsed()<Duration::from_secs(1){std::thread::sleep(Duration::from_millis(1));}
+            assert!(context.is_cancelled(),"Child MCP cancellation did not propagate");self.settled.store(true,Ordering::SeqCst);Err(AxError::new("aborted","Child MCP invocation aborted"))
+        }
+    }
+    struct ChildControlTransport {requests:Arc<Mutex<Vec<Value>>>,delegated:Arc<AtomicBool>,cancel:bool}
     impl AxTransport for ChildControlTransport {
         fn send(&mut self,_:Value)->AxResult<Value>{Err(AxError::runtime("Expected session streaming"))}
         fn stream(&mut self,request:Value)->AxResult<AxTransportStream>{
@@ -1449,26 +1463,30 @@ mod tests {
             }else{assert!(body["previous_response_id"].is_null(),"child inherited conversation at request {number}: {body}");}
             if number==10{assert!(body.to_string().contains("REF-42"),"parent continued without child result");}
             let output=if stage.starts_with("root/team.researcher"){if stage.ends_with("/responder"){json!({"answer":"REF-42"})}else{json!({"completion":{"type":"final","args":["Find reference",{}]}})}}else if stage=="root/responder"{json!({"answer":"REF-42"})}else{json!({"javascriptCode":if stage=="root/executor"&&!self.delegated.load(Ordering::SeqCst){"delegate"}else{"parent-final"}})};
-            let mut event=completed(&format!("child-r{}",number+1),&output.to_string());event["response"]["usage"]=json!({"input_tokens":2,"output_tokens":1,"total_tokens":3});
+            let mut event=completed(&format!("child-r{}",number+1),&output.to_string());event["response"]["usage"]=json!({"input_tokens":2,"output_tokens":1,"total_tokens":3});if self.cancel&&number==6{event["response"]["output"]=json!([{"type":"function_call","name":"tools_lookup","call_id":"child-mcp","arguments":"{}","status":"completed"}]);}
             Ok(AxTransportStream::Buffered(json!({"status":200,"body":String::from_utf8(sse(event)).unwrap()})))
         }
     }
     #[test]
     fn owned_child_controls_and_cancellation()->AxResult<()> {
         for cancel in [false,true]{
-            let control=run_control();let observed=Arc::new(Mutex::new(Vec::new()));let seen=observed.clone();let stop=control.clone();
-            control.on_event(move |event|{seen.lock().unwrap().push(event.clone());if cancel&&event["type"]=="started"&&event["path"]=="root/team.researcher/executor"{stop.abort();}});
+            let control=run_control();let observed=Arc::new(Mutex::new(Vec::new()));let seen=observed.clone();
+            control.on_event(move |event|{seen.lock().unwrap().push(event.clone());});
             control.steer("ROOT-UPDATE")?;control.steer_at("CHILD-ONLY","root/team.researcher")?;control.set_thinking_token_budget_at("medium","root/team.researcher/executor")?;
             let delegated=Arc::new(AtomicBool::new(false));let closed=Arc::new(AtomicUsize::new(0));let requests=Arc::new(Mutex::new(Vec::new()));
-            let child=agent_with_options("question -> answer",json!({"directResponse":"off"}))?;
+            let mcp_calls=Arc::new(AtomicUsize::new(0));let settled=Arc::new(AtomicBool::new(false));
+            let mut mcp=AxMCPClient::new(Box::new(ChildMCPCancellation{control:control.clone(),calls:mcp_calls.clone(),settled:settled.clone()}),json!({"era":"legacy","namespace":"inventory"}));mcp.init()?;
+            let mut child=agent_with_options("question -> answer",json!({"directResponse":"off","functionDiscovery":false}))?;
+            if cancel{let mut native=mcp.native_tools().remove(0);native.execution="background".into();child=child.with_tool_module("tools",vec![native])?;}
             let callbacks=Arc::new(Mutex::new(std::collections::BTreeMap::new()));
             let mut parent=agent_with_options("question -> answer",json!({"directResponse":"off"}))?.with_child_agent("team","researcher",child)?.with_runtime(Box::new(ChildControlRuntime{delegated:delegated.clone(),closed:closed.clone(),callbacks:callbacks.clone()}))?;
-            let mut client=ai("openai",json!({"api_key":"test","model":"gpt-6-astra"}))?.with_transport(ChildControlTransport{requests:requests.clone(),delegated});
+            let mut client=ai("openai",json!({"api_key":"test","model":"gpt-6-astra"}))?.with_transport(ChildControlTransport{requests:requests.clone(),delegated,cancel});
             let result=parent.forward_with_options(&mut client,json!({"question":"Find reference"}),AxForwardOptions::default().with_control(control));
             if cancel{let error=result.expect_err("cancelled child returned success");assert!(error.to_string().to_lowercase().contains("abort"),"{error}");assert!((6..=7).contains(&requests.lock().unwrap().len()));assert_eq!(closed.load(Ordering::SeqCst),1);}else{
                 assert_eq!(result?,json!({"answer":"REF-42"}));assert_eq!(requests.lock().unwrap().len(),14);assert_eq!(observed.lock().unwrap().iter().filter(|event|event["type"]=="applied").count(),11);
                 let usage=parent.get_usage();let child=&usage["children"]["team.researcher"];assert_eq!(child["chat_log_entries"],6);assert_eq!(child["actor"].as_array().unwrap().len(),4);assert_eq!(child["responder"].as_array().unwrap().len(),2);
             }
+            if cancel{let deadline=Instant::now();while !settled.load(Ordering::SeqCst)&&deadline.elapsed()<Duration::from_secs(1){std::thread::sleep(Duration::from_millis(1));}assert!(settled.load(Ordering::SeqCst),"Child MCP cancellation did not settle");assert_eq!(mcp_calls.load(Ordering::SeqCst),1);}
             let calls:Vec<Value>=parent.get_action_log().into_iter().filter(|item|item["call_id"]=="child-call").collect();assert_eq!(calls.len(),1);assert_eq!(calls[0]["status"],if cancel{"error"}else{"ok"});
             assert!(parent.get_usage()["children"]["team.researcher"]["chat_log_entries"].as_u64().unwrap_or(0)>0,"Child failure usage lost");
             for name in ["team.researcher","llmQuery"]{let callback=callbacks.lock().unwrap().get(name).unwrap().clone();let error=callback(json!({"question":"Late request"})).expect_err("late callback executed");assert!(error.to_string().contains("closed"),"{error}");}

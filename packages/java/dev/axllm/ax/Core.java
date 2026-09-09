@@ -112,8 +112,11 @@ final class Core {
   static Object not(Object value) { return !truthy(value); }
   static Object and(Object left, Object right) { return truthy(left) && truthy(right); }
   static Object or(Object left, Object right) { return truthy(left) || truthy(right); }
-  static Object eq(Object left, Object right) { return java.util.Objects.equals(left, right); }
-  static Object ne(Object left, Object right) { return !java.util.Objects.equals(left, right); }
+  static Object eq(Object left, Object right) {
+    if (left instanceof Number a && right instanceof Number b) return a.doubleValue() == b.doubleValue();
+    return java.util.Objects.equals(left, right);
+  }
+  static Object ne(Object left, Object right) { return !truthy(eq(left, right)); }
   static Object lt(Object left, Object right) { return asDouble(left) < asDouble(right); }
   static Object lte(Object left, Object right) { return asDouble(left) <= asDouble(right); }
   static Object gt(Object left, Object right) { return asDouble(left) > asDouble(right); }
@@ -128,6 +131,11 @@ final class Core {
     return asDouble(left) / (denom == 0.0 ? 1.0 : denom);
   }
   static Object mathAbs(Object value) { return Math.abs(asDouble(value)); }
+  static Object stringUTF16Units(Object value) {
+    List<Object> units=new ArrayList<>();String text=String.valueOf(value);
+    for(int index=0;index<text.length();index++)units.add((int)text.charAt(index));
+    return units;
+  }
   static Object stringCodepointLength(Object value) { String text = String.valueOf(value); return text.codePointCount(0, text.length()); }
   static Object mathIsFinite(Object value) { return Double.isFinite(asDouble(value)); }
   static Object mathFloor(Object value) { return Math.floor(asDouble(value)); }
@@ -959,7 +967,13 @@ final class Core {
   static Object agentStageForward(Object stage, Object client, Object values, Object options) {
     if (!(stage instanceof AxProgram program)) throw new RuntimeException("agent stage is not AxProgram");
     if (!(client instanceof AiClient ai)) throw new RuntimeException("client does not implement AiClient");
-    return program.forward(ai, asMap(values), asMap(options));
+    Map<String,Object> forwarded = new LinkedHashMap<>(asMap(options));
+    if (stage instanceof AxAgent && forwarded.containsKey("mcpInheritanceFromParent")) {
+      Object context = forwarded.remove("executionContext");
+      Object policy = forwarded.remove("mcpInheritanceFromParent");
+      if (context instanceof AxExecutionContext parent) forwarded.put("inheritedExecutionContext", parent.derive(policy));
+    }
+    return program.forward(ai, asMap(values), forwarded);
   }
   static Object agentStageChatLog(Object stage) {
     if (stage instanceof AxProgram program) return program.getChatLog();
@@ -1102,7 +1116,10 @@ final class Core {
     String qualified = String.valueOf(get(request, "qualified_name", get(request, "name", "")));
     Object implementation=_agent_callable_implementation(state,qualified);
     Object values=get(request,"args",Map.of());
-    if(implementation instanceof Tool tool){var result=new LinkedHashMap<String,Object>();result.put("status","ok");result.put("value",toolInvoke(tool,values));return result;}
+    java.util.function.BooleanSupplier cancelled=()->Thread.currentThread().isInterrupted()
+      || get(optionsArg,"control",null) instanceof AxRunControl control && control.isAborted()
+      || get(optionsArg,"cancellation",get(optionsArg,"cancellationToken",get(optionsArg,"cancellation_token",null))) instanceof AxCancellationToken token && token.cancelled();
+    if(implementation instanceof Tool tool){var result=new LinkedHashMap<String,Object>();result.put("status","ok");result.put("value",toolInvoke(tool,values,cancelled));return result;}
     Object handler=get(implementation,"handler",null);
     if(handler instanceof Tool.Handler callback){try{Object value=callback.call(asMap(values));var result=new LinkedHashMap<String,Object>();result.put("status","ok");result.put("value",value);return result;}catch(Exception error){throw asRuntime(error);}}
     Object scripted = options.getOrDefault("callable_results", options.get("callableResults"));
@@ -12990,6 +13007,23 @@ final class Core {
     return selection;
   }
 
+  static Object _regex_peek(Object s) {
+    axirCoverageMark("_regex_peek");
+    Object t1 = Core.get(s, "p", null);
+    Object t2 = Core.get(s, "u", null);
+    Object t3 = Core.len(t2);
+    Object t4 = Core.gte(t1, t3);
+    if (Core.truthy(t4)) {
+      Object t5 = Core.mul(-1, 1);
+      Object t6 = Core.mathFloor(t5);
+      return t6;
+    }
+    Object t7 = Core.get(s, "u", null);
+    Object t8 = Core.get(s, "p", null);
+    Object t9 = Core.get(t7, t8, null);
+    return t9;
+  }
+
   static Object chat_session_validate_required_arguments(Object schema, Object arguments, Object path) {
     axirCoverageMark("chat_session_validate_required_arguments");
     Object errors = Core._chat_session_argument_errors(schema, schema, arguments, path, 0);
@@ -13043,6 +13077,17 @@ final class Core {
     Object message = Core.stringFormat("Function not found: {}. Available functions: {}. Call one of these exact function names.", name, available);
     Object error = Core.validationError(message);
     throw Core.asRuntime(error);
+  }
+
+  static Object _regex_take(Object s) {
+    axirCoverageMark("_regex_take");
+    Object c = Core.none();
+    Object t1 = Core._regex_peek(s);
+    c = t1;
+    Object t2 = Core.get(s, "p", null);
+    Object t3 = Core.add(t2, 1);
+    Core.set(s, "p", t3);
+    return c;
   }
 
   static Object stream_extraction_route(Object has_complex_fields) {
@@ -13154,6 +13199,17 @@ final class Core {
     }
     Object same = Core.eq(left, right);
     return same;
+  }
+
+  static Object _regex_digit(Object c) {
+    axirCoverageMark("_regex_digit");
+    Object t1 = Core.gte(c, 48);
+    Object t2 = t1;
+    if (Core.truthy(t2)) {
+      Object t3 = Core.lte(c, 57);
+      t2 = t3;
+    }
+    return t2;
   }
 
   static Object stream_structured_delta(Object fields, Object parsed_values, Object previous_values, Object partial_array_incomplete) {
@@ -13340,6 +13396,59 @@ final class Core {
       }
     }
     return Boolean.TRUE;
+  }
+
+  static Object _regex_hexdigit(Object c) {
+    axirCoverageMark("_regex_hexdigit");
+    Object t1 = Core._regex_digit(c);
+    if (Core.truthy(t1)) {
+      Object t2 = Core.mul(-1, 48);
+      Object t3 = Core.add(c, t2);
+      Object t4 = Core.mathFloor(t3);
+      return t4;
+    }
+    Object t5 = Core.gte(c, 65);
+    Object t6 = t5;
+    if (Core.truthy(t6)) {
+      Object t7 = Core.lte(c, 70);
+      t6 = t7;
+    }
+    if (Core.truthy(t6)) {
+      Object t8 = Core.mul(-1, 55);
+      Object t9 = Core.add(c, t8);
+      Object t10 = Core.mathFloor(t9);
+      return t10;
+    }
+    Object t11 = Core.gte(c, 97);
+    Object t12 = t11;
+    if (Core.truthy(t12)) {
+      Object t13 = Core.lte(c, 102);
+      t12 = t13;
+    }
+    if (Core.truthy(t12)) {
+      Object t14 = Core.mul(-1, 87);
+      Object t15 = Core.add(c, t14);
+      Object t16 = Core.mathFloor(t15);
+      return t16;
+    }
+    Object t17 = Core.mul(-1, 1);
+    Object t18 = Core.mathFloor(t17);
+    return t18;
+  }
+
+  static Object _regex_node(Object k) {
+    axirCoverageMark("_regex_node");
+    Object t1 = new java.util.LinkedHashMap<String, Object>();
+    Core.set(t1, "k", k);
+    return t1;
+  }
+
+  static Object _regex_literal(Object c) {
+    axirCoverageMark("_regex_literal");
+    Object t1 = new java.util.LinkedHashMap<String, Object>();
+    Core.set(t1, "k", "char");
+    Core.set(t1, "c", c);
+    return t1;
   }
 
   static Object _validate_optimization_component_map(Object components, Object component_map) {
@@ -13581,7 +13690,7 @@ final class Core {
       }
       Object pattern = Core.get(schema, "pattern", "");
       if (Core.truthy(pattern)) {
-        Object matches = Core.regexMatch(pattern, arguments);
+        Object matches = Core._regex_test(pattern, arguments);
         if (Core.truthy(matches)) {
           // empty
         }
@@ -13684,6 +13793,129 @@ final class Core {
       }
     }
     return errors;
+  }
+
+  static Object _regex_scan_groups(Object u) {
+    axirCoverageMark("_regex_scan_groups");
+    Object c = Core.none();
+    Object count = Core.none();
+    Object i = Core.none();
+    Object ids = Core.none();
+    Object inside = Core.none();
+    Object name = Core.none();
+    Object named = Core.none();
+    Object names = Core.none();
+    Object parser = Core.none();
+    Object special = Core.none();
+    count = 0;
+    i = 0;
+    inside = Boolean.FALSE;
+    Object t1 = new java.util.LinkedHashMap<String, Object>();
+    names = t1;
+    while (Core.truthy(Boolean.TRUE)) {
+      Object t2 = Core.len(u);
+      Object t3 = Core.lt(i, t2);
+      Object t4 = Core.not(t3);
+      if (Core.truthy(t4)) {
+        break;
+      }
+      Object t5 = Core.get(u, i, null);
+      c = t5;
+      Object t6 = Core.add(i, 1);
+      i = t6;
+      Object t7 = Core.eq(c, 92);
+      if (Core.truthy(t7)) {
+        Object t8 = Core.add(i, 1);
+        i = t8;
+        continue;
+      }
+      Object t9 = Core.eq(c, 91);
+      if (Core.truthy(t9)) {
+        inside = Boolean.TRUE;
+      }
+      Object t10 = Core.eq(c, 93);
+      if (Core.truthy(t10)) {
+        inside = Boolean.FALSE;
+      }
+      Object t11 = Core.eq(c, 40);
+      Object t12 = t11;
+      if (Core.truthy(t12)) {
+        Object t13 = Core.not(inside);
+        t12 = t13;
+      }
+      if (Core.truthy(t12)) {
+        Object t14 = Core.len(u);
+        Object t15 = Core.lt(i, t14);
+        Object t16 = t15;
+        if (Core.truthy(t16)) {
+          Object t17 = Core.get(u, i, null);
+          Object t18 = Core.eq(t17, 63);
+          t16 = t18;
+        }
+        special = t16;
+        Object t19 = special;
+        if (Core.truthy(t19)) {
+          Object t20 = Core.add(i, 2);
+          Object t21 = Core.len(u);
+          Object t22 = Core.lt(t20, t21);
+          t19 = t22;
+        }
+        if (Core.truthy(t19)) {
+          Object t23 = Core.add(i, 1);
+          Object t24 = Core.get(u, t23, null);
+          Object t25 = Core.eq(t24, 60);
+          t19 = t25;
+        }
+        if (Core.truthy(t19)) {
+          Object t26 = Core.add(i, 2);
+          Object t27 = Core.get(u, t26, null);
+          Object t28 = Core.ne(t27, 61);
+          t19 = t28;
+        }
+        if (Core.truthy(t19)) {
+          Object t29 = Core.add(i, 2);
+          Object t30 = Core.get(u, t29, null);
+          Object t31 = Core.ne(t30, 33);
+          t19 = t31;
+        }
+        named = t19;
+        Object t32 = Core.not(special);
+        Object t33 = t32;
+        Object t34 = Core.not(t33);
+        if (Core.truthy(t34)) {
+          t33 = named;
+        }
+        if (Core.truthy(t33)) {
+          Object t35 = Core.add(count, 1);
+          count = t35;
+          if (Core.truthy(named)) {
+            Object t36 = new java.util.LinkedHashMap<String, Object>();
+            Core.set(t36, "u", u);
+            Object t37 = Core.add(i, 2);
+            Core.set(t36, "p", t37);
+            parser = t36;
+            Object t38 = Core._regex_read_name(parser);
+            name = t38;
+            Object t39 = Core.get(parser, "p", null);
+            i = t39;
+            Object t40 = Core.get(names, name, null);
+            ids = t40;
+            Object t41 = Core.none();
+            Object t42 = Core.eq(ids, t41);
+            if (Core.truthy(t42)) {
+              Object t43 = new java.util.ArrayList<Object>();
+              ids = t43;
+            }
+            Core.append(ids, count);
+            Core.set(names, name, ids);
+          }
+        }
+      }
+    }
+    Object t44 = new java.util.LinkedHashMap<String, Object>();
+    Core.set(t44, "count", count);
+    Core.set(t44, "names", names);
+    return t44;
   }
 
   static Object _structured_output_scalar_placeholder(Object typ) {
@@ -13900,6 +14132,339 @@ final class Core {
     axirCoverageMark("_serialize_optimized_artifact");
     Object text = Core.jsonStringify(artifact);
     return text;
+  }
+
+  static Object _regex_escaped(Object s, Object inside) {
+    axirCoverageMark("_regex_escaped");
+    Object c = Core.none();
+    Object d = Core.none();
+    Object i = Core.none();
+    Object limit = Core.none();
+    Object n = Core.none();
+    Object name = Core.none();
+    Object start = Core.none();
+    Object value = Core.none();
+    Object t1 = Core._regex_take(s);
+    c = t1;
+    Object t2 = Core.lt(c, 0);
+    if (Core.truthy(t2)) {
+      Object t3 = Core.stringFormat("Invalid regular expression: {}", "Trailing escape");
+      Object t4 = Core.validationError(t3);
+      throw Core.asRuntime(t4);
+    }
+    Object t5 = Core.eq(c, 100);
+    Object t6 = t5;
+    Object t7 = Core.not(t6);
+    if (Core.truthy(t7)) {
+      Object t8 = Core.eq(c, 68);
+      t6 = t8;
+    }
+    Object t9 = Core.not(t6);
+    if (Core.truthy(t9)) {
+      Object t10 = Core.eq(c, 119);
+      t6 = t10;
+    }
+    Object t11 = Core.not(t6);
+    if (Core.truthy(t11)) {
+      Object t12 = Core.eq(c, 87);
+      t6 = t12;
+    }
+    Object t13 = Core.not(t6);
+    if (Core.truthy(t13)) {
+      Object t14 = Core.eq(c, 115);
+      t6 = t14;
+    }
+    Object t15 = Core.not(t6);
+    if (Core.truthy(t15)) {
+      Object t16 = Core.eq(c, 83);
+      t6 = t16;
+    }
+    if (Core.truthy(t6)) {
+      Object t17 = new java.util.LinkedHashMap<String, Object>();
+      Core.set(t17, "k", "class_escape");
+      Core.set(t17, "c", c);
+      return t17;
+    }
+    Object t18 = Core.eq(c, 98);
+    if (Core.truthy(t18)) {
+      if (Core.truthy(inside)) {
+        Object t19 = Core._regex_literal(8);
+        return t19;
+      }
+      Object t20 = new java.util.LinkedHashMap<String, Object>();
+      Core.set(t20, "k", "boundary");
+      Core.set(t20, "negative", Boolean.FALSE);
+      return t20;
+    }
+    Object t21 = Core.eq(c, 66);
+    Object t22 = t21;
+    if (Core.truthy(t22)) {
+      Object t23 = Core.not(inside);
+      t22 = t23;
+    }
+    if (Core.truthy(t22)) {
+      Object t24 = new java.util.LinkedHashMap<String, Object>();
+      Core.set(t24, "k", "boundary");
+      Core.set(t24, "negative", Boolean.TRUE);
+      return t24;
+    }
+    Object t25 = Core.eq(c, 102);
+    if (Core.truthy(t25)) {
+      Object t26 = Core._regex_literal(12);
+      return t26;
+    }
+    Object t27 = Core.eq(c, 110);
+    if (Core.truthy(t27)) {
+      Object t28 = Core._regex_literal(10);
+      return t28;
+    }
+    Object t29 = Core.eq(c, 114);
+    if (Core.truthy(t29)) {
+      Object t30 = Core._regex_literal(13);
+      return t30;
+    }
+    Object t31 = Core.eq(c, 116);
+    if (Core.truthy(t31)) {
+      Object t32 = Core._regex_literal(9);
+      return t32;
+    }
+    Object t33 = Core.eq(c, 118);
+    if (Core.truthy(t33)) {
+      Object t34 = Core._regex_literal(11);
+      return t34;
+    }
+    Object t35 = Core.eq(c, 120);
+    Object t36 = t35;
+    Object t37 = Core.not(t36);
+    if (Core.truthy(t37)) {
+      Object t38 = Core.eq(c, 117);
+      t36 = t38;
+    }
+    if (Core.truthy(t36)) {
+      n = 2;
+      Object t39 = Core.eq(c, 117);
+      if (Core.truthy(t39)) {
+        n = 4;
+      }
+      Object t40 = Core.get(s, "p", null);
+      start = t40;
+      value = 0;
+      i = 0;
+      while (Core.truthy(Boolean.TRUE)) {
+        Object t41 = Core.lt(i, n);
+        Object t42 = t41;
+        if (Core.truthy(t42)) {
+          Object t43 = Core._regex_peek(s);
+          Object t44 = Core._regex_hexdigit(t43);
+          Object t45 = Core.gte(t44, 0);
+          t42 = t45;
+        }
+        Object t46 = Core.not(t42);
+        if (Core.truthy(t46)) {
+          break;
+        }
+        Object t47 = Core.mul(value, 16);
+        Object t48 = Core.mathFloor(t47);
+        Object t49 = Core._regex_take(s);
+        Object t50 = Core._regex_hexdigit(t49);
+        Object t51 = Core.add(t48, t50);
+        value = t51;
+        Object t52 = Core.add(i, 1);
+        i = t52;
+      }
+      Object t53 = Core.eq(i, n);
+      if (Core.truthy(t53)) {
+        Object t54 = Core._regex_literal(value);
+        return t54;
+      }
+      Core.set(s, "p", start);
+      Object t55 = Core._regex_literal(c);
+      return t55;
+    }
+    Object t56 = Core.eq(c, 99);
+    if (Core.truthy(t56)) {
+      Object t57 = Core._regex_peek(s);
+      d = t57;
+      Object t58 = Core.gte(d, 65);
+      Object t59 = t58;
+      if (Core.truthy(t59)) {
+        Object t60 = Core.lte(d, 90);
+        t59 = t60;
+      }
+      Object t61 = t59;
+      Object t62 = Core.not(t61);
+      if (Core.truthy(t62)) {
+        Object t63 = Core.gte(d, 97);
+        Object t64 = t63;
+        if (Core.truthy(t64)) {
+          Object t65 = Core.lte(d, 122);
+          t64 = t65;
+        }
+        t61 = t64;
+      }
+      Object t66 = Core.not(t61);
+      if (Core.truthy(t66)) {
+        Object t67 = inside;
+        if (Core.truthy(t67)) {
+          Object t68 = Core._regex_digit(d);
+          Object t69 = t68;
+          Object t70 = Core.not(t69);
+          if (Core.truthy(t70)) {
+            Object t71 = Core.eq(d, 95);
+            t69 = t71;
+          }
+          t67 = t69;
+        }
+        t61 = t67;
+      }
+      if (Core.truthy(t61)) {
+        Object t72 = Core._regex_take(s);
+        Object t73 = Core.div(d, 32);
+        Object t74 = Core.mathFloor(t73);
+        Object t75 = Core.mul(32, t74);
+        Object t76 = Core.mul(-1, t75);
+        Object t77 = Core.add(d, t76);
+        Object t78 = Core.mathFloor(t77);
+        Object t79 = Core._regex_literal(t78);
+        return t79;
+      }
+      Object t80 = Core.get(s, "p", null);
+      Object t81 = Core.mul(-1, 1);
+      Object t82 = Core.add(t80, t81);
+      Object t83 = Core.mathFloor(t82);
+      Core.set(s, "p", t83);
+      Object t84 = Core._regex_literal(92);
+      return t84;
+    }
+    Object t85 = Core._regex_digit(c);
+    if (Core.truthy(t85)) {
+      Object t86 = Core.get(s, "p", null);
+      start = t86;
+      Object t87 = Core.mul(-1, 48);
+      Object t88 = Core.add(c, t87);
+      Object t89 = Core.mathFloor(t88);
+      value = t89;
+      while (Core.truthy(Boolean.TRUE)) {
+        Object t90 = Core._regex_peek(s);
+        Object t91 = Core._regex_digit(t90);
+        Object t92 = Core.not(t91);
+        if (Core.truthy(t92)) {
+          break;
+        }
+        Object t93 = Core.mul(value, 10);
+        Object t94 = Core.mathFloor(t93);
+        Object t95 = Core._regex_take(s);
+        Object t96 = Core.add(t94, t95);
+        Object t97 = Core.mul(-1, 48);
+        Object t98 = Core.add(t96, t97);
+        Object t99 = Core.mathFloor(t98);
+        value = t99;
+      }
+      Object t100 = Core.ne(c, 48);
+      Object t101 = t100;
+      if (Core.truthy(t101)) {
+        Object t102 = Core.not(inside);
+        t101 = t102;
+      }
+      if (Core.truthy(t101)) {
+        Object t103 = Core.get(s, "total", null);
+        Object t104 = Core.lte(value, t103);
+        t101 = t104;
+      }
+      if (Core.truthy(t101)) {
+        Object t105 = new java.util.LinkedHashMap<String, Object>();
+        Core.set(t105, "k", "ref");
+        Object t106 = new java.util.ArrayList<Object>();
+        Core.append(t106, value);
+        Core.set(t105, "ids", t106);
+        return t105;
+      }
+      Core.set(s, "p", start);
+      Object t107 = Core.lte(c, 55);
+      if (Core.truthy(t107)) {
+        Object t108 = Core.mul(-1, 48);
+        Object t109 = Core.add(c, t108);
+        Object t110 = Core.mathFloor(t109);
+        value = t110;
+        n = 1;
+        limit = 3;
+        Object t111 = Core.gt(c, 51);
+        if (Core.truthy(t111)) {
+          limit = 2;
+        }
+        while (Core.truthy(Boolean.TRUE)) {
+          Object t112 = Core.lt(n, limit);
+          Object t113 = t112;
+          if (Core.truthy(t113)) {
+            Object t114 = Core._regex_peek(s);
+            Object t115 = Core.gte(t114, 48);
+            t113 = t115;
+          }
+          if (Core.truthy(t113)) {
+            Object t116 = Core._regex_peek(s);
+            Object t117 = Core.lte(t116, 55);
+            t113 = t117;
+          }
+          Object t118 = Core.not(t113);
+          if (Core.truthy(t118)) {
+            break;
+          }
+          Object t119 = Core.mul(value, 8);
+          Object t120 = Core.mathFloor(t119);
+          Object t121 = Core._regex_take(s);
+          Object t122 = Core.add(t120, t121);
+          Object t123 = Core.mul(-1, 48);
+          Object t124 = Core.add(t122, t123);
+          Object t125 = Core.mathFloor(t124);
+          value = t125;
+          Object t126 = Core.add(n, 1);
+          n = t126;
+        }
+        Object t127 = Core._regex_literal(value);
+        return t127;
+      }
+      Object t128 = Core._regex_literal(c);
+      return t128;
+    }
+    Object t129 = Core.eq(c, 107);
+    Object t130 = t129;
+    if (Core.truthy(t130)) {
+      Object t131 = Core.not(inside);
+      t130 = t131;
+    }
+    if (Core.truthy(t130)) {
+      Object t132 = Core.get(s, "names", null);
+      Object t133 = Core.len(t132);
+      Object t134 = Core.gt(t133, 0);
+      t130 = t134;
+    }
+    if (Core.truthy(t130)) {
+      Object t135 = Core._regex_take(s);
+      Object t136 = Core.ne(t135, 60);
+      if (Core.truthy(t136)) {
+        Object t137 = Core.stringFormat("Invalid regular expression: {}", "Invalid named backreference");
+        Object t138 = Core.validationError(t137);
+        throw Core.asRuntime(t138);
+      }
+      Object t139 = Core._regex_read_name(s);
+      name = t139;
+      Object t140 = Core.get(s, "names", null);
+      Object t141 = Core.mapContains(t140, name);
+      Object t142 = Core.not(t141);
+      if (Core.truthy(t142)) {
+        Object t143 = Core.stringFormat("Invalid regular expression: {}", "Unknown named backreference");
+        Object t144 = Core.validationError(t143);
+        throw Core.asRuntime(t144);
+      }
+      Object t145 = new java.util.LinkedHashMap<String, Object>();
+      Core.set(t145, "k", "ref");
+      Object t146 = Core.get(s, "names", null);
+      Object t147 = Core.get(t146, name, null);
+      Core.set(t145, "ids", t147);
+      return t145;
+    }
+    Object t148 = Core._regex_literal(c);
+    return t148;
   }
 
   static Object _append_structured_output_instruction(Object messages, Object output_fields, Object selection) {
@@ -14731,6 +15296,20 @@ final class Core {
     return out;
   }
 
+  static Object _regex_class_atom(Object s) {
+    axirCoverageMark("_regex_class_atom");
+    Object c = Core.none();
+    Object t1 = Core._regex_take(s);
+    c = t1;
+    Object t2 = Core.eq(c, 92);
+    if (Core.truthy(t2)) {
+      Object t3 = Core._regex_escaped(s, Boolean.TRUE);
+      return t3;
+    }
+    Object t4 = Core._regex_literal(c);
+    return t4;
+  }
+
   static Object chat_session_register_call(Object state, Object call, Object execution) {
     axirCoverageMark("chat_session_register_call");
     Object terminal = Core.get(state, "terminal", Boolean.FALSE);
@@ -14754,6 +15333,104 @@ final class Core {
     Core.set(pending, id, record);
     Core.set(state, "pending", pending);
     return Boolean.TRUE;
+  }
+
+  static Object _regex_character_class(Object s) {
+    axirCoverageMark("_regex_character_class");
+    Object first = Core.none();
+    Object last = Core.none();
+    Object negative = Core.none();
+    Object terms = Core.none();
+    negative = Boolean.FALSE;
+    Object t1 = new java.util.ArrayList<Object>();
+    terms = t1;
+    Object t2 = Core._regex_peek(s);
+    Object t3 = Core.eq(t2, 94);
+    if (Core.truthy(t3)) {
+      Object t4 = Core._regex_take(s);
+      negative = Boolean.TRUE;
+    }
+    while (Core.truthy(Boolean.TRUE)) {
+      Object t5 = Core._regex_peek(s);
+      Object t6 = Core.ne(t5, 93);
+      Object t7 = Core.not(t6);
+      if (Core.truthy(t7)) {
+        break;
+      }
+      Object t8 = Core._regex_peek(s);
+      Object t9 = Core.lt(t8, 0);
+      if (Core.truthy(t9)) {
+        Object t10 = Core.stringFormat("Invalid regular expression: {}", "Unterminated character class");
+        Object t11 = Core.validationError(t10);
+        throw Core.asRuntime(t11);
+      }
+      Object t12 = Core._regex_class_atom(s);
+      first = t12;
+      Object t13 = Core._regex_peek(s);
+      Object t14 = Core.eq(t13, 45);
+      Object t15 = t14;
+      if (Core.truthy(t15)) {
+        Object t16 = Core.get(s, "p", null);
+        Object t17 = Core.add(t16, 1);
+        Object t18 = Core.get(s, "u", null);
+        Object t19 = Core.len(t18);
+        Object t20 = Core.lt(t17, t19);
+        t15 = t20;
+      }
+      if (Core.truthy(t15)) {
+        Object t21 = Core.get(s, "u", null);
+        Object t22 = Core.get(s, "p", null);
+        Object t23 = Core.add(t22, 1);
+        Object t24 = Core.get(t21, t23, null);
+        Object t25 = Core.ne(t24, 93);
+        t15 = t25;
+      }
+      if (Core.truthy(t15)) {
+        Object t26 = Core._regex_take(s);
+        Object t27 = Core._regex_class_atom(s);
+        last = t27;
+        Object t28 = Core.get(first, "k", null);
+        Object t29 = Core.eq(t28, "char");
+        Object t30 = t29;
+        if (Core.truthy(t30)) {
+          Object t31 = Core.get(last, "k", null);
+          Object t32 = Core.eq(t31, "char");
+          t30 = t32;
+        }
+        if (Core.truthy(t30)) {
+          Object t33 = Core.get(first, "c", null);
+          Object t34 = Core.get(last, "c", null);
+          Object t35 = Core.gt(t33, t34);
+          if (Core.truthy(t35)) {
+            Object t36 = Core.stringFormat("Invalid regular expression: {}", "Invalid character range");
+            Object t37 = Core.validationError(t36);
+            throw Core.asRuntime(t37);
+          }
+          Object t38 = new java.util.LinkedHashMap<String, Object>();
+          Core.set(t38, "k", "range");
+          Object t39 = Core.get(first, "c", null);
+          Core.set(t38, "lo", t39);
+          Object t40 = Core.get(last, "c", null);
+          Core.set(t38, "hi", t40);
+          Core.append(terms, t38);
+        }
+        if (!Core.truthy(t30)) {
+          Core.append(terms, first);
+          Object t41 = Core._regex_literal(45);
+          Core.append(terms, t41);
+          Core.append(terms, last);
+        }
+      }
+      if (!Core.truthy(t15)) {
+        Core.append(terms, first);
+      }
+    }
+    Object t42 = Core._regex_take(s);
+    Object t43 = new java.util.LinkedHashMap<String, Object>();
+    Core.set(t43, "k", "class");
+    Core.set(t43, "negative", negative);
+    Core.set(t43, "terms", terms);
+    return t43;
   }
 
   static Object chat_session_result(Object response, Object id) {
@@ -14864,6 +15541,175 @@ final class Core {
       return registered;
     }
     return Boolean.FALSE;
+  }
+
+  static Object _regex_atom(Object s) {
+    axirCoverageMark("_regex_atom");
+    Object c = Core.none();
+    Object candidate = Core.none();
+    Object capture = Core.none();
+    Object child = Core.none();
+    Object direction = Core.none();
+    Object kind = Core.none();
+    Object mode = Core.none();
+    Object name = Core.none();
+    Object negative = Core.none();
+    Object t1 = Core._regex_take(s);
+    c = t1;
+    Object t2 = Core.eq(c, 46);
+    if (Core.truthy(t2)) {
+      Object t3 = Core._regex_node("dot");
+      return t3;
+    }
+    Object t4 = Core.eq(c, 94);
+    if (Core.truthy(t4)) {
+      Object t5 = Core._regex_node("start");
+      return t5;
+    }
+    Object t6 = Core.eq(c, 36);
+    if (Core.truthy(t6)) {
+      Object t7 = Core._regex_node("end");
+      return t7;
+    }
+    Object t8 = Core.eq(c, 92);
+    if (Core.truthy(t8)) {
+      Object t9 = Core._regex_escaped(s, Boolean.FALSE);
+      return t9;
+    }
+    Object t10 = Core.eq(c, 91);
+    if (Core.truthy(t10)) {
+      Object t11 = Core._regex_character_class(s);
+      return t11;
+    }
+    Object t12 = Core.eq(c, 42);
+    Object t13 = t12;
+    Object t14 = Core.not(t13);
+    if (Core.truthy(t14)) {
+      Object t15 = Core.eq(c, 43);
+      t13 = t15;
+    }
+    Object t16 = Core.not(t13);
+    if (Core.truthy(t16)) {
+      Object t17 = Core.eq(c, 63);
+      t13 = t17;
+    }
+    if (Core.truthy(t13)) {
+      Object t18 = Core.stringFormat("Invalid regular expression: {}", "Nothing to repeat");
+      Object t19 = Core.validationError(t18);
+      throw Core.asRuntime(t19);
+    }
+    Object t20 = Core.eq(c, 40);
+    if (Core.truthy(t20)) {
+      kind = "capture";
+      negative = Boolean.FALSE;
+      direction = 1;
+      capture = 0;
+      Object t21 = Core.none();
+      name = t21;
+      Object t22 = Core._regex_peek(s);
+      Object t23 = Core.eq(t22, 63);
+      if (Core.truthy(t23)) {
+        Object t24 = Core._regex_take(s);
+        Object t25 = Core._regex_take(s);
+        mode = t25;
+        Object t26 = Core.eq(mode, 58);
+        if (Core.truthy(t26)) {
+          kind = "group";
+        }
+        if (!Core.truthy(t26)) {
+          Object t27 = Core.eq(mode, 61);
+          Object t28 = t27;
+          Object t29 = Core.not(t28);
+          if (Core.truthy(t29)) {
+            Object t30 = Core.eq(mode, 33);
+            t28 = t30;
+          }
+          if (Core.truthy(t28)) {
+            kind = "look";
+            Object t31 = Core.eq(mode, 33);
+            negative = t31;
+          }
+          if (!Core.truthy(t28)) {
+            Object t32 = Core.eq(mode, 60);
+            if (Core.truthy(t32)) {
+              Object t33 = Core._regex_peek(s);
+              Object t34 = Core.eq(t33, 61);
+              Object t35 = t34;
+              Object t36 = Core.not(t35);
+              if (Core.truthy(t36)) {
+                Object t37 = Core._regex_peek(s);
+                Object t38 = Core.eq(t37, 33);
+                t35 = t38;
+              }
+              if (Core.truthy(t35)) {
+                kind = "look";
+                Object t39 = Core._regex_take(s);
+                Object t40 = Core.eq(t39, 33);
+                negative = t40;
+                Object t41 = Core.mul(-1, 1);
+                Object t42 = Core.mathFloor(t41);
+                direction = t42;
+              }
+              if (!Core.truthy(t35)) {
+                Object t43 = Core._regex_read_name(s);
+                name = t43;
+              }
+            }
+            if (!Core.truthy(t32)) {
+              Object t44 = Core.stringFormat("Invalid regular expression: {}", "Invalid group");
+              Object t45 = Core.validationError(t44);
+              throw Core.asRuntime(t45);
+            }
+          }
+        }
+      }
+      Object t46 = Core.eq(kind, "capture");
+      if (Core.truthy(t46)) {
+        Object t47 = Core.get(s, "next", null);
+        Object t48 = Core.add(t47, 1);
+        Core.set(s, "next", t48);
+        Object t49 = Core.get(s, "next", null);
+        capture = t49;
+      }
+      Object t50 = Core._regex_alternative(s);
+      child = t50;
+      Object t51 = Core._regex_take(s);
+      Object t52 = Core.ne(t51, 41);
+      if (Core.truthy(t52)) {
+        Object t53 = Core.stringFormat("Invalid regular expression: {}", "Unterminated group");
+        Object t54 = Core.validationError(t53);
+        throw Core.asRuntime(t54);
+      }
+      Object t55 = new java.util.LinkedHashMap<String, Object>();
+      Core.set(t55, "k", kind);
+      Core.set(t55, "child", child);
+      Core.set(t55, "id", capture);
+      Core.set(t55, "negative", negative);
+      Core.set(t55, "direction", direction);
+      Core.set(t55, "name", name);
+      return t55;
+    }
+    Object t56 = Core.eq(c, 123);
+    if (Core.truthy(t56)) {
+      Object t57 = Core.get(s, "p", null);
+      Object t58 = Core.mul(-1, 1);
+      Object t59 = Core.add(t57, t58);
+      Object t60 = Core.mathFloor(t59);
+      Core.set(s, "p", t60);
+      Object t61 = Core._regex_node("empty");
+      Object t62 = Core._regex_quantifier(s, t61);
+      candidate = t62;
+      Object t63 = Core.get(candidate, "k", null);
+      Object t64 = Core.eq(t63, "repeat");
+      if (Core.truthy(t64)) {
+        Object t65 = Core.stringFormat("Invalid regular expression: {}", "Nothing to repeat");
+        Object t66 = Core.validationError(t65);
+        throw Core.asRuntime(t66);
+      }
+      Object t67 = Core._regex_take(s);
+    }
+    Object t68 = Core._regex_literal(c);
+    return t68;
   }
 
   static Object chat_session_complete_call(Object state, Object id, Object result) {
@@ -15341,6 +16187,169 @@ final class Core {
     return output;
   }
 
+  static Object _regex_quantifier(Object s, Object child) {
+    axirCoverageMark("_regex_quantifier");
+    Object c = Core.none();
+    Object hi = Core.none();
+    Object lazy = Core.none();
+    Object lo = Core.none();
+    Object start = Core.none();
+    Object t1 = Core.get(s, "p", null);
+    start = t1;
+    Object t2 = Core._regex_peek(s);
+    c = t2;
+    lo = 0;
+    Object t3 = Core.mul(-1, 1);
+    Object t4 = Core.mathFloor(t3);
+    hi = t4;
+    Object t5 = Core.eq(c, 42);
+    if (Core.truthy(t5)) {
+      Object t6 = Core._regex_take(s);
+    }
+    if (!Core.truthy(t5)) {
+      Object t7 = Core.eq(c, 43);
+      if (Core.truthy(t7)) {
+        Object t8 = Core._regex_take(s);
+        lo = 1;
+      }
+      if (!Core.truthy(t7)) {
+        Object t9 = Core.eq(c, 63);
+        if (Core.truthy(t9)) {
+          Object t10 = Core._regex_take(s);
+          hi = 1;
+        }
+        if (!Core.truthy(t9)) {
+          Object t11 = Core.eq(c, 123);
+          if (Core.truthy(t11)) {
+            Object t12 = Core._regex_take(s);
+            Object t13 = Core._regex_peek(s);
+            Object t14 = Core._regex_digit(t13);
+            Object t15 = Core.not(t14);
+            if (Core.truthy(t15)) {
+              Core.set(s, "p", start);
+              return child;
+            }
+            while (Core.truthy(Boolean.TRUE)) {
+              Object t16 = Core._regex_peek(s);
+              Object t17 = Core._regex_digit(t16);
+              Object t18 = Core.not(t17);
+              if (Core.truthy(t18)) {
+                break;
+              }
+              Object t19 = Core.mul(lo, 10);
+              Object t20 = Core.mathFloor(t19);
+              Object t21 = Core._regex_take(s);
+              Object t22 = Core.add(t20, t21);
+              Object t23 = Core.mul(-1, 48);
+              Object t24 = Core.add(t22, t23);
+              Object t25 = Core.mathFloor(t24);
+              lo = t25;
+            }
+            hi = lo;
+            Object t26 = Core._regex_peek(s);
+            Object t27 = Core.eq(t26, 44);
+            if (Core.truthy(t27)) {
+              Object t28 = Core._regex_take(s);
+              Object t29 = Core.mul(-1, 1);
+              Object t30 = Core.mathFloor(t29);
+              hi = t30;
+              Object t31 = Core._regex_peek(s);
+              Object t32 = Core._regex_digit(t31);
+              if (Core.truthy(t32)) {
+                hi = 0;
+                while (Core.truthy(Boolean.TRUE)) {
+                  Object t33 = Core._regex_peek(s);
+                  Object t34 = Core._regex_digit(t33);
+                  Object t35 = Core.not(t34);
+                  if (Core.truthy(t35)) {
+                    break;
+                  }
+                  Object t36 = Core.mul(hi, 10);
+                  Object t37 = Core.mathFloor(t36);
+                  Object t38 = Core._regex_take(s);
+                  Object t39 = Core.add(t37, t38);
+                  Object t40 = Core.mul(-1, 48);
+                  Object t41 = Core.add(t39, t40);
+                  Object t42 = Core.mathFloor(t41);
+                  hi = t42;
+                }
+              }
+            }
+            Object t43 = Core._regex_peek(s);
+            Object t44 = Core.ne(t43, 125);
+            if (Core.truthy(t44)) {
+              Core.set(s, "p", start);
+              return child;
+            }
+            Object t45 = Core._regex_take(s);
+            Object t46 = Core.gte(hi, 0);
+            Object t47 = t46;
+            if (Core.truthy(t47)) {
+              Object t48 = Core.lt(hi, lo);
+              t47 = t48;
+            }
+            if (Core.truthy(t47)) {
+              Object t49 = Core.stringFormat("Invalid regular expression: {}", "Invalid quantifier range");
+              Object t50 = Core.validationError(t49);
+              throw Core.asRuntime(t50);
+            }
+          }
+          if (!Core.truthy(t11)) {
+            return child;
+          }
+        }
+      }
+    }
+    Object t51 = Core.get(child, "k", null);
+    Object t52 = Core.eq(t51, "start");
+    Object t53 = t52;
+    Object t54 = Core.not(t53);
+    if (Core.truthy(t54)) {
+      Object t55 = Core.get(child, "k", null);
+      Object t56 = Core.eq(t55, "end");
+      t53 = t56;
+    }
+    Object t57 = Core.not(t53);
+    if (Core.truthy(t57)) {
+      Object t58 = Core.get(child, "k", null);
+      Object t59 = Core.eq(t58, "boundary");
+      t53 = t59;
+    }
+    Object t60 = Core.not(t53);
+    if (Core.truthy(t60)) {
+      Object t61 = Core.get(child, "k", null);
+      Object t62 = Core.eq(t61, "look");
+      Object t63 = t62;
+      if (Core.truthy(t63)) {
+        Object t64 = Core.get(child, "direction", null);
+        Object t65 = Core.mul(-1, 1);
+        Object t66 = Core.mathFloor(t65);
+        Object t67 = Core.eq(t64, t66);
+        t63 = t67;
+      }
+      t53 = t63;
+    }
+    if (Core.truthy(t53)) {
+      Object t68 = Core.stringFormat("Invalid regular expression: {}", "Invalid quantified assertion");
+      Object t69 = Core.validationError(t68);
+      throw Core.asRuntime(t69);
+    }
+    lazy = Boolean.FALSE;
+    Object t70 = Core._regex_peek(s);
+    Object t71 = Core.eq(t70, 63);
+    if (Core.truthy(t71)) {
+      Object t72 = Core._regex_take(s);
+      lazy = Boolean.TRUE;
+    }
+    Object t73 = new java.util.LinkedHashMap<String, Object>();
+    Core.set(t73, "k", "repeat");
+    Core.set(t73, "child", child);
+    Core.set(t73, "lo", lo);
+    Core.set(t73, "hi", hi);
+    Core.set(t73, "lazy", lazy);
+    return t73;
+  }
+
   static Object _ace_estimate_token_count(Object text) {
     axirCoverageMark("_ace_estimate_token_count");
     Object len = Core.len(text);
@@ -15758,6 +16767,54 @@ final class Core {
     return null;
   }
 
+  static Object _regex_alternative(Object s) {
+    axirCoverageMark("_regex_alternative");
+    Object choices = Core.none();
+    Object terms = Core.none();
+    Object t1 = new java.util.ArrayList<Object>();
+    choices = t1;
+    Object t2 = new java.util.ArrayList<Object>();
+    terms = t2;
+    while (Core.truthy(Boolean.TRUE)) {
+      Object t3 = Core._regex_peek(s);
+      Object t4 = Core.gte(t3, 0);
+      Object t5 = t4;
+      if (Core.truthy(t5)) {
+        Object t6 = Core._regex_peek(s);
+        Object t7 = Core.ne(t6, 41);
+        t5 = t7;
+      }
+      Object t8 = Core.not(t5);
+      if (Core.truthy(t8)) {
+        break;
+      }
+      Object t9 = Core._regex_peek(s);
+      Object t10 = Core.eq(t9, 124);
+      if (Core.truthy(t10)) {
+        Object t11 = Core._regex_take(s);
+        Object t12 = new java.util.LinkedHashMap<String, Object>();
+        Core.set(t12, "k", "seq");
+        Core.set(t12, "terms", terms);
+        Core.append(choices, t12);
+        Object t13 = new java.util.ArrayList<Object>();
+        terms = t13;
+      }
+      if (!Core.truthy(t10)) {
+        Object t14 = Core._regex_atom(s);
+        Object t15 = Core._regex_quantifier(s, t14);
+        Core.append(terms, t15);
+      }
+    }
+    Object t16 = new java.util.LinkedHashMap<String, Object>();
+    Core.set(t16, "k", "seq");
+    Core.set(t16, "terms", terms);
+    Core.append(choices, t16);
+    Object t17 = new java.util.LinkedHashMap<String, Object>();
+    Core.set(t17, "k", "alt");
+    Core.set(t17, "terms", choices);
+    return t17;
+  }
+
   static Object chat_session_mark_submitted(Object state, Object ids) {
     axirCoverageMark("chat_session_mark_submitted");
     Object pending = Core.get(state, "pending", null);
@@ -15837,6 +16894,43 @@ final class Core {
     Core.set(playbook, "sections", sections);
     Object recomputed = Core._ace_recompute_playbook_stats(playbook);
     return recomputed;
+  }
+
+  static Object _regex_word(Object c) {
+    axirCoverageMark("_regex_word");
+    Object t1 = Core.gte(c, 48);
+    Object t2 = t1;
+    if (Core.truthy(t2)) {
+      Object t3 = Core.lte(c, 57);
+      t2 = t3;
+    }
+    Object t4 = t2;
+    Object t5 = Core.not(t4);
+    if (Core.truthy(t5)) {
+      Object t6 = Core.gte(c, 65);
+      Object t7 = t6;
+      if (Core.truthy(t7)) {
+        Object t8 = Core.lte(c, 90);
+        t7 = t8;
+      }
+      t4 = t7;
+    }
+    Object t9 = Core.not(t4);
+    if (Core.truthy(t9)) {
+      Object t10 = Core.gte(c, 97);
+      Object t11 = t10;
+      if (Core.truthy(t11)) {
+        Object t12 = Core.lte(c, 122);
+        t11 = t12;
+      }
+      t4 = t11;
+    }
+    Object t13 = Core.not(t4);
+    if (Core.truthy(t13)) {
+      Object t14 = Core.eq(c, 95);
+      t4 = t14;
+    }
+    return t4;
   }
 
   static Object _tool_spec_impl(Object fn) {
@@ -16105,6 +17199,88 @@ final class Core {
     return action;
   }
 
+  static Object _regex_space(Object c) {
+    axirCoverageMark("_regex_space");
+    Object t1 = Core.eq(c, 9);
+    Object t2 = t1;
+    Object t3 = Core.not(t2);
+    if (Core.truthy(t3)) {
+      Object t4 = Core.eq(c, 10);
+      t2 = t4;
+    }
+    Object t5 = Core.not(t2);
+    if (Core.truthy(t5)) {
+      Object t6 = Core.eq(c, 11);
+      t2 = t6;
+    }
+    Object t7 = Core.not(t2);
+    if (Core.truthy(t7)) {
+      Object t8 = Core.eq(c, 12);
+      t2 = t8;
+    }
+    Object t9 = Core.not(t2);
+    if (Core.truthy(t9)) {
+      Object t10 = Core.eq(c, 13);
+      t2 = t10;
+    }
+    Object t11 = Core.not(t2);
+    if (Core.truthy(t11)) {
+      Object t12 = Core.eq(c, 32);
+      t2 = t12;
+    }
+    Object t13 = Core.not(t2);
+    if (Core.truthy(t13)) {
+      Object t14 = Core.eq(c, 160);
+      t2 = t14;
+    }
+    Object t15 = Core.not(t2);
+    if (Core.truthy(t15)) {
+      Object t16 = Core.eq(c, 5760);
+      t2 = t16;
+    }
+    Object t17 = Core.not(t2);
+    if (Core.truthy(t17)) {
+      Object t18 = Core.gte(c, 8192);
+      Object t19 = t18;
+      if (Core.truthy(t19)) {
+        Object t20 = Core.lte(c, 8202);
+        t19 = t20;
+      }
+      t2 = t19;
+    }
+    Object t21 = Core.not(t2);
+    if (Core.truthy(t21)) {
+      Object t22 = Core.eq(c, 8232);
+      t2 = t22;
+    }
+    Object t23 = Core.not(t2);
+    if (Core.truthy(t23)) {
+      Object t24 = Core.eq(c, 8233);
+      t2 = t24;
+    }
+    Object t25 = Core.not(t2);
+    if (Core.truthy(t25)) {
+      Object t26 = Core.eq(c, 8239);
+      t2 = t26;
+    }
+    Object t27 = Core.not(t2);
+    if (Core.truthy(t27)) {
+      Object t28 = Core.eq(c, 8287);
+      t2 = t28;
+    }
+    Object t29 = Core.not(t2);
+    if (Core.truthy(t29)) {
+      Object t30 = Core.eq(c, 12288);
+      t2 = t30;
+    }
+    Object t31 = Core.not(t2);
+    if (Core.truthy(t31)) {
+      Object t32 = Core.eq(c, 65279);
+      t2 = t32;
+    }
+    return t2;
+  }
+
   static Object _response_function_calls_impl(Object response) {
     axirCoverageMark("_response_function_calls_impl");
     Object empty = new java.util.ArrayList<Object>();
@@ -16346,6 +17522,127 @@ final class Core {
     return message;
   }
 
+  static Object _regex_member(Object n, Object c) {
+    axirCoverageMark("_regex_member");
+    Object e = Core.none();
+    Object k = Core.none();
+    Object term = Core.none();
+    Object yes = Core.none();
+    Object t1 = Core.get(n, "k", null);
+    k = t1;
+    Object t2 = Core.eq(k, "char");
+    if (Core.truthy(t2)) {
+      Object t3 = Core.get(n, "c", null);
+      Object t4 = Core.eq(c, t3);
+      return t4;
+    }
+    Object t5 = Core.eq(k, "range");
+    if (Core.truthy(t5)) {
+      Object t6 = Core.get(n, "lo", null);
+      Object t7 = Core.gte(c, t6);
+      Object t8 = t7;
+      if (Core.truthy(t8)) {
+        Object t9 = Core.get(n, "hi", null);
+        Object t10 = Core.lte(c, t9);
+        t8 = t10;
+      }
+      return t8;
+    }
+    Object t11 = Core.eq(k, "dot");
+    if (Core.truthy(t11)) {
+      Object t12 = Core.ne(c, 10);
+      Object t13 = t12;
+      if (Core.truthy(t13)) {
+        Object t14 = Core.ne(c, 13);
+        t13 = t14;
+      }
+      if (Core.truthy(t13)) {
+        Object t15 = Core.ne(c, 8232);
+        t13 = t15;
+      }
+      if (Core.truthy(t13)) {
+        Object t16 = Core.ne(c, 8233);
+        t13 = t16;
+      }
+      return t13;
+    }
+    Object t17 = Core.eq(k, "class_escape");
+    if (Core.truthy(t17)) {
+      Object t18 = Core.get(n, "c", null);
+      e = t18;
+      yes = Boolean.FALSE;
+      Object t19 = Core.eq(e, 100);
+      Object t20 = t19;
+      Object t21 = Core.not(t20);
+      if (Core.truthy(t21)) {
+        Object t22 = Core.eq(e, 68);
+        t20 = t22;
+      }
+      if (Core.truthy(t20)) {
+        Object t23 = Core._regex_digit(c);
+        yes = t23;
+      }
+      Object t24 = Core.eq(e, 119);
+      Object t25 = t24;
+      Object t26 = Core.not(t25);
+      if (Core.truthy(t26)) {
+        Object t27 = Core.eq(e, 87);
+        t25 = t27;
+      }
+      if (Core.truthy(t25)) {
+        Object t28 = Core._regex_word(c);
+        yes = t28;
+      }
+      Object t29 = Core.eq(e, 115);
+      Object t30 = t29;
+      Object t31 = Core.not(t30);
+      if (Core.truthy(t31)) {
+        Object t32 = Core.eq(e, 83);
+        t30 = t32;
+      }
+      if (Core.truthy(t30)) {
+        Object t33 = Core._regex_space(c);
+        yes = t33;
+      }
+      Object t34 = Core.eq(e, 68);
+      Object t35 = t34;
+      Object t36 = Core.not(t35);
+      if (Core.truthy(t36)) {
+        Object t37 = Core.eq(e, 87);
+        t35 = t37;
+      }
+      Object t38 = Core.not(t35);
+      if (Core.truthy(t38)) {
+        Object t39 = Core.eq(e, 83);
+        t35 = t39;
+      }
+      if (Core.truthy(t35)) {
+        Object t40 = Core.not(yes);
+        return t40;
+      }
+      return yes;
+    }
+    Object t41 = Core.eq(k, "class");
+    if (Core.truthy(t41)) {
+      yes = Boolean.FALSE;
+      Object t42 = Core.get(n, "terms", null);
+      for (Object iter_43 : Core.iter(t42)) {
+        term = iter_43;
+        Object t44 = Core._regex_member(term, c);
+        if (Core.truthy(t44)) {
+          yes = Boolean.TRUE;
+        }
+      }
+      Object t45 = Core.get(n, "negative", null);
+      if (Core.truthy(t45)) {
+        Object t46 = Core.not(yes);
+        return t46;
+      }
+      return yes;
+    }
+    return Boolean.FALSE;
+  }
+
   static Object _tool_error_message_impl(Object call, Object error) {
     axirCoverageMark("_tool_error_message_impl");
     Object id = Core.get(call, "id", null);
@@ -16378,6 +17675,60 @@ final class Core {
     Core.set(retry_message, "content", retry_content);
     Core.append(messages, retry_message);
     return null;
+  }
+
+  static Object _regex_state(Object pos, Object caps) {
+    axirCoverageMark("_regex_state");
+    Object t1 = new java.util.LinkedHashMap<String, Object>();
+    Core.set(t1, "pos", pos);
+    Object t2 = Core._regex_copy_map(caps);
+    Core.set(t1, "caps", t2);
+    return t1;
+  }
+
+  static Object _regex_capture_ids(Object n) {
+    axirCoverageMark("_regex_capture_ids");
+    Object i = Core.none();
+    Object k = Core.none();
+    Object out = Core.none();
+    Object term = Core.none();
+    Object t1 = new java.util.ArrayList<Object>();
+    out = t1;
+    Object t2 = Core.get(n, "k", null);
+    k = t2;
+    Object t3 = Core.eq(k, "capture");
+    if (Core.truthy(t3)) {
+      Object t4 = Core.get(n, "id", null);
+      Core.append(out, t4);
+    }
+    Object t5 = Core.mapContains(n, "child");
+    if (Core.truthy(t5)) {
+      Object t6 = Core.get(n, "child", null);
+      Object t7 = Core._regex_capture_ids(t6);
+      for (Object iter_8 : Core.iter(t7)) {
+        i = iter_8;
+        Core.append(out, i);
+      }
+    }
+    Object t9 = Core.eq(k, "seq");
+    Object t10 = t9;
+    Object t11 = Core.not(t10);
+    if (Core.truthy(t11)) {
+      Object t12 = Core.eq(k, "alt");
+      t10 = t12;
+    }
+    if (Core.truthy(t10)) {
+      Object t13 = Core.get(n, "terms", null);
+      for (Object iter_14 : Core.iter(t13)) {
+        term = iter_14;
+        Object t15 = Core._regex_capture_ids(term);
+        for (Object iter_16 : Core.iter(t15)) {
+          i = iter_16;
+          Core.append(out, i);
+        }
+      }
+    }
+    return out;
   }
 
   static Object _ace_is_noop_acknowledgment(Object content) {
@@ -16507,6 +17858,528 @@ final class Core {
       }
     }
     return is_noop;
+  }
+
+  static Object _regex_push(Object stack, Object top, Object value) {
+    axirCoverageMark("_regex_push");
+    Object t1 = Core.stringFormat("{}", top);
+    Core.set(stack, t1, value);
+    Object t2 = Core.add(top, 1);
+    return t2;
+  }
+
+  static Object _regex_task(Object n, Object next) {
+    axirCoverageMark("_regex_task");
+    Object t1 = new java.util.LinkedHashMap<String, Object>();
+    Core.set(t1, "node", n);
+    Core.set(t1, "next", next);
+    return t1;
+  }
+
+  static Object _regex_frame(Object todo, Object st) {
+    axirCoverageMark("_regex_frame");
+    Object t1 = new java.util.LinkedHashMap<String, Object>();
+    Core.set(t1, "todo", todo);
+    Core.set(t1, "st", st);
+    return t1;
+  }
+
+  static Object _regex_search(Object n, Object u, Object initial, Object d) {
+    axirCoverageMark("_regex_search");
+    Object accept = Core.none();
+    Object after = Core.none();
+    Object at = Core.none();
+    Object before = Core.none();
+    Object begin = Core.none();
+    Object caps = Core.none();
+    Object capture = Core.none();
+    Object capture_id = Core.none();
+    Object clean = Core.none();
+    Object copied = Core.none();
+    Object count = Core.none();
+    Object current = Core.none();
+    Object end = Core.none();
+    Object equal = Core.none();
+    Object hi = Core.none();
+    Object i = Core.none();
+    Object k = Core.none();
+    Object lo = Core.none();
+    Object matched = Core.none();
+    Object more = Core.none();
+    Object moreframe = Core.none();
+    Object next = Core.none();
+    Object nextcount = Core.none();
+    Object p = Core.none();
+    Object pending = Core.none();
+    Object repeat = Core.none();
+    Object rest = Core.none();
+    Object size = Core.none();
+    Object st = Core.none();
+    Object terms = Core.none();
+    Object todo = Core.none();
+    Object top = Core.none();
+    Object yes = Core.none();
+    Object t1 = new java.util.LinkedHashMap<String, Object>();
+    Object t2 = Core.none();
+    Object t3 = Core._regex_task(n, t2);
+    Object t4 = Core._regex_frame(t3, initial);
+    Core.set(t1, "0", t4);
+    pending = t1;
+    top = 1;
+    while (Core.truthy(Boolean.TRUE)) {
+      Object t5 = Core.gt(top, 0);
+      Object t6 = Core.not(t5);
+      if (Core.truthy(t6)) {
+        break;
+      }
+      Object t7 = Core.mul(-1, 1);
+      Object t8 = Core.add(top, t7);
+      Object t9 = Core.mathFloor(t8);
+      top = t9;
+      Object t10 = Core.stringFormat("{}", top);
+      Object t11 = Core.get(pending, t10, null);
+      current = t11;
+      Object t12 = Core.get(current, "todo", null);
+      todo = t12;
+      Object t13 = Core.get(current, "st", null);
+      st = t13;
+      Object t14 = Core.none();
+      Object t15 = Core.eq(todo, t14);
+      if (Core.truthy(t15)) {
+        return st;
+      }
+      Object t16 = Core.get(todo, "node", null);
+      n = t16;
+      Object t17 = Core.get(todo, "next", null);
+      rest = t17;
+      Object t18 = Core.get(n, "k", null);
+      k = t18;
+      Object t19 = Core.get(st, "pos", null);
+      p = t19;
+      Object t20 = Core.get(st, "caps", null);
+      caps = t20;
+      Object t21 = Core.eq(k, "seq");
+      if (Core.truthy(t21)) {
+        Object t22 = Core.get(n, "terms", null);
+        terms = t22;
+        Object t23 = Core.len(terms);
+        Object t24 = Core.mul(-1, 1);
+        Object t25 = Core.add(t23, t24);
+        Object t26 = Core.mathFloor(t25);
+        i = t26;
+        Object t27 = Core.lt(d, 0);
+        if (Core.truthy(t27)) {
+          i = 0;
+        }
+        while (Core.truthy(Boolean.TRUE)) {
+          Object t28 = Core.gte(i, 0);
+          Object t29 = t28;
+          if (Core.truthy(t29)) {
+            Object t30 = Core.len(terms);
+            Object t31 = Core.lt(i, t30);
+            t29 = t31;
+          }
+          Object t32 = Core.not(t29);
+          if (Core.truthy(t32)) {
+            break;
+          }
+          Object t33 = Core.get(terms, i, null);
+          Object t34 = Core._regex_task(t33, rest);
+          rest = t34;
+          Object t35 = Core.mul(-1, d);
+          Object t36 = Core.add(i, t35);
+          Object t37 = Core.mathFloor(t36);
+          i = t37;
+        }
+        Object t38 = Core._regex_frame(rest, st);
+        Object t39 = Core._regex_push(pending, top, t38);
+        top = t39;
+        continue;
+      }
+      Object t40 = Core.eq(k, "alt");
+      if (Core.truthy(t40)) {
+        Object t41 = Core.get(n, "terms", null);
+        Object t42 = Core.len(t41);
+        Object t43 = Core.mul(-1, 1);
+        Object t44 = Core.add(t42, t43);
+        Object t45 = Core.mathFloor(t44);
+        i = t45;
+        while (Core.truthy(Boolean.TRUE)) {
+          Object t46 = Core.gte(i, 0);
+          Object t47 = Core.not(t46);
+          if (Core.truthy(t47)) {
+            break;
+          }
+          Object t48 = Core.get(n, "terms", null);
+          Object t49 = Core.get(t48, i, null);
+          Object t50 = Core._regex_task(t49, rest);
+          Object t51 = Core._regex_frame(t50, st);
+          Object t52 = Core._regex_push(pending, top, t51);
+          top = t52;
+          Object t53 = Core.mul(-1, 1);
+          Object t54 = Core.add(i, t53);
+          Object t55 = Core.mathFloor(t54);
+          i = t55;
+        }
+        continue;
+      }
+      Object t56 = Core.eq(k, "group");
+      if (Core.truthy(t56)) {
+        Object t57 = Core.get(n, "child", null);
+        Object t58 = Core._regex_task(t57, rest);
+        Object t59 = Core._regex_frame(t58, st);
+        Object t60 = Core._regex_push(pending, top, t59);
+        top = t60;
+        continue;
+      }
+      Object t61 = Core.eq(k, "capture");
+      if (Core.truthy(t61)) {
+        Object t62 = new java.util.LinkedHashMap<String, Object>();
+        Core.set(t62, "k", "capture_end");
+        Object t63 = Core.get(n, "id", null);
+        Core.set(t62, "id", t63);
+        Core.set(t62, "begin", p);
+        Object t64 = Core._regex_task(t62, rest);
+        end = t64;
+        Object t65 = Core.get(n, "child", null);
+        Object t66 = Core._regex_task(t65, end);
+        Object t67 = Core._regex_frame(t66, st);
+        Object t68 = Core._regex_push(pending, top, t67);
+        top = t68;
+        continue;
+      }
+      Object t69 = Core.eq(k, "capture_end");
+      if (Core.truthy(t69)) {
+        Object t70 = Core.get(n, "begin", null);
+        lo = t70;
+        hi = p;
+        Object t71 = Core.lt(d, 0);
+        if (Core.truthy(t71)) {
+          lo = p;
+          Object t72 = Core.get(n, "begin", null);
+          hi = t72;
+        }
+        Object t73 = Core._regex_state(p, caps);
+        copied = t73;
+        Object t74 = new java.util.ArrayList<Object>();
+        Core.append(t74, lo);
+        Core.append(t74, hi);
+        Object t75 = Core.get(copied, "caps", null);
+        Object t76 = Core.get(n, "id", null);
+        Core.set(t75, t76, t74);
+        Object t77 = Core._regex_frame(rest, copied);
+        Object t78 = Core._regex_push(pending, top, t77);
+        top = t78;
+        continue;
+      }
+      Object t79 = Core.eq(k, "look");
+      if (Core.truthy(t79)) {
+        Object t80 = Core.get(n, "child", null);
+        Object t81 = Core.get(n, "direction", null);
+        Object t82 = Core._regex_search(t80, u, st, t81);
+        matched = t82;
+        Object t83 = Core.get(n, "negative", null);
+        if (Core.truthy(t83)) {
+          Object t84 = Core.none();
+          Object t85 = Core.eq(matched, t84);
+          if (Core.truthy(t85)) {
+            Object t86 = Core._regex_frame(rest, st);
+            Object t87 = Core._regex_push(pending, top, t86);
+            top = t87;
+          }
+        }
+        if (!Core.truthy(t83)) {
+          Object t88 = Core.none();
+          Object t89 = Core.ne(matched, t88);
+          if (Core.truthy(t89)) {
+            Object t90 = Core.get(matched, "caps", null);
+            Object t91 = Core._regex_state(p, t90);
+            Object t92 = Core._regex_frame(rest, t91);
+            Object t93 = Core._regex_push(pending, top, t92);
+            top = t93;
+          }
+        }
+        continue;
+      }
+      Object t94 = Core.eq(k, "repeat");
+      Object t95 = t94;
+      Object t96 = Core.not(t95);
+      if (Core.truthy(t96)) {
+        Object t97 = Core.eq(k, "repeat_step");
+        t95 = t97;
+      }
+      if (Core.truthy(t95)) {
+        count = 0;
+        repeat = n;
+        Object t98 = Core.eq(k, "repeat_step");
+        if (Core.truthy(t98)) {
+          Object t99 = Core.get(n, "count", null);
+          count = t99;
+          Object t100 = Core.get(n, "repeat", null);
+          repeat = t100;
+        }
+        Object t101 = Core.get(repeat, "lo", null);
+        Object t102 = Core.gte(count, t101);
+        accept = t102;
+        Object t103 = Core.get(repeat, "hi", null);
+        Object t104 = Core.lt(t103, 0);
+        Object t105 = t104;
+        Object t106 = Core.not(t105);
+        if (Core.truthy(t106)) {
+          Object t107 = Core.get(repeat, "hi", null);
+          Object t108 = Core.lt(count, t107);
+          t105 = t108;
+        }
+        more = t105;
+        Object t109 = Core.none();
+        moreframe = t109;
+        if (Core.truthy(more)) {
+          Object t110 = Core._regex_state(p, caps);
+          clean = t110;
+          Object t111 = Core.get(repeat, "child", null);
+          Object t112 = Core._regex_capture_ids(t111);
+          for (Object iter_113 : Core.iter(t112)) {
+            i = iter_113;
+            Object t114 = Core.none();
+            Object t115 = Core.get(clean, "caps", null);
+            Core.set(t115, i, t114);
+          }
+          Object t116 = new java.util.LinkedHashMap<String, Object>();
+          Core.set(t116, "k", "repeat_after");
+          Core.set(t116, "repeat", repeat);
+          Core.set(t116, "count", count);
+          Core.set(t116, "begin", p);
+          Object t117 = Core._regex_task(t116, rest);
+          after = t117;
+          Object t118 = Core.get(repeat, "child", null);
+          Object t119 = Core._regex_task(t118, after);
+          Object t120 = Core._regex_frame(t119, clean);
+          moreframe = t120;
+        }
+        Object t121 = Core.get(repeat, "lazy", null);
+        if (Core.truthy(t121)) {
+          if (Core.truthy(more)) {
+            Object t122 = Core._regex_push(pending, top, moreframe);
+            top = t122;
+          }
+          if (Core.truthy(accept)) {
+            Object t123 = Core._regex_frame(rest, st);
+            Object t124 = Core._regex_push(pending, top, t123);
+            top = t124;
+          }
+        }
+        if (!Core.truthy(t121)) {
+          if (Core.truthy(accept)) {
+            Object t125 = Core._regex_frame(rest, st);
+            Object t126 = Core._regex_push(pending, top, t125);
+            top = t126;
+          }
+          if (Core.truthy(more)) {
+            Object t127 = Core._regex_push(pending, top, moreframe);
+            top = t127;
+          }
+        }
+        continue;
+      }
+      Object t128 = Core.eq(k, "repeat_after");
+      if (Core.truthy(t128)) {
+        Object t129 = Core.get(n, "count", null);
+        count = t129;
+        Object t130 = Core.get(n, "repeat", null);
+        repeat = t130;
+        Object t131 = Core.add(count, 1);
+        nextcount = t131;
+        Object t132 = Core.get(n, "begin", null);
+        Object t133 = Core.eq(p, t132);
+        if (Core.truthy(t133)) {
+          Object t134 = Core.get(repeat, "lo", null);
+          Object t135 = Core.gte(count, t134);
+          if (Core.truthy(t135)) {
+            continue;
+          }
+          Object t136 = Core.get(repeat, "lo", null);
+          nextcount = t136;
+        }
+        Object t137 = new java.util.LinkedHashMap<String, Object>();
+        Core.set(t137, "k", "repeat_step");
+        Core.set(t137, "repeat", repeat);
+        Core.set(t137, "count", nextcount);
+        Object t138 = Core._regex_task(t137, rest);
+        next = t138;
+        Object t139 = Core._regex_frame(next, st);
+        Object t140 = Core._regex_push(pending, top, t139);
+        top = t140;
+        continue;
+      }
+      Object t141 = Core.eq(k, "start");
+      if (Core.truthy(t141)) {
+        Object t142 = Core.eq(p, 0);
+        if (Core.truthy(t142)) {
+          Object t143 = Core._regex_frame(rest, st);
+          Object t144 = Core._regex_push(pending, top, t143);
+          top = t144;
+        }
+        continue;
+      }
+      Object t145 = Core.eq(k, "end");
+      if (Core.truthy(t145)) {
+        Object t146 = Core.len(u);
+        Object t147 = Core.eq(p, t146);
+        if (Core.truthy(t147)) {
+          Object t148 = Core._regex_frame(rest, st);
+          Object t149 = Core._regex_push(pending, top, t148);
+          top = t149;
+        }
+        continue;
+      }
+      Object t150 = Core.eq(k, "boundary");
+      if (Core.truthy(t150)) {
+        before = Boolean.FALSE;
+        after = Boolean.FALSE;
+        Object t151 = Core.gt(p, 0);
+        if (Core.truthy(t151)) {
+          Object t152 = Core.mul(-1, 1);
+          Object t153 = Core.add(p, t152);
+          Object t154 = Core.mathFloor(t153);
+          Object t155 = Core.get(u, t154, null);
+          Object t156 = Core._regex_word(t155);
+          before = t156;
+        }
+        Object t157 = Core.len(u);
+        Object t158 = Core.lt(p, t157);
+        if (Core.truthy(t158)) {
+          Object t159 = Core.get(u, p, null);
+          Object t160 = Core._regex_word(t159);
+          after = t160;
+        }
+        Object t161 = Core.ne(before, after);
+        yes = t161;
+        Object t162 = Core.get(n, "negative", null);
+        if (Core.truthy(t162)) {
+          Object t163 = Core.not(yes);
+          yes = t163;
+        }
+        if (Core.truthy(yes)) {
+          Object t164 = Core._regex_frame(rest, st);
+          Object t165 = Core._regex_push(pending, top, t164);
+          top = t165;
+        }
+        continue;
+      }
+      Object t166 = Core.eq(k, "ref");
+      if (Core.truthy(t166)) {
+        Object t167 = Core.none();
+        capture = t167;
+        Object t168 = Core.get(n, "ids", null);
+        for (Object iter_169 : Core.iter(t168)) {
+          capture_id = iter_169;
+          Object t170 = Core.get(caps, capture_id, null);
+          Object t171 = Core.none();
+          Object t172 = Core.ne(t170, t171);
+          if (Core.truthy(t172)) {
+            Object t173 = Core.get(caps, capture_id, null);
+            capture = t173;
+          }
+        }
+        Object t174 = Core.none();
+        Object t175 = Core.eq(capture, t174);
+        if (Core.truthy(t175)) {
+          Object t176 = Core._regex_frame(rest, st);
+          Object t177 = Core._regex_push(pending, top, t176);
+          top = t177;
+          continue;
+        }
+        Object t178 = 1;
+        Object t179 = Core.get(capture, t178, null);
+        Object t180 = 0;
+        Object t181 = Core.get(capture, t180, null);
+        Object t182 = Core.mul(-1, t181);
+        Object t183 = Core.add(t179, t182);
+        Object t184 = Core.mathFloor(t183);
+        size = t184;
+        begin = p;
+        Object t185 = Core.lt(d, 0);
+        if (Core.truthy(t185)) {
+          Object t186 = Core.mul(-1, size);
+          Object t187 = Core.add(p, t186);
+          Object t188 = Core.mathFloor(t187);
+          begin = t188;
+        }
+        Object t189 = Core.lt(begin, 0);
+        Object t190 = t189;
+        Object t191 = Core.not(t190);
+        if (Core.truthy(t191)) {
+          Object t192 = Core.add(begin, size);
+          Object t193 = Core.len(u);
+          Object t194 = Core.gt(t192, t193);
+          t190 = t194;
+        }
+        if (Core.truthy(t190)) {
+          continue;
+        }
+        i = 0;
+        equal = Boolean.TRUE;
+        while (Core.truthy(Boolean.TRUE)) {
+          Object t195 = Core.lt(i, size);
+          Object t196 = Core.not(t195);
+          if (Core.truthy(t196)) {
+            break;
+          }
+          Object t197 = Core.add(begin, i);
+          Object t198 = Core.get(u, t197, null);
+          Object t199 = 0;
+          Object t200 = Core.get(capture, t199, null);
+          Object t201 = Core.add(t200, i);
+          Object t202 = Core.get(u, t201, null);
+          Object t203 = Core.ne(t198, t202);
+          if (Core.truthy(t203)) {
+            equal = Boolean.FALSE;
+            break;
+          }
+          Object t204 = Core.add(i, 1);
+          i = t204;
+        }
+        if (Core.truthy(equal)) {
+          Object t205 = Core.mul(d, size);
+          Object t206 = Core.mathFloor(t205);
+          Object t207 = Core.add(p, t206);
+          Object t208 = Core._regex_state(t207, caps);
+          Object t209 = Core._regex_frame(rest, t208);
+          Object t210 = Core._regex_push(pending, top, t209);
+          top = t210;
+        }
+        continue;
+      }
+      at = p;
+      Object t211 = Core.lt(d, 0);
+      if (Core.truthy(t211)) {
+        Object t212 = Core.mul(-1, 1);
+        Object t213 = Core.add(p, t212);
+        Object t214 = Core.mathFloor(t213);
+        at = t214;
+      }
+      Object t215 = Core.gte(at, 0);
+      Object t216 = t215;
+      if (Core.truthy(t216)) {
+        Object t217 = Core.len(u);
+        Object t218 = Core.lt(at, t217);
+        t216 = t218;
+      }
+      if (Core.truthy(t216)) {
+        Object t219 = Core.get(u, at, null);
+        Object t220 = Core._regex_member(n, t219);
+        t216 = t220;
+      }
+      if (Core.truthy(t216)) {
+        Object t221 = Core.add(p, d);
+        Object t222 = Core._regex_state(t221, caps);
+        Object t223 = Core._regex_frame(rest, t222);
+        Object t224 = Core._regex_push(pending, top, t223);
+        top = t224;
+      }
+    }
+    Object t225 = Core.none();
+    return t225;
   }
 
   static Object _ace_normalize_curator_operations(Object operations) {
@@ -16907,6 +18780,467 @@ final class Core {
       }
     }
     return picked;
+  }
+
+  static Object _regex_test(Object pattern, Object value) {
+    axirCoverageMark("_regex_test");
+    Object groups = Core.none();
+    Object i = Core.none();
+    Object s = Core.none();
+    Object text = Core.none();
+    Object tree = Core.none();
+    Object u = Core.none();
+    Object t1 = Core.stringUTF16Units(pattern);
+    u = t1;
+    Object t2 = Core._regex_scan_groups(u);
+    groups = t2;
+    Object t3 = new java.util.LinkedHashMap<String, Object>();
+    Core.set(t3, "u", u);
+    Core.set(t3, "p", 0);
+    Object t4 = Core.get(groups, "count", null);
+    Core.set(t3, "total", t4);
+    Object t5 = Core.get(groups, "names", null);
+    Core.set(t3, "names", t5);
+    Core.set(t3, "next", 0);
+    s = t3;
+    Object t6 = Core._regex_alternative(s);
+    tree = t6;
+    Object t7 = Core.get(s, "p", null);
+    Object t8 = Core.len(u);
+    Object t9 = Core.ne(t7, t8);
+    if (Core.truthy(t9)) {
+      Object t10 = Core.stringFormat("Invalid regular expression: {}", "Unmatched group");
+      Object t11 = Core.validationError(t10);
+      throw Core.asRuntime(t11);
+    }
+    Object t12 = new java.util.LinkedHashMap<String, Object>();
+    Object t13 = new java.util.LinkedHashMap<String, Object>();
+    Object t14 = new java.util.LinkedHashMap<String, Object>();
+    Core.set(t14, "next", 0);
+    Object t15 = Core._regex_validate_names(tree, t12, t13, t14);
+    Object t16 = Core.stringUTF16Units(value);
+    text = t16;
+    i = 0;
+    while (Core.truthy(Boolean.TRUE)) {
+      Object t17 = Core.len(text);
+      Object t18 = Core.lte(i, t17);
+      Object t19 = Core.not(t18);
+      if (Core.truthy(t19)) {
+        break;
+      }
+      Object t20 = new java.util.LinkedHashMap<String, Object>();
+      Object t21 = Core._regex_state(i, t20);
+      Object t22 = Core._regex_search(tree, text, t21, 1);
+      Object t23 = Core.none();
+      Object t24 = Core.ne(t22, t23);
+      if (Core.truthy(t24)) {
+        return Boolean.TRUE;
+      }
+      Object t25 = Core.add(i, 1);
+      i = t25;
+    }
+    return Boolean.FALSE;
+  }
+
+  static Object _regex_identifier(Object c, Object first) {
+    axirCoverageMark("_regex_identifier");
+    Object entry = Core.none();
+    Object hi = Core.none();
+    Object lo = Core.none();
+    Object mid = Core.none();
+    Object ranges = Core.none();
+    Object t1 = Core.eq(c, 36);
+    Object t2 = t1;
+    Object t3 = Core.not(t2);
+    if (Core.truthy(t3)) {
+      Object t4 = Core.eq(c, 95);
+      t2 = t4;
+    }
+    if (Core.truthy(t2)) {
+      return Boolean.TRUE;
+    }
+    Object t5 = Core.not(first);
+    Object t6 = t5;
+    if (Core.truthy(t6)) {
+      Object t7 = Core.eq(c, 8204);
+      Object t8 = t7;
+      Object t9 = Core.not(t8);
+      if (Core.truthy(t9)) {
+        Object t10 = Core.eq(c, 8205);
+        t8 = t10;
+      }
+      t6 = t8;
+    }
+    if (Core.truthy(t6)) {
+      return Boolean.TRUE;
+    }
+    Object t11 = Core._regex_id_continue_ranges();
+    ranges = t11;
+    if (Core.truthy(first)) {
+      Object t12 = Core._regex_id_start_ranges();
+      ranges = t12;
+    }
+    lo = 0;
+    Object t13 = Core.len(ranges);
+    hi = t13;
+    while (Core.truthy(Boolean.TRUE)) {
+      Object t14 = Core.lt(lo, hi);
+      Object t15 = Core.not(t14);
+      if (Core.truthy(t15)) {
+        break;
+      }
+      Object t16 = Core.add(lo, hi);
+      Object t17 = Core.div(t16, 2);
+      Object t18 = Core.mathFloor(t17);
+      mid = t18;
+      Object t19 = Core.get(ranges, mid, null);
+      entry = t19;
+      Object t20 = 0;
+      Object t21 = Core.get(entry, t20, null);
+      Object t22 = Core.lt(c, t21);
+      if (Core.truthy(t22)) {
+        hi = mid;
+      }
+      if (!Core.truthy(t22)) {
+        Object t23 = 1;
+        Object t24 = Core.get(entry, t23, null);
+        Object t25 = Core.gt(c, t24);
+        if (Core.truthy(t25)) {
+          Object t26 = Core.add(mid, 1);
+          lo = t26;
+        }
+        if (!Core.truthy(t25)) {
+          return Boolean.TRUE;
+        }
+      }
+    }
+    return Boolean.FALSE;
+  }
+
+  static Object _regex_read_name(Object s) {
+    axirCoverageMark("_regex_read_name");
+    Object c = Core.none();
+    Object i = Core.none();
+    Object n = Core.none();
+    Object name = Core.none();
+    Object values = Core.none();
+    Object t1 = new java.util.ArrayList<Object>();
+    values = t1;
+    while (Core.truthy(Boolean.TRUE)) {
+      Object t2 = Core._regex_peek(s);
+      Object t3 = Core.ne(t2, 62);
+      Object t4 = t3;
+      if (Core.truthy(t4)) {
+        Object t5 = Core._regex_peek(s);
+        Object t6 = Core.gte(t5, 0);
+        t4 = t6;
+      }
+      Object t7 = Core.not(t4);
+      if (Core.truthy(t7)) {
+        break;
+      }
+      Object t8 = Core._regex_take(s);
+      c = t8;
+      Object t9 = Core.eq(c, 92);
+      if (Core.truthy(t9)) {
+        Object t10 = Core._regex_take(s);
+        Object t11 = Core.ne(t10, 117);
+        if (Core.truthy(t11)) {
+          Object t12 = Core.stringFormat("Invalid regular expression: {}", "Invalid capture name escape");
+          Object t13 = Core.validationError(t12);
+          throw Core.asRuntime(t13);
+        }
+        c = 0;
+        n = 0;
+        Object t14 = Core._regex_peek(s);
+        Object t15 = Core.eq(t14, 123);
+        if (Core.truthy(t15)) {
+          Object t16 = Core._regex_take(s);
+          while (Core.truthy(Boolean.TRUE)) {
+            Object t17 = Core._regex_peek(s);
+            Object t18 = Core._regex_hexdigit(t17);
+            Object t19 = Core.gte(t18, 0);
+            Object t20 = Core.not(t19);
+            if (Core.truthy(t20)) {
+              break;
+            }
+            Object t21 = Core.mul(c, 16);
+            Object t22 = Core.mathFloor(t21);
+            Object t23 = Core._regex_take(s);
+            Object t24 = Core._regex_hexdigit(t23);
+            Object t25 = Core.add(t22, t24);
+            c = t25;
+            Object t26 = Core.add(n, 1);
+            n = t26;
+          }
+          Object t27 = Core.eq(n, 0);
+          Object t28 = t27;
+          Object t29 = Core.not(t28);
+          if (Core.truthy(t29)) {
+            Object t30 = Core._regex_take(s);
+            Object t31 = Core.ne(t30, 125);
+            t28 = t31;
+          }
+          Object t32 = Core.not(t28);
+          if (Core.truthy(t32)) {
+            Object t33 = Core.gt(c, 1114111);
+            t28 = t33;
+          }
+          if (Core.truthy(t28)) {
+            Object t34 = Core.stringFormat("Invalid regular expression: {}", "Invalid Unicode capture name");
+            Object t35 = Core.validationError(t34);
+            throw Core.asRuntime(t35);
+          }
+        }
+        if (!Core.truthy(t15)) {
+          while (Core.truthy(Boolean.TRUE)) {
+            Object t36 = Core.lt(n, 4);
+            Object t37 = t36;
+            if (Core.truthy(t37)) {
+              Object t38 = Core._regex_peek(s);
+              Object t39 = Core._regex_hexdigit(t38);
+              Object t40 = Core.gte(t39, 0);
+              t37 = t40;
+            }
+            Object t41 = Core.not(t37);
+            if (Core.truthy(t41)) {
+              break;
+            }
+            Object t42 = Core.mul(c, 16);
+            Object t43 = Core.mathFloor(t42);
+            Object t44 = Core._regex_take(s);
+            Object t45 = Core._regex_hexdigit(t44);
+            Object t46 = Core.add(t43, t45);
+            c = t46;
+            Object t47 = Core.add(n, 1);
+            n = t47;
+          }
+          Object t48 = Core.ne(n, 4);
+          if (Core.truthy(t48)) {
+            Object t49 = Core.stringFormat("Invalid regular expression: {}", "Invalid Unicode capture name");
+            Object t50 = Core.validationError(t49);
+            throw Core.asRuntime(t50);
+          }
+        }
+      }
+      Core.append(values, c);
+    }
+    Object t51 = Core._regex_take(s);
+    Object t52 = Core.ne(t51, 62);
+    Object t53 = t52;
+    Object t54 = Core.not(t53);
+    if (Core.truthy(t54)) {
+      Object t55 = Core.len(values);
+      Object t56 = Core.eq(t55, 0);
+      t53 = t56;
+    }
+    if (Core.truthy(t53)) {
+      Object t57 = Core.stringFormat("Invalid regular expression: {}", "Invalid capture name");
+      Object t58 = Core.validationError(t57);
+      throw Core.asRuntime(t58);
+    }
+    name = "";
+    i = 0;
+    while (Core.truthy(Boolean.TRUE)) {
+      Object t59 = Core.len(values);
+      Object t60 = Core.lt(i, t59);
+      Object t61 = Core.not(t60);
+      if (Core.truthy(t61)) {
+        break;
+      }
+      Object t62 = Core.get(values, i, null);
+      c = t62;
+      Object t63 = Core.add(i, 1);
+      i = t63;
+      Object t64 = Core.gte(c, 55296);
+      Object t65 = t64;
+      if (Core.truthy(t65)) {
+        Object t66 = Core.lte(c, 56319);
+        t65 = t66;
+      }
+      if (Core.truthy(t65)) {
+        Object t67 = Core.len(values);
+        Object t68 = Core.lt(i, t67);
+        t65 = t68;
+      }
+      if (Core.truthy(t65)) {
+        Object t69 = Core.get(values, i, null);
+        Object t70 = Core.gte(t69, 56320);
+        t65 = t70;
+      }
+      if (Core.truthy(t65)) {
+        Object t71 = Core.get(values, i, null);
+        Object t72 = Core.lte(t71, 57343);
+        t65 = t72;
+      }
+      if (Core.truthy(t65)) {
+        Object t73 = Core.mul(-1, 55296);
+        Object t74 = Core.add(c, t73);
+        Object t75 = Core.mathFloor(t74);
+        Object t76 = Core.mul(t75, 1024);
+        Object t77 = Core.mathFloor(t76);
+        Object t78 = Core.add(65536, t77);
+        Object t79 = Core.get(values, i, null);
+        Object t80 = Core.add(t78, t79);
+        Object t81 = Core.mul(-1, 56320);
+        Object t82 = Core.add(t80, t81);
+        Object t83 = Core.mathFloor(t82);
+        c = t83;
+        Object t84 = Core.add(i, 1);
+        i = t84;
+      }
+      Object t85 = Core.eq(name, "");
+      Object t86 = Core._regex_identifier(c, t85);
+      Object t87 = Core.not(t86);
+      if (Core.truthy(t87)) {
+        Object t88 = Core.stringFormat("Invalid regular expression: {}", "Invalid capture identifier");
+        Object t89 = Core.validationError(t88);
+        throw Core.asRuntime(t89);
+      }
+      Object t90 = Core.stringFormat("{}", c);
+      Object t91 = Core.add(t90, ",");
+      Object t92 = Core.add(name, t91);
+      name = t92;
+    }
+    return name;
+  }
+
+  static Object _regex_validate_names(Object n, Object path, Object seen, Object counter) {
+    axirCoverageMark("_regex_validate_names");
+    Object branch = Core.none();
+    Object exclusive = Core.none();
+    Object index = Core.none();
+    Object k = Core.none();
+    Object key = Core.none();
+    Object name = Core.none();
+    Object other = Core.none();
+    Object previous = Core.none();
+    Object term = Core.none();
+    Object t1 = Core.get(n, "k", null);
+    k = t1;
+    Object t2 = Core.eq(k, "capture");
+    Object t3 = t2;
+    if (Core.truthy(t3)) {
+      Object t4 = Core.get(n, "name", null);
+      Object t5 = Core.none();
+      Object t6 = Core.ne(t4, t5);
+      t3 = t6;
+    }
+    if (Core.truthy(t3)) {
+      Object t7 = Core.get(n, "name", null);
+      name = t7;
+      Object t8 = Core.get(seen, name, null);
+      previous = t8;
+      Object t9 = Core.none();
+      Object t10 = Core.eq(previous, t9);
+      if (Core.truthy(t10)) {
+        Object t11 = new java.util.ArrayList<Object>();
+        previous = t11;
+      }
+      for (Object iter_12 : Core.iter(previous)) {
+        other = iter_12;
+        exclusive = Boolean.FALSE;
+        Object t13 = Core.mapKeys(path);
+        for (Object iter_14 : Core.iter(t13)) {
+          key = iter_14;
+          Object t15 = Core.get(other, key, null);
+          Object t16 = Core.none();
+          Object t17 = Core.ne(t15, t16);
+          Object t18 = t17;
+          if (Core.truthy(t18)) {
+            Object t19 = Core.get(other, key, null);
+            Object t20 = Core.get(path, key, null);
+            Object t21 = Core.ne(t19, t20);
+            t18 = t21;
+          }
+          if (Core.truthy(t18)) {
+            exclusive = Boolean.TRUE;
+          }
+        }
+        Object t22 = Core.not(exclusive);
+        if (Core.truthy(t22)) {
+          Object t23 = Core.stringFormat("Invalid regular expression: {}", "Duplicate capture name");
+          Object t24 = Core.validationError(t23);
+          throw Core.asRuntime(t24);
+        }
+      }
+      Object t25 = Core._regex_copy_map(path);
+      Core.append(previous, t25);
+      Core.set(seen, name, previous);
+    }
+    Object t26 = Core.eq(k, "alt");
+    if (Core.truthy(t26)) {
+      Object t27 = Core.get(counter, "next", null);
+      Object t28 = Core.add(t27, 1);
+      Core.set(counter, "next", t28);
+      Object t29 = Core.get(counter, "next", null);
+      key = t29;
+      index = 0;
+      Object t30 = Core.get(n, "terms", null);
+      for (Object iter_31 : Core.iter(t30)) {
+        term = iter_31;
+        Object t32 = Core._regex_copy_map(path);
+        branch = t32;
+        Core.set(branch, key, index);
+        Object t33 = Core.add(index, 1);
+        index = t33;
+        Object t34 = Core._regex_validate_names(term, branch, seen, counter);
+      }
+    }
+    if (!Core.truthy(t26)) {
+      Object t35 = Core.eq(k, "seq");
+      if (Core.truthy(t35)) {
+        Object t36 = Core.get(n, "terms", null);
+        for (Object iter_37 : Core.iter(t36)) {
+          term = iter_37;
+          Object t38 = Core._regex_validate_names(term, path, seen, counter);
+        }
+      }
+      if (!Core.truthy(t35)) {
+        Object t39 = Core.get(n, "child", null);
+        Object t40 = Core.none();
+        Object t41 = Core.ne(t39, t40);
+        if (Core.truthy(t41)) {
+          Object t42 = Core.get(n, "child", null);
+          Object t43 = Core._regex_validate_names(t42, path, seen, counter);
+        }
+      }
+    }
+    return null;
+  }
+
+  static Object _regex_id_start_ranges() {
+    axirCoverageMark("_regex_id_start_ranges");
+    Object t1 = Core.jsonParse("[[65,90],[97,122],[170,170],[181,181],[186,186],[192,214],[216,246],[248,705],[710,721],[736,740],[748,748],[750,750],[880,884],[886,887],[890,893],[895,895],[902,902],[904,906],[908,908],[910,929],[931,1013],[1015,1153],[1162,1327],[1329,1366],[1369,1369],[1376,1416],[1488,1514],[1519,1522],[1568,1610],[1646,1647],[1649,1747],[1749,1749],[1765,1766],[1774,1775],[1786,1788],[1791,1791],[1808,1808],[1810,1839],[1869,1957],[1969,1969],[1994,2026],[2036,2037],[2042,2042],[2048,2069],[2074,2074],[2084,2084],[2088,2088],[2112,2136],[2144,2154],[2160,2183],[2185,2191],[2208,2249],[2308,2361],[2365,2365],[2384,2384],[2392,2401],[2417,2432],[2437,2444],[2447,2448],[2451,2472],[2474,2480],[2482,2482],[2486,2489],[2493,2493],[2510,2510],[2524,2525],[2527,2529],[2544,2545],[2556,2556],[2565,2570],[2575,2576],[2579,2600],[2602,2608],[2610,2611],[2613,2614],[2616,2617],[2649,2652],[2654,2654],[2674,2676],[2693,2701],[2703,2705],[2707,2728],[2730,2736],[2738,2739],[2741,2745],[2749,2749],[2768,2768],[2784,2785],[2809,2809],[2821,2828],[2831,2832],[2835,2856],[2858,2864],[2866,2867],[2869,2873],[2877,2877],[2908,2909],[2911,2913],[2929,2929],[2947,2947],[2949,2954],[2958,2960],[2962,2965],[2969,2970],[2972,2972],[2974,2975],[2979,2980],[2984,2986],[2990,3001],[3024,3024],[3077,3084],[3086,3088],[3090,3112],[3114,3129],[3133,3133],[3160,3162],[3164,3165],[3168,3169],[3200,3200],[3205,3212],[3214,3216],[3218,3240],[3242,3251],[3253,3257],[3261,3261],[3292,3294],[3296,3297],[3313,3314],[3332,3340],[3342,3344],[3346,3386],[3389,3389],[3406,3406],[3412,3414],[3423,3425],[3450,3455],[3461,3478],[3482,3505],[3507,3515],[3517,3517],[3520,3526],[3585,3632],[3634,3635],[3648,3654],[3713,3714],[3716,3716],[3718,3722],[3724,3747],[3749,3749],[3751,3760],[3762,3763],[3773,3773],[3776,3780],[3782,3782],[3804,3807],[3840,3840],[3904,3911],[3913,3948],[3976,3980],[4096,4138],[4159,4159],[4176,4181],[4186,4189],[4193,4193],[4197,4198],[4206,4208],[4213,4225],[4238,4238],[4256,4293],[4295,4295],[4301,4301],[4304,4346],[4348,4680],[4682,4685],[4688,4694],[4696,4696],[4698,4701],[4704,4744],[4746,4749],[4752,4784],[4786,4789],[4792,4798],[4800,4800],[4802,4805],[4808,4822],[4824,4880],[4882,4885],[4888,4954],[4992,5007],[5024,5109],[5112,5117],[5121,5740],[5743,5759],[5761,5786],[5792,5866],[5870,5880],[5888,5905],[5919,5937],[5952,5969],[5984,5996],[5998,6000],[6016,6067],[6103,6103],[6108,6108],[6176,6264],[6272,6312],[6314,6314],[6320,6389],[6400,6430],[6480,6509],[6512,6516],[6528,6571],[6576,6601],[6656,6678],[6688,6740],[6823,6823],[6917,6963],[6981,6988],[7043,7072],[7086,7087],[7098,7141],[7168,7203],[7245,7247],[7258,7293],[7296,7306],[7312,7354],[7357,7359],[7401,7404],[7406,7411],[7413,7414],[7418,7418],[7424,7615],[7680,7957],[7960,7965],[7968,8005],[8008,8013],[8016,8023],[8025,8025],[8027,8027],[8029,8029],[8031,8061],[8064,8116],[8118,8124],[8126,8126],[8130,8132],[8134,8140],[8144,8147],[8150,8155],[8160,8172],[8178,8180],[8182,8188],[8305,8305],[8319,8319],[8336,8348],[8450,8450],[8455,8455],[8458,8467],[8469,8469],[8472,8477],[8484,8484],[8486,8486],[8488,8488],[8490,8505],[8508,8511],[8517,8521],[8526,8526],[8544,8584],[11264,11492],[11499,11502],[11506,11507],[11520,11557],[11559,11559],[11565,11565],[11568,11623],[11631,11631],[11648,11670],[11680,11686],[11688,11694],[11696,11702],[11704,11710],[11712,11718],[11720,11726],[11728,11734],[11736,11742],[12293,12295],[12321,12329],[12337,12341],[12344,12348],[12353,12438],[12443,12447],[12449,12538],[12540,12543],[12549,12591],[12593,12686],[12704,12735],[12784,12799],[13312,19903],[19968,42124],[42192,42237],[42240,42508],[42512,42527],[42538,42539],[42560,42606],[42623,42653],[42656,42735],[42775,42783],[42786,42888],[42891,42972],[42993,43009],[43011,43013],[43015,43018],[43020,43042],[43072,43123],[43138,43187],[43250,43255],[43259,43259],[43261,43262],[43274,43301],[43312,43334],[43360,43388],[43396,43442],[43471,43471],[43488,43492],[43494,43503],[43514,43518],[43520,43560],[43584,43586],[43588,43595],[43616,43638],[43642,43642],[43646,43695],[43697,43697],[43701,43702],[43705,43709],[43712,43712],[43714,43714],[43739,43741],[43744,43754],[43762,43764],[43777,43782],[43785,43790],[43793,43798],[43808,43814],[43816,43822],[43824,43866],[43868,43881],[43888,44002],[44032,55203],[55216,55238],[55243,55291],[63744,64109],[64112,64217],[64256,64262],[64275,64279],[64285,64285],[64287,64296],[64298,64310],[64312,64316],[64318,64318],[64320,64321],[64323,64324],[64326,64433],[64467,64829],[64848,64911],[64914,64967],[65008,65019],[65136,65140],[65142,65276],[65313,65338],[65345,65370],[65382,65470],[65474,65479],[65482,65487],[65490,65495],[65498,65500],[65536,65547],[65549,65574],[65576,65594],[65596,65597],[65599,65613],[65616,65629],[65664,65786],[65856,65908],[66176,66204],[66208,66256],[66304,66335],[66349,66378],[66384,66421],[66432,66461],[66464,66499],[66504,66511],[66513,66517],[66560,66717],[66736,66771],[66776,66811],[66816,66855],[66864,66915],[66928,66938],[66940,66954],[66956,66962],[66964,66965],[66967,66977],[66979,66993],[66995,67001],[67003,67004],[67008,67059],[67072,67382],[67392,67413],[67424,67431],[67456,67461],[67463,67504],[67506,67514],[67584,67589],[67592,67592],[67594,67637],[67639,67640],[67644,67644],[67647,67669],[67680,67702],[67712,67742],[67808,67826],[67828,67829],[67840,67861],[67872,67897],[67904,67929],[67968,68023],[68030,68031],[68096,68096],[68112,68115],[68117,68119],[68121,68149],[68192,68220],[68224,68252],[68288,68295],[68297,68324],[68352,68405],[68416,68437],[68448,68466],[68480,68497],[68608,68680],[68736,68786],[68800,68850],[68864,68899],[68938,68965],[68975,68997],[69248,69289],[69296,69297],[69314,69319],[69376,69404],[69415,69415],[69424,69445],[69488,69505],[69552,69572],[69600,69622],[69635,69687],[69745,69746],[69749,69749],[69763,69807],[69840,69864],[69891,69926],[69956,69956],[69959,69959],[69968,70002],[70006,70006],[70019,70066],[70081,70084],[70106,70106],[70108,70108],[70144,70161],[70163,70187],[70207,70208],[70272,70278],[70280,70280],[70282,70285],[70287,70301],[70303,70312],[70320,70366],[70405,70412],[70415,70416],[70419,70440],[70442,70448],[70450,70451],[70453,70457],[70461,70461],[70480,70480],[70493,70497],[70528,70537],[70539,70539],[70542,70542],[70544,70581],[70583,70583],[70609,70609],[70611,70611],[70656,70708],[70727,70730],[70751,70753],[70784,70831],[70852,70853],[70855,70855],[71040,71086],[71128,71131],[71168,71215],[71236,71236],[71296,71338],[71352,71352],[71424,71450],[71488,71494],[71680,71723],[71840,71903],[71935,71942],[71945,71945],[71948,71955],[71957,71958],[71960,71983],[71999,71999],[72001,72001],[72096,72103],[72106,72144],[72161,72161],[72163,72163],[72192,72192],[72203,72242],[72250,72250],[72272,72272],[72284,72329],[72349,72349],[72368,72440],[72640,72672],[72704,72712],[72714,72750],[72768,72768],[72818,72847],[72960,72966],[72968,72969],[72971,73008],[73030,73030],[73056,73061],[73063,73064],[73066,73097],[73112,73112],[73136,73179],[73440,73458],[73474,73474],[73476,73488],[73490,73523],[73648,73648],[73728,74649],[74752,74862],[74880,75075],[77712,77808],[77824,78895],[78913,78918],[78944,82938],[82944,83526],[90368,90397],[92160,92728],[92736,92766],[92784,92862],[92880,92909],[92928,92975],[92992,92995],[93027,93047],[93053,93071],[93504,93548],[93760,93823],[93856,93880],[93883,93907],[93952,94026],[94032,94032],[94099,94111],[94176,94177],[94179,94179],[94194,94198],[94208,101589],[101631,101662],[101760,101874],[110576,110579],[110581,110587],[110589,110590],[110592,110882],[110898,110898],[110928,110930],[110933,110933],[110948,110951],[110960,111355],[113664,113770],[113776,113788],[113792,113800],[113808,113817],[119808,119892],[119894,119964],[119966,119967],[119970,119970],[119973,119974],[119977,119980],[119982,119993],[119995,119995],[119997,120003],[120005,120069],[120071,120074],[120077,120084],[120086,120092],[120094,120121],[120123,120126],[120128,120132],[120134,120134],[120138,120144],[120146,120485],[120488,120512],[120514,120538],[120540,120570],[120572,120596],[120598,120628],[120630,120654],[120656,120686],[120688,120712],[120714,120744],[120746,120770],[120772,120779],[122624,122654],[122661,122666],[122928,122989],[123136,123180],[123191,123197],[123214,123214],[123536,123565],[123584,123627],[124112,124139],[124368,124397],[124400,124400],[124608,124638],[124640,124642],[124644,124645],[124647,124653],[124656,124660],[124670,124671],[124896,124902],[124904,124907],[124909,124910],[124912,124926],[124928,125124],[125184,125251],[125259,125259],[126464,126467],[126469,126495],[126497,126498],[126500,126500],[126503,126503],[126505,126514],[126516,126519],[126521,126521],[126523,126523],[126530,126530],[126535,126535],[126537,126537],[126539,126539],[126541,126543],[126545,126546],[126548,126548],[126551,126551],[126553,126553],[126555,126555],[126557,126557],[126559,126559],[126561,126562],[126564,126564],[126567,126570],[126572,126578],[126580,126583],[126585,126588],[126590,126590],[126592,126601],[126603,126619],[126625,126627],[126629,126633],[126635,126651],[131072,173791],[173824,178205],[178208,183981],[183984,191456],[191472,192093],[194560,195101],[196608,201546],[201552,210041]]");
+    return t1;
+  }
+
+  static Object _regex_id_continue_ranges() {
+    axirCoverageMark("_regex_id_continue_ranges");
+    Object t1 = Core.jsonParse("[[48,57],[65,90],[95,95],[97,122],[170,170],[181,181],[183,183],[186,186],[192,214],[216,246],[248,705],[710,721],[736,740],[748,748],[750,750],[768,884],[886,887],[890,893],[895,895],[902,906],[908,908],[910,929],[931,1013],[1015,1153],[1155,1159],[1162,1327],[1329,1366],[1369,1369],[1376,1416],[1425,1469],[1471,1471],[1473,1474],[1476,1477],[1479,1479],[1488,1514],[1519,1522],[1552,1562],[1568,1641],[1646,1747],[1749,1756],[1759,1768],[1770,1788],[1791,1791],[1808,1866],[1869,1969],[1984,2037],[2042,2042],[2045,2045],[2048,2093],[2112,2139],[2144,2154],[2160,2183],[2185,2191],[2199,2273],[2275,2403],[2406,2415],[2417,2435],[2437,2444],[2447,2448],[2451,2472],[2474,2480],[2482,2482],[2486,2489],[2492,2500],[2503,2504],[2507,2510],[2519,2519],[2524,2525],[2527,2531],[2534,2545],[2556,2556],[2558,2558],[2561,2563],[2565,2570],[2575,2576],[2579,2600],[2602,2608],[2610,2611],[2613,2614],[2616,2617],[2620,2620],[2622,2626],[2631,2632],[2635,2637],[2641,2641],[2649,2652],[2654,2654],[2662,2677],[2689,2691],[2693,2701],[2703,2705],[2707,2728],[2730,2736],[2738,2739],[2741,2745],[2748,2757],[2759,2761],[2763,2765],[2768,2768],[2784,2787],[2790,2799],[2809,2815],[2817,2819],[2821,2828],[2831,2832],[2835,2856],[2858,2864],[2866,2867],[2869,2873],[2876,2884],[2887,2888],[2891,2893],[2901,2903],[2908,2909],[2911,2915],[2918,2927],[2929,2929],[2946,2947],[2949,2954],[2958,2960],[2962,2965],[2969,2970],[2972,2972],[2974,2975],[2979,2980],[2984,2986],[2990,3001],[3006,3010],[3014,3016],[3018,3021],[3024,3024],[3031,3031],[3046,3055],[3072,3084],[3086,3088],[3090,3112],[3114,3129],[3132,3140],[3142,3144],[3146,3149],[3157,3158],[3160,3162],[3164,3165],[3168,3171],[3174,3183],[3200,3203],[3205,3212],[3214,3216],[3218,3240],[3242,3251],[3253,3257],[3260,3268],[3270,3272],[3274,3277],[3285,3286],[3292,3294],[3296,3299],[3302,3311],[3313,3315],[3328,3340],[3342,3344],[3346,3396],[3398,3400],[3402,3406],[3412,3415],[3423,3427],[3430,3439],[3450,3455],[3457,3459],[3461,3478],[3482,3505],[3507,3515],[3517,3517],[3520,3526],[3530,3530],[3535,3540],[3542,3542],[3544,3551],[3558,3567],[3570,3571],[3585,3642],[3648,3662],[3664,3673],[3713,3714],[3716,3716],[3718,3722],[3724,3747],[3749,3749],[3751,3773],[3776,3780],[3782,3782],[3784,3790],[3792,3801],[3804,3807],[3840,3840],[3864,3865],[3872,3881],[3893,3893],[3895,3895],[3897,3897],[3902,3911],[3913,3948],[3953,3972],[3974,3991],[3993,4028],[4038,4038],[4096,4169],[4176,4253],[4256,4293],[4295,4295],[4301,4301],[4304,4346],[4348,4680],[4682,4685],[4688,4694],[4696,4696],[4698,4701],[4704,4744],[4746,4749],[4752,4784],[4786,4789],[4792,4798],[4800,4800],[4802,4805],[4808,4822],[4824,4880],[4882,4885],[4888,4954],[4957,4959],[4969,4977],[4992,5007],[5024,5109],[5112,5117],[5121,5740],[5743,5759],[5761,5786],[5792,5866],[5870,5880],[5888,5909],[5919,5940],[5952,5971],[5984,5996],[5998,6000],[6002,6003],[6016,6099],[6103,6103],[6108,6109],[6112,6121],[6155,6157],[6159,6169],[6176,6264],[6272,6314],[6320,6389],[6400,6430],[6432,6443],[6448,6459],[6470,6509],[6512,6516],[6528,6571],[6576,6601],[6608,6618],[6656,6683],[6688,6750],[6752,6780],[6783,6793],[6800,6809],[6823,6823],[6832,6845],[6847,6877],[6880,6891],[6912,6988],[6992,7001],[7019,7027],[7040,7155],[7168,7223],[7232,7241],[7245,7293],[7296,7306],[7312,7354],[7357,7359],[7376,7378],[7380,7418],[7424,7957],[7960,7965],[7968,8005],[8008,8013],[8016,8023],[8025,8025],[8027,8027],[8029,8029],[8031,8061],[8064,8116],[8118,8124],[8126,8126],[8130,8132],[8134,8140],[8144,8147],[8150,8155],[8160,8172],[8178,8180],[8182,8188],[8204,8205],[8255,8256],[8276,8276],[8305,8305],[8319,8319],[8336,8348],[8400,8412],[8417,8417],[8421,8432],[8450,8450],[8455,8455],[8458,8467],[8469,8469],[8472,8477],[8484,8484],[8486,8486],[8488,8488],[8490,8505],[8508,8511],[8517,8521],[8526,8526],[8544,8584],[11264,11492],[11499,11507],[11520,11557],[11559,11559],[11565,11565],[11568,11623],[11631,11631],[11647,11670],[11680,11686],[11688,11694],[11696,11702],[11704,11710],[11712,11718],[11720,11726],[11728,11734],[11736,11742],[11744,11775],[12293,12295],[12321,12335],[12337,12341],[12344,12348],[12353,12438],[12441,12447],[12449,12543],[12549,12591],[12593,12686],[12704,12735],[12784,12799],[13312,19903],[19968,42124],[42192,42237],[42240,42508],[42512,42539],[42560,42607],[42612,42621],[42623,42737],[42775,42783],[42786,42888],[42891,42972],[42993,43047],[43052,43052],[43072,43123],[43136,43205],[43216,43225],[43232,43255],[43259,43259],[43261,43309],[43312,43347],[43360,43388],[43392,43456],[43471,43481],[43488,43518],[43520,43574],[43584,43597],[43600,43609],[43616,43638],[43642,43714],[43739,43741],[43744,43759],[43762,43766],[43777,43782],[43785,43790],[43793,43798],[43808,43814],[43816,43822],[43824,43866],[43868,43881],[43888,44010],[44012,44013],[44016,44025],[44032,55203],[55216,55238],[55243,55291],[63744,64109],[64112,64217],[64256,64262],[64275,64279],[64285,64296],[64298,64310],[64312,64316],[64318,64318],[64320,64321],[64323,64324],[64326,64433],[64467,64829],[64848,64911],[64914,64967],[65008,65019],[65024,65039],[65056,65071],[65075,65076],[65101,65103],[65136,65140],[65142,65276],[65296,65305],[65313,65338],[65343,65343],[65345,65370],[65381,65470],[65474,65479],[65482,65487],[65490,65495],[65498,65500],[65536,65547],[65549,65574],[65576,65594],[65596,65597],[65599,65613],[65616,65629],[65664,65786],[65856,65908],[66045,66045],[66176,66204],[66208,66256],[66272,66272],[66304,66335],[66349,66378],[66384,66426],[66432,66461],[66464,66499],[66504,66511],[66513,66517],[66560,66717],[66720,66729],[66736,66771],[66776,66811],[66816,66855],[66864,66915],[66928,66938],[66940,66954],[66956,66962],[66964,66965],[66967,66977],[66979,66993],[66995,67001],[67003,67004],[67008,67059],[67072,67382],[67392,67413],[67424,67431],[67456,67461],[67463,67504],[67506,67514],[67584,67589],[67592,67592],[67594,67637],[67639,67640],[67644,67644],[67647,67669],[67680,67702],[67712,67742],[67808,67826],[67828,67829],[67840,67861],[67872,67897],[67904,67929],[67968,68023],[68030,68031],[68096,68099],[68101,68102],[68108,68115],[68117,68119],[68121,68149],[68152,68154],[68159,68159],[68192,68220],[68224,68252],[68288,68295],[68297,68326],[68352,68405],[68416,68437],[68448,68466],[68480,68497],[68608,68680],[68736,68786],[68800,68850],[68864,68903],[68912,68921],[68928,68965],[68969,68973],[68975,68997],[69248,69289],[69291,69292],[69296,69297],[69314,69319],[69370,69404],[69415,69415],[69424,69456],[69488,69509],[69552,69572],[69600,69622],[69632,69702],[69734,69749],[69759,69818],[69826,69826],[69840,69864],[69872,69881],[69888,69940],[69942,69951],[69956,69959],[69968,70003],[70006,70006],[70016,70084],[70089,70092],[70094,70106],[70108,70108],[70144,70161],[70163,70199],[70206,70209],[70272,70278],[70280,70280],[70282,70285],[70287,70301],[70303,70312],[70320,70378],[70384,70393],[70400,70403],[70405,70412],[70415,70416],[70419,70440],[70442,70448],[70450,70451],[70453,70457],[70459,70468],[70471,70472],[70475,70477],[70480,70480],[70487,70487],[70493,70499],[70502,70508],[70512,70516],[70528,70537],[70539,70539],[70542,70542],[70544,70581],[70583,70592],[70594,70594],[70597,70597],[70599,70602],[70604,70611],[70625,70626],[70656,70730],[70736,70745],[70750,70753],[70784,70853],[70855,70855],[70864,70873],[71040,71093],[71096,71104],[71128,71133],[71168,71232],[71236,71236],[71248,71257],[71296,71352],[71360,71369],[71376,71395],[71424,71450],[71453,71467],[71472,71481],[71488,71494],[71680,71738],[71840,71913],[71935,71942],[71945,71945],[71948,71955],[71957,71958],[71960,71989],[71991,71992],[71995,72003],[72016,72025],[72096,72103],[72106,72151],[72154,72161],[72163,72164],[72192,72254],[72263,72263],[72272,72345],[72349,72349],[72368,72440],[72544,72551],[72640,72672],[72688,72697],[72704,72712],[72714,72758],[72760,72768],[72784,72793],[72818,72847],[72850,72871],[72873,72886],[72960,72966],[72968,72969],[72971,73014],[73018,73018],[73020,73021],[73023,73031],[73040,73049],[73056,73061],[73063,73064],[73066,73102],[73104,73105],[73107,73112],[73120,73129],[73136,73179],[73184,73193],[73440,73462],[73472,73488],[73490,73530],[73534,73538],[73552,73562],[73648,73648],[73728,74649],[74752,74862],[74880,75075],[77712,77808],[77824,78895],[78912,78933],[78944,82938],[82944,83526],[90368,90425],[92160,92728],[92736,92766],[92768,92777],[92784,92862],[92864,92873],[92880,92909],[92912,92916],[92928,92982],[92992,92995],[93008,93017],[93027,93047],[93053,93071],[93504,93548],[93552,93561],[93760,93823],[93856,93880],[93883,93907],[93952,94026],[94031,94087],[94095,94111],[94176,94177],[94179,94180],[94192,94198],[94208,101589],[101631,101662],[101760,101874],[110576,110579],[110581,110587],[110589,110590],[110592,110882],[110898,110898],[110928,110930],[110933,110933],[110948,110951],[110960,111355],[113664,113770],[113776,113788],[113792,113800],[113808,113817],[113821,113822],[118000,118009],[118528,118573],[118576,118598],[119141,119145],[119149,119154],[119163,119170],[119173,119179],[119210,119213],[119362,119364],[119808,119892],[119894,119964],[119966,119967],[119970,119970],[119973,119974],[119977,119980],[119982,119993],[119995,119995],[119997,120003],[120005,120069],[120071,120074],[120077,120084],[120086,120092],[120094,120121],[120123,120126],[120128,120132],[120134,120134],[120138,120144],[120146,120485],[120488,120512],[120514,120538],[120540,120570],[120572,120596],[120598,120628],[120630,120654],[120656,120686],[120688,120712],[120714,120744],[120746,120770],[120772,120779],[120782,120831],[121344,121398],[121403,121452],[121461,121461],[121476,121476],[121499,121503],[121505,121519],[122624,122654],[122661,122666],[122880,122886],[122888,122904],[122907,122913],[122915,122916],[122918,122922],[122928,122989],[123023,123023],[123136,123180],[123184,123197],[123200,123209],[123214,123214],[123536,123566],[123584,123641],[124112,124153],[124368,124410],[124608,124638],[124640,124661],[124670,124671],[124896,124902],[124904,124907],[124909,124910],[124912,124926],[124928,125124],[125136,125142],[125184,125259],[125264,125273],[126464,126467],[126469,126495],[126497,126498],[126500,126500],[126503,126503],[126505,126514],[126516,126519],[126521,126521],[126523,126523],[126530,126530],[126535,126535],[126537,126537],[126539,126539],[126541,126543],[126545,126546],[126548,126548],[126551,126551],[126553,126553],[126555,126555],[126557,126557],[126559,126559],[126561,126562],[126564,126564],[126567,126570],[126572,126578],[126580,126583],[126585,126588],[126590,126590],[126592,126601],[126603,126619],[126625,126627],[126629,126633],[126635,126651],[130032,130041],[131072,173791],[173824,178205],[178208,183981],[183984,191456],[191472,192093],[194560,195101],[196608,201546],[201552,210041],[917760,917999]]");
+    return t1;
+  }
+
+  static Object _regex_clear_capture(Object caps, Object key) {
+    axirCoverageMark("_regex_clear_capture");
+    Object t1 = Core.none();
+    Core.set(caps, key, t1);
+    return null;
+  }
+
+  static Object _regex_copy_map(Object value) {
+    axirCoverageMark("_regex_copy_map");
+    Object key = Core.none();
+    Object out = Core.none();
+    Object t1 = new java.util.LinkedHashMap<String, Object>();
+    out = t1;
+    Object t2 = Core.mapKeys(value);
+    for (Object iter_3 : Core.iter(t2)) {
+      key = iter_3;
+      Object t4 = Core.get(value, key, null);
+      Core.set(out, key, t4);
+    }
+    return out;
   }
 
   static Object _agent_factory(Object signature, Object options) {
@@ -22522,6 +24856,13 @@ final class Core {
     Object reserved_names = Core._agent_runtime_reserved_names_for_state(state);
     Object runtime_options = Core.mapMerge(empty_map, options);
     Core.mapDelete(runtime_options, "runtime");
+    Core.mapDelete(runtime_options, "executionContext");
+    Core.mapDelete(runtime_options, "inheritedExecutionContext");
+    Core.mapDelete(runtime_options, "mcpExecutionContext");
+    Core.mapDelete(runtime_options, "mcp");
+    Core.mapDelete(runtime_options, "ucp");
+    Core.mapDelete(runtime_options, "mcpContext");
+    Core.mapDelete(runtime_options, "functions");
     Core.set(runtime_options, "reservedNames", reserved_names);
     Object timeout_ms = Core.get(options, "timeout_ms", null);
     Object timeout = Core.get(options, "timeout", timeout_ms);
@@ -24432,7 +26773,27 @@ final class Core {
       Object responder_opts_camel = Core.get(base_options, "responderOptions", empty_map);
       stage_options = Core.get(base_options, "responder_options", responder_opts_camel);
     }
-    Object out = Core.mapMerge(stage_options, forward_options);
+    Object merged = Core.mapMerge(stage_options, forward_options);
+    Object out = new java.util.LinkedHashMap<String, Object>();
+    Object host_keys = new java.util.ArrayList<Object>();
+    Core.append(host_keys, "executionContext");
+    Core.append(host_keys, "inheritedExecutionContext");
+    Core.append(host_keys, "mcpExecutionContext");
+    Core.append(host_keys, "mcp");
+    Core.append(host_keys, "ucp");
+    Core.append(host_keys, "mcpContext");
+    Core.append(host_keys, "functions");
+    Core.append(host_keys, "runtime");
+    for (Object key : Core.iter(merged)) {
+      Object host = Core.contains(host_keys, key);
+      if (Core.truthy(host)) {
+        // empty
+      }
+      if (!Core.truthy(host)) {
+        Object value = Core.get(merged, key, null);
+        Core.set(out, key, value);
+      }
+    }
     Object base_control = Core.get(base_options, "control", null);
     Object controller = Core.get(forward_options, "control", base_control);
     Object controlled = Core.isNotNone(controller);
@@ -25449,6 +27810,71 @@ final class Core {
     return responder_output;
   }
 
+  static Object _agent_apply_run_context(Object state, Object configured, Object call, Object modules) {
+    axirCoverageMark("_agent_apply_run_context");
+    Object empty_list = new java.util.ArrayList<Object>();
+    Object options = Core.mapMerge(configured, call);
+    Object functions = Core.get(options, "functions", empty_list);
+    Object retained = new java.util.ArrayList<Object>();
+    for (Object function : Core.iter(functions)) {
+      Object default_name = Core.get(function, "name", "");
+      Object namespace = Core.get(function, "namespace", default_name);
+      Object mcp = Core.stringStartsWith(namespace, "mcp.");
+      Object ucp = Core.stringStartsWith(namespace, "ucp.");
+      Object protocol = Core.or(mcp, ucp);
+      if (Core.truthy(protocol)) {
+        // empty
+      }
+      if (!Core.truthy(protocol)) {
+        Core.append(retained, function);
+      }
+    }
+    Core.set(options, "functions", retained);
+    options = Core._agent_append_runtime_modules(options, modules);
+    Object inventory = Core._normalize_agent_callable_inventory(options);
+    Object split = Core._split_agent_callable_inventory(inventory);
+    Object catalog = Core._render_agent_discovery_catalog(split);
+    Core.set(state, "options", options);
+    Core.set(state, "callable_inventory", inventory);
+    Core.set(state, "callable_split", split);
+    Core.set(state, "discovery_catalog", catalog);
+    Object upgrade = Core._resolve_agent_auto_upgrade(options);
+    Object flags = Core._agent_policy_flags(options, split, upgrade);
+    Object policy = Core._normalize_agent_policy(options);
+    Object registry = Core._agent_policy_registry(policy, flags);
+    Core.set(state, "policy_flags", flags);
+    Core.set(state, "policy_registry", registry);
+    Object docs = Core.get(state, "discovered_tool_docs", empty_list);
+    Object retained_docs = new java.util.ArrayList<Object>();
+    for (Object doc : Core.iter(docs)) {
+      Object name = Core.get(doc, "qualified_name", "");
+      Object mcp = Core.stringStartsWith(name, "mcp.");
+      Object ucp = Core.stringStartsWith(name, "ucp.");
+      Object protocol = Core.or(mcp, ucp);
+      if (Core.truthy(protocol)) {
+        // empty
+      }
+      if (!Core.truthy(protocol)) {
+        Core.append(retained_docs, doc);
+      }
+    }
+    Core.set(state, "discovered_tool_docs", retained_docs);
+    Object prompt = Core._build_agent_actor_prompt_policy(state);
+    Core.set(state, "actor_prompt_policy", prompt);
+    Object runtime = Core.get(state, "runtime_enabled", Boolean.FALSE);
+    if (Core.truthy(runtime)) {
+      Object executor = Core._render_rlm_executor_description(state, options);
+      Object distiller = Core._render_rlm_distiller_description(state, options);
+      Object responder = Core._render_rlm_responder_description(state, options);
+      Core.set(state, "executor_description_base", executor);
+      Core.set(state, "distiller_description", distiller);
+      Core.set(state, "responder_description", responder);
+      Core._agent_refresh_actor_instruction(state);
+    }
+    Core.set(state, "mcp_run_context_active", Boolean.TRUE);
+    return call;
+  }
+
   static Object _agent_append_runtime_modules(Object options, Object additional) {
     axirCoverageMark("_agent_append_runtime_modules");
     Object empty_map = new java.util.LinkedHashMap<String, Object>();
@@ -25566,6 +27992,8 @@ final class Core {
         Core.set(out, key, value);
       }
     }
+    Object inheritance = Core.get(parent, "mcpInheritance", "all");
+    Core.set(out, "mcpInheritanceFromParent", inheritance);
     Object snake_path = Core.get(parent, "execution_path", "root");
     Object parent_path = Core.get(parent, "executionPath", snake_path);
     Object path = Core.stringFormat("{}/{}", parent_path, qualified);

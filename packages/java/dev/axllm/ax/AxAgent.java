@@ -132,12 +132,18 @@ public final class AxAgent implements AxProgram {
 
   private Map<String, Object> forwardUnscoped(AiClient client, Map<String, Object> values, Map<String, Object> forwardOptions) {
     Map<String, Object> callOptions = new LinkedHashMap<>(forwardOptions == null ? Map.of() : forwardOptions);
+    if (callOptions.get("cancellation") instanceof AxCancellationToken cancellation) cancellation.throwIfCancelled();
     AxExecutionContext callContext = AxExecutionContext.resolve(callOptions, executionContext);
-    if (callContext != null) {
+    if (callContext != null || Core.truthy(state.get("mcp_run_context_active"))) {
+      List<Map<String,Object>> modules = List.of();
+      if (callContext != null) { callContext.initialize(); modules = callContext.runtimeModules(); }
       callOptions.put("executionContext", callContext);
-      List<Object> functions = new ArrayList<>(Core.asList(callOptions.getOrDefault("functions", List.of())));
-      functions.addAll(callContext.runtimeModules());
-      callOptions.put("functions", functions);
+      Core._agent_apply_run_context(state, options, callOptions, modules);
+      if (Core.truthy(state.get("runtime_enabled"))) {
+        distiller.setInstruction(String.valueOf(state.get("distiller_description")));
+        executor.setInstruction(String.valueOf(state.get("executor_description")));
+        responder.setInstruction(String.valueOf(state.get("responder_description")));
+      }
     }
     // Wire the built-in llmQuery primitive onto the runtime carried in agent
     // options (the same runtime the actor loop will create sessions on),

@@ -86,7 +86,7 @@ from .runtime_quickjs import AxQuickJsCodeRuntime
 from .schema import strip_internal, to_json_schema, validate_output, validate_value
 from .signature import AxSignature, f, s
 from .tool import fn
-from .mcp import AxEventCancellationToken, AxEventEnvelope, AxEventRoute, AxEventRuntime, AxEventSink, AxEventTarget, AxManualEventClock, AxMCPClient, AxMCPEventSource, AxMCPScriptedTransport, AxPushEventSource, AxSystemEventClock, event_continuation_match, event_map_input, event_normalize_mcp, event_path, event_retry_transition, event_route, event_route_commands, event_target, mcp_jsonrpc_notification, mcp_jsonrpc_request, mcp_normalize_error, mcp_protocol_constants, mcp_resource_subscription_ownership, mcp_resource_subscription_selection, run_mcp_conformance_fixture
+from .mcp import AxExecutionContext, AxEventCancellationToken, AxEventEnvelope, AxEventRoute, AxEventRuntime, AxEventSink, AxEventTarget, AxManualEventClock, AxMCPClient, AxMCPEventSource, AxMCPScriptedTransport, AxPushEventSource, AxSystemEventClock, event_continuation_match, event_map_input, event_normalize_mcp, event_path, event_retry_transition, event_route, event_route_commands, event_target, mcp_jsonrpc_notification, mcp_jsonrpc_request, mcp_normalize_error, mcp_protocol_constants, mcp_resource_subscription_ownership, mcp_resource_subscription_selection, run_mcp_conformance_fixture
 
 
 class FixtureError(AssertionError):
@@ -1777,6 +1777,14 @@ def _run_agent_forward(fixture):
     client = ConformanceScriptedAI(fixture.get("responses") or [], fixture.get("stream_events") or [], fixture.get("transcribe_responses") or [], fixture.get("features"))
     runtime = None
     agent_options = copy.deepcopy(fixture.get("options") or {})
+    mcp_transports, context_clients = {}, {}
+    for spec in fixture.get("mcp_clients") or []:
+        owner = spec.get("owner", "parent")
+        transport = AxMCPScriptedTransport(spec["responses"])
+        mcp_transports[owner+"/"+spec["namespace"]] = transport
+        context_clients.setdefault(owner, []).append(AxMCPClient(transport, {"namespace":spec["namespace"], "era":"modern"}))
+    contexts = {owner:AxExecutionContext(clients) for owner,clients in context_clients.items()}
+    if "parent" in contexts: agent_options["executionContext"] = contexts["parent"]
     semantic_observer_transcript = []
     semantic_observers_enabled = "expected_observer_transcript" in fixture
     def _semantic_observer(label, throws=False):
@@ -1823,6 +1831,9 @@ def _run_agent_forward(fixture):
         ag = agent(fixture.get("signature"), agent_options)
         for child_spec in fixture.get("child_agents") or []:
             child_options = dict(child_spec.get("options") or {})
+            owner = child_spec["namespace"]+"."+child_spec["name"]
+            if owner in contexts: child_options["executionContext"] = contexts[owner]
+            if "runtime_script" in child_spec: child_options["runtime"] = ScriptedCodeRuntime(child_spec["runtime_script"])
             if "runtime_engine" in child_spec:
                 child_options["runtime"] = _AxQuickJsRuntime()
             child = agent(child_spec["signature"], child_options)
@@ -1904,6 +1915,16 @@ def _run_agent_forward(fixture):
         _assert_equal(semantic_observer_transcript, fixture["expected_observer_transcript"], "agent observer transcript")
     if fixture.get("observer_throws") and not observer_called[0]:
         raise FixtureError("citation observer was not called")
+    for key, expected in (fixture.get("expected_mcp_calls") or {}).items():
+        actual = [{"name":r["params"]["name"],"arguments":r["params"]["arguments"]} for r in mcp_transports[key].requests if r["method"]=="tools/call"]
+        _assert_equal(actual, expected, "delegated MCP calls "+key)
+    for check in fixture.get("expected_request_checks") or []:
+        request=client.requests[check["index"]]; text=json.dumps(request)
+        for value in check.get("contains",[]):
+            if value not in text: raise FixtureError("Child request missing "+value)
+        for value in check.get("not_contains",[]):
+            if value in text: raise FixtureError("Child request exposed "+value)
+        if check.get("functions_absent") and request.get("functions"): raise FixtureError("Agent runtime tools leaked into model-native functions")
     if "expected_request_count" in fixture and len(client.requests) != fixture["expected_request_count"]:
         raise FixtureError(f"expected {fixture['expected_request_count']} requests, got {len(client.requests)}")
     projection = fixture.get("exact_observable_projection") or {}

@@ -623,6 +623,10 @@ def _core_gte(left, right): return left >= right
 def _core_add(left, right): return left + right
 def _core_mul(left, right): return float(left or 0) * float(right or 0)
 def _core_div(left, right): return float(left or 0) / float(right or 1)
+def _core_string_utf16_units(value):
+    raw = value.encode("utf-16-le", "surrogatepass")
+    return [raw[index] + 256 * raw[index + 1] for index in range(0, len(raw), 2)]
+
 def _core_string_codepoint_length(value): return len(value)
 
 def _core_math_is_finite(value): return math.isfinite(value)
@@ -1369,6 +1373,24 @@ def _select_structured_output_rung(signature: AxSignature, features: Any, option
     return selection
 
 
+def _regex_peek(s: Any) -> Any:
+    _core_coverage_mark("_regex_peek")
+    t1 = _core_get(s, "p", None)
+    t2 = _core_get(s, "u", None)
+    t3 = _core_len(t2)
+    t4 = _core_gte(t1, t3)
+    if t4:
+        t5 = _core_mul(-1, 1)
+        t6 = _core_math_floor(t5)
+        return t6
+    else:
+        pass
+    t7 = _core_get(s, "u", None)
+    t8 = _core_get(s, "p", None)
+    t9 = _core_get(t7, t8, None)
+    return t9
+
+
 def chat_session_validate_required_arguments(schema: Any, arguments: Any, path: str) -> None:
     _core_coverage_mark("chat_session_validate_required_arguments")
     errors = _chat_session_argument_errors(schema, schema, arguments, path, 0)
@@ -1425,6 +1447,17 @@ def _execute_tool_call(functions: list[Any], call: Any) -> Any:
     message = _core_string_format("Function not found: {}. Available functions: {}. Call one of these exact function names.", name, available)
     error = _core_validation_error(message)
     raise error
+
+
+def _regex_take(s: Any) -> Any:
+    _core_coverage_mark("_regex_take")
+    c = _core_none()
+    t1 = _regex_peek(s)
+    c = t1
+    t2 = _core_get(s, "p", None)
+    t3 = _core_add(t2, 1)
+    s["p"] = t3
+    return c
 
 
 def stream_extraction_route(has_complex_fields: bool) -> str:
@@ -1520,6 +1553,18 @@ def _chat_session_argument_equal(left: Any, right: Any, depth: int) -> bool:
         pass
     same = _core_eq(left, right)
     return same
+
+
+def _regex_digit(c: Any) -> Any:
+    _core_coverage_mark("_regex_digit")
+    t1 = _core_gte(c, 48)
+    t2 = t1
+    if t2:
+        t3 = _core_lte(c, 57)
+        t2 = t3
+    else:
+        pass
+    return t2
 
 
 def stream_structured_delta(fields: list[Any], parsed_values: Any, previous_values: Any, partial_array_incomplete: bool) -> Any:
@@ -1718,6 +1763,64 @@ def _validate_optimization_component_value(component: Any, value: Any) -> bool:
     else:
         pass
     return True
+
+
+def _regex_hexdigit(c: Any) -> Any:
+    _core_coverage_mark("_regex_hexdigit")
+    t1 = _regex_digit(c)
+    if t1:
+        t2 = _core_mul(-1, 48)
+        t3 = _core_add(c, t2)
+        t4 = _core_math_floor(t3)
+        return t4
+    else:
+        pass
+    t5 = _core_gte(c, 65)
+    t6 = t5
+    if t6:
+        t7 = _core_lte(c, 70)
+        t6 = t7
+    else:
+        pass
+    if t6:
+        t8 = _core_mul(-1, 55)
+        t9 = _core_add(c, t8)
+        t10 = _core_math_floor(t9)
+        return t10
+    else:
+        pass
+    t11 = _core_gte(c, 97)
+    t12 = t11
+    if t12:
+        t13 = _core_lte(c, 102)
+        t12 = t13
+    else:
+        pass
+    if t12:
+        t14 = _core_mul(-1, 87)
+        t15 = _core_add(c, t14)
+        t16 = _core_math_floor(t15)
+        return t16
+    else:
+        pass
+    t17 = _core_mul(-1, 1)
+    t18 = _core_math_floor(t17)
+    return t18
+
+
+def _regex_node(k: Any) -> Any:
+    _core_coverage_mark("_regex_node")
+    t1 = {}
+    t1["k"] = k
+    return t1
+
+
+def _regex_literal(c: Any) -> Any:
+    _core_coverage_mark("_regex_literal")
+    t1 = {}
+    t1["k"] = "char"
+    t1["c"] = c
+    return t1
 
 
 def _validate_optimization_component_map(components: Any, component_map: Any) -> bool:
@@ -1962,7 +2065,7 @@ def _chat_session_argument_errors(root: Any, schema: Any, arguments: Any, path: 
             pass
         pattern = _core_get(schema, "pattern", "")
         if pattern:
-            matches = _core_regex_match(pattern, arguments)
+            matches = _regex_test(pattern, arguments)
             if matches:
                 pass
             else:
@@ -2062,6 +2165,143 @@ def _chat_session_argument_errors(root: Any, schema: Any, arguments: Any, path: 
     else:
         pass
     return errors
+
+
+def _regex_scan_groups(u: Any) -> Any:
+    _core_coverage_mark("_regex_scan_groups")
+    c = _core_none()
+    count = _core_none()
+    i = _core_none()
+    ids = _core_none()
+    inside = _core_none()
+    name = _core_none()
+    named = _core_none()
+    names = _core_none()
+    parser = _core_none()
+    special = _core_none()
+    count = 0
+    i = 0
+    inside = False
+    t1 = {}
+    names = t1
+    while True:
+        t2 = _core_len(u)
+        t3 = _core_lt(i, t2)
+        t4 = _core_not(t3)
+        if t4:
+            break
+        else:
+            pass
+        t5 = _core_get(u, i, None)
+        c = t5
+        t6 = _core_add(i, 1)
+        i = t6
+        t7 = _core_eq(c, 92)
+        if t7:
+            t8 = _core_add(i, 1)
+            i = t8
+            continue
+        else:
+            pass
+        t9 = _core_eq(c, 91)
+        if t9:
+            inside = True
+        else:
+            pass
+        t10 = _core_eq(c, 93)
+        if t10:
+            inside = False
+        else:
+            pass
+        t11 = _core_eq(c, 40)
+        t12 = t11
+        if t12:
+            t13 = _core_not(inside)
+            t12 = t13
+        else:
+            pass
+        if t12:
+            t14 = _core_len(u)
+            t15 = _core_lt(i, t14)
+            t16 = t15
+            if t16:
+                t17 = _core_get(u, i, None)
+                t18 = _core_eq(t17, 63)
+                t16 = t18
+            else:
+                pass
+            special = t16
+            t19 = special
+            if t19:
+                t20 = _core_add(i, 2)
+                t21 = _core_len(u)
+                t22 = _core_lt(t20, t21)
+                t19 = t22
+            else:
+                pass
+            if t19:
+                t23 = _core_add(i, 1)
+                t24 = _core_get(u, t23, None)
+                t25 = _core_eq(t24, 60)
+                t19 = t25
+            else:
+                pass
+            if t19:
+                t26 = _core_add(i, 2)
+                t27 = _core_get(u, t26, None)
+                t28 = _core_ne(t27, 61)
+                t19 = t28
+            else:
+                pass
+            if t19:
+                t29 = _core_add(i, 2)
+                t30 = _core_get(u, t29, None)
+                t31 = _core_ne(t30, 33)
+                t19 = t31
+            else:
+                pass
+            named = t19
+            t32 = _core_not(special)
+            t33 = t32
+            t34 = _core_not(t33)
+            if t34:
+                t33 = named
+            else:
+                pass
+            if t33:
+                t35 = _core_add(count, 1)
+                count = t35
+                if named:
+                    t36 = {}
+                    t36["u"] = u
+                    t37 = _core_add(i, 2)
+                    t36["p"] = t37
+                    parser = t36
+                    t38 = _regex_read_name(parser)
+                    name = t38
+                    t39 = _core_get(parser, "p", None)
+                    i = t39
+                    t40 = _core_get(names, name, None)
+                    ids = t40
+                    t41 = _core_none()
+                    t42 = _core_eq(ids, t41)
+                    if t42:
+                        t43 = []
+                        ids = t43
+                    else:
+                        pass
+                    ids.append(count)
+                    names[name] = ids
+                else:
+                    pass
+            else:
+                pass
+        else:
+            pass
+    t44 = {}
+    t44["count"] = count
+    t44["names"] = names
+    return t44
 
 
 def _structured_output_scalar_placeholder(typ: Any) -> Any:
@@ -2301,6 +2541,381 @@ def _serialize_optimized_artifact(artifact: Any) -> str:
     _core_coverage_mark("_serialize_optimized_artifact")
     text = _core_json_stringify(artifact)
     return text
+
+
+def _regex_escaped(s: Any, inside: Any) -> Any:
+    _core_coverage_mark("_regex_escaped")
+    c = _core_none()
+    d = _core_none()
+    i = _core_none()
+    limit = _core_none()
+    n = _core_none()
+    name = _core_none()
+    start = _core_none()
+    value = _core_none()
+    t1 = _regex_take(s)
+    c = t1
+    t2 = _core_lt(c, 0)
+    if t2:
+        t3 = _core_string_format("Invalid regular expression: {}", "Trailing escape")
+        t4 = _core_validation_error(t3)
+        raise t4
+    else:
+        pass
+    t5 = _core_eq(c, 100)
+    t6 = t5
+    t7 = _core_not(t6)
+    if t7:
+        t8 = _core_eq(c, 68)
+        t6 = t8
+    else:
+        pass
+    t9 = _core_not(t6)
+    if t9:
+        t10 = _core_eq(c, 119)
+        t6 = t10
+    else:
+        pass
+    t11 = _core_not(t6)
+    if t11:
+        t12 = _core_eq(c, 87)
+        t6 = t12
+    else:
+        pass
+    t13 = _core_not(t6)
+    if t13:
+        t14 = _core_eq(c, 115)
+        t6 = t14
+    else:
+        pass
+    t15 = _core_not(t6)
+    if t15:
+        t16 = _core_eq(c, 83)
+        t6 = t16
+    else:
+        pass
+    if t6:
+        t17 = {}
+        t17["k"] = "class_escape"
+        t17["c"] = c
+        return t17
+    else:
+        pass
+    t18 = _core_eq(c, 98)
+    if t18:
+        if inside:
+            t19 = _regex_literal(8)
+            return t19
+        else:
+            pass
+        t20 = {}
+        t20["k"] = "boundary"
+        t20["negative"] = False
+        return t20
+    else:
+        pass
+    t21 = _core_eq(c, 66)
+    t22 = t21
+    if t22:
+        t23 = _core_not(inside)
+        t22 = t23
+    else:
+        pass
+    if t22:
+        t24 = {}
+        t24["k"] = "boundary"
+        t24["negative"] = True
+        return t24
+    else:
+        pass
+    t25 = _core_eq(c, 102)
+    if t25:
+        t26 = _regex_literal(12)
+        return t26
+    else:
+        pass
+    t27 = _core_eq(c, 110)
+    if t27:
+        t28 = _regex_literal(10)
+        return t28
+    else:
+        pass
+    t29 = _core_eq(c, 114)
+    if t29:
+        t30 = _regex_literal(13)
+        return t30
+    else:
+        pass
+    t31 = _core_eq(c, 116)
+    if t31:
+        t32 = _regex_literal(9)
+        return t32
+    else:
+        pass
+    t33 = _core_eq(c, 118)
+    if t33:
+        t34 = _regex_literal(11)
+        return t34
+    else:
+        pass
+    t35 = _core_eq(c, 120)
+    t36 = t35
+    t37 = _core_not(t36)
+    if t37:
+        t38 = _core_eq(c, 117)
+        t36 = t38
+    else:
+        pass
+    if t36:
+        n = 2
+        t39 = _core_eq(c, 117)
+        if t39:
+            n = 4
+        else:
+            pass
+        t40 = _core_get(s, "p", None)
+        start = t40
+        value = 0
+        i = 0
+        while True:
+            t41 = _core_lt(i, n)
+            t42 = t41
+            if t42:
+                t43 = _regex_peek(s)
+                t44 = _regex_hexdigit(t43)
+                t45 = _core_gte(t44, 0)
+                t42 = t45
+            else:
+                pass
+            t46 = _core_not(t42)
+            if t46:
+                break
+            else:
+                pass
+            t47 = _core_mul(value, 16)
+            t48 = _core_math_floor(t47)
+            t49 = _regex_take(s)
+            t50 = _regex_hexdigit(t49)
+            t51 = _core_add(t48, t50)
+            value = t51
+            t52 = _core_add(i, 1)
+            i = t52
+        t53 = _core_eq(i, n)
+        if t53:
+            t54 = _regex_literal(value)
+            return t54
+        else:
+            pass
+        s["p"] = start
+        t55 = _regex_literal(c)
+        return t55
+    else:
+        pass
+    t56 = _core_eq(c, 99)
+    if t56:
+        t57 = _regex_peek(s)
+        d = t57
+        t58 = _core_gte(d, 65)
+        t59 = t58
+        if t59:
+            t60 = _core_lte(d, 90)
+            t59 = t60
+        else:
+            pass
+        t61 = t59
+        t62 = _core_not(t61)
+        if t62:
+            t63 = _core_gte(d, 97)
+            t64 = t63
+            if t64:
+                t65 = _core_lte(d, 122)
+                t64 = t65
+            else:
+                pass
+            t61 = t64
+        else:
+            pass
+        t66 = _core_not(t61)
+        if t66:
+            t67 = inside
+            if t67:
+                t68 = _regex_digit(d)
+                t69 = t68
+                t70 = _core_not(t69)
+                if t70:
+                    t71 = _core_eq(d, 95)
+                    t69 = t71
+                else:
+                    pass
+                t67 = t69
+            else:
+                pass
+            t61 = t67
+        else:
+            pass
+        if t61:
+            t72 = _regex_take(s)
+            t73 = _core_div(d, 32)
+            t74 = _core_math_floor(t73)
+            t75 = _core_mul(32, t74)
+            t76 = _core_mul(-1, t75)
+            t77 = _core_add(d, t76)
+            t78 = _core_math_floor(t77)
+            t79 = _regex_literal(t78)
+            return t79
+        else:
+            pass
+        t80 = _core_get(s, "p", None)
+        t81 = _core_mul(-1, 1)
+        t82 = _core_add(t80, t81)
+        t83 = _core_math_floor(t82)
+        s["p"] = t83
+        t84 = _regex_literal(92)
+        return t84
+    else:
+        pass
+    t85 = _regex_digit(c)
+    if t85:
+        t86 = _core_get(s, "p", None)
+        start = t86
+        t87 = _core_mul(-1, 48)
+        t88 = _core_add(c, t87)
+        t89 = _core_math_floor(t88)
+        value = t89
+        while True:
+            t90 = _regex_peek(s)
+            t91 = _regex_digit(t90)
+            t92 = _core_not(t91)
+            if t92:
+                break
+            else:
+                pass
+            t93 = _core_mul(value, 10)
+            t94 = _core_math_floor(t93)
+            t95 = _regex_take(s)
+            t96 = _core_add(t94, t95)
+            t97 = _core_mul(-1, 48)
+            t98 = _core_add(t96, t97)
+            t99 = _core_math_floor(t98)
+            value = t99
+        t100 = _core_ne(c, 48)
+        t101 = t100
+        if t101:
+            t102 = _core_not(inside)
+            t101 = t102
+        else:
+            pass
+        if t101:
+            t103 = _core_get(s, "total", None)
+            t104 = _core_lte(value, t103)
+            t101 = t104
+        else:
+            pass
+        if t101:
+            t105 = {}
+            t105["k"] = "ref"
+            t106 = []
+            t106.append(value)
+            t105["ids"] = t106
+            return t105
+        else:
+            pass
+        s["p"] = start
+        t107 = _core_lte(c, 55)
+        if t107:
+            t108 = _core_mul(-1, 48)
+            t109 = _core_add(c, t108)
+            t110 = _core_math_floor(t109)
+            value = t110
+            n = 1
+            limit = 3
+            t111 = _core_gt(c, 51)
+            if t111:
+                limit = 2
+            else:
+                pass
+            while True:
+                t112 = _core_lt(n, limit)
+                t113 = t112
+                if t113:
+                    t114 = _regex_peek(s)
+                    t115 = _core_gte(t114, 48)
+                    t113 = t115
+                else:
+                    pass
+                if t113:
+                    t116 = _regex_peek(s)
+                    t117 = _core_lte(t116, 55)
+                    t113 = t117
+                else:
+                    pass
+                t118 = _core_not(t113)
+                if t118:
+                    break
+                else:
+                    pass
+                t119 = _core_mul(value, 8)
+                t120 = _core_math_floor(t119)
+                t121 = _regex_take(s)
+                t122 = _core_add(t120, t121)
+                t123 = _core_mul(-1, 48)
+                t124 = _core_add(t122, t123)
+                t125 = _core_math_floor(t124)
+                value = t125
+                t126 = _core_add(n, 1)
+                n = t126
+            t127 = _regex_literal(value)
+            return t127
+        else:
+            pass
+        t128 = _regex_literal(c)
+        return t128
+    else:
+        pass
+    t129 = _core_eq(c, 107)
+    t130 = t129
+    if t130:
+        t131 = _core_not(inside)
+        t130 = t131
+    else:
+        pass
+    if t130:
+        t132 = _core_get(s, "names", None)
+        t133 = _core_len(t132)
+        t134 = _core_gt(t133, 0)
+        t130 = t134
+    else:
+        pass
+    if t130:
+        t135 = _regex_take(s)
+        t136 = _core_ne(t135, 60)
+        if t136:
+            t137 = _core_string_format("Invalid regular expression: {}", "Invalid named backreference")
+            t138 = _core_validation_error(t137)
+            raise t138
+        else:
+            pass
+        t139 = _regex_read_name(s)
+        name = t139
+        t140 = _core_get(s, "names", None)
+        t141 = _core_map_contains(t140, name)
+        t142 = _core_not(t141)
+        if t142:
+            t143 = _core_string_format("Invalid regular expression: {}", "Unknown named backreference")
+            t144 = _core_validation_error(t143)
+            raise t144
+        else:
+            pass
+        t145 = {}
+        t145["k"] = "ref"
+        t146 = _core_get(s, "names", None)
+        t147 = _core_get(t146, name, None)
+        t145["ids"] = t147
+        return t145
+    else:
+        pass
+    t148 = _regex_literal(c)
+    return t148
 
 
 def _append_structured_output_instruction(messages: list[Any], output_fields: list[Any], selection: Any) -> None:
@@ -3156,6 +3771,21 @@ def _filter_optimization_components(components: Any, target: Any) -> list[Any]:
     return out
 
 
+def _regex_class_atom(s: Any) -> Any:
+    _core_coverage_mark("_regex_class_atom")
+    c = _core_none()
+    t1 = _regex_take(s)
+    c = t1
+    t2 = _core_eq(c, 92)
+    if t2:
+        t3 = _regex_escaped(s, True)
+        return t3
+    else:
+        pass
+    t4 = _regex_literal(c)
+    return t4
+
+
 def chat_session_register_call(state: Any, call: Any, execution: str) -> bool:
     _core_coverage_mark("chat_session_register_call")
     terminal = _core_get(state, "terminal", False)
@@ -3182,6 +3812,106 @@ def chat_session_register_call(state: Any, call: Any, execution: str) -> bool:
     pending[id] = record
     state["pending"] = pending
     return True
+
+
+def _regex_character_class(s: Any) -> Any:
+    _core_coverage_mark("_regex_character_class")
+    first = _core_none()
+    last = _core_none()
+    negative = _core_none()
+    terms = _core_none()
+    negative = False
+    t1 = []
+    terms = t1
+    t2 = _regex_peek(s)
+    t3 = _core_eq(t2, 94)
+    if t3:
+        t4 = _regex_take(s)
+        negative = True
+    else:
+        pass
+    while True:
+        t5 = _regex_peek(s)
+        t6 = _core_ne(t5, 93)
+        t7 = _core_not(t6)
+        if t7:
+            break
+        else:
+            pass
+        t8 = _regex_peek(s)
+        t9 = _core_lt(t8, 0)
+        if t9:
+            t10 = _core_string_format("Invalid regular expression: {}", "Unterminated character class")
+            t11 = _core_validation_error(t10)
+            raise t11
+        else:
+            pass
+        t12 = _regex_class_atom(s)
+        first = t12
+        t13 = _regex_peek(s)
+        t14 = _core_eq(t13, 45)
+        t15 = t14
+        if t15:
+            t16 = _core_get(s, "p", None)
+            t17 = _core_add(t16, 1)
+            t18 = _core_get(s, "u", None)
+            t19 = _core_len(t18)
+            t20 = _core_lt(t17, t19)
+            t15 = t20
+        else:
+            pass
+        if t15:
+            t21 = _core_get(s, "u", None)
+            t22 = _core_get(s, "p", None)
+            t23 = _core_add(t22, 1)
+            t24 = _core_get(t21, t23, None)
+            t25 = _core_ne(t24, 93)
+            t15 = t25
+        else:
+            pass
+        if t15:
+            t26 = _regex_take(s)
+            t27 = _regex_class_atom(s)
+            last = t27
+            t28 = _core_get(first, "k", None)
+            t29 = _core_eq(t28, "char")
+            t30 = t29
+            if t30:
+                t31 = _core_get(last, "k", None)
+                t32 = _core_eq(t31, "char")
+                t30 = t32
+            else:
+                pass
+            if t30:
+                t33 = _core_get(first, "c", None)
+                t34 = _core_get(last, "c", None)
+                t35 = _core_gt(t33, t34)
+                if t35:
+                    t36 = _core_string_format("Invalid regular expression: {}", "Invalid character range")
+                    t37 = _core_validation_error(t36)
+                    raise t37
+                else:
+                    pass
+                t38 = {}
+                t38["k"] = "range"
+                t39 = _core_get(first, "c", None)
+                t38["lo"] = t39
+                t40 = _core_get(last, "c", None)
+                t38["hi"] = t40
+                terms.append(t38)
+            else:
+                terms.append(first)
+                t41 = _regex_literal(45)
+                terms.append(t41)
+                terms.append(last)
+        else:
+            terms.append(first)
+    t42 = _regex_take(s)
+    t43 = {}
+    t43["k"] = "class"
+    t43["negative"] = negative
+    t43["terms"] = terms
+    return t43
 
 
 def chat_session_result(response: Any, id: str) -> Any:
@@ -3296,6 +4026,183 @@ def chat_session_defer_final_call(state: Any, call: Any) -> bool:
     else:
         pass
     return False
+
+
+def _regex_atom(s: Any) -> Any:
+    _core_coverage_mark("_regex_atom")
+    c = _core_none()
+    candidate = _core_none()
+    capture = _core_none()
+    child = _core_none()
+    direction = _core_none()
+    kind = _core_none()
+    mode = _core_none()
+    name = _core_none()
+    negative = _core_none()
+    t1 = _regex_take(s)
+    c = t1
+    t2 = _core_eq(c, 46)
+    if t2:
+        t3 = _regex_node("dot")
+        return t3
+    else:
+        pass
+    t4 = _core_eq(c, 94)
+    if t4:
+        t5 = _regex_node("start")
+        return t5
+    else:
+        pass
+    t6 = _core_eq(c, 36)
+    if t6:
+        t7 = _regex_node("end")
+        return t7
+    else:
+        pass
+    t8 = _core_eq(c, 92)
+    if t8:
+        t9 = _regex_escaped(s, False)
+        return t9
+    else:
+        pass
+    t10 = _core_eq(c, 91)
+    if t10:
+        t11 = _regex_character_class(s)
+        return t11
+    else:
+        pass
+    t12 = _core_eq(c, 42)
+    t13 = t12
+    t14 = _core_not(t13)
+    if t14:
+        t15 = _core_eq(c, 43)
+        t13 = t15
+    else:
+        pass
+    t16 = _core_not(t13)
+    if t16:
+        t17 = _core_eq(c, 63)
+        t13 = t17
+    else:
+        pass
+    if t13:
+        t18 = _core_string_format("Invalid regular expression: {}", "Nothing to repeat")
+        t19 = _core_validation_error(t18)
+        raise t19
+    else:
+        pass
+    t20 = _core_eq(c, 40)
+    if t20:
+        kind = "capture"
+        negative = False
+        direction = 1
+        capture = 0
+        t21 = _core_none()
+        name = t21
+        t22 = _regex_peek(s)
+        t23 = _core_eq(t22, 63)
+        if t23:
+            t24 = _regex_take(s)
+            t25 = _regex_take(s)
+            mode = t25
+            t26 = _core_eq(mode, 58)
+            if t26:
+                kind = "group"
+            else:
+                t27 = _core_eq(mode, 61)
+                t28 = t27
+                t29 = _core_not(t28)
+                if t29:
+                    t30 = _core_eq(mode, 33)
+                    t28 = t30
+                else:
+                    pass
+                if t28:
+                    kind = "look"
+                    t31 = _core_eq(mode, 33)
+                    negative = t31
+                else:
+                    t32 = _core_eq(mode, 60)
+                    if t32:
+                        t33 = _regex_peek(s)
+                        t34 = _core_eq(t33, 61)
+                        t35 = t34
+                        t36 = _core_not(t35)
+                        if t36:
+                            t37 = _regex_peek(s)
+                            t38 = _core_eq(t37, 33)
+                            t35 = t38
+                        else:
+                            pass
+                        if t35:
+                            kind = "look"
+                            t39 = _regex_take(s)
+                            t40 = _core_eq(t39, 33)
+                            negative = t40
+                            t41 = _core_mul(-1, 1)
+                            t42 = _core_math_floor(t41)
+                            direction = t42
+                        else:
+                            t43 = _regex_read_name(s)
+                            name = t43
+                    else:
+                        t44 = _core_string_format("Invalid regular expression: {}", "Invalid group")
+                        t45 = _core_validation_error(t44)
+                        raise t45
+        else:
+            pass
+        t46 = _core_eq(kind, "capture")
+        if t46:
+            t47 = _core_get(s, "next", None)
+            t48 = _core_add(t47, 1)
+            s["next"] = t48
+            t49 = _core_get(s, "next", None)
+            capture = t49
+        else:
+            pass
+        t50 = _regex_alternative(s)
+        child = t50
+        t51 = _regex_take(s)
+        t52 = _core_ne(t51, 41)
+        if t52:
+            t53 = _core_string_format("Invalid regular expression: {}", "Unterminated group")
+            t54 = _core_validation_error(t53)
+            raise t54
+        else:
+            pass
+        t55 = {}
+        t55["k"] = kind
+        t55["child"] = child
+        t55["id"] = capture
+        t55["negative"] = negative
+        t55["direction"] = direction
+        t55["name"] = name
+        return t55
+    else:
+        pass
+    t56 = _core_eq(c, 123)
+    if t56:
+        t57 = _core_get(s, "p", None)
+        t58 = _core_mul(-1, 1)
+        t59 = _core_add(t57, t58)
+        t60 = _core_math_floor(t59)
+        s["p"] = t60
+        t61 = _regex_node("empty")
+        t62 = _regex_quantifier(s, t61)
+        candidate = t62
+        t63 = _core_get(candidate, "k", None)
+        t64 = _core_eq(t63, "repeat")
+        if t64:
+            t65 = _core_string_format("Invalid regular expression: {}", "Nothing to repeat")
+            t66 = _core_validation_error(t65)
+            raise t66
+        else:
+            pass
+        t67 = _regex_take(s)
+    else:
+        pass
+    t68 = _regex_literal(c)
+    return t68
 
 
 def chat_session_complete_call(state: Any, id: str, result: Any) -> bool:
@@ -3798,6 +4705,173 @@ def _parse_output_impl(content: str) -> Any:
     return output
 
 
+def _regex_quantifier(s: Any, child: Any) -> Any:
+    _core_coverage_mark("_regex_quantifier")
+    c = _core_none()
+    hi = _core_none()
+    lazy = _core_none()
+    lo = _core_none()
+    start = _core_none()
+    t1 = _core_get(s, "p", None)
+    start = t1
+    t2 = _regex_peek(s)
+    c = t2
+    lo = 0
+    t3 = _core_mul(-1, 1)
+    t4 = _core_math_floor(t3)
+    hi = t4
+    t5 = _core_eq(c, 42)
+    if t5:
+        t6 = _regex_take(s)
+    else:
+        t7 = _core_eq(c, 43)
+        if t7:
+            t8 = _regex_take(s)
+            lo = 1
+        else:
+            t9 = _core_eq(c, 63)
+            if t9:
+                t10 = _regex_take(s)
+                hi = 1
+            else:
+                t11 = _core_eq(c, 123)
+                if t11:
+                    t12 = _regex_take(s)
+                    t13 = _regex_peek(s)
+                    t14 = _regex_digit(t13)
+                    t15 = _core_not(t14)
+                    if t15:
+                        s["p"] = start
+                        return child
+                    else:
+                        pass
+                    while True:
+                        t16 = _regex_peek(s)
+                        t17 = _regex_digit(t16)
+                        t18 = _core_not(t17)
+                        if t18:
+                            break
+                        else:
+                            pass
+                        t19 = _core_mul(lo, 10)
+                        t20 = _core_math_floor(t19)
+                        t21 = _regex_take(s)
+                        t22 = _core_add(t20, t21)
+                        t23 = _core_mul(-1, 48)
+                        t24 = _core_add(t22, t23)
+                        t25 = _core_math_floor(t24)
+                        lo = t25
+                    hi = lo
+                    t26 = _regex_peek(s)
+                    t27 = _core_eq(t26, 44)
+                    if t27:
+                        t28 = _regex_take(s)
+                        t29 = _core_mul(-1, 1)
+                        t30 = _core_math_floor(t29)
+                        hi = t30
+                        t31 = _regex_peek(s)
+                        t32 = _regex_digit(t31)
+                        if t32:
+                            hi = 0
+                            while True:
+                                t33 = _regex_peek(s)
+                                t34 = _regex_digit(t33)
+                                t35 = _core_not(t34)
+                                if t35:
+                                    break
+                                else:
+                                    pass
+                                t36 = _core_mul(hi, 10)
+                                t37 = _core_math_floor(t36)
+                                t38 = _regex_take(s)
+                                t39 = _core_add(t37, t38)
+                                t40 = _core_mul(-1, 48)
+                                t41 = _core_add(t39, t40)
+                                t42 = _core_math_floor(t41)
+                                hi = t42
+                        else:
+                            pass
+                    else:
+                        pass
+                    t43 = _regex_peek(s)
+                    t44 = _core_ne(t43, 125)
+                    if t44:
+                        s["p"] = start
+                        return child
+                    else:
+                        pass
+                    t45 = _regex_take(s)
+                    t46 = _core_gte(hi, 0)
+                    t47 = t46
+                    if t47:
+                        t48 = _core_lt(hi, lo)
+                        t47 = t48
+                    else:
+                        pass
+                    if t47:
+                        t49 = _core_string_format("Invalid regular expression: {}", "Invalid quantifier range")
+                        t50 = _core_validation_error(t49)
+                        raise t50
+                    else:
+                        pass
+                else:
+                    return child
+    t51 = _core_get(child, "k", None)
+    t52 = _core_eq(t51, "start")
+    t53 = t52
+    t54 = _core_not(t53)
+    if t54:
+        t55 = _core_get(child, "k", None)
+        t56 = _core_eq(t55, "end")
+        t53 = t56
+    else:
+        pass
+    t57 = _core_not(t53)
+    if t57:
+        t58 = _core_get(child, "k", None)
+        t59 = _core_eq(t58, "boundary")
+        t53 = t59
+    else:
+        pass
+    t60 = _core_not(t53)
+    if t60:
+        t61 = _core_get(child, "k", None)
+        t62 = _core_eq(t61, "look")
+        t63 = t62
+        if t63:
+            t64 = _core_get(child, "direction", None)
+            t65 = _core_mul(-1, 1)
+            t66 = _core_math_floor(t65)
+            t67 = _core_eq(t64, t66)
+            t63 = t67
+        else:
+            pass
+        t53 = t63
+    else:
+        pass
+    if t53:
+        t68 = _core_string_format("Invalid regular expression: {}", "Invalid quantified assertion")
+        t69 = _core_validation_error(t68)
+        raise t69
+    else:
+        pass
+    lazy = False
+    t70 = _regex_peek(s)
+    t71 = _core_eq(t70, 63)
+    if t71:
+        t72 = _regex_take(s)
+        lazy = True
+    else:
+        pass
+    t73 = {}
+    t73["k"] = "repeat"
+    t73["child"] = child
+    t73["lo"] = lo
+    t73["hi"] = hi
+    t73["lazy"] = lazy
+    return t73
+
+
 def _ace_estimate_token_count(text: str) -> i64:
     _core_coverage_mark("_ace_estimate_token_count")
     len = _core_len(text)
@@ -4223,6 +5297,53 @@ def _validate_exact_output_keys(fields: list[Any], values: Any, context: str) ->
     return None
 
 
+def _regex_alternative(s: Any) -> Any:
+    _core_coverage_mark("_regex_alternative")
+    choices = _core_none()
+    terms = _core_none()
+    t1 = []
+    choices = t1
+    t2 = []
+    terms = t2
+    while True:
+        t3 = _regex_peek(s)
+        t4 = _core_gte(t3, 0)
+        t5 = t4
+        if t5:
+            t6 = _regex_peek(s)
+            t7 = _core_ne(t6, 41)
+            t5 = t7
+        else:
+            pass
+        t8 = _core_not(t5)
+        if t8:
+            break
+        else:
+            pass
+        t9 = _regex_peek(s)
+        t10 = _core_eq(t9, 124)
+        if t10:
+            t11 = _regex_take(s)
+            t12 = {}
+            t12["k"] = "seq"
+            t12["terms"] = terms
+            choices.append(t12)
+            t13 = []
+            terms = t13
+        else:
+            t14 = _regex_atom(s)
+            t15 = _regex_quantifier(s, t14)
+            terms.append(t15)
+    t16 = {}
+    t16["k"] = "seq"
+    t16["terms"] = terms
+    choices.append(t16)
+    t17 = {}
+    t17["k"] = "alt"
+    t17["terms"] = choices
+    return t17
+
+
 def chat_session_mark_submitted(state: Any, ids: list[Any]) -> None:
     _core_coverage_mark("chat_session_mark_submitted")
     pending = _core_get(state, "pending", None)
@@ -4300,6 +5421,49 @@ def _ace_dedupe_playbook(playbook: Any) -> Any:
     playbook["sections"] = sections
     recomputed = _ace_recompute_playbook_stats(playbook)
     return recomputed
+
+
+def _regex_word(c: Any) -> Any:
+    _core_coverage_mark("_regex_word")
+    t1 = _core_gte(c, 48)
+    t2 = t1
+    if t2:
+        t3 = _core_lte(c, 57)
+        t2 = t3
+    else:
+        pass
+    t4 = t2
+    t5 = _core_not(t4)
+    if t5:
+        t6 = _core_gte(c, 65)
+        t7 = t6
+        if t7:
+            t8 = _core_lte(c, 90)
+            t7 = t8
+        else:
+            pass
+        t4 = t7
+    else:
+        pass
+    t9 = _core_not(t4)
+    if t9:
+        t10 = _core_gte(c, 97)
+        t11 = t10
+        if t11:
+            t12 = _core_lte(c, 122)
+            t11 = t12
+        else:
+            pass
+        t4 = t11
+    else:
+        pass
+    t13 = _core_not(t4)
+    if t13:
+        t14 = _core_eq(c, 95)
+        t4 = t14
+    else:
+        pass
+    return t4
 
 
 def _tool_spec_impl(fn: Tool) -> Any:
@@ -4564,6 +5728,103 @@ def chat_session_transition(state: Any, event: Any) -> Any:
     return action
 
 
+def _regex_space(c: Any) -> Any:
+    _core_coverage_mark("_regex_space")
+    t1 = _core_eq(c, 9)
+    t2 = t1
+    t3 = _core_not(t2)
+    if t3:
+        t4 = _core_eq(c, 10)
+        t2 = t4
+    else:
+        pass
+    t5 = _core_not(t2)
+    if t5:
+        t6 = _core_eq(c, 11)
+        t2 = t6
+    else:
+        pass
+    t7 = _core_not(t2)
+    if t7:
+        t8 = _core_eq(c, 12)
+        t2 = t8
+    else:
+        pass
+    t9 = _core_not(t2)
+    if t9:
+        t10 = _core_eq(c, 13)
+        t2 = t10
+    else:
+        pass
+    t11 = _core_not(t2)
+    if t11:
+        t12 = _core_eq(c, 32)
+        t2 = t12
+    else:
+        pass
+    t13 = _core_not(t2)
+    if t13:
+        t14 = _core_eq(c, 160)
+        t2 = t14
+    else:
+        pass
+    t15 = _core_not(t2)
+    if t15:
+        t16 = _core_eq(c, 5760)
+        t2 = t16
+    else:
+        pass
+    t17 = _core_not(t2)
+    if t17:
+        t18 = _core_gte(c, 8192)
+        t19 = t18
+        if t19:
+            t20 = _core_lte(c, 8202)
+            t19 = t20
+        else:
+            pass
+        t2 = t19
+    else:
+        pass
+    t21 = _core_not(t2)
+    if t21:
+        t22 = _core_eq(c, 8232)
+        t2 = t22
+    else:
+        pass
+    t23 = _core_not(t2)
+    if t23:
+        t24 = _core_eq(c, 8233)
+        t2 = t24
+    else:
+        pass
+    t25 = _core_not(t2)
+    if t25:
+        t26 = _core_eq(c, 8239)
+        t2 = t26
+    else:
+        pass
+    t27 = _core_not(t2)
+    if t27:
+        t28 = _core_eq(c, 8287)
+        t2 = t28
+    else:
+        pass
+    t29 = _core_not(t2)
+    if t29:
+        t30 = _core_eq(c, 12288)
+        t2 = t30
+    else:
+        pass
+    t31 = _core_not(t2)
+    if t31:
+        t32 = _core_eq(c, 65279)
+        t2 = t32
+    else:
+        pass
+    return t2
+
+
 def _response_function_calls_impl(response: Any) -> list[Any]:
     _core_coverage_mark("_response_function_calls_impl")
     empty = []
@@ -4818,6 +6079,146 @@ def _tool_result_message_impl(call: Any, result: Any) -> Any:
     return message
 
 
+def _regex_member(n: Any, c: Any) -> Any:
+    _core_coverage_mark("_regex_member")
+    e = _core_none()
+    k = _core_none()
+    term = _core_none()
+    yes = _core_none()
+    t1 = _core_get(n, "k", None)
+    k = t1
+    t2 = _core_eq(k, "char")
+    if t2:
+        t3 = _core_get(n, "c", None)
+        t4 = _core_eq(c, t3)
+        return t4
+    else:
+        pass
+    t5 = _core_eq(k, "range")
+    if t5:
+        t6 = _core_get(n, "lo", None)
+        t7 = _core_gte(c, t6)
+        t8 = t7
+        if t8:
+            t9 = _core_get(n, "hi", None)
+            t10 = _core_lte(c, t9)
+            t8 = t10
+        else:
+            pass
+        return t8
+    else:
+        pass
+    t11 = _core_eq(k, "dot")
+    if t11:
+        t12 = _core_ne(c, 10)
+        t13 = t12
+        if t13:
+            t14 = _core_ne(c, 13)
+            t13 = t14
+        else:
+            pass
+        if t13:
+            t15 = _core_ne(c, 8232)
+            t13 = t15
+        else:
+            pass
+        if t13:
+            t16 = _core_ne(c, 8233)
+            t13 = t16
+        else:
+            pass
+        return t13
+    else:
+        pass
+    t17 = _core_eq(k, "class_escape")
+    if t17:
+        t18 = _core_get(n, "c", None)
+        e = t18
+        yes = False
+        t19 = _core_eq(e, 100)
+        t20 = t19
+        t21 = _core_not(t20)
+        if t21:
+            t22 = _core_eq(e, 68)
+            t20 = t22
+        else:
+            pass
+        if t20:
+            t23 = _regex_digit(c)
+            yes = t23
+        else:
+            pass
+        t24 = _core_eq(e, 119)
+        t25 = t24
+        t26 = _core_not(t25)
+        if t26:
+            t27 = _core_eq(e, 87)
+            t25 = t27
+        else:
+            pass
+        if t25:
+            t28 = _regex_word(c)
+            yes = t28
+        else:
+            pass
+        t29 = _core_eq(e, 115)
+        t30 = t29
+        t31 = _core_not(t30)
+        if t31:
+            t32 = _core_eq(e, 83)
+            t30 = t32
+        else:
+            pass
+        if t30:
+            t33 = _regex_space(c)
+            yes = t33
+        else:
+            pass
+        t34 = _core_eq(e, 68)
+        t35 = t34
+        t36 = _core_not(t35)
+        if t36:
+            t37 = _core_eq(e, 87)
+            t35 = t37
+        else:
+            pass
+        t38 = _core_not(t35)
+        if t38:
+            t39 = _core_eq(e, 83)
+            t35 = t39
+        else:
+            pass
+        if t35:
+            t40 = _core_not(yes)
+            return t40
+        else:
+            pass
+        return yes
+    else:
+        pass
+    t41 = _core_eq(k, "class")
+    if t41:
+        yes = False
+        t42 = _core_get(n, "terms", None)
+        for iter_43 in t42:
+            term = iter_43
+            t44 = _regex_member(term, c)
+            if t44:
+                yes = True
+            else:
+                pass
+        t45 = _core_get(n, "negative", None)
+        if t45:
+            t46 = _core_not(yes)
+            return t46
+        else:
+            pass
+        return yes
+    else:
+        pass
+    return False
+
+
 def _tool_error_message_impl(call: Any, error: error) -> Any:
     _core_coverage_mark("_tool_error_message_impl")
     id = _core_get(call, "id", None)
@@ -4850,6 +6251,61 @@ def _append_validation_retry_messages_impl(messages: list[Any], response: Any, e
     retry_message["content"] = retry_content
     messages.append(retry_message)
     return None
+
+
+def _regex_state(pos: Any, caps: Any) -> Any:
+    _core_coverage_mark("_regex_state")
+    t1 = {}
+    t1["pos"] = pos
+    t2 = _regex_copy_map(caps)
+    t1["caps"] = t2
+    return t1
+
+
+def _regex_capture_ids(n: Any) -> Any:
+    _core_coverage_mark("_regex_capture_ids")
+    i = _core_none()
+    k = _core_none()
+    out = _core_none()
+    term = _core_none()
+    t1 = []
+    out = t1
+    t2 = _core_get(n, "k", None)
+    k = t2
+    t3 = _core_eq(k, "capture")
+    if t3:
+        t4 = _core_get(n, "id", None)
+        out.append(t4)
+    else:
+        pass
+    t5 = _core_map_contains(n, "child")
+    if t5:
+        t6 = _core_get(n, "child", None)
+        t7 = _regex_capture_ids(t6)
+        for iter_8 in t7:
+            i = iter_8
+            out.append(i)
+    else:
+        pass
+    t9 = _core_eq(k, "seq")
+    t10 = t9
+    t11 = _core_not(t10)
+    if t11:
+        t12 = _core_eq(k, "alt")
+        t10 = t12
+    else:
+        pass
+    if t10:
+        t13 = _core_get(n, "terms", None)
+        for iter_14 in t13:
+            term = iter_14
+            t15 = _regex_capture_ids(term)
+            for iter_16 in t15:
+                i = iter_16
+                out.append(i)
+    else:
+        pass
+    return out
 
 
 def _ace_is_noop_acknowledgment(content: str) -> bool:
@@ -4983,6 +6439,567 @@ def _ace_is_noop_acknowledgment(content: str) -> bool:
     else:
         pass
     return is_noop
+
+
+def _regex_push(stack: Any, top: Any, value: Any) -> Any:
+    _core_coverage_mark("_regex_push")
+    t1 = _core_string_format("{}", top)
+    stack[t1] = value
+    t2 = _core_add(top, 1)
+    return t2
+
+
+def _regex_task(n: Any, next: Any) -> Any:
+    _core_coverage_mark("_regex_task")
+    t1 = {}
+    t1["node"] = n
+    t1["next"] = next
+    return t1
+
+
+def _regex_frame(todo: Any, st: Any) -> Any:
+    _core_coverage_mark("_regex_frame")
+    t1 = {}
+    t1["todo"] = todo
+    t1["st"] = st
+    return t1
+
+
+def _regex_search(n: Any, u: Any, initial: Any, d: Any) -> Any:
+    _core_coverage_mark("_regex_search")
+    accept = _core_none()
+    after = _core_none()
+    at = _core_none()
+    before = _core_none()
+    begin = _core_none()
+    caps = _core_none()
+    capture = _core_none()
+    capture_id = _core_none()
+    clean = _core_none()
+    copied = _core_none()
+    count = _core_none()
+    current = _core_none()
+    end = _core_none()
+    equal = _core_none()
+    hi = _core_none()
+    i = _core_none()
+    k = _core_none()
+    lo = _core_none()
+    matched = _core_none()
+    more = _core_none()
+    moreframe = _core_none()
+    next = _core_none()
+    nextcount = _core_none()
+    p = _core_none()
+    pending = _core_none()
+    repeat = _core_none()
+    rest = _core_none()
+    size = _core_none()
+    st = _core_none()
+    terms = _core_none()
+    todo = _core_none()
+    top = _core_none()
+    yes = _core_none()
+    t1 = {}
+    t2 = _core_none()
+    t3 = _regex_task(n, t2)
+    t4 = _regex_frame(t3, initial)
+    t1["0"] = t4
+    pending = t1
+    top = 1
+    while True:
+        t5 = _core_gt(top, 0)
+        t6 = _core_not(t5)
+        if t6:
+            break
+        else:
+            pass
+        t7 = _core_mul(-1, 1)
+        t8 = _core_add(top, t7)
+        t9 = _core_math_floor(t8)
+        top = t9
+        t10 = _core_string_format("{}", top)
+        t11 = _core_get(pending, t10, None)
+        current = t11
+        t12 = _core_get(current, "todo", None)
+        todo = t12
+        t13 = _core_get(current, "st", None)
+        st = t13
+        t14 = _core_none()
+        t15 = _core_eq(todo, t14)
+        if t15:
+            return st
+        else:
+            pass
+        t16 = _core_get(todo, "node", None)
+        n = t16
+        t17 = _core_get(todo, "next", None)
+        rest = t17
+        t18 = _core_get(n, "k", None)
+        k = t18
+        t19 = _core_get(st, "pos", None)
+        p = t19
+        t20 = _core_get(st, "caps", None)
+        caps = t20
+        t21 = _core_eq(k, "seq")
+        if t21:
+            t22 = _core_get(n, "terms", None)
+            terms = t22
+            t23 = _core_len(terms)
+            t24 = _core_mul(-1, 1)
+            t25 = _core_add(t23, t24)
+            t26 = _core_math_floor(t25)
+            i = t26
+            t27 = _core_lt(d, 0)
+            if t27:
+                i = 0
+            else:
+                pass
+            while True:
+                t28 = _core_gte(i, 0)
+                t29 = t28
+                if t29:
+                    t30 = _core_len(terms)
+                    t31 = _core_lt(i, t30)
+                    t29 = t31
+                else:
+                    pass
+                t32 = _core_not(t29)
+                if t32:
+                    break
+                else:
+                    pass
+                t33 = _core_get(terms, i, None)
+                t34 = _regex_task(t33, rest)
+                rest = t34
+                t35 = _core_mul(-1, d)
+                t36 = _core_add(i, t35)
+                t37 = _core_math_floor(t36)
+                i = t37
+            t38 = _regex_frame(rest, st)
+            t39 = _regex_push(pending, top, t38)
+            top = t39
+            continue
+        else:
+            pass
+        t40 = _core_eq(k, "alt")
+        if t40:
+            t41 = _core_get(n, "terms", None)
+            t42 = _core_len(t41)
+            t43 = _core_mul(-1, 1)
+            t44 = _core_add(t42, t43)
+            t45 = _core_math_floor(t44)
+            i = t45
+            while True:
+                t46 = _core_gte(i, 0)
+                t47 = _core_not(t46)
+                if t47:
+                    break
+                else:
+                    pass
+                t48 = _core_get(n, "terms", None)
+                t49 = _core_get(t48, i, None)
+                t50 = _regex_task(t49, rest)
+                t51 = _regex_frame(t50, st)
+                t52 = _regex_push(pending, top, t51)
+                top = t52
+                t53 = _core_mul(-1, 1)
+                t54 = _core_add(i, t53)
+                t55 = _core_math_floor(t54)
+                i = t55
+            continue
+        else:
+            pass
+        t56 = _core_eq(k, "group")
+        if t56:
+            t57 = _core_get(n, "child", None)
+            t58 = _regex_task(t57, rest)
+            t59 = _regex_frame(t58, st)
+            t60 = _regex_push(pending, top, t59)
+            top = t60
+            continue
+        else:
+            pass
+        t61 = _core_eq(k, "capture")
+        if t61:
+            t62 = {}
+            t62["k"] = "capture_end"
+            t63 = _core_get(n, "id", None)
+            t62["id"] = t63
+            t62["begin"] = p
+            t64 = _regex_task(t62, rest)
+            end = t64
+            t65 = _core_get(n, "child", None)
+            t66 = _regex_task(t65, end)
+            t67 = _regex_frame(t66, st)
+            t68 = _regex_push(pending, top, t67)
+            top = t68
+            continue
+        else:
+            pass
+        t69 = _core_eq(k, "capture_end")
+        if t69:
+            t70 = _core_get(n, "begin", None)
+            lo = t70
+            hi = p
+            t71 = _core_lt(d, 0)
+            if t71:
+                lo = p
+                t72 = _core_get(n, "begin", None)
+                hi = t72
+            else:
+                pass
+            t73 = _regex_state(p, caps)
+            copied = t73
+            t74 = []
+            t74.append(lo)
+            t74.append(hi)
+            t75 = _core_get(copied, "caps", None)
+            t76 = _core_get(n, "id", None)
+            t75[t76] = t74
+            t77 = _regex_frame(rest, copied)
+            t78 = _regex_push(pending, top, t77)
+            top = t78
+            continue
+        else:
+            pass
+        t79 = _core_eq(k, "look")
+        if t79:
+            t80 = _core_get(n, "child", None)
+            t81 = _core_get(n, "direction", None)
+            t82 = _regex_search(t80, u, st, t81)
+            matched = t82
+            t83 = _core_get(n, "negative", None)
+            if t83:
+                t84 = _core_none()
+                t85 = _core_eq(matched, t84)
+                if t85:
+                    t86 = _regex_frame(rest, st)
+                    t87 = _regex_push(pending, top, t86)
+                    top = t87
+                else:
+                    pass
+            else:
+                t88 = _core_none()
+                t89 = _core_ne(matched, t88)
+                if t89:
+                    t90 = _core_get(matched, "caps", None)
+                    t91 = _regex_state(p, t90)
+                    t92 = _regex_frame(rest, t91)
+                    t93 = _regex_push(pending, top, t92)
+                    top = t93
+                else:
+                    pass
+            continue
+        else:
+            pass
+        t94 = _core_eq(k, "repeat")
+        t95 = t94
+        t96 = _core_not(t95)
+        if t96:
+            t97 = _core_eq(k, "repeat_step")
+            t95 = t97
+        else:
+            pass
+        if t95:
+            count = 0
+            repeat = n
+            t98 = _core_eq(k, "repeat_step")
+            if t98:
+                t99 = _core_get(n, "count", None)
+                count = t99
+                t100 = _core_get(n, "repeat", None)
+                repeat = t100
+            else:
+                pass
+            t101 = _core_get(repeat, "lo", None)
+            t102 = _core_gte(count, t101)
+            accept = t102
+            t103 = _core_get(repeat, "hi", None)
+            t104 = _core_lt(t103, 0)
+            t105 = t104
+            t106 = _core_not(t105)
+            if t106:
+                t107 = _core_get(repeat, "hi", None)
+                t108 = _core_lt(count, t107)
+                t105 = t108
+            else:
+                pass
+            more = t105
+            t109 = _core_none()
+            moreframe = t109
+            if more:
+                t110 = _regex_state(p, caps)
+                clean = t110
+                t111 = _core_get(repeat, "child", None)
+                t112 = _regex_capture_ids(t111)
+                for iter_113 in t112:
+                    i = iter_113
+                    t114 = _core_none()
+                    t115 = _core_get(clean, "caps", None)
+                    t115[i] = t114
+                t116 = {}
+                t116["k"] = "repeat_after"
+                t116["repeat"] = repeat
+                t116["count"] = count
+                t116["begin"] = p
+                t117 = _regex_task(t116, rest)
+                after = t117
+                t118 = _core_get(repeat, "child", None)
+                t119 = _regex_task(t118, after)
+                t120 = _regex_frame(t119, clean)
+                moreframe = t120
+            else:
+                pass
+            t121 = _core_get(repeat, "lazy", None)
+            if t121:
+                if more:
+                    t122 = _regex_push(pending, top, moreframe)
+                    top = t122
+                else:
+                    pass
+                if accept:
+                    t123 = _regex_frame(rest, st)
+                    t124 = _regex_push(pending, top, t123)
+                    top = t124
+                else:
+                    pass
+            else:
+                if accept:
+                    t125 = _regex_frame(rest, st)
+                    t126 = _regex_push(pending, top, t125)
+                    top = t126
+                else:
+                    pass
+                if more:
+                    t127 = _regex_push(pending, top, moreframe)
+                    top = t127
+                else:
+                    pass
+            continue
+        else:
+            pass
+        t128 = _core_eq(k, "repeat_after")
+        if t128:
+            t129 = _core_get(n, "count", None)
+            count = t129
+            t130 = _core_get(n, "repeat", None)
+            repeat = t130
+            t131 = _core_add(count, 1)
+            nextcount = t131
+            t132 = _core_get(n, "begin", None)
+            t133 = _core_eq(p, t132)
+            if t133:
+                t134 = _core_get(repeat, "lo", None)
+                t135 = _core_gte(count, t134)
+                if t135:
+                    continue
+                else:
+                    pass
+                t136 = _core_get(repeat, "lo", None)
+                nextcount = t136
+            else:
+                pass
+            t137 = {}
+            t137["k"] = "repeat_step"
+            t137["repeat"] = repeat
+            t137["count"] = nextcount
+            t138 = _regex_task(t137, rest)
+            next = t138
+            t139 = _regex_frame(next, st)
+            t140 = _regex_push(pending, top, t139)
+            top = t140
+            continue
+        else:
+            pass
+        t141 = _core_eq(k, "start")
+        if t141:
+            t142 = _core_eq(p, 0)
+            if t142:
+                t143 = _regex_frame(rest, st)
+                t144 = _regex_push(pending, top, t143)
+                top = t144
+            else:
+                pass
+            continue
+        else:
+            pass
+        t145 = _core_eq(k, "end")
+        if t145:
+            t146 = _core_len(u)
+            t147 = _core_eq(p, t146)
+            if t147:
+                t148 = _regex_frame(rest, st)
+                t149 = _regex_push(pending, top, t148)
+                top = t149
+            else:
+                pass
+            continue
+        else:
+            pass
+        t150 = _core_eq(k, "boundary")
+        if t150:
+            before = False
+            after = False
+            t151 = _core_gt(p, 0)
+            if t151:
+                t152 = _core_mul(-1, 1)
+                t153 = _core_add(p, t152)
+                t154 = _core_math_floor(t153)
+                t155 = _core_get(u, t154, None)
+                t156 = _regex_word(t155)
+                before = t156
+            else:
+                pass
+            t157 = _core_len(u)
+            t158 = _core_lt(p, t157)
+            if t158:
+                t159 = _core_get(u, p, None)
+                t160 = _regex_word(t159)
+                after = t160
+            else:
+                pass
+            t161 = _core_ne(before, after)
+            yes = t161
+            t162 = _core_get(n, "negative", None)
+            if t162:
+                t163 = _core_not(yes)
+                yes = t163
+            else:
+                pass
+            if yes:
+                t164 = _regex_frame(rest, st)
+                t165 = _regex_push(pending, top, t164)
+                top = t165
+            else:
+                pass
+            continue
+        else:
+            pass
+        t166 = _core_eq(k, "ref")
+        if t166:
+            t167 = _core_none()
+            capture = t167
+            t168 = _core_get(n, "ids", None)
+            for iter_169 in t168:
+                capture_id = iter_169
+                t170 = _core_get(caps, capture_id, None)
+                t171 = _core_none()
+                t172 = _core_ne(t170, t171)
+                if t172:
+                    t173 = _core_get(caps, capture_id, None)
+                    capture = t173
+                else:
+                    pass
+            t174 = _core_none()
+            t175 = _core_eq(capture, t174)
+            if t175:
+                t176 = _regex_frame(rest, st)
+                t177 = _regex_push(pending, top, t176)
+                top = t177
+                continue
+            else:
+                pass
+            t178 = 1
+            t179 = _core_get(capture, t178, None)
+            t180 = 0
+            t181 = _core_get(capture, t180, None)
+            t182 = _core_mul(-1, t181)
+            t183 = _core_add(t179, t182)
+            t184 = _core_math_floor(t183)
+            size = t184
+            begin = p
+            t185 = _core_lt(d, 0)
+            if t185:
+                t186 = _core_mul(-1, size)
+                t187 = _core_add(p, t186)
+                t188 = _core_math_floor(t187)
+                begin = t188
+            else:
+                pass
+            t189 = _core_lt(begin, 0)
+            t190 = t189
+            t191 = _core_not(t190)
+            if t191:
+                t192 = _core_add(begin, size)
+                t193 = _core_len(u)
+                t194 = _core_gt(t192, t193)
+                t190 = t194
+            else:
+                pass
+            if t190:
+                continue
+            else:
+                pass
+            i = 0
+            equal = True
+            while True:
+                t195 = _core_lt(i, size)
+                t196 = _core_not(t195)
+                if t196:
+                    break
+                else:
+                    pass
+                t197 = _core_add(begin, i)
+                t198 = _core_get(u, t197, None)
+                t199 = 0
+                t200 = _core_get(capture, t199, None)
+                t201 = _core_add(t200, i)
+                t202 = _core_get(u, t201, None)
+                t203 = _core_ne(t198, t202)
+                if t203:
+                    equal = False
+                    break
+                else:
+                    pass
+                t204 = _core_add(i, 1)
+                i = t204
+            if equal:
+                t205 = _core_mul(d, size)
+                t206 = _core_math_floor(t205)
+                t207 = _core_add(p, t206)
+                t208 = _regex_state(t207, caps)
+                t209 = _regex_frame(rest, t208)
+                t210 = _regex_push(pending, top, t209)
+                top = t210
+            else:
+                pass
+            continue
+        else:
+            pass
+        at = p
+        t211 = _core_lt(d, 0)
+        if t211:
+            t212 = _core_mul(-1, 1)
+            t213 = _core_add(p, t212)
+            t214 = _core_math_floor(t213)
+            at = t214
+        else:
+            pass
+        t215 = _core_gte(at, 0)
+        t216 = t215
+        if t216:
+            t217 = _core_len(u)
+            t218 = _core_lt(at, t217)
+            t216 = t218
+        else:
+            pass
+        if t216:
+            t219 = _core_get(u, at, None)
+            t220 = _regex_member(n, t219)
+            t216 = t220
+        else:
+            pass
+        if t216:
+            t221 = _core_add(p, d)
+            t222 = _regex_state(t221, caps)
+            t223 = _regex_frame(rest, t222)
+            t224 = _regex_push(pending, top, t223)
+            top = t224
+        else:
+            pass
+    t225 = _core_none()
+    return t225
 
 
 def _ace_normalize_curator_operations(operations: Any) -> list[Any]:
@@ -5427,5 +7444,482 @@ def _ace_dequeue_section_candidate(section_queues: Any, section: str, used_ids: 
     else:
         pass
     return picked
+
+
+def _regex_test(pattern: Any, value: Any) -> Any:
+    _core_coverage_mark("_regex_test")
+    groups = _core_none()
+    i = _core_none()
+    s = _core_none()
+    text = _core_none()
+    tree = _core_none()
+    u = _core_none()
+    t1 = _core_string_utf16_units(pattern)
+    u = t1
+    t2 = _regex_scan_groups(u)
+    groups = t2
+    t3 = {}
+    t3["u"] = u
+    t3["p"] = 0
+    t4 = _core_get(groups, "count", None)
+    t3["total"] = t4
+    t5 = _core_get(groups, "names", None)
+    t3["names"] = t5
+    t3["next"] = 0
+    s = t3
+    t6 = _regex_alternative(s)
+    tree = t6
+    t7 = _core_get(s, "p", None)
+    t8 = _core_len(u)
+    t9 = _core_ne(t7, t8)
+    if t9:
+        t10 = _core_string_format("Invalid regular expression: {}", "Unmatched group")
+        t11 = _core_validation_error(t10)
+        raise t11
+    else:
+        pass
+    t12 = {}
+    t13 = {}
+    t14 = {}
+    t14["next"] = 0
+    t15 = _regex_validate_names(tree, t12, t13, t14)
+    t16 = _core_string_utf16_units(value)
+    text = t16
+    i = 0
+    while True:
+        t17 = _core_len(text)
+        t18 = _core_lte(i, t17)
+        t19 = _core_not(t18)
+        if t19:
+            break
+        else:
+            pass
+        t20 = {}
+        t21 = _regex_state(i, t20)
+        t22 = _regex_search(tree, text, t21, 1)
+        t23 = _core_none()
+        t24 = _core_ne(t22, t23)
+        if t24:
+            return True
+        else:
+            pass
+        t25 = _core_add(i, 1)
+        i = t25
+    return False
+
+
+def _regex_identifier(c: Any, first: Any) -> Any:
+    _core_coverage_mark("_regex_identifier")
+    entry = _core_none()
+    hi = _core_none()
+    lo = _core_none()
+    mid = _core_none()
+    ranges = _core_none()
+    t1 = _core_eq(c, 36)
+    t2 = t1
+    t3 = _core_not(t2)
+    if t3:
+        t4 = _core_eq(c, 95)
+        t2 = t4
+    else:
+        pass
+    if t2:
+        return True
+    else:
+        pass
+    t5 = _core_not(first)
+    t6 = t5
+    if t6:
+        t7 = _core_eq(c, 8204)
+        t8 = t7
+        t9 = _core_not(t8)
+        if t9:
+            t10 = _core_eq(c, 8205)
+            t8 = t10
+        else:
+            pass
+        t6 = t8
+    else:
+        pass
+    if t6:
+        return True
+    else:
+        pass
+    t11 = _regex_id_continue_ranges()
+    ranges = t11
+    if first:
+        t12 = _regex_id_start_ranges()
+        ranges = t12
+    else:
+        pass
+    lo = 0
+    t13 = _core_len(ranges)
+    hi = t13
+    while True:
+        t14 = _core_lt(lo, hi)
+        t15 = _core_not(t14)
+        if t15:
+            break
+        else:
+            pass
+        t16 = _core_add(lo, hi)
+        t17 = _core_div(t16, 2)
+        t18 = _core_math_floor(t17)
+        mid = t18
+        t19 = _core_get(ranges, mid, None)
+        entry = t19
+        t20 = 0
+        t21 = _core_get(entry, t20, None)
+        t22 = _core_lt(c, t21)
+        if t22:
+            hi = mid
+        else:
+            t23 = 1
+            t24 = _core_get(entry, t23, None)
+            t25 = _core_gt(c, t24)
+            if t25:
+                t26 = _core_add(mid, 1)
+                lo = t26
+            else:
+                return True
+    return False
+
+
+def _regex_read_name(s: Any) -> Any:
+    _core_coverage_mark("_regex_read_name")
+    c = _core_none()
+    i = _core_none()
+    n = _core_none()
+    name = _core_none()
+    values = _core_none()
+    t1 = []
+    values = t1
+    while True:
+        t2 = _regex_peek(s)
+        t3 = _core_ne(t2, 62)
+        t4 = t3
+        if t4:
+            t5 = _regex_peek(s)
+            t6 = _core_gte(t5, 0)
+            t4 = t6
+        else:
+            pass
+        t7 = _core_not(t4)
+        if t7:
+            break
+        else:
+            pass
+        t8 = _regex_take(s)
+        c = t8
+        t9 = _core_eq(c, 92)
+        if t9:
+            t10 = _regex_take(s)
+            t11 = _core_ne(t10, 117)
+            if t11:
+                t12 = _core_string_format("Invalid regular expression: {}", "Invalid capture name escape")
+                t13 = _core_validation_error(t12)
+                raise t13
+            else:
+                pass
+            c = 0
+            n = 0
+            t14 = _regex_peek(s)
+            t15 = _core_eq(t14, 123)
+            if t15:
+                t16 = _regex_take(s)
+                while True:
+                    t17 = _regex_peek(s)
+                    t18 = _regex_hexdigit(t17)
+                    t19 = _core_gte(t18, 0)
+                    t20 = _core_not(t19)
+                    if t20:
+                        break
+                    else:
+                        pass
+                    t21 = _core_mul(c, 16)
+                    t22 = _core_math_floor(t21)
+                    t23 = _regex_take(s)
+                    t24 = _regex_hexdigit(t23)
+                    t25 = _core_add(t22, t24)
+                    c = t25
+                    t26 = _core_add(n, 1)
+                    n = t26
+                t27 = _core_eq(n, 0)
+                t28 = t27
+                t29 = _core_not(t28)
+                if t29:
+                    t30 = _regex_take(s)
+                    t31 = _core_ne(t30, 125)
+                    t28 = t31
+                else:
+                    pass
+                t32 = _core_not(t28)
+                if t32:
+                    t33 = _core_gt(c, 1114111)
+                    t28 = t33
+                else:
+                    pass
+                if t28:
+                    t34 = _core_string_format("Invalid regular expression: {}", "Invalid Unicode capture name")
+                    t35 = _core_validation_error(t34)
+                    raise t35
+                else:
+                    pass
+            else:
+                while True:
+                    t36 = _core_lt(n, 4)
+                    t37 = t36
+                    if t37:
+                        t38 = _regex_peek(s)
+                        t39 = _regex_hexdigit(t38)
+                        t40 = _core_gte(t39, 0)
+                        t37 = t40
+                    else:
+                        pass
+                    t41 = _core_not(t37)
+                    if t41:
+                        break
+                    else:
+                        pass
+                    t42 = _core_mul(c, 16)
+                    t43 = _core_math_floor(t42)
+                    t44 = _regex_take(s)
+                    t45 = _regex_hexdigit(t44)
+                    t46 = _core_add(t43, t45)
+                    c = t46
+                    t47 = _core_add(n, 1)
+                    n = t47
+                t48 = _core_ne(n, 4)
+                if t48:
+                    t49 = _core_string_format("Invalid regular expression: {}", "Invalid Unicode capture name")
+                    t50 = _core_validation_error(t49)
+                    raise t50
+                else:
+                    pass
+        else:
+            pass
+        values.append(c)
+    t51 = _regex_take(s)
+    t52 = _core_ne(t51, 62)
+    t53 = t52
+    t54 = _core_not(t53)
+    if t54:
+        t55 = _core_len(values)
+        t56 = _core_eq(t55, 0)
+        t53 = t56
+    else:
+        pass
+    if t53:
+        t57 = _core_string_format("Invalid regular expression: {}", "Invalid capture name")
+        t58 = _core_validation_error(t57)
+        raise t58
+    else:
+        pass
+    name = ""
+    i = 0
+    while True:
+        t59 = _core_len(values)
+        t60 = _core_lt(i, t59)
+        t61 = _core_not(t60)
+        if t61:
+            break
+        else:
+            pass
+        t62 = _core_get(values, i, None)
+        c = t62
+        t63 = _core_add(i, 1)
+        i = t63
+        t64 = _core_gte(c, 55296)
+        t65 = t64
+        if t65:
+            t66 = _core_lte(c, 56319)
+            t65 = t66
+        else:
+            pass
+        if t65:
+            t67 = _core_len(values)
+            t68 = _core_lt(i, t67)
+            t65 = t68
+        else:
+            pass
+        if t65:
+            t69 = _core_get(values, i, None)
+            t70 = _core_gte(t69, 56320)
+            t65 = t70
+        else:
+            pass
+        if t65:
+            t71 = _core_get(values, i, None)
+            t72 = _core_lte(t71, 57343)
+            t65 = t72
+        else:
+            pass
+        if t65:
+            t73 = _core_mul(-1, 55296)
+            t74 = _core_add(c, t73)
+            t75 = _core_math_floor(t74)
+            t76 = _core_mul(t75, 1024)
+            t77 = _core_math_floor(t76)
+            t78 = _core_add(65536, t77)
+            t79 = _core_get(values, i, None)
+            t80 = _core_add(t78, t79)
+            t81 = _core_mul(-1, 56320)
+            t82 = _core_add(t80, t81)
+            t83 = _core_math_floor(t82)
+            c = t83
+            t84 = _core_add(i, 1)
+            i = t84
+        else:
+            pass
+        t85 = _core_eq(name, "")
+        t86 = _regex_identifier(c, t85)
+        t87 = _core_not(t86)
+        if t87:
+            t88 = _core_string_format("Invalid regular expression: {}", "Invalid capture identifier")
+            t89 = _core_validation_error(t88)
+            raise t89
+        else:
+            pass
+        t90 = _core_string_format("{}", c)
+        t91 = _core_add(t90, ",")
+        t92 = _core_add(name, t91)
+        name = t92
+    return name
+
+
+def _regex_validate_names(n: Any, path: Any, seen: Any, counter: Any) -> Any:
+    _core_coverage_mark("_regex_validate_names")
+    branch = _core_none()
+    exclusive = _core_none()
+    index = _core_none()
+    k = _core_none()
+    key = _core_none()
+    name = _core_none()
+    other = _core_none()
+    previous = _core_none()
+    term = _core_none()
+    t1 = _core_get(n, "k", None)
+    k = t1
+    t2 = _core_eq(k, "capture")
+    t3 = t2
+    if t3:
+        t4 = _core_get(n, "name", None)
+        t5 = _core_none()
+        t6 = _core_ne(t4, t5)
+        t3 = t6
+    else:
+        pass
+    if t3:
+        t7 = _core_get(n, "name", None)
+        name = t7
+        t8 = _core_get(seen, name, None)
+        previous = t8
+        t9 = _core_none()
+        t10 = _core_eq(previous, t9)
+        if t10:
+            t11 = []
+            previous = t11
+        else:
+            pass
+        for iter_12 in previous:
+            other = iter_12
+            exclusive = False
+            t13 = _core_map_keys(path)
+            for iter_14 in t13:
+                key = iter_14
+                t15 = _core_get(other, key, None)
+                t16 = _core_none()
+                t17 = _core_ne(t15, t16)
+                t18 = t17
+                if t18:
+                    t19 = _core_get(other, key, None)
+                    t20 = _core_get(path, key, None)
+                    t21 = _core_ne(t19, t20)
+                    t18 = t21
+                else:
+                    pass
+                if t18:
+                    exclusive = True
+                else:
+                    pass
+            t22 = _core_not(exclusive)
+            if t22:
+                t23 = _core_string_format("Invalid regular expression: {}", "Duplicate capture name")
+                t24 = _core_validation_error(t23)
+                raise t24
+            else:
+                pass
+        t25 = _regex_copy_map(path)
+        previous.append(t25)
+        seen[name] = previous
+    else:
+        pass
+    t26 = _core_eq(k, "alt")
+    if t26:
+        t27 = _core_get(counter, "next", None)
+        t28 = _core_add(t27, 1)
+        counter["next"] = t28
+        t29 = _core_get(counter, "next", None)
+        key = t29
+        index = 0
+        t30 = _core_get(n, "terms", None)
+        for iter_31 in t30:
+            term = iter_31
+            t32 = _regex_copy_map(path)
+            branch = t32
+            branch[key] = index
+            t33 = _core_add(index, 1)
+            index = t33
+            t34 = _regex_validate_names(term, branch, seen, counter)
+    else:
+        t35 = _core_eq(k, "seq")
+        if t35:
+            t36 = _core_get(n, "terms", None)
+            for iter_37 in t36:
+                term = iter_37
+                t38 = _regex_validate_names(term, path, seen, counter)
+        else:
+            t39 = _core_get(n, "child", None)
+            t40 = _core_none()
+            t41 = _core_ne(t39, t40)
+            if t41:
+                t42 = _core_get(n, "child", None)
+                t43 = _regex_validate_names(t42, path, seen, counter)
+            else:
+                pass
+    return None
+
+
+def _regex_id_start_ranges() -> Any:
+    _core_coverage_mark("_regex_id_start_ranges")
+    t1 = _core_json_parse("[[65,90],[97,122],[170,170],[181,181],[186,186],[192,214],[216,246],[248,705],[710,721],[736,740],[748,748],[750,750],[880,884],[886,887],[890,893],[895,895],[902,902],[904,906],[908,908],[910,929],[931,1013],[1015,1153],[1162,1327],[1329,1366],[1369,1369],[1376,1416],[1488,1514],[1519,1522],[1568,1610],[1646,1647],[1649,1747],[1749,1749],[1765,1766],[1774,1775],[1786,1788],[1791,1791],[1808,1808],[1810,1839],[1869,1957],[1969,1969],[1994,2026],[2036,2037],[2042,2042],[2048,2069],[2074,2074],[2084,2084],[2088,2088],[2112,2136],[2144,2154],[2160,2183],[2185,2191],[2208,2249],[2308,2361],[2365,2365],[2384,2384],[2392,2401],[2417,2432],[2437,2444],[2447,2448],[2451,2472],[2474,2480],[2482,2482],[2486,2489],[2493,2493],[2510,2510],[2524,2525],[2527,2529],[2544,2545],[2556,2556],[2565,2570],[2575,2576],[2579,2600],[2602,2608],[2610,2611],[2613,2614],[2616,2617],[2649,2652],[2654,2654],[2674,2676],[2693,2701],[2703,2705],[2707,2728],[2730,2736],[2738,2739],[2741,2745],[2749,2749],[2768,2768],[2784,2785],[2809,2809],[2821,2828],[2831,2832],[2835,2856],[2858,2864],[2866,2867],[2869,2873],[2877,2877],[2908,2909],[2911,2913],[2929,2929],[2947,2947],[2949,2954],[2958,2960],[2962,2965],[2969,2970],[2972,2972],[2974,2975],[2979,2980],[2984,2986],[2990,3001],[3024,3024],[3077,3084],[3086,3088],[3090,3112],[3114,3129],[3133,3133],[3160,3162],[3164,3165],[3168,3169],[3200,3200],[3205,3212],[3214,3216],[3218,3240],[3242,3251],[3253,3257],[3261,3261],[3292,3294],[3296,3297],[3313,3314],[3332,3340],[3342,3344],[3346,3386],[3389,3389],[3406,3406],[3412,3414],[3423,3425],[3450,3455],[3461,3478],[3482,3505],[3507,3515],[3517,3517],[3520,3526],[3585,3632],[3634,3635],[3648,3654],[3713,3714],[3716,3716],[3718,3722],[3724,3747],[3749,3749],[3751,3760],[3762,3763],[3773,3773],[3776,3780],[3782,3782],[3804,3807],[3840,3840],[3904,3911],[3913,3948],[3976,3980],[4096,4138],[4159,4159],[4176,4181],[4186,4189],[4193,4193],[4197,4198],[4206,4208],[4213,4225],[4238,4238],[4256,4293],[4295,4295],[4301,4301],[4304,4346],[4348,4680],[4682,4685],[4688,4694],[4696,4696],[4698,4701],[4704,4744],[4746,4749],[4752,4784],[4786,4789],[4792,4798],[4800,4800],[4802,4805],[4808,4822],[4824,4880],[4882,4885],[4888,4954],[4992,5007],[5024,5109],[5112,5117],[5121,5740],[5743,5759],[5761,5786],[5792,5866],[5870,5880],[5888,5905],[5919,5937],[5952,5969],[5984,5996],[5998,6000],[6016,6067],[6103,6103],[6108,6108],[6176,6264],[6272,6312],[6314,6314],[6320,6389],[6400,6430],[6480,6509],[6512,6516],[6528,6571],[6576,6601],[6656,6678],[6688,6740],[6823,6823],[6917,6963],[6981,6988],[7043,7072],[7086,7087],[7098,7141],[7168,7203],[7245,7247],[7258,7293],[7296,7306],[7312,7354],[7357,7359],[7401,7404],[7406,7411],[7413,7414],[7418,7418],[7424,7615],[7680,7957],[7960,7965],[7968,8005],[8008,8013],[8016,8023],[8025,8025],[8027,8027],[8029,8029],[8031,8061],[8064,8116],[8118,8124],[8126,8126],[8130,8132],[8134,8140],[8144,8147],[8150,8155],[8160,8172],[8178,8180],[8182,8188],[8305,8305],[8319,8319],[8336,8348],[8450,8450],[8455,8455],[8458,8467],[8469,8469],[8472,8477],[8484,8484],[8486,8486],[8488,8488],[8490,8505],[8508,8511],[8517,8521],[8526,8526],[8544,8584],[11264,11492],[11499,11502],[11506,11507],[11520,11557],[11559,11559],[11565,11565],[11568,11623],[11631,11631],[11648,11670],[11680,11686],[11688,11694],[11696,11702],[11704,11710],[11712,11718],[11720,11726],[11728,11734],[11736,11742],[12293,12295],[12321,12329],[12337,12341],[12344,12348],[12353,12438],[12443,12447],[12449,12538],[12540,12543],[12549,12591],[12593,12686],[12704,12735],[12784,12799],[13312,19903],[19968,42124],[42192,42237],[42240,42508],[42512,42527],[42538,42539],[42560,42606],[42623,42653],[42656,42735],[42775,42783],[42786,42888],[42891,42972],[42993,43009],[43011,43013],[43015,43018],[43020,43042],[43072,43123],[43138,43187],[43250,43255],[43259,43259],[43261,43262],[43274,43301],[43312,43334],[43360,43388],[43396,43442],[43471,43471],[43488,43492],[43494,43503],[43514,43518],[43520,43560],[43584,43586],[43588,43595],[43616,43638],[43642,43642],[43646,43695],[43697,43697],[43701,43702],[43705,43709],[43712,43712],[43714,43714],[43739,43741],[43744,43754],[43762,43764],[43777,43782],[43785,43790],[43793,43798],[43808,43814],[43816,43822],[43824,43866],[43868,43881],[43888,44002],[44032,55203],[55216,55238],[55243,55291],[63744,64109],[64112,64217],[64256,64262],[64275,64279],[64285,64285],[64287,64296],[64298,64310],[64312,64316],[64318,64318],[64320,64321],[64323,64324],[64326,64433],[64467,64829],[64848,64911],[64914,64967],[65008,65019],[65136,65140],[65142,65276],[65313,65338],[65345,65370],[65382,65470],[65474,65479],[65482,65487],[65490,65495],[65498,65500],[65536,65547],[65549,65574],[65576,65594],[65596,65597],[65599,65613],[65616,65629],[65664,65786],[65856,65908],[66176,66204],[66208,66256],[66304,66335],[66349,66378],[66384,66421],[66432,66461],[66464,66499],[66504,66511],[66513,66517],[66560,66717],[66736,66771],[66776,66811],[66816,66855],[66864,66915],[66928,66938],[66940,66954],[66956,66962],[66964,66965],[66967,66977],[66979,66993],[66995,67001],[67003,67004],[67008,67059],[67072,67382],[67392,67413],[67424,67431],[67456,67461],[67463,67504],[67506,67514],[67584,67589],[67592,67592],[67594,67637],[67639,67640],[67644,67644],[67647,67669],[67680,67702],[67712,67742],[67808,67826],[67828,67829],[67840,67861],[67872,67897],[67904,67929],[67968,68023],[68030,68031],[68096,68096],[68112,68115],[68117,68119],[68121,68149],[68192,68220],[68224,68252],[68288,68295],[68297,68324],[68352,68405],[68416,68437],[68448,68466],[68480,68497],[68608,68680],[68736,68786],[68800,68850],[68864,68899],[68938,68965],[68975,68997],[69248,69289],[69296,69297],[69314,69319],[69376,69404],[69415,69415],[69424,69445],[69488,69505],[69552,69572],[69600,69622],[69635,69687],[69745,69746],[69749,69749],[69763,69807],[69840,69864],[69891,69926],[69956,69956],[69959,69959],[69968,70002],[70006,70006],[70019,70066],[70081,70084],[70106,70106],[70108,70108],[70144,70161],[70163,70187],[70207,70208],[70272,70278],[70280,70280],[70282,70285],[70287,70301],[70303,70312],[70320,70366],[70405,70412],[70415,70416],[70419,70440],[70442,70448],[70450,70451],[70453,70457],[70461,70461],[70480,70480],[70493,70497],[70528,70537],[70539,70539],[70542,70542],[70544,70581],[70583,70583],[70609,70609],[70611,70611],[70656,70708],[70727,70730],[70751,70753],[70784,70831],[70852,70853],[70855,70855],[71040,71086],[71128,71131],[71168,71215],[71236,71236],[71296,71338],[71352,71352],[71424,71450],[71488,71494],[71680,71723],[71840,71903],[71935,71942],[71945,71945],[71948,71955],[71957,71958],[71960,71983],[71999,71999],[72001,72001],[72096,72103],[72106,72144],[72161,72161],[72163,72163],[72192,72192],[72203,72242],[72250,72250],[72272,72272],[72284,72329],[72349,72349],[72368,72440],[72640,72672],[72704,72712],[72714,72750],[72768,72768],[72818,72847],[72960,72966],[72968,72969],[72971,73008],[73030,73030],[73056,73061],[73063,73064],[73066,73097],[73112,73112],[73136,73179],[73440,73458],[73474,73474],[73476,73488],[73490,73523],[73648,73648],[73728,74649],[74752,74862],[74880,75075],[77712,77808],[77824,78895],[78913,78918],[78944,82938],[82944,83526],[90368,90397],[92160,92728],[92736,92766],[92784,92862],[92880,92909],[92928,92975],[92992,92995],[93027,93047],[93053,93071],[93504,93548],[93760,93823],[93856,93880],[93883,93907],[93952,94026],[94032,94032],[94099,94111],[94176,94177],[94179,94179],[94194,94198],[94208,101589],[101631,101662],[101760,101874],[110576,110579],[110581,110587],[110589,110590],[110592,110882],[110898,110898],[110928,110930],[110933,110933],[110948,110951],[110960,111355],[113664,113770],[113776,113788],[113792,113800],[113808,113817],[119808,119892],[119894,119964],[119966,119967],[119970,119970],[119973,119974],[119977,119980],[119982,119993],[119995,119995],[119997,120003],[120005,120069],[120071,120074],[120077,120084],[120086,120092],[120094,120121],[120123,120126],[120128,120132],[120134,120134],[120138,120144],[120146,120485],[120488,120512],[120514,120538],[120540,120570],[120572,120596],[120598,120628],[120630,120654],[120656,120686],[120688,120712],[120714,120744],[120746,120770],[120772,120779],[122624,122654],[122661,122666],[122928,122989],[123136,123180],[123191,123197],[123214,123214],[123536,123565],[123584,123627],[124112,124139],[124368,124397],[124400,124400],[124608,124638],[124640,124642],[124644,124645],[124647,124653],[124656,124660],[124670,124671],[124896,124902],[124904,124907],[124909,124910],[124912,124926],[124928,125124],[125184,125251],[125259,125259],[126464,126467],[126469,126495],[126497,126498],[126500,126500],[126503,126503],[126505,126514],[126516,126519],[126521,126521],[126523,126523],[126530,126530],[126535,126535],[126537,126537],[126539,126539],[126541,126543],[126545,126546],[126548,126548],[126551,126551],[126553,126553],[126555,126555],[126557,126557],[126559,126559],[126561,126562],[126564,126564],[126567,126570],[126572,126578],[126580,126583],[126585,126588],[126590,126590],[126592,126601],[126603,126619],[126625,126627],[126629,126633],[126635,126651],[131072,173791],[173824,178205],[178208,183981],[183984,191456],[191472,192093],[194560,195101],[196608,201546],[201552,210041]]")
+    return t1
+
+
+def _regex_id_continue_ranges() -> Any:
+    _core_coverage_mark("_regex_id_continue_ranges")
+    t1 = _core_json_parse("[[48,57],[65,90],[95,95],[97,122],[170,170],[181,181],[183,183],[186,186],[192,214],[216,246],[248,705],[710,721],[736,740],[748,748],[750,750],[768,884],[886,887],[890,893],[895,895],[902,906],[908,908],[910,929],[931,1013],[1015,1153],[1155,1159],[1162,1327],[1329,1366],[1369,1369],[1376,1416],[1425,1469],[1471,1471],[1473,1474],[1476,1477],[1479,1479],[1488,1514],[1519,1522],[1552,1562],[1568,1641],[1646,1747],[1749,1756],[1759,1768],[1770,1788],[1791,1791],[1808,1866],[1869,1969],[1984,2037],[2042,2042],[2045,2045],[2048,2093],[2112,2139],[2144,2154],[2160,2183],[2185,2191],[2199,2273],[2275,2403],[2406,2415],[2417,2435],[2437,2444],[2447,2448],[2451,2472],[2474,2480],[2482,2482],[2486,2489],[2492,2500],[2503,2504],[2507,2510],[2519,2519],[2524,2525],[2527,2531],[2534,2545],[2556,2556],[2558,2558],[2561,2563],[2565,2570],[2575,2576],[2579,2600],[2602,2608],[2610,2611],[2613,2614],[2616,2617],[2620,2620],[2622,2626],[2631,2632],[2635,2637],[2641,2641],[2649,2652],[2654,2654],[2662,2677],[2689,2691],[2693,2701],[2703,2705],[2707,2728],[2730,2736],[2738,2739],[2741,2745],[2748,2757],[2759,2761],[2763,2765],[2768,2768],[2784,2787],[2790,2799],[2809,2815],[2817,2819],[2821,2828],[2831,2832],[2835,2856],[2858,2864],[2866,2867],[2869,2873],[2876,2884],[2887,2888],[2891,2893],[2901,2903],[2908,2909],[2911,2915],[2918,2927],[2929,2929],[2946,2947],[2949,2954],[2958,2960],[2962,2965],[2969,2970],[2972,2972],[2974,2975],[2979,2980],[2984,2986],[2990,3001],[3006,3010],[3014,3016],[3018,3021],[3024,3024],[3031,3031],[3046,3055],[3072,3084],[3086,3088],[3090,3112],[3114,3129],[3132,3140],[3142,3144],[3146,3149],[3157,3158],[3160,3162],[3164,3165],[3168,3171],[3174,3183],[3200,3203],[3205,3212],[3214,3216],[3218,3240],[3242,3251],[3253,3257],[3260,3268],[3270,3272],[3274,3277],[3285,3286],[3292,3294],[3296,3299],[3302,3311],[3313,3315],[3328,3340],[3342,3344],[3346,3396],[3398,3400],[3402,3406],[3412,3415],[3423,3427],[3430,3439],[3450,3455],[3457,3459],[3461,3478],[3482,3505],[3507,3515],[3517,3517],[3520,3526],[3530,3530],[3535,3540],[3542,3542],[3544,3551],[3558,3567],[3570,3571],[3585,3642],[3648,3662],[3664,3673],[3713,3714],[3716,3716],[3718,3722],[3724,3747],[3749,3749],[3751,3773],[3776,3780],[3782,3782],[3784,3790],[3792,3801],[3804,3807],[3840,3840],[3864,3865],[3872,3881],[3893,3893],[3895,3895],[3897,3897],[3902,3911],[3913,3948],[3953,3972],[3974,3991],[3993,4028],[4038,4038],[4096,4169],[4176,4253],[4256,4293],[4295,4295],[4301,4301],[4304,4346],[4348,4680],[4682,4685],[4688,4694],[4696,4696],[4698,4701],[4704,4744],[4746,4749],[4752,4784],[4786,4789],[4792,4798],[4800,4800],[4802,4805],[4808,4822],[4824,4880],[4882,4885],[4888,4954],[4957,4959],[4969,4977],[4992,5007],[5024,5109],[5112,5117],[5121,5740],[5743,5759],[5761,5786],[5792,5866],[5870,5880],[5888,5909],[5919,5940],[5952,5971],[5984,5996],[5998,6000],[6002,6003],[6016,6099],[6103,6103],[6108,6109],[6112,6121],[6155,6157],[6159,6169],[6176,6264],[6272,6314],[6320,6389],[6400,6430],[6432,6443],[6448,6459],[6470,6509],[6512,6516],[6528,6571],[6576,6601],[6608,6618],[6656,6683],[6688,6750],[6752,6780],[6783,6793],[6800,6809],[6823,6823],[6832,6845],[6847,6877],[6880,6891],[6912,6988],[6992,7001],[7019,7027],[7040,7155],[7168,7223],[7232,7241],[7245,7293],[7296,7306],[7312,7354],[7357,7359],[7376,7378],[7380,7418],[7424,7957],[7960,7965],[7968,8005],[8008,8013],[8016,8023],[8025,8025],[8027,8027],[8029,8029],[8031,8061],[8064,8116],[8118,8124],[8126,8126],[8130,8132],[8134,8140],[8144,8147],[8150,8155],[8160,8172],[8178,8180],[8182,8188],[8204,8205],[8255,8256],[8276,8276],[8305,8305],[8319,8319],[8336,8348],[8400,8412],[8417,8417],[8421,8432],[8450,8450],[8455,8455],[8458,8467],[8469,8469],[8472,8477],[8484,8484],[8486,8486],[8488,8488],[8490,8505],[8508,8511],[8517,8521],[8526,8526],[8544,8584],[11264,11492],[11499,11507],[11520,11557],[11559,11559],[11565,11565],[11568,11623],[11631,11631],[11647,11670],[11680,11686],[11688,11694],[11696,11702],[11704,11710],[11712,11718],[11720,11726],[11728,11734],[11736,11742],[11744,11775],[12293,12295],[12321,12335],[12337,12341],[12344,12348],[12353,12438],[12441,12447],[12449,12543],[12549,12591],[12593,12686],[12704,12735],[12784,12799],[13312,19903],[19968,42124],[42192,42237],[42240,42508],[42512,42539],[42560,42607],[42612,42621],[42623,42737],[42775,42783],[42786,42888],[42891,42972],[42993,43047],[43052,43052],[43072,43123],[43136,43205],[43216,43225],[43232,43255],[43259,43259],[43261,43309],[43312,43347],[43360,43388],[43392,43456],[43471,43481],[43488,43518],[43520,43574],[43584,43597],[43600,43609],[43616,43638],[43642,43714],[43739,43741],[43744,43759],[43762,43766],[43777,43782],[43785,43790],[43793,43798],[43808,43814],[43816,43822],[43824,43866],[43868,43881],[43888,44010],[44012,44013],[44016,44025],[44032,55203],[55216,55238],[55243,55291],[63744,64109],[64112,64217],[64256,64262],[64275,64279],[64285,64296],[64298,64310],[64312,64316],[64318,64318],[64320,64321],[64323,64324],[64326,64433],[64467,64829],[64848,64911],[64914,64967],[65008,65019],[65024,65039],[65056,65071],[65075,65076],[65101,65103],[65136,65140],[65142,65276],[65296,65305],[65313,65338],[65343,65343],[65345,65370],[65381,65470],[65474,65479],[65482,65487],[65490,65495],[65498,65500],[65536,65547],[65549,65574],[65576,65594],[65596,65597],[65599,65613],[65616,65629],[65664,65786],[65856,65908],[66045,66045],[66176,66204],[66208,66256],[66272,66272],[66304,66335],[66349,66378],[66384,66426],[66432,66461],[66464,66499],[66504,66511],[66513,66517],[66560,66717],[66720,66729],[66736,66771],[66776,66811],[66816,66855],[66864,66915],[66928,66938],[66940,66954],[66956,66962],[66964,66965],[66967,66977],[66979,66993],[66995,67001],[67003,67004],[67008,67059],[67072,67382],[67392,67413],[67424,67431],[67456,67461],[67463,67504],[67506,67514],[67584,67589],[67592,67592],[67594,67637],[67639,67640],[67644,67644],[67647,67669],[67680,67702],[67712,67742],[67808,67826],[67828,67829],[67840,67861],[67872,67897],[67904,67929],[67968,68023],[68030,68031],[68096,68099],[68101,68102],[68108,68115],[68117,68119],[68121,68149],[68152,68154],[68159,68159],[68192,68220],[68224,68252],[68288,68295],[68297,68326],[68352,68405],[68416,68437],[68448,68466],[68480,68497],[68608,68680],[68736,68786],[68800,68850],[68864,68903],[68912,68921],[68928,68965],[68969,68973],[68975,68997],[69248,69289],[69291,69292],[69296,69297],[69314,69319],[69370,69404],[69415,69415],[69424,69456],[69488,69509],[69552,69572],[69600,69622],[69632,69702],[69734,69749],[69759,69818],[69826,69826],[69840,69864],[69872,69881],[69888,69940],[69942,69951],[69956,69959],[69968,70003],[70006,70006],[70016,70084],[70089,70092],[70094,70106],[70108,70108],[70144,70161],[70163,70199],[70206,70209],[70272,70278],[70280,70280],[70282,70285],[70287,70301],[70303,70312],[70320,70378],[70384,70393],[70400,70403],[70405,70412],[70415,70416],[70419,70440],[70442,70448],[70450,70451],[70453,70457],[70459,70468],[70471,70472],[70475,70477],[70480,70480],[70487,70487],[70493,70499],[70502,70508],[70512,70516],[70528,70537],[70539,70539],[70542,70542],[70544,70581],[70583,70592],[70594,70594],[70597,70597],[70599,70602],[70604,70611],[70625,70626],[70656,70730],[70736,70745],[70750,70753],[70784,70853],[70855,70855],[70864,70873],[71040,71093],[71096,71104],[71128,71133],[71168,71232],[71236,71236],[71248,71257],[71296,71352],[71360,71369],[71376,71395],[71424,71450],[71453,71467],[71472,71481],[71488,71494],[71680,71738],[71840,71913],[71935,71942],[71945,71945],[71948,71955],[71957,71958],[71960,71989],[71991,71992],[71995,72003],[72016,72025],[72096,72103],[72106,72151],[72154,72161],[72163,72164],[72192,72254],[72263,72263],[72272,72345],[72349,72349],[72368,72440],[72544,72551],[72640,72672],[72688,72697],[72704,72712],[72714,72758],[72760,72768],[72784,72793],[72818,72847],[72850,72871],[72873,72886],[72960,72966],[72968,72969],[72971,73014],[73018,73018],[73020,73021],[73023,73031],[73040,73049],[73056,73061],[73063,73064],[73066,73102],[73104,73105],[73107,73112],[73120,73129],[73136,73179],[73184,73193],[73440,73462],[73472,73488],[73490,73530],[73534,73538],[73552,73562],[73648,73648],[73728,74649],[74752,74862],[74880,75075],[77712,77808],[77824,78895],[78912,78933],[78944,82938],[82944,83526],[90368,90425],[92160,92728],[92736,92766],[92768,92777],[92784,92862],[92864,92873],[92880,92909],[92912,92916],[92928,92982],[92992,92995],[93008,93017],[93027,93047],[93053,93071],[93504,93548],[93552,93561],[93760,93823],[93856,93880],[93883,93907],[93952,94026],[94031,94087],[94095,94111],[94176,94177],[94179,94180],[94192,94198],[94208,101589],[101631,101662],[101760,101874],[110576,110579],[110581,110587],[110589,110590],[110592,110882],[110898,110898],[110928,110930],[110933,110933],[110948,110951],[110960,111355],[113664,113770],[113776,113788],[113792,113800],[113808,113817],[113821,113822],[118000,118009],[118528,118573],[118576,118598],[119141,119145],[119149,119154],[119163,119170],[119173,119179],[119210,119213],[119362,119364],[119808,119892],[119894,119964],[119966,119967],[119970,119970],[119973,119974],[119977,119980],[119982,119993],[119995,119995],[119997,120003],[120005,120069],[120071,120074],[120077,120084],[120086,120092],[120094,120121],[120123,120126],[120128,120132],[120134,120134],[120138,120144],[120146,120485],[120488,120512],[120514,120538],[120540,120570],[120572,120596],[120598,120628],[120630,120654],[120656,120686],[120688,120712],[120714,120744],[120746,120770],[120772,120779],[120782,120831],[121344,121398],[121403,121452],[121461,121461],[121476,121476],[121499,121503],[121505,121519],[122624,122654],[122661,122666],[122880,122886],[122888,122904],[122907,122913],[122915,122916],[122918,122922],[122928,122989],[123023,123023],[123136,123180],[123184,123197],[123200,123209],[123214,123214],[123536,123566],[123584,123641],[124112,124153],[124368,124410],[124608,124638],[124640,124661],[124670,124671],[124896,124902],[124904,124907],[124909,124910],[124912,124926],[124928,125124],[125136,125142],[125184,125259],[125264,125273],[126464,126467],[126469,126495],[126497,126498],[126500,126500],[126503,126503],[126505,126514],[126516,126519],[126521,126521],[126523,126523],[126530,126530],[126535,126535],[126537,126537],[126539,126539],[126541,126543],[126545,126546],[126548,126548],[126551,126551],[126553,126553],[126555,126555],[126557,126557],[126559,126559],[126561,126562],[126564,126564],[126567,126570],[126572,126578],[126580,126583],[126585,126588],[126590,126590],[126592,126601],[126603,126619],[126625,126627],[126629,126633],[126635,126651],[130032,130041],[131072,173791],[173824,178205],[178208,183981],[183984,191456],[191472,192093],[194560,195101],[196608,201546],[201552,210041],[917760,917999]]")
+    return t1
+
+
+def _regex_clear_capture(caps: Any, key: Any) -> Any:
+    _core_coverage_mark("_regex_clear_capture")
+    t1 = _core_none()
+    caps[key] = t1
+    return None
+
+
+def _regex_copy_map(value: Any) -> Any:
+    _core_coverage_mark("_regex_copy_map")
+    key = _core_none()
+    out = _core_none()
+    t1 = {}
+    out = t1
+    t2 = _core_map_keys(value)
+    for iter_3 in t2:
+        key = iter_3
+        t4 = _core_get(value, key, None)
+        out[key] = t4
+    return out
 
 # END AXIR CORE EMITTED FUNCTIONS

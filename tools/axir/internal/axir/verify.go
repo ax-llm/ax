@@ -1260,6 +1260,13 @@ func verifyCppTarget(report VerifyTargetReport, conformanceRoot string) (VerifyT
 		if err := runVerifyCommand(&report, "compile axllm.cpp (curl)", "", nil, cpp, "-std=c++17", "-DAXLLM_ENABLE_CURL=1", "-I", report.OutDir, "-c", axSource, "-o", curlObj); err != nil {
 			return report, err
 		}
+		curlSessionTest := filepath.Join(buildDir, "astra_session_test_curl")
+		if err := runVerifyCommand(&report, "compile Astra HTTP session tests", "", nil, cpp, "-std=c++17", "-DAXLLM_ENABLE_CURL=1", "-I", report.OutDir, filepath.Join(report.OutDir, "tests", "astra_session_test.cpp"), curlObj, mcpObj, "-lcurl", "-o", curlSessionTest); err != nil {
+			return report, err
+		}
+		if err := runVerifyCommand(&report, "Astra HTTP session tests", "", nil, curlSessionTest); err != nil {
+			return report, err
+		}
 		for _, example := range curlExamples {
 			source := filepath.Join(report.OutDir, "examples", example+".cpp")
 			bin := filepath.Join(report.OutDir, example)
@@ -1276,6 +1283,7 @@ func verifyCppTarget(report VerifyTargetReport, conformanceRoot string) (VerifyT
 			}
 		}
 	} else {
+		report.Steps = append(report.Steps, VerifyStep{Name: "Astra HTTP session tests", Status: "skip", Message: "libcurl unavailable"})
 		for _, example := range curlExamples {
 			report.Steps = append(report.Steps, VerifyStep{Name: "example " + example, Status: "skip", Message: "libcurl unavailable"})
 		}

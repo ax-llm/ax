@@ -9,6 +9,7 @@ import re
 from typing import Any
 
 from .ai import (
+    _cancellation_token,
     AxMeter,
     AxRateLimiter,
     AxRuntimeHooks,
@@ -1677,9 +1678,17 @@ class AxAgent:
     def _forward_unscoped(self, client, values: dict[str, Any], options: dict[str, Any] | None = None):
         options = dict(options or {})
         call_context = resolve_execution_context(options, self.execution_context)
-        if call_context:
+        if call_context is not None or self.state.get("mcp_run_context_active"):
+            modules = []
+            if call_context is not None:
+                call_context.initialize()
+                modules = call_context.runtime_modules()
             options["executionContext"] = call_context
-            options["functions"] = list(options.get("functions") or []) + call_context.runtime_modules()
+            options = _agent_apply_run_context(self.state, self.options, options, modules)
+            if self.state.get("runtime_enabled"):
+                self.distiller.set_instruction(self.state["distiller_description"])
+                self.executor.set_instruction(self.state["executor_description"])
+                self.responder.set_instruction(self.state["responder_description"])
         runtime = options.get("runtime")
         if runtime is None:
             runtime = self.options.get("runtime")
@@ -2274,7 +2283,13 @@ def _core_agent_native_stage_forward(stage, state, client, values, options, sele
 
 
 def _core_agent_stage_forward(stage, client, values, options):
-    return stage.forward(client, values or {}, options or {})
+    options = dict(options or {})
+    if isinstance(stage, AxAgent) and "mcpInheritanceFromParent" in options:
+        context = options.pop("executionContext", None)
+        policy = options.pop("mcpInheritanceFromParent")
+        if context is not None:
+            options["inheritedExecutionContext"] = context.derive(policy)
+    return stage.forward(client, values or {}, options)
 
 
 def _core_agent_stage_chat_log(stage):
@@ -2441,7 +2456,14 @@ def _core_agent_callable_invoke(state, request, options):
     from .tool import Tool
     if isinstance(implementation,Tool):
         from .gen import _core_tool_invoke
-        return {"status":"ok","value":_core_tool_invoke(implementation,args,(options or {}).get("tool_context"))}
+        context = (options or {}).get("tool_context")
+        if context is None:
+            import threading
+            token = _cancellation_token(options)
+            control = (options or {}).get("control")
+            signal = control.signal if control is not None else token._event if token is not None else threading.Event()
+            context = {"signal": signal, "cancellation": token, "call_id": _core_get(request,"call_id")}
+        return {"status":"ok","value":_core_tool_invoke(implementation,args,context)}
     handler=_core_get(implementation,"handler")
     if callable(handler):return {"status":"ok","value":handler(args)}
     for group in _core_get(state, "callable_inventory", []) or []:
@@ -8085,6 +8107,13 @@ def _agent_runtime_execution_options(state: Any, options: Any) -> Any:
     reserved_names = _agent_runtime_reserved_names_for_state(state)
     runtime_options = _core_map_merge(empty_map, options)
     _core_map_delete(runtime_options, "runtime")
+    _core_map_delete(runtime_options, "executionContext")
+    _core_map_delete(runtime_options, "inheritedExecutionContext")
+    _core_map_delete(runtime_options, "mcpExecutionContext")
+    _core_map_delete(runtime_options, "mcp")
+    _core_map_delete(runtime_options, "ucp")
+    _core_map_delete(runtime_options, "mcpContext")
+    _core_map_delete(runtime_options, "functions")
     runtime_options["reservedNames"] = reserved_names
     timeout_ms = _core_get(options, "timeout_ms", None)
     timeout = _core_get(options, "timeout", timeout_ms)
@@ -10023,7 +10052,24 @@ def _agent_stage_options(state: Any, stage: str, forward_options: Any) -> Any:
         stage_options = _core_get(base_options, "responder_options", responder_opts_camel)
     else:
         pass
-    out = _core_map_merge(stage_options, forward_options)
+    merged = _core_map_merge(stage_options, forward_options)
+    out = {}
+    host_keys = []
+    host_keys.append("executionContext")
+    host_keys.append("inheritedExecutionContext")
+    host_keys.append("mcpExecutionContext")
+    host_keys.append("mcp")
+    host_keys.append("ucp")
+    host_keys.append("mcpContext")
+    host_keys.append("functions")
+    host_keys.append("runtime")
+    for key in merged:
+        host = _core_contains(host_keys, key)
+        if host:
+            pass
+        else:
+            value = _core_get(merged, key, None)
+            out[key] = value
     base_control = _core_get(base_options, "control", None)
     controller = _core_get(forward_options, "control", base_control)
     controlled = _core_is_not_none(controller)
@@ -11064,6 +11110,66 @@ def _agent_forward_impl(state: Any, distiller: Any, executor: Any, responder: An
     return responder_output
 
 
+def _agent_apply_run_context(state: Any, configured: Any, call: Any, modules: Any) -> Any:
+    _core_coverage_mark("_agent_apply_run_context")
+    empty_list = []
+    options = _core_map_merge(configured, call)
+    functions = _core_get(options, "functions", empty_list)
+    retained = []
+    for function in functions:
+        default_name = _core_get(function, "name", "")
+        namespace = _core_get(function, "namespace", default_name)
+        mcp = _core_string_starts_with(namespace, "mcp.")
+        ucp = _core_string_starts_with(namespace, "ucp.")
+        protocol = _core_or(mcp, ucp)
+        if protocol:
+            pass
+        else:
+            retained.append(function)
+    options["functions"] = retained
+    options = _agent_append_runtime_modules(options, modules)
+    inventory = _normalize_agent_callable_inventory(options)
+    split = _split_agent_callable_inventory(inventory)
+    catalog = _render_agent_discovery_catalog(split)
+    state["options"] = options
+    state["callable_inventory"] = inventory
+    state["callable_split"] = split
+    state["discovery_catalog"] = catalog
+    upgrade = _resolve_agent_auto_upgrade(options)
+    flags = _agent_policy_flags(options, split, upgrade)
+    policy = _normalize_agent_policy(options)
+    registry = _agent_policy_registry(policy, flags)
+    state["policy_flags"] = flags
+    state["policy_registry"] = registry
+    docs = _core_get(state, "discovered_tool_docs", empty_list)
+    retained_docs = []
+    for doc in docs:
+        name = _core_get(doc, "qualified_name", "")
+        mcp = _core_string_starts_with(name, "mcp.")
+        ucp = _core_string_starts_with(name, "ucp.")
+        protocol = _core_or(mcp, ucp)
+        if protocol:
+            pass
+        else:
+            retained_docs.append(doc)
+    state["discovered_tool_docs"] = retained_docs
+    prompt = _build_agent_actor_prompt_policy(state)
+    state["actor_prompt_policy"] = prompt
+    runtime = _core_get(state, "runtime_enabled", False)
+    if runtime:
+        executor = _render_rlm_executor_description(state, options)
+        distiller = _render_rlm_distiller_description(state, options)
+        responder = _render_rlm_responder_description(state, options)
+        state["executor_description_base"] = executor
+        state["distiller_description"] = distiller
+        state["responder_description"] = responder
+        _agent_refresh_actor_instruction(state)
+    else:
+        pass
+    state["mcp_run_context_active"] = True
+    return call
+
+
 def _agent_append_runtime_modules(options: Any, additional: Any) -> Any:
     _core_coverage_mark("_agent_append_runtime_modules")
     empty_map = {}
@@ -11172,6 +11278,8 @@ def _agent_child_options(state: Any, qualified: str, options: Any) -> Any:
             out[key] = value
         else:
             pass
+    inheritance = _core_get(parent, "mcpInheritance", "all")
+    out["mcpInheritanceFromParent"] = inheritance
     snake_path = _core_get(parent, "execution_path", "root")
     parent_path = _core_get(parent, "executionPath", snake_path)
     path = _core_string_format("{}/{}", parent_path, qualified)

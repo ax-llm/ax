@@ -53,18 +53,32 @@ public final class AxMCPStreamableHTTPTransport implements AxMCPTransport {
     if (this.options.get("authorization") != null) headers.put("Authorization", String.valueOf(this.options.get("authorization")));
   }
 
+  private HttpResponse<String> sendCancellable(HttpRequest request,java.util.function.BooleanSupplier cancelled)throws Exception {
+    var future=client.sendAsync(request,HttpResponse.BodyHandlers.ofString());
+    try {
+      for(;;){
+        if(cancelled.getAsBoolean())throw new AxAIServiceAbortedError("MCP invocation cancelled");
+        try{var response=future.get(10,java.util.concurrent.TimeUnit.MILLISECONDS);if(cancelled.getAsBoolean())throw new AxAIServiceAbortedError("MCP invocation cancelled");return response;}
+        catch(java.util.concurrent.TimeoutException pending){}
+      }
+    }catch(InterruptedException interrupted){Thread.currentThread().interrupt();throw interrupted;}
+    finally{if(!future.isDone())future.cancel(true);}
+  }
+
   public Map<String, Object> send(Map<String, Object> message) {
     return sendWithHeaders(message, Map.of());
   }
 
-  public Map<String, Object> sendWithHeaders(Map<String, Object> message, Map<String, String> extraHeaders) {
+  public Map<String, Object> sendWithHeaders(Map<String, Object> message, Map<String, String> extraHeaders) {return sendWithContext(message,extraHeaders,()->false);}
+  public Map<String,Object> sendWithContext(Map<String,Object> message,Map<String,String> extraHeaders,java.util.function.BooleanSupplier cancelled){
+    if(cancelled.getAsBoolean())throw new AxAIServiceAbortedError("MCP invocation cancelled");
     try {
       HttpRequest.Builder builder = HttpRequest.newBuilder(URI.create(endpoint)).POST(HttpRequest.BodyPublishers.ofString(Json.stringify(message)));
       String method = String.valueOf(message.getOrDefault("method", ""));
       for (Map.Entry<String, String> entry : buildHeaders(Map.of("Content-Type", "application/json", "Accept", "application/json, text/event-stream"), !"initialize".equals(method), method, Core.asMap(message.get("params")), extraHeaders).entrySet()) builder.header(entry.getKey(), entry.getValue());
-      HttpResponse<String> response = client.send(builder.build(), HttpResponse.BodyHandlers.ofString());
+      HttpResponse<String> response = sendCancellable(builder.build(),cancelled);
       if (!"modern".equals(era)) response.headers().firstValue("MCP-Session-Id").ifPresent(value -> sessionId = value);
-      if (response.statusCode() == 401 && applyOAuth(response.headers().firstValue("WWW-Authenticate").orElse(""))) return sendWithHeaders(message, extraHeaders);
+      if (response.statusCode() == 401 && applyOAuth(response.headers().firstValue("WWW-Authenticate").orElse(""))) return sendWithContext(message, extraHeaders,cancelled);
       if (response.statusCode() < 200 || response.statusCode() >= 300) throw new AxMCPError("HTTP error " + response.statusCode());
       String bodyText = response.body();
       Object requestId = message.get("id");
@@ -76,6 +90,8 @@ public final class AxMCPStreamableHTTPTransport implements AxMCPTransport {
       String contentType = response.headers().firstValue("Content-Type").orElse("").toLowerCase();
       if (contentType.contains("text/event-stream")) return selectSseResponse(parseSse(bodyText), requestId);
       return Core.asMap(Json.parse(bodyText));
+    } catch (AxAIServiceAbortedError error) {
+      throw error;
     } catch (AxMCPError error) {
       throw error;
     } catch (Exception error) {

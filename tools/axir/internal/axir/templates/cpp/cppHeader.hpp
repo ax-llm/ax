@@ -43,6 +43,8 @@ class AxMemory;
 class AxProgram;
 class AxGen;
 class AxAgent;
+class AxExecutionContext;
+struct AxToolContext;
 class AxFlow;
 class AxCodeRuntime;
 class AxCodeSession;
@@ -285,6 +287,7 @@ struct Core {
   static Value div(Value left, Value right);
   static Value math_abs(Value value);
   static Value string_codepoint_length(Value value);
+  static Value string_utf16_units(Value value);
   static Value math_is_finite(Value value);
   static Value math_floor(Value value);
   static Value math_log(Value value);
@@ -371,6 +374,7 @@ struct Core {
   static Value ai_client_features(Value client, Value model);
   static Value retry_sleep(Value attempt, Value client, Value options);
   static Value tool_invoke(Value fn, Value params);
+  static Value tool_invoke(Value fn, Value params, const AxToolContext& context);
   static Value legacy_response_to_chat_response(Value raw);
   static Value record_new(Value name, Value values);
   static Value field_item(Value field);
@@ -782,10 +786,12 @@ class HttpTransport : public Transport {
   std::function<std::shared_ptr<Transport>()> owned_worker_factory() override { return [] { return std::make_shared<HttpTransport>(); }; }
   Value call(Value request) override;
   Value call(Value request, const AxCancellationToken* cancellation) override;
+  Value call_cancellable(Value request, std::function<bool()> cancelled);
   void stream(Value request, AxTransportStreamHandler handler) override;
   void stream_cancellable(Value request, AxTransportStreamHandler handler, std::shared_ptr<std::atomic<bool>> cancelled) override;
   void stream(Value request, AxTransportStreamHandler handler, const AxCancellationToken* cancellation) override;
  private:
+  Value call_impl(Value request, const AxCancellationToken* cancellation, std::function<bool()> cancelled);
   void stream_impl(Value request, AxTransportStreamHandler handler, const AxCancellationToken* cancellation, std::shared_ptr<std::atomic<bool>> cancelled);
 
 };
@@ -905,7 +911,8 @@ class AnthropicClient : public OpenAICompatibleClient {
 struct AxToolContext {
   std::shared_ptr<std::atomic<bool>> cancelled;
   std::string call_id;
-  bool is_cancelled() const {return cancelled && cancelled->load();}
+  std::function<bool()> cancellation_requested;
+  bool is_cancelled() const {return (cancelled && cancelled->load()) || (cancellation_requested && cancellation_requested());}
 };
 class Tool {
  public:
@@ -1277,6 +1284,29 @@ class AxPlaybook {
   void inject();
 };
 
+namespace detail {
+// Optional owned protocol context; core-only programs need no MCP implementation.
+class AgentExecutionContext {
+ public:
+  virtual ~AgentExecutionContext() = default;
+  virtual Value agent_modules() = 0;
+  virtual std::shared_ptr<AgentExecutionContext> shared_derived(Value inheritance) const = 0;
+};
+}
+
+namespace detail {
+class MCPRunScope {
+ public:
+  explicit MCPRunScope(std::shared_ptr<AgentExecutionContext> context);
+  ~MCPRunScope();
+  MCPRunScope(const MCPRunScope&) = delete;
+  MCPRunScope& operator=(const MCPRunScope&) = delete;
+  static std::shared_ptr<AgentExecutionContext> current();
+ private:
+  std::shared_ptr<AgentExecutionContext> previous_;
+};
+}
+
 class AxAgent : public AxProgram {
  public:
   explicit AxAgent(Value signature, Value options = Value::object(), AxRuntimeHooks hooks = {});
@@ -1332,6 +1362,8 @@ class AxAgent : public AxProgram {
   AxPlaybook* get_playbook() const;
 
  private:
+  friend class AxExecutionContext;
+  std::shared_ptr<detail::AgentExecutionContext> execution_context_;
   std::vector<std::shared_ptr<AxAgent>> child_agents_;
   Value state_;
   std::unique_ptr<AxGen> distiller_;

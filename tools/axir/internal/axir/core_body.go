@@ -51,6 +51,7 @@ const (
 	IntrinsicMul                     CoreIntrinsic = "intrinsic.mul"
 	IntrinsicDiv                     CoreIntrinsic = "intrinsic.div"
 	IntrinsicStringCodepointLength   CoreIntrinsic = "intrinsic.string.codepoint_length"
+	IntrinsicStringUTF16Units        CoreIntrinsic = "intrinsic.string.utf16_units"
 	IntrinsicMathIsFinite            CoreIntrinsic = "intrinsic.math.is_finite"
 	IntrinsicMathFloor               CoreIntrinsic = "intrinsic.math.floor"
 	IntrinsicMathAbs                 CoreIntrinsic = "intrinsic.math.abs"
@@ -189,6 +190,7 @@ var coreIntrinsicPython = map[CoreIntrinsic]string{
 	IntrinsicDiv:                     "_core_div",
 	IntrinsicMathAbs:                 "_core_math_abs",
 	IntrinsicStringCodepointLength:   "_core_string_codepoint_length",
+	IntrinsicStringUTF16Units:        "_core_string_utf16_units",
 	IntrinsicMathIsFinite:            "_core_math_is_finite",
 	IntrinsicMathFloor:               "_core_math_floor",
 	IntrinsicMathLog:                 "_core_math_log",
@@ -326,6 +328,7 @@ var knownCoreIntrinsics = map[string]bool{
 	"intrinsic.div":                                   true,
 	"intrinsic.math.abs":                              true,
 	"intrinsic.string.codepoint_length":               true,
+	"intrinsic.string.utf16_units":                    true,
 	"intrinsic.math.is_finite":                        true,
 	"intrinsic.math.floor":                            true,
 	"intrinsic.math.log":                              true,
@@ -688,6 +691,7 @@ var coreIntrinsicInfo = map[string]CoreIntrinsicInfo{
 	"intrinsic.mul":                          intrinsicInfo("intrinsic.mul", 2, 2, false, "f64"),
 	"intrinsic.div":                          intrinsicInfo("intrinsic.div", 2, 2, false, "f64"),
 	"intrinsic.string.codepoint_length":      intrinsicInfo("intrinsic.string.codepoint_length", 1, 1, false, "i64"),
+	"intrinsic.string.utf16_units":           intrinsicInfo("intrinsic.string.utf16_units", 1, 1, false, "json"),
 	"intrinsic.math.is_finite":               intrinsicInfo("intrinsic.math.is_finite", 1, 1, false, "bool"),
 	"intrinsic.math.floor":                   intrinsicInfo("intrinsic.math.floor", 1, 1, false, "f64"),
 	"intrinsic.math.abs":                     intrinsicInfo("intrinsic.math.abs", 1, 1, false, "f64"),

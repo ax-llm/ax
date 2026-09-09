@@ -20,6 +20,14 @@
 #endif
 
 namespace axllm {
+static std::function<bool()> agent_cancellation_check(Value options);
+namespace detail {
+static thread_local std::shared_ptr<AgentExecutionContext> active_mcp_context;
+MCPRunScope::MCPRunScope(std::shared_ptr<AgentExecutionContext> context) : previous_(std::move(active_mcp_context)) { active_mcp_context = std::move(context); }
+MCPRunScope::~MCPRunScope() { active_mcp_context = std::move(previous_); }
+std::shared_ptr<AgentExecutionContext> MCPRunScope::current() { return active_mcp_context; }
+}
+
 
 thread_local const AxCancellationToken* ax_current_cancellation_token = nullptr;
 
@@ -246,7 +254,8 @@ static std::string key_string(const Value& key) {
 }
 
 static Value get_key(const Value& object, const std::string& key, Value fallback = Value()) {
-  const auto& obj = object_ref(object);
+  if (!object.is_object()) return fallback;
+  const auto& obj = *std::get<std::shared_ptr<Object>>(object.data);
   auto it = obj.find(key);
   if (it != obj.end()) return it->second;
   static const std::map<std::string, std::string> aliases = {
@@ -526,11 +535,30 @@ void HttpTransport::stream_impl(Value request, AxTransportStreamHandler handler,
 #endif
 }
 
+#if defined(AXLLM_ENABLE_CURL)
+static CURLcode ax_curl_perform(CURL* curl,const std::function<bool()>& cancelled){
+  CURLM* multi=curl_multi_init();if(!multi)return CURLE_FAILED_INIT;
+  if(curl_multi_add_handle(multi,curl)!=CURLM_OK){curl_multi_cleanup(multi);return CURLE_FAILED_INIT;}
+  int running=0;CURLcode result=CURLE_OK;CURLMcode code=curl_multi_perform(multi,&running);
+  while(code==CURLM_OK&&running&&!cancelled()){
+    code=curl_multi_poll(multi,nullptr,0,20,nullptr);
+    if(code==CURLM_OK)code=curl_multi_perform(multi,&running);
+  }
+  if(cancelled())result=CURLE_ABORTED_BY_CALLBACK;
+  else if(code!=CURLM_OK)result=CURLE_RECV_ERROR;
+  else{int remaining=0;while(auto* message=curl_multi_info_read(multi,&remaining))if(message->msg==CURLMSG_DONE)result=message->data.result;}
+  curl_multi_remove_handle(multi,curl);curl_multi_cleanup(multi);return result;
+}
+#endif
+
 Value HttpTransport::call(Value request) {
   return call(std::move(request), current_cancellation_token());
 }
 
-Value HttpTransport::call(Value request, const AxCancellationToken* cancellation) {
+Value HttpTransport::call(Value request, const AxCancellationToken* cancellation) {return call_impl(std::move(request),cancellation,{});}
+Value HttpTransport::call_cancellable(Value request,std::function<bool()> cancelled){return call_impl(std::move(request),current_cancellation_token(),std::move(cancelled));}
+Value HttpTransport::call_impl(Value request,const AxCancellationToken* cancellation,std::function<bool()> cancelled) {
+  if(cancelled&&cancelled())throw AxAIServiceAbortedError("MCP invocation cancelled");
   if (cancellation) cancellation->throw_if_cancelled();
 #if !defined(AXLLM_ENABLE_CURL)
   (void)request;
@@ -628,7 +656,7 @@ Value HttpTransport::call(Value request, const AxCancellationToken* cancellation
     curl_easy_setopt(curl, CURLOPT_POSTFIELDSIZE, static_cast<long>(payload.size()));
   }
 
-  CURLcode rc = curl_easy_perform(curl);
+  CURLcode rc = ax_curl_perform(curl,[&]{return (cancellation&&cancellation->is_cancelled())||(cancelled&&cancelled());});
   long status = 0;
   curl_easy_getinfo(curl, CURLINFO_RESPONSE_CODE, &status);
   // Capture the response Content-Type before cleanup so callers (e.g. the MCP
@@ -640,6 +668,7 @@ Value HttpTransport::call(Value request, const AxCancellationToken* cancellation
   curl_easy_cleanup(curl);
 
   if (cancellation && cancellation->is_cancelled()) throw AxAIServiceAbortedError(cancellation->reason());
+  if(cancelled&&cancelled())throw AxAIServiceAbortedError("MCP invocation cancelled");
 
   if (rc != CURLE_OK) {
     std::string message = error_buffer[0] ? error_buffer : curl_easy_strerror(rc);
@@ -712,6 +741,17 @@ Value Core::div(Value left, Value right) {
   return Value(num(left) / (denom == 0.0 ? 1.0 : denom));
 }
 Value Core::math_abs(Value value) { return Value(std::abs(num(value))); }
+Value Core::string_utf16_units(Value value) {
+  Array units;const auto text=str(value);size_t index=0;
+  while(index<text.size()) {
+    unsigned int point=static_cast<unsigned char>(text[index++]);int trailing=0;
+    if(point>=0xf0){point&=7;trailing=3;}else if(point>=0xe0){point&=15;trailing=2;}else if(point>=0xc0){point&=31;trailing=1;}
+    while(trailing-->0&&index<text.size())point=(point<<6)|(static_cast<unsigned char>(text[index++])&63);
+    if(point>0xffff){point-=0x10000;units.emplace_back(static_cast<double>(0xd800+(point>>10)));units.emplace_back(static_cast<double>(0xdc00+(point&1023)));}
+    else units.emplace_back(static_cast<double>(point));
+  }
+  return Value(units);
+}
 Value Core::string_codepoint_length(Value value) { size_t count = 0; for (unsigned char byte : str(value)) if ((byte & 0xc0) != 0x80) ++count; return Value(static_cast<double>(count)); }
 Value Core::math_is_finite(Value value) { return Value(std::isfinite(num(value))); }
 Value Core::math_floor(Value value) { return Value(std::floor(num(value))); }
@@ -742,7 +782,7 @@ Value Core::contains(Value container, Value item) {
 }
 Value Core::len(Value value) {
   if (value.is_string()) return Value(static_cast<double>(str(value).size()));
-  if (value.is_array()) return Value(static_cast<double>(array_ref(value).size()));
+  if (value.is_array()) return Value(static_cast<double>(std::get<std::shared_ptr<Array>>(value.data)->size()));
   if (value.is_object()) return Value(static_cast<double>(entries(value).size()));
   return Value(0);
 }
@@ -758,7 +798,7 @@ Value Core::get(Value target, Value key, Value default_value) {
   if (target.is_object()) return get_key(target, key_string(key), default_value);
   if (target.is_array() && key.is_number()) {
     int idx = static_cast<int>(num(key));
-    const auto& arr = array_ref(target);
+    const auto& arr = *std::get<std::shared_ptr<Array>>(target.data);
     return idx >= 0 && static_cast<size_t>(idx) < arr.size() ? arr[idx] : default_value;
   }
   return default_value;
@@ -767,9 +807,12 @@ void Core::set(Value& target, Value key, Value value) {
   std::string k = key_string(key);
   Object& obj = object_mut(target);
   if (obj.count(k) == 0) {
-    Array order = array_ref(obj["__order"]);
-    order.emplace_back(k);
-    obj["__order"] = order;
+    // Copied maps retain independent ordering; a unique list can grow in place.
+    Value& order = obj["__order"];
+    if (auto shared = std::get_if<std::shared_ptr<Array>>(&order.data); shared && !shared->unique()) {
+      order = Value(**shared);
+    }
+    array_mut(order).emplace_back(k);
   }
   obj[k] = std::move(value);
 }
@@ -1328,13 +1371,16 @@ Value Core::retry_sleep(Value attempt, Value, Value) {
   }
   return Value();
 }
-Value Core::tool_invoke(Value fn, Value params) {
+Value Core::tool_invoke(Value fn, Value params) {return tool_invoke(std::move(fn),std::move(params),AxToolContext{});}
+Value Core::tool_invoke(Value fn,Value params,const AxToolContext& context) {
+  if(context.is_cancelled())throw AxAIServiceAbortedError("Tool invocation cancelled");
   Value args = get_key(fn, "args", Value::array());
   if (truthy(args)) validate_fields(args, params, "tool." + str(get_key(fn, "name")) + ".args");
   std::string id = str(get_key(fn, "__tool_id"));
-  auto handler = registered_tool(id).first;
+  auto handlers = registered_tool(id);
   Value result = invoke_runtime_tool(str(get_key(fn, "name")), [&]() {
-    return handler(params.is_null() ? Value::object() : params);
+    auto values=params.is_null()?Value::object():params;
+    return handlers.second?handlers.second(values,context):handlers.first(values);
   });
   Value returns = get_key(fn, "returns", Value::array());
   if (truthy(returns) && result.is_object()) validate_fields(returns, result, "tool." + str(get_key(fn, "name")) + ".return");
@@ -1369,6 +1415,12 @@ Value Core::agent_stage_forward(Value stage, Value client, Value values, Value o
   AIClient* registered = registered_client(client_id);
   if (registered == nullptr) {
     throw AxError("runtime", "client does not implement AIClient");
+  }
+  if (dynamic_cast<AxAgent*>(stage_ptr) && Core::truthy(Core::map_contains(options,"mcpInheritanceFromParent"))) {
+    auto parent=detail::MCPRunScope::current();
+    auto child=parent ? parent->shared_derived(Core::get(options,"mcpInheritanceFromParent")) : nullptr;
+    detail::MCPRunScope scope(std::move(child));
+    return stage_ptr->forward(*registered,values,options);
   }
   return stage_ptr->forward(*registered, values, options);
 }
@@ -1562,7 +1614,8 @@ Value Core::agent_callable_invoke(Value state, Value request, Value options_arg)
   std::string qualified = str(get_key(request, "qualified_name", get_key(request, "name", Value(""))));
   std::string name = str(get_key(request, "name", Value("")));
   Value implementation=_agent_callable_implementation(state,qualified);
-  if(!get_key(implementation,"__tool_id",Value()).is_null())return object({{"status","ok"},{"value",tool_invoke(implementation,get_key(request,"args",Value::object()))}});
+  AxToolContext context;context.call_id=str(get_key(request,"call_id",""));context.cancellation_requested=agent_cancellation_check(options_arg);
+  if(!get_key(implementation,"__tool_id",Value()).is_null())return object({{"status","ok"},{"value",tool_invoke(implementation,get_key(request,"args",Value::object()),context)}});
   Value scripted = get_key(options, "callable_results", get_key(options, "callableResults", Value::object()));
   if (scripted.is_object()) {
     Value result = get_key(scripted, qualified, Value());
@@ -6044,7 +6097,7 @@ AxAgent::AxAgent(Value signature, Value options, AxRuntimeHooks hooks)
 }
 
 AxAgent& AxAgent::set_signature(Value signature) {
-  Value options = Core::get(state_, "options", Value::object());
+  Value options = options_;
   state_ = Core::_agent_factory(std::move(signature), options);
   Value actor_validation_retries = Core::get(options, "validation_retries", Core::get(options, "validationRetries", 1));
   distiller_ = std::make_unique<AxGen>(s(str(Core::get(state_, "distiller_signature"))), object({{"validation_retries", actor_validation_retries}, {"id", "ctx.root.actor"}, {"instruction", Core::get(state_, "distiller_description", "")}}));
@@ -6080,6 +6133,17 @@ Value AxAgent::forward(AIClient& client, Value values, Value options, const AxRu
   AxRuntimeHooks program_hooks = *std::atomic_load(&runtime_hooks_);
   RuntimeHookScope scope(hooks, program_hooks, "ax_gen_agent_forward", "ax_gen_agent",
                          object({{"ax.program.id", "root.agent"}, {"ax.program.type", "AxAgent"}}));
+  auto call_context=execution_context_ ? execution_context_ : detail::MCPRunScope::current();
+  detail::MCPRunScope context_scope(call_context);
+  if(call_context || Core::truthy(Core::get(state_,"mcp_run_context_active",false))) {
+    Value modules=call_context ? call_context->agent_modules() : Value::array();
+    Core::_agent_apply_run_context(state_,options_,options,modules);
+    if(Core::truthy(Core::get(state_,"runtime_enabled",false))) {
+      distiller_->set_instruction(Core::get(state_,"distiller_description"));
+      executor_->set_instruction(Core::get(state_,"executor_description"));
+      responder_->set_instruction(Core::get(state_,"responder_description"));
+    }
+  }
   ensure_configured_playbook(client);
   // Wire the built-in llmQuery primitive onto the runtime carried in agent
   // options (the same runtime the actor loop will create sessions on),
@@ -6178,7 +6242,7 @@ AxAgent& AxAgent::add_tool_module(std::string name, const std::vector<Tool>& too
   for (const auto& tool : tools) {
     functions.push_back(tool.value());
   }
-  Value options = Core::get(state_, "options", Value::object());
+  Value options = options_;
   options = Core::_agent_append_runtime_modules(options, Value(Array{object({{"name", std::move(name)}, {"functions", Value(functions)}})}));
   options_ = options;
   state_ = Core::_agent_factory(Core::get(state_, "signature"), options);

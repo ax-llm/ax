@@ -20,6 +20,14 @@
 #endif
 
 namespace axllm {
+static std::function<bool()> agent_cancellation_check(Value options);
+namespace detail {
+static thread_local std::shared_ptr<AgentExecutionContext> active_mcp_context;
+MCPRunScope::MCPRunScope(std::shared_ptr<AgentExecutionContext> context) : previous_(std::move(active_mcp_context)) { active_mcp_context = std::move(context); }
+MCPRunScope::~MCPRunScope() { active_mcp_context = std::move(previous_); }
+std::shared_ptr<AgentExecutionContext> MCPRunScope::current() { return active_mcp_context; }
+}
+
 
 thread_local const AxCancellationToken* ax_current_cancellation_token = nullptr;
 
@@ -246,7 +254,8 @@ static std::string key_string(const Value& key) {
 }
 
 static Value get_key(const Value& object, const std::string& key, Value fallback = Value()) {
-  const auto& obj = object_ref(object);
+  if (!object.is_object()) return fallback;
+  const auto& obj = *std::get<std::shared_ptr<Object>>(object.data);
   auto it = obj.find(key);
   if (it != obj.end()) return it->second;
   static const std::map<std::string, std::string> aliases = {
@@ -526,11 +535,30 @@ void HttpTransport::stream_impl(Value request, AxTransportStreamHandler handler,
 #endif
 }
 
+#if defined(AXLLM_ENABLE_CURL)
+static CURLcode ax_curl_perform(CURL* curl,const std::function<bool()>& cancelled){
+  CURLM* multi=curl_multi_init();if(!multi)return CURLE_FAILED_INIT;
+  if(curl_multi_add_handle(multi,curl)!=CURLM_OK){curl_multi_cleanup(multi);return CURLE_FAILED_INIT;}
+  int running=0;CURLcode result=CURLE_OK;CURLMcode code=curl_multi_perform(multi,&running);
+  while(code==CURLM_OK&&running&&!cancelled()){
+    code=curl_multi_poll(multi,nullptr,0,20,nullptr);
+    if(code==CURLM_OK)code=curl_multi_perform(multi,&running);
+  }
+  if(cancelled())result=CURLE_ABORTED_BY_CALLBACK;
+  else if(code!=CURLM_OK)result=CURLE_RECV_ERROR;
+  else{int remaining=0;while(auto* message=curl_multi_info_read(multi,&remaining))if(message->msg==CURLMSG_DONE)result=message->data.result;}
+  curl_multi_remove_handle(multi,curl);curl_multi_cleanup(multi);return result;
+}
+#endif
+
 Value HttpTransport::call(Value request) {
   return call(std::move(request), current_cancellation_token());
 }
 
-Value HttpTransport::call(Value request, const AxCancellationToken* cancellation) {
+Value HttpTransport::call(Value request, const AxCancellationToken* cancellation) {return call_impl(std::move(request),cancellation,{});}
+Value HttpTransport::call_cancellable(Value request,std::function<bool()> cancelled){return call_impl(std::move(request),current_cancellation_token(),std::move(cancelled));}
+Value HttpTransport::call_impl(Value request,const AxCancellationToken* cancellation,std::function<bool()> cancelled) {
+  if(cancelled&&cancelled())throw AxAIServiceAbortedError("MCP invocation cancelled");
   if (cancellation) cancellation->throw_if_cancelled();
 #if !defined(AXLLM_ENABLE_CURL)
   (void)request;
@@ -628,7 +656,7 @@ Value HttpTransport::call(Value request, const AxCancellationToken* cancellation
     curl_easy_setopt(curl, CURLOPT_POSTFIELDSIZE, static_cast<long>(payload.size()));
   }
 
-  CURLcode rc = curl_easy_perform(curl);
+  CURLcode rc = ax_curl_perform(curl,[&]{return (cancellation&&cancellation->is_cancelled())||(cancelled&&cancelled());});
   long status = 0;
   curl_easy_getinfo(curl, CURLINFO_RESPONSE_CODE, &status);
   // Capture the response Content-Type before cleanup so callers (e.g. the MCP
@@ -640,6 +668,7 @@ Value HttpTransport::call(Value request, const AxCancellationToken* cancellation
   curl_easy_cleanup(curl);
 
   if (cancellation && cancellation->is_cancelled()) throw AxAIServiceAbortedError(cancellation->reason());
+  if(cancelled&&cancelled())throw AxAIServiceAbortedError("MCP invocation cancelled");
 
   if (rc != CURLE_OK) {
     std::string message = error_buffer[0] ? error_buffer : curl_easy_strerror(rc);
@@ -712,6 +741,17 @@ Value Core::div(Value left, Value right) {
   return Value(num(left) / (denom == 0.0 ? 1.0 : denom));
 }
 Value Core::math_abs(Value value) { return Value(std::abs(num(value))); }
+Value Core::string_utf16_units(Value value) {
+  Array units;const auto text=str(value);size_t index=0;
+  while(index<text.size()) {
+    unsigned int point=static_cast<unsigned char>(text[index++]);int trailing=0;
+    if(point>=0xf0){point&=7;trailing=3;}else if(point>=0xe0){point&=15;trailing=2;}else if(point>=0xc0){point&=31;trailing=1;}
+    while(trailing-->0&&index<text.size())point=(point<<6)|(static_cast<unsigned char>(text[index++])&63);
+    if(point>0xffff){point-=0x10000;units.emplace_back(static_cast<double>(0xd800+(point>>10)));units.emplace_back(static_cast<double>(0xdc00+(point&1023)));}
+    else units.emplace_back(static_cast<double>(point));
+  }
+  return Value(units);
+}
 Value Core::string_codepoint_length(Value value) { size_t count = 0; for (unsigned char byte : str(value)) if ((byte & 0xc0) != 0x80) ++count; return Value(static_cast<double>(count)); }
 Value Core::math_is_finite(Value value) { return Value(std::isfinite(num(value))); }
 Value Core::math_floor(Value value) { return Value(std::floor(num(value))); }
@@ -742,7 +782,7 @@ Value Core::contains(Value container, Value item) {
 }
 Value Core::len(Value value) {
   if (value.is_string()) return Value(static_cast<double>(str(value).size()));
-  if (value.is_array()) return Value(static_cast<double>(array_ref(value).size()));
+  if (value.is_array()) return Value(static_cast<double>(std::get<std::shared_ptr<Array>>(value.data)->size()));
   if (value.is_object()) return Value(static_cast<double>(entries(value).size()));
   return Value(0);
 }
@@ -758,7 +798,7 @@ Value Core::get(Value target, Value key, Value default_value) {
   if (target.is_object()) return get_key(target, key_string(key), default_value);
   if (target.is_array() && key.is_number()) {
     int idx = static_cast<int>(num(key));
-    const auto& arr = array_ref(target);
+    const auto& arr = *std::get<std::shared_ptr<Array>>(target.data);
     return idx >= 0 && static_cast<size_t>(idx) < arr.size() ? arr[idx] : default_value;
   }
   return default_value;
@@ -767,9 +807,12 @@ void Core::set(Value& target, Value key, Value value) {
   std::string k = key_string(key);
   Object& obj = object_mut(target);
   if (obj.count(k) == 0) {
-    Array order = array_ref(obj["__order"]);
-    order.emplace_back(k);
-    obj["__order"] = order;
+    // Copied maps retain independent ordering; a unique list can grow in place.
+    Value& order = obj["__order"];
+    if (auto shared = std::get_if<std::shared_ptr<Array>>(&order.data); shared && !shared->unique()) {
+      order = Value(**shared);
+    }
+    array_mut(order).emplace_back(k);
   }
   obj[k] = std::move(value);
 }
@@ -1328,13 +1371,16 @@ Value Core::retry_sleep(Value attempt, Value, Value) {
   }
   return Value();
 }
-Value Core::tool_invoke(Value fn, Value params) {
+Value Core::tool_invoke(Value fn, Value params) {return tool_invoke(std::move(fn),std::move(params),AxToolContext{});}
+Value Core::tool_invoke(Value fn,Value params,const AxToolContext& context) {
+  if(context.is_cancelled())throw AxAIServiceAbortedError("Tool invocation cancelled");
   Value args = get_key(fn, "args", Value::array());
   if (truthy(args)) validate_fields(args, params, "tool." + str(get_key(fn, "name")) + ".args");
   std::string id = str(get_key(fn, "__tool_id"));
-  auto handler = registered_tool(id).first;
+  auto handlers = registered_tool(id);
   Value result = invoke_runtime_tool(str(get_key(fn, "name")), [&]() {
-    return handler(params.is_null() ? Value::object() : params);
+    auto values=params.is_null()?Value::object():params;
+    return handlers.second?handlers.second(values,context):handlers.first(values);
   });
   Value returns = get_key(fn, "returns", Value::array());
   if (truthy(returns) && result.is_object()) validate_fields(returns, result, "tool." + str(get_key(fn, "name")) + ".return");
@@ -1369,6 +1415,12 @@ Value Core::agent_stage_forward(Value stage, Value client, Value values, Value o
   AIClient* registered = registered_client(client_id);
   if (registered == nullptr) {
     throw AxError("runtime", "client does not implement AIClient");
+  }
+  if (dynamic_cast<AxAgent*>(stage_ptr) && Core::truthy(Core::map_contains(options,"mcpInheritanceFromParent"))) {
+    auto parent=detail::MCPRunScope::current();
+    auto child=parent ? parent->shared_derived(Core::get(options,"mcpInheritanceFromParent")) : nullptr;
+    detail::MCPRunScope scope(std::move(child));
+    return stage_ptr->forward(*registered,values,options);
   }
   return stage_ptr->forward(*registered, values, options);
 }
@@ -1562,7 +1614,8 @@ Value Core::agent_callable_invoke(Value state, Value request, Value options_arg)
   std::string qualified = str(get_key(request, "qualified_name", get_key(request, "name", Value(""))));
   std::string name = str(get_key(request, "name", Value("")));
   Value implementation=_agent_callable_implementation(state,qualified);
-  if(!get_key(implementation,"__tool_id",Value()).is_null())return object({{"status","ok"},{"value",tool_invoke(implementation,get_key(request,"args",Value::object()))}});
+  AxToolContext context;context.call_id=str(get_key(request,"call_id",""));context.cancellation_requested=agent_cancellation_check(options_arg);
+  if(!get_key(implementation,"__tool_id",Value()).is_null())return object({{"status","ok"},{"value",tool_invoke(implementation,get_key(request,"args",Value::object()),context)}});
   Value scripted = get_key(options, "callable_results", get_key(options, "callableResults", Value::object()));
   if (scripted.is_object()) {
     Value result = get_key(scripted, qualified, Value());
@@ -14167,6 +14220,23 @@ Value Core::_select_structured_output_rung(Value signature, Value features, Valu
   return selection;
 }
 
+Value Core::_regex_peek(Value s) {
+  axir_coverage_mark("_regex_peek");
+  Value t1 = Core::get(s, Value("p"), Value());
+  Value t2 = Core::get(s, Value("u"), Value());
+  Value t3 = Core::len(t2);
+  Value t4 = Core::gte(t1, t3);
+  if (Core::truthy(t4)) {
+    Value t5 = Core::mul(Value(-1), Value(1));
+    Value t6 = Core::math_floor(t5);
+    return t6;
+  }
+  Value t7 = Core::get(s, Value("u"), Value());
+  Value t8 = Core::get(s, Value("p"), Value());
+  Value t9 = Core::get(t7, t8, Value());
+  return t9;
+}
+
 Value Core::chat_session_validate_required_arguments(Value schema, Value arguments, Value path) {
   axir_coverage_mark("chat_session_validate_required_arguments");
   Value errors = Core::_chat_session_argument_errors(schema, schema, arguments, path, Value(0));
@@ -14220,6 +14290,17 @@ Value Core::_execute_tool_call(Value functions, Value call) {
   Value message = Core::string_format(Value("Function not found: {}. Available functions: {}. Call one of these exact function names."), name, available);
   Value error = Core::validation_error(message);
   Core::raise_error(error);
+}
+
+Value Core::_regex_take(Value s) {
+  axir_coverage_mark("_regex_take");
+  Value c = Core::none();
+  Value t1 = Core::_regex_peek(s);
+  c = t1;
+  Value t2 = Core::get(s, Value("p"), Value());
+  Value t3 = Core::add(t2, Value(1));
+  Core::set(s, Value("p"), t3);
+  return c;
 }
 
 Value Core::stream_extraction_route(Value has_complex_fields) {
@@ -14331,6 +14412,17 @@ Value Core::_chat_session_argument_equal(Value left, Value right, Value depth) {
   }
   Value same = Core::eq(left, right);
   return same;
+}
+
+Value Core::_regex_digit(Value c) {
+  axir_coverage_mark("_regex_digit");
+  Value t1 = Core::gte(c, Value(48));
+  Value t2 = t1;
+  if (Core::truthy(t2)) {
+    Value t3 = Core::lte(c, Value(57));
+    t2 = t3;
+  }
+  return t2;
 }
 
 Value Core::stream_structured_delta(Value fields, Value parsed_values, Value previous_values, Value partial_array_incomplete) {
@@ -14517,6 +14609,59 @@ Value Core::_validate_optimization_component_value(Value component, Value value)
     }
   }
   return Value(true);
+}
+
+Value Core::_regex_hexdigit(Value c) {
+  axir_coverage_mark("_regex_hexdigit");
+  Value t1 = Core::_regex_digit(c);
+  if (Core::truthy(t1)) {
+    Value t2 = Core::mul(Value(-1), Value(48));
+    Value t3 = Core::add(c, t2);
+    Value t4 = Core::math_floor(t3);
+    return t4;
+  }
+  Value t5 = Core::gte(c, Value(65));
+  Value t6 = t5;
+  if (Core::truthy(t6)) {
+    Value t7 = Core::lte(c, Value(70));
+    t6 = t7;
+  }
+  if (Core::truthy(t6)) {
+    Value t8 = Core::mul(Value(-1), Value(55));
+    Value t9 = Core::add(c, t8);
+    Value t10 = Core::math_floor(t9);
+    return t10;
+  }
+  Value t11 = Core::gte(c, Value(97));
+  Value t12 = t11;
+  if (Core::truthy(t12)) {
+    Value t13 = Core::lte(c, Value(102));
+    t12 = t13;
+  }
+  if (Core::truthy(t12)) {
+    Value t14 = Core::mul(Value(-1), Value(87));
+    Value t15 = Core::add(c, t14);
+    Value t16 = Core::math_floor(t15);
+    return t16;
+  }
+  Value t17 = Core::mul(Value(-1), Value(1));
+  Value t18 = Core::math_floor(t17);
+  return t18;
+}
+
+Value Core::_regex_node(Value k) {
+  axir_coverage_mark("_regex_node");
+  Value t1 = Value::object();
+  Core::set(t1, Value("k"), k);
+  return t1;
+}
+
+Value Core::_regex_literal(Value c) {
+  axir_coverage_mark("_regex_literal");
+  Value t1 = Value::object();
+  Core::set(t1, Value("k"), Value("char"));
+  Core::set(t1, Value("c"), c);
+  return t1;
 }
 
 Value Core::_validate_optimization_component_map(Value components, Value component_map) {
@@ -14758,7 +14903,7 @@ Value Core::_chat_session_argument_errors(Value root, Value schema, Value argume
     }
     Value pattern = Core::get(schema, Value("pattern"), Value(""));
     if (Core::truthy(pattern)) {
-      Value matches = Core::regex_match(pattern, arguments);
+      Value matches = Core::_regex_test(pattern, arguments);
       if (Core::truthy(matches)) {
         // empty
       }
@@ -14861,6 +15006,129 @@ Value Core::_chat_session_argument_errors(Value root, Value schema, Value argume
     }
   }
   return errors;
+}
+
+Value Core::_regex_scan_groups(Value u) {
+  axir_coverage_mark("_regex_scan_groups");
+  Value c = Core::none();
+  Value count = Core::none();
+  Value i = Core::none();
+  Value ids = Core::none();
+  Value inside = Core::none();
+  Value name = Core::none();
+  Value named = Core::none();
+  Value names = Core::none();
+  Value parser = Core::none();
+  Value special = Core::none();
+  count = Value(0);
+  i = Value(0);
+  inside = Value(false);
+  Value t1 = Value::object();
+  names = t1;
+  while (true) {
+    Value t2 = Core::len(u);
+    Value t3 = Core::lt(i, t2);
+    Value t4 = Core::not_(t3);
+    if (Core::truthy(t4)) {
+      break;
+    }
+    Value t5 = Core::get(u, i, Value());
+    c = t5;
+    Value t6 = Core::add(i, Value(1));
+    i = t6;
+    Value t7 = Core::eq(c, Value(92));
+    if (Core::truthy(t7)) {
+      Value t8 = Core::add(i, Value(1));
+      i = t8;
+      continue;
+    }
+    Value t9 = Core::eq(c, Value(91));
+    if (Core::truthy(t9)) {
+      inside = Value(true);
+    }
+    Value t10 = Core::eq(c, Value(93));
+    if (Core::truthy(t10)) {
+      inside = Value(false);
+    }
+    Value t11 = Core::eq(c, Value(40));
+    Value t12 = t11;
+    if (Core::truthy(t12)) {
+      Value t13 = Core::not_(inside);
+      t12 = t13;
+    }
+    if (Core::truthy(t12)) {
+      Value t14 = Core::len(u);
+      Value t15 = Core::lt(i, t14);
+      Value t16 = t15;
+      if (Core::truthy(t16)) {
+        Value t17 = Core::get(u, i, Value());
+        Value t18 = Core::eq(t17, Value(63));
+        t16 = t18;
+      }
+      special = t16;
+      Value t19 = special;
+      if (Core::truthy(t19)) {
+        Value t20 = Core::add(i, Value(2));
+        Value t21 = Core::len(u);
+        Value t22 = Core::lt(t20, t21);
+        t19 = t22;
+      }
+      if (Core::truthy(t19)) {
+        Value t23 = Core::add(i, Value(1));
+        Value t24 = Core::get(u, t23, Value());
+        Value t25 = Core::eq(t24, Value(60));
+        t19 = t25;
+      }
+      if (Core::truthy(t19)) {
+        Value t26 = Core::add(i, Value(2));
+        Value t27 = Core::get(u, t26, Value());
+        Value t28 = Core::ne(t27, Value(61));
+        t19 = t28;
+      }
+      if (Core::truthy(t19)) {
+        Value t29 = Core::add(i, Value(2));
+        Value t30 = Core::get(u, t29, Value());
+        Value t31 = Core::ne(t30, Value(33));
+        t19 = t31;
+      }
+      named = t19;
+      Value t32 = Core::not_(special);
+      Value t33 = t32;
+      Value t34 = Core::not_(t33);
+      if (Core::truthy(t34)) {
+        t33 = named;
+      }
+      if (Core::truthy(t33)) {
+        Value t35 = Core::add(count, Value(1));
+        count = t35;
+        if (Core::truthy(named)) {
+          Value t36 = Value::object();
+          Core::set(t36, Value("u"), u);
+          Value t37 = Core::add(i, Value(2));
+          Core::set(t36, Value("p"), t37);
+          parser = t36;
+          Value t38 = Core::_regex_read_name(parser);
+          name = t38;
+          Value t39 = Core::get(parser, Value("p"), Value());
+          i = t39;
+          Value t40 = Core::get(names, name, Value());
+          ids = t40;
+          Value t41 = Core::none();
+          Value t42 = Core::eq(ids, t41);
+          if (Core::truthy(t42)) {
+            Value t43 = Value::array();
+            ids = t43;
+          }
+          Core::append(ids, count);
+          Core::set(names, name, ids);
+        }
+      }
+    }
+  }
+  Value t44 = Value::object();
+  Core::set(t44, Value("count"), count);
+  Core::set(t44, Value("names"), names);
+  return t44;
 }
 
 Value Core::_structured_output_scalar_placeholder(Value typ) {
@@ -15077,6 +15345,339 @@ Value Core::_serialize_optimized_artifact(Value artifact) {
   axir_coverage_mark("_serialize_optimized_artifact");
   Value text = Core::json_stringify(artifact);
   return text;
+}
+
+Value Core::_regex_escaped(Value s, Value inside) {
+  axir_coverage_mark("_regex_escaped");
+  Value c = Core::none();
+  Value d = Core::none();
+  Value i = Core::none();
+  Value limit = Core::none();
+  Value n = Core::none();
+  Value name = Core::none();
+  Value start = Core::none();
+  Value value = Core::none();
+  Value t1 = Core::_regex_take(s);
+  c = t1;
+  Value t2 = Core::lt(c, Value(0));
+  if (Core::truthy(t2)) {
+    Value t3 = Core::string_format(Value("Invalid regular expression: {}"), Value("Trailing escape"));
+    Value t4 = Core::validation_error(t3);
+    Core::raise_error(t4);
+  }
+  Value t5 = Core::eq(c, Value(100));
+  Value t6 = t5;
+  Value t7 = Core::not_(t6);
+  if (Core::truthy(t7)) {
+    Value t8 = Core::eq(c, Value(68));
+    t6 = t8;
+  }
+  Value t9 = Core::not_(t6);
+  if (Core::truthy(t9)) {
+    Value t10 = Core::eq(c, Value(119));
+    t6 = t10;
+  }
+  Value t11 = Core::not_(t6);
+  if (Core::truthy(t11)) {
+    Value t12 = Core::eq(c, Value(87));
+    t6 = t12;
+  }
+  Value t13 = Core::not_(t6);
+  if (Core::truthy(t13)) {
+    Value t14 = Core::eq(c, Value(115));
+    t6 = t14;
+  }
+  Value t15 = Core::not_(t6);
+  if (Core::truthy(t15)) {
+    Value t16 = Core::eq(c, Value(83));
+    t6 = t16;
+  }
+  if (Core::truthy(t6)) {
+    Value t17 = Value::object();
+    Core::set(t17, Value("k"), Value("class_escape"));
+    Core::set(t17, Value("c"), c);
+    return t17;
+  }
+  Value t18 = Core::eq(c, Value(98));
+  if (Core::truthy(t18)) {
+    if (Core::truthy(inside)) {
+      Value t19 = Core::_regex_literal(Value(8));
+      return t19;
+    }
+    Value t20 = Value::object();
+    Core::set(t20, Value("k"), Value("boundary"));
+    Core::set(t20, Value("negative"), Value(false));
+    return t20;
+  }
+  Value t21 = Core::eq(c, Value(66));
+  Value t22 = t21;
+  if (Core::truthy(t22)) {
+    Value t23 = Core::not_(inside);
+    t22 = t23;
+  }
+  if (Core::truthy(t22)) {
+    Value t24 = Value::object();
+    Core::set(t24, Value("k"), Value("boundary"));
+    Core::set(t24, Value("negative"), Value(true));
+    return t24;
+  }
+  Value t25 = Core::eq(c, Value(102));
+  if (Core::truthy(t25)) {
+    Value t26 = Core::_regex_literal(Value(12));
+    return t26;
+  }
+  Value t27 = Core::eq(c, Value(110));
+  if (Core::truthy(t27)) {
+    Value t28 = Core::_regex_literal(Value(10));
+    return t28;
+  }
+  Value t29 = Core::eq(c, Value(114));
+  if (Core::truthy(t29)) {
+    Value t30 = Core::_regex_literal(Value(13));
+    return t30;
+  }
+  Value t31 = Core::eq(c, Value(116));
+  if (Core::truthy(t31)) {
+    Value t32 = Core::_regex_literal(Value(9));
+    return t32;
+  }
+  Value t33 = Core::eq(c, Value(118));
+  if (Core::truthy(t33)) {
+    Value t34 = Core::_regex_literal(Value(11));
+    return t34;
+  }
+  Value t35 = Core::eq(c, Value(120));
+  Value t36 = t35;
+  Value t37 = Core::not_(t36);
+  if (Core::truthy(t37)) {
+    Value t38 = Core::eq(c, Value(117));
+    t36 = t38;
+  }
+  if (Core::truthy(t36)) {
+    n = Value(2);
+    Value t39 = Core::eq(c, Value(117));
+    if (Core::truthy(t39)) {
+      n = Value(4);
+    }
+    Value t40 = Core::get(s, Value("p"), Value());
+    start = t40;
+    value = Value(0);
+    i = Value(0);
+    while (true) {
+      Value t41 = Core::lt(i, n);
+      Value t42 = t41;
+      if (Core::truthy(t42)) {
+        Value t43 = Core::_regex_peek(s);
+        Value t44 = Core::_regex_hexdigit(t43);
+        Value t45 = Core::gte(t44, Value(0));
+        t42 = t45;
+      }
+      Value t46 = Core::not_(t42);
+      if (Core::truthy(t46)) {
+        break;
+      }
+      Value t47 = Core::mul(value, Value(16));
+      Value t48 = Core::math_floor(t47);
+      Value t49 = Core::_regex_take(s);
+      Value t50 = Core::_regex_hexdigit(t49);
+      Value t51 = Core::add(t48, t50);
+      value = t51;
+      Value t52 = Core::add(i, Value(1));
+      i = t52;
+    }
+    Value t53 = Core::eq(i, n);
+    if (Core::truthy(t53)) {
+      Value t54 = Core::_regex_literal(value);
+      return t54;
+    }
+    Core::set(s, Value("p"), start);
+    Value t55 = Core::_regex_literal(c);
+    return t55;
+  }
+  Value t56 = Core::eq(c, Value(99));
+  if (Core::truthy(t56)) {
+    Value t57 = Core::_regex_peek(s);
+    d = t57;
+    Value t58 = Core::gte(d, Value(65));
+    Value t59 = t58;
+    if (Core::truthy(t59)) {
+      Value t60 = Core::lte(d, Value(90));
+      t59 = t60;
+    }
+    Value t61 = t59;
+    Value t62 = Core::not_(t61);
+    if (Core::truthy(t62)) {
+      Value t63 = Core::gte(d, Value(97));
+      Value t64 = t63;
+      if (Core::truthy(t64)) {
+        Value t65 = Core::lte(d, Value(122));
+        t64 = t65;
+      }
+      t61 = t64;
+    }
+    Value t66 = Core::not_(t61);
+    if (Core::truthy(t66)) {
+      Value t67 = inside;
+      if (Core::truthy(t67)) {
+        Value t68 = Core::_regex_digit(d);
+        Value t69 = t68;
+        Value t70 = Core::not_(t69);
+        if (Core::truthy(t70)) {
+          Value t71 = Core::eq(d, Value(95));
+          t69 = t71;
+        }
+        t67 = t69;
+      }
+      t61 = t67;
+    }
+    if (Core::truthy(t61)) {
+      Value t72 = Core::_regex_take(s);
+      Value t73 = Core::div(d, Value(32));
+      Value t74 = Core::math_floor(t73);
+      Value t75 = Core::mul(Value(32), t74);
+      Value t76 = Core::mul(Value(-1), t75);
+      Value t77 = Core::add(d, t76);
+      Value t78 = Core::math_floor(t77);
+      Value t79 = Core::_regex_literal(t78);
+      return t79;
+    }
+    Value t80 = Core::get(s, Value("p"), Value());
+    Value t81 = Core::mul(Value(-1), Value(1));
+    Value t82 = Core::add(t80, t81);
+    Value t83 = Core::math_floor(t82);
+    Core::set(s, Value("p"), t83);
+    Value t84 = Core::_regex_literal(Value(92));
+    return t84;
+  }
+  Value t85 = Core::_regex_digit(c);
+  if (Core::truthy(t85)) {
+    Value t86 = Core::get(s, Value("p"), Value());
+    start = t86;
+    Value t87 = Core::mul(Value(-1), Value(48));
+    Value t88 = Core::add(c, t87);
+    Value t89 = Core::math_floor(t88);
+    value = t89;
+    while (true) {
+      Value t90 = Core::_regex_peek(s);
+      Value t91 = Core::_regex_digit(t90);
+      Value t92 = Core::not_(t91);
+      if (Core::truthy(t92)) {
+        break;
+      }
+      Value t93 = Core::mul(value, Value(10));
+      Value t94 = Core::math_floor(t93);
+      Value t95 = Core::_regex_take(s);
+      Value t96 = Core::add(t94, t95);
+      Value t97 = Core::mul(Value(-1), Value(48));
+      Value t98 = Core::add(t96, t97);
+      Value t99 = Core::math_floor(t98);
+      value = t99;
+    }
+    Value t100 = Core::ne(c, Value(48));
+    Value t101 = t100;
+    if (Core::truthy(t101)) {
+      Value t102 = Core::not_(inside);
+      t101 = t102;
+    }
+    if (Core::truthy(t101)) {
+      Value t103 = Core::get(s, Value("total"), Value());
+      Value t104 = Core::lte(value, t103);
+      t101 = t104;
+    }
+    if (Core::truthy(t101)) {
+      Value t105 = Value::object();
+      Core::set(t105, Value("k"), Value("ref"));
+      Value t106 = Value::array();
+      Core::append(t106, value);
+      Core::set(t105, Value("ids"), t106);
+      return t105;
+    }
+    Core::set(s, Value("p"), start);
+    Value t107 = Core::lte(c, Value(55));
+    if (Core::truthy(t107)) {
+      Value t108 = Core::mul(Value(-1), Value(48));
+      Value t109 = Core::add(c, t108);
+      Value t110 = Core::math_floor(t109);
+      value = t110;
+      n = Value(1);
+      limit = Value(3);
+      Value t111 = Core::gt(c, Value(51));
+      if (Core::truthy(t111)) {
+        limit = Value(2);
+      }
+      while (true) {
+        Value t112 = Core::lt(n, limit);
+        Value t113 = t112;
+        if (Core::truthy(t113)) {
+          Value t114 = Core::_regex_peek(s);
+          Value t115 = Core::gte(t114, Value(48));
+          t113 = t115;
+        }
+        if (Core::truthy(t113)) {
+          Value t116 = Core::_regex_peek(s);
+          Value t117 = Core::lte(t116, Value(55));
+          t113 = t117;
+        }
+        Value t118 = Core::not_(t113);
+        if (Core::truthy(t118)) {
+          break;
+        }
+        Value t119 = Core::mul(value, Value(8));
+        Value t120 = Core::math_floor(t119);
+        Value t121 = Core::_regex_take(s);
+        Value t122 = Core::add(t120, t121);
+        Value t123 = Core::mul(Value(-1), Value(48));
+        Value t124 = Core::add(t122, t123);
+        Value t125 = Core::math_floor(t124);
+        value = t125;
+        Value t126 = Core::add(n, Value(1));
+        n = t126;
+      }
+      Value t127 = Core::_regex_literal(value);
+      return t127;
+    }
+    Value t128 = Core::_regex_literal(c);
+    return t128;
+  }
+  Value t129 = Core::eq(c, Value(107));
+  Value t130 = t129;
+  if (Core::truthy(t130)) {
+    Value t131 = Core::not_(inside);
+    t130 = t131;
+  }
+  if (Core::truthy(t130)) {
+    Value t132 = Core::get(s, Value("names"), Value());
+    Value t133 = Core::len(t132);
+    Value t134 = Core::gt(t133, Value(0));
+    t130 = t134;
+  }
+  if (Core::truthy(t130)) {
+    Value t135 = Core::_regex_take(s);
+    Value t136 = Core::ne(t135, Value(60));
+    if (Core::truthy(t136)) {
+      Value t137 = Core::string_format(Value("Invalid regular expression: {}"), Value("Invalid named backreference"));
+      Value t138 = Core::validation_error(t137);
+      Core::raise_error(t138);
+    }
+    Value t139 = Core::_regex_read_name(s);
+    name = t139;
+    Value t140 = Core::get(s, Value("names"), Value());
+    Value t141 = Core::map_contains(t140, name);
+    Value t142 = Core::not_(t141);
+    if (Core::truthy(t142)) {
+      Value t143 = Core::string_format(Value("Invalid regular expression: {}"), Value("Unknown named backreference"));
+      Value t144 = Core::validation_error(t143);
+      Core::raise_error(t144);
+    }
+    Value t145 = Value::object();
+    Core::set(t145, Value("k"), Value("ref"));
+    Value t146 = Core::get(s, Value("names"), Value());
+    Value t147 = Core::get(t146, name, Value());
+    Core::set(t145, Value("ids"), t147);
+    return t145;
+  }
+  Value t148 = Core::_regex_literal(c);
+  return t148;
 }
 
 Value Core::_append_structured_output_instruction(Value messages, Value output_fields, Value selection) {
@@ -15911,6 +16512,20 @@ Value Core::_filter_optimization_components(Value components, Value target) {
   return out;
 }
 
+Value Core::_regex_class_atom(Value s) {
+  axir_coverage_mark("_regex_class_atom");
+  Value c = Core::none();
+  Value t1 = Core::_regex_take(s);
+  c = t1;
+  Value t2 = Core::eq(c, Value(92));
+  if (Core::truthy(t2)) {
+    Value t3 = Core::_regex_escaped(s, Value(true));
+    return t3;
+  }
+  Value t4 = Core::_regex_literal(c);
+  return t4;
+}
+
 Value Core::chat_session_register_call(Value state, Value call, Value execution) {
   axir_coverage_mark("chat_session_register_call");
   Value terminal = Core::get(state, Value("terminal"), Value(false));
@@ -15934,6 +16549,104 @@ Value Core::chat_session_register_call(Value state, Value call, Value execution)
   Core::set(pending, id, record);
   Core::set(state, Value("pending"), pending);
   return Value(true);
+}
+
+Value Core::_regex_character_class(Value s) {
+  axir_coverage_mark("_regex_character_class");
+  Value first = Core::none();
+  Value last = Core::none();
+  Value negative = Core::none();
+  Value terms = Core::none();
+  negative = Value(false);
+  Value t1 = Value::array();
+  terms = t1;
+  Value t2 = Core::_regex_peek(s);
+  Value t3 = Core::eq(t2, Value(94));
+  if (Core::truthy(t3)) {
+    Value t4 = Core::_regex_take(s);
+    negative = Value(true);
+  }
+  while (true) {
+    Value t5 = Core::_regex_peek(s);
+    Value t6 = Core::ne(t5, Value(93));
+    Value t7 = Core::not_(t6);
+    if (Core::truthy(t7)) {
+      break;
+    }
+    Value t8 = Core::_regex_peek(s);
+    Value t9 = Core::lt(t8, Value(0));
+    if (Core::truthy(t9)) {
+      Value t10 = Core::string_format(Value("Invalid regular expression: {}"), Value("Unterminated character class"));
+      Value t11 = Core::validation_error(t10);
+      Core::raise_error(t11);
+    }
+    Value t12 = Core::_regex_class_atom(s);
+    first = t12;
+    Value t13 = Core::_regex_peek(s);
+    Value t14 = Core::eq(t13, Value(45));
+    Value t15 = t14;
+    if (Core::truthy(t15)) {
+      Value t16 = Core::get(s, Value("p"), Value());
+      Value t17 = Core::add(t16, Value(1));
+      Value t18 = Core::get(s, Value("u"), Value());
+      Value t19 = Core::len(t18);
+      Value t20 = Core::lt(t17, t19);
+      t15 = t20;
+    }
+    if (Core::truthy(t15)) {
+      Value t21 = Core::get(s, Value("u"), Value());
+      Value t22 = Core::get(s, Value("p"), Value());
+      Value t23 = Core::add(t22, Value(1));
+      Value t24 = Core::get(t21, t23, Value());
+      Value t25 = Core::ne(t24, Value(93));
+      t15 = t25;
+    }
+    if (Core::truthy(t15)) {
+      Value t26 = Core::_regex_take(s);
+      Value t27 = Core::_regex_class_atom(s);
+      last = t27;
+      Value t28 = Core::get(first, Value("k"), Value());
+      Value t29 = Core::eq(t28, Value("char"));
+      Value t30 = t29;
+      if (Core::truthy(t30)) {
+        Value t31 = Core::get(last, Value("k"), Value());
+        Value t32 = Core::eq(t31, Value("char"));
+        t30 = t32;
+      }
+      if (Core::truthy(t30)) {
+        Value t33 = Core::get(first, Value("c"), Value());
+        Value t34 = Core::get(last, Value("c"), Value());
+        Value t35 = Core::gt(t33, t34);
+        if (Core::truthy(t35)) {
+          Value t36 = Core::string_format(Value("Invalid regular expression: {}"), Value("Invalid character range"));
+          Value t37 = Core::validation_error(t36);
+          Core::raise_error(t37);
+        }
+        Value t38 = Value::object();
+        Core::set(t38, Value("k"), Value("range"));
+        Value t39 = Core::get(first, Value("c"), Value());
+        Core::set(t38, Value("lo"), t39);
+        Value t40 = Core::get(last, Value("c"), Value());
+        Core::set(t38, Value("hi"), t40);
+        Core::append(terms, t38);
+      }
+      if (!Core::truthy(t30)) {
+        Core::append(terms, first);
+        Value t41 = Core::_regex_literal(Value(45));
+        Core::append(terms, t41);
+        Core::append(terms, last);
+      }
+    }
+    if (!Core::truthy(t15)) {
+      Core::append(terms, first);
+    }
+  }
+  Value t42 = Core::_regex_take(s);
+  Value t43 = Value::object();
+  Core::set(t43, Value("k"), Value("class"));
+  Core::set(t43, Value("negative"), negative);
+  Core::set(t43, Value("terms"), terms);
+  return t43;
 }
 
 Value Core::chat_session_result(Value response, Value id) {
@@ -16044,6 +16757,175 @@ Value Core::chat_session_defer_final_call(Value state, Value call) {
     return registered;
   }
   return Value(false);
+}
+
+Value Core::_regex_atom(Value s) {
+  axir_coverage_mark("_regex_atom");
+  Value c = Core::none();
+  Value candidate = Core::none();
+  Value capture = Core::none();
+  Value child = Core::none();
+  Value direction = Core::none();
+  Value kind = Core::none();
+  Value mode = Core::none();
+  Value name = Core::none();
+  Value negative = Core::none();
+  Value t1 = Core::_regex_take(s);
+  c = t1;
+  Value t2 = Core::eq(c, Value(46));
+  if (Core::truthy(t2)) {
+    Value t3 = Core::_regex_node(Value("dot"));
+    return t3;
+  }
+  Value t4 = Core::eq(c, Value(94));
+  if (Core::truthy(t4)) {
+    Value t5 = Core::_regex_node(Value("start"));
+    return t5;
+  }
+  Value t6 = Core::eq(c, Value(36));
+  if (Core::truthy(t6)) {
+    Value t7 = Core::_regex_node(Value("end"));
+    return t7;
+  }
+  Value t8 = Core::eq(c, Value(92));
+  if (Core::truthy(t8)) {
+    Value t9 = Core::_regex_escaped(s, Value(false));
+    return t9;
+  }
+  Value t10 = Core::eq(c, Value(91));
+  if (Core::truthy(t10)) {
+    Value t11 = Core::_regex_character_class(s);
+    return t11;
+  }
+  Value t12 = Core::eq(c, Value(42));
+  Value t13 = t12;
+  Value t14 = Core::not_(t13);
+  if (Core::truthy(t14)) {
+    Value t15 = Core::eq(c, Value(43));
+    t13 = t15;
+  }
+  Value t16 = Core::not_(t13);
+  if (Core::truthy(t16)) {
+    Value t17 = Core::eq(c, Value(63));
+    t13 = t17;
+  }
+  if (Core::truthy(t13)) {
+    Value t18 = Core::string_format(Value("Invalid regular expression: {}"), Value("Nothing to repeat"));
+    Value t19 = Core::validation_error(t18);
+    Core::raise_error(t19);
+  }
+  Value t20 = Core::eq(c, Value(40));
+  if (Core::truthy(t20)) {
+    kind = Value("capture");
+    negative = Value(false);
+    direction = Value(1);
+    capture = Value(0);
+    Value t21 = Core::none();
+    name = t21;
+    Value t22 = Core::_regex_peek(s);
+    Value t23 = Core::eq(t22, Value(63));
+    if (Core::truthy(t23)) {
+      Value t24 = Core::_regex_take(s);
+      Value t25 = Core::_regex_take(s);
+      mode = t25;
+      Value t26 = Core::eq(mode, Value(58));
+      if (Core::truthy(t26)) {
+        kind = Value("group");
+      }
+      if (!Core::truthy(t26)) {
+        Value t27 = Core::eq(mode, Value(61));
+        Value t28 = t27;
+        Value t29 = Core::not_(t28);
+        if (Core::truthy(t29)) {
+          Value t30 = Core::eq(mode, Value(33));
+          t28 = t30;
+        }
+        if (Core::truthy(t28)) {
+          kind = Value("look");
+          Value t31 = Core::eq(mode, Value(33));
+          negative = t31;
+        }
+        if (!Core::truthy(t28)) {
+          Value t32 = Core::eq(mode, Value(60));
+          if (Core::truthy(t32)) {
+            Value t33 = Core::_regex_peek(s);
+            Value t34 = Core::eq(t33, Value(61));
+            Value t35 = t34;
+            Value t36 = Core::not_(t35);
+            if (Core::truthy(t36)) {
+              Value t37 = Core::_regex_peek(s);
+              Value t38 = Core::eq(t37, Value(33));
+              t35 = t38;
+            }
+            if (Core::truthy(t35)) {
+              kind = Value("look");
+              Value t39 = Core::_regex_take(s);
+              Value t40 = Core::eq(t39, Value(33));
+              negative = t40;
+              Value t41 = Core::mul(Value(-1), Value(1));
+              Value t42 = Core::math_floor(t41);
+              direction = t42;
+            }
+            if (!Core::truthy(t35)) {
+              Value t43 = Core::_regex_read_name(s);
+              name = t43;
+            }
+          }
+          if (!Core::truthy(t32)) {
+            Value t44 = Core::string_format(Value("Invalid regular expression: {}"), Value("Invalid group"));
+            Value t45 = Core::validation_error(t44);
+            Core::raise_error(t45);
+          }
+        }
+      }
+    }
+    Value t46 = Core::eq(kind, Value("capture"));
+    if (Core::truthy(t46)) {
+      Value t47 = Core::get(s, Value("next"), Value());
+      Value t48 = Core::add(t47, Value(1));
+      Core::set(s, Value("next"), t48);
+      Value t49 = Core::get(s, Value("next"), Value());
+      capture = t49;
+    }
+    Value t50 = Core::_regex_alternative(s);
+    child = t50;
+    Value t51 = Core::_regex_take(s);
+    Value t52 = Core::ne(t51, Value(41));
+    if (Core::truthy(t52)) {
+      Value t53 = Core::string_format(Value("Invalid regular expression: {}"), Value("Unterminated group"));
+      Value t54 = Core::validation_error(t53);
+      Core::raise_error(t54);
+    }
+    Value t55 = Value::object();
+    Core::set(t55, Value("k"), kind);
+    Core::set(t55, Value("child"), child);
+    Core::set(t55, Value("id"), capture);
+    Core::set(t55, Value("negative"), negative);
+    Core::set(t55, Value("direction"), direction);
+    Core::set(t55, Value("name"), name);
+    return t55;
+  }
+  Value t56 = Core::eq(c, Value(123));
+  if (Core::truthy(t56)) {
+    Value t57 = Core::get(s, Value("p"), Value());
+    Value t58 = Core::mul(Value(-1), Value(1));
+    Value t59 = Core::add(t57, t58);
+    Value t60 = Core::math_floor(t59);
+    Core::set(s, Value("p"), t60);
+    Value t61 = Core::_regex_node(Value("empty"));
+    Value t62 = Core::_regex_quantifier(s, t61);
+    candidate = t62;
+    Value t63 = Core::get(candidate, Value("k"), Value());
+    Value t64 = Core::eq(t63, Value("repeat"));
+    if (Core::truthy(t64)) {
+      Value t65 = Core::string_format(Value("Invalid regular expression: {}"), Value("Nothing to repeat"));
+      Value t66 = Core::validation_error(t65);
+      Core::raise_error(t66);
+    }
+    Value t67 = Core::_regex_take(s);
+  }
+  Value t68 = Core::_regex_literal(c);
+  return t68;
 }
 
 Value Core::chat_session_complete_call(Value state, Value id, Value result) {
@@ -16522,6 +17404,169 @@ Value Core::_parse_output_impl(Value content) {
   return output;
 }
 
+Value Core::_regex_quantifier(Value s, Value child) {
+  axir_coverage_mark("_regex_quantifier");
+  Value c = Core::none();
+  Value hi = Core::none();
+  Value lazy = Core::none();
+  Value lo = Core::none();
+  Value start = Core::none();
+  Value t1 = Core::get(s, Value("p"), Value());
+  start = t1;
+  Value t2 = Core::_regex_peek(s);
+  c = t2;
+  lo = Value(0);
+  Value t3 = Core::mul(Value(-1), Value(1));
+  Value t4 = Core::math_floor(t3);
+  hi = t4;
+  Value t5 = Core::eq(c, Value(42));
+  if (Core::truthy(t5)) {
+    Value t6 = Core::_regex_take(s);
+  }
+  if (!Core::truthy(t5)) {
+    Value t7 = Core::eq(c, Value(43));
+    if (Core::truthy(t7)) {
+      Value t8 = Core::_regex_take(s);
+      lo = Value(1);
+    }
+    if (!Core::truthy(t7)) {
+      Value t9 = Core::eq(c, Value(63));
+      if (Core::truthy(t9)) {
+        Value t10 = Core::_regex_take(s);
+        hi = Value(1);
+      }
+      if (!Core::truthy(t9)) {
+        Value t11 = Core::eq(c, Value(123));
+        if (Core::truthy(t11)) {
+          Value t12 = Core::_regex_take(s);
+          Value t13 = Core::_regex_peek(s);
+          Value t14 = Core::_regex_digit(t13);
+          Value t15 = Core::not_(t14);
+          if (Core::truthy(t15)) {
+            Core::set(s, Value("p"), start);
+            return child;
+          }
+          while (true) {
+            Value t16 = Core::_regex_peek(s);
+            Value t17 = Core::_regex_digit(t16);
+            Value t18 = Core::not_(t17);
+            if (Core::truthy(t18)) {
+              break;
+            }
+            Value t19 = Core::mul(lo, Value(10));
+            Value t20 = Core::math_floor(t19);
+            Value t21 = Core::_regex_take(s);
+            Value t22 = Core::add(t20, t21);
+            Value t23 = Core::mul(Value(-1), Value(48));
+            Value t24 = Core::add(t22, t23);
+            Value t25 = Core::math_floor(t24);
+            lo = t25;
+          }
+          hi = lo;
+          Value t26 = Core::_regex_peek(s);
+          Value t27 = Core::eq(t26, Value(44));
+          if (Core::truthy(t27)) {
+            Value t28 = Core::_regex_take(s);
+            Value t29 = Core::mul(Value(-1), Value(1));
+            Value t30 = Core::math_floor(t29);
+            hi = t30;
+            Value t31 = Core::_regex_peek(s);
+            Value t32 = Core::_regex_digit(t31);
+            if (Core::truthy(t32)) {
+              hi = Value(0);
+              while (true) {
+                Value t33 = Core::_regex_peek(s);
+                Value t34 = Core::_regex_digit(t33);
+                Value t35 = Core::not_(t34);
+                if (Core::truthy(t35)) {
+                  break;
+                }
+                Value t36 = Core::mul(hi, Value(10));
+                Value t37 = Core::math_floor(t36);
+                Value t38 = Core::_regex_take(s);
+                Value t39 = Core::add(t37, t38);
+                Value t40 = Core::mul(Value(-1), Value(48));
+                Value t41 = Core::add(t39, t40);
+                Value t42 = Core::math_floor(t41);
+                hi = t42;
+              }
+            }
+          }
+          Value t43 = Core::_regex_peek(s);
+          Value t44 = Core::ne(t43, Value(125));
+          if (Core::truthy(t44)) {
+            Core::set(s, Value("p"), start);
+            return child;
+          }
+          Value t45 = Core::_regex_take(s);
+          Value t46 = Core::gte(hi, Value(0));
+          Value t47 = t46;
+          if (Core::truthy(t47)) {
+            Value t48 = Core::lt(hi, lo);
+            t47 = t48;
+          }
+          if (Core::truthy(t47)) {
+            Value t49 = Core::string_format(Value("Invalid regular expression: {}"), Value("Invalid quantifier range"));
+            Value t50 = Core::validation_error(t49);
+            Core::raise_error(t50);
+          }
+        }
+        if (!Core::truthy(t11)) {
+          return child;
+        }
+      }
+    }
+  }
+  Value t51 = Core::get(child, Value("k"), Value());
+  Value t52 = Core::eq(t51, Value("start"));
+  Value t53 = t52;
+  Value t54 = Core::not_(t53);
+  if (Core::truthy(t54)) {
+    Value t55 = Core::get(child, Value("k"), Value());
+    Value t56 = Core::eq(t55, Value("end"));
+    t53 = t56;
+  }
+  Value t57 = Core::not_(t53);
+  if (Core::truthy(t57)) {
+    Value t58 = Core::get(child, Value("k"), Value());
+    Value t59 = Core::eq(t58, Value("boundary"));
+    t53 = t59;
+  }
+  Value t60 = Core::not_(t53);
+  if (Core::truthy(t60)) {
+    Value t61 = Core::get(child, Value("k"), Value());
+    Value t62 = Core::eq(t61, Value("look"));
+    Value t63 = t62;
+    if (Core::truthy(t63)) {
+      Value t64 = Core::get(child, Value("direction"), Value());
+      Value t65 = Core::mul(Value(-1), Value(1));
+      Value t66 = Core::math_floor(t65);
+      Value t67 = Core::eq(t64, t66);
+      t63 = t67;
+    }
+    t53 = t63;
+  }
+  if (Core::truthy(t53)) {
+    Value t68 = Core::string_format(Value("Invalid regular expression: {}"), Value("Invalid quantified assertion"));
+    Value t69 = Core::validation_error(t68);
+    Core::raise_error(t69);
+  }
+  lazy = Value(false);
+  Value t70 = Core::_regex_peek(s);
+  Value t71 = Core::eq(t70, Value(63));
+  if (Core::truthy(t71)) {
+    Value t72 = Core::_regex_take(s);
+    lazy = Value(true);
+  }
+  Value t73 = Value::object();
+  Core::set(t73, Value("k"), Value("repeat"));
+  Core::set(t73, Value("child"), child);
+  Core::set(t73, Value("lo"), lo);
+  Core::set(t73, Value("hi"), hi);
+  Core::set(t73, Value("lazy"), lazy);
+  return t73;
+}
+
 Value Core::_ace_estimate_token_count(Value text) {
   axir_coverage_mark("_ace_estimate_token_count");
   Value len = Core::len(text);
@@ -16940,6 +17985,54 @@ Value Core::_validate_exact_output_keys(Value fields, Value values, Value contex
   return Value();
 }
 
+Value Core::_regex_alternative(Value s) {
+  axir_coverage_mark("_regex_alternative");
+  Value choices = Core::none();
+  Value terms = Core::none();
+  Value t1 = Value::array();
+  choices = t1;
+  Value t2 = Value::array();
+  terms = t2;
+  while (true) {
+    Value t3 = Core::_regex_peek(s);
+    Value t4 = Core::gte(t3, Value(0));
+    Value t5 = t4;
+    if (Core::truthy(t5)) {
+      Value t6 = Core::_regex_peek(s);
+      Value t7 = Core::ne(t6, Value(41));
+      t5 = t7;
+    }
+    Value t8 = Core::not_(t5);
+    if (Core::truthy(t8)) {
+      break;
+    }
+    Value t9 = Core::_regex_peek(s);
+    Value t10 = Core::eq(t9, Value(124));
+    if (Core::truthy(t10)) {
+      Value t11 = Core::_regex_take(s);
+      Value t12 = Value::object();
+      Core::set(t12, Value("k"), Value("seq"));
+      Core::set(t12, Value("terms"), terms);
+      Core::append(choices, t12);
+      Value t13 = Value::array();
+      terms = t13;
+    }
+    if (!Core::truthy(t10)) {
+      Value t14 = Core::_regex_atom(s);
+      Value t15 = Core::_regex_quantifier(s, t14);
+      Core::append(terms, t15);
+    }
+  }
+  Value t16 = Value::object();
+  Core::set(t16, Value("k"), Value("seq"));
+  Core::set(t16, Value("terms"), terms);
+  Core::append(choices, t16);
+  Value t17 = Value::object();
+  Core::set(t17, Value("k"), Value("alt"));
+  Core::set(t17, Value("terms"), choices);
+  return t17;
+}
+
 Value Core::chat_session_mark_submitted(Value state, Value ids) {
   axir_coverage_mark("chat_session_mark_submitted");
   Value pending = Core::get(state, Value("pending"), Value());
@@ -17019,6 +18112,43 @@ Value Core::_ace_dedupe_playbook(Value playbook) {
   Core::set(playbook, Value("sections"), sections);
   Value recomputed = Core::_ace_recompute_playbook_stats(playbook);
   return recomputed;
+}
+
+Value Core::_regex_word(Value c) {
+  axir_coverage_mark("_regex_word");
+  Value t1 = Core::gte(c, Value(48));
+  Value t2 = t1;
+  if (Core::truthy(t2)) {
+    Value t3 = Core::lte(c, Value(57));
+    t2 = t3;
+  }
+  Value t4 = t2;
+  Value t5 = Core::not_(t4);
+  if (Core::truthy(t5)) {
+    Value t6 = Core::gte(c, Value(65));
+    Value t7 = t6;
+    if (Core::truthy(t7)) {
+      Value t8 = Core::lte(c, Value(90));
+      t7 = t8;
+    }
+    t4 = t7;
+  }
+  Value t9 = Core::not_(t4);
+  if (Core::truthy(t9)) {
+    Value t10 = Core::gte(c, Value(97));
+    Value t11 = t10;
+    if (Core::truthy(t11)) {
+      Value t12 = Core::lte(c, Value(122));
+      t11 = t12;
+    }
+    t4 = t11;
+  }
+  Value t13 = Core::not_(t4);
+  if (Core::truthy(t13)) {
+    Value t14 = Core::eq(c, Value(95));
+    t4 = t14;
+  }
+  return t4;
 }
 
 Value Core::_tool_spec_impl(Value fn) {
@@ -17287,6 +18417,88 @@ Value Core::chat_session_transition(Value state, Value event) {
   return action;
 }
 
+Value Core::_regex_space(Value c) {
+  axir_coverage_mark("_regex_space");
+  Value t1 = Core::eq(c, Value(9));
+  Value t2 = t1;
+  Value t3 = Core::not_(t2);
+  if (Core::truthy(t3)) {
+    Value t4 = Core::eq(c, Value(10));
+    t2 = t4;
+  }
+  Value t5 = Core::not_(t2);
+  if (Core::truthy(t5)) {
+    Value t6 = Core::eq(c, Value(11));
+    t2 = t6;
+  }
+  Value t7 = Core::not_(t2);
+  if (Core::truthy(t7)) {
+    Value t8 = Core::eq(c, Value(12));
+    t2 = t8;
+  }
+  Value t9 = Core::not_(t2);
+  if (Core::truthy(t9)) {
+    Value t10 = Core::eq(c, Value(13));
+    t2 = t10;
+  }
+  Value t11 = Core::not_(t2);
+  if (Core::truthy(t11)) {
+    Value t12 = Core::eq(c, Value(32));
+    t2 = t12;
+  }
+  Value t13 = Core::not_(t2);
+  if (Core::truthy(t13)) {
+    Value t14 = Core::eq(c, Value(160));
+    t2 = t14;
+  }
+  Value t15 = Core::not_(t2);
+  if (Core::truthy(t15)) {
+    Value t16 = Core::eq(c, Value(5760));
+    t2 = t16;
+  }
+  Value t17 = Core::not_(t2);
+  if (Core::truthy(t17)) {
+    Value t18 = Core::gte(c, Value(8192));
+    Value t19 = t18;
+    if (Core::truthy(t19)) {
+      Value t20 = Core::lte(c, Value(8202));
+      t19 = t20;
+    }
+    t2 = t19;
+  }
+  Value t21 = Core::not_(t2);
+  if (Core::truthy(t21)) {
+    Value t22 = Core::eq(c, Value(8232));
+    t2 = t22;
+  }
+  Value t23 = Core::not_(t2);
+  if (Core::truthy(t23)) {
+    Value t24 = Core::eq(c, Value(8233));
+    t2 = t24;
+  }
+  Value t25 = Core::not_(t2);
+  if (Core::truthy(t25)) {
+    Value t26 = Core::eq(c, Value(8239));
+    t2 = t26;
+  }
+  Value t27 = Core::not_(t2);
+  if (Core::truthy(t27)) {
+    Value t28 = Core::eq(c, Value(8287));
+    t2 = t28;
+  }
+  Value t29 = Core::not_(t2);
+  if (Core::truthy(t29)) {
+    Value t30 = Core::eq(c, Value(12288));
+    t2 = t30;
+  }
+  Value t31 = Core::not_(t2);
+  if (Core::truthy(t31)) {
+    Value t32 = Core::eq(c, Value(65279));
+    t2 = t32;
+  }
+  return t2;
+}
+
 Value Core::_response_function_calls_impl(Value response) {
   axir_coverage_mark("_response_function_calls_impl");
   Value empty = Value::array();
@@ -17528,6 +18740,127 @@ Value Core::_tool_result_message_impl(Value call, Value result) {
   return message;
 }
 
+Value Core::_regex_member(Value n, Value c) {
+  axir_coverage_mark("_regex_member");
+  Value e = Core::none();
+  Value k = Core::none();
+  Value term = Core::none();
+  Value yes = Core::none();
+  Value t1 = Core::get(n, Value("k"), Value());
+  k = t1;
+  Value t2 = Core::eq(k, Value("char"));
+  if (Core::truthy(t2)) {
+    Value t3 = Core::get(n, Value("c"), Value());
+    Value t4 = Core::eq(c, t3);
+    return t4;
+  }
+  Value t5 = Core::eq(k, Value("range"));
+  if (Core::truthy(t5)) {
+    Value t6 = Core::get(n, Value("lo"), Value());
+    Value t7 = Core::gte(c, t6);
+    Value t8 = t7;
+    if (Core::truthy(t8)) {
+      Value t9 = Core::get(n, Value("hi"), Value());
+      Value t10 = Core::lte(c, t9);
+      t8 = t10;
+    }
+    return t8;
+  }
+  Value t11 = Core::eq(k, Value("dot"));
+  if (Core::truthy(t11)) {
+    Value t12 = Core::ne(c, Value(10));
+    Value t13 = t12;
+    if (Core::truthy(t13)) {
+      Value t14 = Core::ne(c, Value(13));
+      t13 = t14;
+    }
+    if (Core::truthy(t13)) {
+      Value t15 = Core::ne(c, Value(8232));
+      t13 = t15;
+    }
+    if (Core::truthy(t13)) {
+      Value t16 = Core::ne(c, Value(8233));
+      t13 = t16;
+    }
+    return t13;
+  }
+  Value t17 = Core::eq(k, Value("class_escape"));
+  if (Core::truthy(t17)) {
+    Value t18 = Core::get(n, Value("c"), Value());
+    e = t18;
+    yes = Value(false);
+    Value t19 = Core::eq(e, Value(100));
+    Value t20 = t19;
+    Value t21 = Core::not_(t20);
+    if (Core::truthy(t21)) {
+      Value t22 = Core::eq(e, Value(68));
+      t20 = t22;
+    }
+    if (Core::truthy(t20)) {
+      Value t23 = Core::_regex_digit(c);
+      yes = t23;
+    }
+    Value t24 = Core::eq(e, Value(119));
+    Value t25 = t24;
+    Value t26 = Core::not_(t25);
+    if (Core::truthy(t26)) {
+      Value t27 = Core::eq(e, Value(87));
+      t25 = t27;
+    }
+    if (Core::truthy(t25)) {
+      Value t28 = Core::_regex_word(c);
+      yes = t28;
+    }
+    Value t29 = Core::eq(e, Value(115));
+    Value t30 = t29;
+    Value t31 = Core::not_(t30);
+    if (Core::truthy(t31)) {
+      Value t32 = Core::eq(e, Value(83));
+      t30 = t32;
+    }
+    if (Core::truthy(t30)) {
+      Value t33 = Core::_regex_space(c);
+      yes = t33;
+    }
+    Value t34 = Core::eq(e, Value(68));
+    Value t35 = t34;
+    Value t36 = Core::not_(t35);
+    if (Core::truthy(t36)) {
+      Value t37 = Core::eq(e, Value(87));
+      t35 = t37;
+    }
+    Value t38 = Core::not_(t35);
+    if (Core::truthy(t38)) {
+      Value t39 = Core::eq(e, Value(83));
+      t35 = t39;
+    }
+    if (Core::truthy(t35)) {
+      Value t40 = Core::not_(yes);
+      return t40;
+    }
+    return yes;
+  }
+  Value t41 = Core::eq(k, Value("class"));
+  if (Core::truthy(t41)) {
+    yes = Value(false);
+    Value t42 = Core::get(n, Value("terms"), Value());
+    for (auto iter_43 : Core::iter(t42)) {
+      term = iter_43;
+      Value t44 = Core::_regex_member(term, c);
+      if (Core::truthy(t44)) {
+        yes = Value(true);
+      }
+    }
+    Value t45 = Core::get(n, Value("negative"), Value());
+    if (Core::truthy(t45)) {
+      Value t46 = Core::not_(yes);
+      return t46;
+    }
+    return yes;
+  }
+  return Value(false);
+}
+
 Value Core::_tool_error_message_impl(Value call, Value error) {
   axir_coverage_mark("_tool_error_message_impl");
   Value id = Core::get(call, Value("id"), Value());
@@ -17560,6 +18893,60 @@ Value Core::_append_validation_retry_messages_impl(Value messages, Value respons
   Core::set(retry_message, Value("content"), retry_content);
   Core::append(messages, retry_message);
   return Value();
+}
+
+Value Core::_regex_state(Value pos, Value caps) {
+  axir_coverage_mark("_regex_state");
+  Value t1 = Value::object();
+  Core::set(t1, Value("pos"), pos);
+  Value t2 = Core::_regex_copy_map(caps);
+  Core::set(t1, Value("caps"), t2);
+  return t1;
+}
+
+Value Core::_regex_capture_ids(Value n) {
+  axir_coverage_mark("_regex_capture_ids");
+  Value i = Core::none();
+  Value k = Core::none();
+  Value out = Core::none();
+  Value term = Core::none();
+  Value t1 = Value::array();
+  out = t1;
+  Value t2 = Core::get(n, Value("k"), Value());
+  k = t2;
+  Value t3 = Core::eq(k, Value("capture"));
+  if (Core::truthy(t3)) {
+    Value t4 = Core::get(n, Value("id"), Value());
+    Core::append(out, t4);
+  }
+  Value t5 = Core::map_contains(n, Value("child"));
+  if (Core::truthy(t5)) {
+    Value t6 = Core::get(n, Value("child"), Value());
+    Value t7 = Core::_regex_capture_ids(t6);
+    for (auto iter_8 : Core::iter(t7)) {
+      i = iter_8;
+      Core::append(out, i);
+    }
+  }
+  Value t9 = Core::eq(k, Value("seq"));
+  Value t10 = t9;
+  Value t11 = Core::not_(t10);
+  if (Core::truthy(t11)) {
+    Value t12 = Core::eq(k, Value("alt"));
+    t10 = t12;
+  }
+  if (Core::truthy(t10)) {
+    Value t13 = Core::get(n, Value("terms"), Value());
+    for (auto iter_14 : Core::iter(t13)) {
+      term = iter_14;
+      Value t15 = Core::_regex_capture_ids(term);
+      for (auto iter_16 : Core::iter(t15)) {
+        i = iter_16;
+        Core::append(out, i);
+      }
+    }
+  }
+  return out;
 }
 
 Value Core::_ace_is_noop_acknowledgment(Value content) {
@@ -17689,6 +19076,528 @@ Value Core::_ace_is_noop_acknowledgment(Value content) {
     }
   }
   return is_noop;
+}
+
+Value Core::_regex_push(Value stack, Value top, Value value) {
+  axir_coverage_mark("_regex_push");
+  Value t1 = Core::string_format(Value("{}"), top);
+  Core::set(stack, t1, value);
+  Value t2 = Core::add(top, Value(1));
+  return t2;
+}
+
+Value Core::_regex_task(Value n, Value next) {
+  axir_coverage_mark("_regex_task");
+  Value t1 = Value::object();
+  Core::set(t1, Value("node"), n);
+  Core::set(t1, Value("next"), next);
+  return t1;
+}
+
+Value Core::_regex_frame(Value todo, Value st) {
+  axir_coverage_mark("_regex_frame");
+  Value t1 = Value::object();
+  Core::set(t1, Value("todo"), todo);
+  Core::set(t1, Value("st"), st);
+  return t1;
+}
+
+Value Core::_regex_search(Value n, Value u, Value initial, Value d) {
+  axir_coverage_mark("_regex_search");
+  Value accept = Core::none();
+  Value after = Core::none();
+  Value at = Core::none();
+  Value before = Core::none();
+  Value begin = Core::none();
+  Value caps = Core::none();
+  Value capture = Core::none();
+  Value capture_id = Core::none();
+  Value clean = Core::none();
+  Value copied = Core::none();
+  Value count = Core::none();
+  Value current = Core::none();
+  Value end = Core::none();
+  Value equal = Core::none();
+  Value hi = Core::none();
+  Value i = Core::none();
+  Value k = Core::none();
+  Value lo = Core::none();
+  Value matched = Core::none();
+  Value more = Core::none();
+  Value moreframe = Core::none();
+  Value next = Core::none();
+  Value nextcount = Core::none();
+  Value p = Core::none();
+  Value pending = Core::none();
+  Value repeat = Core::none();
+  Value rest = Core::none();
+  Value size = Core::none();
+  Value st = Core::none();
+  Value terms = Core::none();
+  Value todo = Core::none();
+  Value top = Core::none();
+  Value yes = Core::none();
+  Value t1 = Value::object();
+  Value t2 = Core::none();
+  Value t3 = Core::_regex_task(n, t2);
+  Value t4 = Core::_regex_frame(t3, initial);
+  Core::set(t1, Value("0"), t4);
+  pending = t1;
+  top = Value(1);
+  while (true) {
+    Value t5 = Core::gt(top, Value(0));
+    Value t6 = Core::not_(t5);
+    if (Core::truthy(t6)) {
+      break;
+    }
+    Value t7 = Core::mul(Value(-1), Value(1));
+    Value t8 = Core::add(top, t7);
+    Value t9 = Core::math_floor(t8);
+    top = t9;
+    Value t10 = Core::string_format(Value("{}"), top);
+    Value t11 = Core::get(pending, t10, Value());
+    current = t11;
+    Value t12 = Core::get(current, Value("todo"), Value());
+    todo = t12;
+    Value t13 = Core::get(current, Value("st"), Value());
+    st = t13;
+    Value t14 = Core::none();
+    Value t15 = Core::eq(todo, t14);
+    if (Core::truthy(t15)) {
+      return st;
+    }
+    Value t16 = Core::get(todo, Value("node"), Value());
+    n = t16;
+    Value t17 = Core::get(todo, Value("next"), Value());
+    rest = t17;
+    Value t18 = Core::get(n, Value("k"), Value());
+    k = t18;
+    Value t19 = Core::get(st, Value("pos"), Value());
+    p = t19;
+    Value t20 = Core::get(st, Value("caps"), Value());
+    caps = t20;
+    Value t21 = Core::eq(k, Value("seq"));
+    if (Core::truthy(t21)) {
+      Value t22 = Core::get(n, Value("terms"), Value());
+      terms = t22;
+      Value t23 = Core::len(terms);
+      Value t24 = Core::mul(Value(-1), Value(1));
+      Value t25 = Core::add(t23, t24);
+      Value t26 = Core::math_floor(t25);
+      i = t26;
+      Value t27 = Core::lt(d, Value(0));
+      if (Core::truthy(t27)) {
+        i = Value(0);
+      }
+      while (true) {
+        Value t28 = Core::gte(i, Value(0));
+        Value t29 = t28;
+        if (Core::truthy(t29)) {
+          Value t30 = Core::len(terms);
+          Value t31 = Core::lt(i, t30);
+          t29 = t31;
+        }
+        Value t32 = Core::not_(t29);
+        if (Core::truthy(t32)) {
+          break;
+        }
+        Value t33 = Core::get(terms, i, Value());
+        Value t34 = Core::_regex_task(t33, rest);
+        rest = t34;
+        Value t35 = Core::mul(Value(-1), d);
+        Value t36 = Core::add(i, t35);
+        Value t37 = Core::math_floor(t36);
+        i = t37;
+      }
+      Value t38 = Core::_regex_frame(rest, st);
+      Value t39 = Core::_regex_push(pending, top, t38);
+      top = t39;
+      continue;
+    }
+    Value t40 = Core::eq(k, Value("alt"));
+    if (Core::truthy(t40)) {
+      Value t41 = Core::get(n, Value("terms"), Value());
+      Value t42 = Core::len(t41);
+      Value t43 = Core::mul(Value(-1), Value(1));
+      Value t44 = Core::add(t42, t43);
+      Value t45 = Core::math_floor(t44);
+      i = t45;
+      while (true) {
+        Value t46 = Core::gte(i, Value(0));
+        Value t47 = Core::not_(t46);
+        if (Core::truthy(t47)) {
+          break;
+        }
+        Value t48 = Core::get(n, Value("terms"), Value());
+        Value t49 = Core::get(t48, i, Value());
+        Value t50 = Core::_regex_task(t49, rest);
+        Value t51 = Core::_regex_frame(t50, st);
+        Value t52 = Core::_regex_push(pending, top, t51);
+        top = t52;
+        Value t53 = Core::mul(Value(-1), Value(1));
+        Value t54 = Core::add(i, t53);
+        Value t55 = Core::math_floor(t54);
+        i = t55;
+      }
+      continue;
+    }
+    Value t56 = Core::eq(k, Value("group"));
+    if (Core::truthy(t56)) {
+      Value t57 = Core::get(n, Value("child"), Value());
+      Value t58 = Core::_regex_task(t57, rest);
+      Value t59 = Core::_regex_frame(t58, st);
+      Value t60 = Core::_regex_push(pending, top, t59);
+      top = t60;
+      continue;
+    }
+    Value t61 = Core::eq(k, Value("capture"));
+    if (Core::truthy(t61)) {
+      Value t62 = Value::object();
+      Core::set(t62, Value("k"), Value("capture_end"));
+      Value t63 = Core::get(n, Value("id"), Value());
+      Core::set(t62, Value("id"), t63);
+      Core::set(t62, Value("begin"), p);
+      Value t64 = Core::_regex_task(t62, rest);
+      end = t64;
+      Value t65 = Core::get(n, Value("child"), Value());
+      Value t66 = Core::_regex_task(t65, end);
+      Value t67 = Core::_regex_frame(t66, st);
+      Value t68 = Core::_regex_push(pending, top, t67);
+      top = t68;
+      continue;
+    }
+    Value t69 = Core::eq(k, Value("capture_end"));
+    if (Core::truthy(t69)) {
+      Value t70 = Core::get(n, Value("begin"), Value());
+      lo = t70;
+      hi = p;
+      Value t71 = Core::lt(d, Value(0));
+      if (Core::truthy(t71)) {
+        lo = p;
+        Value t72 = Core::get(n, Value("begin"), Value());
+        hi = t72;
+      }
+      Value t73 = Core::_regex_state(p, caps);
+      copied = t73;
+      Value t74 = Value::array();
+      Core::append(t74, lo);
+      Core::append(t74, hi);
+      Value t75 = Core::get(copied, Value("caps"), Value());
+      Value t76 = Core::get(n, Value("id"), Value());
+      Core::set(t75, t76, t74);
+      Value t77 = Core::_regex_frame(rest, copied);
+      Value t78 = Core::_regex_push(pending, top, t77);
+      top = t78;
+      continue;
+    }
+    Value t79 = Core::eq(k, Value("look"));
+    if (Core::truthy(t79)) {
+      Value t80 = Core::get(n, Value("child"), Value());
+      Value t81 = Core::get(n, Value("direction"), Value());
+      Value t82 = Core::_regex_search(t80, u, st, t81);
+      matched = t82;
+      Value t83 = Core::get(n, Value("negative"), Value());
+      if (Core::truthy(t83)) {
+        Value t84 = Core::none();
+        Value t85 = Core::eq(matched, t84);
+        if (Core::truthy(t85)) {
+          Value t86 = Core::_regex_frame(rest, st);
+          Value t87 = Core::_regex_push(pending, top, t86);
+          top = t87;
+        }
+      }
+      if (!Core::truthy(t83)) {
+        Value t88 = Core::none();
+        Value t89 = Core::ne(matched, t88);
+        if (Core::truthy(t89)) {
+          Value t90 = Core::get(matched, Value("caps"), Value());
+          Value t91 = Core::_regex_state(p, t90);
+          Value t92 = Core::_regex_frame(rest, t91);
+          Value t93 = Core::_regex_push(pending, top, t92);
+          top = t93;
+        }
+      }
+      continue;
+    }
+    Value t94 = Core::eq(k, Value("repeat"));
+    Value t95 = t94;
+    Value t96 = Core::not_(t95);
+    if (Core::truthy(t96)) {
+      Value t97 = Core::eq(k, Value("repeat_step"));
+      t95 = t97;
+    }
+    if (Core::truthy(t95)) {
+      count = Value(0);
+      repeat = n;
+      Value t98 = Core::eq(k, Value("repeat_step"));
+      if (Core::truthy(t98)) {
+        Value t99 = Core::get(n, Value("count"), Value());
+        count = t99;
+        Value t100 = Core::get(n, Value("repeat"), Value());
+        repeat = t100;
+      }
+      Value t101 = Core::get(repeat, Value("lo"), Value());
+      Value t102 = Core::gte(count, t101);
+      accept = t102;
+      Value t103 = Core::get(repeat, Value("hi"), Value());
+      Value t104 = Core::lt(t103, Value(0));
+      Value t105 = t104;
+      Value t106 = Core::not_(t105);
+      if (Core::truthy(t106)) {
+        Value t107 = Core::get(repeat, Value("hi"), Value());
+        Value t108 = Core::lt(count, t107);
+        t105 = t108;
+      }
+      more = t105;
+      Value t109 = Core::none();
+      moreframe = t109;
+      if (Core::truthy(more)) {
+        Value t110 = Core::_regex_state(p, caps);
+        clean = t110;
+        Value t111 = Core::get(repeat, Value("child"), Value());
+        Value t112 = Core::_regex_capture_ids(t111);
+        for (auto iter_113 : Core::iter(t112)) {
+          i = iter_113;
+          Value t114 = Core::none();
+          Value t115 = Core::get(clean, Value("caps"), Value());
+          Core::set(t115, i, t114);
+        }
+        Value t116 = Value::object();
+        Core::set(t116, Value("k"), Value("repeat_after"));
+        Core::set(t116, Value("repeat"), repeat);
+        Core::set(t116, Value("count"), count);
+        Core::set(t116, Value("begin"), p);
+        Value t117 = Core::_regex_task(t116, rest);
+        after = t117;
+        Value t118 = Core::get(repeat, Value("child"), Value());
+        Value t119 = Core::_regex_task(t118, after);
+        Value t120 = Core::_regex_frame(t119, clean);
+        moreframe = t120;
+      }
+      Value t121 = Core::get(repeat, Value("lazy"), Value());
+      if (Core::truthy(t121)) {
+        if (Core::truthy(more)) {
+          Value t122 = Core::_regex_push(pending, top, moreframe);
+          top = t122;
+        }
+        if (Core::truthy(accept)) {
+          Value t123 = Core::_regex_frame(rest, st);
+          Value t124 = Core::_regex_push(pending, top, t123);
+          top = t124;
+        }
+      }
+      if (!Core::truthy(t121)) {
+        if (Core::truthy(accept)) {
+          Value t125 = Core::_regex_frame(rest, st);
+          Value t126 = Core::_regex_push(pending, top, t125);
+          top = t126;
+        }
+        if (Core::truthy(more)) {
+          Value t127 = Core::_regex_push(pending, top, moreframe);
+          top = t127;
+        }
+      }
+      continue;
+    }
+    Value t128 = Core::eq(k, Value("repeat_after"));
+    if (Core::truthy(t128)) {
+      Value t129 = Core::get(n, Value("count"), Value());
+      count = t129;
+      Value t130 = Core::get(n, Value("repeat"), Value());
+      repeat = t130;
+      Value t131 = Core::add(count, Value(1));
+      nextcount = t131;
+      Value t132 = Core::get(n, Value("begin"), Value());
+      Value t133 = Core::eq(p, t132);
+      if (Core::truthy(t133)) {
+        Value t134 = Core::get(repeat, Value("lo"), Value());
+        Value t135 = Core::gte(count, t134);
+        if (Core::truthy(t135)) {
+          continue;
+        }
+        Value t136 = Core::get(repeat, Value("lo"), Value());
+        nextcount = t136;
+      }
+      Value t137 = Value::object();
+      Core::set(t137, Value("k"), Value("repeat_step"));
+      Core::set(t137, Value("repeat"), repeat);
+      Core::set(t137, Value("count"), nextcount);
+      Value t138 = Core::_regex_task(t137, rest);
+      next = t138;
+      Value t139 = Core::_regex_frame(next, st);
+      Value t140 = Core::_regex_push(pending, top, t139);
+      top = t140;
+      continue;
+    }
+    Value t141 = Core::eq(k, Value("start"));
+    if (Core::truthy(t141)) {
+      Value t142 = Core::eq(p, Value(0));
+      if (Core::truthy(t142)) {
+        Value t143 = Core::_regex_frame(rest, st);
+        Value t144 = Core::_regex_push(pending, top, t143);
+        top = t144;
+      }
+      continue;
+    }
+    Value t145 = Core::eq(k, Value("end"));
+    if (Core::truthy(t145)) {
+      Value t146 = Core::len(u);
+      Value t147 = Core::eq(p, t146);
+      if (Core::truthy(t147)) {
+        Value t148 = Core::_regex_frame(rest, st);
+        Value t149 = Core::_regex_push(pending, top, t148);
+        top = t149;
+      }
+      continue;
+    }
+    Value t150 = Core::eq(k, Value("boundary"));
+    if (Core::truthy(t150)) {
+      before = Value(false);
+      after = Value(false);
+      Value t151 = Core::gt(p, Value(0));
+      if (Core::truthy(t151)) {
+        Value t152 = Core::mul(Value(-1), Value(1));
+        Value t153 = Core::add(p, t152);
+        Value t154 = Core::math_floor(t153);
+        Value t155 = Core::get(u, t154, Value());
+        Value t156 = Core::_regex_word(t155);
+        before = t156;
+      }
+      Value t157 = Core::len(u);
+      Value t158 = Core::lt(p, t157);
+      if (Core::truthy(t158)) {
+        Value t159 = Core::get(u, p, Value());
+        Value t160 = Core::_regex_word(t159);
+        after = t160;
+      }
+      Value t161 = Core::ne(before, after);
+      yes = t161;
+      Value t162 = Core::get(n, Value("negative"), Value());
+      if (Core::truthy(t162)) {
+        Value t163 = Core::not_(yes);
+        yes = t163;
+      }
+      if (Core::truthy(yes)) {
+        Value t164 = Core::_regex_frame(rest, st);
+        Value t165 = Core::_regex_push(pending, top, t164);
+        top = t165;
+      }
+      continue;
+    }
+    Value t166 = Core::eq(k, Value("ref"));
+    if (Core::truthy(t166)) {
+      Value t167 = Core::none();
+      capture = t167;
+      Value t168 = Core::get(n, Value("ids"), Value());
+      for (auto iter_169 : Core::iter(t168)) {
+        capture_id = iter_169;
+        Value t170 = Core::get(caps, capture_id, Value());
+        Value t171 = Core::none();
+        Value t172 = Core::ne(t170, t171);
+        if (Core::truthy(t172)) {
+          Value t173 = Core::get(caps, capture_id, Value());
+          capture = t173;
+        }
+      }
+      Value t174 = Core::none();
+      Value t175 = Core::eq(capture, t174);
+      if (Core::truthy(t175)) {
+        Value t176 = Core::_regex_frame(rest, st);
+        Value t177 = Core::_regex_push(pending, top, t176);
+        top = t177;
+        continue;
+      }
+      Value t178 = Value(1);
+      Value t179 = Core::get(capture, t178, Value());
+      Value t180 = Value(0);
+      Value t181 = Core::get(capture, t180, Value());
+      Value t182 = Core::mul(Value(-1), t181);
+      Value t183 = Core::add(t179, t182);
+      Value t184 = Core::math_floor(t183);
+      size = t184;
+      begin = p;
+      Value t185 = Core::lt(d, Value(0));
+      if (Core::truthy(t185)) {
+        Value t186 = Core::mul(Value(-1), size);
+        Value t187 = Core::add(p, t186);
+        Value t188 = Core::math_floor(t187);
+        begin = t188;
+      }
+      Value t189 = Core::lt(begin, Value(0));
+      Value t190 = t189;
+      Value t191 = Core::not_(t190);
+      if (Core::truthy(t191)) {
+        Value t192 = Core::add(begin, size);
+        Value t193 = Core::len(u);
+        Value t194 = Core::gt(t192, t193);
+        t190 = t194;
+      }
+      if (Core::truthy(t190)) {
+        continue;
+      }
+      i = Value(0);
+      equal = Value(true);
+      while (true) {
+        Value t195 = Core::lt(i, size);
+        Value t196 = Core::not_(t195);
+        if (Core::truthy(t196)) {
+          break;
+        }
+        Value t197 = Core::add(begin, i);
+        Value t198 = Core::get(u, t197, Value());
+        Value t199 = Value(0);
+        Value t200 = Core::get(capture, t199, Value());
+        Value t201 = Core::add(t200, i);
+        Value t202 = Core::get(u, t201, Value());
+        Value t203 = Core::ne(t198, t202);
+        if (Core::truthy(t203)) {
+          equal = Value(false);
+          break;
+        }
+        Value t204 = Core::add(i, Value(1));
+        i = t204;
+      }
+      if (Core::truthy(equal)) {
+        Value t205 = Core::mul(d, size);
+        Value t206 = Core::math_floor(t205);
+        Value t207 = Core::add(p, t206);
+        Value t208 = Core::_regex_state(t207, caps);
+        Value t209 = Core::_regex_frame(rest, t208);
+        Value t210 = Core::_regex_push(pending, top, t209);
+        top = t210;
+      }
+      continue;
+    }
+    at = p;
+    Value t211 = Core::lt(d, Value(0));
+    if (Core::truthy(t211)) {
+      Value t212 = Core::mul(Value(-1), Value(1));
+      Value t213 = Core::add(p, t212);
+      Value t214 = Core::math_floor(t213);
+      at = t214;
+    }
+    Value t215 = Core::gte(at, Value(0));
+    Value t216 = t215;
+    if (Core::truthy(t216)) {
+      Value t217 = Core::len(u);
+      Value t218 = Core::lt(at, t217);
+      t216 = t218;
+    }
+    if (Core::truthy(t216)) {
+      Value t219 = Core::get(u, at, Value());
+      Value t220 = Core::_regex_member(n, t219);
+      t216 = t220;
+    }
+    if (Core::truthy(t216)) {
+      Value t221 = Core::add(p, d);
+      Value t222 = Core::_regex_state(t221, caps);
+      Value t223 = Core::_regex_frame(rest, t222);
+      Value t224 = Core::_regex_push(pending, top, t223);
+      top = t224;
+    }
+  }
+  Value t225 = Core::none();
+  return t225;
 }
 
 Value Core::_ace_normalize_curator_operations(Value operations) {
@@ -18089,6 +19998,467 @@ Value Core::_ace_dequeue_section_candidate(Value section_queues, Value section, 
     }
   }
   return picked;
+}
+
+Value Core::_regex_test(Value pattern, Value value) {
+  axir_coverage_mark("_regex_test");
+  Value groups = Core::none();
+  Value i = Core::none();
+  Value s = Core::none();
+  Value text = Core::none();
+  Value tree = Core::none();
+  Value u = Core::none();
+  Value t1 = Core::string_utf16_units(pattern);
+  u = t1;
+  Value t2 = Core::_regex_scan_groups(u);
+  groups = t2;
+  Value t3 = Value::object();
+  Core::set(t3, Value("u"), u);
+  Core::set(t3, Value("p"), Value(0));
+  Value t4 = Core::get(groups, Value("count"), Value());
+  Core::set(t3, Value("total"), t4);
+  Value t5 = Core::get(groups, Value("names"), Value());
+  Core::set(t3, Value("names"), t5);
+  Core::set(t3, Value("next"), Value(0));
+  s = t3;
+  Value t6 = Core::_regex_alternative(s);
+  tree = t6;
+  Value t7 = Core::get(s, Value("p"), Value());
+  Value t8 = Core::len(u);
+  Value t9 = Core::ne(t7, t8);
+  if (Core::truthy(t9)) {
+    Value t10 = Core::string_format(Value("Invalid regular expression: {}"), Value("Unmatched group"));
+    Value t11 = Core::validation_error(t10);
+    Core::raise_error(t11);
+  }
+  Value t12 = Value::object();
+  Value t13 = Value::object();
+  Value t14 = Value::object();
+  Core::set(t14, Value("next"), Value(0));
+  Value t15 = Core::_regex_validate_names(tree, t12, t13, t14);
+  Value t16 = Core::string_utf16_units(value);
+  text = t16;
+  i = Value(0);
+  while (true) {
+    Value t17 = Core::len(text);
+    Value t18 = Core::lte(i, t17);
+    Value t19 = Core::not_(t18);
+    if (Core::truthy(t19)) {
+      break;
+    }
+    Value t20 = Value::object();
+    Value t21 = Core::_regex_state(i, t20);
+    Value t22 = Core::_regex_search(tree, text, t21, Value(1));
+    Value t23 = Core::none();
+    Value t24 = Core::ne(t22, t23);
+    if (Core::truthy(t24)) {
+      return Value(true);
+    }
+    Value t25 = Core::add(i, Value(1));
+    i = t25;
+  }
+  return Value(false);
+}
+
+Value Core::_regex_identifier(Value c, Value first) {
+  axir_coverage_mark("_regex_identifier");
+  Value entry = Core::none();
+  Value hi = Core::none();
+  Value lo = Core::none();
+  Value mid = Core::none();
+  Value ranges = Core::none();
+  Value t1 = Core::eq(c, Value(36));
+  Value t2 = t1;
+  Value t3 = Core::not_(t2);
+  if (Core::truthy(t3)) {
+    Value t4 = Core::eq(c, Value(95));
+    t2 = t4;
+  }
+  if (Core::truthy(t2)) {
+    return Value(true);
+  }
+  Value t5 = Core::not_(first);
+  Value t6 = t5;
+  if (Core::truthy(t6)) {
+    Value t7 = Core::eq(c, Value(8204));
+    Value t8 = t7;
+    Value t9 = Core::not_(t8);
+    if (Core::truthy(t9)) {
+      Value t10 = Core::eq(c, Value(8205));
+      t8 = t10;
+    }
+    t6 = t8;
+  }
+  if (Core::truthy(t6)) {
+    return Value(true);
+  }
+  Value t11 = Core::_regex_id_continue_ranges();
+  ranges = t11;
+  if (Core::truthy(first)) {
+    Value t12 = Core::_regex_id_start_ranges();
+    ranges = t12;
+  }
+  lo = Value(0);
+  Value t13 = Core::len(ranges);
+  hi = t13;
+  while (true) {
+    Value t14 = Core::lt(lo, hi);
+    Value t15 = Core::not_(t14);
+    if (Core::truthy(t15)) {
+      break;
+    }
+    Value t16 = Core::add(lo, hi);
+    Value t17 = Core::div(t16, Value(2));
+    Value t18 = Core::math_floor(t17);
+    mid = t18;
+    Value t19 = Core::get(ranges, mid, Value());
+    entry = t19;
+    Value t20 = Value(0);
+    Value t21 = Core::get(entry, t20, Value());
+    Value t22 = Core::lt(c, t21);
+    if (Core::truthy(t22)) {
+      hi = mid;
+    }
+    if (!Core::truthy(t22)) {
+      Value t23 = Value(1);
+      Value t24 = Core::get(entry, t23, Value());
+      Value t25 = Core::gt(c, t24);
+      if (Core::truthy(t25)) {
+        Value t26 = Core::add(mid, Value(1));
+        lo = t26;
+      }
+      if (!Core::truthy(t25)) {
+        return Value(true);
+      }
+    }
+  }
+  return Value(false);
+}
+
+Value Core::_regex_read_name(Value s) {
+  axir_coverage_mark("_regex_read_name");
+  Value c = Core::none();
+  Value i = Core::none();
+  Value n = Core::none();
+  Value name = Core::none();
+  Value values = Core::none();
+  Value t1 = Value::array();
+  values = t1;
+  while (true) {
+    Value t2 = Core::_regex_peek(s);
+    Value t3 = Core::ne(t2, Value(62));
+    Value t4 = t3;
+    if (Core::truthy(t4)) {
+      Value t5 = Core::_regex_peek(s);
+      Value t6 = Core::gte(t5, Value(0));
+      t4 = t6;
+    }
+    Value t7 = Core::not_(t4);
+    if (Core::truthy(t7)) {
+      break;
+    }
+    Value t8 = Core::_regex_take(s);
+    c = t8;
+    Value t9 = Core::eq(c, Value(92));
+    if (Core::truthy(t9)) {
+      Value t10 = Core::_regex_take(s);
+      Value t11 = Core::ne(t10, Value(117));
+      if (Core::truthy(t11)) {
+        Value t12 = Core::string_format(Value("Invalid regular expression: {}"), Value("Invalid capture name escape"));
+        Value t13 = Core::validation_error(t12);
+        Core::raise_error(t13);
+      }
+      c = Value(0);
+      n = Value(0);
+      Value t14 = Core::_regex_peek(s);
+      Value t15 = Core::eq(t14, Value(123));
+      if (Core::truthy(t15)) {
+        Value t16 = Core::_regex_take(s);
+        while (true) {
+          Value t17 = Core::_regex_peek(s);
+          Value t18 = Core::_regex_hexdigit(t17);
+          Value t19 = Core::gte(t18, Value(0));
+          Value t20 = Core::not_(t19);
+          if (Core::truthy(t20)) {
+            break;
+          }
+          Value t21 = Core::mul(c, Value(16));
+          Value t22 = Core::math_floor(t21);
+          Value t23 = Core::_regex_take(s);
+          Value t24 = Core::_regex_hexdigit(t23);
+          Value t25 = Core::add(t22, t24);
+          c = t25;
+          Value t26 = Core::add(n, Value(1));
+          n = t26;
+        }
+        Value t27 = Core::eq(n, Value(0));
+        Value t28 = t27;
+        Value t29 = Core::not_(t28);
+        if (Core::truthy(t29)) {
+          Value t30 = Core::_regex_take(s);
+          Value t31 = Core::ne(t30, Value(125));
+          t28 = t31;
+        }
+        Value t32 = Core::not_(t28);
+        if (Core::truthy(t32)) {
+          Value t33 = Core::gt(c, Value(1114111));
+          t28 = t33;
+        }
+        if (Core::truthy(t28)) {
+          Value t34 = Core::string_format(Value("Invalid regular expression: {}"), Value("Invalid Unicode capture name"));
+          Value t35 = Core::validation_error(t34);
+          Core::raise_error(t35);
+        }
+      }
+      if (!Core::truthy(t15)) {
+        while (true) {
+          Value t36 = Core::lt(n, Value(4));
+          Value t37 = t36;
+          if (Core::truthy(t37)) {
+            Value t38 = Core::_regex_peek(s);
+            Value t39 = Core::_regex_hexdigit(t38);
+            Value t40 = Core::gte(t39, Value(0));
+            t37 = t40;
+          }
+          Value t41 = Core::not_(t37);
+          if (Core::truthy(t41)) {
+            break;
+          }
+          Value t42 = Core::mul(c, Value(16));
+          Value t43 = Core::math_floor(t42);
+          Value t44 = Core::_regex_take(s);
+          Value t45 = Core::_regex_hexdigit(t44);
+          Value t46 = Core::add(t43, t45);
+          c = t46;
+          Value t47 = Core::add(n, Value(1));
+          n = t47;
+        }
+        Value t48 = Core::ne(n, Value(4));
+        if (Core::truthy(t48)) {
+          Value t49 = Core::string_format(Value("Invalid regular expression: {}"), Value("Invalid Unicode capture name"));
+          Value t50 = Core::validation_error(t49);
+          Core::raise_error(t50);
+        }
+      }
+    }
+    Core::append(values, c);
+  }
+  Value t51 = Core::_regex_take(s);
+  Value t52 = Core::ne(t51, Value(62));
+  Value t53 = t52;
+  Value t54 = Core::not_(t53);
+  if (Core::truthy(t54)) {
+    Value t55 = Core::len(values);
+    Value t56 = Core::eq(t55, Value(0));
+    t53 = t56;
+  }
+  if (Core::truthy(t53)) {
+    Value t57 = Core::string_format(Value("Invalid regular expression: {}"), Value("Invalid capture name"));
+    Value t58 = Core::validation_error(t57);
+    Core::raise_error(t58);
+  }
+  name = Value("");
+  i = Value(0);
+  while (true) {
+    Value t59 = Core::len(values);
+    Value t60 = Core::lt(i, t59);
+    Value t61 = Core::not_(t60);
+    if (Core::truthy(t61)) {
+      break;
+    }
+    Value t62 = Core::get(values, i, Value());
+    c = t62;
+    Value t63 = Core::add(i, Value(1));
+    i = t63;
+    Value t64 = Core::gte(c, Value(55296));
+    Value t65 = t64;
+    if (Core::truthy(t65)) {
+      Value t66 = Core::lte(c, Value(56319));
+      t65 = t66;
+    }
+    if (Core::truthy(t65)) {
+      Value t67 = Core::len(values);
+      Value t68 = Core::lt(i, t67);
+      t65 = t68;
+    }
+    if (Core::truthy(t65)) {
+      Value t69 = Core::get(values, i, Value());
+      Value t70 = Core::gte(t69, Value(56320));
+      t65 = t70;
+    }
+    if (Core::truthy(t65)) {
+      Value t71 = Core::get(values, i, Value());
+      Value t72 = Core::lte(t71, Value(57343));
+      t65 = t72;
+    }
+    if (Core::truthy(t65)) {
+      Value t73 = Core::mul(Value(-1), Value(55296));
+      Value t74 = Core::add(c, t73);
+      Value t75 = Core::math_floor(t74);
+      Value t76 = Core::mul(t75, Value(1024));
+      Value t77 = Core::math_floor(t76);
+      Value t78 = Core::add(Value(65536), t77);
+      Value t79 = Core::get(values, i, Value());
+      Value t80 = Core::add(t78, t79);
+      Value t81 = Core::mul(Value(-1), Value(56320));
+      Value t82 = Core::add(t80, t81);
+      Value t83 = Core::math_floor(t82);
+      c = t83;
+      Value t84 = Core::add(i, Value(1));
+      i = t84;
+    }
+    Value t85 = Core::eq(name, Value(""));
+    Value t86 = Core::_regex_identifier(c, t85);
+    Value t87 = Core::not_(t86);
+    if (Core::truthy(t87)) {
+      Value t88 = Core::string_format(Value("Invalid regular expression: {}"), Value("Invalid capture identifier"));
+      Value t89 = Core::validation_error(t88);
+      Core::raise_error(t89);
+    }
+    Value t90 = Core::string_format(Value("{}"), c);
+    Value t91 = Core::add(t90, Value(","));
+    Value t92 = Core::add(name, t91);
+    name = t92;
+  }
+  return name;
+}
+
+Value Core::_regex_validate_names(Value n, Value path, Value seen, Value counter) {
+  axir_coverage_mark("_regex_validate_names");
+  Value branch = Core::none();
+  Value exclusive = Core::none();
+  Value index = Core::none();
+  Value k = Core::none();
+  Value key = Core::none();
+  Value name = Core::none();
+  Value other = Core::none();
+  Value previous = Core::none();
+  Value term = Core::none();
+  Value t1 = Core::get(n, Value("k"), Value());
+  k = t1;
+  Value t2 = Core::eq(k, Value("capture"));
+  Value t3 = t2;
+  if (Core::truthy(t3)) {
+    Value t4 = Core::get(n, Value("name"), Value());
+    Value t5 = Core::none();
+    Value t6 = Core::ne(t4, t5);
+    t3 = t6;
+  }
+  if (Core::truthy(t3)) {
+    Value t7 = Core::get(n, Value("name"), Value());
+    name = t7;
+    Value t8 = Core::get(seen, name, Value());
+    previous = t8;
+    Value t9 = Core::none();
+    Value t10 = Core::eq(previous, t9);
+    if (Core::truthy(t10)) {
+      Value t11 = Value::array();
+      previous = t11;
+    }
+    for (auto iter_12 : Core::iter(previous)) {
+      other = iter_12;
+      exclusive = Value(false);
+      Value t13 = Core::map_keys(path);
+      for (auto iter_14 : Core::iter(t13)) {
+        key = iter_14;
+        Value t15 = Core::get(other, key, Value());
+        Value t16 = Core::none();
+        Value t17 = Core::ne(t15, t16);
+        Value t18 = t17;
+        if (Core::truthy(t18)) {
+          Value t19 = Core::get(other, key, Value());
+          Value t20 = Core::get(path, key, Value());
+          Value t21 = Core::ne(t19, t20);
+          t18 = t21;
+        }
+        if (Core::truthy(t18)) {
+          exclusive = Value(true);
+        }
+      }
+      Value t22 = Core::not_(exclusive);
+      if (Core::truthy(t22)) {
+        Value t23 = Core::string_format(Value("Invalid regular expression: {}"), Value("Duplicate capture name"));
+        Value t24 = Core::validation_error(t23);
+        Core::raise_error(t24);
+      }
+    }
+    Value t25 = Core::_regex_copy_map(path);
+    Core::append(previous, t25);
+    Core::set(seen, name, previous);
+  }
+  Value t26 = Core::eq(k, Value("alt"));
+  if (Core::truthy(t26)) {
+    Value t27 = Core::get(counter, Value("next"), Value());
+    Value t28 = Core::add(t27, Value(1));
+    Core::set(counter, Value("next"), t28);
+    Value t29 = Core::get(counter, Value("next"), Value());
+    key = t29;
+    index = Value(0);
+    Value t30 = Core::get(n, Value("terms"), Value());
+    for (auto iter_31 : Core::iter(t30)) {
+      term = iter_31;
+      Value t32 = Core::_regex_copy_map(path);
+      branch = t32;
+      Core::set(branch, key, index);
+      Value t33 = Core::add(index, Value(1));
+      index = t33;
+      Value t34 = Core::_regex_validate_names(term, branch, seen, counter);
+    }
+  }
+  if (!Core::truthy(t26)) {
+    Value t35 = Core::eq(k, Value("seq"));
+    if (Core::truthy(t35)) {
+      Value t36 = Core::get(n, Value("terms"), Value());
+      for (auto iter_37 : Core::iter(t36)) {
+        term = iter_37;
+        Value t38 = Core::_regex_validate_names(term, path, seen, counter);
+      }
+    }
+    if (!Core::truthy(t35)) {
+      Value t39 = Core::get(n, Value("child"), Value());
+      Value t40 = Core::none();
+      Value t41 = Core::ne(t39, t40);
+      if (Core::truthy(t41)) {
+        Value t42 = Core::get(n, Value("child"), Value());
+        Value t43 = Core::_regex_validate_names(t42, path, seen, counter);
+      }
+    }
+  }
+  return Value();
+}
+
+Value Core::_regex_id_start_ranges() {
+  axir_coverage_mark("_regex_id_start_ranges");
+  Value t1 = Core::json_parse(Value("[[65,90],[97,122],[170,170],[181,181],[186,186],[192,214],[216,246],[248,705],[710,721],[736,740],[748,748],[750,750],[880,884],[886,887],[890,893],[895,895],[902,902],[904,906],[908,908],[910,929],[931,1013],[1015,1153],[1162,1327],[1329,1366],[1369,1369],[1376,1416],[1488,1514],[1519,1522],[1568,1610],[1646,1647],[1649,1747],[1749,1749],[1765,1766],[1774,1775],[1786,1788],[1791,1791],[1808,1808],[1810,1839],[1869,1957],[1969,1969],[1994,2026],[2036,2037],[2042,2042],[2048,2069],[2074,2074],[2084,2084],[2088,2088],[2112,2136],[2144,2154],[2160,2183],[2185,2191],[2208,2249],[2308,2361],[2365,2365],[2384,2384],[2392,2401],[2417,2432],[2437,2444],[2447,2448],[2451,2472],[2474,2480],[2482,2482],[2486,2489],[2493,2493],[2510,2510],[2524,2525],[2527,2529],[2544,2545],[2556,2556],[2565,2570],[2575,2576],[2579,2600],[2602,2608],[2610,2611],[2613,2614],[2616,2617],[2649,2652],[2654,2654],[2674,2676],[2693,2701],[2703,2705],[2707,2728],[2730,2736],[2738,2739],[2741,2745],[2749,2749],[2768,2768],[2784,2785],[2809,2809],[2821,2828],[2831,2832],[2835,2856],[2858,2864],[2866,2867],[2869,2873],[2877,2877],[2908,2909],[2911,2913],[2929,2929],[2947,2947],[2949,2954],[2958,2960],[2962,2965],[2969,2970],[2972,2972],[2974,2975],[2979,2980],[2984,2986],[2990,3001],[3024,3024],[3077,3084],[3086,3088],[3090,3112],[3114,3129],[3133,3133],[3160,3162],[3164,3165],[3168,3169],[3200,3200],[3205,3212],[3214,3216],[3218,3240],[3242,3251],[3253,3257],[3261,3261],[3292,3294],[3296,3297],[3313,3314],[3332,3340],[3342,3344],[3346,3386],[3389,3389],[3406,3406],[3412,3414],[3423,3425],[3450,3455],[3461,3478],[3482,3505],[3507,3515],[3517,3517],[3520,3526],[3585,3632],[3634,3635],[3648,3654],[3713,3714],[3716,3716],[3718,3722],[3724,3747],[3749,3749],[3751,3760],[3762,3763],[3773,3773],[3776,3780],[3782,3782],[3804,3807],[3840,3840],[3904,3911],[3913,3948],[3976,3980],[4096,4138],[4159,4159],[4176,4181],[4186,4189],[4193,4193],[4197,4198],[4206,4208],[4213,4225],[4238,4238],[4256,4293],[4295,4295],[4301,4301],[4304,4346],[4348,4680],[4682,4685],[4688,4694],[4696,4696],[4698,4701],[4704,4744],[4746,4749],[4752,4784],[4786,4789],[4792,4798],[4800,4800],[4802,4805],[4808,4822],[4824,4880],[4882,4885],[4888,4954],[4992,5007],[5024,5109],[5112,5117],[5121,5740],[5743,5759],[5761,5786],[5792,5866],[5870,5880],[5888,5905],[5919,5937],[5952,5969],[5984,5996],[5998,6000],[6016,6067],[6103,6103],[6108,6108],[6176,6264],[6272,6312],[6314,6314],[6320,6389],[6400,6430],[6480,6509],[6512,6516],[6528,6571],[6576,6601],[6656,6678],[6688,6740],[6823,6823],[6917,6963],[6981,6988],[7043,7072],[7086,7087],[7098,7141],[7168,7203],[7245,7247],[7258,7293],[7296,7306],[7312,7354],[7357,7359],[7401,7404],[7406,7411],[7413,7414],[7418,7418],[7424,7615],[7680,7957],[7960,7965],[7968,8005],[8008,8013],[8016,8023],[8025,8025],[8027,8027],[8029,8029],[8031,8061],[8064,8116],[8118,8124],[8126,8126],[8130,8132],[8134,8140],[8144,8147],[8150,8155],[8160,8172],[8178,8180],[8182,8188],[8305,8305],[8319,8319],[8336,8348],[8450,8450],[8455,8455],[8458,8467],[8469,8469],[8472,8477],[8484,8484],[8486,8486],[8488,8488],[8490,8505],[8508,8511],[8517,8521],[8526,8526],[8544,8584],[11264,11492],[11499,11502],[11506,11507],[11520,11557],[11559,11559],[11565,11565],[11568,11623],[11631,11631],[11648,11670],[11680,11686],[11688,11694],[11696,11702],[11704,11710],[11712,11718],[11720,11726],[11728,11734],[11736,11742],[12293,12295],[12321,12329],[12337,12341],[12344,12348],[12353,12438],[12443,12447],[12449,12538],[12540,12543],[12549,12591],[12593,12686],[12704,12735],[12784,12799],[13312,19903],[19968,42124],[42192,42237],[42240,42508],[42512,42527],[42538,42539],[42560,42606],[42623,42653],[42656,42735],[42775,42783],[42786,42888],[42891,42972],[42993,43009],[43011,43013],[43015,43018],[43020,43042],[43072,43123],[43138,43187],[43250,43255],[43259,43259],[43261,43262],[43274,43301],[43312,43334],[43360,43388],[43396,43442],[43471,43471],[43488,43492],[43494,43503],[43514,43518],[43520,43560],[43584,43586],[43588,43595],[43616,43638],[43642,43642],[43646,43695],[43697,43697],[43701,43702],[43705,43709],[43712,43712],[43714,43714],[43739,43741],[43744,43754],[43762,43764],[43777,43782],[43785,43790],[43793,43798],[43808,43814],[43816,43822],[43824,43866],[43868,43881],[43888,44002],[44032,55203],[55216,55238],[55243,55291],[63744,64109],[64112,64217],[64256,64262],[64275,64279],[64285,64285],[64287,64296],[64298,64310],[64312,64316],[64318,64318],[64320,64321],[64323,64324],[64326,64433],[64467,64829],[64848,64911],[64914,64967],[65008,65019],[65136,65140],[65142,65276],[65313,65338],[65345,65370],[65382,65470],[65474,65479],[65482,65487],[65490,65495],[65498,65500],[65536,65547],[65549,65574],[65576,65594],[65596,65597],[65599,65613],[65616,65629],[65664,65786],[65856,65908],[66176,66204],[66208,66256],[66304,66335],[66349,66378],[66384,66421],[66432,66461],[66464,66499],[66504,66511],[66513,66517],[66560,66717],[66736,66771],[66776,66811],[66816,66855],[66864,66915],[66928,66938],[66940,66954],[66956,66962],[66964,66965],[66967,66977],[66979,66993],[66995,67001],[67003,67004],[67008,67059],[67072,67382],[67392,67413],[67424,67431],[67456,67461],[67463,67504],[67506,67514],[67584,67589],[67592,67592],[67594,67637],[67639,67640],[67644,67644],[67647,67669],[67680,67702],[67712,67742],[67808,67826],[67828,67829],[67840,67861],[67872,67897],[67904,67929],[67968,68023],[68030,68031],[68096,68096],[68112,68115],[68117,68119],[68121,68149],[68192,68220],[68224,68252],[68288,68295],[68297,68324],[68352,68405],[68416,68437],[68448,68466],[68480,68497],[68608,68680],[68736,68786],[68800,68850],[68864,68899],[68938,68965],[68975,68997],[69248,69289],[69296,69297],[69314,69319],[69376,69404],[69415,69415],[69424,69445],[69488,69505],[69552,69572],[69600,69622],[69635,69687],[69745,69746],[69749,69749],[69763,69807],[69840,69864],[69891,69926],[69956,69956],[69959,69959],[69968,70002],[70006,70006],[70019,70066],[70081,70084],[70106,70106],[70108,70108],[70144,70161],[70163,70187],[70207,70208],[70272,70278],[70280,70280],[70282,70285],[70287,70301],[70303,70312],[70320,70366],[70405,70412],[70415,70416],[70419,70440],[70442,70448],[70450,70451],[70453,70457],[70461,70461],[70480,70480],[70493,70497],[70528,70537],[70539,70539],[70542,70542],[70544,70581],[70583,70583],[70609,70609],[70611,70611],[70656,70708],[70727,70730],[70751,70753],[70784,70831],[70852,70853],[70855,70855],[71040,71086],[71128,71131],[71168,71215],[71236,71236],[71296,71338],[71352,71352],[71424,71450],[71488,71494],[71680,71723],[71840,71903],[71935,71942],[71945,71945],[71948,71955],[71957,71958],[71960,71983],[71999,71999],[72001,72001],[72096,72103],[72106,72144],[72161,72161],[72163,72163],[72192,72192],[72203,72242],[72250,72250],[72272,72272],[72284,72329],[72349,72349],[72368,72440],[72640,72672],[72704,72712],[72714,72750],[72768,72768],[72818,72847],[72960,72966],[72968,72969],[72971,73008],[73030,73030],[73056,73061],[73063,73064],[73066,73097],[73112,73112],[73136,73179],[73440,73458],[73474,73474],[73476,73488],[73490,73523],[73648,73648],[73728,74649],[74752,74862],[74880,75075],[77712,77808],[77824,78895],[78913,78918],[78944,82938],[82944,83526],[90368,90397],[92160,92728],[92736,92766],[92784,92862],[92880,92909],[92928,92975],[92992,92995],[93027,93047],[93053,93071],[93504,93548],[93760,93823],[93856,93880],[93883,93907],[93952,94026],[94032,94032],[94099,94111],[94176,94177],[94179,94179],[94194,94198],[94208,101589],[101631,101662],[101760,101874],[110576,110579],[110581,110587],[110589,110590],[110592,110882],[110898,110898],[110928,110930],[110933,110933],[110948,110951],[110960,111355],[113664,113770],[113776,113788],[113792,113800],[113808,113817],[119808,119892],[119894,119964],[119966,119967],[119970,119970],[119973,119974],[119977,119980],[119982,119993],[119995,119995],[119997,120003],[120005,120069],[120071,120074],[120077,120084],[120086,120092],[120094,120121],[120123,120126],[120128,120132],[120134,120134],[120138,120144],[120146,120485],[120488,120512],[120514,120538],[120540,120570],[120572,120596],[120598,120628],[120630,120654],[120656,120686],[120688,120712],[120714,120744],[120746,120770],[120772,120779],[122624,122654],[122661,122666],[122928,122989],[123136,123180],[123191,123197],[123214,123214],[123536,123565],[123584,123627],[124112,124139],[124368,124397],[124400,124400],[124608,124638],[124640,124642],[124644,124645],[124647,124653],[124656,124660],[124670,124671],[124896,124902],[124904,124907],[124909,124910],[124912,124926],[124928,125124],[125184,125251],[125259,125259],[126464,126467],[126469,126495],[126497,126498],[126500,126500],[126503,126503],[126505,126514],[126516,126519],[126521,126521],[126523,126523],[126530,126530],[126535,126535],[126537,126537],[126539,126539],[126541,126543],[126545,126546],[126548,126548],[126551,126551],[126553,126553],[126555,126555],[126557,126557],[126559,126559],[126561,126562],[126564,126564],[126567,126570],[126572,126578],[126580,126583],[126585,126588],[126590,126590],[126592,126601],[126603,126619],[126625,126627],[126629,126633],[126635,126651],[131072,173791],[173824,178205],[178208,183981],[183984,191456],[191472,192093],[194560,195101],[196608,201546],[201552,210041]]"));
+  return t1;
+}
+
+Value Core::_regex_id_continue_ranges() {
+  axir_coverage_mark("_regex_id_continue_ranges");
+  Value t1 = Core::json_parse(Value("[[48,57],[65,90],[95,95],[97,122],[170,170],[181,181],[183,183],[186,186],[192,214],[216,246],[248,705],[710,721],[736,740],[748,748],[750,750],[768,884],[886,887],[890,893],[895,895],[902,906],[908,908],[910,929],[931,1013],[1015,1153],[1155,1159],[1162,1327],[1329,1366],[1369,1369],[1376,1416],[1425,1469],[1471,1471],[1473,1474],[1476,1477],[1479,1479],[1488,1514],[1519,1522],[1552,1562],[1568,1641],[1646,1747],[1749,1756],[1759,1768],[1770,1788],[1791,1791],[1808,1866],[1869,1969],[1984,2037],[2042,2042],[2045,2045],[2048,2093],[2112,2139],[2144,2154],[2160,2183],[2185,2191],[2199,2273],[2275,2403],[2406,2415],[2417,2435],[2437,2444],[2447,2448],[2451,2472],[2474,2480],[2482,2482],[2486,2489],[2492,2500],[2503,2504],[2507,2510],[2519,2519],[2524,2525],[2527,2531],[2534,2545],[2556,2556],[2558,2558],[2561,2563],[2565,2570],[2575,2576],[2579,2600],[2602,2608],[2610,2611],[2613,2614],[2616,2617],[2620,2620],[2622,2626],[2631,2632],[2635,2637],[2641,2641],[2649,2652],[2654,2654],[2662,2677],[2689,2691],[2693,2701],[2703,2705],[2707,2728],[2730,2736],[2738,2739],[2741,2745],[2748,2757],[2759,2761],[2763,2765],[2768,2768],[2784,2787],[2790,2799],[2809,2815],[2817,2819],[2821,2828],[2831,2832],[2835,2856],[2858,2864],[2866,2867],[2869,2873],[2876,2884],[2887,2888],[2891,2893],[2901,2903],[2908,2909],[2911,2915],[2918,2927],[2929,2929],[2946,2947],[2949,2954],[2958,2960],[2962,2965],[2969,2970],[2972,2972],[2974,2975],[2979,2980],[2984,2986],[2990,3001],[3006,3010],[3014,3016],[3018,3021],[3024,3024],[3031,3031],[3046,3055],[3072,3084],[3086,3088],[3090,3112],[3114,3129],[3132,3140],[3142,3144],[3146,3149],[3157,3158],[3160,3162],[3164,3165],[3168,3171],[3174,3183],[3200,3203],[3205,3212],[3214,3216],[3218,3240],[3242,3251],[3253,3257],[3260,3268],[3270,3272],[3274,3277],[3285,3286],[3292,3294],[3296,3299],[3302,3311],[3313,3315],[3328,3340],[3342,3344],[3346,3396],[3398,3400],[3402,3406],[3412,3415],[3423,3427],[3430,3439],[3450,3455],[3457,3459],[3461,3478],[3482,3505],[3507,3515],[3517,3517],[3520,3526],[3530,3530],[3535,3540],[3542,3542],[3544,3551],[3558,3567],[3570,3571],[3585,3642],[3648,3662],[3664,3673],[3713,3714],[3716,3716],[3718,3722],[3724,3747],[3749,3749],[3751,3773],[3776,3780],[3782,3782],[3784,3790],[3792,3801],[3804,3807],[3840,3840],[3864,3865],[3872,3881],[3893,3893],[3895,3895],[3897,3897],[3902,3911],[3913,3948],[3953,3972],[3974,3991],[3993,4028],[4038,4038],[4096,4169],[4176,4253],[4256,4293],[4295,4295],[4301,4301],[4304,4346],[4348,4680],[4682,4685],[4688,4694],[4696,4696],[4698,4701],[4704,4744],[4746,4749],[4752,4784],[4786,4789],[4792,4798],[4800,4800],[4802,4805],[4808,4822],[4824,4880],[4882,4885],[4888,4954],[4957,4959],[4969,4977],[4992,5007],[5024,5109],[5112,5117],[5121,5740],[5743,5759],[5761,5786],[5792,5866],[5870,5880],[5888,5909],[5919,5940],[5952,5971],[5984,5996],[5998,6000],[6002,6003],[6016,6099],[6103,6103],[6108,6109],[6112,6121],[6155,6157],[6159,6169],[6176,6264],[6272,6314],[6320,6389],[6400,6430],[6432,6443],[6448,6459],[6470,6509],[6512,6516],[6528,6571],[6576,6601],[6608,6618],[6656,6683],[6688,6750],[6752,6780],[6783,6793],[6800,6809],[6823,6823],[6832,6845],[6847,6877],[6880,6891],[6912,6988],[6992,7001],[7019,7027],[7040,7155],[7168,7223],[7232,7241],[7245,7293],[7296,7306],[7312,7354],[7357,7359],[7376,7378],[7380,7418],[7424,7957],[7960,7965],[7968,8005],[8008,8013],[8016,8023],[8025,8025],[8027,8027],[8029,8029],[8031,8061],[8064,8116],[8118,8124],[8126,8126],[8130,8132],[8134,8140],[8144,8147],[8150,8155],[8160,8172],[8178,8180],[8182,8188],[8204,8205],[8255,8256],[8276,8276],[8305,8305],[8319,8319],[8336,8348],[8400,8412],[8417,8417],[8421,8432],[8450,8450],[8455,8455],[8458,8467],[8469,8469],[8472,8477],[8484,8484],[8486,8486],[8488,8488],[8490,8505],[8508,8511],[8517,8521],[8526,8526],[8544,8584],[11264,11492],[11499,11507],[11520,11557],[11559,11559],[11565,11565],[11568,11623],[11631,11631],[11647,11670],[11680,11686],[11688,11694],[11696,11702],[11704,11710],[11712,11718],[11720,11726],[11728,11734],[11736,11742],[11744,11775],[12293,12295],[12321,12335],[12337,12341],[12344,12348],[12353,12438],[12441,12447],[12449,12543],[12549,12591],[12593,12686],[12704,12735],[12784,12799],[13312,19903],[19968,42124],[42192,42237],[42240,42508],[42512,42539],[42560,42607],[42612,42621],[42623,42737],[42775,42783],[42786,42888],[42891,42972],[42993,43047],[43052,43052],[43072,43123],[43136,43205],[43216,43225],[43232,43255],[43259,43259],[43261,43309],[43312,43347],[43360,43388],[43392,43456],[43471,43481],[43488,43518],[43520,43574],[43584,43597],[43600,43609],[43616,43638],[43642,43714],[43739,43741],[43744,43759],[43762,43766],[43777,43782],[43785,43790],[43793,43798],[43808,43814],[43816,43822],[43824,43866],[43868,43881],[43888,44010],[44012,44013],[44016,44025],[44032,55203],[55216,55238],[55243,55291],[63744,64109],[64112,64217],[64256,64262],[64275,64279],[64285,64296],[64298,64310],[64312,64316],[64318,64318],[64320,64321],[64323,64324],[64326,64433],[64467,64829],[64848,64911],[64914,64967],[65008,65019],[65024,65039],[65056,65071],[65075,65076],[65101,65103],[65136,65140],[65142,65276],[65296,65305],[65313,65338],[65343,65343],[65345,65370],[65381,65470],[65474,65479],[65482,65487],[65490,65495],[65498,65500],[65536,65547],[65549,65574],[65576,65594],[65596,65597],[65599,65613],[65616,65629],[65664,65786],[65856,65908],[66045,66045],[66176,66204],[66208,66256],[66272,66272],[66304,66335],[66349,66378],[66384,66426],[66432,66461],[66464,66499],[66504,66511],[66513,66517],[66560,66717],[66720,66729],[66736,66771],[66776,66811],[66816,66855],[66864,66915],[66928,66938],[66940,66954],[66956,66962],[66964,66965],[66967,66977],[66979,66993],[66995,67001],[67003,67004],[67008,67059],[67072,67382],[67392,67413],[67424,67431],[67456,67461],[67463,67504],[67506,67514],[67584,67589],[67592,67592],[67594,67637],[67639,67640],[67644,67644],[67647,67669],[67680,67702],[67712,67742],[67808,67826],[67828,67829],[67840,67861],[67872,67897],[67904,67929],[67968,68023],[68030,68031],[68096,68099],[68101,68102],[68108,68115],[68117,68119],[68121,68149],[68152,68154],[68159,68159],[68192,68220],[68224,68252],[68288,68295],[68297,68326],[68352,68405],[68416,68437],[68448,68466],[68480,68497],[68608,68680],[68736,68786],[68800,68850],[68864,68903],[68912,68921],[68928,68965],[68969,68973],[68975,68997],[69248,69289],[69291,69292],[69296,69297],[69314,69319],[69370,69404],[69415,69415],[69424,69456],[69488,69509],[69552,69572],[69600,69622],[69632,69702],[69734,69749],[69759,69818],[69826,69826],[69840,69864],[69872,69881],[69888,69940],[69942,69951],[69956,69959],[69968,70003],[70006,70006],[70016,70084],[70089,70092],[70094,70106],[70108,70108],[70144,70161],[70163,70199],[70206,70209],[70272,70278],[70280,70280],[70282,70285],[70287,70301],[70303,70312],[70320,70378],[70384,70393],[70400,70403],[70405,70412],[70415,70416],[70419,70440],[70442,70448],[70450,70451],[70453,70457],[70459,70468],[70471,70472],[70475,70477],[70480,70480],[70487,70487],[70493,70499],[70502,70508],[70512,70516],[70528,70537],[70539,70539],[70542,70542],[70544,70581],[70583,70592],[70594,70594],[70597,70597],[70599,70602],[70604,70611],[70625,70626],[70656,70730],[70736,70745],[70750,70753],[70784,70853],[70855,70855],[70864,70873],[71040,71093],[71096,71104],[71128,71133],[71168,71232],[71236,71236],[71248,71257],[71296,71352],[71360,71369],[71376,71395],[71424,71450],[71453,71467],[71472,71481],[71488,71494],[71680,71738],[71840,71913],[71935,71942],[71945,71945],[71948,71955],[71957,71958],[71960,71989],[71991,71992],[71995,72003],[72016,72025],[72096,72103],[72106,72151],[72154,72161],[72163,72164],[72192,72254],[72263,72263],[72272,72345],[72349,72349],[72368,72440],[72544,72551],[72640,72672],[72688,72697],[72704,72712],[72714,72758],[72760,72768],[72784,72793],[72818,72847],[72850,72871],[72873,72886],[72960,72966],[72968,72969],[72971,73014],[73018,73018],[73020,73021],[73023,73031],[73040,73049],[73056,73061],[73063,73064],[73066,73102],[73104,73105],[73107,73112],[73120,73129],[73136,73179],[73184,73193],[73440,73462],[73472,73488],[73490,73530],[73534,73538],[73552,73562],[73648,73648],[73728,74649],[74752,74862],[74880,75075],[77712,77808],[77824,78895],[78912,78933],[78944,82938],[82944,83526],[90368,90425],[92160,92728],[92736,92766],[92768,92777],[92784,92862],[92864,92873],[92880,92909],[92912,92916],[92928,92982],[92992,92995],[93008,93017],[93027,93047],[93053,93071],[93504,93548],[93552,93561],[93760,93823],[93856,93880],[93883,93907],[93952,94026],[94031,94087],[94095,94111],[94176,94177],[94179,94180],[94192,94198],[94208,101589],[101631,101662],[101760,101874],[110576,110579],[110581,110587],[110589,110590],[110592,110882],[110898,110898],[110928,110930],[110933,110933],[110948,110951],[110960,111355],[113664,113770],[113776,113788],[113792,113800],[113808,113817],[113821,113822],[118000,118009],[118528,118573],[118576,118598],[119141,119145],[119149,119154],[119163,119170],[119173,119179],[119210,119213],[119362,119364],[119808,119892],[119894,119964],[119966,119967],[119970,119970],[119973,119974],[119977,119980],[119982,119993],[119995,119995],[119997,120003],[120005,120069],[120071,120074],[120077,120084],[120086,120092],[120094,120121],[120123,120126],[120128,120132],[120134,120134],[120138,120144],[120146,120485],[120488,120512],[120514,120538],[120540,120570],[120572,120596],[120598,120628],[120630,120654],[120656,120686],[120688,120712],[120714,120744],[120746,120770],[120772,120779],[120782,120831],[121344,121398],[121403,121452],[121461,121461],[121476,121476],[121499,121503],[121505,121519],[122624,122654],[122661,122666],[122880,122886],[122888,122904],[122907,122913],[122915,122916],[122918,122922],[122928,122989],[123023,123023],[123136,123180],[123184,123197],[123200,123209],[123214,123214],[123536,123566],[123584,123641],[124112,124153],[124368,124410],[124608,124638],[124640,124661],[124670,124671],[124896,124902],[124904,124907],[124909,124910],[124912,124926],[124928,125124],[125136,125142],[125184,125259],[125264,125273],[126464,126467],[126469,126495],[126497,126498],[126500,126500],[126503,126503],[126505,126514],[126516,126519],[126521,126521],[126523,126523],[126530,126530],[126535,126535],[126537,126537],[126539,126539],[126541,126543],[126545,126546],[126548,126548],[126551,126551],[126553,126553],[126555,126555],[126557,126557],[126559,126559],[126561,126562],[126564,126564],[126567,126570],[126572,126578],[126580,126583],[126585,126588],[126590,126590],[126592,126601],[126603,126619],[126625,126627],[126629,126633],[126635,126651],[130032,130041],[131072,173791],[173824,178205],[178208,183981],[183984,191456],[191472,192093],[194560,195101],[196608,201546],[201552,210041],[917760,917999]]"));
+  return t1;
+}
+
+Value Core::_regex_clear_capture(Value caps, Value key) {
+  axir_coverage_mark("_regex_clear_capture");
+  Value t1 = Core::none();
+  Core::set(caps, key, t1);
+  return Value();
+}
+
+Value Core::_regex_copy_map(Value value) {
+  axir_coverage_mark("_regex_copy_map");
+  Value key = Core::none();
+  Value out = Core::none();
+  Value t1 = Value::object();
+  out = t1;
+  Value t2 = Core::map_keys(value);
+  for (auto iter_3 : Core::iter(t2)) {
+    key = iter_3;
+    Value t4 = Core::get(value, key, Value());
+    Core::set(out, key, t4);
+  }
+  return out;
 }
 
 Value Core::_agent_factory(Value signature, Value options) {
@@ -23689,6 +26059,13 @@ Value Core::_agent_runtime_execution_options(Value state, Value options) {
   Value reserved_names = Core::_agent_runtime_reserved_names_for_state(state);
   Value runtime_options = Core::map_merge(empty_map, options);
   Core::map_delete(runtime_options, Value("runtime"));
+  Core::map_delete(runtime_options, Value("executionContext"));
+  Core::map_delete(runtime_options, Value("inheritedExecutionContext"));
+  Core::map_delete(runtime_options, Value("mcpExecutionContext"));
+  Core::map_delete(runtime_options, Value("mcp"));
+  Core::map_delete(runtime_options, Value("ucp"));
+  Core::map_delete(runtime_options, Value("mcpContext"));
+  Core::map_delete(runtime_options, Value("functions"));
   Core::set(runtime_options, Value("reservedNames"), reserved_names);
   Value timeout_ms = Core::get(options, Value("timeout_ms"), Value());
   Value timeout = Core::get(options, Value("timeout"), timeout_ms);
@@ -25600,7 +27977,27 @@ Value Core::_agent_stage_options(Value state, Value stage, Value forward_options
     Value responder_opts_camel = Core::get(base_options, Value("responderOptions"), empty_map);
     stage_options = Core::get(base_options, Value("responder_options"), responder_opts_camel);
   }
-  Value out = Core::map_merge(stage_options, forward_options);
+  Value merged = Core::map_merge(stage_options, forward_options);
+  Value out = Value::object();
+  Value host_keys = Value::array();
+  Core::append(host_keys, Value("executionContext"));
+  Core::append(host_keys, Value("inheritedExecutionContext"));
+  Core::append(host_keys, Value("mcpExecutionContext"));
+  Core::append(host_keys, Value("mcp"));
+  Core::append(host_keys, Value("ucp"));
+  Core::append(host_keys, Value("mcpContext"));
+  Core::append(host_keys, Value("functions"));
+  Core::append(host_keys, Value("runtime"));
+  for (auto key : Core::iter(merged)) {
+    Value host = Core::contains(host_keys, key);
+    if (Core::truthy(host)) {
+      // empty
+    }
+    if (!Core::truthy(host)) {
+      Value value = Core::get(merged, key, Value());
+      Core::set(out, key, value);
+    }
+  }
   Value base_control = Core::get(base_options, Value("control"), Value());
   Value controller = Core::get(forward_options, Value("control"), base_control);
   Value controlled = Core::is_not_none(controller);
@@ -26617,6 +29014,71 @@ Value Core::_agent_forward_impl(Value state, Value distiller, Value executor, Va
   return responder_output;
 }
 
+Value Core::_agent_apply_run_context(Value state, Value configured, Value call, Value modules) {
+  axir_coverage_mark("_agent_apply_run_context");
+  Value empty_list = Value::array();
+  Value options = Core::map_merge(configured, call);
+  Value functions = Core::get(options, Value("functions"), empty_list);
+  Value retained = Value::array();
+  for (auto function : Core::iter(functions)) {
+    Value default_name = Core::get(function, Value("name"), Value(""));
+    Value namespace_ = Core::get(function, Value("namespace"), default_name);
+    Value mcp = Core::string_starts_with(namespace_, Value("mcp."));
+    Value ucp = Core::string_starts_with(namespace_, Value("ucp."));
+    Value protocol = Core::or_(mcp, ucp);
+    if (Core::truthy(protocol)) {
+      // empty
+    }
+    if (!Core::truthy(protocol)) {
+      Core::append(retained, function);
+    }
+  }
+  Core::set(options, Value("functions"), retained);
+  options = Core::_agent_append_runtime_modules(options, modules);
+  Value inventory = Core::_normalize_agent_callable_inventory(options);
+  Value split = Core::_split_agent_callable_inventory(inventory);
+  Value catalog = Core::_render_agent_discovery_catalog(split);
+  Core::set(state, Value("options"), options);
+  Core::set(state, Value("callable_inventory"), inventory);
+  Core::set(state, Value("callable_split"), split);
+  Core::set(state, Value("discovery_catalog"), catalog);
+  Value upgrade = Core::_resolve_agent_auto_upgrade(options);
+  Value flags = Core::_agent_policy_flags(options, split, upgrade);
+  Value policy = Core::_normalize_agent_policy(options);
+  Value registry = Core::_agent_policy_registry(policy, flags);
+  Core::set(state, Value("policy_flags"), flags);
+  Core::set(state, Value("policy_registry"), registry);
+  Value docs = Core::get(state, Value("discovered_tool_docs"), empty_list);
+  Value retained_docs = Value::array();
+  for (auto doc : Core::iter(docs)) {
+    Value name = Core::get(doc, Value("qualified_name"), Value(""));
+    Value mcp = Core::string_starts_with(name, Value("mcp."));
+    Value ucp = Core::string_starts_with(name, Value("ucp."));
+    Value protocol = Core::or_(mcp, ucp);
+    if (Core::truthy(protocol)) {
+      // empty
+    }
+    if (!Core::truthy(protocol)) {
+      Core::append(retained_docs, doc);
+    }
+  }
+  Core::set(state, Value("discovered_tool_docs"), retained_docs);
+  Value prompt = Core::_build_agent_actor_prompt_policy(state);
+  Core::set(state, Value("actor_prompt_policy"), prompt);
+  Value runtime = Core::get(state, Value("runtime_enabled"), Value(false));
+  if (Core::truthy(runtime)) {
+    Value executor = Core::_render_rlm_executor_description(state, options);
+    Value distiller = Core::_render_rlm_distiller_description(state, options);
+    Value responder = Core::_render_rlm_responder_description(state, options);
+    Core::set(state, Value("executor_description_base"), executor);
+    Core::set(state, Value("distiller_description"), distiller);
+    Core::set(state, Value("responder_description"), responder);
+    Core::_agent_refresh_actor_instruction(state);
+  }
+  Core::set(state, Value("mcp_run_context_active"), Value(true));
+  return call;
+}
+
 Value Core::_agent_append_runtime_modules(Value options, Value additional) {
   axir_coverage_mark("_agent_append_runtime_modules");
   Value empty_map = Value::object();
@@ -26734,6 +29196,8 @@ Value Core::_agent_child_options(Value state, Value qualified, Value options) {
       Core::set(out, key, value);
     }
   }
+  Value inheritance = Core::get(parent, Value("mcpInheritance"), Value("all"));
+  Core::set(out, Value("mcpInheritanceFromParent"), inheritance);
   Value snake_path = Core::get(parent, Value("execution_path"), Value("root"));
   Value parent_path = Core::get(parent, Value("executionPath"), snake_path);
   Value path = Core::string_format(Value("{}/{}"), parent_path, qualified);
@@ -35300,7 +37764,7 @@ AxAgent::AxAgent(Value signature, Value options, AxRuntimeHooks hooks)
 }
 
 AxAgent& AxAgent::set_signature(Value signature) {
-  Value options = Core::get(state_, "options", Value::object());
+  Value options = options_;
   state_ = Core::_agent_factory(std::move(signature), options);
   Value actor_validation_retries = Core::get(options, "validation_retries", Core::get(options, "validationRetries", 1));
   distiller_ = std::make_unique<AxGen>(s(str(Core::get(state_, "distiller_signature"))), object({{"validation_retries", actor_validation_retries}, {"id", "ctx.root.actor"}, {"instruction", Core::get(state_, "distiller_description", "")}}));
@@ -35336,6 +37800,17 @@ Value AxAgent::forward(AIClient& client, Value values, Value options, const AxRu
   AxRuntimeHooks program_hooks = *std::atomic_load(&runtime_hooks_);
   RuntimeHookScope scope(hooks, program_hooks, "ax_gen_agent_forward", "ax_gen_agent",
                          object({{"ax.program.id", "root.agent"}, {"ax.program.type", "AxAgent"}}));
+  auto call_context=execution_context_ ? execution_context_ : detail::MCPRunScope::current();
+  detail::MCPRunScope context_scope(call_context);
+  if(call_context || Core::truthy(Core::get(state_,"mcp_run_context_active",false))) {
+    Value modules=call_context ? call_context->agent_modules() : Value::array();
+    Core::_agent_apply_run_context(state_,options_,options,modules);
+    if(Core::truthy(Core::get(state_,"runtime_enabled",false))) {
+      distiller_->set_instruction(Core::get(state_,"distiller_description"));
+      executor_->set_instruction(Core::get(state_,"executor_description"));
+      responder_->set_instruction(Core::get(state_,"responder_description"));
+    }
+  }
   ensure_configured_playbook(client);
   // Wire the built-in llmQuery primitive onto the runtime carried in agent
   // options (the same runtime the actor loop will create sessions on),
@@ -35434,7 +37909,7 @@ AxAgent& AxAgent::add_tool_module(std::string name, const std::vector<Tool>& too
   for (const auto& tool : tools) {
     functions.push_back(tool.value());
   }
-  Value options = Core::get(state_, "options", Value::object());
+  Value options = options_;
   options = Core::_agent_append_runtime_modules(options, Value(Array{object({{"name", std::move(name)}, {"functions", Value(functions)}})}));
   options_ = options;
   state_ = Core::_agent_factory(Core::get(state_, "signature"), options);

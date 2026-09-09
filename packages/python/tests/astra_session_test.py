@@ -521,7 +521,7 @@ owned_balancer_failure_accounting()
 def native_mcp_agent_discovery():
     from dataclasses import replace
     from axllm import agent
-    schema={'type':'object','$defs':{'reference':{'type':'string','minLength':3}},'properties':{'query':{'$ref':'#/$defs/reference'}},'required':['query'],'additionalProperties':False}
+    schema={'type':'object','$defs':{'reference':{'type':'string','minLength':3,'pattern':'^(?=REF-[0-9]+$)(?<ref>REF)-[0-9]+$'}},'properties':{'query':{'$ref':'#/$defs/reference'}},'required':['query'],'additionalProperties':False}
     started=threading.Event();release=threading.Event();calls=[];requests=[]
     class MCP(AxMCPTransport):
         def send_notification(self,message): raise AssertionError('Modern discovery sent initialize')
@@ -603,13 +603,15 @@ native_mcp_agent_discovery()
 
 def test_owned_child_controls():
     from axllm import agent
+    from dataclasses import replace
+    from axllm.ai import AxAIServiceAbortedError
     from axllm.agent import AxCodeRuntime, AxCodeSession
     stages=['root/distiller','root/executor','root/team.researcher/distiller','root/team.researcher/executor','root/team.researcher/responder','root/executor','root/responder']
     for cancel in (False,True):
-        control=run_control(); observed=[]; requests=[]
+        control=run_control(); observed=[]; requests=[]; mcp_calls=[]; mcp_settled=threading.Event()
         def observe(event):
             observed.append(event)
-            if cancel and event['type']=='started' and event['path']=='root/team.researcher/executor':control.abort()
+
         control.on_event(observe)
         control.steer('ROOT-UPDATE')
         control.steer('CHILD-ONLY',target='root/team.researcher')
@@ -647,8 +649,22 @@ def test_owned_child_controls():
             elif stage=='root/responder':output={'answer':'REF-42'}
             else:output={'javascriptCode':'delegate' if stage=='root/executor' and not runtime.delegated else 'parent-final'}
             response={'id':'child-r'+str(number+1),'model':'gpt-6-astra','usage':{'input_tokens':2,'output_tokens':1,'total_tokens':3},'output':[{'type':'message','id':'message','content':[{'type':'output_text','text':json.dumps(output)}]}]}
+            if cancel and number==6:
+                response['output']=[{'type':'function_call','name':'tools_lookup','call_id':'child-mcp','arguments':'{}','status':'completed'}]
             return {'status':200,'body':'data: '+json.dumps({'type':'response.completed','response':response})+'\n\n'}
-        child=agent('question -> answer',{'directResponse':'off'})
+        class MCP(AxMCPTransport):
+            def send(self,message): raise AssertionError('Child dropped MCP cancellation context')
+            def send_with_context(self,message,headers=None,context=None):
+                assert message['method']=='tools/call' and message['params']['name']=='lookup'
+                mcp_calls.append(message);control.abort()
+                assert context and context['signal'].wait(1),'Child MCP cancellation did not propagate'
+                mcp_settled.set()
+                raise AxAIServiceAbortedError('Child MCP invocation aborted')
+        mcp=AxMCPClient(MCP(),{'namespace':'inventory'})
+        mcp.tools=[{'name':'lookup','inputSchema':{'type':'object','additionalProperties':False}}]
+        child_options={'directResponse':'off'}
+        if cancel:child_options.update({'functionDiscovery':False,'functions':[replace(mcp.native_tools()[0],execution='background')]})
+        child=agent('question -> answer',child_options)
         parent=agent('question -> answer',{'directResponse':'off','runtime':runtime}).add_child_agent('team','researcher',child)
         client=ai('openai',model='gpt-6-astra',api_key='test',transport=transport)
         try:
@@ -665,6 +681,7 @@ def test_owned_child_controls():
             assert 6 <= len(requests) <= 7 and runtime.closed==1,(len(requests),runtime.closed)
             activity=[item for item in parent.state['function_call_traces'] if item.get('call_id')=='child-call']
             assert len(activity)==1 and activity[0]['status']=='error',activity
+        if cancel:assert mcp_settled.wait(1) and len(mcp_calls)==1,'Child MCP work did not settle exactly once'
         assert parent.get_usage()["children"]["team.researcher"]==child.get_usage(),"Child failure usage lost"
         before = len(requests)
         for name in ('team.researcher','llmQuery'):
@@ -676,3 +693,64 @@ def test_owned_child_controls():
     print('python actual child delegation, scoped controls, usage, and cancellation passed')
 
 test_owned_child_controls()
+
+
+def test_mcp_http_invocation_cancellation():
+    import threading,socket,json,time
+    from axllm.mcp import AxMCPClient,AxMCPStreamableHTTPTransport
+    from axllm.ai import AxAIServiceAbortedError
+    listener=socket.socket();listener.bind(('127.0.0.1',0));listener.listen(1)
+    started=threading.Event();disconnected=threading.Event();wire=[]
+    def serve():
+     conn,_=listener.accept()
+     with conn:
+      conn.settimeout(3);raw=b''
+      while b'\r\n\r\n' not in raw:raw+=conn.recv(4096)
+      head,body=raw.split(b'\r\n\r\n',1);length=int(next(l.split(b':',1)[1] for l in head.split(b'\r\n') if l.lower().startswith(b'content-length:')))
+      while len(body)<length:body+=conn.recv(4096)
+      wire.append((head,json.loads(body)))
+      conn.sendall(b'HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: 100\r\n\r\n');started.set()
+      if conn.recv(1)==b'':disconnected.set()
+    server=threading.Thread(target=serve,daemon=True);server.start()
+    t=AxMCPStreamableHTTPTransport('http://127.0.0.1:'+str(listener.getsockname()[1]),{'ssrfProtection':{'allowLocalhost':True,'allowPrivateNetworks':True,'requireHttps':False},'headers':{'X-Tenant':'fixture'}})
+    c=AxMCPClient(t,{'namespace':'inventory'});c.tools=[{'name':'lookup','inputSchema':{'type':'object'}}];signal=threading.Event();context={'signal':signal,'call_id':'model-call'};errors=[]
+    def invoke():
+     try:c.native_tools()[0].call({'query':'probe'},context)
+     except Exception as e:errors.append(e)
+    worker=threading.Thread(target=invoke);worker.start();assert started.wait(2)
+    start=time.monotonic();signal.set();worker.join(1);assert not worker.is_alive();assert time.monotonic()-start<1;assert len(errors)==1 and isinstance(errors[0],AxAIServiceAbortedError),errors
+    assert disconnected.wait(1);server.join();listener.close();assert wire[0][1]['params']['arguments']=={'query':'probe'};assert b'X-Tenant: fixture' in wire[0][0]
+    try:c.native_tools()[0].call({'query':'never'},context)
+    except AxAIServiceAbortedError:pass
+    else:raise AssertionError('pre-cancelled tool sent a request')
+    print('Python MCP native context, HTTP cancellation, cleanup, and preflight passed')
+
+test_mcp_http_invocation_cancellation()
+
+def test_actor_mcp_cancellation_context():
+    from axllm import agent, run_control
+    from axllm.ai import AxAIServiceAbortedError
+    control = run_control()
+    calls = []
+    class MCP(AxMCPTransport):
+        def send_notification(self, message): pass
+        def send(self, message): raise AssertionError('Actor dropped invocation context')
+        def send_with_context(self, message, headers=None, context=None):
+            assert message['method'] == 'tools/call'
+            assert context is not None and context['signal'] is control.signal
+            calls.append(message)
+            control.abort()
+            assert context['signal'].is_set()
+            raise AxAIServiceAbortedError('MCP invocation cancelled')
+    client = AxMCPClient(MCP(), {'namespace':'inventory'})
+    client.tools = [{'name':'lookup','inputSchema':{'type':'object'}}]
+    program = agent('question -> answer', {'functions':client.native_tools(),'functionDiscovery':False})
+    try:
+        result = program.invoke_callable('tools.lookup', {'query':'probe'}, {'control':control})
+        assert result['status']=='error' and 'cancel' in str(result).lower(), result
+    except AxAIServiceAbortedError:
+        pass
+    assert len(calls)==1
+    print('Python actor invocation forwards MCP cancellation context')
+
+test_actor_mcp_cancellation_context()

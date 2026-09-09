@@ -3,6 +3,7 @@ import os
 
 import base64
 import hashlib
+import http.client
 import ipaddress
 import json
 import re
@@ -19,7 +20,7 @@ from typing import Any, Callable
 
 from .signature import AxSignature
 from .tool import Tool
-from .ai import AxCancellationToken
+from .ai import AxCancellationToken, AxAIServiceAbortedError
 # AXIR_CORE_IMPORTS
 
 
@@ -849,6 +850,17 @@ class AxEventRuntime:
         return event_normalize_mcp(namespace, method, params)
 
 
+def _mcp_check_context(context):
+    if not context:
+        return
+    token = context.get("cancellation")
+    if token is not None:
+        token.throw_if_cancelled()
+    signal = context.get("signal")
+    if signal is not None and signal.is_set():
+        raise AxAIServiceAbortedError("MCP invocation cancelled")
+
+
 class AxMCPTransport:
     def send(self, message: dict[str, Any]) -> dict[str, Any]:
         raise NotImplementedError
@@ -858,6 +870,13 @@ class AxMCPTransport:
 
     def send_with_headers(self, message: dict[str, Any], headers: dict[str, str] | None = None) -> dict[str, Any]:
         return self.send(message)
+
+    def send_with_context(self, message, headers=None, context=None):
+        """Optional cancellation boundary; existing transports remain valid."""
+        _mcp_check_context(context)
+        result = self.send_with_headers(message, headers)
+        _mcp_check_context(context)
+        return result
 
     def send_response(self, message: dict[str, Any]) -> None:
         self.send_notification(message)
@@ -1168,14 +1187,14 @@ class AxMCPClient:
         if changed:
             self.catalog_revision += 1
 
-    def _collect_catalog(self, method: str, field: str) -> list[dict[str, Any]]:
+    def _collect_catalog(self, method: str, field: str, *, context=None) -> list[dict[str, Any]]:
         values: list[dict[str, Any]] = []
         pages: list[dict[str, Any]] = []
         cursor = None
         seen: set[str] = set()
         max_pages = int(self.options.get("maxPaginationPages", 1000))
         for _page in range(max_pages):
-            result = self._request(method, {"cursor": cursor} if cursor else {})
+            result = self._request(method, {"cursor": cursor} if cursor else {}, context=context)
             pages.append(result)
             values.extend(json.loads(json.dumps(result.get(field) or [])))
             cursor = result.get("nextCursor")
@@ -1210,13 +1229,14 @@ class AxMCPClient:
         params = {"cursor": cursor} if cursor else {}
         return self._request("tools/list", params)
 
-    def call_tool(self, name: str, arguments: dict[str, Any] | None = None) -> dict[str, Any]:
+    def call_tool(self, name: str, arguments: dict[str, Any] | None = None, *, context=None) -> dict[str, Any]:
+        _mcp_check_context(context)
         args = arguments or {}
         authorize = self.options.get("authorizeToolCall", self.options.get("authorize_tool_call"))
         if authorize is not None:
-            context = _mcp_tool_authorization_context(self.tools, self.namespace(), name, args)
-            context["client"] = self
-            _mcp_tool_authorization_result(name, authorize(context))
+            authorization_context = _mcp_tool_authorization_context(self.tools, self.namespace(), name, args)
+            authorization_context["client"] = self
+            _mcp_tool_authorization_result(name, authorize(authorization_context))
         headers: dict[str, str] = {}
         if self.era == "modern":
             tool = next((item for item in self.tools if item.get("name") == name), None)
@@ -1224,11 +1244,11 @@ class AxMCPClient:
                 bindings = mcp_param_header_bindings(tool.get("inputSchema") or {})
                 headers = {str(key): str(value) for key, value in mcp_param_header_values(bindings, args).items()}
         try:
-            result = self._request_with_input_rounds("tools/call", {"name": name, "arguments": args}, extra_headers=headers)
+            result = self._request_with_input_rounds("tools/call", {"name": name, "arguments": args}, extra_headers=headers, context=context)
         except AxMCPError as error:
             if self.era != "modern" or error.code != -32020:
                 raise
-            raw_tools = self._collect_catalog("tools/list", "tools")
+            raw_tools = self._collect_catalog("tools/list", "tools", context=context)
             self.tools = []
             for tool in raw_tools:
                 try:
@@ -1239,19 +1259,19 @@ class AxMCPClient:
             tool = next((item for item in self.tools if item.get("name") == name), None)
             bindings = mcp_param_header_bindings((tool or {}).get("inputSchema") or {})
             headers = {str(key): str(value) for key, value in mcp_param_header_values(bindings, args).items()}
-            result = self._request_with_input_rounds("tools/call", {"name": name, "arguments": args}, extra_headers=headers)
+            result = self._request_with_input_rounds("tools/call", {"name": name, "arguments": args}, extra_headers=headers, context=context)
         if result.get("resultType") != "task":
             return result
         if not self._has_tasks_capability():
             raise AxMCPError("MCP protocol violation: server returned a task without negotiating io.modelcontextprotocol/tasks")
         if not mcp_validate_modern_task(result):
             raise AxMCPError("MCP protocol violation: invalid CreateTaskResult")
-        return self._await_modern_task(str(result["taskId"]))
+        return self._await_modern_task(str(result["taskId"]), context=context)
 
-    def _await_modern_task(self, task_id: str) -> dict[str, Any]:
+    def _await_modern_task(self, task_id: str, *, context=None) -> dict[str, Any]:
         max_polls = int(self.options.get("maxTaskPolls", 1000))
         for _ in range(max_polls):
-            task = self.get_task(task_id)
+            task = self.get_task(task_id, context=context)
             outcome = mcp_task_terminal_outcome(task)
             kind = outcome.get("kind")
             if kind == "result":
@@ -1278,7 +1298,7 @@ class AxMCPClient:
                         pending.get("params") or {},
                         {"client": self, "namespace": self.namespace()},
                     )
-                self.provide_task_input(task_id, responses)
+                self.provide_task_input(task_id, responses, context=context)
         raise AxMCPError(f"MCP task {task_id} exceeded {max_polls} polls")
 
     def list_prompts(self, cursor: str | None = None) -> dict[str, Any]:
@@ -1390,10 +1410,10 @@ class AxMCPClient:
         if not isinstance(resources, dict) or not resources.get("subscribe"):
             raise AxMCPError("Resource subscriptions are not supported")
 
-    def get_task(self, task_id: str) -> dict[str, Any]:
+    def get_task(self, task_id: str, *, context=None) -> dict[str, Any]:
         if not self._has_tasks_capability():
             raise AxMCPError("Tasks are not supported")
-        result = self._request("tasks/get", {"taskId": task_id})
+        result = self._request("tasks/get", {"taskId": task_id}, context=context)
         if self.era == "modern" and not mcp_validate_modern_task(result):
             raise AxMCPError("MCP protocol violation: invalid tasks/get result")
         return result
@@ -1418,10 +1438,10 @@ class AxMCPClient:
             raise AxMCPError("Tasks are not supported")
         return self._request("tasks/result", {"taskId": task_id})
 
-    def provide_task_input(self, task_id: str, input_responses: dict[str, Any]) -> None:
+    def provide_task_input(self, task_id: str, input_responses: dict[str, Any], *, context=None) -> None:
         if self.era != "modern" or not self._has_tasks_capability():
             raise AxMCPError("tasks/update is only available for modern MCP Tasks v2")
-        self._request("tasks/update", {"taskId": task_id, "inputResponses": input_responses})
+        self._request("tasks/update", {"taskId": task_id, "inputResponses": input_responses}, context=context)
 
     def list_resource_templates(self, cursor: str | None = None) -> dict[str, Any]:
         return self._request("resources/templates/list", {"cursor": cursor} if cursor else {})
@@ -1462,6 +1482,7 @@ class AxMCPClient:
                 _override_description(tool, self.options),
                 tool.get("inputSchema") or {"type": "object", "properties": {}},
                 lambda args, original=original: self.call_tool(original, args),
+                context_handler=lambda args, context, original=original: self.call_tool(original, args, context=context),
             ))
         return out
 
@@ -1494,12 +1515,12 @@ class AxMCPClient:
     def namespace(self) -> str:
         return str(self.options.get("namespace") or (self.server_info or {}).get("name") or "mcp")
 
-    def _request_with_input_rounds(self, method: str, base_params: dict[str, Any], *, extra_headers: dict[str, str] | None = None) -> dict[str, Any]:
+    def _request_with_input_rounds(self, method: str, base_params: dict[str, Any], *, extra_headers: dict[str, str] | None = None, context=None) -> dict[str, Any]:
         params = json.loads(json.dumps(base_params))
         max_rounds = self.options.get("maxInputRounds")
         round_index = 0
         while True:
-            result = self._request(method, params, extra_headers=extra_headers)
+            result = self._request(method, params, extra_headers=extra_headers, context=context)
             plan = mcp_mrtr_plan_round(result, self.era or "legacy", method, round_index, max_rounds)
             action = plan.get("action")
             if action == "complete":
@@ -1527,7 +1548,8 @@ class AxMCPClient:
             params = mcp_mrtr_next_params(base_params, input_responses, request_state)
             round_index += 1
 
-    def _request(self, method: str, params: dict[str, Any] | None = None, *, extra_headers: dict[str, str] | None = None, allow_version_retry: bool = True) -> dict[str, Any]:
+    def _request(self, method: str, params: dict[str, Any] | None = None, *, extra_headers: dict[str, str] | None = None, allow_version_retry: bool = True, context=None) -> dict[str, Any]:
+        _mcp_check_context(context)
         with self._request_id_lock:
             request_id = str(self._next_id)
             self._next_id += 1
@@ -1546,7 +1568,9 @@ class AxMCPClient:
             )
         if params is not None:
             message["params"] = request_params
-        response = self.transport.send_with_headers(message, extra_headers or {})
+        send = getattr(self.transport, "send_with_context", None)
+        response = send(message, extra_headers or {}, context) if callable(send) else self.transport.send_with_headers(message, extra_headers or {})
+        _mcp_check_context(context)
         if "error" in response:
             error = response["error"] or {}
             protocol_error = AxMCPError(str(error.get("message", "MCP JSON-RPC error")), code=error.get("code"), data=error.get("data"))
@@ -1555,7 +1579,7 @@ class AxMCPClient:
                 if version:
                     self.negotiated_protocol_version = version
                     self.transport.set_protocol_version(version)
-                    return self._request(method, params, extra_headers=extra_headers, allow_version_retry=False)
+                    return self._request(method, params, extra_headers=extra_headers, allow_version_retry=False, context=context)
             raise protocol_error
         result = response.get("result") or {}
         if self.era == "modern" and isinstance(result, dict):
@@ -1637,13 +1661,13 @@ class AxMCPClient:
         name = _override_name(tool.get("name", ""), self.options)
         description = _override_description(tool, self.options)
 
-        def handler(args: dict[str, Any]) -> Any:
-            result = self.call_tool(tool.get("name", name), args)
+        def handler(args: dict[str, Any], context=None) -> Any:
+            result = self.call_tool(tool.get("name", name), args, context=context)
             if "structuredContent" in result:
                 return result["structuredContent"]
             return _content_to_value(result.get("content", []))
 
-        return Tool(name, description, tool.get("inputSchema") or {"type": "object", "properties": {}}, handler)
+        return Tool(name, description, tool.get("inputSchema") or {"type": "object", "properties": {}}, handler, context_handler=handler)
 
     def _prompt_to_function(self, prompt: dict[str, Any]) -> Tool:
         name = _override_name("prompt_" + prompt.get("name", ""), self.options)
@@ -1893,12 +1917,12 @@ def resolve_execution_context(options: dict[str, Any] | None, parent: AxExecutio
     opts = options or {}
     explicit = opts.get("executionContext") or opts.get("mcpExecutionContext")
     if isinstance(explicit, AxExecutionContext):
-        return explicit.derive(opts.get("mcpInheritance", "all"))
+        return explicit
     mcp = opts.get("mcp")
     ucp = opts.get("ucp")
     if mcp is not None or ucp is not None:
         return AxExecutionContext(mcp if isinstance(mcp, (list, tuple)) else [mcp] if mcp else [], ucp if isinstance(ucp, (list, tuple)) else [ucp] if ucp else [], opts)
-    return parent.derive(opts.get("mcpInheritance", "all")) if parent else None
+    return parent if parent is not None else opts.get("inheritedExecutionContext")
 
 
 def _ax_mcp_encode_header_value(value: str) -> str:
@@ -2065,7 +2089,11 @@ class AxMCPStreamableHTTPTransport(AxMCPTransport):
     def send(self, message: dict[str, Any]) -> dict[str, Any]:
         return self.send_with_headers(message)
 
-    def send_with_headers(self, message: dict[str, Any], extra_headers: dict[str, str] | None = None) -> dict[str, Any]:
+    def send_with_headers(self, message, extra_headers=None):
+        return self.send_with_context(message, extra_headers)
+
+    def send_with_context(self, message, extra_headers=None, context=None):
+        _mcp_check_context(context)
         body = json.dumps(message).encode("utf-8")
         headers = self.build_headers(
             {"Content-Type": "application/json", "Accept": "application/json, text/event-stream"},
@@ -2075,11 +2103,53 @@ class AxMCPStreamableHTTPTransport(AxMCPTransport):
             extra_headers,
         )
         request = urllib.request.Request(self.endpoint, data=body, headers=headers, method="POST")
+        done = threading.Event()
+        sockets = []
+        socket_lock = threading.Lock()
+        def capture_socket(connection):
+            with socket_lock:
+                sockets.append(connection.sock)
+            try:
+                _mcp_check_context(context)
+            except AxAIServiceAbortedError:
+                connection.close()
+                raise
+        def watch_cancel():
+            while not done.wait(0.01):
+                try:
+                    _mcp_check_context(context)
+                except AxAIServiceAbortedError:
+                    with socket_lock:
+                        current = list(sockets)
+                    for connection in current:
+                        try: connection.shutdown(socket.SHUT_RDWR)
+                        except OSError: pass
+                    return
+        opener = urllib.request.urlopen
+        watcher = None
+        if context:
+            class HTTPConnection(http.client.HTTPConnection):
+                def connect(self):
+                    super().connect()
+                    capture_socket(self)
+            class HTTPSConnection(http.client.HTTPSConnection):
+                def connect(self):
+                    super().connect()
+                    capture_socket(self)
+            class HTTPHandler(urllib.request.HTTPHandler):
+                def http_open(self, req): return self.do_open(HTTPConnection, req)
+            class HTTPSHandler(urllib.request.HTTPSHandler):
+                def https_open(self, req): return self.do_open(HTTPSConnection, req, context=self._context)
+            opener = urllib.request.build_opener(HTTPHandler(), HTTPSHandler()).open
+            watcher = threading.Thread(target=watch_cancel, daemon=True)
+            watcher.start()
         try:
-            with urllib.request.urlopen(request, timeout=float(self.options.get("timeout", 30))) as response:
+            with opener(request, timeout=float(self.options.get("timeout", 30))) as response:
+                _mcp_check_context(context)
                 self._capture_session(response.headers)
                 content_type = response.headers.get("Content-Type", "") if hasattr(response.headers, "get") else ""
                 text = response.read().decode("utf-8")
+                _mcp_check_context(context)
                 if not text:
                     return {"jsonrpc": "2.0", "id": message.get("id"), "result": {}}
                 # A spec-compliant MCP server may answer a JSON-RPC POST with an SSE
@@ -2093,9 +2163,18 @@ class AxMCPStreamableHTTPTransport(AxMCPTransport):
                     return self._select_sse_response(_ax_mcp_parse_sse(text), message.get("id"))
                 return json.loads(text)
         except urllib.error.HTTPError as error:
+            _mcp_check_context(context)
             if error.code == 401 and self._apply_oauth(error.headers.get("WWW-Authenticate") if error.headers else None):
-                return self.send_with_headers(message, extra_headers)
+                return self.send_with_context(message, extra_headers, context)
             raise AxMCPError(f"HTTP error {error.code}: {error.reason}")
+
+        except (OSError, http.client.HTTPException) as error:
+            _mcp_check_context(context)
+            raise
+        finally:
+            done.set()
+            if watcher is not None:
+                watcher.join()
 
     def _select_sse_response(self, messages: list[dict[str, Any]], request_id: Any) -> dict[str, Any]:
         # Return the JSON-RPC response whose id matches this request; route any

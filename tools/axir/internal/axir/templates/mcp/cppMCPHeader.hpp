@@ -48,6 +48,12 @@ class AxMCPTransport {
   virtual ~AxMCPTransport() = default;
   virtual Value send(Value message) = 0;
   virtual Value send_with_headers(Value message, Value headers) { (void)headers; return send(std::move(message)); }
+  virtual Value send_with_context(Value message,Value headers,const AxToolContext& context){
+    if(context.is_cancelled())throw AxAIServiceAbortedError("MCP invocation cancelled");
+    auto result=send_with_headers(std::move(message),std::move(headers));
+    if(context.is_cancelled())throw AxAIServiceAbortedError("MCP invocation cancelled");
+    return result;
+  }
   virtual void send_notification(Value message) = 0;
   virtual void send_response(Value message) { send_notification(std::move(message)); }
   virtual void set_message_handler(std::function<void(Value)>) {}
@@ -100,6 +106,7 @@ class AxMCPClient {
   Value ping();
   Value list_tools(const std::string& cursor = "");
   Value call_tool(const std::string& name, Value arguments = Value::object());
+  Value call_tool(const std::string& name,Value arguments,const AxToolContext& context);
   Value list_prompts(const std::string& cursor = "");
   Value get_prompt(const std::string& name, Value arguments = Value::object());
   Value list_resources(const std::string& cursor = "");
@@ -337,7 +344,7 @@ class AxEventRuntime {
   std::vector<AxEventRoute> routes_;Value options_;Value descriptor_;AxInMemoryEventStore store_;std::shared_ptr<AxEventClock> clock_;std::map<std::string,AxEventTarget> targets_;std::vector<std::shared_ptr<AxEventSource>> sources_;std::map<std::string,std::shared_ptr<AxEventCancellationToken>> active_;bool started_=false;int maxAttempts_=3;long retryBackoffMs_=1000;
 };
 
-class AxExecutionContext {
+class AxExecutionContext : public detail::AgentExecutionContext {
  public:
   AxExecutionContext(std::vector<std::shared_ptr<AxMCPClient>> mcp = {}, std::vector<std::shared_ptr<AxUCPClient>> ucp = {});
   void initialize();
@@ -350,6 +357,10 @@ class AxExecutionContext {
   void attach(AxAgent& agent);
 
  private:
+  friend class AxAgent;
+  friend struct Core;
+  Value agent_modules() override;
+  std::shared_ptr<detail::AgentExecutionContext> shared_derived(Value inheritance) const override;
   std::vector<std::shared_ptr<AxMCPClient>> mcp_;
   std::vector<std::shared_ptr<AxUCPClient>> ucp_;
   std::set<AxMCPClient*> initialized_;
@@ -361,6 +372,7 @@ class AxMCPStreamableHTTPTransport : public AxMCPTransport {
   explicit AxMCPStreamableHTTPTransport(std::string endpoint, Value options = Value::object());
   Value send(Value message) override;
   Value send_with_headers(Value message, Value headers) override;
+  Value send_with_context(Value message,Value headers,const AxToolContext& context) override;
   void send_notification(Value message) override;
   void set_message_handler(std::function<void(Value)> handler) override {message_handler_=std::move(handler);}
   void set_lifecycle_handler(std::function<void(std::string)> handler) override {lifecycle_handler_=std::move(handler);}

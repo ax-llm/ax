@@ -156,6 +156,12 @@ AxMCPCatalogSnapshot AxMCPClient::inspect_catalog(bool refresh_catalog){init();i
 std::string AxMCPClient::protocol_version() const { return state_->negotiated_protocol_version_; }
 Value AxMCPClient::ping() { return request("ping"); }
 Value AxMCPClient::list_tools(const std::string& cursor) { return request("tools/list", cursor_params(cursor)); }
+static thread_local const AxToolContext* active_mcp_call_context=nullptr;
+Value AxMCPClient::call_tool(const std::string& name,Value arguments,const AxToolContext& context){
+  if(context.is_cancelled())throw AxAIServiceAbortedError("MCP invocation cancelled");
+  struct Scope{const AxToolContext* previous;explicit Scope(const AxToolContext& value):previous(active_mcp_call_context){active_mcp_call_context=&value;}~Scope(){active_mcp_call_context=previous;}} scope(context);
+  return call_tool(name,std::move(arguments));
+}
 Value AxMCPClient::call_tool(const std::string& name, Value arguments) {if(state_->tool_authorizer_){auto context=Core::_mcp_tool_authorization_context(Value(Array(state_->tools_.begin(),state_->tools_.end())),namespace_name(),name,arguments);auto decision=state_->tool_authorizer_(*this,context);Core::_mcp_tool_authorization_result(name,decision.has_value()?Value(*decision):Value());}auto params=object({{"name",name},{"arguments",arguments}});Value result;try{result=request_with_input_rounds("tools/call",params,tool_headers(name,arguments));}catch(const AxError& error){if(state_->era_!="modern"||error.code!="-32020")throw;state_->tools_.clear();for(auto tool:collect_catalog("tools/list","tools")){try{Core::mcp_param_header_bindings(Core::get(tool,"inputSchema",Value::object()));state_->tools_.push_back(tool);}catch(const std::exception&){}}result=request_with_input_rounds("tools/call",params,tool_headers(name,arguments));}if(display(Core::get(result,"resultType",""))!="task")return result;if(!has_tasks_capability())throw AxError("mcp","MCP protocol violation: server returned a task without negotiating io.modelcontextprotocol/tasks");if(!Core::truthy(Core::mcp_validate_modern_task(result)))throw AxError("mcp","MCP protocol violation: invalid CreateTaskResult");return await_modern_task(display(Core::get(result,"taskId","")));}
 Value AxMCPClient::await_modern_task(const std::string& task_id){auto max=static_cast<int>(Core::number(Core::get(state_->options_,"maxTaskPolls",1000)));for(int poll=0;poll<max;++poll){auto outcome=Core::mcp_task_terminal_outcome(get_task(task_id));auto kind=display(Core::get(outcome,"kind",""));if(kind=="result")return Core::json_parse(Core::json_stringify(Core::get(outcome,"result",Value::object())));if(kind=="protocol_error")throw AxError("mcp",display(Core::get(outcome,"message","MCP task failed")),"",0,display(Core::get(outcome,"code",0)),false);if(kind=="violation"||kind=="failure"||kind=="cancelled")throw AxError("mcp",display(Core::get(outcome,"message","MCP task failed")));if(kind=="input_required"){auto fulfillment=Core::mcp_mrtr_plan_fulfillment(Core::get(outcome,"inputRequests",Value::object()),Core::get(state_->options_,"roots",Value()),static_cast<bool>(state_->elicitation_handler_),false);if(!Core::truthy(Core::get(fulfillment,"ok",false)))throw AxError("mcp",display(Core::get(fulfillment,"message","MCP protocol violation")));auto responses=Core::get(fulfillment,"responses",Value::object());for(auto entry:as_object_local(Core::get(fulfillment,"pending",Value::object()))){if(entry.first=="__order")continue;auto method=display(Core::get(entry.second,"method",""));if(!state_->elicitation_handler_||method!="elicitation/create")throw AxError("mcp","MCP protocol violation: unsupported pending task input request method "+method);Core::set(responses,entry.first,state_->elicitation_handler_(Core::get(entry.second,"params",Value::object()),object({{"client","AxMCPClient"},{"namespace",namespace_name()}})));}provide_task_input(task_id,responses);}}throw AxError("mcp","MCP task "+task_id+" exceeded "+std::to_string(max)+" polls");}
 Value AxMCPClient::tool_headers(const std::string& name,Value arguments)const{if(state_->era_!="modern")return Value::object();for(auto tool:state_->tools_)if(display(Core::get(tool,"name",""))==name){auto bindings=Core::mcp_param_header_bindings(Core::get(tool,"inputSchema",Value::object()));return Core::mcp_param_header_values(bindings,arguments);}return Value::object();}
@@ -203,7 +209,7 @@ Value AxMCPClient::request_with_headers(const std::string& method,Value params,V
   Value message = object({{"jsonrpc", "2.0"}, {"id", std::to_string(state_->next_id_++)}, {"method", method}});
   Value request_params=parse_json(stringify(params));if(state_->era_=="modern"){if(!request_params.is_object())request_params=Value::object();auto meta=Core::mcp_build_request_meta(Core::get(request_params,"_meta",Value::object()),state_->negotiated_protocol_version_,client_capabilities(),object({{"name","AxMCPClient"},{"title","Ax MCP Client"},{"version","1.0.0"}}),Core::get(state_->options_,"logLevel",Value()),Value(),Value());Core::set(request_params,"_meta",meta);}
   if (!params.is_null()) Core::set(message, "params", request_params);
-  Value response = state_->transport_->send_with_headers(message,headers);
+  Value response = state_->transport_->send_with_context(message,headers,active_mcp_call_context?*active_mcp_call_context:AxToolContext{});
   Value error = Core::get(response, "error", Value());
   if (!error.is_null()){auto code=display(Core::get(error,"code",0));if(state_->era_=="modern"&&allow_version_retry&&code=="-32022"){auto supported=array({"2026-07-28","2025-11-25","2025-06-18","2025-03-26","2024-11-05"});auto version=display(Core::mcp_select_mutual_version(Core::get(error,"data",Value()),supported));if(!version.empty()){state_->negotiated_protocol_version_=version;state_->transport_->set_protocol_version(version);return request_with_headers(method,params,headers,false);}}throw AxError("mcp",display(Core::get(error,"message","MCP JSON-RPC error")),"",0,code,false);}
   auto result=Core::get(response,"result",Value::object());if(state_->era_=="modern"){auto info=Core::get(Core::get(result,"_meta",Value::object()),"io.modelcontextprotocol/serverInfo",Value());if(!info.is_null()&&!display(Core::get(info,"name","")).empty()&&!display(Core::get(info,"version","")).empty())set_server_info(info);}return result;
@@ -255,6 +261,7 @@ std::vector<Tool> AxMCPClient::native_tools() {
     out.emplace_back(original, display(Core::get(spec, "description", original)), Core::get(spec, "inputSchema", Value::object()), [self, original](Value args) {
       return self->call_tool(original, args);
     });
+    out.back().context_handler([self,original](Value args,const AxToolContext& context){return self->call_tool(original,std::move(args),context);});
   }
   return out;
 }
@@ -387,18 +394,24 @@ AxExecutionContext AxExecutionContext::derive(Value inheritance) const {
 
 AxMCPContinuationState AxExecutionContext::continuation_state() const { auto names = namespaces(); std::string joined; for (auto& name : names) joined += name + "\n"; return {names, Value::array(), Value::array(), ax_mcp_pkce_challenge(joined)}; }
 void AxExecutionContext::attach(AxGen& gen) { for (const auto& tool : native_tools()) gen.add_tool(tool); }
-void AxExecutionContext::attach(AxAgent& agent) { initialize(); for (auto& client : mcp_) agent.add_tool_module("mcp." + client->namespace_name() + ".tools", client->native_tools()); for (auto& client : ucp_) agent.add_tool_module("ucp." + client->namespace_name(), client->runtime_tools()); }
+void AxExecutionContext::attach(AxAgent& agent) { initialize(); agent.execution_context_ = shared_derived("all"); for (auto& client : mcp_) agent.add_tool_module("mcp." + client->namespace_name() + ".tools", client->native_tools()); for (auto& client : ucp_) agent.add_tool_module("ucp." + client->namespace_name(), client->runtime_tools()); }
 
-Tool AxMCPClient::tool_to_function(Value spec) {
-  std::string original = display(Core::get(spec, "name", ""));
-  std::string desc = display(Core::get(spec, "description", original));
-  auto self = owned_view();
-  return Tool(original, desc, Core::get(spec, "inputSchema", Value::object()), [self, original](Value args) {
-    Value result = self->call_tool(original, args);
-    Value structured = Core::get(result, "structuredContent", Value());
-    if (!structured.is_null()) return structured;
-    return object({{"content", content_text(Core::get(result, "content", Value::array()))}});
-  });
+std::shared_ptr<detail::AgentExecutionContext> AxExecutionContext::shared_derived(Value inheritance) const { auto child=derive(inheritance); return std::make_shared<AxExecutionContext>(child.mcp_,child.ucp_); }
+Value AxExecutionContext::agent_modules() {
+  initialize(); Array modules;
+  for (auto& client:mcp_) { Array functions; for(auto& tool:client->native_tools())functions.push_back(tool.value());modules.push_back(object({{"name","mcp."+client->namespace_name()+".tools"},{"functions",Value(functions)}})); }
+  for (auto& client:ucp_) { Array functions; for(auto& tool:client->runtime_tools())functions.push_back(tool.value());modules.push_back(object({{"name","ucp."+client->namespace_name()},{"functions",Value(functions)}})); }
+  return Value(modules);
+}
+
+Tool AxMCPClient::tool_to_function(Value spec){
+ auto self=owned_view();std::string original=display(Core::get(spec,"name",""));
+ auto invoke=[self,original](Value args,const AxToolContext& context){
+  Value result=self->call_tool(original,std::move(args),context);Value structured=Core::get(result,"structuredContent");
+  if(!structured.is_null())return structured;
+  return object({{"content",content_text(Core::get(result,"content",Value::array()))}});
+ };
+ return Tool(original,display(Core::get(spec,"description",original)),Core::get(spec,"inputSchema",Value::object()),[invoke](Value args){return invoke(std::move(args),AxToolContext{});}).context_handler(invoke);
 }
 
 Tool AxMCPClient::prompt_to_function(Value spec) {
@@ -453,7 +466,7 @@ static std::string ax_mcp_encode_header_value(const std::string& value) {
 
 AxMCPStreamableHTTPTransport::AxMCPStreamableHTTPTransport(std::string endpoint, Value options)
     : endpoint_(ax_mcp_validate_endpoint(endpoint, Core::get(options, "ssrfProtection", Value::object()))),
-      options_(std::move(options)), era_cache_key_(ax_mcp_origin(endpoint_)) {}
+      options_(std::move(options)), headers_(Core::get(options_, "headers", Value::object())), era_cache_key_(ax_mcp_origin(endpoint_)) {}
 
 static std::vector<Value> ax_mcp_parse_sse(const std::string& body) {
   // Extract JSON-RPC messages from the `data:` frames of an SSE body.
@@ -494,7 +507,9 @@ Value AxMCPStreamableHTTPTransport::send(Value message) {
   return send_with_headers(std::move(message), Value::object());
 }
 
-Value AxMCPStreamableHTTPTransport::send_with_headers(Value message, Value extra_headers) {
+Value AxMCPStreamableHTTPTransport::send_with_headers(Value message, Value extra_headers) {return send_with_context(std::move(message),std::move(extra_headers),AxToolContext{});}
+Value AxMCPStreamableHTTPTransport::send_with_context(Value message,Value extra_headers,const AxToolContext& context){
+  if(context.is_cancelled())throw AxAIServiceAbortedError("MCP invocation cancelled");
   auto method = display(Core::get(message, "method", ""));
   Value headers = build_headers(object({{"Content-Type", "application/json"}, {"Accept", "application/json, text/event-stream"}}),
                                 method != "initialize", method, Core::get(message, "params", Value::object()), extra_headers);
@@ -504,10 +519,10 @@ Value AxMCPStreamableHTTPTransport::send_with_headers(Value message, Value extra
   // notifications — in `data:` frames, which must be SSE-parsed rather than
   // JSON-decoded. Otherwise keep the JSON path. (The optional standalone GET
   // stream for unsolicited server->client messages is out of scope here.)
-  Value response = http_.call(object({{"url", endpoint_}, {"method", "POST"}, {"headers", headers}, {"json", message}, {"stream", true}}));
+  Value response = http_.call_cancellable(object({{"url", endpoint_}, {"method", "POST"}, {"headers", headers}, {"json", message}, {"stream", true}}),[context]{return context.is_cancelled();});
   auto response_headers=Core::get(response,"headers",Value::object());
   auto status=static_cast<long>(Core::number(Core::get(response,"status",0)));
-  if(status==401){auto challenge=display(Core::get(response_headers,"WWW-Authenticate",Core::get(response_headers,"www-authenticate","")));if(apply_oauth(challenge))return send_with_headers(std::move(message),std::move(extra_headers));}
+  if(status==401){auto challenge=display(Core::get(response_headers,"WWW-Authenticate",Core::get(response_headers,"www-authenticate","")));if(apply_oauth(challenge))return send_with_context(std::move(message),std::move(extra_headers),context);}
   if(status<200||status>=300)throw AxError("mcp","HTTP error "+std::to_string(status));
   auto session=display(Core::get(response_headers,"MCP-Session-Id",Core::get(response_headers,"mcp-session-id","")));
   record_session_id(session);

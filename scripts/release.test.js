@@ -21,6 +21,43 @@ const repoRoot = path.resolve(
 );
 
 describe('protected-main release workflow', () => {
+  it('keeps release workspace manifests and lockfile metadata aligned', () => {
+    const lock = JSON.parse(
+      readFileSync(path.join(repoRoot, 'package-lock.json'), 'utf8')
+    );
+    for (const directory of [
+      '',
+      'src/ax',
+      'src/aisdk',
+      'src/aws-bedrock',
+      'src/tools',
+      'src/examples',
+    ]) {
+      const manifest = JSON.parse(
+        readFileSync(path.join(repoRoot, directory, 'package.json'), 'utf8')
+      );
+      expect(lock.packages[directory].version, directory).toBe(
+        manifest.version
+      );
+      expect(lock.packages[directory].dependencies, directory).toEqual(
+        manifest.dependencies
+      );
+    }
+  });
+
+  it('bumps the examples Bedrock dependency with its provider package', () => {
+    const config = JSON.parse(
+      readFileSync(
+        path.join(repoRoot, 'src/aws-bedrock/.release-it.json'),
+        'utf8'
+      )
+    );
+    expect(config.plugins['@release-it/bumper'].out).toContainEqual({
+      file: '../examples/package.json',
+      path: ['dependencies.@ax-llm/ax-ai-aws-bedrock'],
+    });
+  });
+
   it.each([
     ['24.0.5', 'patch', '24.0.6'],
     ['24.0.5', 'minor', '24.1.0'],

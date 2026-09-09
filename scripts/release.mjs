@@ -325,6 +325,20 @@ function prepare(increment = 'patch') {
     version,
     '--ci',
   ]);
+  run('npm', [
+    'install',
+    '--package-lock-only',
+    '--ignore-scripts',
+    '--no-audit',
+    '--no-fund',
+  ]);
+  run('npm', [
+    'ci',
+    '--dry-run',
+    '--ignore-scripts',
+    '--no-audit',
+    '--no-fund',
+  ]);
   run('npm', ['run', 'axir:generate-packages']);
   run('npm', ['exec', '--', 'release-it', '--no-increment', '--ci']);
   verifyPreparedRelease(version, branch);

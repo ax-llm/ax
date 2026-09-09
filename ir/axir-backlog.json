@@ -1255,7 +1255,7 @@
     },
     {
       "id": "axir-2026-09-05-port-gpt-6-astra-model-rules-caching-and-pricing",
-      "status": "open",
+      "status": "done",
       "title": "Port GPT-6 Astra model rules, caching, and pricing",
       "createdAt": "2026-09-05",
       "sourcePR": null,
@@ -1275,18 +1275,18 @@
         "src/ax/ai/provider_profiles.generated.ts"
       ],
       "portableSurface": "axai",
-      "impact": "Astra model rules, catalogs, routing, caching, and pricing are implemented in the generated targets and have focused verification. Keep this entry open with the session entry until the full all-five-language delivery scope is complete.",
+      "impact": "Astra model rules, catalogs, routing, caching, and pricing are implemented in the generated targets and have full all-five-language verification. The model and session entries were completed together after the full all-five-language delivery scope passed.",
       "suggestedAxirWork": [
         "Implementation is in progress in ir/axcore/provider.axir and tools/axir/extractors/axai-goldens.ts; retain both Astra entries open until the full requested behavior is implemented and all five target release gates pass.",
         "Verify model catalogs, routing, reasoning, caching and pricing boundary fixtures in Python, Go, Java, C++ and Rust, then complete conformance synchronization, profile checks and stale-package checks."
       ],
-      "completedAt": null,
-      "completedByCommit": null,
-      "verification": null
+      "completedAt": "2026-09-08",
+      "completedByCommit": "1771913118be0ea8a6be950ba4a011a7648e3c2a",
+      "verification": "PR #657 (https://github.com/ax-llm/ax/pull/657), implementation commit 1771913118be0ea8a6be950ba4a011a7648e3c2a, following merged PRs #653, #655, and #656. Full npm run test:axir passed: compiler tests, Core checks/lint/lowering, enforced provenance (702 functions, zero violations in every target), all-five release conformance and package consumers. Final C++ map-order optimization also passed the full C++ release suite. TypeScript-derived raw validation and 1,164 ECMAScript pattern cases; all-five native MCP discovery, authorization, correction, result incorporation, delegated cancellation, parent cleanup, retained usage, and late-callback rejection tests. Go go test -race ./... and the full C++ ThreadSanitizer session suite passed, including libcurl HTTP cancellation and configured headers. All 30 live Astra generation/cancellation/agent/child-agent/flow/parallel-flow scenarios passed across Python, Go, Java, C++, Rust; corrected Go examples and final C++ examples were rerun; optional Rust native WebSocket steering passed. No account or transport restriction. Build, public type checks, 42 focused TypeScript tests, 107 tooling tests, generated examples, conformance synchronization, package freshness, provider profiles, behavioral parity gates, skills, formatting/lint/spelling, and website checks passed. Evidence: ir/axcore/session.md and ir/axcore/session-verification.md."
     },
     {
       "id": "axir-2026-09-05-port-shared-chat-sessions-and-run-controls",
-      "status": "open",
+      "status": "done",
       "title": "Port shared chat sessions and higher-level run controls",
       "createdAt": "2026-09-05",
       "sourcePR": null,
@@ -1295,6 +1295,8 @@
         "src/ax/agent/AxAgent.ts",
         "src/ax/agent/agent.sessions.test.ts",
         "src/ax/agent/agentInternal/actorLoopTurn.ts",
+        "src/ax/agent/agentInternal/coordinator.ts",
+        "src/ax/agent/agentInternal/pipelineForward.ts",
         "src/ax/agent/agentInternal/agentInternalTypes.ts",
         "src/ax/agent/agentInternal/runtimeExecution.ts",
         "src/ax/agent/agentInternal/runtimeExecutionLlmQuery.ts",
@@ -1332,16 +1334,16 @@
         "src/ax/mcp/execution.ts"
       ],
       "portableSurface": "axai",
-      "impact": "TypeScript-reference AxAI sessions, automatic Astra routing, explicit background tool execution, pending-result finalization, late steering-pending continuation, deduplicated steering acknowledgements and accurate applied-update timing, abortable pending-work waits, streaming assertions before emission, provider and alias default precedence, scoped controls, agent native tools, and flow isolation. Generated-language implementations are in progress. Owned concurrent flow dispatch, traced custom-worker fallback, shared balancer failure accounting, raw argument validation and buffered WebSocket steering are implemented with all-five-language behavioral coverage. Full MCP agent invocation, child targeting, advanced regular-expression compatibility and final acceptance coverage remain incomplete.",
+      "impact": "TypeScript-reference AxAI sessions, automatic Astra routing, explicit background tool execution, pending-result finalization, late steering-pending continuation, deduplicated steering acknowledgements and accurate applied-update timing, abortable pending-work waits, streaming assertions before emission, provider and alias default precedence, scoped controls, agent native tools, and flow isolation. Generated-language implementations are complete in Python, Go, Java, C++, and Rust. Owned concurrent flow dispatch, traced custom-worker fallback, shared balancer failure accounting, raw argument validation and buffered WebSocket steering are implemented with all-five-language behavioral coverage. Full MCP agent invocation, child targeting, advanced regular-expression compatibility and final acceptance coverage have passed all-five-language acceptance coverage.",
       "suggestedAxirWork": [
         "Finish shared behavior in ir/axcore/session.axir, agent.axir and flow.axir. Retain and expand coordinated concurrent-node, isolated-history and serial-fallback coverage; keep the entry open until the entire requested scope passes.",
         "Complete MCP native invocation schemas/context, child targeting, routing failure/accounting and final validation coverage. Preserve safe ownership of noncooperative workers and never replay started work.",
         "Maintain shared fixtures in tools/axir/extractors/axai-goldens.ts and host tests in templates/python/pySessionNoKeyExample.py, templates/go/goSessionTest.go.txt, templates/java/javaAstraSessionNoKeyExample.java, templates/cpp/cppAstraSessionNoKey.cpp and templates/rust/rustSession.rs under tools/axir/internal/axir/.",
         "See ir/axcore/session.md for partial verification evidence. Complete all-target release verification, public examples, language skills and website checks before closing this entry."
       ],
-      "completedAt": null,
-      "completedByCommit": null,
-      "verification": null
+      "completedAt": "2026-09-08",
+      "completedByCommit": "1771913118be0ea8a6be950ba4a011a7648e3c2a",
+      "verification": "PR #657 (https://github.com/ax-llm/ax/pull/657), implementation commit 1771913118be0ea8a6be950ba4a011a7648e3c2a, following merged PRs #653, #655, and #656. Full npm run test:axir passed: compiler tests, Core checks/lint/lowering, enforced provenance (702 functions, zero violations in every target), all-five release conformance and package consumers. Final C++ map-order optimization also passed the full C++ release suite. TypeScript-derived raw validation and 1,164 ECMAScript pattern cases; all-five native MCP discovery, authorization, correction, result incorporation, delegated cancellation, parent cleanup, retained usage, and late-callback rejection tests. Go go test -race ./... and the full C++ ThreadSanitizer session suite passed, including libcurl HTTP cancellation and configured headers. All 30 live Astra generation/cancellation/agent/child-agent/flow/parallel-flow scenarios passed across Python, Go, Java, C++, Rust; corrected Go examples and final C++ examples were rerun; optional Rust native WebSocket steering passed. No account or transport restriction. Build, public type checks, 42 focused TypeScript tests, 107 tooling tests, generated examples, conformance synchronization, package freshness, provider profiles, behavioral parity gates, skills, formatting/lint/spelling, and website checks passed. Evidence: ir/axcore/session.md and ir/axcore/session-verification.md."
     },
     {
       "id": "axir-2026-09-06-port-event-clock-cancellation",

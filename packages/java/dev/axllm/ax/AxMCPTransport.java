@@ -5,6 +5,12 @@ import java.util.Map;
 public interface AxMCPTransport {
   Map<String, Object> send(Map<String, Object> message);
   default Map<String, Object> sendWithHeaders(Map<String, Object> message, Map<String, String> headers) { return send(message); }
+  default Map<String,Object> sendWithContext(Map<String,Object> message,Map<String,String> headers,java.util.function.BooleanSupplier cancelled) {
+    if(cancelled.getAsBoolean())throw new AxAIServiceAbortedError("MCP invocation cancelled");
+    Map<String,Object> result=sendWithHeaders(message,headers);
+    if(cancelled.getAsBoolean())throw new AxAIServiceAbortedError("MCP invocation cancelled");
+    return result;
+  }
   void sendNotification(Map<String, Object> message);
   default void sendResponse(Map<String, Object> message) { sendNotification(message); }
   default void setMessageHandler(java.util.function.Consumer<Map<String, Object>> handler) {}

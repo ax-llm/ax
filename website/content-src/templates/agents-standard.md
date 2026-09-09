@@ -63,3 +63,7 @@ Lineage: Self-RAG (citation-aware generation) and Attributed QA (attribution as 
 Bulky input fields, long runs, repeated questions over the same material, or cross-run memory all point at the [long-horizon tier]({{langRoot}}/agents/long-horizon/) — context fields, context policies, maps, memory, and skills.
 
 Runnable code: [agent examples]({{langRoot}}/examples/short-agents/), [Tools]({{langRoot}}/concepts/tools/), and the [agent() API]({{langRoot}}/api/agent/).
+
+Attached MCP clients stay available to an agent’s own stages. Child inheritance selects which clients cross the delegation boundary; `none` and an empty allowlist pass no parent clients. A child’s explicitly configured clients take precedence. Run cancellation reaches pending MCP tools in delegated children, and closed parent callbacks reject later invocations.
+
+Imported MCP tools retain the run’s cancellation context. Built-in HTTP requests close when cancelled. A custom transport can implement the optional context-aware send method; an older transport may finish later, and its late result is discarded. Cancellation does not undo an external action.
