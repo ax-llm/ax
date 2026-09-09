@@ -31,8 +31,10 @@ development fallback.
 
 `npm run release` is the normal release preparation path. It verifies that
 local `main` is clean and synchronized with `origin/main`, creates a
-`codex/release-<version>` branch, runs the workspace version bumps, regenerates
-the generated packages, creates the release commit, validates it, pushes the
+`codex/release-<version>` branch, runs the workspace version bumps (including
+internal example dependencies), refreshes the root lockfile, and checks that
+`npm ci` can resolve it. It then regenerates the generated packages, creates the
+release commit, validates it, pushes the
 branch, and opens a pull request. It intentionally does not tag, push directly
 to `main`, or create a GitHub Release.
 
