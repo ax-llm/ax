@@ -18,7 +18,13 @@ This ledger tracks portable TypeScript behavior that should be migrated into AxI
 
 ## Open
 
-No entries.
+- `axir-2026-09-08-port-websocket-pending-request-cleanup` [axmcp] Port WebSocket pending request cleanup
+  - Status: open
+  - Source PR: #654
+  - Source commit: `621ae13ff053b4df23f18771f606670dd520c447`
+  - TS paths: `src/ax/mcp/transports/webSocketTransport.ts`, `src/ax/mcp/transports/webSocketTransport.test.ts`
+  - Impact: TypeScript MCP WebSocket requests must remove abort listeners and settle/remove pending entries on socket closure or synchronous send failure, including batches. Review of the Python, Java, C++, Go, and Rust canonical MCP templates found HTTP, stdio, and scripted transports, but no built-in MCP WebSocket transport or equivalent WebSocket pending-request map. There is no direct generated-language cleanup patch today; this portable lifecycle contract remains open for generated MCP WebSocket support.
+  - Suggested AxIR work: When adding generated MCP WebSocket bindings, cover socket-close rejection, synchronous single/batch send failure, listener or cancellation-registration disposal, result settlement, and safe request-ID reuse.; Use src/ax/mcp/transports/webSocketTransport.test.ts as the behavioral reference. Audit canonical transport templates under tools/axir/internal/axir/templates/mcp/; do not conflate OpenAI Responses or realtime sockets with MCP WebSocket bindings.; Keep this entry open until generated MCP WebSocket lifecycle behavior is implemented and tested across Python, Java, C++, Go, and Rust.
 
 ## Done
 
