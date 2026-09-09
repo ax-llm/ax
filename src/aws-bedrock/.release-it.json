@@ -9,6 +9,10 @@
         {
           "file": "../../package.json",
           "path": ["version"]
+        },
+        {
+          "file": "../examples/package.json",
+          "path": ["dependencies.@ax-llm/ax-ai-aws-bedrock"]
         }
       ]
     }

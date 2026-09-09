@@ -1,5 +1,30 @@
 # Changelog
 
+## [24.0.18](https://github.com/ax-llm/ax/compare/24.0.16...24.0.17) (2026-09-09)
+
+### Features
+
+* add Astra sessions and begin AxIR parity ([#651](https://github.com/ax-llm/ax/issues/651)) ([48eec33](https://github.com/ax-llm/ax/commit/48eec33e09d19704209f4de2c0aa387033e37c0a))
+* **ai:** add Gemini 3.8 Flash and preserve tool-call IDs ([#650](https://github.com/ax-llm/ax/issues/650)) ([5f0e470](https://github.com/ax-llm/ax/commit/5f0e470b6cab98304e445c7568a8891ebb97e8ac))
+* **ai:** add Meta Muse support through existing Ax APIs ([#649](https://github.com/ax-llm/ax/issues/649)) ([3e5fd36](https://github.com/ax-llm/ax/commit/3e5fd36537e9049c18c0920845ba96db4c74bba1))
+* extend AxIR Astra sessions and concurrent flows ([#653](https://github.com/ax-llm/ax/issues/653)) ([0a943e2](https://github.com/ax-llm/ax/commit/0a943e28cb7aa43b7cf7f0c3c8109ad290357d2f))
+* preserve native files through AxIR provider routing ([#652](https://github.com/ax-llm/ax/issues/652)) ([4590b14](https://github.com/ax-llm/ax/commit/4590b147b84a6c43ae3e01371cbb65648630edec))
+
+### Bug Fixes
+
+* **apicall:** remove user abort listener on all non-abort exit paths ([#645](https://github.com/ax-llm/ax/issues/645)) ([2034b04](https://github.com/ax-llm/ax/commit/2034b04f688bcfe64ffd8f728a4efccaa8045aff)), closes [#632](https://github.com/ax-llm/ax/issues/632)
+* complete Astra session parity across generated languages ([#657](https://github.com/ax-llm/ax/issues/657)) ([5ef03af](https://github.com/ax-llm/ax/commit/5ef03af8658c5aafc9122208412e4e93bbe7cac0))
+* **event:** clear timer and remove abort listener on normal sleep path ([#647](https://github.com/ax-llm/ax/issues/647)) ([039f1d7](https://github.com/ax-llm/ax/commit/039f1d7e36fc0dd05817d340350264376dd98e75))
+* preserve MCP contexts through child agents across languages ([#655](https://github.com/ax-llm/ax/issues/655)) ([27b8e31](https://github.com/ax-llm/ax/commit/27b8e3149c41edee0ff14a4f563cba7a28d409d5))
+* propagate MCP invocation cancellation across generated runtimes ([#656](https://github.com/ax-llm/ax/issues/656)) ([db7ce0c](https://github.com/ax-llm/ax/commit/db7ce0cbab8e29fbcc4872da0fc06dcf4c48bf7c))
+* **security:** redact sensitive headers in verbose API request logs ([#646](https://github.com/ax-llm/ax/issues/646)) ([b2d974b](https://github.com/ax-llm/ax/commit/b2d974b86fc4282f0da0165ec0421e1db469e7e4))
+
+## [24.0.17](https://github.com/ax-llm/ax/compare/24.0.16...24.0.17) (2026-09-01)
+
+### Features
+
+* **bedrock:** add native Converse capabilities ([#642](https://github.com/ax-llm/ax/issues/642)) ([d480062](https://github.com/ax-llm/ax/commit/d480062291e677056615b2938f36bd20f9557784))
+
 ## [24.0.17](https://github.com/ax-llm/ax/compare/24.0.16...24.0.17) (2026-09-01)
 
 ### Features
