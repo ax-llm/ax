@@ -224,6 +224,20 @@ Rules:
 - `addStreamingAssert(...)` targets a string/code output field and receives partial text so far.
 - Streaming assertions abort the current stream attempt by throwing `AxStreamingAssertionError`, then feed correction feedback into AxGen retries.
 
+Assertion return values, for both `addAssert(...)` and `addStreamingAssert(...)`:
+
+| Return | Meaning |
+| --- | --- |
+| `true` | Passes; continue. |
+| `false` | Fails; the `message` argument is used as the correction message. |
+| `string` | Fails; the returned string is used as the correction message. |
+| `undefined` | Skips this assertion, for conditional validation. |
+| a thrown error | Propagates as-is; only assertion errors are retried. |
+
+- `undefined` skips the check rather than passing it, so use it when an assertion does not apply to the current output.
+- `addAssert(...)` returning `false` without a `message` throws `Assertion failed without message`, which is not retried; pass `message` to get correction feedback.
+- `addStreamingAssert(...)` returning `false` without a `message` uses a generated message and is retried.
+
 ## Field Processors
 
 ```typescript
