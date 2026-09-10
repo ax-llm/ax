@@ -22,6 +22,7 @@ export const topic = ({
   apiLabel,
   summary,
   example,
+  examplePath,
   exampleSteps,
   check,
   checks,
@@ -39,6 +40,7 @@ export const topic = ({
     apiLabel,
     summary,
     example,
+    examplePath,
     exampleSteps: exampleSteps ?? [],
     apiSymbols,
     exercises: [
