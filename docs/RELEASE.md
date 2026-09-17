@@ -191,12 +191,13 @@ manual dispatch available for retries and verification:
   trusted publishing with GitHub Actions OIDC and signed provenance.
 - `.github/workflows/package-publish.yml` separately publishes generated
   packages from the same release event.
-- Current generated-package publishing covers Python/PyPI and Rust/crates.io.
+- Current generated-package publishing covers Python/PyPI, Rust/crates.io,
+  and Java/Maven Central.
   PyPI builds and uploads the generated `axllm` wheel and source distribution;
   Rust publishes the generated `axllm` crate.
-- Java/Maven Central, C++ release artifacts/package-manager recipes, and Go
-  module release handling are future publishing work unless added in a separate
-  release change. Go consumers resolve the module from the git tag.
+- Java publishes the signed `dev.axllm:ax` artifacts to Maven Central.
+- C++ release artifacts/package-manager recipes and dedicated Go module release
+  handling are future publishing work. Go consumers resolve the module from git.
 
 CI publishing uses GitHub secrets and trusted-publishing/OIDC where configured,
 not `.env`. The repo `.env` is only for local example/provider runs and for any
