@@ -31,3 +31,18 @@ npm run example -- rust src/examples/rust/generation/basic_generation.rs
 
 Internal generated package fixtures remain under `packages/<language>/examples`
 for AxIR verification, but they are not part of the public examples catalog.
+
+## Typesafe / Jev (TypeScript)
+
+| Example | Purpose |
+|---|---|
+| [typesafe.ts](typescript/generation/typesafe.ts) | Boolean/class signatures, criteria, and provider-level `trueThreshold` |
+| [typesafe-native.ts](typescript/generation/typesafe-native.ts) | Native Noul/Choice/Score, structured criteria, probabilities, and model discovery |
+| [typesafe-hybrid.ts](typescript/generation/typesafe-hybrid.ts) | Typesafe decisions followed by a generative summary |
+| [value-descriptions.ts](typescript/generation/value-descriptions.ts) | One described signature through Typesafe and OpenAI |
+
+Run from the repo root with `npm run tsx` followed by the example path. The
+first two require `TYPESAFE_API_KEY` or `TYPESAFE_APIKEY` in `.env`; the last two
+also require `OPENAI_API_KEY` or `OPENAI_APIKEY`. See the
+[Typesafe/Jev skill](../ax/skills/ax-typesafe.md) for supported outputs,
+native-only scoring, and question design.

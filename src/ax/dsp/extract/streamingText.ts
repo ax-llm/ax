@@ -6,6 +6,12 @@ import type { AxField, AxSignature } from '../sig.js';
 import { matchesContent } from '../util.js';
 import { validateAndParseFieldValue } from './fieldValue.js';
 
+const fieldLabels = (field: Readonly<AxField>): string[] => [
+  ...new Set(
+    [field.title, field.name].filter((label): label is string => !!label)
+  ),
+];
+
 export interface extractionState {
   prevFields?: { field: AxField; s: number; e: number }[];
   currField?: AxField;
@@ -99,24 +105,28 @@ export const streamingExtractValues = (
     let chosenField: AxField | undefined;
     let e = -1;
     let prefixLen = 0;
+    let partialPrefix = false;
 
     for (const { index, field } of candidates) {
       const isFirst = xstate.extractedFields.length === 0;
-      const prefix = `${(isFirst ? '' : '\n') + field.title}:`;
-      const match = matchesContent(content, prefix, xstate.s);
+      for (const label of fieldLabels(field)) {
+        const prefix = `${(isFirst ? '' : '\n') + label}:`;
+        const match = matchesContent(content, prefix, xstate.s);
 
-      if (match === -2 || match === -3 || match === -4) {
-        return true;
-      }
-      if (match >= 0 && (e === -1 || match < e)) {
-        e = match;
-        prefixLen = prefix.length;
-        chosenIndex = index;
-        chosenField = field;
+        if (match === -2 || match === -3 || match === -4) {
+          partialPrefix = true;
+        }
+        if (match >= 0 && (e === -1 || match < e)) {
+          e = match;
+          prefixLen = prefix.length;
+          chosenIndex = index;
+          chosenField = field;
+        }
       }
     }
 
     if (e === -1) {
+      if (partialPrefix) return true;
       if (skipEarlyFail) {
         return;
       }
@@ -211,15 +221,35 @@ export const streamingExtractFinalValue = (
     options?.deferRequiredCheckForStreaming ?? false;
   const forceFinalize = options?.forceFinalize ?? false;
 
+  // A completed unlabelled scalar answer may end with part of a wire label
+  // (for example "Answer" ends with the first letter of "responseText").
+  // Preserve the existing non-strict single-field fallback after streaming ends.
+  if (
+    forceFinalize &&
+    !strictMode &&
+    !xstate.currField &&
+    sig.getOutputFields().length === 1
+  ) {
+    const field = sig.getOutputFields()[0]!;
+    xstate.currField = field;
+    xstate.currFieldIndex = 0;
+    xstate.inAssumedField = true;
+    xstate.s = 0;
+    if (!xstate.extractedFields.includes(field))
+      xstate.extractedFields.push(field);
+  }
+
   if (xstate.currField) {
     let endIndex = content.length;
     const outputFields = sig.getOutputFields();
     for (const otherField of outputFields) {
       if (otherField.name === xstate.currField.name) continue;
-      const nextFieldPattern = `\n${otherField.title}:`;
-      const nextFieldIndex = content.indexOf(nextFieldPattern, xstate.s);
-      if (nextFieldIndex !== -1 && nextFieldIndex < endIndex) {
-        endIndex = nextFieldIndex;
+      for (const label of fieldLabels(otherField)) {
+        const nextFieldPattern = `\n${label}:`;
+        const nextFieldIndex = content.indexOf(nextFieldPattern, xstate.s);
+        if (nextFieldIndex !== -1 && nextFieldIndex < endIndex) {
+          endIndex = nextFieldIndex;
+        }
       }
     }
 
@@ -271,15 +301,23 @@ const parseMissedFieldsFromFullContent = (
   if (outputFields.length === 1) {
     const field = outputFields[0];
     if (field) {
-      const prefix = `${field.title}:`;
-      const start = content.indexOf(prefix);
-      if (start !== -1) {
+      const first = fieldLabels(field)
+        .map((label) => ({
+          prefix: `${label}:`,
+          start: content.indexOf(`${label}:`),
+        }))
+        .filter(({ start }) => start !== -1)
+        .sort((a, b) => a.start - b.start)[0];
+      if (first) {
+        const { prefix, start } = first;
         const valueStart = start + prefix.length;
-        const boundary = `\n${field.title}:`;
-        const valueEnd = content.indexOf(boundary, valueStart);
-        const rawValue = content
-          .substring(valueStart, valueEnd === -1 ? content.length : valueEnd)
-          .trim();
+        const boundaries = fieldLabels(field)
+          .map((label) => content.indexOf(`\n${label}:`, valueStart))
+          .filter((index) => index !== -1);
+        const valueEnd = boundaries.length
+          ? Math.min(...boundaries)
+          : content.length;
+        const rawValue = content.substring(valueStart, valueEnd).trim();
         if (rawValue) {
           try {
             const parsedValue = validateAndParseFieldValue(field, rawValue);
@@ -300,11 +338,12 @@ const parseMissedFieldsFromFullContent = (
       continue;
     }
 
-    const prefix = `${field.title}:`;
-
     for (const line of lines) {
       const trimmedLine = line.trim();
-      if (trimmedLine.startsWith(prefix)) {
+      const prefix = fieldLabels(field)
+        .map((label) => `${label}:`)
+        .find((prefix) => trimmedLine.startsWith(prefix));
+      if (prefix) {
         const fieldValue = trimmedLine.substring(prefix.length).trim();
 
         if (fieldValue) {

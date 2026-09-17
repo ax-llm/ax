@@ -7451,12 +7451,23 @@
         "isDynamic": true,
         "models": [],
         "name": "baseten-engine"
+      },
+      {
+        "capabilities": {
+          "serviceTiers": [],
+          "thinking": false,
+          "thinkingLevels": []
+        },
+        "displayName": "Typesafe",
+        "isDynamic": true,
+        "models": [],
+        "name": "typesafe"
       }
     ],
     "modelCount": 222,
     "openaiFirstModel": "text-embedding-3-small",
     "openaiModelTypes": ["audio", "code", "embeddings", "text"],
-    "providerCount": 49,
+    "providerCount": 50,
     "providerNames": [
       "google-gemini",
       "webllm",
@@ -7506,7 +7517,8 @@
       "lm-studio",
       "llama-cpp",
       "localai",
-      "baseten-engine"
+      "baseten-engine",
+      "typesafe"
     ]
   },
   "kind": "ai_model_catalog_runtime",

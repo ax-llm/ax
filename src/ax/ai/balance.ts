@@ -21,6 +21,7 @@ import {
   sampleBalancerRouteHealth,
 } from './balance_adaptive.js';
 import type { AxAIFeatures } from './base.js';
+import { getRequestCompatibilityError } from './capabilities.js';
 import type {
   AxAIModelList,
   AxAIService,
@@ -275,6 +276,22 @@ export class AxBalancer<
       },
       caching: { supported: false, types: [] },
     };
+    if (
+      this.services.length &&
+      this.services.every(
+        (service) => service.getFeatures(model).requiresStructuredOutput
+      )
+    ) {
+      features.requiresStructuredOutput = true;
+    }
+    if (
+      this.services.length &&
+      this.services.every(
+        (service) => service.getFeatures(model).functionEmulation === false
+      )
+    ) {
+      features.functionEmulation = false;
+    }
     features.asyncTools = this.services.some(
       (service) =>
         !!service.openChatSession && !!service.getFeatures(model).asyncTools
@@ -506,6 +523,13 @@ export class AxBalancer<
     }
   }
 
+  validateChatRequest(
+    req: Readonly<AxChatRequest<TModelKey>>,
+    options?: Readonly<AxAIServiceOptions>
+  ): void {
+    this.getCandidateServices(req, options);
+  }
+
   private getCandidateServices(
     req: Readonly<AxChatRequest<TModelKey>>,
     options?: Readonly<AxAIServiceOptions>
@@ -520,16 +544,13 @@ export class AxBalancer<
     const requiresServiceTier =
       requestedTier !== undefined && requestedTier !== 'auto';
 
-    if (
-      !requiresStructuredOutputs &&
-      !requiresImages &&
-      !requiresAudio &&
-      !requiresServiceTier
-    ) {
-      return this.services;
-    }
-
+    const incompatibilities: string[] = [];
     const candidates = this.services.filter((service) => {
+      const error = getRequestCompatibilityError(service, req, options);
+      if (error !== undefined) {
+        incompatibilities.push(`${service.getName()}: ${error}`);
+        return false;
+      }
       const features = service.getFeatures(model);
       if (requiresStructuredOutputs && !features.structuredOutputs)
         return false;
@@ -545,7 +566,7 @@ export class AxBalancer<
     });
 
     if (candidates.length === 0) {
-      const requirements = [];
+      const requirements: string[] = [...incompatibilities];
       if (requiresStructuredOutputs) requirements.push('structured outputs');
       if (requiresImages) requirements.push('images');
       if (requiresAudio) requirements.push('audio');

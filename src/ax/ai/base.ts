@@ -209,6 +209,7 @@ const PROVIDER_REQUEST_ID_HEADERS = [
   'x-goog-request-id',
   'x-amzn-requestid',
   'x-amz-request-id',
+  'x-typesafe-request-id',
 ] as const;
 
 const PROVIDER_SESSION_ID_HEADERS = [
@@ -503,6 +504,8 @@ export interface AxAIFeatures {
   structuredOutputs?: boolean;
   /** Ordered, verified structured-output strategies for the selected model. */
   structuredOutputModes?: readonly AxStructuredOutputRung[];
+  /** Requires an output schema even for scalar-only signatures (typed inference). */
+  requiresStructuredOutput?: boolean;
   /** Enhanced media capability specifications */
   media: {
     /** Image processing capabilities */
@@ -1786,19 +1789,12 @@ export class AxBaseAI<
     }
   }
 
-  private async _chat1(
+  private resolveChatModelConfig(
     req: Readonly<AxChatRequest<TModel | TModelKey>>,
     options?: Readonly<AxAIServiceOptions>
-  ): Promise<AxChatResponse | ReadableStream<AxChatResponse>> {
+  ) {
     const model =
       this.getModel(req.model) ?? (req.model as TModel) ?? this.defaults.model;
-
-    // Validate chat prompt messages
-    if (Array.isArray(req.chatPrompt)) {
-      for (const item of req.chatPrompt) {
-        axValidateChatRequestMessage(item);
-      }
-    }
 
     // Merge per-model-key default modelConfig if provided
     const modelKeyEntry = this.getModelByKey(
@@ -1827,16 +1823,6 @@ export class AxBaseAI<
       }
     }
 
-    // Check for expensive model usage
-    if (
-      selectedModelInfo?.isExpensive &&
-      options?.useExpensiveModel !== 'yes'
-    ) {
-      throw new Error(
-        `Model ${model as string} is marked as expensive and requires explicit confirmation. Set useExpensiveModel: "yes" to proceed.`
-      );
-    }
-
     // stream is true by default unless explicitly set to false
     modelConfig.stream =
       (options?.stream !== undefined ? options.stream : modelConfig.stream) ??
@@ -1845,6 +1831,41 @@ export class AxBaseAI<
     const canStream = this.getFeatures(model).streaming;
     if (!canStream) {
       modelConfig.stream = false;
+    }
+
+    return { model, modelConfig, selectedModelInfo };
+  }
+
+  validateChatRequest(
+    req: Readonly<AxChatRequest<TModel | TModelKey>>,
+    options?: Readonly<AxAIServiceOptions>
+  ): void {
+    if (!this.aiImpl.validateChatReq) return;
+    const { model, modelConfig } = this.resolveChatModelConfig(req, options);
+    this.aiImpl.validateChatReq({ ...req, model, modelConfig });
+  }
+
+  private async _chat1(
+    req: Readonly<AxChatRequest<TModel | TModelKey>>,
+    options?: Readonly<AxAIServiceOptions>
+  ): Promise<AxChatResponse | ReadableStream<AxChatResponse>> {
+    const { model, modelConfig, selectedModelInfo } =
+      this.resolveChatModelConfig(req, options);
+    // Validate chat prompt messages
+    if (Array.isArray(req.chatPrompt)) {
+      for (const item of req.chatPrompt) {
+        axValidateChatRequestMessage(item);
+      }
+    }
+
+    // Check for expensive model usage
+    if (
+      selectedModelInfo?.isExpensive &&
+      options?.useExpensiveModel !== 'yes'
+    ) {
+      throw new Error(
+        `Model ${model as string} is marked as expensive and requires explicit confirmation. Set useExpensiveModel: "yes" to proceed.`
+      );
     }
 
     const tracer = this.getEffectiveTracer(options);
@@ -2476,7 +2497,7 @@ export class AxBaseAI<
     }
 
     try {
-      const res = this.aiImpl.createChatResp(rv as TChatResponse);
+      const res = this.aiImpl.createChatResp(rv as TChatResponse, effectiveReq);
       applyResponseCorrelationMetadata(
         res,
         options?.sessionId,

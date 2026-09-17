@@ -182,28 +182,33 @@ type TakeBraced<
   Depth extends 0[] = [],
   Body extends string = '',
   InQuote extends boolean = false,
+  Escaped extends boolean = false,
 > = S extends `${infer Char}${infer Rest}`
-  ? Char extends '"'
-    ? TakeBraced<
-        Rest,
-        Depth,
-        `${Body}${Char}`,
-        InQuote extends true ? false : true
-      >
-    : InQuote extends true
-      ? TakeBraced<Rest, Depth, `${Body}${Char}`, true>
-      : Char extends '{'
-        ? TakeBraced<Rest, [...Depth, 0], `${Body}${Char}`, false>
-        : Char extends '}'
-          ? Depth['length'] extends 0
-            ? [Body, Rest]
-            : TakeBraced<
-                Rest,
-                Depth extends [...infer D extends 0[], 0] ? D : [],
-                `${Body}${Char}`,
-                false
-              >
-          : TakeBraced<Rest, Depth, `${Body}${Char}`, false>
+  ? Escaped extends true
+    ? TakeBraced<Rest, Depth, `${Body}${Char}`, InQuote>
+    : Char extends '\\'
+      ? TakeBraced<Rest, Depth, `${Body}${Char}`, InQuote, InQuote>
+      : Char extends '"'
+        ? TakeBraced<
+            Rest,
+            Depth,
+            `${Body}${Char}`,
+            InQuote extends true ? false : true
+          >
+        : InQuote extends true
+          ? TakeBraced<Rest, Depth, `${Body}${Char}`, true>
+          : Char extends '{'
+            ? TakeBraced<Rest, [...Depth, 0], `${Body}${Char}`, false>
+            : Char extends '}'
+              ? Depth['length'] extends 0
+                ? [Body, Rest]
+                : TakeBraced<
+                    Rest,
+                    Depth extends [...infer D extends 0[], 0] ? D : [],
+                    `${Body}${Char}`,
+                    false
+                  >
+              : TakeBraced<Rest, Depth, `${Body}${Char}`, false>
   : [Body, ''];
 
 // Tags an object type expression as `obj|body` or `obj[]|body` so ResolveType
@@ -221,26 +226,58 @@ type ExtractObjectTag<Rest extends string> = TakeBraced<Rest> extends [
 // object bodies, and modifier bags. Order matters: class first (its quoted
 // options may contain anything), then object bodies, then bag stripping,
 // then arrays/descriptions.
-type ExtractType<S extends string> =
-  S extends `class[] "${infer Options}" "${infer _Desc}"`
-    ? `class[]|${Options}`
-    : S extends `class[] "${infer Options}"`
-      ? `class[]|${Options}`
-      : S extends `class "${infer Options}" "${infer _Desc}"`
-        ? `class|${Options}`
-        : S extends `class "${infer Options}"`
-          ? `class|${Options}`
-          : S extends `object{${infer Rest}`
-            ? ExtractObjectTag<Rest>
-            : S extends `${infer Base}(${infer _Bag})${infer Suffix}`
-              ? ExtractType<`${Base}${Suffix}`>
-              : S extends `${infer Type}[] "${infer _Desc}"`
-                ? `${Type}[]`
-                : S extends `${infer Type}[]`
-                  ? `${Type}[]`
-                  : S extends `${infer Type} "${infer _Desc}"`
-                    ? Type
-                    : S;
+// Consume quoted strings and modifier bags without treating punctuation inside
+// descriptions as grammar. Escaped quotes must not close the description.
+type TakeQuoted<
+  S extends string,
+  Value extends string = '',
+> = S extends `\\${infer Char}${infer Rest}`
+  ? TakeQuoted<Rest, `${Value}${Char}`>
+  : S extends `"${infer Rest}`
+    ? [Value, Rest]
+    : S extends `${infer Char}${infer Rest}`
+      ? TakeQuoted<Rest, `${Value}${Char}`>
+      : [Value, ''];
+
+type SkipModifierBag<S extends string> = S extends `"${infer Rest}`
+  ? TakeQuoted<Rest> extends [string, infer After extends string]
+    ? SkipModifierBag<After>
+    : ''
+  : S extends `)${infer Rest}`
+    ? Rest
+    : S extends `${infer _Char}${infer Rest}`
+      ? SkipModifierBag<Rest>
+      : '';
+
+type ExtractClassTag<
+  S extends string,
+  Prefix extends string,
+> = Trim<S> extends `"${infer Rest}`
+  ? TakeQuoted<Rest> extends [infer Options extends string, string]
+    ? `${Prefix}|${Options}`
+    : 'class'
+  : 'class';
+
+type ExtractType<S extends string> = S extends `class[]${infer Rest}`
+  ? ExtractClassTag<Rest, 'class[]'>
+  : S extends `class${infer Rest}`
+    ? ExtractClassTag<Rest, 'class'>
+    : S extends `object{${infer Rest}`
+      ? ExtractObjectTag<Rest>
+      : S extends `${infer Base}(${infer Rest}`
+        ? Base extends keyof InputTypeMap | 'object'
+          ? ExtractType<`${Base}${SkipModifierBag<Rest>}`>
+          : ExtractSimpleType<S>
+        : ExtractSimpleType<S>;
+
+type ExtractSimpleType<S extends string> =
+  S extends `${infer Type}[] "${infer _Desc}"`
+    ? `${Type}[]`
+    : S extends `${infer Type}[]`
+      ? `${Type}[]`
+      : S extends `${infer Type} "${infer _Desc}"`
+        ? Type
+        : S;
 
 // Parses a "name: type" or "name?: type" part, now handling arrays, class types, and descriptions
 // If no type is specified, defaults to 'string'
@@ -287,79 +324,97 @@ type SplitFieldsRespectingQuotes<
   InQuote extends boolean = false,
   Result extends string[] = [],
   Depth extends 0[] = [],
+  Escaped extends boolean = false,
 > = S extends `${infer Char}${infer Rest}`
-  ? Char extends '"'
-    ? // Found a quote character - toggle the quote state
-      // Add the quote to current field and flip InQuote boolean
-      SplitFieldsRespectingQuotes<
+  ? Escaped extends true
+    ? SplitFieldsRespectingQuotes<
         Rest,
         `${Current}${Char}`,
-        InQuote extends true ? false : true,
+        InQuote,
         Result,
         Depth
       >
-    : InQuote extends true
-      ? // Inside quotes every character (commas, parens, braces) is literal
-        SplitFieldsRespectingQuotes<
+    : Char extends '\\'
+      ? SplitFieldsRespectingQuotes<
           Rest,
           `${Current}${Char}`,
-          true,
+          InQuote,
           Result,
-          Depth
+          Depth,
+          InQuote
         >
-      : Char extends '(' | '{'
-        ? // Entering a modifier bag or object body - commas inside don't split
+      : Char extends '"'
+        ? // Found a quote character - toggle the quote state
+          // Add the quote to current field and flip InQuote boolean
           SplitFieldsRespectingQuotes<
             Rest,
             `${Current}${Char}`,
-            false,
+            InQuote extends true ? false : true,
             Result,
-            [...Depth, 0]
+            Depth
           >
-        : Char extends ')' | '}'
-          ? SplitFieldsRespectingQuotes<
+        : InQuote extends true
+          ? // Inside quotes every character (commas, parens, braces) is literal
+            SplitFieldsRespectingQuotes<
               Rest,
               `${Current}${Char}`,
-              false,
+              true,
               Result,
-              Depth extends [...infer D extends 0[], 0] ? D : []
+              Depth
             >
-          : Char extends ','
-            ? Depth['length'] extends 0
-              ? // Top-level comma - this is a field separator
-                Rest extends ` ${infer RestTrimmed}`
-                ? // Handle ", " (comma + space) separator - skip the space
-                  SplitFieldsRespectingQuotes<
-                    RestTrimmed,
-                    '',
-                    false,
-                    [...Result, Current],
-                    Depth
-                  >
-                : // Handle "," (comma only) separator
-                  SplitFieldsRespectingQuotes<
-                    Rest,
-                    '',
-                    false,
-                    [...Result, Current],
-                    Depth
-                  >
-              : // Comma nested inside (...) or {...} - literal character
-                SplitFieldsRespectingQuotes<
-                  Rest,
-                  `${Current}${Char}`,
-                  false,
-                  Result,
-                  Depth
-                >
-            : // Regular character - add to current field and continue
+          : Char extends '(' | '{'
+            ? // Entering a modifier bag or object body - commas inside don't split
               SplitFieldsRespectingQuotes<
                 Rest,
                 `${Current}${Char}`,
                 false,
                 Result,
-                Depth
+                [...Depth, 0]
               >
+            : Char extends ')' | '}'
+              ? SplitFieldsRespectingQuotes<
+                  Rest,
+                  `${Current}${Char}`,
+                  false,
+                  Result,
+                  Depth extends [...infer D extends 0[], 0] ? D : []
+                >
+              : Char extends ','
+                ? Depth['length'] extends 0
+                  ? // Top-level comma - this is a field separator
+                    Rest extends ` ${infer RestTrimmed}`
+                    ? // Handle ", " (comma + space) separator - skip the space
+                      SplitFieldsRespectingQuotes<
+                        RestTrimmed,
+                        '',
+                        false,
+                        [...Result, Current],
+                        Depth
+                      >
+                    : // Handle "," (comma only) separator
+                      SplitFieldsRespectingQuotes<
+                        Rest,
+                        '',
+                        false,
+                        [...Result, Current],
+                        Depth
+                      >
+                  : // Comma nested inside (...) or {...} - literal character
+                    SplitFieldsRespectingQuotes<
+                      Rest,
+                      `${Current}${Char}`,
+                      false,
+                      Result,
+                      Depth
+                    >
+                : // Regular character - add to current field and continue
+                  SplitFieldsRespectingQuotes<
+                    Rest,
+                    `${Current}${Char}`,
+                    false,
+                    Result,
+                    Depth
+                  >
   : // End of string reached
     Current extends ''
     ? Result // Current field is empty, return accumulated result

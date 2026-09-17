@@ -147,6 +147,7 @@ async function* processStreamingResult<OUT extends AxGenOut>({
   thoughtFieldName,
   streamingAsserts,
   parseJsonStringFields,
+  strictStructuredJson,
 }: ProcessStreamingResultArgs): AsyncGenDeltaOut<OUT> {
   if (result.thought && result.thought.length > 0) {
     state.values[thoughtFieldName] =
@@ -191,7 +192,7 @@ async function* processStreamingResult<OUT extends AxGenOut>({
       );
     }
 
-    if (signature.hasComplexFields()) {
+    if (signature.hasComplexFields() || strictStructuredJson) {
       const accumulator = getOrCreateStructuredAccumulator(state);
       const parsed = parseStructuredPartial(state.content, accumulator);
       if (parsed) {

@@ -62,11 +62,13 @@ export type AxAIProfileTransport =
   | 'openai-responses'
   | 'anthropic-messages'
   | 'gemini-generate-content'
-  | 'webllm';
+  | 'webllm'
+  | 'typesafe-system-one';
 
 export type AxAIProfileCapabilities = {
   functions: boolean;
   functionEmulation?: boolean;
+  requiresStructuredOutput?: boolean;
   streaming: boolean;
   structuredOutputs: boolean;
   structuredOutputModes: readonly AxStructuredOutputRung[];
@@ -303,6 +305,7 @@ export const axResolveAIProfileFeatures = (
   return {
     functions: capabilities.functions,
     functionEmulation: capabilities.functionEmulation,
+    requiresStructuredOutput: capabilities.requiresStructuredOutput,
     streaming: capabilities.streaming,
     structuredOutputs: capabilities.structuredOutputs,
     structuredOutputModes: capabilities.structuredOutputModes,
@@ -828,6 +831,7 @@ export type AxAIDeploymentProfileId = Exclude<
   | 'anthropic'
   | 'google-gemini'
   | 'webllm'
+  | 'typesafe'
   | 'meta'
   | 'meta-chat'
   | 'meta-messages'

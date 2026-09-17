@@ -356,6 +356,7 @@ A: 9 of 12 churned accounts were on the Starter plan.
   <p class="home-section-label">LLM providers</p>
   <h2 id="use-any-model">Choose the model that fits your app.</h2>
   <p>Use OpenAI, Claude, Gemini, or a supported local model through <code>ai()</code>. Keep your task’s inputs and outputs while trying different models. Available features, such as voice, depend on the provider.</p>
+  <p>Ax also supports <strong>Typesafe’s Jev models in TypeScript</strong> for yes/no decisions and classification, with a native client for scoring and probabilities. <a href="/typescript/subsystems/ai/#typesafe-jev" data-home-lang-href="subsystems/ai/#typesafe-jev">Explore Jev support and examples</a>.</p>
 </div>
 <div class="home-provider-layout home-provider-layout-simple">
   <div>
@@ -363,6 +364,7 @@ A: 9 of 12 churned accounts were on the Starter plan.
       <span>OpenAI</span>
       <span>Claude</span>
       <span>Gemini</span>
+      <span>Typesafe / Jev · TypeScript</span>
       <span>OpenAI-compatible</span>
       <span>Local</span>
     </div>

@@ -80,6 +80,7 @@
     "together_ai": "together",
     "together-ai": "together",
     "truss": "baseten-engine",
+    "typesafe": "typesafe",
     "vertex-ai": "vertex-ai",
     "vertex-openai": "vertex-ai",
     "vllm": "vllm",
@@ -414,6 +415,13 @@
         "id": "together",
         "transport": "openai-chat"
       },
+      "typesafe": {
+        "aliases": ["typesafe"],
+        "catalogStatus": "typescript-only",
+        "generatedClient": null,
+        "id": "typesafe",
+        "transport": "typesafe-system-one"
+      },
       "vertex-ai": {
         "aliases": ["vertex-ai", "vertex-openai"],
         "catalogStatus": "descriptor-covered",
@@ -486,7 +494,8 @@
       "lm-studio",
       "llama-cpp",
       "localai",
-      "baseten-engine"
+      "baseten-engine",
+      "typesafe"
     ]
   },
   "kind": "ai_provider_registry",

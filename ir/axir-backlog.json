@@ -1449,6 +1449,68 @@
       "completedAt": null,
       "completedByCommit": null,
       "verification": null
+    },
+    {
+      "id": "axir-2026-09-16-port-typesafe-native-typed-inference-and-schema-required-generat",
+      "status": "open",
+      "title": "Port Typesafe native typed inference and schema-required generation",
+      "createdAt": "2026-09-16",
+      "sourcePR": null,
+      "sourceCommit": "3951b0531514b62ec533ad0de218716847f0a931",
+      "tsPaths": [
+        "src/ax/ai/typesafe",
+        "src/ax/ai/base.ts",
+        "src/ax/ai/types.ts",
+        "src/ax/ai/wrap.ts",
+        "src/ax/ai/provider_profiles.ts",
+        "src/ax/dsp/generate.ts",
+        "src/ax/dsp/prompt.ts",
+        "src/ax/dsp/response",
+        "src/ax/ai/capabilities.ts",
+        "src/ax/ai/balance.ts",
+        "src/ax/ai/router.ts",
+        "src/ax/util/apicall.ts"
+      ],
+      "portableSurface": "axai",
+      "impact": "TypeScript adds Typesafe boolean/class signature inference with configurable provider Noul thresholds; native systemOne/listModels APIs for structured questions, Score and raw probabilities; schema-required generation; pure request validation and routing/fallback eligibility; shared bodyless GET and abort-reason normalization. Numeric signature outputs are unsupported. Port these behaviors, cancellation, usage, and typed results to generated languages; keep the provider TypeScript-only until parity is implemented.",
+      "suggestedAxirWork": [
+        "Add or update the TS-derived conformance fixture.",
+        "Update AxIR/Core or descriptor data to match the portable TS behavior.",
+        "Run npm run axir:conformance:check and npm run test:axir."
+      ],
+      "completedAt": null,
+      "completedByCommit": null,
+      "verification": null
+    },
+    {
+      "id": "axir-2026-09-17-port-signature-value-descriptions-for-boolean-and-class-fields",
+      "status": "open",
+      "title": "Port signature value descriptions for boolean and class fields",
+      "createdAt": "2026-09-17",
+      "sourcePR": null,
+      "sourceCommit": "3951b0531514b62ec533ad0de218716847f0a931",
+      "tsPaths": [
+        "src/ax/dsp/parser.ts",
+        "src/ax/dsp/sig.ts",
+        "src/ax/dsp/sigtypes.ts",
+        "src/ax/dsp/valueDescriptions.ts",
+        "src/ax/dsp/jsonSchema.ts",
+        "src/ax/dsp/prompt.ts",
+        "src/ax/dsp/generate.ts",
+        "src/ax/ai/types.ts",
+        "src/ax/ai/typesafe/api.ts",
+        "src/ax/dsp/extract/streamingText.ts"
+      ],
+      "portableSurface": "axgen",
+      "impact": "Add boolean true/false and class-label description syntax, fluent describeValues, validation, serialization, type inference, conventional prompt/schema rendering, and structured-output request annotations consumed as native Typesafe criteria. Existing field value semantics remain unchanged. Text extraction must accept the exact wire field names advertised by prompts, while retaining display-title support, including streaming.",
+      "suggestedAxirWork": [
+        "Add or update the TS-derived conformance fixture.",
+        "Update AxIR/Core or descriptor data to match the portable TS behavior.",
+        "Run npm run axir:conformance:check and npm run test:axir."
+      ],
+      "completedAt": null,
+      "completedByCommit": null,
+      "verification": null
     }
   ],
   "nonPortableExemptions": [

@@ -81,7 +81,8 @@ export async function* finalizeStreamingResponse<OUT extends AxGenOut>({
     state.functionsExecuted = new Set([...state.functionsExecuted, ...fx]);
     state.functionCalls = [];
   } else {
-    const hasComplexFields = signature.hasComplexFields();
+    const hasComplexFields =
+      signature.hasComplexFields() || strictStructuredJson;
 
     let jsonParsed = false;
     if (hasComplexFields) {

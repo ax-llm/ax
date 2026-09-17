@@ -56,6 +56,7 @@ const allowedTransports = new Set([
   'anthropic-messages',
   'gemini-generate-content',
   'webllm',
+  'typesafe-system-one',
 ]);
 const allowedDialects = new Set([
   ...allowedTransports,
@@ -351,6 +352,7 @@ const transportClient = {
   'anthropic-messages': 'AnthropicClient',
   'gemini-generate-content': 'GoogleGeminiClient',
   webllm: null,
+  'typesafe-system-one': null,
 };
 const registry = {
   registryVersion: source.schemaVersion,
@@ -364,7 +366,7 @@ const registry = {
         transport: profile.transport,
         generatedClient: transportClient[profile.transport],
         catalogStatus:
-          profile.transport === 'webllm'
+          transportClient[profile.transport] === null
             ? 'typescript-only'
             : 'descriptor-covered',
       },
@@ -389,7 +391,11 @@ const descriptors = Object.fromEntries(
         operationDescriptor(name, operation),
       ])
     );
-    if (operations.chat && !operations.stream_chat) {
+    if (
+      operations.chat &&
+      !operations.stream_chat &&
+      profile.capabilities.streaming
+    ) {
       operations.stream_chat = {
         ...operations.chat,
         stream: true,

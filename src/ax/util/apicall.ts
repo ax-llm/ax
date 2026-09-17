@@ -48,7 +48,7 @@ export interface AxAPI {
   url?: string | URL;
   headers?: Record<string, string>;
   /** HTTP method for JSON API requests. Defaults to POST. */
-  method?: 'POST' | 'PUT' | 'PATCH';
+  method?: 'GET' | 'POST' | 'PUT' | 'PATCH';
   /** @deprecated Use `method: 'PUT'` instead. */
   put?: boolean;
   localCall?: <TRequest, TResponse>(
@@ -781,7 +781,7 @@ export const apiCall = async <TRequest = unknown, TResponse = unknown>(
           'X-Retry-Count': attempt.toString(),
           ...requestHeaders,
         },
-        body: JSON.stringify(json),
+        body: method === 'GET' ? undefined : JSON.stringify(json),
         signal: combinedAbortController.signal,
       });
 
@@ -1113,7 +1113,10 @@ export const apiCall = async <TRequest = unknown, TResponse = unknown>(
         },
       });
     } catch (error) {
-      if (error instanceof Error && error.name === 'AbortError') {
+      if (
+        combinedAbortController.signal.aborted ||
+        (error instanceof Error && error.name === 'AbortError')
+      ) {
         // Check if this was a user abort or timeout
         if (api.abortSignal?.aborted) {
           throw new AxAIServiceAbortedError(

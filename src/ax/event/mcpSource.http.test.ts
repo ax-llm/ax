@@ -349,7 +349,7 @@ describe('AxMCPEventSource over real localhost Streamable HTTP/SSE', () => {
       }
       expect(observed).toContain('mcp.progress');
       expect(modelStep).toBe(3);
-      expect(flowOutputs).toEqual([{ answer: 'answer: task completed' }]);
+      expect(flowOutputs).toEqual([{ answer: 'task completed' }]);
     } finally {
       unsubscribeTerminal();
       await runtime.close({ drain: false });

@@ -106,6 +106,7 @@ function hasValidPrefix(name: string): boolean {
       name === 'runControl' ||
       name === 's' ||
       name === 'ai' ||
+      name === 'typesafe' ||
       name === 'agent' ||
       name === 'flow' ||
       name === 'eventRuntime' ||

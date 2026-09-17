@@ -329,6 +329,17 @@ Rules:
 
 ## Structured Outputs
 
+In TypeScript, providers advertising `requiresStructuredOutput` (such as
+Typesafe) automatically receive a schema for scalar-only signatures too.
+Ax renders JSON instructions/examples and parses the resulting object without
+changing the program's signature. Typesafe accepts required boolean and class
+outputs; numeric scoring uses the provider-specific native client. Boolean/class
+value descriptions map to native criteria, while conventional providers receive
+readable descriptions in prompts and schemas. See the
+[ax-typesafe skill](https://github.com/ax-llm/ax/blob/main/src/ax/skills/ax-typesafe.md)
+for native questions, thresholds, and hybrid text generation. Providers that disable both native functions and
+`functionEmulation` reject tool-bearing programs before prompt rendering.
+
 ```typescript
 const sig = f()
   .input('text', f.string())

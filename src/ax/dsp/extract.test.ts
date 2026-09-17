@@ -17,6 +17,42 @@ const createInitialState = (): extractionState => ({
 });
 
 describe('extractValues', () => {
+  test('preserves unlabelled single-field text ending with a partial wire label', () => {
+    const sig = AxSignature.from('question:string -> responseText:string');
+    const values: Record<string, unknown> = {};
+    extractValues(sig, values, 'Answer');
+    expect(values).toEqual({ responseText: 'Answer' });
+  });
+
+  test.each([false, true])(
+    'accepts exact wire keys as well as display titles (strict=%s)',
+    (strictMode) => {
+      const sig = AxSignature.from(
+        'ticket:string -> urgent:boolean(true "Core task blocked", false "Routine"), assignedTeam:class "support, engineering"'
+      );
+      for (const content of [
+        'urgent: true\nassignedTeam: engineering',
+        'Urgent: true\nAssigned Team: engineering',
+        'Urgent: true\nassignedTeam: engineering',
+      ]) {
+        const values: Record<string, unknown> = {};
+        extractValues(sig, values, content, { strictMode });
+        expect(values).toEqual({ urgent: true, assignedTeam: 'engineering' });
+        const streamed: Record<string, unknown> = {};
+        const state = createInitialState();
+        for (let i = 1; i <= content.length; i++)
+          streamingExtractValues(sig, streamed, state, content.slice(0, i), {
+            strictMode,
+          });
+        streamingExtractFinalValue(sig, streamed, state, content, {
+          strictMode,
+          forceFinalize: true,
+        });
+        expect(streamed).toEqual(values);
+      }
+    }
+  );
+
   test('extracts single output field', () => {
     const sig = AxSignature.from('userQuestion -> modelAnswer');
     const values: Record<string, unknown> = {};

@@ -1,5 +1,23 @@
 import type { MediaRequirements } from './processor.js';
-import type { AxAIService, AxChatRequest } from './types.js';
+import type {
+  AxAIService,
+  AxAIServiceOptions,
+  AxChatRequest,
+} from './types.js';
+
+/** @internal Pure provider request validation, shared by routing and capability reports. */
+export function getRequestCompatibilityError(
+  provider: Pick<AxAIService, 'validateChatRequest'>,
+  request: Readonly<AxChatRequest<unknown>>,
+  options?: Readonly<AxAIServiceOptions>
+): string | undefined {
+  try {
+    provider.validateChatRequest?.(request, options);
+  } catch (error) {
+    return error instanceof Error ? error.message : String(error);
+  }
+  return undefined;
+}
 
 /**
  * Represents a provider's compatibility score for a specific request
@@ -190,12 +208,19 @@ export function axAnalyzeRequestRequirements(
  */
 export function axValidateProviderCapabilities(
   provider: AxAIService,
-  requirements: ReturnType<typeof axAnalyzeRequestRequirements>
+  requirements: ReturnType<typeof axAnalyzeRequestRequirements>,
+  request?: Readonly<AxChatRequest>,
+  options?: Readonly<AxAIServiceOptions>
 ): CapabilityValidationResult {
   const features = provider.getFeatures();
   const missingCapabilities: string[] = [];
   const warnings: string[] = [];
   const alternatives: string[] = [];
+
+  if (request) {
+    const error = getRequestCompatibilityError(provider, request, options);
+    if (error !== undefined) missingCapabilities.push(error);
+  }
 
   // Check media capabilities
   if (requirements.hasImages && !features.media.images.supported) {
@@ -298,12 +323,24 @@ export function axValidateProviderCapabilities(
  */
 export function axScoreProvidersForRequest(
   providers: AxAIService[],
-  requirements: ReturnType<typeof axAnalyzeRequestRequirements>
+  requirements: ReturnType<typeof axAnalyzeRequestRequirements>,
+  request?: Readonly<AxChatRequest>,
+  options?: Readonly<AxAIServiceOptions>
 ): ProviderCapabilityScore[] {
   return providers
     .map((provider) => {
       const features = provider.getFeatures();
       const validation = axValidateProviderCapabilities(provider, requirements);
+      const error = request
+        ? getRequestCompatibilityError(provider, request, options)
+        : undefined;
+      if (error !== undefined)
+        return {
+          provider,
+          score: Number.NEGATIVE_INFINITY,
+          missingCapabilities: [...validation.missingCapabilities, error],
+          supportedCapabilities: [],
+        };
 
       let score = 0;
       const supportedCapabilities: string[] = [];
@@ -468,17 +505,32 @@ export function axSelectOptimalProvider(
   options: {
     requireExactMatch?: boolean;
     allowDegradation?: boolean;
-  } = {}
+  } = {},
+  serviceOptions?: Readonly<AxAIServiceOptions>
 ): AxAIService {
   if (availableProviders.length === 0) {
     throw new Error('No providers available');
   }
 
   const requirements = axAnalyzeRequestRequirements(request);
-  const scoredProviders = axScoreProvidersForRequest(
+  const scores = axScoreProvidersForRequest(
     availableProviders,
-    requirements
+    requirements,
+    request,
+    serviceOptions
   );
+  const scoredProviders = scores.filter((candidate) =>
+    Number.isFinite(candidate.score)
+  );
+  if (!scoredProviders.length)
+    throw new Error(
+      `No providers support the request: ${scores
+        .map(
+          (candidate) =>
+            `${candidate.provider.getName()}: ${candidate.missingCapabilities.join(', ')}`
+        )
+        .join('; ')}`
+    );
 
   if (options.requireExactMatch) {
     // Only consider providers that fully support all requirements
@@ -546,10 +598,13 @@ export function axGetCompatibilityReport(
   const requirements = axAnalyzeRequestRequirements(request);
   const providerScores = axScoreProvidersForRequest(
     availableProviders,
-    requirements
+    requirements,
+    request
   );
 
-  const recommendedProvider = providerScores[0]?.provider || null;
+  const recommendedProvider =
+    providerScores.find((score) => Number.isFinite(score.score))?.provider ??
+    null;
 
   const totalRequirements = [
     requirements.hasImages && 'images',

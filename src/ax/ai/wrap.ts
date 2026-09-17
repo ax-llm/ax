@@ -3,6 +3,7 @@ import { axIsGPT6Astra } from './openai/model_family.js';
 import { axAIOpenAIResponsesDefaultConfig } from './openai/responses_api_base.js';
 import { AxAIOpenAIResponsesClient } from './openai/responses_client.js';
 import type { AxChatSession } from './session.js';
+import { AxAITypesafe, type AxAITypesafeArgs } from './typesafe/api.js';
 // ReadableStream is available globally in modern browsers and Node.js 16+
 
 import { AxAIAnthropic, type AxAIAnthropicArgs } from './anthropic/api.js';
@@ -74,6 +75,7 @@ export type AxAIArgs<TModelKey> =
   | AxAIAnthropicArgs<TModelKey>
   | AxAIGoogleGeminiArgs<TModelKey>
   | AxAIMetaArgs<TModelKey>
+  | AxAITypesafeArgs<TModelKey>
   | AxAIDeploymentProfileArgs<TModelKey>
   // axir-nonportable:start webllm
   | AxAIWebLLMArgs<TModelKey>;
@@ -285,6 +287,11 @@ export class AxAI<TModelKey = string>
             ? new AxAIAnthropic<TModelKey>(options as any)
             : new AxAIAnthropicProfile<TModelKey>(options as any);
         break;
+      case 'typesafe-system-one':
+        this.ai = new AxAITypesafe<TModelKey>(
+          options as AxAITypesafeArgs<TModelKey>
+        );
+        break;
       case 'gemini-generate-content':
         this.ai = new AxAIGoogleGemini<TModelKey>(options as any);
         break;
@@ -353,6 +360,17 @@ export class AxAI<TModelKey = string>
       : this.ai.getEstimatedCost() +
           (this.responsesAI?.getEstimatedCost() ?? 0) +
           (this.responsesClient?.getEstimatedCost() ?? 0);
+  }
+
+  validateChatRequest(
+    req: Readonly<AxChatRequest<TModelKey>>,
+    options?: Readonly<AxAIServiceOptions>
+  ): void {
+    const resolved = this.resolveModel(req.model);
+    const service = axIsGPT6Astra(resolved)
+      ? (this.responsesAI ?? this.ai)
+      : this.ai;
+    service.validateChatRequest?.(req, options);
   }
 
   async chat(

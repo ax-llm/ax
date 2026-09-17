@@ -1,5 +1,6 @@
 import type { AxFunctionJSONSchema } from '../ai/types.js';
 import type { AxField } from './sig.js';
+import { describeFieldValues } from './valueDescriptions.js';
 
 type ToJsonSchemaOptions = {
   /**
@@ -228,7 +229,10 @@ function fieldToSchema(
   const type = field.type;
 
   // Enhance description with validation constraints
-  const description = enhanceDescriptionWithValidation(field.description, type);
+  const description = enhanceDescriptionWithValidation(
+    describeFieldValues(field),
+    type
+  );
 
   // Validate that media types are not used in nested objects
   if (
@@ -277,6 +281,7 @@ function fieldToSchema(
             maximum: fieldType.maximum,
             pattern: fieldType.pattern,
             patternDescription: fieldType.patternDescription,
+            valueDescriptions: fieldType.valueDescriptions,
             format: fieldType.format,
           },
           isOptional: fieldType.isOptional,
@@ -295,12 +300,16 @@ function fieldToSchema(
       schema.items = {
         type: 'string',
         enum: type.options,
+        ...(type.valueDescriptions ? { description } : {}),
       };
     } else {
       // Array of primitives
       // Enhance description for array items
       const itemDescription = enhanceDescriptionWithValidation(
-        type.description || field.description,
+        describeFieldValues({
+          ...field,
+          description: type.description || field.description,
+        }),
         type
       );
 
@@ -368,6 +377,7 @@ function fieldToSchema(
           maximum: fieldType.maximum,
           pattern: fieldType.pattern,
           patternDescription: fieldType.patternDescription,
+          valueDescriptions: fieldType.valueDescriptions,
           format: fieldType.format,
         },
         isOptional: fieldType.isOptional,

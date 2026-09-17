@@ -1,7 +1,7 @@
 ---
 name: ax-agent
 description: This skill helps an LLM generate correct core AxAgent code using @ax-llm/ax. Use when the user asks about agent(), child agents, namespaced functions, discovery mode, clarification, bubbleErrors, host-side final/clarification protocol, or ordinary agent runtime behavior. For MCP clients, native runtime modules, subscriptions, tasks, or authentication use ax-mcp alongside this skill. For RLM/code-runtime work use ax-agent-rlm; for callbacks and telemetry use ax-agent-observability; for recall/memory/skill loading use ax-agent-memory-skills; for agent.optimize(...) use ax-agent-optimize.
-version: "24.0.17"
+version: "24.0.18"
 ---
 
 # AxAgent Codegen Rules (@ax-llm/ax)
@@ -19,6 +19,12 @@ Your job is to choose the smallest correct `AxAgent` shape for the user's needs:
   tasks, Apps, or event-driven wake/resume, use the `ax-mcp` skill.
 
 ## Use These Defaults
+
+For Typesafe/Jev decisions inside an agent, keep a generative model for the
+actor's tools/code/prose and call Typesafe in a separate decision step. See the
+[ax-typesafe skill](https://github.com/ax-llm/ax/blob/main/src/ax/skills/ax-typesafe.md)
+for supported signatures and native questions; Jev cannot supply a general
+tool-using actor's output contract.
 
 - Use `agent(...)`, not `new AxAgent(...)`.
 - Prefer string signatures or `f()` signatures over hand-written signature objects.

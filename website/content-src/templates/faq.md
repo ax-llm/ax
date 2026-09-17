@@ -16,6 +16,13 @@ No. Start with a signature and `ax()`; the [DSPy concepts page]({{langRoot}}/con
 
 Use a key from any provider Ax supports. The Quick Start uses OpenAI because it is a familiar default, but the program contract is provider-independent. See [LLMs and providers]({{langRoot}}/concepts/llms/).
 
+### Does Ax support Typesafe’s Jev models?
+
+Yes, in TypeScript. Use `ai({ name: 'typesafe', apiKey })` with ordinary
+boolean/class signatures for yes/no decisions and classification. The separate
+`typesafe()` client exposes native scoring, probabilities, and structured
+criteria. See the [Typesafe/Jev guide and examples](/typescript/skills/ax-typesafe/).
+
 ### What does it cost to try?
 
 Ax itself is Apache-2.0 open source. Your only required runtime cost is whatever model provider you choose to call; a small model and a short classification request are enough for the Quick Start.

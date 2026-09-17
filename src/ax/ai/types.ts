@@ -145,6 +145,7 @@ export type AxAICredentialRequest = Readonly<{
   profile: string;
   operation:
     | 'chat'
+    | 'models'
     | 'stream_chat'
     | 'embed'
     | 'responses'
@@ -742,6 +743,20 @@ export type AxChatRequest<TModel = string> = {
   responseFormat?: {
     type: 'json_object' | 'json_schema';
     schema?: any;
+    /**
+     * Original per-value guidance for adapters that can represent it structurally.
+     * The standard schema's descriptions already contain the readable guidance.
+     * These annotations are not JSON Schema keywords and are not sent as such.
+     */
+    fieldDescriptions?: Readonly<
+      Record<
+        string,
+        {
+          description?: string;
+          valueDescriptions: Readonly<Record<string, string>>;
+        }
+      >
+    >;
   };
   modelConfig?: AxModelConfig;
   model?: TModel;
@@ -1289,6 +1304,12 @@ export interface AxAIService<
   getLastUsedEmbedModel(): TEmbedModel | undefined;
   getLastUsedModelConfig(): AxModelConfig | undefined;
 
+  /** Check request compatibility without network calls, credentials, or state changes. */
+  validateChatRequest?(
+    req: Readonly<AxChatRequest<TModel | TModelKey>>,
+    options?: Readonly<AxAIServiceOptions>
+  ): void;
+
   /** Resolve a provider before a controlled/tool run; the returned service is pinned. */
   resolveChatService?(
     req: Readonly<AxChatRequest<TModel | TModelKey>>,
@@ -1372,7 +1393,10 @@ export interface AxAIServiceImpl<
     config?: Readonly<AxAIServiceOptions>
   ): Promise<[AxAPI, TChatRequest]> | [AxAPI, TChatRequest];
 
-  createChatResp(resp: Readonly<TChatResponse>): AxChatResponse;
+  createChatResp(
+    resp: Readonly<TChatResponse>,
+    request?: Readonly<AxInternalChatRequest<TModel>>
+  ): AxChatResponse;
 
   createChatStreamResp?(
     resp: Readonly<TChatResponseDelta>,

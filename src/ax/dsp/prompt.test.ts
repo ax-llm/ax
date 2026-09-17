@@ -12,6 +12,20 @@ describe('AxPromptTemplate.render', () => {
   ): string => (messages[0] as { role: 'system'; content: string }).content;
 
   describe('output contracts and composed instructions', () => {
+    it('rebuilds the output format from an updated signature', () => {
+      const signature = AxSignature.from('question:string -> answer:string');
+      const template = new AxPromptTemplate(signature);
+      const structured = f()
+        .input('question', f.string())
+        .output('profile', f.object({ displayName: f.string() }))
+        .build();
+      signature.setOutputFields(structured.getOutputFields());
+      template.setInstruction('Answer the question.');
+      const content = systemContent(template.render({ question: 'Who?' }, {}));
+      expect(content).toContain('**Exact JSON shape**');
+      expect(content).toContain('`{"profile":{"displayName":"<string>"}}`');
+    });
+
     it('keeps exact wire keys and nested shapes for forced structured primitives', () => {
       const signature = f()
         .input('task', f.string())

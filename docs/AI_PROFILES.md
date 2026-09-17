@@ -82,6 +82,30 @@ metadata and are never defaults. Muse Glimmer remains self-hosted: use the
 existing `vllm`, `llama-cpp`, `ollama`, or `lm-studio` profile with a server you
 operate. Ax does not download or manage model weights.
 
+## Typesafe / Jev (TypeScript)
+
+The `typesafe` deployment uses the native System One transport at
+`https://api.typesafe.ai`. Jev is its model family; both Ax interfaces default
+to `jev-latest`.
+
+- `ai({ name: 'typesafe', apiKey, trueThreshold: 0.9 })` supports ordinary Ax
+  programs with required boolean and class outputs. Value descriptions become
+  native criteria and remain readable prompt/schema descriptions with other
+  providers. Boolean conversion is `noul >= trueThreshold` (default `0.5`).
+- `typesafe({ apiKey }).systemOne({ state, questions })` exposes native Noul,
+  Choice, and Score answers. Structured criteria and fractional scoring remain
+  native; numeric signature bounds are validation constraints. Native
+  `listModels()` is separate from Ax's configured model aliases.
+
+Unsupported schemas and tools are excluded before requests, including router
+fallbacks with degradation enabled. Mixed pools require an already-supported
+schema for Typesafe eligibility; Typesafe-only pools propagate its schema
+requirement. Use an explicit generative second step for prose.
+
+The [Typesafe/Jev skill](../src/ax/skills/ax-typesafe.md) is the detailed usage
+guide, including transport settings, examples, and provider-specific limits.
+Implementation parity for other languages remains in the [AxIR backlog](./AXIR_BACKLOG.md).
+
 ## Capability Resolution
 
 Capabilities resolve in this order:

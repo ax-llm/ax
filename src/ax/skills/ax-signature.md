@@ -62,6 +62,62 @@ objects declare structured fields inline.
 | `cache` | top-level input | Prefix-cache breakpoint |
 | `item "desc"` | arrays | Per-item description: `tags:string(item "a tag")[]` |
 | `<language>` | `code` | Language of the snippet: `snippet:code(python)` |
+| `true "desc"` / `false "desc"` | `boolean` | Explain when each outcome applies |
+
+## Descriptions for Boolean and Class Values (TypeScript)
+
+Describe individual outcomes without changing a field's type or allowed values:
+
+```typescript
+const triage = ax(`
+  ticket:string ->
+  urgent:boolean(
+    true "Customers cannot complete a core task",
+    false "A routine request or minor inconvenience"
+  ) "Does this need immediate attention?",
+  team:class "support, billing, engineering"(
+    support "Product usage questions",
+    billing "Invoice or charge disputes",
+    engineering "Broken functionality"
+  ) "Which team should investigate?"
+`);
+```
+
+Boolean descriptions use the existing modifier bag after `boolean`. Class
+descriptions follow the quoted list of allowed labels. Quote labels containing
+spaces or punctuation, for example `class "in progress, done"("in progress"
+"Work has started", done "Work is complete")`. Descriptions may be partial;
+duplicate keys, unknown labels, and empty descriptions are errors.
+
+The fluent equivalent uses `.describeValues(...)`:
+
+```typescript
+f.boolean('Does this need immediate attention?').describeValues({
+  true: 'Customers cannot complete a core task',
+  false: 'A routine request or minor inconvenience',
+});
+f.class(['support', 'billing'], 'Which team?').describeValues({
+  support: 'Product usage questions',
+  billing: 'Invoice or charge disputes',
+});
+```
+
+OpenAI and other conventional providers receive the question followed by
+`value: description` lines in the ordinary prompt and, when used, the JSON
+schema description. Typesafe receives separate Noul/Choice criteria. The
+original annotations remain separate in the signature and survive `toString()`
+round-trips. Rendering does not mutate the signature or duplicate descriptions.
+Boolean and class return types, optional/array behavior, and allowed values stay
+unchanged. Descriptions are guidance, not additional output validation. Number
+bounds still describe validation constraints; Typesafe Score rubrics remain native-only.
+Generated-language support is tracked in the AxIR backlog.
+
+For Jev, use these descriptions for boolean/class criteria. Full structured
+criteria, native probabilities, and Score rubrics use the separate native
+client; see the [ax-typesafe skill](https://github.com/ax-llm/ax/blob/main/src/ax/skills/ax-typesafe.md).
+The adapter's `trueThreshold` is provider-wide conversion policy, not a field modifier.
+
+### Existing modifier rules
 
 - `object{ field:type, opt?:type }` nests recursively; append `[]` for an array of objects.
 - Optional goes on the **name** (`userAge?:number`), never after the type.

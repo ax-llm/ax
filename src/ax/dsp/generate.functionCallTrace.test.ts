@@ -135,7 +135,7 @@ describe('AxGen onFunctionCall hook', () => {
           },
         }
       )
-    ).resolves.toMatchObject({ answer: 'answer: done' });
+    ).resolves.toMatchObject({ answer: 'done' });
   });
 
   it('keeps provider ids in chat logs', async () => {

@@ -570,6 +570,7 @@ npm install @ax-llm/ax-tools              # MCP stdio transport, JS runtime extr
 
 **Deep dives**
 - [AI providers](https://github.com/ax-llm/ax/blob/main/src/ax/skills/ax-ai.md)
+- [Typesafe / Jev decisions and native scoring (TypeScript)](https://github.com/ax-llm/ax/blob/main/src/ax/skills/ax-typesafe.md)
 - [Audio I/O](https://github.com/ax-llm/ax/blob/main/src/ax/skills/ax-audio.md)
 - [AxFlow workflows](https://github.com/ax-llm/ax/blob/main/src/ax/skills/ax-flow.md)
 - [Optimization (GEPA, ACE)](https://axllm.dev/typescript/concepts/optimization/)

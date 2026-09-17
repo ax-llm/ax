@@ -6,7 +6,6 @@ import type {
   AxFunctionJSONSchema,
 } from '../ai/types.js';
 import { createHash } from '../util/crypto.js';
-
 import { axGlobals } from './globals.js';
 import { toJsonSchema } from './jsonSchema.js';
 import {
@@ -26,6 +25,10 @@ import {
 } from './standardSchema.js';
 import type { ParseSignature } from './types.js';
 import { validateValue } from './util.js';
+import {
+  orderedValueDescriptions,
+  validateValueDescriptions,
+} from './valueDescriptions.js';
 
 /**
  * Narrow a StandardSchemaV1 output type to a record so it satisfies the
@@ -64,6 +67,7 @@ export interface AxFieldType {
   readonly minimum?: number; // Number minimum value
   readonly maximum?: number; // Number maximum value
   readonly pattern?: string; // String regex pattern
+  readonly valueDescriptions?: Readonly<Record<string, string>>;
   readonly patternDescription?: string; // Human-readable description of the pattern
   readonly format?: string; // String format (email, uri, uuid, etc.)
   readonly language?: string; // Programming language for code fields
@@ -307,6 +311,7 @@ export class AxFluentFieldType<
   readonly minimum?: number;
   readonly maximum?: number;
   readonly pattern?: string;
+  readonly valueDescriptions?: Readonly<Record<string, string>>;
   readonly patternDescription?: string;
   readonly format?: string;
   readonly language?: string;
@@ -327,6 +332,7 @@ export class AxFluentFieldType<
     minimum?: number;
     maximum?: number;
     pattern?: string;
+    valueDescriptions?: Readonly<Record<string, string>>;
     patternDescription?: string;
     format?: string;
     language?: string;
@@ -346,8 +352,38 @@ export class AxFluentFieldType<
     this.maximum = fieldType.maximum;
     this.pattern = fieldType.pattern;
     this.patternDescription = fieldType.patternDescription;
+    this.valueDescriptions = fieldType.valueDescriptions
+      ? { ...fieldType.valueDescriptions }
+      : undefined;
     this.format = fieldType.format;
     this.language = fieldType.language;
+  }
+
+  /** Describe individual boolean outcomes or class labels without changing their value types. */
+  describeValues<const D extends Readonly<Record<string, string>>>(
+    descriptions: D &
+      Record<
+        Exclude<
+          keyof D,
+          TType extends 'boolean'
+            ? 'true' | 'false'
+            : TType extends 'class'
+              ? NonNullable<TOptions>[number]
+              : never
+        >,
+        never
+      >
+  ): AxFluentFieldType<
+    TType,
+    TIsArray,
+    TOptions,
+    TIsOptional,
+    TIsInternal,
+    TFields,
+    TIsCached
+  > {
+    validateValueDescriptions(this.type, descriptions, this.options);
+    return new AxFluentFieldType({ ...this, valueDescriptions: descriptions });
   }
 
   optional(): AxFluentFieldType<
@@ -1368,6 +1404,7 @@ export interface AxField {
     minimum?: number;
     maximum?: number;
     pattern?: string;
+    valueDescriptions?: Readonly<Record<string, string>>;
     patternDescription?: string;
     format?: string;
     language?: string;
@@ -1520,6 +1557,7 @@ export interface AxFluentFieldInfo<
   readonly minimum?: number;
   readonly maximum?: number;
   readonly pattern?: string;
+  readonly valueDescriptions?: Readonly<Record<string, string>>;
   readonly patternDescription?: string;
   readonly format?: string;
   readonly language?: string;
@@ -1542,6 +1580,7 @@ function convertFluentToAxFieldType(
     maximum: fluent.maximum,
     pattern: fluent.pattern,
     patternDescription: fluent.patternDescription,
+    valueDescriptions: fluent.valueDescriptions,
     format: fluent.format,
     language: fluent.language,
     fields: fluent.fields
@@ -1682,6 +1721,7 @@ function convertFieldTypeToAxField(
       maximum: fieldType.maximum,
       pattern: fieldType.pattern,
       patternDescription: fieldType.patternDescription,
+      valueDescriptions: fieldType.valueDescriptions,
       format: fieldType.format,
       language: fieldType.language,
     },
@@ -1734,6 +1774,7 @@ function createAxFieldFromFluentField<
       maximum: fieldInfo.maximum,
       pattern: fieldInfo.pattern,
       patternDescription: fieldInfo.patternDescription,
+      valueDescriptions: fieldInfo.valueDescriptions,
       format: fieldInfo.format,
       language: fieldInfo.language,
       description: fieldInfo.itemDescription,
@@ -2766,12 +2807,14 @@ function escapeRenderedString(value: string): string {
 function renderModifierBag(
   type: {
     readonly name: string;
+    readonly options?: readonly string[];
     readonly isArray?: boolean;
     readonly minLength?: number;
     readonly maxLength?: number;
     readonly minimum?: number;
     readonly maximum?: number;
     readonly pattern?: string;
+    readonly valueDescriptions?: Readonly<Record<string, string>>;
     readonly patternDescription?: string;
     readonly format?: string;
     readonly language?: string;
@@ -2779,7 +2822,10 @@ function renderModifierBag(
   },
   isCached: boolean | undefined
 ): string {
-  const entries: string[] = [];
+  const entries: string[] = orderedValueDescriptions(type).map(
+    ([value, description]) =>
+      `${type.name === 'boolean' ? value : `"${escapeRenderedString(value)}"`} "${escapeRenderedString(description)}"`
+  );
   const min = type.minLength ?? type.minimum;
   const max = type.maxLength ?? type.maximum;
   if (min !== undefined) {
@@ -2799,7 +2845,7 @@ function renderModifierBag(
         : pattern
     );
   }
-  if (type.isArray && type.description) {
+  if (type.name !== 'class' && type.isArray && type.description) {
     entries.push(`item "${escapeRenderedString(type.description)}"`);
   }
   if (type.name === 'code' && type.language) {
@@ -2819,7 +2865,11 @@ function renderNestedType(fieldType: Readonly<AxFieldType>): string {
     if (fieldType.isArray) {
       result += '[]';
     }
-    result += ` "${(fieldType.options ?? []).join(' | ')}"`;
+    result += ` "${escapeRenderedString((fieldType.options ?? []).join(' | '))}"`;
+    result += renderModifierBag(
+      { ...fieldType, name: fieldType.type },
+      undefined
+    );
     return result;
   }
   if (fieldType.type === 'object' && fieldType.fields) {
@@ -2888,7 +2938,8 @@ function renderField(field: Readonly<AxField>): string {
         result += '[]';
       }
       if (field.type.name === 'class' && field.type.options) {
-        result += ` "${field.type.options.join(' | ')}"`;
+        result += ` "${escapeRenderedString(field.type.options.join(' | '))}"`;
+        result += renderModifierBag(field.type, undefined);
       }
     }
   } else if (field.isCached) {
@@ -3027,6 +3078,12 @@ function validateFieldType(
   if (!field.type) return;
 
   const { type } = field;
+  validateValueDescriptions(
+    type.name,
+    type.valueDescriptions,
+    type.options,
+    field.name
+  );
 
   // Image/file remain input-only. Audio may be output as a scripted speech
   // artifact, but arrays of generated audio are intentionally not supported.
@@ -3129,6 +3186,12 @@ function validateNestedFields(
 ): void {
   for (const [fieldName, fieldType] of Object.entries(fields)) {
     const fullFieldName = `${parentFieldName}.${fieldName}`;
+    validateValueDescriptions(
+      fieldType.type,
+      fieldType.valueDescriptions,
+      fieldType.options,
+      fullFieldName
+    );
 
     // Check for forbidden media types in nested objects
     if (
