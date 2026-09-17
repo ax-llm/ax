@@ -643,6 +643,26 @@ import type {
   AxUsageEvent,
   AxUsageObserver,
 } from './ai/types.js';
+import { AxAITypesafe, type AxAITypesafeArgs } from './ai/typesafe/api.js';
+import {
+  AxAITypesafeClient,
+  type AxAITypesafeClientArgs,
+  type AxAITypesafeClientOptions,
+  typesafe,
+} from './ai/typesafe/client.js';
+import type {
+  AxAITypesafeAnswer,
+  AxAITypesafeChoiceQuestion,
+  AxAITypesafeEntry,
+  AxAITypesafeJsonValue,
+  AxAITypesafeModelCard,
+  AxAITypesafeNoulQuestion,
+  AxAITypesafeQuestion,
+  AxAITypesafeQuestions,
+  AxAITypesafeRequest,
+  AxAITypesafeResponse,
+  AxAITypesafeScoreQuestion,
+} from './ai/typesafe/types.js';
 import { axEmitUsageEvent, axMergeUsageContexts } from './ai/usage.js';
 import {
   axValidateChatRequestMessage,
@@ -1403,6 +1423,8 @@ export { AxAIServiceResponseError };
 export { AxAIServiceStatusError };
 export { AxAIServiceStreamTerminatedError };
 export { AxAIServiceTimeoutError };
+export { AxAITypesafe };
+export { AxAITypesafeClient };
 export { AxAIWebLLM };
 export { AxAIWebLLMModel };
 export { AxAgent };
@@ -1664,6 +1686,7 @@ export { refine };
 export { runAxEventStoreConformance };
 export { runControl };
 export { s };
+export { typesafe };
 
 // Type exports
 export type { AxACEBullet };
@@ -1877,6 +1900,20 @@ export type { AxAIServiceImpl };
 export type { AxAIServiceMetrics };
 export type { AxAIServiceModelType };
 export type { AxAIServiceOptions };
+export type { AxAITypesafeAnswer };
+export type { AxAITypesafeArgs };
+export type { AxAITypesafeChoiceQuestion };
+export type { AxAITypesafeClientArgs };
+export type { AxAITypesafeClientOptions };
+export type { AxAITypesafeEntry };
+export type { AxAITypesafeJsonValue };
+export type { AxAITypesafeModelCard };
+export type { AxAITypesafeNoulQuestion };
+export type { AxAITypesafeQuestion };
+export type { AxAITypesafeQuestions };
+export type { AxAITypesafeRequest };
+export type { AxAITypesafeResponse };
+export type { AxAITypesafeScoreQuestion };
 export type { AxAIWebLLMArgs };
 export type { AxAIWebLLMChatRequest };
 export type { AxAIWebLLMChatResponse };

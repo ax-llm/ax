@@ -3156,6 +3156,47 @@
         "https://docs.baseten.co/development/model/deployment/inference"
       ],
       "reviewedAt": "2026-08-17"
+    },
+    "typesafe": {
+      "id": "typesafe",
+      "name": "Typesafe",
+      "aliases": [
+        "typesafe"
+      ],
+      "transport": "typesafe-system-one",
+      "baseURL": "https://api.typesafe.ai",
+      "requiresApiURL": false,
+      "auth": {
+        "type": "bearer",
+        "required": true
+      },
+      "defaults": {
+        "model": "jev-latest"
+      },
+      "capabilities": {
+        "functions": false,
+        "functionEmulation": false,
+        "streaming": false,
+        "structuredOutputs": true,
+        "structuredOutputModes": [
+          "native"
+        ],
+        "requiresStructuredOutput": true,
+        "thinking": false,
+        "multiTurn": false
+      },
+      "operations": {
+        "chat": {
+          "path": "/v1/systemone",
+          "dialect": "typesafe-system-one"
+        }
+      },
+      "modelRules": [],
+      "sources": [
+        "https://github.com/typesafe-ai/typesafe-sdk-js",
+        "https://docs.typesafe.ai/sdk/javascript"
+      ],
+      "reviewedAt": "2026-09-15"
     }
   }
 }

@@ -6,6 +6,7 @@ import {
 } from './response/structuredDelta.js';
 import { axValidateToolArguments } from './toolArguments.js';
 import type { DeltaOut } from './types.js';
+import { outputValueDescriptions } from './valueDescriptions.js';
 // ReadableStream is available globally in modern browsers and Node.js 16+
 
 import {
@@ -164,13 +165,15 @@ const selectStructuredOutputRung = (
     | Readonly<{
         structuredOutputs?: boolean;
         structuredOutputModes?: readonly AxStructuredOutputRung[];
+        requiresStructuredOutput?: boolean;
         functions?: boolean;
       }>
     | undefined,
   mode: AxStructuredOutputMode,
   providerLabel: string
 ): AxStructuredOutputRung | undefined => {
-  if (!signature.hasComplexFields()) return undefined;
+  if (!signature.hasComplexFields() && !features?.requiresStructuredOutput)
+    return undefined;
 
   // Missing capability flags belong to custom/unknown clients. Preserve the
   // historical compatibility assumption that those clients support native
@@ -529,6 +532,15 @@ export class AxGen<IN = any, OUT extends AxGenOut = any>
       options?.functionCallMode ?? this.options?.functionCallMode ?? 'auto';
     const hasFunctions = mutableFunctions.length > 0;
     let signatureToolCallingManager: SignatureToolCallingManager | undefined;
+    if (
+      hasFunctions &&
+      ai.getFeatures(options?.model).functionEmulation === false &&
+      !ai.getFeatures(options?.model).functions
+    ) {
+      throw new Error(
+        `${ai.getName()} does not support tools or prompt tool emulation`
+      );
+    }
 
     if (hasFunctions && functionCallMode === 'prompt') {
       signatureToolCallingManager = new SignatureToolCallingManager(
@@ -578,6 +590,7 @@ export class AxGen<IN = any, OUT extends AxGenOut = any>
       ai.getFeatures?.(options?.model)?.caching?.cacheBreakpoints === false;
     const contextCache = this.getEffectiveContextCache(ai, options);
     const promptTemplate = new promptTemplateClass(signature, {
+      structuredOutput: structuredOutputRung !== undefined,
       functions: signatureToolCallingManager ? [] : mutableFunctions,
       thoughtFieldName: this.thoughtFieldName,
       contextCache,
@@ -1195,9 +1208,11 @@ export class AxGen<IN = any, OUT extends AxGenOut = any>
         flexibleJsonFieldsAsString: true,
         strictStructuredOutputs: true,
       });
+      const fieldDescriptions = outputValueDescriptions(outputFields);
 
       responseFormat = {
         type: 'json_schema',
+        ...(fieldDescriptions ? { fieldDescriptions } : {}),
         schema: {
           name: 'output',
           strict: true,
@@ -1701,7 +1716,10 @@ export class AxGen<IN = any, OUT extends AxGenOut = any>
           parseJsonStringFields:
             this.signature.hasComplexFields() &&
             !this.structuredOutputFunctionFallback,
-          strictStructuredJson: this.structuredOutputRung === 'json_object',
+          strictStructuredJson:
+            this.structuredOutputRung === 'json_object' ||
+            (this.structuredOutputRung === 'native' &&
+              !this.signature.hasComplexFields()),
           logger,
           debugPromptMetrics,
           onFunctionCall: options.onFunctionCall,
@@ -1767,7 +1785,10 @@ export class AxGen<IN = any, OUT extends AxGenOut = any>
           parseJsonStringFields:
             this.signature.hasComplexFields() &&
             !this.structuredOutputFunctionFallback,
-          strictStructuredJson: this.structuredOutputRung === 'json_object',
+          strictStructuredJson:
+            this.structuredOutputRung === 'json_object' ||
+            (this.structuredOutputRung === 'native' &&
+              !this.signature.hasComplexFields()),
           logger,
           debugPromptMetrics,
           onFunctionCall: options.onFunctionCall,
@@ -1861,6 +1882,16 @@ export class AxGen<IN = any, OUT extends AxGenOut = any>
     const functionCallMode =
       options.functionCallMode ?? this.options?.functionCallMode ?? 'auto';
 
+    if (
+      hasFunctions &&
+      ai.getFeatures(options.model).functionEmulation === false &&
+      !ai.getFeatures(options.model).functions
+    ) {
+      throw new Error(
+        `${ai.getName()} does not support tools or prompt tool emulation`
+      );
+    }
+
     // Handle prompt mode
     if (hasFunctions && functionCallMode === 'prompt') {
       this.signatureToolCallingManager = new SignatureToolCallingManager(
@@ -1940,6 +1971,7 @@ export class AxGen<IN = any, OUT extends AxGenOut = any>
     const contextCache = this.getEffectiveContextCache(ai, options);
 
     const currentPromptTemplateOptions = {
+      structuredOutput: this.structuredOutputRung !== undefined,
       // Prefer per-call functions; fall back to parsed functions from constructor
       functions: this.signatureToolCallingManager
         ? []
@@ -2022,6 +2054,9 @@ export class AxGen<IN = any, OUT extends AxGenOut = any>
             ? {
                 responseFormat: {
                   type: 'json_schema' as const,
+                  fieldDescriptions: outputValueDescriptions(
+                    this.signature.getOutputFields()
+                  ),
                   schema: {
                     name: 'output',
                     strict: true,
@@ -2685,7 +2720,9 @@ export class AxGen<IN = any, OUT extends AxGenOut = any>
 
                 // When using structured outputs (JSON mode), we need to reset the state content
                 // to avoid concatenating JSON objects from previous retry attempts
-                const hasComplexFields = this.signature.hasComplexFields();
+                const hasComplexFields =
+                  this.signature.hasComplexFields() ||
+                  this.structuredOutputRung !== undefined;
                 if (hasComplexFields) {
                   for (const state of states) {
                     state.content = '';

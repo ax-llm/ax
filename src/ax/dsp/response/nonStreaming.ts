@@ -153,7 +153,7 @@ export async function* processResponse<OUT extends AxGenOut>({
         state.functionsExecuted = new Set([...state.functionsExecuted, ...fx]);
       }
     } else if (result.content) {
-      if (signature.hasComplexFields()) {
+      if (signature.hasComplexFields() || strictStructuredJson) {
         try {
           const json = parseStructuredFinal(
             signature,

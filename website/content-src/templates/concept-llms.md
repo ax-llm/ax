@@ -14,6 +14,15 @@ Create provider clients near the application boundary, keep keys in environment 
 
 {{aiProviderExamples}}
 
+### Typesafe / Jev decisions (TypeScript)
+
+Use `ai({ name: 'typesafe', apiKey })` for required boolean/class signatures.
+Use `typesafe({ apiKey }).systemOne(...)` for native probabilities, rich
+criteria, and Score. These APIs default to `jev-latest`; prose and tools need a
+generative step. See the [Typesafe/Jev skill](/typescript/skills/ax-typesafe/)
+for conversion settings, supported requests, and hybrid examples. Other-language
+implementation is tracked in the AxIR backlog.
+
 ## Model Catalog
 
 Use the model catalog before runtime when a UI or router needs model choices, costs, and capabilities. It can filter for text, code, embedding, and audio models, and reports provider/model portable thinking levels plus verified explicit service tiers. Provider capabilities describe the default deployment profile; static model entries carry their resolved capability arrays.

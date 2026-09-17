@@ -177,6 +177,7 @@ const coreApiSymbols = {
 const skillNavLabels = new Map([
   ['llm', 'Quick Reference'],
   ['ai', 'AI'],
+  ['typesafe', 'Typesafe / Jev'],
   ['audio', 'Audio'],
   ['signature', 'Signatures'],
   ['gen', 'Generation'],
@@ -196,6 +197,7 @@ const skillNavLabels = new Map([
 const skillNavOrder = [
   'llm',
   'ai',
+  'typesafe',
   'audio',
   'signature',
   'gen',
@@ -2523,7 +2525,10 @@ function relevantExports(subsystem, exports) {
 
 function skillMatchesSubsystem(rel, subsystem) {
   const name = path.basename(rel);
-  if (subsystem === 'ai') return name.includes('ai') || name.includes('audio');
+  if (subsystem === 'ai')
+    return (
+      name.includes('ai') || name.includes('audio') || name === 'ax-typesafe.md'
+    );
   if (subsystem === 'ax') return name.includes('gen');
   if (subsystem === 's') return name.includes('signature');
   if (subsystem === 'agent') return name.includes('agent');

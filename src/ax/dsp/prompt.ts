@@ -17,11 +17,17 @@ import type { AxInputFunctionType } from './functions.js';
 import type { AxField, AxFieldType, AxIField, AxSignature } from './sig.js';
 import type { AxFieldValue } from './types.js';
 import { validateValue } from './util.js';
+import {
+  describeFieldValues,
+  describeNestedFieldValues,
+} from './valueDescriptions.js';
 
 type Writeable<T> = { -readonly [P in keyof T]: T[P] };
 
 // Define options type for AxPromptTemplate constructor
 export interface AxPromptTemplateOptions {
+  /** Render JSON output instructions and examples even for scalar signatures. */
+  structuredOutput?: boolean;
   functions?: Readonly<AxInputFunctionType>;
   thoughtFieldName?: string;
   contextCache?: AxContextCacheOptions;
@@ -110,6 +116,11 @@ export class AxPromptTemplate {
   private readonly ignoreBreakpoints: boolean;
   private readonly structuredOutputFunctionName?: string;
   private readonly customTemplate?: string;
+  private readonly structuredOutputOverride?: boolean;
+
+  private get structuredOutput(): boolean {
+    return this.structuredOutputOverride ?? this.sig.hasComplexFields();
+  }
 
   constructor(
     sig: Readonly<AxSignature>,
@@ -117,6 +128,7 @@ export class AxPromptTemplate {
     fieldTemplates?: Record<string, AxFieldTemplateFn>
   ) {
     this.sig = sig;
+    this.structuredOutputOverride = options?.structuredOutput;
     this.fieldTemplates = fieldTemplates;
     this.thoughtFieldName = options?.thoughtFieldName ?? 'thought';
     this.functions = options?.functions;
@@ -176,7 +188,7 @@ export class AxPromptTemplate {
     type: 'text';
     text: string;
   } {
-    const hasComplexFields = this.sig.hasComplexFields();
+    const hasComplexFields = this.structuredOutput;
     const outputFields = this.sig
       .getOutputFields()
       .filter((field) => !field.isInternal);
@@ -301,7 +313,7 @@ export class AxPromptTemplate {
       this.sig.getOutputFields().filter((field) => !field.isInternal),
       fieldMap
     );
-    const jsonShape = this.sig.hasComplexFields()
+    const jsonShape = this.structuredOutput
       ? `\n\n**Exact JSON shape**: \`${renderOutputJsonShape(
           this.sig.getOutputFields().filter((field) => !field.isInternal)
         )}\``
@@ -588,7 +600,7 @@ export class AxPromptTemplate {
 
     // When hasComplexFields is true, the entire output is JSON, so we should not add
     // field-specific instructions to return only error-corrected fields
-    const _hasComplexFields = this.sig.hasComplexFields();
+    const _hasComplexFields = this.structuredOutput;
 
     const formattedGroupedFields = Object.entries(groupedFields)
       .map(([title, fields]) => {
@@ -641,7 +653,7 @@ export class AxPromptTemplate {
       isExample: true,
     };
 
-    const hasComplexFields = this.sig.hasComplexFields();
+    const hasComplexFields = this.structuredOutput;
 
     for (const [index, item] of data.entries()) {
       if (hasComplexFields) {
@@ -747,7 +759,7 @@ export class AxPromptTemplate {
       isExample: true,
     };
 
-    const hasComplexFields = this.sig.hasComplexFields();
+    const hasComplexFields = this.structuredOutput;
 
     for (const item of data) {
       if (hasComplexFields) {
@@ -832,7 +844,7 @@ export class AxPromptTemplate {
   ): DemoMessagePair[] => {
     const pairs: DemoMessagePair[] = [];
     const exampleContext = { isExample: true };
-    const hasComplexFields = this.sig.hasComplexFields();
+    const hasComplexFields = this.structuredOutput;
 
     for (const item of data) {
       // Render INPUT fields as user message content (cached fields first for cache efficiency)
@@ -1256,15 +1268,19 @@ const renderInputFields = (
     const name = field.title;
 
     let description = '';
-    if (field.description) {
-      let formatted = formatDescription(field.description);
+    const fieldDescription = describeFieldValues(field);
+    if (fieldDescription) {
+      let formatted = field.type?.valueDescriptions
+        ? fieldDescription
+        : formatDescription(fieldDescription);
       if (fieldNameToTitle) {
         formatted = formatFieldReferences(formatted, fieldNameToTitle);
       }
       description = ` ${formatted}`;
     }
 
-    return `${name}:${description}`.trim();
+    const nested = describeNestedFieldValues(field.type?.fields, field.name);
+    return [`${name}:${description}`.trim(), ...nested].join('\n');
   });
 
   return rows.join('\n');
@@ -1284,11 +1300,12 @@ const renderOutputFields = (
 
     let description = '';
 
-    if (field.description && field.description.length > 0) {
+    const fieldDescription = describeFieldValues(field);
+    if (fieldDescription && fieldDescription.length > 0) {
       let value =
-        field.type?.name === 'class'
-          ? field.description
-          : formatDescription(field.description);
+        field.type?.name === 'class' || field.type?.valueDescriptions
+          ? fieldDescription
+          : formatDescription(fieldDescription);
       if (fieldNameToTitle) {
         value = formatFieldReferences(value, fieldNameToTitle);
       }
@@ -1302,7 +1319,10 @@ const renderOutputFields = (
       description += `Allowed values: ${field.type.options.join(', ')}`;
     }
 
-    return `${name}: (${requiredMsg})${description}`.trim();
+    const nested = describeNestedFieldValues(field.type?.fields, field.name);
+    return [`${name}: (${requiredMsg})${description}`.trim(), ...nested].join(
+      '\n'
+    );
   });
 
   return rows.join('\n');

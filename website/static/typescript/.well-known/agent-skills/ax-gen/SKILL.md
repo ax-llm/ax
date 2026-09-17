@@ -1,7 +1,7 @@
 ---
 name: ax-gen
 description: This skill helps an LLM generate correct AxGen code using @ax-llm/ax. Use when the user asks about ax(), AxGen, generators, forward(), streamingForward(), validation, assertions, streaming assertions, field processors, step hooks, self-tuning, or structured outputs. For MCP clients, transports, prompts, resources, tasks, subscriptions, or authentication use ax-mcp alongside this skill.
-version: "24.0.17"
+version: "24.0.18"
 ---
 
 # AxGen Codegen Rules (@ax-llm/ax)
@@ -328,6 +328,17 @@ Rules:
 - Set `showThoughts: true` to include the model's reasoning in `result.thought`.
 
 ## Structured Outputs
+
+In TypeScript, providers advertising `requiresStructuredOutput` (such as
+Typesafe) automatically receive a schema for scalar-only signatures too.
+Ax renders JSON instructions/examples and parses the resulting object without
+changing the program's signature. Typesafe accepts required boolean and class
+outputs; numeric scoring uses the provider-specific native client. Boolean/class
+value descriptions map to native criteria, while conventional providers receive
+readable descriptions in prompts and schemas. See the
+[ax-typesafe skill](https://github.com/ax-llm/ax/blob/main/src/ax/skills/ax-typesafe.md)
+for native questions, thresholds, and hybrid text generation. Providers that disable both native functions and
+`functionEmulation` reject tool-bearing programs before prompt rendering.
 
 ```typescript
 const sig = f()

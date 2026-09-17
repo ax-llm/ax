@@ -1,7 +1,7 @@
 ---
 name: ax-ai
-description: This skill helps an LLM generate correct AI provider setup and configuration code using @ax-llm/ax. Use when the user asks about ai(), providers, models, routing, adaptive balancing, presets, embeddings, batch audio with ai.transcribe() or ai.speak(), extended thinking, context caching, or mentions OpenAI/Anthropic/Google/Azure/DeepSeek/Meta/Mistral/Cohere/Reka/Grok with @ax-llm/ax.
-version: "24.0.17"
+description: This skill helps an LLM generate correct AI provider setup and configuration code using @ax-llm/ax. Use when the user asks about ai(), providers, models, routing, adaptive balancing, presets, embeddings, batch audio with ai.transcribe() or ai.speak(), extended thinking, context caching, or mentions OpenAI/Anthropic/Google/Azure/DeepSeek/Meta/Mistral/Cohere/Reka/Grok/Typesafe/Jev with @ax-llm/ax.
+version: "24.0.18"
 ---
 
 # AI Provider Codegen Rules (@ax-llm/ax)
@@ -45,6 +45,43 @@ Profile-only branded classes were removed in the major-version migration. Use
 `ai({ name: ... })` for Azure OpenAI, Cohere, DeepSeek, DeepSeek Responses,
 Mistral, Reka, and Grok. Retained low-level classes represent genuine
 transports/runtimes only; legacy model enum and catalog exports remain usable.
+
+## Typesafe / Jev (TypeScript)
+
+Use the [ax-typesafe skill](https://github.com/ax-llm/ax/blob/main/src/ax/skills/ax-typesafe.md)
+for Jev question design, rich criteria, native scoring, transport settings, and
+hybrid examples. The two interfaces serve different output contracts:
+
+| Need | Interface |
+|---|---|
+| Required boolean/class outputs with normal signature-shaped results | `ai({ name: 'typesafe', apiKey, trueThreshold: 0.9 })` and `ax(...).forward()` |
+| Native probabilities, structured state/criteria, or Score | `typesafe({ apiKey }).systemOne({ state, questions })` |
+
+Both default to `jev-latest`. Set the adapter's model with `config.model`; set
+native defaults with `model`. Native `listModels()` retrieves the provider's
+catalog without changing configured Ax model aliases.
+
+Boolean conversion uses `noul >= trueThreshold`; the default is `0.5`, and the
+finite threshold must be in `[0, 1]`. It applies to all booleans on that provider
+instance, is never sent to the server, and does not affect native probabilities.
+Choice preserves the selected label without an automatic confidence cutoff.
+
+Value descriptions from `boolean(true "...", false "...")` and
+`class "support, billing"(support "...", billing "...")` become native criteria.
+The same annotations render as readable descriptions for conventional providers.
+The [signature skill](https://github.com/ax-llm/ax/blob/main/src/ax/skills/ax-signature.md)
+covers the string and fluent `.describeValues(...)` forms.
+
+Numeric outputs, including bounded numbers, are unsupported; scoring uses
+explicit native rubrics. Freeform text, optional/array/nested outputs, media,
+tools, and sampling controls are also unsupported. Ax sends its normal prompt
+as state. Use a separate generative program for prose or tools.
+
+Typesafe-only balancers retain schema-required generation. Mixed pools select
+Typesafe only when the actual request already contains a supported schema.
+Incompatible requests are excluded from fallbacks even with degradation enabled.
+Usage and raw adapter answers remain in the existing usage and chat-log APIs.
+These interfaces are TypeScript-only pending AxIR implementation parity.
 
 ## Renewable Credentials
 

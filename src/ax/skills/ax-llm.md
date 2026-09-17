@@ -8,7 +8,7 @@ version: "__VERSION__"
 
 Ax is a TypeScript library for building LLM-powered applications with type-safe signatures, streaming support, and multi-provider compatibility.
 
-> **Detailed skills available:** ax-ai (providers, routing, adaptive balancing), ax-signature (signatures/types), ax-gen (generators), ax-agent (core agents/tools), ax-agent-rlm (agent runtime/RLM/delegation), ax-agent-observability (callbacks/logs/usage), ax-agent-memory-skills (recall and dynamic skill loading), ax-agent-optimize (agent tuning/eval), ax-flow (workflows), ax-gepa (top-level `optimize(...)`, BootstrapFewShot -> GEPA, Pareto optimization).
+> **Detailed skills available:** ax-ai (providers, routing, adaptive balancing), ax-typesafe (Typesafe/Jev decisions, criteria, native scoring), ax-signature (signatures/types), ax-gen (generators), ax-agent (core agents/tools), ax-agent-rlm (agent runtime/RLM/delegation), ax-agent-observability (callbacks/logs/usage), ax-agent-memory-skills (recall and dynamic skill loading), ax-agent-optimize (agent tuning/eval), ax-flow (workflows), ax-gepa (top-level `optimize(...)`, BootstrapFewShot -> GEPA, Pareto optimization).
 
 ## Imports & Factories
 
@@ -87,6 +87,12 @@ for await (const chunk of gen.streamingForward(llm, { question: 'Tell a story' }
 ```
 
 ## Forward Options Quick Reference
+
+Provider capabilities determine which outputs and options apply. Typesafe/Jev
+supports required boolean/class signatures; use its separate native client for
+Score and full probabilities, and a generative provider for prose or tools. See
+the [ax-typesafe skill](https://github.com/ax-llm/ax/blob/main/src/ax/skills/ax-typesafe.md)
+before applying the general generation options below to Jev.
 
 | Goal | Option | Example |
 |------|--------|---------|

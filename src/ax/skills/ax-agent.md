@@ -20,6 +20,12 @@ Your job is to choose the smallest correct `AxAgent` shape for the user's needs:
 
 ## Use These Defaults
 
+For Typesafe/Jev decisions inside an agent, keep a generative model for the
+actor's tools/code/prose and call Typesafe in a separate decision step. See the
+[ax-typesafe skill](https://github.com/ax-llm/ax/blob/main/src/ax/skills/ax-typesafe.md)
+for supported signatures and native questions; Jev cannot supply a general
+tool-using actor's output contract.
+
 - Use `agent(...)`, not `new AxAgent(...)`.
 - Prefer string signatures or `f()` signatures over hand-written signature objects.
 - Put `ai`, `judgeAI`, and `agentIdentity` on the `agent(...)` config when you want instance defaults or child-agent metadata.

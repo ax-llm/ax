@@ -418,7 +418,7 @@ describe('native MCP execution', () => {
       }
     );
 
-    expect(result.answer).toBe('answer: 7 units');
+    expect(result.answer).toBe('7 units');
     expect(adapterSpy).not.toHaveBeenCalled();
     expect(calls).toEqual([
       'server/discover',
@@ -593,7 +593,7 @@ describe('native MCP execution', () => {
       { ucp }
     );
 
-    expect(result.answer).toBe('answer: checkout-1');
+    expect(result.answer).toBe('checkout-1');
     expect(requests[1]).toMatchObject({
       url: 'https://shop.example/ucp/checkout-sessions',
       init: { method: 'POST', body: JSON.stringify({ line_items: [] }) },

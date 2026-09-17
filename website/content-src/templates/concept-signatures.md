@@ -47,6 +47,26 @@ boolean.
 
 {{signatureStringExample}}
 
+## Per-value descriptions in TypeScript
+
+Boolean fields can describe their outcomes with
+`urgent:boolean(true "Core task blocked", false "Routine request") "Urgent?"`.
+Class fields can describe labels after their allowed-value list:
+`team:class "support, billing"(support "Usage help", billing "Invoice question")`.
+Use `.describeValues({ true: "Core task blocked", false: "Routine request" })`
+or `.describeValues({ support: "Usage help", billing: "Invoice question" })`
+with the corresponding fluent fields.
+
+These descriptions preserve the existing output types. Conventional providers
+receive combined text descriptions in prompts and JSON schemas. Typesafe maps
+them to native criteria. Descriptions survive signature round-tripping, and
+rendering does not modify the original signature. Generated-language support is
+tracked in the AxIR backlog.
+
+For Jev's structured criteria, native probabilities, and scoring, see the
+[Typesafe/Jev skill](/typescript/skills/ax-typesafe/). Per-field value guidance
+belongs in the signature; boolean conversion thresholds belong on the provider.
+
 ## Field Types
 
 | Type | Example | Notes |

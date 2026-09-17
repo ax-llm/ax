@@ -1,7 +1,7 @@
 ---
 name: ax-flow
 description: This skill helps an LLM generate correct AxFlow workflow code using @ax-llm/ax. Use when the user asks about flow(), AxFlow, workflow orchestration, parallel execution, DAG workflows, conditional routing, map/reduce patterns, or multi-node AI pipelines.
-version: "24.0.17"
+version: "24.0.18"
 ---
 
 # AxFlow Codegen Rules (@ax-llm/ax)
@@ -78,6 +78,12 @@ flow.execute('analyzer', (state) => ({ text: state.processorResult.output }));
 ```
 
 ## Node Definition
+
+For a Typesafe/Jev decision node, use required boolean/class outputs and pass
+its results to a later generative step when prose is needed. Native scoring
+requires an explicit rubric through `typesafe(...).systemOne(...)`. See the
+[ax-typesafe skill](https://github.com/ax-llm/ax/blob/main/src/ax/skills/ax-typesafe.md)
+for the TypeScript integration and a two-program hybrid example.
 
 ```typescript
 // String signature (creates AxGen automatically)

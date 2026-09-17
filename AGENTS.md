@@ -52,6 +52,7 @@ Use the skill files in `src/ax/skills/` as the primary subsystem documentation:
 
 - `src/ax/skills/ax-llm.md` - top-level Ax quick reference
 - `src/ax/skills/ax-ai.md` - AI providers, models, presets, embeddings, thinking
+- `src/ax/skills/ax-typesafe.md` - Typesafe/Jev signatures, native questions, criteria, scoring, and hybrid generation (TypeScript)
 - `src/ax/skills/ax-audio.md` - conversational audio input/output in `.chat()`
 - `src/ax/skills/ax-signature.md` - signatures, field types, validation, fluent API
 - `src/ax/skills/ax-gen.md` - generators and structured output

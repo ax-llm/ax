@@ -3184,6 +3184,48 @@ export const axAIProviderProfiles = {
       "https://docs.baseten.co/development/model/deployment/inference"
     ],
     "reviewedAt": "2026-08-17"
+  },
+  "typesafe": {
+    "id": "typesafe",
+    "name": "Typesafe",
+    "aliases": [
+      "typesafe"
+    ],
+    "transport": "typesafe-system-one",
+    "baseURL": "https://api.typesafe.ai",
+    "requiresApiURL": false,
+    "auth": {
+      "type": "bearer",
+      "required": true
+    },
+    "defaults": {
+      "model": "jev-latest"
+    },
+    "capabilities": {
+      "functions": false,
+      "functionEmulation": false,
+      "streaming": false,
+      "structuredOutputs": true,
+      "structuredOutputModes": [
+        "native"
+      ],
+      "requiresStructuredOutput": true,
+      "thinking": false,
+      "multiTurn": false,
+      "serviceTiers": []
+    },
+    "operations": {
+      "chat": {
+        "path": "/v1/systemone",
+        "dialect": "typesafe-system-one"
+      }
+    },
+    "modelRules": [],
+    "sources": [
+      "https://github.com/typesafe-ai/typesafe-sdk-js",
+      "https://docs.typesafe.ai/sdk/javascript"
+    ],
+    "reviewedAt": "2026-09-15"
   }
 } as const;
 
@@ -3276,7 +3318,8 @@ export const axAIProviderAliases = {
   "localai": "localai",
   "local-ai": "localai",
   "baseten-engine": "baseten-engine",
-  "truss": "baseten-engine"
+  "truss": "baseten-engine",
+  "typesafe": "typesafe"
 } as const;
 
 // biome-ignore format: generated file
@@ -3329,5 +3372,6 @@ export const axAIProviderProfileIds = [
   "lm-studio",
   "llama-cpp",
   "localai",
-  "baseten-engine"
+  "baseten-engine",
+  "typesafe"
 ] as const;

@@ -30,6 +30,7 @@ const skillIds = [
 const typeScriptSkillNames = [
   'ax-llm',
   'ax-ai',
+  'ax-typesafe',
   'ax-audio',
   'ax-signature',
   'ax-gen',

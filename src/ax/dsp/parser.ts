@@ -1,3 +1,4 @@
+import { validateValueDescriptions } from './valueDescriptions.js';
 // ============================================================================
 // STRING SIGNATURE PARSER - TYPE DEFINITIONS
 // ============================================================================
@@ -53,6 +54,7 @@ export type ParsedSignature = {
 // e.g. `string(min 2, max 50)`, `string(format email)` or `code(python)`.
 // Keys mirror the constraint slots on AxFieldType/AxField in sig.ts.
 export type ParsedTypeConstraints = {
+  valueDescriptions?: Readonly<Record<string, string>>;
   minLength?: number;
   maxLength?: number;
   minimum?: number;
@@ -98,7 +100,12 @@ export type OutputParsedField = {
   desc?: string;
   type?:
     | (ParsedFieldType & { options?: string[] })
-    | { name: 'class'; isArray: boolean; options: string[] };
+    | {
+        name: 'class';
+        isArray: boolean;
+        options: string[];
+        valueDescriptions?: Readonly<Record<string, string>>;
+      };
   isOptional?: boolean;
   isInternal?: boolean;
 };
@@ -499,7 +506,16 @@ class SignatureParser {
           );
         }
 
-        type = { name: 'class', isArray, options };
+        const valueDescriptions = this.parseClassValueDescriptions(
+          options,
+          name
+        );
+        type = {
+          name: 'class',
+          isArray,
+          options,
+          ...(valueDescriptions ? { valueDescriptions } : {}),
+        };
       } else {
         try {
           const parsed = this.parseNonClassType('output', name);
@@ -805,6 +821,8 @@ class SignatureParser {
       if (typeName === 'number') {
         allowed.push('min <n>', 'max <n>');
       }
+      if (typeName === 'boolean')
+        allowed.push('true "<description>"', 'false "<description>"');
       if (typeName === 'code') {
         allowed.push('<language>');
       }
@@ -861,6 +879,25 @@ class SignatureParser {
       this.position += token.length;
 
       switch (token) {
+        case 'true':
+        case 'false': {
+          markSeen(token);
+          if (typeName !== 'boolean')
+            bagError(
+              `Field "${fieldName}": "${token}" value descriptions require a boolean field`
+            );
+          this.skipWhitespace();
+          const description = this.parseParsedString();
+          if (description === undefined || !description.trim())
+            bagError(
+              `Field "${fieldName}": "${token}" requires a nonempty quoted description`
+            );
+          constraints.valueDescriptions = {
+            ...constraints.valueDescriptions,
+            [token]: description!,
+          };
+          break;
+        }
         case 'min':
         case 'max': {
           markSeen(token);
@@ -1012,6 +1049,55 @@ class SignatureParser {
     return { constraints, isCached, itemDescription };
   }
 
+  // Class descriptions follow the declared labels, keeping existing enum syntax unchanged.
+  private parseClassValueDescriptions(
+    options: string[],
+    fieldName: string
+  ): Readonly<Record<string, string>> | undefined {
+    this.skipWhitespace();
+    if (!this.match('(')) return undefined;
+    let descriptions: Record<string, string> = {};
+    const fail = (message: string): never => {
+      throw new SignatureValidationError(
+        `Field "${fieldName}": ${message}`,
+        this.position,
+        this.getErrorContext()
+      );
+    };
+    this.skipWhitespace();
+    if (this.input[this.position] === ')') fail('empty value description list');
+    while (true) {
+      this.skipWhitespace();
+      let value = this.parseParsedString();
+      if (value === undefined) {
+        value = /^[A-Za-z_][A-Za-z0-9_.-]*/.exec(
+          this.input.slice(this.position)
+        )?.[0];
+        if (value === undefined) fail('expected a class label');
+        this.position += value!.length;
+      }
+      if (Object.hasOwn(descriptions, value!))
+        fail(`duplicate description for "${value}"`);
+      this.skipWhitespace();
+      const description = this.parseParsedString();
+      if (description === undefined || !description.trim())
+        fail(`"${value}" requires a nonempty quoted description`);
+      descriptions = { ...descriptions, [value!]: description! };
+      this.skipWhitespace();
+      if (this.match(')')) break;
+      if (!this.match(',')) fail('expected "," or ")" in value descriptions');
+      this.skipWhitespace();
+      if (this.input[this.position] === ')')
+        fail('trailing comma in value descriptions');
+    }
+    try {
+      validateValueDescriptions('class', descriptions, options, fieldName);
+    } catch (error) {
+      fail(error instanceof Error ? error.message : String(error));
+    }
+    return descriptions;
+  }
+
   // Parses the field list of `object{ ... }`. The opening "{" has already
   // been consumed by the caller.
   private parseObjectFields(
@@ -1139,10 +1225,15 @@ class SignatureParser {
             'Provide at least one class option. Example: "high, medium"'
           );
         }
+        const valueDescriptions = this.parseClassValueDescriptions(
+          options,
+          qualified
+        );
         type = {
           type: 'class',
           isArray,
           options,
+          ...(valueDescriptions ? { valueDescriptions } : {}),
           isOptional,
           isInternal: false,
         };

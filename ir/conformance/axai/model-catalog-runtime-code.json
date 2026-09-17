@@ -976,12 +976,23 @@
         "isDynamic": true,
         "models": [],
         "name": "baseten-engine"
+      },
+      {
+        "capabilities": {
+          "serviceTiers": [],
+          "thinking": false,
+          "thinkingLevels": []
+        },
+        "displayName": "Typesafe",
+        "isDynamic": true,
+        "models": [],
+        "name": "typesafe"
       }
     ],
     "modelCount": 12,
     "openaiFirstModel": "gpt-5.1-codex-mini",
     "openaiModelTypes": ["code"],
-    "providerCount": 49,
+    "providerCount": 50,
     "providerNames": [
       "mistral",
       "openai",
@@ -1031,7 +1042,8 @@
       "lm-studio",
       "llama-cpp",
       "localai",
-      "baseten-engine"
+      "baseten-engine",
+      "typesafe"
     ]
   },
   "kind": "ai_model_catalog_runtime",
