@@ -1,6 +1,6 @@
 # Changelog
 
-## [24.0.19](https://github.com/ax-llm/ax/compare/24.0.17...24.0.18) (2026-09-17)
+## [24.0.19](https://github.com/ax-llm/ax/compare/24.0.18...24.0.19) (2026-09-17)
 
 ### Features
 
