@@ -18,25 +18,7 @@ This ledger tracks portable TypeScript behavior that should be migrated into AxI
 
 ## Open
 
-- `axir-2026-09-08-port-websocket-pending-request-cleanup` [axmcp] Port WebSocket pending request cleanup
-  - Status: open
-  - Source PR: #654
-  - Source commit: `621ae13ff053b4df23f18771f606670dd520c447`
-  - TS paths: `src/ax/mcp/transports/webSocketTransport.ts`, `src/ax/mcp/transports/webSocketTransport.test.ts`
-  - Impact: TypeScript MCP WebSocket requests must remove abort listeners and settle/remove pending entries on socket closure or synchronous send failure, including batches. Review of the Python, Java, C++, Go, and Rust canonical MCP templates found HTTP, stdio, and scripted transports, but no built-in MCP WebSocket transport or equivalent WebSocket pending-request map. There is no direct generated-language cleanup patch today; this portable lifecycle contract remains open for generated MCP WebSocket support.
-  - Suggested AxIR work: When adding generated MCP WebSocket bindings, cover socket-close rejection, synchronous single/batch send failure, listener or cancellation-registration disposal, result settlement, and safe request-ID reuse.; Use src/ax/mcp/transports/webSocketTransport.test.ts as the behavioral reference. Audit canonical transport templates under tools/axir/internal/axir/templates/mcp/; do not conflate OpenAI Responses or realtime sockets with MCP WebSocket bindings.; Keep this entry open until generated MCP WebSocket lifecycle behavior is implemented and tested across Python, Java, C++, Go, and Rust.
-- `axir-2026-09-16-port-typesafe-native-typed-inference-and-schema-required-generat` [axai] Port Typesafe native typed inference and schema-required generation
-  - Status: open
-  - Source commit: `3951b0531514b62ec533ad0de218716847f0a931`
-  - TS paths: `src/ax/ai/typesafe`, `src/ax/ai/base.ts`, `src/ax/ai/types.ts`, `src/ax/ai/wrap.ts`, `src/ax/ai/provider_profiles.ts`, `src/ax/dsp/generate.ts`, `src/ax/dsp/prompt.ts`, `src/ax/dsp/response`, `src/ax/ai/capabilities.ts`, `src/ax/ai/balance.ts`, `src/ax/ai/router.ts`, `src/ax/util/apicall.ts`
-  - Impact: TypeScript adds Typesafe boolean/class signature inference with configurable provider Noul thresholds; native systemOne/listModels APIs for structured questions, Score and raw probabilities; schema-required generation; pure request validation and routing/fallback eligibility; shared bodyless GET and abort-reason normalization. Numeric signature outputs are unsupported. Port these behaviors, cancellation, usage, and typed results to generated languages; keep the provider TypeScript-only until parity is implemented.
-  - Suggested AxIR work: Add or update the TS-derived conformance fixture.; Update AxIR/Core or descriptor data to match the portable TS behavior.; Run npm run axir:conformance:check and npm run test:axir.
-- `axir-2026-09-17-port-signature-value-descriptions-for-boolean-and-class-fields` [axgen] Port signature value descriptions for boolean and class fields
-  - Status: open
-  - Source commit: `3951b0531514b62ec533ad0de218716847f0a931`
-  - TS paths: `src/ax/dsp/parser.ts`, `src/ax/dsp/sig.ts`, `src/ax/dsp/sigtypes.ts`, `src/ax/dsp/valueDescriptions.ts`, `src/ax/dsp/jsonSchema.ts`, `src/ax/dsp/prompt.ts`, `src/ax/dsp/generate.ts`, `src/ax/ai/types.ts`, `src/ax/ai/typesafe/api.ts`, `src/ax/dsp/extract/streamingText.ts`
-  - Impact: Add boolean true/false and class-label description syntax, fluent describeValues, validation, serialization, type inference, conventional prompt/schema rendering, and structured-output request annotations consumed as native Typesafe criteria. Existing field value semantics remain unchanged. Text extraction must accept the exact wire field names advertised by prompts, while retaining display-title support, including streaming.
-  - Suggested AxIR work: Add or update the TS-derived conformance fixture.; Update AxIR/Core or descriptor data to match the portable TS behavior.; Run npm run axir:conformance:check and npm run test:axir.
+No entries.
 
 ## Done
 
@@ -616,3 +598,31 @@ This ledger tracks portable TypeScript behavior that should be migrated into AxI
   - Completed at: 2026-09-07
   - Completed by: `working-tree`
   - Verification: `TypeScript: 3067 passed, 1 skipped, type-check and type tests passed. Meta conformance passed in Python, Java, C++, Go, and Rust; generated examples passed. Go package tests and Rust realtime loopback tests passed. Semantic parity, provider profiles, generated-package freshness, and website checks passed.`
+- `axir-2026-09-08-port-websocket-pending-request-cleanup` [axmcp] Port WebSocket pending request cleanup
+  - Status: done
+  - Source PR: #654
+  - Source commit: `621ae13ff053b4df23f18771f606670dd520c447`
+  - TS paths: `src/ax/mcp/transports/webSocketTransport.ts`, `src/ax/mcp/transports/webSocketTransport.test.ts`
+  - Impact: TypeScript MCP WebSocket requests must remove abort listeners and settle/remove pending entries on socket closure or synchronous send failure, including batches. Review of the Python, Java, C++, Go, and Rust canonical MCP templates found HTTP, stdio, and scripted transports, but no built-in MCP WebSocket transport or equivalent WebSocket pending-request map. There is no direct generated-language cleanup patch today; this portable lifecycle contract remains open for generated MCP WebSocket support.
+  - Suggested AxIR work: When adding generated MCP WebSocket bindings, cover socket-close rejection, synchronous single/batch send failure, listener or cancellation-registration disposal, result settlement, and safe request-ID reuse.; Use src/ax/mcp/transports/webSocketTransport.test.ts as the behavioral reference. Audit canonical transport templates under tools/axir/internal/axir/templates/mcp/; do not conflate OpenAI Responses or realtime sockets with MCP WebSocket bindings.; Keep this entry open until generated MCP WebSocket lifecycle behavior is implemented and tested across Python, Java, C++, Go, and Rust.
+  - Completed at: 2026-09-18
+  - Completed by: `d31891c98c4726ce1e15fb60df2f96a6c2b70d6e`
+  - Verification: `Native MCP WebSocket tests cover synchronous single/batch send failures, cancellation disposal, close settlement, duplicate pending IDs, and safe ID reuse. Real socket concurrency/close smoke checks passed in all five generated languages; Go race tests passed. AxIR compiler go test -count=1 -timeout=30m ./... and strict check/lint/provenance/lowering passed. Final all-five release verification passed: C++ in the full test run, Python/Java/Go after nested-balancer test corrections, and Rust after routing validation correction. Conformance synchronization, generated package freshness, build, 320 focused TypeScript tests, tooling guards, generated examples, provider profiles, skills, and website checks passed. All 18 live Typesafe/Jev signature, native, and hybrid examples passed across TypeScript, Python, Java, C++, Go, and Rust using environment credentials.`
+- `axir-2026-09-16-port-typesafe-native-typed-inference-and-schema-required-generat` [axai] Port Typesafe native typed inference and schema-required generation
+  - Status: done
+  - Source commit: `3951b0531514b62ec533ad0de218716847f0a931`
+  - TS paths: `src/ax/ai/typesafe`, `src/ax/ai/base.ts`, `src/ax/ai/types.ts`, `src/ax/ai/wrap.ts`, `src/ax/ai/provider_profiles.ts`, `src/ax/dsp/generate.ts`, `src/ax/dsp/prompt.ts`, `src/ax/dsp/response`, `src/ax/ai/capabilities.ts`, `src/ax/ai/balance.ts`, `src/ax/ai/router.ts`, `src/ax/util/apicall.ts`
+  - Impact: TypeScript adds Typesafe boolean/class signature inference with configurable provider Noul thresholds; native systemOne/listModels APIs for structured questions, Score and raw probabilities; schema-required generation; pure request validation and routing/fallback eligibility; shared bodyless GET and abort-reason normalization. Numeric signature outputs are unsupported. Port these behaviors, cancellation, usage, and typed results to generated languages; keep the provider TypeScript-only until parity is implemented.
+  - Suggested AxIR work: Add or update the TS-derived conformance fixture.; Update AxIR/Core or descriptor data to match the portable TS behavior.; Run npm run axir:conformance:check and npm run test:axir.
+  - Completed at: 2026-09-18
+  - Completed by: `d31891c98c4726ce1e15fb60df2f96a6c2b70d6e`
+  - Verification: `All five generated providers and native clients cover configurable thresholds, all three primitives, rich/null entries, fractional scoring, validation limits, discovery, credential refresh, retries, cancellation, concurrency, schema-required generation, and request-compatible selection including nested balancers and fallback. Numeric signatures never become scores. AxIR compiler go test -count=1 -timeout=30m ./... and strict check/lint/provenance/lowering passed. Final all-five release verification passed: C++ in the full test run, Python/Java/Go after nested-balancer test corrections, and Rust after routing validation correction. Conformance synchronization, generated package freshness, build, 320 focused TypeScript tests, tooling guards, generated examples, provider profiles, skills, and website checks passed. All 18 live Typesafe/Jev signature, native, and hybrid examples passed across TypeScript, Python, Java, C++, Go, and Rust using environment credentials.`
+- `axir-2026-09-17-port-signature-value-descriptions-for-boolean-and-class-fields` [axgen] Port signature value descriptions for boolean and class fields
+  - Status: done
+  - Source commit: `3951b0531514b62ec533ad0de218716847f0a931`
+  - TS paths: `src/ax/dsp/parser.ts`, `src/ax/dsp/sig.ts`, `src/ax/dsp/sigtypes.ts`, `src/ax/dsp/valueDescriptions.ts`, `src/ax/dsp/jsonSchema.ts`, `src/ax/dsp/prompt.ts`, `src/ax/dsp/generate.ts`, `src/ax/ai/types.ts`, `src/ax/ai/typesafe/api.ts`, `src/ax/dsp/extract/streamingText.ts`
+  - Impact: Add boolean true/false and class-label description syntax, fluent describeValues, validation, serialization, type inference, conventional prompt/schema rendering, and structured-output request annotations consumed as native Typesafe criteria. Existing field value semantics remain unchanged. Text extraction must accept the exact wire field names advertised by prompts, while retaining display-title support, including streaming.
+  - Suggested AxIR work: Add or update the TS-derived conformance fixture.; Update AxIR/Core or descriptor data to match the portable TS behavior.; Run npm run axir:conformance:check and npm run test:axir.
+  - Completed at: 2026-09-18
+  - Completed by: `d31891c98c4726ce1e15fb60df2f96a6c2b70d6e`
+  - Verification: `Core-owned string/fluent boolean and class descriptions round-trip through signatures/schema and map to native criteria or ordinary readable prompts. Shared fixtures cover scalar/complex extraction, streaming label parsing, field order, nested fields, validation, and conventional-provider behavior. AxIR compiler go test -count=1 -timeout=30m ./... and strict check/lint/provenance/lowering passed. Final all-five release verification passed: C++ in the full test run, Python/Java/Go after nested-balancer test corrections, and Rust after routing validation correction. Conformance synchronization, generated package freshness, build, 320 focused TypeScript tests, tooling guards, generated examples, provider profiles, skills, and website checks passed. All 18 live Typesafe/Jev signature, native, and hybrid examples passed across TypeScript, Python, Java, C++, Go, and Rust using environment credentials.`
