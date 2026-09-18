@@ -1,0 +1,106 @@
+{
+  "alternative_indices": [1],
+  "expected_output": {
+    "recommendation": {
+      "provider": "Generative"
+    }
+  },
+  "kind": "ai_provider_router",
+  "name": "typesafe-routing-reject-degradation",
+  "primary_index": 0,
+  "request": {
+    "chatPrompt": [
+      {
+        "content": "Outage",
+        "role": "user"
+      }
+    ],
+    "modelConfig": {
+      "stream": false
+    }
+  },
+  "routing": {
+    "capability": {
+      "allowDegradation": true
+    }
+  },
+  "services": [
+    {
+      "features": {
+        "caching": {
+          "supported": false,
+          "types": []
+        },
+        "functions": false,
+        "media": {
+          "audio": {
+            "formats": [],
+            "output": {
+              "formats": [],
+              "supported": false
+            },
+            "supported": false
+          },
+          "files": {
+            "formats": [],
+            "supported": false,
+            "uploadMethod": "none"
+          },
+          "images": {
+            "formats": [],
+            "supported": false
+          },
+          "urls": {
+            "contextFetching": false,
+            "supported": false,
+            "webSearch": false
+          }
+        },
+        "multiTurn": true,
+        "requiresStructuredOutput": true,
+        "streaming": false,
+        "structuredOutputs": true,
+        "thinking": false
+      },
+      "name": "Typesafe"
+    },
+    {
+      "features": {
+        "caching": {
+          "supported": false,
+          "types": []
+        },
+        "functions": false,
+        "media": {
+          "audio": {
+            "formats": [],
+            "output": {
+              "formats": [],
+              "supported": false
+            },
+            "supported": false
+          },
+          "files": {
+            "formats": [],
+            "supported": false,
+            "uploadMethod": "none"
+          },
+          "images": {
+            "formats": [],
+            "supported": false
+          },
+          "urls": {
+            "contextFetching": false,
+            "supported": false,
+            "webSearch": false
+          }
+        },
+        "multiTurn": true,
+        "streaming": false,
+        "structuredOutputs": true,
+        "thinking": false
+      },
+      "name": "Generative"
+    }
+  ]
+}

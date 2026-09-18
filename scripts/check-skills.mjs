@@ -13,6 +13,7 @@ const generatedTargets = ['python', 'java', 'cpp', 'go', 'rust'];
 const skillIds = [
   'llm',
   'ai',
+  'typesafe',
   'audio',
   'signature',
   'gen',

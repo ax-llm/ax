@@ -1,0 +1,40 @@
+{
+  "expected_signature": {
+    "description": null,
+    "inputs": [
+      {
+        "name": "ticket",
+        "title": "Ticket",
+        "type": {
+          "isArray": false,
+          "name": "string"
+        },
+        "isOptional": false,
+        "isInternal": false,
+        "isCached": false
+      }
+    ],
+    "outputs": [
+      {
+        "name": "team",
+        "title": "Team",
+        "type": {
+          "isArray": false,
+          "name": "class",
+          "options": ["customer support", "billing"],
+          "valueDescriptions": {
+            "billing": "Invoice problem",
+            "customer support": "Product help"
+          }
+        },
+        "isOptional": false,
+        "isInternal": false,
+        "isCached": false
+      }
+    ]
+  },
+  "expected_to_string": "ticket:string -> team:class \"customer support | billing\"(\"customer support\" \"Product help\", \"billing\" \"Invoice problem\")",
+  "kind": "signature",
+  "name": "value-descriptions-quoted-label",
+  "signature": "ticket:string -> team:class \"customer support, billing\"(\"customer support\" \"Product help\", billing \"Invoice problem\")"
+}

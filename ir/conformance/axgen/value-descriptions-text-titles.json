@@ -1,0 +1,18 @@
+{
+  "expected_output": {
+    "assignedTeam": "engineering",
+    "urgent": true
+  },
+  "expected_request_count": 1,
+  "input": {
+    "ticket": "Outage"
+  },
+  "kind": "forward",
+  "name": "value-descriptions-text-titles",
+  "responses": [
+    {
+      "content": "Urgent: true\nAssigned Team: engineering"
+    }
+  ],
+  "signature": "ticket:string -> urgent:boolean(true \"Core task blocked\", false \"Routine\"), assignedTeam:class \"support, engineering\""
+}

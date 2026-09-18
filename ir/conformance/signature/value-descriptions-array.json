@@ -1,0 +1,39 @@
+{
+  "expected_signature": {
+    "description": null,
+    "inputs": [
+      {
+        "name": "ticket",
+        "title": "Ticket",
+        "type": {
+          "isArray": false,
+          "name": "string"
+        },
+        "isOptional": false,
+        "isInternal": false,
+        "isCached": false
+      }
+    ],
+    "outputs": [
+      {
+        "name": "flags",
+        "title": "Flags",
+        "type": {
+          "isArray": true,
+          "name": "boolean",
+          "valueDescriptions": {
+            "true": "Confirmed"
+          }
+        },
+        "isOptional": false,
+        "isInternal": false,
+        "isCached": false,
+        "description": "Signals"
+      }
+    ]
+  },
+  "expected_to_string": "ticket:string -> flags:boolean(true \"Confirmed\")[] \"Signals\"",
+  "kind": "signature",
+  "name": "value-descriptions-array",
+  "signature": "ticket:string -> flags:boolean(true \"Confirmed\")[] \"Signals\""
+}

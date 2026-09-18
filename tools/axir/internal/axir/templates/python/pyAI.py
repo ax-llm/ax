@@ -9,6 +9,7 @@ from contextvars import ContextVar
 from dataclasses import dataclass
 from datetime import datetime
 import hashlib
+import http.client
 import json
 import math
 import os
@@ -19,8 +20,16 @@ import uuid
 import urllib.error
 import urllib.parse
 import urllib.request
-from typing import Any, Callable, Iterable, Protocol
+from typing import Any, Callable, Iterable, Protocol, TypedDict, Literal
 # AXIR_CORE_IMPORTS
+from .signature import _core_record_new
+
+def _core_validation_error(message):
+    return ValueError(str(message))
+
+def _core_math_is_finite(value):
+    return isinstance(value, (int, float)) and not isinstance(value, bool) and math.isfinite(value)
+
 
 def _core_string_split_once(value, sep):
     left, marker, right = str(value).partition(str(sep))
@@ -566,6 +575,11 @@ def ai(provider: str = "openai", **options):
         return GoogleGeminiClient(_profile=canonical, **options)
     if transport == "anthropic-messages":
         return AnthropicClient(_profile=canonical, **options)
+    if transport == "typesafe-system-one":
+        options.setdefault("model", descriptor["defaultModel"])
+        options.setdefault("api_key", options.pop("apiKey", None) or os.environ.get("TYPESAFE_APIKEY") or os.environ.get("TYPESAFE_API_KEY"))
+        options.setdefault("base_url", descriptor["baseUrl"])
+        return ProviderOperationClient(canonical, descriptor["name"], **options)
     if transport == "openai-chat":
         return OpenAICompatibleClient(_profile=canonical, **options)
     raise ValueError(f"profile {canonical} uses unsupported transport: {transport}")
@@ -751,6 +765,9 @@ class AxAIService(ABC):
     def get_features(self, model: str | None = None) -> dict[str, Any]:
         ...
 
+    def validate_chat_request(self, request: dict[str, Any]) -> None:
+        """Optional side-effect-free validation before routing or transport."""
+
     def get_model_list(self):
         return []
 
@@ -863,6 +880,8 @@ class AxBaseAI(AIClient):
         return copy.deepcopy(self.features)
 
     def get_model_list(self):
+        for key in ("models", "model_list", "modelList"):
+            if key in self.options: return copy.deepcopy(self.options[key])
         models = []
         if self.model:
             models.append({"key": self.model, "description": f"{self.name} chat model", "model": self.model})
@@ -1069,9 +1088,12 @@ class ProviderOperationClient(AxBaseAI):
             features=descriptor.get("features") or default_features(),
         )
         self.profile = profile
+        if profile == "typesafe":
+            self.model_config = copy.deepcopy(model_config or {})
+            typesafe_require_number(self.options.get("trueThreshold", self.options.get("true_threshold", 0.5)), "trueThreshold", 0, 1)
         self.descriptor = descriptor
-        self.base_url = (base_url or os.environ.get("OPENAI_BASE_URL") or descriptor.get("baseUrl") or "https://api.openai.com/v1").rstrip("/")
-        self.api_key = api_key or os.environ.get("OPENAI_API_KEY")
+        self.base_url = (base_url or (os.environ.get("OPENAI_BASE_URL") if profile != "typesafe" else None) or descriptor.get("baseUrl") or "https://api.openai.com/v1").rstrip("/")
+        self.api_key = api_key or (os.environ.get("TYPESAFE_APIKEY") or os.environ.get("TYPESAFE_API_KEY") if profile == "typesafe" else os.environ.get("OPENAI_API_KEY"))
         self.credential_provider = credential_provider or credentialProvider
         if self.descriptor.get("authRequired") and not self.api_key and not self.credential_provider:
             raise AxAIServiceAuthenticationError(
@@ -1108,6 +1130,12 @@ class ProviderOperationClient(AxBaseAI):
         from .session import _ResponsesChatSession
         return _ResponsesChatSession(self, request, options)
 
+    def validate_chat_request(self, request: dict[str, Any]) -> None:
+        req = _coerce_chat_request(copy.deepcopy(request))
+        req["model"] = req.get("model") or self.model
+        req["model_config"] = merge_model_config(self.model_config, req.get("model_config"), self.options)
+        provider_validate_chat_request(self.profile, req, self.options)
+
     def _chat(self, request: dict[str, Any], options: dict[str, Any]):
         realtime_model = request.get("model") or self.model
         if provider_should_use_realtime(self.profile, str(realtime_model or ""), request, options):
@@ -1121,7 +1149,7 @@ class ProviderOperationClient(AxBaseAI):
         if raw is None:
             operation = "responses" if self.descriptor.get("transport") == "openai-responses" else "chat"
             raw = self._request_json(endpoint, payload, stream=False, method=self._operation_method("chat"), operation=operation, cancellation=_cancellation_token(options))
-        return provider_normalize_chat_response(self.profile, raw, self.name, model, payload)
+        return provider_normalize_chat_response(self.profile, raw, self.name, model, typesafe_response_context(payload, options) if self.profile == "typesafe" else payload)
 
     def _context_cache_chat(self, request, payload, model, endpoint, options):
         cancellation = _check_cancelled(options)
@@ -1254,6 +1282,9 @@ class ProviderOperationClient(AxBaseAI):
             return self._request_json(endpoint, payload, stream=False, method=self._operation_method("chat"), cancellation=cancellation)
 
     def stream(self, request: dict[str, Any], options: dict[str, Any] | None = None):
+        if self.get_features(request.get("model")).get("streaming") is False:
+            yield self.chat(request, {**(options or {}), "stream": False})
+            return
         _check_cancelled(options)
         req = _coerce_chat_request(request)
         req.setdefault("model_config", {})["stream"] = True
@@ -1540,6 +1571,45 @@ class ProviderOperationClient(AxBaseAI):
         descriptor = (self.descriptor.get("operations") or {}).get(operation) or provider_operation_descriptor(self.profile, operation)
         return str(descriptor.get("method") or "POST").upper()
 
+    def _open_http_response(self, request, cancellation):
+        if cancellation is None:
+            return urllib.request.urlopen(request, timeout=self.timeout), lambda: None
+        import socket
+        connections = []
+        def interrupt():
+            for connection in list(connections):
+                sock = connection.sock
+                if sock is not None:
+                    try: sock.shutdown(socket.SHUT_RDWR)
+                    except OSError: pass
+        def connection_factory(base):
+            class Connection(base):
+                def __init__(self, *args, **kwargs):
+                    super().__init__(*args, **kwargs)
+                    connections.append(self)
+                def connect(self):
+                    cancellation.throw_if_cancelled()
+                    super().connect()
+                    if cancellation.cancelled:
+                        self.close()
+                        cancellation.throw_if_cancelled()
+            return Connection
+        class HTTPHandler(urllib.request.HTTPHandler):
+            def http_open(self, req):
+                return self.do_open(connection_factory(http.client.HTTPConnection), req)
+        class HTTPSHandler(urllib.request.HTTPSHandler):
+            def https_open(self, req):
+                return self.do_open(connection_factory(http.client.HTTPSConnection), req, context=self._context)
+        unsubscribe = cancellation.subscribe(interrupt)
+        try:
+            cancellation.throw_if_cancelled()
+            response = urllib.request.build_opener(HTTPHandler(), HTTPSHandler()).open(request, timeout=self.timeout)
+            return response, unsubscribe
+        except BaseException:
+            unsubscribe()
+            for connection in connections: connection.close()
+            raise
+
     def _request_json(self, endpoint: str, payload: dict[str, Any], *, stream: bool, body_key: str = "json", binary_response: bool = False, method: str = "POST", base_url: str | None = None, operation: str = "chat", accept: str | None = None, cancellation: AxCancellationToken | None = None):
         if cancellation is not None: cancellation.throw_if_cancelled()
         method = str(method or "POST").upper()
@@ -1567,6 +1637,8 @@ class ProviderOperationClient(AxBaseAI):
             body_key: payload,
             "stream": stream,
         }
+        if method in ("GET", "HEAD"):
+            call.pop(body_key, None)
         if self.transport:
             try:
                 cancellable_name = "stream_with_cancellation" if stream else "call_with_cancellation"
@@ -1584,10 +1656,12 @@ class ProviderOperationClient(AxBaseAI):
             except OSError as exc:
                 if cancellation is not None and cancellation.cancelled: cancellation.throw_if_cancelled()
                 raise AxAIServiceNetworkError(str(exc), request=call, retryable=True) from exc
-        if not self.api_key:
-            raise AxAIServiceAuthenticationError("OPENAI_API_KEY is required")
+        if not self.api_key and not self.credential_provider:
+            raise AxAIServiceAuthenticationError("api_key or credential_provider is required")
         request_headers = call["headers"]
-        if body_key == "data":
+        if method in ("GET", "HEAD"):
+            request_body = None
+        elif body_key == "data":
             request_body, multipart_content_type = _encode_multipart(payload)
             request_headers = dict(request_headers)
             request_headers["Content-Type"] = multipart_content_type
@@ -1601,7 +1675,7 @@ class ProviderOperationClient(AxBaseAI):
         )
         try:
             if cancellation is not None: cancellation.throw_if_cancelled()
-            res = urllib.request.urlopen(req, timeout=self.timeout)
+            res, stop_open = self._open_http_response(req, cancellation)
             if stream:
                 # A generator cannot be closed while another thread is reading it.
                 # Own the response explicitly so cancellation can interrupt that read.
@@ -1636,6 +1710,7 @@ class ProviderOperationClient(AxBaseAI):
                         if self.closed.is_set():
                             return
                         self.closed.set()
+                        stop_open()
                         if self.socket is not None:
                             try:
                                 self.socket.shutdown(socket.SHUT_RDWR)
@@ -1643,27 +1718,43 @@ class ProviderOperationClient(AxBaseAI):
                                 pass
                         res.close()
                 return ResponseChunks()
-            with res:
-                if binary_response:
-                    # Binary operations (e.g. OpenAI /audio/speech returns raw mp3)
-                    # must not be UTF-8 decoded; return the bytes as base64.
-                    value = base64.b64encode(res.read()).decode()
-                else:
-                    response_text = res.read().decode()
-                    try:
-                        value = json.loads(response_text)
-                    except json.JSONDecodeError:
-                        value = response_text
-                if cancellation is not None: cancellation.throw_if_cancelled()
-                return value
+            # Interrupt blocking response reads and always release the subscription.
+            def close_response():
+                import socket
+                sock = getattr(getattr(getattr(res, "fp", None), "raw", None), "_sock", None)
+                if sock is not None:
+                    try: sock.shutdown(socket.SHUT_RDWR)
+                    except OSError: pass
+            unsubscribe = cancellation.subscribe(close_response) if cancellation is not None else lambda: None
+            try:
+                with res:
+                    if binary_response:
+                        # Binary operations (e.g. OpenAI /audio/speech returns raw mp3)
+                        # must not be UTF-8 decoded; return the bytes as base64.
+                        value = base64.b64encode(res.read()).decode()
+                    else:
+                        response_text = res.read().decode()
+                        try:
+                            value = json.loads(response_text)
+                        except json.JSONDecodeError:
+                            value = response_text
+                    if cancellation is not None: cancellation.throw_if_cancelled()
+                    return value
+            finally:
+                unsubscribe()
+                stop_open()
         except AxAIServiceAbortedError:
             raise
+        except http.client.HTTPException as exc:
+            if cancellation is not None and cancellation.cancelled: cancellation.throw_if_cancelled()
+            raise AxAIServiceNetworkError(str(exc), request=call, retryable=True) from exc
         except TimeoutError as exc:
             if cancellation is not None and cancellation.cancelled: cancellation.throw_if_cancelled()
             raise AxAIServiceTimeoutError("OpenAI-compatible request timed out", request=call, retryable=True) from exc
         except urllib.error.HTTPError as exc:
             if cancellation is not None and cancellation.cancelled: cancellation.throw_if_cancelled()
-            body = exc.read().decode()
+            try: body = exc.read().decode()
+            finally: exc.close()
             try:
                 parsed = json.loads(body)
             except json.JSONDecodeError:
@@ -1687,6 +1778,115 @@ class ProviderOperationClient(AxBaseAI):
         for key, value in (self.descriptor.get("headers") or {}).items():
             headers[str(key)] = str(value)
         return headers
+
+
+TypesafeEntry = str | dict[str, Any] | list[Any] | None
+
+class _TypesafeQuestionOptions(TypedDict, total=False):
+    instructions: TypesafeEntry
+    criteria: dict[str, TypesafeEntry] | list[TypesafeEntry] | None
+
+class TypesafeQuestion(_TypesafeQuestionOptions):
+    type: Literal["noul", "choice", "score"]
+
+class _TypesafeRequestOptions(TypedDict, total=False):
+    model: str
+
+class TypesafeRequest(_TypesafeRequestOptions):
+    state: TypesafeEntry
+    questions: dict[str, TypesafeQuestion]
+
+class TypesafeNoul(TypedDict):
+    type: Literal["noul"]
+    noul: float
+
+class TypesafeChoice(TypedDict):
+    type: Literal["choice"]
+    choice: str
+    probabilities: dict[str, float]
+    confidence: float
+
+class TypesafeScore(TypedDict):
+    type: Literal["score"]
+    score: float
+    probabilities: dict[str, float]
+    confidence: float
+    legend: dict[str, TypesafeEntry]
+
+TypesafeAnswer = TypesafeNoul | TypesafeChoice | TypesafeScore
+
+class TypesafeUsage(TypedDict):
+    input_tokens: int
+    output_tokens: int
+
+class TypesafeResponse(TypedDict):
+    model: str
+    answers: dict[str, TypesafeAnswer]
+    usage: TypesafeUsage
+
+class TypesafeModelCard(TypedDict):
+    name: str
+    description: str
+    release_date: str
+
+
+class AxAITypesafeClient:
+    """Native System One API. Probabilities and fractional rubric scores are unchanged."""
+
+    def __init__(self, *, model: str = "jev-latest", **options):
+        # A provider transport is private implementation detail, not a new AxAI method.
+        self._client = ai("typesafe", model=model, **options)
+
+    def system_one(self, request: TypesafeRequest, options: dict[str, Any] | None = None) -> TypesafeResponse:
+        # Serialize before any callback so a concurrent caller cannot change the decoding plan.
+        payload = json.loads(json.dumps(request, allow_nan=False))
+        payload.setdefault("model", self._client.model)
+        typesafe_validate_request(payload)
+        raw = self._request("POST", "/v1/systemone", payload, "chat", options)
+        return typesafe_decode_response(raw, payload["questions"])
+
+    def list_models(self, options: dict[str, Any] | None = None) -> list[TypesafeModelCard]:
+        return typesafe_decode_models(self._request("GET", "/v1/models", None, "models", options))
+
+    def _request(self, method, path, payload, operation, options):
+        opts = {**self._client.options, **(options or {})}
+        inherited = _check_cancelled(self._client.options)
+        per_call = _check_cancelled(options)
+        cancellation = inherited or per_call
+        subscriptions = []
+        try:
+            if inherited is not None and per_call is not None and inherited is not per_call:
+                cancellation = AxCancellationToken()
+                subscriptions.append(inherited.subscribe(lambda: cancellation.cancel(inherited.reason or "cancelled")))
+                subscriptions.append(per_call.subscribe(lambda: cancellation.cancel(per_call.reason or "cancelled")))
+            return self._request_with_cancellation(method, path, payload, operation, opts, cancellation)
+        finally:
+            for unsubscribe in subscriptions:
+                unsubscribe()
+
+    def _request_with_cancellation(self, method, path, payload, operation, opts, cancellation):
+        client = copy.copy(self._client)
+        client.timeout = float(opts.get("timeout", client.timeout))
+        retry = resolve_stream_retry(opts)
+        attempt = 0
+        while True:
+            try:
+                return client._request_json(path, payload, stream=False, method=method, operation=operation, cancellation=cancellation)
+            except AxAIServiceError as error:
+                if not _is_retryable_ai_error(error) or attempt >= int(retry["max_retries"]):
+                    raise
+                delay = min(float(retry["initial_delay_ms"]) * float(retry["backoff_factor"]) ** attempt, float(retry["max_delay_ms"])) / 1000
+                attempt += 1
+                if cancellation is not None:
+                    cancellation.wait(delay)
+                    cancellation.throw_if_cancelled()
+                else:
+                    time.sleep(delay)
+
+
+def typesafe(**options) -> AxAITypesafeClient:
+    """Create a native Typesafe client for Noul, Choice, Score, and model discovery."""
+    return AxAITypesafeClient(**options)
 
 
 class OpenAICompatibleClient(ProviderOperationClient):
@@ -2142,6 +2342,17 @@ class AxBalancerOptions:
         }
 
 
+def _service_accepts_request(service, request):
+    validator = getattr(service, "validate_chat_request", None)
+    if not callable(validator):
+        return True
+    try:
+        validator(request)
+        return True
+    except (ValueError, RuntimeError):
+        return False
+
+
 def _merge_service_features(services, model=None):
     features = {
         "functions": False,
@@ -2158,6 +2369,8 @@ def _merge_service_features(services, model=None):
         },
         "caching": {"supported": False, "types": []},
     }
+    if services and all((service.get_features(model) or {}).get("requiresStructuredOutput", (service.get_features(model) or {}).get("requires_structured_output", False)) for service in services):
+        features["requiresStructuredOutput"] = True
     structured_output_modes: list[Any] = []
     all_modes_advertised = bool(services)
     for service in services:
@@ -2306,8 +2519,11 @@ class AxBalancer(AxAIService):
     def _handle_success(self, service: AxAIService):
         with self._failures_lock: self.service_failures.pop(service.get_id(), None)
 
+    def validate_chat_request(self, request: dict[str, Any]) -> None:
+        self._candidate_services(request)
+
     def _candidate_services(self, request: dict[str, Any]):
-        candidates = [service for service in self.services if provider_balancer_candidate_allowed(service.get_features(str(request.get("model"))) or {}, request)]
+        candidates = [service for service in self.services if _service_accepts_request(service, request) and provider_balancer_candidate_allowed(service.get_features(str(request.get("model"))) or {}, request)]
         if candidates:
             return candidates
         requirements = []
@@ -2771,9 +2987,9 @@ class ProviderRouter:
     def complete(self,request):
         return chat_response_to_completion(self.chat(request)["response"])
 
-    def _provider_records(self, model=None):
+    def _provider_records(self, model=None, request=None):
         return [
-            {"name": provider.get_name(), "id": provider.get_id(), "features": copy.deepcopy(provider.get_features(model))}
+            {"name": provider.get_name(), "id": provider.get_id(), "features": copy.deepcopy(provider.get_features(model)), "requestCompatible": request is None or _service_accepts_request(provider, request)}
             for provider in self.providers
         ]
 
@@ -2784,13 +3000,13 @@ class ProviderRouter:
         return self.providers[0] if self.providers else None
 
     def get_routing_recommendation(self, request: dict[str, Any]):
-        rec = provider_route_recommendation(self._provider_records(request.get("model")), _coerce_chat_request(request), self.routing)
+        rec = provider_route_recommendation(self._provider_records(request.get("model"), request), _coerce_chat_request(request), self.routing)
         out = copy.deepcopy(rec)
         out["provider"] = self._service_for_name(out.get("providerName"))
         return out
 
     def validate_request(self, request: dict[str, Any]):
-        return provider_route_validation(self._provider_records(request.get("model")), _coerce_chat_request(request), self.processing, self.routing)
+        return provider_route_validation(self._provider_records(request.get("model"), request), _coerce_chat_request(request), self.processing, self.routing)
 
     def get_routing_stats(self):
         return provider_routing_stats(self._provider_records())

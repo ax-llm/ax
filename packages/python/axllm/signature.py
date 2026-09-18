@@ -43,6 +43,7 @@ class FieldType:
     maximum: float | None = None
     pattern: str | None = None
     pattern_description: str | None = None
+    value_descriptions: dict[str, str] | None = None
     format: str | None = None
     language: str | None = None
     description: str | None = None
@@ -82,6 +83,12 @@ class FluentField:
         self.is_optional = False
         self.is_internal = False
         self.is_cached = False
+
+    def describe_values(self, descriptions: dict[str, str]):
+        clone = self._clone()
+        clone.type.value_descriptions = copy.deepcopy(descriptions)
+        _signature_validate_value_descriptions_impl(clone.type, clone.type.name)
+        return clone
 
     def optional(self):
         clone = self._clone()
@@ -316,6 +323,28 @@ def _core_get(target, key, default=None):
     if isinstance(target, (list, tuple)) and isinstance(key, int):
         return target[key] if 0 <= key < len(target) else default
     return getattr(target, key, default)
+
+
+def _core_type_is(value, type_name):
+    if type_name == "object":
+        return isinstance(value, dict)
+    if type_name == "list":
+        return isinstance(value, list)
+    if type_name == "string":
+        return isinstance(value, str)
+    if type_name == "number":
+        return (isinstance(value, (int, float)) and not isinstance(value, bool))
+    if type_name == "boolean":
+        return isinstance(value, bool)
+    if type_name == "null":
+        return value is None
+    if type_name == "json":
+        return value is None or isinstance(value, (dict, list, str, int, float, bool))
+    return False
+
+
+def _core_map_keys(values):
+    return list(values) if isinstance(values, dict) else []
 
 
 def _core_map_merge(left, right):
@@ -592,6 +621,7 @@ def _core_record_new(name, values):
             maximum=values.get("maximum"),
             pattern=values.get("pattern"),
             pattern_description=values.get("pattern_description", values.get("patternDescription")),
+            value_descriptions=values.get("value_descriptions", values.get("valueDescriptions")),
             format=values.get("format"),
             language=values.get("language"),
             description=values.get("description"),
@@ -632,10 +662,75 @@ def _title(name: str) -> str:
 
 
 # BEGIN AXIR CORE EMITTED FUNCTIONS
+def _signature_value_keys_impl(typ: FieldType) -> list[Any]:
+    _core_coverage_mark("_signature_value_keys_impl")
+    empty_keys = []
+    keys_raw = _core_get(typ, "options", None)
+    keys = _core_coalesce(keys_raw, empty_keys)
+    name = _core_get(typ, "name", None)
+    is_boolean = _core_eq(name, "boolean")
+    if is_boolean:
+        keys = []
+        keys.append("true")
+        keys.append("false")
+    else:
+        pass
+    return keys
+
+
 def parse_signature(signature: str) -> AxSignature:
     _core_coverage_mark("parse_signature")
     parsed = _signature_parse_impl(signature)
     return parsed
+
+
+def _signature_validate_value_descriptions_impl(typ: FieldType, field_name: str) -> None:
+    _core_coverage_mark("_signature_validate_value_descriptions_impl")
+    descriptions = _core_get(typ, "value_descriptions", None)
+    missing = _core_is_none(descriptions)
+    if missing:
+        return None
+    else:
+        pass
+    name = _core_get(typ, "name", None)
+    is_boolean = _core_eq(name, "boolean")
+    is_class = _core_eq(name, "class")
+    supported = _core_or(is_boolean, is_class)
+    object = _core_type_is(descriptions, "object")
+    valid = _core_and(supported, object)
+    invalid = _core_not(valid)
+    if invalid:
+        message = _core_string_format("Field \"{}\": value descriptions require a boolean or class field", field_name)
+        error = _core_signature_error(message)
+        raise error
+    else:
+        pass
+    allowed = _signature_value_keys_impl(typ)
+    keys = _core_map_keys(descriptions)
+    for key in keys:
+        known = _core_contains(allowed, key)
+        unknown = _core_not(known)
+        if unknown:
+            message = _core_string_format("Field \"{}\": unknown described value \"{}\"", field_name, key)
+            error = _core_signature_error(message)
+            raise error
+        else:
+            pass
+        value = _core_get(descriptions, key, None)
+        string = _core_type_is(value, "string")
+        invalid = _core_not(string)
+        if string:
+            trimmed = str(value).strip()
+            invalid = _core_eq(trimmed, "")
+        else:
+            pass
+        if invalid:
+            message = _core_string_format("Field \"{}\": description for \"{}\" must be a nonempty string", field_name, key)
+            error = _core_signature_error(message)
+            raise error
+        else:
+            pass
+    return None
 
 
 def validate_signature(signature: AxSignature) -> None:
@@ -686,6 +781,28 @@ def _signature_output_fields(signature: AxSignature) -> list[Any]:
         item["type"] = type_out
         out.append(item)
     return out
+
+
+def _signature_parse_value_description_impl(raw: str, field_name: str, key: str) -> str:
+    _core_coverage_mark("_signature_parse_value_description_impl")
+    quoted = _core_string_consume_optional_quoted_prefix(raw)
+    found = _core_get(quoted, "found", False)
+    description = _core_get(quoted, "value", "")
+    trimmed = str(description).strip()
+    empty = _core_eq(trimmed, "")
+    missing = _core_not(found)
+    invalid = _core_or(empty, missing)
+    rest = _core_get(quoted, "rest", "")
+    rest = str(rest).strip()
+    extra = _core_ne(rest, "")
+    invalid = _core_or(invalid, extra)
+    if invalid:
+        message = _core_string_format("Field \"{}\": \"{}\" requires a nonempty quoted description", field_name, key)
+        error = _core_signature_error(message)
+        raise error
+    else:
+        pass
+    return description
 
 
 def _signature_parse_impl(signature: str) -> AxSignature:
@@ -746,6 +863,59 @@ def _signature_parse_impl(signature: str) -> AxSignature:
     return parsed
 
 
+def _signature_parse_class_descriptions_impl(raw: str, field_name: str) -> Any:
+    _core_coverage_mark("_signature_parse_class_descriptions_impl")
+    text = str(raw).strip()
+    empty = _core_eq(text, "")
+    if empty:
+        message = _core_string_format("Field \"{}\": empty value description list", field_name)
+        error = _core_signature_error(message)
+        raise error
+    else:
+        pass
+    parts = _core_string_split_top_level(text, ",")
+    descriptions = {}
+    for part in parts:
+        entry = str(part).strip()
+        empty = _core_eq(entry, "")
+        if empty:
+            message = _core_string_format("Field \"{}\": trailing comma in value descriptions", field_name)
+            error = _core_signature_error(message)
+            raise error
+        else:
+            pass
+        quoted = _core_string_consume_optional_quoted_prefix(entry)
+        found = _core_get(quoted, "found", False)
+        key = _core_get(quoted, "value", "")
+        rest = _core_get(quoted, "rest", "")
+        if found:
+            rest = str(rest).strip()
+        else:
+            words = _core_string_words(entry)
+            key = _core_list_get(words, 0, "")
+            length = _core_len(key)
+            rest = _core_string_slice(entry, length)
+            rest = str(rest).strip()
+            valid = _core_regex_match("^[A-Za-z_][A-Za-z0-9_.-]*$", key)
+            invalid = _core_not(valid)
+            if invalid:
+                message = _core_string_format("Field \"{}\": expected a class label", field_name)
+                error = _core_signature_error(message)
+                raise error
+            else:
+                pass
+        duplicate = _core_map_contains(descriptions, key)
+        if duplicate:
+            message = _core_string_format("Field \"{}\": duplicate description for \"{}\"", field_name, key)
+            error = _core_signature_error(message)
+            raise error
+        else:
+            pass
+        description = _signature_parse_value_description_impl(rest, field_name, key)
+        descriptions[key] = description
+    return descriptions
+
+
 def _signature_parse_fields_impl(text: str, output: bool) -> list[Any]:
     _core_coverage_mark("_signature_parse_fields_impl")
     parts = _core_string_split_top_level(text, ",")
@@ -763,10 +933,68 @@ def _signature_parse_fields_impl(text: str, output: bool) -> list[Any]:
     return fields
 
 
+def _signature_render_value_descriptions_impl(typ: FieldType) -> list[Any]:
+    _core_coverage_mark("_signature_render_value_descriptions_impl")
+    entries = []
+    keys = _signature_value_keys_impl(typ)
+    empty_descriptions = {}
+    descriptions = _core_get(typ, "value_descriptions", empty_descriptions)
+    for key in keys:
+        present = _core_map_contains(descriptions, key)
+        if present:
+            description = _core_get(descriptions, key, None)
+            escaped = _signature_escape_string_impl(description)
+            label = _core_string_format("{}", key)
+            name = _core_get(typ, "name", None)
+            quote = _core_eq(name, "class")
+            if quote:
+                escaped_key = _signature_escape_string_impl(key)
+                label = _core_string_format("\"{}\"", escaped_key)
+            else:
+                pass
+            entry = _core_string_format("{} \"{}\"", label, escaped)
+            entries.append(entry)
+        else:
+            pass
+    return entries
+
+
 def _signature_parse_field_impl(raw: str, output: bool) -> Field:
     _core_coverage_mark("_signature_parse_field_impl")
     field = _signature_parse_field_common_impl(raw, output, False, "")
     return field
+
+
+def _signature_describe_field_values_impl(field: Field) -> Any:
+    _core_coverage_mark("_signature_describe_field_values_impl")
+    description = _core_get(field, "description", None)
+    typ = _core_get(field, "type", None)
+    keys = _signature_value_keys_impl(typ)
+    empty_descriptions = {}
+    descriptions = _core_get(typ, "value_descriptions", empty_descriptions)
+    parts = []
+    has_description = _core_truthy(description)
+    if has_description:
+        parts.append(description)
+    else:
+        pass
+    count = _core_len(parts)
+    for key in keys:
+        present = _core_map_contains(descriptions, key)
+        if present:
+            value = _core_get(descriptions, key, None)
+            part = _core_string_format("{}: {}", key, value)
+            parts.append(part)
+        else:
+            pass
+    size = _core_len(parts)
+    unchanged = _core_eq(size, count)
+    if unchanged:
+        return description
+    else:
+        pass
+    out = _core_string_join("\n", parts)
+    return out
 
 
 def _signature_parse_field_common_impl(raw: str, output: bool, nested: bool, parent: str) -> Field:
@@ -857,6 +1085,7 @@ def _signature_parse_field_common_impl(raw: str, output: bool, nested: bool, par
         type_maximum = _core_get(field_type, "maximum", None)
         type_pattern = _core_get(field_type, "pattern", None)
         type_pattern_description = _core_get(field_type, "pattern_description", None)
+        type_value_descriptions = _core_get(field_type, "value_descriptions", None)
         type_format = _core_get(field_type, "format", None)
         type_language = _core_get(field_type, "language", None)
         type_attrs["name"] = type_name
@@ -869,6 +1098,7 @@ def _signature_parse_field_common_impl(raw: str, output: bool, nested: bool, par
         type_attrs["maximum"] = type_maximum
         type_attrs["pattern"] = type_pattern
         type_attrs["pattern_description"] = type_pattern_description
+        type_attrs["value_descriptions"] = type_value_descriptions
         type_attrs["format"] = type_format
         type_attrs["language"] = type_language
         type_attrs["description"] = description
@@ -886,6 +1116,58 @@ def _signature_parse_field_common_impl(raw: str, output: bool, nested: bool, par
     field = _core_record_new("Field", field_attrs)
     _signature_validate_field_shape_impl(field, output, nested)
     return field
+
+
+def _signature_nested_value_descriptions_impl(fields: Any, prefix: str) -> list[Any]:
+    _core_coverage_mark("_signature_nested_value_descriptions_impl")
+    out = []
+    nested_fields = _core_fields_from_map(fields)
+    for field in nested_fields:
+        name = _core_get(field, "name", None)
+        path = _core_string_format("{}.{}", prefix, name)
+        typ = _core_get(field, "type", None)
+        keys = _signature_value_keys_impl(typ)
+        empty = {}
+        descriptions = _core_get(typ, "value_descriptions", empty)
+        for key in keys:
+            present = _core_map_contains(descriptions, key)
+            if present:
+                description = _core_get(descriptions, key, None)
+                line = _core_string_format("{} = {}: {}", path, key, description)
+                out.append(line)
+            else:
+                pass
+        children = _core_get(typ, "fields", None)
+        lines = _signature_nested_value_descriptions_impl(children, path)
+        for line in lines:
+            out.append(line)
+    return out
+
+
+def _signature_output_value_descriptions_impl(fields: list[Any]) -> Any:
+    _core_coverage_mark("_signature_output_value_descriptions_impl")
+    out = {}
+    for field in fields:
+        internal = _core_get(field, "is_internal", False)
+        visible = _core_not(internal)
+        typ = _core_get(field, "type", None)
+        descriptions = _core_get(typ, "value_descriptions", None)
+        has_descriptions = _core_truthy(descriptions)
+        include = _core_and(visible, has_descriptions)
+        if include:
+            name = _core_get(field, "name", None)
+            entry = {}
+            description = _core_get(field, "description", None)
+            has_description = _core_is_not_none(description)
+            if has_description:
+                entry["description"] = description
+            else:
+                pass
+            entry["valueDescriptions"] = descriptions
+            out[name] = entry
+        else:
+            pass
+    return out
 
 
 def _signature_parse_description_impl(raw: str, fallback: Any) -> Any:
@@ -1047,11 +1329,29 @@ def _signature_parse_type_expr_impl(raw: str, section: str, field_name: str) -> 
             attrs["name"] = "class"
             attrs["is_array"] = is_array
             attrs["options"] = options
+            quoted_rest = _core_get(quoted, "rest", None)
+            quoted_rest = str(quoted_rest).strip()
+            has_descriptions = _core_string_starts_with(quoted_rest, "(")
+            if has_descriptions:
+                group = _core_string_extract_leading_group(quoted_rest, "(", ")")
+                balanced = _core_get(group, "balanced", False)
+                unbalanced = _core_not(balanced)
+                if unbalanced:
+                    error = _core_signature_error("Expected closing parenthesis in value descriptions")
+                    raise error
+                else:
+                    pass
+                group_text = _core_get(group, "group", None)
+                descriptions = _signature_parse_class_descriptions_impl(group_text, field_name)
+                attrs["value_descriptions"] = descriptions
+                quoted_rest = _core_get(group, "rest", None)
+            else:
+                pass
             typ = _core_record_new("FieldType", attrs)
+            _signature_validate_value_descriptions_impl(typ, field_name)
             out = {}
             out["type"] = typ
             out["is_cached"] = False
-            quoted_rest = _core_get(quoted, "rest", None)
             out["rest"] = quoted_rest
             return out
         else:
@@ -1191,6 +1491,34 @@ def _signature_parse_modifier_bag_impl(type_name: str, section: str, field_name:
         arg = str(arg_raw).strip()
         handled = {}
         handled["value"] = False
+        is_true = _core_eq(token, "true")
+        is_false = _core_eq(token, "false")
+        is_value = _core_or(is_true, is_false)
+        if is_value:
+            duplicate = _core_contains(seen, token)
+            if duplicate:
+                message = _core_string_format("Field \"{}\": duplicate \"{}\" modifier", field_name, token)
+                error = _core_signature_error(message)
+                raise error
+            else:
+                pass
+            seen.append(token)
+            is_boolean = _core_eq(type_name, "boolean")
+            invalid = _core_not(is_boolean)
+            if invalid:
+                message = _core_string_format("Field \"{}\": \"{}\" value descriptions require a boolean field", field_name, token)
+                error = _core_signature_error(message)
+                raise error
+            else:
+                pass
+            description = _signature_parse_value_description_impl(arg, field_name, token)
+            empty_descriptions = {}
+            descriptions = _core_get(attrs, "value_descriptions", empty_descriptions)
+            descriptions[token] = description
+            attrs["value_descriptions"] = descriptions
+            handled["value"] = True
+        else:
+            pass
         is_min = _core_eq(token, "min")
         is_max = _core_eq(token, "max")
         is_bound = _core_or(is_min, is_max)
@@ -1506,7 +1834,7 @@ def _signature_escape_string_impl(value: str) -> str:
 
 def _signature_render_modifier_bag_impl(typ: FieldType, is_cached: bool) -> str:
     _core_coverage_mark("_signature_render_modifier_bag_impl")
-    entries = []
+    entries = _signature_render_value_descriptions_impl(typ)
     min_length = _core_get(typ, "min_length", None)
     minimum = _core_get(typ, "minimum", None)
     min = _core_coalesce(min_length, minimum)
@@ -1597,6 +1925,13 @@ def _signature_render_type_impl(typ: FieldType, is_cached: bool) -> str:
         joined = _core_string_join(" | ", options)
         class_name = _core_get(state, "value", None)
         result = _core_string_format("{} \"{}\"", class_name, joined)
+        entries = _signature_render_value_descriptions_impl(typ)
+        has_entries = _core_truthy(entries)
+        if has_entries:
+            body = _core_string_join(", ", entries)
+            result = _core_string_format("{}({})", result, body)
+        else:
+            pass
         return result
     else:
         pass
@@ -1723,6 +2058,7 @@ def _signature_validate_field_shape_impl(field: Field, output: bool, nested: boo
     else:
         pass
     typ = _core_get(field, "type", None)
+    _signature_validate_value_descriptions_impl(typ, name)
     type_name = _core_get(typ, "name", None)
     valid_types = []
     valid_types.append("audio")

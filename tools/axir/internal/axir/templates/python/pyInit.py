@@ -3,6 +3,9 @@ from .schema import AxValidationError
 from .tool import Tool, fn
 from .ai import (
     AIClient,
+    AxAITypesafeClient,
+    TypesafeEntry, TypesafeQuestion, TypesafeRequest, TypesafeAnswer, TypesafeNoul, TypesafeChoice, TypesafeScore, TypesafeUsage, TypesafeResponse, TypesafeModelCard,
+    typesafe,
     AxCancellationToken,
     AxAIRefusalError,
     AxAIService,
@@ -59,7 +62,7 @@ from .gen import AxGen, AxMemory, ax
 from .session import AxChatSession, AxRunControl, run_control
 from .agent import AxAgent, AxAgentClarificationError, AxBootstrapFewShot, AxCodeRuntime, AxCodeSession, AxGEPA, AxPlaybook, OptimizerEngine, OptimizerEvaluator, agent, optimize, playbook
 from .flow import AxFlow, AxProgram, flow
-from .mcp import AxEventCancellationToken, AxEventClock, AxEventCommand, AxEventContinuation, AxEventDeadLetter, AxEventEnvelope, AxEventInputBuilder, AxEventInputError, AxEventInputPlan, AxEventPath, AxEventPublishReceipt, AxEventRoute, AxEventRouteBuilder, AxEventRun, AxEventRuntime, AxEventSink, AxEventSource, AxEventStore, AxEventTarget, AxEventTargetBuilder, AxExecutionContext, AxInMemoryEventStore, AxManualEventClock, AxMCPClient, AxMCPContinuationState, AxMCPEventSource, AxMCPOAuthOptions, AxMCPScriptedTransport, AxMCPStdioTransport, AxMCPStreamableHTTPTransport, AxMCPTokenSet, AxMCPTransport, AxPushEventSource, AxSystemEventClock, AxUCPBinding, AxUCPClient, event_input, event_path, event_route, event_target
+from .mcp import AxEventCancellationToken, AxEventClock, AxEventCommand, AxEventContinuation, AxEventDeadLetter, AxEventEnvelope, AxEventInputBuilder, AxEventInputError, AxEventInputPlan, AxEventPath, AxEventPublishReceipt, AxEventRoute, AxEventRouteBuilder, AxEventRun, AxEventRuntime, AxEventSink, AxEventSource, AxEventStore, AxEventTarget, AxEventTargetBuilder, AxExecutionContext, AxInMemoryEventStore, AxManualEventClock, AxMCPClient, AxMCPContinuationState, AxMCPEventSource, AxMCPOAuthOptions, AxMCPScriptedTransport, AxMCPStdioTransport, AxMCPWebSocketTransport, AxMCPStreamableHTTPTransport, AxMCPTokenSet, AxMCPTransport, AxPushEventSource, AxSystemEventClock, AxUCPBinding, AxUCPClient, event_input, event_path, event_route, event_target
 from .prompt import AxPromptTemplate, TemplateError, render_template_content, validate_prompt_template_syntax
 from .runtime import ProcessCodeRuntime, ProcessCodeSession, RuntimeCapabilities, RuntimeEnvelope
 from .runtime_quickjs import AxQuickJsCodeRuntime, AxQuickJsCodeSession
@@ -133,6 +136,20 @@ __all__ = [
     "AxMCPOAuthOptions",
     "AxMCPScriptedTransport",
     "AxMCPStdioTransport",
+    "AxMCPWebSocketTransport",
+    "AxAITypesafeClient",
+    "typesafe",
+    "TypesafeEntry",
+    "TypesafeQuestion",
+    "TypesafeRequest",
+    "TypesafeAnswer",
+    "TypesafeNoul",
+    "TypesafeChoice",
+    "TypesafeScore",
+    "TypesafeUsage",
+    "TypesafeResponse",
+    "TypesafeModelCard",
+
     "AxMCPStreamableHTTPTransport",
     "AxMCPTokenSet",
     "AxMCPTransport",

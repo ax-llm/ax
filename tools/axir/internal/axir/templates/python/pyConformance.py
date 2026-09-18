@@ -14,6 +14,7 @@ from .ai import build_chat_request, build_embed_request, normalize_chat_response
 from .ai import openai_responses_transport_cursor, openai_responses_session_event
 from .ai import AxBalancerAdaptiveStrategy, AxBalancerOptions, AxInMemoryBalancerStatsStore, _core_set_math_random_values, create_balancer_route_stats, provider_balancer_adaptive_score, sample_balancer_route_health, update_balancer_route_stats
 from .gen import (
+    _parse_text_output_fields_impl,
     ax,
     chat_session_create_state, chat_session_transition, chat_session_unresolved, chat_session_validate_required_arguments,
     fold_stream,
@@ -164,6 +165,11 @@ class RouterFixtureService(AxBaseAI):
         self.responses = list(spec.get("responses") or [])
         self.metrics_value = copy.deepcopy(spec.get("metrics") or {"service": self.name, "calls": 0})
         self.estimated_cost = float(spec.get("estimatedCost", spec.get("estimated_cost", 0)))
+
+    def validate_chat_request(self, request):
+        if self.name == "Typesafe":
+            from .ai import provider_validate_chat_request
+            provider_validate_chat_request("typesafe", request, {})
 
     def get_id(self):
         return self.fixture_id
@@ -507,6 +513,18 @@ def run_fixture(fixture: dict[str, Any], *, source: str | None = None):
             _run_ai_session_state(fixture)
         elif kind == "ai_session_events":
             _run_ai_session_events(fixture)
+        elif kind == "ai_typesafe_native":
+            from .ai import typesafe
+            transport = ScriptedTransport([fixture.get("response")])
+            client = typesafe(api_key="test-key", transport=transport)
+            try:
+                result = client.list_models() if fixture["operation"] == "models" else client.system_one(fixture["request"])
+            except Exception as exc:
+                if not fixture.get("expected_error_contains") or fixture["expected_error_contains"] not in str(exc): raise
+            else:
+                if fixture.get("expected_error_contains"): raise FixtureError("expected native Typesafe validation failure")
+                _assert_equal(result, fixture["expected_output"], "native Typesafe output")
+            _assert_transport_request(fixture, transport)
         elif kind == "ai_chat":
             _run_ai_chat(fixture)
         elif kind == "ai_embed":
@@ -917,6 +935,15 @@ def _run_template_validate(fixture):
 
 
 def _run_stream(fixture):
+    if "text_signature" in fixture:
+        fields = AxSignature.create(fixture["text_signature"]).get_output_fields()
+        content = ""
+        for chunk in fixture["stream_events"]:
+            content += chunk
+            _parse_text_output_fields_impl(content, fields, False)
+        output = _parse_text_output_fields_impl(content, fields, True)
+        validate_output(fields, output)
+        _assert_equal(output, fixture["expected_text_output"], "text streaming extraction")
     if fixture.get("structured_states"):
         for route_case in fixture.get("route_cases") or []:
             _assert_equal(
@@ -3017,6 +3044,8 @@ def _type_payload(typ):
         out["maximum"] = typ.maximum
     if typ.pattern is not None:
         out["pattern"] = typ.pattern
+    if typ.value_descriptions is not None:
+        out["valueDescriptions"] = dict(typ.value_descriptions)
     if typ.pattern_description is not None:
         out["patternDescription"] = typ.pattern_description
     if typ.format is not None:
@@ -3189,6 +3218,8 @@ def _field_from_spec(spec):
         field = field.email()
     if spec.get("url"):
         field = field.url()
+    if "valueDescriptions" in spec:
+        field = field.describe_values(spec["valueDescriptions"])
     if spec.get("pattern"):
         field = field.regex(spec["pattern"], spec.get("patternDescription") or spec["pattern"])
     return field

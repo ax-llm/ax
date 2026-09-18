@@ -74,7 +74,7 @@ AxGen merges constructor and per-call forward options before invoking the provid
 
 - AxGen: `ax`, `AxGen`, `run_control`, `AxRunControl`
 - Tools: `tool`, `Tool`
-- MCP: `AxMCPClient`, `AxMCPStreamableHTTPTransport`, `AxMCPStdioTransport`
+- MCP: `AxMCPClient`, `AxMCPStreamableHTTPTransport`, `AxMCPWebSocketTransport`, `AxMCPStdioTransport`
 
 ## Guardrails
 

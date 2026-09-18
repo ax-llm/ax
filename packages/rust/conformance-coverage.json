@@ -85,6 +85,12 @@
       },
       {
         "suite": "axai",
+        "kind": "ai_typesafe_native",
+        "runner": "rust:axai",
+        "category": "transport-boundary"
+      },
+      {
+        "suite": "axai",
         "kind": "ai_session_events",
         "runner": "rust:axai",
         "category": "semantic"

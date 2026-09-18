@@ -110,7 +110,8 @@ round-trips. Rendering does not mutate the signature or duplicate descriptions.
 Boolean and class return types, optional/array behavior, and allowed values stay
 unchanged. Descriptions are guidance, not additional output validation. Number
 bounds still describe validation constraints; Typesafe Score rubrics remain native-only.
-Generated-language support is tracked in the AxIR backlog.
+The same descriptions, validation, serialization, schemas, and prompt semantics
+are generated for Python, Java, C++, Go, and Rust.
 
 For Jev, use these descriptions for boolean/class criteria. Full structured
 criteria, native probabilities, and Score rubrics use the separate native

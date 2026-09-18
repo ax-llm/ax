@@ -1,0 +1,697 @@
+module @ax.typesafe version "0.1" {
+  dialect @ax.provider version "0.1"
+
+  op ax.provider.class @AxAITypesafeClient {
+    attr core_kind = "record"
+    attr public = true
+    tag "typesafe-native-client"
+    type signature = "(options?:json) -> AxAITypesafeClient"
+  }
+
+
+
+  op ax.provider.semantic @typesafe_require_object {
+    attr core_kind = "func"
+    attr effect = "throws"
+    attr emit_module = "ai"
+    tag "src/ax/ai/typesafe/validate.ts"
+    type signature = "(json, string) -> json throws"
+    body @entry(%value: json, %context: string) {
+      %valid = core.type_is %value type "object"
+      %invalid = core.call intrinsic.not(%valid)
+      core.if %invalid {
+        %message = core.call intrinsic.string.format("Typesafe: {} must be an object", %context)
+        %error = core.call intrinsic.error.validation(%message)
+        core.raise %error
+      }
+      core.return %value
+    }
+  }
+
+  op ax.provider.semantic @typesafe_require_string {
+    attr core_kind = "func"
+    attr effect = "throws"
+    attr emit_module = "ai"
+    tag "src/ax/ai/typesafe/validate.ts"
+    type signature = "(json, string, bool) -> string throws"
+    body @entry(%value: json, %context: string, %nonempty: bool) {
+      %valid = core.type_is %value type "string"
+      core.if %valid {
+        core.if %nonempty {
+          %text = core.string_trim %value
+          %valid = core.call intrinsic.ne(%text, "")
+        }
+      }
+      %invalid = core.call intrinsic.not(%valid)
+      core.if %invalid {
+        %message = core.call intrinsic.string.format("Typesafe: {} must be a string (nonempty where required)", %context)
+        %error = core.call intrinsic.error.validation(%message)
+        core.raise %error
+      }
+      core.return %value
+    }
+  }
+
+  op ax.provider.semantic @typesafe_require_number {
+    attr core_kind = "func"
+    attr effect = "throws"
+    attr emit_module = "ai"
+    tag "src/ax/ai/typesafe/validate.ts"
+    type signature = "(json, string, f64, f64) -> f64 throws"
+    body @entry(%value: json, %context: string, %minimum: f64, %maximum: f64) {
+      %valid = core.type_is %value type "number"
+      core.if %valid {
+        %valid = core.call intrinsic.math.is_finite(%value)
+        %low = core.call intrinsic.lt(%value, %minimum)
+        %high = core.call intrinsic.gt(%value, %maximum)
+        %outside = core.call intrinsic.or(%low, %high)
+        %within = core.call intrinsic.not(%outside)
+        %valid = core.call intrinsic.and(%valid, %within)
+      }
+      %invalid = core.call intrinsic.not(%valid)
+      core.if %invalid {
+        %message = core.call intrinsic.string.format("Typesafe: {} must be a finite number between {} and {}", %context, %minimum, %maximum)
+        %error = core.call intrinsic.error.validation(%message)
+        core.raise %error
+      }
+      core.return %value
+    }
+  }
+
+  op ax.provider.semantic @typesafe_validate_json {
+    attr core_kind = "func"
+    attr effect = "throws"
+    attr emit_module = "ai"
+    tag "src/ax/ai/typesafe/validate.ts"
+    type signature = "(json) -> void throws"
+    body @entry(%value: json) {
+      %is_object = core.type_is %value type "object"
+      core.if %is_object {
+        %keys = core.call intrinsic.map.keys(%value)
+        core.for %key in %keys {
+          %child = core.get %value[%key]
+          core.call @typesafe_validate_json(%child)
+        }
+        core.return
+      }
+      %is_list = core.type_is %value type "list"
+      core.if %is_list {
+        core.for %child in %value {
+          core.call @typesafe_validate_json(%child)
+        }
+        core.return
+      }
+      %is_number = core.type_is %value type "number"
+      core.if %is_number {
+        %finite = core.call intrinsic.math.is_finite(%value)
+        %invalid = core.call intrinsic.not(%finite)
+        core.if %invalid {
+          core.raise "Typesafe: entries must contain finite JSON values"
+        }
+        core.return
+      }
+      %is_null = core.call intrinsic.is_none(%value)
+      %is_string = core.type_is %value type "string"
+      %is_boolean = core.type_is %value type "boolean"
+      %valid = core.call intrinsic.or(%is_string, %is_boolean)
+      %valid = core.call intrinsic.or(%valid, %is_null)
+      %invalid = core.call intrinsic.not(%valid)
+      core.if %invalid {
+        core.raise "Typesafe: entries must contain JSON values"
+      }
+      core.return
+    }
+  }
+
+  op ax.provider.semantic @typesafe_validate_entry {
+    attr core_kind = "func"
+    attr effect = "throws"
+    attr emit_module = "ai"
+    tag "src/ax/ai/typesafe/validate.ts"
+    type signature = "(json, string) -> void throws"
+    body @entry(%value: json, %context: string) {
+      %is_object = core.type_is %value type "object"
+      %is_list = core.type_is %value type "list"
+      %is_string = core.type_is %value type "string"
+      %is_null = core.call intrinsic.is_none(%value)
+      %valid = core.call intrinsic.or(%is_object, %is_list)
+      %valid = core.call intrinsic.or(%valid, %is_string)
+      %valid = core.call intrinsic.or(%valid, %is_null)
+      %invalid = core.call intrinsic.not(%valid)
+      core.if %invalid {
+        %message = core.call intrinsic.string.format("Typesafe: {} must be text, an object, an array, or null", %context)
+        %error = core.call intrinsic.error.validation(%message)
+        core.raise %error
+      }
+      core.call @typesafe_validate_json(%value)
+      core.return
+    }
+  }
+
+  op ax.provider.semantic @typesafe_validate_request {
+    attr core_kind = "func"
+    attr effect = "throws"
+    attr emit_module = "ai"
+    tag "src/ax/ai/typesafe/validate.ts"
+    type signature = "(json) -> void throws"
+    body @entry(%request: json) {
+      core.call @typesafe_require_object(%request, "request")
+      %model = core.get %request["model"]
+      core.call @typesafe_require_string(%model, "model", true)
+      %has_state = core.call intrinsic.map.contains(%request, "state")
+      %missing_state = core.call intrinsic.not(%has_state)
+      core.if %missing_state {
+        core.raise "Typesafe: state is required (null is allowed)"
+      }
+      %state = core.get %request["state"]
+      core.call @typesafe_validate_entry(%state, "state")
+      %questions = core.get %request["questions"]
+      core.call @typesafe_require_object(%questions, "questions")
+      %keys = core.call intrinsic.map.keys(%questions)
+      %count = core.call intrinsic.len(%keys)
+      %empty = core.call intrinsic.eq(%count, 0)
+      core.if %empty {
+        core.raise "Typesafe: questions must not be empty"
+      }
+      core.for %key in %keys {
+        %question = core.get %questions[%key]
+        core.call @typesafe_require_object(%question, %key)
+        %instructions = core.get %question["instructions"]
+        core.call @typesafe_validate_entry(%instructions, %key)
+        %kind = core.get %question["type"]
+        %criteria = core.get %question["criteria"]
+        %is_noul = core.call intrinsic.eq(%kind, "noul")
+        %is_choice = core.call intrinsic.eq(%kind, "choice")
+        %is_score = core.call intrinsic.eq(%kind, "score")
+        core.if %is_noul {
+          %has_criteria = core.call intrinsic.is_not_none(%criteria)
+          core.if %has_criteria {
+            core.call @typesafe_require_object(%criteria, %key)
+            %labels = core.call intrinsic.map.keys(%criteria)
+            core.for %label in %labels {
+              %true_label = core.call intrinsic.eq(%label, "true")
+              %false_label = core.call intrinsic.eq(%label, "false")
+              %valid_label = core.call intrinsic.or(%true_label, %false_label)
+              %invalid_label = core.call intrinsic.not(%valid_label)
+              core.if %invalid_label {
+                core.raise "Typesafe: Noul criteria only accept true and false"
+              }
+              %entry = core.get %criteria[%label]
+              core.call @typesafe_validate_entry(%entry, %key)
+            }
+          }
+        } else {
+          core.if %is_choice {
+            core.call @typesafe_require_object(%criteria, %key)
+            %labels = core.call intrinsic.map.keys(%criteria)
+            %size = core.call intrinsic.len(%labels)
+            %too_small = core.call intrinsic.lt(%size, 1)
+            %too_large = core.call intrinsic.gt(%size, 255)
+            %invalid_size = core.call intrinsic.or(%too_small, %too_large)
+            core.if %invalid_size {
+              core.raise "Typesafe: Choice requires 1 to 255 options"
+            }
+            core.for %label in %labels {
+              %entry = core.get %criteria[%label]
+              core.call @typesafe_validate_entry(%entry, %key)
+            }
+          } else {
+            core.if %is_score {
+              %is_list = core.type_is %criteria type "list"
+              %not_list = core.call intrinsic.not(%is_list)
+              core.if %not_list {
+                core.raise "Typesafe: Score requires an array of 2 to 10 levels"
+              }
+              %size = core.call intrinsic.len(%criteria)
+              %too_small = core.call intrinsic.lt(%size, 2)
+              %too_large = core.call intrinsic.gt(%size, 10)
+              %invalid_size = core.call intrinsic.or(%too_small, %too_large)
+              core.if %invalid_size {
+                core.raise "Typesafe: Score requires 2 to 10 levels"
+              }
+              core.for %entry in %criteria {
+                core.call @typesafe_validate_entry(%entry, %key)
+              }
+            } else {
+              %message = core.call intrinsic.string.format("Typesafe: unknown question type for {}", %key)
+              %error = core.call intrinsic.error.validation(%message)
+              core.raise %error
+            }
+          }
+        }
+      }
+      core.return
+    }
+  }
+
+  op ax.provider.semantic @typesafe_decode_response {
+    attr core_kind = "func"
+    attr effect = "throws"
+    attr emit_module = "ai"
+    tag "src/ax/ai/typesafe/validate.ts"
+    type signature = "(json, json) -> json throws"
+    body @entry(%raw: json, %questions: json) {
+      core.call @typesafe_require_object(%raw, "response")
+      %model = core.get %raw["model"]
+      core.call @typesafe_require_string(%model, "response.model", true)
+      %usage = core.get %raw["usage"]
+      core.call @typesafe_require_object(%usage, "usage")
+      %token_keys = core.list
+      core.append %token_keys, "input_tokens"
+      core.append %token_keys, "output_tokens"
+      core.for %key in %token_keys {
+        %count = core.get %usage[%key]
+        core.call @typesafe_require_number(%count, %key, 0, 9007199254740991.0)
+        %integer = core.call intrinsic.math.floor(%count)
+        %invalid = core.call intrinsic.ne(%count, %integer)
+        core.if %invalid {
+          core.raise "Typesafe: token counts must be nonnegative safe integers"
+        }
+      }
+      %answers = core.get %raw["answers"]
+      core.call @typesafe_require_object(%answers, "answers")
+      %keys = core.call intrinsic.map.keys(%questions)
+      core.for %key in %keys {
+        %question = core.get %questions[%key]
+        %kind = core.get %question["type"]
+        %answer = core.get %answers[%key]
+        core.call @typesafe_require_object(%answer, %key)
+        %answer_kind = core.get %answer["type"]
+        %mismatch = core.call intrinsic.ne(%kind, %answer_kind)
+        core.if %mismatch {
+          %message = core.call intrinsic.string.format("Typesafe: answer type mismatch for {}", %key)
+          %error = core.call intrinsic.error.validation(%message)
+          core.raise %error
+        }
+        %is_noul = core.call intrinsic.eq(%kind, "noul")
+        core.if %is_noul {
+          %probability = core.get %answer["noul"]
+          core.call @typesafe_require_number(%probability, %key, 0, 1)
+        } else {
+          %confidence = core.get %answer["confidence"]
+          core.call @typesafe_require_number(%confidence, "confidence", 0, 1)
+          %criteria = core.get %question["criteria"]
+          %is_choice = core.call intrinsic.eq(%kind, "choice")
+          %labels = core.list
+          core.if %is_choice {
+            %labels = core.call intrinsic.map.keys(%criteria)
+            %choice = core.get %answer["choice"]
+            core.call @typesafe_require_string(%choice, %key, false)
+            %known = core.call intrinsic.contains(%labels, %choice)
+            %unknown = core.call intrinsic.not(%known)
+            core.if %unknown {
+              %message = core.call intrinsic.string.format("Typesafe: invalid selected Choice label for {}", %key)
+              %error = core.call intrinsic.error.validation(%message)
+              core.raise %error
+            }
+          } else {
+            %index = core.let 0
+            core.for %entry in %criteria {
+              %label = core.call intrinsic.string.format("{}", %index)
+              core.append %labels, %label
+              %index = core.call intrinsic.add(%index, 1)
+            }
+            %upper = core.call intrinsic.add(%index, -1)
+            %score = core.get %answer["score"]
+            core.call @typesafe_require_number(%score, %key, 0, %upper)
+            %legend = core.get %answer["legend"]
+            core.call @typesafe_require_object(%legend, "legend")
+            %legend_keys = core.call intrinsic.map.keys(%legend)
+            %legend_size = core.call intrinsic.len(%legend_keys)
+            %wrong_size = core.call intrinsic.ne(%legend_size, %index)
+            core.if %wrong_size {
+              core.raise "Typesafe: Score legend must match rubric indices"
+            }
+            core.for %label in %labels {
+              %present = core.call intrinsic.map.contains(%legend, %label)
+              %missing = core.call intrinsic.not(%present)
+              core.if %missing {
+                core.raise "Typesafe: Score legend must match rubric indices"
+              }
+              %entry = core.get %legend[%label]
+              core.call @typesafe_validate_entry(%entry, "legend")
+            }
+          }
+          %probabilities = core.get %answer["probabilities"]
+          core.call @typesafe_require_object(%probabilities, "probabilities")
+          %probability_keys = core.call intrinsic.map.keys(%probabilities)
+          %size = core.call intrinsic.len(%probability_keys)
+          %expected_size = core.call intrinsic.len(%labels)
+          %wrong_size = core.call intrinsic.ne(%size, %expected_size)
+          core.if %wrong_size {
+            core.raise "Typesafe: probabilities must match criteria keys"
+          }
+          %total = core.let 0.0
+          core.for %label in %labels {
+            %probability = core.get %probabilities[%label]
+            core.call @typesafe_require_number(%probability, %label, 0, 1)
+            %total = core.call intrinsic.add(%total, %probability)
+          }
+          %difference = core.call intrinsic.add(%total, -1)
+          %difference = core.call intrinsic.math.abs(%difference)
+          %invalid_sum = core.call intrinsic.gt(%difference, 0.01)
+          core.if %invalid_sum {
+            core.raise "Typesafe: probabilities must sum to one"
+          }
+        }
+      }
+      core.return %raw
+    }
+  }
+
+  op ax.provider.semantic @typesafe_decode_models {
+    attr core_kind = "func"
+    attr effect = "throws"
+    attr emit_module = "ai"
+    tag "src/ax/ai/typesafe/validate.ts"
+    type signature = "(json) -> json throws"
+    body @entry(%raw: json) {
+      core.call @typesafe_require_object(%raw, "model catalog")
+      %models = core.get %raw["models"]
+      %is_list = core.type_is %models type "list"
+      %invalid = core.call intrinsic.not(%is_list)
+      core.if %invalid {
+        core.raise "Typesafe: models must be an array"
+      }
+      core.for %model in %models {
+        core.call @typesafe_require_object(%model, "model")
+        %name = core.get %model["name"]
+        %description = core.get %model["description"]
+        %release_date = core.get %model["release_date"]
+        core.call @typesafe_require_string(%name, "model.name", true)
+        core.call @typesafe_require_string(%description, "model.description", false)
+        core.call @typesafe_require_string(%release_date, "model.release_date", false)
+      }
+      core.return %models
+    }
+  }
+
+  op ax.provider.semantic @typesafe_build_chat_request {
+    attr core_kind = "func"
+    attr effect = "throws"
+    attr emit_module = "ai"
+    tag "src/ax/ai/typesafe/validate.ts"
+    type signature = "(json, json) -> json throws"
+    body @entry(%request: json, %options: json) {
+      %empty_map = core.map
+      %empty_list = core.list
+      %threshold_snake = core.get %options["true_threshold"] default 0.5
+      %threshold = core.get %options["trueThreshold"] default %threshold_snake
+      core.call @typesafe_require_number(%threshold, "trueThreshold", 0, 1)
+      %functions = core.get %request["functions"] default %empty_list
+      %function_call_snake = core.get %request["function_call"] default "none"
+      %function_call = core.get %request["functionCall"] default %function_call_snake
+      %has_functions = core.call intrinsic.truthy(%functions)
+      %has_call = core.call intrinsic.ne(%function_call, "none")
+      %has_call_value = core.call intrinsic.truthy(%function_call)
+      %has_call = core.call intrinsic.and(%has_call, %has_call_value)
+      %tools = core.call intrinsic.or(%has_functions, %has_call)
+      core.if %tools {
+        core.raise "Typesafe does not support tools; use a generative provider for tool execution"
+      }
+      %config_snake = core.get %request["model_config"] default %empty_map
+      %config = core.get %request["modelConfig"] default %config_snake
+      %controls = core.call intrinsic.map.keys(%config)
+      core.for %control in %controls {
+        %value = core.get %config[%control]
+        %present = core.call intrinsic.is_not_none(%value)
+        core.if %present {
+          %is_stream = core.call intrinsic.eq(%control, "stream")
+          %is_n = core.call intrinsic.eq(%control, "n")
+          %one = core.call intrinsic.eq(%value, 1)
+          %numeric = core.type_is %value type "number"
+          %one = core.call intrinsic.and(%one, %numeric)
+          %allowed_n = core.call intrinsic.and(%is_n, %one)
+          %allowed = core.call intrinsic.or(%is_stream, %allowed_n)
+          %unsupported = core.call intrinsic.not(%allowed)
+          core.if %unsupported {
+            %message = core.call intrinsic.string.format("Typesafe does not support generation control {}", %control)
+            %error = core.call intrinsic.error.validation(%message)
+            core.raise %error
+          }
+        }
+      }
+      %format_snake = core.get %request["response_format"]
+      %format = core.get %request["responseFormat"] default %format_snake
+      %format_type = core.get %format["type"]
+      %wrong_format = core.call intrinsic.ne(%format_type, "json_schema")
+      core.if %wrong_format {
+        core.raise "Typesafe requires an output schema. Use ax() with required boolean or class outputs"
+      }
+      %wrapper = core.get %format["schema"]
+      core.call @typesafe_require_object(%wrapper, "responseFormat.schema")
+      %schema = core.get %wrapper["schema"]
+      core.call @typesafe_require_object(%schema, "output schema")
+      %root_type = core.get %schema["type"]
+      %flat = core.call intrinsic.eq(%root_type, "object")
+      %forbidden = core.list
+      core.append %forbidden, "anyOf"
+      core.append %forbidden, "oneOf"
+      core.append %forbidden, "allOf"
+      core.append %forbidden, "$ref"
+      core.for %key in %forbidden {
+        %value = core.get %schema[%key]
+        %has_value = core.call intrinsic.truthy(%value)
+        core.if %has_value {
+          %flat = core.let false
+        }
+      }
+      %not_flat = core.call intrinsic.not(%flat)
+      core.if %not_flat {
+        core.raise "Typesafe requires a flat object output schema"
+      }
+      %properties = core.get %schema["properties"]
+      core.call @typesafe_require_object(%properties, "output properties")
+      %required = core.get %schema["required"] default %empty_list
+      %annotations = core.get %format["fieldDescriptions"] default %empty_map
+      %questions = core.map
+      %names = core.call intrinsic.map.keys(%properties)
+      core.append %forbidden, "const"
+      core.for %name in %names {
+        %field = core.get %properties[%name]
+        core.call @typesafe_require_object(%field, %name)
+        %supported = core.call intrinsic.contains(%required, %name)
+        core.for %key in %forbidden {
+          %has_key = core.call intrinsic.map.contains(%field, %key)
+          core.if %has_key {
+            %supported = core.let false
+          }
+        }
+        %type_name = core.get %field["type"]
+        %class_options = core.get %field["enum"]
+        %is_boolean = core.call intrinsic.eq(%type_name, "boolean")
+        %has_enum = core.call intrinsic.is_not_none(%class_options)
+        %no_enum = core.call intrinsic.not(%has_enum)
+        %is_boolean = core.call intrinsic.and(%is_boolean, %no_enum)
+        %is_string = core.call intrinsic.eq(%type_name, "string")
+        %is_enum = core.type_is %class_options type "list"
+        %is_class = core.call intrinsic.and(%is_string, %is_enum)
+        %supported_type = core.call intrinsic.or(%is_boolean, %is_class)
+        %supported = core.call intrinsic.and(%supported, %supported_type)
+        %unsupported = core.call intrinsic.not(%supported)
+        core.if %unsupported {
+          %message = core.call intrinsic.string.format("Typesafe cannot evaluate output {}. Use required boolean or class fields; use typesafe().systemOne() for scoring, or a generative provider for other outputs", %name)
+          %error = core.call intrinsic.error.validation(%message)
+          core.raise %error
+        }
+        %annotation = core.get %annotations[%name]
+        %description = core.get %field["description"]
+        %has_annotation = core.call intrinsic.is_not_none(%annotation)
+        %descriptions = core.map
+        core.if %has_annotation {
+          core.call @typesafe_require_object(%annotation, %name)
+          %description = core.get %annotation["description"]
+          %has_description = core.call intrinsic.is_not_none(%description)
+          core.if %has_description {
+            core.call @typesafe_require_string(%description, %name, false)
+          }
+          %descriptions = core.get %annotation["valueDescriptions"]
+          core.call @typesafe_require_object(%descriptions, %name)
+          %type_attrs = core.map
+          %annotation_type = core.let "boolean"
+          core.if %is_class {
+            %annotation_type = core.let "class"
+          }
+          core.set %type_attrs["name"] = %annotation_type
+          core.set %type_attrs["options"] = %class_options
+          core.set %type_attrs["value_descriptions"] = %descriptions
+          %typ = core.call intrinsic.record.new("FieldType", %type_attrs)
+          core.call @signature_validate_value_descriptions_impl(%typ, %name)
+        }
+        %instructions = core.call intrinsic.string.format("Evaluate the output field {}.", %name)
+        %is_description_string = core.type_is %description type "string"
+        %has_description = core.call intrinsic.truthy(%description)
+        %use_description = core.call intrinsic.and(%is_description_string, %has_description)
+        core.if %use_description {
+          %instructions = core.call intrinsic.string.format("{}: {}", %name, %description)
+        }
+        %question = core.map
+        core.set %question["instructions"] = %instructions
+        core.if %is_boolean {
+          core.set %question["type"] = "noul"
+          core.if %has_annotation {
+            core.set %question["criteria"] = %descriptions
+          }
+        } else {
+          core.set %question["type"] = "choice"
+          %criteria = core.map
+          core.for %label in %class_options {
+            core.call @typesafe_require_string(%label, %name, false)
+            %duplicate = core.call intrinsic.map.contains(%criteria, %label)
+            core.if %duplicate {
+              core.raise "Typesafe: Choice labels must be unique"
+            }
+            %description = core.get %descriptions[%label]
+            core.set %criteria[%label] = %description
+          }
+          core.set %question["criteria"] = %criteria
+        }
+        core.set %questions[%name] = %question
+      }
+      %prompt_snake = core.get %request["chat_prompt"] default %empty_list
+      %prompt = core.get %request["chatPrompt"] default %prompt_snake
+      %messages = core.list
+      core.for %message in %prompt {
+        %role = core.get %message["role"]
+        %content = core.get %message["content"] default ""
+        %is_tool = core.call intrinsic.eq(%role, "function")
+        %is_tool_alt = core.call intrinsic.eq(%role, "tool")
+        %is_tool = core.call intrinsic.or(%is_tool, %is_tool_alt)
+        %calls = core.get %message["functionCalls"]
+        %calls_snake = core.get %message["function_calls"]
+        %calls = core.call intrinsic.coalesce(%calls, %calls_snake)
+        %has_calls = core.call intrinsic.truthy(%calls)
+        %audio = core.get %message["audio"]
+        %has_audio = core.call intrinsic.truthy(%audio)
+        %images = core.get %message["images"]
+        %has_images = core.call intrinsic.truthy(%images)
+        %invalid = core.call intrinsic.or(%is_tool, %has_calls)
+        %invalid = core.call intrinsic.or(%invalid, %has_audio)
+        %invalid = core.call intrinsic.or(%invalid, %has_images)
+        core.if %invalid {
+          core.raise "Typesafe does not support tool or media history"
+        }
+        %is_list = core.type_is %content type "list"
+        core.if %is_list {
+          %texts = core.list
+          core.for %part in %content {
+            %kind = core.get %part["type"]
+            %nontext = core.call intrinsic.ne(%kind, "text")
+            core.if %nontext {
+              core.raise "Typesafe supports text input only"
+            }
+            %text = core.get %part["text"]
+            core.call @typesafe_require_string(%text, "message text", false)
+            core.append %texts, %text
+          }
+          %content = core.call intrinsic.string.join("\n", %texts)
+        }
+        core.call @typesafe_require_string(%content, "message content", false)
+        %entry = core.map
+        core.set %entry["role"] = %role
+        core.set %entry["content"] = %content
+        core.append %messages, %entry
+      }
+      %state = core.map
+      core.set %state["messages"] = %messages
+      %payload = core.map
+      %model = core.get %request["model"] default "jev-latest"
+      core.set %payload["model"] = %model
+      core.set %payload["state"] = %state
+      core.set %payload["questions"] = %questions
+      core.call @typesafe_validate_request(%payload)
+      core.return %payload
+    }
+  }
+
+  op ax.provider.semantic @typesafe_normalize_chat_response {
+    attr core_kind = "func"
+    attr effect = "throws"
+    attr emit_module = "ai"
+    tag "src/ax/ai/typesafe/validate.ts"
+    type signature = "(json, json) -> json throws"
+    body @entry(%raw: json, %context: json) {
+      %questions = core.get %context["questions"]
+      core.call @typesafe_require_object(%questions, "response request questions")
+      %raw = core.call @typesafe_decode_response(%raw, %questions)
+      %threshold = core.get %context["trueThreshold"] default 0.5
+      core.call @typesafe_require_number(%threshold, "trueThreshold", 0, 1)
+      %answers = core.get %raw["answers"]
+      %values = core.map
+      %names = core.call intrinsic.map.keys(%questions)
+      core.for %name in %names {
+        %answer = core.get %answers[%name]
+        %kind = core.get %answer["type"]
+        %is_noul = core.call intrinsic.eq(%kind, "noul")
+        %value = core.get %answer["choice"]
+        core.if %is_noul {
+          %probability = core.get %answer["noul"]
+          %below = core.call intrinsic.lt(%probability, %threshold)
+          %value = core.call intrinsic.not(%below)
+        }
+        core.set %values[%name] = %value
+      }
+      %content = core.call intrinsic.json.stringify(%values)
+      %result = core.map
+      core.set %result["index"] = 0
+      core.set %result["content"] = %content
+      core.set %result["finishReason"] = "stop"
+      %results = core.list
+      core.append %results, %result
+      %usage = core.get %raw["usage"]
+      %input = core.get %usage["input_tokens"]
+      %output = core.get %usage["output_tokens"]
+      %total = core.call intrinsic.add(%input, %output)
+      %tokens = core.map
+      core.set %tokens["promptTokens"] = %input
+      core.set %tokens["completionTokens"] = %output
+      core.set %tokens["totalTokens"] = %total
+      %model_usage = core.map
+      %model = core.get %raw["model"]
+      core.set %model_usage["ai"] = "Typesafe"
+      core.set %model_usage["model"] = %model
+      core.set %model_usage["tokens"] = %tokens
+      %typesafe_metadata = core.map
+      core.set %typesafe_metadata["answers"] = %answers
+      %metadata = core.map
+      core.set %metadata["typesafe"] = %typesafe_metadata
+      %response = core.map
+      core.set %response["results"] = %results
+      core.set %response["modelUsage"] = %model_usage
+      core.set %response["providerMetadata"] = %metadata
+      core.return %response
+    }
+  }
+
+  op ax.provider.semantic @typesafe_response_context {
+    attr core_kind = "func"
+    attr effect = "throws"
+    attr emit_module = "ai"
+    tag "src/ax/ai/typesafe/validate.ts"
+    type signature = "(json, json) -> json throws"
+    body @entry(%payload: json, %options: json) {
+      %empty = core.map
+      %context = core.call intrinsic.map.merge(%empty, %payload)
+      %threshold_snake = core.get %options["true_threshold"] default 0.5
+      %threshold = core.get %options["trueThreshold"] default %threshold_snake
+      core.set %context["trueThreshold"] = %threshold
+      core.return %context
+    }
+  }
+
+  op ax.provider.semantic @provider_validate_chat_request {
+    attr core_kind = "func"
+    attr effect = "throws"
+    attr emit_module = "ai"
+    tag "provider-request-validation"
+    type signature = "(string, json, json) -> void throws"
+    body @entry(%profile: string, %request: json, %options: json) {
+      %canonical = core.call @provider_normalize_profile(%profile)
+      %is_typesafe = core.call intrinsic.eq(%canonical, "typesafe")
+      core.if %is_typesafe {
+        core.call @typesafe_build_chat_request(%request, %options)
+      }
+      core.return
+    }
+  }
+}

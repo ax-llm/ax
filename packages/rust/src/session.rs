@@ -287,7 +287,7 @@ pub(crate) struct ResponsesSession {
 }
 // The HTTP worker owns an async reqwest request so dropping it on cancellation
 // closes a stalled body read. Public generation and tool handlers stay synchronous.
-async fn session_http_wait<T>(
+pub(crate) async fn session_http_wait<T>(
     future: impl std::future::Future<Output = Result<T, reqwest::Error>>,
     cancelled: &AtomicBool,
 ) -> AxResult<Option<T>> {

@@ -1,0 +1,68 @@
+{
+  "expected_signature": {
+    "description": null,
+    "inputs": [
+      {
+        "name": "ticket",
+        "title": "Ticket",
+        "type": {
+          "isArray": false,
+          "name": "string"
+        },
+        "isOptional": false,
+        "isInternal": false,
+        "isCached": false
+      }
+    ],
+    "outputs": [
+      {
+        "name": "analysis",
+        "title": "Analysis",
+        "type": {
+          "fields": {
+            "flags": {
+              "isCached": false,
+              "isInternal": false,
+              "isOptional": false,
+              "name": "flags",
+              "title": "Flags",
+              "type": {
+                "isArray": true,
+                "name": "boolean",
+                "valueDescriptions": {
+                  "true": "Confirmed"
+                }
+              }
+            },
+            "team": {
+              "description": "Route",
+              "isCached": false,
+              "isInternal": false,
+              "isOptional": false,
+              "name": "team",
+              "title": "Team",
+              "type": {
+                "description": "Route",
+                "isArray": false,
+                "name": "class",
+                "options": ["support", "billing"],
+                "valueDescriptions": {
+                  "support": "Help"
+                }
+              }
+            }
+          },
+          "isArray": false,
+          "name": "object"
+        },
+        "isOptional": false,
+        "isInternal": false,
+        "isCached": false
+      }
+    ]
+  },
+  "expected_to_string": "ticket:string -> analysis:object{ flags:boolean(true \"Confirmed\")[], team:class \"support | billing\"(\"support\" \"Help\") \"Route\" }",
+  "kind": "signature",
+  "name": "value-descriptions-nested-array",
+  "signature": "ticket:string -> analysis:object{ flags:boolean(true \"Confirmed\")[], team:class \"support, billing\"(support \"Help\") \"Route\" }"
+}

@@ -1,0 +1,36 @@
+{
+  "expected_error_contains": "result",
+  "expected_transport_request_count": 0,
+  "kind": "ai_chat",
+  "name": "typesafe-reject-array",
+  "provider": "typesafe",
+  "request": {
+    "chatPrompt": [
+      {
+        "content": "classify",
+        "role": "user"
+      }
+    ],
+    "modelConfig": {
+      "stream": false
+    },
+    "responseFormat": {
+      "schema": {
+        "name": "decision",
+        "schema": {
+          "properties": {
+            "result": {
+              "items": {
+                "type": "boolean"
+              },
+              "type": "array"
+            }
+          },
+          "required": ["result"],
+          "type": "object"
+        }
+      },
+      "type": "json_schema"
+    }
+  }
+}

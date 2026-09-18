@@ -1,0 +1,19 @@
+{
+  "expected_error_contains": "criteria",
+  "expected_transport_request_count": 0,
+  "kind": "ai_typesafe_native",
+  "name": "typesafe-native-noul-unknown-criterion",
+  "operation": "system_one",
+  "request": {
+    "model": "jev-latest",
+    "questions": {
+      "decision": {
+        "criteria": {
+          "maybe": null
+        },
+        "type": "noul"
+      }
+    },
+    "state": null
+  }
+}

@@ -1,0 +1,41 @@
+{
+  "expected_signature": {
+    "description": null,
+    "inputs": [
+      {
+        "name": "ticket",
+        "title": "Ticket",
+        "type": {
+          "isArray": false,
+          "name": "string"
+        },
+        "isOptional": false,
+        "isInternal": false,
+        "isCached": false
+      }
+    ],
+    "outputs": [
+      {
+        "name": "team",
+        "title": "Team",
+        "type": {
+          "isArray": false,
+          "name": "class",
+          "options": ["support", "billing"],
+          "valueDescriptions": {
+            "billing": "Invoice problem",
+            "support": "Product help"
+          }
+        },
+        "isOptional": false,
+        "isInternal": false,
+        "isCached": false,
+        "description": "Route ticket"
+      }
+    ]
+  },
+  "expected_to_string": "ticket:string -> team:class \"support | billing\"(\"support\" \"Product help\", \"billing\" \"Invoice problem\") \"Route ticket\"",
+  "kind": "signature",
+  "name": "value-descriptions-class",
+  "signature": "ticket:string -> team:class \"support, billing\"(billing \"Invoice problem\", support \"Product help\") \"Route ticket\""
+}

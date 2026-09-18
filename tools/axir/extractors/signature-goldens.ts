@@ -71,6 +71,7 @@ function normalizeNestedField(name: string, fieldType: any): Json {
       maximum: fieldType.maximum,
       pattern: fieldType.pattern,
       patternDescription: fieldType.patternDescription,
+      valueDescriptions: fieldType.valueDescriptions,
       format: fieldType.format,
       language: fieldType.language,
       description: fieldType.description,
@@ -89,6 +90,8 @@ function normalizeType(type: any): Json {
     name: type?.name ?? 'string',
     isArray: Boolean(type?.isArray),
   };
+  if (type?.valueDescriptions !== undefined)
+    out.valueDescriptions = type.valueDescriptions;
   if (type?.options) out.options = [...type.options];
   if (type?.description !== undefined) out.description = type.description;
   if (type?.fields) {
@@ -446,4 +449,82 @@ errorCase(
   'error-object-duplicate-field',
   'profileInfo:object{ id:string, id:number } -> replyText:string',
   'duplicate object field name "id"'
+);
+
+stringCase(
+  'value-descriptions-boolean',
+  'ticket:string -> urgent:boolean(false "Routine request", true "Core task blocked") "Urgent?"'
+);
+stringCase(
+  'value-descriptions-class',
+  'ticket:string -> team:class "support, billing"(billing "Invoice problem", support "Product help") "Route ticket"'
+);
+stringCase(
+  'value-descriptions-quoted-label',
+  'ticket:string -> team:class "customer support, billing"("customer support" "Product help", billing "Invoice problem")'
+);
+stringCase(
+  'value-descriptions-nested-array',
+  'ticket:string -> analysis:object{ flags:boolean(true "Confirmed")[], team:class "support, billing"(support "Help") "Route" }'
+);
+errorCase(
+  'value-descriptions-duplicate-boolean',
+  'ticket:string -> urgent:boolean(true "A", true "B")',
+  'duplicate "true" modifier'
+);
+errorCase(
+  'value-descriptions-duplicate-class',
+  'ticket:string -> team:class "support, billing"(support "A", support "B")',
+  'duplicate description for "support"'
+);
+errorCase(
+  'value-descriptions-unknown-class',
+  'ticket:string -> team:class "support, billing"(sales "A")',
+  'unknown described value "sales"'
+);
+errorCase(
+  'value-descriptions-empty',
+  'ticket:string -> urgent:boolean(true " ")',
+  'requires a nonempty quoted description'
+);
+errorCase(
+  'value-descriptions-wrong-type',
+  'ticket:string -> reply:string(true "A")',
+  'value descriptions require a boolean field'
+);
+
+stringCase(
+  'value-descriptions-array',
+  'ticket:string -> flags:boolean(true "Confirmed")[] "Signals"'
+);
+
+fluentCase(
+  'value-descriptions-fluent',
+  {
+    inputs: { ticket: { type: 'string' } },
+    outputs: {
+      urgent: {
+        type: 'boolean',
+        valueDescriptions: { true: 'Blocked', false: 'Routine' },
+      },
+      team: {
+        type: 'class',
+        options: ['support', 'billing'],
+        valueDescriptions: { support: 'Help', billing: 'Invoice' },
+      },
+    },
+  },
+  f()
+    .input('ticket', f.string())
+    .output(
+      'urgent',
+      f.boolean().describeValues({ true: 'Blocked', false: 'Routine' })
+    )
+    .output(
+      'team',
+      f
+        .class(['support', 'billing'])
+        .describeValues({ support: 'Help', billing: 'Invoice' })
+    )
+    .build()
 );

@@ -210,3 +210,8 @@ constructors in opt-in sub-packages such as `runtime/goja` rather than in the
 root `axllm` package. For Rust, keep embedded runtime engines additive,
 feature-gated, and behind the existing `AxCodeRuntime` / `AxCodeSession`
 traits.
+
+Typesafe/Jev parity includes native System One and model discovery, configurable
+boolean conversion, signature value descriptions, and schema-aware request eligibility
+in Python, Java, C++, Go, and Rust. Verification also exercises MCP WebSocket pending
+cleanup on send failure, cancellation, close, batch requests, and request-ID reuse.

@@ -14,14 +14,15 @@ Create provider clients near the application boundary, keep keys in environment 
 
 {{aiProviderExamples}}
 
-### Typesafe / Jev decisions (TypeScript)
+### Typesafe / Jev decisions
 
-Use `ai({ name: 'typesafe', apiKey })` for required boolean/class signatures.
-Use `typesafe({ apiKey }).systemOne(...)` for native probabilities, rich
+Use the `typesafe` provider profile for required boolean/class signatures.
+Use its separate native client for probabilities, rich
 criteria, and Score. These APIs default to `jev-latest`; prose and tools need a
 generative step. See the [Typesafe/Jev skill](/typescript/skills/ax-typesafe/)
-for conversion settings, supported requests, and hybrid examples. Other-language
-implementation is tracked in the AxIR backlog.
+for conversion settings and question design. TypeScript, Python, Java, C++, Go,
+and Rust all support both interfaces, with signature, native, and hybrid examples
+in each language’s [generation gallery](/{{languageId}}/examples/generation/).
 
 ## Model Catalog
 

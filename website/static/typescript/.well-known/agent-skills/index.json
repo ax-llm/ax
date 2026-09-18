@@ -13,14 +13,14 @@
       "type": "skill-md",
       "description": "This skill helps an LLM generate correct AI provider setup and configuration code using @ax-llm/ax. Use when the user asks about ai(), providers, models, routing, adaptive balancing, presets, embeddings, batch audio with ai.transcribe() or ai.speak(), extended thinking, context caching, or mentions OpenAI/Anthropic/Google/Azure/DeepSeek/Meta/Mistral/Cohere/Reka/Grok/Typesafe/Jev with @ax-llm/ax.",
       "url": "ax-ai/SKILL.md",
-      "digest": "sha256:6de1e167b68878bdd092c75bef69393ebb5cb723253286cf25e71e4d13db4d1f"
+      "digest": "sha256:51b7637f36e1b3a18586b617bab623cac1fdeccdd5ff8ff0d2739450a9dd7848"
     },
     {
       "name": "ax-typesafe",
       "type": "skill-md",
       "description": "Use Typesafe Jev models with @ax-llm/ax in TypeScript. Covers boolean/class signatures with value descriptions, provider trueThreshold, native Noul/Choice/Score questions, structured criteria, probability-based decisions, and explicit hybrid generation.",
       "url": "ax-typesafe/SKILL.md",
-      "digest": "sha256:43924b234d295e619dace30811f9988ac998a671cb990fae4517d62981df8941"
+      "digest": "sha256:f50679612171a1a5a56639b6c71d3e319dbd0bcf8e707b6beb735b81823ed0fd"
     },
     {
       "name": "ax-audio",
@@ -34,7 +34,7 @@
       "type": "skill-md",
       "description": "This skill helps an LLM generate correct DSPy signature code using @ax-llm/ax. Use when the user asks about signatures, s(), f(), field types, string syntax, fluent builder API, validation constraints, or type-safe inputs/outputs.",
       "url": "ax-signature/SKILL.md",
-      "digest": "sha256:13255a47cfd731acb39722065836b5e6f0f95e1fbb8e260455d201a7600b6a0b"
+      "digest": "sha256:b7e3aada325726dab5605f0cc8811259ce05f80ae7e9e7852cc4fd9f6db3099c"
     },
     {
       "name": "ax-gen",
@@ -48,7 +48,7 @@
       "type": "skill-md",
       "description": "This skill helps an LLM build correct native Model Context Protocol integrations with @ax-llm/ax. Use when the user asks about AxMCPClient, MCP transports, tools, prompts, resources, subscriptions, tasks, sampling, elicitation, roots, authentication, OAuth, MCP Apps, recording/replay, or MCP integration with AxGen, AxAgent, AxFlow, chat, optimization, and AxEventRuntime.",
       "url": "ax-mcp/SKILL.md",
-      "digest": "sha256:b3e97b78a85ef0e26b1c93bf986eec7faede24278604aec02ad0244e9ada3be8"
+      "digest": "sha256:7b991c5c00604664200f2032e1b2445578ecdf4818818ed2c60dc99d62ee69cb"
     },
     {
       "name": "ax-flow",

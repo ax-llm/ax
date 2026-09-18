@@ -1,6 +1,7 @@
 package dev.axllm.ax;
 
 public final class Ax {
+  public static AxAITypesafeClient typesafe(java.util.Map<String, Object> options) { return new AxAITypesafeClient(options); }
   public static AxRunControl runControl() { return new AxRunControl(); }
   public static AxSignature s(String signature) {
     return AxSignature.create(signature);
@@ -80,7 +81,7 @@ public final class Ax {
     if (transport.equals("anthropic-messages")) {
       return new AnthropicClient(canonical, resolvedOptions);
     }
-    if (transport.equals("openai-chat")) {
+    if (transport.equals("openai-chat") || transport.equals("typesafe-system-one")) {
       return new OpenAICompatibleClient(
         canonical,
         canonical,

@@ -1913,18 +1913,29 @@ module @ax.provider version "0.1" {
         core.raise %error
       }
       %requirements = core.call @provider_route_request_requirements(%request)
-      %best = core.call intrinsic.list.get(%providers, 0, null)
+      %best = core.map
+      %best_found = core.let false
       %best_score = core.let -999999
       %best_missing = core.list
       core.for %provider in %providers {
+        %compatible = core.get %provider["requestCompatible"] default true
+        %incompatible = core.call intrinsic.not(%compatible)
+        core.if %incompatible {
+          core.continue
+        }
         %score_entry = core.call @provider_route_score(%provider, %requirements)
         %score = core.get %score_entry["score"] default 0
         %better = core.call intrinsic.gt(%score, %best_score)
         core.if %better {
           %best_score = core.let %score
           %best = core.let %provider
+          %best_found = core.let true
           %best_missing = core.get %score_entry["missingCapabilities"] default %best_missing
         }
+      }
+      %no_compatible_provider = core.call intrinsic.not(%best_found)
+      core.if %no_compatible_provider {
+        core.raise "Provider selection failed: No providers accept this request"
       }
       %require_exact = core.get %options["requireExactMatch"] default false
       %allow_degradation = core.get %options["allowDegradation"] default true
@@ -4332,6 +4343,11 @@ module @ax.provider version "0.1" {
       %provider_id = core.call @provider_chat_profile(%profile, %model)
       %descriptor = core.call @provider_resolve_descriptor(%provider_id, %options)
       %transport = core.get %descriptor["transport"] default "openai-chat"
+      %is_typesafe = core.call intrinsic.eq(%transport, "typesafe-system-one")
+      core.if %is_typesafe {
+        %payload = core.call @typesafe_build_chat_request(%request, %options)
+        core.return %payload
+      }
       %is_responses = core.call intrinsic.eq(%transport, "openai-responses")
       %is_gemini = core.call intrinsic.eq(%transport, "gemini-generate-content")
       %is_anthropic = core.call intrinsic.eq(%transport, "anthropic-messages")
@@ -4867,6 +4883,11 @@ module @ax.provider version "0.1" {
       %provider_id = core.call @provider_chat_profile(%profile, %model)
       %descriptor = core.call @provider_descriptor(%provider_id)
       %transport = core.get %descriptor["transport"] default "openai-chat"
+      %is_typesafe = core.call intrinsic.eq(%transport, "typesafe-system-one")
+      core.if %is_typesafe {
+        %response = core.call @typesafe_normalize_chat_response(%raw, %context)
+        core.return %response
+      }
       %is_responses = core.call intrinsic.eq(%transport, "openai-responses")
       %is_gemini = core.call intrinsic.eq(%transport, "gemini-generate-content")
       %is_anthropic = core.call intrinsic.eq(%transport, "anthropic-messages")

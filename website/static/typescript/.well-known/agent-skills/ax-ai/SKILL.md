@@ -81,7 +81,8 @@ Typesafe-only balancers retain schema-required generation. Mixed pools select
 Typesafe only when the actual request already contains a supported schema.
 Incompatible requests are excluded from fallbacks even with degradation enabled.
 Usage and raw adapter answers remain in the existing usage and chat-log APIs.
-These interfaces are TypeScript-only pending AxIR implementation parity.
+Python, Java, C++, Go, and Rust also implement these interfaces. Each generated
+package includes a Typesafe/Jev skill with its native API syntax.
 
 ## Renewable Credentials
 

@@ -2359,6 +2359,130 @@ class AxMCPStreamableHTTPTransport(AxMCPTransport):
         return True
 
 
+class AxMCPWebSocketTransport(AxMCPTransport):
+    """Legacy MCP over WebSocket. Install axllm[realtime] or supply a socket factory.
+
+    The factory receives (url, protocols) and returns a socket with send/recv/close.
+    Each pending request owns its cleanup, so an old cancellation cannot remove a
+    later request that reuses its ID. Concurrent active IDs must be unique.
+    """
+    def __init__(self, url: str, *, protocols=None, web_socket_factory=None):
+        self.url, self.protocols, self._factory = url, ([protocols] if isinstance(protocols, str) else protocols), web_socket_factory
+        self.protocol_version = ""
+        self._lock = threading.RLock()
+        self._pending = {}
+        self._socket = None
+        self._reader = None
+
+    @property
+    def era_hint(self): return "legacy"
+
+    def connect(self):
+        with self._lock:
+            if self._socket is not None: return
+            factory = self._factory
+            if factory is None:
+                try: import websocket
+                except ImportError as exc:
+                    raise AxMCPError("MCP WebSocket requires axllm[realtime] or a web_socket_factory") from exc
+                def factory(url, protocols):
+                    sock = websocket.create_connection(url, subprotocols=protocols, timeout=30)
+                    # Connection timeout must not impose an idle-session deadline.
+                    sock.settimeout(None)
+                    return sock
+            sock = factory(self.url, self.protocols)
+            self._socket = sock
+            self._reader = threading.Thread(target=self._receive, args=(sock,), daemon=True)
+            self._reader.start()
+
+    def start_listening(self): self.connect()
+
+    def _receive(self, sock):
+        try:
+            while True:
+                raw = sock.recv()
+                if raw is None or raw == "": raise AxMCPError("MCP WebSocket closed")
+                parsed = json.loads(raw) if isinstance(raw, (str, bytes)) else raw
+                messages = parsed if isinstance(parsed, list) else [parsed]
+                if isinstance(parsed, list) and self.protocol_version != "2025-03-26":
+                    raise AxMCPError("JSON-RPC batching is only allowed for MCP 2025-03-26")
+                for message in messages:
+                    with self._lock:
+                        if self._socket is not sock: return
+                        slot = self._pending.pop(json.dumps(message.get("id")), None) if "id" in message and "method" not in message else None
+                        if slot is not None:
+                            slot["response"] = message
+                            slot["done"].set()
+                    if slot is None:
+                        threading.Thread(target=self._dispatch_socket_message, args=(sock, message), daemon=True).start()
+        except Exception as error:
+            self._terminate(sock, error)
+
+    def _dispatch_socket_message(self, sock, message):
+        with self._lock:
+            if self._socket is not sock: return
+        request_handler = getattr(self, "_request_handler", None)
+        if callable(request_handler) and "id" in message and "method" in message:
+            response = request_handler(message)
+            with self._lock:
+                if self._socket is not sock: return
+            # A late reply belongs to its original connection and must never reconnect.
+            sock.send(json.dumps(response, allow_nan=False))
+            return
+        handler = getattr(self, "_message_handler", None)
+        if callable(handler): handler(message)
+
+    def _terminate(self, sock, error):
+        with self._lock:
+            if self._socket is not sock: return
+            self._socket = None
+            pending, self._pending = list(self._pending.values()), {}
+            for slot in pending:
+                slot["error"] = error
+                slot["done"].set()
+        try: sock.close()
+        finally:
+            handler = getattr(self, "_lifecycle_handler", None)
+            if callable(handler): handler("disconnected")
+
+    def _send_requests(self, messages, context, batch):
+        ids = mcp_websocket_request_ids(messages, self.protocol_version, batch)
+        _mcp_check_context(context)
+        # Serialize before registering anything: serialization failures leave no pending work.
+        payload = json.dumps(messages if batch else messages[0], allow_nan=False)
+        self.connect()
+        slots = [{"done": threading.Event()} for _ in ids]
+        with self._lock:
+            if any(key in self._pending for key in ids): raise AxMCPError("MCP request ID is already pending")
+            sock = self._socket
+            if sock is None: raise AxMCPError("MCP WebSocket closed")
+            for key, slot in zip(ids, slots): self._pending[key] = slot
+        try:
+            _mcp_check_context(context)
+            sock.send(payload)
+            for slot in slots:
+                while not slot["done"].wait(0.01): _mcp_check_context(context)
+                _mcp_check_context(context)
+                if "error" in slot: raise slot["error"]
+            return [slot["response"] for slot in slots]
+        finally:
+            with self._lock:
+                for key, slot in zip(ids, slots):
+                    if self._pending.get(key) is slot: self._pending.pop(key)
+
+    def send(self, message): return self._send_requests([message], None, False)[0]
+    def send_with_context(self, message, headers=None, context=None): return self._send_requests([message], context, False)[0]
+    def send_batch(self, messages, context=None): return self._send_requests(messages, context, True)
+    def send_notification(self, message):
+        self.connect()
+        with self._lock: sock = self._socket
+        if sock is None: raise AxMCPError("MCP WebSocket closed")
+        sock.send(json.dumps(message, allow_nan=False))
+    def close(self):
+        with self._lock: sock = self._socket
+        if sock is not None: self._terminate(sock, AxMCPError("MCP WebSocket closed"))
+
+
 class AxMCPStdioTransport(AxMCPTransport):
     def __init__(self, command: str, args: list[str] | None = None, options: dict[str, Any] | None = None):
         env = None

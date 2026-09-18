@@ -1,0 +1,9 @@
+{
+  "expected_error_category": "signature",
+  "expected_error_contains": "value descriptions require a boolean field",
+  "kind": "signature_error",
+  "name": "value-descriptions-wrong-type",
+  "signature": "ticket:string -> reply:string(true \"A\")",
+  "ts_error_message": "Invalid Signature: Field \"reply\": \"true\" value descriptions require a boolean field",
+  "ts_error_name": "AxSignatureValidationError"
+}

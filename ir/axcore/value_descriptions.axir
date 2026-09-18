@@ -1,0 +1,294 @@
+module @ax.value_descriptions version "0.1" {
+  dialect @ax.signature version "0.1"
+
+  op ax.signature.semantic @signature_value_keys_impl {
+    attr core_kind = "func"
+    attr emit_module = "signature"
+    attr private = true
+    tag "src/ax/dsp/valueDescriptions.ts"
+    type signature = "(FieldType) -> list<string>"
+    body @entry(%typ: FieldType) {
+      %empty_keys = core.list
+      %keys_raw = core.get %typ["options"]
+      %keys = core.call intrinsic.coalesce(%keys_raw, %empty_keys)
+      %name = core.get %typ["name"]
+      %is_boolean = core.call intrinsic.eq(%name, "boolean")
+      core.if %is_boolean {
+        %keys = core.list
+        core.append %keys, "true"
+        core.append %keys, "false"
+      }
+      core.return %keys
+    }
+  }
+
+  op ax.signature.semantic @signature_validate_value_descriptions_impl {
+    attr core_kind = "func"
+    attr effect = "throws"
+    attr emit_module = "signature"
+    attr private = true
+    tag "src/ax/dsp/valueDescriptions.ts"
+    type signature = "(FieldType, string) -> void throws"
+    body @entry(%typ: FieldType, %field_name: string) {
+      %descriptions = core.get %typ["value_descriptions"]
+      %missing = core.call intrinsic.is_none(%descriptions)
+      core.if %missing {
+        core.return
+      }
+      %name = core.get %typ["name"]
+      %is_boolean = core.call intrinsic.eq(%name, "boolean")
+      %is_class = core.call intrinsic.eq(%name, "class")
+      %supported = core.call intrinsic.or(%is_boolean, %is_class)
+      %object = core.type_is %descriptions type "object"
+      %valid = core.call intrinsic.and(%supported, %object)
+      %invalid = core.call intrinsic.not(%valid)
+      core.if %invalid {
+        %message = core.call intrinsic.string.format("Field \"{}\": value descriptions require a boolean or class field", %field_name)
+        %error = core.call intrinsic.error.signature(%message)
+        core.raise %error
+      }
+      %allowed = core.call @signature_value_keys_impl(%typ)
+      %keys = core.call intrinsic.map.keys(%descriptions)
+      core.for %key in %keys {
+        %known = core.call intrinsic.contains(%allowed, %key)
+        %unknown = core.call intrinsic.not(%known)
+        core.if %unknown {
+          %message = core.call intrinsic.string.format("Field \"{}\": unknown described value \"{}\"", %field_name, %key)
+          %error = core.call intrinsic.error.signature(%message)
+          core.raise %error
+        }
+        %value = core.get %descriptions[%key]
+        %string = core.type_is %value type "string"
+        %invalid = core.call intrinsic.not(%string)
+        core.if %string {
+          %trimmed = core.string_trim %value
+          %invalid = core.call intrinsic.eq(%trimmed, "")
+        }
+        core.if %invalid {
+          %message = core.call intrinsic.string.format("Field \"{}\": description for \"{}\" must be a nonempty string", %field_name, %key)
+          %error = core.call intrinsic.error.signature(%message)
+          core.raise %error
+        }
+      }
+      core.return
+    }
+  }
+
+  op ax.signature.semantic @signature_parse_value_description_impl {
+    attr core_kind = "func"
+    attr effect = "throws"
+    attr emit_module = "signature"
+    attr private = true
+    tag "src/ax/dsp/valueDescriptions.ts"
+    type signature = "(string, string, string) -> string throws"
+    body @entry(%raw: string, %field_name: string, %key: string) {
+      %quoted = core.call intrinsic.string.consume_optional_quoted_prefix(%raw)
+      %found = core.get %quoted["found"] default false
+      %description = core.get %quoted["value"] default ""
+      %trimmed = core.string_trim %description
+      %empty = core.call intrinsic.eq(%trimmed, "")
+      %missing = core.call intrinsic.not(%found)
+      %invalid = core.call intrinsic.or(%empty, %missing)
+      %rest = core.get %quoted["rest"] default ""
+      %rest = core.string_trim %rest
+      %extra = core.call intrinsic.ne(%rest, "")
+      %invalid = core.call intrinsic.or(%invalid, %extra)
+      core.if %invalid {
+        %message = core.call intrinsic.string.format("Field \"{}\": \"{}\" requires a nonempty quoted description", %field_name, %key)
+        %error = core.call intrinsic.error.signature(%message)
+        core.raise %error
+      }
+      core.return %description
+    }
+  }
+
+  op ax.signature.semantic @signature_parse_class_descriptions_impl {
+    attr core_kind = "func"
+    attr effect = "throws"
+    attr emit_module = "signature"
+    attr private = true
+    tag "src/ax/dsp/valueDescriptions.ts"
+    type signature = "(string, string) -> json throws"
+    body @entry(%raw: string, %field_name: string) {
+      %text = core.string_trim %raw
+      %empty = core.call intrinsic.eq(%text, "")
+      core.if %empty {
+        %message = core.call intrinsic.string.format("Field \"{}\": empty value description list", %field_name)
+        %error = core.call intrinsic.error.signature(%message)
+        core.raise %error
+      }
+      %parts = core.call intrinsic.string.split_top_level(%text, ",")
+      %descriptions = core.map
+      core.for %part in %parts {
+        %entry = core.string_trim %part
+        %empty = core.call intrinsic.eq(%entry, "")
+        core.if %empty {
+          %message = core.call intrinsic.string.format("Field \"{}\": trailing comma in value descriptions", %field_name)
+          %error = core.call intrinsic.error.signature(%message)
+          core.raise %error
+        }
+        %quoted = core.call intrinsic.string.consume_optional_quoted_prefix(%entry)
+        %found = core.get %quoted["found"] default false
+        %key = core.get %quoted["value"] default ""
+        %rest = core.get %quoted["rest"] default ""
+        core.if %found {
+          %rest = core.string_trim %rest
+        } else {
+          %words = core.call intrinsic.string.words(%entry)
+          %key = core.call intrinsic.list.get(%words, 0, "")
+          %length = core.call intrinsic.len(%key)
+          %rest = core.call intrinsic.string.slice(%entry, %length)
+          %rest = core.string_trim %rest
+          %valid = core.regex_match %key pattern "^[A-Za-z_][A-Za-z0-9_.-]*$"
+          %invalid = core.call intrinsic.not(%valid)
+          core.if %invalid {
+            %message = core.call intrinsic.string.format("Field \"{}\": expected a class label", %field_name)
+            %error = core.call intrinsic.error.signature(%message)
+            core.raise %error
+          }
+        }
+        %duplicate = core.call intrinsic.map.contains(%descriptions, %key)
+        core.if %duplicate {
+          %message = core.call intrinsic.string.format("Field \"{}\": duplicate description for \"{}\"", %field_name, %key)
+          %error = core.call intrinsic.error.signature(%message)
+          core.raise %error
+        }
+        %description = core.call @signature_parse_value_description_impl(%rest, %field_name, %key)
+        core.set %descriptions[%key] = %description
+      }
+      core.return %descriptions
+    }
+  }
+
+  op ax.signature.semantic @signature_render_value_descriptions_impl {
+    attr core_kind = "func"
+    attr emit_module = "signature"
+    attr private = true
+    tag "src/ax/dsp/valueDescriptions.ts"
+    type signature = "(FieldType) -> list<string>"
+    body @entry(%typ: FieldType) {
+      %entries = core.list
+      %keys = core.call @signature_value_keys_impl(%typ)
+      %empty_descriptions = core.map
+      %descriptions = core.get %typ["value_descriptions"] default %empty_descriptions
+      core.for %key in %keys {
+        %present = core.call intrinsic.map.contains(%descriptions, %key)
+        core.if %present {
+          %description = core.get %descriptions[%key]
+          %escaped = core.call @signature_escape_string_impl(%description)
+          %label = core.call intrinsic.string.format("{}", %key)
+          %name = core.get %typ["name"]
+          %quote = core.call intrinsic.eq(%name, "class")
+          core.if %quote {
+            %escaped_key = core.call @signature_escape_string_impl(%key)
+            %label = core.call intrinsic.string.format("\"{}\"", %escaped_key)
+          }
+          %entry = core.call intrinsic.string.format("{} \"{}\"", %label, %escaped)
+          core.append %entries, %entry
+        }
+      }
+      core.return %entries
+    }
+  }
+
+  op ax.signature.semantic @signature_describe_field_values_impl {
+    attr core_kind = "func"
+    attr emit_module = "signature"
+    attr private = true
+    tag "src/ax/dsp/valueDescriptions.ts"
+    type signature = "(Field) -> json"
+    body @entry(%field: Field) {
+      %description = core.get %field["description"]
+      %typ = core.get %field["type"]
+      %keys = core.call @signature_value_keys_impl(%typ)
+      %empty_descriptions = core.map
+      %descriptions = core.get %typ["value_descriptions"] default %empty_descriptions
+      %parts = core.list
+      %has_description = core.call intrinsic.truthy(%description)
+      core.if %has_description {
+        core.append %parts, %description
+      }
+      %count = core.call intrinsic.len(%parts)
+      core.for %key in %keys {
+        %present = core.call intrinsic.map.contains(%descriptions, %key)
+        core.if %present {
+          %value = core.get %descriptions[%key]
+          %part = core.call intrinsic.string.format("{}: {}", %key, %value)
+          core.append %parts, %part
+        }
+      }
+      %size = core.call intrinsic.len(%parts)
+      %unchanged = core.call intrinsic.eq(%size, %count)
+      core.if %unchanged {
+        core.return %description
+      }
+      %out = core.call intrinsic.string.join("\n", %parts)
+      core.return %out
+    }
+  }
+
+  op ax.signature.semantic @signature_nested_value_descriptions_impl {
+    attr core_kind = "func"
+    attr emit_module = "signature"
+    attr private = true
+    tag "src/ax/dsp/valueDescriptions.ts"
+    type signature = "(json, string) -> list<string>"
+    body @entry(%fields: json, %prefix: string) {
+      %out = core.list
+      %nested_fields = core.call intrinsic.fields.from_map(%fields)
+      core.for %field in %nested_fields {
+        %name = core.get %field["name"]
+        %path = core.call intrinsic.string.format("{}.{}", %prefix, %name)
+        %typ = core.get %field["type"]
+        %keys = core.call @signature_value_keys_impl(%typ)
+        %empty = core.map
+        %descriptions = core.get %typ["value_descriptions"] default %empty
+        core.for %key in %keys {
+          %present = core.call intrinsic.map.contains(%descriptions, %key)
+          core.if %present {
+            %description = core.get %descriptions[%key]
+            %line = core.call intrinsic.string.format("{} = {}: {}", %path, %key, %description)
+            core.append %out, %line
+          }
+        }
+        %children = core.get %typ["fields"]
+        %lines = core.call @signature_nested_value_descriptions_impl(%children, %path)
+        core.for %line in %lines {
+          core.append %out, %line
+        }
+      }
+      core.return %out
+    }
+  }
+
+  op ax.signature.semantic @signature_output_value_descriptions_impl {
+    attr core_kind = "func"
+    attr emit_module = "signature"
+    attr private = true
+    tag "src/ax/dsp/valueDescriptions.ts"
+    type signature = "(list<Field>) -> json"
+    body @entry(%fields: list<Field>) {
+      %out = core.map
+      core.for %field in %fields {
+        %internal = core.get %field["is_internal"] default false
+        %visible = core.call intrinsic.not(%internal)
+        %typ = core.get %field["type"]
+        %descriptions = core.get %typ["value_descriptions"]
+        %has_descriptions = core.call intrinsic.truthy(%descriptions)
+        %include = core.call intrinsic.and(%visible, %has_descriptions)
+        core.if %include {
+          %name = core.get %field["name"]
+          %entry = core.map
+          %description = core.get %field["description"]
+          %has_description = core.call intrinsic.is_not_none(%description)
+          core.if %has_description {
+            core.set %entry["description"] = %description
+          }
+          core.set %entry["valueDescriptions"] = %descriptions
+          core.set %out[%name] = %entry
+        }
+      }
+      core.return %out
+    }
+  }
+}

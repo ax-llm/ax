@@ -127,6 +127,7 @@ func EmitPython(model AxRuntimeModel, outDir string) error {
 		"axllm/mcp.py":                                                mcpModule,
 		"axllm/conformance.py":                                        pyConformance,
 		"axllm/session.py":                                            pySession,
+		"tests/typesafe_mcp_test.py":                                  pyTypesafeMCPTest,
 		"tests/astra_session_test.py":                                 pySessionNoKeyExample,
 		"axllm/providers/__init__.py":                                 pyProvidersInit,
 		"axllm/providers/openai.py":                                   pyOpenAIProvider,
@@ -249,6 +250,7 @@ func EmitJava(model AxRuntimeModel, outDir string) error {
 		"dev/axllm/ax/AxUCPClient.java":                               javaAxUCPClient,
 		"dev/axllm/ax/AxMCPTransport.java":                            javaAxMCPTransport,
 		"dev/axllm/ax/AxMCPStreamableHTTPTransport.java":              javaAxMCPStreamableHTTPTransport,
+		"dev/axllm/ax/AxMCPWebSocketTransport.java":                   javaAxMCPWebSocketTransport,
 		"dev/axllm/ax/AxMCPStdioTransport.java":                       javaAxMCPStdioTransport,
 		"dev/axllm/ax/AxMCPOAuthOptions.java":                         javaAxMCPOAuthOptions,
 		"dev/axllm/ax/AxMCPTokenSet.java":                             javaAxMCPTokenSet,
@@ -265,6 +267,7 @@ func EmitJava(model AxRuntimeModel, outDir string) error {
 		"dev/axllm/ax/runtime/quickjs/AxQuickJsHostCallable.java":     javaQuickJSHostCallable,
 		"dev/axllm/ax/runtime/quickjs/AxQuickJsProtocolServer.java":   javaQuickJSProtocolServer,
 		"dev/axllm/ax/OpenAICompatibleClient.java":                    javaOpenAI,
+		"dev/axllm/ax/AxAITypesafeClient.java":                        javaTypesafe,
 		"dev/axllm/ax/OpenAIResponsesClient.java":                     javaOpenAIResponses,
 		"dev/axllm/ax/GoogleGeminiClient.java":                        javaGoogleGemini,
 		"dev/axllm/ax/AnthropicClient.java":                           javaAnthropic,
@@ -286,6 +289,7 @@ func EmitJava(model AxRuntimeModel, outDir string) error {
 		"conformance-coverage.json":                                   mustConformanceCoverageManifest(model, "java"),
 		"examples/SignatureSchemaExample.java":                        javaSignatureSchemaExample,
 		"examples/ModelCatalogExample.java":                           javaModelCatalogExample,
+		"tests/TypesafeMCPTest.java":                                  javaTypesafeMCPTest,
 		"tests/AstraSessionTest.java":                                 javaAstraSessionNoKeyExample,
 		"examples/AxGenScriptedClientToolExample.java":                javaAxGenScriptedClientToolExample,
 		"examples/AxGenOpenAIExample.java":                            javaAxGenOpenAIExample,
@@ -347,6 +351,7 @@ func EmitCpp(model AxRuntimeModel, outDir string) error {
 		"axllm/axllm.hpp":                                       header,
 		"axllm/axllm.cpp":                                       core,
 		"axllm/session.inc":                                     cppSession,
+		"tests/typesafe_mcp_test.cpp":                           cppTypesafeMCPTest,
 		"tests/astra_session_test.cpp":                          cppAstraSessionNoKeyExample,
 		"axllm/mcp.hpp":                                         cppMCPHeader,
 		"axllm/mcp.cpp":                                         cppMCPSource,
@@ -409,6 +414,7 @@ func EmitGo(model AxRuntimeModel, outDir string) error {
 		"axllm.go":                          renderPackageTemplate(core, version),
 		"mcp.go":                            goMCP,
 		"session.go":                        goSession,
+		"typesafe_mcp_test.go":              goTypesafeMCPTest,
 		"session_test.go":                   goSessionTest,
 		"errors_test.go":                    goErrorBoundaryTest,
 		"runtime/goja/goja.go":              renderRuntimeHostNamespaces(goGojaRuntime),
@@ -765,6 +771,10 @@ func BuildCapabilityManifest(model AxRuntimeModel, target string) (CapabilityMan
 		UnsupportedCapabilities:  nil,
 		CoreOwnedFeatureGroups: targetCoreOwnedFeatureGroups(target, []string{
 			"signature",
+			"signature-value-descriptions",
+			"wire-field-extraction",
+			"typesafe-native-and-signatures",
+			"mcp-websocket-pending-cleanup",
 			"schema",
 			"validation",
 			"validation-url-array-items",
@@ -1100,6 +1110,8 @@ func apiReferenceSectionsForTarget(target string) []APIReferenceSection {
 			Summary: "Call supported providers through the shared provider descriptor registry, scripted transports, routers, and balancers.",
 			Symbols: []APIReferenceSymbol{
 				sym("ai", "function", "Create a provider client from a named deployment profile and options.", []string{"api key or credential provider", "model", "api URL", "headers", "transport"}, "AI client/service"),
+				sym("typesafe", "function", "Create the native Typesafe/Jev client separately from ordinary AI services. Default model: jev-latest.", []string{"api key or credential provider", "endpoint", "transport", "timeout", "retry"}, "AxAITypesafeClient"),
+				sym("AxAITypesafeClient", "type", "Native System One questions and model discovery. Returns typed Noul probabilities, Choice labels, fractional Score positions, model, and usage.", []string{"system_one / systemOne / SystemOne", "list_models / listModels / ListModels", "structured or null entries", "cancellation"}, "native Typesafe responses"),
 				sym("AxCancellationToken", "type", "Reusable one-shot cancellation for provider calls, streams, retries, and event-clock sleeps. Go uses context.Context.", []string{"first reason wins", "removable wake subscriptions", "non-retryable cancellation"}, "cancellation token or context"),
 				sym("AxAIServiceAbortedError", "error", "Terminal provider error raised when caller cancellation is observed.", []string{"reason preservation", "no retry", "no provider failover"}, "non-retryable provider error"),
 				sym("get_supported_ai_models", "function", "Return the AxIR-backed provider and model catalog, including dynamic named profiles and portable capability metadata.", []string{"type filter", "thinkingLevels", "serviceTiers", "isDynamic"}, "provider catalog entries"),
@@ -1172,6 +1184,7 @@ func apiReferenceSectionsForTarget(target string) []APIReferenceSection {
 			Symbols: []APIReferenceSymbol{
 				sym("AxMCPClient", "type", "MCP client that lists tools/prompts/resources and converts MCP tools to Ax functions.", []string{"transport", "client info", "roots", "tool overrides", "host tool authorization"}, "MCP client"),
 				sym("AxMCPStreamableHTTPTransport", "type", "Streamable HTTP transport with session headers, OAuth options, and SSRF protection.", []string{"endpoint", "headers", "OAuth", "SSRF protection"}, "MCP transport"),
+				sym("AxMCPWebSocketTransport", "type", "WebSocket transport with request-local pending ownership, send failure cleanup, cancellation, and close settlement. Batching requires MCP 2025-03-26.", []string{"URL", "socket factory", "protocol version"}, "MCP transport"),
 				sym("AxMCPStdioTransport", "type", "Stdio transport with JSON-RPC framing for local MCP servers.", []string{"command", "args", "env"}, "MCP transport"),
 			},
 		},
@@ -1255,6 +1268,8 @@ func apiReferencePublicName(target, canonical string) string {
 		return mapTarget(target, "AxRunControl", "AxRunControl", "axllm::AxRunControl", "axllm.AxRunControl", "AxRunControl")
 	case "ax":
 		return mapTarget(target, "ax", "Ax.ax", "axllm::ax", "axllm.NewAx", "ax")
+	case "typesafe":
+		return mapTarget(target, "typesafe", "Ax.typesafe", "axllm::typesafe", "axllm.Typesafe", "typesafe")
 	case "ai":
 		return mapTarget(target, "ai", "Ax.ai", "axllm::ai", "axllm.NewAI", "ai")
 	case "get_supported_ai_models":
@@ -1340,6 +1355,10 @@ func apiReferenceQualifiedName(target, name string) string {
 
 func apiReferenceForm(target, canonical, publicName string) string {
 	switch canonical {
+	case "typesafe":
+		return publicName + "(options)"
+	case "AxMCPWebSocketTransport":
+		return mapTarget(target, "AxMCPWebSocketTransport(url, web_socket_factory=None)", "new AxMCPWebSocketTransport(url)", "axllm::AxMCPWebSocketTransport(url, socket_factory)", "axllm.NewAxMCPWebSocketTransport(url, options)", "AxMCPWebSocketTransport::new(url)")
 	case "owned_client_factory", "owned_program_factory":
 		return publicName + "()"
 	case "s":
@@ -1884,6 +1903,7 @@ func BuildConformanceCoverageManifest(model AxRuntimeModel, target string) (Conf
 		{"axgen", "forward", "", "semantic"},
 		{"axgen", "stream", "", "semantic"},
 		{"axai", "ai_chat", "", "transport-boundary"},
+		{"axai", "ai_typesafe_native", "", "transport-boundary"},
 		{"axai", "ai_session_events", "", "semantic"},
 		{"axai", "ai_session_state", "", "semantic"},
 		{"axai", "ai_stream", "", "transport-boundary"},

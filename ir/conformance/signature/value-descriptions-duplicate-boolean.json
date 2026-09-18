@@ -1,0 +1,9 @@
+{
+  "expected_error_category": "signature",
+  "expected_error_contains": "duplicate \"true\" modifier",
+  "kind": "signature_error",
+  "name": "value-descriptions-duplicate-boolean",
+  "signature": "ticket:string -> urgent:boolean(true \"A\", true \"B\")",
+  "ts_error_message": "Invalid Signature: Field \"urgent\": duplicate \"true\" modifier",
+  "ts_error_name": "AxSignatureValidationError"
+}

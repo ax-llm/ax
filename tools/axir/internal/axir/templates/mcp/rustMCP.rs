@@ -1643,3 +1643,141 @@ mod configured_context_tests {
         Ok(())
     }
 }
+
+/// Legacy MCP WebSocket transport. The built-in socket uses the `realtime` feature.
+/// Custom factories share the same cancellation and request settlement behavior.
+pub struct AxMCPWebSocketTransport {
+    url: String,
+    headers: Value,
+    factory: Option<crate::AxSessionWebSocketFactory>,
+    state: Arc<Mutex<MCPWebSocketState>>,
+    connection: Mutex<Option<JoinHandle<()>>>,
+}
+struct MCPWebSocketState {
+    socket: Option<Arc<dyn crate::AxSessionSocket>>,
+    pending: HashMap<String,Arc<MCPWebSocketPending>>,
+    protocol: String,
+    handler: Option<Arc<dyn Fn(Value)+Send+Sync>>,
+    request_handler: Option<AxMCPRequestHandler>,
+    lifecycle: Option<Arc<dyn Fn(String)+Send+Sync>>,
+}
+struct MCPWebSocketPending { result: Mutex<Option<AxResult<Value>>>, changed: Condvar }
+struct MCPWebSocketRequestGuard { state: Arc<Mutex<MCPWebSocketState>>, slots: Vec<(String,Arc<MCPWebSocketPending>)> }
+impl Drop for MCPWebSocketRequestGuard {
+    fn drop(&mut self) {let mut state=self.state.lock().unwrap();for (key,slot) in &self.slots {if state.pending.get(key).is_some_and(|current|Arc::ptr_eq(current,slot)){state.pending.remove(key);}}}
+}
+impl AxMCPWebSocketTransport {
+    pub fn new(url: impl Into<String>) -> Self {
+        Self {url:url.into(),headers:json!({}),factory:None,connection:Mutex::new(None),state:Arc::new(Mutex::new(MCPWebSocketState {socket:None,pending:HashMap::new(),protocol:String::new(),handler:None,request_handler:None,lifecycle:None}))}
+    }
+    pub fn with_socket_factory(mut self,factory:crate::AxSessionWebSocketFactory)->Self {self.factory=Some(factory);self}
+    pub fn with_headers(mut self,headers:Value)->Self {self.headers=headers;self}
+    pub fn connect_socket(&self)->AxResult<()> {
+        let mut reader=self.connection.lock().unwrap();
+        if self.state.lock().unwrap().socket.is_some(){return Ok(())}
+        if let Some(old)=reader.take(){let _=old.join();}
+        let socket=match &self.factory {
+            Some(factory)=>factory(&self.url,&self.headers)?,
+            None=>{
+                #[cfg(feature="realtime")] {crate::session::native_session_socket(&self.url,&self.headers)?}
+                #[cfg(not(feature="realtime"))] {return Err(AxError::new("mcp","Enable the realtime feature or provide a WebSocket factory"));}
+            }
+        };
+        self.state.lock().unwrap().socket=Some(socket.clone());
+        let state=self.state.clone();
+        *reader=Some(thread::spawn(move||Self::receive(state,socket)));
+        Ok(())
+    }
+    fn terminate(state:&Arc<Mutex<MCPWebSocketState>>,socket:&Arc<dyn crate::AxSessionSocket>,error:AxError) {
+        let (pending,lifecycle)={let mut state=state.lock().unwrap();if !state.socket.as_ref().is_some_and(|current|Arc::ptr_eq(current,socket)){return}
+            state.socket=None;(std::mem::take(&mut state.pending),state.lifecycle.clone())};
+        for slot in pending.into_values(){*slot.result.lock().unwrap()=Some(Err(error.clone()));slot.changed.notify_all();}
+        socket.close();if let Some(handler)=lifecycle{thread::spawn(move||handler("disconnected".into()));}
+    }
+    fn receive(state:Arc<Mutex<MCPWebSocketState>>,socket:Arc<dyn crate::AxSessionSocket>) {
+        let outcome=(||->AxResult<()>{loop {
+            {let state=state.lock().unwrap();if !state.socket.as_ref().is_some_and(|current|Arc::ptr_eq(current,&socket)){return Ok(())}}
+            let Some(parsed)=socket.recv(Duration::from_millis(20))? else{continue};
+            if parsed.is_array()&&state.lock().unwrap().protocol!="2025-03-26"{return Err(AxError::new("mcp","JSON-RPC batching is only allowed for MCP 2025-03-26"))}
+            let messages=match parsed {Value::Array(messages)=>messages,message=>vec![message]};
+            for message in messages {
+                let (slot,handler,request_handler)={let mut state=state.lock().unwrap();if !state.socket.as_ref().is_some_and(|current|Arc::ptr_eq(current,&socket)){return Ok(())}
+                    let slot=if message.get("id").is_some()&&message.get("method").is_none(){state.pending.remove(&message["id"].to_string())}else{None};
+                    (slot,state.handler.clone(),state.request_handler.clone())};
+                if let Some(slot)=slot{*slot.result.lock().unwrap()=Some(Ok(message));slot.changed.notify_all();}
+                else if handler.is_some()||request_handler.is_some(){let socket=socket.clone();thread::spawn(move||{
+                    if message.get("id").is_some()&&message.get("method").is_some(){if let Some(handler)=request_handler{let _=socket.send(handler(message));return;}}
+                    if let Some(handler)=handler{handler(message);}
+                });}
+            }
+        }})();
+        if let Err(error)=outcome {Self::terminate(&state,&socket,error);}
+    }
+    fn requests(&self,messages:Vec<Value>,context:&AxToolContext,batch:bool)->AxResult<Vec<Value>> {
+        let protocol=self.state.lock().unwrap().protocol.clone();
+        let ids=crate::core_value_to_json(&crate::mcp_websocket_request_ids(&[crate::core_value_from_json(&json!(messages)),crate::CoreValue::from(protocol.as_str()),crate::CoreValue::Bool(batch)])?);
+        mcp_check_cancelled(context)?;
+        self.connect_socket()?;
+        let (socket,guard)={let mut state=self.state.lock().unwrap();let ids=ids.as_array().unwrap();
+            if ids.iter().any(|id|state.pending.contains_key(id.as_str().unwrap())){return Err(AxError::new("mcp","MCP request ID is already pending"))}
+            let socket=state.socket.clone().ok_or_else(||AxError::new("mcp","MCP WebSocket closed"))?;
+            let mut slots=Vec::new();for id in ids{let key=id.as_str().unwrap().to_string();let slot=Arc::new(MCPWebSocketPending{result:Mutex::new(None),changed:Condvar::new()});state.pending.insert(key.clone(),slot.clone());slots.push((key,slot));}
+            (socket,MCPWebSocketRequestGuard{state:self.state.clone(),slots})};
+        mcp_check_cancelled(context)?;
+        socket.send(if batch{json!(messages)}else{messages[0].clone()})?;
+        let mut results=Vec::new();
+        for (_,slot) in &guard.slots {let mut result=slot.result.lock().unwrap();loop {mcp_check_cancelled(context)?;if let Some(value)=result.take(){results.push(value?);break}result=slot.changed.wait_timeout(result,Duration::from_millis(10)).unwrap().0;}}
+        Ok(results)
+    }
+    pub fn send_request(&self,message:Value,context:&AxToolContext)->AxResult<Value>{Ok(self.requests(vec![message],context,false)?.remove(0))}
+    pub fn send_batch(&self,messages:Vec<Value>,context:&AxToolContext)->AxResult<Vec<Value>>{self.requests(messages,context,true)}
+    pub fn close_socket(&self) {
+        let socket=self.state.lock().unwrap().socket.clone();if let Some(socket)=socket{Self::terminate(&self.state,&socket,AxError::new("mcp","MCP WebSocket closed"));}
+        if let Some(reader)=self.connection.lock().unwrap().take(){if reader.thread().id()!=thread::current().id(){let _=reader.join();}}
+    }
+}
+impl Drop for AxMCPWebSocketTransport {fn drop(&mut self){self.close_socket();}}
+impl AxMCPTransport for AxMCPWebSocketTransport {
+    fn send(&mut self,message:Value)->AxResult<Value>{self.send_request(message,&AxToolContext::default())}
+    fn send_with_context(&mut self,message:Value,_headers:Map<String,Value>,context:&AxToolContext)->AxResult<Value>{self.send_request(message,context)}
+    fn send_notification(&mut self,message:Value)->AxResult<()>{self.connect_socket()?;let socket=self.state.lock().unwrap().socket.clone().ok_or_else(||AxError::new("mcp","MCP WebSocket closed"))?;socket.send(message)}
+    fn set_protocol_version(&mut self,version:&str){self.state.lock().unwrap().protocol=version.into();}
+    fn set_message_handler(&mut self,handler:Arc<dyn Fn(Value)+Send+Sync>){self.state.lock().unwrap().handler=Some(handler);}
+    fn set_request_handler(&mut self,handler:AxMCPRequestHandler){self.state.lock().unwrap().request_handler=Some(handler);}
+    fn set_lifecycle_handler(&mut self,handler:Arc<dyn Fn(String)+Send+Sync>){self.state.lock().unwrap().lifecycle=Some(handler);}
+    fn era_hint(&self)->Option<String>{Some("legacy".into())}
+    fn connect(&mut self)->AxResult<()>{self.connect_socket()}
+    fn start_listening(&mut self)->AxResult<()>{self.connect_socket()}
+    fn close(&mut self)->AxResult<()>{self.close_socket();Ok(())}
+}
+
+#[cfg(test)]
+mod websocket_cleanup_tests {
+    use super::*;
+    use std::collections::VecDeque;
+    struct Socket { inbound:Mutex<VecDeque<Value>>, sent:AtomicUsize, fail:AtomicBool, closed:AtomicBool }
+    impl crate::AxSessionSocket for Socket {
+        fn send(&self,_:Value)->AxResult<()>{if self.fail.load(Ordering::SeqCst){return Err(AxError::runtime("send failed"))}self.sent.fetch_add(1,Ordering::SeqCst);Ok(())}
+        fn recv(&self,timeout:Duration)->AxResult<Option<Value>>{if self.closed.load(Ordering::SeqCst){return Err(AxError::runtime("socket closed"))}if let Some(value)=self.inbound.lock().unwrap().pop_front(){return Ok(Some(value))}thread::sleep(timeout);Ok(None)}
+        fn close(&self){self.closed.store(true,Ordering::SeqCst);}
+    }
+    fn wait_sent(socket:&Socket,count:usize){let until=std::time::Instant::now()+Duration::from_secs(2);while socket.sent.load(Ordering::SeqCst)<count{assert!(std::time::Instant::now()<until,"request did not start");thread::sleep(Duration::from_millis(1));}}
+    #[test]
+    fn websocket_pending_cleanup_and_reused_ids()->AxResult<()> {
+        let socket=Arc::new(Socket{inbound:Mutex::new(VecDeque::new()),sent:AtomicUsize::new(0),fail:AtomicBool::new(true),closed:AtomicBool::new(false)});
+        let factory_socket=socket.clone();
+        let mut transport=AxMCPWebSocketTransport::new("ws://example.test").with_socket_factory(Arc::new(move|_,_|Ok(factory_socket.clone())));
+        transport.set_protocol_version("2025-03-26");let transport=Arc::new(transport);
+        let request=json!({"id":1,"method":"ping"});let batch=vec![request.clone(),json!({"id":2,"method":"ping"})];
+        assert!(transport.send_request(request.clone(),&AxToolContext::default()).unwrap_err().message.contains("send failed"));
+        assert!(transport.send_batch(batch.clone(),&AxToolContext::default()).unwrap_err().message.contains("send failed"));
+        assert!(transport.state.lock().unwrap().pending.is_empty());socket.fail.store(false,Ordering::SeqCst);
+        let old=AxCancellationToken::default();let context=AxToolContext{cancellation:Some(old.clone()),..Default::default()};
+        let run=transport.clone();let first_request=request.clone();let first=thread::spawn(move||run.send_request(first_request,&context));wait_sent(&socket,1);socket.inbound.lock().unwrap().push_back(json!({"id":1,"result":"first"}));assert_eq!(first.join().unwrap()?["result"],"first");
+        let run=transport.clone();let next_request=request.clone();let second=thread::spawn(move||run.send_request(next_request,&AxToolContext::default()));wait_sent(&socket,2);old.cancel("obsolete");
+        assert!(transport.send_request(request,&AxToolContext::default()).unwrap_err().message.contains("already pending"));socket.inbound.lock().unwrap().push_back(json!({"id":1,"result":"second"}));assert_eq!(second.join().unwrap()?["result"],"second");
+        let abort=AxCancellationToken::default();let context=AxToolContext{cancellation:Some(abort.clone()),..Default::default()};
+        let run=transport.clone();let requests=batch.clone();let cancelled=thread::spawn(move||run.send_batch(requests,&context));wait_sent(&socket,3);abort.cancel("stop");assert!(cancelled.join().unwrap().unwrap_err().message.contains("cancelled"));assert!(transport.state.lock().unwrap().pending.is_empty());
+        let run=transport.clone();let closed=thread::spawn(move||run.send_batch(batch,&AxToolContext::default()));wait_sent(&socket,4);transport.close_socket();assert!(closed.join().unwrap().unwrap_err().message.contains("closed"));assert!(transport.state.lock().unwrap().pending.is_empty());Ok(())
+    }
+}

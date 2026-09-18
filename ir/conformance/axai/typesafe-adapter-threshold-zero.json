@@ -1,0 +1,115 @@
+{
+  "expected_output": {
+    "modelUsage": {
+      "ai": "Typesafe",
+      "model": "jev-latest",
+      "tokens": {
+        "completionTokens": 1,
+        "promptTokens": 7,
+        "totalTokens": 8
+      }
+    },
+    "providerMetadata": {
+      "typesafe": {
+        "answers": {
+          "urgent": {
+            "noul": 0,
+            "type": "noul"
+          }
+        }
+      }
+    },
+    "results": [
+      {
+        "content": "{\"urgent\":true}",
+        "finishReason": "stop",
+        "index": 0
+      }
+    ]
+  },
+  "expected_transport_json_absent": ["trueThreshold", "temperature", "stream"],
+  "expected_transport_request": {
+    "json": {
+      "model": "jev-latest",
+      "questions": {
+        "urgent": {
+          "criteria": {
+            "false": "Routine",
+            "true": "Core task blocked"
+          },
+          "instructions": "urgent: Urgent?",
+          "type": "noul"
+        }
+      },
+      "state": {
+        "messages": [
+          {
+            "content": "Checkout is unavailable.",
+            "role": "user"
+          }
+        ]
+      }
+    },
+    "method": "POST",
+    "url": "https://api.typesafe.ai/v1/systemone"
+  },
+  "expected_transport_request_count": 1,
+  "kind": "ai_chat",
+  "model": "jev-latest",
+  "name": "typesafe-adapter-threshold-zero",
+  "provider": "typesafe",
+  "request": {
+    "chatPrompt": [
+      {
+        "content": "Checkout is unavailable.",
+        "role": "user"
+      }
+    ],
+    "modelConfig": {
+      "stream": false
+    },
+    "responseFormat": {
+      "fieldDescriptions": {
+        "urgent": {
+          "description": "Urgent?",
+          "valueDescriptions": {
+            "false": "Routine",
+            "true": "Core task blocked"
+          }
+        }
+      },
+      "schema": {
+        "name": "decision",
+        "schema": {
+          "properties": {
+            "urgent": {
+              "description": "Urgent?\ntrue: Core task blocked\nfalse: Routine",
+              "type": "boolean"
+            }
+          },
+          "required": ["urgent"],
+          "type": "object"
+        }
+      },
+      "type": "json_schema"
+    }
+  },
+  "service_options": {
+    "trueThreshold": 0
+  },
+  "transport_responses": [
+    {
+      "answers": {
+        "urgent": {
+          "noul": 0,
+          "type": "noul"
+        }
+      },
+      "model": "jev-latest",
+      "usage": {
+        "input_tokens": 7,
+        "output_tokens": 1
+      }
+    }
+  ]
+}

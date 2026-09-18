@@ -396,3 +396,8 @@ For generated-backend integrity, use the three verification instruments in
 [`docs/AXIR_VERIFICATION.md`](./AXIR_VERIFICATION.md): provenance confirms the
 functions are emitted from IR, coverage confirms conformance executes them, and
 perturbation confirms runners reject changed expected values.
+
+Typesafe/Jev parity includes native System One and model discovery, configurable
+boolean conversion, signature value descriptions, and schema-aware request eligibility
+in Python, Java, C++, Go, and Rust. Verification also exercises MCP WebSocket pending
+cleanup on send failure, cancellation, close, batch requests, and request-ID reuse.

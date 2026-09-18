@@ -35,6 +35,7 @@ public abstract class AxBaseAI implements AxAIService {
   public Map<String, Object> getFeatures(String model) { return Core.defaultFeatures(); }
   public Map<String, Object> getMetrics() { return new LinkedHashMap<>(); }
   public java.util.List<Map<String, Object>> getModelList() {
+    for(String key:java.util.List.of("models","model_list","modelList"))if(options.containsKey(key))return Core.asList(options.get(key)).stream().map(Core::asMap).toList();
     java.util.List<Map<String, Object>> models = new java.util.ArrayList<>();
     if (model != null && !model.isBlank()) models.add(Map.of("key", model, "description", name + " chat model", "model", model));
     if (embedModel != null && !embedModel.isBlank()) models.add(Map.of("key", embedModel, "description", name + " embed model", "embedModel", embedModel));

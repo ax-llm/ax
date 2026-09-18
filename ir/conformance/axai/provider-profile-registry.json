@@ -417,8 +417,8 @@
       },
       "typesafe": {
         "aliases": ["typesafe"],
-        "catalogStatus": "typescript-only",
-        "generatedClient": null,
+        "catalogStatus": "descriptor-covered",
+        "generatedClient": "AxAITypesafeClient",
         "id": "typesafe",
         "transport": "typesafe-system-one"
       },

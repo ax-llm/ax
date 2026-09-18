@@ -18,6 +18,7 @@ import (
 	"sync"
 	"sync/atomic"
 	"time"
+ "github.com/coder/websocket"
 )
 
 const AX_MCP_PROTOCOL_VERSION = "2025-11-25"
@@ -1407,3 +1408,109 @@ func mcpHeaderValues(headers map[string]string) map[string]Value { out := map[st
 func contentText(items []Value) string { var out []string; for _, item := range items { m := asMap(item); if display(coreGet(m, "type", "")) == "text" { out = append(out, display(coreGet(m, "text", ""))) } }; return strings.Join(out, "\n") }
 func safeMCPName(value string) string { var b strings.Builder; last := false; for _, r := range value { ok := (r>='a'&&r<='z')||(r>='A'&&r<='Z')||(r>='0'&&r<='9'); if ok { b.WriteRune(r); last=false } else if !last { b.WriteByte('_'); last=true } }; return strings.Trim(b.String(), "_") }
 func cloneMCPMap(value map[string]Value) map[string]Value { data, _ := json.Marshal(value); var out map[string]Value; _ = json.Unmarshal(data, &out); return out }
+
+// AxMCPWebSocket supports injectable sockets and the built-in TLS-capable transport.
+type AxMCPWebSocket interface {
+    Send(string) error
+    Receive() (string,error)
+    Close() error
+}
+type AxMCPWebSocketFactory func(string,[]string)(AxMCPWebSocket,error)
+type mcpWSResult struct { message map[string]Value; err error }
+type mcpWSPending struct { result chan mcpWSResult }
+type AxMCPWebSocketTransport struct {
+    url string
+    protocols []string
+    factory AxMCPWebSocketFactory
+    mu sync.Mutex
+    socket AxMCPWebSocket
+    pending map[string]*mcpWSPending
+    protocol string
+    handler func(map[string]Value)
+    requestHandler func(map[string]Value)map[string]Value
+    lifecycle func(string)
+}
+func NewAxMCPWebSocketTransport(url string,options map[string]Value)*AxMCPWebSocketTransport {
+    t:=&AxMCPWebSocketTransport{url:url,pending:map[string]*mcpWSPending{}}
+    for _,item:=range coreIter(coreGet(options,"protocols",Array())){t.protocols=append(t.protocols,display(item))}
+    t.factory,_=coreGet(options,"webSocketFactory",coreGet(options,"web_socket_factory",nil)).(AxMCPWebSocketFactory)
+    if t.factory==nil {t.factory=func(target string,protocols []string)(AxMCPWebSocket,error){
+        ctx,cancel:=context.WithTimeout(context.Background(),30*time.Second);defer cancel()
+        conn,_,err:=websocket.Dial(ctx,target,&websocket.DialOptions{Subprotocols:protocols});if err!=nil{return nil,err}
+        // Match the existing native WebSocket transport; tool results can exceed 32 KiB.
+        conn.SetReadLimit(-1)
+        return &mcpNativeWebSocket{conn},nil
+    }}
+    return t
+}
+type mcpNativeWebSocket struct{conn *websocket.Conn}
+func(s *mcpNativeWebSocket)Send(text string)error{ctx,cancel:=context.WithTimeout(context.Background(),30*time.Second);defer cancel();return s.conn.Write(ctx,websocket.MessageText,[]byte(text))}
+func(s *mcpNativeWebSocket)Receive()(string,error){_,data,err:=s.conn.Read(context.Background());return string(data),err}
+func(s *mcpNativeWebSocket)Close()error{return s.conn.CloseNow()}
+func(t *AxMCPWebSocketTransport)Connect()error{
+    t.mu.Lock();defer t.mu.Unlock();if t.socket!=nil{return nil}
+    socket,err:=t.factory(t.url,t.protocols);if err!=nil{return err};if socket==nil{return fmt.Errorf("MCP WebSocket factory returned nil")};t.socket=socket
+    go t.receive(socket);return nil
+}
+func(t *AxMCPWebSocketTransport)receive(socket AxMCPWebSocket){
+    for {raw,err:=socket.Receive();if err!=nil{t.terminate(socket,err);return}
+        var parsed Value;if err=json.Unmarshal([]byte(raw),&parsed);err!=nil{t.terminate(socket,err);return}
+        messages,batch:=parsed.([]Value);if !batch{messages=[]Value{parsed}}
+        t.mu.Lock();protocol:=t.protocol;t.mu.Unlock()
+        if batch&&protocol!="2025-03-26"{t.terminate(socket,fmt.Errorf("JSON-RPC batching is only allowed for MCP 2025-03-26"));return}
+        for _,rawMessage:=range messages{
+            message,ok:=rawMessage.(map[string]Value);if !ok{t.terminate(socket,fmt.Errorf("Invalid MCP WebSocket message"));return}
+            t.mu.Lock();if t.socket!=socket{t.mu.Unlock();return}
+            var slot *mcpWSPending
+            if id,hasID:=message["id"];hasID&&message["method"]==nil{key:=stableStringify(id);slot=t.pending[key];delete(t.pending,key)}
+            handler,requestHandler:=t.handler,t.requestHandler;t.mu.Unlock()
+            if slot!=nil{slot.result<-mcpWSResult{message:message}}else if message["id"]!=nil&&message["method"]!=nil&&requestHandler!=nil{go t.respond(socket,message,requestHandler)}else if handler!=nil{go handler(message)}
+        }
+    }
+}
+func(t *AxMCPWebSocketTransport)respond(socket AxMCPWebSocket,message map[string]Value,handler func(map[string]Value)map[string]Value){
+    t.mu.Lock();active:=t.socket==socket;t.mu.Unlock();if !active{return}
+    response:=handler(message)
+    t.mu.Lock();active=t.socket==socket;t.mu.Unlock();if !active{return}
+    data,err:=json.Marshal(response);if err==nil{_ = socket.Send(string(data))}
+}
+func(t *AxMCPWebSocketTransport)terminate(socket AxMCPWebSocket,err error){
+    t.mu.Lock();if t.socket!=socket{t.mu.Unlock();return};t.socket=nil
+    pending:=t.pending;t.pending=map[string]*mcpWSPending{};handler:=t.lifecycle;t.mu.Unlock()
+    for _,slot:=range pending{slot.result<-mcpWSResult{err:err}}
+    _=socket.Close();if handler!=nil{handler("disconnected")}
+}
+func(t *AxMCPWebSocketTransport)requests(ctx context.Context,messages []Value,batch bool)([]map[string]Value,error){
+    t.mu.Lock();protocol:=t.protocol;t.mu.Unlock()
+    rawIDs,err:=mcp_websocket_request_ids(messages,protocol,batch);if err!=nil{return nil,err}
+    ids:=[]string{};for _,id:=range coreIter(rawIDs){ids=append(ids,display(id))}
+    if err=ctx.Err();err!=nil{return nil,err}
+    var payload Value=messages;if !batch{payload=messages[0]};data,err:=json.Marshal(payload);if err!=nil{return nil,err}
+    if err=t.Connect();err!=nil{return nil,err}
+    slots:=make([]*mcpWSPending,len(ids))
+    t.mu.Lock();for _,id:=range ids{if t.pending[id]!=nil{t.mu.Unlock();return nil,fmt.Errorf("MCP request ID is already pending")}}
+    socket:=t.socket;if socket==nil{t.mu.Unlock();return nil,fmt.Errorf("MCP WebSocket closed")}
+    for i,id:=range ids{slots[i]=&mcpWSPending{make(chan mcpWSResult,1)};t.pending[id]=slots[i]};t.mu.Unlock()
+    defer func(){t.mu.Lock();defer t.mu.Unlock();for i,id:=range ids{if t.pending[id]==slots[i]{delete(t.pending,id)}}}()
+    if err=ctx.Err();err!=nil{return nil,err};if err=socket.Send(string(data));err!=nil{return nil,err}
+    results:=make([]map[string]Value,0,len(ids))
+    for _,slot:=range slots{select{case <-ctx.Done():return nil,ctx.Err();case result:=<-slot.result:if result.err!=nil{return nil,result.err};results=append(results,result.message)}}
+    return results,nil
+}
+func(t *AxMCPWebSocketTransport)Send(message map[string]Value)(map[string]Value,error){return t.SendWithContext(context.Background(),message,nil)}
+func(t *AxMCPWebSocketTransport)SendWithHeaders(message map[string]Value,headers map[string]string)(map[string]Value,error){return t.Send(message)}
+func(t *AxMCPWebSocketTransport)SendWithContext(ctx context.Context,message map[string]Value,headers map[string]string)(map[string]Value,error){result,err:=t.requests(ctx,[]Value{message},false);if err!=nil{return nil,err};return result[0],nil}
+func(t *AxMCPWebSocketTransport)SendBatch(ctx context.Context,messages []Value)([]map[string]Value,error){return t.requests(ctx,messages,true)}
+func(t *AxMCPWebSocketTransport)SendNotification(message map[string]Value)error{if err:=t.Connect();err!=nil{return err};data,err:=json.Marshal(message);if err!=nil{return err};t.mu.Lock();socket:=t.socket;t.mu.Unlock();if socket==nil{return fmt.Errorf("MCP WebSocket closed")};return socket.Send(string(data))}
+func(t *AxMCPWebSocketTransport)SendResponse(message map[string]Value)error{return t.SendNotification(message)}
+func(t *AxMCPWebSocketTransport)SetMessageHandler(handler func(map[string]Value)){t.mu.Lock();defer t.mu.Unlock();t.handler=handler}
+func(t *AxMCPWebSocketTransport)SetRequestHandler(handler func(map[string]Value)map[string]Value){t.mu.Lock();defer t.mu.Unlock();t.requestHandler=handler}
+func(t *AxMCPWebSocketTransport)SetLifecycleHandler(handler func(string)){t.mu.Lock();defer t.mu.Unlock();t.lifecycle=handler}
+func(t *AxMCPWebSocketTransport)SetProtocolVersion(version string){t.mu.Lock();defer t.mu.Unlock();t.protocol=version}
+func(t *AxMCPWebSocketTransport)SetEra(era string){}
+func(t *AxMCPWebSocketTransport)EraHint()string{return "legacy"}
+func(t *AxMCPWebSocketTransport)EraCacheKey()string{return ""}
+func(t *AxMCPWebSocketTransport)StartListening()error{return t.Connect()}
+func(t *AxMCPWebSocketTransport)OpenRequestStream(message map[string]Value)error{return fmt.Errorf("Request streams are only available for modern MCP")}
+func(t *AxMCPWebSocketTransport)CloseRequestStream()error{return nil}
+func(t *AxMCPWebSocketTransport)Close()error{t.mu.Lock();socket:=t.socket;t.mu.Unlock();if socket!=nil{t.terminate(socket,fmt.Errorf("MCP WebSocket closed"))};return nil}

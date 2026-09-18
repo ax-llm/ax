@@ -4,7 +4,7 @@ module @ax.signature version "0.1" {
   op ax.signature.record @FieldType {
     attr core_kind = "record"
     tag "src/ax/dsp/sig.ts"
-    type fields = "name:string,isArray:bool,options?:list<string>,fields?:map<string,FieldType>,minLength?:f64,maxLength?:f64,minimum?:f64,maximum?:f64,pattern?:string,patternDescription?:string,format?:string,language?:string,description?:string"
+    type fields = "name:string,isArray:bool,options?:list<string>,fields?:map<string,FieldType>,minLength?:f64,maxLength?:f64,minimum?:f64,maximum?:f64,pattern?:string,patternDescription?:string,valueDescriptions?:map<string,string>,format?:string,language?:string,description?:string"
   }
 
   op ax.signature.record @Field {
@@ -286,6 +286,7 @@ module @ax.signature version "0.1" {
         %type_maximum = core.get %field_type["maximum"]
         %type_pattern = core.get %field_type["pattern"]
         %type_pattern_description = core.get %field_type["pattern_description"]
+        %type_value_descriptions = core.get %field_type["value_descriptions"]
         %type_format = core.get %field_type["format"]
         %type_language = core.get %field_type["language"]
         core.set %type_attrs["name"] = %type_name
@@ -298,6 +299,7 @@ module @ax.signature version "0.1" {
         core.set %type_attrs["maximum"] = %type_maximum
         core.set %type_attrs["pattern"] = %type_pattern
         core.set %type_attrs["pattern_description"] = %type_pattern_description
+        core.set %type_attrs["value_descriptions"] = %type_value_descriptions
         core.set %type_attrs["format"] = %type_format
         core.set %type_attrs["language"] = %type_language
         core.set %type_attrs["description"] = %description
@@ -484,11 +486,27 @@ module @ax.signature version "0.1" {
           core.set %attrs["name"] = "class"
           core.set %attrs["is_array"] = %is_array
           core.set %attrs["options"] = %options
+          %quoted_rest = core.get %quoted["rest"]
+          %quoted_rest = core.string_trim %quoted_rest
+          %has_descriptions = core.call intrinsic.string.starts_with(%quoted_rest, "(")
+          core.if %has_descriptions {
+            %group = core.call intrinsic.string.extract_leading_group(%quoted_rest, "(", ")")
+            %balanced = core.get %group["balanced"] default false
+            %unbalanced = core.call intrinsic.not(%balanced)
+            core.if %unbalanced {
+              %error = core.call intrinsic.error.signature("Expected closing parenthesis in value descriptions")
+              core.raise %error
+            }
+            %group_text = core.get %group["group"]
+            %descriptions = core.call @signature_parse_class_descriptions_impl(%group_text, %field_name)
+            core.set %attrs["value_descriptions"] = %descriptions
+            %quoted_rest = core.get %group["rest"]
+          }
           %typ = core.call intrinsic.record.new("FieldType", %attrs)
+          core.call @signature_validate_value_descriptions_impl(%typ, %field_name)
           %out = core.map
           core.set %out["type"] = %typ
           core.set %out["is_cached"] = false
-          %quoted_rest = core.get %quoted["rest"]
           core.set %out["rest"] = %quoted_rest
           core.return %out
         }
@@ -623,6 +641,31 @@ module @ax.signature version "0.1" {
         %arg = core.string_trim %arg_raw
         %handled = core.map
         core.set %handled["value"] = false
+        %is_true = core.call intrinsic.eq(%token, "true")
+        %is_false = core.call intrinsic.eq(%token, "false")
+        %is_value = core.call intrinsic.or(%is_true, %is_false)
+        core.if %is_value {
+          %duplicate = core.call intrinsic.contains(%seen, %token)
+          core.if %duplicate {
+            %message = core.call intrinsic.string.format("Field \"{}\": duplicate \"{}\" modifier", %field_name, %token)
+            %error = core.call intrinsic.error.signature(%message)
+            core.raise %error
+          }
+          core.append %seen, %token
+          %is_boolean = core.call intrinsic.eq(%type_name, "boolean")
+          %invalid = core.call intrinsic.not(%is_boolean)
+          core.if %invalid {
+            %message = core.call intrinsic.string.format("Field \"{}\": \"{}\" value descriptions require a boolean field", %field_name, %token)
+            %error = core.call intrinsic.error.signature(%message)
+            core.raise %error
+          }
+          %description = core.call @signature_parse_value_description_impl(%arg, %field_name, %token)
+          %empty_descriptions = core.map
+          %descriptions = core.get %attrs["value_descriptions"] default %empty_descriptions
+          core.set %descriptions[%token] = %description
+          core.set %attrs["value_descriptions"] = %descriptions
+          core.set %handled["value"] = true
+        }
         %is_min = core.call intrinsic.eq(%token, "min")
         %is_max = core.call intrinsic.eq(%token, "max")
         %is_bound = core.call intrinsic.or(%is_min, %is_max)
@@ -939,7 +982,7 @@ module @ax.signature version "0.1" {
     tag "signature-render-modifier-bag-core-helper"
     type signature = "(FieldType, bool) -> string"
     body @entry(%typ: FieldType, %is_cached: bool) {
-      %entries = core.list
+      %entries = core.call @signature_render_value_descriptions_impl(%typ)
       %min_length = core.get %typ["min_length"]
       %minimum = core.get %typ["minimum"]
       %min = core.call intrinsic.coalesce(%min_length, %minimum)
@@ -1026,6 +1069,12 @@ module @ax.signature version "0.1" {
         %joined = core.call intrinsic.string.join(" | ", %options)
         %class_name = core.get %state["value"]
         %result = core.call intrinsic.string.format("{} \"{}\"", %class_name, %joined)
+        %entries = core.call @signature_render_value_descriptions_impl(%typ)
+        %has_entries = core.call intrinsic.truthy(%entries)
+        core.if %has_entries {
+          %body = core.call intrinsic.string.join(", ", %entries)
+          %result = core.call intrinsic.string.format("{}({})", %result, %body)
+        }
         core.return %result
       }
       %is_object = core.call intrinsic.eq(%type_name, "object")
@@ -1163,6 +1212,7 @@ module @ax.signature version "0.1" {
         }
       }
       %typ = core.get %field["type"]
+      core.call @signature_validate_value_descriptions_impl(%typ, %name)
       %type_name = core.get %typ["name"]
       %valid_types = core.list
       core.append %valid_types, "audio"

@@ -1,0 +1,70 @@
+{
+  "expected_error_contains": "Typesafe",
+  "expected_transport_request_count": 1,
+  "kind": "ai_chat",
+  "name": "typesafe-malformed-wrong-probabilities",
+  "provider": "typesafe",
+  "request": {
+    "chatPrompt": [
+      {
+        "content": "Checkout is unavailable",
+        "role": "user"
+      }
+    ],
+    "modelConfig": {
+      "stream": false
+    },
+    "responseFormat": {
+      "fieldDescriptions": {
+        "team": {
+          "description": "Responsible team",
+          "valueDescriptions": {
+            "billing": "Payment questions",
+            "support": "Product help"
+          }
+        }
+      },
+      "schema": {
+        "name": "decision",
+        "schema": {
+          "properties": {
+            "team": {
+              "enum": ["support", "billing"],
+              "type": "string"
+            },
+            "urgent": {
+              "type": "boolean"
+            }
+          },
+          "required": ["urgent", "team"],
+          "type": "object"
+        }
+      },
+      "type": "json_schema"
+    }
+  },
+  "transport_responses": [
+    {
+      "answers": {
+        "team": {
+          "choice": "support",
+          "confidence": 0.7,
+          "probabilities": {
+            "billing": 0.2,
+            "support": 0.1
+          },
+          "type": "choice"
+        },
+        "urgent": {
+          "noul": 0.85,
+          "type": "noul"
+        }
+      },
+      "model": "jev-latest",
+      "usage": {
+        "input_tokens": 21,
+        "output_tokens": 3
+      }
+    }
+  ]
+}

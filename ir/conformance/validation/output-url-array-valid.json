@@ -12,14 +12,14 @@
       }
     },
     "outputs": {
-      "resourceLink": {
-        "description": "Canonical resource link",
-        "type": "url"
-      },
       "resourceLinks": {
         "array": true,
         "arrayDescription": "Resource link list",
         "description": "Canonical resource links",
+        "type": "url"
+      },
+      "resourceLink": {
+        "description": "Canonical resource link",
         "type": "url"
       }
     }

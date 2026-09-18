@@ -216,6 +216,10 @@ class FixtureAIService {
     this.estimatedCost = spec.estimatedCost ?? 0;
   }
 
+  validateChatRequest(req: any) {
+    if (this.name === 'Typesafe')
+      new AxAITypesafe({ apiKey: 'fixture' }).validateChatRequest(req);
+  }
   getId() {
     return this.id;
   }
@@ -9723,4 +9727,588 @@ writeFixture('session-ecmascript-pattern-validation', {
     }
     return { ...item, valid };
   }),
+});
+
+// Typesafe adapter fixtures exercise the public provider and record its wire contract.
+const { AxAITypesafe } = await import('../../../src/ax/ai/typesafe/api.js');
+const { validateTypesafeRequest, decodeTypesafeResponse } = await import(
+  '../../../src/ax/ai/typesafe/validate.js'
+);
+
+for (const [label, threshold, probability] of [
+  ['default', undefined, 0.5],
+  ['below', 0.9, 0.899],
+  ['equal', 0.9, 0.9],
+  ['zero', 0, 0],
+  ['one', 1, 1],
+] as const) {
+  const request = {
+    chatPrompt: [
+      { role: 'user' as const, content: 'Checkout is unavailable.' },
+    ],
+    responseFormat: {
+      type: 'json_schema' as const,
+      schema: {
+        name: 'decision',
+        schema: {
+          type: 'object' as const,
+          properties: {
+            urgent: {
+              type: 'boolean' as const,
+              description: 'Urgent?\ntrue: Core task blocked\nfalse: Routine',
+            },
+          },
+          required: ['urgent'],
+        },
+      },
+      fieldDescriptions: {
+        urgent: {
+          description: 'Urgent?',
+          valueDescriptions: { true: 'Core task blocked', false: 'Routine' },
+        },
+      },
+    },
+    modelConfig: { stream: false },
+  };
+  const raw = {
+    model: 'jev-latest',
+    answers: { urgent: { type: 'noul', noul: probability } },
+    usage: { input_tokens: 7, output_tokens: 1 },
+  };
+  let captured: unknown;
+  const client = new AxAITypesafe({
+    apiKey: 'test-key',
+    trueThreshold: threshold,
+    options: {
+      fetch: async (_url, init) => {
+        captured = JSON.parse(String(init?.body));
+        return Response.json(raw);
+      },
+    },
+  });
+  const response = await client.chat(request);
+  writeFixture(`typesafe-adapter-threshold-${label}`, {
+    kind: 'ai_chat',
+    provider: 'typesafe',
+    model: 'jev-latest',
+    service_options:
+      threshold === undefined ? {} : { trueThreshold: threshold },
+    request: request as Json,
+    transport_responses: [raw],
+    expected_output: response as Json,
+    expected_transport_request: {
+      method: 'POST',
+      url: 'https://api.typesafe.ai/v1/systemone',
+      json: captured as Json,
+    },
+    expected_transport_request_count: 1,
+    expected_transport_json_absent: ['trueThreshold', 'temperature', 'stream'],
+  });
+}
+
+const typesafeQuestions = {
+  urgent: {
+    type: 'noul' as const,
+    instructions: { task: 'Urgent?' },
+    criteria: { true: ['Core task blocked'], false: null },
+  },
+  team: {
+    type: 'choice' as const,
+    criteria: { support: { scope: 'Product help' }, billing: null },
+  },
+  severity: {
+    type: 'score' as const,
+    instructions: null,
+    criteria: [null, { description: 'Limited impact' }, 'Core outage'] as const,
+  },
+};
+const typesafeNativeRequest = {
+  model: 'jev-latest',
+  state: { ticket: 'Checkout unavailable', context: [null, 2, true] },
+  questions: typesafeQuestions,
+};
+const typesafeRaw = {
+  model: 'jev-latest',
+  usage: { input_tokens: 21, output_tokens: 3 },
+  answers: {
+    urgent: { type: 'noul', noul: 0.85 },
+    team: {
+      type: 'choice',
+      choice: 'support',
+      probabilities: { support: 0.8, billing: 0.2 },
+      confidence: 0.7,
+    },
+    severity: {
+      type: 'score',
+      score: 1.5,
+      probabilities: { '0': 0.1, '1': 0.3, '2': 0.6 },
+      confidence: 0.8,
+      legend: {
+        '0': null,
+        '1': { description: 'Limited impact' },
+        '2': 'Core outage',
+      },
+    },
+  },
+};
+validateTypesafeRequest(typesafeNativeRequest);
+writeFixture('typesafe-native-rich-questions', {
+  kind: 'ai_typesafe_native',
+  operation: 'system_one',
+  request: typesafeNativeRequest,
+  response: typesafeRaw,
+  expected_transport_request_count: 1,
+  expected_transport_request: {
+    method: 'POST',
+    url: 'https://api.typesafe.ai/v1/systemone',
+    json: typesafeNativeRequest,
+  },
+  expected_output: decodeTypesafeResponse(
+    typesafeRaw,
+    typesafeQuestions
+  ) as Json,
+});
+const catalog = {
+  models: [
+    {
+      name: 'jev-latest',
+      description: 'Latest Jev',
+      release_date: '2026-09-01',
+    },
+  ],
+};
+writeFixture('typesafe-native-model-catalog', {
+  kind: 'ai_typesafe_native',
+  operation: 'models',
+  response: catalog,
+  expected_transport_request_count: 1,
+  expected_transport_request: {
+    method: 'GET',
+    url: 'https://api.typesafe.ai/v1/models',
+  },
+  expected_transport_absent: ['json', 'data'],
+  expected_output: (await new (
+    await import('../../../src/ax/ai/typesafe/client.js')
+  ).AxAITypesafeClient({
+    apiKey: 'test-key',
+    options: { fetch: async () => Response.json(catalog) },
+  }).listModels()) as Json,
+});
+for (const [name, question] of [
+  ['score-too-short', { type: 'score', criteria: [null] }],
+  ['score-too-long', { type: 'score', criteria: Array(11).fill(null) }],
+  [
+    'choice-too-many',
+    {
+      type: 'choice',
+      criteria: Object.fromEntries(
+        Array.from({ length: 256 }, (_, i) => [String(i), null])
+      ),
+    },
+  ],
+  ['noul-unknown-criterion', { type: 'noul', criteria: { maybe: null } }],
+] as const) {
+  const request = {
+    model: 'jev-latest',
+    state: null,
+    questions: { decision: question },
+  };
+  try {
+    validateTypesafeRequest(request as any);
+    throw new Error('Expected invalid native request');
+  } catch (error) {
+    if (
+      !(error instanceof Error) ||
+      error.message === 'Expected invalid native request'
+    )
+      throw error;
+    writeFixture(`typesafe-native-${name}`, {
+      kind: 'ai_typesafe_native',
+      operation: 'system_one',
+      request: request as Json,
+      expected_transport_request_count: 0,
+      expected_error_contains:
+        question.type === 'score'
+          ? 'Score'
+          : question.type === 'choice'
+            ? 'Choice'
+            : 'criteria',
+    });
+  }
+}
+
+const typesafeFieldCases = [
+  ['number-bounded', { type: 'number', minimum: 1, maximum: 5 }, true],
+  ['number', { type: 'number' }, true],
+  ['string', { type: 'string' }, true],
+  ['optional', { type: 'boolean' }, false],
+  ['array', { type: 'array', items: { type: 'boolean' } }, true],
+  [
+    'nested',
+    {
+      type: 'object',
+      properties: { flag: { type: 'boolean' } },
+      required: ['flag'],
+    },
+    true,
+  ],
+] as const;
+for (const [label, field, required] of typesafeFieldCases) {
+  const request = {
+    chatPrompt: [{ role: 'user', content: 'classify' }],
+    modelConfig: { stream: false },
+    responseFormat: {
+      type: 'json_schema',
+      schema: {
+        name: 'decision',
+        schema: {
+          type: 'object',
+          properties: { result: field },
+          required: required ? ['result'] : [],
+        },
+      },
+    },
+  };
+  let calls = 0;
+  const client = new AxAITypesafe({
+    apiKey: 'test-key',
+    options: {
+      fetch: async () => {
+        calls++;
+        throw new Error('unexpected transport');
+      },
+    },
+  });
+  try {
+    await client.chat(request as any);
+    throw new Error('expected rejection');
+  } catch (error) {
+    if (calls || !(error instanceof Error) || !error.message.includes('result'))
+      throw error;
+  }
+  writeFixture(`typesafe-reject-${label}`, {
+    kind: 'ai_chat',
+    provider: 'typesafe',
+    request,
+    expected_error_contains: 'result',
+    expected_transport_request_count: 0,
+  });
+}
+const typesafeMultiRequest = {
+  chatPrompt: [{ role: 'user' as const, content: 'Checkout is unavailable' }],
+  modelConfig: { stream: false },
+  responseFormat: {
+    type: 'json_schema' as const,
+    schema: {
+      name: 'decision',
+      schema: {
+        type: 'object' as const,
+        properties: {
+          urgent: { type: 'boolean' as const },
+          team: { type: 'string' as const, enum: ['support', 'billing'] },
+        },
+        required: ['urgent', 'team'],
+      },
+    },
+    fieldDescriptions: {
+      team: {
+        description: 'Responsible team',
+        valueDescriptions: {
+          support: 'Product help',
+          billing: 'Payment questions',
+        },
+      },
+    },
+  },
+};
+for (const [label, patch, errorText] of [
+  [
+    'tools',
+    {
+      functions: [
+        {
+          name: 'lookup',
+          description: 'Lookup',
+          parameters: { type: 'object', properties: {} },
+        },
+      ],
+    },
+    'does not support',
+  ],
+  [
+    'temperature',
+    { modelConfig: { temperature: 0.7, stream: false } },
+    'does not support',
+  ],
+  ['samples', { modelConfig: { n: 2, stream: false } }, 'does not support'],
+  [
+    'invalid-samples',
+    { modelConfig: { n: true, stream: false } },
+    'does not support',
+  ],
+  [
+    'media',
+    {
+      chatPrompt: [
+        {
+          role: 'user',
+          content: [{ type: 'image', mimeType: 'image/png', image: 'AAAA' }],
+        },
+      ],
+    },
+    'text input only',
+  ],
+] as const) {
+  const request = { ...typesafeMultiRequest, ...patch };
+  let calls = 0;
+  const client = new AxAITypesafe({
+    apiKey: 'test-key',
+    options: {
+      fetch: async () => {
+        calls++;
+        throw new Error('unexpected transport');
+      },
+    },
+  });
+  try {
+    await client.chat(request as any);
+    throw new Error('expected rejection');
+  } catch (error) {
+    if (
+      calls ||
+      !(error instanceof Error) ||
+      !error.message.includes(errorText)
+    )
+      throw error;
+  }
+  writeFixture(`typesafe-reject-${label}`, {
+    kind: 'ai_chat',
+    provider: 'typesafe',
+    request: request as Json,
+    expected_error_contains: errorText,
+    expected_transport_request_count: 0,
+  });
+}
+const multiRaw = {
+  model: 'jev-latest',
+  answers: {
+    urgent: typesafeRaw.answers.urgent,
+    team: typesafeRaw.answers.team,
+  },
+  usage: typesafeRaw.usage,
+};
+let multiPayload: unknown;
+const multiClient = new AxAITypesafe({
+  apiKey: 'test-key',
+  options: {
+    fetch: async (_url, init) => {
+      multiPayload = JSON.parse(String(init?.body));
+      return Response.json(multiRaw);
+    },
+  },
+});
+const multiResult = await multiClient.chat(
+  stable(typesafeMultiRequest) as typeof typesafeMultiRequest
+);
+writeFixture('typesafe-adapter-multiple-fields', {
+  kind: 'ai_chat',
+  provider: 'typesafe',
+  request: typesafeMultiRequest,
+  transport_responses: [multiRaw],
+  expected_output: multiResult as Json,
+  expected_transport_request_count: 1,
+  expected_transport_request: { json: multiPayload as Json },
+});
+for (const [name, mutate] of [
+  [
+    'missing-answer',
+    (raw: any) => {
+      delete raw.answers.team;
+    },
+  ],
+  [
+    'wrong-label',
+    (raw: any) => {
+      raw.answers.team.choice = 'engineering';
+    },
+  ],
+  [
+    'wrong-probabilities',
+    (raw: any) => {
+      raw.answers.team.probabilities.support = 0.1;
+    },
+  ],
+  [
+    'wrong-probability',
+    (raw: any) => {
+      raw.answers.urgent.noul = 1.1;
+    },
+  ],
+  [
+    'wrong-type',
+    (raw: any) => {
+      raw.answers.urgent.type = 'score';
+    },
+  ],
+  [
+    'wrong-usage',
+    (raw: any) => {
+      raw.usage.input_tokens = -1;
+    },
+  ],
+] as const) {
+  const raw = structuredClone(multiRaw);
+  mutate(raw);
+  const client = new AxAITypesafe({
+    apiKey: 'test-key',
+    options: {
+      fetch: async () => Response.json(raw),
+      retry: { maxRetries: 0 },
+    },
+  });
+  try {
+    await client.chat(typesafeMultiRequest);
+    throw new Error('expected rejection');
+  } catch (error) {
+    if (!(error instanceof Error) || error.message === 'expected rejection')
+      throw error;
+  }
+  writeFixture(`typesafe-malformed-${name}`, {
+    kind: 'ai_chat',
+    provider: 'typesafe',
+    request: typesafeMultiRequest,
+    transport_responses: [raw],
+    expected_error_contains: 'Typesafe',
+    expected_transport_request_count: 1,
+  });
+}
+
+// Real Typesafe validation behind the optional service hook; no transport is used by eligibility checks.
+for (const supported of [false, true]) {
+  const decisionSpec = {
+    name: 'Typesafe',
+    features: routerFeatures({
+      functions: false,
+      streaming: false,
+      structuredOutputs: true,
+      requiresStructuredOutput: true,
+    }),
+  };
+  const fallbackSpec = {
+    name: 'Generative',
+    features: routerFeatures({ streaming: false, structuredOutputs: true }),
+  };
+  const request = {
+    chatPrompt: [{ role: 'user', content: 'Outage' }],
+    modelConfig: { stream: false },
+    ...(supported
+      ? {
+          responseFormat: {
+            type: 'json_schema',
+            schema: {
+              name: 'decision',
+              schema: {
+                type: 'object',
+                properties: { urgent: { type: 'boolean' } },
+                required: ['urgent'],
+              },
+            },
+          },
+        }
+      : {}),
+  };
+  const services = [
+    new FixtureAIService(decisionSpec),
+    new FixtureAIService(fallbackSpec),
+  ];
+  const router = new AxProviderRouter({
+    providers: {
+      primary: services[0] as any,
+      alternatives: [services[1] as any],
+    },
+    routing: { capability: { allowDegradation: true } },
+    processing: {},
+  });
+  const recommendation = await router.getRoutingRecommendation(request as any);
+  writeFixture(
+    `typesafe-routing-${supported ? 'supported' : 'reject-degradation'}`,
+    {
+      kind: 'ai_provider_router',
+      services: [decisionSpec, fallbackSpec],
+      primary_index: 0,
+      alternative_indices: [1],
+      routing: { capability: { allowDegradation: true } },
+      request,
+      expected_output: {
+        recommendation: { provider: recommendation.provider.getName() },
+      },
+    }
+  );
+  const balancer = new AxBalancer(services as any, {
+    comparator: AxBalancer.inputOrderComparator,
+    debug: false,
+  });
+  const output = await balancer.chat(request as any, {});
+  writeFixture(`typesafe-balancer-${supported ? 'supported' : 'reject'}`, {
+    kind: 'ai_balancer',
+    services: [decisionSpec, fallbackSpec],
+    options: { strategy: 'input_order', debug: false },
+    operations: [{ name: 'chat', request, options: {} }],
+    expected_output: {
+      outputs: { chat: output as any },
+      serviceCalls: services
+        .map((s) => normalizeFixtureServiceCalls(s.requests))
+        .filter((calls) => calls.length > 0),
+    },
+  });
+}
+
+// An incompatible decision provider must stay excluded after a generative service fails.
+const typesafeFallbackSpecs = [
+  {
+    name: 'Unavailable',
+    features: routerFeatures(),
+    responses: [{ error: { type: 'network', message: 'temporary failure' } }],
+  },
+  {
+    name: 'Typesafe',
+    features: routerFeatures({
+      functions: false,
+      streaming: false,
+      requiresStructuredOutput: true,
+    }),
+  },
+  { name: 'Backup', features: routerFeatures() },
+];
+const typesafeFallbackServices = typesafeFallbackSpecs.map(
+  (spec) => new FixtureAIService(spec)
+);
+const typesafeFallbackBalancer = new AxBalancer(
+  typesafeFallbackServices as any,
+  {
+    comparator: AxBalancer.inputOrderComparator,
+    debug: false,
+    maxRetries: 1,
+  }
+);
+const typesafeFallbackRequest = {
+  chatPrompt: [{ role: 'user', content: 'Write a reply' }],
+};
+const typesafeFallbackResponse = await typesafeFallbackBalancer.chat(
+  typesafeFallbackRequest as any,
+  {}
+);
+if (typesafeFallbackServices[1].requests.length)
+  throw new Error('Incompatible fallback was executed');
+writeFixture('typesafe-balancer-fallback-reject', {
+  kind: 'ai_balancer',
+  services: typesafeFallbackSpecs,
+  options: { strategy: 'input_order', debug: false, maxRetries: 1 },
+  operations: [{ name: 'chat', request: typesafeFallbackRequest, options: {} }],
+  expected_output: {
+    outputs: { chat: typesafeFallbackResponse as Json },
+    serviceCalls: typesafeFallbackServices
+      .map((service) => normalizeFixtureServiceCalls(service.requests))
+      .filter((calls) => calls.length > 0),
+  },
 });

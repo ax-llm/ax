@@ -3,6 +3,11 @@ package dev.axllm.ax;
 import java.util.Map;
 
 public interface AxAIService extends AiClient {
+  default void validateChatRequest(Map<String, Object> request) {}
+  static boolean acceptsRequest(AxAIService service, Map<String, Object> request) {
+    try { service.validateChatRequest(request); return true; }
+    catch (RuntimeException error) { return false; }
+  }
   String getId();
   String getName();
   Map<String, Object> getFeatures(String model);

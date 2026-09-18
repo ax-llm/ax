@@ -46,6 +46,15 @@ var packageSkillSpecs = []packageSkillSpec{
 		Sections: []string{"axai"},
 	},
 	{
+		ID:          "typesafe",
+		Title:       "Typesafe / Jev",
+		Area:        "decision signatures and native questions",
+		Description: "Typesafe Jev boolean/class signatures, value descriptions, configurable Noul conversion, native Noul/Choice/Score, structured criteria and hybrid generation",
+		UseWhen:     []string{"Use Jev for typed decisions with ordinary Ax signatures.", "Use native questions for probabilities, rich criteria, structured state, or scoring.", "Compose a separate generative program for prose or tools."},
+		Sections:    []string{"signatures", "axgen", "axai"},
+	},
+
+	{
 		ID:          "audio",
 		Title:       "Ax Audio And Realtime",
 		Area:        "audio and realtime provider mappings",
@@ -425,7 +434,7 @@ func renderSkill(spec packageSkillSpec, model AxRuntimeModel, target string) str
 		skillSnippet(target, spec.ID),
 		"```",
 		"",
-		expandedExamples+profileGuide+routingGuide+sessionGuide+genForwardGuide+agentMemoryGuide+usageObserverGuide+"## Relevant API Surface",
+		expandedExamples+skillTypesafeGuide(target, spec.ID)+profileGuide+routingGuide+sessionGuide+genForwardGuide+agentMemoryGuide+usageObserverGuide+"## Relevant API Surface",
 		"",
 		skillAPISurface(apiRef, spec.Sections),
 		"",
@@ -666,6 +675,8 @@ func skillAPISurface(ref APIReferenceManifest, sectionIDs []string) string {
 
 func skillSnippet(target, specID string) string {
 	switch {
+	case specID == "typesafe":
+		return skillTypesafeSnippet(target)
 	case specID == "signature":
 		return skillSignatureSnippet(target)
 	case specID == "agent" || specID == "agent-rlm" || specID == "agent-memory-skills" || specID == "agent-observability" || specID == "agent-context":
@@ -906,4 +917,36 @@ func skillYAMLString(value string) string {
 	escaped := strings.ReplaceAll(value, "\\", "\\\\")
 	escaped = strings.ReplaceAll(escaped, "\"", "\\\"")
 	return "\"" + escaped + "\""
+}
+
+func skillTypesafeGuide(target, specID string) string {
+	if specID != "typesafe" && specID != "ai" && specID != "signature" {
+		return ""
+	}
+	return readmeLines(
+		"## Typesafe / Jev", "",
+		"The typesafe provider supports required boolean and class outputs. Numeric bounds never define a Score rubric; numbers, freeform strings, optional outputs, arrays, nesting, media, tools, and sampling controls are rejected before transport.", "",
+		"Set provider trueThreshold (or true_threshold) to a finite value in [0,1], default 0.5. Boolean conversion uses noul >= threshold; this policy is local and never sent. Choice returns the selected label without a confidence cutoff.", "",
+		"Use boolean(true \"Core task blocked\", false \"Routine request\") and class label descriptions for criteria. Fluent describe_values / describeValues / DescribeValues keeps the same field value type. C++ uses valueDescriptions on its existing field descriptors. Other providers receive readable prompt and schema descriptions.", "",
+		"The separate native client exposes system_one / systemOne / SystemOne and list_models / listModels / ListModels. Native probabilities remain unchanged. Score returns a fractional zero-based rubric position: convert scales explicitly in application code. Entries may be text, structured JSON objects/arrays, or null. Choice allows 1–255 labels; Score requires 2–10 rubric levels. The service context limit covers state, questions, and criteria; Ax never truncates or pretends to count native tokens exactly.", "",
+		"The default model is jev-latest. Use API keys or renewable credential callbacks, the shared HTTP transport, retry settings, timeout, and cancellation. Native model discovery is separate from configured Ax model aliases. Typed native answers retain question names; only TypeScript can infer literal question keys and Choice-label unions at compile time. Other languages use their native typed maps/records/enums.", "",
+		"Typesafe-only balancers propagate the output-schema requirement. Mixed pools retain ordinary prompts and select Typesafe only when the actual request already has a supported schema. Unsupported requests remain excluded during fallback and degradation. Typesafe has no token streaming; the provider returns one completed result through its stream interface.", "",
+		"Runnable signature, native criteria/scoring, and two-program hybrid examples are under src/examples/"+target+"/generation/. See https://axllm.dev/"+target+"/examples/generation/.", "",
+	) + "\n"
+}
+func skillTypesafeSnippet(target string) string {
+	signature := `ticket:string -> urgent:boolean(true "Core task blocked", false "Routine request"), team:class "support, billing, engineering"`
+	switch target {
+	case "python":
+		return "model = ai('typesafe', api_key=api_key, trueThreshold=0.9)\ntriage = ax('" + signature + "')\ndecision = triage.forward(model, {'ticket': ticket})"
+	case "java":
+		return "var model = Ax.ai(\"typesafe\", Map.of(\"apiKey\", apiKey, \"trueThreshold\", 0.9));\nvar triage = Ax.ax(" + fmt.Sprintf("%q", signature) + ");\nvar decision = triage.forward(model, Map.of(\"ticket\", ticket));"
+	case "cpp":
+		return "auto model = axllm::ai(\"typesafe\", axllm::object({{\"api_key\", api_key}, {\"trueThreshold\", 0.9}}));\nauto triage = axllm::ax(" + fmt.Sprintf("%q", signature) + ");\nauto decision = triage.forward(*model, axllm::object({{\"ticket\", ticket}}));"
+	case "go":
+		return "model := axllm.NewAI(\"typesafe\", map[string]axllm.Value{\"api_key\": apiKey, \"trueThreshold\": 0.9})\ntriage := axllm.NewAx(" + fmt.Sprintf("%q", signature) + ", nil)\ndecision, err := triage.Forward(ctx, model, map[string]axllm.Value{\"ticket\": ticket}, nil)"
+	case "rust":
+		return "let mut model = ai(\"typesafe\", json!({\"api_key\": api_key, \"trueThreshold\": 0.9}))?;\nlet decision = ax(" + fmt.Sprintf("%q", signature) + ")?.forward(&mut model, json!({\"ticket\": ticket}))?;"
+	}
+	return ""
 }

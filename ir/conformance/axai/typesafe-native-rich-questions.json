@@ -1,0 +1,166 @@
+{
+  "expected_output": {
+    "answers": {
+      "severity": {
+        "confidence": 0.8,
+        "legend": {
+          "0": null,
+          "1": {
+            "description": "Limited impact"
+          },
+          "2": "Core outage"
+        },
+        "probabilities": {
+          "0": 0.1,
+          "1": 0.3,
+          "2": 0.6
+        },
+        "score": 1.5,
+        "type": "score"
+      },
+      "team": {
+        "choice": "support",
+        "confidence": 0.7,
+        "probabilities": {
+          "billing": 0.2,
+          "support": 0.8
+        },
+        "type": "choice"
+      },
+      "urgent": {
+        "noul": 0.85,
+        "type": "noul"
+      }
+    },
+    "model": "jev-latest",
+    "usage": {
+      "input_tokens": 21,
+      "output_tokens": 3
+    }
+  },
+  "expected_transport_request": {
+    "json": {
+      "model": "jev-latest",
+      "questions": {
+        "severity": {
+          "criteria": [
+            null,
+            {
+              "description": "Limited impact"
+            },
+            "Core outage"
+          ],
+          "instructions": null,
+          "type": "score"
+        },
+        "team": {
+          "criteria": {
+            "billing": null,
+            "support": {
+              "scope": "Product help"
+            }
+          },
+          "type": "choice"
+        },
+        "urgent": {
+          "criteria": {
+            "false": null,
+            "true": ["Core task blocked"]
+          },
+          "instructions": {
+            "task": "Urgent?"
+          },
+          "type": "noul"
+        }
+      },
+      "state": {
+        "context": [null, 2, true],
+        "ticket": "Checkout unavailable"
+      }
+    },
+    "method": "POST",
+    "url": "https://api.typesafe.ai/v1/systemone"
+  },
+  "expected_transport_request_count": 1,
+  "kind": "ai_typesafe_native",
+  "name": "typesafe-native-rich-questions",
+  "operation": "system_one",
+  "request": {
+    "model": "jev-latest",
+    "questions": {
+      "severity": {
+        "criteria": [
+          null,
+          {
+            "description": "Limited impact"
+          },
+          "Core outage"
+        ],
+        "instructions": null,
+        "type": "score"
+      },
+      "team": {
+        "criteria": {
+          "billing": null,
+          "support": {
+            "scope": "Product help"
+          }
+        },
+        "type": "choice"
+      },
+      "urgent": {
+        "criteria": {
+          "false": null,
+          "true": ["Core task blocked"]
+        },
+        "instructions": {
+          "task": "Urgent?"
+        },
+        "type": "noul"
+      }
+    },
+    "state": {
+      "context": [null, 2, true],
+      "ticket": "Checkout unavailable"
+    }
+  },
+  "response": {
+    "answers": {
+      "severity": {
+        "confidence": 0.8,
+        "legend": {
+          "0": null,
+          "1": {
+            "description": "Limited impact"
+          },
+          "2": "Core outage"
+        },
+        "probabilities": {
+          "0": 0.1,
+          "1": 0.3,
+          "2": 0.6
+        },
+        "score": 1.5,
+        "type": "score"
+      },
+      "team": {
+        "choice": "support",
+        "confidence": 0.7,
+        "probabilities": {
+          "billing": 0.2,
+          "support": 0.8
+        },
+        "type": "choice"
+      },
+      "urgent": {
+        "noul": 0.85,
+        "type": "noul"
+      }
+    },
+    "model": "jev-latest",
+    "usage": {
+      "input_tokens": 21,
+      "output_tokens": 3
+    }
+  }
+}

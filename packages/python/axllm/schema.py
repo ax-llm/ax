@@ -4,6 +4,9 @@ import os
 import copy
 import re
 from typing import Any
+from .signature import (
+    _signature_describe_field_values_impl,
+)
 
 
 class AxValidationError(ValueError):
@@ -216,6 +219,7 @@ def _nested_field(name, item):
             maximum=item.get("maximum"),
             pattern=item.get("pattern"),
             pattern_description=item.get("patternDescription", item.get("pattern_description")),
+            value_descriptions=item.get("valueDescriptions", item.get("value_descriptions")),
             format=item.get("format"),
             description=item.get("description"),
         )
@@ -985,7 +989,7 @@ def _schema_field_schema_impl(field: Field, is_nested: bool, options: Any) -> An
     else:
         pass
     schema = {}
-    field_description = _core_get(field, "description", None)
+    field_description = _signature_describe_field_values_impl(field)
     description = _schema_enhance_description_impl(field_description, typ)
     has_description = _core_truthy(description)
     if has_description:

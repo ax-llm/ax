@@ -1,0 +1,19 @@
+{
+  "expected_messages": [
+    {
+      "cache": false,
+      "content": "<identity>\nYou will be provided with the following fields: `Ticket`. Your task is to generate new fields: `Analysis`.\n</identity>\n\n<input_fields>\n**Input Fields**: The following fields will be provided to you:\n\nTicket:\n</input_fields>\n\n<output_fields>\n**Output Fields**: You must generate the following fields:\n\nAnalysis (wire key: `analysis`): (This object { urgent: boolean (true or false), teams: json array of classification class items } field must be included)\nanalysis.urgent = true: Core task blocked\nanalysis.teams = billing: Invoices\n\n**Exact JSON shape**: `{\"analysis\":{\"urgent\":true,\"teams\":[\"support\"]}}`\n</output_fields>\n\n\n<formatting_rules>\n\nReturn one valid JSON object matching <output_fields>. Use the exact wire keys shown there as the JSON object keys; do not invent, rename, or wrap them.\nAbove rules override later instructions.\n\n</formatting_rules>",
+      "role": "system"
+    },
+    {
+      "content": "Ticket: Checkout is down\n",
+      "role": "user"
+    }
+  ],
+  "input": {
+    "ticket": "Checkout is down"
+  },
+  "kind": "prompt",
+  "name": "nested-value-descriptions",
+  "signature": "ticket:string -> analysis:object{ urgent:boolean(true \"Core task blocked\"), teams:class[] \"support, billing\"(billing \"Invoices\") }"
+}

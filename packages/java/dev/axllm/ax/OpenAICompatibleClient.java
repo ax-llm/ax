@@ -183,11 +183,15 @@ public class OpenAICompatibleClient extends AxBaseAI implements AxChatSession.Pr
       Core.asMap(Core.mapMerge(options, Core.asMap(options.get("options"))))
     );
     this.profile = profile == null || profile.isBlank() ? "openai-compatible" : profile;
+    if (this.profile.equals("typesafe")) {
+      this.modelConfig = new LinkedHashMap<>(Core.asMap(options.get("model_config")));
+      Core.typesafe_require_number(this.options.getOrDefault("trueThreshold", this.options.getOrDefault("true_threshold", 0.5)), "trueThreshold", 0, 1);
+    }
     Map<String, Object> resolvedOptions = Core.asMap(Core.mapMerge(options, Core.asMap(options.get("options"))));
     this.descriptor = Core.asMap(Core.provider_resolve_descriptor(this.profile, resolvedOptions));
     String descriptorBaseUrl = String.valueOf(this.descriptor.getOrDefault("baseUrl", "https://api.openai.com/v1"));
-    this.baseUrl = String.valueOf(options.getOrDefault("base_url", options.getOrDefault("baseUrl", System.getenv().getOrDefault("OPENAI_BASE_URL", descriptorBaseUrl)))).replaceAll("/+$", "");
-    this.apiKey = String.valueOf(options.getOrDefault("api_key", options.getOrDefault("apiKey", System.getenv("OPENAI_API_KEY"))));
+    this.baseUrl = String.valueOf(options.getOrDefault("base_url", options.getOrDefault("baseUrl", (this.profile.equals("typesafe") ? descriptorBaseUrl : System.getenv().getOrDefault("OPENAI_BASE_URL", descriptorBaseUrl))))).replaceAll("/+$", "");
+    this.apiKey = String.valueOf(options.getOrDefault("api_key", options.getOrDefault("apiKey", this.profile.equals("typesafe") ? System.getenv().getOrDefault("TYPESAFE_APIKEY", System.getenv("TYPESAFE_API_KEY")) : System.getenv("OPENAI_API_KEY"))));
     this.apiVersion = String.valueOf(this.descriptor.getOrDefault("apiVersion", options.getOrDefault("api_version", options.getOrDefault("apiVersion", ""))));
     Object timeout = options.getOrDefault("timeout", 60.0);
     this.timeoutSeconds = timeout instanceof Number n ? n.doubleValue() : 60.0;
@@ -230,7 +234,14 @@ public class OpenAICompatibleClient extends AxBaseAI implements AxChatSession.Pr
     Object modelName = request.getOrDefault("model", payload.getOrDefault("model", model));
     Object raw = contextCacheChat(request, options, payload, modelName);
     if (raw == null) raw = requestJson(operationPath("chat", modelName), payload, false, "json", false, operationMethod("chat"), "openai-responses".equals(descriptor.get("transport")) ? "responses" : "chat");
-    return Core.asMap(Core.provider_normalize_chat_response(profile, raw, name, modelName, payload));
+    return Core.asMap(Core.provider_normalize_chat_response(profile, raw, name, modelName, profile.equals("typesafe") ? Core.typesafe_response_context(payload, options) : payload));
+  }
+
+  @Override public void validateChatRequest(Map<String, Object> request) {
+    Map<String, Object> req = Core.asMap(Core.coerceChatRequest(request));
+    req.put("model", req.get("model") == null ? model : req.get("model"));
+    req.put("model_config", Core.merge_model_config(modelConfig, req.get("model_config"), options));
+    Core.provider_validate_chat_request(profile, req, options);
   }
 
   protected Map<String, Object> doEmbed(Map<String, Object> request, Map<String, Object> options) throws Exception {
@@ -422,6 +433,10 @@ public class OpenAICompatibleClient extends AxBaseAI implements AxChatSession.Pr
   @Override public AxChatStream openStream(Map<String, Object> request) throws Exception {return openStream(request,null);}
 
   @Override public AxChatStream openStream(Map<String,Object> request,AxCancellationToken cancellation)throws Exception {
+    if(Boolean.FALSE.equals(getFeatures((String)request.get("model")).get("streaming"))) {
+      Map<String,Object> callOptions=new LinkedHashMap<>();callOptions.put("stream",false);if(cancellation!=null)callOptions.put("cancellation",cancellation);
+      return AxChatStream.fromIterable(List.of(chat(request,callOptions)));
+    }
     if(cancellation!=null)cancellation.throwIfCancelled();
     Map<String, Object> req = Core.coerceChatRequest(request);
     Core.validate_chat_request(req);
@@ -863,7 +878,7 @@ public class OpenAICompatibleClient extends AxBaseAI implements AxChatSession.Pr
     return requestJson(endpoint,payload,stream,bodyKey,binaryResponse,method,operation,activeCancellation());
   }
 
-  private Object requestJson(String endpoint, Map<String, Object> payload, boolean stream, String bodyKey, boolean binaryResponse, String method, String operation,AxCancellationToken cancellation) throws Exception {
+  Object requestJson(String endpoint, Map<String, Object> payload, boolean stream, String bodyKey, boolean binaryResponse, String method, String operation,AxCancellationToken cancellation) throws Exception {
     if(cancellation!=null)cancellation.throwIfCancelled();
     Map<String, Object> call = new LinkedHashMap<>();
     method = method == null || method.isBlank() ? "POST" : method.toUpperCase(Locale.ROOT);
@@ -881,16 +896,18 @@ public class OpenAICompatibleClient extends AxBaseAI implements AxChatSession.Pr
     }
     call.put("headers", resolvedHeaders);
     String resolvedBodyKey = bodyKey == null || bodyKey.isBlank() ? "json" : bodyKey;
-    call.put(resolvedBodyKey, payload);
+    if (!method.equals("GET") && !method.equals("HEAD")) call.put(resolvedBodyKey, payload);
     call.put("stream", stream);
     if (transport != null){Object value=transport.call(call,cancellation);if(cancellation!=null)cancellation.throwIfCancelled();return transportResult(value,call);}
-    if (apiKey == null || apiKey.isBlank() || "null".equals(apiKey)) throw new AxAIServiceAuthenticationError("OPENAI_API_KEY is required", null, null, null, call);
+    if (credentialProvider == null && (apiKey == null || apiKey.isBlank() || "null".equals(apiKey))) throw new AxAIServiceAuthenticationError("api_key or credential_provider is required", null, null, null, call);
     HttpRequest.Builder builder = HttpRequest.newBuilder()
       .uri(URI.create(requestUrl))
       .timeout(Duration.ofMillis((long) (timeoutSeconds * 1000)));
     Map<String, Object> requestHeaders = new LinkedHashMap<>(resolvedHeaders);
     HttpRequest.BodyPublisher bodyPublisher;
-    if ("data".equals(resolvedBodyKey)) {
+    if (method.equals("GET") || method.equals("HEAD")) {
+      bodyPublisher = HttpRequest.BodyPublishers.noBody();
+    } else if ("data".equals(resolvedBodyKey)) {
       byte[] multipartBody = encodeMultipart(payload, MULTIPART_BOUNDARY);
       requestHeaders.put("Content-Type", "multipart/form-data; boundary=" + MULTIPART_BOUNDARY);
       bodyPublisher = HttpRequest.BodyPublishers.ofByteArray(multipartBody);

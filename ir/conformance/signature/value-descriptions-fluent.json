@@ -1,0 +1,78 @@
+{
+  "expected_signature": {
+    "description": null,
+    "inputs": [
+      {
+        "isCached": false,
+        "isInternal": false,
+        "isOptional": false,
+        "name": "ticket",
+        "title": "Ticket",
+        "type": {
+          "isArray": false,
+          "name": "string"
+        }
+      }
+    ],
+    "outputs": [
+      {
+        "isCached": false,
+        "isInternal": false,
+        "isOptional": false,
+        "name": "urgent",
+        "title": "Urgent",
+        "type": {
+          "isArray": false,
+          "name": "boolean",
+          "valueDescriptions": {
+            "false": "Routine",
+            "true": "Blocked"
+          }
+        }
+      },
+      {
+        "isCached": false,
+        "isInternal": false,
+        "isOptional": false,
+        "name": "team",
+        "title": "Team",
+        "type": {
+          "isArray": false,
+          "name": "class",
+          "options": ["support", "billing"],
+          "valueDescriptions": {
+            "billing": "Invoice",
+            "support": "Help"
+          }
+        }
+      }
+    ]
+  },
+  "expected_to_string": "ticket:string -> urgent:boolean(true \"Blocked\", false \"Routine\"), team:class \"support | billing\"(\"support\" \"Help\", \"billing\" \"Invoice\")",
+  "kind": "signature",
+  "name": "value-descriptions-fluent",
+  "signature_spec": {
+    "inputs": {
+      "ticket": {
+        "type": "string"
+      }
+    },
+    "outputs": {
+      "urgent": {
+        "type": "boolean",
+        "valueDescriptions": {
+          "false": "Routine",
+          "true": "Blocked"
+        }
+      },
+      "team": {
+        "options": ["support", "billing"],
+        "type": "class",
+        "valueDescriptions": {
+          "billing": "Invoice",
+          "support": "Help"
+        }
+      }
+    }
+  }
+}

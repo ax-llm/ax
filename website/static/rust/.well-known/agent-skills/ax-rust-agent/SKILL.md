@@ -62,7 +62,7 @@ Use the provider-backed Astra examples under `src/examples/rust/generation/`, `s
 ## Relevant API Surface
 
 - Agents And RLM: `agent`, `AxAgent`, `AxAgent::with_child_agent`
-- MCP: `AxMCPClient`, `AxMCPStreamableHTTPTransport`, `AxMCPStdioTransport`
+- MCP: `AxMCPClient`, `AxMCPStreamableHTTPTransport`, `AxMCPWebSocketTransport`, `AxMCPStdioTransport`
 - Runtime Profiles: `ProcessCodeRuntime`, `RuntimeCapabilities`, `RuntimeEnvelope`, `javascript-quickjs`
 
 ## Guardrails

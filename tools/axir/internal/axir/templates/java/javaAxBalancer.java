@@ -138,11 +138,13 @@ public final class AxBalancer implements AxAIService,ChatRunSelector,AxChatSessi
     return error instanceof AxAIServiceNetworkError || error instanceof AxAIServiceResponseError || error instanceof AxAIServiceStreamTerminatedError || error instanceof AxAIServiceTimeoutError;
   }
 
+  public void validateChatRequest(Map<String, Object> request) { candidateServices(request); }
+
   private List<AxAIService> candidateServices(Map<String, Object> request) {
     List<AxAIService> out = new ArrayList<>();
     String model = request.get("model") == null ? null : String.valueOf(request.get("model"));
     for (AxAIService service : services) {
-      if (Core.truthy(Core.provider_balancer_candidate_allowed(service.getFeatures(model), request))) out.add(service);
+      if (AxAIService.acceptsRequest(service, request) && Core.truthy(Core.provider_balancer_candidate_allowed(service.getFeatures(model), request))) out.add(service);
     }
     if (!out.isEmpty()) return out;
     List<String> requirements = new ArrayList<>();
@@ -334,6 +336,7 @@ public final class AxBalancer implements AxAIService,ChatRunSelector,AxChatSessi
 
   static Map<String,Object> mergedFeatures(List<AxAIService> services,String model) {
     Map<String, Object> features = balancerBaseFeatures();
+    if (!services.isEmpty() && services.stream().allMatch(service -> { var raw = service.getFeatures(model); return Core.truthy(raw.getOrDefault("requiresStructuredOutput", raw.getOrDefault("requires_structured_output", false))); })) features.put("requiresStructuredOutput", true);
     Map<String, Object> media = Core.asMap(features.get("media"));
     List<Object> structuredOutputModes = new ArrayList<>();
     boolean allModesAdvertised = !services.isEmpty();

@@ -98,3 +98,11 @@ resume headers. Caller-owned clients remain caller-owned and must be closed.
 - Use recording/replay or a sandbox for optimization and evaluation.
 
 See [MCP Subscriptions]({{langRoot}}/concepts/mcp-subscriptions/), [Event Runtime]({{langRoot}}/concepts/event-runtime/), [Tools]({{langRoot}}/concepts/tools/), [ax() generation]({{langRoot}}/subsystems/ax/), and [agent() agents]({{langRoot}}/subsystems/agent/).
+
+Custom WebSocket MCP bindings are supported in all six languages through
+`AxMCPWebSocketTransport`. Pending requests settle on response, send failure,
+cancellation, or close. Cleanup is scoped to the originating request, so reusing
+an ID after settlement is safe; active IDs must remain unique. Batch messages
+require MCP `2025-03-26`. Python uses its `realtime` extra, C++ uses
+`AXLLM_ENABLE_REALTIME`, and Rust uses the `realtime` feature for built-in sockets.
+Java and Go include native sockets; every target also accepts a socket factory.

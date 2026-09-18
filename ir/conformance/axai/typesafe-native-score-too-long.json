@@ -1,0 +1,29 @@
+{
+  "expected_error_contains": "Score",
+  "expected_transport_request_count": 0,
+  "kind": "ai_typesafe_native",
+  "name": "typesafe-native-score-too-long",
+  "operation": "system_one",
+  "request": {
+    "model": "jev-latest",
+    "questions": {
+      "decision": {
+        "criteria": [
+          null,
+          null,
+          null,
+          null,
+          null,
+          null,
+          null,
+          null,
+          null,
+          null,
+          null
+        ],
+        "type": "score"
+      }
+    },
+    "state": null
+  }
+}

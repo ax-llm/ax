@@ -4,6 +4,7 @@ import os
 import json
 import re
 from typing import Any
+from .signature import _signature_describe_field_values_impl, _signature_nested_value_descriptions_impl
 
 
 PROMPT_FEATURES = {
@@ -394,9 +395,11 @@ def _core_prompt_render_input_fields(fields, field_map: dict[str, str]) -> str:
     rows = []
     for field in fields:
         description = ""
-        if field.description:
-            description = " " + _core_prompt_format_field_references(_core_prompt_format_description(field.description), field_map)
+        field_description = _signature_describe_field_values_impl(field)
+        if field_description:
+            description = " " + _core_prompt_format_field_references((field_description if field.type.value_descriptions else _core_prompt_format_description(field_description)), field_map)
         rows.append((field.title + ":" + description).strip())
+        rows.extend(_signature_nested_value_descriptions_impl(field.type.fields, field.name))
     return "\n".join(rows)
 
 
@@ -410,14 +413,16 @@ def _core_prompt_render_output_fields(fields, field_map: dict[str, str]) -> str:
             else f"This {type_text} field must be included"
         )
         description = ""
-        if field.description:
-            value = field.description if field.type and field.type.name == "class" else _core_prompt_format_description(field.description)
+        field_description = _signature_describe_field_values_impl(field)
+        if field_description:
+            value = field_description if field.type and (field.type.name == "class" or field.type.value_descriptions) else (field_description if field.type.value_descriptions else _core_prompt_format_description(field_description))
             description = " " + _core_prompt_format_field_references(value, field_map)
         if field.type and field.type.options:
             if description:
                 description += ". "
             description += "Allowed values: " + ", ".join(field.type.options)
         rows.append((field.title + f" (wire key: {BT}{field.name}{BT}): ({required})" + description).strip())
+        rows.extend(_signature_nested_value_descriptions_impl(field.type.fields, field.name))
     return "\n".join(rows)
 
 

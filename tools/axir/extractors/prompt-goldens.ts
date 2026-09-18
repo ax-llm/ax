@@ -12,7 +12,10 @@ type Json = null | boolean | number | string | Json[] | { [key: string]: Json };
 
 type Fixture = Record<string, Json>;
 
-const outDir = join(process.cwd(), 'ir/conformance/prompt');
+const outDir = join(
+  process.env.AXIR_CONFORMANCE_OUT_ROOT ?? process.cwd(),
+  'ir/conformance/prompt'
+);
 
 function stable(value: unknown, parentKey = ''): unknown {
   if (Array.isArray(value)) {
@@ -393,4 +396,15 @@ templateValidateFixture(
   'template-required-variable-valid',
   '{{ identityText }} {{ inputFieldsSection }}',
   ['identityText', 'inputFieldsSection']
+);
+
+stringPrompt(
+  'value-descriptions',
+  'ticket:string -> urgent:boolean(true "Core task blocked", false "Routine") "Urgent?", team:class "support, billing"(support "Help", billing "Invoices")',
+  { ticket: 'Checkout is down' }
+);
+stringPrompt(
+  'nested-value-descriptions',
+  'ticket:string -> analysis:object{ urgent:boolean(true "Core task blocked"), teams:class[] "support, billing"(billing "Invoices") }',
+  { ticket: 'Checkout is down' }
 );

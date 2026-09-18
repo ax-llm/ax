@@ -352,7 +352,7 @@ const transportClient = {
   'anthropic-messages': 'AnthropicClient',
   'gemini-generate-content': 'GoogleGeminiClient',
   webllm: null,
-  'typesafe-system-one': null,
+  'typesafe-system-one': 'AxAITypesafeClient',
 };
 const registry = {
   registryVersion: source.schemaVersion,
@@ -436,6 +436,9 @@ const descriptors = Object.fromEntries(
           streaming: profile.capabilities.streaming,
           structured_outputs: profile.capabilities.structuredOutputs,
           structured_output_modes: profile.capabilities.structuredOutputModes,
+          ...(profile.capabilities.requiresStructuredOutput
+            ? { requires_structured_output: true }
+            : {}),
           thinking: profile.capabilities.thinking,
           multi_turn: profile.capabilities.multiTurn,
           service_tiers: profile.capabilities.serviceTiers ?? [],

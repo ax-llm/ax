@@ -1,0 +1,40 @@
+{
+  "expected_signature": {
+    "description": null,
+    "inputs": [
+      {
+        "name": "ticket",
+        "title": "Ticket",
+        "type": {
+          "isArray": false,
+          "name": "string"
+        },
+        "isOptional": false,
+        "isInternal": false,
+        "isCached": false
+      }
+    ],
+    "outputs": [
+      {
+        "name": "urgent",
+        "title": "Urgent",
+        "type": {
+          "isArray": false,
+          "name": "boolean",
+          "valueDescriptions": {
+            "false": "Routine request",
+            "true": "Core task blocked"
+          }
+        },
+        "isOptional": false,
+        "isInternal": false,
+        "isCached": false,
+        "description": "Urgent?"
+      }
+    ]
+  },
+  "expected_to_string": "ticket:string -> urgent:boolean(true \"Core task blocked\", false \"Routine request\") \"Urgent?\"",
+  "kind": "signature",
+  "name": "value-descriptions-boolean",
+  "signature": "ticket:string -> urgent:boolean(false \"Routine request\", true \"Core task blocked\") \"Urgent?\""
+}

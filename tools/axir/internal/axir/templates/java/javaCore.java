@@ -233,6 +233,7 @@ final class Core {
         case "maximum" -> t.maximum;
         case "pattern" -> t.pattern;
         case "pattern_description", "patternDescription" -> t.patternDescription;
+        case "value_descriptions", "valueDescriptions" -> t.valueDescriptions;
         case "format" -> t.format;
         case "language" -> t.language;
         case "description" -> t.description;
@@ -578,6 +579,11 @@ final class Core {
     if (v.get("maxLength") != null || v.get("max_length") != null) t.maxLength = asInt(v.getOrDefault("maxLength", v.get("max_length")));
     if (v.get("minimum") != null) t.minimum = asDouble(v.get("minimum"));
     if (v.get("maximum") != null) t.maximum = asDouble(v.get("maximum"));
+    Object descriptions = v.getOrDefault("valueDescriptions", v.get("value_descriptions"));
+    if (descriptions != null) {
+      t.valueDescriptions = new LinkedHashMap<>();
+      for (var entry : asMap(descriptions).entrySet()) t.valueDescriptions.put(entry.getKey(), (String) entry.getValue());
+    }
     t.pattern = (String) v.get("pattern");
     t.patternDescription = (String) v.getOrDefault("patternDescription", v.get("pattern_description"));
     t.format = (String) v.get("format");
@@ -1428,8 +1434,29 @@ class PromptRuntime {
     return t.array ? "json array of " + base + " items" : base;
   }
   static String objectStructure(Map<String, Object> fields) { List<String> out = new ArrayList<>(); for (Map.Entry<String, Object> e : fields.entrySet()) { Field f = e.getValue() instanceof Field field ? field : new Field(e.getKey(), (FieldType) e.getValue(), null, false, false, false); out.add(e.getKey() + (f.optional ? "?" : "") + ": " + fieldTypeText(f.type)); } return "{ " + String.join(", ", out) + " }"; }
-  static String renderInputFields(List<Field> fields, Map<String, String> names) { List<String> rows = new ArrayList<>(); for (Field f : fields) rows.add((f.title + ":" + (f.description == null ? "" : " " + formatFieldRefs(formatDescription(f.description), names))).trim()); return String.join("\n", rows); }
-  static String renderOutputFields(List<Field> fields, Map<String, String> names) { List<String> rows = new ArrayList<>(); for (Field f : fields) { String typeText = fieldTypeText(f.type); String req = f.optional ? "Only include this " + typeText + " field if its value is available" : "This " + typeText + " field must be included"; String desc = ""; if (f.description != null) desc = " " + formatFieldRefs("class".equals(f.type.name) ? f.description : formatDescription(f.description), names); if (f.type.options != null) desc += (desc.isEmpty() ? "" : ". ") + "Allowed values: " + String.join(", ", f.type.options); rows.add((f.title + " (wire key: " + BT + f.name + BT + "): (" + req + ")" + desc).trim()); } return String.join("\n", rows); }
+  static String renderInputFields(List<Field> fields, Map<String, String> names) {
+    List<String> rows = new ArrayList<>();
+    for (Field f : fields) {
+      String description = (String) Core._signature_describe_field_values_impl(f);
+      String text = description == null ? "" : f.type.valueDescriptions != null ? description : formatDescription(description);
+      rows.add((f.title + ":" + (text.isEmpty() ? "" : " " + formatFieldRefs(text, names))).trim());
+      for (Object line : Core.asList(Core._signature_nested_value_descriptions_impl(f.type.fields, f.name))) rows.add(String.valueOf(line));
+    }
+    return String.join("\n", rows);
+  }
+  static String renderOutputFields(List<Field> fields, Map<String, String> names) {
+    List<String> rows = new ArrayList<>();
+    for (Field f : fields) {
+      String typeText = fieldTypeText(f.type);
+      String req = f.optional ? "Only include this " + typeText + " field if its value is available" : "This " + typeText + " field must be included";
+      String description = (String) Core._signature_describe_field_values_impl(f);
+      String desc = description == null ? "" : " " + formatFieldRefs("class".equals(f.type.name) || f.type.valueDescriptions != null ? description : formatDescription(description), names);
+      if (f.type.options != null) desc += (desc.isEmpty() ? "" : ". ") + "Allowed values: " + String.join(", ", f.type.options);
+      rows.add((f.title + " (wire key: " + BT + f.name + BT + "): (" + req + ")" + desc).trim());
+      for (Object line : Core.asList(Core._signature_nested_value_descriptions_impl(f.type.fields, f.name))) rows.add(String.valueOf(line));
+    }
+    return String.join("\n", rows);
+  }
   static List<Map<String, Object>> functionDescriptors(List<Object> functions) { List<Map<String, Object>> out = new ArrayList<>(); for (Object fn : functions) { if (fn instanceof Tool t) out.add(Map.of("name", t.name, "description", t.description)); else if (fn instanceof Map<?, ?> map) out.add(Map.of("name", Core.asMap(map).get("name"), "description", Core.asMap(map).getOrDefault("description", ""))); } return out; }
   static String renderFunctions(List<Map<String, Object>> funcs) { List<String> out = new ArrayList<>(); for (Map<String, Object> fn : funcs) out.add("- " + BT + fn.get("name") + BT + ": " + formatDescription(String.valueOf(fn.getOrDefault("description", "")))); return String.join("\n", out); }
 }

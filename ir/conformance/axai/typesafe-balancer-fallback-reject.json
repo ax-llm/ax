@@ -1,0 +1,171 @@
+{
+  "expected_output": {
+    "outputs": {
+      "chat": {
+        "results": [
+          {
+            "content": "Backup chat",
+            "index": 0
+          }
+        ]
+      }
+    },
+    "serviceCalls": [
+      [
+        {
+          "method": "chat",
+          "opt": {}
+        }
+      ],
+      [
+        {
+          "method": "chat",
+          "opt": {}
+        }
+      ]
+    ]
+  },
+  "kind": "ai_balancer",
+  "name": "typesafe-balancer-fallback-reject",
+  "operations": [
+    {
+      "name": "chat",
+      "options": {},
+      "request": {
+        "chatPrompt": [
+          {
+            "content": "Write a reply",
+            "role": "user"
+          }
+        ]
+      }
+    }
+  ],
+  "options": {
+    "debug": false,
+    "maxRetries": 1,
+    "strategy": "input_order"
+  },
+  "services": [
+    {
+      "features": {
+        "caching": {
+          "supported": false,
+          "types": []
+        },
+        "functions": false,
+        "media": {
+          "audio": {
+            "formats": [],
+            "output": {
+              "formats": [],
+              "supported": false
+            },
+            "supported": false
+          },
+          "files": {
+            "formats": [],
+            "supported": false,
+            "uploadMethod": "none"
+          },
+          "images": {
+            "formats": [],
+            "supported": false
+          },
+          "urls": {
+            "contextFetching": false,
+            "supported": false,
+            "webSearch": false
+          }
+        },
+        "multiTurn": true,
+        "streaming": false,
+        "thinking": false
+      },
+      "name": "Unavailable",
+      "responses": [
+        {
+          "error": {
+            "message": "temporary failure",
+            "type": "network"
+          }
+        }
+      ]
+    },
+    {
+      "features": {
+        "caching": {
+          "supported": false,
+          "types": []
+        },
+        "functions": false,
+        "media": {
+          "audio": {
+            "formats": [],
+            "output": {
+              "formats": [],
+              "supported": false
+            },
+            "supported": false
+          },
+          "files": {
+            "formats": [],
+            "supported": false,
+            "uploadMethod": "none"
+          },
+          "images": {
+            "formats": [],
+            "supported": false
+          },
+          "urls": {
+            "contextFetching": false,
+            "supported": false,
+            "webSearch": false
+          }
+        },
+        "multiTurn": true,
+        "requiresStructuredOutput": true,
+        "streaming": false,
+        "thinking": false
+      },
+      "name": "Typesafe"
+    },
+    {
+      "features": {
+        "caching": {
+          "supported": false,
+          "types": []
+        },
+        "functions": false,
+        "media": {
+          "audio": {
+            "formats": [],
+            "output": {
+              "formats": [],
+              "supported": false
+            },
+            "supported": false
+          },
+          "files": {
+            "formats": [],
+            "supported": false,
+            "uploadMethod": "none"
+          },
+          "images": {
+            "formats": [],
+            "supported": false
+          },
+          "urls": {
+            "contextFetching": false,
+            "supported": false,
+            "webSearch": false
+          }
+        },
+        "multiTurn": true,
+        "streaming": false,
+        "thinking": false
+      },
+      "name": "Backup"
+    }
+  ]
+}

@@ -44,6 +44,7 @@ class FieldType:
     maximum: float | None = None
     pattern: str | None = None
     pattern_description: str | None = None
+    value_descriptions: dict[str, str] | None = None
     format: str | None = None
     language: str | None = None
     description: str | None = None
@@ -83,6 +84,12 @@ class FluentField:
         self.is_optional = False
         self.is_internal = False
         self.is_cached = False
+
+    def describe_values(self, descriptions: dict[str, str]):
+        clone = self._clone()
+        clone.type.value_descriptions = copy.deepcopy(descriptions)
+        _signature_validate_value_descriptions_impl(clone.type, clone.type.name)
+        return clone
 
     def optional(self):
         clone = self._clone()
@@ -317,6 +324,28 @@ def _core_get(target, key, default=None):
     if isinstance(target, (list, tuple)) and isinstance(key, int):
         return target[key] if 0 <= key < len(target) else default
     return getattr(target, key, default)
+
+
+def _core_type_is(value, type_name):
+    if type_name == "object":
+        return isinstance(value, dict)
+    if type_name == "list":
+        return isinstance(value, list)
+    if type_name == "string":
+        return isinstance(value, str)
+    if type_name == "number":
+        return (isinstance(value, (int, float)) and not isinstance(value, bool))
+    if type_name == "boolean":
+        return isinstance(value, bool)
+    if type_name == "null":
+        return value is None
+    if type_name == "json":
+        return value is None or isinstance(value, (dict, list, str, int, float, bool))
+    return False
+
+
+def _core_map_keys(values):
+    return list(values) if isinstance(values, dict) else []
 
 
 def _core_map_merge(left, right):
@@ -593,6 +622,7 @@ def _core_record_new(name, values):
             maximum=values.get("maximum"),
             pattern=values.get("pattern"),
             pattern_description=values.get("pattern_description", values.get("patternDescription")),
+            value_descriptions=values.get("value_descriptions", values.get("valueDescriptions")),
             format=values.get("format"),
             language=values.get("language"),
             description=values.get("description"),
