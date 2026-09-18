@@ -1,0 +1,52 @@
+{
+  "expected_error_contains": "text input only",
+  "expected_transport_request_count": 0,
+  "kind": "ai_chat",
+  "name": "typesafe-reject-media",
+  "provider": "typesafe",
+  "request": {
+    "chatPrompt": [
+      {
+        "content": [
+          {
+            "image": "AAAA",
+            "mimeType": "image/png",
+            "type": "image"
+          }
+        ],
+        "role": "user"
+      }
+    ],
+    "modelConfig": {
+      "stream": false
+    },
+    "responseFormat": {
+      "fieldDescriptions": {
+        "team": {
+          "description": "Responsible team",
+          "valueDescriptions": {
+            "billing": "Payment questions",
+            "support": "Product help"
+          }
+        }
+      },
+      "schema": {
+        "name": "decision",
+        "schema": {
+          "properties": {
+            "team": {
+              "enum": ["support", "billing"],
+              "type": "string"
+            },
+            "urgent": {
+              "type": "boolean"
+            }
+          },
+          "required": ["urgent", "team"],
+          "type": "object"
+        }
+      },
+      "type": "json_schema"
+    }
+  }
+}

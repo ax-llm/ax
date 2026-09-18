@@ -685,6 +685,9 @@ func verifyPythonTarget(report VerifyTargetReport, conformanceRoot string) (Veri
 		return report, nil
 	}
 	env := runtimeProtocolEnv(conformanceRoot, append(scrubbedEnviron(), "PYTHONPATH="+report.OutDir))
+	if err := runVerifyCommand(&report, "Typesafe and MCP WebSocket tests", "", env, python, filepath.Join(report.OutDir, "tests", "typesafe_mcp_test.py")); err != nil {
+		return report, err
+	}
 	if err := runVerifyCommand(&report, "Astra session tests", "", env, python, filepath.Join(report.OutDir, "tests", "astra_session_test.py")); err != nil {
 		return report, err
 	}
@@ -826,11 +829,14 @@ func verifyJavaTarget(report VerifyTargetReport, conformanceRoot string) (Verify
 		return report, err
 	}
 	files = append(files, examples...)
-	files = append(files, filepath.Join(report.OutDir, "tests", "AstraSessionTest.java"))
+	files = append(files, filepath.Join(report.OutDir, "tests", "AstraSessionTest.java"), filepath.Join(report.OutDir, "tests", "TypesafeMCPTest.java"))
 	sort.Strings(files)
 	args := append([]string{"-cp", report.OutDir, "-d", report.OutDir}, files...)
 	env := runtimeProtocolEnv(conformanceRoot, scrubbedEnviron())
 	if err := runVerifyCommand(&report, "javac", "", env, javac, args...); err != nil {
+		return report, err
+	}
+	if err := runVerifyCommand(&report, "Typesafe and MCP WebSocket tests", "", env, java, "-cp", report.OutDir, "TypesafeMCPTest"); err != nil {
 		return report, err
 	}
 	if err := runVerifyCommand(&report, "Astra session tests", "", env, java, "-cp", report.OutDir, "AstraSessionTest"); err != nil {
@@ -1206,6 +1212,13 @@ func verifyCppTarget(report VerifyTargetReport, conformanceRoot string) (VerifyT
 		return report, err
 	}
 	// Scripted agent payloads belong in regression tests, not user-facing examples.
+	parityTest := filepath.Join(buildDir, "typesafe_mcp_test")
+	if err := runVerifyCommand(&report, "compile Typesafe and MCP tests", "", nil, cpp, "-std=c++17", "-I", report.OutDir, filepath.Join(report.OutDir, "tests", "typesafe_mcp_test.cpp"), axObj, mcpObj, "-o", parityTest); err != nil {
+		return report, err
+	}
+	if err := runVerifyCommand(&report, "Typesafe and MCP WebSocket tests", "", nil, parityTest); err != nil {
+		return report, err
+	}
 	sessionTest := filepath.Join(buildDir, "astra_session_test")
 	if err := runVerifyCommand(&report, "compile Astra session tests", "", nil, cpp, "-std=c++17", "-I", report.OutDir, filepath.Join(report.OutDir, "tests", "astra_session_test.cpp"), axObj, mcpObj, "-o", sessionTest); err != nil {
 		return report, err

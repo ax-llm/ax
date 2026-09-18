@@ -46,3 +46,8 @@ first two require `TYPESAFE_API_KEY` or `TYPESAFE_APIKEY` in `.env`; the last tw
 also require `OPENAI_API_KEY` or `OPENAI_APIKEY`. See the
 [Typesafe/Jev skill](../ax/skills/ax-typesafe.md) for supported outputs,
 native-only scoring, and question design.
+
+Typesafe/Jev examples are available in every language’s `generation` directory:
+signature decisions with `trueThreshold`, native rich criteria and Score, and an
+explicit two-program hybrid reply. Set `TYPESAFE_APIKEY`; hybrid examples also need
+`OPENAI_API_KEY` or `OPENAI_APIKEY`. Run them with `npm run example -- <language> <path>`.

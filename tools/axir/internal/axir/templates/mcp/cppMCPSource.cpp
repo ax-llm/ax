@@ -1101,4 +1101,89 @@ void run_mcp_conformance_fixture(Value fixture) {
   }
 }
 
+struct AxMCPWebSocketTransport::State {
+  struct Pending { bool done=false; Value response; std::exception_ptr error; };
+  std::mutex mutex;
+  std::condition_variable changed;
+  std::shared_ptr<RealtimeTransport> socket;
+  std::map<std::string,std::shared_ptr<Pending>> pending;
+  std::string protocol;
+  std::function<void(Value)> handler;
+  std::function<Value(Value)> request_handler;
+  std::function<void(std::string)> lifecycle;
+};
+AxMCPWebSocketTransport::AxMCPWebSocketTransport(std::string url,SocketFactory factory)
+    :state_(std::make_shared<State>()),url_(std::move(url)),factory_(std::move(factory)) {
+  if(!factory_)factory_=[](const std::string& target){return make_web_socket_transport(target);};
+}
+AxMCPWebSocketTransport::~AxMCPWebSocketTransport(){try{close();}catch(...) {}}
+void AxMCPWebSocketTransport::connect(){
+  std::lock_guard<std::mutex> connection(connection_mutex_);
+  {std::lock_guard<std::mutex> lock(state_->mutex);if(state_->socket)return;}
+  if(reader_.joinable())reader_.join();
+  auto socket=factory_(url_);if(!socket)throw AxError("mcp","MCP WebSocket factory returned no socket");
+  {std::lock_guard<std::mutex> lock(state_->mutex);state_->socket=socket;}
+  reader_=std::thread(&AxMCPWebSocketTransport::receive,state_,socket);
+}
+void AxMCPWebSocketTransport::terminate(const std::shared_ptr<State>& state,const std::shared_ptr<RealtimeTransport>& socket,std::exception_ptr error){
+  std::function<void(std::string)> lifecycle;
+  {std::lock_guard<std::mutex> lock(state->mutex);if(state->socket!=socket)return;state->socket.reset();
+    for(auto& entry:state->pending){entry.second->error=error;entry.second->done=true;}state->pending.clear();lifecycle=state->lifecycle;state->changed.notify_all();}
+  socket->close();if(lifecycle)std::thread([lifecycle]{try{lifecycle("disconnected");}catch(...) {}}).detach();
+}
+void AxMCPWebSocketTransport::receive(std::shared_ptr<State> state,std::shared_ptr<RealtimeTransport> socket){
+  try{Value parsed;while(socket->recv(parsed)){
+    Value messages=parsed;
+    {std::lock_guard<std::mutex> lock(state->mutex);if(state->socket!=socket)return;
+      if(parsed.is_array()){if(state->protocol!="2025-03-26")throw AxError("mcp","JSON-RPC batching is only allowed for MCP 2025-03-26");}
+      else {messages=Value::array();Core::append(messages,parsed);}}
+    for(const auto& message:Core::iter(messages)){
+      std::shared_ptr<State::Pending> slot;
+      std::function<void(Value)> handler;std::function<Value(Value)> request_handler;
+      {std::lock_guard<std::mutex> lock(state->mutex);if(state->socket!=socket)return;
+        if(!Core::get(message,"id").is_null()&&Core::get(message,"method").is_null()){
+          auto key=display(Core::json_stringify(Core::get(message,"id")));auto found=state->pending.find(key);
+          if(found!=state->pending.end()){slot=found->second;state->pending.erase(found);slot->response=message;slot->done=true;state->changed.notify_all();}}
+        handler=state->handler;request_handler=state->request_handler;}
+      if(!slot&&(handler||request_handler))std::thread([message,handler,request_handler,socket]{try{
+        if(request_handler&&!Core::get(message,"id").is_null()&&!Core::get(message,"method").is_null())socket->send(request_handler(message));else if(handler)handler(message);
+      }catch(...) {}}).detach();
+    }
+  }throw AxError("mcp","MCP WebSocket closed");}catch(...){terminate(state,socket,std::current_exception());}
+}
+Value AxMCPWebSocketTransport::requests(Value messages,const AxToolContext& context,bool batch){
+  std::string protocol;{std::lock_guard<std::mutex> lock(state_->mutex);protocol=state_->protocol;}
+  Value ids=Core::mcp_websocket_request_ids(messages,protocol,batch);
+  if(context.is_cancelled())throw AxAIServiceAbortedError("MCP invocation cancelled");
+  // Snapshot caller-owned request data before asynchronous transport work.
+  Value payload=parse_json(display(Core::json_stringify(batch?messages:Core::get(messages,0))));
+  connect();
+  std::vector<std::pair<std::string,std::shared_ptr<State::Pending>>> slots;
+  std::shared_ptr<RealtimeTransport> socket;
+  {std::lock_guard<std::mutex> lock(state_->mutex);
+    for(const auto& id:Core::iter(ids))if(state_->pending.count(display(id)))throw AxError("mcp","MCP request ID is already pending");
+    socket=state_->socket;if(!socket)throw AxError("mcp","MCP WebSocket closed");
+    for(const auto& id:Core::iter(ids)){auto slot=std::make_shared<State::Pending>();state_->pending[display(id)]=slot;slots.emplace_back(display(id),slot);}}
+  auto cleanup=[&](void*){std::lock_guard<std::mutex> lock(state_->mutex);for(const auto& entry:slots){auto found=state_->pending.find(entry.first);if(found!=state_->pending.end()&&found->second==entry.second)state_->pending.erase(found);}};
+  std::unique_ptr<void,decltype(cleanup)> guard(this,cleanup);
+  if(context.is_cancelled())throw AxAIServiceAbortedError("MCP invocation cancelled");
+  socket->send(payload);
+  Value results=Value::array();
+  for(auto& entry:slots){std::unique_lock<std::mutex> lock(state_->mutex);
+    while(!entry.second->done){if(context.is_cancelled())throw AxAIServiceAbortedError("MCP invocation cancelled");state_->changed.wait_for(lock,std::chrono::milliseconds(10));}
+    if(context.is_cancelled())throw AxAIServiceAbortedError("MCP invocation cancelled");
+    if(entry.second->error)std::rethrow_exception(entry.second->error);
+    Core::append(results,entry.second->response);}
+  return results;
+}
+Value AxMCPWebSocketTransport::send(Value message){Value messages=Value::array();Core::append(messages,message);return Core::get(requests(messages,{},false),0);}
+Value AxMCPWebSocketTransport::send_with_context(Value message,Value headers,const AxToolContext& context){(void)headers;Value messages=Value::array();Core::append(messages,message);return Core::get(requests(messages,context,false),0);}
+Value AxMCPWebSocketTransport::send_batch(Value messages,const AxToolContext& context){return requests(messages,context,true);}
+void AxMCPWebSocketTransport::send_notification(Value message){connect();std::shared_ptr<RealtimeTransport> socket;{std::lock_guard<std::mutex> lock(state_->mutex);socket=state_->socket;}if(!socket)throw AxError("mcp","MCP WebSocket closed");socket->send(message);}
+void AxMCPWebSocketTransport::set_message_handler(std::function<void(Value)> handler){std::lock_guard<std::mutex> lock(state_->mutex);state_->handler=std::move(handler);}
+void AxMCPWebSocketTransport::set_request_handler(std::function<Value(Value)> handler){std::lock_guard<std::mutex> lock(state_->mutex);state_->request_handler=std::move(handler);}
+void AxMCPWebSocketTransport::set_lifecycle_handler(std::function<void(std::string)> handler){std::lock_guard<std::mutex> lock(state_->mutex);state_->lifecycle=std::move(handler);}
+void AxMCPWebSocketTransport::set_protocol_version(const std::string& version){std::lock_guard<std::mutex> lock(state_->mutex);state_->protocol=version;}
+void AxMCPWebSocketTransport::close(){std::lock_guard<std::mutex> connection(connection_mutex_);std::shared_ptr<RealtimeTransport> socket;{std::lock_guard<std::mutex> lock(state_->mutex);socket=state_->socket;}if(socket)terminate(state_,socket,std::make_exception_ptr(AxError("mcp","MCP WebSocket closed")));if(reader_.joinable()&&reader_.get_id()!=std::this_thread::get_id())reader_.join();}
+
 }  // namespace axllm

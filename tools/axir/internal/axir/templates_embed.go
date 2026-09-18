@@ -712,3 +712,21 @@ var pySessionNoKeyExample string
 
 //go:embed templates/runtime/hostNamespaces.js
 var runtimeHostNamespaces string
+
+//go:embed templates/java/javaTypesafe.java
+var javaTypesafe string
+
+//go:embed templates/mcp/javaAxMCPWebSocketTransport.java
+var javaAxMCPWebSocketTransport string
+
+//go:embed templates/python/pyTypesafeMCPTest.py
+var pyTypesafeMCPTest string
+
+//go:embed templates/go/goTypesafeMCPTest.go.txt
+var goTypesafeMCPTest string
+
+//go:embed templates/java/javaTypesafeMCPTest.java
+var javaTypesafeMCPTest string
+
+//go:embed templates/cpp/cppTypesafeMCPTest.cpp
+var cppTypesafeMCPTest string

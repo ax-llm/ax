@@ -1,0 +1,9 @@
+{
+  "expected_error_category": "signature",
+  "expected_error_contains": "requires a nonempty quoted description",
+  "kind": "signature_error",
+  "name": "value-descriptions-empty",
+  "signature": "ticket:string -> urgent:boolean(true \" \")",
+  "ts_error_message": "Invalid Signature: Field \"urgent\": \"true\" requires a nonempty quoted description",
+  "ts_error_name": "AxSignatureValidationError"
+}

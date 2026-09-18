@@ -149,6 +149,37 @@
         },
         {
           "target_name": "java",
+          "canonical_name": "typesafe",
+          "public_name": "Ax.typesafe",
+          "kind": "function",
+          "description": "Create the native Typesafe/Jev client separately from ordinary AI services. Default model: jev-latest.",
+          "form": "Ax.typesafe(options)",
+          "important_options": [
+            "api key or credential provider",
+            "endpoint",
+            "transport",
+            "timeout",
+            "retry"
+          ],
+          "returns": "AxAITypesafeClient"
+        },
+        {
+          "target_name": "java",
+          "canonical_name": "AxAITypesafeClient",
+          "public_name": "AxAITypesafeClient",
+          "kind": "type",
+          "description": "Native System One questions and model discovery. Returns typed Noul probabilities, Choice labels, fractional Score positions, model, and usage.",
+          "form": "AxAITypesafeClient",
+          "important_options": [
+            "system_one / systemOne / SystemOne",
+            "list_models / listModels / ListModels",
+            "structured or null entries",
+            "cancellation"
+          ],
+          "returns": "native Typesafe responses"
+        },
+        {
+          "target_name": "java",
           "canonical_name": "AxCancellationToken",
           "public_name": "AxCancellationToken",
           "kind": "type",
@@ -846,6 +877,20 @@
             "headers",
             "OAuth",
             "SSRF protection"
+          ],
+          "returns": "MCP transport"
+        },
+        {
+          "target_name": "java",
+          "canonical_name": "AxMCPWebSocketTransport",
+          "public_name": "AxMCPWebSocketTransport",
+          "kind": "type",
+          "description": "WebSocket transport with request-local pending ownership, send failure cleanup, cancellation, and close settlement. Batching requires MCP 2025-03-26.",
+          "form": "new AxMCPWebSocketTransport(url)",
+          "important_options": [
+            "URL",
+            "socket factory",
+            "protocol version"
           ],
           "returns": "MCP transport"
         },

@@ -452,9 +452,16 @@ func javaLiteral(value interface{}) string {
 		}
 		return "Boolean.FALSE"
 	case int:
+		if v > 2147483647 || v < -2147483648 {
+			return strconv.Itoa(v) + "L"
+		}
 		return strconv.Itoa(v)
 	case float64:
-		return strconv.FormatFloat(v, 'f', -1, 64)
+		text := strconv.FormatFloat(v, 'f', -1, 64)
+		if (v > 2147483647 || v < -2147483648) && !strings.Contains(text, ".") {
+			text += ".0"
+		}
+		return text
 	default:
 		return strconv.Quote(fmt.Sprint(v))
 	}

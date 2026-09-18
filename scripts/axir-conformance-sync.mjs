@@ -68,20 +68,31 @@ function flagValue(flags, key, fallback = undefined) {
 // stay stable regardless of producer key order.
 const STABLE_ORDER_PRESERVING_KEYS = new Set(['sections']);
 
-function stable(value, parentKey = '', preserveOrder = false) {
+function stable(
+  value,
+  parentKey = '',
+  preserveOrder = false,
+  inSignature = false
+) {
   const keepOrder = preserveOrder || parentKey === 'validation_cases';
+  const signature = inSignature || parentKey === 'signature_spec';
+  const fieldOrder =
+    signature && ['inputs', 'outputs', 'fields'].includes(parentKey);
   if (Array.isArray(value))
-    return value.map((item) => stable(item, parentKey, keepOrder));
+    return value.map((item) => stable(item, parentKey, keepOrder, signature));
   if (value && typeof value === 'object') {
     const entries = Object.entries(value).filter(
       ([, item]) => item !== undefined
     );
     const ordered =
-      keepOrder || STABLE_ORDER_PRESERVING_KEYS.has(parentKey)
+      keepOrder || fieldOrder || STABLE_ORDER_PRESERVING_KEYS.has(parentKey)
         ? entries
         : entries.sort(([a], [b]) => a.localeCompare(b));
     return Object.fromEntries(
-      ordered.map(([key, item]) => [key, stable(item, key, keepOrder)])
+      ordered.map(([key, item]) => [
+        key,
+        stable(item, key, keepOrder, signature),
+      ])
     );
   }
   return value;
@@ -340,6 +351,18 @@ async function runSync({ repoRoot, write }) {
     runConformanceExtractor(
       repoRoot,
       tempRoot,
+      'signature-goldens.ts',
+      'AxSignature'
+    );
+    runConformanceExtractor(
+      repoRoot,
+      tempRoot,
+      'prompt-goldens.ts',
+      'AxPrompt'
+    );
+    runConformanceExtractor(
+      repoRoot,
+      tempRoot,
       'schema-validation-goldens.ts',
       'AxSchema'
     );
@@ -368,6 +391,8 @@ async function runSync({ repoRoot, write }) {
     });
     const failures = [
       ...compareGeneratedFixtures(repoRoot, tempRoot, 'axai', write),
+      ...compareGeneratedFixtures(repoRoot, tempRoot, 'signature', write),
+      ...compareGeneratedFixtures(repoRoot, tempRoot, 'prompt', write),
       ...compareGeneratedFixtures(repoRoot, tempRoot, 'schema', write),
       ...compareGeneratedFixtures(repoRoot, tempRoot, 'validation', write),
       ...compareGeneratedFixtures(repoRoot, tempRoot, 'axgen', write),

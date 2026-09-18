@@ -1,6 +1,12 @@
 import { mkdirSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 
+import {
+  type extractionState,
+  extractValues,
+  streamingExtractFinalValue,
+  streamingExtractValues,
+} from '../../../src/ax/dsp/extract.js';
 import { createStructuredDelta } from '../../../src/ax/dsp/response/structuredDelta.js';
 import { AxSignature, f } from '../../../src/ax/dsp/sig.js';
 
@@ -682,3 +688,42 @@ writeFixture('prompt-cache-key-forward-options', {
   },
   expected_request_count: 1,
 });
+
+// Exact wire keys advertised by prompts must also work in text and chunked responses.
+for (const [name, content] of Object.entries({
+  wire: 'urgent: true\nassignedTeam: engineering',
+  titles: 'Urgent: true\nAssigned Team: engineering',
+  mixed: 'Urgent: true\nassignedTeam: engineering',
+})) {
+  const signature =
+    'ticket:string -> urgent:boolean(true "Core task blocked", false "Routine"), assignedTeam:class "support, engineering"';
+  const sig = AxSignature.from(signature);
+  const values: Record<string, unknown> = {};
+  extractValues(sig, values, content);
+  writeFixture(`value-descriptions-text-${name}`, {
+    kind: 'forward',
+    signature,
+    input: { ticket: 'Outage' },
+    responses: [{ content }],
+    expected_output: values as Json,
+    expected_request_count: 1,
+  });
+  const streamed: Record<string, unknown> = {};
+  const state: extractionState = {
+    extractedFields: [],
+    streamedIndex: {},
+    s: -1,
+  };
+  for (let i = 1; i <= content.length; i++)
+    streamingExtractValues(sig, streamed, state, content.slice(0, i));
+  streamingExtractFinalValue(sig, streamed, state, content, {
+    forceFinalize: true,
+  });
+  writeFixture(`value-descriptions-stream-${name}`, {
+    kind: 'stream',
+    text_signature: signature,
+    stream_events: [...content],
+    expected_folded: content,
+    expected_text_output: streamed as Json,
+  });
+}

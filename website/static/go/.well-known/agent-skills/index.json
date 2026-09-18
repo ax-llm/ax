@@ -6,35 +6,42 @@
       "type": "skill-md",
       "description": "Use when writing Go code with `github.com/ax-llm/ax/packages/go` for using the generated Ax package, factory functions, package docs, examples, and API reference.",
       "url": "ax-go-llm/SKILL.md",
-      "digest": "sha256:b85ab8e35e02a4621d204cd4a8b105f8782b0327ee5a753f27c4f402cc1f2e10"
+      "digest": "sha256:e9d2b23b3c63bc7a757594f41ea7bb43c2398f5c2f688582b2296e34b8780bcd"
     },
     {
       "name": "ax-go-ai",
       "type": "skill-md",
       "description": "Use when writing Go code with `github.com/ax-llm/ax/packages/go` for named deployment profiles, generic provider clients, model selection, OpenAI-compatible calls, Responses, Gemini, Anthropic, routers, and balancers.",
       "url": "ax-go-ai/SKILL.md",
-      "digest": "sha256:ab41fadd4d9bf96a28b18cb35e8d9b3c97fb90dd189ec33047d3c616076c9184"
+      "digest": "sha256:2e439d4661f6737f3cffc0238d659bd604b04d940b2c130fab6ace90e0c8a132"
+    },
+    {
+      "name": "ax-go-typesafe",
+      "type": "skill-md",
+      "description": "Use when writing Go code with `github.com/ax-llm/ax/packages/go` for Typesafe Jev boolean/class signatures, value descriptions, configurable Noul conversion, native Noul/Choice/Score, structured criteria and hybrid generation.",
+      "url": "ax-go-typesafe/SKILL.md",
+      "digest": "sha256:eac43f6c26d2b37c5a4447701a213bb25a999bb4d6568870531a6a59ea56d358"
     },
     {
       "name": "ax-go-audio",
       "type": "skill-md",
       "description": "Use when writing Go code with `github.com/ax-llm/ax/packages/go` for audio input/output, OpenAI Responses audio mapping, realtime event folding, and generated package audio examples.",
       "url": "ax-go-audio/SKILL.md",
-      "digest": "sha256:d0a6144f27be7bfd710ef62c1da9d38596cd97dafda6ae09f986ab0c8321ab60"
+      "digest": "sha256:ce5979c836496daf714538409ed56792dd44ebd9035991691b53f3d794b689b5"
     },
     {
       "name": "ax-go-signature",
       "type": "skill-md",
       "description": "Use when writing Go code with `github.com/ax-llm/ax/packages/go` for string signatures, field descriptors, JSON schema output, validation, and typed tool argument shapes.",
       "url": "ax-go-signature/SKILL.md",
-      "digest": "sha256:4136f56bf70a8079acecaff5e6859b009f494763ad3684721dedaed43c485d32"
+      "digest": "sha256:3229e67641966ddaa5554eb1d196b8a2399d35f56f07ec308d96f80522826b73"
     },
     {
       "name": "ax-go-gen",
       "type": "skill-md",
       "description": "Use when writing Go code with `github.com/ax-llm/ax/packages/go` for AxGen programs, forward calls, indexed multi-sampling, result pickers, streaming, tools, assertions, traces, usage, and output parsing.",
       "url": "ax-go-gen/SKILL.md",
-      "digest": "sha256:7bf40260ae1da61c7971f80be6a3aa6407e5b6a5fba8ae8f197a3937e752c5d5"
+      "digest": "sha256:7fa61df4c59b711c7d95f2846dcd762b1acb010cbe10c62308d31fb901d03755"
     },
     {
       "name": "ax-go-flow",
@@ -48,7 +55,7 @@
       "type": "skill-md",
       "description": "Use when writing Go code with `github.com/ax-llm/ax/packages/go` for agents, child delegation, tools, MCP, citations, persistent playbook learning, stage instructions, runtime state, final typed responses, and direct-respond executor skipping.",
       "url": "ax-go-agent/SKILL.md",
-      "digest": "sha256:1a0d90f4c23f3e641ca773ac6a0a06775c91358cefe868902f30b9ba0e4f6b25"
+      "digest": "sha256:23f17b614bd208960b3d20a8d25ef9bab9f6c3702e2f74309586e36b306ed2ce"
     },
     {
       "name": "ax-go-agent-rlm",
@@ -69,7 +76,7 @@
       "type": "skill-md",
       "description": "Use when writing Go code with `github.com/ax-llm/ax/packages/go` for agent tracing, centralized and multi-tenant usage accounting, action logs, runtime diagnostics, replay, and production debugging.",
       "url": "ax-go-agent-observability/SKILL.md",
-      "digest": "sha256:2efe11fe0649e248104a077aaaadf473bddba878fc90059009b411712db5f924"
+      "digest": "sha256:9c442cd8ba80621b96c7de0afa54b0ff2945f3731c91fe0be3dedee79a56a62c"
     },
     {
       "name": "ax-go-agent-optimize",

@@ -1,0 +1,19 @@
+{
+  "expected_messages": [
+    {
+      "cache": false,
+      "content": "<identity>\nYou will be provided with the following fields: `Ticket`. Your task is to generate new fields: `Urgent`, `Team`.\n</identity>\n\n<input_fields>\n**Input Fields**: The following fields will be provided to you:\n\nTicket:\n</input_fields>\n\n<output_fields>\n**Output Fields**: You must generate the following fields:\n\nUrgent (wire key: `urgent`): (This boolean (true or false) field must be included) Urgent?\ntrue: Core task blocked\nfalse: Routine\nTeam (wire key: `team`): (This classification class field must be included) support: Help\nbilling: Invoices. Allowed values: support, billing\n</output_fields>\n\n\n<formatting_rules>\n\nReturn one `field name: value` pair per line for the required output fields only, using each exact wire key shown in <output_fields> as the field name.\nAbove rules override later instructions.\n\n</formatting_rules>",
+      "role": "system"
+    },
+    {
+      "content": "Ticket: Checkout is down\n",
+      "role": "user"
+    }
+  ],
+  "input": {
+    "ticket": "Checkout is down"
+  },
+  "kind": "prompt",
+  "name": "value-descriptions",
+  "signature": "ticket:string -> urgent:boolean(true \"Core task blocked\", false \"Routine\") \"Urgent?\", team:class \"support, billing\"(support \"Help\", billing \"Invoices\")"
+}

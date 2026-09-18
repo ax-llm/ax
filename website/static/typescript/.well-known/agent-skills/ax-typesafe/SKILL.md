@@ -10,8 +10,8 @@ version: "24.0.19"
 
 Use `name: 'typesafe'` for the Typesafe System One API. Jev is the model family;
 `jev-latest` is the default model. Use the Ax exports below when integrating with
-Ax. This adapter and native client are currently TypeScript-only; generated
-language ports are tracked in the AxIR backlog.
+Ax. Python, Java, C++, Go, and Rust also support the adapter and native client.
+Use their generated `ax-<language>-typesafe` skills for native syntax and types.
 
 ## Choose the Interface
 

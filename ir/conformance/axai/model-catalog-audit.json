@@ -50,7 +50,8 @@
       "lm-studio",
       "llama-cpp",
       "localai",
-      "baseten-engine"
+      "baseten-engine",
+      "typesafe"
     ],
     "filterOptions": ["all", "text", "embeddings", "code", "audio", "image"],
     "nextMilestone": "Generated catalog provider clients match the active catalog",

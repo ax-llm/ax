@@ -18,7 +18,7 @@ Use a key from any provider Ax supports. The Quick Start uses OpenAI because it 
 
 ### Does Ax support Typesafe’s Jev models?
 
-Yes, in TypeScript. Use `ai({ name: 'typesafe', apiKey })` with ordinary
+Yes, in TypeScript, Python, Java, C++, Go, and Rust. Use the `typesafe` provider with ordinary
 boolean/class signatures for yes/no decisions and classification. The separate
 `typesafe()` client exposes native scoring, probabilities, and structured
 criteria. See the [Typesafe/Jev guide and examples](/typescript/skills/ax-typesafe/).

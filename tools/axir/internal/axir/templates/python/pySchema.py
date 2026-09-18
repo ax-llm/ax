@@ -217,6 +217,7 @@ def _nested_field(name, item):
             maximum=item.get("maximum"),
             pattern=item.get("pattern"),
             pattern_description=item.get("patternDescription", item.get("pattern_description")),
+            value_descriptions=item.get("valueDescriptions", item.get("value_descriptions")),
             format=item.get("format"),
             description=item.get("description"),
         )

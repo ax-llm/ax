@@ -116,6 +116,26 @@ Create a provider client from a named deployment profile and options.
 auto client = axllm::ai("openai", axllm::object({{"apiKey", std::getenv("OPENAI_API_KEY")}}));
 ```
 
+### `axllm::typesafe`
+
+Create the native Typesafe/Jev client separately from ordinary AI services. Default model: jev-latest.
+
+- Canonical Ax concept: `typesafe`
+- Kind: `function`
+- Form: `axllm::typesafe(options)`
+- Returns: `AxAITypesafeClient`
+- Important options: api key or credential provider, endpoint, transport, timeout, retry
+
+### `axllm::AxAITypesafeClient`
+
+Native System One questions and model discovery. Returns typed Noul probabilities, Choice labels, fractional Score positions, model, and usage.
+
+- Canonical Ax concept: `AxAITypesafeClient`
+- Kind: `type`
+- Form: `axllm::AxAITypesafeClient`
+- Returns: `native Typesafe responses`
+- Important options: system_one / systemOne / SystemOne, list_models / listModels / ListModels, structured or null entries, cancellation
+
 ### `axllm::AxCancellationToken`
 
 Reusable one-shot cancellation for provider calls, streams, retries, and event-clock sleeps. Go uses context.Context.
@@ -617,6 +637,16 @@ Streamable HTTP transport with session headers, OAuth options, and SSRF protecti
 - Form: `axllm::AxMCPStreamableHTTPTransport(endpoint, options)`
 - Returns: `MCP transport`
 - Important options: endpoint, headers, OAuth, SSRF protection
+
+### `axllm::AxMCPWebSocketTransport`
+
+WebSocket transport with request-local pending ownership, send failure cleanup, cancellation, and close settlement. Batching requires MCP 2025-03-26.
+
+- Canonical Ax concept: `AxMCPWebSocketTransport`
+- Kind: `type`
+- Form: `axllm::AxMCPWebSocketTransport(url, socket_factory)`
+- Returns: `MCP transport`
+- Important options: URL, socket factory, protocol version
 
 ### `axllm::AxMCPStdioTransport`
 

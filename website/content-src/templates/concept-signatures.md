@@ -47,7 +47,7 @@ boolean.
 
 {{signatureStringExample}}
 
-## Per-value descriptions in TypeScript
+## Per-value descriptions
 
 Boolean fields can describe their outcomes with
 `urgent:boolean(true "Core task blocked", false "Routine request") "Urgent?"`.
@@ -60,8 +60,9 @@ with the corresponding fluent fields.
 These descriptions preserve the existing output types. Conventional providers
 receive combined text descriptions in prompts and JSON schemas. Typesafe maps
 them to native criteria. Descriptions survive signature round-tripping, and
-rendering does not modify the original signature. Generated-language support is
-tracked in the AxIR backlog.
+rendering does not modify the original signature. These semantics also apply in
+Python, Java, C++, Go, and Rust. Fluent field helpers use the language’s usual
+`describe_values`, `describeValues`, or `DescribeValues` naming.
 
 For Jev's structured criteria, native probabilities, and scoring, see the
 [Typesafe/Jev skill](/typescript/skills/ax-typesafe/). Per-field value guidance

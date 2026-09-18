@@ -62,7 +62,7 @@ Use the provider-backed Astra examples under `src/examples/cpp/generation/`, `sh
 ## Relevant API Surface
 
 - Agents And RLM: `axllm::agent`, `axllm::AxAgent`, `axllm::AxAgent::add_child_agent`
-- MCP: `axllm::AxMCPClient`, `axllm::AxMCPStreamableHTTPTransport`, `axllm::AxMCPStdioTransport`
+- MCP: `axllm::AxMCPClient`, `axllm::AxMCPStreamableHTTPTransport`, `axllm::AxMCPWebSocketTransport`, `axllm::AxMCPStdioTransport`
 - Runtime Profiles: `axllm::ProcessCodeRuntime`, `axllm::RuntimeCapabilities`, `axllm::RuntimeEnvelope`, `javascript-quickjs`, `python-pyodide`
 
 ## Guardrails

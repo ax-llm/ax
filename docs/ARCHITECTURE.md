@@ -82,14 +82,15 @@ Cohere, and Grok share Core request/response normalization. Grok Voice and
 Gemini Live use reusable realtime-audio grammar profiles. Targets still own
 real HTTP, SSE, WebSocket, auth, retry, and binary media transport.
 
-Typesafe/Jev currently has a TypeScript adapter for required boolean/class
+Typesafe/Jev has an adapter in TypeScript and all five generated languages for required boolean/class
 signatures and a separate native `typesafe()` client for Noul, Choice, and Score.
 The native methods stay outside the common AI/program interfaces. Signature
 value descriptions become native criteria for Typesafe and readable descriptions
 for conventional providers. Request validation excludes incompatible schemas
 before provider selection or fallback; numeric bounds never imply a Score rubric.
-See the [Typesafe/Jev skill](../src/ax/skills/ax-typesafe.md) for usage and the
-[AxIR backlog](./AXIR_BACKLOG.md) for the remaining language ports.
+See the [Typesafe/Jev skill](../src/ax/skills/ax-typesafe.md) for TypeScript usage and each generated package’s Typesafe skill for native APIs.
+Core owns question/schema validation, criteria, conversion, and response contracts;
+target bindings own transport, credentials, cancellation, and native result types.
 
 ## Signatures And AxGen
 

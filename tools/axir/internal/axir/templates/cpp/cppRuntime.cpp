@@ -262,7 +262,7 @@ static Value get_key(const Value& object, const std::string& key, Value fallback
       {"is_array", "isArray"}, {"is_optional", "isOptional"},
       {"is_internal", "isInternal"}, {"is_cached", "isCached"},
       {"min_length", "minLength"}, {"max_length", "maxLength"},
-      {"pattern_description", "patternDescription"},
+      {"pattern_description", "patternDescription"}, {"value_descriptions", "valueDescriptions"},
       {"input_fields", "inputs"}, {"output_fields", "outputs"}};
   auto alias = aliases.find(key);
   if (alias != aliases.end()) {
@@ -279,7 +279,7 @@ static bool has_key(const Value& object, const std::string& key) {
       {"is_array", "isArray"}, {"is_optional", "isOptional"},
       {"is_internal", "isInternal"}, {"is_cached", "isCached"},
       {"min_length", "minLength"}, {"max_length", "maxLength"},
-      {"pattern_description", "patternDescription"}};
+      {"pattern_description", "patternDescription"}, {"value_descriptions", "valueDescriptions"}};
   auto alias = aliases.find(key);
   return alias != aliases.end() && obj.count(alias->second) > 0;
 }
@@ -650,6 +650,9 @@ Value HttpTransport::call_impl(Value request,const AxCancellationToken* cancella
     // required for the raw audio bytes embedded in a multipart body.
     curl_easy_setopt(curl, CURLOPT_POSTFIELDS, payload.data());
     curl_easy_setopt(curl, CURLOPT_POSTFIELDSIZE, static_cast<long>(payload.size()));
+  } else if (method == "GET" || method == "HEAD") {
+    curl_easy_setopt(curl, CURLOPT_CUSTOMREQUEST, method.c_str());
+    if (method == "HEAD") curl_easy_setopt(curl, CURLOPT_NOBODY, 1L);
   } else {
     curl_easy_setopt(curl, CURLOPT_CUSTOMREQUEST, method.c_str());
     curl_easy_setopt(curl, CURLOPT_POSTFIELDS, payload.data());
@@ -1662,12 +1665,12 @@ Value Core::record_new(Value name, Value values) {
     for (const auto& key : {"options", "fields", "minimum", "maximum", "pattern", "format", "language", "description"}) {
       if (in.count(key)) out[key] = in[key];
     }
-    for (const auto& keys : {std::pair{"minLength", "min_length"}, std::pair{"maxLength", "max_length"}, std::pair{"patternDescription", "pattern_description"}}) {
+    for (const auto& keys : {std::pair{"minLength", "min_length"}, std::pair{"maxLength", "max_length"}, std::pair{"patternDescription", "pattern_description"}, std::pair{"valueDescriptions", "value_descriptions"}}) {
       auto value = get_key(values, keys.second);
       if (!value.is_null()) out[keys.first] = value;
     }
     for (const auto& kv : in) {
-      if (!out.count(kv.first) && kv.first != "is_array" && kv.first != "min_length" && kv.first != "max_length" && kv.first != "pattern_description") out[kv.first] = kv.second;
+      if (!out.count(kv.first) && kv.first != "is_array" && kv.first != "min_length" && kv.first != "max_length" && kv.first != "pattern_description" && kv.first != "value_descriptions") out[kv.first] = kv.second;
     }
     return Value(out);
   }
@@ -1973,9 +1976,11 @@ static bool prompt_complex(Value sig) {
 static std::string prompt_render_input_fields(const Array& fields, const Object& names) {
   std::vector<std::string> rows;
   for (const auto& f : fields) {
+    Value description = Core::_signature_describe_field_values_impl(f);
     std::string row = str(get_key(f, "title")) + ":";
-    if (!get_key(f, "description").is_null()) row += " " + prompt_format_refs(prompt_format_description(str(get_key(f, "description"))), names);
+    if (!description.is_null()) row += " " + prompt_format_refs((get_key(get_key(f, "type"), "value_descriptions").is_null() ? prompt_format_description(str(description)) : str(description)), names);
     rows.push_back(str(Core::string_trim(row)));
+    for (const auto& line : array_ref(Core::_signature_nested_value_descriptions_impl(get_key(get_key(f, "type"), "fields"), get_key(f, "name")))) rows.push_back(str(line));
   }
   std::string joined;
   for (size_t i = 0; i < rows.size(); ++i) { if (i) joined += "\n"; joined += rows[i]; }
@@ -1987,8 +1992,9 @@ static std::string prompt_render_output_fields(const Array& fields, const Object
     Value typ = get_key(f, "type");
     std::string type_text = prompt_field_type_text(typ);
     std::string req = Core::truthy(get_key(f, "isOptional")) ? "Only include this " + type_text + " field if its value is available" : "This " + type_text + " field must be included";
+    Value description = Core::_signature_describe_field_values_impl(f);
     std::string desc;
-    if (!get_key(f, "description").is_null()) desc = " " + prompt_format_refs(str(get_key(typ, "name")) == "class" ? str(get_key(f, "description")) : prompt_format_description(str(get_key(f, "description"))), names);
+    if (!description.is_null()) desc = " " + prompt_format_refs(str(get_key(typ, "name")) == "class" ? str(description) : (get_key(get_key(f, "type"), "value_descriptions").is_null() ? prompt_format_description(str(description)) : str(description)), names);
     if (!array_ref(get_key(typ, "options")).empty()) {
       std::vector<std::string> opts;
       for (const auto& option : array_ref(get_key(typ, "options"))) opts.push_back(str(option));
@@ -1998,6 +2004,7 @@ static std::string prompt_render_output_fields(const Array& fields, const Object
     }
     std::string bt(1, static_cast<char>(96));
     rows.push_back(str(Core::string_trim(str(get_key(f, "title")) + " (wire key: " + bt + str(get_key(f, "name")) + bt + "): (" + req + ")" + desc)));
+    for (const auto& line : array_ref(Core::_signature_nested_value_descriptions_impl(get_key(get_key(f, "type"), "fields"), get_key(f, "name")))) rows.push_back(str(line));
   }
   std::string joined;
   for (size_t i = 0; i < rows.size(); ++i) { if (i) joined += "\n"; joined += rows[i]; }
@@ -3015,6 +3022,7 @@ Value AxBaseAI::get_features(Value) { return AxAIService::get_features(Value());
 std::string AxBaseAI::get_id() { return name_ + "-id"; }
 std::string AxBaseAI::get_name() { return name_; }
 Value AxBaseAI::get_model_list() {
+  for(const auto& key:{"models","model_list","modelList"})if(Core::truthy(Core::map_contains(options_,key)))return Core::get(options_,key);
   Value out = Value::array();
   if (!model_.empty()) Core::append(out, object({{"key", model_}, {"description", name_ + " chat model"}, {"model", model_}}));
   if (!embed_model_.empty()) Core::append(out, object({{"key", embed_model_}, {"description", name_ + " embed model"}, {"embedModel", embed_model_}}));
@@ -3084,12 +3092,16 @@ OpenAICompatibleClient::OpenAICompatibleClient(std::string profile, std::string 
           Core::map_merge(options, Core::get(options, "options", Value::object()))),
       profile_(std::move(profile)),
       descriptor_(Core::provider_resolve_descriptor(profile_, Core::map_merge(options, Core::get(options, "options", Value::object())))),
-      base_url_(strip_trailing_slashes(option_string(options, "base_url", "baseUrl", env_or_default("OPENAI_BASE_URL", str(Core::get(descriptor_, "baseUrl", "https://api.openai.com/v1")))))),
-      api_key_(option_string(options, "api_key", "apiKey", env_or_default("OPENAI_API_KEY", ""))),
+      base_url_(strip_trailing_slashes(option_string(options, "base_url", "baseUrl", (profile_ == "typesafe" ? str(Core::get(descriptor_, "baseUrl")) : env_or_default("OPENAI_BASE_URL", str(Core::get(descriptor_, "baseUrl", "https://api.openai.com/v1"))))))),
+      api_key_(option_string(options, "api_key", "apiKey", (profile_ == "typesafe" ? env_or_default("TYPESAFE_APIKEY", env_or_default("TYPESAFE_API_KEY", "")) : env_or_default("OPENAI_API_KEY", "")))),
       api_version_(str(Core::get(descriptor_, "apiVersion", option_string(options, "api_version", "apiVersion", "")))),
       timeout_seconds_(Core::get(options, "timeout", 60).is_number() ? num(Core::get(options, "timeout", 60)) : 60.0),
       credential_provider_(std::move(credential_provider)),
       transport_(transport) {
+  if (profile_ == "typesafe") {
+    model_config_ = Core::get(options, "model_config", Value::object());
+    Core::typesafe_require_number(Core::get(options_, "trueThreshold", Core::get(options_, "true_threshold", 0.5)), "trueThreshold", 0, 1);
+  }
   if (transport_ == nullptr) {
     owned_transport_ = std::make_shared<HttpTransport>();
     transport_ = owned_transport_.get();
@@ -3308,7 +3320,18 @@ Value OpenAICompatibleClient::do_chat(Value request, Value options) {
   std::string endpoint = operation_path("chat", model);
   Value raw = context_cache_chat(request, options, payload, model, endpoint);
   if (raw.is_null()) raw = request_json(endpoint, payload, false, "json", false, operation_method("chat"));
-  return Core::provider_normalize_chat_response(profile_, raw, name_, model, payload);
+  return Core::provider_normalize_chat_response(profile_, raw, name_, model, profile_ == "typesafe" ? Core::typesafe_response_context(payload, options) : payload);
+}
+
+void OpenAICompatibleClient::validate_chat_request(Value request) const {
+  Value req = Core::coerce_chat_request(parse_json(stringify(request)));
+  Core::set(req, "model", Core::coalesce(Core::get(req, "model"), model_));
+  Core::set(req, "model_config", Core::merge_model_config(model_config_, Core::get(req, "model_config"), options_));
+  Core::provider_validate_chat_request(profile_, req, options_);
+}
+static bool service_accepts_request_cpp(const std::shared_ptr<AxAIService>& service, Value request) {
+  try { service->validate_chat_request(request); return true; }
+  catch (const AxError&) { return false; }
 }
 
 Value OpenAICompatibleClient::do_embed(Value request, Value options) {
@@ -3399,6 +3422,7 @@ static bool stream_error_retryable(const AxError& error) {
 }
 
 void OpenAICompatibleClient::stream_each(Value request, AxStreamHandler handler) {
+  if(!Core::truthy(Core::get(get_features(Core::get(request,"model")),"streaming",true))) { handler(chat(request)); return; }
   Value req = Core::coerce_chat_request(std::move(request));
   Value config = Core::merge_model_config(model_config_, Core::get(req, "model_config"), Value(Object{{"stream", true}}));
   Core::set(config, "stream", true);
@@ -3613,7 +3637,7 @@ RealtimeWsTarget realtime_ws_target(const std::string& profile, const std::strin
 // thread (mirrors the Transport/HTTP split, gated by AXLLM_ENABLE_REALTIME).
 class WsRealtimeTransport : public RealtimeTransport {
  public:
-  WsRealtimeTransport(const std::string& url, const std::vector<std::pair<std::string, std::string>>& headers) {
+  WsRealtimeTransport(const std::string& url, const std::vector<std::pair<std::string, std::string>>& headers, bool idle_timeout = true) : idle_timeout_(idle_timeout) {
     socket_.setUrl(url);
     ix::WebSocketHttpHeaders ws_headers;
     for (const auto& header : headers) ws_headers[header.first] = header.second;
@@ -3642,14 +3666,15 @@ class WsRealtimeTransport : public RealtimeTransport {
   }
   void send(const Value& event) override {
     if (str(Core::get(event, "type", Value(""))) == "binary") {
-      socket_.sendBinary(axir_base64_decode(str(Core::get(event, "data", Value("")))));
+      if (!socket_.sendBinary(axir_base64_decode(str(Core::get(event, "data", Value(""))))).success) throw AxError("network", "WebSocket send failed");
     } else {
-      socket_.send(str(Core::json_stringify(event)));
+      if (!socket_.send(str(Core::json_stringify(event))).success) throw AxError("network", "WebSocket send failed");
     }
   }
   bool recv(Value& out) override {
     std::unique_lock<std::mutex> lock(mutex_);
-    if (!cv_.wait_for(lock, std::chrono::seconds(30), [this] { return !queue_.empty() || closed_; })) throw Core::as_error(Core::ai_error_response("realtime WebSocket timed out"));
+    if (!idle_timeout_) cv_.wait(lock, [this] { return !queue_.empty() || closed_; });
+    else if (!cv_.wait_for(lock, std::chrono::seconds(30), [this] { return !queue_.empty() || closed_; })) throw Core::as_error(Core::ai_error_response("realtime WebSocket timed out"));
     if (queue_.empty()) {
       if (!error_.empty()) throw Core::as_error(Core::ai_error_response(error_));
       return false;
@@ -3660,9 +3685,10 @@ class WsRealtimeTransport : public RealtimeTransport {
     out = parse_json(raw);
     return true;
   }
-  void close() override { socket_.stop(); }
+  void close() override { {std::lock_guard<std::mutex> lock(mutex_);closed_=true;cv_.notify_all();} socket_.stop(); }
 
  private:
+  bool idle_timeout_;
   ix::WebSocket socket_;
   std::mutex mutex_;
   std::condition_variable cv_;
@@ -3674,6 +3700,15 @@ class WsRealtimeTransport : public RealtimeTransport {
 #endif
 
 }  // namespace
+
+std::shared_ptr<RealtimeTransport> make_web_socket_transport(const std::string& url) {
+#if defined(AXLLM_ENABLE_REALTIME)
+  return std::make_shared<WsRealtimeTransport>(url,std::vector<std::pair<std::string,std::string>>{},false);
+#else
+  (void)url;
+  throw AxError("mcp","Build with AXLLM_ENABLE_REALTIME=ON or provide a WebSocket factory");
+#endif
+}
 
 ScriptedRealtimeTransport::ScriptedRealtimeTransport(std::vector<Value> inbound) : inbound_(std::move(inbound)) {
   for (const auto& event : inbound_) if (!Core::get(event, "sessionId").is_null() && Core::get(event, "type").is_null()) meta_ = true;
@@ -3893,13 +3928,14 @@ Value OpenAICompatibleClient::build_request(const std::string& endpoint, Value p
   if (!stream && body_key == "data") operation = binary_response ? "speak" : "transcribe";
   if (!stream && endpoint.find("embedding") != std::string::npos) operation = "embed";
   if (!stream && str(Core::get(descriptor_, "transport")) == "openai-responses") operation = "responses";
+  if (profile_ == "typesafe" && endpoint == "/v1/models") operation = "models";
   if (credential_provider_) {
     for (const auto& [key, value] : credential_provider_(AxCredentialRequest{profile_, operation, method, request_url})) {
       Core::set(resolved_headers, key, value);
     }
   }
   Core::set(call, "headers", resolved_headers);
-  Core::set(call, body_key.empty() ? "json" : body_key, payload);
+  if (method != "GET" && method != "HEAD") Core::set(call, body_key.empty() ? "json" : body_key, payload);
   Core::set(call, "stream", stream);
   // Signals the transport to return the raw body as base64 instead of JSON.
   if (binary_response) Core::set(call, "binary", Value(true));
@@ -6746,6 +6782,76 @@ AxFlow flow(Value options) { return AxFlow(std::move(options)); }
 AxFlow flow(Value options, AxRuntimeHooks hooks) { return AxFlow(std::move(options), std::move(hooks)); }
 AxFlow flow(const std::string& mermaid, Value bindings) { return AxFlow(mermaid, std::move(bindings)); }
 AxFlow flow(const std::string& mermaid, Value bindings, AxRuntimeHooks hooks) { return AxFlow(mermaid, std::move(bindings), std::move(hooks)); }
+TypesafeResponse TypesafeResponse::from_value(Value value) {
+  auto raw_usage=Core::get(value,"usage");
+  TypesafeResponse response{display(Core::get(value,"model")),{}, {static_cast<std::uint64_t>(Core::number(Core::get(raw_usage,"input_tokens"))),static_cast<std::uint64_t>(Core::number(Core::get(raw_usage,"output_tokens")))}};
+  auto answers=Core::get(value,"answers");
+  for(auto key:Core::iter(Core::map_keys(answers))) {
+    auto answer=Core::get(answers,key);auto type=display(Core::get(answer,"type"));
+    std::map<std::string,double> probabilities;auto raw=Core::get(answer,"probabilities");for(auto label:Core::iter(Core::map_keys(raw)))probabilities[display(label)]=Core::number(Core::get(raw,label));
+    if(type=="noul")response.answers.emplace(display(key),TypesafeNoul{Core::number(Core::get(answer,"noul"))});
+    else if(type=="choice")response.answers.emplace(display(key),TypesafeChoice{display(Core::get(answer,"choice")),probabilities,Core::number(Core::get(answer,"confidence"))});
+    else response.answers.emplace(display(key),TypesafeScore{Core::number(Core::get(answer,"score")),probabilities,Core::number(Core::get(answer,"confidence")),Core::get(answer,"legend")});
+  }
+  return response;
+}
+Value TypesafeResponse::to_value() const {
+  Value result=Value(Object{{"model",model},{"usage",Value(Object{{"input_tokens",static_cast<double>(usage.input_tokens)},{"output_tokens",static_cast<double>(usage.output_tokens)}})}});
+  Value values=Value::object();
+  for(const auto& entry:answers) {
+    Value answer;
+    if(auto value=std::get_if<TypesafeNoul>(&entry.second))answer=Value(Object{{"type","noul"},{"noul",value->noul}});
+    else {
+      Value probabilities=Value::object();
+      if(auto value=std::get_if<TypesafeChoice>(&entry.second)){for(const auto& item:value->probabilities)Core::set(probabilities,item.first,item.second);answer=Value(Object{{"type","choice"},{"choice",value->choice},{"confidence",value->confidence},{"probabilities",probabilities}});}
+      else {const auto& score=std::get<TypesafeScore>(entry.second);for(const auto& item:score.probabilities)Core::set(probabilities,item.first,item.second);answer=Value(Object{{"type","score"},{"score",score.score},{"confidence",score.confidence},{"probabilities",probabilities},{"legend",score.legend}});}
+    }
+    Core::set(values,entry.first,answer);
+  }
+  Core::set(result,"answers",values);return result;
+}
+
+AxAITypesafeClient::AxAITypesafeClient(Value options, Transport* transport, AxCredentialProvider credential_provider)
+    : options_(std::move(options)), transport_(transport), credential_provider_(std::move(credential_provider)) {
+  if (Core::get(options_, "api_key").is_null() && Core::get(options_, "apiKey").is_null()) Core::set(options_, "api_key", env_or_default("TYPESAFE_APIKEY", env_or_default("TYPESAFE_API_KEY", "")));
+  Core::typesafe_require_string(Core::get(options_, "model", "jev-latest"), "model", true);
+  if (option_string(options_, "api_key", "apiKey", "").empty() && !credential_provider_)
+    throw AxError("authentication", "Typesafe requires api_key or credential_provider");
+}
+TypesafeResponse AxAITypesafeClient::system_one(Value request, Value options, const AxCancellationToken* cancellation) {
+  Value payload = parse_json(stringify(request));
+  if (Core::get(payload, "model").is_null()) Core::set(payload, "model", Core::get(options_, "model", "jev-latest"));
+  Core::typesafe_validate_request(payload);
+  Value raw = call("POST", "/v1/systemone", payload, std::move(options), cancellation);
+  return TypesafeResponse::from_value(Core::typesafe_decode_response(raw, Core::get(payload, "questions")));
+}
+std::vector<TypesafeModelCard> AxAITypesafeClient::list_models(Value options, const AxCancellationToken* cancellation) {
+  auto models=Core::typesafe_decode_models(call("GET", "/v1/models", Value(), std::move(options), cancellation));
+  std::vector<TypesafeModelCard> cards;for(auto model:Core::iter(models))cards.push_back({display(Core::get(model,"name")),display(Core::get(model,"description")),display(Core::get(model,"release_date"))});return cards;
+}
+Value AxAITypesafeClient::call(const std::string& method, const std::string& path, Value payload, Value options, const AxCancellationToken* cancellation) {
+  AxCancellationScope scope(cancellation);
+  Value resolved = Core::map_merge(options_, options);
+  OpenAICompatibleClient client("typesafe", "Typesafe", resolved, transport_, "jev-latest", "", credential_provider_);
+  Value retry = Core::resolve_stream_retry(resolved);
+  int retries = static_cast<int>(num(Core::get(retry, "max_retries")));
+  for (int attempt = 0; ; ++attempt) {
+    if (cancellation) cancellation->throw_if_cancelled();
+    try {
+      return client.request_json(path, payload, false, "json", false, method);
+    } catch (const AxError& error) {
+      if (!error.retryable || attempt >= retries) throw;
+      double delay = std::min(num(Core::get(retry, "initial_delay_ms")) * std::pow(num(Core::get(retry, "backoff_factor")), attempt), num(Core::get(retry, "max_delay_ms")));
+      auto duration = std::chrono::milliseconds(static_cast<long>(delay));
+      if (cancellation) { cancellation->wait_for(duration); cancellation->throw_if_cancelled(); }
+      else std::this_thread::sleep_for(duration);
+    }
+  }
+}
+AxAITypesafeClient typesafe(Value options, Transport* transport, AxCredentialProvider credential_provider) {
+  return AxAITypesafeClient(std::move(options), transport, std::move(credential_provider));
+}
+
 std::shared_ptr<AxAIService> ai(const std::string& provider, Value options) {
   Value resolved = Core::provider_resolve_profile(provider.empty() ? "openai" : provider);
   if (!Core::truthy(Core::get(resolved, "known"))) {
@@ -6763,7 +6869,7 @@ std::shared_ptr<AxAIService> ai(const std::string& provider, Value options) {
   if (transport == "anthropic-messages") {
     return std::make_shared<AnthropicClient>(canonical, std::move(options));
   }
-  if (transport == "openai-chat") {
+  if (transport == "openai-chat" || transport == "typesafe-system-one") {
     return std::make_shared<OpenAICompatibleClient>(canonical,
         canonical, std::move(options), nullptr,
         display(Core::get(descriptor, "defaultModel", "")),
@@ -6960,7 +7066,7 @@ std::vector<std::shared_ptr<AxAIService>> AxBalancer::candidate_services(Value r
   std::vector<std::shared_ptr<AxAIService>> out;
   Value model = Core::get(request, "model");
   for (const auto& service : services_) {
-    if (Core::truthy(Core::provider_balancer_candidate_allowed(service->get_features(model), request))) out.push_back(service);
+    if (service_accepts_request_cpp(service, request) && Core::truthy(Core::provider_balancer_candidate_allowed(service->get_features(model), request))) out.push_back(service);
   }
   if (!out.empty()) return out;
   std::vector<std::string> requirements;
@@ -6999,6 +7105,9 @@ std::shared_ptr<AIClient> AxBalancer::pin_chat_run(Value request,Value options) 
 
 static Value merge_service_features_cpp(const std::vector<std::shared_ptr<AxAIService>>& services,Value model) {
   Value features = balancer_base_features_cpp();
+  bool all_require_schema = !services.empty();
+  for (const auto& service : services) { Value raw = service->get_features(model); all_require_schema = all_require_schema && Core::truthy(Core::get(raw, "requiresStructuredOutput", Core::get(raw, "requires_structured_output", false))); }
+  if (all_require_schema) Core::set(features, "requiresStructuredOutput", true);
   Value structured_output_modes = Value::array();
   bool all_modes_advertised = !services.empty();
   for (const auto& service : services) {
@@ -7526,10 +7635,10 @@ ProviderRouter::ProviderRouter(Value config) {
 ProviderRouter::ProviderRouter(std::vector<std::shared_ptr<AxAIService>> providers, Value routing, Value processing)
     : providers_(std::move(providers)), routing_(std::move(routing)), processing_(std::move(processing)) {}
 
-Value ProviderRouter::provider_records(Value model) const {
+Value ProviderRouter::provider_records(Value model, Value request) const {
   Value out = Value::array();
   for (const auto& provider : providers_) {
-    Core::append(out, object({{"name", provider->get_name()}, {"id", provider->get_id()}, {"features", provider->get_features(model)}}));
+    Core::append(out, object({{"name", provider->get_name()}, {"id", provider->get_id()}, {"features", provider->get_features(model)}, {"requestCompatible", request.is_null() || service_accepts_request_cpp(provider, request)}}));
   }
   return out;
 }
@@ -7540,12 +7649,12 @@ std::shared_ptr<AxAIService> ProviderRouter::service_for_name(Value name) const 
 }
 
 Value ProviderRouter::get_routing_recommendation(Value request) {
-  Value rec = Core::provider_route_recommendation(provider_records(Core::get(request,"model")), Core::coerce_chat_request(request), routing_);
+  Value rec = Core::provider_route_recommendation(provider_records(Core::get(request,"model"), request), Core::coerce_chat_request(request), routing_);
   return rec;
 }
 
 Value ProviderRouter::validate_request(Value request) {
-  return Core::provider_route_validation(provider_records(Core::get(request,"model")), Core::coerce_chat_request(request), processing_, routing_);
+  return Core::provider_route_validation(provider_records(Core::get(request,"model"), request), Core::coerce_chat_request(request), processing_, routing_);
 }
 
 Value ProviderRouter::get_routing_stats() { return Core::provider_routing_stats(provider_records()); }

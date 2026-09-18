@@ -162,4 +162,10 @@ module @ax.api version "0.1" {
     ref service = @AxAIService
     type signature = "(provider:string, options?:json) -> AxAIService throws"
   }
+  op ax.api.function @typesafe {
+    attr core_kind = "func"
+    attr public = true
+    ref client = @AxAITypesafeClient
+    type signature = "(options?:json) -> AxAITypesafeClient throws"
+  }
 }

@@ -9,7 +9,7 @@ pub use mcp::{
     AxInMemoryEventStore, AxMCPCatalogSnapshot, AxMCPClient, AxMCPContinuationState,
     AxMCPEventSource, AxMCPOAuthOptions, AxMCPResourceSubscriptionPolicy, AxMCPScriptedTransport,
     AxMCPStdioTransport, AxMCPStreamableHTTPTransport, AxMCPTokenSet, AxMCPTransport,
-    AxManualEventClock, AxSystemEventClock, AxUCPBinding, AxUCPClient,
+    AxMCPWebSocketTransport, AxManualEventClock, AxSystemEventClock, AxUCPBinding, AxUCPClient,
 };
 use reqwest::blocking::Client as HttpClient;
 use serde::{Deserialize, Serialize};
@@ -795,6 +795,12 @@ pub struct FieldType {
         rename = "patternDescription"
     )]
     pub pattern_description: Option<String>,
+    #[serde(
+        default,
+        skip_serializing_if = "Option::is_none",
+        rename = "valueDescriptions"
+    )]
+    pub value_descriptions: Option<Map<String, Value>>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub format: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -816,6 +822,7 @@ impl FieldType {
             maximum: None,
             pattern: None,
             pattern_description: None,
+            value_descriptions: None,
             format: None,
             language: None,
             description: None,
@@ -846,10 +853,20 @@ impl FieldType {
             maximum: None,
             pattern: None,
             pattern_description: None,
+            value_descriptions: None,
             format: None,
             language: None,
             description: None,
         }
+    }
+
+    pub fn describe_values(mut self, descriptions: Map<String, Value>) -> Result<Self, AxError> {
+        self.value_descriptions = Some(descriptions);
+        _signature_validate_value_descriptions_impl(&[
+            core_field_type_value(&self)?,
+            CoreValue::from(self.name.as_str()),
+        ])?;
+        Ok(self)
     }
 
     pub fn array(mut self) -> Self {
@@ -892,6 +909,12 @@ impl FieldType {
         }
         if let Some(value) = &self.pattern {
             out.insert("pattern".to_string(), Value::String(value.clone()));
+        }
+        if let Some(value) = &self.value_descriptions {
+            out.insert(
+                "valueDescriptions".to_string(),
+                Value::Object(value.clone()),
+            );
         }
         if let Some(value) = &self.pattern_description {
             out.insert(
@@ -1137,6 +1160,11 @@ fn field_type_from_payload(raw: &Value) -> FieldType {
     field_type.max_length = number_key(raw, &["maxLength"]);
     field_type.minimum = number_key(raw, &["minimum"]);
     field_type.maximum = number_key(raw, &["maximum"]);
+    field_type.value_descriptions = raw
+        .get("valueDescriptions")
+        .or_else(|| raw.get("value_descriptions"))
+        .and_then(Value::as_object)
+        .cloned();
     field_type.pattern = raw
         .get("pattern")
         .and_then(Value::as_str)
@@ -1205,6 +1233,9 @@ fn field_from_spec(name: &str, raw: &Value) -> Field {
     }
     if let Some(value) = raw.get("pattern").and_then(Value::as_str) {
         type_payload.insert("pattern".to_string(), Value::String(value.to_string()));
+    }
+    if let Some(value) = raw.get("valueDescriptions") {
+        type_payload.insert("valueDescriptions".to_string(), value.clone());
     }
     if let Some(value) = raw.get("patternDescription").and_then(Value::as_str) {
         type_payload.insert(
@@ -1520,6 +1551,9 @@ pub type AxOwnedClientFactory = Box<dyn FnOnce() -> Box<dyn AxAIClient> + Send>;
 pub type AxOwnedTransportFactory = Box<dyn FnOnce() -> Box<dyn AxTransport> + Send>;
 
 pub trait AxAIClient {
+    fn validate_chat_request(&self, _request: &Value) -> AxResult<()> {
+        Ok(())
+    }
     fn owned_worker_factory(&mut self) -> Option<AxOwnedClientFactory> {
         None
     }
@@ -2333,7 +2367,7 @@ impl OpenAICompatibleClient {
         } else {
             json!({})
         };
-        if base_config.get("temperature").is_none() {
+        if self.profile != "typesafe" && base_config.get("temperature").is_none() {
             base_config["temperature"] = json!(0);
         }
         let override_config = req
@@ -2357,11 +2391,15 @@ impl OpenAICompatibleClient {
         model: &str,
         stream: bool,
     ) -> AxResult<Value> {
-        let operation_descriptor = core_value_to_json(&provider_resolve_operation_descriptor(&[
-            CoreValue::from(self.profile.as_str()),
-            CoreValue::from(operation),
-            core_value_from_json(&self.options),
-        ])?);
+        let operation_descriptor = if self.profile == "typesafe" && operation == "models" {
+            json!({"path":"/v1/models","method":"GET"})
+        } else {
+            core_value_to_json(&provider_resolve_operation_descriptor(&[
+                CoreValue::from(self.profile.as_str()),
+                CoreValue::from(operation),
+                core_value_from_json(&self.options),
+            ])?)
+        };
         let descriptor = core_value_to_json(&provider_resolve_descriptor(&[
             CoreValue::from(self.profile.as_str()),
             core_value_from_json(&self.options),
@@ -2478,7 +2516,9 @@ impl OpenAICompatibleClient {
             }
         }
         let mut out = json!({"method": method, "url": url, "headers": Value::Object(headers), "stream": stream});
-        out[body_key] = payload.clone();
+        if method != "GET" && method != "HEAD" {
+            out[body_key] = payload.clone();
+        }
         Ok(out)
     }
 
@@ -2499,6 +2539,14 @@ impl OpenAICompatibleClient {
                 .map_err(|_| AxError::runtime("Transport lock poisoned"))?
                 .send(call);
         }
+        let timeout = self
+            .options
+            .get("timeout")
+            .and_then(Value::as_f64)
+            .unwrap_or(60.0);
+        if let Some(token) = &cancellation {
+            return cancellable_http_json(&call, timeout, token);
+        }
         let url = call
             .get("url")
             .and_then(Value::as_str)
@@ -2511,7 +2559,7 @@ impl OpenAICompatibleClient {
             .parse::<reqwest::Method>()
             .map_err(|error| AxError::new("validation", format!("invalid HTTP method: {error}")))?;
         let mut builder = HttpClient::builder()
-            .timeout(Duration::from_secs(60))
+            .timeout(Duration::from_secs_f64(timeout.max(0.001)))
             .build()?
             .request(method, url);
         if let Some(headers) = call.get("headers").and_then(Value::as_object) {
@@ -2528,9 +2576,10 @@ impl OpenAICompatibleClient {
                 .header("Content-Type", content_type)
                 .body(body)
                 .send()?
+        } else if let Some(body) = call.get("json") {
+            builder.json(body).send()?
         } else {
-            let body = call.get("json").cloned().unwrap_or_else(|| json!({}));
-            builder.json(&body).send()?
+            builder.send()?
         };
         if let Some(token) = &cancellation {
             token.throw_if_cancelled()?;
@@ -4085,6 +4134,15 @@ mod meta_duplex_tests {
 }
 
 impl AxAIClient for OpenAICompatibleClient {
+    fn validate_chat_request(&self, request: &Value) -> AxResult<()> {
+        let req = self.prepare_chat_request(request)?;
+        provider_validate_chat_request(&[
+            CoreValue::from(self.profile.as_str()),
+            core_value_from_json(&req),
+            core_value_from_json(&self.options),
+        ])?;
+        Ok(())
+    }
     fn owned_worker_factory(&mut self) -> Option<AxOwnedClientFactory> {
         let create = self.owned_provider_factory()?;
         Some(Box::new(move || Box::new(create())))
@@ -4130,7 +4188,8 @@ impl AxAIClient for OpenAICompatibleClient {
     }
     fn get_model_list(&self) -> Value {
         self.options
-            .get("modelList")
+            .get("models")
+            .or_else(|| self.options.get("modelList"))
             .or_else(|| self.options.get("model_list"))
             .cloned()
             .unwrap_or_else(|| json!([{"key": self.model, "model": self.model}]))
@@ -4260,7 +4319,15 @@ impl AxAIClient for OpenAICompatibleClient {
                 None => self.dispatch_transport_request(call)?,
             };
             let profile = self.profile.clone();
-            let response = normalize_openai_response(&profile, &model, raw, &payload);
+            let response_context = if profile == "typesafe" {
+                core_value_to_json(&typesafe_response_context(&[
+                    core_value_from_json(&payload),
+                    core_value_from_json(&self.options),
+                ])?)
+            } else {
+                payload.clone()
+            };
+            let response = normalize_openai_response(&profile, &model, raw, &response_context);
             if let Ok(value) = &response {
                 emit_usage_event("chat", value, &self.options, false);
             }
@@ -4274,6 +4341,14 @@ impl AxAIClient for OpenAICompatibleClient {
     }
 
     fn stream_iter(&mut self, request: Value) -> AxResult<AxChatStream> {
+        if self
+            .get_features(request.get("model").and_then(Value::as_str))
+            .get("streaming")
+            .and_then(Value::as_bool)
+            == Some(false)
+        {
+            return Ok(AxChatStream::from_values(vec![self.chat(request)?]));
+        }
         let hooks = merge_runtime_hooks(None, None, Some(&self.runtime_hooks));
         let info = AxRateLimitInfo {
             operation: "chat".to_string(),
@@ -4498,6 +4573,195 @@ pub type AnthropicClient = OpenAICompatibleClient;
 pub type GoogleGeminiClient = OpenAICompatibleClient;
 pub type OpenAIResponsesClient = OpenAICompatibleClient;
 
+/// Native Typesafe question; structured and null entries use serde_json::Value.
+#[derive(Clone, Debug, Serialize, Deserialize)]
+#[serde(tag = "type", rename_all = "lowercase")]
+pub enum TypesafeQuestion {
+    Noul {
+        #[serde(
+            default,
+            deserialize_with = "typesafe_present_entry",
+            skip_serializing_if = "Option::is_none"
+        )]
+        instructions: Option<Value>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        criteria: Option<Map<String, Value>>,
+    },
+    Choice {
+        #[serde(
+            default,
+            deserialize_with = "typesafe_present_entry",
+            skip_serializing_if = "Option::is_none"
+        )]
+        instructions: Option<Value>,
+        criteria: Map<String, Value>,
+    },
+    Score {
+        #[serde(
+            default,
+            deserialize_with = "typesafe_present_entry",
+            skip_serializing_if = "Option::is_none"
+        )]
+        instructions: Option<Value>,
+        criteria: Vec<Value>,
+    },
+}
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct TypesafeRequest {
+    pub state: Value,
+    pub questions: std::collections::BTreeMap<String, TypesafeQuestion>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub model: Option<String>,
+}
+#[derive(Clone, Debug, Serialize, Deserialize)]
+#[serde(tag = "type", rename_all = "lowercase")]
+pub enum TypesafeAnswer {
+    Noul {
+        noul: f64,
+    },
+    Choice {
+        choice: String,
+        confidence: f64,
+        probabilities: std::collections::BTreeMap<String, f64>,
+    },
+    Score {
+        score: f64,
+        confidence: f64,
+        probabilities: std::collections::BTreeMap<String, f64>,
+        legend: Map<String, Value>,
+    },
+}
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct TypesafeUsage {
+    pub input_tokens: u64,
+    pub output_tokens: u64,
+}
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct TypesafeResponse {
+    pub model: String,
+    pub answers: std::collections::BTreeMap<String, TypesafeAnswer>,
+    pub usage: TypesafeUsage,
+}
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct TypesafeModelCard {
+    pub name: String,
+    pub description: String,
+    pub release_date: String,
+}
+
+fn typesafe_present_entry<'de, D: serde::Deserializer<'de>>(
+    deserializer: D,
+) -> Result<Option<Value>, D::Error> {
+    Value::deserialize(deserializer).map(Some)
+}
+
+/// Provider-specific client; native methods are intentionally absent from AiClient.
+pub struct AxAITypesafeClient {
+    client: OpenAICompatibleClient,
+}
+pub fn typesafe(options: Value) -> AxResult<AxAITypesafeClient> {
+    Ok(AxAITypesafeClient {
+        client: ai("typesafe", options)?,
+    })
+}
+impl AxAITypesafeClient {
+    pub fn with_transport(mut self, transport: impl AxTransport + 'static) -> Self {
+        self.client = self.client.with_transport(transport);
+        self
+    }
+    pub fn with_credential_provider(
+        mut self,
+        provider: impl AxCredentialProvider + 'static,
+    ) -> Self {
+        self.client = self.client.with_credential_provider(provider);
+        self
+    }
+    pub fn system_one(&mut self, request: TypesafeRequest) -> AxResult<TypesafeResponse> {
+        self.system_one_with_cancellation(request, None)
+    }
+    pub fn system_one_with_cancellation(
+        &mut self,
+        request: TypesafeRequest,
+        cancellation: Option<&AxCancellationToken>,
+    ) -> AxResult<TypesafeResponse> {
+        let _scope = match cancellation {
+            Some(token) => Some(AxCancellationScope::enter(token)?),
+            None => None,
+        };
+        let mut payload = serde_json::to_value(request)?;
+        if payload.get("model").is_none() {
+            payload["model"] = json!(self.client.model);
+        }
+        typesafe_validate_request(&[core_value_from_json(&payload)])?;
+        let raw = self.request("chat", &payload)?;
+        let decoded = typesafe_decode_response(&[
+            core_value_from_json(&raw),
+            core_value_from_json(&payload["questions"]),
+        ])?;
+        Ok(serde_json::from_value(core_value_to_json(&decoded))?)
+    }
+    pub fn list_models(&mut self) -> AxResult<Vec<TypesafeModelCard>> {
+        self.list_models_with_cancellation(None)
+    }
+    pub fn list_models_with_cancellation(
+        &mut self,
+        cancellation: Option<&AxCancellationToken>,
+    ) -> AxResult<Vec<TypesafeModelCard>> {
+        let _scope = match cancellation {
+            Some(token) => Some(AxCancellationScope::enter(token)?),
+            None => None,
+        };
+        let raw = self.request("models", &Value::Null)?;
+        let decoded = typesafe_decode_models(&[core_value_from_json(&raw)])?;
+        Ok(serde_json::from_value(core_value_to_json(&decoded))?)
+    }
+    fn request(&mut self, operation: &str, payload: &Value) -> AxResult<Value> {
+        let retry = core_value_to_json(&resolve_stream_retry(&[core_value_from_json(
+            &self.client.options,
+        )])?);
+        let retries = retry["max_retries"].as_u64().unwrap_or(0);
+        let cancellation = current_cancellation_token();
+        for attempt in 0.. {
+            if let Some(token) = &cancellation {
+                token.throw_if_cancelled()?;
+            }
+            let model = payload
+                .get("model")
+                .and_then(Value::as_str)
+                .unwrap_or(&self.client.model);
+            let call = self
+                .client
+                .provider_transport_request(operation, payload, model, false)?;
+            let outcome = self
+                .client
+                .dispatch_transport_request(call)
+                .and_then(normalize_passthrough_response);
+            match outcome {
+                Ok(raw) => return Ok(raw),
+                Err(error) => {
+                    if !error.retryable || attempt >= retries {
+                        return Err(error);
+                    }
+                    let delay = (retry["initial_delay_ms"].as_f64().unwrap_or(1000.0)
+                        * retry["backoff_factor"]
+                            .as_f64()
+                            .unwrap_or(2.0)
+                            .powf(attempt as f64))
+                    .min(retry["max_delay_ms"].as_f64().unwrap_or(32000.0));
+                    let duration = Duration::from_secs_f64(delay.max(0.0) / 1000.0);
+                    if let Some(token) = &cancellation {
+                        token.wait_timeout(duration);
+                        token.throw_if_cancelled()?;
+                    } else {
+                        std::thread::sleep(duration);
+                    }
+                }
+            }
+        }
+        unreachable!()
+    }
+}
+
 pub fn ai(provider: &str, options: Value) -> AxResult<OpenAICompatibleClient> {
     let defaults = provider_defaults(provider)
         .ok_or_else(|| AxError::validation(format!("unknown AxAI provider {provider}")))?;
@@ -4516,9 +4780,37 @@ pub fn ai(provider: &str, options: Value) -> AxResult<OpenAICompatibleClient> {
                 None
             }
         })
-        .or_else(|| std::env::var("OPENAI_API_KEY").ok())
-        .or_else(|| std::env::var("OPENAI_APIKEY").ok())
-        .unwrap_or_else(|| "test-key".to_string());
+        .or_else(|| {
+            if profile == "typesafe" {
+                std::env::var("TYPESAFE_APIKEY")
+                    .or_else(|_| std::env::var("TYPESAFE_API_KEY"))
+                    .ok()
+            } else {
+                std::env::var("OPENAI_API_KEY")
+                    .or_else(|_| std::env::var("OPENAI_APIKEY"))
+                    .ok()
+            }
+        })
+        .unwrap_or_else(|| {
+            if profile == "typesafe" {
+                String::new()
+            } else {
+                "test-key".to_string()
+            }
+        });
+    if profile == "typesafe" {
+        let threshold = options
+            .get("trueThreshold")
+            .or_else(|| options.get("true_threshold"))
+            .cloned()
+            .unwrap_or(json!(0.5));
+        typesafe_require_number(&[
+            core_value_from_json(&threshold),
+            CoreValue::from("trueThreshold"),
+            CoreValue::Num(0.0),
+            CoreValue::Num(1.0),
+        ])?;
+    }
     let model = string_at(&options, "model").unwrap_or_else(|| defaults.model.to_string());
     let resolved_descriptor = provider_resolve_descriptor(&[
         CoreValue::from(profile.as_str()),
@@ -10759,7 +11051,8 @@ impl AxBalancer {
                 ),
                 core_value_from_json(request),
             ])?);
-            if allowed.as_bool().unwrap_or(false) {
+            if service.validate_chat_request(request).is_ok() && allowed.as_bool().unwrap_or(false)
+            {
                 values.push(index)
             }
         }
@@ -11309,7 +11602,7 @@ impl ProviderRouter {
         }
         let model = request.get("model").and_then(Value::as_str);
         let records=Value::Array(self.providers.iter().map(|(key,provider)|json!({
-            "name":key,"id":key,"features":<OpenAICompatibleClient as AxAIClient>::get_features(provider,model)
+            "name":key,"id":key,"features":<OpenAICompatibleClient as AxAIClient>::get_features(provider,model),"requestCompatible":provider.validate_chat_request(&request).is_ok()
         })).collect());
         let mut recommendation = core_value_to_json(&provider_route_recommendation(&[
             core_value_from_json(&records),
@@ -11934,6 +12227,36 @@ pub fn run_conformance_fixture(fixture: Value) -> AxResult<()> {
         "stream" => run_stream_fixture(&fixture)?,
         "ai_session_state" => run_ai_session_state_fixture(&fixture)?,
         "ai_session_events" => run_ai_session_events_fixture(&fixture)?,
+        "ai_typesafe_native" => {
+            let requests = Arc::new(Mutex::new(Vec::new()));
+            let transport =
+                RecordingTransport::new(vec![fixture["response"].clone()], requests.clone());
+            let mut client = typesafe(json!({"api_key":"test-key"}))?.with_transport(transport);
+            let result = (|| -> AxResult<Value> {
+                if fixture["operation"] == "models" {
+                    return Ok(serde_json::to_value(client.list_models()?)?);
+                }
+                // Keep runtime validation as the oracle for invalid union tags and shapes.
+                typesafe_validate_request(&[core_value_from_json(&fixture["request"])])?;
+                Ok(serde_json::to_value(client.system_one(
+                    serde_json::from_value(fixture["request"].clone())?,
+                )?)?)
+            })();
+            if fixture.get("expected_error_contains").is_some() {
+                expect_validation_result(result.map(|_| ()), &fixture)?;
+            } else {
+                expect_json_equal(
+                    "native Typesafe output",
+                    &result?,
+                    &fixture["expected_output"],
+                )?;
+            }
+            expect_transport_request_subset(
+                &fixture,
+                &requests,
+                &Arc::new(Mutex::new(Vec::new())),
+            )?;
+        }
         "ai_chat" => run_ai_chat_fixture(&fixture)?,
         "ai_stream" => run_ai_stream_fixture(&fixture)?,
         "ai_cancellation" => run_ai_cancellation_fixture(&fixture)?,
@@ -13130,6 +13453,31 @@ fn run_template_validate_fixture(fixture: &Value) -> AxResult<()> {
 // python: _run_stream. Folds the chunks through the emitted fold_stream after
 // every event so streaming assertions fire at the same point in the stream.
 fn run_stream_fixture(fixture: &Value) -> AxResult<()> {
+    if let Some(spec) = fixture.get("text_signature") {
+        let sig = parse_signature(&[core_value_from_json(spec)])?;
+        let fields = core_get(&sig, &CoreValue::from("output_fields"), CoreValue::Null);
+        let mut content = String::new();
+        for chunk in fixture["stream_events"].as_array().unwrap() {
+            content.push_str(chunk.as_str().unwrap());
+            _parse_text_output_fields_impl(&[
+                CoreValue::from(content.as_str()),
+                fields.clone(),
+                CoreValue::Bool(false),
+            ])?;
+        }
+        let output = _parse_text_output_fields_impl(&[
+            CoreValue::from(content.as_str()),
+            fields.clone(),
+            CoreValue::Bool(true),
+        ])?;
+        validate_output(&[fields, output.clone()])?;
+        expect_json_equal(
+            "text streaming extraction",
+            &core_value_to_json(&output),
+            &fixture["expected_text_output"],
+        )?;
+    }
+
     if let Some(states) = fixture.get("structured_states").and_then(Value::as_array) {
         for route_case in fixture
             .get("route_cases")
@@ -14150,6 +14498,17 @@ impl SharedRouterFixtureService {
 }
 
 impl AxAIClient for SharedRouterFixtureService {
+    fn validate_chat_request(&self, request: &Value) -> AxResult<()> {
+        if self.inner.lock().unwrap().name == "Typesafe" {
+            provider_validate_chat_request(&[
+                CoreValue::from("typesafe"),
+                core_value_from_json(request),
+                core_value_from_json(&json!({})),
+            ])?;
+        }
+        Ok(())
+    }
+
     fn chat(&mut self, request: Value) -> AxResult<Value> {
         self.inner
             .lock()
@@ -14758,6 +15117,16 @@ fn append_unique(target: &mut Vec<Value>, values: &Value) {
 fn merge_balancer_feature_values(features: impl IntoIterator<Item = Value>) -> Value {
     let feature_values = features.into_iter().collect::<Vec<_>>();
     let mut out = balancer_base_features();
+    if !feature_values.is_empty()
+        && feature_values.iter().all(|raw| {
+            raw.get("requiresStructuredOutput")
+                .or_else(|| raw.get("requires_structured_output"))
+                .and_then(Value::as_bool)
+                .unwrap_or(false)
+        })
+    {
+        out["requiresStructuredOutput"] = json!(true);
+    }
     let mut structured_output_modes = Vec::new();
     let mut all_modes_advertised = !feature_values.is_empty();
     for raw in &feature_values {
@@ -20478,6 +20847,9 @@ fn fixture_client(
     if fixture.get("credential_provider_fixture").is_some() {
         options["api_key"] = json!("");
     }
+    if options.get("api_key").is_none() {
+        options["api_key"] = json!("test-key");
+    }
     let mut client = ai(provider, options)?.with_transport(transport);
     if let Some(credential_fixture) = fixture.get("credential_provider_fixture") {
         let header_sets = credential_fixture
@@ -20979,6 +21351,7 @@ fn core_record_to_json(kind: &str, map: &CoreMap) -> Value {
                 ("maximum", "maximum"),
                 ("pattern", "pattern"),
                 ("patternDescription", "pattern_description"),
+                ("valueDescriptions", "value_descriptions"),
                 ("format", "format"),
                 ("language", "language"),
                 ("description", "description"),
@@ -21403,6 +21776,7 @@ fn core_record_new(args: &[CoreValue]) -> Result<CoreValue, AxError> {
                 ("maximum", "maximum"),
                 ("pattern", "pattern"),
                 ("pattern_description", "patternDescription"),
+                ("value_descriptions", "valueDescriptions"),
                 ("format", "format"),
                 ("language", "language"),
                 ("description", "description"),
@@ -22098,6 +22472,13 @@ fn core_field_type_value(ft: &FieldType) -> Result<CoreValue, AxError> {
             )?;
         }
         core_set(&values, CoreValue::from("fields"), nested)?;
+    }
+    if let Some(descriptions) = &ft.value_descriptions {
+        core_set(
+            &values,
+            CoreValue::from("value_descriptions"),
+            core_value_from_json(&Value::Object(descriptions.clone())),
+        )?;
     }
     let record = core_record_new(&[CoreValue::from("FieldType"), values])?;
     for (key, val) in [
@@ -23087,7 +23468,7 @@ fn core_prompt_input_fields_section(
     let fields = core_prompt_render_input_fields(
         &core_prompt_input_fields_for_values(signature, values)?,
         &core_prompt_field_name_to_title(signature)?,
-    );
+    )?;
     Ok(format!(
         "**Input Fields**: The following fields will be provided to you:\n\n{fields}"
     ))
@@ -23259,24 +23640,47 @@ fn core_prompt_render_in_field(
 }
 
 #[allow(dead_code)]
-fn core_prompt_render_input_fields(fields: &[CoreValue], field_map: &[(String, String)]) -> String {
+fn core_prompt_render_input_fields(
+    fields: &[CoreValue],
+    field_map: &[(String, String)],
+) -> Result<String, AxError> {
     let mut rows: Vec<String> = Vec::new();
     for field in fields {
-        let description_value = core_get(field, &CoreValue::from("description"), CoreValue::Null);
+        let description_value = _signature_describe_field_values_impl(&[field.clone()])?;
+        let criteria = core_get(
+            &core_get(field, &CoreValue::from("type"), CoreValue::Null),
+            &CoreValue::from("value_descriptions"),
+            CoreValue::Null,
+        );
         let mut description = String::new();
         if core_truthy(&description_value) {
             description = format!(
                 " {}",
                 core_prompt_format_field_references(
-                    &core_prompt_format_description(&description_value),
+                    &if matches!(criteria, CoreValue::Null) {
+                        core_prompt_format_description(&description_value)
+                    } else {
+                        description_value.text()
+                    },
                     field_map
                 )
             );
         }
         let title = core_get(field, &CoreValue::from("title"), CoreValue::Null).text();
         rows.push(format!("{title}:{description}").trim().to_string());
+        let nested = _signature_nested_value_descriptions_impl(&[
+            core_get(
+                &core_get(field, &CoreValue::from("type"), CoreValue::Null),
+                &CoreValue::from("fields"),
+                CoreValue::Null,
+            ),
+            core_get(field, &CoreValue::from("name"), CoreValue::Null),
+        ])?;
+        for line in core_iter(&nested)? {
+            rows.push(line.text());
+        }
     }
-    rows.join("\n")
+    Ok(rows.join("\n"))
 }
 
 #[allow(dead_code)]
@@ -23301,13 +23705,18 @@ fn core_prompt_render_output_fields(
         } else {
             format!("This {type_text} field must be included")
         };
-        let description_value = core_get(field, &CoreValue::from("description"), CoreValue::Null);
+        let description_value = _signature_describe_field_values_impl(&[field.clone()])?;
+        let criteria = core_get(
+            &core_get(field, &CoreValue::from("type"), CoreValue::Null),
+            &CoreValue::from("value_descriptions"),
+            CoreValue::Null,
+        );
         let mut description = String::new();
         if core_truthy(&description_value) {
             let is_class = core_truthy(&field_type)
                 && core_get(&field_type, &CoreValue::from("name"), CoreValue::Null).as_str()
                     == Some("class");
-            let value = if is_class {
+            let value = if is_class || !matches!(criteria, CoreValue::Null) {
                 description_value.text()
             } else {
                 core_prompt_format_description(&description_value)
@@ -23336,6 +23745,17 @@ fn core_prompt_render_output_fields(
                 .trim()
                 .to_string(),
         );
+        let nested = _signature_nested_value_descriptions_impl(&[
+            core_get(
+                &core_get(field, &CoreValue::from("type"), CoreValue::Null),
+                &CoreValue::from("fields"),
+                CoreValue::Null,
+            ),
+            core_get(field, &CoreValue::from("name"), CoreValue::Null),
+        ])?;
+        for line in core_iter(&nested)? {
+            rows.push(line.text());
+        }
     }
     Ok(rows.join("\n"))
 }
@@ -27447,12 +27867,129 @@ mod request_url_security_tests {
     unreachable_code,
     clippy::all
 )]
+fn _signature_value_keys_impl(args: &[CoreValue]) -> Result<CoreValue, AxError> {
+    axir_coverage_mark("_signature_value_keys_impl");
+    let mut v_typ = core_arg(args, 0);
+    let mut v_empty_keys = CoreValue::Null;
+    let mut v_is_boolean = CoreValue::Null;
+    let mut v_keys = CoreValue::Null;
+    let mut v_keys_raw = CoreValue::Null;
+    let mut v_name = CoreValue::Null;
+    v_empty_keys = CoreValue::new_list();
+    v_keys_raw = core_get(&v_typ, &CoreValue::from("options"), CoreValue::Null);
+    v_keys = core_coalesce(&[v_keys_raw.clone(), v_empty_keys.clone()])?;
+    v_name = core_get(&v_typ, &CoreValue::from("name"), CoreValue::Null);
+    v_is_boolean = core_eq(&[v_name.clone(), CoreValue::from("boolean")])?;
+    if core_truthy(&v_is_boolean) {
+        v_keys = CoreValue::new_list();
+        core_append(&v_keys, CoreValue::from("true"))?;
+        core_append(&v_keys, CoreValue::from("false"))?;
+    }
+    return Ok(v_keys.clone());
+}
+
+#[allow(
+    unused_variables,
+    unused_assignments,
+    unused_mut,
+    unreachable_code,
+    clippy::all
+)]
 fn parse_signature(args: &[CoreValue]) -> Result<CoreValue, AxError> {
     axir_coverage_mark("parse_signature");
     let mut v_signature = core_arg(args, 0);
     let mut v_parsed = CoreValue::Null;
     v_parsed = _signature_parse_impl(&[v_signature.clone()])?;
     return Ok(v_parsed.clone());
+}
+
+#[allow(
+    unused_variables,
+    unused_assignments,
+    unused_mut,
+    unreachable_code,
+    clippy::all
+)]
+fn _signature_validate_value_descriptions_impl(args: &[CoreValue]) -> Result<CoreValue, AxError> {
+    axir_coverage_mark("_signature_validate_value_descriptions_impl");
+    let mut v_typ = core_arg(args, 0);
+    let mut v_field_name = core_arg(args, 1);
+    let mut v_allowed = CoreValue::Null;
+    let mut v_descriptions = CoreValue::Null;
+    let mut v_error = CoreValue::Null;
+    let mut v_invalid = CoreValue::Null;
+    let mut v_is_boolean = CoreValue::Null;
+    let mut v_is_class = CoreValue::Null;
+    let mut v_key = CoreValue::Null;
+    let mut v_keys = CoreValue::Null;
+    let mut v_known = CoreValue::Null;
+    let mut v_message = CoreValue::Null;
+    let mut v_missing = CoreValue::Null;
+    let mut v_name = CoreValue::Null;
+    let mut v_object = CoreValue::Null;
+    let mut v_string = CoreValue::Null;
+    let mut v_supported = CoreValue::Null;
+    let mut v_trimmed = CoreValue::Null;
+    let mut v_unknown = CoreValue::Null;
+    let mut v_valid = CoreValue::Null;
+    let mut v_value = CoreValue::Null;
+    v_descriptions = core_get(
+        &v_typ,
+        &CoreValue::from("value_descriptions"),
+        CoreValue::Null,
+    );
+    v_missing = core_is_none(&[v_descriptions.clone()])?;
+    if core_truthy(&v_missing) {
+        return Ok(CoreValue::Null);
+    }
+    v_name = core_get(&v_typ, &CoreValue::from("name"), CoreValue::Null);
+    v_is_boolean = core_eq(&[v_name.clone(), CoreValue::from("boolean")])?;
+    v_is_class = core_eq(&[v_name.clone(), CoreValue::from("class")])?;
+    v_supported = core_or(&[v_is_boolean.clone(), v_is_class.clone()])?;
+    v_object = core_type_is(&v_descriptions, CoreValue::from("object"));
+    v_valid = core_and(&[v_supported.clone(), v_object.clone()])?;
+    v_invalid = core_not(&[v_valid.clone()])?;
+    if core_truthy(&v_invalid) {
+        v_message = core_string_format(&[
+            CoreValue::from("Field \"{}\": value descriptions require a boolean or class field"),
+            v_field_name.clone(),
+        ])?;
+        v_error = core_signature_error(&[v_message.clone()])?;
+        return Err(core_as_error(&v_error));
+    }
+    v_allowed = _signature_value_keys_impl(&[v_typ.clone()])?;
+    v_keys = core_map_keys(&[v_descriptions.clone()])?;
+    for v_key in core_iter(&v_keys)? {
+        let mut v_key = v_key;
+        v_known = core_contains(&[v_allowed.clone(), v_key.clone()])?;
+        v_unknown = core_not(&[v_known.clone()])?;
+        if core_truthy(&v_unknown) {
+            v_message = core_string_format(&[
+                CoreValue::from("Field \"{}\": unknown described value \"{}\""),
+                v_field_name.clone(),
+                v_key.clone(),
+            ])?;
+            v_error = core_signature_error(&[v_message.clone()])?;
+            return Err(core_as_error(&v_error));
+        }
+        v_value = core_get(&v_descriptions, &v_key.clone(), CoreValue::Null);
+        v_string = core_type_is(&v_value, CoreValue::from("string"));
+        v_invalid = core_not(&[v_string.clone()])?;
+        if core_truthy(&v_string) {
+            v_trimmed = core_string_trim(&v_value);
+            v_invalid = core_eq(&[v_trimmed.clone(), CoreValue::from("")])?;
+        }
+        if core_truthy(&v_invalid) {
+            v_message = core_string_format(&[
+                CoreValue::from("Field \"{}\": description for \"{}\" must be a nonempty string"),
+                v_field_name.clone(),
+                v_key.clone(),
+            ])?;
+            v_error = core_signature_error(&[v_message.clone()])?;
+            return Err(core_as_error(&v_error));
+        }
+    }
+    return Ok(CoreValue::Null);
 }
 
 #[allow(
@@ -27602,6 +28139,52 @@ fn _signature_output_fields(args: &[CoreValue]) -> Result<CoreValue, AxError> {
     unreachable_code,
     clippy::all
 )]
+fn _signature_parse_value_description_impl(args: &[CoreValue]) -> Result<CoreValue, AxError> {
+    axir_coverage_mark("_signature_parse_value_description_impl");
+    let mut v_raw = core_arg(args, 0);
+    let mut v_field_name = core_arg(args, 1);
+    let mut v_key = core_arg(args, 2);
+    let mut v_description = CoreValue::Null;
+    let mut v_empty = CoreValue::Null;
+    let mut v_error = CoreValue::Null;
+    let mut v_extra = CoreValue::Null;
+    let mut v_found = CoreValue::Null;
+    let mut v_invalid = CoreValue::Null;
+    let mut v_message = CoreValue::Null;
+    let mut v_missing = CoreValue::Null;
+    let mut v_quoted = CoreValue::Null;
+    let mut v_rest = CoreValue::Null;
+    let mut v_trimmed = CoreValue::Null;
+    v_quoted = core_string_consume_optional_quoted_prefix(&[v_raw.clone()])?;
+    v_found = core_get(&v_quoted, &CoreValue::from("found"), CoreValue::Bool(false));
+    v_description = core_get(&v_quoted, &CoreValue::from("value"), CoreValue::from(""));
+    v_trimmed = core_string_trim(&v_description);
+    v_empty = core_eq(&[v_trimmed.clone(), CoreValue::from("")])?;
+    v_missing = core_not(&[v_found.clone()])?;
+    v_invalid = core_or(&[v_empty.clone(), v_missing.clone()])?;
+    v_rest = core_get(&v_quoted, &CoreValue::from("rest"), CoreValue::from(""));
+    v_rest = core_string_trim(&v_rest);
+    v_extra = core_ne(&[v_rest.clone(), CoreValue::from("")])?;
+    v_invalid = core_or(&[v_invalid.clone(), v_extra.clone()])?;
+    if core_truthy(&v_invalid) {
+        v_message = core_string_format(&[
+            CoreValue::from("Field \"{}\": \"{}\" requires a nonempty quoted description"),
+            v_field_name.clone(),
+            v_key.clone(),
+        ])?;
+        v_error = core_signature_error(&[v_message.clone()])?;
+        return Err(core_as_error(&v_error));
+    }
+    return Ok(v_description.clone());
+}
+
+#[allow(
+    unused_variables,
+    unused_assignments,
+    unused_mut,
+    unreachable_code,
+    clippy::all
+)]
 fn _signature_parse_impl(args: &[CoreValue]) -> Result<CoreValue, AxError> {
     axir_coverage_mark("_signature_parse_impl");
     let mut v_signature = core_arg(args, 0);
@@ -27693,6 +28276,102 @@ fn _signature_parse_impl(args: &[CoreValue]) -> Result<CoreValue, AxError> {
     unreachable_code,
     clippy::all
 )]
+fn _signature_parse_class_descriptions_impl(args: &[CoreValue]) -> Result<CoreValue, AxError> {
+    axir_coverage_mark("_signature_parse_class_descriptions_impl");
+    let mut v_raw = core_arg(args, 0);
+    let mut v_field_name = core_arg(args, 1);
+    let mut v_description = CoreValue::Null;
+    let mut v_descriptions = CoreValue::Null;
+    let mut v_duplicate = CoreValue::Null;
+    let mut v_empty = CoreValue::Null;
+    let mut v_entry = CoreValue::Null;
+    let mut v_error = CoreValue::Null;
+    let mut v_found = CoreValue::Null;
+    let mut v_invalid = CoreValue::Null;
+    let mut v_key = CoreValue::Null;
+    let mut v_length = CoreValue::Null;
+    let mut v_message = CoreValue::Null;
+    let mut v_part = CoreValue::Null;
+    let mut v_parts = CoreValue::Null;
+    let mut v_quoted = CoreValue::Null;
+    let mut v_rest = CoreValue::Null;
+    let mut v_text = CoreValue::Null;
+    let mut v_valid = CoreValue::Null;
+    let mut v_words = CoreValue::Null;
+    v_text = core_string_trim(&v_raw);
+    v_empty = core_eq(&[v_text.clone(), CoreValue::from("")])?;
+    if core_truthy(&v_empty) {
+        v_message = core_string_format(&[
+            CoreValue::from("Field \"{}\": empty value description list"),
+            v_field_name.clone(),
+        ])?;
+        v_error = core_signature_error(&[v_message.clone()])?;
+        return Err(core_as_error(&v_error));
+    }
+    v_parts = core_string_split_top_level(&[v_text.clone(), CoreValue::from(",")])?;
+    v_descriptions = CoreValue::new_map();
+    for v_part in core_iter(&v_parts)? {
+        let mut v_part = v_part;
+        v_entry = core_string_trim(&v_part);
+        v_empty = core_eq(&[v_entry.clone(), CoreValue::from("")])?;
+        if core_truthy(&v_empty) {
+            v_message = core_string_format(&[
+                CoreValue::from("Field \"{}\": trailing comma in value descriptions"),
+                v_field_name.clone(),
+            ])?;
+            v_error = core_signature_error(&[v_message.clone()])?;
+            return Err(core_as_error(&v_error));
+        }
+        v_quoted = core_string_consume_optional_quoted_prefix(&[v_entry.clone()])?;
+        v_found = core_get(&v_quoted, &CoreValue::from("found"), CoreValue::Bool(false));
+        v_key = core_get(&v_quoted, &CoreValue::from("value"), CoreValue::from(""));
+        v_rest = core_get(&v_quoted, &CoreValue::from("rest"), CoreValue::from(""));
+        if core_truthy(&v_found) {
+            v_rest = core_string_trim(&v_rest);
+        } else {
+            v_words = core_string_words(&[v_entry.clone()])?;
+            v_key = core_list_get(&[v_words.clone(), CoreValue::Num(0f64), CoreValue::from("")])?;
+            v_length = core_len(&[v_key.clone()])?;
+            v_rest = core_string_slice(&[v_entry.clone(), v_length.clone()])?;
+            v_rest = core_string_trim(&v_rest);
+            v_valid = core_regex_match(CoreValue::from("^[A-Za-z_][A-Za-z0-9_.-]*$"), &v_key)?;
+            v_invalid = core_not(&[v_valid.clone()])?;
+            if core_truthy(&v_invalid) {
+                v_message = core_string_format(&[
+                    CoreValue::from("Field \"{}\": expected a class label"),
+                    v_field_name.clone(),
+                ])?;
+                v_error = core_signature_error(&[v_message.clone()])?;
+                return Err(core_as_error(&v_error));
+            }
+        }
+        v_duplicate = core_map_contains(&[v_descriptions.clone(), v_key.clone()])?;
+        if core_truthy(&v_duplicate) {
+            v_message = core_string_format(&[
+                CoreValue::from("Field \"{}\": duplicate description for \"{}\""),
+                v_field_name.clone(),
+                v_key.clone(),
+            ])?;
+            v_error = core_signature_error(&[v_message.clone()])?;
+            return Err(core_as_error(&v_error));
+        }
+        v_description = _signature_parse_value_description_impl(&[
+            v_rest.clone(),
+            v_field_name.clone(),
+            v_key.clone(),
+        ])?;
+        core_set(&v_descriptions, v_key.clone(), v_description.clone())?;
+    }
+    return Ok(v_descriptions.clone());
+}
+
+#[allow(
+    unused_variables,
+    unused_assignments,
+    unused_mut,
+    unreachable_code,
+    clippy::all
+)]
 fn _signature_parse_fields_impl(args: &[CoreValue]) -> Result<CoreValue, AxError> {
     axir_coverage_mark("_signature_parse_fields_impl");
     let mut v_text = core_arg(args, 0);
@@ -27728,6 +28407,61 @@ fn _signature_parse_fields_impl(args: &[CoreValue]) -> Result<CoreValue, AxError
     unreachable_code,
     clippy::all
 )]
+fn _signature_render_value_descriptions_impl(args: &[CoreValue]) -> Result<CoreValue, AxError> {
+    axir_coverage_mark("_signature_render_value_descriptions_impl");
+    let mut v_typ = core_arg(args, 0);
+    let mut v_description = CoreValue::Null;
+    let mut v_descriptions = CoreValue::Null;
+    let mut v_empty_descriptions = CoreValue::Null;
+    let mut v_entries = CoreValue::Null;
+    let mut v_entry = CoreValue::Null;
+    let mut v_escaped = CoreValue::Null;
+    let mut v_escaped_key = CoreValue::Null;
+    let mut v_key = CoreValue::Null;
+    let mut v_keys = CoreValue::Null;
+    let mut v_label = CoreValue::Null;
+    let mut v_name = CoreValue::Null;
+    let mut v_present = CoreValue::Null;
+    let mut v_quote = CoreValue::Null;
+    v_entries = CoreValue::new_list();
+    v_keys = _signature_value_keys_impl(&[v_typ.clone()])?;
+    v_empty_descriptions = CoreValue::new_map();
+    v_descriptions = core_get(
+        &v_typ,
+        &CoreValue::from("value_descriptions"),
+        v_empty_descriptions.clone(),
+    );
+    for v_key in core_iter(&v_keys)? {
+        let mut v_key = v_key;
+        v_present = core_map_contains(&[v_descriptions.clone(), v_key.clone()])?;
+        if core_truthy(&v_present) {
+            v_description = core_get(&v_descriptions, &v_key.clone(), CoreValue::Null);
+            v_escaped = _signature_escape_string_impl(&[v_description.clone()])?;
+            v_label = core_string_format(&[CoreValue::from("{}"), v_key.clone()])?;
+            v_name = core_get(&v_typ, &CoreValue::from("name"), CoreValue::Null);
+            v_quote = core_eq(&[v_name.clone(), CoreValue::from("class")])?;
+            if core_truthy(&v_quote) {
+                v_escaped_key = _signature_escape_string_impl(&[v_key.clone()])?;
+                v_label = core_string_format(&[CoreValue::from("\"{}\""), v_escaped_key.clone()])?;
+            }
+            v_entry = core_string_format(&[
+                CoreValue::from("{} \"{}\""),
+                v_label.clone(),
+                v_escaped.clone(),
+            ])?;
+            core_append(&v_entries, v_entry.clone())?;
+        }
+    }
+    return Ok(v_entries.clone());
+}
+
+#[allow(
+    unused_variables,
+    unused_assignments,
+    unused_mut,
+    unreachable_code,
+    clippy::all
+)]
 fn _signature_parse_field_impl(args: &[CoreValue]) -> Result<CoreValue, AxError> {
     axir_coverage_mark("_signature_parse_field_impl");
     let mut v_raw = core_arg(args, 0);
@@ -27740,6 +28474,65 @@ fn _signature_parse_field_impl(args: &[CoreValue]) -> Result<CoreValue, AxError>
         CoreValue::from(""),
     ])?;
     return Ok(v_field.clone());
+}
+
+#[allow(
+    unused_variables,
+    unused_assignments,
+    unused_mut,
+    unreachable_code,
+    clippy::all
+)]
+fn _signature_describe_field_values_impl(args: &[CoreValue]) -> Result<CoreValue, AxError> {
+    axir_coverage_mark("_signature_describe_field_values_impl");
+    let mut v_field = core_arg(args, 0);
+    let mut v_count = CoreValue::Null;
+    let mut v_description = CoreValue::Null;
+    let mut v_descriptions = CoreValue::Null;
+    let mut v_empty_descriptions = CoreValue::Null;
+    let mut v_has_description = CoreValue::Null;
+    let mut v_key = CoreValue::Null;
+    let mut v_keys = CoreValue::Null;
+    let mut v_out = CoreValue::Null;
+    let mut v_part = CoreValue::Null;
+    let mut v_parts = CoreValue::Null;
+    let mut v_present = CoreValue::Null;
+    let mut v_size = CoreValue::Null;
+    let mut v_typ = CoreValue::Null;
+    let mut v_unchanged = CoreValue::Null;
+    let mut v_value = CoreValue::Null;
+    v_description = core_get(&v_field, &CoreValue::from("description"), CoreValue::Null);
+    v_typ = core_get(&v_field, &CoreValue::from("type"), CoreValue::Null);
+    v_keys = _signature_value_keys_impl(&[v_typ.clone()])?;
+    v_empty_descriptions = CoreValue::new_map();
+    v_descriptions = core_get(
+        &v_typ,
+        &CoreValue::from("value_descriptions"),
+        v_empty_descriptions.clone(),
+    );
+    v_parts = CoreValue::new_list();
+    v_has_description = core_truthy_value(&[v_description.clone()])?;
+    if core_truthy(&v_has_description) {
+        core_append(&v_parts, v_description.clone())?;
+    }
+    v_count = core_len(&[v_parts.clone()])?;
+    for v_key in core_iter(&v_keys)? {
+        let mut v_key = v_key;
+        v_present = core_map_contains(&[v_descriptions.clone(), v_key.clone()])?;
+        if core_truthy(&v_present) {
+            v_value = core_get(&v_descriptions, &v_key.clone(), CoreValue::Null);
+            v_part =
+                core_string_format(&[CoreValue::from("{}: {}"), v_key.clone(), v_value.clone()])?;
+            core_append(&v_parts, v_part.clone())?;
+        }
+    }
+    v_size = core_len(&[v_parts.clone()])?;
+    v_unchanged = core_eq(&[v_size.clone(), v_count.clone()])?;
+    if core_truthy(&v_unchanged) {
+        return Ok(v_description.clone());
+    }
+    v_out = core_string_join_intrinsic(&[CoreValue::from("\n"), v_parts.clone()])?;
+    return Ok(v_out.clone());
 }
 
 #[allow(
@@ -27809,6 +28602,7 @@ fn _signature_parse_field_common_impl(args: &[CoreValue]) -> Result<CoreValue, A
     let mut v_type_part_raw = CoreValue::Null;
     let mut v_type_pattern = CoreValue::Null;
     let mut v_type_pattern_description = CoreValue::Null;
+    let mut v_type_value_descriptions = CoreValue::Null;
     v_text = core_string_trim(&v_raw);
     v_head_parts = core_string_split_once(&[v_text.clone(), CoreValue::from(":")])?;
     v_has_type = core_get(
@@ -27987,6 +28781,11 @@ fn _signature_parse_field_common_impl(args: &[CoreValue]) -> Result<CoreValue, A
             &CoreValue::from("pattern_description"),
             CoreValue::Null,
         );
+        v_type_value_descriptions = core_get(
+            &v_field_type,
+            &CoreValue::from("value_descriptions"),
+            CoreValue::Null,
+        );
         v_type_format = core_get(&v_field_type, &CoreValue::from("format"), CoreValue::Null);
         v_type_language = core_get(&v_field_type, &CoreValue::from("language"), CoreValue::Null);
         core_set(&v_type_attrs, CoreValue::from("name"), v_type_name.clone())?;
@@ -28034,6 +28833,11 @@ fn _signature_parse_field_common_impl(args: &[CoreValue]) -> Result<CoreValue, A
             &v_type_attrs,
             CoreValue::from("pattern_description"),
             v_type_pattern_description.clone(),
+        )?;
+        core_set(
+            &v_type_attrs,
+            CoreValue::from("value_descriptions"),
+            v_type_value_descriptions.clone(),
         )?;
         core_set(
             &v_type_attrs,
@@ -28087,6 +28891,132 @@ fn _signature_parse_field_common_impl(args: &[CoreValue]) -> Result<CoreValue, A
     v_field = core_record_new(&[CoreValue::from("Field"), v_field_attrs.clone()])?;
     _signature_validate_field_shape_impl(&[v_field.clone(), v_output.clone(), v_nested.clone()])?;
     return Ok(v_field.clone());
+}
+
+#[allow(
+    unused_variables,
+    unused_assignments,
+    unused_mut,
+    unreachable_code,
+    clippy::all
+)]
+fn _signature_nested_value_descriptions_impl(args: &[CoreValue]) -> Result<CoreValue, AxError> {
+    axir_coverage_mark("_signature_nested_value_descriptions_impl");
+    let mut v_fields = core_arg(args, 0);
+    let mut v_prefix = core_arg(args, 1);
+    let mut v_children = CoreValue::Null;
+    let mut v_description = CoreValue::Null;
+    let mut v_descriptions = CoreValue::Null;
+    let mut v_empty = CoreValue::Null;
+    let mut v_field = CoreValue::Null;
+    let mut v_key = CoreValue::Null;
+    let mut v_keys = CoreValue::Null;
+    let mut v_line = CoreValue::Null;
+    let mut v_lines = CoreValue::Null;
+    let mut v_name = CoreValue::Null;
+    let mut v_nested_fields = CoreValue::Null;
+    let mut v_out = CoreValue::Null;
+    let mut v_path = CoreValue::Null;
+    let mut v_present = CoreValue::Null;
+    let mut v_typ = CoreValue::Null;
+    v_out = CoreValue::new_list();
+    v_nested_fields = core_fields_from_map(&[v_fields.clone()])?;
+    for v_field in core_iter(&v_nested_fields)? {
+        let mut v_field = v_field;
+        v_name = core_get(&v_field, &CoreValue::from("name"), CoreValue::Null);
+        v_path = core_string_format(&[CoreValue::from("{}.{}"), v_prefix.clone(), v_name.clone()])?;
+        v_typ = core_get(&v_field, &CoreValue::from("type"), CoreValue::Null);
+        v_keys = _signature_value_keys_impl(&[v_typ.clone()])?;
+        v_empty = CoreValue::new_map();
+        v_descriptions = core_get(
+            &v_typ,
+            &CoreValue::from("value_descriptions"),
+            v_empty.clone(),
+        );
+        for v_key in core_iter(&v_keys)? {
+            let mut v_key = v_key;
+            v_present = core_map_contains(&[v_descriptions.clone(), v_key.clone()])?;
+            if core_truthy(&v_present) {
+                v_description = core_get(&v_descriptions, &v_key.clone(), CoreValue::Null);
+                v_line = core_string_format(&[
+                    CoreValue::from("{} = {}: {}"),
+                    v_path.clone(),
+                    v_key.clone(),
+                    v_description.clone(),
+                ])?;
+                core_append(&v_out, v_line.clone())?;
+            }
+        }
+        v_children = core_get(&v_typ, &CoreValue::from("fields"), CoreValue::Null);
+        v_lines = _signature_nested_value_descriptions_impl(&[v_children.clone(), v_path.clone()])?;
+        for v_line in core_iter(&v_lines)? {
+            let mut v_line = v_line;
+            core_append(&v_out, v_line.clone())?;
+        }
+    }
+    return Ok(v_out.clone());
+}
+
+#[allow(
+    unused_variables,
+    unused_assignments,
+    unused_mut,
+    unreachable_code,
+    clippy::all
+)]
+fn _signature_output_value_descriptions_impl(args: &[CoreValue]) -> Result<CoreValue, AxError> {
+    axir_coverage_mark("_signature_output_value_descriptions_impl");
+    let mut v_fields = core_arg(args, 0);
+    let mut v_description = CoreValue::Null;
+    let mut v_descriptions = CoreValue::Null;
+    let mut v_entry = CoreValue::Null;
+    let mut v_field = CoreValue::Null;
+    let mut v_has_description = CoreValue::Null;
+    let mut v_has_descriptions = CoreValue::Null;
+    let mut v_include = CoreValue::Null;
+    let mut v_internal = CoreValue::Null;
+    let mut v_name = CoreValue::Null;
+    let mut v_out = CoreValue::Null;
+    let mut v_typ = CoreValue::Null;
+    let mut v_visible = CoreValue::Null;
+    v_out = CoreValue::new_map();
+    for v_field in core_iter(&v_fields)? {
+        let mut v_field = v_field;
+        v_internal = core_get(
+            &v_field,
+            &CoreValue::from("is_internal"),
+            CoreValue::Bool(false),
+        );
+        v_visible = core_not(&[v_internal.clone()])?;
+        v_typ = core_get(&v_field, &CoreValue::from("type"), CoreValue::Null);
+        v_descriptions = core_get(
+            &v_typ,
+            &CoreValue::from("value_descriptions"),
+            CoreValue::Null,
+        );
+        v_has_descriptions = core_truthy_value(&[v_descriptions.clone()])?;
+        v_include = core_and(&[v_visible.clone(), v_has_descriptions.clone()])?;
+        if core_truthy(&v_include) {
+            v_name = core_get(&v_field, &CoreValue::from("name"), CoreValue::Null);
+            v_entry = CoreValue::new_map();
+            v_description = core_get(&v_field, &CoreValue::from("description"), CoreValue::Null);
+            v_has_description = core_is_not_none(&[v_description.clone()])?;
+            if core_truthy(&v_has_description) {
+                core_set(
+                    &v_entry,
+                    CoreValue::from("description"),
+                    v_description.clone(),
+                )?;
+            }
+            core_set(
+                &v_entry,
+                CoreValue::from("valueDescriptions"),
+                v_descriptions.clone(),
+            )?;
+            core_set(&v_out, v_name.clone(), v_entry.clone())?;
+        }
+    }
+    return Ok(v_out.clone());
 }
 
 #[allow(
@@ -28258,6 +29188,7 @@ fn _signature_parse_type_expr_impl(args: &[CoreValue]) -> Result<CoreValue, AxEr
     let mut v_balanced = CoreValue::Null;
     let mut v_base = CoreValue::Null;
     let mut v_base_rest = CoreValue::Null;
+    let mut v_descriptions = CoreValue::Null;
     let mut v_empty_options = CoreValue::Null;
     let mut v_error = CoreValue::Null;
     let mut v_fields = CoreValue::Null;
@@ -28265,6 +29196,7 @@ fn _signature_parse_type_expr_impl(args: &[CoreValue]) -> Result<CoreValue, AxEr
     let mut v_group_rest = CoreValue::Null;
     let mut v_group_text = CoreValue::Null;
     let mut v_has_bag = CoreValue::Null;
+    let mut v_has_descriptions = CoreValue::Null;
     let mut v_has_item = CoreValue::Null;
     let mut v_has_object_fields = CoreValue::Null;
     let mut v_has_options = CoreValue::Null;
@@ -28377,11 +29309,45 @@ fn _signature_parse_type_expr_impl(args: &[CoreValue]) -> Result<CoreValue, AxEr
             core_set(&v_attrs, CoreValue::from("name"), CoreValue::from("class"))?;
             core_set(&v_attrs, CoreValue::from("is_array"), v_is_array.clone())?;
             core_set(&v_attrs, CoreValue::from("options"), v_options.clone())?;
+            v_quoted_rest = core_get(&v_quoted, &CoreValue::from("rest"), CoreValue::Null);
+            v_quoted_rest = core_string_trim(&v_quoted_rest);
+            v_has_descriptions =
+                core_string_starts_with(&[v_quoted_rest.clone(), CoreValue::from("(")])?;
+            if core_truthy(&v_has_descriptions) {
+                v_group = core_string_extract_leading_group(&[
+                    v_quoted_rest.clone(),
+                    CoreValue::from("("),
+                    CoreValue::from(")"),
+                ])?;
+                v_balanced = core_get(
+                    &v_group,
+                    &CoreValue::from("balanced"),
+                    CoreValue::Bool(false),
+                );
+                v_unbalanced = core_not(&[v_balanced.clone()])?;
+                if core_truthy(&v_unbalanced) {
+                    v_error = core_signature_error(&[CoreValue::from(
+                        "Expected closing parenthesis in value descriptions",
+                    )])?;
+                    return Err(core_as_error(&v_error));
+                }
+                v_group_text = core_get(&v_group, &CoreValue::from("group"), CoreValue::Null);
+                v_descriptions = _signature_parse_class_descriptions_impl(&[
+                    v_group_text.clone(),
+                    v_field_name.clone(),
+                ])?;
+                core_set(
+                    &v_attrs,
+                    CoreValue::from("value_descriptions"),
+                    v_descriptions.clone(),
+                )?;
+                v_quoted_rest = core_get(&v_group, &CoreValue::from("rest"), CoreValue::Null);
+            }
             v_typ = core_record_new(&[CoreValue::from("FieldType"), v_attrs.clone()])?;
+            _signature_validate_value_descriptions_impl(&[v_typ.clone(), v_field_name.clone()])?;
             v_out = CoreValue::new_map();
             core_set(&v_out, CoreValue::from("type"), v_typ.clone())?;
             core_set(&v_out, CoreValue::from("is_cached"), CoreValue::Bool(false))?;
-            v_quoted_rest = core_get(&v_quoted, &CoreValue::from("rest"), CoreValue::Null);
             core_set(&v_out, CoreValue::from("rest"), v_quoted_rest.clone())?;
             return Ok(v_out.clone());
         }
@@ -28590,8 +29556,11 @@ fn _signature_parse_modifier_bag_impl(args: &[CoreValue]) -> Result<CoreValue, A
     let mut v_desc_rest = CoreValue::Null;
     let mut v_desc_rest_raw = CoreValue::Null;
     let mut v_desc_value = CoreValue::Null;
+    let mut v_description = CoreValue::Null;
+    let mut v_descriptions = CoreValue::Null;
     let mut v_duplicate = CoreValue::Null;
     let mut v_empty = CoreValue::Null;
+    let mut v_empty_descriptions = CoreValue::Null;
     let mut v_entry = CoreValue::Null;
     let mut v_entry_empty = CoreValue::Null;
     let mut v_error = CoreValue::Null;
@@ -28601,10 +29570,13 @@ fn _signature_parse_modifier_bag_impl(args: &[CoreValue]) -> Result<CoreValue, A
     let mut v_handled = CoreValue::Null;
     let mut v_has_pattern_rest = CoreValue::Null;
     let mut v_input = CoreValue::Null;
+    let mut v_invalid = CoreValue::Null;
+    let mut v_is_boolean = CoreValue::Null;
     let mut v_is_bound = CoreValue::Null;
     let mut v_is_cache = CoreValue::Null;
     let mut v_is_cached = CoreValue::Null;
     let mut v_is_code = CoreValue::Null;
+    let mut v_is_false = CoreValue::Null;
     let mut v_is_format = CoreValue::Null;
     let mut v_is_item = CoreValue::Null;
     let mut v_is_max = CoreValue::Null;
@@ -28612,6 +29584,8 @@ fn _signature_parse_modifier_bag_impl(args: &[CoreValue]) -> Result<CoreValue, A
     let mut v_is_number = CoreValue::Null;
     let mut v_is_pattern = CoreValue::Null;
     let mut v_is_string = CoreValue::Null;
+    let mut v_is_true = CoreValue::Null;
+    let mut v_is_value = CoreValue::Null;
     let mut v_item_description = CoreValue::Null;
     let mut v_item_value = CoreValue::Null;
     let mut v_known = CoreValue::Null;
@@ -28687,6 +29661,53 @@ fn _signature_parse_modifier_bag_impl(args: &[CoreValue]) -> Result<CoreValue, A
         v_arg = core_string_trim(&v_arg_raw);
         v_handled = CoreValue::new_map();
         core_set(&v_handled, CoreValue::from("value"), CoreValue::Bool(false))?;
+        v_is_true = core_eq(&[v_token.clone(), CoreValue::from("true")])?;
+        v_is_false = core_eq(&[v_token.clone(), CoreValue::from("false")])?;
+        v_is_value = core_or(&[v_is_true.clone(), v_is_false.clone()])?;
+        if core_truthy(&v_is_value) {
+            v_duplicate = core_contains(&[v_seen.clone(), v_token.clone()])?;
+            if core_truthy(&v_duplicate) {
+                v_message = core_string_format(&[
+                    CoreValue::from("Field \"{}\": duplicate \"{}\" modifier"),
+                    v_field_name.clone(),
+                    v_token.clone(),
+                ])?;
+                v_error = core_signature_error(&[v_message.clone()])?;
+                return Err(core_as_error(&v_error));
+            }
+            core_append(&v_seen, v_token.clone())?;
+            v_is_boolean = core_eq(&[v_type_name.clone(), CoreValue::from("boolean")])?;
+            v_invalid = core_not(&[v_is_boolean.clone()])?;
+            if core_truthy(&v_invalid) {
+                v_message = core_string_format(&[
+                    CoreValue::from(
+                        "Field \"{}\": \"{}\" value descriptions require a boolean field",
+                    ),
+                    v_field_name.clone(),
+                    v_token.clone(),
+                ])?;
+                v_error = core_signature_error(&[v_message.clone()])?;
+                return Err(core_as_error(&v_error));
+            }
+            v_description = _signature_parse_value_description_impl(&[
+                v_arg.clone(),
+                v_field_name.clone(),
+                v_token.clone(),
+            ])?;
+            v_empty_descriptions = CoreValue::new_map();
+            v_descriptions = core_get(
+                &v_attrs,
+                &CoreValue::from("value_descriptions"),
+                v_empty_descriptions.clone(),
+            );
+            core_set(&v_descriptions, v_token.clone(), v_description.clone())?;
+            core_set(
+                &v_attrs,
+                CoreValue::from("value_descriptions"),
+                v_descriptions.clone(),
+            )?;
+            core_set(&v_handled, CoreValue::from("value"), CoreValue::Bool(true))?;
+        }
         v_is_min = core_eq(&[v_token.clone(), CoreValue::from("min")])?;
         v_is_max = core_eq(&[v_token.clone(), CoreValue::from("max")])?;
         v_is_bound = core_or(&[v_is_min.clone(), v_is_max.clone()])?;
@@ -29222,7 +30243,7 @@ fn _signature_render_modifier_bag_impl(args: &[CoreValue]) -> Result<CoreValue, 
     let mut v_render_language = CoreValue::Null;
     let mut v_result = CoreValue::Null;
     let mut v_type_name = CoreValue::Null;
-    v_entries = CoreValue::new_list();
+    v_entries = _signature_render_value_descriptions_impl(&[v_typ.clone()])?;
     v_min_length = core_get(&v_typ, &CoreValue::from("min_length"), CoreValue::Null);
     v_minimum = core_get(&v_typ, &CoreValue::from("minimum"), CoreValue::Null);
     v_min = core_coalesce(&[v_min_length.clone(), v_minimum.clone()])?;
@@ -29310,8 +30331,11 @@ fn _signature_render_type_impl(args: &[CoreValue]) -> Result<CoreValue, AxError>
     let mut v_typ = core_arg(args, 0);
     let mut v_is_cached = core_arg(args, 1);
     let mut v_bag = CoreValue::Null;
+    let mut v_body = CoreValue::Null;
     let mut v_class_name = CoreValue::Null;
+    let mut v_entries = CoreValue::Null;
     let mut v_fields = CoreValue::Null;
+    let mut v_has_entries = CoreValue::Null;
     let mut v_has_fields = CoreValue::Null;
     let mut v_is_array = CoreValue::Null;
     let mut v_is_class = CoreValue::Null;
@@ -29344,6 +30368,13 @@ fn _signature_render_type_impl(args: &[CoreValue]) -> Result<CoreValue, AxError>
             v_class_name.clone(),
             v_joined.clone(),
         ])?;
+        v_entries = _signature_render_value_descriptions_impl(&[v_typ.clone()])?;
+        v_has_entries = core_truthy_value(&[v_entries.clone()])?;
+        if core_truthy(&v_has_entries) {
+            v_body = core_string_join_intrinsic(&[CoreValue::from(", "), v_entries.clone()])?;
+            v_result =
+                core_string_format(&[CoreValue::from("{}({})"), v_result.clone(), v_body.clone()])?;
+        }
         return Ok(v_result.clone());
     }
     v_is_object = core_eq(&[v_type_name.clone(), CoreValue::from("object")])?;
@@ -29611,6 +30642,7 @@ fn _signature_validate_field_shape_impl(args: &[CoreValue]) -> Result<CoreValue,
         }
     }
     v_typ = core_get(&v_field, &CoreValue::from("type"), CoreValue::Null);
+    _signature_validate_value_descriptions_impl(&[v_typ.clone(), v_name.clone()])?;
     v_type_name = core_get(&v_typ, &CoreValue::from("name"), CoreValue::Null);
     v_valid_types = CoreValue::new_list();
     core_append(&v_valid_types, CoreValue::from("audio"))?;
@@ -31104,7 +32136,7 @@ fn _schema_field_schema_impl(args: &[CoreValue]) -> Result<CoreValue, AxError> {
         return Err(core_as_error(&v_error));
     }
     v_schema = CoreValue::new_map();
-    v_field_description = core_get(&v_field, &CoreValue::from("description"), CoreValue::Null);
+    v_field_description = _signature_describe_field_values_impl(&[v_field.clone()])?;
     v_description =
         _schema_enhance_description_impl(&[v_field_description.clone(), v_typ.clone()])?;
     v_has_description = core_truthy_value(&[v_description.clone()])?;
@@ -31650,6 +32682,70 @@ fn _prompt_messages_impl(args: &[CoreValue]) -> Result<CoreValue, AxError> {
     unreachable_code,
     clippy::all
 )]
+fn typesafe_require_object(args: &[CoreValue]) -> Result<CoreValue, AxError> {
+    axir_coverage_mark("typesafe_require_object");
+    let mut v_value = core_arg(args, 0);
+    let mut v_context = core_arg(args, 1);
+    let mut v_error = CoreValue::Null;
+    let mut v_invalid = CoreValue::Null;
+    let mut v_message = CoreValue::Null;
+    let mut v_valid = CoreValue::Null;
+    v_valid = core_type_is(&v_value, CoreValue::from("object"));
+    v_invalid = core_not(&[v_valid.clone()])?;
+    if core_truthy(&v_invalid) {
+        v_message = core_string_format(&[
+            CoreValue::from("Typesafe: {} must be an object"),
+            v_context.clone(),
+        ])?;
+        v_error = core_validation_error(&[v_message.clone()])?;
+        return Err(core_as_error(&v_error));
+    }
+    return Ok(v_value.clone());
+}
+
+#[allow(
+    unused_variables,
+    unused_assignments,
+    unused_mut,
+    unreachable_code,
+    clippy::all
+)]
+fn typesafe_require_string(args: &[CoreValue]) -> Result<CoreValue, AxError> {
+    axir_coverage_mark("typesafe_require_string");
+    let mut v_value = core_arg(args, 0);
+    let mut v_context = core_arg(args, 1);
+    let mut v_nonempty = core_arg(args, 2);
+    let mut v_error = CoreValue::Null;
+    let mut v_invalid = CoreValue::Null;
+    let mut v_message = CoreValue::Null;
+    let mut v_text = CoreValue::Null;
+    let mut v_valid = CoreValue::Null;
+    v_valid = core_type_is(&v_value, CoreValue::from("string"));
+    if core_truthy(&v_valid) {
+        if core_truthy(&v_nonempty) {
+            v_text = core_string_trim(&v_value);
+            v_valid = core_ne(&[v_text.clone(), CoreValue::from("")])?;
+        }
+    }
+    v_invalid = core_not(&[v_valid.clone()])?;
+    if core_truthy(&v_invalid) {
+        v_message = core_string_format(&[
+            CoreValue::from("Typesafe: {} must be a string (nonempty where required)"),
+            v_context.clone(),
+        ])?;
+        v_error = core_validation_error(&[v_message.clone()])?;
+        return Err(core_as_error(&v_error));
+    }
+    return Ok(v_value.clone());
+}
+
+#[allow(
+    unused_variables,
+    unused_assignments,
+    unused_mut,
+    unreachable_code,
+    clippy::all
+)]
 fn openai_build_chat_request(args: &[CoreValue]) -> Result<CoreValue, AxError> {
     axir_coverage_mark("openai_build_chat_request");
     let mut v_request = core_arg(args, 0);
@@ -31965,6 +33061,307 @@ fn _openai_build_chat_request_impl(args: &[CoreValue]) -> Result<CoreValue, AxEr
         }
     }
     return Ok(v_payload.clone());
+}
+
+#[allow(
+    unused_variables,
+    unused_assignments,
+    unused_mut,
+    unreachable_code,
+    clippy::all
+)]
+fn typesafe_require_number(args: &[CoreValue]) -> Result<CoreValue, AxError> {
+    axir_coverage_mark("typesafe_require_number");
+    let mut v_value = core_arg(args, 0);
+    let mut v_context = core_arg(args, 1);
+    let mut v_minimum = core_arg(args, 2);
+    let mut v_maximum = core_arg(args, 3);
+    let mut v_error = CoreValue::Null;
+    let mut v_high = CoreValue::Null;
+    let mut v_invalid = CoreValue::Null;
+    let mut v_low = CoreValue::Null;
+    let mut v_message = CoreValue::Null;
+    let mut v_outside = CoreValue::Null;
+    let mut v_valid = CoreValue::Null;
+    let mut v_within = CoreValue::Null;
+    v_valid = core_type_is(&v_value, CoreValue::from("number"));
+    if core_truthy(&v_valid) {
+        v_valid = core_math_is_finite(&[v_value.clone()])?;
+        v_low = core_lt(&[v_value.clone(), v_minimum.clone()])?;
+        v_high = core_gt(&[v_value.clone(), v_maximum.clone()])?;
+        v_outside = core_or(&[v_low.clone(), v_high.clone()])?;
+        v_within = core_not(&[v_outside.clone()])?;
+        v_valid = core_and(&[v_valid.clone(), v_within.clone()])?;
+    }
+    v_invalid = core_not(&[v_valid.clone()])?;
+    if core_truthy(&v_invalid) {
+        v_message = core_string_format(&[
+            CoreValue::from("Typesafe: {} must be a finite number between {} and {}"),
+            v_context.clone(),
+            v_minimum.clone(),
+            v_maximum.clone(),
+        ])?;
+        v_error = core_validation_error(&[v_message.clone()])?;
+        return Err(core_as_error(&v_error));
+    }
+    return Ok(v_value.clone());
+}
+
+#[allow(
+    unused_variables,
+    unused_assignments,
+    unused_mut,
+    unreachable_code,
+    clippy::all
+)]
+fn typesafe_validate_json(args: &[CoreValue]) -> Result<CoreValue, AxError> {
+    axir_coverage_mark("typesafe_validate_json");
+    let mut v_value = core_arg(args, 0);
+    let mut v_child = CoreValue::Null;
+    let mut v_finite = CoreValue::Null;
+    let mut v_invalid = CoreValue::Null;
+    let mut v_is_boolean = CoreValue::Null;
+    let mut v_is_list = CoreValue::Null;
+    let mut v_is_null = CoreValue::Null;
+    let mut v_is_number = CoreValue::Null;
+    let mut v_is_object = CoreValue::Null;
+    let mut v_is_string = CoreValue::Null;
+    let mut v_key = CoreValue::Null;
+    let mut v_keys = CoreValue::Null;
+    let mut v_valid = CoreValue::Null;
+    v_is_object = core_type_is(&v_value, CoreValue::from("object"));
+    if core_truthy(&v_is_object) {
+        v_keys = core_map_keys(&[v_value.clone()])?;
+        for v_key in core_iter(&v_keys)? {
+            let mut v_key = v_key;
+            v_child = core_get(&v_value, &v_key.clone(), CoreValue::Null);
+            typesafe_validate_json(&[v_child.clone()])?;
+        }
+        return Ok(CoreValue::Null);
+    }
+    v_is_list = core_type_is(&v_value, CoreValue::from("list"));
+    if core_truthy(&v_is_list) {
+        for v_child in core_iter(&v_value)? {
+            let mut v_child = v_child;
+            typesafe_validate_json(&[v_child.clone()])?;
+        }
+        return Ok(CoreValue::Null);
+    }
+    v_is_number = core_type_is(&v_value, CoreValue::from("number"));
+    if core_truthy(&v_is_number) {
+        v_finite = core_math_is_finite(&[v_value.clone()])?;
+        v_invalid = core_not(&[v_finite.clone()])?;
+        if core_truthy(&v_invalid) {
+            return Err(AxError::runtime(
+                "Typesafe: entries must contain finite JSON values",
+            ));
+        }
+        return Ok(CoreValue::Null);
+    }
+    v_is_null = core_is_none(&[v_value.clone()])?;
+    v_is_string = core_type_is(&v_value, CoreValue::from("string"));
+    v_is_boolean = core_type_is(&v_value, CoreValue::from("boolean"));
+    v_valid = core_or(&[v_is_string.clone(), v_is_boolean.clone()])?;
+    v_valid = core_or(&[v_valid.clone(), v_is_null.clone()])?;
+    v_invalid = core_not(&[v_valid.clone()])?;
+    if core_truthy(&v_invalid) {
+        return Err(AxError::runtime(
+            "Typesafe: entries must contain JSON values",
+        ));
+    }
+    return Ok(CoreValue::Null);
+}
+
+#[allow(
+    unused_variables,
+    unused_assignments,
+    unused_mut,
+    unreachable_code,
+    clippy::all
+)]
+fn typesafe_validate_entry(args: &[CoreValue]) -> Result<CoreValue, AxError> {
+    axir_coverage_mark("typesafe_validate_entry");
+    let mut v_value = core_arg(args, 0);
+    let mut v_context = core_arg(args, 1);
+    let mut v_error = CoreValue::Null;
+    let mut v_invalid = CoreValue::Null;
+    let mut v_is_list = CoreValue::Null;
+    let mut v_is_null = CoreValue::Null;
+    let mut v_is_object = CoreValue::Null;
+    let mut v_is_string = CoreValue::Null;
+    let mut v_message = CoreValue::Null;
+    let mut v_valid = CoreValue::Null;
+    v_is_object = core_type_is(&v_value, CoreValue::from("object"));
+    v_is_list = core_type_is(&v_value, CoreValue::from("list"));
+    v_is_string = core_type_is(&v_value, CoreValue::from("string"));
+    v_is_null = core_is_none(&[v_value.clone()])?;
+    v_valid = core_or(&[v_is_object.clone(), v_is_list.clone()])?;
+    v_valid = core_or(&[v_valid.clone(), v_is_string.clone()])?;
+    v_valid = core_or(&[v_valid.clone(), v_is_null.clone()])?;
+    v_invalid = core_not(&[v_valid.clone()])?;
+    if core_truthy(&v_invalid) {
+        v_message = core_string_format(&[
+            CoreValue::from("Typesafe: {} must be text, an object, an array, or null"),
+            v_context.clone(),
+        ])?;
+        v_error = core_validation_error(&[v_message.clone()])?;
+        return Err(core_as_error(&v_error));
+    }
+    typesafe_validate_json(&[v_value.clone()])?;
+    return Ok(CoreValue::Null);
+}
+
+#[allow(
+    unused_variables,
+    unused_assignments,
+    unused_mut,
+    unreachable_code,
+    clippy::all
+)]
+fn typesafe_validate_request(args: &[CoreValue]) -> Result<CoreValue, AxError> {
+    axir_coverage_mark("typesafe_validate_request");
+    let mut v_request = core_arg(args, 0);
+    let mut v_count = CoreValue::Null;
+    let mut v_criteria = CoreValue::Null;
+    let mut v_empty = CoreValue::Null;
+    let mut v_entry = CoreValue::Null;
+    let mut v_error = CoreValue::Null;
+    let mut v_false_label = CoreValue::Null;
+    let mut v_has_criteria = CoreValue::Null;
+    let mut v_has_state = CoreValue::Null;
+    let mut v_instructions = CoreValue::Null;
+    let mut v_invalid_label = CoreValue::Null;
+    let mut v_invalid_size = CoreValue::Null;
+    let mut v_is_choice = CoreValue::Null;
+    let mut v_is_list = CoreValue::Null;
+    let mut v_is_noul = CoreValue::Null;
+    let mut v_is_score = CoreValue::Null;
+    let mut v_key = CoreValue::Null;
+    let mut v_keys = CoreValue::Null;
+    let mut v_kind = CoreValue::Null;
+    let mut v_label = CoreValue::Null;
+    let mut v_labels = CoreValue::Null;
+    let mut v_message = CoreValue::Null;
+    let mut v_missing_state = CoreValue::Null;
+    let mut v_model = CoreValue::Null;
+    let mut v_not_list = CoreValue::Null;
+    let mut v_question = CoreValue::Null;
+    let mut v_questions = CoreValue::Null;
+    let mut v_size = CoreValue::Null;
+    let mut v_state = CoreValue::Null;
+    let mut v_too_large = CoreValue::Null;
+    let mut v_too_small = CoreValue::Null;
+    let mut v_true_label = CoreValue::Null;
+    let mut v_valid_label = CoreValue::Null;
+    typesafe_require_object(&[v_request.clone(), CoreValue::from("request")])?;
+    v_model = core_get(&v_request, &CoreValue::from("model"), CoreValue::Null);
+    typesafe_require_string(&[
+        v_model.clone(),
+        CoreValue::from("model"),
+        CoreValue::Bool(true),
+    ])?;
+    v_has_state = core_map_contains(&[v_request.clone(), CoreValue::from("state")])?;
+    v_missing_state = core_not(&[v_has_state.clone()])?;
+    if core_truthy(&v_missing_state) {
+        return Err(AxError::runtime(
+            "Typesafe: state is required (null is allowed)",
+        ));
+    }
+    v_state = core_get(&v_request, &CoreValue::from("state"), CoreValue::Null);
+    typesafe_validate_entry(&[v_state.clone(), CoreValue::from("state")])?;
+    v_questions = core_get(&v_request, &CoreValue::from("questions"), CoreValue::Null);
+    typesafe_require_object(&[v_questions.clone(), CoreValue::from("questions")])?;
+    v_keys = core_map_keys(&[v_questions.clone()])?;
+    v_count = core_len(&[v_keys.clone()])?;
+    v_empty = core_eq(&[v_count.clone(), CoreValue::Num(0f64)])?;
+    if core_truthy(&v_empty) {
+        return Err(AxError::runtime("Typesafe: questions must not be empty"));
+    }
+    for v_key in core_iter(&v_keys)? {
+        let mut v_key = v_key;
+        v_question = core_get(&v_questions, &v_key.clone(), CoreValue::Null);
+        typesafe_require_object(&[v_question.clone(), v_key.clone()])?;
+        v_instructions = core_get(
+            &v_question,
+            &CoreValue::from("instructions"),
+            CoreValue::Null,
+        );
+        typesafe_validate_entry(&[v_instructions.clone(), v_key.clone()])?;
+        v_kind = core_get(&v_question, &CoreValue::from("type"), CoreValue::Null);
+        v_criteria = core_get(&v_question, &CoreValue::from("criteria"), CoreValue::Null);
+        v_is_noul = core_eq(&[v_kind.clone(), CoreValue::from("noul")])?;
+        v_is_choice = core_eq(&[v_kind.clone(), CoreValue::from("choice")])?;
+        v_is_score = core_eq(&[v_kind.clone(), CoreValue::from("score")])?;
+        if core_truthy(&v_is_noul) {
+            v_has_criteria = core_is_not_none(&[v_criteria.clone()])?;
+            if core_truthy(&v_has_criteria) {
+                typesafe_require_object(&[v_criteria.clone(), v_key.clone()])?;
+                v_labels = core_map_keys(&[v_criteria.clone()])?;
+                for v_label in core_iter(&v_labels)? {
+                    let mut v_label = v_label;
+                    v_true_label = core_eq(&[v_label.clone(), CoreValue::from("true")])?;
+                    v_false_label = core_eq(&[v_label.clone(), CoreValue::from("false")])?;
+                    v_valid_label = core_or(&[v_true_label.clone(), v_false_label.clone()])?;
+                    v_invalid_label = core_not(&[v_valid_label.clone()])?;
+                    if core_truthy(&v_invalid_label) {
+                        return Err(AxError::runtime(
+                            "Typesafe: Noul criteria only accept true and false",
+                        ));
+                    }
+                    v_entry = core_get(&v_criteria, &v_label.clone(), CoreValue::Null);
+                    typesafe_validate_entry(&[v_entry.clone(), v_key.clone()])?;
+                }
+            }
+        } else {
+            if core_truthy(&v_is_choice) {
+                typesafe_require_object(&[v_criteria.clone(), v_key.clone()])?;
+                v_labels = core_map_keys(&[v_criteria.clone()])?;
+                v_size = core_len(&[v_labels.clone()])?;
+                v_too_small = core_lt(&[v_size.clone(), CoreValue::Num(1f64)])?;
+                v_too_large = core_gt(&[v_size.clone(), CoreValue::Num(255f64)])?;
+                v_invalid_size = core_or(&[v_too_small.clone(), v_too_large.clone()])?;
+                if core_truthy(&v_invalid_size) {
+                    return Err(AxError::runtime(
+                        "Typesafe: Choice requires 1 to 255 options",
+                    ));
+                }
+                for v_label in core_iter(&v_labels)? {
+                    let mut v_label = v_label;
+                    v_entry = core_get(&v_criteria, &v_label.clone(), CoreValue::Null);
+                    typesafe_validate_entry(&[v_entry.clone(), v_key.clone()])?;
+                }
+            } else {
+                if core_truthy(&v_is_score) {
+                    v_is_list = core_type_is(&v_criteria, CoreValue::from("list"));
+                    v_not_list = core_not(&[v_is_list.clone()])?;
+                    if core_truthy(&v_not_list) {
+                        return Err(AxError::runtime(
+                            "Typesafe: Score requires an array of 2 to 10 levels",
+                        ));
+                    }
+                    v_size = core_len(&[v_criteria.clone()])?;
+                    v_too_small = core_lt(&[v_size.clone(), CoreValue::Num(2f64)])?;
+                    v_too_large = core_gt(&[v_size.clone(), CoreValue::Num(10f64)])?;
+                    v_invalid_size = core_or(&[v_too_small.clone(), v_too_large.clone()])?;
+                    if core_truthy(&v_invalid_size) {
+                        return Err(AxError::runtime("Typesafe: Score requires 2 to 10 levels"));
+                    }
+                    for v_entry in core_iter(&v_criteria)? {
+                        let mut v_entry = v_entry;
+                        typesafe_validate_entry(&[v_entry.clone(), v_key.clone()])?;
+                    }
+                } else {
+                    v_message = core_string_format(&[
+                        CoreValue::from("Typesafe: unknown question type for {}"),
+                        v_key.clone(),
+                    ])?;
+                    v_error = core_validation_error(&[v_message.clone()])?;
+                    return Err(core_as_error(&v_error));
+                }
+            }
+        }
+    }
+    return Ok(CoreValue::Null);
 }
 
 #[allow(
@@ -32361,6 +33758,223 @@ fn _openai_apply_model_config_impl(args: &[CoreValue]) -> Result<CoreValue, AxEr
     unreachable_code,
     clippy::all
 )]
+fn typesafe_decode_response(args: &[CoreValue]) -> Result<CoreValue, AxError> {
+    axir_coverage_mark("typesafe_decode_response");
+    let mut v_raw = core_arg(args, 0);
+    let mut v_questions = core_arg(args, 1);
+    let mut v_answer = CoreValue::Null;
+    let mut v_answer_kind = CoreValue::Null;
+    let mut v_answers = CoreValue::Null;
+    let mut v_choice = CoreValue::Null;
+    let mut v_confidence = CoreValue::Null;
+    let mut v_count = CoreValue::Null;
+    let mut v_criteria = CoreValue::Null;
+    let mut v_difference = CoreValue::Null;
+    let mut v_entry = CoreValue::Null;
+    let mut v_error = CoreValue::Null;
+    let mut v_expected_size = CoreValue::Null;
+    let mut v_index = CoreValue::Null;
+    let mut v_integer = CoreValue::Null;
+    let mut v_invalid = CoreValue::Null;
+    let mut v_invalid_sum = CoreValue::Null;
+    let mut v_is_choice = CoreValue::Null;
+    let mut v_is_noul = CoreValue::Null;
+    let mut v_key = CoreValue::Null;
+    let mut v_keys = CoreValue::Null;
+    let mut v_kind = CoreValue::Null;
+    let mut v_known = CoreValue::Null;
+    let mut v_label = CoreValue::Null;
+    let mut v_labels = CoreValue::Null;
+    let mut v_legend = CoreValue::Null;
+    let mut v_legend_keys = CoreValue::Null;
+    let mut v_legend_size = CoreValue::Null;
+    let mut v_message = CoreValue::Null;
+    let mut v_mismatch = CoreValue::Null;
+    let mut v_missing = CoreValue::Null;
+    let mut v_model = CoreValue::Null;
+    let mut v_present = CoreValue::Null;
+    let mut v_probabilities = CoreValue::Null;
+    let mut v_probability = CoreValue::Null;
+    let mut v_probability_keys = CoreValue::Null;
+    let mut v_question = CoreValue::Null;
+    let mut v_score = CoreValue::Null;
+    let mut v_size = CoreValue::Null;
+    let mut v_token_keys = CoreValue::Null;
+    let mut v_total = CoreValue::Null;
+    let mut v_unknown = CoreValue::Null;
+    let mut v_upper = CoreValue::Null;
+    let mut v_usage = CoreValue::Null;
+    let mut v_wrong_size = CoreValue::Null;
+    typesafe_require_object(&[v_raw.clone(), CoreValue::from("response")])?;
+    v_model = core_get(&v_raw, &CoreValue::from("model"), CoreValue::Null);
+    typesafe_require_string(&[
+        v_model.clone(),
+        CoreValue::from("response.model"),
+        CoreValue::Bool(true),
+    ])?;
+    v_usage = core_get(&v_raw, &CoreValue::from("usage"), CoreValue::Null);
+    typesafe_require_object(&[v_usage.clone(), CoreValue::from("usage")])?;
+    v_token_keys = CoreValue::new_list();
+    core_append(&v_token_keys, CoreValue::from("input_tokens"))?;
+    core_append(&v_token_keys, CoreValue::from("output_tokens"))?;
+    for v_key in core_iter(&v_token_keys)? {
+        let mut v_key = v_key;
+        v_count = core_get(&v_usage, &v_key.clone(), CoreValue::Null);
+        typesafe_require_number(&[
+            v_count.clone(),
+            v_key.clone(),
+            CoreValue::Num(0f64),
+            CoreValue::Num(9.007199254740991e+15f64),
+        ])?;
+        v_integer = core_math_floor(&[v_count.clone()])?;
+        v_invalid = core_ne(&[v_count.clone(), v_integer.clone()])?;
+        if core_truthy(&v_invalid) {
+            return Err(AxError::runtime(
+                "Typesafe: token counts must be nonnegative safe integers",
+            ));
+        }
+    }
+    v_answers = core_get(&v_raw, &CoreValue::from("answers"), CoreValue::Null);
+    typesafe_require_object(&[v_answers.clone(), CoreValue::from("answers")])?;
+    v_keys = core_map_keys(&[v_questions.clone()])?;
+    for v_key in core_iter(&v_keys)? {
+        let mut v_key = v_key;
+        v_question = core_get(&v_questions, &v_key.clone(), CoreValue::Null);
+        v_kind = core_get(&v_question, &CoreValue::from("type"), CoreValue::Null);
+        v_answer = core_get(&v_answers, &v_key.clone(), CoreValue::Null);
+        typesafe_require_object(&[v_answer.clone(), v_key.clone()])?;
+        v_answer_kind = core_get(&v_answer, &CoreValue::from("type"), CoreValue::Null);
+        v_mismatch = core_ne(&[v_kind.clone(), v_answer_kind.clone()])?;
+        if core_truthy(&v_mismatch) {
+            v_message = core_string_format(&[
+                CoreValue::from("Typesafe: answer type mismatch for {}"),
+                v_key.clone(),
+            ])?;
+            v_error = core_validation_error(&[v_message.clone()])?;
+            return Err(core_as_error(&v_error));
+        }
+        v_is_noul = core_eq(&[v_kind.clone(), CoreValue::from("noul")])?;
+        if core_truthy(&v_is_noul) {
+            v_probability = core_get(&v_answer, &CoreValue::from("noul"), CoreValue::Null);
+            typesafe_require_number(&[
+                v_probability.clone(),
+                v_key.clone(),
+                CoreValue::Num(0f64),
+                CoreValue::Num(1f64),
+            ])?;
+        } else {
+            v_confidence = core_get(&v_answer, &CoreValue::from("confidence"), CoreValue::Null);
+            typesafe_require_number(&[
+                v_confidence.clone(),
+                CoreValue::from("confidence"),
+                CoreValue::Num(0f64),
+                CoreValue::Num(1f64),
+            ])?;
+            v_criteria = core_get(&v_question, &CoreValue::from("criteria"), CoreValue::Null);
+            v_is_choice = core_eq(&[v_kind.clone(), CoreValue::from("choice")])?;
+            v_labels = CoreValue::new_list();
+            if core_truthy(&v_is_choice) {
+                v_labels = core_map_keys(&[v_criteria.clone()])?;
+                v_choice = core_get(&v_answer, &CoreValue::from("choice"), CoreValue::Null);
+                typesafe_require_string(&[
+                    v_choice.clone(),
+                    v_key.clone(),
+                    CoreValue::Bool(false),
+                ])?;
+                v_known = core_contains(&[v_labels.clone(), v_choice.clone()])?;
+                v_unknown = core_not(&[v_known.clone()])?;
+                if core_truthy(&v_unknown) {
+                    v_message = core_string_format(&[
+                        CoreValue::from("Typesafe: invalid selected Choice label for {}"),
+                        v_key.clone(),
+                    ])?;
+                    v_error = core_validation_error(&[v_message.clone()])?;
+                    return Err(core_as_error(&v_error));
+                }
+            } else {
+                v_index = CoreValue::Num(0f64);
+                for v_entry in core_iter(&v_criteria)? {
+                    let mut v_entry = v_entry;
+                    v_label = core_string_format(&[CoreValue::from("{}"), v_index.clone()])?;
+                    core_append(&v_labels, v_label.clone())?;
+                    v_index = core_add(&[v_index.clone(), CoreValue::Num(1f64)])?;
+                }
+                v_upper = core_add(&[v_index.clone(), CoreValue::Num(-1f64)])?;
+                v_score = core_get(&v_answer, &CoreValue::from("score"), CoreValue::Null);
+                typesafe_require_number(&[
+                    v_score.clone(),
+                    v_key.clone(),
+                    CoreValue::Num(0f64),
+                    v_upper.clone(),
+                ])?;
+                v_legend = core_get(&v_answer, &CoreValue::from("legend"), CoreValue::Null);
+                typesafe_require_object(&[v_legend.clone(), CoreValue::from("legend")])?;
+                v_legend_keys = core_map_keys(&[v_legend.clone()])?;
+                v_legend_size = core_len(&[v_legend_keys.clone()])?;
+                v_wrong_size = core_ne(&[v_legend_size.clone(), v_index.clone()])?;
+                if core_truthy(&v_wrong_size) {
+                    return Err(AxError::runtime(
+                        "Typesafe: Score legend must match rubric indices",
+                    ));
+                }
+                for v_label in core_iter(&v_labels)? {
+                    let mut v_label = v_label;
+                    v_present = core_map_contains(&[v_legend.clone(), v_label.clone()])?;
+                    v_missing = core_not(&[v_present.clone()])?;
+                    if core_truthy(&v_missing) {
+                        return Err(AxError::runtime(
+                            "Typesafe: Score legend must match rubric indices",
+                        ));
+                    }
+                    v_entry = core_get(&v_legend, &v_label.clone(), CoreValue::Null);
+                    typesafe_validate_entry(&[v_entry.clone(), CoreValue::from("legend")])?;
+                }
+            }
+            v_probabilities = core_get(
+                &v_answer,
+                &CoreValue::from("probabilities"),
+                CoreValue::Null,
+            );
+            typesafe_require_object(&[v_probabilities.clone(), CoreValue::from("probabilities")])?;
+            v_probability_keys = core_map_keys(&[v_probabilities.clone()])?;
+            v_size = core_len(&[v_probability_keys.clone()])?;
+            v_expected_size = core_len(&[v_labels.clone()])?;
+            v_wrong_size = core_ne(&[v_size.clone(), v_expected_size.clone()])?;
+            if core_truthy(&v_wrong_size) {
+                return Err(AxError::runtime(
+                    "Typesafe: probabilities must match criteria keys",
+                ));
+            }
+            v_total = CoreValue::Num(0f64);
+            for v_label in core_iter(&v_labels)? {
+                let mut v_label = v_label;
+                v_probability = core_get(&v_probabilities, &v_label.clone(), CoreValue::Null);
+                typesafe_require_number(&[
+                    v_probability.clone(),
+                    v_label.clone(),
+                    CoreValue::Num(0f64),
+                    CoreValue::Num(1f64),
+                ])?;
+                v_total = core_add(&[v_total.clone(), v_probability.clone()])?;
+            }
+            v_difference = core_add(&[v_total.clone(), CoreValue::Num(-1f64)])?;
+            v_difference = core_math_abs(&[v_difference.clone()])?;
+            v_invalid_sum = core_gt(&[v_difference.clone(), CoreValue::Num(0.01f64)])?;
+            if core_truthy(&v_invalid_sum) {
+                return Err(AxError::runtime("Typesafe: probabilities must sum to one"));
+            }
+        }
+    }
+    return Ok(v_raw.clone());
+}
+
+#[allow(
+    unused_variables,
+    unused_assignments,
+    unused_mut,
+    unreachable_code,
+    clippy::all
+)]
 fn validate_chat_request(args: &[CoreValue]) -> Result<CoreValue, AxError> {
     axir_coverage_mark("validate_chat_request");
     let mut v_request = core_arg(args, 0);
@@ -32611,6 +34225,55 @@ fn normalize_chat_response(args: &[CoreValue]) -> Result<CoreValue, AxError> {
     let mut v_response = CoreValue::Null;
     v_response = openai_normalize_chat_response(&[v_raw.clone()])?;
     return Ok(v_response.clone());
+}
+
+#[allow(
+    unused_variables,
+    unused_assignments,
+    unused_mut,
+    unreachable_code,
+    clippy::all
+)]
+fn typesafe_decode_models(args: &[CoreValue]) -> Result<CoreValue, AxError> {
+    axir_coverage_mark("typesafe_decode_models");
+    let mut v_raw = core_arg(args, 0);
+    let mut v_description = CoreValue::Null;
+    let mut v_invalid = CoreValue::Null;
+    let mut v_is_list = CoreValue::Null;
+    let mut v_model = CoreValue::Null;
+    let mut v_models = CoreValue::Null;
+    let mut v_name = CoreValue::Null;
+    let mut v_release_date = CoreValue::Null;
+    typesafe_require_object(&[v_raw.clone(), CoreValue::from("model catalog")])?;
+    v_models = core_get(&v_raw, &CoreValue::from("models"), CoreValue::Null);
+    v_is_list = core_type_is(&v_models, CoreValue::from("list"));
+    v_invalid = core_not(&[v_is_list.clone()])?;
+    if core_truthy(&v_invalid) {
+        return Err(AxError::runtime("Typesafe: models must be an array"));
+    }
+    for v_model in core_iter(&v_models)? {
+        let mut v_model = v_model;
+        typesafe_require_object(&[v_model.clone(), CoreValue::from("model")])?;
+        v_name = core_get(&v_model, &CoreValue::from("name"), CoreValue::Null);
+        v_description = core_get(&v_model, &CoreValue::from("description"), CoreValue::Null);
+        v_release_date = core_get(&v_model, &CoreValue::from("release_date"), CoreValue::Null);
+        typesafe_require_string(&[
+            v_name.clone(),
+            CoreValue::from("model.name"),
+            CoreValue::Bool(true),
+        ])?;
+        typesafe_require_string(&[
+            v_description.clone(),
+            CoreValue::from("model.description"),
+            CoreValue::Bool(false),
+        ])?;
+        typesafe_require_string(&[
+            v_release_date.clone(),
+            CoreValue::from("model.release_date"),
+            CoreValue::Bool(false),
+        ])?;
+    }
+    return Ok(v_models.clone());
 }
 
 #[allow(
@@ -32882,6 +34545,474 @@ fn _openai_message_impl(args: &[CoreValue]) -> Result<CoreValue, AxError> {
     v_message_text = core_string_format(&[CoreValue::from("Invalid role: {}"), v_role.clone()])?;
     v_error = core_ai_error_response(&[v_message_text.clone()])?;
     return Err(core_as_error(&v_error));
+}
+
+#[allow(
+    unused_variables,
+    unused_assignments,
+    unused_mut,
+    unreachable_code,
+    clippy::all
+)]
+fn typesafe_build_chat_request(args: &[CoreValue]) -> Result<CoreValue, AxError> {
+    axir_coverage_mark("typesafe_build_chat_request");
+    let mut v_request = core_arg(args, 0);
+    let mut v_options = core_arg(args, 1);
+    let mut v_allowed = CoreValue::Null;
+    let mut v_allowed_n = CoreValue::Null;
+    let mut v_annotation = CoreValue::Null;
+    let mut v_annotation_type = CoreValue::Null;
+    let mut v_annotations = CoreValue::Null;
+    let mut v_audio = CoreValue::Null;
+    let mut v_calls = CoreValue::Null;
+    let mut v_calls_snake = CoreValue::Null;
+    let mut v_class_options = CoreValue::Null;
+    let mut v_config = CoreValue::Null;
+    let mut v_config_snake = CoreValue::Null;
+    let mut v_content = CoreValue::Null;
+    let mut v_control = CoreValue::Null;
+    let mut v_controls = CoreValue::Null;
+    let mut v_criteria = CoreValue::Null;
+    let mut v_description = CoreValue::Null;
+    let mut v_descriptions = CoreValue::Null;
+    let mut v_duplicate = CoreValue::Null;
+    let mut v_empty_list = CoreValue::Null;
+    let mut v_empty_map = CoreValue::Null;
+    let mut v_entry = CoreValue::Null;
+    let mut v_error = CoreValue::Null;
+    let mut v_field = CoreValue::Null;
+    let mut v_flat = CoreValue::Null;
+    let mut v_forbidden = CoreValue::Null;
+    let mut v_format = CoreValue::Null;
+    let mut v_format_snake = CoreValue::Null;
+    let mut v_format_type = CoreValue::Null;
+    let mut v_function_call = CoreValue::Null;
+    let mut v_function_call_snake = CoreValue::Null;
+    let mut v_functions = CoreValue::Null;
+    let mut v_has_annotation = CoreValue::Null;
+    let mut v_has_audio = CoreValue::Null;
+    let mut v_has_call = CoreValue::Null;
+    let mut v_has_call_value = CoreValue::Null;
+    let mut v_has_calls = CoreValue::Null;
+    let mut v_has_description = CoreValue::Null;
+    let mut v_has_enum = CoreValue::Null;
+    let mut v_has_functions = CoreValue::Null;
+    let mut v_has_images = CoreValue::Null;
+    let mut v_has_key = CoreValue::Null;
+    let mut v_has_value = CoreValue::Null;
+    let mut v_images = CoreValue::Null;
+    let mut v_instructions = CoreValue::Null;
+    let mut v_invalid = CoreValue::Null;
+    let mut v_is_boolean = CoreValue::Null;
+    let mut v_is_class = CoreValue::Null;
+    let mut v_is_description_string = CoreValue::Null;
+    let mut v_is_enum = CoreValue::Null;
+    let mut v_is_list = CoreValue::Null;
+    let mut v_is_n = CoreValue::Null;
+    let mut v_is_stream = CoreValue::Null;
+    let mut v_is_string = CoreValue::Null;
+    let mut v_is_tool = CoreValue::Null;
+    let mut v_is_tool_alt = CoreValue::Null;
+    let mut v_key = CoreValue::Null;
+    let mut v_kind = CoreValue::Null;
+    let mut v_label = CoreValue::Null;
+    let mut v_message = CoreValue::Null;
+    let mut v_messages = CoreValue::Null;
+    let mut v_model = CoreValue::Null;
+    let mut v_name = CoreValue::Null;
+    let mut v_names = CoreValue::Null;
+    let mut v_no_enum = CoreValue::Null;
+    let mut v_nontext = CoreValue::Null;
+    let mut v_not_flat = CoreValue::Null;
+    let mut v_numeric = CoreValue::Null;
+    let mut v_one = CoreValue::Null;
+    let mut v_part = CoreValue::Null;
+    let mut v_payload = CoreValue::Null;
+    let mut v_present = CoreValue::Null;
+    let mut v_prompt = CoreValue::Null;
+    let mut v_prompt_snake = CoreValue::Null;
+    let mut v_properties = CoreValue::Null;
+    let mut v_question = CoreValue::Null;
+    let mut v_questions = CoreValue::Null;
+    let mut v_required = CoreValue::Null;
+    let mut v_role = CoreValue::Null;
+    let mut v_root_type = CoreValue::Null;
+    let mut v_schema = CoreValue::Null;
+    let mut v_state = CoreValue::Null;
+    let mut v_supported = CoreValue::Null;
+    let mut v_supported_type = CoreValue::Null;
+    let mut v_text = CoreValue::Null;
+    let mut v_texts = CoreValue::Null;
+    let mut v_threshold = CoreValue::Null;
+    let mut v_threshold_snake = CoreValue::Null;
+    let mut v_tools = CoreValue::Null;
+    let mut v_typ = CoreValue::Null;
+    let mut v_type_attrs = CoreValue::Null;
+    let mut v_type_name = CoreValue::Null;
+    let mut v_unsupported = CoreValue::Null;
+    let mut v_use_description = CoreValue::Null;
+    let mut v_value = CoreValue::Null;
+    let mut v_wrapper = CoreValue::Null;
+    let mut v_wrong_format = CoreValue::Null;
+    v_empty_map = CoreValue::new_map();
+    v_empty_list = CoreValue::new_list();
+    v_threshold_snake = core_get(
+        &v_options,
+        &CoreValue::from("true_threshold"),
+        CoreValue::Num(0.5f64),
+    );
+    v_threshold = core_get(
+        &v_options,
+        &CoreValue::from("trueThreshold"),
+        v_threshold_snake.clone(),
+    );
+    typesafe_require_number(&[
+        v_threshold.clone(),
+        CoreValue::from("trueThreshold"),
+        CoreValue::Num(0f64),
+        CoreValue::Num(1f64),
+    ])?;
+    v_functions = core_get(
+        &v_request,
+        &CoreValue::from("functions"),
+        v_empty_list.clone(),
+    );
+    v_function_call_snake = core_get(
+        &v_request,
+        &CoreValue::from("function_call"),
+        CoreValue::from("none"),
+    );
+    v_function_call = core_get(
+        &v_request,
+        &CoreValue::from("functionCall"),
+        v_function_call_snake.clone(),
+    );
+    v_has_functions = core_truthy_value(&[v_functions.clone()])?;
+    v_has_call = core_ne(&[v_function_call.clone(), CoreValue::from("none")])?;
+    v_has_call_value = core_truthy_value(&[v_function_call.clone()])?;
+    v_has_call = core_and(&[v_has_call.clone(), v_has_call_value.clone()])?;
+    v_tools = core_or(&[v_has_functions.clone(), v_has_call.clone()])?;
+    if core_truthy(&v_tools) {
+        return Err(AxError::runtime(
+            "Typesafe does not support tools; use a generative provider for tool execution",
+        ));
+    }
+    v_config_snake = core_get(
+        &v_request,
+        &CoreValue::from("model_config"),
+        v_empty_map.clone(),
+    );
+    v_config = core_get(
+        &v_request,
+        &CoreValue::from("modelConfig"),
+        v_config_snake.clone(),
+    );
+    v_controls = core_map_keys(&[v_config.clone()])?;
+    for v_control in core_iter(&v_controls)? {
+        let mut v_control = v_control;
+        v_value = core_get(&v_config, &v_control.clone(), CoreValue::Null);
+        v_present = core_is_not_none(&[v_value.clone()])?;
+        if core_truthy(&v_present) {
+            v_is_stream = core_eq(&[v_control.clone(), CoreValue::from("stream")])?;
+            v_is_n = core_eq(&[v_control.clone(), CoreValue::from("n")])?;
+            v_one = core_eq(&[v_value.clone(), CoreValue::Num(1f64)])?;
+            v_numeric = core_type_is(&v_value, CoreValue::from("number"));
+            v_one = core_and(&[v_one.clone(), v_numeric.clone()])?;
+            v_allowed_n = core_and(&[v_is_n.clone(), v_one.clone()])?;
+            v_allowed = core_or(&[v_is_stream.clone(), v_allowed_n.clone()])?;
+            v_unsupported = core_not(&[v_allowed.clone()])?;
+            if core_truthy(&v_unsupported) {
+                v_message = core_string_format(&[
+                    CoreValue::from("Typesafe does not support generation control {}"),
+                    v_control.clone(),
+                ])?;
+                v_error = core_validation_error(&[v_message.clone()])?;
+                return Err(core_as_error(&v_error));
+            }
+        }
+    }
+    v_format_snake = core_get(
+        &v_request,
+        &CoreValue::from("response_format"),
+        CoreValue::Null,
+    );
+    v_format = core_get(
+        &v_request,
+        &CoreValue::from("responseFormat"),
+        v_format_snake.clone(),
+    );
+    v_format_type = core_get(&v_format, &CoreValue::from("type"), CoreValue::Null);
+    v_wrong_format = core_ne(&[v_format_type.clone(), CoreValue::from("json_schema")])?;
+    if core_truthy(&v_wrong_format) {
+        return Err(AxError::runtime(
+            "Typesafe requires an output schema. Use ax() with required boolean or class outputs",
+        ));
+    }
+    v_wrapper = core_get(&v_format, &CoreValue::from("schema"), CoreValue::Null);
+    typesafe_require_object(&[v_wrapper.clone(), CoreValue::from("responseFormat.schema")])?;
+    v_schema = core_get(&v_wrapper, &CoreValue::from("schema"), CoreValue::Null);
+    typesafe_require_object(&[v_schema.clone(), CoreValue::from("output schema")])?;
+    v_root_type = core_get(&v_schema, &CoreValue::from("type"), CoreValue::Null);
+    v_flat = core_eq(&[v_root_type.clone(), CoreValue::from("object")])?;
+    v_forbidden = CoreValue::new_list();
+    core_append(&v_forbidden, CoreValue::from("anyOf"))?;
+    core_append(&v_forbidden, CoreValue::from("oneOf"))?;
+    core_append(&v_forbidden, CoreValue::from("allOf"))?;
+    core_append(&v_forbidden, CoreValue::from("$ref"))?;
+    for v_key in core_iter(&v_forbidden)? {
+        let mut v_key = v_key;
+        v_value = core_get(&v_schema, &v_key.clone(), CoreValue::Null);
+        v_has_value = core_truthy_value(&[v_value.clone()])?;
+        if core_truthy(&v_has_value) {
+            v_flat = CoreValue::Bool(false);
+        }
+    }
+    v_not_flat = core_not(&[v_flat.clone()])?;
+    if core_truthy(&v_not_flat) {
+        return Err(AxError::runtime(
+            "Typesafe requires a flat object output schema",
+        ));
+    }
+    v_properties = core_get(&v_schema, &CoreValue::from("properties"), CoreValue::Null);
+    typesafe_require_object(&[v_properties.clone(), CoreValue::from("output properties")])?;
+    v_required = core_get(
+        &v_schema,
+        &CoreValue::from("required"),
+        v_empty_list.clone(),
+    );
+    v_annotations = core_get(
+        &v_format,
+        &CoreValue::from("fieldDescriptions"),
+        v_empty_map.clone(),
+    );
+    v_questions = CoreValue::new_map();
+    v_names = core_map_keys(&[v_properties.clone()])?;
+    core_append(&v_forbidden, CoreValue::from("const"))?;
+    for v_name in core_iter(&v_names)? {
+        let mut v_name = v_name;
+        v_field = core_get(&v_properties, &v_name.clone(), CoreValue::Null);
+        typesafe_require_object(&[v_field.clone(), v_name.clone()])?;
+        v_supported = core_contains(&[v_required.clone(), v_name.clone()])?;
+        for v_key in core_iter(&v_forbidden)? {
+            let mut v_key = v_key;
+            v_has_key = core_map_contains(&[v_field.clone(), v_key.clone()])?;
+            if core_truthy(&v_has_key) {
+                v_supported = CoreValue::Bool(false);
+            }
+        }
+        v_type_name = core_get(&v_field, &CoreValue::from("type"), CoreValue::Null);
+        v_class_options = core_get(&v_field, &CoreValue::from("enum"), CoreValue::Null);
+        v_is_boolean = core_eq(&[v_type_name.clone(), CoreValue::from("boolean")])?;
+        v_has_enum = core_is_not_none(&[v_class_options.clone()])?;
+        v_no_enum = core_not(&[v_has_enum.clone()])?;
+        v_is_boolean = core_and(&[v_is_boolean.clone(), v_no_enum.clone()])?;
+        v_is_string = core_eq(&[v_type_name.clone(), CoreValue::from("string")])?;
+        v_is_enum = core_type_is(&v_class_options, CoreValue::from("list"));
+        v_is_class = core_and(&[v_is_string.clone(), v_is_enum.clone()])?;
+        v_supported_type = core_or(&[v_is_boolean.clone(), v_is_class.clone()])?;
+        v_supported = core_and(&[v_supported.clone(), v_supported_type.clone()])?;
+        v_unsupported = core_not(&[v_supported.clone()])?;
+        if core_truthy(&v_unsupported) {
+            v_message = core_string_format(&[CoreValue::from("Typesafe cannot evaluate output {}. Use required boolean or class fields; use typesafe().systemOne() for scoring, or a generative provider for other outputs"), v_name.clone()])?;
+            v_error = core_validation_error(&[v_message.clone()])?;
+            return Err(core_as_error(&v_error));
+        }
+        v_annotation = core_get(&v_annotations, &v_name.clone(), CoreValue::Null);
+        v_description = core_get(&v_field, &CoreValue::from("description"), CoreValue::Null);
+        v_has_annotation = core_is_not_none(&[v_annotation.clone()])?;
+        v_descriptions = CoreValue::new_map();
+        if core_truthy(&v_has_annotation) {
+            typesafe_require_object(&[v_annotation.clone(), v_name.clone()])?;
+            v_description = core_get(
+                &v_annotation,
+                &CoreValue::from("description"),
+                CoreValue::Null,
+            );
+            v_has_description = core_is_not_none(&[v_description.clone()])?;
+            if core_truthy(&v_has_description) {
+                typesafe_require_string(&[
+                    v_description.clone(),
+                    v_name.clone(),
+                    CoreValue::Bool(false),
+                ])?;
+            }
+            v_descriptions = core_get(
+                &v_annotation,
+                &CoreValue::from("valueDescriptions"),
+                CoreValue::Null,
+            );
+            typesafe_require_object(&[v_descriptions.clone(), v_name.clone()])?;
+            v_type_attrs = CoreValue::new_map();
+            v_annotation_type = CoreValue::from("boolean");
+            if core_truthy(&v_is_class) {
+                v_annotation_type = CoreValue::from("class");
+            }
+            core_set(
+                &v_type_attrs,
+                CoreValue::from("name"),
+                v_annotation_type.clone(),
+            )?;
+            core_set(
+                &v_type_attrs,
+                CoreValue::from("options"),
+                v_class_options.clone(),
+            )?;
+            core_set(
+                &v_type_attrs,
+                CoreValue::from("value_descriptions"),
+                v_descriptions.clone(),
+            )?;
+            v_typ = core_record_new(&[CoreValue::from("FieldType"), v_type_attrs.clone()])?;
+            _signature_validate_value_descriptions_impl(&[v_typ.clone(), v_name.clone()])?;
+        }
+        v_instructions = core_string_format(&[
+            CoreValue::from("Evaluate the output field {}."),
+            v_name.clone(),
+        ])?;
+        v_is_description_string = core_type_is(&v_description, CoreValue::from("string"));
+        v_has_description = core_truthy_value(&[v_description.clone()])?;
+        v_use_description =
+            core_and(&[v_is_description_string.clone(), v_has_description.clone()])?;
+        if core_truthy(&v_use_description) {
+            v_instructions = core_string_format(&[
+                CoreValue::from("{}: {}"),
+                v_name.clone(),
+                v_description.clone(),
+            ])?;
+        }
+        v_question = CoreValue::new_map();
+        core_set(
+            &v_question,
+            CoreValue::from("instructions"),
+            v_instructions.clone(),
+        )?;
+        if core_truthy(&v_is_boolean) {
+            core_set(
+                &v_question,
+                CoreValue::from("type"),
+                CoreValue::from("noul"),
+            )?;
+            if core_truthy(&v_has_annotation) {
+                core_set(
+                    &v_question,
+                    CoreValue::from("criteria"),
+                    v_descriptions.clone(),
+                )?;
+            }
+        } else {
+            core_set(
+                &v_question,
+                CoreValue::from("type"),
+                CoreValue::from("choice"),
+            )?;
+            v_criteria = CoreValue::new_map();
+            for v_label in core_iter(&v_class_options)? {
+                let mut v_label = v_label;
+                typesafe_require_string(&[
+                    v_label.clone(),
+                    v_name.clone(),
+                    CoreValue::Bool(false),
+                ])?;
+                v_duplicate = core_map_contains(&[v_criteria.clone(), v_label.clone()])?;
+                if core_truthy(&v_duplicate) {
+                    return Err(AxError::runtime("Typesafe: Choice labels must be unique"));
+                }
+                v_description = core_get(&v_descriptions, &v_label.clone(), CoreValue::Null);
+                core_set(&v_criteria, v_label.clone(), v_description.clone())?;
+            }
+            core_set(&v_question, CoreValue::from("criteria"), v_criteria.clone())?;
+        }
+        core_set(&v_questions, v_name.clone(), v_question.clone())?;
+    }
+    v_prompt_snake = core_get(
+        &v_request,
+        &CoreValue::from("chat_prompt"),
+        v_empty_list.clone(),
+    );
+    v_prompt = core_get(
+        &v_request,
+        &CoreValue::from("chatPrompt"),
+        v_prompt_snake.clone(),
+    );
+    v_messages = CoreValue::new_list();
+    for v_message in core_iter(&v_prompt)? {
+        let mut v_message = v_message;
+        v_role = core_get(&v_message, &CoreValue::from("role"), CoreValue::Null);
+        v_content = core_get(&v_message, &CoreValue::from("content"), CoreValue::from(""));
+        v_is_tool = core_eq(&[v_role.clone(), CoreValue::from("function")])?;
+        v_is_tool_alt = core_eq(&[v_role.clone(), CoreValue::from("tool")])?;
+        v_is_tool = core_or(&[v_is_tool.clone(), v_is_tool_alt.clone()])?;
+        v_calls = core_get(
+            &v_message,
+            &CoreValue::from("functionCalls"),
+            CoreValue::Null,
+        );
+        v_calls_snake = core_get(
+            &v_message,
+            &CoreValue::from("function_calls"),
+            CoreValue::Null,
+        );
+        v_calls = core_coalesce(&[v_calls.clone(), v_calls_snake.clone()])?;
+        v_has_calls = core_truthy_value(&[v_calls.clone()])?;
+        v_audio = core_get(&v_message, &CoreValue::from("audio"), CoreValue::Null);
+        v_has_audio = core_truthy_value(&[v_audio.clone()])?;
+        v_images = core_get(&v_message, &CoreValue::from("images"), CoreValue::Null);
+        v_has_images = core_truthy_value(&[v_images.clone()])?;
+        v_invalid = core_or(&[v_is_tool.clone(), v_has_calls.clone()])?;
+        v_invalid = core_or(&[v_invalid.clone(), v_has_audio.clone()])?;
+        v_invalid = core_or(&[v_invalid.clone(), v_has_images.clone()])?;
+        if core_truthy(&v_invalid) {
+            return Err(AxError::runtime(
+                "Typesafe does not support tool or media history",
+            ));
+        }
+        v_is_list = core_type_is(&v_content, CoreValue::from("list"));
+        if core_truthy(&v_is_list) {
+            v_texts = CoreValue::new_list();
+            for v_part in core_iter(&v_content)? {
+                let mut v_part = v_part;
+                v_kind = core_get(&v_part, &CoreValue::from("type"), CoreValue::Null);
+                v_nontext = core_ne(&[v_kind.clone(), CoreValue::from("text")])?;
+                if core_truthy(&v_nontext) {
+                    return Err(AxError::runtime("Typesafe supports text input only"));
+                }
+                v_text = core_get(&v_part, &CoreValue::from("text"), CoreValue::Null);
+                typesafe_require_string(&[
+                    v_text.clone(),
+                    CoreValue::from("message text"),
+                    CoreValue::Bool(false),
+                ])?;
+                core_append(&v_texts, v_text.clone())?;
+            }
+            v_content = core_string_join_intrinsic(&[CoreValue::from("\n"), v_texts.clone()])?;
+        }
+        typesafe_require_string(&[
+            v_content.clone(),
+            CoreValue::from("message content"),
+            CoreValue::Bool(false),
+        ])?;
+        v_entry = CoreValue::new_map();
+        core_set(&v_entry, CoreValue::from("role"), v_role.clone())?;
+        core_set(&v_entry, CoreValue::from("content"), v_content.clone())?;
+        core_append(&v_messages, v_entry.clone())?;
+    }
+    v_state = CoreValue::new_map();
+    core_set(&v_state, CoreValue::from("messages"), v_messages.clone())?;
+    v_payload = CoreValue::new_map();
+    v_model = core_get(
+        &v_request,
+        &CoreValue::from("model"),
+        CoreValue::from("jev-latest"),
+    );
+    core_set(&v_payload, CoreValue::from("model"), v_model.clone())?;
+    core_set(&v_payload, CoreValue::from("state"), v_state.clone())?;
+    core_set(
+        &v_payload,
+        CoreValue::from("questions"),
+        v_questions.clone(),
+    )?;
+    typesafe_validate_request(&[v_payload.clone()])?;
+    return Ok(v_payload.clone());
 }
 
 #[allow(
@@ -33677,6 +35808,134 @@ fn _ai_model_usage_impl(args: &[CoreValue]) -> Result<CoreValue, AxError> {
     unreachable_code,
     clippy::all
 )]
+fn typesafe_normalize_chat_response(args: &[CoreValue]) -> Result<CoreValue, AxError> {
+    axir_coverage_mark("typesafe_normalize_chat_response");
+    let mut v_raw = core_arg(args, 0);
+    let mut v_context = core_arg(args, 1);
+    let mut v_answer = CoreValue::Null;
+    let mut v_answers = CoreValue::Null;
+    let mut v_below = CoreValue::Null;
+    let mut v_content = CoreValue::Null;
+    let mut v_input = CoreValue::Null;
+    let mut v_is_noul = CoreValue::Null;
+    let mut v_kind = CoreValue::Null;
+    let mut v_metadata = CoreValue::Null;
+    let mut v_model = CoreValue::Null;
+    let mut v_model_usage = CoreValue::Null;
+    let mut v_name = CoreValue::Null;
+    let mut v_names = CoreValue::Null;
+    let mut v_output = CoreValue::Null;
+    let mut v_probability = CoreValue::Null;
+    let mut v_questions = CoreValue::Null;
+    let mut v_response = CoreValue::Null;
+    let mut v_result = CoreValue::Null;
+    let mut v_results = CoreValue::Null;
+    let mut v_threshold = CoreValue::Null;
+    let mut v_tokens = CoreValue::Null;
+    let mut v_total = CoreValue::Null;
+    let mut v_typesafe_metadata = CoreValue::Null;
+    let mut v_usage = CoreValue::Null;
+    let mut v_value = CoreValue::Null;
+    let mut v_values = CoreValue::Null;
+    v_questions = core_get(&v_context, &CoreValue::from("questions"), CoreValue::Null);
+    typesafe_require_object(&[
+        v_questions.clone(),
+        CoreValue::from("response request questions"),
+    ])?;
+    v_raw = typesafe_decode_response(&[v_raw.clone(), v_questions.clone()])?;
+    v_threshold = core_get(
+        &v_context,
+        &CoreValue::from("trueThreshold"),
+        CoreValue::Num(0.5f64),
+    );
+    typesafe_require_number(&[
+        v_threshold.clone(),
+        CoreValue::from("trueThreshold"),
+        CoreValue::Num(0f64),
+        CoreValue::Num(1f64),
+    ])?;
+    v_answers = core_get(&v_raw, &CoreValue::from("answers"), CoreValue::Null);
+    v_values = CoreValue::new_map();
+    v_names = core_map_keys(&[v_questions.clone()])?;
+    for v_name in core_iter(&v_names)? {
+        let mut v_name = v_name;
+        v_answer = core_get(&v_answers, &v_name.clone(), CoreValue::Null);
+        v_kind = core_get(&v_answer, &CoreValue::from("type"), CoreValue::Null);
+        v_is_noul = core_eq(&[v_kind.clone(), CoreValue::from("noul")])?;
+        v_value = core_get(&v_answer, &CoreValue::from("choice"), CoreValue::Null);
+        if core_truthy(&v_is_noul) {
+            v_probability = core_get(&v_answer, &CoreValue::from("noul"), CoreValue::Null);
+            v_below = core_lt(&[v_probability.clone(), v_threshold.clone()])?;
+            v_value = core_not(&[v_below.clone()])?;
+        }
+        core_set(&v_values, v_name.clone(), v_value.clone())?;
+    }
+    v_content = core_json_stringify(&[v_values.clone()])?;
+    v_result = CoreValue::new_map();
+    core_set(&v_result, CoreValue::from("index"), CoreValue::Num(0f64))?;
+    core_set(&v_result, CoreValue::from("content"), v_content.clone())?;
+    core_set(
+        &v_result,
+        CoreValue::from("finishReason"),
+        CoreValue::from("stop"),
+    )?;
+    v_results = CoreValue::new_list();
+    core_append(&v_results, v_result.clone())?;
+    v_usage = core_get(&v_raw, &CoreValue::from("usage"), CoreValue::Null);
+    v_input = core_get(&v_usage, &CoreValue::from("input_tokens"), CoreValue::Null);
+    v_output = core_get(&v_usage, &CoreValue::from("output_tokens"), CoreValue::Null);
+    v_total = core_add(&[v_input.clone(), v_output.clone()])?;
+    v_tokens = CoreValue::new_map();
+    core_set(&v_tokens, CoreValue::from("promptTokens"), v_input.clone())?;
+    core_set(
+        &v_tokens,
+        CoreValue::from("completionTokens"),
+        v_output.clone(),
+    )?;
+    core_set(&v_tokens, CoreValue::from("totalTokens"), v_total.clone())?;
+    v_model_usage = CoreValue::new_map();
+    v_model = core_get(&v_raw, &CoreValue::from("model"), CoreValue::Null);
+    core_set(
+        &v_model_usage,
+        CoreValue::from("ai"),
+        CoreValue::from("Typesafe"),
+    )?;
+    core_set(&v_model_usage, CoreValue::from("model"), v_model.clone())?;
+    core_set(&v_model_usage, CoreValue::from("tokens"), v_tokens.clone())?;
+    v_typesafe_metadata = CoreValue::new_map();
+    core_set(
+        &v_typesafe_metadata,
+        CoreValue::from("answers"),
+        v_answers.clone(),
+    )?;
+    v_metadata = CoreValue::new_map();
+    core_set(
+        &v_metadata,
+        CoreValue::from("typesafe"),
+        v_typesafe_metadata.clone(),
+    )?;
+    v_response = CoreValue::new_map();
+    core_set(&v_response, CoreValue::from("results"), v_results.clone())?;
+    core_set(
+        &v_response,
+        CoreValue::from("modelUsage"),
+        v_model_usage.clone(),
+    )?;
+    core_set(
+        &v_response,
+        CoreValue::from("providerMetadata"),
+        v_metadata.clone(),
+    )?;
+    return Ok(v_response.clone());
+}
+
+#[allow(
+    unused_variables,
+    unused_assignments,
+    unused_mut,
+    unreachable_code,
+    clippy::all
+)]
 fn ai_merge_replay_metadata(args: &[CoreValue]) -> Result<CoreValue, AxError> {
     axir_coverage_mark("ai_merge_replay_metadata");
     let mut v_previous = core_arg(args, 0);
@@ -33900,6 +36159,41 @@ fn _openai_tool_spec_impl(args: &[CoreValue]) -> Result<CoreValue, AxError> {
     unreachable_code,
     clippy::all
 )]
+fn typesafe_response_context(args: &[CoreValue]) -> Result<CoreValue, AxError> {
+    axir_coverage_mark("typesafe_response_context");
+    let mut v_payload = core_arg(args, 0);
+    let mut v_options = core_arg(args, 1);
+    let mut v_context = CoreValue::Null;
+    let mut v_empty = CoreValue::Null;
+    let mut v_threshold = CoreValue::Null;
+    let mut v_threshold_snake = CoreValue::Null;
+    v_empty = CoreValue::new_map();
+    v_context = core_map_merge(&[v_empty.clone(), v_payload.clone()])?;
+    v_threshold_snake = core_get(
+        &v_options,
+        &CoreValue::from("true_threshold"),
+        CoreValue::Num(0.5f64),
+    );
+    v_threshold = core_get(
+        &v_options,
+        &CoreValue::from("trueThreshold"),
+        v_threshold_snake.clone(),
+    );
+    core_set(
+        &v_context,
+        CoreValue::from("trueThreshold"),
+        v_threshold.clone(),
+    )?;
+    return Ok(v_context.clone());
+}
+
+#[allow(
+    unused_variables,
+    unused_assignments,
+    unused_mut,
+    unreachable_code,
+    clippy::all
+)]
 fn openai_build_embed_request(args: &[CoreValue]) -> Result<CoreValue, AxError> {
     axir_coverage_mark("openai_build_embed_request");
     let mut v_request = core_arg(args, 0);
@@ -33931,6 +36225,28 @@ fn openai_build_embed_request(args: &[CoreValue]) -> Result<CoreValue, AxError> 
         )?;
     }
     return Ok(v_payload.clone());
+}
+
+#[allow(
+    unused_variables,
+    unused_assignments,
+    unused_mut,
+    unreachable_code,
+    clippy::all
+)]
+fn provider_validate_chat_request(args: &[CoreValue]) -> Result<CoreValue, AxError> {
+    axir_coverage_mark("provider_validate_chat_request");
+    let mut v_profile = core_arg(args, 0);
+    let mut v_request = core_arg(args, 1);
+    let mut v_options = core_arg(args, 2);
+    let mut v_canonical = CoreValue::Null;
+    let mut v_is_typesafe = CoreValue::Null;
+    v_canonical = provider_normalize_profile(&[v_profile.clone()])?;
+    v_is_typesafe = core_eq(&[v_canonical.clone(), CoreValue::from("typesafe")])?;
+    if core_truthy(&v_is_typesafe) {
+        typesafe_build_chat_request(&[v_request.clone(), v_options.clone()])?;
+    }
+    return Ok(CoreValue::Null);
 }
 
 #[allow(
@@ -35504,7 +37820,7 @@ fn provider_normalize_profile(args: &[CoreValue]) -> Result<CoreValue, AxError> 
 fn provider_profile_registry(args: &[CoreValue]) -> Result<CoreValue, AxError> {
     axir_coverage_mark("provider_profile_registry");
     let mut v_registry = CoreValue::Null;
-    v_registry = core_json_parse(&[CoreValue::from("{\"registryVersion\":\"provider-profiles-v3\",\"supportedProfileIds\":[\"openai\",\"openai-compatible\",\"openai-responses\",\"anthropic\",\"google-gemini\",\"webllm\",\"azure-openai\",\"deepseek\",\"deepseek-responses\",\"meta\",\"meta-chat\",\"meta-messages\",\"mistral\",\"cohere\",\"grok\",\"reka\",\"together\",\"openrouter\",\"orcarouter\",\"fireworks\",\"huggingface-router\",\"amazon-bedrock\",\"azure-foundry\",\"vertex-ai\",\"databricks\",\"baseten\",\"groq\",\"cerebras\",\"deepinfra\",\"sambanova\",\"nebius\",\"novita\",\"hyperbolic\",\"siliconflow\",\"friendli\",\"cloudflare-workers-ai\",\"featherless\",\"nscale\",\"ovhcloud\",\"scaleway\",\"nvidia-nim\",\"runpod-vllm\",\"sagemaker-vllm\",\"vllm\",\"ollama\",\"lm-studio\",\"llama-cpp\",\"localai\",\"baseten-engine\",\"typesafe\"],\"profiles\":{\"openai\":{\"id\":\"openai\",\"aliases\":[\"openai\"],\"transport\":\"openai-chat\",\"generatedClient\":\"OpenAICompatibleClient\",\"catalogStatus\":\"descriptor-covered\"},\"openai-compatible\":{\"id\":\"openai-compatible\",\"aliases\":[\"openai-compatible\",\"openai_compatible\",\"compatible\"],\"transport\":\"openai-chat\",\"generatedClient\":\"OpenAICompatibleClient\",\"catalogStatus\":\"descriptor-covered\"},\"openai-responses\":{\"id\":\"openai-responses\",\"aliases\":[\"openai-responses\",\"openai_responses\",\"responses\"],\"transport\":\"openai-responses\",\"generatedClient\":\"OpenAIResponsesClient\",\"catalogStatus\":\"descriptor-covered\"},\"anthropic\":{\"id\":\"anthropic\",\"aliases\":[\"anthropic\",\"claude\"],\"transport\":\"anthropic-messages\",\"generatedClient\":\"AnthropicClient\",\"catalogStatus\":\"descriptor-covered\"},\"google-gemini\":{\"id\":\"google-gemini\",\"aliases\":[\"google-gemini\",\"google_gemini\",\"gemini\"],\"transport\":\"gemini-generate-content\",\"generatedClient\":\"GoogleGeminiClient\",\"catalogStatus\":\"descriptor-covered\"},\"webllm\":{\"id\":\"webllm\",\"aliases\":[\"webllm\"],\"transport\":\"webllm\",\"generatedClient\":null,\"catalogStatus\":\"typescript-only\"},\"azure-openai\":{\"id\":\"azure-openai\",\"aliases\":[\"azure-openai\",\"azure_openai\",\"azure\"],\"transport\":\"openai-chat\",\"generatedClient\":\"OpenAICompatibleClient\",\"catalogStatus\":\"descriptor-covered\"},\"deepseek\":{\"id\":\"deepseek\",\"aliases\":[\"deepseek\"],\"transport\":\"openai-chat\",\"generatedClient\":\"OpenAICompatibleClient\",\"catalogStatus\":\"descriptor-covered\"},\"deepseek-responses\":{\"id\":\"deepseek-responses\",\"aliases\":[\"deepseek-responses\",\"deepseek_responses\"],\"transport\":\"openai-responses\",\"generatedClient\":\"OpenAIResponsesClient\",\"catalogStatus\":\"descriptor-covered\"},\"meta\":{\"id\":\"meta\",\"aliases\":[\"meta\",\"meta-responses\",\"meta_responses\"],\"transport\":\"openai-responses\",\"generatedClient\":\"OpenAIResponsesClient\",\"catalogStatus\":\"descriptor-covered\"},\"meta-chat\":{\"id\":\"meta-chat\",\"aliases\":[\"meta-chat\",\"meta_chat\"],\"transport\":\"openai-chat\",\"generatedClient\":\"OpenAICompatibleClient\",\"catalogStatus\":\"descriptor-covered\"},\"meta-messages\":{\"id\":\"meta-messages\",\"aliases\":[\"meta-messages\",\"meta_messages\"],\"transport\":\"anthropic-messages\",\"generatedClient\":\"AnthropicClient\",\"catalogStatus\":\"descriptor-covered\"},\"mistral\":{\"id\":\"mistral\",\"aliases\":[\"mistral\"],\"transport\":\"openai-chat\",\"generatedClient\":\"OpenAICompatibleClient\",\"catalogStatus\":\"descriptor-covered\"},\"cohere\":{\"id\":\"cohere\",\"aliases\":[\"cohere\"],\"transport\":\"openai-chat\",\"generatedClient\":\"OpenAICompatibleClient\",\"catalogStatus\":\"descriptor-covered\"},\"grok\":{\"id\":\"grok\",\"aliases\":[\"grok\",\"xai\",\"x-grok\",\"x_grok\"],\"transport\":\"openai-chat\",\"generatedClient\":\"OpenAICompatibleClient\",\"catalogStatus\":\"descriptor-covered\"},\"reka\":{\"id\":\"reka\",\"aliases\":[\"reka\"],\"transport\":\"openai-chat\",\"generatedClient\":\"OpenAICompatibleClient\",\"catalogStatus\":\"descriptor-covered\"},\"together\":{\"id\":\"together\",\"aliases\":[\"together\",\"together-ai\",\"together_ai\"],\"transport\":\"openai-chat\",\"generatedClient\":\"OpenAICompatibleClient\",\"catalogStatus\":\"descriptor-covered\"},\"openrouter\":{\"id\":\"openrouter\",\"aliases\":[\"openrouter\"],\"transport\":\"openai-chat\",\"generatedClient\":\"OpenAICompatibleClient\",\"catalogStatus\":\"descriptor-covered\"},\"orcarouter\":{\"id\":\"orcarouter\",\"aliases\":[\"orcarouter\"],\"transport\":\"openai-chat\",\"generatedClient\":\"OpenAICompatibleClient\",\"catalogStatus\":\"descriptor-covered\"},\"fireworks\":{\"id\":\"fireworks\",\"aliases\":[\"fireworks\",\"fireworks-ai\"],\"transport\":\"openai-chat\",\"generatedClient\":\"OpenAICompatibleClient\",\"catalogStatus\":\"descriptor-covered\"},\"huggingface-router\":{\"id\":\"huggingface-router\",\"aliases\":[\"huggingface-router\",\"huggingface\",\"hf-router\"],\"transport\":\"openai-chat\",\"generatedClient\":\"OpenAICompatibleClient\",\"catalogStatus\":\"descriptor-covered\"},\"amazon-bedrock\":{\"id\":\"amazon-bedrock\",\"aliases\":[\"amazon-bedrock\",\"bedrock\"],\"transport\":\"openai-chat\",\"generatedClient\":\"OpenAICompatibleClient\",\"catalogStatus\":\"descriptor-covered\"},\"azure-foundry\":{\"id\":\"azure-foundry\",\"aliases\":[\"azure-foundry\",\"azure-ai-foundry\",\"microsoft-foundry\"],\"transport\":\"openai-chat\",\"generatedClient\":\"OpenAICompatibleClient\",\"catalogStatus\":\"descriptor-covered\"},\"vertex-ai\":{\"id\":\"vertex-ai\",\"aliases\":[\"vertex-ai\",\"vertex-openai\"],\"transport\":\"openai-chat\",\"generatedClient\":\"OpenAICompatibleClient\",\"catalogStatus\":\"descriptor-covered\"},\"databricks\":{\"id\":\"databricks\",\"aliases\":[\"databricks\"],\"transport\":\"openai-chat\",\"generatedClient\":\"OpenAICompatibleClient\",\"catalogStatus\":\"descriptor-covered\"},\"baseten\":{\"id\":\"baseten\",\"aliases\":[\"baseten\"],\"transport\":\"openai-chat\",\"generatedClient\":\"OpenAICompatibleClient\",\"catalogStatus\":\"descriptor-covered\"},\"groq\":{\"id\":\"groq\",\"aliases\":[\"groq\"],\"transport\":\"openai-chat\",\"generatedClient\":\"OpenAICompatibleClient\",\"catalogStatus\":\"descriptor-covered\"},\"cerebras\":{\"id\":\"cerebras\",\"aliases\":[\"cerebras\"],\"transport\":\"openai-chat\",\"generatedClient\":\"OpenAICompatibleClient\",\"catalogStatus\":\"descriptor-covered\"},\"deepinfra\":{\"id\":\"deepinfra\",\"aliases\":[\"deepinfra\"],\"transport\":\"openai-chat\",\"generatedClient\":\"OpenAICompatibleClient\",\"catalogStatus\":\"descriptor-covered\"},\"sambanova\":{\"id\":\"sambanova\",\"aliases\":[\"sambanova\",\"sambanova-cloud\"],\"transport\":\"openai-chat\",\"generatedClient\":\"OpenAICompatibleClient\",\"catalogStatus\":\"descriptor-covered\"},\"nebius\":{\"id\":\"nebius\",\"aliases\":[\"nebius\"],\"transport\":\"openai-chat\",\"generatedClient\":\"OpenAICompatibleClient\",\"catalogStatus\":\"descriptor-covered\"},\"novita\":{\"id\":\"novita\",\"aliases\":[\"novita\",\"novita-ai\"],\"transport\":\"openai-chat\",\"generatedClient\":\"OpenAICompatibleClient\",\"catalogStatus\":\"descriptor-covered\"},\"hyperbolic\":{\"id\":\"hyperbolic\",\"aliases\":[\"hyperbolic\"],\"transport\":\"openai-chat\",\"generatedClient\":\"OpenAICompatibleClient\",\"catalogStatus\":\"descriptor-covered\"},\"siliconflow\":{\"id\":\"siliconflow\",\"aliases\":[\"siliconflow\"],\"transport\":\"openai-chat\",\"generatedClient\":\"OpenAICompatibleClient\",\"catalogStatus\":\"descriptor-covered\"},\"friendli\":{\"id\":\"friendli\",\"aliases\":[\"friendli\",\"friendli-ai\"],\"transport\":\"openai-chat\",\"generatedClient\":\"OpenAICompatibleClient\",\"catalogStatus\":\"descriptor-covered\"},\"cloudflare-workers-ai\":{\"id\":\"cloudflare-workers-ai\",\"aliases\":[\"cloudflare-workers-ai\",\"workers-ai\"],\"transport\":\"openai-chat\",\"generatedClient\":\"OpenAICompatibleClient\",\"catalogStatus\":\"descriptor-covered\"},\"featherless\":{\"id\":\"featherless\",\"aliases\":[\"featherless\",\"featherless-ai\"],\"transport\":\"openai-chat\",\"generatedClient\":\"OpenAICompatibleClient\",\"catalogStatus\":\"descriptor-covered\"},\"nscale\":{\"id\":\"nscale\",\"aliases\":[\"nscale\"],\"transport\":\"openai-chat\",\"generatedClient\":\"OpenAICompatibleClient\",\"catalogStatus\":\"descriptor-covered\"},\"ovhcloud\":{\"id\":\"ovhcloud\",\"aliases\":[\"ovhcloud\",\"ovh\"],\"transport\":\"openai-chat\",\"generatedClient\":\"OpenAICompatibleClient\",\"catalogStatus\":\"descriptor-covered\"},\"scaleway\":{\"id\":\"scaleway\",\"aliases\":[\"scaleway\"],\"transport\":\"openai-chat\",\"generatedClient\":\"OpenAICompatibleClient\",\"catalogStatus\":\"descriptor-covered\"},\"nvidia-nim\":{\"id\":\"nvidia-nim\",\"aliases\":[\"nvidia-nim\",\"nim\"],\"transport\":\"openai-chat\",\"generatedClient\":\"OpenAICompatibleClient\",\"catalogStatus\":\"descriptor-covered\"},\"runpod-vllm\":{\"id\":\"runpod-vllm\",\"aliases\":[\"runpod-vllm\",\"runpod\"],\"transport\":\"openai-chat\",\"generatedClient\":\"OpenAICompatibleClient\",\"catalogStatus\":\"descriptor-covered\"},\"sagemaker-vllm\":{\"id\":\"sagemaker-vllm\",\"aliases\":[\"sagemaker-vllm\",\"sagemaker\"],\"transport\":\"openai-chat\",\"generatedClient\":\"OpenAICompatibleClient\",\"catalogStatus\":\"descriptor-covered\"},\"vllm\":{\"id\":\"vllm\",\"aliases\":[\"vllm\"],\"transport\":\"openai-chat\",\"generatedClient\":\"OpenAICompatibleClient\",\"catalogStatus\":\"descriptor-covered\"},\"ollama\":{\"id\":\"ollama\",\"aliases\":[\"ollama\"],\"transport\":\"openai-chat\",\"generatedClient\":\"OpenAICompatibleClient\",\"catalogStatus\":\"descriptor-covered\"},\"lm-studio\":{\"id\":\"lm-studio\",\"aliases\":[\"lm-studio\",\"lmstudio\"],\"transport\":\"openai-chat\",\"generatedClient\":\"OpenAICompatibleClient\",\"catalogStatus\":\"descriptor-covered\"},\"llama-cpp\":{\"id\":\"llama-cpp\",\"aliases\":[\"llama-cpp\",\"llama.cpp\"],\"transport\":\"openai-chat\",\"generatedClient\":\"OpenAICompatibleClient\",\"catalogStatus\":\"descriptor-covered\"},\"localai\":{\"id\":\"localai\",\"aliases\":[\"localai\",\"local-ai\"],\"transport\":\"openai-chat\",\"generatedClient\":\"OpenAICompatibleClient\",\"catalogStatus\":\"descriptor-covered\"},\"baseten-engine\":{\"id\":\"baseten-engine\",\"aliases\":[\"baseten-engine\",\"truss\"],\"transport\":\"openai-chat\",\"generatedClient\":\"OpenAICompatibleClient\",\"catalogStatus\":\"descriptor-covered\"},\"typesafe\":{\"id\":\"typesafe\",\"aliases\":[\"typesafe\"],\"transport\":\"typesafe-system-one\",\"generatedClient\":null,\"catalogStatus\":\"typescript-only\"}},\"deferredCatalogProviderIds\":[]}\n")])?;
+    v_registry = core_json_parse(&[CoreValue::from("{\"registryVersion\":\"provider-profiles-v3\",\"supportedProfileIds\":[\"openai\",\"openai-compatible\",\"openai-responses\",\"anthropic\",\"google-gemini\",\"webllm\",\"azure-openai\",\"deepseek\",\"deepseek-responses\",\"meta\",\"meta-chat\",\"meta-messages\",\"mistral\",\"cohere\",\"grok\",\"reka\",\"together\",\"openrouter\",\"orcarouter\",\"fireworks\",\"huggingface-router\",\"amazon-bedrock\",\"azure-foundry\",\"vertex-ai\",\"databricks\",\"baseten\",\"groq\",\"cerebras\",\"deepinfra\",\"sambanova\",\"nebius\",\"novita\",\"hyperbolic\",\"siliconflow\",\"friendli\",\"cloudflare-workers-ai\",\"featherless\",\"nscale\",\"ovhcloud\",\"scaleway\",\"nvidia-nim\",\"runpod-vllm\",\"sagemaker-vllm\",\"vllm\",\"ollama\",\"lm-studio\",\"llama-cpp\",\"localai\",\"baseten-engine\",\"typesafe\"],\"profiles\":{\"openai\":{\"id\":\"openai\",\"aliases\":[\"openai\"],\"transport\":\"openai-chat\",\"generatedClient\":\"OpenAICompatibleClient\",\"catalogStatus\":\"descriptor-covered\"},\"openai-compatible\":{\"id\":\"openai-compatible\",\"aliases\":[\"openai-compatible\",\"openai_compatible\",\"compatible\"],\"transport\":\"openai-chat\",\"generatedClient\":\"OpenAICompatibleClient\",\"catalogStatus\":\"descriptor-covered\"},\"openai-responses\":{\"id\":\"openai-responses\",\"aliases\":[\"openai-responses\",\"openai_responses\",\"responses\"],\"transport\":\"openai-responses\",\"generatedClient\":\"OpenAIResponsesClient\",\"catalogStatus\":\"descriptor-covered\"},\"anthropic\":{\"id\":\"anthropic\",\"aliases\":[\"anthropic\",\"claude\"],\"transport\":\"anthropic-messages\",\"generatedClient\":\"AnthropicClient\",\"catalogStatus\":\"descriptor-covered\"},\"google-gemini\":{\"id\":\"google-gemini\",\"aliases\":[\"google-gemini\",\"google_gemini\",\"gemini\"],\"transport\":\"gemini-generate-content\",\"generatedClient\":\"GoogleGeminiClient\",\"catalogStatus\":\"descriptor-covered\"},\"webllm\":{\"id\":\"webllm\",\"aliases\":[\"webllm\"],\"transport\":\"webllm\",\"generatedClient\":null,\"catalogStatus\":\"typescript-only\"},\"azure-openai\":{\"id\":\"azure-openai\",\"aliases\":[\"azure-openai\",\"azure_openai\",\"azure\"],\"transport\":\"openai-chat\",\"generatedClient\":\"OpenAICompatibleClient\",\"catalogStatus\":\"descriptor-covered\"},\"deepseek\":{\"id\":\"deepseek\",\"aliases\":[\"deepseek\"],\"transport\":\"openai-chat\",\"generatedClient\":\"OpenAICompatibleClient\",\"catalogStatus\":\"descriptor-covered\"},\"deepseek-responses\":{\"id\":\"deepseek-responses\",\"aliases\":[\"deepseek-responses\",\"deepseek_responses\"],\"transport\":\"openai-responses\",\"generatedClient\":\"OpenAIResponsesClient\",\"catalogStatus\":\"descriptor-covered\"},\"meta\":{\"id\":\"meta\",\"aliases\":[\"meta\",\"meta-responses\",\"meta_responses\"],\"transport\":\"openai-responses\",\"generatedClient\":\"OpenAIResponsesClient\",\"catalogStatus\":\"descriptor-covered\"},\"meta-chat\":{\"id\":\"meta-chat\",\"aliases\":[\"meta-chat\",\"meta_chat\"],\"transport\":\"openai-chat\",\"generatedClient\":\"OpenAICompatibleClient\",\"catalogStatus\":\"descriptor-covered\"},\"meta-messages\":{\"id\":\"meta-messages\",\"aliases\":[\"meta-messages\",\"meta_messages\"],\"transport\":\"anthropic-messages\",\"generatedClient\":\"AnthropicClient\",\"catalogStatus\":\"descriptor-covered\"},\"mistral\":{\"id\":\"mistral\",\"aliases\":[\"mistral\"],\"transport\":\"openai-chat\",\"generatedClient\":\"OpenAICompatibleClient\",\"catalogStatus\":\"descriptor-covered\"},\"cohere\":{\"id\":\"cohere\",\"aliases\":[\"cohere\"],\"transport\":\"openai-chat\",\"generatedClient\":\"OpenAICompatibleClient\",\"catalogStatus\":\"descriptor-covered\"},\"grok\":{\"id\":\"grok\",\"aliases\":[\"grok\",\"xai\",\"x-grok\",\"x_grok\"],\"transport\":\"openai-chat\",\"generatedClient\":\"OpenAICompatibleClient\",\"catalogStatus\":\"descriptor-covered\"},\"reka\":{\"id\":\"reka\",\"aliases\":[\"reka\"],\"transport\":\"openai-chat\",\"generatedClient\":\"OpenAICompatibleClient\",\"catalogStatus\":\"descriptor-covered\"},\"together\":{\"id\":\"together\",\"aliases\":[\"together\",\"together-ai\",\"together_ai\"],\"transport\":\"openai-chat\",\"generatedClient\":\"OpenAICompatibleClient\",\"catalogStatus\":\"descriptor-covered\"},\"openrouter\":{\"id\":\"openrouter\",\"aliases\":[\"openrouter\"],\"transport\":\"openai-chat\",\"generatedClient\":\"OpenAICompatibleClient\",\"catalogStatus\":\"descriptor-covered\"},\"orcarouter\":{\"id\":\"orcarouter\",\"aliases\":[\"orcarouter\"],\"transport\":\"openai-chat\",\"generatedClient\":\"OpenAICompatibleClient\",\"catalogStatus\":\"descriptor-covered\"},\"fireworks\":{\"id\":\"fireworks\",\"aliases\":[\"fireworks\",\"fireworks-ai\"],\"transport\":\"openai-chat\",\"generatedClient\":\"OpenAICompatibleClient\",\"catalogStatus\":\"descriptor-covered\"},\"huggingface-router\":{\"id\":\"huggingface-router\",\"aliases\":[\"huggingface-router\",\"huggingface\",\"hf-router\"],\"transport\":\"openai-chat\",\"generatedClient\":\"OpenAICompatibleClient\",\"catalogStatus\":\"descriptor-covered\"},\"amazon-bedrock\":{\"id\":\"amazon-bedrock\",\"aliases\":[\"amazon-bedrock\",\"bedrock\"],\"transport\":\"openai-chat\",\"generatedClient\":\"OpenAICompatibleClient\",\"catalogStatus\":\"descriptor-covered\"},\"azure-foundry\":{\"id\":\"azure-foundry\",\"aliases\":[\"azure-foundry\",\"azure-ai-foundry\",\"microsoft-foundry\"],\"transport\":\"openai-chat\",\"generatedClient\":\"OpenAICompatibleClient\",\"catalogStatus\":\"descriptor-covered\"},\"vertex-ai\":{\"id\":\"vertex-ai\",\"aliases\":[\"vertex-ai\",\"vertex-openai\"],\"transport\":\"openai-chat\",\"generatedClient\":\"OpenAICompatibleClient\",\"catalogStatus\":\"descriptor-covered\"},\"databricks\":{\"id\":\"databricks\",\"aliases\":[\"databricks\"],\"transport\":\"openai-chat\",\"generatedClient\":\"OpenAICompatibleClient\",\"catalogStatus\":\"descriptor-covered\"},\"baseten\":{\"id\":\"baseten\",\"aliases\":[\"baseten\"],\"transport\":\"openai-chat\",\"generatedClient\":\"OpenAICompatibleClient\",\"catalogStatus\":\"descriptor-covered\"},\"groq\":{\"id\":\"groq\",\"aliases\":[\"groq\"],\"transport\":\"openai-chat\",\"generatedClient\":\"OpenAICompatibleClient\",\"catalogStatus\":\"descriptor-covered\"},\"cerebras\":{\"id\":\"cerebras\",\"aliases\":[\"cerebras\"],\"transport\":\"openai-chat\",\"generatedClient\":\"OpenAICompatibleClient\",\"catalogStatus\":\"descriptor-covered\"},\"deepinfra\":{\"id\":\"deepinfra\",\"aliases\":[\"deepinfra\"],\"transport\":\"openai-chat\",\"generatedClient\":\"OpenAICompatibleClient\",\"catalogStatus\":\"descriptor-covered\"},\"sambanova\":{\"id\":\"sambanova\",\"aliases\":[\"sambanova\",\"sambanova-cloud\"],\"transport\":\"openai-chat\",\"generatedClient\":\"OpenAICompatibleClient\",\"catalogStatus\":\"descriptor-covered\"},\"nebius\":{\"id\":\"nebius\",\"aliases\":[\"nebius\"],\"transport\":\"openai-chat\",\"generatedClient\":\"OpenAICompatibleClient\",\"catalogStatus\":\"descriptor-covered\"},\"novita\":{\"id\":\"novita\",\"aliases\":[\"novita\",\"novita-ai\"],\"transport\":\"openai-chat\",\"generatedClient\":\"OpenAICompatibleClient\",\"catalogStatus\":\"descriptor-covered\"},\"hyperbolic\":{\"id\":\"hyperbolic\",\"aliases\":[\"hyperbolic\"],\"transport\":\"openai-chat\",\"generatedClient\":\"OpenAICompatibleClient\",\"catalogStatus\":\"descriptor-covered\"},\"siliconflow\":{\"id\":\"siliconflow\",\"aliases\":[\"siliconflow\"],\"transport\":\"openai-chat\",\"generatedClient\":\"OpenAICompatibleClient\",\"catalogStatus\":\"descriptor-covered\"},\"friendli\":{\"id\":\"friendli\",\"aliases\":[\"friendli\",\"friendli-ai\"],\"transport\":\"openai-chat\",\"generatedClient\":\"OpenAICompatibleClient\",\"catalogStatus\":\"descriptor-covered\"},\"cloudflare-workers-ai\":{\"id\":\"cloudflare-workers-ai\",\"aliases\":[\"cloudflare-workers-ai\",\"workers-ai\"],\"transport\":\"openai-chat\",\"generatedClient\":\"OpenAICompatibleClient\",\"catalogStatus\":\"descriptor-covered\"},\"featherless\":{\"id\":\"featherless\",\"aliases\":[\"featherless\",\"featherless-ai\"],\"transport\":\"openai-chat\",\"generatedClient\":\"OpenAICompatibleClient\",\"catalogStatus\":\"descriptor-covered\"},\"nscale\":{\"id\":\"nscale\",\"aliases\":[\"nscale\"],\"transport\":\"openai-chat\",\"generatedClient\":\"OpenAICompatibleClient\",\"catalogStatus\":\"descriptor-covered\"},\"ovhcloud\":{\"id\":\"ovhcloud\",\"aliases\":[\"ovhcloud\",\"ovh\"],\"transport\":\"openai-chat\",\"generatedClient\":\"OpenAICompatibleClient\",\"catalogStatus\":\"descriptor-covered\"},\"scaleway\":{\"id\":\"scaleway\",\"aliases\":[\"scaleway\"],\"transport\":\"openai-chat\",\"generatedClient\":\"OpenAICompatibleClient\",\"catalogStatus\":\"descriptor-covered\"},\"nvidia-nim\":{\"id\":\"nvidia-nim\",\"aliases\":[\"nvidia-nim\",\"nim\"],\"transport\":\"openai-chat\",\"generatedClient\":\"OpenAICompatibleClient\",\"catalogStatus\":\"descriptor-covered\"},\"runpod-vllm\":{\"id\":\"runpod-vllm\",\"aliases\":[\"runpod-vllm\",\"runpod\"],\"transport\":\"openai-chat\",\"generatedClient\":\"OpenAICompatibleClient\",\"catalogStatus\":\"descriptor-covered\"},\"sagemaker-vllm\":{\"id\":\"sagemaker-vllm\",\"aliases\":[\"sagemaker-vllm\",\"sagemaker\"],\"transport\":\"openai-chat\",\"generatedClient\":\"OpenAICompatibleClient\",\"catalogStatus\":\"descriptor-covered\"},\"vllm\":{\"id\":\"vllm\",\"aliases\":[\"vllm\"],\"transport\":\"openai-chat\",\"generatedClient\":\"OpenAICompatibleClient\",\"catalogStatus\":\"descriptor-covered\"},\"ollama\":{\"id\":\"ollama\",\"aliases\":[\"ollama\"],\"transport\":\"openai-chat\",\"generatedClient\":\"OpenAICompatibleClient\",\"catalogStatus\":\"descriptor-covered\"},\"lm-studio\":{\"id\":\"lm-studio\",\"aliases\":[\"lm-studio\",\"lmstudio\"],\"transport\":\"openai-chat\",\"generatedClient\":\"OpenAICompatibleClient\",\"catalogStatus\":\"descriptor-covered\"},\"llama-cpp\":{\"id\":\"llama-cpp\",\"aliases\":[\"llama-cpp\",\"llama.cpp\"],\"transport\":\"openai-chat\",\"generatedClient\":\"OpenAICompatibleClient\",\"catalogStatus\":\"descriptor-covered\"},\"localai\":{\"id\":\"localai\",\"aliases\":[\"localai\",\"local-ai\"],\"transport\":\"openai-chat\",\"generatedClient\":\"OpenAICompatibleClient\",\"catalogStatus\":\"descriptor-covered\"},\"baseten-engine\":{\"id\":\"baseten-engine\",\"aliases\":[\"baseten-engine\",\"truss\"],\"transport\":\"openai-chat\",\"generatedClient\":\"OpenAICompatibleClient\",\"catalogStatus\":\"descriptor-covered\"},\"typesafe\":{\"id\":\"typesafe\",\"aliases\":[\"typesafe\"],\"transport\":\"typesafe-system-one\",\"generatedClient\":\"AxAITypesafeClient\",\"catalogStatus\":\"descriptor-covered\"}},\"deferredCatalogProviderIds\":[]}\n")])?;
     return Ok(v_registry.clone());
 }
 
@@ -35544,7 +37860,7 @@ fn provider_resolve_profile(args: &[CoreValue]) -> Result<CoreValue, AxError> {
 fn provider_model_catalog_summary(args: &[CoreValue]) -> Result<CoreValue, AxError> {
     axir_coverage_mark("provider_model_catalog_summary");
     let mut v_summary = CoreValue::Null;
-    v_summary = core_json_parse(&[CoreValue::from("{\"catalogVersion\":\"provider-model-catalog-audit-v1\",\"deferredProviderIds\":[],\"descriptorCoveredProviderIds\":[\"openai\",\"openai-compatible\",\"openai-responses\",\"anthropic\",\"google-gemini\",\"azure-openai\",\"deepseek\",\"deepseek-responses\",\"meta\",\"meta-chat\",\"meta-messages\",\"mistral\",\"cohere\",\"grok\",\"reka\",\"together\",\"openrouter\",\"orcarouter\",\"fireworks\",\"huggingface-router\",\"amazon-bedrock\",\"azure-foundry\",\"vertex-ai\",\"databricks\",\"baseten\",\"groq\",\"cerebras\",\"deepinfra\",\"sambanova\",\"nebius\",\"novita\",\"hyperbolic\",\"siliconflow\",\"friendli\",\"cloudflare-workers-ai\",\"featherless\",\"nscale\",\"ovhcloud\",\"scaleway\",\"nvidia-nim\",\"runpod-vllm\",\"sagemaker-vllm\",\"vllm\",\"ollama\",\"lm-studio\",\"llama-cpp\",\"localai\",\"baseten-engine\"],\"filterOptions\":[\"all\",\"text\",\"embeddings\",\"code\",\"audio\",\"image\"],\"nextMilestone\":\"Generated catalog provider clients match the active catalog\",\"providerCount\":50,\"providerNames\":[\"google-gemini\",\"webllm\",\"openai\",\"cohere\",\"mistral\",\"deepseek\",\"deepseek-responses\",\"openai-responses\",\"grok\",\"reka\",\"anthropic\",\"openai-compatible\",\"azure-openai\",\"meta\",\"meta-chat\",\"meta-messages\",\"together\",\"openrouter\",\"orcarouter\",\"fireworks\",\"huggingface-router\",\"amazon-bedrock\",\"azure-foundry\",\"vertex-ai\",\"databricks\",\"baseten\",\"groq\",\"cerebras\",\"deepinfra\",\"sambanova\",\"nebius\",\"novita\",\"hyperbolic\",\"siliconflow\",\"friendli\",\"cloudflare-workers-ai\",\"featherless\",\"nscale\",\"ovhcloud\",\"scaleway\",\"nvidia-nim\",\"runpod-vllm\",\"sagemaker-vllm\",\"vllm\",\"ollama\",\"lm-studio\",\"llama-cpp\",\"localai\",\"baseten-engine\",\"typesafe\"],\"semantics\":{\"codeMatchesTextFilter\":true,\"dynamicProvidersMayHaveEmptyModels\":true,\"metadataClonedPerCall\":true,\"modelSort\":\"price-then-name\",\"providerSort\":\"cheapest-model-then-display-name\"},\"source\":\"src/ax/ai/catalog.ts\"}")])?;
+    v_summary = core_json_parse(&[CoreValue::from("{\"catalogVersion\":\"provider-model-catalog-audit-v1\",\"deferredProviderIds\":[],\"descriptorCoveredProviderIds\":[\"openai\",\"openai-compatible\",\"openai-responses\",\"anthropic\",\"google-gemini\",\"azure-openai\",\"deepseek\",\"deepseek-responses\",\"meta\",\"meta-chat\",\"meta-messages\",\"mistral\",\"cohere\",\"grok\",\"reka\",\"together\",\"openrouter\",\"orcarouter\",\"fireworks\",\"huggingface-router\",\"amazon-bedrock\",\"azure-foundry\",\"vertex-ai\",\"databricks\",\"baseten\",\"groq\",\"cerebras\",\"deepinfra\",\"sambanova\",\"nebius\",\"novita\",\"hyperbolic\",\"siliconflow\",\"friendli\",\"cloudflare-workers-ai\",\"featherless\",\"nscale\",\"ovhcloud\",\"scaleway\",\"nvidia-nim\",\"runpod-vllm\",\"sagemaker-vllm\",\"vllm\",\"ollama\",\"lm-studio\",\"llama-cpp\",\"localai\",\"baseten-engine\",\"typesafe\"],\"filterOptions\":[\"all\",\"text\",\"embeddings\",\"code\",\"audio\",\"image\"],\"nextMilestone\":\"Generated catalog provider clients match the active catalog\",\"providerCount\":50,\"providerNames\":[\"google-gemini\",\"webllm\",\"openai\",\"cohere\",\"mistral\",\"deepseek\",\"deepseek-responses\",\"openai-responses\",\"grok\",\"reka\",\"anthropic\",\"openai-compatible\",\"azure-openai\",\"meta\",\"meta-chat\",\"meta-messages\",\"together\",\"openrouter\",\"orcarouter\",\"fireworks\",\"huggingface-router\",\"amazon-bedrock\",\"azure-foundry\",\"vertex-ai\",\"databricks\",\"baseten\",\"groq\",\"cerebras\",\"deepinfra\",\"sambanova\",\"nebius\",\"novita\",\"hyperbolic\",\"siliconflow\",\"friendli\",\"cloudflare-workers-ai\",\"featherless\",\"nscale\",\"ovhcloud\",\"scaleway\",\"nvidia-nim\",\"runpod-vllm\",\"sagemaker-vllm\",\"vllm\",\"ollama\",\"lm-studio\",\"llama-cpp\",\"localai\",\"baseten-engine\",\"typesafe\"],\"semantics\":{\"codeMatchesTextFilter\":true,\"dynamicProvidersMayHaveEmptyModels\":true,\"metadataClonedPerCall\":true,\"modelSort\":\"price-then-name\",\"providerSort\":\"cheapest-model-then-display-name\"},\"source\":\"src/ax/ai/catalog.ts\"}")])?;
     return Ok(v_summary.clone());
 }
 
@@ -37054,10 +39370,12 @@ fn provider_route_recommendation(args: &[CoreValue]) -> Result<CoreValue, AxErro
     let mut v_options = core_arg(args, 2);
     let mut v_allow_degradation = CoreValue::Null;
     let mut v_best = CoreValue::Null;
+    let mut v_best_found = CoreValue::Null;
     let mut v_best_missing = CoreValue::Null;
     let mut v_best_name_for_error = CoreValue::Null;
     let mut v_best_score = CoreValue::Null;
     let mut v_better = CoreValue::Null;
+    let mut v_compatible = CoreValue::Null;
     let mut v_degradation_disallowed = CoreValue::Null;
     let mut v_degradations = CoreValue::Null;
     let mut v_error = CoreValue::Null;
@@ -37066,6 +39384,7 @@ fn provider_route_recommendation(args: &[CoreValue]) -> Result<CoreValue, AxErro
     let mut v_features = CoreValue::Null;
     let mut v_has_missing = CoreValue::Null;
     let mut v_has_providers = CoreValue::Null;
+    let mut v_incompatible = CoreValue::Null;
     let mut v_message = CoreValue::Null;
     let mut v_message_no_degrade = CoreValue::Null;
     let mut v_missing_audio = CoreValue::Null;
@@ -37083,6 +39402,7 @@ fn provider_route_recommendation(args: &[CoreValue]) -> Result<CoreValue, AxErro
     let mut v_needs_images = CoreValue::Null;
     let mut v_needs_streaming = CoreValue::Null;
     let mut v_needs_urls = CoreValue::Null;
+    let mut v_no_compatible_provider = CoreValue::Null;
     let mut v_no_providers = CoreValue::Null;
     let mut v_ok_audio = CoreValue::Null;
     let mut v_ok_caching = CoreValue::Null;
@@ -37110,11 +39430,21 @@ fn provider_route_recommendation(args: &[CoreValue]) -> Result<CoreValue, AxErro
         return Err(core_as_error(&v_error));
     }
     v_requirements = provider_route_request_requirements(&[v_request.clone()])?;
-    v_best = core_list_get(&[v_providers.clone(), CoreValue::Num(0f64), CoreValue::Null])?;
+    v_best = CoreValue::new_map();
+    v_best_found = CoreValue::Bool(false);
     v_best_score = CoreValue::Num(-999999f64);
     v_best_missing = CoreValue::new_list();
     for v_provider in core_iter(&v_providers)? {
         let mut v_provider = v_provider;
+        v_compatible = core_get(
+            &v_provider,
+            &CoreValue::from("requestCompatible"),
+            CoreValue::Bool(true),
+        );
+        v_incompatible = core_not(&[v_compatible.clone()])?;
+        if core_truthy(&v_incompatible) {
+            continue;
+        }
         v_score_entry = _provider_route_score(&[v_provider.clone(), v_requirements.clone()])?;
         v_score = core_get(
             &v_score_entry,
@@ -37125,12 +39455,19 @@ fn provider_route_recommendation(args: &[CoreValue]) -> Result<CoreValue, AxErro
         if core_truthy(&v_better) {
             v_best_score = v_score.clone();
             v_best = v_provider.clone();
+            v_best_found = CoreValue::Bool(true);
             v_best_missing = core_get(
                 &v_score_entry,
                 &CoreValue::from("missingCapabilities"),
                 v_best_missing.clone(),
             );
         }
+    }
+    v_no_compatible_provider = core_not(&[v_best_found.clone()])?;
+    if core_truthy(&v_no_compatible_provider) {
+        return Err(AxError::runtime(
+            "Provider selection failed: No providers accept this request",
+        ));
     }
     v_require_exact = core_get(
         &v_options,
@@ -38622,7 +40959,7 @@ fn provider_descriptor(args: &[CoreValue]) -> Result<CoreValue, AxError> {
     let mut v_empty = CoreValue::Null;
     let mut v_provider_id = CoreValue::Null;
     v_provider_id = provider_normalize_profile(&[v_profile.clone()])?;
-    v_descriptors = core_json_parse(&[CoreValue::from("{\"openai\":{\"id\":\"openai\",\"name\":\"OpenAI\",\"aliases\":[\"openai\"],\"transport\":\"openai-chat\",\"baseURL\":\"https://api.openai.com/v1\",\"requiresApiURL\":false,\"auth\":\"bearer\",\"defaults\":{\"model\":\"gpt-5-mini\",\"embedModel\":\"text-embedding-3-small\"},\"capabilities\":{\"functions\":true,\"streaming\":true,\"structuredOutputs\":true,\"thinking\":true,\"multiTurn\":true,\"images\":true,\"audio\":true,\"audioOutput\":true,\"structuredOutputModes\":[\"native\",\"function\",\"json_object\"],\"files\":{\"uploadMethod\":\"upload\"},\"serviceTiers\":[\"standard\",\"flex\",\"priority\"]},\"operations\":{\"chat\":{\"path\":\"/chat/completions\",\"dialect\":\"openai-chat\",\"method\":\"POST\",\"body\":\"json\",\"stream\":false},\"embed\":{\"path\":\"/embeddings\",\"dialect\":\"openai-embeddings\",\"method\":\"POST\",\"body\":\"json\",\"stream\":false},\"transcribe\":{\"path\":\"/audio/transcriptions\",\"dialect\":\"openai-transcription\",\"method\":\"POST\",\"body\":\"multipart\",\"stream\":false},\"speak\":{\"path\":\"/audio/speech\",\"dialect\":\"openai-speech\",\"method\":\"POST\",\"body\":\"json\",\"stream\":false,\"response\":\"binary\"},\"realtime\":{\"path\":\"/realtime\",\"dialect\":\"openai-realtime\",\"modelMatch\":{\"prefix\":[\"gpt-realtime\"]},\"url\":\"wss://api.openai.com/v1/realtime\",\"grammar\":\"openai_realtime_compatible\",\"audio\":{\"input\":{\"formats\":[\"pcm16\",\"pcm\"],\"sampleRate\":24000},\"output\":{\"formats\":[\"pcm16\",\"pcm\"],\"sampleRate\":24000,\"voices\":[\"alloy\",\"ash\",\"ballad\",\"coral\",\"echo\",\"sage\",\"shimmer\",\"verse\"],\"defaultVoice\":\"alloy\"}},\"validation\":{\"structuredOutputWithAudio\":false},\"method\":\"WS\",\"body\":\"json\",\"stream\":true},\"stream_chat\":{\"path\":\"/chat/completions\",\"dialect\":\"openai-chat\",\"method\":\"POST\",\"body\":\"json\",\"stream\":true}},\"modelRules\":[{\"match\":{\"prefix\":[\"gpt-6-astra\"]},\"request\":{\"unsupportedThinkingLevels\":{\"none\":\"GPT-6 Astra requires reasoning; use low or higher\"}},\"capabilities\":{\"audio\":false,\"audioOutput\":false,\"functions\":true,\"structuredOutputModes\":[\"native\",\"json_object\"]}}],\"sources\":[\"https://platform.openai.com/docs/api-reference/chat\"],\"reviewedAt\":\"2026-08-17\",\"request\":{\"serviceTierMap\":{\"auto\":\"auto\",\"standard\":\"default\",\"flex\":\"flex\",\"priority\":\"priority\"}},\"provider\":\"openai\",\"baseUrl\":\"https://api.openai.com/v1\",\"authRequired\":true,\"defaultModel\":\"gpt-5-mini\",\"defaultEmbedModel\":\"text-embedding-3-small\",\"features\":{\"functions\":true,\"streaming\":true,\"structured_outputs\":true,\"structured_output_modes\":[\"native\",\"function\",\"json_object\"],\"thinking\":true,\"multi_turn\":true,\"service_tiers\":[\"standard\",\"flex\",\"priority\"],\"media\":{\"images\":{\"supported\":true,\"formats\":[\"image/jpeg\",\"image/png\"]},\"audio\":{\"supported\":true,\"formats\":[\"wav\",\"mp3\",\"pcm16\"],\"realtime\":true,\"output\":{\"supported\":true,\"formats\":[\"wav\",\"mp3\",\"pcm16\"]}},\"files\":{\"supported\":true,\"formats\":[\"application/pdf\",\"text/plain\"],\"upload_method\":\"upload\"},\"urls\":{\"supported\":false,\"web_search\":false,\"context_fetching\":false}},\"caching\":{\"supported\":false,\"types\":[]}}},\"openai-compatible\":{\"id\":\"openai-compatible\",\"name\":\"OpenAI Compatible\",\"aliases\":[\"openai-compatible\",\"openai_compatible\",\"compatible\"],\"transport\":\"openai-chat\",\"baseURL\":null,\"requiresApiURL\":true,\"auth\":\"bearer\",\"defaults\":{\"model\":\"\"},\"capabilities\":{\"functions\":true,\"streaming\":true,\"structuredOutputs\":false,\"thinking\":false,\"multiTurn\":true,\"structuredOutputModes\":[\"function\"],\"serviceTiers\":[]},\"operations\":{\"chat\":{\"path\":\"/chat/completions\",\"dialect\":\"openai-chat\",\"method\":\"POST\",\"body\":\"json\",\"stream\":false},\"embed\":{\"path\":\"/embeddings\",\"dialect\":\"openai-embeddings\",\"method\":\"POST\",\"body\":\"json\",\"stream\":false},\"stream_chat\":{\"path\":\"/chat/completions\",\"dialect\":\"openai-chat\",\"method\":\"POST\",\"body\":\"json\",\"stream\":true}},\"modelRules\":[],\"sources\":[\"https://platform.openai.com/docs/api-reference/chat\"],\"reviewedAt\":\"2026-08-17\",\"provider\":\"openai-compatible\",\"baseUrl\":null,\"authRequired\":false,\"defaultModel\":\"\",\"features\":{\"functions\":true,\"streaming\":true,\"structured_outputs\":false,\"structured_output_modes\":[\"function\"],\"thinking\":false,\"multi_turn\":true,\"service_tiers\":[],\"media\":{\"images\":{\"supported\":false,\"formats\":[]},\"audio\":{\"supported\":false,\"formats\":[],\"realtime\":false,\"output\":{\"supported\":false,\"formats\":[]}},\"files\":{\"supported\":false,\"formats\":[],\"upload_method\":\"none\"},\"urls\":{\"supported\":false,\"web_search\":false,\"context_fetching\":false}},\"caching\":{\"supported\":false,\"types\":[]}}},\"openai-responses\":{\"id\":\"openai-responses\",\"name\":\"OpenAI Responses\",\"aliases\":[\"openai-responses\",\"openai_responses\",\"responses\"],\"transport\":\"openai-responses\",\"baseURL\":\"https://api.openai.com/v1\",\"requiresApiURL\":false,\"auth\":\"bearer\",\"defaults\":{\"model\":\"gpt-5-mini\",\"embedModel\":\"text-embedding-3-small\"},\"capabilities\":{\"functions\":true,\"streaming\":true,\"structuredOutputs\":true,\"thinking\":true,\"multiTurn\":true,\"images\":true,\"audio\":true,\"audioOutput\":true,\"structuredOutputModes\":[\"native\",\"function\",\"json_object\"],\"files\":{\"uploadMethod\":\"upload\"},\"serviceTiers\":[\"standard\",\"flex\",\"priority\"]},\"operations\":{\"chat\":{\"path\":\"/responses\",\"dialect\":\"openai-responses\",\"method\":\"POST\",\"body\":\"json\",\"stream\":false},\"embed\":{\"path\":\"/embeddings\",\"dialect\":\"openai-embeddings\",\"method\":\"POST\",\"body\":\"json\",\"stream\":false},\"transcribe\":{\"path\":\"/audio/transcriptions\",\"dialect\":\"openai-transcription\",\"method\":\"POST\",\"body\":\"multipart\",\"stream\":false},\"speak\":{\"path\":\"/audio/speech\",\"dialect\":\"openai-speech\",\"method\":\"POST\",\"body\":\"json\",\"stream\":false,\"response\":\"binary\"},\"realtime\":{\"path\":\"/realtime\",\"dialect\":\"openai-realtime\",\"modelMatch\":{\"prefix\":[\"gpt-realtime\"]},\"url\":\"wss://api.openai.com/v1/realtime\",\"grammar\":\"openai_realtime_compatible\",\"audio\":{\"input\":{\"formats\":[\"pcm16\",\"pcm\"],\"sampleRate\":24000},\"output\":{\"formats\":[\"pcm16\",\"pcm\"],\"sampleRate\":24000,\"voices\":[\"alloy\",\"ash\",\"ballad\",\"coral\",\"echo\",\"sage\",\"shimmer\",\"verse\"],\"defaultVoice\":\"alloy\"}},\"validation\":{\"structuredOutputWithAudio\":false},\"method\":\"WS\",\"body\":\"json\",\"stream\":true},\"stream_chat\":{\"path\":\"/responses\",\"dialect\":\"openai-responses\",\"method\":\"POST\",\"body\":\"json\",\"stream\":true}},\"modelRules\":[{\"match\":{\"prefix\":[\"gpt-6-astra\"]},\"request\":{\"unsupportedThinkingLevels\":{\"none\":\"GPT-6 Astra requires reasoning; use low or higher\"}},\"capabilities\":{\"audio\":false,\"audioOutput\":false}}],\"sources\":[\"https://platform.openai.com/docs/api-reference/responses\"],\"reviewedAt\":\"2026-08-17\",\"request\":{\"serviceTierMap\":{\"auto\":\"auto\",\"standard\":\"default\",\"flex\":\"flex\",\"priority\":\"priority\"}},\"provider\":\"openai-responses\",\"baseUrl\":\"https://api.openai.com/v1\",\"authRequired\":true,\"defaultModel\":\"gpt-5-mini\",\"defaultEmbedModel\":\"text-embedding-3-small\",\"features\":{\"functions\":true,\"streaming\":true,\"structured_outputs\":true,\"structured_output_modes\":[\"native\",\"function\",\"json_object\"],\"thinking\":true,\"multi_turn\":true,\"service_tiers\":[\"standard\",\"flex\",\"priority\"],\"media\":{\"images\":{\"supported\":true,\"formats\":[\"image/jpeg\",\"image/png\"]},\"audio\":{\"supported\":true,\"formats\":[\"wav\",\"mp3\",\"pcm16\"],\"realtime\":true,\"output\":{\"supported\":true,\"formats\":[\"wav\",\"mp3\",\"pcm16\"]}},\"files\":{\"supported\":true,\"formats\":[\"application/pdf\",\"text/plain\"],\"upload_method\":\"upload\"},\"urls\":{\"supported\":false,\"web_search\":false,\"context_fetching\":false}},\"caching\":{\"supported\":false,\"types\":[]}}},\"anthropic\":{\"id\":\"anthropic\",\"name\":\"Anthropic\",\"aliases\":[\"anthropic\",\"claude\"],\"transport\":\"anthropic-messages\",\"baseURL\":\"https://api.anthropic.com\",\"requiresApiURL\":false,\"auth\":\"x-api-key\",\"headers\":{\"anthropic-version\":\"2023-06-01\",\"anthropic-beta\":\"structured-outputs-2025-11-13, web-search-2025-03-05\"},\"defaults\":{\"model\":\"claude-sonnet-4-5\"},\"capabilities\":{\"functions\":true,\"streaming\":true,\"structuredOutputs\":false,\"thinking\":true,\"multiTurn\":true,\"images\":true,\"caching\":{\"types\":[\"ephemeral\"],\"cacheBreakpoints\":true},\"structuredOutputModes\":[\"function\"],\"serviceTiers\":[]},\"operations\":{\"chat\":{\"path\":\"/v1/messages\",\"dialect\":\"anthropic-messages\",\"method\":\"POST\",\"body\":\"json\",\"stream\":false},\"stream_chat\":{\"path\":\"/v1/messages\",\"dialect\":\"anthropic-messages\",\"method\":\"POST\",\"body\":\"json\",\"stream\":true}},\"modelRules\":[],\"sources\":[\"https://docs.anthropic.com/en/api/messages\"],\"reviewedAt\":\"2026-08-17\",\"provider\":\"anthropic\",\"baseUrl\":\"https://api.anthropic.com\",\"authRequired\":true,\"defaultModel\":\"claude-sonnet-4-5\",\"features\":{\"functions\":true,\"streaming\":true,\"structured_outputs\":false,\"structured_output_modes\":[\"function\"],\"thinking\":true,\"multi_turn\":true,\"service_tiers\":[],\"media\":{\"images\":{\"supported\":true,\"formats\":[\"image/jpeg\",\"image/png\"]},\"audio\":{\"supported\":false,\"formats\":[],\"realtime\":false,\"output\":{\"supported\":false,\"formats\":[]}},\"files\":{\"supported\":false,\"formats\":[],\"upload_method\":\"none\"},\"urls\":{\"supported\":false,\"web_search\":false,\"context_fetching\":false}},\"caching\":{\"supported\":true,\"types\":[\"ephemeral\"],\"cache_breakpoints\":true}}},\"google-gemini\":{\"id\":\"google-gemini\",\"name\":\"Google Gemini\",\"aliases\":[\"google-gemini\",\"google_gemini\",\"gemini\"],\"transport\":\"gemini-generate-content\",\"baseURL\":\"https://generativelanguage.googleapis.com/v1beta\",\"requiresApiURL\":false,\"auth\":\"api_key_header\",\"defaults\":{\"model\":\"gemini-3.5-flash\",\"embedModel\":\"gemini-embedding-2\"},\"capabilities\":{\"functions\":true,\"streaming\":true,\"structuredOutputs\":true,\"thinking\":true,\"multiTurn\":true,\"images\":true,\"audio\":true,\"audioOutput\":true,\"files\":{\"uploadMethod\":\"cloud\"},\"caching\":{\"types\":[\"persistent\"]},\"structuredOutputModes\":[\"native\",\"function\"],\"serviceTiers\":[\"standard\",\"flex\",\"priority\"]},\"operations\":{\"chat\":{\"path\":\"/models/{model}:generateContent\",\"dialect\":\"gemini-generate-content\",\"method\":\"POST\",\"body\":\"json\",\"stream\":false},\"stream_chat\":{\"path\":\"/models/{model}:streamGenerateContent?alt=sse\",\"dialect\":\"gemini-generate-content\",\"method\":\"POST\",\"body\":\"json\",\"stream\":true},\"embed\":{\"path\":\"/models/{model}:batchEmbedContents\",\"dialect\":\"gemini-generate-content\",\"method\":\"POST\",\"body\":\"json\",\"stream\":false},\"transcribe\":{\"path\":\"/models/{model}:generateContent\",\"dialect\":\"gemini-generate-content\",\"method\":\"POST\",\"body\":\"multipart\",\"stream\":false},\"speak\":{\"path\":\"/models/{model}:generateContent\",\"dialect\":\"gemini-generate-content\",\"method\":\"POST\",\"body\":\"json\",\"stream\":false,\"response\":\"binary\"},\"realtime\":{\"path\":\"/ws/google.ai.generativelanguage.v1beta.GenerativeService.BidiGenerateContent\",\"dialect\":\"gemini-live-bidi\",\"modelMatch\":{\"prefix\":[\"gemini-live\"],\"contains\":[\"native-audio\",\"-live-\"]},\"url\":\"wss://generativelanguage.googleapis.com/ws/google.ai.generativelanguage.v1beta.GenerativeService.BidiGenerateContent\",\"grammar\":\"gemini_live_bidi\",\"defaultModel\":\"gemini-2.5-flash-native-audio-preview-12-2025\",\"audio\":{\"input\":{\"formats\":[\"pcm16\",\"pcm\"],\"sampleRate\":16000},\"output\":{\"formats\":[\"pcm16\",\"pcm\"],\"sampleRate\":24000,\"voices\":[\"Kore\",\"Puck\",\"Charon\",\"Fenrir\",\"Aoede\"],\"defaultVoice\":\"Kore\"}},\"validation\":{\"pcmInputOnly\":true,\"rejectStructuredOutputWithAudio\":true},\"method\":\"WS\",\"body\":\"json\",\"stream\":true}},\"modelRules\":[],\"sources\":[\"https://ai.google.dev/api/generate-content\",\"https://ai.google.dev/gemini-api/docs/optimization\"],\"reviewedAt\":\"2026-08-17\",\"request\":{\"serviceTierMap\":{\"auto\":null,\"standard\":\"standard\",\"flex\":\"flex\",\"priority\":\"priority\"}},\"provider\":\"google-gemini\",\"baseUrl\":\"https://generativelanguage.googleapis.com/v1beta\",\"authRequired\":true,\"apiKeyHeader\":\"x-goog-api-key\",\"defaultModel\":\"gemini-3.5-flash\",\"defaultEmbedModel\":\"gemini-embedding-2\",\"features\":{\"functions\":true,\"streaming\":true,\"structured_outputs\":true,\"structured_output_modes\":[\"native\",\"function\"],\"thinking\":true,\"multi_turn\":true,\"service_tiers\":[\"standard\",\"flex\",\"priority\"],\"media\":{\"images\":{\"supported\":true,\"formats\":[\"image/jpeg\",\"image/png\"]},\"audio\":{\"supported\":true,\"formats\":[\"wav\",\"mp3\",\"pcm16\"],\"realtime\":true,\"output\":{\"supported\":true,\"formats\":[\"wav\",\"mp3\",\"pcm16\"]}},\"files\":{\"supported\":true,\"formats\":[\"application/pdf\",\"text/plain\"],\"upload_method\":\"cloud\"},\"urls\":{\"supported\":false,\"web_search\":false,\"context_fetching\":false}},\"caching\":{\"supported\":true,\"types\":[\"persistent\"]}}},\"webllm\":{\"id\":\"webllm\",\"name\":\"WebLLM\",\"aliases\":[\"webllm\"],\"transport\":\"webllm\",\"baseURL\":null,\"requiresApiURL\":false,\"auth\":\"none\",\"defaults\":{\"model\":\"\"},\"capabilities\":{\"functions\":true,\"streaming\":true,\"structuredOutputs\":false,\"thinking\":false,\"multiTurn\":true,\"structuredOutputModes\":[\"function\"],\"serviceTiers\":[]},\"operations\":{\"chat\":{\"path\":\"\",\"dialect\":\"webllm\",\"method\":\"POST\",\"body\":\"json\",\"stream\":false},\"stream_chat\":{\"path\":\"\",\"dialect\":\"webllm\",\"method\":\"POST\",\"body\":\"json\",\"stream\":true}},\"modelRules\":[],\"sources\":[\"https://webllm.mlc.ai/docs/\"],\"reviewedAt\":\"2026-08-17\",\"provider\":\"webllm\",\"baseUrl\":null,\"authRequired\":false,\"defaultModel\":\"\",\"features\":{\"functions\":true,\"streaming\":true,\"structured_outputs\":false,\"structured_output_modes\":[\"function\"],\"thinking\":false,\"multi_turn\":true,\"service_tiers\":[],\"media\":{\"images\":{\"supported\":false,\"formats\":[]},\"audio\":{\"supported\":false,\"formats\":[],\"realtime\":false,\"output\":{\"supported\":false,\"formats\":[]}},\"files\":{\"supported\":false,\"formats\":[],\"upload_method\":\"none\"},\"urls\":{\"supported\":false,\"web_search\":false,\"context_fetching\":false}},\"caching\":{\"supported\":false,\"types\":[]}}},\"azure-openai\":{\"id\":\"azure-openai\",\"name\":\"Azure OpenAI\",\"aliases\":[\"azure-openai\",\"azure_openai\",\"azure\"],\"transport\":\"openai-chat\",\"baseURL\":null,\"requiresApiURL\":false,\"auth\":\"api_key_header\",\"defaults\":{\"model\":\"gpt-5-mini\",\"embedModel\":\"text-embedding-3-small\"},\"capabilities\":{\"functions\":true,\"streaming\":true,\"structuredOutputs\":true,\"thinking\":true,\"multiTurn\":true,\"images\":true,\"structuredOutputModes\":[\"native\",\"function\"],\"serviceTiers\":[\"standard\",\"priority\"]},\"operations\":{\"chat\":{\"path\":\"/chat/completions\",\"dialect\":\"openai-chat\",\"method\":\"POST\",\"body\":\"json\",\"stream\":false},\"embed\":{\"path\":\"/embeddings\",\"dialect\":\"openai-embeddings\",\"method\":\"POST\",\"body\":\"json\",\"stream\":false},\"stream_chat\":{\"path\":\"/chat/completions\",\"dialect\":\"openai-chat\",\"method\":\"POST\",\"body\":\"json\",\"stream\":true}},\"endpoint\":{\"scheme\":\"https\",\"hostField\":\"resourceName\",\"hostSuffix\":\".openai.azure.com\",\"path\":\"/openai/deployments/{deploymentName}\",\"fields\":{\"resourceName\":[\"resource_name\",\"resourceName\"],\"deploymentName\":[\"deployment_name\",\"deploymentName\"],\"version\":[\"api_version\",\"apiVersion\",\"version\"]},\"required\":[\"resourceName\",\"deploymentName\"],\"defaults\":{\"version\":\"2024-02-15-preview\"},\"normalizers\":{\"version\":\"api-version\"},\"apiVersionField\":\"version\"},\"capabilityGates\":{\"structuredOutputs\":{\"option\":\"version\",\"min\":\"2024-08-01\"}},\"modelRules\":[],\"sources\":[\"https://learn.microsoft.com/en-us/azure/ai-services/openai/reference\",\"https://learn.microsoft.com/en-us/azure/foundry/openai/concepts/priority-processing\"],\"reviewedAt\":\"2026-08-17\",\"request\":{\"serviceTierMap\":{\"auto\":\"auto\",\"standard\":\"default\",\"flex\":\"flex\",\"priority\":\"priority\"}},\"provider\":\"azure-openai\",\"baseUrl\":null,\"authRequired\":true,\"apiKeyHeader\":\"api-key\",\"apiVersion\":\"2024-02-15-preview\",\"defaultModel\":\"gpt-5-mini\",\"defaultEmbedModel\":\"text-embedding-3-small\",\"features\":{\"functions\":true,\"streaming\":true,\"structured_outputs\":true,\"structured_output_modes\":[\"native\",\"function\"],\"thinking\":true,\"multi_turn\":true,\"service_tiers\":[\"standard\",\"priority\"],\"media\":{\"images\":{\"supported\":true,\"formats\":[\"image/jpeg\",\"image/png\"]},\"audio\":{\"supported\":false,\"formats\":[],\"realtime\":false,\"output\":{\"supported\":false,\"formats\":[]}},\"files\":{\"supported\":false,\"formats\":[],\"upload_method\":\"none\"},\"urls\":{\"supported\":false,\"web_search\":false,\"context_fetching\":false}},\"caching\":{\"supported\":false,\"types\":[]}}},\"deepseek\":{\"id\":\"deepseek\",\"name\":\"DeepSeek\",\"aliases\":[\"deepseek\"],\"transport\":\"openai-chat\",\"baseURL\":\"https://api.deepseek.com\",\"requiresApiURL\":false,\"auth\":\"bearer\",\"defaults\":{\"model\":\"deepseek-v4-flash\"},\"capabilities\":{\"functions\":true,\"streaming\":true,\"structuredOutputs\":false,\"thinking\":false,\"multiTurn\":true,\"structuredOutputModes\":[\"function\",\"json_object\"],\"serviceTiers\":[]},\"operations\":{\"chat\":{\"path\":\"/chat/completions\",\"dialect\":\"openai-chat\",\"method\":\"POST\",\"body\":\"json\",\"stream\":false},\"stream_chat\":{\"path\":\"/chat/completions\",\"dialect\":\"openai-chat\",\"method\":\"POST\",\"body\":\"json\",\"stream\":true}},\"modelRules\":[{\"match\":{\"exact\":[\"deepseek-v4-flash\",\"deepseek-v4-pro\"]},\"capabilities\":{\"thinking\":true,\"thinkingBudget\":true,\"showThoughts\":true,\"structuredOutputs\":false,\"structuredOutputModes\":[\"function\"]},\"request\":{\"reasoning\":\"thinking-object\",\"toolChoice\":\"unforced\",\"effortMap\":{\"none\":null,\"minimal\":\"low\",\"low\":\"low\",\"medium\":\"medium\",\"high\":\"high\",\"highest\":\"max\",\"xhigh\":\"max\",\"max\":\"max\"},\"dropWhenThinking\":[\"temperature\",\"top_p\",\"presence_penalty\",\"frequency_penalty\"],\"defaultThinkingLevel\":\"max\"},\"response\":{\"reasoningFields\":[\"reasoning_content\",\"reasoning\"]},\"replay\":{\"assistantReasoningField\":\"reasoning_content\"}},{\"match\":{\"exact\":[\"deepseek-reasoner\"]},\"capabilities\":{\"thinking\":true,\"thinkingBudget\":false,\"showThoughts\":true,\"structuredOutputs\":false,\"structuredOutputModes\":[\"function\"]},\"request\":{\"toolChoice\":\"unforced\"},\"response\":{\"reasoningFields\":[\"reasoning_content\",\"reasoning\"]},\"replay\":{\"assistantReasoningField\":\"reasoning_content\"}}],\"sources\":[\"https://api-docs.deepseek.com/guides/thinking_mode/\"],\"reviewedAt\":\"2026-08-18\",\"provider\":\"deepseek\",\"baseUrl\":\"https://api.deepseek.com\",\"authRequired\":true,\"defaultModel\":\"deepseek-v4-flash\",\"features\":{\"functions\":true,\"streaming\":true,\"structured_outputs\":false,\"structured_output_modes\":[\"function\",\"json_object\"],\"thinking\":false,\"multi_turn\":true,\"service_tiers\":[],\"media\":{\"images\":{\"supported\":false,\"formats\":[]},\"audio\":{\"supported\":false,\"formats\":[],\"realtime\":false,\"output\":{\"supported\":false,\"formats\":[]}},\"files\":{\"supported\":false,\"formats\":[],\"upload_method\":\"none\"},\"urls\":{\"supported\":false,\"web_search\":false,\"context_fetching\":false}},\"caching\":{\"supported\":false,\"types\":[]}}},\"deepseek-responses\":{\"id\":\"deepseek-responses\",\"name\":\"DeepSeek Responses\",\"aliases\":[\"deepseek-responses\",\"deepseek_responses\"],\"transport\":\"openai-responses\",\"baseURL\":\"https://api.deepseek.com\",\"requiresApiURL\":false,\"auth\":\"bearer\",\"defaults\":{\"model\":\"deepseek-v4-flash\"},\"capabilities\":{\"functions\":true,\"streaming\":true,\"structuredOutputs\":false,\"thinking\":true,\"multiTurn\":true,\"structuredOutputModes\":[\"function\"],\"serviceTiers\":[]},\"operations\":{\"chat\":{\"path\":\"/responses\",\"dialect\":\"openai-responses\",\"method\":\"POST\",\"body\":\"json\",\"stream\":false},\"stream_chat\":{\"path\":\"/responses\",\"dialect\":\"openai-responses\",\"method\":\"POST\",\"body\":\"json\",\"stream\":true}},\"request\":{\"dropFields\":[\"include\",\"previous_response_id\",\"store\",\"parallel_tool_calls\"],\"reasoningObjectFields\":[\"effort\"]},\"modelRules\":[],\"sources\":[\"https://api-docs.deepseek.com/api/create-chat-completion\"],\"reviewedAt\":\"2026-08-17\",\"provider\":\"deepseek-responses\",\"baseUrl\":\"https://api.deepseek.com\",\"authRequired\":true,\"defaultModel\":\"deepseek-v4-flash\",\"features\":{\"functions\":true,\"streaming\":true,\"structured_outputs\":false,\"structured_output_modes\":[\"function\"],\"thinking\":true,\"multi_turn\":true,\"service_tiers\":[],\"media\":{\"images\":{\"supported\":false,\"formats\":[]},\"audio\":{\"supported\":false,\"formats\":[],\"realtime\":false,\"output\":{\"supported\":false,\"formats\":[]}},\"files\":{\"supported\":false,\"formats\":[],\"upload_method\":\"none\"},\"urls\":{\"supported\":false,\"web_search\":false,\"context_fetching\":false}},\"caching\":{\"supported\":false,\"types\":[]}}},\"meta\":{\"id\":\"meta\",\"name\":\"Meta Model API\",\"aliases\":[\"meta\",\"meta-responses\",\"meta_responses\"],\"transport\":\"openai-responses\",\"baseURL\":\"https://api.meta.ai/v1\",\"requiresApiURL\":false,\"auth\":\"bearer\",\"defaults\":{\"model\":\"muse-spark-1.3\"},\"capabilities\":{\"functions\":true,\"streaming\":true,\"structuredOutputs\":true,\"thinking\":true,\"multiTurn\":true,\"images\":true,\"audio\":true,\"files\":{\"uploadMethod\":\"inline\"},\"caching\":{\"types\":[\"ephemeral\"],\"cacheBreakpoints\":false},\"structuredOutputModes\":[\"native\",\"function\",\"json_object\"],\"serviceTiers\":[]},\"operations\":{\"chat\":{\"path\":\"/responses\",\"dialect\":\"openai-responses\",\"method\":\"POST\",\"body\":\"json\",\"stream\":false},\"transcribe\":{\"path\":\"/asr/transcribe\",\"dialect\":\"meta-transcription\",\"method\":\"POST\",\"body\":\"multipart\",\"stream\":false},\"realtime\":{\"path\":\"/asr/realtime\",\"dialect\":\"meta-realtime\",\"modelMatch\":{\"exact\":[\"muse-voice-transcribe-1.0\"]},\"url\":\"wss://api.meta.ai/v1/asr/realtime\",\"grammar\":\"meta_asr_realtime\",\"defaultModel\":\"muse-voice-transcribe-1.0\",\"audio\":{\"input\":{\"formats\":[\"pcm16\",\"pcm\"],\"sampleRate\":24000}},\"method\":\"WS\",\"body\":\"json\",\"stream\":true},\"stream_chat\":{\"path\":\"/responses\",\"dialect\":\"openai-responses\",\"method\":\"POST\",\"body\":\"json\",\"stream\":true}},\"request\":{\"toolChoice\":\"no-named\",\"reasoningObjectFields\":[\"effort\",\"summary\"],\"unsupportedThinkingLevels\":{\"none\":\"Meta Muse Spark does not support reasoning level none\"}},\"modelRules\":[{\"match\":{\"exact\":[\"muse-image-1.0\"]},\"capabilities\":{\"functions\":false,\"functionEmulation\":false,\"structuredOutputs\":false,\"thinking\":false,\"audio\":false,\"structuredOutputModes\":[]}},{\"match\":{\"exact\":[\"muse-voice-transcribe-1.0\"]},\"capabilities\":{\"functions\":false,\"functionEmulation\":false,\"structuredOutputs\":false,\"thinking\":false,\"images\":false,\"structuredOutputModes\":[]}}],\"sources\":[\"https://dev.meta.ai/docs/protocols/responses\"],\"reviewedAt\":\"2026-09-03\",\"provider\":\"meta\",\"baseUrl\":\"https://api.meta.ai/v1\",\"authRequired\":true,\"defaultModel\":\"muse-spark-1.3\",\"features\":{\"functions\":true,\"streaming\":true,\"structured_outputs\":true,\"structured_output_modes\":[\"native\",\"function\",\"json_object\"],\"thinking\":true,\"multi_turn\":true,\"service_tiers\":[],\"media\":{\"images\":{\"supported\":true,\"formats\":[\"image/jpeg\",\"image/png\"]},\"audio\":{\"supported\":true,\"formats\":[\"wav\",\"mp3\",\"pcm16\"],\"realtime\":true,\"output\":{\"supported\":false,\"formats\":[]}},\"files\":{\"supported\":true,\"formats\":[\"application/pdf\",\"text/plain\"],\"upload_method\":\"inline\"},\"urls\":{\"supported\":false,\"web_search\":false,\"context_fetching\":false}},\"caching\":{\"supported\":true,\"types\":[\"ephemeral\"],\"cache_breakpoints\":false}}},\"meta-chat\":{\"id\":\"meta-chat\",\"name\":\"Meta Model API Chat Completions\",\"aliases\":[\"meta-chat\",\"meta_chat\"],\"transport\":\"openai-chat\",\"baseURL\":\"https://api.meta.ai/v1\",\"requiresApiURL\":false,\"auth\":\"bearer\",\"defaults\":{\"model\":\"muse-spark-1.3\"},\"capabilities\":{\"functions\":true,\"streaming\":true,\"structuredOutputs\":true,\"thinking\":true,\"multiTurn\":true,\"images\":true,\"audio\":true,\"files\":{\"uploadMethod\":\"inline\"},\"caching\":{\"types\":[\"ephemeral\"],\"cacheBreakpoints\":false},\"structuredOutputModes\":[\"native\",\"function\",\"json_object\"],\"serviceTiers\":[]},\"operations\":{\"chat\":{\"path\":\"/chat/completions\",\"dialect\":\"openai-chat\",\"method\":\"POST\",\"body\":\"json\",\"stream\":false},\"stream_chat\":{\"path\":\"/chat/completions\",\"dialect\":\"openai-chat\",\"method\":\"POST\",\"body\":\"json\",\"stream\":true}},\"request\":{\"toolChoice\":\"no-named\",\"effortMap\":{\"minimal\":\"minimal\",\"low\":\"low\",\"medium\":\"medium\",\"high\":\"high\",\"highest\":\"xhigh\"},\"unsupportedThinkingLevels\":{\"none\":\"Meta Muse Spark does not support reasoning level none\"}},\"modelRules\":[],\"sources\":[\"https://dev.meta.ai/docs/protocols/chat-completions\"],\"reviewedAt\":\"2026-09-03\",\"provider\":\"meta-chat\",\"baseUrl\":\"https://api.meta.ai/v1\",\"authRequired\":true,\"defaultModel\":\"muse-spark-1.3\",\"features\":{\"functions\":true,\"streaming\":true,\"structured_outputs\":true,\"structured_output_modes\":[\"native\",\"function\",\"json_object\"],\"thinking\":true,\"multi_turn\":true,\"service_tiers\":[],\"media\":{\"images\":{\"supported\":true,\"formats\":[\"image/jpeg\",\"image/png\"]},\"audio\":{\"supported\":true,\"formats\":[\"wav\",\"mp3\",\"pcm16\"],\"realtime\":false,\"output\":{\"supported\":false,\"formats\":[]}},\"files\":{\"supported\":true,\"formats\":[\"application/pdf\",\"text/plain\"],\"upload_method\":\"inline\"},\"urls\":{\"supported\":false,\"web_search\":false,\"context_fetching\":false}},\"caching\":{\"supported\":true,\"types\":[\"ephemeral\"],\"cache_breakpoints\":false}}},\"meta-messages\":{\"id\":\"meta-messages\",\"name\":\"Meta Model API Messages\",\"aliases\":[\"meta-messages\",\"meta_messages\"],\"transport\":\"anthropic-messages\",\"baseURL\":\"https://api.meta.ai/v1\",\"requiresApiURL\":false,\"auth\":\"bearer\",\"defaults\":{\"model\":\"muse-spark-1.3\"},\"capabilities\":{\"functions\":true,\"streaming\":true,\"structuredOutputs\":true,\"thinking\":true,\"multiTurn\":true,\"images\":true,\"audio\":true,\"files\":{\"uploadMethod\":\"inline\"},\"structuredOutputModes\":[\"native\",\"function\"],\"serviceTiers\":[]},\"operations\":{\"chat\":{\"path\":\"/messages\",\"dialect\":\"anthropic-messages\",\"method\":\"POST\",\"body\":\"json\",\"stream\":false},\"stream_chat\":{\"path\":\"/messages\",\"dialect\":\"anthropic-messages\",\"method\":\"POST\",\"body\":\"json\",\"stream\":true}},\"request\":{\"toolChoice\":\"no-named\",\"unsupportedThinkingLevels\":{\"none\":\"Meta Muse Spark does not support reasoning level none\"}},\"modelRules\":[],\"sources\":[\"https://dev.meta.ai/docs/protocols/messages\"],\"reviewedAt\":\"2026-09-03\",\"provider\":\"meta-messages\",\"baseUrl\":\"https://api.meta.ai/v1\",\"authRequired\":true,\"defaultModel\":\"muse-spark-1.3\",\"features\":{\"functions\":true,\"streaming\":true,\"structured_outputs\":true,\"structured_output_modes\":[\"native\",\"function\"],\"thinking\":true,\"multi_turn\":true,\"service_tiers\":[],\"media\":{\"images\":{\"supported\":true,\"formats\":[\"image/jpeg\",\"image/png\"]},\"audio\":{\"supported\":true,\"formats\":[\"wav\",\"mp3\",\"pcm16\"],\"realtime\":false,\"output\":{\"supported\":false,\"formats\":[]}},\"files\":{\"supported\":true,\"formats\":[\"application/pdf\",\"text/plain\"],\"upload_method\":\"inline\"},\"urls\":{\"supported\":false,\"web_search\":false,\"context_fetching\":false}},\"caching\":{\"supported\":false,\"types\":[]}}},\"mistral\":{\"id\":\"mistral\",\"name\":\"Mistral AI\",\"aliases\":[\"mistral\"],\"transport\":\"openai-chat\",\"baseURL\":\"https://api.mistral.ai/v1\",\"requiresApiURL\":false,\"auth\":\"bearer\",\"defaults\":{\"model\":\"mistral-small-latest\",\"embedModel\":\"mistral-embed\"},\"capabilities\":{\"functions\":true,\"streaming\":true,\"structuredOutputs\":true,\"thinking\":false,\"multiTurn\":true,\"images\":true,\"audio\":true,\"audioOutput\":true,\"structuredOutputModes\":[\"native\",\"function\"],\"serviceTiers\":[\"standard\",\"priority\"]},\"operations\":{\"chat\":{\"path\":\"/chat/completions\",\"dialect\":\"openai-chat\",\"method\":\"POST\",\"body\":\"json\",\"stream\":false},\"embed\":{\"path\":\"/embeddings\",\"dialect\":\"openai-embeddings\",\"method\":\"POST\",\"body\":\"json\",\"stream\":false},\"transcribe\":{\"path\":\"/audio/transcriptions\",\"dialect\":\"openai-transcription\",\"method\":\"POST\",\"body\":\"multipart\",\"stream\":false},\"speak\":{\"path\":\"/audio/speech\",\"dialect\":\"mistral-speech\",\"method\":\"POST\",\"body\":\"json\",\"stream\":false,\"response\":\"binary\"},\"stream_chat\":{\"path\":\"/chat/completions\",\"dialect\":\"openai-chat\",\"method\":\"POST\",\"body\":\"json\",\"stream\":true}},\"request\":{\"renameFields\":{\"max_completion_tokens\":\"max_tokens\"},\"imageURLShape\":\"object\",\"serviceTierMap\":{\"auto\":\"auto\",\"standard\":\"standard_only\",\"priority\":\"auto\"}},\"modelRules\":[],\"sources\":[\"https://docs.mistral.ai/api/\",\"https://docs.mistral.ai/inference/priority-tier\"],\"reviewedAt\":\"2026-08-17\",\"provider\":\"mistral\",\"baseUrl\":\"https://api.mistral.ai/v1\",\"authRequired\":true,\"defaultModel\":\"mistral-small-latest\",\"defaultEmbedModel\":\"mistral-embed\",\"features\":{\"functions\":true,\"streaming\":true,\"structured_outputs\":true,\"structured_output_modes\":[\"native\",\"function\"],\"thinking\":false,\"multi_turn\":true,\"service_tiers\":[\"standard\",\"priority\"],\"media\":{\"images\":{\"supported\":true,\"formats\":[\"image/jpeg\",\"image/png\"]},\"audio\":{\"supported\":true,\"formats\":[\"wav\",\"mp3\",\"pcm16\"],\"realtime\":false,\"output\":{\"supported\":true,\"formats\":[\"wav\",\"mp3\",\"pcm16\"]}},\"files\":{\"supported\":false,\"formats\":[],\"upload_method\":\"none\"},\"urls\":{\"supported\":false,\"web_search\":false,\"context_fetching\":false}},\"caching\":{\"supported\":false,\"types\":[]}}},\"cohere\":{\"id\":\"cohere\",\"name\":\"Cohere\",\"aliases\":[\"cohere\"],\"transport\":\"openai-chat\",\"baseURL\":\"https://api.cohere.ai/compatibility/v1\",\"requiresApiURL\":false,\"auth\":\"bearer\",\"defaults\":{\"model\":\"command-r-plus\",\"embedModel\":\"embed-english-v3.0\"},\"capabilities\":{\"functions\":true,\"streaming\":true,\"structuredOutputs\":false,\"thinking\":false,\"multiTurn\":true,\"structuredOutputModes\":[\"function\"],\"serviceTiers\":[]},\"operations\":{\"chat\":{\"path\":\"/chat/completions\",\"dialect\":\"openai-chat\",\"method\":\"POST\",\"body\":\"json\",\"stream\":false},\"embed\":{\"path\":\"/embeddings\",\"dialect\":\"openai-embeddings\",\"method\":\"POST\",\"body\":\"json\",\"stream\":false},\"stream_chat\":{\"path\":\"/chat/completions\",\"dialect\":\"openai-chat\",\"method\":\"POST\",\"body\":\"json\",\"stream\":true}},\"modelRules\":[],\"sources\":[\"https://docs.cohere.com/reference/compatibility-api\"],\"reviewedAt\":\"2026-08-17\",\"provider\":\"cohere\",\"baseUrl\":\"https://api.cohere.ai/compatibility/v1\",\"authRequired\":true,\"defaultModel\":\"command-r-plus\",\"defaultEmbedModel\":\"embed-english-v3.0\",\"features\":{\"functions\":true,\"streaming\":true,\"structured_outputs\":false,\"structured_output_modes\":[\"function\"],\"thinking\":false,\"multi_turn\":true,\"service_tiers\":[],\"media\":{\"images\":{\"supported\":false,\"formats\":[]},\"audio\":{\"supported\":false,\"formats\":[],\"realtime\":false,\"output\":{\"supported\":false,\"formats\":[]}},\"files\":{\"supported\":false,\"formats\":[],\"upload_method\":\"none\"},\"urls\":{\"supported\":false,\"web_search\":false,\"context_fetching\":false}},\"caching\":{\"supported\":false,\"types\":[]}}},\"grok\":{\"id\":\"grok\",\"name\":\"xAI Grok\",\"aliases\":[\"grok\",\"xai\",\"x-grok\",\"x_grok\"],\"transport\":\"openai-chat\",\"baseURL\":\"https://api.x.ai/v1\",\"requiresApiURL\":false,\"auth\":\"bearer\",\"defaults\":{\"model\":\"grok-4.6\"},\"capabilities\":{\"functions\":true,\"streaming\":true,\"structuredOutputs\":true,\"thinking\":false,\"multiTurn\":true,\"images\":true,\"audio\":true,\"audioOutput\":true,\"webSearch\":true,\"structuredOutputModes\":[\"native\",\"function\"],\"serviceTiers\":[\"standard\",\"priority\"]},\"operations\":{\"chat\":{\"path\":\"/chat/completions\",\"dialect\":\"openai-chat\",\"method\":\"POST\",\"body\":\"json\",\"stream\":false},\"transcribe\":{\"path\":\"/stt\",\"dialect\":\"xai-transcription\",\"method\":\"POST\",\"body\":\"multipart\",\"stream\":false},\"speak\":{\"path\":\"/tts\",\"dialect\":\"xai-speech\",\"method\":\"POST\",\"body\":\"json\",\"stream\":false,\"response\":\"binary\"},\"realtime\":{\"path\":\"/realtime\",\"dialect\":\"xai-realtime\",\"modelMatch\":{\"prefix\":[\"grok-voice\"]},\"url\":\"wss://api.x.ai/v1/realtime\",\"grammar\":\"openai_realtime_compatible\",\"defaultModel\":\"grok-voice-think-fast-1.0\",\"audio\":{\"input\":{\"formats\":[\"pcm16\",\"pcm\"],\"sampleRate\":24000},\"output\":{\"formats\":[\"pcm16\",\"pcm\"],\"sampleRate\":24000,\"voices\":[\"eve\",\"ara\",\"rex\",\"sal\",\"leo\"],\"defaultVoice\":\"eve\"}},\"validation\":{\"structuredOutputWithAudio\":false},\"method\":\"WS\",\"body\":\"json\",\"stream\":true},\"stream_chat\":{\"path\":\"/chat/completions\",\"dialect\":\"openai-chat\",\"method\":\"POST\",\"body\":\"json\",\"stream\":true}},\"request\":{\"optionDialect\":\"search-parameters\",\"serviceTierMap\":{\"auto\":null,\"standard\":\"default\",\"priority\":\"priority\"}},\"modelRules\":[{\"match\":{\"exact\":[\"grok-4.6\"]},\"capabilities\":{\"thinking\":true,\"thinkingBudget\":true,\"structuredOutputs\":true,\"structuredOutputModes\":[\"native\",\"function\"]},\"request\":{\"reasoning\":\"effort\",\"defaultThinkingLevel\":\"max\",\"effortMap\":{\"none\":null,\"minimal\":\"low\",\"low\":\"low\",\"medium\":\"medium\",\"high\":\"high\",\"highest\":\"xhigh\",\"xhigh\":\"xhigh\",\"max\":\"xhigh\"},\"unsupportedThinkingLevels\":{\"none\":\"xAI Grok 4.6 reasoning cannot be disabled\"},\"dropFields\":[\"presence_penalty\",\"frequency_penalty\",\"stop\"]}},{\"match\":{\"exact\":[\"grok-4.5\",\"grok-4.5-latest\",\"grok-build-latest\"]},\"capabilities\":{\"thinking\":true,\"thinkingBudget\":true,\"structuredOutputs\":true,\"structuredOutputModes\":[\"native\",\"function\"]},\"request\":{\"reasoning\":\"effort\",\"defaultThinkingLevel\":\"max\",\"effortMap\":{\"none\":null,\"minimal\":\"low\",\"low\":\"low\",\"medium\":\"medium\",\"high\":\"high\",\"highest\":\"high\",\"xhigh\":\"high\",\"max\":\"high\"},\"unsupportedThinkingLevels\":{\"none\":\"xAI Grok 4.5 reasoning cannot be disabled\"},\"dropFields\":[\"presence_penalty\",\"frequency_penalty\",\"stop\"]}},{\"match\":{\"exact\":[\"grok-4.3\",\"grok-4.3-latest\",\"grok-latest\"]},\"capabilities\":{\"thinking\":true,\"thinkingBudget\":true,\"showThoughts\":true,\"structuredOutputs\":true,\"structuredOutputModes\":[\"native\",\"function\"]},\"request\":{\"reasoning\":\"effort\",\"defaultThinkingLevel\":\"max\",\"effortMap\":{\"none\":\"none\",\"minimal\":\"low\",\"low\":\"low\",\"medium\":\"medium\",\"high\":\"high\",\"highest\":\"high\",\"xhigh\":\"high\",\"max\":\"high\"},\"dropFields\":[\"presence_penalty\",\"frequency_penalty\",\"stop\"]}},{\"match\":{\"exact\":[\"grok-3-mini\",\"grok-3-mini-latest\",\"grok-3-mini-beta\",\"grok-3-mini-fast\",\"grok-3-mini-fast-latest\",\"grok-3-mini-fast-beta\"]},\"capabilities\":{\"thinking\":true,\"thinkingBudget\":true},\"request\":{\"reasoning\":\"effort\",\"defaultThinkingLevel\":\"low\",\"effortMap\":{\"none\":null,\"minimal\":\"low\",\"low\":\"low\",\"medium\":\"high\",\"high\":\"high\",\"highest\":\"high\",\"xhigh\":\"high\",\"max\":\"high\"},\"unsupportedThinkingLevels\":{\"none\":\"xAI Grok 3 Mini reasoning cannot be disabled\"}}}],\"sources\":[\"https://docs.x.ai/developers/model-capabilities/text/reasoning\",\"https://docs.x.ai/developers/rest-api-reference/management/auth\",\"https://docs.x.ai/developers/models/grok-4.5\",\"https://docs.x.ai/developers/advanced-api-usage/priority-processing\"],\"reviewedAt\":\"2026-08-30\",\"provider\":\"grok\",\"baseUrl\":\"https://api.x.ai/v1\",\"authRequired\":true,\"defaultModel\":\"grok-4.6\",\"features\":{\"functions\":true,\"streaming\":true,\"structured_outputs\":true,\"structured_output_modes\":[\"native\",\"function\"],\"thinking\":false,\"multi_turn\":true,\"service_tiers\":[\"standard\",\"priority\"],\"media\":{\"images\":{\"supported\":true,\"formats\":[\"image/jpeg\",\"image/png\"]},\"audio\":{\"supported\":true,\"formats\":[\"wav\",\"mp3\",\"pcm16\"],\"realtime\":true,\"output\":{\"supported\":true,\"formats\":[\"wav\",\"mp3\",\"pcm16\"]}},\"files\":{\"supported\":false,\"formats\":[],\"upload_method\":\"none\"},\"urls\":{\"supported\":false,\"web_search\":true,\"context_fetching\":false}},\"caching\":{\"supported\":false,\"types\":[]}}},\"reka\":{\"id\":\"reka\",\"name\":\"Reka\",\"aliases\":[\"reka\"],\"transport\":\"openai-chat\",\"baseURL\":\"https://api.reka.ai/v1\",\"requiresApiURL\":false,\"auth\":\"bearer\",\"defaults\":{\"model\":\"reka-core\"},\"capabilities\":{\"functions\":true,\"streaming\":true,\"structuredOutputs\":false,\"thinking\":false,\"multiTurn\":true,\"structuredOutputModes\":[\"function\"],\"serviceTiers\":[]},\"operations\":{\"chat\":{\"path\":\"/chat/completions\",\"dialect\":\"openai-chat\",\"method\":\"POST\",\"body\":\"json\",\"stream\":false},\"stream_chat\":{\"path\":\"/chat/completions\",\"dialect\":\"openai-chat\",\"method\":\"POST\",\"body\":\"json\",\"stream\":true}},\"modelRules\":[],\"sources\":[\"https://docs.reka.ai/\"],\"reviewedAt\":\"2026-08-17\",\"provider\":\"reka\",\"baseUrl\":\"https://api.reka.ai/v1\",\"authRequired\":true,\"defaultModel\":\"reka-core\",\"features\":{\"functions\":true,\"streaming\":true,\"structured_outputs\":false,\"structured_output_modes\":[\"function\"],\"thinking\":false,\"multi_turn\":true,\"service_tiers\":[],\"media\":{\"images\":{\"supported\":false,\"formats\":[]},\"audio\":{\"supported\":false,\"formats\":[],\"realtime\":false,\"output\":{\"supported\":false,\"formats\":[]}},\"files\":{\"supported\":false,\"formats\":[],\"upload_method\":\"none\"},\"urls\":{\"supported\":false,\"web_search\":false,\"context_fetching\":false}},\"caching\":{\"supported\":false,\"types\":[]}}},\"together\":{\"id\":\"together\",\"name\":\"Together AI\",\"aliases\":[\"together\",\"together-ai\",\"together_ai\"],\"transport\":\"openai-chat\",\"baseURL\":\"https://api.together.xyz/v1\",\"requiresApiURL\":false,\"auth\":\"bearer\",\"defaults\":{\"model\":\"\"},\"capabilities\":{\"functions\":true,\"streaming\":true,\"structuredOutputs\":true,\"thinking\":false,\"multiTurn\":true,\"structuredOutputModes\":[\"native\",\"function\",\"json_object\"],\"serviceTiers\":[]},\"operations\":{\"chat\":{\"path\":\"/chat/completions\",\"dialect\":\"openai-chat\",\"method\":\"POST\",\"body\":\"json\",\"stream\":false},\"embed\":{\"path\":\"/embeddings\",\"dialect\":\"openai-embeddings\",\"method\":\"POST\",\"body\":\"json\",\"stream\":false},\"stream_chat\":{\"path\":\"/chat/completions\",\"dialect\":\"openai-chat\",\"method\":\"POST\",\"body\":\"json\",\"stream\":true}},\"modelRules\":[{\"match\":{\"prefix\":[\"deepseek-ai/DeepSeek-V4\"]},\"capabilities\":{\"thinking\":true,\"thinkingBudget\":true,\"showThoughts\":true,\"structuredOutputs\":false,\"structuredOutputModes\":[\"function\"]},\"request\":{\"reasoning\":\"effort\",\"toolChoice\":\"unforced\",\"effortMap\":{\"none\":null,\"minimal\":\"high\",\"low\":\"high\",\"medium\":\"high\",\"high\":\"max\",\"highest\":\"max\",\"xhigh\":\"max\",\"max\":\"max\"},\"defaultThinkingLevel\":\"max\"},\"response\":{\"reasoningFields\":[\"reasoning\",\"reasoning_content\"]},\"replay\":{\"assistantReasoningField\":\"reasoning\"}}],\"sources\":[\"https://docs.together.ai/docs/inference/chat/reasoning\"],\"reviewedAt\":\"2026-08-18\",\"provider\":\"together\",\"baseUrl\":\"https://api.together.xyz/v1\",\"authRequired\":true,\"defaultModel\":\"\",\"features\":{\"functions\":true,\"streaming\":true,\"structured_outputs\":true,\"structured_output_modes\":[\"native\",\"function\",\"json_object\"],\"thinking\":false,\"multi_turn\":true,\"service_tiers\":[],\"media\":{\"images\":{\"supported\":false,\"formats\":[]},\"audio\":{\"supported\":false,\"formats\":[],\"realtime\":false,\"output\":{\"supported\":false,\"formats\":[]}},\"files\":{\"supported\":false,\"formats\":[],\"upload_method\":\"none\"},\"urls\":{\"supported\":false,\"web_search\":false,\"context_fetching\":false}},\"caching\":{\"supported\":false,\"types\":[]}}},\"openrouter\":{\"id\":\"openrouter\",\"name\":\"OpenRouter\",\"aliases\":[\"openrouter\"],\"transport\":\"openai-chat\",\"baseURL\":\"https://openrouter.ai/api/v1\",\"requiresApiURL\":false,\"auth\":\"bearer\",\"defaults\":{\"model\":\"\"},\"capabilities\":{\"functions\":true,\"streaming\":true,\"structuredOutputs\":false,\"thinking\":false,\"multiTurn\":true,\"structuredOutputModes\":[\"function\"],\"serviceTiers\":[\"standard\",\"flex\",\"priority\"]},\"operations\":{\"chat\":{\"path\":\"/chat/completions\",\"dialect\":\"openai-chat\",\"method\":\"POST\",\"body\":\"json\",\"stream\":false},\"stream_chat\":{\"path\":\"/chat/completions\",\"dialect\":\"openai-chat\",\"method\":\"POST\",\"body\":\"json\",\"stream\":true}},\"modelRules\":[{\"match\":{\"prefix\":[\"deepseek/\"]},\"capabilities\":{\"thinking\":true,\"thinkingBudget\":true,\"showThoughts\":true,\"structuredOutputs\":false,\"structuredOutputModes\":[\"function\"]},\"request\":{\"reasoning\":\"openrouter\",\"toolChoice\":\"unforced\",\"effortMap\":{\"none\":\"none\",\"minimal\":\"low\",\"low\":\"low\",\"medium\":\"medium\",\"high\":\"high\",\"highest\":\"max\",\"xhigh\":\"xhigh\",\"max\":\"max\"},\"defaultThinkingLevel\":\"max\"},\"response\":{\"reasoningFields\":[\"reasoning\",\"reasoning_content\"],\"reasoningDetailsFields\":[\"reasoning_details\"]},\"replay\":{\"assistantReasoningField\":\"reasoning\",\"assistantReasoningDetailsField\":\"reasoning_details\"}}],\"sources\":[\"https://openrouter.ai/docs/guides/best-practices/reasoning-tokens\",\"https://openrouter.ai/docs/guides/features/service-tiers\"],\"reviewedAt\":\"2026-08-18\",\"request\":{\"serviceTierMap\":{\"auto\":null,\"standard\":null,\"flex\":\"flex\",\"priority\":\"priority\"}},\"provider\":\"openrouter\",\"baseUrl\":\"https://openrouter.ai/api/v1\",\"authRequired\":true,\"defaultModel\":\"\",\"features\":{\"functions\":true,\"streaming\":true,\"structured_outputs\":false,\"structured_output_modes\":[\"function\"],\"thinking\":false,\"multi_turn\":true,\"service_tiers\":[\"standard\",\"flex\",\"priority\"],\"media\":{\"images\":{\"supported\":false,\"formats\":[]},\"audio\":{\"supported\":false,\"formats\":[],\"realtime\":false,\"output\":{\"supported\":false,\"formats\":[]}},\"files\":{\"supported\":false,\"formats\":[],\"upload_method\":\"none\"},\"urls\":{\"supported\":false,\"web_search\":false,\"context_fetching\":false}},\"caching\":{\"supported\":false,\"types\":[]}}},\"orcarouter\":{\"id\":\"orcarouter\",\"name\":\"OrcaRouter\",\"aliases\":[\"orcarouter\"],\"transport\":\"openai-chat\",\"baseURL\":\"https://api.orcarouter.ai/v1\",\"requiresApiURL\":false,\"auth\":\"bearer\",\"defaults\":{\"model\":\"orcarouter/auto\"},\"capabilities\":{\"functions\":true,\"streaming\":true,\"structuredOutputs\":false,\"thinking\":false,\"multiTurn\":true,\"structuredOutputModes\":[\"function\"],\"serviceTiers\":[]},\"operations\":{\"chat\":{\"path\":\"/chat/completions\",\"dialect\":\"openai-chat\",\"method\":\"POST\",\"body\":\"json\",\"stream\":false},\"stream_chat\":{\"path\":\"/chat/completions\",\"dialect\":\"openai-chat\",\"method\":\"POST\",\"body\":\"json\",\"stream\":true}},\"modelRules\":[],\"sources\":[\"https://www.orcarouter.ai\"],\"reviewedAt\":\"2026-08-19\",\"provider\":\"orcarouter\",\"baseUrl\":\"https://api.orcarouter.ai/v1\",\"authRequired\":true,\"defaultModel\":\"orcarouter/auto\",\"features\":{\"functions\":true,\"streaming\":true,\"structured_outputs\":false,\"structured_output_modes\":[\"function\"],\"thinking\":false,\"multi_turn\":true,\"service_tiers\":[],\"media\":{\"images\":{\"supported\":false,\"formats\":[]},\"audio\":{\"supported\":false,\"formats\":[],\"realtime\":false,\"output\":{\"supported\":false,\"formats\":[]}},\"files\":{\"supported\":false,\"formats\":[],\"upload_method\":\"none\"},\"urls\":{\"supported\":false,\"web_search\":false,\"context_fetching\":false}},\"caching\":{\"supported\":false,\"types\":[]}}},\"fireworks\":{\"id\":\"fireworks\",\"name\":\"Fireworks AI\",\"aliases\":[\"fireworks\",\"fireworks-ai\"],\"transport\":\"openai-chat\",\"baseURL\":\"https://api.fireworks.ai/inference/v1\",\"requiresApiURL\":false,\"auth\":\"bearer\",\"defaults\":{\"model\":\"\"},\"capabilities\":{\"functions\":true,\"streaming\":true,\"structuredOutputs\":true,\"thinking\":false,\"multiTurn\":true,\"structuredOutputModes\":[\"native\",\"function\"],\"serviceTiers\":[\"standard\",\"priority\"]},\"operations\":{\"chat\":{\"path\":\"/chat/completions\",\"dialect\":\"openai-chat\",\"method\":\"POST\",\"body\":\"json\",\"stream\":false},\"embed\":{\"path\":\"/embeddings\",\"dialect\":\"openai-embeddings\",\"method\":\"POST\",\"body\":\"json\",\"stream\":false},\"stream_chat\":{\"path\":\"/chat/completions\",\"dialect\":\"openai-chat\",\"method\":\"POST\",\"body\":\"json\",\"stream\":true}},\"modelRules\":[{\"match\":{\"contains\":[\"deepseek-v4\"]},\"capabilities\":{\"thinking\":true,\"thinkingBudget\":true,\"showThoughts\":true,\"structuredOutputs\":false,\"structuredOutputModes\":[\"function\"]},\"request\":{\"reasoning\":\"effort\",\"toolChoice\":\"unforced\",\"effortMap\":{\"none\":\"none\",\"minimal\":\"high\",\"low\":\"high\",\"medium\":\"high\",\"high\":\"high\",\"highest\":\"max\",\"xhigh\":\"max\",\"max\":\"max\"},\"defaultThinkingLevel\":\"max\"},\"response\":{\"reasoningFields\":[\"reasoning_content\",\"reasoning\"]},\"replay\":{\"assistantReasoningField\":\"reasoning_content\"}}],\"sources\":[\"https://docs.fireworks.ai/api-reference/post-chatcompletions\",\"https://docs.fireworks.ai/guides/reasoning\"],\"reviewedAt\":\"2026-08-18\",\"request\":{\"serviceTierMap\":{\"auto\":null,\"standard\":\"default\",\"priority\":\"priority\"}},\"provider\":\"fireworks\",\"baseUrl\":\"https://api.fireworks.ai/inference/v1\",\"authRequired\":true,\"defaultModel\":\"\",\"features\":{\"functions\":true,\"streaming\":true,\"structured_outputs\":true,\"structured_output_modes\":[\"native\",\"function\"],\"thinking\":false,\"multi_turn\":true,\"service_tiers\":[\"standard\",\"priority\"],\"media\":{\"images\":{\"supported\":false,\"formats\":[]},\"audio\":{\"supported\":false,\"formats\":[],\"realtime\":false,\"output\":{\"supported\":false,\"formats\":[]}},\"files\":{\"supported\":false,\"formats\":[],\"upload_method\":\"none\"},\"urls\":{\"supported\":false,\"web_search\":false,\"context_fetching\":false}},\"caching\":{\"supported\":false,\"types\":[]}}},\"huggingface-router\":{\"id\":\"huggingface-router\",\"name\":\"Hugging Face Router\",\"aliases\":[\"huggingface-router\",\"huggingface\",\"hf-router\"],\"transport\":\"openai-chat\",\"baseURL\":\"https://router.huggingface.co/v1\",\"requiresApiURL\":false,\"auth\":\"bearer\",\"defaults\":{\"model\":\"\"},\"capabilities\":{\"functions\":true,\"streaming\":true,\"structuredOutputs\":false,\"thinking\":false,\"multiTurn\":true,\"structuredOutputModes\":[\"function\"],\"serviceTiers\":[]},\"operations\":{\"chat\":{\"path\":\"/chat/completions\",\"dialect\":\"openai-chat\",\"method\":\"POST\",\"body\":\"json\",\"stream\":false},\"stream_chat\":{\"path\":\"/chat/completions\",\"dialect\":\"openai-chat\",\"method\":\"POST\",\"body\":\"json\",\"stream\":true}},\"modelRules\":[],\"sources\":[\"https://huggingface.co/docs/inference-providers/en/index\",\"https://huggingface.co/docs/inference-providers/en/tasks/chat-completion\"],\"reviewedAt\":\"2026-08-18\",\"provider\":\"huggingface-router\",\"baseUrl\":\"https://router.huggingface.co/v1\",\"authRequired\":true,\"defaultModel\":\"\",\"features\":{\"functions\":true,\"streaming\":true,\"structured_outputs\":false,\"structured_output_modes\":[\"function\"],\"thinking\":false,\"multi_turn\":true,\"service_tiers\":[],\"media\":{\"images\":{\"supported\":false,\"formats\":[]},\"audio\":{\"supported\":false,\"formats\":[],\"realtime\":false,\"output\":{\"supported\":false,\"formats\":[]}},\"files\":{\"supported\":false,\"formats\":[],\"upload_method\":\"none\"},\"urls\":{\"supported\":false,\"web_search\":false,\"context_fetching\":false}},\"caching\":{\"supported\":false,\"types\":[]}}},\"amazon-bedrock\":{\"id\":\"amazon-bedrock\",\"name\":\"Amazon Bedrock\",\"aliases\":[\"amazon-bedrock\",\"bedrock\"],\"transport\":\"openai-chat\",\"baseURL\":null,\"requiresApiURL\":true,\"auth\":\"bearer\",\"defaults\":{\"model\":\"\"},\"capabilities\":{\"functions\":true,\"streaming\":true,\"structuredOutputs\":false,\"thinking\":false,\"multiTurn\":true,\"structuredOutputModes\":[\"function\"],\"serviceTiers\":[\"standard\",\"flex\",\"priority\"]},\"operations\":{\"chat\":{\"path\":\"/chat/completions\",\"dialect\":\"openai-chat\",\"method\":\"POST\",\"body\":\"json\",\"stream\":false},\"stream_chat\":{\"path\":\"/chat/completions\",\"dialect\":\"openai-chat\",\"method\":\"POST\",\"body\":\"json\",\"stream\":true}},\"modelRules\":[],\"sources\":[\"https://docs.aws.amazon.com/bedrock/latest/userguide/inference-chat-completions-mantle.html\",\"https://docs.aws.amazon.com/bedrock/latest/userguide/service-tiers-inference.html\"],\"reviewedAt\":\"2026-08-17\",\"request\":{\"serviceTierMap\":{\"auto\":null,\"standard\":\"default\",\"flex\":\"flex\",\"priority\":\"priority\"}},\"provider\":\"amazon-bedrock\",\"baseUrl\":null,\"authRequired\":true,\"defaultModel\":\"\",\"features\":{\"functions\":true,\"streaming\":true,\"structured_outputs\":false,\"structured_output_modes\":[\"function\"],\"thinking\":false,\"multi_turn\":true,\"service_tiers\":[\"standard\",\"flex\",\"priority\"],\"media\":{\"images\":{\"supported\":false,\"formats\":[]},\"audio\":{\"supported\":false,\"formats\":[],\"realtime\":false,\"output\":{\"supported\":false,\"formats\":[]}},\"files\":{\"supported\":false,\"formats\":[],\"upload_method\":\"none\"},\"urls\":{\"supported\":false,\"web_search\":false,\"context_fetching\":false}},\"caching\":{\"supported\":false,\"types\":[]}}},\"azure-foundry\":{\"id\":\"azure-foundry\",\"name\":\"Azure AI Foundry\",\"aliases\":[\"azure-foundry\",\"azure-ai-foundry\",\"microsoft-foundry\"],\"transport\":\"openai-chat\",\"baseURL\":null,\"requiresApiURL\":true,\"auth\":\"api_key_header\",\"defaults\":{\"model\":\"\"},\"capabilities\":{\"functions\":true,\"streaming\":true,\"structuredOutputs\":false,\"thinking\":false,\"multiTurn\":true,\"structuredOutputModes\":[\"function\"],\"serviceTiers\":[\"standard\",\"priority\"]},\"operations\":{\"chat\":{\"path\":\"/chat/completions\",\"dialect\":\"openai-chat\",\"method\":\"POST\",\"body\":\"json\",\"stream\":false},\"stream_chat\":{\"path\":\"/chat/completions\",\"dialect\":\"openai-chat\",\"method\":\"POST\",\"body\":\"json\",\"stream\":true}},\"modelRules\":[],\"sources\":[\"https://learn.microsoft.com/en-us/rest/api/microsoft-foundry/azureopenai/chat\",\"https://learn.microsoft.com/en-us/azure/foundry/openai/concepts/priority-processing\"],\"reviewedAt\":\"2026-08-17\",\"request\":{\"serviceTierMap\":{\"auto\":\"auto\",\"standard\":\"default\",\"flex\":\"flex\",\"priority\":\"priority\"}},\"provider\":\"azure-foundry\",\"baseUrl\":null,\"authRequired\":true,\"apiKeyHeader\":\"api-key\",\"defaultModel\":\"\",\"features\":{\"functions\":true,\"streaming\":true,\"structured_outputs\":false,\"structured_output_modes\":[\"function\"],\"thinking\":false,\"multi_turn\":true,\"service_tiers\":[\"standard\",\"priority\"],\"media\":{\"images\":{\"supported\":false,\"formats\":[]},\"audio\":{\"supported\":false,\"formats\":[],\"realtime\":false,\"output\":{\"supported\":false,\"formats\":[]}},\"files\":{\"supported\":false,\"formats\":[],\"upload_method\":\"none\"},\"urls\":{\"supported\":false,\"web_search\":false,\"context_fetching\":false}},\"caching\":{\"supported\":false,\"types\":[]}}},\"vertex-ai\":{\"id\":\"vertex-ai\",\"name\":\"Vertex AI OpenAI Compatibility\",\"aliases\":[\"vertex-ai\",\"vertex-openai\"],\"transport\":\"openai-chat\",\"baseURL\":null,\"requiresApiURL\":true,\"auth\":\"bearer\",\"defaults\":{\"model\":\"\"},\"capabilities\":{\"functions\":true,\"streaming\":true,\"structuredOutputs\":false,\"thinking\":false,\"multiTurn\":true,\"structuredOutputModes\":[\"function\"],\"serviceTiers\":[]},\"operations\":{\"chat\":{\"path\":\"/chat/completions\",\"dialect\":\"openai-chat\",\"method\":\"POST\",\"body\":\"json\",\"stream\":false},\"stream_chat\":{\"path\":\"/chat/completions\",\"dialect\":\"openai-chat\",\"method\":\"POST\",\"body\":\"json\",\"stream\":true}},\"modelRules\":[{\"match\":{\"exact\":[\"google/gemma-4-26b-a4b-it-maas\"]},\"capabilities\":{\"structuredOutputs\":false,\"structuredOutputModes\":[\"json_object\",\"function\"],\"thinking\":true},\"request\":{\"defaultThinkingLevel\":\"max\",\"thinkingBoolean\":{\"path\":[\"chat_template_kwargs\",\"enable_thinking\"]}},\"response\":{\"reasoningFields\":[\"reasoning_content\"]},\"replay\":{\"assistantReasoningField\":\"reasoning_content\"}},{\"match\":{\"prefix\":[\"google/gemini-\",\"gemini-\"]},\"capabilities\":{\"structuredOutputs\":true,\"structuredOutputModes\":[\"native\",\"function\",\"json_object\"]}}],\"sources\":[\"https://cloud.google.com/vertex-ai/generative-ai/docs/multimodal/call-vertex-using-openai-library\",\"https://docs.cloud.google.com/gemini-enterprise-agent-platform/models/maas/capabilities/structured-output\",\"https://docs.cloud.google.com/gemini-enterprise-agent-platform/models/maas/capabilities/thinking\"],\"reviewedAt\":\"2026-08-18\",\"provider\":\"vertex-ai\",\"baseUrl\":null,\"authRequired\":true,\"defaultModel\":\"\",\"features\":{\"functions\":true,\"streaming\":true,\"structured_outputs\":false,\"structured_output_modes\":[\"function\"],\"thinking\":false,\"multi_turn\":true,\"service_tiers\":[],\"media\":{\"images\":{\"supported\":false,\"formats\":[]},\"audio\":{\"supported\":false,\"formats\":[],\"realtime\":false,\"output\":{\"supported\":false,\"formats\":[]}},\"files\":{\"supported\":false,\"formats\":[],\"upload_method\":\"none\"},\"urls\":{\"supported\":false,\"web_search\":false,\"context_fetching\":false}},\"caching\":{\"supported\":false,\"types\":[]}}},\"databricks\":{\"id\":\"databricks\",\"name\":\"Databricks Model Serving\",\"aliases\":[\"databricks\"],\"transport\":\"openai-chat\",\"baseURL\":null,\"requiresApiURL\":true,\"auth\":\"bearer\",\"defaults\":{\"model\":\"\"},\"capabilities\":{\"functions\":true,\"streaming\":true,\"structuredOutputs\":false,\"thinking\":false,\"multiTurn\":true,\"structuredOutputModes\":[\"function\"],\"serviceTiers\":[\"standard\",\"priority\"]},\"operations\":{\"chat\":{\"path\":\"/chat/completions\",\"dialect\":\"openai-chat\",\"method\":\"POST\",\"body\":\"json\",\"stream\":false},\"stream_chat\":{\"path\":\"/chat/completions\",\"dialect\":\"openai-chat\",\"method\":\"POST\",\"body\":\"json\",\"stream\":true}},\"modelRules\":[],\"sources\":[\"https://docs.databricks.com/aws/en/machine-learning/model-serving/query-chat-models\",\"https://docs.databricks.com/aws/en/machine-learning/foundation-model-apis/priority-mode\"],\"reviewedAt\":\"2026-08-17\",\"request\":{\"serviceTierMap\":{\"auto\":null,\"standard\":\"default\",\"priority\":\"priority\"}},\"provider\":\"databricks\",\"baseUrl\":null,\"authRequired\":true,\"defaultModel\":\"\",\"features\":{\"functions\":true,\"streaming\":true,\"structured_outputs\":false,\"structured_output_modes\":[\"function\"],\"thinking\":false,\"multi_turn\":true,\"service_tiers\":[\"standard\",\"priority\"],\"media\":{\"images\":{\"supported\":false,\"formats\":[]},\"audio\":{\"supported\":false,\"formats\":[],\"realtime\":false,\"output\":{\"supported\":false,\"formats\":[]}},\"files\":{\"supported\":false,\"formats\":[],\"upload_method\":\"none\"},\"urls\":{\"supported\":false,\"web_search\":false,\"context_fetching\":false}},\"caching\":{\"supported\":false,\"types\":[]}}},\"baseten\":{\"id\":\"baseten\",\"name\":\"Baseten Model APIs\",\"aliases\":[\"baseten\"],\"transport\":\"openai-chat\",\"baseURL\":\"https://inference.baseten.co/v1\",\"requiresApiURL\":false,\"auth\":\"bearer\",\"defaults\":{\"model\":\"\"},\"capabilities\":{\"functions\":true,\"streaming\":true,\"structuredOutputs\":true,\"thinking\":false,\"multiTurn\":true,\"structuredOutputModes\":[\"native\",\"function\"],\"serviceTiers\":[]},\"operations\":{\"chat\":{\"path\":\"/chat/completions\",\"dialect\":\"openai-chat\",\"method\":\"POST\",\"body\":\"json\",\"stream\":false},\"stream_chat\":{\"path\":\"/chat/completions\",\"dialect\":\"openai-chat\",\"method\":\"POST\",\"body\":\"json\",\"stream\":true}},\"modelRules\":[],\"sources\":[\"https://docs.baseten.co/inference/model-apis/overview\"],\"reviewedAt\":\"2026-08-17\",\"provider\":\"baseten\",\"baseUrl\":\"https://inference.baseten.co/v1\",\"authRequired\":true,\"defaultModel\":\"\",\"features\":{\"functions\":true,\"streaming\":true,\"structured_outputs\":true,\"structured_output_modes\":[\"native\",\"function\"],\"thinking\":false,\"multi_turn\":true,\"service_tiers\":[],\"media\":{\"images\":{\"supported\":false,\"formats\":[]},\"audio\":{\"supported\":false,\"formats\":[],\"realtime\":false,\"output\":{\"supported\":false,\"formats\":[]}},\"files\":{\"supported\":false,\"formats\":[],\"upload_method\":\"none\"},\"urls\":{\"supported\":false,\"web_search\":false,\"context_fetching\":false}},\"caching\":{\"supported\":false,\"types\":[]}}},\"groq\":{\"id\":\"groq\",\"name\":\"Groq\",\"aliases\":[\"groq\"],\"transport\":\"openai-chat\",\"baseURL\":\"https://api.groq.com/openai/v1\",\"requiresApiURL\":false,\"auth\":\"bearer\",\"defaults\":{\"model\":\"\"},\"capabilities\":{\"functions\":true,\"streaming\":true,\"structuredOutputs\":true,\"thinking\":false,\"multiTurn\":true,\"structuredOutputModes\":[\"native\",\"function\"],\"serviceTiers\":[\"standard\",\"flex\",\"priority\"]},\"operations\":{\"chat\":{\"path\":\"/chat/completions\",\"dialect\":\"openai-chat\",\"method\":\"POST\",\"body\":\"json\",\"stream\":false},\"stream_chat\":{\"path\":\"/chat/completions\",\"dialect\":\"openai-chat\",\"method\":\"POST\",\"body\":\"json\",\"stream\":true}},\"modelRules\":[{\"match\":{\"exact\":[\"openai/gpt-oss-20b\",\"openai/gpt-oss-120b\"]},\"capabilities\":{\"thinking\":true,\"thinkingBudget\":true},\"request\":{\"reasoning\":\"effort\",\"defaultThinkingLevel\":\"max\",\"effortMap\":{\"none\":null,\"minimal\":\"low\",\"low\":\"low\",\"medium\":\"medium\",\"high\":\"high\",\"highest\":\"high\",\"xhigh\":\"high\",\"max\":\"high\"},\"unsupportedThinkingLevels\":{\"none\":\"Groq GPT-OSS reasoning does not support the none effort level\"}}},{\"match\":{\"exact\":[\"qwen/qwen3.6-27b\"]},\"capabilities\":{\"thinking\":true,\"thinkingBudget\":true},\"request\":{\"reasoning\":\"effort\",\"defaultThinkingLevel\":\"max\",\"effortMap\":{\"none\":\"none\",\"minimal\":\"default\",\"low\":\"default\",\"medium\":\"default\",\"high\":\"default\",\"highest\":\"default\",\"xhigh\":\"default\",\"max\":\"default\"}}}],\"sources\":[\"https://console.groq.com/docs/reasoning\",\"https://console.groq.com/docs/api-reference\",\"https://console.groq.com/docs/service-tiers\"],\"reviewedAt\":\"2026-08-18\",\"request\":{\"serviceTierMap\":{\"auto\":\"auto\",\"standard\":\"on_demand\",\"flex\":\"flex\",\"priority\":\"performance\"}},\"provider\":\"groq\",\"baseUrl\":\"https://api.groq.com/openai/v1\",\"authRequired\":true,\"defaultModel\":\"\",\"features\":{\"functions\":true,\"streaming\":true,\"structured_outputs\":true,\"structured_output_modes\":[\"native\",\"function\"],\"thinking\":false,\"multi_turn\":true,\"service_tiers\":[\"standard\",\"flex\",\"priority\"],\"media\":{\"images\":{\"supported\":false,\"formats\":[]},\"audio\":{\"supported\":false,\"formats\":[],\"realtime\":false,\"output\":{\"supported\":false,\"formats\":[]}},\"files\":{\"supported\":false,\"formats\":[],\"upload_method\":\"none\"},\"urls\":{\"supported\":false,\"web_search\":false,\"context_fetching\":false}},\"caching\":{\"supported\":false,\"types\":[]}}},\"cerebras\":{\"id\":\"cerebras\",\"name\":\"Cerebras Inference\",\"aliases\":[\"cerebras\"],\"transport\":\"openai-chat\",\"baseURL\":\"https://api.cerebras.ai/v1\",\"requiresApiURL\":false,\"auth\":\"bearer\",\"defaults\":{\"model\":\"\"},\"capabilities\":{\"functions\":true,\"streaming\":true,\"structuredOutputs\":true,\"thinking\":false,\"multiTurn\":true,\"structuredOutputModes\":[\"native\",\"function\"],\"serviceTiers\":[\"standard\",\"flex\",\"priority\"]},\"operations\":{\"chat\":{\"path\":\"/chat/completions\",\"dialect\":\"openai-chat\",\"method\":\"POST\",\"body\":\"json\",\"stream\":false},\"stream_chat\":{\"path\":\"/chat/completions\",\"dialect\":\"openai-chat\",\"method\":\"POST\",\"body\":\"json\",\"stream\":true}},\"modelRules\":[{\"match\":{\"exact\":[\"gpt-oss-120b\"]},\"capabilities\":{\"thinking\":true,\"thinkingBudget\":true},\"request\":{\"reasoning\":\"effort\",\"defaultThinkingLevel\":\"max\",\"effortMap\":{\"none\":null,\"minimal\":\"low\",\"low\":\"low\",\"medium\":\"medium\",\"high\":\"high\",\"highest\":\"high\",\"xhigh\":\"high\",\"max\":\"high\"},\"unsupportedThinkingLevels\":{\"none\":\"Cerebras GPT-OSS reasoning does not support the none effort level\"}}},{\"match\":{\"exact\":[\"gemma-4-31b\"]},\"capabilities\":{\"thinking\":true,\"thinkingBudget\":true},\"request\":{\"reasoning\":\"effort\",\"defaultThinkingLevel\":\"max\",\"effortMap\":{\"none\":\"none\",\"minimal\":\"high\",\"low\":\"high\",\"medium\":\"high\",\"high\":\"high\",\"highest\":\"high\",\"xhigh\":\"high\",\"max\":\"high\"}}}],\"sources\":[\"https://inference-docs.cerebras.ai/capabilities/reasoning\",\"https://inference-docs.cerebras.ai/api-reference/chat-completions\",\"https://inference-docs.cerebras.ai/capabilities/service-tiers\"],\"reviewedAt\":\"2026-08-18\",\"request\":{\"serviceTierMap\":{\"auto\":\"auto\",\"standard\":\"default\",\"flex\":\"flex\",\"priority\":\"priority\"}},\"provider\":\"cerebras\",\"baseUrl\":\"https://api.cerebras.ai/v1\",\"authRequired\":true,\"defaultModel\":\"\",\"features\":{\"functions\":true,\"streaming\":true,\"structured_outputs\":true,\"structured_output_modes\":[\"native\",\"function\"],\"thinking\":false,\"multi_turn\":true,\"service_tiers\":[\"standard\",\"flex\",\"priority\"],\"media\":{\"images\":{\"supported\":false,\"formats\":[]},\"audio\":{\"supported\":false,\"formats\":[],\"realtime\":false,\"output\":{\"supported\":false,\"formats\":[]}},\"files\":{\"supported\":false,\"formats\":[],\"upload_method\":\"none\"},\"urls\":{\"supported\":false,\"web_search\":false,\"context_fetching\":false}},\"caching\":{\"supported\":false,\"types\":[]}}},\"deepinfra\":{\"id\":\"deepinfra\",\"name\":\"DeepInfra\",\"aliases\":[\"deepinfra\"],\"transport\":\"openai-chat\",\"baseURL\":\"https://api.deepinfra.com/v1/openai\",\"requiresApiURL\":false,\"auth\":\"bearer\",\"defaults\":{\"model\":\"\"},\"capabilities\":{\"functions\":true,\"streaming\":true,\"structuredOutputs\":false,\"thinking\":false,\"multiTurn\":true,\"structuredOutputModes\":[\"function\"],\"serviceTiers\":[\"standard\",\"priority\"]},\"operations\":{\"chat\":{\"path\":\"/chat/completions\",\"dialect\":\"openai-chat\",\"method\":\"POST\",\"body\":\"json\",\"stream\":false},\"stream_chat\":{\"path\":\"/chat/completions\",\"dialect\":\"openai-chat\",\"method\":\"POST\",\"body\":\"json\",\"stream\":true}},\"modelRules\":[{\"match\":{\"prefix\":[\"deepseek-ai/DeepSeek-R1\"]},\"capabilities\":{\"thinking\":true,\"thinkingBudget\":true},\"request\":{\"reasoning\":\"effort\",\"defaultThinkingLevel\":\"max\",\"effortMap\":{\"none\":\"none\",\"minimal\":\"low\",\"low\":\"low\",\"medium\":\"medium\",\"high\":\"high\",\"highest\":\"high\",\"xhigh\":\"high\",\"max\":\"high\"}}}],\"sources\":[\"https://docs.deepinfra.com/chat/reasoning\",\"https://docs.deepinfra.com/api-reference/introduction\",\"https://docs.deepinfra.com/chat/overview\"],\"reviewedAt\":\"2026-08-18\",\"request\":{\"serviceTierMap\":{\"auto\":null,\"standard\":null,\"priority\":\"priority\"}},\"provider\":\"deepinfra\",\"baseUrl\":\"https://api.deepinfra.com/v1/openai\",\"authRequired\":true,\"defaultModel\":\"\",\"features\":{\"functions\":true,\"streaming\":true,\"structured_outputs\":false,\"structured_output_modes\":[\"function\"],\"thinking\":false,\"multi_turn\":true,\"service_tiers\":[\"standard\",\"priority\"],\"media\":{\"images\":{\"supported\":false,\"formats\":[]},\"audio\":{\"supported\":false,\"formats\":[],\"realtime\":false,\"output\":{\"supported\":false,\"formats\":[]}},\"files\":{\"supported\":false,\"formats\":[],\"upload_method\":\"none\"},\"urls\":{\"supported\":false,\"web_search\":false,\"context_fetching\":false}},\"caching\":{\"supported\":false,\"types\":[]}}},\"sambanova\":{\"id\":\"sambanova\",\"name\":\"SambaNova Cloud\",\"aliases\":[\"sambanova\",\"sambanova-cloud\"],\"transport\":\"openai-chat\",\"baseURL\":\"https://api.sambanova.ai/v1\",\"requiresApiURL\":false,\"auth\":\"bearer\",\"defaults\":{\"model\":\"\"},\"capabilities\":{\"functions\":true,\"streaming\":true,\"structuredOutputs\":false,\"thinking\":false,\"multiTurn\":true,\"structuredOutputModes\":[\"function\"],\"serviceTiers\":[]},\"operations\":{\"chat\":{\"path\":\"/chat/completions\",\"dialect\":\"openai-chat\",\"method\":\"POST\",\"body\":\"json\",\"stream\":false},\"stream_chat\":{\"path\":\"/chat/completions\",\"dialect\":\"openai-chat\",\"method\":\"POST\",\"body\":\"json\",\"stream\":true}},\"modelRules\":[],\"sources\":[\"https://docs.sambanova.ai/docs/en/api-reference/overview\"],\"reviewedAt\":\"2026-08-17\",\"provider\":\"sambanova\",\"baseUrl\":\"https://api.sambanova.ai/v1\",\"authRequired\":true,\"defaultModel\":\"\",\"features\":{\"functions\":true,\"streaming\":true,\"structured_outputs\":false,\"structured_output_modes\":[\"function\"],\"thinking\":false,\"multi_turn\":true,\"service_tiers\":[],\"media\":{\"images\":{\"supported\":false,\"formats\":[]},\"audio\":{\"supported\":false,\"formats\":[],\"realtime\":false,\"output\":{\"supported\":false,\"formats\":[]}},\"files\":{\"supported\":false,\"formats\":[],\"upload_method\":\"none\"},\"urls\":{\"supported\":false,\"web_search\":false,\"context_fetching\":false}},\"caching\":{\"supported\":false,\"types\":[]}}},\"nebius\":{\"id\":\"nebius\",\"name\":\"Nebius AI Studio\",\"aliases\":[\"nebius\"],\"transport\":\"openai-chat\",\"baseURL\":\"https://api.tokenfactory.nebius.com/v1\",\"requiresApiURL\":false,\"auth\":\"bearer\",\"defaults\":{\"model\":\"\"},\"capabilities\":{\"functions\":true,\"streaming\":true,\"structuredOutputs\":false,\"thinking\":false,\"multiTurn\":true,\"structuredOutputModes\":[\"function\"],\"serviceTiers\":[]},\"operations\":{\"chat\":{\"path\":\"/chat/completions\",\"dialect\":\"openai-chat\",\"method\":\"POST\",\"body\":\"json\",\"stream\":false},\"stream_chat\":{\"path\":\"/chat/completions\",\"dialect\":\"openai-chat\",\"method\":\"POST\",\"body\":\"json\",\"stream\":true}},\"modelRules\":[],\"sources\":[\"https://api.studio.nebius.com/docs\"],\"reviewedAt\":\"2026-08-17\",\"provider\":\"nebius\",\"baseUrl\":\"https://api.tokenfactory.nebius.com/v1\",\"authRequired\":true,\"defaultModel\":\"\",\"features\":{\"functions\":true,\"streaming\":true,\"structured_outputs\":false,\"structured_output_modes\":[\"function\"],\"thinking\":false,\"multi_turn\":true,\"service_tiers\":[],\"media\":{\"images\":{\"supported\":false,\"formats\":[]},\"audio\":{\"supported\":false,\"formats\":[],\"realtime\":false,\"output\":{\"supported\":false,\"formats\":[]}},\"files\":{\"supported\":false,\"formats\":[],\"upload_method\":\"none\"},\"urls\":{\"supported\":false,\"web_search\":false,\"context_fetching\":false}},\"caching\":{\"supported\":false,\"types\":[]}}},\"novita\":{\"id\":\"novita\",\"name\":\"Novita AI\",\"aliases\":[\"novita\",\"novita-ai\"],\"transport\":\"openai-chat\",\"baseURL\":\"https://api.novita.ai/v3/openai\",\"requiresApiURL\":false,\"auth\":\"bearer\",\"defaults\":{\"model\":\"\"},\"capabilities\":{\"functions\":true,\"streaming\":true,\"structuredOutputs\":false,\"thinking\":false,\"multiTurn\":true,\"structuredOutputModes\":[\"function\"],\"serviceTiers\":[]},\"operations\":{\"chat\":{\"path\":\"/chat/completions\",\"dialect\":\"openai-chat\",\"method\":\"POST\",\"body\":\"json\",\"stream\":false},\"stream_chat\":{\"path\":\"/chat/completions\",\"dialect\":\"openai-chat\",\"method\":\"POST\",\"body\":\"json\",\"stream\":true}},\"modelRules\":[],\"sources\":[\"https://novita.ai/docs/guides/llm-api\"],\"reviewedAt\":\"2026-08-17\",\"provider\":\"novita\",\"baseUrl\":\"https://api.novita.ai/v3/openai\",\"authRequired\":true,\"defaultModel\":\"\",\"features\":{\"functions\":true,\"streaming\":true,\"structured_outputs\":false,\"structured_output_modes\":[\"function\"],\"thinking\":false,\"multi_turn\":true,\"service_tiers\":[],\"media\":{\"images\":{\"supported\":false,\"formats\":[]},\"audio\":{\"supported\":false,\"formats\":[],\"realtime\":false,\"output\":{\"supported\":false,\"formats\":[]}},\"files\":{\"supported\":false,\"formats\":[],\"upload_method\":\"none\"},\"urls\":{\"supported\":false,\"web_search\":false,\"context_fetching\":false}},\"caching\":{\"supported\":false,\"types\":[]}}},\"hyperbolic\":{\"id\":\"hyperbolic\",\"name\":\"Hyperbolic\",\"aliases\":[\"hyperbolic\"],\"transport\":\"openai-chat\",\"baseURL\":\"https://api.hyperbolic.xyz/v1\",\"requiresApiURL\":false,\"auth\":\"bearer\",\"defaults\":{\"model\":\"\"},\"capabilities\":{\"functions\":true,\"streaming\":true,\"structuredOutputs\":false,\"thinking\":false,\"multiTurn\":true,\"structuredOutputModes\":[\"function\"],\"serviceTiers\":[]},\"operations\":{\"chat\":{\"path\":\"/chat/completions\",\"dialect\":\"openai-chat\",\"method\":\"POST\",\"body\":\"json\",\"stream\":false},\"stream_chat\":{\"path\":\"/chat/completions\",\"dialect\":\"openai-chat\",\"method\":\"POST\",\"body\":\"json\",\"stream\":true}},\"modelRules\":[],\"sources\":[\"https://docs.hyperbolic.xyz/docs/inference-api\"],\"reviewedAt\":\"2026-08-17\",\"provider\":\"hyperbolic\",\"baseUrl\":\"https://api.hyperbolic.xyz/v1\",\"authRequired\":true,\"defaultModel\":\"\",\"features\":{\"functions\":true,\"streaming\":true,\"structured_outputs\":false,\"structured_output_modes\":[\"function\"],\"thinking\":false,\"multi_turn\":true,\"service_tiers\":[],\"media\":{\"images\":{\"supported\":false,\"formats\":[]},\"audio\":{\"supported\":false,\"formats\":[],\"realtime\":false,\"output\":{\"supported\":false,\"formats\":[]}},\"files\":{\"supported\":false,\"formats\":[],\"upload_method\":\"none\"},\"urls\":{\"supported\":false,\"web_search\":false,\"context_fetching\":false}},\"caching\":{\"supported\":false,\"types\":[]}}},\"siliconflow\":{\"id\":\"siliconflow\",\"name\":\"SiliconFlow\",\"aliases\":[\"siliconflow\"],\"transport\":\"openai-chat\",\"baseURL\":\"https://api.siliconflow.com/v1\",\"requiresApiURL\":false,\"auth\":\"bearer\",\"defaults\":{\"model\":\"\"},\"capabilities\":{\"functions\":true,\"streaming\":true,\"structuredOutputs\":false,\"thinking\":false,\"multiTurn\":true,\"structuredOutputModes\":[\"function\"],\"serviceTiers\":[]},\"operations\":{\"chat\":{\"path\":\"/chat/completions\",\"dialect\":\"openai-chat\",\"method\":\"POST\",\"body\":\"json\",\"stream\":false},\"stream_chat\":{\"path\":\"/chat/completions\",\"dialect\":\"openai-chat\",\"method\":\"POST\",\"body\":\"json\",\"stream\":true}},\"modelRules\":[],\"sources\":[\"https://docs.siliconflow.com/en/userguide/quickstart\"],\"reviewedAt\":\"2026-08-17\",\"provider\":\"siliconflow\",\"baseUrl\":\"https://api.siliconflow.com/v1\",\"authRequired\":true,\"defaultModel\":\"\",\"features\":{\"functions\":true,\"streaming\":true,\"structured_outputs\":false,\"structured_output_modes\":[\"function\"],\"thinking\":false,\"multi_turn\":true,\"service_tiers\":[],\"media\":{\"images\":{\"supported\":false,\"formats\":[]},\"audio\":{\"supported\":false,\"formats\":[],\"realtime\":false,\"output\":{\"supported\":false,\"formats\":[]}},\"files\":{\"supported\":false,\"formats\":[],\"upload_method\":\"none\"},\"urls\":{\"supported\":false,\"web_search\":false,\"context_fetching\":false}},\"caching\":{\"supported\":false,\"types\":[]}}},\"friendli\":{\"id\":\"friendli\",\"name\":\"FriendliAI\",\"aliases\":[\"friendli\",\"friendli-ai\"],\"transport\":\"openai-chat\",\"baseURL\":\"https://api.friendli.ai/serverless/v1\",\"requiresApiURL\":false,\"auth\":\"bearer\",\"defaults\":{\"model\":\"\"},\"capabilities\":{\"functions\":true,\"streaming\":true,\"structuredOutputs\":false,\"thinking\":false,\"multiTurn\":true,\"structuredOutputModes\":[\"function\"],\"serviceTiers\":[]},\"operations\":{\"chat\":{\"path\":\"/chat/completions\",\"dialect\":\"openai-chat\",\"method\":\"POST\",\"body\":\"json\",\"stream\":false},\"stream_chat\":{\"path\":\"/chat/completions\",\"dialect\":\"openai-chat\",\"method\":\"POST\",\"body\":\"json\",\"stream\":true}},\"modelRules\":[],\"sources\":[\"https://friendli.ai/docs/guides/tool-calling\"],\"reviewedAt\":\"2026-08-17\",\"provider\":\"friendli\",\"baseUrl\":\"https://api.friendli.ai/serverless/v1\",\"authRequired\":true,\"defaultModel\":\"\",\"features\":{\"functions\":true,\"streaming\":true,\"structured_outputs\":false,\"structured_output_modes\":[\"function\"],\"thinking\":false,\"multi_turn\":true,\"service_tiers\":[],\"media\":{\"images\":{\"supported\":false,\"formats\":[]},\"audio\":{\"supported\":false,\"formats\":[],\"realtime\":false,\"output\":{\"supported\":false,\"formats\":[]}},\"files\":{\"supported\":false,\"formats\":[],\"upload_method\":\"none\"},\"urls\":{\"supported\":false,\"web_search\":false,\"context_fetching\":false}},\"caching\":{\"supported\":false,\"types\":[]}}},\"cloudflare-workers-ai\":{\"id\":\"cloudflare-workers-ai\",\"name\":\"Cloudflare Workers AI\",\"aliases\":[\"cloudflare-workers-ai\",\"workers-ai\"],\"transport\":\"openai-chat\",\"baseURL\":null,\"requiresApiURL\":true,\"auth\":\"bearer\",\"defaults\":{\"model\":\"\"},\"capabilities\":{\"functions\":true,\"streaming\":true,\"structuredOutputs\":false,\"thinking\":false,\"multiTurn\":true,\"structuredOutputModes\":[\"function\"],\"serviceTiers\":[]},\"operations\":{\"chat\":{\"path\":\"/chat/completions\",\"dialect\":\"openai-chat\",\"method\":\"POST\",\"body\":\"json\",\"stream\":false},\"stream_chat\":{\"path\":\"/chat/completions\",\"dialect\":\"openai-chat\",\"method\":\"POST\",\"body\":\"json\",\"stream\":true}},\"modelRules\":[],\"sources\":[\"https://developers.cloudflare.com/workers-ai/configuration/open-ai-compatibility/\"],\"reviewedAt\":\"2026-08-17\",\"provider\":\"cloudflare-workers-ai\",\"baseUrl\":null,\"authRequired\":true,\"defaultModel\":\"\",\"features\":{\"functions\":true,\"streaming\":true,\"structured_outputs\":false,\"structured_output_modes\":[\"function\"],\"thinking\":false,\"multi_turn\":true,\"service_tiers\":[],\"media\":{\"images\":{\"supported\":false,\"formats\":[]},\"audio\":{\"supported\":false,\"formats\":[],\"realtime\":false,\"output\":{\"supported\":false,\"formats\":[]}},\"files\":{\"supported\":false,\"formats\":[],\"upload_method\":\"none\"},\"urls\":{\"supported\":false,\"web_search\":false,\"context_fetching\":false}},\"caching\":{\"supported\":false,\"types\":[]}}},\"featherless\":{\"id\":\"featherless\",\"name\":\"Featherless AI\",\"aliases\":[\"featherless\",\"featherless-ai\"],\"transport\":\"openai-chat\",\"baseURL\":\"https://api.featherless.ai/v1\",\"requiresApiURL\":false,\"auth\":\"bearer\",\"defaults\":{\"model\":\"\"},\"capabilities\":{\"functions\":true,\"streaming\":true,\"structuredOutputs\":false,\"thinking\":false,\"multiTurn\":true,\"structuredOutputModes\":[\"function\"],\"serviceTiers\":[]},\"operations\":{\"chat\":{\"path\":\"/chat/completions\",\"dialect\":\"openai-chat\",\"method\":\"POST\",\"body\":\"json\",\"stream\":false},\"stream_chat\":{\"path\":\"/chat/completions\",\"dialect\":\"openai-chat\",\"method\":\"POST\",\"body\":\"json\",\"stream\":true}},\"modelRules\":[],\"sources\":[\"https://featherless.ai/docs/quickstart-guide\"],\"reviewedAt\":\"2026-08-17\",\"provider\":\"featherless\",\"baseUrl\":\"https://api.featherless.ai/v1\",\"authRequired\":true,\"defaultModel\":\"\",\"features\":{\"functions\":true,\"streaming\":true,\"structured_outputs\":false,\"structured_output_modes\":[\"function\"],\"thinking\":false,\"multi_turn\":true,\"service_tiers\":[],\"media\":{\"images\":{\"supported\":false,\"formats\":[]},\"audio\":{\"supported\":false,\"formats\":[],\"realtime\":false,\"output\":{\"supported\":false,\"formats\":[]}},\"files\":{\"supported\":false,\"formats\":[],\"upload_method\":\"none\"},\"urls\":{\"supported\":false,\"web_search\":false,\"context_fetching\":false}},\"caching\":{\"supported\":false,\"types\":[]}}},\"nscale\":{\"id\":\"nscale\",\"name\":\"Nscale\",\"aliases\":[\"nscale\"],\"transport\":\"openai-chat\",\"baseURL\":null,\"requiresApiURL\":true,\"auth\":\"bearer\",\"defaults\":{\"model\":\"\"},\"capabilities\":{\"functions\":true,\"streaming\":true,\"structuredOutputs\":false,\"thinking\":false,\"multiTurn\":true,\"structuredOutputModes\":[\"function\"],\"serviceTiers\":[]},\"operations\":{\"chat\":{\"path\":\"/chat/completions\",\"dialect\":\"openai-chat\",\"method\":\"POST\",\"body\":\"json\",\"stream\":false},\"stream_chat\":{\"path\":\"/chat/completions\",\"dialect\":\"openai-chat\",\"method\":\"POST\",\"body\":\"json\",\"stream\":true}},\"modelRules\":[],\"sources\":[\"https://docs.nscale.com/docs/use-cases/chat\"],\"reviewedAt\":\"2026-08-17\",\"provider\":\"nscale\",\"baseUrl\":null,\"authRequired\":true,\"defaultModel\":\"\",\"features\":{\"functions\":true,\"streaming\":true,\"structured_outputs\":false,\"structured_output_modes\":[\"function\"],\"thinking\":false,\"multi_turn\":true,\"service_tiers\":[],\"media\":{\"images\":{\"supported\":false,\"formats\":[]},\"audio\":{\"supported\":false,\"formats\":[],\"realtime\":false,\"output\":{\"supported\":false,\"formats\":[]}},\"files\":{\"supported\":false,\"formats\":[],\"upload_method\":\"none\"},\"urls\":{\"supported\":false,\"web_search\":false,\"context_fetching\":false}},\"caching\":{\"supported\":false,\"types\":[]}}},\"ovhcloud\":{\"id\":\"ovhcloud\",\"name\":\"OVHcloud AI Endpoints\",\"aliases\":[\"ovhcloud\",\"ovh\"],\"transport\":\"openai-chat\",\"baseURL\":null,\"requiresApiURL\":true,\"auth\":\"bearer\",\"defaults\":{\"model\":\"\"},\"capabilities\":{\"functions\":true,\"streaming\":true,\"structuredOutputs\":false,\"thinking\":false,\"multiTurn\":true,\"structuredOutputModes\":[\"function\"],\"serviceTiers\":[]},\"operations\":{\"chat\":{\"path\":\"/chat/completions\",\"dialect\":\"openai-chat\",\"method\":\"POST\",\"body\":\"json\",\"stream\":false},\"stream_chat\":{\"path\":\"/chat/completions\",\"dialect\":\"openai-chat\",\"method\":\"POST\",\"body\":\"json\",\"stream\":true}},\"modelRules\":[],\"sources\":[\"https://docs.ovhcloud.com/en/guides/public-cloud/ai-machine-learning/ai-endpoints-capabilities\"],\"reviewedAt\":\"2026-08-17\",\"provider\":\"ovhcloud\",\"baseUrl\":null,\"authRequired\":true,\"defaultModel\":\"\",\"features\":{\"functions\":true,\"streaming\":true,\"structured_outputs\":false,\"structured_output_modes\":[\"function\"],\"thinking\":false,\"multi_turn\":true,\"service_tiers\":[],\"media\":{\"images\":{\"supported\":false,\"formats\":[]},\"audio\":{\"supported\":false,\"formats\":[],\"realtime\":false,\"output\":{\"supported\":false,\"formats\":[]}},\"files\":{\"supported\":false,\"formats\":[],\"upload_method\":\"none\"},\"urls\":{\"supported\":false,\"web_search\":false,\"context_fetching\":false}},\"caching\":{\"supported\":false,\"types\":[]}}},\"scaleway\":{\"id\":\"scaleway\",\"name\":\"Scaleway Generative APIs\",\"aliases\":[\"scaleway\"],\"transport\":\"openai-chat\",\"baseURL\":\"https://api.scaleway.ai/v1\",\"requiresApiURL\":false,\"auth\":\"bearer\",\"defaults\":{\"model\":\"\"},\"capabilities\":{\"functions\":true,\"streaming\":true,\"structuredOutputs\":false,\"thinking\":false,\"multiTurn\":true,\"structuredOutputModes\":[\"function\"],\"serviceTiers\":[]},\"operations\":{\"chat\":{\"path\":\"/chat/completions\",\"dialect\":\"openai-chat\",\"method\":\"POST\",\"body\":\"json\",\"stream\":false},\"stream_chat\":{\"path\":\"/chat/completions\",\"dialect\":\"openai-chat\",\"method\":\"POST\",\"body\":\"json\",\"stream\":true}},\"modelRules\":[],\"sources\":[\"https://www.scaleway.com/en/developers/api/generative-apis\"],\"reviewedAt\":\"2026-08-17\",\"provider\":\"scaleway\",\"baseUrl\":\"https://api.scaleway.ai/v1\",\"authRequired\":true,\"defaultModel\":\"\",\"features\":{\"functions\":true,\"streaming\":true,\"structured_outputs\":false,\"structured_output_modes\":[\"function\"],\"thinking\":false,\"multi_turn\":true,\"service_tiers\":[],\"media\":{\"images\":{\"supported\":false,\"formats\":[]},\"audio\":{\"supported\":false,\"formats\":[],\"realtime\":false,\"output\":{\"supported\":false,\"formats\":[]}},\"files\":{\"supported\":false,\"formats\":[],\"upload_method\":\"none\"},\"urls\":{\"supported\":false,\"web_search\":false,\"context_fetching\":false}},\"caching\":{\"supported\":false,\"types\":[]}}},\"nvidia-nim\":{\"id\":\"nvidia-nim\",\"name\":\"NVIDIA NIM\",\"aliases\":[\"nvidia-nim\",\"nim\"],\"transport\":\"openai-chat\",\"baseURL\":null,\"requiresApiURL\":true,\"auth\":\"bearer\",\"defaults\":{\"model\":\"\"},\"capabilities\":{\"functions\":true,\"streaming\":true,\"structuredOutputs\":false,\"thinking\":false,\"multiTurn\":true,\"structuredOutputModes\":[\"function\"],\"serviceTiers\":[]},\"operations\":{\"chat\":{\"path\":\"/chat/completions\",\"dialect\":\"openai-chat\",\"method\":\"POST\",\"body\":\"json\",\"stream\":false},\"stream_chat\":{\"path\":\"/chat/completions\",\"dialect\":\"openai-chat\",\"method\":\"POST\",\"body\":\"json\",\"stream\":true}},\"modelRules\":[],\"sources\":[\"https://docs.nvidia.com/nim/large-language-models/latest/getting-started.html\"],\"reviewedAt\":\"2026-08-17\",\"provider\":\"nvidia-nim\",\"baseUrl\":null,\"authRequired\":false,\"defaultModel\":\"\",\"features\":{\"functions\":true,\"streaming\":true,\"structured_outputs\":false,\"structured_output_modes\":[\"function\"],\"thinking\":false,\"multi_turn\":true,\"service_tiers\":[],\"media\":{\"images\":{\"supported\":false,\"formats\":[]},\"audio\":{\"supported\":false,\"formats\":[],\"realtime\":false,\"output\":{\"supported\":false,\"formats\":[]}},\"files\":{\"supported\":false,\"formats\":[],\"upload_method\":\"none\"},\"urls\":{\"supported\":false,\"web_search\":false,\"context_fetching\":false}},\"caching\":{\"supported\":false,\"types\":[]}}},\"runpod-vllm\":{\"id\":\"runpod-vllm\",\"name\":\"RunPod vLLM\",\"aliases\":[\"runpod-vllm\",\"runpod\"],\"transport\":\"openai-chat\",\"baseURL\":null,\"requiresApiURL\":true,\"auth\":\"bearer\",\"defaults\":{\"model\":\"\"},\"capabilities\":{\"functions\":true,\"streaming\":true,\"structuredOutputs\":false,\"thinking\":false,\"multiTurn\":true,\"structuredOutputModes\":[\"function\"],\"serviceTiers\":[]},\"operations\":{\"chat\":{\"path\":\"/chat/completions\",\"dialect\":\"openai-chat\",\"method\":\"POST\",\"body\":\"json\",\"stream\":false},\"stream_chat\":{\"path\":\"/chat/completions\",\"dialect\":\"openai-chat\",\"method\":\"POST\",\"body\":\"json\",\"stream\":true}},\"modelRules\":[],\"sources\":[\"https://docs.runpod.io/serverless/vllm/openai-compatibility\"],\"reviewedAt\":\"2026-08-17\",\"provider\":\"runpod-vllm\",\"baseUrl\":null,\"authRequired\":true,\"defaultModel\":\"\",\"features\":{\"functions\":true,\"streaming\":true,\"structured_outputs\":false,\"structured_output_modes\":[\"function\"],\"thinking\":false,\"multi_turn\":true,\"service_tiers\":[],\"media\":{\"images\":{\"supported\":false,\"formats\":[]},\"audio\":{\"supported\":false,\"formats\":[],\"realtime\":false,\"output\":{\"supported\":false,\"formats\":[]}},\"files\":{\"supported\":false,\"formats\":[],\"upload_method\":\"none\"},\"urls\":{\"supported\":false,\"web_search\":false,\"context_fetching\":false}},\"caching\":{\"supported\":false,\"types\":[]}}},\"sagemaker-vllm\":{\"id\":\"sagemaker-vllm\",\"name\":\"SageMaker vLLM\",\"aliases\":[\"sagemaker-vllm\",\"sagemaker\"],\"transport\":\"openai-chat\",\"baseURL\":null,\"requiresApiURL\":true,\"auth\":\"bearer\",\"defaults\":{\"model\":\"\"},\"capabilities\":{\"functions\":true,\"streaming\":true,\"structuredOutputs\":false,\"thinking\":false,\"multiTurn\":true,\"structuredOutputModes\":[\"function\"],\"serviceTiers\":[]},\"operations\":{\"chat\":{\"path\":\"/chat/completions\",\"dialect\":\"openai-chat\",\"method\":\"POST\",\"body\":\"json\",\"stream\":false},\"stream_chat\":{\"path\":\"/chat/completions\",\"dialect\":\"openai-chat\",\"method\":\"POST\",\"body\":\"json\",\"stream\":true}},\"modelRules\":[],\"sources\":[\"https://docs.aws.amazon.com/sagemaker/latest/dg/realtime-endpoints-openai-compatible.html\"],\"reviewedAt\":\"2026-08-17\",\"provider\":\"sagemaker-vllm\",\"baseUrl\":null,\"authRequired\":false,\"defaultModel\":\"\",\"features\":{\"functions\":true,\"streaming\":true,\"structured_outputs\":false,\"structured_output_modes\":[\"function\"],\"thinking\":false,\"multi_turn\":true,\"service_tiers\":[],\"media\":{\"images\":{\"supported\":false,\"formats\":[]},\"audio\":{\"supported\":false,\"formats\":[],\"realtime\":false,\"output\":{\"supported\":false,\"formats\":[]}},\"files\":{\"supported\":false,\"formats\":[],\"upload_method\":\"none\"},\"urls\":{\"supported\":false,\"web_search\":false,\"context_fetching\":false}},\"caching\":{\"supported\":false,\"types\":[]}}},\"vllm\":{\"id\":\"vllm\",\"name\":\"vLLM\",\"aliases\":[\"vllm\"],\"transport\":\"openai-chat\",\"baseURL\":\"http://localhost:8000/v1\",\"requiresApiURL\":false,\"auth\":\"bearer\",\"defaults\":{\"model\":\"\"},\"capabilities\":{\"functions\":true,\"streaming\":true,\"structuredOutputs\":false,\"thinking\":false,\"multiTurn\":true,\"structuredOutputModes\":[\"function\"],\"serviceTiers\":[]},\"operations\":{\"chat\":{\"path\":\"/chat/completions\",\"dialect\":\"openai-chat\",\"method\":\"POST\",\"body\":\"json\",\"stream\":false},\"stream_chat\":{\"path\":\"/chat/completions\",\"dialect\":\"openai-chat\",\"method\":\"POST\",\"body\":\"json\",\"stream\":true}},\"modelRules\":[],\"sources\":[\"https://docs.vllm.ai/en/latest/serving/openai_compatible_server/\"],\"reviewedAt\":\"2026-08-17\",\"provider\":\"vllm\",\"baseUrl\":\"http://localhost:8000/v1\",\"authRequired\":false,\"defaultModel\":\"\",\"features\":{\"functions\":true,\"streaming\":true,\"structured_outputs\":false,\"structured_output_modes\":[\"function\"],\"thinking\":false,\"multi_turn\":true,\"service_tiers\":[],\"media\":{\"images\":{\"supported\":false,\"formats\":[]},\"audio\":{\"supported\":false,\"formats\":[],\"realtime\":false,\"output\":{\"supported\":false,\"formats\":[]}},\"files\":{\"supported\":false,\"formats\":[],\"upload_method\":\"none\"},\"urls\":{\"supported\":false,\"web_search\":false,\"context_fetching\":false}},\"caching\":{\"supported\":false,\"types\":[]}}},\"ollama\":{\"id\":\"ollama\",\"name\":\"Ollama\",\"aliases\":[\"ollama\"],\"transport\":\"openai-chat\",\"baseURL\":\"http://localhost:11434/v1\",\"requiresApiURL\":false,\"auth\":\"bearer\",\"defaults\":{\"model\":\"\"},\"capabilities\":{\"functions\":true,\"streaming\":true,\"structuredOutputs\":false,\"thinking\":false,\"multiTurn\":true,\"structuredOutputModes\":[\"function\"],\"serviceTiers\":[]},\"operations\":{\"chat\":{\"path\":\"/chat/completions\",\"dialect\":\"openai-chat\",\"method\":\"POST\",\"body\":\"json\",\"stream\":false},\"stream_chat\":{\"path\":\"/chat/completions\",\"dialect\":\"openai-chat\",\"method\":\"POST\",\"body\":\"json\",\"stream\":true}},\"modelRules\":[],\"sources\":[\"https://docs.ollama.com/api/openai-compatibility\"],\"reviewedAt\":\"2026-08-17\",\"provider\":\"ollama\",\"baseUrl\":\"http://localhost:11434/v1\",\"authRequired\":false,\"defaultModel\":\"\",\"features\":{\"functions\":true,\"streaming\":true,\"structured_outputs\":false,\"structured_output_modes\":[\"function\"],\"thinking\":false,\"multi_turn\":true,\"service_tiers\":[],\"media\":{\"images\":{\"supported\":false,\"formats\":[]},\"audio\":{\"supported\":false,\"formats\":[],\"realtime\":false,\"output\":{\"supported\":false,\"formats\":[]}},\"files\":{\"supported\":false,\"formats\":[],\"upload_method\":\"none\"},\"urls\":{\"supported\":false,\"web_search\":false,\"context_fetching\":false}},\"caching\":{\"supported\":false,\"types\":[]}}},\"lm-studio\":{\"id\":\"lm-studio\",\"name\":\"LM Studio\",\"aliases\":[\"lm-studio\",\"lmstudio\"],\"transport\":\"openai-chat\",\"baseURL\":\"http://localhost:1234/v1\",\"requiresApiURL\":false,\"auth\":\"bearer\",\"defaults\":{\"model\":\"\"},\"capabilities\":{\"functions\":true,\"streaming\":true,\"structuredOutputs\":false,\"thinking\":false,\"multiTurn\":true,\"structuredOutputModes\":[\"function\"],\"serviceTiers\":[]},\"operations\":{\"chat\":{\"path\":\"/chat/completions\",\"dialect\":\"openai-chat\",\"method\":\"POST\",\"body\":\"json\",\"stream\":false},\"stream_chat\":{\"path\":\"/chat/completions\",\"dialect\":\"openai-chat\",\"method\":\"POST\",\"body\":\"json\",\"stream\":true}},\"modelRules\":[],\"sources\":[\"https://lmstudio.ai/docs/developer/openai-compat\"],\"reviewedAt\":\"2026-08-17\",\"provider\":\"lm-studio\",\"baseUrl\":\"http://localhost:1234/v1\",\"authRequired\":false,\"defaultModel\":\"\",\"features\":{\"functions\":true,\"streaming\":true,\"structured_outputs\":false,\"structured_output_modes\":[\"function\"],\"thinking\":false,\"multi_turn\":true,\"service_tiers\":[],\"media\":{\"images\":{\"supported\":false,\"formats\":[]},\"audio\":{\"supported\":false,\"formats\":[],\"realtime\":false,\"output\":{\"supported\":false,\"formats\":[]}},\"files\":{\"supported\":false,\"formats\":[],\"upload_method\":\"none\"},\"urls\":{\"supported\":false,\"web_search\":false,\"context_fetching\":false}},\"caching\":{\"supported\":false,\"types\":[]}}},\"llama-cpp\":{\"id\":\"llama-cpp\",\"name\":\"llama.cpp Server\",\"aliases\":[\"llama-cpp\",\"llama.cpp\"],\"transport\":\"openai-chat\",\"baseURL\":\"http://localhost:8080/v1\",\"requiresApiURL\":false,\"auth\":\"bearer\",\"defaults\":{\"model\":\"\"},\"capabilities\":{\"functions\":true,\"streaming\":true,\"structuredOutputs\":false,\"thinking\":false,\"multiTurn\":true,\"structuredOutputModes\":[\"function\"],\"serviceTiers\":[]},\"operations\":{\"chat\":{\"path\":\"/chat/completions\",\"dialect\":\"openai-chat\",\"method\":\"POST\",\"body\":\"json\",\"stream\":false},\"stream_chat\":{\"path\":\"/chat/completions\",\"dialect\":\"openai-chat\",\"method\":\"POST\",\"body\":\"json\",\"stream\":true}},\"modelRules\":[],\"sources\":[\"https://github.com/ggml-org/llama.cpp/blob/master/tools/server/README.md\"],\"reviewedAt\":\"2026-08-17\",\"provider\":\"llama-cpp\",\"baseUrl\":\"http://localhost:8080/v1\",\"authRequired\":false,\"defaultModel\":\"\",\"features\":{\"functions\":true,\"streaming\":true,\"structured_outputs\":false,\"structured_output_modes\":[\"function\"],\"thinking\":false,\"multi_turn\":true,\"service_tiers\":[],\"media\":{\"images\":{\"supported\":false,\"formats\":[]},\"audio\":{\"supported\":false,\"formats\":[],\"realtime\":false,\"output\":{\"supported\":false,\"formats\":[]}},\"files\":{\"supported\":false,\"formats\":[],\"upload_method\":\"none\"},\"urls\":{\"supported\":false,\"web_search\":false,\"context_fetching\":false}},\"caching\":{\"supported\":false,\"types\":[]}}},\"localai\":{\"id\":\"localai\",\"name\":\"LocalAI\",\"aliases\":[\"localai\",\"local-ai\"],\"transport\":\"openai-chat\",\"baseURL\":\"http://localhost:8080/v1\",\"requiresApiURL\":false,\"auth\":\"bearer\",\"defaults\":{\"model\":\"\"},\"capabilities\":{\"functions\":true,\"streaming\":true,\"structuredOutputs\":false,\"thinking\":false,\"multiTurn\":true,\"structuredOutputModes\":[\"function\"],\"serviceTiers\":[]},\"operations\":{\"chat\":{\"path\":\"/chat/completions\",\"dialect\":\"openai-chat\",\"method\":\"POST\",\"body\":\"json\",\"stream\":false},\"stream_chat\":{\"path\":\"/chat/completions\",\"dialect\":\"openai-chat\",\"method\":\"POST\",\"body\":\"json\",\"stream\":true}},\"modelRules\":[],\"sources\":[\"https://localai.io/features/openai-functions/\"],\"reviewedAt\":\"2026-08-17\",\"provider\":\"localai\",\"baseUrl\":\"http://localhost:8080/v1\",\"authRequired\":false,\"defaultModel\":\"\",\"features\":{\"functions\":true,\"streaming\":true,\"structured_outputs\":false,\"structured_output_modes\":[\"function\"],\"thinking\":false,\"multi_turn\":true,\"service_tiers\":[],\"media\":{\"images\":{\"supported\":false,\"formats\":[]},\"audio\":{\"supported\":false,\"formats\":[],\"realtime\":false,\"output\":{\"supported\":false,\"formats\":[]}},\"files\":{\"supported\":false,\"formats\":[],\"upload_method\":\"none\"},\"urls\":{\"supported\":false,\"web_search\":false,\"context_fetching\":false}},\"caching\":{\"supported\":false,\"types\":[]}}},\"baseten-engine\":{\"id\":\"baseten-engine\",\"name\":\"Baseten Inference Engine\",\"aliases\":[\"baseten-engine\",\"truss\"],\"transport\":\"openai-chat\",\"baseURL\":null,\"requiresApiURL\":true,\"auth\":\"bearer\",\"defaults\":{\"model\":\"\"},\"capabilities\":{\"functions\":true,\"streaming\":true,\"structuredOutputs\":false,\"thinking\":false,\"multiTurn\":true,\"structuredOutputModes\":[\"function\"],\"serviceTiers\":[]},\"operations\":{\"chat\":{\"path\":\"/chat/completions\",\"dialect\":\"openai-chat\",\"method\":\"POST\",\"body\":\"json\",\"stream\":false},\"stream_chat\":{\"path\":\"/chat/completions\",\"dialect\":\"openai-chat\",\"method\":\"POST\",\"body\":\"json\",\"stream\":true}},\"modelRules\":[],\"sources\":[\"https://docs.baseten.co/development/model/deployment/inference\"],\"reviewedAt\":\"2026-08-17\",\"provider\":\"baseten-engine\",\"baseUrl\":null,\"authRequired\":false,\"defaultModel\":\"\",\"features\":{\"functions\":true,\"streaming\":true,\"structured_outputs\":false,\"structured_output_modes\":[\"function\"],\"thinking\":false,\"multi_turn\":true,\"service_tiers\":[],\"media\":{\"images\":{\"supported\":false,\"formats\":[]},\"audio\":{\"supported\":false,\"formats\":[],\"realtime\":false,\"output\":{\"supported\":false,\"formats\":[]}},\"files\":{\"supported\":false,\"formats\":[],\"upload_method\":\"none\"},\"urls\":{\"supported\":false,\"web_search\":false,\"context_fetching\":false}},\"caching\":{\"supported\":false,\"types\":[]}}},\"typesafe\":{\"id\":\"typesafe\",\"name\":\"Typesafe\",\"aliases\":[\"typesafe\"],\"transport\":\"typesafe-system-one\",\"baseURL\":\"https://api.typesafe.ai\",\"requiresApiURL\":false,\"auth\":\"bearer\",\"defaults\":{\"model\":\"jev-latest\"},\"capabilities\":{\"functions\":false,\"functionEmulation\":false,\"streaming\":false,\"structuredOutputs\":true,\"structuredOutputModes\":[\"native\"],\"requiresStructuredOutput\":true,\"thinking\":false,\"multiTurn\":false,\"serviceTiers\":[]},\"operations\":{\"chat\":{\"path\":\"/v1/systemone\",\"dialect\":\"typesafe-system-one\",\"method\":\"POST\",\"body\":\"json\",\"stream\":false}},\"modelRules\":[],\"sources\":[\"https://github.com/typesafe-ai/typesafe-sdk-js\",\"https://docs.typesafe.ai/sdk/javascript\"],\"reviewedAt\":\"2026-09-15\",\"provider\":\"typesafe\",\"baseUrl\":\"https://api.typesafe.ai\",\"authRequired\":true,\"defaultModel\":\"jev-latest\",\"features\":{\"functions\":false,\"streaming\":false,\"structured_outputs\":true,\"structured_output_modes\":[\"native\"],\"thinking\":false,\"multi_turn\":false,\"service_tiers\":[],\"media\":{\"images\":{\"supported\":false,\"formats\":[]},\"audio\":{\"supported\":false,\"formats\":[],\"realtime\":false,\"output\":{\"supported\":false,\"formats\":[]}},\"files\":{\"supported\":false,\"formats\":[],\"upload_method\":\"none\"},\"urls\":{\"supported\":false,\"web_search\":false,\"context_fetching\":false}},\"caching\":{\"supported\":false,\"types\":[]}}}}\n")])?;
+    v_descriptors = core_json_parse(&[CoreValue::from("{\"openai\":{\"id\":\"openai\",\"name\":\"OpenAI\",\"aliases\":[\"openai\"],\"transport\":\"openai-chat\",\"baseURL\":\"https://api.openai.com/v1\",\"requiresApiURL\":false,\"auth\":\"bearer\",\"defaults\":{\"model\":\"gpt-5-mini\",\"embedModel\":\"text-embedding-3-small\"},\"capabilities\":{\"functions\":true,\"streaming\":true,\"structuredOutputs\":true,\"thinking\":true,\"multiTurn\":true,\"images\":true,\"audio\":true,\"audioOutput\":true,\"structuredOutputModes\":[\"native\",\"function\",\"json_object\"],\"files\":{\"uploadMethod\":\"upload\"},\"serviceTiers\":[\"standard\",\"flex\",\"priority\"]},\"operations\":{\"chat\":{\"path\":\"/chat/completions\",\"dialect\":\"openai-chat\",\"method\":\"POST\",\"body\":\"json\",\"stream\":false},\"embed\":{\"path\":\"/embeddings\",\"dialect\":\"openai-embeddings\",\"method\":\"POST\",\"body\":\"json\",\"stream\":false},\"transcribe\":{\"path\":\"/audio/transcriptions\",\"dialect\":\"openai-transcription\",\"method\":\"POST\",\"body\":\"multipart\",\"stream\":false},\"speak\":{\"path\":\"/audio/speech\",\"dialect\":\"openai-speech\",\"method\":\"POST\",\"body\":\"json\",\"stream\":false,\"response\":\"binary\"},\"realtime\":{\"path\":\"/realtime\",\"dialect\":\"openai-realtime\",\"modelMatch\":{\"prefix\":[\"gpt-realtime\"]},\"url\":\"wss://api.openai.com/v1/realtime\",\"grammar\":\"openai_realtime_compatible\",\"audio\":{\"input\":{\"formats\":[\"pcm16\",\"pcm\"],\"sampleRate\":24000},\"output\":{\"formats\":[\"pcm16\",\"pcm\"],\"sampleRate\":24000,\"voices\":[\"alloy\",\"ash\",\"ballad\",\"coral\",\"echo\",\"sage\",\"shimmer\",\"verse\"],\"defaultVoice\":\"alloy\"}},\"validation\":{\"structuredOutputWithAudio\":false},\"method\":\"WS\",\"body\":\"json\",\"stream\":true},\"stream_chat\":{\"path\":\"/chat/completions\",\"dialect\":\"openai-chat\",\"method\":\"POST\",\"body\":\"json\",\"stream\":true}},\"modelRules\":[{\"match\":{\"prefix\":[\"gpt-6-astra\"]},\"request\":{\"unsupportedThinkingLevels\":{\"none\":\"GPT-6 Astra requires reasoning; use low or higher\"}},\"capabilities\":{\"audio\":false,\"audioOutput\":false,\"functions\":true,\"structuredOutputModes\":[\"native\",\"json_object\"]}}],\"sources\":[\"https://platform.openai.com/docs/api-reference/chat\"],\"reviewedAt\":\"2026-08-17\",\"request\":{\"serviceTierMap\":{\"auto\":\"auto\",\"standard\":\"default\",\"flex\":\"flex\",\"priority\":\"priority\"}},\"provider\":\"openai\",\"baseUrl\":\"https://api.openai.com/v1\",\"authRequired\":true,\"defaultModel\":\"gpt-5-mini\",\"defaultEmbedModel\":\"text-embedding-3-small\",\"features\":{\"functions\":true,\"streaming\":true,\"structured_outputs\":true,\"structured_output_modes\":[\"native\",\"function\",\"json_object\"],\"thinking\":true,\"multi_turn\":true,\"service_tiers\":[\"standard\",\"flex\",\"priority\"],\"media\":{\"images\":{\"supported\":true,\"formats\":[\"image/jpeg\",\"image/png\"]},\"audio\":{\"supported\":true,\"formats\":[\"wav\",\"mp3\",\"pcm16\"],\"realtime\":true,\"output\":{\"supported\":true,\"formats\":[\"wav\",\"mp3\",\"pcm16\"]}},\"files\":{\"supported\":true,\"formats\":[\"application/pdf\",\"text/plain\"],\"upload_method\":\"upload\"},\"urls\":{\"supported\":false,\"web_search\":false,\"context_fetching\":false}},\"caching\":{\"supported\":false,\"types\":[]}}},\"openai-compatible\":{\"id\":\"openai-compatible\",\"name\":\"OpenAI Compatible\",\"aliases\":[\"openai-compatible\",\"openai_compatible\",\"compatible\"],\"transport\":\"openai-chat\",\"baseURL\":null,\"requiresApiURL\":true,\"auth\":\"bearer\",\"defaults\":{\"model\":\"\"},\"capabilities\":{\"functions\":true,\"streaming\":true,\"structuredOutputs\":false,\"thinking\":false,\"multiTurn\":true,\"structuredOutputModes\":[\"function\"],\"serviceTiers\":[]},\"operations\":{\"chat\":{\"path\":\"/chat/completions\",\"dialect\":\"openai-chat\",\"method\":\"POST\",\"body\":\"json\",\"stream\":false},\"embed\":{\"path\":\"/embeddings\",\"dialect\":\"openai-embeddings\",\"method\":\"POST\",\"body\":\"json\",\"stream\":false},\"stream_chat\":{\"path\":\"/chat/completions\",\"dialect\":\"openai-chat\",\"method\":\"POST\",\"body\":\"json\",\"stream\":true}},\"modelRules\":[],\"sources\":[\"https://platform.openai.com/docs/api-reference/chat\"],\"reviewedAt\":\"2026-08-17\",\"provider\":\"openai-compatible\",\"baseUrl\":null,\"authRequired\":false,\"defaultModel\":\"\",\"features\":{\"functions\":true,\"streaming\":true,\"structured_outputs\":false,\"structured_output_modes\":[\"function\"],\"thinking\":false,\"multi_turn\":true,\"service_tiers\":[],\"media\":{\"images\":{\"supported\":false,\"formats\":[]},\"audio\":{\"supported\":false,\"formats\":[],\"realtime\":false,\"output\":{\"supported\":false,\"formats\":[]}},\"files\":{\"supported\":false,\"formats\":[],\"upload_method\":\"none\"},\"urls\":{\"supported\":false,\"web_search\":false,\"context_fetching\":false}},\"caching\":{\"supported\":false,\"types\":[]}}},\"openai-responses\":{\"id\":\"openai-responses\",\"name\":\"OpenAI Responses\",\"aliases\":[\"openai-responses\",\"openai_responses\",\"responses\"],\"transport\":\"openai-responses\",\"baseURL\":\"https://api.openai.com/v1\",\"requiresApiURL\":false,\"auth\":\"bearer\",\"defaults\":{\"model\":\"gpt-5-mini\",\"embedModel\":\"text-embedding-3-small\"},\"capabilities\":{\"functions\":true,\"streaming\":true,\"structuredOutputs\":true,\"thinking\":true,\"multiTurn\":true,\"images\":true,\"audio\":true,\"audioOutput\":true,\"structuredOutputModes\":[\"native\",\"function\",\"json_object\"],\"files\":{\"uploadMethod\":\"upload\"},\"serviceTiers\":[\"standard\",\"flex\",\"priority\"]},\"operations\":{\"chat\":{\"path\":\"/responses\",\"dialect\":\"openai-responses\",\"method\":\"POST\",\"body\":\"json\",\"stream\":false},\"embed\":{\"path\":\"/embeddings\",\"dialect\":\"openai-embeddings\",\"method\":\"POST\",\"body\":\"json\",\"stream\":false},\"transcribe\":{\"path\":\"/audio/transcriptions\",\"dialect\":\"openai-transcription\",\"method\":\"POST\",\"body\":\"multipart\",\"stream\":false},\"speak\":{\"path\":\"/audio/speech\",\"dialect\":\"openai-speech\",\"method\":\"POST\",\"body\":\"json\",\"stream\":false,\"response\":\"binary\"},\"realtime\":{\"path\":\"/realtime\",\"dialect\":\"openai-realtime\",\"modelMatch\":{\"prefix\":[\"gpt-realtime\"]},\"url\":\"wss://api.openai.com/v1/realtime\",\"grammar\":\"openai_realtime_compatible\",\"audio\":{\"input\":{\"formats\":[\"pcm16\",\"pcm\"],\"sampleRate\":24000},\"output\":{\"formats\":[\"pcm16\",\"pcm\"],\"sampleRate\":24000,\"voices\":[\"alloy\",\"ash\",\"ballad\",\"coral\",\"echo\",\"sage\",\"shimmer\",\"verse\"],\"defaultVoice\":\"alloy\"}},\"validation\":{\"structuredOutputWithAudio\":false},\"method\":\"WS\",\"body\":\"json\",\"stream\":true},\"stream_chat\":{\"path\":\"/responses\",\"dialect\":\"openai-responses\",\"method\":\"POST\",\"body\":\"json\",\"stream\":true}},\"modelRules\":[{\"match\":{\"prefix\":[\"gpt-6-astra\"]},\"request\":{\"unsupportedThinkingLevels\":{\"none\":\"GPT-6 Astra requires reasoning; use low or higher\"}},\"capabilities\":{\"audio\":false,\"audioOutput\":false}}],\"sources\":[\"https://platform.openai.com/docs/api-reference/responses\"],\"reviewedAt\":\"2026-08-17\",\"request\":{\"serviceTierMap\":{\"auto\":\"auto\",\"standard\":\"default\",\"flex\":\"flex\",\"priority\":\"priority\"}},\"provider\":\"openai-responses\",\"baseUrl\":\"https://api.openai.com/v1\",\"authRequired\":true,\"defaultModel\":\"gpt-5-mini\",\"defaultEmbedModel\":\"text-embedding-3-small\",\"features\":{\"functions\":true,\"streaming\":true,\"structured_outputs\":true,\"structured_output_modes\":[\"native\",\"function\",\"json_object\"],\"thinking\":true,\"multi_turn\":true,\"service_tiers\":[\"standard\",\"flex\",\"priority\"],\"media\":{\"images\":{\"supported\":true,\"formats\":[\"image/jpeg\",\"image/png\"]},\"audio\":{\"supported\":true,\"formats\":[\"wav\",\"mp3\",\"pcm16\"],\"realtime\":true,\"output\":{\"supported\":true,\"formats\":[\"wav\",\"mp3\",\"pcm16\"]}},\"files\":{\"supported\":true,\"formats\":[\"application/pdf\",\"text/plain\"],\"upload_method\":\"upload\"},\"urls\":{\"supported\":false,\"web_search\":false,\"context_fetching\":false}},\"caching\":{\"supported\":false,\"types\":[]}}},\"anthropic\":{\"id\":\"anthropic\",\"name\":\"Anthropic\",\"aliases\":[\"anthropic\",\"claude\"],\"transport\":\"anthropic-messages\",\"baseURL\":\"https://api.anthropic.com\",\"requiresApiURL\":false,\"auth\":\"x-api-key\",\"headers\":{\"anthropic-version\":\"2023-06-01\",\"anthropic-beta\":\"structured-outputs-2025-11-13, web-search-2025-03-05\"},\"defaults\":{\"model\":\"claude-sonnet-4-5\"},\"capabilities\":{\"functions\":true,\"streaming\":true,\"structuredOutputs\":false,\"thinking\":true,\"multiTurn\":true,\"images\":true,\"caching\":{\"types\":[\"ephemeral\"],\"cacheBreakpoints\":true},\"structuredOutputModes\":[\"function\"],\"serviceTiers\":[]},\"operations\":{\"chat\":{\"path\":\"/v1/messages\",\"dialect\":\"anthropic-messages\",\"method\":\"POST\",\"body\":\"json\",\"stream\":false},\"stream_chat\":{\"path\":\"/v1/messages\",\"dialect\":\"anthropic-messages\",\"method\":\"POST\",\"body\":\"json\",\"stream\":true}},\"modelRules\":[],\"sources\":[\"https://docs.anthropic.com/en/api/messages\"],\"reviewedAt\":\"2026-08-17\",\"provider\":\"anthropic\",\"baseUrl\":\"https://api.anthropic.com\",\"authRequired\":true,\"defaultModel\":\"claude-sonnet-4-5\",\"features\":{\"functions\":true,\"streaming\":true,\"structured_outputs\":false,\"structured_output_modes\":[\"function\"],\"thinking\":true,\"multi_turn\":true,\"service_tiers\":[],\"media\":{\"images\":{\"supported\":true,\"formats\":[\"image/jpeg\",\"image/png\"]},\"audio\":{\"supported\":false,\"formats\":[],\"realtime\":false,\"output\":{\"supported\":false,\"formats\":[]}},\"files\":{\"supported\":false,\"formats\":[],\"upload_method\":\"none\"},\"urls\":{\"supported\":false,\"web_search\":false,\"context_fetching\":false}},\"caching\":{\"supported\":true,\"types\":[\"ephemeral\"],\"cache_breakpoints\":true}}},\"google-gemini\":{\"id\":\"google-gemini\",\"name\":\"Google Gemini\",\"aliases\":[\"google-gemini\",\"google_gemini\",\"gemini\"],\"transport\":\"gemini-generate-content\",\"baseURL\":\"https://generativelanguage.googleapis.com/v1beta\",\"requiresApiURL\":false,\"auth\":\"api_key_header\",\"defaults\":{\"model\":\"gemini-3.5-flash\",\"embedModel\":\"gemini-embedding-2\"},\"capabilities\":{\"functions\":true,\"streaming\":true,\"structuredOutputs\":true,\"thinking\":true,\"multiTurn\":true,\"images\":true,\"audio\":true,\"audioOutput\":true,\"files\":{\"uploadMethod\":\"cloud\"},\"caching\":{\"types\":[\"persistent\"]},\"structuredOutputModes\":[\"native\",\"function\"],\"serviceTiers\":[\"standard\",\"flex\",\"priority\"]},\"operations\":{\"chat\":{\"path\":\"/models/{model}:generateContent\",\"dialect\":\"gemini-generate-content\",\"method\":\"POST\",\"body\":\"json\",\"stream\":false},\"stream_chat\":{\"path\":\"/models/{model}:streamGenerateContent?alt=sse\",\"dialect\":\"gemini-generate-content\",\"method\":\"POST\",\"body\":\"json\",\"stream\":true},\"embed\":{\"path\":\"/models/{model}:batchEmbedContents\",\"dialect\":\"gemini-generate-content\",\"method\":\"POST\",\"body\":\"json\",\"stream\":false},\"transcribe\":{\"path\":\"/models/{model}:generateContent\",\"dialect\":\"gemini-generate-content\",\"method\":\"POST\",\"body\":\"multipart\",\"stream\":false},\"speak\":{\"path\":\"/models/{model}:generateContent\",\"dialect\":\"gemini-generate-content\",\"method\":\"POST\",\"body\":\"json\",\"stream\":false,\"response\":\"binary\"},\"realtime\":{\"path\":\"/ws/google.ai.generativelanguage.v1beta.GenerativeService.BidiGenerateContent\",\"dialect\":\"gemini-live-bidi\",\"modelMatch\":{\"prefix\":[\"gemini-live\"],\"contains\":[\"native-audio\",\"-live-\"]},\"url\":\"wss://generativelanguage.googleapis.com/ws/google.ai.generativelanguage.v1beta.GenerativeService.BidiGenerateContent\",\"grammar\":\"gemini_live_bidi\",\"defaultModel\":\"gemini-2.5-flash-native-audio-preview-12-2025\",\"audio\":{\"input\":{\"formats\":[\"pcm16\",\"pcm\"],\"sampleRate\":16000},\"output\":{\"formats\":[\"pcm16\",\"pcm\"],\"sampleRate\":24000,\"voices\":[\"Kore\",\"Puck\",\"Charon\",\"Fenrir\",\"Aoede\"],\"defaultVoice\":\"Kore\"}},\"validation\":{\"pcmInputOnly\":true,\"rejectStructuredOutputWithAudio\":true},\"method\":\"WS\",\"body\":\"json\",\"stream\":true}},\"modelRules\":[],\"sources\":[\"https://ai.google.dev/api/generate-content\",\"https://ai.google.dev/gemini-api/docs/optimization\"],\"reviewedAt\":\"2026-08-17\",\"request\":{\"serviceTierMap\":{\"auto\":null,\"standard\":\"standard\",\"flex\":\"flex\",\"priority\":\"priority\"}},\"provider\":\"google-gemini\",\"baseUrl\":\"https://generativelanguage.googleapis.com/v1beta\",\"authRequired\":true,\"apiKeyHeader\":\"x-goog-api-key\",\"defaultModel\":\"gemini-3.5-flash\",\"defaultEmbedModel\":\"gemini-embedding-2\",\"features\":{\"functions\":true,\"streaming\":true,\"structured_outputs\":true,\"structured_output_modes\":[\"native\",\"function\"],\"thinking\":true,\"multi_turn\":true,\"service_tiers\":[\"standard\",\"flex\",\"priority\"],\"media\":{\"images\":{\"supported\":true,\"formats\":[\"image/jpeg\",\"image/png\"]},\"audio\":{\"supported\":true,\"formats\":[\"wav\",\"mp3\",\"pcm16\"],\"realtime\":true,\"output\":{\"supported\":true,\"formats\":[\"wav\",\"mp3\",\"pcm16\"]}},\"files\":{\"supported\":true,\"formats\":[\"application/pdf\",\"text/plain\"],\"upload_method\":\"cloud\"},\"urls\":{\"supported\":false,\"web_search\":false,\"context_fetching\":false}},\"caching\":{\"supported\":true,\"types\":[\"persistent\"]}}},\"webllm\":{\"id\":\"webllm\",\"name\":\"WebLLM\",\"aliases\":[\"webllm\"],\"transport\":\"webllm\",\"baseURL\":null,\"requiresApiURL\":false,\"auth\":\"none\",\"defaults\":{\"model\":\"\"},\"capabilities\":{\"functions\":true,\"streaming\":true,\"structuredOutputs\":false,\"thinking\":false,\"multiTurn\":true,\"structuredOutputModes\":[\"function\"],\"serviceTiers\":[]},\"operations\":{\"chat\":{\"path\":\"\",\"dialect\":\"webllm\",\"method\":\"POST\",\"body\":\"json\",\"stream\":false},\"stream_chat\":{\"path\":\"\",\"dialect\":\"webllm\",\"method\":\"POST\",\"body\":\"json\",\"stream\":true}},\"modelRules\":[],\"sources\":[\"https://webllm.mlc.ai/docs/\"],\"reviewedAt\":\"2026-08-17\",\"provider\":\"webllm\",\"baseUrl\":null,\"authRequired\":false,\"defaultModel\":\"\",\"features\":{\"functions\":true,\"streaming\":true,\"structured_outputs\":false,\"structured_output_modes\":[\"function\"],\"thinking\":false,\"multi_turn\":true,\"service_tiers\":[],\"media\":{\"images\":{\"supported\":false,\"formats\":[]},\"audio\":{\"supported\":false,\"formats\":[],\"realtime\":false,\"output\":{\"supported\":false,\"formats\":[]}},\"files\":{\"supported\":false,\"formats\":[],\"upload_method\":\"none\"},\"urls\":{\"supported\":false,\"web_search\":false,\"context_fetching\":false}},\"caching\":{\"supported\":false,\"types\":[]}}},\"azure-openai\":{\"id\":\"azure-openai\",\"name\":\"Azure OpenAI\",\"aliases\":[\"azure-openai\",\"azure_openai\",\"azure\"],\"transport\":\"openai-chat\",\"baseURL\":null,\"requiresApiURL\":false,\"auth\":\"api_key_header\",\"defaults\":{\"model\":\"gpt-5-mini\",\"embedModel\":\"text-embedding-3-small\"},\"capabilities\":{\"functions\":true,\"streaming\":true,\"structuredOutputs\":true,\"thinking\":true,\"multiTurn\":true,\"images\":true,\"structuredOutputModes\":[\"native\",\"function\"],\"serviceTiers\":[\"standard\",\"priority\"]},\"operations\":{\"chat\":{\"path\":\"/chat/completions\",\"dialect\":\"openai-chat\",\"method\":\"POST\",\"body\":\"json\",\"stream\":false},\"embed\":{\"path\":\"/embeddings\",\"dialect\":\"openai-embeddings\",\"method\":\"POST\",\"body\":\"json\",\"stream\":false},\"stream_chat\":{\"path\":\"/chat/completions\",\"dialect\":\"openai-chat\",\"method\":\"POST\",\"body\":\"json\",\"stream\":true}},\"endpoint\":{\"scheme\":\"https\",\"hostField\":\"resourceName\",\"hostSuffix\":\".openai.azure.com\",\"path\":\"/openai/deployments/{deploymentName}\",\"fields\":{\"resourceName\":[\"resource_name\",\"resourceName\"],\"deploymentName\":[\"deployment_name\",\"deploymentName\"],\"version\":[\"api_version\",\"apiVersion\",\"version\"]},\"required\":[\"resourceName\",\"deploymentName\"],\"defaults\":{\"version\":\"2024-02-15-preview\"},\"normalizers\":{\"version\":\"api-version\"},\"apiVersionField\":\"version\"},\"capabilityGates\":{\"structuredOutputs\":{\"option\":\"version\",\"min\":\"2024-08-01\"}},\"modelRules\":[],\"sources\":[\"https://learn.microsoft.com/en-us/azure/ai-services/openai/reference\",\"https://learn.microsoft.com/en-us/azure/foundry/openai/concepts/priority-processing\"],\"reviewedAt\":\"2026-08-17\",\"request\":{\"serviceTierMap\":{\"auto\":\"auto\",\"standard\":\"default\",\"flex\":\"flex\",\"priority\":\"priority\"}},\"provider\":\"azure-openai\",\"baseUrl\":null,\"authRequired\":true,\"apiKeyHeader\":\"api-key\",\"apiVersion\":\"2024-02-15-preview\",\"defaultModel\":\"gpt-5-mini\",\"defaultEmbedModel\":\"text-embedding-3-small\",\"features\":{\"functions\":true,\"streaming\":true,\"structured_outputs\":true,\"structured_output_modes\":[\"native\",\"function\"],\"thinking\":true,\"multi_turn\":true,\"service_tiers\":[\"standard\",\"priority\"],\"media\":{\"images\":{\"supported\":true,\"formats\":[\"image/jpeg\",\"image/png\"]},\"audio\":{\"supported\":false,\"formats\":[],\"realtime\":false,\"output\":{\"supported\":false,\"formats\":[]}},\"files\":{\"supported\":false,\"formats\":[],\"upload_method\":\"none\"},\"urls\":{\"supported\":false,\"web_search\":false,\"context_fetching\":false}},\"caching\":{\"supported\":false,\"types\":[]}}},\"deepseek\":{\"id\":\"deepseek\",\"name\":\"DeepSeek\",\"aliases\":[\"deepseek\"],\"transport\":\"openai-chat\",\"baseURL\":\"https://api.deepseek.com\",\"requiresApiURL\":false,\"auth\":\"bearer\",\"defaults\":{\"model\":\"deepseek-v4-flash\"},\"capabilities\":{\"functions\":true,\"streaming\":true,\"structuredOutputs\":false,\"thinking\":false,\"multiTurn\":true,\"structuredOutputModes\":[\"function\",\"json_object\"],\"serviceTiers\":[]},\"operations\":{\"chat\":{\"path\":\"/chat/completions\",\"dialect\":\"openai-chat\",\"method\":\"POST\",\"body\":\"json\",\"stream\":false},\"stream_chat\":{\"path\":\"/chat/completions\",\"dialect\":\"openai-chat\",\"method\":\"POST\",\"body\":\"json\",\"stream\":true}},\"modelRules\":[{\"match\":{\"exact\":[\"deepseek-v4-flash\",\"deepseek-v4-pro\"]},\"capabilities\":{\"thinking\":true,\"thinkingBudget\":true,\"showThoughts\":true,\"structuredOutputs\":false,\"structuredOutputModes\":[\"function\"]},\"request\":{\"reasoning\":\"thinking-object\",\"toolChoice\":\"unforced\",\"effortMap\":{\"none\":null,\"minimal\":\"low\",\"low\":\"low\",\"medium\":\"medium\",\"high\":\"high\",\"highest\":\"max\",\"xhigh\":\"max\",\"max\":\"max\"},\"dropWhenThinking\":[\"temperature\",\"top_p\",\"presence_penalty\",\"frequency_penalty\"],\"defaultThinkingLevel\":\"max\"},\"response\":{\"reasoningFields\":[\"reasoning_content\",\"reasoning\"]},\"replay\":{\"assistantReasoningField\":\"reasoning_content\"}},{\"match\":{\"exact\":[\"deepseek-reasoner\"]},\"capabilities\":{\"thinking\":true,\"thinkingBudget\":false,\"showThoughts\":true,\"structuredOutputs\":false,\"structuredOutputModes\":[\"function\"]},\"request\":{\"toolChoice\":\"unforced\"},\"response\":{\"reasoningFields\":[\"reasoning_content\",\"reasoning\"]},\"replay\":{\"assistantReasoningField\":\"reasoning_content\"}}],\"sources\":[\"https://api-docs.deepseek.com/guides/thinking_mode/\"],\"reviewedAt\":\"2026-08-18\",\"provider\":\"deepseek\",\"baseUrl\":\"https://api.deepseek.com\",\"authRequired\":true,\"defaultModel\":\"deepseek-v4-flash\",\"features\":{\"functions\":true,\"streaming\":true,\"structured_outputs\":false,\"structured_output_modes\":[\"function\",\"json_object\"],\"thinking\":false,\"multi_turn\":true,\"service_tiers\":[],\"media\":{\"images\":{\"supported\":false,\"formats\":[]},\"audio\":{\"supported\":false,\"formats\":[],\"realtime\":false,\"output\":{\"supported\":false,\"formats\":[]}},\"files\":{\"supported\":false,\"formats\":[],\"upload_method\":\"none\"},\"urls\":{\"supported\":false,\"web_search\":false,\"context_fetching\":false}},\"caching\":{\"supported\":false,\"types\":[]}}},\"deepseek-responses\":{\"id\":\"deepseek-responses\",\"name\":\"DeepSeek Responses\",\"aliases\":[\"deepseek-responses\",\"deepseek_responses\"],\"transport\":\"openai-responses\",\"baseURL\":\"https://api.deepseek.com\",\"requiresApiURL\":false,\"auth\":\"bearer\",\"defaults\":{\"model\":\"deepseek-v4-flash\"},\"capabilities\":{\"functions\":true,\"streaming\":true,\"structuredOutputs\":false,\"thinking\":true,\"multiTurn\":true,\"structuredOutputModes\":[\"function\"],\"serviceTiers\":[]},\"operations\":{\"chat\":{\"path\":\"/responses\",\"dialect\":\"openai-responses\",\"method\":\"POST\",\"body\":\"json\",\"stream\":false},\"stream_chat\":{\"path\":\"/responses\",\"dialect\":\"openai-responses\",\"method\":\"POST\",\"body\":\"json\",\"stream\":true}},\"request\":{\"dropFields\":[\"include\",\"previous_response_id\",\"store\",\"parallel_tool_calls\"],\"reasoningObjectFields\":[\"effort\"]},\"modelRules\":[],\"sources\":[\"https://api-docs.deepseek.com/api/create-chat-completion\"],\"reviewedAt\":\"2026-08-17\",\"provider\":\"deepseek-responses\",\"baseUrl\":\"https://api.deepseek.com\",\"authRequired\":true,\"defaultModel\":\"deepseek-v4-flash\",\"features\":{\"functions\":true,\"streaming\":true,\"structured_outputs\":false,\"structured_output_modes\":[\"function\"],\"thinking\":true,\"multi_turn\":true,\"service_tiers\":[],\"media\":{\"images\":{\"supported\":false,\"formats\":[]},\"audio\":{\"supported\":false,\"formats\":[],\"realtime\":false,\"output\":{\"supported\":false,\"formats\":[]}},\"files\":{\"supported\":false,\"formats\":[],\"upload_method\":\"none\"},\"urls\":{\"supported\":false,\"web_search\":false,\"context_fetching\":false}},\"caching\":{\"supported\":false,\"types\":[]}}},\"meta\":{\"id\":\"meta\",\"name\":\"Meta Model API\",\"aliases\":[\"meta\",\"meta-responses\",\"meta_responses\"],\"transport\":\"openai-responses\",\"baseURL\":\"https://api.meta.ai/v1\",\"requiresApiURL\":false,\"auth\":\"bearer\",\"defaults\":{\"model\":\"muse-spark-1.3\"},\"capabilities\":{\"functions\":true,\"streaming\":true,\"structuredOutputs\":true,\"thinking\":true,\"multiTurn\":true,\"images\":true,\"audio\":true,\"files\":{\"uploadMethod\":\"inline\"},\"caching\":{\"types\":[\"ephemeral\"],\"cacheBreakpoints\":false},\"structuredOutputModes\":[\"native\",\"function\",\"json_object\"],\"serviceTiers\":[]},\"operations\":{\"chat\":{\"path\":\"/responses\",\"dialect\":\"openai-responses\",\"method\":\"POST\",\"body\":\"json\",\"stream\":false},\"transcribe\":{\"path\":\"/asr/transcribe\",\"dialect\":\"meta-transcription\",\"method\":\"POST\",\"body\":\"multipart\",\"stream\":false},\"realtime\":{\"path\":\"/asr/realtime\",\"dialect\":\"meta-realtime\",\"modelMatch\":{\"exact\":[\"muse-voice-transcribe-1.0\"]},\"url\":\"wss://api.meta.ai/v1/asr/realtime\",\"grammar\":\"meta_asr_realtime\",\"defaultModel\":\"muse-voice-transcribe-1.0\",\"audio\":{\"input\":{\"formats\":[\"pcm16\",\"pcm\"],\"sampleRate\":24000}},\"method\":\"WS\",\"body\":\"json\",\"stream\":true},\"stream_chat\":{\"path\":\"/responses\",\"dialect\":\"openai-responses\",\"method\":\"POST\",\"body\":\"json\",\"stream\":true}},\"request\":{\"toolChoice\":\"no-named\",\"reasoningObjectFields\":[\"effort\",\"summary\"],\"unsupportedThinkingLevels\":{\"none\":\"Meta Muse Spark does not support reasoning level none\"}},\"modelRules\":[{\"match\":{\"exact\":[\"muse-image-1.0\"]},\"capabilities\":{\"functions\":false,\"functionEmulation\":false,\"structuredOutputs\":false,\"thinking\":false,\"audio\":false,\"structuredOutputModes\":[]}},{\"match\":{\"exact\":[\"muse-voice-transcribe-1.0\"]},\"capabilities\":{\"functions\":false,\"functionEmulation\":false,\"structuredOutputs\":false,\"thinking\":false,\"images\":false,\"structuredOutputModes\":[]}}],\"sources\":[\"https://dev.meta.ai/docs/protocols/responses\"],\"reviewedAt\":\"2026-09-03\",\"provider\":\"meta\",\"baseUrl\":\"https://api.meta.ai/v1\",\"authRequired\":true,\"defaultModel\":\"muse-spark-1.3\",\"features\":{\"functions\":true,\"streaming\":true,\"structured_outputs\":true,\"structured_output_modes\":[\"native\",\"function\",\"json_object\"],\"thinking\":true,\"multi_turn\":true,\"service_tiers\":[],\"media\":{\"images\":{\"supported\":true,\"formats\":[\"image/jpeg\",\"image/png\"]},\"audio\":{\"supported\":true,\"formats\":[\"wav\",\"mp3\",\"pcm16\"],\"realtime\":true,\"output\":{\"supported\":false,\"formats\":[]}},\"files\":{\"supported\":true,\"formats\":[\"application/pdf\",\"text/plain\"],\"upload_method\":\"inline\"},\"urls\":{\"supported\":false,\"web_search\":false,\"context_fetching\":false}},\"caching\":{\"supported\":true,\"types\":[\"ephemeral\"],\"cache_breakpoints\":false}}},\"meta-chat\":{\"id\":\"meta-chat\",\"name\":\"Meta Model API Chat Completions\",\"aliases\":[\"meta-chat\",\"meta_chat\"],\"transport\":\"openai-chat\",\"baseURL\":\"https://api.meta.ai/v1\",\"requiresApiURL\":false,\"auth\":\"bearer\",\"defaults\":{\"model\":\"muse-spark-1.3\"},\"capabilities\":{\"functions\":true,\"streaming\":true,\"structuredOutputs\":true,\"thinking\":true,\"multiTurn\":true,\"images\":true,\"audio\":true,\"files\":{\"uploadMethod\":\"inline\"},\"caching\":{\"types\":[\"ephemeral\"],\"cacheBreakpoints\":false},\"structuredOutputModes\":[\"native\",\"function\",\"json_object\"],\"serviceTiers\":[]},\"operations\":{\"chat\":{\"path\":\"/chat/completions\",\"dialect\":\"openai-chat\",\"method\":\"POST\",\"body\":\"json\",\"stream\":false},\"stream_chat\":{\"path\":\"/chat/completions\",\"dialect\":\"openai-chat\",\"method\":\"POST\",\"body\":\"json\",\"stream\":true}},\"request\":{\"toolChoice\":\"no-named\",\"effortMap\":{\"minimal\":\"minimal\",\"low\":\"low\",\"medium\":\"medium\",\"high\":\"high\",\"highest\":\"xhigh\"},\"unsupportedThinkingLevels\":{\"none\":\"Meta Muse Spark does not support reasoning level none\"}},\"modelRules\":[],\"sources\":[\"https://dev.meta.ai/docs/protocols/chat-completions\"],\"reviewedAt\":\"2026-09-03\",\"provider\":\"meta-chat\",\"baseUrl\":\"https://api.meta.ai/v1\",\"authRequired\":true,\"defaultModel\":\"muse-spark-1.3\",\"features\":{\"functions\":true,\"streaming\":true,\"structured_outputs\":true,\"structured_output_modes\":[\"native\",\"function\",\"json_object\"],\"thinking\":true,\"multi_turn\":true,\"service_tiers\":[],\"media\":{\"images\":{\"supported\":true,\"formats\":[\"image/jpeg\",\"image/png\"]},\"audio\":{\"supported\":true,\"formats\":[\"wav\",\"mp3\",\"pcm16\"],\"realtime\":false,\"output\":{\"supported\":false,\"formats\":[]}},\"files\":{\"supported\":true,\"formats\":[\"application/pdf\",\"text/plain\"],\"upload_method\":\"inline\"},\"urls\":{\"supported\":false,\"web_search\":false,\"context_fetching\":false}},\"caching\":{\"supported\":true,\"types\":[\"ephemeral\"],\"cache_breakpoints\":false}}},\"meta-messages\":{\"id\":\"meta-messages\",\"name\":\"Meta Model API Messages\",\"aliases\":[\"meta-messages\",\"meta_messages\"],\"transport\":\"anthropic-messages\",\"baseURL\":\"https://api.meta.ai/v1\",\"requiresApiURL\":false,\"auth\":\"bearer\",\"defaults\":{\"model\":\"muse-spark-1.3\"},\"capabilities\":{\"functions\":true,\"streaming\":true,\"structuredOutputs\":true,\"thinking\":true,\"multiTurn\":true,\"images\":true,\"audio\":true,\"files\":{\"uploadMethod\":\"inline\"},\"structuredOutputModes\":[\"native\",\"function\"],\"serviceTiers\":[]},\"operations\":{\"chat\":{\"path\":\"/messages\",\"dialect\":\"anthropic-messages\",\"method\":\"POST\",\"body\":\"json\",\"stream\":false},\"stream_chat\":{\"path\":\"/messages\",\"dialect\":\"anthropic-messages\",\"method\":\"POST\",\"body\":\"json\",\"stream\":true}},\"request\":{\"toolChoice\":\"no-named\",\"unsupportedThinkingLevels\":{\"none\":\"Meta Muse Spark does not support reasoning level none\"}},\"modelRules\":[],\"sources\":[\"https://dev.meta.ai/docs/protocols/messages\"],\"reviewedAt\":\"2026-09-03\",\"provider\":\"meta-messages\",\"baseUrl\":\"https://api.meta.ai/v1\",\"authRequired\":true,\"defaultModel\":\"muse-spark-1.3\",\"features\":{\"functions\":true,\"streaming\":true,\"structured_outputs\":true,\"structured_output_modes\":[\"native\",\"function\"],\"thinking\":true,\"multi_turn\":true,\"service_tiers\":[],\"media\":{\"images\":{\"supported\":true,\"formats\":[\"image/jpeg\",\"image/png\"]},\"audio\":{\"supported\":true,\"formats\":[\"wav\",\"mp3\",\"pcm16\"],\"realtime\":false,\"output\":{\"supported\":false,\"formats\":[]}},\"files\":{\"supported\":true,\"formats\":[\"application/pdf\",\"text/plain\"],\"upload_method\":\"inline\"},\"urls\":{\"supported\":false,\"web_search\":false,\"context_fetching\":false}},\"caching\":{\"supported\":false,\"types\":[]}}},\"mistral\":{\"id\":\"mistral\",\"name\":\"Mistral AI\",\"aliases\":[\"mistral\"],\"transport\":\"openai-chat\",\"baseURL\":\"https://api.mistral.ai/v1\",\"requiresApiURL\":false,\"auth\":\"bearer\",\"defaults\":{\"model\":\"mistral-small-latest\",\"embedModel\":\"mistral-embed\"},\"capabilities\":{\"functions\":true,\"streaming\":true,\"structuredOutputs\":true,\"thinking\":false,\"multiTurn\":true,\"images\":true,\"audio\":true,\"audioOutput\":true,\"structuredOutputModes\":[\"native\",\"function\"],\"serviceTiers\":[\"standard\",\"priority\"]},\"operations\":{\"chat\":{\"path\":\"/chat/completions\",\"dialect\":\"openai-chat\",\"method\":\"POST\",\"body\":\"json\",\"stream\":false},\"embed\":{\"path\":\"/embeddings\",\"dialect\":\"openai-embeddings\",\"method\":\"POST\",\"body\":\"json\",\"stream\":false},\"transcribe\":{\"path\":\"/audio/transcriptions\",\"dialect\":\"openai-transcription\",\"method\":\"POST\",\"body\":\"multipart\",\"stream\":false},\"speak\":{\"path\":\"/audio/speech\",\"dialect\":\"mistral-speech\",\"method\":\"POST\",\"body\":\"json\",\"stream\":false,\"response\":\"binary\"},\"stream_chat\":{\"path\":\"/chat/completions\",\"dialect\":\"openai-chat\",\"method\":\"POST\",\"body\":\"json\",\"stream\":true}},\"request\":{\"renameFields\":{\"max_completion_tokens\":\"max_tokens\"},\"imageURLShape\":\"object\",\"serviceTierMap\":{\"auto\":\"auto\",\"standard\":\"standard_only\",\"priority\":\"auto\"}},\"modelRules\":[],\"sources\":[\"https://docs.mistral.ai/api/\",\"https://docs.mistral.ai/inference/priority-tier\"],\"reviewedAt\":\"2026-08-17\",\"provider\":\"mistral\",\"baseUrl\":\"https://api.mistral.ai/v1\",\"authRequired\":true,\"defaultModel\":\"mistral-small-latest\",\"defaultEmbedModel\":\"mistral-embed\",\"features\":{\"functions\":true,\"streaming\":true,\"structured_outputs\":true,\"structured_output_modes\":[\"native\",\"function\"],\"thinking\":false,\"multi_turn\":true,\"service_tiers\":[\"standard\",\"priority\"],\"media\":{\"images\":{\"supported\":true,\"formats\":[\"image/jpeg\",\"image/png\"]},\"audio\":{\"supported\":true,\"formats\":[\"wav\",\"mp3\",\"pcm16\"],\"realtime\":false,\"output\":{\"supported\":true,\"formats\":[\"wav\",\"mp3\",\"pcm16\"]}},\"files\":{\"supported\":false,\"formats\":[],\"upload_method\":\"none\"},\"urls\":{\"supported\":false,\"web_search\":false,\"context_fetching\":false}},\"caching\":{\"supported\":false,\"types\":[]}}},\"cohere\":{\"id\":\"cohere\",\"name\":\"Cohere\",\"aliases\":[\"cohere\"],\"transport\":\"openai-chat\",\"baseURL\":\"https://api.cohere.ai/compatibility/v1\",\"requiresApiURL\":false,\"auth\":\"bearer\",\"defaults\":{\"model\":\"command-r-plus\",\"embedModel\":\"embed-english-v3.0\"},\"capabilities\":{\"functions\":true,\"streaming\":true,\"structuredOutputs\":false,\"thinking\":false,\"multiTurn\":true,\"structuredOutputModes\":[\"function\"],\"serviceTiers\":[]},\"operations\":{\"chat\":{\"path\":\"/chat/completions\",\"dialect\":\"openai-chat\",\"method\":\"POST\",\"body\":\"json\",\"stream\":false},\"embed\":{\"path\":\"/embeddings\",\"dialect\":\"openai-embeddings\",\"method\":\"POST\",\"body\":\"json\",\"stream\":false},\"stream_chat\":{\"path\":\"/chat/completions\",\"dialect\":\"openai-chat\",\"method\":\"POST\",\"body\":\"json\",\"stream\":true}},\"modelRules\":[],\"sources\":[\"https://docs.cohere.com/reference/compatibility-api\"],\"reviewedAt\":\"2026-08-17\",\"provider\":\"cohere\",\"baseUrl\":\"https://api.cohere.ai/compatibility/v1\",\"authRequired\":true,\"defaultModel\":\"command-r-plus\",\"defaultEmbedModel\":\"embed-english-v3.0\",\"features\":{\"functions\":true,\"streaming\":true,\"structured_outputs\":false,\"structured_output_modes\":[\"function\"],\"thinking\":false,\"multi_turn\":true,\"service_tiers\":[],\"media\":{\"images\":{\"supported\":false,\"formats\":[]},\"audio\":{\"supported\":false,\"formats\":[],\"realtime\":false,\"output\":{\"supported\":false,\"formats\":[]}},\"files\":{\"supported\":false,\"formats\":[],\"upload_method\":\"none\"},\"urls\":{\"supported\":false,\"web_search\":false,\"context_fetching\":false}},\"caching\":{\"supported\":false,\"types\":[]}}},\"grok\":{\"id\":\"grok\",\"name\":\"xAI Grok\",\"aliases\":[\"grok\",\"xai\",\"x-grok\",\"x_grok\"],\"transport\":\"openai-chat\",\"baseURL\":\"https://api.x.ai/v1\",\"requiresApiURL\":false,\"auth\":\"bearer\",\"defaults\":{\"model\":\"grok-4.6\"},\"capabilities\":{\"functions\":true,\"streaming\":true,\"structuredOutputs\":true,\"thinking\":false,\"multiTurn\":true,\"images\":true,\"audio\":true,\"audioOutput\":true,\"webSearch\":true,\"structuredOutputModes\":[\"native\",\"function\"],\"serviceTiers\":[\"standard\",\"priority\"]},\"operations\":{\"chat\":{\"path\":\"/chat/completions\",\"dialect\":\"openai-chat\",\"method\":\"POST\",\"body\":\"json\",\"stream\":false},\"transcribe\":{\"path\":\"/stt\",\"dialect\":\"xai-transcription\",\"method\":\"POST\",\"body\":\"multipart\",\"stream\":false},\"speak\":{\"path\":\"/tts\",\"dialect\":\"xai-speech\",\"method\":\"POST\",\"body\":\"json\",\"stream\":false,\"response\":\"binary\"},\"realtime\":{\"path\":\"/realtime\",\"dialect\":\"xai-realtime\",\"modelMatch\":{\"prefix\":[\"grok-voice\"]},\"url\":\"wss://api.x.ai/v1/realtime\",\"grammar\":\"openai_realtime_compatible\",\"defaultModel\":\"grok-voice-think-fast-1.0\",\"audio\":{\"input\":{\"formats\":[\"pcm16\",\"pcm\"],\"sampleRate\":24000},\"output\":{\"formats\":[\"pcm16\",\"pcm\"],\"sampleRate\":24000,\"voices\":[\"eve\",\"ara\",\"rex\",\"sal\",\"leo\"],\"defaultVoice\":\"eve\"}},\"validation\":{\"structuredOutputWithAudio\":false},\"method\":\"WS\",\"body\":\"json\",\"stream\":true},\"stream_chat\":{\"path\":\"/chat/completions\",\"dialect\":\"openai-chat\",\"method\":\"POST\",\"body\":\"json\",\"stream\":true}},\"request\":{\"optionDialect\":\"search-parameters\",\"serviceTierMap\":{\"auto\":null,\"standard\":\"default\",\"priority\":\"priority\"}},\"modelRules\":[{\"match\":{\"exact\":[\"grok-4.6\"]},\"capabilities\":{\"thinking\":true,\"thinkingBudget\":true,\"structuredOutputs\":true,\"structuredOutputModes\":[\"native\",\"function\"]},\"request\":{\"reasoning\":\"effort\",\"defaultThinkingLevel\":\"max\",\"effortMap\":{\"none\":null,\"minimal\":\"low\",\"low\":\"low\",\"medium\":\"medium\",\"high\":\"high\",\"highest\":\"xhigh\",\"xhigh\":\"xhigh\",\"max\":\"xhigh\"},\"unsupportedThinkingLevels\":{\"none\":\"xAI Grok 4.6 reasoning cannot be disabled\"},\"dropFields\":[\"presence_penalty\",\"frequency_penalty\",\"stop\"]}},{\"match\":{\"exact\":[\"grok-4.5\",\"grok-4.5-latest\",\"grok-build-latest\"]},\"capabilities\":{\"thinking\":true,\"thinkingBudget\":true,\"structuredOutputs\":true,\"structuredOutputModes\":[\"native\",\"function\"]},\"request\":{\"reasoning\":\"effort\",\"defaultThinkingLevel\":\"max\",\"effortMap\":{\"none\":null,\"minimal\":\"low\",\"low\":\"low\",\"medium\":\"medium\",\"high\":\"high\",\"highest\":\"high\",\"xhigh\":\"high\",\"max\":\"high\"},\"unsupportedThinkingLevels\":{\"none\":\"xAI Grok 4.5 reasoning cannot be disabled\"},\"dropFields\":[\"presence_penalty\",\"frequency_penalty\",\"stop\"]}},{\"match\":{\"exact\":[\"grok-4.3\",\"grok-4.3-latest\",\"grok-latest\"]},\"capabilities\":{\"thinking\":true,\"thinkingBudget\":true,\"showThoughts\":true,\"structuredOutputs\":true,\"structuredOutputModes\":[\"native\",\"function\"]},\"request\":{\"reasoning\":\"effort\",\"defaultThinkingLevel\":\"max\",\"effortMap\":{\"none\":\"none\",\"minimal\":\"low\",\"low\":\"low\",\"medium\":\"medium\",\"high\":\"high\",\"highest\":\"high\",\"xhigh\":\"high\",\"max\":\"high\"},\"dropFields\":[\"presence_penalty\",\"frequency_penalty\",\"stop\"]}},{\"match\":{\"exact\":[\"grok-3-mini\",\"grok-3-mini-latest\",\"grok-3-mini-beta\",\"grok-3-mini-fast\",\"grok-3-mini-fast-latest\",\"grok-3-mini-fast-beta\"]},\"capabilities\":{\"thinking\":true,\"thinkingBudget\":true},\"request\":{\"reasoning\":\"effort\",\"defaultThinkingLevel\":\"low\",\"effortMap\":{\"none\":null,\"minimal\":\"low\",\"low\":\"low\",\"medium\":\"high\",\"high\":\"high\",\"highest\":\"high\",\"xhigh\":\"high\",\"max\":\"high\"},\"unsupportedThinkingLevels\":{\"none\":\"xAI Grok 3 Mini reasoning cannot be disabled\"}}}],\"sources\":[\"https://docs.x.ai/developers/model-capabilities/text/reasoning\",\"https://docs.x.ai/developers/rest-api-reference/management/auth\",\"https://docs.x.ai/developers/models/grok-4.5\",\"https://docs.x.ai/developers/advanced-api-usage/priority-processing\"],\"reviewedAt\":\"2026-08-30\",\"provider\":\"grok\",\"baseUrl\":\"https://api.x.ai/v1\",\"authRequired\":true,\"defaultModel\":\"grok-4.6\",\"features\":{\"functions\":true,\"streaming\":true,\"structured_outputs\":true,\"structured_output_modes\":[\"native\",\"function\"],\"thinking\":false,\"multi_turn\":true,\"service_tiers\":[\"standard\",\"priority\"],\"media\":{\"images\":{\"supported\":true,\"formats\":[\"image/jpeg\",\"image/png\"]},\"audio\":{\"supported\":true,\"formats\":[\"wav\",\"mp3\",\"pcm16\"],\"realtime\":true,\"output\":{\"supported\":true,\"formats\":[\"wav\",\"mp3\",\"pcm16\"]}},\"files\":{\"supported\":false,\"formats\":[],\"upload_method\":\"none\"},\"urls\":{\"supported\":false,\"web_search\":true,\"context_fetching\":false}},\"caching\":{\"supported\":false,\"types\":[]}}},\"reka\":{\"id\":\"reka\",\"name\":\"Reka\",\"aliases\":[\"reka\"],\"transport\":\"openai-chat\",\"baseURL\":\"https://api.reka.ai/v1\",\"requiresApiURL\":false,\"auth\":\"bearer\",\"defaults\":{\"model\":\"reka-core\"},\"capabilities\":{\"functions\":true,\"streaming\":true,\"structuredOutputs\":false,\"thinking\":false,\"multiTurn\":true,\"structuredOutputModes\":[\"function\"],\"serviceTiers\":[]},\"operations\":{\"chat\":{\"path\":\"/chat/completions\",\"dialect\":\"openai-chat\",\"method\":\"POST\",\"body\":\"json\",\"stream\":false},\"stream_chat\":{\"path\":\"/chat/completions\",\"dialect\":\"openai-chat\",\"method\":\"POST\",\"body\":\"json\",\"stream\":true}},\"modelRules\":[],\"sources\":[\"https://docs.reka.ai/\"],\"reviewedAt\":\"2026-08-17\",\"provider\":\"reka\",\"baseUrl\":\"https://api.reka.ai/v1\",\"authRequired\":true,\"defaultModel\":\"reka-core\",\"features\":{\"functions\":true,\"streaming\":true,\"structured_outputs\":false,\"structured_output_modes\":[\"function\"],\"thinking\":false,\"multi_turn\":true,\"service_tiers\":[],\"media\":{\"images\":{\"supported\":false,\"formats\":[]},\"audio\":{\"supported\":false,\"formats\":[],\"realtime\":false,\"output\":{\"supported\":false,\"formats\":[]}},\"files\":{\"supported\":false,\"formats\":[],\"upload_method\":\"none\"},\"urls\":{\"supported\":false,\"web_search\":false,\"context_fetching\":false}},\"caching\":{\"supported\":false,\"types\":[]}}},\"together\":{\"id\":\"together\",\"name\":\"Together AI\",\"aliases\":[\"together\",\"together-ai\",\"together_ai\"],\"transport\":\"openai-chat\",\"baseURL\":\"https://api.together.xyz/v1\",\"requiresApiURL\":false,\"auth\":\"bearer\",\"defaults\":{\"model\":\"\"},\"capabilities\":{\"functions\":true,\"streaming\":true,\"structuredOutputs\":true,\"thinking\":false,\"multiTurn\":true,\"structuredOutputModes\":[\"native\",\"function\",\"json_object\"],\"serviceTiers\":[]},\"operations\":{\"chat\":{\"path\":\"/chat/completions\",\"dialect\":\"openai-chat\",\"method\":\"POST\",\"body\":\"json\",\"stream\":false},\"embed\":{\"path\":\"/embeddings\",\"dialect\":\"openai-embeddings\",\"method\":\"POST\",\"body\":\"json\",\"stream\":false},\"stream_chat\":{\"path\":\"/chat/completions\",\"dialect\":\"openai-chat\",\"method\":\"POST\",\"body\":\"json\",\"stream\":true}},\"modelRules\":[{\"match\":{\"prefix\":[\"deepseek-ai/DeepSeek-V4\"]},\"capabilities\":{\"thinking\":true,\"thinkingBudget\":true,\"showThoughts\":true,\"structuredOutputs\":false,\"structuredOutputModes\":[\"function\"]},\"request\":{\"reasoning\":\"effort\",\"toolChoice\":\"unforced\",\"effortMap\":{\"none\":null,\"minimal\":\"high\",\"low\":\"high\",\"medium\":\"high\",\"high\":\"max\",\"highest\":\"max\",\"xhigh\":\"max\",\"max\":\"max\"},\"defaultThinkingLevel\":\"max\"},\"response\":{\"reasoningFields\":[\"reasoning\",\"reasoning_content\"]},\"replay\":{\"assistantReasoningField\":\"reasoning\"}}],\"sources\":[\"https://docs.together.ai/docs/inference/chat/reasoning\"],\"reviewedAt\":\"2026-08-18\",\"provider\":\"together\",\"baseUrl\":\"https://api.together.xyz/v1\",\"authRequired\":true,\"defaultModel\":\"\",\"features\":{\"functions\":true,\"streaming\":true,\"structured_outputs\":true,\"structured_output_modes\":[\"native\",\"function\",\"json_object\"],\"thinking\":false,\"multi_turn\":true,\"service_tiers\":[],\"media\":{\"images\":{\"supported\":false,\"formats\":[]},\"audio\":{\"supported\":false,\"formats\":[],\"realtime\":false,\"output\":{\"supported\":false,\"formats\":[]}},\"files\":{\"supported\":false,\"formats\":[],\"upload_method\":\"none\"},\"urls\":{\"supported\":false,\"web_search\":false,\"context_fetching\":false}},\"caching\":{\"supported\":false,\"types\":[]}}},\"openrouter\":{\"id\":\"openrouter\",\"name\":\"OpenRouter\",\"aliases\":[\"openrouter\"],\"transport\":\"openai-chat\",\"baseURL\":\"https://openrouter.ai/api/v1\",\"requiresApiURL\":false,\"auth\":\"bearer\",\"defaults\":{\"model\":\"\"},\"capabilities\":{\"functions\":true,\"streaming\":true,\"structuredOutputs\":false,\"thinking\":false,\"multiTurn\":true,\"structuredOutputModes\":[\"function\"],\"serviceTiers\":[\"standard\",\"flex\",\"priority\"]},\"operations\":{\"chat\":{\"path\":\"/chat/completions\",\"dialect\":\"openai-chat\",\"method\":\"POST\",\"body\":\"json\",\"stream\":false},\"stream_chat\":{\"path\":\"/chat/completions\",\"dialect\":\"openai-chat\",\"method\":\"POST\",\"body\":\"json\",\"stream\":true}},\"modelRules\":[{\"match\":{\"prefix\":[\"deepseek/\"]},\"capabilities\":{\"thinking\":true,\"thinkingBudget\":true,\"showThoughts\":true,\"structuredOutputs\":false,\"structuredOutputModes\":[\"function\"]},\"request\":{\"reasoning\":\"openrouter\",\"toolChoice\":\"unforced\",\"effortMap\":{\"none\":\"none\",\"minimal\":\"low\",\"low\":\"low\",\"medium\":\"medium\",\"high\":\"high\",\"highest\":\"max\",\"xhigh\":\"xhigh\",\"max\":\"max\"},\"defaultThinkingLevel\":\"max\"},\"response\":{\"reasoningFields\":[\"reasoning\",\"reasoning_content\"],\"reasoningDetailsFields\":[\"reasoning_details\"]},\"replay\":{\"assistantReasoningField\":\"reasoning\",\"assistantReasoningDetailsField\":\"reasoning_details\"}}],\"sources\":[\"https://openrouter.ai/docs/guides/best-practices/reasoning-tokens\",\"https://openrouter.ai/docs/guides/features/service-tiers\"],\"reviewedAt\":\"2026-08-18\",\"request\":{\"serviceTierMap\":{\"auto\":null,\"standard\":null,\"flex\":\"flex\",\"priority\":\"priority\"}},\"provider\":\"openrouter\",\"baseUrl\":\"https://openrouter.ai/api/v1\",\"authRequired\":true,\"defaultModel\":\"\",\"features\":{\"functions\":true,\"streaming\":true,\"structured_outputs\":false,\"structured_output_modes\":[\"function\"],\"thinking\":false,\"multi_turn\":true,\"service_tiers\":[\"standard\",\"flex\",\"priority\"],\"media\":{\"images\":{\"supported\":false,\"formats\":[]},\"audio\":{\"supported\":false,\"formats\":[],\"realtime\":false,\"output\":{\"supported\":false,\"formats\":[]}},\"files\":{\"supported\":false,\"formats\":[],\"upload_method\":\"none\"},\"urls\":{\"supported\":false,\"web_search\":false,\"context_fetching\":false}},\"caching\":{\"supported\":false,\"types\":[]}}},\"orcarouter\":{\"id\":\"orcarouter\",\"name\":\"OrcaRouter\",\"aliases\":[\"orcarouter\"],\"transport\":\"openai-chat\",\"baseURL\":\"https://api.orcarouter.ai/v1\",\"requiresApiURL\":false,\"auth\":\"bearer\",\"defaults\":{\"model\":\"orcarouter/auto\"},\"capabilities\":{\"functions\":true,\"streaming\":true,\"structuredOutputs\":false,\"thinking\":false,\"multiTurn\":true,\"structuredOutputModes\":[\"function\"],\"serviceTiers\":[]},\"operations\":{\"chat\":{\"path\":\"/chat/completions\",\"dialect\":\"openai-chat\",\"method\":\"POST\",\"body\":\"json\",\"stream\":false},\"stream_chat\":{\"path\":\"/chat/completions\",\"dialect\":\"openai-chat\",\"method\":\"POST\",\"body\":\"json\",\"stream\":true}},\"modelRules\":[],\"sources\":[\"https://www.orcarouter.ai\"],\"reviewedAt\":\"2026-08-19\",\"provider\":\"orcarouter\",\"baseUrl\":\"https://api.orcarouter.ai/v1\",\"authRequired\":true,\"defaultModel\":\"orcarouter/auto\",\"features\":{\"functions\":true,\"streaming\":true,\"structured_outputs\":false,\"structured_output_modes\":[\"function\"],\"thinking\":false,\"multi_turn\":true,\"service_tiers\":[],\"media\":{\"images\":{\"supported\":false,\"formats\":[]},\"audio\":{\"supported\":false,\"formats\":[],\"realtime\":false,\"output\":{\"supported\":false,\"formats\":[]}},\"files\":{\"supported\":false,\"formats\":[],\"upload_method\":\"none\"},\"urls\":{\"supported\":false,\"web_search\":false,\"context_fetching\":false}},\"caching\":{\"supported\":false,\"types\":[]}}},\"fireworks\":{\"id\":\"fireworks\",\"name\":\"Fireworks AI\",\"aliases\":[\"fireworks\",\"fireworks-ai\"],\"transport\":\"openai-chat\",\"baseURL\":\"https://api.fireworks.ai/inference/v1\",\"requiresApiURL\":false,\"auth\":\"bearer\",\"defaults\":{\"model\":\"\"},\"capabilities\":{\"functions\":true,\"streaming\":true,\"structuredOutputs\":true,\"thinking\":false,\"multiTurn\":true,\"structuredOutputModes\":[\"native\",\"function\"],\"serviceTiers\":[\"standard\",\"priority\"]},\"operations\":{\"chat\":{\"path\":\"/chat/completions\",\"dialect\":\"openai-chat\",\"method\":\"POST\",\"body\":\"json\",\"stream\":false},\"embed\":{\"path\":\"/embeddings\",\"dialect\":\"openai-embeddings\",\"method\":\"POST\",\"body\":\"json\",\"stream\":false},\"stream_chat\":{\"path\":\"/chat/completions\",\"dialect\":\"openai-chat\",\"method\":\"POST\",\"body\":\"json\",\"stream\":true}},\"modelRules\":[{\"match\":{\"contains\":[\"deepseek-v4\"]},\"capabilities\":{\"thinking\":true,\"thinkingBudget\":true,\"showThoughts\":true,\"structuredOutputs\":false,\"structuredOutputModes\":[\"function\"]},\"request\":{\"reasoning\":\"effort\",\"toolChoice\":\"unforced\",\"effortMap\":{\"none\":\"none\",\"minimal\":\"high\",\"low\":\"high\",\"medium\":\"high\",\"high\":\"high\",\"highest\":\"max\",\"xhigh\":\"max\",\"max\":\"max\"},\"defaultThinkingLevel\":\"max\"},\"response\":{\"reasoningFields\":[\"reasoning_content\",\"reasoning\"]},\"replay\":{\"assistantReasoningField\":\"reasoning_content\"}}],\"sources\":[\"https://docs.fireworks.ai/api-reference/post-chatcompletions\",\"https://docs.fireworks.ai/guides/reasoning\"],\"reviewedAt\":\"2026-08-18\",\"request\":{\"serviceTierMap\":{\"auto\":null,\"standard\":\"default\",\"priority\":\"priority\"}},\"provider\":\"fireworks\",\"baseUrl\":\"https://api.fireworks.ai/inference/v1\",\"authRequired\":true,\"defaultModel\":\"\",\"features\":{\"functions\":true,\"streaming\":true,\"structured_outputs\":true,\"structured_output_modes\":[\"native\",\"function\"],\"thinking\":false,\"multi_turn\":true,\"service_tiers\":[\"standard\",\"priority\"],\"media\":{\"images\":{\"supported\":false,\"formats\":[]},\"audio\":{\"supported\":false,\"formats\":[],\"realtime\":false,\"output\":{\"supported\":false,\"formats\":[]}},\"files\":{\"supported\":false,\"formats\":[],\"upload_method\":\"none\"},\"urls\":{\"supported\":false,\"web_search\":false,\"context_fetching\":false}},\"caching\":{\"supported\":false,\"types\":[]}}},\"huggingface-router\":{\"id\":\"huggingface-router\",\"name\":\"Hugging Face Router\",\"aliases\":[\"huggingface-router\",\"huggingface\",\"hf-router\"],\"transport\":\"openai-chat\",\"baseURL\":\"https://router.huggingface.co/v1\",\"requiresApiURL\":false,\"auth\":\"bearer\",\"defaults\":{\"model\":\"\"},\"capabilities\":{\"functions\":true,\"streaming\":true,\"structuredOutputs\":false,\"thinking\":false,\"multiTurn\":true,\"structuredOutputModes\":[\"function\"],\"serviceTiers\":[]},\"operations\":{\"chat\":{\"path\":\"/chat/completions\",\"dialect\":\"openai-chat\",\"method\":\"POST\",\"body\":\"json\",\"stream\":false},\"stream_chat\":{\"path\":\"/chat/completions\",\"dialect\":\"openai-chat\",\"method\":\"POST\",\"body\":\"json\",\"stream\":true}},\"modelRules\":[],\"sources\":[\"https://huggingface.co/docs/inference-providers/en/index\",\"https://huggingface.co/docs/inference-providers/en/tasks/chat-completion\"],\"reviewedAt\":\"2026-08-18\",\"provider\":\"huggingface-router\",\"baseUrl\":\"https://router.huggingface.co/v1\",\"authRequired\":true,\"defaultModel\":\"\",\"features\":{\"functions\":true,\"streaming\":true,\"structured_outputs\":false,\"structured_output_modes\":[\"function\"],\"thinking\":false,\"multi_turn\":true,\"service_tiers\":[],\"media\":{\"images\":{\"supported\":false,\"formats\":[]},\"audio\":{\"supported\":false,\"formats\":[],\"realtime\":false,\"output\":{\"supported\":false,\"formats\":[]}},\"files\":{\"supported\":false,\"formats\":[],\"upload_method\":\"none\"},\"urls\":{\"supported\":false,\"web_search\":false,\"context_fetching\":false}},\"caching\":{\"supported\":false,\"types\":[]}}},\"amazon-bedrock\":{\"id\":\"amazon-bedrock\",\"name\":\"Amazon Bedrock\",\"aliases\":[\"amazon-bedrock\",\"bedrock\"],\"transport\":\"openai-chat\",\"baseURL\":null,\"requiresApiURL\":true,\"auth\":\"bearer\",\"defaults\":{\"model\":\"\"},\"capabilities\":{\"functions\":true,\"streaming\":true,\"structuredOutputs\":false,\"thinking\":false,\"multiTurn\":true,\"structuredOutputModes\":[\"function\"],\"serviceTiers\":[\"standard\",\"flex\",\"priority\"]},\"operations\":{\"chat\":{\"path\":\"/chat/completions\",\"dialect\":\"openai-chat\",\"method\":\"POST\",\"body\":\"json\",\"stream\":false},\"stream_chat\":{\"path\":\"/chat/completions\",\"dialect\":\"openai-chat\",\"method\":\"POST\",\"body\":\"json\",\"stream\":true}},\"modelRules\":[],\"sources\":[\"https://docs.aws.amazon.com/bedrock/latest/userguide/inference-chat-completions-mantle.html\",\"https://docs.aws.amazon.com/bedrock/latest/userguide/service-tiers-inference.html\"],\"reviewedAt\":\"2026-08-17\",\"request\":{\"serviceTierMap\":{\"auto\":null,\"standard\":\"default\",\"flex\":\"flex\",\"priority\":\"priority\"}},\"provider\":\"amazon-bedrock\",\"baseUrl\":null,\"authRequired\":true,\"defaultModel\":\"\",\"features\":{\"functions\":true,\"streaming\":true,\"structured_outputs\":false,\"structured_output_modes\":[\"function\"],\"thinking\":false,\"multi_turn\":true,\"service_tiers\":[\"standard\",\"flex\",\"priority\"],\"media\":{\"images\":{\"supported\":false,\"formats\":[]},\"audio\":{\"supported\":false,\"formats\":[],\"realtime\":false,\"output\":{\"supported\":false,\"formats\":[]}},\"files\":{\"supported\":false,\"formats\":[],\"upload_method\":\"none\"},\"urls\":{\"supported\":false,\"web_search\":false,\"context_fetching\":false}},\"caching\":{\"supported\":false,\"types\":[]}}},\"azure-foundry\":{\"id\":\"azure-foundry\",\"name\":\"Azure AI Foundry\",\"aliases\":[\"azure-foundry\",\"azure-ai-foundry\",\"microsoft-foundry\"],\"transport\":\"openai-chat\",\"baseURL\":null,\"requiresApiURL\":true,\"auth\":\"api_key_header\",\"defaults\":{\"model\":\"\"},\"capabilities\":{\"functions\":true,\"streaming\":true,\"structuredOutputs\":false,\"thinking\":false,\"multiTurn\":true,\"structuredOutputModes\":[\"function\"],\"serviceTiers\":[\"standard\",\"priority\"]},\"operations\":{\"chat\":{\"path\":\"/chat/completions\",\"dialect\":\"openai-chat\",\"method\":\"POST\",\"body\":\"json\",\"stream\":false},\"stream_chat\":{\"path\":\"/chat/completions\",\"dialect\":\"openai-chat\",\"method\":\"POST\",\"body\":\"json\",\"stream\":true}},\"modelRules\":[],\"sources\":[\"https://learn.microsoft.com/en-us/rest/api/microsoft-foundry/azureopenai/chat\",\"https://learn.microsoft.com/en-us/azure/foundry/openai/concepts/priority-processing\"],\"reviewedAt\":\"2026-08-17\",\"request\":{\"serviceTierMap\":{\"auto\":\"auto\",\"standard\":\"default\",\"flex\":\"flex\",\"priority\":\"priority\"}},\"provider\":\"azure-foundry\",\"baseUrl\":null,\"authRequired\":true,\"apiKeyHeader\":\"api-key\",\"defaultModel\":\"\",\"features\":{\"functions\":true,\"streaming\":true,\"structured_outputs\":false,\"structured_output_modes\":[\"function\"],\"thinking\":false,\"multi_turn\":true,\"service_tiers\":[\"standard\",\"priority\"],\"media\":{\"images\":{\"supported\":false,\"formats\":[]},\"audio\":{\"supported\":false,\"formats\":[],\"realtime\":false,\"output\":{\"supported\":false,\"formats\":[]}},\"files\":{\"supported\":false,\"formats\":[],\"upload_method\":\"none\"},\"urls\":{\"supported\":false,\"web_search\":false,\"context_fetching\":false}},\"caching\":{\"supported\":false,\"types\":[]}}},\"vertex-ai\":{\"id\":\"vertex-ai\",\"name\":\"Vertex AI OpenAI Compatibility\",\"aliases\":[\"vertex-ai\",\"vertex-openai\"],\"transport\":\"openai-chat\",\"baseURL\":null,\"requiresApiURL\":true,\"auth\":\"bearer\",\"defaults\":{\"model\":\"\"},\"capabilities\":{\"functions\":true,\"streaming\":true,\"structuredOutputs\":false,\"thinking\":false,\"multiTurn\":true,\"structuredOutputModes\":[\"function\"],\"serviceTiers\":[]},\"operations\":{\"chat\":{\"path\":\"/chat/completions\",\"dialect\":\"openai-chat\",\"method\":\"POST\",\"body\":\"json\",\"stream\":false},\"stream_chat\":{\"path\":\"/chat/completions\",\"dialect\":\"openai-chat\",\"method\":\"POST\",\"body\":\"json\",\"stream\":true}},\"modelRules\":[{\"match\":{\"exact\":[\"google/gemma-4-26b-a4b-it-maas\"]},\"capabilities\":{\"structuredOutputs\":false,\"structuredOutputModes\":[\"json_object\",\"function\"],\"thinking\":true},\"request\":{\"defaultThinkingLevel\":\"max\",\"thinkingBoolean\":{\"path\":[\"chat_template_kwargs\",\"enable_thinking\"]}},\"response\":{\"reasoningFields\":[\"reasoning_content\"]},\"replay\":{\"assistantReasoningField\":\"reasoning_content\"}},{\"match\":{\"prefix\":[\"google/gemini-\",\"gemini-\"]},\"capabilities\":{\"structuredOutputs\":true,\"structuredOutputModes\":[\"native\",\"function\",\"json_object\"]}}],\"sources\":[\"https://cloud.google.com/vertex-ai/generative-ai/docs/multimodal/call-vertex-using-openai-library\",\"https://docs.cloud.google.com/gemini-enterprise-agent-platform/models/maas/capabilities/structured-output\",\"https://docs.cloud.google.com/gemini-enterprise-agent-platform/models/maas/capabilities/thinking\"],\"reviewedAt\":\"2026-08-18\",\"provider\":\"vertex-ai\",\"baseUrl\":null,\"authRequired\":true,\"defaultModel\":\"\",\"features\":{\"functions\":true,\"streaming\":true,\"structured_outputs\":false,\"structured_output_modes\":[\"function\"],\"thinking\":false,\"multi_turn\":true,\"service_tiers\":[],\"media\":{\"images\":{\"supported\":false,\"formats\":[]},\"audio\":{\"supported\":false,\"formats\":[],\"realtime\":false,\"output\":{\"supported\":false,\"formats\":[]}},\"files\":{\"supported\":false,\"formats\":[],\"upload_method\":\"none\"},\"urls\":{\"supported\":false,\"web_search\":false,\"context_fetching\":false}},\"caching\":{\"supported\":false,\"types\":[]}}},\"databricks\":{\"id\":\"databricks\",\"name\":\"Databricks Model Serving\",\"aliases\":[\"databricks\"],\"transport\":\"openai-chat\",\"baseURL\":null,\"requiresApiURL\":true,\"auth\":\"bearer\",\"defaults\":{\"model\":\"\"},\"capabilities\":{\"functions\":true,\"streaming\":true,\"structuredOutputs\":false,\"thinking\":false,\"multiTurn\":true,\"structuredOutputModes\":[\"function\"],\"serviceTiers\":[\"standard\",\"priority\"]},\"operations\":{\"chat\":{\"path\":\"/chat/completions\",\"dialect\":\"openai-chat\",\"method\":\"POST\",\"body\":\"json\",\"stream\":false},\"stream_chat\":{\"path\":\"/chat/completions\",\"dialect\":\"openai-chat\",\"method\":\"POST\",\"body\":\"json\",\"stream\":true}},\"modelRules\":[],\"sources\":[\"https://docs.databricks.com/aws/en/machine-learning/model-serving/query-chat-models\",\"https://docs.databricks.com/aws/en/machine-learning/foundation-model-apis/priority-mode\"],\"reviewedAt\":\"2026-08-17\",\"request\":{\"serviceTierMap\":{\"auto\":null,\"standard\":\"default\",\"priority\":\"priority\"}},\"provider\":\"databricks\",\"baseUrl\":null,\"authRequired\":true,\"defaultModel\":\"\",\"features\":{\"functions\":true,\"streaming\":true,\"structured_outputs\":false,\"structured_output_modes\":[\"function\"],\"thinking\":false,\"multi_turn\":true,\"service_tiers\":[\"standard\",\"priority\"],\"media\":{\"images\":{\"supported\":false,\"formats\":[]},\"audio\":{\"supported\":false,\"formats\":[],\"realtime\":false,\"output\":{\"supported\":false,\"formats\":[]}},\"files\":{\"supported\":false,\"formats\":[],\"upload_method\":\"none\"},\"urls\":{\"supported\":false,\"web_search\":false,\"context_fetching\":false}},\"caching\":{\"supported\":false,\"types\":[]}}},\"baseten\":{\"id\":\"baseten\",\"name\":\"Baseten Model APIs\",\"aliases\":[\"baseten\"],\"transport\":\"openai-chat\",\"baseURL\":\"https://inference.baseten.co/v1\",\"requiresApiURL\":false,\"auth\":\"bearer\",\"defaults\":{\"model\":\"\"},\"capabilities\":{\"functions\":true,\"streaming\":true,\"structuredOutputs\":true,\"thinking\":false,\"multiTurn\":true,\"structuredOutputModes\":[\"native\",\"function\"],\"serviceTiers\":[]},\"operations\":{\"chat\":{\"path\":\"/chat/completions\",\"dialect\":\"openai-chat\",\"method\":\"POST\",\"body\":\"json\",\"stream\":false},\"stream_chat\":{\"path\":\"/chat/completions\",\"dialect\":\"openai-chat\",\"method\":\"POST\",\"body\":\"json\",\"stream\":true}},\"modelRules\":[],\"sources\":[\"https://docs.baseten.co/inference/model-apis/overview\"],\"reviewedAt\":\"2026-08-17\",\"provider\":\"baseten\",\"baseUrl\":\"https://inference.baseten.co/v1\",\"authRequired\":true,\"defaultModel\":\"\",\"features\":{\"functions\":true,\"streaming\":true,\"structured_outputs\":true,\"structured_output_modes\":[\"native\",\"function\"],\"thinking\":false,\"multi_turn\":true,\"service_tiers\":[],\"media\":{\"images\":{\"supported\":false,\"formats\":[]},\"audio\":{\"supported\":false,\"formats\":[],\"realtime\":false,\"output\":{\"supported\":false,\"formats\":[]}},\"files\":{\"supported\":false,\"formats\":[],\"upload_method\":\"none\"},\"urls\":{\"supported\":false,\"web_search\":false,\"context_fetching\":false}},\"caching\":{\"supported\":false,\"types\":[]}}},\"groq\":{\"id\":\"groq\",\"name\":\"Groq\",\"aliases\":[\"groq\"],\"transport\":\"openai-chat\",\"baseURL\":\"https://api.groq.com/openai/v1\",\"requiresApiURL\":false,\"auth\":\"bearer\",\"defaults\":{\"model\":\"\"},\"capabilities\":{\"functions\":true,\"streaming\":true,\"structuredOutputs\":true,\"thinking\":false,\"multiTurn\":true,\"structuredOutputModes\":[\"native\",\"function\"],\"serviceTiers\":[\"standard\",\"flex\",\"priority\"]},\"operations\":{\"chat\":{\"path\":\"/chat/completions\",\"dialect\":\"openai-chat\",\"method\":\"POST\",\"body\":\"json\",\"stream\":false},\"stream_chat\":{\"path\":\"/chat/completions\",\"dialect\":\"openai-chat\",\"method\":\"POST\",\"body\":\"json\",\"stream\":true}},\"modelRules\":[{\"match\":{\"exact\":[\"openai/gpt-oss-20b\",\"openai/gpt-oss-120b\"]},\"capabilities\":{\"thinking\":true,\"thinkingBudget\":true},\"request\":{\"reasoning\":\"effort\",\"defaultThinkingLevel\":\"max\",\"effortMap\":{\"none\":null,\"minimal\":\"low\",\"low\":\"low\",\"medium\":\"medium\",\"high\":\"high\",\"highest\":\"high\",\"xhigh\":\"high\",\"max\":\"high\"},\"unsupportedThinkingLevels\":{\"none\":\"Groq GPT-OSS reasoning does not support the none effort level\"}}},{\"match\":{\"exact\":[\"qwen/qwen3.6-27b\"]},\"capabilities\":{\"thinking\":true,\"thinkingBudget\":true},\"request\":{\"reasoning\":\"effort\",\"defaultThinkingLevel\":\"max\",\"effortMap\":{\"none\":\"none\",\"minimal\":\"default\",\"low\":\"default\",\"medium\":\"default\",\"high\":\"default\",\"highest\":\"default\",\"xhigh\":\"default\",\"max\":\"default\"}}}],\"sources\":[\"https://console.groq.com/docs/reasoning\",\"https://console.groq.com/docs/api-reference\",\"https://console.groq.com/docs/service-tiers\"],\"reviewedAt\":\"2026-08-18\",\"request\":{\"serviceTierMap\":{\"auto\":\"auto\",\"standard\":\"on_demand\",\"flex\":\"flex\",\"priority\":\"performance\"}},\"provider\":\"groq\",\"baseUrl\":\"https://api.groq.com/openai/v1\",\"authRequired\":true,\"defaultModel\":\"\",\"features\":{\"functions\":true,\"streaming\":true,\"structured_outputs\":true,\"structured_output_modes\":[\"native\",\"function\"],\"thinking\":false,\"multi_turn\":true,\"service_tiers\":[\"standard\",\"flex\",\"priority\"],\"media\":{\"images\":{\"supported\":false,\"formats\":[]},\"audio\":{\"supported\":false,\"formats\":[],\"realtime\":false,\"output\":{\"supported\":false,\"formats\":[]}},\"files\":{\"supported\":false,\"formats\":[],\"upload_method\":\"none\"},\"urls\":{\"supported\":false,\"web_search\":false,\"context_fetching\":false}},\"caching\":{\"supported\":false,\"types\":[]}}},\"cerebras\":{\"id\":\"cerebras\",\"name\":\"Cerebras Inference\",\"aliases\":[\"cerebras\"],\"transport\":\"openai-chat\",\"baseURL\":\"https://api.cerebras.ai/v1\",\"requiresApiURL\":false,\"auth\":\"bearer\",\"defaults\":{\"model\":\"\"},\"capabilities\":{\"functions\":true,\"streaming\":true,\"structuredOutputs\":true,\"thinking\":false,\"multiTurn\":true,\"structuredOutputModes\":[\"native\",\"function\"],\"serviceTiers\":[\"standard\",\"flex\",\"priority\"]},\"operations\":{\"chat\":{\"path\":\"/chat/completions\",\"dialect\":\"openai-chat\",\"method\":\"POST\",\"body\":\"json\",\"stream\":false},\"stream_chat\":{\"path\":\"/chat/completions\",\"dialect\":\"openai-chat\",\"method\":\"POST\",\"body\":\"json\",\"stream\":true}},\"modelRules\":[{\"match\":{\"exact\":[\"gpt-oss-120b\"]},\"capabilities\":{\"thinking\":true,\"thinkingBudget\":true},\"request\":{\"reasoning\":\"effort\",\"defaultThinkingLevel\":\"max\",\"effortMap\":{\"none\":null,\"minimal\":\"low\",\"low\":\"low\",\"medium\":\"medium\",\"high\":\"high\",\"highest\":\"high\",\"xhigh\":\"high\",\"max\":\"high\"},\"unsupportedThinkingLevels\":{\"none\":\"Cerebras GPT-OSS reasoning does not support the none effort level\"}}},{\"match\":{\"exact\":[\"gemma-4-31b\"]},\"capabilities\":{\"thinking\":true,\"thinkingBudget\":true},\"request\":{\"reasoning\":\"effort\",\"defaultThinkingLevel\":\"max\",\"effortMap\":{\"none\":\"none\",\"minimal\":\"high\",\"low\":\"high\",\"medium\":\"high\",\"high\":\"high\",\"highest\":\"high\",\"xhigh\":\"high\",\"max\":\"high\"}}}],\"sources\":[\"https://inference-docs.cerebras.ai/capabilities/reasoning\",\"https://inference-docs.cerebras.ai/api-reference/chat-completions\",\"https://inference-docs.cerebras.ai/capabilities/service-tiers\"],\"reviewedAt\":\"2026-08-18\",\"request\":{\"serviceTierMap\":{\"auto\":\"auto\",\"standard\":\"default\",\"flex\":\"flex\",\"priority\":\"priority\"}},\"provider\":\"cerebras\",\"baseUrl\":\"https://api.cerebras.ai/v1\",\"authRequired\":true,\"defaultModel\":\"\",\"features\":{\"functions\":true,\"streaming\":true,\"structured_outputs\":true,\"structured_output_modes\":[\"native\",\"function\"],\"thinking\":false,\"multi_turn\":true,\"service_tiers\":[\"standard\",\"flex\",\"priority\"],\"media\":{\"images\":{\"supported\":false,\"formats\":[]},\"audio\":{\"supported\":false,\"formats\":[],\"realtime\":false,\"output\":{\"supported\":false,\"formats\":[]}},\"files\":{\"supported\":false,\"formats\":[],\"upload_method\":\"none\"},\"urls\":{\"supported\":false,\"web_search\":false,\"context_fetching\":false}},\"caching\":{\"supported\":false,\"types\":[]}}},\"deepinfra\":{\"id\":\"deepinfra\",\"name\":\"DeepInfra\",\"aliases\":[\"deepinfra\"],\"transport\":\"openai-chat\",\"baseURL\":\"https://api.deepinfra.com/v1/openai\",\"requiresApiURL\":false,\"auth\":\"bearer\",\"defaults\":{\"model\":\"\"},\"capabilities\":{\"functions\":true,\"streaming\":true,\"structuredOutputs\":false,\"thinking\":false,\"multiTurn\":true,\"structuredOutputModes\":[\"function\"],\"serviceTiers\":[\"standard\",\"priority\"]},\"operations\":{\"chat\":{\"path\":\"/chat/completions\",\"dialect\":\"openai-chat\",\"method\":\"POST\",\"body\":\"json\",\"stream\":false},\"stream_chat\":{\"path\":\"/chat/completions\",\"dialect\":\"openai-chat\",\"method\":\"POST\",\"body\":\"json\",\"stream\":true}},\"modelRules\":[{\"match\":{\"prefix\":[\"deepseek-ai/DeepSeek-R1\"]},\"capabilities\":{\"thinking\":true,\"thinkingBudget\":true},\"request\":{\"reasoning\":\"effort\",\"defaultThinkingLevel\":\"max\",\"effortMap\":{\"none\":\"none\",\"minimal\":\"low\",\"low\":\"low\",\"medium\":\"medium\",\"high\":\"high\",\"highest\":\"high\",\"xhigh\":\"high\",\"max\":\"high\"}}}],\"sources\":[\"https://docs.deepinfra.com/chat/reasoning\",\"https://docs.deepinfra.com/api-reference/introduction\",\"https://docs.deepinfra.com/chat/overview\"],\"reviewedAt\":\"2026-08-18\",\"request\":{\"serviceTierMap\":{\"auto\":null,\"standard\":null,\"priority\":\"priority\"}},\"provider\":\"deepinfra\",\"baseUrl\":\"https://api.deepinfra.com/v1/openai\",\"authRequired\":true,\"defaultModel\":\"\",\"features\":{\"functions\":true,\"streaming\":true,\"structured_outputs\":false,\"structured_output_modes\":[\"function\"],\"thinking\":false,\"multi_turn\":true,\"service_tiers\":[\"standard\",\"priority\"],\"media\":{\"images\":{\"supported\":false,\"formats\":[]},\"audio\":{\"supported\":false,\"formats\":[],\"realtime\":false,\"output\":{\"supported\":false,\"formats\":[]}},\"files\":{\"supported\":false,\"formats\":[],\"upload_method\":\"none\"},\"urls\":{\"supported\":false,\"web_search\":false,\"context_fetching\":false}},\"caching\":{\"supported\":false,\"types\":[]}}},\"sambanova\":{\"id\":\"sambanova\",\"name\":\"SambaNova Cloud\",\"aliases\":[\"sambanova\",\"sambanova-cloud\"],\"transport\":\"openai-chat\",\"baseURL\":\"https://api.sambanova.ai/v1\",\"requiresApiURL\":false,\"auth\":\"bearer\",\"defaults\":{\"model\":\"\"},\"capabilities\":{\"functions\":true,\"streaming\":true,\"structuredOutputs\":false,\"thinking\":false,\"multiTurn\":true,\"structuredOutputModes\":[\"function\"],\"serviceTiers\":[]},\"operations\":{\"chat\":{\"path\":\"/chat/completions\",\"dialect\":\"openai-chat\",\"method\":\"POST\",\"body\":\"json\",\"stream\":false},\"stream_chat\":{\"path\":\"/chat/completions\",\"dialect\":\"openai-chat\",\"method\":\"POST\",\"body\":\"json\",\"stream\":true}},\"modelRules\":[],\"sources\":[\"https://docs.sambanova.ai/docs/en/api-reference/overview\"],\"reviewedAt\":\"2026-08-17\",\"provider\":\"sambanova\",\"baseUrl\":\"https://api.sambanova.ai/v1\",\"authRequired\":true,\"defaultModel\":\"\",\"features\":{\"functions\":true,\"streaming\":true,\"structured_outputs\":false,\"structured_output_modes\":[\"function\"],\"thinking\":false,\"multi_turn\":true,\"service_tiers\":[],\"media\":{\"images\":{\"supported\":false,\"formats\":[]},\"audio\":{\"supported\":false,\"formats\":[],\"realtime\":false,\"output\":{\"supported\":false,\"formats\":[]}},\"files\":{\"supported\":false,\"formats\":[],\"upload_method\":\"none\"},\"urls\":{\"supported\":false,\"web_search\":false,\"context_fetching\":false}},\"caching\":{\"supported\":false,\"types\":[]}}},\"nebius\":{\"id\":\"nebius\",\"name\":\"Nebius AI Studio\",\"aliases\":[\"nebius\"],\"transport\":\"openai-chat\",\"baseURL\":\"https://api.tokenfactory.nebius.com/v1\",\"requiresApiURL\":false,\"auth\":\"bearer\",\"defaults\":{\"model\":\"\"},\"capabilities\":{\"functions\":true,\"streaming\":true,\"structuredOutputs\":false,\"thinking\":false,\"multiTurn\":true,\"structuredOutputModes\":[\"function\"],\"serviceTiers\":[]},\"operations\":{\"chat\":{\"path\":\"/chat/completions\",\"dialect\":\"openai-chat\",\"method\":\"POST\",\"body\":\"json\",\"stream\":false},\"stream_chat\":{\"path\":\"/chat/completions\",\"dialect\":\"openai-chat\",\"method\":\"POST\",\"body\":\"json\",\"stream\":true}},\"modelRules\":[],\"sources\":[\"https://api.studio.nebius.com/docs\"],\"reviewedAt\":\"2026-08-17\",\"provider\":\"nebius\",\"baseUrl\":\"https://api.tokenfactory.nebius.com/v1\",\"authRequired\":true,\"defaultModel\":\"\",\"features\":{\"functions\":true,\"streaming\":true,\"structured_outputs\":false,\"structured_output_modes\":[\"function\"],\"thinking\":false,\"multi_turn\":true,\"service_tiers\":[],\"media\":{\"images\":{\"supported\":false,\"formats\":[]},\"audio\":{\"supported\":false,\"formats\":[],\"realtime\":false,\"output\":{\"supported\":false,\"formats\":[]}},\"files\":{\"supported\":false,\"formats\":[],\"upload_method\":\"none\"},\"urls\":{\"supported\":false,\"web_search\":false,\"context_fetching\":false}},\"caching\":{\"supported\":false,\"types\":[]}}},\"novita\":{\"id\":\"novita\",\"name\":\"Novita AI\",\"aliases\":[\"novita\",\"novita-ai\"],\"transport\":\"openai-chat\",\"baseURL\":\"https://api.novita.ai/v3/openai\",\"requiresApiURL\":false,\"auth\":\"bearer\",\"defaults\":{\"model\":\"\"},\"capabilities\":{\"functions\":true,\"streaming\":true,\"structuredOutputs\":false,\"thinking\":false,\"multiTurn\":true,\"structuredOutputModes\":[\"function\"],\"serviceTiers\":[]},\"operations\":{\"chat\":{\"path\":\"/chat/completions\",\"dialect\":\"openai-chat\",\"method\":\"POST\",\"body\":\"json\",\"stream\":false},\"stream_chat\":{\"path\":\"/chat/completions\",\"dialect\":\"openai-chat\",\"method\":\"POST\",\"body\":\"json\",\"stream\":true}},\"modelRules\":[],\"sources\":[\"https://novita.ai/docs/guides/llm-api\"],\"reviewedAt\":\"2026-08-17\",\"provider\":\"novita\",\"baseUrl\":\"https://api.novita.ai/v3/openai\",\"authRequired\":true,\"defaultModel\":\"\",\"features\":{\"functions\":true,\"streaming\":true,\"structured_outputs\":false,\"structured_output_modes\":[\"function\"],\"thinking\":false,\"multi_turn\":true,\"service_tiers\":[],\"media\":{\"images\":{\"supported\":false,\"formats\":[]},\"audio\":{\"supported\":false,\"formats\":[],\"realtime\":false,\"output\":{\"supported\":false,\"formats\":[]}},\"files\":{\"supported\":false,\"formats\":[],\"upload_method\":\"none\"},\"urls\":{\"supported\":false,\"web_search\":false,\"context_fetching\":false}},\"caching\":{\"supported\":false,\"types\":[]}}},\"hyperbolic\":{\"id\":\"hyperbolic\",\"name\":\"Hyperbolic\",\"aliases\":[\"hyperbolic\"],\"transport\":\"openai-chat\",\"baseURL\":\"https://api.hyperbolic.xyz/v1\",\"requiresApiURL\":false,\"auth\":\"bearer\",\"defaults\":{\"model\":\"\"},\"capabilities\":{\"functions\":true,\"streaming\":true,\"structuredOutputs\":false,\"thinking\":false,\"multiTurn\":true,\"structuredOutputModes\":[\"function\"],\"serviceTiers\":[]},\"operations\":{\"chat\":{\"path\":\"/chat/completions\",\"dialect\":\"openai-chat\",\"method\":\"POST\",\"body\":\"json\",\"stream\":false},\"stream_chat\":{\"path\":\"/chat/completions\",\"dialect\":\"openai-chat\",\"method\":\"POST\",\"body\":\"json\",\"stream\":true}},\"modelRules\":[],\"sources\":[\"https://docs.hyperbolic.xyz/docs/inference-api\"],\"reviewedAt\":\"2026-08-17\",\"provider\":\"hyperbolic\",\"baseUrl\":\"https://api.hyperbolic.xyz/v1\",\"authRequired\":true,\"defaultModel\":\"\",\"features\":{\"functions\":true,\"streaming\":true,\"structured_outputs\":false,\"structured_output_modes\":[\"function\"],\"thinking\":false,\"multi_turn\":true,\"service_tiers\":[],\"media\":{\"images\":{\"supported\":false,\"formats\":[]},\"audio\":{\"supported\":false,\"formats\":[],\"realtime\":false,\"output\":{\"supported\":false,\"formats\":[]}},\"files\":{\"supported\":false,\"formats\":[],\"upload_method\":\"none\"},\"urls\":{\"supported\":false,\"web_search\":false,\"context_fetching\":false}},\"caching\":{\"supported\":false,\"types\":[]}}},\"siliconflow\":{\"id\":\"siliconflow\",\"name\":\"SiliconFlow\",\"aliases\":[\"siliconflow\"],\"transport\":\"openai-chat\",\"baseURL\":\"https://api.siliconflow.com/v1\",\"requiresApiURL\":false,\"auth\":\"bearer\",\"defaults\":{\"model\":\"\"},\"capabilities\":{\"functions\":true,\"streaming\":true,\"structuredOutputs\":false,\"thinking\":false,\"multiTurn\":true,\"structuredOutputModes\":[\"function\"],\"serviceTiers\":[]},\"operations\":{\"chat\":{\"path\":\"/chat/completions\",\"dialect\":\"openai-chat\",\"method\":\"POST\",\"body\":\"json\",\"stream\":false},\"stream_chat\":{\"path\":\"/chat/completions\",\"dialect\":\"openai-chat\",\"method\":\"POST\",\"body\":\"json\",\"stream\":true}},\"modelRules\":[],\"sources\":[\"https://docs.siliconflow.com/en/userguide/quickstart\"],\"reviewedAt\":\"2026-08-17\",\"provider\":\"siliconflow\",\"baseUrl\":\"https://api.siliconflow.com/v1\",\"authRequired\":true,\"defaultModel\":\"\",\"features\":{\"functions\":true,\"streaming\":true,\"structured_outputs\":false,\"structured_output_modes\":[\"function\"],\"thinking\":false,\"multi_turn\":true,\"service_tiers\":[],\"media\":{\"images\":{\"supported\":false,\"formats\":[]},\"audio\":{\"supported\":false,\"formats\":[],\"realtime\":false,\"output\":{\"supported\":false,\"formats\":[]}},\"files\":{\"supported\":false,\"formats\":[],\"upload_method\":\"none\"},\"urls\":{\"supported\":false,\"web_search\":false,\"context_fetching\":false}},\"caching\":{\"supported\":false,\"types\":[]}}},\"friendli\":{\"id\":\"friendli\",\"name\":\"FriendliAI\",\"aliases\":[\"friendli\",\"friendli-ai\"],\"transport\":\"openai-chat\",\"baseURL\":\"https://api.friendli.ai/serverless/v1\",\"requiresApiURL\":false,\"auth\":\"bearer\",\"defaults\":{\"model\":\"\"},\"capabilities\":{\"functions\":true,\"streaming\":true,\"structuredOutputs\":false,\"thinking\":false,\"multiTurn\":true,\"structuredOutputModes\":[\"function\"],\"serviceTiers\":[]},\"operations\":{\"chat\":{\"path\":\"/chat/completions\",\"dialect\":\"openai-chat\",\"method\":\"POST\",\"body\":\"json\",\"stream\":false},\"stream_chat\":{\"path\":\"/chat/completions\",\"dialect\":\"openai-chat\",\"method\":\"POST\",\"body\":\"json\",\"stream\":true}},\"modelRules\":[],\"sources\":[\"https://friendli.ai/docs/guides/tool-calling\"],\"reviewedAt\":\"2026-08-17\",\"provider\":\"friendli\",\"baseUrl\":\"https://api.friendli.ai/serverless/v1\",\"authRequired\":true,\"defaultModel\":\"\",\"features\":{\"functions\":true,\"streaming\":true,\"structured_outputs\":false,\"structured_output_modes\":[\"function\"],\"thinking\":false,\"multi_turn\":true,\"service_tiers\":[],\"media\":{\"images\":{\"supported\":false,\"formats\":[]},\"audio\":{\"supported\":false,\"formats\":[],\"realtime\":false,\"output\":{\"supported\":false,\"formats\":[]}},\"files\":{\"supported\":false,\"formats\":[],\"upload_method\":\"none\"},\"urls\":{\"supported\":false,\"web_search\":false,\"context_fetching\":false}},\"caching\":{\"supported\":false,\"types\":[]}}},\"cloudflare-workers-ai\":{\"id\":\"cloudflare-workers-ai\",\"name\":\"Cloudflare Workers AI\",\"aliases\":[\"cloudflare-workers-ai\",\"workers-ai\"],\"transport\":\"openai-chat\",\"baseURL\":null,\"requiresApiURL\":true,\"auth\":\"bearer\",\"defaults\":{\"model\":\"\"},\"capabilities\":{\"functions\":true,\"streaming\":true,\"structuredOutputs\":false,\"thinking\":false,\"multiTurn\":true,\"structuredOutputModes\":[\"function\"],\"serviceTiers\":[]},\"operations\":{\"chat\":{\"path\":\"/chat/completions\",\"dialect\":\"openai-chat\",\"method\":\"POST\",\"body\":\"json\",\"stream\":false},\"stream_chat\":{\"path\":\"/chat/completions\",\"dialect\":\"openai-chat\",\"method\":\"POST\",\"body\":\"json\",\"stream\":true}},\"modelRules\":[],\"sources\":[\"https://developers.cloudflare.com/workers-ai/configuration/open-ai-compatibility/\"],\"reviewedAt\":\"2026-08-17\",\"provider\":\"cloudflare-workers-ai\",\"baseUrl\":null,\"authRequired\":true,\"defaultModel\":\"\",\"features\":{\"functions\":true,\"streaming\":true,\"structured_outputs\":false,\"structured_output_modes\":[\"function\"],\"thinking\":false,\"multi_turn\":true,\"service_tiers\":[],\"media\":{\"images\":{\"supported\":false,\"formats\":[]},\"audio\":{\"supported\":false,\"formats\":[],\"realtime\":false,\"output\":{\"supported\":false,\"formats\":[]}},\"files\":{\"supported\":false,\"formats\":[],\"upload_method\":\"none\"},\"urls\":{\"supported\":false,\"web_search\":false,\"context_fetching\":false}},\"caching\":{\"supported\":false,\"types\":[]}}},\"featherless\":{\"id\":\"featherless\",\"name\":\"Featherless AI\",\"aliases\":[\"featherless\",\"featherless-ai\"],\"transport\":\"openai-chat\",\"baseURL\":\"https://api.featherless.ai/v1\",\"requiresApiURL\":false,\"auth\":\"bearer\",\"defaults\":{\"model\":\"\"},\"capabilities\":{\"functions\":true,\"streaming\":true,\"structuredOutputs\":false,\"thinking\":false,\"multiTurn\":true,\"structuredOutputModes\":[\"function\"],\"serviceTiers\":[]},\"operations\":{\"chat\":{\"path\":\"/chat/completions\",\"dialect\":\"openai-chat\",\"method\":\"POST\",\"body\":\"json\",\"stream\":false},\"stream_chat\":{\"path\":\"/chat/completions\",\"dialect\":\"openai-chat\",\"method\":\"POST\",\"body\":\"json\",\"stream\":true}},\"modelRules\":[],\"sources\":[\"https://featherless.ai/docs/quickstart-guide\"],\"reviewedAt\":\"2026-08-17\",\"provider\":\"featherless\",\"baseUrl\":\"https://api.featherless.ai/v1\",\"authRequired\":true,\"defaultModel\":\"\",\"features\":{\"functions\":true,\"streaming\":true,\"structured_outputs\":false,\"structured_output_modes\":[\"function\"],\"thinking\":false,\"multi_turn\":true,\"service_tiers\":[],\"media\":{\"images\":{\"supported\":false,\"formats\":[]},\"audio\":{\"supported\":false,\"formats\":[],\"realtime\":false,\"output\":{\"supported\":false,\"formats\":[]}},\"files\":{\"supported\":false,\"formats\":[],\"upload_method\":\"none\"},\"urls\":{\"supported\":false,\"web_search\":false,\"context_fetching\":false}},\"caching\":{\"supported\":false,\"types\":[]}}},\"nscale\":{\"id\":\"nscale\",\"name\":\"Nscale\",\"aliases\":[\"nscale\"],\"transport\":\"openai-chat\",\"baseURL\":null,\"requiresApiURL\":true,\"auth\":\"bearer\",\"defaults\":{\"model\":\"\"},\"capabilities\":{\"functions\":true,\"streaming\":true,\"structuredOutputs\":false,\"thinking\":false,\"multiTurn\":true,\"structuredOutputModes\":[\"function\"],\"serviceTiers\":[]},\"operations\":{\"chat\":{\"path\":\"/chat/completions\",\"dialect\":\"openai-chat\",\"method\":\"POST\",\"body\":\"json\",\"stream\":false},\"stream_chat\":{\"path\":\"/chat/completions\",\"dialect\":\"openai-chat\",\"method\":\"POST\",\"body\":\"json\",\"stream\":true}},\"modelRules\":[],\"sources\":[\"https://docs.nscale.com/docs/use-cases/chat\"],\"reviewedAt\":\"2026-08-17\",\"provider\":\"nscale\",\"baseUrl\":null,\"authRequired\":true,\"defaultModel\":\"\",\"features\":{\"functions\":true,\"streaming\":true,\"structured_outputs\":false,\"structured_output_modes\":[\"function\"],\"thinking\":false,\"multi_turn\":true,\"service_tiers\":[],\"media\":{\"images\":{\"supported\":false,\"formats\":[]},\"audio\":{\"supported\":false,\"formats\":[],\"realtime\":false,\"output\":{\"supported\":false,\"formats\":[]}},\"files\":{\"supported\":false,\"formats\":[],\"upload_method\":\"none\"},\"urls\":{\"supported\":false,\"web_search\":false,\"context_fetching\":false}},\"caching\":{\"supported\":false,\"types\":[]}}},\"ovhcloud\":{\"id\":\"ovhcloud\",\"name\":\"OVHcloud AI Endpoints\",\"aliases\":[\"ovhcloud\",\"ovh\"],\"transport\":\"openai-chat\",\"baseURL\":null,\"requiresApiURL\":true,\"auth\":\"bearer\",\"defaults\":{\"model\":\"\"},\"capabilities\":{\"functions\":true,\"streaming\":true,\"structuredOutputs\":false,\"thinking\":false,\"multiTurn\":true,\"structuredOutputModes\":[\"function\"],\"serviceTiers\":[]},\"operations\":{\"chat\":{\"path\":\"/chat/completions\",\"dialect\":\"openai-chat\",\"method\":\"POST\",\"body\":\"json\",\"stream\":false},\"stream_chat\":{\"path\":\"/chat/completions\",\"dialect\":\"openai-chat\",\"method\":\"POST\",\"body\":\"json\",\"stream\":true}},\"modelRules\":[],\"sources\":[\"https://docs.ovhcloud.com/en/guides/public-cloud/ai-machine-learning/ai-endpoints-capabilities\"],\"reviewedAt\":\"2026-08-17\",\"provider\":\"ovhcloud\",\"baseUrl\":null,\"authRequired\":true,\"defaultModel\":\"\",\"features\":{\"functions\":true,\"streaming\":true,\"structured_outputs\":false,\"structured_output_modes\":[\"function\"],\"thinking\":false,\"multi_turn\":true,\"service_tiers\":[],\"media\":{\"images\":{\"supported\":false,\"formats\":[]},\"audio\":{\"supported\":false,\"formats\":[],\"realtime\":false,\"output\":{\"supported\":false,\"formats\":[]}},\"files\":{\"supported\":false,\"formats\":[],\"upload_method\":\"none\"},\"urls\":{\"supported\":false,\"web_search\":false,\"context_fetching\":false}},\"caching\":{\"supported\":false,\"types\":[]}}},\"scaleway\":{\"id\":\"scaleway\",\"name\":\"Scaleway Generative APIs\",\"aliases\":[\"scaleway\"],\"transport\":\"openai-chat\",\"baseURL\":\"https://api.scaleway.ai/v1\",\"requiresApiURL\":false,\"auth\":\"bearer\",\"defaults\":{\"model\":\"\"},\"capabilities\":{\"functions\":true,\"streaming\":true,\"structuredOutputs\":false,\"thinking\":false,\"multiTurn\":true,\"structuredOutputModes\":[\"function\"],\"serviceTiers\":[]},\"operations\":{\"chat\":{\"path\":\"/chat/completions\",\"dialect\":\"openai-chat\",\"method\":\"POST\",\"body\":\"json\",\"stream\":false},\"stream_chat\":{\"path\":\"/chat/completions\",\"dialect\":\"openai-chat\",\"method\":\"POST\",\"body\":\"json\",\"stream\":true}},\"modelRules\":[],\"sources\":[\"https://www.scaleway.com/en/developers/api/generative-apis\"],\"reviewedAt\":\"2026-08-17\",\"provider\":\"scaleway\",\"baseUrl\":\"https://api.scaleway.ai/v1\",\"authRequired\":true,\"defaultModel\":\"\",\"features\":{\"functions\":true,\"streaming\":true,\"structured_outputs\":false,\"structured_output_modes\":[\"function\"],\"thinking\":false,\"multi_turn\":true,\"service_tiers\":[],\"media\":{\"images\":{\"supported\":false,\"formats\":[]},\"audio\":{\"supported\":false,\"formats\":[],\"realtime\":false,\"output\":{\"supported\":false,\"formats\":[]}},\"files\":{\"supported\":false,\"formats\":[],\"upload_method\":\"none\"},\"urls\":{\"supported\":false,\"web_search\":false,\"context_fetching\":false}},\"caching\":{\"supported\":false,\"types\":[]}}},\"nvidia-nim\":{\"id\":\"nvidia-nim\",\"name\":\"NVIDIA NIM\",\"aliases\":[\"nvidia-nim\",\"nim\"],\"transport\":\"openai-chat\",\"baseURL\":null,\"requiresApiURL\":true,\"auth\":\"bearer\",\"defaults\":{\"model\":\"\"},\"capabilities\":{\"functions\":true,\"streaming\":true,\"structuredOutputs\":false,\"thinking\":false,\"multiTurn\":true,\"structuredOutputModes\":[\"function\"],\"serviceTiers\":[]},\"operations\":{\"chat\":{\"path\":\"/chat/completions\",\"dialect\":\"openai-chat\",\"method\":\"POST\",\"body\":\"json\",\"stream\":false},\"stream_chat\":{\"path\":\"/chat/completions\",\"dialect\":\"openai-chat\",\"method\":\"POST\",\"body\":\"json\",\"stream\":true}},\"modelRules\":[],\"sources\":[\"https://docs.nvidia.com/nim/large-language-models/latest/getting-started.html\"],\"reviewedAt\":\"2026-08-17\",\"provider\":\"nvidia-nim\",\"baseUrl\":null,\"authRequired\":false,\"defaultModel\":\"\",\"features\":{\"functions\":true,\"streaming\":true,\"structured_outputs\":false,\"structured_output_modes\":[\"function\"],\"thinking\":false,\"multi_turn\":true,\"service_tiers\":[],\"media\":{\"images\":{\"supported\":false,\"formats\":[]},\"audio\":{\"supported\":false,\"formats\":[],\"realtime\":false,\"output\":{\"supported\":false,\"formats\":[]}},\"files\":{\"supported\":false,\"formats\":[],\"upload_method\":\"none\"},\"urls\":{\"supported\":false,\"web_search\":false,\"context_fetching\":false}},\"caching\":{\"supported\":false,\"types\":[]}}},\"runpod-vllm\":{\"id\":\"runpod-vllm\",\"name\":\"RunPod vLLM\",\"aliases\":[\"runpod-vllm\",\"runpod\"],\"transport\":\"openai-chat\",\"baseURL\":null,\"requiresApiURL\":true,\"auth\":\"bearer\",\"defaults\":{\"model\":\"\"},\"capabilities\":{\"functions\":true,\"streaming\":true,\"structuredOutputs\":false,\"thinking\":false,\"multiTurn\":true,\"structuredOutputModes\":[\"function\"],\"serviceTiers\":[]},\"operations\":{\"chat\":{\"path\":\"/chat/completions\",\"dialect\":\"openai-chat\",\"method\":\"POST\",\"body\":\"json\",\"stream\":false},\"stream_chat\":{\"path\":\"/chat/completions\",\"dialect\":\"openai-chat\",\"method\":\"POST\",\"body\":\"json\",\"stream\":true}},\"modelRules\":[],\"sources\":[\"https://docs.runpod.io/serverless/vllm/openai-compatibility\"],\"reviewedAt\":\"2026-08-17\",\"provider\":\"runpod-vllm\",\"baseUrl\":null,\"authRequired\":true,\"defaultModel\":\"\",\"features\":{\"functions\":true,\"streaming\":true,\"structured_outputs\":false,\"structured_output_modes\":[\"function\"],\"thinking\":false,\"multi_turn\":true,\"service_tiers\":[],\"media\":{\"images\":{\"supported\":false,\"formats\":[]},\"audio\":{\"supported\":false,\"formats\":[],\"realtime\":false,\"output\":{\"supported\":false,\"formats\":[]}},\"files\":{\"supported\":false,\"formats\":[],\"upload_method\":\"none\"},\"urls\":{\"supported\":false,\"web_search\":false,\"context_fetching\":false}},\"caching\":{\"supported\":false,\"types\":[]}}},\"sagemaker-vllm\":{\"id\":\"sagemaker-vllm\",\"name\":\"SageMaker vLLM\",\"aliases\":[\"sagemaker-vllm\",\"sagemaker\"],\"transport\":\"openai-chat\",\"baseURL\":null,\"requiresApiURL\":true,\"auth\":\"bearer\",\"defaults\":{\"model\":\"\"},\"capabilities\":{\"functions\":true,\"streaming\":true,\"structuredOutputs\":false,\"thinking\":false,\"multiTurn\":true,\"structuredOutputModes\":[\"function\"],\"serviceTiers\":[]},\"operations\":{\"chat\":{\"path\":\"/chat/completions\",\"dialect\":\"openai-chat\",\"method\":\"POST\",\"body\":\"json\",\"stream\":false},\"stream_chat\":{\"path\":\"/chat/completions\",\"dialect\":\"openai-chat\",\"method\":\"POST\",\"body\":\"json\",\"stream\":true}},\"modelRules\":[],\"sources\":[\"https://docs.aws.amazon.com/sagemaker/latest/dg/realtime-endpoints-openai-compatible.html\"],\"reviewedAt\":\"2026-08-17\",\"provider\":\"sagemaker-vllm\",\"baseUrl\":null,\"authRequired\":false,\"defaultModel\":\"\",\"features\":{\"functions\":true,\"streaming\":true,\"structured_outputs\":false,\"structured_output_modes\":[\"function\"],\"thinking\":false,\"multi_turn\":true,\"service_tiers\":[],\"media\":{\"images\":{\"supported\":false,\"formats\":[]},\"audio\":{\"supported\":false,\"formats\":[],\"realtime\":false,\"output\":{\"supported\":false,\"formats\":[]}},\"files\":{\"supported\":false,\"formats\":[],\"upload_method\":\"none\"},\"urls\":{\"supported\":false,\"web_search\":false,\"context_fetching\":false}},\"caching\":{\"supported\":false,\"types\":[]}}},\"vllm\":{\"id\":\"vllm\",\"name\":\"vLLM\",\"aliases\":[\"vllm\"],\"transport\":\"openai-chat\",\"baseURL\":\"http://localhost:8000/v1\",\"requiresApiURL\":false,\"auth\":\"bearer\",\"defaults\":{\"model\":\"\"},\"capabilities\":{\"functions\":true,\"streaming\":true,\"structuredOutputs\":false,\"thinking\":false,\"multiTurn\":true,\"structuredOutputModes\":[\"function\"],\"serviceTiers\":[]},\"operations\":{\"chat\":{\"path\":\"/chat/completions\",\"dialect\":\"openai-chat\",\"method\":\"POST\",\"body\":\"json\",\"stream\":false},\"stream_chat\":{\"path\":\"/chat/completions\",\"dialect\":\"openai-chat\",\"method\":\"POST\",\"body\":\"json\",\"stream\":true}},\"modelRules\":[],\"sources\":[\"https://docs.vllm.ai/en/latest/serving/openai_compatible_server/\"],\"reviewedAt\":\"2026-08-17\",\"provider\":\"vllm\",\"baseUrl\":\"http://localhost:8000/v1\",\"authRequired\":false,\"defaultModel\":\"\",\"features\":{\"functions\":true,\"streaming\":true,\"structured_outputs\":false,\"structured_output_modes\":[\"function\"],\"thinking\":false,\"multi_turn\":true,\"service_tiers\":[],\"media\":{\"images\":{\"supported\":false,\"formats\":[]},\"audio\":{\"supported\":false,\"formats\":[],\"realtime\":false,\"output\":{\"supported\":false,\"formats\":[]}},\"files\":{\"supported\":false,\"formats\":[],\"upload_method\":\"none\"},\"urls\":{\"supported\":false,\"web_search\":false,\"context_fetching\":false}},\"caching\":{\"supported\":false,\"types\":[]}}},\"ollama\":{\"id\":\"ollama\",\"name\":\"Ollama\",\"aliases\":[\"ollama\"],\"transport\":\"openai-chat\",\"baseURL\":\"http://localhost:11434/v1\",\"requiresApiURL\":false,\"auth\":\"bearer\",\"defaults\":{\"model\":\"\"},\"capabilities\":{\"functions\":true,\"streaming\":true,\"structuredOutputs\":false,\"thinking\":false,\"multiTurn\":true,\"structuredOutputModes\":[\"function\"],\"serviceTiers\":[]},\"operations\":{\"chat\":{\"path\":\"/chat/completions\",\"dialect\":\"openai-chat\",\"method\":\"POST\",\"body\":\"json\",\"stream\":false},\"stream_chat\":{\"path\":\"/chat/completions\",\"dialect\":\"openai-chat\",\"method\":\"POST\",\"body\":\"json\",\"stream\":true}},\"modelRules\":[],\"sources\":[\"https://docs.ollama.com/api/openai-compatibility\"],\"reviewedAt\":\"2026-08-17\",\"provider\":\"ollama\",\"baseUrl\":\"http://localhost:11434/v1\",\"authRequired\":false,\"defaultModel\":\"\",\"features\":{\"functions\":true,\"streaming\":true,\"structured_outputs\":false,\"structured_output_modes\":[\"function\"],\"thinking\":false,\"multi_turn\":true,\"service_tiers\":[],\"media\":{\"images\":{\"supported\":false,\"formats\":[]},\"audio\":{\"supported\":false,\"formats\":[],\"realtime\":false,\"output\":{\"supported\":false,\"formats\":[]}},\"files\":{\"supported\":false,\"formats\":[],\"upload_method\":\"none\"},\"urls\":{\"supported\":false,\"web_search\":false,\"context_fetching\":false}},\"caching\":{\"supported\":false,\"types\":[]}}},\"lm-studio\":{\"id\":\"lm-studio\",\"name\":\"LM Studio\",\"aliases\":[\"lm-studio\",\"lmstudio\"],\"transport\":\"openai-chat\",\"baseURL\":\"http://localhost:1234/v1\",\"requiresApiURL\":false,\"auth\":\"bearer\",\"defaults\":{\"model\":\"\"},\"capabilities\":{\"functions\":true,\"streaming\":true,\"structuredOutputs\":false,\"thinking\":false,\"multiTurn\":true,\"structuredOutputModes\":[\"function\"],\"serviceTiers\":[]},\"operations\":{\"chat\":{\"path\":\"/chat/completions\",\"dialect\":\"openai-chat\",\"method\":\"POST\",\"body\":\"json\",\"stream\":false},\"stream_chat\":{\"path\":\"/chat/completions\",\"dialect\":\"openai-chat\",\"method\":\"POST\",\"body\":\"json\",\"stream\":true}},\"modelRules\":[],\"sources\":[\"https://lmstudio.ai/docs/developer/openai-compat\"],\"reviewedAt\":\"2026-08-17\",\"provider\":\"lm-studio\",\"baseUrl\":\"http://localhost:1234/v1\",\"authRequired\":false,\"defaultModel\":\"\",\"features\":{\"functions\":true,\"streaming\":true,\"structured_outputs\":false,\"structured_output_modes\":[\"function\"],\"thinking\":false,\"multi_turn\":true,\"service_tiers\":[],\"media\":{\"images\":{\"supported\":false,\"formats\":[]},\"audio\":{\"supported\":false,\"formats\":[],\"realtime\":false,\"output\":{\"supported\":false,\"formats\":[]}},\"files\":{\"supported\":false,\"formats\":[],\"upload_method\":\"none\"},\"urls\":{\"supported\":false,\"web_search\":false,\"context_fetching\":false}},\"caching\":{\"supported\":false,\"types\":[]}}},\"llama-cpp\":{\"id\":\"llama-cpp\",\"name\":\"llama.cpp Server\",\"aliases\":[\"llama-cpp\",\"llama.cpp\"],\"transport\":\"openai-chat\",\"baseURL\":\"http://localhost:8080/v1\",\"requiresApiURL\":false,\"auth\":\"bearer\",\"defaults\":{\"model\":\"\"},\"capabilities\":{\"functions\":true,\"streaming\":true,\"structuredOutputs\":false,\"thinking\":false,\"multiTurn\":true,\"structuredOutputModes\":[\"function\"],\"serviceTiers\":[]},\"operations\":{\"chat\":{\"path\":\"/chat/completions\",\"dialect\":\"openai-chat\",\"method\":\"POST\",\"body\":\"json\",\"stream\":false},\"stream_chat\":{\"path\":\"/chat/completions\",\"dialect\":\"openai-chat\",\"method\":\"POST\",\"body\":\"json\",\"stream\":true}},\"modelRules\":[],\"sources\":[\"https://github.com/ggml-org/llama.cpp/blob/master/tools/server/README.md\"],\"reviewedAt\":\"2026-08-17\",\"provider\":\"llama-cpp\",\"baseUrl\":\"http://localhost:8080/v1\",\"authRequired\":false,\"defaultModel\":\"\",\"features\":{\"functions\":true,\"streaming\":true,\"structured_outputs\":false,\"structured_output_modes\":[\"function\"],\"thinking\":false,\"multi_turn\":true,\"service_tiers\":[],\"media\":{\"images\":{\"supported\":false,\"formats\":[]},\"audio\":{\"supported\":false,\"formats\":[],\"realtime\":false,\"output\":{\"supported\":false,\"formats\":[]}},\"files\":{\"supported\":false,\"formats\":[],\"upload_method\":\"none\"},\"urls\":{\"supported\":false,\"web_search\":false,\"context_fetching\":false}},\"caching\":{\"supported\":false,\"types\":[]}}},\"localai\":{\"id\":\"localai\",\"name\":\"LocalAI\",\"aliases\":[\"localai\",\"local-ai\"],\"transport\":\"openai-chat\",\"baseURL\":\"http://localhost:8080/v1\",\"requiresApiURL\":false,\"auth\":\"bearer\",\"defaults\":{\"model\":\"\"},\"capabilities\":{\"functions\":true,\"streaming\":true,\"structuredOutputs\":false,\"thinking\":false,\"multiTurn\":true,\"structuredOutputModes\":[\"function\"],\"serviceTiers\":[]},\"operations\":{\"chat\":{\"path\":\"/chat/completions\",\"dialect\":\"openai-chat\",\"method\":\"POST\",\"body\":\"json\",\"stream\":false},\"stream_chat\":{\"path\":\"/chat/completions\",\"dialect\":\"openai-chat\",\"method\":\"POST\",\"body\":\"json\",\"stream\":true}},\"modelRules\":[],\"sources\":[\"https://localai.io/features/openai-functions/\"],\"reviewedAt\":\"2026-08-17\",\"provider\":\"localai\",\"baseUrl\":\"http://localhost:8080/v1\",\"authRequired\":false,\"defaultModel\":\"\",\"features\":{\"functions\":true,\"streaming\":true,\"structured_outputs\":false,\"structured_output_modes\":[\"function\"],\"thinking\":false,\"multi_turn\":true,\"service_tiers\":[],\"media\":{\"images\":{\"supported\":false,\"formats\":[]},\"audio\":{\"supported\":false,\"formats\":[],\"realtime\":false,\"output\":{\"supported\":false,\"formats\":[]}},\"files\":{\"supported\":false,\"formats\":[],\"upload_method\":\"none\"},\"urls\":{\"supported\":false,\"web_search\":false,\"context_fetching\":false}},\"caching\":{\"supported\":false,\"types\":[]}}},\"baseten-engine\":{\"id\":\"baseten-engine\",\"name\":\"Baseten Inference Engine\",\"aliases\":[\"baseten-engine\",\"truss\"],\"transport\":\"openai-chat\",\"baseURL\":null,\"requiresApiURL\":true,\"auth\":\"bearer\",\"defaults\":{\"model\":\"\"},\"capabilities\":{\"functions\":true,\"streaming\":true,\"structuredOutputs\":false,\"thinking\":false,\"multiTurn\":true,\"structuredOutputModes\":[\"function\"],\"serviceTiers\":[]},\"operations\":{\"chat\":{\"path\":\"/chat/completions\",\"dialect\":\"openai-chat\",\"method\":\"POST\",\"body\":\"json\",\"stream\":false},\"stream_chat\":{\"path\":\"/chat/completions\",\"dialect\":\"openai-chat\",\"method\":\"POST\",\"body\":\"json\",\"stream\":true}},\"modelRules\":[],\"sources\":[\"https://docs.baseten.co/development/model/deployment/inference\"],\"reviewedAt\":\"2026-08-17\",\"provider\":\"baseten-engine\",\"baseUrl\":null,\"authRequired\":false,\"defaultModel\":\"\",\"features\":{\"functions\":true,\"streaming\":true,\"structured_outputs\":false,\"structured_output_modes\":[\"function\"],\"thinking\":false,\"multi_turn\":true,\"service_tiers\":[],\"media\":{\"images\":{\"supported\":false,\"formats\":[]},\"audio\":{\"supported\":false,\"formats\":[],\"realtime\":false,\"output\":{\"supported\":false,\"formats\":[]}},\"files\":{\"supported\":false,\"formats\":[],\"upload_method\":\"none\"},\"urls\":{\"supported\":false,\"web_search\":false,\"context_fetching\":false}},\"caching\":{\"supported\":false,\"types\":[]}}},\"typesafe\":{\"id\":\"typesafe\",\"name\":\"Typesafe\",\"aliases\":[\"typesafe\"],\"transport\":\"typesafe-system-one\",\"baseURL\":\"https://api.typesafe.ai\",\"requiresApiURL\":false,\"auth\":\"bearer\",\"defaults\":{\"model\":\"jev-latest\"},\"capabilities\":{\"functions\":false,\"functionEmulation\":false,\"streaming\":false,\"structuredOutputs\":true,\"structuredOutputModes\":[\"native\"],\"requiresStructuredOutput\":true,\"thinking\":false,\"multiTurn\":false,\"serviceTiers\":[]},\"operations\":{\"chat\":{\"path\":\"/v1/systemone\",\"dialect\":\"typesafe-system-one\",\"method\":\"POST\",\"body\":\"json\",\"stream\":false}},\"modelRules\":[],\"sources\":[\"https://github.com/typesafe-ai/typesafe-sdk-js\",\"https://docs.typesafe.ai/sdk/javascript\"],\"reviewedAt\":\"2026-09-15\",\"provider\":\"typesafe\",\"baseUrl\":\"https://api.typesafe.ai\",\"authRequired\":true,\"defaultModel\":\"jev-latest\",\"features\":{\"functions\":false,\"streaming\":false,\"structured_outputs\":true,\"structured_output_modes\":[\"native\"],\"requires_structured_output\":true,\"thinking\":false,\"multi_turn\":false,\"service_tiers\":[],\"media\":{\"images\":{\"supported\":false,\"formats\":[]},\"audio\":{\"supported\":false,\"formats\":[],\"realtime\":false,\"output\":{\"supported\":false,\"formats\":[]}},\"files\":{\"supported\":false,\"formats\":[],\"upload_method\":\"none\"},\"urls\":{\"supported\":false,\"web_search\":false,\"context_fetching\":false}},\"caching\":{\"supported\":false,\"types\":[]}}}}\n")])?;
     v_empty = CoreValue::new_map();
     v_descriptor = core_get(&v_descriptors, &v_provider_id.clone(), v_empty.clone());
     return Ok(v_descriptor.clone());
@@ -42272,6 +44609,7 @@ fn provider_build_chat_request(args: &[CoreValue]) -> Result<CoreValue, AxError>
     let mut v_is_meta_messages_final = CoreValue::Null;
     let mut v_is_official_openai = CoreValue::Null;
     let mut v_is_responses = CoreValue::Null;
+    let mut v_is_typesafe = CoreValue::Null;
     let mut v_is_vertex = CoreValue::Null;
     let mut v_json_object_error = CoreValue::Null;
     let mut v_json_object_message = CoreValue::Null;
@@ -42304,6 +44642,11 @@ fn provider_build_chat_request(args: &[CoreValue]) -> Result<CoreValue, AxError>
         &CoreValue::from("transport"),
         CoreValue::from("openai-chat"),
     );
+    v_is_typesafe = core_eq(&[v_transport.clone(), CoreValue::from("typesafe-system-one")])?;
+    if core_truthy(&v_is_typesafe) {
+        v_payload = typesafe_build_chat_request(&[v_request.clone(), v_options.clone()])?;
+        return Ok(v_payload.clone());
+    }
     v_is_responses = core_eq(&[v_transport.clone(), CoreValue::from("openai-responses")])?;
     v_is_gemini = core_eq(&[
         v_transport.clone(),
@@ -43540,6 +45883,7 @@ fn provider_normalize_chat_response(args: &[CoreValue]) -> Result<CoreValue, AxE
     let mut v_is_anthropic = CoreValue::Null;
     let mut v_is_gemini = CoreValue::Null;
     let mut v_is_responses = CoreValue::Null;
+    let mut v_is_typesafe = CoreValue::Null;
     let mut v_provider_id = CoreValue::Null;
     let mut v_reasoning_content_mode = CoreValue::Null;
     let mut v_reasoning_details_mode = CoreValue::Null;
@@ -43553,6 +45897,11 @@ fn provider_normalize_chat_response(args: &[CoreValue]) -> Result<CoreValue, AxE
         &CoreValue::from("transport"),
         CoreValue::from("openai-chat"),
     );
+    v_is_typesafe = core_eq(&[v_transport.clone(), CoreValue::from("typesafe-system-one")])?;
+    if core_truthy(&v_is_typesafe) {
+        v_response = typesafe_normalize_chat_response(&[v_raw.clone(), v_context.clone()])?;
+        return Ok(v_response.clone());
+    }
     v_is_responses = core_eq(&[v_transport.clone(), CoreValue::from("openai-responses")])?;
     v_is_gemini = core_eq(&[
         v_transport.clone(),
@@ -53666,6 +56015,8 @@ fn _select_structured_output_rung(args: &[CoreValue]) -> Result<CoreValue, AxErr
     let mut v_preferred_mode = CoreValue::Null;
     let mut v_required = CoreValue::Null;
     let mut v_required_singleton = CoreValue::Null;
+    let mut v_requires_schema = CoreValue::Null;
+    let mut v_requires_schema_snake = CoreValue::Null;
     let mut v_selection = CoreValue::Null;
     let mut v_simple_shape = CoreValue::Null;
     let mut v_singleton = CoreValue::Null;
@@ -53754,6 +56105,29 @@ fn _select_structured_output_rung(args: &[CoreValue]) -> Result<CoreValue, AxErr
         v_mode = CoreValue::from("auto");
     }
     v_selection = CoreValue::new_map();
+    v_requires_schema_snake = core_get(
+        &v_features,
+        &CoreValue::from("requires_structured_output"),
+        CoreValue::Bool(false),
+    );
+    v_requires_schema = core_get(
+        &v_features,
+        &CoreValue::from("requiresStructuredOutput"),
+        v_requires_schema_snake.clone(),
+    );
+    if core_truthy(&v_requires_schema) {
+        core_set(
+            &v_selection,
+            CoreValue::from("rung"),
+            CoreValue::from("native"),
+        )?;
+        core_set(
+            &v_selection,
+            CoreValue::from("requires_schema"),
+            CoreValue::Bool(true),
+        )?;
+        return Ok(v_selection.clone());
+    }
     v_explicit_native = core_eq(&[v_mode.clone(), CoreValue::from("native")])?;
     if core_truthy(&v_explicit_native) {
         v_unsupported_native = core_not(&[v_supports_native.clone()])?;
@@ -56443,6 +58817,24 @@ fn _regex_escaped(args: &[CoreValue]) -> Result<CoreValue, AxError> {
     unreachable_code,
     clippy::all
 )]
+fn _deserialize_optimized_artifact(args: &[CoreValue]) -> Result<CoreValue, AxError> {
+    axir_coverage_mark("_deserialize_optimized_artifact");
+    let mut v_text = core_arg(args, 0);
+    let mut v_components = core_arg(args, 1);
+    let mut v_artifact = CoreValue::Null;
+    let mut v_validated = CoreValue::Null;
+    v_artifact = core_json_parse(&[v_text.clone()])?;
+    v_validated = _validate_optimized_artifact(&[v_artifact.clone(), v_components.clone()])?;
+    return Ok(v_validated.clone());
+}
+
+#[allow(
+    unused_variables,
+    unused_assignments,
+    unused_mut,
+    unreachable_code,
+    clippy::all
+)]
 fn _append_structured_output_instruction(args: &[CoreValue]) -> Result<CoreValue, AxError> {
     axir_coverage_mark("_append_structured_output_instruction");
     let mut v_messages = core_arg(args, 0);
@@ -56450,10 +58842,35 @@ fn _append_structured_output_instruction(args: &[CoreValue]) -> Result<CoreValue
     let mut v_selection = core_arg(args, 2);
     let mut v_content = CoreValue::Null;
     let mut v_is_function = CoreValue::Null;
+    let mut v_is_text = CoreValue::Null;
     let mut v_message = CoreValue::Null;
     let mut v_parts = CoreValue::Null;
+    let mut v_requires_schema = CoreValue::Null;
+    let mut v_role = CoreValue::Null;
     let mut v_rung = CoreValue::Null;
     let mut v_shape = CoreValue::Null;
+    let mut v_system = CoreValue::Null;
+    let mut v_text = CoreValue::Null;
+    v_requires_schema = core_get(
+        &v_selection,
+        &CoreValue::from("requires_schema"),
+        CoreValue::Bool(false),
+    );
+    if core_truthy(&v_requires_schema) {
+        for v_message in core_iter(&v_messages)? {
+            let mut v_message = v_message;
+            v_role = core_get(&v_message, &CoreValue::from("role"), CoreValue::Null);
+            v_system = core_eq(&[v_role.clone(), CoreValue::from("system")])?;
+            if core_truthy(&v_system) {
+                v_text = core_get(&v_message, &CoreValue::from("content"), CoreValue::Null);
+                v_is_text = core_type_is(&v_text, CoreValue::from("string"));
+                if core_truthy(&v_is_text) {
+                    v_text = core_string_replace(&[v_text.clone(), CoreValue::from("Return one `field name: value` pair per line for the required output fields only, using each exact wire key shown in <output_fields> as the field name."), CoreValue::from("Return one valid JSON object matching <output_fields>. Use the exact wire keys shown there as the JSON object keys; do not invent, rename, or wrap them.")])?;
+                    core_set(&v_message, CoreValue::from("content"), v_text.clone())?;
+                }
+            }
+        }
+    }
     v_rung = core_get(&v_selection, &CoreValue::from("rung"), CoreValue::Null);
     v_is_function = core_eq(&[v_rung.clone(), CoreValue::from("function")])?;
     v_content = CoreValue::from("");
@@ -56478,24 +58895,6 @@ fn _append_structured_output_instruction(args: &[CoreValue]) -> Result<CoreValue
     core_set(&v_message, CoreValue::from("content"), v_content.clone())?;
     core_append(&v_messages, v_message.clone())?;
     return Ok(CoreValue::Null);
-}
-
-#[allow(
-    unused_variables,
-    unused_assignments,
-    unused_mut,
-    unreachable_code,
-    clippy::all
-)]
-fn _deserialize_optimized_artifact(args: &[CoreValue]) -> Result<CoreValue, AxError> {
-    axir_coverage_mark("_deserialize_optimized_artifact");
-    let mut v_text = core_arg(args, 0);
-    let mut v_components = core_arg(args, 1);
-    let mut v_artifact = CoreValue::Null;
-    let mut v_validated = CoreValue::Null;
-    v_artifact = core_json_parse(&[v_text.clone()])?;
-    v_validated = _validate_optimized_artifact(&[v_artifact.clone(), v_components.clone()])?;
-    return Ok(v_validated.clone());
 }
 
 #[allow(
@@ -56543,34 +58942,6 @@ fn _optimization_changed_components(args: &[CoreValue]) -> Result<CoreValue, AxE
     unreachable_code,
     clippy::all
 )]
-fn _assert_no_reserved_output_functions(args: &[CoreValue]) -> Result<CoreValue, AxError> {
-    axir_coverage_mark("_assert_no_reserved_output_functions");
-    let mut v_functions = core_arg(args, 0);
-    let mut v_canonical = CoreValue::Null;
-    let mut v_fn = CoreValue::Null;
-    let mut v_legacy = CoreValue::Null;
-    let mut v_name = CoreValue::Null;
-    let mut v_reserved = CoreValue::Null;
-    for v_fn in core_iter(&v_functions)? {
-        let mut v_fn = v_fn;
-        v_name = core_get(&v_fn, &CoreValue::from("name"), CoreValue::Null);
-        v_canonical = core_eq(&[v_name.clone(), CoreValue::from("__axOutput")])?;
-        v_legacy = core_eq(&[v_name.clone(), CoreValue::from("__finalResult")])?;
-        v_reserved = core_or(&[v_canonical.clone(), v_legacy.clone()])?;
-        if core_truthy(&v_reserved) {
-            return Err(AxError::runtime("Function names '__axOutput' and '__finalResult' are reserved for Ax structured-output handling"));
-        }
-    }
-    return Ok(CoreValue::Null);
-}
-
-#[allow(
-    unused_variables,
-    unused_assignments,
-    unused_mut,
-    unreachable_code,
-    clippy::all
-)]
 fn _optimization_component_current_map(args: &[CoreValue]) -> Result<CoreValue, AxError> {
     axir_coverage_mark("_optimization_component_current_map");
     let mut v_components = core_arg(args, 0);
@@ -56595,31 +58966,25 @@ fn _optimization_component_current_map(args: &[CoreValue]) -> Result<CoreValue, 
     unreachable_code,
     clippy::all
 )]
-fn _find_structured_output_call(args: &[CoreValue]) -> Result<CoreValue, AxError> {
-    axir_coverage_mark("_find_structured_output_call");
-    let mut v_calls = core_arg(args, 0);
-    let mut v_call = CoreValue::Null;
+fn _assert_no_reserved_output_functions(args: &[CoreValue]) -> Result<CoreValue, AxError> {
+    axir_coverage_mark("_assert_no_reserved_output_functions");
+    let mut v_functions = core_arg(args, 0);
     let mut v_canonical = CoreValue::Null;
-    let mut v_direct_name = CoreValue::Null;
     let mut v_fn = CoreValue::Null;
     let mut v_legacy = CoreValue::Null;
     let mut v_name = CoreValue::Null;
-    let mut v_none = CoreValue::Null;
     let mut v_reserved = CoreValue::Null;
-    for v_call in core_iter(&v_calls)? {
-        let mut v_call = v_call;
-        v_direct_name = core_get(&v_call, &CoreValue::from("name"), CoreValue::Null);
-        v_fn = core_get(&v_call, &CoreValue::from("function"), CoreValue::Null);
-        v_name = core_get(&v_fn, &CoreValue::from("name"), v_direct_name.clone());
+    for v_fn in core_iter(&v_functions)? {
+        let mut v_fn = v_fn;
+        v_name = core_get(&v_fn, &CoreValue::from("name"), CoreValue::Null);
         v_canonical = core_eq(&[v_name.clone(), CoreValue::from("__axOutput")])?;
         v_legacy = core_eq(&[v_name.clone(), CoreValue::from("__finalResult")])?;
         v_reserved = core_or(&[v_canonical.clone(), v_legacy.clone()])?;
         if core_truthy(&v_reserved) {
-            return Ok(v_call.clone());
+            return Err(AxError::runtime("Function names '__axOutput' and '__finalResult' are reserved for Ax structured-output handling"));
         }
     }
-    v_none = core_none(&[])?;
-    return Ok(v_none.clone());
+    return Ok(CoreValue::Null);
 }
 
 #[allow(
@@ -56673,30 +59038,31 @@ fn _normalize_optimization_dataset(args: &[CoreValue]) -> Result<CoreValue, AxEr
     unreachable_code,
     clippy::all
 )]
-fn _structured_output_call_args(args: &[CoreValue]) -> Result<CoreValue, AxError> {
-    axir_coverage_mark("_structured_output_call_args");
-    let mut v_call = core_arg(args, 0);
-    let mut v_arguments = CoreValue::Null;
-    let mut v_direct_params = CoreValue::Null;
+fn _find_structured_output_call(args: &[CoreValue]) -> Result<CoreValue, AxError> {
+    axir_coverage_mark("_find_structured_output_call");
+    let mut v_calls = core_arg(args, 0);
+    let mut v_call = CoreValue::Null;
+    let mut v_canonical = CoreValue::Null;
+    let mut v_direct_name = CoreValue::Null;
     let mut v_fn = CoreValue::Null;
-    let mut v_is_string = CoreValue::Null;
-    let mut v_missing = CoreValue::Null;
-    let mut v_params = CoreValue::Null;
-    let mut v_parsed = CoreValue::Null;
-    v_fn = core_get(&v_call, &CoreValue::from("function"), CoreValue::Null);
-    v_direct_params = core_get(&v_call, &CoreValue::from("params"), CoreValue::Null);
-    v_params = core_get(&v_fn, &CoreValue::from("params"), v_direct_params.clone());
-    v_missing = core_is_none(&[v_params.clone()])?;
-    if core_truthy(&v_missing) {
-        v_arguments = core_get(&v_call, &CoreValue::from("arguments"), CoreValue::Null);
-        v_params = v_arguments.clone();
+    let mut v_legacy = CoreValue::Null;
+    let mut v_name = CoreValue::Null;
+    let mut v_none = CoreValue::Null;
+    let mut v_reserved = CoreValue::Null;
+    for v_call in core_iter(&v_calls)? {
+        let mut v_call = v_call;
+        v_direct_name = core_get(&v_call, &CoreValue::from("name"), CoreValue::Null);
+        v_fn = core_get(&v_call, &CoreValue::from("function"), CoreValue::Null);
+        v_name = core_get(&v_fn, &CoreValue::from("name"), v_direct_name.clone());
+        v_canonical = core_eq(&[v_name.clone(), CoreValue::from("__axOutput")])?;
+        v_legacy = core_eq(&[v_name.clone(), CoreValue::from("__finalResult")])?;
+        v_reserved = core_or(&[v_canonical.clone(), v_legacy.clone()])?;
+        if core_truthy(&v_reserved) {
+            return Ok(v_call.clone());
+        }
     }
-    v_is_string = core_type_is(&v_params, CoreValue::from("string"));
-    if core_truthy(&v_is_string) {
-        v_parsed = core_json_parse_strict(&[v_params.clone()])?;
-        v_params = v_parsed.clone();
-    }
-    return Ok(v_params.clone());
+    v_none = core_none(&[])?;
+    return Ok(v_none.clone());
 }
 
 #[allow(
@@ -56735,12 +59101,96 @@ fn _normalize_optimization_metric_scores(args: &[CoreValue]) -> Result<CoreValue
     unreachable_code,
     clippy::all
 )]
+fn _structured_output_call_args(args: &[CoreValue]) -> Result<CoreValue, AxError> {
+    axir_coverage_mark("_structured_output_call_args");
+    let mut v_call = core_arg(args, 0);
+    let mut v_arguments = CoreValue::Null;
+    let mut v_direct_params = CoreValue::Null;
+    let mut v_fn = CoreValue::Null;
+    let mut v_is_string = CoreValue::Null;
+    let mut v_missing = CoreValue::Null;
+    let mut v_params = CoreValue::Null;
+    let mut v_parsed = CoreValue::Null;
+    v_fn = core_get(&v_call, &CoreValue::from("function"), CoreValue::Null);
+    v_direct_params = core_get(&v_call, &CoreValue::from("params"), CoreValue::Null);
+    v_params = core_get(&v_fn, &CoreValue::from("params"), v_direct_params.clone());
+    v_missing = core_is_none(&[v_params.clone()])?;
+    if core_truthy(&v_missing) {
+        v_arguments = core_get(&v_call, &CoreValue::from("arguments"), CoreValue::Null);
+        v_params = v_arguments.clone();
+    }
+    v_is_string = core_type_is(&v_params, CoreValue::from("string"));
+    if core_truthy(&v_is_string) {
+        v_parsed = core_json_parse_strict(&[v_params.clone()])?;
+        v_params = v_parsed.clone();
+    }
+    return Ok(v_params.clone());
+}
+
+#[allow(
+    unused_variables,
+    unused_assignments,
+    unused_mut,
+    unreachable_code,
+    clippy::all
+)]
+fn _scalarize_optimization_scores(args: &[CoreValue]) -> Result<CoreValue, AxError> {
+    axir_coverage_mark("_scalarize_optimization_scores");
+    let mut v_scores = core_arg(args, 0);
+    let mut v_options = core_arg(args, 1);
+    let mut v_avg = CoreValue::Null;
+    let mut v_count = CoreValue::Null;
+    let mut v_count_next = CoreValue::Null;
+    let mut v_empty = CoreValue::Null;
+    let mut v_has_metric = CoreValue::Null;
+    let mut v_metric_key = CoreValue::Null;
+    let mut v_picked = CoreValue::Null;
+    let mut v_sum = CoreValue::Null;
+    let mut v_sum_next = CoreValue::Null;
+    let mut v_value = CoreValue::Null;
+    let mut v_values = CoreValue::Null;
+    v_metric_key = core_get(
+        &v_options,
+        &CoreValue::from("paretoMetricKey"),
+        CoreValue::from(""),
+    );
+    v_has_metric = core_ne(&[v_metric_key.clone(), CoreValue::from("")])?;
+    if core_truthy(&v_has_metric) {
+        v_picked = core_get(&v_scores, &v_metric_key.clone(), CoreValue::Num(0f64));
+        return Ok(v_picked.clone());
+    }
+    v_values = core_map_values(&[v_scores.clone()])?;
+    v_sum = CoreValue::Num(0f64);
+    v_count = CoreValue::Num(0f64);
+    for v_value in core_iter(&v_values)? {
+        let mut v_value = v_value;
+        v_sum_next = core_add(&[v_sum.clone(), v_value.clone()])?;
+        v_count_next = core_add(&[v_count.clone(), CoreValue::Num(1f64)])?;
+        v_sum = v_sum_next.clone();
+        v_count = v_count_next.clone();
+    }
+    v_empty = core_eq(&[v_count.clone(), CoreValue::Num(0f64)])?;
+    if core_truthy(&v_empty) {
+        return Ok(CoreValue::Num(0f64));
+    }
+    v_avg = core_div(&[v_sum.clone(), v_count.clone()])?;
+    return Ok(v_avg.clone());
+}
+
+#[allow(
+    unused_variables,
+    unused_assignments,
+    unused_mut,
+    unreachable_code,
+    clippy::all
+)]
 fn _build_gen_chat_request(args: &[CoreValue]) -> Result<CoreValue, AxError> {
     axir_coverage_mark("_build_gen_chat_request");
     let mut v_gen = core_arg(args, 0);
     let mut v_messages = core_arg(args, 1);
     let mut v_options = core_arg(args, 2);
     let mut v_selection = core_arg(args, 3);
+    let mut v_annotations = CoreValue::Null;
     let mut v_ax_metadata = CoreValue::Null;
     let mut v_budget = CoreValue::Null;
     let mut v_budget_snake = CoreValue::Null;
@@ -56753,6 +59203,7 @@ fn _build_gen_chat_request(args: &[CoreValue]) -> Result<CoreValue, AxError> {
     let mut v_function_schema = CoreValue::Null;
     let mut v_function_specs = CoreValue::Null;
     let mut v_functions = CoreValue::Null;
+    let mut v_has_annotations = CoreValue::Null;
     let mut v_has_budget = CoreValue::Null;
     let mut v_has_frequency_penalty = CoreValue::Null;
     let mut v_has_max_tokens = CoreValue::Null;
@@ -56772,7 +59223,9 @@ fn _build_gen_chat_request(args: &[CoreValue]) -> Result<CoreValue, AxError> {
     let mut v_model_config_base = CoreValue::Null;
     let mut v_model_config_snake = CoreValue::Null;
     let mut v_n = CoreValue::Null;
+    let mut v_no_functions = CoreValue::Null;
     let mut v_no_user_functions = CoreValue::Null;
+    let mut v_omit_function_call = CoreValue::Null;
     let mut v_output_fields = CoreValue::Null;
     let mut v_output_schema = CoreValue::Null;
     let mut v_presence_penalty = CoreValue::Null;
@@ -56780,6 +59233,7 @@ fn _build_gen_chat_request(args: &[CoreValue]) -> Result<CoreValue, AxError> {
     let mut v_reasoning = CoreValue::Null;
     let mut v_reasoning_snake = CoreValue::Null;
     let mut v_request = CoreValue::Null;
+    let mut v_requires_schema = CoreValue::Null;
     let mut v_response_format = CoreValue::Null;
     let mut v_rung = CoreValue::Null;
     let mut v_sample_count = CoreValue::Null;
@@ -56989,6 +59443,16 @@ fn _build_gen_chat_request(args: &[CoreValue]) -> Result<CoreValue, AxError> {
     );
     v_rung = core_get(&v_selection, &CoreValue::from("rung"), CoreValue::Null);
     v_fn_count = core_len(&[v_function_specs.clone()])?;
+    v_requires_schema = core_get(
+        &v_selection,
+        &CoreValue::from("requires_schema"),
+        CoreValue::Bool(false),
+    );
+    v_no_functions = core_eq(&[v_fn_count.clone(), CoreValue::Num(0f64)])?;
+    v_omit_function_call = core_and(&[v_requires_schema.clone(), v_no_functions.clone()])?;
+    if core_truthy(&v_omit_function_call) {
+        core_map_delete(&[v_request.clone(), CoreValue::from("function_call")])?;
+    }
     v_use_function = core_eq(&[v_rung.clone(), CoreValue::from("function")])?;
     if core_truthy(&v_use_function) {
         v_schema_options = CoreValue::new_map();
@@ -57097,6 +59561,15 @@ fn _build_gen_chat_request(args: &[CoreValue]) -> Result<CoreValue, AxError> {
             CoreValue::from("schema"),
             v_schema_wrap.clone(),
         )?;
+        v_annotations = _signature_output_value_descriptions_impl(&[v_output_fields.clone()])?;
+        v_has_annotations = core_truthy_value(&[v_annotations.clone()])?;
+        if core_truthy(&v_has_annotations) {
+            core_set(
+                &v_response_format,
+                CoreValue::from("fieldDescriptions"),
+                v_annotations.clone(),
+            )?;
+        }
         core_set(
             &v_request,
             CoreValue::from("response_format"),
@@ -57140,56 +59613,6 @@ fn _build_gen_chat_request(args: &[CoreValue]) -> Result<CoreValue, AxError> {
         v_model_config.clone(),
     )?;
     return Ok(v_request.clone());
-}
-
-#[allow(
-    unused_variables,
-    unused_assignments,
-    unused_mut,
-    unreachable_code,
-    clippy::all
-)]
-fn _scalarize_optimization_scores(args: &[CoreValue]) -> Result<CoreValue, AxError> {
-    axir_coverage_mark("_scalarize_optimization_scores");
-    let mut v_scores = core_arg(args, 0);
-    let mut v_options = core_arg(args, 1);
-    let mut v_avg = CoreValue::Null;
-    let mut v_count = CoreValue::Null;
-    let mut v_count_next = CoreValue::Null;
-    let mut v_empty = CoreValue::Null;
-    let mut v_has_metric = CoreValue::Null;
-    let mut v_metric_key = CoreValue::Null;
-    let mut v_picked = CoreValue::Null;
-    let mut v_sum = CoreValue::Null;
-    let mut v_sum_next = CoreValue::Null;
-    let mut v_value = CoreValue::Null;
-    let mut v_values = CoreValue::Null;
-    v_metric_key = core_get(
-        &v_options,
-        &CoreValue::from("paretoMetricKey"),
-        CoreValue::from(""),
-    );
-    v_has_metric = core_ne(&[v_metric_key.clone(), CoreValue::from("")])?;
-    if core_truthy(&v_has_metric) {
-        v_picked = core_get(&v_scores, &v_metric_key.clone(), CoreValue::Num(0f64));
-        return Ok(v_picked.clone());
-    }
-    v_values = core_map_values(&[v_scores.clone()])?;
-    v_sum = CoreValue::Num(0f64);
-    v_count = CoreValue::Num(0f64);
-    for v_value in core_iter(&v_values)? {
-        let mut v_value = v_value;
-        v_sum_next = core_add(&[v_sum.clone(), v_value.clone()])?;
-        v_count_next = core_add(&[v_count.clone(), CoreValue::Num(1f64)])?;
-        v_sum = v_sum_next.clone();
-        v_count = v_count_next.clone();
-    }
-    v_empty = core_eq(&[v_count.clone(), CoreValue::Num(0f64)])?;
-    if core_truthy(&v_empty) {
-        return Ok(CoreValue::Num(0f64));
-    }
-    v_avg = core_div(&[v_sum.clone(), v_count.clone()])?;
-    return Ok(v_avg.clone());
 }
 
 #[allow(
@@ -57472,91 +59895,6 @@ fn chat_session_observe_output(args: &[CoreValue]) -> Result<CoreValue, AxError>
     unreachable_code,
     clippy::all
 )]
-fn _parse_sample_outputs(args: &[CoreValue]) -> Result<CoreValue, AxError> {
-    axir_coverage_mark("_parse_sample_outputs");
-    let mut v_gen = core_arg(args, 0);
-    let mut v_output_fields = core_arg(args, 1);
-    let mut v_response = core_arg(args, 2);
-    let mut v_validate_exact_json = core_arg(args, 3);
-    let mut v_bundle = CoreValue::Null;
-    let mut v_completion = CoreValue::Null;
-    let mut v_completion_count = CoreValue::Null;
-    let mut v_completions = CoreValue::Null;
-    let mut v_content = CoreValue::Null;
-    let mut v_empty_results = CoreValue::Null;
-    let mut v_missing_completions = CoreValue::Null;
-    let mut v_next_position = CoreValue::Null;
-    let mut v_output = CoreValue::Null;
-    let mut v_outputs = CoreValue::Null;
-    let mut v_position = CoreValue::Null;
-    let mut v_processed = CoreValue::Null;
-    let mut v_public_output = CoreValue::Null;
-    let mut v_recovered = CoreValue::Null;
-    let mut v_sample = CoreValue::Null;
-    let mut v_sample_index = CoreValue::Null;
-    let mut v_samples = CoreValue::Null;
-    let mut v_validated = CoreValue::Null;
-    v_empty_results = CoreValue::new_list();
-    v_completions = core_get(
-        &v_response,
-        &CoreValue::from("results"),
-        v_empty_results.clone(),
-    );
-    v_completion_count = core_len(&[v_completions.clone()])?;
-    v_missing_completions = core_eq(&[v_completion_count.clone(), CoreValue::Num(0f64)])?;
-    if core_truthy(&v_missing_completions) {
-        v_completions = CoreValue::new_list();
-        core_append(&v_completions, v_response.clone())?;
-    }
-    v_outputs = CoreValue::new_list();
-    v_samples = CoreValue::new_list();
-    v_position = CoreValue::Num(0f64);
-    for v_completion in core_iter(&v_completions)? {
-        let mut v_completion = v_completion;
-        v_content = core_get(
-            &v_completion,
-            &CoreValue::from("content"),
-            CoreValue::from(""),
-        );
-        v_output = _parse_output_impl(&[v_content.clone()])?;
-        if core_truthy(&v_validate_exact_json) {
-            _validate_exact_output_keys(&[
-                v_output_fields.clone(),
-                v_output.clone(),
-                CoreValue::from("output"),
-            ])?;
-        }
-        v_recovered = _parse_json_string_fields(&[v_output_fields.clone(), v_output.clone()])?;
-        v_validated = validate_output(&[v_output_fields.clone(), v_recovered.clone()])?;
-        v_processed = _apply_field_processors(&[v_gen.clone(), v_validated.clone()])?;
-        _run_assertions(&[v_gen.clone(), v_processed.clone()])?;
-        v_public_output = strip_internal(&[v_output_fields.clone(), v_processed.clone()])?;
-        core_append(&v_outputs, v_public_output.clone())?;
-        v_sample_index = core_get(&v_completion, &CoreValue::from("index"), v_position.clone());
-        v_sample = CoreValue::new_map();
-        core_set(&v_sample, CoreValue::from("index"), v_sample_index.clone())?;
-        core_set(
-            &v_sample,
-            CoreValue::from("sample"),
-            v_public_output.clone(),
-        )?;
-        core_append(&v_samples, v_sample.clone())?;
-        v_next_position = core_add(&[v_position.clone(), CoreValue::Num(1f64)])?;
-        v_position = v_next_position.clone();
-    }
-    v_bundle = CoreValue::new_map();
-    core_set(&v_bundle, CoreValue::from("outputs"), v_outputs.clone())?;
-    core_set(&v_bundle, CoreValue::from("samples"), v_samples.clone())?;
-    return Ok(v_bundle.clone());
-}
-
-#[allow(
-    unused_variables,
-    unused_assignments,
-    unused_mut,
-    unreachable_code,
-    clippy::all
-)]
 fn chat_session_apply_boundary_updates(args: &[CoreValue]) -> Result<CoreValue, AxError> {
     axir_coverage_mark("chat_session_apply_boundary_updates");
     let mut v_request = core_arg(args, 0);
@@ -57635,6 +59973,96 @@ fn chat_session_apply_boundary_updates(args: &[CoreValue]) -> Result<CoreValue, 
     unreachable_code,
     clippy::all
 )]
+fn _parse_sample_outputs(args: &[CoreValue]) -> Result<CoreValue, AxError> {
+    axir_coverage_mark("_parse_sample_outputs");
+    let mut v_gen = core_arg(args, 0);
+    let mut v_output_fields = core_arg(args, 1);
+    let mut v_response = core_arg(args, 2);
+    let mut v_validate_exact_json = core_arg(args, 3);
+    let mut v_bundle = CoreValue::Null;
+    let mut v_completion = CoreValue::Null;
+    let mut v_completion_count = CoreValue::Null;
+    let mut v_completions = CoreValue::Null;
+    let mut v_content = CoreValue::Null;
+    let mut v_empty_results = CoreValue::Null;
+    let mut v_missing_completions = CoreValue::Null;
+    let mut v_next_position = CoreValue::Null;
+    let mut v_output = CoreValue::Null;
+    let mut v_outputs = CoreValue::Null;
+    let mut v_position = CoreValue::Null;
+    let mut v_processed = CoreValue::Null;
+    let mut v_public_output = CoreValue::Null;
+    let mut v_recovered = CoreValue::Null;
+    let mut v_sample = CoreValue::Null;
+    let mut v_sample_index = CoreValue::Null;
+    let mut v_samples = CoreValue::Null;
+    let mut v_validated = CoreValue::Null;
+    v_empty_results = CoreValue::new_list();
+    v_completions = core_get(
+        &v_response,
+        &CoreValue::from("results"),
+        v_empty_results.clone(),
+    );
+    v_completion_count = core_len(&[v_completions.clone()])?;
+    v_missing_completions = core_eq(&[v_completion_count.clone(), CoreValue::Num(0f64)])?;
+    if core_truthy(&v_missing_completions) {
+        v_completions = CoreValue::new_list();
+        core_append(&v_completions, v_response.clone())?;
+    }
+    v_outputs = CoreValue::new_list();
+    v_samples = CoreValue::new_list();
+    v_position = CoreValue::Num(0f64);
+    for v_completion in core_iter(&v_completions)? {
+        let mut v_completion = v_completion;
+        v_content = core_get(
+            &v_completion,
+            &CoreValue::from("content"),
+            CoreValue::from(""),
+        );
+        v_output = CoreValue::new_map();
+        if core_truthy(&v_validate_exact_json) {
+            v_output = _parse_output_impl(&[v_content.clone()])?;
+        } else {
+            v_output = _parse_output_fields_impl(&[v_content.clone(), v_output_fields.clone()])?;
+        }
+        if core_truthy(&v_validate_exact_json) {
+            _validate_exact_output_keys(&[
+                v_output_fields.clone(),
+                v_output.clone(),
+                CoreValue::from("output"),
+            ])?;
+        }
+        v_recovered = _parse_json_string_fields(&[v_output_fields.clone(), v_output.clone()])?;
+        v_validated = validate_output(&[v_output_fields.clone(), v_recovered.clone()])?;
+        v_processed = _apply_field_processors(&[v_gen.clone(), v_validated.clone()])?;
+        _run_assertions(&[v_gen.clone(), v_processed.clone()])?;
+        v_public_output = strip_internal(&[v_output_fields.clone(), v_processed.clone()])?;
+        core_append(&v_outputs, v_public_output.clone())?;
+        v_sample_index = core_get(&v_completion, &CoreValue::from("index"), v_position.clone());
+        v_sample = CoreValue::new_map();
+        core_set(&v_sample, CoreValue::from("index"), v_sample_index.clone())?;
+        core_set(
+            &v_sample,
+            CoreValue::from("sample"),
+            v_public_output.clone(),
+        )?;
+        core_append(&v_samples, v_sample.clone())?;
+        v_next_position = core_add(&[v_position.clone(), CoreValue::Num(1f64)])?;
+        v_position = v_next_position.clone();
+    }
+    v_bundle = CoreValue::new_map();
+    core_set(&v_bundle, CoreValue::from("outputs"), v_outputs.clone())?;
+    core_set(&v_bundle, CoreValue::from("samples"), v_samples.clone())?;
+    return Ok(v_bundle.clone());
+}
+
+#[allow(
+    unused_variables,
+    unused_assignments,
+    unused_mut,
+    unreachable_code,
+    clippy::all
+)]
 fn _build_optimization_eval_row(args: &[CoreValue]) -> Result<CoreValue, AxError> {
     axir_coverage_mark("_build_optimization_eval_row");
     let mut v_task = core_arg(args, 0);
@@ -57656,79 +60084,6 @@ fn _build_optimization_eval_row(args: &[CoreValue]) -> Result<CoreValue, AxError
         core_set(&v_out, CoreValue::from("error"), v_error.clone())?;
     }
     return Ok(v_out.clone());
-}
-
-#[allow(
-    unused_variables,
-    unused_assignments,
-    unused_mut,
-    unreachable_code,
-    clippy::all
-)]
-fn _select_sample_index(args: &[CoreValue]) -> Result<CoreValue, AxError> {
-    axir_coverage_mark("_select_sample_index");
-    let mut v_samples = core_arg(args, 0);
-    let mut v_options = core_arg(args, 1);
-    let mut v_error = CoreValue::Null;
-    let mut v_invalid = CoreValue::Null;
-    let mut v_is_number = CoreValue::Null;
-    let mut v_max_index = CoreValue::Null;
-    let mut v_message = CoreValue::Null;
-    let mut v_missing_picker = CoreValue::Null;
-    let mut v_negative = CoreValue::Null;
-    let mut v_not_number = CoreValue::Null;
-    let mut v_out_of_bounds = CoreValue::Null;
-    let mut v_payload = CoreValue::Null;
-    let mut v_picker = CoreValue::Null;
-    let mut v_picker_snake = CoreValue::Null;
-    let mut v_sample_count = CoreValue::Null;
-    let mut v_selected = CoreValue::Null;
-    let mut v_single_or_empty = CoreValue::Null;
-    let mut v_too_large = CoreValue::Null;
-    let mut v_use_default = CoreValue::Null;
-    v_picker_snake = core_get(
-        &v_options,
-        &CoreValue::from("result_picker"),
-        CoreValue::Null,
-    );
-    v_picker = core_get(
-        &v_options,
-        &CoreValue::from("resultPicker"),
-        v_picker_snake.clone(),
-    );
-    v_missing_picker = core_is_none(&[v_picker.clone()])?;
-    v_sample_count = core_len(&[v_samples.clone()])?;
-    v_single_or_empty = core_lte(&[v_sample_count.clone(), CoreValue::Num(1f64)])?;
-    v_use_default = core_or(&[v_missing_picker.clone(), v_single_or_empty.clone()])?;
-    if core_truthy(&v_use_default) {
-        return Ok(CoreValue::Num(0f64));
-    }
-    v_payload = CoreValue::new_map();
-    core_set(
-        &v_payload,
-        CoreValue::from("type"),
-        CoreValue::from("fields"),
-    )?;
-    core_set(&v_payload, CoreValue::from("results"), v_samples.clone())?;
-    v_selected =
-        core_object_call_method(&[v_picker.clone(), CoreValue::from("call"), v_payload.clone()])?;
-    v_is_number = core_type_is(&v_selected, CoreValue::from("number"));
-    v_not_number = core_not(&[v_is_number.clone()])?;
-    v_negative = core_lt(&[v_selected.clone(), CoreValue::Num(0f64)])?;
-    v_too_large = core_gte(&[v_selected.clone(), v_sample_count.clone()])?;
-    v_out_of_bounds = core_or(&[v_negative.clone(), v_too_large.clone()])?;
-    v_invalid = core_or(&[v_not_number.clone(), v_out_of_bounds.clone()])?;
-    if core_truthy(&v_invalid) {
-        v_max_index = core_add(&[v_sample_count.clone(), CoreValue::Num(-1f64)])?;
-        v_message = core_string_format(&[
-            CoreValue::from("Result picker returned invalid index: {}. Must be between 0 and {}"),
-            v_selected.clone(),
-            v_max_index.clone(),
-        ])?;
-        v_error = core_runtime_error(&[v_message.clone()])?;
-        return Err(core_as_error(&v_error));
-    }
-    return Ok(v_selected.clone());
 }
 
 #[allow(
@@ -57844,6 +60199,453 @@ fn chat_session_target_matches(args: &[CoreValue]) -> Result<CoreValue, AxError>
     v_descendant = core_string_starts_with(&[v_path.clone(), v_prefix.clone()])?;
     v_matches = core_or(&[v_exact.clone(), v_descendant.clone()])?;
     return Ok(v_matches.clone());
+}
+
+#[allow(
+    unused_variables,
+    unused_assignments,
+    unused_mut,
+    unreachable_code,
+    clippy::all
+)]
+fn _select_sample_index(args: &[CoreValue]) -> Result<CoreValue, AxError> {
+    axir_coverage_mark("_select_sample_index");
+    let mut v_samples = core_arg(args, 0);
+    let mut v_options = core_arg(args, 1);
+    let mut v_error = CoreValue::Null;
+    let mut v_invalid = CoreValue::Null;
+    let mut v_is_number = CoreValue::Null;
+    let mut v_max_index = CoreValue::Null;
+    let mut v_message = CoreValue::Null;
+    let mut v_missing_picker = CoreValue::Null;
+    let mut v_negative = CoreValue::Null;
+    let mut v_not_number = CoreValue::Null;
+    let mut v_out_of_bounds = CoreValue::Null;
+    let mut v_payload = CoreValue::Null;
+    let mut v_picker = CoreValue::Null;
+    let mut v_picker_snake = CoreValue::Null;
+    let mut v_sample_count = CoreValue::Null;
+    let mut v_selected = CoreValue::Null;
+    let mut v_single_or_empty = CoreValue::Null;
+    let mut v_too_large = CoreValue::Null;
+    let mut v_use_default = CoreValue::Null;
+    v_picker_snake = core_get(
+        &v_options,
+        &CoreValue::from("result_picker"),
+        CoreValue::Null,
+    );
+    v_picker = core_get(
+        &v_options,
+        &CoreValue::from("resultPicker"),
+        v_picker_snake.clone(),
+    );
+    v_missing_picker = core_is_none(&[v_picker.clone()])?;
+    v_sample_count = core_len(&[v_samples.clone()])?;
+    v_single_or_empty = core_lte(&[v_sample_count.clone(), CoreValue::Num(1f64)])?;
+    v_use_default = core_or(&[v_missing_picker.clone(), v_single_or_empty.clone()])?;
+    if core_truthy(&v_use_default) {
+        return Ok(CoreValue::Num(0f64));
+    }
+    v_payload = CoreValue::new_map();
+    core_set(
+        &v_payload,
+        CoreValue::from("type"),
+        CoreValue::from("fields"),
+    )?;
+    core_set(&v_payload, CoreValue::from("results"), v_samples.clone())?;
+    v_selected =
+        core_object_call_method(&[v_picker.clone(), CoreValue::from("call"), v_payload.clone()])?;
+    v_is_number = core_type_is(&v_selected, CoreValue::from("number"));
+    v_not_number = core_not(&[v_is_number.clone()])?;
+    v_negative = core_lt(&[v_selected.clone(), CoreValue::Num(0f64)])?;
+    v_too_large = core_gte(&[v_selected.clone(), v_sample_count.clone()])?;
+    v_out_of_bounds = core_or(&[v_negative.clone(), v_too_large.clone()])?;
+    v_invalid = core_or(&[v_not_number.clone(), v_out_of_bounds.clone()])?;
+    if core_truthy(&v_invalid) {
+        v_max_index = core_add(&[v_sample_count.clone(), CoreValue::Num(-1f64)])?;
+        v_message = core_string_format(&[
+            CoreValue::from("Result picker returned invalid index: {}. Must be between 0 and {}"),
+            v_selected.clone(),
+            v_max_index.clone(),
+        ])?;
+        v_error = core_runtime_error(&[v_message.clone()])?;
+        return Err(core_as_error(&v_error));
+    }
+    return Ok(v_selected.clone());
+}
+
+#[allow(
+    unused_variables,
+    unused_assignments,
+    unused_mut,
+    unreachable_code,
+    clippy::all
+)]
+fn chat_session_unresolved(args: &[CoreValue]) -> Result<CoreValue, AxError> {
+    axir_coverage_mark("chat_session_unresolved");
+    let mut v_state = core_arg(args, 0);
+    let mut v_call = CoreValue::Null;
+    let mut v_id = CoreValue::Null;
+    let mut v_ids = CoreValue::Null;
+    let mut v_out = CoreValue::Null;
+    let mut v_pending = CoreValue::Null;
+    let mut v_sent = CoreValue::Null;
+    let mut v_status = CoreValue::Null;
+    let mut v_unresolved = CoreValue::Null;
+    v_out = CoreValue::new_list();
+    v_pending = core_get(&v_state, &CoreValue::from("pending"), CoreValue::Null);
+    v_ids = core_map_keys(&[v_pending.clone()])?;
+    for v_id in core_iter(&v_ids)? {
+        let mut v_id = v_id;
+        v_call = core_get(&v_pending, &v_id.clone(), CoreValue::Null);
+        v_status = core_get(&v_call, &CoreValue::from("status"), CoreValue::Null);
+        v_sent = core_eq(&[v_status.clone(), CoreValue::from("sent")])?;
+        v_unresolved = core_not(&[v_sent.clone()])?;
+        if core_truthy(&v_unresolved) {
+            core_append(&v_out, v_id.clone())?;
+        }
+    }
+    return Ok(v_out.clone());
+}
+
+#[allow(
+    unused_variables,
+    unused_assignments,
+    unused_mut,
+    unreachable_code,
+    clippy::all
+)]
+fn _filter_optimization_components(args: &[CoreValue]) -> Result<CoreValue, AxError> {
+    axir_coverage_mark("_filter_optimization_components");
+    let mut v_components = core_arg(args, 0);
+    let mut v_target = core_arg(args, 1);
+    let mut v_actor_any_match = CoreValue::Null;
+    let mut v_actor_component_match = CoreValue::Null;
+    let mut v_actor_match = CoreValue::Null;
+    let mut v_component = CoreValue::Null;
+    let mut v_count = CoreValue::Null;
+    let mut v_empty = CoreValue::Null;
+    let mut v_error = CoreValue::Null;
+    let mut v_explicit_match = CoreValue::Null;
+    let mut v_flow_component = CoreValue::Null;
+    let mut v_id = CoreValue::Null;
+    let mut v_include = CoreValue::Null;
+    let mut v_is_actor = CoreValue::Null;
+    let mut v_is_all = CoreValue::Null;
+    let mut v_is_flow = CoreValue::Null;
+    let mut v_is_list = CoreValue::Null;
+    let mut v_is_responder = CoreValue::Null;
+    let mut v_kind = CoreValue::Null;
+    let mut v_listed = CoreValue::Null;
+    let mut v_message = CoreValue::Null;
+    let mut v_out = CoreValue::Null;
+    let mut v_responder_any_match = CoreValue::Null;
+    let mut v_responder_component_match = CoreValue::Null;
+    let mut v_responder_match = CoreValue::Null;
+    let mut v_stage_instruction_match = CoreValue::Null;
+    v_out = CoreValue::new_list();
+    v_is_list = core_type_is(&v_target, CoreValue::from("list"));
+    v_is_all = core_eq(&[v_target.clone(), CoreValue::from("all")])?;
+    v_is_actor = core_eq(&[v_target.clone(), CoreValue::from("actor")])?;
+    v_is_responder = core_eq(&[v_target.clone(), CoreValue::from("responder")])?;
+    v_is_flow = core_eq(&[v_target.clone(), CoreValue::from("flow")])?;
+    for v_component in core_iter(&v_components)? {
+        let mut v_component = v_component;
+        v_id = core_get(&v_component, &CoreValue::from("id"), CoreValue::from(""));
+        v_kind = core_get(&v_component, &CoreValue::from("kind"), CoreValue::from(""));
+        v_include = CoreValue::Bool(false);
+        if core_truthy(&v_is_all) {
+            v_include = CoreValue::Bool(true);
+        }
+        if core_truthy(&v_is_list) {
+            v_listed = core_contains(&[v_target.clone(), v_id.clone()])?;
+            if core_truthy(&v_listed) {
+                v_include = CoreValue::Bool(true);
+            }
+        }
+        if core_truthy(&v_is_actor) {
+            v_actor_match = core_string_ends_with(&[v_id.clone(), CoreValue::from(".actor")])?;
+            v_actor_component_match = core_contains(&[v_id.clone(), CoreValue::from(".actor::")])?;
+            v_actor_any_match = core_or(&[v_actor_match.clone(), v_actor_component_match.clone()])?;
+            v_stage_instruction_match =
+                core_eq(&[v_id.clone(), CoreValue::from("root::instruction")])?;
+            v_actor_any_match =
+                core_or(&[v_actor_any_match.clone(), v_stage_instruction_match.clone()])?;
+            if core_truthy(&v_actor_any_match) {
+                v_include = CoreValue::Bool(true);
+            }
+        }
+        if core_truthy(&v_is_responder) {
+            v_responder_match =
+                core_string_ends_with(&[v_id.clone(), CoreValue::from(".responder")])?;
+            v_responder_component_match =
+                core_contains(&[v_id.clone(), CoreValue::from(".responder::")])?;
+            v_responder_any_match = core_or(&[
+                v_responder_match.clone(),
+                v_responder_component_match.clone(),
+            ])?;
+            if core_truthy(&v_responder_any_match) {
+                v_include = CoreValue::Bool(true);
+            }
+        }
+        if core_truthy(&v_is_flow) {
+            v_flow_component = core_eq(&[v_kind.clone(), CoreValue::from("flow-graph")])?;
+            if core_truthy(&v_flow_component) {
+                v_include = CoreValue::Bool(true);
+            }
+        }
+        v_explicit_match = core_eq(&[v_target.clone(), v_id.clone()])?;
+        if core_truthy(&v_explicit_match) {
+            v_include = CoreValue::Bool(true);
+        }
+        if core_truthy(&v_include) {
+            core_append(&v_out, v_component.clone())?;
+        }
+    }
+    v_count = core_len(&[v_out.clone()])?;
+    v_empty = core_eq(&[v_count.clone(), CoreValue::Num(0f64)])?;
+    if core_truthy(&v_empty) {
+        v_message = core_string_format(&[
+            CoreValue::from("no optimizable components match target: {}"),
+            v_target.clone(),
+        ])?;
+        v_error = core_runtime_error(&[v_message.clone()])?;
+        return Err(core_as_error(&v_error));
+    }
+    return Ok(v_out.clone());
+}
+
+#[allow(
+    unused_variables,
+    unused_assignments,
+    unused_mut,
+    unreachable_code,
+    clippy::all
+)]
+fn _regex_class_atom(args: &[CoreValue]) -> Result<CoreValue, AxError> {
+    axir_coverage_mark("_regex_class_atom");
+    let mut v_s = core_arg(args, 0);
+    let mut v_c = CoreValue::Null;
+    let mut v_t1 = CoreValue::Null;
+    let mut v_t2 = CoreValue::Null;
+    let mut v_t3 = CoreValue::Null;
+    let mut v_t4 = CoreValue::Null;
+    v_c = core_none(&[])?;
+    v_t1 = _regex_take(&[v_s.clone()])?;
+    v_c = v_t1.clone();
+    v_t2 = core_eq(&[v_c.clone(), CoreValue::Num(92f64)])?;
+    if core_truthy(&v_t2) {
+        v_t3 = _regex_escaped(&[v_s.clone(), CoreValue::Bool(true)])?;
+        return Ok(v_t3.clone());
+    }
+    v_t4 = _regex_literal(&[v_c.clone()])?;
+    return Ok(v_t4.clone());
+}
+
+#[allow(
+    unused_variables,
+    unused_assignments,
+    unused_mut,
+    unreachable_code,
+    clippy::all
+)]
+fn chat_session_register_call(args: &[CoreValue]) -> Result<CoreValue, AxError> {
+    axir_coverage_mark("chat_session_register_call");
+    let mut v_state = core_arg(args, 0);
+    let mut v_call = core_arg(args, 1);
+    let mut v_execution = core_arg(args, 2);
+    let mut v_exists = CoreValue::Null;
+    let mut v_id = CoreValue::Null;
+    let mut v_missing = CoreValue::Null;
+    let mut v_pending = CoreValue::Null;
+    let mut v_record = CoreValue::Null;
+    let mut v_terminal = CoreValue::Null;
+    v_terminal = core_get(
+        &v_state,
+        &CoreValue::from("terminal"),
+        CoreValue::Bool(false),
+    );
+    if core_truthy(&v_terminal) {
+        return Ok(CoreValue::Bool(false));
+    }
+    v_id = core_get(&v_call, &CoreValue::from("id"), CoreValue::from(""));
+    v_missing = core_eq(&[v_id.clone(), CoreValue::from("")])?;
+    if core_truthy(&v_missing) {
+        return Err(AxError::runtime("Completed tool calls require a call ID"));
+    }
+    v_pending = core_get(&v_state, &CoreValue::from("pending"), CoreValue::Null);
+    v_exists = core_map_contains(&[v_pending.clone(), v_id.clone()])?;
+    if core_truthy(&v_exists) {
+        return Ok(CoreValue::Bool(false));
+    }
+    v_record = CoreValue::new_map();
+    core_set(&v_record, CoreValue::from("call"), v_call.clone())?;
+    core_set(&v_record, CoreValue::from("execution"), v_execution.clone())?;
+    core_set(
+        &v_record,
+        CoreValue::from("status"),
+        CoreValue::from("running"),
+    )?;
+    core_set(&v_pending, v_id.clone(), v_record.clone())?;
+    core_set(&v_state, CoreValue::from("pending"), v_pending.clone())?;
+    return Ok(CoreValue::Bool(true));
+}
+
+#[allow(
+    unused_variables,
+    unused_assignments,
+    unused_mut,
+    unreachable_code,
+    clippy::all
+)]
+fn _regex_character_class(args: &[CoreValue]) -> Result<CoreValue, AxError> {
+    axir_coverage_mark("_regex_character_class");
+    let mut v_s = core_arg(args, 0);
+    let mut v_first = CoreValue::Null;
+    let mut v_last = CoreValue::Null;
+    let mut v_negative = CoreValue::Null;
+    let mut v_t1 = CoreValue::Null;
+    let mut v_t10 = CoreValue::Null;
+    let mut v_t11 = CoreValue::Null;
+    let mut v_t12 = CoreValue::Null;
+    let mut v_t13 = CoreValue::Null;
+    let mut v_t14 = CoreValue::Null;
+    let mut v_t15 = CoreValue::Null;
+    let mut v_t16 = CoreValue::Null;
+    let mut v_t17 = CoreValue::Null;
+    let mut v_t18 = CoreValue::Null;
+    let mut v_t19 = CoreValue::Null;
+    let mut v_t2 = CoreValue::Null;
+    let mut v_t20 = CoreValue::Null;
+    let mut v_t21 = CoreValue::Null;
+    let mut v_t22 = CoreValue::Null;
+    let mut v_t23 = CoreValue::Null;
+    let mut v_t24 = CoreValue::Null;
+    let mut v_t25 = CoreValue::Null;
+    let mut v_t26 = CoreValue::Null;
+    let mut v_t27 = CoreValue::Null;
+    let mut v_t28 = CoreValue::Null;
+    let mut v_t29 = CoreValue::Null;
+    let mut v_t3 = CoreValue::Null;
+    let mut v_t30 = CoreValue::Null;
+    let mut v_t31 = CoreValue::Null;
+    let mut v_t32 = CoreValue::Null;
+    let mut v_t33 = CoreValue::Null;
+    let mut v_t34 = CoreValue::Null;
+    let mut v_t35 = CoreValue::Null;
+    let mut v_t36 = CoreValue::Null;
+    let mut v_t37 = CoreValue::Null;
+    let mut v_t38 = CoreValue::Null;
+    let mut v_t39 = CoreValue::Null;
+    let mut v_t4 = CoreValue::Null;
+    let mut v_t40 = CoreValue::Null;
+    let mut v_t41 = CoreValue::Null;
+    let mut v_t42 = CoreValue::Null;
+    let mut v_t43 = CoreValue::Null;
+    let mut v_t5 = CoreValue::Null;
+    let mut v_t6 = CoreValue::Null;
+    let mut v_t7 = CoreValue::Null;
+    let mut v_t8 = CoreValue::Null;
+    let mut v_t9 = CoreValue::Null;
+    let mut v_terms = CoreValue::Null;
+    v_first = core_none(&[])?;
+    v_last = core_none(&[])?;
+    v_negative = core_none(&[])?;
+    v_terms = core_none(&[])?;
+    v_negative = CoreValue::Bool(false);
+    v_t1 = CoreValue::new_list();
+    v_terms = v_t1.clone();
+    v_t2 = _regex_peek(&[v_s.clone()])?;
+    v_t3 = core_eq(&[v_t2.clone(), CoreValue::Num(94f64)])?;
+    if core_truthy(&v_t3) {
+        v_t4 = _regex_take(&[v_s.clone()])?;
+        v_negative = CoreValue::Bool(true);
+    }
+    loop {
+        v_t5 = _regex_peek(&[v_s.clone()])?;
+        v_t6 = core_ne(&[v_t5.clone(), CoreValue::Num(93f64)])?;
+        v_t7 = core_not(&[v_t6.clone()])?;
+        if core_truthy(&v_t7) {
+            break;
+        }
+        v_t8 = _regex_peek(&[v_s.clone()])?;
+        v_t9 = core_lt(&[v_t8.clone(), CoreValue::Num(0f64)])?;
+        if core_truthy(&v_t9) {
+            v_t10 = core_string_format(&[
+                CoreValue::from("Invalid regular expression: {}"),
+                CoreValue::from("Unterminated character class"),
+            ])?;
+            v_t11 = core_validation_error(&[v_t10.clone()])?;
+            return Err(core_as_error(&v_t11));
+        }
+        v_t12 = _regex_class_atom(&[v_s.clone()])?;
+        v_first = v_t12.clone();
+        v_t13 = _regex_peek(&[v_s.clone()])?;
+        v_t14 = core_eq(&[v_t13.clone(), CoreValue::Num(45f64)])?;
+        v_t15 = v_t14.clone();
+        if core_truthy(&v_t15) {
+            v_t16 = core_get(&v_s, &CoreValue::from("p"), CoreValue::Null);
+            v_t17 = core_add(&[v_t16.clone(), CoreValue::Num(1f64)])?;
+            v_t18 = core_get(&v_s, &CoreValue::from("u"), CoreValue::Null);
+            v_t19 = core_len(&[v_t18.clone()])?;
+            v_t20 = core_lt(&[v_t17.clone(), v_t19.clone()])?;
+            v_t15 = v_t20.clone();
+        }
+        if core_truthy(&v_t15) {
+            v_t21 = core_get(&v_s, &CoreValue::from("u"), CoreValue::Null);
+            v_t22 = core_get(&v_s, &CoreValue::from("p"), CoreValue::Null);
+            v_t23 = core_add(&[v_t22.clone(), CoreValue::Num(1f64)])?;
+            v_t24 = core_get(&v_t21, &v_t23.clone(), CoreValue::Null);
+            v_t25 = core_ne(&[v_t24.clone(), CoreValue::Num(93f64)])?;
+            v_t15 = v_t25.clone();
+        }
+        if core_truthy(&v_t15) {
+            v_t26 = _regex_take(&[v_s.clone()])?;
+            v_t27 = _regex_class_atom(&[v_s.clone()])?;
+            v_last = v_t27.clone();
+            v_t28 = core_get(&v_first, &CoreValue::from("k"), CoreValue::Null);
+            v_t29 = core_eq(&[v_t28.clone(), CoreValue::from("char")])?;
+            v_t30 = v_t29.clone();
+            if core_truthy(&v_t30) {
+                v_t31 = core_get(&v_last, &CoreValue::from("k"), CoreValue::Null);
+                v_t32 = core_eq(&[v_t31.clone(), CoreValue::from("char")])?;
+                v_t30 = v_t32.clone();
+            }
+            if core_truthy(&v_t30) {
+                v_t33 = core_get(&v_first, &CoreValue::from("c"), CoreValue::Null);
+                v_t34 = core_get(&v_last, &CoreValue::from("c"), CoreValue::Null);
+                v_t35 = core_gt(&[v_t33.clone(), v_t34.clone()])?;
+                if core_truthy(&v_t35) {
+                    v_t36 = core_string_format(&[
+                        CoreValue::from("Invalid regular expression: {}"),
+                        CoreValue::from("Invalid character range"),
+                    ])?;
+                    v_t37 = core_validation_error(&[v_t36.clone()])?;
+                    return Err(core_as_error(&v_t37));
+                }
+                v_t38 = CoreValue::new_map();
+                core_set(&v_t38, CoreValue::from("k"), CoreValue::from("range"))?;
+                v_t39 = core_get(&v_first, &CoreValue::from("c"), CoreValue::Null);
+                core_set(&v_t38, CoreValue::from("lo"), v_t39.clone())?;
+                v_t40 = core_get(&v_last, &CoreValue::from("c"), CoreValue::Null);
+                core_set(&v_t38, CoreValue::from("hi"), v_t40.clone())?;
+                core_append(&v_terms, v_t38.clone())?;
+            } else {
+                core_append(&v_terms, v_first.clone())?;
+                v_t41 = _regex_literal(&[CoreValue::Num(45f64)])?;
+                core_append(&v_terms, v_t41.clone())?;
+                core_append(&v_terms, v_last.clone())?;
+            }
+        } else {
+            core_append(&v_terms, v_first.clone())?;
+        }
+    }
+    v_t42 = _regex_take(&[v_s.clone()])?;
+    v_t43 = CoreValue::new_map();
+    core_set(&v_t43, CoreValue::from("k"), CoreValue::from("class"))?;
+    core_set(&v_t43, CoreValue::from("negative"), v_negative.clone())?;
+    core_set(&v_t43, CoreValue::from("terms"), v_terms.clone())?;
+    return Ok(v_t43.clone());
 }
 
 #[allow(
@@ -58262,380 +61064,6 @@ fn _forward_impl(args: &[CoreValue]) -> Result<CoreValue, AxError> {
         }
     }
     return Err(AxError::runtime("unreachable AxGen forward loop exit"));
-}
-
-#[allow(
-    unused_variables,
-    unused_assignments,
-    unused_mut,
-    unreachable_code,
-    clippy::all
-)]
-fn chat_session_unresolved(args: &[CoreValue]) -> Result<CoreValue, AxError> {
-    axir_coverage_mark("chat_session_unresolved");
-    let mut v_state = core_arg(args, 0);
-    let mut v_call = CoreValue::Null;
-    let mut v_id = CoreValue::Null;
-    let mut v_ids = CoreValue::Null;
-    let mut v_out = CoreValue::Null;
-    let mut v_pending = CoreValue::Null;
-    let mut v_sent = CoreValue::Null;
-    let mut v_status = CoreValue::Null;
-    let mut v_unresolved = CoreValue::Null;
-    v_out = CoreValue::new_list();
-    v_pending = core_get(&v_state, &CoreValue::from("pending"), CoreValue::Null);
-    v_ids = core_map_keys(&[v_pending.clone()])?;
-    for v_id in core_iter(&v_ids)? {
-        let mut v_id = v_id;
-        v_call = core_get(&v_pending, &v_id.clone(), CoreValue::Null);
-        v_status = core_get(&v_call, &CoreValue::from("status"), CoreValue::Null);
-        v_sent = core_eq(&[v_status.clone(), CoreValue::from("sent")])?;
-        v_unresolved = core_not(&[v_sent.clone()])?;
-        if core_truthy(&v_unresolved) {
-            core_append(&v_out, v_id.clone())?;
-        }
-    }
-    return Ok(v_out.clone());
-}
-
-#[allow(
-    unused_variables,
-    unused_assignments,
-    unused_mut,
-    unreachable_code,
-    clippy::all
-)]
-fn _filter_optimization_components(args: &[CoreValue]) -> Result<CoreValue, AxError> {
-    axir_coverage_mark("_filter_optimization_components");
-    let mut v_components = core_arg(args, 0);
-    let mut v_target = core_arg(args, 1);
-    let mut v_actor_any_match = CoreValue::Null;
-    let mut v_actor_component_match = CoreValue::Null;
-    let mut v_actor_match = CoreValue::Null;
-    let mut v_component = CoreValue::Null;
-    let mut v_count = CoreValue::Null;
-    let mut v_empty = CoreValue::Null;
-    let mut v_error = CoreValue::Null;
-    let mut v_explicit_match = CoreValue::Null;
-    let mut v_flow_component = CoreValue::Null;
-    let mut v_id = CoreValue::Null;
-    let mut v_include = CoreValue::Null;
-    let mut v_is_actor = CoreValue::Null;
-    let mut v_is_all = CoreValue::Null;
-    let mut v_is_flow = CoreValue::Null;
-    let mut v_is_list = CoreValue::Null;
-    let mut v_is_responder = CoreValue::Null;
-    let mut v_kind = CoreValue::Null;
-    let mut v_listed = CoreValue::Null;
-    let mut v_message = CoreValue::Null;
-    let mut v_out = CoreValue::Null;
-    let mut v_responder_any_match = CoreValue::Null;
-    let mut v_responder_component_match = CoreValue::Null;
-    let mut v_responder_match = CoreValue::Null;
-    let mut v_stage_instruction_match = CoreValue::Null;
-    v_out = CoreValue::new_list();
-    v_is_list = core_type_is(&v_target, CoreValue::from("list"));
-    v_is_all = core_eq(&[v_target.clone(), CoreValue::from("all")])?;
-    v_is_actor = core_eq(&[v_target.clone(), CoreValue::from("actor")])?;
-    v_is_responder = core_eq(&[v_target.clone(), CoreValue::from("responder")])?;
-    v_is_flow = core_eq(&[v_target.clone(), CoreValue::from("flow")])?;
-    for v_component in core_iter(&v_components)? {
-        let mut v_component = v_component;
-        v_id = core_get(&v_component, &CoreValue::from("id"), CoreValue::from(""));
-        v_kind = core_get(&v_component, &CoreValue::from("kind"), CoreValue::from(""));
-        v_include = CoreValue::Bool(false);
-        if core_truthy(&v_is_all) {
-            v_include = CoreValue::Bool(true);
-        }
-        if core_truthy(&v_is_list) {
-            v_listed = core_contains(&[v_target.clone(), v_id.clone()])?;
-            if core_truthy(&v_listed) {
-                v_include = CoreValue::Bool(true);
-            }
-        }
-        if core_truthy(&v_is_actor) {
-            v_actor_match = core_string_ends_with(&[v_id.clone(), CoreValue::from(".actor")])?;
-            v_actor_component_match = core_contains(&[v_id.clone(), CoreValue::from(".actor::")])?;
-            v_actor_any_match = core_or(&[v_actor_match.clone(), v_actor_component_match.clone()])?;
-            v_stage_instruction_match =
-                core_eq(&[v_id.clone(), CoreValue::from("root::instruction")])?;
-            v_actor_any_match =
-                core_or(&[v_actor_any_match.clone(), v_stage_instruction_match.clone()])?;
-            if core_truthy(&v_actor_any_match) {
-                v_include = CoreValue::Bool(true);
-            }
-        }
-        if core_truthy(&v_is_responder) {
-            v_responder_match =
-                core_string_ends_with(&[v_id.clone(), CoreValue::from(".responder")])?;
-            v_responder_component_match =
-                core_contains(&[v_id.clone(), CoreValue::from(".responder::")])?;
-            v_responder_any_match = core_or(&[
-                v_responder_match.clone(),
-                v_responder_component_match.clone(),
-            ])?;
-            if core_truthy(&v_responder_any_match) {
-                v_include = CoreValue::Bool(true);
-            }
-        }
-        if core_truthy(&v_is_flow) {
-            v_flow_component = core_eq(&[v_kind.clone(), CoreValue::from("flow-graph")])?;
-            if core_truthy(&v_flow_component) {
-                v_include = CoreValue::Bool(true);
-            }
-        }
-        v_explicit_match = core_eq(&[v_target.clone(), v_id.clone()])?;
-        if core_truthy(&v_explicit_match) {
-            v_include = CoreValue::Bool(true);
-        }
-        if core_truthy(&v_include) {
-            core_append(&v_out, v_component.clone())?;
-        }
-    }
-    v_count = core_len(&[v_out.clone()])?;
-    v_empty = core_eq(&[v_count.clone(), CoreValue::Num(0f64)])?;
-    if core_truthy(&v_empty) {
-        v_message = core_string_format(&[
-            CoreValue::from("no optimizable components match target: {}"),
-            v_target.clone(),
-        ])?;
-        v_error = core_runtime_error(&[v_message.clone()])?;
-        return Err(core_as_error(&v_error));
-    }
-    return Ok(v_out.clone());
-}
-
-#[allow(
-    unused_variables,
-    unused_assignments,
-    unused_mut,
-    unreachable_code,
-    clippy::all
-)]
-fn _regex_class_atom(args: &[CoreValue]) -> Result<CoreValue, AxError> {
-    axir_coverage_mark("_regex_class_atom");
-    let mut v_s = core_arg(args, 0);
-    let mut v_c = CoreValue::Null;
-    let mut v_t1 = CoreValue::Null;
-    let mut v_t2 = CoreValue::Null;
-    let mut v_t3 = CoreValue::Null;
-    let mut v_t4 = CoreValue::Null;
-    v_c = core_none(&[])?;
-    v_t1 = _regex_take(&[v_s.clone()])?;
-    v_c = v_t1.clone();
-    v_t2 = core_eq(&[v_c.clone(), CoreValue::Num(92f64)])?;
-    if core_truthy(&v_t2) {
-        v_t3 = _regex_escaped(&[v_s.clone(), CoreValue::Bool(true)])?;
-        return Ok(v_t3.clone());
-    }
-    v_t4 = _regex_literal(&[v_c.clone()])?;
-    return Ok(v_t4.clone());
-}
-
-#[allow(
-    unused_variables,
-    unused_assignments,
-    unused_mut,
-    unreachable_code,
-    clippy::all
-)]
-fn chat_session_register_call(args: &[CoreValue]) -> Result<CoreValue, AxError> {
-    axir_coverage_mark("chat_session_register_call");
-    let mut v_state = core_arg(args, 0);
-    let mut v_call = core_arg(args, 1);
-    let mut v_execution = core_arg(args, 2);
-    let mut v_exists = CoreValue::Null;
-    let mut v_id = CoreValue::Null;
-    let mut v_missing = CoreValue::Null;
-    let mut v_pending = CoreValue::Null;
-    let mut v_record = CoreValue::Null;
-    let mut v_terminal = CoreValue::Null;
-    v_terminal = core_get(
-        &v_state,
-        &CoreValue::from("terminal"),
-        CoreValue::Bool(false),
-    );
-    if core_truthy(&v_terminal) {
-        return Ok(CoreValue::Bool(false));
-    }
-    v_id = core_get(&v_call, &CoreValue::from("id"), CoreValue::from(""));
-    v_missing = core_eq(&[v_id.clone(), CoreValue::from("")])?;
-    if core_truthy(&v_missing) {
-        return Err(AxError::runtime("Completed tool calls require a call ID"));
-    }
-    v_pending = core_get(&v_state, &CoreValue::from("pending"), CoreValue::Null);
-    v_exists = core_map_contains(&[v_pending.clone(), v_id.clone()])?;
-    if core_truthy(&v_exists) {
-        return Ok(CoreValue::Bool(false));
-    }
-    v_record = CoreValue::new_map();
-    core_set(&v_record, CoreValue::from("call"), v_call.clone())?;
-    core_set(&v_record, CoreValue::from("execution"), v_execution.clone())?;
-    core_set(
-        &v_record,
-        CoreValue::from("status"),
-        CoreValue::from("running"),
-    )?;
-    core_set(&v_pending, v_id.clone(), v_record.clone())?;
-    core_set(&v_state, CoreValue::from("pending"), v_pending.clone())?;
-    return Ok(CoreValue::Bool(true));
-}
-
-#[allow(
-    unused_variables,
-    unused_assignments,
-    unused_mut,
-    unreachable_code,
-    clippy::all
-)]
-fn _regex_character_class(args: &[CoreValue]) -> Result<CoreValue, AxError> {
-    axir_coverage_mark("_regex_character_class");
-    let mut v_s = core_arg(args, 0);
-    let mut v_first = CoreValue::Null;
-    let mut v_last = CoreValue::Null;
-    let mut v_negative = CoreValue::Null;
-    let mut v_t1 = CoreValue::Null;
-    let mut v_t10 = CoreValue::Null;
-    let mut v_t11 = CoreValue::Null;
-    let mut v_t12 = CoreValue::Null;
-    let mut v_t13 = CoreValue::Null;
-    let mut v_t14 = CoreValue::Null;
-    let mut v_t15 = CoreValue::Null;
-    let mut v_t16 = CoreValue::Null;
-    let mut v_t17 = CoreValue::Null;
-    let mut v_t18 = CoreValue::Null;
-    let mut v_t19 = CoreValue::Null;
-    let mut v_t2 = CoreValue::Null;
-    let mut v_t20 = CoreValue::Null;
-    let mut v_t21 = CoreValue::Null;
-    let mut v_t22 = CoreValue::Null;
-    let mut v_t23 = CoreValue::Null;
-    let mut v_t24 = CoreValue::Null;
-    let mut v_t25 = CoreValue::Null;
-    let mut v_t26 = CoreValue::Null;
-    let mut v_t27 = CoreValue::Null;
-    let mut v_t28 = CoreValue::Null;
-    let mut v_t29 = CoreValue::Null;
-    let mut v_t3 = CoreValue::Null;
-    let mut v_t30 = CoreValue::Null;
-    let mut v_t31 = CoreValue::Null;
-    let mut v_t32 = CoreValue::Null;
-    let mut v_t33 = CoreValue::Null;
-    let mut v_t34 = CoreValue::Null;
-    let mut v_t35 = CoreValue::Null;
-    let mut v_t36 = CoreValue::Null;
-    let mut v_t37 = CoreValue::Null;
-    let mut v_t38 = CoreValue::Null;
-    let mut v_t39 = CoreValue::Null;
-    let mut v_t4 = CoreValue::Null;
-    let mut v_t40 = CoreValue::Null;
-    let mut v_t41 = CoreValue::Null;
-    let mut v_t42 = CoreValue::Null;
-    let mut v_t43 = CoreValue::Null;
-    let mut v_t5 = CoreValue::Null;
-    let mut v_t6 = CoreValue::Null;
-    let mut v_t7 = CoreValue::Null;
-    let mut v_t8 = CoreValue::Null;
-    let mut v_t9 = CoreValue::Null;
-    let mut v_terms = CoreValue::Null;
-    v_first = core_none(&[])?;
-    v_last = core_none(&[])?;
-    v_negative = core_none(&[])?;
-    v_terms = core_none(&[])?;
-    v_negative = CoreValue::Bool(false);
-    v_t1 = CoreValue::new_list();
-    v_terms = v_t1.clone();
-    v_t2 = _regex_peek(&[v_s.clone()])?;
-    v_t3 = core_eq(&[v_t2.clone(), CoreValue::Num(94f64)])?;
-    if core_truthy(&v_t3) {
-        v_t4 = _regex_take(&[v_s.clone()])?;
-        v_negative = CoreValue::Bool(true);
-    }
-    loop {
-        v_t5 = _regex_peek(&[v_s.clone()])?;
-        v_t6 = core_ne(&[v_t5.clone(), CoreValue::Num(93f64)])?;
-        v_t7 = core_not(&[v_t6.clone()])?;
-        if core_truthy(&v_t7) {
-            break;
-        }
-        v_t8 = _regex_peek(&[v_s.clone()])?;
-        v_t9 = core_lt(&[v_t8.clone(), CoreValue::Num(0f64)])?;
-        if core_truthy(&v_t9) {
-            v_t10 = core_string_format(&[
-                CoreValue::from("Invalid regular expression: {}"),
-                CoreValue::from("Unterminated character class"),
-            ])?;
-            v_t11 = core_validation_error(&[v_t10.clone()])?;
-            return Err(core_as_error(&v_t11));
-        }
-        v_t12 = _regex_class_atom(&[v_s.clone()])?;
-        v_first = v_t12.clone();
-        v_t13 = _regex_peek(&[v_s.clone()])?;
-        v_t14 = core_eq(&[v_t13.clone(), CoreValue::Num(45f64)])?;
-        v_t15 = v_t14.clone();
-        if core_truthy(&v_t15) {
-            v_t16 = core_get(&v_s, &CoreValue::from("p"), CoreValue::Null);
-            v_t17 = core_add(&[v_t16.clone(), CoreValue::Num(1f64)])?;
-            v_t18 = core_get(&v_s, &CoreValue::from("u"), CoreValue::Null);
-            v_t19 = core_len(&[v_t18.clone()])?;
-            v_t20 = core_lt(&[v_t17.clone(), v_t19.clone()])?;
-            v_t15 = v_t20.clone();
-        }
-        if core_truthy(&v_t15) {
-            v_t21 = core_get(&v_s, &CoreValue::from("u"), CoreValue::Null);
-            v_t22 = core_get(&v_s, &CoreValue::from("p"), CoreValue::Null);
-            v_t23 = core_add(&[v_t22.clone(), CoreValue::Num(1f64)])?;
-            v_t24 = core_get(&v_t21, &v_t23.clone(), CoreValue::Null);
-            v_t25 = core_ne(&[v_t24.clone(), CoreValue::Num(93f64)])?;
-            v_t15 = v_t25.clone();
-        }
-        if core_truthy(&v_t15) {
-            v_t26 = _regex_take(&[v_s.clone()])?;
-            v_t27 = _regex_class_atom(&[v_s.clone()])?;
-            v_last = v_t27.clone();
-            v_t28 = core_get(&v_first, &CoreValue::from("k"), CoreValue::Null);
-            v_t29 = core_eq(&[v_t28.clone(), CoreValue::from("char")])?;
-            v_t30 = v_t29.clone();
-            if core_truthy(&v_t30) {
-                v_t31 = core_get(&v_last, &CoreValue::from("k"), CoreValue::Null);
-                v_t32 = core_eq(&[v_t31.clone(), CoreValue::from("char")])?;
-                v_t30 = v_t32.clone();
-            }
-            if core_truthy(&v_t30) {
-                v_t33 = core_get(&v_first, &CoreValue::from("c"), CoreValue::Null);
-                v_t34 = core_get(&v_last, &CoreValue::from("c"), CoreValue::Null);
-                v_t35 = core_gt(&[v_t33.clone(), v_t34.clone()])?;
-                if core_truthy(&v_t35) {
-                    v_t36 = core_string_format(&[
-                        CoreValue::from("Invalid regular expression: {}"),
-                        CoreValue::from("Invalid character range"),
-                    ])?;
-                    v_t37 = core_validation_error(&[v_t36.clone()])?;
-                    return Err(core_as_error(&v_t37));
-                }
-                v_t38 = CoreValue::new_map();
-                core_set(&v_t38, CoreValue::from("k"), CoreValue::from("range"))?;
-                v_t39 = core_get(&v_first, &CoreValue::from("c"), CoreValue::Null);
-                core_set(&v_t38, CoreValue::from("lo"), v_t39.clone())?;
-                v_t40 = core_get(&v_last, &CoreValue::from("c"), CoreValue::Null);
-                core_set(&v_t38, CoreValue::from("hi"), v_t40.clone())?;
-                core_append(&v_terms, v_t38.clone())?;
-            } else {
-                core_append(&v_terms, v_first.clone())?;
-                v_t41 = _regex_literal(&[CoreValue::Num(45f64)])?;
-                core_append(&v_terms, v_t41.clone())?;
-                core_append(&v_terms, v_last.clone())?;
-            }
-        } else {
-            core_append(&v_terms, v_first.clone())?;
-        }
-    }
-    v_t42 = _regex_take(&[v_s.clone()])?;
-    v_t43 = CoreValue::new_map();
-    core_set(&v_t43, CoreValue::from("k"), CoreValue::from("class"))?;
-    core_set(&v_t43, CoreValue::from("negative"), v_negative.clone())?;
-    core_set(&v_t43, CoreValue::from("terms"), v_terms.clone())?;
-    return Ok(v_t43.clone());
 }
 
 #[allow(
@@ -59408,36 +61836,6 @@ fn _normalize_optimizer_engine_response(args: &[CoreValue]) -> Result<CoreValue,
     unreachable_code,
     clippy::all
 )]
-fn _set_examples(args: &[CoreValue]) -> Result<CoreValue, AxError> {
-    axir_coverage_mark("_set_examples");
-    let mut v_gen = core_arg(args, 0);
-    let mut v_examples = core_arg(args, 1);
-    core_set(&v_gen, CoreValue::from("examples"), v_examples.clone())?;
-    return Ok(v_gen.clone());
-}
-
-#[allow(
-    unused_variables,
-    unused_assignments,
-    unused_mut,
-    unreachable_code,
-    clippy::all
-)]
-fn _set_demos(args: &[CoreValue]) -> Result<CoreValue, AxError> {
-    axir_coverage_mark("_set_demos");
-    let mut v_gen = core_arg(args, 0);
-    let mut v_demos = core_arg(args, 1);
-    core_set(&v_gen, CoreValue::from("demos"), v_demos.clone())?;
-    return Ok(v_gen.clone());
-}
-
-#[allow(
-    unused_variables,
-    unused_assignments,
-    unused_mut,
-    unreachable_code,
-    clippy::all
-)]
 fn chat_session_complete_response(args: &[CoreValue]) -> Result<CoreValue, AxError> {
     axir_coverage_mark("chat_session_complete_response");
     let mut v_state = core_arg(args, 0);
@@ -59529,58 +61927,42 @@ fn chat_session_complete_response(args: &[CoreValue]) -> Result<CoreValue, AxErr
     unreachable_code,
     clippy::all
 )]
+fn _set_examples(args: &[CoreValue]) -> Result<CoreValue, AxError> {
+    axir_coverage_mark("_set_examples");
+    let mut v_gen = core_arg(args, 0);
+    let mut v_examples = core_arg(args, 1);
+    core_set(&v_gen, CoreValue::from("examples"), v_examples.clone())?;
+    return Ok(v_gen.clone());
+}
+
+#[allow(
+    unused_variables,
+    unused_assignments,
+    unused_mut,
+    unreachable_code,
+    clippy::all
+)]
+fn _set_demos(args: &[CoreValue]) -> Result<CoreValue, AxError> {
+    axir_coverage_mark("_set_demos");
+    let mut v_gen = core_arg(args, 0);
+    let mut v_demos = core_arg(args, 1);
+    core_set(&v_gen, CoreValue::from("demos"), v_demos.clone())?;
+    return Ok(v_gen.clone());
+}
+
+#[allow(
+    unused_variables,
+    unused_assignments,
+    unused_mut,
+    unreachable_code,
+    clippy::all
+)]
 fn _render_examples(args: &[CoreValue]) -> Result<CoreValue, AxError> {
     axir_coverage_mark("_render_examples");
     let mut v_gen = core_arg(args, 0);
     let mut v_messages = CoreValue::Null;
     v_messages = core_axgen_render_examples(&[v_gen.clone()])?;
     return Ok(v_messages.clone());
-}
-
-#[allow(
-    unused_variables,
-    unused_assignments,
-    unused_mut,
-    unreachable_code,
-    clippy::all
-)]
-fn _render_demos(args: &[CoreValue]) -> Result<CoreValue, AxError> {
-    axir_coverage_mark("_render_demos");
-    let mut v_gen = core_arg(args, 0);
-    let mut v_messages = CoreValue::Null;
-    v_messages = core_axgen_render_demos(&[v_gen.clone()])?;
-    return Ok(v_messages.clone());
-}
-
-#[allow(
-    unused_variables,
-    unused_assignments,
-    unused_mut,
-    unreachable_code,
-    clippy::all
-)]
-fn _apply_field_processors(args: &[CoreValue]) -> Result<CoreValue, AxError> {
-    axir_coverage_mark("_apply_field_processors");
-    let mut v_gen = core_arg(args, 0);
-    let mut v_output = core_arg(args, 1);
-    let mut v_processed = CoreValue::Null;
-    v_processed = core_axgen_apply_field_processors(&[v_gen.clone(), v_output.clone()])?;
-    return Ok(v_processed.clone());
-}
-
-#[allow(
-    unused_variables,
-    unused_assignments,
-    unused_mut,
-    unreachable_code,
-    clippy::all
-)]
-fn _run_assertions(args: &[CoreValue]) -> Result<CoreValue, AxError> {
-    axir_coverage_mark("_run_assertions");
-    let mut v_gen = core_arg(args, 0);
-    let mut v_output = core_arg(args, 1);
-    core_axgen_run_assertions(&[v_gen.clone(), v_output.clone()])?;
-    return Ok(CoreValue::Null);
 }
 
 #[allow(
@@ -59785,17 +62167,12 @@ fn chat_session_has_queued_updates(args: &[CoreValue]) -> Result<CoreValue, AxEr
     unreachable_code,
     clippy::all
 )]
-fn _append_assertion_retry_messages(args: &[CoreValue]) -> Result<CoreValue, AxError> {
-    axir_coverage_mark("_append_assertion_retry_messages");
-    let mut v_messages = core_arg(args, 0);
-    let mut v_response = core_arg(args, 1);
-    let mut v_error = core_arg(args, 2);
-    _append_validation_retry_messages_impl(&[
-        v_messages.clone(),
-        v_response.clone(),
-        v_error.clone(),
-    ])?;
-    return Ok(CoreValue::Null);
+fn _render_demos(args: &[CoreValue]) -> Result<CoreValue, AxError> {
+    axir_coverage_mark("_render_demos");
+    let mut v_gen = core_arg(args, 0);
+    let mut v_messages = CoreValue::Null;
+    v_messages = core_axgen_render_demos(&[v_gen.clone()])?;
+    return Ok(v_messages.clone());
 }
 
 #[allow(
@@ -59805,19 +62182,13 @@ fn _append_assertion_retry_messages(args: &[CoreValue]) -> Result<CoreValue, AxE
     unreachable_code,
     clippy::all
 )]
-fn _record_trace(args: &[CoreValue]) -> Result<CoreValue, AxError> {
-    axir_coverage_mark("_record_trace");
+fn _apply_field_processors(args: &[CoreValue]) -> Result<CoreValue, AxError> {
+    axir_coverage_mark("_apply_field_processors");
     let mut v_gen = core_arg(args, 0);
-    let mut v_input = core_arg(args, 1);
-    let mut v_output = core_arg(args, 2);
-    let mut v_status = core_arg(args, 3);
-    core_axgen_record_trace(&[
-        v_gen.clone(),
-        v_input.clone(),
-        v_output.clone(),
-        v_status.clone(),
-    ])?;
-    return Ok(CoreValue::Null);
+    let mut v_output = core_arg(args, 1);
+    let mut v_processed = CoreValue::Null;
+    v_processed = core_axgen_apply_field_processors(&[v_gen.clone(), v_output.clone()])?;
+    return Ok(v_processed.clone());
 }
 
 #[allow(
@@ -59878,13 +62249,12 @@ fn chat_session_native_update(args: &[CoreValue]) -> Result<CoreValue, AxError> 
     unreachable_code,
     clippy::all
 )]
-fn _should_continue_steps(args: &[CoreValue]) -> Result<CoreValue, AxError> {
-    axir_coverage_mark("_should_continue_steps");
+fn _run_assertions(args: &[CoreValue]) -> Result<CoreValue, AxError> {
+    axir_coverage_mark("_run_assertions");
     let mut v_gen = core_arg(args, 0);
-    let mut v_calls = core_arg(args, 1);
-    let mut v_should_continue = CoreValue::Null;
-    v_should_continue = core_axgen_should_continue_steps(&[v_gen.clone(), v_calls.clone()])?;
-    return Ok(v_should_continue.clone());
+    let mut v_output = core_arg(args, 1);
+    core_axgen_run_assertions(&[v_gen.clone(), v_output.clone()])?;
+    return Ok(CoreValue::Null);
 }
 
 #[allow(
@@ -59894,52 +62264,17 @@ fn _should_continue_steps(args: &[CoreValue]) -> Result<CoreValue, AxError> {
     unreachable_code,
     clippy::all
 )]
-fn _complete_with_retries_impl(args: &[CoreValue]) -> Result<CoreValue, AxError> {
-    axir_coverage_mark("_complete_with_retries_impl");
-    let mut v_client = core_arg(args, 0);
-    let mut v_request = core_arg(args, 1);
-    let mut v_options = core_arg(args, 2);
-    let mut v_retries = core_arg(args, 3);
-    let mut v_aborted = CoreValue::Null;
-    let mut v_attempt = CoreValue::Null;
-    let mut v_error = CoreValue::Null;
-    let mut v_exhausted = CoreValue::Null;
-    let mut v_last_error = CoreValue::Null;
-    let mut v_next_attempt = CoreValue::Null;
-    let mut v_response = CoreValue::Null;
-    v_attempt = CoreValue::Num(0f64);
-    v_last_error = core_none(&[])?;
-    loop {
-        let __core_try: Result<CoreFlow, AxError> = (|| {
-            v_response =
-                core_ai_complete_once(&[v_client.clone(), v_request.clone(), v_options.clone()])?;
-            return Ok(CoreFlow::Return(v_response.clone()));
-            Ok(CoreFlow::Normal)
-        })();
-        match __core_try {
-            Ok(CoreFlow::Normal) => {}
-            Ok(CoreFlow::Return(value)) => return Ok(value),
-            Ok(CoreFlow::Break) => break,
-            Ok(CoreFlow::Continue) => continue,
-            Err(__core_caught) => {
-                v_error = CoreValue::Error(std::rc::Rc::new(__core_caught));
-                v_aborted = core_exception_is_aborted(&[v_error.clone()])?;
-                if core_truthy(&v_aborted) {
-                    return Err(core_as_error(&v_error));
-                }
-                v_last_error = v_error.clone();
-                v_exhausted = core_gte(&[v_attempt.clone(), v_retries.clone()])?;
-                if core_truthy(&v_exhausted) {
-                    return Err(core_as_error(&v_error));
-                }
-                core_retry_sleep(&[v_attempt.clone(), v_client.clone(), v_options.clone()])?;
-                v_next_attempt = core_add(&[v_attempt.clone(), CoreValue::Num(1f64)])?;
-                v_attempt = v_next_attempt.clone();
-                continue;
-            }
-        }
-    }
-    return Err(core_as_error(&v_last_error));
+fn _append_assertion_retry_messages(args: &[CoreValue]) -> Result<CoreValue, AxError> {
+    axir_coverage_mark("_append_assertion_retry_messages");
+    let mut v_messages = core_arg(args, 0);
+    let mut v_response = core_arg(args, 1);
+    let mut v_error = core_arg(args, 2);
+    _append_validation_retry_messages_impl(&[
+        v_messages.clone(),
+        v_response.clone(),
+        v_error.clone(),
+    ])?;
+    return Ok(CoreValue::Null);
 }
 
 #[allow(
@@ -59983,6 +62318,44 @@ fn chat_session_native_wait(args: &[CoreValue]) -> Result<CoreValue, AxError> {
         }
     }
     return Ok(CoreValue::Bool(false));
+}
+
+#[allow(
+    unused_variables,
+    unused_assignments,
+    unused_mut,
+    unreachable_code,
+    clippy::all
+)]
+fn _record_trace(args: &[CoreValue]) -> Result<CoreValue, AxError> {
+    axir_coverage_mark("_record_trace");
+    let mut v_gen = core_arg(args, 0);
+    let mut v_input = core_arg(args, 1);
+    let mut v_output = core_arg(args, 2);
+    let mut v_status = core_arg(args, 3);
+    core_axgen_record_trace(&[
+        v_gen.clone(),
+        v_input.clone(),
+        v_output.clone(),
+        v_status.clone(),
+    ])?;
+    return Ok(CoreValue::Null);
+}
+
+#[allow(
+    unused_variables,
+    unused_assignments,
+    unused_mut,
+    unreachable_code,
+    clippy::all
+)]
+fn _should_continue_steps(args: &[CoreValue]) -> Result<CoreValue, AxError> {
+    axir_coverage_mark("_should_continue_steps");
+    let mut v_gen = core_arg(args, 0);
+    let mut v_calls = core_arg(args, 1);
+    let mut v_should_continue = CoreValue::Null;
+    v_should_continue = core_axgen_should_continue_steps(&[v_gen.clone(), v_calls.clone()])?;
+    return Ok(v_should_continue.clone());
 }
 
 #[allow(
@@ -60230,14 +62603,52 @@ fn chat_session_native_event(args: &[CoreValue]) -> Result<CoreValue, AxError> {
     unreachable_code,
     clippy::all
 )]
-fn _parse_output_impl(args: &[CoreValue]) -> Result<CoreValue, AxError> {
-    axir_coverage_mark("_parse_output_impl");
-    let mut v_content = core_arg(args, 0);
-    let mut v_output = CoreValue::Null;
-    let mut v_text = CoreValue::Null;
-    v_text = core_string_trim(&v_content);
-    v_output = core_json_parse_strict(&[v_text.clone()])?;
-    return Ok(v_output.clone());
+fn _complete_with_retries_impl(args: &[CoreValue]) -> Result<CoreValue, AxError> {
+    axir_coverage_mark("_complete_with_retries_impl");
+    let mut v_client = core_arg(args, 0);
+    let mut v_request = core_arg(args, 1);
+    let mut v_options = core_arg(args, 2);
+    let mut v_retries = core_arg(args, 3);
+    let mut v_aborted = CoreValue::Null;
+    let mut v_attempt = CoreValue::Null;
+    let mut v_error = CoreValue::Null;
+    let mut v_exhausted = CoreValue::Null;
+    let mut v_last_error = CoreValue::Null;
+    let mut v_next_attempt = CoreValue::Null;
+    let mut v_response = CoreValue::Null;
+    v_attempt = CoreValue::Num(0f64);
+    v_last_error = core_none(&[])?;
+    loop {
+        let __core_try: Result<CoreFlow, AxError> = (|| {
+            v_response =
+                core_ai_complete_once(&[v_client.clone(), v_request.clone(), v_options.clone()])?;
+            return Ok(CoreFlow::Return(v_response.clone()));
+            Ok(CoreFlow::Normal)
+        })();
+        match __core_try {
+            Ok(CoreFlow::Normal) => {}
+            Ok(CoreFlow::Return(value)) => return Ok(value),
+            Ok(CoreFlow::Break) => break,
+            Ok(CoreFlow::Continue) => continue,
+            Err(__core_caught) => {
+                v_error = CoreValue::Error(std::rc::Rc::new(__core_caught));
+                v_aborted = core_exception_is_aborted(&[v_error.clone()])?;
+                if core_truthy(&v_aborted) {
+                    return Err(core_as_error(&v_error));
+                }
+                v_last_error = v_error.clone();
+                v_exhausted = core_gte(&[v_attempt.clone(), v_retries.clone()])?;
+                if core_truthy(&v_exhausted) {
+                    return Err(core_as_error(&v_error));
+                }
+                core_retry_sleep(&[v_attempt.clone(), v_client.clone(), v_options.clone()])?;
+                v_next_attempt = core_add(&[v_attempt.clone(), CoreValue::Num(1f64)])?;
+                v_attempt = v_next_attempt.clone();
+                continue;
+            }
+        }
+    }
+    return Err(core_as_error(&v_last_error));
 }
 
 #[allow(
@@ -60531,38 +62942,6 @@ fn _ace_estimate_token_count(args: &[CoreValue]) -> Result<CoreValue, AxError> {
     unreachable_code,
     clippy::all
 )]
-fn _is_flexible_json_field(args: &[CoreValue]) -> Result<CoreValue, AxError> {
-    axir_coverage_mark("_is_flexible_json_field");
-    let mut v_typ = core_arg(args, 0);
-    let mut v_fields = CoreValue::Null;
-    let mut v_flexible = CoreValue::Null;
-    let mut v_has_fields = CoreValue::Null;
-    let mut v_is_json = CoreValue::Null;
-    let mut v_is_object = CoreValue::Null;
-    let mut v_no_fields = CoreValue::Null;
-    let mut v_type_name = CoreValue::Null;
-    v_type_name = core_get(&v_typ, &CoreValue::from("name"), CoreValue::Null);
-    v_is_json = core_eq(&[v_type_name.clone(), CoreValue::from("json")])?;
-    v_is_object = core_eq(&[v_type_name.clone(), CoreValue::from("object")])?;
-    v_fields = core_get(&v_typ, &CoreValue::from("fields"), CoreValue::Null);
-    v_has_fields = core_truthy_value(&[v_fields.clone()])?;
-    v_no_fields = core_not(&[v_has_fields.clone()])?;
-    v_flexible = v_is_json.clone();
-    if core_truthy(&v_is_object) {
-        if core_truthy(&v_no_fields) {
-            v_flexible = CoreValue::Bool(true);
-        }
-    }
-    return Ok(v_flexible.clone());
-}
-
-#[allow(
-    unused_variables,
-    unused_assignments,
-    unused_mut,
-    unreachable_code,
-    clippy::all
-)]
 fn _ace_recompute_playbook_stats(args: &[CoreValue]) -> Result<CoreValue, AxError> {
     axir_coverage_mark("_ace_recompute_playbook_stats");
     let mut v_playbook = core_arg(args, 0);
@@ -60644,6 +63023,108 @@ fn _ace_recompute_playbook_stats(args: &[CoreValue]) -> Result<CoreValue, AxErro
     )?;
     core_set(&v_playbook, CoreValue::from("stats"), v_stats.clone())?;
     return Ok(v_playbook.clone());
+}
+
+#[allow(
+    unused_variables,
+    unused_assignments,
+    unused_mut,
+    unreachable_code,
+    clippy::all
+)]
+fn _parse_output_impl(args: &[CoreValue]) -> Result<CoreValue, AxError> {
+    axir_coverage_mark("_parse_output_impl");
+    let mut v_content = core_arg(args, 0);
+    let mut v_output = CoreValue::Null;
+    let mut v_text = CoreValue::Null;
+    v_text = core_string_trim(&v_content);
+    v_output = core_json_parse_strict(&[v_text.clone()])?;
+    return Ok(v_output.clone());
+}
+
+#[allow(
+    unused_variables,
+    unused_assignments,
+    unused_mut,
+    unreachable_code,
+    clippy::all
+)]
+fn _is_flexible_json_field(args: &[CoreValue]) -> Result<CoreValue, AxError> {
+    axir_coverage_mark("_is_flexible_json_field");
+    let mut v_typ = core_arg(args, 0);
+    let mut v_fields = CoreValue::Null;
+    let mut v_flexible = CoreValue::Null;
+    let mut v_has_fields = CoreValue::Null;
+    let mut v_is_json = CoreValue::Null;
+    let mut v_is_object = CoreValue::Null;
+    let mut v_no_fields = CoreValue::Null;
+    let mut v_type_name = CoreValue::Null;
+    v_type_name = core_get(&v_typ, &CoreValue::from("name"), CoreValue::Null);
+    v_is_json = core_eq(&[v_type_name.clone(), CoreValue::from("json")])?;
+    v_is_object = core_eq(&[v_type_name.clone(), CoreValue::from("object")])?;
+    v_fields = core_get(&v_typ, &CoreValue::from("fields"), CoreValue::Null);
+    v_has_fields = core_truthy_value(&[v_fields.clone()])?;
+    v_no_fields = core_not(&[v_has_fields.clone()])?;
+    v_flexible = v_is_json.clone();
+    if core_truthy(&v_is_object) {
+        if core_truthy(&v_no_fields) {
+            v_flexible = CoreValue::Bool(true);
+        }
+    }
+    return Ok(v_flexible.clone());
+}
+
+#[allow(
+    unused_variables,
+    unused_assignments,
+    unused_mut,
+    unreachable_code,
+    clippy::all
+)]
+fn _ace_empty_playbook(args: &[CoreValue]) -> Result<CoreValue, AxError> {
+    axir_coverage_mark("_ace_empty_playbook");
+    let mut v_description = core_arg(args, 0);
+    let mut v_now = core_arg(args, 1);
+    let mut v_has_description = CoreValue::Null;
+    let mut v_out = CoreValue::Null;
+    let mut v_sections = CoreValue::Null;
+    let mut v_stats = CoreValue::Null;
+    v_out = CoreValue::new_map();
+    core_set(&v_out, CoreValue::from("version"), CoreValue::Num(1f64))?;
+    v_sections = CoreValue::new_map();
+    core_set(&v_out, CoreValue::from("sections"), v_sections.clone())?;
+    v_stats = CoreValue::new_map();
+    core_set(
+        &v_stats,
+        CoreValue::from("bulletCount"),
+        CoreValue::Num(0f64),
+    )?;
+    core_set(
+        &v_stats,
+        CoreValue::from("helpfulCount"),
+        CoreValue::Num(0f64),
+    )?;
+    core_set(
+        &v_stats,
+        CoreValue::from("harmfulCount"),
+        CoreValue::Num(0f64),
+    )?;
+    core_set(
+        &v_stats,
+        CoreValue::from("tokenEstimate"),
+        CoreValue::Num(0f64),
+    )?;
+    core_set(&v_out, CoreValue::from("stats"), v_stats.clone())?;
+    core_set(&v_out, CoreValue::from("updatedAt"), v_now.clone())?;
+    v_has_description = core_truthy_value(&[v_description.clone()])?;
+    if core_truthy(&v_has_description) {
+        core_set(
+            &v_out,
+            CoreValue::from("description"),
+            v_description.clone(),
+        )?;
+    }
+    return Ok(v_out.clone());
 }
 
 #[allow(
@@ -60769,59 +63250,6 @@ fn _parse_json_string_for_field(args: &[CoreValue]) -> Result<CoreValue, AxError
         }
     }
     return Ok(v_value.clone());
-}
-
-#[allow(
-    unused_variables,
-    unused_assignments,
-    unused_mut,
-    unreachable_code,
-    clippy::all
-)]
-fn _ace_empty_playbook(args: &[CoreValue]) -> Result<CoreValue, AxError> {
-    axir_coverage_mark("_ace_empty_playbook");
-    let mut v_description = core_arg(args, 0);
-    let mut v_now = core_arg(args, 1);
-    let mut v_has_description = CoreValue::Null;
-    let mut v_out = CoreValue::Null;
-    let mut v_sections = CoreValue::Null;
-    let mut v_stats = CoreValue::Null;
-    v_out = CoreValue::new_map();
-    core_set(&v_out, CoreValue::from("version"), CoreValue::Num(1f64))?;
-    v_sections = CoreValue::new_map();
-    core_set(&v_out, CoreValue::from("sections"), v_sections.clone())?;
-    v_stats = CoreValue::new_map();
-    core_set(
-        &v_stats,
-        CoreValue::from("bulletCount"),
-        CoreValue::Num(0f64),
-    )?;
-    core_set(
-        &v_stats,
-        CoreValue::from("helpfulCount"),
-        CoreValue::Num(0f64),
-    )?;
-    core_set(
-        &v_stats,
-        CoreValue::from("harmfulCount"),
-        CoreValue::Num(0f64),
-    )?;
-    core_set(
-        &v_stats,
-        CoreValue::from("tokenEstimate"),
-        CoreValue::Num(0f64),
-    )?;
-    core_set(&v_out, CoreValue::from("stats"), v_stats.clone())?;
-    core_set(&v_out, CoreValue::from("updatedAt"), v_now.clone())?;
-    v_has_description = core_truthy_value(&[v_description.clone()])?;
-    if core_truthy(&v_has_description) {
-        core_set(
-            &v_out,
-            CoreValue::from("description"),
-            v_description.clone(),
-        )?;
-    }
-    return Ok(v_out.clone());
 }
 
 #[allow(
@@ -61110,44 +63538,6 @@ fn _parse_json_string_fields(args: &[CoreValue]) -> Result<CoreValue, AxError> {
     unreachable_code,
     clippy::all
 )]
-fn _parse_json_string_for_fields(args: &[CoreValue]) -> Result<CoreValue, AxError> {
-    axir_coverage_mark("_parse_json_string_for_fields");
-    let mut v_fields_map = core_arg(args, 0);
-    let mut v_values = core_arg(args, 1);
-    let mut v_field = CoreValue::Null;
-    let mut v_has_key = CoreValue::Null;
-    let mut v_name = CoreValue::Null;
-    let mut v_nested_fields = CoreValue::Null;
-    let mut v_not_map = CoreValue::Null;
-    let mut v_parsed = CoreValue::Null;
-    let mut v_value = CoreValue::Null;
-    let mut v_values_is_map = CoreValue::Null;
-    v_values_is_map = core_type_is(&v_values, CoreValue::from("object"));
-    v_not_map = core_not(&[v_values_is_map.clone()])?;
-    if core_truthy(&v_not_map) {
-        return Ok(v_values.clone());
-    }
-    v_nested_fields = core_fields_from_map(&[v_fields_map.clone()])?;
-    for v_field in core_iter(&v_nested_fields)? {
-        let mut v_field = v_field;
-        v_name = core_get(&v_field, &CoreValue::from("name"), CoreValue::Null);
-        v_has_key = core_map_contains(&[v_values.clone(), v_name.clone()])?;
-        if core_truthy(&v_has_key) {
-            v_value = core_get(&v_values, &v_name.clone(), CoreValue::Null);
-            v_parsed = _parse_json_string_for_field(&[v_field.clone(), v_value.clone()])?;
-            core_set(&v_values, v_name.clone(), v_parsed.clone())?;
-        }
-    }
-    return Ok(v_values.clone());
-}
-
-#[allow(
-    unused_variables,
-    unused_assignments,
-    unused_mut,
-    unreachable_code,
-    clippy::all
-)]
 fn _ace_update_bullet_feedback(args: &[CoreValue]) -> Result<CoreValue, AxError> {
     axir_coverage_mark("_ace_update_bullet_feedback");
     let mut v_playbook = core_arg(args, 0);
@@ -61235,117 +63625,6 @@ fn _ace_update_bullet_feedback(args: &[CoreValue]) -> Result<CoreValue, AxError>
         return Ok(v_updated.clone());
     }
     return Ok(v_playbook.clone());
-}
-
-#[allow(
-    unused_variables,
-    unused_assignments,
-    unused_mut,
-    unreachable_code,
-    clippy::all
-)]
-fn _validate_exact_output_keys(args: &[CoreValue]) -> Result<CoreValue, AxError> {
-    axir_coverage_mark("_validate_exact_output_keys");
-    let mut v_fields = core_arg(args, 0);
-    let mut v_values = core_arg(args, 1);
-    let mut v_context = core_arg(args, 2);
-    let mut v_array_snake = CoreValue::Null;
-    let mut v_child_context = CoreValue::Null;
-    let mut v_field = CoreValue::Null;
-    let mut v_field_name = CoreValue::Null;
-    let mut v_field_value = CoreValue::Null;
-    let mut v_has_nested = CoreValue::Null;
-    let mut v_has_value = CoreValue::Null;
-    let mut v_is_array = CoreValue::Null;
-    let mut v_is_object = CoreValue::Null;
-    let mut v_item = CoreValue::Null;
-    let mut v_key = CoreValue::Null;
-    let mut v_keys = CoreValue::Null;
-    let mut v_known = CoreValue::Null;
-    let mut v_matches = CoreValue::Null;
-    let mut v_nested_fields = CoreValue::Null;
-    let mut v_nested_map = CoreValue::Null;
-    let mut v_not_object = CoreValue::Null;
-    let mut v_object_error = CoreValue::Null;
-    let mut v_object_message = CoreValue::Null;
-    let mut v_typ = CoreValue::Null;
-    let mut v_unknown = CoreValue::Null;
-    let mut v_unknown_error = CoreValue::Null;
-    let mut v_unknown_message = CoreValue::Null;
-    v_is_object = core_type_is(&v_values, CoreValue::from("object"));
-    v_not_object = core_not(&[v_is_object.clone()])?;
-    if core_truthy(&v_not_object) {
-        v_object_message = core_string_format(&[
-            CoreValue::from("{} must be one JSON object"),
-            v_context.clone(),
-        ])?;
-        v_object_error = core_validation_error(&[v_object_message.clone()])?;
-        return Err(core_as_error(&v_object_error));
-    }
-    v_keys = core_map_keys(&[v_values.clone()])?;
-    for v_key in core_iter(&v_keys)? {
-        let mut v_key = v_key;
-        v_known = CoreValue::Bool(false);
-        for v_field in core_iter(&v_fields)? {
-            let mut v_field = v_field;
-            v_field_name = core_get(&v_field, &CoreValue::from("name"), CoreValue::Null);
-            v_matches = core_eq(&[v_field_name.clone(), v_key.clone()])?;
-            if core_truthy(&v_matches) {
-                v_known = CoreValue::Bool(true);
-            }
-        }
-        v_unknown = core_not(&[v_known.clone()])?;
-        if core_truthy(&v_unknown) {
-            v_unknown_message = core_string_format(&[
-                CoreValue::from(
-                    "Unexpected field '{}' in {}. Use only the exact declared wire keys.",
-                ),
-                v_key.clone(),
-                v_context.clone(),
-            ])?;
-            v_unknown_error = core_validation_error(&[v_unknown_message.clone()])?;
-            return Err(core_as_error(&v_unknown_error));
-        }
-    }
-    for v_field in core_iter(&v_fields)? {
-        let mut v_field = v_field;
-        v_field_name = core_get(&v_field, &CoreValue::from("name"), CoreValue::Null);
-        v_has_value = core_map_contains(&[v_values.clone(), v_field_name.clone()])?;
-        if core_truthy(&v_has_value) {
-            v_typ = core_get(&v_field, &CoreValue::from("type"), CoreValue::Null);
-            v_nested_map = core_get(&v_typ, &CoreValue::from("fields"), CoreValue::Null);
-            v_has_nested = core_truthy_value(&[v_nested_map.clone()])?;
-            if core_truthy(&v_has_nested) {
-                v_nested_fields = core_fields_from_map(&[v_nested_map.clone()])?;
-                v_field_value = core_get(&v_values, &v_field_name.clone(), CoreValue::Null);
-                v_child_context = core_string_format(&[
-                    CoreValue::from("{}.{}"),
-                    v_context.clone(),
-                    v_field_name.clone(),
-                ])?;
-                v_array_snake =
-                    core_get(&v_typ, &CoreValue::from("is_array"), CoreValue::Bool(false));
-                v_is_array = core_get(&v_typ, &CoreValue::from("isArray"), v_array_snake.clone());
-                if core_truthy(&v_is_array) {
-                    for v_item in core_iter(&v_field_value)? {
-                        let mut v_item = v_item;
-                        _validate_exact_output_keys(&[
-                            v_nested_fields.clone(),
-                            v_item.clone(),
-                            v_child_context.clone(),
-                        ])?;
-                    }
-                } else {
-                    _validate_exact_output_keys(&[
-                        v_nested_fields.clone(),
-                        v_field_value.clone(),
-                        v_child_context.clone(),
-                    ])?;
-                }
-            }
-        }
-    }
-    return Ok(CoreValue::Null);
 }
 
 #[allow(
@@ -61459,6 +63738,44 @@ fn chat_session_mark_submitted(args: &[CoreValue]) -> Result<CoreValue, AxError>
         CoreValue::Bool(false),
     )?;
     return Ok(CoreValue::Null);
+}
+
+#[allow(
+    unused_variables,
+    unused_assignments,
+    unused_mut,
+    unreachable_code,
+    clippy::all
+)]
+fn _parse_json_string_for_fields(args: &[CoreValue]) -> Result<CoreValue, AxError> {
+    axir_coverage_mark("_parse_json_string_for_fields");
+    let mut v_fields_map = core_arg(args, 0);
+    let mut v_values = core_arg(args, 1);
+    let mut v_field = CoreValue::Null;
+    let mut v_has_key = CoreValue::Null;
+    let mut v_name = CoreValue::Null;
+    let mut v_nested_fields = CoreValue::Null;
+    let mut v_not_map = CoreValue::Null;
+    let mut v_parsed = CoreValue::Null;
+    let mut v_value = CoreValue::Null;
+    let mut v_values_is_map = CoreValue::Null;
+    v_values_is_map = core_type_is(&v_values, CoreValue::from("object"));
+    v_not_map = core_not(&[v_values_is_map.clone()])?;
+    if core_truthy(&v_not_map) {
+        return Ok(v_values.clone());
+    }
+    v_nested_fields = core_fields_from_map(&[v_fields_map.clone()])?;
+    for v_field in core_iter(&v_nested_fields)? {
+        let mut v_field = v_field;
+        v_name = core_get(&v_field, &CoreValue::from("name"), CoreValue::Null);
+        v_has_key = core_map_contains(&[v_values.clone(), v_name.clone()])?;
+        if core_truthy(&v_has_key) {
+            v_value = core_get(&v_values, &v_name.clone(), CoreValue::Null);
+            v_parsed = _parse_json_string_for_field(&[v_field.clone(), v_value.clone()])?;
+            core_set(&v_values, v_name.clone(), v_parsed.clone())?;
+        }
+    }
+    return Ok(v_values.clone());
 }
 
 #[allow(
@@ -61637,6 +63954,117 @@ fn _ace_dedupe_playbook(args: &[CoreValue]) -> Result<CoreValue, AxError> {
     unreachable_code,
     clippy::all
 )]
+fn _validate_exact_output_keys(args: &[CoreValue]) -> Result<CoreValue, AxError> {
+    axir_coverage_mark("_validate_exact_output_keys");
+    let mut v_fields = core_arg(args, 0);
+    let mut v_values = core_arg(args, 1);
+    let mut v_context = core_arg(args, 2);
+    let mut v_array_snake = CoreValue::Null;
+    let mut v_child_context = CoreValue::Null;
+    let mut v_field = CoreValue::Null;
+    let mut v_field_name = CoreValue::Null;
+    let mut v_field_value = CoreValue::Null;
+    let mut v_has_nested = CoreValue::Null;
+    let mut v_has_value = CoreValue::Null;
+    let mut v_is_array = CoreValue::Null;
+    let mut v_is_object = CoreValue::Null;
+    let mut v_item = CoreValue::Null;
+    let mut v_key = CoreValue::Null;
+    let mut v_keys = CoreValue::Null;
+    let mut v_known = CoreValue::Null;
+    let mut v_matches = CoreValue::Null;
+    let mut v_nested_fields = CoreValue::Null;
+    let mut v_nested_map = CoreValue::Null;
+    let mut v_not_object = CoreValue::Null;
+    let mut v_object_error = CoreValue::Null;
+    let mut v_object_message = CoreValue::Null;
+    let mut v_typ = CoreValue::Null;
+    let mut v_unknown = CoreValue::Null;
+    let mut v_unknown_error = CoreValue::Null;
+    let mut v_unknown_message = CoreValue::Null;
+    v_is_object = core_type_is(&v_values, CoreValue::from("object"));
+    v_not_object = core_not(&[v_is_object.clone()])?;
+    if core_truthy(&v_not_object) {
+        v_object_message = core_string_format(&[
+            CoreValue::from("{} must be one JSON object"),
+            v_context.clone(),
+        ])?;
+        v_object_error = core_validation_error(&[v_object_message.clone()])?;
+        return Err(core_as_error(&v_object_error));
+    }
+    v_keys = core_map_keys(&[v_values.clone()])?;
+    for v_key in core_iter(&v_keys)? {
+        let mut v_key = v_key;
+        v_known = CoreValue::Bool(false);
+        for v_field in core_iter(&v_fields)? {
+            let mut v_field = v_field;
+            v_field_name = core_get(&v_field, &CoreValue::from("name"), CoreValue::Null);
+            v_matches = core_eq(&[v_field_name.clone(), v_key.clone()])?;
+            if core_truthy(&v_matches) {
+                v_known = CoreValue::Bool(true);
+            }
+        }
+        v_unknown = core_not(&[v_known.clone()])?;
+        if core_truthy(&v_unknown) {
+            v_unknown_message = core_string_format(&[
+                CoreValue::from(
+                    "Unexpected field '{}' in {}. Use only the exact declared wire keys.",
+                ),
+                v_key.clone(),
+                v_context.clone(),
+            ])?;
+            v_unknown_error = core_validation_error(&[v_unknown_message.clone()])?;
+            return Err(core_as_error(&v_unknown_error));
+        }
+    }
+    for v_field in core_iter(&v_fields)? {
+        let mut v_field = v_field;
+        v_field_name = core_get(&v_field, &CoreValue::from("name"), CoreValue::Null);
+        v_has_value = core_map_contains(&[v_values.clone(), v_field_name.clone()])?;
+        if core_truthy(&v_has_value) {
+            v_typ = core_get(&v_field, &CoreValue::from("type"), CoreValue::Null);
+            v_nested_map = core_get(&v_typ, &CoreValue::from("fields"), CoreValue::Null);
+            v_has_nested = core_truthy_value(&[v_nested_map.clone()])?;
+            if core_truthy(&v_has_nested) {
+                v_nested_fields = core_fields_from_map(&[v_nested_map.clone()])?;
+                v_field_value = core_get(&v_values, &v_field_name.clone(), CoreValue::Null);
+                v_child_context = core_string_format(&[
+                    CoreValue::from("{}.{}"),
+                    v_context.clone(),
+                    v_field_name.clone(),
+                ])?;
+                v_array_snake =
+                    core_get(&v_typ, &CoreValue::from("is_array"), CoreValue::Bool(false));
+                v_is_array = core_get(&v_typ, &CoreValue::from("isArray"), v_array_snake.clone());
+                if core_truthy(&v_is_array) {
+                    for v_item in core_iter(&v_field_value)? {
+                        let mut v_item = v_item;
+                        _validate_exact_output_keys(&[
+                            v_nested_fields.clone(),
+                            v_item.clone(),
+                            v_child_context.clone(),
+                        ])?;
+                    }
+                } else {
+                    _validate_exact_output_keys(&[
+                        v_nested_fields.clone(),
+                        v_field_value.clone(),
+                        v_child_context.clone(),
+                    ])?;
+                }
+            }
+        }
+    }
+    return Ok(CoreValue::Null);
+}
+
+#[allow(
+    unused_variables,
+    unused_assignments,
+    unused_mut,
+    unreachable_code,
+    clippy::all
+)]
 fn _regex_word(args: &[CoreValue]) -> Result<CoreValue, AxError> {
     axir_coverage_mark("_regex_word");
     let mut v_c = core_arg(args, 0);
@@ -61687,45 +64115,6 @@ fn _regex_word(args: &[CoreValue]) -> Result<CoreValue, AxError> {
         v_t4 = v_t14.clone();
     }
     return Ok(v_t4.clone());
-}
-
-#[allow(
-    unused_variables,
-    unused_assignments,
-    unused_mut,
-    unreachable_code,
-    clippy::all
-)]
-fn _tool_spec_impl(args: &[CoreValue]) -> Result<CoreValue, AxError> {
-    axir_coverage_mark("_tool_spec_impl");
-    let mut v_fn = core_arg(args, 0);
-    let mut v_background = CoreValue::Null;
-    let mut v_description = CoreValue::Null;
-    let mut v_execution = CoreValue::Null;
-    let mut v_name = CoreValue::Null;
-    let mut v_parameters = CoreValue::Null;
-    let mut v_spec = CoreValue::Null;
-    v_spec = CoreValue::new_map();
-    v_name = core_get(&v_fn, &CoreValue::from("name"), CoreValue::Null);
-    v_description = core_get(&v_fn, &CoreValue::from("description"), CoreValue::Null);
-    v_parameters = core_get(&v_fn, &CoreValue::from("parameters"), CoreValue::Null);
-    core_set(&v_spec, CoreValue::from("name"), v_name.clone())?;
-    core_set(
-        &v_spec,
-        CoreValue::from("description"),
-        v_description.clone(),
-    )?;
-    core_set(&v_spec, CoreValue::from("parameters"), v_parameters.clone())?;
-    v_execution = core_get(
-        &v_fn,
-        &CoreValue::from("execution"),
-        CoreValue::from("blocking"),
-    );
-    v_background = core_eq(&[v_execution.clone(), CoreValue::from("background")])?;
-    if core_truthy(&v_background) {
-        core_set(&v_spec, CoreValue::from("execution"), v_execution.clone())?;
-    }
-    return Ok(v_spec.clone());
 }
 
 #[allow(
@@ -61930,29 +64319,13 @@ fn _ace_prune_section_for_addition(args: &[CoreValue]) -> Result<CoreValue, AxEr
     unreachable_code,
     clippy::all
 )]
-fn _function_call_mode_impl(args: &[CoreValue]) -> Result<CoreValue, AxError> {
-    axir_coverage_mark("_function_call_mode_impl");
-    let mut v_mode = core_arg(args, 0);
-    let mut v_is_auto = CoreValue::Null;
-    let mut v_is_native = CoreValue::Null;
-    let mut v_is_prompt = CoreValue::Null;
-    let mut v_missing = CoreValue::Null;
-    let mut v_native_or_auto = CoreValue::Null;
-    v_missing = core_is_none(&[v_mode.clone()])?;
-    if core_truthy(&v_missing) {
-        return Ok(CoreValue::from("auto"));
-    }
-    v_is_native = core_eq(&[v_mode.clone(), CoreValue::from("native")])?;
-    v_is_auto = core_eq(&[v_mode.clone(), CoreValue::from("auto")])?;
-    v_native_or_auto = core_or(&[v_is_native.clone(), v_is_auto.clone()])?;
-    if core_truthy(&v_native_or_auto) {
-        return Ok(CoreValue::from("auto"));
-    }
-    v_is_prompt = core_eq(&[v_mode.clone(), CoreValue::from("prompt")])?;
-    if core_truthy(&v_is_prompt) {
-        return Ok(CoreValue::from("none"));
-    }
-    return Ok(v_mode.clone());
+fn chat_session_close_state(args: &[CoreValue]) -> Result<CoreValue, AxError> {
+    axir_coverage_mark("chat_session_close_state");
+    let mut v_state = core_arg(args, 0);
+    let mut v_unresolved = CoreValue::Null;
+    core_set(&v_state, CoreValue::from("terminal"), CoreValue::Bool(true))?;
+    v_unresolved = chat_session_unresolved(&[v_state.clone()])?;
+    return Ok(v_unresolved.clone());
 }
 
 #[allow(
@@ -61962,13 +64335,36 @@ fn _function_call_mode_impl(args: &[CoreValue]) -> Result<CoreValue, AxError> {
     unreachable_code,
     clippy::all
 )]
-fn chat_session_close_state(args: &[CoreValue]) -> Result<CoreValue, AxError> {
-    axir_coverage_mark("chat_session_close_state");
-    let mut v_state = core_arg(args, 0);
-    let mut v_unresolved = CoreValue::Null;
-    core_set(&v_state, CoreValue::from("terminal"), CoreValue::Bool(true))?;
-    v_unresolved = chat_session_unresolved(&[v_state.clone()])?;
-    return Ok(v_unresolved.clone());
+fn _tool_spec_impl(args: &[CoreValue]) -> Result<CoreValue, AxError> {
+    axir_coverage_mark("_tool_spec_impl");
+    let mut v_fn = core_arg(args, 0);
+    let mut v_background = CoreValue::Null;
+    let mut v_description = CoreValue::Null;
+    let mut v_execution = CoreValue::Null;
+    let mut v_name = CoreValue::Null;
+    let mut v_parameters = CoreValue::Null;
+    let mut v_spec = CoreValue::Null;
+    v_spec = CoreValue::new_map();
+    v_name = core_get(&v_fn, &CoreValue::from("name"), CoreValue::Null);
+    v_description = core_get(&v_fn, &CoreValue::from("description"), CoreValue::Null);
+    v_parameters = core_get(&v_fn, &CoreValue::from("parameters"), CoreValue::Null);
+    core_set(&v_spec, CoreValue::from("name"), v_name.clone())?;
+    core_set(
+        &v_spec,
+        CoreValue::from("description"),
+        v_description.clone(),
+    )?;
+    core_set(&v_spec, CoreValue::from("parameters"), v_parameters.clone())?;
+    v_execution = core_get(
+        &v_fn,
+        &CoreValue::from("execution"),
+        CoreValue::from("blocking"),
+    );
+    v_background = core_eq(&[v_execution.clone(), CoreValue::from("background")])?;
+    if core_truthy(&v_background) {
+        core_set(&v_spec, CoreValue::from("execution"), v_execution.clone())?;
+    }
+    return Ok(v_spec.clone());
 }
 
 #[allow(
@@ -62316,6 +64712,38 @@ fn _regex_space(args: &[CoreValue]) -> Result<CoreValue, AxError> {
     unreachable_code,
     clippy::all
 )]
+fn _function_call_mode_impl(args: &[CoreValue]) -> Result<CoreValue, AxError> {
+    axir_coverage_mark("_function_call_mode_impl");
+    let mut v_mode = core_arg(args, 0);
+    let mut v_is_auto = CoreValue::Null;
+    let mut v_is_native = CoreValue::Null;
+    let mut v_is_prompt = CoreValue::Null;
+    let mut v_missing = CoreValue::Null;
+    let mut v_native_or_auto = CoreValue::Null;
+    v_missing = core_is_none(&[v_mode.clone()])?;
+    if core_truthy(&v_missing) {
+        return Ok(CoreValue::from("auto"));
+    }
+    v_is_native = core_eq(&[v_mode.clone(), CoreValue::from("native")])?;
+    v_is_auto = core_eq(&[v_mode.clone(), CoreValue::from("auto")])?;
+    v_native_or_auto = core_or(&[v_is_native.clone(), v_is_auto.clone()])?;
+    if core_truthy(&v_native_or_auto) {
+        return Ok(CoreValue::from("auto"));
+    }
+    v_is_prompt = core_eq(&[v_mode.clone(), CoreValue::from("prompt")])?;
+    if core_truthy(&v_is_prompt) {
+        return Ok(CoreValue::from("none"));
+    }
+    return Ok(v_mode.clone());
+}
+
+#[allow(
+    unused_variables,
+    unused_assignments,
+    unused_mut,
+    unreachable_code,
+    clippy::all
+)]
 fn _response_function_calls_impl(args: &[CoreValue]) -> Result<CoreValue, AxError> {
     axir_coverage_mark("_response_function_calls_impl");
     let mut v_response = core_arg(args, 0);
@@ -62408,34 +64836,6 @@ fn _append_tool_call_messages_impl(args: &[CoreValue]) -> Result<CoreValue, AxEr
     }
     core_append(&v_messages, v_message.clone())?;
     return Ok(v_messages.clone());
-}
-
-#[allow(
-    unused_variables,
-    unused_assignments,
-    unused_mut,
-    unreachable_code,
-    clippy::all
-)]
-fn _completion_call_to_chat_impl(args: &[CoreValue]) -> Result<CoreValue, AxError> {
-    axir_coverage_mark("_completion_call_to_chat_impl");
-    let mut v_call = core_arg(args, 0);
-    let mut v_function = CoreValue::Null;
-    let mut v_id = CoreValue::Null;
-    let mut v_name = CoreValue::Null;
-    let mut v_out = CoreValue::Null;
-    let mut v_params = CoreValue::Null;
-    v_id = core_get(&v_call, &CoreValue::from("id"), CoreValue::Null);
-    v_name = core_get(&v_call, &CoreValue::from("name"), CoreValue::Null);
-    v_params = core_get(&v_call, &CoreValue::from("params"), CoreValue::Null);
-    v_function = CoreValue::new_map();
-    core_set(&v_function, CoreValue::from("name"), v_name.clone())?;
-    core_set(&v_function, CoreValue::from("params"), v_params.clone())?;
-    v_out = CoreValue::new_map();
-    core_set(&v_out, CoreValue::from("id"), v_id.clone())?;
-    core_set(&v_out, CoreValue::from("type"), CoreValue::from("function"))?;
-    core_set(&v_out, CoreValue::from("function"), v_function.clone())?;
-    return Ok(v_out.clone());
 }
 
 #[allow(
@@ -62832,36 +65232,6 @@ fn _ace_apply_curator_operations(args: &[CoreValue]) -> Result<CoreValue, AxErro
     unreachable_code,
     clippy::all
 )]
-fn _tool_result_message_impl(args: &[CoreValue]) -> Result<CoreValue, AxError> {
-    axir_coverage_mark("_tool_result_message_impl");
-    let mut v_call = core_arg(args, 0);
-    let mut v_result = core_arg(args, 1);
-    let mut v_id = CoreValue::Null;
-    let mut v_message = CoreValue::Null;
-    let mut v_name = CoreValue::Null;
-    let mut v_result_json = CoreValue::Null;
-    v_id = core_get(&v_call, &CoreValue::from("id"), CoreValue::Null);
-    v_name = core_get(&v_call, &CoreValue::from("name"), CoreValue::Null);
-    v_result_json = core_json_stringify(&[v_result.clone()])?;
-    v_message = CoreValue::new_map();
-    core_set(
-        &v_message,
-        CoreValue::from("role"),
-        CoreValue::from("function"),
-    )?;
-    core_set(&v_message, CoreValue::from("function_id"), v_id.clone())?;
-    core_set(&v_message, CoreValue::from("name"), v_name.clone())?;
-    core_set(&v_message, CoreValue::from("result"), v_result_json.clone())?;
-    return Ok(v_message.clone());
-}
-
-#[allow(
-    unused_variables,
-    unused_assignments,
-    unused_mut,
-    unreachable_code,
-    clippy::all
-)]
 fn _regex_member(args: &[CoreValue]) -> Result<CoreValue, AxError> {
     axir_coverage_mark("_regex_member");
     let mut v_n = core_arg(args, 0);
@@ -63043,6 +65413,64 @@ fn _regex_member(args: &[CoreValue]) -> Result<CoreValue, AxError> {
     unreachable_code,
     clippy::all
 )]
+fn _completion_call_to_chat_impl(args: &[CoreValue]) -> Result<CoreValue, AxError> {
+    axir_coverage_mark("_completion_call_to_chat_impl");
+    let mut v_call = core_arg(args, 0);
+    let mut v_function = CoreValue::Null;
+    let mut v_id = CoreValue::Null;
+    let mut v_name = CoreValue::Null;
+    let mut v_out = CoreValue::Null;
+    let mut v_params = CoreValue::Null;
+    v_id = core_get(&v_call, &CoreValue::from("id"), CoreValue::Null);
+    v_name = core_get(&v_call, &CoreValue::from("name"), CoreValue::Null);
+    v_params = core_get(&v_call, &CoreValue::from("params"), CoreValue::Null);
+    v_function = CoreValue::new_map();
+    core_set(&v_function, CoreValue::from("name"), v_name.clone())?;
+    core_set(&v_function, CoreValue::from("params"), v_params.clone())?;
+    v_out = CoreValue::new_map();
+    core_set(&v_out, CoreValue::from("id"), v_id.clone())?;
+    core_set(&v_out, CoreValue::from("type"), CoreValue::from("function"))?;
+    core_set(&v_out, CoreValue::from("function"), v_function.clone())?;
+    return Ok(v_out.clone());
+}
+
+#[allow(
+    unused_variables,
+    unused_assignments,
+    unused_mut,
+    unreachable_code,
+    clippy::all
+)]
+fn _tool_result_message_impl(args: &[CoreValue]) -> Result<CoreValue, AxError> {
+    axir_coverage_mark("_tool_result_message_impl");
+    let mut v_call = core_arg(args, 0);
+    let mut v_result = core_arg(args, 1);
+    let mut v_id = CoreValue::Null;
+    let mut v_message = CoreValue::Null;
+    let mut v_name = CoreValue::Null;
+    let mut v_result_json = CoreValue::Null;
+    v_id = core_get(&v_call, &CoreValue::from("id"), CoreValue::Null);
+    v_name = core_get(&v_call, &CoreValue::from("name"), CoreValue::Null);
+    v_result_json = core_json_stringify(&[v_result.clone()])?;
+    v_message = CoreValue::new_map();
+    core_set(
+        &v_message,
+        CoreValue::from("role"),
+        CoreValue::from("function"),
+    )?;
+    core_set(&v_message, CoreValue::from("function_id"), v_id.clone())?;
+    core_set(&v_message, CoreValue::from("name"), v_name.clone())?;
+    core_set(&v_message, CoreValue::from("result"), v_result_json.clone())?;
+    return Ok(v_message.clone());
+}
+
+#[allow(
+    unused_variables,
+    unused_assignments,
+    unused_mut,
+    unreachable_code,
+    clippy::all
+)]
 fn _tool_error_message_impl(args: &[CoreValue]) -> Result<CoreValue, AxError> {
     axir_coverage_mark("_tool_error_message_impl");
     let mut v_call = core_arg(args, 0);
@@ -63137,6 +65565,173 @@ fn _append_validation_retry_messages_impl(args: &[CoreValue]) -> Result<CoreValu
     )?;
     core_append(&v_messages, v_retry_message.clone())?;
     return Ok(CoreValue::Null);
+}
+
+#[allow(
+    unused_variables,
+    unused_assignments,
+    unused_mut,
+    unreachable_code,
+    clippy::all
+)]
+fn _parse_text_field_value_impl(args: &[CoreValue]) -> Result<CoreValue, AxError> {
+    axir_coverage_mark("_parse_text_field_value_impl");
+    let mut v_field = core_arg(args, 0);
+    let mut v_text = core_arg(args, 1);
+    let mut v_array = CoreValue::Null;
+    let mut v_is_boolean = CoreValue::Null;
+    let mut v_json = CoreValue::Null;
+    let mut v_name = CoreValue::Null;
+    let mut v_numeric = CoreValue::Null;
+    let mut v_parse = CoreValue::Null;
+    let mut v_typ = CoreValue::Null;
+    let mut v_value = CoreValue::Null;
+    v_text = core_string_trim(&v_text);
+    v_typ = core_get(&v_field, &CoreValue::from("type"), CoreValue::Null);
+    v_name = core_get(&v_typ, &CoreValue::from("name"), CoreValue::Null);
+    v_array = core_get(&v_typ, &CoreValue::from("is_array"), CoreValue::Bool(false));
+    v_is_boolean = core_eq(&[v_name.clone(), CoreValue::from("boolean")])?;
+    v_numeric = core_eq(&[v_name.clone(), CoreValue::from("number")])?;
+    v_json = core_eq(&[v_name.clone(), CoreValue::from("json")])?;
+    v_parse = core_or(&[v_is_boolean.clone(), v_numeric.clone()])?;
+    v_parse = core_or(&[v_parse.clone(), v_array.clone()])?;
+    v_parse = core_or(&[v_parse.clone(), v_json.clone()])?;
+    if core_truthy(&v_parse) {
+        v_value = core_json_parse_strict(&[v_text.clone()])?;
+        return Ok(v_value.clone());
+    }
+    return Ok(v_text.clone());
+}
+
+#[allow(
+    unused_variables,
+    unused_assignments,
+    unused_mut,
+    unreachable_code,
+    clippy::all
+)]
+fn _parse_text_output_fields_impl(args: &[CoreValue]) -> Result<CoreValue, AxError> {
+    axir_coverage_mark("_parse_text_output_fields_impl");
+    let mut v_content = core_arg(args, 0);
+    let mut v_fields = core_arg(args, 1);
+    let mut v_is_final = core_arg(args, 2);
+    let mut v_count = CoreValue::Null;
+    let mut v_current = CoreValue::Null;
+    let mut v_current_name = CoreValue::Null;
+    let mut v_field = CoreValue::Null;
+    let mut v_found = CoreValue::Null;
+    let mut v_has_current = CoreValue::Null;
+    let mut v_has_match = CoreValue::Null;
+    let mut v_index = CoreValue::Null;
+    let mut v_keep = CoreValue::Null;
+    let mut v_label = CoreValue::Null;
+    let mut v_labels = CoreValue::Null;
+    let mut v_last = CoreValue::Null;
+    let mut v_length = CoreValue::Null;
+    let mut v_line = CoreValue::Null;
+    let mut v_line_trimmed = CoreValue::Null;
+    let mut v_lines = CoreValue::Null;
+    let mut v_matched = CoreValue::Null;
+    let mut v_name = CoreValue::Null;
+    let mut v_parse_error = CoreValue::Null;
+    let mut v_parsed = CoreValue::Null;
+    let mut v_partial = CoreValue::Null;
+    let mut v_parts = CoreValue::Null;
+    let mut v_prefix = CoreValue::Null;
+    let mut v_prefix_partial = CoreValue::Null;
+    let mut v_raw = CoreValue::Null;
+    let mut v_title = CoreValue::Null;
+    let mut v_value = CoreValue::Null;
+    let mut v_values = CoreValue::Null;
+    let mut v_withhold = CoreValue::Null;
+    v_lines = core_string_split(&[v_content.clone(), CoreValue::from("\n")])?;
+    v_count = core_len(&[v_lines.clone()])?;
+    v_index = CoreValue::Num(0f64);
+    v_values = CoreValue::new_map();
+    v_current = core_none(&[])?;
+    v_current_name = CoreValue::from("");
+    v_parts = CoreValue::new_list();
+    for v_line in core_iter(&v_lines)? {
+        let mut v_line = v_line;
+        v_index = core_add(&[v_index.clone(), CoreValue::Num(1f64)])?;
+        v_line_trimmed = core_string_trim(&v_line);
+        v_matched = core_none(&[])?;
+        v_value = CoreValue::from("");
+        v_withhold = CoreValue::Bool(false);
+        for v_field in core_iter(&v_fields)? {
+            let mut v_field = v_field;
+            v_name = core_get(&v_field, &CoreValue::from("name"), CoreValue::Null);
+            v_title = core_get(&v_field, &CoreValue::from("title"), v_name.clone());
+            v_labels = CoreValue::new_list();
+            core_append(&v_labels, v_name.clone())?;
+            core_append(&v_labels, v_title.clone())?;
+            for v_label in core_iter(&v_labels)? {
+                let mut v_label = v_label;
+                v_prefix = core_string_format(&[CoreValue::from("{}:"), v_label.clone()])?;
+                v_found = core_string_starts_with(&[v_line_trimmed.clone(), v_prefix.clone()])?;
+                if core_truthy(&v_found) {
+                    v_matched = v_field.clone();
+                    v_length = core_len(&[v_prefix.clone()])?;
+                    v_value = core_string_slice(&[v_line_trimmed.clone(), v_length.clone()])?;
+                    break;
+                }
+                v_last = core_eq(&[v_index.clone(), v_count.clone()])?;
+                v_partial = core_not(&[v_is_final.clone()])?;
+                v_partial = core_and(&[v_partial.clone(), v_last.clone()])?;
+                if core_truthy(&v_partial) {
+                    v_prefix_partial =
+                        core_string_starts_with(&[v_prefix.clone(), v_line_trimmed.clone()])?;
+                    v_withhold = core_or(&[v_withhold.clone(), v_prefix_partial.clone()])?;
+                }
+            }
+            v_has_match = core_is_not_none(&[v_matched.clone()])?;
+            if core_truthy(&v_has_match) {
+                break;
+            }
+        }
+        v_has_match = core_is_not_none(&[v_matched.clone()])?;
+        if core_truthy(&v_has_match) {
+            v_has_current = core_ne(&[v_current_name.clone(), CoreValue::from("")])?;
+            if core_truthy(&v_has_current) {
+                v_raw = core_string_join(&CoreValue::from("\n"), &v_parts)?;
+                v_parsed = _parse_text_field_value_impl(&[v_current.clone(), v_raw.clone()])?;
+                core_set(&v_values, v_current_name.clone(), v_parsed.clone())?;
+            }
+            v_current = v_matched.clone();
+            v_current_name = core_get(&v_matched, &CoreValue::from("name"), CoreValue::Null);
+            v_parts = CoreValue::new_list();
+            core_append(&v_parts, v_value.clone())?;
+        } else {
+            v_has_current = core_ne(&[v_current_name.clone(), CoreValue::from("")])?;
+            v_keep = core_not(&[v_withhold.clone()])?;
+            v_keep = core_and(&[v_keep.clone(), v_has_current.clone()])?;
+            if core_truthy(&v_keep) {
+                core_append(&v_parts, v_line.clone())?;
+            }
+        }
+    }
+    v_has_current = core_ne(&[v_current_name.clone(), CoreValue::from("")])?;
+    if core_truthy(&v_has_current) {
+        v_raw = core_string_join(&CoreValue::from("\n"), &v_parts)?;
+        let __core_try: Result<CoreFlow, AxError> = (|| {
+            v_parsed = _parse_text_field_value_impl(&[v_current.clone(), v_raw.clone()])?;
+            core_set(&v_values, v_current_name.clone(), v_parsed.clone())?;
+            Ok(CoreFlow::Normal)
+        })();
+        match __core_try {
+            Ok(CoreFlow::Normal) => {}
+            Ok(CoreFlow::Return(value)) => return Ok(value),
+            Ok(CoreFlow::Break) => unreachable!("break outside loop"),
+            Ok(CoreFlow::Continue) => unreachable!("continue outside loop"),
+            Err(__core_caught) => {
+                v_parse_error = CoreValue::Error(std::rc::Rc::new(__core_caught));
+                if core_truthy(&v_is_final) {
+                    return Err(core_as_error(&v_parse_error));
+                }
+            }
+        }
+    }
+    return Ok(v_values.clone());
 }
 
 #[allow(
@@ -63430,6 +66025,31 @@ fn _regex_push(args: &[CoreValue]) -> Result<CoreValue, AxError> {
     core_set(&v_stack, v_t1.clone(), v_value.clone())?;
     v_t2 = core_add(&[v_top.clone(), CoreValue::Num(1f64)])?;
     return Ok(v_t2.clone());
+}
+
+#[allow(
+    unused_variables,
+    unused_assignments,
+    unused_mut,
+    unreachable_code,
+    clippy::all
+)]
+fn _parse_output_fields_impl(args: &[CoreValue]) -> Result<CoreValue, AxError> {
+    axir_coverage_mark("_parse_output_fields_impl");
+    let mut v_content = core_arg(args, 0);
+    let mut v_fields = core_arg(args, 1);
+    let mut v_is_json = CoreValue::Null;
+    let mut v_output = CoreValue::Null;
+    let mut v_text = CoreValue::Null;
+    v_text = core_string_trim(&v_content);
+    v_is_json = core_string_starts_with(&[v_text.clone(), CoreValue::from("{")])?;
+    if core_truthy(&v_is_json) {
+        v_output = _parse_output_impl(&[v_text.clone()])?;
+        return Ok(v_output.clone());
+    }
+    v_output =
+        _parse_text_output_fields_impl(&[v_text.clone(), v_fields.clone(), CoreValue::Bool(true)])?;
+    return Ok(v_output.clone());
 }
 
 #[allow(
@@ -93658,44 +96278,6 @@ fn ucp_normalize_outcome(args: &[CoreValue]) -> Result<CoreValue, AxError> {
     unreachable_code,
     clippy::all
 )]
-fn mcp_execution_context_descriptor(args: &[CoreValue]) -> Result<CoreValue, AxError> {
-    axir_coverage_mark("mcp_execution_context_descriptor");
-    let mut v_namespaces = core_arg(args, 0);
-    let mut v_inheritance = core_arg(args, 1);
-    let mut v_missing = CoreValue::Null;
-    let mut v_out = CoreValue::Null;
-    v_out = CoreValue::new_map();
-    core_set(&v_out, CoreValue::from("namespaces"), v_namespaces.clone())?;
-    v_missing = core_is_none(&[v_inheritance.clone()])?;
-    if core_truthy(&v_missing) {
-        core_set(
-            &v_out,
-            CoreValue::from("inheritance"),
-            CoreValue::from("all"),
-        )?;
-    } else {
-        core_set(
-            &v_out,
-            CoreValue::from("inheritance"),
-            v_inheritance.clone(),
-        )?;
-    }
-    core_set(&v_out, CoreValue::from("native"), CoreValue::Bool(true))?;
-    core_set(
-        &v_out,
-        CoreValue::from("lossyAdapter"),
-        CoreValue::Bool(false),
-    )?;
-    return Ok(v_out.clone());
-}
-
-#[allow(
-    unused_variables,
-    unused_assignments,
-    unused_mut,
-    unreachable_code,
-    clippy::all
-)]
 fn event_runtime_descriptor(args: &[CoreValue]) -> Result<CoreValue, AxError> {
     axir_coverage_mark("event_runtime_descriptor");
     let mut v_routes = core_arg(args, 0);
@@ -93738,31 +96320,33 @@ fn event_runtime_descriptor(args: &[CoreValue]) -> Result<CoreValue, AxError> {
     unreachable_code,
     clippy::all
 )]
-fn mcp_protocol_constants(args: &[CoreValue]) -> Result<CoreValue, AxError> {
-    axir_coverage_mark("mcp_protocol_constants");
+fn mcp_execution_context_descriptor(args: &[CoreValue]) -> Result<CoreValue, AxError> {
+    axir_coverage_mark("mcp_execution_context_descriptor");
+    let mut v_namespaces = core_arg(args, 0);
+    let mut v_inheritance = core_arg(args, 1);
+    let mut v_missing = CoreValue::Null;
     let mut v_out = CoreValue::Null;
-    let mut v_versions = CoreValue::Null;
-    v_versions = CoreValue::new_list();
-    core_append(&v_versions, CoreValue::from("2026-07-28"))?;
-    core_append(&v_versions, CoreValue::from("2025-11-25"))?;
-    core_append(&v_versions, CoreValue::from("2025-06-18"))?;
-    core_append(&v_versions, CoreValue::from("2025-03-26"))?;
-    core_append(&v_versions, CoreValue::from("2024-11-05"))?;
     v_out = CoreValue::new_map();
+    core_set(&v_out, CoreValue::from("namespaces"), v_namespaces.clone())?;
+    v_missing = core_is_none(&[v_inheritance.clone()])?;
+    if core_truthy(&v_missing) {
+        core_set(
+            &v_out,
+            CoreValue::from("inheritance"),
+            CoreValue::from("all"),
+        )?;
+    } else {
+        core_set(
+            &v_out,
+            CoreValue::from("inheritance"),
+            v_inheritance.clone(),
+        )?;
+    }
+    core_set(&v_out, CoreValue::from("native"), CoreValue::Bool(true))?;
     core_set(
         &v_out,
-        CoreValue::from("protocolVersion"),
-        CoreValue::from("2025-11-25"),
-    )?;
-    core_set(
-        &v_out,
-        CoreValue::from("modernProtocolVersion"),
-        CoreValue::from("2026-07-28"),
-    )?;
-    core_set(
-        &v_out,
-        CoreValue::from("supportedProtocolVersions"),
-        v_versions.clone(),
+        CoreValue::from("lossyAdapter"),
+        CoreValue::Bool(false),
     )?;
     return Ok(v_out.clone());
 }
@@ -93880,6 +96464,42 @@ fn event_route_commands(args: &[CoreValue]) -> Result<CoreValue, AxError> {
         }
     }
     return Ok(v_commands.clone());
+}
+
+#[allow(
+    unused_variables,
+    unused_assignments,
+    unused_mut,
+    unreachable_code,
+    clippy::all
+)]
+fn mcp_protocol_constants(args: &[CoreValue]) -> Result<CoreValue, AxError> {
+    axir_coverage_mark("mcp_protocol_constants");
+    let mut v_out = CoreValue::Null;
+    let mut v_versions = CoreValue::Null;
+    v_versions = CoreValue::new_list();
+    core_append(&v_versions, CoreValue::from("2026-07-28"))?;
+    core_append(&v_versions, CoreValue::from("2025-11-25"))?;
+    core_append(&v_versions, CoreValue::from("2025-06-18"))?;
+    core_append(&v_versions, CoreValue::from("2025-03-26"))?;
+    core_append(&v_versions, CoreValue::from("2024-11-05"))?;
+    v_out = CoreValue::new_map();
+    core_set(
+        &v_out,
+        CoreValue::from("protocolVersion"),
+        CoreValue::from("2025-11-25"),
+    )?;
+    core_set(
+        &v_out,
+        CoreValue::from("modernProtocolVersion"),
+        CoreValue::from("2026-07-28"),
+    )?;
+    core_set(
+        &v_out,
+        CoreValue::from("supportedProtocolVersions"),
+        v_versions.clone(),
+    )?;
+    return Ok(v_out.clone());
 }
 
 #[allow(
@@ -95016,6 +97636,64 @@ fn mcp_header_value_plan(args: &[CoreValue]) -> Result<CoreValue, AxError> {
     unreachable_code,
     clippy::all
 )]
+fn event_capacity_transition(args: &[CoreValue]) -> Result<CoreValue, AxError> {
+    axir_coverage_mark("event_capacity_transition");
+    let mut v_pending = core_arg(args, 0);
+    let mut v_queued_bytes = core_arg(args, 1);
+    let mut v_envelope_bytes = core_arg(args, 2);
+    let mut v_max_pending = core_arg(args, 3);
+    let mut v_max_queued_bytes = core_arg(args, 4);
+    let mut v_max_envelope_bytes = core_arg(args, 5);
+    let mut v_accepted = CoreValue::Null;
+    let mut v_envelope_ok = CoreValue::Null;
+    let mut v_next_bytes = CoreValue::Null;
+    let mut v_next_pending = CoreValue::Null;
+    let mut v_out = CoreValue::Null;
+    let mut v_pending_ok = CoreValue::Null;
+    let mut v_queue_capacity = CoreValue::Null;
+    let mut v_queue_ok = CoreValue::Null;
+    v_out = CoreValue::new_map();
+    v_next_pending = core_add(&[v_pending.clone(), CoreValue::Num(1f64)])?;
+    v_next_bytes = core_add(&[v_queued_bytes.clone(), v_envelope_bytes.clone()])?;
+    v_pending_ok = core_lte(&[v_next_pending.clone(), v_max_pending.clone()])?;
+    v_queue_ok = core_lte(&[v_next_bytes.clone(), v_max_queued_bytes.clone()])?;
+    v_envelope_ok = core_lte(&[v_envelope_bytes.clone(), v_max_envelope_bytes.clone()])?;
+    v_queue_capacity = core_and(&[v_pending_ok.clone(), v_queue_ok.clone()])?;
+    v_accepted = core_and(&[v_queue_capacity.clone(), v_envelope_ok.clone()])?;
+    core_set(&v_out, CoreValue::from("accepted"), v_accepted.clone())?;
+    core_set(
+        &v_out,
+        CoreValue::from("nextPending"),
+        v_next_pending.clone(),
+    )?;
+    core_set(
+        &v_out,
+        CoreValue::from("nextQueuedBytes"),
+        v_next_bytes.clone(),
+    )?;
+    core_set(
+        &v_out,
+        CoreValue::from("reason"),
+        CoreValue::from("capacity"),
+    )?;
+    if core_truthy(&v_envelope_ok) {
+    } else {
+        core_set(
+            &v_out,
+            CoreValue::from("reason"),
+            CoreValue::from("envelope_too_large"),
+        )?;
+    }
+    return Ok(v_out.clone());
+}
+
+#[allow(
+    unused_variables,
+    unused_assignments,
+    unused_mut,
+    unreachable_code,
+    clippy::all
+)]
 fn mcp_param_header_bindings(args: &[CoreValue]) -> Result<CoreValue, AxError> {
     axir_coverage_mark("mcp_param_header_bindings");
     let mut v_input_schema = core_arg(args, 0);
@@ -95295,64 +97973,6 @@ fn mcp_param_header_bindings(args: &[CoreValue]) -> Result<CoreValue, AxError> {
         }
     }
     return Ok(v_bindings.clone());
-}
-
-#[allow(
-    unused_variables,
-    unused_assignments,
-    unused_mut,
-    unreachable_code,
-    clippy::all
-)]
-fn event_capacity_transition(args: &[CoreValue]) -> Result<CoreValue, AxError> {
-    axir_coverage_mark("event_capacity_transition");
-    let mut v_pending = core_arg(args, 0);
-    let mut v_queued_bytes = core_arg(args, 1);
-    let mut v_envelope_bytes = core_arg(args, 2);
-    let mut v_max_pending = core_arg(args, 3);
-    let mut v_max_queued_bytes = core_arg(args, 4);
-    let mut v_max_envelope_bytes = core_arg(args, 5);
-    let mut v_accepted = CoreValue::Null;
-    let mut v_envelope_ok = CoreValue::Null;
-    let mut v_next_bytes = CoreValue::Null;
-    let mut v_next_pending = CoreValue::Null;
-    let mut v_out = CoreValue::Null;
-    let mut v_pending_ok = CoreValue::Null;
-    let mut v_queue_capacity = CoreValue::Null;
-    let mut v_queue_ok = CoreValue::Null;
-    v_out = CoreValue::new_map();
-    v_next_pending = core_add(&[v_pending.clone(), CoreValue::Num(1f64)])?;
-    v_next_bytes = core_add(&[v_queued_bytes.clone(), v_envelope_bytes.clone()])?;
-    v_pending_ok = core_lte(&[v_next_pending.clone(), v_max_pending.clone()])?;
-    v_queue_ok = core_lte(&[v_next_bytes.clone(), v_max_queued_bytes.clone()])?;
-    v_envelope_ok = core_lte(&[v_envelope_bytes.clone(), v_max_envelope_bytes.clone()])?;
-    v_queue_capacity = core_and(&[v_pending_ok.clone(), v_queue_ok.clone()])?;
-    v_accepted = core_and(&[v_queue_capacity.clone(), v_envelope_ok.clone()])?;
-    core_set(&v_out, CoreValue::from("accepted"), v_accepted.clone())?;
-    core_set(
-        &v_out,
-        CoreValue::from("nextPending"),
-        v_next_pending.clone(),
-    )?;
-    core_set(
-        &v_out,
-        CoreValue::from("nextQueuedBytes"),
-        v_next_bytes.clone(),
-    )?;
-    core_set(
-        &v_out,
-        CoreValue::from("reason"),
-        CoreValue::from("capacity"),
-    )?;
-    if core_truthy(&v_envelope_ok) {
-    } else {
-        core_set(
-            &v_out,
-            CoreValue::from("reason"),
-            CoreValue::from("envelope_too_large"),
-        )?;
-    }
-    return Ok(v_out.clone());
 }
 
 #[allow(
@@ -98176,7 +100796,69 @@ fn _mcp_inheritance_plan(args: &[CoreValue]) -> Result<CoreValue, AxError> {
     return Ok(v_out.clone());
 }
 
-// END AXIR CORE EMITTED FUNCTIONS (702 of 702 core functions)
+#[allow(
+    unused_variables,
+    unused_assignments,
+    unused_mut,
+    unreachable_code,
+    clippy::all
+)]
+fn mcp_websocket_request_ids(args: &[CoreValue]) -> Result<CoreValue, AxError> {
+    axir_coverage_mark("mcp_websocket_request_ids");
+    let mut v_messages = core_arg(args, 0);
+    let mut v_protocol = core_arg(args, 1);
+    let mut v_batch = core_arg(args, 2);
+    let mut v_allowed = CoreValue::Null;
+    let mut v_duplicate = CoreValue::Null;
+    let mut v_empty = CoreValue::Null;
+    let mut v_forbidden = CoreValue::Null;
+    let mut v_id = CoreValue::Null;
+    let mut v_ids = CoreValue::Null;
+    let mut v_invalid = CoreValue::Null;
+    let mut v_key = CoreValue::Null;
+    let mut v_message = CoreValue::Null;
+    let mut v_number_id = CoreValue::Null;
+    let mut v_size = CoreValue::Null;
+    let mut v_string_id = CoreValue::Null;
+    let mut v_valid = CoreValue::Null;
+    if core_truthy(&v_batch) {
+        v_allowed = core_eq(&[v_protocol.clone(), CoreValue::from("2025-03-26")])?;
+        v_forbidden = core_not(&[v_allowed.clone()])?;
+        if core_truthy(&v_forbidden) {
+            return Err(AxError::runtime(
+                "JSON-RPC batching is only allowed for MCP 2025-03-26",
+            ));
+        }
+    }
+    v_size = core_len(&[v_messages.clone()])?;
+    v_empty = core_eq(&[v_size.clone(), CoreValue::Num(0f64)])?;
+    if core_truthy(&v_empty) {
+        return Err(AxError::runtime("MCP batch cannot be empty"));
+    }
+    v_ids = CoreValue::new_list();
+    for v_message in core_iter(&v_messages)? {
+        let mut v_message = v_message;
+        v_id = core_get(&v_message, &CoreValue::from("id"), CoreValue::Null);
+        v_string_id = core_type_is(&v_id, CoreValue::from("string"));
+        v_number_id = core_type_is(&v_id, CoreValue::from("number"));
+        v_valid = core_or(&[v_string_id.clone(), v_number_id.clone()])?;
+        v_invalid = core_not(&[v_valid.clone()])?;
+        if core_truthy(&v_invalid) {
+            return Err(AxError::runtime(
+                "MCP request ID must be a string or number",
+            ));
+        }
+        v_key = core_json_stringify(&[v_id.clone()])?;
+        v_duplicate = core_contains(&[v_ids.clone(), v_key.clone()])?;
+        if core_truthy(&v_duplicate) {
+            return Err(AxError::runtime("MCP batch request IDs must be unique"));
+        }
+        core_append(&v_ids, v_key.clone())?;
+    }
+    return Ok(v_ids.clone());
+}
+
+// END AXIR CORE EMITTED FUNCTIONS (726 of 726 core functions)
 
 fn run_ai_session_events_fixture(fixture: &Value) -> AxResult<()> {
     let state = core_value_from_json(&json!({}));
@@ -98527,4 +101209,108 @@ fn core_flow_dispatch_group(args: &[CoreValue]) -> AxResult<CoreValue> {
     Ok(core_value_from_json(&Value::Array(
         reports.into_iter().map(Option::unwrap).collect(),
     )))
+}
+
+// Dropping the async request on cancellation closes both pending headers and bodies.
+fn cancellable_http_json(
+    call: &Value,
+    timeout: f64,
+    token: &AxCancellationToken,
+) -> AxResult<Value> {
+    let cancelled = Arc::new(std::sync::atomic::AtomicBool::new(false));
+    let flag = cancelled.clone();
+    let _subscription = token.subscribe(move || {
+        flag.store(true, std::sync::atomic::Ordering::SeqCst);
+    });
+    token.throw_if_cancelled()?;
+    let runtime = tokio::runtime::Builder::new_current_thread()
+        .enable_all()
+        .build()?;
+    runtime.block_on(async {
+        let client = reqwest::Client::builder()
+            .timeout(Duration::from_secs_f64(timeout.max(0.001)))
+            .build()?;
+        let method = call["method"]
+            .as_str()
+            .unwrap_or("POST")
+            .parse::<reqwest::Method>()
+            .map_err(|e| AxError::validation(e.to_string()))?;
+        let mut request = client.request(method, call["url"].as_str().unwrap_or_default());
+        for (key, value) in call["headers"].as_object().into_iter().flatten() {
+            request = request.header(key.as_str(), value.as_str().unwrap_or_default());
+        }
+        if let Some(data) = call.get("data") {
+            let (body, content_type) = encode_multipart(data);
+            request = request.header("Content-Type", content_type).body(body);
+        } else if let Some(body) = call.get("json") {
+            request = request.json(body);
+        }
+        let response = session::session_http_wait(request.send(), &cancelled).await?;
+        token.throw_if_cancelled()?;
+        let response = response.ok_or_else(|| AxError::new("aborted", "Request aborted"))?;
+        let status = response.status().as_u16();
+        let bytes = session::session_http_wait(response.bytes(), &cancelled).await?;
+        token.throw_if_cancelled()?;
+        let bytes = bytes.ok_or_else(|| AxError::new("aborted", "Request aborted"))?;
+        let body = if bytes.is_empty() {
+            Value::Null
+        } else {
+            serde_json::from_slice(&bytes)
+                .unwrap_or_else(|_| json!(String::from_utf8_lossy(&bytes)))
+        };
+        normalize_passthrough_response(json!({"status":status,"json":body}))
+    })
+}
+
+#[cfg(test)]
+mod typesafe_native_tests {
+    use super::*;
+    struct TestTransport<F>(F);
+    impl<F: FnMut(Value) -> AxResult<Value> + Send> AxTransport for TestTransport<F> {
+        fn send(&mut self, request: Value) -> AxResult<Value> {
+            (self.0)(request)
+        }
+    }
+    #[test]
+    fn native_discovery_credentials_retry_and_probabilities() -> AxResult<()> {
+        let requests = Arc::new(Mutex::new(Vec::<Value>::new()));
+        let captured = requests.clone();
+        let credentials = Arc::new(Mutex::new(Vec::new()));
+        let seen = credentials.clone();
+        let mut client=typesafe(json!({"retry":{"maxRetries":1,"initialDelayMs":1}}))?
+            .with_credential_provider(move|request:&AxCredentialRequest|{seen.lock().unwrap().push(request.operation.clone());Ok(BTreeMap::from([("Authorization".into(),"Bearer test".into())]))})
+            .with_transport(TestTransport(move|request:Value|{
+                let mut calls=captured.lock().unwrap();calls.push(request.clone());
+                if request["method"]=="GET"{assert!(request.get("json").is_none());assert!(request.get("data").is_none());if calls.len()==1{return Ok(json!({"status":429,"json":{"error":"retry"}}))}return Ok(json!({"models":[{"name":"jev-latest","description":"Jev","release_date":"2026-09-01"}]}))}
+                Ok(json!({"model":"jev-latest","answers":{"flag":{"type":"noul","noul":0.0}},"usage":{"input_tokens":1,"output_tokens":1}}))
+            }));
+        assert_eq!(client.list_models()?[0].name, "jev-latest");
+        assert_eq!(*credentials.lock().unwrap(), vec!["models", "models"]);
+        let response = client.system_one(TypesafeRequest {
+            state: Value::Null,
+            questions: BTreeMap::from([(
+                "flag".into(),
+                TypesafeQuestion::Noul {
+                    instructions: None,
+                    criteria: None,
+                },
+            )]),
+            model: None,
+        })?;
+        assert!(matches!(
+            response.answers["flag"],
+            TypesafeAnswer::Noul { noul: 0.0 }
+        ));
+        let token = AxCancellationToken::default();
+        token.cancel("stop native");
+        let before = requests.lock().unwrap().len();
+        assert!(client
+            .list_models_with_cancellation(Some(&token))
+            .unwrap_err()
+            .message
+            .contains("stop native"));
+        assert_eq!(requests.lock().unwrap().len(), before);
+        assert_eq!(token.subscription_count(), 0);
+        Ok(())
+    }
 }

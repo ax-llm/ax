@@ -1,0 +1,35 @@
+{
+  "expected_error_contains": "result",
+  "expected_transport_request_count": 0,
+  "kind": "ai_chat",
+  "name": "typesafe-reject-number-bounded",
+  "provider": "typesafe",
+  "request": {
+    "chatPrompt": [
+      {
+        "content": "classify",
+        "role": "user"
+      }
+    ],
+    "modelConfig": {
+      "stream": false
+    },
+    "responseFormat": {
+      "schema": {
+        "name": "decision",
+        "schema": {
+          "properties": {
+            "result": {
+              "maximum": 5,
+              "minimum": 1,
+              "type": "number"
+            }
+          },
+          "required": ["result"],
+          "type": "object"
+        }
+      },
+      "type": "json_schema"
+    }
+  }
+}

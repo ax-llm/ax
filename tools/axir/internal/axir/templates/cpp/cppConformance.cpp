@@ -149,6 +149,7 @@ struct RouterFixtureService : AxBaseAI {
         estimated_cost(conf_number(Core::get(spec, "estimatedCost", Core::get(spec, "estimated_cost", 0)))),
         responses(as_array(Core::get(spec, "responses", Value::array()))) {}
 
+  void validate_chat_request(Value request) const override { if (fixture_id=="Typesafe-id") Core::provider_validate_chat_request("typesafe",request,Value::object()); }
   std::string get_id() override { return fixture_id; }
   Value get_model_list() override { return model_list; }
   Value get_features(Value = Value()) override { return features; }
@@ -489,6 +490,7 @@ static Value field_from_spec(Value spec) {
   }
   if (Core::truthy(Core::get(spec, "email", false))) type["format"] = "email";
   if (Core::truthy(Core::get(spec, "url", false)) && typ == "string") type["format"] = "uri";
+  if (s.count("valueDescriptions")) type["valueDescriptions"] = s["valueDescriptions"];
   if (s.count("pattern")) {
     type["pattern"] = s["pattern"];
     type["patternDescription"] = s.count("patternDescription") ? s["patternDescription"] : s["pattern"];
@@ -534,7 +536,7 @@ static Value build_signature(Value fixture) {
 static Value field_payload(Value field);
 static Value type_payload(Value typ) {
   Object out{{"name", Core::get(typ, "name")}, {"isArray", Core::get(typ, "is_array", false)}};
-  for (const auto& key : {"options", "description", "fields", "minLength", "maxLength", "minimum", "maximum", "pattern", "patternDescription", "format", "language"}) {
+  for (const auto& key : {"options", "description", "fields", "minLength", "maxLength", "minimum", "maximum", "pattern", "patternDescription", "valueDescriptions", "format", "language"}) {
     Value value = Core::get(typ, key);
     if (!value.is_null()) {
       if (std::string(key) == "fields") {
@@ -754,6 +756,17 @@ static void run_forward(Value fixture) {
 }
 
 static void run_stream(Value fixture) {
+  if (!Core::get(fixture,"text_signature").is_null()) {
+    auto fields=Core::get(Core::parse_signature(display(Core::get(fixture,"text_signature"))),"output_fields");
+    std::string content;
+    for(auto chunk:Core::iter(Core::get(fixture,"stream_events"))) {
+      content+=display(chunk); Core::_parse_text_output_fields_impl(content,fields,false);
+    }
+    auto output=Core::_parse_text_output_fields_impl(content,fields,true);
+    Core::validate_output(fields,output);
+    assert_equal(output,Core::get(fixture,"expected_text_output"),"text streaming extraction");
+  }
+
   Value structured_states = Core::get(fixture, "structured_states", Value::array());
   if (!Core::iter(structured_states).empty()) {
     for (const auto& route_case : Core::iter(Core::get(fixture, "route_cases", Value::array()))) {
@@ -3078,6 +3091,13 @@ static void run(Value fixture) {
         if (Core::truthy(Core::map_contains(item, Value("expected_" + key)))) assert_equal(Core::get(events.at(0), key), Core::get(item, "expected_" + key), "session " + key);
       }
     }
+  } else if (kind == "ai_typesafe_native") {
+    Value responses=Value::array();Core::append(responses,Core::get(fixture,"response"));
+    ScriptedTransport transport(responses);
+    auto client=typesafe(object({{"api_key","test-key"}}),&transport);
+    Value result=expect_maybe_error([&]{if(display(Core::get(fixture,"operation"))=="models"){Value cards=Value::array();for(const auto& card:client.list_models())Core::append(cards,card.to_value());return cards;}return client.system_one(Core::get(fixture,"request")).to_value();},fixture);
+    if(Core::get(fixture,"expected_error_contains").is_null())assert_equal(result,Core::get(fixture,"expected_output"),"native Typesafe output");
+    assert_transport(fixture,transport);
   } else if (kind == "ai_chat") {
     run_ai_chat(fixture);
   } else if (kind == "ai_embed") {

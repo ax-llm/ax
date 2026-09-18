@@ -55,6 +55,13 @@ module @ax.gen version "0.1" {
         %mode = core.let "auto"
       }
       %selection = core.map
+      %requires_schema_snake = core.get %features["requires_structured_output"] default false
+      %requires_schema = core.get %features["requiresStructuredOutput"] default %requires_schema_snake
+      core.if %requires_schema {
+        core.set %selection["rung"] = "native"
+        core.set %selection["requires_schema"] = true
+        core.return %selection
+      }
       %explicit_native = core.call intrinsic.eq(%mode, "native")
       core.if %explicit_native {
         %unsupported_native = core.call intrinsic.not(%supports_native)
@@ -276,6 +283,21 @@ module @ax.gen version "0.1" {
     tag "structured-output-rung-prompt-contract"
     type signature = "(list<json>, list<Field>, json) -> void"
     body @entry(%messages: list<json>, %output_fields: list<Field>, %selection: json) {
+      %requires_schema = core.get %selection["requires_schema"] default false
+      core.if %requires_schema {
+        core.for %message in %messages {
+          %role = core.get %message["role"]
+          %system = core.call intrinsic.eq(%role, "system")
+          core.if %system {
+            %text = core.get %message["content"]
+            %is_text = core.type_is %text type "string"
+            core.if %is_text {
+              %text = core.call intrinsic.string.replace(%text, "Return one `field name: value` pair per line for the required output fields only, using each exact wire key shown in <output_fields> as the field name.", "Return one valid JSON object matching <output_fields>. Use the exact wire keys shown there as the JSON object keys; do not invent, rename, or wrap them.")
+              core.set %message["content"] = %text
+            }
+          }
+        }
+      }
       %rung = core.get %selection["rung"]
       %is_function = core.call intrinsic.eq(%rung, "function")
       %content = core.let ""
@@ -452,6 +474,12 @@ module @ax.gen version "0.1" {
       %output_fields = core.get %signature["output_fields"]
       %rung = core.get %selection["rung"]
       %fn_count = core.call intrinsic.len(%function_specs)
+      %requires_schema = core.get %selection["requires_schema"] default false
+      %no_functions = core.call intrinsic.eq(%fn_count, 0)
+      %omit_function_call = core.call intrinsic.and(%requires_schema, %no_functions)
+      core.if %omit_function_call {
+        core.call intrinsic.map.delete(%request, "function_call")
+      }
       %use_function = core.call intrinsic.eq(%rung, "function")
       core.if %use_function {
         %schema_options = core.map
@@ -486,6 +514,11 @@ module @ax.gen version "0.1" {
         %response_format = core.map
         core.set %response_format["type"] = "json_schema"
         core.set %response_format["schema"] = %schema_wrap
+        %annotations = core.call @signature_output_value_descriptions_impl(%output_fields)
+        %has_annotations = core.call intrinsic.truthy(%annotations)
+        core.if %has_annotations {
+          core.set %response_format["fieldDescriptions"] = %annotations
+        }
         core.set %request["response_format"] = %response_format
       }
       %use_json_object = core.call intrinsic.eq(%rung, "json_object")
@@ -524,7 +557,12 @@ module @ax.gen version "0.1" {
       %position = core.const 0
       core.for %completion in %completions {
         %content = core.get %completion["content"] default ""
-        %output = core.call @parse_output_impl(%content)
+        %output = core.map
+        core.if %validate_exact_json {
+          %output = core.call @parse_output_impl(%content)
+        } else {
+          %output = core.call @parse_output_fields_impl(%content, %output_fields)
+        }
         core.if %validate_exact_json {
           core.call @validate_exact_output_keys(%output_fields, %output, "output")
         }
@@ -1301,6 +1339,130 @@ module @ax.gen version "0.1" {
       core.set %retry_message["content"] = %retry_content
       core.append %messages, %retry_message
       core.return
+    }
+  }
+  op ax.gen.semantic @parse_text_field_value_impl {
+    attr core_kind = "func"
+    attr private = true
+    attr effect = "throws"
+    attr emit_module = "gen"
+    tag "wire-field-extraction"
+    type signature = "(json, string) -> json throws"
+    body @entry(%field: json, %text: string) {
+      %text = core.string_trim %text
+      %typ = core.get %field["type"]
+      %name = core.get %typ["name"]
+      %array = core.get %typ["is_array"] default false
+      %is_boolean = core.call intrinsic.eq(%name, "boolean")
+      %numeric = core.call intrinsic.eq(%name, "number")
+      %json = core.call intrinsic.eq(%name, "json")
+      %parse = core.call intrinsic.or(%is_boolean, %numeric)
+      %parse = core.call intrinsic.or(%parse, %array)
+      %parse = core.call intrinsic.or(%parse, %json)
+      core.if %parse {
+        %value = core.call intrinsic.json.parse_strict(%text)
+        core.return %value
+      }
+      core.return %text
+    }
+  }
+
+  op ax.gen.semantic @parse_text_output_fields_impl {
+    attr core_kind = "func"
+    attr private = true
+    attr effect = "throws"
+    attr emit_module = "gen"
+    tag "src/ax/dsp/extract/streamingText.ts"
+    type signature = "(string, list<Field>, bool) -> json throws"
+    body @entry(%content: string, %fields: json, %is_final: bool) {
+      %lines = core.call intrinsic.string.split(%content, "\n")
+      %count = core.call intrinsic.len(%lines)
+      %index = core.let 0
+      %values = core.map
+      %current = core.call intrinsic.none()
+      %current_name = core.let ""
+      %parts = core.list
+      core.for %line in %lines {
+        %index = core.call intrinsic.add(%index, 1)
+        %line_trimmed = core.string_trim %line
+        %matched = core.call intrinsic.none()
+        %value = core.let ""
+        %withhold = core.let false
+        core.for %field in %fields {
+          %name = core.get %field["name"]
+          %title = core.get %field["title"] default %name
+          %labels = core.list
+          core.append %labels, %name
+          core.append %labels, %title
+          core.for %label in %labels {
+            %prefix = core.call intrinsic.string.format("{}:", %label)
+            %found = core.call intrinsic.string.starts_with(%line_trimmed, %prefix)
+            core.if %found {
+              %matched = core.let %field
+              %length = core.call intrinsic.len(%prefix)
+              %value = core.call intrinsic.string.slice(%line_trimmed, %length)
+              core.break
+            }
+            %last = core.call intrinsic.eq(%index, %count)
+            %partial = core.call intrinsic.not(%is_final)
+            %partial = core.call intrinsic.and(%partial, %last)
+            core.if %partial {
+              %prefix_partial = core.call intrinsic.string.starts_with(%prefix, %line_trimmed)
+              %withhold = core.call intrinsic.or(%withhold, %prefix_partial)
+            }
+          }
+          %has_match = core.call intrinsic.is_not_none(%matched)
+          core.if %has_match { core.break }
+        }
+        %has_match = core.call intrinsic.is_not_none(%matched)
+        core.if %has_match {
+          %has_current = core.call intrinsic.ne(%current_name, "")
+          core.if %has_current {
+            %raw = core.string_join %parts sep "\n"
+            %parsed = core.call @parse_text_field_value_impl(%current, %raw)
+            core.set %values[%current_name] = %parsed
+          }
+          %current = core.let %matched
+          %current_name = core.get %matched["name"]
+          %parts = core.list
+          core.append %parts, %value
+        } else {
+          %has_current = core.call intrinsic.ne(%current_name, "")
+          %keep = core.call intrinsic.not(%withhold)
+          %keep = core.call intrinsic.and(%keep, %has_current)
+          core.if %keep { core.append %parts, %line }
+        }
+      }
+      %has_current = core.call intrinsic.ne(%current_name, "")
+      core.if %has_current {
+        %raw = core.string_join %parts sep "\n"
+        core.try {
+          %parsed = core.call @parse_text_field_value_impl(%current, %raw)
+          core.set %values[%current_name] = %parsed
+        } catch %parse_error {
+          core.if %is_final { core.raise %parse_error }
+        }
+      }
+      core.return %values
+    }
+  }
+
+  op ax.gen.semantic @parse_output_fields_impl {
+    attr core_kind = "func"
+    attr private = true
+    attr effect = "throws"
+    attr emit_module = "gen"
+    tag "wire-field-extraction"
+    type signature = "(string, list<Field>) -> json throws"
+    body @entry(%content: string, %fields: json) {
+      %text = core.string_trim %content
+      %is_json = core.call intrinsic.string.starts_with(%text, "{")
+      core.if %is_json {
+        %output = core.call @parse_output_impl(%text)
+        core.return %output
+      }
+      %output = core.call @parse_text_output_fields_impl(%text, %fields, true)
+      core.return %output
     }
   }
 }

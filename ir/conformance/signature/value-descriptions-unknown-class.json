@@ -1,0 +1,9 @@
+{
+  "expected_error_category": "signature",
+  "expected_error_contains": "unknown described value \"sales\"",
+  "kind": "signature_error",
+  "name": "value-descriptions-unknown-class",
+  "signature": "ticket:string -> team:class \"support, billing\"(sales \"A\")",
+  "ts_error_message": "Invalid Signature: Field \"team\": Field \"team\": unknown described value \"sales\"",
+  "ts_error_name": "AxSignatureValidationError"
+}

@@ -62,7 +62,7 @@ Use the provider-backed Astra examples under `src/examples/java/generation/`, `s
 ## Relevant API Surface
 
 - Agents And RLM: `Ax.agent`, `AxAgent`, `AxAgent.addChildAgent`
-- MCP: `AxMCPClient`, `AxMCPStreamableHTTPTransport`, `AxMCPStdioTransport`
+- MCP: `AxMCPClient`, `AxMCPStreamableHTTPTransport`, `AxMCPWebSocketTransport`, `AxMCPStdioTransport`
 - Runtime Profiles: `ProcessCodeRuntime`, `RuntimeCapabilities`, `RuntimeEnvelope`, `javascript-quickjs`, `python-pyodide`
 
 ## Guardrails

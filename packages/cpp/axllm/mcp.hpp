@@ -417,6 +417,36 @@ class AxMCPStreamableHTTPTransport : public AxMCPTransport {
   void consume_sse_chunk(const char* data,std::size_t size);
 };
 
+/** Legacy MCP WebSocket transport. Native sockets use AXLLM_ENABLE_REALTIME. */
+class AxMCPWebSocketTransport : public AxMCPTransport {
+ public:
+  using SocketFactory = std::function<std::shared_ptr<RealtimeTransport>(const std::string&)>;
+  explicit AxMCPWebSocketTransport(std::string url, SocketFactory factory = {});
+  ~AxMCPWebSocketTransport() override;
+  Value send(Value message) override;
+  Value send_with_context(Value message, Value headers, const AxToolContext& context) override;
+  Value send_batch(Value messages, const AxToolContext& context = {});
+  void send_notification(Value message) override;
+  void set_message_handler(std::function<void(Value)> handler) override;
+  void set_request_handler(std::function<Value(Value)> handler) override;
+  void set_lifecycle_handler(std::function<void(std::string)> handler) override;
+  void set_protocol_version(const std::string& version) override;
+  std::string era_hint() const override { return "legacy"; }
+  void connect() override;
+  void start_listening() override { connect(); }
+  void close() override;
+ private:
+  struct State;
+  std::shared_ptr<State> state_;
+  std::string url_;
+  SocketFactory factory_;
+  std::mutex connection_mutex_;
+  std::thread reader_;
+  Value requests(Value messages, const AxToolContext& context, bool batch);
+  static void receive(std::shared_ptr<State> state, std::shared_ptr<RealtimeTransport> socket);
+  static void terminate(const std::shared_ptr<State>& state, const std::shared_ptr<RealtimeTransport>& socket, std::exception_ptr error);
+};
+
 class AxMCPStdioTransport : public AxMCPTransport {
  public:
   AxMCPStdioTransport(std::string command, std::vector<std::string> args = {});

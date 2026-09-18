@@ -67,13 +67,15 @@ public final class AxProviderRouter implements AiClient,ChatRunSelector,AxChatSe
   }
 
   private List<Object> providerRecords() {return providerRecords(null);}
-  private List<Object> providerRecords(String model) {
+  private List<Object> providerRecords(String model) { return providerRecords(model, null); }
+  private List<Object> providerRecords(String model, Map<String, Object> request) {
     List<Object> records = new ArrayList<>();
     for (AxAIService provider : providers) {
       Map<String, Object> record = new LinkedHashMap<>();
       record.put("name", provider.getName());
       record.put("id", provider.getId());
       record.put("features", provider.getFeatures(model));
+      record.put("requestCompatible", request == null || AxAIService.acceptsRequest(provider, request));
       records.add(record);
     }
     return records;
@@ -85,14 +87,14 @@ public final class AxProviderRouter implements AiClient,ChatRunSelector,AxChatSe
   }
 
   public Map<String, Object> getRoutingRecommendation(Map<String, Object> request) {
-    Map<String, Object> rec = Core.asMap(Core.provider_route_recommendation(providerRecords(request.get("model")==null?null:String.valueOf(request.get("model"))), Core.coerceChatRequest(request), routing));
+    Map<String, Object> rec = Core.asMap(Core.provider_route_recommendation(providerRecords(request.get("model")==null?null:String.valueOf(request.get("model")), request), Core.coerceChatRequest(request), routing));
     Map<String, Object> out = new LinkedHashMap<>(rec);
     out.put("provider", serviceForName(out.get("providerName")));
     return out;
   }
 
   public Map<String, Object> validateRequest(Map<String, Object> request) {
-    return Core.asMap(Core.provider_route_validation(providerRecords((String)request.get("model")), Core.coerceChatRequest(request), processing, routing));
+    return Core.asMap(Core.provider_route_validation(providerRecords((String)request.get("model"), request), Core.coerceChatRequest(request), processing, routing));
   }
 
   public Map<String, Object> getRoutingStats() {

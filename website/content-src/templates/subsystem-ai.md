@@ -66,7 +66,7 @@ remains the compatibility alias for native JSON Schema support, not for every
 JSON response format. The selected rung is recorded with the chat log so runs
 remain comparable and debuggable.
 
-### Typesafe / Jev typed inference (TypeScript) {#typesafe-jev}
+### Typesafe / Jev typed inference {#typesafe-jev}
 
 The `typesafe` profile supports ordinary Ax signatures with required boolean
 and class outputs. Booleans use Noul with provider-level `trueThreshold` (default
@@ -76,16 +76,18 @@ and descriptions define the questions. Signature syntax and return types stay th
 Boolean value descriptions such as `boolean(true "...", false "...")` and
 class label descriptions after the label list become native criteria. The same
 signature retains those descriptions as text with other providers. The
-[Typesafe/Jev skill](/typescript/skills/ax-typesafe/) covers the exact syntax,
+[Typesafe/Jev skill]({{typesafeSkillPath}}) covers the exact syntax,
 question design, native requests, transport options, and runnable examples.
 
-Use `ai({ name: 'typesafe', apiKey, trueThreshold: 0.9 })` for these signatures.
+{{aiTypesafeExample}}
+
+Use the `typesafe` provider profile for these signatures.
 Numeric outputs, including bounded numbers, are rejected: bounds do not define a
 rating rubric. Freeform text, optional outputs, arrays, nested objects, media,
 tools, and generation controls such as temperature are also unsupported.
-Typesafe has no token streaming API; Ax can deliver a completed streamingForward result.
+Typesafe has no token streaming API; its stream interface delivers a completed result.
 
-Use the separate `typesafe({ apiKey })` native client for rich Noul/Choice/Score
+Use the separate `typesafe` native client for rich Noul/Choice/Score
 questions and structured state. `systemOne({ state, questions, model? })` returns
 native answers, probabilities, confidence, and usage. Noul remains a probability;
 Score remains a fractional zero-based rubric position. Custom thresholds and
@@ -100,11 +102,11 @@ APIs. Routing excludes unsupported requests even with degradation enabled.
 Typesafe-only balancers send schemas for scalar signatures; mixed pools can select
 Typesafe when the actual request already has a supported schema.
 
-The public TypeScript examples cover configurable boolean conversion, native
-criteria/scoring, and an explicit hybrid flow that passes decisions to a second
-Ax program with a generative model for prose. Generated packages include catalog
-metadata, but the transport and native client are TypeScript-only until the
-AxIR backlog work is completed.
+TypeScript, Python, Java, C++, Go, and Rust support both interfaces. Each language
+has runnable examples for configurable boolean conversion, native criteria/scoring,
+and an explicit hybrid flow that passes decisions to a second Ax program for prose.
+The generated language APIs use native typed maps, records, or enums for answers;
+TypeScript additionally infers literal question names and Choice-label unions.
 
 ### Meta Muse models
 

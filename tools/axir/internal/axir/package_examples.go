@@ -3824,6 +3824,8 @@ const cppStreamHTTPRoundtripExample = `#include "axllm/axllm.hpp"
 #include <unistd.h>
 
 #include <chrono>
+#include <condition_variable>
+#include <mutex>
 #include <iostream>
 #include <string>
 #include <thread>
@@ -3876,7 +3878,7 @@ void drain_request(int fd) {
 }
 
 void write_response(int fd, const std::string& content_type, const std::string& first, const std::string& rest,
-                    std::chrono::milliseconds delay) {
+                    std::chrono::milliseconds delay, const std::function<void()>& release = {}) {
   std::string out = "HTTP/1.1 200 OK\r\nContent-Type: " + content_type +
                     "\r\nContent-Length: " + std::to_string(first.size() + rest.size()) +
                     "\r\nConnection: close\r\n\r\n";
@@ -3887,7 +3889,8 @@ void write_response(int fd, const std::string& content_type, const std::string& 
     off += static_cast<size_t>(n);
   }
   for (char byte : first) send(fd, &byte, 1, 0);
-  std::this_thread::sleep_for(delay);
+  if (release) release();
+  else std::this_thread::sleep_for(delay);
   send(fd, rest.data(), rest.size(), 0);
 }
 
@@ -3955,13 +3958,25 @@ int main() {
   getsockname(server_fd, reinterpret_cast<sockaddr*>(&addr), &alen);
   int port = ntohs(addr.sin_port);
 
+  std::mutex release_mutex;
+  std::condition_variable release_rest;
+  bool first_received = false;
+  std::atomic<bool> release_timed_out{false};
   std::thread server([&]() {
     for (int request = 0; request < 2; ++request) {
       int fd = accept(server_fd, nullptr, nullptr);
       if (fd < 0) return;
       drain_request(fd);
-      write_response(fd, "text/event-stream", sse_first, sse_rest,
-                     request == 0 ? std::chrono::milliseconds(300) : std::chrono::milliseconds(1500));
+      if (request == 0) {
+        write_response(fd, "text/event-stream", sse_first, sse_rest,
+                       std::chrono::milliseconds(0), [&] {
+          std::unique_lock<std::mutex> lock(release_mutex);
+          if (!release_rest.wait_for(lock, std::chrono::seconds(5), [&] { return first_received; }))
+            release_timed_out.store(true);
+        });
+      } else {
+        write_response(fd, "text/event-stream", sse_first, sse_rest, std::chrono::milliseconds(1500));
+      }
       close(fd);
     }
   });
@@ -3972,17 +3987,18 @@ int main() {
                      {"model", "gpt-5.4-mini"}}),
       nullptr);
   std::vector<std::string> deltas;
-  auto started = std::chrono::steady_clock::now();
-  std::chrono::steady_clock::time_point first_at;
   client.stream_each(axllm::object({{"chat_prompt", axllm::array({axllm::object({{"role", "user"}, {"content", "stream"}})})}}), [&](const axllm::Value& event) {
-    if (first_at.time_since_epoch().count() == 0) first_at = std::chrono::steady_clock::now();
+    {
+      std::lock_guard<std::mutex> lock(release_mutex);
+      first_received = true;
+    }
+    release_rest.notify_one();
     std::string content = axllm::display(
         axllm::Core::get(axllm::Core::get(axllm::Core::get(event, "results"), 0), "content", ""));
     if (!content.empty()) deltas.push_back(content);
     return true;
   });
-  auto completed = std::chrono::steady_clock::now();
-  if (completed - first_at < std::chrono::milliseconds(200)) { std::cerr << "first event was not incremental\n"; return 1; }
+  if (release_timed_out.load()) { std::cerr << "first event was not incremental\n"; return 1; }
 
   if (deltas.empty() || deltas.front() != "Hello 🌍 ") {
     std::cerr << "multi-line data: event was not folded into one JSON value\n";

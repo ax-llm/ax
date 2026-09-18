@@ -135,6 +135,7 @@ public final class Conformance {
       estimatedCost = Core.asDouble(spec.getOrDefault("estimatedCost", spec.getOrDefault("estimated_cost", 0)));
     }
 
+    public void validateChatRequest(Map<String,Object> request) { if (name.equals("Typesafe")) Core.provider_validate_chat_request("typesafe",request,Map.of()); }
     public String getId() { return fixtureId; }
     public Map<String, Object> getFeatures(String model) { return new LinkedHashMap<>(features); }
     public List<Map<String, Object>> getModelList() { return modelList == null ? null : new ArrayList<>(modelList); }
@@ -574,6 +575,16 @@ public final class Conformance {
       case "forward" -> runForward(fixture);
       case "ai_session_state" -> runAISessionState(fixture);
       case "ai_session_events" -> runAISessionEvents(fixture);
+      case "ai_typesafe_native" -> {
+        ScriptedTransport transport=new ScriptedTransport(java.util.Collections.singletonList(fixture.get("response")));
+        var client=Ax.typesafe(Map.of("api_key","test-key","transport",transport));
+        Object result=expectMaybeError(()->{
+          try {return "models".equals(fixture.get("operation"))?client.listModels().stream().map(AxAITypesafeClient.ModelCard::toMap).toList():client.systemOne(Core.asMap(fixture.get("request"))).toMap();}
+          catch(Exception error){throw Core.asRuntime(error);}
+        },fixture);
+        if(!fixture.containsKey("expected_error_contains"))assertEqual(result,fixture.get("expected_output"),"native Typesafe output");
+        assertTransport(fixture,transport);
+      }
       case "ai_chat" -> runAIChat(fixture);
       case "ai_embed" -> runAIEmbed(fixture);
       case "ai_stream" -> runAIStream(fixture);
@@ -834,6 +845,17 @@ public final class Conformance {
   }
 
   static void runStream(Map<String, Object> fixture) {
+    if (fixture.containsKey("text_signature")) {
+      var fields = Ax.s((String)fixture.get("text_signature")).getOutputFields();
+      String content = "";
+      for (Object chunk : Core.asList(fixture.get("stream_events"))) {
+        content += chunk;
+        Core._parse_text_output_fields_impl(content,fields,false);
+      }
+      var output = Core._parse_text_output_fields_impl(content,fields,true);
+      Core.validate_output(fields,output);
+      assertEqual(output,fixture.get("expected_text_output"),"text streaming extraction");
+    }
     if (!Core.asList(fixture.getOrDefault("structured_states", List.of())).isEmpty()) {
       for (Object raw : Core.asList(fixture.getOrDefault("route_cases", List.of()))) {
         Map<String, Object> routeCase = Core.asMap(raw);
@@ -2657,6 +2679,11 @@ public final class Conformance {
     if (spec.get("max") != null) field = field.max(Core.asInt(spec.get("max")));
     if (Core.truthy(spec.get("email"))) field = field.email();
     if (Core.truthy(spec.get("url"))) field = field.url();
+    if (spec.get("valueDescriptions") instanceof Map<?, ?> descriptions) {
+      Map<String, String> values = new LinkedHashMap<>();
+      for (var entry : descriptions.entrySet()) values.put(String.valueOf(entry.getKey()), String.valueOf(entry.getValue()));
+      field = field.describeValues(values);
+    }
     if (spec.get("pattern") != null) field = field.regex(String.valueOf(spec.get("pattern")), String.valueOf(spec.getOrDefault("patternDescription", spec.get("pattern"))));
     return field;
   }
@@ -2687,6 +2714,7 @@ public final class Conformance {
     if (t.minimum != null) out.put("minimum", t.minimum);
     if (t.maximum != null) out.put("maximum", t.maximum);
     if (t.pattern != null) out.put("pattern", t.pattern);
+    if (t.valueDescriptions != null) out.put("valueDescriptions", t.valueDescriptions);
     if (t.patternDescription != null) out.put("patternDescription", t.patternDescription);
     if (t.format != null) out.put("format", t.format);
     if (t.language != null) out.put("language", t.language);

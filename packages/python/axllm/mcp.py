@@ -155,20 +155,6 @@ def ucp_normalize_outcome(operation: str, response: Any) -> Any:
     return out
 
 
-def mcp_execution_context_descriptor(namespaces: list[Any], inheritance: Any) -> Any:
-    _core_coverage_mark("mcp_execution_context_descriptor")
-    out = {}
-    out["namespaces"] = namespaces
-    missing = _core_is_none(inheritance)
-    if missing:
-        out["inheritance"] = "all"
-    else:
-        out["inheritance"] = inheritance
-    out["native"] = True
-    out["lossyAdapter"] = False
-    return out
-
-
 def event_runtime_descriptor(routes: list[Any], options: Any) -> Any:
     _core_coverage_mark("event_runtime_descriptor")
     empty = {}
@@ -187,18 +173,17 @@ def event_runtime_descriptor(routes: list[Any], options: Any) -> Any:
     return out
 
 
-def mcp_protocol_constants() -> Any:
-    _core_coverage_mark("mcp_protocol_constants")
-    versions = []
-    versions.append("2026-07-28")
-    versions.append("2025-11-25")
-    versions.append("2025-06-18")
-    versions.append("2025-03-26")
-    versions.append("2024-11-05")
+def mcp_execution_context_descriptor(namespaces: list[Any], inheritance: Any) -> Any:
+    _core_coverage_mark("mcp_execution_context_descriptor")
     out = {}
-    out["protocolVersion"] = "2025-11-25"
-    out["modernProtocolVersion"] = "2026-07-28"
-    out["supportedProtocolVersions"] = versions
+    out["namespaces"] = namespaces
+    missing = _core_is_none(inheritance)
+    if missing:
+        out["inheritance"] = "all"
+    else:
+        out["inheritance"] = inheritance
+    out["native"] = True
+    out["lossyAdapter"] = False
     return out
 
 
@@ -249,6 +234,21 @@ def event_route_commands(event: Any, routes: list[Any], identity_scope: str, tru
         else:
             pass
     return commands
+
+
+def mcp_protocol_constants() -> Any:
+    _core_coverage_mark("mcp_protocol_constants")
+    versions = []
+    versions.append("2026-07-28")
+    versions.append("2025-11-25")
+    versions.append("2025-06-18")
+    versions.append("2025-03-26")
+    versions.append("2024-11-05")
+    out = {}
+    out["protocolVersion"] = "2025-11-25"
+    out["modernProtocolVersion"] = "2026-07-28"
+    out["supportedProtocolVersions"] = versions
+    return out
 
 
 def mcp_modern_request_headers(method: str, name: str, protocol_version: str) -> Any:
@@ -817,6 +817,27 @@ def mcp_header_value_plan(value: str) -> Any:
     return out
 
 
+def event_capacity_transition(pending: int, queued_bytes: int, envelope_bytes: int, max_pending: int, max_queued_bytes: int, max_envelope_bytes: int) -> Any:
+    _core_coverage_mark("event_capacity_transition")
+    out = {}
+    next_pending = _core_add(pending, 1)
+    next_bytes = _core_add(queued_bytes, envelope_bytes)
+    pending_ok = _core_lte(next_pending, max_pending)
+    queue_ok = _core_lte(next_bytes, max_queued_bytes)
+    envelope_ok = _core_lte(envelope_bytes, max_envelope_bytes)
+    queue_capacity = _core_and(pending_ok, queue_ok)
+    accepted = _core_and(queue_capacity, envelope_ok)
+    out["accepted"] = accepted
+    out["nextPending"] = next_pending
+    out["nextQueuedBytes"] = next_bytes
+    out["reason"] = "capacity"
+    if envelope_ok:
+        pass
+    else:
+        out["reason"] = "envelope_too_large"
+    return out
+
+
 def mcp_param_header_bindings(input_schema: Any) -> Any:
     _core_coverage_mark("mcp_param_header_bindings")
     bindings = []
@@ -964,27 +985,6 @@ def mcp_param_header_bindings(input_schema: Any) -> Any:
         else:
             pass
     return bindings
-
-
-def event_capacity_transition(pending: int, queued_bytes: int, envelope_bytes: int, max_pending: int, max_queued_bytes: int, max_envelope_bytes: int) -> Any:
-    _core_coverage_mark("event_capacity_transition")
-    out = {}
-    next_pending = _core_add(pending, 1)
-    next_bytes = _core_add(queued_bytes, envelope_bytes)
-    pending_ok = _core_lte(next_pending, max_pending)
-    queue_ok = _core_lte(next_bytes, max_queued_bytes)
-    envelope_ok = _core_lte(envelope_bytes, max_envelope_bytes)
-    queue_capacity = _core_and(pending_ok, queue_ok)
-    accepted = _core_and(queue_capacity, envelope_ok)
-    out["accepted"] = accepted
-    out["nextPending"] = next_pending
-    out["nextQueuedBytes"] = next_bytes
-    out["reason"] = "capacity"
-    if envelope_ok:
-        pass
-    else:
-        out["reason"] = "envelope_too_large"
-    return out
 
 
 def event_debounce_transition(now: float, debounce_ms: float, has_queued_predecessor: bool) -> Any:
@@ -2415,6 +2415,44 @@ def _mcp_inheritance_plan(mcp: Any, ucp: Any, inheritance: Any) -> Any:
     out["mcp"] = selected_mcp
     out["ucp"] = selected_ucp
     return out
+
+
+def mcp_websocket_request_ids(messages: Any, protocol: str, batch: bool) -> list[Any]:
+    _core_coverage_mark("mcp_websocket_request_ids")
+    if batch:
+        allowed = _core_eq(protocol, "2025-03-26")
+        forbidden = _core_not(allowed)
+        if forbidden:
+            raise RuntimeError("JSON-RPC batching is only allowed for MCP 2025-03-26")
+        else:
+            pass
+    else:
+        pass
+    size = _core_len(messages)
+    empty = _core_eq(size, 0)
+    if empty:
+        raise RuntimeError("MCP batch cannot be empty")
+    else:
+        pass
+    ids = []
+    for message in messages:
+        id = _core_get(message, "id", None)
+        string_id = _core_type_is(id, "string")
+        number_id = _core_type_is(id, "number")
+        valid = _core_or(string_id, number_id)
+        invalid = _core_not(valid)
+        if invalid:
+            raise RuntimeError("MCP request ID must be a string or number")
+        else:
+            pass
+        key = _core_json_stringify(id)
+        duplicate = _core_contains(ids, key)
+        if duplicate:
+            raise RuntimeError("MCP batch request IDs must be unique")
+        else:
+            pass
+        ids.append(key)
+    return ids
 
 # END AXIR CORE EMITTED FUNCTIONS
 
@@ -4646,6 +4684,116 @@ class AxMCPStreamableHTTPTransport(AxMCPTransport):
         _token_store_set(store, self.endpoint, next_token)
         self.headers["Authorization"] = "Bearer " + next_token["accessToken"]
         return True
+
+
+class AxMCPWebSocketTransport(AxMCPTransport):
+    """Legacy MCP over WebSocket. Install axllm[realtime] or supply a socket factory.
+
+    The factory receives (url, protocols) and returns a socket with send/recv/close.
+    Each pending request owns its cleanup, so an old cancellation cannot remove a
+    later request that reuses its ID. Concurrent active IDs must be unique.
+    """
+    def __init__(self, url: str, *, protocols=None, web_socket_factory=None):
+        self.url, self.protocols, self._factory = url, ([protocols] if isinstance(protocols, str) else protocols), web_socket_factory
+        self.protocol_version = ""
+        self._lock = threading.RLock()
+        self._pending = {}
+        self._socket = None
+        self._reader = None
+
+    @property
+    def era_hint(self): return "legacy"
+
+    def connect(self):
+        with self._lock:
+            if self._socket is not None: return
+            factory = self._factory
+            if factory is None:
+                try: import websocket
+                except ImportError as exc:
+                    raise AxMCPError("MCP WebSocket requires axllm[realtime] or a web_socket_factory") from exc
+                def factory(url, protocols):
+                    sock = websocket.create_connection(url, subprotocols=protocols, timeout=30)
+                    # Connection timeout must not impose an idle-session deadline.
+                    sock.settimeout(None)
+                    return sock
+            sock = factory(self.url, self.protocols)
+            self._socket = sock
+            self._reader = threading.Thread(target=self._receive, args=(sock,), daemon=True)
+            self._reader.start()
+
+    def start_listening(self): self.connect()
+
+    def _receive(self, sock):
+        try:
+            while True:
+                raw = sock.recv()
+                if raw is None or raw == "": raise AxMCPError("MCP WebSocket closed")
+                parsed = json.loads(raw) if isinstance(raw, (str, bytes)) else raw
+                messages = parsed if isinstance(parsed, list) else [parsed]
+                if isinstance(parsed, list) and self.protocol_version != "2025-03-26":
+                    raise AxMCPError("JSON-RPC batching is only allowed for MCP 2025-03-26")
+                for message in messages:
+                    with self._lock:
+                        if self._socket is not sock: return
+                        slot = self._pending.pop(json.dumps(message.get("id")), None) if "id" in message and "method" not in message else None
+                        if slot is not None:
+                            slot["response"] = message
+                            slot["done"].set()
+                    if slot is None:
+                        threading.Thread(target=self._dispatch_inbound, args=(message,), daemon=True).start()
+        except Exception as error:
+            self._terminate(sock, error)
+
+    def _terminate(self, sock, error):
+        with self._lock:
+            if self._socket is not sock: return
+            self._socket = None
+            pending, self._pending = list(self._pending.values()), {}
+            for slot in pending:
+                slot["error"] = error
+                slot["done"].set()
+        try: sock.close()
+        finally:
+            handler = getattr(self, "_lifecycle_handler", None)
+            if callable(handler): handler("disconnected")
+
+    def _send_requests(self, messages, context, batch):
+        ids = mcp_websocket_request_ids(messages, self.protocol_version, batch)
+        _mcp_check_context(context)
+        # Serialize before registering anything: serialization failures leave no pending work.
+        payload = json.dumps(messages if batch else messages[0], allow_nan=False)
+        self.connect()
+        slots = [{"done": threading.Event()} for _ in ids]
+        with self._lock:
+            if any(key in self._pending for key in ids): raise AxMCPError("MCP request ID is already pending")
+            sock = self._socket
+            if sock is None: raise AxMCPError("MCP WebSocket closed")
+            for key, slot in zip(ids, slots): self._pending[key] = slot
+        try:
+            _mcp_check_context(context)
+            sock.send(payload)
+            for slot in slots:
+                while not slot["done"].wait(0.01): _mcp_check_context(context)
+                _mcp_check_context(context)
+                if "error" in slot: raise slot["error"]
+            return [slot["response"] for slot in slots]
+        finally:
+            with self._lock:
+                for key, slot in zip(ids, slots):
+                    if self._pending.get(key) is slot: self._pending.pop(key)
+
+    def send(self, message): return self._send_requests([message], None, False)[0]
+    def send_with_context(self, message, headers=None, context=None): return self._send_requests([message], context, False)[0]
+    def send_batch(self, messages, context=None): return self._send_requests(messages, context, True)
+    def send_notification(self, message):
+        self.connect()
+        with self._lock: sock = self._socket
+        if sock is None: raise AxMCPError("MCP WebSocket closed")
+        sock.send(json.dumps(message, allow_nan=False))
+    def close(self):
+        with self._lock: sock = self._socket
+        if sock is not None: self._terminate(sock, AxMCPError("MCP WebSocket closed"))
 
 
 class AxMCPStdioTransport(AxMCPTransport):

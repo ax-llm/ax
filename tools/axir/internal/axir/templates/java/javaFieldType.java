@@ -15,6 +15,7 @@ public final class FieldType {
   public Double maximum;
   public String pattern;
   public String patternDescription;
+  public Map<String, String> valueDescriptions;
   public String format;
   public String language;
   public String description;
@@ -34,6 +35,7 @@ public final class FieldType {
     out.maximum = maximum;
     out.pattern = pattern;
     out.patternDescription = patternDescription;
+    out.valueDescriptions = valueDescriptions == null ? null : new LinkedHashMap<>(valueDescriptions);
     out.format = format;
     out.language = language;
     out.description = description;

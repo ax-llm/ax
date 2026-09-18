@@ -50,6 +50,12 @@ public final class Field {
       this.cached = cached;
     }
 
+    public Fluent describeValues(Map<String, String> descriptions) {
+      Fluent out = copy();
+      out.type.valueDescriptions = new LinkedHashMap<>(descriptions);
+      Core._signature_validate_value_descriptions_impl(out.type, out.type.name);
+      return out;
+    }
     public Fluent optional() { Fluent out = copy(); out.optional = true; return out; }
     public Fluent internal() { Fluent out = copy(); out.internal = true; return out; }
     public Fluent cache() { Fluent out = copy(); out.cached = true; return out; }

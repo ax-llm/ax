@@ -1,0 +1,9 @@
+{
+  "expected_error_category": "signature",
+  "expected_error_contains": "duplicate description for \"support\"",
+  "kind": "signature_error",
+  "name": "value-descriptions-duplicate-class",
+  "signature": "ticket:string -> team:class \"support, billing\"(support \"A\", support \"B\")",
+  "ts_error_message": "Invalid Signature: Field \"team\": duplicate description for \"support\"",
+  "ts_error_name": "AxSignatureValidationError"
+}

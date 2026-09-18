@@ -11,6 +11,26 @@ import {
 } from './axir-conformance-sync.mjs';
 
 describe('axir-conformance-sync helpers', () => {
+  it('preserves signature field order when refreshing fluent fixtures', () => {
+    const value = {
+      signature_spec: {
+        outputs: {
+          urgent: { type: 'boolean', description: 'Needs attention' },
+          assignedTeam: { type: 'class', options: ['support', 'engineering'] },
+          details: {
+            type: 'object',
+            fields: { zebra: { type: 'string' }, alpha: { type: 'string' } },
+          },
+        },
+      },
+    };
+    expect(Object.keys(normalizeCatalog(value).signature_spec.outputs)).toEqual(
+      ['urgent', 'assignedTeam', 'details']
+    );
+    const outputs = normalizeCatalog(value).signature_spec.outputs;
+    expect(Object.keys(outputs.details.fields)).toEqual(['zebra', 'alpha']);
+    expect(Object.keys(outputs.urgent)).toEqual(['description', 'type']);
+  });
   it('preserves nested validator object order because TypeScript enum equality observes it', () => {
     const value = {
       validation_cases: [

@@ -38,6 +38,14 @@ module @ax.mcp version "0.1" {
     type signature = "(endpoint:string, options?:json) -> AxMCPStreamableHTTPTransport"
   }
 
+  op ax.mcp.record @AxMCPWebSocketTransport {
+    attr core_kind = "record"
+    attr public = true
+    ref transport = @AxMCPTransport
+    tag "axmcp-websocket"
+    type signature = "(url:string, options?:json) -> AxMCPWebSocketTransport"
+  }
+
   op ax.mcp.record @AxMCPStdioTransport {
     attr core_kind = "record"
     attr public = true
@@ -2127,6 +2135,38 @@ module @ax.mcp version "0.1" {
       core.set %out["mcp"] = %selected_mcp
       core.set %out["ucp"] = %selected_ucp
       core.return %out
+    }
+  }
+
+  op ax.mcp.semantic @mcp_websocket_request_ids {
+    attr core_kind = "func"
+    attr effect = "throws"
+    attr emit_module = "mcp"
+    tag "mcp-websocket-lifecycle"
+    type signature = "(list<json>, string, bool) -> list<string> throws"
+    body @entry(%messages: json, %protocol: string, %batch: bool) {
+      core.if %batch {
+        %allowed = core.call intrinsic.eq(%protocol, "2025-03-26")
+        %forbidden = core.call intrinsic.not(%allowed)
+        core.if %forbidden { core.raise "JSON-RPC batching is only allowed for MCP 2025-03-26" }
+      }
+      %size = core.call intrinsic.len(%messages)
+      %empty = core.call intrinsic.eq(%size, 0)
+      core.if %empty { core.raise "MCP batch cannot be empty" }
+      %ids = core.list
+      core.for %message in %messages {
+        %id = core.get %message["id"]
+        %string_id = core.type_is %id type "string"
+        %number_id = core.type_is %id type "number"
+        %valid = core.call intrinsic.or(%string_id, %number_id)
+        %invalid = core.call intrinsic.not(%valid)
+        core.if %invalid { core.raise "MCP request ID must be a string or number" }
+        %key = core.call intrinsic.json.stringify(%id)
+        %duplicate = core.call intrinsic.contains(%ids, %key)
+        core.if %duplicate { core.raise "MCP batch request IDs must be unique" }
+        core.append %ids, %key
+      }
+      core.return %ids
     }
   }
 }

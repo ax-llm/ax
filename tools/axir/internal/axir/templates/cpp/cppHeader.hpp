@@ -502,6 +502,7 @@ class AxAIService : public AIClient {
   virtual Value speak(Value request, Value options);
   virtual Value speak(Value request, Value options, const AxCancellationToken* cancellation);
   virtual Value get_features(Value model = Value());
+  virtual void validate_chat_request(Value request) const { (void)request; }
   virtual Value get_model_list();
   virtual Value get_metrics();
   virtual std::function<void(std::string)> get_logger();
@@ -766,7 +767,7 @@ class ProviderRouter : public AIClient {
   Value routing_;
   Value processing_;
   FileToText file_to_text_;
-  Value provider_records(Value model = Value()) const;
+  Value provider_records(Value model = Value(), Value request = Value()) const;
   std::shared_ptr<AxAIService> service_for_name(Value name) const;
 };
 
@@ -814,6 +815,8 @@ class RealtimeTransport {
   virtual void close() {}
 };
 
+std::shared_ptr<RealtimeTransport> make_web_socket_transport(const std::string& url);
+
 class ScriptedRealtimeTransport : public RealtimeTransport {
  public:
   explicit ScriptedRealtimeTransport(std::vector<Value> inbound);
@@ -854,6 +857,7 @@ class OpenAICompatibleClient : public AxBaseAI {
   Value realtime_audio_input(Value request);
   Value realtime_chat(Value request, RealtimeTransport* transport = nullptr, AxStreamHandler handler = {});
   Value get_features(Value model = Value()) override;
+  void validate_chat_request(Value request) const override;
   double get_estimated_cost(Value model_usage) override;
   OpenAICompatibleClient& context_cache_registry(AxContextCacheRegistry* registry);
   OpenAICompatibleClient& credential_provider(AxCredentialProvider provider);
@@ -864,6 +868,7 @@ class OpenAICompatibleClient : public AxBaseAI {
 
  private:
   friend class ResponsesChatSession;
+  friend class AxAITypesafeClient;
   std::string profile_;
   Value descriptor_;
   std::string base_url_;
@@ -889,6 +894,51 @@ class OpenAICompatibleClient : public AxBaseAI {
   Value transport_result(Value result, Value request);
   std::vector<Value> iter_sse_json(Value raw);
 };
+
+/** Native System One client, separate from AxAIService. Responses preserve native probabilities and scores. */
+struct TypesafeNoul { double noul; };
+struct TypesafeChoice { std::string choice; std::map<std::string,double> probabilities; double confidence; };
+// Fractional, zero-based position in the caller's rubric.
+struct TypesafeScore { double score; std::map<std::string,double> probabilities; double confidence; Value legend; };
+using TypesafeAnswer = std::variant<TypesafeNoul,TypesafeChoice,TypesafeScore>;
+struct TypesafeUsage { std::uint64_t input_tokens; std::uint64_t output_tokens; };
+struct TypesafeResponse {
+  std::string model;
+  std::map<std::string,TypesafeAnswer> answers;
+  TypesafeUsage usage;
+  Value to_value() const;
+  static TypesafeResponse from_value(Value value);
+};
+struct TypesafeModelCard {
+  std::string name, description, release_date;
+  Value to_value() const { return Value(Object{{"name",name},{"description",description},{"release_date",release_date}}); }
+};
+struct TypesafeQuestion {
+  std::string type;
+  Value instructions;
+  Value criteria;
+  Value to_value() const {Value value=Value(Object{{"type",type},{"instructions",instructions}});if(!criteria.is_null())Core::set(value,"criteria",criteria);return value;}
+};
+struct TypesafeRequest {
+  Value state;
+  std::map<std::string,TypesafeQuestion> questions;
+  std::string model;
+  Value to_value() const {Value entries=Value::object();for(const auto& entry:questions)Core::set(entries,entry.first,entry.second.to_value());Value value=Value(Object{{"state",state},{"questions",entries}});if(!model.empty())Core::set(value,"model",model);return value;}
+};
+
+class AxAITypesafeClient {
+ public:
+  explicit AxAITypesafeClient(Value options, Transport* transport = nullptr, AxCredentialProvider credential_provider = {});
+  TypesafeResponse system_one(Value request, Value options = Value::object(), const AxCancellationToken* cancellation = nullptr);
+  std::vector<TypesafeModelCard> list_models(Value options = Value::object(), const AxCancellationToken* cancellation = nullptr);
+  TypesafeResponse system_one(const TypesafeRequest& request, Value options = Value::object(), const AxCancellationToken* cancellation = nullptr) { return system_one(request.to_value(),options,cancellation); }
+ private:
+  Value call(const std::string& method, const std::string& path, Value payload, Value options, const AxCancellationToken* cancellation);
+  Value options_;
+  Transport* transport_;
+  AxCredentialProvider credential_provider_;
+};
+AxAITypesafeClient typesafe(Value options, Transport* transport = nullptr, AxCredentialProvider credential_provider = {});
 
 class OpenAIResponsesClient : public OpenAICompatibleClient {
  public:

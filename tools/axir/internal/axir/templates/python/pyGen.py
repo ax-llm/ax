@@ -580,7 +580,7 @@ class AxGen:
         content = fold_stream(chunks)
         _core_axgen_run_streaming_assertions(self, content)
         if content:
-            output = _parse_output_impl(content)
+            output = _parse_output_fields_impl(content, self.signature.get_output_fields())
             validate_output(self.signature.get_output_fields(), output)
 
     def _request(self, messages, options, client=None):
@@ -760,6 +760,7 @@ def _nested_field(name, item):
             maximum=item.get("maximum"),
             pattern=item.get("pattern"),
             pattern_description=item.get("patternDescription", item.get("pattern_description")),
+            value_descriptions=item.get("valueDescriptions", item.get("value_descriptions")),
             format=item.get("format"),
             description=item.get("description"),
         )
