@@ -17,6 +17,47 @@ class Socket:
     def respond(self, id, value): self.inbound.put(json.dumps({'jsonrpc':'2.0','id':id,'result':value}))
 
 class ParityTests(unittest.TestCase):
+    def test_native_noul_accepts_null_criteria_type(self):
+        from typing import get_args, get_type_hints
+        from axllm import TypesafeQuestion
+        self.assertIn(type(None), get_args(get_type_hints(TypesafeQuestion)['criteria']))
+
+    def test_native_combines_cancellation_and_disposes_subscriptions(self):
+        parent, per_call = AxCancellationToken(), AxCancellationToken()
+        calls = []
+        def transport(request):
+            calls.append(request)
+            return {'models': []}
+        client = typesafe(api_key='test', cancellation=parent, transport=transport)
+        self.assertEqual(client.list_models({'cancellation_token': per_call}), [])
+        self.assertEqual((parent.subscription_count, per_call.subscription_count), (0, 0))
+        parent.cancel('instance cancelled')
+        with self.assertRaisesRegex(Exception, 'instance cancelled'):
+            client.list_models({'cancellation': per_call})
+        self.assertEqual(len(calls), 1)
+
+        for cancel_parent in (True, False):
+            parent, per_call = AxCancellationToken(), AxCancellationToken()
+            started = threading.Event()
+            calls = []
+            def retrying(request):
+                calls.append(request)
+                started.set()
+                return {'status': 429, 'json': {'error': 'retry'}} if len(calls) == 1 else {'models': []}
+            client = typesafe(api_key='test', cancellation=parent, transport=retrying,
+                              retry={'maxRetries': 1, 'initialDelayMs': 5000})
+            with concurrent.futures.ThreadPoolExecutor() as pool:
+                task = pool.submit(client.list_models, {'cancellation': per_call})
+                self.assertTrue(started.wait(2))
+                (parent if cancel_parent else per_call).cancel('cancel pending retry')
+                with self.assertRaisesRegex(Exception, 'cancel pending retry'):
+                    task.result(2)
+            self.assertEqual(len(calls), 1)
+            self.assertEqual((parent.subscription_count, per_call.subscription_count), (0, 0))
+            if not cancel_parent:
+                self.assertFalse(parent.cancelled)
+                self.assertEqual(client.list_models(), [])
+
     def test_provider_credentials_are_isolated(self):
         from unittest.mock import patch
         import os
@@ -58,6 +99,28 @@ class ParityTests(unittest.TestCase):
                 with self.assertRaisesRegex(Exception,'closed'): closed.result(2)
                 self.assertEqual(transport._pending,{})
             finally: transport.close()
+
+    def test_websocket_late_server_reply_does_not_reconnect(self):
+        sockets = []
+        def factory(*args):
+            socket = Socket(); sockets.append(socket); return socket
+        transport = AxMCPWebSocketTransport('ws://example.test', web_socket_factory=factory)
+        started = queue.Queue(); release = threading.Event()
+        def handler(message):
+            started.put(threading.current_thread())
+            release.wait(2)
+            return {'jsonrpc': '2.0', 'id': message['id'], 'result': {}}
+        transport.set_request_handler(handler)
+        try:
+            transport.start_listening()
+            sockets[0].inbound.put(json.dumps({'id': 'server-1', 'method': 'roots/list'}))
+            worker = started.get(timeout=2)
+            transport.close(); release.set(); worker.join(2)
+            self.assertFalse(worker.is_alive())
+            self.assertEqual(len(sockets), 1)
+            self.assertTrue(sockets[0].sent.empty())
+        finally:
+            release.set(); transport.close()
 
     def test_thresholds_native_and_concurrency(self):
         calls=[]

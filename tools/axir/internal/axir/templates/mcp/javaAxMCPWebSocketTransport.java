@@ -61,7 +61,13 @@ public final class AxMCPWebSocketTransport implements AxMCPTransport {
           synchronized(lock) { if(socket!=current)return; if(message.containsKey("id")&&!message.containsKey("method"))slot=pending.remove(Json.stringify(message.get("id"))); }
           if(slot!=null)slot.complete(message);
           else CompletableFuture.runAsync(()->{
-            if(message.containsKey("id")&&message.containsKey("method")&&requestHandler!=null)sendResponse(requestHandler.apply(message));
+            synchronized(lock) { if(socket!=current)return; }
+            var callback=requestHandler;
+            if(message.containsKey("id")&&message.containsKey("method")&&callback!=null) {
+              var response=callback.apply(message);
+              synchronized(lock) { if(socket!=current)return; }
+              current.send(Json.stringify(response));
+            }
             else if(handler!=null)handler.accept(message);
           });
         }

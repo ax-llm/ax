@@ -1786,7 +1786,7 @@ TypesafeEntry = str | dict[str, Any] | list[Any] | None
 
 class _TypesafeQuestionOptions(TypedDict, total=False):
     instructions: TypesafeEntry
-    criteria: dict[str, TypesafeEntry] | list[TypesafeEntry]
+    criteria: dict[str, TypesafeEntry] | list[TypesafeEntry] | None
 
 class TypesafeQuestion(_TypesafeQuestionOptions):
     type: Literal["noul", "choice", "score"]
@@ -1852,7 +1852,21 @@ class AxAITypesafeClient:
 
     def _request(self, method, path, payload, operation, options):
         opts = {**self._client.options, **(options or {})}
-        cancellation = _check_cancelled(opts)
+        inherited = _check_cancelled(self._client.options)
+        per_call = _check_cancelled(options)
+        cancellation = inherited or per_call
+        subscriptions = []
+        try:
+            if inherited is not None and per_call is not None and inherited is not per_call:
+                cancellation = AxCancellationToken()
+                subscriptions.append(inherited.subscribe(lambda: cancellation.cancel(inherited.reason or "cancelled")))
+                subscriptions.append(per_call.subscribe(lambda: cancellation.cancel(per_call.reason or "cancelled")))
+            return self._request_with_cancellation(method, path, payload, operation, opts, cancellation)
+        finally:
+            for unsubscribe in subscriptions:
+                unsubscribe()
+
+    def _request_with_cancellation(self, method, path, payload, operation, opts, cancellation):
         client = copy.copy(self._client)
         client.timeout = float(opts.get("timeout", client.timeout))
         retry = resolve_stream_retry(opts)

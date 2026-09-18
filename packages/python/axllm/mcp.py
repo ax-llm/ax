@@ -4741,9 +4741,23 @@ class AxMCPWebSocketTransport(AxMCPTransport):
                             slot["response"] = message
                             slot["done"].set()
                     if slot is None:
-                        threading.Thread(target=self._dispatch_inbound, args=(message,), daemon=True).start()
+                        threading.Thread(target=self._dispatch_socket_message, args=(sock, message), daemon=True).start()
         except Exception as error:
             self._terminate(sock, error)
+
+    def _dispatch_socket_message(self, sock, message):
+        with self._lock:
+            if self._socket is not sock: return
+        request_handler = getattr(self, "_request_handler", None)
+        if callable(request_handler) and "id" in message and "method" in message:
+            response = request_handler(message)
+            with self._lock:
+                if self._socket is not sock: return
+            # A late reply belongs to its original connection and must never reconnect.
+            sock.send(json.dumps(response, allow_nan=False))
+            return
+        handler = getattr(self, "_message_handler", None)
+        if callable(handler): handler(message)
 
     def _terminate(self, sock, error):
         with self._lock:

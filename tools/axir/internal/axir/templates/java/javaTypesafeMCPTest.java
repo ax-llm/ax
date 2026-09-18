@@ -66,5 +66,50 @@ public final class TypesafeMCPTest {
     var mixed=new AxBalancer(List.of(only,Ax.ai("openai",Map.of("api_key","test","models",List.of()))));
     mixed.validateChatRequest(request);
   }
-  public static void main(String[] args)throws Exception{websocket();nativeClient();nestedValidation();System.out.println("Java Typesafe native client and MCP WebSocket cleanup passed");}
+  static void combinedCancellation() throws Exception {
+    var parent = new AxCancellationToken(); var perCall = new AxCancellationToken();
+    var calls = new AtomicInteger();
+    OpenAICompatibleClient.Transport transport = request -> {calls.incrementAndGet(); return Map.of("models",List.of());};
+    var client = Ax.typesafe(Map.of("api_key","test","transport",transport,"cancellation",parent));
+    client.listModels(Map.of("cancellationToken",perCall));
+    check(parent.subscriptionCount()==0 && perCall.subscriptionCount()==0,"success leaked cancellation subscriptions");
+    parent.cancel("instance cancelled");
+    try {client.listModels(Map.of("cancellation",perCall)); throw new AssertionError("cancelled instance accepted");}
+    catch (AxAIServiceAbortedError expected) {}
+    check(calls.get()==1,"cancelled instance accessed transport");
+    check(parent.subscriptionCount()==0 && perCall.subscriptionCount()==0,"pre-abort leaked subscriptions");
+    for (boolean cancelParent : List.of(true,false)) {
+      var inherited = new AxCancellationToken(); var local = new AxCancellationToken();
+      var started = new CountDownLatch(1); var attempts = new AtomicInteger();
+      OpenAICompatibleClient.Transport retrying = request -> {
+        int attempt=attempts.incrementAndGet();started.countDown();
+        return attempt==1 ? Map.of("status",429,"json",Map.of("error","retry")) : Map.of("models",List.of());
+      };
+      var retryClient=Ax.typesafe(Map.of("api_key","test","transport",retrying,"cancellation",inherited,"retry",Map.of("maxRetries",1,"initialDelayMs",5000)));
+      var pool=Executors.newSingleThreadExecutor();
+      try {
+        var task=pool.submit(()->retryClient.listModels(Map.of("cancellation",local)));
+        check(started.await(2,TimeUnit.SECONDS),"request did not start");
+        (cancelParent ? inherited : local).cancel("cancel pending retry");
+        error(task,"cancel pending retry");
+        check(attempts.get()==1,"cancelled request retried");
+        check(inherited.subscriptionCount()==0 && local.subscriptionCount()==0,"retry leaked cancellation subscriptions");
+        if(!cancelParent){check(!inherited.cancelled(),"call cancellation poisoned client");retryClient.listModels();}
+      } finally {pool.shutdownNow();}
+    }
+  }
+  static void lateServerReply() throws Exception {
+    var sockets=new CopyOnWriteArrayList<Socket>();
+    var transport=new AxMCPWebSocketTransport("ws://example.test",List.of(),(url,protocols)->{var socket=new Socket();sockets.add(socket);return socket;});
+    var started=new CountDownLatch(1);var release=new CountDownLatch(1);
+    transport.setRequestHandler(message->{started.countDown();try{check(release.await(2,TimeUnit.SECONDS),"handler timed out");}catch(InterruptedException error){throw new RuntimeException(error);}return Map.of("id",message.get("id"),"result",Map.of());});
+    try {
+      transport.startListening();sockets.get(0).inbound.add("{\"id\":\"server-1\",\"method\":\"roots/list\"}");
+      check(started.await(2,TimeUnit.SECONDS),"server request was not dispatched");
+      transport.close();release.countDown();
+      check(ForkJoinPool.commonPool().awaitQuiescence(2,TimeUnit.SECONDS),"server handler did not settle");
+      check(sockets.size()==1 && sockets.get(0).sent.isEmpty(),"late server reply reopened the closed transport");
+    } finally {release.countDown();transport.close();}
+  }
+  public static void main(String[] args)throws Exception{websocket();nativeClient();nestedValidation();combinedCancellation();lateServerReply();System.out.println("Java Typesafe native client and MCP WebSocket cleanup passed");}
 }

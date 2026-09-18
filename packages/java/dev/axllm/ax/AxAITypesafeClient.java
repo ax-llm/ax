@@ -86,8 +86,25 @@ public final class AxAITypesafeClient {
   private Object request(String method, String path, String operation, Map<String, Object> payload, Map<String, Object> callOptions) throws Exception {
     Map<String, Object> resolved = new LinkedHashMap<>(options);
     if (callOptions != null) resolved.putAll(callOptions);
+    var inherited = AxBaseAI.cancellation(options);
+    var perCall = AxBaseAI.cancellation(callOptions);
+    boolean merge = inherited != null && perCall != null && inherited != perCall;
+    var cancellation = merge ? new AxCancellationToken() : inherited != null ? inherited : perCall;
+    var subscriptions = new java.util.ArrayList<AxCancellationToken.Subscription>();
+    try {
+      if (merge) {
+        subscriptions.add(inherited.subscribe(() -> cancellation.cancel(inherited.reason())));
+        subscriptions.add(perCall.subscribe(() -> cancellation.cancel(perCall.reason())));
+      }
+      if (cancellation != null) cancellation.throwIfCancelled();
+      return requestWithCancellation(method, path, operation, payload, resolved, cancellation);
+    } finally {
+      for (var subscription : subscriptions) subscription.close();
+    }
+  }
+
+  private Object requestWithCancellation(String method, String path, String operation, Map<String, Object> payload, Map<String, Object> resolved, AxCancellationToken cancellation) throws Exception {
     var client = new OpenAICompatibleClient("typesafe", "Typesafe", resolved, model, "");
-    var cancellation = resolved.get("cancellation") instanceof AxCancellationToken token ? token : null;
     Map<String, Object> retry = Core.asMap(Core.resolve_stream_retry(resolved));
     int retries = ((Number) retry.get("max_retries")).intValue();
     for (int attempt = 0; ; attempt++) {

@@ -1436,7 +1436,10 @@ func NewAxMCPWebSocketTransport(url string,options map[string]Value)*AxMCPWebSoc
     t.factory,_=coreGet(options,"webSocketFactory",coreGet(options,"web_socket_factory",nil)).(AxMCPWebSocketFactory)
     if t.factory==nil {t.factory=func(target string,protocols []string)(AxMCPWebSocket,error){
         ctx,cancel:=context.WithTimeout(context.Background(),30*time.Second);defer cancel()
-        conn,_,err:=websocket.Dial(ctx,target,&websocket.DialOptions{Subprotocols:protocols});if err!=nil{return nil,err};return &mcpNativeWebSocket{conn},nil
+        conn,_,err:=websocket.Dial(ctx,target,&websocket.DialOptions{Subprotocols:protocols});if err!=nil{return nil,err}
+        // Match the existing native WebSocket transport; tool results can exceed 32 KiB.
+        conn.SetReadLimit(-1)
+        return &mcpNativeWebSocket{conn},nil
     }}
     return t
 }
@@ -1461,9 +1464,15 @@ func(t *AxMCPWebSocketTransport)receive(socket AxMCPWebSocket){
             var slot *mcpWSPending
             if id,hasID:=message["id"];hasID&&message["method"]==nil{key:=stableStringify(id);slot=t.pending[key];delete(t.pending,key)}
             handler,requestHandler:=t.handler,t.requestHandler;t.mu.Unlock()
-            if slot!=nil{slot.result<-mcpWSResult{message:message}}else if message["id"]!=nil&&message["method"]!=nil&&requestHandler!=nil{go func(m map[string]Value){_ = t.SendResponse(requestHandler(m))}(message)}else if handler!=nil{go handler(message)}
+            if slot!=nil{slot.result<-mcpWSResult{message:message}}else if message["id"]!=nil&&message["method"]!=nil&&requestHandler!=nil{go t.respond(socket,message,requestHandler)}else if handler!=nil{go handler(message)}
         }
     }
+}
+func(t *AxMCPWebSocketTransport)respond(socket AxMCPWebSocket,message map[string]Value,handler func(map[string]Value)map[string]Value){
+    t.mu.Lock();active:=t.socket==socket;t.mu.Unlock();if !active{return}
+    response:=handler(message)
+    t.mu.Lock();active=t.socket==socket;t.mu.Unlock();if !active{return}
+    data,err:=json.Marshal(response);if err==nil{_ = socket.Send(string(data))}
 }
 func(t *AxMCPWebSocketTransport)terminate(socket AxMCPWebSocket,err error){
     t.mu.Lock();if t.socket!=socket{t.mu.Unlock();return};t.socket=nil

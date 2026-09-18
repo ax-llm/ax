@@ -197,6 +197,28 @@ func TestTypesafeNativeHTTP(t *testing.T) {
 	parityWaitResult(t, done, "abort")
 }
 
+func TestMCPWebSocketLateServerReply(t *testing.T) {
+	var connections atomic.Int32
+	socket := newParitySocket()
+	transport := NewAxMCPWebSocketTransport("ws://example.test", map[string]Value{"webSocketFactory": AxMCPWebSocketFactory(func(string, []string) (AxMCPWebSocket, error) { connections.Add(1); return socket, nil })})
+	defer transport.Close()
+	started, release, returned := make(chan struct{}), make(chan struct{}), make(chan struct{})
+	transport.SetRequestHandler(func(message map[string]Value) map[string]Value {
+		close(started)
+		<-release
+		close(returned)
+		return map[string]Value{"id": message["id"], "result": map[string]Value{}}
+	})
+	if err := transport.StartListening(); err != nil { t.Fatal(err) }
+	socket.incoming <- `{"id":"server-1","method":"roots/list"}`
+	select { case <-started: case <-time.After(time.Second): close(release); t.Fatal("server request was not dispatched") }
+	_ = transport.Close()
+	close(release)
+	<-returned
+	select { case <-socket.sent: t.Fatal("late server reply wrote to a closed transport"); case <-time.After(100*time.Millisecond): }
+	if connections.Load() != 1 { t.Fatal("late server reply reopened the closed transport") }
+}
+
 // Exercise the built-in socket, including concurrent requests and remote close.
 func TestMCPWebSocketNativeRoundTrip(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -219,7 +241,9 @@ func TestMCPWebSocketNativeRoundTrip(t *testing.T) {
 			if request["method"] == "close" {
 				return
 			}
-			response, _ := json.Marshal(map[string]Value{"jsonrpc": "2.0", "id": request["id"], "result": request["id"]})
+			var result Value = request["id"]
+			if request["method"] == "large" { result = strings.Repeat("x", 64*1024) }
+			response, _ := json.Marshal(map[string]Value{"jsonrpc": "2.0", "id": request["id"], "result": result})
 			if err = socket.Write(r.Context(), websocket.MessageText, response); err != nil {
 				return
 			}
@@ -242,6 +266,10 @@ func TestMCPWebSocketNativeRoundTrip(t *testing.T) {
 		}(i)
 	}
 	wg.Wait()
+	large, err := transport.SendWithContext(ctx, map[string]Value{"id": "large", "method": "large"}, nil)
+	if err != nil || large["result"] != strings.Repeat("x", 64*1024) {
+		t.Fatalf("large tool result was not delivered: %v", err)
+	}
 	if _, err := transport.SendWithContext(ctx, map[string]Value{"id": 11, "method": "close"}, nil); err == nil {
 		t.Fatal("remote close did not reject pending request")
 	}
