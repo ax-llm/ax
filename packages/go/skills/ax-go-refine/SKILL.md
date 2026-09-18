@@ -1,7 +1,7 @@
 ---
 name: "ax-go-refine"
 description: "Use when writing Go code with `github.com/ax-llm/ax/packages/go` for reward-scored generation, iterative candidate improvement, evaluator feedback, and optimizer-backed refinement patterns."
-version: "24.0.19"
+version: "24.0.20"
 ---
 # Ax Refinement Patterns For Go
 

@@ -1,7 +1,7 @@
 ---
 name: "ax-rust-typesafe"
 description: "Use when writing Rust code with `axllm` for Typesafe Jev boolean/class signatures, value descriptions, configurable Noul conversion, native Noul/Choice/Score, structured criteria and hybrid generation."
-version: "24.0.19"
+version: "24.0.20"
 ---
 # Typesafe / Jev For Rust
 

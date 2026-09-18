@@ -1,5 +1,11 @@
 # Changelog
 
+## [24.0.20](https://github.com/ax-llm/ax/compare/24.0.19...24.0.20) (2026-09-18)
+
+### Features
+
+* **axir:** add Typesafe parity and complete MCP WebSocket support ([#663](https://github.com/ax-llm/ax/issues/663)) ([a95d736](https://github.com/ax-llm/ax/commit/a95d73643ba20ed2e9657b7d4276655670689176))
+
 ## [24.0.19](https://github.com/ax-llm/ax/compare/24.0.18...24.0.19) (2026-09-17)
 
 ### Features
