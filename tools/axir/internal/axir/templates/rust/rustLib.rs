@@ -8157,7 +8157,8 @@ impl ProviderRouter {
 
     pub fn get_routing_recommendation(&self, request: Value) -> AxResult<Value> {
         if let Some(provider) = request.get("provider").and_then(Value::as_str) {
-            if self.providers.contains_key(provider) {
+            if let Some(selected) = self.providers.get(provider) {
+                selected.validate_chat_request(&request)?;
                 return Ok(json!({"provider":provider,"providerName":provider,"reason":"explicit"}));
             }
         }
@@ -9679,6 +9680,13 @@ impl RouterFixtureService {
         json!({"name": self.name, "id": self.id, "features": self.features})
     }
 
+    fn validate_chat_request(&self, request: &Value) -> AxResult<()> {
+        if self.name == "Typesafe" {
+            provider_validate_chat_request(&[CoreValue::from("typesafe"), core_value_from_json(request), core_value_from_json(&json!({}))])?;
+        }
+        Ok(())
+    }
+
     fn record(&mut self, method: &str, options: &Value) {
         self.requests.push(json!({"method": method, "opt": options}));
     }
@@ -9757,8 +9765,7 @@ impl SharedRouterFixtureService {
 
 impl AxAIClient for SharedRouterFixtureService {
     fn validate_chat_request(&self, request:&Value)->AxResult<()> {
-      if self.inner.lock().unwrap().name=="Typesafe" { provider_validate_chat_request(&[CoreValue::from("typesafe"),core_value_from_json(request),core_value_from_json(&json!({}))])?; }
-      Ok(())
+      self.inner.lock().map_err(|_| AxError::runtime("fixture service lock poisoned"))?.validate_chat_request(request)
     }
 
     fn chat(&mut self, request: Value) -> AxResult<Value> {
@@ -10182,8 +10189,12 @@ fn conformance_multiservice_router_result(fixture: &Value) -> AxResult<Value> {
     Ok(actual)
 }
 
-fn router_provider_records(services: &[RouterFixtureService]) -> Value {
-    Value::Array(services.iter().map(RouterFixtureService::provider_record).collect())
+fn router_provider_records(services: &[RouterFixtureService], request: &Value) -> Value {
+    Value::Array(services.iter().map(|service| {
+        let mut record = service.provider_record();
+        record["requestCompatible"] = json!(service.validate_chat_request(request).is_ok());
+        record
+    }).collect())
 }
 
 fn conformance_provider_router_result(fixture: &Value) -> AxResult<Value> {
@@ -10206,8 +10217,8 @@ fn conformance_provider_router_result(fixture: &Value) -> AxResult<Value> {
             ordered.push(service.clone());
         }
     }
-    let providers = router_provider_records(&ordered);
     let request = fixture.get("request").cloned().unwrap_or_else(|| json!({}));
+    let providers = router_provider_records(&ordered, &request);
     let routing = fixture
         .get("routing")
         .and_then(|routing| routing.get("capability"))
@@ -21221,6 +21232,19 @@ mod typesafe_native_tests {
         let normal=ai("openai",json!({"api_key":"test","models":[]}))?;
         let mixed=AxBalancer::from_clients(vec![Box::new(only),Box::new(normal)],AxBalancerOptions{input_order:true,..Default::default()})?;
         assert_eq!(mixed.candidate_indices(&prose)?,vec![1]);Ok(())
+    }
+    #[test]
+    fn router_request_eligibility()->AxResult<()> {
+        let typed=ai("typesafe",json!({"api_key":"test"}))?;
+        let normal=ai("openai",json!({"api_key":"test"}))?;
+        let router=ProviderRouter::from_providers(vec![("typesafe",typed),("generative",normal)]);
+        let prose=json!({"chat_prompt":[{"role":"user","content":"reply"}]});
+        assert_eq!(router.get_routing_recommendation(prose.clone())?["provider"],"generative");
+        let mut forced=prose;forced["provider"]=json!("typesafe");
+        assert!(router.get_routing_recommendation(forced).is_err());
+        let supported=json!({"provider":"typesafe","chat_prompt":[{"role":"user","content":"outage"}],"response_format":{"type":"json_schema","schema":{"name":"decision","schema":{"type":"object","properties":{"urgent":{"type":"boolean"}},"required":["urgent"]}}}});
+        assert_eq!(router.get_routing_recommendation(supported)?["provider"],"typesafe");
+        Ok(())
     }
     #[test]
     fn native_discovery_credentials_retry_and_probabilities()->AxResult<()> {
