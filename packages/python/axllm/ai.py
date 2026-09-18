@@ -2507,6 +2507,9 @@ class AxBalancer(AxAIService):
     def _handle_success(self, service: AxAIService):
         with self._failures_lock: self.service_failures.pop(service.get_id(), None)
 
+    def validate_chat_request(self, request: dict[str, Any]) -> None:
+        self._candidate_services(request)
+
     def _candidate_services(self, request: dict[str, Any]):
         candidates = [service for service in self.services if _service_accepts_request(service, request) and provider_balancer_candidate_allowed(service.get_features(str(request.get("model"))) or {}, request)]
         if candidates:

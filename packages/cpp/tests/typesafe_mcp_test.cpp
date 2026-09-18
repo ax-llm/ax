@@ -51,4 +51,13 @@ static void native_client(){
   try{client.list_models(Value::object(),&token);throw std::runtime_error("expected cancellation");}catch(const AxAIServiceAbortedError&){}
   check(credentials==before,"pre-aborted request accessed credentials");
 }
-int main(){websocket();native_client();std::cout<<"C++ Typesafe native client and MCP WebSocket cleanup passed\n";}
+static void nested_validation(){
+  auto typed=ai("typesafe",object({{"api_key","test"},{"models",Value::array()}}));
+  auto only=std::make_shared<AxBalancer>(std::vector<std::shared_ptr<AxAIService>>{typed});
+  auto prose=object({{"chat_prompt",array({object({{"role","user"},{"content","reply"}})})}});
+  bool rejected=false;try{only->validate_chat_request(prose);}catch(const AxError&){rejected=true;}check(rejected,"nested Typesafe accepted prose");
+  only->validate_chat_request(parse_json(R"json({"chat_prompt":[{"role":"user","content":"outage"}],"response_format":{"type":"json_schema","schema":{"name":"decision","schema":{"type":"object","properties":{"urgent":{"type":"boolean"}},"required":["urgent"]}}}})json"));
+  AxBalancer mixed({only,ai("openai",object({{"api_key","test"},{"models",Value::array()}}))});
+  mixed.validate_chat_request(prose);
+}
+int main(){websocket();native_client();nested_validation();std::cout<<"C++ Typesafe native client and MCP WebSocket cleanup passed\n";}

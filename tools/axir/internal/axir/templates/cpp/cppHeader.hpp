@@ -619,6 +619,7 @@ class AxBalancer : public AxAIService {
   using AxAIService::stream_each;
   using AxAIService::transcribe;
   AxBalancer();
+  void validate_chat_request(Value request) const override;
   explicit AxBalancer(std::vector<std::shared_ptr<AxAIService>> services, Value options = Value::object());
   explicit AxBalancer(std::vector<std::shared_ptr<AxAIService>> services, AxBalancerOptions options);
   std::string get_id() override;
@@ -680,7 +681,7 @@ class AxBalancer : public AxAIService {
   void handle_failure(const std::shared_ptr<AxAIService>& service);
   void handle_success(const std::shared_ptr<AxAIService>& service);
   bool retryable(const AxError& error) const;
-  std::vector<std::shared_ptr<AxAIService>> candidate_services(Value request);
+  std::vector<std::shared_ptr<AxAIService>> candidate_services(Value request) const;
   void reset();
 };
 

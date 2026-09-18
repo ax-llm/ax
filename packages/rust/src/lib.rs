@@ -10602,6 +10602,9 @@ pub struct AxBalancerOptions {
     pub strategy: Option<AxBalancerAdaptiveStrategy>,
 }
 impl AxAIClient for AxBalancer {
+    fn validate_chat_request(&self, request: &Value) -> AxResult<()> {
+        self.candidate_indices(request).map(|_| ())
+    }
     fn owned_worker_factory(&mut self) -> Option<AxOwnedClientFactory> {
         let mut factories = Vec::new();
         for client in &mut self.services {
@@ -101270,6 +101273,24 @@ mod typesafe_native_tests {
         fn send(&mut self, request: Value) -> AxResult<Value> {
             (self.0)(request)
         }
+    }
+    #[test]
+    fn nested_balancer_validation() -> AxResult<()> {
+        let typed = ai("typesafe", json!({"api_key":"test","models":[]}))?;
+        let only = AxBalancer::from_clients(vec![Box::new(typed)], AxBalancerOptions::default())?;
+        let prose = json!({"chat_prompt":[{"role":"user","content":"reply"}]});
+        assert!(only.validate_chat_request(&prose).is_err());
+        only.validate_chat_request(&serde_json::from_str(r#"{"chat_prompt":[{"role":"user","content":"outage"}],"response_format":{"type":"json_schema","schema":{"name":"decision","schema":{"type":"object","properties":{"urgent":{"type":"boolean"}},"required":["urgent"]}}}}"#)?)?;
+        let normal = ai("openai", json!({"api_key":"test","models":[]}))?;
+        let mixed = AxBalancer::from_clients(
+            vec![Box::new(only), Box::new(normal)],
+            AxBalancerOptions {
+                input_order: true,
+                ..Default::default()
+            },
+        )?;
+        assert_eq!(mixed.candidate_indices(&prose)?, vec![1]);
+        Ok(())
     }
     #[test]
     fn native_discovery_credentials_retry_and_probabilities() -> AxResult<()> {

@@ -251,3 +251,30 @@ func TestMCPWebSocketNativeRoundTrip(t *testing.T) {
 		t.Fatal("native socket close retained pending work")
 	}
 }
+
+func TestTypesafeNestedBalancerValidation(t *testing.T) {
+	typed := NewAI("typesafe", map[string]Value{"api_key": "test", "models": []Value{}}).(AxAIService)
+	only, err := NewAxBalancer([]AxAIService{typed}, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	prose := map[string]Value{"chat_prompt": []Value{map[string]Value{"role": "user", "content": "reply"}}}
+	if only.ValidateChatRequest(prose) == nil {
+		t.Fatal("nested Typesafe accepted prose")
+	}
+	var supported map[string]Value
+	if err = json.Unmarshal([]byte(`{"chat_prompt":[{"role":"user","content":"outage"}],"response_format":{"type":"json_schema","schema":{"name":"decision","schema":{"type":"object","properties":{"urgent":{"type":"boolean"}},"required":["urgent"]}}}}`), &supported); err != nil {
+		t.Fatal(err)
+	}
+	if err = only.ValidateChatRequest(supported); err != nil {
+		t.Fatal(err)
+	}
+	mixed, err := NewAxBalancer([]AxAIService{only, NewAI("openai", map[string]Value{"api_key": "test", "models": []Value{}}).(AxAIService)}, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	candidates, err := mixed.candidateServices(prose)
+	if err != nil || len(candidates) != 1 {
+		t.Fatalf("nested selection: %v %v", candidates, err)
+	}
+}

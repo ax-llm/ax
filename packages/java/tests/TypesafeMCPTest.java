@@ -57,5 +57,14 @@ public final class TypesafeMCPTest {
       check(credentials.get()==before,"aborted request accessed credentials");
     }finally{pool.shutdownNow();}
   }
-  public static void main(String[] args)throws Exception{websocket();nativeClient();System.out.println("Java Typesafe native client and MCP WebSocket cleanup passed");}
+  @SuppressWarnings("unchecked") static void nestedValidation() {
+    var typed=Ax.ai("typesafe",Map.of("api_key","test","models",List.of()));
+    var only=new AxBalancer(List.of(typed));
+    var request=Map.<String,Object>of("chat_prompt",List.of(Map.of("role","user","content","reply")));
+    try {only.validateChatRequest(request);throw new AssertionError("nested Typesafe accepted prose");} catch(IllegalArgumentException expected) {}
+    only.validateChatRequest((Map<String,Object>)Json.parse("{\"chat_prompt\":[{\"role\":\"user\",\"content\":\"outage\"}],\"response_format\":{\"type\":\"json_schema\",\"schema\":{\"name\":\"decision\",\"schema\":{\"type\":\"object\",\"properties\":{\"urgent\":{\"type\":\"boolean\"}},\"required\":[\"urgent\"]}}}}"));
+    var mixed=new AxBalancer(List.of(only,Ax.ai("openai",Map.of("api_key","test","models",List.of()))));
+    mixed.validateChatRequest(request);
+  }
+  public static void main(String[] args)throws Exception{websocket();nativeClient();nestedValidation();System.out.println("Java Typesafe native client and MCP WebSocket cleanup passed");}
 }

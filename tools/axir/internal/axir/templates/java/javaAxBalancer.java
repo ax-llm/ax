@@ -138,6 +138,8 @@ public final class AxBalancer implements AxAIService,ChatRunSelector,AxChatSessi
     return error instanceof AxAIServiceNetworkError || error instanceof AxAIServiceResponseError || error instanceof AxAIServiceStreamTerminatedError || error instanceof AxAIServiceTimeoutError;
   }
 
+  public void validateChatRequest(Map<String, Object> request) { candidateServices(request); }
+
   private List<AxAIService> candidateServices(Map<String, Object> request) {
     List<AxAIService> out = new ArrayList<>();
     String model = request.get("model") == null ? null : String.valueOf(request.get("model"));

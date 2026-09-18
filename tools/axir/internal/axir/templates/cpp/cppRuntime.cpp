@@ -7062,7 +7062,9 @@ bool AxBalancer::retryable(const AxError& error) const {
   return error.type == "AxAIServiceNetworkError" || error.type == "AxAIServiceResponseError" || error.type == "AxAIServiceStreamTerminatedError" || error.type == "AxAIServiceTimeoutError";
 }
 
-std::vector<std::shared_ptr<AxAIService>> AxBalancer::candidate_services(Value request) {
+void AxBalancer::validate_chat_request(Value request) const { (void)candidate_services(std::move(request)); }
+
+std::vector<std::shared_ptr<AxAIService>> AxBalancer::candidate_services(Value request) const {
   std::vector<std::shared_ptr<AxAIService>> out;
   Value model = Core::get(request, "model");
   for (const auto& service : services_) {

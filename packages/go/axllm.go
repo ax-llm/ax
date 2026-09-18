@@ -73491,6 +73491,8 @@ func (b *AxBalancer) canRetryService(service AxAIService) bool {
 func (b *AxBalancer) failureCount(service AxAIService) int { b.failuresMu.Lock(); defer b.failuresMu.Unlock(); return b.serviceFailures[service.GetID()] }
 func (b *AxBalancer) handleFailure(service AxAIService) { b.failuresMu.Lock(); defer b.failuresMu.Unlock(); b.serviceFailures[service.GetID()]++ }
 func (b *AxBalancer) handleSuccess(service AxAIService) { b.failuresMu.Lock(); defer b.failuresMu.Unlock(); delete(b.serviceFailures, service.GetID()) }
+func (b *AxBalancer) ValidateChatRequest(request map[string]Value) error { _, err := b.candidateServices(request); return err }
+
 func (b *AxBalancer) candidateServices(request map[string]Value) ([]AxAIService, error) {
 	out := []AxAIService{}
 	model := display(coreGet(request, "model", ""))

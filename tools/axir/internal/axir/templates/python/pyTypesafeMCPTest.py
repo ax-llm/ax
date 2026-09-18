@@ -90,12 +90,16 @@ class ParityTests(unittest.TestCase):
         def normal(request):
             normal_calls.append(request)
             return {'model':'gpt-5.4-mini','choices':[{'index':0,'message':{'role':'assistant','content':'{"answer":"hello"}'},'finish_reason':'stop'}],'usage':{'prompt_tokens':1,'completion_tokens':1,'total_tokens':2}}
-        decision=ai('typesafe',api_key='test',transport=typed,models=[])
-        generative=ai('openai',api_key='test',model='gpt-5.4-mini',transport=normal,models=[])
+        decision=ai('typesafe',api_key='test',transport=typed,models=None)
+        generative=ai('openai',api_key='test',model='gpt-5.4-mini',transport=normal,models=None)
         only=AxBalancer([decision]); mixed=AxBalancer([decision,generative])
         self.assertTrue(only.get_features().get('requiresStructuredOutput'))
         self.assertFalse(mixed.get_features().get('requiresStructuredOutput',False))
-        for model in [mixed, ProviderRouter({'providers':{'primary':decision,'alternatives':[generative]},'routing':{'capability':{'allowDegradation':True}}})]:
+        nested=AxBalancer([only, generative])
+        only.validate_chat_request({"chat_prompt":[{"role":"user","content":"outage"}], "response_format":{"type":"json_schema","schema":{"name":"decision","schema":{"type":"object","properties":{"urgent":{"type":"boolean"}},"required":["urgent"]}}}})
+        with self.assertRaises(ValueError): only.validate_chat_request({"chat_prompt":[{"role":"user","content":"reply"}]})
+        self.assertEqual(typed_calls, [])
+        for model in [mixed, nested, ProviderRouter({'providers':{'primary':decision,'alternatives':[generative]},'routing':{'capability':{'allowDegradation':True}}})]:
             self.assertEqual(ax('question:string -> answer:string').forward(model,{'question':'hi'})['answer'],'hello')
         self.assertEqual(typed_calls,[])
         self.assertTrue(ax('ticket:string -> urgent:boolean').forward(only,{'ticket':'outage'})['urgent'])
