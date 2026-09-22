@@ -1,7 +1,7 @@
 ---
 name: "ax-java-typesafe"
 description: "Use when writing Java code with `dev.axllm:ax` for Typesafe Jev boolean/class signatures, value descriptions, configurable Noul conversion, native Noul/Choice/Score, structured criteria and hybrid generation."
-version: "24.0.20"
+version: "24.0.21"
 ---
 # Typesafe / Jev For Java
 
