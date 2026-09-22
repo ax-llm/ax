@@ -1,5 +1,11 @@
 # Changelog
 
+## [24.0.21](https://github.com/ax-llm/ax/compare/24.0.20...24.0.21) (2026-09-22)
+
+### Bug Fixes
+
+* **typesafe:** accept rounded probability tolerance boundaries ([#665](https://github.com/ax-llm/ax/issues/665)) ([5647a96](https://github.com/ax-llm/ax/commit/5647a96c5dcfba38abdef355ff485d6f440e8fac))
+
 ## [24.0.20](https://github.com/ax-llm/ax/compare/24.0.19...24.0.20) (2026-09-18)
 
 ### Features
