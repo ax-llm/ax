@@ -193,44 +193,99 @@ describe('Typesafe native client', () => {
     }
   );
 
-  it('accepts the exact Choice and Score size limits', async () => {
-    const criteria = Object.fromEntries(
-      Array.from({ length: 255 }, (_, i) => [String(i), null])
-    );
-    const probabilities = Object.fromEntries(
-      Object.keys(criteria).map((key) => [key, key === '0' ? 1 : 0])
-    );
-    const rubric = Array.from({ length: 10 }, (_, i) => `Level ${i}`) as [
-      string,
-      string,
-      ...string[],
-    ];
-    const fetch = vi.fn(async () =>
-      json(
-        response({
-          choice: { type: 'choice', choice: '0', confidence: 1, probabilities },
-          score: {
-            type: 'score',
-            score: 0,
-            confidence: 1,
-            probabilities: Object.fromEntries(
-              rubric.map((_, i) => [i, i === 0 ? 1 : 0])
-            ),
-            legend: Object.fromEntries(rubric.map((value, i) => [i, value])),
-          },
-        })
-      )
-    );
-    const client = typesafe({ apiKey: 'key', options: { fetch } });
-    await client.systemOne({
-      state: null,
-      questions: {
-        choice: { type: 'choice', criteria },
-        score: { type: 'score', criteria: rubric },
-      },
-    });
-    expect(fetch).toHaveBeenCalledTimes(1);
-  });
+  it.each([0.99, 1, 1.01])(
+    'accepts total %s at the Choice and Score size limits',
+    async (total) => {
+      const criteria = Object.fromEntries(
+        Array.from({ length: 255 }, (_, i) => [String(i), null])
+      );
+      const probabilities = Object.fromEntries(
+        Object.keys(criteria).map((key) => [key, total / 255])
+      );
+      const rubric = Array.from({ length: 10 }, (_, i) => `Level ${i}`) as [
+        string,
+        string,
+        ...string[],
+      ];
+      const fetch = vi.fn(async () =>
+        json(
+          response({
+            choice: {
+              type: 'choice',
+              choice: '0',
+              confidence: 1,
+              probabilities,
+            },
+            score: {
+              type: 'score',
+              score: 0,
+              confidence: 1,
+              probabilities: Object.fromEntries(
+                rubric.map((_, i) => [i, total / 10])
+              ),
+              legend: Object.fromEntries(rubric.map((value, i) => [i, value])),
+            },
+          })
+        )
+      );
+      const client = typesafe({ apiKey: 'key', options: { fetch } });
+      await client.systemOne({
+        state: null,
+        questions: {
+          choice: { type: 'choice', criteria },
+          score: { type: 'score', criteria: rubric },
+        },
+      });
+      expect(fetch).toHaveBeenCalledTimes(1);
+    }
+  );
+
+  describe.each(['team', 'severity'] as const)(
+    '%s probability distribution',
+    (name) => {
+      const withProbabilities = (last: number) => ({
+        ...answers,
+        [name]: {
+          ...answers[name],
+          probabilities:
+            name === 'team'
+              ? { support: 0.5, engineering: last }
+              : { 0: 0.25, 1: 0.25, 2: last },
+        },
+      });
+
+      it.each([0.49, 0.5, 0.51])(
+        'preserves rounded probabilities ending in %s',
+        async (last) => {
+          const body = response(withProbabilities(last));
+          const client = typesafe({
+            apiKey: 'key',
+            options: { fetch: async () => json(body) },
+          });
+          await expect(
+            client.systemOne({ state: null, questions })
+          ).resolves.toEqual(body);
+        }
+      );
+
+      it.each([0.48, 0.4899999999, 0.5100000001, 0.52])(
+        'rejects totals outside the tolerance with final probability %s',
+        async (last) => {
+          const client = typesafe({
+            apiKey: 'key',
+            options: {
+              fetch: async () => json(response(withProbabilities(last))),
+            },
+          });
+          await expect(
+            client.systemOne({ state: null, questions })
+          ).rejects.toThrow(
+            `Typesafe: invalid probability distribution for ${name}`
+          );
+        }
+      );
+    }
+  );
 
   it.each([
     {},

@@ -94,6 +94,10 @@ Score remains a fractional zero-based rubric position. Custom thresholds and
 scale conversions are caller decisions. `listModels()` discovers native models
 without changing configured Ax model aliases. The default model is `jev-latest`.
 Choice supports up to 255 options and Score requires 2–10 descriptive levels.
+Their probabilities must be finite values in `[0, 1]`, match the criteria keys,
+and sum to one within an inclusive `0.01` tolerance. Totals of `0.99` and `1.01`
+are accepted with an allowance for floating-point summation error. Ax preserves
+the returned probabilities without renormalizing them.
 The provider's context limit covers state, instructions, and criteria; Ax does
 not silently truncate input or claim an exact local token count.
 

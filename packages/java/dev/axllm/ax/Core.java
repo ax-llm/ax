@@ -4107,7 +4107,9 @@ final class Core {
         }
         Object difference = Core.add(total, -1);
         difference = Core.mathAbs(difference);
-        Object invalid_sum = Core.gt(difference, 0.01);
+        Object roundoff = Core.mul(0.0000000000000002220446049250313, expected_size);
+        Object tolerance = Core.add(0.01, roundoff);
+        Object invalid_sum = Core.gt(difference, tolerance);
         if (Core.truthy(invalid_sum)) {
           throw new RuntimeException("Typesafe: probabilities must sum to one");
         }
@@ -4248,6 +4250,16 @@ final class Core {
     return response;
   }
 
+  static Object _openai_copy_config_key_impl(Object payload, Object model_config, Object source, Object target) {
+    axirCoverageMark("_openai_copy_config_key_impl");
+    Object has_source = Core.mapContains(model_config, source);
+    if (Core.truthy(has_source)) {
+      Object value = Core.get(model_config, source, null);
+      Core.set(payload, target, value);
+    }
+    return null;
+  }
+
   static Object typesafe_decode_models(Object raw) {
     axirCoverageMark("typesafe_decode_models");
     Core.typesafe_require_object(raw, "model catalog");
@@ -4267,16 +4279,6 @@ final class Core {
       Core.typesafe_require_string(release_date, "model.release_date", Boolean.FALSE);
     }
     return models;
-  }
-
-  static Object _openai_copy_config_key_impl(Object payload, Object model_config, Object source, Object target) {
-    axirCoverageMark("_openai_copy_config_key_impl");
-    Object has_source = Core.mapContains(model_config, source);
-    if (Core.truthy(has_source)) {
-      Object value = Core.get(model_config, source, null);
-      Core.set(payload, target, value);
-    }
-    return null;
   }
 
   static Object normalize_stream_delta(Object raw, Object state) {
@@ -4400,6 +4402,12 @@ final class Core {
     Object message_text = Core.stringFormat("Invalid role: {}", role);
     Object error = Core.aiErrorResponse(message_text);
     throw Core.asRuntime(error);
+  }
+
+  static Object normalize_embed_response(Object raw) {
+    axirCoverageMark("normalize_embed_response");
+    Object response = Core.openai_normalize_embed_response(raw);
+    return response;
   }
 
   static Object typesafe_build_chat_request(Object request, Object options) {
@@ -4613,12 +4621,6 @@ final class Core {
     Core.set(payload, "questions", questions);
     Core.typesafe_validate_request(payload);
     return payload;
-  }
-
-  static Object normalize_embed_response(Object raw) {
-    axirCoverageMark("normalize_embed_response");
-    Object response = Core.openai_normalize_embed_response(raw);
-    return response;
   }
 
   static Object normalize_token_usage(Object usage) {

@@ -506,13 +506,13 @@ struct Core {
   static Value build_chat_request(Value service, Value request, Value options);
   static Value openai_chat_reasoning_effort(Value model, Value budget);
   static Value normalize_chat_response(Value raw);
-  static Value typesafe_decode_models(Value raw);
   static Value _openai_copy_config_key_impl(Value payload, Value model_config, Value source, Value target);
+  static Value typesafe_decode_models(Value raw);
   static Value normalize_stream_delta(Value raw, Value state);
   static Value build_embed_request(Value service, Value request, Value options);
   static Value _openai_message_impl(Value message, Value reasoning_content_mode, Value reasoning_details_mode);
-  static Value typesafe_build_chat_request(Value request, Value options);
   static Value normalize_embed_response(Value raw);
+  static Value typesafe_build_chat_request(Value request, Value options);
   static Value normalize_token_usage(Value usage);
   static Value _openai_content_part_impl(Value part);
   static Value merge_usage_context(Value defaults, Value overrides);

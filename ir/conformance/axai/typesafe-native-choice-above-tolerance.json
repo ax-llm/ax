@@ -1,0 +1,40 @@
+{
+  "expected_error_contains": "Typesafe",
+  "expected_transport_request_count": 1,
+  "kind": "ai_typesafe_native",
+  "name": "typesafe-native-choice-above-tolerance",
+  "operation": "system_one",
+  "request": {
+    "model": "jev-latest",
+    "questions": {
+      "decision": {
+        "criteria": {
+          "0": null,
+          "1": null,
+          "2": null
+        },
+        "type": "choice"
+      }
+    },
+    "state": null
+  },
+  "response": {
+    "answers": {
+      "decision": {
+        "choice": "0",
+        "confidence": 0.5,
+        "probabilities": {
+          "0": 0.34,
+          "1": 0.34,
+          "2": 0.3300000001
+        },
+        "type": "choice"
+      }
+    },
+    "model": "jev-latest",
+    "usage": {
+      "input_tokens": 21,
+      "output_tokens": 3
+    }
+  }
+}

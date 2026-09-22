@@ -7928,9 +7928,11 @@ func typesafe_decode_response(args ...Value) (Value, error) {
 	var v_probability Value
 	var v_probability_keys Value
 	var v_question Value
+	var v_roundoff Value
 	var v_score Value
 	var v_size Value
 	var v_token_keys Value
+	var v_tolerance Value
 	var v_total Value
 	var v_unknown Value
 	var v_upper Value
@@ -7975,9 +7977,11 @@ func typesafe_decode_response(args ...Value) (Value, error) {
 	_ = v_probability
 	_ = v_probability_keys
 	_ = v_question
+	_ = v_roundoff
 	_ = v_score
 	_ = v_size
 	_ = v_token_keys
+	_ = v_tolerance
 	_ = v_total
 	_ = v_unknown
 	_ = v_upper
@@ -8093,7 +8097,9 @@ func typesafe_decode_response(args ...Value) (Value, error) {
 			}
 			v_difference = _core_add(v_total, -1)
 			v_difference = _core_math_abs(v_difference)
-			v_invalid_sum = _core_gt(v_difference, 0.01)
+			v_roundoff = _core_mul(0.0000000000000002220446049250313, v_expected_size)
+			v_tolerance = _core_add(0.01, v_roundoff)
+			v_invalid_sum = _core_gt(v_difference, v_tolerance)
 			if coreTruthy(v_invalid_sum) {
 				return nil, AxError{Category: "runtime", Message: "Typesafe: probabilities must sum to one"}
 			} else {
@@ -8397,6 +8403,34 @@ func normalize_chat_response(args ...Value) (Value, error) {
 	return v_response, nil
 }
 
+func _openai_copy_config_key_impl(args ...Value) (Value, error) {
+	axirCoverageMark("_openai_copy_config_key_impl")
+	var v_payload Value
+	var v_model_config Value
+	var v_source Value
+	var v_target Value
+	var v_has_source Value
+	var v_value Value
+	if len(args) > 0 { v_payload = args[0] }
+	_ = v_payload
+	if len(args) > 1 { v_model_config = args[1] }
+	_ = v_model_config
+	if len(args) > 2 { v_source = args[2] }
+	_ = v_source
+	if len(args) > 3 { v_target = args[3] }
+	_ = v_target
+	_ = v_has_source
+	_ = v_value
+	v_has_source = _core_map_contains(v_model_config, v_source)
+	if coreTruthy(v_has_source) {
+		v_value = coreGet(v_model_config, v_source, nil)
+		if err := coreSet(v_payload, v_target, v_value); err != nil { return nil, err }
+	} else {
+	// empty
+	}
+	return nil, nil
+}
+
 func typesafe_decode_models(args ...Value) (Value, error) {
 	axirCoverageMark("typesafe_decode_models")
 	var v_raw Value
@@ -8435,34 +8469,6 @@ func typesafe_decode_models(args ...Value) (Value, error) {
 		if _, err := typesafe_require_string(v_release_date, "model.release_date", false); err != nil { return nil, err }
 	}
 	return v_models, nil
-}
-
-func _openai_copy_config_key_impl(args ...Value) (Value, error) {
-	axirCoverageMark("_openai_copy_config_key_impl")
-	var v_payload Value
-	var v_model_config Value
-	var v_source Value
-	var v_target Value
-	var v_has_source Value
-	var v_value Value
-	if len(args) > 0 { v_payload = args[0] }
-	_ = v_payload
-	if len(args) > 1 { v_model_config = args[1] }
-	_ = v_model_config
-	if len(args) > 2 { v_source = args[2] }
-	_ = v_source
-	if len(args) > 3 { v_target = args[3] }
-	_ = v_target
-	_ = v_has_source
-	_ = v_value
-	v_has_source = _core_map_contains(v_model_config, v_source)
-	if coreTruthy(v_has_source) {
-		v_value = coreGet(v_model_config, v_source, nil)
-		if err := coreSet(v_payload, v_target, v_value); err != nil { return nil, err }
-	} else {
-	// empty
-	}
-	return nil, nil
 }
 
 func normalize_stream_delta(args ...Value) (Value, error) {
@@ -8730,6 +8736,17 @@ func _openai_message_impl(args ...Value) (Value, error) {
 	v_message_text = _core_string_format("Invalid role: {}", v_role)
 	v_error = _core_ai_error_response(v_message_text)
 	return nil, asError(v_error)
+}
+
+func normalize_embed_response(args ...Value) (Value, error) {
+	axirCoverageMark("normalize_embed_response")
+	var v_raw Value
+	var v_response Value
+	if len(args) > 0 { v_raw = args[0] }
+	_ = v_raw
+	_ = v_response
+	{ v, err := openai_normalize_embed_response(v_raw); if err != nil { return nil, err }; v_response = v }
+	return v_response, nil
 }
 
 func typesafe_build_chat_request(args ...Value) (Value, error) {
@@ -9174,17 +9191,6 @@ func typesafe_build_chat_request(args ...Value) (Value, error) {
 	if err := coreSet(v_payload, "questions", v_questions); err != nil { return nil, err }
 	if _, err := typesafe_validate_request(v_payload); err != nil { return nil, err }
 	return v_payload, nil
-}
-
-func normalize_embed_response(args ...Value) (Value, error) {
-	axirCoverageMark("normalize_embed_response")
-	var v_raw Value
-	var v_response Value
-	if len(args) > 0 { v_raw = args[0] }
-	_ = v_raw
-	_ = v_response
-	{ v, err := openai_normalize_embed_response(v_raw); if err != nil { return nil, err }; v_response = v }
-	return v_response, nil
 }
 
 func normalize_token_usage(args ...Value) (Value, error) {
