@@ -9893,7 +9893,7 @@ for (const kind of ['choice', 'score'] as const) {
       ),
       ...(kind === 'choice'
         ? { choice: '0' }
-        : { score: 1, legend: { '0': null, '1': null, '2': null } }),
+        : { score: 1.5, legend: { '0': null, '1': null, '2': null } }),
     };
     const raw = { ...typesafeRaw, answers: { decision: answer } };
     const fixture = {
