@@ -110,6 +110,30 @@ describe('Typesafe signature adapter', () => {
     });
   });
 
+  it.each([0.49, 0.51])(
+    'accepts a rounded Choice distribution ending in %s through Ax',
+    async (billing) => {
+      const team = {
+        type: 'choice',
+        choice: 'support',
+        confidence: 0.5,
+        probabilities: { support: 0.5, billing },
+      };
+      const llm = ai({
+        name: 'typesafe',
+        apiKey: 'key',
+        options: { fetch: async () => json(result({ team })) },
+      });
+      const gen = ax('ticket:string -> team:class "support, billing"');
+      await expect(gen.forward(llm, { ticket: 'Help' })).resolves.toEqual({
+        team: 'support',
+      });
+      expect(
+        gen.getChatLog().at(-1)?.providerMetadata?.typesafe?.answers
+      ).toEqual({ team });
+    }
+  );
+
   it('preserves raw probabilities and supports custom thresholds, endpoints and model aliases', async () => {
     const fetch = vi.fn(async () =>
       json(result({ urgent: { type: 'noul', noul: 0.7 } }))

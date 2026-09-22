@@ -349,7 +349,10 @@ module @ax.typesafe version "0.1" {
           }
           %difference = core.call intrinsic.add(%total, -1)
           %difference = core.call intrinsic.math.abs(%difference)
-          %invalid_sum = core.call intrinsic.gt(%difference, 0.01)
+          // Allow summation roundoff at the inclusive 0.99 and 1.01 boundaries.
+          %roundoff = core.call intrinsic.mul(0.0000000000000002220446049250313, %expected_size)
+          %tolerance = core.call intrinsic.add(0.01, %roundoff)
+          %invalid_sum = core.call intrinsic.gt(%difference, %tolerance)
           core.if %invalid_sum {
             core.raise "Typesafe: probabilities must sum to one"
           }

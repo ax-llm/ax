@@ -33812,9 +33812,11 @@ fn typesafe_decode_response(args: &[CoreValue]) -> Result<CoreValue, AxError> {
     let mut v_probability = CoreValue::Null;
     let mut v_probability_keys = CoreValue::Null;
     let mut v_question = CoreValue::Null;
+    let mut v_roundoff = CoreValue::Null;
     let mut v_score = CoreValue::Null;
     let mut v_size = CoreValue::Null;
     let mut v_token_keys = CoreValue::Null;
+    let mut v_tolerance = CoreValue::Null;
     let mut v_total = CoreValue::Null;
     let mut v_unknown = CoreValue::Null;
     let mut v_upper = CoreValue::Null;
@@ -33974,7 +33976,12 @@ fn typesafe_decode_response(args: &[CoreValue]) -> Result<CoreValue, AxError> {
             }
             v_difference = core_add(&[v_total.clone(), CoreValue::Num(-1f64)])?;
             v_difference = core_math_abs(&[v_difference.clone()])?;
-            v_invalid_sum = core_gt(&[v_difference.clone(), CoreValue::Num(0.01f64)])?;
+            v_roundoff = core_mul(&[
+                CoreValue::Num(2.220446049250313e-16f64),
+                v_expected_size.clone(),
+            ])?;
+            v_tolerance = core_add(&[CoreValue::Num(0.01f64), v_roundoff.clone()])?;
+            v_invalid_sum = core_gt(&[v_difference.clone(), v_tolerance.clone()])?;
             if core_truthy(&v_invalid_sum) {
                 return Err(AxError::runtime("Typesafe: probabilities must sum to one"));
             }
@@ -34249,6 +34256,29 @@ fn normalize_chat_response(args: &[CoreValue]) -> Result<CoreValue, AxError> {
     unreachable_code,
     clippy::all
 )]
+fn _openai_copy_config_key_impl(args: &[CoreValue]) -> Result<CoreValue, AxError> {
+    axir_coverage_mark("_openai_copy_config_key_impl");
+    let mut v_payload = core_arg(args, 0);
+    let mut v_model_config = core_arg(args, 1);
+    let mut v_source = core_arg(args, 2);
+    let mut v_target = core_arg(args, 3);
+    let mut v_has_source = CoreValue::Null;
+    let mut v_value = CoreValue::Null;
+    v_has_source = core_map_contains(&[v_model_config.clone(), v_source.clone()])?;
+    if core_truthy(&v_has_source) {
+        v_value = core_get(&v_model_config, &v_source.clone(), CoreValue::Null);
+        core_set(&v_payload, v_target.clone(), v_value.clone())?;
+    }
+    return Ok(CoreValue::Null);
+}
+
+#[allow(
+    unused_variables,
+    unused_assignments,
+    unused_mut,
+    unreachable_code,
+    clippy::all
+)]
 fn typesafe_decode_models(args: &[CoreValue]) -> Result<CoreValue, AxError> {
     axir_coverage_mark("typesafe_decode_models");
     let mut v_raw = core_arg(args, 0);
@@ -34289,29 +34319,6 @@ fn typesafe_decode_models(args: &[CoreValue]) -> Result<CoreValue, AxError> {
         ])?;
     }
     return Ok(v_models.clone());
-}
-
-#[allow(
-    unused_variables,
-    unused_assignments,
-    unused_mut,
-    unreachable_code,
-    clippy::all
-)]
-fn _openai_copy_config_key_impl(args: &[CoreValue]) -> Result<CoreValue, AxError> {
-    axir_coverage_mark("_openai_copy_config_key_impl");
-    let mut v_payload = core_arg(args, 0);
-    let mut v_model_config = core_arg(args, 1);
-    let mut v_source = core_arg(args, 2);
-    let mut v_target = core_arg(args, 3);
-    let mut v_has_source = CoreValue::Null;
-    let mut v_value = CoreValue::Null;
-    v_has_source = core_map_contains(&[v_model_config.clone(), v_source.clone()])?;
-    if core_truthy(&v_has_source) {
-        v_value = core_get(&v_model_config, &v_source.clone(), CoreValue::Null);
-        core_set(&v_payload, v_target.clone(), v_value.clone())?;
-    }
-    return Ok(CoreValue::Null);
 }
 
 #[allow(
@@ -34560,6 +34567,21 @@ fn _openai_message_impl(args: &[CoreValue]) -> Result<CoreValue, AxError> {
     v_message_text = core_string_format(&[CoreValue::from("Invalid role: {}"), v_role.clone()])?;
     v_error = core_ai_error_response(&[v_message_text.clone()])?;
     return Err(core_as_error(&v_error));
+}
+
+#[allow(
+    unused_variables,
+    unused_assignments,
+    unused_mut,
+    unreachable_code,
+    clippy::all
+)]
+fn normalize_embed_response(args: &[CoreValue]) -> Result<CoreValue, AxError> {
+    axir_coverage_mark("normalize_embed_response");
+    let mut v_raw = core_arg(args, 0);
+    let mut v_response = CoreValue::Null;
+    v_response = openai_normalize_embed_response(&[v_raw.clone()])?;
+    return Ok(v_response.clone());
 }
 
 #[allow(
@@ -35028,21 +35050,6 @@ fn typesafe_build_chat_request(args: &[CoreValue]) -> Result<CoreValue, AxError>
     )?;
     typesafe_validate_request(&[v_payload.clone()])?;
     return Ok(v_payload.clone());
-}
-
-#[allow(
-    unused_variables,
-    unused_assignments,
-    unused_mut,
-    unreachable_code,
-    clippy::all
-)]
-fn normalize_embed_response(args: &[CoreValue]) -> Result<CoreValue, AxError> {
-    axir_coverage_mark("normalize_embed_response");
-    let mut v_raw = core_arg(args, 0);
-    let mut v_response = CoreValue::Null;
-    v_response = openai_normalize_embed_response(&[v_raw.clone()])?;
-    return Ok(v_response.clone());
 }
 
 #[allow(

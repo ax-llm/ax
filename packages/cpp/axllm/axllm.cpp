@@ -5351,7 +5351,9 @@ Value Core::typesafe_decode_response(Value raw, Value questions) {
       }
       Value difference = Core::add(total, Value(-1));
       difference = Core::math_abs(difference);
-      Value invalid_sum = Core::gt(difference, Value(0.01));
+      Value roundoff = Core::mul(Value(0.0000000000000002220446049250313), expected_size);
+      Value tolerance = Core::add(Value(0.01), roundoff);
+      Value invalid_sum = Core::gt(difference, tolerance);
       if (Core::truthy(invalid_sum)) {
         throw AxError("runtime", "Typesafe: probabilities must sum to one");
       }
@@ -5492,6 +5494,16 @@ Value Core::normalize_chat_response(Value raw) {
   return response;
 }
 
+Value Core::_openai_copy_config_key_impl(Value payload, Value model_config, Value source, Value target) {
+  axir_coverage_mark("_openai_copy_config_key_impl");
+  Value has_source = Core::map_contains(model_config, source);
+  if (Core::truthy(has_source)) {
+    Value value = Core::get(model_config, source, Value());
+    Core::set(payload, target, value);
+  }
+  return Value();
+}
+
 Value Core::typesafe_decode_models(Value raw) {
   axir_coverage_mark("typesafe_decode_models");
   Core::typesafe_require_object(raw, Value("model catalog"));
@@ -5511,16 +5523,6 @@ Value Core::typesafe_decode_models(Value raw) {
     Core::typesafe_require_string(release_date, Value("model.release_date"), Value(false));
   }
   return models;
-}
-
-Value Core::_openai_copy_config_key_impl(Value payload, Value model_config, Value source, Value target) {
-  axir_coverage_mark("_openai_copy_config_key_impl");
-  Value has_source = Core::map_contains(model_config, source);
-  if (Core::truthy(has_source)) {
-    Value value = Core::get(model_config, source, Value());
-    Core::set(payload, target, value);
-  }
-  return Value();
 }
 
 Value Core::normalize_stream_delta(Value raw, Value state) {
@@ -5645,6 +5647,12 @@ Value Core::_openai_message_impl(Value message, Value reasoning_content_mode, Va
   Value message_text = Core::string_format(Value("Invalid role: {}"), role);
   Value error = Core::ai_error_response(message_text);
   Core::raise_error(error);
+}
+
+Value Core::normalize_embed_response(Value raw) {
+  axir_coverage_mark("normalize_embed_response");
+  Value response = Core::openai_normalize_embed_response(raw);
+  return response;
 }
 
 Value Core::typesafe_build_chat_request(Value request, Value options) {
@@ -5858,12 +5866,6 @@ Value Core::typesafe_build_chat_request(Value request, Value options) {
   Core::set(payload, Value("questions"), questions);
   Core::typesafe_validate_request(payload);
   return payload;
-}
-
-Value Core::normalize_embed_response(Value raw) {
-  axir_coverage_mark("normalize_embed_response");
-  Value response = Core::openai_normalize_embed_response(raw);
-  return response;
 }
 
 Value Core::normalize_token_usage(Value usage) {

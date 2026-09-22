@@ -91,6 +91,10 @@ before provider selection or fallback; numeric bounds never imply a Score rubric
 See the [Typesafe/Jev skill](../src/ax/skills/ax-typesafe.md) for TypeScript usage and each generated package’s Typesafe skill for native APIs.
 Core owns question/schema validation, criteria, conversion, and response contracts;
 target bindings own transport, credentials, cancellation, and native result types.
+Choice and Score distributions retain their native probabilities and accept
+totals within an inclusive `0.01` of one, allowing for floating-point summation
+error at `0.99` and `1.01`. Each probability must still be finite and in `[0, 1]`,
+and the distribution must match the criteria keys.
 
 ## Signatures And AxGen
 

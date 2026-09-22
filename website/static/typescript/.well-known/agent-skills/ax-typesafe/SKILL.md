@@ -1,7 +1,7 @@
 ---
 name: ax-typesafe
 description: Use Typesafe Jev models with @ax-llm/ax in TypeScript. Covers boolean/class signatures with value descriptions, provider trueThreshold, native Noul/Choice/Score questions, structured criteria, probability-based decisions, and explicit hybrid generation.
-version: "24.0.19"
+version: "24.0.20"
 ---
 
 <!-- cspell:ignore noul -->
@@ -132,6 +132,11 @@ adapter's `trueThreshold` does not apply to the native client. Choice returns
 `choice`, `probabilities`, and `confidence`; Score returns `score`,
 `probabilities`, `legend`, and `confidence`. The response also includes `model`
 and `usage.input_tokens`/`usage.output_tokens`.
+
+Choice and Score probabilities must be finite values in `[0, 1]`, match the
+criteria keys, and sum to one within an inclusive `0.01` tolerance. Totals of `0.99`
+and `1.01` are accepted with an allowance for floating-point summation error.
+Ax preserves the returned probabilities without renormalizing them.
 
 Native state, instructions, and individual criteria accept text, JSON objects,
 arrays, or `null`. Nested JSON may contain finite numbers and booleans; a bare

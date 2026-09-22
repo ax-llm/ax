@@ -9868,6 +9868,70 @@ writeFixture('typesafe-native-rich-questions', {
     typesafeQuestions
   ) as Json,
 });
+for (const kind of ['choice', 'score'] as const) {
+  const question =
+    kind === 'choice'
+      ? { type: kind, criteria: { '0': null, '1': null, '2': null } }
+      : { type: kind, criteria: [null, null, null] as const };
+  const request = {
+    model: 'jev-latest',
+    state: null,
+    questions: { decision: question },
+  };
+  validateTypesafeRequest(request);
+  for (const [label, values, valid] of [
+    ['lower-boundary', [0.33, 0.33, 0.33], true],
+    ['upper-boundary', [0.34, 0.34, 0.33], true],
+    ['below-tolerance', [0.33, 0.33, 0.3299999999], false],
+    ['above-tolerance', [0.34, 0.34, 0.3300000001], false],
+  ] as const) {
+    const answer = {
+      type: kind,
+      confidence: 0.5,
+      probabilities: Object.fromEntries(
+        values.map((value, i) => [String(i), value])
+      ),
+      ...(kind === 'choice'
+        ? { choice: '0' }
+        : { score: 1.5, legend: { '0': null, '1': null, '2': null } }),
+    };
+    const raw = { ...typesafeRaw, answers: { decision: answer } };
+    const fixture = {
+      kind: 'ai_typesafe_native',
+      operation: 'system_one',
+      request,
+      response: raw,
+      expected_transport_request_count: 1,
+    };
+    if (valid) {
+      const output = decodeTypesafeResponse(raw, request.questions);
+      if (output !== raw)
+        throw new Error('Expected unchanged Typesafe response');
+      writeFixture(`typesafe-native-${kind}-${label}`, {
+        ...fixture,
+        expected_output: output as Json,
+      });
+    } else {
+      try {
+        decodeTypesafeResponse(raw, request.questions);
+        throw new Error('Expected invalid probability distribution');
+      } catch (error) {
+        if (
+          !(error instanceof Error) ||
+          !error.message.startsWith(
+            'Typesafe: invalid probability distribution'
+          )
+        )
+          throw error;
+        writeFixture(`typesafe-native-${kind}-${label}`, {
+          ...fixture,
+          expected_error_contains: 'Typesafe',
+        });
+      }
+    }
+  }
+}
+
 const catalog = {
   models: [
     {

@@ -1,7 +1,7 @@
 ---
 name: "ax-rust-audio"
 description: "Use when writing Rust code with `axllm` for audio input/output, OpenAI Responses audio mapping, realtime event folding, and generated package audio examples."
-version: "24.0.19"
+version: "24.0.20"
 ---
 # Ax Audio And Realtime For Rust
 

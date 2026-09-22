@@ -135,7 +135,9 @@ export function decodeTypesafeResponse<Q extends AxAITypesafeQuestions>(
         sum + typesafeProbability(probabilities[key], `${name}.${key}`),
       0
     );
-    if (Math.abs(total - 1) > 0.01)
+    // Allow summation rounding error at the inclusive 0.99 and 1.01 boundaries.
+    const roundingError = Number.EPSILON * keys.length;
+    if (Math.abs(total - 1) > 0.01 + roundingError)
       throw new Error(`Typesafe: invalid probability distribution for ${name}`);
     if (question.type === 'choice') {
       if (

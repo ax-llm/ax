@@ -3815,7 +3815,9 @@ def typesafe_decode_response(raw: Any, questions: Any) -> Any:
                 total = _core_add(total, probability)
             difference = _core_add(total, -1)
             difference = _core_math_abs(difference)
-            invalid_sum = _core_gt(difference, 0.01)
+            roundoff = _core_mul(0.0000000000000002220446049250313, expected_size)
+            tolerance = _core_add(0.01, roundoff)
+            invalid_sum = _core_gt(difference, tolerance)
             if invalid_sum:
                 raise RuntimeError("Typesafe: probabilities must sum to one")
             else:
@@ -3970,6 +3972,17 @@ def normalize_chat_response(raw: Any) -> AxChatResponse:
     return response
 
 
+def _openai_copy_config_key_impl(payload: Any, model_config: Any, source: str, target: str) -> None:
+    _core_coverage_mark("_openai_copy_config_key_impl")
+    has_source = _core_map_contains(model_config, source)
+    if has_source:
+        value = _core_get(model_config, source, None)
+        payload[target] = value
+    else:
+        pass
+    return None
+
+
 def typesafe_decode_models(raw: Any) -> Any:
     _core_coverage_mark("typesafe_decode_models")
     typesafe_require_object(raw, "model catalog")
@@ -3989,17 +4002,6 @@ def typesafe_decode_models(raw: Any) -> Any:
         typesafe_require_string(description, "model.description", False)
         typesafe_require_string(release_date, "model.release_date", False)
     return models
-
-
-def _openai_copy_config_key_impl(payload: Any, model_config: Any, source: str, target: str) -> None:
-    _core_coverage_mark("_openai_copy_config_key_impl")
-    has_source = _core_map_contains(model_config, source)
-    if has_source:
-        value = _core_get(model_config, source, None)
-        payload[target] = value
-    else:
-        pass
-    return None
 
 
 def normalize_stream_delta(raw: Any, state: Any) -> AxChatResponse:
@@ -4125,6 +4127,12 @@ def _openai_message_impl(message: Any, reasoning_content_mode: str, reasoning_de
     message_text = _core_string_format("Invalid role: {}", role)
     error = _core_ai_error_response(message_text)
     raise error
+
+
+def normalize_embed_response(raw: Any) -> AxEmbedResponse:
+    _core_coverage_mark("normalize_embed_response")
+    response = openai_normalize_embed_response(raw)
+    return response
 
 
 def typesafe_build_chat_request(request: Any, options: Any) -> Any:
@@ -4346,12 +4354,6 @@ def typesafe_build_chat_request(request: Any, options: Any) -> Any:
     payload["questions"] = questions
     typesafe_validate_request(payload)
     return payload
-
-
-def normalize_embed_response(raw: Any) -> AxEmbedResponse:
-    _core_coverage_mark("normalize_embed_response")
-    response = openai_normalize_embed_response(raw)
-    return response
 
 
 def normalize_token_usage(usage: Any) -> Any:

@@ -1,0 +1,64 @@
+{
+  "expected_output": {
+    "answers": {
+      "decision": {
+        "confidence": 0.5,
+        "legend": {
+          "0": null,
+          "1": null,
+          "2": null
+        },
+        "probabilities": {
+          "0": 0.34,
+          "1": 0.34,
+          "2": 0.33
+        },
+        "score": 1.5,
+        "type": "score"
+      }
+    },
+    "model": "jev-latest",
+    "usage": {
+      "input_tokens": 21,
+      "output_tokens": 3
+    }
+  },
+  "expected_transport_request_count": 1,
+  "kind": "ai_typesafe_native",
+  "name": "typesafe-native-score-upper-boundary",
+  "operation": "system_one",
+  "request": {
+    "model": "jev-latest",
+    "questions": {
+      "decision": {
+        "criteria": [null, null, null],
+        "type": "score"
+      }
+    },
+    "state": null
+  },
+  "response": {
+    "answers": {
+      "decision": {
+        "confidence": 0.5,
+        "legend": {
+          "0": null,
+          "1": null,
+          "2": null
+        },
+        "probabilities": {
+          "0": 0.34,
+          "1": 0.34,
+          "2": 0.33
+        },
+        "score": 1.5,
+        "type": "score"
+      }
+    },
+    "model": "jev-latest",
+    "usage": {
+      "input_tokens": 21,
+      "output_tokens": 3
+    }
+  }
+}
