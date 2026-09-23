@@ -76,6 +76,15 @@ export const axBedrockModelCapabilities: Readonly<
     thinkingDefault: true,
     thinkingAlwaysOn: true,
   }),
+  // Opus 5.5 rejects thinking.type=disabled, forced tool_choice (any/tool), and
+  // output_config.format on Converse, so structured output uses json_object.
+  [AxAIBedrockModel.ClaudeOpus55]: claude({
+    cacheTTLs: ['5m', '1h'],
+    thinking: 'adaptive',
+    thinkingDefault: true,
+    thinkingAlwaysOn: true,
+    structuredOutputModes: ['json_object'],
+  }),
   [AxAIBedrockModel.ClaudeOpus5]: claude({
     cacheTTLs: ['5m', '1h'],
     thinking: 'adaptive',
@@ -134,6 +143,20 @@ export const axModelInfoBedrock: AxModelInfo[] = [
     supported: {
       showThoughts: true,
       structuredOutputModes: ['function'],
+      serviceTiers: ['standard'],
+    },
+  },
+  {
+    name: AxAIBedrockModel.ClaudeOpus55,
+    currency: 'usd',
+    promptTokenCostPer1M: 4.0,
+    completionTokenCostPer1M: 20.0,
+    maxTokens: 128000,
+    contextWindow: 1000000,
+    isExpensive: true,
+    supported: {
+      showThoughts: true,
+      structuredOutputModes: ['json_object'],
       serviceTiers: ['standard'],
     },
   },
