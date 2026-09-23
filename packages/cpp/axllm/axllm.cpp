@@ -13316,7 +13316,7 @@ Value Core::_gemini_function_declaration_impl(Value fn) {
   Value parameters = Core::get(fn, Value("parameters"), empty_parameters);
   Core::set(decl, Value("name"), name);
   Core::set(decl, Value("description"), description);
-  Core::set(decl, Value("parameters"), parameters);
+  Core::set(decl, Value("parametersJsonSchema"), parameters);
   return decl;
 }
 

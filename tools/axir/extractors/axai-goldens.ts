@@ -7175,7 +7175,7 @@ writeFixture('gemini-38-function-call-id-round-trip', {
             {
               name: 'search',
               description: 'Search docs',
-              parameters: {
+              parametersJsonSchema: {
                 type: 'object',
                 properties: { query: { type: 'string' } },
                 required: ['query'],
@@ -7278,7 +7278,7 @@ writeFixture('gemini-tool-call', {
             {
               name: 'search',
               description: 'Search docs',
-              parameters: {
+              parametersJsonSchema: {
                 type: 'object',
                 properties: { query: { type: 'string' } },
                 required: ['query'],
@@ -7293,6 +7293,99 @@ writeFixture('gemini-tool-call', {
           allowed_function_names: ['search'],
         },
       },
+    },
+  },
+});
+
+// fn() emits additionalProperties: false on every object schema. Gemini's
+// OpenAPI-subset `parameters` field rejects it (and nullable type unions) with
+// HTTP 400, so tool schemas must travel unchanged as `parametersJsonSchema`.
+const geminiFnToolSchema: Json = {
+  type: 'object',
+  title: 'Schema',
+  properties: {
+    city: { type: 'string', description: 'City' },
+    options: {
+      type: 'object',
+      properties: {
+        units: { type: ['string', 'null'], description: 'Units' },
+      },
+      required: [],
+      additionalProperties: false,
+    },
+  },
+  required: ['city'],
+  additionalProperties: false,
+};
+
+writeFixture('gemini-tool-parameters-json-schema', {
+  kind: 'ai_chat',
+  provider: 'google-gemini',
+  request: {
+    chat_prompt: [{ role: 'user', content: 'Weather in Paris?' }],
+    functions: [
+      {
+        name: 'getWeather',
+        description: 'Get the current weather for a city',
+        parameters: geminiFnToolSchema,
+      },
+    ],
+    model_config: { stream: false },
+  },
+  transport_responses: [
+    {
+      status: 200,
+      json: {
+        candidates: [
+          {
+            finishReason: 'STOP',
+            content: {
+              parts: [
+                {
+                  functionCall: {
+                    id: 'weather-call-1',
+                    name: 'getWeather',
+                    args: { city: 'Paris' },
+                  },
+                },
+              ],
+            },
+          },
+        ],
+      },
+    },
+  ],
+  expected_output: {
+    results: [
+      {
+        index: 0,
+        content: '',
+        function_calls: [
+          {
+            id: 'weather-call-1',
+            type: 'function',
+            function: { name: 'getWeather', params: { city: 'Paris' } },
+          },
+        ],
+        finish_reason: 'function_call',
+      },
+    ],
+    model_usage: null,
+  },
+  expected_transport_request: {
+    json: {
+      tools: [
+        {
+          function_declarations: [
+            {
+              name: 'getWeather',
+              description: 'Get the current weather for a city',
+              parametersJsonSchema: geminiFnToolSchema,
+            },
+          ],
+        },
+      ],
+      toolConfig: { function_calling_config: { mode: 'AUTO' } },
     },
   },
 });

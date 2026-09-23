@@ -18,6 +18,12 @@ This ledger tracks portable TypeScript behavior that should be migrated into AxI
 
 ## Open
 
+- `axir-2026-09-23-port-gemini-3-thought-signature-round-trip-for-function-calls` [axai] Port Gemini 3 thought-signature round-trip for function calls
+  - Status: open
+  - Source commit: `67d11445c97baa88e7234193c7a40f414e6147b3`
+  - TS paths: `src/ax/ai/google-gemini/api.ts`
+  - Impact: TypeScript captures Gemini thoughtSignature from response parts (stream and non-stream) into thoughtBlocks[].signature and replays it as thought_signature on the first functionCall part (or on the thought text part when there are no function calls) when rebuilding assistant turns. The AxIR Gemini response merge ignores thoughtSignature and the Gemini request builder never emits it, so every generated port's Gemini 3 tool loop fails on the second request with HTTP 400 'Function call is missing a thought_signature in functionCall parts' (live-reproduced 2026-09-23 with the Python port on gemini-3.6-flash once tool schemas moved to parametersJsonSchema). gen.axir already copies response thought_blocks into assistant memory, so only Gemini capture and replay are missing.
+  - Suggested AxIR work: Capture thoughtSignature and thought_signature in gemini_merge_response_part_impl and the Gemini streaming path into result thought_blocks; Attach thought_signature from thought_blocks[0].signature to the first functionCall part in the Gemini request builder and cached-content path; Add non-stream and stream capture plus replay fixtures in tools/axir/extractors/axai-goldens.ts then run npm run axir:conformance:write and npm run test:axir
 - `axir-2026-09-23-port-speak-samplerate-channels-parsed-from-raw-pcm-mime-types` [axai] Port speak() sampleRate/channels parsed from raw-PCM mime types
   - Status: open
   - Source commit: `e690b4823b8309e258594064abe941d4cff6ef89`

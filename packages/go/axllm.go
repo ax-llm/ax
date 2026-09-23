@@ -25090,7 +25090,7 @@ func _gemini_function_declaration_impl(args ...Value) (Value, error) {
 	v_parameters = coreGet(v_fn, "parameters", v_empty_parameters)
 	if err := coreSet(v_decl, "name", v_name); err != nil { return nil, err }
 	if err := coreSet(v_decl, "description", v_description); err != nil { return nil, err }
-	if err := coreSet(v_decl, "parameters", v_parameters); err != nil { return nil, err }
+	if err := coreSet(v_decl, "parametersJsonSchema", v_parameters); err != nil { return nil, err }
 	return v_decl, nil
 }
 

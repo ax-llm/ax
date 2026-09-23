@@ -8044,7 +8044,8 @@ module @ax.provider version "0.1" {
       %parameters = core.get %fn["parameters"] default %empty_parameters
       core.set %decl["name"] = %name
       core.set %decl["description"] = %description
-      core.set %decl["parameters"] = %parameters
+      // Gemini's legacy `parameters` field takes the OpenAPI Schema subset and 400s on additionalProperties.
+      core.set %decl["parametersJsonSchema"] = %parameters
       core.return %decl
     }
   }

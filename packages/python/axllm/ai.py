@@ -12086,7 +12086,7 @@ def _gemini_function_declaration_impl(fn: Any) -> Any:
     parameters = _core_get(fn, "parameters", empty_parameters)
     decl["name"] = name
     decl["description"] = description
-    decl["parameters"] = parameters
+    decl["parametersJsonSchema"] = parameters
     return decl
 
 

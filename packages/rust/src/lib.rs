@@ -52721,7 +52721,11 @@ fn _gemini_function_declaration_impl(args: &[CoreValue]) -> Result<CoreValue, Ax
         CoreValue::from("description"),
         v_description.clone(),
     )?;
-    core_set(&v_decl, CoreValue::from("parameters"), v_parameters.clone())?;
+    core_set(
+        &v_decl,
+        CoreValue::from("parametersJsonSchema"),
+        v_parameters.clone(),
+    )?;
     return Ok(v_decl.clone());
 }
 

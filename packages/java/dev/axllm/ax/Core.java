@@ -12107,7 +12107,7 @@ final class Core {
     Object parameters = Core.get(fn, "parameters", empty_parameters);
     Core.set(decl, "name", name);
     Core.set(decl, "description", description);
-    Core.set(decl, "parameters", parameters);
+    Core.set(decl, "parametersJsonSchema", parameters);
     return decl;
   }
 
