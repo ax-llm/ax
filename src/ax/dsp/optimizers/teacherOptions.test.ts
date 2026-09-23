@@ -38,7 +38,7 @@ const makeExpensiveTeacher = (answers: Readonly<Record<string, string>>) => {
       const key = Object.keys(answers).find((wireKey) =>
         system.includes(`wire key: \`${wireKey}\``)
       );
-      requests.push(key ?? 'unrouted');
+      requests.push(key ?? 'unmatched');
       const response: AxChatResponse = {
         results: [
           {
