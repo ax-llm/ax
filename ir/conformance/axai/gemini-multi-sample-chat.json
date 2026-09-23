@@ -2,6 +2,7 @@
   "name": "gemini-multi-sample-chat",
   "kind": "ai_chat",
   "provider": "google-gemini",
+  "model": "gemini-3.5-flash",
   "request": {
     "chat_prompt": [{ "role": "user", "content": "Give two answers." }],
     "model_config": {

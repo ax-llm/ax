@@ -1,0 +1,57 @@
+{
+  "expected_output": {
+    "text": "10 9 8"
+  },
+  "expected_transport_request": {
+    "json": {
+      "contents": [
+        {
+          "parts": [
+            {
+              "inlineData": {
+                "data": "UklGRg==",
+                "mimeType": "audio/wav"
+              }
+            },
+            {
+              "text": "Generate a transcript of the speech in this audio."
+            }
+          ],
+          "role": "user"
+        }
+      ]
+    },
+    "url": "https://generativelanguage.googleapis.com/v1beta/models/gemini-3.5-transcribe:generateContent"
+  },
+  "kind": "ai_transcribe",
+  "name": "gemini-35-transcribe-default-model",
+  "provider": "google-gemini",
+  "request": {
+    "audio": {
+      "data": "UklGRg==",
+      "mimeType": "audio/wav"
+    }
+  },
+  "transport_responses": [
+    {
+      "json": {
+        "candidates": [
+          {
+            "content": {
+              "parts": [
+                {
+                  "audioTranscription": {
+                    "text": "10 9 8"
+                  }
+                }
+              ],
+              "role": "model"
+            },
+            "finishReason": "STOP"
+          }
+        ]
+      },
+      "status": 200
+    }
+  ]
+}

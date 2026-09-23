@@ -508,8 +508,8 @@ public class OpenAICompatibleClient extends AxBaseAI implements AxChatSession.Pr
   @Override public Map<String,Object> transcribe(Map<String,Object> request,Map<String,Object> options)throws Exception{
     AxCancellationToken cancellation=cancellation(options);if(cancellation!=null)cancellation.throwIfCancelled();
     Map<String, Object> payload = Core.asMap(Core.provider_build_transcribe_request(profile, request));
-    Object modelName = request.getOrDefault("model", model);
     Map<String, Object> descriptor = Core.asMap(Core.provider_operation_descriptor(profile, "transcribe"));
+    Object modelName = request.getOrDefault("model", descriptor.getOrDefault("defaultModel", model));
     String bodyKey = "multipart".equals(String.valueOf(descriptor.getOrDefault("body", "json"))) ? "data" : "json";
     Map<String, Object> query = Core.asMap(payload.remove("query"));
     String endpoint = operationPath("transcribe", modelName);
@@ -536,8 +536,8 @@ public class OpenAICompatibleClient extends AxBaseAI implements AxChatSession.Pr
   @Override public Map<String,Object> speak(Map<String,Object> request,Map<String,Object> options)throws Exception{
     AxCancellationToken cancellation=cancellation(options);if(cancellation!=null)cancellation.throwIfCancelled();
     Map<String, Object> payload = Core.asMap(Core.provider_build_speak_request(profile, request));
-    Object modelName = request.getOrDefault("model", model);
     Map<String, Object> descriptor = Core.asMap(Core.provider_operation_descriptor(profile, "speak"));
+    Object modelName = request.getOrDefault("model", descriptor.getOrDefault("defaultModel", model));
     String bodyKey = "multipart".equals(String.valueOf(descriptor.getOrDefault("body", "json"))) ? "data" : "json";
     boolean binary = "binary".equals(String.valueOf(descriptor.get("response")));
     Object raw = requestJson(operationPath("speak", modelName), payload, false, bodyKey, binary, operationMethod("speak"), "speak",cancellation);

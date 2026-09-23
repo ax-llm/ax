@@ -484,7 +484,9 @@ module @ax.ai version "0.1" {
           %service_tier = core.let "standard"
         }
         %is_performance = core.call intrinsic.eq(%service_tier, "performance")
-        core.if %is_performance {
+        %is_fast = core.call intrinsic.eq(%service_tier, "fast")
+        %is_priority_alias = core.call intrinsic.or(%is_performance, %is_fast)
+        core.if %is_priority_alias {
           %service_tier = core.let "priority"
         }
         core.set %out["service_tier"] = %service_tier

@@ -102,7 +102,12 @@ type AxGeminiLogicalThinkingLevel =
   | 'high'
   | 'highest';
 
-type AxGemini3ThinkingFamily = 'full' | 'no-minimal' | 'image' | 'legacy-pro';
+type AxGemini3ThinkingFamily =
+  | 'full'
+  | 'no-minimal'
+  | 'image'
+  | 'legacy-pro'
+  | 'unsupported';
 
 const axGeminiLogicalThinkingLevels = new Set<AxGeminiLogicalThinkingLevel>([
   'none',
@@ -118,12 +123,15 @@ const getGemini3ThinkingFamily = (
 ): AxGemini3ThinkingFamily | undefined => {
   const normalized = model.toLowerCase();
   if (!isGemini3Model(normalized)) return undefined;
+  // 3.8 Live rejects every thinking setting, including a thinking level.
+  if (normalized === 'gemini-3.8-live') return 'unsupported';
   if (normalized.includes('-image')) return 'image';
   if (normalized.includes('gemini-3-pro')) return 'legacy-pro';
   if (
     normalized.includes('gemini-3.8-flash') ||
     normalized.includes('gemini-3.7-flash') ||
-    normalized.includes('gemini-3.1-pro')
+    normalized.includes('gemini-3.1-pro') ||
+    normalized.includes('gemini-3.8-live-extended-thinking')
   ) {
     return 'no-minimal';
   }
@@ -142,10 +150,18 @@ const clampGemini3ThinkingLevel = (
     case 'no-minimal':
       return level === 'minimal' ? 'low' : level;
     case 'full':
+    case 'unsupported':
     case undefined:
       return level;
   }
 };
+
+/**
+ * 3.8 Live Extended Thinking refuses a setup without a thinking level, so Ax
+ * supplies Gemini's usual default when the caller does not pick one.
+ */
+const requiresGeminiThinkingLevel = (model: string): boolean =>
+  model.toLowerCase() === 'gemini-3.8-live-extended-thinking';
 
 const resolveGeminiThinkingConfig = ({
   model,
@@ -166,6 +182,7 @@ const resolveGeminiThinkingConfig = ({
     AxAIGoogleGeminiGenerationConfig['thinkingConfig']
   > = {};
   const gemini3Family = getGemini3ThinkingFamily(model);
+  if (gemini3Family === 'unsupported') return thinkingConfig;
 
   if (direct?.thinkingTokenBudget !== undefined) {
     if (gemini3Family) {
@@ -244,6 +261,13 @@ const resolveGeminiThinkingConfig = ({
   }
   if (logicalLevel === 'none') {
     thinkingConfig.includeThoughts = false;
+  }
+
+  if (
+    thinkingConfig.thinkingLevel === undefined &&
+    requiresGeminiThinkingLevel(model)
+  ) {
+    thinkingConfig.thinkingLevel = 'medium';
   }
 
   if (thinkingConfig.thinkingLevel !== undefined) {
@@ -414,7 +438,7 @@ const safetySettings: AxAIGoogleGeminiSafetySettings = [
  */
 export const axAIGoogleGeminiDefaultConfig = (): AxAIGoogleGeminiConfig =>
   structuredClone<AxAIGoogleGeminiConfig>({
-    model: AxAIGoogleGeminiModel.Gemini25Flash,
+    model: AxAIGoogleGeminiModel.Gemini36Flash,
     embedModel: AxAIGoogleGeminiEmbedModel.TextEmbedding005,
     safetySettings,
     thinkingTokenBudgetLevels: {
@@ -439,7 +463,7 @@ export const axAIGoogleGeminiDefaultConfig = (): AxAIGoogleGeminiConfig =>
 export const axAIGoogleGeminiDefaultCreativeConfig =
   (): AxAIGoogleGeminiConfig =>
     structuredClone<AxAIGoogleGeminiConfig>({
-      model: AxAIGoogleGeminiModel.Gemini20Flash,
+      model: AxAIGoogleGeminiModel.Gemini36Flash,
       embedModel: AxAIGoogleGeminiEmbedModel.TextEmbedding005,
       safetySettings,
       thinkingTokenBudgetLevels: {
@@ -633,7 +657,7 @@ class AxAIGoogleGeminiImpl
     req: Readonly<AxTranscriptionRequest<AxAIGoogleGeminiModel>>,
     options?: Readonly<AxAIServiceOptions>
   ): Promise<AxTranscriptionResponse> {
-    const model = req.model ?? AxAIGoogleGeminiModel.Gemini25Flash;
+    const model = req.model ?? AxAIGoogleGeminiModel.Gemini35Transcribe;
     const keyValue =
       typeof this.apiKey === 'function' ? await this.apiKey() : this.apiKey;
     const url = this.isVertex
@@ -692,9 +716,17 @@ class AxAIGoogleGeminiImpl
       );
     }
     const json = (await response.json()) as AxAIGoogleGeminiChatResponse;
+    // Dedicated speech-to-text models answer with `audioTranscription` parts;
+    // general models answer with text, which may be preceded by thoughts.
     const text =
       json.candidates?.[0]?.content?.parts
-        ?.map((part) => ('text' in part ? part.text : ''))
+        ?.map((part) =>
+          'audioTranscription' in part
+            ? part.audioTranscription.text
+            : 'text' in part && !part.thought
+              ? part.text
+              : ''
+        )
         .join('')
         .trim() ?? '';
     return { text };
@@ -704,8 +736,7 @@ class AxAIGoogleGeminiImpl
     req: Readonly<AxSpeechRequest<AxAIGoogleGeminiModel>>,
     options?: Readonly<AxAIServiceOptions>
   ): Promise<AxSpeechResponse> {
-    const model =
-      req.model ?? ('gemini-2.5-flash-preview-tts' as AxAIGoogleGeminiModel);
+    const model = req.model ?? AxAIGoogleGeminiModel.Gemini38FlashTTS;
     const keyValue =
       typeof this.apiKey === 'function' ? await this.apiKey() : this.apiKey;
     const url = this.isVertex
@@ -743,7 +774,8 @@ class AxAIGoogleGeminiImpl
           },
         },
       },
-      format: req.format ?? 'wav',
+      // No `format`: Gemini takes no output format. 3.8 TTS returns WAV and
+      // earlier TTS models raw 24 kHz PCM, so the returned mime type decides.
       transcript: req.text,
       fetch: options?.fetch,
       abortSignal: options?.abortSignal,

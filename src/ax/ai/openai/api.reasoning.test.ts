@@ -323,8 +323,8 @@ describe('OpenAI model catalog: new 2026 entries are registered', () => {
   it.each([
     {
       name: AxAIOpenAIModel.GPT56Sol,
-      rates: [5, 30, 0.5],
-      longRates: [10, 45, 1],
+      rates: [4, 20, 0.4],
+      longRates: [8, 30, 0.8],
     },
     {
       name: AxAIOpenAIModel.GPT56Terra,
@@ -335,6 +335,16 @@ describe('OpenAI model catalog: new 2026 entries are registered', () => {
       name: AxAIOpenAIModel.GPT56Luna,
       rates: [0.2, 1.2, 0.02],
       longRates: [0.4, 1.8, 0.04],
+    },
+    {
+      name: AxAIOpenAIModel.GPT6Sol,
+      rates: [2, 10, 0.2],
+      longRates: [4, 15, 0.4],
+    },
+    {
+      name: AxAIOpenAIModel.GPT6Luna,
+      rates: [0.1, 0.5, 0.01],
+      longRates: [0.2, 0.75, 0.02],
     },
   ])('has $name in both catalogs with published rates', (expected) => {
     for (const catalog of [axModelInfoOpenAI, axModelInfoOpenAIResponses]) {
@@ -377,5 +387,24 @@ describe('OpenAI model catalog: new 2026 entries are registered', () => {
     expect(audio15?.audio?.input).toBe(true);
     expect(realtime15?.audio?.output).toBe(true);
     expect(realtimeTranslate?.audio?.input).toBe(true);
+  });
+
+  it.each([AxAIOpenAIModel.GPTRealtime21, AxAIOpenAIModel.GPTRealtime21Mini])(
+    'has reasoning realtime model %s in chat catalog',
+    (name) => {
+      const entry = axModelInfoOpenAI.find((m) => m.name === name);
+      expect(entry?.audio).toEqual({ input: true, output: true });
+      expect(entry?.supported?.thinkingBudget).toBe(true);
+    }
+  );
+
+  it('has gpt-transcribe as a transcription-only model', () => {
+    const entry = axModelInfoOpenAI.find(
+      (m) => m.name === AxAIOpenAIModel.GPTTranscribe
+    );
+    expect(entry?.audio).toEqual({ input: true, output: false });
+    expect(entry?.supported?.operations).toEqual(['transcribe']);
+    // Billed per minute of audio, so no token prices.
+    expect(entry?.promptTokenCostPer1M).toBeUndefined();
   });
 });

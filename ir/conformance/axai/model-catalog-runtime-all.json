@@ -16,7 +16,7 @@
           ]
         },
         "defaultEmbedModel": "gemini-embedding-2",
-        "defaultModel": "gemini-2.5-flash",
+        "defaultModel": "gemini-3.6-flash",
         "displayName": "Google Gemini",
         "isDynamic": false,
         "models": [
@@ -44,6 +44,7 @@
             "completionTokenCostPer1M": 0,
             "currency": "usd",
             "isDefault": false,
+            "isDeprecated": true,
             "name": "gemini-2.0-flash-thinking-exp-01-21",
             "promptTokenCostPer1M": 0,
             "provider": "google-gemini",
@@ -78,6 +79,7 @@
             "completionTokenCostPer1M": 0,
             "currency": "usd",
             "isDefault": false,
+            "isDeprecated": true,
             "name": "gemini-2.0-pro-exp-02-05",
             "promptTokenCostPer1M": 0,
             "provider": "google-gemini",
@@ -104,7 +106,9 @@
             "characterIsToken": false,
             "completionTokenCostPer1M": 0,
             "currency": "usd",
+            "deprecatedOn": "2026-08-31",
             "isDefault": false,
+            "isDeprecated": true,
             "name": "gemini-robotics-er-1.6-preview",
             "promptTokenCostPer1M": 0,
             "provider": "google-gemini",
@@ -148,6 +152,7 @@
             "completionTokenCostPer1M": 0.15,
             "currency": "usd",
             "isDefault": false,
+            "isDeprecated": true,
             "name": "gemini-1.5-flash-8b",
             "promptTokenCostPer1M": 0.0375,
             "provider": "google-gemini",
@@ -195,6 +200,7 @@
             "completionTokenCostPer1M": 0.3,
             "currency": "usd",
             "isDefault": false,
+            "isDeprecated": true,
             "name": "gemini-1.5-flash",
             "promptTokenCostPer1M": 0.075,
             "provider": "google-gemini",
@@ -370,6 +376,33 @@
             "type": "text"
           },
           {
+            "capabilities": {
+              "audioInput": false,
+              "audioOutput": false,
+              "imageOutput": false,
+              "serviceTiers": ["standard", "flex", "priority"],
+              "showThoughts": false,
+              "structuredOutputs": true,
+              "temperature": true,
+              "thinkingBudget": false,
+              "thinkingLevels": [],
+              "topP": true
+            },
+            "characterIsToken": false,
+            "completionTokenCostPer1M": 1.5,
+            "contextWindow": 65536,
+            "currency": "usd",
+            "isDefault": false,
+            "maxTokens": 65536,
+            "name": "gemini-3.1-flash-lite-image",
+            "promptTokenCostPer1M": 0.25,
+            "provider": "google-gemini",
+            "supported": {
+              "structuredOutputs": true
+            },
+            "type": "image"
+          },
+          {
             "cacheReadTokenCostPer1M": 0.025,
             "cacheWriteTokenCostPer1M": 0.25,
             "capabilities": {
@@ -394,7 +427,9 @@
             "characterIsToken": false,
             "completionTokenCostPer1M": 1.5,
             "currency": "usd",
+            "deprecatedOn": "2026-05-25",
             "isDefault": false,
+            "isDeprecated": true,
             "name": "gemini-3.1-flash-lite-preview",
             "promptTokenCostPer1M": 0.25,
             "provider": "google-gemini",
@@ -422,6 +457,7 @@
             "completionTokenCostPer1M": 1.5,
             "currency": "usd",
             "isDefault": false,
+            "isDeprecated": true,
             "name": "gemini-1.0-pro",
             "promptTokenCostPer1M": 0.5,
             "provider": "google-gemini",
@@ -429,40 +465,6 @@
               "structuredOutputs": true
             },
             "type": "text"
-          },
-          {
-            "capabilities": {
-              "audioInput": false,
-              "audioOutput": false,
-              "imageOutput": false,
-              "serviceTiers": ["standard", "flex", "priority"],
-              "showThoughts": true,
-              "structuredOutputs": true,
-              "temperature": true,
-              "thinkingBudget": true,
-              "thinkingLevels": [
-                "none",
-                "minimal",
-                "low",
-                "medium",
-                "high",
-                "highest"
-              ],
-              "topP": true
-            },
-            "characterIsToken": false,
-            "completionTokenCostPer1M": 0.134,
-            "currency": "usd",
-            "isDefault": false,
-            "name": "gemini-3-pro-image-preview",
-            "promptTokenCostPer1M": 2,
-            "provider": "google-gemini",
-            "supported": {
-              "showThoughts": true,
-              "structuredOutputs": true,
-              "thinkingBudget": true
-            },
-            "type": "image"
           },
           {
             "cacheReadTokenCostPer1M": 0.03,
@@ -489,7 +491,7 @@
             "characterIsToken": false,
             "completionTokenCostPer1M": 2.5,
             "currency": "usd",
-            "isDefault": true,
+            "isDefault": false,
             "name": "gemini-2.5-flash",
             "promptTokenCostPer1M": 0.3,
             "provider": "google-gemini",
@@ -615,6 +617,7 @@
             "type": "text"
           },
           {
+            "aliases": ["gemini-3.1-flash-image-preview"],
             "capabilities": {
               "audioInput": false,
               "audioOutput": false,
@@ -629,41 +632,17 @@
             },
             "characterIsToken": false,
             "completionTokenCostPer1M": 3,
+            "contextWindow": 65536,
             "currency": "usd",
             "isDefault": false,
-            "name": "gemini-3.1-flash-image-preview",
+            "maxTokens": 65536,
+            "name": "gemini-3.1-flash-image",
             "promptTokenCostPer1M": 0.5,
             "provider": "google-gemini",
             "supported": {
               "structuredOutputs": true
             },
             "type": "image"
-          },
-          {
-            "audio": {
-              "input": false,
-              "output": true
-            },
-            "capabilities": {
-              "audioInput": false,
-              "audioOutput": true,
-              "imageOutput": false,
-              "serviceTiers": ["standard", "flex", "priority"],
-              "showThoughts": false,
-              "structuredOutputs": false,
-              "temperature": true,
-              "thinkingBudget": false,
-              "thinkingLevels": [],
-              "topP": true
-            },
-            "characterIsToken": false,
-            "completionTokenCostPer1M": 3,
-            "currency": "usd",
-            "isDefault": false,
-            "name": "gemini-3.1-flash-tts-preview",
-            "promptTokenCostPer1M": 0.5,
-            "provider": "google-gemini",
-            "type": "audio"
           },
           {
             "capabilities": {
@@ -704,6 +683,7 @@
             "completionTokenCostPer1M": 5,
             "currency": "usd",
             "isDefault": false,
+            "isDeprecated": true,
             "name": "gemini-1.5-pro",
             "promptTokenCostPer1M": 1.25,
             "provider": "google-gemini",
@@ -738,7 +718,7 @@
             "completionTokenCostPer1M": 7.5,
             "contextWindow": 1048576,
             "currency": "usd",
-            "isDefault": false,
+            "isDefault": true,
             "maxTokens": 65536,
             "name": "gemini-3.6-flash",
             "notSupported": {
@@ -957,6 +937,71 @@
             "type": "text"
           },
           {
+            "audio": {
+              "input": false,
+              "output": true
+            },
+            "capabilities": {
+              "audioInput": false,
+              "audioOutput": true,
+              "imageOutput": false,
+              "serviceTiers": ["standard", "flex", "priority"],
+              "showThoughts": false,
+              "structuredOutputs": false,
+              "temperature": true,
+              "thinkingBudget": false,
+              "thinkingLevels": [],
+              "topP": true
+            },
+            "characterIsToken": false,
+            "completionTokenCostPer1M": 12,
+            "contextWindow": 8192,
+            "currency": "usd",
+            "isDefault": false,
+            "maxTokens": 16384,
+            "name": "gemini-3.8-flash-lite-tts",
+            "promptTokenCostPer1M": 1,
+            "provider": "google-gemini",
+            "type": "audio"
+          },
+          {
+            "aliases": ["gemini-3-pro-image-preview"],
+            "capabilities": {
+              "audioInput": false,
+              "audioOutput": false,
+              "imageOutput": false,
+              "serviceTiers": ["standard", "flex", "priority"],
+              "showThoughts": true,
+              "structuredOutputs": true,
+              "temperature": true,
+              "thinkingBudget": true,
+              "thinkingLevels": [
+                "none",
+                "minimal",
+                "low",
+                "medium",
+                "high",
+                "highest"
+              ],
+              "topP": true
+            },
+            "characterIsToken": false,
+            "completionTokenCostPer1M": 12,
+            "contextWindow": 131072,
+            "currency": "usd",
+            "isDefault": false,
+            "maxTokens": 32768,
+            "name": "gemini-3-pro-image",
+            "promptTokenCostPer1M": 2,
+            "provider": "google-gemini",
+            "supported": {
+              "showThoughts": true,
+              "structuredOutputs": true,
+              "thinkingBudget": true
+            },
+            "type": "image"
+          },
+          {
             "cacheReadTokenCostPer1M": 0.2,
             "cacheWriteTokenCostPer1M": 2,
             "capabilities": {
@@ -995,6 +1040,154 @@
               "thinkingBudget": true
             },
             "type": "text"
+          },
+          {
+            "audio": {
+              "input": true,
+              "output": false
+            },
+            "capabilities": {
+              "audioInput": true,
+              "audioOutput": false,
+              "imageOutput": false,
+              "serviceTiers": ["standard", "flex", "priority"],
+              "showThoughts": false,
+              "structuredOutputs": false,
+              "temperature": true,
+              "thinkingBudget": false,
+              "thinkingLevels": [],
+              "topP": true
+            },
+            "characterIsToken": false,
+            "completionTokenCostPer1M": 12,
+            "contextWindow": 98304,
+            "currency": "usd",
+            "isDefault": false,
+            "maxTokens": 32768,
+            "name": "gemini-3.5-transcribe",
+            "promptTokenCostPer1M": 2,
+            "provider": "google-gemini",
+            "supported": {
+              "operations": ["transcribe"]
+            },
+            "type": "audio"
+          },
+          {
+            "audio": {
+              "input": false,
+              "output": true
+            },
+            "capabilities": {
+              "audioInput": false,
+              "audioOutput": true,
+              "imageOutput": false,
+              "serviceTiers": ["standard", "flex", "priority"],
+              "showThoughts": false,
+              "structuredOutputs": false,
+              "temperature": true,
+              "thinkingBudget": false,
+              "thinkingLevels": [],
+              "topP": true
+            },
+            "characterIsToken": false,
+            "completionTokenCostPer1M": 18,
+            "contextWindow": 8192,
+            "currency": "usd",
+            "isDefault": false,
+            "maxTokens": 16384,
+            "name": "gemini-3.8-flash-tts",
+            "promptTokenCostPer1M": 1,
+            "provider": "google-gemini",
+            "type": "audio"
+          },
+          {
+            "audio": {
+              "input": false,
+              "output": true
+            },
+            "capabilities": {
+              "audioInput": false,
+              "audioOutput": true,
+              "imageOutput": false,
+              "serviceTiers": ["standard", "flex", "priority"],
+              "showThoughts": false,
+              "structuredOutputs": false,
+              "temperature": true,
+              "thinkingBudget": false,
+              "thinkingLevels": [],
+              "topP": true
+            },
+            "characterIsToken": false,
+            "completionTokenCostPer1M": 20,
+            "contextWindow": 8192,
+            "currency": "usd",
+            "isDefault": false,
+            "maxTokens": 16384,
+            "name": "gemini-3.1-flash-tts-preview",
+            "promptTokenCostPer1M": 1,
+            "provider": "google-gemini",
+            "type": "audio"
+          },
+          {
+            "audio": {
+              "input": true,
+              "output": true
+            },
+            "capabilities": {
+              "audioInput": true,
+              "audioOutput": true,
+              "imageOutput": false,
+              "serviceTiers": [],
+              "showThoughts": false,
+              "structuredOutputs": false,
+              "temperature": true,
+              "thinkingBudget": false,
+              "thinkingLevels": [],
+              "topP": true
+            },
+            "characterIsToken": false,
+            "contextWindow": 131072,
+            "isDefault": false,
+            "maxTokens": 65536,
+            "name": "gemini-3.8-live",
+            "provider": "google-gemini",
+            "type": "audio"
+          },
+          {
+            "audio": {
+              "input": true,
+              "output": true
+            },
+            "capabilities": {
+              "audioInput": true,
+              "audioOutput": true,
+              "imageOutput": false,
+              "serviceTiers": [],
+              "showThoughts": true,
+              "structuredOutputs": false,
+              "temperature": true,
+              "thinkingBudget": true,
+              "thinkingLevels": [
+                "none",
+                "minimal",
+                "low",
+                "medium",
+                "high",
+                "highest"
+              ],
+              "topP": true
+            },
+            "characterIsToken": false,
+            "contextWindow": 131072,
+            "isDefault": false,
+            "maxTokens": 65536,
+            "name": "gemini-3.8-live-extended-thinking",
+            "provider": "google-gemini",
+            "supported": {
+              "showThoughts": true,
+              "thinkingBudget": true
+            },
+            "type": "audio"
           },
           {
             "audio": {
@@ -1491,6 +1684,52 @@
             "provider": "openai",
             "supported": {
               "structuredOutputs": true
+            },
+            "type": "text"
+          },
+          {
+            "cacheReadTokenCostPer1M": 0.01,
+            "cacheWriteTokenCostPer1M": 0.125,
+            "capabilities": {
+              "audioInput": false,
+              "audioOutput": false,
+              "imageOutput": false,
+              "serviceTiers": ["standard", "flex", "priority"],
+              "showThoughts": false,
+              "structuredOutputs": true,
+              "temperature": false,
+              "thinkingBudget": true,
+              "thinkingLevels": [
+                "none",
+                "minimal",
+                "low",
+                "medium",
+                "high",
+                "highest"
+              ],
+              "topP": false
+            },
+            "completionTokenCostPer1M": 0.5,
+            "contextWindow": 1050000,
+            "currency": "usd",
+            "isDefault": false,
+            "longContextCacheReadTokenCostPer1M": 0.02,
+            "longContextCacheWriteTokenCostPer1M": 0.25,
+            "longContextCompletionTokenCostPer1M": 0.75,
+            "longContextPromptTokenCostPer1M": 0.2,
+            "longContextThreshold": 272000,
+            "maxTokens": 128000,
+            "name": "gpt-6-luna",
+            "notSupported": {
+              "temperature": true,
+              "topP": true
+            },
+            "promptTokenCostPer1M": 0.1,
+            "provider": "openai",
+            "supported": {
+              "structuredOutputModes": ["native", "json_object"],
+              "structuredOutputs": true,
+              "thinkingBudget": true
             },
             "type": "text"
           },
@@ -2040,6 +2279,52 @@
             "type": "code"
           },
           {
+            "cacheReadTokenCostPer1M": 0.2,
+            "cacheWriteTokenCostPer1M": 2.5,
+            "capabilities": {
+              "audioInput": false,
+              "audioOutput": false,
+              "imageOutput": false,
+              "serviceTiers": ["standard", "flex", "priority"],
+              "showThoughts": false,
+              "structuredOutputs": true,
+              "temperature": false,
+              "thinkingBudget": true,
+              "thinkingLevels": [
+                "none",
+                "minimal",
+                "low",
+                "medium",
+                "high",
+                "highest"
+              ],
+              "topP": false
+            },
+            "completionTokenCostPer1M": 10,
+            "contextWindow": 1050000,
+            "currency": "usd",
+            "isDefault": false,
+            "longContextCacheReadTokenCostPer1M": 0.4,
+            "longContextCacheWriteTokenCostPer1M": 5,
+            "longContextCompletionTokenCostPer1M": 15,
+            "longContextPromptTokenCostPer1M": 4,
+            "longContextThreshold": 272000,
+            "maxTokens": 128000,
+            "name": "gpt-6-sol",
+            "notSupported": {
+              "temperature": true,
+              "topP": true
+            },
+            "promptTokenCostPer1M": 2,
+            "provider": "openai",
+            "supported": {
+              "structuredOutputModes": ["native", "json_object"],
+              "structuredOutputs": true,
+              "thinkingBudget": true
+            },
+            "type": "text"
+          },
+          {
             "capabilities": {
               "audioInput": false,
               "audioOutput": false,
@@ -2244,6 +2529,51 @@
             "type": "text"
           },
           {
+            "aliases": ["gpt-5.6"],
+            "cacheReadTokenCostPer1M": 0.4,
+            "cacheWriteTokenCostPer1M": 5,
+            "capabilities": {
+              "audioInput": false,
+              "audioOutput": false,
+              "imageOutput": false,
+              "serviceTiers": ["standard", "flex", "priority"],
+              "showThoughts": false,
+              "structuredOutputs": true,
+              "temperature": false,
+              "thinkingBudget": true,
+              "thinkingLevels": [
+                "none",
+                "minimal",
+                "low",
+                "medium",
+                "high",
+                "highest"
+              ],
+              "topP": false
+            },
+            "completionTokenCostPer1M": 20,
+            "contextWindow": 1050000,
+            "currency": "usd",
+            "isDefault": false,
+            "longContextCacheReadTokenCostPer1M": 0.8,
+            "longContextCompletionTokenCostPer1M": 30,
+            "longContextPromptTokenCostPer1M": 8,
+            "longContextThreshold": 272000,
+            "maxTokens": 128000,
+            "name": "gpt-5.6-sol",
+            "notSupported": {
+              "temperature": true,
+              "topP": true
+            },
+            "promptTokenCostPer1M": 4,
+            "provider": "openai",
+            "supported": {
+              "structuredOutputs": true,
+              "thinkingBudget": true
+            },
+            "type": "text"
+          },
+          {
             "cacheReadTokenCostPer1M": 0.5,
             "capabilities": {
               "audioInput": false,
@@ -2273,51 +2603,6 @@
             "longContextPromptTokenCostPer1M": 10,
             "longContextThreshold": 272000,
             "name": "gpt-5.5",
-            "notSupported": {
-              "temperature": true,
-              "topP": true
-            },
-            "promptTokenCostPer1M": 5,
-            "provider": "openai",
-            "supported": {
-              "structuredOutputs": true,
-              "thinkingBudget": true
-            },
-            "type": "text"
-          },
-          {
-            "aliases": ["gpt-5.6"],
-            "cacheReadTokenCostPer1M": 0.5,
-            "cacheWriteTokenCostPer1M": 6.25,
-            "capabilities": {
-              "audioInput": false,
-              "audioOutput": false,
-              "imageOutput": false,
-              "serviceTiers": ["standard", "flex", "priority"],
-              "showThoughts": false,
-              "structuredOutputs": true,
-              "temperature": false,
-              "thinkingBudget": true,
-              "thinkingLevels": [
-                "none",
-                "minimal",
-                "low",
-                "medium",
-                "high",
-                "highest"
-              ],
-              "topP": false
-            },
-            "completionTokenCostPer1M": 30,
-            "contextWindow": 1050000,
-            "currency": "usd",
-            "isDefault": false,
-            "longContextCacheReadTokenCostPer1M": 1,
-            "longContextCompletionTokenCostPer1M": 45,
-            "longContextPromptTokenCostPer1M": 10,
-            "longContextThreshold": 272000,
-            "maxTokens": 128000,
-            "name": "gpt-5.6-sol",
             "notSupported": {
               "temperature": true,
               "topP": true
@@ -2658,6 +2943,70 @@
           {
             "audio": {
               "input": true,
+              "output": true
+            },
+            "capabilities": {
+              "audioInput": true,
+              "audioOutput": true,
+              "imageOutput": false,
+              "serviceTiers": [],
+              "showThoughts": false,
+              "structuredOutputs": false,
+              "temperature": true,
+              "thinkingBudget": true,
+              "thinkingLevels": [
+                "none",
+                "minimal",
+                "low",
+                "medium",
+                "high",
+                "highest"
+              ],
+              "topP": true
+            },
+            "isDefault": false,
+            "name": "gpt-realtime-2.1",
+            "provider": "openai",
+            "supported": {
+              "thinkingBudget": true
+            },
+            "type": "audio"
+          },
+          {
+            "audio": {
+              "input": true,
+              "output": true
+            },
+            "capabilities": {
+              "audioInput": true,
+              "audioOutput": true,
+              "imageOutput": false,
+              "serviceTiers": [],
+              "showThoughts": false,
+              "structuredOutputs": false,
+              "temperature": true,
+              "thinkingBudget": true,
+              "thinkingLevels": [
+                "none",
+                "minimal",
+                "low",
+                "medium",
+                "high",
+                "highest"
+              ],
+              "topP": true
+            },
+            "isDefault": false,
+            "name": "gpt-realtime-2.1-mini",
+            "provider": "openai",
+            "supported": {
+              "thinkingBudget": true
+            },
+            "type": "audio"
+          },
+          {
+            "audio": {
+              "input": true,
               "output": false
             },
             "capabilities": {
@@ -2697,6 +3046,32 @@
             "isDefault": false,
             "name": "gpt-realtime-translate",
             "provider": "openai",
+            "type": "audio"
+          },
+          {
+            "audio": {
+              "input": true,
+              "output": false
+            },
+            "capabilities": {
+              "audioInput": true,
+              "audioOutput": false,
+              "imageOutput": false,
+              "serviceTiers": [],
+              "showThoughts": false,
+              "structuredOutputs": false,
+              "temperature": true,
+              "thinkingBudget": false,
+              "thinkingLevels": [],
+              "topP": true
+            },
+            "isDefault": false,
+            "name": "gpt-transcribe",
+            "provider": "openai",
+            "supported": {
+              "operations": ["transcribe"],
+              "serviceTiers": []
+            },
             "type": "audio"
           }
         ],
@@ -3326,6 +3701,52 @@
             "provider": "openai-responses",
             "supported": {
               "structuredOutputs": true
+            },
+            "type": "text"
+          },
+          {
+            "cacheReadTokenCostPer1M": 0.01,
+            "cacheWriteTokenCostPer1M": 0.125,
+            "capabilities": {
+              "audioInput": false,
+              "audioOutput": false,
+              "imageOutput": false,
+              "serviceTiers": ["standard", "flex", "priority"],
+              "showThoughts": true,
+              "structuredOutputs": true,
+              "temperature": false,
+              "thinkingBudget": true,
+              "thinkingLevels": [
+                "none",
+                "minimal",
+                "low",
+                "medium",
+                "high",
+                "highest"
+              ],
+              "topP": false
+            },
+            "completionTokenCostPer1M": 0.5,
+            "contextWindow": 1050000,
+            "currency": "usd",
+            "isDefault": false,
+            "longContextCacheReadTokenCostPer1M": 0.02,
+            "longContextCacheWriteTokenCostPer1M": 0.25,
+            "longContextCompletionTokenCostPer1M": 0.75,
+            "longContextPromptTokenCostPer1M": 0.2,
+            "longContextThreshold": 272000,
+            "maxTokens": 128000,
+            "name": "gpt-6-luna",
+            "notSupported": {
+              "temperature": true,
+              "topP": true
+            },
+            "promptTokenCostPer1M": 0.1,
+            "provider": "openai-responses",
+            "supported": {
+              "showThoughts": true,
+              "structuredOutputs": true,
+              "thinkingBudget": true
             },
             "type": "text"
           },
@@ -4011,6 +4432,52 @@
             "type": "code"
           },
           {
+            "cacheReadTokenCostPer1M": 0.2,
+            "cacheWriteTokenCostPer1M": 2.5,
+            "capabilities": {
+              "audioInput": false,
+              "audioOutput": false,
+              "imageOutput": false,
+              "serviceTiers": ["standard", "flex", "priority"],
+              "showThoughts": true,
+              "structuredOutputs": true,
+              "temperature": false,
+              "thinkingBudget": true,
+              "thinkingLevels": [
+                "none",
+                "minimal",
+                "low",
+                "medium",
+                "high",
+                "highest"
+              ],
+              "topP": false
+            },
+            "completionTokenCostPer1M": 10,
+            "contextWindow": 1050000,
+            "currency": "usd",
+            "isDefault": false,
+            "longContextCacheReadTokenCostPer1M": 0.4,
+            "longContextCacheWriteTokenCostPer1M": 5,
+            "longContextCompletionTokenCostPer1M": 15,
+            "longContextPromptTokenCostPer1M": 4,
+            "longContextThreshold": 272000,
+            "maxTokens": 128000,
+            "name": "gpt-6-sol",
+            "notSupported": {
+              "temperature": true,
+              "topP": true
+            },
+            "promptTokenCostPer1M": 2,
+            "provider": "openai-responses",
+            "supported": {
+              "showThoughts": true,
+              "structuredOutputs": true,
+              "thinkingBudget": true
+            },
+            "type": "text"
+          },
+          {
             "capabilities": {
               "audioInput": false,
               "audioOutput": false,
@@ -4252,6 +4719,52 @@
             "type": "text"
           },
           {
+            "aliases": ["gpt-5.6"],
+            "cacheReadTokenCostPer1M": 0.4,
+            "cacheWriteTokenCostPer1M": 5,
+            "capabilities": {
+              "audioInput": false,
+              "audioOutput": false,
+              "imageOutput": false,
+              "serviceTiers": ["standard", "flex", "priority"],
+              "showThoughts": true,
+              "structuredOutputs": true,
+              "temperature": false,
+              "thinkingBudget": true,
+              "thinkingLevels": [
+                "none",
+                "minimal",
+                "low",
+                "medium",
+                "high",
+                "highest"
+              ],
+              "topP": false
+            },
+            "completionTokenCostPer1M": 20,
+            "contextWindow": 1050000,
+            "currency": "usd",
+            "isDefault": false,
+            "longContextCacheReadTokenCostPer1M": 0.8,
+            "longContextCompletionTokenCostPer1M": 30,
+            "longContextPromptTokenCostPer1M": 8,
+            "longContextThreshold": 272000,
+            "maxTokens": 128000,
+            "name": "gpt-5.6-sol",
+            "notSupported": {
+              "temperature": true,
+              "topP": true
+            },
+            "promptTokenCostPer1M": 4,
+            "provider": "openai-responses",
+            "supported": {
+              "showThoughts": true,
+              "structuredOutputs": true,
+              "thinkingBudget": true
+            },
+            "type": "text"
+          },
+          {
             "cacheReadTokenCostPer1M": 0.5,
             "capabilities": {
               "audioInput": false,
@@ -4281,52 +4794,6 @@
             "longContextPromptTokenCostPer1M": 10,
             "longContextThreshold": 272000,
             "name": "gpt-5.5",
-            "notSupported": {
-              "temperature": true,
-              "topP": true
-            },
-            "promptTokenCostPer1M": 5,
-            "provider": "openai-responses",
-            "supported": {
-              "showThoughts": true,
-              "structuredOutputs": true,
-              "thinkingBudget": true
-            },
-            "type": "text"
-          },
-          {
-            "aliases": ["gpt-5.6"],
-            "cacheReadTokenCostPer1M": 0.5,
-            "cacheWriteTokenCostPer1M": 6.25,
-            "capabilities": {
-              "audioInput": false,
-              "audioOutput": false,
-              "imageOutput": false,
-              "serviceTiers": ["standard", "flex", "priority"],
-              "showThoughts": true,
-              "structuredOutputs": true,
-              "temperature": false,
-              "thinkingBudget": true,
-              "thinkingLevels": [
-                "none",
-                "minimal",
-                "low",
-                "medium",
-                "high",
-                "highest"
-              ],
-              "topP": false
-            },
-            "completionTokenCostPer1M": 30,
-            "contextWindow": 1050000,
-            "currency": "usd",
-            "isDefault": false,
-            "longContextCacheReadTokenCostPer1M": 1,
-            "longContextCompletionTokenCostPer1M": 45,
-            "longContextPromptTokenCostPer1M": 10,
-            "longContextThreshold": 272000,
-            "maxTokens": 128000,
-            "name": "gpt-5.6-sol",
             "notSupported": {
               "temperature": true,
               "topP": true
@@ -5106,7 +5573,7 @@
             "highest"
           ]
         },
-        "defaultModel": "claude-3-7-sonnet-latest",
+        "defaultModel": "claude-sonnet-5",
         "displayName": "Anthropic",
         "isDynamic": false,
         "models": [
@@ -5127,7 +5594,9 @@
             },
             "completionTokenCostPer1M": 1.25,
             "currency": "usd",
+            "deprecatedOn": "2026-04-20",
             "isDefault": false,
+            "isDeprecated": true,
             "maxTokens": 4096,
             "name": "claude-3-haiku-20240307",
             "promptTokenCostPer1M": 0.25,
@@ -5173,7 +5642,9 @@
             },
             "completionTokenCostPer1M": 2.24,
             "currency": "usd",
+            "deprecatedOn": "2024-11-06",
             "isDefault": false,
+            "isDeprecated": true,
             "maxTokens": 4096,
             "name": "claude-instant-1.2",
             "promptTokenCostPer1M": 0.8,
@@ -5197,7 +5668,9 @@
             },
             "completionTokenCostPer1M": 4,
             "currency": "usd",
+            "deprecatedOn": "2026-02-19",
             "isDefault": false,
+            "isDeprecated": true,
             "maxTokens": 8192,
             "name": "claude-3-5-haiku-latest",
             "promptTokenCostPer1M": 0.8,
@@ -5323,7 +5796,7 @@
             "completionTokenCostPer1M": 10,
             "contextWindow": 1000000,
             "currency": "usd",
-            "isDefault": false,
+            "isDefault": true,
             "maxTokens": 128000,
             "name": "claude-sonnet-5",
             "promptTokenCostPer1M": 2,
@@ -5360,7 +5833,7 @@
             "completionTokenCostPer1M": 10,
             "contextWindow": 1000000,
             "currency": "usd",
-            "isDefault": false,
+            "isDefault": true,
             "maxTokens": 128000,
             "name": "claude-sonnet-5",
             "promptTokenCostPer1M": 2,
@@ -5389,7 +5862,9 @@
             },
             "completionTokenCostPer1M": 15,
             "currency": "usd",
+            "deprecatedOn": "2025-10-28",
             "isDefault": false,
+            "isDeprecated": true,
             "maxTokens": 8192,
             "name": "claude-3-5-sonnet-latest",
             "promptTokenCostPer1M": 3,
@@ -5486,7 +5961,9 @@
             },
             "completionTokenCostPer1M": 15,
             "currency": "usd",
-            "isDefault": true,
+            "deprecatedOn": "2026-02-19",
+            "isDefault": false,
+            "isDeprecated": true,
             "maxTokens": 64000,
             "name": "claude-3-7-sonnet-latest",
             "promptTokenCostPer1M": 3,
@@ -5551,7 +6028,9 @@
             },
             "completionTokenCostPer1M": 15,
             "currency": "usd",
+            "deprecatedOn": "2025-07-21",
             "isDefault": false,
+            "isDeprecated": true,
             "maxTokens": 4096,
             "name": "claude-3-sonnet-20240229",
             "promptTokenCostPer1M": 3,
@@ -5585,7 +6064,9 @@
             },
             "completionTokenCostPer1M": 15,
             "currency": "usd",
+            "deprecatedOn": "2026-06-15",
             "isDefault": false,
+            "isDeprecated": true,
             "maxTokens": 64000,
             "name": "claude-sonnet-4-20250514",
             "promptTokenCostPer1M": 3,
@@ -5772,6 +6253,86 @@
             "provider": "anthropic",
             "supported": {
               "showThoughts": true,
+              "structuredOutputs": true,
+              "thinkingBudget": true
+            },
+            "type": "text"
+          },
+          {
+            "cacheReadTokenCostPer1M": 0.2,
+            "cacheWriteTokenCostPer1M": 5,
+            "capabilities": {
+              "audioInput": false,
+              "audioOutput": false,
+              "imageOutput": false,
+              "serviceTiers": [],
+              "showThoughts": true,
+              "structuredOutputs": true,
+              "temperature": true,
+              "thinkingBudget": true,
+              "thinkingLevels": [
+                "none",
+                "minimal",
+                "low",
+                "medium",
+                "high",
+                "highest"
+              ],
+              "topP": true
+            },
+            "completionTokenCostPer1M": 20,
+            "contextWindow": 1000000,
+            "currency": "usd",
+            "fastCacheReadTokenCostPer1M": 0.4,
+            "fastCacheWriteTokenCostPer1M": 10,
+            "fastCompletionTokenCostPer1M": 40,
+            "fastPromptTokenCostPer1M": 8,
+            "isDefault": false,
+            "maxTokens": 128000,
+            "name": "claude-opus-5-5",
+            "promptTokenCostPer1M": 4,
+            "provider": "anthropic",
+            "supported": {
+              "showThoughts": true,
+              "structuredOutputModes": ["native"],
+              "structuredOutputs": true,
+              "thinkingBudget": true
+            },
+            "type": "text"
+          },
+          {
+            "cacheReadTokenCostPer1M": 0.2,
+            "cacheWriteTokenCostPer1M": 5,
+            "capabilities": {
+              "audioInput": false,
+              "audioOutput": false,
+              "imageOutput": false,
+              "serviceTiers": [],
+              "showThoughts": true,
+              "structuredOutputs": true,
+              "temperature": true,
+              "thinkingBudget": true,
+              "thinkingLevels": [
+                "none",
+                "minimal",
+                "low",
+                "medium",
+                "high",
+                "highest"
+              ],
+              "topP": true
+            },
+            "completionTokenCostPer1M": 20,
+            "contextWindow": 1000000,
+            "currency": "usd",
+            "isDefault": false,
+            "maxTokens": 128000,
+            "name": "claude-opus-5-5",
+            "promptTokenCostPer1M": 4,
+            "provider": "anthropic",
+            "supported": {
+              "showThoughts": true,
+              "structuredOutputModes": ["native"],
               "structuredOutputs": true,
               "thinkingBudget": true
             },
@@ -6084,6 +6645,84 @@
             "type": "text"
           },
           {
+            "cacheReadTokenCostPer1M": 0.5,
+            "cacheWriteTokenCostPer1M": 6.25,
+            "capabilities": {
+              "audioInput": false,
+              "audioOutput": false,
+              "imageOutput": false,
+              "serviceTiers": [],
+              "showThoughts": true,
+              "structuredOutputs": true,
+              "temperature": true,
+              "thinkingBudget": true,
+              "thinkingLevels": [
+                "none",
+                "minimal",
+                "low",
+                "medium",
+                "high",
+                "highest"
+              ],
+              "topP": true
+            },
+            "completionTokenCostPer1M": 25,
+            "contextWindow": 1000000,
+            "currency": "usd",
+            "fastCacheReadTokenCostPer1M": 1,
+            "fastCacheWriteTokenCostPer1M": 12.5,
+            "fastCompletionTokenCostPer1M": 50,
+            "fastPromptTokenCostPer1M": 10,
+            "isDefault": false,
+            "maxTokens": 128000,
+            "name": "claude-opus-5",
+            "promptTokenCostPer1M": 5,
+            "provider": "anthropic",
+            "supported": {
+              "showThoughts": true,
+              "structuredOutputs": true,
+              "thinkingBudget": true
+            },
+            "type": "text"
+          },
+          {
+            "cacheReadTokenCostPer1M": 0.5,
+            "cacheWriteTokenCostPer1M": 6.25,
+            "capabilities": {
+              "audioInput": false,
+              "audioOutput": false,
+              "imageOutput": false,
+              "serviceTiers": [],
+              "showThoughts": true,
+              "structuredOutputs": true,
+              "temperature": true,
+              "thinkingBudget": true,
+              "thinkingLevels": [
+                "none",
+                "minimal",
+                "low",
+                "medium",
+                "high",
+                "highest"
+              ],
+              "topP": true
+            },
+            "completionTokenCostPer1M": 25,
+            "contextWindow": 1000000,
+            "currency": "usd",
+            "isDefault": false,
+            "maxTokens": 128000,
+            "name": "claude-opus-5",
+            "promptTokenCostPer1M": 5,
+            "provider": "anthropic",
+            "supported": {
+              "showThoughts": true,
+              "structuredOutputs": true,
+              "thinkingBudget": true
+            },
+            "type": "text"
+          },
+          {
             "capabilities": {
               "audioInput": false,
               "audioOutput": false,
@@ -6098,11 +6737,163 @@
             },
             "completionTokenCostPer1M": 25,
             "currency": "usd",
+            "deprecatedOn": "2025-07-21",
             "isDefault": false,
+            "isDeprecated": true,
             "maxTokens": 4096,
             "name": "claude-2.1",
             "promptTokenCostPer1M": 8,
             "provider": "anthropic",
+            "type": "text"
+          },
+          {
+            "cacheReadTokenCostPer1M": 1,
+            "cacheWriteTokenCostPer1M": 12.5,
+            "capabilities": {
+              "audioInput": false,
+              "audioOutput": false,
+              "imageOutput": false,
+              "serviceTiers": [],
+              "showThoughts": true,
+              "structuredOutputs": true,
+              "temperature": true,
+              "thinkingBudget": true,
+              "thinkingLevels": [
+                "none",
+                "minimal",
+                "low",
+                "medium",
+                "high",
+                "highest"
+              ],
+              "topP": true
+            },
+            "completionTokenCostPer1M": 50,
+            "contextWindow": 1000000,
+            "currency": "usd",
+            "isDefault": false,
+            "maxTokens": 128000,
+            "name": "claude-fable-5",
+            "promptTokenCostPer1M": 10,
+            "provider": "anthropic",
+            "supported": {
+              "showThoughts": true,
+              "structuredOutputs": true,
+              "thinkingBudget": true
+            },
+            "type": "text"
+          },
+          {
+            "cacheReadTokenCostPer1M": 1,
+            "cacheWriteTokenCostPer1M": 12.5,
+            "capabilities": {
+              "audioInput": false,
+              "audioOutput": false,
+              "imageOutput": false,
+              "serviceTiers": [],
+              "showThoughts": true,
+              "structuredOutputs": true,
+              "temperature": true,
+              "thinkingBudget": true,
+              "thinkingLevels": [
+                "none",
+                "minimal",
+                "low",
+                "medium",
+                "high",
+                "highest"
+              ],
+              "topP": true
+            },
+            "completionTokenCostPer1M": 50,
+            "contextWindow": 1000000,
+            "currency": "usd",
+            "isDefault": false,
+            "maxTokens": 128000,
+            "name": "claude-fable-5",
+            "promptTokenCostPer1M": 10,
+            "provider": "anthropic",
+            "supported": {
+              "showThoughts": true,
+              "structuredOutputs": true,
+              "thinkingBudget": true
+            },
+            "type": "text"
+          },
+          {
+            "cacheReadTokenCostPer1M": 0.25,
+            "cacheWriteTokenCostPer1M": 12.5,
+            "capabilities": {
+              "audioInput": false,
+              "audioOutput": false,
+              "imageOutput": false,
+              "serviceTiers": [],
+              "showThoughts": true,
+              "structuredOutputs": true,
+              "temperature": true,
+              "thinkingBudget": true,
+              "thinkingLevels": [
+                "none",
+                "minimal",
+                "low",
+                "medium",
+                "high",
+                "highest"
+              ],
+              "topP": true
+            },
+            "completionTokenCostPer1M": 50,
+            "contextWindow": 1000000,
+            "currency": "usd",
+            "isDefault": false,
+            "maxTokens": 128000,
+            "name": "claude-fable-5-1",
+            "promptTokenCostPer1M": 10,
+            "provider": "anthropic",
+            "supported": {
+              "showThoughts": true,
+              "structuredOutputModes": ["native"],
+              "structuredOutputs": true,
+              "thinkingBudget": true
+            },
+            "type": "text"
+          },
+          {
+            "cacheReadTokenCostPer1M": 0.25,
+            "cacheWriteTokenCostPer1M": 12.5,
+            "capabilities": {
+              "audioInput": false,
+              "audioOutput": false,
+              "imageOutput": false,
+              "serviceTiers": [],
+              "showThoughts": true,
+              "structuredOutputs": true,
+              "temperature": true,
+              "thinkingBudget": true,
+              "thinkingLevels": [
+                "none",
+                "minimal",
+                "low",
+                "medium",
+                "high",
+                "highest"
+              ],
+              "topP": true
+            },
+            "completionTokenCostPer1M": 50,
+            "contextWindow": 1000000,
+            "currency": "usd",
+            "isDefault": false,
+            "maxTokens": 128000,
+            "name": "claude-fable-5-1",
+            "promptTokenCostPer1M": 10,
+            "provider": "anthropic",
+            "supported": {
+              "showThoughts": true,
+              "structuredOutputModes": ["native"],
+              "structuredOutputs": true,
+              "thinkingBudget": true
+            },
             "type": "text"
           },
           {
@@ -6122,7 +6913,9 @@
             },
             "completionTokenCostPer1M": 75,
             "currency": "usd",
+            "deprecatedOn": "2026-01-05",
             "isDefault": false,
+            "isDeprecated": true,
             "maxTokens": 4096,
             "name": "claude-3-opus-latest",
             "promptTokenCostPer1M": 15,
@@ -6183,7 +6976,9 @@
             },
             "completionTokenCostPer1M": 75,
             "currency": "usd",
+            "deprecatedOn": "2026-08-05",
             "isDefault": false,
+            "isDeprecated": true,
             "maxTokens": 32000,
             "name": "claude-opus-4-1-20250805",
             "promptTokenCostPer1M": 15,
@@ -6255,7 +7050,9 @@
             },
             "completionTokenCostPer1M": 75,
             "currency": "usd",
+            "deprecatedOn": "2026-06-15",
             "isDefault": false,
+            "isDeprecated": true,
             "maxTokens": 32000,
             "name": "claude-opus-4-20250514",
             "promptTokenCostPer1M": 15,
@@ -7464,7 +8261,7 @@
         "name": "typesafe"
       }
     ],
-    "modelCount": 222,
+    "modelCount": 243,
     "openaiFirstModel": "text-embedding-3-small",
     "openaiModelTypes": ["audio", "code", "embeddings", "text"],
     "providerCount": 50,

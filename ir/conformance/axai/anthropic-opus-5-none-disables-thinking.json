@@ -1,0 +1,48 @@
+{
+  "expected_transport_json_absent": ["output_config"],
+  "expected_transport_request": {
+    "json": {
+      "thinking": {
+        "type": "disabled"
+      }
+    }
+  },
+  "kind": "ai_chat",
+  "model": "claude-opus-5",
+  "name": "anthropic-opus-5-none-disables-thinking",
+  "provider": "anthropic",
+  "request": {
+    "chat_prompt": [
+      {
+        "content": "hi",
+        "role": "user"
+      }
+    ],
+    "model_config": {
+      "stream": false,
+      "thinkingTokenBudget": "none"
+    }
+  },
+  "transport_responses": [
+    {
+      "json": {
+        "content": [
+          {
+            "text": "ok",
+            "type": "text"
+          }
+        ],
+        "id": "msg_none",
+        "model": "claude-opus-5",
+        "role": "assistant",
+        "stop_reason": "end_turn",
+        "type": "message",
+        "usage": {
+          "input_tokens": 1,
+          "output_tokens": 1
+        }
+      },
+      "status": 200
+    }
+  ]
+}

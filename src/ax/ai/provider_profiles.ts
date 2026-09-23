@@ -138,6 +138,12 @@ export type AxAIProfileOperation = {
   path: string;
   dialect: string;
   url?: string;
+  /** Model an operation such as `speak` or `transcribe` uses when none is given. */
+  defaultModel?: string;
+  /** Request body encoding; transcription defaults to multipart upload. */
+  body?: 'json' | 'multipart';
+  /** Response encoding; speech defaults to raw binary audio. */
+  response?: 'json' | 'binary';
 };
 
 export type AxAIProfileEndpoint = {

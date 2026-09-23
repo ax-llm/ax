@@ -100,19 +100,69 @@ function mapAnthropicErrorEvent(error: {
 const isClaudeOpus47OrLater = (model: string): boolean =>
   model.includes('claude-opus-4-7') || model.includes('claude-opus-4-8');
 
-const isClaudeOpus48 = (model: string): boolean =>
-  model.includes('claude-opus-4-8');
-
 const isClaude5 = (model: string): boolean => model.includes('claude-sonnet-5');
+
+// Model ids arrive qualified (`publishers/anthropic/models/claude-opus-5`) or
+// dated, so these match anywhere in the id. The boundaries avoid lookahead so
+// the AxIR port, which runs on RE2, can mirror them exactly.
+
+/**
+ * A model family without its minor versions: `claude-opus-5` and its dated or
+ * `@`-versioned snapshots, but not `claude-opus-5-5`.
+ */
+const familyPattern = (id: string): RegExp =>
+  new RegExp(`${id}(?:$|[^0-9-]|-(?:[0-9]{3,}|[^0-9]))`);
+
+/** One minor version: `claude-opus-5-5`, but not `claude-opus-5-50`. */
+const versionPattern = (id: string): RegExp => new RegExp(`${id}(?:$|[^0-9])`);
+
+const CLAUDE_OPUS_5 = familyPattern('claude-opus-5');
+const CLAUDE_OPUS_5_5 = versionPattern('claude-opus-5-5');
+const CLAUDE_FABLE_5 = familyPattern('claude-fable-5');
+const CLAUDE_FABLE_5_1 = versionPattern('claude-fable-5-1');
+const CLAUDE_SONNET_5 = familyPattern('claude-sonnet-5');
 
 /**
  * Models that use adaptive thinking + output_config.effort and reject the legacy
- * thinking.type.enabled / budget_tokens surface (Opus 4.6, Opus 4.7+, Sonnet 5).
+ * thinking.type.enabled / budget_tokens surface (Opus 4.6+, Sonnet 5, Fable 5+).
  */
 const isAdaptiveThinkingModel = (model: string): boolean =>
   model.includes('claude-opus-4-6') ||
   isClaudeOpus47OrLater(model) ||
-  isClaude5(model);
+  isClaude5(model) ||
+  model.includes('claude-opus-5') ||
+  model.includes('claude-fable-5');
+
+/**
+ * Models whose thinking cannot be switched off: `thinking.type.disabled` is a
+ * 400, so the lowest effort is the closest Ax can get to `'none'`.
+ */
+const isThinkingAlwaysOn = (model: string): boolean =>
+  CLAUDE_OPUS_5_5.test(model) ||
+  CLAUDE_FABLE_5.test(model) ||
+  CLAUDE_FABLE_5_1.test(model);
+
+/**
+ * Models that think when `thinking` is omitted but accept `disabled`, so
+ * turning thinking off has to be explicit.
+ */
+const isThinkingOnByDefault = (model: string): boolean =>
+  CLAUDE_OPUS_5.test(model) || CLAUDE_SONNET_5.test(model);
+
+/** Models that answer `tool_choice` of type `any` or `tool` with a 400. */
+const rejectsForcedToolChoice = (model: string): boolean =>
+  CLAUDE_OPUS_5_5.test(model) || CLAUDE_FABLE_5_1.test(model);
+
+/**
+ * Models that keep a later `system` entry in place in the messages array
+ * instead of having it hoisted into the top-level system prompt.
+ */
+const keepsMidConversationSystem = (model: string): boolean =>
+  model.includes('claude-opus-4-8') ||
+  CLAUDE_OPUS_5.test(model) ||
+  CLAUDE_OPUS_5_5.test(model) ||
+  CLAUDE_FABLE_5.test(model) ||
+  CLAUDE_FABLE_5_1.test(model);
 
 const cleanSchemaForAnthropic = (schema: any): any => {
   if (!schema || typeof schema !== 'object') {
@@ -216,7 +266,7 @@ const cleanSchemaForAnthropic = (schema: any): any => {
 
 export const axAIAnthropicDefaultConfig = (): AxAIAnthropicConfig =>
   structuredClone({
-    model: AxAIAnthropicModel.Claude37Sonnet,
+    model: AxAIAnthropicModel.Claude5Sonnet,
     maxTokens: 40000, // Ensure maxTokens is higher than highest thinking budget
     thinkingTokenBudgetLevels: {
       minimal: 1024,
@@ -237,7 +287,7 @@ export const axAIAnthropicDefaultConfig = (): AxAIAnthropicConfig =>
 
 export const axAIAnthropicVertexDefaultConfig = (): AxAIAnthropicConfig =>
   structuredClone({
-    model: AxAIAnthropicVertexModel.Claude37Sonnet,
+    model: AxAIAnthropicVertexModel.Claude5Sonnet,
     maxTokens: 40000, // Ensure maxTokens is higher than highest thinking budget
     thinkingTokenBudgetLevels: {
       minimal: 1024,
@@ -387,6 +437,26 @@ class AxAIAnthropicImpl
       }
     }
 
+    // Opus 5.5 and Fable 5.1 answer a forced choice with a 400. Ax's own
+    // structured-output force is dropped, since these models return the schema
+    // natively; a caller's explicit force is surfaced instead of weakened.
+    const forcedChoice = toolsChoice?.tool_choice;
+    if (
+      forcedChoice &&
+      (forcedChoice.type === 'any' || forcedChoice.type === 'tool') &&
+      rejectsForcedToolChoice(modelStr)
+    ) {
+      if (
+        config.functionCallSource !== 'ax' ||
+        forcedChoice.name !== '__axOutput'
+      ) {
+        throw new Error(
+          `${modelStr} does not support explicitly forced tool choices; use functionCall 'auto'`
+        );
+      }
+      toolsChoice = undefined;
+    }
+
     // Detect if caching is enabled (any message or function has cache: true)
     // When caching is detected, Anthropic's automatic backward lookback means we should
     // always set cache_control on system and last tool for maximum cache reuse
@@ -395,7 +465,7 @@ class AxAIAnthropicImpl
       req.functions?.some((fn) => fn.cache);
 
     const supportsMidConversationSystem =
-      !this.isVertex && isClaudeOpus48(modelStr);
+      !this.isVertex && keepsMidConversationSystem(modelStr);
     const firstNonSystemIndex = req.chatPrompt.findIndex(
       (msg) => msg.role !== 'system'
     );
@@ -403,8 +473,9 @@ class AxAIAnthropicImpl
       firstNonSystemIndex === -1 ? req.chatPrompt.length : firstNonSystemIndex;
 
     // Cache system prompts - always cache last system message when caching is enabled.
-    // Opus 4.8 can preserve later system entries in the messages array; older targets
-    // keep the historical Ax behavior and hoist all system prompts.
+    // Opus 4.8+ and Fable 5+ can preserve later system entries in the messages
+    // array; older targets keep the historical Ax behavior and hoist all system
+    // prompts.
     const systemMessages = (
       supportsMidConversationSystem
         ? req.chatPrompt.slice(0, leadingSystemEnd)
@@ -539,9 +610,21 @@ class AxAIAnthropicImpl
       const effortMap = this.config.effortLevelMapping;
 
       if (config.thinkingTokenBudget === 'none') {
-        // Disable thinking and effort entirely
-        thinkingWire = undefined;
-        outputConfig = undefined;
+        if (isThinkingAlwaysOn(modelStr)) {
+          // Thinking cannot be disabled here; the lowest effort with the
+          // reasoning summary hidden is the closest match.
+          thinkingWire = { type: 'adaptive', display: 'omitted' };
+          outputConfig = { effort: 'low' };
+        } else if (isThinkingOnByDefault(modelStr)) {
+          // These models think when `thinking` is omitted, so switching it
+          // off has to be explicit.
+          thinkingWire = { type: 'disabled' };
+          outputConfig = undefined;
+        } else {
+          // Disable thinking and effort entirely
+          thinkingWire = undefined;
+          outputConfig = undefined;
+        }
       } else {
         const budgetLevel = config.thinkingTokenBudget as
           | 'minimal'
@@ -589,6 +672,17 @@ class AxAIAnthropicImpl
       outputConfig = { ...outputConfig, effort };
     }
 
+    // Opus 5 only lets thinking be switched off at effort `high` or below.
+    if (
+      thinkingWire?.type === 'disabled' &&
+      CLAUDE_OPUS_5.test(modelStr) &&
+      (outputConfig?.effort === 'xhigh' || outputConfig?.effort === 'max')
+    ) {
+      throw new Error(
+        `${modelStr} cannot disable thinking at effort '${outputConfig.effort}'; use effort 'high' or below, or keep thinking on`
+      );
+    }
+
     if (taskBudget) {
       if (taskBudget.total < 20_000) {
         throw new Error(
@@ -626,7 +720,7 @@ class AxAIAnthropicImpl
     }
 
     // Alias for use in downstream logic (messages, request building)
-    const thinkingEnabled = !!thinkingWire;
+    const thinkingEnabled = !!thinkingWire && thinkingWire.type !== 'disabled';
 
     const messages = createMessages(
       otherMessages,
@@ -638,7 +732,8 @@ class AxAIAnthropicImpl
     // block (i.e., we are pre-supplying a function call), Anthropic requires the final
     // assistant message to start with a thinking/redacted_thinking block when thinking
     // is enabled. Since we do not have a prior thinking block to echo here, disable thinking
-    // for this request to comply with their requirement.
+    // for this request to comply with their requirement. Models that think by default
+    // accept the replay as-is, and omitting the wire would not stop them thinking.
     const hasAssistantStartingWithToolUse = messages.some(
       (m) =>
         m.role === 'assistant' &&
@@ -646,7 +741,11 @@ class AxAIAnthropicImpl
         m.content.length > 0 &&
         (m.content[0] as any)?.type === 'tool_use'
     );
-    if (hasAssistantStartingWithToolUse) {
+    if (
+      hasAssistantStartingWithToolUse &&
+      !isThinkingAlwaysOn(modelStr) &&
+      !isThinkingOnByDefault(modelStr)
+    ) {
       thinkingWire = undefined;
       if (outputConfig) {
         const nextOutputConfig: AxAIAnthropicOutputConfig = {};

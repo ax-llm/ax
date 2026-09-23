@@ -64,6 +64,7 @@
     }
   },
   "kind": "ai_chat",
+  "model": "gemini-3.5-flash",
   "name": "gemini-tool-call",
   "provider": "gemini",
   "request": {

@@ -92,6 +92,7 @@ const internalExportNames = new Set([
   'axResolveOpenAIPromptCacheKey',
   'axIsGPT56Family',
   'axIsGPT6Astra',
+  'axIsGPT6Family',
   'axSupportsOpenAIBreakpointCaching',
   'axValidateOpenAIResponseRequest',
 ]);

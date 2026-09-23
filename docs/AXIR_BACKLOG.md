@@ -18,7 +18,12 @@ This ledger tracks portable TypeScript behavior that should be migrated into AxI
 
 ## Open
 
-No entries.
+- `axir-2026-09-23-port-speak-samplerate-channels-parsed-from-raw-pcm-mime-types` [axai] Port speak() sampleRate/channels parsed from raw-PCM mime types
+  - Status: open
+  - Source commit: `e690b4823b8309e258594064abe941d4cff6ef89`
+  - TS paths: `src/ax/ai/audio/util.ts`
+  - Impact: TS speak() now reports sampleRate and channels from mime parameters such as audio/l16; rate=24000; channels=1 (Gemini 3.1 TTS). Generated ports return format and mime_type but not the parsed sampleRate/channels fields.
+  - Suggested AxIR work: Add or update the TS-derived conformance fixture.; Update AxIR/Core or descriptor data to match the portable TS behavior.; Run npm run axir:conformance:check and npm run test:axir.
 
 ## Done
 

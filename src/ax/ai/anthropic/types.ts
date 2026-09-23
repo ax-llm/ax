@@ -1,31 +1,50 @@
 import type { AxModelConfig } from '../types.js';
 
 export enum AxAIAnthropicModel {
+  Claude55Opus = 'claude-opus-5-5',
+  Claude51Fable = 'claude-fable-5-1',
+  Claude5Opus = 'claude-opus-5',
+  Claude5Fable = 'claude-fable-5',
   Claude5Sonnet = 'claude-sonnet-5',
   Claude48Opus = 'claude-opus-4-8',
   Claude47Opus = 'claude-opus-4-7',
   Claude46Opus = 'claude-opus-4-6',
   Claude46Sonnet = 'claude-sonnet-4-6',
   Claude45Opus = 'claude-opus-4-5-20251101',
+  /** @deprecated Retired by Anthropic on 2026-08-05; use `Claude55Opus`. */
   Claude41Opus = 'claude-opus-4-1-20250805',
+  /** @deprecated Retired by Anthropic on 2026-06-15; use `Claude55Opus`. */
   Claude4Opus = 'claude-opus-4-20250514',
+  /** @deprecated Retired by Anthropic on 2026-06-15; use `Claude5Sonnet`. */
   Claude4Sonnet = 'claude-sonnet-4-20250514',
   Claude45Sonnet = 'claude-sonnet-4-5-20250929',
   Claude45Haiku = 'claude-haiku-4-5',
+  /** @deprecated Retired by Anthropic on 2026-02-19; use `Claude5Sonnet`. */
   Claude37Sonnet = 'claude-3-7-sonnet-latest',
 
+  /** @deprecated Retired by Anthropic on 2025-10-28; use `Claude5Sonnet`. */
   Claude35Sonnet = 'claude-3-5-sonnet-latest',
+  /** @deprecated Retired by Anthropic on 2026-02-19; use `Claude45Haiku`. */
   Claude35Haiku = 'claude-3-5-haiku-latest',
 
+  /** @deprecated Retired by Anthropic on 2026-01-05; use `Claude55Opus`. */
   Claude3Opus = 'claude-3-opus-latest',
+  /** @deprecated Retired by Anthropic on 2025-07-21; use `Claude5Sonnet`. */
   Claude3Sonnet = 'claude-3-sonnet-20240229',
+  /** @deprecated Retired by Anthropic on 2026-04-20; use `Claude45Haiku`. */
   Claude3Haiku = 'claude-3-haiku-20240307',
 
+  /** @deprecated Retired by Anthropic on 2025-07-21; use `Claude55Opus`. */
   Claude21 = 'claude-2.1',
+  /** @deprecated Retired by Anthropic on 2024-11-06; use `Claude45Haiku`. */
   ClaudeInstant12 = 'claude-instant-1.2',
 }
 
 export enum AxAIAnthropicVertexModel {
+  Claude55Opus = 'claude-opus-5-5',
+  Claude51Fable = 'claude-fable-5-1',
+  Claude5Opus = 'claude-opus-5',
+  Claude5Fable = 'claude-fable-5',
   Claude5Sonnet = 'claude-sonnet-5',
   Claude48Opus = 'claude-opus-4-8',
   Claude47Opus = 'claude-opus-4-7',
@@ -55,7 +74,9 @@ export type AxAIAnthropicThinkingConfig = {
 // Internal wire types for the Anthropic API (not user-facing)
 export type AxAIAnthropicThinkingWire =
   | { type: 'enabled'; budget_tokens: number }
-  | { type: 'adaptive'; display?: 'summarized' | 'omitted' };
+  | { type: 'adaptive'; display?: 'summarized' | 'omitted' }
+  // Only for models that think by default yet allow turning it off.
+  | { type: 'disabled' };
 
 export type AxAIAnthropicEffortLevel =
   | 'low'

@@ -22,7 +22,7 @@ import urllib.parse
 import urllib.request
 from typing import Any, Callable, Iterable, Protocol, TypedDict, Literal
 # AXIR_CORE_IMPORTS
-from .signature import _core_record_new
+from .signature import _core_record_new, _core_regex_match
 
 def _core_validation_error(message):
     return ValueError(str(message))
@@ -1377,8 +1377,8 @@ class ProviderOperationClient(AxBaseAI):
     def transcribe(self, request: dict[str, Any], options: dict[str, Any] | None = None):
         cancellation = _check_cancelled(options)
         payload = provider_build_transcribe_request(self.profile, request)
-        model = request.get("model") or self.model
         descriptor = provider_operation_descriptor(self.profile, "transcribe")
+        model = request.get("model") or descriptor.get("defaultModel") or self.model
         body_key = "data" if descriptor.get("body") == "multipart" else "json"
         query = payload.pop("query", None) or {}
         endpoint = self._operation_path("transcribe", model)
@@ -1393,8 +1393,8 @@ class ProviderOperationClient(AxBaseAI):
     def speak(self, request: dict[str, Any], options: dict[str, Any] | None = None):
         cancellation = _check_cancelled(options)
         payload = provider_build_speak_request(self.profile, request)
-        model = request.get("model") or self.model
         descriptor = provider_operation_descriptor(self.profile, "speak")
+        model = request.get("model") or descriptor.get("defaultModel") or self.model
         body_key = "data" if descriptor.get("body") == "multipart" else "json"
         binary_response = descriptor.get("response") == "binary"
         raw = self._request_json(self._operation_path("speak", model), payload, stream=False, body_key=body_key, binary_response=binary_response, method=self._operation_method("speak"), operation="speak", cancellation=cancellation)

@@ -1,5 +1,5 @@
 import { AxOpenAIChatSession } from './openai/chat_session.js';
-import { axIsGPT6Astra } from './openai/model_family.js';
+import { axIsGPT6Astra, axIsGPT6Family } from './openai/model_family.js';
 import { axAIOpenAIResponsesDefaultConfig } from './openai/responses_api_base.js';
 import { AxAIOpenAIResponsesClient } from './openai/responses_client.js';
 import type { AxChatSession } from './session.js';
@@ -160,9 +160,8 @@ type InferTModelKey<T> = T extends { models: infer M }
  *   name: 'anthropic',
  *   apiKey: process.env.ANTHROPIC_API_KEY,
  *   config: {
- *     model: 'claude-sonnet-4-20250514',
- *     maxTokens: 4096,
- *     temperature: 0.7
+ *     model: 'claude-sonnet-5',
+ *     maxTokens: 4096
  *   }
  * });
  * ```
@@ -173,8 +172,8 @@ type InferTModelKey<T> = T extends { models: infer M }
  *   name: 'google-gemini',
  *   apiKey: process.env.GOOGLE_API_KEY,
  *   models: [
- *     { key: 'fast', model: 'gemini-2.0-flash' },
- *     { key: 'smart', model: 'gemini-1.5-pro' }
+ *     { key: 'fast', model: 'gemini-3.5-flash-lite' },
+ *     { key: 'smart', model: 'gemini-3.8-flash' }
  *   ]
  * });
  * // Now use ai with model: 'fast' or model: 'smart'
@@ -316,7 +315,7 @@ export class AxAI<TModelKey = string>
   getFeatures(model?: string): AxAIFeatures {
     const resolved = this.resolveModel(model);
     const features =
-      (axIsGPT6Astra(resolved) ? this.responsesAI : undefined)?.getFeatures(
+      (axIsGPT6Family(resolved) ? this.responsesAI : undefined)?.getFeatures(
         resolved
       ) ?? this.ai.getFeatures(resolved);
     return this.responsesClient && axIsGPT6Astra(resolved)
@@ -367,7 +366,7 @@ export class AxAI<TModelKey = string>
     options?: Readonly<AxAIServiceOptions>
   ): void {
     const resolved = this.resolveModel(req.model);
-    const service = axIsGPT6Astra(resolved)
+    const service = axIsGPT6Family(resolved)
       ? (this.responsesAI ?? this.ai)
       : this.ai;
     service.validateChatRequest?.(req, options);
@@ -378,7 +377,9 @@ export class AxAI<TModelKey = string>
     options?: Readonly<AxAIServiceOptions>
   ): Promise<AxChatResponse | ReadableStream<AxChatResponse>> {
     const resolved = this.resolveModel(req.model);
-    const service = axIsGPT6Astra(resolved)
+    // GPT-6 refuses function tools on Chat Completions while it reasons, so
+    // the whole family runs on Responses when this provider has that sibling.
+    const service = axIsGPT6Family(resolved)
       ? (this.responsesAI ?? this.ai)
       : this.ai;
     return await service.chat(req, options);

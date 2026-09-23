@@ -16,7 +16,7 @@
           ]
         },
         "defaultEmbedModel": "gemini-embedding-2",
-        "defaultModel": "gemini-2.5-flash",
+        "defaultModel": "gemini-3.6-flash",
         "displayName": "Google Gemini",
         "isDynamic": false,
         "models": [
@@ -38,12 +38,162 @@
               "topP": true
             },
             "characterIsToken": false,
-            "completionTokenCostPer1M": 3,
+            "completionTokenCostPer1M": 12,
+            "contextWindow": 8192,
             "currency": "usd",
             "isDefault": false,
-            "name": "gemini-3.1-flash-tts-preview",
-            "promptTokenCostPer1M": 0.5,
+            "maxTokens": 16384,
+            "name": "gemini-3.8-flash-lite-tts",
+            "promptTokenCostPer1M": 1,
             "provider": "google-gemini",
+            "type": "audio"
+          },
+          {
+            "audio": {
+              "input": true,
+              "output": false
+            },
+            "capabilities": {
+              "audioInput": true,
+              "audioOutput": false,
+              "imageOutput": false,
+              "serviceTiers": ["standard", "flex", "priority"],
+              "showThoughts": false,
+              "structuredOutputs": false,
+              "temperature": true,
+              "thinkingBudget": false,
+              "thinkingLevels": [],
+              "topP": true
+            },
+            "characterIsToken": false,
+            "completionTokenCostPer1M": 12,
+            "contextWindow": 98304,
+            "currency": "usd",
+            "isDefault": false,
+            "maxTokens": 32768,
+            "name": "gemini-3.5-transcribe",
+            "promptTokenCostPer1M": 2,
+            "provider": "google-gemini",
+            "supported": {
+              "operations": ["transcribe"]
+            },
+            "type": "audio"
+          },
+          {
+            "audio": {
+              "input": false,
+              "output": true
+            },
+            "capabilities": {
+              "audioInput": false,
+              "audioOutput": true,
+              "imageOutput": false,
+              "serviceTiers": ["standard", "flex", "priority"],
+              "showThoughts": false,
+              "structuredOutputs": false,
+              "temperature": true,
+              "thinkingBudget": false,
+              "thinkingLevels": [],
+              "topP": true
+            },
+            "characterIsToken": false,
+            "completionTokenCostPer1M": 18,
+            "contextWindow": 8192,
+            "currency": "usd",
+            "isDefault": false,
+            "maxTokens": 16384,
+            "name": "gemini-3.8-flash-tts",
+            "promptTokenCostPer1M": 1,
+            "provider": "google-gemini",
+            "type": "audio"
+          },
+          {
+            "audio": {
+              "input": false,
+              "output": true
+            },
+            "capabilities": {
+              "audioInput": false,
+              "audioOutput": true,
+              "imageOutput": false,
+              "serviceTiers": ["standard", "flex", "priority"],
+              "showThoughts": false,
+              "structuredOutputs": false,
+              "temperature": true,
+              "thinkingBudget": false,
+              "thinkingLevels": [],
+              "topP": true
+            },
+            "characterIsToken": false,
+            "completionTokenCostPer1M": 20,
+            "contextWindow": 8192,
+            "currency": "usd",
+            "isDefault": false,
+            "maxTokens": 16384,
+            "name": "gemini-3.1-flash-tts-preview",
+            "promptTokenCostPer1M": 1,
+            "provider": "google-gemini",
+            "type": "audio"
+          },
+          {
+            "audio": {
+              "input": true,
+              "output": true
+            },
+            "capabilities": {
+              "audioInput": true,
+              "audioOutput": true,
+              "imageOutput": false,
+              "serviceTiers": [],
+              "showThoughts": false,
+              "structuredOutputs": false,
+              "temperature": true,
+              "thinkingBudget": false,
+              "thinkingLevels": [],
+              "topP": true
+            },
+            "characterIsToken": false,
+            "contextWindow": 131072,
+            "isDefault": false,
+            "maxTokens": 65536,
+            "name": "gemini-3.8-live",
+            "provider": "google-gemini",
+            "type": "audio"
+          },
+          {
+            "audio": {
+              "input": true,
+              "output": true
+            },
+            "capabilities": {
+              "audioInput": true,
+              "audioOutput": true,
+              "imageOutput": false,
+              "serviceTiers": [],
+              "showThoughts": true,
+              "structuredOutputs": false,
+              "temperature": true,
+              "thinkingBudget": true,
+              "thinkingLevels": [
+                "none",
+                "minimal",
+                "low",
+                "medium",
+                "high",
+                "highest"
+              ],
+              "topP": true
+            },
+            "characterIsToken": false,
+            "contextWindow": 131072,
+            "isDefault": false,
+            "maxTokens": 65536,
+            "name": "gemini-3.8-live-extended-thinking",
+            "provider": "google-gemini",
+            "supported": {
+              "showThoughts": true,
+              "thinkingBudget": true
+            },
             "type": "audio"
           },
           {
@@ -262,6 +412,70 @@
           {
             "audio": {
               "input": true,
+              "output": true
+            },
+            "capabilities": {
+              "audioInput": true,
+              "audioOutput": true,
+              "imageOutput": false,
+              "serviceTiers": [],
+              "showThoughts": false,
+              "structuredOutputs": false,
+              "temperature": true,
+              "thinkingBudget": true,
+              "thinkingLevels": [
+                "none",
+                "minimal",
+                "low",
+                "medium",
+                "high",
+                "highest"
+              ],
+              "topP": true
+            },
+            "isDefault": false,
+            "name": "gpt-realtime-2.1",
+            "provider": "openai",
+            "supported": {
+              "thinkingBudget": true
+            },
+            "type": "audio"
+          },
+          {
+            "audio": {
+              "input": true,
+              "output": true
+            },
+            "capabilities": {
+              "audioInput": true,
+              "audioOutput": true,
+              "imageOutput": false,
+              "serviceTiers": [],
+              "showThoughts": false,
+              "structuredOutputs": false,
+              "temperature": true,
+              "thinkingBudget": true,
+              "thinkingLevels": [
+                "none",
+                "minimal",
+                "low",
+                "medium",
+                "high",
+                "highest"
+              ],
+              "topP": true
+            },
+            "isDefault": false,
+            "name": "gpt-realtime-2.1-mini",
+            "provider": "openai",
+            "supported": {
+              "thinkingBudget": true
+            },
+            "type": "audio"
+          },
+          {
+            "audio": {
+              "input": true,
               "output": false
             },
             "capabilities": {
@@ -301,6 +515,32 @@
             "isDefault": false,
             "name": "gpt-realtime-translate",
             "provider": "openai",
+            "type": "audio"
+          },
+          {
+            "audio": {
+              "input": true,
+              "output": false
+            },
+            "capabilities": {
+              "audioInput": true,
+              "audioOutput": false,
+              "imageOutput": false,
+              "serviceTiers": [],
+              "showThoughts": false,
+              "structuredOutputs": false,
+              "temperature": true,
+              "thinkingBudget": false,
+              "thinkingLevels": [],
+              "topP": true
+            },
+            "isDefault": false,
+            "name": "gpt-transcribe",
+            "provider": "openai",
+            "supported": {
+              "operations": ["transcribe"],
+              "serviceTiers": []
+            },
             "type": "audio"
           }
         ],
@@ -350,7 +590,7 @@
             "highest"
           ]
         },
-        "defaultModel": "claude-3-7-sonnet-latest",
+        "defaultModel": "claude-sonnet-5",
         "displayName": "Anthropic",
         "isDynamic": false,
         "models": [],
@@ -964,7 +1204,7 @@
         "name": "typesafe"
       }
     ],
-    "modelCount": 13,
+    "modelCount": 21,
     "openaiFirstModel": "gpt-audio",
     "openaiModelTypes": ["audio"],
     "providerCount": 50,

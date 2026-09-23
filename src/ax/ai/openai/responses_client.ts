@@ -5,7 +5,7 @@ import type {
   AxModelUsage,
 } from '../types.js';
 import { axResolveOpenAIResponsesReasoningEffort } from './effort.js';
-import { axIsGPT6Astra } from './model_family.js';
+import { axIsGPT6Astra, axIsGPT6Family } from './model_family.js';
 import type {
   AxAIOpenAIResponsesRequest,
   AxAIOpenAIResponsesResponse,
@@ -94,8 +94,9 @@ export function axValidateOpenAIResponseRequest<T>(
       previousWasUpdate = update;
     }
   }
-  if (!astra) return request;
+  if (!axIsGPT6Family(request.model)) return request;
   if (
+    astra &&
     request.reasoning?.effort &&
     !['low', 'medium', 'high', 'xhigh', 'max'].includes(
       request.reasoning.effort
@@ -105,12 +106,10 @@ export function axValidateOpenAIResponseRequest<T>(
       'GPT-6 Astra requires reasoning effort low, medium, high, xhigh, or max'
     );
   }
-  const {
-    temperature: _temperature,
-    top_p: _topP,
-    prompt_cache_retention: _retention,
-    ...clean
-  } = request;
+  // The whole GPT-6 family refuses sampling parameters while it reasons.
+  const { temperature: _temperature, top_p: _topP, ...family } = request;
+  if (!astra) return family as AxAIOpenAIResponsesRequest<T>;
+  const { prompt_cache_retention: _retention, ...clean } = family;
   // Also sanitize dynamically supplied fields, even when callers bypass TS types.
   const result = { ...clean } as AxAIOpenAIResponsesRequest<T> &
     Record<string, unknown>;

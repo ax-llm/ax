@@ -278,6 +278,7 @@ import type {
 import {
   axAudioFormatFromMimeType,
   axAudioMimeType,
+  axAudioParamsFromMimeType,
   axConcatBase64,
 } from './ai/audio/util.js';
 import { AxBalancer, type AxBalancerOptions } from './ai/balance.js';
@@ -1547,6 +1548,7 @@ export { axAudioFormatFromMimeType };
 export { axAudioInputFilename };
 export { axAudioInputToBlob };
 export { axAudioMimeType };
+export { axAudioParamsFromMimeType };
 export { axBaseAIDefaultConfig };
 export { axBaseAIDefaultCreativeConfig };
 export { axBuildDistillerDefinition };
