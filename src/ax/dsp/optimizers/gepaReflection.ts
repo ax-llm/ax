@@ -1,4 +1,4 @@
-import type { AxAIService } from '../../ai/types.js';
+import type { AxAIService, AxAIServiceOptions } from '../../ai/types.js';
 import type { AxExample } from '../common_types.js';
 import { ax } from '../template.js';
 import type { AxGEPAComponentTarget } from './gepaComponents.js';
@@ -80,8 +80,14 @@ export function summarizeGEPATraces(
   }));
 }
 
+/**
+ * Asks the teacher for a new component value, retrying up to `maxAttempts`
+ * times. Returns undefined when no attempt produced a valid value, and
+ * rethrows the error when the last attempt's teacher call failed.
+ */
 export async function proposeGEPAComponentValue(args: {
   ai: AxAIService;
+  options?: Readonly<AxAIServiceOptions>;
   target: Readonly<AxGEPAComponentTarget>;
   currentValue: string;
   tuples: readonly AxGEPAReflectiveTuple[];
@@ -89,8 +95,10 @@ export async function proposeGEPAComponentValue(args: {
   traceDataset?: readonly unknown[];
   maxAttempts?: number;
 }): Promise<string | undefined> {
+  // currentValue is optional because components can start empty (an ax()
+  // program's instruction does), and a required input rejects ''.
   const refl = ax(
-    `componentKey:string "Component key", componentKind:string "Free-form component kind hint", componentDescription?:string "What this string is used for", constraints?:string "Hard constraints on the new value", currentValue:string "Current value of the component", feedbackSummary?:string "Summarized feedback", previousValidationError?:string "Why the previous proposal was rejected; avoid repeating it", minibatch:json "Array of {input,prediction,score}", traceDataset?:json "Compact actionable execution trace summaries relevant to this component" -> newValue:string "Improved value for the component"`
+    `componentKey:string "Component key", componentKind:string "Free-form component kind hint", componentDescription?:string "What this string is used for", constraints?:string "Hard constraints on the new value", currentValue?:string "Current value of the component", feedbackSummary?:string "Summarized feedback", previousValidationError?:string "Why the previous proposal was rejected; avoid repeating it", minibatch:json "Array of {input,prediction,score}", traceDataset?:json "Compact actionable execution trace summaries relevant to this component" -> newValue:string "Improved value for the component"`
   );
 
   const attempts = Math.max(1, args.maxAttempts ?? 2);
@@ -112,25 +120,34 @@ export async function proposeGEPAComponentValue(args: {
   ]
     .filter((value): value is string => Boolean(value))
     .join('\n');
+  let lastError: { error: unknown } | undefined;
   for (let attempt = 0; attempt < attempts; attempt++) {
+    lastError = undefined;
     try {
-      const out = (await refl.forward(args.ai, {
-        componentKey: args.target.id,
-        componentKind: args.target.kind,
-        componentDescription: args.target.description,
-        constraints: metadataConstraints || undefined,
-        currentValue: args.currentValue,
-        feedbackSummary: args.feedbackSummary,
-        previousValidationError,
-        minibatch,
-        traceDataset,
-      } as any)) as any;
+      const out = (await refl.forward(
+        args.ai,
+        {
+          componentKey: args.target.id,
+          componentKind: args.target.kind,
+          componentDescription: args.target.description,
+          constraints: metadataConstraints || undefined,
+          currentValue: args.currentValue,
+          feedbackSummary: args.feedbackSummary,
+          previousValidationError,
+          minibatch,
+          traceDataset,
+        } as any,
+        args.options
+      )) as any;
       const candidate = (out?.newValue as string | undefined)?.trim();
       if (!candidate) continue;
       const validation = args.target.validate?.(candidate) ?? true;
       if (validation === true) return candidate;
       previousValidationError = validation;
-    } catch {}
+    } catch (error) {
+      lastError = { error };
+    }
   }
+  if (lastError) throw lastError.error;
   return undefined;
 }
