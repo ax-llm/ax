@@ -1285,6 +1285,8 @@ export class AxGen<IN = any, OUT extends AxGenOut = any>
           !firstStep,
         thinkingTokenBudget,
         showThoughts,
+        useExpensiveModel:
+          options?.useExpensiveModel ?? this.options?.useExpensiveModel,
         traceContext,
         abortSignal: mergeAbortSignals(
           options?.abortSignal,

@@ -1214,10 +1214,10 @@ export type AxAIServiceOptions = {
   showThoughts?: boolean;
 
   /**
-   * Hint to use a more capable (and expensive) model for complex tasks.
+   * Confirms a request may use a model marked `isExpensive` in its model info.
    *
-   * Some providers offer tiered models. Setting this to 'yes' requests the
-   * higher-capability tier when available.
+   * Requests for such a model are rejected unless this is `'yes'`. It does not
+   * select a different model.
    */
   useExpensiveModel?: 'yes';
 
