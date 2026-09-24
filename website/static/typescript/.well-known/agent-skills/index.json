@@ -69,7 +69,7 @@
       "type": "skill-md",
       "description": "This skill helps an LLM generate correct AxAgent RLM/runtime code using @ax-llm/ax. Use when the user asks about RLM code execution, AxJSRuntime, contextFields, contextPolicy, liveRuntimeState, promptLevel, stage prompt controls, executorModelPolicy, maxRuntimeChars, agent.test(...), llmQuery(...), recursionOptions, or long-running agent runtime behavior.",
       "url": "ax-agent-rlm/SKILL.md",
-      "digest": "sha256:717ffb33ccd7eb582da499eaa93f99c0f270d279dd0b0a94bdde2abb60581eac"
+      "digest": "sha256:0633221e1460aef59553f7705924671ea5bf7543910876fd3ceab60a6eb4efc7"
     },
     {
       "name": "ax-agent-memory-skills",

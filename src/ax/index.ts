@@ -187,6 +187,7 @@ import type {
   AxResolvedAgentPlaybookLearn,
 } from './agent/playbookConfig.js';
 import {
+  type AxCodeExecutionResult,
   type AxCodeRuntime,
   type AxCodeSession,
   type AxCodeSessionSnapshot,
@@ -2072,6 +2073,7 @@ export type { AxChatSessionEvent };
 export type { AxCheckpointLoadFn };
 export type { AxCheckpointSaveFn };
 export type { AxCitation };
+export type { AxCodeExecutionResult };
 export type { AxCodeRuntime };
 export type { AxCodeSession };
 export type { AxCodeSessionSnapshot };

@@ -1,6 +1,6 @@
 import { AxAIServiceAbortedError } from '../../util/apicall.js';
 import { AxAgentProtocolCompletionSignal } from '../completion.js';
-import type { AxCodeSession } from '../rlm.js';
+import type { AxCodeExecutionResult, AxCodeSession } from '../rlm.js';
 import {
   formatInterpreterError,
   formatInterpreterOutput,
@@ -31,10 +31,22 @@ export interface ExecutionHelperDeps {
   createSession: () => AxCodeSession;
 }
 
+/** Outcome of running one actor turn's code in the runtime session. */
+export type ActorCodeExecutionResult = {
+  result: unknown;
+  output: string;
+  /** The turn failed; the action log tags it `error`. */
+  isError: boolean;
+  /**
+   * The failure is an error in the code that the live session reported as
+   * its result (`AxCodeSession.executeWithStatus()`) instead of rejecting, so
+   * `output` is still the runtime's own text.
+   */
+  isCodeError?: boolean;
+};
+
 export interface ExecutionHelpers {
-  executeActorCode: (
-    code: string
-  ) => Promise<{ result: unknown; output: string; isError: boolean }>;
+  executeActorCode: (code: string) => Promise<ActorCodeExecutionResult>;
   executeTestCode: (code: string) => Promise<AxAgentTestResult>;
 }
 
@@ -53,9 +65,24 @@ export function buildExecutionHelpers(
     createSession,
   } = deps;
 
+  // Sessions without executeWithStatus() report every error by rejecting.
+  const executeCode = (code: string): Promise<AxCodeExecutionResult> => {
+    const session = sessionRef.current;
+    const options = {
+      signal: effectiveAbortSignal,
+      reservedNames: protectedRuntimeNames,
+    };
+    return typeof session.executeWithStatus === 'function'
+      ? session.executeWithStatus(code, options)
+      : session.execute(code, options).then((value) => ({
+          value,
+          isError: false,
+        }));
+  };
+
   const executeActorCode = async (
     code: string
-  ): Promise<{ result: unknown; output: string; isError: boolean }> => {
+  ): Promise<ActorCodeExecutionResult> => {
     const completionOutput = {
       result: undefined,
       output: formatInterpreterOutput(undefined, getMaxRuntimeChars()),
@@ -63,10 +90,7 @@ export function buildExecutionHelpers(
     };
 
     try {
-      const result = await sessionRef.current.execute(code, {
-        signal: effectiveAbortSignal,
-        reservedNames: protectedRuntimeNames,
-      });
+      const { value: result, isError: isCodeError } = await executeCode(code);
       if (completionState.payload) {
         return completionOutput;
       }
@@ -83,7 +107,8 @@ export function buildExecutionHelpers(
       return {
         result,
         output: formatInterpreterOutput(result, getMaxRuntimeChars()),
-        isError: false,
+        isError: isCodeError,
+        isCodeError,
       };
     } catch (err) {
       if (
@@ -128,10 +153,8 @@ export function buildExecutionHelpers(
         try {
           sessionRef.current = createSession();
           completionState.payload = undefined;
-          const retryResult = await sessionRef.current.execute(code, {
-            signal: effectiveAbortSignal,
-            reservedNames: protectedRuntimeNames,
-          });
+          const { value: retryResult, isError: isCodeError } =
+            await executeCode(code);
           const retryLimit = getMaxRuntimeChars();
           return {
             result: retryResult,
@@ -139,7 +162,8 @@ export function buildExecutionHelpers(
               `${RUNTIME_RESTART_NOTICE}\n${formatInterpreterOutput(retryResult, retryLimit)}`,
               retryLimit
             ),
-            isError: false,
+            isError: isCodeError,
+            isCodeError,
           };
         } catch (retryErr) {
           if (

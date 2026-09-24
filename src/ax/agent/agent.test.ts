@@ -3232,6 +3232,69 @@ describe('Actor/Responder execution loop', () => {
     expect(thirdActorPrompt).toContain('const recovered = 7');
   });
 
+  it('should tombstone a resolved runtime ReferenceError from the default runtime', async () => {
+    const executorPrompts: string[] = [];
+    const events: AxAgentContextEvent[] = [];
+    const executorTurns = [
+      'console.log(brokenHelper())',
+      'console.log("recovered")',
+      'await final("generate output", { data: "done" })',
+    ];
+
+    const testMockAI = new AxMockAIService({
+      features: { functions: false, streaming: false },
+      chatResponse: async (req) => {
+        const systemPrompt = String(req.chatPrompt[0]?.content ?? '');
+        const reply = (content: string) => ({
+          results: [{ index: 0, content, finishReason: 'stop' as const }],
+          modelUsage: makeModelUsage(),
+        });
+        if (systemPrompt.includes('You (`distiller`)')) {
+          return reply('Javascript Code: await final("generate output", {})');
+        }
+        if (systemPrompt.includes('You (`executor`)')) {
+          executorPrompts.push(String(req.chatPrompt[1]?.content ?? ''));
+          const code =
+            executorTurns[
+              Math.min(executorPrompts.length, executorTurns.length) - 1
+            ];
+          return reply(`Javascript Code: ${code}`);
+        }
+        return reply('Answer: done');
+      },
+    });
+
+    const testAgent = agent('query:string -> answer:string', {
+      ai: testMockAI,
+      directResponse: 'off',
+      contextPolicy: { preset: 'adaptive' },
+      onContextEvent: (event) => {
+        events.push(event);
+      },
+    });
+
+    await testAgent.forward(testMockAI, { query: 'unused' });
+
+    expect(executorPrompts).toHaveLength(3);
+    // The actor reads the runtime's formatted error on the next turn...
+    expect(executorPrompts[1]).toContain(
+      'ReferenceError: brokenHelper is not defined'
+    );
+    // ...and once a later turn succeeds, the error turn is tombstoned.
+    const tombstone =
+      '[TOMBSTONE]: Resolved ReferenceError: brokenHelper is not defined in turn 2.';
+    expect(executorPrompts[2]).toContain(tombstone);
+    expect(executorPrompts[2]).not.toContain('Source:');
+    expect(events).toContainEqual({
+      kind: 'tombstone_created',
+      stage: 'executor',
+      turn: 1,
+      resolvedByTurn: 2,
+      source: 'deterministic',
+      summaryChars: tombstone.length,
+    });
+  });
+
   it('should forward request-level options into tombstone summarizer calls', async () => {
     let actorCallCount = 0;
 

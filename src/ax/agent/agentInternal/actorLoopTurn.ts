@@ -457,12 +457,14 @@ export async function runActorTurn<_IN extends AxGenIn>(
   let result: unknown;
   let output: string;
   let isError: boolean;
+  let isCodeError: boolean;
 
   try {
     const executionResult = await runtimeContext.executeActorCode(code);
     result = executionResult.result;
     output = executionResult.output;
     isError = executionResult.isError;
+    isCodeError = executionResult.isCodeError === true;
   } catch (err) {
     if (
       err instanceof AxAgentClarificationError ||
@@ -518,10 +520,14 @@ export async function runActorTurn<_IN extends AxGenIn>(
     result = undefined;
     output = buildGuidanceActionLogOutput(guidancePayload);
     isError = false;
+    isCodeError = false;
   }
 
+  // A code error is still the live session's own output, so it keeps the
+  // output shaping and state refresh that only a failed execution skips.
+  const executionFailed = isError && !isCodeError;
   const discoveryTurnArtifacts = runtimeContext.consumeDiscoveryTurnArtifacts();
-  if (!isError) {
+  if (!executionFailed) {
     output = stripDiscoveryTurnOutput(output, discoveryTurnArtifacts.texts);
     output = appendDiscoveryTurnSummary(output, discoveryTurnArtifacts.summary);
   }
@@ -574,7 +580,7 @@ export async function runActorTurn<_IN extends AxGenIn>(
     summaryForwardOptions,
     { stage: contextStage, onContextEvent: s.onContextEvent }
   );
-  if (!isError) {
+  if (!executionFailed) {
     mutableState.runtimeStateSummary =
       await runtimeContext.captureRuntimeStateSummary();
   }
