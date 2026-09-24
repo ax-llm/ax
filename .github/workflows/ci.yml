@@ -90,6 +90,8 @@ jobs:
         run: npm run axir:gate:anti-facade
       - name: Check AxIR RLM prompt sync (TS .md vs IR json)
         run: npm run axir:gate:prompt-sync
+      - name: Check agent skills and their published website mirrors
+        run: npm run skills:check
       - name: Check formatting
         run: npm run test:format
       - name: Lint
@@ -253,6 +255,17 @@ jobs:
         run: npm ci
       - name: Check documentation website
         run: npm run website:check
+      - name: Check website/static matches website:prepare output
+        # website:check ran website:prepare, which rewrites the tracked
+        # agent-skill mirrors. Any change here means the committed copies are
+        # stale.
+        run: |
+          if [ -n "$(git status --porcelain --untracked-files=all -- website/static)" ]; then
+            git status --short --untracked-files=all -- website/static
+            git --no-pager diff -- website/static
+            echo "::error::website/static is stale. Run npm run website:prepare and commit the result."
+            exit 1
+          fi
 
   axir-verify:
     name: AxIR Verify (${{ matrix.target }})

@@ -284,9 +284,12 @@ const getVertexGeminiAPIVersion = (
 ): 'v1' | 'v1beta1' => (beta ? 'v1beta1' : 'v1');
 
 /**
- * Clean function schema for Gemini API compatibility by removing unsupported fields.
- * Gemini structured outputs support `additionalProperties` and nullable type
- * unions such as `["string", "null"]`.
+ * Clean a JSON Schema for Gemini's JSON Schema request fields
+ * (`generationConfig.responseJsonSchema` and
+ * `function_declarations[].parametersJsonSchema`). Both support
+ * `additionalProperties` and nullable type unions such as `["string", "null"]`.
+ * The legacy `responseSchema`/`parameters` fields use Gemini's OpenAPI Schema
+ * subset, which rejects both, so never send this output there.
  */
 const cleanSchemaForGemini = (schema: any): any => {
   if (!schema || typeof schema !== 'object') {
@@ -900,11 +903,14 @@ class AxAIGoogleGeminiImpl
         }
 
         // Only include supported fields for Gemini function declarations
-        // Exclude 'cache' and other unsupported fields
+        // Exclude 'cache' and other unsupported fields.
+        // Use parametersJsonSchema (full JSON Schema): the legacy `parameters`
+        // field only takes the OpenAPI Schema subset and 400s on the
+        // `additionalProperties` that fn() and MCP tool schemas carry.
         return {
           name: fn.name,
           description: fn.description,
-          parameters,
+          parametersJsonSchema: parameters,
         };
       });
       tools.push({ function_declarations: cleanedFunctions });
@@ -963,15 +969,15 @@ class AxAIGoogleGeminiImpl
           function_calling_config: { mode: 'ANY' as const },
         };
       } else {
-        const allowedFunctionNames = req.functionCall.function?.name
-          ? {
-              allowedFunctionNames: [req.functionCall.function.name],
-            }
-          : {};
+        // allowed_function_names belongs inside function_calling_config;
+        // Gemini 400s on it at the toolConfig level.
+        const functionName = req.functionCall.function?.name;
         toolConfig = {
-          function_calling_config: { mode: 'ANY' as const },
-          ...allowedFunctionNames,
-        } as AxAIGoogleGeminiChatRequest['toolConfig'];
+          function_calling_config: {
+            mode: 'ANY' as const,
+            ...(functionName ? { allowed_function_names: [functionName] } : {}),
+          },
+        };
       }
     } else if (hasFunctionDeclarations) {
       // Only set default function_calling_config when we actually provide function_declarations
@@ -2458,6 +2464,11 @@ export class AxAIGoogleGemini<TModelKey = string> extends AxBaseAI<
         hasShowThoughts: mi?.supported?.showThoughts ?? false,
         structuredOutputs: structuredOutputModes.includes('native'),
         structuredOutputModes,
+        // Gemini 2.x rejects responseMimeType application/json beside function
+        // declarations (HTTP 400), and gemini-3.8-flash and 3.1-flash-lite keep
+        // re-calling tools once function results are in a JSON-mode
+        // conversation. Answering through __axOutput avoids both.
+        responseFormatWithFunctions: false,
         media: {
           images: {
             supported: true,

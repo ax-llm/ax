@@ -236,6 +236,7 @@ const optimizer = new AxGEPA({
 - `earlyStoppingTrials`: stop after repeated non-improvement.
 - `minImprovementThreshold`: reject tiny gains below this threshold.
 - `seed`: stabilize sampling during demos and tests.
+- `teacherOptions`: AI service options for the teacher calls: GEPA feedback and proposals, plus the bootstrap demo runs in `optimize(...)`. A teacher model marked `isExpensive` (for example OpenAI `o3-pro` or `gpt-5.5-pro`) is rejected unless you pass `teacherOptions: { useExpensiveModel: 'yes' }`.
 
 ## Budgeting and Validation
 
@@ -249,6 +250,7 @@ const optimizer = new AxGEPA({
 ## Troubleshooting
 
 - Error about `maxMetricCalls` being too small: increase it until the initial validation pass fits.
+- Components never change: GEPA reports each failed teacher call as a `gepa_teacher` notification through the optimizer's `logger` (by default the student AI's logger); `verbose: false` silences it. A teacher marked `isExpensive` fails until you set `teacherOptions: { useExpensiveModel: 'yes' }`.
 - Empty or poor Pareto front: verify the metric returns numbers for every example.
 - No tree optimization effect: ensure child programs are registered under the root and expose optimizable components.
 - Saved optimization applies only partly: use `program.applyOptimization(...)`, not just `setInstruction(...)`, so `componentMap` reaches the full tree.

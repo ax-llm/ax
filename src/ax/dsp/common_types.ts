@@ -1,4 +1,8 @@
-import type { AxAIService, AxLoggerFunction } from '../ai/types.js';
+import type {
+  AxAIService,
+  AxAIServiceOptions,
+  AxLoggerFunction,
+} from '../ai/types.js';
 import type { AxGEPAAdapter } from './optimizers/gepaAdapter.js';
 import type { AxOptimizerLoggerData } from './optimizerTypes.js';
 import type { AxFieldValue, AxResultPickerFunction } from './types.js';
@@ -116,6 +120,13 @@ export interface AxOptimizationStats {
 export type AxOptimizerArgs = {
   studentAI: AxAIService;
   teacherAI?: AxAIService;
+  /**
+   * AI service options for the optimizer's teacher calls: GEPA feedback and
+   * proposals, the ACE reflector and curator, and BootstrapFewShot demo runs.
+   * They also apply when those calls fall back to `studentAI`. Set
+   * `useExpensiveModel: 'yes'` to use a teacher model marked `isExpensive`.
+   */
+  teacherOptions?: AxAIServiceOptions;
   numCandidates?: number;
   initTemperature?: number;
   numTrials?: number;

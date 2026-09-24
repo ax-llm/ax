@@ -292,6 +292,16 @@ export class AxBalancer<
     ) {
       features.functionEmulation = false;
     }
+    // Any service may serve the request, so one that cannot combine a JSON
+    // response format with functions decides for the whole balancer.
+    if (
+      this.services.some(
+        (service) =>
+          service.getFeatures(model).responseFormatWithFunctions === false
+      )
+    ) {
+      features.responseFormatWithFunctions = false;
+    }
     features.asyncTools = this.services.some(
       (service) =>
         !!service.openChatSession && !!service.getFeatures(model).asyncTools

@@ -131,6 +131,7 @@ export async function optimizeAgent<IN extends AxGenIn, OUT extends AxGenOut>(
   const optimizer = new AxGEPA({
     studentAI,
     teacherAI: options?.teacherAI ?? resolvedJudgeAI,
+    teacherOptions: options?.teacherOptions,
     numTrials: options?.numTrials,
     minibatch: options?.minibatch,
     minibatchSize: options?.minibatchSize,

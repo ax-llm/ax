@@ -1,4 +1,6 @@
 import { describe, expect, it, vi } from 'vitest';
+
+import { f, fn } from '../../dsp/sig.js';
 import { axAIProviderProfiles } from '../provider_profiles.generated.js';
 import { ai as createAI } from '../wrap.js';
 import {
@@ -59,10 +61,19 @@ function createSequencedMockFetch(
     });
 }
 
+// How the fake server frames its JSON. The real Live endpoint uses binary
+// frames, which a WebSocket delivers as a Blob unless binaryType is
+// 'arraybuffer'. 'bytes' ignores binaryType and hands over a view into a
+// larger buffer, like a pooled Node Buffer from `ws`.
+type FakeGeminiLiveFrames = 'binary' | 'text' | 'bytes';
+
 class FakeGeminiLiveWebSocket {
   static serverMessages: unknown[] = [];
   static instances: FakeGeminiLiveWebSocket[] = [];
+  static frames: FakeGeminiLiveFrames = 'binary';
+  static closeOnSetup?: { code: number; reason: string };
 
+  binaryType = 'blob';
   readonly sent: string[] = [];
   readonly url: string;
   private readonly listeners = new Map<string, ((event: any) => void)[]>();
@@ -90,7 +101,12 @@ class FakeGeminiLiveWebSocket {
 
     if (message.setup) {
       queueMicrotask(() => {
-        this.emit('message', { data: JSON.stringify({ setupComplete: {} }) });
+        const rejection = FakeGeminiLiveWebSocket.closeOnSetup;
+        if (rejection) {
+          this.emit('close', rejection);
+          return;
+        }
+        this.emit('message', { data: this.frame({ setupComplete: {} }) });
       });
       return;
     }
@@ -101,7 +117,7 @@ class FakeGeminiLiveWebSocket {
     ) {
       queueMicrotask(() => {
         for (const serverMessage of FakeGeminiLiveWebSocket.serverMessages) {
-          this.emit('message', { data: JSON.stringify(serverMessage) });
+          this.emit('message', { data: this.frame(serverMessage) });
         }
       });
     }
@@ -109,6 +125,20 @@ class FakeGeminiLiveWebSocket {
 
   close() {
     this.emit('close', {});
+  }
+
+  private frame(message: unknown): unknown {
+    const json = JSON.stringify(message);
+    if (FakeGeminiLiveWebSocket.frames === 'text') {
+      return json;
+    }
+    const bytes = new TextEncoder().encode(json);
+    if (FakeGeminiLiveWebSocket.frames === 'bytes') {
+      const pooled = new Uint8Array(bytes.length + 8);
+      pooled.set(bytes, 4);
+      return pooled.subarray(4, 4 + bytes.length);
+    }
+    return this.binaryType === 'arraybuffer' ? bytes.buffer : new Blob([bytes]);
   }
 
   private emit(type: string, event: any) {
@@ -122,10 +152,18 @@ class FakeGeminiLiveWebSocket {
   }
 }
 
-function installFakeGeminiLiveWebSocket(messages: unknown[]) {
+function installFakeGeminiLiveWebSocket(
+  messages: unknown[],
+  options: {
+    frames?: FakeGeminiLiveFrames;
+    closeOnSetup?: { code: number; reason: string };
+  } = {}
+) {
   const original = globalThis.WebSocket;
   FakeGeminiLiveWebSocket.serverMessages = messages;
   FakeGeminiLiveWebSocket.instances = [];
+  FakeGeminiLiveWebSocket.frames = options.frames ?? 'binary';
+  FakeGeminiLiveWebSocket.closeOnSetup = options.closeOnSetup;
   (globalThis as any).WebSocket = FakeGeminiLiveWebSocket;
 
   return () => {
@@ -266,6 +304,140 @@ describe('AxAIGoogleGemini schema validation', () => {
     expect(responseSchema?.properties?.profile?.properties?.age?.maximum).toBe(
       120
     );
+  });
+
+  it('sends fn() tool schemas as parametersJsonSchema, never the OpenAPI-subset parameters field', async () => {
+    // Gemini's `parameters` field rejects `additionalProperties` with HTTP 400
+    // ("Unknown name additionalProperties ... Cannot find field"), and fn()
+    // emits it on every object schema.
+    const getWeather = fn('getWeather')
+      .description('Get the current weather for a city')
+      .arg('city', f.string('City'))
+      .arg(
+        'options',
+        f.object({ units: f.string('Units').optional() }).optional()
+      )
+      .returns(f.string('Weather'))
+      .handler(async () => 'sunny')
+      .build();
+    expect(getWeather.parameters.additionalProperties).toBe(false);
+
+    const ai = new AxAIGoogleGemini({
+      apiKey: 'key',
+      config: { model: AxAIGoogleGeminiModel.Gemini36Flash },
+      models: [],
+    });
+
+    const capture: { lastBody?: any } = {};
+    ai.setOptions({
+      fetch: createMockFetch(
+        {
+          candidates: [
+            {
+              content: {
+                parts: [
+                  {
+                    functionCall: {
+                      name: 'getWeather',
+                      args: { city: 'Paris' },
+                    },
+                  },
+                ],
+              },
+              finishReason: 'STOP',
+            },
+          ],
+        },
+        capture
+      ),
+    });
+
+    const res = await ai.chat(
+      {
+        chatPrompt: [{ role: 'user', content: 'Weather in Paris?' }],
+        functions: [getWeather],
+      },
+      { stream: false }
+    );
+
+    const declarations = capture.lastBody?.tools?.[0]?.function_declarations;
+    expect(declarations).toHaveLength(1);
+    const [declaration] = declarations;
+    expect(Object.keys(declaration).sort()).toEqual([
+      'description',
+      'name',
+      'parametersJsonSchema',
+    ]);
+    expect(declaration).not.toHaveProperty('parameters');
+    expect(declaration.parametersJsonSchema).toEqual(getWeather.parameters);
+    expect(
+      declaration.parametersJsonSchema.properties.options.additionalProperties
+    ).toBe(false);
+
+    if (res instanceof ReadableStream) {
+      throw new Error('expected a non-streaming response');
+    }
+    expect(res.results[0]?.functionCalls?.[0]?.function).toEqual({
+      name: 'getWeather',
+      params: { city: 'Paris' },
+    });
+  });
+
+  it('nests allowed_function_names inside function_calling_config for forced function calls', async () => {
+    // Gemini 400s on allowedFunctionNames at the toolConfig level.
+    const ai = new AxAIGoogleGemini({
+      apiKey: 'key',
+      config: { model: AxAIGoogleGeminiModel.Gemini36Flash },
+      models: [],
+    });
+
+    const capture: { lastBody?: any } = {};
+    ai.setOptions({
+      fetch: createMockFetch(
+        {
+          candidates: [
+            {
+              content: {
+                parts: [
+                  {
+                    functionCall: {
+                      name: 'getTime',
+                      args: { city: 'Paris' },
+                    },
+                  },
+                ],
+              },
+              finishReason: 'STOP',
+            },
+          ],
+        },
+        capture
+      ),
+    });
+
+    const parameters = {
+      type: 'object',
+      properties: { city: { type: 'string' } },
+      required: ['city'],
+    } as const;
+    await ai.chat(
+      {
+        chatPrompt: [{ role: 'user', content: 'Time in Paris?' }],
+        functions: [
+          { name: 'getWeather', description: 'Get the weather', parameters },
+          { name: 'getTime', description: 'Get the time', parameters },
+        ],
+        functionCall: { type: 'function', function: { name: 'getTime' } },
+      },
+      { stream: false }
+    );
+
+    expect(capture.lastBody?.toolConfig).toEqual({
+      function_calling_config: {
+        mode: 'ANY',
+        allowed_function_names: ['getTime'],
+      },
+    });
   });
 });
 
@@ -2010,14 +2182,19 @@ describe('AxAIGoogleGemini model key preset merging', () => {
       expect(
         cacheCreateReq.tools[0].function_declarations.map((fn: any) => fn.name)
       ).toEqual(['search', 'spawnSearchAgent']);
+      for (const declaration of cacheCreateReq.tools[0].function_declarations) {
+        expect(declaration).not.toHaveProperty('parameters');
+        expect(declaration.parametersJsonSchema?.required).toEqual(['query']);
+      }
       expect(cacheCreateReq.toolConfig?.function_calling_config?.mode).toBe(
         'ANY'
       );
-      expect(
-        cacheCreateReq.toolConfig?.allowedFunctionNames ??
-          cacheCreateReq.toolConfig?.function_calling_config
-            ?.allowedFunctionNames
-      ).toContain('spawnSearchAgent');
+      expect(cacheCreateReq.toolConfig).toEqual({
+        function_calling_config: {
+          mode: 'ANY',
+          allowed_function_names: ['spawnSearchAgent'],
+        },
+      });
 
       const generateReq = capture.calls[1]?.body;
       expect(generateReq.cachedContent).toBe('cachedContents/test-cache');
@@ -2160,11 +2337,12 @@ describe('AxAIGoogleGemini model key preset merging', () => {
       expect(cacheCreateReq.toolConfig?.function_calling_config?.mode).toBe(
         'ANY'
       );
-      expect(
-        cacheCreateReq.toolConfig?.allowedFunctionNames ??
-          cacheCreateReq.toolConfig?.function_calling_config
-            ?.allowedFunctionNames
-      ).toContain('spawnSearchAgent');
+      expect(cacheCreateReq.toolConfig).toEqual({
+        function_calling_config: {
+          mode: 'ANY',
+          allowed_function_names: ['spawnSearchAgent'],
+        },
+      });
 
       const generateReq = capture.calls[1]?.body;
       expect(generateReq.cachedContent).toBe('cachedContents/test-cache');
@@ -3127,6 +3305,173 @@ describe('AxAIGoogleGemini Live audio chat', () => {
       });
       expect(chunks.at(-1)?.results[0]?.audio?.data).toBe('AQI=');
       expect(chunks.at(-1)?.results[0]?.audio?.isDelta).toBe(false);
+    } finally {
+      restore();
+    }
+  });
+
+  // A frame the client cannot read leaves the turn waiting for its timeout;
+  // a short timeout keeps that failure quick and readable.
+  const quickTimeoutLiveConfig = () => {
+    const config = axAIGoogleGeminiLiveAudioDefaultConfig();
+    return {
+      ...config,
+      audio: { ...config.audio, live: { turnTimeoutMs: 1_000 } },
+    };
+  };
+
+  it.each(['binary', 'text', 'bytes'] as const)(
+    'reads Live server messages sent in %s frames',
+    async (frames) => {
+      const restore = installFakeGeminiLiveWebSocket(
+        [
+          {
+            serverContent: {
+              outputTranscription: { text: 'hi' },
+              modelTurn: {
+                parts: [
+                  {
+                    inlineData: {
+                      mimeType: 'audio/pcm;rate=24000',
+                      data: 'AQI=',
+                    },
+                  },
+                ],
+              },
+              turnComplete: true,
+            },
+          },
+        ],
+        { frames }
+      );
+
+      try {
+        const ai = new AxAIGoogleGemini({
+          apiKey: 'key',
+          config: quickTimeoutLiveConfig(),
+          models: [],
+        });
+
+        const res = (await ai.chat(
+          { chatPrompt: [{ role: 'user', content: 'say hi' }] },
+          { stream: false }
+        )) as any;
+
+        expect(FakeGeminiLiveWebSocket.instances[0]?.binaryType).toBe(
+          'arraybuffer'
+        );
+        expect(res.results[0]?.content).toBe('hi');
+        expect(res.results[0]?.audio?.data).toBe('AQI=');
+      } finally {
+        restore();
+      }
+    }
+  );
+
+  it('keeps thought summaries out of the spoken answer', async () => {
+    const restore = installFakeGeminiLiveWebSocket([
+      {
+        serverContent: {
+          modelTurn: {
+            parts: [{ text: '**Picking a greeting**\n\n', thought: true }],
+          },
+        },
+      },
+      { serverContent: { outputTranscription: { text: 'Hello there.' } } },
+      {
+        serverContent: {
+          modelTurn: {
+            parts: [
+              {
+                inlineData: { mimeType: 'audio/pcm;rate=24000', data: 'AQI=' },
+              },
+            ],
+          },
+        },
+      },
+      { serverContent: { turnComplete: true } },
+    ]);
+
+    try {
+      const ai = new AxAIGoogleGemini({
+        apiKey: 'key',
+        config: axAIGoogleGeminiLiveAudioDefaultConfig(),
+        models: [],
+      });
+
+      const res = (await ai.chat(
+        { chatPrompt: [{ role: 'user', content: 'say hello' }] },
+        { stream: false }
+      )) as any;
+
+      expect(res.results[0]?.content).toBe('Hello there.');
+      expect(res.results[0]?.thought).toBe('**Picking a greeting**\n\n');
+      expect(res.results[0]?.audio?.data).toBe('AQI=');
+    } finally {
+      restore();
+    }
+  });
+
+  it('waits for the answer after an extended-thinking acknowledgement', async () => {
+    const spoken = (text: string, data: string) => ({
+      serverContent: {
+        outputTranscription: { text },
+        modelTurn: {
+          parts: [{ inlineData: { mimeType: 'audio/pcm;rate=24000', data } }],
+        },
+      },
+    });
+    const restore = installFakeGeminiLiveWebSocket([
+      spoken('Let me think.', 'AQI='),
+      {
+        serverContent: { turnComplete: true, interactionStatus: 'IN_PROGRESS' },
+      },
+      spoken('Hello there.', 'AwQ='),
+      { serverContent: { turnComplete: true, interactionStatus: 'IDLE' } },
+    ]);
+
+    try {
+      const ai = new AxAIGoogleGemini({
+        apiKey: 'key',
+        config: quickTimeoutLiveConfig(),
+        models: [],
+      });
+
+      const res = (await ai.chat(
+        { chatPrompt: [{ role: 'user', content: 'say hello' }] },
+        { stream: false }
+      )) as any;
+
+      expect(res.results[0]?.content).toBe('Let me think. Hello there.');
+      expect(res.results[0]?.audio?.data).toBe('AQIDBA==');
+    } finally {
+      restore();
+    }
+  });
+
+  it('fails with the close reason when the Live server rejects the setup', async () => {
+    const restore = installFakeGeminiLiveWebSocket([], {
+      closeOnSetup: {
+        code: 1007,
+        reason: 'Thinking level must be specified for this model.',
+      },
+    });
+
+    try {
+      const ai = new AxAIGoogleGemini({
+        apiKey: 'key',
+        config: quickTimeoutLiveConfig(),
+        models: [],
+      });
+
+      await expect(
+        ai.chat(
+          { chatPrompt: [{ role: 'user', content: 'say hi' }] },
+          { stream: false }
+        )
+      ).rejects.toThrow(
+        'Gemini Live WebSocket closed before completion (code 1007): Thinking level must be specified for this model.'
+      );
     } finally {
       restore();
     }

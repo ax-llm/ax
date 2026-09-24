@@ -1,4 +1,5 @@
 import type { AxAPI } from '../../util/apicall.js';
+import { parseWebSocketMessage } from '../../util/websocket.js';
 import type {
   AxAIOpenAIResponsesConfig,
   AxAIOpenAIResponsesInputContentPart,
@@ -9,6 +10,7 @@ import type {
 import type { AxChatResponseResult } from '../types.js';
 
 type WebSocketLike = {
+  binaryType?: string;
   send(data: string | Uint8Array): void;
   close(): void;
   addEventListener?: (
@@ -37,15 +39,6 @@ const attach = (
       listener({ code, reason })
     );
   } else socket.on?.(type, listener);
-};
-
-const parseMessage = (event: any): Record<string, any> => {
-  const data = event?.data ?? event;
-  if (typeof data === 'string') return JSON.parse(data);
-  if (data instanceof Uint8Array) {
-    return JSON.parse(new TextDecoder().decode(data));
-  }
-  return JSON.parse(String(data));
 };
 
 const base64ToBytes = (value: string): Uint8Array => {
@@ -211,6 +204,8 @@ const runMetaRealtime = async (
   const url = new URL(endpoint);
   if (request.sessionId) url.searchParams.set('sessionId', request.sessionId);
   const socket = new (WebSocketCtor as any)(url.toString()) as WebSocketLike;
+  // Any binary frame then arrives in a form parseWebSocketMessage can read.
+  socket.binaryType = 'arraybuffer';
   const turns = new Map<string, MetaRealtimeTurn>();
   let latestTurnId = 'turn-0';
   let sessionId = request.sessionId ?? 'meta-realtime';
@@ -297,7 +292,7 @@ const runMetaRealtime = async (
     });
     attach(socket, 'message', (event) => {
       try {
-        const message = parseMessage(event);
+        const message = parseWebSocketMessage(event);
         if (message.type === 'error') {
           fail(message.message ?? 'Meta Voice error');
           return;

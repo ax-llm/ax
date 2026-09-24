@@ -1,6 +1,6 @@
 /**
  * AWS Bedrock provider types for AX integration
- * Supports Claude, GPT OSS, and Titan models
+ * Supports Claude, GPT-6, GPT OSS, and Titan models
  */
 
 import type { AxModelConfig } from '@ax-llm/ax';
@@ -22,6 +22,11 @@ export enum AxAIBedrockModel {
   // GPT OSS models
   GptOss120B = 'openai.gpt-oss-120b-1:0',
   GptOss20B = 'openai.gpt-oss-20b-1:0',
+
+  // GPT models (cross-region inference profiles only)
+  Gpt6Sol = 'us.openai.gpt-6-sol',
+  Gpt6Luna = 'us.openai.gpt-6-luna',
+  Gpt6Astra = 'us.openai.gpt-6-astra',
 }
 
 // Embed models

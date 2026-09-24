@@ -1,4 +1,5 @@
 import type { AxAPI } from '../../util/apicall.js';
+import { parseWebSocketMessage } from '../../util/websocket.js';
 import {
   axIsAudioOutputEnabled,
   axMergeChatAudioConfig,
@@ -18,6 +19,7 @@ import {
 import type { OpenAICompatibleUsage } from './usage.js';
 
 type WebSocketLike = {
+  binaryType?: string;
   send(data: string): void;
   close(): void;
   addEventListener?: (
@@ -187,20 +189,6 @@ const attach = (
   (socket as any)[`on${type}`] = listener;
 };
 
-const parseWebSocketMessage = (event: any): any => {
-  const data = event?.data ?? event;
-  if (typeof data === 'string') {
-    return JSON.parse(data);
-  }
-  if (data instanceof Uint8Array) {
-    return JSON.parse(new TextDecoder().decode(data));
-  }
-  if (data?.toString) {
-    return JSON.parse(data.toString());
-  }
-  return data;
-};
-
 const createSocket = <TModel>(
   realtimeRequest: Readonly<OpenAIRealtimeRequest<TModel>>
 ): WebSocketLike => {
@@ -212,11 +200,14 @@ const createSocket = <TModel>(
     );
   }
 
-  return new WebSocketCtor(realtimeUrl(realtimeRequest), {
+  const socket = new WebSocketCtor(realtimeUrl(realtimeRequest), {
     headers: {
       Authorization: `Bearer ${apiKey}`,
     },
   }) as WebSocketLike;
+  // OpenAI sends text frames, but a compatible server may use binary ones.
+  socket.binaryType = 'arraybuffer';
+  return socket;
 };
 
 const inputAudioParts = <TModel>(
