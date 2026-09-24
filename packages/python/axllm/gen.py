@@ -3941,7 +3941,8 @@ def _forward_impl(gen: AxGen, client: AIClient, values: Any, options: Any) -> An
                         pass
                     structured_next_attempt = _core_add(attempt, 1)
                     attempt = structured_next_attempt
-                    _append_assertion_retry_messages(messages, response, structured_validation_error)
+                    structured_retry_messages = _append_assertion_retry_messages(messages, response, structured_validation_error)
+                    messages = structured_retry_messages
                     _core_axgen_memory_add_correction(gen, response, structured_validation_error)
                     continue
             else:
@@ -3987,7 +3988,8 @@ def _forward_impl(gen: AxGen, client: AIClient, values: Any, options: Any) -> An
                     pass
                 next_attempt = _core_add(attempt, 1)
                 attempt = next_attempt
-                _append_assertion_retry_messages(messages, response, validation_error)
+                retry_messages = _append_assertion_retry_messages(messages, response, validation_error)
+                messages = retry_messages
                 _core_axgen_memory_add_correction(gen, response, validation_error)
                 continue
             public_outputs = _core_get(parsed_bundle, "outputs", None)
@@ -4732,10 +4734,10 @@ def chat_session_native_event(state: Any, event: Any) -> Any:
     return result
 
 
-def _append_assertion_retry_messages(messages: list[Any], response: Any, error: error) -> None:
+def _append_assertion_retry_messages(messages: list[Any], response: Any, error: error) -> list[Any]:
     _core_coverage_mark("_append_assertion_retry_messages")
-    _append_validation_retry_messages_impl(messages, response, error)
-    return None
+    updated_messages = _append_validation_retry_messages_impl(messages, response, error)
+    return updated_messages
 
 
 def _record_trace(gen: AxGen, input: Any, output: Any, status: str) -> None:
@@ -6315,7 +6317,7 @@ def _tool_error_message_impl(call: Any, error: error) -> Any:
     return message
 
 
-def _append_validation_retry_messages_impl(messages: list[Any], response: Any, error: error) -> None:
+def _append_validation_retry_messages_impl(messages: list[Any], response: Any, error: error) -> list[Any]:
     _core_coverage_mark("_append_validation_retry_messages_impl")
     content = _core_get(response, "content", "")
     assistant_message = {}
@@ -6329,7 +6331,7 @@ def _append_validation_retry_messages_impl(messages: list[Any], response: Any, e
     retry_message["role"] = "user"
     retry_message["content"] = retry_content
     messages.append(retry_message)
-    return None
+    return messages
 
 
 def _regex_state(pos: Any, caps: Any) -> Any:

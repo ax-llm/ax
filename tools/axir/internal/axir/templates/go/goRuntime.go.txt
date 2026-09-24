@@ -10747,6 +10747,14 @@ func runConformanceForward(fixture map[string]Value) {
 		if expected := coreGet(fixture, "expected_chat_options_subset", nil); expected != nil && len(client.ChatOptions) > 0 {
 			assertSubset(client.ChatOptions[0], expected, "chat options")
 		}
+		if expected := coreGet(fixture, "expected_request_contains", nil); expected != nil {
+			text := stableStringify(client.Requests)
+			for _, item := range asSlice(expected) {
+				if !strings.Contains(text, display(item)) {
+					panic(AxError{Category: "fixture", Message: "forward request missing " + display(item) + ": " + text})
+				}
+			}
+		}
 		if expected := coreGet(fixture, "expected_request_not_contains", nil); expected != nil {
 			text := stableStringify(client.Requests)
 			for _, item := range asSlice(expected) {

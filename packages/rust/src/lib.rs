@@ -61704,6 +61704,7 @@ fn _forward_impl(args: &[CoreValue]) -> Result<CoreValue, AxError> {
     let mut v_request = CoreValue::Null;
     let mut v_response = CoreValue::Null;
     let mut v_retries_exhausted = CoreValue::Null;
+    let mut v_retry_messages = CoreValue::Null;
     let mut v_runtime_options = CoreValue::Null;
     let mut v_selected_index = CoreValue::Null;
     let mut v_selected_rung = CoreValue::Null;
@@ -61718,6 +61719,7 @@ fn _forward_impl(args: &[CoreValue]) -> Result<CoreValue, AxError> {
     let mut v_structured_public = CoreValue::Null;
     let mut v_structured_recovered = CoreValue::Null;
     let mut v_structured_retries_exhausted = CoreValue::Null;
+    let mut v_structured_retry_messages = CoreValue::Null;
     let mut v_structured_samples = CoreValue::Null;
     let mut v_structured_validated = CoreValue::Null;
     let mut v_structured_validation_error = CoreValue::Null;
@@ -61939,11 +61941,12 @@ fn _forward_impl(args: &[CoreValue]) -> Result<CoreValue, AxError> {
                         v_structured_next_attempt =
                             core_add(&[v_attempt.clone(), CoreValue::Num(1f64)])?;
                         v_attempt = v_structured_next_attempt.clone();
-                        _append_assertion_retry_messages(&[
+                        v_structured_retry_messages = _append_assertion_retry_messages(&[
                             v_messages.clone(),
                             v_response.clone(),
                             v_structured_validation_error.clone(),
                         ])?;
+                        v_messages = v_structured_retry_messages.clone();
                         core_axgen_memory_add_correction(&[
                             v_gen.clone(),
                             v_response.clone(),
@@ -62054,11 +62057,12 @@ fn _forward_impl(args: &[CoreValue]) -> Result<CoreValue, AxError> {
                     }
                     v_next_attempt = core_add(&[v_attempt.clone(), CoreValue::Num(1f64)])?;
                     v_attempt = v_next_attempt.clone();
-                    _append_assertion_retry_messages(&[
+                    v_retry_messages = _append_assertion_retry_messages(&[
                         v_messages.clone(),
                         v_response.clone(),
                         v_validation_error.clone(),
                     ])?;
+                    v_messages = v_retry_messages.clone();
                     core_axgen_memory_add_correction(&[
                         v_gen.clone(),
                         v_response.clone(),
@@ -63560,12 +63564,13 @@ fn _append_assertion_retry_messages(args: &[CoreValue]) -> Result<CoreValue, AxE
     let mut v_messages = core_arg(args, 0);
     let mut v_response = core_arg(args, 1);
     let mut v_error = core_arg(args, 2);
-    _append_validation_retry_messages_impl(&[
+    let mut v_updated_messages = CoreValue::Null;
+    v_updated_messages = _append_validation_retry_messages_impl(&[
         v_messages.clone(),
         v_response.clone(),
         v_error.clone(),
     ])?;
-    return Ok(CoreValue::Null);
+    return Ok(v_updated_messages.clone());
 }
 
 #[allow(
@@ -66574,7 +66579,7 @@ fn _append_validation_retry_messages_impl(args: &[CoreValue]) -> Result<CoreValu
         v_retry_content.clone(),
     )?;
     core_append(&v_messages, v_retry_message.clone())?;
-    return Ok(CoreValue::Null);
+    return Ok(v_messages.clone());
 }
 
 #[allow(

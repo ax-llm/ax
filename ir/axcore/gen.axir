@@ -742,7 +742,8 @@ module @ax.gen version "0.1" {
               }
               %structured_next_attempt = core.call intrinsic.add(%attempt, 1)
               %attempt = core.let %structured_next_attempt
-              core.call @append_assertion_retry_messages(%messages, %response, %structured_validation_error)
+              %structured_retry_messages = core.call @append_assertion_retry_messages(%messages, %response, %structured_validation_error)
+              %messages = core.let %structured_retry_messages
               core.call intrinsic.axgen.memory_add_correction(%gen, %response, %structured_validation_error)
               core.continue
             }
@@ -790,7 +791,8 @@ module @ax.gen version "0.1" {
             }
             %next_attempt = core.call intrinsic.add(%attempt, 1)
             %attempt = core.let %next_attempt
-            core.call @append_assertion_retry_messages(%messages, %response, %validation_error)
+            %retry_messages = core.call @append_assertion_retry_messages(%messages, %response, %validation_error)
+            %messages = core.let %retry_messages
             core.call intrinsic.axgen.memory_add_correction(%gen, %response, %validation_error)
             core.continue
           }
@@ -886,10 +888,10 @@ module @ax.gen version "0.1" {
     attr emit_module = "gen"
     attr private = true
     tag "assertion-retry-message-core-helper"
-    type signature = "(list<json>, json, error) -> void"
+    type signature = "(list<json>, json, error) -> list<json>"
     body @entry(%messages: list<json>, %response: json, %error: error) {
-      core.call @append_validation_retry_messages_impl(%messages, %response, %error)
-      core.return
+      %updated_messages = core.call @append_validation_retry_messages_impl(%messages, %response, %error)
+      core.return %updated_messages
     }
   }
 
@@ -1358,7 +1360,7 @@ module @ax.gen version "0.1" {
     attr emit_module = "gen"
     attr private = true
     tag "validation-retry-message-core-helper"
-    type signature = "(list<json>, json, error) -> void"
+    type signature = "(list<json>, json, error) -> list<json>"
     body @entry(%messages: list<json>, %response: json, %error: error) {
       %content = core.get %response["content"] default ""
       %assistant_message = core.map
@@ -1372,7 +1374,9 @@ module @ax.gen version "0.1" {
       core.set %retry_message["role"] = "user"
       core.set %retry_message["content"] = %retry_content
       core.append %messages, %retry_message
-      core.return
+      // Callers must reassign from this return: in Go the forward loop's
+      // messages can be a plain slice, so in-place appends never reach them.
+      core.return %messages
     }
   }
   op ax.gen.semantic @parse_text_field_value_impl {
