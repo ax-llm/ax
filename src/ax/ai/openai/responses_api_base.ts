@@ -291,6 +291,7 @@ export class AxAIOpenAIResponses<
   constructor({
     apiKey,
     credentialProvider,
+    apiURL,
     config,
     options,
     models,
@@ -374,6 +375,7 @@ export class AxAIOpenAIResponses<
       apiKey,
       credentialProvider,
       credentialProfile: 'openai-responses',
+      apiURL,
       config: {
         ...axAIOpenAIResponsesDefaultConfig(),
         ...config,
