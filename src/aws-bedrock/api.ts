@@ -708,6 +708,18 @@ class AxAIBedrockImpl
         additionalModelRequestFields = { thinking: { type: 'adaptive' } };
         if (thinkingBudget) effort = THINKING_EFFORT[thinkingBudget];
       }
+    } else if (capabilities.thinking === 'provider' && thinkingBudget) {
+      if (thinkingBudget === 'none' && capabilities.thinkingAlwaysOn) {
+        throw new Error(`Reasoning cannot be disabled for ${req.model}`);
+      }
+      additionalModelRequestFields = {
+        reasoning: {
+          effort:
+            thinkingBudget === 'none'
+              ? 'none'
+              : THINKING_EFFORT[thinkingBudget],
+        },
+      };
     } else if (
       capabilities.thinking === 'budget' &&
       thinkingBudget &&
@@ -773,11 +785,13 @@ class AxAIBedrockImpl
       ...(system.length ? { system } : {}),
       inferenceConfig: {
         maxTokens: modelConfig.maxTokens ?? 4096,
-        ...(!thinkingActive && modelConfig.temperature !== undefined
-          ? { temperature: modelConfig.temperature }
+        // Read sampling from the resolved request config so a model's
+        // modelInfo notSupported flags (applied by AxBaseAI) are honored.
+        ...(!thinkingActive && req.modelConfig?.temperature !== undefined
+          ? { temperature: req.modelConfig.temperature }
           : {}),
-        ...(!thinkingActive && modelConfig.topP !== undefined
-          ? { topP: modelConfig.topP }
+        ...(!thinkingActive && req.modelConfig?.topP !== undefined
+          ? { topP: req.modelConfig.topP }
           : {}),
         ...(modelConfig.stopSequences?.length
           ? { stopSequences: modelConfig.stopSequences }

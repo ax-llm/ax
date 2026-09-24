@@ -50,7 +50,9 @@ const claude = (
   ...overrides,
 });
 
-const gpt = (): AxAIBedrockModelCapabilities => ({
+const gpt = (
+  overrides: Partial<AxAIBedrockModelCapabilities> = {}
+): AxAIBedrockModelCapabilities => ({
   family: 'gpt',
   functions: false,
   streaming: true,
@@ -64,7 +66,22 @@ const gpt = (): AxAIBedrockModelCapabilities => ({
   showThoughts: false,
   structuredOutputModes: ['native'],
   serviceTiers: ['standard', 'flex', 'priority'],
+  ...overrides,
 });
+
+// GPT-6 on Converse: tools and images work, reasoning effort is set through
+// additionalModelRequestFields, and only the standard tier is accepted.
+const gpt6 = (
+  overrides: Partial<AxAIBedrockModelCapabilities> = {}
+): AxAIBedrockModelCapabilities =>
+  gpt({
+    functions: true,
+    images: true,
+    thinking: 'provider',
+    structuredOutputModes: ['native', 'function'],
+    serviceTiers: ['standard'],
+    ...overrides,
+  });
 
 /** Exact native-runtime capabilities verified per Bedrock model. */
 export const axBedrockModelCapabilities: Readonly<
@@ -117,6 +134,10 @@ export const axBedrockModelCapabilities: Readonly<
   }),
   [AxAIBedrockModel.GptOss120B]: gpt(),
   [AxAIBedrockModel.GptOss20B]: gpt(),
+  [AxAIBedrockModel.Gpt6Sol]: gpt6(),
+  [AxAIBedrockModel.Gpt6Luna]: gpt6(),
+  // Astra rejects reasoning effort 'none'.
+  [AxAIBedrockModel.Gpt6Astra]: gpt6({ thinkingAlwaysOn: true }),
 };
 
 export function axGetBedrockModelCapabilities(
@@ -302,6 +323,40 @@ export const axModelInfoBedrock: AxModelInfo[] = [
       structuredOutputs: true,
       structuredOutputModes: ['native'],
       serviceTiers: ['standard', 'flex', 'priority'],
+    },
+  },
+
+  {
+    name: AxAIBedrockModel.Gpt6Sol,
+    currency: 'usd',
+    maxTokens: 131072,
+    notSupported: { temperature: true, topP: true },
+    supported: {
+      structuredOutputs: true,
+      structuredOutputModes: ['native', 'function'],
+      serviceTiers: ['standard'],
+    },
+  },
+  {
+    name: AxAIBedrockModel.Gpt6Luna,
+    currency: 'usd',
+    maxTokens: 131072,
+    notSupported: { temperature: true, topP: true },
+    supported: {
+      structuredOutputs: true,
+      structuredOutputModes: ['native', 'function'],
+      serviceTiers: ['standard'],
+    },
+  },
+  {
+    name: AxAIBedrockModel.Gpt6Astra,
+    currency: 'usd',
+    maxTokens: 131072,
+    notSupported: { temperature: true, topP: true },
+    supported: {
+      structuredOutputs: true,
+      structuredOutputModes: ['native', 'function'],
+      serviceTiers: ['standard'],
     },
   },
 
