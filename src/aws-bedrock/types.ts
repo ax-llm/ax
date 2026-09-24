@@ -9,6 +9,7 @@ import type { AxModelConfig } from '@ax-llm/ax';
 export enum AxAIBedrockModel {
   // Claude models
   ClaudeSonnet5 = 'us.anthropic.claude-sonnet-5',
+  ClaudeOpus55 = 'us.anthropic.claude-opus-5-5',
   ClaudeOpus5 = 'us.anthropic.claude-opus-5',
   ClaudeOpus48 = 'us.anthropic.claude-opus-4-8',
   ClaudeSonnet46 = 'us.anthropic.claude-sonnet-4-6',

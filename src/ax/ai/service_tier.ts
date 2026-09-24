@@ -33,7 +33,12 @@ export const axNormalizeAppliedServiceTier = (
   const normalized = value.toLowerCase();
   if (normalized === 'batch') return 'batch';
   if (normalized === 'flex') return 'flex';
-  if (normalized === 'priority' || normalized === 'performance') {
+  // GPT-6 reports a served priority request as `fast`.
+  if (
+    normalized === 'priority' ||
+    normalized === 'performance' ||
+    normalized === 'fast'
+  ) {
     return 'priority';
   }
   if (

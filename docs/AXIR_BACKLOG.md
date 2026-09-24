@@ -18,17 +18,29 @@ This ledger tracks portable TypeScript behavior that should be migrated into AxI
 
 ## Open
 
+- `axir-2026-09-23-port-gemini-live-turn-continuation-while-interactionstatus-is-in` [axai] Port Gemini Live turn continuation while interactionStatus is IN_PROGRESS
+  - Status: open
+  - TS paths: `src/ax/ai/google-gemini/live_audio.ts`, `src/ax/ai/google-gemini/api.test.ts`
+  - Impact: Gemini 3.8 Live Extended Thinking can speak a short acknowledgement, end that model turn with serverContent.turnComplete plus interactionStatus IN_PROGRESS, think, and then answer in a second turn that ends with interactionStatus IDLE (seen live 2026-09-23). TS live_audio.ts now keeps collecting across the IN_PROGRESS boundary and joins the two transcripts with a space. The generated ports end the realtime turn at the first turnComplete (realtimeEventIsDone in each driver template, and the Gemini Live event fold in provider.axir sets finish_reason stop on any turnComplete), so they return only the acknowledgement.
+  - Suggested AxIR work: Keep the realtime driver loop reading past a Gemini Live turnComplete whose interactionStatus is IN_PROGRESS (realtimeEventIsDone in the five driver templates); Set finish_reason stop in the Gemini Live event fold only when interactionStatus is not IN_PROGRESS; Separate the acknowledgement and answer transcripts with a space when merging the turn; Add a two-turn Gemini Live conformance fixture and run npm run test:axir
+- `axir-2026-09-23-port-speak-samplerate-channels-parsed-from-raw-pcm-mime-types` [axai] Port speak() sampleRate/channels parsed from raw-PCM mime types
+  - Status: open
+  - Source commit: `e690b4823b8309e258594064abe941d4cff6ef89`
+  - TS paths: `src/ax/ai/audio/util.ts`
+  - Impact: TS speak() now reports sampleRate and channels from mime parameters such as audio/l16; rate=24000; channels=1 (Gemini 3.1 TTS). Generated ports return format and mime_type but not the parsed sampleRate/channels fields.
+  - Suggested AxIR work: Add or update the TS-derived conformance fixture.; Update AxIR/Core or descriptor data to match the portable TS behavior.; Run npm run axir:conformance:check and npm run test:axir.
 - `axir-2026-09-23-port-the-expensive-model-confirmation-gate-now-reachable-from-ax` [axgen] Port the expensive-model confirmation gate now reachable from AxGen
   - Status: open
   - Source commit: `6e18f24e47cd623dc45bae2a23affb81c6f8d6cc`
   - TS paths: `src/ax/dsp/generate.ts`, `src/ax/dsp/generate.useExpensiveModel.test.ts`, `src/ax/ai/types.ts`
   - Impact: TypeScript AxGen now forwards useExpensiveModel to ai.chat (the per-call forward option first, then the ax()/AxGen constructor option), so models whose model info sets isExpensive (OpenAI gpt-5.5-pro/o1-pro/o3-pro, WebLLM Llama-3.1-70B, Bedrock Claude Opus 5/4.8) are callable from ax()/AxGen/flows/agents after an explicit opt-in and are still rejected before any request without it. Generated ports already merge gen constructor options with call options and pass the map through to chat, so they have no forwarding gap, but none implements the gate: AxIR declares useExpensiveModel only as an AxAIServiceOptions field and never reads the catalog isExpensive flag, so Python/Java/C++/Go/Rust call expensive models without confirmation and ignore the opt-in.
   - Suggested AxIR work: Gate the AxIR chat path on the resolved model's catalog isExpensive flag and reject unless options.useExpensiveModel is 'yes' (model-key entry defaults included).; Add a conformance fixture covering rejection without the opt-in and success via gen forward options and via gen constructor options.; Run npm run axir:conformance:check and npm run test:axir.
-- `axir-2026-09-23-port-gemini-live-turn-continuation-while-interactionstatus-is-in` [axai] Port Gemini Live turn continuation while interactionStatus is IN_PROGRESS
+- `axir-2026-09-24-port-the-text-output-contract-for-simple-axgen-signatures-withou` [axgen] Port the text output contract for simple AxGen signatures without tools
   - Status: open
-  - TS paths: `src/ax/ai/google-gemini/live_audio.ts`, `src/ax/ai/google-gemini/api.test.ts`
-  - Impact: Gemini 3.8 Live Extended Thinking can speak a short acknowledgement, end that model turn with serverContent.turnComplete plus interactionStatus IN_PROGRESS, think, and then answer in a second turn that ends with interactionStatus IDLE (seen live 2026-09-23). TS live_audio.ts now keeps collecting across the IN_PROGRESS boundary and joins the two transcripts with a space. The generated ports end the realtime turn at the first turnComplete (realtimeEventIsDone in each driver template, and the Gemini Live event fold in provider.axir sets finish_reason stop on any turnComplete), so they return only the acknowledgement.
-  - Suggested AxIR work: Keep the realtime driver loop reading past a Gemini Live turnComplete whose interactionStatus is IN_PROGRESS (realtimeEventIsDone in the five driver templates); Set finish_reason stop in the Gemini Live event fold only when interactionStatus is not IN_PROGRESS; Separate the acknowledgement and answer transcripts with a space when merging the turn; Add a two-turn Gemini Live conformance fixture and run npm run test:axir
+  - Source commit: `73f1160df`
+  - TS paths: `src/ax/dsp/generate.ts`, `src/ax/dsp/sig.ts`, `src/ax/agent/agentInternal/signatureBuilders.ts`
+  - Impact: TypeScript selectStructuredOutputRung returns no rung when a signature has no object or object-array output (unless the provider requires structured output), so simple signatures use the field: value text contract with no response schema. Generated ports match this only when native tools are present. Tool-less simple signatures (responder, llmQuery, ACE, flow nodes, and user programs) still send a JSON response schema plus a JSON instruction turn under a text-mode system prompt.
+  - Suggested AxIR work: Drop the native-tools condition in @select_structured_output_rung so every simple signature selects no rung; Keep force_structured on Agent actor stages and live-verify responder and llmQuery stages in text mode; Update simple-forward and the other fixtures that pin response_format for simple signatures
 
 ## Done
 
@@ -636,3 +648,13 @@ This ledger tracks portable TypeScript behavior that should be migrated into AxI
   - Completed at: 2026-09-18
   - Completed by: `d31891c98c4726ce1e15fb60df2f96a6c2b70d6e`
   - Verification: `Core-owned string/fluent boolean and class descriptions round-trip through signatures/schema and map to native criteria or ordinary readable prompts. Shared fixtures cover scalar/complex extraction, streaming label parsing, field order, nested fields, validation, and conventional-provider behavior. AxIR compiler go test -count=1 -timeout=30m ./... and strict check/lint/provenance/lowering passed. Final all-five release verification passed: C++ in the full test run, Python/Java/Go after nested-balancer test corrections, and Rust after routing validation correction. Conformance synchronization, generated package freshness, build, 320 focused TypeScript tests, tooling guards, generated examples, provider profiles, skills, and website checks passed. All 18 live Typesafe/Jev signature, native, and hybrid examples passed across TypeScript, Python, Java, C++, Go, and Rust using environment credentials.`
+- `axir-2026-09-24-forward-apiurl-in-the-openai-responses-provider` [axai] Forward apiURL in the OpenAI Responses provider
+  - Status: done
+  - Source PR: #678
+  - Source commit: `9ade9be810c243395052be5486c8daf5cf667d44`
+  - TS paths: `src/ax/ai/openai/responses_api_base.ts`, `src/ax/ai/provider_profiles.test.ts`
+  - Impact: TypeScript AxAIOpenAIResponses now forwards the caller apiURL to AxAIOpenAIResponsesBase, so ai({ name: 'openai-responses', apiURL }) and the GPT-6 requests that ai({ name: 'openai', apiURL }) routes through Responses reach the configured host instead of api.openai.com. Generated OpenAI Responses clients that accept a base URL should send chat to that URL the same way.
+  - Suggested AxIR work: Add or update the TS-derived conformance fixture.; Update AxIR/Core or descriptor data to match the portable TS behavior.; Run npm run axir:conformance:check and npm run test:axir.
+  - Completed at: 2026-09-24
+  - Completed by: `ab5f72075aca7079259771c2e1d404d2d81438d5`
+  - Verification: `No port change was needed. The generated ports already apply apiURL, baseUrl and base_url to every provider in provider_resolve_descriptor, and already send GPT-6 on the openai provider through Responses; only TypeScript dropped apiURL, which #678 fixed. New ai_chat fixtures openai-responses-chat-uses-api-url and gpt-6-sol-openai-api-url-uses-responses pass in Python, Java, C++, Go, and Rust, and copies expecting api.openai.com fail in the Python, Go, and Java runners. TypeScript provider_profiles.test.ts covers both paths and fails with the fix reverted.`

@@ -8,27 +8,48 @@ export enum AxAIGoogleGeminiModel {
   Gemini35FlashLite = 'gemini-3.5-flash-lite',
   Gemini31Pro = 'gemini-3.1-pro-preview',
   Gemini31FlashLite = 'gemini-3.1-flash-lite',
+  /** @deprecated Shut down by Google on 2026-05-25; use `Gemini31FlashLite`. */
   Gemini3FlashLite = 'gemini-3.1-flash-lite-preview',
   Gemini3Flash = 'gemini-3-flash-preview',
   Gemini3Pro = 'gemini-3.1-pro-preview',
-  Gemini3ProImage = 'gemini-3-pro-image-preview',
-  Gemini31FlashImage = 'gemini-3.1-flash-image-preview',
+  // Google shut down the -preview ids these two members once named (on
+  // 2026-06-25); each now points at its GA successor.
+  Gemini3ProImage = 'gemini-3-pro-image',
+  Gemini31FlashImage = 'gemini-3.1-flash-image',
+  Gemini31FlashLiteImage = 'gemini-3.1-flash-lite-image',
+  Gemini38Live = 'gemini-3.8-live',
+  Gemini38LiveExtendedThinking = 'gemini-3.8-live-extended-thinking',
   Gemini31FlashLive = 'gemini-3.1-flash-live-preview',
+  // Text-to-speech for `speak()`.
+  Gemini38FlashTTS = 'gemini-3.8-flash-tts',
+  Gemini38FlashLiteTTS = 'gemini-3.8-flash-lite-tts',
   Gemini31FlashTTS = 'gemini-3.1-flash-tts-preview',
+  // Speech-to-text for `transcribe()`.
+  Gemini35Transcribe = 'gemini-3.5-transcribe',
   NanoBanana2 = 'nano-banana-2',
+  /** @deprecated Shut down by Google on 2026-08-31; use `gemini-robotics-er-2-preview`. */
   GeminiRoboticsER16 = 'gemini-robotics-er-1.6-preview',
   Gemini25Pro = 'gemini-2.5-pro',
   Gemini25Flash = 'gemini-2.5-flash',
   Gemini25FlashNativeAudio = 'gemini-2.5-flash-native-audio-preview-12-2025',
   Gemini25FlashLite = 'gemini-2.5-flash-lite',
+  /** @deprecated Shut down by Google on 2026-06-01; use `Gemini36Flash`. */
   Gemini20Flash = 'gemini-2.0-flash',
+  /** @deprecated Shut down by Google on 2026-06-01; use `Gemini31FlashLite`. */
   Gemini20FlashLite = 'gemini-2.0-flash-lite',
+  /** @deprecated Shut down by Google; use `Gemini36Flash`. */
   Gemini20ProExp = 'gemini-2.0-pro-exp-02-05',
+  /** @deprecated Shut down by Google; use `Gemini36Flash`. */
   Gemini20FlashThinkingExp = 'gemini-2.0-flash-thinking-exp-01-21',
+  /** @deprecated Shut down by Google; use `Gemini36Flash`. */
   Gemini1Pro = 'gemini-1.0-pro',
+  /** @deprecated Shut down by Google; use `Gemini36Flash`. */
   Gemini15Flash = 'gemini-1.5-flash',
+  /** @deprecated Shut down by Google; use `Gemini36Flash`. */
   Gemini15Flash002 = 'gemini-1.5-flash-002',
+  /** @deprecated Shut down by Google; use `Gemini31FlashLite`. */
   Gemini15Flash8B = 'gemini-1.5-flash-8b',
+  /** @deprecated Shut down by Google; use `Gemini31Pro`. */
   Gemini15Pro = 'gemini-1.5-pro',
   GeminiFlashLatest = 'gemini-flash-latest',
   GeminiFlashLiteLatest = 'gemini-flash-lite-latest',
@@ -38,6 +59,7 @@ export enum AxAIGoogleGeminiModel {
 export enum AxAIGoogleGeminiEmbedModel {
   GeminiEmbedding2 = 'gemini-embedding-2',
   GeminiEmbedding001 = 'gemini-embedding-001',
+  /** @deprecated Shut down by Google on 2025-10-30; use `GeminiEmbedding2`. */
   GeminiEmbedding = 'gemini-embedding-exp',
   TextEmbeddingLarge = 'text-embedding-large-exp-03-07',
   TextEmbedding005 = 'text-embedding-005',
@@ -108,6 +130,8 @@ export type AxAIGoogleGeminiContentPart = {
         fileUri: string;
       };
     }
+  // Dedicated speech-to-text models (gemini-3.5-transcribe) answer with this.
+  | { audioTranscription: { text: string } }
   | { executableCode: object }
   | { codeExecutionResult: object }
 );

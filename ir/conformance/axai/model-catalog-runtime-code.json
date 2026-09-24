@@ -448,7 +448,7 @@
             "highest"
           ]
         },
-        "defaultModel": "claude-3-7-sonnet-latest",
+        "defaultModel": "claude-sonnet-5",
         "displayName": "Anthropic",
         "isDynamic": false,
         "models": [],
@@ -468,7 +468,7 @@
           ]
         },
         "defaultEmbedModel": "gemini-embedding-2",
-        "defaultModel": "gemini-2.5-flash",
+        "defaultModel": "gemini-3.6-flash",
         "displayName": "Google Gemini",
         "isDynamic": false,
         "models": [],

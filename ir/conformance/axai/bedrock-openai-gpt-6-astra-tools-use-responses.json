@@ -1,0 +1,85 @@
+{
+  "base_url": "https://bedrock-mantle.us-west-2.api.aws/openai/v1",
+  "expected_transport_json_absent": ["temperature"],
+  "expected_transport_request": {
+    "json": {
+      "model": "openai.gpt-6-astra",
+      "tools": [
+        {
+          "description": "Look up a record",
+          "name": "lookup",
+          "parameters": {
+            "properties": {
+              "id": {
+                "type": "string"
+              }
+            },
+            "required": ["id"],
+            "type": "object"
+          },
+          "type": "function"
+        }
+      ]
+    },
+    "method": "POST",
+    "url": "https://bedrock-mantle.us-west-2.api.aws/openai/v1/responses"
+  },
+  "kind": "ai_chat",
+  "model": "openai.gpt-6-astra",
+  "name": "bedrock-openai-gpt-6-astra-tools-use-responses",
+  "provider": "openai",
+  "request": {
+    "chat_prompt": [
+      {
+        "content": "Look up record 7",
+        "role": "user"
+      }
+    ],
+    "functions": [
+      {
+        "description": "Look up a record",
+        "name": "lookup",
+        "parameters": {
+          "properties": {
+            "id": {
+              "type": "string"
+            }
+          },
+          "required": ["id"],
+          "type": "object"
+        }
+      }
+    ],
+    "model_config": {
+      "stream": false,
+      "temperature": 0.5
+    }
+  },
+  "transport_responses": [
+    {
+      "json": {
+        "id": "resp_bedrock",
+        "model": "openai.gpt-6-astra",
+        "output": [
+          {
+            "content": [
+              {
+                "annotations": [],
+                "text": "ok",
+                "type": "output_text"
+              }
+            ],
+            "id": "msg_bedrock",
+            "type": "message"
+          }
+        ],
+        "usage": {
+          "input_tokens": 1,
+          "output_tokens": 1,
+          "total_tokens": 2
+        }
+      },
+      "status": 200
+    }
+  ]
+}

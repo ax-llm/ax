@@ -13,8 +13,12 @@ export enum AxAIOpenAIModel {
   GPTAudio15 = 'gpt-audio-1.5',
   GPTRealtime15 = 'gpt-realtime-1.5',
   GPTRealtime2 = 'gpt-realtime-2',
+  GPTRealtime21 = 'gpt-realtime-2.1',
+  GPTRealtime21Mini = 'gpt-realtime-2.1-mini',
   GPTRealtimeWhisper = 'gpt-realtime-whisper',
   GPTRealtimeTranslate = 'gpt-realtime-translate',
+  // Speech-to-text for `transcribe()` (billed per minute of audio).
+  GPTTranscribe = 'gpt-transcribe',
   GPT4ChatGPT4O = 'chatgpt-4o-latest',
   GPT4Turbo = 'gpt-4-turbo',
   GPT35Turbo = 'gpt-3.5-turbo',
@@ -51,7 +55,10 @@ export enum AxAIOpenAIModel {
   GPT56Sol = 'gpt-5.6-sol',
   GPT56Terra = 'gpt-5.6-terra',
   GPT56Luna = 'gpt-5.6-luna',
+  // GPT-6 models
   GPT6Astra = 'gpt-6-astra',
+  GPT6Sol = 'gpt-6-sol',
+  GPT6Luna = 'gpt-6-luna',
   // Reasoning models
   O1 = 'o1',
   O1Mini = 'o1-mini',

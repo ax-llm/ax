@@ -3556,8 +3556,9 @@ std::vector<Value> OpenAICompatibleClient::stream(Value request) {
 
 Value OpenAICompatibleClient::transcribe(Value request) {
   Value payload = Core::provider_build_transcribe_request(profile_, request);
-  Value model = Core::get(request, "model", model_);
-  std::string body_key = str(Core::get(Core::provider_operation_descriptor(profile_, "transcribe"), "body", "json")) == "multipart" ? "data" : "json";
+  Value descriptor = Core::provider_operation_descriptor(profile_, "transcribe");
+  Value model = Core::get(request, "model", Core::get(descriptor, "defaultModel", model_));
+  std::string body_key = str(Core::get(descriptor, "body", "json")) == "multipart" ? "data" : "json";
   std::string endpoint = operation_path("transcribe", model);
   Value query = Core::get(payload, "query");
   if (!query.is_null()) {
@@ -3572,8 +3573,8 @@ Value OpenAICompatibleClient::transcribe(Value request) {
 
 Value OpenAICompatibleClient::speak(Value request) {
   Value payload = Core::provider_build_speak_request(profile_, request);
-  Value model = Core::get(request, "model", model_);
   Value descriptor = Core::provider_operation_descriptor(profile_, "speak");
+  Value model = Core::get(request, "model", Core::get(descriptor, "defaultModel", model_));
   std::string body_key = str(Core::get(descriptor, "body", "json")) == "multipart" ? "data" : "json";
   // OpenAI /audio/speech returns raw binary audio (mp3); the transport returns
   // it as base64 instead of JSON-parsing, and the normalizer reads raw["audio"].

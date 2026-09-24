@@ -1,0 +1,35 @@
+{
+  "expected_error_contains": "does not support explicitly forced tool choices",
+  "expected_transport_request_count": 0,
+  "kind": "ai_chat",
+  "model": "claude-opus-5-5",
+  "name": "anthropic-opus-5-5-forced-tool-choice-rejected",
+  "provider": "anthropic",
+  "request": {
+    "chat_prompt": [
+      {
+        "content": "Search docs",
+        "role": "user"
+      }
+    ],
+    "function_call": "required",
+    "functions": [
+      {
+        "description": "Search docs",
+        "name": "search",
+        "parameters": {
+          "properties": {
+            "query": {
+              "type": "string"
+            }
+          },
+          "required": ["query"],
+          "type": "object"
+        }
+      }
+    ],
+    "model_config": {
+      "stream": false
+    }
+  }
+}

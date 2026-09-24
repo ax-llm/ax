@@ -75,6 +75,7 @@
     "url": "https://generativelanguage.googleapis.com/v1beta/models/gemini-3.5-flash:generateContent"
   },
   "kind": "ai_chat",
+  "model": "gemini-3.5-flash",
   "name": "gemini-simple-chat",
   "provider": "google-gemini",
   "request": {

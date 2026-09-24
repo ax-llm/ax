@@ -46,9 +46,28 @@ export const axAudioFormatFromMimeType = (
   if (mt.includes('mulaw')) return 'mulaw';
   if (mt.includes('ulaw') || mt.includes('basic')) return 'ulaw';
   if (mt.includes('alaw')) return 'alaw';
-  if (mt.includes('pcm16')) return 'pcm16';
+  // `audio/L16` is raw 16-bit linear PCM with no container header.
+  if (mt.includes('pcm16') || mt.includes('l16')) return 'pcm16';
   if (mt.includes('pcm')) return 'pcm';
   return undefined;
+};
+
+/**
+ * Read the `rate=` and `channels=` parameters that raw-PCM mime types such as
+ * `audio/l16; rate=24000; channels=1` carry, since the bytes themselves don't.
+ */
+export const axAudioParamsFromMimeType = (
+  mimeType?: string
+): { sampleRate?: number; channels?: number } => {
+  const params: { sampleRate?: number; channels?: number } = {};
+  for (const part of mimeType?.toLowerCase().split(';').slice(1) ?? []) {
+    const [key, value] = part.split('=').map((piece) => piece.trim());
+    const parsed = Number(value);
+    if (!value || !Number.isFinite(parsed)) continue;
+    if (key === 'rate') params.sampleRate = parsed;
+    if (key === 'channels') params.channels = parsed;
+  }
+  return params;
 };
 
 const base64ToBytes = (value: string): Uint8Array => {

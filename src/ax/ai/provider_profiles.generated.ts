@@ -121,12 +121,29 @@ export const axAIProviderProfiles = {
             "json_object"
           ]
         }
+      },
+      {
+        "match": {
+          "prefix": [
+            "gpt-6-sol",
+            "gpt-6-luna"
+          ]
+        },
+        "capabilities": {
+          "audio": false,
+          "audioOutput": false,
+          "functions": true,
+          "structuredOutputModes": [
+            "native",
+            "json_object"
+          ]
+        }
       }
     ],
     "sources": [
       "https://platform.openai.com/docs/api-reference/chat"
     ],
-    "reviewedAt": "2026-08-17",
+    "reviewedAt": "2026-09-23",
     "request": {
       "serviceTierMap": {
         "auto": "auto",
@@ -298,12 +315,24 @@ export const axAIProviderProfiles = {
           "audio": false,
           "audioOutput": false
         }
+      },
+      {
+        "match": {
+          "prefix": [
+            "gpt-6-sol",
+            "gpt-6-luna"
+          ]
+        },
+        "capabilities": {
+          "audio": false,
+          "audioOutput": false
+        }
       }
     ],
     "sources": [
       "https://platform.openai.com/docs/api-reference/responses"
     ],
-    "reviewedAt": "2026-08-17",
+    "reviewedAt": "2026-09-23",
     "request": {
       "serviceTierMap": {
         "auto": "auto",
@@ -332,7 +361,7 @@ export const axAIProviderProfiles = {
       "anthropic-beta": "structured-outputs-2025-11-13, web-search-2025-03-05"
     },
     "defaults": {
-      "model": "claude-sonnet-4-5"
+      "model": "claude-sonnet-5"
     },
     "capabilities": {
       "functions": true,
@@ -358,11 +387,29 @@ export const axAIProviderProfiles = {
         "dialect": "anthropic-messages"
       }
     },
-    "modelRules": [],
+    "modelRules": [
+      {
+        "match": {
+          "contains": [
+            "claude-opus-5-5",
+            "claude-fable-5-1"
+          ]
+        },
+        "request": {
+          "toolChoice": "unforced"
+        },
+        "capabilities": {
+          "structuredOutputs": true,
+          "structuredOutputModes": [
+            "native"
+          ]
+        }
+      }
+    ],
     "sources": [
       "https://docs.anthropic.com/en/api/messages"
     ],
-    "reviewedAt": "2026-08-17"
+    "reviewedAt": "2026-09-23"
   },
   "google-gemini": {
     "id": "google-gemini",
@@ -381,7 +428,7 @@ export const axAIProviderProfiles = {
       "required": true
     },
     "defaults": {
-      "model": "gemini-3.5-flash",
+      "model": "gemini-3.6-flash",
       "embedModel": "gemini-embedding-2"
     },
     "capabilities": {
@@ -426,16 +473,24 @@ export const axAIProviderProfiles = {
       },
       "transcribe": {
         "path": "/models/{model}:generateContent",
-        "dialect": "gemini-generate-content"
+        "dialect": "gemini-generate-content",
+        "defaultModel": "gemini-3.5-transcribe",
+        "body": "json"
       },
       "speak": {
         "path": "/models/{model}:generateContent",
-        "dialect": "gemini-generate-content"
+        "dialect": "gemini-generate-content",
+        "defaultModel": "gemini-3.8-flash-tts",
+        "response": "json"
       },
       "realtime": {
         "path": "/ws/google.ai.generativelanguage.v1beta.GenerativeService.BidiGenerateContent",
         "dialect": "gemini-live-bidi",
         "modelMatch": {
+          "exact": [
+            "gemini-3.8-live",
+            "gemini-3.8-live-extended-thinking"
+          ],
           "prefix": [
             "gemini-live"
           ],
@@ -446,7 +501,7 @@ export const axAIProviderProfiles = {
         },
         "url": "wss://generativelanguage.googleapis.com/ws/google.ai.generativelanguage.v1beta.GenerativeService.BidiGenerateContent",
         "grammar": "gemini_live_bidi",
-        "defaultModel": "gemini-2.5-flash-native-audio-preview-12-2025",
+        "defaultModel": "gemini-3.8-live",
         "audio": {
           "input": {
             "formats": [
@@ -482,7 +537,7 @@ export const axAIProviderProfiles = {
       "https://ai.google.dev/api/generate-content",
       "https://ai.google.dev/gemini-api/docs/optimization"
     ],
-    "reviewedAt": "2026-08-17",
+    "reviewedAt": "2026-09-23",
     "request": {
       "serviceTierMap": {
         "auto": null,

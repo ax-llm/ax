@@ -2504,7 +2504,9 @@ impl OpenAICompatibleClient {
         }
         let raw = match profile.as_str() {
             "google-gemini" => {
-                let model = string_at(&request, "model").unwrap_or_else(|| self.model.clone());
+                let model = string_at(&request, "model")
+                    .or_else(|| string_at(&descriptor, "defaultModel"))
+                    .unwrap_or_else(|| self.model.clone());
                 let path = format!(
                     "https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent"
                 );
@@ -2545,7 +2547,8 @@ impl OpenAICompatibleClient {
         let raw = match profile.as_str() {
             "google-gemini" => {
                 let model = string_at(&request, "model")
-                    .unwrap_or_else(|| "gemini-2.5-flash-preview-tts".to_string());
+                    .or_else(|| string_at(&speak_descriptor, "defaultModel"))
+                    .unwrap_or_else(|| self.model.clone());
                 let path = format!(
                     "https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent"
                 );
@@ -8338,16 +8341,304 @@ pub struct RuntimeEnvelope {
 }
 
 impl RuntimeEnvelope {
+    /// Single-value final envelope, the same as `final(value)` in actor code:
+    /// `value` reaches the responder as the task. It also sets `kind` and a
+    /// `completion_payload` typed `"final"`, which the agent uses as-is. For
+    /// `final(task, context)` or the python `final(...)` shape, use
+    /// `RuntimeEnvelope::r#final`.
     pub fn final_payload(value: Value) -> Self {
         Self {
-            payload: json!({"kind": "final", "type": "final", "completion_payload": {"args": [value.clone()]}, "args": [value]}),
+            payload: json!({"kind": "final", "type": "final", "completion_payload": {"type": "final", "args": [value.clone()]}, "args": [value]}),
         }
     }
 
-    pub fn timeout(message: impl Into<String>) -> Self {
-        Self {
-            payload: json!({"kind": "error", "error_category": "timeout", "message": message.into()}),
+    /// `final(...)` completion (python `RuntimeEnvelope.final`):
+    /// `{"type": "final", "args": [...]}`, where `args` is `[message]` or
+    /// `[task, context]` as in actor code. `final` is a reserved word in Rust,
+    /// so call it as `RuntimeEnvelope::r#final(...)`. As with python's
+    /// `*args`, a single array argument becomes the argument list.
+    pub fn r#final(args: impl IntoIterator<Item = Value>) -> Self {
+        Self::completion("final", args)
+    }
+
+    /// `askClarification(...)` completion (python
+    /// `RuntimeEnvelope.ask_clarification`), with the same argument handling
+    /// as `RuntimeEnvelope::r#final`.
+    pub fn ask_clarification(args: impl IntoIterator<Item = Value>) -> Self {
+        Self::completion("askClarification", args)
+    }
+
+    fn completion(completion_type: &str, args: impl IntoIterator<Item = Value>) -> Self {
+        let mut args: Vec<Value> = args.into_iter().collect();
+        if let [Value::Array(items)] = args.as_mut_slice() {
+            args = std::mem::take(items);
         }
+        Self {
+            payload: json!({"type": completion_type, "args": args}),
+        }
+    }
+
+    /// Plain step result (python `RuntimeEnvelope.result`).
+    pub fn result(value: Value) -> Self {
+        Self {
+            payload: json!({"kind": "result", "result": value}),
+        }
+    }
+
+    /// Error envelope (python `RuntimeEnvelope.error`). The agent step
+    /// normalizer reads `is_error` and `error`, so the turn is tagged as an
+    /// error and the message reaches the actor and run-end failure learning.
+    pub fn error(message: impl Into<String>, category: impl Into<String>) -> Self {
+        Self {
+            payload: json!({
+                "kind": "error",
+                "is_error": true,
+                "error_category": category.into(),
+                "error": message.into(),
+            }),
+        }
+    }
+
+    /// Error envelope in the `session_closed` category (python
+    /// `RuntimeEnvelope.session_closed`, default message "session closed").
+    /// The agent opens a fresh runtime session and re-runs the step.
+    pub fn session_closed(message: impl Into<String>) -> Self {
+        Self::error(message, "session_closed")
+    }
+
+    pub fn timeout(message: impl Into<String>) -> Self {
+        Self::error(message, "timeout")
+    }
+
+    /// `discover(...)` request (python `RuntimeEnvelope.discover`).
+    pub fn discover(request: Value) -> Self {
+        Self {
+            payload: json!({"kind": "discover", "discover": request}),
+        }
+    }
+
+    /// `recall(...)` request (python `RuntimeEnvelope.recall`).
+    pub fn recall(request: Value) -> Self {
+        Self {
+            payload: json!({"kind": "recall", "recall": request}),
+        }
+    }
+
+    /// `used(...)` report (python `RuntimeEnvelope.used`). An object request
+    /// is used as-is and any other value becomes `{"id": request}`; `reason`
+    /// and `stage` are added when given.
+    pub fn used(request: Value, reason: Option<&str>, stage: Option<&str>) -> Self {
+        let mut used = match request {
+            Value::Object(map) => map,
+            id => Map::from_iter([("id".to_string(), id)]),
+        };
+        if let Some(reason) = reason {
+            used.insert("reason".to_string(), json!(reason));
+        }
+        if let Some(stage) = stage {
+            used.insert("stage".to_string(), json!(stage));
+        }
+        Self {
+            payload: json!({"kind": "used", "used": used}),
+        }
+    }
+
+    /// Status update (python `RuntimeEnvelope.status`).
+    pub fn status(status_type: impl Into<String>, message: impl Into<String>) -> Self {
+        Self {
+            payload: json!({"kind": "status", "status": {"type": status_type.into(), "message": message.into()}}),
+        }
+    }
+
+    /// `guideAgent(...)` payload (python `RuntimeEnvelope.guide_agent`);
+    /// `triggeredBy` is set only when `triggered_by` is given.
+    pub fn guide_agent(guidance: impl Into<String>, triggered_by: Option<&str>) -> Self {
+        let mut payload = json!({"type": "guide_agent", "guidance": guidance.into()});
+        if let Some(triggered_by) = triggered_by {
+            payload["triggeredBy"] = json!(triggered_by);
+        }
+        Self { payload }
+    }
+}
+
+#[cfg(test)]
+mod runtime_envelope_tests {
+    use super::*;
+
+    // A user-written session that answers every step with one envelope.
+    struct EnvelopeSession(RuntimeEnvelope);
+
+    impl AxCodeSession for EnvelopeSession {
+        fn execute(&mut self, _code: &str, _options: Value) -> AxResult<RuntimeEnvelope> {
+            Ok(self.0.clone())
+        }
+    }
+
+    // Hands the n-th session it creates the n-th envelope.
+    struct EnvelopeRuntime(Vec<RuntimeEnvelope>);
+
+    impl AxCodeRuntime for EnvelopeRuntime {
+        fn language(&self) -> &str {
+            "JavaScript"
+        }
+
+        fn create_session(&mut self, _globals: Value, _options: Value) -> AxResult<Box<dyn AxCodeSession>> {
+            if self.0.is_empty() {
+                return Err(AxError::runtime("no envelope left for a new session"));
+            }
+            Ok(Box::new(EnvelopeSession(self.0.remove(0))))
+        }
+    }
+
+    #[test]
+    fn timeout_envelope_matches_error_envelope() {
+        assert_eq!(
+            RuntimeEnvelope::timeout("slow").payload,
+            json!({"kind": "error", "is_error": true, "error_category": "timeout", "error": "slow"})
+        );
+    }
+
+    #[test]
+    fn agent_step_tags_timeout_envelope_as_error_turn() -> AxResult<()> {
+        let mut runtime = EnvelopeRuntime(vec![RuntimeEnvelope::timeout("execution exceeded 50ms")]);
+        let mut runner = agent("question:string -> answer:string")?;
+        let code = "while (true) {}";
+        let step = runner.execute_actor_step(&mut runtime, code, json!({"question": "q"}), json!({}))?;
+        assert_eq!(step.payload["is_error"], true);
+        assert_eq!(step.payload["error"], "execution exceeded 50ms");
+        assert_eq!(step.payload["error_category"], "timeout");
+
+        let log = runner.get_action_log();
+        let turn = log
+            .iter()
+            .find(|entry| entry["type"] == "runtime_step")
+            .expect("runtime step logged");
+        assert_eq!(turn["code"], code);
+        assert_eq!(turn["tags"], json!(["error"]));
+
+        let signals = core_value_to_json(&_agent_build_failure_signals(&[runner.state.clone()])?);
+        let signals = signals.as_array().expect("failure signals list");
+        assert_eq!(signals.len(), 1);
+        assert_eq!(signals[0]["kind"], "error_turn");
+        assert_eq!(signals[0]["signature"], "timeout:execution exceeded 50ms");
+        assert_eq!(signals[0]["detail"], "execution exceeded 50ms");
+        assert_eq!(signals[0]["code"], code);
+        Ok(())
+    }
+
+    // Same payloads as python RuntimeEnvelope for the same calls.
+    #[test]
+    fn helper_envelopes_match_python_runtime_envelope() {
+        for (envelope, expected) in [
+            (
+                RuntimeEnvelope::result(json!({"answer": "ok"})),
+                json!({"kind": "result", "result": {"answer": "ok"}}),
+            ),
+            (
+                RuntimeEnvelope::session_closed("closed"),
+                json!({"kind": "error", "is_error": true, "error_category": "session_closed", "error": "closed"}),
+            ),
+            (
+                RuntimeEnvelope::r#final([json!("Answer"), json!({"answer": "ok"})]),
+                json!({"type": "final", "args": ["Answer", {"answer": "ok"}]}),
+            ),
+            // final(*args) with a single list argument uses it as the args.
+            (
+                RuntimeEnvelope::r#final([json!(["Answer", {"answer": "ok"}])]),
+                json!({"type": "final", "args": ["Answer", {"answer": "ok"}]}),
+            ),
+            (RuntimeEnvelope::r#final([]), json!({"type": "final", "args": []})),
+            (
+                RuntimeEnvelope::ask_clarification([json!({"question": "Which one?"})]),
+                json!({"type": "askClarification", "args": [{"question": "Which one?"}]}),
+            ),
+            (
+                RuntimeEnvelope::ask_clarification([json!([{"question": "Which one?"}])]),
+                json!({"type": "askClarification", "args": [{"question": "Which one?"}]}),
+            ),
+            (
+                RuntimeEnvelope::discover(json!({"tools": ["docs"]})),
+                json!({"kind": "discover", "discover": {"tools": ["docs"]}}),
+            ),
+            (
+                RuntimeEnvelope::recall(json!("prefs")),
+                json!({"kind": "recall", "recall": "prefs"}),
+            ),
+            (
+                RuntimeEnvelope::used(json!("mem-1"), Some("relevant"), Some("executor")),
+                json!({"kind": "used", "used": {"id": "mem-1", "reason": "relevant", "stage": "executor"}}),
+            ),
+            (
+                RuntimeEnvelope::used(json!({"id": "mem-2", "score": 0.5}), None, Some("responder")),
+                json!({"kind": "used", "used": {"id": "mem-2", "score": 0.5, "stage": "responder"}}),
+            ),
+            (
+                RuntimeEnvelope::used(json!(7), None, None),
+                json!({"kind": "used", "used": {"id": 7}}),
+            ),
+            (
+                RuntimeEnvelope::status("success", "loaded"),
+                json!({"kind": "status", "status": {"type": "success", "message": "loaded"}}),
+            ),
+            (
+                RuntimeEnvelope::guide_agent("Use the loaded docs.", Some("tools.review")),
+                json!({"type": "guide_agent", "guidance": "Use the loaded docs.", "triggeredBy": "tools.review"}),
+            ),
+            (
+                RuntimeEnvelope::guide_agent("Check the cache first.", None),
+                json!({"type": "guide_agent", "guidance": "Check the cache first."}),
+            ),
+        ] {
+            assert_eq!(envelope.payload, expected);
+        }
+    }
+
+    #[test]
+    fn agent_step_restarts_closed_session_and_accepts_python_final() -> AxResult<()> {
+        let mut runtime = EnvelopeRuntime(vec![
+            RuntimeEnvelope::session_closed("worker restarted"),
+            RuntimeEnvelope::r#final([json!("Answer"), json!({"answer": "ok"})]),
+        ]);
+        let mut runner = agent("question:string -> answer:string")?;
+        let step = runner.execute_actor_step(&mut runtime, "final()", json!({"question": "q"}), json!({}))?;
+        assert!(runtime.0.is_empty(), "the closed session was not replaced");
+        assert_eq!(step.payload["kind"], "final");
+        assert_eq!(
+            step.payload["completion_payload"],
+            json!({"type": "final", "args": ["Answer", {"answer": "ok"}]})
+        );
+        Ok(())
+    }
+
+    // final_payload(v) is final(v): the responder's task must be v, not a
+    // re-wrapped {"args": [v]}.
+    #[test]
+    fn agent_step_does_not_rewrap_final_payload() -> AxResult<()> {
+        let value = json!({"answer": "ok"});
+        let mut runtime = EnvelopeRuntime(vec![RuntimeEnvelope::final_payload(value.clone())]);
+        let mut runner = agent("question:string -> answer:string")?;
+        let step = runner.execute_actor_step(&mut runtime, "final()", json!({"question": "q"}), json!({}))?;
+        assert_eq!(step.payload["kind"], "final");
+        assert_eq!(
+            step.payload["completion_payload"],
+            json!({"type": "final", "args": [value]})
+        );
+        Ok(())
+    }
+
+    #[test]
+    fn agent_step_accepts_python_clarification() -> AxResult<()> {
+        let mut runtime = EnvelopeRuntime(vec![RuntimeEnvelope::ask_clarification([
+            json!({"question": "Which one?"}),
+        ])]);
+        let mut runner = agent("question:string -> answer:string")?;
+        let step = runner.execute_actor_step(&mut runtime, "ask()", json!({"question": "q"}), json!({}))?;
+        assert_eq!(step.payload["kind"], "askClarification");
+        assert_eq!(
+            step.payload["completion_payload"],
+            json!({"type": "askClarification", "args": [{"question": "Which one?"}]})
+        );
+        Ok(())
     }
 }
 
@@ -8467,16 +8758,10 @@ impl AxCodeSession for ProcessCodeSession {
     fn execute(&mut self, code: &str, options: Value) -> AxResult<RuntimeEnvelope> {
         // python ProcessCodeSession.execute converts protocol failures into
         // error envelopes instead of raising.
-        let payload = match self.request("execute", json!({"code": code, "options": options})) {
-            Ok(result) => result,
-            Err(err) => json!({
-                "kind": "error",
-                "is_error": true,
-                "error_category": err.category,
-                "error": err.message,
-            }),
-        };
-        Ok(RuntimeEnvelope { payload })
+        match self.request("execute", json!({"code": code, "options": options})) {
+            Ok(payload) => Ok(RuntimeEnvelope { payload }),
+            Err(err) => Ok(RuntimeEnvelope::error(err.message, err.category)),
+        }
     }
 
     fn inspect_globals(&mut self, options: Value) -> AxResult<Value> {
@@ -12108,8 +12393,9 @@ fn run_agent_runtime_session_operations(
     Ok(())
 }
 
-// Mirrors python conformance._runtime_adapter_call: the raw RuntimeEnvelope
-// helper payloads exercised by the adapter fixtures.
+// Mirrors python conformance._runtime_adapter_call: every helper payload
+// comes from the public RuntimeEnvelope constructors, so the adapter
+// fixtures pin the API that custom AxCodeSession implementations use.
 fn runtime_adapter_call(spec: &Value) -> AxResult<Value> {
     let name = spec.get("name").and_then(Value::as_str).unwrap_or_default();
     let args = spec
@@ -12126,20 +12412,8 @@ fn runtime_adapter_call(spec: &Value) -> AxResult<Value> {
             None => fallback.to_string(),
         }
     };
-    let error_envelope = |message: String, category: &str| {
-        json!({"kind": "error", "is_error": true, "error_category": category, "error": message})
-    };
-    // python RuntimeEnvelope.final/ask_clarification flatten a single list arg.
-    let completion_args = |args: &[Value]| -> Vec<Value> {
-        if args.len() == 1 {
-            if let Some(items) = args[0].as_array() {
-                return items.clone();
-            }
-        }
-        args.to_vec()
-    };
-    match name {
-        "result" => Ok(json!({"kind": "result", "result": arg(0).unwrap_or(Value::Null)})),
+    let envelope = match name {
+        "result" => RuntimeEnvelope::result(arg(0).unwrap_or(Value::Null)),
         "error" => {
             let category = arg(1)
                 .and_then(|value| value.as_str().map(ToString::to_string))
@@ -12150,53 +12424,31 @@ fn runtime_adapter_call(spec: &Value) -> AxResult<Value> {
                         .map(ToString::to_string)
                 })
                 .unwrap_or_else(|| "runtime".to_string());
-            Ok(error_envelope(text(arg(0), ""), &category))
+            RuntimeEnvelope::error(text(arg(0), ""), category)
         }
-        "session_closed" => Ok(error_envelope(text(arg(0), "session closed"), "session_closed")),
-        "timeout" => Ok(error_envelope(text(arg(0), "execution timed out"), "timeout")),
-        "final" => Ok(json!({"type": "final", "args": completion_args(&args)})),
-        "ask_clarification" => {
-            Ok(json!({"type": "askClarification", "args": completion_args(&args)}))
-        }
-        "discover" => Ok(json!({"kind": "discover", "discover": arg(0).unwrap_or_else(|| json!({}))})),
-        "recall" => Ok(json!({"kind": "recall", "recall": arg(0).unwrap_or_else(|| json!([]))})),
-        "used" => {
-            let request = arg(0).unwrap_or_else(|| json!({}));
-            let mut payload = match request {
-                Value::Object(map) => map,
-                other => {
-                    let mut map = Map::new();
-                    map.insert("id".to_string(), other);
-                    map
-                }
-            };
-            for key in ["reason", "stage"] {
-                if let Some(value) = kwargs.get(key) {
-                    if !value.is_null() {
-                        payload.insert(key.to_string(), value.clone());
-                    }
-                }
-            }
-            Ok(json!({"kind": "used", "used": payload}))
-        }
-        "status" => Ok(json!({
-            "kind": "status",
-            "status": {"type": text(arg(0), "success"), "message": text(arg(1), "")},
-        })),
+        "session_closed" => RuntimeEnvelope::session_closed(text(arg(0), "session closed")),
+        "timeout" => RuntimeEnvelope::timeout(text(arg(0), "execution timed out")),
+        "final" => RuntimeEnvelope::r#final(args.clone()),
+        "ask_clarification" => RuntimeEnvelope::ask_clarification(args.clone()),
+        "discover" => RuntimeEnvelope::discover(arg(0).unwrap_or_else(|| json!({}))),
+        "recall" => RuntimeEnvelope::recall(arg(0).unwrap_or_else(|| json!([]))),
+        "used" => RuntimeEnvelope::used(
+            arg(0).unwrap_or_else(|| json!({})),
+            kwargs.get("reason").and_then(Value::as_str),
+            kwargs.get("stage").and_then(Value::as_str),
+        ),
+        "status" => RuntimeEnvelope::status(text(arg(0), "success"), text(arg(1), "")),
         "guide_agent" => {
-            let mut payload = json!({"type": "guide_agent", "guidance": text(arg(0), "")});
-            if let Some(triggered_by) = arg(1) {
-                if !triggered_by.is_null() {
-                    payload["triggeredBy"] = triggered_by;
-                }
-            }
-            Ok(payload)
+            RuntimeEnvelope::guide_agent(text(arg(0), ""), args.get(1).and_then(Value::as_str))
         }
-        other => Err(AxError::new(
-            "fixture",
-            format!("unknown runtime adapter helper {other:?}"),
-        )),
-    }
+        other => {
+            return Err(AxError::new(
+                "fixture",
+                format!("unknown runtime adapter helper {other:?}"),
+            ))
+        }
+    };
+    Ok(envelope.payload)
 }
 
 // Mirrors python conformance._run_agent_runtime_adapter.
@@ -14432,7 +14684,20 @@ fn run_simple_forward_fixture(fixture: &Value) -> AxResult<()> {
         program.forward(&mut client, input)
     };
     if fixture.get("expected_error_contains").is_some() {
-        return expect_validation_result(result.map(|_| ()), fixture);
+        expect_validation_result(result.map(|_| ()), fixture)?;
+        if let Some(expected) = fixture.get("expected_request_count").and_then(Value::as_u64) {
+            if client.requests.len() != expected as usize {
+                return Err(AxError::new(
+                    "fixture",
+                    format!("expected {expected} requests, got {}", client.requests.len()),
+                ));
+            }
+        }
+        if let Some(expected) = fixture.get("expected_tool_calls").and_then(Value::as_array) {
+            let actual = Value::Array(recorded_calls.lock().unwrap().clone());
+            expect_json_list_exact_subsets("tool calls", &actual, expected)?;
+        }
+        return Ok(());
     }
     let output = result?;
     if let Some(expected) = fixture.get("expected_output") {
@@ -14465,6 +14730,17 @@ fn run_simple_forward_fixture(fixture: &Value) -> AxResult<()> {
                 return Err(AxError::new(
                     "fixture",
                     format!("forward requests missing {needle:?}"),
+                ));
+            }
+        }
+    }
+    if let Some(expected) = fixture.get("expected_request_not_contains").and_then(Value::as_array) {
+        let text = stable_stringify(&Value::Array(client.requests.clone()));
+        for needle in expected.iter().filter_map(Value::as_str) {
+            if text.contains(needle) {
+                return Err(AxError::new(
+                    "fixture",
+                    format!("forward requests unexpectedly contain {needle:?}"),
                 ));
             }
         }

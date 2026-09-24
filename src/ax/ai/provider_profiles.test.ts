@@ -163,6 +163,53 @@ describe('named AI deployment profiles', () => {
     expect(response.modelUsage?.tokens?.serviceTier).toBe('priority');
   });
 
+  it.each([
+    ['openai-responses', 'gpt-5.4-mini'],
+    // The openai provider sends the GPT-6 family through its Responses sibling.
+    ['openai', 'gpt-6-sol'],
+  ] as const)(
+    'sends %s chat for %s to the configured apiURL',
+    async (name, model) => {
+      const fetch = vi.fn(
+        async (_url: RequestInfo | URL, _init?: RequestInit) =>
+          new Response(
+            JSON.stringify({
+              id: 'resp-url',
+              object: 'response',
+              created: 1,
+              model,
+              output: [
+                {
+                  id: 'msg-url',
+                  type: 'message',
+                  role: 'assistant',
+                  status: 'completed',
+                  content: [
+                    { type: 'output_text', text: 'ok', annotations: [] },
+                  ],
+                },
+              ],
+              usage: { input_tokens: 1, output_tokens: 1, total_tokens: 2 },
+            }),
+            { status: 200, headers: { 'Content-Type': 'application/json' } }
+          )
+      );
+      const service = ai({
+        name,
+        apiKey: 'key',
+        apiURL: 'https://responses.test/v1',
+        config: { model, stream: false },
+        options: { fetch },
+      });
+
+      await service.chat({ chatPrompt: [{ role: 'user', content: 'ping' }] });
+
+      expect(fetch.mock.calls.map(([url]) => String(url))).toEqual([
+        'https://responses.test/v1/responses',
+      ]);
+    }
+  );
+
   it('fails before transport for an unsupported explicit tier', async () => {
     const fetch = vi.fn();
     const service = ai({

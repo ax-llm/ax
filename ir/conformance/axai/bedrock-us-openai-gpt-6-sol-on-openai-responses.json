@@ -1,0 +1,60 @@
+{
+  "base_url": "https://bedrock-runtime.us-east-1.amazonaws.com/openai/v1",
+  "expected_transport_json_absent": ["temperature", "top_p"],
+  "expected_transport_request": {
+    "json": {
+      "model": "us.openai.gpt-6-sol",
+      "reasoning": {
+        "effort": "low"
+      },
+      "stream": false
+    },
+    "method": "POST",
+    "url": "https://bedrock-runtime.us-east-1.amazonaws.com/openai/v1/responses"
+  },
+  "kind": "ai_chat",
+  "model": "us.openai.gpt-6-sol",
+  "name": "bedrock-us-openai-gpt-6-sol-on-openai-responses",
+  "provider": "openai-responses",
+  "request": {
+    "chat_prompt": [
+      {
+        "content": "reason",
+        "role": "user"
+      }
+    ],
+    "model_config": {
+      "stream": false,
+      "temperature": 0.5,
+      "thinkingTokenBudget": "minimal",
+      "topP": 0.9
+    }
+  },
+  "transport_responses": [
+    {
+      "json": {
+        "id": "resp_bedrock",
+        "model": "us.openai.gpt-6-sol",
+        "output": [
+          {
+            "content": [
+              {
+                "annotations": [],
+                "text": "ok",
+                "type": "output_text"
+              }
+            ],
+            "id": "msg_bedrock",
+            "type": "message"
+          }
+        ],
+        "usage": {
+          "input_tokens": 1,
+          "output_tokens": 1,
+          "total_tokens": 2
+        }
+      },
+      "status": 200
+    }
+  ]
+}

@@ -164,13 +164,20 @@ export const axModelInfoGoogleGemini: AxModelInfo[] = [
       showThoughts: true,
       structuredOutputs: true,
     },
+    isDeprecated: true,
+    deprecatedOn: '2026-05-25',
   },
+  // Image models: completion prices are the text/thinking rate; generated
+  // images bill higher ($120, $60 and $30 per 1M image tokens respectively).
   {
     name: AxAIGoogleGeminiModel.Gemini3ProImage,
+    aliases: ['gemini-3-pro-image-preview'],
     currency: 'usd',
     characterIsToken: false,
     promptTokenCostPer1M: 2.0,
-    completionTokenCostPer1M: 0.134, // Per image output, approximate
+    completionTokenCostPer1M: 12.0,
+    contextWindow: 131_072,
+    maxTokens: 32_768,
     supported: {
       thinkingBudget: true,
       showThoughts: true,
@@ -179,11 +186,42 @@ export const axModelInfoGoogleGemini: AxModelInfo[] = [
   },
   {
     name: AxAIGoogleGeminiModel.Gemini31FlashImage,
+    aliases: ['gemini-3.1-flash-image-preview'],
     currency: 'usd',
     characterIsToken: false,
     promptTokenCostPer1M: 0.5,
     completionTokenCostPer1M: 3.0,
+    contextWindow: 65_536,
+    maxTokens: 65_536,
     supported: { structuredOutputs: true },
+  },
+  {
+    name: AxAIGoogleGeminiModel.Gemini31FlashLiteImage,
+    currency: 'usd',
+    characterIsToken: false,
+    promptTokenCostPer1M: 0.25,
+    completionTokenCostPer1M: 1.5,
+    contextWindow: 65_536,
+    maxTokens: 65_536,
+    supported: { structuredOutputs: true },
+  },
+  {
+    name: AxAIGoogleGeminiModel.Gemini38Live,
+    characterIsToken: false,
+    audio: { input: true, output: true },
+    contextWindow: 131_072,
+    maxTokens: 65_536,
+  },
+  {
+    name: AxAIGoogleGeminiModel.Gemini38LiveExtendedThinking,
+    characterIsToken: false,
+    supported: {
+      thinkingBudget: true,
+      showThoughts: true,
+    },
+    audio: { input: true, output: true },
+    contextWindow: 131_072,
+    maxTokens: 65_536,
   },
   {
     name: AxAIGoogleGeminiModel.Gemini31FlashLive,
@@ -196,13 +234,49 @@ export const axModelInfoGoogleGemini: AxModelInfo[] = [
     contextWindow: 131_072,
     maxTokens: 65_536,
   },
+  // Text-to-speech: prompt prices are per text token, completion prices per
+  // audio token.
+  {
+    name: AxAIGoogleGeminiModel.Gemini38FlashTTS,
+    currency: 'usd',
+    characterIsToken: false,
+    promptTokenCostPer1M: 1.0,
+    completionTokenCostPer1M: 18.0,
+    contextWindow: 8192,
+    maxTokens: 16_384,
+    audio: { input: false, output: true },
+  },
+  {
+    name: AxAIGoogleGeminiModel.Gemini38FlashLiteTTS,
+    currency: 'usd',
+    characterIsToken: false,
+    promptTokenCostPer1M: 1.0,
+    completionTokenCostPer1M: 12.0,
+    contextWindow: 8192,
+    maxTokens: 16_384,
+    audio: { input: false, output: true },
+  },
   {
     name: AxAIGoogleGeminiModel.Gemini31FlashTTS,
     currency: 'usd',
     characterIsToken: false,
-    promptTokenCostPer1M: 0.5,
-    completionTokenCostPer1M: 3.0,
+    promptTokenCostPer1M: 1.0,
+    completionTokenCostPer1M: 20.0,
+    contextWindow: 8192,
+    maxTokens: 16_384,
     audio: { input: false, output: true },
+  },
+  // Speech-to-text: prompt prices are per audio token.
+  {
+    name: AxAIGoogleGeminiModel.Gemini35Transcribe,
+    currency: 'usd',
+    characterIsToken: false,
+    promptTokenCostPer1M: 2.0,
+    completionTokenCostPer1M: 12.0,
+    contextWindow: 98_304,
+    maxTokens: 32_768,
+    audio: { input: true, output: false },
+    supported: { operations: ['transcribe'] },
   },
   {
     name: AxAIGoogleGeminiModel.NanoBanana2,
@@ -217,6 +291,8 @@ export const axModelInfoGoogleGemini: AxModelInfo[] = [
     characterIsToken: false,
     promptTokenCostPer1M: 0.0,
     completionTokenCostPer1M: 0.0,
+    isDeprecated: true,
+    deprecatedOn: '2026-08-31',
   },
   {
     name: AxAIGoogleGeminiModel.Gemini25Pro,
@@ -247,6 +323,7 @@ export const axModelInfoGoogleGemini: AxModelInfo[] = [
       showThoughts: true,
       structuredOutputs: true,
     },
+    isDeprecated: true,
   },
   {
     name: AxAIGoogleGeminiModel.Gemini20FlashThinkingExp,
@@ -259,6 +336,7 @@ export const axModelInfoGoogleGemini: AxModelInfo[] = [
       showThoughts: true,
       structuredOutputs: true,
     },
+    isDeprecated: true,
   },
   {
     name: AxAIGoogleGeminiModel.Gemini25Flash,
@@ -329,6 +407,7 @@ export const axModelInfoGoogleGemini: AxModelInfo[] = [
     promptTokenCostPer1M: 0.075,
     completionTokenCostPer1M: 0.3,
     supported: { structuredOutputs: true },
+    isDeprecated: true,
   },
   {
     name: AxAIGoogleGeminiModel.Gemini15Flash8B,
@@ -337,6 +416,7 @@ export const axModelInfoGoogleGemini: AxModelInfo[] = [
     promptTokenCostPer1M: 0.0375,
     completionTokenCostPer1M: 0.15,
     supported: { structuredOutputs: true },
+    isDeprecated: true,
   },
   {
     name: AxAIGoogleGeminiModel.Gemini15Pro,
@@ -345,6 +425,7 @@ export const axModelInfoGoogleGemini: AxModelInfo[] = [
     promptTokenCostPer1M: 1.25,
     completionTokenCostPer1M: 5.0,
     supported: { structuredOutputs: true },
+    isDeprecated: true,
   },
   {
     name: AxAIGoogleGeminiModel.Gemini1Pro,
@@ -353,6 +434,7 @@ export const axModelInfoGoogleGemini: AxModelInfo[] = [
     promptTokenCostPer1M: 0.5,
     completionTokenCostPer1M: 1.5,
     supported: { structuredOutputs: true },
+    isDeprecated: true,
   },
   {
     name: AxAIGoogleGeminiModel.GeminiFlashLatest,

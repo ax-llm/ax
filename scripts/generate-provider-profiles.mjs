@@ -374,15 +374,20 @@ const registry = {
   ),
   deferredCatalogProviderIds: [],
 };
-const operationDescriptor = (name, operation) => ({
-  ...operation,
-  method: name === 'realtime' ? 'WS' : 'POST',
-  path: operation.path,
-  body: name === 'transcribe' ? 'multipart' : 'json',
-  stream: name === 'stream_chat' || name === 'realtime',
-  ...(name === 'speak' ? { response: 'binary' } : {}),
-  dialect: operation.dialect,
-});
+const operationDescriptor = (name, operation) => {
+  // Transcription uploads are multipart and speech responses binary unless the
+  // profile says otherwise, as Gemini's JSON generateContent endpoints do.
+  const response = operation.response ?? (name === 'speak' ? 'binary' : null);
+  return {
+    ...operation,
+    method: name === 'realtime' ? 'WS' : 'POST',
+    path: operation.path,
+    body: operation.body ?? (name === 'transcribe' ? 'multipart' : 'json'),
+    stream: name === 'stream_chat' || name === 'realtime',
+    ...(response ? { response } : {}),
+    dialect: operation.dialect,
+  };
+};
 const descriptors = Object.fromEntries(
   Object.entries(resolvedProfiles).map(([id, profile]) => {
     const operations = Object.fromEntries(

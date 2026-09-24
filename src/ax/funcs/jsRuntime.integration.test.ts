@@ -141,6 +141,32 @@ describe('AxJSRuntime integration', () => {
     }
   });
 
+  it('executeWithStatus flags code errors that execute() returns as text', async () => {
+    const runtime = new AxJSRuntime();
+    const session = runtime.createSession();
+    try {
+      const reported = await session.executeWithStatus!(
+        'console.log(brokenHelper())'
+      );
+      expect(reported.isError).toBe(true);
+      expect(reported.value).toMatch(
+        /^ReferenceError: brokenHelper is not defined\n/
+      );
+      await expect(
+        session.execute('console.log(brokenHelper())')
+      ).resolves.toBe(reported.value);
+
+      await expect(
+        session.executeWithStatus!('console.log("fine")')
+      ).resolves.toEqual({ value: 'fine', isError: false });
+      await expect(
+        session.executeWithStatus!('throw new Error("boom")')
+      ).rejects.toThrow('boom');
+    } finally {
+      session.close();
+    }
+  });
+
   it('RangeError in executed code resolves with fix message (not reject)', async () => {
     const runtime = new AxJSRuntime();
     const session = runtime.createSession();

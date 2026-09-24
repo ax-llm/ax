@@ -1,0 +1,75 @@
+{
+  "base_url": "https://bedrock-runtime.us-east-1.amazonaws.com/openai/v1",
+  "expected_transport_request": {
+    "json": {
+      "input": [
+        {
+          "content": [
+            {
+              "prompt_cache_breakpoint": {
+                "mode": "explicit"
+              },
+              "text": "cached",
+              "type": "input_text"
+            }
+          ],
+          "role": "user"
+        }
+      ],
+      "model": "us.openai.gpt-6-sol",
+      "prompt_cache_key": "sol-prefix",
+      "prompt_cache_options": {
+        "mode": "explicit",
+        "ttl": "30m"
+      }
+    },
+    "method": "POST",
+    "url": "https://bedrock-runtime.us-east-1.amazonaws.com/openai/v1/responses"
+  },
+  "kind": "ai_chat",
+  "model": "us.openai.gpt-6-sol",
+  "name": "bedrock-us-openai-gpt-6-sol-prompt-cache-breakpoints",
+  "provider": "openai",
+  "request": {
+    "chat_prompt": [
+      {
+        "content": "cached",
+        "role": "user"
+      }
+    ],
+    "model_config": {
+      "thinkingTokenBudget": "low"
+    }
+  },
+  "service_options": {
+    "contextCache": {},
+    "promptCacheKey": "sol-prefix"
+  },
+  "transport_responses": [
+    {
+      "json": {
+        "id": "resp_bedrock",
+        "model": "us.openai.gpt-6-sol",
+        "output": [
+          {
+            "content": [
+              {
+                "annotations": [],
+                "text": "ok",
+                "type": "output_text"
+              }
+            ],
+            "id": "msg_bedrock",
+            "type": "message"
+          }
+        ],
+        "usage": {
+          "input_tokens": 1,
+          "output_tokens": 1,
+          "total_tokens": 2
+        }
+      },
+      "status": 200
+    }
+  ]
+}

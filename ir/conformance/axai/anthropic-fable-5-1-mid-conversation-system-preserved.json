@@ -1,0 +1,67 @@
+{
+  "expected_transport_request": {
+    "json": {
+      "messages": [
+        {
+          "content": "Start.",
+          "role": "user"
+        },
+        {
+          "content": "From now on, be terse.",
+          "role": "system"
+        }
+      ],
+      "system": [
+        {
+          "text": "Initial policy.",
+          "type": "text"
+        }
+      ]
+    }
+  },
+  "kind": "ai_chat",
+  "model": "claude-fable-5-1",
+  "name": "anthropic-fable-5-1-mid-conversation-system-preserved",
+  "provider": "anthropic",
+  "request": {
+    "chat_prompt": [
+      {
+        "content": "Initial policy.",
+        "role": "system"
+      },
+      {
+        "content": "Start.",
+        "role": "user"
+      },
+      {
+        "content": "From now on, be terse.",
+        "role": "system"
+      }
+    ],
+    "model_config": {
+      "stream": false
+    }
+  },
+  "transport_responses": [
+    {
+      "json": {
+        "content": [
+          {
+            "text": "ok",
+            "type": "text"
+          }
+        ],
+        "id": "msg_none",
+        "model": "claude-fable-5-1",
+        "role": "assistant",
+        "stop_reason": "end_turn",
+        "type": "message",
+        "usage": {
+          "input_tokens": 1,
+          "output_tokens": 1
+        }
+      },
+      "status": 200
+    }
+  ]
+}

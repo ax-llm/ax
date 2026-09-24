@@ -246,7 +246,7 @@ impl QuickJsCodeSession {
 impl AxCodeSession for QuickJsCodeSession {
     fn execute(&mut self, code: &str, options: Value) -> AxResult<RuntimeEnvelope> {
         if self.closed {
-            return Ok(error_envelope("session closed", "session_closed"));
+            return Ok(RuntimeEnvelope::session_closed("session closed"));
         }
         let timeout_ms = int_option(
             &options,
@@ -294,9 +294,9 @@ impl AxCodeSession for QuickJsCodeSession {
         if let Err(error) = run_result {
             self.runtime.set_interrupt_handler(None);
             if timed_out.load(Ordering::SeqCst) {
-                return Ok(error_envelope("QuickJS execution timed out", "timeout"));
+                return Ok(RuntimeEnvelope::timeout("QuickJS execution timed out"));
             }
-            return Ok(error_envelope(error.message, "runtime"));
+            return Ok(RuntimeEnvelope::error(error.message, "runtime"));
         }
         // Drain awaited continuations and the rejection handler so __ax_error / __ax_completion
         // reflect the final actor state (rquickjs does not run pending jobs automatically).
@@ -315,8 +315,8 @@ impl AxCodeSession for QuickJsCodeSession {
                 "JSON.stringify(globalThis.__ax_error_category === undefined ? 'runtime' : globalThis.__ax_error_category)"
                     .to_string(),
             )?)?;
-            return Ok(error_envelope(
-                message.to_string(),
+            return Ok(RuntimeEnvelope::error(
+                message,
                 actor_category.as_str().unwrap_or("runtime"),
             ));
         }
@@ -340,14 +340,14 @@ impl AxCodeSession for QuickJsCodeSession {
 
     fn inspect_globals(&mut self, _options: Value) -> AxResult<Value> {
         if self.closed {
-            return Ok(error_envelope("session closed", "session_closed").payload);
+            return Ok(RuntimeEnvelope::session_closed("session closed").payload);
         }
         self.snapshot_bindings(false)
     }
 
     fn snapshot_globals(&mut self, _options: Value) -> AxResult<Value> {
         if self.closed {
-            return Ok(error_envelope("session closed", "session_closed").payload);
+            return Ok(RuntimeEnvelope::session_closed("session closed").payload);
         }
         let bindings = self.snapshot_bindings(true)?;
         Ok(json!({
@@ -360,7 +360,7 @@ impl AxCodeSession for QuickJsCodeSession {
 
     fn patch_globals(&mut self, snapshot: Value, _options: Value) -> AxResult<Value> {
         if self.closed {
-            return Ok(error_envelope("session closed", "session_closed").payload);
+            return Ok(RuntimeEnvelope::session_closed("session closed").payload);
         }
         let bindings = snapshot
             .get("bindings")
@@ -476,17 +476,6 @@ fn limit_snapshot(bindings: Value, max_bytes: i64) -> Value {
         }
     }
     Value::Object(trimmed)
-}
-
-fn error_envelope(message: impl Into<String>, category: impl Into<String>) -> RuntimeEnvelope {
-    RuntimeEnvelope {
-        payload: json!({
-            "kind": "error",
-            "is_error": true,
-            "error_category": category.into(),
-            "error": message.into()
-        }),
-    }
 }
 
 fn qjs_error(error: rquickjs::Error) -> AxError {

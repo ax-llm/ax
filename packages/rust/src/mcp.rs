@@ -7622,11 +7622,17 @@ mod invocation_cancellation_tests {
             socket.write_all(b"HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: 100\r\n\r\n").unwrap();
             started_tx.send(()).unwrap();
             let mut byte = [0];
-            assert_eq!(
-                reader.read(&mut byte).unwrap(),
-                0,
-                "cancelled HTTP request stayed open"
-            );
+            // A client that closes with these headers unread makes its kernel send RST instead of FIN.
+            let read = reader.read(&mut byte);
+            let closed = match &read {
+                Ok(0) => true,
+                Err(error) => matches!(
+                    error.kind(),
+                    std::io::ErrorKind::ConnectionReset | std::io::ErrorKind::ConnectionAborted
+                ),
+                Ok(_) => false,
+            };
+            assert!(closed, "cancelled HTTP request stayed open: {read:?}");
         });
         let transport = AxMCPStreamableHTTPTransport::new(format!("http://{address}"),json!({"headers":{"X-Tenant":"fixture"},"ssrfProtection":{"requireHttps":false,"allowLocalhost":true,"allowPrivateNetworks":true}})).unwrap();
         let mut client = AxMCPClient::new(Box::new(transport), json!({"namespace":"inventory"}));

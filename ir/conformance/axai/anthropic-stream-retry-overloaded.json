@@ -1,4 +1,5 @@
 {
+  "model": "claude-sonnet-4-5",
   "expected_output": [
     {
       "model_usage": {

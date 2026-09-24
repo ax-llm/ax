@@ -187,6 +187,7 @@ import type {
   AxResolvedAgentPlaybookLearn,
 } from './agent/playbookConfig.js';
 import {
+  type AxCodeExecutionResult,
   type AxCodeRuntime,
   type AxCodeSession,
   type AxCodeSessionSnapshot,
@@ -278,6 +279,7 @@ import type {
 import {
   axAudioFormatFromMimeType,
   axAudioMimeType,
+  axAudioParamsFromMimeType,
   axConcatBase64,
 } from './ai/audio/util.js';
 import { AxBalancer, type AxBalancerOptions } from './ai/balance.js';
@@ -1547,6 +1549,7 @@ export { axAudioFormatFromMimeType };
 export { axAudioInputFilename };
 export { axAudioInputToBlob };
 export { axAudioMimeType };
+export { axAudioParamsFromMimeType };
 export { axBaseAIDefaultConfig };
 export { axBaseAIDefaultCreativeConfig };
 export { axBuildDistillerDefinition };
@@ -2070,6 +2073,7 @@ export type { AxChatSessionEvent };
 export type { AxCheckpointLoadFn };
 export type { AxCheckpointSaveFn };
 export type { AxCitation };
+export type { AxCodeExecutionResult };
 export type { AxCodeRuntime };
 export type { AxCodeSession };
 export type { AxCodeSessionSnapshot };

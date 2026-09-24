@@ -1,7 +1,7 @@
 {
   "expected_error_contains": "service tier priority is not verified",
   "kind": "ai_chat",
-  "model": "claude-sonnet-4-5",
+  "model": "claude-sonnet-5",
   "name": "profile-service-tier-unsupported-error",
   "provider": "anthropic",
   "request": {

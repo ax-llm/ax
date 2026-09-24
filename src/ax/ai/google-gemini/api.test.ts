@@ -1,11 +1,13 @@
 import { describe, expect, it, vi } from 'vitest';
-
+import { axAIProviderProfiles } from '../provider_profiles.generated.js';
 import { ai as createAI } from '../wrap.js';
 import {
   AxAIGoogleGemini,
   axAIGoogleGeminiDefaultConfig,
+  axAIGoogleGeminiDefaultCreativeConfig,
   axAIGoogleGeminiLiveAudioDefaultConfig,
 } from './api.js';
+import { axModelInfoGoogleGemini } from './info.js';
 import { axIsGeminiLiveAudioModel } from './live_audio.js';
 import { AxAIGoogleGeminiEmbedModel, AxAIGoogleGeminiModel } from './types.js';
 
@@ -595,7 +597,7 @@ describe('AxAIGoogleGemini model key preset merging', () => {
     expect(mc?.topP).toBe(0.9);
 
     // Sanity: defaults applied if not set
-    expect(defaultCfg.model).toBe(AxAIGoogleGeminiModel.Gemini25Flash);
+    expect(defaultCfg.model).toBe(AxAIGoogleGeminiModel.Gemini36Flash);
   });
 
   it('maps modelConfig.n to Gemini candidateCount', async () => {
@@ -2929,10 +2931,10 @@ describe('AxAIGoogleGemini Live audio chat', () => {
     ).toBe(true);
   });
 
-  it('provides a native audio default config', () => {
+  it('provides a Live audio default config', () => {
     const config = axAIGoogleGeminiLiveAudioDefaultConfig();
 
-    expect(config.model).toBe(AxAIGoogleGeminiModel.Gemini25FlashNativeAudio);
+    expect(config.model).toBe(AxAIGoogleGeminiModel.Gemini38Live);
     expect(config.stream).toBe(false);
     expect(config.audio?.output?.enabled).toBe(true);
     expect(config.audio?.output?.voice).toBe('Kore');
@@ -2950,6 +2952,15 @@ describe('AxAIGoogleGemini Live audio chat', () => {
     {
       model: AxAIGoogleGeminiModel.Gemini25FlashNativeAudio,
       expected: { thinkingBudget: 10_000, includeThoughts: true },
+    },
+    {
+      model: AxAIGoogleGeminiModel.Gemini38LiveExtendedThinking,
+      expected: { thinkingLevel: 'high', includeThoughts: true },
+    },
+    {
+      // 3.8 Live refuses every thinking setting, so none is sent.
+      model: AxAIGoogleGeminiModel.Gemini38Live,
+      expected: undefined,
     },
   ])(
     'uses model-aware thinking in Live setup for $model',
@@ -3386,5 +3397,204 @@ describe('AxAIGoogleGemini Live audio chat', () => {
     } finally {
       restore();
     }
+  });
+});
+
+describe('AxAIGoogleGemini Sept-2026 models and audio defaults', () => {
+  const liveSetupThinking = async (
+    options: Record<string, unknown>
+  ): Promise<unknown> => {
+    const restore = installFakeGeminiLiveWebSocket([
+      { serverContent: { turnComplete: true } },
+    ]);
+    try {
+      const ai = new AxAIGoogleGemini({
+        apiKey: 'key',
+        config: {
+          ...axAIGoogleGeminiLiveAudioDefaultConfig(),
+          model: AxAIGoogleGeminiModel.Gemini38LiveExtendedThinking,
+        },
+        models: [],
+      });
+      await ai.chat(
+        { chatPrompt: [{ role: 'user', content: 'answer aloud' }] },
+        { stream: false, ...options }
+      );
+      const socket = FakeGeminiLiveWebSocket.instances.at(-1);
+      return JSON.parse(socket?.sent[0] ?? '{}').setup.generationConfig
+        .thinkingConfig;
+    } finally {
+      restore();
+    }
+  };
+
+  it('uses Gemini 3.6 Flash as the chat default', () => {
+    expect(axAIGoogleGeminiDefaultConfig().model).toBe(
+      AxAIGoogleGeminiModel.Gemini36Flash
+    );
+    expect(axAIGoogleGeminiDefaultCreativeConfig().model).toBe(
+      AxAIGoogleGeminiModel.Gemini36Flash
+    );
+  });
+
+  it('gives Live Extended Thinking the thinking level its setup requires', async () => {
+    expect(await liveSetupThinking({})).toEqual({ thinkingLevel: 'medium' });
+    // `minimal` is refused too, so `none` lands on the lowest level served.
+    expect(await liveSetupThinking({ thinkingTokenBudget: 'none' })).toEqual({
+      thinkingLevel: 'low',
+      includeThoughts: false,
+    });
+  });
+
+  it('recognizes the 3.8 Live models without catching live transcription', () => {
+    expect(axIsGeminiLiveAudioModel(AxAIGoogleGeminiModel.Gemini38Live)).toBe(
+      true
+    );
+    expect(
+      axIsGeminiLiveAudioModel(
+        AxAIGoogleGeminiModel.Gemini38LiveExtendedThinking
+      )
+    ).toBe(true);
+    expect(axIsGeminiLiveAudioModel('gemini-3.5-transcribe-live')).toBe(false);
+  });
+
+  it.each([
+    {
+      mimeType: 'audio/wav',
+      expected: { format: 'wav' },
+    },
+    {
+      mimeType: 'audio/l16; rate=24000; channels=1',
+      expected: { format: 'pcm16', sampleRate: 24_000, channels: 1 },
+    },
+  ])(
+    'speaks with 3.8 Flash TTS by default and labels $mimeType audio',
+    async ({ mimeType, expected }) => {
+      let url = '';
+      let body: any;
+      const ai = new AxAIGoogleGemini({ apiKey: 'key' });
+      const result = await ai.speak(
+        { text: 'Hello from Ax.' },
+        {
+          fetch: async (input, init) => {
+            url = String(input);
+            body = JSON.parse(String(init?.body));
+            return Response.json({
+              candidates: [
+                {
+                  content: {
+                    role: 'model',
+                    parts: [{ inlineData: { mimeType, data: 'UklGRg==' } }],
+                  },
+                },
+              ],
+            });
+          },
+        }
+      );
+      expect(url).toContain('/models/gemini-3.8-flash-tts:generateContent');
+      expect(body.generationConfig.speechConfig).toEqual({
+        voiceConfig: { prebuiltVoiceConfig: { voiceName: 'Kore' } },
+      });
+      expect(result).toMatchObject({ data: 'UklGRg==', mimeType, ...expected });
+    }
+  );
+
+  it('transcribes with 3.5 Transcribe by default and reads its transcription parts', async () => {
+    let url = '';
+    const ai = new AxAIGoogleGemini({ apiKey: 'key' });
+    const result = await ai.transcribe(
+      { audio: { data: 'UklGRg==', format: 'wav' } },
+      {
+        fetch: async (input) => {
+          url = String(input);
+          return Response.json({
+            candidates: [
+              {
+                content: {
+                  role: 'model',
+                  parts: [{ audioTranscription: { text: '10 9 8' } }],
+                },
+              },
+            ],
+          });
+        },
+      }
+    );
+    expect(url).toContain('/models/gemini-3.5-transcribe:generateContent');
+    expect(result.text).toBe('10 9 8');
+  });
+
+  it('leaves thought parts out of a transcript from a general model', async () => {
+    const ai = new AxAIGoogleGemini({ apiKey: 'key' });
+    const result = await ai.transcribe(
+      {
+        audio: { data: 'UklGRg==', format: 'wav' },
+        model: AxAIGoogleGeminiModel.Gemini38Flash,
+      },
+      {
+        fetch: async () =>
+          Response.json({
+            candidates: [
+              {
+                content: {
+                  role: 'model',
+                  parts: [
+                    { text: 'The user wants a transcript.', thought: true },
+                    { text: '10 9 8' },
+                  ],
+                },
+              },
+            ],
+          }),
+      }
+    );
+    expect(result.text).toBe('10 9 8');
+  });
+
+  it('keeps the TypeScript audio defaults in step with the provider profile', () => {
+    const operations = axAIProviderProfiles['google-gemini'].operations as any;
+    expect(operations.speak.defaultModel).toBe(
+      AxAIGoogleGeminiModel.Gemini38FlashTTS
+    );
+    expect(operations.transcribe.defaultModel).toBe(
+      AxAIGoogleGeminiModel.Gemini35Transcribe
+    );
+    expect(operations.realtime.defaultModel).toBe(
+      axAIGoogleGeminiLiveAudioDefaultConfig().model
+    );
+    expect(axAIProviderProfiles['google-gemini'].defaults.model).toBe(
+      axAIGoogleGeminiDefaultConfig().model
+    );
+  });
+
+  it('points the image members at GA ids and still prices the preview ids', () => {
+    expect(AxAIGoogleGeminiModel.Gemini31FlashImage).toBe(
+      'gemini-3.1-flash-image'
+    );
+    expect(AxAIGoogleGeminiModel.Gemini3ProImage).toBe('gemini-3-pro-image');
+    for (const preview of [
+      'gemini-3.1-flash-image-preview',
+      'gemini-3-pro-image-preview',
+    ]) {
+      expect(
+        axModelInfoGoogleGemini.some((m) => m.aliases?.includes(preview))
+      ).toBe(true);
+    }
+  });
+
+  it.each([
+    [AxAIGoogleGeminiModel.Gemini38FlashTTS, 1, 18],
+    [AxAIGoogleGeminiModel.Gemini38FlashLiteTTS, 1, 12],
+    [AxAIGoogleGeminiModel.Gemini31FlashTTS, 1, 20],
+  ])('prices TTS model %s per text and audio token', (name, input, output) => {
+    const entry = axModelInfoGoogleGemini.find((m) => m.name === name);
+    expect(entry).toMatchObject({
+      promptTokenCostPer1M: input,
+      completionTokenCostPer1M: output,
+      contextWindow: 8192,
+      maxTokens: 16_384,
+      audio: { input: false, output: true },
+    });
   });
 });
