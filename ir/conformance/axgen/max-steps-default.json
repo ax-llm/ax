@@ -1,0 +1,478 @@
+{
+  "expected_error_contains": "Generate failed: Max steps reached: 25",
+  "expected_request_count": 25,
+  "expected_tool_calls": [
+    {
+      "args": {
+        "query": "ax docs"
+      },
+      "name": "search"
+    },
+    {
+      "args": {
+        "query": "ax docs"
+      },
+      "name": "search"
+    },
+    {
+      "args": {
+        "query": "ax docs"
+      },
+      "name": "search"
+    },
+    {
+      "args": {
+        "query": "ax docs"
+      },
+      "name": "search"
+    },
+    {
+      "args": {
+        "query": "ax docs"
+      },
+      "name": "search"
+    },
+    {
+      "args": {
+        "query": "ax docs"
+      },
+      "name": "search"
+    },
+    {
+      "args": {
+        "query": "ax docs"
+      },
+      "name": "search"
+    },
+    {
+      "args": {
+        "query": "ax docs"
+      },
+      "name": "search"
+    },
+    {
+      "args": {
+        "query": "ax docs"
+      },
+      "name": "search"
+    },
+    {
+      "args": {
+        "query": "ax docs"
+      },
+      "name": "search"
+    },
+    {
+      "args": {
+        "query": "ax docs"
+      },
+      "name": "search"
+    },
+    {
+      "args": {
+        "query": "ax docs"
+      },
+      "name": "search"
+    },
+    {
+      "args": {
+        "query": "ax docs"
+      },
+      "name": "search"
+    },
+    {
+      "args": {
+        "query": "ax docs"
+      },
+      "name": "search"
+    },
+    {
+      "args": {
+        "query": "ax docs"
+      },
+      "name": "search"
+    },
+    {
+      "args": {
+        "query": "ax docs"
+      },
+      "name": "search"
+    },
+    {
+      "args": {
+        "query": "ax docs"
+      },
+      "name": "search"
+    },
+    {
+      "args": {
+        "query": "ax docs"
+      },
+      "name": "search"
+    },
+    {
+      "args": {
+        "query": "ax docs"
+      },
+      "name": "search"
+    },
+    {
+      "args": {
+        "query": "ax docs"
+      },
+      "name": "search"
+    },
+    {
+      "args": {
+        "query": "ax docs"
+      },
+      "name": "search"
+    },
+    {
+      "args": {
+        "query": "ax docs"
+      },
+      "name": "search"
+    },
+    {
+      "args": {
+        "query": "ax docs"
+      },
+      "name": "search"
+    },
+    {
+      "args": {
+        "query": "ax docs"
+      },
+      "name": "search"
+    },
+    {
+      "args": {
+        "query": "ax docs"
+      },
+      "name": "search"
+    }
+  ],
+  "input": {
+    "query": "ax docs"
+  },
+  "kind": "forward",
+  "name": "max-steps-default",
+  "responses": [
+    {
+      "content": "",
+      "function_calls": [
+        {
+          "id": "call_1",
+          "name": "search",
+          "params": {
+            "query": "ax docs"
+          }
+        }
+      ]
+    },
+    {
+      "content": "",
+      "function_calls": [
+        {
+          "id": "call_2",
+          "name": "search",
+          "params": {
+            "query": "ax docs"
+          }
+        }
+      ]
+    },
+    {
+      "content": "",
+      "function_calls": [
+        {
+          "id": "call_3",
+          "name": "search",
+          "params": {
+            "query": "ax docs"
+          }
+        }
+      ]
+    },
+    {
+      "content": "",
+      "function_calls": [
+        {
+          "id": "call_4",
+          "name": "search",
+          "params": {
+            "query": "ax docs"
+          }
+        }
+      ]
+    },
+    {
+      "content": "",
+      "function_calls": [
+        {
+          "id": "call_5",
+          "name": "search",
+          "params": {
+            "query": "ax docs"
+          }
+        }
+      ]
+    },
+    {
+      "content": "",
+      "function_calls": [
+        {
+          "id": "call_6",
+          "name": "search",
+          "params": {
+            "query": "ax docs"
+          }
+        }
+      ]
+    },
+    {
+      "content": "",
+      "function_calls": [
+        {
+          "id": "call_7",
+          "name": "search",
+          "params": {
+            "query": "ax docs"
+          }
+        }
+      ]
+    },
+    {
+      "content": "",
+      "function_calls": [
+        {
+          "id": "call_8",
+          "name": "search",
+          "params": {
+            "query": "ax docs"
+          }
+        }
+      ]
+    },
+    {
+      "content": "",
+      "function_calls": [
+        {
+          "id": "call_9",
+          "name": "search",
+          "params": {
+            "query": "ax docs"
+          }
+        }
+      ]
+    },
+    {
+      "content": "",
+      "function_calls": [
+        {
+          "id": "call_10",
+          "name": "search",
+          "params": {
+            "query": "ax docs"
+          }
+        }
+      ]
+    },
+    {
+      "content": "",
+      "function_calls": [
+        {
+          "id": "call_11",
+          "name": "search",
+          "params": {
+            "query": "ax docs"
+          }
+        }
+      ]
+    },
+    {
+      "content": "",
+      "function_calls": [
+        {
+          "id": "call_12",
+          "name": "search",
+          "params": {
+            "query": "ax docs"
+          }
+        }
+      ]
+    },
+    {
+      "content": "",
+      "function_calls": [
+        {
+          "id": "call_13",
+          "name": "search",
+          "params": {
+            "query": "ax docs"
+          }
+        }
+      ]
+    },
+    {
+      "content": "",
+      "function_calls": [
+        {
+          "id": "call_14",
+          "name": "search",
+          "params": {
+            "query": "ax docs"
+          }
+        }
+      ]
+    },
+    {
+      "content": "",
+      "function_calls": [
+        {
+          "id": "call_15",
+          "name": "search",
+          "params": {
+            "query": "ax docs"
+          }
+        }
+      ]
+    },
+    {
+      "content": "",
+      "function_calls": [
+        {
+          "id": "call_16",
+          "name": "search",
+          "params": {
+            "query": "ax docs"
+          }
+        }
+      ]
+    },
+    {
+      "content": "",
+      "function_calls": [
+        {
+          "id": "call_17",
+          "name": "search",
+          "params": {
+            "query": "ax docs"
+          }
+        }
+      ]
+    },
+    {
+      "content": "",
+      "function_calls": [
+        {
+          "id": "call_18",
+          "name": "search",
+          "params": {
+            "query": "ax docs"
+          }
+        }
+      ]
+    },
+    {
+      "content": "",
+      "function_calls": [
+        {
+          "id": "call_19",
+          "name": "search",
+          "params": {
+            "query": "ax docs"
+          }
+        }
+      ]
+    },
+    {
+      "content": "",
+      "function_calls": [
+        {
+          "id": "call_20",
+          "name": "search",
+          "params": {
+            "query": "ax docs"
+          }
+        }
+      ]
+    },
+    {
+      "content": "",
+      "function_calls": [
+        {
+          "id": "call_21",
+          "name": "search",
+          "params": {
+            "query": "ax docs"
+          }
+        }
+      ]
+    },
+    {
+      "content": "",
+      "function_calls": [
+        {
+          "id": "call_22",
+          "name": "search",
+          "params": {
+            "query": "ax docs"
+          }
+        }
+      ]
+    },
+    {
+      "content": "",
+      "function_calls": [
+        {
+          "id": "call_23",
+          "name": "search",
+          "params": {
+            "query": "ax docs"
+          }
+        }
+      ]
+    },
+    {
+      "content": "",
+      "function_calls": [
+        {
+          "id": "call_24",
+          "name": "search",
+          "params": {
+            "query": "ax docs"
+          }
+        }
+      ]
+    },
+    {
+      "content": "",
+      "function_calls": [
+        {
+          "id": "call_25",
+          "name": "search",
+          "params": {
+            "query": "ax docs"
+          }
+        }
+      ]
+    }
+  ],
+  "signature": "query:string -> answer:string",
+  "tools": [
+    {
+      "args": {
+        "query": {
+          "type": "string"
+        }
+      },
+      "description": "Search docs",
+      "name": "search",
+      "result": {
+        "title": "Ax docs"
+      }
+    }
+  ]
+}

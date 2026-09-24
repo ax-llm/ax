@@ -726,6 +726,13 @@ static void run_forward(Value fixture) {
       if (request_text.find(display(item)) == std::string::npos) throw AxError("fixture", "request missing " + display(item) + ": " + request_text);
     }
   }
+  Value expected_not_contains = Core::get(fixture, "expected_request_not_contains");
+  if (!expected_not_contains.is_null()) {
+    std::string request_text = stringify(Value(client.requests));
+    for (const auto& item : Core::iter(expected_not_contains)) {
+      if (request_text.find(display(item)) != std::string::npos) throw AxError("fixture", "request unexpectedly contains " + display(item) + ": " + request_text);
+    }
+  }
   Value expected_tool_calls = Core::get(fixture, "expected_tool_calls");
   if (!expected_tool_calls.is_null()) assert_equal(tool_build.calls, expected_tool_calls, "tool calls");
   Value expected_trace = Core::get(fixture, "expected_trace");
