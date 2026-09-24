@@ -8723,9 +8723,15 @@ func objectCallMethod(target Value, method string, arg Value) (Value, error) {
 
 // Host-boundary intrinsics used by generated Core.
 func _core_axgen_render_examples(gen Value) Value {
+	if coreTruthy(coreGet(coreGet(gen, "options", Object()), "examplesInSystem", false)) {
+		return Array()
+	}
 	return _core_axgen_render_examples_impl(coreGet(gen, "examples", Array()), "Example", gen)
 }
 func _core_axgen_render_demos(gen Value) Value {
+	if coreTruthy(coreGet(coreGet(gen, "options", Object()), "examplesInSystem", false)) {
+		return Array()
+	}
 	return _core_axgen_render_examples_impl(coreGet(gen, "demos", Array()), "Demo", gen)
 }
 func _core_axgen_render_examples_impl(turns Value, label string, gen Value) Value {
@@ -8817,9 +8823,18 @@ func _core_axgen_record_trace(target Value, items ...Value) Value {
 	if len(items) == 1 {
 		event = asMap(items[0])
 	} else {
-		for i, item := range items {
-			coreSet(event, fmt.Sprintf("item%d", i), item)
+		// @record_trace passes (input, output, status); keep the trace shape the other ports record.
+		item := func(i int) Value {
+			if i < len(items) {
+				return items[i]
+			}
+			return nil
 		}
+		coreSet(event, "status", item(2))
+		coreSet(event, "input", item(0))
+		coreSet(event, "output", item(1))
+		coreSet(event, "chat_log", append(Array(), asSlice(coreGet(target, "chat_log", Array()))...))
+		coreSet(event, "function_calls", append(Array(), asSlice(coreGet(target, "function_call_traces", Array()))...))
 	}
 	traces := coreGet(target, "traces", Array())
 	traces = coreAppend(traces, event)
@@ -8863,6 +8878,19 @@ func _core_axgen_apply_context_cache(values ...Value) Value {
 		messages = append(messages, cloneValue(raw))
 	}
 	options := _core_map_merge(coreGet(gen, "options", Object()), runtimeOptions)
+	if coreTruthy(coreGet(options, "examplesInSystem", false)) && len(messages) > 0 {
+		turns := asSlice(_core_axgen_render_examples_impl(coreGet(gen, "examples", Array()), "Example", gen))
+		turns = append(turns, asSlice(_core_axgen_render_examples_impl(coreGet(gen, "demos", Array()), "Demo", gen))...)
+		blocks := []string{}
+		for _, turn := range turns {
+			blocks = append(blocks, display(coreGet(turn, "content", "")))
+		}
+		if len(blocks) > 0 {
+			first := asMap(messages[0])
+			coreSet(first, "content", display(coreGet(first, "content", ""))+"\n\n--- EXAMPLES ---\n"+strings.Join(blocks, "\n\n")+"\n--- END OF EXAMPLES ---")
+			messages[0] = first
+		}
+	}
 	contextCache := coreGet(options, "context_cache", coreGet(options, "contextCache", nil))
 	if !coreTruthy(contextCache) || coreTruthy(coreGet(options, "ignore_cache_breakpoints", false)) {
 		return messages
@@ -9015,14 +9043,12 @@ func _core_axgen_record_function_call(target Value, values ...Value) Value {
 	if len(values) > 0 {
         call := values[0]
         coreSet(entry, "id", coreGet(call, "id", nil))
-        coreSet(entry, "name", coreGet(call, "name", ""))
-        coreSet(entry, "args", coreGet(call, "args", Object()))
+        coreSet(entry, "name", coreGet(call, "name", coreGet(coreGet(call, "function", Object()), "name", "")))
+        // Completion calls are {id, name, params}; accept args too, like the other ports.
+        coreSet(entry, "args", coreGet(call, "params", coreGet(call, "args", Object())))
     }
     if len(values) > 1 { coreSet(entry, "result", values[1]) }
     if len(values) > 2 { coreSet(entry, "status", values[2]) }
-	for i, value := range values {
-		coreSet(entry, fmt.Sprintf("item%d", i), value)
-	}
 	traces = coreAppend(traces, entry)
 	if g, ok := target.(*AxGen); ok {
 		g.FunctionCallTraces = traces
@@ -10786,6 +10812,27 @@ func runConformanceForward(fixture map[string]Value) {
 		}
 		if expected := coreGet(fixture, "expected_chat_log_subset", nil); expected != nil {
 			assertListSubset(gen.ChatLog, expected, "chat log")
+		}
+		if expected := coreGet(fixture, "expected_trace", nil); expected != nil {
+			traces := asSlice(gen.Traces)
+			if len(traces) == 0 {
+				panic(AxError{Category: "fixture", Message: "expected trace but none was recorded"})
+			}
+			assertSubset(traces[len(traces)-1], expected, "trace")
+		}
+		if expected := coreGet(fixture, "expected_function_traces_subset", nil); expected != nil {
+			assertListSubset(gen.FunctionCallTraces, expected, "function call traces")
+		}
+		if expected := coreGet(fixture, "expected_chat_prompt_contains", nil); expected != nil {
+			if len(client.Requests) == 0 {
+				panic(AxError{Category: "fixture", Message: "fixture expected a request but none were sent"})
+			}
+			text := stableStringify(coreGet(client.Requests[0], "chat_prompt", nil))
+			for _, item := range asSlice(expected) {
+				if !strings.Contains(text, display(item)) {
+					panic(AxError{Category: "fixture", Message: "chat prompt missing " + display(item) + ": " + text})
+				}
+			}
 		}
 	} else {
 		if expectedCount := coreGet(fixture, "expected_request_count", nil); expectedCount != nil && int(num(expectedCount)) != len(client.Requests) {

@@ -20569,6 +20569,15 @@ fn run_simple_forward_fixture(fixture: &Value) -> AxResult<()> {
         let actual = Value::Array(program.function_call_traces.clone());
         expect_json_list_subset("function traces", &actual, expected)?;
     }
+    if let Some(expected) = fixture.get("expected_trace") {
+        let Some(actual) = program.traces.last() else {
+            return Err(AxError::new(
+                "fixture",
+                "expected trace but none was recorded",
+            ));
+        };
+        expect_json_subset("trace", actual, expected)?;
+    }
     Ok(())
 }
 
