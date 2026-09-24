@@ -1553,6 +1553,28 @@
       "completedAt": null,
       "completedByCommit": null,
       "verification": null
+    },
+    {
+      "id": "axir-2026-09-24-forward-apiurl-in-the-openai-responses-provider",
+      "status": "open",
+      "title": "Forward apiURL in the OpenAI Responses provider",
+      "createdAt": "2026-09-24",
+      "sourcePR": 678,
+      "sourceCommit": "9ade9be810c243395052be5486c8daf5cf667d44",
+      "tsPaths": [
+        "src/ax/ai/openai/responses_api_base.ts",
+        "src/ax/ai/provider_profiles.test.ts"
+      ],
+      "portableSurface": "axai",
+      "impact": "TypeScript AxAIOpenAIResponses now forwards the caller apiURL to AxAIOpenAIResponsesBase, so ai({ name: 'openai-responses', apiURL }) and the GPT-6 requests that ai({ name: 'openai', apiURL }) routes through Responses reach the configured host instead of api.openai.com. Generated OpenAI Responses clients that accept a base URL should send chat to that URL the same way.",
+      "suggestedAxirWork": [
+        "Add or update the TS-derived conformance fixture.",
+        "Update AxIR/Core or descriptor data to match the portable TS behavior.",
+        "Run npm run axir:conformance:check and npm run test:axir."
+      ],
+      "completedAt": null,
+      "completedByCommit": null,
+      "verification": null
     }
   ],
   "nonPortableExemptions": [

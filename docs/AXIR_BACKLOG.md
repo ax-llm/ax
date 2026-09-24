@@ -30,6 +30,13 @@ This ledger tracks portable TypeScript behavior that should be migrated into AxI
   - TS paths: `src/ax/dsp/generate.ts`, `src/ax/dsp/generate.useExpensiveModel.test.ts`, `src/ax/ai/types.ts`
   - Impact: TypeScript AxGen now forwards useExpensiveModel to ai.chat (the per-call forward option first, then the ax()/AxGen constructor option), so models whose model info sets isExpensive (OpenAI gpt-5.5-pro/o1-pro/o3-pro, WebLLM Llama-3.1-70B, Bedrock Claude Opus 5/4.8) are callable from ax()/AxGen/flows/agents after an explicit opt-in and are still rejected before any request without it. Generated ports already merge gen constructor options with call options and pass the map through to chat, so they have no forwarding gap, but none implements the gate: AxIR declares useExpensiveModel only as an AxAIServiceOptions field and never reads the catalog isExpensive flag, so Python/Java/C++/Go/Rust call expensive models without confirmation and ignore the opt-in.
   - Suggested AxIR work: Gate the AxIR chat path on the resolved model's catalog isExpensive flag and reject unless options.useExpensiveModel is 'yes' (model-key entry defaults included).; Add a conformance fixture covering rejection without the opt-in and success via gen forward options and via gen constructor options.; Run npm run axir:conformance:check and npm run test:axir.
+- `axir-2026-09-24-forward-apiurl-in-the-openai-responses-provider` [axai] Forward apiURL in the OpenAI Responses provider
+  - Status: open
+  - Source PR: #678
+  - Source commit: `9ade9be810c243395052be5486c8daf5cf667d44`
+  - TS paths: `src/ax/ai/openai/responses_api_base.ts`, `src/ax/ai/provider_profiles.test.ts`
+  - Impact: TypeScript AxAIOpenAIResponses now forwards the caller apiURL to AxAIOpenAIResponsesBase, so ai({ name: 'openai-responses', apiURL }) and the GPT-6 requests that ai({ name: 'openai', apiURL }) routes through Responses reach the configured host instead of api.openai.com. Generated OpenAI Responses clients that accept a base URL should send chat to that URL the same way.
+  - Suggested AxIR work: Add or update the TS-derived conformance fixture.; Update AxIR/Core or descriptor data to match the portable TS behavior.; Run npm run axir:conformance:check and npm run test:axir.
 
 ## Done
 
