@@ -52381,13 +52381,19 @@ fn _gemini_message_impl(args: &[CoreValue]) -> Result<CoreValue, AxError> {
     let mut v_args = CoreValue::Null;
     let mut v_args_is_string = CoreValue::Null;
     let mut v_call = CoreValue::Null;
+    let mut v_call_count = CoreValue::Null;
     let mut v_call_id = CoreValue::Null;
+    let mut v_call_position = CoreValue::Null;
     let mut v_calls = CoreValue::Null;
     let mut v_calls_camel = CoreValue::Null;
     let mut v_content = CoreValue::Null;
     let mut v_empty_args = CoreValue::Null;
     let mut v_empty_calls = CoreValue::Null;
+    let mut v_empty_first_block = CoreValue::Null;
+    let mut v_empty_thought_blocks = CoreValue::Null;
     let mut v_explicit_name = CoreValue::Null;
+    let mut v_first_signature = CoreValue::Null;
+    let mut v_first_thought_block = CoreValue::Null;
     let mut v_function = CoreValue::Null;
     let mut v_function_call = CoreValue::Null;
     let mut v_function_id = CoreValue::Null;
@@ -52395,12 +52401,17 @@ fn _gemini_message_impl(args: &[CoreValue]) -> Result<CoreValue, AxError> {
     let mut v_function_response = CoreValue::Null;
     let mut v_has_call_id = CoreValue::Null;
     let mut v_has_content = CoreValue::Null;
+    let mut v_has_first_signature = CoreValue::Null;
+    let mut v_has_function_calls = CoreValue::Null;
     let mut v_has_resolved_name = CoreValue::Null;
+    let mut v_has_thought_text = CoreValue::Null;
     let mut v_is_assistant = CoreValue::Null;
+    let mut v_is_first_call = CoreValue::Null;
     let mut v_is_function = CoreValue::Null;
     let mut v_is_user = CoreValue::Null;
     let mut v_missing_resolved_name = CoreValue::Null;
     let mut v_name = CoreValue::Null;
+    let mut v_no_function_calls = CoreValue::Null;
     let mut v_none = CoreValue::Null;
     let mut v_out = CoreValue::Null;
     let mut v_parse_error = CoreValue::Null;
@@ -52410,7 +52421,18 @@ fn _gemini_message_impl(args: &[CoreValue]) -> Result<CoreValue, AxError> {
     let mut v_response = CoreValue::Null;
     let mut v_result_value = CoreValue::Null;
     let mut v_role = CoreValue::Null;
+    let mut v_sign_call = CoreValue::Null;
+    let mut v_sign_thought_part = CoreValue::Null;
     let mut v_text_part = CoreValue::Null;
+    let mut v_thought_block = CoreValue::Null;
+    let mut v_thought_blocks = CoreValue::Null;
+    let mut v_thought_blocks_is_list = CoreValue::Null;
+    let mut v_thought_blocks_snake = CoreValue::Null;
+    let mut v_thought_data = CoreValue::Null;
+    let mut v_thought_data_is_string = CoreValue::Null;
+    let mut v_thought_part = CoreValue::Null;
+    let mut v_thought_text = CoreValue::Null;
+    let mut v_thought_texts = CoreValue::Null;
     v_role = core_get(&v_message, &CoreValue::from("role"), CoreValue::Null);
     v_is_user = core_eq(&[v_role.clone(), CoreValue::from("user")])?;
     if core_truthy(&v_is_user) {
@@ -52424,13 +52446,6 @@ fn _gemini_message_impl(args: &[CoreValue]) -> Result<CoreValue, AxError> {
     v_is_assistant = core_eq(&[v_role.clone(), CoreValue::from("assistant")])?;
     if core_truthy(&v_is_assistant) {
         v_parts = CoreValue::new_list();
-        v_content = core_get(&v_message, &CoreValue::from("content"), CoreValue::from(""));
-        v_has_content = core_truthy_value(&[v_content.clone()])?;
-        if core_truthy(&v_has_content) {
-            v_text_part = CoreValue::new_map();
-            core_set(&v_text_part, CoreValue::from("text"), v_content.clone())?;
-            core_append(&v_parts, v_text_part.clone())?;
-        }
         v_empty_calls = CoreValue::new_list();
         v_calls = core_get(
             &v_message,
@@ -52442,6 +52457,85 @@ fn _gemini_message_impl(args: &[CoreValue]) -> Result<CoreValue, AxError> {
             &CoreValue::from("functionCalls"),
             v_calls.clone(),
         );
+        v_call_count = core_len(&[v_calls_camel.clone()])?;
+        v_has_function_calls = core_gt(&[v_call_count.clone(), CoreValue::Num(0f64)])?;
+        v_no_function_calls = core_not(&[v_has_function_calls.clone()])?;
+        v_empty_thought_blocks = CoreValue::new_list();
+        v_thought_blocks_snake = core_get(
+            &v_message,
+            &CoreValue::from("thought_blocks"),
+            v_empty_thought_blocks.clone(),
+        );
+        v_thought_blocks = core_get(
+            &v_message,
+            &CoreValue::from("thoughtBlocks"),
+            v_thought_blocks_snake.clone(),
+        );
+        v_thought_blocks_is_list = core_type_is(&v_thought_blocks, CoreValue::from("list"));
+        v_thought_texts = CoreValue::new_list();
+        v_first_signature = core_none(&[])?;
+        if core_truthy(&v_thought_blocks_is_list) {
+            for v_thought_block in core_iter(&v_thought_blocks)? {
+                let mut v_thought_block = v_thought_block;
+                v_thought_data = core_get(
+                    &v_thought_block,
+                    &CoreValue::from("data"),
+                    CoreValue::from(""),
+                );
+                v_thought_data_is_string = core_type_is(&v_thought_data, CoreValue::from("string"));
+                if core_truthy(&v_thought_data_is_string) {
+                    core_append(&v_thought_texts, v_thought_data.clone())?;
+                }
+            }
+            v_empty_first_block = CoreValue::new_map();
+            v_first_thought_block = core_list_get(&[
+                v_thought_blocks.clone(),
+                CoreValue::Num(0f64),
+                v_empty_first_block.clone(),
+            ])?;
+            v_first_signature = core_get(
+                &v_first_thought_block,
+                &CoreValue::from("signature"),
+                CoreValue::Null,
+            );
+        }
+        v_has_first_signature = core_truthy_value(&[v_first_signature.clone()])?;
+        v_thought_text =
+            core_string_join_intrinsic(&[CoreValue::from(""), v_thought_texts.clone()])?;
+        v_has_thought_text = core_truthy_value(&[v_thought_text.clone()])?;
+        if core_truthy(&v_has_thought_text) {
+            v_thought_part = CoreValue::new_map();
+            if core_truthy(&v_no_function_calls) {
+                core_set(
+                    &v_thought_part,
+                    CoreValue::from("thought"),
+                    CoreValue::Bool(true),
+                )?;
+            }
+            core_set(
+                &v_thought_part,
+                CoreValue::from("text"),
+                v_thought_text.clone(),
+            )?;
+            v_sign_thought_part =
+                core_and(&[v_has_first_signature.clone(), v_no_function_calls.clone()])?;
+            if core_truthy(&v_sign_thought_part) {
+                core_set(
+                    &v_thought_part,
+                    CoreValue::from("thought_signature"),
+                    v_first_signature.clone(),
+                )?;
+            }
+            core_append(&v_parts, v_thought_part.clone())?;
+        }
+        v_content = core_get(&v_message, &CoreValue::from("content"), CoreValue::from(""));
+        v_has_content = core_truthy_value(&[v_content.clone()])?;
+        if core_truthy(&v_has_content) {
+            v_text_part = CoreValue::new_map();
+            core_set(&v_text_part, CoreValue::from("text"), v_content.clone())?;
+            core_append(&v_parts, v_text_part.clone())?;
+        }
+        v_call_position = CoreValue::Num(0f64);
         for v_call in core_iter(&v_calls_camel)? {
             let mut v_call = v_call;
             v_function = core_get(&v_call, &CoreValue::from("function"), CoreValue::Null);
@@ -52485,7 +52579,17 @@ fn _gemini_message_impl(args: &[CoreValue]) -> Result<CoreValue, AxError> {
                 CoreValue::from("functionCall"),
                 v_function_call.clone(),
             )?;
+            v_is_first_call = core_eq(&[v_call_position.clone(), CoreValue::Num(0f64)])?;
+            v_sign_call = core_and(&[v_is_first_call.clone(), v_has_first_signature.clone()])?;
+            if core_truthy(&v_sign_call) {
+                core_set(
+                    &v_part,
+                    CoreValue::from("thought_signature"),
+                    v_first_signature.clone(),
+                )?;
+            }
             core_append(&v_parts, v_part.clone())?;
+            v_call_position = core_add(&[v_call_position.clone(), CoreValue::Num(1f64)])?;
         }
         v_out = CoreValue::new_map();
         core_set(&v_out, CoreValue::from("role"), CoreValue::from("model"))?;
@@ -52721,7 +52825,11 @@ fn _gemini_function_declaration_impl(args: &[CoreValue]) -> Result<CoreValue, Ax
         CoreValue::from("description"),
         v_description.clone(),
     )?;
-    core_set(&v_decl, CoreValue::from("parameters"), v_parameters.clone())?;
+    core_set(
+        &v_decl,
+        CoreValue::from("parametersJsonSchema"),
+        v_parameters.clone(),
+    )?;
     return Ok(v_decl.clone());
 }
 
@@ -53180,26 +53288,137 @@ fn _gemini_merge_response_part_impl(args: &[CoreValue]) -> Result<CoreValue, AxE
     let mut v_args = CoreValue::Null;
     let mut v_call = CoreValue::Null;
     let mut v_empty_args = CoreValue::Null;
+    let mut v_empty_signature_blocks = CoreValue::Null;
+    let mut v_empty_thought_blocks = CoreValue::Null;
     let mut v_function = CoreValue::Null;
     let mut v_function_call = CoreValue::Null;
     let mut v_has_call = CoreValue::Null;
+    let mut v_has_signature = CoreValue::Null;
+    let mut v_has_signature_blocks = CoreValue::Null;
     let mut v_has_text = CoreValue::Null;
     let mut v_id = CoreValue::Null;
     let mut v_is_thought = CoreValue::Null;
+    let mut v_last_block = CoreValue::Null;
+    let mut v_last_block_index = CoreValue::Null;
+    let mut v_last_has_signature = CoreValue::Null;
+    let mut v_last_missing_signature = CoreValue::Null;
+    let mut v_last_signature = CoreValue::Null;
     let mut v_name = CoreValue::Null;
+    let mut v_signature_block = CoreValue::Null;
+    let mut v_signature_block_count = CoreValue::Null;
+    let mut v_signature_blocks = CoreValue::Null;
+    let mut v_signature_snake = CoreValue::Null;
+    let mut v_signed_call = CoreValue::Null;
     let mut v_text = CoreValue::Null;
+    let mut v_thought_block = CoreValue::Null;
+    let mut v_thought_blocks = CoreValue::Null;
+    let mut v_thought_signature = CoreValue::Null;
+    v_signature_snake = core_get(
+        &v_part,
+        &CoreValue::from("thought_signature"),
+        CoreValue::Null,
+    );
+    v_thought_signature = core_get(
+        &v_part,
+        &CoreValue::from("thoughtSignature"),
+        v_signature_snake.clone(),
+    );
+    v_has_signature = core_truthy_value(&[v_thought_signature.clone()])?;
     v_text = core_get(&v_part, &CoreValue::from("text"), CoreValue::Null);
     v_has_text = core_is_not_none(&[v_text.clone()])?;
     if core_truthy(&v_has_text) {
         v_is_thought = core_get(&v_part, &CoreValue::from("thought"), CoreValue::Bool(false));
         if core_truthy(&v_is_thought) {
             core_set(&v_result, CoreValue::from("thought"), v_text.clone())?;
+            v_empty_thought_blocks = CoreValue::new_list();
+            v_thought_blocks = core_get(
+                &v_result,
+                &CoreValue::from("thought_blocks"),
+                v_empty_thought_blocks.clone(),
+            );
+            v_thought_block = CoreValue::new_map();
+            core_set(&v_thought_block, CoreValue::from("data"), v_text.clone())?;
+            core_set(
+                &v_thought_block,
+                CoreValue::from("encrypted"),
+                CoreValue::Bool(false),
+            )?;
+            if core_truthy(&v_has_signature) {
+                core_set(
+                    &v_thought_block,
+                    CoreValue::from("signature"),
+                    v_thought_signature.clone(),
+                )?;
+            }
+            core_append(&v_thought_blocks, v_thought_block.clone())?;
+            core_set(
+                &v_result,
+                CoreValue::from("thought_blocks"),
+                v_thought_blocks.clone(),
+            )?;
         } else {
             core_append(&v_text_parts, v_text.clone())?;
         }
     }
     v_function_call = core_get(&v_part, &CoreValue::from("functionCall"), CoreValue::Null);
     v_has_call = core_is_not_none(&[v_function_call.clone()])?;
+    v_signed_call = core_and(&[v_has_call.clone(), v_has_signature.clone()])?;
+    if core_truthy(&v_signed_call) {
+        v_empty_signature_blocks = CoreValue::new_list();
+        v_signature_blocks = core_get(
+            &v_result,
+            &CoreValue::from("thought_blocks"),
+            v_empty_signature_blocks.clone(),
+        );
+        v_signature_block_count = core_len(&[v_signature_blocks.clone()])?;
+        v_has_signature_blocks = core_gt(&[v_signature_block_count.clone(), CoreValue::Num(0f64)])?;
+        if core_truthy(&v_has_signature_blocks) {
+            v_last_block_index =
+                core_add(&[v_signature_block_count.clone(), CoreValue::Num(-1f64)])?;
+            v_last_block = core_get(
+                &v_signature_blocks,
+                &v_last_block_index.clone(),
+                CoreValue::Null,
+            );
+            v_last_signature = core_get(
+                &v_last_block,
+                &CoreValue::from("signature"),
+                CoreValue::Null,
+            );
+            v_last_has_signature = core_truthy_value(&[v_last_signature.clone()])?;
+            v_last_missing_signature = core_not(&[v_last_has_signature.clone()])?;
+            if core_truthy(&v_last_missing_signature) {
+                core_set(
+                    &v_last_block,
+                    CoreValue::from("signature"),
+                    v_thought_signature.clone(),
+                )?;
+            }
+        } else {
+            v_signature_block = CoreValue::new_map();
+            core_set(
+                &v_signature_block,
+                CoreValue::from("data"),
+                CoreValue::from(""),
+            )?;
+            core_set(
+                &v_signature_block,
+                CoreValue::from("encrypted"),
+                CoreValue::Bool(false),
+            )?;
+            core_set(
+                &v_signature_block,
+                CoreValue::from("signature"),
+                v_thought_signature.clone(),
+            )?;
+            core_append(&v_signature_blocks, v_signature_block.clone())?;
+            core_set(
+                &v_result,
+                CoreValue::from("thought_blocks"),
+                v_signature_blocks.clone(),
+            )?;
+        }
+    }
     if core_truthy(&v_has_call) {
         v_name = core_get(&v_function_call, &CoreValue::from("name"), CoreValue::Null);
         v_id = core_get(&v_function_call, &CoreValue::from("id"), v_name.clone());

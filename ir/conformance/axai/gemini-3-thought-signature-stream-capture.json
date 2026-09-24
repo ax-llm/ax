@@ -1,0 +1,99 @@
+{
+  "expected_output": [
+    {
+      "model_usage": null,
+      "results": [
+        {
+          "content": "",
+          "finish_reason": "stop",
+          "function_calls": [],
+          "index": 0,
+          "thought": "Look up the Paris forecast.",
+          "thought_blocks": [
+            {
+              "data": "Look up the Paris forecast.",
+              "encrypted": false
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "model_usage": {
+        "ai": "google-gemini",
+        "model": "gemini-3.6-flash",
+        "tokens": {
+          "completion_tokens": 5,
+          "prompt_tokens": 12,
+          "total_tokens": 17
+        }
+      },
+      "remote_id": "gem_sig_stream",
+      "results": [
+        {
+          "content": "",
+          "finish_reason": "function_call",
+          "function_calls": [
+            {
+              "function": {
+                "name": "getWeather",
+                "params": {
+                  "city": "Paris"
+                }
+              },
+              "id": "weather-paris",
+              "type": "function"
+            }
+          ],
+          "index": 0,
+          "thought_blocks": [
+            {
+              "data": "",
+              "encrypted": false,
+              "signature": "sig-stream-step-1"
+            }
+          ]
+        }
+      ]
+    }
+  ],
+  "expected_transport_request": {
+    "url": "https://generativelanguage.googleapis.com/v1beta/models/gemini-3.6-flash:streamGenerateContent?alt=sse"
+  },
+  "kind": "ai_stream",
+  "model": "gemini-3.6-flash",
+  "name": "gemini-3-thought-signature-stream-capture",
+  "provider": "google-gemini",
+  "request": {
+    "chat_prompt": [
+      {
+        "content": "Weather in Paris?",
+        "role": "user"
+      }
+    ],
+    "functions": [
+      {
+        "description": "Get the current weather for a city",
+        "name": "getWeather",
+        "parameters": {
+          "properties": {
+            "city": {
+              "type": "string"
+            }
+          },
+          "required": ["city"],
+          "type": "object"
+        }
+      }
+    ],
+    "model_config": {
+      "stream": true
+    }
+  },
+  "transport_responses": [
+    {
+      "body": "data: {\"candidates\":[{\"finishReason\":\"STOP\",\"content\":{\"role\":\"model\",\"parts\":[{\"text\":\"Look up the Paris forecast.\",\"thought\":true}]}}]}\n\ndata: {\"responseId\":\"gem_sig_stream\",\"candidates\":[{\"finishReason\":\"STOP\",\"content\":{\"role\":\"model\",\"parts\":[{\"functionCall\":{\"id\":\"weather-paris\",\"name\":\"getWeather\",\"args\":{\"city\":\"Paris\"}},\"thoughtSignature\":\"sig-stream-step-1\"}]}}],\"usageMetadata\":{\"promptTokenCount\":12,\"candidatesTokenCount\":5,\"totalTokenCount\":17}}\n\ndata: [DONE]\n\n",
+      "status": 200
+    }
+  ]
+}

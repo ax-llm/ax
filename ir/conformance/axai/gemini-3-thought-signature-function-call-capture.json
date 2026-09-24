@@ -1,0 +1,110 @@
+{
+  "expected_output": {
+    "model_usage": null,
+    "results": [
+      {
+        "content": "",
+        "finish_reason": "function_call",
+        "function_calls": [
+          {
+            "function": {
+              "name": "getWeather",
+              "params": {
+                "city": "Paris"
+              }
+            },
+            "id": "weather-paris",
+            "type": "function"
+          },
+          {
+            "function": {
+              "name": "getWeather",
+              "params": {
+                "city": "Rome"
+              }
+            },
+            "id": "weather-rome",
+            "type": "function"
+          }
+        ],
+        "index": 0,
+        "thought_blocks": [
+          {
+            "data": "",
+            "encrypted": false,
+            "signature": "sig-weather-step-1"
+          }
+        ]
+      }
+    ]
+  },
+  "expected_transport_request": {
+    "url": "https://generativelanguage.googleapis.com/v1beta/models/gemini-3.6-flash:generateContent"
+  },
+  "kind": "ai_chat",
+  "model": "gemini-3.6-flash",
+  "name": "gemini-3-thought-signature-function-call-capture",
+  "provider": "google-gemini",
+  "request": {
+    "chat_prompt": [
+      {
+        "content": "Weather in Paris and Rome?",
+        "role": "user"
+      }
+    ],
+    "functions": [
+      {
+        "description": "Get the current weather for a city",
+        "name": "getWeather",
+        "parameters": {
+          "properties": {
+            "city": {
+              "type": "string"
+            }
+          },
+          "required": ["city"],
+          "type": "object"
+        }
+      }
+    ],
+    "model_config": {
+      "stream": false
+    }
+  },
+  "transport_responses": [
+    {
+      "json": {
+        "candidates": [
+          {
+            "content": {
+              "parts": [
+                {
+                  "functionCall": {
+                    "args": {
+                      "city": "Paris"
+                    },
+                    "id": "weather-paris",
+                    "name": "getWeather"
+                  },
+                  "thoughtSignature": "sig-weather-step-1"
+                },
+                {
+                  "functionCall": {
+                    "args": {
+                      "city": "Rome"
+                    },
+                    "id": "weather-rome",
+                    "name": "getWeather"
+                  }
+                }
+              ],
+              "role": "model"
+            },
+            "finishReason": "STOP"
+          }
+        ]
+      },
+      "status": 200
+    }
+  ]
+}

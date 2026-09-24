@@ -1,0 +1,97 @@
+{
+  "expected_output": {
+    "model_usage": null,
+    "results": [
+      {
+        "content": "Rain is likely.",
+        "finish_reason": "stop",
+        "function_calls": [],
+        "index": 0
+      }
+    ]
+  },
+  "expected_transport_request": {
+    "json": {
+      "contents": [
+        {
+          "parts": [
+            {
+              "text": "Is it sunny in Paris?"
+            }
+          ],
+          "role": "user"
+        },
+        {
+          "parts": [
+            {
+              "text": "Recall the forecast.",
+              "thought": true,
+              "thought_signature": "sig-answer-1"
+            },
+            {
+              "text": "Yes, it is sunny."
+            }
+          ],
+          "role": "model"
+        },
+        {
+          "parts": [
+            {
+              "text": "And tomorrow?"
+            }
+          ],
+          "role": "user"
+        }
+      ]
+    }
+  },
+  "kind": "ai_chat",
+  "model": "gemini-3.6-flash",
+  "name": "gemini-3-thought-signature-replay-without-function-calls",
+  "provider": "google-gemini",
+  "request": {
+    "chat_prompt": [
+      {
+        "content": "Is it sunny in Paris?",
+        "role": "user"
+      },
+      {
+        "content": "Yes, it is sunny.",
+        "role": "assistant",
+        "thought_blocks": [
+          {
+            "data": "Recall the forecast.",
+            "encrypted": false,
+            "signature": "sig-answer-1"
+          }
+        ]
+      },
+      {
+        "content": "And tomorrow?",
+        "role": "user"
+      }
+    ],
+    "model_config": {
+      "stream": false
+    }
+  },
+  "transport_responses": [
+    {
+      "json": {
+        "candidates": [
+          {
+            "content": {
+              "parts": [
+                {
+                  "text": "Rain is likely."
+                }
+              ]
+            },
+            "finishReason": "STOP"
+          }
+        ]
+      },
+      "status": 200
+    }
+  ]
+}

@@ -1513,6 +1513,25 @@
       "verification": "Core-owned string/fluent boolean and class descriptions round-trip through signatures/schema and map to native criteria or ordinary readable prompts. Shared fixtures cover scalar/complex extraction, streaming label parsing, field order, nested fields, validation, and conventional-provider behavior. AxIR compiler go test -count=1 -timeout=30m ./... and strict check/lint/provenance/lowering passed. Final all-five release verification passed: C++ in the full test run, Python/Java/Go after nested-balancer test corrections, and Rust after routing validation correction. Conformance synchronization, generated package freshness, build, 320 focused TypeScript tests, tooling guards, generated examples, provider profiles, skills, and website checks passed. All 18 live Typesafe/Jev signature, native, and hybrid examples passed across TypeScript, Python, Java, C++, Go, and Rust using environment credentials."
     },
     {
+      "id": "axir-2026-09-23-port-gemini-3-thought-signature-round-trip-for-function-calls",
+      "status": "done",
+      "title": "Port Gemini 3 thought-signature round-trip for function calls",
+      "createdAt": "2026-09-23",
+      "sourcePR": null,
+      "sourceCommit": "67d11445c97baa88e7234193c7a40f414e6147b3",
+      "tsPaths": ["src/ax/ai/google-gemini/api.ts"],
+      "portableSurface": "axai",
+      "impact": "TypeScript captures Gemini thoughtSignature from response parts (stream and non-stream) into thoughtBlocks[].signature and replays it as thought_signature on the first functionCall part (or on the thought text part when there are no function calls) when rebuilding assistant turns. The AxIR Gemini response merge ignores thoughtSignature and the Gemini request builder never emits it, so every generated port's Gemini 3 tool loop fails on the second request with HTTP 400 'Function call is missing a thought_signature in functionCall parts' (live-reproduced 2026-09-23 with the Python port on gemini-3.6-flash once tool schemas moved to parametersJsonSchema). gen.axir already copies response thought_blocks into assistant memory, so only Gemini capture and replay are missing.",
+      "suggestedAxirWork": [
+        "Capture thoughtSignature and thought_signature in gemini_merge_response_part_impl and the Gemini streaming path into result thought_blocks",
+        "Attach thought_signature from thought_blocks[0].signature to the first functionCall part in the Gemini request builder and cached-content path",
+        "Add non-stream and stream capture plus replay fixtures in tools/axir/extractors/axai-goldens.ts then run npm run axir:conformance:write and npm run test:axir"
+      ],
+      "completedAt": "2026-09-24",
+      "completedByCommit": "74f80b1b18e7f6a1ba6c3f5710ae756383aebf80",
+      "verification": "Gemini thoughtSignature/thought_signature is captured into thought_blocks by @gemini_merge_response_part_impl (shared by chat, stream deltas and Live; a signed functionCall creates a signature-only block or back-fills the last unsigned thought block) and replayed by @gemini_message_impl as thought_signature on the first functionCall part, or on the thought text part when the turn has no function calls; the ports' Gemini context-cache contents reuse that builder. Five new axai fixtures (function-call capture, thought-summary capture, stream capture, function-call replay, thought-part replay) match the TypeScript client's results and request contents, fail on the previous Python port, and pass in Python, Go, Rust, Java and C++. npm run axir:conformance:check, npm run axir:check-packages and npm run test:axir passed. Live with GOOGLE_APIKEY: the Python port weather tool loop on gemini-3.6-flash reproduced the 400 before the fix and completes after it; parallel calls (signature on the first call only) and two-step sequential loops with and without showThoughts pass on gemini-3.6-flash and gemini-3.5-flash, and the two-step loop passes on gemini-3.8-flash on top of #684; the Go port weather loop on gemini-3.6-flash also completes."
+    },
+    {
       "id": "axir-2026-09-23-port-gemini-live-turn-continuation-while-interactionstatus-is-in",
       "status": "open",
       "title": "Port Gemini Live turn continuation while interactionStatus is IN_PROGRESS",

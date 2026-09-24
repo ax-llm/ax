@@ -139,7 +139,10 @@ export type AxAIGoogleGeminiContentPart = {
 export type AxAIGoogleGeminiToolFunctionDeclaration = {
   name: string;
   description?: string;
+  /** OpenAPI Schema subset: rejects `additionalProperties` and type unions. */
   parameters?: object;
+  /** Full JSON Schema. Mutually exclusive with `parameters`. */
+  parametersJsonSchema?: object;
 };
 
 export type AxAIGoogleGeminiToolGoogleSearchRetrieval = {

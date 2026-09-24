@@ -1,4 +1,6 @@
 import { describe, expect, it, vi } from 'vitest';
+
+import { f, fn } from '../../dsp/sig.js';
 import { axAIProviderProfiles } from '../provider_profiles.generated.js';
 import { ai as createAI } from '../wrap.js';
 import {
@@ -302,6 +304,140 @@ describe('AxAIGoogleGemini schema validation', () => {
     expect(responseSchema?.properties?.profile?.properties?.age?.maximum).toBe(
       120
     );
+  });
+
+  it('sends fn() tool schemas as parametersJsonSchema, never the OpenAPI-subset parameters field', async () => {
+    // Gemini's `parameters` field rejects `additionalProperties` with HTTP 400
+    // ("Unknown name additionalProperties ... Cannot find field"), and fn()
+    // emits it on every object schema.
+    const getWeather = fn('getWeather')
+      .description('Get the current weather for a city')
+      .arg('city', f.string('City'))
+      .arg(
+        'options',
+        f.object({ units: f.string('Units').optional() }).optional()
+      )
+      .returns(f.string('Weather'))
+      .handler(async () => 'sunny')
+      .build();
+    expect(getWeather.parameters.additionalProperties).toBe(false);
+
+    const ai = new AxAIGoogleGemini({
+      apiKey: 'key',
+      config: { model: AxAIGoogleGeminiModel.Gemini36Flash },
+      models: [],
+    });
+
+    const capture: { lastBody?: any } = {};
+    ai.setOptions({
+      fetch: createMockFetch(
+        {
+          candidates: [
+            {
+              content: {
+                parts: [
+                  {
+                    functionCall: {
+                      name: 'getWeather',
+                      args: { city: 'Paris' },
+                    },
+                  },
+                ],
+              },
+              finishReason: 'STOP',
+            },
+          ],
+        },
+        capture
+      ),
+    });
+
+    const res = await ai.chat(
+      {
+        chatPrompt: [{ role: 'user', content: 'Weather in Paris?' }],
+        functions: [getWeather],
+      },
+      { stream: false }
+    );
+
+    const declarations = capture.lastBody?.tools?.[0]?.function_declarations;
+    expect(declarations).toHaveLength(1);
+    const [declaration] = declarations;
+    expect(Object.keys(declaration).sort()).toEqual([
+      'description',
+      'name',
+      'parametersJsonSchema',
+    ]);
+    expect(declaration).not.toHaveProperty('parameters');
+    expect(declaration.parametersJsonSchema).toEqual(getWeather.parameters);
+    expect(
+      declaration.parametersJsonSchema.properties.options.additionalProperties
+    ).toBe(false);
+
+    if (res instanceof ReadableStream) {
+      throw new Error('expected a non-streaming response');
+    }
+    expect(res.results[0]?.functionCalls?.[0]?.function).toEqual({
+      name: 'getWeather',
+      params: { city: 'Paris' },
+    });
+  });
+
+  it('nests allowed_function_names inside function_calling_config for forced function calls', async () => {
+    // Gemini 400s on allowedFunctionNames at the toolConfig level.
+    const ai = new AxAIGoogleGemini({
+      apiKey: 'key',
+      config: { model: AxAIGoogleGeminiModel.Gemini36Flash },
+      models: [],
+    });
+
+    const capture: { lastBody?: any } = {};
+    ai.setOptions({
+      fetch: createMockFetch(
+        {
+          candidates: [
+            {
+              content: {
+                parts: [
+                  {
+                    functionCall: {
+                      name: 'getTime',
+                      args: { city: 'Paris' },
+                    },
+                  },
+                ],
+              },
+              finishReason: 'STOP',
+            },
+          ],
+        },
+        capture
+      ),
+    });
+
+    const parameters = {
+      type: 'object',
+      properties: { city: { type: 'string' } },
+      required: ['city'],
+    } as const;
+    await ai.chat(
+      {
+        chatPrompt: [{ role: 'user', content: 'Time in Paris?' }],
+        functions: [
+          { name: 'getWeather', description: 'Get the weather', parameters },
+          { name: 'getTime', description: 'Get the time', parameters },
+        ],
+        functionCall: { type: 'function', function: { name: 'getTime' } },
+      },
+      { stream: false }
+    );
+
+    expect(capture.lastBody?.toolConfig).toEqual({
+      function_calling_config: {
+        mode: 'ANY',
+        allowed_function_names: ['getTime'],
+      },
+    });
   });
 });
 
@@ -2046,14 +2182,19 @@ describe('AxAIGoogleGemini model key preset merging', () => {
       expect(
         cacheCreateReq.tools[0].function_declarations.map((fn: any) => fn.name)
       ).toEqual(['search', 'spawnSearchAgent']);
+      for (const declaration of cacheCreateReq.tools[0].function_declarations) {
+        expect(declaration).not.toHaveProperty('parameters');
+        expect(declaration.parametersJsonSchema?.required).toEqual(['query']);
+      }
       expect(cacheCreateReq.toolConfig?.function_calling_config?.mode).toBe(
         'ANY'
       );
-      expect(
-        cacheCreateReq.toolConfig?.allowedFunctionNames ??
-          cacheCreateReq.toolConfig?.function_calling_config
-            ?.allowedFunctionNames
-      ).toContain('spawnSearchAgent');
+      expect(cacheCreateReq.toolConfig).toEqual({
+        function_calling_config: {
+          mode: 'ANY',
+          allowed_function_names: ['spawnSearchAgent'],
+        },
+      });
 
       const generateReq = capture.calls[1]?.body;
       expect(generateReq.cachedContent).toBe('cachedContents/test-cache');
@@ -2196,11 +2337,12 @@ describe('AxAIGoogleGemini model key preset merging', () => {
       expect(cacheCreateReq.toolConfig?.function_calling_config?.mode).toBe(
         'ANY'
       );
-      expect(
-        cacheCreateReq.toolConfig?.allowedFunctionNames ??
-          cacheCreateReq.toolConfig?.function_calling_config
-            ?.allowedFunctionNames
-      ).toContain('spawnSearchAgent');
+      expect(cacheCreateReq.toolConfig).toEqual({
+        function_calling_config: {
+          mode: 'ANY',
+          allowed_function_names: ['spawnSearchAgent'],
+        },
+      });
 
       const generateReq = capture.calls[1]?.body;
       expect(generateReq.cachedContent).toBe('cachedContents/test-cache');
