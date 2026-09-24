@@ -6,7 +6,7 @@ Native Amazon Bedrock integration for Ax using the AWS SDK `Converse`,
 
 ## Features
 
-- Claude and GPT OSS chat models, plus Titan Embed V2
+- Claude, GPT-6, and GPT OSS chat models, plus Titan Embed V2
 - Native streaming with cancellation and pre-output regional failover
 - Claude tool use and tool-result round trips
 - Claude image and document inputs, including inline base64 and `s3://` documents
@@ -96,9 +96,17 @@ Cache checkpoints can be set on system messages, content blocks, messages, and
 functions with `cache: true`. Bedrock accepts at most four checkpoints per
 request; the provider validates that combined limit before sending.
 
-Claude Sonnet 5 always uses adaptive thinking, so
-`thinkingTokenBudget: 'none'` is rejected for that model. Claude Opus 5 allows
-adaptive thinking to be disabled.
+Claude Sonnet 5 and Opus 5.5 always use adaptive thinking, so
+`thinkingTokenBudget: 'none'` is rejected for those models. Claude Opus 5
+allows adaptive thinking to be disabled. Opus 5.5 also rejects forced tool
+choice and `output_config.format` on Converse, so its structured output uses
+the `json_object` mode.
+
+On GPT-6 Sol, Luna, and Astra, `thinkingTokenBudget` sets the reasoning effort:
+`minimal` maps to `low`, `highest` to `max`, and `none` turns reasoning off.
+Astra cannot turn reasoning off, so `'none'` is rejected before a request is
+sent. These models do not accept `temperature` or `topP`, so the provider
+leaves them out of the request.
 
 ## Native image and document input
 
@@ -127,9 +135,13 @@ and XLSX. Image formats are GIF, JPEG, PNG, and WebP.
 
 ## Models
 
-Current Claude enum members include Sonnet 5, Opus 5, Opus 4.8, Sonnet 4.6,
-Haiku 4.5, Opus 4.5, Sonnet 4, and retained 3.x compatibility models. GPT OSS
-120B and 20B and Titan Embed V2 remain available.
+Current Claude enum members include Sonnet 5, Opus 5.5, Opus 5, Opus 4.8,
+Sonnet 4.6, Haiku 4.5, Opus 4.5, Sonnet 4, and retained 3.x compatibility
+models. OpenAI GPT-6 Sol, Luna, and Astra use their `us.` cross-Region
+inference profiles and support tools, image input, and native or function
+structured output on the standard tier. Like GPT OSS 120B and 20B, they are
+sent to `gptRegion` (default `us-west-2`) and then `gptFallbackRegions`
+(default `us-east-1`). Titan Embed V2 remains available.
 
 ## Verification
 

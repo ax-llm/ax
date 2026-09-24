@@ -13009,7 +13009,7 @@ describe('judgeOptions / optimize', () => {
     expect(compileSpy).toHaveBeenCalledOnce();
   });
 
-  it('should forward GEPA logging and progress options through agent.optimize()', async () => {
+  it('should forward GEPA logging, progress, and teacher options through agent.optimize()', async () => {
     const studentAI = makeStudentAI();
     const optimizerLogger = vi.fn();
     const onProgress = vi.fn();
@@ -13026,6 +13026,7 @@ describe('judgeOptions / optimize', () => {
       ) {
         expect(this.verbose).toBe(true);
         expect(this.debugOptimizer).toBe(true);
+        expect(this.teacherOptions).toEqual({ useExpensiveModel: 'yes' });
         expect(this.optimizerLogger).toBe(optimizerLogger);
         expect(this.onProgress).toBe(onProgress);
         expect(this.onEarlyStop).toBe(onEarlyStop);
@@ -13063,6 +13064,7 @@ describe('judgeOptions / optimize', () => {
       metric: async () => 1,
       verbose: true,
       debugOptimizer: true,
+      teacherOptions: { useExpensiveModel: 'yes' },
       optimizerLogger,
       onProgress,
       onEarlyStop,

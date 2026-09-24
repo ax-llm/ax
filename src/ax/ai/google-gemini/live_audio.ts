@@ -1,4 +1,5 @@
 import type { AxAPI } from '../../util/apicall.js';
+import { parseWebSocketMessage } from '../../util/websocket.js';
 import {
   axGoogleGeminiLiveAudioDefaults,
   axIsAudioOutputEnabled,
@@ -31,6 +32,7 @@ const geminiLiveWsUrl = (audio: Readonly<AxChatAudioConfig>): string => {
 };
 
 type WebSocketLike = {
+  binaryType?: string;
   send(data: string): void;
   close(): void;
   addEventListener?: (
@@ -58,6 +60,7 @@ type GeminiLiveRequest = {
 type GeminiLiveCollected = {
   audioChunks: string[];
   textChunks: string[];
+  thoughtChunks: string[];
   outputTranscripts: string[];
   functionCalls: { name: string; args: object }[];
   usageMetadata?: AxAIGoogleGeminiChatResponse['usageMetadata'];
@@ -285,6 +288,7 @@ const makeGeminiLiveResponse = ({
   audio,
   transcript,
   text,
+  thought,
   functionCalls,
   usageMetadata,
   isDelta,
@@ -293,6 +297,7 @@ const makeGeminiLiveResponse = ({
   audio: Readonly<AxChatAudioConfig>;
   transcript?: string;
   text?: string;
+  thought?: string;
   functionCalls?: readonly { name: string; args: object }[];
   usageMetadata?: AxAIGoogleGeminiChatResponse['usageMetadata'];
   isDelta?: boolean;
@@ -302,6 +307,10 @@ const makeGeminiLiveResponse = ({
     output?.mimeType ??
     axAudioMimeType(output?.format, output?.sampleRate, 'audio/pcm;rate=24000');
   const parts: AxAIGoogleGeminiContentPart[] = [];
+
+  if (thought) {
+    parts.push({ text: thought, thought: true });
+  }
 
   if (text || transcript) {
     parts.push({ text: text ?? transcript ?? '' });
@@ -362,14 +371,6 @@ const normalizeUsageMetadata = (
   };
 };
 
-const parseWebSocketMessage = (event: any): any => {
-  const data = event?.data ?? event;
-  if (typeof data === 'string') {
-    return JSON.parse(data);
-  }
-  return data;
-};
-
 const attach = (
   socket: WebSocketLike,
   type: 'open' | 'message' | 'error' | 'close',
@@ -396,6 +397,7 @@ const axRunGeminiLiveAudioTurn = async (
   const collected: GeminiLiveCollected = {
     audioChunks: [],
     textChunks: [],
+    thoughtChunks: [],
     outputTranscripts: [],
     functionCalls: [],
   };
@@ -403,9 +405,13 @@ const axRunGeminiLiveAudioTurn = async (
   const socket = new WebSocketCtor(
     `${geminiLiveWsUrl(audio)}?key=${encodeURIComponent(liveRequest.apiKey)}`
   ) as unknown as WebSocketLike;
+  // Live sends every message, setupComplete included, as a binary frame.
+  socket.binaryType = 'arraybuffer';
 
   return await new Promise((resolve, reject) => {
     let done = false;
+    // Set when a model turn ends while the interaction continues.
+    let turnBreak = false;
     const finish = (response: AxAIGoogleGeminiChatResponse) => {
       if (done) return;
       done = true;
@@ -435,6 +441,16 @@ const axRunGeminiLiveAudioTurn = async (
 
     attach(socket, 'error', (event) => {
       fail(event?.error ?? event?.message ?? 'Gemini Live WebSocket error');
+    });
+
+    // Live rejects a bad setup (unknown model, invalid thinking config) by
+    // closing the socket with the reason.
+    attach(socket, 'close', (event) => {
+      fail(
+        `Gemini Live WebSocket closed before completion${
+          event?.code ? ` (code ${event.code})` : ''
+        }${event?.reason ? `: ${event.reason}` : ''}`
+      );
     });
 
     attach(socket, 'message', (event) => {
@@ -474,8 +490,18 @@ const axRunGeminiLiveAudioTurn = async (
           return;
         }
 
-        const outputTranscript = serverContent.outputTranscription?.text;
+        let outputTranscript = serverContent.outputTranscription?.text;
         if (typeof outputTranscript === 'string') {
+          const previous = collected.outputTranscripts.at(-1);
+          if (
+            turnBreak &&
+            previous &&
+            !/\s$/.test(previous) &&
+            !/^\s/.test(outputTranscript)
+          ) {
+            outputTranscript = ` ${outputTranscript}`;
+          }
+          turnBreak = false;
           collected.outputTranscripts.push(outputTranscript);
           onChunk?.(
             makeGeminiLiveResponse({
@@ -489,6 +515,19 @@ const axRunGeminiLiveAudioTurn = async (
         const parts = serverContent.modelTurn?.parts;
         if (Array.isArray(parts)) {
           for (const part of parts) {
+            // Native audio models stream thought summaries as text parts even
+            // without includeThoughts; the answer is the audio transcript.
+            if (typeof part.text === 'string' && part.thought === true) {
+              collected.thoughtChunks.push(part.text);
+              onChunk?.(
+                makeGeminiLiveResponse({
+                  audio,
+                  thought: part.text,
+                  isDelta: true,
+                })
+              );
+              continue;
+            }
             if (typeof part.text === 'string') {
               collected.textChunks.push(part.text);
               onChunk?.(
@@ -520,14 +559,23 @@ const axRunGeminiLiveAudioTurn = async (
         }
 
         if (serverContent.turnComplete) {
+          // Extended thinking models first say a short acknowledgement and end
+          // that turn with the interaction IN_PROGRESS, then think and answer
+          // in another turn.
+          if (serverContent.interactionStatus === 'IN_PROGRESS') {
+            turnBreak = true;
+            return;
+          }
           const transcript = collected.outputTranscripts.join('');
           const text = collected.textChunks.join('');
+          const thought = collected.thoughtChunks.join('');
           finish(
             makeGeminiLiveResponse({
               audio,
               audioData: axConcatBase64(collected.audioChunks),
               transcript: transcript || undefined,
               text: text || undefined,
+              thought: thought || undefined,
               functionCalls: collected.functionCalls,
               usageMetadata: collected.usageMetadata,
             })

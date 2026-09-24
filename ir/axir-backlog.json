@@ -1557,6 +1557,29 @@
       "verification": "Gemini thoughtSignature/thought_signature is captured into thought_blocks by @gemini_merge_response_part_impl (shared by chat, stream deltas and Live; a signed functionCall creates a signature-only block or back-fills the last unsigned thought block) and replayed by @gemini_message_impl as thought_signature on the first functionCall part, or on the thought text part when the turn has no function calls; the ports' Gemini context-cache contents reuse that builder. Five new axai fixtures (function-call capture, thought-summary capture, stream capture, function-call replay, thought-part replay) match the TypeScript client's results and request contents, fail on the previous Python port, and pass in Python, Go, Rust, Java and C++. npm run axir:conformance:check, npm run axir:check-packages and npm run test:axir passed. Live with GOOGLE_APIKEY: the Python port weather tool loop on gemini-3.6-flash reproduced the 400 before the fix and completes after it; parallel calls (signature on the first call only) and two-step sequential loops with and without showThoughts pass on gemini-3.6-flash and gemini-3.5-flash, and the two-step loop passes on gemini-3.8-flash on top of #684; the Go port weather loop on gemini-3.6-flash also completes."
     },
     {
+      "id": "axir-2026-09-23-port-gemini-live-turn-continuation-while-interactionstatus-is-in",
+      "status": "open",
+      "title": "Port Gemini Live turn continuation while interactionStatus is IN_PROGRESS",
+      "createdAt": "2026-09-23",
+      "sourcePR": null,
+      "sourceCommit": null,
+      "tsPaths": [
+        "src/ax/ai/google-gemini/live_audio.ts",
+        "src/ax/ai/google-gemini/api.test.ts"
+      ],
+      "portableSurface": "axai",
+      "impact": "Gemini 3.8 Live Extended Thinking can speak a short acknowledgement, end that model turn with serverContent.turnComplete plus interactionStatus IN_PROGRESS, think, and then answer in a second turn that ends with interactionStatus IDLE (seen live 2026-09-23). TS live_audio.ts now keeps collecting across the IN_PROGRESS boundary and joins the two transcripts with a space. The generated ports end the realtime turn at the first turnComplete (realtimeEventIsDone in each driver template, and the Gemini Live event fold in provider.axir sets finish_reason stop on any turnComplete), so they return only the acknowledgement.",
+      "suggestedAxirWork": [
+        "Keep the realtime driver loop reading past a Gemini Live turnComplete whose interactionStatus is IN_PROGRESS (realtimeEventIsDone in the five driver templates)",
+        "Set finish_reason stop in the Gemini Live event fold only when interactionStatus is not IN_PROGRESS",
+        "Separate the acknowledgement and answer transcripts with a space when merging the turn",
+        "Add a two-turn Gemini Live conformance fixture and run npm run test:axir"
+      ],
+      "completedAt": null,
+      "completedByCommit": null,
+      "verification": null
+    },
+    {
       "id": "axir-2026-09-23-port-speak-samplerate-channels-parsed-from-raw-pcm-mime-types",
       "status": "open",
       "title": "Port speak() sampleRate/channels parsed from raw-PCM mime types",
@@ -1621,6 +1644,68 @@
       "verification": "No port change was needed. The generated ports already apply apiURL, baseUrl and base_url to every provider in provider_resolve_descriptor, and already send GPT-6 on the openai provider through Responses; only TypeScript dropped apiURL, which #678 fixed. New ai_chat fixtures openai-responses-chat-uses-api-url and gpt-6-sol-openai-api-url-uses-responses pass in Python, Java, C++, Go, and Rust, and copies expecting api.openai.com fail in the Python, Go, and Java runners. TypeScript provider_profiles.test.ts covers both paths and fails with the fix reverted."
     },
     {
+      "id": "axir-2026-09-24-port-optimizer-teacher-options-and-gepa-teacher-failure-reporting",
+      "status": "open",
+      "title": "Port teacherOptions to optimizer teacher calls and surface GEPA teacher failures",
+      "createdAt": "2026-09-24",
+      "sourcePR": null,
+      "sourceCommit": "87fc4fee906c3b0c253bdf71ded23a869ddcb1e0",
+      "tsPaths": [
+        "src/ax/dsp/common_types.ts",
+        "src/ax/dsp/optimizer.ts",
+        "src/ax/dsp/optimizers/ace.ts",
+        "src/ax/dsp/optimizers/bootstrapFewshot.ts",
+        "src/ax/dsp/optimizers/gepa.ts",
+        "src/ax/dsp/optimizers/gepa.test.ts",
+        "src/ax/dsp/optimizers/gepaReflection.ts",
+        "src/ax/dsp/optimizers/gepaReflection.test.ts",
+        "src/ax/dsp/optimizers/teacherOptions.test.ts",
+        "src/ax/agent/agentInternal/agentOptimizeTypes.ts",
+        "src/ax/agent/agentInternal/optimizer.ts",
+        "src/ax/agent/agent.test.ts"
+      ],
+      "portableSurface": "axoptimize",
+      "impact": "TypeScript optimizers now accept teacherOptions (AxAIServiceOptions) in AxOptimizerArgs, optimize() and agent.optimize(). GEPA passes them to its feedback critic and component proposer, ACE to its reflector and curator, and BootstrapFewShot to its demo runs, so a teacher model marked isExpensive works after useExpensiveModel: 'yes'. GEPA also reports a failed teacher call as a gepa_teacher logger notification and keeps the current value, where it used to swallow the error, and its proposer now accepts an empty current value such as an ax() program's default instruction, which the required currentValue input used to reject before any request. Generated ports have no teacherOptions: GEPA reflection calls chat with fixed service options (Python {stream: False}, Go an empty map, Java none), and the ACE reflector/curator and optimize() bootstrap forwards pass none. Port GEPA also raises (Python/Java) or panics (Go) on a failed reflection call instead of logging it and keeping the value. No port enforces isExpensive yet (see the expensive-model gate entry), so the missing options only matter once that gate is ported. Port proposers send the current value inside a JSON prompt, so the empty-value bug does not apply to them.",
+      "suggestedAxirWork": [
+        "Accept teacherOptions in the port optimize/AxGEPA/ACE/bootstrap options and pass them to every teacher chat or forward call.",
+        "Match TS GEPA teacher-failure handling: report a gepa_teacher notification and keep the current value instead of raising.",
+        "Add a conformance fixture where an isExpensive teacher is rejected without teacherOptions and reached with useExpensiveModel yes once the gate is ported.",
+        "Run npm run axir:conformance:check and npm run test:axir."
+      ],
+      "completedAt": null,
+      "completedByCommit": null,
+      "verification": null
+    },
+    {
+      "id": "axir-2026-09-24-port-playbook-and-evolve-miner-teacher-options",
+      "status": "open",
+      "title": "Port teacherOptions to playbook and agent evolve teacher calls",
+      "createdAt": "2026-09-24",
+      "sourcePR": null,
+      "sourceCommit": "ec26c4ca1a41de125eec67c72529ee2719eb32d7",
+      "tsPaths": [
+        "src/ax/dsp/playbook.ts",
+        "src/ax/agent/playbookConfig.ts",
+        "src/ax/agent/agentInternal/agentOptimizeTypes.ts",
+        "src/ax/agent/agentInternal/coordinator.ts",
+        "src/ax/agent/agentInternal/playbookEvolve/playbookEvolve.ts",
+        "src/ax/agent/agentInternal/playbookEvolve/playbookEvolveTypes.ts",
+        "src/ax/agent/agentInternal/playbookEvolve/weaknessMiner.ts",
+        "src/ax/dsp/optimizers/teacherOptions.test.ts"
+      ],
+      "portableSurface": "axoptimize",
+      "impact": "TypeScript playbook(), agent.playbook() and the agent playbook config now accept teacherOptions (AxAIServiceOptions) and pass them to the ACE reflector and curator, and agent.playbook().evolve() accepts teacherOptions for its weakness miner, so a teacher model marked isExpensive works after useExpensiveModel: 'yes'. Without it the gate rejects those calls before any request is sent: playbook updates curate nothing and evolve reports a miner failure. The reflector and curator calls that apply each evolve proposal keep using the playbook's own teacherOptions. Generated ports have no teacherOptions on these paths. Their playbook reflector and curator forwards pass no options (Python _run_reflector/_run_curator, Go runReflector/runCurator with nil options, Java runReflector/runCurator, and the Rust and C++ reflector/curator closures), and the agent-bound evolve weakness miner forward passes none in all five. No port enforces isExpensive yet (see the expensive-model gate entry), so the missing options only matter once that gate is ported. The optimizer teacherOptions entry covers the separate port AxACE optimizer reflector/curator used by optimize().",
+      "suggestedAxirWork": [
+        "Accept teacherOptions in the port AxPlaybook and agent playbook options and pass them to the playbook reflector and curator forwards.",
+        "Accept teacherOptions in the port agent-bound evolve options and pass them to the weakness miner forward.",
+        "Extend the optimizer teacherOptions conformance fixture to a playbook update and an evolve miner call once the isExpensive gate is ported.",
+        "Run npm run axir:conformance:check and npm run test:axir."
+      ],
+      "completedAt": null,
+      "completedByCommit": null,
+      "verification": null
+    },
+    {
       "id": "axir-2026-09-24-port-the-text-output-contract-for-simple-axgen-signatures-withou",
       "status": "open",
       "title": "Port the text output contract for simple AxGen signatures without tools",
@@ -1638,6 +1723,35 @@
         "Drop the native-tools condition in @select_structured_output_rung so every simple signature selects no rung",
         "Keep force_structured on Agent actor stages and live-verify responder and llmQuery stages in text mode",
         "Update simple-forward and the other fixtures that pin response_format for simple signatures"
+      ],
+      "completedAt": null,
+      "completedByCommit": null,
+      "verification": null
+    },
+    {
+      "id": "axir-2026-09-24-prefer-the-axoutput-rung-beside-callable-gemini-tools",
+      "status": "open",
+      "title": "Prefer the __axOutput rung beside callable Gemini tools",
+      "createdAt": "2026-09-24",
+      "sourcePR": null,
+      "sourceCommit": "bf2aa7213f7e6bda5eebe643b444cebcf85751aa",
+      "tsPaths": [
+        "src/ax/dsp/generate.ts",
+        "src/ax/ai/google-gemini/api.ts",
+        "src/ax/ai/base.ts",
+        "src/ax/ai/balance.ts",
+        "src/ax/ai/mock/api.ts",
+        "src/ax/dsp/generate.fallback-function.test.ts",
+        "src/ax/ai/google-gemini/api.structuredOutput.test.ts",
+        "src/ax/ai/balance.test.ts"
+      ],
+      "portableSurface": "axgen",
+      "impact": "TypeScript AxGen now picks the function rung (__axOutput) instead of the native JSON Schema rung in structuredOutputMode 'auto' when the provider reports responseFormatWithFunctions: false (the Gemini client does) and the model may call native user functions (functionCall unset or 'auto', not prompt-emulated). Gemini 2.x rejects responseMimeType application/json beside function_declarations with HTTP 400, and gemini-3.8-flash and gemini-3.1-flash-lite keep re-calling tools until maxSteps once function results are in a JSON-mode conversation; the function rung finished every live run on eight Gemini models. The generated ports still select the native rung for complex signatures with Gemini tools, so they 400 on Gemini 2.x and loop on 3.8-flash and 3.1-flash-lite.",
+      "suggestedAxirWork": [
+        "Add responseFormatWithFunctions: false to the google-gemini profile capabilities in ir/axcore/data/provider-profiles.json.",
+        "Make @select_structured_output_rung return the function rung when native user functions stay callable and that capability is false (reuse the functions-aware selector from PR #684).",
+        "Add forward conformance fixtures: the Gemini auto rung is function beside callable tools and stays native without tools or with a forced functionCall.",
+        "Run npm run axir:conformance:check and npm run test:axir."
       ],
       "completedAt": null,
       "completedByCommit": null,

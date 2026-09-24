@@ -61,10 +61,19 @@ function createSequencedMockFetch(
     });
 }
 
+// How the fake server frames its JSON. The real Live endpoint uses binary
+// frames, which a WebSocket delivers as a Blob unless binaryType is
+// 'arraybuffer'. 'bytes' ignores binaryType and hands over a view into a
+// larger buffer, like a pooled Node Buffer from `ws`.
+type FakeGeminiLiveFrames = 'binary' | 'text' | 'bytes';
+
 class FakeGeminiLiveWebSocket {
   static serverMessages: unknown[] = [];
   static instances: FakeGeminiLiveWebSocket[] = [];
+  static frames: FakeGeminiLiveFrames = 'binary';
+  static closeOnSetup?: { code: number; reason: string };
 
+  binaryType = 'blob';
   readonly sent: string[] = [];
   readonly url: string;
   private readonly listeners = new Map<string, ((event: any) => void)[]>();
@@ -92,7 +101,12 @@ class FakeGeminiLiveWebSocket {
 
     if (message.setup) {
       queueMicrotask(() => {
-        this.emit('message', { data: JSON.stringify({ setupComplete: {} }) });
+        const rejection = FakeGeminiLiveWebSocket.closeOnSetup;
+        if (rejection) {
+          this.emit('close', rejection);
+          return;
+        }
+        this.emit('message', { data: this.frame({ setupComplete: {} }) });
       });
       return;
     }
@@ -103,7 +117,7 @@ class FakeGeminiLiveWebSocket {
     ) {
       queueMicrotask(() => {
         for (const serverMessage of FakeGeminiLiveWebSocket.serverMessages) {
-          this.emit('message', { data: JSON.stringify(serverMessage) });
+          this.emit('message', { data: this.frame(serverMessage) });
         }
       });
     }
@@ -111,6 +125,20 @@ class FakeGeminiLiveWebSocket {
 
   close() {
     this.emit('close', {});
+  }
+
+  private frame(message: unknown): unknown {
+    const json = JSON.stringify(message);
+    if (FakeGeminiLiveWebSocket.frames === 'text') {
+      return json;
+    }
+    const bytes = new TextEncoder().encode(json);
+    if (FakeGeminiLiveWebSocket.frames === 'bytes') {
+      const pooled = new Uint8Array(bytes.length + 8);
+      pooled.set(bytes, 4);
+      return pooled.subarray(4, 4 + bytes.length);
+    }
+    return this.binaryType === 'arraybuffer' ? bytes.buffer : new Blob([bytes]);
   }
 
   private emit(type: string, event: any) {
@@ -124,10 +152,18 @@ class FakeGeminiLiveWebSocket {
   }
 }
 
-function installFakeGeminiLiveWebSocket(messages: unknown[]) {
+function installFakeGeminiLiveWebSocket(
+  messages: unknown[],
+  options: {
+    frames?: FakeGeminiLiveFrames;
+    closeOnSetup?: { code: number; reason: string };
+  } = {}
+) {
   const original = globalThis.WebSocket;
   FakeGeminiLiveWebSocket.serverMessages = messages;
   FakeGeminiLiveWebSocket.instances = [];
+  FakeGeminiLiveWebSocket.frames = options.frames ?? 'binary';
+  FakeGeminiLiveWebSocket.closeOnSetup = options.closeOnSetup;
   (globalThis as any).WebSocket = FakeGeminiLiveWebSocket;
 
   return () => {
@@ -3269,6 +3305,173 @@ describe('AxAIGoogleGemini Live audio chat', () => {
       });
       expect(chunks.at(-1)?.results[0]?.audio?.data).toBe('AQI=');
       expect(chunks.at(-1)?.results[0]?.audio?.isDelta).toBe(false);
+    } finally {
+      restore();
+    }
+  });
+
+  // A frame the client cannot read leaves the turn waiting for its timeout;
+  // a short timeout keeps that failure quick and readable.
+  const quickTimeoutLiveConfig = () => {
+    const config = axAIGoogleGeminiLiveAudioDefaultConfig();
+    return {
+      ...config,
+      audio: { ...config.audio, live: { turnTimeoutMs: 1_000 } },
+    };
+  };
+
+  it.each(['binary', 'text', 'bytes'] as const)(
+    'reads Live server messages sent in %s frames',
+    async (frames) => {
+      const restore = installFakeGeminiLiveWebSocket(
+        [
+          {
+            serverContent: {
+              outputTranscription: { text: 'hi' },
+              modelTurn: {
+                parts: [
+                  {
+                    inlineData: {
+                      mimeType: 'audio/pcm;rate=24000',
+                      data: 'AQI=',
+                    },
+                  },
+                ],
+              },
+              turnComplete: true,
+            },
+          },
+        ],
+        { frames }
+      );
+
+      try {
+        const ai = new AxAIGoogleGemini({
+          apiKey: 'key',
+          config: quickTimeoutLiveConfig(),
+          models: [],
+        });
+
+        const res = (await ai.chat(
+          { chatPrompt: [{ role: 'user', content: 'say hi' }] },
+          { stream: false }
+        )) as any;
+
+        expect(FakeGeminiLiveWebSocket.instances[0]?.binaryType).toBe(
+          'arraybuffer'
+        );
+        expect(res.results[0]?.content).toBe('hi');
+        expect(res.results[0]?.audio?.data).toBe('AQI=');
+      } finally {
+        restore();
+      }
+    }
+  );
+
+  it('keeps thought summaries out of the spoken answer', async () => {
+    const restore = installFakeGeminiLiveWebSocket([
+      {
+        serverContent: {
+          modelTurn: {
+            parts: [{ text: '**Picking a greeting**\n\n', thought: true }],
+          },
+        },
+      },
+      { serverContent: { outputTranscription: { text: 'Hello there.' } } },
+      {
+        serverContent: {
+          modelTurn: {
+            parts: [
+              {
+                inlineData: { mimeType: 'audio/pcm;rate=24000', data: 'AQI=' },
+              },
+            ],
+          },
+        },
+      },
+      { serverContent: { turnComplete: true } },
+    ]);
+
+    try {
+      const ai = new AxAIGoogleGemini({
+        apiKey: 'key',
+        config: axAIGoogleGeminiLiveAudioDefaultConfig(),
+        models: [],
+      });
+
+      const res = (await ai.chat(
+        { chatPrompt: [{ role: 'user', content: 'say hello' }] },
+        { stream: false }
+      )) as any;
+
+      expect(res.results[0]?.content).toBe('Hello there.');
+      expect(res.results[0]?.thought).toBe('**Picking a greeting**\n\n');
+      expect(res.results[0]?.audio?.data).toBe('AQI=');
+    } finally {
+      restore();
+    }
+  });
+
+  it('waits for the answer after an extended-thinking acknowledgement', async () => {
+    const spoken = (text: string, data: string) => ({
+      serverContent: {
+        outputTranscription: { text },
+        modelTurn: {
+          parts: [{ inlineData: { mimeType: 'audio/pcm;rate=24000', data } }],
+        },
+      },
+    });
+    const restore = installFakeGeminiLiveWebSocket([
+      spoken('Let me think.', 'AQI='),
+      {
+        serverContent: { turnComplete: true, interactionStatus: 'IN_PROGRESS' },
+      },
+      spoken('Hello there.', 'AwQ='),
+      { serverContent: { turnComplete: true, interactionStatus: 'IDLE' } },
+    ]);
+
+    try {
+      const ai = new AxAIGoogleGemini({
+        apiKey: 'key',
+        config: quickTimeoutLiveConfig(),
+        models: [],
+      });
+
+      const res = (await ai.chat(
+        { chatPrompt: [{ role: 'user', content: 'say hello' }] },
+        { stream: false }
+      )) as any;
+
+      expect(res.results[0]?.content).toBe('Let me think. Hello there.');
+      expect(res.results[0]?.audio?.data).toBe('AQIDBA==');
+    } finally {
+      restore();
+    }
+  });
+
+  it('fails with the close reason when the Live server rejects the setup', async () => {
+    const restore = installFakeGeminiLiveWebSocket([], {
+      closeOnSetup: {
+        code: 1007,
+        reason: 'Thinking level must be specified for this model.',
+      },
+    });
+
+    try {
+      const ai = new AxAIGoogleGemini({
+        apiKey: 'key',
+        config: quickTimeoutLiveConfig(),
+        models: [],
+      });
+
+      await expect(
+        ai.chat(
+          { chatPrompt: [{ role: 'user', content: 'say hi' }] },
+          { stream: false }
+        )
+      ).rejects.toThrow(
+        'Gemini Live WebSocket closed before completion (code 1007): Thinking level must be specified for this model.'
+      );
     } finally {
       restore();
     }

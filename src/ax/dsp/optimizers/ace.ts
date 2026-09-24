@@ -1332,23 +1332,27 @@ export class AxACE extends AxBaseOptimizer {
       const questionContext = this.createQuestionContext(example, inputFields);
       const expectedAnswer = this.createExpectedAnswer(example, outputFields);
 
-      const reflectionRaw = await reflector.forward(reflectorAI, {
-        question: this.stringifyBounded(questionContext),
-        generator_answer: this.stringifyBounded(generatorOutput.answer),
-        generator_reasoning: generatorOutput.reasoning,
-        playbook: JSON.stringify({
-          markdown: renderPlaybook(this.playbook),
-          structured: this.playbook,
-        }),
-        expected_answer:
-          Object.keys(expectedAnswer).length > 0
-            ? this.stringifyBounded(expectedAnswer)
+      const reflectionRaw = await reflector.forward(
+        reflectorAI,
+        {
+          question: this.stringifyBounded(questionContext),
+          generator_answer: this.stringifyBounded(generatorOutput.answer),
+          generator_reasoning: generatorOutput.reasoning,
+          playbook: JSON.stringify({
+            markdown: renderPlaybook(this.playbook),
+            structured: this.playbook,
+          }),
+          expected_answer:
+            Object.keys(expectedAnswer).length > 0
+              ? this.stringifyBounded(expectedAnswer)
+              : undefined,
+          feedback,
+          previous_reflection: previousReflection
+            ? JSON.stringify(previousReflection)
             : undefined,
-        feedback,
-        previous_reflection: previousReflection
-          ? JSON.stringify(previousReflection)
-          : undefined,
-      });
+        },
+        this.teacherOptions
+      );
       return normalizeReflectionBulletTags(
         reflectionRaw as AxACEReflectionOutput
       );
@@ -1386,15 +1390,19 @@ export class AxACE extends AxBaseOptimizer {
     const questionContext = this.createQuestionContext(example, inputFields);
 
     try {
-      const outputRaw = await curator.forward(curatorAI, {
-        playbook: JSON.stringify({
-          markdown: renderPlaybook(playbook),
-          structured: playbook,
-        }),
-        reflection: JSON.stringify(reflection),
-        question_context: this.stringifyBounded(questionContext),
-        token_budget: 1024,
-      });
+      const outputRaw = await curator.forward(
+        curatorAI,
+        {
+          playbook: JSON.stringify({
+            markdown: renderPlaybook(playbook),
+            structured: playbook,
+          }),
+          reflection: JSON.stringify(reflection),
+          question_context: this.stringifyBounded(questionContext),
+          token_budget: 1024,
+        },
+        this.teacherOptions
+      );
 
       return outputRaw as AxACECuratorOutput;
     } catch (error) {

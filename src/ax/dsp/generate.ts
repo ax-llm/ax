@@ -159,6 +159,20 @@ const assertNoReservedStructuredOutputFunctions = (
   }
 };
 
+/**
+ * Whether the model can call user functions natively on every step: they are
+ * sent as native declarations, not emulated in the prompt, and the caller
+ * neither forces nor disables calling.
+ */
+const userFunctionsStayCallable = (
+  functions: readonly Readonly<AxFunction>[],
+  functionCall: AxChatRequest['functionCall'] | undefined,
+  promptEmulated: boolean
+): boolean =>
+  !promptEmulated &&
+  (functionCall === undefined || functionCall === 'auto') &&
+  functions.some((fn) => !isReservedStructuredOutputFunctionName(fn.name));
+
 const selectStructuredOutputRung = (
   signature: Readonly<AxSignature>,
   features:
@@ -167,10 +181,12 @@ const selectStructuredOutputRung = (
         structuredOutputModes?: readonly AxStructuredOutputRung[];
         requiresStructuredOutput?: boolean;
         functions?: boolean;
+        responseFormatWithFunctions?: boolean;
       }>
     | undefined,
   mode: AxStructuredOutputMode,
-  providerLabel: string
+  providerLabel: string,
+  userFunctionsCallable = false
 ): AxStructuredOutputRung | undefined => {
   if (!signature.hasComplexFields() && !features?.requiresStructuredOutput)
     return undefined;
@@ -221,6 +237,17 @@ const selectStructuredOutputRung = (
     throw new Error(
       `Structured output is not verified for ${providerLabel}; add an exact modelInfo override to opt in.`
     );
+  }
+
+  // Some providers fail when a JSON response format shares the request with
+  // callable user functions (see AxAIFeatures.responseFormatWithFunctions).
+  // The output function lets the model finish with the tools still declared.
+  if (
+    userFunctionsCallable &&
+    features?.responseFormatWithFunctions === false &&
+    supportsFunctions
+  ) {
+    return 'function';
   }
 
   if (!hasAdvertisedModes && supportsNative) return 'native';
@@ -572,7 +599,12 @@ export class AxGen<IN = any, OUT extends AxGenOut = any>
       signature,
       features,
       structuredOutputMode,
-      `${ai.getName()} (${String(options?.model ?? 'default model')})`
+      `${ai.getName()} (${String(options?.model ?? 'default model')})`,
+      userFunctionsStayCallable(
+        mutableFunctions,
+        options?.functionCall ?? this.options?.functionCall,
+        signatureToolCallingManager !== undefined
+      )
     );
     const structuredOutputFunctionFallback =
       structuredOutputRung === 'function';
@@ -1940,7 +1972,12 @@ export class AxGen<IN = any, OUT extends AxGenOut = any>
       this.signature,
       features,
       structuredOutputMode,
-      `${ai.getName()} (${String(options.model ?? 'default model')})`
+      `${ai.getName()} (${String(options.model ?? 'default model')})`,
+      userFunctionsStayCallable(
+        mutableFunctions,
+        options.functionCall ?? this.options?.functionCall,
+        this.signatureToolCallingManager !== undefined
+      )
     );
     this.structuredOutputFunctionFallback =
       this.structuredOutputRung === 'function';

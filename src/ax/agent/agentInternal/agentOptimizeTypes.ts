@@ -1,4 +1,4 @@
-import type { AxAIService } from '../../ai/types.js';
+import type { AxAIService, AxAIServiceOptions } from '../../ai/types.js';
 import type {
   AxGEPABootstrapOptions,
   AxMetricFn,
@@ -131,6 +131,12 @@ export type AxAgentOptimizeOptions<
   /** Optional separate judge model. Defaults to the agent's `judgeAI`, then `teacherAI`, then the student model. */
   judgeAI?: Readonly<AxAIService>;
   teacherAI?: Readonly<AxAIService>;
+  /**
+   * AI service options for GEPA's teacher calls, which use `teacherAI` or,
+   * without it, the judge model. Set `useExpensiveModel: 'yes'` for a teacher
+   * marked `isExpensive`.
+   */
+  teacherOptions?: AxAIServiceOptions;
   judgeOptions?: AxAgentJudgeOptions;
   /** Optional optimization scope. Defaults to `'actor'`. */
   target?: AxAgentOptimizeTarget;
@@ -181,6 +187,12 @@ export type AxAgentOptimizeResult<OUT extends AxGenOut = AxGenOut> =
 export type AxAgentPlaybookOptions = {
   studentAI?: Readonly<AxAIService>;
   teacherAI?: Readonly<AxAIService>;
+  /**
+   * AI service options for the playbook's reflection and curation calls,
+   * which use `teacherAI`, then the agent's `judgeAI`, then the student
+   * model. Set `useExpensiveModel: 'yes'` for a teacher marked `isExpensive`.
+   */
+  teacherOptions?: AxAIServiceOptions;
   /** Which agent stage to evolve a playbook for. Defaults to `'actor'`. */
   target?: 'actor' | 'responder';
   /** Render the evolving playbook into the live stage. Defaults to `true`. */

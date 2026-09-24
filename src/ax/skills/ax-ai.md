@@ -792,10 +792,12 @@ const bedrock = new AxAIBedrock({
 
 The native client uses Bedrock `Converse` and `ConverseStream`. Claude models
 advertise native functions, streaming, image/document input, prompt-cache
-breakpoints, and their verified thinking modes. Structured-output and service-
-tier support remain model-specific; query `bedrock.getFeatures(model)` instead
-of assuming every Bedrock model has the same capabilities. The AWS SDK remains
-a dependency of `@ax-llm/ax-ai-aws-bedrock` only and is not pulled into
+breakpoints, and their verified thinking modes. GPT-6 Sol, Luna, and Astra
+(`AxAIBedrockModel.Gpt6Sol`, `Gpt6Luna`, `Gpt6Astra`) advertise native
+functions, streaming, image input, and reasoning effort. Structured-output and
+service-tier support remain model-specific; query `bedrock.getFeatures(model)`
+instead of assuming every Bedrock model has the same capabilities. The AWS SDK
+remains a dependency of `@ax-llm/ax-ai-aws-bedrock` only and is not pulled into
 `@ax-llm/ax`.
 
 Use `contextCache.ttlSeconds` for a 5-minute or supported 1-hour cache point,
@@ -818,8 +820,12 @@ const response = await bedrock.chat(
 );
 ```
 
-On the native Bedrock client, Claude Sonnet 5 always uses adaptive thinking
-and rejects `thinkingTokenBudget: 'none'`; Claude Opus 5 permits disabling it.
+On the native Bedrock client, Claude Sonnet 5 and Opus 5.5 always use adaptive
+thinking and reject `thinkingTokenBudget: 'none'`; Claude Opus 5 permits
+disabling it. On GPT-6, `thinkingTokenBudget` sets the reasoning effort
+(`minimal` → `low`, `highest` → `max`, `none` turns reasoning off), except
+that Astra rejects `'none'` before sending. GPT-6 requests omit `temperature`
+and `topP`, which these models do not accept.
 
 ## Vercel AI SDK Integration
 
