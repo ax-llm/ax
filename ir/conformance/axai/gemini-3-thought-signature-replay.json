@@ -1,0 +1,207 @@
+{
+  "expected_output": {
+    "model_usage": null,
+    "results": [
+      {
+        "content": "ok",
+        "finish_reason": "stop",
+        "function_calls": [],
+        "index": 0
+      }
+    ]
+  },
+  "expected_transport_request": {
+    "json": {
+      "contents": [
+        {
+          "parts": [
+            {
+              "text": "Weather in Paris, then Rome and a jacket?"
+            }
+          ],
+          "role": "user"
+        },
+        {
+          "parts": [
+            {
+              "functionCall": {
+                "args": {
+                  "city": "Paris"
+                },
+                "id": "weather-paris",
+                "name": "getWeather"
+              },
+              "thought_signature": "sig-weather-step-1"
+            }
+          ],
+          "role": "model"
+        },
+        {
+          "parts": [
+            {
+              "functionResponse": {
+                "id": "weather-paris",
+                "name": "getWeather",
+                "response": {
+                  "result": "{\"forecast\":\"sunny\"}"
+                }
+              }
+            }
+          ],
+          "role": "user"
+        },
+        {
+          "parts": [
+            {
+              "text": "Rome next, then a jacket."
+            },
+            {
+              "functionCall": {
+                "args": {
+                  "city": "Rome"
+                },
+                "id": "weather-rome",
+                "name": "getWeather"
+              },
+              "thought_signature": "sig-weather-step-2"
+            },
+            {
+              "functionCall": {
+                "args": {
+                  "city": "Rome"
+                },
+                "id": "jacket-rome",
+                "name": "pickJacket"
+              }
+            }
+          ],
+          "role": "model"
+        }
+      ]
+    },
+    "url": "https://generativelanguage.googleapis.com/v1beta/models/gemini-3.6-flash:generateContent"
+  },
+  "kind": "ai_chat",
+  "model": "gemini-3.6-flash",
+  "name": "gemini-3-thought-signature-replay",
+  "provider": "google-gemini",
+  "request": {
+    "chat_prompt": [
+      {
+        "content": "Weather in Paris, then Rome and a jacket?",
+        "role": "user"
+      },
+      {
+        "function_calls": [
+          {
+            "function": {
+              "name": "getWeather",
+              "params": {
+                "city": "Paris"
+              }
+            },
+            "id": "weather-paris",
+            "type": "function"
+          }
+        ],
+        "role": "assistant",
+        "thought_blocks": [
+          {
+            "data": "",
+            "encrypted": false,
+            "signature": "sig-weather-step-1"
+          }
+        ]
+      },
+      {
+        "function_id": "weather-paris",
+        "result": "{\"forecast\":\"sunny\"}",
+        "role": "function"
+      },
+      {
+        "functionCalls": [
+          {
+            "function": {
+              "name": "getWeather",
+              "params": "{\"city\":\"Rome\"}"
+            },
+            "id": "weather-rome",
+            "type": "function"
+          },
+          {
+            "function": {
+              "name": "pickJacket",
+              "params": {
+                "city": "Rome"
+              }
+            },
+            "id": "jacket-rome",
+            "type": "function"
+          }
+        ],
+        "role": "assistant",
+        "thoughtBlocks": [
+          {
+            "data": "Rome next, ",
+            "encrypted": false,
+            "signature": "sig-weather-step-2"
+          },
+          {
+            "data": "then a jacket.",
+            "encrypted": false
+          }
+        ]
+      }
+    ],
+    "functions": [
+      {
+        "description": "Get the current weather for a city",
+        "name": "getWeather",
+        "parameters": {
+          "properties": {
+            "city": {
+              "type": "string"
+            }
+          },
+          "required": ["city"],
+          "type": "object"
+        }
+      },
+      {
+        "description": "Pick a jacket for a city",
+        "name": "pickJacket",
+        "parameters": {
+          "properties": {
+            "city": {
+              "type": "string"
+            }
+          },
+          "required": ["city"],
+          "type": "object"
+        }
+      }
+    ],
+    "model_config": {
+      "stream": false
+    }
+  },
+  "transport_responses": [
+    {
+      "json": {
+        "candidates": [
+          {
+            "content": {
+              "parts": [
+                {
+                  "text": "ok"
+                }
+              ]
+            },
+            "finishReason": "STOP"
+          }
+        ]
+      },
+      "status": 200
+    }
+  ]
+}

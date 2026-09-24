@@ -155,6 +155,27 @@ describe('AxAIBedrock Converse capabilities', () => {
     });
   });
 
+  it('advertises GPT-6 Sol, Luna, and Astra tools, images, and reasoning', () => {
+    for (const model of [
+      AxAIBedrockModel.Gpt6Sol,
+      AxAIBedrockModel.Gpt6Luna,
+      AxAIBedrockModel.Gpt6Astra,
+    ]) {
+      expect(createAI(model).getFeatures(model)).toMatchObject({
+        functions: true,
+        structuredOutputs: true,
+        structuredOutputModes: ['native', 'function'],
+        thinking: true,
+        serviceTiers: ['standard'],
+        media: {
+          images: { supported: true },
+          files: { supported: false },
+        },
+        caching: { supported: false },
+      });
+    }
+  });
+
   it('advertises Haiku 4.5 native structured output support', () => {
     const features = createAI(AxAIBedrockModel.ClaudeHaiku45).getFeatures(
       AxAIBedrockModel.ClaudeHaiku45
@@ -321,6 +342,81 @@ describe('AxAIBedrock Converse request mapping', () => {
         },
       },
     });
+  });
+
+  it('omits GPT-6 temperature/topP and maps thinking to reasoning effort', async () => {
+    const sent: ConverseRequest[] = [];
+    const chatWith = async (
+      model: AxAIBedrockModel,
+      options: Readonly<AxAIServiceOptions> = {},
+      modelConfig?: { temperature?: number; topP?: number }
+    ) => {
+      const ai = createAI(model);
+      // Capture the Converse request instead of calling AWS.
+      (getImpl(ai) as unknown as { getClient: () => unknown }).getClient =
+        () => ({
+          send: async (command: { input: ConverseRequest }) => {
+            sent.push(command.input);
+            return {
+              $metadata: {},
+              output: { message: { role: 'assistant', content: [] } },
+              stopReason: 'end_turn',
+            };
+          },
+        });
+      await ai.chat(
+        { chatPrompt: [{ role: 'user', content: 'ping' }], modelConfig },
+        { ...options, stream: false }
+      );
+    };
+
+    await chatWith(
+      AxAIBedrockModel.Gpt6Sol,
+      {},
+      { temperature: 0.3, topP: 0.9 }
+    );
+    await chatWith(AxAIBedrockModel.Gpt6Luna, { thinkingTokenBudget: 'none' });
+    await chatWith(AxAIBedrockModel.Gpt6Sol, {
+      thinkingTokenBudget: 'minimal',
+    });
+    await chatWith(AxAIBedrockModel.Gpt6Luna, {
+      thinkingTokenBudget: 'highest',
+    });
+    await chatWith(
+      AxAIBedrockModel.Gpt6Astra,
+      { thinkingTokenBudget: 'minimal' },
+      { temperature: 0.3 }
+    );
+    await chatWith(AxAIBedrockModel.GptOss120B);
+
+    expect(sent.map((r) => r.inferenceConfig)).toEqual([
+      { maxTokens: 4096 },
+      { maxTokens: 4096 },
+      { maxTokens: 4096 },
+      { maxTokens: 4096 },
+      { maxTokens: 4096 },
+      { maxTokens: 4096, temperature: 0 },
+    ]);
+    expect(sent.map((r) => r.additionalModelRequestFields)).toEqual([
+      undefined,
+      { reasoning: { effort: 'none' } },
+      { reasoning: { effort: 'low' } },
+      { reasoning: { effort: 'max' } },
+      { reasoning: { effort: 'low' } },
+      undefined,
+    ]);
+  });
+
+  it('rejects disabling GPT-6 Astra reasoning', async () => {
+    await expect(
+      getImpl(createAI(AxAIBedrockModel.Gpt6Astra)).createChatReq(
+        {
+          model: AxAIBedrockModel.Gpt6Astra,
+          chatPrompt: [{ role: 'user', content: 'Answer briefly.' }],
+        },
+        { thinkingTokenBudget: 'none' }
+      )
+    ).rejects.toThrow('Reasoning cannot be disabled');
   });
 
   it('rejects disabling Sonnet 5 adaptive thinking', async () => {
