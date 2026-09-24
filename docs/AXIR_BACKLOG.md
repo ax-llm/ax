@@ -18,6 +18,12 @@ This ledger tracks portable TypeScript behavior that should be migrated into AxI
 
 ## Open
 
+- `axir-2026-09-23-port-first-step-only-forced-function-calls-to-axgen` [axgen] Port first-step-only forced function calls to AxGen
+  - Status: open
+  - Source commit: `bb6ff7fd6b7d4a55d75d04ae9792122f6c537cff`
+  - TS paths: `src/ax/dsp/functions.ts`, `src/ax/dsp/generate.ts`, `src/ax/dsp/generate.forcedFunctionCall.test.ts`
+  - Impact: TypeScript AxGen now applies a caller-forced function call (functionCall: 'required' or { type: 'function', function: { name } }, set per forward call or on the generator) to the first step only. Later steps drop the forcing together with the caller tools so the model can produce the final answer, and the structured-output function fallback keeps __axOutput declared and forced on those steps. Before the fix the named form stayed forced on every step (createFunctionConfig tested typeof functionCall === 'function' instead of 'object') until 'Max steps reached', and 'required' combined with structuredOutputMode 'function' forced an undeclared __axOutput on step 2. AxIR AxGen has no caller functionCall option: generated ports ignore functionCall/function_call, while @function_call_mode_impl passes any non-mode functionCallMode value ('required' or a named object) straight through as request.function_call on every request. With the maxSteps cap from #684 such a call now fails the way TypeScript did before this fix (verified in the Python port: 25 forced requests, then 'Generate failed: Max steps reached: 25').
+  - Suggested AxIR work: Add a functionCall (function_call) option to AxGen forward and constructor options and send it as request.function_call on the first request only; After the first tool round drop the forcing and the caller tools but keep __axOutput declared so the no-user-functions rule forces it; Route or reject the non-mode functionCallMode passthrough in @function_call_mode_impl so it cannot force every step; Add conformance fixtures that assert function_call per request (runners compare expected_request only with requests[0] and expected_request_not_contains spans all requests so add a per-request list check); Run npm run axir:conformance:check and npm run test:axir
 - `axir-2026-09-23-port-speak-samplerate-channels-parsed-from-raw-pcm-mime-types` [axai] Port speak() sampleRate/channels parsed from raw-PCM mime types
   - Status: open
   - Source commit: `e690b4823b8309e258594064abe941d4cff6ef89`
