@@ -42,8 +42,9 @@ export function getModelInfo<
 
   // Handle normalization if no exact match
   const normalizedName = mappedModel
-    // Remove vendor prefixes
-    .replace(/^(anthropic\.|openai\.)/, '')
+    // Remove vendor prefixes, including the geography of an Amazon Bedrock
+    // cross-Region inference profile (`us.anthropic.`, `global.openai.`)
+    .replace(/^(?:[a-z]+(?:-[a-z]+)*\.)?(?:anthropic|openai)\./, '')
     // Remove various postfixes one by one, stopping after first match
     .replace(/-latest$/, '')
     .replace(/-\d{8}$/, '') // YYYYMMDD

@@ -77,11 +77,8 @@ module @ax.provider version "0.1" {
         %has_cache_flag = core.call intrinsic.or(%has_cache_flag, %fn_cache)
       }
       %cache_requested = core.call intrinsic.or(%has_context_cache, %has_cache_flag)
-      %is_gpt_56_base = core.call intrinsic.eq(%model, "gpt-5.6")
-      %is_gpt_56_tier = core.call intrinsic.string.starts_with(%model, "gpt-5.6-")
-      %is_gpt_56 = core.call intrinsic.or(%is_gpt_56_base, %is_gpt_56_tier)
       %is_gpt6 = core.call @openai_is_gpt6_family_impl(%model)
-      %cache_model = core.call intrinsic.or(%is_gpt_56, %is_gpt6)
+      %cache_model = core.call @openai_supports_breakpoint_caching_impl(%model)
       %cache_provider_and_model = core.call intrinsic.and(%prompt_caching, %cache_model)
       %cache_enabled = core.call intrinsic.and(%cache_provider_and_model, %cache_requested)
       %message_index = core.const 0
@@ -285,7 +282,7 @@ module @ax.provider version "0.1" {
         core.call intrinsic.map.delete(%payload, "temperature")
         core.call intrinsic.map.delete(%payload, "top_p")
       }
-      %astra = core.call intrinsic.string.starts_with(%configured_model, "gpt-6-astra")
+      %astra = core.call @openai_is_gpt6_astra_impl(%configured_model)
       core.if %astra {
         core.call intrinsic.map.delete(%payload, "presence_penalty")
         core.call intrinsic.map.delete(%payload, "frequency_penalty")
@@ -297,6 +294,22 @@ module @ax.provider version "0.1" {
     }
   }
 
+  // Amazon Bedrock names OpenAI models `openai.<model>` and its cross-Region
+  // inference profiles `<geography>.openai.<model>` (`us.`, `global.`,
+  // `us-gov.`). A model keeps its contracts on any host, so every family
+  // pattern accepts that prefix; the geography is matched by shape.
+  op ax.provider.semantic @openai_is_gpt56_family_impl {
+    attr core_kind = "func"
+    attr emit_module = "ai"
+    attr private = true
+    tag "openai-gpt56-family-core-helper"
+    type signature = "(string) -> bool"
+    body @entry(%model: string) {
+      %is_gpt56 = core.regex_match %model pattern "^(?:(?:[a-z]+(?:-[a-z]+)*\\.)?openai\\.)?gpt-5\\.6($|-)"
+      core.return %is_gpt56
+    }
+  }
+
   op ax.provider.semantic @openai_is_gpt6_family_impl {
     attr core_kind = "func"
     attr emit_module = "ai"
@@ -304,8 +317,67 @@ module @ax.provider version "0.1" {
     tag "openai-gpt6-family-core-helper"
     type signature = "(string) -> bool"
     body @entry(%model: string) {
-      %is_gpt6 = core.regex_match %model pattern "^gpt-6-(astra|sol|luna)($|-)"
+      %is_gpt6 = core.regex_match %model pattern "^(?:(?:[a-z]+(?:-[a-z]+)*\\.)?openai\\.)?gpt-6-(astra|sol|luna)($|-)"
       core.return %is_gpt6
+    }
+  }
+
+  op ax.provider.semantic @openai_is_gpt6_astra_impl {
+    attr core_kind = "func"
+    attr emit_module = "ai"
+    attr private = true
+    tag "openai-gpt6-astra-core-helper"
+    type signature = "(string) -> bool"
+    body @entry(%model: string) {
+      %is_astra = core.regex_match %model pattern "^(?:(?:[a-z]+(?:-[a-z]+)*\\.)?openai\\.)?gpt-6-astra($|-)"
+      core.return %is_astra
+    }
+  }
+
+  op ax.provider.semantic @openai_is_bedrock_model_impl {
+    attr core_kind = "func"
+    attr emit_module = "ai"
+    attr private = true
+    tag "openai-bedrock-model-core-helper"
+    type signature = "(string) -> bool"
+    body @entry(%model: string) {
+      %is_bedrock = core.regex_match %model pattern "^(?:[a-z]+(?:-[a-z]+)*\\.)?openai\\."
+      core.return %is_bedrock
+    }
+  }
+
+  // Bedrock caches these models' prompts on the Responses API only.
+  op ax.provider.semantic @openai_supports_breakpoint_caching_impl {
+    attr core_kind = "func"
+    attr emit_module = "ai"
+    attr private = true
+    tag "openai-breakpoint-caching-core-helper"
+    type signature = "(string) -> bool"
+    body @entry(%model: string) {
+      %is_gpt56 = core.call @openai_is_gpt56_family_impl(%model)
+      %is_gpt6 = core.call @openai_is_gpt6_family_impl(%model)
+      %family = core.call intrinsic.or(%is_gpt56, %is_gpt6)
+      %is_bedrock = core.call @openai_is_bedrock_model_impl(%model)
+      %on_openai = core.call intrinsic.not(%is_bedrock)
+      %supported = core.call intrinsic.and(%family, %on_openai)
+      core.return %supported
+    }
+  }
+
+  // Async tools, mid-turn steering and reasoning updates are Astra features of
+  // OpenAI's own API; OpenAI's Bedrock guide lists all three as not available.
+  op ax.provider.semantic @openai_supports_chat_sessions_impl {
+    attr core_kind = "func"
+    attr emit_module = "ai"
+    attr private = true
+    tag "openai-chat-sessions-core-helper"
+    type signature = "(string) -> bool"
+    body @entry(%model: string) {
+      %is_astra = core.call @openai_is_gpt6_astra_impl(%model)
+      %is_bedrock = core.call @openai_is_bedrock_model_impl(%model)
+      %on_openai = core.call intrinsic.not(%is_bedrock)
+      %supported = core.call intrinsic.and(%is_astra, %on_openai)
+      core.return %supported
     }
   }
 
@@ -316,10 +388,8 @@ module @ax.provider version "0.1" {
     tag "openai-reasoning-effort"
     type signature = "(model:string, budget:json) -> json throws"
     body @entry(%model: string, %budget: json) {
-      %is_gpt56_alias = core.call intrinsic.eq(%model, "gpt-5.6")
-      %is_gpt56_suffix = core.call intrinsic.string.starts_with(%model, "gpt-5.6-")
-      %is_gpt56 = core.call intrinsic.or(%is_gpt56_alias, %is_gpt56_suffix)
-      %is_astra = core.call intrinsic.string.starts_with(%model, "gpt-6-astra")
+      %is_gpt56 = core.call @openai_is_gpt56_family_impl(%model)
+      %is_astra = core.call @openai_is_gpt6_astra_impl(%model)
       %is_gpt6 = core.call @openai_is_gpt6_family_impl(%model)
       %modern = core.call intrinsic.or(%is_gpt56, %is_gpt6)
       %is_none = core.call intrinsic.eq(%budget, "none")
@@ -3929,8 +3999,8 @@ module @ax.provider version "0.1" {
       }
       %session_profile = core.call @provider_chat_profile(%profile, %model)
       %responses = core.call intrinsic.eq(%session_profile, "openai-responses")
-      %astra_model = core.call intrinsic.string.starts_with(%model, "gpt-6-astra")
-      %astra_session = core.call intrinsic.and(%responses, %astra_model)
+      %session_model = core.call @openai_supports_chat_sessions_impl(%model)
+      %astra_session = core.call intrinsic.and(%responses, %session_model)
       core.if %astra_session {
         core.set %features["asyncTools"] = true
         core.set %features["reasoningUpdates"] = true
@@ -4972,8 +5042,8 @@ module @ax.provider version "0.1" {
           }
         }
       }
-      %astra = core.call intrinsic.string.starts_with(%model, "gpt-6-astra")
-      %session_capable = core.call intrinsic.and(%is_responses, %astra)
+      %session_model = core.call @openai_supports_chat_sessions_impl(%model)
+      %session_capable = core.call intrinsic.and(%is_responses, %session_model)
       core.if %session_capable {
         %empty_session_state = core.map
         %session_state = core.get %state["session_wire"] default %empty_session_state
@@ -5672,7 +5742,7 @@ module @ax.provider version "0.1" {
                 core.set %summary_part["text"] = %summary_text
                 %summary = core.list
                 %has_summary_text = core.call intrinsic.truthy(%summary_text)
-                %astra_summary = core.call intrinsic.string.starts_with(%model, "gpt-6-astra")
+                %astra_summary = core.call @openai_is_gpt6_astra_impl(%model)
                 %retain_empty_summary = core.call intrinsic.not(%astra_summary)
                 %include_summary = core.call intrinsic.or(%has_summary_text, %retain_empty_summary)
                 core.if %include_summary {
@@ -5877,7 +5947,7 @@ module @ax.provider version "0.1" {
         core.call intrinsic.map.delete(%payload, "temperature")
         core.call intrinsic.map.delete(%payload, "top_p")
       }
-      %astra = core.call intrinsic.string.starts_with(%configured_model, "gpt-6-astra")
+      %astra = core.call @openai_is_gpt6_astra_impl(%configured_model)
       core.if %astra {
         core.call intrinsic.map.delete(%payload, "presence_penalty")
         core.call intrinsic.map.delete(%payload, "frequency_penalty")
@@ -9934,7 +10004,7 @@ module @ax.provider version "0.1" {
     type signature = "(request:json) -> json throws"
     body @entry(%request: json) {
       %model = core.get %request["model"] default ""
-      %astra = core.call intrinsic.string.starts_with(%model, "gpt-6-astra")
+      %astra = core.call @openai_is_gpt6_astra_impl(%model)
       %empty = core.map
       %reasoning = core.get %request["reasoning"] default %empty
       %effort = core.get %reasoning["effort"]

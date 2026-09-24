@@ -94,6 +94,7 @@ const internalExportNames = new Set([
   'axIsGPT6Astra',
   'axIsGPT6Family',
   'axSupportsOpenAIBreakpointCaching',
+  'axSupportsOpenAIChatSessions',
   'axValidateOpenAIResponseRequest',
 ]);
 

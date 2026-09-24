@@ -1,5 +1,8 @@
 import { AxOpenAIChatSession } from './openai/chat_session.js';
-import { axIsGPT6Astra, axIsGPT6Family } from './openai/model_family.js';
+import {
+  axIsGPT6Family,
+  axSupportsOpenAIChatSessions,
+} from './openai/model_family.js';
 import { axAIOpenAIResponsesDefaultConfig } from './openai/responses_api_base.js';
 import { AxAIOpenAIResponsesClient } from './openai/responses_client.js';
 import type { AxChatSession } from './session.js';
@@ -318,7 +321,7 @@ export class AxAI<TModelKey = string>
       (axIsGPT6Family(resolved) ? this.responsesAI : undefined)?.getFeatures(
         resolved
       ) ?? this.ai.getFeatures(resolved);
-    return this.responsesClient && axIsGPT6Astra(resolved)
+    return this.responsesClient && axSupportsOpenAIChatSessions(resolved)
       ? {
           ...features,
           functions: true,
@@ -398,7 +401,7 @@ export class AxAI<TModelKey = string>
     options: Readonly<AxAIServiceOptions> = {}
   ): Promise<AxChatSession> {
     const model = this.resolveModel(req.model);
-    if (!this.responsesClient || !axIsGPT6Astra(model))
+    if (!this.responsesClient || !axSupportsOpenAIChatSessions(model))
       throw new Error(
         'The selected provider/model does not support chat sessions'
       );

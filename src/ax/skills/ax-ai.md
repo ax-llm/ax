@@ -685,7 +685,7 @@ Provider behavior:
   also gets `ttl: '30m'` in `prompt_cache_options`. Earlier families cache
   automatically and predate the parameters, so nothing is sent to them. Only the `openai` provider opts in — Azure OpenAI shares the request
   builder and the same model enum, so a `gpt-5.6-*` deployment sends nothing,
-  and `openai-responses` does not send breakpoints either (it does report
+  and `openai-responses` sends breakpoints for GPT-6 only (it does report
   `cacheCreationTokens`, which is provider-wide)
 
 ### OpenAI prompt cache keys
@@ -753,6 +753,27 @@ const bedrock = ai({
   apiURL: process.env.BEDROCK_OPENAI_BASE_URL!,
   apiKey: process.env.BEDROCK_API_KEY!,
   config: { model: process.env.BEDROCK_MODEL_ID! },
+});
+```
+
+To reach OpenAI's GPT models on those endpoints through the `openai` or
+`openai-responses` provider, name them with Bedrock's IDs: `openai.gpt-6-sol`
+on bedrock-mantle, or a cross-Region inference profile such as
+`us.openai.gpt-6-sol` or `global.openai.gpt-6-astra` on bedrock-runtime. Ax
+applies the named model's contracts: its built-in model info (so `temperature`
+and `top_p` are not sent), the GPT-5.6 and GPT-6 effort ladders, Astra's rules,
+and, on `openai`, routing the GPT-6 family to `<apiURL>/responses`. It leaves
+off what Bedrock does not serve: prompt-cache breakpoints on Chat Completions
+(Bedrock caches these models on the Responses API only) and Astra chat
+sessions, since async tools, steering, and reasoning updates are not available
+there.
+
+```typescript
+const gpt = ai({
+  name: 'openai',
+  apiURL: 'https://bedrock-runtime.us-east-1.amazonaws.com/openai/v1',
+  apiKey: process.env.BEDROCK_API_KEY!,
+  config: { model: 'us.openai.gpt-6-astra' as AxAIOpenAIModel },
 });
 ```
 

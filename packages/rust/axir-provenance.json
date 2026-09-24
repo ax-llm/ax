@@ -1,11 +1,11 @@
 {
   "target": "rust",
   "enforced": true,
-  "emitted_functions": 731,
+  "emitted_functions": 736,
   "files": {
     "src/lib.rs": {
-      "emitted_lines": 73472,
-      "total_lines": 102128
+      "emitted_lines": 73560,
+      "total_lines": 102216
     }
   }
 }
