@@ -2465,9 +2465,10 @@ export class AxAIGoogleGemini<TModelKey = string> extends AxBaseAI<
         structuredOutputs: structuredOutputModes.includes('native'),
         structuredOutputModes,
         // Gemini 2.x rejects responseMimeType application/json beside function
-        // declarations (HTTP 400), and gemini-3.8-flash and 3.1-flash-lite keep
-        // re-calling tools once function results are in a JSON-mode
-        // conversation. Answering through __axOutput avoids both.
+        // declarations (HTTP 400), every Gemini model rejects it with forced
+        // (ANY mode) function calling, and gemini-3.8-flash and 3.1-flash-lite
+        // keep re-calling tools once function results are in a JSON-mode
+        // conversation. Answering through __axOutput avoids all three.
         responseFormatWithFunctions: false,
         media: {
           images: {

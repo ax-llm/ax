@@ -787,18 +787,10 @@ describe('Structured output beside user functions (responseFormatWithFunctions)'
     expect(capturedReq?.functions ?? []).toHaveLength(0);
   });
 
+  // A forced call also takes the function rung: see
+  // generate.forcedFunctionCall.test.ts.
   it.each([
-    ['required', { functionCall: 'required' as const }],
     ['none', { functionCall: 'none' as const }],
-    [
-      'a named call',
-      {
-        functionCall: {
-          type: 'function' as const,
-          function: { name: 'lookupUser' },
-        },
-      },
-    ],
     ['an explicit native mode', { structuredOutputMode: 'native' as const }],
     ['prompt-emulated functions', { functionCallMode: 'prompt' as const }],
   ])(
