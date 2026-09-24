@@ -1408,12 +1408,13 @@ export class AxGen<IN = any, OUT extends AxGenOut = any>
       ai.getOptions().tracer ??
       axGlobals.tracer;
 
-    // Pass the function call mode directly to createFunctionConfig
+    // A forced call applies to the first step only. The structured-output
+    // functions stay declared after it, since the model answers through them.
     let { functions, functionCall } = createFunctionConfig(
       functionList,
       definedFunctionCall,
       firstStep,
-      options
+      (fn) => isReservedStructuredOutputFunctionName(fn.name)
     );
 
     // When using function-call fallback for structured output,

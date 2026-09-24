@@ -255,7 +255,9 @@ const result = await gen.forward(llm, { question: '...' }, {
 
 Rules:
 
-- `functionCallMode` can be `'auto'`, `'none'`, or a specific function name to force.
+- `functionCallMode` selects how tools reach the model: `'auto'` (default), `'native'`, or `'prompt'` (prompt-based emulation).
+- `functionCall` sets the tool choice: `'auto'`, `'none'`, `'required'`, or `{ type: 'function', function: { name: 'search' } }` to force one function.
+- A forced call (`'required'` or a named function) applies to the first step only. Later steps drop it together with the tools so the model can answer.
 - `stopFunction` accepts a string or string[] to halt multi-step on specific function calls.
 - Multi-step continues until all outputs filled, stop function called, or `maxSteps` reached.
 

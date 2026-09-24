@@ -715,29 +715,22 @@ export function parseFunctionCalls(
 type FunctionCall = AxChatRequest['functionCall'] | undefined;
 
 /**
- * Utility function to parse a list of functions into AxFunction array
+ * Resolves the functions and the function call for one AxGen step.
+ *
+ * A forced call ('required' or a named function) applies to the first step
+ * only. Later steps drop it together with the tools, except those matching
+ * `keepAfterFirstStep`, so the model can produce the final answer.
  */
 export function createFunctionConfig(
   functionList?: AxInputFunctionType,
   definedFunctionCall?: FunctionCall,
   firstStep?: boolean,
-  _options?: Readonly<AxProgramForwardOptions<any>>
+  keepAfterFirstStep?: (fn: Readonly<AxFunction>) => boolean
 ): { functions: AxFunction[]; functionCall: FunctionCall } {
   const functionCall = definedFunctionCall;
 
-  if (
-    !firstStep &&
-    (functionCall === 'required' || typeof functionCall === 'function')
-  ) {
-    return { functions: [], functionCall: undefined };
-  }
-
-  if (!functionList) {
-    return { functions: [], functionCall: functionCall };
-  }
-
   // biome-ignore lint/complexity/useFlatMap: you cannot use flatMap here
-  const functions = functionList
+  const functions = (functionList ?? [])
     .map((f) => {
       if ('toFunction' in f) {
         return f.toFunction();
@@ -745,6 +738,16 @@ export function createFunctionConfig(
       return f;
     })
     .flat();
+
+  if (
+    !firstStep &&
+    (functionCall === 'required' || typeof functionCall === 'object')
+  ) {
+    return {
+      functions: keepAfterFirstStep ? functions.filter(keepAfterFirstStep) : [],
+      functionCall: undefined,
+    };
+  }
 
   return { functions, functionCall };
 }
