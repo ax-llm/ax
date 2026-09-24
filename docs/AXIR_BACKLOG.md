@@ -30,6 +30,12 @@ This ledger tracks portable TypeScript behavior that should be migrated into AxI
   - TS paths: `src/ax/dsp/generate.ts`, `src/ax/dsp/generate.useExpensiveModel.test.ts`, `src/ax/ai/types.ts`
   - Impact: TypeScript AxGen now forwards useExpensiveModel to ai.chat (the per-call forward option first, then the ax()/AxGen constructor option), so models whose model info sets isExpensive (OpenAI gpt-5.5-pro/o1-pro/o3-pro, WebLLM Llama-3.1-70B, Bedrock Claude Opus 5/4.8) are callable from ax()/AxGen/flows/agents after an explicit opt-in and are still rejected before any request without it. Generated ports already merge gen constructor options with call options and pass the map through to chat, so they have no forwarding gap, but none implements the gate: AxIR declares useExpensiveModel only as an AxAIServiceOptions field and never reads the catalog isExpensive flag, so Python/Java/C++/Go/Rust call expensive models without confirmation and ignore the opt-in.
   - Suggested AxIR work: Gate the AxIR chat path on the resolved model's catalog isExpensive flag and reject unless options.useExpensiveModel is 'yes' (model-key entry defaults included).; Add a conformance fixture covering rejection without the opt-in and success via gen forward options and via gen constructor options.; Run npm run axir:conformance:check and npm run test:axir.
+- `axir-2026-09-24-port-the-text-output-contract-for-simple-axgen-signatures-withou` [axgen] Port the text output contract for simple AxGen signatures without tools
+  - Status: open
+  - Source commit: `73f1160df`
+  - TS paths: `src/ax/dsp/generate.ts`, `src/ax/dsp/sig.ts`, `src/ax/agent/agentInternal/signatureBuilders.ts`
+  - Impact: TypeScript selectStructuredOutputRung returns no rung when a signature has no object or object-array output (unless the provider requires structured output), so simple signatures use the field: value text contract with no response schema. Generated ports match this only when native tools are present. Tool-less simple signatures (responder, llmQuery, ACE, flow nodes, and user programs) still send a JSON response schema plus a JSON instruction turn under a text-mode system prompt.
+  - Suggested AxIR work: Drop the native-tools condition in @select_structured_output_rung so every simple signature selects no rung; Keep force_structured on Agent actor stages and live-verify responder and llmQuery stages in text mode; Update simple-forward and the other fixtures that pin response_format for simple signatures
 
 ## Done
 

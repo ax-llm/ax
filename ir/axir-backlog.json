@@ -1575,6 +1575,29 @@
       "completedAt": "2026-09-24",
       "completedByCommit": "ab5f72075aca7079259771c2e1d404d2d81438d5",
       "verification": "No port change was needed. The generated ports already apply apiURL, baseUrl and base_url to every provider in provider_resolve_descriptor, and already send GPT-6 on the openai provider through Responses; only TypeScript dropped apiURL, which #678 fixed. New ai_chat fixtures openai-responses-chat-uses-api-url and gpt-6-sol-openai-api-url-uses-responses pass in Python, Java, C++, Go, and Rust, and copies expecting api.openai.com fail in the Python, Go, and Java runners. TypeScript provider_profiles.test.ts covers both paths and fails with the fix reverted."
+    },
+    {
+      "id": "axir-2026-09-24-port-the-text-output-contract-for-simple-axgen-signatures-withou",
+      "status": "open",
+      "title": "Port the text output contract for simple AxGen signatures without tools",
+      "createdAt": "2026-09-24",
+      "sourcePR": null,
+      "sourceCommit": "73f1160df",
+      "tsPaths": [
+        "src/ax/dsp/generate.ts",
+        "src/ax/dsp/sig.ts",
+        "src/ax/agent/agentInternal/signatureBuilders.ts"
+      ],
+      "portableSurface": "axgen",
+      "impact": "TypeScript selectStructuredOutputRung returns no rung when a signature has no object or object-array output (unless the provider requires structured output), so simple signatures use the field: value text contract with no response schema. Generated ports match this only when native tools are present. Tool-less simple signatures (responder, llmQuery, ACE, flow nodes, and user programs) still send a JSON response schema plus a JSON instruction turn under a text-mode system prompt.",
+      "suggestedAxirWork": [
+        "Drop the native-tools condition in @select_structured_output_rung so every simple signature selects no rung",
+        "Keep force_structured on Agent actor stages and live-verify responder and llmQuery stages in text mode",
+        "Update simple-forward and the other fixtures that pin response_format for simple signatures"
+      ],
+      "completedAt": null,
+      "completedByCommit": null,
+      "verification": null
     }
   ],
   "nonPortableExemptions": [

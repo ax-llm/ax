@@ -10070,6 +10070,11 @@ def _agent_stage_options(state: Any, stage: str, forward_options: Any) -> Any:
         else:
             value = _core_get(merged, key, None)
             out[key] = value
+    actor_stage = _core_or(is_distiller, is_executor)
+    if actor_stage:
+        out["force_structured"] = True
+    else:
+        pass
     base_control = _core_get(base_options, "control", None)
     controller = _core_get(forward_options, "control", base_control)
     controlled = _core_is_not_none(controller)

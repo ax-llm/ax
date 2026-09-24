@@ -10747,6 +10747,14 @@ func runConformanceForward(fixture map[string]Value) {
 		if expected := coreGet(fixture, "expected_chat_options_subset", nil); expected != nil && len(client.ChatOptions) > 0 {
 			assertSubset(client.ChatOptions[0], expected, "chat options")
 		}
+		if expected := coreGet(fixture, "expected_request_not_contains", nil); expected != nil {
+			text := stableStringify(client.Requests)
+			for _, item := range asSlice(expected) {
+				if strings.Contains(text, display(item)) {
+					panic(AxError{Category: "fixture", Message: "request unexpectedly contains " + display(item) + ": " + text})
+				}
+			}
+		}
 		if expected := coreGet(fixture, "expected_tool_calls", nil); expected != nil {
 			assertEqual(calls, expected, "tool calls")
 		}
@@ -10758,6 +10766,13 @@ func runConformanceForward(fixture map[string]Value) {
 		}
 		if expected := coreGet(fixture, "expected_chat_log_subset", nil); expected != nil {
 			assertListSubset(gen.ChatLog, expected, "chat log")
+		}
+	} else {
+		if expectedCount := coreGet(fixture, "expected_request_count", nil); expectedCount != nil && int(num(expectedCount)) != len(client.Requests) {
+			panic(AxError{Category: "fixture", Message: "expected request count mismatch"})
+		}
+		if expected := coreGet(fixture, "expected_tool_calls", nil); expected != nil {
+			assertEqual(calls, expected, "tool calls")
 		}
 	}
 }
