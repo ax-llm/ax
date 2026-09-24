@@ -11861,12 +11861,14 @@ pub struct RuntimeEnvelope {
 }
 
 impl RuntimeEnvelope {
-    /// Single-value final envelope that also sets `kind` and
-    /// `completion_payload`. For the python `final(...)` shape, use
+    /// Single-value final envelope, the same as `final(value)` in actor code:
+    /// `value` reaches the responder as the task. It also sets `kind` and a
+    /// `completion_payload` typed `"final"`, which the agent uses as-is. For
+    /// `final(task, context)` or the python `final(...)` shape, use
     /// `RuntimeEnvelope::r#final`.
     pub fn final_payload(value: Value) -> Self {
         Self {
-            payload: json!({"kind": "final", "type": "final", "completion_payload": {"args": [value.clone()]}, "args": [value]}),
+            payload: json!({"kind": "final", "type": "final", "completion_payload": {"type": "final", "args": [value.clone()]}, "args": [value]}),
         }
     }
 
@@ -12142,6 +12144,27 @@ mod runtime_envelope_tests {
         assert_eq!(
             step.payload["completion_payload"],
             json!({"type": "final", "args": ["Answer", {"answer": "ok"}]})
+        );
+        Ok(())
+    }
+
+    // final_payload(v) is final(v): the responder's task must be v, not a
+    // re-wrapped {"args": [v]}.
+    #[test]
+    fn agent_step_does_not_rewrap_final_payload() -> AxResult<()> {
+        let value = json!({"answer": "ok"});
+        let mut runtime = EnvelopeRuntime(vec![RuntimeEnvelope::final_payload(value.clone())]);
+        let mut runner = agent("question:string -> answer:string")?;
+        let step = runner.execute_actor_step(
+            &mut runtime,
+            "final()",
+            json!({"question": "q"}),
+            json!({}),
+        )?;
+        assert_eq!(step.payload["kind"], "final");
+        assert_eq!(
+            step.payload["completion_payload"],
+            json!({"type": "final", "args": [value]})
         );
         Ok(())
     }
