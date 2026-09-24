@@ -26,6 +26,12 @@ export const PERTURB_RUNNER_ROOT_ENV = 'AXIR_PERTURB_RUNNER_ROOT';
 const PREPARED_RUNNER_VERSION = 1;
 const PREPARED_RUNNER_MANIFEST = '.axir-perturb-runner.json';
 
+// Cap every runner invocation so a hung fixture fails the gate and names the
+// target and suite instead of running until the CI job timeout. The slowest
+// healthy run, the C++ axai suite, takes 1-3 minutes and more on a loaded
+// machine, so the cap leaves generous headroom.
+const RUNNER_TIMEOUT_MS = 10 * 60_000;
+
 // Engine-required suites: their fixtures need an optional in-process engine
 // (goja/quickjs) that the default conformance runner here does NOT load, so they
 // run in dedicated engine lanes (the axir-agent-antidote CI job + G1 fixtures),
@@ -157,16 +163,37 @@ export function compileTarget(target, outDir) {
   );
 }
 
-function runnerForTarget(target, outDir) {
+// The returned runner takes a suite (or fixture) directory plus a label for
+// error messages, and throws when the run exceeds RUNNER_TIMEOUT_MS.
+export function runnerForTarget(target, outDir, timeoutMs = RUNNER_TIMEOUT_MS) {
+  const runSuite = suiteRunner(target, outDir, (command, args, options = {}) =>
+    run(command, args, {
+      ...options,
+      timeout: timeoutMs,
+      killSignal: 'SIGKILL',
+    })
+  );
+  return (suiteDir, label = suiteDir) => {
+    const result = runSuite(suiteDir);
+    if (result.error?.code === 'ETIMEDOUT') {
+      throw new Error(
+        `TIMEOUT: ${target} conformance runner exceeded ${timeoutMs / 1000}s on ${label} and was killed.\n${result.stdout ?? ''}${result.stderr ?? ''}`
+      );
+    }
+    return result;
+  };
+}
+
+function suiteRunner(target, outDir, exec) {
   switch (target) {
     case 'python':
       return (suiteDir) =>
-        run('python3', ['-m', 'axllm.conformance', suiteDir], {
+        exec('python3', ['-m', 'axllm.conformance', suiteDir], {
           envExtra: { PYTHONPATH: outDir },
         });
     case 'go': {
       const bin = path.join(outDir, 'conformance_bin');
-      return (suiteDir) => run(bin, [suiteDir], { cwd: outDir });
+      return (suiteDir) => exec(bin, [suiteDir], { cwd: outDir });
     }
     case 'rust': {
       // cargo honors CARGO_TARGET_DIR (CI sets it for build caching); resolve the
@@ -176,15 +203,15 @@ function runnerForTarget(target, outDir) {
         process.env.CARGO_TARGET_DIR || 'target'
       );
       const bin = path.join(targetDir, 'debug', 'axllm-conformance');
-      return (suiteDir) => run(bin, [suiteDir], { cwd: outDir });
+      return (suiteDir) => exec(bin, [suiteDir], { cwd: outDir });
     }
     case 'java': {
       return (suiteDir) =>
-        run('java', ['-cp', outDir, 'dev.axllm.ax.Conformance', suiteDir]);
+        exec('java', ['-cp', outDir, 'dev.axllm.ax.Conformance', suiteDir]);
     }
     case 'cpp': {
       const bin = path.join(outDir, 'conformance_bin');
-      return (suiteDir) => run(bin, [suiteDir]);
+      return (suiteDir) => exec(bin, [suiteDir]);
     }
     default:
       throw new Error(`unsupported target ${target}`);
@@ -376,7 +403,10 @@ async function main() {
   // Self-test: the pristine tree must pass every sampled suite everywhere.
   for (const target of selected) {
     for (const { suite } of sample) {
-      const result = runners[target](path.join(conformanceRoot, suite));
+      const result = runners[target](
+        path.join(conformanceRoot, suite),
+        `pristine suite ${suite}`
+      );
       if (result.status !== 0) {
         console.error(
           `SELF-TEST FAILED: ${target} fails pristine suite ${suite}\n${result.stdout}${result.stderr}`
@@ -400,7 +430,10 @@ async function main() {
     }
     writeFileSync(fixturePath, `${JSON.stringify(fixture, null, 1)}\n`);
     for (const target of selected) {
-      const result = runners[target](path.join(perturbedRoot, suite));
+      const result = runners[target](
+        path.join(perturbedRoot, suite),
+        `suite ${suite} with ${file} perturbed`
+      );
       const failed = result.status !== 0;
       const verdict = failed ? 'rejected' : 'ACCEPTED-PERTURBED';
       console.log(`[${verdict}] ${target} ${suite}/${file} (${mutation.key})`);
