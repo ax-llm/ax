@@ -1514,7 +1514,7 @@
     },
     {
       "id": "axir-2026-09-23-port-gemini-3-thought-signature-round-trip-for-function-calls",
-      "status": "open",
+      "status": "done",
       "title": "Port Gemini 3 thought-signature round-trip for function calls",
       "createdAt": "2026-09-23",
       "sourcePR": null,
@@ -1527,9 +1527,9 @@
         "Attach thought_signature from thought_blocks[0].signature to the first functionCall part in the Gemini request builder and cached-content path",
         "Add non-stream and stream capture plus replay fixtures in tools/axir/extractors/axai-goldens.ts then run npm run axir:conformance:write and npm run test:axir"
       ],
-      "completedAt": null,
-      "completedByCommit": null,
-      "verification": null
+      "completedAt": "2026-09-24",
+      "completedByCommit": "74f80b1b18e7f6a1ba6c3f5710ae756383aebf80",
+      "verification": "Gemini thoughtSignature/thought_signature is captured into thought_blocks by @gemini_merge_response_part_impl (shared by chat, stream deltas and Live; a signed functionCall creates a signature-only block or back-fills the last unsigned thought block) and replayed by @gemini_message_impl as thought_signature on the first functionCall part, or on the thought text part when the turn has no function calls; the ports' Gemini context-cache contents reuse that builder. Five new axai fixtures (function-call capture, thought-summary capture, stream capture, function-call replay, thought-part replay) match the TypeScript client's results and request contents, fail on the previous Python port, and pass in Python, Go, Rust, Java and C++. npm run axir:conformance:check, npm run axir:check-packages and npm run test:axir passed. Live with GOOGLE_APIKEY: the Python port weather tool loop on gemini-3.6-flash reproduced the 400 before the fix and completes after it; parallel calls (signature on the first call only) and two-step sequential loops with and without showThoughts pass on gemini-3.6-flash and gemini-3.5-flash, and the two-step loop passes on gemini-3.8-flash on top of #684; the Go port weather loop on gemini-3.6-flash also completes."
     },
     {
       "id": "axir-2026-09-23-port-speak-samplerate-channels-parsed-from-raw-pcm-mime-types",
