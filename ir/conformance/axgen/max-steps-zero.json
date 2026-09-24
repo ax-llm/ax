@@ -1,0 +1,34 @@
+{
+  "expect_chat_path": false,
+  "expected_error_contains": "Generate failed: Max steps reached: 0",
+  "expected_request_count": 0,
+  "expected_tool_calls": [],
+  "input": {
+    "query": "ax docs"
+  },
+  "kind": "forward",
+  "name": "max-steps-zero",
+  "options": {
+    "max_steps": 0
+  },
+  "responses": [
+    {
+      "content": "Answer: never requested"
+    }
+  ],
+  "signature": "query:string -> answer:string",
+  "tools": [
+    {
+      "args": {
+        "query": {
+          "type": "string"
+        }
+      },
+      "description": "Search docs",
+      "name": "search",
+      "result": {
+        "title": "Ax docs"
+      }
+    }
+  ]
+}

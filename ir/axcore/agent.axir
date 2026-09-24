@@ -8136,6 +8136,12 @@ module @ax.agent version "0.1" {
           core.set %out[%key] = %value
         }
       }
+      // TS builds the actor signature with useStructured(): the distiller and
+      // executor keep the exact JSON code contract even beside native tools.
+      %actor_stage = core.call intrinsic.or(%is_distiller, %is_executor)
+      core.if %actor_stage {
+        core.set %out["force_structured"] = true
+      }
       %base_control = core.get %base_options["control"] default null
       %controller = core.get %forward_options["control"] default %base_control
       %controlled = core.call intrinsic.is_not_none(%controller)
