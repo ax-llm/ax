@@ -1,6 +1,5 @@
 #!/usr/bin/env node
 
-import { createHash } from 'node:crypto';
 import {
   copyFile,
   cp,
@@ -23,6 +22,12 @@ import {
   readPublicExampleCatalog,
 } from './example-catalog.mjs';
 import {
+  readSkillMirrorSources,
+  skillDiscoverySchema,
+  skillIndexEntry,
+  skillMirrorRoot,
+} from './skill-mirrors.mjs';
+import {
   buildAcademyPages,
   validateAcademyCourse,
   validateAcademyLanguages,
@@ -34,8 +39,6 @@ const siteRoot = path.join(repoRoot, 'website');
 const contentSrcRoot = path.join(siteRoot, 'content-src');
 const generatedContentRoot = path.join(siteRoot, '.generated', 'content');
 const githubBlob = 'https://github.com/ax-llm/ax/blob/main';
-const skillDiscoverySchema =
-  'https://schemas.agentskills.io/discovery/0.2.0/schema.json';
 const providerProfilesManifest = await readJson(
   path.join(repoRoot, 'ir/axcore/data/provider-profiles.json')
 );
@@ -853,68 +856,17 @@ async function readSkillDocs() {
 }
 
 async function readLanguageSkillCatalogs(languages) {
-  const rootPackage = await readJson(path.join(repoRoot, 'package.json'));
-  const rootVersion = String(rootPackage.version ?? '0.1.0');
-  const out = {};
-  for (const language of languages) {
-    if (language.id === 'typescript') {
-      const skillsRoot = path.join(repoRoot, 'src/ax/skills');
-      const files = (await readdir(skillsRoot))
-        .filter((file) => file.endsWith('.md'))
-        .sort();
-      out[language.id] = files.map((file) => {
-        const rel = `src/ax/skills/${file}`;
-        const abs = path.join(repoRoot, rel);
-        return { abs, rel, typeScriptVersion: rootVersion };
-      });
-      continue;
-    }
-
-    const packageSkillsRoot = path.join(
-      repoRoot,
-      'packages',
-      language.id,
-      'skills'
-    );
-    const files = (await listFiles(packageSkillsRoot))
-      .filter((file) => path.basename(file) === 'SKILL.md')
-      .sort();
-    out[language.id] = files.map((abs) => ({
-      abs,
-      rel: path.relative(repoRoot, abs).replaceAll(path.sep, '/'),
-    }));
-  }
-
-  for (const [languageId, entries] of Object.entries(out)) {
-    const skills = [];
-    for (const entry of entries) {
-      let content = await readFile(entry.abs, 'utf8');
-      if (entry.typeScriptVersion) {
-        content = content.replace(
-          /^version:\s*["']?__VERSION__["']?/m,
-          `version: "${entry.typeScriptVersion}"`
-        );
-      }
-      const frontmatter = parseSkillFrontmatter(content);
-      if (!frontmatter.name || !frontmatter.description) {
-        throw new Error(`${entry.rel} is missing skill name or description`);
-      }
-      skills.push({
-        name: frontmatter.name,
-        description: frontmatter.description,
-        version: frontmatter.version,
-        content,
-        source: entry.rel,
-      });
-    }
+  const out = await readSkillMirrorSources(
+    repoRoot,
+    languages.map((language) => language.id)
+  );
+  for (const [languageId, skills] of Object.entries(out)) {
     skills.sort((left, right) =>
       skillSortName(languageId, left).localeCompare(
         skillSortName(languageId, right)
       )
     );
-    out[languageId] = skills;
   }
-
   return out;
 }
 
@@ -924,35 +876,19 @@ async function writeSkillInstallIndexes(languages, languageSkills) {
     if (skills.length === 0) {
       throw new Error(`No skills found for ${language.id}`);
     }
-    const root = path.join(
-      siteRoot,
-      'static',
-      language.id,
-      '.well-known',
-      'agent-skills'
-    );
+    const root = skillMirrorRoot(repoRoot, language.id);
     await rm(root, { recursive: true, force: true });
     await mkdir(root, { recursive: true });
 
-    const entries = [];
     for (const skill of skills) {
       const skillDir = path.join(root, skill.name);
       await mkdir(skillDir, { recursive: true });
-      const skillPath = path.join(skillDir, 'SKILL.md');
-      await writeFile(skillPath, ensureTrailingNewline(skill.content), 'utf8');
-      const digest = sha256Digest(await readFile(skillPath));
-      entries.push({
-        name: skill.name,
-        type: 'skill-md',
-        description: skill.description,
-        url: `${skill.name}/SKILL.md`,
-        digest,
-      });
+      await writeFile(path.join(skillDir, 'SKILL.md'), skill.content, 'utf8');
     }
 
     await writeFile(
       path.join(root, 'index.json'),
-      `${JSON.stringify({ $schema: skillDiscoverySchema, skills: entries }, null, 2)}\n`,
+      `${JSON.stringify({ $schema: skillDiscoverySchema, skills: skills.map(skillIndexEntry) }, null, 2)}\n`,
       'utf8'
     );
   }
@@ -2826,25 +2762,6 @@ function parseFrontmatterTitle(markdown) {
   return match?.[1];
 }
 
-function parseSkillFrontmatter(markdown) {
-  if (!markdown.startsWith('---\n')) return {};
-  const end = markdown.indexOf('\n---', 4);
-  if (end === -1) return {};
-  const fm = markdown.slice(4, end);
-  return {
-    name: frontmatterField(fm, 'name'),
-    description: frontmatterField(fm, 'description'),
-    version: frontmatterField(fm, 'version'),
-  };
-}
-
-function frontmatterField(frontmatterText, key) {
-  const match = frontmatterText.match(
-    new RegExp(`^${key}:\\s*["']?(.+?)["']?\\s*$`, 'm')
-  );
-  return match?.[1]?.trim();
-}
-
 function parseMarkdownHeading(markdown) {
   const match = markdown.match(/^#\s+(.+)$/m);
   return match?.[1];
@@ -2905,10 +2822,6 @@ function escapeHTML(value) {
 
 function lines(value) {
   return Array.isArray(value) ? value.join('\n') : String(value ?? '');
-}
-
-function sha256Digest(data) {
-  return `sha256:${createHash('sha256').update(data).digest('hex')}`;
 }
 
 async function listFiles(root) {

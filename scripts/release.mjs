@@ -263,6 +263,7 @@ function verifyPreparedRelease(version, branch) {
     );
   }
   run('npm', ['run', 'axir:check-packages']);
+  run('npm', ['run', 'skills:check']);
   run('npm', ['run', 'build']);
   run('git', ['diff', '--check', `origin/${mainBranch}...HEAD`]);
 }
@@ -275,6 +276,7 @@ function releasePullRequestBody(version) {
     '',
     '- aligns all publishable package versions',
     '- regenerates the checked-in AxIR packages',
+    '- regenerates the published agent-skill mirrors',
     '- updates the changelog',
     '- creates no tag or GitHub Release before merge',
     '',
@@ -340,6 +342,9 @@ function prepare(increment = 'patch') {
     '--no-fund',
   ]);
   run('npm', ['run', 'axir:generate-packages']);
+  // Regenerate the published skill mirrors after the packages they copy: the
+  // mirrors embed the package version, and CI's skills:check fails on stale ones.
+  run('npm', ['run', 'website:prepare']);
   run('npm', ['exec', '--', 'release-it', '--no-increment', '--ci']);
   verifyPreparedRelease(version, branch);
 
