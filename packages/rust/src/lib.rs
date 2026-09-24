@@ -12896,17 +12896,42 @@ fn run_event_fixture(fixture: &Value) -> AxResult<()> {
                 let sleep_token = AxEventCancellationToken::default();
                 let thread_clock = clock.clone();
                 let thread_token = sleep_token.clone();
-                let sleeper =
-                    std::thread::spawn(move || thread_clock.sleep(1, Some(&thread_token)));
-                let deadline = std::time::Instant::now() + Duration::from_secs(1);
+                let (done_tx, done_rx) = std::sync::mpsc::channel();
+                let sleeper = std::thread::spawn(move || {
+                    let _ = done_tx.send(thread_clock.sleep(1, Some(&thread_token)));
+                });
+                let deadline = std::time::Instant::now() + Duration::from_secs(10);
                 while sleep_token.subscription_count() == 0 && std::time::Instant::now() < deadline
                 {
                     std::thread::yield_now();
                 }
-                clock.advance(1);
-                let result = sleeper.join().map_err(|_| {
+                let subscribed = sleep_token.subscription_count() != 0;
+                if subscribed {
+                    clock.advance(1);
+                }
+                let result = if subscribed {
+                    done_rx.recv_timeout(Duration::from_secs(10)).ok()
+                } else {
+                    None
+                };
+                if result.is_none() {
+                    sleep_token.cancel("fixture cleanup");
+                }
+                sleeper.join().map_err(|_| {
                     AxError::new("fixture", "manual event clock success thread panicked")
                 })?;
+                if !subscribed {
+                    return Err(AxError::new(
+                        "fixture",
+                        "manual event clock sleeper never subscribed",
+                    ));
+                }
+                let Some(result) = result else {
+                    return Err(AxError::new(
+                        "fixture",
+                        "manual event clock sleep was not released by advance",
+                    ));
+                };
                 if !result || sleep_token.subscription_count() != 0 {
                     return Err(AxError::new(
                         "fixture",

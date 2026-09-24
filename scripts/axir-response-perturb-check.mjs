@@ -131,7 +131,8 @@ function discoverCases() {
 }
 
 // Run a single fixture in isolation (its own one-file suite dir) on a target.
-function runFixture(runner, work, label, fixture) {
+// `description` names the fixture if the runner times out.
+function runFixture(runner, work, label, fixture, description) {
   const dir = path.join(work, `case-${label}`);
   rmSync(dir, { recursive: true, force: true });
   mkdirSync(dir, { recursive: true });
@@ -139,7 +140,7 @@ function runFixture(runner, work, label, fixture) {
     path.join(dir, 'fixture.json'),
     `${JSON.stringify(fixture, null, 1)}\n`
   );
-  const result = runner(dir);
+  const result = runner(dir, description);
   rmSync(dir, { recursive: true, force: true });
   return result;
 }
@@ -185,7 +186,13 @@ async function main() {
       readFileSync(path.join(conformanceRoot, c.suite, c.file), 'utf8')
     );
     for (const target of selected) {
-      const ok = runFixture(runners[target], work, `${target}-self`, pristine);
+      const ok = runFixture(
+        runners[target],
+        work,
+        `${target}-self`,
+        pristine,
+        `pristine ${c.suite}/${c.file}`
+      );
       if (ok.status !== 0) {
         console.error(
           `SELF-TEST FAILED: ${target} fails pristine ${c.suite}/${c.file}\n${ok.stdout}${ok.stderr}`
@@ -203,7 +210,8 @@ async function main() {
           runners[target],
           work,
           `${target}-${idx}`,
-          mutated
+          mutated,
+          `${c.suite}/${c.file} with resp#${idx} mutated`
         );
         const failed = result.status !== 0;
         checks += 1;
