@@ -349,6 +349,7 @@ describe('axWorkerRuntime in browser-like sandbox', () => {
     expect(result).toBeDefined();
     expect(result!.id).toBe(2);
     expect(result!.value).toBe(42);
+    expect(result!.codeError).toBeUndefined();
   });
 
   it('returns code execution errors as string values (not rejections)', async () => {
@@ -378,9 +379,11 @@ describe('axWorkerRuntime in browser-like sandbox', () => {
     expect(result).toBeDefined();
     expect(result!.id).toBe(3);
     // Code execution errors (ReferenceError, SyntaxError, etc.) are
-    // returned as string values so the LLM can self-correct.
+    // returned as string values so the LLM can self-correct, flagged so the
+    // host can still classify the execution as a failure.
     expect(typeof result!.value).toBe('string');
     expect(result!.value).toMatch(/^ReferenceError:/);
+    expect(result!.codeError).toBe(true);
     expect(result!.error).toBeUndefined();
   });
 
@@ -415,6 +418,7 @@ describe('axWorkerRuntime in browser-like sandbox', () => {
     expect(result!.id).toBe(4);
     // Non-code-execution errors are serialized as structured error objects.
     expect(result!.error).toBeDefined();
+    expect(result!.codeError).toBeUndefined();
     const err = result!.error as Record<string, unknown>;
     expect(err.name).toBe('Error');
     expect(err.message).toBe('custom boom');

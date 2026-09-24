@@ -2,7 +2,7 @@
   "expected_output": {
     "auth": "x-api-key",
     "baseUrl": "https://api.anthropic.com",
-    "defaultModel": "claude-sonnet-4-5",
+    "defaultModel": "claude-sonnet-5",
     "features": {
       "caching": {
         "supported": true,

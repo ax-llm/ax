@@ -1,6 +1,10 @@
 import type { AxAIServiceOptions } from '../types.js';
 import type { AxAIOpenAIChatRequest } from './chat_types.js';
-import { axIsGPT6Astra, axIsGPT56Family } from './model_family.js';
+import {
+  axIsGPT6Astra,
+  axIsGPT6Family,
+  axIsGPT56Family,
+} from './model_family.js';
 import type { AxAIOpenAIResponsesRequest } from './responses_types.js';
 
 /**
@@ -87,12 +91,22 @@ const LEGACY_LADDER: EffortLadder<AxAIOpenAIChatReasoningEffort> = {
 };
 
 /**
- * GPT-5.6 defaults an omitted effort to `medium`, so disabling reasoning
- * requires an explicit `none`. Every other model and OpenAI-compatible provider
- * keeps the historical omission.
+ * GPT-5.6 and GPT-6 default an omitted effort to `medium`, so disabling
+ * reasoning requires an explicit `none`. Every other model and
+ * OpenAI-compatible provider keeps the historical omission. (Astra refuses
+ * `none` outright; the resolvers below throw before reaching here.)
  */
 function resolveNone(model: unknown): 'none' | undefined {
-  return axIsGPT56Family(model) ? 'none' : undefined;
+  return usesGPT56Ladder(model) ? 'none' : undefined;
+}
+
+/**
+ * GPT-6 kept GPT-5.6's effort vocabulary on both surfaces — Chat Completions
+ * still refuses `minimal` and `max`, Responses still serves `max` — so the
+ * whole family shares the 5.6 ladders.
+ */
+function usesGPT56Ladder(model: unknown): boolean {
+  return axIsGPT56Family(model) || axIsGPT6Family(model);
 }
 
 /**
@@ -111,7 +125,7 @@ export function axResolveOpenAIChatReasoningEffort(
   if (budget === 'none') {
     return resolveNone(model);
   }
-  return axIsGPT56Family(model) || axIsGPT6Astra(model)
+  return usesGPT56Ladder(model)
     ? GPT56_CHAT_LADDER[budget]
     : LEGACY_LADDER[budget];
 }
@@ -133,7 +147,7 @@ export function axResolveOpenAIResponsesReasoningEffort(
   if (budget === 'none') {
     return resolveNone(model);
   }
-  return axIsGPT56Family(model) || axIsGPT6Astra(model)
+  return usesGPT56Ladder(model)
     ? GPT56_RESPONSES_LADDER[budget]
     : LEGACY_LADDER[budget];
 }

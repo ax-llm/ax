@@ -23,21 +23,20 @@
       }
     ]
   },
+  "expected_transport_json_absent": ["text.format.json_schema"],
   "expected_transport_request": {
     "json": {
       "text": {
         "format": {
-          "json_schema": {
-            "name": "search_result",
-            "schema": {
-              "properties": {
-                "answer": {
-                  "type": "string"
-                }
-              },
-              "required": ["answer"],
-              "type": "object"
-            }
+          "name": "search_result",
+          "schema": {
+            "properties": {
+              "answer": {
+                "type": "string"
+              }
+            },
+            "required": ["answer"],
+            "type": "object"
           },
           "type": "json_schema"
         }

@@ -53,7 +53,10 @@ export enum AxAIOpenAIResponsesModel {
   GPT56Sol = 'gpt-5.6-sol',
   GPT56Terra = 'gpt-5.6-terra',
   GPT56Luna = 'gpt-5.6-luna',
+  // GPT-6 models
   GPT6Astra = 'gpt-6-astra',
+  GPT6Sol = 'gpt-6-sol',
+  GPT6Luna = 'gpt-6-luna',
   // Reasoning models
   O1Pro = 'o1-pro',
   O1 = 'o1',

@@ -14,6 +14,10 @@ type ProtocolMessage = {
 
 type RuntimeSession = {
   execute(code: string, options?: JsonObject): Promise<unknown>;
+  executeWithStatus?(
+    code: string,
+    options?: JsonObject
+  ): Promise<{ value: unknown; isError: boolean }>;
   inspectGlobals?(options?: JsonObject): Promise<unknown>;
   snapshotGlobals?(options?: JsonObject): Promise<unknown>;
   patchGlobals?(globals: JsonObject, options?: JsonObject): Promise<unknown>;
@@ -194,11 +198,30 @@ class RuntimeProtocolServer {
         case 'execute': {
           const session = this.session(message);
           const payload = message.payload ?? {};
-          const result = await session.execute(String(payload.code ?? ''), {
+          const code = String(payload.code ?? '');
+          const options = {
             ...(payload.options && typeof payload.options === 'object'
               ? (payload.options as JsonObject)
               : {}),
-          });
+          };
+          if (session.executeWithStatus) {
+            // AxJSRuntime returns errors in the code (ReferenceError, …) as
+            // text; hand them to the port as a runtime error envelope.
+            const { value, isError } = await session.executeWithStatus(
+              code,
+              options
+            );
+            const result = isError
+              ? {
+                  kind: 'error',
+                  is_error: true,
+                  error_category: 'runtime',
+                  error: String(value),
+                }
+              : value;
+            return ok(message.id, result, { session_id: message.session_id });
+          }
+          const result = await session.execute(code, options);
           return ok(message.id, result, { session_id: message.session_id });
         }
         case 'inspect_globals': {
@@ -365,6 +388,17 @@ async function selfTest(): Promise<void> {
   await expect('9', "await reportSuccess('ok')", 'kind', 'status');
   await expect('10', "await reportFailure('bad')", 'kind', 'status');
   await expect('11', "await guideAgent('try this')", 'type', 'guide_agent');
+  const codeError = await expect('11b', 'brokenHelper()', 'kind', 'error');
+  if (
+    codeError.is_error !== true ||
+    !String(codeError.error).startsWith(
+      'ReferenceError: brokenHelper is not defined'
+    )
+  ) {
+    throw new Error(
+      `self-test code error envelope failed: ${JSON.stringify(codeError)}`
+    );
+  }
   const snapshot = (await server.handle({
     id: '12',
     op: 'snapshot_globals',

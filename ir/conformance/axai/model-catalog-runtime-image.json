@@ -16,11 +16,67 @@
           ]
         },
         "defaultEmbedModel": "gemini-embedding-2",
-        "defaultModel": "gemini-2.5-flash",
+        "defaultModel": "gemini-3.6-flash",
         "displayName": "Google Gemini",
         "isDynamic": false,
         "models": [
           {
+            "capabilities": {
+              "audioInput": false,
+              "audioOutput": false,
+              "imageOutput": false,
+              "serviceTiers": ["standard", "flex", "priority"],
+              "showThoughts": false,
+              "structuredOutputs": true,
+              "temperature": true,
+              "thinkingBudget": false,
+              "thinkingLevels": [],
+              "topP": true
+            },
+            "characterIsToken": false,
+            "completionTokenCostPer1M": 1.5,
+            "contextWindow": 65536,
+            "currency": "usd",
+            "isDefault": false,
+            "maxTokens": 65536,
+            "name": "gemini-3.1-flash-lite-image",
+            "promptTokenCostPer1M": 0.25,
+            "provider": "google-gemini",
+            "supported": {
+              "structuredOutputs": true
+            },
+            "type": "image"
+          },
+          {
+            "aliases": ["gemini-3.1-flash-image-preview"],
+            "capabilities": {
+              "audioInput": false,
+              "audioOutput": false,
+              "imageOutput": false,
+              "serviceTiers": ["standard", "flex", "priority"],
+              "showThoughts": false,
+              "structuredOutputs": true,
+              "temperature": true,
+              "thinkingBudget": false,
+              "thinkingLevels": [],
+              "topP": true
+            },
+            "characterIsToken": false,
+            "completionTokenCostPer1M": 3,
+            "contextWindow": 65536,
+            "currency": "usd",
+            "isDefault": false,
+            "maxTokens": 65536,
+            "name": "gemini-3.1-flash-image",
+            "promptTokenCostPer1M": 0.5,
+            "provider": "google-gemini",
+            "supported": {
+              "structuredOutputs": true
+            },
+            "type": "image"
+          },
+          {
+            "aliases": ["gemini-3-pro-image-preview"],
             "capabilities": {
               "audioInput": false,
               "audioOutput": false,
@@ -41,41 +97,18 @@
               "topP": true
             },
             "characterIsToken": false,
-            "completionTokenCostPer1M": 0.134,
+            "completionTokenCostPer1M": 12,
+            "contextWindow": 131072,
             "currency": "usd",
             "isDefault": false,
-            "name": "gemini-3-pro-image-preview",
+            "maxTokens": 32768,
+            "name": "gemini-3-pro-image",
             "promptTokenCostPer1M": 2,
             "provider": "google-gemini",
             "supported": {
               "showThoughts": true,
               "structuredOutputs": true,
               "thinkingBudget": true
-            },
-            "type": "image"
-          },
-          {
-            "capabilities": {
-              "audioInput": false,
-              "audioOutput": false,
-              "imageOutput": false,
-              "serviceTiers": ["standard", "flex", "priority"],
-              "showThoughts": false,
-              "structuredOutputs": true,
-              "temperature": true,
-              "thinkingBudget": false,
-              "thinkingLevels": [],
-              "topP": true
-            },
-            "characterIsToken": false,
-            "completionTokenCostPer1M": 3,
-            "currency": "usd",
-            "isDefault": false,
-            "name": "gemini-3.1-flash-image-preview",
-            "promptTokenCostPer1M": 0.5,
-            "provider": "google-gemini",
-            "supported": {
-              "structuredOutputs": true
             },
             "type": "image"
           }
@@ -146,7 +179,7 @@
             "highest"
           ]
         },
-        "defaultModel": "claude-3-7-sonnet-latest",
+        "defaultModel": "claude-sonnet-5",
         "displayName": "Anthropic",
         "isDynamic": false,
         "models": [],
@@ -718,7 +751,7 @@
         "name": "typesafe"
       }
     ],
-    "modelCount": 3,
+    "modelCount": 4,
     "openaiFirstModel": null,
     "openaiModelTypes": [],
     "providerCount": 50,

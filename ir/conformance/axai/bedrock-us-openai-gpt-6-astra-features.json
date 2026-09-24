@@ -1,0 +1,15 @@
+{
+  "base_url": "https://bedrock-runtime.us-east-1.amazonaws.com/openai/v1",
+  "expected_output": {
+    "caching": {
+      "supported": true,
+      "types": ["ephemeral"]
+    },
+    "functions": true,
+    "thinking": true
+  },
+  "kind": "ai_provider_features",
+  "model": "us.openai.gpt-6-astra",
+  "name": "bedrock-us-openai-gpt-6-astra-features",
+  "provider": "openai"
+}

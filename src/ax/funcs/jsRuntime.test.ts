@@ -511,6 +511,65 @@ describe('AxJSRuntime', () => {
     expect(executeCalls).toHaveLength(0);
   });
 
+  it('executeWithStatus flags code-error results that execute() returns as text', async () => {
+    const interp = new AxJSRuntime();
+    const session = interp.createSession();
+    const errorText = 'ReferenceError: brokenHelper is not defined';
+    const replied = new Set<number>();
+    const replyToExecute = async (data: Record<string, unknown>) => {
+      const executeMsg = await vi.waitFor(() => {
+        const call = mockPostMessage.mock.calls.find(
+          (c) => c[0]?.type === 'execute' && !replied.has(c[0].id)
+        );
+        if (!call) {
+          throw new Error('execute not dispatched yet');
+        }
+        return call[0] as { id: number };
+      });
+      replied.add(executeMsg.id);
+      mockWorkerInstance.onmessage?.({
+        data: { type: 'result', id: executeMsg.id, ...data },
+      } as MessageEvent);
+    };
+
+    const flagged = session.executeWithStatus!('console.log(brokenHelper())');
+    await replyToExecute({ value: errorText, codeError: true });
+    await expect(flagged).resolves.toEqual({ value: errorText, isError: true });
+
+    const plain = session.execute('console.log(brokenHelper())');
+    await replyToExecute({ value: errorText, codeError: true });
+    await expect(plain).resolves.toBe(errorText);
+
+    const normal = session.executeWithStatus!('console.log(1)');
+    await replyToExecute({ value: '1' });
+    await expect(normal).resolves.toEqual({ value: '1', isError: false });
+  });
+
+  it('executeWithStatus flags code rejected before dispatch', async () => {
+    const interp = new AxJSRuntime();
+    const session = interp.createSession();
+
+    const reserved = await session.executeWithStatus!('inputs = 1', {
+      reservedNames: ['inputs'],
+    });
+    expect(reserved.isError).toBe(true);
+    expect(reserved.value).toContain(
+      "Cannot assign to, redeclare, or shadow reserved runtime variable 'inputs'"
+    );
+
+    const strict = await session.executeWithStatus!('"use strict"; 1');
+    expect(strict).toEqual({
+      value:
+        '[ERROR] "use strict" is not allowed in the runtime session. Remove it and try again.',
+      isError: true,
+    });
+
+    const executeCalls = mockPostMessage.mock.calls.filter(
+      (call) => call[0]?.type === 'execute'
+    );
+    expect(executeCalls).toHaveLength(0);
+  });
+
   it('result with legacy string error rejects with Error with that message', async () => {
     const interp = new AxJSRuntime();
     const session = interp.createSession();

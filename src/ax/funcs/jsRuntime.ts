@@ -1,4 +1,8 @@
-import type { AxCodeRuntime, AxCodeSession } from '../agent/rlm.js';
+import type {
+  AxCodeExecutionResult,
+  AxCodeRuntime,
+  AxCodeSession,
+} from '../agent/rlm.js';
 import type { AxFunction } from '../ai/types.js';
 import {
   type AxJSRuntimeNodePermissionAllowlist,
@@ -284,7 +288,10 @@ export class AxJSRuntime implements AxCodeRuntime {
     // Pending worker requests keyed by correlation ID.
     const pendingRequests = new Map<
       number,
-      { resolve: (v: unknown) => void; reject: (e: Error) => void }
+      {
+        resolve: (v: AxCodeExecutionResult) => void;
+        reject: (e: Error) => void;
+      }
     >();
     let nextId = 0;
     type QueuedSessionOperation = {
@@ -319,6 +326,7 @@ export class AxJSRuntime implements AxCodeRuntime {
         args?: unknown[];
         value?: unknown;
         error?: string | SerializedError;
+        codeError?: boolean;
       };
 
       if (typedMsg.type === 'result') {
@@ -338,7 +346,10 @@ export class AxJSRuntime implements AxCodeRuntime {
               pending.reject(deserializeError(typedMsg.error));
             }
           } else {
-            pending.resolve(typedMsg.value);
+            pending.resolve({
+              value: typedMsg.value,
+              isError: typedMsg.codeError === true,
+            });
           }
         }
         return;
@@ -542,7 +553,7 @@ export class AxJSRuntime implements AxCodeRuntime {
         signal?: AbortSignal;
         timeoutMessage: string;
       }>
-    ): Promise<unknown> => {
+    ): Promise<AxCodeExecutionResult> => {
       if (isClosed) {
         return Promise.reject(new Error('Session is closed'));
       }
@@ -556,14 +567,14 @@ export class AxJSRuntime implements AxCodeRuntime {
 
       const id = ++nextId;
 
-      return new Promise<unknown>((resolve, reject) => {
+      return new Promise<AxCodeExecutionResult>((resolve, reject) => {
         const originalResolve = resolve;
         const originalReject = reject;
         let timer: ReturnType<typeof setTimeout> | undefined;
 
         let onCleanup = () => {};
         pendingRequests.set(id, {
-          resolve: (value: unknown) => {
+          resolve: (value: AxCodeExecutionResult) => {
             if (timer) {
               clearTimeout(timer);
             }
@@ -758,6 +769,51 @@ export class AxJSRuntime implements AxCodeRuntime {
       });
     };
 
+    const executeWithStatus = (
+      code: string,
+      options?: {
+        signal?: AbortSignal;
+        reservedNames?: readonly string[];
+      }
+    ): Promise<AxCodeExecutionResult> => {
+      if (isClosed) {
+        return Promise.reject(new Error('Session is closed'));
+      }
+
+      // Block "use strict" directive — it breaks the runtime sandbox
+      if (/['"]use strict['"]/.test(code)) {
+        return Promise.resolve({
+          value:
+            '[ERROR] "use strict" is not allowed in the runtime session. Remove it and try again.',
+          isError: true,
+        });
+      }
+
+      // Block assignment/redeclaration of reserved runtime names.
+      const reserved = options?.reservedNames;
+      if (reserved) {
+        const violation = findReservedRuntimeNameViolation(code, reserved);
+        if (violation) {
+          return Promise.resolve({
+            value:
+              `[ERROR] Cannot assign to, redeclare, or shadow reserved runtime variable '${violation}'. ` +
+              `Use a different local variable name (for example: \`ctx\`) or access the original via \`inputs.${violation}\`.`,
+            isError: true,
+          });
+        }
+      }
+
+      return enqueueSessionRequest(options?.signal, () =>
+        dispatchWorkerRequest(
+          { type: 'execute', code },
+          {
+            signal: options?.signal,
+            timeoutMessage: 'Execution timed out',
+          }
+        )
+      );
+    };
+
     return {
       execute(
         code: string,
@@ -766,39 +822,10 @@ export class AxJSRuntime implements AxCodeRuntime {
           reservedNames?: readonly string[];
         }
       ) {
-        if (isClosed) {
-          return Promise.reject(new Error('Session is closed'));
-        }
-
-        // Block "use strict" directive — it breaks the runtime sandbox
-        if (/['"]use strict['"]/.test(code)) {
-          return Promise.resolve(
-            '[ERROR] "use strict" is not allowed in the runtime session. Remove it and try again.'
-          );
-        }
-
-        // Block assignment/redeclaration of reserved runtime names.
-        const reserved = options?.reservedNames;
-        if (reserved) {
-          const violation = findReservedRuntimeNameViolation(code, reserved);
-          if (violation) {
-            return Promise.resolve(
-              `[ERROR] Cannot assign to, redeclare, or shadow reserved runtime variable '${violation}'. ` +
-                `Use a different local variable name (for example: \`ctx\`) or access the original via \`inputs.${violation}\`.`
-            );
-          }
-        }
-
-        return enqueueSessionRequest(options?.signal, () =>
-          dispatchWorkerRequest(
-            { type: 'execute', code },
-            {
-              signal: options?.signal,
-              timeoutMessage: 'Execution timed out',
-            }
-          )
-        );
+        return executeWithStatus(code, options).then((result) => result.value);
       },
+
+      executeWithStatus,
 
       inspectGlobals(options?: {
         signal?: AbortSignal;
@@ -818,7 +845,7 @@ export class AxJSRuntime implements AxCodeRuntime {
               signal: options?.signal,
               timeoutMessage: 'Global inspection timed out',
             }
-          ).then((value) =>
+          ).then(({ value }) =>
             typeof value === 'string'
               ? value
               : value === undefined
@@ -846,7 +873,7 @@ export class AxJSRuntime implements AxCodeRuntime {
               signal: options?.signal,
               timeoutMessage: 'Global snapshot timed out',
             }
-          ).then(normalizeCodeSessionSnapshot)
+          ).then(({ value }) => normalizeCodeSessionSnapshot(value))
         );
       },
 

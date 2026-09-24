@@ -125,6 +125,27 @@ describe('getModelInfo', () => {
       expect(result).not.toBeNull();
       expect(result?.name).toBe('claude-opus-4-8');
     });
+
+    it('should handle Bedrock cross-Region inference profile ids', () => {
+      for (const [model, name] of [
+        ['us.anthropic.claude-opus-4-8', 'claude-opus-4-8'],
+        ['eu.anthropic.claude-3-5-sonnet-20241022-v2:0', 'claude-3-5-sonnet'],
+        ['global.openai.gpt-4o-mini', 'gpt-4o-mini'],
+        ['us-gov.openai.gpt-4o-mini', 'gpt-4o-mini'],
+      ]) {
+        expect(getModelInfo({ model, modelInfo })?.name).toBe(name);
+      }
+    });
+
+    it('should only strip a geography in front of a vendor prefix', () => {
+      for (const model of [
+        'us.gpt-4o-mini',
+        'us.meta.gpt-4o-mini',
+        'us..openai.gpt-4o-mini',
+      ]) {
+        expect(getModelInfo({ model, modelInfo })).toBeNull();
+      }
+    });
   });
 
   it('should handle unknown model', () => {

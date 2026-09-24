@@ -97,6 +97,45 @@ function scriptedAI(scripts: {
   });
 }
 
+/**
+ * Mock model whose executor runs `console.log(brokenHelper())` — a real
+ * runtime ReferenceError — until its prompt shows `failures` such errors,
+ * then finishes. Records every executor prompt's user text.
+ */
+function brokenHelperAI(failures = 1) {
+  const executorPrompts: string[] = [];
+  const ai = new AxMockAIService({
+    features: { functions: false, streaming: false },
+    chatResponse: async (req) => {
+      const systemPrompt = String(req.chatPrompt[0]?.content ?? '');
+      const reply = (content: string) => ({
+        results: [{ index: 0, content, finishReason: 'stop' as const }],
+        modelUsage: makeModelUsage() as any,
+      });
+      if (systemPrompt.includes('You (`distiller`)')) {
+        return reply('Javascript Code: await final("Answer the question", {})');
+      }
+      if (systemPrompt.includes('You (`executor`)')) {
+        const userText = req.chatPrompt
+          .filter((message) => message.role === 'user')
+          .map((message) => String(message.content ?? ''))
+          .join('\n');
+        executorPrompts.push(userText);
+        const seen = userText.split('brokenHelper is not defined').length - 1;
+        return reply(
+          seen >= failures
+            ? 'Javascript Code: await final("Answer the question", {})'
+            : 'Javascript Code: console.log(brokenHelper())'
+        );
+      }
+      return reply('Answer: ok');
+    },
+  });
+  return { ai, executorPrompts };
+}
+
+const BROKEN_HELPER = 'ReferenceError: brokenHelper is not defined';
+
 const actorPrompt = (ag: any) =>
   (ag.executor as any).actorProgram?.getSignature?.().getDescription?.() ?? '';
 
@@ -328,7 +367,7 @@ describe('end-to-end failure learning through forward()', () => {
     const ai = scriptedAI({
       distiller: ['await final("Answer the question", {})'],
       executor: [
-        'nonexistentHelper()',
+        'console.log(nonexistentHelper())',
         'await final("Answer the question", { note: "recovered" })',
       ],
       responder: 'Answer: done',
@@ -347,8 +386,117 @@ describe('end-to-end failure learning through forward()', () => {
     expect(out.answer).toBe('done');
     expect(update).toHaveBeenCalledTimes(1);
     const feedback = (update.mock.calls[0]?.[0] as any).feedback as string;
-    expect(feedback).toContain('nonexistentHelper');
+    expect(feedback).toContain(
+      '[ReferenceError: nonexistentHelper is not defined]'
+    );
     expect(onUpdate).toHaveBeenCalledTimes(1);
+  });
+
+  it('learns from a real runtime ReferenceError turn without changing its output', async () => {
+    const { ai, executorPrompts } = brokenHelperAI();
+    const turns: {
+      stage: string;
+      turn: number;
+      isError: boolean;
+      output: string;
+    }[] = [];
+    const ag = agent('question:string -> answer:string', {
+      ai,
+      directResponse: 'off',
+      maxTurns: 4,
+      playbook: {},
+      actorTurnCallback: ({ stage, turn, isError, output }) => {
+        turns.push({ stage, turn, isError, output });
+      },
+    }) as any;
+    const update = vi
+      .spyOn(ag.getPlaybook().inner, 'update')
+      .mockResolvedValue(undefined);
+    const learn = vi.spyOn(ag, '_updatePlaybookFromPipelineState');
+
+    const out = await ag.forward(ai, { question: 'q' });
+    expect(out.answer).toBe('ok');
+
+    // The runtime reports the ReferenceError as text: the actor reads exactly
+    // that text on its next turn, and the turn now counts as an error.
+    const errorTurn = turns.find(
+      (turn) => turn.stage === 'executor' && turn.turn === 1
+    );
+    expect(errorTurn?.isError).toBe(true);
+    expect(errorTurn?.output).toMatch(
+      /^ReferenceError: brokenHelper is not defined\n {2}at line 1, column \d+\nSource:\n {4}1\| console\.log\(brokenHelper\(\)\)$/
+    );
+    expect(executorPrompts).toHaveLength(2);
+    expect(executorPrompts[1]).toContain(`Result:\n${errorTurn?.output}`);
+
+    // Run-end learning sees the failure and updates the playbook.
+    expect(learn).toHaveBeenCalledTimes(1);
+    const state = learn.mock.calls[0]?.[0] as any;
+    expect(state.executorResult.failureReport?.signals).toEqual([
+      expect.objectContaining({
+        kind: 'resolved_error',
+        turn: 1,
+        signature: BROKEN_HELPER,
+        resolvedByTurn: 2,
+        code: 'console.log(brokenHelper())',
+      }),
+    ]);
+    const result = await learn.mock.results[0]?.value;
+    expect(result?.status).not.toBe('skipped');
+    expect(update).toHaveBeenCalledTimes(1);
+    expect(
+      (update.mock.calls[0]?.[0] as any).example.failureSignatures
+    ).toEqual([BROKEN_HELPER]);
+  });
+
+  it('classifies a repeated runtime ReferenceError as a dead end', async () => {
+    const { ai } = brokenHelperAI(2);
+    const ag = agent('question:string -> answer:string', {
+      ai,
+      directResponse: 'off',
+      maxTurns: 5,
+      playbook: {},
+    }) as any;
+    vi.spyOn(ag.getPlaybook().inner, 'update').mockResolvedValue(undefined);
+    const learn = vi.spyOn(ag, '_updatePlaybookFromPipelineState');
+
+    await ag.forward(ai, { question: 'q' });
+
+    const state = learn.mock.calls[0]?.[0] as any;
+    expect(state.executorResult.failureReport?.signals).toEqual([
+      expect.objectContaining({
+        kind: 'dead_end',
+        turn: 1,
+        signature: BROKEN_HELPER,
+      }),
+      expect.objectContaining({
+        kind: 'resolved_error',
+        turn: 2,
+        signature: BROKEN_HELPER,
+        resolvedByTurn: 3,
+      }),
+    ]);
+  });
+
+  it('reports real runtime errors in eval prediction failureSignals', async () => {
+    const { ai } = brokenHelperAI();
+    const ag = agent('question:string -> answer:string', {
+      ai,
+      directResponse: 'off',
+      maxTurns: 4,
+    }) as any;
+
+    const prediction = await ag._forwardForEvaluation(ai, {
+      input: { question: 'q' },
+    });
+
+    expect(prediction.completionType).toBe('final');
+    expect(prediction.failureSignals).toEqual([
+      expect.objectContaining({
+        kind: 'resolved_error',
+        signature: BROKEN_HELPER,
+      }),
+    ]);
   });
 
   it('spends nothing on clean runs', async () => {

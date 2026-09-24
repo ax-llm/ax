@@ -1,0 +1,49 @@
+{
+  "base_url": "https://gateway.test/v1",
+  "expected_transport_request": {
+    "method": "POST",
+    "url": "https://gateway.test/v1/responses"
+  },
+  "kind": "ai_chat",
+  "model": "gpt-6-sol",
+  "name": "gpt-6-sol-openai-api-url-uses-responses",
+  "provider": "openai",
+  "request": {
+    "chat_prompt": [
+      {
+        "content": "ping",
+        "role": "user"
+      }
+    ],
+    "model_config": {
+      "stream": false
+    }
+  },
+  "transport_responses": [
+    {
+      "json": {
+        "id": "resp_gpt6_api_url",
+        "model": "gpt-6-sol",
+        "output": [
+          {
+            "content": [
+              {
+                "annotations": [],
+                "text": "ok",
+                "type": "output_text"
+              }
+            ],
+            "id": "msg_gpt6_api_url",
+            "type": "message"
+          }
+        ],
+        "usage": {
+          "input_tokens": 1,
+          "output_tokens": 1,
+          "total_tokens": 2
+        }
+      },
+      "status": 200
+    }
+  ]
+}

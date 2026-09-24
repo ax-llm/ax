@@ -139,7 +139,7 @@
     {
       "model_usage": {
         "ai": "google-gemini",
-        "model": "gemini-2.5-flash-native-audio-preview-12-2025",
+        "model": "gemini-3.8-live",
         "tokens": {
           "completion_tokens": 4,
           "prompt_tokens": 3,
@@ -170,7 +170,7 @@
           }
         }
       },
-      "model": "models/gemini-2.5-flash-native-audio-preview-12-2025",
+      "model": "models/gemini-3.8-live",
       "outputAudioTranscription": {},
       "systemInstruction": {
         "parts": [
@@ -182,7 +182,7 @@
     }
   },
   "kind": "ai_realtime",
-  "model": "gemini-2.5-flash-native-audio-preview-12-2025",
+  "model": "gemini-3.8-live",
   "name": "gemini-live-realtime-audio-session-and-events",
   "provider": "google-gemini",
   "request": {
@@ -213,6 +213,6 @@
         "role": "user"
       }
     ],
-    "model": "gemini-2.5-flash-native-audio-preview-12-2025"
+    "model": "gemini-3.8-live"
   }
 }

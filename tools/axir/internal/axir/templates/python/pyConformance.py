@@ -1056,6 +1056,10 @@ def _run_forward(fixture):
     except Exception as exc:
         expected = fixture.get("expected_error_contains")
         if expected and expected in str(exc):
+            if "expected_request_count" in fixture and len(client.requests) != fixture["expected_request_count"]:
+                raise FixtureError(f"expected {fixture['expected_request_count']} requests, got {len(client.requests)}")
+            if "expected_tool_calls" in fixture:
+                _assert_equal(tool_calls, fixture["expected_tool_calls"], "tool calls")
             return
         raise
     if "expected_error_contains" in fixture:
@@ -1079,6 +1083,11 @@ def _run_forward(fixture):
         for item in fixture.get("expected_request_contains") or []:
             if str(item) not in request_text:
                 raise FixtureError(f"request missing {item!r}: {request_text}")
+    if "expected_request_not_contains" in fixture:
+        request_text = json.dumps(client.requests, sort_keys=True)
+        for item in fixture.get("expected_request_not_contains") or []:
+            if str(item) in request_text:
+                raise FixtureError(f"request unexpectedly contains {item!r}: {request_text}")
     if "expected_tool_calls" in fixture:
         _assert_equal(tool_calls, fixture["expected_tool_calls"], "tool calls")
     if "expected_trace" in fixture:

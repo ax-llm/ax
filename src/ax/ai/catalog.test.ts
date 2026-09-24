@@ -142,10 +142,10 @@ describe('axGetSupportedAIModels', () => {
       (provider) => provider.name === 'anthropic'
     );
     const claude = anthropic?.models.find(
-      (model) => model.name === AxAIAnthropicModel.Claude37Sonnet
+      (model) => model.name === AxAIAnthropicModel.Claude5Sonnet
     );
 
-    expect(anthropic?.defaultModel).toBe(AxAIAnthropicModel.Claude37Sonnet);
+    expect(anthropic?.defaultModel).toBe(AxAIAnthropicModel.Claude5Sonnet);
     expect(claude?.capabilities).toMatchObject({
       thinkingBudget: true,
       showThoughts: true,
@@ -383,6 +383,60 @@ describe('axGetSupportedAIModels', () => {
 
   it.each([
     {
+      label: 'Claude 5.5 Opus',
+      name: AxAIAnthropicModel.Claude55Opus,
+      pricing: {
+        promptTokenCostPer1M: 4,
+        completionTokenCostPer1M: 20,
+        cacheReadTokenCostPer1M: 0.2,
+        cacheWriteTokenCostPer1M: 5,
+      },
+      fastPricing: {
+        fastPromptTokenCostPer1M: 8,
+        fastCompletionTokenCostPer1M: 40,
+        fastCacheReadTokenCostPer1M: 0.4,
+        fastCacheWriteTokenCostPer1M: 10,
+      },
+    },
+    {
+      label: 'Claude 5.1 Fable',
+      name: AxAIAnthropicModel.Claude51Fable,
+      pricing: {
+        promptTokenCostPer1M: 10,
+        completionTokenCostPer1M: 50,
+        cacheReadTokenCostPer1M: 0.25,
+        cacheWriteTokenCostPer1M: 12.5,
+      },
+      fastPricing: undefined,
+    },
+    {
+      label: 'Claude 5 Opus',
+      name: AxAIAnthropicModel.Claude5Opus,
+      pricing: {
+        promptTokenCostPer1M: 5,
+        completionTokenCostPer1M: 25,
+        cacheReadTokenCostPer1M: 0.5,
+        cacheWriteTokenCostPer1M: 6.25,
+      },
+      fastPricing: {
+        fastPromptTokenCostPer1M: 10,
+        fastCompletionTokenCostPer1M: 50,
+        fastCacheReadTokenCostPer1M: 1,
+        fastCacheWriteTokenCostPer1M: 12.5,
+      },
+    },
+    {
+      label: 'Claude 5 Fable',
+      name: AxAIAnthropicModel.Claude5Fable,
+      pricing: {
+        promptTokenCostPer1M: 10,
+        completionTokenCostPer1M: 50,
+        cacheReadTokenCostPer1M: 1,
+        cacheWriteTokenCostPer1M: 12.5,
+      },
+      fastPricing: undefined,
+    },
+    {
       label: 'Claude 5 Sonnet',
       name: AxAIAnthropicModel.Claude5Sonnet,
       pricing: {
@@ -438,6 +492,38 @@ describe('axGetSupportedAIModels', () => {
     if (fastPricing) {
       expect(models).toContainEqual(expect.objectContaining(fastPricing));
     }
+  });
+
+  it('defaults Gemini to 3.6 Flash and types transcription models as audio', () => {
+    const providers = axGetSupportedAIModels();
+    const gemini = providers.find(
+      (provider) => provider.name === 'google-gemini'
+    );
+    expect(gemini?.defaultModel).toBe(AxAIGoogleGeminiModel.Gemini36Flash);
+    expect(
+      gemini?.models.find(
+        (model) => model.name === AxAIGoogleGeminiModel.Gemini36Flash
+      )?.isDefault
+    ).toBe(true);
+
+    const transcribe = gemini?.models.find(
+      (model) => model.name === AxAIGoogleGeminiModel.Gemini35Transcribe
+    );
+    expect(transcribe?.type).toBe('audio');
+    expect(transcribe?.capabilities).toMatchObject({
+      audioInput: true,
+      audioOutput: false,
+    });
+
+    const gptTranscribe = providers
+      .find((provider) => provider.name === 'openai')
+      ?.models.find((model) => model.name === AxAIOpenAIModel.GPTTranscribe);
+    expect(gptTranscribe?.type).toBe('audio');
+    expect(gptTranscribe?.capabilities).toMatchObject({
+      audioInput: true,
+      audioOutput: false,
+      serviceTiers: [],
+    });
   });
 
   it('returns cloned metadata on each call', () => {

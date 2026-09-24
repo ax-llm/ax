@@ -1513,6 +1513,25 @@
       "verification": "Core-owned string/fluent boolean and class descriptions round-trip through signatures/schema and map to native criteria or ordinary readable prompts. Shared fixtures cover scalar/complex extraction, streaming label parsing, field order, nested fields, validation, and conventional-provider behavior. AxIR compiler go test -count=1 -timeout=30m ./... and strict check/lint/provenance/lowering passed. Final all-five release verification passed: C++ in the full test run, Python/Java/Go after nested-balancer test corrections, and Rust after routing validation correction. Conformance synchronization, generated package freshness, build, 320 focused TypeScript tests, tooling guards, generated examples, provider profiles, skills, and website checks passed. All 18 live Typesafe/Jev signature, native, and hybrid examples passed across TypeScript, Python, Java, C++, Go, and Rust using environment credentials."
     },
     {
+      "id": "axir-2026-09-23-port-speak-samplerate-channels-parsed-from-raw-pcm-mime-types",
+      "status": "open",
+      "title": "Port speak() sampleRate/channels parsed from raw-PCM mime types",
+      "createdAt": "2026-09-23",
+      "sourcePR": null,
+      "sourceCommit": "e690b4823b8309e258594064abe941d4cff6ef89",
+      "tsPaths": ["src/ax/ai/audio/util.ts"],
+      "portableSurface": "axai",
+      "impact": "TS speak() now reports sampleRate and channels from mime parameters such as audio/l16; rate=24000; channels=1 (Gemini 3.1 TTS). Generated ports return format and mime_type but not the parsed sampleRate/channels fields.",
+      "suggestedAxirWork": [
+        "Add or update the TS-derived conformance fixture.",
+        "Update AxIR/Core or descriptor data to match the portable TS behavior.",
+        "Run npm run axir:conformance:check and npm run test:axir."
+      ],
+      "completedAt": null,
+      "completedByCommit": null,
+      "verification": null
+    },
+    {
       "id": "axir-2026-09-23-port-the-expensive-model-confirmation-gate-now-reachable-from-ax",
       "status": "open",
       "title": "Port the expensive-model confirmation gate now reachable from AxGen",
@@ -1530,6 +1549,51 @@
         "Gate the AxIR chat path on the resolved model's catalog isExpensive flag and reject unless options.useExpensiveModel is 'yes' (model-key entry defaults included).",
         "Add a conformance fixture covering rejection without the opt-in and success via gen forward options and via gen constructor options.",
         "Run npm run axir:conformance:check and npm run test:axir."
+      ],
+      "completedAt": null,
+      "completedByCommit": null,
+      "verification": null
+    },
+    {
+      "id": "axir-2026-09-24-forward-apiurl-in-the-openai-responses-provider",
+      "status": "done",
+      "title": "Forward apiURL in the OpenAI Responses provider",
+      "createdAt": "2026-09-24",
+      "sourcePR": 678,
+      "sourceCommit": "9ade9be810c243395052be5486c8daf5cf667d44",
+      "tsPaths": [
+        "src/ax/ai/openai/responses_api_base.ts",
+        "src/ax/ai/provider_profiles.test.ts"
+      ],
+      "portableSurface": "axai",
+      "impact": "TypeScript AxAIOpenAIResponses now forwards the caller apiURL to AxAIOpenAIResponsesBase, so ai({ name: 'openai-responses', apiURL }) and the GPT-6 requests that ai({ name: 'openai', apiURL }) routes through Responses reach the configured host instead of api.openai.com. Generated OpenAI Responses clients that accept a base URL should send chat to that URL the same way.",
+      "suggestedAxirWork": [
+        "Add or update the TS-derived conformance fixture.",
+        "Update AxIR/Core or descriptor data to match the portable TS behavior.",
+        "Run npm run axir:conformance:check and npm run test:axir."
+      ],
+      "completedAt": "2026-09-24",
+      "completedByCommit": "ab5f72075aca7079259771c2e1d404d2d81438d5",
+      "verification": "No port change was needed. The generated ports already apply apiURL, baseUrl and base_url to every provider in provider_resolve_descriptor, and already send GPT-6 on the openai provider through Responses; only TypeScript dropped apiURL, which #678 fixed. New ai_chat fixtures openai-responses-chat-uses-api-url and gpt-6-sol-openai-api-url-uses-responses pass in Python, Java, C++, Go, and Rust, and copies expecting api.openai.com fail in the Python, Go, and Java runners. TypeScript provider_profiles.test.ts covers both paths and fails with the fix reverted."
+    },
+    {
+      "id": "axir-2026-09-24-port-the-text-output-contract-for-simple-axgen-signatures-withou",
+      "status": "open",
+      "title": "Port the text output contract for simple AxGen signatures without tools",
+      "createdAt": "2026-09-24",
+      "sourcePR": null,
+      "sourceCommit": "73f1160df",
+      "tsPaths": [
+        "src/ax/dsp/generate.ts",
+        "src/ax/dsp/sig.ts",
+        "src/ax/agent/agentInternal/signatureBuilders.ts"
+      ],
+      "portableSurface": "axgen",
+      "impact": "TypeScript selectStructuredOutputRung returns no rung when a signature has no object or object-array output (unless the provider requires structured output), so simple signatures use the field: value text contract with no response schema. Generated ports match this only when native tools are present. Tool-less simple signatures (responder, llmQuery, ACE, flow nodes, and user programs) still send a JSON response schema plus a JSON instruction turn under a text-mode system prompt.",
+      "suggestedAxirWork": [
+        "Drop the native-tools condition in @select_structured_output_rung so every simple signature selects no rung",
+        "Keep force_structured on Agent actor stages and live-verify responder and llmQuery stages in text mode",
+        "Update simple-forward and the other fixtures that pin response_format for simple signatures"
       ],
       "completedAt": null,
       "completedByCommit": null,

@@ -16,7 +16,7 @@ import type {
 } from './chat_types.js';
 import { AxAIOpenAIEmbedModel } from './chat_types.js';
 import { axModelInfoOpenAIResponses } from './info.js';
-import { axIsGPT6Astra } from './model_family.js';
+import { axIsGPT6Family } from './model_family.js';
 import { AxAIOpenAIResponsesImpl } from './responses_api.js';
 import type {
   AxAIOpenAIResponsesRealtimeAdapter,
@@ -291,6 +291,7 @@ export class AxAIOpenAIResponses<
   constructor({
     apiKey,
     credentialProvider,
+    apiURL,
     config,
     options,
     models,
@@ -338,8 +339,8 @@ export class AxAIOpenAIResponses<
         structuredOutputModes,
         media: {
           images: {
-            supported: axIsGPT6Astra(model),
-            formats: axIsGPT6Astra(model)
+            supported: axIsGPT6Family(model),
+            formats: axIsGPT6Family(model)
               ? ['image/jpeg', 'image/png', 'image/gif', 'image/webp']
               : [],
           },
@@ -359,10 +360,10 @@ export class AxAIOpenAIResponses<
           },
         },
         caching: {
-          supported: axIsGPT6Astra(model),
-          types: axIsGPT6Astra(model) ? ['ephemeral' as const] : [],
+          supported: axIsGPT6Family(model),
+          types: axIsGPT6Family(model) ? ['ephemeral' as const] : [],
         },
-        thinking: axIsGPT6Astra(model),
+        thinking: axIsGPT6Family(model),
         multiTurn: true,
         serviceTiers:
           mi?.supported?.serviceTiers ??
@@ -374,6 +375,7 @@ export class AxAIOpenAIResponses<
       apiKey,
       credentialProvider,
       credentialProfile: 'openai-responses',
+      apiURL,
       config: {
         ...axAIOpenAIResponsesDefaultConfig(),
         ...config,

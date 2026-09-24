@@ -1,0 +1,25 @@
+{
+  "expected_error_contains": "configuration_update requires GPT-6 Astra",
+  "expected_transport_request_count": 0,
+  "kind": "ai_chat",
+  "model": "gpt-6-luna",
+  "name": "gpt-6-luna-configuration-update-rejected",
+  "provider": "openai",
+  "request": {
+    "chat_prompt": [
+      {
+        "content": "reason",
+        "role": "user"
+      }
+    ],
+    "previous_response_id": "r1",
+    "session_input": [
+      {
+        "reasoning": {
+          "effort": "high"
+        },
+        "type": "configuration_update"
+      }
+    ]
+  }
+}

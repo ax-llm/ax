@@ -1,0 +1,45 @@
+{
+  "expected_setup": {
+    "setup": {
+      "generationConfig": {
+        "responseModalities": ["AUDIO"],
+        "speechConfig": {
+          "voiceConfig": {
+            "prebuiltVoiceConfig": {
+              "voiceName": "Kore"
+            }
+          }
+        },
+        "thinkingConfig": {
+          "includeThoughts": true,
+          "thinkingLevel": "low"
+        }
+      },
+      "model": "models/gemini-3.8-live-extended-thinking",
+      "outputAudioTranscription": {}
+    }
+  },
+  "kind": "ai_realtime",
+  "model": "gemini-3.8-live-extended-thinking",
+  "name": "gemini-38-live-extended-thinking-minimal-clamps-to-low",
+  "provider": "google-gemini",
+  "request": {
+    "audio": {
+      "output": {
+        "transcript": true,
+        "voice": "Kore"
+      }
+    },
+    "chat_prompt": [
+      {
+        "content": "Answer with audio.",
+        "role": "user"
+      }
+    ],
+    "model": "gemini-3.8-live-extended-thinking",
+    "model_config": {
+      "showThoughts": true,
+      "thinkingTokenBudget": "minimal"
+    }
+  }
+}

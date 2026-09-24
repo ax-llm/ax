@@ -543,6 +543,7 @@ static void owned_child_controls(){
   std::cout<<"cpp actual child delegation, scoped controls, usage, and cancellation passed\n";
 }
 #if defined(AXLLM_ENABLE_CURL)
+#include <cerrno>
 #include <sys/socket.h>
 #include <netinet/in.h>
 #include <unistd.h>
@@ -566,7 +567,9 @@ static void mcp_http_context_cancellation(){
     size_t read=0;while(read<length){auto n=recv(connection,&body[read],length-read,0);if(n<=0)throw std::runtime_error("missing body");read+=n;}
     if(body.find("probe")==std::string::npos)throw std::runtime_error("lost tool arguments");
     std::string response="HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: 100\r\n\r\n";send(connection,response.data(),response.size(),0);started.set_value();announced=true;
-    auto n=recv(connection,&byte,1,0);close(connection);connection=-1;if(n!=0)throw std::runtime_error("cancelled HTTP stayed open");
+    // A client that closes with these headers unread makes its kernel send RST instead of FIN.
+    auto n=recv(connection,&byte,1,0);auto error=n<0?errno:0;close(connection);connection=-1;
+    if(n!=0&&error!=ECONNRESET&&error!=ECONNABORTED)throw std::runtime_error("cancelled HTTP stayed open");
     }catch(...){if(connection>=0)close(connection);if(listener>=0)close(listener);if(!announced)started.set_exception(std::current_exception());throw;}
   });
   class NativeTransport final:public AxMCPTransport{

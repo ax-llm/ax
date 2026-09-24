@@ -1,4 +1,5 @@
 import dev.axllm.ax.*;
+import java.nio.charset.StandardCharsets;
 import java.util.*;
 import java.util.concurrent.*;
 import java.util.concurrent.atomic.*;
@@ -28,6 +29,32 @@ public final class TypesafeMCPTest {
       var abort=new AtomicBoolean();var cancelled=pool.submit(()->transport.sendBatch(batch,abort::get));socket.sent();abort.set(true);error(cancelled,"cancelled");
       var closed=pool.submit(()->transport.sendBatch(batch));socket.sent();transport.close();error(closed,"closed");
     }finally{transport.close();pool.shutdownNow();check(pool.awaitTermination(2,TimeUnit.SECONDS),"request workers leaked");}
+  }
+  static byte[] frame(int head,byte[] payload){var out=new java.io.ByteArrayOutputStream();out.write(head);out.write(payload.length);out.writeBytes(payload);return out.toByteArray();}
+  // Minimal WebSocket server: completes one handshake, reads the request frame, then replies with a
+  // binary message in two fragments that split the two-byte UTF-8 "é".
+  static Void binaryPeer(java.net.ServerSocket server)throws Exception{
+    try(var client=server.accept()){
+      var in=new java.io.DataInputStream(client.getInputStream());var out=client.getOutputStream();var head=new StringBuilder();
+      while(!head.toString().endsWith("\r\n\r\n")){int next=in.read();if(next<0)throw new java.io.EOFException("handshake");head.append((char)next);}
+      var key=java.util.regex.Pattern.compile("(?i)sec-websocket-key: *(\\S+)").matcher(head);check(key.find(),"handshake has no key");
+      var accept=Base64.getEncoder().encodeToString(java.security.MessageDigest.getInstance("SHA-1").digest((key.group(1)+"258EAFA5-E914-47DA-95CA-C5AB0DC85B11").getBytes(StandardCharsets.US_ASCII)));
+      out.write(("HTTP/1.1 101 Switching Protocols\r\nUpgrade: websocket\r\nConnection: Upgrade\r\nSec-WebSocket-Accept: "+accept+"\r\n\r\n").getBytes(StandardCharsets.US_ASCII));
+      in.readUnsignedByte();int length=in.readUnsignedByte()&0x7f;if(length==126)length=in.readUnsignedShort();in.readNBytes(4+length);
+      byte[] reply="{\"id\":1,\"result\":\"café\"}".getBytes(StandardCharsets.UTF_8);int cut=0;while(reply[cut]!=(byte)0xC3)cut++;cut++;
+      out.write(frame(0x02,Arrays.copyOfRange(reply,0,cut)));out.write(frame(0x80,Arrays.copyOfRange(reply,cut,reply.length)));out.flush();
+      in.read();return null;
+    }
+  }
+  static void nativeBinaryFrames()throws Exception{
+    var pool=Executors.newFixedThreadPool(2);
+    try(var server=new java.net.ServerSocket(0,1,java.net.InetAddress.getLoopbackAddress())){
+      server.setSoTimeout(5000);var peer=pool.submit(()->binaryPeer(server));
+      var transport=new AxMCPWebSocketTransport("ws://127.0.0.1:"+server.getLocalPort());
+      try{var reply=pool.submit(()->transport.send(Map.of("id",1,"method","ping")));check("café".equals(reply.get(5,TimeUnit.SECONDS).get("result")),"binary reply");}
+      finally{transport.close();}
+      peer.get(5,TimeUnit.SECONDS);
+    }finally{pool.shutdownNow();}
   }
   @SuppressWarnings("unchecked") static void nativeClient()throws Exception{
     var discovery=new AtomicInteger();var credentials=new AtomicInteger();
@@ -111,5 +138,5 @@ public final class TypesafeMCPTest {
       check(sockets.size()==1 && sockets.get(0).sent.isEmpty(),"late server reply reopened the closed transport");
     } finally {release.countDown();transport.close();}
   }
-  public static void main(String[] args)throws Exception{websocket();nativeClient();nestedValidation();combinedCancellation();lateServerReply();System.out.println("Java Typesafe native client and MCP WebSocket cleanup passed");}
+  public static void main(String[] args)throws Exception{websocket();nativeBinaryFrames();nativeClient();nestedValidation();combinedCancellation();lateServerReply();System.out.println("Java Typesafe native client and MCP WebSocket cleanup passed");}
 }

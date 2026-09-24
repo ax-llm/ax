@@ -61,6 +61,7 @@ import { axResolveOpenAIChatReasoningEffort } from './effort.js';
 import { axModelInfoOpenAI } from './info.js';
 import {
   axIsGPT6Astra,
+  axIsGPT6Family,
   axSupportsOpenAIBreakpointCaching,
 } from './model_family.js';
 import {
@@ -573,7 +574,7 @@ class AxAIOpenAIImpl<
         ? {
             prompt_cache_options: {
               mode: 'explicit' as const,
-              ...(axIsGPT6Astra(model) ? { ttl: '30m' as const } : {}),
+              ...(axIsGPT6Family(model) ? { ttl: '30m' as const } : {}),
             },
           }
         : {}),
@@ -657,13 +658,21 @@ class AxAIOpenAIImpl<
       );
     }
 
-    if (this.promptCaching && axIsGPT6Astra(model)) {
-      if (reqValue.reasoning_effort === 'none')
+    if (this.promptCaching && axIsGPT6Family(model)) {
+      if (axIsGPT6Astra(model) && reqValue.reasoning_effort === 'none')
         throw new Error('GPT-6 Astra requires reasoning; use low or higher');
       if (reqValue.reasoning_effort === 'minimal')
         reqValue.reasoning_effort = 'low';
       delete reqValue.temperature;
       delete reqValue.top_p;
+      // Chat Completions refuses function tools on GPT-6 while it reasons, and
+      // an omitted effort means `medium`. Astra is refused earlier, in
+      // validateChatReq, because it cannot disable reasoning at all.
+      if (reqValue.tools?.length && reqValue.reasoning_effort !== 'none') {
+        throw new Error(
+          `${String(model)} supports function tools on Chat Completions only with reasoning disabled; use the openai-responses provider or set thinkingTokenBudget to 'none'`
+        );
+      }
     }
 
     if (this.chatReqUpdater) {
@@ -1309,7 +1318,7 @@ export class AxAIOpenAI<TModelKey = string> extends AxAIOpenAIBase<
             )[],
           },
           audio: {
-            supported: !axIsGPT6Astra(model),
+            supported: !axIsGPT6Family(model),
             formats:
               isAudioModel || isRealtimeModel
                 ? ['wav', 'mp3', 'pcm16']

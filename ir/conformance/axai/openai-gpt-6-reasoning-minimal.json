@@ -1,0 +1,59 @@
+{
+  "expected_transport_json_absent": ["temperature", "top_p"],
+  "expected_transport_request": {
+    "json": {
+      "model": "gpt-6-luna",
+      "reasoning": {
+        "effort": "low"
+      },
+      "stream": false
+    },
+    "method": "POST",
+    "url": "https://api.openai.com/v1/responses"
+  },
+  "kind": "ai_chat",
+  "model": "gpt-6-luna",
+  "name": "openai-gpt-6-reasoning-minimal",
+  "provider": "openai",
+  "request": {
+    "chat_prompt": [
+      {
+        "content": "reason",
+        "role": "user"
+      }
+    ],
+    "model_config": {
+      "stream": false,
+      "temperature": 0.5,
+      "thinkingTokenBudget": "minimal",
+      "topP": 0.9
+    }
+  },
+  "transport_responses": [
+    {
+      "json": {
+        "id": "resp_gpt6",
+        "model": "gpt-6-luna",
+        "output": [
+          {
+            "content": [
+              {
+                "annotations": [],
+                "text": "ok",
+                "type": "output_text"
+              }
+            ],
+            "id": "msg_gpt6",
+            "type": "message"
+          }
+        ],
+        "usage": {
+          "input_tokens": 1,
+          "output_tokens": 1,
+          "total_tokens": 2
+        }
+      },
+      "status": 200
+    }
+  ]
+}

@@ -1,0 +1,38 @@
+{
+  "expected_transport_request": {
+    "json": {
+      "reasoning": {
+        "effort": "none"
+      }
+    },
+    "url": "https://api.openai.com/v1/responses"
+  },
+  "kind": "ai_chat",
+  "model": "gpt-6-sol",
+  "name": "gpt-6-sol-native-none-accepted",
+  "provider": "openai",
+  "request": {
+    "chat_prompt": [
+      {
+        "content": "answer",
+        "role": "user"
+      }
+    ],
+    "model_config": {
+      "reasoning": {
+        "effort": "none"
+      },
+      "stream": false
+    }
+  },
+  "transport_responses": [
+    {
+      "json": {
+        "id": "r1",
+        "model": "gpt-6-sol",
+        "output": []
+      },
+      "status": 200
+    }
+  ]
+}

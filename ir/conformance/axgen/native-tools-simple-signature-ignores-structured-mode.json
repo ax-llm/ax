@@ -1,0 +1,63 @@
+{
+  "expected_output": {
+    "answer": "Found Ax docs"
+  },
+  "expected_request_count": 2,
+  "expected_request_not_contains": [
+    "__axOutput",
+    "response_format",
+    "Emit the complete structured output"
+  ],
+  "expected_tool_calls": [
+    {
+      "args": {
+        "query": "ax docs"
+      },
+      "name": "search"
+    }
+  ],
+  "features": {
+    "functions": true,
+    "structured_outputs": false
+  },
+  "input": {
+    "query": "ax docs"
+  },
+  "kind": "forward",
+  "name": "native-tools-simple-signature-ignores-structured-mode",
+  "options": {
+    "structured_output_mode": "function"
+  },
+  "responses": [
+    {
+      "content": "",
+      "function_calls": [
+        {
+          "id": "call_1",
+          "name": "search",
+          "params": {
+            "query": "ax docs"
+          }
+        }
+      ]
+    },
+    {
+      "content": "Answer: Found Ax docs"
+    }
+  ],
+  "signature": "query:string -> answer:string",
+  "tools": [
+    {
+      "args": {
+        "query": {
+          "type": "string"
+        }
+      },
+      "description": "Search docs",
+      "name": "search",
+      "result": {
+        "title": "Ax docs"
+      }
+    }
+  ]
+}

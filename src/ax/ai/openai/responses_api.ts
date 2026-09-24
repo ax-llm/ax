@@ -23,7 +23,7 @@ import type {
 } from '../types.js';
 import { axResolveOpenAIPromptCacheKey } from './caching.js';
 import { axResolveOpenAIResponsesReasoningEffort } from './effort.js';
-import { axIsGPT6Astra } from './model_family.js';
+import { axIsGPT6Astra, axIsGPT6Family } from './model_family.js';
 import { axValidateOpenAIResponseRequest } from './responses_client.js';
 import type {
   AxAIOpenAIResponsesCodeInterpreterToolCall,
@@ -109,7 +109,7 @@ export class AxAIOpenAIResponsesImpl<
   ) {}
 
   supportsImplicitCaching = (model: TModel): boolean =>
-    axIsGPT6Astra(model) || (this.config.promptCaching ?? false);
+    axIsGPT6Family(model) || (this.config.promptCaching ?? false);
 
   getTokenUsage(): Readonly<AxTokenUsage> | undefined {
     return this.tokensUsed;
@@ -741,7 +741,7 @@ export class AxAIOpenAIResponsesImpl<
       );
     }
 
-    if (axIsGPT6Astra(model)) {
+    if (axIsGPT6Family(model)) {
       if (
         config.contextCache !== undefined ||
         req.chatPrompt.some((m) => 'cache' in m && m.cache) ||

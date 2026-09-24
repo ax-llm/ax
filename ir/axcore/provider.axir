@@ -77,11 +77,8 @@ module @ax.provider version "0.1" {
         %has_cache_flag = core.call intrinsic.or(%has_cache_flag, %fn_cache)
       }
       %cache_requested = core.call intrinsic.or(%has_context_cache, %has_cache_flag)
-      %is_gpt_56_base = core.call intrinsic.eq(%model, "gpt-5.6")
-      %is_gpt_56_tier = core.call intrinsic.string.starts_with(%model, "gpt-5.6-")
-      %is_gpt_56 = core.call intrinsic.or(%is_gpt_56_base, %is_gpt_56_tier)
-      %is_astra = core.call intrinsic.string.starts_with(%model, "gpt-6-astra")
-      %cache_model = core.call intrinsic.or(%is_gpt_56, %is_astra)
+      %is_gpt6 = core.call @openai_is_gpt6_family_impl(%model)
+      %cache_model = core.call @openai_supports_breakpoint_caching_impl(%model)
       %cache_provider_and_model = core.call intrinsic.and(%prompt_caching, %cache_model)
       %cache_enabled = core.call intrinsic.and(%cache_provider_and_model, %cache_requested)
       %message_index = core.const 0
@@ -148,6 +145,9 @@ module @ax.provider version "0.1" {
         core.if %has_markers {
           %prompt_cache_options = core.map
           core.set %prompt_cache_options["mode"] = "explicit"
+          core.if %is_gpt6 {
+            core.set %prompt_cache_options["ttl"] = "30m"
+          }
           core.set %payload["prompt_cache_options"] = %prompt_cache_options
         }
         %prompt_key_snake = core.get %options["prompt_cache_key"]
@@ -277,10 +277,13 @@ module @ax.provider version "0.1" {
         core.set %payload["stream_options"] = %stream_options
       }
       %configured_model = core.get %payload["model"] default ""
-      %astra = core.call intrinsic.string.starts_with(%configured_model, "gpt-6-astra")
-      core.if %astra {
+      %gpt6 = core.call @openai_is_gpt6_family_impl(%configured_model)
+      core.if %gpt6 {
         core.call intrinsic.map.delete(%payload, "temperature")
         core.call intrinsic.map.delete(%payload, "top_p")
+      }
+      %astra = core.call @openai_is_gpt6_astra_impl(%configured_model)
+      core.if %astra {
         core.call intrinsic.map.delete(%payload, "presence_penalty")
         core.call intrinsic.map.delete(%payload, "frequency_penalty")
         core.call intrinsic.map.delete(%payload, "logprobs")
@@ -291,6 +294,93 @@ module @ax.provider version "0.1" {
     }
   }
 
+  // Amazon Bedrock names OpenAI models `openai.<model>` and its cross-Region
+  // inference profiles `<geography>.openai.<model>` (`us.`, `global.`,
+  // `us-gov.`). A model keeps its contracts on any host, so every family
+  // pattern accepts that prefix; the geography is matched by shape.
+  op ax.provider.semantic @openai_is_gpt56_family_impl {
+    attr core_kind = "func"
+    attr emit_module = "ai"
+    attr private = true
+    tag "openai-gpt56-family-core-helper"
+    type signature = "(string) -> bool"
+    body @entry(%model: string) {
+      %is_gpt56 = core.regex_match %model pattern "^(?:(?:[a-z]+(?:-[a-z]+)*\\.)?openai\\.)?gpt-5\\.6($|-)"
+      core.return %is_gpt56
+    }
+  }
+
+  op ax.provider.semantic @openai_is_gpt6_family_impl {
+    attr core_kind = "func"
+    attr emit_module = "ai"
+    attr private = true
+    tag "openai-gpt6-family-core-helper"
+    type signature = "(string) -> bool"
+    body @entry(%model: string) {
+      %is_gpt6 = core.regex_match %model pattern "^(?:(?:[a-z]+(?:-[a-z]+)*\\.)?openai\\.)?gpt-6-(astra|sol|luna)($|-)"
+      core.return %is_gpt6
+    }
+  }
+
+  op ax.provider.semantic @openai_is_gpt6_astra_impl {
+    attr core_kind = "func"
+    attr emit_module = "ai"
+    attr private = true
+    tag "openai-gpt6-astra-core-helper"
+    type signature = "(string) -> bool"
+    body @entry(%model: string) {
+      %is_astra = core.regex_match %model pattern "^(?:(?:[a-z]+(?:-[a-z]+)*\\.)?openai\\.)?gpt-6-astra($|-)"
+      core.return %is_astra
+    }
+  }
+
+  op ax.provider.semantic @openai_is_bedrock_model_impl {
+    attr core_kind = "func"
+    attr emit_module = "ai"
+    attr private = true
+    tag "openai-bedrock-model-core-helper"
+    type signature = "(string) -> bool"
+    body @entry(%model: string) {
+      %is_bedrock = core.regex_match %model pattern "^(?:[a-z]+(?:-[a-z]+)*\\.)?openai\\."
+      core.return %is_bedrock
+    }
+  }
+
+  // Bedrock caches these models' prompts on the Responses API only.
+  op ax.provider.semantic @openai_supports_breakpoint_caching_impl {
+    attr core_kind = "func"
+    attr emit_module = "ai"
+    attr private = true
+    tag "openai-breakpoint-caching-core-helper"
+    type signature = "(string) -> bool"
+    body @entry(%model: string) {
+      %is_gpt56 = core.call @openai_is_gpt56_family_impl(%model)
+      %is_gpt6 = core.call @openai_is_gpt6_family_impl(%model)
+      %family = core.call intrinsic.or(%is_gpt56, %is_gpt6)
+      %is_bedrock = core.call @openai_is_bedrock_model_impl(%model)
+      %on_openai = core.call intrinsic.not(%is_bedrock)
+      %supported = core.call intrinsic.and(%family, %on_openai)
+      core.return %supported
+    }
+  }
+
+  // Async tools, mid-turn steering and reasoning updates are Astra features of
+  // OpenAI's own API; OpenAI's Bedrock guide lists all three as not available.
+  op ax.provider.semantic @openai_supports_chat_sessions_impl {
+    attr core_kind = "func"
+    attr emit_module = "ai"
+    attr private = true
+    tag "openai-chat-sessions-core-helper"
+    type signature = "(string) -> bool"
+    body @entry(%model: string) {
+      %is_astra = core.call @openai_is_gpt6_astra_impl(%model)
+      %is_bedrock = core.call @openai_is_bedrock_model_impl(%model)
+      %on_openai = core.call intrinsic.not(%is_bedrock)
+      %supported = core.call intrinsic.and(%is_astra, %on_openai)
+      core.return %supported
+    }
+  }
+
   op ax.provider.semantic @openai_reasoning_effort {
     attr core_kind = "func"
     attr effect = "throws"
@@ -298,17 +388,16 @@ module @ax.provider version "0.1" {
     tag "openai-reasoning-effort"
     type signature = "(model:string, budget:json) -> json throws"
     body @entry(%model: string, %budget: json) {
-      %is_gpt56_alias = core.call intrinsic.eq(%model, "gpt-5.6")
-      %is_gpt56_suffix = core.call intrinsic.string.starts_with(%model, "gpt-5.6-")
-      %is_gpt56 = core.call intrinsic.or(%is_gpt56_alias, %is_gpt56_suffix)
-      %is_astra = core.call intrinsic.string.starts_with(%model, "gpt-6-astra")
-      %modern = core.call intrinsic.or(%is_gpt56, %is_astra)
+      %is_gpt56 = core.call @openai_is_gpt56_family_impl(%model)
+      %is_astra = core.call @openai_is_gpt6_astra_impl(%model)
+      %is_gpt6 = core.call @openai_is_gpt6_family_impl(%model)
+      %modern = core.call intrinsic.or(%is_gpt56, %is_gpt6)
       %is_none = core.call intrinsic.eq(%budget, "none")
       core.if %is_none {
         core.if %is_astra {
           core.raise "GPT-6 Astra does not support disabling reasoning; use low or higher"
         }
-        core.if %is_gpt56 {
+        core.if %modern {
           core.return "none"
         }
         %none = core.call intrinsic.none()
@@ -3469,7 +3558,7 @@ module @ax.provider version "0.1" {
         %error = core.call intrinsic.ai.error.unsupported("Gemini Live audio does not support structured response formats")
         core.raise %error
       }
-      %default_model = core.get %descriptor["defaultModel"] default "gemini-2.5-flash-native-audio-preview-12-2025"
+      %default_model = core.get %descriptor["defaultModel"] default "gemini-3.8-live"
       %request_model = core.get %request["model"] default %default_model
       %model_prefix = core.call intrinsic.contains(%request_model, "models/")
       %model = core.let %request_model
@@ -3910,9 +3999,9 @@ module @ax.provider version "0.1" {
       }
       %session_profile = core.call @provider_chat_profile(%profile, %model)
       %responses = core.call intrinsic.eq(%session_profile, "openai-responses")
-      %astra_model = core.call intrinsic.string.starts_with(%model, "gpt-6-astra")
-      %astra_cache = core.call intrinsic.and(%responses, %astra_model)
-      core.if %astra_cache {
+      %session_model = core.call @openai_supports_chat_sessions_impl(%model)
+      %astra_session = core.call intrinsic.and(%responses, %session_model)
+      core.if %astra_session {
         core.set %features["asyncTools"] = true
         core.set %features["reasoningUpdates"] = true
         %socket_snake = core.get %options["web_socket_transport"] default null
@@ -3925,6 +4014,10 @@ module @ax.provider version "0.1" {
         %host_available = core.get %options["session_web_socket_available"] default false
         %can_steer = core.call intrinsic.or(%hook_present, %host_available)
         core.set %features["nativeSteering"] = %can_steer
+      }
+      %gpt6_model = core.call @openai_is_gpt6_family_impl(%model)
+      %gpt6_cache = core.call intrinsic.and(%responses, %gpt6_model)
+      core.if %gpt6_cache {
         %cache_features = core.map
         %cache_types = core.list
         core.append %cache_types, "ephemeral"
@@ -4949,8 +5042,8 @@ module @ax.provider version "0.1" {
           }
         }
       }
-      %astra = core.call intrinsic.string.starts_with(%model, "gpt-6-astra")
-      %session_capable = core.call intrinsic.and(%is_responses, %astra)
+      %session_model = core.call @openai_supports_chat_sessions_impl(%model)
+      %session_capable = core.call intrinsic.and(%is_responses, %session_model)
       core.if %session_capable {
         %empty_session_state = core.map
         %session_state = core.get %state["session_wire"] default %empty_session_state
@@ -5649,7 +5742,7 @@ module @ax.provider version "0.1" {
                 core.set %summary_part["text"] = %summary_text
                 %summary = core.list
                 %has_summary_text = core.call intrinsic.truthy(%summary_text)
-                %astra_summary = core.call intrinsic.string.starts_with(%model, "gpt-6-astra")
+                %astra_summary = core.call @openai_is_gpt6_astra_impl(%model)
                 %retain_empty_summary = core.call intrinsic.not(%astra_summary)
                 %include_summary = core.call intrinsic.or(%has_summary_text, %retain_empty_summary)
                 core.if %include_summary {
@@ -5760,16 +5853,14 @@ module @ax.provider version "0.1" {
         core.if %is_json_schema {
           %schema = core.get %response_format["schema"]
           core.set %format["type"] = "json_schema"
-          %astra_format = core.call intrinsic.string.starts_with(%model, "gpt-6-astra")
-          core.if %astra_format {
-            %schema_body = core.get %schema["schema"] default %schema
-            %schema_name = core.get %schema["name"] default "output"
-            %schema_strict = core.get %schema["strict"] default true
-            core.set %format["name"] = %schema_name
-            core.set %format["schema"] = %schema_body
+          %schema_body = core.get %schema["schema"] default %schema
+          %schema_name = core.get %schema["name"] default "output"
+          core.set %format["name"] = %schema_name
+          core.set %format["schema"] = %schema_body
+          %schema_strict = core.get %schema["strict"]
+          %has_strict = core.call intrinsic.is_not_none(%schema_strict)
+          core.if %has_strict {
             core.set %format["strict"] = %schema_strict
-          } else {
-            core.set %format["json_schema"] = %schema
           }
         } else {
           core.set %format["type"] = %format_type
@@ -5851,10 +5942,13 @@ module @ax.provider version "0.1" {
         }
       }
       %configured_model = core.get %payload["model"] default ""
-      %astra = core.call intrinsic.string.starts_with(%configured_model, "gpt-6-astra")
-      core.if %astra {
+      %gpt6 = core.call @openai_is_gpt6_family_impl(%configured_model)
+      core.if %gpt6 {
         core.call intrinsic.map.delete(%payload, "temperature")
         core.call intrinsic.map.delete(%payload, "top_p")
+      }
+      %astra = core.call @openai_is_gpt6_astra_impl(%configured_model)
+      core.if %astra {
         core.call intrinsic.map.delete(%payload, "presence_penalty")
         core.call intrinsic.map.delete(%payload, "frequency_penalty")
         core.call intrinsic.map.delete(%payload, "logprobs")
@@ -6819,9 +6913,19 @@ module @ax.provider version "0.1" {
         %empty_parts = core.list
         %parts = core.get %content["parts"] default %empty_parts
         core.for %part in %parts {
+          %empty_transcription = core.map
+          %transcription = core.get %part["audioTranscription"] default %empty_transcription
+          %transcribed = core.get %transcription["text"]
+          %has_transcribed = core.call intrinsic.is_not_none(%transcribed)
+          core.if %has_transcribed {
+            core.append %text_parts, %transcribed
+          }
           %text = core.get %part["text"]
           %has_text = core.call intrinsic.is_not_none(%text)
-          core.if %has_text {
+          %is_thought = core.get %part["thought"] default false
+          %not_thought = core.call intrinsic.not(%is_thought)
+          %keep_text = core.call intrinsic.and(%has_text, %not_thought)
+          core.if %keep_text {
             core.append %text_parts, %text
           }
         }
@@ -6842,6 +6946,7 @@ module @ax.provider version "0.1" {
     body @entry(%raw: json, %request: json) {
       %audio = core.get %raw["audio"]
       %format = core.get %request["format"] default "wav"
+      %mime_type = core.let ""
       %empty_candidates = core.list
       %candidates = core.get %raw["candidates"] default %empty_candidates
       core.for %candidate in %candidates {
@@ -6854,6 +6959,8 @@ module @ax.provider version "0.1" {
           %has_data = core.call intrinsic.is_not_none(%data)
           core.if %has_data {
             %audio = core.let %data
+            %part_mime = core.get %inline_data["mimeType"] default ""
+            %mime_type = core.let %part_mime
           }
         }
       }
@@ -6862,9 +6969,28 @@ module @ax.provider version "0.1" {
       } else {
         %audio = core.let %raw
       }
+      %mime_lower = core.call intrinsic.string.lower(%mime_type)
+      %is_pcm_mime = core.call intrinsic.contains(%mime_lower, "pcm")
+      core.if %is_pcm_mime {
+        %format = core.let "pcm"
+      }
+      %is_pcm16_mime = core.call intrinsic.contains(%mime_lower, "pcm16")
+      %is_l16_mime = core.call intrinsic.contains(%mime_lower, "l16")
+      %is_linear16 = core.call intrinsic.or(%is_pcm16_mime, %is_l16_mime)
+      core.if %is_linear16 {
+        %format = core.let "pcm16"
+      }
+      %is_wav_mime = core.call intrinsic.contains(%mime_lower, "wav")
+      core.if %is_wav_mime {
+        %format = core.let "wav"
+      }
       %out = core.map
       core.set %out["audio"] = %audio
       core.set %out["format"] = %format
+      %has_mime = core.call intrinsic.truthy(%mime_type)
+      core.if %has_mime {
+        core.set %out["mime_type"] = %mime_type
+      }
       core.return %out
     }
   }
@@ -7378,7 +7504,7 @@ module @ax.provider version "0.1" {
         core.set %payload["systemInstruction"] = %system_instruction
       }
       core.set %payload["contents"] = %contents
-      %model = core.get %request["model"] default "gemini-2.5-flash"
+      %model = core.get %request["model"] default "gemini-3.6-flash"
       %is_gemini38_flash = core.call intrinsic.eq(%model, "gemini-3.8-flash")
       %is_gemini37_flash = core.call intrinsic.eq(%model, "gemini-3.7-flash")
       %is_gemini36_flash = core.call intrinsic.eq(%model, "gemini-3.6-flash")
@@ -7490,6 +7616,8 @@ module @ax.provider version "0.1" {
       %is_current_flash = core.call intrinsic.or(%is_38_flash, %is_37_flash)
       %is_31_pro = core.call intrinsic.contains(%model, "gemini-3.1-pro")
       %no_minimal_name = core.call intrinsic.or(%is_current_flash, %is_31_pro)
+      %is_38_live_thinking = core.call intrinsic.contains(%model, "gemini-3.8-live-extended-thinking")
+      %no_minimal_name = core.call intrinsic.or(%no_minimal_name, %is_38_live_thinking)
       %no_minimal = core.call intrinsic.and(%is_gemini3, %no_minimal_name)
       %clamp_minimal = core.call intrinsic.and(%no_minimal, %is_minimal)
       core.if %clamp_minimal {
@@ -7508,6 +7636,10 @@ module @ax.provider version "0.1" {
     type signature = "(json, string, json) -> void throws"
     body @entry(%payload: json, %model: string, %model_config: json) {
       %thinking_config = core.map
+      %thinking_unsupported = core.call intrinsic.eq(%model, "gemini-3.8-live")
+      core.if %thinking_unsupported {
+        core.return
+      }
       %has_thinking = core.let false
       %budget_is_none = core.let false
       %is_gemini3 = core.call intrinsic.contains(%model, "gemini-3")
@@ -7661,6 +7793,14 @@ module @ax.provider version "0.1" {
       }
       core.if %budget_is_none {
         core.set %thinking_config["includeThoughts"] = false
+        %has_thinking = core.let true
+      }
+      %requires_level = core.call intrinsic.eq(%model, "gemini-3.8-live-extended-thinking")
+      %current_level = core.get %thinking_config["thinkingLevel"]
+      %missing_level = core.call intrinsic.is_none(%current_level)
+      %default_level = core.call intrinsic.and(%requires_level, %missing_level)
+      core.if %default_level {
+        core.set %thinking_config["thinkingLevel"] = "medium"
         %has_thinking = core.let true
       }
       core.if %has_thinking {
@@ -8310,11 +8450,11 @@ module @ax.provider version "0.1" {
     type signature = "(AxChatRequest, supports_none?:bool) -> json throws"
     body @entry(%request: AxChatRequest, %supports_none: bool) {
       %payload = core.map
-      %model = core.get %request["model"] default "claude-3-7-sonnet-latest"
+      %model = core.get %request["model"] default "claude-sonnet-5"
       core.set %payload["model"] = %model
       %empty_prompt = core.list
       %prompt = core.get %request["chat_prompt"] default %empty_prompt
-      %supports_mid = core.call intrinsic.string.starts_with(%model, "claude-opus-4-8")
+      %supports_mid = core.call @anthropic_keeps_mid_conversation_system_impl(%model)
       %system = core.list
       %messages = core.list
       %seen_non_system = core.let false
@@ -8452,6 +8592,24 @@ module @ax.provider version "0.1" {
         core.set %output_config["effort"] = %effort
         core.set %payload["output_config"] = %output_config
       }
+      %empty_thinking = core.map
+      %final_thinking = core.get %payload["thinking"] default %empty_thinking
+      %final_thinking_type = core.get %final_thinking["type"] default ""
+      %thinking_disabled = core.call intrinsic.eq(%final_thinking_type, "disabled")
+      %empty_output = core.map
+      %final_output = core.get %payload["output_config"] default %empty_output
+      %final_effort = core.get %final_output["effort"] default ""
+      %is_xhigh_effort = core.call intrinsic.eq(%final_effort, "xhigh")
+      %is_max_effort = core.call intrinsic.eq(%final_effort, "max")
+      %above_high = core.call intrinsic.or(%is_xhigh_effort, %is_max_effort)
+      %is_opus_5 = core.regex_match %model pattern "claude-opus-5(?:$|[^0-9-]|-(?:[0-9]{3,}|[^0-9]))"
+      %disabled_opus_5 = core.call intrinsic.and(%thinking_disabled, %is_opus_5)
+      %rejected_effort = core.call intrinsic.and(%disabled_opus_5, %above_high)
+      core.if %rejected_effort {
+        %effort_message = core.call intrinsic.string.format("{} cannot disable thinking at effort '{}'; use effort 'high' or below, or keep thinking on", %model, %final_effort)
+        %effort_error = core.call intrinsic.ai.error.unsupported(%effort_message)
+        core.raise %effort_error
+      }
       core.return
     }
   }
@@ -8467,10 +8625,64 @@ module @ax.provider version "0.1" {
       %is_47 = core.call intrinsic.contains(%model, "claude-opus-4-7")
       %is_46 = core.call intrinsic.contains(%model, "claude-opus-4-6")
       %is_sonnet_5 = core.call intrinsic.contains(%model, "claude-sonnet-5")
+      %is_opus_5 = core.call intrinsic.contains(%model, "claude-opus-5")
+      %is_fable_5 = core.call intrinsic.contains(%model, "claude-fable-5")
       %is_47_plus = core.call intrinsic.or(%is_48, %is_47)
       %is_adaptive_opus = core.call intrinsic.or(%is_47_plus, %is_46)
       %is_adaptive = core.call intrinsic.or(%is_adaptive_opus, %is_sonnet_5)
+      %is_adaptive = core.call intrinsic.or(%is_adaptive, %is_opus_5)
+      %is_adaptive = core.call intrinsic.or(%is_adaptive, %is_fable_5)
       core.return %is_adaptive
+    }
+  }
+
+  op ax.provider.semantic @anthropic_thinking_always_on_impl {
+    attr core_kind = "func"
+    attr emit_module = "ai"
+    attr private = true
+    tag "anthropic-thinking-always-on-core-helper"
+    type signature = "(string) -> bool"
+    body @entry(%model: string) {
+      %is_opus_55 = core.regex_match %model pattern "claude-opus-5-5(?:$|[^0-9])"
+      %is_fable_5 = core.regex_match %model pattern "claude-fable-5(?:$|[^0-9-]|-(?:[0-9]{3,}|[^0-9]))"
+      %is_fable_51 = core.regex_match %model pattern "claude-fable-5-1(?:$|[^0-9])"
+      %always_on = core.call intrinsic.or(%is_opus_55, %is_fable_5)
+      %always_on = core.call intrinsic.or(%always_on, %is_fable_51)
+      core.return %always_on
+    }
+  }
+
+  op ax.provider.semantic @anthropic_thinking_on_by_default_impl {
+    attr core_kind = "func"
+    attr emit_module = "ai"
+    attr private = true
+    tag "anthropic-thinking-on-by-default-core-helper"
+    type signature = "(string) -> bool"
+    body @entry(%model: string) {
+      %is_opus_5 = core.regex_match %model pattern "claude-opus-5(?:$|[^0-9-]|-(?:[0-9]{3,}|[^0-9]))"
+      %is_sonnet_5 = core.regex_match %model pattern "claude-sonnet-5(?:$|[^0-9-]|-(?:[0-9]{3,}|[^0-9]))"
+      %on_by_default = core.call intrinsic.or(%is_opus_5, %is_sonnet_5)
+      core.return %on_by_default
+    }
+  }
+
+  op ax.provider.semantic @anthropic_keeps_mid_conversation_system_impl {
+    attr core_kind = "func"
+    attr emit_module = "ai"
+    attr private = true
+    tag "anthropic-mid-conversation-system-core-helper"
+    type signature = "(string) -> bool"
+    body @entry(%model: string) {
+      %is_48 = core.call intrinsic.contains(%model, "claude-opus-4-8")
+      %is_opus_5 = core.regex_match %model pattern "claude-opus-5(?:$|[^0-9-]|-(?:[0-9]{3,}|[^0-9]))"
+      %is_opus_55 = core.regex_match %model pattern "claude-opus-5-5(?:$|[^0-9])"
+      %is_fable_5 = core.regex_match %model pattern "claude-fable-5(?:$|[^0-9-]|-(?:[0-9]{3,}|[^0-9]))"
+      %is_fable_51 = core.regex_match %model pattern "claude-fable-5-1(?:$|[^0-9])"
+      %keeps = core.call intrinsic.or(%is_48, %is_opus_5)
+      %keeps = core.call intrinsic.or(%keeps, %is_opus_55)
+      %keeps = core.call intrinsic.or(%keeps, %is_fable_5)
+      %keeps = core.call intrinsic.or(%keeps, %is_fable_51)
+      core.return %keeps
     }
   }
 
@@ -8484,6 +8696,23 @@ module @ax.provider version "0.1" {
       %out = core.map
       %is_none = core.call intrinsic.eq(%level, "none")
       core.if %is_none {
+        %always_on = core.call @anthropic_thinking_always_on_impl(%model)
+        core.if %always_on {
+          %clamped_thinking = core.map
+          core.set %clamped_thinking["type"] = "adaptive"
+          core.set %clamped_thinking["display"] = "omitted"
+          core.set %out["thinking"] = %clamped_thinking
+          %low_effort = core.map
+          core.set %low_effort["effort"] = "low"
+          core.set %out["output_config"] = %low_effort
+          core.return %out
+        }
+        %on_by_default = core.call @anthropic_thinking_on_by_default_impl(%model)
+        core.if %on_by_default {
+          %disabled_thinking = core.map
+          core.set %disabled_thinking["type"] = "disabled"
+          core.set %out["thinking"] = %disabled_thinking
+        }
         core.return %out
       }
       %budget = core.let 10000
@@ -9494,8 +9723,8 @@ module @ax.provider version "0.1" {
     body @entry(%profile: string, %model: string) {
       %normalized = core.call @provider_normalize_profile(%profile)
       %official = core.call intrinsic.eq(%normalized, "openai")
-      %astra = core.call intrinsic.string.starts_with(%model, "gpt-6-astra")
-      %route = core.call intrinsic.and(%official, %astra)
+      %gpt6 = core.call @openai_is_gpt6_family_impl(%model)
+      %route = core.call intrinsic.and(%official, %gpt6)
       core.if %route {
         core.return "openai-responses"
       }
@@ -9530,8 +9759,8 @@ module @ax.provider version "0.1" {
     type signature = "(payload:json, request:json, options:json) -> json"
     body @entry(%payload: json, %request: json, %options: json) {
       %model = core.get %payload["model"] default ""
-      %astra = core.call intrinsic.string.starts_with(%model, "gpt-6-astra")
-      %other = core.call intrinsic.not(%astra)
+      %gpt6 = core.call @openai_is_gpt6_family_impl(%model)
+      %other = core.call intrinsic.not(%gpt6)
       core.if %other {
         core.return %payload
       }
@@ -9775,7 +10004,7 @@ module @ax.provider version "0.1" {
     type signature = "(request:json) -> json throws"
     body @entry(%request: json) {
       %model = core.get %request["model"] default ""
-      %astra = core.call intrinsic.string.starts_with(%model, "gpt-6-astra")
+      %astra = core.call @openai_is_gpt6_astra_impl(%model)
       %empty = core.map
       %reasoning = core.get %request["reasoning"] default %empty
       %effort = core.get %reasoning["effort"]

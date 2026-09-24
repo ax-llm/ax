@@ -1,0 +1,64 @@
+{
+  "expected_output": {
+    "javascriptCode": "final(\"Ax docs\");"
+  },
+  "expected_request": {
+    "provider_metadata": {
+      "ax": {
+        "structured_output_rung": "native"
+      }
+    },
+    "response_format": {
+      "type": "json_schema"
+    }
+  },
+  "expected_request_count": 2,
+  "expected_tool_calls": [
+    {
+      "args": {
+        "query": "ax docs"
+      },
+      "name": "search"
+    }
+  ],
+  "input": {
+    "task": "Look up the docs title"
+  },
+  "kind": "forward",
+  "name": "native-tools-force-structured-keeps-native-rung",
+  "options": {
+    "force_structured": true
+  },
+  "responses": [
+    {
+      "content": "",
+      "function_calls": [
+        {
+          "id": "call_1",
+          "name": "search",
+          "params": {
+            "query": "ax docs"
+          }
+        }
+      ]
+    },
+    {
+      "content": "{\"javascriptCode\":\"final(\\\"Ax docs\\\");\"}"
+    }
+  ],
+  "signature": "task:string -> javascriptCode:code",
+  "tools": [
+    {
+      "args": {
+        "query": {
+          "type": "string"
+        }
+      },
+      "description": "Search docs",
+      "name": "search",
+      "result": {
+        "title": "Ax docs"
+      }
+    }
+  ]
+}
