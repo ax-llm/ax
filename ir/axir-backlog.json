@@ -1610,6 +1610,35 @@
       "verification": null
     },
     {
+      "id": "axir-2026-09-24-port-playbook-and-evolve-miner-teacher-options",
+      "status": "open",
+      "title": "Port teacherOptions to playbook and agent evolve teacher calls",
+      "createdAt": "2026-09-24",
+      "sourcePR": null,
+      "sourceCommit": "ec26c4ca1a41de125eec67c72529ee2719eb32d7",
+      "tsPaths": [
+        "src/ax/dsp/playbook.ts",
+        "src/ax/agent/playbookConfig.ts",
+        "src/ax/agent/agentInternal/agentOptimizeTypes.ts",
+        "src/ax/agent/agentInternal/coordinator.ts",
+        "src/ax/agent/agentInternal/playbookEvolve/playbookEvolve.ts",
+        "src/ax/agent/agentInternal/playbookEvolve/playbookEvolveTypes.ts",
+        "src/ax/agent/agentInternal/playbookEvolve/weaknessMiner.ts",
+        "src/ax/dsp/optimizers/teacherOptions.test.ts"
+      ],
+      "portableSurface": "axoptimize",
+      "impact": "TypeScript playbook(), agent.playbook() and the agent playbook config now accept teacherOptions (AxAIServiceOptions) and pass them to the ACE reflector and curator, and agent.playbook().evolve() accepts teacherOptions for its weakness miner, so a teacher model marked isExpensive works after useExpensiveModel: 'yes'. Without it the gate rejects those calls before any request is sent: playbook updates curate nothing and evolve reports a miner failure. The reflector and curator calls that apply each evolve proposal keep using the playbook's own teacherOptions. Generated ports have no teacherOptions on these paths. Their playbook reflector and curator forwards pass no options (Python _run_reflector/_run_curator, Go runReflector/runCurator with nil options, Java runReflector/runCurator, and the Rust and C++ reflector/curator closures), and the agent-bound evolve weakness miner forward passes none in all five. No port enforces isExpensive yet (see the expensive-model gate entry), so the missing options only matter once that gate is ported. The optimizer teacherOptions entry covers the separate port AxACE optimizer reflector/curator used by optimize().",
+      "suggestedAxirWork": [
+        "Accept teacherOptions in the port AxPlaybook and agent playbook options and pass them to the playbook reflector and curator forwards.",
+        "Accept teacherOptions in the port agent-bound evolve options and pass them to the weakness miner forward.",
+        "Extend the optimizer teacherOptions conformance fixture to a playbook update and an evolve miner call once the isExpensive gate is ported.",
+        "Run npm run axir:conformance:check and npm run test:axir."
+      ],
+      "completedAt": null,
+      "completedByCommit": null,
+      "verification": null
+    },
+    {
       "id": "axir-2026-09-24-port-the-text-output-contract-for-simple-axgen-signatures-withou",
       "status": "open",
       "title": "Port the text output contract for simple AxGen signatures without tools",
