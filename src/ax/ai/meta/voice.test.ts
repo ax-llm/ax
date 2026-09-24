@@ -187,6 +187,44 @@ describe('Meta Voice transcript contract', () => {
     }
   );
 
+  it('reads events sent in binary frames', async () => {
+    const BaseSocket = voiceSocket([
+      { type: 'transcript', transcript: 'Ice cream.', final: true },
+    ]);
+    // A WebSocket delivers binary frames as a Blob unless binaryType is
+    // 'arraybuffer'.
+    class BinarySocket extends BaseSocket {
+      binaryType = 'blob';
+      override message(value: object) {
+        const bytes = new TextEncoder().encode(JSON.stringify(value));
+        this.listeners.get('message')?.({
+          data:
+            this.binaryType === 'arraybuffer'
+              ? bytes.buffer
+              : new Blob([bytes]),
+        });
+      }
+    }
+    const service = ai({
+      name: 'meta',
+      apiKey: 'test',
+      config: {
+        model: AxAIMetaModel.MuseVoiceTranscribe10,
+        realtimeTranscription: { partialMode: 'cumulative' },
+      },
+      options: { webSocket: BinarySocket },
+    });
+    const stream = await service.chat(
+      {
+        chatPrompt: [{ role: 'user', content: [{ type: 'audio', ...audio }] }],
+      },
+      { stream: true }
+    );
+    const results: AxChatResponseResult[] = [];
+    for await (const chunk of stream) results.push(...chunk.results);
+    expect(results.map((x) => x.content ?? '').join('')).toBe('Ice cream.');
+  });
+
   it('emits corrected overlapping turns in start order while receiving during upload', async () => {
     const Socket = voiceSocket([
       { type: 'speechStart', turnId: 'first', audioProcessedMs: 100 },

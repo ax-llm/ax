@@ -305,6 +305,8 @@ console.log(res.results[0]?.audio?.data);
 
 Gemini Live uses a one-turn WebSocket call under `.chat()`. It expects PCM input for native audio turns; use `format: 'pcm16'` or `mimeType: 'audio/pcm;rate=16000'`.
 
+`content` is the transcript of what the model said. Native audio models can also send thought summaries, even without `showThoughts`; those arrive in `thought`. When a model acknowledges the request before it thinks, `.chat()` waits for the answer, and `content` and `audio` hold both utterances.
+
 ## Grok Voice Defaults
 
 Use `axAIGrokVoiceDefaultConfig()` for xAI Grok Voice Agent:
