@@ -17845,7 +17845,8 @@ Value Core::_forward_impl(Value gen, Value client, Value values, Value options) 
           }
           Value structured_next_attempt = Core::add(attempt, Value(1));
           attempt = structured_next_attempt;
-          Core::_append_assertion_retry_messages(messages, response, structured_validation_error);
+          Value structured_retry_messages = Core::_append_assertion_retry_messages(messages, response, structured_validation_error);
+          messages = structured_retry_messages;
           Core::axgen_memory_add_correction(gen, response, structured_validation_error);
           continue;
         }
@@ -17897,7 +17898,8 @@ Value Core::_forward_impl(Value gen, Value client, Value values, Value options) 
         }
         Value next_attempt = Core::add(attempt, Value(1));
         attempt = next_attempt;
-        Core::_append_assertion_retry_messages(messages, response, validation_error);
+        Value retry_messages = Core::_append_assertion_retry_messages(messages, response, validation_error);
+        messages = retry_messages;
         Core::axgen_memory_add_correction(gen, response, validation_error);
         continue;
       }
@@ -18610,8 +18612,8 @@ Value Core::chat_session_native_event(Value state, Value event) {
 
 Value Core::_append_assertion_retry_messages(Value messages, Value response, Value error) {
   axir_coverage_mark("_append_assertion_retry_messages");
-  Core::_append_validation_retry_messages_impl(messages, response, error);
-  return Value();
+  Value updated_messages = Core::_append_validation_retry_messages_impl(messages, response, error);
+  return updated_messages;
 }
 
 Value Core::_record_trace(Value gen, Value input, Value output, Value status) {
@@ -20149,7 +20151,7 @@ Value Core::_append_validation_retry_messages_impl(Value messages, Value respons
   Core::set(retry_message, Value("role"), Value("user"));
   Core::set(retry_message, Value("content"), retry_content);
   Core::append(messages, retry_message);
-  return Value();
+  return messages;
 }
 
 Value Core::_regex_state(Value pos, Value caps) {
