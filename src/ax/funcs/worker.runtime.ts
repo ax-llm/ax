@@ -2680,10 +2680,13 @@ export function axWorkerRuntime(config: AxWorkerRuntimeConfig): void {
     } catch (err) {
       if (_isCodeExecutionError(err)) {
         const lineOffset = isAsync ? asyncLineOffset : 0;
+        // The formatted error is the result value (the caller reads it like
+        // output); `codeError` lets the host still classify it as a failure.
         _send({
           type: 'result',
           id,
           value: _formatCodeError(err, code, lineOffset),
+          codeError: true,
         });
       } else {
         _send({ type: 'result', id, error: _serializeError(err) });
