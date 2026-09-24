@@ -272,6 +272,9 @@ jobs:
     needs: changes
     if: needs.changes.outputs.axir == 'true'
     runs-on: ubuntu-latest
+    # Usually 1-6 minutes. The cap stops a hung conformance runner from
+    # holding the job until GitHub's 6-hour default.
+    timeout-minutes: 30
     strategy:
       fail-fast: false
       matrix:
