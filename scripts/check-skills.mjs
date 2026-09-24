@@ -1,15 +1,21 @@
 #!/usr/bin/env node
 
-import { createHash } from 'node:crypto';
 import { readdir, readFile, stat } from 'node:fs/promises';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
+import {
+  parseSkillFrontmatter,
+  readSkillMirrorSources,
+  sha256Digest,
+  skillDiscoverySchema,
+  skillIndexEntry,
+  skillMirrorRoot,
+} from './skill-mirrors.mjs';
 
 const scriptDir = path.dirname(fileURLToPath(import.meta.url));
 const repoRoot = path.resolve(scriptDir, '..');
-const discoverySchema =
-  'https://schemas.agentskills.io/discovery/0.2.0/schema.json';
 const generatedTargets = ['python', 'java', 'cpp', 'go', 'rust'];
+const websiteLanguageIds = ['typescript', ...generatedTargets];
 const skillIds = [
   'llm',
   'ai',
@@ -66,12 +72,14 @@ const packageJson = await readJson(path.join(repoRoot, 'package.json'));
 const packageVersion = String(packageJson.version ?? '');
 
 const failures = [];
+const staleMirrors = new Set();
 
 await checkTypeScriptSkillNames();
 for (const target of generatedTargets) {
   await checkGeneratedPackageSkills(target);
 }
-await checkWebsiteIndexes(['typescript', ...generatedTargets]);
+await checkWebsiteIndexes(websiteLanguageIds);
+await checkWebsiteMirrors(websiteLanguageIds);
 
 if (failures.length > 0) {
   console.error('Skill validation failed:');
@@ -80,6 +88,12 @@ if (failures.length > 0) {
   }
   if (failures.length > 120) {
     console.error(`- ...and ${failures.length - 120} more`);
+  }
+  if (staleMirrors.size > 0) {
+    console.error(`\nStale published skills: ${[...staleMirrors].join(', ')}`);
+    console.error(
+      'Run `npm run website:prepare` to regenerate them from their sources, then commit the changes under website/static/.'
+    );
   }
   process.exit(1);
 }
@@ -155,20 +169,14 @@ async function checkGeneratedPackageSkills(target) {
 
 async function checkWebsiteIndexes(languageIds) {
   for (const languageId of languageIds) {
-    const root = path.join(
-      repoRoot,
-      'website/static',
-      languageId,
-      '.well-known',
-      'agent-skills'
-    );
+    const root = skillMirrorRoot(repoRoot, languageId);
     const indexPath = path.join(root, 'index.json');
     if (!(await exists(indexPath))) {
       failures.push(`missing ${path.relative(repoRoot, indexPath)}`);
       continue;
     }
     const index = await readJson(indexPath);
-    if (index.$schema !== discoverySchema) {
+    if (index.$schema !== skillDiscoverySchema) {
       failures.push(`${path.relative(repoRoot, indexPath)} has bad $schema`);
     }
     if (!Array.isArray(index.skills) || index.skills.length === 0) {
@@ -229,27 +237,84 @@ async function checkWebsiteIndexes(languageIds) {
   }
 }
 
-function parseSkillFrontmatter(markdown) {
-  if (!markdown.startsWith('---\n')) return {};
-  const end = markdown.indexOf('\n---', 4);
-  if (end === -1) return {};
-  const text = markdown.slice(4, end);
-  return {
-    name: frontmatterField(text, 'name'),
-    description: frontmatterField(text, 'description'),
-    version: frontmatterField(text, 'version'),
-  };
+// website:prepare rebuilds each agent-skills directory from the skill sources,
+// so every committed mirror and index entry must match what it would write now.
+// This catches a source edit that skipped the regenerate, which the digest
+// check above cannot: a stale mirror still matches its stale digest.
+async function checkWebsiteMirrors(languageIds) {
+  let sources;
+  try {
+    sources = await readSkillMirrorSources(repoRoot, languageIds);
+  } catch (error) {
+    failures.push(error.message);
+    return;
+  }
+  for (const languageId of languageIds) {
+    const stale = (name, message) => {
+      staleMirrors.add(`${languageId}/${name}`);
+      failures.push(`${languageId}/${name}: ${message}`);
+    };
+    const root = skillMirrorRoot(repoRoot, languageId);
+    const indexPath = path.join(root, 'index.json');
+    const indexRel = path.relative(repoRoot, indexPath);
+    const index = (await exists(indexPath)) ? await readJson(indexPath) : {};
+    const entries = new Map(
+      (Array.isArray(index.skills) ? index.skills : []).map((entry) => [
+        entry.name,
+        entry,
+      ])
+    );
+
+    const skills = sources[languageId];
+    for (const skill of skills) {
+      const mirrorPath = path.join(root, skill.name, 'SKILL.md');
+      const mirrorRel = path.relative(repoRoot, mirrorPath);
+      if (!(await exists(mirrorPath))) {
+        stale(skill.name, `missing ${mirrorRel} for ${skill.source}`);
+      } else {
+        const mirror = await readFile(mirrorPath, 'utf8');
+        if (mirror !== skill.content) {
+          const line = firstDifferentLine(mirror, skill.content);
+          stale(
+            skill.name,
+            `${mirrorRel} does not match ${skill.source} (first difference at line ${line})`
+          );
+        }
+      }
+      const entry = entries.get(skill.name);
+      if (!entry) {
+        stale(skill.name, `${indexRel} has no entry for ${skill.source}`);
+        continue;
+      }
+      for (const [key, value] of Object.entries(skillIndexEntry(skill))) {
+        if (entry[key] !== value) {
+          stale(
+            skill.name,
+            `${indexRel} ${key} does not match ${skill.source}`
+          );
+        }
+      }
+    }
+
+    const sourceNames = new Set(skills.map((skill) => skill.name));
+    const mirrorNames = (await exists(root))
+      ? (await readdir(root, { withFileTypes: true }))
+          .filter((entry) => entry.isDirectory())
+          .map((entry) => entry.name)
+      : [];
+    for (const name of new Set([...mirrorNames, ...entries.keys()])) {
+      if (!sourceNames.has(name)) {
+        stale(name, 'published, but no source skill defines it');
+      }
+    }
+  }
 }
 
-function frontmatterField(frontmatterText, key) {
-  const match = frontmatterText.match(
-    new RegExp(`^${key}:\\s*["']?(.+?)["']?\\s*$`, 'm')
-  );
-  return match?.[1]?.trim();
-}
-
-function sha256Digest(data) {
-  return `sha256:${createHash('sha256').update(data).digest('hex')}`;
+function firstDifferentLine(actual, expected) {
+  const actualLines = actual.split('\n');
+  const expectedLines = expected.split('\n');
+  const index = expectedLines.findIndex((line, i) => line !== actualLines[i]);
+  return (index === -1 ? expectedLines.length : index) + 1;
 }
 
 async function readJson(file) {
