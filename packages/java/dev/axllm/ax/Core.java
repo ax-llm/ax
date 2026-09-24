@@ -11943,6 +11943,45 @@ final class Core {
     Object is_assistant = Core.eq(role, "assistant");
     if (Core.truthy(is_assistant)) {
       Object parts = new java.util.ArrayList<Object>();
+      Object empty_calls = new java.util.ArrayList<Object>();
+      Object calls = Core.get(message, "function_calls", empty_calls);
+      Object calls_camel = Core.get(message, "functionCalls", calls);
+      Object call_count = Core.len(calls_camel);
+      Object has_function_calls = Core.gt(call_count, 0);
+      Object no_function_calls = Core.not(has_function_calls);
+      Object empty_thought_blocks = new java.util.ArrayList<Object>();
+      Object thought_blocks_snake = Core.get(message, "thought_blocks", empty_thought_blocks);
+      Object thought_blocks = Core.get(message, "thoughtBlocks", thought_blocks_snake);
+      Object thought_blocks_is_list = Core.typeIs(thought_blocks, "list");
+      Object thought_texts = new java.util.ArrayList<Object>();
+      Object first_signature = Core.none();
+      if (Core.truthy(thought_blocks_is_list)) {
+        for (Object thought_block : Core.iter(thought_blocks)) {
+          Object thought_data = Core.get(thought_block, "data", "");
+          Object thought_data_is_string = Core.typeIs(thought_data, "string");
+          if (Core.truthy(thought_data_is_string)) {
+            Core.append(thought_texts, thought_data);
+          }
+        }
+        Object empty_first_block = new java.util.LinkedHashMap<String, Object>();
+        Object first_thought_block = Core.listGet(thought_blocks, 0, empty_first_block);
+        first_signature = Core.get(first_thought_block, "signature", null);
+      }
+      Object has_first_signature = Core.truthyValue(first_signature);
+      Object thought_text = Core.stringJoin("", thought_texts);
+      Object has_thought_text = Core.truthyValue(thought_text);
+      if (Core.truthy(has_thought_text)) {
+        Object thought_part = new java.util.LinkedHashMap<String, Object>();
+        if (Core.truthy(no_function_calls)) {
+          Core.set(thought_part, "thought", Boolean.TRUE);
+        }
+        Core.set(thought_part, "text", thought_text);
+        Object sign_thought_part = Core.and(has_first_signature, no_function_calls);
+        if (Core.truthy(sign_thought_part)) {
+          Core.set(thought_part, "thought_signature", first_signature);
+        }
+        Core.append(parts, thought_part);
+      }
       Object content = Core.get(message, "content", "");
       Object has_content = Core.truthyValue(content);
       if (Core.truthy(has_content)) {
@@ -11950,9 +11989,7 @@ final class Core {
         Core.set(text_part, "text", content);
         Core.append(parts, text_part);
       }
-      Object empty_calls = new java.util.ArrayList<Object>();
-      Object calls = Core.get(message, "function_calls", empty_calls);
-      Object calls_camel = Core.get(message, "functionCalls", calls);
+      Object call_position = 0;
       for (Object call : Core.iter(calls_camel)) {
         Object function = Core.get(call, "function", null);
         Object name = Core.get(function, "name", null);
@@ -11978,7 +12015,13 @@ final class Core {
         Core.set(function_call, "args", args);
         Object part = new java.util.LinkedHashMap<String, Object>();
         Core.set(part, "functionCall", function_call);
+        Object is_first_call = Core.eq(call_position, 0);
+        Object sign_call = Core.and(is_first_call, has_first_signature);
+        if (Core.truthy(sign_call)) {
+          Core.set(part, "thought_signature", first_signature);
+        }
         Core.append(parts, part);
+        call_position = Core.add(call_position, 1);
       }
       Object out = new java.util.LinkedHashMap<String, Object>();
       Core.set(out, "role", "model");
@@ -12299,12 +12342,25 @@ final class Core {
 
   static Object _gemini_merge_response_part_impl(Object result, Object text_parts, Object function_calls, Object part) {
     axirCoverageMark("_gemini_merge_response_part_impl");
+    Object signature_snake = Core.get(part, "thought_signature", null);
+    Object thought_signature = Core.get(part, "thoughtSignature", signature_snake);
+    Object has_signature = Core.truthyValue(thought_signature);
     Object text = Core.get(part, "text", null);
     Object has_text = Core.isNotNone(text);
     if (Core.truthy(has_text)) {
       Object is_thought = Core.get(part, "thought", Boolean.FALSE);
       if (Core.truthy(is_thought)) {
         Core.set(result, "thought", text);
+        Object empty_thought_blocks = new java.util.ArrayList<Object>();
+        Object thought_blocks = Core.get(result, "thought_blocks", empty_thought_blocks);
+        Object thought_block = new java.util.LinkedHashMap<String, Object>();
+        Core.set(thought_block, "data", text);
+        Core.set(thought_block, "encrypted", Boolean.FALSE);
+        if (Core.truthy(has_signature)) {
+          Core.set(thought_block, "signature", thought_signature);
+        }
+        Core.append(thought_blocks, thought_block);
+        Core.set(result, "thought_blocks", thought_blocks);
       }
       if (!Core.truthy(is_thought)) {
         Core.append(text_parts, text);
@@ -12312,6 +12368,31 @@ final class Core {
     }
     Object function_call = Core.get(part, "functionCall", null);
     Object has_call = Core.isNotNone(function_call);
+    Object signed_call = Core.and(has_call, has_signature);
+    if (Core.truthy(signed_call)) {
+      Object empty_signature_blocks = new java.util.ArrayList<Object>();
+      Object signature_blocks = Core.get(result, "thought_blocks", empty_signature_blocks);
+      Object signature_block_count = Core.len(signature_blocks);
+      Object has_signature_blocks = Core.gt(signature_block_count, 0);
+      if (Core.truthy(has_signature_blocks)) {
+        Object last_block_index = Core.add(signature_block_count, -1);
+        Object last_block = Core.get(signature_blocks, last_block_index, null);
+        Object last_signature = Core.get(last_block, "signature", null);
+        Object last_has_signature = Core.truthyValue(last_signature);
+        Object last_missing_signature = Core.not(last_has_signature);
+        if (Core.truthy(last_missing_signature)) {
+          Core.set(last_block, "signature", thought_signature);
+        }
+      }
+      if (!Core.truthy(has_signature_blocks)) {
+        Object signature_block = new java.util.LinkedHashMap<String, Object>();
+        Core.set(signature_block, "data", "");
+        Core.set(signature_block, "encrypted", Boolean.FALSE);
+        Core.set(signature_block, "signature", thought_signature);
+        Core.append(signature_blocks, signature_block);
+        Core.set(result, "thought_blocks", signature_blocks);
+      }
+    }
     if (Core.truthy(has_call)) {
       Object name = Core.get(function_call, "name", null);
       Object id = Core.get(function_call, "id", name);

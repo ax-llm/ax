@@ -24753,13 +24753,19 @@ func _gemini_message_impl(args ...Value) (Value, error) {
 	var v_args Value
 	var v_args_is_string Value
 	var v_call Value
+	var v_call_count Value
 	var v_call_id Value
+	var v_call_position Value
 	var v_calls Value
 	var v_calls_camel Value
 	var v_content Value
 	var v_empty_args Value
 	var v_empty_calls Value
+	var v_empty_first_block Value
+	var v_empty_thought_blocks Value
 	var v_explicit_name Value
+	var v_first_signature Value
+	var v_first_thought_block Value
 	var v_function Value
 	var v_function_call Value
 	var v_function_id Value
@@ -24767,12 +24773,17 @@ func _gemini_message_impl(args ...Value) (Value, error) {
 	var v_function_response Value
 	var v_has_call_id Value
 	var v_has_content Value
+	var v_has_first_signature Value
+	var v_has_function_calls Value
 	var v_has_resolved_name Value
+	var v_has_thought_text Value
 	var v_is_assistant Value
+	var v_is_first_call Value
 	var v_is_function Value
 	var v_is_user Value
 	var v_missing_resolved_name Value
 	var v_name Value
+	var v_no_function_calls Value
 	var v_none Value
 	var v_out Value
 	var v_parse_error Value
@@ -24782,7 +24793,18 @@ func _gemini_message_impl(args ...Value) (Value, error) {
 	var v_response Value
 	var v_result_value Value
 	var v_role Value
+	var v_sign_call Value
+	var v_sign_thought_part Value
 	var v_text_part Value
+	var v_thought_block Value
+	var v_thought_blocks Value
+	var v_thought_blocks_is_list Value
+	var v_thought_blocks_snake Value
+	var v_thought_data Value
+	var v_thought_data_is_string Value
+	var v_thought_part Value
+	var v_thought_text Value
+	var v_thought_texts Value
 	if len(args) > 0 { v_message = args[0] }
 	_ = v_message
 	if len(args) > 1 { v_function_names = args[1] }
@@ -24790,13 +24812,19 @@ func _gemini_message_impl(args ...Value) (Value, error) {
 	_ = v_args
 	_ = v_args_is_string
 	_ = v_call
+	_ = v_call_count
 	_ = v_call_id
+	_ = v_call_position
 	_ = v_calls
 	_ = v_calls_camel
 	_ = v_content
 	_ = v_empty_args
 	_ = v_empty_calls
+	_ = v_empty_first_block
+	_ = v_empty_thought_blocks
 	_ = v_explicit_name
+	_ = v_first_signature
+	_ = v_first_thought_block
 	_ = v_function
 	_ = v_function_call
 	_ = v_function_id
@@ -24804,12 +24832,17 @@ func _gemini_message_impl(args ...Value) (Value, error) {
 	_ = v_function_response
 	_ = v_has_call_id
 	_ = v_has_content
+	_ = v_has_first_signature
+	_ = v_has_function_calls
 	_ = v_has_resolved_name
+	_ = v_has_thought_text
 	_ = v_is_assistant
+	_ = v_is_first_call
 	_ = v_is_function
 	_ = v_is_user
 	_ = v_missing_resolved_name
 	_ = v_name
+	_ = v_no_function_calls
 	_ = v_none
 	_ = v_out
 	_ = v_parse_error
@@ -24819,7 +24852,18 @@ func _gemini_message_impl(args ...Value) (Value, error) {
 	_ = v_response
 	_ = v_result_value
 	_ = v_role
+	_ = v_sign_call
+	_ = v_sign_thought_part
 	_ = v_text_part
+	_ = v_thought_block
+	_ = v_thought_blocks
+	_ = v_thought_blocks_is_list
+	_ = v_thought_blocks_snake
+	_ = v_thought_data
+	_ = v_thought_data_is_string
+	_ = v_thought_part
+	_ = v_thought_text
+	_ = v_thought_texts
 	v_role = coreGet(v_message, "role", nil)
 	v_is_user = _core_eq(v_role, "user")
 	if coreTruthy(v_is_user) {
@@ -24835,6 +24879,55 @@ func _gemini_message_impl(args ...Value) (Value, error) {
 	v_is_assistant = _core_eq(v_role, "assistant")
 	if coreTruthy(v_is_assistant) {
 		v_parts = MutableArray()
+		v_empty_calls = MutableArray()
+		v_calls = coreGet(v_message, "function_calls", v_empty_calls)
+		v_calls_camel = coreGet(v_message, "functionCalls", v_calls)
+		v_call_count = _core_len(v_calls_camel)
+		v_has_function_calls = _core_gt(v_call_count, 0)
+		v_no_function_calls = _core_not(v_has_function_calls)
+		v_empty_thought_blocks = MutableArray()
+		v_thought_blocks_snake = coreGet(v_message, "thought_blocks", v_empty_thought_blocks)
+		v_thought_blocks = coreGet(v_message, "thoughtBlocks", v_thought_blocks_snake)
+		v_thought_blocks_is_list = coreTypeIs(v_thought_blocks, "list")
+		v_thought_texts = MutableArray()
+		v_first_signature = _core_none()
+		if coreTruthy(v_thought_blocks_is_list) {
+			for _, v_thought_block = range coreIter(v_thought_blocks) {
+				v_thought_data = coreGet(v_thought_block, "data", "")
+				v_thought_data_is_string = coreTypeIs(v_thought_data, "string")
+				if coreTruthy(v_thought_data_is_string) {
+					v_thought_texts = coreAppend(v_thought_texts, v_thought_data)
+				} else {
+				// empty
+				}
+			}
+			v_empty_first_block = Object()
+			v_first_thought_block = _core_list_get(v_thought_blocks, 0, v_empty_first_block)
+			v_first_signature = coreGet(v_first_thought_block, "signature", nil)
+		} else {
+		// empty
+		}
+		v_has_first_signature = _core_truthy(v_first_signature)
+		v_thought_text = _core_string_join("", v_thought_texts)
+		v_has_thought_text = _core_truthy(v_thought_text)
+		if coreTruthy(v_has_thought_text) {
+			v_thought_part = Object()
+			if coreTruthy(v_no_function_calls) {
+				if err := coreSet(v_thought_part, "thought", true); err != nil { return nil, err }
+			} else {
+			// empty
+			}
+			if err := coreSet(v_thought_part, "text", v_thought_text); err != nil { return nil, err }
+			v_sign_thought_part = _core_and(v_has_first_signature, v_no_function_calls)
+			if coreTruthy(v_sign_thought_part) {
+				if err := coreSet(v_thought_part, "thought_signature", v_first_signature); err != nil { return nil, err }
+			} else {
+			// empty
+			}
+			v_parts = coreAppend(v_parts, v_thought_part)
+		} else {
+		// empty
+		}
 		v_content = coreGet(v_message, "content", "")
 		v_has_content = _core_truthy(v_content)
 		if coreTruthy(v_has_content) {
@@ -24844,9 +24937,7 @@ func _gemini_message_impl(args ...Value) (Value, error) {
 		} else {
 		// empty
 		}
-		v_empty_calls = MutableArray()
-		v_calls = coreGet(v_message, "function_calls", v_empty_calls)
-		v_calls_camel = coreGet(v_message, "functionCalls", v_calls)
+		v_call_position = 0
 		for _, v_call = range coreIter(v_calls_camel) {
 			v_function = coreGet(v_call, "function", nil)
 			v_name = coreGet(v_function, "name", nil)
@@ -24882,7 +24973,15 @@ func _gemini_message_impl(args ...Value) (Value, error) {
 			if err := coreSet(v_function_call, "args", v_args); err != nil { return nil, err }
 			v_part = Object()
 			if err := coreSet(v_part, "functionCall", v_function_call); err != nil { return nil, err }
+			v_is_first_call = _core_eq(v_call_position, 0)
+			v_sign_call = _core_and(v_is_first_call, v_has_first_signature)
+			if coreTruthy(v_sign_call) {
+				if err := coreSet(v_part, "thought_signature", v_first_signature); err != nil { return nil, err }
+			} else {
+			// empty
+			}
 			v_parts = coreAppend(v_parts, v_part)
+			v_call_position = _core_add(v_call_position, 1)
 		}
 		v_out = Object()
 		if err := coreSet(v_out, "role", "model"); err != nil { return nil, err }
@@ -25485,14 +25584,31 @@ func _gemini_merge_response_part_impl(args ...Value) (Value, error) {
 	var v_args Value
 	var v_call Value
 	var v_empty_args Value
+	var v_empty_signature_blocks Value
+	var v_empty_thought_blocks Value
 	var v_function Value
 	var v_function_call Value
 	var v_has_call Value
+	var v_has_signature Value
+	var v_has_signature_blocks Value
 	var v_has_text Value
 	var v_id Value
 	var v_is_thought Value
+	var v_last_block Value
+	var v_last_block_index Value
+	var v_last_has_signature Value
+	var v_last_missing_signature Value
+	var v_last_signature Value
 	var v_name Value
+	var v_signature_block Value
+	var v_signature_block_count Value
+	var v_signature_blocks Value
+	var v_signature_snake Value
+	var v_signed_call Value
 	var v_text Value
+	var v_thought_block Value
+	var v_thought_blocks Value
+	var v_thought_signature Value
 	if len(args) > 0 { v_result = args[0] }
 	_ = v_result
 	if len(args) > 1 { v_text_parts = args[1] }
@@ -25504,20 +25620,52 @@ func _gemini_merge_response_part_impl(args ...Value) (Value, error) {
 	_ = v_args
 	_ = v_call
 	_ = v_empty_args
+	_ = v_empty_signature_blocks
+	_ = v_empty_thought_blocks
 	_ = v_function
 	_ = v_function_call
 	_ = v_has_call
+	_ = v_has_signature
+	_ = v_has_signature_blocks
 	_ = v_has_text
 	_ = v_id
 	_ = v_is_thought
+	_ = v_last_block
+	_ = v_last_block_index
+	_ = v_last_has_signature
+	_ = v_last_missing_signature
+	_ = v_last_signature
 	_ = v_name
+	_ = v_signature_block
+	_ = v_signature_block_count
+	_ = v_signature_blocks
+	_ = v_signature_snake
+	_ = v_signed_call
 	_ = v_text
+	_ = v_thought_block
+	_ = v_thought_blocks
+	_ = v_thought_signature
+	v_signature_snake = coreGet(v_part, "thought_signature", nil)
+	v_thought_signature = coreGet(v_part, "thoughtSignature", v_signature_snake)
+	v_has_signature = _core_truthy(v_thought_signature)
 	v_text = coreGet(v_part, "text", nil)
 	v_has_text = _core_is_not_none(v_text)
 	if coreTruthy(v_has_text) {
 		v_is_thought = coreGet(v_part, "thought", false)
 		if coreTruthy(v_is_thought) {
 			if err := coreSet(v_result, "thought", v_text); err != nil { return nil, err }
+			v_empty_thought_blocks = MutableArray()
+			v_thought_blocks = coreGet(v_result, "thought_blocks", v_empty_thought_blocks)
+			v_thought_block = Object()
+			if err := coreSet(v_thought_block, "data", v_text); err != nil { return nil, err }
+			if err := coreSet(v_thought_block, "encrypted", false); err != nil { return nil, err }
+			if coreTruthy(v_has_signature) {
+				if err := coreSet(v_thought_block, "signature", v_thought_signature); err != nil { return nil, err }
+			} else {
+			// empty
+			}
+			v_thought_blocks = coreAppend(v_thought_blocks, v_thought_block)
+			if err := coreSet(v_result, "thought_blocks", v_thought_blocks); err != nil { return nil, err }
 		} else {
 			v_text_parts = coreAppend(v_text_parts, v_text)
 		}
@@ -25526,6 +25674,34 @@ func _gemini_merge_response_part_impl(args ...Value) (Value, error) {
 	}
 	v_function_call = coreGet(v_part, "functionCall", nil)
 	v_has_call = _core_is_not_none(v_function_call)
+	v_signed_call = _core_and(v_has_call, v_has_signature)
+	if coreTruthy(v_signed_call) {
+		v_empty_signature_blocks = MutableArray()
+		v_signature_blocks = coreGet(v_result, "thought_blocks", v_empty_signature_blocks)
+		v_signature_block_count = _core_len(v_signature_blocks)
+		v_has_signature_blocks = _core_gt(v_signature_block_count, 0)
+		if coreTruthy(v_has_signature_blocks) {
+			v_last_block_index = _core_add(v_signature_block_count, -1)
+			v_last_block = coreGet(v_signature_blocks, v_last_block_index, nil)
+			v_last_signature = coreGet(v_last_block, "signature", nil)
+			v_last_has_signature = _core_truthy(v_last_signature)
+			v_last_missing_signature = _core_not(v_last_has_signature)
+			if coreTruthy(v_last_missing_signature) {
+				if err := coreSet(v_last_block, "signature", v_thought_signature); err != nil { return nil, err }
+			} else {
+			// empty
+			}
+		} else {
+			v_signature_block = Object()
+			if err := coreSet(v_signature_block, "data", ""); err != nil { return nil, err }
+			if err := coreSet(v_signature_block, "encrypted", false); err != nil { return nil, err }
+			if err := coreSet(v_signature_block, "signature", v_thought_signature); err != nil { return nil, err }
+			v_signature_blocks = coreAppend(v_signature_blocks, v_signature_block)
+			if err := coreSet(v_result, "thought_blocks", v_signature_blocks); err != nil { return nil, err }
+		}
+	} else {
+	// empty
+	}
 	if coreTruthy(v_has_call) {
 		v_name = coreGet(v_function_call, "name", nil)
 		v_id = coreGet(v_function_call, "id", v_name)

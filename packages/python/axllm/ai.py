@@ -11919,6 +11919,49 @@ def _gemini_message_impl(message: Any, function_names: Any) -> Any:
     is_assistant = _core_eq(role, "assistant")
     if is_assistant:
         parts = []
+        empty_calls = []
+        calls = _core_get(message, "function_calls", empty_calls)
+        calls_camel = _core_get(message, "functionCalls", calls)
+        call_count = _core_len(calls_camel)
+        has_function_calls = _core_gt(call_count, 0)
+        no_function_calls = _core_not(has_function_calls)
+        empty_thought_blocks = []
+        thought_blocks_snake = _core_get(message, "thought_blocks", empty_thought_blocks)
+        thought_blocks = _core_get(message, "thoughtBlocks", thought_blocks_snake)
+        thought_blocks_is_list = _core_type_is(thought_blocks, "list")
+        thought_texts = []
+        first_signature = _core_none()
+        if thought_blocks_is_list:
+            for thought_block in thought_blocks:
+                thought_data = _core_get(thought_block, "data", "")
+                thought_data_is_string = _core_type_is(thought_data, "string")
+                if thought_data_is_string:
+                    thought_texts.append(thought_data)
+                else:
+                    pass
+            empty_first_block = {}
+            first_thought_block = _core_list_get(thought_blocks, 0, empty_first_block)
+            first_signature = _core_get(first_thought_block, "signature", None)
+        else:
+            pass
+        has_first_signature = _core_truthy(first_signature)
+        thought_text = _core_string_join("", thought_texts)
+        has_thought_text = _core_truthy(thought_text)
+        if has_thought_text:
+            thought_part = {}
+            if no_function_calls:
+                thought_part["thought"] = True
+            else:
+                pass
+            thought_part["text"] = thought_text
+            sign_thought_part = _core_and(has_first_signature, no_function_calls)
+            if sign_thought_part:
+                thought_part["thought_signature"] = first_signature
+            else:
+                pass
+            parts.append(thought_part)
+        else:
+            pass
         content = _core_get(message, "content", "")
         has_content = _core_truthy(content)
         if has_content:
@@ -11927,9 +11970,7 @@ def _gemini_message_impl(message: Any, function_names: Any) -> Any:
             parts.append(text_part)
         else:
             pass
-        empty_calls = []
-        calls = _core_get(message, "function_calls", empty_calls)
-        calls_camel = _core_get(message, "functionCalls", calls)
+        call_position = 0
         for call in calls_camel:
             function = _core_get(call, "function", None)
             name = _core_get(function, "name", None)
@@ -11956,7 +11997,14 @@ def _gemini_message_impl(message: Any, function_names: Any) -> Any:
             function_call["args"] = args
             part = {}
             part["functionCall"] = function_call
+            is_first_call = _core_eq(call_position, 0)
+            sign_call = _core_and(is_first_call, has_first_signature)
+            if sign_call:
+                part["thought_signature"] = first_signature
+            else:
+                pass
             parts.append(part)
+            call_position = _core_add(call_position, 1)
         out = {}
         out["role"] = "model"
         out["parts"] = parts
@@ -12276,18 +12324,57 @@ def _gemini_normalize_chat_response(raw: Any, ai_name: str, model: str) -> AxCha
 
 def _gemini_merge_response_part_impl(result: Any, text_parts: list[Any], function_calls: list[Any], part: Any) -> None:
     _core_coverage_mark("_gemini_merge_response_part_impl")
+    signature_snake = _core_get(part, "thought_signature", None)
+    thought_signature = _core_get(part, "thoughtSignature", signature_snake)
+    has_signature = _core_truthy(thought_signature)
     text = _core_get(part, "text", None)
     has_text = _core_is_not_none(text)
     if has_text:
         is_thought = _core_get(part, "thought", False)
         if is_thought:
             result["thought"] = text
+            empty_thought_blocks = []
+            thought_blocks = _core_get(result, "thought_blocks", empty_thought_blocks)
+            thought_block = {}
+            thought_block["data"] = text
+            thought_block["encrypted"] = False
+            if has_signature:
+                thought_block["signature"] = thought_signature
+            else:
+                pass
+            thought_blocks.append(thought_block)
+            result["thought_blocks"] = thought_blocks
         else:
             text_parts.append(text)
     else:
         pass
     function_call = _core_get(part, "functionCall", None)
     has_call = _core_is_not_none(function_call)
+    signed_call = _core_and(has_call, has_signature)
+    if signed_call:
+        empty_signature_blocks = []
+        signature_blocks = _core_get(result, "thought_blocks", empty_signature_blocks)
+        signature_block_count = _core_len(signature_blocks)
+        has_signature_blocks = _core_gt(signature_block_count, 0)
+        if has_signature_blocks:
+            last_block_index = _core_add(signature_block_count, -1)
+            last_block = _core_get(signature_blocks, last_block_index, None)
+            last_signature = _core_get(last_block, "signature", None)
+            last_has_signature = _core_truthy(last_signature)
+            last_missing_signature = _core_not(last_has_signature)
+            if last_missing_signature:
+                last_block["signature"] = thought_signature
+            else:
+                pass
+        else:
+            signature_block = {}
+            signature_block["data"] = ""
+            signature_block["encrypted"] = False
+            signature_block["signature"] = thought_signature
+            signature_blocks.append(signature_block)
+            result["thought_blocks"] = signature_blocks
+    else:
+        pass
     if has_call:
         name = _core_get(function_call, "name", None)
         id = _core_get(function_call, "id", name)

@@ -7862,6 +7862,45 @@ module @ax.provider version "0.1" {
       %is_assistant = core.call intrinsic.eq(%role, "assistant")
       core.if %is_assistant {
         %parts = core.list
+        %empty_calls = core.list
+        %calls = core.get %message["function_calls"] default %empty_calls
+        %calls_camel = core.get %message["functionCalls"] default %calls
+        %call_count = core.call intrinsic.len(%calls_camel)
+        %has_function_calls = core.call intrinsic.gt(%call_count, 0)
+        %no_function_calls = core.call intrinsic.not(%has_function_calls)
+        %empty_thought_blocks = core.list
+        %thought_blocks_snake = core.get %message["thought_blocks"] default %empty_thought_blocks
+        %thought_blocks = core.get %message["thoughtBlocks"] default %thought_blocks_snake
+        %thought_blocks_is_list = core.type_is %thought_blocks type "list"
+        %thought_texts = core.list
+        %first_signature = core.call intrinsic.none()
+        core.if %thought_blocks_is_list {
+          core.for %thought_block in %thought_blocks {
+            %thought_data = core.get %thought_block["data"] default ""
+            %thought_data_is_string = core.type_is %thought_data type "string"
+            core.if %thought_data_is_string {
+              core.append %thought_texts, %thought_data
+            }
+          }
+          %empty_first_block = core.map
+          %first_thought_block = core.call intrinsic.list.get(%thought_blocks, 0, %empty_first_block)
+          %first_signature = core.get %first_thought_block["signature"]
+        }
+        %has_first_signature = core.call intrinsic.truthy(%first_signature)
+        %thought_text = core.call intrinsic.string.join("", %thought_texts)
+        %has_thought_text = core.call intrinsic.truthy(%thought_text)
+        core.if %has_thought_text {
+          %thought_part = core.map
+          core.if %no_function_calls {
+            core.set %thought_part["thought"] = true
+          }
+          core.set %thought_part["text"] = %thought_text
+          %sign_thought_part = core.call intrinsic.and(%has_first_signature, %no_function_calls)
+          core.if %sign_thought_part {
+            core.set %thought_part["thought_signature"] = %first_signature
+          }
+          core.append %parts, %thought_part
+        }
         %content = core.get %message["content"] default ""
         %has_content = core.call intrinsic.truthy(%content)
         core.if %has_content {
@@ -7869,9 +7908,7 @@ module @ax.provider version "0.1" {
           core.set %text_part["text"] = %content
           core.append %parts, %text_part
         }
-        %empty_calls = core.list
-        %calls = core.get %message["function_calls"] default %empty_calls
-        %calls_camel = core.get %message["functionCalls"] default %calls
+        %call_position = core.const 0
         core.for %call in %calls_camel {
           %function = core.get %call["function"]
           %name = core.get %function["name"]
@@ -7897,7 +7934,13 @@ module @ax.provider version "0.1" {
           core.set %function_call["args"] = %args
           %part = core.map
           core.set %part["functionCall"] = %function_call
+          %is_first_call = core.call intrinsic.eq(%call_position, 0)
+          %sign_call = core.call intrinsic.and(%is_first_call, %has_first_signature)
+          core.if %sign_call {
+            core.set %part["thought_signature"] = %first_signature
+          }
           core.append %parts, %part
+          %call_position = core.call intrinsic.add(%call_position, 1)
         }
         %out = core.map
         core.set %out["role"] = "model"
@@ -8264,18 +8307,55 @@ module @ax.provider version "0.1" {
     tag "gemini-output-core-helper"
     type signature = "(json, list<json>, list<json>, json) -> void"
     body @entry(%result: json, %text_parts: list<json>, %function_calls: list<json>, %part: json) {
+      %signature_snake = core.get %part["thought_signature"]
+      %thought_signature = core.get %part["thoughtSignature"] default %signature_snake
+      %has_signature = core.call intrinsic.truthy(%thought_signature)
       %text = core.get %part["text"]
       %has_text = core.call intrinsic.is_not_none(%text)
       core.if %has_text {
         %is_thought = core.get %part["thought"] default false
         core.if %is_thought {
           core.set %result["thought"] = %text
+          %empty_thought_blocks = core.list
+          %thought_blocks = core.get %result["thought_blocks"] default %empty_thought_blocks
+          %thought_block = core.map
+          core.set %thought_block["data"] = %text
+          core.set %thought_block["encrypted"] = false
+          core.if %has_signature {
+            core.set %thought_block["signature"] = %thought_signature
+          }
+          core.append %thought_blocks, %thought_block
+          core.set %result["thought_blocks"] = %thought_blocks
         } else {
           core.append %text_parts, %text
         }
       }
       %function_call = core.get %part["functionCall"]
       %has_call = core.call intrinsic.is_not_none(%function_call)
+      %signed_call = core.call intrinsic.and(%has_call, %has_signature)
+      core.if %signed_call {
+        %empty_signature_blocks = core.list
+        %signature_blocks = core.get %result["thought_blocks"] default %empty_signature_blocks
+        %signature_block_count = core.call intrinsic.len(%signature_blocks)
+        %has_signature_blocks = core.call intrinsic.gt(%signature_block_count, 0)
+        core.if %has_signature_blocks {
+          %last_block_index = core.call intrinsic.add(%signature_block_count, -1)
+          %last_block = core.get %signature_blocks[%last_block_index]
+          %last_signature = core.get %last_block["signature"]
+          %last_has_signature = core.call intrinsic.truthy(%last_signature)
+          %last_missing_signature = core.call intrinsic.not(%last_has_signature)
+          core.if %last_missing_signature {
+            core.set %last_block["signature"] = %thought_signature
+          }
+        } else {
+          %signature_block = core.map
+          core.set %signature_block["data"] = ""
+          core.set %signature_block["encrypted"] = false
+          core.set %signature_block["signature"] = %thought_signature
+          core.append %signature_blocks, %signature_block
+          core.set %result["thought_blocks"] = %signature_blocks
+        }
+      }
       core.if %has_call {
         %name = core.get %function_call["name"]
         %id = core.get %function_call["id"] default %name
