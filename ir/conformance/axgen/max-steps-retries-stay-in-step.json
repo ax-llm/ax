@@ -1,0 +1,30 @@
+{
+  "assertions": [
+    {
+      "contains": "Paris",
+      "field": "answer",
+      "message": "answer must name Paris"
+    }
+  ],
+  "expected_output": {
+    "answer": "Paris"
+  },
+  "expected_request_count": 2,
+  "input": {
+    "question": "Capital of France?"
+  },
+  "kind": "forward",
+  "name": "max-steps-retries-stay-in-step",
+  "options": {
+    "max_steps": 1
+  },
+  "responses": [
+    {
+      "content": "Answer: Lyon"
+    },
+    {
+      "content": "Answer: Paris"
+    }
+  ],
+  "signature": "question:string -> answer:string"
+}

@@ -6,8 +6,8 @@ module @ax.gen version "0.1" {
     attr emit_module = "gen"
     attr private = true
     tag "shape-aware-structured-output-selector"
-    type signature = "(AxSignature, json, json) -> json throws"
-    body @entry(%signature: AxSignature, %features: json, %options: json) {
+    type signature = "(AxSignature, json, json, list<Tool>) -> json throws"
+    body @entry(%signature: AxSignature, %features: json, %options: json, %functions: list<Tool>) {
       %native_snake = core.get %features["structured_outputs"]
       %native_raw = core.get %features["structuredOutputs"] default %native_snake
       %modes_snake = core.get %features["structured_output_modes"]
@@ -61,6 +61,20 @@ module @ax.gen version "0.1" {
         core.set %selection["rung"] = "native"
         core.set %selection["requires_schema"] = true
         core.return %selection
+      }
+      // TS selects no rung for a simple signature: its output uses the
+      // `field: value` text contract. Beside native tools a JSON response
+      // contract also keeps live models calling tools instead of answering
+      // (gemini-3.8-flash re-called tools 100+ times), so match TS there.
+      // Tool-less simple signatures keep the AxIR JSON contract.
+      %function_count = core.call intrinsic.len(%functions)
+      %has_native_tools = core.call intrinsic.gt(%function_count, 0)
+      core.if %has_native_tools {
+        %complex = core.call @signature_has_complex_fields(%signature, %options)
+        %simple = core.call intrinsic.not(%complex)
+        core.if %simple {
+          core.return %selection
+        }
       }
       %explicit_native = core.call intrinsic.eq(%mode, "native")
       core.if %explicit_native {
@@ -283,6 +297,11 @@ module @ax.gen version "0.1" {
     tag "structured-output-rung-prompt-contract"
     type signature = "(list<json>, list<Field>, json) -> void"
     body @entry(%messages: list<json>, %output_fields: list<Field>, %selection: json) {
+      %selected_rung = core.get %selection["rung"]
+      %text_contract = core.call intrinsic.is_none(%selected_rung)
+      core.if %text_contract {
+        core.return
+      }
       %requires_schema = core.get %selection["requires_schema"] default false
       core.if %requires_schema {
         core.for %message in %messages {
@@ -527,11 +546,14 @@ module @ax.gen version "0.1" {
         core.set %response_format["type"] = "json_object"
         core.set %request["response_format"] = %response_format
       }
-      %ax_metadata = core.map
-      core.set %ax_metadata["structured_output_rung"] = %rung
-      %provider_metadata = core.map
-      core.set %provider_metadata["ax"] = %ax_metadata
-      core.set %request["provider_metadata"] = %provider_metadata
+      %has_rung = core.call intrinsic.is_not_none(%rung)
+      core.if %has_rung {
+        %ax_metadata = core.map
+        core.set %ax_metadata["structured_output_rung"] = %rung
+        %provider_metadata = core.map
+        core.set %provider_metadata["ax"] = %ax_metadata
+        core.set %request["provider_metadata"] = %provider_metadata
+      }
       core.set %request["model_config"] = %model_config
       core.return %request
     }
@@ -639,7 +661,8 @@ module @ax.gen version "0.1" {
       %signature = core.get %gen["signature"]
       %model = core.get %runtime_options["model"]
       %features = core.call intrinsic.ai.client_features(%client, %model)
-      %selection = core.call @select_structured_output_rung(%signature, %features, %runtime_options)
+      %functions = core.get %gen["functions"]
+      %selection = core.call @select_structured_output_rung(%signature, %features, %runtime_options, %functions)
       %selected_rung = core.get %selection["rung"]
       %validate_exact_json = core.call intrinsic.eq(%selected_rung, "json_object")
       %input_fields = core.get %signature["input_fields"]
@@ -678,9 +701,18 @@ module @ax.gen version "0.1" {
       %infra_retries_snake = core.get %runtime_options["infra_retries"] default 2
       %infra_retries = core.get %runtime_options["infraRetries"] default %infra_retries_snake
       %attempt = core.const 0
-      %functions = core.get %gen["functions"]
+      %max_steps_snake = core.get %runtime_options["max_steps"] default 25
+      %max_steps = core.get %runtime_options["maxSteps"] default %max_steps_snake
+      %step = core.let 0
       %last_tool_result = core.call intrinsic.none()
       core.loop {
+        // A step is one model turn; validation retries stay inside it, as in TS.
+        %steps_exhausted = core.call intrinsic.gte(%step, %max_steps)
+        core.if %steps_exhausted {
+          %max_steps_message = core.call intrinsic.string.format("Generate failed: Max steps reached: {}", %max_steps)
+          %max_steps_error = core.call intrinsic.error.runtime(%max_steps_message)
+          core.raise %max_steps_error
+        }
         %request = core.call @build_gen_chat_request(%gen, %messages, %runtime_options, %selection)
         %response = core.call @complete_with_retries_impl(%client, %request, %runtime_options, %infra_retries)
         core.call intrinsic.axgen.memory_add_response(%gen, %request, %response)
@@ -734,6 +766,8 @@ module @ax.gen version "0.1" {
           }
           %continue_after_tools = core.call @should_continue_steps(%gen, %calls)
           core.if %continue_after_tools {
+            %next_step = core.call intrinsic.add(%step, 1)
+            %step = core.let %next_step
             core.continue
           } else {
             %validated_tool_result = core.call @validate_output(%output_fields, %last_tool_result)
@@ -1463,6 +1497,42 @@ module @ax.gen version "0.1" {
       }
       %output = core.call @parse_text_output_fields_impl(%text, %fields, true)
       core.return %output
+    }
+  }
+
+  op ax.gen.semantic @signature_has_complex_fields {
+    attr core_kind = "func"
+    attr emit_module = "gen"
+    attr private = true
+    tag "src/ax/dsp/sig.ts"
+    type signature = "(AxSignature, json) -> bool"
+    body @entry(%signature: AxSignature, %options: json) {
+      %option_forced_snake = core.get %options["force_structured"] default false
+      %option_forced = core.get %options["forceStructured"] default %option_forced_snake
+      %signature_forced_snake = core.get %signature["force_structured"] default false
+      %signature_forced = core.get %signature["forceStructured"] default %signature_forced_snake
+      %forced = core.call intrinsic.or(%option_forced, %signature_forced)
+      core.if %forced {
+        core.return true
+      }
+      %output_fields = core.get %signature["output_fields"]
+      core.for %field in %output_fields {
+        %field_type = core.get %field["type"]
+        %type_name = core.get %field_type["name"]
+        %is_object = core.call intrinsic.eq(%type_name, "object")
+        core.if %is_object {
+          core.return true
+        }
+        %is_array_snake = core.get %field_type["is_array"] default false
+        %is_array = core.get %field_type["isArray"] default %is_array_snake
+        %nested_fields = core.get %field_type["fields"]
+        %has_nested_fields = core.call intrinsic.truthy(%nested_fields)
+        %object_array = core.call intrinsic.and(%is_array, %has_nested_fields)
+        core.if %object_array {
+          core.return true
+        }
+      }
+      core.return false
     }
   }
 }

@@ -689,6 +689,159 @@ writeFixture('prompt-cache-key-forward-options', {
   expected_request_count: 1,
 });
 
+const searchTool = {
+  name: 'search',
+  description: 'Search docs',
+  args: { query: { type: 'string' } },
+  result: { title: 'Ax docs' },
+};
+const searchCall = (id: string) => ({
+  content: '',
+  function_calls: [{ id, name: 'search', params: { query: 'ax docs' } }],
+});
+const searchRecord = { name: 'search', args: { query: 'ax docs' } };
+
+// TS AxGen caps the tool loop at maxSteps (default 25) and throws
+// "Generate failed: Max steps reached: N" after N tool steps.
+writeFixture('max-steps-default', {
+  kind: 'forward',
+  signature: 'query:string -> answer:string',
+  input: { query: 'ax docs' },
+  tools: [searchTool],
+  responses: Array.from({ length: 25 }, (_, index) =>
+    searchCall(`call_${index + 1}`)
+  ),
+  expected_error_contains: 'Generate failed: Max steps reached: 25',
+  expected_tool_calls: Array.from({ length: 25 }, () => searchRecord),
+  expected_request_count: 25,
+});
+
+writeFixture('max-steps-forward-option', {
+  kind: 'forward',
+  signature: 'query:string -> answer:string',
+  input: { query: 'ax docs' },
+  options: { max_steps: 5 },
+  forward_options: { maxSteps: 2 },
+  tools: [searchTool],
+  responses: [
+    searchCall('call_1'),
+    searchCall('call_2'),
+    { content: 'Answer: never requested' },
+  ],
+  expected_error_contains: 'Generate failed: Max steps reached: 2',
+  expected_tool_calls: [searchRecord, searchRecord],
+  expected_request_count: 2,
+});
+
+writeFixture('max-steps-zero', {
+  kind: 'forward',
+  signature: 'query:string -> answer:string',
+  input: { query: 'ax docs' },
+  options: { max_steps: 0 },
+  tools: [searchTool],
+  responses: [{ content: 'Answer: never requested' }],
+  expected_error_contains: 'Generate failed: Max steps reached: 0',
+  expected_tool_calls: [],
+  expected_request_count: 0,
+  expect_chat_path: false,
+});
+
+// Validation and assertion retries stay inside the current step.
+writeFixture('max-steps-retries-stay-in-step', {
+  kind: 'forward',
+  signature: 'question:string -> answer:string',
+  input: { question: 'Capital of France?' },
+  options: { max_steps: 1 },
+  assertions: [
+    { field: 'answer', contains: 'Paris', message: 'answer must name Paris' },
+  ],
+  responses: [{ content: 'Answer: Lyon' }, { content: 'Answer: Paris' }],
+  expected_output: { answer: 'Paris' },
+  expected_request_count: 2,
+});
+
+// TS selects no structured-output rung for a simple signature (not even an
+// explicit structuredOutputMode), so native tools keep the `field: value`
+// text contract without a response schema or JSON instruction turn.
+writeFixture('native-tools-simple-signature-text-contract', {
+  kind: 'forward',
+  signature: 'query:string -> answer:string',
+  input: { query: 'ax docs' },
+  tools: [searchTool],
+  responses: [searchCall('call_1'), { content: 'Answer: Found Ax docs' }],
+  expected_output: { answer: 'Found Ax docs' },
+  expected_request_contains: ['field name: value'],
+  expected_request_not_contains: [
+    'response_format',
+    'structured_output_rung',
+    'Return exactly one JSON object',
+    '__axOutput',
+  ],
+  expected_tool_calls: [searchRecord],
+  expected_request_count: 2,
+});
+
+writeFixture('native-tools-simple-signature-ignores-structured-mode', {
+  kind: 'forward',
+  signature: 'query:string -> answer:string',
+  input: { query: 'ax docs' },
+  features: { structured_outputs: false, functions: true },
+  options: { structured_output_mode: 'function' },
+  tools: [searchTool],
+  responses: [searchCall('call_1'), { content: 'Answer: Found Ax docs' }],
+  expected_output: { answer: 'Found Ax docs' },
+  expected_request_not_contains: [
+    '__axOutput',
+    'response_format',
+    'Emit the complete structured output',
+  ],
+  expected_tool_calls: [searchRecord],
+  expected_request_count: 2,
+});
+
+writeFixture('native-tools-complex-signature-keeps-native-rung', {
+  kind: 'forward',
+  signature_spec: {
+    inputs: { query: { type: 'string' } },
+    outputs: {
+      summary: { type: 'object', fields: { answer: { type: 'string' } } },
+    },
+  },
+  input: { query: 'ax docs' },
+  tools: [searchTool],
+  responses: [
+    searchCall('call_1'),
+    { content: '{"summary":{"answer":"Found Ax docs"}}' },
+  ],
+  expected_output: { summary: { answer: 'Found Ax docs' } },
+  expected_request: {
+    response_format: { type: 'json_schema' },
+    provider_metadata: { ax: { structured_output_rung: 'native' } },
+  },
+  expected_tool_calls: [searchRecord],
+  expected_request_count: 2,
+});
+
+// force_structured mirrors TS useStructured(); Agent actor stages set it.
+writeFixture('native-tools-force-structured-keeps-native-rung', {
+  kind: 'forward',
+  signature: 'task:string -> javascriptCode:code',
+  input: { task: 'Look up the docs title' },
+  options: { force_structured: true },
+  tools: [searchTool],
+  responses: [
+    searchCall('call_1'),
+    { content: '{"javascriptCode":"final(\\"Ax docs\\");"}' },
+  ],
+  expected_output: { javascriptCode: 'final("Ax docs");' },
+  expected_request: {
+    response_format: { type: 'json_schema' },
+    provider_metadata: { ax: { structured_output_rung: 'native' } },
+  },
+  expected_tool_calls: [searchRecord],
+  expected_request_count: 2,
+});
+
 // Exact wire keys advertised by prompts must also work in text and chunked responses.
 for (const [name, content] of Object.entries({
   wire: 'urgent: true\nassignedTeam: engineering',

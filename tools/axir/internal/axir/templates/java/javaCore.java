@@ -245,6 +245,7 @@ final class Core {
         case "description" -> s.description;
         case "inputs", "input_fields" -> s.inputs;
         case "outputs", "output_fields" -> s.outputs;
+        case "force_structured", "forceStructured" -> s.forceStructured;
         default -> defaultValue;
       };
     }

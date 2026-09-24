@@ -14666,7 +14666,20 @@ fn run_simple_forward_fixture(fixture: &Value) -> AxResult<()> {
         program.forward(&mut client, input)
     };
     if fixture.get("expected_error_contains").is_some() {
-        return expect_validation_result(result.map(|_| ()), fixture);
+        expect_validation_result(result.map(|_| ()), fixture)?;
+        if let Some(expected) = fixture.get("expected_request_count").and_then(Value::as_u64) {
+            if client.requests.len() != expected as usize {
+                return Err(AxError::new(
+                    "fixture",
+                    format!("expected {expected} requests, got {}", client.requests.len()),
+                ));
+            }
+        }
+        if let Some(expected) = fixture.get("expected_tool_calls").and_then(Value::as_array) {
+            let actual = Value::Array(recorded_calls.lock().unwrap().clone());
+            expect_json_list_exact_subsets("tool calls", &actual, expected)?;
+        }
+        return Ok(());
     }
     let output = result?;
     if let Some(expected) = fixture.get("expected_output") {
@@ -14699,6 +14712,17 @@ fn run_simple_forward_fixture(fixture: &Value) -> AxResult<()> {
                 return Err(AxError::new(
                     "fixture",
                     format!("forward requests missing {needle:?}"),
+                ));
+            }
+        }
+    }
+    if let Some(expected) = fixture.get("expected_request_not_contains").and_then(Value::as_array) {
+        let text = stable_stringify(&Value::Array(client.requests.clone()));
+        for needle in expected.iter().filter_map(Value::as_str) {
+            if text.contains(needle) {
+                return Err(AxError::new(
+                    "fixture",
+                    format!("forward requests unexpectedly contain {needle:?}"),
                 ));
             }
         }
