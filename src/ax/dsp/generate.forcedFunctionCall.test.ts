@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 
-import { AxMockAIService } from '../ai/mock/api.js';
+import { AxMockAIService, type AxMockAIServiceConfig } from '../ai/mock/api.js';
 import type { AxChatRequest, AxChatResponse, AxFunction } from '../ai/types.js';
 import { createFunctionConfig } from './functions.js';
 import { ax } from './template.js';
@@ -44,6 +44,7 @@ const callResponse = (name: string, params: unknown): AxChatResponse => ({
 type RecordedRequest = {
   functionCall: AxChatRequest['functionCall'];
   functions: string[];
+  responseFormat?: string;
 };
 
 /**
@@ -54,14 +55,24 @@ type RecordedRequest = {
  */
 const createForcingAwareAI = (
   argsByFunction: Record<string, unknown>,
-  finalAnswer = 'Answer: It is sunny in Paris.'
+  finalAnswer = 'Answer: It is sunny in Paris.',
+  features: AxMockAIServiceConfig<string>['features'] = {
+    functions: true,
+    structuredOutputs: false,
+  }
 ) => {
   const requests: RecordedRequest[] = [];
   const ai = new AxMockAIService<string>({
-    features: { functions: true, structuredOutputs: false },
+    features,
     chatResponse: async (req) => {
       const functions = (req.functions ?? []).map((fn) => fn.name);
-      requests.push({ functionCall: req.functionCall, functions });
+      requests.push({
+        functionCall: req.functionCall,
+        functions,
+        ...(req.responseFormat
+          ? { responseFormat: req.responseFormat.type }
+          : {}),
+      });
       const forced =
         typeof req.functionCall === 'object'
           ? req.functionCall.function.name
@@ -239,6 +250,50 @@ describe('AxGen forced function calls', () => {
         expect(requests).toEqual([
           { functionCall, functions: ['getWeather', '__axOutput'] },
           { functionCall: outputForced, functions: ['__axOutput'] },
+        ]);
+      }
+    );
+  });
+
+  describe('with native structured output', () => {
+    const report = { city: 'Paris', conditions: 'sunny' };
+
+    // A forced call keeps the native rung, so the answer step sends the JSON
+    // response format without tools (the shape OpenAI accepts).
+    it.each([
+      ['a named function', forceGetWeather],
+      ['required', 'required' as const],
+    ])(
+      'keeps native output and drops the tools after the caller forces %s',
+      async (_label, functionCall) => {
+        const { ai, requests } = createForcingAwareAI(
+          { getWeather: { city: 'Paris' } },
+          JSON.stringify({ report }),
+          { functions: true, structuredOutputs: true }
+        );
+        const gen = ax(
+          'city:string -> report:object{city:string, conditions:string}',
+          { functions: [getWeather] }
+        );
+
+        const result = await gen.forward(
+          ai,
+          { city: 'Paris' },
+          { functionCall }
+        );
+
+        expect(result.report).toEqual(report);
+        expect(requests).toEqual([
+          {
+            functionCall,
+            functions: ['getWeather'],
+            responseFormat: 'json_schema',
+          },
+          {
+            functionCall: undefined,
+            functions: [],
+            responseFormat: 'json_schema',
+          },
         ]);
       }
     );
