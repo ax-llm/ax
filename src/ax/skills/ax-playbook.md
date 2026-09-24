@@ -18,6 +18,7 @@ Use this skill to generate context-playbook code. A playbook grows an evolving b
 - Inspect with `pb.render()` (markdown) and `pb.getState()` (`{ playbook, artifact }`).
 - For agents use `agent.playbook({ target: 'actor' | 'responder' })`; default target is `'actor'`.
 - Use a cheaper `studentAI` to run the program and an optional stronger `teacherAI` to reflect/curate.
+- Pass AI service options for the reflect/curate calls as `teacherOptions`. A teacher marked `isExpensive` (for example OpenAI `gpt-5.5-pro`) is rejected unless you pass `teacherOptions: { useExpensiveModel: 'yes' }`. The generated packages have no `isExpensive` gate and no `teacherOptions` yet.
 - Prefer `ai()`, `ax()`, and `agent()` for new code.
 
 ## Critical Rules
@@ -87,6 +88,12 @@ const result = await apb.evolve(
 );
 ```
 
+Each teacher call uses the `teacherOptions` set next to its model:
+
+- `a.playbook({ teacherAI, teacherOptions })` and the construction-time `playbook: { teacherAI, teacherOptions }` config cover the reflector and curator calls, including the ones `apb.evolve(...)` makes to apply a proposal.
+- `apb.evolve(dataset, { teacherAI, teacherOptions })` covers the weakness miner.
+- Both teachers default to the agent's `judgeAI`, then the student. With an `isExpensive` `judgeAI`, set `teacherOptions: { useExpensiveModel: 'yes' }` in both places, plus `judgeOptions` when the built-in judge scores the runs.
+
 The agent-level `evolve(dataset, options)` is distinct from the program-level `pb.evolve(examples, metric)` above: it takes an `AxAgentEvalDataset` plus options, runs the whole pipeline, and returns baseline/final held-in & held-out with per-bullet outcomes (no `{ bestScore }`). For full-pipeline tuning of agent instructions and demos (not the playbook) use `agent.optimize(...)` (GEPA).
 
 Generated packages expose that same agent-bound loop with language-shaped APIs:
@@ -117,6 +124,7 @@ use task `score`/`scores` values plus the agent evaluation result.
 - "Cannot convert undefined or null to object" from `update()` → you passed input fields at the top level; wrap them in `example: { ... }`.
 - Empty playbook after `evolve()` → the model already scored well, so nothing was curated; use harder/ambiguous examples or a weaker `studentAI` to surface lessons.
 - Playbook not affecting an agent's behavior → ensure `apply` is not `false` and you used `agent.playbook(...)` (not a bare `playbook()` on an internal program).
+- Playbook never grows with an `isExpensive` teacher → the reflector and curator calls are rejected before any request is sent, and only `verbose: true` logs it. Set `teacherOptions: { useExpensiveModel: 'yes' }`. In `apb.evolve(...)`, a rejected miner call is reported as a `miner failed` message through `onProgress` (and the console with `verbose: true`).
 
 ## See Also
 

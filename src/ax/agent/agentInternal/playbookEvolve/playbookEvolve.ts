@@ -66,6 +66,7 @@ export async function evolveAgentPlaybook<
   }
   const agentJudgeAI = s.init?.judgeAI ?? s.judgeAI;
   const teacherAI = options?.teacherAI ?? agentJudgeAI ?? studentAI;
+  const teacherOptions = options?.teacherOptions;
   const judgeAI =
     options?.judgeAI ?? agentJudgeAI ?? options?.teacherAI ?? studentAI;
   const judgeOptions: AxAgentJudgeOptions = {
@@ -125,6 +126,7 @@ export async function evolveAgentPlaybook<
         target: 'actor',
         studentAI,
         teacherAI,
+        teacherOptions,
         maxReflectorRounds: 1,
       });
       s.playbookHandle = handle;
@@ -175,6 +177,7 @@ export async function evolveAgentPlaybook<
     try {
       const weakness = await mineWeakness({
         ai: teacherAI,
+        aiOptions: teacherOptions,
         cluster,
         currentPlaybook: currentPlaybookText(s),
         index,

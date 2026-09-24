@@ -1,6 +1,10 @@
 import type { Counter, Gauge, Histogram, Meter } from '@opentelemetry/api';
 import { mergeCustomLabels } from '../ai/metrics.js';
-import type { AxAIService, AxLoggerFunction } from '../ai/types.js';
+import type {
+  AxAIService,
+  AxAIServiceOptions,
+  AxLoggerFunction,
+} from '../ai/types.js';
 
 // FIXME: Circular dependency - import { ax } from '../index.js';
 
@@ -1226,6 +1230,7 @@ export abstract class AxBaseOptimizer implements AxOptimizer {
   // Common AxOptimizerArgs fields
   protected readonly studentAI: AxAIService;
   protected readonly teacherAI?: AxAIService;
+  protected readonly teacherOptions?: AxAIServiceOptions;
   protected readonly targetScore?: number;
   protected readonly minSuccessRate?: number;
   protected readonly onProgress?: (
@@ -1268,6 +1273,7 @@ export abstract class AxBaseOptimizer implements AxOptimizer {
     // Set common fields from AxOptimizerArgs
     this.studentAI = args.studentAI;
     this.teacherAI = args.teacherAI;
+    this.teacherOptions = args.teacherOptions;
     this.targetScore = args.targetScore;
     this.minSuccessRate = args.minSuccessRate;
     this.onProgress = args.onProgress;
@@ -2421,7 +2427,7 @@ export abstract class AxBaseOptimizer implements AxOptimizer {
     return (
       this.studentAI.getOptions?.()?.logger ??
       axGlobals.logger ??
-      this.studentAI.getLogger()
+      this.studentAI.getLogger?.()
     );
   }
 

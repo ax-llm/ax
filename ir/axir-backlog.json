@@ -1596,6 +1596,68 @@
       "verification": "No port change was needed. The generated ports already apply apiURL, baseUrl and base_url to every provider in provider_resolve_descriptor, and already send GPT-6 on the openai provider through Responses; only TypeScript dropped apiURL, which #678 fixed. New ai_chat fixtures openai-responses-chat-uses-api-url and gpt-6-sol-openai-api-url-uses-responses pass in Python, Java, C++, Go, and Rust, and copies expecting api.openai.com fail in the Python, Go, and Java runners. TypeScript provider_profiles.test.ts covers both paths and fails with the fix reverted."
     },
     {
+      "id": "axir-2026-09-24-port-optimizer-teacher-options-and-gepa-teacher-failure-reporting",
+      "status": "open",
+      "title": "Port teacherOptions to optimizer teacher calls and surface GEPA teacher failures",
+      "createdAt": "2026-09-24",
+      "sourcePR": null,
+      "sourceCommit": "87fc4fee906c3b0c253bdf71ded23a869ddcb1e0",
+      "tsPaths": [
+        "src/ax/dsp/common_types.ts",
+        "src/ax/dsp/optimizer.ts",
+        "src/ax/dsp/optimizers/ace.ts",
+        "src/ax/dsp/optimizers/bootstrapFewshot.ts",
+        "src/ax/dsp/optimizers/gepa.ts",
+        "src/ax/dsp/optimizers/gepa.test.ts",
+        "src/ax/dsp/optimizers/gepaReflection.ts",
+        "src/ax/dsp/optimizers/gepaReflection.test.ts",
+        "src/ax/dsp/optimizers/teacherOptions.test.ts",
+        "src/ax/agent/agentInternal/agentOptimizeTypes.ts",
+        "src/ax/agent/agentInternal/optimizer.ts",
+        "src/ax/agent/agent.test.ts"
+      ],
+      "portableSurface": "axoptimize",
+      "impact": "TypeScript optimizers now accept teacherOptions (AxAIServiceOptions) in AxOptimizerArgs, optimize() and agent.optimize(). GEPA passes them to its feedback critic and component proposer, ACE to its reflector and curator, and BootstrapFewShot to its demo runs, so a teacher model marked isExpensive works after useExpensiveModel: 'yes'. GEPA also reports a failed teacher call as a gepa_teacher logger notification and keeps the current value, where it used to swallow the error, and its proposer now accepts an empty current value such as an ax() program's default instruction, which the required currentValue input used to reject before any request. Generated ports have no teacherOptions: GEPA reflection calls chat with fixed service options (Python {stream: False}, Go an empty map, Java none), and the ACE reflector/curator and optimize() bootstrap forwards pass none. Port GEPA also raises (Python/Java) or panics (Go) on a failed reflection call instead of logging it and keeping the value. No port enforces isExpensive yet (see the expensive-model gate entry), so the missing options only matter once that gate is ported. Port proposers send the current value inside a JSON prompt, so the empty-value bug does not apply to them.",
+      "suggestedAxirWork": [
+        "Accept teacherOptions in the port optimize/AxGEPA/ACE/bootstrap options and pass them to every teacher chat or forward call.",
+        "Match TS GEPA teacher-failure handling: report a gepa_teacher notification and keep the current value instead of raising.",
+        "Add a conformance fixture where an isExpensive teacher is rejected without teacherOptions and reached with useExpensiveModel yes once the gate is ported.",
+        "Run npm run axir:conformance:check and npm run test:axir."
+      ],
+      "completedAt": null,
+      "completedByCommit": null,
+      "verification": null
+    },
+    {
+      "id": "axir-2026-09-24-port-playbook-and-evolve-miner-teacher-options",
+      "status": "open",
+      "title": "Port teacherOptions to playbook and agent evolve teacher calls",
+      "createdAt": "2026-09-24",
+      "sourcePR": null,
+      "sourceCommit": "ec26c4ca1a41de125eec67c72529ee2719eb32d7",
+      "tsPaths": [
+        "src/ax/dsp/playbook.ts",
+        "src/ax/agent/playbookConfig.ts",
+        "src/ax/agent/agentInternal/agentOptimizeTypes.ts",
+        "src/ax/agent/agentInternal/coordinator.ts",
+        "src/ax/agent/agentInternal/playbookEvolve/playbookEvolve.ts",
+        "src/ax/agent/agentInternal/playbookEvolve/playbookEvolveTypes.ts",
+        "src/ax/agent/agentInternal/playbookEvolve/weaknessMiner.ts",
+        "src/ax/dsp/optimizers/teacherOptions.test.ts"
+      ],
+      "portableSurface": "axoptimize",
+      "impact": "TypeScript playbook(), agent.playbook() and the agent playbook config now accept teacherOptions (AxAIServiceOptions) and pass them to the ACE reflector and curator, and agent.playbook().evolve() accepts teacherOptions for its weakness miner, so a teacher model marked isExpensive works after useExpensiveModel: 'yes'. Without it the gate rejects those calls before any request is sent: playbook updates curate nothing and evolve reports a miner failure. The reflector and curator calls that apply each evolve proposal keep using the playbook's own teacherOptions. Generated ports have no teacherOptions on these paths. Their playbook reflector and curator forwards pass no options (Python _run_reflector/_run_curator, Go runReflector/runCurator with nil options, Java runReflector/runCurator, and the Rust and C++ reflector/curator closures), and the agent-bound evolve weakness miner forward passes none in all five. No port enforces isExpensive yet (see the expensive-model gate entry), so the missing options only matter once that gate is ported. The optimizer teacherOptions entry covers the separate port AxACE optimizer reflector/curator used by optimize().",
+      "suggestedAxirWork": [
+        "Accept teacherOptions in the port AxPlaybook and agent playbook options and pass them to the playbook reflector and curator forwards.",
+        "Accept teacherOptions in the port agent-bound evolve options and pass them to the weakness miner forward.",
+        "Extend the optimizer teacherOptions conformance fixture to a playbook update and an evolve miner call once the isExpensive gate is ported.",
+        "Run npm run axir:conformance:check and npm run test:axir."
+      ],
+      "completedAt": null,
+      "completedByCommit": null,
+      "verification": null
+    },
+    {
       "id": "axir-2026-09-24-port-the-text-output-contract-for-simple-axgen-signatures-withou",
       "status": "open",
       "title": "Port the text output contract for simple AxGen signatures without tools",

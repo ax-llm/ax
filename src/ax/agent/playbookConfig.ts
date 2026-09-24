@@ -9,7 +9,7 @@
  * them. Persistence is caller-driven via `onUpdate`.
  */
 
-import type { AxAIService } from '../ai/types.js';
+import type { AxAIService, AxAIServiceOptions } from '../ai/types.js';
 import type { AxACEPlaybook } from '../dsp/optimizers/aceTypes.js';
 import type { AxPlaybookOptions, AxPlaybookSnapshot } from '../dsp/playbook.js';
 import type { AxAgentFailureSignal } from './agentInternal/failureReport.js';
@@ -79,6 +79,13 @@ export type AxAgentPlaybookConfig = {
   studentAI?: Readonly<AxAIService>;
   /** Stronger model for reflection/curation. Defaults to the agent's `judgeAI`. */
   teacherAI?: Readonly<AxAIService>;
+  /**
+   * AI service options for the reflection and curation calls. Set
+   * `useExpensiveModel: 'yes'` for a teacher marked `isExpensive`; without
+   * it those calls are rejected before any request is sent, and updates
+   * curate nothing.
+   */
+  teacherOptions?: AxAIServiceOptions;
 } & Pick<
   AxPlaybookOptions,
   | 'maxReflectorRounds'
@@ -102,6 +109,7 @@ export type AxResolvedAgentPlaybookConfig = {
   onUpdate?: (result: AxAgentPlaybookUpdateResult) => void | Promise<void>;
   studentAI?: Readonly<AxAIService>;
   teacherAI?: Readonly<AxAIService>;
+  teacherOptions?: AxAIServiceOptions;
   playbookOptions: Pick<
     AxPlaybookOptions,
     | 'maxReflectorRounds'
@@ -221,6 +229,7 @@ export function resolveAgentPlaybookConfig(
     ...(config.onUpdate ? { onUpdate: config.onUpdate } : {}),
     ...(config.studentAI ? { studentAI: config.studentAI } : {}),
     ...(config.teacherAI ? { teacherAI: config.teacherAI } : {}),
+    ...(config.teacherOptions ? { teacherOptions: config.teacherOptions } : {}),
     playbookOptions: {
       maxReflectorRounds:
         config.maxReflectorRounds ?? DEFAULT_PLAYBOOK_MAX_REFLECTOR_ROUNDS,

@@ -198,6 +198,7 @@ assistant.applyOptimization(result.optimizedProgram!);
 - `target` defaults to actor optimization.
 - `metric` defaults to the built-in LLM judge.
 - `judgeAI` is optional; if omitted, the agent falls back to its configured judge model or runtime model.
+- GEPA's teacher calls use `teacherAI`, or the judge model when it is omitted. `judgeOptions` only covers the judge calls, so a teacher marked `isExpensive` also needs `teacherOptions: { useExpensiveModel: 'yes' }`.
 - `bootstrap: true` is a good next step for tool-heavy agents when you want GEPA to start from successful traces from the provided tasks.
 - The one thing users still need is realistic task records with clear `criteria`.
 
