@@ -504,6 +504,13 @@ export interface AxAIFeatures {
   structuredOutputs?: boolean;
   /** Ordered, verified structured-output strategies for the selected model. */
   structuredOutputModes?: readonly AxStructuredOutputRung[];
+  /**
+   * Whether a JSON response format (the `native` and `json_object` rungs) works
+   * in a request that also declares native functions. When `false`, the `auto`
+   * structured-output mode uses the `function` rung while the model may call
+   * user functions. Omitted means yes.
+   */
+  responseFormatWithFunctions?: boolean;
   /** Requires an output schema even for scalar-only signatures (typed inference). */
   requiresStructuredOutput?: boolean;
   /** Enhanced media capability specifications */

@@ -134,6 +134,13 @@ path when native schema is unavailable. An explicit mode must be advertised or
 Ax fails before network I/O. Custom clients that do not expose the new list keep
 the legacy capability heuristic.
 
+A client that reports `responseFormatWithFunctions: false` cannot pair a JSON
+response format (`native` or `json_object`) with function declarations. While
+the model can call user functions natively, `auto` then picks `function` if it
+is advertised, so the model answers through `__axOutput` beside the tools. The
+TypeScript Gemini client reports this: Gemini 2.x rejects the combination, and
+`gemini-3.8-flash` and `gemini-3.1-flash-lite` keep re-calling tools under it.
+
 `structuredOutputs` remains the compatibility alias for native JSON Schema
 support. It does not imply `json_object`: direct `json_schema` and
 `json_object` chat requests validate those capabilities independently.

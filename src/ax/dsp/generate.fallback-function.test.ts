@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 
-import { AxMockAIService } from '../ai/mock/api.js';
+import { AxMockAIService, type AxMockAIServiceConfig } from '../ai/mock/api.js';
+import type { AxChatRequest, AxFunction } from '../ai/types.js';
 import { f } from './sig.js';
 import { ax } from './template.js';
 
@@ -637,4 +638,217 @@ describe('Structured Output Function-Call Fallback (__axOutput)', () => {
       );
     }
   );
+});
+
+describe('Structured output beside user functions (responseFormatWithFunctions)', () => {
+  const createSig = () =>
+    f()
+      .input('question', f.string())
+      .output(
+        'user',
+        f.object({
+          name: f.string(),
+          age: f.number(),
+        })
+      )
+      .build();
+
+  const createLookupUser = (executed: string[]): AxFunction => ({
+    name: 'lookupUser',
+    description: 'Look up a user by name',
+    parameters: {
+      type: 'object',
+      properties: { name: { type: 'string', description: 'User name' } },
+      required: ['name'],
+    },
+    func: async ({ name }: { name: string }) => {
+      executed.push(name);
+      return { name, age: 30 };
+    },
+  });
+
+  // Mirrors the Gemini provider: native JSON Schema output and the function
+  // rung are both verified, but not a JSON response format beside tools.
+  const createGeminiLikeAI = (
+    features: Partial<
+      NonNullable<AxMockAIServiceConfig<string>['features']>
+    > = {}
+  ) =>
+    new AxMockAIService({
+      name: 'gemini-like',
+      features: {
+        functions: true,
+        streaming: false,
+        structuredOutputs: true,
+        structuredOutputModes: ['native', 'function'],
+        responseFormatWithFunctions: false,
+        ...features,
+      },
+    });
+
+  const jsonAnswer = {
+    results: [
+      {
+        index: 0,
+        content: JSON.stringify({ user: { name: 'Alice', age: 30 } }),
+        finishReason: 'stop' as const,
+      },
+    ],
+  };
+
+  it('answers through __axOutput while user functions stay callable', async () => {
+    const executed: string[] = [];
+    const gen = ax(createSig(), { functions: [createLookupUser(executed)] });
+    const mockAI = createGeminiLikeAI();
+    const requests: Readonly<AxChatRequest<unknown>>[] = [];
+    mockAI.chat = async (req) => {
+      requests.push(req);
+      const call =
+        requests.length === 1
+          ? { name: 'lookupUser', params: { name: 'Alice' } }
+          : {
+              name: '__axOutput',
+              params: { user: { name: 'Alice', age: 30 } },
+            };
+      return {
+        results: [
+          {
+            index: 0,
+            functionCalls: [
+              {
+                id: `call-${requests.length}`,
+                type: 'function' as const,
+                function: call,
+              },
+            ],
+            finishReason: 'function_call' as const,
+          },
+        ],
+      };
+    };
+
+    const result = await gen.forward(mockAI, { question: 'How old is Alice?' });
+
+    expect(result.user).toEqual({ name: 'Alice', age: 30 });
+    expect(executed).toEqual(['Alice']);
+    expect(requests).toHaveLength(2);
+    for (const req of requests) {
+      expect(req.responseFormat).toBeUndefined();
+      expect(req.functions?.map((fn) => fn.name)).toEqual([
+        'lookupUser',
+        '__axOutput',
+      ]);
+      expect(req.functionCall).toBeUndefined();
+    }
+    const system = requests[0]?.chatPrompt.find(
+      (message) => message.role === 'system'
+    )?.content;
+    expect(system).toContain(
+      'Return the complete output by calling `__axOutput`'
+    );
+    expect(
+      gen.getChatLog()[0]?.providerMetadata?.ax?.structured_output_rung
+    ).toBe('function');
+  });
+
+  it('renders internal prompts for the same rung', async () => {
+    const createGen = () =>
+      ax(createSig(), { functions: [createLookupUser([])] });
+    const values = { question: 'How old is Alice?' };
+
+    const functionRung = await createGen()._measurePromptCharsForInternalUse(
+      createGeminiLikeAI(),
+      values
+    );
+    const nativeRung = await createGen()._measurePromptCharsForInternalUse(
+      createGeminiLikeAI({ responseFormatWithFunctions: undefined }),
+      values
+    );
+
+    // The function rung lists __axOutput and swaps the JSON formatting rule.
+    expect(functionRung.systemPromptCharacters).not.toBe(
+      nativeRung.systemPromptCharacters
+    );
+  });
+
+  it('keeps native JSON Schema output without user functions', async () => {
+    const gen = ax(createSig());
+    const mockAI = createGeminiLikeAI();
+    let capturedReq: Readonly<AxChatRequest<unknown>> | undefined;
+    mockAI.chat = async (req) => {
+      capturedReq = req;
+      return jsonAnswer;
+    };
+
+    const result = await gen.forward(mockAI, { question: 'Who is Alice?' });
+
+    expect(result.user).toEqual({ name: 'Alice', age: 30 });
+    expect(capturedReq?.responseFormat?.type).toBe('json_schema');
+    expect(capturedReq?.functions ?? []).toHaveLength(0);
+  });
+
+  it.each([
+    ['required', { functionCall: 'required' as const }],
+    ['none', { functionCall: 'none' as const }],
+    [
+      'a named call',
+      {
+        functionCall: {
+          type: 'function' as const,
+          function: { name: 'lookupUser' },
+        },
+      },
+    ],
+    ['an explicit native mode', { structuredOutputMode: 'native' as const }],
+    ['prompt-emulated functions', { functionCallMode: 'prompt' as const }],
+  ])(
+    'keeps native JSON Schema output for %s',
+    async (_label, forwardOptions) => {
+      const gen = ax(createSig(), { functions: [createLookupUser([])] });
+      const mockAI = createGeminiLikeAI();
+      let capturedReq: Readonly<AxChatRequest<unknown>> | undefined;
+      mockAI.chat = async (req) => {
+        capturedReq ??= req;
+        return jsonAnswer;
+      };
+
+      const result = await gen.forward(
+        mockAI,
+        { question: 'Who is Alice?' },
+        forwardOptions
+      );
+
+      expect(result.user).toEqual({ name: 'Alice', age: 30 });
+      expect(capturedReq?.responseFormat?.type).toBe('json_schema');
+      expect(capturedReq?.functions?.map((fn) => fn.name) ?? []).not.toContain(
+        '__axOutput'
+      );
+    }
+  );
+
+  it.each([
+    [
+      'providers that omit the capability',
+      { responseFormatWithFunctions: undefined },
+    ],
+    [
+      'providers without the function rung',
+      { structuredOutputModes: ['native'] as const },
+    ],
+  ])('keeps native JSON Schema output for %s', async (_label, features) => {
+    const gen = ax(createSig(), { functions: [createLookupUser([])] });
+    const mockAI = createGeminiLikeAI(features);
+    let capturedReq: Readonly<AxChatRequest<unknown>> | undefined;
+    mockAI.chat = async (req) => {
+      capturedReq = req;
+      return jsonAnswer;
+    };
+
+    await gen.forward(mockAI, { question: 'Who is Alice?' });
+
+    expect(capturedReq?.responseFormat?.type).toBe('json_schema');
+    expect(capturedReq?.functions?.map((fn) => fn.name)).toEqual([
+      'lookupUser',
+    ]);
+  });
 });
