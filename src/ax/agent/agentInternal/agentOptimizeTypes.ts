@@ -1,4 +1,4 @@
-import type { AxAIService } from '../../ai/types.js';
+import type { AxAIService, AxAIServiceOptions } from '../../ai/types.js';
 import type {
   AxGEPABootstrapOptions,
   AxMetricFn,
@@ -131,6 +131,12 @@ export type AxAgentOptimizeOptions<
   /** Optional separate judge model. Defaults to the agent's `judgeAI`, then `teacherAI`, then the student model. */
   judgeAI?: Readonly<AxAIService>;
   teacherAI?: Readonly<AxAIService>;
+  /**
+   * AI service options for GEPA's teacher calls, which use `teacherAI` or,
+   * without it, the judge model. Set `useExpensiveModel: 'yes'` for a teacher
+   * marked `isExpensive`.
+   */
+  teacherOptions?: AxAIServiceOptions;
   judgeOptions?: AxAgentJudgeOptions;
   /** Optional optimization scope. Defaults to `'actor'`. */
   target?: AxAgentOptimizeTarget;

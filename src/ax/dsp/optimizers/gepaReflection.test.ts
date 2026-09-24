@@ -2,10 +2,67 @@ import { describe, expect, it } from 'vitest';
 import { AxMockAIService } from '../../ai/mock/api.js';
 import {
   proposeGEPAComponentValue,
+  renderReflectiveValue,
   summarizeGEPATraces,
 } from './gepaReflection.js';
 
 describe('GEPA reflection helpers', () => {
+  it('renders nested values as JSON instead of [object Object]', () => {
+    const rendered = renderReflectiveValue({
+      recursiveTrace: { root: { children: [{ taskDigest: 'branch-a' }] } },
+      extra: { nested: ['value'] },
+    });
+
+    expect(rendered).toContain('"taskDigest": "branch-a"');
+    expect(rendered).toContain('"nested": [');
+    expect(rendered).not.toContain('[object Object]');
+  });
+
+  it('proposes a value for a component whose current value is empty', async () => {
+    let prompt = '';
+    const ai = new AxMockAIService<string>({
+      chatResponse: async (req) => {
+        prompt = JSON.stringify(req.chatPrompt);
+        return {
+          results: [
+            {
+              index: 0,
+              content: 'New Value: Answer in one sentence.',
+              finishReason: 'stop',
+            },
+          ],
+        };
+      },
+    });
+
+    const proposed = await proposeGEPAComponentValue({
+      ai,
+      target: { id: 'root::instruction', kind: 'instruction', current: '' },
+      currentValue: '',
+      tuples: [],
+    });
+
+    expect(proposed).toBe('Answer in one sentence.');
+    expect(prompt).not.toContain('Current Value');
+  });
+
+  it('rethrows the teacher error when the last attempt fails', async () => {
+    const ai = new AxMockAIService<string>({
+      shouldError: true,
+      errorMessage: 'teacher unavailable',
+    });
+
+    await expect(
+      proposeGEPAComponentValue({
+        ai,
+        target: { id: 'root::instruction', kind: 'instruction', current: 'x' },
+        currentValue: 'x',
+        tuples: [],
+        maxAttempts: 2,
+      })
+    ).rejects.toThrow('teacher unavailable');
+  });
+
   it('summarizes trace rows with bounded previews', () => {
     const summary = summarizeGEPATraces(
       [

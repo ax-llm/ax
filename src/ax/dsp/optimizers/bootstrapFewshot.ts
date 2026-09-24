@@ -120,6 +120,7 @@ export class AxBootstrapFewShot extends AxBaseOptimizer {
         try {
           // Add maxRetries to forward options
           const forwardOptions = {
+            ...this.teacherOptions,
             ...aiOpt,
             maxRetries: 1,
           };
