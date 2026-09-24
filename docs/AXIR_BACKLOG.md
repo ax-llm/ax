@@ -37,6 +37,12 @@ This ledger tracks portable TypeScript behavior that should be migrated into AxI
   - TS paths: `src/ax/ai/openai/responses_api_base.ts`, `src/ax/ai/provider_profiles.test.ts`
   - Impact: TypeScript AxAIOpenAIResponses now forwards the caller apiURL to AxAIOpenAIResponsesBase, so ai({ name: 'openai-responses', apiURL }) and the GPT-6 requests that ai({ name: 'openai', apiURL }) routes through Responses reach the configured host instead of api.openai.com. Generated OpenAI Responses clients that accept a base URL should send chat to that URL the same way.
   - Suggested AxIR work: Add or update the TS-derived conformance fixture.; Update AxIR/Core or descriptor data to match the portable TS behavior.; Run npm run axir:conformance:check and npm run test:axir.
+- `axir-2026-09-24-port-the-text-output-contract-for-simple-axgen-signatures-withou` [axgen] Port the text output contract for simple AxGen signatures without tools
+  - Status: open
+  - Source commit: `73f1160df`
+  - TS paths: `src/ax/dsp/generate.ts`, `src/ax/dsp/sig.ts`, `src/ax/agent/agentInternal/signatureBuilders.ts`
+  - Impact: TypeScript selectStructuredOutputRung returns no rung when a signature has no object or object-array output (unless the provider requires structured output), so simple signatures use the field: value text contract with no response schema. Generated ports match this only when native tools are present. Tool-less simple signatures (responder, llmQuery, ACE, flow nodes, and user programs) still send a JSON response schema plus a JSON instruction turn under a text-mode system prompt.
+  - Suggested AxIR work: Drop the native-tools condition in @select_structured_output_rung so every simple signature selects no rung; Keep force_structured on Agent actor stages and live-verify responder and llmQuery stages in text mode; Update simple-forward and the other fixtures that pin response_format for simple signatures
 
 ## Done
 

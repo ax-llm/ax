@@ -1,0 +1,73 @@
+{
+  "expected_error_contains": "Generate failed: Max steps reached: 2",
+  "expected_request_count": 2,
+  "expected_tool_calls": [
+    {
+      "args": {
+        "query": "ax docs"
+      },
+      "name": "search"
+    },
+    {
+      "args": {
+        "query": "ax docs"
+      },
+      "name": "search"
+    }
+  ],
+  "forward_options": {
+    "maxSteps": 2
+  },
+  "input": {
+    "query": "ax docs"
+  },
+  "kind": "forward",
+  "name": "max-steps-forward-option",
+  "options": {
+    "max_steps": 5
+  },
+  "responses": [
+    {
+      "content": "",
+      "function_calls": [
+        {
+          "id": "call_1",
+          "name": "search",
+          "params": {
+            "query": "ax docs"
+          }
+        }
+      ]
+    },
+    {
+      "content": "",
+      "function_calls": [
+        {
+          "id": "call_2",
+          "name": "search",
+          "params": {
+            "query": "ax docs"
+          }
+        }
+      ]
+    },
+    {
+      "content": "Answer: never requested"
+    }
+  ],
+  "signature": "query:string -> answer:string",
+  "tools": [
+    {
+      "args": {
+        "query": {
+          "type": "string"
+        }
+      },
+      "description": "Search docs",
+      "name": "search",
+      "result": {
+        "title": "Ax docs"
+      }
+    }
+  ]
+}
