@@ -10,7 +10,7 @@
  * the proposal stage.
  */
 
-import type { AxAIService } from '../../../ai/types.js';
+import type { AxAIService, AxAIServiceOptions } from '../../../ai/types.js';
 import { AxGen } from '../../../dsp/generate.js';
 import { f } from '../../../dsp/sig.js';
 import type { AxAgentFailureCluster } from './failureClusters.js';
@@ -130,6 +130,7 @@ export function verifyEvidenceQuotes(
 
 export async function mineWeakness(args: {
   ai: Readonly<AxAIService>;
+  aiOptions?: Readonly<AxAIServiceOptions>;
   cluster: AxAgentFailureCluster;
   currentPlaybook?: string;
   index: number;
@@ -176,14 +177,18 @@ export async function mineWeakness(args: {
   const miner = new AxGen<any, any>(minerSignature, {
     description: MINER_DESCRIPTION,
   });
-  const mined = await miner.forward(args.ai as AxAIService, {
-    clusterSignature: args.cluster.signature,
-    taskSummaries,
-    actionLogExcerpts: excerpts,
-    functionCallSummary: functionCallSummary || undefined,
-    toolErrors: toolErrors || undefined,
-    currentPlaybook: args.currentPlaybook,
-  });
+  const mined = await miner.forward(
+    args.ai as AxAIService,
+    {
+      clusterSignature: args.cluster.signature,
+      taskSummaries,
+      actionLogExcerpts: excerpts,
+      functionCallSummary: functionCallSummary || undefined,
+      toolErrors: toolErrors || undefined,
+      currentPlaybook: args.currentPlaybook,
+    },
+    args.aiOptions
+  );
 
   // A scalar evidenceQuotes must be wrapped, not dropped — see coerceToArray.
   const evidenceQuotes = verifyEvidenceQuotes(

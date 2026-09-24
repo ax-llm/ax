@@ -6,7 +6,7 @@
  * Verified learning produces only playbook bullets.
  */
 
-import type { AxAIService } from '../../../ai/types.js';
+import type { AxAIService, AxAIServiceOptions } from '../../../ai/types.js';
 import type { AxMetricFn } from '../../../dsp/common_types.js';
 import type { AxPlaybookSnapshot } from '../../../dsp/playbook.js';
 import type { AxGenIn, AxGenOut } from '../../../dsp/types.js';
@@ -87,6 +87,14 @@ export type AxAgentPlaybookEvolveOptions = {
   studentAI?: Readonly<AxAIService>;
   /** Mines weaknesses. Defaults to `judgeAI`, then the student. */
   teacherAI?: Readonly<AxAIService>;
+  /**
+   * AI service options for the weakness miner's calls. Set
+   * `useExpensiveModel: 'yes'` for a teacher marked `isExpensive`. The
+   * reflection and curation calls that apply each proposal use the
+   * playbook's own `teacherOptions` (from `agent.playbook(...)` or the
+   * `playbook` config).
+   */
+  teacherOptions?: AxAIServiceOptions;
   /** Scores runs via the built-in judge. Resolution mirrors `optimize()`. */
   judgeAI?: Readonly<AxAIService>;
   judgeOptions?: AxAgentJudgeOptions;

@@ -187,6 +187,12 @@ export type AxAgentOptimizeResult<OUT extends AxGenOut = AxGenOut> =
 export type AxAgentPlaybookOptions = {
   studentAI?: Readonly<AxAIService>;
   teacherAI?: Readonly<AxAIService>;
+  /**
+   * AI service options for the playbook's reflection and curation calls,
+   * which use `teacherAI`, then the agent's `judgeAI`, then the student
+   * model. Set `useExpensiveModel: 'yes'` for a teacher marked `isExpensive`.
+   */
+  teacherOptions?: AxAIServiceOptions;
   /** Which agent stage to evolve a playbook for. Defaults to `'actor'`. */
   target?: 'actor' | 'responder';
   /** Render the evolving playbook into the live stage. Defaults to `true`. */
