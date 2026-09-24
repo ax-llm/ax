@@ -1,8 +1,11 @@
 package dev.axllm.ax;
 
+import java.io.ByteArrayOutputStream;
 import java.net.URI;
 import java.net.http.HttpClient;
 import java.net.http.WebSocket;
+import java.nio.ByteBuffer;
+import java.nio.charset.StandardCharsets;
 import java.time.Duration;
 import java.util.*;
 import java.util.concurrent.*;
@@ -120,6 +123,7 @@ public final class AxMCPWebSocketTransport implements AxMCPTransport {
   private static final class NativeSocket implements Socket, WebSocket.Listener {
     private final BlockingQueue<Object> messages=new LinkedBlockingQueue<>();
     private final StringBuilder partial=new StringBuilder();
+    private final ByteArrayOutputStream partialBytes=new ByteArrayOutputStream();
     private final WebSocket socket;
     private final Object closed=new Object();
     NativeSocket(String url,List<String> protocols) {
@@ -129,6 +133,10 @@ public final class AxMCPWebSocketTransport implements AxMCPTransport {
     }
     public void onOpen(WebSocket ws){ws.request(1);}
     public CompletionStage<?> onText(WebSocket ws,CharSequence data,boolean last){partial.append(data);if(last){messages.add(partial.toString());partial.setLength(0);}ws.request(1);return null;}
+    // Servers may send JSON-RPC in binary frames, which the JDK's default onBinary discards. Copy each
+    // fragment before returning (the JDK reuses the buffer) and decode once the message is whole, since a
+    // UTF-8 character can span fragments.
+    public CompletionStage<?> onBinary(WebSocket ws,ByteBuffer data,boolean last){byte[] fragment=new byte[data.remaining()];data.get(fragment);partialBytes.writeBytes(fragment);if(last){messages.add(partialBytes.toString(StandardCharsets.UTF_8));partialBytes.reset();}ws.request(1);return null;}
     public CompletionStage<?> onClose(WebSocket ws,int status,String reason){messages.offer(closed);return null;}
     public void onError(WebSocket ws,Throwable error){messages.offer(error);}
     public synchronized void send(String text){socket.sendText(text,true).join();}

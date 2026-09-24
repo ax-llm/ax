@@ -12,6 +12,11 @@ import type {
 
 export interface AxMCPWebSocketLike {
   readyState: number;
+  /**
+   * Set to `'arraybuffer'` by the transport so that binary frames arrive in a
+   * form it can decode synchronously.
+   */
+  binaryType?: string;
   send(data: string): void;
   close(code?: number, reason?: string): void;
   addEventListener(
@@ -65,6 +70,10 @@ export class AxMCPWebSocketTransport implements AxMCPTransport {
             ? new WebSocket(url)
             : new WebSocket(url, protocols));
       const socket = factory(this.url, this.options.protocols);
+      // Servers may send JSON-RPC in binary frames. Browsers and Node's global
+      // WebSocket deliver those as a Blob by default, which cannot be read
+      // synchronously.
+      socket.binaryType = 'arraybuffer';
       this.socket = socket;
       this.closing = false;
       this.listeningDone = new Promise<void>((resolveDone, rejectDone) => {
@@ -76,7 +85,7 @@ export class AxMCPWebSocketTransport implements AxMCPTransport {
         once: true,
       });
       socket.addEventListener('message', (event) => {
-        void this.handlePayload(String(event.data));
+        void this.handlePayload(webSocketMessageText(event.data));
       });
       socket.addEventListener('close', () => {
         for (const pending of this.pending.values()) {
@@ -242,4 +251,15 @@ export class AxMCPWebSocketTransport implements AxMCPTransport {
       await this.handler?.(message);
     }
   }
+}
+
+// A binary frame carries the same UTF-8 JSON text as a text frame.
+function webSocketMessageText(data: unknown): string {
+  if (typeof data === 'string') return data;
+  if (data instanceof ArrayBuffer || ArrayBuffer.isView(data)) {
+    return new TextDecoder().decode(data);
+  }
+  throw new Error(
+    `Cannot read an MCP WebSocket message delivered as ${Object.prototype.toString.call(data).slice(8, -1)}; expected text or an ArrayBuffer`
+  );
 }

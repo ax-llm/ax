@@ -39,6 +39,9 @@ policy, and cancellation context intact through Ax execution.
   Python, Java, C++, Go, and Rust also expose this transport. Pending requests
   are removed on send failure, abort, response, and close; concurrent active IDs
   must be unique. Batch requests require negotiated MCP `2025-03-26`.
+  Messages may arrive in text or binary frames. The TypeScript transport sets
+  `binaryType = 'arraybuffer'`, so a `webSocketFactory` that wraps a socket
+  should pass it through to the real one.
   Python uses its `realtime` extra, C++ uses `AXLLM_ENABLE_REALTIME`, and Rust
   uses its `realtime` feature for the built-in socket; custom socket factories
   remain available without those optional dependencies.
