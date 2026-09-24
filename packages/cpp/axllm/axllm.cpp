@@ -13151,6 +13151,45 @@ Value Core::_gemini_message_impl(Value message, Value function_names) {
   Value is_assistant = Core::eq(role, Value("assistant"));
   if (Core::truthy(is_assistant)) {
     Value parts = Value::array();
+    Value empty_calls = Value::array();
+    Value calls = Core::get(message, Value("function_calls"), empty_calls);
+    Value calls_camel = Core::get(message, Value("functionCalls"), calls);
+    Value call_count = Core::len(calls_camel);
+    Value has_function_calls = Core::gt(call_count, Value(0));
+    Value no_function_calls = Core::not_(has_function_calls);
+    Value empty_thought_blocks = Value::array();
+    Value thought_blocks_snake = Core::get(message, Value("thought_blocks"), empty_thought_blocks);
+    Value thought_blocks = Core::get(message, Value("thoughtBlocks"), thought_blocks_snake);
+    Value thought_blocks_is_list = Core::type_is(thought_blocks, Value("list"));
+    Value thought_texts = Value::array();
+    Value first_signature = Core::none();
+    if (Core::truthy(thought_blocks_is_list)) {
+      for (auto thought_block : Core::iter(thought_blocks)) {
+        Value thought_data = Core::get(thought_block, Value("data"), Value(""));
+        Value thought_data_is_string = Core::type_is(thought_data, Value("string"));
+        if (Core::truthy(thought_data_is_string)) {
+          Core::append(thought_texts, thought_data);
+        }
+      }
+      Value empty_first_block = Value::object();
+      Value first_thought_block = Core::list_get(thought_blocks, Value(0), empty_first_block);
+      first_signature = Core::get(first_thought_block, Value("signature"), Value());
+    }
+    Value has_first_signature = Core::truthy_value(first_signature);
+    Value thought_text = Core::string_join(Value(""), thought_texts);
+    Value has_thought_text = Core::truthy_value(thought_text);
+    if (Core::truthy(has_thought_text)) {
+      Value thought_part = Value::object();
+      if (Core::truthy(no_function_calls)) {
+        Core::set(thought_part, Value("thought"), Value(true));
+      }
+      Core::set(thought_part, Value("text"), thought_text);
+      Value sign_thought_part = Core::and_(has_first_signature, no_function_calls);
+      if (Core::truthy(sign_thought_part)) {
+        Core::set(thought_part, Value("thought_signature"), first_signature);
+      }
+      Core::append(parts, thought_part);
+    }
     Value content = Core::get(message, Value("content"), Value(""));
     Value has_content = Core::truthy_value(content);
     if (Core::truthy(has_content)) {
@@ -13158,9 +13197,7 @@ Value Core::_gemini_message_impl(Value message, Value function_names) {
       Core::set(text_part, Value("text"), content);
       Core::append(parts, text_part);
     }
-    Value empty_calls = Value::array();
-    Value calls = Core::get(message, Value("function_calls"), empty_calls);
-    Value calls_camel = Core::get(message, Value("functionCalls"), calls);
+    Value call_position = Value(0);
     for (auto call : Core::iter(calls_camel)) {
       Value function = Core::get(call, Value("function"), Value());
       Value name = Core::get(function, Value("name"), Value());
@@ -13187,7 +13224,13 @@ Value Core::_gemini_message_impl(Value message, Value function_names) {
       Core::set(function_call, Value("args"), args);
       Value part = Value::object();
       Core::set(part, Value("functionCall"), function_call);
+      Value is_first_call = Core::eq(call_position, Value(0));
+      Value sign_call = Core::and_(is_first_call, has_first_signature);
+      if (Core::truthy(sign_call)) {
+        Core::set(part, Value("thought_signature"), first_signature);
+      }
       Core::append(parts, part);
+      call_position = Core::add(call_position, Value(1));
     }
     Value out = Value::object();
     Core::set(out, Value("role"), Value("model"));
@@ -13316,7 +13359,7 @@ Value Core::_gemini_function_declaration_impl(Value fn) {
   Value parameters = Core::get(fn, Value("parameters"), empty_parameters);
   Core::set(decl, Value("name"), name);
   Core::set(decl, Value("description"), description);
-  Core::set(decl, Value("parameters"), parameters);
+  Core::set(decl, Value("parametersJsonSchema"), parameters);
   return decl;
 }
 
@@ -13508,12 +13551,25 @@ Value Core::_gemini_normalize_chat_response(Value raw, Value ai_name, Value mode
 
 Value Core::_gemini_merge_response_part_impl(Value result, Value text_parts, Value function_calls, Value part) {
   axir_coverage_mark("_gemini_merge_response_part_impl");
+  Value signature_snake = Core::get(part, Value("thought_signature"), Value());
+  Value thought_signature = Core::get(part, Value("thoughtSignature"), signature_snake);
+  Value has_signature = Core::truthy_value(thought_signature);
   Value text = Core::get(part, Value("text"), Value());
   Value has_text = Core::is_not_none(text);
   if (Core::truthy(has_text)) {
     Value is_thought = Core::get(part, Value("thought"), Value(false));
     if (Core::truthy(is_thought)) {
       Core::set(result, Value("thought"), text);
+      Value empty_thought_blocks = Value::array();
+      Value thought_blocks = Core::get(result, Value("thought_blocks"), empty_thought_blocks);
+      Value thought_block = Value::object();
+      Core::set(thought_block, Value("data"), text);
+      Core::set(thought_block, Value("encrypted"), Value(false));
+      if (Core::truthy(has_signature)) {
+        Core::set(thought_block, Value("signature"), thought_signature);
+      }
+      Core::append(thought_blocks, thought_block);
+      Core::set(result, Value("thought_blocks"), thought_blocks);
     }
     if (!Core::truthy(is_thought)) {
       Core::append(text_parts, text);
@@ -13521,6 +13577,31 @@ Value Core::_gemini_merge_response_part_impl(Value result, Value text_parts, Val
   }
   Value function_call = Core::get(part, Value("functionCall"), Value());
   Value has_call = Core::is_not_none(function_call);
+  Value signed_call = Core::and_(has_call, has_signature);
+  if (Core::truthy(signed_call)) {
+    Value empty_signature_blocks = Value::array();
+    Value signature_blocks = Core::get(result, Value("thought_blocks"), empty_signature_blocks);
+    Value signature_block_count = Core::len(signature_blocks);
+    Value has_signature_blocks = Core::gt(signature_block_count, Value(0));
+    if (Core::truthy(has_signature_blocks)) {
+      Value last_block_index = Core::add(signature_block_count, Value(-1));
+      Value last_block = Core::get(signature_blocks, last_block_index, Value());
+      Value last_signature = Core::get(last_block, Value("signature"), Value());
+      Value last_has_signature = Core::truthy_value(last_signature);
+      Value last_missing_signature = Core::not_(last_has_signature);
+      if (Core::truthy(last_missing_signature)) {
+        Core::set(last_block, Value("signature"), thought_signature);
+      }
+    }
+    if (!Core::truthy(has_signature_blocks)) {
+      Value signature_block = Value::object();
+      Core::set(signature_block, Value("data"), Value(""));
+      Core::set(signature_block, Value("encrypted"), Value(false));
+      Core::set(signature_block, Value("signature"), thought_signature);
+      Core::append(signature_blocks, signature_block);
+      Core::set(result, Value("thought_blocks"), signature_blocks);
+    }
+  }
   if (Core::truthy(has_call)) {
     Value name = Core::get(function_call, Value("name"), Value());
     Value id = Core::get(function_call, Value("id"), name);

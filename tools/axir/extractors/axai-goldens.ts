@@ -7175,7 +7175,7 @@ writeFixture('gemini-38-function-call-id-round-trip', {
             {
               name: 'search',
               description: 'Search docs',
-              parameters: {
+              parametersJsonSchema: {
                 type: 'object',
                 properties: { query: { type: 'string' } },
                 required: ['query'],
@@ -7278,7 +7278,7 @@ writeFixture('gemini-tool-call', {
             {
               name: 'search',
               description: 'Search docs',
-              parameters: {
+              parametersJsonSchema: {
                 type: 'object',
                 properties: { query: { type: 'string' } },
                 required: ['query'],
@@ -7293,6 +7293,526 @@ writeFixture('gemini-tool-call', {
           allowed_function_names: ['search'],
         },
       },
+    },
+  },
+});
+
+// fn() emits additionalProperties: false on every object schema. Gemini's
+// OpenAPI-subset `parameters` field rejects it (and nullable type unions) with
+// HTTP 400, so tool schemas must travel unchanged as `parametersJsonSchema`.
+const geminiFnToolSchema: Json = {
+  type: 'object',
+  title: 'Schema',
+  properties: {
+    city: { type: 'string', description: 'City' },
+    options: {
+      type: 'object',
+      properties: {
+        units: { type: ['string', 'null'], description: 'Units' },
+      },
+      required: [],
+      additionalProperties: false,
+    },
+  },
+  required: ['city'],
+  additionalProperties: false,
+};
+
+writeFixture('gemini-tool-parameters-json-schema', {
+  kind: 'ai_chat',
+  provider: 'google-gemini',
+  request: {
+    chat_prompt: [{ role: 'user', content: 'Weather in Paris?' }],
+    functions: [
+      {
+        name: 'getWeather',
+        description: 'Get the current weather for a city',
+        parameters: geminiFnToolSchema,
+      },
+    ],
+    model_config: { stream: false },
+  },
+  transport_responses: [
+    {
+      status: 200,
+      json: {
+        candidates: [
+          {
+            finishReason: 'STOP',
+            content: {
+              parts: [
+                {
+                  functionCall: {
+                    id: 'weather-call-1',
+                    name: 'getWeather',
+                    args: { city: 'Paris' },
+                  },
+                },
+              ],
+            },
+          },
+        ],
+      },
+    },
+  ],
+  expected_output: {
+    results: [
+      {
+        index: 0,
+        content: '',
+        function_calls: [
+          {
+            id: 'weather-call-1',
+            type: 'function',
+            function: { name: 'getWeather', params: { city: 'Paris' } },
+          },
+        ],
+        finish_reason: 'function_call',
+      },
+    ],
+    model_usage: null,
+  },
+  expected_transport_request: {
+    json: {
+      tools: [
+        {
+          function_declarations: [
+            {
+              name: 'getWeather',
+              description: 'Get the current weather for a city',
+              parametersJsonSchema: geminiFnToolSchema,
+            },
+          ],
+        },
+      ],
+      toolConfig: { function_calling_config: { mode: 'AUTO' } },
+    },
+  },
+});
+
+// Gemini 3 signs function-call turns with an opaque thoughtSignature. It must be
+// captured into thought_blocks and replayed as thought_signature on the first
+// functionCall part of that turn, or the next tool-loop request is rejected
+// with HTTP 400 "Function call is missing a thought_signature".
+const geminiWeatherFunction: Json = {
+  name: 'getWeather',
+  description: 'Get the current weather for a city',
+  parameters: {
+    type: 'object',
+    properties: { city: { type: 'string' } },
+    required: ['city'],
+  },
+};
+
+writeFixture('gemini-3-thought-signature-function-call-capture', {
+  kind: 'ai_chat',
+  provider: 'google-gemini',
+  model: 'gemini-3.6-flash',
+  request: {
+    chat_prompt: [{ role: 'user', content: 'Weather in Paris and Rome?' }],
+    functions: [geminiWeatherFunction],
+    model_config: { stream: false },
+  },
+  transport_responses: [
+    {
+      status: 200,
+      json: {
+        candidates: [
+          {
+            finishReason: 'STOP',
+            content: {
+              role: 'model',
+              parts: [
+                {
+                  functionCall: {
+                    id: 'weather-paris',
+                    name: 'getWeather',
+                    args: { city: 'Paris' },
+                  },
+                  thoughtSignature: 'sig-weather-step-1',
+                },
+                {
+                  functionCall: {
+                    id: 'weather-rome',
+                    name: 'getWeather',
+                    args: { city: 'Rome' },
+                  },
+                },
+              ],
+            },
+          },
+        ],
+      },
+    },
+  ],
+  expected_output: {
+    results: [
+      {
+        index: 0,
+        content: '',
+        function_calls: [
+          {
+            id: 'weather-paris',
+            type: 'function',
+            function: { name: 'getWeather', params: { city: 'Paris' } },
+          },
+          {
+            id: 'weather-rome',
+            type: 'function',
+            function: { name: 'getWeather', params: { city: 'Rome' } },
+          },
+        ],
+        thought_blocks: [
+          { data: '', encrypted: false, signature: 'sig-weather-step-1' },
+        ],
+        finish_reason: 'function_call',
+      },
+    ],
+    model_usage: null,
+  },
+  expected_transport_request: {
+    url: 'https://generativelanguage.googleapis.com/v1beta/models/gemini-3.6-flash:generateContent',
+  },
+});
+
+writeFixture('gemini-3-thought-summary-signature-capture', {
+  kind: 'ai_chat',
+  provider: 'google-gemini',
+  model: 'gemini-3.6-flash',
+  request: {
+    chat_prompt: [{ role: 'user', content: 'Weather in Paris?' }],
+    functions: [geminiWeatherFunction],
+    model_config: { stream: false, showThoughts: true },
+  },
+  transport_responses: [
+    {
+      status: 200,
+      json: {
+        candidates: [
+          {
+            finishReason: 'STOP',
+            content: {
+              role: 'model',
+              parts: [
+                { text: 'Look up the Paris forecast.', thought: true },
+                {
+                  functionCall: {
+                    id: 'weather-paris',
+                    name: 'getWeather',
+                    args: { city: 'Paris' },
+                  },
+                  thought_signature: 'sig-summary-step-1',
+                },
+              ],
+            },
+          },
+        ],
+      },
+    },
+  ],
+  expected_output: {
+    results: [
+      {
+        index: 0,
+        content: '',
+        thought: 'Look up the Paris forecast.',
+        thought_blocks: [
+          {
+            data: 'Look up the Paris forecast.',
+            encrypted: false,
+            signature: 'sig-summary-step-1',
+          },
+        ],
+        function_calls: [
+          {
+            id: 'weather-paris',
+            type: 'function',
+            function: { name: 'getWeather', params: { city: 'Paris' } },
+          },
+        ],
+        finish_reason: 'function_call',
+      },
+    ],
+    model_usage: null,
+  },
+  expected_transport_request: {
+    json: { generationConfig: { thinkingConfig: { includeThoughts: true } } },
+  },
+});
+
+writeFixture('gemini-3-thought-signature-stream-capture', {
+  kind: 'ai_stream',
+  provider: 'google-gemini',
+  model: 'gemini-3.6-flash',
+  request: {
+    chat_prompt: [{ role: 'user', content: 'Weather in Paris?' }],
+    functions: [geminiWeatherFunction],
+    model_config: { stream: true },
+  },
+  transport_responses: [
+    {
+      status: 200,
+      body:
+        'data: {"candidates":[{"finishReason":"STOP","content":{"role":"model","parts":[{"text":"Look up the Paris forecast.","thought":true}]}}]}\n\n' +
+        'data: {"responseId":"gem_sig_stream","candidates":[{"finishReason":"STOP","content":{"role":"model","parts":[{"functionCall":{"id":"weather-paris","name":"getWeather","args":{"city":"Paris"}},"thoughtSignature":"sig-stream-step-1"}]}}],"usageMetadata":{"promptTokenCount":12,"candidatesTokenCount":5,"totalTokenCount":17}}\n\n' +
+        'data: [DONE]\n\n',
+    },
+  ],
+  expected_output: [
+    {
+      results: [
+        {
+          index: 0,
+          content: '',
+          thought: 'Look up the Paris forecast.',
+          thought_blocks: [
+            { data: 'Look up the Paris forecast.', encrypted: false },
+          ],
+          function_calls: [],
+          finish_reason: 'stop',
+        },
+      ],
+      model_usage: null,
+    },
+    {
+      results: [
+        {
+          index: 0,
+          content: '',
+          thought_blocks: [
+            { data: '', encrypted: false, signature: 'sig-stream-step-1' },
+          ],
+          function_calls: [
+            {
+              id: 'weather-paris',
+              type: 'function',
+              function: { name: 'getWeather', params: { city: 'Paris' } },
+            },
+          ],
+          finish_reason: 'function_call',
+        },
+      ],
+      remote_id: 'gem_sig_stream',
+      model_usage: {
+        ai: 'google-gemini',
+        model: 'gemini-3.6-flash',
+        tokens: { prompt_tokens: 12, completion_tokens: 5, total_tokens: 17 },
+      },
+    },
+  ],
+  expected_transport_request: {
+    url: 'https://generativelanguage.googleapis.com/v1beta/models/gemini-3.6-flash:streamGenerateContent?alt=sse',
+  },
+});
+
+// The history ends on the parallel-call turn so the golden does not depend on
+// how consecutive function results are grouped into user turns.
+writeFixture('gemini-3-thought-signature-replay', {
+  kind: 'ai_chat',
+  provider: 'google-gemini',
+  model: 'gemini-3.6-flash',
+  request: {
+    chat_prompt: [
+      { role: 'user', content: 'Weather in Paris, then Rome and a jacket?' },
+      {
+        role: 'assistant',
+        function_calls: [
+          {
+            id: 'weather-paris',
+            type: 'function',
+            function: { name: 'getWeather', params: { city: 'Paris' } },
+          },
+        ],
+        thought_blocks: [
+          { data: '', encrypted: false, signature: 'sig-weather-step-1' },
+        ],
+      },
+      {
+        role: 'function',
+        function_id: 'weather-paris',
+        result: '{"forecast":"sunny"}',
+      },
+      {
+        role: 'assistant',
+        functionCalls: [
+          {
+            id: 'weather-rome',
+            type: 'function',
+            function: { name: 'getWeather', params: '{"city":"Rome"}' },
+          },
+          {
+            id: 'jacket-rome',
+            type: 'function',
+            function: { name: 'pickJacket', params: { city: 'Rome' } },
+          },
+        ],
+        thoughtBlocks: [
+          {
+            data: 'Rome next, ',
+            encrypted: false,
+            signature: 'sig-weather-step-2',
+          },
+          { data: 'then a jacket.', encrypted: false },
+        ],
+      },
+    ],
+    functions: [
+      geminiWeatherFunction,
+      {
+        name: 'pickJacket',
+        description: 'Pick a jacket for a city',
+        parameters: {
+          type: 'object',
+          properties: { city: { type: 'string' } },
+          required: ['city'],
+        },
+      },
+    ],
+    model_config: { stream: false },
+  },
+  transport_responses: [
+    {
+      status: 200,
+      json: {
+        candidates: [
+          { finishReason: 'STOP', content: { parts: [{ text: 'ok' }] } },
+        ],
+      },
+    },
+  ],
+  expected_output: {
+    results: [
+      {
+        index: 0,
+        content: 'ok',
+        function_calls: [],
+        finish_reason: 'stop',
+      },
+    ],
+    model_usage: null,
+  },
+  expected_transport_request: {
+    url: 'https://generativelanguage.googleapis.com/v1beta/models/gemini-3.6-flash:generateContent',
+    json: {
+      contents: [
+        {
+          role: 'user',
+          parts: [{ text: 'Weather in Paris, then Rome and a jacket?' }],
+        },
+        {
+          role: 'model',
+          parts: [
+            {
+              functionCall: {
+                id: 'weather-paris',
+                name: 'getWeather',
+                args: { city: 'Paris' },
+              },
+              thought_signature: 'sig-weather-step-1',
+            },
+          ],
+        },
+        {
+          role: 'user',
+          parts: [
+            {
+              functionResponse: {
+                id: 'weather-paris',
+                name: 'getWeather',
+                response: { result: '{"forecast":"sunny"}' },
+              },
+            },
+          ],
+        },
+        {
+          role: 'model',
+          parts: [
+            { text: 'Rome next, then a jacket.' },
+            {
+              functionCall: {
+                id: 'weather-rome',
+                name: 'getWeather',
+                args: { city: 'Rome' },
+              },
+              thought_signature: 'sig-weather-step-2',
+            },
+            {
+              functionCall: {
+                id: 'jacket-rome',
+                name: 'pickJacket',
+                args: { city: 'Rome' },
+              },
+            },
+          ],
+        },
+      ],
+    },
+  },
+});
+
+writeFixture('gemini-3-thought-signature-replay-without-function-calls', {
+  kind: 'ai_chat',
+  provider: 'google-gemini',
+  model: 'gemini-3.6-flash',
+  request: {
+    chat_prompt: [
+      { role: 'user', content: 'Is it sunny in Paris?' },
+      {
+        role: 'assistant',
+        content: 'Yes, it is sunny.',
+        thought_blocks: [
+          {
+            data: 'Recall the forecast.',
+            encrypted: false,
+            signature: 'sig-answer-1',
+          },
+        ],
+      },
+      { role: 'user', content: 'And tomorrow?' },
+    ],
+    model_config: { stream: false },
+  },
+  transport_responses: [
+    {
+      status: 200,
+      json: {
+        candidates: [
+          {
+            finishReason: 'STOP',
+            content: { parts: [{ text: 'Rain is likely.' }] },
+          },
+        ],
+      },
+    },
+  ],
+  expected_output: {
+    results: [
+      {
+        index: 0,
+        content: 'Rain is likely.',
+        function_calls: [],
+        finish_reason: 'stop',
+      },
+    ],
+    model_usage: null,
+  },
+  expected_transport_request: {
+    json: {
+      contents: [
+        { role: 'user', parts: [{ text: 'Is it sunny in Paris?' }] },
+        {
+          role: 'model',
+          parts: [
+            {
+              thought: true,
+              text: 'Recall the forecast.',
+              thought_signature: 'sig-answer-1',
+            },
+            { text: 'Yes, it is sunny.' },
+          ],
+        },
+        { role: 'user', parts: [{ text: 'And tomorrow?' }] },
+      ],
     },
   },
 });
