@@ -1,6 +1,9 @@
 {
   "expected_function_traces_subset": [
     {
+      "args": {
+        "query": "ax docs"
+      },
       "id": "call_1",
       "name": "search",
       "status": "ok"

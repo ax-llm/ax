@@ -568,7 +568,7 @@ writeFixture('function-call-trace-hook', {
   ],
   expected_output: { answer: 'Docs' },
   expected_function_traces_subset: [
-    { id: 'call_1', name: 'search', status: 'ok' },
+    { id: 'call_1', name: 'search', args: { query: 'ax docs' }, status: 'ok' },
   ],
   expected_memory_history_subset: [{ role: 'function' }],
   expected_tool_calls: [{ name: 'search', args: { query: 'ax docs' } }],
