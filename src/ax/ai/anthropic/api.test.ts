@@ -5,7 +5,11 @@ import {
   AxAIServiceAuthenticationError,
   AxAIServiceStatusError,
 } from '../../util/apicall.js';
-import { AxAIAnthropic } from './api.js';
+import {
+  AxAIAnthropic,
+  axAIAnthropicDefaultConfig,
+  axAIAnthropicVertexDefaultConfig,
+} from './api.js';
 import { AxAIAnthropicModel, AxAIAnthropicVertexModel } from './types.js';
 
 function createMockFetch(body: unknown) {
@@ -985,7 +989,7 @@ describe('AxAIAnthropic thinking configuration', () => {
     expect(body.output_config).toBeUndefined();
   });
 
-  it('none disables thinking and effort for all models', async () => {
+  it('none omits thinking and effort on models that do not think by default', async () => {
     const ai = new AxAIAnthropic({
       apiKey: 'key',
       config: { model: AxAIAnthropicModel.Claude46Opus },
@@ -1688,5 +1692,230 @@ describe('AxAIAnthropic function (tool_result) caching', () => {
     expect(block.cache_control).toEqual({ type: 'ephemeral' });
     // Regression guard for the previous typo: must not be a `cache` field.
     expect(block.cache).toBeUndefined();
+  });
+});
+
+describe('AxAIAnthropic Claude 5.x models', () => {
+  const weather = {
+    name: 'getWeather',
+    description: 'Get the weather for a city',
+    parameters: {
+      type: 'object' as const,
+      properties: { city: { type: 'string' as const } },
+      required: ['city'],
+    },
+  };
+
+  const chatBody = async (
+    model: string,
+    options: Record<string, unknown>,
+    request: Record<string, unknown> = {},
+    config: Record<string, unknown> = {}
+  ) => {
+    const ai = new AxAIAnthropic({
+      apiKey: 'key',
+      config: { model: model as AxAIAnthropicModel, ...config },
+    });
+    const { capture, fetch } = createCaptureFetch(model);
+    ai.setOptions({ fetch });
+    await ai.chat(
+      { chatPrompt: [{ role: 'user', content: 'hi' }], ...request },
+      { stream: false, ...options }
+    );
+    return capture.lastBody;
+  };
+
+  it('uses Sonnet 5 as the default model', () => {
+    expect(axAIAnthropicDefaultConfig().model).toBe(
+      AxAIAnthropicModel.Claude5Sonnet
+    );
+    expect(axAIAnthropicVertexDefaultConfig().model).toBe(
+      AxAIAnthropicVertexModel.Claude5Sonnet
+    );
+  });
+
+  it.each([
+    AxAIAnthropicModel.Claude55Opus,
+    AxAIAnthropicModel.Claude51Fable,
+    AxAIAnthropicModel.Claude5Opus,
+    AxAIAnthropicModel.Claude5Fable,
+  ])(
+    '%s uses adaptive thinking + effort and drops sampling params',
+    async (model) => {
+      const body = await chatBody(
+        model,
+        { thinkingTokenBudget: 'high' },
+        { modelConfig: { temperature: 0.7, topP: 0.9 } }
+      );
+      expect(body.model).toBe(model);
+      expect(body.thinking).toEqual({
+        type: 'adaptive',
+        display: 'summarized',
+      });
+      expect(body.output_config).toEqual({ effort: 'high' });
+      expect(body.temperature).toBeUndefined();
+      expect(body.top_p).toBeUndefined();
+    }
+  );
+
+  it.each([
+    AxAIAnthropicModel.Claude55Opus,
+    AxAIAnthropicModel.Claude51Fable,
+    AxAIAnthropicModel.Claude5Fable,
+  ])(
+    'none clamps %s to low effort because its thinking is always on',
+    async (model) => {
+      const body = await chatBody(model, { thinkingTokenBudget: 'none' });
+      expect(body.thinking).toEqual({ type: 'adaptive', display: 'omitted' });
+      expect(body.output_config).toEqual({ effort: 'low' });
+    }
+  );
+
+  it.each([AxAIAnthropicModel.Claude5Opus, AxAIAnthropicModel.Claude5Sonnet])(
+    'none disables thinking explicitly on %s, which thinks by default',
+    async (model) => {
+      const body = await chatBody(model, { thinkingTokenBudget: 'none' });
+      expect(body.thinking).toEqual({ type: 'disabled' });
+      expect(body.output_config).toBeUndefined();
+    }
+  );
+
+  it('rejects disabling thinking at xhigh effort on Opus 5 locally', async () => {
+    await expect(
+      chatBody(
+        AxAIAnthropicModel.Claude5Opus,
+        { thinkingTokenBudget: 'none' },
+        {},
+        { effort: 'xhigh' }
+      )
+    ).rejects.toThrow(/cannot disable thinking at effort 'xhigh'/);
+  });
+
+  it('allows disabling thinking at xhigh effort on Sonnet 5', async () => {
+    const body = await chatBody(
+      AxAIAnthropicModel.Claude5Sonnet,
+      { thinkingTokenBudget: 'none' },
+      {},
+      { effort: 'xhigh' }
+    );
+    expect(body.thinking).toEqual({ type: 'disabled' });
+    expect(body.output_config).toEqual({ effort: 'xhigh' });
+  });
+
+  it('does not mistake Opus 5.5 or a dated Opus 5 snapshot for each other', async () => {
+    const opus55 = await chatBody('claude-opus-5-5', {
+      thinkingTokenBudget: 'none',
+    });
+    expect(opus55.thinking).toEqual({ type: 'adaptive', display: 'omitted' });
+
+    const qualified = await chatBody(
+      'publishers/anthropic/models/claude-opus-5-5',
+      { thinkingTokenBudget: 'none' }
+    );
+    expect(qualified.thinking).toEqual({
+      type: 'adaptive',
+      display: 'omitted',
+    });
+
+    const datedOpus5 = await chatBody('claude-opus-5@20260724', {
+      thinkingTokenBudget: 'none',
+    });
+    expect(datedOpus5.thinking).toEqual({ type: 'disabled' });
+  });
+
+  it.each([
+    [AxAIAnthropicModel.Claude55Opus, 'required'],
+    [AxAIAnthropicModel.Claude51Fable, 'required'],
+    [
+      AxAIAnthropicModel.Claude55Opus,
+      { type: 'function', function: { name: 'getWeather' } },
+    ],
+  ] as const)(
+    '%s rejects a caller-forced tool choice (%o)',
+    async (model, functionCall) => {
+      await expect(
+        chatBody(
+          model,
+          {},
+          { functions: [weather], functionCall: functionCall as any }
+        )
+      ).rejects.toThrow(/does not support explicitly forced tool choices/);
+    }
+  );
+
+  it('drops the Ax-internal structured-output force on Opus 5.5', async () => {
+    const body = await chatBody(
+      AxAIAnthropicModel.Claude55Opus,
+      { functionCallSource: 'ax' },
+      {
+        functions: [{ ...weather, name: '__axOutput' }],
+        functionCall: { type: 'function', function: { name: '__axOutput' } },
+      }
+    );
+    expect(body.tool_choice).toBeUndefined();
+    expect(body.tools?.[0]?.name).toBe('__axOutput');
+  });
+
+  it.each([AxAIAnthropicModel.Claude5Opus, AxAIAnthropicModel.Claude5Fable])(
+    '%s still accepts a forced tool choice',
+    async (model) => {
+      const body = await chatBody(
+        model,
+        {},
+        { functions: [weather], functionCall: 'required' }
+      );
+      expect(body.tool_choice).toEqual({ type: 'any' });
+    }
+  );
+
+  it('keeps thinking on when replaying a pre-supplied tool call to a model that thinks by default', async () => {
+    const body = await chatBody(
+      AxAIAnthropicModel.Claude5Opus,
+      { thinkingTokenBudget: 'medium' },
+      {
+        functions: [weather],
+        chatPrompt: [
+          { role: 'user', content: 'Weather in Paris?' },
+          {
+            role: 'assistant',
+            functionCalls: [
+              {
+                id: 'call_1',
+                type: 'function',
+                function: { name: 'getWeather', params: { city: 'Paris' } },
+              },
+            ],
+          },
+          {
+            role: 'function',
+            functionId: 'call_1',
+            result: 'Sunny',
+          },
+        ],
+      }
+    );
+    expect(body.thinking).toEqual({ type: 'adaptive', display: 'summarized' });
+    expect(body.output_config).toEqual({ effort: 'medium' });
+  });
+
+  it('prices Opus 5.5 fast mode and cache reads at the published rates', () => {
+    const ai = new AxAIAnthropic({
+      apiKey: 'key',
+      config: { model: AxAIAnthropicModel.Claude55Opus },
+    });
+    const cost = (speed?: 'fast') =>
+      ai.getEstimatedCost({
+        ai: 'anthropic',
+        model: AxAIAnthropicModel.Claude55Opus,
+        tokens: {
+          promptTokens: 1_000_000,
+          completionTokens: 1_000_000,
+          cacheReadTokens: 1_000_000,
+          totalTokens: 3_000_000,
+          ...(speed ? { speed } : {}),
+        },
+      });
+    expect(cost()).toBeCloseTo(4 + 20 + 0.2);
+    expect(cost('fast')).toBeCloseTo(8 + 40 + 0.4);
   });
 });

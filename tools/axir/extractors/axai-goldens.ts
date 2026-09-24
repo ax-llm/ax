@@ -82,6 +82,11 @@ const geminiLiveDefaultModel = axAIGoogleGeminiLiveAudioDefaultConfig()
   .model as string;
 const geminiDefaultEmbedModel = 'gemini-embedding-2';
 const anthropicDefaultModel = profileDefaultModel('anthropic');
+// The simple-chat fixtures check that sampling parameters reach the wire, so
+// they pin models that still accept them: the current defaults (Claude
+// Sonnet 5, Gemini 3.6 Flash) drop temperature and candidate counts.
+const anthropicSamplingModel = 'claude-haiku-4-5';
+const geminiSamplingModel = 'gemini-3.5-flash';
 const catalogAll = axGetSupportedAIModels();
 const catalogText = axGetSupportedAIModels({ type: 'text' });
 const catalogEmbeddings = axGetSupportedAIModels({ type: 'embeddings' });
@@ -3535,18 +3540,18 @@ writeFixture('responses-tool-call', {
       text: {
         format: {
           type: 'json_schema',
-          json_schema: {
-            name: 'search_result',
-            schema: {
-              type: 'object',
-              properties: { answer: { type: 'string' } },
-              required: ['answer'],
-            },
+          name: 'search_result',
+          schema: {
+            type: 'object',
+            properties: { answer: { type: 'string' } },
+            required: ['answer'],
           },
         },
       },
     },
   },
+  // The nested Chat Completions shape is a 400 on the Responses API.
+  expected_transport_json_absent: ['text.format.json_schema'],
 });
 
 writeFixture('responses-forced-function-tool-choice', {
@@ -6158,6 +6163,7 @@ writeFixture('gemini-live-realtime-audio-pcm-validation-error', {
 writeFixture('anthropic-simple-chat', {
   kind: 'ai_chat',
   provider: 'anthropic',
+  model: anthropicSamplingModel,
   request: {
     chat_prompt: [
       { role: 'system', content: 'Answer briefly.', cache: true },
@@ -6189,7 +6195,7 @@ writeFixture('anthropic-simple-chat', {
             ],
           },
         ],
-        model: anthropicDefaultModel,
+        model: anthropicSamplingModel,
         stop_reason: 'end_turn',
         usage: {
           input_tokens: 8,
@@ -6216,7 +6222,7 @@ writeFixture('anthropic-simple-chat', {
     remote_id: 'msg_anthropic_1',
     model_usage: {
       ai: 'anthropic',
-      model: anthropicDefaultModel,
+      model: anthropicSamplingModel,
       tokens: {
         prompt_tokens: 8,
         completion_tokens: 3,
@@ -6234,7 +6240,7 @@ writeFixture('anthropic-simple-chat', {
       'anthropic-version': '2023-06-01',
     },
     json: {
-      model: anthropicDefaultModel,
+      model: anthropicSamplingModel,
       max_tokens: 64,
       temperature: 0.2,
       system: [
@@ -6700,6 +6706,7 @@ writeFixture('anthropic-streaming-tool-thinking', {
 writeFixture('gemini-simple-chat', {
   kind: 'ai_chat',
   provider: 'google-gemini',
+  model: geminiSamplingModel,
   request: {
     chat_prompt: [
       { role: 'system', content: 'Answer briefly.', cache: true },
@@ -6718,7 +6725,7 @@ writeFixture('gemini-simple-chat', {
       status: 200,
       json: {
         responseId: 'gem_resp_1',
-        modelVersion: geminiDefaultModel,
+        modelVersion: geminiSamplingModel,
         candidates: [
           {
             finishReason: 'STOP',
@@ -6770,7 +6777,7 @@ writeFixture('gemini-simple-chat', {
     remote_id: 'gem_resp_1',
     model_usage: {
       ai: 'google-gemini',
-      model: geminiDefaultModel,
+      model: geminiSamplingModel,
       tokens: {
         prompt_tokens: 10,
         completion_tokens: 4,
@@ -6781,14 +6788,14 @@ writeFixture('gemini-simple-chat', {
     },
     provider_metadata: {
       google: {
-        modelVersion: geminiDefaultModel,
+        modelVersion: geminiSamplingModel,
         mapsWidgetContextToken: 'maps-token',
       },
     },
   },
   expected_transport_request: {
     method: 'POST',
-    url: `https://generativelanguage.googleapis.com/v1beta/models/${geminiDefaultModel}:generateContent`,
+    url: `https://generativelanguage.googleapis.com/v1beta/models/${geminiSamplingModel}:generateContent`,
     headers: { 'x-goog-api-key': 'test-key' },
     json: {
       systemInstruction: {
@@ -7184,6 +7191,7 @@ writeFixture('gemini-38-function-call-id-round-trip', {
 writeFixture('gemini-tool-call', {
   kind: 'ai_chat',
   provider: 'gemini',
+  model: geminiSamplingModel,
   request: {
     chat_prompt: [{ role: 'user', content: 'Search docs' }],
     functions: [
@@ -10376,3 +10384,606 @@ writeFixture('typesafe-balancer-fallback-reject', {
       .filter((calls) => calls.length > 0),
   },
 });
+
+// ---------------------------------------------------------------------------
+// Sept-2026 models: GPT-6 Sol/Luna, Claude 5.x, Gemini 3.8 audio + Live.
+// ---------------------------------------------------------------------------
+
+// GPT-6 Sol and Luna run on Responses from both factory routes, keep the
+// GPT-5.6 effort ladders (so `none` is sent explicitly), and drop sampling.
+for (const provider of ['openai', 'openai-responses']) {
+  (['none', 'minimal', 'low', 'medium', 'high', 'highest'] as const).forEach(
+    (budget, index) => {
+      const model =
+        index % 2 === 0 ? AxAIOpenAIModel.GPT6Sol : AxAIOpenAIModel.GPT6Luna;
+      writeFixture(`${provider}-gpt-6-reasoning-${budget}`, {
+        kind: 'ai_chat',
+        provider,
+        model,
+        request: {
+          chat_prompt: [{ role: 'user', content: 'reason' }],
+          model_config: {
+            stream: false,
+            thinkingTokenBudget: budget,
+            temperature: 0.5,
+            topP: 0.9,
+          },
+        },
+        transport_responses: [
+          {
+            status: 200,
+            json: {
+              id: 'resp_gpt6',
+              model,
+              usage: { input_tokens: 1, output_tokens: 1, total_tokens: 2 },
+              output: [
+                {
+                  id: 'msg_gpt6',
+                  type: 'message',
+                  content: [
+                    { type: 'output_text', text: 'ok', annotations: [] },
+                  ],
+                },
+              ],
+            },
+          },
+        ],
+        expected_transport_request: {
+          method: 'POST',
+          url: 'https://api.openai.com/v1/responses',
+          json: {
+            model,
+            reasoning: {
+              effort: axResolveOpenAIResponsesReasoningEffort(model, budget),
+            },
+            stream: false,
+          },
+        },
+        expected_transport_json_absent: ['temperature', 'top_p'],
+      });
+    }
+  );
+}
+
+writeFixture('gpt-6-sol-native-none-accepted', {
+  kind: 'ai_chat',
+  provider: 'openai',
+  model: AxAIOpenAIModel.GPT6Sol,
+  request: {
+    chat_prompt: [{ role: 'user', content: 'answer' }],
+    model_config: { stream: false, reasoning: { effort: 'none' } },
+  },
+  transport_responses: [
+    {
+      status: 200,
+      json: { id: 'r1', model: AxAIOpenAIModel.GPT6Sol, output: [] },
+    },
+  ],
+  expected_transport_request: {
+    url: 'https://api.openai.com/v1/responses',
+    json: { reasoning: { effort: 'none' } },
+  },
+});
+
+writeFixture('gpt-6-luna-configuration-update-rejected', {
+  kind: 'ai_chat',
+  provider: 'openai',
+  model: AxAIOpenAIModel.GPT6Luna,
+  request: {
+    chat_prompt: [{ role: 'user', content: 'reason' }],
+    previous_response_id: 'r1',
+    session_input: [
+      { type: 'configuration_update', reasoning: { effort: 'high' } },
+    ],
+  },
+  expected_error_contains: 'configuration_update requires GPT-6 Astra',
+  expected_transport_request_count: 0,
+});
+
+writeFixture('gpt-6-sol-prompt-cache-breakpoints', {
+  kind: 'ai_chat',
+  provider: 'openai',
+  model: AxAIOpenAIModel.GPT6Sol,
+  service_options: { contextCache: {}, promptCacheKey: 'sol-prefix' },
+  request: {
+    chat_prompt: [{ role: 'user', content: 'cached' }],
+    model_config: { thinkingTokenBudget: 'low' },
+  },
+  transport_responses: [
+    {
+      status: 200,
+      json: { id: 'r1', model: AxAIOpenAIModel.GPT6Sol, output: [] },
+    },
+  ],
+  expected_transport_request: {
+    method: 'POST',
+    url: 'https://api.openai.com/v1/responses',
+    json: {
+      model: AxAIOpenAIModel.GPT6Sol,
+      input: [
+        {
+          role: 'user',
+          content: [
+            {
+              type: 'input_text',
+              text: 'cached',
+              prompt_cache_breakpoint: { mode: 'explicit' },
+            },
+          ],
+        },
+      ],
+      reasoning: { effort: 'low' },
+      stream: false,
+      prompt_cache_key: 'sol-prefix',
+      prompt_cache_options: { mode: 'explicit', ttl: '30m' },
+    },
+  },
+});
+
+for (const inputTokens of [272000, 272001]) {
+  const long = inputTokens > 272000;
+  writeFixture(`gpt-6-luna-cache-cost-threshold-${inputTokens}`, {
+    kind: 'ai_chat',
+    provider: 'openai',
+    model: AxAIOpenAIModel.GPT6Luna,
+    request: {
+      chat_prompt: [{ role: 'user', content: 'measure' }],
+      model_config: { stream: false, thinkingTokenBudget: 'low' },
+    },
+    transport_responses: [
+      {
+        status: 200,
+        json: {
+          id: 'r_cost',
+          model: AxAIOpenAIModel.GPT6Luna,
+          output: [],
+          usage: {
+            input_tokens: inputTokens,
+            output_tokens: 100,
+            total_tokens: inputTokens + 100,
+            input_tokens_details: {
+              cached_tokens: 10000,
+              cache_write_tokens: 20000,
+            },
+          },
+        },
+      },
+    ],
+    expected_estimated_cost:
+      ((inputTokens - 30000) * (long ? 0.2 : 0.1) +
+        10000 * (long ? 0.02 : 0.01) +
+        20000 * (long ? 0.25 : 0.125) +
+        100 * (long ? 0.75 : 0.5)) /
+      1000000,
+  });
+}
+
+// GPT-6 reports a served priority request as `fast`.
+writeFixture('openai-served-fast-tier-reads-as-priority', {
+  kind: 'ai_chat',
+  provider: 'openai',
+  model: 'custom-tier-pricing',
+  service_options: {
+    serviceTier: 'priority',
+    modelInfo: [
+      {
+        name: 'custom-tier-pricing',
+        promptTokenCostPer1M: 2,
+        completionTokenCostPer1M: 8,
+        supported: { serviceTiers: ['priority'] },
+        serviceTierPricing: {
+          priority: { promptTokenCostPer1M: 4, completionTokenCostPer1M: 16 },
+        },
+      },
+    ],
+  },
+  request: {
+    chat_prompt: [{ role: 'user', content: 'price the applied tier' }],
+    model_config: { stream: false },
+  },
+  transport_responses: [
+    {
+      status: 200,
+      json: {
+        id: 'chatcmpl_fast_tier',
+        object: 'chat.completion',
+        model: 'custom-tier-pricing',
+        service_tier: 'fast',
+        choices: [
+          {
+            index: 0,
+            message: { role: 'assistant', content: 'ok', refusal: null },
+            finish_reason: 'stop',
+          },
+        ],
+        usage: {
+          prompt_tokens: 1000,
+          completion_tokens: 500,
+          total_tokens: 1500,
+        },
+      },
+    },
+  ],
+  expected_estimated_cost: (1000 * 4 + 500 * 16) / 1000000,
+});
+
+// Claude 5.x thinking. Every model here rejects sampling parameters.
+writeFixture('anthropic-opus-5-5-adaptive-thinking-request', {
+  kind: 'ai_chat',
+  provider: 'anthropic',
+  model: 'claude-opus-5-5',
+  request: {
+    chat_prompt: [{ role: 'user', content: 'Think then answer.' }],
+    model_config: {
+      stream: false,
+      thinkingTokenBudget: 'high',
+      temperature: 0.4,
+      topP: 0.8,
+      topK: 20,
+    },
+  },
+  transport_responses: [
+    {
+      status: 200,
+      json: {
+        id: 'msg_opus55_think',
+        type: 'message',
+        role: 'assistant',
+        content: [{ type: 'text', text: 'Done.' }],
+        model: 'claude-opus-5-5',
+        stop_reason: 'end_turn',
+        usage: { input_tokens: 7, output_tokens: 3 },
+      },
+    },
+  ],
+  expected_transport_request: {
+    json: {
+      model: 'claude-opus-5-5',
+      thinking: { type: 'adaptive', display: 'summarized' },
+      output_config: { effort: 'high' },
+    },
+  },
+  expected_transport_json_absent: ['temperature', 'top_p', 'top_k'],
+});
+
+const claudeNoneResponse = (model: string) => ({
+  status: 200,
+  json: {
+    id: 'msg_none',
+    type: 'message',
+    role: 'assistant',
+    content: [{ type: 'text', text: 'ok' }],
+    model,
+    stop_reason: 'end_turn',
+    usage: { input_tokens: 1, output_tokens: 1 },
+  },
+});
+
+// Thinking cannot be switched off on these, so `none` asks for the least.
+for (const [fixtureName, model] of [
+  [
+    'anthropic-opus-5-5-none-clamps-to-low-and-hides-thoughts',
+    'claude-opus-5-5',
+  ],
+  [
+    'anthropic-fable-5-1-none-clamps-to-low-and-hides-thoughts',
+    'claude-fable-5-1',
+  ],
+  ['anthropic-fable-5-none-clamps-to-low-and-hides-thoughts', 'claude-fable-5'],
+  [
+    'anthropic-qualified-opus-5-5-is-not-opus-5',
+    'publishers/anthropic/models/claude-opus-5-5',
+  ],
+] as const) {
+  writeFixture(fixtureName, {
+    kind: 'ai_chat',
+    provider: 'anthropic',
+    model,
+    request: {
+      chat_prompt: [{ role: 'user', content: 'hi' }],
+      model_config: { stream: false, thinkingTokenBudget: 'none' },
+    },
+    transport_responses: [claudeNoneResponse(model)],
+    expected_transport_request: {
+      json: {
+        thinking: { type: 'adaptive', display: 'omitted' },
+        output_config: { effort: 'low' },
+      },
+    },
+  });
+}
+
+// These think by default but accept an explicit off switch.
+for (const [fixtureName, model] of [
+  ['anthropic-opus-5-none-disables-thinking', 'claude-opus-5'],
+  ['anthropic-sonnet-5-none-disables-thinking', 'claude-sonnet-5'],
+] as const) {
+  writeFixture(fixtureName, {
+    kind: 'ai_chat',
+    provider: 'anthropic',
+    model,
+    request: {
+      chat_prompt: [{ role: 'user', content: 'hi' }],
+      model_config: { stream: false, thinkingTokenBudget: 'none' },
+    },
+    transport_responses: [claudeNoneResponse(model)],
+    expected_transport_request: {
+      json: { thinking: { type: 'disabled' } },
+    },
+    expected_transport_json_absent: ['output_config'],
+  });
+}
+
+writeFixture('anthropic-opus-5-disabled-thinking-rejects-xhigh', {
+  kind: 'ai_chat',
+  provider: 'anthropic',
+  model: 'claude-opus-5',
+  request: {
+    chat_prompt: [{ role: 'user', content: 'hi' }],
+    model_config: {
+      stream: false,
+      thinkingTokenBudget: 'none',
+      effort: 'xhigh',
+    },
+  },
+  expected_error_contains: "cannot disable thinking at effort 'xhigh'",
+  expected_transport_request_count: 0,
+});
+
+const claudeSearchTool = {
+  name: 'search',
+  description: 'Search docs',
+  parameters: {
+    type: 'object',
+    properties: { query: { type: 'string' } },
+    required: ['query'],
+  },
+};
+
+// Opus 5.5 and Fable 5.1 answer a forced tool choice with a 400.
+for (const [fixtureName, model, functionCall] of [
+  [
+    'anthropic-opus-5-5-forced-tool-choice-rejected',
+    'claude-opus-5-5',
+    'required',
+  ],
+  [
+    'anthropic-fable-5-1-named-tool-choice-rejected',
+    'claude-fable-5-1',
+    { type: 'function', function: { name: 'search' } },
+  ],
+] as const) {
+  writeFixture(fixtureName, {
+    kind: 'ai_chat',
+    provider: 'anthropic',
+    model,
+    request: {
+      chat_prompt: [{ role: 'user', content: 'Search docs' }],
+      functions: [claudeSearchTool],
+      function_call: functionCall,
+      model_config: { stream: false },
+    },
+    expected_error_contains: 'does not support explicitly forced tool choices',
+    expected_transport_request_count: 0,
+  });
+}
+
+writeFixture('anthropic-opus-5-5-ax-output-choice-is-dropped', {
+  kind: 'ai_chat',
+  provider: 'anthropic',
+  model: 'claude-opus-5-5',
+  request: {
+    chat_prompt: [{ role: 'user', content: 'Return the structured output' }],
+    functions: [
+      {
+        name: '__axOutput',
+        description: 'Emit output',
+        parameters: {
+          type: 'object',
+          properties: { answer: { type: 'string' } },
+          required: ['answer'],
+        },
+      },
+    ],
+    function_call: { type: 'function', function: { name: '__axOutput' } },
+    model_config: { stream: false },
+  },
+  options: { functionCallSource: 'ax' },
+  transport_responses: [claudeNoneResponse('claude-opus-5-5')],
+  expected_transport_json_absent: ['tool_choice'],
+});
+
+// Opus 5+, Fable 5+ keep a later system message in place.
+for (const [fixtureName, model] of [
+  ['anthropic-opus-5-mid-conversation-system-preserved', 'claude-opus-5'],
+  ['anthropic-fable-5-1-mid-conversation-system-preserved', 'claude-fable-5-1'],
+] as const) {
+  writeFixture(fixtureName, {
+    kind: 'ai_chat',
+    provider: 'anthropic',
+    model,
+    request: {
+      chat_prompt: [
+        { role: 'system', content: 'Initial policy.' },
+        { role: 'user', content: 'Start.' },
+        { role: 'system', content: 'From now on, be terse.' },
+      ],
+      model_config: { stream: false },
+    },
+    transport_responses: [claudeNoneResponse(model)],
+    expected_transport_request: {
+      json: {
+        system: [{ type: 'text', text: 'Initial policy.' }],
+        messages: [
+          { role: 'user', content: 'Start.' },
+          { role: 'system', content: 'From now on, be terse.' },
+        ],
+      },
+    },
+  });
+}
+
+// Gemini audio defaults: `speak()` uses 3.8 Flash TTS and `transcribe()` the
+// dedicated 3.5 Transcribe model; both are JSON generateContent calls.
+writeFixture('gemini-38-flash-tts-speak-default-model', {
+  kind: 'ai_speak',
+  provider: 'google-gemini',
+  request: { text: 'Hello from Ax.' },
+  transport_responses: [
+    {
+      status: 200,
+      json: {
+        candidates: [
+          {
+            content: {
+              role: 'model',
+              parts: [
+                { inlineData: { mimeType: 'audio/wav', data: 'UklGRg==' } },
+              ],
+            },
+          },
+        ],
+      },
+    },
+  ],
+  expected_output: {
+    audio: 'UklGRg==',
+    format: 'wav',
+    mime_type: 'audio/wav',
+  },
+  expected_transport_request: {
+    url: 'https://generativelanguage.googleapis.com/v1beta/models/gemini-3.8-flash-tts:generateContent',
+    json: {
+      contents: [{ role: 'user', parts: [{ text: 'Hello from Ax.' }] }],
+      generationConfig: {
+        responseModalities: ['AUDIO'],
+        speechConfig: {
+          voiceConfig: { prebuiltVoiceConfig: { voiceName: 'Kore' } },
+        },
+      },
+    },
+  },
+});
+
+writeFixture('gemini-31-flash-tts-raw-pcm-is-labelled-pcm16', {
+  kind: 'ai_speak',
+  provider: 'google-gemini',
+  request: { text: 'Hello from Ax.', model: 'gemini-3.1-flash-tts-preview' },
+  transport_responses: [
+    {
+      status: 200,
+      json: {
+        candidates: [
+          {
+            content: {
+              role: 'model',
+              parts: [
+                {
+                  inlineData: {
+                    mimeType: 'audio/l16; rate=24000; channels=1',
+                    data: 'AAAAAA==',
+                  },
+                },
+              ],
+            },
+          },
+        ],
+      },
+    },
+  ],
+  expected_output: {
+    audio: 'AAAAAA==',
+    format: 'pcm16',
+    mime_type: 'audio/l16; rate=24000; channels=1',
+  },
+  expected_transport_request: {
+    url: 'https://generativelanguage.googleapis.com/v1beta/models/gemini-3.1-flash-tts-preview:generateContent',
+  },
+});
+
+writeFixture('gemini-35-transcribe-default-model', {
+  kind: 'ai_transcribe',
+  provider: 'google-gemini',
+  request: { audio: { data: 'UklGRg==', mimeType: 'audio/wav' } },
+  transport_responses: [
+    {
+      status: 200,
+      json: {
+        candidates: [
+          {
+            content: {
+              role: 'model',
+              parts: [{ audioTranscription: { text: '10 9 8' } }],
+            },
+            finishReason: 'STOP',
+          },
+        ],
+      },
+    },
+  ],
+  expected_output: { text: '10 9 8' },
+  expected_transport_request: {
+    url: 'https://generativelanguage.googleapis.com/v1beta/models/gemini-3.5-transcribe:generateContent',
+    json: {
+      contents: [
+        {
+          role: 'user',
+          parts: [
+            { inlineData: { mimeType: 'audio/wav', data: 'UklGRg==' } },
+            { text: 'Generate a transcript of the speech in this audio.' },
+          ],
+        },
+      ],
+    },
+  },
+});
+
+// 3.8 Live refuses every thinking setting; Extended Thinking requires a level
+// (Gemini's usual `medium` when none is asked for) and refuses `minimal`.
+for (const { fixtureName, model, modelConfig, expectedThinkingConfig } of [
+  {
+    fixtureName: 'gemini-38-live-sends-no-thinking-config',
+    model: 'gemini-3.8-live',
+    modelConfig: { thinkingTokenBudget: 'high', showThoughts: true },
+    expectedThinkingConfig: undefined,
+  },
+  {
+    fixtureName: 'gemini-38-live-extended-thinking-defaults-to-medium',
+    model: 'gemini-3.8-live-extended-thinking',
+    modelConfig: {},
+    expectedThinkingConfig: { thinkingLevel: 'medium' },
+  },
+  {
+    fixtureName: 'gemini-38-live-extended-thinking-minimal-clamps-to-low',
+    model: 'gemini-3.8-live-extended-thinking',
+    modelConfig: { thinkingTokenBudget: 'minimal', showThoughts: true },
+    expectedThinkingConfig: { thinkingLevel: 'low', includeThoughts: true },
+  },
+] as const) {
+  writeFixture(fixtureName, {
+    kind: 'ai_realtime',
+    provider: 'google-gemini',
+    model,
+    request: {
+      model,
+      chat_prompt: [{ role: 'user', content: 'Answer with audio.' }],
+      model_config: modelConfig,
+      audio: { output: { voice: 'Kore', transcript: true } },
+    },
+    expected_setup: {
+      setup: {
+        model: `models/${model}`,
+        generationConfig: {
+          responseModalities: ['AUDIO'],
+          speechConfig: {
+            voiceConfig: { prebuiltVoiceConfig: { voiceName: 'Kore' } },
+          },
+          ...(expectedThinkingConfig
+            ? { thinkingConfig: expectedThinkingConfig }
+            : {}),
+        },
+        outputAudioTranscription: {},
+      },
+    },
+  });
+}

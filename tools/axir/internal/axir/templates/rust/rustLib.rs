@@ -2504,7 +2504,9 @@ impl OpenAICompatibleClient {
         }
         let raw = match profile.as_str() {
             "google-gemini" => {
-                let model = string_at(&request, "model").unwrap_or_else(|| self.model.clone());
+                let model = string_at(&request, "model")
+                    .or_else(|| string_at(&descriptor, "defaultModel"))
+                    .unwrap_or_else(|| self.model.clone());
                 let path = format!(
                     "https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent"
                 );
@@ -2545,7 +2547,8 @@ impl OpenAICompatibleClient {
         let raw = match profile.as_str() {
             "google-gemini" => {
                 let model = string_at(&request, "model")
-                    .unwrap_or_else(|| "gemini-2.5-flash-preview-tts".to_string());
+                    .or_else(|| string_at(&speak_descriptor, "defaultModel"))
+                    .unwrap_or_else(|| self.model.clone());
                 let path = format!(
                     "https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent"
                 );

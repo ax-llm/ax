@@ -1,0 +1,40 @@
+{
+  "expected_error_contains": "does not support explicitly forced tool choices",
+  "expected_transport_request_count": 0,
+  "kind": "ai_chat",
+  "model": "claude-fable-5-1",
+  "name": "anthropic-fable-5-1-named-tool-choice-rejected",
+  "provider": "anthropic",
+  "request": {
+    "chat_prompt": [
+      {
+        "content": "Search docs",
+        "role": "user"
+      }
+    ],
+    "function_call": {
+      "function": {
+        "name": "search"
+      },
+      "type": "function"
+    },
+    "functions": [
+      {
+        "description": "Search docs",
+        "name": "search",
+        "parameters": {
+          "properties": {
+            "query": {
+              "type": "string"
+            }
+          },
+          "required": ["query"],
+          "type": "object"
+        }
+      }
+    ],
+    "model_config": {
+      "stream": false
+    }
+  }
+}

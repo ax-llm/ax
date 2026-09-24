@@ -152,13 +152,13 @@ const axKnownModelCatalogProviderDefinitions = {
   },
   anthropic: {
     displayName: 'Anthropic',
-    defaultModel: AxAIAnthropicModel.Claude37Sonnet,
+    defaultModel: AxAIAnthropicModel.Claude5Sonnet,
     isDynamic: false,
     modelInfo: axModelInfoAnthropic,
   },
   'google-gemini': {
     displayName: 'Google Gemini',
-    defaultModel: AxAIGoogleGeminiModel.Gemini25Flash,
+    defaultModel: AxAIGoogleGeminiModel.Gemini36Flash,
     defaultEmbedModel: AxAIGoogleGeminiEmbedModel.GeminiEmbedding2,
     isDynamic: false,
     modelInfo: axModelInfoGoogleGemini,
@@ -402,7 +402,8 @@ const axModelCapabilities = (
       model.audio?.output ??
       (type === 'audio' &&
         !name.includes('whisper') &&
-        !name.includes('transcription')),
+        !name.includes('transcription') &&
+        !name.includes('transcribe')),
     ...(model.modalities
       ? {
           textInput: model.modalities.input.includes('text'),
@@ -435,6 +436,7 @@ const axModelType = (
     name.includes('realtime') ||
     name.includes('voice') ||
     name.includes('whisper') ||
+    name.includes('transcribe') ||
     name.includes('native-audio')
   ) {
     return 'audio';

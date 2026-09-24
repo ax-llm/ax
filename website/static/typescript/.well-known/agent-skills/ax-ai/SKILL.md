@@ -368,6 +368,20 @@ console.log(transcript.text);
 console.log(speech.data);
 ```
 
+Gemini's defaults are `gemini-3.8-flash-tts` for `speak()` and the dedicated
+`gemini-3.5-transcribe` model for `transcribe()`. Gemini takes no output
+format, so the returned mime type sets the label: 3.8 TTS returns WAV, while
+earlier TTS models return raw 24 kHz PCM, reported as `pcm16` with its
+`sampleRate` and `channels`.
+
+```typescript
+const gemini = ai({ name: 'google-gemini', apiKey: process.env.GOOGLE_APIKEY! });
+const speech = await gemini.speak({ text: 'Hello from Ax.', voice: 'Kore' });
+const heard = await gemini.transcribe({
+  audio: { data: speech.data, format: speech.format },
+});
+```
+
 Providers without the requested audio endpoint throw `AxMediaNotSupportedError`. Use `speech` forward options for signature audio artifacts and `modelConfig.audio` for conversational chat audio.
 
 ## Common Options
@@ -524,7 +538,7 @@ console.log(res.results[0]?.content);
 
 | Level | Anthropic (tokens) | Gemini 2.5 (tokens) | Gemini 3 level |
 |---|---|---|---|
-| `'none'` | disabled | 0 on Flash/Lite; minimum on Pro | lowest supported, thoughts hidden |
+| `'none'` | disabled; lowest effort where thinking is always on | 0 on Flash/Lite; minimum on Pro | lowest supported, thoughts hidden |
 | `'minimal'` | 1,024 | 200 | `minimal`, or `low` when `minimal` is unsupported |
 | `'low'` | 5,000 | 800 | `low` |
 | `'medium'` | 10,000 | 5,000 | `medium`, or the nearest image/legacy level |
@@ -537,23 +551,39 @@ preset to its real model. Gemini 3.8 Flash, Gemini 3.7 Flash, and Gemini 3.1 Pro
 clamp `minimal` to `low`; image and legacy Gemini 3 models clamp to their
 documented two-level sets. Numeric Gemini 3 budgets fail locally. `none` always hides returned
 thoughts, even when the model must still perform its minimum amount of thinking.
+Gemini 3.8 Live accepts no thinking settings, so Ax sends none. Gemini 3.8 Live
+Extended Thinking requires a level: Ax sends `medium` when none is requested and
+clamps `minimal` to `low`.
 
 The native `google-gemini` deployment profile and its aliases use these Gemini
 rules, including when configured for Vertex with `projectId` and `region`. The
 separate OpenAI-compatible `vertex-ai` profile keeps its own request rules and
 does not inherit native Gemini fields from a Gemini-looking model ID.
 
-For GPT-5.6, these map to `none`, `low`, `low`, `medium`, `high`, and a top rung
-that depends on the API surface: `xhigh` on Chat Completions, which rejects
-`max`, and `max` on the Responses API, which is the only place it is served.
+For GPT-5.6 and GPT-6 (Astra, Sol, Luna), these map to `none`, `low`, `low`,
+`medium`, `high`, and a top rung that depends on the API surface: `xhigh` on
+Chat Completions, which rejects `max`, and `max` on the Responses API, which is
+the only place it is served. These models default an omitted effort to
+`medium`, so `none` is sent explicitly; GPT-6 Astra refuses `none` and Ax throws.
 Earlier OpenAI models retain their existing mapping.
 
 ### Anthropic Model-Specific Behavior
 
-- Opus 4.8, 4.7, and 4.6 plus Sonnet 5: adaptive thinking, no manual
-  `budget_tokens`, and no `temperature` / `topP` / `topK`. When thoughts are
-  requested, Ax asks Anthropic for summarized display; when they are hidden,
-  Ax explicitly requests `display: 'omitted'`.
+- Opus 5.5, Fable 5.1, Fable 5, Opus 5, Opus 4.8, 4.7, and 4.6 plus Sonnet 5:
+  adaptive thinking, no manual `budget_tokens`, and no `temperature` / `topP` /
+  `topK`. When thoughts are requested, Ax asks Anthropic for summarized
+  display; when they are hidden, Ax explicitly requests `display: 'omitted'`.
+- Opus 5.5, Fable 5.1, and Fable 5 always think, so `thinkingTokenBudget:
+  'none'` sends the lowest effort with thoughts hidden instead of disabling it.
+- Opus 5 and Sonnet 5 think by default, so `'none'` sends
+  `thinking: { type: 'disabled' }`. Opus 5 only allows that at effort `'high'`
+  or below, so Ax rejects `'none'` combined with `'xhigh'` or `'max'`.
+- Opus 5.5 and Fable 5.1 refuse forced tool choice: Ax throws for
+  `functionCall: 'required'` or a named function, and structured output uses
+  the native `output_config.format` path.
+- Opus 4.8, Opus 5, Opus 5.5, Fable 5, and Fable 5.1 keep a later system
+  message in place on the first-party API; other models hoist it into the
+  system prompt.
 - Opus 4.5: budget_tokens + effort levels (capped at `'high'`)
 - Other thinking models: budget tokens only
 
@@ -651,9 +681,9 @@ Provider behavior:
   `promptCacheKey`; Responses also accepts `promptCacheRetention: 'in_memory' |
   '24h'`. Meta Messages has no cache marker or cache-key field, so Ax strips
   generic `cache_control` annotations on that profile.
-- OpenAI: explicit `prompt_cache_breakpoint` markers, **GPT-5.6+ only**. Earlier
-  families cache automatically and predate the parameters, so nothing is sent to
-  them. Only the `openai` provider opts in — Azure OpenAI shares the request
+- OpenAI: explicit `prompt_cache_breakpoint` markers, **GPT-5.6+ only**; GPT-6
+  also gets `ttl: '30m'` in `prompt_cache_options`. Earlier families cache
+  automatically and predate the parameters, so nothing is sent to them. Only the `openai` provider opts in — Azure OpenAI shares the request
   builder and the same model enum, so a `gpt-5.6-*` deployment sends nothing,
   and `openai-responses` does not send breakpoints either (it does report
   `cacheCreationTokens`, which is provider-wide)
@@ -767,8 +797,8 @@ const response = await bedrock.chat(
 );
 ```
 
-Claude Sonnet 5 always uses adaptive thinking and rejects
-`thinkingTokenBudget: 'none'`; Claude Opus 5 permits disabling it.
+On the native Bedrock client, Claude Sonnet 5 always uses adaptive thinking
+and rejects `thinkingTokenBudget: 'none'`; Claude Opus 5 permits disabling it.
 
 ## Vercel AI SDK Integration
 
@@ -862,6 +892,12 @@ Astra through Responses. Existing defaults are unchanged.
 Use `thinkingTokenBudget: 'low'` and `serviceTier: 'standard'`. Astra requires
 reasoning; `minimal` maps to `low` and `none` throws. Unsupported sampling and
 log-probability options are removed. EU residency does not support priority processing.
+
+GPT-6 Sol (`AxAIOpenAIModel.GPT6Sol`) and Luna (`AxAIOpenAIModel.GPT6Luna`) also
+route through Responses, since Chat Completions refuses their function tools
+while they reason. Unlike Astra they accept `thinkingTokenBudget: 'none'`, and
+chat sessions and `configuration_update` remain Astra-only. OpenAI reports a
+GPT-6 priority request's served tier as `fast`; Ax records it as `priority`.
 
 Keep calling `forward()` and `streamingForward()`. Declare independent tools with
 `fn('lookup').description('...').execution('background').handler(...).build()`.

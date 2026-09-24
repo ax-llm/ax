@@ -1513,6 +1513,25 @@
       "verification": "Core-owned string/fluent boolean and class descriptions round-trip through signatures/schema and map to native criteria or ordinary readable prompts. Shared fixtures cover scalar/complex extraction, streaming label parsing, field order, nested fields, validation, and conventional-provider behavior. AxIR compiler go test -count=1 -timeout=30m ./... and strict check/lint/provenance/lowering passed. Final all-five release verification passed: C++ in the full test run, Python/Java/Go after nested-balancer test corrections, and Rust after routing validation correction. Conformance synchronization, generated package freshness, build, 320 focused TypeScript tests, tooling guards, generated examples, provider profiles, skills, and website checks passed. All 18 live Typesafe/Jev signature, native, and hybrid examples passed across TypeScript, Python, Java, C++, Go, and Rust using environment credentials."
     },
     {
+      "id": "axir-2026-09-23-port-speak-samplerate-channels-parsed-from-raw-pcm-mime-types",
+      "status": "open",
+      "title": "Port speak() sampleRate/channels parsed from raw-PCM mime types",
+      "createdAt": "2026-09-23",
+      "sourcePR": null,
+      "sourceCommit": "e690b4823b8309e258594064abe941d4cff6ef89",
+      "tsPaths": ["src/ax/ai/audio/util.ts"],
+      "portableSurface": "axai",
+      "impact": "TS speak() now reports sampleRate and channels from mime parameters such as audio/l16; rate=24000; channels=1 (Gemini 3.1 TTS). Generated ports return format and mime_type but not the parsed sampleRate/channels fields.",
+      "suggestedAxirWork": [
+        "Add or update the TS-derived conformance fixture.",
+        "Update AxIR/Core or descriptor data to match the portable TS behavior.",
+        "Run npm run axir:conformance:check and npm run test:axir."
+      ],
+      "completedAt": null,
+      "completedByCommit": null,
+      "verification": null
+    },
+    {
       "id": "axir-2026-09-23-port-the-expensive-model-confirmation-gate-now-reachable-from-ax",
       "status": "open",
       "title": "Port the expensive-model confirmation gate now reachable from AxGen",

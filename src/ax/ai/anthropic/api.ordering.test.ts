@@ -143,3 +143,49 @@ describe('Anthropic assistant content ordering with thinking and tool_use', () =
     expect(capture.lastBody.messages.map((m: any) => m.role)).toEqual(['user']);
   });
 });
+
+describe('Anthropic mid-conversation system messages on Claude 5.x', () => {
+  const chatPrompt = [
+    { role: 'system' as const, content: 'Initial policy.' },
+    { role: 'user' as const, content: 'Start.' },
+    { role: 'system' as const, content: 'From now on, be terse.' },
+  ];
+
+  it.each([
+    AxAIAnthropicModel.Claude55Opus,
+    AxAIAnthropicModel.Claude51Fable,
+    AxAIAnthropicModel.Claude5Opus,
+    AxAIAnthropicModel.Claude5Fable,
+  ])('keeps a later system message in place on %s', async (model) => {
+    const ai = new AxAIAnthropic({ apiKey: 'key', config: { model } });
+    const capture: { lastBody?: any } = {};
+    ai.setOptions({ fetch: createMockFetch(capture) });
+
+    await ai.chat({ chatPrompt }, { stream: false });
+
+    expect(capture.lastBody.system).toEqual([
+      { type: 'text', text: 'Initial policy.' },
+    ]);
+    expect(capture.lastBody.messages.map((m: any) => m.role)).toEqual([
+      'user',
+      'system',
+    ]);
+  });
+
+  it('still hoists later system messages on Sonnet 5', async () => {
+    const ai = new AxAIAnthropic({
+      apiKey: 'key',
+      config: { model: AxAIAnthropicModel.Claude5Sonnet },
+    });
+    const capture: { lastBody?: any } = {};
+    ai.setOptions({ fetch: createMockFetch(capture) });
+
+    await ai.chat({ chatPrompt }, { stream: false });
+
+    expect(capture.lastBody.system).toEqual([
+      { type: 'text', text: 'Initial policy.' },
+      { type: 'text', text: 'From now on, be terse.' },
+    ]);
+    expect(capture.lastBody.messages.map((m: any) => m.role)).toEqual(['user']);
+  });
+});

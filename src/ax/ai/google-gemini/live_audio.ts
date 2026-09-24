@@ -67,13 +67,18 @@ export const axAIGoogleGeminiLiveAudioDefaultConfig =
   (): AxAIGoogleGeminiConfig =>
     structuredClone({
       ...axBaseAIDefaultConfig(),
-      model: AxAIGoogleGeminiModel.Gemini25FlashNativeAudio,
+      model: AxAIGoogleGeminiModel.Gemini38Live,
       embedModel: AxAIGoogleGeminiEmbedModel.TextEmbedding005,
       audio: axGoogleGeminiLiveAudioDefaults(),
       stream: false,
     });
 
+// Live models are listed explicitly where no name pattern fits: a `-live`
+// suffix would also catch `gemini-3.5-transcribe-live`, which is not a
+// conversational model.
 export const axIsGeminiLiveAudioModel = (model: string): boolean =>
+  model === AxAIGoogleGeminiModel.Gemini38Live ||
+  model === AxAIGoogleGeminiModel.Gemini38LiveExtendedThinking ||
   model === AxAIGoogleGeminiModel.Gemini25FlashNativeAudio ||
   model === AxAIGoogleGeminiModel.Gemini31FlashLive ||
   model.includes('native-audio') ||

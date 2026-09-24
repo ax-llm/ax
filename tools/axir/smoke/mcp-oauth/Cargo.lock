@@ -28,12 +28,13 @@ dependencies = [
 
 [[package]]
 name = "axllm"
-version = "23.0.6"
+version = "24.0.21"
 dependencies = [
  "regex",
  "reqwest",
  "serde",
  "serde_json",
+ "tokio",
 ]
 
 [[package]]

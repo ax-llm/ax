@@ -1,0 +1,41 @@
+{
+  "expected_setup": {
+    "setup": {
+      "generationConfig": {
+        "responseModalities": ["AUDIO"],
+        "speechConfig": {
+          "voiceConfig": {
+            "prebuiltVoiceConfig": {
+              "voiceName": "Kore"
+            }
+          }
+        }
+      },
+      "model": "models/gemini-3.8-live",
+      "outputAudioTranscription": {}
+    }
+  },
+  "kind": "ai_realtime",
+  "model": "gemini-3.8-live",
+  "name": "gemini-38-live-sends-no-thinking-config",
+  "provider": "google-gemini",
+  "request": {
+    "audio": {
+      "output": {
+        "transcript": true,
+        "voice": "Kore"
+      }
+    },
+    "chat_prompt": [
+      {
+        "content": "Answer with audio.",
+        "role": "user"
+      }
+    ],
+    "model": "gemini-3.8-live",
+    "model_config": {
+      "showThoughts": true,
+      "thinkingTokenBudget": "high"
+    }
+  }
+}

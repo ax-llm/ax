@@ -2,7 +2,7 @@
   "expected_output": {
     "model_usage": {
       "ai": "anthropic",
-      "model": "claude-sonnet-4-5",
+      "model": "claude-haiku-4-5",
       "tokens": {
         "cache_creation_tokens": 2,
         "cache_read_tokens": 1,
@@ -42,7 +42,7 @@
           "role": "user"
         }
       ],
-      "model": "claude-sonnet-4-5",
+      "model": "claude-haiku-4-5",
       "system": [
         {
           "cache_control": {
@@ -58,6 +58,7 @@
     "url": "https://api.anthropic.com/v1/messages"
   },
   "kind": "ai_chat",
+  "model": "claude-haiku-4-5",
   "name": "anthropic-simple-chat",
   "provider": "anthropic",
   "request": {
@@ -95,7 +96,7 @@
           }
         ],
         "id": "msg_anthropic_1",
-        "model": "claude-sonnet-4-5",
+        "model": "claude-haiku-4-5",
         "role": "assistant",
         "stop_reason": "end_turn",
         "type": "message",

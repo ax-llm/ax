@@ -14,7 +14,7 @@
     {
       "model_usage": {
         "ai": "google-gemini",
-        "model": "gemini-3.5-flash",
+        "model": "gemini-3.6-flash",
         "tokens": {
           "completion_tokens": 2,
           "prompt_tokens": 4,
@@ -41,7 +41,7 @@
         "responseMimeType": "text/plain"
       }
     },
-    "url": "https://generativelanguage.googleapis.com/v1beta/models/gemini-3.5-flash:streamGenerateContent?alt=sse"
+    "url": "https://generativelanguage.googleapis.com/v1beta/models/gemini-3.6-flash:streamGenerateContent?alt=sse"
   },
   "kind": "ai_stream",
   "name": "gemini-streaming-text",

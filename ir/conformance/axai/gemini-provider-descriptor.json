@@ -3,7 +3,7 @@
     "apiKeyHeader": "x-goog-api-key",
     "auth": "api_key_header",
     "defaultEmbedModel": "gemini-embedding-2",
-    "defaultModel": "gemini-3.5-flash",
+    "defaultModel": "gemini-3.6-flash",
     "features": {
       "caching": {
         "supported": true,

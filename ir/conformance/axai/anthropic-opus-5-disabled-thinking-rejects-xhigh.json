@@ -1,0 +1,21 @@
+{
+  "expected_error_contains": "cannot disable thinking at effort 'xhigh'",
+  "expected_transport_request_count": 0,
+  "kind": "ai_chat",
+  "model": "claude-opus-5",
+  "name": "anthropic-opus-5-disabled-thinking-rejects-xhigh",
+  "provider": "anthropic",
+  "request": {
+    "chat_prompt": [
+      {
+        "content": "hi",
+        "role": "user"
+      }
+    ],
+    "model_config": {
+      "effort": "xhigh",
+      "stream": false,
+      "thinkingTokenBudget": "none"
+    }
+  }
+}

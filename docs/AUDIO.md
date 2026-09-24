@@ -76,7 +76,7 @@ Current public provider docs change quickly; verify production pricing before co
 |---|---:|---:|---|
 | OpenAI | Yes | Yes | Audio API supports `/audio/transcriptions` and `/audio/speech`; pricing lists `gpt-4o-mini-transcribe` and `gpt-4o-mini-tts`. |
 | xAI | Yes | Yes | Voice APIs expose `/v1/stt` and `/v1/tts`; public docs list REST STT at `$0.10/hr` and TTS at `$15/1M characters`. |
-| Gemini | Yes | Yes | Audio understanding uses Gemini `generateContent`; TTS uses Gemini TTS models through `generateContent`. |
+| Gemini | Yes | Yes | Both use `generateContent`. `transcribe()` defaults to `gemini-3.5-transcribe` and `speak()` to `gemini-3.8-flash-tts`, which returns WAV; earlier TTS models return raw 24 kHz PCM, labelled `pcm16`. |
 | Mistral | Yes | Yes | Voxtral transcription uses `/v1/audio/transcriptions`; Voxtral TTS uses `/v1/audio/speech`. |
 | Meta | Yes | No | Muse Voice uses `/v1/asr/transcribe` for files and the existing streaming `chat()` transport for realtime PCM16 transcription, diarization, endpointing, biasing, and turn-level timestamps. |
 

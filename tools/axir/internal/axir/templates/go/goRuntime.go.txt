@@ -3594,7 +3594,7 @@ func (c *OpenAICompatibleClient) requestJSON(ctx context.Context, operation stri
 	if c.Profile == "meta" && operation == "transcribe" && (coreGet(request, "partialMode", coreGet(request, "partial_mode", nil)) != nil || coreTruthy(coreGet(request, "emitAudioProgress", coreGet(request, "emit_audio_progress", false)))) {
 		coreSet(headers, "Accept", "text/event-stream")
 	}
-	pathModel := coreGet(request, "model", coreGet(request, "embed_model", coreGet(request, "embedModel", coreGet(opts, "model", nil))))
+	pathModel := coreGet(request, "model", coreGet(request, "embed_model", coreGet(request, "embedModel", coreGet(operationDescriptor, "defaultModel", coreGet(opts, "model", nil)))))
 	if pathModel != nil {
 		path = strings.ReplaceAll(path, "{model}", url.PathEscape(display(pathModel)))
 	}

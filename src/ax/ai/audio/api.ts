@@ -9,7 +9,11 @@ import type {
   AxSpeechResponse,
   AxTranscriptionResponse,
 } from './types.js';
-import { axAudioFormatFromMimeType, axAudioMimeType } from './util.js';
+import {
+  axAudioFormatFromMimeType,
+  axAudioMimeType,
+  axAudioParamsFromMimeType,
+} from './util.js';
 
 type FetchLike = typeof fetch;
 
@@ -458,6 +462,7 @@ export const axFetchJsonSpeech = async ({
       format: format ?? axAudioFormatFromMimeType(mimeType),
       mimeType,
       transcript,
+      ...axAudioParamsFromMimeType(mimeType),
     };
   }
 
@@ -468,5 +473,6 @@ export const axFetchJsonSpeech = async ({
     format: format ?? axAudioFormatFromMimeType(mimeType),
     mimeType,
     transcript,
+    ...axAudioParamsFromMimeType(mimeType),
   };
 };
