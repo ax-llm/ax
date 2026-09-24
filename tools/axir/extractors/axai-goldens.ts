@@ -10558,6 +10558,188 @@ for (const inputTokens of [272000, 272001]) {
   });
 }
 
+// Amazon Bedrock serves the same models as `openai.<model>` on bedrock-mantle
+// and through cross-Region inference profiles such as `us.openai.<model>` and
+// `global.openai.<model>` on bedrock-runtime. The IDs keep the model's
+// contracts: GPT-6 runs on Responses without sampling parameters, and both
+// families keep their effort ladders.
+const bedrockRuntimeURL =
+  'https://bedrock-runtime.us-east-1.amazonaws.com/openai/v1';
+const bedrockMantleURL = 'https://bedrock-mantle.us-west-2.api.aws/openai/v1';
+const bedrockResponse = (model: string) => ({
+  status: 200,
+  json: {
+    id: 'resp_bedrock',
+    model,
+    usage: { input_tokens: 1, output_tokens: 1, total_tokens: 2 },
+    output: [
+      {
+        id: 'msg_bedrock',
+        type: 'message',
+        content: [{ type: 'output_text', text: 'ok', annotations: [] }],
+      },
+    ],
+  },
+});
+
+for (const [provider, model, budget] of [
+  ['openai-responses', 'us.openai.gpt-6-sol', 'minimal'],
+  ['openai-responses', 'global.openai.gpt-6-astra', 'highest'],
+  ['openai', 'global.openai.gpt-6-luna', 'none'],
+] as const) {
+  const astra = model.includes('astra');
+  writeFixture(`bedrock-${model.replaceAll('.', '-')}-on-${provider}`, {
+    kind: 'ai_chat',
+    provider,
+    model,
+    base_url: bedrockRuntimeURL,
+    request: {
+      chat_prompt: [{ role: 'user', content: 'reason' }],
+      model_config: {
+        stream: false,
+        thinkingTokenBudget: budget,
+        temperature: 0.5,
+        topP: 0.9,
+        ...(astra ? { presencePenalty: 1, frequencyPenalty: 1 } : {}),
+      },
+    },
+    transport_responses: [bedrockResponse(model)],
+    expected_transport_request: {
+      method: 'POST',
+      url: `${bedrockRuntimeURL}/responses`,
+      json: {
+        model,
+        reasoning: {
+          effort: axResolveOpenAIResponsesReasoningEffort(model, budget),
+        },
+        stream: false,
+      },
+    },
+    expected_transport_json_absent: [
+      'temperature',
+      'top_p',
+      ...(astra ? ['presence_penalty', 'frequency_penalty'] : []),
+    ],
+  });
+}
+
+// Bedrock's Chat Completions refuses Astra's function tools and points to
+// /v1/responses, so the openai provider routes the call there.
+const bedrockTool = {
+  name: 'lookup',
+  description: 'Look up a record',
+  parameters: {
+    type: 'object',
+    properties: { id: { type: 'string' } },
+    required: ['id'],
+  },
+};
+writeFixture('bedrock-openai-gpt-6-astra-tools-use-responses', {
+  kind: 'ai_chat',
+  provider: 'openai',
+  model: 'openai.gpt-6-astra',
+  base_url: bedrockMantleURL,
+  request: {
+    chat_prompt: [{ role: 'user', content: 'Look up record 7' }],
+    functions: [bedrockTool],
+    model_config: { stream: false, temperature: 0.5 },
+  },
+  transport_responses: [bedrockResponse('openai.gpt-6-astra')],
+  expected_transport_request: {
+    method: 'POST',
+    url: `${bedrockMantleURL}/responses`,
+    json: {
+      model: 'openai.gpt-6-astra',
+      tools: [{ type: 'function', ...bedrockTool }],
+    },
+  },
+  expected_transport_json_absent: ['temperature'],
+});
+
+writeFixture('bedrock-us-openai-gpt-6-astra-none-rejected', {
+  kind: 'ai_chat',
+  provider: 'openai',
+  model: 'us.openai.gpt-6-astra',
+  base_url: bedrockRuntimeURL,
+  request: {
+    chat_prompt: [{ role: 'user', content: 'reason' }],
+    model_config: { stream: false, thinkingTokenBudget: 'none' },
+  },
+  expected_error_contains: 'does not support disabling reasoning',
+  expected_transport_request_count: 0,
+});
+
+// GPT-5.6 stays on Chat Completions, where Bedrock's ID keeps the 5.6 ladder.
+writeFixture('bedrock-us-openai-gpt-5-6-sol-chat-effort', {
+  kind: 'ai_chat',
+  provider: 'openai',
+  model: 'us.openai.gpt-5.6-sol',
+  base_url: bedrockRuntimeURL,
+  request: {
+    chat_prompt: [{ role: 'user', content: 'reason' }],
+    model_config: { stream: false, thinkingTokenBudget: 'minimal' },
+  },
+  transport_responses: [compatibleResponse('chat_bedrock', 'gpt-5.6-sol')],
+  expected_transport_request: {
+    method: 'POST',
+    url: `${bedrockRuntimeURL}/chat/completions`,
+    json: {
+      model: 'us.openai.gpt-5.6-sol',
+      reasoning_effort: axResolveOpenAIChatReasoningEffort(
+        'us.openai.gpt-5.6-sol',
+        'minimal'
+      ),
+    },
+  },
+});
+
+// Bedrock documents the same explicit breakpoints on its Responses API.
+writeFixture('bedrock-us-openai-gpt-6-sol-prompt-cache-breakpoints', {
+  kind: 'ai_chat',
+  provider: 'openai',
+  model: 'us.openai.gpt-6-sol',
+  base_url: bedrockRuntimeURL,
+  service_options: { contextCache: {}, promptCacheKey: 'sol-prefix' },
+  request: {
+    chat_prompt: [{ role: 'user', content: 'cached' }],
+    model_config: { thinkingTokenBudget: 'low' },
+  },
+  transport_responses: [bedrockResponse('us.openai.gpt-6-sol')],
+  expected_transport_request: {
+    method: 'POST',
+    url: `${bedrockRuntimeURL}/responses`,
+    json: {
+      model: 'us.openai.gpt-6-sol',
+      input: [
+        {
+          role: 'user',
+          content: [
+            {
+              type: 'input_text',
+              text: 'cached',
+              prompt_cache_breakpoint: { mode: 'explicit' },
+            },
+          ],
+        },
+      ],
+      prompt_cache_key: 'sol-prefix',
+      prompt_cache_options: { mode: 'explicit', ttl: '30m' },
+    },
+  },
+});
+
+writeFixture('bedrock-us-openai-gpt-6-astra-features', {
+  kind: 'ai_provider_features',
+  provider: 'openai',
+  model: 'us.openai.gpt-6-astra',
+  base_url: bedrockRuntimeURL,
+  expected_output: {
+    functions: true,
+    thinking: true,
+    caching: { supported: true, types: ['ephemeral'] },
+  },
+});
+
 // GPT-6 reports a served priority request as `fast`.
 writeFixture('openai-served-fast-tier-reads-as-priority', {
   kind: 'ai_chat',

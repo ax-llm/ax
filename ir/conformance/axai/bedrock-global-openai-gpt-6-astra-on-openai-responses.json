@@ -1,0 +1,67 @@
+{
+  "base_url": "https://bedrock-runtime.us-east-1.amazonaws.com/openai/v1",
+  "expected_transport_json_absent": [
+    "temperature",
+    "top_p",
+    "presence_penalty",
+    "frequency_penalty"
+  ],
+  "expected_transport_request": {
+    "json": {
+      "model": "global.openai.gpt-6-astra",
+      "reasoning": {
+        "effort": "max"
+      },
+      "stream": false
+    },
+    "method": "POST",
+    "url": "https://bedrock-runtime.us-east-1.amazonaws.com/openai/v1/responses"
+  },
+  "kind": "ai_chat",
+  "model": "global.openai.gpt-6-astra",
+  "name": "bedrock-global-openai-gpt-6-astra-on-openai-responses",
+  "provider": "openai-responses",
+  "request": {
+    "chat_prompt": [
+      {
+        "content": "reason",
+        "role": "user"
+      }
+    ],
+    "model_config": {
+      "frequencyPenalty": 1,
+      "presencePenalty": 1,
+      "stream": false,
+      "temperature": 0.5,
+      "thinkingTokenBudget": "highest",
+      "topP": 0.9
+    }
+  },
+  "transport_responses": [
+    {
+      "json": {
+        "id": "resp_bedrock",
+        "model": "global.openai.gpt-6-astra",
+        "output": [
+          {
+            "content": [
+              {
+                "annotations": [],
+                "text": "ok",
+                "type": "output_text"
+              }
+            ],
+            "id": "msg_bedrock",
+            "type": "message"
+          }
+        ],
+        "usage": {
+          "input_tokens": 1,
+          "output_tokens": 1,
+          "total_tokens": 2
+        }
+      },
+      "status": 200
+    }
+  ]
+}

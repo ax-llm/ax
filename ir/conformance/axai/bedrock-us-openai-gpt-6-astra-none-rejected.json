@@ -1,0 +1,21 @@
+{
+  "base_url": "https://bedrock-runtime.us-east-1.amazonaws.com/openai/v1",
+  "expected_error_contains": "does not support disabling reasoning",
+  "expected_transport_request_count": 0,
+  "kind": "ai_chat",
+  "model": "us.openai.gpt-6-astra",
+  "name": "bedrock-us-openai-gpt-6-astra-none-rejected",
+  "provider": "openai",
+  "request": {
+    "chat_prompt": [
+      {
+        "content": "reason",
+        "role": "user"
+      }
+    ],
+    "model_config": {
+      "stream": false,
+      "thinkingTokenBudget": "none"
+    }
+  }
+}

@@ -3590,11 +3590,8 @@ final class Core {
       has_cache_flag = Core.or(has_cache_flag, fn_cache);
     }
     Object cache_requested = Core.or(has_context_cache, has_cache_flag);
-    Object is_gpt_56_base = Core.eq(model, "gpt-5.6");
-    Object is_gpt_56_tier = Core.stringStartsWith(model, "gpt-5.6-");
-    Object is_gpt_56 = Core.or(is_gpt_56_base, is_gpt_56_tier);
     Object is_gpt6 = Core._openai_is_gpt6_family_impl(model);
-    Object cache_model = Core.or(is_gpt_56, is_gpt6);
+    Object cache_model = Core._openai_supports_breakpoint_caching_impl(model);
     Object cache_provider_and_model = Core.and(prompt_caching, cache_model);
     Object cache_enabled = Core.and(cache_provider_and_model, cache_requested);
     Object message_index = 0;
@@ -4000,7 +3997,7 @@ final class Core {
       Core.mapDelete(payload, "temperature");
       Core.mapDelete(payload, "top_p");
     }
-    Object astra = Core.stringStartsWith(configured_model, "gpt-6-astra");
+    Object astra = Core._openai_is_gpt6_astra_impl(configured_model);
     if (Core.truthy(astra)) {
       Core.mapDelete(payload, "presence_penalty");
       Core.mapDelete(payload, "frequency_penalty");
@@ -4184,18 +4181,100 @@ final class Core {
     return null;
   }
 
+  static Object _openai_is_gpt56_family_impl(Object model) {
+    axirCoverageMark("_openai_is_gpt56_family_impl");
+    Object is_gpt56 = Core.regexMatch("^(?:(?:[a-z]+(?:-[a-z]+)*\\.)?openai\\.)?gpt-5\\.6($|-)", model);
+    return is_gpt56;
+  }
+
   static Object _openai_is_gpt6_family_impl(Object model) {
     axirCoverageMark("_openai_is_gpt6_family_impl");
-    Object is_gpt6 = Core.regexMatch("^gpt-6-(astra|sol|luna)($|-)", model);
+    Object is_gpt6 = Core.regexMatch("^(?:(?:[a-z]+(?:-[a-z]+)*\\.)?openai\\.)?gpt-6-(astra|sol|luna)($|-)", model);
     return is_gpt6;
+  }
+
+  static Object _openai_is_gpt6_astra_impl(Object model) {
+    axirCoverageMark("_openai_is_gpt6_astra_impl");
+    Object is_astra = Core.regexMatch("^(?:(?:[a-z]+(?:-[a-z]+)*\\.)?openai\\.)?gpt-6-astra($|-)", model);
+    return is_astra;
+  }
+
+  static Object _openai_is_bedrock_model_impl(Object model) {
+    axirCoverageMark("_openai_is_bedrock_model_impl");
+    Object is_bedrock = Core.regexMatch("^(?:[a-z]+(?:-[a-z]+)*\\.)?openai\\.", model);
+    return is_bedrock;
+  }
+
+  static Object build_chat_request(Object service, Object request, Object options) {
+    axirCoverageMark("build_chat_request");
+    Core.validate_chat_request(request);
+    Object payload = Core.openai_build_chat_request(request, options, Boolean.TRUE);
+    return payload;
+  }
+
+  static Object _openai_supports_breakpoint_caching_impl(Object model) {
+    axirCoverageMark("_openai_supports_breakpoint_caching_impl");
+    Object is_gpt56 = Core._openai_is_gpt56_family_impl(model);
+    Object is_gpt6 = Core._openai_is_gpt6_family_impl(model);
+    Object family = Core.or(is_gpt56, is_gpt6);
+    Object is_bedrock = Core._openai_is_bedrock_model_impl(model);
+    Object on_openai = Core.not(is_bedrock);
+    Object supported = Core.and(family, on_openai);
+    return supported;
+  }
+
+  static Object normalize_chat_response(Object raw) {
+    axirCoverageMark("normalize_chat_response");
+    Object response = Core.openai_normalize_chat_response(raw);
+    return response;
+  }
+
+  static Object typesafe_decode_models(Object raw) {
+    axirCoverageMark("typesafe_decode_models");
+    Core.typesafe_require_object(raw, "model catalog");
+    Object models = Core.get(raw, "models", null);
+    Object is_list = Core.typeIs(models, "list");
+    Object invalid = Core.not(is_list);
+    if (Core.truthy(invalid)) {
+      throw new RuntimeException("Typesafe: models must be an array");
+    }
+    for (Object model : Core.iter(models)) {
+      Core.typesafe_require_object(model, "model");
+      Object name = Core.get(model, "name", null);
+      Object description = Core.get(model, "description", null);
+      Object release_date = Core.get(model, "release_date", null);
+      Core.typesafe_require_string(name, "model.name", Boolean.TRUE);
+      Core.typesafe_require_string(description, "model.description", Boolean.FALSE);
+      Core.typesafe_require_string(release_date, "model.release_date", Boolean.FALSE);
+    }
+    return models;
+  }
+
+  static Object normalize_stream_delta(Object raw, Object state) {
+    axirCoverageMark("normalize_stream_delta");
+    Object response = Core.openai_normalize_stream_delta(raw, state);
+    return response;
+  }
+
+  static Object _openai_supports_chat_sessions_impl(Object model) {
+    axirCoverageMark("_openai_supports_chat_sessions_impl");
+    Object is_astra = Core._openai_is_gpt6_astra_impl(model);
+    Object is_bedrock = Core._openai_is_bedrock_model_impl(model);
+    Object on_openai = Core.not(is_bedrock);
+    Object supported = Core.and(is_astra, on_openai);
+    return supported;
+  }
+
+  static Object build_embed_request(Object service, Object request, Object options) {
+    axirCoverageMark("build_embed_request");
+    Object payload = Core.openai_build_embed_request(request);
+    return payload;
   }
 
   static Object openai_reasoning_effort(Object model, Object budget) {
     axirCoverageMark("openai_reasoning_effort");
-    Object is_gpt56_alias = Core.eq(model, "gpt-5.6");
-    Object is_gpt56_suffix = Core.stringStartsWith(model, "gpt-5.6-");
-    Object is_gpt56 = Core.or(is_gpt56_alias, is_gpt56_suffix);
-    Object is_astra = Core.stringStartsWith(model, "gpt-6-astra");
+    Object is_gpt56 = Core._openai_is_gpt56_family_impl(model);
+    Object is_astra = Core._openai_is_gpt6_astra_impl(model);
     Object is_gpt6 = Core._openai_is_gpt6_family_impl(model);
     Object modern = Core.or(is_gpt56, is_gpt6);
     Object is_none = Core.eq(budget, "none");
@@ -4238,72 +4317,6 @@ final class Core {
       return "xhigh";
     }
     return "high";
-  }
-
-  static Object build_chat_request(Object service, Object request, Object options) {
-    axirCoverageMark("build_chat_request");
-    Core.validate_chat_request(request);
-    Object payload = Core.openai_build_chat_request(request, options, Boolean.TRUE);
-    return payload;
-  }
-
-  static Object normalize_chat_response(Object raw) {
-    axirCoverageMark("normalize_chat_response");
-    Object response = Core.openai_normalize_chat_response(raw);
-    return response;
-  }
-
-  static Object typesafe_decode_models(Object raw) {
-    axirCoverageMark("typesafe_decode_models");
-    Core.typesafe_require_object(raw, "model catalog");
-    Object models = Core.get(raw, "models", null);
-    Object is_list = Core.typeIs(models, "list");
-    Object invalid = Core.not(is_list);
-    if (Core.truthy(invalid)) {
-      throw new RuntimeException("Typesafe: models must be an array");
-    }
-    for (Object model : Core.iter(models)) {
-      Core.typesafe_require_object(model, "model");
-      Object name = Core.get(model, "name", null);
-      Object description = Core.get(model, "description", null);
-      Object release_date = Core.get(model, "release_date", null);
-      Core.typesafe_require_string(name, "model.name", Boolean.TRUE);
-      Core.typesafe_require_string(description, "model.description", Boolean.FALSE);
-      Core.typesafe_require_string(release_date, "model.release_date", Boolean.FALSE);
-    }
-    return models;
-  }
-
-  static Object normalize_stream_delta(Object raw, Object state) {
-    axirCoverageMark("normalize_stream_delta");
-    Object response = Core.openai_normalize_stream_delta(raw, state);
-    return response;
-  }
-
-  static Object openai_chat_reasoning_effort(Object model, Object budget) {
-    axirCoverageMark("openai_chat_reasoning_effort");
-    Object effort = Core.openai_reasoning_effort(model, budget);
-    Object is_max = Core.eq(effort, "max");
-    if (Core.truthy(is_max)) {
-      return "xhigh";
-    }
-    return effort;
-  }
-
-  static Object build_embed_request(Object service, Object request, Object options) {
-    axirCoverageMark("build_embed_request");
-    Object payload = Core.openai_build_embed_request(request);
-    return payload;
-  }
-
-  static Object _openai_copy_config_key_impl(Object payload, Object model_config, Object source, Object target) {
-    axirCoverageMark("_openai_copy_config_key_impl");
-    Object has_source = Core.mapContains(model_config, source);
-    if (Core.truthy(has_source)) {
-      Object value = Core.get(model_config, source, null);
-      Core.set(payload, target, value);
-    }
-    return null;
   }
 
   static Object normalize_embed_response(Object raw) {
@@ -4525,6 +4538,121 @@ final class Core {
     return payload;
   }
 
+  static Object normalize_token_usage(Object usage) {
+    axirCoverageMark("normalize_token_usage");
+    Object out = new java.util.LinkedHashMap<String, Object>();
+    Object input_tokens = Core.get(usage, "input_tokens", 0);
+    Object prompt_tokens_snake = Core.get(usage, "prompt_tokens", input_tokens);
+    Object prompt_tokens_raw = Core.get(usage, "promptTokens", prompt_tokens_snake);
+    Object prompt_details_snake = Core.get(usage, "prompt_tokens_details", null);
+    Object prompt_details = Core.get(usage, "input_tokens_details", prompt_details_snake);
+    Object cached_from_details = Core.get(prompt_details, "cached_tokens", null);
+    Object cache_write_from_details = Core.get(prompt_details, "cache_write_tokens", null);
+    Object cached_for_math = Core.coalesce(cached_from_details, 0);
+    Object cache_write_for_math = Core.coalesce(cache_write_from_details, 0);
+    Object negative_cached = Core.mul(cached_for_math, -1);
+    Object prompt_without_cached = Core.add(prompt_tokens_raw, negative_cached);
+    Object negative_cache_write = Core.mul(cache_write_for_math, -1);
+    Object prompt_after_cache = Core.add(prompt_without_cached, negative_cache_write);
+    Object prompt_is_negative = Core.lt(prompt_after_cache, 0);
+    Object prompt_tokens = prompt_after_cache;
+    if (Core.truthy(prompt_is_negative)) {
+      prompt_tokens = 0;
+    }
+    Object output_tokens = Core.get(usage, "output_tokens", 0);
+    Object completion_tokens_snake = Core.get(usage, "completion_tokens", output_tokens);
+    Object completion_tokens = Core.get(usage, "completionTokens", completion_tokens_snake);
+    Object computed_total_tokens = Core.add(prompt_tokens, completion_tokens);
+    Object total_tokens_snake = Core.get(usage, "total_tokens", computed_total_tokens);
+    Object total_tokens = Core.get(usage, "totalTokens", total_tokens_snake);
+    Core.set(out, "prompt_tokens", prompt_tokens);
+    Core.set(out, "completion_tokens", completion_tokens);
+    Core.set(out, "total_tokens", total_tokens);
+    Object thoughts_tokens_snake = Core.get(usage, "thoughts_tokens", null);
+    Object thoughts_tokens = Core.get(usage, "thoughtsTokens", thoughts_tokens_snake);
+    Object has_thoughts = Core.isNotNone(thoughts_tokens);
+    if (Core.truthy(has_thoughts)) {
+      Core.set(out, "thoughts_tokens", thoughts_tokens);
+    }
+    Object completion_details_snake = Core.get(usage, "completion_tokens_details", null);
+    Object completion_details = Core.get(usage, "output_tokens_details", completion_details_snake);
+    Object reasoning_from_details = Core.get(completion_details, "reasoning_tokens", null);
+    Object reasoning_tokens_snake = Core.get(usage, "reasoning_tokens", reasoning_from_details);
+    Object reasoning_tokens = Core.get(usage, "reasoningTokens", reasoning_tokens_snake);
+    Object has_reasoning = Core.isNotNone(reasoning_tokens);
+    if (Core.truthy(has_reasoning)) {
+      Core.set(out, "reasoning_tokens", reasoning_tokens);
+    }
+    Object direct_cache_read_snake = Core.get(usage, "cache_read_tokens", null);
+    Object direct_cache_read = Core.get(usage, "cacheReadTokens", direct_cache_read_snake);
+    Object cache_read_tokens = Core.coalesce(direct_cache_read, cached_from_details);
+    Object cache_read_for_compare = Core.coalesce(cache_read_tokens, 0);
+    Object has_direct_cache_read = Core.isNotNone(direct_cache_read);
+    Object has_positive_cache_read = Core.gt(cache_read_for_compare, 0);
+    Object has_cache_read = Core.or(has_direct_cache_read, has_positive_cache_read);
+    if (Core.truthy(has_cache_read)) {
+      Core.set(out, "cache_read_tokens", cache_read_tokens);
+    }
+    Object direct_cache_creation_snake = Core.get(usage, "cache_creation_tokens", null);
+    Object direct_cache_creation = Core.get(usage, "cacheCreationTokens", direct_cache_creation_snake);
+    Object cache_creation_tokens = Core.coalesce(direct_cache_creation, cache_write_from_details);
+    Object cache_creation_for_compare = Core.coalesce(cache_creation_tokens, 0);
+    Object has_direct_cache_creation = Core.isNotNone(direct_cache_creation);
+    Object has_positive_cache_creation = Core.gt(cache_creation_for_compare, 0);
+    Object has_cache_creation = Core.or(has_direct_cache_creation, has_positive_cache_creation);
+    if (Core.truthy(has_cache_creation)) {
+      Core.set(out, "cache_creation_tokens", cache_creation_tokens);
+    }
+    Object service_tier_snake = Core.get(usage, "service_tier", null);
+    Object service_tier = Core.get(usage, "serviceTier", service_tier_snake);
+    Object has_service_tier = Core.isNotNone(service_tier);
+    if (Core.truthy(has_service_tier)) {
+      Object is_default = Core.eq(service_tier, "default");
+      Object is_on_demand = Core.eq(service_tier, "on_demand");
+      Object is_standard_only = Core.eq(service_tier, "standard_only");
+      Object is_unspecified = Core.eq(service_tier, "unspecified");
+      Object standard_pair = Core.or(is_default, is_on_demand);
+      Object standard_triple = Core.or(standard_pair, is_standard_only);
+      Object is_standard_alias = Core.or(standard_triple, is_unspecified);
+      if (Core.truthy(is_standard_alias)) {
+        service_tier = "standard";
+      }
+      Object is_performance = Core.eq(service_tier, "performance");
+      Object is_fast = Core.eq(service_tier, "fast");
+      Object is_priority_alias = Core.or(is_performance, is_fast);
+      if (Core.truthy(is_priority_alias)) {
+        service_tier = "priority";
+      }
+      Core.set(out, "service_tier", service_tier);
+    }
+    Object speed = Core.get(usage, "speed", null);
+    Object has_speed = Core.isNotNone(speed);
+    if (Core.truthy(has_speed)) {
+      Core.set(out, "speed", speed);
+    }
+    return out;
+  }
+
+  static Object openai_chat_reasoning_effort(Object model, Object budget) {
+    axirCoverageMark("openai_chat_reasoning_effort");
+    Object effort = Core.openai_reasoning_effort(model, budget);
+    Object is_max = Core.eq(effort, "max");
+    if (Core.truthy(is_max)) {
+      return "xhigh";
+    }
+    return effort;
+  }
+
+  static Object _openai_copy_config_key_impl(Object payload, Object model_config, Object source, Object target) {
+    axirCoverageMark("_openai_copy_config_key_impl");
+    Object has_source = Core.mapContains(model_config, source);
+    if (Core.truthy(has_source)) {
+      Object value = Core.get(model_config, source, null);
+      Core.set(payload, target, value);
+    }
+    return null;
+  }
+
   static Object _openai_message_impl(Object message, Object reasoning_content_mode, Object reasoning_details_mode) {
     axirCoverageMark("_openai_message_impl");
     Object role = Core.get(message, "role", null);
@@ -4636,101 +4764,6 @@ final class Core {
     throw Core.asRuntime(error);
   }
 
-  static Object normalize_token_usage(Object usage) {
-    axirCoverageMark("normalize_token_usage");
-    Object out = new java.util.LinkedHashMap<String, Object>();
-    Object input_tokens = Core.get(usage, "input_tokens", 0);
-    Object prompt_tokens_snake = Core.get(usage, "prompt_tokens", input_tokens);
-    Object prompt_tokens_raw = Core.get(usage, "promptTokens", prompt_tokens_snake);
-    Object prompt_details_snake = Core.get(usage, "prompt_tokens_details", null);
-    Object prompt_details = Core.get(usage, "input_tokens_details", prompt_details_snake);
-    Object cached_from_details = Core.get(prompt_details, "cached_tokens", null);
-    Object cache_write_from_details = Core.get(prompt_details, "cache_write_tokens", null);
-    Object cached_for_math = Core.coalesce(cached_from_details, 0);
-    Object cache_write_for_math = Core.coalesce(cache_write_from_details, 0);
-    Object negative_cached = Core.mul(cached_for_math, -1);
-    Object prompt_without_cached = Core.add(prompt_tokens_raw, negative_cached);
-    Object negative_cache_write = Core.mul(cache_write_for_math, -1);
-    Object prompt_after_cache = Core.add(prompt_without_cached, negative_cache_write);
-    Object prompt_is_negative = Core.lt(prompt_after_cache, 0);
-    Object prompt_tokens = prompt_after_cache;
-    if (Core.truthy(prompt_is_negative)) {
-      prompt_tokens = 0;
-    }
-    Object output_tokens = Core.get(usage, "output_tokens", 0);
-    Object completion_tokens_snake = Core.get(usage, "completion_tokens", output_tokens);
-    Object completion_tokens = Core.get(usage, "completionTokens", completion_tokens_snake);
-    Object computed_total_tokens = Core.add(prompt_tokens, completion_tokens);
-    Object total_tokens_snake = Core.get(usage, "total_tokens", computed_total_tokens);
-    Object total_tokens = Core.get(usage, "totalTokens", total_tokens_snake);
-    Core.set(out, "prompt_tokens", prompt_tokens);
-    Core.set(out, "completion_tokens", completion_tokens);
-    Core.set(out, "total_tokens", total_tokens);
-    Object thoughts_tokens_snake = Core.get(usage, "thoughts_tokens", null);
-    Object thoughts_tokens = Core.get(usage, "thoughtsTokens", thoughts_tokens_snake);
-    Object has_thoughts = Core.isNotNone(thoughts_tokens);
-    if (Core.truthy(has_thoughts)) {
-      Core.set(out, "thoughts_tokens", thoughts_tokens);
-    }
-    Object completion_details_snake = Core.get(usage, "completion_tokens_details", null);
-    Object completion_details = Core.get(usage, "output_tokens_details", completion_details_snake);
-    Object reasoning_from_details = Core.get(completion_details, "reasoning_tokens", null);
-    Object reasoning_tokens_snake = Core.get(usage, "reasoning_tokens", reasoning_from_details);
-    Object reasoning_tokens = Core.get(usage, "reasoningTokens", reasoning_tokens_snake);
-    Object has_reasoning = Core.isNotNone(reasoning_tokens);
-    if (Core.truthy(has_reasoning)) {
-      Core.set(out, "reasoning_tokens", reasoning_tokens);
-    }
-    Object direct_cache_read_snake = Core.get(usage, "cache_read_tokens", null);
-    Object direct_cache_read = Core.get(usage, "cacheReadTokens", direct_cache_read_snake);
-    Object cache_read_tokens = Core.coalesce(direct_cache_read, cached_from_details);
-    Object cache_read_for_compare = Core.coalesce(cache_read_tokens, 0);
-    Object has_direct_cache_read = Core.isNotNone(direct_cache_read);
-    Object has_positive_cache_read = Core.gt(cache_read_for_compare, 0);
-    Object has_cache_read = Core.or(has_direct_cache_read, has_positive_cache_read);
-    if (Core.truthy(has_cache_read)) {
-      Core.set(out, "cache_read_tokens", cache_read_tokens);
-    }
-    Object direct_cache_creation_snake = Core.get(usage, "cache_creation_tokens", null);
-    Object direct_cache_creation = Core.get(usage, "cacheCreationTokens", direct_cache_creation_snake);
-    Object cache_creation_tokens = Core.coalesce(direct_cache_creation, cache_write_from_details);
-    Object cache_creation_for_compare = Core.coalesce(cache_creation_tokens, 0);
-    Object has_direct_cache_creation = Core.isNotNone(direct_cache_creation);
-    Object has_positive_cache_creation = Core.gt(cache_creation_for_compare, 0);
-    Object has_cache_creation = Core.or(has_direct_cache_creation, has_positive_cache_creation);
-    if (Core.truthy(has_cache_creation)) {
-      Core.set(out, "cache_creation_tokens", cache_creation_tokens);
-    }
-    Object service_tier_snake = Core.get(usage, "service_tier", null);
-    Object service_tier = Core.get(usage, "serviceTier", service_tier_snake);
-    Object has_service_tier = Core.isNotNone(service_tier);
-    if (Core.truthy(has_service_tier)) {
-      Object is_default = Core.eq(service_tier, "default");
-      Object is_on_demand = Core.eq(service_tier, "on_demand");
-      Object is_standard_only = Core.eq(service_tier, "standard_only");
-      Object is_unspecified = Core.eq(service_tier, "unspecified");
-      Object standard_pair = Core.or(is_default, is_on_demand);
-      Object standard_triple = Core.or(standard_pair, is_standard_only);
-      Object is_standard_alias = Core.or(standard_triple, is_unspecified);
-      if (Core.truthy(is_standard_alias)) {
-        service_tier = "standard";
-      }
-      Object is_performance = Core.eq(service_tier, "performance");
-      Object is_fast = Core.eq(service_tier, "fast");
-      Object is_priority_alias = Core.or(is_performance, is_fast);
-      if (Core.truthy(is_priority_alias)) {
-        service_tier = "priority";
-      }
-      Core.set(out, "service_tier", service_tier);
-    }
-    Object speed = Core.get(usage, "speed", null);
-    Object has_speed = Core.isNotNone(speed);
-    if (Core.truthy(has_speed)) {
-      Core.set(out, "speed", speed);
-    }
-    return out;
-  }
-
   static Object merge_usage_context(Object defaults, Object overrides) {
     axirCoverageMark("merge_usage_context");
     Object merged = Core.mapMerge(defaults, overrides);
@@ -4742,6 +4775,72 @@ final class Core {
       Core.set(merged, "attributes", attributes);
     }
     return merged;
+  }
+
+  static Object build_usage_event(Object operation, Object response, Object options, Object streaming) {
+    axirCoverageMark("build_usage_event");
+    Object model_usage_snake = Core.get(response, "model_usage", null);
+    Object top_model_usage = Core.get(response, "modelUsage", model_usage_snake);
+    Object model_usage = top_model_usage;
+    Object results = Core.get(response, "results", null);
+    for (Object result : Core.iter(results)) {
+      Object result_usage_snake = Core.get(result, "model_usage", null);
+      Object result_usage = Core.get(result, "modelUsage", result_usage_snake);
+      Object has_result_usage = Core.truthyValue(result_usage);
+      if (Core.truthy(has_result_usage)) {
+        model_usage = result_usage;
+      }
+    }
+    Object tokens = Core.get(model_usage, "tokens", null);
+    Object has_tokens = Core.truthyValue(tokens);
+    Object missing_tokens = Core.not(has_tokens);
+    if (Core.truthy(missing_tokens)) {
+      Object none = Core.none();
+      return none;
+    }
+    Object event = new java.util.LinkedHashMap<String, Object>();
+    Core.set(event, "operation", operation);
+    Object ai_name = Core.get(model_usage, "ai", null);
+    Object model = Core.get(model_usage, "model", null);
+    Object normalized_tokens = Core.normalize_token_usage(tokens);
+    Core.set(event, "ai", ai_name);
+    Core.set(event, "model", model);
+    Core.set(event, "tokens", normalized_tokens);
+    Core.set(event, "streaming", streaming);
+    Object usage_context_snake = Core.get(options, "usage_context", null);
+    Object usage_context = Core.get(options, "usageContext", usage_context_snake);
+    Object has_context = Core.truthyValue(usage_context);
+    if (Core.truthy(has_context)) {
+      Core.set(event, "context", usage_context);
+    }
+    Object option_session_snake = Core.get(options, "session_id", null);
+    Object option_session = Core.get(options, "sessionId", option_session_snake);
+    Object response_session_snake = Core.get(response, "session_id", null);
+    Object response_session = Core.get(response, "sessionId", response_session_snake);
+    Object session_id = Core.coalesce(response_session, option_session);
+    Object has_session_id = Core.isNotNone(session_id);
+    if (Core.truthy(has_session_id)) {
+      Core.set(event, "sessionId", session_id);
+    }
+    Object remote_id_snake = Core.get(response, "remote_id", null);
+    Object remote_id = Core.get(response, "remoteId", remote_id_snake);
+    Object has_remote_id = Core.isNotNone(remote_id);
+    if (Core.truthy(has_remote_id)) {
+      Core.set(event, "remoteId", remote_id);
+    }
+    Object remote_request_id_snake = Core.get(response, "remote_request_id", null);
+    Object remote_request_id = Core.get(response, "remoteRequestId", remote_request_id_snake);
+    Object has_remote_request_id = Core.isNotNone(remote_request_id);
+    if (Core.truthy(has_remote_request_id)) {
+      Core.set(event, "remoteRequestId", remote_request_id);
+    }
+    Object remote_session_id_snake = Core.get(response, "remote_session_id", null);
+    Object remote_session_id = Core.get(response, "remoteSessionId", remote_session_id_snake);
+    Object has_remote_session_id = Core.isNotNone(remote_session_id);
+    if (Core.truthy(has_remote_session_id)) {
+      Core.set(event, "remoteSessionId", remote_session_id);
+    }
+    return event;
   }
 
   static Object _openai_content_part_impl(Object part) {
@@ -4864,72 +4963,6 @@ final class Core {
     Object message = Core.stringFormat("OpenAI-compatible beta does not support content part type: {}", type);
     Object error = Core.aiErrorUnsupported(message);
     throw Core.asRuntime(error);
-  }
-
-  static Object build_usage_event(Object operation, Object response, Object options, Object streaming) {
-    axirCoverageMark("build_usage_event");
-    Object model_usage_snake = Core.get(response, "model_usage", null);
-    Object top_model_usage = Core.get(response, "modelUsage", model_usage_snake);
-    Object model_usage = top_model_usage;
-    Object results = Core.get(response, "results", null);
-    for (Object result : Core.iter(results)) {
-      Object result_usage_snake = Core.get(result, "model_usage", null);
-      Object result_usage = Core.get(result, "modelUsage", result_usage_snake);
-      Object has_result_usage = Core.truthyValue(result_usage);
-      if (Core.truthy(has_result_usage)) {
-        model_usage = result_usage;
-      }
-    }
-    Object tokens = Core.get(model_usage, "tokens", null);
-    Object has_tokens = Core.truthyValue(tokens);
-    Object missing_tokens = Core.not(has_tokens);
-    if (Core.truthy(missing_tokens)) {
-      Object none = Core.none();
-      return none;
-    }
-    Object event = new java.util.LinkedHashMap<String, Object>();
-    Core.set(event, "operation", operation);
-    Object ai_name = Core.get(model_usage, "ai", null);
-    Object model = Core.get(model_usage, "model", null);
-    Object normalized_tokens = Core.normalize_token_usage(tokens);
-    Core.set(event, "ai", ai_name);
-    Core.set(event, "model", model);
-    Core.set(event, "tokens", normalized_tokens);
-    Core.set(event, "streaming", streaming);
-    Object usage_context_snake = Core.get(options, "usage_context", null);
-    Object usage_context = Core.get(options, "usageContext", usage_context_snake);
-    Object has_context = Core.truthyValue(usage_context);
-    if (Core.truthy(has_context)) {
-      Core.set(event, "context", usage_context);
-    }
-    Object option_session_snake = Core.get(options, "session_id", null);
-    Object option_session = Core.get(options, "sessionId", option_session_snake);
-    Object response_session_snake = Core.get(response, "session_id", null);
-    Object response_session = Core.get(response, "sessionId", response_session_snake);
-    Object session_id = Core.coalesce(response_session, option_session);
-    Object has_session_id = Core.isNotNone(session_id);
-    if (Core.truthy(has_session_id)) {
-      Core.set(event, "sessionId", session_id);
-    }
-    Object remote_id_snake = Core.get(response, "remote_id", null);
-    Object remote_id = Core.get(response, "remoteId", remote_id_snake);
-    Object has_remote_id = Core.isNotNone(remote_id);
-    if (Core.truthy(has_remote_id)) {
-      Core.set(event, "remoteId", remote_id);
-    }
-    Object remote_request_id_snake = Core.get(response, "remote_request_id", null);
-    Object remote_request_id = Core.get(response, "remoteRequestId", remote_request_id_snake);
-    Object has_remote_request_id = Core.isNotNone(remote_request_id);
-    if (Core.truthy(has_remote_request_id)) {
-      Core.set(event, "remoteRequestId", remote_request_id);
-    }
-    Object remote_session_id_snake = Core.get(response, "remote_session_id", null);
-    Object remote_session_id = Core.get(response, "remoteSessionId", remote_session_id_snake);
-    Object has_remote_session_id = Core.isNotNone(remote_session_id);
-    if (Core.truthy(has_remote_session_id)) {
-      Core.set(event, "remoteSessionId", remote_session_id);
-    }
-    return event;
   }
 
   static Object _ai_model_usage_impl(Object ai_name, Object model, Object usage) {
@@ -5088,48 +5121,6 @@ final class Core {
     return out;
   }
 
-  static Object _openai_tool_call_to_provider_impl(Object call) {
-    axirCoverageMark("_openai_tool_call_to_provider_impl");
-    Object fn = Core.get(call, "function", null);
-    Object params = Core.get(fn, "params", null);
-    Object params_is_string = Core.typeIs(params, "string");
-    if (Core.truthy(params_is_string)) {
-      // empty
-    }
-    if (!Core.truthy(params_is_string)) {
-      Object params_json = Core.jsonStringify(params);
-      params = params_json;
-    }
-    Object id = Core.get(call, "id", null);
-    Object name = Core.get(fn, "name", null);
-    Object function = new java.util.LinkedHashMap<String, Object>();
-    Core.set(function, "name", name);
-    Core.set(function, "arguments", params);
-    Object out = new java.util.LinkedHashMap<String, Object>();
-    Core.set(out, "id", id);
-    Core.set(out, "type", "function");
-    Core.set(out, "function", function);
-    return out;
-  }
-
-  static Object _openai_tool_spec_impl(Object fn) {
-    axirCoverageMark("_openai_tool_spec_impl");
-    Object name = Core.get(fn, "name", null);
-    Object description = Core.get(fn, "description", "");
-    Object parameters = Core.get(fn, "parameters", null);
-    Object function = new java.util.LinkedHashMap<String, Object>();
-    Core.set(function, "name", name);
-    Core.set(function, "description", description);
-    Object has_parameters = Core.truthyValue(parameters);
-    if (Core.truthy(has_parameters)) {
-      Core.set(function, "parameters", parameters);
-    }
-    Object out = new java.util.LinkedHashMap<String, Object>();
-    Core.set(out, "type", "function");
-    Core.set(out, "function", function);
-    return out;
-  }
-
   static Object typesafe_response_context(Object payload, Object options) {
     axirCoverageMark("typesafe_response_context");
     Object empty = new java.util.LinkedHashMap<String, Object>();
@@ -5148,23 +5139,6 @@ final class Core {
       Core.typesafe_build_chat_request(request, options);
     }
     return null;
-  }
-
-  static Object openai_build_embed_request(Object request) {
-    axirCoverageMark("openai_build_embed_request");
-    Object embed_model_snake = Core.get(request, "embed_model", null);
-    Object model = Core.get(request, "embedModel", embed_model_snake);
-    Object empty_texts = new java.util.ArrayList<Object>();
-    Object texts = Core.get(request, "texts", empty_texts);
-    Object payload = new java.util.LinkedHashMap<String, Object>();
-    Core.set(payload, "model", model);
-    Core.set(payload, "input", texts);
-    Object dimensions = Core.get(request, "dimensions", null);
-    Object has_dimensions = Core.truthyValue(dimensions);
-    if (Core.truthy(has_dimensions)) {
-      Core.set(payload, "dimensions", dimensions);
-    }
-    return payload;
   }
 
   static Object _chat_result_to_completion(Object result, Object fallback_index) {
@@ -5212,30 +5186,45 @@ final class Core {
     return completion;
   }
 
-  static Object openai_normalize_chat_response(Object raw, Object ai_name, Object model) {
-    axirCoverageMark("openai_normalize_chat_response");
-    Object response = Core._openai_normalize_chat_response_impl(raw, ai_name, model, "none", "none");
-    return response;
-  }
-
-  static Object _openai_usage_with_service_tier(Object raw, Object usage) {
-    axirCoverageMark("_openai_usage_with_service_tier");
-    Object has_usage = Core.isNotNone(usage);
-    if (Core.truthy(has_usage)) {
+  static Object _openai_tool_call_to_provider_impl(Object call) {
+    axirCoverageMark("_openai_tool_call_to_provider_impl");
+    Object fn = Core.get(call, "function", null);
+    Object params = Core.get(fn, "params", null);
+    Object params_is_string = Core.typeIs(params, "string");
+    if (Core.truthy(params_is_string)) {
       // empty
     }
-    if (!Core.truthy(has_usage)) {
-      return usage;
+    if (!Core.truthy(params_is_string)) {
+      Object params_json = Core.jsonStringify(params);
+      params = params_json;
     }
-    Object empty = new java.util.LinkedHashMap<String, Object>();
-    Object out = Core.mapMerge(empty, usage);
-    Object usage_tier = Core.get(usage, "service_tier", null);
-    Object raw_tier = Core.get(raw, "service_tier", usage_tier);
-    Object tier = Core.get(raw, "service_tier_used", raw_tier);
-    Object has_tier = Core.isNotNone(tier);
-    if (Core.truthy(has_tier)) {
-      Core.set(out, "service_tier", tier);
+    Object id = Core.get(call, "id", null);
+    Object name = Core.get(fn, "name", null);
+    Object function = new java.util.LinkedHashMap<String, Object>();
+    Core.set(function, "name", name);
+    Core.set(function, "arguments", params);
+    Object out = new java.util.LinkedHashMap<String, Object>();
+    Core.set(out, "id", id);
+    Core.set(out, "type", "function");
+    Core.set(out, "function", function);
+    return out;
+  }
+
+  static Object _openai_tool_spec_impl(Object fn) {
+    axirCoverageMark("_openai_tool_spec_impl");
+    Object name = Core.get(fn, "name", null);
+    Object description = Core.get(fn, "description", "");
+    Object parameters = Core.get(fn, "parameters", null);
+    Object function = new java.util.LinkedHashMap<String, Object>();
+    Core.set(function, "name", name);
+    Core.set(function, "description", description);
+    Object has_parameters = Core.truthyValue(parameters);
+    if (Core.truthy(has_parameters)) {
+      Core.set(function, "parameters", parameters);
     }
+    Object out = new java.util.LinkedHashMap<String, Object>();
+    Core.set(out, "type", "function");
+    Core.set(out, "function", function);
     return out;
   }
 
@@ -5296,6 +5285,80 @@ final class Core {
     return out;
   }
 
+  static Object openai_build_embed_request(Object request) {
+    axirCoverageMark("openai_build_embed_request");
+    Object embed_model_snake = Core.get(request, "embed_model", null);
+    Object model = Core.get(request, "embedModel", embed_model_snake);
+    Object empty_texts = new java.util.ArrayList<Object>();
+    Object texts = Core.get(request, "texts", empty_texts);
+    Object payload = new java.util.LinkedHashMap<String, Object>();
+    Core.set(payload, "model", model);
+    Core.set(payload, "input", texts);
+    Object dimensions = Core.get(request, "dimensions", null);
+    Object has_dimensions = Core.truthyValue(dimensions);
+    if (Core.truthy(has_dimensions)) {
+      Core.set(payload, "dimensions", dimensions);
+    }
+    return payload;
+  }
+
+  static Object openai_normalize_chat_response(Object raw, Object ai_name, Object model) {
+    axirCoverageMark("openai_normalize_chat_response");
+    Object response = Core._openai_normalize_chat_response_impl(raw, ai_name, model, "none", "none");
+    return response;
+  }
+
+  static Object _openai_usage_with_service_tier(Object raw, Object usage) {
+    axirCoverageMark("_openai_usage_with_service_tier");
+    Object has_usage = Core.isNotNone(usage);
+    if (Core.truthy(has_usage)) {
+      // empty
+    }
+    if (!Core.truthy(has_usage)) {
+      return usage;
+    }
+    Object empty = new java.util.LinkedHashMap<String, Object>();
+    Object out = Core.mapMerge(empty, usage);
+    Object usage_tier = Core.get(usage, "service_tier", null);
+    Object raw_tier = Core.get(raw, "service_tier", usage_tier);
+    Object tier = Core.get(raw, "service_tier_used", raw_tier);
+    Object has_tier = Core.isNotNone(tier);
+    if (Core.truthy(has_tier)) {
+      Core.set(out, "service_tier", tier);
+    }
+    return out;
+  }
+
+  static Object ai_context_cache_rejection(Object status, Object body_json) {
+    axirCoverageMark("ai_context_cache_rejection");
+    Object status_400_min = Core.gte(status, 400);
+    Object status_400_max = Core.lte(status, 400);
+    Object is_400 = Core.and(status_400_min, status_400_max);
+    Object status_404_min = Core.gte(status, 404);
+    Object status_404_max = Core.lte(status, 404);
+    Object is_404 = Core.and(status_404_min, status_404_max);
+    Object valid_status = Core.or(is_400, is_404);
+    Object body_text = Core.jsonStringify(body_json);
+    Object body_lower = Core.stringLower(body_text);
+    Object names_compact = Core.contains(body_lower, "cachedcontent");
+    Object names_spaced = Core.contains(body_lower, "cached content");
+    Object names_resource = Core.contains(body_lower, "cachedcontents/");
+    Object names_left = Core.or(names_compact, names_spaced);
+    Object names_cache = Core.or(names_left, names_resource);
+    Object has_cache = Core.contains(body_lower, "cache");
+    Object expired = Core.contains(body_lower, "expired");
+    Object not_found = Core.contains(body_lower, "not found");
+    Object missing = Core.contains(body_lower, "does not exist");
+    Object invalid = Core.contains(body_lower, "invalid");
+    Object invalid_left = Core.or(expired, not_found);
+    Object invalid_right = Core.or(missing, invalid);
+    Object invalid_reason = Core.or(invalid_left, invalid_right);
+    Object invalid_cache = Core.and(has_cache, invalid_reason);
+    Object cache_rejection = Core.or(names_cache, invalid_cache);
+    Object out = Core.and(valid_status, cache_rejection);
+    return out;
+  }
+
   static Object _openai_normalize_chat_response_impl(Object raw, Object ai_name, Object model, Object reasoning_content_mode, Object reasoning_details_mode) {
     axirCoverageMark("_openai_normalize_chat_response_impl");
     Object raw_is_object = Core.typeIs(raw, "object");
@@ -5333,6 +5396,64 @@ final class Core {
     Core.set(out, "results", results);
     Core.set(out, "remote_id", remote_id);
     Core.set(out, "model_usage", model_usage);
+    return out;
+  }
+
+  static Object ai_context_cache_expiry(Object provider_expire_time, Object now) {
+    axirCoverageMark("ai_context_cache_expiry");
+    Object is_number = Core.typeIs(provider_expire_time, "number");
+    if (Core.truthy(is_number)) {
+      Object future = Core.gt(provider_expire_time, now);
+      if (Core.truthy(future)) {
+        return provider_expire_time;
+      }
+    }
+    return 0;
+  }
+
+  static Object ai_context_cache_plan(Object configured, Object supported, Object explicit_name, Object existing, Object now, Object refresh_window_ms, Object create_eligible) {
+    axirCoverageMark("ai_context_cache_plan");
+    Object out = new java.util.LinkedHashMap<String, Object>();
+    Core.set(out, "action", "none");
+    Core.set(out, "managed", Boolean.FALSE);
+    Object enabled = Core.and(configured, supported);
+    Object disabled = Core.not(enabled);
+    if (Core.truthy(disabled)) {
+      return out;
+    }
+    Object explicit_length = Core.len(explicit_name);
+    Object has_explicit = Core.gt(explicit_length, 0);
+    if (Core.truthy(has_explicit)) {
+      Core.set(out, "action", "use");
+      Core.set(out, "cacheName", explicit_name);
+      return out;
+    }
+    Object existing_object = Core.typeIs(existing, "object");
+    if (Core.truthy(existing_object)) {
+      Object cache_name = Core.get(existing, "cacheName", "");
+      Object expires_at = Core.get(existing, "expiresAt", 0);
+      Object cache_name_length = Core.len(cache_name);
+      Object has_name = Core.gt(cache_name_length, 0);
+      Object future = Core.gt(expires_at, now);
+      Object valid = Core.and(has_name, future);
+      if (Core.truthy(valid)) {
+        Object refresh_at = Core.add(now, refresh_window_ms);
+        Object needs_refresh = Core.lt(expires_at, refresh_at);
+        Core.set(out, "managed", Boolean.TRUE);
+        Core.set(out, "cacheName", cache_name);
+        if (Core.truthy(needs_refresh)) {
+          Core.set(out, "action", "refresh");
+        }
+        if (!Core.truthy(needs_refresh)) {
+          Core.set(out, "action", "use");
+        }
+        return out;
+      }
+    }
+    if (Core.truthy(create_eligible)) {
+      Core.set(out, "action", "create");
+      Core.set(out, "managed", Boolean.TRUE);
+    }
     return out;
   }
 
@@ -5408,90 +5529,27 @@ final class Core {
     return out;
   }
 
-  static Object ai_context_cache_rejection(Object status, Object body_json) {
-    axirCoverageMark("ai_context_cache_rejection");
-    Object status_400_min = Core.gte(status, 400);
-    Object status_400_max = Core.lte(status, 400);
-    Object is_400 = Core.and(status_400_min, status_400_max);
-    Object status_404_min = Core.gte(status, 404);
-    Object status_404_max = Core.lte(status, 404);
-    Object is_404 = Core.and(status_404_min, status_404_max);
-    Object valid_status = Core.or(is_400, is_404);
-    Object body_text = Core.jsonStringify(body_json);
-    Object body_lower = Core.stringLower(body_text);
-    Object names_compact = Core.contains(body_lower, "cachedcontent");
-    Object names_spaced = Core.contains(body_lower, "cached content");
-    Object names_resource = Core.contains(body_lower, "cachedcontents/");
-    Object names_left = Core.or(names_compact, names_spaced);
-    Object names_cache = Core.or(names_left, names_resource);
-    Object has_cache = Core.contains(body_lower, "cache");
-    Object expired = Core.contains(body_lower, "expired");
-    Object not_found = Core.contains(body_lower, "not found");
-    Object missing = Core.contains(body_lower, "does not exist");
-    Object invalid = Core.contains(body_lower, "invalid");
-    Object invalid_left = Core.or(expired, not_found);
-    Object invalid_right = Core.or(missing, invalid);
-    Object invalid_reason = Core.or(invalid_left, invalid_right);
-    Object invalid_cache = Core.and(has_cache, invalid_reason);
-    Object cache_rejection = Core.or(names_cache, invalid_cache);
-    Object out = Core.and(valid_status, cache_rejection);
-    return out;
-  }
-
-  static Object ai_context_cache_expiry(Object provider_expire_time, Object now) {
-    axirCoverageMark("ai_context_cache_expiry");
-    Object is_number = Core.typeIs(provider_expire_time, "number");
-    if (Core.truthy(is_number)) {
-      Object future = Core.gt(provider_expire_time, now);
-      if (Core.truthy(future)) {
-        return provider_expire_time;
-      }
-    }
-    return 0;
-  }
-
-  static Object ai_context_cache_plan(Object configured, Object supported, Object explicit_name, Object existing, Object now, Object refresh_window_ms, Object create_eligible) {
-    axirCoverageMark("ai_context_cache_plan");
+  static Object ai_context_cache_recovery(Object current_entry, Object cache_name, Object external_registry) {
+    axirCoverageMark("ai_context_cache_recovery");
     Object out = new java.util.LinkedHashMap<String, Object>();
-    Core.set(out, "action", "none");
-    Core.set(out, "managed", Boolean.FALSE);
-    Object enabled = Core.and(configured, supported);
-    Object disabled = Core.not(enabled);
-    if (Core.truthy(disabled)) {
-      return out;
-    }
-    Object explicit_length = Core.len(explicit_name);
-    Object has_explicit = Core.gt(explicit_length, 0);
-    if (Core.truthy(has_explicit)) {
-      Core.set(out, "action", "use");
-      Core.set(out, "cacheName", explicit_name);
-      return out;
-    }
-    Object existing_object = Core.typeIs(existing, "object");
-    if (Core.truthy(existing_object)) {
-      Object cache_name = Core.get(existing, "cacheName", "");
-      Object expires_at = Core.get(existing, "expiresAt", 0);
-      Object cache_name_length = Core.len(cache_name);
-      Object has_name = Core.gt(cache_name_length, 0);
-      Object future = Core.gt(expires_at, now);
-      Object valid = Core.and(has_name, future);
-      if (Core.truthy(valid)) {
-        Object refresh_at = Core.add(now, refresh_window_ms);
-        Object needs_refresh = Core.lt(expires_at, refresh_at);
-        Core.set(out, "managed", Boolean.TRUE);
-        Core.set(out, "cacheName", cache_name);
-        if (Core.truthy(needs_refresh)) {
-          Core.set(out, "action", "refresh");
+    Core.set(out, "invalidated", Boolean.FALSE);
+    Core.set(out, "deleteInMemory", Boolean.FALSE);
+    Object entry_object = Core.typeIs(current_entry, "object");
+    if (Core.truthy(entry_object)) {
+      Object current_name = Core.get(current_entry, "cacheName", "");
+      Object matches = Core.eq(current_name, cache_name);
+      if (Core.truthy(matches)) {
+        Core.set(out, "invalidated", Boolean.TRUE);
+        if (Core.truthy(external_registry)) {
+          Object empty = new java.util.LinkedHashMap<String, Object>();
+          Object tombstone = Core.mapMerge(current_entry, empty);
+          Core.set(tombstone, "expiresAt", 0);
+          Core.set(out, "externalEntry", tombstone);
         }
-        if (!Core.truthy(needs_refresh)) {
-          Core.set(out, "action", "use");
+        if (!Core.truthy(external_registry)) {
+          Core.set(out, "deleteInMemory", Boolean.TRUE);
         }
-        return out;
       }
-    }
-    if (Core.truthy(create_eligible)) {
-      Core.set(out, "action", "create");
-      Core.set(out, "managed", Boolean.TRUE);
     }
     return out;
   }
@@ -5522,77 +5580,6 @@ final class Core {
       Core.set(normalized, "function", function);
       Core.append(out, normalized);
     }
-    return out;
-  }
-
-  static Object _openai_finish_reason_impl(Object value) {
-    axirCoverageMark("_openai_finish_reason_impl");
-    Object is_stop = Core.eq(value, "stop");
-    if (Core.truthy(is_stop)) {
-      return "stop";
-    }
-    Object is_length = Core.eq(value, "length");
-    if (Core.truthy(is_length)) {
-      return "length";
-    }
-    Object is_content_filter = Core.eq(value, "content_filter");
-    if (Core.truthy(is_content_filter)) {
-      return "error";
-    }
-    Object is_tool_calls = Core.eq(value, "tool_calls");
-    Object is_function_call = Core.eq(value, "function_call");
-    Object is_call = Core.or(is_tool_calls, is_function_call);
-    if (Core.truthy(is_call)) {
-      return "function_call";
-    }
-    Object none = Core.none();
-    return none;
-  }
-
-  static Object ai_context_cache_recovery(Object current_entry, Object cache_name, Object external_registry) {
-    axirCoverageMark("ai_context_cache_recovery");
-    Object out = new java.util.LinkedHashMap<String, Object>();
-    Core.set(out, "invalidated", Boolean.FALSE);
-    Core.set(out, "deleteInMemory", Boolean.FALSE);
-    Object entry_object = Core.typeIs(current_entry, "object");
-    if (Core.truthy(entry_object)) {
-      Object current_name = Core.get(current_entry, "cacheName", "");
-      Object matches = Core.eq(current_name, cache_name);
-      if (Core.truthy(matches)) {
-        Core.set(out, "invalidated", Boolean.TRUE);
-        if (Core.truthy(external_registry)) {
-          Object empty = new java.util.LinkedHashMap<String, Object>();
-          Object tombstone = Core.mapMerge(current_entry, empty);
-          Core.set(tombstone, "expiresAt", 0);
-          Core.set(out, "externalEntry", tombstone);
-        }
-        if (!Core.truthy(external_registry)) {
-          Core.set(out, "deleteInMemory", Boolean.TRUE);
-        }
-      }
-    }
-    return out;
-  }
-
-  static Object openai_normalize_embed_response(Object raw, Object ai_name, Object model) {
-    axirCoverageMark("openai_normalize_embed_response");
-    Object embeddings = new java.util.ArrayList<Object>();
-    Object empty_data = new java.util.ArrayList<Object>();
-    Object data = Core.get(raw, "data", empty_data);
-    for (Object item : Core.iter(data)) {
-      Object embedding = Core.get(item, "embedding", null);
-      Core.append(embeddings, embedding);
-    }
-    Object raw_model = Core.get(raw, "model", null);
-    Object used_model = Core.coalesce(raw_model, model);
-    Object raw_usage = Core.get(raw, "usage", null);
-    Object usage = Core._openai_usage_with_service_tier(raw, raw_usage);
-    Object model_usage = Core._ai_model_usage_impl(ai_name, used_model, usage);
-    Object remote_id = Core.get(raw, "id", null);
-    Object out = new java.util.LinkedHashMap<String, Object>();
-    Core.set(out, "embeddings", embeddings);
-    Core.set(out, "remote_id", remote_id);
-    Core.set(out, "model_usage", model_usage);
     return out;
   }
 
@@ -5654,6 +5641,52 @@ final class Core {
     Core.set(out, "create", create);
     Core.set(out, "update", update);
     Core.set(out, "delete", delete_op);
+    return out;
+  }
+
+  static Object _openai_finish_reason_impl(Object value) {
+    axirCoverageMark("_openai_finish_reason_impl");
+    Object is_stop = Core.eq(value, "stop");
+    if (Core.truthy(is_stop)) {
+      return "stop";
+    }
+    Object is_length = Core.eq(value, "length");
+    if (Core.truthy(is_length)) {
+      return "length";
+    }
+    Object is_content_filter = Core.eq(value, "content_filter");
+    if (Core.truthy(is_content_filter)) {
+      return "error";
+    }
+    Object is_tool_calls = Core.eq(value, "tool_calls");
+    Object is_function_call = Core.eq(value, "function_call");
+    Object is_call = Core.or(is_tool_calls, is_function_call);
+    if (Core.truthy(is_call)) {
+      return "function_call";
+    }
+    Object none = Core.none();
+    return none;
+  }
+
+  static Object openai_normalize_embed_response(Object raw, Object ai_name, Object model) {
+    axirCoverageMark("openai_normalize_embed_response");
+    Object embeddings = new java.util.ArrayList<Object>();
+    Object empty_data = new java.util.ArrayList<Object>();
+    Object data = Core.get(raw, "data", empty_data);
+    for (Object item : Core.iter(data)) {
+      Object embedding = Core.get(item, "embedding", null);
+      Core.append(embeddings, embedding);
+    }
+    Object raw_model = Core.get(raw, "model", null);
+    Object used_model = Core.coalesce(raw_model, model);
+    Object raw_usage = Core.get(raw, "usage", null);
+    Object usage = Core._openai_usage_with_service_tier(raw, raw_usage);
+    Object model_usage = Core._ai_model_usage_impl(ai_name, used_model, usage);
+    Object remote_id = Core.get(raw, "id", null);
+    Object out = new java.util.LinkedHashMap<String, Object>();
+    Core.set(out, "embeddings", embeddings);
+    Core.set(out, "remote_id", remote_id);
+    Core.set(out, "model_usage", model_usage);
     return out;
   }
 
@@ -8374,8 +8407,8 @@ final class Core {
     }
     Object session_profile = Core.provider_chat_profile(profile, model);
     Object responses = Core.eq(session_profile, "openai-responses");
-    Object astra_model = Core.stringStartsWith(model, "gpt-6-astra");
-    Object astra_session = Core.and(responses, astra_model);
+    Object session_model = Core._openai_supports_chat_sessions_impl(model);
+    Object astra_session = Core.and(responses, session_model);
     if (Core.truthy(astra_session)) {
       Core.set(features, "asyncTools", Boolean.TRUE);
       Core.set(features, "reasoningUpdates", Boolean.TRUE);
@@ -9344,8 +9377,8 @@ final class Core {
         }
       }
     }
-    Object astra = Core.stringStartsWith(model, "gpt-6-astra");
-    Object session_capable = Core.and(is_responses, astra);
+    Object session_model = Core._openai_supports_chat_sessions_impl(model);
+    Object session_capable = Core.and(is_responses, session_model);
     if (Core.truthy(session_capable)) {
       Object empty_session_state = new java.util.LinkedHashMap<String, Object>();
       Object session_state = Core.get(state, "session_wire", empty_session_state);
@@ -9966,7 +9999,7 @@ final class Core {
               Core.set(summary_part, "text", summary_text);
               Object summary = new java.util.ArrayList<Object>();
               Object has_summary_text = Core.truthyValue(summary_text);
-              Object astra_summary = Core.stringStartsWith(model, "gpt-6-astra");
+              Object astra_summary = Core._openai_is_gpt6_astra_impl(model);
               Object retain_empty_summary = Core.not(astra_summary);
               Object include_summary = Core.or(has_summary_text, retain_empty_summary);
               if (Core.truthy(include_summary)) {
@@ -10169,7 +10202,7 @@ final class Core {
       Core.mapDelete(payload, "temperature");
       Core.mapDelete(payload, "top_p");
     }
-    Object astra = Core.stringStartsWith(configured_model, "gpt-6-astra");
+    Object astra = Core._openai_is_gpt6_astra_impl(configured_model);
     if (Core.truthy(astra)) {
       Core.mapDelete(payload, "presence_penalty");
       Core.mapDelete(payload, "frequency_penalty");
@@ -13841,7 +13874,7 @@ final class Core {
   static Object openai_responses_validate_session_request(Object request) {
     axirCoverageMark("openai_responses_validate_session_request");
     Object model = Core.get(request, "model", "");
-    Object astra = Core.stringStartsWith(model, "gpt-6-astra");
+    Object astra = Core._openai_is_gpt6_astra_impl(model);
     Object empty = new java.util.LinkedHashMap<String, Object>();
     Object reasoning = Core.get(request, "reasoning", empty);
     Object effort = Core.get(reasoning, "effort", null);
