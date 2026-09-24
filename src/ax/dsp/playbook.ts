@@ -1,4 +1,4 @@
-import type { AxAIService } from '../ai/types.js';
+import type { AxAIService, AxAIServiceOptions } from '../ai/types.js';
 import type { AxExample, AxMetricFn, AxTypedExample } from './common_types.js';
 import type { AxGen } from './generate.js';
 import { AxACE } from './optimizers/ace.js';
@@ -23,6 +23,12 @@ export type AxPlaybookOptions = {
   studentAI: AxAIService;
   /** Model used to reflect on rollouts and curate the playbook. Defaults to studentAI. */
   teacherAI?: AxAIService;
+  /**
+   * AI service options for the reflection and curation calls, including when
+   * they fall back to `studentAI`. Set `useExpensiveModel: 'yes'` to use a
+   * teacher model marked `isExpensive`.
+   */
+  teacherOptions?: AxAIServiceOptions;
   verbose?: boolean;
   seed?: number;
   /** Max passes over the dataset during {@link AxPlaybook.evolve}. */
@@ -85,6 +91,7 @@ export class AxPlaybook<IN = any, OUT extends AxGenOut = AxGenOut> {
       {
         studentAI: options.studentAI,
         teacherAI: options.teacherAI,
+        teacherOptions: options.teacherOptions,
         verbose: options.verbose,
         seed: options.seed,
       },
