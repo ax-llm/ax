@@ -1,6 +1,6 @@
 /**
  * AWS Bedrock provider types for AX integration
- * Supports Claude, GPT OSS, and Titan models
+ * Supports Claude, GPT-6, GPT OSS, and Titan models
  */
 
 import type { AxModelConfig } from '@ax-llm/ax';
