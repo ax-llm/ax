@@ -59,7 +59,12 @@ function createMockStreamFetch(
 class FakeOpenAIRealtimeWebSocket {
   static serverMessages: unknown[] = [];
   static instances: FakeOpenAIRealtimeWebSocket[] = [];
+  // OpenAI uses text frames. 'binary' mimics a compatible server that does
+  // not: a WebSocket delivers those as a Blob unless binaryType is
+  // 'arraybuffer'.
+  static frames: 'text' | 'binary' = 'text';
 
+  binaryType = 'blob';
   readonly sent: string[] = [];
   readonly url: string;
   readonly options: any;
@@ -87,7 +92,7 @@ class FakeOpenAIRealtimeWebSocket {
     if (message.type === 'session.update') {
       queueMicrotask(() =>
         this.emit('message', {
-          data: JSON.stringify({ type: 'session.updated' }),
+          data: this.frame({ type: 'session.updated' }),
         })
       );
       return;
@@ -96,7 +101,7 @@ class FakeOpenAIRealtimeWebSocket {
     if (message.type === 'transcription_session.update') {
       queueMicrotask(() =>
         this.emit('message', {
-          data: JSON.stringify({ type: 'transcription_session.updated' }),
+          data: this.frame({ type: 'transcription_session.updated' }),
         })
       );
       return;
@@ -108,7 +113,7 @@ class FakeOpenAIRealtimeWebSocket {
     ) {
       queueMicrotask(() => {
         for (const serverMessage of FakeOpenAIRealtimeWebSocket.serverMessages) {
-          this.emit('message', { data: JSON.stringify(serverMessage) });
+          this.emit('message', { data: this.frame(serverMessage) });
         }
       });
     }
@@ -116,6 +121,15 @@ class FakeOpenAIRealtimeWebSocket {
 
   close() {
     this.emit('close', {});
+  }
+
+  private frame(message: unknown): unknown {
+    const json = JSON.stringify(message);
+    if (FakeOpenAIRealtimeWebSocket.frames === 'text') {
+      return json;
+    }
+    const bytes = new TextEncoder().encode(json);
+    return this.binaryType === 'arraybuffer' ? bytes.buffer : new Blob([bytes]);
   }
 
   private emit(type: string, event: any) {
@@ -129,9 +143,13 @@ class FakeOpenAIRealtimeWebSocket {
   }
 }
 
-function openAIRealtimeWebSocket(messages: unknown[]) {
+function openAIRealtimeWebSocket(
+  messages: unknown[],
+  frames: 'text' | 'binary' = 'text'
+) {
   FakeOpenAIRealtimeWebSocket.serverMessages = messages;
   FakeOpenAIRealtimeWebSocket.instances = [];
+  FakeOpenAIRealtimeWebSocket.frames = frames;
   return FakeOpenAIRealtimeWebSocket as any;
 }
 
@@ -842,6 +860,47 @@ describe('AxAIOpenAI realtime audio chat', () => {
       totalTokens: 36,
       cacheReadTokens: 12,
     });
+  });
+
+  it('reads realtime events sent in binary frames', async () => {
+    const ai = new AxAIOpenAI({
+      apiKey: 'key',
+      config: axAIOpenAIRealtimeDefaultConfig(),
+    });
+    const webSocket = openAIRealtimeWebSocket(
+      [
+        {
+          type: 'response.output_audio_transcript.delta',
+          response_id: 'resp_binary',
+          delta: 'hello',
+        },
+        {
+          type: 'response.output_audio.delta',
+          response_id: 'resp_binary',
+          delta: 'AQI=',
+        },
+        {
+          type: 'response.done',
+          response_id: 'resp_binary',
+          response: {
+            id: 'resp_binary',
+            usage: { input_tokens: 5, output_tokens: 2, total_tokens: 7 },
+          },
+        },
+      ],
+      'binary'
+    );
+
+    const res = (await ai.chat(
+      { chatPrompt: [{ role: 'user', content: 'say hello' }] },
+      { stream: false, webSocket }
+    )) as any;
+
+    expect(FakeOpenAIRealtimeWebSocket.instances[0]?.binaryType).toBe(
+      'arraybuffer'
+    );
+    expect(res.results[0]?.content).toBe('hello');
+    expect(res.results[0]?.audio?.data).toBe('AQI=');
   });
 
   it('uses gpt-realtime-whisper for realtime transcript deltas', async () => {

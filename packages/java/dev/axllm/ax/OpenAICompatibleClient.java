@@ -601,13 +601,14 @@ public class OpenAICompatibleClient extends AxBaseAI implements AxChatSession.Pr
   }
 
   // Bridges the JDK WebSocket's async, fragment-delivering listener to a blocking
-  // recv(): onText reassembles fragments and enqueues whole messages; recv() polls
-  // the queue. request(1) drives the one-at-a-time backpressure the JDK API needs.
+  // recv(): onText/onBinary reassemble fragments and enqueue whole messages; recv()
+  // polls the queue. request(1) drives the one-at-a-time backpressure the JDK API needs.
   static final class WebSocketRealtimeTransport implements RealtimeTransport {
     private static final Object CLOSED = new Object();
     private final java.net.http.WebSocket ws;
     private final java.util.concurrent.BlockingQueue<Object> queue = new java.util.concurrent.LinkedBlockingQueue<>();
     private final StringBuilder buffer = new StringBuilder();
+    private final java.io.ByteArrayOutputStream bytes = new java.io.ByteArrayOutputStream();
 
     WebSocketRealtimeTransport(String url, Map<String, String> headers) {
       java.net.http.WebSocket.Builder builder = HttpClient.newHttpClient().newWebSocketBuilder();
@@ -619,9 +620,21 @@ public class OpenAICompatibleClient extends AxBaseAI implements AxChatSession.Pr
           socket.request(1);
           return null;
         }
+        // Gemini Live sends its JSON messages as binary frames. The JDK's default
+        // onBinary discards them. Copy each fragment now (the buffer is reused
+        // once this returns) and decode the whole message, since a UTF-8
+        // character can span fragments.
+        @Override public java.util.concurrent.CompletionStage<?> onBinary(java.net.http.WebSocket socket, java.nio.ByteBuffer data, boolean last) {
+          byte[] fragment = new byte[data.remaining()];
+          data.get(fragment);
+          bytes.writeBytes(fragment);
+          if (last) { queue.offer(bytes.toString(java.nio.charset.StandardCharsets.UTF_8)); bytes.reset(); }
+          socket.request(1);
+          return null;
+        }
         @Override public void onError(java.net.http.WebSocket socket, Throwable error) { queue.offer(new AxAIServiceError(error.toString())); }
         @Override public java.util.concurrent.CompletionStage<?> onClose(java.net.http.WebSocket socket, int statusCode, String reason) {
-          queue.offer(statusCode == 1000 ? CLOSED : new AxAIServiceError("realtime WebSocket closed abnormally (code " + statusCode + ")"));
+          queue.offer(statusCode == 1000 ? CLOSED : new AxAIServiceError("realtime WebSocket closed abnormally (code " + statusCode + ")" + (reason == null || reason.isEmpty() ? "" : ": " + reason)));
           return null;
         }
       }).join();

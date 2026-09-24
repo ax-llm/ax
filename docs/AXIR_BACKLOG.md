@@ -18,6 +18,11 @@ This ledger tracks portable TypeScript behavior that should be migrated into AxI
 
 ## Open
 
+- `axir-2026-09-23-port-gemini-live-turn-continuation-while-interactionstatus-is-in` [axai] Port Gemini Live turn continuation while interactionStatus is IN_PROGRESS
+  - Status: open
+  - TS paths: `src/ax/ai/google-gemini/live_audio.ts`, `src/ax/ai/google-gemini/api.test.ts`
+  - Impact: Gemini 3.8 Live Extended Thinking can speak a short acknowledgement, end that model turn with serverContent.turnComplete plus interactionStatus IN_PROGRESS, think, and then answer in a second turn that ends with interactionStatus IDLE (seen live 2026-09-23). TS live_audio.ts now keeps collecting across the IN_PROGRESS boundary and joins the two transcripts with a space. The generated ports end the realtime turn at the first turnComplete (realtimeEventIsDone in each driver template, and the Gemini Live event fold in provider.axir sets finish_reason stop on any turnComplete), so they return only the acknowledgement.
+  - Suggested AxIR work: Keep the realtime driver loop reading past a Gemini Live turnComplete whose interactionStatus is IN_PROGRESS (realtimeEventIsDone in the five driver templates); Set finish_reason stop in the Gemini Live event fold only when interactionStatus is not IN_PROGRESS; Separate the acknowledgement and answer transcripts with a space when merging the turn; Add a two-turn Gemini Live conformance fixture and run npm run test:axir
 - `axir-2026-09-23-port-speak-samplerate-channels-parsed-from-raw-pcm-mime-types` [axai] Port speak() sampleRate/channels parsed from raw-PCM mime types
   - Status: open
   - Source commit: `e690b4823b8309e258594064abe941d4cff6ef89`
