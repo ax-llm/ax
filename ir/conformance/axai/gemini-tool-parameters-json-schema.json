@@ -1,0 +1,134 @@
+{
+  "expected_output": {
+    "model_usage": null,
+    "results": [
+      {
+        "content": "",
+        "finish_reason": "function_call",
+        "function_calls": [
+          {
+            "function": {
+              "name": "getWeather",
+              "params": {
+                "city": "Paris"
+              }
+            },
+            "id": "weather-call-1",
+            "type": "function"
+          }
+        ],
+        "index": 0
+      }
+    ]
+  },
+  "expected_transport_request": {
+    "json": {
+      "toolConfig": {
+        "function_calling_config": {
+          "mode": "AUTO"
+        }
+      },
+      "tools": [
+        {
+          "function_declarations": [
+            {
+              "description": "Get the current weather for a city",
+              "name": "getWeather",
+              "parametersJsonSchema": {
+                "additionalProperties": false,
+                "properties": {
+                  "city": {
+                    "description": "City",
+                    "type": "string"
+                  },
+                  "options": {
+                    "additionalProperties": false,
+                    "properties": {
+                      "units": {
+                        "description": "Units",
+                        "type": ["string", "null"]
+                      }
+                    },
+                    "required": [],
+                    "type": "object"
+                  }
+                },
+                "required": ["city"],
+                "title": "Schema",
+                "type": "object"
+              }
+            }
+          ]
+        }
+      ]
+    }
+  },
+  "kind": "ai_chat",
+  "name": "gemini-tool-parameters-json-schema",
+  "provider": "google-gemini",
+  "request": {
+    "chat_prompt": [
+      {
+        "content": "Weather in Paris?",
+        "role": "user"
+      }
+    ],
+    "functions": [
+      {
+        "description": "Get the current weather for a city",
+        "name": "getWeather",
+        "parameters": {
+          "additionalProperties": false,
+          "properties": {
+            "city": {
+              "description": "City",
+              "type": "string"
+            },
+            "options": {
+              "additionalProperties": false,
+              "properties": {
+                "units": {
+                  "description": "Units",
+                  "type": ["string", "null"]
+                }
+              },
+              "required": [],
+              "type": "object"
+            }
+          },
+          "required": ["city"],
+          "title": "Schema",
+          "type": "object"
+        }
+      }
+    ],
+    "model_config": {
+      "stream": false
+    }
+  },
+  "transport_responses": [
+    {
+      "json": {
+        "candidates": [
+          {
+            "content": {
+              "parts": [
+                {
+                  "functionCall": {
+                    "args": {
+                      "city": "Paris"
+                    },
+                    "id": "weather-call-1",
+                    "name": "getWeather"
+                  }
+                }
+              ]
+            },
+            "finishReason": "STOP"
+          }
+        ]
+      },
+      "status": 200
+    }
+  ]
+}

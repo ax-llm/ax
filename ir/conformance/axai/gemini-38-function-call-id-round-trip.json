@@ -73,7 +73,7 @@
             {
               "description": "Search docs",
               "name": "search",
-              "parameters": {
+              "parametersJsonSchema": {
                 "properties": {
                   "query": {
                     "type": "string"
