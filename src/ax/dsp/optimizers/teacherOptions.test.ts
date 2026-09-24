@@ -1,14 +1,18 @@
 import { describe, expect, it } from 'vitest';
+import { agent } from '../../agent/index.js';
+import type { AxAgentPlaybookUpdateResult } from '../../agent/playbookConfig.js';
 import { AxBaseAI } from '../../ai/base.js';
 import { AxMockAIService } from '../../ai/mock/api.js';
 import type {
   AxAIService,
   AxAIServiceImpl,
+  AxAIServiceOptions,
   AxChatRequest,
   AxChatResponse,
   AxLoggerData,
 } from '../../ai/types.js';
 import { optimize } from '../optimize.js';
+import { playbook } from '../playbook.js';
 import { ax } from '../template.js';
 import { AxACE } from './ace.js';
 import { AxBootstrapFewShot } from './bootstrapFewshot.js';
@@ -165,6 +169,72 @@ const gepaTeacherAnswers = {
   feedbackSummary: 'Feedback Summary: Answers do not match the expected label.',
   newValue: `New Value: ${PROPOSED}`,
 };
+
+const EXPENSIVE_OPT_IN: AxAIServiceOptions = { useExpensiveModel: 'yes' };
+
+const LESSON = 'Cite the policy id in every answer.';
+
+// One reflection that finds an error, and a curator reply that adds LESSON.
+const playbookTeacherAnswers = {
+  errorIdentification: [
+    'Reasoning: The answer left out the policy id.',
+    'Error Identification: The answer omitted the policy id.',
+    'Root Cause Analysis: Nothing tells the program to cite it.',
+    'Correct Approach: Cite the policy id.',
+    'Key Insight: Answers must cite the policy id.',
+    'Bullet Tags: []',
+  ].join('\n'),
+  operations: [
+    'Reasoning: Record the lesson.',
+    `Operations: [{"type":"ADD","section":"Guidelines","content":"${LESSON}"}]`,
+  ].join('\n'),
+};
+
+// The weakness miner's reply. Its evidence quote must appear verbatim in
+// the failing runs' action logs.
+const minerTeacherAnswers = {
+  weaknessDescription: [
+    'Weakness Description: The actor gives up after a failed lookup.',
+    'Root Cause: The lookup throws and the actor never retries it.',
+    'Proposed Guidance: Retry a failed lookup once before giving up.',
+    'Evidence Quotes: ["lookup failed"]',
+  ].join('\n'),
+};
+
+// Student for full agent runs. The executor's first turn throws, so the run
+// records an error turn, and its next turn finishes. The student never
+// serves a teacher call.
+const makeFailingAgentStudent = () =>
+  new AxMockAIService<string>({
+    features: { functions: false, streaming: false },
+    chatResponse: async (req) => {
+      const system = String(req.chatPrompt[0]?.content ?? '');
+      const userText = req.chatPrompt
+        .filter((message) => message.role === 'user')
+        .map((message) => String(message.content ?? ''))
+        .join('\n');
+      const content = system.includes('You (`distiller`)')
+        ? 'Javascript Code: await final("Answer the question", {})'
+        : system.includes('You (`executor`)')
+          ? userText.includes('lookup failed')
+            ? 'Javascript Code: await final("Answer the question", { note: "gave up" })'
+            : 'Javascript Code: console.log("looking up"); throw new Error("lookup failed")'
+          : 'Answer: gave up';
+      return {
+        results: [{ index: 0, content, finishReason: 'stop' as const }],
+        modelUsage: {
+          ai: 'mock',
+          model: 'mock',
+          tokens: { promptTokens: 10, completionTokens: 5, totalTokens: 15 },
+        },
+      };
+    },
+  });
+
+const agentTasks = [
+  { input: { question: 'q1' }, criteria: 'answers correctly', id: 't1' },
+  { input: { question: 'q2' }, criteria: 'answers correctly', id: 't2' },
+];
 
 describe('teacherOptions on optimizer teacher calls', () => {
   describe('AxGEPA', () => {
@@ -370,6 +440,198 @@ describe('teacherOptions on optimizer teacher calls', () => {
       expect(result.optimizedProgram?.componentMap).toEqual({
         'root::instruction': PROPOSED,
       });
+    });
+  });
+
+  describe('playbook()', () => {
+    for (const optIn of [true, false]) {
+      it(`${optIn ? 'grows' : 'cannot grow'} a playbook on an expensive teacher ${optIn ? 'with' : 'without'} teacherOptions`, async () => {
+        const teacher = makeExpensiveTeacher(playbookTeacherAnswers);
+        const pb = playbook(ax('question:string -> answer:string'), {
+          studentAI: new AxMockAIService({
+            chatResponse: {
+              results: [
+                { index: 0, content: 'Answer: a', finishReason: 'stop' },
+              ],
+            },
+          }),
+          teacherAI: teacher.ai,
+          ...(optIn ? { teacherOptions: EXPENSIVE_OPT_IN } : {}),
+          maxEpochs: 1,
+          maxReflectorRounds: 1,
+        });
+
+        await pb.evolve(
+          [
+            { question: 'q1', answer: 'b' },
+            { question: 'q2', answer: 'b' },
+          ],
+          () => 0
+        );
+        await pb.update({
+          example: { question: 'q3', answer: 'b' },
+          prediction: { answer: 'a' },
+          feedback: 'Wrong answer.',
+        });
+
+        if (optIn) {
+          // A reflector and a curator call per evolve() example, then one
+          // pair from update().
+          expect(teacher.requests()).toEqual([
+            'errorIdentification',
+            'operations',
+            'errorIdentification',
+            'operations',
+            'errorIdentification',
+            'operations',
+          ]);
+          expect(pb.render()).toContain(LESSON);
+        } else {
+          expect(teacher.requests()).toEqual([]);
+          expect(pb.render()).toBe('');
+        }
+      });
+    }
+  });
+
+  describe('agent.playbook()', () => {
+    for (const optIn of [true, false]) {
+      it(`${optIn ? 'sends' : 'cannot send'} update calls to an expensive judgeAI teacher ${optIn ? 'with' : 'without'} teacherOptions`, async () => {
+        const teacher = makeExpensiveTeacher(playbookTeacherAnswers);
+        // The playbook's teacher defaults to the agent's judgeAI.
+        const ag = agent('question:string -> answer:string', {
+          ai: new AxMockAIService(),
+          judgeAI: teacher.ai,
+        });
+        const pb = ag.playbook({
+          ...(optIn ? { teacherOptions: EXPENSIVE_OPT_IN } : {}),
+          maxReflectorRounds: 1,
+        });
+
+        await pb.update({
+          example: { question: 'q' },
+          prediction: { answer: 'a' },
+          feedback: 'The answer must cite the policy id.',
+        });
+
+        if (optIn) {
+          expect(teacher.requests()).toEqual([
+            'errorIdentification',
+            'operations',
+          ]);
+          expect(pb.render()).toContain(LESSON);
+        } else {
+          expect(teacher.requests()).toEqual([]);
+          expect(pb.render()).toBe('');
+        }
+      });
+    }
+  });
+
+  describe('agent playbook config', () => {
+    for (const optIn of [true, false]) {
+      it(`${optIn ? 'curates' : 'cannot curate'} a failed run's lesson on an expensive teacher ${optIn ? 'with' : 'without'} teacherOptions`, async () => {
+        const teacher = makeExpensiveTeacher(playbookTeacherAnswers);
+        const student = makeFailingAgentStudent();
+        const updates: AxAgentPlaybookUpdateResult[] = [];
+        const ag = agent('question:string -> answer:string', {
+          ai: student,
+          directResponse: 'off',
+          maxTurns: 4,
+          playbook: {
+            teacherAI: teacher.ai,
+            ...(optIn ? { teacherOptions: EXPENSIVE_OPT_IN } : {}),
+            onUpdate: (result) => {
+              updates.push(result);
+            },
+          },
+        });
+
+        await ag.forward(student, { question: 'q' });
+
+        // The run-end update runs either way. Without the opt-in the gate
+        // rejects the reflector call, so nothing reaches the teacher and
+        // the playbook stays empty.
+        expect(updates.map((update) => update.status)).toEqual([
+          optIn ? 'updated' : 'unchanged',
+        ]);
+        if (optIn) {
+          expect(teacher.requests()).toEqual([
+            'errorIdentification',
+            'operations',
+          ]);
+          expect(ag.getPlaybook()?.render()).toContain(LESSON);
+        } else {
+          expect(teacher.requests()).toEqual([]);
+          expect(ag.getPlaybook()?.render()).toBe('');
+        }
+      });
+    }
+  });
+
+  describe('agent.playbook().evolve()', () => {
+    it('mines a weakness and curates its lesson on an expensive teacher with teacherOptions', async () => {
+      const teacher = makeExpensiveTeacher({
+        ...minerTeacherAnswers,
+        ...playbookTeacherAnswers,
+      });
+      // The miner and the playbook both default to the agent's judgeAI, and
+      // each takes its own teacherOptions.
+      const ag = agent('question:string -> answer:string', {
+        ai: makeFailingAgentStudent(),
+        judgeAI: teacher.ai,
+        directResponse: 'off',
+        maxTurns: 4,
+      });
+
+      const result = await ag
+        .playbook({ teacherOptions: EXPENSIVE_OPT_IN, maxReflectorRounds: 1 })
+        .evolve(agentTasks, {
+          teacherOptions: EXPENSIVE_OPT_IN,
+          metric: async () => 0.2,
+          maxProposals: 1,
+          verify: false,
+        });
+
+      expect(teacher.requests()).toEqual([
+        'weaknessDescription',
+        'errorIdentification',
+        'operations',
+      ]);
+      expect(
+        result.weaknesses.map((weakness) => weakness.evidenceQuotes)
+      ).toEqual([['lookup failed']]);
+      expect(result.outcomes.map((outcome) => outcome.accepted)).toEqual([
+        true,
+      ]);
+      expect(ag.getPlaybook()?.render()).toContain(LESSON);
+    });
+
+    it('reports the rejected miner call and mines nothing without teacherOptions', async () => {
+      const teacher = makeExpensiveTeacher(minerTeacherAnswers);
+      const ag = agent('question:string -> answer:string', {
+        ai: makeFailingAgentStudent(),
+        directResponse: 'off',
+        maxTurns: 4,
+      });
+      const mining: string[] = [];
+
+      const result = await ag.playbook().evolve(agentTasks, {
+        teacherAI: teacher.ai,
+        metric: async () => 0.2,
+        maxProposals: 1,
+        verify: false,
+        onProgress: (event) => {
+          if (event.phase === 'mining') mining.push(event.message);
+        },
+      });
+
+      expect(teacher.requests()).toEqual([]);
+      expect(result.weaknesses).toEqual([]);
+      expect(result.outcomes).toEqual([]);
+      expect(
+        mining.find((message) => message.includes('miner failed'))
+      ).toContain(EXPENSIVE_MODEL_ERROR);
     });
   });
 });

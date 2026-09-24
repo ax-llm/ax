@@ -1035,6 +1035,7 @@ export class AxAgent<IN extends AxGenIn, OUT extends AxGenOut>
     const handle = new AxPlaybook(stageGen, {
       studentAI,
       teacherAI: options?.teacherAI ?? (this.primaryAgent as any).judgeAI,
+      teacherOptions: options?.teacherOptions,
       verbose: options?.verbose,
       seed: options?.seed,
       maxEpochs: options?.maxEpochs,
@@ -1098,6 +1099,7 @@ export class AxAgent<IN extends AxGenIn, OUT extends AxGenOut>
       target: resolved.target,
       studentAI,
       teacherAI: resolved.teacherAI,
+      teacherOptions: resolved.teacherOptions,
       apply: resolved.apply,
       ...resolved.playbookOptions,
       ...(initialPlaybook ? { initialPlaybook } : {}),
