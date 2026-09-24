@@ -34332,6 +34332,7 @@ func _forward_impl(args ...Value) (Value, error) {
 	var v_request Value
 	var v_response Value
 	var v_retries_exhausted Value
+	var v_retry_messages Value
 	var v_runtime_options Value
 	var v_selected_index Value
 	var v_selected_rung Value
@@ -34346,6 +34347,7 @@ func _forward_impl(args ...Value) (Value, error) {
 	var v_structured_public Value
 	var v_structured_recovered Value
 	var v_structured_retries_exhausted Value
+	var v_structured_retry_messages Value
 	var v_structured_samples Value
 	var v_structured_validated Value
 	var v_structured_validation_error Value
@@ -34413,6 +34415,7 @@ func _forward_impl(args ...Value) (Value, error) {
 	_ = v_request
 	_ = v_response
 	_ = v_retries_exhausted
+	_ = v_retry_messages
 	_ = v_runtime_options
 	_ = v_selected_index
 	_ = v_selected_rung
@@ -34427,6 +34430,7 @@ func _forward_impl(args ...Value) (Value, error) {
 	_ = v_structured_public
 	_ = v_structured_recovered
 	_ = v_structured_retries_exhausted
+	_ = v_structured_retry_messages
 	_ = v_structured_samples
 	_ = v_structured_validated
 	_ = v_structured_validation_error
@@ -34540,7 +34544,8 @@ func _forward_impl(args ...Value) (Value, error) {
 						}
 						v_structured_next_attempt = _core_add(v_attempt, 1)
 						v_attempt = v_structured_next_attempt
-						if _, err := _append_assertion_retry_messages(v_messages, v_response, v_structured_validation_error); err != nil { return nil, err }
+						{ v, err := _append_assertion_retry_messages(v_messages, v_response, v_structured_validation_error); if err != nil { return nil, err }; v_structured_retry_messages = v }
+						v_messages = v_structured_retry_messages
 						_core_axgen_memory_add_correction(v_gen, v_response, v_structured_validation_error)
 						continue
 					}
@@ -34604,7 +34609,8 @@ func _forward_impl(args ...Value) (Value, error) {
 					}
 					v_next_attempt = _core_add(v_attempt, 1)
 					v_attempt = v_next_attempt
-					if _, err := _append_assertion_retry_messages(v_messages, v_response, v_validation_error); err != nil { return nil, err }
+					{ v, err := _append_assertion_retry_messages(v_messages, v_response, v_validation_error); if err != nil { return nil, err }; v_retry_messages = v }
+					v_messages = v_retry_messages
 					_core_axgen_memory_add_correction(v_gen, v_response, v_validation_error)
 					continue
 				}
@@ -36104,14 +36110,16 @@ func _append_assertion_retry_messages(args ...Value) (Value, error) {
 	var v_messages Value
 	var v_response Value
 	var v_error Value
+	var v_updated_messages Value
 	if len(args) > 0 { v_messages = args[0] }
 	_ = v_messages
 	if len(args) > 1 { v_response = args[1] }
 	_ = v_response
 	if len(args) > 2 { v_error = args[2] }
 	_ = v_error
-	if _, err := _append_validation_retry_messages_impl(v_messages, v_response, v_error); err != nil { return nil, err }
-	return nil, nil
+	_ = v_updated_messages
+	{ v, err := _append_validation_retry_messages_impl(v_messages, v_response, v_error); if err != nil { return nil, err }; v_updated_messages = v }
+	return v_updated_messages, nil
 }
 
 func _record_trace(args ...Value) (Value, error) {
@@ -39316,7 +39324,7 @@ func _append_validation_retry_messages_impl(args ...Value) (Value, error) {
 	if err := coreSet(v_retry_message, "role", "user"); err != nil { return nil, err }
 	if err := coreSet(v_retry_message, "content", v_retry_content); err != nil { return nil, err }
 	v_messages = coreAppend(v_messages, v_retry_message)
-	return nil, nil
+	return v_messages, nil
 }
 
 func _regex_state(args ...Value) (Value, error) {
@@ -79979,6 +79987,14 @@ func runConformanceForward(fixture map[string]Value) {
 		}
 		if expected := coreGet(fixture, "expected_chat_options_subset", nil); expected != nil && len(client.ChatOptions) > 0 {
 			assertSubset(client.ChatOptions[0], expected, "chat options")
+		}
+		if expected := coreGet(fixture, "expected_request_contains", nil); expected != nil {
+			text := stableStringify(client.Requests)
+			for _, item := range asSlice(expected) {
+				if !strings.Contains(text, display(item)) {
+					panic(AxError{Category: "fixture", Message: "forward request missing " + display(item) + ": " + text})
+				}
+			}
 		}
 		if expected := coreGet(fixture, "expected_request_not_contains", nil); expected != nil {
 			text := stableStringify(client.Requests)

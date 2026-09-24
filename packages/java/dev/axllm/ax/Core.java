@@ -16634,7 +16634,8 @@ final class Core {
             }
             Object structured_next_attempt = Core.add(attempt, 1);
             attempt = structured_next_attempt;
-            Core._append_assertion_retry_messages(messages, response, structured_validation_error);
+            Object structured_retry_messages = Core._append_assertion_retry_messages(messages, response, structured_validation_error);
+            messages = structured_retry_messages;
             Core.axgenMemoryAddCorrection(gen, response, structured_validation_error);
             continue;
           }
@@ -16684,7 +16685,8 @@ final class Core {
           }
           Object next_attempt = Core.add(attempt, 1);
           attempt = next_attempt;
-          Core._append_assertion_retry_messages(messages, response, validation_error);
+          Object retry_messages = Core._append_assertion_retry_messages(messages, response, validation_error);
+          messages = retry_messages;
           Core.axgenMemoryAddCorrection(gen, response, validation_error);
           continue;
         }
@@ -17397,8 +17399,8 @@ final class Core {
 
   static Object _append_assertion_retry_messages(Object messages, Object response, Object error) {
     axirCoverageMark("_append_assertion_retry_messages");
-    Core._append_validation_retry_messages_impl(messages, response, error);
-    return null;
+    Object updated_messages = Core._append_validation_retry_messages_impl(messages, response, error);
+    return updated_messages;
   }
 
   static Object _record_trace(Object gen, Object input, Object output, Object status) {
@@ -18934,7 +18936,7 @@ final class Core {
     Core.set(retry_message, "role", "user");
     Core.set(retry_message, "content", retry_content);
     Core.append(messages, retry_message);
-    return null;
+    return messages;
   }
 
   static Object _regex_state(Object pos, Object caps) {
