@@ -137,8 +137,11 @@ the legacy capability heuristic.
 A client that reports `responseFormatWithFunctions: false` cannot pair a JSON
 response format (`native` or `json_object`) with function declarations. While
 the model can call user functions natively, `auto` then picks `function` if it
-is advertised, so the model answers through `__axOutput` beside the tools. The
-TypeScript Gemini client reports this: Gemini 2.x rejects the combination, and
+is advertised, so the model answers through `__axOutput` beside the tools. A
+forced `functionCall` (`'required'` or named) picks `function` too: its step
+declares only the user tools, and the next step forces `__axOutput`. The
+TypeScript Gemini client reports this: Gemini 2.x rejects the combination,
+every served Gemini model rejects it with forced (ANY mode) calling, and
 `gemini-3.8-flash` and `gemini-3.1-flash-lite` keep re-calling tools under it.
 
 `structuredOutputs` remains the compatibility alias for native JSON Schema

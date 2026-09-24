@@ -257,7 +257,7 @@ Rules:
 
 - `functionCallMode` selects how tools reach the model: `'auto'` (default), `'native'`, or `'prompt'` (prompt-based emulation).
 - `functionCall` sets the tool choice: `'auto'`, `'none'`, `'required'`, or `{ type: 'function', function: { name: 'search' } }` to force one function.
-- A forced call (`'required'` or a named function) applies to the first step only. Later steps drop it together with the tools so the model can answer.
+- A forced call (`'required'` or a named function) applies to the first step only. Later steps drop it together with the tools so the model can answer. With the `function` structured-output rung, `__axOutput` is left out of the forced step, so the forcing reaches a user tool.
 - `stopFunction` accepts a string or string[] to halt multi-step on specific function calls.
 - Multi-step continues until all outputs filled, stop function called, or `maxSteps` reached.
 
@@ -358,7 +358,7 @@ Rules:
 - `structuredOutputMode: 'auto'` follows the selected profile/model's ordered `structuredOutputModes` capability list. Exact caller `modelInfo` overrides win over profile model rules and defaults.
 - Without native schema support, one required non-array `string` or `code` output can use `json_object` plus an exact-shape prompt, client-side validation, and bounded correction retries. This optimized path is provider-neutral and does not require provider-visible tools.
 - Richer shapes use the first advertised rung. A `json_object` selection sends no synthetic `__axOutput`; Ax keeps the exact-shape prompt, strict parsing, and correction retry.
-- Gemini advertises `responseFormatWithFunctions: false`: Gemini 2.x rejects a JSON response format beside function declarations, and some Gemini 3 models keep calling tools instead of answering under it. So when the model can call native tools freely, `auto` uses the `function` rung: the tools stay declared and the model answers by calling `__axOutput`. A forced or disabled `functionCall`, prompt-emulated tools, and an explicit `structuredOutputMode` keep their usual rung.
+- Gemini advertises `responseFormatWithFunctions: false`: Gemini 2.x rejects a JSON response format beside function declarations, and some Gemini 3 models keep calling tools instead of answering under it. So when the model can call native tools freely, `auto` uses the `function` rung: the tools stay declared and the model answers by calling `__axOutput`. A forced `functionCall` (`'required'` or named) takes the same rung, because Gemini also rejects forced calling with a JSON response format. The forced step declares only the user tools, and the next step forces `__axOutput`. A disabled (`'none'`) `functionCall`, prompt-emulated tools, and an explicit `structuredOutputMode` keep their usual rung.
 - Ax advertises only `__axOutput`. It accepts legacy inbound `__finalResult` calls so stored trajectories remain replayable, and rejects user functions that collide with either reserved name.
 - Use `structuredOutputMode: 'native'` to require native schema enforcement; Ax reports an error instead of silently weakening that requirement.
 - Use `structuredOutputMode: 'function'` to require the function-argument path; Ax reports an error before sending a request when function calling is unavailable.

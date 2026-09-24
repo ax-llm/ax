@@ -160,17 +160,17 @@ const assertNoReservedStructuredOutputFunctions = (
 };
 
 /**
- * Whether the model can call user functions natively on every step: they are
- * sent as native declarations, not emulated in the prompt, and the caller
- * neither forces nor disables calling.
+ * Whether the model can call user functions natively: they are sent as native
+ * declarations, not emulated in the prompt, and the caller does not disable
+ * calling. A forced call counts, since its step declares the tools too.
  */
-const userFunctionsStayCallable = (
+const canCallUserFunctions = (
   functions: readonly Readonly<AxFunction>[],
   functionCall: AxChatRequest['functionCall'] | undefined,
   promptEmulated: boolean
 ): boolean =>
   !promptEmulated &&
-  (functionCall === undefined || functionCall === 'auto') &&
+  functionCall !== 'none' &&
   functions.some((fn) => !isReservedStructuredOutputFunctionName(fn.name));
 
 const selectStructuredOutputRung = (
@@ -239,9 +239,10 @@ const selectStructuredOutputRung = (
     );
   }
 
-  // Some providers fail when a JSON response format shares the request with
-  // callable user functions (see AxAIFeatures.responseFormatWithFunctions).
-  // The output function lets the model finish with the tools still declared.
+  // Some providers fail when a JSON response format shares a request with
+  // callable or forced user functions (see
+  // AxAIFeatures.responseFormatWithFunctions). The output function lets the
+  // model answer without one.
   if (
     userFunctionsCallable &&
     features?.responseFormatWithFunctions === false &&
@@ -600,7 +601,7 @@ export class AxGen<IN = any, OUT extends AxGenOut = any>
       features,
       structuredOutputMode,
       `${ai.getName()} (${String(options?.model ?? 'default model')})`,
-      userFunctionsStayCallable(
+      canCallUserFunctions(
         mutableFunctions,
         options?.functionCall ?? this.options?.functionCall,
         signatureToolCallingManager !== undefined
@@ -1461,6 +1462,16 @@ export class AxGen<IN = any, OUT extends AxGenOut = any>
           type: 'function',
           function: { name: STRUCTURED_OUTPUT_FUNCTION_NAME },
         };
+      } else if (
+        functionCall === 'required' ||
+        (typeof functionCall === 'object' &&
+          !isReservedStructuredOutputFunctionName(functionCall.function.name))
+      ) {
+        // A caller-forced call must reach a user function, so the output
+        // function is offered only once the forcing is dropped.
+        functions = functions.filter(
+          (f) => !isReservedStructuredOutputFunctionName(f.name)
+        );
       }
     }
 
@@ -1973,7 +1984,7 @@ export class AxGen<IN = any, OUT extends AxGenOut = any>
       features,
       structuredOutputMode,
       `${ai.getName()} (${String(options.model ?? 'default model')})`,
-      userFunctionsStayCallable(
+      canCallUserFunctions(
         mutableFunctions,
         options.functionCall ?? this.options?.functionCall,
         this.signatureToolCallingManager !== undefined

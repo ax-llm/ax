@@ -218,42 +218,67 @@ describe('AxGen forced function calls', () => {
     expect(requests).toHaveLength(1);
   });
 
-  describe('with the structured-output function fallback', () => {
-    const report = { city: 'Paris', conditions: 'sunny' };
-    const outputForced: AxChatRequest['functionCall'] = {
-      type: 'function',
-      function: { name: '__axOutput' },
-    };
+  // Mirrors the Gemini client, which reports responseFormatWithFunctions: false.
+  const noJsonBesideToolsFeatures: AxMockAIServiceConfig<string>['features'] = {
+    functions: true,
+    structuredOutputs: true,
+    structuredOutputModes: ['native', 'function'],
+    responseFormatWithFunctions: false,
+  };
 
-    it.each([
-      ['a named function', forceGetWeather],
-      ['required', 'required' as const],
-    ])(
-      'keeps __axOutput declared and forced after the caller forces %s',
-      async (_label, functionCall) => {
-        const { ai, requests } = createForcingAwareAI({
-          getWeather: { city: 'Paris' },
-          __axOutput: { report },
-        });
-        const gen = ax(
-          'city:string -> report:object{city:string, conditions:string}',
-          { functions: [getWeather], structuredOutputMode: 'function' }
-        );
+  describe.each([
+    [
+      'an explicit function rung',
+      { structuredOutputMode: 'function' as const },
+      undefined,
+    ],
+    [
+      'a provider without JSON output beside tools',
+      {},
+      noJsonBesideToolsFeatures,
+    ],
+  ])(
+    'with the structured-output function fallback from %s',
+    (_source, genOptions, features) => {
+      const report = { city: 'Paris', conditions: 'sunny' };
+      const outputForced: AxChatRequest['functionCall'] = {
+        type: 'function',
+        function: { name: '__axOutput' },
+      };
 
-        const result = await gen.forward(
-          ai,
-          { city: 'Paris' },
-          { functionCall }
-        );
+      // The forced step offers only the user tools, so __axOutput cannot
+      // satisfy the forcing. The next step forces __axOutput.
+      it.each([
+        ['a named function', forceGetWeather],
+        ['required', 'required' as const],
+      ])(
+        'forces %s first, then answers through __axOutput',
+        async (_label, functionCall) => {
+          const { ai, requests } = createForcingAwareAI(
+            { getWeather: { city: 'Paris' }, __axOutput: { report } },
+            undefined,
+            features
+          );
+          const gen = ax(
+            'city:string -> report:object{city:string, conditions:string}',
+            { functions: [getWeather], ...genOptions }
+          );
 
-        expect(result.report).toEqual(report);
-        expect(requests).toEqual([
-          { functionCall, functions: ['getWeather', '__axOutput'] },
-          { functionCall: outputForced, functions: ['__axOutput'] },
-        ]);
-      }
-    );
-  });
+          const result = await gen.forward(
+            ai,
+            { city: 'Paris' },
+            { functionCall }
+          );
+
+          expect(result.report).toEqual(report);
+          expect(requests).toEqual([
+            { functionCall, functions: ['getWeather'] },
+            { functionCall: outputForced, functions: ['__axOutput'] },
+          ]);
+        }
+      );
+    }
+  );
 
   describe('with native structured output', () => {
     const report = { city: 'Paris', conditions: 'sunny' };
