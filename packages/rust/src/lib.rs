@@ -11867,10 +11867,88 @@ impl RuntimeEnvelope {
         }
     }
 
-    pub fn timeout(message: impl Into<String>) -> Self {
+    /// Error envelope (python `RuntimeEnvelope.error`). The agent step
+    /// normalizer reads `is_error` and `error`, so the turn is tagged as an
+    /// error and the message reaches the actor and run-end failure learning.
+    pub fn error(message: impl Into<String>, category: impl Into<String>) -> Self {
         Self {
-            payload: json!({"kind": "error", "error_category": "timeout", "message": message.into()}),
+            payload: json!({
+                "kind": "error",
+                "is_error": true,
+                "error_category": category.into(),
+                "error": message.into(),
+            }),
         }
+    }
+
+    pub fn timeout(message: impl Into<String>) -> Self {
+        Self::error(message, "timeout")
+    }
+}
+
+#[cfg(test)]
+mod runtime_envelope_tests {
+    use super::*;
+
+    struct TimeoutSession;
+
+    impl AxCodeSession for TimeoutSession {
+        fn execute(&mut self, _code: &str, _options: Value) -> AxResult<RuntimeEnvelope> {
+            Ok(RuntimeEnvelope::timeout("execution exceeded 50ms"))
+        }
+    }
+
+    struct TimeoutRuntime;
+
+    impl AxCodeRuntime for TimeoutRuntime {
+        fn language(&self) -> &str {
+            "JavaScript"
+        }
+
+        fn create_session(
+            &mut self,
+            _globals: Value,
+            _options: Value,
+        ) -> AxResult<Box<dyn AxCodeSession>> {
+            Ok(Box::new(TimeoutSession))
+        }
+    }
+
+    #[test]
+    fn timeout_envelope_matches_error_envelope() {
+        assert_eq!(
+            RuntimeEnvelope::timeout("slow").payload,
+            json!({"kind": "error", "is_error": true, "error_category": "timeout", "error": "slow"})
+        );
+    }
+
+    #[test]
+    fn agent_step_tags_timeout_envelope_as_error_turn() -> AxResult<()> {
+        let mut runtime = TimeoutRuntime;
+        let mut runner = agent("question:string -> answer:string")?;
+        let code = "while (true) {}";
+        let step =
+            runner.execute_actor_step(&mut runtime, code, json!({"question": "q"}), json!({}))?;
+        assert_eq!(step.payload["is_error"], true);
+        assert_eq!(step.payload["error"], "execution exceeded 50ms");
+        assert_eq!(step.payload["error_category"], "timeout");
+
+        let log = runner.get_action_log();
+        let turn = log
+            .iter()
+            .find(|entry| entry["type"] == "runtime_step")
+            .expect("runtime step logged");
+        assert_eq!(turn["code"], code);
+        assert_eq!(turn["tags"], json!(["error"]));
+
+        let signals = core_value_to_json(&_agent_build_failure_signals(&[runner.state.clone()])?);
+        let signals = signals.as_array().expect("failure signals list");
+        assert_eq!(signals.len(), 1);
+        assert_eq!(signals[0]["kind"], "error_turn");
+        assert_eq!(signals[0]["signature"], "timeout:execution exceeded 50ms");
+        assert_eq!(signals[0]["detail"], "execution exceeded 50ms");
+        assert_eq!(signals[0]["code"], code);
+        Ok(())
     }
 }
 
@@ -12013,16 +12091,10 @@ impl AxCodeSession for ProcessCodeSession {
     fn execute(&mut self, code: &str, options: Value) -> AxResult<RuntimeEnvelope> {
         // python ProcessCodeSession.execute converts protocol failures into
         // error envelopes instead of raising.
-        let payload = match self.request("execute", json!({"code": code, "options": options})) {
-            Ok(result) => result,
-            Err(err) => json!({
-                "kind": "error",
-                "is_error": true,
-                "error_category": err.category,
-                "error": err.message,
-            }),
-        };
-        Ok(RuntimeEnvelope { payload })
+        match self.request("execute", json!({"code": code, "options": options})) {
+            Ok(payload) => Ok(RuntimeEnvelope { payload }),
+            Err(err) => Ok(RuntimeEnvelope::error(err.message, err.category)),
+        }
     }
 
     fn inspect_globals(&mut self, options: Value) -> AxResult<Value> {
@@ -17420,7 +17492,8 @@ fn run_agent_runtime_session_operations(
 }
 
 // Mirrors python conformance._runtime_adapter_call: the raw RuntimeEnvelope
-// helper payloads exercised by the adapter fixtures.
+// helper payloads exercised by the adapter fixtures. Error envelopes go
+// through the public RuntimeEnvelope constructors so the fixtures pin them.
 fn runtime_adapter_call(spec: &Value) -> AxResult<Value> {
     let name = spec.get("name").and_then(Value::as_str).unwrap_or_default();
     let args = spec
@@ -17437,7 +17510,6 @@ fn runtime_adapter_call(spec: &Value) -> AxResult<Value> {
             None => fallback.to_string(),
         }
     };
-    let error_envelope = |message: String, category: &str| json!({"kind": "error", "is_error": true, "error_category": category, "error": message});
     // python RuntimeEnvelope.final/ask_clarification flatten a single list arg.
     let completion_args = |args: &[Value]| -> Vec<Value> {
         if args.len() == 1 {
@@ -17459,16 +17531,12 @@ fn runtime_adapter_call(spec: &Value) -> AxResult<Value> {
                         .map(ToString::to_string)
                 })
                 .unwrap_or_else(|| "runtime".to_string());
-            Ok(error_envelope(text(arg(0), ""), &category))
+            Ok(RuntimeEnvelope::error(text(arg(0), ""), category).payload)
         }
-        "session_closed" => Ok(error_envelope(
-            text(arg(0), "session closed"),
-            "session_closed",
-        )),
-        "timeout" => Ok(error_envelope(
-            text(arg(0), "execution timed out"),
-            "timeout",
-        )),
+        "session_closed" => {
+            Ok(RuntimeEnvelope::error(text(arg(0), "session closed"), "session_closed").payload)
+        }
+        "timeout" => Ok(RuntimeEnvelope::timeout(text(arg(0), "execution timed out")).payload),
         "final" => Ok(json!({"type": "final", "args": completion_args(&args)})),
         "ask_clarification" => {
             Ok(json!({"type": "askClarification", "args": completion_args(&args)}))
