@@ -1,0 +1,49 @@
+{
+  "base_url": "https://gateway.test/v1",
+  "expected_transport_request": {
+    "method": "POST",
+    "url": "https://gateway.test/v1/responses"
+  },
+  "kind": "ai_chat",
+  "model": "gpt-5.4-mini",
+  "name": "openai-responses-chat-uses-api-url",
+  "provider": "openai-responses",
+  "request": {
+    "chat_prompt": [
+      {
+        "content": "ping",
+        "role": "user"
+      }
+    ],
+    "model_config": {
+      "stream": false
+    }
+  },
+  "transport_responses": [
+    {
+      "json": {
+        "id": "resp_api_url",
+        "model": "gpt-5.4-mini",
+        "output": [
+          {
+            "content": [
+              {
+                "annotations": [],
+                "text": "ok",
+                "type": "output_text"
+              }
+            ],
+            "id": "msg_api_url",
+            "type": "message"
+          }
+        ],
+        "usage": {
+          "input_tokens": 1,
+          "output_tokens": 1,
+          "total_tokens": 2
+        }
+      },
+      "status": 200
+    }
+  ]
+}

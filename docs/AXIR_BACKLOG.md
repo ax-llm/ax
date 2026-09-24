@@ -30,13 +30,6 @@ This ledger tracks portable TypeScript behavior that should be migrated into AxI
   - TS paths: `src/ax/dsp/generate.ts`, `src/ax/dsp/generate.useExpensiveModel.test.ts`, `src/ax/ai/types.ts`
   - Impact: TypeScript AxGen now forwards useExpensiveModel to ai.chat (the per-call forward option first, then the ax()/AxGen constructor option), so models whose model info sets isExpensive (OpenAI gpt-5.5-pro/o1-pro/o3-pro, WebLLM Llama-3.1-70B, Bedrock Claude Opus 5/4.8) are callable from ax()/AxGen/flows/agents after an explicit opt-in and are still rejected before any request without it. Generated ports already merge gen constructor options with call options and pass the map through to chat, so they have no forwarding gap, but none implements the gate: AxIR declares useExpensiveModel only as an AxAIServiceOptions field and never reads the catalog isExpensive flag, so Python/Java/C++/Go/Rust call expensive models without confirmation and ignore the opt-in.
   - Suggested AxIR work: Gate the AxIR chat path on the resolved model's catalog isExpensive flag and reject unless options.useExpensiveModel is 'yes' (model-key entry defaults included).; Add a conformance fixture covering rejection without the opt-in and success via gen forward options and via gen constructor options.; Run npm run axir:conformance:check and npm run test:axir.
-- `axir-2026-09-24-forward-apiurl-in-the-openai-responses-provider` [axai] Forward apiURL in the OpenAI Responses provider
-  - Status: open
-  - Source PR: #678
-  - Source commit: `9ade9be810c243395052be5486c8daf5cf667d44`
-  - TS paths: `src/ax/ai/openai/responses_api_base.ts`, `src/ax/ai/provider_profiles.test.ts`
-  - Impact: TypeScript AxAIOpenAIResponses now forwards the caller apiURL to AxAIOpenAIResponsesBase, so ai({ name: 'openai-responses', apiURL }) and the GPT-6 requests that ai({ name: 'openai', apiURL }) routes through Responses reach the configured host instead of api.openai.com. Generated OpenAI Responses clients that accept a base URL should send chat to that URL the same way.
-  - Suggested AxIR work: Add or update the TS-derived conformance fixture.; Update AxIR/Core or descriptor data to match the portable TS behavior.; Run npm run axir:conformance:check and npm run test:axir.
 - `axir-2026-09-24-port-the-text-output-contract-for-simple-axgen-signatures-withou` [axgen] Port the text output contract for simple AxGen signatures without tools
   - Status: open
   - Source commit: `73f1160df`
@@ -650,3 +643,13 @@ This ledger tracks portable TypeScript behavior that should be migrated into AxI
   - Completed at: 2026-09-18
   - Completed by: `d31891c98c4726ce1e15fb60df2f96a6c2b70d6e`
   - Verification: `Core-owned string/fluent boolean and class descriptions round-trip through signatures/schema and map to native criteria or ordinary readable prompts. Shared fixtures cover scalar/complex extraction, streaming label parsing, field order, nested fields, validation, and conventional-provider behavior. AxIR compiler go test -count=1 -timeout=30m ./... and strict check/lint/provenance/lowering passed. Final all-five release verification passed: C++ in the full test run, Python/Java/Go after nested-balancer test corrections, and Rust after routing validation correction. Conformance synchronization, generated package freshness, build, 320 focused TypeScript tests, tooling guards, generated examples, provider profiles, skills, and website checks passed. All 18 live Typesafe/Jev signature, native, and hybrid examples passed across TypeScript, Python, Java, C++, Go, and Rust using environment credentials.`
+- `axir-2026-09-24-forward-apiurl-in-the-openai-responses-provider` [axai] Forward apiURL in the OpenAI Responses provider
+  - Status: done
+  - Source PR: #678
+  - Source commit: `9ade9be810c243395052be5486c8daf5cf667d44`
+  - TS paths: `src/ax/ai/openai/responses_api_base.ts`, `src/ax/ai/provider_profiles.test.ts`
+  - Impact: TypeScript AxAIOpenAIResponses now forwards the caller apiURL to AxAIOpenAIResponsesBase, so ai({ name: 'openai-responses', apiURL }) and the GPT-6 requests that ai({ name: 'openai', apiURL }) routes through Responses reach the configured host instead of api.openai.com. Generated OpenAI Responses clients that accept a base URL should send chat to that URL the same way.
+  - Suggested AxIR work: Add or update the TS-derived conformance fixture.; Update AxIR/Core or descriptor data to match the portable TS behavior.; Run npm run axir:conformance:check and npm run test:axir.
+  - Completed at: 2026-09-24
+  - Completed by: `ab5f72075aca7079259771c2e1d404d2d81438d5`
+  - Verification: `No port change was needed. The generated ports already apply apiURL, baseUrl and base_url to every provider in provider_resolve_descriptor, and already send GPT-6 on the openai provider through Responses; only TypeScript dropped apiURL, which #678 fixed. New ai_chat fixtures openai-responses-chat-uses-api-url and gpt-6-sol-openai-api-url-uses-responses pass in Python, Java, C++, Go, and Rust, and copies expecting api.openai.com fail in the Python, Go, and Java runners. TypeScript provider_profiles.test.ts covers both paths and fails with the fix reverted.`
