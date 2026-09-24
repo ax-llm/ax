@@ -5,6 +5,7 @@ import { AxMCPWebSocketTransport } from './webSocketTransport.js';
 
 class FakeWebSocket implements AxMCPWebSocketLike {
   readyState = 0;
+  binaryType = 'blob';
   sent: string[] = [];
   sendError?: Error;
   private listeners = new Map<string, ((event: any) => void)[]>();
@@ -28,6 +29,17 @@ class FakeWebSocket implements AxMCPWebSocketLike {
   }
   receive(value: unknown): void {
     this.emit('message', { data: JSON.stringify(value) });
+  }
+  // Like browsers and Node's global WebSocket: binary frames arrive as a Blob
+  // unless binaryType is 'arraybuffer'.
+  receiveBinary(value: unknown): void {
+    const bytes = new TextEncoder().encode(JSON.stringify(value));
+    this.receiveData(
+      this.binaryType === 'arraybuffer' ? bytes.buffer : new Blob([bytes])
+    );
+  }
+  receiveData(data: unknown): void {
+    this.emit('message', { data });
   }
   private emit(type: string, event: unknown): void {
     for (const listener of this.listeners.get(type) ?? []) listener(event);
@@ -54,6 +66,76 @@ describe('AxMCPWebSocketTransport', () => {
 
     await expect(pending).resolves.toMatchObject({ id: 'one' });
     expect(JSON.parse(socket.sent[0]!)).toMatchObject({ method: 'tools/list' });
+  });
+
+  it('reads JSON-RPC messages from binary frames', async () => {
+    const socket = new FakeWebSocket();
+    const transport = new AxMCPWebSocketTransport('wss://mcp.example', {
+      webSocketFactory: () => socket,
+    });
+    const received: unknown[] = [];
+    transport.setMessageHandler((message) => {
+      received.push(message);
+    });
+    const connected = transport.connect();
+    socket.open();
+    await connected;
+
+    const pending = transport.send({
+      jsonrpc: '2.0',
+      id: 'one',
+      method: 'tools/list',
+    });
+    const log = {
+      jsonrpc: '2.0',
+      method: 'notifications/message',
+      params: { level: 'info', data: 'café ☕' },
+    };
+    socket.receiveBinary(log);
+    socket.receiveBinary({ jsonrpc: '2.0', id: 'one', result: { tools: [] } });
+
+    await expect(pending).resolves.toMatchObject({ id: 'one' });
+    expect(received).toEqual([log]);
+  });
+
+  it('reads a binary frame delivered as a view into a larger buffer', async () => {
+    const socket = new FakeWebSocket();
+    const transport = new AxMCPWebSocketTransport('wss://mcp.example', {
+      webSocketFactory: () => socket,
+    });
+    const connected = transport.connect();
+    socket.open();
+    await connected;
+
+    const pending = transport.send({
+      jsonrpc: '2.0',
+      id: 'one',
+      method: 'tools/list',
+    });
+    const bytes = new TextEncoder().encode(
+      JSON.stringify({ jsonrpc: '2.0', id: 'one', result: { tools: [] } })
+    );
+    const pooled = new Uint8Array(bytes.length + 8);
+    pooled.set(bytes, 4);
+    socket.receiveData(pooled.subarray(4, 4 + bytes.length));
+
+    await expect(pending).resolves.toMatchObject({ id: 'one' });
+  });
+
+  it('names binary data it cannot read synchronously', async () => {
+    const socket = new FakeWebSocket();
+    const transport = new AxMCPWebSocketTransport('wss://mcp.example', {
+      webSocketFactory: () => socket,
+    });
+    const connected = transport.connect();
+    socket.open();
+    await connected;
+    // A wrapper socket that does not pass binaryType on to the real one.
+    socket.binaryType = 'blob';
+
+    expect(() =>
+      socket.receiveBinary({ jsonrpc: '2.0', method: 'notifications/ping' })
+    ).toThrow('Cannot read an MCP WebSocket message delivered as Blob');
   });
 
   it('sends a single legacy batch and correlates concurrent responses', async () => {
