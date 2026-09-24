@@ -79070,10 +79070,22 @@ func runConformanceEvent(fixture map[string]Value) {
 		successToken := &AxEventCancellationToken{}
 		success := make(chan bool, 1)
 		go func() { success <- successClock.Sleep(time.Millisecond, successToken) }()
-		successDeadline := time.Now().Add(time.Second)
+		successDeadline := time.Now().Add(10 * time.Second)
 		for successToken.SubscriptionCount() == 0 && time.Now().Before(successDeadline) { time.Sleep(time.Millisecond) }
+		if successToken.SubscriptionCount() == 0 {
+			successToken.Cancel("fixture cleanup")
+			<-success
+			panic(AxError{Category: "fixture", Message: "manual event clock sleeper never subscribed"})
+		}
 		successClock.Advance(1)
-		if !<-success || successToken.SubscriptionCount() != 0 { panic(AxError{Category: "fixture", Message: "manual event clock successful sleep cleanup mismatch"}) }
+		select {
+		case completed := <-success:
+			if !completed || successToken.SubscriptionCount() != 0 { panic(AxError{Category: "fixture", Message: "manual event clock successful sleep cleanup mismatch"}) }
+		case <-time.After(10 * time.Second):
+			successToken.Cancel("fixture cleanup")
+			<-success
+			panic(AxError{Category: "fixture", Message: "manual event clock sleep was not released by advance"})
+		}
 
 		makeEvent := func(id, eventType string, data Value, correlation []map[string]string) AxEventEnvelope {
 			return AxEventEnvelope{SpecVersion: "1.0", ID: id, Source: "test://axevent", Type: eventType, Data: data, Correlation: correlation}

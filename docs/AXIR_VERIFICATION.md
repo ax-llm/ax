@@ -57,6 +57,11 @@ both provenance and coverage.
 Catches: missing assertions, allowlist-gated comparisons, error paths that
 fabricate the expected error from the fixture's own text.
 
+Each runner invocation (here and in `npm run axir:gate:response-perturb`) is
+killed after 10 minutes, and the gate then fails with a `TIMEOUT:` error that
+names the target and suite. A hung fixture therefore can't stall CI until the
+job timeout.
+
 ## Working the gaps
 
 The coverage asymmetry section is the work queue: drive every target to the
