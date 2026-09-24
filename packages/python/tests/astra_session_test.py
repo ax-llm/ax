@@ -710,7 +710,10 @@ def test_mcp_http_invocation_cancellation():
       while len(body)<length:body+=conn.recv(4096)
       wire.append((head,json.loads(body)))
       conn.sendall(b'HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: 100\r\n\r\n');started.set()
-      if conn.recv(1)==b'':disconnected.set()
+      # A client that closes with these headers unread makes its kernel send RST instead of FIN.
+      try:
+       if conn.recv(1)==b'':disconnected.set()
+      except (ConnectionResetError,ConnectionAbortedError):disconnected.set()
     server=threading.Thread(target=serve,daemon=True);server.start()
     t=AxMCPStreamableHTTPTransport('http://127.0.0.1:'+str(listener.getsockname()[1]),{'ssrfProtection':{'allowLocalhost':True,'allowPrivateNetworks':True,'requireHttps':False},'headers':{'X-Tenant':'fixture'}})
     c=AxMCPClient(t,{'namespace':'inventory'});c.tools=[{'name':'lookup','inputSchema':{'type':'object'}}];signal=threading.Event();context={'signal':signal,'call_id':'model-call'};errors=[]
