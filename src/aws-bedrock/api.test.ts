@@ -351,6 +351,41 @@ describe('AxAIBedrock Converse request mapping', () => {
     });
   });
 
+  it('rejects disabling Opus 5.5 adaptive thinking', async () => {
+    await expect(
+      getImpl(createAI(AxAIBedrockModel.ClaudeOpus55)).createChatReq(
+        {
+          model: AxAIBedrockModel.ClaudeOpus55,
+          chatPrompt: [{ role: 'user', content: 'Answer briefly.' }],
+        },
+        { thinkingTokenBudget: 'none' }
+      )
+    ).rejects.toThrow('Adaptive thinking cannot be disabled');
+  });
+
+  it('keeps Opus 5.5 structured output off forced tool choice', async () => {
+    const ai = createAI(AxAIBedrockModel.ClaudeOpus55);
+    expect(ai.getFeatures(AxAIBedrockModel.ClaudeOpus55)).toMatchObject({
+      functions: true,
+      structuredOutputs: false,
+      structuredOutputModes: ['json_object'],
+    });
+
+    const [, request] = await getImpl(ai).createChatReq({
+      model: AxAIBedrockModel.ClaudeOpus55,
+      chatPrompt: [{ role: 'user', content: 'Return JSON.' }],
+      responseFormat: { type: 'json_object' },
+      modelConfig: { temperature: 0.2, topP: 0.9 },
+    });
+
+    expect(request.toolConfig).toBeUndefined();
+    expect(request.outputConfig).toBeUndefined();
+    expect(request.inferenceConfig).toEqual({ maxTokens: 4096 });
+    expect(request.additionalModelRequestFields).toEqual({
+      thinking: { type: 'adaptive' },
+    });
+  });
+
   it('rejects unsupported cache TTLs and service tiers', async () => {
     const ai = createAI(AxAIBedrockModel.ClaudeSonnet4);
     const request: BedrockChatRequest = {
