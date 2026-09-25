@@ -18,7 +18,7 @@ Use this skill to generate context-playbook code. A playbook grows an evolving b
 - Inspect with `pb.render()` (markdown) and `pb.getState()` (`{ playbook, artifact }`).
 - For agents use `agent.playbook({ target: 'actor' | 'responder' })`; default target is `'actor'`.
 - Use a cheaper `studentAI` to run the program and an optional stronger `teacherAI` to reflect/curate.
-- Pass AI service options for the reflect/curate calls as `teacherOptions`. A teacher marked `isExpensive` (for example OpenAI `gpt-5.5-pro`) is rejected unless you pass `teacherOptions: { useExpensiveModel: 'yes' }`. The generated packages have no `isExpensive` gate and no `teacherOptions` yet.
+- Pass AI service options for the reflect/curate calls as `teacherOptions`. A teacher marked `isExpensive` (for example OpenAI `gpt-5.5-pro`) is rejected unless you pass `teacherOptions: { useExpensiveModel: 'yes' }`. The generated Python, Java, C++, Go, and Rust packages apply the same gate and accept `teacherOptions` in their option maps.
 - Prefer `ai()`, `ax()`, and `agent()` for new code.
 
 ## Critical Rules
