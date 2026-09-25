@@ -501,6 +501,8 @@ func goLiteral(value interface{}) string {
 			return goName(v)
 		}
 		return strconv.Quote(v)
+	case QuotedString:
+		return strconv.Quote(string(v))
 	case bool:
 		if v {
 			return "true"

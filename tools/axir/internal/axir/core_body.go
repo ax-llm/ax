@@ -25,7 +25,7 @@ type CoreStmt struct {
 	Args    []interface{}
 	Value   interface{}
 	Target  string
-	Key     string
+	Key     interface{}
 	Default interface{}
 	Item    string
 	Iter    string
@@ -498,6 +498,12 @@ func parseCoreStmt(op Operation) (CoreStmt, error) {
 		Message: AttrString(op, "message"),
 		Line:    op.Line,
 	}
+	if attr, ok := Attr(op, "key"); ok {
+		// AttrString would flatten a quoted "%x" key into the %x ref.
+		if key, ok := attr.Value.(QuotedString); ok {
+			stmt.Key = key
+		}
+	}
 	if attr, ok := Attr(op, "value"); ok {
 		stmt.Value = attr.Value
 	}
@@ -659,10 +665,12 @@ func validateCoreStmtShape(stmt CoreStmt) error {
 			return fmt.Errorf("core.try missing error binding")
 		}
 	case "raise":
-		if stmt.Message == "" {
-			if _, ok := Attr(stmt.Op, "error"); !ok {
-				return fmt.Errorf("core.raise missing message or error")
+		if attr, ok := Attr(stmt.Op, "error"); ok {
+			if ref, ok := attr.Value.(string); !ok || !strings.HasPrefix(ref, "%") {
+				return fmt.Errorf("core.raise error must be a value ref like %%err")
 			}
+		} else if stmt.Message == "" {
+			return fmt.Errorf("core.raise missing message or error")
 		}
 	case "return":
 	case "set":
@@ -865,9 +873,9 @@ func (s CoreStmt) ValueRefs() []string {
 	if value, ok := s.Value.(string); ok && strings.HasPrefix(value, "%") {
 		out = append(out, value)
 	}
-	for _, value := range []string{s.Target, s.Key, s.Iter, s.Cond} {
-		if strings.HasPrefix(value, "%") {
-			out = append(out, value)
+	for _, value := range []interface{}{s.Target, s.Key, s.Iter, s.Cond} {
+		if ref, ok := value.(string); ok && strings.HasPrefix(ref, "%") {
+			out = append(out, ref)
 		}
 	}
 	for _, attrName := range []string{"default", "error", "pattern", "sep"} {

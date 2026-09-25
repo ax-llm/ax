@@ -770,6 +770,9 @@ func (p *parser) parseLiteral() (interface{}, error) {
 	tok := p.next()
 	switch tok.kind {
 	case "string":
+		if strings.HasPrefix(tok.text, "@") || strings.HasPrefix(tok.text, "%") {
+			return QuotedString(tok.text), nil
+		}
 		return tok.text, nil
 	case "symbol":
 		return "@" + tok.text, nil

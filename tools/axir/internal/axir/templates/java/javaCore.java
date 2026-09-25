@@ -879,30 +879,54 @@ final class Core {
     if (changed && get(gen, "memory", null) instanceof AxMemory mem) mem.addProcessorOutput(result);
     return result;
   }
+  // Evaluates the assertions in order and reports the first failure as
+  // {status: "pass"}, {status: "fail", message?} or {status: "error", error};
+  // gen.axir decides what each outcome raises, as TS assertAssertions does.
   static Object axgenRunAssertions(Object gen, Object output) {
     Map<String, Object> map = asMap(output);
     for (Object raw : asList(get(gen, "assertions", List.of()))) {
-      if (raw instanceof AxGen.AssertionCallback cb) {
-        Object returned = cb.apply(map);
-        if (returned instanceof String s) throw new RuntimeException(s);
-        if (Boolean.FALSE.equals(returned)) throw new RuntimeException("assertion failed");
+      AxGen.AssertionCallback callback = null;
+      String callbackMessage = null;
+      if (raw instanceof AxGen.AssertionCallback cb) callback = cb;
+      if (raw instanceof AxGen.MessageAssertion messaged) {
+        callback = messaged.callback();
+        callbackMessage = messaged.message();
+      }
+      if (callback != null) {
+        Object returned;
+        try {
+          returned = callback.apply(map);
+        } catch (RuntimeException error) {
+          return assertionOutcome("error", "error", error);
+        }
+        if (returned instanceof String s) return assertionOutcome("fail", "message", s);
+        if (Boolean.FALSE.equals(returned)) return assertionOutcome("fail", "message", nonEmpty(callbackMessage));
         continue;
       }
       Map<String, Object> assertion = asMap(raw);
+      if (assertion.containsKey("throw")) return assertionOutcome("error", "error", new RuntimeException(String.valueOf(assertion.get("throw"))));
       Object field = assertion.get("field");
       Object value = field == null ? output : map.get(String.valueOf(field));
-      String message = String.valueOf(assertion.getOrDefault("message", "assertion failed"));
+      String message = nonEmpty(assertion.get("message"));
       if (assertion.containsKey("return")) {
         Object returned = assertion.get("return");
         if (returned == null) continue;
-        if (Boolean.FALSE.equals(returned) && !assertion.containsKey("message")) throw new RuntimeException("assertion failed without message");
-        if (Boolean.FALSE.equals(returned)) throw new RuntimeException(message);
-        if (returned instanceof String s) throw new RuntimeException(s);
+        if (Boolean.FALSE.equals(returned)) return assertionOutcome("fail", "message", message);
+        if (returned instanceof String s) return assertionOutcome("fail", "message", s);
       }
-      if (assertion.containsKey("contains") && !String.valueOf(value).contains(String.valueOf(assertion.get("contains")))) throw new RuntimeException(message);
-      if (assertion.containsKey("equals") && !java.util.Objects.equals(value, assertion.get("equals"))) throw new RuntimeException(message);
+      if (assertion.containsKey("contains") && !String.valueOf(value).contains(String.valueOf(assertion.get("contains")))) return assertionOutcome("fail", "message", message);
+      if (assertion.containsKey("equals") && !java.util.Objects.equals(value, assertion.get("equals"))) return assertionOutcome("fail", "message", message);
     }
-    return null;
+    return assertionOutcome("pass", null, null);
+  }
+  private static Map<String, Object> assertionOutcome(String status, String key, Object value) {
+    Map<String, Object> outcome = new LinkedHashMap<>();
+    outcome.put("status", status);
+    if (key != null && value != null) outcome.put(key, value);
+    return outcome;
+  }
+  private static String nonEmpty(Object message) {
+    return message == null || String.valueOf(message).isEmpty() ? null : String.valueOf(message);
   }
   static Object axgenRecordTrace(Object gen, Object values, Object output, Object status) {
     Object traces = get(gen, "traces", List.of());

@@ -1054,6 +1054,7 @@ class AxGen : public AxProgram {
   AxGen& set_result_picker(std::function<int(const Value&)> result_picker);
   AxGen& add_assert(Value assertion);
   AxGen& add_assert(std::function<Value(Value)> assertion);
+  AxGen& add_assert(std::function<Value(Value)> assertion, std::string message);
   AxGen& add_streaming_assert(Value assertion);
   AxGen& add_streaming_assert(std::string field, std::string not_contains, std::string message = "");
   AxGen& add_field_processor(std::string field, std::string op);

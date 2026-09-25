@@ -24,6 +24,8 @@ public final class AxGen implements AxProgram {
     };
   }
   public interface AssertionCallback { Object apply(Map<String, Object> output); }
+  /** A callable assertion with the message TypeScript addAssert(fn, message) takes. */
+  public record MessageAssertion(AssertionCallback callback, String message) {}
   public interface FieldProcessorCallback { Object apply(Object value); }
   public interface FunctionCallHook { void accept(Map<String, Object> record); }
   public interface ResultPickerCallback { int pick(List<Map<String, Object>> samples); }
@@ -132,6 +134,16 @@ public final class AxGen implements AxProgram {
 
   public AxGen addAssert(AssertionCallback assertion) {
     this.assertions.add(assertion);
+    return this;
+  }
+
+  /**
+   * Adds a callable assertion with a message. A {@code false} result fails with
+   * the message and is retried with a correction, as in TypeScript; without a
+   * message the failure surfaces at once.
+   */
+  public AxGen addAssert(AssertionCallback assertion, String message) {
+    this.assertions.add(message == null ? assertion : new MessageAssertion(assertion, message));
     return this;
   }
 

@@ -187,6 +187,8 @@ func literalKind(value interface{}, kinds map[string]string) string {
 			return "unknown"
 		}
 		return "string"
+	case QuotedString:
+		return "string"
 	case bool:
 		return "bool"
 	case float64, int, int64:

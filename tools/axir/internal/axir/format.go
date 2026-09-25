@@ -360,10 +360,12 @@ func formatValue(v interface{}) string {
 	case nil:
 		return "null"
 	case string:
-		if strings.HasPrefix(x, "@") || strings.HasPrefix(x, "%") {
+		if isRefToken(x) {
 			return x
 		}
 		return quote(x)
+	case QuotedString:
+		return quote(string(x))
 	case FileArg:
 		return "file " + quote(x.Path)
 	case bool:
@@ -378,6 +380,20 @@ func formatValue(v interface{}) string {
 	default:
 		return quote(fmt.Sprint(x))
 	}
+}
+
+// isRefToken reports whether s lexes back as one @symbol or %value token.
+// Only those strings print bare; anything else would not read back as s.
+func isRefToken(s string) bool {
+	if !strings.HasPrefix(s, "@") && !strings.HasPrefix(s, "%") {
+		return false
+	}
+	for i := 1; i < len(s); i++ {
+		if !isIdentRune(rune(s[i])) {
+			return false
+		}
+	}
+	return true
 }
 
 func quote(s string) string {

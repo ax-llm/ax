@@ -1,8 +1,8 @@
 {
   "assertions": [
     {
-      "field": "answer",
-      "return": false
+      "contains": "good",
+      "field": "answer"
     }
   ],
   "expected_error_contains": "Assertion failed without message",
@@ -11,7 +11,7 @@
     "question": "Assert"
   },
   "kind": "forward",
-  "name": "assertion-false-without-message-error",
+  "name": "assertion-contains-without-message-error",
   "responses": [
     {
       "content": "{\"answer\":\"bad\"}"
