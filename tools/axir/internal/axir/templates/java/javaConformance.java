@@ -112,6 +112,7 @@ public final class Conformance {
       case "authentication" -> new AxAIServiceAuthenticationError("Authentication failed", Core.asInt(spec.getOrDefault("status", 401)), null, null, null);
       case "response" -> new AxAIServiceResponseError(message);
       case "timeout" -> new AxAIServiceTimeoutError(message, null, null, null, null, true);
+      case "refusal" -> new AxAIRefusalError(message, null);
       case "plain" -> new RuntimeException(message);
       default -> new AxAIServiceNetworkError("Network Error: " + message);
     };

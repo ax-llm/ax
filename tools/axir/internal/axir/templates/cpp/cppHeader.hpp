@@ -362,6 +362,7 @@ struct Core {
   static Value exception_message(Value error);
   static Value exception_is_aborted(Value error);
   static Value exception_is_infrastructure(Value error);
+  static Value exception_is_refusal(Value error);
   static AxError as_error(Value error);
   [[noreturn]] static void raise_error(Value error);
   static Value coerce_chat_request(Value request);

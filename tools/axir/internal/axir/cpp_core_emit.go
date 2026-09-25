@@ -467,6 +467,7 @@ var coreIntrinsicCpp = map[CoreIntrinsic]string{
 	IntrinsicValidURLShape:             "Core::valid_url_shape",
 	IntrinsicExceptionIsAborted:        "Core::exception_is_aborted",
 	IntrinsicExceptionIsInfrastructure: "Core::exception_is_infrastructure",
+	IntrinsicExceptionIsRefusal:        "Core::exception_is_refusal",
 }
 
 func cppAttrValue(op Operation, name string) string {

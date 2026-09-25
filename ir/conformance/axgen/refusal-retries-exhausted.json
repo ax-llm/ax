@@ -1,0 +1,30 @@
+{
+  "expected_error_contains": "Model refused the fixture request",
+  "expected_request_count": 2,
+  "input": {
+    "question": "Status?"
+  },
+  "kind": "forward",
+  "name": "refusal-retries-exhausted",
+  "options": {
+    "validation_retries": 1
+  },
+  "responses": [
+    {
+      "error": {
+        "message": "Model refused the fixture request",
+        "type": "refusal"
+      }
+    },
+    {
+      "error": {
+        "message": "Model refused the fixture request",
+        "type": "refusal"
+      }
+    },
+    {
+      "content": "Answer: Recovered"
+    }
+  ],
+  "signature": "question:string -> answer:string"
+}

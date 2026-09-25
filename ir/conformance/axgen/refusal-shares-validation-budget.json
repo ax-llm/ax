@@ -1,0 +1,27 @@
+{
+  "expected_error_contains": "Required field is missing",
+  "expected_request_count": 2,
+  "input": {
+    "question": "Status?"
+  },
+  "kind": "forward",
+  "name": "refusal-shares-validation-budget",
+  "options": {
+    "validation_retries": 1
+  },
+  "responses": [
+    {
+      "error": {
+        "message": "Model refused the fixture request",
+        "type": "refusal"
+      }
+    },
+    {
+      "content": "{}"
+    },
+    {
+      "content": "Answer: Recovered"
+    }
+  ],
+  "signature": "question:string -> answer:string"
+}

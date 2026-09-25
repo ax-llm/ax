@@ -12,6 +12,7 @@ from typing import Any
 from .ai import (
     _core_math_floor,
     AIClient,
+    AxAIRefusalError,
     AxAIServiceAbortedError,
     AxAIServiceNetworkError,
     AxAIServiceStatusError,
@@ -861,6 +862,11 @@ def _core_exception_is_infrastructure(error):
         status = getattr(error, "status", None)
         return isinstance(status, int) and 500 <= status < 600
     return isinstance(error, (AxAIServiceNetworkError, AxAIServiceTimeoutError, AxAIServiceStreamTerminatedError))
+
+
+# TS AxGen retries a model refusal inside its validation loop.
+def _core_exception_is_refusal(error):
+    return isinstance(error, AxAIRefusalError)
 
 
 def _core_regex_match(pattern, value):

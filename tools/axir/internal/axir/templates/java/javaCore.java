@@ -563,6 +563,15 @@ final class Core {
     }
     return false;
   }
+  // TS AxGen retries a model refusal inside its validation loop.
+  static Object exceptionIsRefusal(Object error) {
+    Object current=error;
+    while(current instanceof Throwable throwable){
+      if(throwable instanceof AxAIRefusalError)return true;
+      current=throwable.getCause();
+    }
+    return false;
+  }
   static Object aiErrorResponse(Object message) { return new AxAIServiceResponseError(String.valueOf(message)); }
   static Object aiErrorResponse(Object message, Object responseBody) { return new AxAIServiceResponseError(String.valueOf(message), responseBody); }
   static Object aiErrorRefusal(Object message, Object responseBody) { return new AxAIRefusalError(String.valueOf(message), responseBody); }

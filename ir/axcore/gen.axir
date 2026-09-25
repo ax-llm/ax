@@ -761,7 +761,26 @@ module @ax.gen version "0.1" {
           core.raise %max_steps_error
         }
         %request = core.call @build_gen_chat_request(%gen, %messages, %runtime_options, %selection, %step)
-        %response = core.call @complete_with_retries_impl(%client, %request, %runtime_options, %infra_retries)
+        %response = core.map
+        core.try {
+          %completed = core.call @complete_with_retries_impl(%client, %request, %runtime_options, %infra_retries)
+          %response = core.let %completed
+        } catch %completion_error {
+          // As in TS, a refusal spends the validation budget: the same prompt
+          // goes out again at once, with no backoff and no correction message.
+          %refused = core.call intrinsic.exception.is_refusal(%completion_error)
+          %not_refused = core.call intrinsic.not(%refused)
+          core.if %not_refused {
+            core.raise %completion_error
+          }
+          %refusal_retries_exhausted = core.call intrinsic.gte(%attempt, %validation_retries)
+          core.if %refusal_retries_exhausted {
+            core.raise %completion_error
+          }
+          %refusal_next_attempt = core.call intrinsic.add(%attempt, 1)
+          %attempt = core.let %refusal_next_attempt
+          core.continue
+        }
         core.call intrinsic.axgen.memory_add_response(%gen, %request, %response)
         core.call intrinsic.axgen.record_chat_log(%gen, %request, %response)
         %calls = core.call @response_function_calls_impl(%response)

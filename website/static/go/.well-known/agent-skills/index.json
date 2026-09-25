@@ -41,7 +41,7 @@
       "type": "skill-md",
       "description": "Use when writing Go code with `github.com/ax-llm/ax/packages/go` for AxGen programs, forward calls, indexed multi-sampling, result pickers, streaming, tools, assertions, traces, usage, and output parsing.",
       "url": "ax-go-gen/SKILL.md",
-      "digest": "sha256:df43d9aea969e8547027cf1cbce8175fd15761c0313e5a7ff0d55e9ff9ab7a33"
+      "digest": "sha256:1d1d4d84f4ba59fb3ee51f2e3c3987af2dbc0c13dd39ef3628a10a3751971e7d"
     },
     {
       "name": "ax-go-flow",

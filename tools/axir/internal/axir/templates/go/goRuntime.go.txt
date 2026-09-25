@@ -1462,6 +1462,10 @@ func _core_exception_is_infrastructure(err Value) Value {
 	}
 	return false
 }
+// TS AxGen retries a model refusal inside its validation loop.
+func _core_exception_is_refusal(err Value) Value {
+	return asAxError(err).Type == "AxAIRefusalError"
+}
 func _core_runtime_error(message Value) Value {
 	return Object("__error", "runtime", "message", display(message))
 }
@@ -10235,6 +10239,8 @@ func fixtureAIServiceError(spec map[string]Value) error {
 		return AIServiceError{AxError{Category: "ai", Type: "AxAIServiceResponseError", Message: message, Retryable: true}}
 	case "timeout":
 		return AIServiceError{AxError{Category: "ai", Type: "AxAIServiceTimeoutError", Message: message, Retryable: true}}
+	case "refusal":
+		return AIServiceError{AxError{Category: "ai", Type: "AxAIRefusalError", Message: message}}
 	case "plain":
 		return AxError{Category: "runtime", Message: message}
 	default:

@@ -1180,3 +1180,40 @@ writeFixture('infra-retry-max-retries-option', {
   expected_error_contains: 'Service fixture failure',
   expected_request_count: 2,
 });
+
+// TS AxGen retries a model refusal inside its validation loop, so a refusal
+// spends the validation budget (maxRetries in TS, validation_retries here).
+// The same prompt goes out again at once, with no correction message.
+const refusal = {
+  error: { type: 'refusal', message: 'Model refused the fixture request' },
+};
+
+writeFixture('refusal-retried-without-correction', {
+  kind: 'forward',
+  signature: 'question:string -> answer:string',
+  input: { question: 'Status?' },
+  responses: [refusal, recovered],
+  expected_output: { answer: 'Recovered' },
+  expected_request_not_contains: ['Model refused the fixture request'],
+  expected_request_count: 2,
+});
+
+writeFixture('refusal-retries-exhausted', {
+  kind: 'forward',
+  signature: 'question:string -> answer:string',
+  input: { question: 'Status?' },
+  options: { validation_retries: 1 },
+  responses: [refusal, refusal, recovered],
+  expected_error_contains: 'Model refused the fixture request',
+  expected_request_count: 2,
+});
+
+writeFixture('refusal-shares-validation-budget', {
+  kind: 'forward',
+  signature: 'question:string -> answer:string',
+  input: { question: 'Status?' },
+  options: { validation_retries: 1 },
+  responses: [refusal, { content: '{}' }, recovered],
+  expected_error_contains: 'Required field is missing',
+  expected_request_count: 2,
+});

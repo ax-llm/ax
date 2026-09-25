@@ -126,6 +126,7 @@ static AxError fixture_ai_service_error_cpp(Value spec) {
   if (type == "authentication") return AxError("ai", "Authentication failed", "AxAIServiceAuthenticationError", number(Core::get(spec, "status"), 401), "", false);
   if (type == "response") return AxError("ai", message, "AxAIServiceResponseError", 0, "", false);
   if (type == "timeout") return AxError("ai", message, "AxAIServiceTimeoutError", 0, "", true);
+  if (type == "refusal") return AxError("ai", message, "AxAIRefusalError", 0, "", false);
   if (type == "plain") return AxError("runtime", message);
   return AxError("ai", "Network Error: " + message, "AxAIServiceNetworkError", 0, "", true);
 }

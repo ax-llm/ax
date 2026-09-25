@@ -10138,6 +10138,7 @@ fn fixture_ai_service_error(spec: &Value) -> AxError {
         "authentication" => AxError::new("ai", "Authentication failed"),
         "response" => AxError::new("ai", message),
         "timeout" => AxError::new("ai", message),
+        "refusal" => AxError::new("ai", message),
         "plain" => AxError::runtime(message),
         _ => AxError::new("ai", format!("Network Error: {message}")),
     };
@@ -10146,6 +10147,7 @@ fn fixture_ai_service_error(spec: &Value) -> AxError {
         "authentication" => "AxAIServiceAuthenticationError",
         "response" => "AxAIServiceResponseError",
         "timeout" => "AxAIServiceTimeoutError",
+        "refusal" => "AxAIRefusalError",
         "plain" => "AxError",
         _ => "AxAIServiceNetworkError",
     }.to_string());
@@ -18562,6 +18564,16 @@ fn core_exception_is_infrastructure(args: &[CoreValue]) -> Result<CoreValue, AxE
         _ => false,
     };
     Ok(CoreValue::Bool(infrastructure))
+}
+
+// TS AxGen retries a model refusal inside its validation loop.
+#[allow(dead_code)]
+fn core_exception_is_refusal(args: &[CoreValue]) -> Result<CoreValue, AxError> {
+    let refusal = matches!(
+        core_arg(args, 0),
+        CoreValue::Error(error) if error.error_type.as_deref() == Some("AxAIRefusalError")
+    );
+    Ok(CoreValue::Bool(refusal))
 }
 
 #[allow(dead_code)]

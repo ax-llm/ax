@@ -428,6 +428,7 @@ var coreIntrinsicJava = map[CoreIntrinsic]string{
 	IntrinsicValidURLShape:             "Core.validUrlShape",
 	IntrinsicExceptionIsAborted:        "Core.exceptionIsAborted",
 	IntrinsicExceptionIsInfrastructure: "Core.exceptionIsInfrastructure",
+	IntrinsicExceptionIsRefusal:        "Core.exceptionIsRefusal",
 }
 
 func javaAttrValue(op Operation, name string) string {

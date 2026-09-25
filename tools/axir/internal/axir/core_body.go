@@ -174,6 +174,7 @@ const (
 	IntrinsicValidURLShape             CoreIntrinsic = "intrinsic.media.valid_url_shape"
 	IntrinsicExceptionIsAborted        CoreIntrinsic = "intrinsic.exception.is_aborted"
 	IntrinsicExceptionIsInfrastructure CoreIntrinsic = "intrinsic.exception.is_infrastructure"
+	IntrinsicExceptionIsRefusal        CoreIntrinsic = "intrinsic.exception.is_refusal"
 )
 
 var coreIntrinsicPython = map[CoreIntrinsic]string{
@@ -313,6 +314,7 @@ var coreIntrinsicPython = map[CoreIntrinsic]string{
 	IntrinsicValidURLShape:             "_valid_url_shape",
 	IntrinsicExceptionIsAborted:        "_core_exception_is_aborted",
 	IntrinsicExceptionIsInfrastructure: "_core_exception_is_infrastructure",
+	IntrinsicExceptionIsRefusal:        "_core_exception_is_refusal",
 }
 
 var knownCoreIntrinsics = map[string]bool{
@@ -362,6 +364,7 @@ var knownCoreIntrinsics = map[string]bool{
 	"intrinsic.exception.message":                     true,
 	"intrinsic.exception.is_aborted":                  true,
 	"intrinsic.exception.is_infrastructure":           true,
+	"intrinsic.exception.is_refusal":                  true,
 	"intrinsic.error.runtime":                         true,
 	"intrinsic.json.parse":                            true,
 	"intrinsic.json.parse_strict":                     true,
@@ -747,6 +750,7 @@ var coreIntrinsicInfo = map[string]CoreIntrinsicInfo{
 	"intrinsic.exception.message":            intrinsicInfo("intrinsic.exception.message", 1, 1, true, "string"),
 	"intrinsic.exception.is_aborted":         intrinsicInfo("intrinsic.exception.is_aborted", 1, 1, true, "bool"),
 	"intrinsic.exception.is_infrastructure":  intrinsicInfo("intrinsic.exception.is_infrastructure", 1, 1, true, "bool"),
+	"intrinsic.exception.is_refusal":         intrinsicInfo("intrinsic.exception.is_refusal", 1, 1, true, "bool"),
 	"intrinsic.string.format":                intrinsicInfo("intrinsic.string.format", 1, -1, false, "string"),
 	"intrinsic.string.join":                  intrinsicInfo("intrinsic.string.join", 2, 2, false, "string"),
 	"intrinsic.string.slice":                 intrinsicInfo("intrinsic.string.slice", 2, 3, false, "string"),
