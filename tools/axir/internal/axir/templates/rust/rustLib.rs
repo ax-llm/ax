@@ -14973,11 +14973,13 @@ impl AxAIClient for FixtureClient {
     }
 
     fn chat(&mut self, request: Value) -> AxResult<Value> {
-        self.require_expensive_model_confirmation(&request, &json!({}))?;
+        let (request, options) = self.resolve_model_key_request(&request, &json!({}))?;
+        self.require_expensive_model_confirmation(&request, &options)?;
         self.scripted_chat(request)
     }
 
     fn chat_with_options(&mut self, request: Value, options: Value) -> AxResult<Value> {
+        let (request, options) = self.resolve_model_key_request(&request, &options)?;
         self.require_expensive_model_confirmation(&request, &options)?;
         self.chat_options.push(options);
         self.scripted_chat(request)
@@ -14985,6 +14987,19 @@ impl AxAIClient for FixtureClient {
 }
 
 impl FixtureClient {
+    // Resolve model keys the way a real client does, so the gate sees the same
+    // model and key defaults.
+    fn resolve_model_key_request(&self, request: &Value, options: &Value) -> AxResult<(Value, Value)> {
+        let resolved = core_value_to_json(&resolve_model_key(&[
+            core_value_from_json(&self.options),
+            core_value_from_json(request),
+            core_value_from_json(options),
+            core_value_from_json(&json!(self.model)),
+            core_value_from_json(&json!(false)),
+        ])?);
+        Ok((resolved["request"].clone(), resolved["options"].clone()))
+    }
+
     fn scripted_chat(&mut self, request: Value) -> AxResult<Value> {
         self.requests.push(request);
         let response = self

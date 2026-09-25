@@ -15489,7 +15489,6 @@ Value Core::provider_require_expensive_model_confirmation(Value provider, Value 
   Value models = Core::get(client_opts, Value("models"), models_snake);
   Value models_is_list = Core::type_is(models, Value("list"));
   Value resolved_model = model;
-  Value key_entry = Value::object();
   Value key_found = Value(false);
   if (Core::truthy(models_is_list)) {
     for (auto entry : Core::iter(models)) {
@@ -15499,17 +15498,13 @@ Value Core::provider_require_expensive_model_confirmation(Value provider, Value 
       Value use_entry = Core::and_(key_matches, key_missing);
       if (Core::truthy(use_entry)) {
         key_found = Value(true);
-        key_entry = entry;
         Value entry_model = Core::get(entry, Value("model"), model);
         resolved_model = entry_model;
       }
     }
   }
   Value call_confirmation_snake = Core::get(call_opts, Value("use_expensive_model"), Value());
-  Value call_confirmation = Core::get(call_opts, Value("useExpensiveModel"), call_confirmation_snake);
-  Value entry_confirmation_snake = Core::get(key_entry, Value("use_expensive_model"), Value());
-  Value entry_confirmation = Core::get(key_entry, Value("useExpensiveModel"), entry_confirmation_snake);
-  Value confirmation = Core::coalesce(call_confirmation, entry_confirmation);
+  Value confirmation = Core::get(call_opts, Value("useExpensiveModel"), call_confirmation_snake);
   Value confirmed = Core::eq(confirmation, Value("yes"));
   if (Core::truthy(confirmed)) {
     return Value();

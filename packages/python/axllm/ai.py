@@ -14376,7 +14376,6 @@ def provider_require_expensive_model_confirmation(provider: str, model: str, cli
     models = _core_get(client_opts, "models", models_snake)
     models_is_list = _core_type_is(models, "list")
     resolved_model = model
-    key_entry = {}
     key_found = False
     if models_is_list:
         for entry in models:
@@ -14386,7 +14385,6 @@ def provider_require_expensive_model_confirmation(provider: str, model: str, cli
             use_entry = _core_and(key_matches, key_missing)
             if use_entry:
                 key_found = True
-                key_entry = entry
                 entry_model = _core_get(entry, "model", model)
                 resolved_model = entry_model
             else:
@@ -14394,10 +14392,7 @@ def provider_require_expensive_model_confirmation(provider: str, model: str, cli
     else:
         pass
     call_confirmation_snake = _core_get(call_opts, "use_expensive_model", None)
-    call_confirmation = _core_get(call_opts, "useExpensiveModel", call_confirmation_snake)
-    entry_confirmation_snake = _core_get(key_entry, "use_expensive_model", None)
-    entry_confirmation = _core_get(key_entry, "useExpensiveModel", entry_confirmation_snake)
-    confirmation = _core_coalesce(call_confirmation, entry_confirmation)
+    confirmation = _core_get(call_opts, "useExpensiveModel", call_confirmation_snake)
     confirmed = _core_eq(confirmation, "yes")
     if confirmed:
         return None

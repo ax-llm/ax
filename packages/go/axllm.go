@@ -29453,7 +29453,6 @@ func provider_require_expensive_model_confirmation(args ...Value) (Value, error)
 	var v_model Value
 	var v_client_options Value
 	var v_options Value
-	var v_call_confirmation Value
 	var v_call_confirmation_snake Value
 	var v_call_opts Value
 	var v_client_opts Value
@@ -29462,8 +29461,6 @@ func provider_require_expensive_model_confirmation(args ...Value) (Value, error)
 	var v_empty_list Value
 	var v_empty_map Value
 	var v_entry Value
-	var v_entry_confirmation Value
-	var v_entry_confirmation_snake Value
 	var v_entry_key Value
 	var v_entry_model Value
 	var v_error Value
@@ -29472,7 +29469,6 @@ func provider_require_expensive_model_confirmation(args ...Value) (Value, error)
 	var v_has_info Value
 	var v_info Value
 	var v_is_expensive Value
-	var v_key_entry Value
 	var v_key_found Value
 	var v_key_matches Value
 	var v_key_missing Value
@@ -29493,7 +29489,6 @@ func provider_require_expensive_model_confirmation(args ...Value) (Value, error)
 	_ = v_client_options
 	if len(args) > 3 { v_options = args[3] }
 	_ = v_options
-	_ = v_call_confirmation
 	_ = v_call_confirmation_snake
 	_ = v_call_opts
 	_ = v_client_opts
@@ -29502,8 +29497,6 @@ func provider_require_expensive_model_confirmation(args ...Value) (Value, error)
 	_ = v_empty_list
 	_ = v_empty_map
 	_ = v_entry
-	_ = v_entry_confirmation
-	_ = v_entry_confirmation_snake
 	_ = v_entry_key
 	_ = v_entry_model
 	_ = v_error
@@ -29512,7 +29505,6 @@ func provider_require_expensive_model_confirmation(args ...Value) (Value, error)
 	_ = v_has_info
 	_ = v_info
 	_ = v_is_expensive
-	_ = v_key_entry
 	_ = v_key_found
 	_ = v_key_matches
 	_ = v_key_missing
@@ -29534,7 +29526,6 @@ func provider_require_expensive_model_confirmation(args ...Value) (Value, error)
 	v_models = coreGet(v_client_opts, "models", v_models_snake)
 	v_models_is_list = coreTypeIs(v_models, "list")
 	v_resolved_model = v_model
-	v_key_entry = Object()
 	v_key_found = false
 	if coreTruthy(v_models_is_list) {
 		for _, v_entry = range coreIter(v_models) {
@@ -29544,7 +29535,6 @@ func provider_require_expensive_model_confirmation(args ...Value) (Value, error)
 			v_use_entry = _core_and(v_key_matches, v_key_missing)
 			if coreTruthy(v_use_entry) {
 				v_key_found = true
-				v_key_entry = v_entry
 				v_entry_model = coreGet(v_entry, "model", v_model)
 				v_resolved_model = v_entry_model
 			} else {
@@ -29555,10 +29545,7 @@ func provider_require_expensive_model_confirmation(args ...Value) (Value, error)
 	// empty
 	}
 	v_call_confirmation_snake = coreGet(v_call_opts, "use_expensive_model", nil)
-	v_call_confirmation = coreGet(v_call_opts, "useExpensiveModel", v_call_confirmation_snake)
-	v_entry_confirmation_snake = coreGet(v_key_entry, "use_expensive_model", nil)
-	v_entry_confirmation = coreGet(v_key_entry, "useExpensiveModel", v_entry_confirmation_snake)
-	v_confirmation = _core_coalesce(v_call_confirmation, v_entry_confirmation)
+	v_confirmation = coreGet(v_call_opts, "useExpensiveModel", v_call_confirmation_snake)
 	v_confirmed = _core_eq(v_confirmation, "yes")
 	if coreTruthy(v_confirmed) {
 		return nil, nil
@@ -73757,23 +73744,26 @@ func (c *OpenAICompatibleClient) Stream(ctx context.Context, request map[string]
 	}
 	return values, nil
 }
-// resolveModelKey maps a key from the client's model list to that entry's
+// resolveModelKeyRequest maps a key from a client's model list to that entry's
 // model and adds the entry's defaults underneath the caller's options.
+func resolveModelKeyRequest(clientOptions map[string]Value, request map[string]Value, options map[string]Value, defaultModel Value, embed bool) (map[string]Value, map[string]Value) {
+	var callOptions Value
+	if options != nil {
+		callOptions = options
+	}
+	resolved, err := resolve_model_key(clientOptions, request, callOptions, defaultModel, embed)
+	if err != nil {
+		return request, options
+	}
+	return asMap(coreGet(resolved, "request", request)), asMap(coreGet(resolved, "options", Object()))
+}
 func (c *OpenAICompatibleClient) resolveModelKey(request map[string]Value, options map[string]Value, embed bool) (map[string]Value, map[string]Value) {
 	opts := c.optionsSnapshot()
 	defaultModel := coreGet(opts, "model", nil)
 	if embed {
 		defaultModel = coreGet(opts, "embed_model", coreGet(opts, "embedModel", nil))
 	}
-	var callOptions Value
-	if options != nil {
-		callOptions = options
-	}
-	resolved, err := resolve_model_key(opts, request, callOptions, defaultModel, embed)
-	if err != nil {
-		return request, options
-	}
-	return asMap(coreGet(resolved, "request", request)), asMap(coreGet(resolved, "options", Object()))
+	return resolveModelKeyRequest(opts, request, options, defaultModel, embed)
 }
 func (c *OpenAICompatibleClient) prepareChatRequest(request map[string]Value, options map[string]Value) map[string]Value {
 	req := cloneMap(request)
@@ -79861,6 +79851,7 @@ func (f *conformanceScriptedAI) Chat(ctx context.Context, request map[string]Val
 	if model == "" {
 		model = "scripted-chat"
 	}
+	request, options = resolveModelKeyRequest(f.Options, request, options, model, false)
 	if err := requireExpensiveModelConfirmation(name, request, model, f.Options, options); err != nil {
 		return nil, err
 	}

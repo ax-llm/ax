@@ -1,0 +1,60 @@
+{
+  "expected_error_contains": "Model my-premium-model is marked as expensive and requires explicit confirmation. Set useExpensiveModel: \"yes\" to proceed.",
+  "expected_transport_request_count": 0,
+  "kind": "ai_chat",
+  "model": "premium",
+  "name": "expensive-model-client-default-key-entry-does-not-confirm",
+  "provider": "openai",
+  "request": {
+    "chat_prompt": [
+      {
+        "content": "Hello",
+        "role": "user"
+      }
+    ],
+    "model_config": {
+      "stream": false
+    }
+  },
+  "service_options": {
+    "modelInfo": [
+      {
+        "completionTokenCostPer1M": 1,
+        "isExpensive": true,
+        "name": "my-premium-model",
+        "promptTokenCostPer1M": 1
+      }
+    ],
+    "models": [
+      {
+        "description": "Premium",
+        "key": "premium",
+        "model": "my-premium-model",
+        "useExpensiveModel": "yes"
+      }
+    ]
+  },
+  "transport_responses": [
+    {
+      "choices": [
+        {
+          "finish_reason": "stop",
+          "index": 0,
+          "message": {
+            "content": "ok",
+            "role": "assistant"
+          }
+        }
+      ],
+      "created": 1,
+      "id": "chatcmpl-expensive",
+      "model": "my-premium-model",
+      "object": "chat.completion",
+      "usage": {
+        "completion_tokens": 1,
+        "prompt_tokens": 3,
+        "total_tokens": 4
+      }
+    }
+  ]
+}

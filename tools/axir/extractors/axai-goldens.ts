@@ -12039,6 +12039,23 @@ for (const testCase of [
     respond: true,
   },
   {
+    // A key used as the client's default model resolves the model id only;
+    // its entry's useExpensiveModel does not confirm.
+    name: 'expensive-model-client-default-key-entry-does-not-confirm',
+    provider: 'openai',
+    model: 'premium',
+    models: [
+      {
+        key: 'premium',
+        model: 'my-premium-model',
+        description: 'Premium',
+        useExpensiveModel: 'yes',
+      },
+    ],
+    modelInfo: expensiveCustomModelInfo,
+    respond: true,
+  },
+  {
     name: 'expensive-model-info-rejected-without-confirmation',
     provider: 'openai',
     model: 'my-premium-model',

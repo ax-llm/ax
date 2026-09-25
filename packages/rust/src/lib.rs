@@ -20963,11 +20963,13 @@ impl AxAIClient for FixtureClient {
     }
 
     fn chat(&mut self, request: Value) -> AxResult<Value> {
-        self.require_expensive_model_confirmation(&request, &json!({}))?;
+        let (request, options) = self.resolve_model_key_request(&request, &json!({}))?;
+        self.require_expensive_model_confirmation(&request, &options)?;
         self.scripted_chat(request)
     }
 
     fn chat_with_options(&mut self, request: Value, options: Value) -> AxResult<Value> {
+        let (request, options) = self.resolve_model_key_request(&request, &options)?;
         self.require_expensive_model_confirmation(&request, &options)?;
         self.chat_options.push(options);
         self.scripted_chat(request)
@@ -20975,6 +20977,23 @@ impl AxAIClient for FixtureClient {
 }
 
 impl FixtureClient {
+    // Resolve model keys the way a real client does, so the gate sees the same
+    // model and key defaults.
+    fn resolve_model_key_request(
+        &self,
+        request: &Value,
+        options: &Value,
+    ) -> AxResult<(Value, Value)> {
+        let resolved = core_value_to_json(&resolve_model_key(&[
+            core_value_from_json(&self.options),
+            core_value_from_json(request),
+            core_value_from_json(options),
+            core_value_from_json(&json!(self.model)),
+            core_value_from_json(&json!(false)),
+        ])?);
+        Ok((resolved["request"].clone(), resolved["options"].clone()))
+    }
+
     fn scripted_chat(&mut self, request: Value) -> AxResult<Value> {
         self.requests.push(request);
         let response = self.responses.pop_front().ok_or_else(|| {
@@ -58245,7 +58264,6 @@ fn provider_require_expensive_model_confirmation(args: &[CoreValue]) -> Result<C
     let mut v_model = core_arg(args, 1);
     let mut v_client_options = core_arg(args, 2);
     let mut v_options = core_arg(args, 3);
-    let mut v_call_confirmation = CoreValue::Null;
     let mut v_call_confirmation_snake = CoreValue::Null;
     let mut v_call_opts = CoreValue::Null;
     let mut v_client_opts = CoreValue::Null;
@@ -58254,8 +58272,6 @@ fn provider_require_expensive_model_confirmation(args: &[CoreValue]) -> Result<C
     let mut v_empty_list = CoreValue::Null;
     let mut v_empty_map = CoreValue::Null;
     let mut v_entry = CoreValue::Null;
-    let mut v_entry_confirmation = CoreValue::Null;
-    let mut v_entry_confirmation_snake = CoreValue::Null;
     let mut v_entry_key = CoreValue::Null;
     let mut v_entry_model = CoreValue::Null;
     let mut v_error = CoreValue::Null;
@@ -58264,7 +58280,6 @@ fn provider_require_expensive_model_confirmation(args: &[CoreValue]) -> Result<C
     let mut v_has_info = CoreValue::Null;
     let mut v_info = CoreValue::Null;
     let mut v_is_expensive = CoreValue::Null;
-    let mut v_key_entry = CoreValue::Null;
     let mut v_key_found = CoreValue::Null;
     let mut v_key_matches = CoreValue::Null;
     let mut v_key_missing = CoreValue::Null;
@@ -58298,7 +58313,6 @@ fn provider_require_expensive_model_confirmation(args: &[CoreValue]) -> Result<C
     );
     v_models_is_list = core_type_is(&v_models, CoreValue::from("list"));
     v_resolved_model = v_model.clone();
-    v_key_entry = CoreValue::new_map();
     v_key_found = CoreValue::Bool(false);
     if core_truthy(&v_models_is_list) {
         for v_entry in core_iter(&v_models)? {
@@ -58309,7 +58323,6 @@ fn provider_require_expensive_model_confirmation(args: &[CoreValue]) -> Result<C
             v_use_entry = core_and(&[v_key_matches.clone(), v_key_missing.clone()])?;
             if core_truthy(&v_use_entry) {
                 v_key_found = CoreValue::Bool(true);
-                v_key_entry = v_entry.clone();
                 v_entry_model = core_get(&v_entry, &CoreValue::from("model"), v_model.clone());
                 v_resolved_model = v_entry_model.clone();
             }
@@ -58320,22 +58333,11 @@ fn provider_require_expensive_model_confirmation(args: &[CoreValue]) -> Result<C
         &CoreValue::from("use_expensive_model"),
         CoreValue::Null,
     );
-    v_call_confirmation = core_get(
+    v_confirmation = core_get(
         &v_call_opts,
         &CoreValue::from("useExpensiveModel"),
         v_call_confirmation_snake.clone(),
     );
-    v_entry_confirmation_snake = core_get(
-        &v_key_entry,
-        &CoreValue::from("use_expensive_model"),
-        CoreValue::Null,
-    );
-    v_entry_confirmation = core_get(
-        &v_key_entry,
-        &CoreValue::from("useExpensiveModel"),
-        v_entry_confirmation_snake.clone(),
-    );
-    v_confirmation = core_coalesce(&[v_call_confirmation.clone(), v_entry_confirmation.clone()])?;
     v_confirmed = core_eq(&[v_confirmation.clone(), CoreValue::from("yes")])?;
     if core_truthy(&v_confirmed) {
         return Ok(CoreValue::Null);

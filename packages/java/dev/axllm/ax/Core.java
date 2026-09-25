@@ -14280,7 +14280,6 @@ final class Core {
     Object models = Core.get(client_opts, "models", models_snake);
     Object models_is_list = Core.typeIs(models, "list");
     Object resolved_model = model;
-    Object key_entry = new java.util.LinkedHashMap<String, Object>();
     Object key_found = Boolean.FALSE;
     if (Core.truthy(models_is_list)) {
       for (Object entry : Core.iter(models)) {
@@ -14290,17 +14289,13 @@ final class Core {
         Object use_entry = Core.and(key_matches, key_missing);
         if (Core.truthy(use_entry)) {
           key_found = Boolean.TRUE;
-          key_entry = entry;
           Object entry_model = Core.get(entry, "model", model);
           resolved_model = entry_model;
         }
       }
     }
     Object call_confirmation_snake = Core.get(call_opts, "use_expensive_model", null);
-    Object call_confirmation = Core.get(call_opts, "useExpensiveModel", call_confirmation_snake);
-    Object entry_confirmation_snake = Core.get(key_entry, "use_expensive_model", null);
-    Object entry_confirmation = Core.get(key_entry, "useExpensiveModel", entry_confirmation_snake);
-    Object confirmation = Core.coalesce(call_confirmation, entry_confirmation);
+    Object confirmation = Core.get(call_opts, "useExpensiveModel", call_confirmation_snake);
     Object confirmed = Core.eq(confirmation, "yes");
     if (Core.truthy(confirmed)) {
       return null;
