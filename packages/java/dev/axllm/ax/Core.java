@@ -17100,12 +17100,14 @@ final class Core {
         Object has_structured_call = Core.isNotNone(structured_call);
         if (Core.truthy(has_structured_call)) {
           Object structured_failure = Core.none();
+          Object structured_stage = "validation";
           try {
             Object structured_args = Core._structured_output_call_args(structured_call);
             Core._validate_exact_output_keys(output_fields, structured_args, "output");
             Object structured_recovered = Core._parse_json_string_fields(output_fields, structured_args);
             Object structured_validated = Core.validate_output(output_fields, structured_recovered);
             Object structured_processed = Core._apply_field_processors(gen, structured_validated);
+            structured_stage = "assertion";
             Object structured_assertion_failure = Core._run_assertions(gen, structured_processed);
             Object structured_assertion_failed = Core.isNotNone(structured_assertion_failure);
             if (Core.truthy(structured_assertion_failed)) {
@@ -17124,7 +17126,7 @@ final class Core {
             }
             Object structured_next_attempt = Core.add(attempt, 1);
             attempt = structured_next_attempt;
-            Object structured_retry_messages = Core._append_assertion_retry_messages(messages, response, structured_validation_error);
+            Object structured_retry_messages = Core._append_structured_output_retry_messages_impl(messages, response, structured_call, structured_validation_error, structured_stage);
             messages = structured_retry_messages;
             Core.axgenMemoryAddCorrection(gen, response, structured_validation_error);
             continue;
@@ -20564,6 +20566,44 @@ final class Core {
     Object disabled = Core.eq(choice, "none");
     Object callable = Core.not(disabled);
     return callable;
+  }
+
+  static Object _append_structured_output_retry_messages_impl(Object messages, Object response, Object call, Object error, Object stage) {
+    axirCoverageMark("_append_structured_output_retry_messages_impl");
+    Object output_calls = new java.util.ArrayList<Object>();
+    Core.append(output_calls, call);
+    Object with_call = Core._append_tool_call_messages_impl(messages, response, output_calls);
+    Object id = Core.get(call, "id", null);
+    Object direct_name = Core.get(call, "name", null);
+    Object fn = Core.get(call, "function", null);
+    Object name = Core.get(fn, "name", direct_name);
+    Object result_message = new java.util.LinkedHashMap<String, Object>();
+    Core.set(result_message, "role", "function");
+    Core.set(result_message, "function_id", id);
+    Core.set(result_message, "name", name);
+    Core.set(result_message, "result", "done");
+    Core.append(with_call, result_message);
+    Object notice = new java.util.LinkedHashMap<String, Object>();
+    Core.set(notice, "role", "user");
+    Core.set(notice, "content", "The previous tool call failed. Fix arguments and try again, ensuring required fields match schema.");
+    Core.append(with_call, notice);
+    Object error_text = Core.exceptionMessage(error);
+    error_text = Core.stringTrim(error_text);
+    Object correction_text = Core.stringFormat("Invalid Field: {}", error_text);
+    Object is_assertion = Core.eq(stage, "assertion");
+    if (Core.truthy(is_assertion)) {
+      Object has_period = Core.stringEndsWith(error_text, ".");
+      Object period = ".";
+      if (Core.truthy(has_period)) {
+        period = "";
+      }
+      correction_text = Core.stringFormat("Follow these instructions: {}{}", error_text, period);
+    }
+    Object correction = new java.util.LinkedHashMap<String, Object>();
+    Core.set(correction, "role", "user");
+    Core.set(correction, "content", correction_text);
+    Core.append(with_call, correction);
+    return with_call;
   }
 
   static Object _ace_normalize_reflection_bullet_tags(Object reflection) {

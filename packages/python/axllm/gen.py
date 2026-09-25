@@ -4136,12 +4136,14 @@ def _forward_impl(gen: AxGen, client: AIClient, values: Any, options: Any) -> An
             has_structured_call = _core_is_not_none(structured_call)
             if has_structured_call:
                 structured_failure = _core_none()
+                structured_stage = "validation"
                 try:
                     structured_args = _structured_output_call_args(structured_call)
                     _validate_exact_output_keys(output_fields, structured_args, "output")
                     structured_recovered = _parse_json_string_fields(output_fields, structured_args)
                     structured_validated = validate_output(output_fields, structured_recovered)
                     structured_processed = _apply_field_processors(gen, structured_validated)
+                    structured_stage = "assertion"
                     structured_assertion_failure = _run_assertions(gen, structured_processed)
                     structured_assertion_failed = _core_is_not_none(structured_assertion_failure)
                     if structured_assertion_failed:
@@ -4159,7 +4161,7 @@ def _forward_impl(gen: AxGen, client: AIClient, values: Any, options: Any) -> An
                         pass
                     structured_next_attempt = _core_add(attempt, 1)
                     attempt = structured_next_attempt
-                    structured_retry_messages = _append_assertion_retry_messages(messages, response, structured_validation_error)
+                    structured_retry_messages = _append_structured_output_retry_messages_impl(messages, response, structured_call, structured_validation_error, structured_stage)
                     messages = structured_retry_messages
                     _core_axgen_memory_add_correction(gen, response, structured_validation_error)
                     continue
@@ -7782,6 +7784,46 @@ def _user_functions_callable_impl(functions: list[Any], options: Any) -> bool:
     disabled = _core_eq(choice, "none")
     callable = _core_not(disabled)
     return callable
+
+
+def _append_structured_output_retry_messages_impl(messages: list[Any], response: Any, call: Any, error: error, stage: str) -> list[Any]:
+    _core_coverage_mark("_append_structured_output_retry_messages_impl")
+    output_calls = []
+    output_calls.append(call)
+    with_call = _append_tool_call_messages_impl(messages, response, output_calls)
+    id = _core_get(call, "id", None)
+    direct_name = _core_get(call, "name", None)
+    fn = _core_get(call, "function", None)
+    name = _core_get(fn, "name", direct_name)
+    result_message = {}
+    result_message["role"] = "function"
+    result_message["function_id"] = id
+    result_message["name"] = name
+    result_message["result"] = "done"
+    with_call.append(result_message)
+    notice = {}
+    notice["role"] = "user"
+    notice["content"] = "The previous tool call failed. Fix arguments and try again, ensuring required fields match schema."
+    with_call.append(notice)
+    error_text = _core_exception_message(error)
+    error_text = str(error_text).strip()
+    correction_text = _core_string_format("Invalid Field: {}", error_text)
+    is_assertion = _core_eq(stage, "assertion")
+    if is_assertion:
+        has_period = _core_string_ends_with(error_text, ".")
+        period = "."
+        if has_period:
+            period = ""
+        else:
+            pass
+        correction_text = _core_string_format("Follow these instructions: {}{}", error_text, period)
+    else:
+        pass
+    correction = {}
+    correction["role"] = "user"
+    correction["content"] = correction_text
+    with_call.append(correction)
+    return with_call
 
 
 def _ace_normalize_reflection_bullet_tags(reflection: Any) -> list[Any]:
