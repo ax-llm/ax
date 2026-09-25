@@ -37,6 +37,10 @@ def _core_string_split_once(value, sep):
     left, marker, right = str(value).partition(str(sep))
     return {"left": left, "right": right, "found": bool(marker)}
 
+
+def _core_string_split(value, sep):
+    return str(value).split(str(sep))
+
 AxUsageContext = dict[str, Any]
 AxUsageEvent = dict[str, Any]
 AxUsageObserver = Callable[[AxUsageEvent], Any]
@@ -681,7 +685,12 @@ def _realtime_event_is_done(event: dict[str, Any]) -> bool:
     if event.get("type") in ("response.done", "response.completed"):
         return True
     server_content = event.get("serverContent")
-    return bool(server_content and server_content.get("turnComplete"))
+    # Extended thinking ends an acknowledgement turn IN_PROGRESS and answers in the next turn.
+    return bool(
+        server_content
+        and server_content.get("turnComplete")
+        and server_content.get("interactionStatus") != "IN_PROGRESS"
+    )
 
 
 class ScriptedRealtimeTransport:
@@ -11064,6 +11073,50 @@ def _gemini_normalize_speak_response(raw: Any, request: Any) -> Any:
     has_mime = _core_truthy(mime_type)
     if has_mime:
         out["mime_type"] = mime_type
+        mime_params = _audio_mime_params_impl(mime_type)
+        out = _core_map_merge(out, mime_params)
+    else:
+        pass
+    return out
+
+
+def _audio_mime_params_impl(mime_type: str) -> Any:
+    _core_coverage_mark("_audio_mime_params_impl")
+    out = {}
+    lower = _core_string_lower(mime_type)
+    media = _core_string_split_once(lower, ";")
+    has_params = _core_get(media, "found", False)
+    if has_params:
+        params_text = _core_get(media, "right", "")
+        params = _core_string_split(params_text, ";")
+        for param in params:
+            pair = _core_string_split_once(param, "=")
+            has_value = _core_get(pair, "found", False)
+            if has_value:
+                key = _core_get(pair, "left", "")
+                key = str(key).strip()
+                value = _core_get(pair, "right", "")
+                value = str(value).strip()
+                is_number = _core_regex_match("^[0-9]+(\\.[0-9]+)?$", value)
+                if is_number:
+                    try:
+                        number = _core_json_parse(value)
+                        is_rate = _core_eq(key, "rate")
+                        if is_rate:
+                            out["sample_rate"] = number
+                        else:
+                            pass
+                        is_channels = _core_eq(key, "channels")
+                        if is_channels:
+                            out["channels"] = number
+                        else:
+                            pass
+                    except Exception as parse_error:
+                        pass
+                else:
+                    pass
+            else:
+                pass
     else:
         pass
     return out
@@ -11424,6 +11477,22 @@ def _gemini_live_bidi_normalize_realtime_event(event: Any, state: Any, ai_name: 
     has_output_transcription = _core_is_not_none(output_transcription)
     if has_output_transcription:
         transcript_text = _core_get(output_transcription, "text", "")
+        turn_break = _core_get(state, "turn_break", False)
+        previous_transcript = _core_get(state, "last_transcript", "")
+        has_previous_transcript = _core_truthy(previous_transcript)
+        previous_spaced = _core_regex_match("\\s$", previous_transcript)
+        next_spaced = _core_regex_match("^\\s", transcript_text)
+        previous_open = _core_not(previous_spaced)
+        next_open = _core_not(next_spaced)
+        after_previous = _core_and(turn_break, has_previous_transcript)
+        words_touch = _core_and(previous_open, next_open)
+        needs_space = _core_and(after_previous, words_touch)
+        if needs_space:
+            transcript_text = _core_string_format(" {}", transcript_text)
+        else:
+            pass
+        state["turn_break"] = False
+        state["last_transcript"] = transcript_text
         text_parts.append(transcript_text)
     else:
         pass
@@ -11464,7 +11533,12 @@ def _gemini_live_bidi_normalize_realtime_event(event: Any, state: Any, ai_name: 
         pass
     turn_complete = _core_get(server, "turnComplete", False)
     if turn_complete:
-        result["finish_reason"] = "stop"
+        interaction_status = _core_get(server, "interactionStatus", "")
+        interaction_in_progress = _core_eq(interaction_status, "IN_PROGRESS")
+        if interaction_in_progress:
+            state["turn_break"] = True
+        else:
+            result["finish_reason"] = "stop"
     else:
         pass
     usage = _core_get(event, "usageMetadata", None)

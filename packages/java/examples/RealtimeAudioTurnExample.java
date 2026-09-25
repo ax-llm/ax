@@ -118,6 +118,25 @@ public final class RealtimeAudioTurnExample {
     } catch (RuntimeException error) {
       if (!error.getMessage().contains("closed before audio upload completed")) throw error;
     }
+    // Gemini Live extended thinking: an acknowledgement turn ends IN_PROGRESS and the
+    // answer follows in a second turn, so the driver must keep reading past it.
+    OpenAICompatibleClient gemini = (OpenAICompatibleClient) Ax.ai("google-gemini", Map.of("model", "gemini-3.8-live-extended-thinking", "api_key", "test-key"));
+    OpenAICompatibleClient.ScriptedRealtimeTransport geminiTransport = new OpenAICompatibleClient.ScriptedRealtimeTransport(List.of(
+        Map.of("setupComplete", Map.of()),
+        Map.of("serverContent", Map.of("outputTranscription", Map.of("text", "Let me think."))),
+        Map.of("serverContent", Map.of("turnComplete", true, "interactionStatus", "IN_PROGRESS")),
+        Map.of("serverContent", Map.of("outputTranscription", Map.of("text", "Hello there."))),
+        Map.of("serverContent", Map.of("modelTurn", Map.of("parts", List.of(Map.of("inlineData", Map.of("mimeType", "audio/pcm", "data", "AQI=")))))),
+        Map.of("serverContent", Map.of("turnComplete", true, "interactionStatus", "IDLE"))));
+    Map<String, Object> geminiFinal = gemini.realtimeChat(
+        Map.of("model", "gemini-3.8-live-extended-thinking", "chat_prompt", List.of(Map.of("role", "user", "content", "Say hello."))),
+        geminiTransport);
+    Map<?, ?> geminiResult = (Map<?, ?>) ((List<?>) geminiFinal.get("results")).get(0);
+    Object geminiAudio = geminiResult.get("audio");
+    if (!"Let me think. Hello there.".equals(geminiResult.get("content")) || !"stop".equals(geminiResult.get("finish_reason"))
+        || !(geminiAudio instanceof Map) || !"AQI=".equals(((Map<?, ?>) geminiAudio).get("data"))) {
+      fail("Gemini extended-thinking turn cut short", geminiFinal);
+    }
     AxMemory memory = new AxMemory();
     memory.updateResult(Map.of("thought_blocks", List.of(Map.of("id", "r", "data", "Plan")), "images", List.of(Map.of("id", "image", "data", "partial"))));
     memory.updateResult(Map.of("thought_blocks", List.of(Map.of("id", "r", "data", "Plan.", "summary", "Plan.", "encrypted_content", "opaque"))));

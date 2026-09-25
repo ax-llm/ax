@@ -35,6 +35,10 @@ def _core_string_split_once(value, sep):
     left, marker, right = str(value).partition(str(sep))
     return {"left": left, "right": right, "found": bool(marker)}
 
+
+def _core_string_split(value, sep):
+    return str(value).split(str(sep))
+
 AxUsageContext = dict[str, Any]
 AxUsageEvent = dict[str, Any]
 AxUsageObserver = Callable[[AxUsageEvent], Any]
@@ -679,7 +683,12 @@ def _realtime_event_is_done(event: dict[str, Any]) -> bool:
     if event.get("type") in ("response.done", "response.completed"):
         return True
     server_content = event.get("serverContent")
-    return bool(server_content and server_content.get("turnComplete"))
+    # Extended thinking ends an acknowledgement turn IN_PROGRESS and answers in the next turn.
+    return bool(
+        server_content
+        and server_content.get("turnComplete")
+        and server_content.get("interactionStatus") != "IN_PROGRESS"
+    )
 
 
 class ScriptedRealtimeTransport:

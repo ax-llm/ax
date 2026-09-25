@@ -1559,7 +1559,7 @@
     },
     {
       "id": "axir-2026-09-23-port-gemini-live-turn-continuation-while-interactionstatus-is-in",
-      "status": "open",
+      "status": "done",
       "title": "Port Gemini Live turn continuation while interactionStatus is IN_PROGRESS",
       "createdAt": "2026-09-23",
       "sourcePR": null,
@@ -1576,13 +1576,13 @@
         "Separate the acknowledgement and answer transcripts with a space when merging the turn",
         "Add a two-turn Gemini Live conformance fixture and run npm run test:axir"
       ],
-      "completedAt": null,
-      "completedByCommit": null,
-      "verification": null
+      "completedAt": "2026-09-25",
+      "completedByCommit": "5ea5107784792985cf00c33634e717dd2ed8031f",
+      "verification": "The Gemini Live fold in provider.axir sets finish_reason stop only when interactionStatus is not IN_PROGRESS and records the turn break in the per-turn state; the next transcript chunk gets a leading space unless either side already has whitespace (the TS rule). realtimeEventIsDone in the five driver templates keeps reading past an IN_PROGRESS turnComplete. Fixtures gemini-live-realtime-audio-extended-thinking-two-turns and gemini-live-realtime-audio-turn-break-keeps-existing-space; every port's realtime_audio_turn example scripts a two-turn Gemini exchange (the old Python done check fails it). Live gemini-3.8-live-extended-thinking: Python and Java now return acknowledgement plus answer ('Let me calculate that for you. 17 times 23 is 391.') where main returned only the acknowledgement. axir verify --mode release passed for all five targets; go test passed apart from the C++ portable-cancellation load flake (C++ axai 400/400 when rerun alone) and the pre-existing TestPublicGeneratedSurfaceHygiene failure fixed by #699; axir:check-packages and axir:conformance:check passed."
     },
     {
       "id": "axir-2026-09-23-port-speak-samplerate-channels-parsed-from-raw-pcm-mime-types",
-      "status": "open",
+      "status": "done",
       "title": "Port speak() sampleRate/channels parsed from raw-PCM mime types",
       "createdAt": "2026-09-23",
       "sourcePR": null,
@@ -1595,9 +1595,9 @@
         "Update AxIR/Core or descriptor data to match the portable TS behavior.",
         "Run npm run axir:conformance:check and npm run test:axir."
       ],
-      "completedAt": null,
-      "completedByCommit": null,
-      "verification": null
+      "completedAt": "2026-09-25",
+      "completedByCommit": "5ea5107784792985cf00c33634e717dd2ed8031f",
+      "verification": "@gemini_normalize_speak_response adds sample_rate and channels parsed from the mime parameters by @audio_mime_params_impl, mirroring axAudioParamsFromMimeType (case-insensitive keys, numeric values only). Fixtures gemini-31-flash-tts-raw-pcm-is-labelled-pcm16 (now expects sample_rate 24000, channels 1) and gemini-tts-raw-pcm-mime-parameters-are-parsed pass in all five ports. Live gemini-3.1-flash-tts-preview through the Python port returns pcm16 with sample_rate 24000 and channels 1; main returned neither. Binary speak responses reach the ports without their Content-Type, and OpenAI's speech content types (audio/pcm, audio/wav, audio/mpeg, checked live) carry no parameters, so TS reads none there either. axir verify --mode release passed for all five targets."
     },
     {
       "id": "axir-2026-09-23-port-the-expensive-model-confirmation-gate-now-reachable-from-ax",

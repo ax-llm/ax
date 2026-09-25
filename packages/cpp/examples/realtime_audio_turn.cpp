@@ -129,6 +129,31 @@ int main() {
   } catch (const std::exception& error) {
     if (std::string(error.what()).find("closed before audio upload completed") == std::string::npos) throw;
   }
+  // Gemini Live extended thinking: an acknowledgement turn ends IN_PROGRESS and the
+  // answer follows in a second turn, so the driver must keep reading past it.
+  auto gemini = std::dynamic_pointer_cast<axllm::OpenAICompatibleClient>(axllm::ai("google-gemini", axllm::parse_json(R"({"model":"gemini-3.8-live-extended-thinking","api_key":"test-key"})")));
+  std::vector<axllm::Value> gemini_inbound = {
+      axllm::parse_json(R"({"setupComplete":{}})"),
+      axllm::parse_json(R"({"serverContent":{"outputTranscription":{"text":"Let me think."}}})"),
+      axllm::parse_json(R"({"serverContent":{"turnComplete":true,"interactionStatus":"IN_PROGRESS"}})"),
+      axllm::parse_json(R"({"serverContent":{"outputTranscription":{"text":"Hello there."}}})"),
+      axllm::parse_json(R"({"serverContent":{"modelTurn":{"parts":[{"inlineData":{"mimeType":"audio/pcm","data":"AQI="}}]}}})"),
+      axllm::parse_json(R"({"serverContent":{"turnComplete":true,"interactionStatus":"IDLE"}})"),
+  };
+  axllm::ScriptedRealtimeTransport gemini_transport(gemini_inbound);
+  axllm::Value gemini_final = gemini->realtime_chat(
+      axllm::parse_json(R"({"model":"gemini-3.8-live-extended-thinking","chat_prompt":[{"role":"user","content":"Say hello."}]})"),
+      &gemini_transport);
+  axllm::Value gemini_result;
+  for (const auto& entry : axllm::Core::iter(axllm::Core::get(gemini_final, "results"))) {
+    gemini_result = entry;
+    break;
+  }
+  if (axllm::stringify(axllm::Core::get(gemini_result, "content")) != "\"Let me think. Hello there.\"" ||
+      axllm::stringify(axllm::Core::get(gemini_result, "finish_reason")) != "\"stop\"" ||
+      axllm::stringify(axllm::Core::get(axllm::Core::get(gemini_result, "audio"), "data")) != "\"AQI=\"") {
+    fail("Gemini extended-thinking turn cut short", gemini_final);
+  }
   axllm::AxMemory memory;
   memory.update_result(axllm::parse_json(R"({"thought_blocks":[{"id":"r","data":"Plan"}],"images":[{"id":"image","data":"partial"}]})"));
   memory.update_result(axllm::parse_json(R"({"thought_blocks":[{"id":"r","data":"Plan.","summary":"Plan.","encrypted_content":"opaque"}]})"));

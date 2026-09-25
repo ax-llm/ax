@@ -6990,6 +6990,52 @@ module @ax.provider version "0.1" {
       %has_mime = core.call intrinsic.truthy(%mime_type)
       core.if %has_mime {
         core.set %out["mime_type"] = %mime_type
+        %mime_params = core.call @audio_mime_params_impl(%mime_type)
+        %out = core.call intrinsic.map.merge(%out, %mime_params)
+      }
+      core.return %out
+    }
+  }
+
+  op ax.provider.semantic @audio_mime_params_impl {
+    attr core_kind = "func"
+    attr emit_module = "ai"
+    attr private = true
+    tag "src/ax/ai/audio/util.ts"
+    type signature = "(string) -> json"
+    body @entry(%mime_type: string) {
+      %out = core.map
+      %lower = core.call intrinsic.string.lower(%mime_type)
+      %media = core.call intrinsic.string.split_once(%lower, ";")
+      %has_params = core.get %media["found"] default false
+      core.if %has_params {
+        %params_text = core.get %media["right"] default ""
+        %params = core.call intrinsic.string.split(%params_text, ";")
+        core.for %param in %params {
+          %pair = core.call intrinsic.string.split_once(%param, "=")
+          %has_value = core.get %pair["found"] default false
+          core.if %has_value {
+            %key = core.get %pair["left"] default ""
+            %key = core.string_trim %key
+            %value = core.get %pair["right"] default ""
+            %value = core.string_trim %value
+            %is_number = core.regex_match %value pattern "^[0-9]+(\\.[0-9]+)?$"
+            core.if %is_number {
+              core.try {
+                %number = core.call intrinsic.json.parse(%value)
+                %is_rate = core.call intrinsic.eq(%key, "rate")
+                core.if %is_rate {
+                  core.set %out["sample_rate"] = %number
+                }
+                %is_channels = core.call intrinsic.eq(%key, "channels")
+                core.if %is_channels {
+                  core.set %out["channels"] = %number
+                }
+              } catch %parse_error {
+              }
+            }
+          }
+        }
       }
       core.return %out
     }
@@ -7363,6 +7409,21 @@ module @ax.provider version "0.1" {
       %has_output_transcription = core.call intrinsic.is_not_none(%output_transcription)
       core.if %has_output_transcription {
         %transcript_text = core.get %output_transcription["text"] default ""
+        %turn_break = core.get %state["turn_break"] default false
+        %previous_transcript = core.get %state["last_transcript"] default ""
+        %has_previous_transcript = core.call intrinsic.truthy(%previous_transcript)
+        %previous_spaced = core.regex_match %previous_transcript pattern "\\s$"
+        %next_spaced = core.regex_match %transcript_text pattern "^\\s"
+        %previous_open = core.call intrinsic.not(%previous_spaced)
+        %next_open = core.call intrinsic.not(%next_spaced)
+        %after_previous = core.call intrinsic.and(%turn_break, %has_previous_transcript)
+        %words_touch = core.call intrinsic.and(%previous_open, %next_open)
+        %needs_space = core.call intrinsic.and(%after_previous, %words_touch)
+        core.if %needs_space {
+          %transcript_text = core.call intrinsic.string.format(" {}", %transcript_text)
+        }
+        core.set %state["turn_break"] = false
+        core.set %state["last_transcript"] = %transcript_text
         core.append %text_parts, %transcript_text
       }
       %input_transcription = core.get %server["inputTranscription"]
@@ -7402,7 +7463,13 @@ module @ax.provider version "0.1" {
       }
       %turn_complete = core.get %server["turnComplete"] default false
       core.if %turn_complete {
-        core.set %result["finish_reason"] = "stop"
+        %interaction_status = core.get %server["interactionStatus"] default ""
+        %interaction_in_progress = core.call intrinsic.eq(%interaction_status, "IN_PROGRESS")
+        core.if %interaction_in_progress {
+          core.set %state["turn_break"] = true
+        } else {
+          core.set %result["finish_reason"] = "stop"
+        }
       }
       %usage = core.get %event["usageMetadata"]
       %gemini_usage = core.call @gemini_usage_impl(%usage)
