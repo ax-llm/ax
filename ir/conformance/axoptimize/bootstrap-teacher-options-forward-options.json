@@ -16,6 +16,11 @@
       "score": 0.75
     }
   ],
+  "expected_artifact_subset": {
+    "artifactVersion": "axir-optimized-artifact-v1",
+    "optimizerName": "BootstrapFewShot",
+    "optimizerVersion": "axir-bootstrap-fewshot-v1"
+  },
   "expected_demo_count": 1,
   "expected_evaluate_options_subset": [
     {
