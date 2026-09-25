@@ -1,5 +1,5 @@
 {
-  "expected_error_contains": "Required field is missing",
+  "expected_error_contains": "to be a number",
   "expected_request_count": 2,
   "input": {
     "question": "Status?"
@@ -17,11 +17,11 @@
       }
     },
     {
-      "content": "{}"
+      "content": "{\"answer\":\"not a number\"}"
     },
     {
-      "content": "Answer: Recovered"
+      "content": "Answer: 4"
     }
   ],
-  "signature": "question:string -> answer:string"
+  "signature": "question:string -> answer:number"
 }

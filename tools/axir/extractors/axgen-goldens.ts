@@ -1210,10 +1210,14 @@ writeFixture('refusal-retries-exhausted', {
 
 writeFixture('refusal-shares-validation-budget', {
   kind: 'forward',
-  signature: 'question:string -> answer:string',
+  signature: 'question:string -> answer:number',
   input: { question: 'Status?' },
   options: { validation_retries: 1 },
-  responses: [refusal, { content: '{}' }, recovered],
-  expected_error_contains: 'Required field is missing',
+  responses: [
+    refusal,
+    { content: '{"answer":"not a number"}' },
+    { content: 'Answer: 4' },
+  ],
+  expected_error_contains: 'to be a number',
   expected_request_count: 2,
 });
