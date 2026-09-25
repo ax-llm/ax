@@ -228,6 +228,122 @@ module @ax.ai version "0.1" {
     type signature = "(AxAIService, requested?:string, embed?:bool) -> string throws"
   }
 
+  op ax.ai.semantic @resolve_model_key {
+    attr core_kind = "func"
+    attr emit_module = "ai"
+    tag "src/ax/ai/base.ts"
+    type signature = "(client_options:json, request:json, options:json, default_model:json, embed:bool) -> json"
+    body @entry(%client_options: json, %request: json, %options: json, %default_model: json, %embed: bool) {
+      %empty_models = core.list
+      %model_list_camel = core.get %client_options["modelList"] default %empty_models
+      %model_list_snake = core.get %client_options["model_list"] default %model_list_camel
+      %models = core.get %client_options["models"] default %model_list_snake
+      %call_options = core.map
+      %has_call_options = core.call intrinsic.is_not_none(%options)
+      core.if %has_call_options {
+        %call_options = core.call intrinsic.map.merge(%call_options, %options)
+      }
+      %request_copy = core.map
+      %resolved = core.call intrinsic.map.merge(%request_copy, %request)
+      %field = core.let "model"
+      %requested = core.get %request["model"]
+      core.if %embed {
+        %field = core.let "embed_model"
+        %requested_camel = core.get %request["embedModel"]
+        %requested = core.get %request["embed_model"] default %requested_camel
+      }
+      %has_requested = core.call intrinsic.truthy(%requested)
+      %lookup = core.let %requested
+      core.if %has_requested {
+      } else {
+        %lookup = core.let %default_model
+      }
+      %entry = core.call intrinsic.none()
+      %has_models = core.call intrinsic.truthy(%models)
+      %has_lookup = core.call intrinsic.truthy(%lookup)
+      %can_match = core.call intrinsic.and(%has_models, %has_lookup)
+      core.if %can_match {
+        core.for %candidate in %models {
+          %candidate_key = core.get %candidate["key"]
+          %matches = core.call intrinsic.eq(%candidate_key, %lookup)
+          %unmatched = core.call intrinsic.is_none(%entry)
+          %take = core.call intrinsic.and(%matches, %unmatched)
+          core.if %take {
+            %entry = core.let %candidate
+          }
+        }
+      }
+      %out = core.map
+      %has_entry = core.call intrinsic.is_not_none(%entry)
+      core.if %has_entry {
+        %target = core.get %entry["model"]
+        core.if %embed {
+          %target_snake = core.get %entry["embed_model"]
+          %target = core.get %entry["embedModel"] default %target_snake
+        }
+        %has_target = core.call intrinsic.is_not_none(%target)
+        core.if %has_target {
+          core.set %resolved[%field] = %target
+          core.if %embed {
+            core.call intrinsic.map.delete(%resolved, "embedModel")
+          }
+        }
+      }
+      %key_defaults = core.call intrinsic.and(%has_entry, %has_requested)
+      core.if %key_defaults {
+        %chat = core.call intrinsic.not(%embed)
+        core.if %chat {
+          %entry_config_snake = core.get %entry["model_config"]
+          %entry_config = core.get %entry["modelConfig"] default %entry_config_snake
+          %has_entry_config = core.call intrinsic.truthy(%entry_config)
+          core.if %has_entry_config {
+            %no_request_config = core.map
+            %request_config_camel = core.get %request["modelConfig"] default %no_request_config
+            %request_config = core.get %request["model_config"] default %request_config_camel
+            %merged_config = core.call intrinsic.map.merge(%entry_config, %request_config)
+            core.set %resolved["model_config"] = %merged_config
+            core.call intrinsic.map.delete(%resolved, "modelConfig")
+          }
+          core.call @apply_model_key_option_impl(%call_options, %entry, "serviceTier", "service_tier")
+        }
+        core.call @apply_model_key_option_impl(%call_options, %entry, "thinkingTokenBudget", "thinking_token_budget")
+        core.call @apply_model_key_option_impl(%call_options, %entry, "showThoughts", "show_thoughts")
+        core.call @apply_model_key_option_impl(%call_options, %entry, "stream", "stream")
+        core.call @apply_model_key_option_impl(%call_options, %entry, "debug", "debug")
+        core.call @apply_model_key_option_impl(%call_options, %entry, "useExpensiveModel", "use_expensive_model")
+        core.call @apply_model_key_option_impl(%call_options, %entry, "beta", "beta")
+      }
+      core.set %out["request"] = %resolved
+      core.set %out["options"] = %call_options
+      core.return %out
+    }
+  }
+
+  op ax.ai.semantic @apply_model_key_option_impl {
+    attr core_kind = "func"
+    attr emit_module = "ai"
+    attr private = true
+    tag "src/ax/ai/base.ts"
+    type signature = "(options:json, entry:json, camel:string, snake:string) -> void"
+    body @entry(%options: json, %entry: json, %camel: string, %snake: string) {
+      %call_camel = core.get %options[%camel]
+      %call_snake = core.get %options[%snake]
+      %has_call_camel = core.call intrinsic.is_not_none(%call_camel)
+      %has_call_snake = core.call intrinsic.is_not_none(%call_snake)
+      %caller_set = core.call intrinsic.or(%has_call_camel, %has_call_snake)
+      core.if %caller_set {
+        core.return
+      }
+      %entry_snake = core.get %entry[%snake]
+      %entry_value = core.get %entry[%camel] default %entry_snake
+      %has_entry_value = core.call intrinsic.is_not_none(%entry_value)
+      core.if %has_entry_value {
+        core.set %options[%camel] = %entry_value
+      }
+      core.return
+    }
+  }
+
   op ax.ai.semantic @merge_model_config {
     attr core_kind = "func"
     attr emit_module = "ai"

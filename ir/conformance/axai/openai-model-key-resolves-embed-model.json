@@ -1,0 +1,52 @@
+{
+  "embed_model": "text-embedding-3-large",
+  "expected_transport_request": {
+    "json": {
+      "model": "text-embedding-3-small"
+    }
+  },
+  "kind": "ai_embed",
+  "model": "gpt-5.4-mini",
+  "name": "openai-model-key-resolves-embed-model",
+  "provider": "openai",
+  "request": {
+    "embed_model": "embed-small",
+    "texts": ["a"]
+  },
+  "service_options": {
+    "models": [
+      {
+        "description": "Smarter answers",
+        "key": "smart",
+        "model": "gpt-5.4",
+        "modelConfig": {
+          "maxTokens": 64
+        },
+        "thinkingTokenBudget": "low"
+      },
+      {
+        "description": "Small embeddings",
+        "embedModel": "text-embedding-3-small",
+        "key": "embed-small"
+      }
+    ]
+  },
+  "transport_responses": [
+    {
+      "json": {
+        "data": [
+          {
+            "embedding": [0.1],
+            "index": 0
+          }
+        ],
+        "model": "text-embedding-3-small",
+        "usage": {
+          "prompt_tokens": 1,
+          "total_tokens": 1
+        }
+      },
+      "status": 200
+    }
+  ]
+}

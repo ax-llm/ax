@@ -546,6 +546,10 @@ class AxBaseAI : public AxAIService {
   AxBaseAI& set_meter(std::shared_ptr<AxMeter> meter) override;
 
  protected:
+  // A key from the client's model list stands for that entry's model and brings
+  // the entry's defaults underneath the caller's options. Returns the resolved
+  // "request" and "options".
+  Value resolve_model_key_request(Value request, Value call_options, bool embed) const;
   std::string name_;
   std::string model_;
   std::string embed_model_;

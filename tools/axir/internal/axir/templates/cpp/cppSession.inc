@@ -141,6 +141,8 @@ class ResponsesChatSession final:public AxChatSession {
 OpenAICompatibleClient& OpenAICompatibleClient::session_web_socket_factory(SessionWebSocketFactory factory){session_socket_factory_=std::move(factory);Core::set(options_,"session_web_socket_available",static_cast<bool>(session_socket_factory_));return *this;}
 OpenAICompatibleClient& OpenAICompatibleClient::shared_transport(std::shared_ptr<Transport> transport){if(!transport)throw AxError("validation","Transport must not be null");owned_transport_=std::move(transport);transport_=owned_transport_.get();return *this;}
 std::shared_ptr<AxChatSession> OpenAICompatibleClient::open_chat_session(Value request,Value options){
+  Value resolved=resolve_model_key_request(std::move(request),std::move(options),false);
+  request=Core::get(resolved,"request");options=Core::get(resolved,"options");
   std::string model=display(Core::coalesce(Core::get(request,"model"),model_));
   if((profile_!="openai"&&profile_!="openai-responses")||model.rfind("gpt-6-astra",0)!=0||(!owned_transport_&&!session_socket_factory_))return {};
   return std::make_shared<ResponsesChatSession>(*this,std::move(request),std::move(options));

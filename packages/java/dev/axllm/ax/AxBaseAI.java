@@ -79,11 +79,20 @@ public abstract class AxBaseAI implements AxAIService {
     return chat(request, Map.of());
   }
 
+  // A key from the client's model list stands for that entry's model and brings
+  // the entry's defaults underneath the caller's settings. Returns the resolved
+  // "request" and "options".
+  protected Map<String, Object> resolveModelKey(Map<String, Object> request, Map<String, Object> callOptions, boolean embed) {
+    return Core.asMap(Core.resolve_model_key(options, request, callOptions == null ? Map.of() : callOptions, embed ? embedModel : model, embed));
+  }
+
   public Map<String, Object> chat(Map<String, Object> request, Map<String, Object> callOptions) throws Exception {
     AxCancellationToken cancellation=cancellation(callOptions);if(cancellation!=null)cancellation.throwIfCancelled();
     if(cancellation!=null)ACTIVE_CANCELLATION.set(cancellation);
     AxRuntimeHooks hooks = AxGlobals.effective(callOptions, runtimeHooks);
-    Map<String, Object> req = Core.coerceChatRequest(request);
+    Map<String, Object> resolved = resolveModelKey(Core.coerceChatRequest(request), callOptions, false);
+    Map<String, Object> req = Core.asMap(resolved.get("request"));
+    callOptions = Core.asMap(resolved.get("options"));
     Core.validate_chat_request(req);
     Map<String, Object> mergedOptions = mergedOptions(callOptions);
     Object rawModel = req.get("model");
@@ -132,6 +141,9 @@ public abstract class AxBaseAI implements AxAIService {
     AxCancellationToken cancellation=cancellation(callOptions);if(cancellation!=null)cancellation.throwIfCancelled();
     if(cancellation!=null)ACTIVE_CANCELLATION.set(cancellation);
     AxRuntimeHooks hooks = AxGlobals.effective(callOptions, runtimeHooks);
+    Map<String, Object> resolved = resolveModelKey(request, callOptions, true);
+    request = Core.asMap(resolved.get("request"));
+    callOptions = Core.asMap(resolved.get("options"));
     Object texts = request.get("texts");
     if (!(texts instanceof java.util.List<?> list) || list.isEmpty()) throw new AxAIServiceResponseError("Embed texts is empty");
     Object modelValue = request.getOrDefault("embed_model", request.get("embedModel"));

@@ -48,7 +48,8 @@ public class OpenAICompatibleClient extends AxBaseAI implements AxChatSession.Pr
     };
   }
   public AxChatSession openChatSession(Map<String,Object> request,Map<String,Object> options) throws Exception {
-    return new ResponsesChatSession(this,request,options);
+    Map<String, Object> resolved = resolveModelKey(request, options, false);
+    return new ResponsesChatSession(this,Core.asMap(resolved.get("request")),Core.asMap(resolved.get("options")));
   }
   public interface Transport {
     default java.util.function.Supplier<Transport> ownedWorkerFactory() { return null; }
@@ -238,7 +239,7 @@ public class OpenAICompatibleClient extends AxBaseAI implements AxChatSession.Pr
   }
 
   @Override public void validateChatRequest(Map<String, Object> request) {
-    Map<String, Object> req = Core.asMap(Core.coerceChatRequest(request));
+    Map<String, Object> req = Core.asMap(resolveModelKey(Core.coerceChatRequest(request), null, false).get("request"));
     req.put("model", req.get("model") == null ? model : req.get("model"));
     req.put("model_config", Core.merge_model_config(modelConfig, req.get("model_config"), options));
     Core.provider_validate_chat_request(profile, req, options);
@@ -433,8 +434,11 @@ public class OpenAICompatibleClient extends AxBaseAI implements AxChatSession.Pr
   @Override public AxChatStream openStream(Map<String, Object> request) throws Exception {return openStream(request,null);}
 
   @Override public AxChatStream openStream(Map<String,Object> request,AxCancellationToken cancellation)throws Exception {
+    Map<String, Object> resolved = resolveModelKey(Core.coerceChatRequest(request), null, false);
+    request = Core.asMap(resolved.get("request"));
+    Map<String, Object> keyOptions = Core.asMap(resolved.get("options"));
     if(Boolean.FALSE.equals(getFeatures((String)request.get("model")).get("streaming"))) {
-      Map<String,Object> callOptions=new LinkedHashMap<>();callOptions.put("stream",false);if(cancellation!=null)callOptions.put("cancellation",cancellation);
+      Map<String,Object> callOptions=new LinkedHashMap<>(keyOptions);callOptions.put("stream",false);if(cancellation!=null)callOptions.put("cancellation",cancellation);
       return AxChatStream.fromIterable(List.of(chat(request,callOptions)));
     }
     if(cancellation!=null)cancellation.throwIfCancelled();
@@ -445,7 +449,7 @@ public class OpenAICompatibleClient extends AxBaseAI implements AxChatSession.Pr
     modelConfig.put("stream", true);
     req.put("model", req.getOrDefault("model", model));
     req.put("model_config", modelConfig);
-    Map<String,Object> callOptions=new LinkedHashMap<>(Map.of("stream",true));if(cancellation!=null)callOptions.put("cancellation",cancellation);
+    Map<String,Object> callOptions=new LinkedHashMap<>(keyOptions);callOptions.put("stream",true);if(cancellation!=null)callOptions.put("cancellation",cancellation);
     Map<String, Object> streamOptions = mergedOptions(callOptions);
     Map<String, Object> payload = Core.asMap(Core.provider_build_chat_request(profile, req, streamOptions));
     Object modelName = req.getOrDefault("model", payload.getOrDefault("model", model));

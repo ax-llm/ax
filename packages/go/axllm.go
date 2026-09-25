@@ -7688,103 +7688,199 @@ func _openai_apply_cache_breakpoint_impl(args ...Value) (Value, error) {
 	return v_out, nil
 }
 
-func merge_model_config(args ...Value) (Value, error) {
-	axirCoverageMark("merge_model_config")
-	var v_base Value
-	var v_override Value
+func resolve_model_key(args ...Value) (Value, error) {
+	axirCoverageMark("resolve_model_key")
+	var v_client_options Value
+	var v_request Value
 	var v_options Value
-	var v_base_options Value
-	var v_budget Value
-	var v_budget_snake Value
-	var v_empty_options_config Value
-	var v_has_budget Value
-	var v_has_reasoning Value
-	var v_has_show_thoughts Value
-	var v_has_stream_option Value
-	var v_include Value
-	var v_key Value
-	var v_merged Value
-	var v_options_config Value
-	var v_options_config_snake Value
+	var v_default_model Value
+	var v_embed Value
+	var v_call_options Value
+	var v_can_match Value
+	var v_candidate Value
+	var v_candidate_key Value
+	var v_chat Value
+	var v_empty_models Value
+	var v_entry Value
+	var v_entry_config Value
+	var v_entry_config_snake Value
+	var v_field Value
+	var v_has_call_options Value
+	var v_has_entry Value
+	var v_has_entry_config Value
+	var v_has_lookup Value
+	var v_has_models Value
+	var v_has_requested Value
+	var v_has_target Value
+	var v_key_defaults Value
+	var v_lookup Value
+	var v_matches Value
+	var v_merged_config Value
+	var v_model_list_camel Value
+	var v_model_list_snake Value
+	var v_models Value
+	var v_no_request_config Value
 	var v_out Value
-	var v_reasoning Value
-	var v_reasoning_snake Value
-	var v_show_thoughts Value
-	var v_show_thoughts_snake Value
-	var v_stream Value
-	var v_value Value
-	if len(args) > 0 { v_base = args[0] }
-	_ = v_base
-	if len(args) > 1 { v_override = args[1] }
-	_ = v_override
+	var v_request_config Value
+	var v_request_config_camel Value
+	var v_request_copy Value
+	var v_requested Value
+	var v_requested_camel Value
+	var v_resolved Value
+	var v_take Value
+	var v_target Value
+	var v_target_snake Value
+	var v_unmatched Value
+	if len(args) > 0 { v_client_options = args[0] }
+	_ = v_client_options
+	if len(args) > 1 { v_request = args[1] }
+	_ = v_request
 	if len(args) > 2 { v_options = args[2] }
 	_ = v_options
-	_ = v_base_options
-	_ = v_budget
-	_ = v_budget_snake
-	_ = v_empty_options_config
-	_ = v_has_budget
-	_ = v_has_reasoning
-	_ = v_has_show_thoughts
-	_ = v_has_stream_option
-	_ = v_include
-	_ = v_key
-	_ = v_merged
-	_ = v_options_config
-	_ = v_options_config_snake
+	if len(args) > 3 { v_default_model = args[3] }
+	_ = v_default_model
+	if len(args) > 4 { v_embed = args[4] }
+	_ = v_embed
+	_ = v_call_options
+	_ = v_can_match
+	_ = v_candidate
+	_ = v_candidate_key
+	_ = v_chat
+	_ = v_empty_models
+	_ = v_entry
+	_ = v_entry_config
+	_ = v_entry_config_snake
+	_ = v_field
+	_ = v_has_call_options
+	_ = v_has_entry
+	_ = v_has_entry_config
+	_ = v_has_lookup
+	_ = v_has_models
+	_ = v_has_requested
+	_ = v_has_target
+	_ = v_key_defaults
+	_ = v_lookup
+	_ = v_matches
+	_ = v_merged_config
+	_ = v_model_list_camel
+	_ = v_model_list_snake
+	_ = v_models
+	_ = v_no_request_config
 	_ = v_out
-	_ = v_reasoning
-	_ = v_reasoning_snake
-	_ = v_show_thoughts
-	_ = v_show_thoughts_snake
-	_ = v_stream
-	_ = v_value
-	v_empty_options_config = Object()
-	v_options_config_snake = coreGet(v_options, "model_config", v_empty_options_config)
-	v_options_config = coreGet(v_options, "modelConfig", v_options_config_snake)
-	v_base_options = _core_map_merge(v_base, v_options_config)
-	v_merged = _core_map_merge(v_base_options, v_override)
-	v_has_stream_option = _core_map_contains(v_options, "stream")
-	if coreTruthy(v_has_stream_option) {
-		v_stream = coreGet(v_options, "stream", nil)
-		if err := coreSet(v_merged, "stream", v_stream); err != nil { return nil, err }
+	_ = v_request_config
+	_ = v_request_config_camel
+	_ = v_request_copy
+	_ = v_requested
+	_ = v_requested_camel
+	_ = v_resolved
+	_ = v_take
+	_ = v_target
+	_ = v_target_snake
+	_ = v_unmatched
+	v_empty_models = MutableArray()
+	v_model_list_camel = coreGet(v_client_options, "modelList", v_empty_models)
+	v_model_list_snake = coreGet(v_client_options, "model_list", v_model_list_camel)
+	v_models = coreGet(v_client_options, "models", v_model_list_snake)
+	v_call_options = Object()
+	v_has_call_options = _core_is_not_none(v_options)
+	if coreTruthy(v_has_call_options) {
+		v_call_options = _core_map_merge(v_call_options, v_options)
 	} else {
 	// empty
 	}
-	v_budget_snake = coreGet(v_options, "thinking_token_budget", nil)
-	v_budget = coreGet(v_options, "thinkingTokenBudget", v_budget_snake)
-	v_has_budget = _core_is_not_none(v_budget)
-	if coreTruthy(v_has_budget) {
-		if err := coreSet(v_merged, "thinkingTokenBudget", v_budget); err != nil { return nil, err }
+	v_request_copy = Object()
+	v_resolved = _core_map_merge(v_request_copy, v_request)
+	v_field = "model"
+	v_requested = coreGet(v_request, "model", nil)
+	if coreTruthy(v_embed) {
+		v_field = "embed_model"
+		v_requested_camel = coreGet(v_request, "embedModel", nil)
+		v_requested = coreGet(v_request, "embed_model", v_requested_camel)
 	} else {
 	// empty
 	}
-	v_reasoning_snake = coreGet(v_options, "reasoning_effort", nil)
-	v_reasoning = coreGet(v_options, "reasoningEffort", v_reasoning_snake)
-	v_has_reasoning = _core_is_not_none(v_reasoning)
-	if coreTruthy(v_has_reasoning) {
-		if err := coreSet(v_merged, "reasoning_effort", v_reasoning); err != nil { return nil, err }
-	} else {
+	v_has_requested = _core_truthy(v_requested)
+	v_lookup = v_requested
+	if coreTruthy(v_has_requested) {
 	// empty
+	} else {
+		v_lookup = v_default_model
 	}
-	v_show_thoughts_snake = coreGet(v_options, "show_thoughts", nil)
-	v_show_thoughts = coreGet(v_options, "showThoughts", v_show_thoughts_snake)
-	v_has_show_thoughts = _core_is_not_none(v_show_thoughts)
-	if coreTruthy(v_has_show_thoughts) {
-		if err := coreSet(v_merged, "showThoughts", v_show_thoughts); err != nil { return nil, err }
+	v_entry = _core_none()
+	v_has_models = _core_truthy(v_models)
+	v_has_lookup = _core_truthy(v_lookup)
+	v_can_match = _core_and(v_has_models, v_has_lookup)
+	if coreTruthy(v_can_match) {
+		for _, v_candidate = range coreIter(v_models) {
+			v_candidate_key = coreGet(v_candidate, "key", nil)
+			v_matches = _core_eq(v_candidate_key, v_lookup)
+			v_unmatched = _core_is_none(v_entry)
+			v_take = _core_and(v_matches, v_unmatched)
+			if coreTruthy(v_take) {
+				v_entry = v_candidate
+			} else {
+			// empty
+			}
+		}
 	} else {
 	// empty
 	}
 	v_out = Object()
-	for _, v_key = range coreIter(v_merged) {
-		v_value = coreGet(v_merged, v_key, nil)
-		v_include = _core_is_not_none(v_value)
-		if coreTruthy(v_include) {
-			if err := coreSet(v_out, v_key, v_value); err != nil { return nil, err }
+	v_has_entry = _core_is_not_none(v_entry)
+	if coreTruthy(v_has_entry) {
+		v_target = coreGet(v_entry, "model", nil)
+		if coreTruthy(v_embed) {
+			v_target_snake = coreGet(v_entry, "embed_model", nil)
+			v_target = coreGet(v_entry, "embedModel", v_target_snake)
 		} else {
 		// empty
 		}
+		v_has_target = _core_is_not_none(v_target)
+		if coreTruthy(v_has_target) {
+			if err := coreSet(v_resolved, v_field, v_target); err != nil { return nil, err }
+			if coreTruthy(v_embed) {
+				_core_map_delete(v_resolved, "embedModel")
+			} else {
+			// empty
+			}
+		} else {
+		// empty
+		}
+	} else {
+	// empty
 	}
+	v_key_defaults = _core_and(v_has_entry, v_has_requested)
+	if coreTruthy(v_key_defaults) {
+		v_chat = _core_not(v_embed)
+		if coreTruthy(v_chat) {
+			v_entry_config_snake = coreGet(v_entry, "model_config", nil)
+			v_entry_config = coreGet(v_entry, "modelConfig", v_entry_config_snake)
+			v_has_entry_config = _core_truthy(v_entry_config)
+			if coreTruthy(v_has_entry_config) {
+				v_no_request_config = Object()
+				v_request_config_camel = coreGet(v_request, "modelConfig", v_no_request_config)
+				v_request_config = coreGet(v_request, "model_config", v_request_config_camel)
+				v_merged_config = _core_map_merge(v_entry_config, v_request_config)
+				if err := coreSet(v_resolved, "model_config", v_merged_config); err != nil { return nil, err }
+				_core_map_delete(v_resolved, "modelConfig")
+			} else {
+			// empty
+			}
+			if _, err := _apply_model_key_option_impl(v_call_options, v_entry, "serviceTier", "service_tier"); err != nil { return nil, err }
+		} else {
+		// empty
+		}
+		if _, err := _apply_model_key_option_impl(v_call_options, v_entry, "thinkingTokenBudget", "thinking_token_budget"); err != nil { return nil, err }
+		if _, err := _apply_model_key_option_impl(v_call_options, v_entry, "showThoughts", "show_thoughts"); err != nil { return nil, err }
+		if _, err := _apply_model_key_option_impl(v_call_options, v_entry, "stream", "stream"); err != nil { return nil, err }
+		if _, err := _apply_model_key_option_impl(v_call_options, v_entry, "debug", "debug"); err != nil { return nil, err }
+		if _, err := _apply_model_key_option_impl(v_call_options, v_entry, "useExpensiveModel", "use_expensive_model"); err != nil { return nil, err }
+		if _, err := _apply_model_key_option_impl(v_call_options, v_entry, "beta", "beta"); err != nil { return nil, err }
+	} else {
+	// empty
+	}
+	if err := coreSet(v_out, "request", v_resolved); err != nil { return nil, err }
+	if err := coreSet(v_out, "options", v_call_options); err != nil { return nil, err }
 	return v_out, nil
 }
 
@@ -8113,149 +8209,6 @@ func typesafe_decode_response(args ...Value) (Value, error) {
 	return v_raw, nil
 }
 
-func validate_chat_request(args ...Value) (Value, error) {
-	axirCoverageMark("validate_chat_request")
-	var v_request Value
-	var v_bad_assistant Value
-	var v_bad_prompt Value
-	var v_content Value
-	var v_empty_function_calls Value
-	var v_error Value
-	var v_function_calls Value
-	var v_function_calls_snake Value
-	var v_has_assistant_payload Value
-	var v_has_calls Value
-	var v_has_content Value
-	var v_has_images Value
-	var v_has_realtime Value
-	var v_has_thought Value
-	var v_has_thought_blocks Value
-	var v_images Value
-	var v_invalid_role Value
-	var v_is_assistant Value
-	var v_is_function Value
-	var v_is_system Value
-	var v_is_user Value
-	var v_message Value
-	var v_message_text Value
-	var v_missing_assistant_payload Value
-	var v_prompt Value
-	var v_prompt_empty Value
-	var v_prompt_is_list Value
-	var v_prompt_len Value
-	var v_prompt_not_list Value
-	var v_realtime Value
-	var v_role Value
-	var v_thought Value
-	var v_thought_blocks Value
-	var v_thought_blocks_snake Value
-	var v_valid_left Value
-	var v_valid_right Value
-	var v_valid_role Value
-	if len(args) > 0 { v_request = args[0] }
-	_ = v_request
-	_ = v_bad_assistant
-	_ = v_bad_prompt
-	_ = v_content
-	_ = v_empty_function_calls
-	_ = v_error
-	_ = v_function_calls
-	_ = v_function_calls_snake
-	_ = v_has_assistant_payload
-	_ = v_has_calls
-	_ = v_has_content
-	_ = v_has_images
-	_ = v_has_realtime
-	_ = v_has_thought
-	_ = v_has_thought_blocks
-	_ = v_images
-	_ = v_invalid_role
-	_ = v_is_assistant
-	_ = v_is_function
-	_ = v_is_system
-	_ = v_is_user
-	_ = v_message
-	_ = v_message_text
-	_ = v_missing_assistant_payload
-	_ = v_prompt
-	_ = v_prompt_empty
-	_ = v_prompt_is_list
-	_ = v_prompt_len
-	_ = v_prompt_not_list
-	_ = v_realtime
-	_ = v_role
-	_ = v_thought
-	_ = v_thought_blocks
-	_ = v_thought_blocks_snake
-	_ = v_valid_left
-	_ = v_valid_right
-	_ = v_valid_role
-	v_realtime = coreGet(v_request, "realtime", nil)
-	v_has_realtime = _core_truthy(v_realtime)
-	if coreTruthy(v_has_realtime) {
-		v_error = _core_ai_error_unsupported("OpenAI-compatible beta does not support realtime requests")
-		return nil, asError(v_error)
-	} else {
-	// empty
-	}
-	v_prompt = coreGet(v_request, "chat_prompt", nil)
-	v_prompt_is_list = coreTypeIs(v_prompt, "list")
-	v_prompt_len = _core_len(v_prompt)
-	v_prompt_empty = _core_eq(v_prompt_len, 0)
-	v_prompt_not_list = _core_not(v_prompt_is_list)
-	v_bad_prompt = _core_or(v_prompt_not_list, v_prompt_empty)
-	if coreTruthy(v_bad_prompt) {
-		v_error = _core_ai_error_response("Chat prompt is empty")
-		return nil, asError(v_error)
-	} else {
-	// empty
-	}
-	for _, v_message = range coreIter(v_prompt) {
-		v_role = coreGet(v_message, "role", nil)
-		v_is_system = _core_eq(v_role, "system")
-		v_is_user = _core_eq(v_role, "user")
-		v_is_assistant = _core_eq(v_role, "assistant")
-		v_is_function = _core_eq(v_role, "function")
-		v_valid_left = _core_or(v_is_system, v_is_user)
-		v_valid_right = _core_or(v_is_assistant, v_is_function)
-		v_valid_role = _core_or(v_valid_left, v_valid_right)
-		v_invalid_role = _core_not(v_valid_role)
-		if coreTruthy(v_invalid_role) {
-			v_message_text = _core_string_format("Invalid chat message role: {}", v_role)
-			v_error = _core_ai_error_response(v_message_text)
-			return nil, asError(v_error)
-		} else {
-		// empty
-		}
-		v_content = coreGet(v_message, "content", nil)
-		v_empty_function_calls = MutableArray()
-		v_function_calls_snake = coreGet(v_message, "function_calls", v_empty_function_calls)
-		v_function_calls = coreGet(v_message, "functionCalls", v_function_calls_snake)
-		v_thought = coreGet(v_message, "thought", nil)
-		v_has_content = _core_truthy(v_content)
-		v_has_calls = _core_truthy(v_function_calls)
-		v_has_thought = _core_truthy(v_thought)
-		v_has_assistant_payload = _core_or(v_has_content, v_has_calls)
-		v_has_assistant_payload = _core_or(v_has_assistant_payload, v_has_thought)
-		v_images = coreGet(v_message, "images", nil)
-		v_has_images = _core_truthy(v_images)
-		v_thought_blocks_snake = coreGet(v_message, "thought_blocks", v_empty_function_calls)
-		v_thought_blocks = coreGet(v_message, "thoughtBlocks", v_thought_blocks_snake)
-		v_has_thought_blocks = _core_truthy(v_thought_blocks)
-		v_has_assistant_payload = _core_or(v_has_assistant_payload, v_has_images)
-		v_has_assistant_payload = _core_or(v_has_assistant_payload, v_has_thought_blocks)
-		v_missing_assistant_payload = _core_not(v_has_assistant_payload)
-		v_bad_assistant = _core_and(v_is_assistant, v_missing_assistant_payload)
-		if coreTruthy(v_bad_assistant) {
-			v_error = _core_ai_error_response("Assistant content is required when no tool calls are provided")
-			return nil, asError(v_error)
-		} else {
-		// empty
-		}
-	}
-	return nil, nil
-}
-
 func _openai_is_gpt56_family_impl(args ...Value) (Value, error) {
 	axirCoverageMark("_openai_is_gpt56_family_impl")
 	var v_model Value
@@ -8276,6 +8229,57 @@ func _openai_is_gpt6_family_impl(args ...Value) (Value, error) {
 	_ = v_is_gpt6
 	v_is_gpt6 = coreRegexMatch("^(?:(?:[a-z]+(?:-[a-z]+)*\\.)?openai\\.)?gpt-6-(astra|sol|luna)($|-)", v_model)
 	return v_is_gpt6, nil
+}
+
+func _apply_model_key_option_impl(args ...Value) (Value, error) {
+	axirCoverageMark("_apply_model_key_option_impl")
+	var v_options Value
+	var v_entry Value
+	var v_camel Value
+	var v_snake Value
+	var v_call_camel Value
+	var v_call_snake Value
+	var v_caller_set Value
+	var v_entry_snake Value
+	var v_entry_value Value
+	var v_has_call_camel Value
+	var v_has_call_snake Value
+	var v_has_entry_value Value
+	if len(args) > 0 { v_options = args[0] }
+	_ = v_options
+	if len(args) > 1 { v_entry = args[1] }
+	_ = v_entry
+	if len(args) > 2 { v_camel = args[2] }
+	_ = v_camel
+	if len(args) > 3 { v_snake = args[3] }
+	_ = v_snake
+	_ = v_call_camel
+	_ = v_call_snake
+	_ = v_caller_set
+	_ = v_entry_snake
+	_ = v_entry_value
+	_ = v_has_call_camel
+	_ = v_has_call_snake
+	_ = v_has_entry_value
+	v_call_camel = coreGet(v_options, v_camel, nil)
+	v_call_snake = coreGet(v_options, v_snake, nil)
+	v_has_call_camel = _core_is_not_none(v_call_camel)
+	v_has_call_snake = _core_is_not_none(v_call_snake)
+	v_caller_set = _core_or(v_has_call_camel, v_has_call_snake)
+	if coreTruthy(v_caller_set) {
+		return nil, nil
+	} else {
+	// empty
+	}
+	v_entry_snake = coreGet(v_entry, v_snake, nil)
+	v_entry_value = coreGet(v_entry, v_camel, v_entry_snake)
+	v_has_entry_value = _core_is_not_none(v_entry_value)
+	if coreTruthy(v_has_entry_value) {
+		if err := coreSet(v_options, v_camel, v_entry_value); err != nil { return nil, err }
+	} else {
+	// empty
+	}
+	return nil, nil
 }
 
 func _openai_is_gpt6_astra_impl(args ...Value) (Value, error) {
@@ -8300,22 +8304,104 @@ func _openai_is_bedrock_model_impl(args ...Value) (Value, error) {
 	return v_is_bedrock, nil
 }
 
-func build_chat_request(args ...Value) (Value, error) {
-	axirCoverageMark("build_chat_request")
-	var v_service Value
-	var v_request Value
+func merge_model_config(args ...Value) (Value, error) {
+	axirCoverageMark("merge_model_config")
+	var v_base Value
+	var v_override Value
 	var v_options Value
-	var v_payload Value
-	if len(args) > 0 { v_service = args[0] }
-	_ = v_service
-	if len(args) > 1 { v_request = args[1] }
-	_ = v_request
+	var v_base_options Value
+	var v_budget Value
+	var v_budget_snake Value
+	var v_empty_options_config Value
+	var v_has_budget Value
+	var v_has_reasoning Value
+	var v_has_show_thoughts Value
+	var v_has_stream_option Value
+	var v_include Value
+	var v_key Value
+	var v_merged Value
+	var v_options_config Value
+	var v_options_config_snake Value
+	var v_out Value
+	var v_reasoning Value
+	var v_reasoning_snake Value
+	var v_show_thoughts Value
+	var v_show_thoughts_snake Value
+	var v_stream Value
+	var v_value Value
+	if len(args) > 0 { v_base = args[0] }
+	_ = v_base
+	if len(args) > 1 { v_override = args[1] }
+	_ = v_override
 	if len(args) > 2 { v_options = args[2] }
 	_ = v_options
-	_ = v_payload
-	if _, err := validate_chat_request(v_request); err != nil { return nil, err }
-	{ v, err := openai_build_chat_request(v_request, v_options, true); if err != nil { return nil, err }; v_payload = v }
-	return v_payload, nil
+	_ = v_base_options
+	_ = v_budget
+	_ = v_budget_snake
+	_ = v_empty_options_config
+	_ = v_has_budget
+	_ = v_has_reasoning
+	_ = v_has_show_thoughts
+	_ = v_has_stream_option
+	_ = v_include
+	_ = v_key
+	_ = v_merged
+	_ = v_options_config
+	_ = v_options_config_snake
+	_ = v_out
+	_ = v_reasoning
+	_ = v_reasoning_snake
+	_ = v_show_thoughts
+	_ = v_show_thoughts_snake
+	_ = v_stream
+	_ = v_value
+	v_empty_options_config = Object()
+	v_options_config_snake = coreGet(v_options, "model_config", v_empty_options_config)
+	v_options_config = coreGet(v_options, "modelConfig", v_options_config_snake)
+	v_base_options = _core_map_merge(v_base, v_options_config)
+	v_merged = _core_map_merge(v_base_options, v_override)
+	v_has_stream_option = _core_map_contains(v_options, "stream")
+	if coreTruthy(v_has_stream_option) {
+		v_stream = coreGet(v_options, "stream", nil)
+		if err := coreSet(v_merged, "stream", v_stream); err != nil { return nil, err }
+	} else {
+	// empty
+	}
+	v_budget_snake = coreGet(v_options, "thinking_token_budget", nil)
+	v_budget = coreGet(v_options, "thinkingTokenBudget", v_budget_snake)
+	v_has_budget = _core_is_not_none(v_budget)
+	if coreTruthy(v_has_budget) {
+		if err := coreSet(v_merged, "thinkingTokenBudget", v_budget); err != nil { return nil, err }
+	} else {
+	// empty
+	}
+	v_reasoning_snake = coreGet(v_options, "reasoning_effort", nil)
+	v_reasoning = coreGet(v_options, "reasoningEffort", v_reasoning_snake)
+	v_has_reasoning = _core_is_not_none(v_reasoning)
+	if coreTruthy(v_has_reasoning) {
+		if err := coreSet(v_merged, "reasoning_effort", v_reasoning); err != nil { return nil, err }
+	} else {
+	// empty
+	}
+	v_show_thoughts_snake = coreGet(v_options, "show_thoughts", nil)
+	v_show_thoughts = coreGet(v_options, "showThoughts", v_show_thoughts_snake)
+	v_has_show_thoughts = _core_is_not_none(v_show_thoughts)
+	if coreTruthy(v_has_show_thoughts) {
+		if err := coreSet(v_merged, "showThoughts", v_show_thoughts); err != nil { return nil, err }
+	} else {
+	// empty
+	}
+	v_out = Object()
+	for _, v_key = range coreIter(v_merged) {
+		v_value = coreGet(v_merged, v_key, nil)
+		v_include = _core_is_not_none(v_value)
+		if coreTruthy(v_include) {
+			if err := coreSet(v_out, v_key, v_value); err != nil { return nil, err }
+		} else {
+		// empty
+		}
+	}
+	return v_out, nil
 }
 
 func _openai_supports_breakpoint_caching_impl(args ...Value) (Value, error) {
@@ -8342,17 +8428,6 @@ func _openai_supports_breakpoint_caching_impl(args ...Value) (Value, error) {
 	v_on_openai = _core_not(v_is_bedrock)
 	v_supported = _core_and(v_family, v_on_openai)
 	return v_supported, nil
-}
-
-func normalize_chat_response(args ...Value) (Value, error) {
-	axirCoverageMark("normalize_chat_response")
-	var v_raw Value
-	var v_response Value
-	if len(args) > 0 { v_raw = args[0] }
-	_ = v_raw
-	_ = v_response
-	{ v, err := openai_normalize_chat_response(v_raw); if err != nil { return nil, err }; v_response = v }
-	return v_response, nil
 }
 
 func typesafe_decode_models(args ...Value) (Value, error) {
@@ -8395,20 +8470,6 @@ func typesafe_decode_models(args ...Value) (Value, error) {
 	return v_models, nil
 }
 
-func normalize_stream_delta(args ...Value) (Value, error) {
-	axirCoverageMark("normalize_stream_delta")
-	var v_raw Value
-	var v_state Value
-	var v_response Value
-	if len(args) > 0 { v_raw = args[0] }
-	_ = v_raw
-	if len(args) > 1 { v_state = args[1] }
-	_ = v_state
-	_ = v_response
-	{ v, err := openai_normalize_stream_delta(v_raw, v_state); if err != nil { return nil, err }; v_response = v }
-	return v_response, nil
-}
-
 func _openai_supports_chat_sessions_impl(args ...Value) (Value, error) {
 	axirCoverageMark("_openai_supports_chat_sessions_impl")
 	var v_model Value
@@ -8427,23 +8488,6 @@ func _openai_supports_chat_sessions_impl(args ...Value) (Value, error) {
 	v_on_openai = _core_not(v_is_bedrock)
 	v_supported = _core_and(v_is_astra, v_on_openai)
 	return v_supported, nil
-}
-
-func build_embed_request(args ...Value) (Value, error) {
-	axirCoverageMark("build_embed_request")
-	var v_service Value
-	var v_request Value
-	var v_options Value
-	var v_payload Value
-	if len(args) > 0 { v_service = args[0] }
-	_ = v_service
-	if len(args) > 1 { v_request = args[1] }
-	_ = v_request
-	if len(args) > 2 { v_options = args[2] }
-	_ = v_options
-	_ = v_payload
-	{ v, err := openai_build_embed_request(v_request); if err != nil { return nil, err }; v_payload = v }
-	return v_payload, nil
 }
 
 func openai_reasoning_effort(args ...Value) (Value, error) {
@@ -8540,17 +8584,6 @@ func openai_reasoning_effort(args ...Value) (Value, error) {
 	// empty
 	}
 	return "high", nil
-}
-
-func normalize_embed_response(args ...Value) (Value, error) {
-	axirCoverageMark("normalize_embed_response")
-	var v_raw Value
-	var v_response Value
-	if len(args) > 0 { v_raw = args[0] }
-	_ = v_raw
-	_ = v_response
-	{ v, err := openai_normalize_embed_response(v_raw); if err != nil { return nil, err }; v_response = v }
-	return v_response, nil
 }
 
 func typesafe_build_chat_request(args ...Value) (Value, error) {
@@ -8997,240 +9030,147 @@ func typesafe_build_chat_request(args ...Value) (Value, error) {
 	return v_payload, nil
 }
 
-func normalize_token_usage(args ...Value) (Value, error) {
-	axirCoverageMark("normalize_token_usage")
-	var v_usage Value
-	var v_cache_creation_for_compare Value
-	var v_cache_creation_tokens Value
-	var v_cache_read_for_compare Value
-	var v_cache_read_tokens Value
-	var v_cache_write_for_math Value
-	var v_cache_write_from_details Value
-	var v_cached_for_math Value
-	var v_cached_from_details Value
-	var v_completion_details Value
-	var v_completion_details_snake Value
-	var v_completion_tokens Value
-	var v_completion_tokens_snake Value
-	var v_computed_total_tokens Value
-	var v_direct_cache_creation Value
-	var v_direct_cache_creation_snake Value
-	var v_direct_cache_read Value
-	var v_direct_cache_read_snake Value
-	var v_has_cache_creation Value
-	var v_has_cache_read Value
-	var v_has_direct_cache_creation Value
-	var v_has_direct_cache_read Value
-	var v_has_positive_cache_creation Value
-	var v_has_positive_cache_read Value
-	var v_has_reasoning Value
-	var v_has_service_tier Value
-	var v_has_speed Value
-	var v_has_thoughts Value
-	var v_input_tokens Value
-	var v_is_default Value
-	var v_is_fast Value
-	var v_is_on_demand Value
-	var v_is_performance Value
-	var v_is_priority_alias Value
-	var v_is_standard_alias Value
-	var v_is_standard_only Value
-	var v_is_unspecified Value
-	var v_negative_cache_write Value
-	var v_negative_cached Value
-	var v_out Value
-	var v_output_tokens Value
-	var v_prompt_after_cache Value
-	var v_prompt_details Value
-	var v_prompt_details_snake Value
-	var v_prompt_is_negative Value
-	var v_prompt_tokens Value
-	var v_prompt_tokens_raw Value
-	var v_prompt_tokens_snake Value
-	var v_prompt_without_cached Value
-	var v_reasoning_from_details Value
-	var v_reasoning_tokens Value
-	var v_reasoning_tokens_snake Value
-	var v_service_tier Value
-	var v_service_tier_snake Value
-	var v_speed Value
-	var v_standard_pair Value
-	var v_standard_triple Value
-	var v_thoughts_tokens Value
-	var v_thoughts_tokens_snake Value
-	var v_total_tokens Value
-	var v_total_tokens_snake Value
-	if len(args) > 0 { v_usage = args[0] }
-	_ = v_usage
-	_ = v_cache_creation_for_compare
-	_ = v_cache_creation_tokens
-	_ = v_cache_read_for_compare
-	_ = v_cache_read_tokens
-	_ = v_cache_write_for_math
-	_ = v_cache_write_from_details
-	_ = v_cached_for_math
-	_ = v_cached_from_details
-	_ = v_completion_details
-	_ = v_completion_details_snake
-	_ = v_completion_tokens
-	_ = v_completion_tokens_snake
-	_ = v_computed_total_tokens
-	_ = v_direct_cache_creation
-	_ = v_direct_cache_creation_snake
-	_ = v_direct_cache_read
-	_ = v_direct_cache_read_snake
-	_ = v_has_cache_creation
-	_ = v_has_cache_read
-	_ = v_has_direct_cache_creation
-	_ = v_has_direct_cache_read
-	_ = v_has_positive_cache_creation
-	_ = v_has_positive_cache_read
-	_ = v_has_reasoning
-	_ = v_has_service_tier
-	_ = v_has_speed
-	_ = v_has_thoughts
-	_ = v_input_tokens
-	_ = v_is_default
-	_ = v_is_fast
-	_ = v_is_on_demand
-	_ = v_is_performance
-	_ = v_is_priority_alias
-	_ = v_is_standard_alias
-	_ = v_is_standard_only
-	_ = v_is_unspecified
-	_ = v_negative_cache_write
-	_ = v_negative_cached
-	_ = v_out
-	_ = v_output_tokens
-	_ = v_prompt_after_cache
-	_ = v_prompt_details
-	_ = v_prompt_details_snake
-	_ = v_prompt_is_negative
-	_ = v_prompt_tokens
-	_ = v_prompt_tokens_raw
-	_ = v_prompt_tokens_snake
-	_ = v_prompt_without_cached
-	_ = v_reasoning_from_details
-	_ = v_reasoning_tokens
-	_ = v_reasoning_tokens_snake
-	_ = v_service_tier
-	_ = v_service_tier_snake
-	_ = v_speed
-	_ = v_standard_pair
-	_ = v_standard_triple
-	_ = v_thoughts_tokens
-	_ = v_thoughts_tokens_snake
-	_ = v_total_tokens
-	_ = v_total_tokens_snake
-	v_out = Object()
-	v_input_tokens = coreGet(v_usage, "input_tokens", 0)
-	v_prompt_tokens_snake = coreGet(v_usage, "prompt_tokens", v_input_tokens)
-	v_prompt_tokens_raw = coreGet(v_usage, "promptTokens", v_prompt_tokens_snake)
-	v_prompt_details_snake = coreGet(v_usage, "prompt_tokens_details", nil)
-	v_prompt_details = coreGet(v_usage, "input_tokens_details", v_prompt_details_snake)
-	v_cached_from_details = coreGet(v_prompt_details, "cached_tokens", nil)
-	v_cache_write_from_details = coreGet(v_prompt_details, "cache_write_tokens", nil)
-	v_cached_for_math = _core_coalesce(v_cached_from_details, 0)
-	v_cache_write_for_math = _core_coalesce(v_cache_write_from_details, 0)
-	v_negative_cached = _core_mul(v_cached_for_math, -1)
-	v_prompt_without_cached = _core_add(v_prompt_tokens_raw, v_negative_cached)
-	v_negative_cache_write = _core_mul(v_cache_write_for_math, -1)
-	v_prompt_after_cache = _core_add(v_prompt_without_cached, v_negative_cache_write)
-	v_prompt_is_negative = _core_lt(v_prompt_after_cache, 0)
-	v_prompt_tokens = v_prompt_after_cache
-	if coreTruthy(v_prompt_is_negative) {
-		v_prompt_tokens = 0
+func validate_chat_request(args ...Value) (Value, error) {
+	axirCoverageMark("validate_chat_request")
+	var v_request Value
+	var v_bad_assistant Value
+	var v_bad_prompt Value
+	var v_content Value
+	var v_empty_function_calls Value
+	var v_error Value
+	var v_function_calls Value
+	var v_function_calls_snake Value
+	var v_has_assistant_payload Value
+	var v_has_calls Value
+	var v_has_content Value
+	var v_has_images Value
+	var v_has_realtime Value
+	var v_has_thought Value
+	var v_has_thought_blocks Value
+	var v_images Value
+	var v_invalid_role Value
+	var v_is_assistant Value
+	var v_is_function Value
+	var v_is_system Value
+	var v_is_user Value
+	var v_message Value
+	var v_message_text Value
+	var v_missing_assistant_payload Value
+	var v_prompt Value
+	var v_prompt_empty Value
+	var v_prompt_is_list Value
+	var v_prompt_len Value
+	var v_prompt_not_list Value
+	var v_realtime Value
+	var v_role Value
+	var v_thought Value
+	var v_thought_blocks Value
+	var v_thought_blocks_snake Value
+	var v_valid_left Value
+	var v_valid_right Value
+	var v_valid_role Value
+	if len(args) > 0 { v_request = args[0] }
+	_ = v_request
+	_ = v_bad_assistant
+	_ = v_bad_prompt
+	_ = v_content
+	_ = v_empty_function_calls
+	_ = v_error
+	_ = v_function_calls
+	_ = v_function_calls_snake
+	_ = v_has_assistant_payload
+	_ = v_has_calls
+	_ = v_has_content
+	_ = v_has_images
+	_ = v_has_realtime
+	_ = v_has_thought
+	_ = v_has_thought_blocks
+	_ = v_images
+	_ = v_invalid_role
+	_ = v_is_assistant
+	_ = v_is_function
+	_ = v_is_system
+	_ = v_is_user
+	_ = v_message
+	_ = v_message_text
+	_ = v_missing_assistant_payload
+	_ = v_prompt
+	_ = v_prompt_empty
+	_ = v_prompt_is_list
+	_ = v_prompt_len
+	_ = v_prompt_not_list
+	_ = v_realtime
+	_ = v_role
+	_ = v_thought
+	_ = v_thought_blocks
+	_ = v_thought_blocks_snake
+	_ = v_valid_left
+	_ = v_valid_right
+	_ = v_valid_role
+	v_realtime = coreGet(v_request, "realtime", nil)
+	v_has_realtime = _core_truthy(v_realtime)
+	if coreTruthy(v_has_realtime) {
+		v_error = _core_ai_error_unsupported("OpenAI-compatible beta does not support realtime requests")
+		return nil, asError(v_error)
 	} else {
 	// empty
 	}
-	v_output_tokens = coreGet(v_usage, "output_tokens", 0)
-	v_completion_tokens_snake = coreGet(v_usage, "completion_tokens", v_output_tokens)
-	v_completion_tokens = coreGet(v_usage, "completionTokens", v_completion_tokens_snake)
-	v_computed_total_tokens = _core_add(v_prompt_tokens, v_completion_tokens)
-	v_total_tokens_snake = coreGet(v_usage, "total_tokens", v_computed_total_tokens)
-	v_total_tokens = coreGet(v_usage, "totalTokens", v_total_tokens_snake)
-	if err := coreSet(v_out, "prompt_tokens", v_prompt_tokens); err != nil { return nil, err }
-	if err := coreSet(v_out, "completion_tokens", v_completion_tokens); err != nil { return nil, err }
-	if err := coreSet(v_out, "total_tokens", v_total_tokens); err != nil { return nil, err }
-	v_thoughts_tokens_snake = coreGet(v_usage, "thoughts_tokens", nil)
-	v_thoughts_tokens = coreGet(v_usage, "thoughtsTokens", v_thoughts_tokens_snake)
-	v_has_thoughts = _core_is_not_none(v_thoughts_tokens)
-	if coreTruthy(v_has_thoughts) {
-		if err := coreSet(v_out, "thoughts_tokens", v_thoughts_tokens); err != nil { return nil, err }
+	v_prompt = coreGet(v_request, "chat_prompt", nil)
+	v_prompt_is_list = coreTypeIs(v_prompt, "list")
+	v_prompt_len = _core_len(v_prompt)
+	v_prompt_empty = _core_eq(v_prompt_len, 0)
+	v_prompt_not_list = _core_not(v_prompt_is_list)
+	v_bad_prompt = _core_or(v_prompt_not_list, v_prompt_empty)
+	if coreTruthy(v_bad_prompt) {
+		v_error = _core_ai_error_response("Chat prompt is empty")
+		return nil, asError(v_error)
 	} else {
 	// empty
 	}
-	v_completion_details_snake = coreGet(v_usage, "completion_tokens_details", nil)
-	v_completion_details = coreGet(v_usage, "output_tokens_details", v_completion_details_snake)
-	v_reasoning_from_details = coreGet(v_completion_details, "reasoning_tokens", nil)
-	v_reasoning_tokens_snake = coreGet(v_usage, "reasoning_tokens", v_reasoning_from_details)
-	v_reasoning_tokens = coreGet(v_usage, "reasoningTokens", v_reasoning_tokens_snake)
-	v_has_reasoning = _core_is_not_none(v_reasoning_tokens)
-	if coreTruthy(v_has_reasoning) {
-		if err := coreSet(v_out, "reasoning_tokens", v_reasoning_tokens); err != nil { return nil, err }
-	} else {
-	// empty
-	}
-	v_direct_cache_read_snake = coreGet(v_usage, "cache_read_tokens", nil)
-	v_direct_cache_read = coreGet(v_usage, "cacheReadTokens", v_direct_cache_read_snake)
-	v_cache_read_tokens = _core_coalesce(v_direct_cache_read, v_cached_from_details)
-	v_cache_read_for_compare = _core_coalesce(v_cache_read_tokens, 0)
-	v_has_direct_cache_read = _core_is_not_none(v_direct_cache_read)
-	v_has_positive_cache_read = _core_gt(v_cache_read_for_compare, 0)
-	v_has_cache_read = _core_or(v_has_direct_cache_read, v_has_positive_cache_read)
-	if coreTruthy(v_has_cache_read) {
-		if err := coreSet(v_out, "cache_read_tokens", v_cache_read_tokens); err != nil { return nil, err }
-	} else {
-	// empty
-	}
-	v_direct_cache_creation_snake = coreGet(v_usage, "cache_creation_tokens", nil)
-	v_direct_cache_creation = coreGet(v_usage, "cacheCreationTokens", v_direct_cache_creation_snake)
-	v_cache_creation_tokens = _core_coalesce(v_direct_cache_creation, v_cache_write_from_details)
-	v_cache_creation_for_compare = _core_coalesce(v_cache_creation_tokens, 0)
-	v_has_direct_cache_creation = _core_is_not_none(v_direct_cache_creation)
-	v_has_positive_cache_creation = _core_gt(v_cache_creation_for_compare, 0)
-	v_has_cache_creation = _core_or(v_has_direct_cache_creation, v_has_positive_cache_creation)
-	if coreTruthy(v_has_cache_creation) {
-		if err := coreSet(v_out, "cache_creation_tokens", v_cache_creation_tokens); err != nil { return nil, err }
-	} else {
-	// empty
-	}
-	v_service_tier_snake = coreGet(v_usage, "service_tier", nil)
-	v_service_tier = coreGet(v_usage, "serviceTier", v_service_tier_snake)
-	v_has_service_tier = _core_is_not_none(v_service_tier)
-	if coreTruthy(v_has_service_tier) {
-		v_is_default = _core_eq(v_service_tier, "default")
-		v_is_on_demand = _core_eq(v_service_tier, "on_demand")
-		v_is_standard_only = _core_eq(v_service_tier, "standard_only")
-		v_is_unspecified = _core_eq(v_service_tier, "unspecified")
-		v_standard_pair = _core_or(v_is_default, v_is_on_demand)
-		v_standard_triple = _core_or(v_standard_pair, v_is_standard_only)
-		v_is_standard_alias = _core_or(v_standard_triple, v_is_unspecified)
-		if coreTruthy(v_is_standard_alias) {
-			v_service_tier = "standard"
+	for _, v_message = range coreIter(v_prompt) {
+		v_role = coreGet(v_message, "role", nil)
+		v_is_system = _core_eq(v_role, "system")
+		v_is_user = _core_eq(v_role, "user")
+		v_is_assistant = _core_eq(v_role, "assistant")
+		v_is_function = _core_eq(v_role, "function")
+		v_valid_left = _core_or(v_is_system, v_is_user)
+		v_valid_right = _core_or(v_is_assistant, v_is_function)
+		v_valid_role = _core_or(v_valid_left, v_valid_right)
+		v_invalid_role = _core_not(v_valid_role)
+		if coreTruthy(v_invalid_role) {
+			v_message_text = _core_string_format("Invalid chat message role: {}", v_role)
+			v_error = _core_ai_error_response(v_message_text)
+			return nil, asError(v_error)
 		} else {
 		// empty
 		}
-		v_is_performance = _core_eq(v_service_tier, "performance")
-		v_is_fast = _core_eq(v_service_tier, "fast")
-		v_is_priority_alias = _core_or(v_is_performance, v_is_fast)
-		if coreTruthy(v_is_priority_alias) {
-			v_service_tier = "priority"
+		v_content = coreGet(v_message, "content", nil)
+		v_empty_function_calls = MutableArray()
+		v_function_calls_snake = coreGet(v_message, "function_calls", v_empty_function_calls)
+		v_function_calls = coreGet(v_message, "functionCalls", v_function_calls_snake)
+		v_thought = coreGet(v_message, "thought", nil)
+		v_has_content = _core_truthy(v_content)
+		v_has_calls = _core_truthy(v_function_calls)
+		v_has_thought = _core_truthy(v_thought)
+		v_has_assistant_payload = _core_or(v_has_content, v_has_calls)
+		v_has_assistant_payload = _core_or(v_has_assistant_payload, v_has_thought)
+		v_images = coreGet(v_message, "images", nil)
+		v_has_images = _core_truthy(v_images)
+		v_thought_blocks_snake = coreGet(v_message, "thought_blocks", v_empty_function_calls)
+		v_thought_blocks = coreGet(v_message, "thoughtBlocks", v_thought_blocks_snake)
+		v_has_thought_blocks = _core_truthy(v_thought_blocks)
+		v_has_assistant_payload = _core_or(v_has_assistant_payload, v_has_images)
+		v_has_assistant_payload = _core_or(v_has_assistant_payload, v_has_thought_blocks)
+		v_missing_assistant_payload = _core_not(v_has_assistant_payload)
+		v_bad_assistant = _core_and(v_is_assistant, v_missing_assistant_payload)
+		if coreTruthy(v_bad_assistant) {
+			v_error = _core_ai_error_response("Assistant content is required when no tool calls are provided")
+			return nil, asError(v_error)
 		} else {
 		// empty
 		}
-		if err := coreSet(v_out, "service_tier", v_service_tier); err != nil { return nil, err }
-	} else {
-	// empty
 	}
-	v_speed = coreGet(v_usage, "speed", nil)
-	v_has_speed = _core_is_not_none(v_speed)
-	if coreTruthy(v_has_speed) {
-		if err := coreSet(v_out, "speed", v_speed); err != nil { return nil, err }
-	} else {
-	// empty
-	}
-	return v_out, nil
+	return nil, nil
 }
 
 func openai_chat_reasoning_effort(args ...Value) (Value, error) {
@@ -9281,6 +9221,24 @@ func _openai_copy_config_key_impl(args ...Value) (Value, error) {
 	// empty
 	}
 	return nil, nil
+}
+
+func build_chat_request(args ...Value) (Value, error) {
+	axirCoverageMark("build_chat_request")
+	var v_service Value
+	var v_request Value
+	var v_options Value
+	var v_payload Value
+	if len(args) > 0 { v_service = args[0] }
+	_ = v_service
+	if len(args) > 1 { v_request = args[1] }
+	_ = v_request
+	if len(args) > 2 { v_options = args[2] }
+	_ = v_options
+	_ = v_payload
+	if _, err := validate_chat_request(v_request); err != nil { return nil, err }
+	{ v, err := openai_build_chat_request(v_request, v_options, true); if err != nil { return nil, err }; v_payload = v }
+	return v_payload, nil
 }
 
 func _openai_message_impl(args ...Value) (Value, error) {
@@ -9519,195 +9477,293 @@ func _openai_message_impl(args ...Value) (Value, error) {
 	return nil, asError(v_error)
 }
 
-func merge_usage_context(args ...Value) (Value, error) {
-	axirCoverageMark("merge_usage_context")
-	var v_defaults Value
-	var v_overrides Value
-	var v_attributes Value
-	var v_default_attributes Value
-	var v_has_attributes Value
-	var v_merged Value
-	var v_override_attributes Value
-	if len(args) > 0 { v_defaults = args[0] }
-	_ = v_defaults
-	if len(args) > 1 { v_overrides = args[1] }
-	_ = v_overrides
-	_ = v_attributes
-	_ = v_default_attributes
-	_ = v_has_attributes
-	_ = v_merged
-	_ = v_override_attributes
-	v_merged = _core_map_merge(v_defaults, v_overrides)
-	v_default_attributes = coreGet(v_defaults, "attributes", nil)
-	v_override_attributes = coreGet(v_overrides, "attributes", nil)
-	v_attributes = _core_map_merge(v_default_attributes, v_override_attributes)
-	v_has_attributes = _core_truthy(v_attributes)
-	if coreTruthy(v_has_attributes) {
-		if err := coreSet(v_merged, "attributes", v_attributes); err != nil { return nil, err }
+func normalize_chat_response(args ...Value) (Value, error) {
+	axirCoverageMark("normalize_chat_response")
+	var v_raw Value
+	var v_response Value
+	if len(args) > 0 { v_raw = args[0] }
+	_ = v_raw
+	_ = v_response
+	{ v, err := openai_normalize_chat_response(v_raw); if err != nil { return nil, err }; v_response = v }
+	return v_response, nil
+}
+
+func normalize_stream_delta(args ...Value) (Value, error) {
+	axirCoverageMark("normalize_stream_delta")
+	var v_raw Value
+	var v_state Value
+	var v_response Value
+	if len(args) > 0 { v_raw = args[0] }
+	_ = v_raw
+	if len(args) > 1 { v_state = args[1] }
+	_ = v_state
+	_ = v_response
+	{ v, err := openai_normalize_stream_delta(v_raw, v_state); if err != nil { return nil, err }; v_response = v }
+	return v_response, nil
+}
+
+func build_embed_request(args ...Value) (Value, error) {
+	axirCoverageMark("build_embed_request")
+	var v_service Value
+	var v_request Value
+	var v_options Value
+	var v_payload Value
+	if len(args) > 0 { v_service = args[0] }
+	_ = v_service
+	if len(args) > 1 { v_request = args[1] }
+	_ = v_request
+	if len(args) > 2 { v_options = args[2] }
+	_ = v_options
+	_ = v_payload
+	{ v, err := openai_build_embed_request(v_request); if err != nil { return nil, err }; v_payload = v }
+	return v_payload, nil
+}
+
+func normalize_embed_response(args ...Value) (Value, error) {
+	axirCoverageMark("normalize_embed_response")
+	var v_raw Value
+	var v_response Value
+	if len(args) > 0 { v_raw = args[0] }
+	_ = v_raw
+	_ = v_response
+	{ v, err := openai_normalize_embed_response(v_raw); if err != nil { return nil, err }; v_response = v }
+	return v_response, nil
+}
+
+func normalize_token_usage(args ...Value) (Value, error) {
+	axirCoverageMark("normalize_token_usage")
+	var v_usage Value
+	var v_cache_creation_for_compare Value
+	var v_cache_creation_tokens Value
+	var v_cache_read_for_compare Value
+	var v_cache_read_tokens Value
+	var v_cache_write_for_math Value
+	var v_cache_write_from_details Value
+	var v_cached_for_math Value
+	var v_cached_from_details Value
+	var v_completion_details Value
+	var v_completion_details_snake Value
+	var v_completion_tokens Value
+	var v_completion_tokens_snake Value
+	var v_computed_total_tokens Value
+	var v_direct_cache_creation Value
+	var v_direct_cache_creation_snake Value
+	var v_direct_cache_read Value
+	var v_direct_cache_read_snake Value
+	var v_has_cache_creation Value
+	var v_has_cache_read Value
+	var v_has_direct_cache_creation Value
+	var v_has_direct_cache_read Value
+	var v_has_positive_cache_creation Value
+	var v_has_positive_cache_read Value
+	var v_has_reasoning Value
+	var v_has_service_tier Value
+	var v_has_speed Value
+	var v_has_thoughts Value
+	var v_input_tokens Value
+	var v_is_default Value
+	var v_is_fast Value
+	var v_is_on_demand Value
+	var v_is_performance Value
+	var v_is_priority_alias Value
+	var v_is_standard_alias Value
+	var v_is_standard_only Value
+	var v_is_unspecified Value
+	var v_negative_cache_write Value
+	var v_negative_cached Value
+	var v_out Value
+	var v_output_tokens Value
+	var v_prompt_after_cache Value
+	var v_prompt_details Value
+	var v_prompt_details_snake Value
+	var v_prompt_is_negative Value
+	var v_prompt_tokens Value
+	var v_prompt_tokens_raw Value
+	var v_prompt_tokens_snake Value
+	var v_prompt_without_cached Value
+	var v_reasoning_from_details Value
+	var v_reasoning_tokens Value
+	var v_reasoning_tokens_snake Value
+	var v_service_tier Value
+	var v_service_tier_snake Value
+	var v_speed Value
+	var v_standard_pair Value
+	var v_standard_triple Value
+	var v_thoughts_tokens Value
+	var v_thoughts_tokens_snake Value
+	var v_total_tokens Value
+	var v_total_tokens_snake Value
+	if len(args) > 0 { v_usage = args[0] }
+	_ = v_usage
+	_ = v_cache_creation_for_compare
+	_ = v_cache_creation_tokens
+	_ = v_cache_read_for_compare
+	_ = v_cache_read_tokens
+	_ = v_cache_write_for_math
+	_ = v_cache_write_from_details
+	_ = v_cached_for_math
+	_ = v_cached_from_details
+	_ = v_completion_details
+	_ = v_completion_details_snake
+	_ = v_completion_tokens
+	_ = v_completion_tokens_snake
+	_ = v_computed_total_tokens
+	_ = v_direct_cache_creation
+	_ = v_direct_cache_creation_snake
+	_ = v_direct_cache_read
+	_ = v_direct_cache_read_snake
+	_ = v_has_cache_creation
+	_ = v_has_cache_read
+	_ = v_has_direct_cache_creation
+	_ = v_has_direct_cache_read
+	_ = v_has_positive_cache_creation
+	_ = v_has_positive_cache_read
+	_ = v_has_reasoning
+	_ = v_has_service_tier
+	_ = v_has_speed
+	_ = v_has_thoughts
+	_ = v_input_tokens
+	_ = v_is_default
+	_ = v_is_fast
+	_ = v_is_on_demand
+	_ = v_is_performance
+	_ = v_is_priority_alias
+	_ = v_is_standard_alias
+	_ = v_is_standard_only
+	_ = v_is_unspecified
+	_ = v_negative_cache_write
+	_ = v_negative_cached
+	_ = v_out
+	_ = v_output_tokens
+	_ = v_prompt_after_cache
+	_ = v_prompt_details
+	_ = v_prompt_details_snake
+	_ = v_prompt_is_negative
+	_ = v_prompt_tokens
+	_ = v_prompt_tokens_raw
+	_ = v_prompt_tokens_snake
+	_ = v_prompt_without_cached
+	_ = v_reasoning_from_details
+	_ = v_reasoning_tokens
+	_ = v_reasoning_tokens_snake
+	_ = v_service_tier
+	_ = v_service_tier_snake
+	_ = v_speed
+	_ = v_standard_pair
+	_ = v_standard_triple
+	_ = v_thoughts_tokens
+	_ = v_thoughts_tokens_snake
+	_ = v_total_tokens
+	_ = v_total_tokens_snake
+	v_out = Object()
+	v_input_tokens = coreGet(v_usage, "input_tokens", 0)
+	v_prompt_tokens_snake = coreGet(v_usage, "prompt_tokens", v_input_tokens)
+	v_prompt_tokens_raw = coreGet(v_usage, "promptTokens", v_prompt_tokens_snake)
+	v_prompt_details_snake = coreGet(v_usage, "prompt_tokens_details", nil)
+	v_prompt_details = coreGet(v_usage, "input_tokens_details", v_prompt_details_snake)
+	v_cached_from_details = coreGet(v_prompt_details, "cached_tokens", nil)
+	v_cache_write_from_details = coreGet(v_prompt_details, "cache_write_tokens", nil)
+	v_cached_for_math = _core_coalesce(v_cached_from_details, 0)
+	v_cache_write_for_math = _core_coalesce(v_cache_write_from_details, 0)
+	v_negative_cached = _core_mul(v_cached_for_math, -1)
+	v_prompt_without_cached = _core_add(v_prompt_tokens_raw, v_negative_cached)
+	v_negative_cache_write = _core_mul(v_cache_write_for_math, -1)
+	v_prompt_after_cache = _core_add(v_prompt_without_cached, v_negative_cache_write)
+	v_prompt_is_negative = _core_lt(v_prompt_after_cache, 0)
+	v_prompt_tokens = v_prompt_after_cache
+	if coreTruthy(v_prompt_is_negative) {
+		v_prompt_tokens = 0
 	} else {
 	// empty
 	}
-	return v_merged, nil
-}
-
-func build_usage_event(args ...Value) (Value, error) {
-	axirCoverageMark("build_usage_event")
-	var v_operation Value
-	var v_response Value
-	var v_options Value
-	var v_streaming Value
-	var v_ai_name Value
-	var v_event Value
-	var v_has_context Value
-	var v_has_remote_id Value
-	var v_has_remote_request_id Value
-	var v_has_remote_session_id Value
-	var v_has_result_usage Value
-	var v_has_session_id Value
-	var v_has_tokens Value
-	var v_missing_tokens Value
-	var v_model Value
-	var v_model_usage Value
-	var v_model_usage_snake Value
-	var v_none Value
-	var v_normalized_tokens Value
-	var v_option_session Value
-	var v_option_session_snake Value
-	var v_remote_id Value
-	var v_remote_id_snake Value
-	var v_remote_request_id Value
-	var v_remote_request_id_snake Value
-	var v_remote_session_id Value
-	var v_remote_session_id_snake Value
-	var v_response_session Value
-	var v_response_session_snake Value
-	var v_result Value
-	var v_result_usage Value
-	var v_result_usage_snake Value
-	var v_results Value
-	var v_session_id Value
-	var v_tokens Value
-	var v_top_model_usage Value
-	var v_usage_context Value
-	var v_usage_context_snake Value
-	if len(args) > 0 { v_operation = args[0] }
-	_ = v_operation
-	if len(args) > 1 { v_response = args[1] }
-	_ = v_response
-	if len(args) > 2 { v_options = args[2] }
-	_ = v_options
-	if len(args) > 3 { v_streaming = args[3] }
-	_ = v_streaming
-	_ = v_ai_name
-	_ = v_event
-	_ = v_has_context
-	_ = v_has_remote_id
-	_ = v_has_remote_request_id
-	_ = v_has_remote_session_id
-	_ = v_has_result_usage
-	_ = v_has_session_id
-	_ = v_has_tokens
-	_ = v_missing_tokens
-	_ = v_model
-	_ = v_model_usage
-	_ = v_model_usage_snake
-	_ = v_none
-	_ = v_normalized_tokens
-	_ = v_option_session
-	_ = v_option_session_snake
-	_ = v_remote_id
-	_ = v_remote_id_snake
-	_ = v_remote_request_id
-	_ = v_remote_request_id_snake
-	_ = v_remote_session_id
-	_ = v_remote_session_id_snake
-	_ = v_response_session
-	_ = v_response_session_snake
-	_ = v_result
-	_ = v_result_usage
-	_ = v_result_usage_snake
-	_ = v_results
-	_ = v_session_id
-	_ = v_tokens
-	_ = v_top_model_usage
-	_ = v_usage_context
-	_ = v_usage_context_snake
-	v_model_usage_snake = coreGet(v_response, "model_usage", nil)
-	v_top_model_usage = coreGet(v_response, "modelUsage", v_model_usage_snake)
-	v_model_usage = v_top_model_usage
-	v_results = coreGet(v_response, "results", nil)
-	for _, v_result = range coreIter(v_results) {
-		v_result_usage_snake = coreGet(v_result, "model_usage", nil)
-		v_result_usage = coreGet(v_result, "modelUsage", v_result_usage_snake)
-		v_has_result_usage = _core_truthy(v_result_usage)
-		if coreTruthy(v_has_result_usage) {
-			v_model_usage = v_result_usage
+	v_output_tokens = coreGet(v_usage, "output_tokens", 0)
+	v_completion_tokens_snake = coreGet(v_usage, "completion_tokens", v_output_tokens)
+	v_completion_tokens = coreGet(v_usage, "completionTokens", v_completion_tokens_snake)
+	v_computed_total_tokens = _core_add(v_prompt_tokens, v_completion_tokens)
+	v_total_tokens_snake = coreGet(v_usage, "total_tokens", v_computed_total_tokens)
+	v_total_tokens = coreGet(v_usage, "totalTokens", v_total_tokens_snake)
+	if err := coreSet(v_out, "prompt_tokens", v_prompt_tokens); err != nil { return nil, err }
+	if err := coreSet(v_out, "completion_tokens", v_completion_tokens); err != nil { return nil, err }
+	if err := coreSet(v_out, "total_tokens", v_total_tokens); err != nil { return nil, err }
+	v_thoughts_tokens_snake = coreGet(v_usage, "thoughts_tokens", nil)
+	v_thoughts_tokens = coreGet(v_usage, "thoughtsTokens", v_thoughts_tokens_snake)
+	v_has_thoughts = _core_is_not_none(v_thoughts_tokens)
+	if coreTruthy(v_has_thoughts) {
+		if err := coreSet(v_out, "thoughts_tokens", v_thoughts_tokens); err != nil { return nil, err }
+	} else {
+	// empty
+	}
+	v_completion_details_snake = coreGet(v_usage, "completion_tokens_details", nil)
+	v_completion_details = coreGet(v_usage, "output_tokens_details", v_completion_details_snake)
+	v_reasoning_from_details = coreGet(v_completion_details, "reasoning_tokens", nil)
+	v_reasoning_tokens_snake = coreGet(v_usage, "reasoning_tokens", v_reasoning_from_details)
+	v_reasoning_tokens = coreGet(v_usage, "reasoningTokens", v_reasoning_tokens_snake)
+	v_has_reasoning = _core_is_not_none(v_reasoning_tokens)
+	if coreTruthy(v_has_reasoning) {
+		if err := coreSet(v_out, "reasoning_tokens", v_reasoning_tokens); err != nil { return nil, err }
+	} else {
+	// empty
+	}
+	v_direct_cache_read_snake = coreGet(v_usage, "cache_read_tokens", nil)
+	v_direct_cache_read = coreGet(v_usage, "cacheReadTokens", v_direct_cache_read_snake)
+	v_cache_read_tokens = _core_coalesce(v_direct_cache_read, v_cached_from_details)
+	v_cache_read_for_compare = _core_coalesce(v_cache_read_tokens, 0)
+	v_has_direct_cache_read = _core_is_not_none(v_direct_cache_read)
+	v_has_positive_cache_read = _core_gt(v_cache_read_for_compare, 0)
+	v_has_cache_read = _core_or(v_has_direct_cache_read, v_has_positive_cache_read)
+	if coreTruthy(v_has_cache_read) {
+		if err := coreSet(v_out, "cache_read_tokens", v_cache_read_tokens); err != nil { return nil, err }
+	} else {
+	// empty
+	}
+	v_direct_cache_creation_snake = coreGet(v_usage, "cache_creation_tokens", nil)
+	v_direct_cache_creation = coreGet(v_usage, "cacheCreationTokens", v_direct_cache_creation_snake)
+	v_cache_creation_tokens = _core_coalesce(v_direct_cache_creation, v_cache_write_from_details)
+	v_cache_creation_for_compare = _core_coalesce(v_cache_creation_tokens, 0)
+	v_has_direct_cache_creation = _core_is_not_none(v_direct_cache_creation)
+	v_has_positive_cache_creation = _core_gt(v_cache_creation_for_compare, 0)
+	v_has_cache_creation = _core_or(v_has_direct_cache_creation, v_has_positive_cache_creation)
+	if coreTruthy(v_has_cache_creation) {
+		if err := coreSet(v_out, "cache_creation_tokens", v_cache_creation_tokens); err != nil { return nil, err }
+	} else {
+	// empty
+	}
+	v_service_tier_snake = coreGet(v_usage, "service_tier", nil)
+	v_service_tier = coreGet(v_usage, "serviceTier", v_service_tier_snake)
+	v_has_service_tier = _core_is_not_none(v_service_tier)
+	if coreTruthy(v_has_service_tier) {
+		v_is_default = _core_eq(v_service_tier, "default")
+		v_is_on_demand = _core_eq(v_service_tier, "on_demand")
+		v_is_standard_only = _core_eq(v_service_tier, "standard_only")
+		v_is_unspecified = _core_eq(v_service_tier, "unspecified")
+		v_standard_pair = _core_or(v_is_default, v_is_on_demand)
+		v_standard_triple = _core_or(v_standard_pair, v_is_standard_only)
+		v_is_standard_alias = _core_or(v_standard_triple, v_is_unspecified)
+		if coreTruthy(v_is_standard_alias) {
+			v_service_tier = "standard"
 		} else {
 		// empty
 		}
-	}
-	v_tokens = coreGet(v_model_usage, "tokens", nil)
-	v_has_tokens = _core_truthy(v_tokens)
-	v_missing_tokens = _core_not(v_has_tokens)
-	if coreTruthy(v_missing_tokens) {
-		v_none = _core_none()
-		return v_none, nil
+		v_is_performance = _core_eq(v_service_tier, "performance")
+		v_is_fast = _core_eq(v_service_tier, "fast")
+		v_is_priority_alias = _core_or(v_is_performance, v_is_fast)
+		if coreTruthy(v_is_priority_alias) {
+			v_service_tier = "priority"
+		} else {
+		// empty
+		}
+		if err := coreSet(v_out, "service_tier", v_service_tier); err != nil { return nil, err }
 	} else {
 	// empty
 	}
-	v_event = Object()
-	if err := coreSet(v_event, "operation", v_operation); err != nil { return nil, err }
-	v_ai_name = coreGet(v_model_usage, "ai", nil)
-	v_model = coreGet(v_model_usage, "model", nil)
-	{ v, err := normalize_token_usage(v_tokens); if err != nil { return nil, err }; v_normalized_tokens = v }
-	if err := coreSet(v_event, "ai", v_ai_name); err != nil { return nil, err }
-	if err := coreSet(v_event, "model", v_model); err != nil { return nil, err }
-	if err := coreSet(v_event, "tokens", v_normalized_tokens); err != nil { return nil, err }
-	if err := coreSet(v_event, "streaming", v_streaming); err != nil { return nil, err }
-	v_usage_context_snake = coreGet(v_options, "usage_context", nil)
-	v_usage_context = coreGet(v_options, "usageContext", v_usage_context_snake)
-	v_has_context = _core_truthy(v_usage_context)
-	if coreTruthy(v_has_context) {
-		if err := coreSet(v_event, "context", v_usage_context); err != nil { return nil, err }
+	v_speed = coreGet(v_usage, "speed", nil)
+	v_has_speed = _core_is_not_none(v_speed)
+	if coreTruthy(v_has_speed) {
+		if err := coreSet(v_out, "speed", v_speed); err != nil { return nil, err }
 	} else {
 	// empty
 	}
-	v_option_session_snake = coreGet(v_options, "session_id", nil)
-	v_option_session = coreGet(v_options, "sessionId", v_option_session_snake)
-	v_response_session_snake = coreGet(v_response, "session_id", nil)
-	v_response_session = coreGet(v_response, "sessionId", v_response_session_snake)
-	v_session_id = _core_coalesce(v_response_session, v_option_session)
-	v_has_session_id = _core_is_not_none(v_session_id)
-	if coreTruthy(v_has_session_id) {
-		if err := coreSet(v_event, "sessionId", v_session_id); err != nil { return nil, err }
-	} else {
-	// empty
-	}
-	v_remote_id_snake = coreGet(v_response, "remote_id", nil)
-	v_remote_id = coreGet(v_response, "remoteId", v_remote_id_snake)
-	v_has_remote_id = _core_is_not_none(v_remote_id)
-	if coreTruthy(v_has_remote_id) {
-		if err := coreSet(v_event, "remoteId", v_remote_id); err != nil { return nil, err }
-	} else {
-	// empty
-	}
-	v_remote_request_id_snake = coreGet(v_response, "remote_request_id", nil)
-	v_remote_request_id = coreGet(v_response, "remoteRequestId", v_remote_request_id_snake)
-	v_has_remote_request_id = _core_is_not_none(v_remote_request_id)
-	if coreTruthy(v_has_remote_request_id) {
-		if err := coreSet(v_event, "remoteRequestId", v_remote_request_id); err != nil { return nil, err }
-	} else {
-	// empty
-	}
-	v_remote_session_id_snake = coreGet(v_response, "remote_session_id", nil)
-	v_remote_session_id = coreGet(v_response, "remoteSessionId", v_remote_session_id_snake)
-	v_has_remote_session_id = _core_is_not_none(v_remote_session_id)
-	if coreTruthy(v_has_remote_session_id) {
-		if err := coreSet(v_event, "remoteSessionId", v_remote_session_id); err != nil { return nil, err }
-	} else {
-	// empty
-	}
-	return v_event, nil
+	return v_out, nil
 }
 
 func _openai_content_part_impl(args ...Value) (Value, error) {
@@ -9933,43 +9989,6 @@ func _openai_content_part_impl(args ...Value) (Value, error) {
 	return nil, asError(v_error)
 }
 
-func _ai_model_usage_impl(args ...Value) (Value, error) {
-	axirCoverageMark("_ai_model_usage_impl")
-	var v_ai_name Value
-	var v_model Value
-	var v_usage Value
-	var v_has_usage Value
-	var v_missing_usage Value
-	var v_none Value
-	var v_out Value
-	var v_tokens Value
-	if len(args) > 0 { v_ai_name = args[0] }
-	_ = v_ai_name
-	if len(args) > 1 { v_model = args[1] }
-	_ = v_model
-	if len(args) > 2 { v_usage = args[2] }
-	_ = v_usage
-	_ = v_has_usage
-	_ = v_missing_usage
-	_ = v_none
-	_ = v_out
-	_ = v_tokens
-	v_has_usage = _core_truthy(v_usage)
-	v_missing_usage = _core_not(v_has_usage)
-	if coreTruthy(v_missing_usage) {
-		v_none = _core_none()
-		return v_none, nil
-	} else {
-	// empty
-	}
-	{ v, err := normalize_token_usage(v_usage); if err != nil { return nil, err }; v_tokens = v }
-	v_out = Object()
-	if err := coreSet(v_out, "ai", v_ai_name); err != nil { return nil, err }
-	if err := coreSet(v_out, "model", v_model); err != nil { return nil, err }
-	if err := coreSet(v_out, "tokens", v_tokens); err != nil { return nil, err }
-	return v_out, nil
-}
-
 func typesafe_normalize_chat_response(args ...Value) (Value, error) {
 	axirCoverageMark("typesafe_normalize_chat_response")
 	var v_raw Value
@@ -10079,6 +10098,325 @@ func typesafe_normalize_chat_response(args ...Value) (Value, error) {
 	if err := coreSet(v_response, "modelUsage", v_model_usage); err != nil { return nil, err }
 	if err := coreSet(v_response, "providerMetadata", v_metadata); err != nil { return nil, err }
 	return v_response, nil
+}
+
+func merge_usage_context(args ...Value) (Value, error) {
+	axirCoverageMark("merge_usage_context")
+	var v_defaults Value
+	var v_overrides Value
+	var v_attributes Value
+	var v_default_attributes Value
+	var v_has_attributes Value
+	var v_merged Value
+	var v_override_attributes Value
+	if len(args) > 0 { v_defaults = args[0] }
+	_ = v_defaults
+	if len(args) > 1 { v_overrides = args[1] }
+	_ = v_overrides
+	_ = v_attributes
+	_ = v_default_attributes
+	_ = v_has_attributes
+	_ = v_merged
+	_ = v_override_attributes
+	v_merged = _core_map_merge(v_defaults, v_overrides)
+	v_default_attributes = coreGet(v_defaults, "attributes", nil)
+	v_override_attributes = coreGet(v_overrides, "attributes", nil)
+	v_attributes = _core_map_merge(v_default_attributes, v_override_attributes)
+	v_has_attributes = _core_truthy(v_attributes)
+	if coreTruthy(v_has_attributes) {
+		if err := coreSet(v_merged, "attributes", v_attributes); err != nil { return nil, err }
+	} else {
+	// empty
+	}
+	return v_merged, nil
+}
+
+func build_usage_event(args ...Value) (Value, error) {
+	axirCoverageMark("build_usage_event")
+	var v_operation Value
+	var v_response Value
+	var v_options Value
+	var v_streaming Value
+	var v_ai_name Value
+	var v_event Value
+	var v_has_context Value
+	var v_has_remote_id Value
+	var v_has_remote_request_id Value
+	var v_has_remote_session_id Value
+	var v_has_result_usage Value
+	var v_has_session_id Value
+	var v_has_tokens Value
+	var v_missing_tokens Value
+	var v_model Value
+	var v_model_usage Value
+	var v_model_usage_snake Value
+	var v_none Value
+	var v_normalized_tokens Value
+	var v_option_session Value
+	var v_option_session_snake Value
+	var v_remote_id Value
+	var v_remote_id_snake Value
+	var v_remote_request_id Value
+	var v_remote_request_id_snake Value
+	var v_remote_session_id Value
+	var v_remote_session_id_snake Value
+	var v_response_session Value
+	var v_response_session_snake Value
+	var v_result Value
+	var v_result_usage Value
+	var v_result_usage_snake Value
+	var v_results Value
+	var v_session_id Value
+	var v_tokens Value
+	var v_top_model_usage Value
+	var v_usage_context Value
+	var v_usage_context_snake Value
+	if len(args) > 0 { v_operation = args[0] }
+	_ = v_operation
+	if len(args) > 1 { v_response = args[1] }
+	_ = v_response
+	if len(args) > 2 { v_options = args[2] }
+	_ = v_options
+	if len(args) > 3 { v_streaming = args[3] }
+	_ = v_streaming
+	_ = v_ai_name
+	_ = v_event
+	_ = v_has_context
+	_ = v_has_remote_id
+	_ = v_has_remote_request_id
+	_ = v_has_remote_session_id
+	_ = v_has_result_usage
+	_ = v_has_session_id
+	_ = v_has_tokens
+	_ = v_missing_tokens
+	_ = v_model
+	_ = v_model_usage
+	_ = v_model_usage_snake
+	_ = v_none
+	_ = v_normalized_tokens
+	_ = v_option_session
+	_ = v_option_session_snake
+	_ = v_remote_id
+	_ = v_remote_id_snake
+	_ = v_remote_request_id
+	_ = v_remote_request_id_snake
+	_ = v_remote_session_id
+	_ = v_remote_session_id_snake
+	_ = v_response_session
+	_ = v_response_session_snake
+	_ = v_result
+	_ = v_result_usage
+	_ = v_result_usage_snake
+	_ = v_results
+	_ = v_session_id
+	_ = v_tokens
+	_ = v_top_model_usage
+	_ = v_usage_context
+	_ = v_usage_context_snake
+	v_model_usage_snake = coreGet(v_response, "model_usage", nil)
+	v_top_model_usage = coreGet(v_response, "modelUsage", v_model_usage_snake)
+	v_model_usage = v_top_model_usage
+	v_results = coreGet(v_response, "results", nil)
+	for _, v_result = range coreIter(v_results) {
+		v_result_usage_snake = coreGet(v_result, "model_usage", nil)
+		v_result_usage = coreGet(v_result, "modelUsage", v_result_usage_snake)
+		v_has_result_usage = _core_truthy(v_result_usage)
+		if coreTruthy(v_has_result_usage) {
+			v_model_usage = v_result_usage
+		} else {
+		// empty
+		}
+	}
+	v_tokens = coreGet(v_model_usage, "tokens", nil)
+	v_has_tokens = _core_truthy(v_tokens)
+	v_missing_tokens = _core_not(v_has_tokens)
+	if coreTruthy(v_missing_tokens) {
+		v_none = _core_none()
+		return v_none, nil
+	} else {
+	// empty
+	}
+	v_event = Object()
+	if err := coreSet(v_event, "operation", v_operation); err != nil { return nil, err }
+	v_ai_name = coreGet(v_model_usage, "ai", nil)
+	v_model = coreGet(v_model_usage, "model", nil)
+	{ v, err := normalize_token_usage(v_tokens); if err != nil { return nil, err }; v_normalized_tokens = v }
+	if err := coreSet(v_event, "ai", v_ai_name); err != nil { return nil, err }
+	if err := coreSet(v_event, "model", v_model); err != nil { return nil, err }
+	if err := coreSet(v_event, "tokens", v_normalized_tokens); err != nil { return nil, err }
+	if err := coreSet(v_event, "streaming", v_streaming); err != nil { return nil, err }
+	v_usage_context_snake = coreGet(v_options, "usage_context", nil)
+	v_usage_context = coreGet(v_options, "usageContext", v_usage_context_snake)
+	v_has_context = _core_truthy(v_usage_context)
+	if coreTruthy(v_has_context) {
+		if err := coreSet(v_event, "context", v_usage_context); err != nil { return nil, err }
+	} else {
+	// empty
+	}
+	v_option_session_snake = coreGet(v_options, "session_id", nil)
+	v_option_session = coreGet(v_options, "sessionId", v_option_session_snake)
+	v_response_session_snake = coreGet(v_response, "session_id", nil)
+	v_response_session = coreGet(v_response, "sessionId", v_response_session_snake)
+	v_session_id = _core_coalesce(v_response_session, v_option_session)
+	v_has_session_id = _core_is_not_none(v_session_id)
+	if coreTruthy(v_has_session_id) {
+		if err := coreSet(v_event, "sessionId", v_session_id); err != nil { return nil, err }
+	} else {
+	// empty
+	}
+	v_remote_id_snake = coreGet(v_response, "remote_id", nil)
+	v_remote_id = coreGet(v_response, "remoteId", v_remote_id_snake)
+	v_has_remote_id = _core_is_not_none(v_remote_id)
+	if coreTruthy(v_has_remote_id) {
+		if err := coreSet(v_event, "remoteId", v_remote_id); err != nil { return nil, err }
+	} else {
+	// empty
+	}
+	v_remote_request_id_snake = coreGet(v_response, "remote_request_id", nil)
+	v_remote_request_id = coreGet(v_response, "remoteRequestId", v_remote_request_id_snake)
+	v_has_remote_request_id = _core_is_not_none(v_remote_request_id)
+	if coreTruthy(v_has_remote_request_id) {
+		if err := coreSet(v_event, "remoteRequestId", v_remote_request_id); err != nil { return nil, err }
+	} else {
+	// empty
+	}
+	v_remote_session_id_snake = coreGet(v_response, "remote_session_id", nil)
+	v_remote_session_id = coreGet(v_response, "remoteSessionId", v_remote_session_id_snake)
+	v_has_remote_session_id = _core_is_not_none(v_remote_session_id)
+	if coreTruthy(v_has_remote_session_id) {
+		if err := coreSet(v_event, "remoteSessionId", v_remote_session_id); err != nil { return nil, err }
+	} else {
+	// empty
+	}
+	return v_event, nil
+}
+
+func typesafe_response_context(args ...Value) (Value, error) {
+	axirCoverageMark("typesafe_response_context")
+	var v_payload Value
+	var v_options Value
+	var v_context Value
+	var v_empty Value
+	var v_threshold Value
+	var v_threshold_snake Value
+	if len(args) > 0 { v_payload = args[0] }
+	_ = v_payload
+	if len(args) > 1 { v_options = args[1] }
+	_ = v_options
+	_ = v_context
+	_ = v_empty
+	_ = v_threshold
+	_ = v_threshold_snake
+	v_empty = Object()
+	v_context = _core_map_merge(v_empty, v_payload)
+	v_threshold_snake = coreGet(v_options, "true_threshold", 0.5)
+	v_threshold = coreGet(v_options, "trueThreshold", v_threshold_snake)
+	if err := coreSet(v_context, "trueThreshold", v_threshold); err != nil { return nil, err }
+	return v_context, nil
+}
+
+func provider_validate_chat_request(args ...Value) (Value, error) {
+	axirCoverageMark("provider_validate_chat_request")
+	var v_profile Value
+	var v_request Value
+	var v_options Value
+	var v_canonical Value
+	var v_is_typesafe Value
+	if len(args) > 0 { v_profile = args[0] }
+	_ = v_profile
+	if len(args) > 1 { v_request = args[1] }
+	_ = v_request
+	if len(args) > 2 { v_options = args[2] }
+	_ = v_options
+	_ = v_canonical
+	_ = v_is_typesafe
+	{ v, err := provider_normalize_profile(v_profile); if err != nil { return nil, err }; v_canonical = v }
+	v_is_typesafe = _core_eq(v_canonical, "typesafe")
+	if coreTruthy(v_is_typesafe) {
+		if _, err := typesafe_build_chat_request(v_request, v_options); err != nil { return nil, err }
+	} else {
+	// empty
+	}
+	return nil, nil
+}
+
+func _ai_model_usage_impl(args ...Value) (Value, error) {
+	axirCoverageMark("_ai_model_usage_impl")
+	var v_ai_name Value
+	var v_model Value
+	var v_usage Value
+	var v_has_usage Value
+	var v_missing_usage Value
+	var v_none Value
+	var v_out Value
+	var v_tokens Value
+	if len(args) > 0 { v_ai_name = args[0] }
+	_ = v_ai_name
+	if len(args) > 1 { v_model = args[1] }
+	_ = v_model
+	if len(args) > 2 { v_usage = args[2] }
+	_ = v_usage
+	_ = v_has_usage
+	_ = v_missing_usage
+	_ = v_none
+	_ = v_out
+	_ = v_tokens
+	v_has_usage = _core_truthy(v_usage)
+	v_missing_usage = _core_not(v_has_usage)
+	if coreTruthy(v_missing_usage) {
+		v_none = _core_none()
+		return v_none, nil
+	} else {
+	// empty
+	}
+	{ v, err := normalize_token_usage(v_usage); if err != nil { return nil, err }; v_tokens = v }
+	v_out = Object()
+	if err := coreSet(v_out, "ai", v_ai_name); err != nil { return nil, err }
+	if err := coreSet(v_out, "model", v_model); err != nil { return nil, err }
+	if err := coreSet(v_out, "tokens", v_tokens); err != nil { return nil, err }
+	return v_out, nil
+}
+
+func _openai_tool_call_to_provider_impl(args ...Value) (Value, error) {
+	axirCoverageMark("_openai_tool_call_to_provider_impl")
+	var v_call Value
+	var v_fn Value
+	var v_function Value
+	var v_id Value
+	var v_name Value
+	var v_out Value
+	var v_params Value
+	var v_params_is_string Value
+	var v_params_json Value
+	if len(args) > 0 { v_call = args[0] }
+	_ = v_call
+	_ = v_fn
+	_ = v_function
+	_ = v_id
+	_ = v_name
+	_ = v_out
+	_ = v_params
+	_ = v_params_is_string
+	_ = v_params_json
+	v_fn = coreGet(v_call, "function", nil)
+	v_params = coreGet(v_fn, "params", nil)
+	v_params_is_string = coreTypeIs(v_params, "string")
+	if coreTruthy(v_params_is_string) {
+	// empty
+	} else {
+		v_params_json = _core_json_stringify(v_params)
+		v_params = v_params_json
+	}
+	v_id = coreGet(v_call, "id", nil)
+	v_name = coreGet(v_fn, "name", nil)
+	v_function = Object()
+	if err := coreSet(v_function, "name", v_name); err != nil { return nil, err }
+	if err := coreSet(v_function, "arguments", v_params); err != nil { return nil, err }
+	v_out = Object()
+	if err := coreSet(v_out, "id", v_id); err != nil { return nil, err }
+	if err := coreSet(v_out, "type", "function"); err != nil { return nil, err }
+	if err := coreSet(v_out, "function", v_function); err != nil { return nil, err }
+	return v_out, nil
 }
 
 func ai_merge_replay_metadata(args ...Value) (Value, error) {
@@ -10247,53 +10585,134 @@ func ai_merge_replay_metadata(args ...Value) (Value, error) {
 	return v_out, nil
 }
 
-func typesafe_response_context(args ...Value) (Value, error) {
-	axirCoverageMark("typesafe_response_context")
-	var v_payload Value
-	var v_options Value
-	var v_context Value
-	var v_empty Value
-	var v_threshold Value
-	var v_threshold_snake Value
-	if len(args) > 0 { v_payload = args[0] }
-	_ = v_payload
-	if len(args) > 1 { v_options = args[1] }
-	_ = v_options
-	_ = v_context
-	_ = v_empty
-	_ = v_threshold
-	_ = v_threshold_snake
-	v_empty = Object()
-	v_context = _core_map_merge(v_empty, v_payload)
-	v_threshold_snake = coreGet(v_options, "true_threshold", 0.5)
-	v_threshold = coreGet(v_options, "trueThreshold", v_threshold_snake)
-	if err := coreSet(v_context, "trueThreshold", v_threshold); err != nil { return nil, err }
-	return v_context, nil
-}
-
-func provider_validate_chat_request(args ...Value) (Value, error) {
-	axirCoverageMark("provider_validate_chat_request")
-	var v_profile Value
-	var v_request Value
-	var v_options Value
-	var v_canonical Value
-	var v_is_typesafe Value
-	if len(args) > 0 { v_profile = args[0] }
-	_ = v_profile
-	if len(args) > 1 { v_request = args[1] }
-	_ = v_request
-	if len(args) > 2 { v_options = args[2] }
-	_ = v_options
-	_ = v_canonical
-	_ = v_is_typesafe
-	{ v, err := provider_normalize_profile(v_profile); if err != nil { return nil, err }; v_canonical = v }
-	v_is_typesafe = _core_eq(v_canonical, "typesafe")
-	if coreTruthy(v_is_typesafe) {
-		if _, err := typesafe_build_chat_request(v_request, v_options); err != nil { return nil, err }
+func _openai_tool_spec_impl(args ...Value) (Value, error) {
+	axirCoverageMark("_openai_tool_spec_impl")
+	var v_fn Value
+	var v_description Value
+	var v_function Value
+	var v_has_parameters Value
+	var v_name Value
+	var v_out Value
+	var v_parameters Value
+	if len(args) > 0 { v_fn = args[0] }
+	_ = v_fn
+	_ = v_description
+	_ = v_function
+	_ = v_has_parameters
+	_ = v_name
+	_ = v_out
+	_ = v_parameters
+	v_name = coreGet(v_fn, "name", nil)
+	v_description = coreGet(v_fn, "description", "")
+	v_parameters = coreGet(v_fn, "parameters", nil)
+	v_function = Object()
+	if err := coreSet(v_function, "name", v_name); err != nil { return nil, err }
+	if err := coreSet(v_function, "description", v_description); err != nil { return nil, err }
+	v_has_parameters = _core_truthy(v_parameters)
+	if coreTruthy(v_has_parameters) {
+		if err := coreSet(v_function, "parameters", v_parameters); err != nil { return nil, err }
 	} else {
 	// empty
 	}
-	return nil, nil
+	v_out = Object()
+	if err := coreSet(v_out, "type", "function"); err != nil { return nil, err }
+	if err := coreSet(v_out, "function", v_function); err != nil { return nil, err }
+	return v_out, nil
+}
+
+func openai_build_embed_request(args ...Value) (Value, error) {
+	axirCoverageMark("openai_build_embed_request")
+	var v_request Value
+	var v_dimensions Value
+	var v_embed_model_snake Value
+	var v_empty_texts Value
+	var v_has_dimensions Value
+	var v_model Value
+	var v_payload Value
+	var v_texts Value
+	if len(args) > 0 { v_request = args[0] }
+	_ = v_request
+	_ = v_dimensions
+	_ = v_embed_model_snake
+	_ = v_empty_texts
+	_ = v_has_dimensions
+	_ = v_model
+	_ = v_payload
+	_ = v_texts
+	v_embed_model_snake = coreGet(v_request, "embed_model", nil)
+	v_model = coreGet(v_request, "embedModel", v_embed_model_snake)
+	v_empty_texts = MutableArray()
+	v_texts = coreGet(v_request, "texts", v_empty_texts)
+	v_payload = Object()
+	if err := coreSet(v_payload, "model", v_model); err != nil { return nil, err }
+	if err := coreSet(v_payload, "input", v_texts); err != nil { return nil, err }
+	v_dimensions = coreGet(v_request, "dimensions", nil)
+	v_has_dimensions = _core_truthy(v_dimensions)
+	if coreTruthy(v_has_dimensions) {
+		if err := coreSet(v_payload, "dimensions", v_dimensions); err != nil { return nil, err }
+	} else {
+	// empty
+	}
+	return v_payload, nil
+}
+
+func openai_normalize_chat_response(args ...Value) (Value, error) {
+	axirCoverageMark("openai_normalize_chat_response")
+	var v_raw Value
+	var v_ai_name Value
+	var v_model Value
+	var v_response Value
+	if len(args) > 0 { v_raw = args[0] }
+	_ = v_raw
+	if len(args) > 1 { v_ai_name = args[1] }
+	_ = v_ai_name
+	if len(args) > 2 { v_model = args[2] }
+	_ = v_model
+	_ = v_response
+	{ v, err := _openai_normalize_chat_response_impl(v_raw, v_ai_name, v_model, "none", "none"); if err != nil { return nil, err }; v_response = v }
+	return v_response, nil
+}
+
+func _openai_usage_with_service_tier(args ...Value) (Value, error) {
+	axirCoverageMark("_openai_usage_with_service_tier")
+	var v_raw Value
+	var v_usage Value
+	var v_empty Value
+	var v_has_tier Value
+	var v_has_usage Value
+	var v_out Value
+	var v_raw_tier Value
+	var v_tier Value
+	var v_usage_tier Value
+	if len(args) > 0 { v_raw = args[0] }
+	_ = v_raw
+	if len(args) > 1 { v_usage = args[1] }
+	_ = v_usage
+	_ = v_empty
+	_ = v_has_tier
+	_ = v_has_usage
+	_ = v_out
+	_ = v_raw_tier
+	_ = v_tier
+	_ = v_usage_tier
+	v_has_usage = _core_is_not_none(v_usage)
+	if coreTruthy(v_has_usage) {
+	// empty
+	} else {
+		return v_usage, nil
+	}
+	v_empty = Object()
+	v_out = _core_map_merge(v_empty, v_usage)
+	v_usage_tier = coreGet(v_usage, "service_tier", nil)
+	v_raw_tier = coreGet(v_raw, "service_tier", v_usage_tier)
+	v_tier = coreGet(v_raw, "service_tier_used", v_raw_tier)
+	v_has_tier = _core_is_not_none(v_tier)
+	if coreTruthy(v_has_tier) {
+		if err := coreSet(v_out, "service_tier", v_tier); err != nil { return nil, err }
+	} else {
+	// empty
+	}
+	return v_out, nil
 }
 
 func _chat_result_to_completion(args ...Value) (Value, error) {
@@ -10395,80 +10814,102 @@ func _chat_result_to_completion(args ...Value) (Value, error) {
 	return v_completion, nil
 }
 
-func _openai_tool_call_to_provider_impl(args ...Value) (Value, error) {
-	axirCoverageMark("_openai_tool_call_to_provider_impl")
-	var v_call Value
-	var v_fn Value
-	var v_function Value
-	var v_id Value
-	var v_name Value
+func _openai_normalize_chat_response_impl(args ...Value) (Value, error) {
+	axirCoverageMark("_openai_normalize_chat_response_impl")
+	var v_raw Value
+	var v_ai_name Value
+	var v_model Value
+	var v_reasoning_content_mode Value
+	var v_reasoning_details_mode Value
+	var v_bad_choices Value
+	var v_choice Value
+	var v_choices Value
+	var v_choices_is_list Value
+	var v_error Value
+	var v_has_provider_error Value
+	var v_message Value
+	var v_model_usage Value
 	var v_out Value
-	var v_params Value
-	var v_params_is_string Value
-	var v_params_json Value
-	if len(args) > 0 { v_call = args[0] }
-	_ = v_call
-	_ = v_fn
-	_ = v_function
-	_ = v_id
-	_ = v_name
+	var v_provider_error Value
+	var v_raw_is_object Value
+	var v_raw_model Value
+	var v_raw_not_object Value
+	var v_raw_usage Value
+	var v_remote_id Value
+	var v_result Value
+	var v_results Value
+	var v_usage Value
+	var v_used_model Value
+	if len(args) > 0 { v_raw = args[0] }
+	_ = v_raw
+	if len(args) > 1 { v_ai_name = args[1] }
+	_ = v_ai_name
+	if len(args) > 2 { v_model = args[2] }
+	_ = v_model
+	if len(args) > 3 { v_reasoning_content_mode = args[3] }
+	_ = v_reasoning_content_mode
+	if len(args) > 4 { v_reasoning_details_mode = args[4] }
+	_ = v_reasoning_details_mode
+	_ = v_bad_choices
+	_ = v_choice
+	_ = v_choices
+	_ = v_choices_is_list
+	_ = v_error
+	_ = v_has_provider_error
+	_ = v_message
+	_ = v_model_usage
 	_ = v_out
-	_ = v_params
-	_ = v_params_is_string
-	_ = v_params_json
-	v_fn = coreGet(v_call, "function", nil)
-	v_params = coreGet(v_fn, "params", nil)
-	v_params_is_string = coreTypeIs(v_params, "string")
-	if coreTruthy(v_params_is_string) {
-	// empty
-	} else {
-		v_params_json = _core_json_stringify(v_params)
-		v_params = v_params_json
-	}
-	v_id = coreGet(v_call, "id", nil)
-	v_name = coreGet(v_fn, "name", nil)
-	v_function = Object()
-	if err := coreSet(v_function, "name", v_name); err != nil { return nil, err }
-	if err := coreSet(v_function, "arguments", v_params); err != nil { return nil, err }
-	v_out = Object()
-	if err := coreSet(v_out, "id", v_id); err != nil { return nil, err }
-	if err := coreSet(v_out, "type", "function"); err != nil { return nil, err }
-	if err := coreSet(v_out, "function", v_function); err != nil { return nil, err }
-	return v_out, nil
-}
-
-func _openai_tool_spec_impl(args ...Value) (Value, error) {
-	axirCoverageMark("_openai_tool_spec_impl")
-	var v_fn Value
-	var v_description Value
-	var v_function Value
-	var v_has_parameters Value
-	var v_name Value
-	var v_out Value
-	var v_parameters Value
-	if len(args) > 0 { v_fn = args[0] }
-	_ = v_fn
-	_ = v_description
-	_ = v_function
-	_ = v_has_parameters
-	_ = v_name
-	_ = v_out
-	_ = v_parameters
-	v_name = coreGet(v_fn, "name", nil)
-	v_description = coreGet(v_fn, "description", "")
-	v_parameters = coreGet(v_fn, "parameters", nil)
-	v_function = Object()
-	if err := coreSet(v_function, "name", v_name); err != nil { return nil, err }
-	if err := coreSet(v_function, "description", v_description); err != nil { return nil, err }
-	v_has_parameters = _core_truthy(v_parameters)
-	if coreTruthy(v_has_parameters) {
-		if err := coreSet(v_function, "parameters", v_parameters); err != nil { return nil, err }
+	_ = v_provider_error
+	_ = v_raw_is_object
+	_ = v_raw_model
+	_ = v_raw_not_object
+	_ = v_raw_usage
+	_ = v_remote_id
+	_ = v_result
+	_ = v_results
+	_ = v_usage
+	_ = v_used_model
+	v_raw_is_object = coreTypeIs(v_raw, "object")
+	v_raw_not_object = _core_not(v_raw_is_object)
+	if coreTruthy(v_raw_not_object) {
+		v_error = _core_ai_error_response("provider response must be a JSON object", v_raw)
+		return nil, asError(v_error)
 	} else {
 	// empty
 	}
+	v_provider_error = coreGet(v_raw, "error", nil)
+	v_has_provider_error = _core_truthy(v_provider_error)
+	if coreTruthy(v_has_provider_error) {
+		v_message = coreGet(v_provider_error, "message", "provider response error")
+		v_error = _core_ai_error_response(v_message, v_raw)
+		return nil, asError(v_error)
+	} else {
+	// empty
+	}
+	v_choices = coreGet(v_raw, "choices", nil)
+	v_choices_is_list = coreTypeIs(v_choices, "list")
+	v_bad_choices = _core_not(v_choices_is_list)
+	if coreTruthy(v_bad_choices) {
+		v_error = _core_ai_error_response("provider response missing choices", v_raw)
+		return nil, asError(v_error)
+	} else {
+	// empty
+	}
+	v_results = MutableArray()
+	for _, v_choice = range coreIter(v_choices) {
+		{ v, err := _openai_normalize_choice_impl(v_choice, v_raw, v_reasoning_content_mode, v_reasoning_details_mode); if err != nil { return nil, err }; v_result = v }
+		v_results = coreAppend(v_results, v_result)
+	}
+	v_raw_model = coreGet(v_raw, "model", nil)
+	v_used_model = _core_coalesce(v_raw_model, v_model)
+	v_raw_usage = coreGet(v_raw, "usage", nil)
+	{ v, err := _openai_usage_with_service_tier(v_raw, v_raw_usage); if err != nil { return nil, err }; v_usage = v }
+	{ v, err := _ai_model_usage_impl(v_ai_name, v_used_model, v_usage); if err != nil { return nil, err }; v_model_usage = v }
+	v_remote_id = coreGet(v_raw, "id", nil)
 	v_out = Object()
-	if err := coreSet(v_out, "type", "function"); err != nil { return nil, err }
-	if err := coreSet(v_out, "function", v_function); err != nil { return nil, err }
+	if err := coreSet(v_out, "results", v_results); err != nil { return nil, err }
+	if err := coreSet(v_out, "remote_id", v_remote_id); err != nil { return nil, err }
+	if err := coreSet(v_out, "model_usage", v_model_usage); err != nil { return nil, err }
 	return v_out, nil
 }
 
@@ -10592,416 +11033,6 @@ func chat_response_to_completion(args ...Value) (Value, error) {
 	v_has_phase = _core_is_not_none(v_phase)
 	if coreTruthy(v_has_phase) {
 		if err := coreSet(v_out, "phase", v_phase); err != nil { return nil, err }
-	} else {
-	// empty
-	}
-	return v_out, nil
-}
-
-func openai_build_embed_request(args ...Value) (Value, error) {
-	axirCoverageMark("openai_build_embed_request")
-	var v_request Value
-	var v_dimensions Value
-	var v_embed_model_snake Value
-	var v_empty_texts Value
-	var v_has_dimensions Value
-	var v_model Value
-	var v_payload Value
-	var v_texts Value
-	if len(args) > 0 { v_request = args[0] }
-	_ = v_request
-	_ = v_dimensions
-	_ = v_embed_model_snake
-	_ = v_empty_texts
-	_ = v_has_dimensions
-	_ = v_model
-	_ = v_payload
-	_ = v_texts
-	v_embed_model_snake = coreGet(v_request, "embed_model", nil)
-	v_model = coreGet(v_request, "embedModel", v_embed_model_snake)
-	v_empty_texts = MutableArray()
-	v_texts = coreGet(v_request, "texts", v_empty_texts)
-	v_payload = Object()
-	if err := coreSet(v_payload, "model", v_model); err != nil { return nil, err }
-	if err := coreSet(v_payload, "input", v_texts); err != nil { return nil, err }
-	v_dimensions = coreGet(v_request, "dimensions", nil)
-	v_has_dimensions = _core_truthy(v_dimensions)
-	if coreTruthy(v_has_dimensions) {
-		if err := coreSet(v_payload, "dimensions", v_dimensions); err != nil { return nil, err }
-	} else {
-	// empty
-	}
-	return v_payload, nil
-}
-
-func openai_normalize_chat_response(args ...Value) (Value, error) {
-	axirCoverageMark("openai_normalize_chat_response")
-	var v_raw Value
-	var v_ai_name Value
-	var v_model Value
-	var v_response Value
-	if len(args) > 0 { v_raw = args[0] }
-	_ = v_raw
-	if len(args) > 1 { v_ai_name = args[1] }
-	_ = v_ai_name
-	if len(args) > 2 { v_model = args[2] }
-	_ = v_model
-	_ = v_response
-	{ v, err := _openai_normalize_chat_response_impl(v_raw, v_ai_name, v_model, "none", "none"); if err != nil { return nil, err }; v_response = v }
-	return v_response, nil
-}
-
-func _openai_usage_with_service_tier(args ...Value) (Value, error) {
-	axirCoverageMark("_openai_usage_with_service_tier")
-	var v_raw Value
-	var v_usage Value
-	var v_empty Value
-	var v_has_tier Value
-	var v_has_usage Value
-	var v_out Value
-	var v_raw_tier Value
-	var v_tier Value
-	var v_usage_tier Value
-	if len(args) > 0 { v_raw = args[0] }
-	_ = v_raw
-	if len(args) > 1 { v_usage = args[1] }
-	_ = v_usage
-	_ = v_empty
-	_ = v_has_tier
-	_ = v_has_usage
-	_ = v_out
-	_ = v_raw_tier
-	_ = v_tier
-	_ = v_usage_tier
-	v_has_usage = _core_is_not_none(v_usage)
-	if coreTruthy(v_has_usage) {
-	// empty
-	} else {
-		return v_usage, nil
-	}
-	v_empty = Object()
-	v_out = _core_map_merge(v_empty, v_usage)
-	v_usage_tier = coreGet(v_usage, "service_tier", nil)
-	v_raw_tier = coreGet(v_raw, "service_tier", v_usage_tier)
-	v_tier = coreGet(v_raw, "service_tier_used", v_raw_tier)
-	v_has_tier = _core_is_not_none(v_tier)
-	if coreTruthy(v_has_tier) {
-		if err := coreSet(v_out, "service_tier", v_tier); err != nil { return nil, err }
-	} else {
-	// empty
-	}
-	return v_out, nil
-}
-
-func ai_context_cache_rejection(args ...Value) (Value, error) {
-	axirCoverageMark("ai_context_cache_rejection")
-	var v_status Value
-	var v_body_json Value
-	var v_body_lower Value
-	var v_body_text Value
-	var v_cache_rejection Value
-	var v_expired Value
-	var v_has_cache Value
-	var v_invalid Value
-	var v_invalid_cache Value
-	var v_invalid_left Value
-	var v_invalid_reason Value
-	var v_invalid_right Value
-	var v_is_400 Value
-	var v_is_404 Value
-	var v_missing Value
-	var v_names_cache Value
-	var v_names_compact Value
-	var v_names_left Value
-	var v_names_resource Value
-	var v_names_spaced Value
-	var v_not_found Value
-	var v_out Value
-	var v_status_400_max Value
-	var v_status_400_min Value
-	var v_status_404_max Value
-	var v_status_404_min Value
-	var v_valid_status Value
-	if len(args) > 0 { v_status = args[0] }
-	_ = v_status
-	if len(args) > 1 { v_body_json = args[1] }
-	_ = v_body_json
-	_ = v_body_lower
-	_ = v_body_text
-	_ = v_cache_rejection
-	_ = v_expired
-	_ = v_has_cache
-	_ = v_invalid
-	_ = v_invalid_cache
-	_ = v_invalid_left
-	_ = v_invalid_reason
-	_ = v_invalid_right
-	_ = v_is_400
-	_ = v_is_404
-	_ = v_missing
-	_ = v_names_cache
-	_ = v_names_compact
-	_ = v_names_left
-	_ = v_names_resource
-	_ = v_names_spaced
-	_ = v_not_found
-	_ = v_out
-	_ = v_status_400_max
-	_ = v_status_400_min
-	_ = v_status_404_max
-	_ = v_status_404_min
-	_ = v_valid_status
-	v_status_400_min = _core_gte(v_status, 400)
-	v_status_400_max = _core_lte(v_status, 400)
-	v_is_400 = _core_and(v_status_400_min, v_status_400_max)
-	v_status_404_min = _core_gte(v_status, 404)
-	v_status_404_max = _core_lte(v_status, 404)
-	v_is_404 = _core_and(v_status_404_min, v_status_404_max)
-	v_valid_status = _core_or(v_is_400, v_is_404)
-	v_body_text = _core_json_stringify(v_body_json)
-	v_body_lower = _core_string_lower(v_body_text)
-	v_names_compact = _core_contains(v_body_lower, "cachedcontent")
-	v_names_spaced = _core_contains(v_body_lower, "cached content")
-	v_names_resource = _core_contains(v_body_lower, "cachedcontents/")
-	v_names_left = _core_or(v_names_compact, v_names_spaced)
-	v_names_cache = _core_or(v_names_left, v_names_resource)
-	v_has_cache = _core_contains(v_body_lower, "cache")
-	v_expired = _core_contains(v_body_lower, "expired")
-	v_not_found = _core_contains(v_body_lower, "not found")
-	v_missing = _core_contains(v_body_lower, "does not exist")
-	v_invalid = _core_contains(v_body_lower, "invalid")
-	v_invalid_left = _core_or(v_expired, v_not_found)
-	v_invalid_right = _core_or(v_missing, v_invalid)
-	v_invalid_reason = _core_or(v_invalid_left, v_invalid_right)
-	v_invalid_cache = _core_and(v_has_cache, v_invalid_reason)
-	v_cache_rejection = _core_or(v_names_cache, v_invalid_cache)
-	v_out = _core_and(v_valid_status, v_cache_rejection)
-	return v_out, nil
-}
-
-func _openai_normalize_chat_response_impl(args ...Value) (Value, error) {
-	axirCoverageMark("_openai_normalize_chat_response_impl")
-	var v_raw Value
-	var v_ai_name Value
-	var v_model Value
-	var v_reasoning_content_mode Value
-	var v_reasoning_details_mode Value
-	var v_bad_choices Value
-	var v_choice Value
-	var v_choices Value
-	var v_choices_is_list Value
-	var v_error Value
-	var v_has_provider_error Value
-	var v_message Value
-	var v_model_usage Value
-	var v_out Value
-	var v_provider_error Value
-	var v_raw_is_object Value
-	var v_raw_model Value
-	var v_raw_not_object Value
-	var v_raw_usage Value
-	var v_remote_id Value
-	var v_result Value
-	var v_results Value
-	var v_usage Value
-	var v_used_model Value
-	if len(args) > 0 { v_raw = args[0] }
-	_ = v_raw
-	if len(args) > 1 { v_ai_name = args[1] }
-	_ = v_ai_name
-	if len(args) > 2 { v_model = args[2] }
-	_ = v_model
-	if len(args) > 3 { v_reasoning_content_mode = args[3] }
-	_ = v_reasoning_content_mode
-	if len(args) > 4 { v_reasoning_details_mode = args[4] }
-	_ = v_reasoning_details_mode
-	_ = v_bad_choices
-	_ = v_choice
-	_ = v_choices
-	_ = v_choices_is_list
-	_ = v_error
-	_ = v_has_provider_error
-	_ = v_message
-	_ = v_model_usage
-	_ = v_out
-	_ = v_provider_error
-	_ = v_raw_is_object
-	_ = v_raw_model
-	_ = v_raw_not_object
-	_ = v_raw_usage
-	_ = v_remote_id
-	_ = v_result
-	_ = v_results
-	_ = v_usage
-	_ = v_used_model
-	v_raw_is_object = coreTypeIs(v_raw, "object")
-	v_raw_not_object = _core_not(v_raw_is_object)
-	if coreTruthy(v_raw_not_object) {
-		v_error = _core_ai_error_response("provider response must be a JSON object", v_raw)
-		return nil, asError(v_error)
-	} else {
-	// empty
-	}
-	v_provider_error = coreGet(v_raw, "error", nil)
-	v_has_provider_error = _core_truthy(v_provider_error)
-	if coreTruthy(v_has_provider_error) {
-		v_message = coreGet(v_provider_error, "message", "provider response error")
-		v_error = _core_ai_error_response(v_message, v_raw)
-		return nil, asError(v_error)
-	} else {
-	// empty
-	}
-	v_choices = coreGet(v_raw, "choices", nil)
-	v_choices_is_list = coreTypeIs(v_choices, "list")
-	v_bad_choices = _core_not(v_choices_is_list)
-	if coreTruthy(v_bad_choices) {
-		v_error = _core_ai_error_response("provider response missing choices", v_raw)
-		return nil, asError(v_error)
-	} else {
-	// empty
-	}
-	v_results = MutableArray()
-	for _, v_choice = range coreIter(v_choices) {
-		{ v, err := _openai_normalize_choice_impl(v_choice, v_raw, v_reasoning_content_mode, v_reasoning_details_mode); if err != nil { return nil, err }; v_result = v }
-		v_results = coreAppend(v_results, v_result)
-	}
-	v_raw_model = coreGet(v_raw, "model", nil)
-	v_used_model = _core_coalesce(v_raw_model, v_model)
-	v_raw_usage = coreGet(v_raw, "usage", nil)
-	{ v, err := _openai_usage_with_service_tier(v_raw, v_raw_usage); if err != nil { return nil, err }; v_usage = v }
-	{ v, err := _ai_model_usage_impl(v_ai_name, v_used_model, v_usage); if err != nil { return nil, err }; v_model_usage = v }
-	v_remote_id = coreGet(v_raw, "id", nil)
-	v_out = Object()
-	if err := coreSet(v_out, "results", v_results); err != nil { return nil, err }
-	if err := coreSet(v_out, "remote_id", v_remote_id); err != nil { return nil, err }
-	if err := coreSet(v_out, "model_usage", v_model_usage); err != nil { return nil, err }
-	return v_out, nil
-}
-
-func ai_context_cache_expiry(args ...Value) (Value, error) {
-	axirCoverageMark("ai_context_cache_expiry")
-	var v_provider_expire_time Value
-	var v_now Value
-	var v_future Value
-	var v_is_number Value
-	if len(args) > 0 { v_provider_expire_time = args[0] }
-	_ = v_provider_expire_time
-	if len(args) > 1 { v_now = args[1] }
-	_ = v_now
-	_ = v_future
-	_ = v_is_number
-	v_is_number = coreTypeIs(v_provider_expire_time, "number")
-	if coreTruthy(v_is_number) {
-		v_future = _core_gt(v_provider_expire_time, v_now)
-		if coreTruthy(v_future) {
-			return v_provider_expire_time, nil
-		} else {
-		// empty
-		}
-	} else {
-	// empty
-	}
-	return 0, nil
-}
-
-func ai_context_cache_plan(args ...Value) (Value, error) {
-	axirCoverageMark("ai_context_cache_plan")
-	var v_configured Value
-	var v_supported Value
-	var v_explicit_name Value
-	var v_existing Value
-	var v_now Value
-	var v_refresh_window_ms Value
-	var v_create_eligible Value
-	var v_cache_name Value
-	var v_cache_name_length Value
-	var v_disabled Value
-	var v_enabled Value
-	var v_existing_object Value
-	var v_expires_at Value
-	var v_explicit_length Value
-	var v_future Value
-	var v_has_explicit Value
-	var v_has_name Value
-	var v_needs_refresh Value
-	var v_out Value
-	var v_refresh_at Value
-	var v_valid Value
-	if len(args) > 0 { v_configured = args[0] }
-	_ = v_configured
-	if len(args) > 1 { v_supported = args[1] }
-	_ = v_supported
-	if len(args) > 2 { v_explicit_name = args[2] }
-	_ = v_explicit_name
-	if len(args) > 3 { v_existing = args[3] }
-	_ = v_existing
-	if len(args) > 4 { v_now = args[4] }
-	_ = v_now
-	if len(args) > 5 { v_refresh_window_ms = args[5] }
-	_ = v_refresh_window_ms
-	if len(args) > 6 { v_create_eligible = args[6] }
-	_ = v_create_eligible
-	_ = v_cache_name
-	_ = v_cache_name_length
-	_ = v_disabled
-	_ = v_enabled
-	_ = v_existing_object
-	_ = v_expires_at
-	_ = v_explicit_length
-	_ = v_future
-	_ = v_has_explicit
-	_ = v_has_name
-	_ = v_needs_refresh
-	_ = v_out
-	_ = v_refresh_at
-	_ = v_valid
-	v_out = Object()
-	if err := coreSet(v_out, "action", "none"); err != nil { return nil, err }
-	if err := coreSet(v_out, "managed", false); err != nil { return nil, err }
-	v_enabled = _core_and(v_configured, v_supported)
-	v_disabled = _core_not(v_enabled)
-	if coreTruthy(v_disabled) {
-		return v_out, nil
-	} else {
-	// empty
-	}
-	v_explicit_length = _core_len(v_explicit_name)
-	v_has_explicit = _core_gt(v_explicit_length, 0)
-	if coreTruthy(v_has_explicit) {
-		if err := coreSet(v_out, "action", "use"); err != nil { return nil, err }
-		if err := coreSet(v_out, "cacheName", v_explicit_name); err != nil { return nil, err }
-		return v_out, nil
-	} else {
-	// empty
-	}
-	v_existing_object = coreTypeIs(v_existing, "object")
-	if coreTruthy(v_existing_object) {
-		v_cache_name = coreGet(v_existing, "cacheName", "")
-		v_expires_at = coreGet(v_existing, "expiresAt", 0)
-		v_cache_name_length = _core_len(v_cache_name)
-		v_has_name = _core_gt(v_cache_name_length, 0)
-		v_future = _core_gt(v_expires_at, v_now)
-		v_valid = _core_and(v_has_name, v_future)
-		if coreTruthy(v_valid) {
-			v_refresh_at = _core_add(v_now, v_refresh_window_ms)
-			v_needs_refresh = _core_lt(v_expires_at, v_refresh_at)
-			if err := coreSet(v_out, "managed", true); err != nil { return nil, err }
-			if err := coreSet(v_out, "cacheName", v_cache_name); err != nil { return nil, err }
-			if coreTruthy(v_needs_refresh) {
-				if err := coreSet(v_out, "action", "refresh"); err != nil { return nil, err }
-			} else {
-				if err := coreSet(v_out, "action", "use"); err != nil { return nil, err }
-			}
-			return v_out, nil
-		} else {
-		// empty
-		}
-	} else {
-	// empty
-	}
-	if coreTruthy(v_create_eligible) {
-		if err := coreSet(v_out, "action", "create"); err != nil { return nil, err }
-		if err := coreSet(v_out, "managed", true); err != nil { return nil, err }
 	} else {
 	// empty
 	}
@@ -11171,52 +11202,89 @@ func _openai_normalize_choice_impl(args ...Value) (Value, error) {
 	return v_out, nil
 }
 
-func ai_context_cache_recovery(args ...Value) (Value, error) {
-	axirCoverageMark("ai_context_cache_recovery")
-	var v_current_entry Value
-	var v_cache_name Value
-	var v_external_registry Value
-	var v_current_name Value
-	var v_empty Value
-	var v_entry_object Value
-	var v_matches Value
+func ai_context_cache_rejection(args ...Value) (Value, error) {
+	axirCoverageMark("ai_context_cache_rejection")
+	var v_status Value
+	var v_body_json Value
+	var v_body_lower Value
+	var v_body_text Value
+	var v_cache_rejection Value
+	var v_expired Value
+	var v_has_cache Value
+	var v_invalid Value
+	var v_invalid_cache Value
+	var v_invalid_left Value
+	var v_invalid_reason Value
+	var v_invalid_right Value
+	var v_is_400 Value
+	var v_is_404 Value
+	var v_missing Value
+	var v_names_cache Value
+	var v_names_compact Value
+	var v_names_left Value
+	var v_names_resource Value
+	var v_names_spaced Value
+	var v_not_found Value
 	var v_out Value
-	var v_tombstone Value
-	if len(args) > 0 { v_current_entry = args[0] }
-	_ = v_current_entry
-	if len(args) > 1 { v_cache_name = args[1] }
-	_ = v_cache_name
-	if len(args) > 2 { v_external_registry = args[2] }
-	_ = v_external_registry
-	_ = v_current_name
-	_ = v_empty
-	_ = v_entry_object
-	_ = v_matches
+	var v_status_400_max Value
+	var v_status_400_min Value
+	var v_status_404_max Value
+	var v_status_404_min Value
+	var v_valid_status Value
+	if len(args) > 0 { v_status = args[0] }
+	_ = v_status
+	if len(args) > 1 { v_body_json = args[1] }
+	_ = v_body_json
+	_ = v_body_lower
+	_ = v_body_text
+	_ = v_cache_rejection
+	_ = v_expired
+	_ = v_has_cache
+	_ = v_invalid
+	_ = v_invalid_cache
+	_ = v_invalid_left
+	_ = v_invalid_reason
+	_ = v_invalid_right
+	_ = v_is_400
+	_ = v_is_404
+	_ = v_missing
+	_ = v_names_cache
+	_ = v_names_compact
+	_ = v_names_left
+	_ = v_names_resource
+	_ = v_names_spaced
+	_ = v_not_found
 	_ = v_out
-	_ = v_tombstone
-	v_out = Object()
-	if err := coreSet(v_out, "invalidated", false); err != nil { return nil, err }
-	if err := coreSet(v_out, "deleteInMemory", false); err != nil { return nil, err }
-	v_entry_object = coreTypeIs(v_current_entry, "object")
-	if coreTruthy(v_entry_object) {
-		v_current_name = coreGet(v_current_entry, "cacheName", "")
-		v_matches = _core_eq(v_current_name, v_cache_name)
-		if coreTruthy(v_matches) {
-			if err := coreSet(v_out, "invalidated", true); err != nil { return nil, err }
-			if coreTruthy(v_external_registry) {
-				v_empty = Object()
-				v_tombstone = _core_map_merge(v_current_entry, v_empty)
-				if err := coreSet(v_tombstone, "expiresAt", 0); err != nil { return nil, err }
-				if err := coreSet(v_out, "externalEntry", v_tombstone); err != nil { return nil, err }
-			} else {
-				if err := coreSet(v_out, "deleteInMemory", true); err != nil { return nil, err }
-			}
-		} else {
-		// empty
-		}
-	} else {
-	// empty
-	}
+	_ = v_status_400_max
+	_ = v_status_400_min
+	_ = v_status_404_max
+	_ = v_status_404_min
+	_ = v_valid_status
+	v_status_400_min = _core_gte(v_status, 400)
+	v_status_400_max = _core_lte(v_status, 400)
+	v_is_400 = _core_and(v_status_400_min, v_status_400_max)
+	v_status_404_min = _core_gte(v_status, 404)
+	v_status_404_max = _core_lte(v_status, 404)
+	v_is_404 = _core_and(v_status_404_min, v_status_404_max)
+	v_valid_status = _core_or(v_is_400, v_is_404)
+	v_body_text = _core_json_stringify(v_body_json)
+	v_body_lower = _core_string_lower(v_body_text)
+	v_names_compact = _core_contains(v_body_lower, "cachedcontent")
+	v_names_spaced = _core_contains(v_body_lower, "cached content")
+	v_names_resource = _core_contains(v_body_lower, "cachedcontents/")
+	v_names_left = _core_or(v_names_compact, v_names_spaced)
+	v_names_cache = _core_or(v_names_left, v_names_resource)
+	v_has_cache = _core_contains(v_body_lower, "cache")
+	v_expired = _core_contains(v_body_lower, "expired")
+	v_not_found = _core_contains(v_body_lower, "not found")
+	v_missing = _core_contains(v_body_lower, "does not exist")
+	v_invalid = _core_contains(v_body_lower, "invalid")
+	v_invalid_left = _core_or(v_expired, v_not_found)
+	v_invalid_right = _core_or(v_missing, v_invalid)
+	v_invalid_reason = _core_or(v_invalid_left, v_invalid_right)
+	v_invalid_cache = _core_and(v_has_cache, v_invalid_reason)
+	v_cache_rejection = _core_or(v_names_cache, v_invalid_cache)
+	v_out = _core_and(v_valid_status, v_cache_rejection)
 	return v_out, nil
 }
 
@@ -11282,135 +11350,30 @@ func _openai_normalize_tool_calls_impl(args ...Value) (Value, error) {
 	return v_out, nil
 }
 
-func ai_gemini_cache_ops(args ...Value) (Value, error) {
-	axirCoverageMark("ai_gemini_cache_ops")
-	var v_cache_name Value
-	var v_ttl_seconds Value
-	var v_api_key Value
-	var v_model Value
-	var v_create_body Value
-	var v_options Value
-	var v_cache_base_url Value
-	var v_create Value
-	var v_create_copy Value
-	var v_create_is_object Value
-	var v_create_path Value
-	var v_create_request Value
-	var v_delete_op Value
-	var v_delete_path Value
-	var v_descriptor Value
-	var v_empty Value
-	var v_empty_request Value
-	var v_has_cache_base_url Value
-	var v_is_vertex Value
-	var v_model_resource Value
-	var v_out Value
-	var v_parent Value
-	var v_ttl Value
-	var v_update Value
-	var v_update_path Value
-	var v_update_request Value
-	if len(args) > 0 { v_cache_name = args[0] }
-	_ = v_cache_name
-	if len(args) > 1 { v_ttl_seconds = args[1] }
-	_ = v_ttl_seconds
-	if len(args) > 2 { v_api_key = args[2] }
-	_ = v_api_key
-	if len(args) > 3 { v_model = args[3] }
-	_ = v_model
-	if len(args) > 4 { v_create_body = args[4] }
-	_ = v_create_body
-	if len(args) > 5 { v_options = args[5] }
-	_ = v_options
-	_ = v_cache_base_url
-	_ = v_create
-	_ = v_create_copy
-	_ = v_create_is_object
-	_ = v_create_path
-	_ = v_create_request
-	_ = v_delete_op
-	_ = v_delete_path
-	_ = v_descriptor
-	_ = v_empty
-	_ = v_empty_request
-	_ = v_has_cache_base_url
-	_ = v_is_vertex
-	_ = v_model_resource
-	_ = v_out
-	_ = v_parent
-	_ = v_ttl
-	_ = v_update
-	_ = v_update_path
-	_ = v_update_request
-	v_ttl = _core_string_format("{}s", v_ttl_seconds)
-	{ v, err := provider_resolve_descriptor("google-gemini", v_options); if err != nil { return nil, err }; v_descriptor = v }
-	v_is_vertex = coreGet(v_descriptor, "vertex", false)
-	v_create_path = "/cachedContents"
-	v_update_path = _core_string_format("/{}?updateMask=ttl", v_cache_name)
-	v_delete_path = _core_string_format("/{}", v_cache_name)
-	if coreTruthy(v_is_vertex) {
-		v_parent = coreGet(v_descriptor, "vertexParent", "")
-		v_create_path = _core_string_format("/{}/cachedContents", v_parent)
-		v_update_path = _core_string_format("/{}?updateMask=ttl", v_cache_name)
-		v_delete_path = _core_string_format("/{}", v_cache_name)
+func ai_context_cache_expiry(args ...Value) (Value, error) {
+	axirCoverageMark("ai_context_cache_expiry")
+	var v_provider_expire_time Value
+	var v_now Value
+	var v_future Value
+	var v_is_number Value
+	if len(args) > 0 { v_provider_expire_time = args[0] }
+	_ = v_provider_expire_time
+	if len(args) > 1 { v_now = args[1] }
+	_ = v_now
+	_ = v_future
+	_ = v_is_number
+	v_is_number = coreTypeIs(v_provider_expire_time, "number")
+	if coreTruthy(v_is_number) {
+		v_future = _core_gt(v_provider_expire_time, v_now)
+		if coreTruthy(v_future) {
+			return v_provider_expire_time, nil
+		} else {
+		// empty
+		}
 	} else {
 	// empty
 	}
-	v_create_request = Object()
-	v_create_is_object = coreTypeIs(v_create_body, "object")
-	if coreTruthy(v_create_is_object) {
-		v_empty = Object()
-		v_create_copy = _core_map_merge(v_create_body, v_empty)
-		v_create_request = v_create_copy
-	} else {
-	// empty
-	}
-	v_model_resource = _core_string_format("models/{}", v_model)
-	if coreTruthy(v_is_vertex) {
-		v_parent = coreGet(v_descriptor, "vertexParent", "")
-		v_model_resource = _core_string_format("{}/publishers/google/models/{}", v_parent, v_model)
-	} else {
-	// empty
-	}
-	if err := coreSet(v_create_request, "model", v_model_resource); err != nil { return nil, err }
-	if err := coreSet(v_create_request, "ttl", v_ttl); err != nil { return nil, err }
-	v_update_request = Object()
-	if err := coreSet(v_update_request, "ttl", v_ttl); err != nil { return nil, err }
-	v_empty_request = Object()
-	v_create = Object()
-	if err := coreSet(v_create, "method", "POST"); err != nil { return nil, err }
-	if err := coreSet(v_create, "path", v_create_path); err != nil { return nil, err }
-	if err := coreSet(v_create, "request", v_create_request); err != nil { return nil, err }
-	v_cache_base_url = coreGet(v_descriptor, "vertexCacheBaseUrl", nil)
-	v_has_cache_base_url = _core_truthy(v_cache_base_url)
-	if coreTruthy(v_has_cache_base_url) {
-		if err := coreSet(v_create, "base_url", v_cache_base_url); err != nil { return nil, err }
-	} else {
-	// empty
-	}
-	v_update = Object()
-	if err := coreSet(v_update, "method", "PATCH"); err != nil { return nil, err }
-	if err := coreSet(v_update, "path", v_update_path); err != nil { return nil, err }
-	if err := coreSet(v_update, "request", v_update_request); err != nil { return nil, err }
-	if coreTruthy(v_has_cache_base_url) {
-		if err := coreSet(v_update, "base_url", v_cache_base_url); err != nil { return nil, err }
-	} else {
-	// empty
-	}
-	v_delete_op = Object()
-	if err := coreSet(v_delete_op, "method", "DELETE"); err != nil { return nil, err }
-	if err := coreSet(v_delete_op, "path", v_delete_path); err != nil { return nil, err }
-	if err := coreSet(v_delete_op, "request", v_empty_request); err != nil { return nil, err }
-	if coreTruthy(v_has_cache_base_url) {
-		if err := coreSet(v_delete_op, "base_url", v_cache_base_url); err != nil { return nil, err }
-	} else {
-	// empty
-	}
-	v_out = Object()
-	if err := coreSet(v_out, "create", v_create); err != nil { return nil, err }
-	if err := coreSet(v_out, "update", v_update); err != nil { return nil, err }
-	if err := coreSet(v_out, "delete", v_delete_op); err != nil { return nil, err }
-	return v_out, nil
+	return 0, nil
 }
 
 func _openai_finish_reason_impl(args ...Value) (Value, error) {
@@ -11460,6 +11423,110 @@ func _openai_finish_reason_impl(args ...Value) (Value, error) {
 	}
 	v_none = _core_none()
 	return v_none, nil
+}
+
+func ai_context_cache_plan(args ...Value) (Value, error) {
+	axirCoverageMark("ai_context_cache_plan")
+	var v_configured Value
+	var v_supported Value
+	var v_explicit_name Value
+	var v_existing Value
+	var v_now Value
+	var v_refresh_window_ms Value
+	var v_create_eligible Value
+	var v_cache_name Value
+	var v_cache_name_length Value
+	var v_disabled Value
+	var v_enabled Value
+	var v_existing_object Value
+	var v_expires_at Value
+	var v_explicit_length Value
+	var v_future Value
+	var v_has_explicit Value
+	var v_has_name Value
+	var v_needs_refresh Value
+	var v_out Value
+	var v_refresh_at Value
+	var v_valid Value
+	if len(args) > 0 { v_configured = args[0] }
+	_ = v_configured
+	if len(args) > 1 { v_supported = args[1] }
+	_ = v_supported
+	if len(args) > 2 { v_explicit_name = args[2] }
+	_ = v_explicit_name
+	if len(args) > 3 { v_existing = args[3] }
+	_ = v_existing
+	if len(args) > 4 { v_now = args[4] }
+	_ = v_now
+	if len(args) > 5 { v_refresh_window_ms = args[5] }
+	_ = v_refresh_window_ms
+	if len(args) > 6 { v_create_eligible = args[6] }
+	_ = v_create_eligible
+	_ = v_cache_name
+	_ = v_cache_name_length
+	_ = v_disabled
+	_ = v_enabled
+	_ = v_existing_object
+	_ = v_expires_at
+	_ = v_explicit_length
+	_ = v_future
+	_ = v_has_explicit
+	_ = v_has_name
+	_ = v_needs_refresh
+	_ = v_out
+	_ = v_refresh_at
+	_ = v_valid
+	v_out = Object()
+	if err := coreSet(v_out, "action", "none"); err != nil { return nil, err }
+	if err := coreSet(v_out, "managed", false); err != nil { return nil, err }
+	v_enabled = _core_and(v_configured, v_supported)
+	v_disabled = _core_not(v_enabled)
+	if coreTruthy(v_disabled) {
+		return v_out, nil
+	} else {
+	// empty
+	}
+	v_explicit_length = _core_len(v_explicit_name)
+	v_has_explicit = _core_gt(v_explicit_length, 0)
+	if coreTruthy(v_has_explicit) {
+		if err := coreSet(v_out, "action", "use"); err != nil { return nil, err }
+		if err := coreSet(v_out, "cacheName", v_explicit_name); err != nil { return nil, err }
+		return v_out, nil
+	} else {
+	// empty
+	}
+	v_existing_object = coreTypeIs(v_existing, "object")
+	if coreTruthy(v_existing_object) {
+		v_cache_name = coreGet(v_existing, "cacheName", "")
+		v_expires_at = coreGet(v_existing, "expiresAt", 0)
+		v_cache_name_length = _core_len(v_cache_name)
+		v_has_name = _core_gt(v_cache_name_length, 0)
+		v_future = _core_gt(v_expires_at, v_now)
+		v_valid = _core_and(v_has_name, v_future)
+		if coreTruthy(v_valid) {
+			v_refresh_at = _core_add(v_now, v_refresh_window_ms)
+			v_needs_refresh = _core_lt(v_expires_at, v_refresh_at)
+			if err := coreSet(v_out, "managed", true); err != nil { return nil, err }
+			if err := coreSet(v_out, "cacheName", v_cache_name); err != nil { return nil, err }
+			if coreTruthy(v_needs_refresh) {
+				if err := coreSet(v_out, "action", "refresh"); err != nil { return nil, err }
+			} else {
+				if err := coreSet(v_out, "action", "use"); err != nil { return nil, err }
+			}
+			return v_out, nil
+		} else {
+		// empty
+		}
+	} else {
+	// empty
+	}
+	if coreTruthy(v_create_eligible) {
+		if err := coreSet(v_out, "action", "create"); err != nil { return nil, err }
+		if err := coreSet(v_out, "managed", true); err != nil { return nil, err }
+	} else {
+	// empty
+	}
+	return v_out, nil
 }
 
 func openai_normalize_embed_response(args ...Value) (Value, error) {
@@ -11514,6 +11581,55 @@ func openai_normalize_embed_response(args ...Value) (Value, error) {
 	if err := coreSet(v_out, "embeddings", v_embeddings); err != nil { return nil, err }
 	if err := coreSet(v_out, "remote_id", v_remote_id); err != nil { return nil, err }
 	if err := coreSet(v_out, "model_usage", v_model_usage); err != nil { return nil, err }
+	return v_out, nil
+}
+
+func ai_context_cache_recovery(args ...Value) (Value, error) {
+	axirCoverageMark("ai_context_cache_recovery")
+	var v_current_entry Value
+	var v_cache_name Value
+	var v_external_registry Value
+	var v_current_name Value
+	var v_empty Value
+	var v_entry_object Value
+	var v_matches Value
+	var v_out Value
+	var v_tombstone Value
+	if len(args) > 0 { v_current_entry = args[0] }
+	_ = v_current_entry
+	if len(args) > 1 { v_cache_name = args[1] }
+	_ = v_cache_name
+	if len(args) > 2 { v_external_registry = args[2] }
+	_ = v_external_registry
+	_ = v_current_name
+	_ = v_empty
+	_ = v_entry_object
+	_ = v_matches
+	_ = v_out
+	_ = v_tombstone
+	v_out = Object()
+	if err := coreSet(v_out, "invalidated", false); err != nil { return nil, err }
+	if err := coreSet(v_out, "deleteInMemory", false); err != nil { return nil, err }
+	v_entry_object = coreTypeIs(v_current_entry, "object")
+	if coreTruthy(v_entry_object) {
+		v_current_name = coreGet(v_current_entry, "cacheName", "")
+		v_matches = _core_eq(v_current_name, v_cache_name)
+		if coreTruthy(v_matches) {
+			if err := coreSet(v_out, "invalidated", true); err != nil { return nil, err }
+			if coreTruthy(v_external_registry) {
+				v_empty = Object()
+				v_tombstone = _core_map_merge(v_current_entry, v_empty)
+				if err := coreSet(v_tombstone, "expiresAt", 0); err != nil { return nil, err }
+				if err := coreSet(v_out, "externalEntry", v_tombstone); err != nil { return nil, err }
+			} else {
+				if err := coreSet(v_out, "deleteInMemory", true); err != nil { return nil, err }
+			}
+		} else {
+		// empty
+		}
+	} else {
+	// empty
+	}
 	return v_out, nil
 }
 
@@ -11653,6 +11769,137 @@ func _openai_normalize_stream_delta_impl(args ...Value) (Value, error) {
 	if err := coreSet(v_out, "results", v_results); err != nil { return nil, err }
 	if err := coreSet(v_out, "remote_id", v_remote_id); err != nil { return nil, err }
 	if err := coreSet(v_out, "model_usage", v_model_usage); err != nil { return nil, err }
+	return v_out, nil
+}
+
+func ai_gemini_cache_ops(args ...Value) (Value, error) {
+	axirCoverageMark("ai_gemini_cache_ops")
+	var v_cache_name Value
+	var v_ttl_seconds Value
+	var v_api_key Value
+	var v_model Value
+	var v_create_body Value
+	var v_options Value
+	var v_cache_base_url Value
+	var v_create Value
+	var v_create_copy Value
+	var v_create_is_object Value
+	var v_create_path Value
+	var v_create_request Value
+	var v_delete_op Value
+	var v_delete_path Value
+	var v_descriptor Value
+	var v_empty Value
+	var v_empty_request Value
+	var v_has_cache_base_url Value
+	var v_is_vertex Value
+	var v_model_resource Value
+	var v_out Value
+	var v_parent Value
+	var v_ttl Value
+	var v_update Value
+	var v_update_path Value
+	var v_update_request Value
+	if len(args) > 0 { v_cache_name = args[0] }
+	_ = v_cache_name
+	if len(args) > 1 { v_ttl_seconds = args[1] }
+	_ = v_ttl_seconds
+	if len(args) > 2 { v_api_key = args[2] }
+	_ = v_api_key
+	if len(args) > 3 { v_model = args[3] }
+	_ = v_model
+	if len(args) > 4 { v_create_body = args[4] }
+	_ = v_create_body
+	if len(args) > 5 { v_options = args[5] }
+	_ = v_options
+	_ = v_cache_base_url
+	_ = v_create
+	_ = v_create_copy
+	_ = v_create_is_object
+	_ = v_create_path
+	_ = v_create_request
+	_ = v_delete_op
+	_ = v_delete_path
+	_ = v_descriptor
+	_ = v_empty
+	_ = v_empty_request
+	_ = v_has_cache_base_url
+	_ = v_is_vertex
+	_ = v_model_resource
+	_ = v_out
+	_ = v_parent
+	_ = v_ttl
+	_ = v_update
+	_ = v_update_path
+	_ = v_update_request
+	v_ttl = _core_string_format("{}s", v_ttl_seconds)
+	{ v, err := provider_resolve_descriptor("google-gemini", v_options); if err != nil { return nil, err }; v_descriptor = v }
+	v_is_vertex = coreGet(v_descriptor, "vertex", false)
+	v_create_path = "/cachedContents"
+	v_update_path = _core_string_format("/{}?updateMask=ttl", v_cache_name)
+	v_delete_path = _core_string_format("/{}", v_cache_name)
+	if coreTruthy(v_is_vertex) {
+		v_parent = coreGet(v_descriptor, "vertexParent", "")
+		v_create_path = _core_string_format("/{}/cachedContents", v_parent)
+		v_update_path = _core_string_format("/{}?updateMask=ttl", v_cache_name)
+		v_delete_path = _core_string_format("/{}", v_cache_name)
+	} else {
+	// empty
+	}
+	v_create_request = Object()
+	v_create_is_object = coreTypeIs(v_create_body, "object")
+	if coreTruthy(v_create_is_object) {
+		v_empty = Object()
+		v_create_copy = _core_map_merge(v_create_body, v_empty)
+		v_create_request = v_create_copy
+	} else {
+	// empty
+	}
+	v_model_resource = _core_string_format("models/{}", v_model)
+	if coreTruthy(v_is_vertex) {
+		v_parent = coreGet(v_descriptor, "vertexParent", "")
+		v_model_resource = _core_string_format("{}/publishers/google/models/{}", v_parent, v_model)
+	} else {
+	// empty
+	}
+	if err := coreSet(v_create_request, "model", v_model_resource); err != nil { return nil, err }
+	if err := coreSet(v_create_request, "ttl", v_ttl); err != nil { return nil, err }
+	v_update_request = Object()
+	if err := coreSet(v_update_request, "ttl", v_ttl); err != nil { return nil, err }
+	v_empty_request = Object()
+	v_create = Object()
+	if err := coreSet(v_create, "method", "POST"); err != nil { return nil, err }
+	if err := coreSet(v_create, "path", v_create_path); err != nil { return nil, err }
+	if err := coreSet(v_create, "request", v_create_request); err != nil { return nil, err }
+	v_cache_base_url = coreGet(v_descriptor, "vertexCacheBaseUrl", nil)
+	v_has_cache_base_url = _core_truthy(v_cache_base_url)
+	if coreTruthy(v_has_cache_base_url) {
+		if err := coreSet(v_create, "base_url", v_cache_base_url); err != nil { return nil, err }
+	} else {
+	// empty
+	}
+	v_update = Object()
+	if err := coreSet(v_update, "method", "PATCH"); err != nil { return nil, err }
+	if err := coreSet(v_update, "path", v_update_path); err != nil { return nil, err }
+	if err := coreSet(v_update, "request", v_update_request); err != nil { return nil, err }
+	if coreTruthy(v_has_cache_base_url) {
+		if err := coreSet(v_update, "base_url", v_cache_base_url); err != nil { return nil, err }
+	} else {
+	// empty
+	}
+	v_delete_op = Object()
+	if err := coreSet(v_delete_op, "method", "DELETE"); err != nil { return nil, err }
+	if err := coreSet(v_delete_op, "path", v_delete_path); err != nil { return nil, err }
+	if err := coreSet(v_delete_op, "request", v_empty_request); err != nil { return nil, err }
+	if coreTruthy(v_has_cache_base_url) {
+		if err := coreSet(v_delete_op, "base_url", v_cache_base_url); err != nil { return nil, err }
+	} else {
+	// empty
+	}
+	v_out = Object()
+	if err := coreSet(v_out, "create", v_create); err != nil { return nil, err }
+	if err := coreSet(v_out, "update", v_update); err != nil { return nil, err }
+	if err := coreSet(v_out, "delete", v_delete_op); err != nil { return nil, err }
 	return v_out, nil
 }
 
@@ -72593,6 +72840,7 @@ func finishAIOperation(hooks AxRuntimeHooks, attributes map[string]Value, span A
 
 func (c *OpenAICompatibleClient) Chat(ctx context.Context, request map[string]Value, options map[string]Value) (Value, error) {
 	if err := contextCancellationError(ctx); err != nil { return nil, err }
+	request, options = c.resolveModelKey(request, options, false)
 	hooks, previousUsage := c.runtimeHooksSnapshot()
 	hooks = effectiveRuntimeHooks(ctx, options, hooks)
 	mergedOptions := mergeAIOptions(c.optionsSnapshot(), stripRuntimeHooks(options))
@@ -72643,6 +72891,7 @@ func serviceAcceptsRequest(service AIClient, request map[string]Value) bool {
     return !ok || validator.ValidateChatRequest(request) == nil
 }
 func (c *OpenAICompatibleClient) ValidateChatRequest(request map[string]Value) error {
+    request, _ = c.resolveModelKey(request, nil, false)
     _, err := safeValue(func() Value {
         req := c.prepareChatRequest(request, c.optionsSnapshot())
         return mustCore(provider_validate_chat_request(c.Profile, req, c.optionsSnapshot()))
@@ -72853,6 +73102,7 @@ func (c *OpenAICompatibleClient) contextCacheChat(ctx context.Context, request m
 }
 func (c *OpenAICompatibleClient) Embed(ctx context.Context, request map[string]Value, options map[string]Value) (Value, error) {
 	if err := contextCancellationError(ctx); err != nil { return nil, err }
+	request, options = c.resolveModelKey(request, options, true)
 	hooks, previousUsage := c.runtimeHooksSnapshot()
 	hooks = effectiveRuntimeHooks(ctx, options, hooks)
 	mergedOptions := mergeAIOptions(c.optionsSnapshot(), stripRuntimeHooks(options))
@@ -72960,6 +73210,7 @@ func (c *OpenAICompatibleClient) openProviderStream(ctx context.Context, request
 }
 
 func (c *OpenAICompatibleClient) StreamEvents(ctx context.Context, request map[string]Value, options map[string]Value) (AxChatStream, error) {
+    request, options = c.resolveModelKey(request, options, false)
     if !coreTruthy(coreGet(c.GetFeatures(display(coreGet(request,"model",""))),"streaming",true)) {
         response,err:=c.Chat(ctx,request,mergeAIOptions(options,Object("stream",false)));if err!=nil{return nil,err}
         delivered:=false
@@ -73147,6 +73398,24 @@ func (c *OpenAICompatibleClient) Stream(ctx context.Context, request map[string]
 		return nil, stream.Err()
 	}
 	return values, nil
+}
+// resolveModelKey maps a key from the client's model list to that entry's
+// model and adds the entry's defaults underneath the caller's options.
+func (c *OpenAICompatibleClient) resolveModelKey(request map[string]Value, options map[string]Value, embed bool) (map[string]Value, map[string]Value) {
+	opts := c.optionsSnapshot()
+	defaultModel := coreGet(opts, "model", nil)
+	if embed {
+		defaultModel = coreGet(opts, "embed_model", coreGet(opts, "embedModel", nil))
+	}
+	var callOptions Value
+	if options != nil {
+		callOptions = options
+	}
+	resolved, err := resolve_model_key(opts, request, callOptions, defaultModel, embed)
+	if err != nil {
+		return request, options
+	}
+	return asMap(coreGet(resolved, "request", request)), asMap(coreGet(resolved, "options", Object()))
 }
 func (c *OpenAICompatibleClient) prepareChatRequest(request map[string]Value, options map[string]Value) map[string]Value {
 	req := cloneMap(request)

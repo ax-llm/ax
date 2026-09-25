@@ -941,6 +941,12 @@ class AxBaseAI(AIClient):
             merged["usageContext"] = context
         return merged
 
+    def _resolve_model_key(self, request: dict[str, Any], options: dict[str, Any] | None, embed: bool = False):
+        # A key from the client's model list stands for that entry's model and
+        # brings the entry's defaults underneath the caller's settings.
+        resolved = resolve_model_key(self.options, request, options, self.embed_model if embed else self.model, embed)
+        return resolved["request"], resolved["options"]
+
     def chat(self, request: dict[str, Any], options: dict[str, Any] | None = None):
         started = time.perf_counter()
         is_error = False
@@ -949,7 +955,7 @@ class AxBaseAI(AIClient):
         hooks = _effective_runtime_hooks(options, self.runtime_hooks)
         try:
             _check_cancelled(options)
-            req = _coerce_chat_request(request)
+            req, options = self._resolve_model_key(_coerce_chat_request(request), options)
             validate_chat_request(req)
             merged_options = self._merged_options(options)
             model = req.get("model") or self.model
@@ -991,6 +997,7 @@ class AxBaseAI(AIClient):
         hooks = _effective_runtime_hooks(options, self.runtime_hooks)
         try:
             _check_cancelled(options)
+            request, options = self._resolve_model_key(request, options, True)
             texts = request.get("texts")
             if not texts:
                 raise AxAIServiceResponseError("Embed texts is empty")
@@ -1133,6 +1140,7 @@ class ProviderOperationClient(AxBaseAI):
         )
 
     def open_chat_session(self, request: dict[str, Any], options: dict[str, Any] | None = None):
+        request, options = self._resolve_model_key(request, options)
         model = str(request.get("model") or self.model)
         if self.profile not in ("openai", "openai-responses") or not model.startswith("gpt-6-astra"):
             raise AxUnsupportedCapabilityError("Selected provider/model does not support chat sessions")
@@ -1140,7 +1148,7 @@ class ProviderOperationClient(AxBaseAI):
         return _ResponsesChatSession(self, request, options)
 
     def validate_chat_request(self, request: dict[str, Any]) -> None:
-        req = _coerce_chat_request(copy.deepcopy(request))
+        req, _ = self._resolve_model_key(_coerce_chat_request(copy.deepcopy(request)), None)
         req["model"] = req.get("model") or self.model
         req["model_config"] = merge_model_config(self.model_config, req.get("model_config"), self.options)
         provider_validate_chat_request(self.profile, req, self.options)
@@ -1291,6 +1299,7 @@ class ProviderOperationClient(AxBaseAI):
             return self._request_json(endpoint, payload, stream=False, method=self._operation_method("chat"), cancellation=cancellation)
 
     def stream(self, request: dict[str, Any], options: dict[str, Any] | None = None):
+        request, options = self._resolve_model_key(_coerce_chat_request(request), options)
         if self.get_features(request.get("model")).get("streaming") is False:
             yield self.chat(request, {**(options or {}), "stream": False})
             return
