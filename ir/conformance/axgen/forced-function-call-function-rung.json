@@ -41,6 +41,10 @@
       "name": "search"
     }
   ],
+  "features": {
+    "functions": true,
+    "structured_outputs": false
+  },
   "forward_options": {
     "function_call": {
       "function": {

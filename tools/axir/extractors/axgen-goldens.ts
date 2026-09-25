@@ -966,6 +966,7 @@ for (const [name, choice] of Object.entries({
       },
     },
     input: { query: 'ax docs' },
+    features: { structured_outputs: false, functions: true },
     options: { structured_output_mode: 'function' },
     forward_options: { function_call: choice },
     tools: [searchTool],
