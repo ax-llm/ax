@@ -1779,6 +1779,25 @@
       "completedAt": "2026-09-25",
       "completedByCommit": "65c47ed80d20e8bbc1c7293df498140c9c772088",
       "verification": "The google-gemini profile reports responseFormatWithFunctions: false. The descriptor carries response_format_with_functions and the TypeScript profile features map it. @select_structured_output_rung picks the function rung while user tools are callable or forced, and balancers in all five ports report false when any service does. Eight fixtures, including a TypeScript-derived balancer golden, fail when the rule or the Python balancer merge is disabled. Full npm run test:axir passed go test, check, lint, provenance audit, lower and the Python, Java, C++ and Go release verifies. The Rust release verify passed after ecaadcbd1 declared the functions capability that the Rust conformance client defaults to false. Live in Python and Go on gemini-3.6-flash and gemini-3.8-flash: unforced tools answered through __axOutput beside the tools, named and required forcing answered in two requests without a JSON response type, and none kept json_schema. gpt-5.4-mini kept the native rung."
+    },
+    {
+      "id": "axir-2026-09-25-align-the-axgen-validation-budget-with-typescript-maxretries",
+      "status": "open",
+      "title": "Align the AxGen validation budget with TypeScript maxRetries",
+      "createdAt": "2026-09-25",
+      "sourcePR": null,
+      "sourceCommit": "5debd12d19b90be27bd2035a9f131295a2cb36a9",
+      "tsPaths": ["src/ax/dsp/generate.ts"],
+      "portableSurface": "axgen",
+      "impact": "TypeScript AxGen gives each step maxRetries + 1 validation attempts (maxRetries defaults to 3, so 4) and starts every tool step with a fresh budget; refusals spend the same budget. The generated ports defaulted validation_retries to 2 (3 attempts), ignored maxRetries for validation, and counted attempts across all steps of the tool loop, so a later step could run out of retries that TypeScript would still grant.",
+      "suggestedAxirWork": [
+        "Default validation_retries to maxRetries in @forward and keep an explicit validation_retries as a port override",
+        "Reset the validation attempt counter when the tool loop advances a step",
+        "Add fixtures for the default attempt count and the maxRetries option and the override and the per-step reset"
+      ],
+      "completedAt": null,
+      "completedByCommit": null,
+      "verification": null
     }
   ],
   "nonPortableExemptions": [

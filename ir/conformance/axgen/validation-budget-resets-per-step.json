@@ -1,0 +1,60 @@
+{
+  "expected_output": {
+    "answer": 4
+  },
+  "expected_request_count": 4,
+  "expected_tool_calls": [
+    {
+      "args": {
+        "query": "ax docs"
+      },
+      "name": "search"
+    }
+  ],
+  "input": {
+    "query": "ax docs"
+  },
+  "kind": "forward",
+  "name": "validation-budget-resets-per-step",
+  "options": {
+    "max_retries": 1
+  },
+  "responses": [
+    {
+      "content": "{\"answer\":\"not a number\"}"
+    },
+    {
+      "content": "",
+      "function_calls": [
+        {
+          "id": "call_1",
+          "name": "search",
+          "params": {
+            "query": "ax docs"
+          }
+        }
+      ]
+    },
+    {
+      "content": "{\"answer\":\"not a number\"}"
+    },
+    {
+      "content": "Answer: 4"
+    }
+  ],
+  "signature": "query:string -> answer:number",
+  "tools": [
+    {
+      "args": {
+        "query": {
+          "type": "string"
+        }
+      },
+      "description": "Search docs",
+      "name": "search",
+      "result": {
+        "title": "Ax docs"
+      }
+    }
+  ]
+}

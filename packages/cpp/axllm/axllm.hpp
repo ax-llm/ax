@@ -783,8 +783,8 @@ struct Core {
   static Value chat_session_has_queued_updates(Value state);
   static Value chat_session_native_update(Value state, Value id);
   static Value chat_session_native_wait(Value state);
-  static Value _set_examples(Value gen, Value examples);
   static Value chat_session_native_event(Value state, Value event);
+  static Value _set_examples(Value gen, Value examples);
   static Value _set_demos(Value gen, Value demos);
   static Value _regex_quantifier(Value s, Value child);
   static Value _ace_estimate_token_count(Value text);
@@ -807,14 +807,14 @@ struct Core {
   static Value chat_session_mark_submitted(Value state, Value ids);
   static Value _parse_json_string_value(Value value);
   static Value chat_session_queue_update(Value state, Value update);
-  static Value _parse_json_string_for_field(Value field, Value value);
   static Value _ace_dedupe_playbook(Value playbook);
+  static Value _parse_json_string_for_field(Value field, Value value);
   static Value _regex_word(Value c);
   static Value chat_session_record_unresolved(Value gen, Value state);
   static Value _ace_prune_section_for_addition(Value section, Value protected_ids);
   static Value chat_session_close_state(Value state);
-  static Value _parse_json_string_fields(Value output_fields, Value values);
   static Value chat_session_transition(Value state, Value event);
+  static Value _parse_json_string_fields(Value output_fields, Value values);
   static Value _regex_space(Value c);
   static Value _parse_json_string_for_fields(Value fields_map, Value values);
   static Value _validate_exact_output_keys(Value fields, Value values, Value context);

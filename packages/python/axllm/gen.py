@@ -4004,10 +4004,10 @@ def _forward_impl(gen: AxGen, client: AIClient, values: Any, options: Any) -> An
     cached_messages = _core_axgen_apply_context_cache(gen, ordered_messages, options)
     messages = cached_messages
     _core_axgen_memory_add_request(gen, messages)
-    validation_retries_snake = _core_get(runtime_options, "validation_retries", 2)
-    validation_retries = _core_get(runtime_options, "validationRetries", validation_retries_snake)
     max_retries_snake = _core_get(runtime_options, "max_retries", 3)
     max_retries = _core_get(runtime_options, "maxRetries", max_retries_snake)
+    validation_retries_snake = _core_get(runtime_options, "validation_retries", max_retries)
+    validation_retries = _core_get(runtime_options, "validationRetries", validation_retries_snake)
     infra_retries_snake = _core_get(runtime_options, "infra_retries", max_retries)
     infra_retries = _core_get(runtime_options, "infraRetries", infra_retries_snake)
     attempt = 0
@@ -4096,6 +4096,7 @@ def _forward_impl(gen: AxGen, client: AIClient, values: Any, options: Any) -> An
             if continue_after_tools:
                 next_step = _core_add(step, 1)
                 step = next_step
+                attempt = 0
                 continue
             else:
                 validated_tool_result = validate_output(output_fields, last_tool_result)
@@ -4650,12 +4651,6 @@ def chat_session_native_wait(state: Any) -> bool:
     return False
 
 
-def _set_examples(gen: AxGen, examples: list[Any]) -> AxGen:
-    _core_coverage_mark("_set_examples")
-    gen["examples"] = examples
-    return gen
-
-
 def chat_session_native_event(state: Any, event: Any) -> Any:
     _core_coverage_mark("chat_session_native_event")
     result = {}
@@ -4778,6 +4773,12 @@ def chat_session_native_event(state: Any, event: Any) -> Any:
     else:
         pass
     return result
+
+
+def _set_examples(gen: AxGen, examples: list[Any]) -> AxGen:
+    _core_coverage_mark("_set_examples")
+    gen["examples"] = examples
+    return gen
 
 
 def _set_demos(gen: AxGen, demos: list[Any]) -> AxGen:
@@ -5398,6 +5399,41 @@ def chat_session_queue_update(state: Any, update: Any) -> bool:
     return True
 
 
+def _ace_dedupe_playbook(playbook: Any) -> Any:
+    _core_coverage_mark("_ace_dedupe_playbook")
+    empty_map = {}
+    sections = _core_get(playbook, "sections", empty_map)
+    section_names = _core_map_keys(sections)
+    for section_name in section_names:
+        bullets = _core_get(sections, section_name, None)
+        seen = {}
+        unique = []
+        for bullet in bullets:
+            content = _core_get(bullet, "content", "")
+            trimmed = str(content).strip()
+            key = _core_string_lower(trimmed)
+            has_existing = _core_map_contains(seen, key)
+            if has_existing:
+                existing = _core_get(seen, key, None)
+                existing_helpful = _core_get(existing, "helpfulCount", 0)
+                bullet_helpful = _core_get(bullet, "helpfulCount", 0)
+                merged_helpful = _core_add(existing_helpful, bullet_helpful)
+                existing["helpfulCount"] = merged_helpful
+                existing_harmful = _core_get(existing, "harmfulCount", 0)
+                bullet_harmful = _core_get(bullet, "harmfulCount", 0)
+                merged_harmful = _core_add(existing_harmful, bullet_harmful)
+                existing["harmfulCount"] = merged_harmful
+                bullet_updated_at = _core_get(bullet, "updatedAt", "")
+                existing["updatedAt"] = bullet_updated_at
+            else:
+                seen[key] = bullet
+                unique.append(bullet)
+        sections[section_name] = unique
+    playbook["sections"] = sections
+    recomputed = _ace_recompute_playbook_stats(playbook)
+    return recomputed
+
+
 def _parse_json_string_for_field(field: Field, value: Any) -> Any:
     _core_coverage_mark("_parse_json_string_for_field")
     typ = _core_get(field, "type", None)
@@ -5456,41 +5492,6 @@ def _parse_json_string_for_field(field: Field, value: Any) -> Any:
     else:
         pass
     return value
-
-
-def _ace_dedupe_playbook(playbook: Any) -> Any:
-    _core_coverage_mark("_ace_dedupe_playbook")
-    empty_map = {}
-    sections = _core_get(playbook, "sections", empty_map)
-    section_names = _core_map_keys(sections)
-    for section_name in section_names:
-        bullets = _core_get(sections, section_name, None)
-        seen = {}
-        unique = []
-        for bullet in bullets:
-            content = _core_get(bullet, "content", "")
-            trimmed = str(content).strip()
-            key = _core_string_lower(trimmed)
-            has_existing = _core_map_contains(seen, key)
-            if has_existing:
-                existing = _core_get(seen, key, None)
-                existing_helpful = _core_get(existing, "helpfulCount", 0)
-                bullet_helpful = _core_get(bullet, "helpfulCount", 0)
-                merged_helpful = _core_add(existing_helpful, bullet_helpful)
-                existing["helpfulCount"] = merged_helpful
-                existing_harmful = _core_get(existing, "harmfulCount", 0)
-                bullet_harmful = _core_get(bullet, "harmfulCount", 0)
-                merged_harmful = _core_add(existing_harmful, bullet_harmful)
-                existing["harmfulCount"] = merged_harmful
-                bullet_updated_at = _core_get(bullet, "updatedAt", "")
-                existing["updatedAt"] = bullet_updated_at
-            else:
-                seen[key] = bullet
-                unique.append(bullet)
-        sections[section_name] = unique
-    playbook["sections"] = sections
-    recomputed = _ace_recompute_playbook_stats(playbook)
-    return recomputed
 
 
 def _regex_word(c: Any) -> Any:
@@ -5648,26 +5649,6 @@ def chat_session_close_state(state: Any) -> list[Any]:
     return unresolved
 
 
-def _parse_json_string_fields(output_fields: list[Any], values: Any) -> Any:
-    _core_coverage_mark("_parse_json_string_fields")
-    values_is_map = _core_type_is(values, "object")
-    not_map = _core_not(values_is_map)
-    if not_map:
-        return values
-    else:
-        pass
-    for field in output_fields:
-        name = _core_get(field, "name", None)
-        has_key = _core_map_contains(values, name)
-        if has_key:
-            value = _core_get(values, name, None)
-            parsed = _parse_json_string_for_field(field, value)
-            values[name] = parsed
-        else:
-            pass
-    return values
-
-
 def chat_session_transition(state: Any, event: Any) -> Any:
     _core_coverage_mark("chat_session_transition")
     type = _core_get(event, "type", None)
@@ -5776,6 +5757,26 @@ def chat_session_transition(state: Any, event: Any) -> Any:
     action = chat_session_boundary_action(state)
     action["changed"] = changed
     return action
+
+
+def _parse_json_string_fields(output_fields: list[Any], values: Any) -> Any:
+    _core_coverage_mark("_parse_json_string_fields")
+    values_is_map = _core_type_is(values, "object")
+    not_map = _core_not(values_is_map)
+    if not_map:
+        return values
+    else:
+        pass
+    for field in output_fields:
+        name = _core_get(field, "name", None)
+        has_key = _core_map_contains(values, name)
+        if has_key:
+            value = _core_get(values, name, None)
+            parsed = _parse_json_string_for_field(field, value)
+            values[name] = parsed
+        else:
+            pass
+    return values
 
 
 def _regex_space(c: Any) -> Any:

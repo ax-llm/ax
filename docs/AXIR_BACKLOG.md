@@ -18,7 +18,12 @@ This ledger tracks portable TypeScript behavior that should be migrated into AxI
 
 ## Open
 
-No entries.
+- `axir-2026-09-25-align-the-axgen-validation-budget-with-typescript-maxretries` [axgen] Align the AxGen validation budget with TypeScript maxRetries
+  - Status: open
+  - Source commit: `5debd12d19b90be27bd2035a9f131295a2cb36a9`
+  - TS paths: `src/ax/dsp/generate.ts`
+  - Impact: TypeScript AxGen gives each step maxRetries + 1 validation attempts (maxRetries defaults to 3, so 4) and starts every tool step with a fresh budget; refusals spend the same budget. The generated ports defaulted validation_retries to 2 (3 attempts), ignored maxRetries for validation, and counted attempts across all steps of the tool loop, so a later step could run out of retries that TypeScript would still grant.
+  - Suggested AxIR work: Default validation_retries to maxRetries in @forward and keep an explicit validation_retries as a port override; Reset the validation attempt counter when the tool loop advances a step; Add fixtures for the default attempt count and the maxRetries option and the override and the per-step reset
 
 ## Done
 

@@ -1,0 +1,27 @@
+{
+  "expected_error_contains": "to be a number",
+  "expected_request_count": 4,
+  "input": {
+    "question": "Status?"
+  },
+  "kind": "forward",
+  "name": "validation-budget-default-attempts",
+  "responses": [
+    {
+      "content": "{\"answer\":\"not a number\"}"
+    },
+    {
+      "content": "{\"answer\":\"not a number\"}"
+    },
+    {
+      "content": "{\"answer\":\"not a number\"}"
+    },
+    {
+      "content": "{\"answer\":\"not a number\"}"
+    },
+    {
+      "content": "{\"answer\":\"not a number\"}"
+    }
+  ],
+  "signature": "question:string -> answer:number"
+}

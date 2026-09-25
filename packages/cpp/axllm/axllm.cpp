@@ -18077,10 +18077,10 @@ Value Core::_forward_impl(Value gen, Value client, Value values, Value options) 
   Value cached_messages = Core::axgen_apply_context_cache(gen, ordered_messages, options);
   messages = cached_messages;
   Core::axgen_memory_add_request(gen, messages);
-  Value validation_retries_snake = Core::get(runtime_options, Value("validation_retries"), Value(2));
-  Value validation_retries = Core::get(runtime_options, Value("validationRetries"), validation_retries_snake);
   Value max_retries_snake = Core::get(runtime_options, Value("max_retries"), Value(3));
   Value max_retries = Core::get(runtime_options, Value("maxRetries"), max_retries_snake);
+  Value validation_retries_snake = Core::get(runtime_options, Value("validation_retries"), max_retries);
+  Value validation_retries = Core::get(runtime_options, Value("validationRetries"), validation_retries_snake);
   Value infra_retries_snake = Core::get(runtime_options, Value("infra_retries"), max_retries);
   Value infra_retries = Core::get(runtime_options, Value("infraRetries"), infra_retries_snake);
   Value attempt = Value(0);
@@ -18171,6 +18171,7 @@ Value Core::_forward_impl(Value gen, Value client, Value values, Value options) 
       if (Core::truthy(continue_after_tools)) {
         Value next_step = Core::add(step, Value(1));
         step = next_step;
+        attempt = Value(0);
         continue;
       }
       if (!Core::truthy(continue_after_tools)) {
@@ -18701,12 +18702,6 @@ Value Core::chat_session_native_wait(Value state) {
   return Value(false);
 }
 
-Value Core::_set_examples(Value gen, Value examples) {
-  axir_coverage_mark("_set_examples");
-  Core::set(gen, Value("examples"), examples);
-  return gen;
-}
-
 Value Core::chat_session_native_event(Value state, Value event) {
   axir_coverage_mark("chat_session_native_event");
   Value result = Value::object();
@@ -18823,6 +18818,12 @@ Value Core::chat_session_native_event(Value state, Value event) {
     }
   }
   return result;
+}
+
+Value Core::_set_examples(Value gen, Value examples) {
+  axir_coverage_mark("_set_examples");
+  Core::set(gen, Value("examples"), examples);
+  return gen;
 }
 
 Value Core::_set_demos(Value gen, Value demos) {
@@ -19436,6 +19437,45 @@ Value Core::chat_session_queue_update(Value state, Value update) {
   return Value(true);
 }
 
+Value Core::_ace_dedupe_playbook(Value playbook) {
+  axir_coverage_mark("_ace_dedupe_playbook");
+  Value empty_map = Value::object();
+  Value sections = Core::get(playbook, Value("sections"), empty_map);
+  Value section_names = Core::map_keys(sections);
+  for (auto section_name : Core::iter(section_names)) {
+    Value bullets = Core::get(sections, section_name, Value());
+    Value seen = Value::object();
+    Value unique = Value::array();
+    for (auto bullet : Core::iter(bullets)) {
+      Value content = Core::get(bullet, Value("content"), Value(""));
+      Value trimmed = Core::string_trim(content);
+      Value key = Core::string_lower(trimmed);
+      Value has_existing = Core::map_contains(seen, key);
+      if (Core::truthy(has_existing)) {
+        Value existing = Core::get(seen, key, Value());
+        Value existing_helpful = Core::get(existing, Value("helpfulCount"), Value(0));
+        Value bullet_helpful = Core::get(bullet, Value("helpfulCount"), Value(0));
+        Value merged_helpful = Core::add(existing_helpful, bullet_helpful);
+        Core::set(existing, Value("helpfulCount"), merged_helpful);
+        Value existing_harmful = Core::get(existing, Value("harmfulCount"), Value(0));
+        Value bullet_harmful = Core::get(bullet, Value("harmfulCount"), Value(0));
+        Value merged_harmful = Core::add(existing_harmful, bullet_harmful);
+        Core::set(existing, Value("harmfulCount"), merged_harmful);
+        Value bullet_updated_at = Core::get(bullet, Value("updatedAt"), Value(""));
+        Core::set(existing, Value("updatedAt"), bullet_updated_at);
+      }
+      if (!Core::truthy(has_existing)) {
+        Core::set(seen, key, bullet);
+        Core::append(unique, bullet);
+      }
+    }
+    Core::set(sections, section_name, unique);
+  }
+  Core::set(playbook, Value("sections"), sections);
+  Value recomputed = Core::_ace_recompute_playbook_stats(playbook);
+  return recomputed;
+}
+
 Value Core::_parse_json_string_for_field(Value field, Value value) {
   axir_coverage_mark("_parse_json_string_for_field");
   Value typ = Core::get(field, Value("type"), Value());
@@ -19490,45 +19530,6 @@ Value Core::_parse_json_string_for_field(Value field, Value value) {
     }
   }
   return value;
-}
-
-Value Core::_ace_dedupe_playbook(Value playbook) {
-  axir_coverage_mark("_ace_dedupe_playbook");
-  Value empty_map = Value::object();
-  Value sections = Core::get(playbook, Value("sections"), empty_map);
-  Value section_names = Core::map_keys(sections);
-  for (auto section_name : Core::iter(section_names)) {
-    Value bullets = Core::get(sections, section_name, Value());
-    Value seen = Value::object();
-    Value unique = Value::array();
-    for (auto bullet : Core::iter(bullets)) {
-      Value content = Core::get(bullet, Value("content"), Value(""));
-      Value trimmed = Core::string_trim(content);
-      Value key = Core::string_lower(trimmed);
-      Value has_existing = Core::map_contains(seen, key);
-      if (Core::truthy(has_existing)) {
-        Value existing = Core::get(seen, key, Value());
-        Value existing_helpful = Core::get(existing, Value("helpfulCount"), Value(0));
-        Value bullet_helpful = Core::get(bullet, Value("helpfulCount"), Value(0));
-        Value merged_helpful = Core::add(existing_helpful, bullet_helpful);
-        Core::set(existing, Value("helpfulCount"), merged_helpful);
-        Value existing_harmful = Core::get(existing, Value("harmfulCount"), Value(0));
-        Value bullet_harmful = Core::get(bullet, Value("harmfulCount"), Value(0));
-        Value merged_harmful = Core::add(existing_harmful, bullet_harmful);
-        Core::set(existing, Value("harmfulCount"), merged_harmful);
-        Value bullet_updated_at = Core::get(bullet, Value("updatedAt"), Value(""));
-        Core::set(existing, Value("updatedAt"), bullet_updated_at);
-      }
-      if (!Core::truthy(has_existing)) {
-        Core::set(seen, key, bullet);
-        Core::append(unique, bullet);
-      }
-    }
-    Core::set(sections, section_name, unique);
-  }
-  Core::set(playbook, Value("sections"), sections);
-  Value recomputed = Core::_ace_recompute_playbook_stats(playbook);
-  return recomputed;
 }
 
 Value Core::_regex_word(Value c) {
@@ -19679,25 +19680,6 @@ Value Core::chat_session_close_state(Value state) {
   return unresolved;
 }
 
-Value Core::_parse_json_string_fields(Value output_fields, Value values) {
-  axir_coverage_mark("_parse_json_string_fields");
-  Value values_is_map = Core::type_is(values, Value("object"));
-  Value not_map = Core::not_(values_is_map);
-  if (Core::truthy(not_map)) {
-    return values;
-  }
-  for (auto field : Core::iter(output_fields)) {
-    Value name = Core::get(field, Value("name"), Value());
-    Value has_key = Core::map_contains(values, name);
-    if (Core::truthy(has_key)) {
-      Value value = Core::get(values, name, Value());
-      Value parsed = Core::_parse_json_string_for_field(field, value);
-      Core::set(values, name, parsed);
-    }
-  }
-  return values;
-}
-
 Value Core::chat_session_transition(Value state, Value event) {
   axir_coverage_mark("chat_session_transition");
   Value type = Core::get(event, Value("type"), Value());
@@ -19815,6 +19797,25 @@ Value Core::chat_session_transition(Value state, Value event) {
   Value action = Core::chat_session_boundary_action(state);
   Core::set(action, Value("changed"), changed);
   return action;
+}
+
+Value Core::_parse_json_string_fields(Value output_fields, Value values) {
+  axir_coverage_mark("_parse_json_string_fields");
+  Value values_is_map = Core::type_is(values, Value("object"));
+  Value not_map = Core::not_(values_is_map);
+  if (Core::truthy(not_map)) {
+    return values;
+  }
+  for (auto field : Core::iter(output_fields)) {
+    Value name = Core::get(field, Value("name"), Value());
+    Value has_key = Core::map_contains(values, name);
+    if (Core::truthy(has_key)) {
+      Value value = Core::get(values, name, Value());
+      Value parsed = Core::_parse_json_string_for_field(field, value);
+      Core::set(values, name, parsed);
+    }
+  }
+  return values;
 }
 
 Value Core::_regex_space(Value c) {

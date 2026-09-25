@@ -1,0 +1,25 @@
+{
+  "expected_error_contains": "to be a number",
+  "expected_request_count": 2,
+  "input": {
+    "question": "Status?"
+  },
+  "kind": "forward",
+  "name": "validation-budget-validation-retries-override",
+  "options": {
+    "max_retries": 3,
+    "validation_retries": 1
+  },
+  "responses": [
+    {
+      "content": "{\"answer\":\"not a number\"}"
+    },
+    {
+      "content": "{\"answer\":\"not a number\"}"
+    },
+    {
+      "content": "{\"answer\":\"not a number\"}"
+    }
+  ],
+  "signature": "question:string -> answer:number"
+}

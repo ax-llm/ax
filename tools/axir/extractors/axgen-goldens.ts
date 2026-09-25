@@ -516,8 +516,10 @@ writeFixture('assertion-return-modes', {
     { content: '{"answer":"bad"}' },
     { content: '{"answer":"still bad"}' },
     { content: '{"answer":"again"}' },
+    { content: '{"answer":"once more"}' },
   ],
   expected_error_contains: 'custom assertion retry',
+  expected_request_count: 4,
 });
 
 writeFixture('assertion-false-without-message-error', {
@@ -529,6 +531,7 @@ writeFixture('assertion-false-without-message-error', {
     { content: '{"answer":"bad"}' },
     { content: '{"answer":"still bad"}' },
     { content: '{"answer":"again"}' },
+    { content: '{"answer":"once more"}' },
   ],
   expected_error_contains: 'assertion failed without message',
 });
@@ -1220,4 +1223,74 @@ writeFixture('refusal-shares-validation-budget', {
   ],
   expected_error_contains: 'to be a number',
   expected_request_count: 2,
+});
+
+// As in TS, maxRetries (default 3) also caps the validation retries of each
+// step, and each tool step starts with a fresh budget. The request counts
+// match a TS AxGen probe. validation_retries stays a port override that wins
+// over max_retries.
+const badNumber = { content: '{"answer":"not a number"}' };
+
+writeFixture('validation-budget-default-attempts', {
+  kind: 'forward',
+  signature: 'question:string -> answer:number',
+  input: { question: 'Status?' },
+  responses: Array.from({ length: 5 }, () => badNumber),
+  expected_error_contains: 'to be a number',
+  expected_request_count: 4,
+});
+
+writeFixture('validation-budget-max-retries-option', {
+  kind: 'forward',
+  signature: 'question:string -> answer:number',
+  input: { question: 'Status?' },
+  options: { max_retries: 1 },
+  responses: Array.from({ length: 3 }, () => badNumber),
+  expected_error_contains: 'to be a number',
+  expected_request_count: 2,
+});
+
+writeFixture('validation-budget-validation-retries-override', {
+  kind: 'forward',
+  signature: 'question:string -> answer:number',
+  input: { question: 'Status?' },
+  options: { validation_retries: 1, max_retries: 3 },
+  responses: Array.from({ length: 3 }, () => badNumber),
+  expected_error_contains: 'to be a number',
+  expected_request_count: 2,
+});
+
+writeFixture('validation-budget-resets-per-step', {
+  kind: 'forward',
+  signature: 'query:string -> answer:number',
+  input: { query: 'ax docs' },
+  tools: [searchTool],
+  options: { max_retries: 1 },
+  responses: [
+    badNumber,
+    searchCall('call_1'),
+    badNumber,
+    { content: 'Answer: 4' },
+  ],
+  expected_output: { answer: 4 },
+  expected_tool_calls: [searchRecord],
+  expected_request_count: 4,
+});
+
+writeFixture('validation-budget-step-exhausted', {
+  kind: 'forward',
+  signature: 'query:string -> answer:number',
+  input: { query: 'ax docs' },
+  tools: [searchTool],
+  options: { max_retries: 1 },
+  responses: [
+    badNumber,
+    searchCall('call_1'),
+    badNumber,
+    badNumber,
+    { content: 'Answer: 4' },
+  ],
+  expected_error_contains: 'to be a number',
+  expected_tool_calls: [searchRecord],
+  expected_request_count: 4,
 });
