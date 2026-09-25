@@ -1,0 +1,92 @@
+{
+  "events": [
+    {
+      "id": "gemini_live_ack",
+      "serverContent": {
+        "outputTranscription": {
+          "text": "One moment. "
+        }
+      }
+    },
+    {
+      "id": "gemini_live_ack_done",
+      "serverContent": {
+        "interactionStatus": "IN_PROGRESS",
+        "turnComplete": true
+      }
+    },
+    {
+      "id": "gemini_live_answer",
+      "serverContent": {
+        "outputTranscription": {
+          "text": "Done."
+        }
+      }
+    },
+    {
+      "id": "gemini_live_done",
+      "serverContent": {
+        "interactionStatus": "IDLE",
+        "turnComplete": true
+      }
+    }
+  ],
+  "expected_output": [
+    {
+      "model_usage": null,
+      "remote_id": "gemini_live_ack",
+      "results": [
+        {
+          "content": "One moment. ",
+          "finish_reason": null,
+          "function_calls": [],
+          "id": "0",
+          "index": 0
+        }
+      ]
+    },
+    {
+      "model_usage": null,
+      "remote_id": "gemini_live_ack_done",
+      "results": [
+        {
+          "content": "",
+          "finish_reason": null,
+          "function_calls": [],
+          "id": "0",
+          "index": 0
+        }
+      ]
+    },
+    {
+      "model_usage": null,
+      "remote_id": "gemini_live_answer",
+      "results": [
+        {
+          "content": "Done.",
+          "finish_reason": null,
+          "function_calls": [],
+          "id": "0",
+          "index": 0
+        }
+      ]
+    },
+    {
+      "model_usage": null,
+      "remote_id": "gemini_live_done",
+      "results": [
+        {
+          "content": "",
+          "finish_reason": "stop",
+          "function_calls": [],
+          "id": "0",
+          "index": 0
+        }
+      ]
+    }
+  ],
+  "kind": "ai_realtime",
+  "model": "gemini-3.8-live-extended-thinking",
+  "name": "gemini-live-realtime-audio-turn-break-keeps-existing-space",
+  "provider": "google-gemini"
+}

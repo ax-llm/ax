@@ -84,6 +84,31 @@ fn main() -> AxResult<()> {
     {
         fail("Meta overlapping turns or session lost", &meta_final);
     }
+    // Gemini Live extended thinking: an acknowledgement turn ends IN_PROGRESS and the
+    // answer follows in a second turn, so the driver must keep reading past it.
+    let gemini = ai(
+        "google-gemini",
+        json!({"api_key": "test-key", "model": "gemini-3.8-live-extended-thinking"}),
+    )?;
+    let gemini_transport = RealtimeTransport::Scripted(ScriptedRealtimeTransport::new(vec![
+        json!({"setupComplete": {}}),
+        json!({"serverContent": {"outputTranscription": {"text": "Let me think."}}}),
+        json!({"serverContent": {"turnComplete": true, "interactionStatus": "IN_PROGRESS"}}),
+        json!({"serverContent": {"outputTranscription": {"text": "Hello there."}}}),
+        json!({"serverContent": {"modelTurn": {"parts": [{"inlineData": {"mimeType": "audio/pcm", "data": "AQI="}}]}}}),
+        json!({"serverContent": {"turnComplete": true, "interactionStatus": "IDLE"}}),
+    ]));
+    let gemini_final = gemini.realtime_chat(
+        json!({"model": "gemini-3.8-live-extended-thinking", "chat_prompt": [{"role": "user", "content": "Say hello."}]}),
+        Some(gemini_transport),
+    )?;
+    let gemini_result = &gemini_final["results"][0];
+    if gemini_result["content"] != "Let me think. Hello there."
+        || gemini_result["finish_reason"] != "stop"
+        || gemini_result["audio"]["data"] != "AQI="
+    {
+        fail("Gemini extended-thinking turn cut short", &gemini_final);
+    }
     println!("realtime-audio-turn-ok");
     Ok(())
 }
