@@ -1801,7 +1801,7 @@
     },
     {
       "id": "axir-2026-09-25-nest-axgen-infrastructure-retries-around-the-validation-loop",
-      "status": "open",
+      "status": "done",
       "title": "Nest AxGen infrastructure retries around the validation loop",
       "createdAt": "2026-09-25",
       "sourcePR": null,
@@ -1814,9 +1814,9 @@
         "Reset the infrastructure budget when the tool loop advances a step",
         "Add fixtures with request counts from a TypeScript AxMockAIService probe"
       ],
-      "completedAt": null,
-      "completedByCommit": null,
-      "verification": null
+      "completedAt": "2026-09-25",
+      "completedByCommit": "4e4b52c6632f31081523aee16ae8d64890b18f02",
+      "verification": "@forward retries infrastructure errors with one budget per step (maxRetries, default 3), resets the validation attempt count on each infrastructure retry, and resets both budgets when the tool loop advances. The infra-retry-restarts-*, infra-retry-budget-shared-within-step and infra-retry-budget-resets-per-step fixtures pin request counts measured with a TypeScript AxMockAIService probe, and mutation checks fail each rule. Python and Go conformance 946/946; npm run axir:check-packages, npm run axir:conformance:check and npm run test:axir pass."
     },
     {
       "id": "axir-2026-09-25-port-model-key-resolution-on-single-ai-clients",
