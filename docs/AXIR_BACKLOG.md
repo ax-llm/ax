@@ -18,12 +18,7 @@ This ledger tracks portable TypeScript behavior that should be migrated into AxI
 
 ## Open
 
-- `axir-2026-09-25-keep-the-axoutput-call-on-axgen-structured-output-retries` [axgen] Keep the __axOutput call on AxGen structured-output retries
-  - Status: open
-  - Source commit: `48100c563798830887a043c04b679410c2903f75`
-  - TS paths: `src/ax/dsp/generate.ts`, `src/ax/dsp/response/nonStreaming.ts`
-  - Impact: When an __axOutput call on the function structured-output rung fails validation or a message-bearing assertion, TypeScript AxGen keeps the call on the assistant turn with a done function result, then adds 'The previous tool call failed. Fix arguments and try again, ensuring required fields match schema.' and the rendered error (Invalid Field or Follow these instructions), and forces __axOutput again. The generated ports rebuilt the assistant turn as empty content without the call, so the port request validator rejected the retry locally (Assistant content is required when no tool calls are provided) and the forward failed instead of being corrected. Gemini selects this rung whenever tools are callable.
-  - Suggested AxIR work: Rebuild the structured-output retry with the output call and a done function result; Add the tool-call failure notice and the TS-titled error correction; Pin a missing field and a message-bearing assertion corrected on retry; Live-check one Gemini model in Python and Go
+No entries.
 
 ## Done
 
@@ -738,6 +733,15 @@ This ledger tracks portable TypeScript behavior that should be migrated into AxI
   - Completed at: 2026-09-25
   - Completed by: `b6060666d825244d655b33ec29a9887b24522d5c`
   - Verification: `@forward defaults validation_retries to maxRetries (default 3) and resets the validation attempt counter when the tool loop advances a step. The validation-budget-* fixtures and assertion-return-modes pin the request counts measured with a TypeScript AxMockAIService probe, and mutation checks fail each one. Python and Go conformance 937/937; npm run axir:check-packages, npm run axir:conformance:check and npm run test:axir pass.`
+- `axir-2026-09-25-keep-the-axoutput-call-on-axgen-structured-output-retries` [axgen] Keep the __axOutput call on AxGen structured-output retries
+  - Status: done
+  - Source commit: `48100c563798830887a043c04b679410c2903f75`
+  - TS paths: `src/ax/dsp/generate.ts`, `src/ax/dsp/response/nonStreaming.ts`
+  - Impact: When an __axOutput call on the function structured-output rung fails validation or a message-bearing assertion, TypeScript AxGen keeps the call on the assistant turn with a done function result, then adds 'The previous tool call failed. Fix arguments and try again, ensuring required fields match schema.' and the rendered error (Invalid Field or Follow these instructions), and forces __axOutput again. The generated ports rebuilt the assistant turn as empty content without the call, so the port request validator rejected the retry locally (Assistant content is required when no tool calls are provided) and the forward failed instead of being corrected. Gemini selects this rung whenever tools are callable.
+  - Suggested AxIR work: Rebuild the structured-output retry with the output call and a done function result; Add the tool-call failure notice and the TS-titled error correction; Pin a missing field and a message-bearing assertion corrected on retry; Live-check one Gemini model in Python and Go
+  - Completed at: 2026-09-25
+  - Completed by: `843e398d431edc89277c68bec4dc6c783300edaa`
+  - Verification: `@append_structured_output_retry_messages_impl rebuilds a failed __axOutput retry as TS does: the assistant turn keeps the call, a done function result follows, then the tool-call failure notice and the Invalid Field or Follow these instructions correction, with __axOutput forced again. structured-output-retry-missing-field and structured-output-retry-assertion are corrected on the second request and pin the retry request; mutation checks fail each part. Live gemini-3.8-flash on the forced function rung is corrected on the second request in Python and Go (main's Python package fails locally with Assistant content is required). Python and Go conformance 954/954; npm run axir:check-packages, npm run axir:conformance:check and npm run test:axir pass.`
 - `axir-2026-09-25-nest-axgen-infrastructure-retries-around-the-validation-loop` [axgen] Nest AxGen infrastructure retries around the validation loop
   - Status: done
   - Source commit: `54cb4074079188e739242edabcfff272708d3adc`

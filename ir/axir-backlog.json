@@ -1801,7 +1801,7 @@
     },
     {
       "id": "axir-2026-09-25-keep-the-axoutput-call-on-axgen-structured-output-retries",
-      "status": "open",
+      "status": "done",
       "title": "Keep the __axOutput call on AxGen structured-output retries",
       "createdAt": "2026-09-25",
       "sourcePR": null,
@@ -1818,9 +1818,9 @@
         "Pin a missing field and a message-bearing assertion corrected on retry",
         "Live-check one Gemini model in Python and Go"
       ],
-      "completedAt": null,
-      "completedByCommit": null,
-      "verification": null
+      "completedAt": "2026-09-25",
+      "completedByCommit": "843e398d431edc89277c68bec4dc6c783300edaa",
+      "verification": "@append_structured_output_retry_messages_impl rebuilds a failed __axOutput retry as TS does: the assistant turn keeps the call, a done function result follows, then the tool-call failure notice and the Invalid Field or Follow these instructions correction, with __axOutput forced again. structured-output-retry-missing-field and structured-output-retry-assertion are corrected on the second request and pin the retry request; mutation checks fail each part. Live gemini-3.8-flash on the forced function rung is corrected on the second request in Python and Go (main's Python package fails locally with Assistant content is required). Python and Go conformance 954/954; npm run axir:check-packages, npm run axir:conformance:check and npm run test:axir pass."
     },
     {
       "id": "axir-2026-09-25-nest-axgen-infrastructure-retries-around-the-validation-loop",
