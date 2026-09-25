@@ -1,0 +1,64 @@
+{
+  "expected_transport_json_absent": [
+    "max_completion_tokens",
+    "reasoning_effort"
+  ],
+  "expected_transport_request": {
+    "json": {
+      "model": "gpt-5.4"
+    }
+  },
+  "kind": "ai_chat",
+  "model": "smart",
+  "name": "openai-model-key-client-default-resolves-model-only",
+  "provider": "openai",
+  "request": {
+    "chat_prompt": [
+      {
+        "content": "Hi",
+        "role": "user"
+      }
+    ],
+    "model_config": {
+      "stream": false
+    }
+  },
+  "service_options": {
+    "models": [
+      {
+        "description": "Smarter answers",
+        "key": "smart",
+        "model": "gpt-5.4",
+        "modelConfig": {
+          "maxTokens": 64
+        },
+        "thinkingTokenBudget": "low"
+      },
+      {
+        "description": "Small embeddings",
+        "embedModel": "text-embedding-3-small",
+        "key": "embed-small"
+      }
+    ]
+  },
+  "transport_responses": [
+    {
+      "json": {
+        "choices": [
+          {
+            "finish_reason": "stop",
+            "index": 0,
+            "message": {
+              "content": "ok",
+              "role": "assistant"
+            }
+          }
+        ],
+        "id": "chatcmpl_model_key",
+        "model": "gpt-5.4",
+        "object": "chat.completion"
+      },
+      "status": 200
+    }
+  ]
+}

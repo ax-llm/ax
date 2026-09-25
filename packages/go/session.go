@@ -125,6 +125,7 @@ type responsesChatSession struct {
 }
 
 func (c *OpenAICompatibleClient) OpenChatSession(ctx context.Context, request, options map[string]Value) (AxChatSession, error) {
+	request, options = c.resolveModelKey(request, options, false)
 	returnSession, err := safeValue(func() Value {
 		opts := mergeAIOptions(c.optionsSnapshot(), options)
 		req := cloneMap(request)

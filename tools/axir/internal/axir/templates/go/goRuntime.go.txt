@@ -3008,6 +3008,7 @@ func requireExpensiveModelConfirmation(provider string, request map[string]Value
 
 func (c *OpenAICompatibleClient) Chat(ctx context.Context, request map[string]Value, options map[string]Value) (Value, error) {
 	if err := contextCancellationError(ctx); err != nil { return nil, err }
+	request, options = c.resolveModelKey(request, options, false)
 	hooks, previousUsage := c.runtimeHooksSnapshot()
 	hooks = effectiveRuntimeHooks(ctx, options, hooks)
 	clientOptions := c.optionsSnapshot()
@@ -3062,6 +3063,7 @@ func serviceAcceptsRequest(service AIClient, request map[string]Value) bool {
     return !ok || validator.ValidateChatRequest(request) == nil
 }
 func (c *OpenAICompatibleClient) ValidateChatRequest(request map[string]Value) error {
+    request, _ = c.resolveModelKey(request, nil, false)
     _, err := safeValue(func() Value {
         req := c.prepareChatRequest(request, c.optionsSnapshot())
         return mustCore(provider_validate_chat_request(c.Profile, req, c.optionsSnapshot()))
@@ -3272,6 +3274,7 @@ func (c *OpenAICompatibleClient) contextCacheChat(ctx context.Context, request m
 }
 func (c *OpenAICompatibleClient) Embed(ctx context.Context, request map[string]Value, options map[string]Value) (Value, error) {
 	if err := contextCancellationError(ctx); err != nil { return nil, err }
+	request, options = c.resolveModelKey(request, options, true)
 	hooks, previousUsage := c.runtimeHooksSnapshot()
 	hooks = effectiveRuntimeHooks(ctx, options, hooks)
 	mergedOptions := mergeAIOptions(c.optionsSnapshot(), stripRuntimeHooks(options))
@@ -3379,6 +3382,7 @@ func (c *OpenAICompatibleClient) openProviderStream(ctx context.Context, request
 }
 
 func (c *OpenAICompatibleClient) StreamEvents(ctx context.Context, request map[string]Value, options map[string]Value) (AxChatStream, error) {
+    request, options = c.resolveModelKey(request, options, false)
     if !coreTruthy(coreGet(c.GetFeatures(display(coreGet(request,"model",""))),"streaming",true)) {
         response,err:=c.Chat(ctx,request,mergeAIOptions(options,Object("stream",false)));if err!=nil{return nil,err}
         delivered:=false
@@ -3572,6 +3576,27 @@ func (c *OpenAICompatibleClient) Stream(ctx context.Context, request map[string]
 		return nil, stream.Err()
 	}
 	return values, nil
+}
+// resolveModelKeyRequest maps a key from a client's model list to that entry's
+// model and adds the entry's defaults underneath the caller's options.
+func resolveModelKeyRequest(clientOptions map[string]Value, request map[string]Value, options map[string]Value, defaultModel Value, embed bool) (map[string]Value, map[string]Value) {
+	var callOptions Value
+	if options != nil {
+		callOptions = options
+	}
+	resolved, err := resolve_model_key(clientOptions, request, callOptions, defaultModel, embed)
+	if err != nil {
+		return request, options
+	}
+	return asMap(coreGet(resolved, "request", request)), asMap(coreGet(resolved, "options", Object()))
+}
+func (c *OpenAICompatibleClient) resolveModelKey(request map[string]Value, options map[string]Value, embed bool) (map[string]Value, map[string]Value) {
+	opts := c.optionsSnapshot()
+	defaultModel := coreGet(opts, "model", nil)
+	if embed {
+		defaultModel = coreGet(opts, "embed_model", coreGet(opts, "embedModel", nil))
+	}
+	return resolveModelKeyRequest(opts, request, options, defaultModel, embed)
 }
 func (c *OpenAICompatibleClient) prepareChatRequest(request map[string]Value, options map[string]Value) map[string]Value {
 	req := cloneMap(request)
@@ -9659,6 +9684,7 @@ func (f *conformanceScriptedAI) Chat(ctx context.Context, request map[string]Val
 	if model == "" {
 		model = "scripted-chat"
 	}
+	request, options = resolveModelKeyRequest(f.Options, request, options, model, false)
 	if err := requireExpensiveModelConfirmation(name, request, model, f.Options, options); err != nil {
 		return nil, err
 	}

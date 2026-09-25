@@ -2702,6 +2702,116 @@ writeFixture('openai-chat-ignores-deepseek-reasoning-content', {
   },
 });
 
+// A single client's `models` list maps keys to real models (AxBaseAI
+// getModelByKey). A request that names a key sends the key's model and gets the
+// key's modelConfig and option defaults underneath its own settings; a key used
+// as the client default resolves the model id only.
+const modelKeyList = [
+  {
+    key: 'smart',
+    model: 'gpt-5.4',
+    description: 'Smarter answers',
+    modelConfig: { maxTokens: 64 },
+    thinkingTokenBudget: 'low',
+  },
+  {
+    key: 'embed-small',
+    embedModel: 'text-embedding-3-small',
+    description: 'Small embeddings',
+  },
+];
+const modelKeyChatResponse = [
+  {
+    status: 200,
+    json: {
+      id: 'chatcmpl_model_key',
+      object: 'chat.completion',
+      model: 'gpt-5.4',
+      choices: [
+        {
+          index: 0,
+          finish_reason: 'stop',
+          message: { role: 'assistant', content: 'ok' },
+        },
+      ],
+    },
+  },
+];
+
+writeFixture('openai-model-key-resolves-model-and-defaults', {
+  kind: 'ai_chat',
+  provider: 'openai',
+  model: 'gpt-5.4-mini',
+  service_options: { models: modelKeyList },
+  request: {
+    model: 'smart',
+    chat_prompt: [{ role: 'user', content: 'Hi' }],
+    model_config: { stream: false },
+  },
+  transport_responses: modelKeyChatResponse,
+  expected_transport_request: {
+    json: {
+      model: 'gpt-5.4',
+      max_completion_tokens: 64,
+      reasoning_effort: 'medium',
+    },
+  },
+});
+
+writeFixture('openai-model-key-request-config-overrides-key-defaults', {
+  kind: 'ai_chat',
+  provider: 'openai',
+  model: 'gpt-5.4-mini',
+  service_options: { models: modelKeyList },
+  request: {
+    model: 'smart',
+    chat_prompt: [{ role: 'user', content: 'Hi' }],
+    model_config: { stream: false, maxTokens: 32 },
+  },
+  transport_responses: modelKeyChatResponse,
+  expected_transport_request: {
+    json: {
+      model: 'gpt-5.4',
+      max_completion_tokens: 32,
+      reasoning_effort: 'medium',
+    },
+  },
+});
+
+writeFixture('openai-model-key-client-default-resolves-model-only', {
+  kind: 'ai_chat',
+  provider: 'openai',
+  model: 'smart',
+  service_options: { models: modelKeyList },
+  request: {
+    chat_prompt: [{ role: 'user', content: 'Hi' }],
+    model_config: { stream: false },
+  },
+  transport_responses: modelKeyChatResponse,
+  expected_transport_request: { json: { model: 'gpt-5.4' } },
+  expected_transport_json_absent: ['max_completion_tokens', 'reasoning_effort'],
+});
+
+writeFixture('openai-model-key-resolves-embed-model', {
+  kind: 'ai_embed',
+  provider: 'openai',
+  model: 'gpt-5.4-mini',
+  embed_model: 'text-embedding-3-large',
+  service_options: { models: modelKeyList },
+  request: { texts: ['a'], embed_model: 'embed-small' },
+  transport_responses: [
+    {
+      status: 200,
+      json: {
+        data: [{ embedding: [0.1], index: 0 }],
+        model: 'text-embedding-3-small',
+        usage: { prompt_tokens: 1, total_tokens: 1 },
+      },
+    },
+  ],
+  expected_transport_request: { json: { model: 'text-embedding-3-small' } },
+});
+
 writeFixture('deepseek-openai-compatible-reasoning-tool-loop', {
   kind: 'ai_chat',
   provider: 'deepseek',
@@ -11917,6 +12027,23 @@ for (const testCase of [
     provider: 'openai',
     model: 'gpt-5.4-mini',
     requestModel: 'premium',
+    models: [
+      {
+        key: 'premium',
+        model: 'my-premium-model',
+        description: 'Premium',
+        useExpensiveModel: 'yes',
+      },
+    ],
+    modelInfo: expensiveCustomModelInfo,
+    respond: true,
+  },
+  {
+    // A key used as the client's default model resolves the model id only;
+    // its entry's useExpensiveModel does not confirm.
+    name: 'expensive-model-client-default-key-entry-does-not-confirm',
+    provider: 'openai',
+    model: 'premium',
     models: [
       {
         key: 'premium',

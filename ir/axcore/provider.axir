@@ -10318,7 +10318,6 @@ module @ax.provider version "0.1" {
       %models = core.get %client_opts["models"] default %models_snake
       %models_is_list = core.type_is %models type "list"
       %resolved_model = core.let %model
-      %key_entry = core.map
       %key_found = core.let false
       core.if %models_is_list {
         core.for %entry in %models {
@@ -10328,17 +10327,16 @@ module @ax.provider version "0.1" {
           %use_entry = core.call intrinsic.and(%key_matches, %key_missing)
           core.if %use_entry {
             %key_found = core.let true
-            %key_entry = core.let %entry
             %entry_model = core.get %entry["model"] default %model
             %resolved_model = core.let %entry_model
           }
         }
       }
+      // A key's own useExpensiveModel confirms only when the request names the
+      // key; @resolve_model_key then passes it in as a call option. A key used
+      // as the client's default model brings no defaults, as in TypeScript.
       %call_confirmation_snake = core.get %call_opts["use_expensive_model"]
-      %call_confirmation = core.get %call_opts["useExpensiveModel"] default %call_confirmation_snake
-      %entry_confirmation_snake = core.get %key_entry["use_expensive_model"]
-      %entry_confirmation = core.get %key_entry["useExpensiveModel"] default %entry_confirmation_snake
-      %confirmation = core.call intrinsic.coalesce(%call_confirmation, %entry_confirmation)
+      %confirmation = core.get %call_opts["useExpensiveModel"] default %call_confirmation_snake
       %confirmed = core.call intrinsic.eq(%confirmation, "yes")
       core.if %confirmed {
         core.return
