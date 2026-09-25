@@ -44,7 +44,7 @@ describe('perturbFixture', () => {
 
 describe('runnerForTarget', () => {
   // A stand-in C++ conformance binary; the cpp runner execs it directly.
-  function withFakeRunner(script, check) {
+  function withStandInRunner(script, check) {
     const outDir = mkdtempSync(path.join(os.tmpdir(), 'axir-perturb-runner-'));
     const bin = path.join(outDir, 'conformance_bin');
     writeFileSync(bin, `#!/bin/sh\n${script}\n`);
@@ -57,7 +57,7 @@ describe('runnerForTarget', () => {
   }
 
   it('returns the result of a runner that finishes', () => {
-    withFakeRunner('echo "ok $1"', (runner) => {
+    withStandInRunner('echo "ok $1"', (runner) => {
       const result = runner('/suites/axevent', 'pristine suite axevent');
       expect(result.status).toBe(0);
       expect(result.stdout).toBe('ok /suites/axevent\n');
@@ -65,7 +65,7 @@ describe('runnerForTarget', () => {
   });
 
   it('kills a hung runner and names the target and suite', () => {
-    withFakeRunner('echo started; exec sleep 30', (runner) => {
+    withStandInRunner('echo started; exec sleep 30', (runner) => {
       const startedAt = Date.now();
       expect(() => runner('/suites/axevent', 'pristine suite axevent')).toThrow(
         'TIMEOUT: cpp conformance runner exceeded 0.5s on pristine suite axevent and was killed.\nstarted\n'
