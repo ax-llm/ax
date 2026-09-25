@@ -497,6 +497,8 @@ func rustLiteral(value interface{}) string {
 			return rustName(v) + ".clone()"
 		}
 		return fmt.Sprintf("CoreValue::from(%s)", rustStringLiteral(v))
+	case QuotedString:
+		return fmt.Sprintf("CoreValue::from(%s)", rustStringLiteral(string(v)))
 	case bool:
 		return fmt.Sprintf("CoreValue::Bool(%t)", v)
 	case float64:

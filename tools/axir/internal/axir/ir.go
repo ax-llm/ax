@@ -51,6 +51,12 @@ type Attribute struct {
 	Line   int           `json:"-"`
 }
 
+// QuotedString is a quoted string literal whose text starts with @ or %.
+// Attribute values that are plain strings with those prefixes are @symbol
+// and %value refs, so the parser keeps these literals distinct; the
+// formatter re-quotes them and the emitters compile them as strings.
+type QuotedString string
+
 type Region struct {
 	Name   string  `json:"name"`
 	Blocks []Block `json:"blocks,omitempty"`

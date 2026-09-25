@@ -487,6 +487,8 @@ func cppLiteral(value interface{}) string {
 			return cppName(v)
 		}
 		return "Value(" + strconv.Quote(v) + ")"
+	case QuotedString:
+		return "Value(" + strconv.Quote(string(v)) + ")"
 	case bool:
 		if v {
 			return "Value(true)"
