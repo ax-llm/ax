@@ -620,6 +620,86 @@ describe('AxAIGoogleGemini model key preset merging', () => {
     });
   });
 
+  describe('gemini-embedding-2 on Vertex', () => {
+    const embedContentResponse = {
+      embedding: { values: [0.1, 0.2, 0.3] },
+      usageMetadata: { promptTokenCount: 2, totalTokenCount: 2 },
+    };
+
+    const createVertexAI = (
+      fetch: typeof globalThis.fetch,
+      options: { beta?: boolean } = {}
+    ) =>
+      new AxAIGoogleGemini({
+        apiKey: async () => 'vertex-token',
+        projectId: 'demo-project',
+        region: 'us-central1',
+        config: {
+          model: AxAIGoogleGeminiModel.Gemini25Flash,
+          embedModel: AxAIGoogleGeminiEmbedModel.GeminiEmbedding2,
+          embedType: AxAIGoogleGeminiEmbedTypes.RetrievalDocument,
+          dimensions: 768,
+        },
+        options: { ...options, fetch },
+      });
+
+    it('sends one text to the global :embedContent endpoint with no task type', async () => {
+      const capture: { calls: Array<{ url: string; body?: any }> } = {
+        calls: [],
+      };
+      const fetch = createSequencedMockFetch([embedContentResponse], capture);
+      const ai = createVertexAI(fetch);
+
+      const res = await ai.embed({ texts: ['hello world'] });
+
+      // Vertex serves this model only at locations/global; us-central1 404s.
+      expect(capture.calls[0]?.url).toBe(
+        'https://aiplatform.googleapis.com/v1/projects/demo-project/locations/global/publishers/google/models/gemini-embedding-2:embedContent'
+      );
+      // embedType is configured, but the model takes no task type.
+      expect(capture.calls[0]?.body).toEqual({
+        content: { parts: [{ text: 'hello world' }] },
+        outputDimensionality: 768,
+      });
+      expect(res.embeddings).toEqual([[0.1, 0.2, 0.3]]);
+      expect(res.modelUsage?.model).toBe('gemini-embedding-2');
+      expect(res.modelUsage?.tokens).toEqual({
+        promptTokens: 2,
+        completionTokens: 0,
+        totalTokens: 2,
+      });
+      expect(ai.getLastUsedEmbedModel()).toBe('gemini-embedding-2');
+    });
+
+    it('honors options.beta by routing onto v1beta1', async () => {
+      const capture: { calls: Array<{ url: string; body?: any }> } = {
+        calls: [],
+      };
+      const fetch = createSequencedMockFetch([embedContentResponse], capture);
+      const ai = createVertexAI(fetch, { beta: true });
+
+      await ai.embed({ texts: ['hello world'] });
+
+      expect(capture.calls[0]?.url).toBe(
+        'https://aiplatform.googleapis.com/v1beta1/projects/demo-project/locations/global/publishers/google/models/gemini-embedding-2:embedContent'
+      );
+    });
+
+    it('rejects more than one text without calling Vertex', async () => {
+      const capture: { calls: Array<{ url: string; body?: any }> } = {
+        calls: [],
+      };
+      const fetch = createSequencedMockFetch([embedContentResponse], capture);
+      const ai = createVertexAI(fetch);
+
+      // Vertex would fuse both texts into one vector.
+      await expect(ai.embed({ texts: ['a', 'b'] })).rejects.toThrow(
+        'gemini-embedding-2 on Vertex embeds one text per request'
+      );
+      expect(fetch).not.toHaveBeenCalled();
+    });
+  });
+
   it('honors options.beta by routing Vertex chat requests onto v1beta1', async () => {
     const capture: { calls: Array<{ url: string; body?: any }> } = {
       calls: [],

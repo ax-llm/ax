@@ -91,6 +91,8 @@ import {
   type AxAIGoogleGeminiToolGoogleMaps,
   type AxAIGoogleVertexBatchEmbedRequest,
   type AxAIGoogleVertexBatchEmbedResponse,
+  type AxAIGoogleVertexEmbedContentRequest,
+  type AxAIGoogleVertexEmbedContentResponse,
   GEMINI_CONTEXT_CACHE_SUPPORTED_MODELS,
 } from './types.js';
 
@@ -282,6 +284,23 @@ const getVertexGeminiAPIVersion = (
   _model: string,
   beta?: boolean
 ): 'v1' | 'v1beta1' => (beta ? 'v1beta1' : 'v1');
+
+/**
+ * Embedding models that Vertex serves only at `locations/global` through
+ * `:embedContent`, one text per request, with no task type.
+ */
+const VERTEX_EMBED_CONTENT_MODELS: ReadonlySet<string> = new Set([
+  AxAIGoogleGeminiEmbedModel.GeminiEmbedding2,
+]);
+
+const isVertexEmbedContentResponse = (
+  resp: Readonly<
+    | AxAIGoogleGeminiBatchEmbedResponse
+    | AxAIGoogleVertexBatchEmbedResponse
+    | AxAIGoogleVertexEmbedContentResponse
+  >
+): resp is Readonly<AxAIGoogleVertexEmbedContentResponse> =>
+  'embedding' in resp;
 
 /**
  * Clean a JSON Schema for Gemini's JSON Schema request fields
@@ -523,10 +542,14 @@ class AxAIGoogleGeminiImpl
       AxAIGoogleGeminiModel,
       AxAIGoogleGeminiEmbedModel,
       AxAIGoogleGeminiChatRequest,
-      AxAIGoogleGeminiBatchEmbedRequest | AxAIGoogleVertexBatchEmbedRequest,
+      | AxAIGoogleGeminiBatchEmbedRequest
+      | AxAIGoogleVertexBatchEmbedRequest
+      | AxAIGoogleVertexEmbedContentRequest,
       AxAIGoogleGeminiChatResponse,
       AxAIGoogleGeminiChatResponseDelta,
-      AxAIGoogleGeminiBatchEmbedResponse | AxAIGoogleVertexBatchEmbedResponse
+      | AxAIGoogleGeminiBatchEmbedResponse
+      | AxAIGoogleVertexBatchEmbedResponse
+      | AxAIGoogleVertexEmbedContentResponse
     >
 {
   private tokensUsed: AxTokenUsage | undefined;
@@ -1383,7 +1406,11 @@ class AxAIGoogleGeminiImpl
   ): Promise<
     [
       AxAPI,
-      AxAIGoogleGeminiBatchEmbedRequest | AxAIGoogleVertexBatchEmbedRequest,
+      (
+        | AxAIGoogleGeminiBatchEmbedRequest
+        | AxAIGoogleVertexBatchEmbedRequest
+        | AxAIGoogleVertexEmbedContentRequest
+      ),
     ]
   > => {
     const model = req.embedModel;
@@ -1399,9 +1426,36 @@ class AxAIGoogleGeminiImpl
     let apiConfig: AxAPI;
     let reqValue:
       | AxAIGoogleGeminiBatchEmbedRequest
-      | AxAIGoogleVertexBatchEmbedRequest;
+      | AxAIGoogleVertexBatchEmbedRequest
+      | AxAIGoogleVertexEmbedContentRequest;
 
-    if (this.isVertex) {
+    if (
+      this.vertexConfig &&
+      !this.endpointId &&
+      VERTEX_EMBED_CONTENT_MODELS.has(model)
+    ) {
+      // Vertex fuses every part of one request into a single vector and has no
+      // batch endpoint for these models.
+      if (req.texts.length !== 1) {
+        throw new Error(
+          `${model} on Vertex embeds one text per request; call embed() once per text`
+        );
+      }
+
+      // Served only at the global location, whatever region the client uses.
+      const host = resolveVertexAIHost('global');
+      const version = getVertexGeminiAPIVersion(model, config?.beta);
+      apiConfig = {
+        name: `/models/${model}:embedContent`,
+        url: `https://${host}/${version}/projects/${this.vertexConfig.projectId}/locations/global/publishers/google`,
+      };
+
+      // No task type: these models take none, and callers put the task in the text.
+      reqValue = {
+        content: { parts: [{ text: req.texts[0] }] },
+        outputDimensionality: this.config.dimensions,
+      };
+    } else if (this.isVertex) {
       if (this.endpointId) {
         apiConfig = {
           name: `/${this.endpointId}:predict`,
@@ -1693,9 +1747,23 @@ class AxAIGoogleGeminiImpl
 
   createEmbedResp = (
     resp: Readonly<
-      AxAIGoogleGeminiBatchEmbedResponse | AxAIGoogleVertexBatchEmbedResponse
+      | AxAIGoogleGeminiBatchEmbedResponse
+      | AxAIGoogleVertexBatchEmbedResponse
+      | AxAIGoogleVertexEmbedContentResponse
     >
   ): AxEmbedResponse => {
+    if (isVertexEmbedContentResponse(resp)) {
+      if (resp.usageMetadata) {
+        const promptTokens = resp.usageMetadata.promptTokenCount ?? 0;
+        this.tokensUsed = {
+          promptTokens,
+          completionTokens: 0,
+          totalTokens: resp.usageMetadata.totalTokenCount ?? promptTokens,
+        };
+      }
+      return { embeddings: [resp.embedding.values] };
+    }
+
     let embeddings: number[][];
     if (this.isVertex) {
       embeddings = (resp as AxAIGoogleVertexBatchEmbedResponse).predictions.map(
@@ -2329,10 +2397,14 @@ export class AxAIGoogleGemini<TModelKey = string> extends AxBaseAI<
   AxAIGoogleGeminiModel,
   AxAIGoogleGeminiEmbedModel,
   AxAIGoogleGeminiChatRequest,
-  AxAIGoogleGeminiBatchEmbedRequest | AxAIGoogleVertexBatchEmbedRequest,
+  | AxAIGoogleGeminiBatchEmbedRequest
+  | AxAIGoogleVertexBatchEmbedRequest
+  | AxAIGoogleVertexEmbedContentRequest,
   AxAIGoogleGeminiChatResponse,
   AxAIGoogleGeminiChatResponseDelta,
-  AxAIGoogleGeminiBatchEmbedResponse | AxAIGoogleVertexBatchEmbedResponse,
+  | AxAIGoogleGeminiBatchEmbedResponse
+  | AxAIGoogleVertexBatchEmbedResponse
+  | AxAIGoogleVertexEmbedContentResponse,
   TModelKey
 > {
   // Static factory method for automatic type inference
