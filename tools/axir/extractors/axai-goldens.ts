@@ -8231,6 +8231,36 @@ writeFixture('gemini-embeddings-output-dimensionality', {
   },
 });
 
+// The Gemini API's batchEmbedContents takes the task type as `taskType` on
+// each request, unlike Vertex :predict.
+writeFixture('gemini-embeddings-task-type', {
+  kind: 'ai_embed',
+  provider: 'google-gemini',
+  embed_model: geminiDefaultEmbedModel,
+  service_options: { embedType: 'RETRIEVAL_DOCUMENT' },
+  request: { texts: ['one'] },
+  transport_responses: [
+    {
+      status: 200,
+      json: { embeddings: [{ values: [0.1, 0.2] }] },
+    },
+  ],
+  expected_output: { embeddings: [[0.1, 0.2]] },
+  expected_transport_request: {
+    url: `https://generativelanguage.googleapis.com/v1beta/models/${geminiDefaultEmbedModel}:batchEmbedContents`,
+    headers: { 'x-goog-api-key': 'test-key' },
+    json: {
+      requests: [
+        {
+          model: `models/${geminiDefaultEmbedModel}`,
+          content: { parts: [{ text: 'one' }] },
+          taskType: 'RETRIEVAL_DOCUMENT',
+        },
+      ],
+    },
+  },
+});
+
 // The Go runtime handed embed/transcribe/speak responses straight to the
 // normalizer without the status check chat performs, so a 4xx/5xx body -- which
 // carries no results -- normalized to an empty success. A depleted-credits 429
@@ -8997,6 +9027,37 @@ writeFixture('vertex-gemini-regional-endpoint-embed', {
     url: 'https://us-central1-aiplatform.googleapis.com/v1/projects/demo-project/locations/us-central1/endpoints/endpoint-42:predict',
     headers: { Authorization: 'Bearer test-key' },
     json: { instances: [{ content: 'hello world' }] },
+  },
+});
+
+// Vertex :predict reads an instance's task type only from `task_type`; given
+// `taskType` it silently embeds as RETRIEVAL_QUERY (#708).
+writeFixture('vertex-gemini-embed-task-type', {
+  kind: 'ai_embed',
+  provider: 'google-gemini',
+  embed_model: 'gemini-embedding-001',
+  service_options: {
+    project_id: 'demo-project',
+    region: 'us-central1',
+    embed_type: 'RETRIEVAL_DOCUMENT',
+  },
+  request: { texts: ['hello world'] },
+  transport_responses: [
+    {
+      status: 200,
+      json: {
+        predictions: [{ embeddings: { values: [0.1, 0.2, 0.3] } }],
+      },
+    },
+  ],
+  expected_output: { embeddings: [[0.1, 0.2, 0.3]] },
+  expected_transport_request: {
+    method: 'POST',
+    url: 'https://us-central1-aiplatform.googleapis.com/v1/projects/demo-project/locations/us-central1/publishers/google/models/gemini-embedding-001:predict',
+    headers: { Authorization: 'Bearer test-key' },
+    json: {
+      instances: [{ content: 'hello world', task_type: 'RETRIEVAL_DOCUMENT' }],
+    },
   },
 });
 

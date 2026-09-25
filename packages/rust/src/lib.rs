@@ -47463,7 +47463,8 @@ fn provider_build_embed_request(args: &[CoreValue]) -> Result<CoreValue, AxError
                 _gemini_build_vertex_embed_request(&[v_request.clone(), v_options.clone()])?;
             v_gemini_payload = v_vertex_payload.clone();
         } else {
-            v_developer_payload = _gemini_build_embed_request(&[v_request.clone()])?;
+            v_developer_payload =
+                _gemini_build_embed_request(&[v_request.clone(), v_options.clone()])?;
             v_gemini_payload = v_developer_payload.clone();
         }
         v_payload = v_gemini_payload.clone();
@@ -54220,10 +54221,12 @@ fn _gemini_tool_config_impl(args: &[CoreValue]) -> Result<CoreValue, AxError> {
 fn _gemini_build_embed_request(args: &[CoreValue]) -> Result<CoreValue, AxError> {
     axir_coverage_mark("_gemini_build_embed_request");
     let mut v_request = core_arg(args, 0);
+    let mut v_options = core_arg(args, 1);
     let mut v_content = CoreValue::Null;
     let mut v_dimensions = CoreValue::Null;
     let mut v_empty_texts = CoreValue::Null;
     let mut v_has_dimensions = CoreValue::Null;
+    let mut v_has_task_type = CoreValue::Null;
     let mut v_item = CoreValue::Null;
     let mut v_model = CoreValue::Null;
     let mut v_model_name = CoreValue::Null;
@@ -54231,6 +54234,8 @@ fn _gemini_build_embed_request(args: &[CoreValue]) -> Result<CoreValue, AxError>
     let mut v_parts = CoreValue::Null;
     let mut v_payload = CoreValue::Null;
     let mut v_requests = CoreValue::Null;
+    let mut v_task_type = CoreValue::Null;
+    let mut v_task_type_snake = CoreValue::Null;
     let mut v_text = CoreValue::Null;
     let mut v_texts = CoreValue::Null;
     v_payload = CoreValue::new_map();
@@ -54241,6 +54246,13 @@ fn _gemini_build_embed_request(args: &[CoreValue]) -> Result<CoreValue, AxError>
         &CoreValue::from("embed_model"),
         CoreValue::from("gemini-embedding-2"),
     );
+    v_task_type_snake = core_get(&v_options, &CoreValue::from("embed_type"), CoreValue::Null);
+    v_task_type = core_get(
+        &v_options,
+        &CoreValue::from("embedType"),
+        v_task_type_snake.clone(),
+    );
+    v_has_task_type = core_truthy_value(&[v_task_type.clone()])?;
     v_requests = CoreValue::new_list();
     for v_text in core_iter(&v_texts)? {
         let mut v_text = v_text;
@@ -54262,6 +54274,9 @@ fn _gemini_build_embed_request(args: &[CoreValue]) -> Result<CoreValue, AxError>
                 CoreValue::from("outputDimensionality"),
                 v_dimensions.clone(),
             )?;
+        }
+        if core_truthy(&v_has_task_type) {
+            core_set(&v_item, CoreValue::from("taskType"), v_task_type.clone())?;
         }
         core_append(&v_requests, v_item.clone())?;
     }
@@ -54313,7 +54328,7 @@ fn _gemini_build_vertex_embed_request(args: &[CoreValue]) -> Result<CoreValue, A
         if core_truthy(&v_has_task_type) {
             core_set(
                 &v_instance,
-                CoreValue::from("taskType"),
+                CoreValue::from("task_type"),
                 v_task_type.clone(),
             )?;
         }

@@ -4949,7 +4949,7 @@ module @ax.provider version "0.1" {
           %vertex_payload = core.call @gemini_build_vertex_embed_request(%request, %options)
           %gemini_payload = core.let %vertex_payload
         } else {
-          %developer_payload = core.call @gemini_build_embed_request(%request)
+          %developer_payload = core.call @gemini_build_embed_request(%request, %options)
           %gemini_payload = core.let %developer_payload
         }
         %payload = core.let %gemini_payload
@@ -8204,12 +8204,15 @@ module @ax.provider version "0.1" {
     attr emit_module = "ai"
     attr private = true
     tag "src/ax/ai/google-gemini/api.ts"
-    type signature = "(AxEmbedRequest) -> json"
-    body @entry(%request: AxEmbedRequest) {
+    type signature = "(AxEmbedRequest, options?:json) -> json"
+    body @entry(%request: AxEmbedRequest, %options: json) {
       %payload = core.map
       %empty_texts = core.list
       %texts = core.get %request["texts"] default %empty_texts
       %model = core.get %request["embed_model"] default "gemini-embedding-2"
+      %task_type_snake = core.get %options["embed_type"]
+      %task_type = core.get %options["embedType"] default %task_type_snake
+      %has_task_type = core.call intrinsic.truthy(%task_type)
       %requests = core.list
       core.for %text in %texts {
         %part = core.map
@@ -8226,6 +8229,9 @@ module @ax.provider version "0.1" {
         %has_dimensions = core.call intrinsic.is_not_none(%dimensions)
         core.if %has_dimensions {
           core.set %item["outputDimensionality"] = %dimensions
+        }
+        core.if %has_task_type {
+          core.set %item["taskType"] = %task_type
         }
         core.append %requests, %item
       }
@@ -8253,7 +8259,7 @@ module @ax.provider version "0.1" {
         %task_type = core.get %options["embedType"] default %task_type_snake
         %has_task_type = core.call intrinsic.truthy(%task_type)
         core.if %has_task_type {
-          core.set %instance["taskType"] = %task_type
+          core.set %instance["task_type"] = %task_type
         }
         core.append %instances, %instance
       }

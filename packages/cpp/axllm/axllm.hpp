@@ -677,7 +677,7 @@ struct Core {
   static Value _gemini_content_part_impl(Value part);
   static Value _gemini_function_declaration_impl(Value fn);
   static Value _gemini_tool_config_impl(Value request);
-  static Value _gemini_build_embed_request(Value request);
+  static Value _gemini_build_embed_request(Value request, Value options);
   static Value _gemini_build_vertex_embed_request(Value request, Value options);
   static Value _gemini_normalize_chat_response(Value raw, Value ai_name, Value model);
   static Value _gemini_merge_response_part_impl(Value result, Value text_parts, Value function_calls, Value part);
