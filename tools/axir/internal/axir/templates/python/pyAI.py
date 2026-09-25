@@ -12,6 +12,7 @@ import hashlib
 import http.client
 import json
 import math
+import re
 import os
 import random
 import threading
@@ -34,6 +35,10 @@ def _core_math_is_finite(value):
 def _core_string_split_once(value, sep):
     left, marker, right = str(value).partition(str(sep))
     return {"left": left, "right": right, "found": bool(marker)}
+
+
+def _core_regex_replace(pattern, repl, value):
+    return re.sub(str(pattern), str(repl), str(value))
 
 
 def _core_string_split(value, sep):
@@ -930,6 +935,9 @@ class AxBaseAI(AIClient):
     def get_options(self) -> dict[str, Any]:
         return copy.deepcopy(self.options)
 
+    def _model_catalog_provider(self) -> str:
+        return str(self.name)
+
     def _merged_options(self, options: dict[str, Any] | None = None) -> dict[str, Any]:
         call_options = _strip_runtime_hooks(options)
         merged = {**self.options, **call_options}
@@ -959,6 +967,7 @@ class AxBaseAI(AIClient):
             validate_chat_request(req)
             merged_options = self._merged_options(options)
             model = req.get("model") or self.model
+            provider_require_expensive_model_confirmation(self._model_catalog_provider(), str(model or ""), self.options, _strip_runtime_hooks(options))
             model_config = merge_model_config(self.model_config, req.get("model_config"), merged_options)
             if merged_options.get("stream") is not None:
                 model_config["stream"] = bool(merged_options["stream"])
@@ -1129,6 +1138,9 @@ class ProviderOperationClient(AxBaseAI):
     def get_estimated_cost(self, model_usage: dict[str, Any] | None = None) -> float:
         model_info = self.options.get("modelInfo", self.options.get("model_info"))
         return float(provider_estimate_cost(model_usage or {}, model_info))
+
+    def _model_catalog_provider(self) -> str:
+        return str(self.profile)
 
     def get_features(self, model: str | None = None) -> dict[str, Any]:
         return copy.deepcopy(
@@ -1309,6 +1321,7 @@ class ProviderOperationClient(AxBaseAI):
         validate_chat_request(req)
         merged_options = {**self._merged_options(options), "stream": True}
         model = req.get("model") or self.model
+        provider_require_expensive_model_confirmation(self._model_catalog_provider(), str(model or ""), self.options, _strip_runtime_hooks(options))
         model_config = merge_model_config(self.model_config, req.get("model_config"), merged_options)
         model_config["stream"] = True
         req = {**req, "model": model, "model_config": model_config}

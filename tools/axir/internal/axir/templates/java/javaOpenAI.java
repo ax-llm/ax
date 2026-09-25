@@ -213,6 +213,9 @@ public class OpenAICompatibleClient extends AxBaseAI implements AxChatSession.Pr
   }
 
   @Override
+  protected String modelCatalogProvider() { return profile; }
+
+  @Override
   public Map<String, Object> getFeatures(String model) {
     return Core.asMap(Core.provider_resolve_features(
       profile,
@@ -433,23 +436,28 @@ public class OpenAICompatibleClient extends AxBaseAI implements AxChatSession.Pr
 
   @Override public AxChatStream openStream(Map<String, Object> request) throws Exception {return openStream(request,null);}
 
-  @Override public AxChatStream openStream(Map<String,Object> request,AxCancellationToken cancellation)throws Exception {
-    Map<String, Object> resolved = resolveModelKey(Core.coerceChatRequest(request), null, false);
+  @Override public AxChatStream openStream(Map<String,Object> request,AxCancellationToken cancellation)throws Exception {return openStream(request,Map.of(),cancellation);}
+
+  @Override public AxChatStream openStream(Map<String,Object> request,Map<String,Object> options,AxCancellationToken cancellation)throws Exception {
+    Map<String, Object> resolved = resolveModelKey(Core.coerceChatRequest(request), options, false);
     request = Core.asMap(resolved.get("request"));
-    Map<String, Object> keyOptions = Core.asMap(resolved.get("options"));
+    Map<String,Object> callOptions=new LinkedHashMap<>(Core.asMap(resolved.get("options")));
     if(Boolean.FALSE.equals(getFeatures((String)request.get("model")).get("streaming"))) {
-      Map<String,Object> callOptions=new LinkedHashMap<>(keyOptions);callOptions.put("stream",false);if(cancellation!=null)callOptions.put("cancellation",cancellation);
+      callOptions.put("stream",false);if(cancellation!=null)callOptions.put("cancellation",cancellation);
       return AxChatStream.fromIterable(List.of(chat(request,callOptions)));
     }
     if(cancellation!=null)cancellation.throwIfCancelled();
     Map<String, Object> req = Core.coerceChatRequest(request);
     Core.validate_chat_request(req);
-    AxRuntimeHooks hooks = AxGlobals.effective(Map.of("stream", true), runtimeHooks);
+    callOptions.put("stream",true);if(cancellation!=null)callOptions.put("cancellation",cancellation);
+    AxRuntimeHooks hooks = AxGlobals.effective(callOptions, runtimeHooks);
     Map<String, Object> modelConfig = Core.asMap(Core.merge_model_config(modelConfig(), req.get("model_config"), Map.of("stream", true)));
     modelConfig.put("stream", true);
     req.put("model", req.getOrDefault("model", model));
     req.put("model_config", modelConfig);
-    Map<String,Object> callOptions=new LinkedHashMap<>(keyOptions);callOptions.put("stream",true);if(cancellation!=null)callOptions.put("cancellation",cancellation);
+    // Streamed requests skip chat(), so gate them here the same way: only the
+    // stream call's options (or a model-key entry) confirm an expensive model.
+    Core.provider_require_expensive_model_confirmation(modelCatalogProvider(), String.valueOf(req.get("model") == null ? model : req.get("model")), this.options, AxRuntimeHooks.strip(callOptions));
     Map<String, Object> streamOptions = mergedOptions(callOptions);
     Map<String, Object> payload = Core.asMap(Core.provider_build_chat_request(profile, req, streamOptions));
     Object modelName = req.getOrDefault("model", payload.getOrDefault("model", model));

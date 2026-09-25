@@ -12,11 +12,13 @@ import { AxAICohereEmbedModel } from '../../../src/ax/ai/cohere/types.js';
 import { axAIGoogleGeminiLiveAudioDefaultConfig } from '../../../src/ax/ai/google-gemini/api.js';
 import { AxAIGoogleGeminiEmbedModel } from '../../../src/ax/ai/google-gemini/types.js';
 import { AxMultiServiceRouter } from '../../../src/ax/ai/multiservice.js';
+import { AxAIOpenAI } from '../../../src/ax/ai/openai/api.js';
 import { AxAIOpenAIModel } from '../../../src/ax/ai/openai/chat_types.js';
 import {
   axResolveOpenAIChatReasoningEffort,
   axResolveOpenAIResponsesReasoningEffort,
 } from '../../../src/ax/ai/openai/effort.js';
+import { AxAIOpenAIResponses } from '../../../src/ax/ai/openai/responses_api_base.js';
 import { axGetAIProfile } from '../../../src/ax/ai/provider_profiles.js';
 import { AxProviderRouter } from '../../../src/ax/ai/router.js';
 import {
@@ -11961,5 +11963,223 @@ for (const { fixtureName, model, modelConfig, expectedThinkingConfig } of [
         outputAudioTranscription: {},
       },
     },
+  });
+}
+
+// The expensive-model gate (AxBaseAI._chat1). A model whose model info sets
+// isExpensive is rejected before any request unless the call options, or the
+// selected model-key entry, set useExpensiveModel: 'yes'. The AI's own
+// constructor options don't count. Each fixture records what the TS client
+// did: the error it threw and how many requests reached fetch.
+const expensiveCustomModelInfo = [
+  {
+    name: 'my-premium-model',
+    promptTokenCostPer1M: 1,
+    completionTokenCostPer1M: 1,
+    isExpensive: true,
+  },
+];
+const expensiveChatCompletion = {
+  id: 'chatcmpl-expensive',
+  object: 'chat.completion',
+  created: 1,
+  model: 'my-premium-model',
+  choices: [
+    {
+      index: 0,
+      message: { role: 'assistant', content: 'ok' },
+      finish_reason: 'stop',
+    },
+  ],
+  usage: { prompt_tokens: 3, completion_tokens: 1, total_tokens: 4 },
+};
+for (const testCase of [
+  {
+    name: 'expensive-model-rejected-without-confirmation',
+    provider: 'openai',
+    model: 'gpt-5.5-pro',
+  },
+  {
+    name: 'expensive-model-client-option-does-not-confirm',
+    provider: 'openai',
+    model: 'gpt-5.5-pro',
+    serviceOptions: { useExpensiveModel: 'yes' },
+  },
+  {
+    name: 'expensive-model-dated-name-normalized',
+    provider: 'openai',
+    model: 'gpt-5.5-pro-2026-05-01',
+  },
+  {
+    name: 'expensive-model-responses-catalog',
+    provider: 'openai-responses',
+    model: 'o3-pro',
+  },
+  {
+    name: 'expensive-model-key-resolves-to-expensive-model',
+    provider: 'openai',
+    model: 'gpt-5.4-mini',
+    requestModel: 'premium',
+    models: [{ key: 'premium', model: 'gpt-5.5-pro', description: 'Premium' }],
+  },
+  {
+    name: 'expensive-model-key-entry-confirms',
+    provider: 'openai',
+    model: 'gpt-5.4-mini',
+    requestModel: 'premium',
+    models: [
+      {
+        key: 'premium',
+        model: 'my-premium-model',
+        description: 'Premium',
+        useExpensiveModel: 'yes',
+      },
+    ],
+    modelInfo: expensiveCustomModelInfo,
+    respond: true,
+  },
+  {
+    name: 'expensive-model-info-rejected-without-confirmation',
+    provider: 'openai',
+    model: 'my-premium-model',
+    modelInfo: expensiveCustomModelInfo,
+  },
+  {
+    name: 'expensive-model-call-option-confirms',
+    provider: 'openai',
+    model: 'my-premium-model',
+    modelInfo: expensiveCustomModelInfo,
+    callOptions: { useExpensiveModel: 'yes' },
+    respond: true,
+  },
+] as const) {
+  let fetchCount = 0;
+  const args = {
+    apiKey: 'test-key',
+    config: { model: testCase.model, stream: false },
+    options: {
+      fetch: async () => {
+        fetchCount++;
+        return Response.json(expensiveChatCompletion);
+      },
+      ...('serviceOptions' in testCase ? testCase.serviceOptions : {}),
+    },
+    ...('models' in testCase ? { models: testCase.models } : {}),
+    ...('modelInfo' in testCase ? { modelInfo: testCase.modelInfo } : {}),
+  };
+  const client =
+    testCase.provider === 'openai-responses'
+      ? new AxAIOpenAIResponses(args as any)
+      : new AxAIOpenAI({ name: 'openai', ...args } as any);
+  const request = {
+    ...('requestModel' in testCase ? { model: testCase.requestModel } : {}),
+    chatPrompt: [{ role: 'user' as const, content: 'Hello' }],
+    modelConfig: { stream: false },
+  };
+  let errorMessage: string | undefined;
+  try {
+    await client.chat(
+      request as any,
+      'callOptions' in testCase ? testCase.callOptions : undefined
+    );
+  } catch (error) {
+    errorMessage = error instanceof Error ? error.message : String(error);
+  }
+  const serviceOptions = {
+    ...('serviceOptions' in testCase ? testCase.serviceOptions : {}),
+    ...('models' in testCase ? { models: testCase.models } : {}),
+    ...('modelInfo' in testCase ? { modelInfo: testCase.modelInfo } : {}),
+  };
+  writeFixture(testCase.name, {
+    kind: 'ai_chat',
+    provider: testCase.provider,
+    model: testCase.model,
+    ...(Object.keys(serviceOptions).length > 0
+      ? { service_options: serviceOptions as Json }
+      : {}),
+    request: {
+      ...('requestModel' in testCase ? { model: testCase.requestModel } : {}),
+      chat_prompt: [{ role: 'user', content: 'Hello' }],
+      model_config: { stream: false },
+    },
+    ...('callOptions' in testCase
+      ? { options: testCase.callOptions as Json }
+      : {}),
+    ...('respond' in testCase
+      ? { transport_responses: [expensiveChatCompletion] }
+      : {}),
+    ...(errorMessage ? { expected_error_contains: errorMessage } : {}),
+    expected_transport_request_count: fetchCount,
+  });
+}
+
+// Streaming goes through the same gate (AxBaseAI.chat -> _chat1), so a
+// streamed request for an expensive model is rejected before fetch too.
+const expensiveStreamBody =
+  'data: {"id":"chatcmpl-expensive-stream","object":"chat.completion.chunk","created":1,"model":"my-premium-model","choices":[{"index":0,"delta":{"role":"assistant","content":"ok"},"finish_reason":null}]}\n\n' +
+  'data: {"id":"chatcmpl-expensive-stream","object":"chat.completion.chunk","created":1,"model":"my-premium-model","choices":[{"index":0,"delta":{},"finish_reason":"stop"}]}\n\n' +
+  'data: [DONE]\n\n';
+for (const testCase of [
+  {
+    name: 'expensive-model-stream-rejected-without-confirmation',
+    model: 'gpt-5.5-pro',
+    callOptions: { stream: true },
+  },
+  {
+    name: 'expensive-model-stream-call-option-confirms',
+    model: 'my-premium-model',
+    modelInfo: expensiveCustomModelInfo,
+    callOptions: { stream: true, useExpensiveModel: 'yes' },
+    respond: true,
+  },
+] as const) {
+  let fetchCount = 0;
+  const client = new AxAIOpenAI({
+    name: 'openai',
+    apiKey: 'test-key',
+    config: { model: testCase.model },
+    options: {
+      fetch: async () => {
+        fetchCount++;
+        return new Response(expensiveStreamBody, {
+          status: 200,
+          headers: { 'content-type': 'text/event-stream' },
+        });
+      },
+    },
+    ...('modelInfo' in testCase ? { modelInfo: testCase.modelInfo } : {}),
+  } as any);
+  let errorMessage: string | undefined;
+  try {
+    const stream = await client.chat(
+      {
+        chatPrompt: [{ role: 'user', content: 'Hello' }],
+        modelConfig: { stream: true },
+      },
+      testCase.callOptions
+    );
+    if (stream instanceof ReadableStream) {
+      const reader = stream.getReader();
+      while (!(await reader.read()).done) {
+        // Drain the stream so the request completes.
+      }
+    }
+  } catch (error) {
+    errorMessage = error instanceof Error ? error.message : String(error);
+  }
+  writeFixture(testCase.name, {
+    kind: 'ai_stream',
+    provider: 'openai',
+    model: testCase.model,
+    ...('modelInfo' in testCase
+      ? { service_options: { modelInfo: testCase.modelInfo as Json } }
+      : {}),
+    request: { chat_prompt: [{ role: 'user', content: 'Hello' }] },
+    options: testCase.callOptions as Json,
+    ...('respond' in testCase
+      ? { transport_responses: [{ status: 200, body: expensiveStreamBody }] }
+      : {}),
+    ...(errorMessage ? { expected_error_contains: errorMessage } : {}),
+    expected_transport_request_count: fetchCount,
   });
 }

@@ -15402,6 +15402,118 @@ Value Core::openai_responses_validate_astra_effort(Value effort) {
   return Value();
 }
 
+Value Core::_provider_model_index() {
+  axir_coverage_mark("_provider_model_index");
+  Value index = Core::json_parse(Value("{\"amazon-bedrock\":[],\"anthropic\":[{\"name\":\"claude-3-haiku-20240307\"},{\"name\":\"claude-3-haiku@20240307\"},{\"name\":\"claude-instant-1.2\"},{\"name\":\"claude-3-5-haiku-latest\"},{\"name\":\"claude-3-5-haiku@20241022\"},{\"name\":\"claude-haiku-4-5\"},{\"name\":\"claude-haiku-4-5@20251001\"},{\"name\":\"claude-sonnet-5\"},{\"name\":\"claude-sonnet-5\"},{\"name\":\"claude-3-5-sonnet-latest\"},{\"name\":\"claude-3-5-sonnet-v2@20241022\"},{\"name\":\"claude-3-5-sonnet@20240620\"},{\"name\":\"claude-3-7-sonnet-latest\"},{\"name\":\"claude-3-7-sonnet@20250219\"},{\"name\":\"claude-3-sonnet-20240229\"},{\"name\":\"claude-sonnet-4-20250514\"},{\"name\":\"claude-sonnet-4-5-20250929\"},{\"name\":\"claude-sonnet-4-5@20250929\"},{\"name\":\"claude-sonnet-4-6\"},{\"name\":\"claude-sonnet-4-6\"},{\"name\":\"claude-sonnet-4@20250514\"},{\"name\":\"claude-opus-5-5\"},{\"name\":\"claude-opus-5-5\"},{\"name\":\"claude-opus-4-5-20251101\"},{\"name\":\"claude-opus-4-5@20251101\"},{\"name\":\"claude-opus-4-6\"},{\"name\":\"claude-opus-4-6\"},{\"name\":\"claude-opus-4-7\"},{\"name\":\"claude-opus-4-7\"},{\"name\":\"claude-opus-4-8\"},{\"name\":\"claude-opus-4-8\"},{\"name\":\"claude-opus-5\"},{\"name\":\"claude-opus-5\"},{\"name\":\"claude-2.1\"},{\"name\":\"claude-fable-5\"},{\"name\":\"claude-fable-5\"},{\"name\":\"claude-fable-5-1\"},{\"name\":\"claude-fable-5-1\"},{\"name\":\"claude-3-opus-latest\"},{\"name\":\"claude-3-opus@20240229\"},{\"name\":\"claude-opus-4-1-20250805\"},{\"name\":\"claude-opus-4-1@20250805\"},{\"name\":\"claude-opus-4-20250514\"},{\"name\":\"claude-opus-4@20250514\"}],\"azure-foundry\":[],\"azure-openai\":[],\"baseten\":[],\"baseten-engine\":[],\"cerebras\":[],\"cloudflare-workers-ai\":[],\"cohere\":[{\"name\":\"embed-english-light-v3.0\"},{\"name\":\"embed-english-v3.0\"},{\"name\":\"embed-multilingual-light-v3.0\"},{\"name\":\"embed-multilingual-v3.0\"},{\"name\":\"command-light\"},{\"name\":\"command\"},{\"name\":\"command-r\"},{\"name\":\"command-r-plus\"}],\"databricks\":[],\"deepinfra\":[],\"deepseek\":[{\"aliases\":[\"deepseek-chat\",\"deepseek-reasoner\"],\"name\":\"deepseek-v4-flash\"},{\"name\":\"deepseek-v4-pro\"}],\"deepseek-responses\":[{\"aliases\":[\"deepseek-chat\",\"deepseek-reasoner\"],\"name\":\"deepseek-v4-flash\"},{\"name\":\"deepseek-v4-pro\"}],\"featherless\":[],\"fireworks\":[],\"friendli\":[],\"google-gemini\":[{\"name\":\"gemini-2.0-flash-thinking-exp-01-21\"},{\"name\":\"gemini-2.0-pro-exp-02-05\"},{\"name\":\"gemini-robotics-er-1.6-preview\"},{\"name\":\"gemini-embedding-001\"},{\"name\":\"gemini-1.5-flash-8b\"},{\"name\":\"gemini-embedding-2\"},{\"name\":\"gemini-1.5-flash\"},{\"name\":\"gemini-2.0-flash-lite\"},{\"name\":\"gemini-2.0-flash\"},{\"name\":\"gemini-2.5-flash-lite\"},{\"name\":\"gemini-flash-lite-latest\"},{\"name\":\"gemini-3.1-flash-lite\"},{\"name\":\"gemini-3.1-flash-lite-image\"},{\"name\":\"gemini-3.1-flash-lite-preview\"},{\"name\":\"gemini-1.0-pro\"},{\"name\":\"gemini-2.5-flash\"},{\"name\":\"gemini-3.5-flash-lite\"},{\"name\":\"gemini-flash-latest\"},{\"name\":\"gemini-3-flash-preview\"},{\"aliases\":[\"gemini-3.1-flash-image-preview\"],\"name\":\"gemini-3.1-flash-image\"},{\"name\":\"nano-banana-2\"},{\"name\":\"gemini-1.5-pro\"},{\"name\":\"gemini-3.6-flash\"},{\"name\":\"gemini-3.7-flash\"},{\"name\":\"gemini-3.8-flash\"},{\"name\":\"gemini-3.5-flash\"},{\"name\":\"gemini-2.5-pro\"},{\"name\":\"gemini-pro-latest\"},{\"name\":\"gemini-3.8-flash-lite-tts\"},{\"aliases\":[\"gemini-3-pro-image-preview\"],\"name\":\"gemini-3-pro-image\"},{\"name\":\"gemini-3.1-pro-preview\"},{\"name\":\"gemini-3.5-transcribe\"},{\"name\":\"gemini-3.8-flash-tts\"},{\"name\":\"gemini-3.1-flash-tts-preview\"},{\"name\":\"gemini-3.8-live\"},{\"name\":\"gemini-3.8-live-extended-thinking\"},{\"name\":\"gemini-3.1-flash-live-preview\"},{\"name\":\"gemini-2.5-flash-native-audio-preview-12-2025\"}],\"grok\":[{\"aliases\":[\"grok-4-1-fast-non-reasoning-latest\"],\"name\":\"grok-4-1-fast-non-reasoning\"},{\"aliases\":[\"grok-4-1-fast-reasoning-latest\"],\"name\":\"grok-4-1-fast-reasoning\"},{\"name\":\"grok-3-mini\"},{\"aliases\":[\"grok-4.20-multi-agent-0309\",\"grok-4.20-multi-agent-latest\"],\"name\":\"grok-4.20-multi-agent\"},{\"aliases\":[\"grok-4.20-0309-non-reasoning\",\"grok-4.20-non-reasoning-latest\"],\"name\":\"grok-4.20-non-reasoning\"},{\"aliases\":[\"grok-4.20-0309-reasoning\",\"grok-4.20-reasoning-latest\",\"grok-4.20\",\"grok-4.20-0309\"],\"name\":\"grok-4.20-reasoning\"},{\"aliases\":[\"grok-4.3-latest\",\"grok-latest\"],\"name\":\"grok-4.3\"},{\"name\":\"grok-3-mini-fast\"},{\"aliases\":[\"grok-4.5-latest\",\"grok-build-latest\"],\"name\":\"grok-4.5\"},{\"name\":\"grok-3\"},{\"name\":\"grok-3-fast\"},{\"name\":\"grok-4.6\"},{\"name\":\"grok-voice-think-fast-1.0\"},{\"name\":\"grok-voice-fast-1.0\"}],\"groq\":[],\"huggingface-router\":[],\"hyperbolic\":[],\"llama-cpp\":[],\"lm-studio\":[],\"localai\":[],\"meta\":[{\"name\":\"muse-spark-1.3\"},{\"name\":\"muse-spark-1.3-contributor\"},{\"name\":\"muse-spark-1.2\"},{\"name\":\"muse-spark-1.2-contributor\"},{\"name\":\"muse-spark-1.1\"},{\"name\":\"muse-image-1.0\"},{\"name\":\"muse-voice-transcribe-1.0\"}],\"meta-chat\":[{\"name\":\"muse-spark-1.3\"},{\"name\":\"muse-spark-1.3-contributor\"},{\"name\":\"muse-spark-1.2\"},{\"name\":\"muse-spark-1.2-contributor\"},{\"name\":\"muse-spark-1.1\"}],\"meta-messages\":[{\"name\":\"muse-spark-1.3\"},{\"name\":\"muse-spark-1.3-contributor\"},{\"name\":\"muse-spark-1.2\"},{\"name\":\"muse-spark-1.2-contributor\"},{\"name\":\"muse-spark-1.1\"}],\"mistral\":[{\"name\":\"mistral-nemo-latest\"},{\"name\":\"open-codestral-mamba\"},{\"name\":\"open-mistral-7b\"},{\"name\":\"open-mistral-nemo-latest\"},{\"name\":\"codestral-latest\"},{\"name\":\"mistral-small-latest\"},{\"name\":\"open-mixtral-8x7b\"},{\"name\":\"mistral-large-latest\"}],\"nebius\":[],\"novita\":[],\"nscale\":[],\"nvidia-nim\":[],\"ollama\":[],\"openai\":[{\"name\":\"text-embedding-3-small\"},{\"name\":\"text-embedding-ada-002\"},{\"name\":\"text-embedding-3-large\"},{\"name\":\"gpt-5-nano\"},{\"name\":\"gpt-4.1-nano\"},{\"name\":\"gpt-6-luna\"},{\"name\":\"gpt-4o-mini\"},{\"name\":\"gpt-5.6-luna\"},{\"name\":\"gpt-5.4-nano\"},{\"name\":\"gpt-3.5-turbo\"},{\"name\":\"gpt-4.1-mini\"},{\"name\":\"gpt-5-mini\"},{\"name\":\"gpt-5.1-codex-mini\"},{\"name\":\"gpt-5.4-mini\"},{\"name\":\"o1-mini\"},{\"name\":\"o4-mini\"},{\"name\":\"gpt-4.1\"},{\"name\":\"o3\"},{\"name\":\"gpt-5\"},{\"name\":\"gpt-5-chat\"},{\"name\":\"gpt-5-chat-latest\"},{\"name\":\"gpt-5-codex\"},{\"name\":\"gpt-5.1\"},{\"name\":\"gpt-5.1-chat-latest\"},{\"name\":\"gpt-5.1-codex\"},{\"name\":\"gpt-5.1-codex-max\"},{\"name\":\"gpt-6-sol\"},{\"name\":\"gpt-4o\"},{\"name\":\"gpt-5.6-terra\"},{\"name\":\"gpt-5.2\"},{\"name\":\"gpt-5.2-chat-latest\"},{\"name\":\"gpt-5.2-codex\"},{\"name\":\"gpt-5.4\"},{\"name\":\"chatgpt-4o-latest\"},{\"aliases\":[\"gpt-5.6\"],\"name\":\"gpt-5.6-sol\"},{\"name\":\"gpt-5.5\"},{\"name\":\"gpt-4-turbo\"},{\"name\":\"gpt-6-astra\"},{\"name\":\"o1\"},{\"name\":\"gpt-4\"},{\"name\":\"gpt-5-pro\"},{\"name\":\"gpt-5.2-pro\"},{\"isExpensive\":true,\"name\":\"gpt-5.5-pro\"},{\"name\":\"gpt-audio\"},{\"name\":\"gpt-audio-mini\"},{\"name\":\"gpt-audio-1.5\"},{\"name\":\"gpt-realtime-1.5\"},{\"name\":\"gpt-realtime-2\"},{\"name\":\"gpt-realtime-2.1\"},{\"name\":\"gpt-realtime-2.1-mini\"},{\"name\":\"gpt-realtime-whisper\"},{\"name\":\"gpt-realtime-translate\"},{\"name\":\"gpt-transcribe\"}],\"openai-compatible\":[],\"openai-responses\":[{\"name\":\"gpt-5-nano\"},{\"name\":\"gpt-4.1-nano\"},{\"name\":\"gpt-6-luna\"},{\"name\":\"gpt-4o-mini\"},{\"name\":\"gpt-5.6-luna\"},{\"name\":\"gpt-5.4-nano\"},{\"name\":\"gpt-3.5-turbo\"},{\"name\":\"gpt-4.1-mini\"},{\"name\":\"gpt-5-mini\"},{\"name\":\"gpt-5.1-codex-mini\"},{\"name\":\"gpt-5.4-mini\"},{\"name\":\"o3-mini\"},{\"name\":\"o4-mini\"},{\"name\":\"gpt-4.1\"},{\"name\":\"o3\"},{\"name\":\"gpt-5\"},{\"name\":\"gpt-5-chat\"},{\"name\":\"gpt-5-chat-latest\"},{\"name\":\"gpt-5-codex\"},{\"name\":\"gpt-5.1\"},{\"name\":\"gpt-5.1-chat-latest\"},{\"name\":\"gpt-5.1-codex\"},{\"name\":\"gpt-5.1-codex-max\"},{\"name\":\"gpt-6-sol\"},{\"name\":\"gpt-4o\"},{\"name\":\"gpt-5.6-terra\"},{\"name\":\"gpt-5.2\"},{\"name\":\"gpt-5.2-chat-latest\"},{\"name\":\"gpt-5.2-codex\"},{\"name\":\"gpt-5.4\"},{\"name\":\"chatgpt-4o-latest\"},{\"aliases\":[\"gpt-5.6\"],\"name\":\"gpt-5.6-sol\"},{\"name\":\"gpt-5.5\"},{\"name\":\"gpt-4-turbo\"},{\"name\":\"gpt-6-astra\"},{\"name\":\"o1\"},{\"name\":\"gpt-4\"},{\"isExpensive\":true,\"name\":\"o3-pro\"},{\"name\":\"gpt-5-pro\"},{\"name\":\"gpt-5.2-pro\"},{\"isExpensive\":true,\"name\":\"gpt-5.5-pro\"},{\"isExpensive\":true,\"name\":\"o1-pro\"}],\"openrouter\":[],\"orcarouter\":[],\"ovhcloud\":[],\"reka\":[{\"name\":\"reka-edge\"},{\"name\":\"reka-flash\"},{\"name\":\"reka-core\"}],\"runpod-vllm\":[],\"sagemaker-vllm\":[],\"sambanova\":[],\"scaleway\":[],\"siliconflow\":[],\"together\":[],\"typesafe\":[],\"vertex-ai\":[],\"vllm\":[],\"webllm\":[{\"name\":\"gemma-2-2b-it-q4f32_1-MLC\"},{\"name\":\"gemma-2-9b-it-q4f32_1-MLC\"},{\"isExpensive\":true,\"name\":\"Llama-3.1-70B-Instruct-q4f16_1-MLC\"},{\"name\":\"Llama-3.1-8B-Instruct-q4f32_1-MLC\"},{\"name\":\"Llama-3.2-1B-Instruct-q4f32_1-MLC\"},{\"name\":\"Llama-3.2-3B-Instruct-q4f32_1-MLC\"},{\"name\":\"Mistral-7B-Instruct-v0.3-q4f32_1-MLC\"},{\"name\":\"Phi-3.5-mini-instruct-q4f32_1-MLC\"},{\"name\":\"Qwen2.5-0.5B-Instruct-q4f32_1-MLC\"},{\"name\":\"Qwen2.5-1.5B-Instruct-q4f32_1-MLC\"},{\"name\":\"Qwen2.5-3B-Instruct-q4f32_1-MLC\"},{\"name\":\"Qwen2.5-7B-Instruct-q4f32_1-MLC\"}]}"));
+  return index;
+}
+
+Value Core::_provider_match_model_info(Value candidates, Value model) {
+  axir_coverage_mark("_provider_match_model_info");
+  Value empty_aliases = Value::array();
+  for (auto candidate : Core::iter(candidates)) {
+    Value candidate_name = Core::get(candidate, Value("name"), Value(""));
+    Value name_matches = Core::eq(candidate_name, model);
+    if (Core::truthy(name_matches)) {
+      return candidate;
+    }
+    Value raw_aliases = Core::get(candidate, Value("aliases"), empty_aliases);
+    Value aliases = Core::coalesce(raw_aliases, empty_aliases);
+    Value alias_matches = Core::contains(aliases, model);
+    if (Core::truthy(alias_matches)) {
+      return candidate;
+    }
+  }
+  Value none = Core::none();
+  return none;
+}
+
+Value Core::provider_find_model_info(Value provider, Value model, Value model_info) {
+  axir_coverage_mark("provider_find_model_info");
+  Value index = Core::_provider_model_index();
+  Value empty_list = Value::array();
+  Value catalog_models = Core::get(index, provider, empty_list);
+  Value candidates = Value::array();
+  for (auto catalog_model : Core::iter(catalog_models)) {
+    Core::append(candidates, catalog_model);
+  }
+  Value user_models = Core::coalesce(model_info, empty_list);
+  Value user_models_is_list = Core::type_is(user_models, Value("list"));
+  if (Core::truthy(user_models_is_list)) {
+    for (auto user_model : Core::iter(user_models)) {
+      Core::append(candidates, user_model);
+    }
+  }
+  Value exact = Core::_provider_match_model_info(candidates, model);
+  Value has_exact = Core::is_not_none(exact);
+  if (Core::truthy(has_exact)) {
+    return exact;
+  }
+  Value normalized = Core::regex_replace(Value("^(?:[a-z]+(?:-[a-z]+)*\\.)?(?:anthropic|openai)\\."), Value(""), model);
+  normalized = Core::regex_replace(Value("-latest$"), Value(""), normalized);
+  normalized = Core::regex_replace(Value("-\\d{8}$"), Value(""), normalized);
+  normalized = Core::regex_replace(Value("-v\\d+:\\d+$"), Value(""), normalized);
+  normalized = Core::regex_replace(Value("@\\d{8}$"), Value(""), normalized);
+  normalized = Core::regex_replace(Value("-\\d{2,}(-[a-zA-Z0-9-]+)?$"), Value(""), normalized);
+  normalized = Core::regex_replace(Value("-v\\d+@\\d{8}$"), Value(""), normalized);
+  normalized = Core::regex_replace(Value("-v\\d+$"), Value(""), normalized);
+  Value normalized_match = Core::_provider_match_model_info(candidates, normalized);
+  return normalized_match;
+}
+
+Value Core::provider_require_expensive_model_confirmation(Value provider, Value model, Value client_options, Value options) {
+  axir_coverage_mark("provider_require_expensive_model_confirmation");
+  Value empty_map = Value::object();
+  Value empty_list = Value::array();
+  Value client_opts = Core::coalesce(client_options, empty_map);
+  Value call_opts = Core::coalesce(options, empty_map);
+  Value models_camel = Core::get(client_opts, Value("modelList"), empty_list);
+  Value models_snake = Core::get(client_opts, Value("model_list"), models_camel);
+  Value models = Core::get(client_opts, Value("models"), models_snake);
+  Value models_is_list = Core::type_is(models, Value("list"));
+  Value resolved_model = model;
+  Value key_entry = Value::object();
+  Value key_found = Value(false);
+  if (Core::truthy(models_is_list)) {
+    for (auto entry : Core::iter(models)) {
+      Value entry_key = Core::get(entry, Value("key"), Value(""));
+      Value key_matches = Core::eq(entry_key, model);
+      Value key_missing = Core::not_(key_found);
+      Value use_entry = Core::and_(key_matches, key_missing);
+      if (Core::truthy(use_entry)) {
+        key_found = Value(true);
+        key_entry = entry;
+        Value entry_model = Core::get(entry, Value("model"), model);
+        resolved_model = entry_model;
+      }
+    }
+  }
+  Value call_confirmation_snake = Core::get(call_opts, Value("use_expensive_model"), Value());
+  Value call_confirmation = Core::get(call_opts, Value("useExpensiveModel"), call_confirmation_snake);
+  Value entry_confirmation_snake = Core::get(key_entry, Value("use_expensive_model"), Value());
+  Value entry_confirmation = Core::get(key_entry, Value("useExpensiveModel"), entry_confirmation_snake);
+  Value confirmation = Core::coalesce(call_confirmation, entry_confirmation);
+  Value confirmed = Core::eq(confirmation, Value("yes"));
+  if (Core::truthy(confirmed)) {
+    return Value();
+  }
+  Value model_info_snake = Core::get(client_opts, Value("model_info"), Value());
+  Value model_info = Core::get(client_opts, Value("modelInfo"), model_info_snake);
+  Value info = Core::provider_find_model_info(provider, resolved_model, model_info);
+  Value has_info = Core::is_not_none(info);
+  if (Core::truthy(has_info)) {
+    Value expensive_snake = Core::get(info, Value("is_expensive"), Value(false));
+    Value expensive = Core::get(info, Value("isExpensive"), expensive_snake);
+    Value is_expensive = Core::truthy_value(expensive);
+    if (Core::truthy(is_expensive)) {
+      Value message = Core::string_format(Value("Model {} is marked as expensive and requires explicit confirmation. Set useExpensiveModel: \"yes\" to proceed."), resolved_model);
+      Value error = Core::runtime_error(message);
+      Core::raise_error(error);
+    }
+  }
+  return Value();
+}
+
 Value Core::chat_session_mode_enabled(Value options) {
   axir_coverage_mark("chat_session_mode_enabled");
   Value mode_snake = Core::get(options, Value("async_mode"), Value("auto"));
@@ -36015,6 +36127,12 @@ void AxAIService::stream_each(Value request, AxStreamHandler handler, const AxCa
   AxCancellationScope scope(cancellation);
   stream_each(std::move(request), [&](Value event) { if (cancellation) cancellation->throw_if_cancelled(); return handler(std::move(event)); });
 }
+std::vector<Value> AxAIService::stream(Value request, Value options) {
+  std::vector<Value> results;
+  stream_each(std::move(request), [&](const Value& event) { results.push_back(event); return true; }, std::move(options));
+  return results;
+}
+void AxAIService::stream_each(Value request, AxStreamHandler handler, Value) { stream_each(std::move(request), std::move(handler)); }
 Value AxAIService::embed(Value request, Value) { return embed(std::move(request)); }
 Value AxAIService::embed(Value request, Value options, const AxCancellationToken* cancellation) { if(cancellation)cancellation->throw_if_cancelled();AxCancellationScope scope(cancellation);Value response=embed(std::move(request),std::move(options));if(cancellation)cancellation->throw_if_cancelled();return response; }
 Value AxAIService::embed(Value request, Value options, const AxRuntimeHooks&) { return embed(std::move(request), std::move(options)); }
@@ -36282,7 +36400,9 @@ AxBaseAI::AxBaseAI(std::string name, std::string model, std::string embed_model,
 }
 
 Value AxBaseAI::chat(Value request) {
-  return chat(std::move(request), options_, AxRuntimeHooks{});
+  // No call options: the client options still apply through the merge in
+  // chat(), but they are not call options (the expensive-model gate reads those).
+  return chat(std::move(request), Value::object(), AxRuntimeHooks{});
 }
 
 Value AxBaseAI::chat(Value request, Value call_options) {
@@ -36300,6 +36420,9 @@ Value AxBaseAI::chat(Value request, Value call_options, const AxRuntimeHooks& ca
   Core::validate_chat_request(req);
   Value merged_options = merge_usage_options(options_, call_options);
   Value selected_model = Core::coalesce(Core::get(req, "model"), model_);
+  // Expensive-model gate, before any request is sent: only the call options (or
+  // the model-key entry) confirm; the client's own options do not.
+  Core::provider_require_expensive_model_confirmation(Value(model_catalog_provider()), Value(display(selected_model)), options_, call_options);
   Value merged_config = Core::merge_model_config(model_config_, Core::get(req, "model_config"), merged_options);
   Core::set(req, "model", selected_model);
   Core::set(req, "model_config", merged_config);
@@ -36800,20 +36923,30 @@ static bool stream_error_retryable(const AxError& error) {
 }
 
 void OpenAICompatibleClient::stream_each(Value request, AxStreamHandler handler) {
-  Value resolved = resolve_model_key_request(Core::coerce_chat_request(std::move(request)), Value(), false);
+  stream_each(std::move(request), std::move(handler), Value());
+}
+
+// options are the stream call options; null means none (stream_each(request, handler)).
+void OpenAICompatibleClient::stream_each(Value request, AxStreamHandler handler, Value options) {
+  Value resolved = resolve_model_key_request(Core::coerce_chat_request(std::move(request)), options, false);
   request = Core::get(resolved, "request");
-  Value key_options = Core::get(resolved, "options");
-  if(!Core::truthy(Core::get(get_features(Core::get(request,"model")),"streaming",true))) { handler(chat(request, key_options)); return; }
+  Value call_options = Core::get(resolved, "options");
+  bool has_call_options = options.is_object() || !object_ref(call_options).empty();
+  if(!Core::truthy(Core::get(get_features(Core::get(request,"model")),"streaming",true))) { handler(has_call_options ? chat(request, Core::map_merge(call_options, object({{"stream", false}}))) : chat(request)); return; }
+  Value stream_options = Core::map_merge(call_options, object({{"stream", true}}));
   Value req = Core::coerce_chat_request(std::move(request));
-  Value config = Core::merge_model_config(model_config_, Core::get(req, "model_config"), Value(Object{{"stream", true}}));
+  Value config = Core::merge_model_config(model_config_, Core::get(req, "model_config"), stream_options);
   Core::set(config, "stream", true);
   Value model = Core::coalesce(Core::get(req, "model"), model_);
   Core::set(req, "model", model);
   Core::set(req, "model_config", config);
   Core::validate_chat_request(req);
+  // Expensive-model gate, as in chat(), before any request: only the stream call
+  // options (or the model-key entry) confirm; the client's own options do not.
+  Core::provider_require_expensive_model_confirmation(Value(model_catalog_provider()), Value(display(model)), options_, call_options);
   last_used_chat_model_ = model;
   last_used_model_config_ = config;
-  Value merged_options = merge_usage_options(options_, Core::map_merge(key_options, object({{"stream", true}})));
+  Value merged_options = merge_usage_options(options_, stream_options);
   AxRuntimeHooks hooks = effective_runtime_hooks({}, *std::atomic_load(&runtime_hooks_));
   Value attributes = object({{"ax.operation", "chat"}, {"ax.ai", name_}, {"ax.model", display(model)}, {"ax.streaming", true}});
   std::shared_ptr<AxSpan> parent = runtime_hook_frames.empty() ? nullptr : runtime_hook_frames.back().span;
@@ -37952,6 +38085,48 @@ static std::vector<Value> gepa_component_group(Value target, const std::vector<V
   return out;
 }
 
+// First non-null value among `keys`.
+static Value gepa_option(const Value& options, std::initializer_list<const char*> keys) {
+  for (const char* key : keys) {
+    Value value = Core::get(options, key);
+    if (!value.is_null()) return value;
+  }
+  return Value();
+}
+
+// options teacherOptions/teacher_options as an object ({} when unset).
+static Value gepa_teacher_options(const Value& options) {
+  Value teacher_options = gepa_option(options, {"teacherOptions", "teacher_options"});
+  return teacher_options.is_object() ? teacher_options : Value::object();
+}
+
+// Where a failed GEPA teacher call is reported: nowhere when options verbose is
+// false; else options logger, a register_agent_observer() marker since a Value
+// cannot hold a callable; else the student client's logger when the options carry
+// a Core::client_ref under studentAI/student_ai/student/client/ai; else nowhere.
+static std::function<void(Value)> gepa_teacher_logger(const Value& options) {
+  Value verbose = gepa_option(options, {"verbose"});
+  if (verbose.is_bool() && !Core::truthy(verbose)) return {};
+  Value logger = gepa_option(options, {"logger"});
+  if (!logger.is_null()) {
+    auto it = agent_observer_registry().find(str(Core::get(logger, "__agent_observer_id", Value(""))));
+    if (it != agent_observer_registry().end() && it->second) return it->second;
+    return {};
+  }
+  Value student = gepa_option(options, {"studentAI", "student_ai", "student", "client", "ai"});
+  if (auto* service = dynamic_cast<AxAIService*>(registered_client(str(Core::get(student, "__client_id", Value("")))))) {
+    std::function<void(std::string)> log = service->get_logger();
+    if (log) return [log](Value notification) { log(stringify(notification)); };
+  }
+  return {};
+}
+
+static void gepa_log_teacher_failure(const std::string& action, const std::string& error, const Value& options) {
+  std::function<void(Value)> logger = gepa_teacher_logger(options);
+  if (!logger) return;
+  logger(object({{"name", "Notification"}, {"id", "gepa_teacher"}, {"value", Value("GEPA teacher call failed while " + action + ": " + error)}}));
+}
+
 AxBootstrapFewShot::AxBootstrapFewShot(Value options) : options_(std::move(options)) {}
 std::string AxBootstrapFewShot::name() const { return "BootstrapFewShot"; }
 std::string AxBootstrapFewShot::version() const { return "axir-bootstrap-fewshot-v1"; }
@@ -37966,6 +38141,11 @@ Value AxBootstrapFewShot::optimize(Value request, OptimizerEvaluator* evaluator)
   int max_examples = std::max(1, gepa_int(Core::get(options, "maxExamples", Core::get(options, "max_examples", Value(16))), 16));
   int max_demos = std::max(1, gepa_int(Core::get(options, "maxDemos", Core::get(options, "max_demos", Value(4))), 4));
   int batch_size = std::max(1, gepa_int(Core::get(options, "batchSize", Core::get(options, "batch_size", Value(1))), 1));
+  // Demo runs forward with teacherOptions; explicit forward_options win.
+  Value teacher_options = gepa_teacher_options(options);
+  bool has_teacher_options = !Core::iter(Core::map_keys(teacher_options)).empty();
+  Value explicit_forward_options = Core::get(options, "forward_options");
+  if (!explicit_forward_options.is_object()) explicit_forward_options = Value::object();
   if (static_cast<int>(train.size()) > max_examples) train.resize(static_cast<size_t>(max_examples));
   Value base_cfg = gepa_current_map(Value(components));
   Value demos = Value::array();
@@ -37978,6 +38158,7 @@ Value AxBootstrapFewShot::optimize(Value request, OptimizerEvaluator* evaluator)
         std::string example_key = stable_stringify(train[static_cast<size_t>(i)]);
         if (accepted.count(example_key)) continue;
         Value eval_options = object({{"dataset", object({{"train", array({train[static_cast<size_t>(i)]})}, {"validation", Value::array()}})}, {"phase", "bootstrap"}, {"round", static_cast<double>(round)}});
+        if (has_teacher_options) Core::set(eval_options, "forward_options", Core::map_merge(teacher_options, explicit_forward_options));
         Value result = evaluator->evaluate(base_cfg, eval_options);
         std::vector<Value> rows = Core::iter(Core::get(result, "rows", Value::array()));
         total_calls += gepa_int(Core::get(result, "count", Value(static_cast<double>(rows.empty() ? 1 : rows.size()))), rows.empty() ? 1 : static_cast<int>(rows.size()));
@@ -38101,6 +38282,10 @@ Value AxGEPA::optimize(Value request, OptimizerEvaluator* evaluator) {
     }
   }
 
+  // Reflection calls run with teacherOptions (e.g. useExpensiveModel); stream stays off.
+  Value reflection_chat_options = Core::map_merge(Value::object(), gepa_teacher_options(options));
+  Core::set(reflection_chat_options, "stream", false);
+
   Value base_eval = evaluate(base_cfg, pareto_set, "initial Pareto evaluation", true, false);
   std::vector<GepCandidate> candidates{{base_cfg, Core::get(base_eval, "avgScores", Value::object()), -1}};
   std::vector<std::vector<double>> per_instance;
@@ -38162,7 +38347,10 @@ Value AxGEPA::optimize(Value request, OptimizerEvaluator* evaluator) {
       std::string current = display(Core::get(proposed, target_id, Value("")));
       std::string candidate_text = current;
       Value previous;
+      std::string last_error;
+      bool last_attempt_failed = false;
       for (int attempt = 0; attempt < 2; ++attempt) {
+        last_attempt_failed = false;
         Value payload = Value::object();
         Core::set(payload, "componentKey", Value(target_id));
         Core::set(payload, "componentKind", Core::get(group_target, "kind", Value("component")));
@@ -38177,10 +38365,28 @@ Value AxGEPA::optimize(Value request, OptimizerEvaluator* evaluator) {
         Core::set(message, "content", Core::json_stringify(payload));
         Core::append(messages, message);
         Core::set(request_chat, "chatPrompt", messages);
-        candidate_text = gepa_extract_text(reflection_client_->chat(request_chat));
+        // A failed teacher call uses up this attempt; cancellation still propagates.
+        Value response;
+        try {
+          response = reflection_client_->chat(request_chat, reflection_chat_options);
+        } catch (const AxAIServiceAbortedError&) {
+          throw;
+        } catch (const std::exception& error) {
+          const auto* ax_error = dynamic_cast<const AxError*>(&error);
+          if (ax_error != nullptr && (ax_error->type == "AxAIServiceAbortedError" || ax_error->category == "aborted")) throw;
+          if (auto token = current_cancellation_token(); token && token->is_cancelled()) throw AxAIServiceAbortedError(token->reason());
+          last_error = error.what();
+          last_attempt_failed = true;
+          continue;
+        }
+        candidate_text = gepa_extract_text(response);
         Value validation = gepa_validate_value(group_target, candidate_text);
         if (Core::truthy(Core::eq(validation, Value(true)))) break;
         previous = validation;
+        candidate_text = current;
+      }
+      if (last_attempt_failed) {
+        gepa_log_teacher_failure("proposing a new value for " + target_id + "; keeping the current value", last_error, options);
         candidate_text = current;
       }
       Core::set(proposed, target_id, Value(candidate_text));
@@ -38707,6 +38913,8 @@ AxPlaybook::AxPlaybook(AxGen& program, AIClient& student, AIClient* teacher, Val
     : program_(&program), engine_(Value::object()), student_(&student), teacher_(teacher == nullptr ? &student : teacher) {
   if (!options.is_object()) options = Value::object();
   verbose_ = Core::truthy(Core::get(options, "verbose", Value(false)));
+  Value teacher_options = playbook_option(options, {"teacherOptions", "teacher_options"});
+  teacher_options_ = Core::map_merge(Value::object(), teacher_options.is_object() ? teacher_options : Value::object());
   Value engine_options = Value::object();
   Value now_value = Core::get(options, "now");
   if (!now_value.is_null()) Core::set(engine_options, "now", now_value);
@@ -38759,7 +38967,7 @@ Value AxPlaybook::run_reflector(const Value& payload) {
   Value previous = Core::get(payload, "previous_reflection");
   if (!previous.is_null()) Core::set(request, "previous_reflection", Value(playbook_stringify(previous)));
   try {
-    return reflector_program_->forward(*teacher_, request);
+    return reflector_program_->forward(*teacher_, request, Core::map_merge(Value::object(), teacher_options_));
   } catch (const std::exception& e) {
     if (verbose_) std::cerr << "[AxPlaybook] reflector error: " << e.what() << "\n";
     return Value();
@@ -38775,7 +38983,7 @@ Value AxPlaybook::run_curator(const Value& payload) {
   Core::set(request, "question_context", Value(playbook_stringify(Core::get(payload, "question_context"))));
   Core::set(request, "token_budget", Core::get(payload, "token_budget", Value(1024)));
   try {
-    return curator_program_->forward(*teacher_, request);
+    return curator_program_->forward(*teacher_, request, Core::map_merge(Value::object(), teacher_options_));
   } catch (const std::exception& e) {
     if (verbose_) std::cerr << "[AxPlaybook] curator error: " << e.what() << "\n";
     return Value();
@@ -38880,6 +39088,11 @@ Value AxPlaybook::evolve(Value dataset, Value options) {
   int runs_per_task = std::max(1, static_cast<int>(num(Core::get(options, "runsPerTask", Core::get(options, "runs_per_task", Value(1))))));
   int dataset_size = static_cast<int>(train.size() + validation.size()) * runs_per_task;
   int max_metric_calls = std::max(1, static_cast<int>(num(Core::get(options, "maxMetricCalls", Core::get(options, "max_metric_calls", Value(std::max(100, (static_cast<int>(max_proposals) + 1) * dataset_size)))))));
+  // The weakness miner runs on this playbook's teacher, so its options are the
+  // evolve teacherOptions when given, else the playbook's own teacherOptions.
+  Value miner_options = playbook_option(options, {"teacherOptions", "teacher_options"});
+  if (miner_options.is_null()) miner_options = teacher_options_;
+  if (!miner_options.is_object()) miner_options = Value::object();
   int remaining = max_metric_calls;
   auto run_batch = [&](const std::vector<Value>& tasks) {
     Array records;
@@ -39005,7 +39218,7 @@ Value AxPlaybook::evolve(Value dataset, Value options) {
           {"id", "agent.playbook.weakness-miner"},
           {"instruction", "Identify one recurring weakness and one narrow durable avoidance rule. Every evidence quote must be copied verbatim from actionLogExcerpts."},
       }));
-      mined = miner.forward(*teacher_, miner_request);
+      mined = miner.forward(*teacher_, miner_request, Core::map_merge(Value::object(), miner_options));
     } catch (...) {
       continue;
     }
@@ -39845,9 +40058,9 @@ Value AxAgent::optimize(Value dataset, Value options) {
 // stage by default; pass {"target":"responder"} for the responder). As the
 // playbook evolves it is injected into the live stage prompt unless {"apply"} is
 // false. The evolution engine (ACE) is an implementation detail.
-AxPlaybook& AxAgent::playbook(AIClient& student, Value options) {
+AxPlaybook& AxAgent::playbook(AIClient& student, Value options, AIClient* teacher) {
   if (playbook_handle_) {
-    if (options.is_object() && !Core::iter(Core::map_keys(options)).empty()) {
+    if (teacher != nullptr || (options.is_object() && !Core::iter(Core::map_keys(options)).empty())) {
       throw AxError("validation", "AxAgent.playbook(): this agent already has a playbook; call playbook() without options to use it.");
     }
     return *playbook_handle_;
@@ -39855,7 +40068,7 @@ AxPlaybook& AxAgent::playbook(AIClient& student, Value options) {
   if (!options.is_object()) options = Value::object();
   std::string target = display(Core::get(options, "target", Value("actor")));
   AxGen* stage = target == "responder" ? responder_.get() : executor_.get();
-  auto handle = std::make_unique<AxPlaybook>(*stage, student, nullptr, options);
+  auto handle = std::make_unique<AxPlaybook>(*stage, student, teacher, options);
   if (Core::truthy(Core::eq(Core::get(options, "apply"), Value(false)))) {
     handle->set_apply_hook([](const std::string&) {});
   } else {
@@ -40682,6 +40895,11 @@ std::vector<Value> AxBalancer::stream(Value request) {
 }
 
 void AxBalancer::stream_each(Value request, AxStreamHandler handler) {
+  stream_each(std::move(request), std::move(handler), Value());
+}
+
+// options (the stream call options, or null) go to the selected service's stream.
+void AxBalancer::stream_each(Value request, AxStreamHandler handler, Value options) {
   if (!adaptive_) {
     auto candidates = candidate_services(request);
     std::exception_ptr last;
@@ -40690,7 +40908,7 @@ void AxBalancer::stream_each(Value request, AxStreamHandler handler) {
       while (failure_count(service) < max_retries_) {
         bool delivered = false;
         try {
-          service->stream_each(request, [&](const Value& event) { delivered = true; return handler(event); });
+          service->stream_each(request, [&](const Value& event) { delivered = true; return handler(event); }, options);
           handle_success(service);
           return;
         } catch (const AxError& error) {
@@ -40703,7 +40921,7 @@ void AxBalancer::stream_each(Value request, AxStreamHandler handler) {
     if (last) std::rethrow_exception(last);
     throw AxError("runtime", "All candidate services exhausted (tried " + std::to_string(candidates.size()) + " service(s))");
   }
-  auto ranked = rank_adaptive(request, Value::object()); std::exception_ptr last;
+  auto ranked = rank_adaptive(request, options.is_object() ? options : Value::object()); std::exception_ptr last;
   for (size_t index = 0; index < ranked.size(); ++index) {
     auto& candidate = ranked[index]; current_service_ = candidate.service;
     emit_routing_event(object({{"type", "selected"}, {"namespace", Core::get(candidate.stats_key, "namespace", "")}, {"slice", Core::get(candidate.stats_key, "slice", "")}, {"logicalModel", Core::get(candidate.stats_key, "logicalModel", "")}, {"routeKey", candidate.route_key}, {"serviceName", candidate.service->get_name()}, {"attempt", static_cast<double>(index + 1)}}));
@@ -40719,7 +40937,7 @@ void AxBalancer::stream_each(Value request, AxStreamHandler handler) {
         }
         delivered = true;
         return handler(event);
-      });
+      }, options);
       if (!observed) {
         double latency = std::max(1.0, std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - started).count());
         observe_adaptive(candidate, object({{"outcome", "success"}, {"latencyMs", latency}}), true);
@@ -40895,6 +41113,10 @@ Value MultiServiceRouter::chat(Value request, Value options) {
 }
 
 void MultiServiceRouter::stream_each(Value request, AxStreamHandler handler) {
+  stream_each(std::move(request), std::move(handler), Value());
+}
+
+void MultiServiceRouter::stream_each(Value request, AxStreamHandler handler, Value options) {
   Value model_key = Core::get(request, "model");
   if (model_key.is_null()) throw AxError("runtime", "Model key must be specified for multi-service");
   auto it = services_.find(display(model_key));
@@ -40903,7 +41125,7 @@ void MultiServiceRouter::stream_each(Value request, AxStreamHandler handler) {
   Value req(object_ref(request));
   if (Core::get(req, "model_config").is_null() && !Core::get(req, "modelConfig").is_null()) Core::set(req, "model_config", Core::get(req, "modelConfig"));
   if (it->second.model.is_null()) Core::map_delete(req, "model");
-  last_used_service_->stream_each(std::move(req), std::move(handler));
+  last_used_service_->stream_each(std::move(req), std::move(handler), std::move(options));
 }
 
 std::vector<Value> MultiServiceRouter::stream(Value request) {

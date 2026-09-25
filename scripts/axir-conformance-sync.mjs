@@ -117,9 +117,25 @@ export async function buildTypeScriptCatalog() {
 
 const providerDataFiles = {
   catalog: 'provider-model-catalog.json',
+  modelIndex: 'provider-model-index.json',
   registry: 'provider-profile-registry.json',
   summary: 'provider-model-catalog-summary.json',
 };
+
+// The per-provider model names, aliases and isExpensive flags from the
+// catalog, in catalog order. The chat path reads this small index on every
+// request (the expensive-model gate), so it doesn't parse the full catalog.
+export function buildProviderModelIndex(catalog) {
+  const index = {};
+  for (const provider of catalog.all ?? []) {
+    index[provider.name] = (provider.models ?? []).map((model) => ({
+      name: model.name,
+      ...(model.aliases?.length ? { aliases: model.aliases } : {}),
+      ...(model.isExpensive ? { isExpensive: true } : {}),
+    }));
+  }
+  return normalizeCatalog(index);
+}
 
 export function providerDataPath(repoRoot, kind) {
   const file = providerDataFiles[kind];
@@ -309,9 +325,11 @@ async function checkProviderCatalog(repoRoot, generatedRoot, write) {
     generatedRoot,
     'model-catalog-audit'
   );
+  const tsModelIndex = buildProviderModelIndex(tsCatalog);
   if (write) {
     writeProviderDataJson(repoRoot, 'summary', tsCatalogSummary);
     writeProviderDataJson(repoRoot, 'catalog', tsCatalog);
+    writeProviderDataJson(repoRoot, 'modelIndex', tsModelIndex);
     const axirProfileRegistry = readProviderDataJson(repoRoot, 'registry');
     return compareValues(
       axirProfileRegistry,
@@ -323,6 +341,7 @@ async function checkProviderCatalog(repoRoot, generatedRoot, write) {
     );
   }
   const axirCatalog = readProviderDataJson(repoRoot, 'catalog');
+  const axirModelIndex = readProviderDataJson(repoRoot, 'modelIndex');
   const axirProfileRegistry = readProviderDataJson(repoRoot, 'registry');
   const axirCatalogSummary = readProviderDataJson(repoRoot, 'summary');
   return [
@@ -331,6 +350,9 @@ async function checkProviderCatalog(repoRoot, generatedRoot, write) {
       tsCatalog,
       'provider_model_catalog_registry'
     ).map((diff) => `AxIR provider catalog drift: ${diff}`),
+    ...compareValues(axirModelIndex, tsModelIndex, 'provider_model_index').map(
+      (diff) => `AxIR provider model index drift: ${diff}`
+    ),
     ...compareValues(
       axirProfileRegistry,
       tsProfileRegistry,

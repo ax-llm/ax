@@ -1,0 +1,36 @@
+{
+  "client": {
+    "model": "premium-model",
+    "options": {
+      "modelInfo": [
+        {
+          "completionTokenCostPer1M": 600,
+          "isExpensive": true,
+          "name": "premium-model",
+          "promptTokenCostPer1M": 150
+        }
+      ]
+    }
+  },
+  "expected_chat_options_subset": {
+    "useExpensiveModel": "yes"
+  },
+  "expected_output": {
+    "answer": "Ax composes typed LLM programs."
+  },
+  "expected_request_count": 1,
+  "forward_options": {
+    "useExpensiveModel": "yes"
+  },
+  "input": {
+    "question": "What is Ax?"
+  },
+  "kind": "forward",
+  "name": "expensive-model-forward-option-confirms",
+  "responses": [
+    {
+      "content": "{\"answer\":\"Ax composes typed LLM programs.\"}"
+    }
+  ],
+  "signature": "question:string -> answer:string"
+}

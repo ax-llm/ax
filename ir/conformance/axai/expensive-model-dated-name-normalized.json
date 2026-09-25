@@ -1,0 +1,19 @@
+{
+  "expected_error_contains": "Model gpt-5.5-pro-2026-05-01 is marked as expensive and requires explicit confirmation. Set useExpensiveModel: \"yes\" to proceed.",
+  "expected_transport_request_count": 0,
+  "kind": "ai_chat",
+  "model": "gpt-5.5-pro-2026-05-01",
+  "name": "expensive-model-dated-name-normalized",
+  "provider": "openai",
+  "request": {
+    "chat_prompt": [
+      {
+        "content": "Hello",
+        "role": "user"
+      }
+    ],
+    "model_config": {
+      "stream": false
+    }
+  }
+}
