@@ -381,6 +381,7 @@ export type AxAIGoogleVertexEmbedContentRequest = {
   content: {
     parts: { text: string }[];
   };
+  autoTruncate?: boolean;
   outputDimensionality?: number;
 };
 

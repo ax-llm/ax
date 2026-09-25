@@ -654,8 +654,8 @@ value and does not normalize or validate it.
 through `:embedContent`, so Ax sends its embeddings there whatever `region` is
 set. Each request embeds exactly one text (pass several and `embed()` throws,
 because Vertex would fuse them into one vector), and no task type is sent even
-when `embedType` is configured. Put task instructions in the text itself, e.g.
-`task: search result | query: {content}`. Other embedding models keep the
+when `embedType` is configured, since Vertex ignores one for this model. Put
+task instructions in the text itself, e.g. `task: search result | query: {content}`. Other embedding models keep the
 regional `:predict` endpoint.
 
 The generated Python, Java, C++, Go, and Rust clients accept the same

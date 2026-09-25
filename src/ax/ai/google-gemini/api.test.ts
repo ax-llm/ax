@@ -628,7 +628,7 @@ describe('AxAIGoogleGemini model key preset merging', () => {
 
     const createVertexAI = (
       fetch: typeof globalThis.fetch,
-      options: { beta?: boolean } = {}
+      { beta, autoTruncate }: { beta?: boolean; autoTruncate?: boolean } = {}
     ) =>
       new AxAIGoogleGemini({
         apiKey: async () => 'vertex-token',
@@ -639,8 +639,9 @@ describe('AxAIGoogleGemini model key preset merging', () => {
           embedModel: AxAIGoogleGeminiEmbedModel.GeminiEmbedding2,
           embedType: AxAIGoogleGeminiEmbedTypes.RetrievalDocument,
           dimensions: 768,
+          autoTruncate,
         },
-        options: { ...options, fetch },
+        options: { beta, fetch },
       });
 
     it('sends one text to the global :embedContent endpoint with no task type', async () => {
@@ -656,7 +657,7 @@ describe('AxAIGoogleGemini model key preset merging', () => {
       expect(capture.calls[0]?.url).toBe(
         'https://aiplatform.googleapis.com/v1/projects/demo-project/locations/global/publishers/google/models/gemini-embedding-2:embedContent'
       );
-      // embedType is configured, but the model takes no task type.
+      // embedType is configured, but Vertex ignores a task type for this model.
       expect(capture.calls[0]?.body).toEqual({
         content: { parts: [{ text: 'hello world' }] },
         outputDimensionality: 768,
@@ -683,6 +684,19 @@ describe('AxAIGoogleGemini model key preset merging', () => {
       expect(capture.calls[0]?.url).toBe(
         'https://aiplatform.googleapis.com/v1beta1/projects/demo-project/locations/global/publishers/google/models/gemini-embedding-2:embedContent'
       );
+    });
+
+    it('sends autoTruncate when configured', async () => {
+      const capture: { calls: Array<{ url: string; body?: any }> } = {
+        calls: [],
+      };
+      const fetch = createSequencedMockFetch([embedContentResponse], capture);
+      const ai = createVertexAI(fetch, { autoTruncate: false });
+
+      await ai.embed({ texts: ['hello world'] });
+
+      // Vertex truncates past 8,192 tokens by default; false makes it return 400.
+      expect(capture.calls[0]?.body?.autoTruncate).toBe(false);
     });
 
     it('rejects more than one text without calling Vertex', async () => {

@@ -1450,9 +1450,10 @@ class AxAIGoogleGeminiImpl
         url: `https://${host}/${version}/projects/${this.vertexConfig.projectId}/locations/global/publishers/google`,
       };
 
-      // No task type: these models take none, and callers put the task in the text.
+      // No task type: Vertex accepts one for these models but ignores it; callers put the task in the text.
       reqValue = {
         content: { parts: [{ text: req.texts[0] }] },
+        autoTruncate: this.config.autoTruncate,
         outputDimensionality: this.config.dimensions,
       };
     } else if (this.isVertex) {
