@@ -1875,7 +1875,7 @@
       "status": "open",
       "title": "Embed gemini-embedding-2 on Vertex through global :embedContent in the ports",
       "createdAt": "2026-09-25",
-      "sourcePR": null,
+      "sourcePR": 715,
       "sourceCommit": "c8793427dc6206bd1280a7d09299f1119a10cd30",
       "tsPaths": [
         "src/ax/ai/google-gemini/api.ts",
