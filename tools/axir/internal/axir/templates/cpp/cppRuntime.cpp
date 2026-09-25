@@ -1218,6 +1218,18 @@ Value Core::exception_is_aborted(Value error) {
                (str(get_key(error, "__type")) == "AxAIServiceAbortedError" ||
                 str(get_key(error, "__error")) == "aborted"));
 }
+// TS AxGen retries only 5xx status, network, timeout and stream-termination errors.
+Value Core::exception_is_infrastructure(Value error) {
+  if (!error.is_object()) return Value(false);
+  std::string type = str(get_key(error, "__type"));
+  if (type == "AxAIServiceStatusError") {
+    Value status = get_key(error, "status");
+    if (status.is_null()) return Value(false);
+    double code = num(status);
+    return Value(code >= 500 && code < 600);
+  }
+  return Value(type == "AxAIServiceNetworkError" || type == "AxAIServiceTimeoutError" || type == "AxAIServiceStreamTerminatedError");
+}
 AxError Core::as_error(Value error) {
   if (error.is_object() && has_key(error, "__error")) {
     int status = get_key(error, "status").is_null() ? 0 : static_cast<int>(num(get_key(error, "status")));

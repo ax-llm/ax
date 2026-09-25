@@ -25,6 +25,8 @@ static Object as_object(Value value) {
   return {};
 }
 
+static AxError fixture_ai_service_error_cpp(Value spec);
+
 struct ConformanceScriptedAI : AxBaseAI {
   Array responses;
   Array transcribe_responses;
@@ -45,6 +47,8 @@ struct ConformanceScriptedAI : AxBaseAI {
     if (responses.empty()) throw AxError("fixture", "scripted client exhausted");
     Value out = responses.front();
     responses.erase(responses.begin());
+    Value error = Core::get(out, "error");
+    if (!error.is_null()) throw fixture_ai_service_error_cpp(error);
     return Core::legacy_response_to_chat_response(out);
   }
 

@@ -741,7 +741,11 @@ module @ax.gen version "0.1" {
       core.call intrinsic.axgen.memory_add_request(%gen, %messages)
       %validation_retries_snake = core.get %runtime_options["validation_retries"] default 2
       %validation_retries = core.get %runtime_options["validationRetries"] default %validation_retries_snake
-      %infra_retries_snake = core.get %runtime_options["infra_retries"] default 2
+      // TS retries infrastructure errors up to maxRetries (default 3) times.
+      // infra_retries stays as a port-specific override.
+      %max_retries_snake = core.get %runtime_options["max_retries"] default 3
+      %max_retries = core.get %runtime_options["maxRetries"] default %max_retries_snake
+      %infra_retries_snake = core.get %runtime_options["infra_retries"] default %max_retries
       %infra_retries = core.get %runtime_options["infraRetries"] default %infra_retries_snake
       %attempt = core.const 0
       %max_steps_snake = core.get %runtime_options["max_steps"] default 25
@@ -985,6 +989,13 @@ module @ax.gen version "0.1" {
         } catch %error {
           %aborted = core.call intrinsic.exception.is_aborted(%error)
           core.if %aborted {
+            core.raise %error
+          }
+          // As in TS, only infrastructure errors (5xx status, network, timeout,
+          // stream termination) are retried; anything else surfaces at once.
+          %infrastructure = core.call intrinsic.exception.is_infrastructure(%error)
+          %not_infrastructure = core.call intrinsic.not(%infrastructure)
+          core.if %not_infrastructure {
             core.raise %error
           }
           %last_error = core.let %error

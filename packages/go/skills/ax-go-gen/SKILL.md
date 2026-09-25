@@ -69,6 +69,8 @@ A simple signature (no object or object-array output) selects no structured-outp
 
 `maxSteps` / `max_steps` (default 25) caps the tool loop. Each model turn that calls tools is one step, and validation retries stay inside their step. Reaching the cap raises `Generate failed: Max steps reached: N`.
 
+`maxRetries` / `max_retries` (default 3) caps retries of a failed provider request, as in TypeScript. Only infrastructure errors are retried: a 5xx status, a network error, a timeout, or a terminated stream. Any other error, such as a 400 or 429 status, a response error, or a rejection before the request is sent, surfaces after one request.
+
 `functionCall` / `function_call` sets the tool choice: `auto`, `none`, `required`, or `{ type: 'function', function: { name } }` to force one function. A forced call (`required` or named) applies to the first step only, as in TypeScript: later steps drop it together with the tools so the model can answer. Under the `function` structured-output rung the forced step withholds `__axOutput`, so the forcing reaches a user tool, and the next step forces `__axOutput`. A tool choice passed as `functionCallMode` is routed the same way.
 
 ## Multi-Sampling

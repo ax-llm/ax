@@ -1645,6 +1645,25 @@
       "verification": "No port change was needed. The generated ports already apply apiURL, baseUrl and base_url to every provider in provider_resolve_descriptor, and already send GPT-6 on the openai provider through Responses; only TypeScript dropped apiURL, which #678 fixed. New ai_chat fixtures openai-responses-chat-uses-api-url and gpt-6-sol-openai-api-url-uses-responses pass in Python, Java, C++, Go, and Rust, and copies expecting api.openai.com fail in the Python, Go, and Java runners. TypeScript provider_profiles.test.ts covers both paths and fails with the fix reverted."
     },
     {
+      "id": "axir-2026-09-24-port-axgen-infrastructure-only-retries",
+      "status": "open",
+      "title": "Port AxGen infrastructure-only retries",
+      "createdAt": "2026-09-24",
+      "sourcePR": null,
+      "sourceCommit": null,
+      "tsPaths": ["src/ax/dsp/generate.ts"],
+      "portableSurface": "axgen",
+      "impact": "TypeScript AxGen retries a failed provider request only for infrastructure errors (AxAIServiceStatusError with a 5xx status, AxAIServiceNetworkError, AxAIServiceTimeoutError, AxAIServiceStreamTerminatedError), up to maxRetries (default 3) times with backoff, and surfaces every other error after one request. The generated ports retried every non-abort error up to infra_retries (default 2) and ignored maxRetries, so a 400, a 429, a response error or a pre-request rejection was sent twice more with backoff before surfacing.",
+      "suggestedAxirWork": [
+        "Add an intrinsic that classifies infrastructure errors in each port and make @complete_with_retries_impl surface everything else at once",
+        "Read maxRetries (default 3) for the retry count and keep infra_retries as a port override",
+        "Let the forward scripted clients raise scripted errors and add fixtures for retried and surfaced errors and for the attempt counts"
+      ],
+      "completedAt": null,
+      "completedByCommit": null,
+      "verification": null
+    },
+    {
       "id": "axir-2026-09-24-port-optimizer-teacher-options-and-gepa-teacher-failure-reporting",
       "status": "open",
       "title": "Port teacherOptions to optimizer teacher calls and surface GEPA teacher failures",

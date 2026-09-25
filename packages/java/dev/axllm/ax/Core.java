@@ -553,6 +553,16 @@ final class Core {
     while(current instanceof Throwable throwable){if(throwable instanceof AxAIServiceAbortedError)return true;current=throwable.getCause();}
     return false;
   }
+  // TS AxGen retries only 5xx status, network, timeout and stream-termination errors.
+  static Object exceptionIsInfrastructure(Object error) {
+    Object current=error;
+    while(current instanceof Throwable throwable){
+      if(throwable instanceof AxAIServiceStatusError status)return status.status!=null&&status.status>=500&&status.status<600;
+      if(throwable instanceof AxAIServiceNetworkError||throwable instanceof AxAIServiceTimeoutError||throwable instanceof AxAIServiceStreamTerminatedError)return true;
+      current=throwable.getCause();
+    }
+    return false;
+  }
   static Object aiErrorResponse(Object message) { return new AxAIServiceResponseError(String.valueOf(message)); }
   static Object aiErrorResponse(Object message, Object responseBody) { return new AxAIServiceResponseError(String.valueOf(message), responseBody); }
   static Object aiErrorRefusal(Object message, Object responseBody) { return new AxAIRefusalError(String.valueOf(message), responseBody); }
@@ -16739,7 +16749,9 @@ final class Core {
     Core.axgenMemoryAddRequest(gen, messages);
     Object validation_retries_snake = Core.get(runtime_options, "validation_retries", 2);
     Object validation_retries = Core.get(runtime_options, "validationRetries", validation_retries_snake);
-    Object infra_retries_snake = Core.get(runtime_options, "infra_retries", 2);
+    Object max_retries_snake = Core.get(runtime_options, "max_retries", 3);
+    Object max_retries = Core.get(runtime_options, "maxRetries", max_retries_snake);
+    Object infra_retries_snake = Core.get(runtime_options, "infra_retries", max_retries);
     Object infra_retries = Core.get(runtime_options, "infraRetries", infra_retries_snake);
     Object attempt = 0;
     Object max_steps_snake = Core.get(runtime_options, "max_steps", 25);
@@ -17350,12 +17362,6 @@ final class Core {
     return gen;
   }
 
-  static Object _render_examples(Object gen) {
-    axirCoverageMark("_render_examples");
-    Object messages = Core.axgenRenderExamples(gen);
-    return messages;
-  }
-
   static Object chat_session_native_event(Object state, Object event) {
     axirCoverageMark("chat_session_native_event");
     Object result = new java.util.LinkedHashMap<String, Object>();
@@ -17472,6 +17478,12 @@ final class Core {
       }
     }
     return result;
+  }
+
+  static Object _render_examples(Object gen) {
+    axirCoverageMark("_render_examples");
+    Object messages = Core.axgenRenderExamples(gen);
+    return messages;
   }
 
   static Object _render_demos(Object gen) {
@@ -17758,6 +17770,11 @@ final class Core {
         if (Core.truthy(aborted)) {
           throw Core.asRuntime(error);
         }
+        Object infrastructure = Core.exceptionIsInfrastructure(error);
+        Object not_infrastructure = Core.not(infrastructure);
+        if (Core.truthy(not_infrastructure)) {
+          throw Core.asRuntime(error);
+        }
         last_error = error;
         Object exhausted = Core.gte(attempt, retries);
         if (Core.truthy(exhausted)) {
@@ -17913,23 +17930,6 @@ final class Core {
     return flexible;
   }
 
-  static Object _parse_json_string_value(Object value) {
-    axirCoverageMark("_parse_json_string_value");
-    Object is_string = Core.typeIs(value, "string");
-    Object not_string = Core.not(is_string);
-    if (Core.truthy(not_string)) {
-      return value;
-    }
-    Object result = value;
-    try {
-      Object parsed = Core.jsonParse(value);
-      result = parsed;
-    } catch (RuntimeException parse_error) {
-      result = value;
-    }
-    return result;
-  }
-
   static Object _ace_update_bullet_feedback(Object playbook, Object bullet_id, Object tag, Object now) {
     axirCoverageMark("_ace_update_bullet_feedback");
     Object empty_map = new java.util.LinkedHashMap<String, Object>();
@@ -17974,6 +17974,23 @@ final class Core {
       return updated;
     }
     return playbook;
+  }
+
+  static Object _parse_json_string_value(Object value) {
+    axirCoverageMark("_parse_json_string_value");
+    Object is_string = Core.typeIs(value, "string");
+    Object not_string = Core.not(is_string);
+    if (Core.truthy(not_string)) {
+      return value;
+    }
+    Object result = value;
+    try {
+      Object parsed = Core.jsonParse(value);
+      result = parsed;
+    } catch (RuntimeException parse_error) {
+      result = value;
+    }
+    return result;
   }
 
   static Object _regex_alternative(Object s) {
@@ -18022,6 +18039,20 @@ final class Core {
     Core.set(t17, "k", "alt");
     Core.set(t17, "terms", choices);
     return t17;
+  }
+
+  static Object chat_session_mark_submitted(Object state, Object ids) {
+    axirCoverageMark("chat_session_mark_submitted");
+    Object pending = Core.get(state, "pending", null);
+    for (Object id : Core.iter(ids)) {
+      Object record = Core.get(pending, id, null);
+      Core.set(record, "status", "sent");
+      Core.set(pending, id, record);
+    }
+    Core.set(state, "pending", pending);
+    Core.set(state, "boundary", Boolean.FALSE);
+    Core.set(state, "needs_continuation", Boolean.FALSE);
+    return null;
   }
 
   static Object _parse_json_string_for_field(Object field, Object value) {
@@ -18078,20 +18109,6 @@ final class Core {
       }
     }
     return value;
-  }
-
-  static Object chat_session_mark_submitted(Object state, Object ids) {
-    axirCoverageMark("chat_session_mark_submitted");
-    Object pending = Core.get(state, "pending", null);
-    for (Object id : Core.iter(ids)) {
-      Object record = Core.get(pending, id, null);
-      Core.set(record, "status", "sent");
-      Core.set(pending, id, record);
-    }
-    Core.set(state, "pending", pending);
-    Core.set(state, "boundary", Boolean.FALSE);
-    Core.set(state, "needs_continuation", Boolean.FALSE);
-    return null;
   }
 
   static Object chat_session_queue_update(Object state, Object update) {
@@ -18328,26 +18345,6 @@ final class Core {
     return unresolved;
   }
 
-  static Object _parse_json_string_for_fields(Object fields_map, Object values) {
-    axirCoverageMark("_parse_json_string_for_fields");
-    Object values_is_map = Core.typeIs(values, "object");
-    Object not_map = Core.not(values_is_map);
-    if (Core.truthy(not_map)) {
-      return values;
-    }
-    Object nested_fields = Core.fieldsFromMap(fields_map);
-    for (Object field : Core.iter(nested_fields)) {
-      Object name = Core.get(field, "name", null);
-      Object has_key = Core.mapContains(values, name);
-      if (Core.truthy(has_key)) {
-        Object value = Core.get(values, name, null);
-        Object parsed = Core._parse_json_string_for_field(field, value);
-        Core.set(values, name, parsed);
-      }
-    }
-    return values;
-  }
-
   static Object chat_session_transition(Object state, Object event) {
     axirCoverageMark("chat_session_transition");
     Object type = Core.get(event, "type", null);
@@ -18547,6 +18544,26 @@ final class Core {
       t2 = t32;
     }
     return t2;
+  }
+
+  static Object _parse_json_string_for_fields(Object fields_map, Object values) {
+    axirCoverageMark("_parse_json_string_for_fields");
+    Object values_is_map = Core.typeIs(values, "object");
+    Object not_map = Core.not(values_is_map);
+    if (Core.truthy(not_map)) {
+      return values;
+    }
+    Object nested_fields = Core.fieldsFromMap(fields_map);
+    for (Object field : Core.iter(nested_fields)) {
+      Object name = Core.get(field, "name", null);
+      Object has_key = Core.mapContains(values, name);
+      if (Core.truthy(has_key)) {
+        Object value = Core.get(values, name, null);
+        Object parsed = Core._parse_json_string_for_field(field, value);
+        Core.set(values, name, parsed);
+      }
+    }
+    return values;
   }
 
   static Object _validate_exact_output_keys(Object fields, Object values, Object context) {
@@ -19009,23 +19026,6 @@ final class Core {
     return t1;
   }
 
-  static Object _tool_error_message_impl(Object call, Object error) {
-    axirCoverageMark("_tool_error_message_impl");
-    Object id = Core.get(call, "id", null);
-    Object name = Core.get(call, "name", null);
-    Object error_text = Core.exceptionMessage(error);
-    Object payload = new java.util.LinkedHashMap<String, Object>();
-    Core.set(payload, "error", error_text);
-    Object payload_json = Core.jsonStringify(payload);
-    Object message = new java.util.LinkedHashMap<String, Object>();
-    Core.set(message, "role", "function");
-    Core.set(message, "function_id", id);
-    Core.set(message, "name", name);
-    Core.set(message, "result", payload_json);
-    Core.set(message, "is_error", Boolean.TRUE);
-    return message;
-  }
-
   static Object _regex_capture_ids(Object n) {
     axirCoverageMark("_regex_capture_ids");
     Object i = Core.none();
@@ -19069,6 +19069,23 @@ final class Core {
       }
     }
     return out;
+  }
+
+  static Object _tool_error_message_impl(Object call, Object error) {
+    axirCoverageMark("_tool_error_message_impl");
+    Object id = Core.get(call, "id", null);
+    Object name = Core.get(call, "name", null);
+    Object error_text = Core.exceptionMessage(error);
+    Object payload = new java.util.LinkedHashMap<String, Object>();
+    Core.set(payload, "error", error_text);
+    Object payload_json = Core.jsonStringify(payload);
+    Object message = new java.util.LinkedHashMap<String, Object>();
+    Core.set(message, "role", "function");
+    Core.set(message, "function_id", id);
+    Core.set(message, "name", name);
+    Core.set(message, "result", payload_json);
+    Core.set(message, "is_error", Boolean.TRUE);
+    return message;
   }
 
   static Object _ace_is_noop_acknowledgment(Object content) {
@@ -19244,6 +19261,14 @@ final class Core {
     return t2;
   }
 
+  static Object _regex_task(Object n, Object next) {
+    axirCoverageMark("_regex_task");
+    Object t1 = new java.util.LinkedHashMap<String, Object>();
+    Core.set(t1, "node", n);
+    Core.set(t1, "next", next);
+    return t1;
+  }
+
   static Object _parse_text_output_fields_impl(Object content, Object fields, Object is_final) {
     axirCoverageMark("_parse_text_output_fields_impl");
     Object lines = Core.stringSplit(content, "\n");
@@ -19322,14 +19347,6 @@ final class Core {
       }
     }
     return values;
-  }
-
-  static Object _regex_task(Object n, Object next) {
-    axirCoverageMark("_regex_task");
-    Object t1 = new java.util.LinkedHashMap<String, Object>();
-    Core.set(t1, "node", n);
-    Core.set(t1, "next", next);
-    return t1;
   }
 
   static Object _regex_frame(Object todo, Object st) {

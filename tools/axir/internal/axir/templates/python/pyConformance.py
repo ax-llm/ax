@@ -110,7 +110,10 @@ class ConformanceScriptedAI(AxBaseAI):
         self.chat_options.append(copy.deepcopy(options or {}))
         if not self.responses:
             raise RuntimeError("scripted client exhausted")
-        return _legacy_response_to_chat_response(copy.deepcopy(self.responses.pop(0)))
+        raw = self.responses.pop(0)
+        if isinstance(raw, dict) and "error" in raw:
+            raise _fixture_ai_service_error(raw.get("error") or {})
+        return _legacy_response_to_chat_response(copy.deepcopy(raw))
 
     def _embed(self, request: dict[str, Any], options: dict[str, Any]) -> dict[str, Any]:
         self.requests.append(copy.deepcopy(request))

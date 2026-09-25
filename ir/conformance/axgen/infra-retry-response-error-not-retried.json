@@ -1,0 +1,21 @@
+{
+  "expected_error_contains": "Service fixture failure",
+  "expected_request_count": 1,
+  "input": {
+    "question": "Status?"
+  },
+  "kind": "forward",
+  "name": "infra-retry-response-error-not-retried",
+  "responses": [
+    {
+      "error": {
+        "message": "Service fixture failure",
+        "type": "response"
+      }
+    },
+    {
+      "content": "Answer: Recovered"
+    }
+  ],
+  "signature": "question:string -> answer:string"
+}

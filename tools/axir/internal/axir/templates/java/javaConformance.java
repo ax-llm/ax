@@ -51,7 +51,9 @@ public final class Conformance {
       requests.add(new LinkedHashMap<>(request));
       chatOptions.add(new LinkedHashMap<>(options));
       if (responses.isEmpty()) throw new RuntimeException("scripted client exhausted");
-      return Core.legacyResponseToChatResponse(Core.asMap(responses.remove(0)));
+      Map<String, Object> raw = Core.asMap(responses.remove(0));
+      if (raw.containsKey("error")) throw fixtureAIServiceError(Core.asMap(raw.get("error")));
+      return Core.legacyResponseToChatResponse(raw);
     }
 
     protected Map<String, Object> doEmbed(Map<String, Object> request, Map<String, Object> options) {

@@ -14535,6 +14535,9 @@ impl AxAIClient for FixtureClient {
             .responses
             .pop_front()
             .ok_or_else(|| AxError::new("fixture", format!("fixture response exhausted; request: {}", self.requests.last().unwrap_or(&Value::Null))))?;
+        if let Some(error) = response.get("error") {
+            return Err(fixture_ai_service_error(error));
+        }
         if response.get("results").is_some() {
             return Ok(response);
         }
@@ -18545,6 +18548,20 @@ fn core_exception_is_aborted(args: &[CoreValue]) -> Result<CoreValue, AxError> {
         _ => false,
     };
     Ok(CoreValue::Bool(aborted))
+}
+
+// TS AxGen retries only 5xx status, network, timeout and stream-termination errors.
+#[allow(dead_code)]
+fn core_exception_is_infrastructure(args: &[CoreValue]) -> Result<CoreValue, AxError> {
+    let infrastructure = match core_arg(args, 0) {
+        CoreValue::Error(error) => match error.error_type.as_deref() {
+            Some("AxAIServiceStatusError") => matches!(error.status, Some(status) if (500..600).contains(&status)),
+            Some("AxAIServiceNetworkError" | "AxAIServiceTimeoutError" | "AxAIServiceStreamTerminatedError") => true,
+            _ => false,
+        },
+        _ => false,
+    };
+    Ok(CoreValue::Bool(infrastructure))
 }
 
 #[allow(dead_code)]
