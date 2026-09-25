@@ -1782,7 +1782,7 @@
     },
     {
       "id": "axir-2026-09-25-align-the-axgen-validation-budget-with-typescript-maxretries",
-      "status": "open",
+      "status": "done",
       "title": "Align the AxGen validation budget with TypeScript maxRetries",
       "createdAt": "2026-09-25",
       "sourcePR": null,
@@ -1795,9 +1795,9 @@
         "Reset the validation attempt counter when the tool loop advances a step",
         "Add fixtures for the default attempt count and the maxRetries option and the override and the per-step reset"
       ],
-      "completedAt": null,
-      "completedByCommit": null,
-      "verification": null
+      "completedAt": "2026-09-25",
+      "completedByCommit": "b6060666d825244d655b33ec29a9887b24522d5c",
+      "verification": "@forward defaults validation_retries to maxRetries (default 3) and resets the validation attempt counter when the tool loop advances a step. The validation-budget-* fixtures and assertion-return-modes pin the request counts measured with a TypeScript AxMockAIService probe, and mutation checks fail each one. Python and Go conformance 937/937; npm run axir:check-packages, npm run axir:conformance:check and npm run test:axir pass."
     }
   ],
   "nonPortableExemptions": [
