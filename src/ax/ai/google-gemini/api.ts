@@ -1417,7 +1417,7 @@ class AxAIGoogleGeminiImpl
       reqValue = {
         instances: req.texts.map((text) => ({
           content: text,
-          ...(this.config.embedType && { taskType: this.config.embedType }),
+          ...(this.config.embedType && { task_type: this.config.embedType }),
         })),
         parameters: {
           autoTruncate: this.config.autoTruncate,

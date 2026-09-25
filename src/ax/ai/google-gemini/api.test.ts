@@ -11,7 +11,11 @@ import {
 } from './api.js';
 import { axModelInfoGoogleGemini } from './info.js';
 import { axIsGeminiLiveAudioModel } from './live_audio.js';
-import { AxAIGoogleGeminiEmbedModel, AxAIGoogleGeminiModel } from './types.js';
+import {
+  AxAIGoogleGeminiEmbedModel,
+  AxAIGoogleGeminiEmbedTypes,
+  AxAIGoogleGeminiModel,
+} from './types.js';
 
 // Utility to create a fake fetch that returns a minimal valid response and captures request body
 function createMockFetch(body: unknown, capture: { lastBody?: any }) {
@@ -580,6 +584,40 @@ describe('AxAIGoogleGemini model key preset merging', () => {
     expect(capture.calls[0]?.url).toContain(
       '/v1/projects/demo-project/locations/us-central1/publishers/google/models/gemini-embedding-001:predict'
     );
+  });
+
+  it('sends the Vertex embedding task type as task_type', async () => {
+    const capture: { calls: Array<{ url: string; body?: any }> } = {
+      calls: [],
+    };
+    const fetch = createSequencedMockFetch(
+      [{ predictions: [{ embeddings: { values: [0.1, 0.2, 0.3] } }] }],
+      capture
+    );
+
+    const ai = new AxAIGoogleGemini({
+      apiKey: async () => 'vertex-token',
+      projectId: 'demo-project',
+      region: 'us-central1',
+      config: {
+        model: AxAIGoogleGeminiModel.Gemini25Flash,
+        embedType: AxAIGoogleGeminiEmbedTypes.RetrievalDocument,
+      },
+    });
+
+    ai.setOptions({ fetch });
+
+    await ai.embed({
+      embedModel: AxAIGoogleGeminiEmbedModel.GeminiEmbedding001,
+      texts: ['hello world'],
+    });
+
+    // Vertex :predict silently ignores `taskType` and embeds as RETRIEVAL_QUERY.
+    const instance = capture.calls[0]?.body?.instances?.[0];
+    expect(instance).toEqual({
+      content: 'hello world',
+      task_type: 'RETRIEVAL_DOCUMENT',
+    });
   });
 
   it('honors options.beta by routing Vertex chat requests onto v1beta1', async () => {
