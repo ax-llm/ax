@@ -2945,8 +2945,14 @@ Value AxBaseAI::chat(Value request, Value call_options) {
   return chat(std::move(request), std::move(call_options), AxRuntimeHooks{});
 }
 
+Value AxBaseAI::resolve_model_key_request(Value request, Value call_options, bool embed) const {
+  return Core::resolve_model_key(options_, std::move(request), std::move(call_options), Value(embed ? embed_model_ : model_), Value(embed));
+}
+
 Value AxBaseAI::chat(Value request, Value call_options, const AxRuntimeHooks& call_hooks) {
-  Value req = Core::coerce_chat_request(std::move(request));
+  Value resolved = resolve_model_key_request(Core::coerce_chat_request(std::move(request)), call_options, false);
+  Value req = Core::get(resolved, "request");
+  call_options = Core::get(resolved, "options");
   Core::validate_chat_request(req);
   Value merged_options = merge_usage_options(options_, call_options);
   Value selected_model = Core::coalesce(Core::get(req, "model"), model_);
@@ -3005,6 +3011,9 @@ Value AxBaseAI::embed(Value request, Value call_options) {
 }
 
 Value AxBaseAI::embed(Value request, Value call_options, const AxRuntimeHooks& call_hooks) {
+  Value resolved = resolve_model_key_request(std::move(request), call_options, true);
+  request = Core::get(resolved, "request");
+  call_options = Core::get(resolved, "options");
   Value texts = Core::get(request, "texts");
   if (!texts.is_array() || array_ref(texts).empty()) throw Core::as_error(Core::ai_error_response("Embed texts is empty"));
   Value selected = Core::get(request, "embed_model", Core::get(request, "embedModel", embed_model_));
@@ -3352,7 +3361,7 @@ Value OpenAICompatibleClient::do_chat(Value request, Value options) {
 }
 
 void OpenAICompatibleClient::validate_chat_request(Value request) const {
-  Value req = Core::coerce_chat_request(parse_json(stringify(request)));
+  Value req = Core::get(resolve_model_key_request(Core::coerce_chat_request(parse_json(stringify(request))), Value(), false), "request");
   Core::set(req, "model", Core::coalesce(Core::get(req, "model"), model_));
   Core::set(req, "model_config", Core::merge_model_config(model_config_, Core::get(req, "model_config"), options_));
   Core::provider_validate_chat_request(profile_, req, options_);
@@ -3455,8 +3464,10 @@ void OpenAICompatibleClient::stream_each(Value request, AxStreamHandler handler)
 
 // options are the stream call options; null means none (stream_each(request, handler)).
 void OpenAICompatibleClient::stream_each(Value request, AxStreamHandler handler, Value options) {
-  bool has_call_options = options.is_object();
-  Value call_options = has_call_options ? options : Value::object();
+  Value resolved = resolve_model_key_request(Core::coerce_chat_request(std::move(request)), options, false);
+  request = Core::get(resolved, "request");
+  Value call_options = Core::get(resolved, "options");
+  bool has_call_options = options.is_object() || !object_ref(call_options).empty();
   if(!Core::truthy(Core::get(get_features(Core::get(request,"model")),"streaming",true))) { handler(has_call_options ? chat(request, Core::map_merge(call_options, object({{"stream", false}}))) : chat(request)); return; }
   Value stream_options = Core::map_merge(call_options, object({{"stream", true}}));
   Value req = Core::coerce_chat_request(std::move(request));

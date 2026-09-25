@@ -1941,6 +1941,240 @@ impl OpenAICompatibleClient {
         self.runtime_hooks.meter = meter;
     }
 
+    /// A key from the client's model list stands for that entry's model and
+    /// brings the entry's defaults underneath the caller's options. Returns the
+    /// resolved request and options.
+    fn resolve_model_key_request(&self, request: &Value, options: &Value, embed: bool) -> AxResult<(Value, Value)> {
+        let default_model = if embed { &self.embed_model } else { &self.model };
+        let resolved = core_value_to_json(&resolve_model_key(&[
+            core_value_from_json(&self.options),
+            core_value_from_json(request),
+            core_value_from_json(options),
+            core_value_from_json(&json!(default_model)),
+            core_value_from_json(&json!(embed)),
+        ])?);
+        Ok((resolved["request"].clone(), resolved["options"].clone()))
+    }
+
+    /// Runs `run` with a model key's option defaults layered over the client
+    /// options, then restores them.
+    fn with_key_options<T>(&mut self, key_options: &Value, run: impl FnOnce(&mut Self) -> AxResult<T>) -> AxResult<T> {
+        if key_options.as_object().map_or(true, |options| options.is_empty()) {
+            return run(self);
+        }
+        let previous = self.options.clone();
+        self.options = merge_ai_options(&previous, key_options)?;
+        let result = run(self);
+        self.options = previous;
+        result
+    }
+
+    fn chat_resolved(&mut self, request: Value) -> AxResult<Value> {
+        // python: AxBaseAI.chat gates expensive models before the rate limiter.
+        self.require_expensive_model_confirmation(&request)?;
+        let hooks = merge_runtime_hooks(None, None, Some(&self.runtime_hooks));
+        let info = AxRateLimitInfo {
+            operation: "chat".to_string(),
+            provider: self.profile.clone(),
+            model: string_at(&request, "model").unwrap_or_else(|| self.model.clone()),
+            streaming: false,
+            previous_model_usage: self.last_model_usage.clone(),
+        };
+        let mut next = || -> AxResult<Value> {
+        let req = self.prepare_chat_request(&request)?;
+        // python: AxBaseAI.chat validates the coerced request up front.
+        validate_chat_request(&[core_value_from_json(&req)])?;
+        let realtime_model = req
+            .get("model")
+            .and_then(Value::as_str)
+            .map(ToString::to_string)
+            .unwrap_or_else(|| self.model.clone());
+        if core_value_to_json(&provider_should_use_realtime(&[
+            CoreValue::from(self.profile.as_str()),
+            CoreValue::from(realtime_model.as_str()),
+            core_value_from_json(&req),
+            core_value_from_json(&self.options),
+        ])?)
+        .as_bool()
+        .unwrap_or(false)
+        {
+            let response = self.realtime_chat(req, None);
+            if let Ok(value) = &response {
+                emit_usage_event("chat", value, &self.options, false);
+            }
+            return response;
+        }
+        if self.profile == "openai-compatible" {
+            let _ = build_chat_request(&[
+                CoreValue::Null,
+                core_value_from_json(&req),
+                CoreValue::Null,
+            ])?;
+        }
+        let payload = core_value_to_json(&provider_build_chat_request(&[
+            CoreValue::from(self.profile.as_str()),
+            core_value_from_json(&req),
+            core_value_from_json(&self.options),
+        ])?);
+        let model = req
+            .get("model")
+            .and_then(Value::as_str)
+            .map(ToString::to_string)
+            .or_else(|| payload.get("model").and_then(Value::as_str).map(ToString::to_string))
+            .unwrap_or_else(|| self.model.clone());
+        let call = self.provider_transport_request("chat", &payload, &model, false)?;
+        let raw = match self.context_cache_chat(&req, &payload, &model, &call)? {
+            Some(value) => value,
+            None => self.dispatch_transport_request(call)?,
+        };
+        let profile = self.profile.clone();
+        let response_context = if profile == "typesafe" {
+            core_value_to_json(&typesafe_response_context(&[core_value_from_json(&payload), core_value_from_json(&self.options)])?)
+        } else { payload.clone() };
+        let response = normalize_openai_response(&profile, &model, raw, &response_context);
+        if let Ok(value) = &response {
+            emit_usage_event("chat", value, &self.options, false);
+        }
+        response
+        };
+        let result = run_ai_runtime_operation(hooks, &info, &mut next);
+        if let Ok(response) = &result {
+            self.last_model_usage = response_model_usage(response);
+        }
+        result
+    }
+
+    fn stream_iter_resolved(&mut self, request: Value) -> AxResult<AxChatStream> {
+        if self.get_features(request.get("model").and_then(Value::as_str)).get("streaming").and_then(Value::as_bool)==Some(false) {
+            return Ok(AxChatStream::from_values(vec![self.chat_resolved(request)?]));
+        }
+        // Streaming chat is gated like chat, with the call options of
+        // stream_iter_with_options (a plain stream_iter call has none).
+        self.require_expensive_model_confirmation(&request)?;
+        let hooks = merge_runtime_hooks(None, None, Some(&self.runtime_hooks));
+        let info = AxRateLimitInfo {
+            operation: "chat".to_string(),
+            provider: self.profile.clone(),
+            model: string_at(&request, "model").unwrap_or_else(|| self.model.clone()),
+            streaming: true,
+            previous_model_usage: self.last_model_usage.clone(),
+        };
+        let mut attributes = BTreeMap::new();
+        attributes.insert("ax.operation".to_string(), json!(info.operation));
+        attributes.insert("ax.provider".to_string(), json!(info.provider));
+        attributes.insert("ax.model".to_string(), json!(info.model));
+        attributes.insert("ax.streaming".to_string(), json!(true));
+        let span = start_runtime_span(&hooks, "ax_llm_chat", "client", &attributes);
+        let started = Instant::now();
+        record_runtime_metrics(&hooks, "client", &attributes, None, None);
+        if let Some(limiter) = hooks.rate_limiter.clone() {
+            let mut next = || Ok(Value::Null);
+            if let Err(error) = limiter.run(&mut next, &info) {
+                record_runtime_metrics(&hooks, "client", &attributes, Some(started.elapsed().as_secs_f64() * 1000.0), Some(&error));
+                finish_runtime_span(&span, Some(&error));
+                return Err(error);
+            }
+        }
+        let mut req = self.prepare_chat_request(&request)?;
+        let mut model_config = req.get("model_config").cloned().unwrap_or_else(|| json!({}));
+        model_config["stream"] = json!(true);
+        req["model_config"] = model_config;
+        if self.profile == "meta" && req.get("model").and_then(Value::as_str).unwrap_or(&self.model) == "muse-voice-transcribe-1.0" {
+            return self.meta_realtime_stream(req);
+        }
+        let payload = core_value_to_json(&provider_build_chat_request(&[
+            CoreValue::from(self.profile.as_str()),
+            core_value_from_json(&req),
+            core_value_from_json(&self.options),
+        ])?);
+        let model = req.get("model").and_then(Value::as_str).unwrap_or(self.model.as_str()).to_string();
+        let cfg = core_value_to_json(&resolve_stream_retry(&[core_value_from_json(&self.options)])?);
+        let max_retries = cfg.get("max_retries").and_then(Value::as_i64).unwrap_or(3);
+        let initial_delay = cfg.get("initial_delay_ms").and_then(Value::as_f64).unwrap_or(1000.0);
+        let max_delay = cfg.get("max_delay_ms").and_then(Value::as_f64).unwrap_or(60000.0);
+        let backoff = cfg.get("backoff_factor").and_then(Value::as_f64).unwrap_or(2.0);
+        let mut attempt: i64 = 0;
+        loop {
+            let call = self.provider_transport_request("stream_chat", &payload, &model, true)?;
+            let mut raw = match self.dispatch_transport_stream(call) {
+                Ok(value) => value,
+                Err(error) if is_retryable_ai_error(&error) && attempt < max_retries => {
+                    attempt += 1;
+                    let delay = (initial_delay * backoff.powi((attempt - 1) as i32)).min(max_delay);
+                    cancellation_backoff(Duration::from_millis(delay.max(0.0) as u64))?;
+                    continue;
+                }
+                Err(error) => {
+                    record_runtime_metrics(&hooks, "client", &attributes, Some(started.elapsed().as_secs_f64() * 1000.0), Some(&error));
+                    finish_runtime_span(&span, Some(&error));
+                    return Err(error);
+                }
+            };
+            let first = match raw.next() {
+                None => {
+                    let finish_hooks = hooks.clone();
+                    let finish_attributes = attributes.clone();
+                    let finish_span = span.clone();
+                    let finish_options = self.options.clone();
+                    return Ok(AxChatStream::new(std::iter::empty(), Some(Box::new(move |values, error, cancelled| {
+                        if !cancelled && error.is_none() { emit_usage_event("chat", &json!({"results": values}), &finish_options, true); }
+                        record_runtime_metrics(&finish_hooks, "client", &finish_attributes, Some(started.elapsed().as_secs_f64() * 1000.0), error);
+                        finish_runtime_span(&finish_span, error);
+                    }))));
+                }
+                Some(Err(error)) if is_retryable_ai_error(&error) && attempt < max_retries => {
+                    attempt += 1;
+                    let delay = (initial_delay * backoff.powi((attempt - 1) as i32)).min(max_delay);
+                    cancellation_backoff(Duration::from_millis(delay.max(0.0) as u64))?;
+                    continue;
+                }
+                Some(Err(error)) => {
+                    record_runtime_metrics(&hooks, "client", &attributes, Some(started.elapsed().as_secs_f64() * 1000.0), Some(&error));
+                    finish_runtime_span(&span, Some(&error));
+                    return Err(error);
+                }
+                Some(Ok(value)) => value,
+            };
+            let status = provider_classify_stream_error_status(&[
+                CoreValue::from(self.profile.as_str()),
+                core_value_from_json(&first),
+            ])?;
+            if !status.is_null() && core_truthy(&is_retryable_status(&[status.clone()])?) && attempt < max_retries {
+                attempt += 1;
+                let delay = (initial_delay * backoff.powi((attempt - 1) as i32)).min(max_delay);
+                cancellation_backoff(Duration::from_millis(delay.max(0.0) as u64))?;
+                continue;
+            }
+            let mut normalized = NormalizedProviderStream {
+                raw,
+                first: Some(first),
+                profile: self.profile.clone(),
+                model: model.clone(),
+                state: CoreValue::new_map(),
+                context: core_value_from_json(&payload),
+            };
+            let first_normalized = match normalized.next() {
+                None => return Ok(AxChatStream::from_values(Vec::new())),
+                Some(Err(error)) => {
+                    record_runtime_metrics(&hooks, "client", &attributes, Some(started.elapsed().as_secs_f64() * 1000.0), Some(&error));
+                    finish_runtime_span(&span, Some(&error));
+                    return Err(error);
+                }
+                Some(Ok(value)) => value,
+            };
+            let finish_hooks = hooks.clone();
+            let finish_attributes = attributes.clone();
+            let finish_span = span.clone();
+            let finish_options = self.options.clone();
+            let events = std::iter::once(Ok(first_normalized)).chain(normalized);
+            return Ok(AxChatStream::new(events, Some(Box::new(move |values, error, cancelled| {
+                if !cancelled && error.is_none() { emit_usage_event("chat", &json!({"results": values}), &finish_options, true); }
+                record_runtime_metrics(&finish_hooks, "client", &finish_attributes, Some(started.elapsed().as_secs_f64() * 1000.0), error);
+                finish_runtime_span(&finish_span, error);
+            }))));
+        }
+    }
+
     fn prepare_chat_request(&self, request: &Value) -> AxResult<Value> {
         let mut req = if request.is_object() { request.clone() } else { json!({}) };
         if req.get("chat_prompt").is_none() {
@@ -2442,6 +2676,11 @@ impl OpenAICompatibleClient {
     }
 
     pub fn embed(&mut self, request: Value) -> AxResult<Value> {
+        let (request, key_options) = self.resolve_model_key_request(&request, &json!({}), true)?;
+        self.with_key_options(&key_options, |client| client.embed_resolved(request))
+    }
+
+    fn embed_resolved(&mut self, request: Value) -> AxResult<Value> {
         let hooks = merge_runtime_hooks(None, None, Some(&self.runtime_hooks));
         let info = AxRateLimitInfo {
             operation: "embed".to_string(),
@@ -3188,7 +3427,8 @@ mod meta_duplex_tests {
 
 impl AxAIClient for OpenAICompatibleClient {
     fn validate_chat_request(&self, request: &Value) -> AxResult<()> {
-        let req = self.prepare_chat_request(request)?;
+        let (request, _) = self.resolve_model_key_request(request, &json!({}), false)?;
+        let req = self.prepare_chat_request(&request)?;
         provider_validate_chat_request(&[CoreValue::from(self.profile.as_str()), core_value_from_json(&req), core_value_from_json(&self.options)])?;
         Ok(())
     }
@@ -3202,6 +3442,7 @@ impl AxAIClient for OpenAICompatibleClient {
         emit_usage_event("chat", response, &merged, true);
     }
     fn open_chat_session(&mut self, request: Value, options: Value) -> AxResult<Option<Box<dyn AxChatSession>>> {
+        let (request, options) = self.resolve_model_key_request(&request, &options, false)?;
         let model=request.get("model").and_then(Value::as_str).unwrap_or(&self.model);
         if !["openai","openai-responses"].contains(&self.profile.as_str()) || !model.starts_with("gpt-6-astra") { return Ok(None); }
         // A session streams without chat, so it is gated here with its call options.
@@ -3235,11 +3476,12 @@ impl AxAIClient for OpenAICompatibleClient {
     fn transcribe(&mut self, request: Value) -> AxResult<Value> { OpenAICompatibleClient::transcribe(self, request) }
     fn speak(&mut self, request: Value) -> AxResult<Value> { OpenAICompatibleClient::speak(self, request) }
     fn chat_with_options(&mut self, request: Value, options: Value) -> AxResult<Value> {
+        let (request, options) = self.resolve_model_key_request(&request, &options, false)?;
         let previous = self.options.clone();
         self.options = merge_ai_options(&previous, &options)?;
         let call_options = if options.is_object() { options } else { json!({}) };
         let previous_scope = self.chat_option_scope.replace((previous.clone(), call_options));
-        let response = self.chat(request);
+        let response = self.chat_resolved(request);
         self.chat_option_scope = previous_scope;
         self.options = previous;
         response
@@ -3247,11 +3489,12 @@ impl AxAIClient for OpenAICompatibleClient {
     fn stream_iter_with_options(&mut self, request: Value, options: Value) -> AxResult<AxChatStream> {
         // The request is built and sent (first event peeked) inside stream_iter,
         // so the call options only need to apply until it returns.
+        let (request, options) = self.resolve_model_key_request(&request, &options, false)?;
         let previous = self.options.clone();
         self.options = merge_ai_options(&previous, &options)?;
         let call_options = if options.is_object() { options } else { json!({}) };
         let previous_scope = self.chat_option_scope.replace((previous.clone(), call_options));
-        let stream = self.stream_iter(request);
+        let stream = self.stream_iter_resolved(request);
         self.chat_option_scope = previous_scope;
         self.options = previous;
         stream
@@ -3291,209 +3534,11 @@ impl AxAIClient for OpenAICompatibleClient {
         with_runtime_binding(Some(&hooks), Some(&defaults), || self.stream(request))
     }
     fn chat(&mut self, request: Value) -> AxResult<Value> {
-        // python: AxBaseAI.chat gates expensive models before the rate limiter.
-        self.require_expensive_model_confirmation(&request)?;
-        let hooks = merge_runtime_hooks(None, None, Some(&self.runtime_hooks));
-        let info = AxRateLimitInfo {
-            operation: "chat".to_string(),
-            provider: self.profile.clone(),
-            model: string_at(&request, "model").unwrap_or_else(|| self.model.clone()),
-            streaming: false,
-            previous_model_usage: self.last_model_usage.clone(),
-        };
-        let mut next = || -> AxResult<Value> {
-        let req = self.prepare_chat_request(&request)?;
-        // python: AxBaseAI.chat validates the coerced request up front.
-        validate_chat_request(&[core_value_from_json(&req)])?;
-        let realtime_model = req
-            .get("model")
-            .and_then(Value::as_str)
-            .map(ToString::to_string)
-            .unwrap_or_else(|| self.model.clone());
-        if core_value_to_json(&provider_should_use_realtime(&[
-            CoreValue::from(self.profile.as_str()),
-            CoreValue::from(realtime_model.as_str()),
-            core_value_from_json(&req),
-            core_value_from_json(&self.options),
-        ])?)
-        .as_bool()
-        .unwrap_or(false)
-        {
-            let response = self.realtime_chat(req, None);
-            if let Ok(value) = &response {
-                emit_usage_event("chat", value, &self.options, false);
-            }
-            return response;
-        }
-        if self.profile == "openai-compatible" {
-            let _ = build_chat_request(&[
-                CoreValue::Null,
-                core_value_from_json(&req),
-                CoreValue::Null,
-            ])?;
-        }
-        let payload = core_value_to_json(&provider_build_chat_request(&[
-            CoreValue::from(self.profile.as_str()),
-            core_value_from_json(&req),
-            core_value_from_json(&self.options),
-        ])?);
-        let model = req
-            .get("model")
-            .and_then(Value::as_str)
-            .map(ToString::to_string)
-            .or_else(|| payload.get("model").and_then(Value::as_str).map(ToString::to_string))
-            .unwrap_or_else(|| self.model.clone());
-        let call = self.provider_transport_request("chat", &payload, &model, false)?;
-        let raw = match self.context_cache_chat(&req, &payload, &model, &call)? {
-            Some(value) => value,
-            None => self.dispatch_transport_request(call)?,
-        };
-        let profile = self.profile.clone();
-        let response_context = if profile == "typesafe" {
-            core_value_to_json(&typesafe_response_context(&[core_value_from_json(&payload), core_value_from_json(&self.options)])?)
-        } else { payload.clone() };
-        let response = normalize_openai_response(&profile, &model, raw, &response_context);
-        if let Ok(value) = &response {
-            emit_usage_event("chat", value, &self.options, false);
-        }
-        response
-        };
-        let result = run_ai_runtime_operation(hooks, &info, &mut next);
-        if let Ok(response) = &result {
-            self.last_model_usage = response_model_usage(response);
-        }
-        result
+        self.chat_with_options(request, json!({}))
     }
 
     fn stream_iter(&mut self, request: Value) -> AxResult<AxChatStream> {
-        if self.get_features(request.get("model").and_then(Value::as_str)).get("streaming").and_then(Value::as_bool)==Some(false) {
-            return Ok(AxChatStream::from_values(vec![self.chat(request)?]));
-        }
-        // Streaming chat is gated like chat, with the call options of
-        // stream_iter_with_options (a plain stream_iter call has none).
-        self.require_expensive_model_confirmation(&request)?;
-        let hooks = merge_runtime_hooks(None, None, Some(&self.runtime_hooks));
-        let info = AxRateLimitInfo {
-            operation: "chat".to_string(),
-            provider: self.profile.clone(),
-            model: string_at(&request, "model").unwrap_or_else(|| self.model.clone()),
-            streaming: true,
-            previous_model_usage: self.last_model_usage.clone(),
-        };
-        let mut attributes = BTreeMap::new();
-        attributes.insert("ax.operation".to_string(), json!(info.operation));
-        attributes.insert("ax.provider".to_string(), json!(info.provider));
-        attributes.insert("ax.model".to_string(), json!(info.model));
-        attributes.insert("ax.streaming".to_string(), json!(true));
-        let span = start_runtime_span(&hooks, "ax_llm_chat", "client", &attributes);
-        let started = Instant::now();
-        record_runtime_metrics(&hooks, "client", &attributes, None, None);
-        if let Some(limiter) = hooks.rate_limiter.clone() {
-            let mut next = || Ok(Value::Null);
-            if let Err(error) = limiter.run(&mut next, &info) {
-                record_runtime_metrics(&hooks, "client", &attributes, Some(started.elapsed().as_secs_f64() * 1000.0), Some(&error));
-                finish_runtime_span(&span, Some(&error));
-                return Err(error);
-            }
-        }
-        let mut req = self.prepare_chat_request(&request)?;
-        let mut model_config = req.get("model_config").cloned().unwrap_or_else(|| json!({}));
-        model_config["stream"] = json!(true);
-        req["model_config"] = model_config;
-        if self.profile == "meta" && req.get("model").and_then(Value::as_str).unwrap_or(&self.model) == "muse-voice-transcribe-1.0" {
-            return self.meta_realtime_stream(req);
-        }
-        let payload = core_value_to_json(&provider_build_chat_request(&[
-            CoreValue::from(self.profile.as_str()),
-            core_value_from_json(&req),
-            core_value_from_json(&self.options),
-        ])?);
-        let model = req.get("model").and_then(Value::as_str).unwrap_or(self.model.as_str()).to_string();
-        let cfg = core_value_to_json(&resolve_stream_retry(&[core_value_from_json(&self.options)])?);
-        let max_retries = cfg.get("max_retries").and_then(Value::as_i64).unwrap_or(3);
-        let initial_delay = cfg.get("initial_delay_ms").and_then(Value::as_f64).unwrap_or(1000.0);
-        let max_delay = cfg.get("max_delay_ms").and_then(Value::as_f64).unwrap_or(60000.0);
-        let backoff = cfg.get("backoff_factor").and_then(Value::as_f64).unwrap_or(2.0);
-        let mut attempt: i64 = 0;
-        loop {
-            let call = self.provider_transport_request("stream_chat", &payload, &model, true)?;
-            let mut raw = match self.dispatch_transport_stream(call) {
-                Ok(value) => value,
-                Err(error) if is_retryable_ai_error(&error) && attempt < max_retries => {
-                    attempt += 1;
-                    let delay = (initial_delay * backoff.powi((attempt - 1) as i32)).min(max_delay);
-                    cancellation_backoff(Duration::from_millis(delay.max(0.0) as u64))?;
-                    continue;
-                }
-                Err(error) => {
-                    record_runtime_metrics(&hooks, "client", &attributes, Some(started.elapsed().as_secs_f64() * 1000.0), Some(&error));
-                    finish_runtime_span(&span, Some(&error));
-                    return Err(error);
-                }
-            };
-            let first = match raw.next() {
-                None => {
-                    let finish_hooks = hooks.clone();
-                    let finish_attributes = attributes.clone();
-                    let finish_span = span.clone();
-                    let finish_options = self.options.clone();
-                    return Ok(AxChatStream::new(std::iter::empty(), Some(Box::new(move |values, error, cancelled| {
-                        if !cancelled && error.is_none() { emit_usage_event("chat", &json!({"results": values}), &finish_options, true); }
-                        record_runtime_metrics(&finish_hooks, "client", &finish_attributes, Some(started.elapsed().as_secs_f64() * 1000.0), error);
-                        finish_runtime_span(&finish_span, error);
-                    }))));
-                }
-                Some(Err(error)) if is_retryable_ai_error(&error) && attempt < max_retries => {
-                    attempt += 1;
-                    let delay = (initial_delay * backoff.powi((attempt - 1) as i32)).min(max_delay);
-                    cancellation_backoff(Duration::from_millis(delay.max(0.0) as u64))?;
-                    continue;
-                }
-                Some(Err(error)) => {
-                    record_runtime_metrics(&hooks, "client", &attributes, Some(started.elapsed().as_secs_f64() * 1000.0), Some(&error));
-                    finish_runtime_span(&span, Some(&error));
-                    return Err(error);
-                }
-                Some(Ok(value)) => value,
-            };
-            let status = provider_classify_stream_error_status(&[
-                CoreValue::from(self.profile.as_str()),
-                core_value_from_json(&first),
-            ])?;
-            if !status.is_null() && core_truthy(&is_retryable_status(&[status.clone()])?) && attempt < max_retries {
-                attempt += 1;
-                let delay = (initial_delay * backoff.powi((attempt - 1) as i32)).min(max_delay);
-                cancellation_backoff(Duration::from_millis(delay.max(0.0) as u64))?;
-                continue;
-            }
-            let mut normalized = NormalizedProviderStream {
-                raw,
-                first: Some(first),
-                profile: self.profile.clone(),
-                model: model.clone(),
-                state: CoreValue::new_map(),
-                context: core_value_from_json(&payload),
-            };
-            let first_normalized = match normalized.next() {
-                None => return Ok(AxChatStream::from_values(Vec::new())),
-                Some(Err(error)) => {
-                    record_runtime_metrics(&hooks, "client", &attributes, Some(started.elapsed().as_secs_f64() * 1000.0), Some(&error));
-                    finish_runtime_span(&span, Some(&error));
-                    return Err(error);
-                }
-                Some(Ok(value)) => value,
-            };
-            let finish_hooks = hooks.clone();
-            let finish_attributes = attributes.clone();
-            let finish_span = span.clone();
-            let finish_options = self.options.clone();
-            let events = std::iter::once(Ok(first_normalized)).chain(normalized);
-            return Ok(AxChatStream::new(events, Some(Box::new(move |values, error, cancelled| {
-                if !cancelled && error.is_none() { emit_usage_event("chat", &json!({"results": values}), &finish_options, true); }
-                record_runtime_metrics(&finish_hooks, "client", &finish_attributes, Some(started.elapsed().as_secs_f64() * 1000.0), error);
-                finish_runtime_span(&finish_span, error);
-            }))));
-        }
+        self.stream_iter_with_options(request, json!({}))
     }
 
     fn stream(&mut self, request: Value) -> AxResult<Vec<Value>> {
@@ -14928,11 +14973,13 @@ impl AxAIClient for FixtureClient {
     }
 
     fn chat(&mut self, request: Value) -> AxResult<Value> {
-        self.require_expensive_model_confirmation(&request, &json!({}))?;
+        let (request, options) = self.resolve_model_key_request(&request, &json!({}))?;
+        self.require_expensive_model_confirmation(&request, &options)?;
         self.scripted_chat(request)
     }
 
     fn chat_with_options(&mut self, request: Value, options: Value) -> AxResult<Value> {
+        let (request, options) = self.resolve_model_key_request(&request, &options)?;
         self.require_expensive_model_confirmation(&request, &options)?;
         self.chat_options.push(options);
         self.scripted_chat(request)
@@ -14940,6 +14987,19 @@ impl AxAIClient for FixtureClient {
 }
 
 impl FixtureClient {
+    // Resolve model keys the way a real client does, so the gate sees the same
+    // model and key defaults.
+    fn resolve_model_key_request(&self, request: &Value, options: &Value) -> AxResult<(Value, Value)> {
+        let resolved = core_value_to_json(&resolve_model_key(&[
+            core_value_from_json(&self.options),
+            core_value_from_json(request),
+            core_value_from_json(options),
+            core_value_from_json(&json!(self.model)),
+            core_value_from_json(&json!(false)),
+        ])?);
+        Ok((resolved["request"].clone(), resolved["options"].clone()))
+    }
+
     fn scripted_chat(&mut self, request: Value) -> AxResult<Value> {
         self.requests.push(request);
         let response = self

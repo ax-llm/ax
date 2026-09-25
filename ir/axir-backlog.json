@@ -1779,6 +1779,24 @@
       "completedAt": "2026-09-25",
       "completedByCommit": "65c47ed80d20e8bbc1c7293df498140c9c772088",
       "verification": "The google-gemini profile reports responseFormatWithFunctions: false. The descriptor carries response_format_with_functions and the TypeScript profile features map it. @select_structured_output_rung picks the function rung while user tools are callable or forced, and balancers in all five ports report false when any service does. Eight fixtures, including a TypeScript-derived balancer golden, fail when the rule or the Python balancer merge is disabled. Full npm run test:axir passed go test, check, lint, provenance audit, lower and the Python, Java, C++ and Go release verifies. The Rust release verify passed after ecaadcbd1 declared the functions capability that the Rust conformance client defaults to false. Live in Python and Go on gemini-3.6-flash and gemini-3.8-flash: unforced tools answered through __axOutput beside the tools, named and required forcing answered in two requests without a JSON response type, and none kept json_schema. gpt-5.4-mini kept the native rung."
+    },
+    {
+      "id": "axir-2026-09-25-port-model-key-resolution-on-single-ai-clients",
+      "status": "done",
+      "title": "Port model-key resolution on single AI clients",
+      "createdAt": "2026-09-25",
+      "sourcePR": null,
+      "sourceCommit": "78de31b0b5b2b67a897fbfaafdaf1bff6c810800",
+      "tsPaths": ["src/ax/ai/base.ts"],
+      "portableSurface": "axai",
+      "impact": "A TypeScript client built with models: [{ key, model | embedModel, modelConfig, thinkingTokenBudget, ... }] treats a request whose model (or embedModel) names a key as that entry's model: AxBaseAI.getModelByKey resolves the id, layers the key's modelConfig under the request's own and its option defaults (thinkingTokenBudget, showThoughts, serviceTier for chat, stream, debug, useExpensiveModel, beta) under the caller's options, and a key used as the client default resolves the id only. The generated ports stored the models list but never consulted it on single clients, so a key went out as the literal model name.",
+      "suggestedAxirWork": [
+        "Add a Core resolve_model_key op and call it at each client's chat/stream/embed entry in the five ports",
+        "Add conformance fixtures for key resolution and key defaults"
+      ],
+      "completedAt": "2026-09-25",
+      "completedByCommit": "b858629d545a8585e6b2caa3c748c1974b8e7d34",
+      "verification": "Core @resolve_model_key (ir/axcore/ai.axir) maps a request-named key to its model or embedModel, layers the key's modelConfig under the request's own and its option defaults (thinkingTokenBudget, showThoughts, serviceTier for chat, stream, debug, useExpensiveModel, beta) under the caller's options, and resolves only the id for a key used as the client default. All five ports call it at every chat, stream, embed, validate and chat-session entry point; the Rust trait methods route through chat_with_options/stream_iter_with_options so #702's chat_option_scope sees key defaults as call options. The expensive-model gate no longer confirms through a key entry's own useExpensiveModel, matching TypeScript for client-default keys; the Go and Rust conformance doubles resolve keys the same way. Fixtures openai-model-key-resolves-model-and-defaults, openai-model-key-request-config-overrides-key-defaults, openai-model-key-client-default-resolves-model-only, openai-model-key-resolves-embed-model (matching what the TS client sends, checked with a capturing fetch) and the TS-derived expensive-model-client-default-key-entry-does-not-confirm. All five ports pass 416/416 axai; full npm run test:axir passed (go test, check, lint, audit provenance, lower, verify release for all five targets); axir:check-packages and axir:conformance:check passed."
     }
   ],
   "nonPortableExemptions": [
