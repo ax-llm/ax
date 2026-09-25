@@ -18,7 +18,12 @@ This ledger tracks portable TypeScript behavior that should be migrated into AxI
 
 ## Open
 
-No entries.
+- `axir-2026-09-25-embed-gemini-embedding-2-on-vertex-through-global-embedcontent` [axai] Embed gemini-embedding-2 on Vertex through global :embedContent in the ports
+  - Status: open
+  - Source commit: `c8793427dc6206bd1280a7d09299f1119a10cd30`
+  - TS paths: `src/ax/ai/google-gemini/api.ts`, `src/ax/ai/google-gemini/types.ts`, `src/ax/ai/google-gemini/api.test.ts`
+  - Impact: TypeScript now sends gemini-embedding-2 on Vertex to https://aiplatform.googleapis.com/{v1|v1beta1}/projects/{project}/locations/global/publishers/google/models/gemini-embedding-2:embedContent with body {content: {parts: [{text}]}, outputDimensionality} whatever region is configured. It sends no task type and throws before any request when given more than one text, because Vertex fuses a request's parts into one vector. It reads embedding.values and usageMetadata from the response. The generated ports still build the regional :predict path in the Vertex descriptor and an instances payload in @gemini_build_vertex_embed_request, so gemini-embedding-2 on Vertex returns 404 in every port. Other Vertex embedding models and endpointId deployments are unchanged.
+  - Suggested AxIR work: In the Vertex descriptor route gemini-embedding-2 (no endpoint_id) to the global host and location with :embedContent instead of the regional :predict path; Branch @gemini_build_vertex_embed_request to emit {content: {parts: [{text}]}; outputDimensionality} for gemini-embedding-2 with no task_type and raise when texts has more than one entry; Teach @gemini_normalize_embed_response to read embedding.values and map usageMetadata promptTokenCount and totalTokenCount to usage; Add Vertex fixtures in tools/axir/extractors/axai-goldens.ts for the global URL and body and for the multi-text rejection then confirm they fail on the current ports; Regenerate the ports with npm run axir:generate-packages then run npm run axir:conformance:write and npm run test:axir
 
 ## Done
 
