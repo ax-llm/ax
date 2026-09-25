@@ -1114,6 +1114,16 @@ def _run_forward(fixture):
         for item in fixture.get("expected_request_not_contains") or []:
             if str(item) in request_text:
                 raise FixtureError(f"request unexpectedly contains {item!r}: {request_text}")
+    for check in fixture.get("expected_step_requests") or []:
+        index = int(check.get("index", 0))
+        if index >= len(client.requests):
+            raise FixtureError(f"missing request index {index}")
+        request = client.requests[index]
+        if "request" in check:
+            _assert_subset(request, check["request"], f"request {index}")
+        if "function_names" in check:
+            names = [spec.get("name") for spec in request.get("functions") or []]
+            _assert_equal(names, check["function_names"], f"request {index} function names")
     if "expected_tool_calls" in fixture:
         _assert_equal(tool_calls, fixture["expected_tool_calls"], "tool calls")
     if "expected_trace" in fixture:

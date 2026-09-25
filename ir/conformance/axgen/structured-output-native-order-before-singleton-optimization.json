@@ -2,6 +2,7 @@
   "name": "structured-output-native-order-before-singleton-optimization",
   "kind": "forward",
   "signature": "question:string -> answer:string",
+  "options": { "force_structured": true },
   "input": { "question": "What is Ax?" },
   "features": {
     "structured_outputs": true,

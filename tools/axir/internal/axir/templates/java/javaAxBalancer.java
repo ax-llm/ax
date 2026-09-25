@@ -337,6 +337,7 @@ public final class AxBalancer implements AxAIService,ChatRunSelector,AxChatSessi
   static Map<String,Object> mergedFeatures(List<AxAIService> services,String model) {
     Map<String, Object> features = balancerBaseFeatures();
     if (!services.isEmpty() && services.stream().allMatch(service -> { var raw = service.getFeatures(model); return Core.truthy(raw.getOrDefault("requiresStructuredOutput", raw.getOrDefault("requires_structured_output", false))); })) features.put("requiresStructuredOutput", true);
+    if (services.stream().anyMatch(service -> { var raw = service.getFeatures(model); Object value = raw.getOrDefault("responseFormatWithFunctions", raw.get("response_format_with_functions")); return value != null && !Core.truthy(value); })) features.put("responseFormatWithFunctions", false);
     Map<String, Object> media = Core.asMap(features.get("media"));
     List<Object> structuredOutputModes = new ArrayList<>();
     boolean allModesAdvertised = !services.isEmpty();

@@ -69,6 +69,7 @@ export type AxAIProfileCapabilities = {
   functions: boolean;
   functionEmulation?: boolean;
   requiresStructuredOutput?: boolean;
+  responseFormatWithFunctions?: boolean;
   streaming: boolean;
   structuredOutputs: boolean;
   structuredOutputModes: readonly AxStructuredOutputRung[];
@@ -312,6 +313,7 @@ export const axResolveAIProfileFeatures = (
     functions: capabilities.functions,
     functionEmulation: capabilities.functionEmulation,
     requiresStructuredOutput: capabilities.requiresStructuredOutput,
+    responseFormatWithFunctions: capabilities.responseFormatWithFunctions,
     streaming: capabilities.streaming,
     structuredOutputs: capabilities.structuredOutputs,
     structuredOutputModes: capabilities.structuredOutputModes,

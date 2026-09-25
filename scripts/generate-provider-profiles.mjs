@@ -444,6 +444,10 @@ const descriptors = Object.fromEntries(
           ...(profile.capabilities.requiresStructuredOutput
             ? { requires_structured_output: true }
             : {}),
+          // Omitted means a JSON response format works beside native tools.
+          ...(profile.capabilities.responseFormatWithFunctions === false
+            ? { response_format_with_functions: false }
+            : {}),
           thinking: profile.capabilities.thinking,
           multi_turn: profile.capabilities.multiTurn,
           service_tiers: profile.capabilities.serviceTiers ?? [],

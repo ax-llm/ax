@@ -1,0 +1,113 @@
+{
+  "expected_output": {
+    "summary": {
+      "answer": "Found Ax docs"
+    }
+  },
+  "expected_request_count": 2,
+  "expected_step_requests": [
+    {
+      "function_names": ["search"],
+      "index": 0,
+      "request": {
+        "function_call": "required",
+        "function_call_source": "caller"
+      }
+    },
+    {
+      "function_names": ["__axOutput"],
+      "index": 1,
+      "request": {
+        "function_call": {
+          "function": {
+            "name": "__axOutput"
+          },
+          "type": "function"
+        },
+        "function_call_source": "ax"
+      }
+    }
+  ],
+  "expected_tool_calls": [
+    {
+      "args": {
+        "query": "ax docs"
+      },
+      "name": "search"
+    }
+  ],
+  "features": {
+    "functions": true,
+    "structured_outputs": false
+  },
+  "forward_options": {
+    "function_call": "required"
+  },
+  "input": {
+    "query": "ax docs"
+  },
+  "kind": "forward",
+  "name": "forced-function-call-required-function-rung",
+  "options": {
+    "structured_output_mode": "function"
+  },
+  "responses": [
+    {
+      "content": "",
+      "function_calls": [
+        {
+          "id": "call_1",
+          "name": "search",
+          "params": {
+            "query": "ax docs"
+          }
+        }
+      ]
+    },
+    {
+      "content": "",
+      "function_calls": [
+        {
+          "id": "output_1",
+          "name": "__axOutput",
+          "params": {
+            "summary": {
+              "answer": "Found Ax docs"
+            }
+          }
+        }
+      ]
+    }
+  ],
+  "signature_spec": {
+    "inputs": {
+      "query": {
+        "type": "string"
+      }
+    },
+    "outputs": {
+      "summary": {
+        "fields": {
+          "answer": {
+            "type": "string"
+          }
+        },
+        "type": "object"
+      }
+    }
+  },
+  "tools": [
+    {
+      "args": {
+        "query": {
+          "type": "string"
+        }
+      },
+      "description": "Search docs",
+      "name": "search",
+      "result": {
+        "title": "Ax docs"
+      }
+    }
+  ]
+}

@@ -421,6 +421,6 @@ public final class AxGen implements AxProgram {
   Map<String, Object> request(List<Map<String, Object>> messages, Map<String, Object> opts) {
     Map<String, Object> requestOptions = opts == null ? java.util.Map.of() : opts;
     Map<String, Object> selection = Core.asMap(Core._select_structured_output_rung(signature, java.util.Map.of(), requestOptions, functions));
-    return Core.asMap(Core._build_gen_chat_request(this, messages, requestOptions, selection));
+    return Core.asMap(Core._build_gen_chat_request(this, messages, requestOptions, selection, 0));
   }
 }

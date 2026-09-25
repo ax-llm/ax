@@ -2,6 +2,7 @@
   "name": "structured-output-advertised-json-object",
   "kind": "forward",
   "signature": "question:string -> answer:string, confidence:number",
+  "options": { "force_structured": true },
   "input": { "question": "What is Ax?" },
   "features": {
     "structured_outputs": false,

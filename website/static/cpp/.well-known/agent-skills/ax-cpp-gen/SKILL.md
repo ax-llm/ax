@@ -63,9 +63,13 @@ AxGen merges constructor and per-call forward options before invoking the provid
 
 `structuredOutputMode` / `structured_output_mode` accepts `auto`, `native`, `function`, or `json_object`. Auto follows the selected profile/model ordering, with the provider-neutral singleton string/code JSON-object optimization. Explicit modes must be advertised and fail before transport otherwise. JSON-object mode retains exact-shape prompting, strict parsing, and one bounded correction retry without a synthetic `__axOutput` tool.
 
-With native tools, a simple signature (no object or object-array output) selects no structured-output rung, as in TypeScript: the provider gets no response schema and the model answers with `field: value` lines, whatever `structuredOutputMode` says. Set `forceStructured` / `force_structured` (the TypeScript `useStructured()` equivalent) to keep the JSON contract beside tools.
+Gemini reports `responseFormatWithFunctions: false`: it rejects a JSON response format beside forced tool calls, and some models keep calling tools under one. While native tools are callable or forced, auto therefore selects the `function` rung and the model answers through `__axOutput`. A `none` tool choice, prompt emulation, an explicit mode, and tool-less programs keep their rung. A balancer reports false when any of its services does.
+
+A simple signature (no object or object-array output) selects no structured-output rung, with or without tools, as in TypeScript: the provider gets no response schema and the model answers with `field: value` lines, whatever `structuredOutputMode` says. Set `forceStructured` / `force_structured` (the TypeScript `useStructured()` equivalent) to keep the JSON contract; agent actor stages set it.
 
 `maxSteps` / `max_steps` (default 25) caps the tool loop. Each model turn that calls tools is one step, and validation retries stay inside their step. Reaching the cap raises `Generate failed: Max steps reached: N`.
+
+`functionCall` / `function_call` sets the tool choice: `auto`, `none`, `required`, or `{ type: 'function', function: { name } }` to force one function. A forced call (`required` or named) applies to the first step only, as in TypeScript: later steps drop it together with the tools so the model can answer. Under the `function` structured-output rung the forced step withholds `__axOutput`, so the forcing reaches a user tool, and the next step forces `__axOutput`. A tool choice passed as `functionCallMode` is routed the same way.
 
 ## Multi-Sampling
 

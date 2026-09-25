@@ -452,6 +452,7 @@ export const axAIProviderProfiles = {
         "native",
         "function"
       ],
+      "responseFormatWithFunctions": false,
       "serviceTiers": [
         "standard",
         "flex",
