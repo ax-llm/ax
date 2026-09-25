@@ -620,7 +620,7 @@ describe('AxAIGoogleGemini model key preset merging', () => {
     });
   });
 
-  describe('gemini-embedding-2 on Vertex', () => {
+  describe('gemini-embedding-2 embeddings', () => {
     const embedContentResponse = {
       embedding: { values: [0.1, 0.2, 0.3] },
       usageMetadata: { promptTokenCount: 2, totalTokenCount: 2 },
@@ -697,6 +697,35 @@ describe('AxAIGoogleGemini model key preset merging', () => {
         'gemini-embedding-2 on Vertex embeds one text per request'
       );
       expect(fetch).not.toHaveBeenCalled();
+    });
+
+    it('leaves the Gemini API on batchEmbedContents with taskType', async () => {
+      const capture: { calls: Array<{ url: string; body?: any }> } = {
+        calls: [],
+      };
+      const fetch = createSequencedMockFetch(
+        [{ embeddings: [{ values: [0.1] }, { values: [0.2] }] }],
+        capture
+      );
+      const ai = new AxAIGoogleGemini({
+        apiKey: 'gemini-key',
+        config: {
+          model: AxAIGoogleGeminiModel.Gemini25Flash,
+          embedModel: AxAIGoogleGeminiEmbedModel.GeminiEmbedding2,
+          embedType: AxAIGoogleGeminiEmbedTypes.RetrievalDocument,
+        },
+        options: { fetch },
+      });
+
+      const res = await ai.embed({ texts: ['a', 'b'] });
+
+      expect(capture.calls[0]?.url).toBe(
+        'https://generativelanguage.googleapis.com/v1beta/models/gemini-embedding-2:batchEmbedContents'
+      );
+      expect(capture.calls[0]?.body?.requests?.[0]?.taskType).toBe(
+        'RETRIEVAL_DOCUMENT'
+      );
+      expect(res.embeddings).toEqual([[0.1], [0.2]]);
     });
   });
 
