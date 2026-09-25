@@ -2314,6 +2314,25 @@ try:
             raise AssertionError('early close accepted an incomplete upload')
 finally:
     wire._WebSocketRealtimeTransport = original_socket
+# Gemini Live extended thinking: an acknowledgement turn ends IN_PROGRESS and the
+# answer follows in a second turn, so the driver must keep reading past it.
+gemini = ai("google-gemini", model="gemini-3.8-live-extended-thinking", api_key="test-key")
+gemini_transport = ScriptedRealtimeTransport([
+    {"setupComplete": {}},
+    {"serverContent": {"outputTranscription": {"text": "Let me think."}}},
+    {"serverContent": {"turnComplete": True, "interactionStatus": "IN_PROGRESS"}},
+    {"serverContent": {"outputTranscription": {"text": "Hello there."}}},
+    {"serverContent": {"modelTurn": {"parts": [{"inlineData": {"mimeType": "audio/pcm", "data": "AQI="}}]}}},
+    {"serverContent": {"turnComplete": True, "interactionStatus": "IDLE"}},
+])
+gemini_final = gemini.realtime_chat(
+    {"model": "gemini-3.8-live-extended-thinking", "chat_prompt": [{"role": "user", "content": "Say hello."}]},
+    transport=gemini_transport,
+)
+gemini_result = gemini_final["results"][0]
+assert gemini_result["content"] == "Let me think. Hello there.", gemini_result
+assert gemini_result["finish_reason"] == "stop", gemini_result
+assert gemini_result.get("audio", {}).get("data") == "AQI=", gemini_result
 from axllm import AxMemory
 memory = AxMemory()
 memory.update_result({"thought_blocks": [{"id": "r", "data": "Plan"}], "images": [{"id": "image", "data": "partial"}]})
@@ -3124,6 +3143,25 @@ public final class RealtimeAudioTurnExample {
       fail("early close accepted an incomplete upload", Map.of());
     } catch (RuntimeException error) {
       if (!error.getMessage().contains("closed before audio upload completed")) throw error;
+    }
+    // Gemini Live extended thinking: an acknowledgement turn ends IN_PROGRESS and the
+    // answer follows in a second turn, so the driver must keep reading past it.
+    OpenAICompatibleClient gemini = (OpenAICompatibleClient) Ax.ai("google-gemini", Map.of("model", "gemini-3.8-live-extended-thinking", "api_key", "test-key"));
+    OpenAICompatibleClient.ScriptedRealtimeTransport geminiTransport = new OpenAICompatibleClient.ScriptedRealtimeTransport(List.of(
+        Map.of("setupComplete", Map.of()),
+        Map.of("serverContent", Map.of("outputTranscription", Map.of("text", "Let me think."))),
+        Map.of("serverContent", Map.of("turnComplete", true, "interactionStatus", "IN_PROGRESS")),
+        Map.of("serverContent", Map.of("outputTranscription", Map.of("text", "Hello there."))),
+        Map.of("serverContent", Map.of("modelTurn", Map.of("parts", List.of(Map.of("inlineData", Map.of("mimeType", "audio/pcm", "data", "AQI=")))))),
+        Map.of("serverContent", Map.of("turnComplete", true, "interactionStatus", "IDLE"))));
+    Map<String, Object> geminiFinal = gemini.realtimeChat(
+        Map.of("model", "gemini-3.8-live-extended-thinking", "chat_prompt", List.of(Map.of("role", "user", "content", "Say hello."))),
+        geminiTransport);
+    Map<?, ?> geminiResult = (Map<?, ?>) ((List<?>) geminiFinal.get("results")).get(0);
+    Object geminiAudio = geminiResult.get("audio");
+    if (!"Let me think. Hello there.".equals(geminiResult.get("content")) || !"stop".equals(geminiResult.get("finish_reason"))
+        || !(geminiAudio instanceof Map) || !"AQI=".equals(((Map<?, ?>) geminiAudio).get("data"))) {
+      fail("Gemini extended-thinking turn cut short", geminiFinal);
     }
     AxMemory memory = new AxMemory();
     memory.updateResult(Map.of("thought_blocks", List.of(Map.of("id", "r", "data", "Plan")), "images", List.of(Map.of("id", "image", "data", "partial"))));
@@ -4346,6 +4384,31 @@ int main() {
     fail("early close accepted an incomplete upload", axllm::Value());
   } catch (const std::exception& error) {
     if (std::string(error.what()).find("closed before audio upload completed") == std::string::npos) throw;
+  }
+  // Gemini Live extended thinking: an acknowledgement turn ends IN_PROGRESS and the
+  // answer follows in a second turn, so the driver must keep reading past it.
+  auto gemini = std::dynamic_pointer_cast<axllm::OpenAICompatibleClient>(axllm::ai("google-gemini", axllm::parse_json(R"({"model":"gemini-3.8-live-extended-thinking","api_key":"test-key"})")));
+  std::vector<axllm::Value> gemini_inbound = {
+      axllm::parse_json(R"({"setupComplete":{}})"),
+      axllm::parse_json(R"({"serverContent":{"outputTranscription":{"text":"Let me think."}}})"),
+      axllm::parse_json(R"({"serverContent":{"turnComplete":true,"interactionStatus":"IN_PROGRESS"}})"),
+      axllm::parse_json(R"({"serverContent":{"outputTranscription":{"text":"Hello there."}}})"),
+      axllm::parse_json(R"({"serverContent":{"modelTurn":{"parts":[{"inlineData":{"mimeType":"audio/pcm","data":"AQI="}}]}}})"),
+      axllm::parse_json(R"({"serverContent":{"turnComplete":true,"interactionStatus":"IDLE"}})"),
+  };
+  axllm::ScriptedRealtimeTransport gemini_transport(gemini_inbound);
+  axllm::Value gemini_final = gemini->realtime_chat(
+      axllm::parse_json(R"({"model":"gemini-3.8-live-extended-thinking","chat_prompt":[{"role":"user","content":"Say hello."}]})"),
+      &gemini_transport);
+  axllm::Value gemini_result;
+  for (const auto& entry : axllm::Core::iter(axllm::Core::get(gemini_final, "results"))) {
+    gemini_result = entry;
+    break;
+  }
+  if (axllm::stringify(axllm::Core::get(gemini_result, "content")) != "\"Let me think. Hello there.\"" ||
+      axllm::stringify(axllm::Core::get(gemini_result, "finish_reason")) != "\"stop\"" ||
+      axllm::stringify(axllm::Core::get(axllm::Core::get(gemini_result, "audio"), "data")) != "\"AQI=\"") {
+    fail("Gemini extended-thinking turn cut short", gemini_final);
   }
   axllm::AxMemory memory;
   memory.update_result(axllm::parse_json(R"({"thought_blocks":[{"id":"r","data":"Plan"}],"images":[{"id":"image","data":"partial"}]})"));

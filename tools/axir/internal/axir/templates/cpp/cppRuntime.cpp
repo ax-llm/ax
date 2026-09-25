@@ -3611,7 +3611,9 @@ bool realtime_event_is_done(const Value& event) {
   std::string type = str(Core::get(event, "type", Value("")));
   if (type == "response.done" || type == "response.completed") return true;
   Value server_content = Core::get(event, "serverContent");
-  return !server_content.is_null() && Core::truthy(Core::get(server_content, "turnComplete", Value(false)));
+  // Extended thinking ends an acknowledgement turn IN_PROGRESS and answers in the next turn.
+  return !server_content.is_null() && Core::truthy(Core::get(server_content, "turnComplete", Value(false))) &&
+         str(Core::get(server_content, "interactionStatus", Value(""))) != "IN_PROGRESS";
 }
 
 struct RealtimeWsTarget {

@@ -23008,6 +23008,7 @@ func _gemini_normalize_speak_response(args ...Value) (Value, error) {
 	var v_is_pcm_mime Value
 	var v_is_wav_mime Value
 	var v_mime_lower Value
+	var v_mime_params Value
 	var v_mime_type Value
 	var v_out Value
 	var v_part Value
@@ -23035,6 +23036,7 @@ func _gemini_normalize_speak_response(args ...Value) (Value, error) {
 	_ = v_is_pcm_mime
 	_ = v_is_wav_mime
 	_ = v_mime_lower
+	_ = v_mime_params
 	_ = v_mime_type
 	_ = v_out
 	_ = v_part
@@ -23095,6 +23097,98 @@ func _gemini_normalize_speak_response(args ...Value) (Value, error) {
 	v_has_mime = _core_truthy(v_mime_type)
 	if coreTruthy(v_has_mime) {
 		if err := coreSet(v_out, "mime_type", v_mime_type); err != nil { return nil, err }
+		{ v, err := _audio_mime_params_impl(v_mime_type); if err != nil { return nil, err }; v_mime_params = v }
+		v_out = _core_map_merge(v_out, v_mime_params)
+	} else {
+	// empty
+	}
+	return v_out, nil
+}
+
+func _audio_mime_params_impl(args ...Value) (Value, error) {
+	axirCoverageMark("_audio_mime_params_impl")
+	var v_mime_type Value
+	var v_has_params Value
+	var v_has_value Value
+	var v_is_channels Value
+	var v_is_number Value
+	var v_is_rate Value
+	var v_key Value
+	var v_lower Value
+	var v_media Value
+	var v_number Value
+	var v_out Value
+	var v_pair Value
+	var v_param Value
+	var v_params Value
+	var v_params_text Value
+	var v_parse_error Value
+	var v_value Value
+	if len(args) > 0 { v_mime_type = args[0] }
+	_ = v_mime_type
+	_ = v_has_params
+	_ = v_has_value
+	_ = v_is_channels
+	_ = v_is_number
+	_ = v_is_rate
+	_ = v_key
+	_ = v_lower
+	_ = v_media
+	_ = v_number
+	_ = v_out
+	_ = v_pair
+	_ = v_param
+	_ = v_params
+	_ = v_params_text
+	_ = v_parse_error
+	_ = v_value
+	v_out = Object()
+	v_lower = _core_string_lower(v_mime_type)
+	v_media = _core_string_split_once(v_lower, ";")
+	v_has_params = coreGet(v_media, "found", false)
+	if coreTruthy(v_has_params) {
+		v_params_text = coreGet(v_media, "right", "")
+		v_params = _core_string_split(v_params_text, ";")
+		for _, v_param = range coreIter(v_params) {
+			v_pair = _core_string_split_once(v_param, "=")
+			v_has_value = coreGet(v_pair, "found", false)
+			if coreTruthy(v_has_value) {
+				v_key = coreGet(v_pair, "left", "")
+				v_key = coreStringTrim(v_key)
+				v_value = coreGet(v_pair, "right", "")
+				v_value = coreStringTrim(v_value)
+				v_is_number = coreRegexMatch("^[0-9]+(\\.[0-9]+)?$", v_value)
+				if coreTruthy(v_is_number) {
+					{
+						__flow, __err := func() (coreFlow, error) {
+							{ v, err := _core_json_parse(v_value); if err != nil { return coreFlow{}, err }; v_number = v }
+							v_is_rate = _core_eq(v_key, "rate")
+							if coreTruthy(v_is_rate) {
+								if err := coreSet(v_out, "sample_rate", v_number); err != nil { return coreFlow{}, err }
+							} else {
+							// empty
+							}
+							v_is_channels = _core_eq(v_key, "channels")
+							if coreTruthy(v_is_channels) {
+								if err := coreSet(v_out, "channels", v_number); err != nil { return coreFlow{}, err }
+							} else {
+							// empty
+							}
+							return coreFlow{}, nil
+						}()
+						if __err == nil && __flow.kind == coreFlowReturn { return __flow.value, nil }
+						if __err != nil {
+							v_parse_error = errorValue(__err)
+						// empty
+						}
+					}
+				} else {
+				// empty
+				}
+			} else {
+			// empty
+			}
+		}
 	} else {
 	// empty
 	}
@@ -23748,6 +23842,7 @@ func _gemini_live_bidi_normalize_realtime_event(args ...Value) (Value, error) {
 	var v_state Value
 	var v_ai_name Value
 	var v_model Value
+	var v_after_previous Value
 	var v_audio Value
 	var v_call_count Value
 	var v_calls Value
@@ -23769,17 +23864,26 @@ func _gemini_live_bidi_normalize_realtime_event(args ...Value) (Value, error) {
 	var v_has_inline_data Value
 	var v_has_input_transcription Value
 	var v_has_output_transcription Value
+	var v_has_previous_transcript Value
 	var v_inline_data Value
 	var v_input_text Value
 	var v_input_transcription Value
+	var v_interaction_in_progress Value
+	var v_interaction_status Value
 	var v_mime Value
 	var v_model_turn Value
 	var v_model_usage Value
+	var v_needs_space Value
+	var v_next_open Value
+	var v_next_spaced Value
 	var v_none_finish Value
 	var v_out Value
 	var v_output_transcription Value
 	var v_part Value
 	var v_parts Value
+	var v_previous_open Value
+	var v_previous_spaced Value
+	var v_previous_transcript Value
 	var v_result Value
 	var v_results Value
 	var v_server Value
@@ -23789,8 +23893,10 @@ func _gemini_live_bidi_normalize_realtime_event(args ...Value) (Value, error) {
 	var v_top_part Value
 	var v_top_tool_call Value
 	var v_transcript_text Value
+	var v_turn_break Value
 	var v_turn_complete Value
 	var v_usage Value
+	var v_words_touch Value
 	if len(args) > 0 { v_event = args[0] }
 	_ = v_event
 	if len(args) > 1 { v_state = args[1] }
@@ -23799,6 +23905,7 @@ func _gemini_live_bidi_normalize_realtime_event(args ...Value) (Value, error) {
 	_ = v_ai_name
 	if len(args) > 3 { v_model = args[3] }
 	_ = v_model
+	_ = v_after_previous
 	_ = v_audio
 	_ = v_call_count
 	_ = v_calls
@@ -23820,17 +23927,26 @@ func _gemini_live_bidi_normalize_realtime_event(args ...Value) (Value, error) {
 	_ = v_has_inline_data
 	_ = v_has_input_transcription
 	_ = v_has_output_transcription
+	_ = v_has_previous_transcript
 	_ = v_inline_data
 	_ = v_input_text
 	_ = v_input_transcription
+	_ = v_interaction_in_progress
+	_ = v_interaction_status
 	_ = v_mime
 	_ = v_model_turn
 	_ = v_model_usage
+	_ = v_needs_space
+	_ = v_next_open
+	_ = v_next_spaced
 	_ = v_none_finish
 	_ = v_out
 	_ = v_output_transcription
 	_ = v_part
 	_ = v_parts
+	_ = v_previous_open
+	_ = v_previous_spaced
+	_ = v_previous_transcript
 	_ = v_result
 	_ = v_results
 	_ = v_server
@@ -23840,8 +23956,10 @@ func _gemini_live_bidi_normalize_realtime_event(args ...Value) (Value, error) {
 	_ = v_top_part
 	_ = v_top_tool_call
 	_ = v_transcript_text
+	_ = v_turn_break
 	_ = v_turn_complete
 	_ = v_usage
+	_ = v_words_touch
 	v_error_payload = coreGet(v_event, "error", nil)
 	v_has_error = _core_is_not_none(v_error_payload)
 	if coreTruthy(v_has_error) {
@@ -23876,6 +23994,23 @@ func _gemini_live_bidi_normalize_realtime_event(args ...Value) (Value, error) {
 	v_has_output_transcription = _core_is_not_none(v_output_transcription)
 	if coreTruthy(v_has_output_transcription) {
 		v_transcript_text = coreGet(v_output_transcription, "text", "")
+		v_turn_break = coreGet(v_state, "turn_break", false)
+		v_previous_transcript = coreGet(v_state, "last_transcript", "")
+		v_has_previous_transcript = _core_truthy(v_previous_transcript)
+		v_previous_spaced = coreRegexMatch("\\s$", v_previous_transcript)
+		v_next_spaced = coreRegexMatch("^\\s", v_transcript_text)
+		v_previous_open = _core_not(v_previous_spaced)
+		v_next_open = _core_not(v_next_spaced)
+		v_after_previous = _core_and(v_turn_break, v_has_previous_transcript)
+		v_words_touch = _core_and(v_previous_open, v_next_open)
+		v_needs_space = _core_and(v_after_previous, v_words_touch)
+		if coreTruthy(v_needs_space) {
+			v_transcript_text = _core_string_format(" {}", v_transcript_text)
+		} else {
+		// empty
+		}
+		if err := coreSet(v_state, "turn_break", false); err != nil { return nil, err }
+		if err := coreSet(v_state, "last_transcript", v_transcript_text); err != nil { return nil, err }
 		v_text_parts = coreAppend(v_text_parts, v_transcript_text)
 	} else {
 	// empty
@@ -23921,7 +24056,13 @@ func _gemini_live_bidi_normalize_realtime_event(args ...Value) (Value, error) {
 	}
 	v_turn_complete = coreGet(v_server, "turnComplete", false)
 	if coreTruthy(v_turn_complete) {
-		if err := coreSet(v_result, "finish_reason", "stop"); err != nil { return nil, err }
+		v_interaction_status = coreGet(v_server, "interactionStatus", "")
+		v_interaction_in_progress = _core_eq(v_interaction_status, "IN_PROGRESS")
+		if coreTruthy(v_interaction_in_progress) {
+			if err := coreSet(v_state, "turn_break", true); err != nil { return nil, err }
+		} else {
+			if err := coreSet(v_result, "finish_reason", "stop"); err != nil { return nil, err }
+		}
 	} else {
 	// empty
 	}
@@ -73265,7 +73406,9 @@ func realtimeEventIsDone(event Value) bool {
 	}
 	if sc := coreGet(event, "serverContent", nil); sc != nil {
 		if done, ok := coreGet(sc, "turnComplete", false).(bool); ok {
-			return done
+			// Extended thinking ends an acknowledgement turn IN_PROGRESS and
+			// answers in the next turn.
+			return done && display(coreGet(sc, "interactionStatus", "")) != "IN_PROGRESS"
 		}
 	}
 	return false

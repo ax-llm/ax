@@ -848,7 +848,9 @@ public class OpenAICompatibleClient extends AxBaseAI implements AxChatSession.Pr
     String type = String.valueOf(event.get("type"));
     if (type.equals("response.done") || type.equals("response.completed")) return true;
     Object sc = event.get("serverContent");
-    return sc instanceof Map && Boolean.TRUE.equals(((Map<?, ?>) sc).get("turnComplete"));
+    // Extended thinking ends an acknowledgement turn IN_PROGRESS and answers in the next turn.
+    return sc instanceof Map && Boolean.TRUE.equals(((Map<?, ?>) sc).get("turnComplete"))
+        && !"IN_PROGRESS".equals(((Map<?, ?>) sc).get("interactionStatus"));
   }
 
   private Object[] realtimeWsTarget(String model) {

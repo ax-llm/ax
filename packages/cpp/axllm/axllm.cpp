@@ -12338,6 +12338,48 @@ Value Core::_gemini_normalize_speak_response(Value raw, Value request) {
   Value has_mime = Core::truthy_value(mime_type);
   if (Core::truthy(has_mime)) {
     Core::set(out, Value("mime_type"), mime_type);
+    Value mime_params = Core::_audio_mime_params_impl(mime_type);
+    out = Core::map_merge(out, mime_params);
+  }
+  return out;
+}
+
+Value Core::_audio_mime_params_impl(Value mime_type) {
+  axir_coverage_mark("_audio_mime_params_impl");
+  Value out = Value::object();
+  Value lower = Core::string_lower(mime_type);
+  Value media = Core::string_split_once(lower, Value(";"));
+  Value has_params = Core::get(media, Value("found"), Value(false));
+  if (Core::truthy(has_params)) {
+    Value params_text = Core::get(media, Value("right"), Value(""));
+    Value params = Core::string_split(params_text, Value(";"));
+    for (auto param : Core::iter(params)) {
+      Value pair = Core::string_split_once(param, Value("="));
+      Value has_value = Core::get(pair, Value("found"), Value(false));
+      if (Core::truthy(has_value)) {
+        Value key = Core::get(pair, Value("left"), Value(""));
+        key = Core::string_trim(key);
+        Value value = Core::get(pair, Value("right"), Value(""));
+        value = Core::string_trim(value);
+        Value is_number = Core::regex_match(Value("^[0-9]+(\\.[0-9]+)?$"), value);
+        if (Core::truthy(is_number)) {
+          try {
+            Value number = Core::json_parse(value);
+            Value is_rate = Core::eq(key, Value("rate"));
+            if (Core::truthy(is_rate)) {
+              Core::set(out, Value("sample_rate"), number);
+            }
+            Value is_channels = Core::eq(key, Value("channels"));
+            if (Core::truthy(is_channels)) {
+              Core::set(out, Value("channels"), number);
+            }
+          } catch (const std::exception& e) {
+            Value parse_error = Core::exception_value(e);
+            // empty
+          }
+        }
+      }
+    }
   }
   return out;
 }
@@ -12686,6 +12728,21 @@ Value Core::_gemini_live_bidi_normalize_realtime_event(Value event, Value state,
   Value has_output_transcription = Core::is_not_none(output_transcription);
   if (Core::truthy(has_output_transcription)) {
     Value transcript_text = Core::get(output_transcription, Value("text"), Value(""));
+    Value turn_break = Core::get(state, Value("turn_break"), Value(false));
+    Value previous_transcript = Core::get(state, Value("last_transcript"), Value(""));
+    Value has_previous_transcript = Core::truthy_value(previous_transcript);
+    Value previous_spaced = Core::regex_match(Value("\\s$"), previous_transcript);
+    Value next_spaced = Core::regex_match(Value("^\\s"), transcript_text);
+    Value previous_open = Core::not_(previous_spaced);
+    Value next_open = Core::not_(next_spaced);
+    Value after_previous = Core::and_(turn_break, has_previous_transcript);
+    Value words_touch = Core::and_(previous_open, next_open);
+    Value needs_space = Core::and_(after_previous, words_touch);
+    if (Core::truthy(needs_space)) {
+      transcript_text = Core::string_format(Value(" {}"), transcript_text);
+    }
+    Core::set(state, Value("turn_break"), Value(false));
+    Core::set(state, Value("last_transcript"), transcript_text);
     Core::append(text_parts, transcript_text);
   }
   Value input_transcription = Core::get(server, Value("inputTranscription"), Value());
@@ -12726,7 +12783,14 @@ Value Core::_gemini_live_bidi_normalize_realtime_event(Value event, Value state,
   }
   Value turn_complete = Core::get(server, Value("turnComplete"), Value(false));
   if (Core::truthy(turn_complete)) {
-    Core::set(result, Value("finish_reason"), Value("stop"));
+    Value interaction_status = Core::get(server, Value("interactionStatus"), Value(""));
+    Value interaction_in_progress = Core::eq(interaction_status, Value("IN_PROGRESS"));
+    if (Core::truthy(interaction_in_progress)) {
+      Core::set(state, Value("turn_break"), Value(true));
+    }
+    if (!Core::truthy(interaction_in_progress)) {
+      Core::set(result, Value("finish_reason"), Value("stop"));
+    }
   }
   Value usage = Core::get(event, Value("usageMetadata"), Value());
   Value gemini_usage = Core::_gemini_usage_impl(usage);
@@ -36809,7 +36873,9 @@ bool realtime_event_is_done(const Value& event) {
   std::string type = str(Core::get(event, "type", Value("")));
   if (type == "response.done" || type == "response.completed") return true;
   Value server_content = Core::get(event, "serverContent");
-  return !server_content.is_null() && Core::truthy(Core::get(server_content, "turnComplete", Value(false)));
+  // Extended thinking ends an acknowledgement turn IN_PROGRESS and answers in the next turn.
+  return !server_content.is_null() && Core::truthy(Core::get(server_content, "turnComplete", Value(false))) &&
+         str(Core::get(server_content, "interactionStatus", Value(""))) != "IN_PROGRESS";
 }
 
 struct RealtimeWsTarget {

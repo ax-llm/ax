@@ -80,9 +80,9 @@ func main() {
 	}
 	meta := ax.NewAI("meta", map[string]ax.Value{"model": "muse-voice-transcribe-1.0", "api_key": "test-key"}).(*ax.OpenAIResponsesClient)
 	metaRequest := map[string]ax.Value{
-		"model": "muse-voice-transcribe-1.0",
-		"chat_prompt": ax.Array(ax.Object("role", "user", "content", ax.Array(ax.Object("type", "audio", "data", "AAE=", "format", "pcm16")))),
-		"audio": ax.Object("input", ax.Object("sampleRate", 16000, "channels", 1)),
+		"model":        "muse-voice-transcribe-1.0",
+		"chat_prompt":  ax.Array(ax.Object("role", "user", "content", ax.Array(ax.Object("type", "audio", "data", "AAE=", "format", "pcm16")))),
+		"audio":        ax.Object("input", ax.Object("sampleRate", 16000, "channels", 1)),
 		"model_config": ax.Object("realtimeTranscription", ax.Object("partialMode", "delta")),
 	}
 	metaTransport := ax.NewScriptedRealtimeTransport([]ax.Value{
@@ -97,13 +97,49 @@ func main() {
 		ax.Object("type", "speechComplete", "turnId", "two", "transcript", "Second turn"),
 	})
 	metaFinal, err := meta.RealtimeChat(context.Background(), metaRequest, nil, metaTransport)
-	if err != nil { fail(err.Error(), nil) }
+	if err != nil {
+		fail(err.Error(), nil)
+	}
 	// Round-trip the public JSON value to avoid depending on Ax's internal array representation.
 	metaJSON, _ := json.Marshal(metaFinal)
 	var metaResponse map[string]ax.Value
-	if err := json.Unmarshal(metaJSON, &metaResponse); err != nil { fail(err.Error(), metaFinal) }
+	if err := json.Unmarshal(metaJSON, &metaResponse); err != nil {
+		fail(err.Error(), metaFinal)
+	}
 	metaResults := metaResponse["results"].([]ax.Value)
-	if metaResponse["remote_session_id"] != "meta-session" || len(metaResults) != 2 || metaResults[0].(map[string]ax.Value)["content"] != "Hello world!" || metaResults[1].(map[string]ax.Value)["content"] != "Second turn" { fail("Meta overlapping turns or session lost", metaFinal) }
-	if len(metaTransport.Sent) != 3 || metaTransport.Sent[0].(map[string]ax.Value)["audioEncoding"] != "PCM_16KHZ" || metaTransport.Sent[1].(map[string]ax.Value)["type"] != "binary" || metaTransport.Sent[2].(map[string]ax.Value)["type"] != "endStream" { fail("Meta setup/audio/shutdown order", metaTransport.Sent) }
+	if metaResponse["remote_session_id"] != "meta-session" || len(metaResults) != 2 || metaResults[0].(map[string]ax.Value)["content"] != "Hello world!" || metaResults[1].(map[string]ax.Value)["content"] != "Second turn" {
+		fail("Meta overlapping turns or session lost", metaFinal)
+	}
+	if len(metaTransport.Sent) != 3 || metaTransport.Sent[0].(map[string]ax.Value)["audioEncoding"] != "PCM_16KHZ" || metaTransport.Sent[1].(map[string]ax.Value)["type"] != "binary" || metaTransport.Sent[2].(map[string]ax.Value)["type"] != "endStream" {
+		fail("Meta setup/audio/shutdown order", metaTransport.Sent)
+	}
+	// Gemini Live extended thinking: an acknowledgement turn ends IN_PROGRESS and the
+	// answer follows in a second turn, so the driver must keep reading past it.
+	gemini := ax.NewAI("google-gemini", map[string]ax.Value{"model": "gemini-3.8-live-extended-thinking", "api_key": "test-key"}).(*ax.GoogleGeminiClient)
+	geminiTransport := ax.NewScriptedRealtimeTransport([]ax.Value{
+		ax.Object("setupComplete", ax.Object()),
+		ax.Object("serverContent", ax.Object("outputTranscription", ax.Object("text", "Let me think."))),
+		ax.Object("serverContent", ax.Object("turnComplete", true, "interactionStatus", "IN_PROGRESS")),
+		ax.Object("serverContent", ax.Object("outputTranscription", ax.Object("text", "Hello there."))),
+		ax.Object("serverContent", ax.Object("modelTurn", ax.Object("parts", ax.Array(ax.Object("inlineData", ax.Object("mimeType", "audio/pcm", "data", "AQI=")))))),
+		ax.Object("serverContent", ax.Object("turnComplete", true, "interactionStatus", "IDLE")),
+	})
+	geminiFinal, err := gemini.RealtimeChat(context.Background(), map[string]ax.Value{
+		"model":       "gemini-3.8-live-extended-thinking",
+		"chat_prompt": ax.Array(ax.Object("role", "user", "content", "Say hello.")),
+	}, nil, geminiTransport)
+	if err != nil {
+		fail(err.Error(), nil)
+	}
+	geminiJSON, _ := json.Marshal(geminiFinal)
+	var geminiResponse map[string]ax.Value
+	if err := json.Unmarshal(geminiJSON, &geminiResponse); err != nil {
+		fail(err.Error(), geminiFinal)
+	}
+	geminiResult := geminiResponse["results"].([]ax.Value)[0].(map[string]ax.Value)
+	geminiAudio, _ := geminiResult["audio"].(map[string]ax.Value)
+	if geminiResult["content"] != "Let me think. Hello there." || geminiResult["finish_reason"] != "stop" || geminiAudio["data"] != "AQI=" {
+		fail("Gemini extended-thinking turn cut short", geminiFinal)
+	}
 	fmt.Println("realtime-audio-turn-ok")
 }

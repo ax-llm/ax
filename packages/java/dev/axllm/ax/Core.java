@@ -11130,6 +11130,47 @@ final class Core {
     Object has_mime = Core.truthyValue(mime_type);
     if (Core.truthy(has_mime)) {
       Core.set(out, "mime_type", mime_type);
+      Object mime_params = Core._audio_mime_params_impl(mime_type);
+      out = Core.mapMerge(out, mime_params);
+    }
+    return out;
+  }
+
+  static Object _audio_mime_params_impl(Object mime_type) {
+    axirCoverageMark("_audio_mime_params_impl");
+    Object out = new java.util.LinkedHashMap<String, Object>();
+    Object lower = Core.stringLower(mime_type);
+    Object media = Core.stringSplitOnce(lower, ";");
+    Object has_params = Core.get(media, "found", Boolean.FALSE);
+    if (Core.truthy(has_params)) {
+      Object params_text = Core.get(media, "right", "");
+      Object params = Core.stringSplit(params_text, ";");
+      for (Object param : Core.iter(params)) {
+        Object pair = Core.stringSplitOnce(param, "=");
+        Object has_value = Core.get(pair, "found", Boolean.FALSE);
+        if (Core.truthy(has_value)) {
+          Object key = Core.get(pair, "left", "");
+          key = Core.stringTrim(key);
+          Object value = Core.get(pair, "right", "");
+          value = Core.stringTrim(value);
+          Object is_number = Core.regexMatch("^[0-9]+(\\.[0-9]+)?$", value);
+          if (Core.truthy(is_number)) {
+            try {
+              Object number = Core.jsonParse(value);
+              Object is_rate = Core.eq(key, "rate");
+              if (Core.truthy(is_rate)) {
+                Core.set(out, "sample_rate", number);
+              }
+              Object is_channels = Core.eq(key, "channels");
+              if (Core.truthy(is_channels)) {
+                Core.set(out, "channels", number);
+              }
+            } catch (RuntimeException parse_error) {
+              // empty
+            }
+          }
+        }
+      }
     }
     return out;
   }
@@ -11478,6 +11519,21 @@ final class Core {
     Object has_output_transcription = Core.isNotNone(output_transcription);
     if (Core.truthy(has_output_transcription)) {
       Object transcript_text = Core.get(output_transcription, "text", "");
+      Object turn_break = Core.get(state, "turn_break", Boolean.FALSE);
+      Object previous_transcript = Core.get(state, "last_transcript", "");
+      Object has_previous_transcript = Core.truthyValue(previous_transcript);
+      Object previous_spaced = Core.regexMatch("\\s$", previous_transcript);
+      Object next_spaced = Core.regexMatch("^\\s", transcript_text);
+      Object previous_open = Core.not(previous_spaced);
+      Object next_open = Core.not(next_spaced);
+      Object after_previous = Core.and(turn_break, has_previous_transcript);
+      Object words_touch = Core.and(previous_open, next_open);
+      Object needs_space = Core.and(after_previous, words_touch);
+      if (Core.truthy(needs_space)) {
+        transcript_text = Core.stringFormat(" {}", transcript_text);
+      }
+      Core.set(state, "turn_break", Boolean.FALSE);
+      Core.set(state, "last_transcript", transcript_text);
       Core.append(text_parts, transcript_text);
     }
     Object input_transcription = Core.get(server, "inputTranscription", null);
@@ -11518,7 +11574,14 @@ final class Core {
     }
     Object turn_complete = Core.get(server, "turnComplete", Boolean.FALSE);
     if (Core.truthy(turn_complete)) {
-      Core.set(result, "finish_reason", "stop");
+      Object interaction_status = Core.get(server, "interactionStatus", "");
+      Object interaction_in_progress = Core.eq(interaction_status, "IN_PROGRESS");
+      if (Core.truthy(interaction_in_progress)) {
+        Core.set(state, "turn_break", Boolean.TRUE);
+      }
+      if (!Core.truthy(interaction_in_progress)) {
+        Core.set(result, "finish_reason", "stop");
+      }
     }
     Object usage = Core.get(event, "usageMetadata", null);
     Object gemini_usage = Core._gemini_usage_impl(usage);
