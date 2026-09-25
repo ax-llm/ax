@@ -1,5 +1,48 @@
 # Changelog
 
+## [24.0.22](https://github.com/ax-llm/ax/compare/24.0.20...24.0.21) (2026-09-25)
+
+### Features
+
+* **ai:** add Sept-2026 OpenAI, Anthropic and Gemini models; fix broken defaults ([#670](https://github.com/ax-llm/ax/issues/670)) ([77652db](https://github.com/ax-llm/ax/commit/77652db26a29f9be2da973eaedf9d293aea4eddc))
+* **axir:** add python-parity RuntimeEnvelope constructors to the Rust port ([#682](https://github.com/ax-llm/ax/issues/682)) ([3e2e407](https://github.com/ax-llm/ax/commit/3e2e407c66d22cb19ec0b080c4644fcfa7f0a3b6)), closes [r#final](https://github.com/ax-llm/r/issues/final) [r#final](https://github.com/ax-llm/r/issues/final)
+* **axir:** port the expensive-model gate and teacherOptions to all five ports ([#702](https://github.com/ax-llm/ax/issues/702)) ([19d6384](https://github.com/ax-llm/ax/commit/19d63844ec849b5cc69a0ba6540d04aad274dba7))
+* **bedrock:** add Claude Opus 5.5 (structured output without forced tool_choice) ([#668](https://github.com/ax-llm/ax/issues/668)) ([fc288a2](https://github.com/ax-llm/ax/commit/fc288a25c02dc1bef122f9f6e6915a7281a9752d))
+* **bedrock:** add OpenAI GPT-6 Sol, Luna, and Astra to AxAIBedrock ([#676](https://github.com/ax-llm/ax/issues/676)) ([8aaa662](https://github.com/ax-llm/ax/commit/8aaa662f842261d76c3c40477d3a3a9379e32e62))
+
+### Bug Fixes
+
+* **agent:** tag runtime-reported JS errors as error turns ([#674](https://github.com/ax-llm/ax/issues/674)) ([bf2aa72](https://github.com/ax-llm/ax/commit/bf2aa7213f7e6bda5eebe643b444cebcf85751aa))
+* **ai:** read Gemini Live's binary WebSocket frames ([#692](https://github.com/ax-llm/ax/issues/692)) ([de461b2](https://github.com/ax-llm/ax/commit/de461b288a5495445672b47b1ac05daa11ead2c1))
+* **axir:** align the AxGen validation budget with TypeScript maxRetries ([#706](https://github.com/ax-llm/ax/issues/706)) ([54cb407](https://github.com/ax-llm/ax/commit/54cb4074079188e739242edabcfff272708d3adc))
+* **axir:** cap AxGen tool steps and use the text contract beside tools ([#684](https://github.com/ax-llm/ax/issues/684)) ([0b5d390](https://github.com/ax-llm/ax/commit/0b5d3908c500d04ae438b256cd4f484e1df84007))
+* **axir:** check expected_request_contains in Go forward runner ([#695](https://github.com/ax-llm/ax/issues/695)) ([32cc7d2](https://github.com/ax-llm/ax/commit/32cc7d2126ac1cac320497ebb2bdfcb3be8583c6))
+* **axir:** enforce chat-prompt, trace and function-trace checks in Go forward runner ([#698](https://github.com/ax-llm/ax/issues/698)) ([df82ec9](https://github.com/ax-llm/ax/commit/df82ec98ef14036a16de77e66ff3063b24f031e1))
+* **axir:** nest AxGen infrastructure retries around the validation loop ([#707](https://github.com/ax-llm/ax/issues/707)) ([4f56e6e](https://github.com/ax-llm/ax/commit/4f56e6ef96afbb597c8f469a07b42c80e57968a5))
+* **axir:** port first-step-only functionCall, the Gemini output rung and the simple-signature text contract ([#701](https://github.com/ax-llm/ax/issues/701)) ([78de31b](https://github.com/ax-llm/ax/commit/78de31b0b5b2b67a897fbfaafdaf1bff6c810800)), closes [#684](https://github.com/ax-llm/ax/issues/684) [#686](https://github.com/ax-llm/ax/issues/686) [#697](https://github.com/ax-llm/ax/issues/697) [#684](https://github.com/ax-llm/ax/issues/684)
+* **axir:** port Gemini Live turn continuation and raw-PCM speak parameters ([#700](https://github.com/ax-llm/ax/issues/700)) ([9b967c7](https://github.com/ax-llm/ax/commit/9b967c7de2b9a8b4b3afffc4cfb56f47fecd0d43))
+* **axir:** port TypeScript AxGen retry classification to the ports ([#703](https://github.com/ax-llm/ax/issues/703)) ([5debd12](https://github.com/ax-llm/ax/commit/5debd12d19b90be27bd2035a9f131295a2cb36a9))
+* **axir:** resolve model keys on single AI clients in the ports ([#704](https://github.com/ax-llm/ax/issues/704)) ([7070756](https://github.com/ax-llm/ax/commit/70707564fe473dfff0a7a0e9f76ed19a638886d3))
+* **axir:** stop Rust RuntimeEnvelope::final_payload double-wrapping ([#688](https://github.com/ax-llm/ax/issues/688)) ([74928f5](https://github.com/ax-llm/ax/commit/74928f5ac28b00197ce7ad240a8befb4123269e0))
+* **axir:** stop the C++ axevent lifecycle fixture from hanging CI ([#696](https://github.com/ax-llm/ax/issues/696)) ([875c69e](https://github.com/ax-llm/ax/commit/875c69e0842f472d866536d94768d81f636319d9))
+* **axir:** tag Rust RuntimeEnvelope::timeout as an error envelope ([#680](https://github.com/ax-llm/ax/issues/680)) ([f9c22e4](https://github.com/ax-llm/ax/commit/f9c22e4f9e635170d1f720161da45336c5a289ac))
+* **dsp,agent:** let optimizer and playbook teacher calls use expensive models (re-land [#671](https://github.com/ax-llm/ax/issues/671) + [#672](https://github.com/ax-llm/ax/issues/672)) ([#694](https://github.com/ax-llm/ax/issues/694)) ([ce766d3](https://github.com/ax-llm/ax/commit/ce766d3dd36225cdd52bd918727bd4cd1128cfbe))
+* **dsp:** answer a forced functionCall through __axOutput on Gemini ([#697](https://github.com/ax-llm/ax/issues/697)) ([5477658](https://github.com/ax-llm/ax/commit/5477658b88ea4ee839b78c37a3c930bfbfa5a2b2)), closes [#686](https://github.com/ax-llm/ax/issues/686) [#691](https://github.com/ax-llm/ax/issues/691)
+* **dsp:** answer through __axOutput beside Gemini tools instead of JSON mode ([#686](https://github.com/ax-llm/ax/issues/686)) ([f2aa1f6](https://github.com/ax-llm/ax/commit/f2aa1f64afb89a9a5105d5921a6c023cb6f3ed07))
+* **dsp:** force a named functionCall on the first AxGen step only ([#691](https://github.com/ax-llm/ax/issues/691)) ([62536e4](https://github.com/ax-llm/ax/commit/62536e4190c27756076b5de875764fe053dcc609)), closes [#684](https://github.com/ax-llm/ax/issues/684) [#686](https://github.com/ax-llm/ax/issues/686)
+* **dsp:** forward useExpensiveModel from AxGen to ai.chat ([#669](https://github.com/ax-llm/ax/issues/669)) ([393e256](https://github.com/ax-llm/ax/commit/393e2568662f67cde9b4c5d474bf4a1c22b8c55c))
+* **gemini:** send the Vertex embedding task type as task_type ([#708](https://github.com/ax-llm/ax/issues/708)) ([daa2b38](https://github.com/ax-llm/ax/commit/daa2b38ad435333f5fb7dd392a319bda41a6dbf9))
+* **gemini:** send tool schemas as parametersJsonSchema and round-trip thought signatures in ports ([#690](https://github.com/ax-llm/ax/issues/690)) ([676fc82](https://github.com/ax-llm/ax/commit/676fc8249bd50eca41c3f6cb74b48190c7e55127))
+* **mcp:** accept JSON-RPC in binary WebSocket frames ([#673](https://github.com/ax-llm/ax/issues/673)) ([ad09ce0](https://github.com/ax-llm/ax/commit/ad09ce0b8df9c43e99eb6ecda7a773f9606bb737))
+* **openai:** pass apiURL through in AxAIOpenAIResponses ([#678](https://github.com/ax-llm/ax/issues/678)) ([ab5f720](https://github.com/ax-llm/ax/commit/ab5f72075aca7079259771c2e1d404d2d81438d5))
+* **openai:** recognize Amazon Bedrock's OpenAI model IDs ([#683](https://github.com/ax-llm/ax/issues/683)) ([33cd535](https://github.com/ax-llm/ax/commit/33cd5357da3b1b6162f00600297aba3f17df2549))
+
+## [24.0.21](https://github.com/ax-llm/ax/compare/24.0.20...24.0.21) (2026-09-22)
+
+### Bug Fixes
+
+* **typesafe:** accept rounded probability tolerance boundaries ([#665](https://github.com/ax-llm/ax/issues/665)) ([5647a96](https://github.com/ax-llm/ax/commit/5647a96c5dcfba38abdef355ff485d6f440e8fac))
+
 ## [24.0.21](https://github.com/ax-llm/ax/compare/24.0.20...24.0.21) (2026-09-22)
 
 ### Bug Fixes
