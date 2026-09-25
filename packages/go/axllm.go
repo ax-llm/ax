@@ -19549,7 +19549,7 @@ func provider_build_embed_request(args ...Value) (Value, error) {
 			{ v, err := _gemini_build_vertex_embed_request(v_request, v_options); if err != nil { return nil, err }; v_vertex_payload = v }
 			v_gemini_payload = v_vertex_payload
 		} else {
-			{ v, err := _gemini_build_embed_request(v_request); if err != nil { return nil, err }; v_developer_payload = v }
+			{ v, err := _gemini_build_embed_request(v_request, v_options); if err != nil { return nil, err }; v_developer_payload = v }
 			v_gemini_payload = v_developer_payload
 		}
 		v_payload = v_gemini_payload
@@ -25657,10 +25657,12 @@ func _gemini_tool_config_impl(args ...Value) (Value, error) {
 func _gemini_build_embed_request(args ...Value) (Value, error) {
 	axirCoverageMark("_gemini_build_embed_request")
 	var v_request Value
+	var v_options Value
 	var v_content Value
 	var v_dimensions Value
 	var v_empty_texts Value
 	var v_has_dimensions Value
+	var v_has_task_type Value
 	var v_item Value
 	var v_model Value
 	var v_model_name Value
@@ -25668,14 +25670,19 @@ func _gemini_build_embed_request(args ...Value) (Value, error) {
 	var v_parts Value
 	var v_payload Value
 	var v_requests Value
+	var v_task_type Value
+	var v_task_type_snake Value
 	var v_text Value
 	var v_texts Value
 	if len(args) > 0 { v_request = args[0] }
 	_ = v_request
+	if len(args) > 1 { v_options = args[1] }
+	_ = v_options
 	_ = v_content
 	_ = v_dimensions
 	_ = v_empty_texts
 	_ = v_has_dimensions
+	_ = v_has_task_type
 	_ = v_item
 	_ = v_model
 	_ = v_model_name
@@ -25683,12 +25690,17 @@ func _gemini_build_embed_request(args ...Value) (Value, error) {
 	_ = v_parts
 	_ = v_payload
 	_ = v_requests
+	_ = v_task_type
+	_ = v_task_type_snake
 	_ = v_text
 	_ = v_texts
 	v_payload = Object()
 	v_empty_texts = MutableArray()
 	v_texts = coreGet(v_request, "texts", v_empty_texts)
 	v_model = coreGet(v_request, "embed_model", "gemini-embedding-2")
+	v_task_type_snake = coreGet(v_options, "embed_type", nil)
+	v_task_type = coreGet(v_options, "embedType", v_task_type_snake)
+	v_has_task_type = _core_truthy(v_task_type)
 	v_requests = MutableArray()
 	for _, v_text = range coreIter(v_texts) {
 		v_part = Object()
@@ -25705,6 +25717,11 @@ func _gemini_build_embed_request(args ...Value) (Value, error) {
 		v_has_dimensions = _core_is_not_none(v_dimensions)
 		if coreTruthy(v_has_dimensions) {
 			if err := coreSet(v_item, "outputDimensionality", v_dimensions); err != nil { return nil, err }
+		} else {
+		// empty
+		}
+		if coreTruthy(v_has_task_type) {
+			if err := coreSet(v_item, "taskType", v_task_type); err != nil { return nil, err }
 		} else {
 		// empty
 		}
@@ -25763,7 +25780,7 @@ func _gemini_build_vertex_embed_request(args ...Value) (Value, error) {
 		v_task_type = coreGet(v_options, "embedType", v_task_type_snake)
 		v_has_task_type = _core_truthy(v_task_type)
 		if coreTruthy(v_has_task_type) {
-			if err := coreSet(v_instance, "taskType", v_task_type); err != nil { return nil, err }
+			if err := coreSet(v_instance, "task_type", v_task_type); err != nil { return nil, err }
 		} else {
 		// empty
 		}

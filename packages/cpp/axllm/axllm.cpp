@@ -10636,7 +10636,7 @@ Value Core::provider_build_embed_request(Value profile, Value request, Value opt
       gemini_payload = vertex_payload;
     }
     if (!Core::truthy(is_vertex)) {
-      Value developer_payload = Core::_gemini_build_embed_request(request);
+      Value developer_payload = Core::_gemini_build_embed_request(request, options);
       gemini_payload = developer_payload;
     }
     payload = gemini_payload;
@@ -13603,12 +13603,15 @@ Value Core::_gemini_tool_config_impl(Value request) {
   return config;
 }
 
-Value Core::_gemini_build_embed_request(Value request) {
+Value Core::_gemini_build_embed_request(Value request, Value options) {
   axir_coverage_mark("_gemini_build_embed_request");
   Value payload = Value::object();
   Value empty_texts = Value::array();
   Value texts = Core::get(request, Value("texts"), empty_texts);
   Value model = Core::get(request, Value("embed_model"), Value("gemini-embedding-2"));
+  Value task_type_snake = Core::get(options, Value("embed_type"), Value());
+  Value task_type = Core::get(options, Value("embedType"), task_type_snake);
+  Value has_task_type = Core::truthy_value(task_type);
   Value requests = Value::array();
   for (auto text : Core::iter(texts)) {
     Value part = Value::object();
@@ -13625,6 +13628,9 @@ Value Core::_gemini_build_embed_request(Value request) {
     Value has_dimensions = Core::is_not_none(dimensions);
     if (Core::truthy(has_dimensions)) {
       Core::set(item, Value("outputDimensionality"), dimensions);
+    }
+    if (Core::truthy(has_task_type)) {
+      Core::set(item, Value("taskType"), task_type);
     }
     Core::append(requests, item);
   }
@@ -13645,7 +13651,7 @@ Value Core::_gemini_build_vertex_embed_request(Value request, Value options) {
     Value task_type = Core::get(options, Value("embedType"), task_type_snake);
     Value has_task_type = Core::truthy_value(task_type);
     if (Core::truthy(has_task_type)) {
-      Core::set(instance, Value("taskType"), task_type);
+      Core::set(instance, Value("task_type"), task_type);
     }
     Core::append(instances, instance);
   }

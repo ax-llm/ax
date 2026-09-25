@@ -9439,7 +9439,7 @@ final class Core {
         gemini_payload = vertex_payload;
       }
       if (!Core.truthy(is_vertex)) {
-        Object developer_payload = Core._gemini_build_embed_request(request);
+        Object developer_payload = Core._gemini_build_embed_request(request, options);
         gemini_payload = developer_payload;
       }
       payload = gemini_payload;
@@ -12403,12 +12403,15 @@ final class Core {
     return config;
   }
 
-  static Object _gemini_build_embed_request(Object request) {
+  static Object _gemini_build_embed_request(Object request, Object options) {
     axirCoverageMark("_gemini_build_embed_request");
     Object payload = new java.util.LinkedHashMap<String, Object>();
     Object empty_texts = new java.util.ArrayList<Object>();
     Object texts = Core.get(request, "texts", empty_texts);
     Object model = Core.get(request, "embed_model", "gemini-embedding-2");
+    Object task_type_snake = Core.get(options, "embed_type", null);
+    Object task_type = Core.get(options, "embedType", task_type_snake);
+    Object has_task_type = Core.truthyValue(task_type);
     Object requests = new java.util.ArrayList<Object>();
     for (Object text : Core.iter(texts)) {
       Object part = new java.util.LinkedHashMap<String, Object>();
@@ -12425,6 +12428,9 @@ final class Core {
       Object has_dimensions = Core.isNotNone(dimensions);
       if (Core.truthy(has_dimensions)) {
         Core.set(item, "outputDimensionality", dimensions);
+      }
+      if (Core.truthy(has_task_type)) {
+        Core.set(item, "taskType", task_type);
       }
       Core.append(requests, item);
     }
@@ -12445,7 +12451,7 @@ final class Core {
       Object task_type = Core.get(options, "embedType", task_type_snake);
       Object has_task_type = Core.truthyValue(task_type);
       if (Core.truthy(has_task_type)) {
-        Core.set(instance, "taskType", task_type);
+        Core.set(instance, "task_type", task_type);
       }
       Core.append(instances, instance);
     }
