@@ -9,7 +9,7 @@ import time
 from pathlib import Path
 from typing import Any
 
-from .ai import AnthropicClient, AxAIServiceAbortedError, AxAIServiceAuthenticationError, AxAIServiceError, AxAIServiceNetworkError, AxAIServiceResponseError, AxAIServiceStatusError, AxAIServiceStreamTerminatedError, AxAIServiceTimeoutError, AxBaseAI, AxBalancer, AxCancellationToken, AxRuntimeHooks, GoogleGeminiClient, MultiServiceRouter, OpenAICompatibleClient, OpenAIResponsesClient, ProviderRouter, _effective_runtime_hooks, _runtime_hook_scope, ai, get_supported_ai_models, provider_descriptor, provider_model_catalog_summary, provider_normalize_profile, provider_profile_registry, provider_resolve_descriptor, set_meter, set_rate_limiter, set_tracer, set_usage_observer
+from .ai import AnthropicClient, AxAIRefusalError, AxAIServiceAbortedError, AxAIServiceAuthenticationError, AxAIServiceError, AxAIServiceNetworkError, AxAIServiceResponseError, AxAIServiceStatusError, AxAIServiceStreamTerminatedError, AxAIServiceTimeoutError, AxBaseAI, AxBalancer, AxCancellationToken, AxRuntimeHooks, GoogleGeminiClient, MultiServiceRouter, OpenAICompatibleClient, OpenAIResponsesClient, ProviderRouter, _effective_runtime_hooks, _runtime_hook_scope, ai, get_supported_ai_models, provider_descriptor, provider_model_catalog_summary, provider_normalize_profile, provider_profile_registry, provider_resolve_descriptor, set_meter, set_rate_limiter, set_tracer, set_usage_observer
 from .ai import build_chat_request, build_embed_request, normalize_chat_response, normalize_embed_response, normalize_stream_delta, provider_resolve_profile, _gemini_build_speak_request, _gemini_build_transcribe_request, _gemini_normalize_speak_response, _gemini_normalize_transcribe_response, _grok_build_speak_request, _grok_build_transcribe_request, _openai_tool_call_to_provider_impl, ai_context_cache_expiry, ai_context_cache_plan, ai_context_cache_recovery, ai_context_cache_rejection, ai_gemini_cache_ops
 from .ai import openai_responses_transport_cursor, openai_responses_session_event
 from .ai import AxBalancerAdaptiveStrategy, AxBalancerOptions, AxInMemoryBalancerStatsStore, _core_set_math_random_values, create_balancer_route_stats, provider_balancer_adaptive_score, sample_balancer_route_health, update_balancer_route_stats
@@ -110,7 +110,10 @@ class ConformanceScriptedAI(AxBaseAI):
         self.chat_options.append(copy.deepcopy(options or {}))
         if not self.responses:
             raise RuntimeError("scripted client exhausted")
-        return _legacy_response_to_chat_response(copy.deepcopy(self.responses.pop(0)))
+        raw = self.responses.pop(0)
+        if isinstance(raw, dict) and "error" in raw:
+            raise _fixture_ai_service_error(raw.get("error") or {})
+        return _legacy_response_to_chat_response(copy.deepcopy(raw))
 
     def _embed(self, request: dict[str, Any], options: dict[str, Any]) -> dict[str, Any]:
         self.requests.append(copy.deepcopy(request))
@@ -171,6 +174,8 @@ def _fixture_ai_service_error(spec):
         return AxAIServiceResponseError(message)
     if error_type == "timeout":
         return AxAIServiceTimeoutError(message, retryable=True)
+    if error_type == "refusal":
+        return AxAIRefusalError(message)
     if error_type == "plain":
         return RuntimeError(message)
     return AxAIServiceNetworkError("Network Error: " + str(message), retryable=True)

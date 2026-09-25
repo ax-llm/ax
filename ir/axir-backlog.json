@@ -1645,6 +1645,26 @@
       "verification": "No port change was needed. The generated ports already apply apiURL, baseUrl and base_url to every provider in provider_resolve_descriptor, and already send GPT-6 on the openai provider through Responses; only TypeScript dropped apiURL, which #678 fixed. New ai_chat fixtures openai-responses-chat-uses-api-url and gpt-6-sol-openai-api-url-uses-responses pass in Python, Java, C++, Go, and Rust, and copies expecting api.openai.com fail in the Python, Go, and Java runners. TypeScript provider_profiles.test.ts covers both paths and fails with the fix reverted."
     },
     {
+      "id": "axir-2026-09-24-port-axgen-infrastructure-only-retries",
+      "status": "done",
+      "title": "Port AxGen infrastructure-only retries",
+      "createdAt": "2026-09-24",
+      "sourcePR": null,
+      "sourceCommit": null,
+      "tsPaths": ["src/ax/dsp/generate.ts"],
+      "portableSurface": "axgen",
+      "impact": "TypeScript AxGen retries a failed provider request only for infrastructure errors (AxAIServiceStatusError with a 5xx status, AxAIServiceNetworkError, AxAIServiceTimeoutError, AxAIServiceStreamTerminatedError), up to maxRetries (default 3) times with backoff, and surfaces every other error after one request. The generated ports retried every non-abort error up to infra_retries (default 2) and ignored maxRetries, so a 400, a 429, a response error or a pre-request rejection was sent twice more with backoff before surfacing. TypeScript also retries a model refusal (AxAIRefusalError) inside its validation loop: a refusal spends the validation budget, and the same prompt goes out again at once with no backoff and no correction message. The ports retried refusals in the infrastructure loop with backoff instead, and an infrastructure-only classifier alone would surface them after one request.",
+      "suggestedAxirWork": [
+        "Add an intrinsic that classifies infrastructure errors in each port and make @complete_with_retries_impl surface everything else at once",
+        "Read maxRetries (default 3) for the retry count and keep infra_retries as a port override",
+        "Let the forward scripted clients raise scripted errors and add fixtures for retried and surfaced errors and for the attempt counts",
+        "Retry an AxAIRefusalError inside the AxGen validation budget, with no backoff and no correction message"
+      ],
+      "completedAt": "2026-09-25",
+      "completedByCommit": "a63d8ec19b624f763dea06dccea60cbb96c389df",
+      "verification": "@complete_with_retries_impl retries only errors that intrinsic.exception.is_infrastructure accepts (5xx status, network, timeout, terminated stream), up to maxRetries (default 3), and @forward retries an AxAIRefusalError inside the validation budget with no backoff and no correction message. Eleven axgen fixtures (infra-retry-*, refusal-*) pin the request counts measured with a TypeScript AxMockAIService probe. Python and Go conformance 915/915; npm run axir:check-packages, npm run axir:conformance:check and npm run test:axir pass."
+    },
+    {
       "id": "axir-2026-09-24-port-optimizer-teacher-options-and-gepa-teacher-failure-reporting",
       "status": "done",
       "title": "Port teacherOptions to optimizer teacher calls and surface GEPA teacher failures",

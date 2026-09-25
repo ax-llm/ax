@@ -62,7 +62,9 @@ public final class Conformance {
       requests.add(new LinkedHashMap<>(request));
       chatOptions.add(new LinkedHashMap<>(options));
       if (responses.isEmpty()) throw new RuntimeException("scripted client exhausted");
-      return Core.legacyResponseToChatResponse(Core.asMap(responses.remove(0)));
+      Map<String, Object> raw = Core.asMap(responses.remove(0));
+      if (raw.containsKey("error")) throw fixtureAIServiceError(Core.asMap(raw.get("error")));
+      return Core.legacyResponseToChatResponse(raw);
     }
 
     protected Map<String, Object> doEmbed(Map<String, Object> request, Map<String, Object> options) {
@@ -121,6 +123,7 @@ public final class Conformance {
       case "authentication" -> new AxAIServiceAuthenticationError("Authentication failed", Core.asInt(spec.getOrDefault("status", 401)), null, null, null);
       case "response" -> new AxAIServiceResponseError(message);
       case "timeout" -> new AxAIServiceTimeoutError(message, null, null, null, null, true);
+      case "refusal" -> new AxAIRefusalError(message, null);
       case "plain" -> new RuntimeException(message);
       default -> new AxAIServiceNetworkError("Network Error: " + message);
     };

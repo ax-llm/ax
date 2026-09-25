@@ -553,6 +553,25 @@ final class Core {
     while(current instanceof Throwable throwable){if(throwable instanceof AxAIServiceAbortedError)return true;current=throwable.getCause();}
     return false;
   }
+  // TS AxGen retries only 5xx status, network, timeout and stream-termination errors.
+  static Object exceptionIsInfrastructure(Object error) {
+    Object current=error;
+    while(current instanceof Throwable throwable){
+      if(throwable instanceof AxAIServiceStatusError status)return status.status!=null&&status.status>=500&&status.status<600;
+      if(throwable instanceof AxAIServiceNetworkError||throwable instanceof AxAIServiceTimeoutError||throwable instanceof AxAIServiceStreamTerminatedError)return true;
+      current=throwable.getCause();
+    }
+    return false;
+  }
+  // TS AxGen retries a model refusal inside its validation loop.
+  static Object exceptionIsRefusal(Object error) {
+    Object current=error;
+    while(current instanceof Throwable throwable){
+      if(throwable instanceof AxAIRefusalError)return true;
+      current=throwable.getCause();
+    }
+    return false;
+  }
   static Object aiErrorResponse(Object message) { return new AxAIServiceResponseError(String.valueOf(message)); }
   static Object aiErrorResponse(Object message, Object responseBody) { return new AxAIServiceResponseError(String.valueOf(message), responseBody); }
   static Object aiErrorRefusal(Object message, Object responseBody) { return new AxAIRefusalError(String.valueOf(message), responseBody); }

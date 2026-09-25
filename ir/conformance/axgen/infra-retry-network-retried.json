@@ -1,0 +1,23 @@
+{
+  "expected_output": {
+    "answer": "Recovered"
+  },
+  "expected_request_count": 2,
+  "input": {
+    "question": "Status?"
+  },
+  "kind": "forward",
+  "name": "infra-retry-network-retried",
+  "responses": [
+    {
+      "error": {
+        "message": "Service fixture failure",
+        "type": "network"
+      }
+    },
+    {
+      "content": "Answer: Recovered"
+    }
+  ],
+  "signature": "question:string -> answer:string"
+}
