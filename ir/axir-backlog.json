@@ -1838,7 +1838,7 @@
     },
     {
       "id": "axir-2026-09-25-send-the-vertex-embedding-task-type-as-task-type-in-the-ports",
-      "status": "open",
+      "status": "done",
       "title": "Send the Vertex embedding task type as task_type in the ports",
       "createdAt": "2026-09-25",
       "sourcePR": 708,
@@ -1854,9 +1854,9 @@
         "Add a Vertex embed fixture in tools/axir/extractors/axai-goldens.ts with embed_type RETRIEVAL_DOCUMENT in service_options that expects task_type on instances[0] and confirm it fails on the current ports",
         "Run npm run axir:conformance:write and npm run test:axir"
       ],
-      "completedAt": null,
-      "completedByCommit": null,
-      "verification": null
+      "completedAt": "2026-09-25",
+      "completedByCommit": "47e80b3888e4a85cbfd21502abe717ea2a9e4863",
+      "verification": "@gemini_build_vertex_embed_request (ir/axcore/provider.axir) now sends the Vertex :predict task type as task_type. @gemini_build_embed_request never sent a task type; it now takes the options and sets taskType on each Gemini API batchEmbedContents request, as TypeScript does. New axai fixtures vertex-gemini-embed-task-type and gemini-embeddings-task-type match what the TS client sends (checked with a capturing fetch); both failed on the previous Python and Go ports and pass in all five ports. Niced npm run test:axir: go test hit two known load flakes (the C++ portable-cancellation wall-clock check, then the 30m timeout); the C++ fixture passed 3/3 alone, and the failed and unfinished go tests passed on rerun; check, lint, audit provenance, lower and verify release for all five targets passed. axir:check-packages and axir:conformance:check passed."
     },
     {
       "id": "axir-2026-09-25-surface-a-message-less-axgen-assertion-failure-without-retrying",
