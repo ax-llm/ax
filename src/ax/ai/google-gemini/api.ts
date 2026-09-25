@@ -1752,6 +1752,9 @@ class AxAIGoogleGeminiImpl
       | AxAIGoogleVertexEmbedContentResponse
     >
   ): AxEmbedResponse => {
+    // Base falls back to getTokenUsage(), so a response without usage must not see the last call's.
+    this.tokensUsed = undefined;
+
     if (isVertexEmbedContentResponse(resp)) {
       if (resp.usageMetadata) {
         const promptTokens = resp.usageMetadata.promptTokenCount ?? 0;

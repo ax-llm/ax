@@ -699,6 +699,34 @@ describe('AxAIGoogleGemini model key preset merging', () => {
       expect(fetch).not.toHaveBeenCalled();
     });
 
+    it.each([
+      {
+        label: 'an :embedContent response without usageMetadata',
+        embedModel: AxAIGoogleGeminiEmbedModel.GeminiEmbedding2,
+        response: { embedding: { values: [0.4] } },
+      },
+      {
+        label: 'a :predict response',
+        embedModel: AxAIGoogleGeminiEmbedModel.GeminiEmbedding001,
+        response: { predictions: [{ embeddings: { values: [0.4] } }] },
+      },
+    ])(
+      'records no usage for $label after a call that reported usage',
+      async ({ embedModel, response }) => {
+        const fetch = createSequencedMockFetch(
+          [embedContentResponse, response],
+          { calls: [] }
+        );
+        const ai = createVertexAI(fetch);
+
+        const first = await ai.embed({ texts: ['a'] });
+        const second = await ai.embed({ embedModel, texts: ['b'] });
+
+        expect(first.modelUsage?.tokens?.promptTokens).toBe(2);
+        expect(second.modelUsage).toBeUndefined();
+      }
+    );
+
     it('leaves the Gemini API on batchEmbedContents with taskType', async () => {
       const capture: { calls: Array<{ url: string; body?: any }> } = {
         calls: [],
