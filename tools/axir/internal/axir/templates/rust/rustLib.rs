@@ -10602,6 +10602,7 @@ fn merge_balancer_feature_values(features: impl IntoIterator<Item = Value>) -> V
     let feature_values = features.into_iter().collect::<Vec<_>>();
     let mut out = balancer_base_features();
     if !feature_values.is_empty() && feature_values.iter().all(|raw| raw.get("requiresStructuredOutput").or_else(|| raw.get("requires_structured_output")).and_then(Value::as_bool).unwrap_or(false)) { out["requiresStructuredOutput"] = json!(true); }
+    if feature_values.iter().any(|raw| raw.get("responseFormatWithFunctions").or_else(|| raw.get("response_format_with_functions")).and_then(Value::as_bool) == Some(false)) { out["responseFormatWithFunctions"] = json!(false); }
     let mut structured_output_modes = Vec::new();
     let mut all_modes_advertised = !feature_values.is_empty();
     for raw in &feature_values {

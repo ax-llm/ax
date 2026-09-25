@@ -999,3 +999,118 @@ for (const [name, choice] of Object.entries({
     expected_request_count: 2,
   });
 }
+
+// Gemini reports responseFormatWithFunctions: false, so TS auto mode answers
+// through __axOutput while user tools stay callable or are forced. 'none',
+// prompt emulation, an explicit mode and tool-less programs keep their rung.
+const noJsonBesideTools = {
+  functions: true,
+  structured_outputs: true,
+  structured_output_modes: ['native', 'function'],
+  response_format_with_functions: false,
+};
+const summarySpec = {
+  inputs: { query: { type: 'string' } },
+  outputs: {
+    summary: { type: 'object', fields: { answer: { type: 'string' } } },
+  },
+};
+const summaryOutputCall = {
+  content: '',
+  function_calls: [
+    {
+      id: 'output_1',
+      name: '__axOutput',
+      params: { summary: { answer: 'Found Ax docs' } },
+    },
+  ],
+};
+
+writeFixture('output-function-rung-beside-callable-tools', {
+  kind: 'forward',
+  signature_spec: summarySpec,
+  input: { query: 'ax docs' },
+  features: noJsonBesideTools,
+  tools: [searchTool],
+  responses: [searchCall('call_1'), summaryOutputCall],
+  expected_output: { summary: { answer: 'Found Ax docs' } },
+  expected_step_requests: [
+    {
+      index: 0,
+      request: { function_call: 'auto' },
+      function_names: ['search', '__axOutput'],
+    },
+    {
+      index: 1,
+      request: { function_call: 'auto' },
+      function_names: ['search', '__axOutput'],
+    },
+  ],
+  expected_request_not_contains: ['response_format'],
+  expected_tool_calls: [searchRecord],
+  expected_request_count: 2,
+});
+
+// Gemini also rejects forced (ANY mode) calling beside a JSON response format.
+for (const [name, choice] of Object.entries({
+  'output-function-rung-for-forced-call': forceSearch,
+  'output-function-rung-for-required-call': 'required',
+})) {
+  writeFixture(name, {
+    kind: 'forward',
+    signature_spec: summarySpec,
+    input: { query: 'ax docs' },
+    features: noJsonBesideTools,
+    forward_options: { function_call: choice },
+    tools: [searchTool],
+    responses: [searchCall('call_1'), summaryOutputCall],
+    expected_output: { summary: { answer: 'Found Ax docs' } },
+    expected_step_requests: [
+      {
+        index: 0,
+        request: { function_call: choice, function_call_source: 'caller' },
+        function_names: ['search'],
+      },
+      {
+        index: 1,
+        request: { function_call: forceOutput, function_call_source: 'ax' },
+        function_names: ['__axOutput'],
+      },
+    ],
+    expected_request_not_contains: ['response_format'],
+    expected_tool_calls: [searchRecord],
+    expected_request_count: 2,
+  });
+}
+
+for (const [name, source] of Object.entries({
+  'output-function-rung-skipped-for-none': {
+    forward_options: { function_call: 'none' },
+    tools: [searchTool],
+  },
+  'output-function-rung-skipped-for-prompt-mode': {
+    forward_options: { function_call_mode: 'prompt' },
+    tools: [searchTool],
+  },
+  'output-function-rung-skipped-for-explicit-native': {
+    options: { structured_output_mode: 'native' },
+    tools: [searchTool],
+  },
+  'output-function-rung-skipped-without-tools': {},
+})) {
+  writeFixture(name, {
+    kind: 'forward',
+    signature_spec: summarySpec,
+    input: { query: 'ax docs' },
+    features: noJsonBesideTools,
+    ...source,
+    responses: [{ content: '{"summary":{"answer":"Found Ax docs"}}' }],
+    expected_output: { summary: { answer: 'Found Ax docs' } },
+    expected_request: {
+      response_format: { type: 'json_schema' },
+      provider_metadata: { ax: { structured_output_rung: 'native' } },
+    },
+    expected_request_not_contains: ['__axOutput'],
+    expected_request_count: 1,
+  });
+}
