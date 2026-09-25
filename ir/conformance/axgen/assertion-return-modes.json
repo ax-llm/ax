@@ -6,6 +6,7 @@
     }
   ],
   "expected_error_contains": "custom assertion retry",
+  "expected_request_count": 4,
   "input": {
     "question": "Assert"
   },
@@ -20,6 +21,9 @@
     },
     {
       "content": "{\"answer\":\"again\"}"
+    },
+    {
+      "content": "{\"answer\":\"once more\"}"
     }
   ],
   "signature": "question:string -> answer:string"

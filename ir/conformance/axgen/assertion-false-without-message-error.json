@@ -20,6 +20,9 @@
     },
     {
       "content": "{\"answer\":\"again\"}"
+    },
+    {
+      "content": "{\"answer\":\"once more\"}"
     }
   ],
   "signature": "question:string -> answer:string"

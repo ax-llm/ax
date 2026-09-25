@@ -724,6 +724,15 @@ No entries.
   - Completed at: 2026-09-25
   - Completed by: `65c47ed80d20e8bbc1c7293df498140c9c772088`
   - Verification: `The google-gemini profile reports responseFormatWithFunctions: false. The descriptor carries response_format_with_functions and the TypeScript profile features map it. @select_structured_output_rung picks the function rung while user tools are callable or forced, and balancers in all five ports report false when any service does. Eight fixtures, including a TypeScript-derived balancer golden, fail when the rule or the Python balancer merge is disabled. Full npm run test:axir passed go test, check, lint, provenance audit, lower and the Python, Java, C++ and Go release verifies. The Rust release verify passed after ecaadcbd1 declared the functions capability that the Rust conformance client defaults to false. Live in Python and Go on gemini-3.6-flash and gemini-3.8-flash: unforced tools answered through __axOutput beside the tools, named and required forcing answered in two requests without a JSON response type, and none kept json_schema. gpt-5.4-mini kept the native rung.`
+- `axir-2026-09-25-align-the-axgen-validation-budget-with-typescript-maxretries` [axgen] Align the AxGen validation budget with TypeScript maxRetries
+  - Status: done
+  - Source commit: `5debd12d19b90be27bd2035a9f131295a2cb36a9`
+  - TS paths: `src/ax/dsp/generate.ts`
+  - Impact: TypeScript AxGen gives each step maxRetries + 1 validation attempts (maxRetries defaults to 3, so 4) and starts every tool step with a fresh budget; refusals spend the same budget. The generated ports defaulted validation_retries to 2 (3 attempts), ignored maxRetries for validation, and counted attempts across all steps of the tool loop, so a later step could run out of retries that TypeScript would still grant.
+  - Suggested AxIR work: Default validation_retries to maxRetries in @forward and keep an explicit validation_retries as a port override; Reset the validation attempt counter when the tool loop advances a step; Add fixtures for the default attempt count and the maxRetries option and the override and the per-step reset
+  - Completed at: 2026-09-25
+  - Completed by: `b6060666d825244d655b33ec29a9887b24522d5c`
+  - Verification: `@forward defaults validation_retries to maxRetries (default 3) and resets the validation attempt counter when the tool loop advances a step. The validation-budget-* fixtures and assertion-return-modes pin the request counts measured with a TypeScript AxMockAIService probe, and mutation checks fail each one. Python and Go conformance 937/937; npm run axir:check-packages, npm run axir:conformance:check and npm run test:axir pass.`
 - `axir-2026-09-25-port-model-key-resolution-on-single-ai-clients` [axai] Port model-key resolution on single AI clients
   - Status: done
   - Source commit: `78de31b0b5b2b67a897fbfaafdaf1bff6c810800`

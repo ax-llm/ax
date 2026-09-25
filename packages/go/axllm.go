@@ -35358,10 +35358,10 @@ func _forward_impl(args ...Value) (Value, error) {
 	v_cached_messages = _core_axgen_apply_context_cache(v_gen, v_ordered_messages, v_options)
 	v_messages = v_cached_messages
 	_core_axgen_memory_add_request(v_gen, v_messages)
-	v_validation_retries_snake = coreGet(v_runtime_options, "validation_retries", 2)
-	v_validation_retries = coreGet(v_runtime_options, "validationRetries", v_validation_retries_snake)
 	v_max_retries_snake = coreGet(v_runtime_options, "max_retries", 3)
 	v_max_retries = coreGet(v_runtime_options, "maxRetries", v_max_retries_snake)
+	v_validation_retries_snake = coreGet(v_runtime_options, "validation_retries", v_max_retries)
+	v_validation_retries = coreGet(v_runtime_options, "validationRetries", v_validation_retries_snake)
 	v_infra_retries_snake = coreGet(v_runtime_options, "infra_retries", v_max_retries)
 	v_infra_retries = coreGet(v_runtime_options, "infraRetries", v_infra_retries_snake)
 	v_attempt = 0
@@ -35476,6 +35476,7 @@ func _forward_impl(args ...Value) (Value, error) {
 			if coreTruthy(v_continue_after_tools) {
 				v_next_step = _core_add(v_step, 1)
 				v_step = v_next_step
+				v_attempt = 0
 				continue
 			} else {
 				{ v, err := validate_output(v_output_fields, v_last_tool_result); if err != nil { return nil, err }; v_validated_tool_result = v }
@@ -36576,18 +36577,6 @@ func chat_session_native_wait(args ...Value) (Value, error) {
 	return false, nil
 }
 
-func _set_examples(args ...Value) (Value, error) {
-	axirCoverageMark("_set_examples")
-	var v_gen Value
-	var v_examples Value
-	if len(args) > 0 { v_gen = args[0] }
-	_ = v_gen
-	if len(args) > 1 { v_examples = args[1] }
-	_ = v_examples
-	if err := coreSet(v_gen, "examples", v_examples); err != nil { return nil, err }
-	return v_gen, nil
-}
-
 func chat_session_native_event(args ...Value) (Value, error) {
 	axirCoverageMark("chat_session_native_event")
 	var v_state Value
@@ -36833,6 +36822,18 @@ func chat_session_native_event(args ...Value) (Value, error) {
 	// empty
 	}
 	return v_result, nil
+}
+
+func _set_examples(args ...Value) (Value, error) {
+	axirCoverageMark("_set_examples")
+	var v_gen Value
+	var v_examples Value
+	if len(args) > 0 { v_gen = args[0] }
+	_ = v_gen
+	if len(args) > 1 { v_examples = args[1] }
+	_ = v_examples
+	if err := coreSet(v_gen, "examples", v_examples); err != nil { return nil, err }
+	return v_gen, nil
 }
 
 func _set_demos(args ...Value) (Value, error) {
@@ -38127,6 +38128,89 @@ func chat_session_queue_update(args ...Value) (Value, error) {
 	return true, nil
 }
 
+func _ace_dedupe_playbook(args ...Value) (Value, error) {
+	axirCoverageMark("_ace_dedupe_playbook")
+	var v_playbook Value
+	var v_bullet Value
+	var v_bullet_harmful Value
+	var v_bullet_helpful Value
+	var v_bullet_updated_at Value
+	var v_bullets Value
+	var v_content Value
+	var v_empty_map Value
+	var v_existing Value
+	var v_existing_harmful Value
+	var v_existing_helpful Value
+	var v_has_existing Value
+	var v_key Value
+	var v_merged_harmful Value
+	var v_merged_helpful Value
+	var v_recomputed Value
+	var v_section_name Value
+	var v_section_names Value
+	var v_sections Value
+	var v_seen Value
+	var v_trimmed Value
+	var v_unique Value
+	if len(args) > 0 { v_playbook = args[0] }
+	_ = v_playbook
+	_ = v_bullet
+	_ = v_bullet_harmful
+	_ = v_bullet_helpful
+	_ = v_bullet_updated_at
+	_ = v_bullets
+	_ = v_content
+	_ = v_empty_map
+	_ = v_existing
+	_ = v_existing_harmful
+	_ = v_existing_helpful
+	_ = v_has_existing
+	_ = v_key
+	_ = v_merged_harmful
+	_ = v_merged_helpful
+	_ = v_recomputed
+	_ = v_section_name
+	_ = v_section_names
+	_ = v_sections
+	_ = v_seen
+	_ = v_trimmed
+	_ = v_unique
+	v_empty_map = Object()
+	v_sections = coreGet(v_playbook, "sections", v_empty_map)
+	v_section_names = _core_map_keys(v_sections)
+	for _, v_section_name = range coreIter(v_section_names) {
+		v_bullets = coreGet(v_sections, v_section_name, nil)
+		v_seen = Object()
+		v_unique = MutableArray()
+		for _, v_bullet = range coreIter(v_bullets) {
+			v_content = coreGet(v_bullet, "content", "")
+			v_trimmed = coreStringTrim(v_content)
+			v_key = _core_string_lower(v_trimmed)
+			v_has_existing = _core_map_contains(v_seen, v_key)
+			if coreTruthy(v_has_existing) {
+				v_existing = coreGet(v_seen, v_key, nil)
+				v_existing_helpful = coreGet(v_existing, "helpfulCount", 0)
+				v_bullet_helpful = coreGet(v_bullet, "helpfulCount", 0)
+				v_merged_helpful = _core_add(v_existing_helpful, v_bullet_helpful)
+				if err := coreSet(v_existing, "helpfulCount", v_merged_helpful); err != nil { return nil, err }
+				v_existing_harmful = coreGet(v_existing, "harmfulCount", 0)
+				v_bullet_harmful = coreGet(v_bullet, "harmfulCount", 0)
+				v_merged_harmful = _core_add(v_existing_harmful, v_bullet_harmful)
+				if err := coreSet(v_existing, "harmfulCount", v_merged_harmful); err != nil { return nil, err }
+				v_bullet_updated_at = coreGet(v_bullet, "updatedAt", "")
+				if err := coreSet(v_existing, "updatedAt", v_bullet_updated_at); err != nil { return nil, err }
+			} else {
+				if err := coreSet(v_seen, v_key, v_bullet); err != nil { return nil, err }
+				v_unique = coreAppend(v_unique, v_bullet)
+			}
+		}
+		if err := coreSet(v_sections, v_section_name, v_unique); err != nil { return nil, err }
+	}
+	if err := coreSet(v_playbook, "sections", v_sections); err != nil { return nil, err }
+	{ v, err := _ace_recompute_playbook_stats(v_playbook); if err != nil { return nil, err }; v_recomputed = v }
+	return v_recomputed, nil
+}
+
 func _parse_json_string_for_field(args ...Value) (Value, error) {
 	axirCoverageMark("_parse_json_string_for_field")
 	var v_field Value
@@ -38238,89 +38322,6 @@ func _parse_json_string_for_field(args ...Value) (Value, error) {
 	// empty
 	}
 	return v_value, nil
-}
-
-func _ace_dedupe_playbook(args ...Value) (Value, error) {
-	axirCoverageMark("_ace_dedupe_playbook")
-	var v_playbook Value
-	var v_bullet Value
-	var v_bullet_harmful Value
-	var v_bullet_helpful Value
-	var v_bullet_updated_at Value
-	var v_bullets Value
-	var v_content Value
-	var v_empty_map Value
-	var v_existing Value
-	var v_existing_harmful Value
-	var v_existing_helpful Value
-	var v_has_existing Value
-	var v_key Value
-	var v_merged_harmful Value
-	var v_merged_helpful Value
-	var v_recomputed Value
-	var v_section_name Value
-	var v_section_names Value
-	var v_sections Value
-	var v_seen Value
-	var v_trimmed Value
-	var v_unique Value
-	if len(args) > 0 { v_playbook = args[0] }
-	_ = v_playbook
-	_ = v_bullet
-	_ = v_bullet_harmful
-	_ = v_bullet_helpful
-	_ = v_bullet_updated_at
-	_ = v_bullets
-	_ = v_content
-	_ = v_empty_map
-	_ = v_existing
-	_ = v_existing_harmful
-	_ = v_existing_helpful
-	_ = v_has_existing
-	_ = v_key
-	_ = v_merged_harmful
-	_ = v_merged_helpful
-	_ = v_recomputed
-	_ = v_section_name
-	_ = v_section_names
-	_ = v_sections
-	_ = v_seen
-	_ = v_trimmed
-	_ = v_unique
-	v_empty_map = Object()
-	v_sections = coreGet(v_playbook, "sections", v_empty_map)
-	v_section_names = _core_map_keys(v_sections)
-	for _, v_section_name = range coreIter(v_section_names) {
-		v_bullets = coreGet(v_sections, v_section_name, nil)
-		v_seen = Object()
-		v_unique = MutableArray()
-		for _, v_bullet = range coreIter(v_bullets) {
-			v_content = coreGet(v_bullet, "content", "")
-			v_trimmed = coreStringTrim(v_content)
-			v_key = _core_string_lower(v_trimmed)
-			v_has_existing = _core_map_contains(v_seen, v_key)
-			if coreTruthy(v_has_existing) {
-				v_existing = coreGet(v_seen, v_key, nil)
-				v_existing_helpful = coreGet(v_existing, "helpfulCount", 0)
-				v_bullet_helpful = coreGet(v_bullet, "helpfulCount", 0)
-				v_merged_helpful = _core_add(v_existing_helpful, v_bullet_helpful)
-				if err := coreSet(v_existing, "helpfulCount", v_merged_helpful); err != nil { return nil, err }
-				v_existing_harmful = coreGet(v_existing, "harmfulCount", 0)
-				v_bullet_harmful = coreGet(v_bullet, "harmfulCount", 0)
-				v_merged_harmful = _core_add(v_existing_harmful, v_bullet_harmful)
-				if err := coreSet(v_existing, "harmfulCount", v_merged_harmful); err != nil { return nil, err }
-				v_bullet_updated_at = coreGet(v_bullet, "updatedAt", "")
-				if err := coreSet(v_existing, "updatedAt", v_bullet_updated_at); err != nil { return nil, err }
-			} else {
-				if err := coreSet(v_seen, v_key, v_bullet); err != nil { return nil, err }
-				v_unique = coreAppend(v_unique, v_bullet)
-			}
-		}
-		if err := coreSet(v_sections, v_section_name, v_unique); err != nil { return nil, err }
-	}
-	if err := coreSet(v_playbook, "sections", v_sections); err != nil { return nil, err }
-	{ v, err := _ace_recompute_playbook_stats(v_playbook); if err != nil { return nil, err }; v_recomputed = v }
-	return v_recomputed, nil
 }
 
 func _regex_word(args ...Value) (Value, error) {
@@ -38631,49 +38632,6 @@ func chat_session_close_state(args ...Value) (Value, error) {
 	return v_unresolved, nil
 }
 
-func _parse_json_string_fields(args ...Value) (Value, error) {
-	axirCoverageMark("_parse_json_string_fields")
-	var v_output_fields Value
-	var v_values Value
-	var v_field Value
-	var v_has_key Value
-	var v_name Value
-	var v_not_map Value
-	var v_parsed Value
-	var v_value Value
-	var v_values_is_map Value
-	if len(args) > 0 { v_output_fields = args[0] }
-	_ = v_output_fields
-	if len(args) > 1 { v_values = args[1] }
-	_ = v_values
-	_ = v_field
-	_ = v_has_key
-	_ = v_name
-	_ = v_not_map
-	_ = v_parsed
-	_ = v_value
-	_ = v_values_is_map
-	v_values_is_map = coreTypeIs(v_values, "object")
-	v_not_map = _core_not(v_values_is_map)
-	if coreTruthy(v_not_map) {
-		return v_values, nil
-	} else {
-	// empty
-	}
-	for _, v_field = range coreIter(v_output_fields) {
-		v_name = coreGet(v_field, "name", nil)
-		v_has_key = _core_map_contains(v_values, v_name)
-		if coreTruthy(v_has_key) {
-			v_value = coreGet(v_values, v_name, nil)
-			{ v, err := _parse_json_string_for_field(v_field, v_value); if err != nil { return nil, err }; v_parsed = v }
-			if err := coreSet(v_values, v_name, v_parsed); err != nil { return nil, err }
-		} else {
-		// empty
-		}
-	}
-	return v_values, nil
-}
-
 func chat_session_transition(args ...Value) (Value, error) {
 	axirCoverageMark("chat_session_transition")
 	var v_state Value
@@ -38869,6 +38827,49 @@ func chat_session_transition(args ...Value) (Value, error) {
 	{ v, err := chat_session_boundary_action(v_state); if err != nil { return nil, err }; v_action = v }
 	if err := coreSet(v_action, "changed", v_changed); err != nil { return nil, err }
 	return v_action, nil
+}
+
+func _parse_json_string_fields(args ...Value) (Value, error) {
+	axirCoverageMark("_parse_json_string_fields")
+	var v_output_fields Value
+	var v_values Value
+	var v_field Value
+	var v_has_key Value
+	var v_name Value
+	var v_not_map Value
+	var v_parsed Value
+	var v_value Value
+	var v_values_is_map Value
+	if len(args) > 0 { v_output_fields = args[0] }
+	_ = v_output_fields
+	if len(args) > 1 { v_values = args[1] }
+	_ = v_values
+	_ = v_field
+	_ = v_has_key
+	_ = v_name
+	_ = v_not_map
+	_ = v_parsed
+	_ = v_value
+	_ = v_values_is_map
+	v_values_is_map = coreTypeIs(v_values, "object")
+	v_not_map = _core_not(v_values_is_map)
+	if coreTruthy(v_not_map) {
+		return v_values, nil
+	} else {
+	// empty
+	}
+	for _, v_field = range coreIter(v_output_fields) {
+		v_name = coreGet(v_field, "name", nil)
+		v_has_key = _core_map_contains(v_values, v_name)
+		if coreTruthy(v_has_key) {
+			v_value = coreGet(v_values, v_name, nil)
+			{ v, err := _parse_json_string_for_field(v_field, v_value); if err != nil { return nil, err }; v_parsed = v }
+			if err := coreSet(v_values, v_name, v_parsed); err != nil { return nil, err }
+		} else {
+		// empty
+		}
+	}
+	return v_values, nil
 }
 
 func _regex_space(args ...Value) (Value, error) {

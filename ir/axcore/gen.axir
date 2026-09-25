@@ -739,12 +739,13 @@ module @ax.gen version "0.1" {
       %cached_messages = core.call intrinsic.axgen.apply_context_cache(%gen, %ordered_messages, %options)
       %messages = core.let %cached_messages
       core.call intrinsic.axgen.memory_add_request(%gen, %messages)
-      %validation_retries_snake = core.get %runtime_options["validation_retries"] default 2
-      %validation_retries = core.get %runtime_options["validationRetries"] default %validation_retries_snake
-      // TS retries infrastructure errors up to maxRetries (default 3) times.
-      // infra_retries stays as a port-specific override.
+      // As in TS, maxRetries (default 3) caps the validation retries of each
+      // step and the infrastructure retries of each request.
+      // validation_retries and infra_retries stay as port-specific overrides.
       %max_retries_snake = core.get %runtime_options["max_retries"] default 3
       %max_retries = core.get %runtime_options["maxRetries"] default %max_retries_snake
+      %validation_retries_snake = core.get %runtime_options["validation_retries"] default %max_retries
+      %validation_retries = core.get %runtime_options["validationRetries"] default %validation_retries_snake
       %infra_retries_snake = core.get %runtime_options["infra_retries"] default %max_retries
       %infra_retries = core.get %runtime_options["infraRetries"] default %infra_retries_snake
       %attempt = core.const 0
@@ -835,6 +836,8 @@ module @ax.gen version "0.1" {
           core.if %continue_after_tools {
             %next_step = core.call intrinsic.add(%step, 1)
             %step = core.let %next_step
+            // As in TS, each step starts with a fresh validation budget.
+            %attempt = core.let 0
             core.continue
           } else {
             %validated_tool_result = core.call @validate_output(%output_fields, %last_tool_result)

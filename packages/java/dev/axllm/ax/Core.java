@@ -16970,10 +16970,10 @@ final class Core {
     Object cached_messages = Core.axgenApplyContextCache(gen, ordered_messages, options);
     messages = cached_messages;
     Core.axgenMemoryAddRequest(gen, messages);
-    Object validation_retries_snake = Core.get(runtime_options, "validation_retries", 2);
-    Object validation_retries = Core.get(runtime_options, "validationRetries", validation_retries_snake);
     Object max_retries_snake = Core.get(runtime_options, "max_retries", 3);
     Object max_retries = Core.get(runtime_options, "maxRetries", max_retries_snake);
+    Object validation_retries_snake = Core.get(runtime_options, "validation_retries", max_retries);
+    Object validation_retries = Core.get(runtime_options, "validationRetries", validation_retries_snake);
     Object infra_retries_snake = Core.get(runtime_options, "infra_retries", max_retries);
     Object infra_retries = Core.get(runtime_options, "infraRetries", infra_retries_snake);
     Object attempt = 0;
@@ -17061,6 +17061,7 @@ final class Core {
         if (Core.truthy(continue_after_tools)) {
           Object next_step = Core.add(step, 1);
           step = next_step;
+          attempt = 0;
           continue;
         }
         if (!Core.truthy(continue_after_tools)) {
@@ -17590,12 +17591,6 @@ final class Core {
     return Boolean.FALSE;
   }
 
-  static Object _set_examples(Object gen, Object examples) {
-    axirCoverageMark("_set_examples");
-    Core.set(gen, "examples", examples);
-    return gen;
-  }
-
   static Object chat_session_native_event(Object state, Object event) {
     axirCoverageMark("chat_session_native_event");
     Object result = new java.util.LinkedHashMap<String, Object>();
@@ -17712,6 +17707,12 @@ final class Core {
       }
     }
     return result;
+  }
+
+  static Object _set_examples(Object gen, Object examples) {
+    axirCoverageMark("_set_examples");
+    Core.set(gen, "examples", examples);
+    return gen;
   }
 
   static Object _set_demos(Object gen, Object demos) {
@@ -18323,6 +18324,45 @@ final class Core {
     return Boolean.TRUE;
   }
 
+  static Object _ace_dedupe_playbook(Object playbook) {
+    axirCoverageMark("_ace_dedupe_playbook");
+    Object empty_map = new java.util.LinkedHashMap<String, Object>();
+    Object sections = Core.get(playbook, "sections", empty_map);
+    Object section_names = Core.mapKeys(sections);
+    for (Object section_name : Core.iter(section_names)) {
+      Object bullets = Core.get(sections, section_name, null);
+      Object seen = new java.util.LinkedHashMap<String, Object>();
+      Object unique = new java.util.ArrayList<Object>();
+      for (Object bullet : Core.iter(bullets)) {
+        Object content = Core.get(bullet, "content", "");
+        Object trimmed = Core.stringTrim(content);
+        Object key = Core.stringLower(trimmed);
+        Object has_existing = Core.mapContains(seen, key);
+        if (Core.truthy(has_existing)) {
+          Object existing = Core.get(seen, key, null);
+          Object existing_helpful = Core.get(existing, "helpfulCount", 0);
+          Object bullet_helpful = Core.get(bullet, "helpfulCount", 0);
+          Object merged_helpful = Core.add(existing_helpful, bullet_helpful);
+          Core.set(existing, "helpfulCount", merged_helpful);
+          Object existing_harmful = Core.get(existing, "harmfulCount", 0);
+          Object bullet_harmful = Core.get(bullet, "harmfulCount", 0);
+          Object merged_harmful = Core.add(existing_harmful, bullet_harmful);
+          Core.set(existing, "harmfulCount", merged_harmful);
+          Object bullet_updated_at = Core.get(bullet, "updatedAt", "");
+          Core.set(existing, "updatedAt", bullet_updated_at);
+        }
+        if (!Core.truthy(has_existing)) {
+          Core.set(seen, key, bullet);
+          Core.append(unique, bullet);
+        }
+      }
+      Core.set(sections, section_name, unique);
+    }
+    Core.set(playbook, "sections", sections);
+    Object recomputed = Core._ace_recompute_playbook_stats(playbook);
+    return recomputed;
+  }
+
   static Object _parse_json_string_for_field(Object field, Object value) {
     axirCoverageMark("_parse_json_string_for_field");
     Object typ = Core.get(field, "type", null);
@@ -18377,45 +18417,6 @@ final class Core {
       }
     }
     return value;
-  }
-
-  static Object _ace_dedupe_playbook(Object playbook) {
-    axirCoverageMark("_ace_dedupe_playbook");
-    Object empty_map = new java.util.LinkedHashMap<String, Object>();
-    Object sections = Core.get(playbook, "sections", empty_map);
-    Object section_names = Core.mapKeys(sections);
-    for (Object section_name : Core.iter(section_names)) {
-      Object bullets = Core.get(sections, section_name, null);
-      Object seen = new java.util.LinkedHashMap<String, Object>();
-      Object unique = new java.util.ArrayList<Object>();
-      for (Object bullet : Core.iter(bullets)) {
-        Object content = Core.get(bullet, "content", "");
-        Object trimmed = Core.stringTrim(content);
-        Object key = Core.stringLower(trimmed);
-        Object has_existing = Core.mapContains(seen, key);
-        if (Core.truthy(has_existing)) {
-          Object existing = Core.get(seen, key, null);
-          Object existing_helpful = Core.get(existing, "helpfulCount", 0);
-          Object bullet_helpful = Core.get(bullet, "helpfulCount", 0);
-          Object merged_helpful = Core.add(existing_helpful, bullet_helpful);
-          Core.set(existing, "helpfulCount", merged_helpful);
-          Object existing_harmful = Core.get(existing, "harmfulCount", 0);
-          Object bullet_harmful = Core.get(bullet, "harmfulCount", 0);
-          Object merged_harmful = Core.add(existing_harmful, bullet_harmful);
-          Core.set(existing, "harmfulCount", merged_harmful);
-          Object bullet_updated_at = Core.get(bullet, "updatedAt", "");
-          Core.set(existing, "updatedAt", bullet_updated_at);
-        }
-        if (!Core.truthy(has_existing)) {
-          Core.set(seen, key, bullet);
-          Core.append(unique, bullet);
-        }
-      }
-      Core.set(sections, section_name, unique);
-    }
-    Core.set(playbook, "sections", sections);
-    Object recomputed = Core._ace_recompute_playbook_stats(playbook);
-    return recomputed;
   }
 
   static Object _regex_word(Object c) {
@@ -18566,25 +18567,6 @@ final class Core {
     return unresolved;
   }
 
-  static Object _parse_json_string_fields(Object output_fields, Object values) {
-    axirCoverageMark("_parse_json_string_fields");
-    Object values_is_map = Core.typeIs(values, "object");
-    Object not_map = Core.not(values_is_map);
-    if (Core.truthy(not_map)) {
-      return values;
-    }
-    for (Object field : Core.iter(output_fields)) {
-      Object name = Core.get(field, "name", null);
-      Object has_key = Core.mapContains(values, name);
-      if (Core.truthy(has_key)) {
-        Object value = Core.get(values, name, null);
-        Object parsed = Core._parse_json_string_for_field(field, value);
-        Core.set(values, name, parsed);
-      }
-    }
-    return values;
-  }
-
   static Object chat_session_transition(Object state, Object event) {
     axirCoverageMark("chat_session_transition");
     Object type = Core.get(event, "type", null);
@@ -18702,6 +18684,25 @@ final class Core {
     Object action = Core.chat_session_boundary_action(state);
     Core.set(action, "changed", changed);
     return action;
+  }
+
+  static Object _parse_json_string_fields(Object output_fields, Object values) {
+    axirCoverageMark("_parse_json_string_fields");
+    Object values_is_map = Core.typeIs(values, "object");
+    Object not_map = Core.not(values_is_map);
+    if (Core.truthy(not_map)) {
+      return values;
+    }
+    for (Object field : Core.iter(output_fields)) {
+      Object name = Core.get(field, "name", null);
+      Object has_key = Core.mapContains(values, name);
+      if (Core.truthy(has_key)) {
+        Object value = Core.get(values, name, null);
+        Object parsed = Core._parse_json_string_for_field(field, value);
+        Core.set(values, name, parsed);
+      }
+    }
+    return values;
   }
 
   static Object _regex_space(Object c) {
