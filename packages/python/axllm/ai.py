@@ -9319,7 +9319,7 @@ def provider_build_embed_request(profile: str, request: AxEmbedRequest, options:
             vertex_payload = _gemini_build_vertex_embed_request(request, options)
             gemini_payload = vertex_payload
         else:
-            developer_payload = _gemini_build_embed_request(request)
+            developer_payload = _gemini_build_embed_request(request, options)
             gemini_payload = developer_payload
         payload = gemini_payload
     else:
@@ -12384,12 +12384,15 @@ def _gemini_tool_config_impl(request: Any) -> Any:
     return config
 
 
-def _gemini_build_embed_request(request: AxEmbedRequest) -> Any:
+def _gemini_build_embed_request(request: AxEmbedRequest, options: Any) -> Any:
     _core_coverage_mark("_gemini_build_embed_request")
     payload = {}
     empty_texts = []
     texts = _core_get(request, "texts", empty_texts)
     model = _core_get(request, "embed_model", "gemini-embedding-2")
+    task_type_snake = _core_get(options, "embed_type", None)
+    task_type = _core_get(options, "embedType", task_type_snake)
+    has_task_type = _core_truthy(task_type)
     requests = []
     for text in texts:
         part = {}
@@ -12406,6 +12409,10 @@ def _gemini_build_embed_request(request: AxEmbedRequest) -> Any:
         has_dimensions = _core_is_not_none(dimensions)
         if has_dimensions:
             item["outputDimensionality"] = dimensions
+        else:
+            pass
+        if has_task_type:
+            item["taskType"] = task_type
         else:
             pass
         requests.append(item)
@@ -12426,7 +12433,7 @@ def _gemini_build_vertex_embed_request(request: AxEmbedRequest, options: Any) ->
         task_type = _core_get(options, "embedType", task_type_snake)
         has_task_type = _core_truthy(task_type)
         if has_task_type:
-            instance["taskType"] = task_type
+            instance["task_type"] = task_type
         else:
             pass
         instances.append(instance)
