@@ -56977,11 +56977,9 @@ fn _select_structured_output_rung(args: &[CoreValue]) -> Result<CoreValue, AxErr
     let mut v_field = CoreValue::Null;
     let mut v_field_type = CoreValue::Null;
     let mut v_field_type_name = CoreValue::Null;
-    let mut v_function_count = CoreValue::Null;
     let mut v_functions_missing = CoreValue::Null;
     let mut v_functions_raw = CoreValue::Null;
     let mut v_has_modes = CoreValue::Null;
-    let mut v_has_native_tools = CoreValue::Null;
     let mut v_internal = CoreValue::Null;
     let mut v_internal_snake = CoreValue::Null;
     let mut v_is_array = CoreValue::Null;
@@ -57122,14 +57120,10 @@ fn _select_structured_output_rung(args: &[CoreValue]) -> Result<CoreValue, AxErr
         )?;
         return Ok(v_selection.clone());
     }
-    v_function_count = core_len(&[v_functions.clone()])?;
-    v_has_native_tools = core_gt(&[v_function_count.clone(), CoreValue::Num(0f64)])?;
-    if core_truthy(&v_has_native_tools) {
-        v_complex = _signature_has_complex_fields(&[v_signature.clone(), v_options.clone()])?;
-        v_simple = core_not(&[v_complex.clone()])?;
-        if core_truthy(&v_simple) {
-            return Ok(v_selection.clone());
-        }
+    v_complex = _signature_has_complex_fields(&[v_signature.clone(), v_options.clone()])?;
+    v_simple = core_not(&[v_complex.clone()])?;
+    if core_truthy(&v_simple) {
+        return Ok(v_selection.clone());
     }
     v_explicit_native = core_eq(&[v_mode.clone(), CoreValue::from("native")])?;
     if core_truthy(&v_explicit_native) {
@@ -59265,6 +59259,50 @@ fn _serialize_optimized_artifact(args: &[CoreValue]) -> Result<CoreValue, AxErro
     unreachable_code,
     clippy::all
 )]
+fn _structured_output_shape(args: &[CoreValue]) -> Result<CoreValue, AxError> {
+    axir_coverage_mark("_structured_output_shape");
+    let mut v_output_fields = core_arg(args, 0);
+    let mut v_field = CoreValue::Null;
+    let mut v_internal = CoreValue::Null;
+    let mut v_internal_snake = CoreValue::Null;
+    let mut v_name = CoreValue::Null;
+    let mut v_placeholder = CoreValue::Null;
+    let mut v_shape = CoreValue::Null;
+    let mut v_shape_json = CoreValue::Null;
+    let mut v_typ = CoreValue::Null;
+    let mut v_visible = CoreValue::Null;
+    v_shape = CoreValue::new_map();
+    for v_field in core_iter(&v_output_fields)? {
+        let mut v_field = v_field;
+        v_internal_snake = core_get(
+            &v_field,
+            &CoreValue::from("is_internal"),
+            CoreValue::Bool(false),
+        );
+        v_internal = core_get(
+            &v_field,
+            &CoreValue::from("isInternal"),
+            v_internal_snake.clone(),
+        );
+        v_visible = core_not(&[v_internal.clone()])?;
+        if core_truthy(&v_visible) {
+            v_name = core_get(&v_field, &CoreValue::from("name"), CoreValue::Null);
+            v_typ = core_get(&v_field, &CoreValue::from("type"), CoreValue::Null);
+            v_placeholder = _structured_output_type_placeholder(&[v_typ.clone()])?;
+            core_set(&v_shape, v_name.clone(), v_placeholder.clone())?;
+        }
+    }
+    v_shape_json = core_json_stringify(&[v_shape.clone()])?;
+    return Ok(v_shape_json.clone());
+}
+
+#[allow(
+    unused_variables,
+    unused_assignments,
+    unused_mut,
+    unreachable_code,
+    clippy::all
+)]
 fn _regex_escaped(args: &[CoreValue]) -> Result<CoreValue, AxError> {
     axir_coverage_mark("_regex_escaped");
     let mut v_s = core_arg(args, 0);
@@ -59767,50 +59805,6 @@ fn _regex_escaped(args: &[CoreValue]) -> Result<CoreValue, AxError> {
     }
     v_t148 = _regex_literal(&[v_c.clone()])?;
     return Ok(v_t148.clone());
-}
-
-#[allow(
-    unused_variables,
-    unused_assignments,
-    unused_mut,
-    unreachable_code,
-    clippy::all
-)]
-fn _structured_output_shape(args: &[CoreValue]) -> Result<CoreValue, AxError> {
-    axir_coverage_mark("_structured_output_shape");
-    let mut v_output_fields = core_arg(args, 0);
-    let mut v_field = CoreValue::Null;
-    let mut v_internal = CoreValue::Null;
-    let mut v_internal_snake = CoreValue::Null;
-    let mut v_name = CoreValue::Null;
-    let mut v_placeholder = CoreValue::Null;
-    let mut v_shape = CoreValue::Null;
-    let mut v_shape_json = CoreValue::Null;
-    let mut v_typ = CoreValue::Null;
-    let mut v_visible = CoreValue::Null;
-    v_shape = CoreValue::new_map();
-    for v_field in core_iter(&v_output_fields)? {
-        let mut v_field = v_field;
-        v_internal_snake = core_get(
-            &v_field,
-            &CoreValue::from("is_internal"),
-            CoreValue::Bool(false),
-        );
-        v_internal = core_get(
-            &v_field,
-            &CoreValue::from("isInternal"),
-            v_internal_snake.clone(),
-        );
-        v_visible = core_not(&[v_internal.clone()])?;
-        if core_truthy(&v_visible) {
-            v_name = core_get(&v_field, &CoreValue::from("name"), CoreValue::Null);
-            v_typ = core_get(&v_field, &CoreValue::from("type"), CoreValue::Null);
-            v_placeholder = _structured_output_type_placeholder(&[v_typ.clone()])?;
-            core_set(&v_shape, v_name.clone(), v_placeholder.clone())?;
-        }
-    }
-    v_shape_json = core_json_stringify(&[v_shape.clone()])?;
-    return Ok(v_shape_json.clone());
 }
 
 #[allow(
@@ -63140,6 +63134,21 @@ fn _build_optimizer_evidence_batch(args: &[CoreValue]) -> Result<CoreValue, AxEr
     unreachable_code,
     clippy::all
 )]
+fn _set_examples(args: &[CoreValue]) -> Result<CoreValue, AxError> {
+    axir_coverage_mark("_set_examples");
+    let mut v_gen = core_arg(args, 0);
+    let mut v_examples = core_arg(args, 1);
+    core_set(&v_gen, CoreValue::from("examples"), v_examples.clone())?;
+    return Ok(v_gen.clone());
+}
+
+#[allow(
+    unused_variables,
+    unused_assignments,
+    unused_mut,
+    unreachable_code,
+    clippy::all
+)]
 fn chat_session_has_queued_updates(args: &[CoreValue]) -> Result<CoreValue, AxError> {
     axir_coverage_mark("chat_session_has_queued_updates");
     let mut v_state = core_arg(args, 0);
@@ -63161,21 +63170,6 @@ fn chat_session_has_queued_updates(args: &[CoreValue]) -> Result<CoreValue, AxEr
         }
     }
     return Ok(CoreValue::Bool(false));
-}
-
-#[allow(
-    unused_variables,
-    unused_assignments,
-    unused_mut,
-    unreachable_code,
-    clippy::all
-)]
-fn _set_examples(args: &[CoreValue]) -> Result<CoreValue, AxError> {
-    axir_coverage_mark("_set_examples");
-    let mut v_gen = core_arg(args, 0);
-    let mut v_examples = core_arg(args, 1);
-    core_set(&v_gen, CoreValue::from("examples"), v_examples.clone())?;
-    return Ok(v_gen.clone());
 }
 
 #[allow(

@@ -731,8 +731,8 @@ struct Core {
   static Value _validate_optimized_artifact(Value artifact, Value components);
   static Value _structured_output_type_placeholder(Value typ);
   static Value _serialize_optimized_artifact(Value artifact);
-  static Value _regex_escaped(Value s, Value inside);
   static Value _structured_output_shape(Value output_fields);
+  static Value _regex_escaped(Value s, Value inside);
   static Value _deserialize_optimized_artifact(Value text, Value components);
   static Value _optimization_changed_components(Value components, Value component_map);
   static Value _append_structured_output_instruction(Value messages, Value output_fields, Value selection);
@@ -773,8 +773,8 @@ struct Core {
   static Value _normalize_optimizer_engine_response(Value response, Value engine_name, Value engine_version, Value components);
   static Value chat_session_complete_response(Value state, Value id);
   static Value _build_optimizer_evidence_batch(Value eval_result, Value components);
-  static Value chat_session_has_queued_updates(Value state);
   static Value _set_examples(Value gen, Value examples);
+  static Value chat_session_has_queued_updates(Value state);
   static Value _set_demos(Value gen, Value demos);
   static Value chat_session_native_update(Value state, Value id);
   static Value _render_examples(Value gen);

@@ -29027,11 +29027,9 @@ func _select_structured_output_rung(args ...Value) (Value, error) {
 	var v_field Value
 	var v_field_type Value
 	var v_field_type_name Value
-	var v_function_count Value
 	var v_functions_missing Value
 	var v_functions_raw Value
 	var v_has_modes Value
-	var v_has_native_tools Value
 	var v_internal Value
 	var v_internal_snake Value
 	var v_is_array Value
@@ -29094,11 +29092,9 @@ func _select_structured_output_rung(args ...Value) (Value, error) {
 	_ = v_field
 	_ = v_field_type
 	_ = v_field_type_name
-	_ = v_function_count
 	_ = v_functions_missing
 	_ = v_functions_raw
 	_ = v_has_modes
-	_ = v_has_native_tools
 	_ = v_internal
 	_ = v_internal_snake
 	_ = v_is_array
@@ -29208,16 +29204,10 @@ func _select_structured_output_rung(args ...Value) (Value, error) {
 	} else {
 	// empty
 	}
-	v_function_count = _core_len(v_functions)
-	v_has_native_tools = _core_gt(v_function_count, 0)
-	if coreTruthy(v_has_native_tools) {
-		{ v, err := _signature_has_complex_fields(v_signature, v_options); if err != nil { return nil, err }; v_complex = v }
-		v_simple = _core_not(v_complex)
-		if coreTruthy(v_simple) {
-			return v_selection, nil
-		} else {
-		// empty
-		}
+	{ v, err := _signature_has_complex_fields(v_signature, v_options); if err != nil { return nil, err }; v_complex = v }
+	v_simple = _core_not(v_complex)
+	if coreTruthy(v_simple) {
+		return v_selection, nil
 	} else {
 	// empty
 	}
@@ -31605,6 +31595,47 @@ func _serialize_optimized_artifact(args ...Value) (Value, error) {
 	return v_text, nil
 }
 
+func _structured_output_shape(args ...Value) (Value, error) {
+	axirCoverageMark("_structured_output_shape")
+	var v_output_fields Value
+	var v_field Value
+	var v_internal Value
+	var v_internal_snake Value
+	var v_name Value
+	var v_placeholder Value
+	var v_shape Value
+	var v_shape_json Value
+	var v_typ Value
+	var v_visible Value
+	if len(args) > 0 { v_output_fields = args[0] }
+	_ = v_output_fields
+	_ = v_field
+	_ = v_internal
+	_ = v_internal_snake
+	_ = v_name
+	_ = v_placeholder
+	_ = v_shape
+	_ = v_shape_json
+	_ = v_typ
+	_ = v_visible
+	v_shape = Object()
+	for _, v_field = range coreIter(v_output_fields) {
+		v_internal_snake = coreGet(v_field, "is_internal", false)
+		v_internal = coreGet(v_field, "isInternal", v_internal_snake)
+		v_visible = _core_not(v_internal)
+		if coreTruthy(v_visible) {
+			v_name = coreGet(v_field, "name", nil)
+			v_typ = coreGet(v_field, "type", nil)
+			{ v, err := _structured_output_type_placeholder(v_typ); if err != nil { return nil, err }; v_placeholder = v }
+			if err := coreSet(v_shape, v_name, v_placeholder); err != nil { return nil, err }
+		} else {
+		// empty
+		}
+	}
+	v_shape_json = _core_json_stringify(v_shape)
+	return v_shape_json, nil
+}
+
 func _regex_escaped(args ...Value) (Value, error) {
 	axirCoverageMark("_regex_escaped")
 	var v_s Value
@@ -32344,47 +32375,6 @@ func _regex_escaped(args ...Value) (Value, error) {
 	}
 	{ v, err := _regex_literal(v_c); if err != nil { return nil, err }; v_t148 = v }
 	return v_t148, nil
-}
-
-func _structured_output_shape(args ...Value) (Value, error) {
-	axirCoverageMark("_structured_output_shape")
-	var v_output_fields Value
-	var v_field Value
-	var v_internal Value
-	var v_internal_snake Value
-	var v_name Value
-	var v_placeholder Value
-	var v_shape Value
-	var v_shape_json Value
-	var v_typ Value
-	var v_visible Value
-	if len(args) > 0 { v_output_fields = args[0] }
-	_ = v_output_fields
-	_ = v_field
-	_ = v_internal
-	_ = v_internal_snake
-	_ = v_name
-	_ = v_placeholder
-	_ = v_shape
-	_ = v_shape_json
-	_ = v_typ
-	_ = v_visible
-	v_shape = Object()
-	for _, v_field = range coreIter(v_output_fields) {
-		v_internal_snake = coreGet(v_field, "is_internal", false)
-		v_internal = coreGet(v_field, "isInternal", v_internal_snake)
-		v_visible = _core_not(v_internal)
-		if coreTruthy(v_visible) {
-			v_name = coreGet(v_field, "name", nil)
-			v_typ = coreGet(v_field, "type", nil)
-			{ v, err := _structured_output_type_placeholder(v_typ); if err != nil { return nil, err }; v_placeholder = v }
-			if err := coreSet(v_shape, v_name, v_placeholder); err != nil { return nil, err }
-		} else {
-		// empty
-		}
-	}
-	v_shape_json = _core_json_stringify(v_shape)
-	return v_shape_json, nil
 }
 
 func _deserialize_optimized_artifact(args ...Value) (Value, error) {
@@ -35658,6 +35648,18 @@ func _build_optimizer_evidence_batch(args ...Value) (Value, error) {
 	return v_out, nil
 }
 
+func _set_examples(args ...Value) (Value, error) {
+	axirCoverageMark("_set_examples")
+	var v_gen Value
+	var v_examples Value
+	if len(args) > 0 { v_gen = args[0] }
+	_ = v_gen
+	if len(args) > 1 { v_examples = args[1] }
+	_ = v_examples
+	if err := coreSet(v_gen, "examples", v_examples); err != nil { return nil, err }
+	return v_gen, nil
+}
+
 func chat_session_has_queued_updates(args ...Value) (Value, error) {
 	axirCoverageMark("chat_session_has_queued_updates")
 	var v_state Value
@@ -35688,18 +35690,6 @@ func chat_session_has_queued_updates(args ...Value) (Value, error) {
 		}
 	}
 	return false, nil
-}
-
-func _set_examples(args ...Value) (Value, error) {
-	axirCoverageMark("_set_examples")
-	var v_gen Value
-	var v_examples Value
-	if len(args) > 0 { v_gen = args[0] }
-	_ = v_gen
-	if len(args) > 1 { v_examples = args[1] }
-	_ = v_examples
-	if err := coreSet(v_gen, "examples", v_examples); err != nil { return nil, err }
-	return v_gen, nil
 }
 
 func _set_demos(args ...Value) (Value, error) {

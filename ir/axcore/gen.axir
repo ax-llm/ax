@@ -62,19 +62,15 @@ module @ax.gen version "0.1" {
         core.set %selection["requires_schema"] = true
         core.return %selection
       }
-      // TS selects no rung for a simple signature: its output uses the
+      // TS selects no rung for a simple signature (no object or object-array
+      // output, not forced), with or without tools: its output uses the
       // `field: value` text contract. Beside native tools a JSON response
       // contract also keeps live models calling tools instead of answering
-      // (gemini-3.8-flash re-called tools 100+ times), so match TS there.
-      // Tool-less simple signatures keep the AxIR JSON contract.
-      %function_count = core.call intrinsic.len(%functions)
-      %has_native_tools = core.call intrinsic.gt(%function_count, 0)
-      core.if %has_native_tools {
-        %complex = core.call @signature_has_complex_fields(%signature, %options)
-        %simple = core.call intrinsic.not(%complex)
-        core.if %simple {
-          core.return %selection
-        }
+      // (gemini-3.8-flash re-called tools 100+ times).
+      %complex = core.call @signature_has_complex_fields(%signature, %options)
+      %simple = core.call intrinsic.not(%complex)
+      core.if %simple {
+        core.return %selection
       }
       %explicit_native = core.call intrinsic.eq(%mode, "native")
       core.if %explicit_native {

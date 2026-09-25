@@ -7,31 +7,18 @@
   },
   "responses": [
     {
-      "content": "{\"answer\":\"Paris\"}"
+      "content": "Answer: Paris"
     }
   ],
   "expected_output": {
     "answer": "Paris"
   },
-  "expected_request": {
-    "response_format": {
-      "type": "json_schema",
-      "schema": {
-        "name": "output",
-        "strict": true,
-        "schema": {
-          "type": "object",
-          "title": "output",
-          "properties": {
-            "answer": {
-              "type": "string"
-            }
-          },
-          "required": ["answer"],
-          "additionalProperties": false
-        }
-      }
-    }
-  },
+  "expected_request_contains": ["field name: value"],
+  "expected_request_not_contains": [
+    "response_format",
+    "structured_output_rung",
+    "Return exactly one JSON object",
+    "__axOutput"
+  ],
   "expected_request_count": 1
 }

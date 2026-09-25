@@ -306,6 +306,8 @@ writeFixture('streaming-assertion-fail-fast', {
 writeFixture('structured-output-ax-choice-source', {
   kind: 'forward',
   signature: 'query:string -> answer:string, confidence:number',
+  // A simple signature selects no rung unless forced (TS useStructured()).
+  options: { force_structured: true },
   input: { query: 'test' },
   features: { structured_outputs: false, functions: true },
   responses: [

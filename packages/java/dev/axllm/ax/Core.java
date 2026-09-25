@@ -14119,14 +14119,10 @@ final class Core {
       Core.set(selection, "requires_schema", Boolean.TRUE);
       return selection;
     }
-    Object function_count = Core.len(functions);
-    Object has_native_tools = Core.gt(function_count, 0);
-    if (Core.truthy(has_native_tools)) {
-      Object complex = Core._signature_has_complex_fields(signature, options);
-      Object simple = Core.not(complex);
-      if (Core.truthy(simple)) {
-        return selection;
-      }
+    Object complex = Core._signature_has_complex_fields(signature, options);
+    Object simple = Core.not(complex);
+    if (Core.truthy(simple)) {
+      return selection;
     }
     Object explicit_native = Core.eq(mode, "native");
     if (Core.truthy(explicit_native)) {
@@ -15325,6 +15321,24 @@ final class Core {
     return text;
   }
 
+  static Object _structured_output_shape(Object output_fields) {
+    axirCoverageMark("_structured_output_shape");
+    Object shape = new java.util.LinkedHashMap<String, Object>();
+    for (Object field : Core.iter(output_fields)) {
+      Object internal_snake = Core.get(field, "is_internal", Boolean.FALSE);
+      Object internal = Core.get(field, "isInternal", internal_snake);
+      Object visible = Core.not(internal);
+      if (Core.truthy(visible)) {
+        Object name = Core.get(field, "name", null);
+        Object typ = Core.get(field, "type", null);
+        Object placeholder = Core._structured_output_type_placeholder(typ);
+        Core.set(shape, name, placeholder);
+      }
+    }
+    Object shape_json = Core.jsonStringify(shape);
+    return shape_json;
+  }
+
   static Object _regex_escaped(Object s, Object inside) {
     axirCoverageMark("_regex_escaped");
     Object c = Core.none();
@@ -15656,24 +15670,6 @@ final class Core {
     }
     Object t148 = Core._regex_literal(c);
     return t148;
-  }
-
-  static Object _structured_output_shape(Object output_fields) {
-    axirCoverageMark("_structured_output_shape");
-    Object shape = new java.util.LinkedHashMap<String, Object>();
-    for (Object field : Core.iter(output_fields)) {
-      Object internal_snake = Core.get(field, "is_internal", Boolean.FALSE);
-      Object internal = Core.get(field, "isInternal", internal_snake);
-      Object visible = Core.not(internal);
-      if (Core.truthy(visible)) {
-        Object name = Core.get(field, "name", null);
-        Object typ = Core.get(field, "type", null);
-        Object placeholder = Core._structured_output_type_placeholder(typ);
-        Core.set(shape, name, placeholder);
-      }
-    }
-    Object shape_json = Core.jsonStringify(shape);
-    return shape_json;
   }
 
   static Object _deserialize_optimized_artifact(Object text, Object components) {
@@ -17185,6 +17181,12 @@ final class Core {
     return out;
   }
 
+  static Object _set_examples(Object gen, Object examples) {
+    axirCoverageMark("_set_examples");
+    Core.set(gen, "examples", examples);
+    return gen;
+  }
+
   static Object chat_session_has_queued_updates(Object state) {
     axirCoverageMark("chat_session_has_queued_updates");
     Object updates = Core.get(state, "updates", null);
@@ -17198,12 +17200,6 @@ final class Core {
       }
     }
     return Boolean.FALSE;
-  }
-
-  static Object _set_examples(Object gen, Object examples) {
-    axirCoverageMark("_set_examples");
-    Core.set(gen, "examples", examples);
-    return gen;
   }
 
   static Object _set_demos(Object gen, Object demos) {

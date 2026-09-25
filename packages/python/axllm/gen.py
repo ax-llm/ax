@@ -1287,15 +1287,10 @@ def _select_structured_output_rung(signature: AxSignature, features: Any, option
         return selection
     else:
         pass
-    function_count = _core_len(functions)
-    has_native_tools = _core_gt(function_count, 0)
-    if has_native_tools:
-        complex = _signature_has_complex_fields(signature, options)
-        simple = _core_not(complex)
-        if simple:
-            return selection
-        else:
-            pass
+    complex = _signature_has_complex_fields(signature, options)
+    simple = _core_not(complex)
+    if simple:
+        return selection
     else:
         pass
     explicit_native = _core_eq(mode, "native")
@@ -2548,6 +2543,24 @@ def _serialize_optimized_artifact(artifact: Any) -> str:
     return text
 
 
+def _structured_output_shape(output_fields: list[Any]) -> str:
+    _core_coverage_mark("_structured_output_shape")
+    shape = {}
+    for field in output_fields:
+        internal_snake = _core_get(field, "is_internal", False)
+        internal = _core_get(field, "isInternal", internal_snake)
+        visible = _core_not(internal)
+        if visible:
+            name = _core_get(field, "name", None)
+            typ = _core_get(field, "type", None)
+            placeholder = _structured_output_type_placeholder(typ)
+            shape[name] = placeholder
+        else:
+            pass
+    shape_json = _core_json_stringify(shape)
+    return shape_json
+
+
 def _regex_escaped(s: Any, inside: Any) -> Any:
     _core_coverage_mark("_regex_escaped")
     c = _core_none()
@@ -2921,24 +2934,6 @@ def _regex_escaped(s: Any, inside: Any) -> Any:
         pass
     t148 = _regex_literal(c)
     return t148
-
-
-def _structured_output_shape(output_fields: list[Any]) -> str:
-    _core_coverage_mark("_structured_output_shape")
-    shape = {}
-    for field in output_fields:
-        internal_snake = _core_get(field, "is_internal", False)
-        internal = _core_get(field, "isInternal", internal_snake)
-        visible = _core_not(internal)
-        if visible:
-            name = _core_get(field, "name", None)
-            typ = _core_get(field, "type", None)
-            placeholder = _structured_output_type_placeholder(typ)
-            shape[name] = placeholder
-        else:
-            pass
-    shape_json = _core_json_stringify(shape)
-    return shape_json
 
 
 def _deserialize_optimized_artifact(text: str, components: Any) -> Any:
@@ -4513,6 +4508,12 @@ def _build_optimizer_evidence_batch(eval_result: Any, components: Any) -> Any:
     return out
 
 
+def _set_examples(gen: AxGen, examples: list[Any]) -> AxGen:
+    _core_coverage_mark("_set_examples")
+    gen["examples"] = examples
+    return gen
+
+
 def chat_session_has_queued_updates(state: Any) -> bool:
     _core_coverage_mark("chat_session_has_queued_updates")
     updates = _core_get(state, "updates", None)
@@ -4526,12 +4527,6 @@ def chat_session_has_queued_updates(state: Any) -> bool:
         else:
             pass
     return False
-
-
-def _set_examples(gen: AxGen, examples: list[Any]) -> AxGen:
-    _core_coverage_mark("_set_examples")
-    gen["examples"] = examples
-    return gen
 
 
 def _set_demos(gen: AxGen, demos: list[Any]) -> AxGen:

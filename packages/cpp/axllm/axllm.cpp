@@ -15329,14 +15329,10 @@ Value Core::_select_structured_output_rung(Value signature, Value features, Valu
     Core::set(selection, Value("requires_schema"), Value(true));
     return selection;
   }
-  Value function_count = Core::len(functions);
-  Value has_native_tools = Core::gt(function_count, Value(0));
-  if (Core::truthy(has_native_tools)) {
-    Value complex = Core::_signature_has_complex_fields(signature, options);
-    Value simple = Core::not_(complex);
-    if (Core::truthy(simple)) {
-      return selection;
-    }
+  Value complex = Core::_signature_has_complex_fields(signature, options);
+  Value simple = Core::not_(complex);
+  if (Core::truthy(simple)) {
+    return selection;
   }
   Value explicit_native = Core::eq(mode, Value("native"));
   if (Core::truthy(explicit_native)) {
@@ -16535,6 +16531,24 @@ Value Core::_serialize_optimized_artifact(Value artifact) {
   return text;
 }
 
+Value Core::_structured_output_shape(Value output_fields) {
+  axir_coverage_mark("_structured_output_shape");
+  Value shape = Value::object();
+  for (auto field : Core::iter(output_fields)) {
+    Value internal_snake = Core::get(field, Value("is_internal"), Value(false));
+    Value internal = Core::get(field, Value("isInternal"), internal_snake);
+    Value visible = Core::not_(internal);
+    if (Core::truthy(visible)) {
+      Value name = Core::get(field, Value("name"), Value());
+      Value typ = Core::get(field, Value("type"), Value());
+      Value placeholder = Core::_structured_output_type_placeholder(typ);
+      Core::set(shape, name, placeholder);
+    }
+  }
+  Value shape_json = Core::json_stringify(shape);
+  return shape_json;
+}
+
 Value Core::_regex_escaped(Value s, Value inside) {
   axir_coverage_mark("_regex_escaped");
   Value c = Core::none();
@@ -16866,24 +16880,6 @@ Value Core::_regex_escaped(Value s, Value inside) {
   }
   Value t148 = Core::_regex_literal(c);
   return t148;
-}
-
-Value Core::_structured_output_shape(Value output_fields) {
-  axir_coverage_mark("_structured_output_shape");
-  Value shape = Value::object();
-  for (auto field : Core::iter(output_fields)) {
-    Value internal_snake = Core::get(field, Value("is_internal"), Value(false));
-    Value internal = Core::get(field, Value("isInternal"), internal_snake);
-    Value visible = Core::not_(internal);
-    if (Core::truthy(visible)) {
-      Value name = Core::get(field, Value("name"), Value());
-      Value typ = Core::get(field, Value("type"), Value());
-      Value placeholder = Core::_structured_output_type_placeholder(typ);
-      Core::set(shape, name, placeholder);
-    }
-  }
-  Value shape_json = Core::json_stringify(shape);
-  return shape_json;
 }
 
 Value Core::_deserialize_optimized_artifact(Value text, Value components) {
@@ -18398,6 +18394,12 @@ Value Core::_build_optimizer_evidence_batch(Value eval_result, Value components)
   return out;
 }
 
+Value Core::_set_examples(Value gen, Value examples) {
+  axir_coverage_mark("_set_examples");
+  Core::set(gen, Value("examples"), examples);
+  return gen;
+}
+
 Value Core::chat_session_has_queued_updates(Value state) {
   axir_coverage_mark("chat_session_has_queued_updates");
   Value updates = Core::get(state, Value("updates"), Value());
@@ -18411,12 +18413,6 @@ Value Core::chat_session_has_queued_updates(Value state) {
     }
   }
   return Value(false);
-}
-
-Value Core::_set_examples(Value gen, Value examples) {
-  axir_coverage_mark("_set_examples");
-  Core::set(gen, Value("examples"), examples);
-  return gen;
 }
 
 Value Core::_set_demos(Value gen, Value demos) {
