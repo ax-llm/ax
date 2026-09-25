@@ -12,6 +12,7 @@ import hashlib
 import http.client
 import json
 import math
+import re
 import os
 import random
 import threading
@@ -36,6 +37,10 @@ def _core_math_is_finite(value):
 def _core_string_split_once(value, sep):
     left, marker, right = str(value).partition(str(sep))
     return {"left": left, "right": right, "found": bool(marker)}
+
+
+def _core_regex_replace(pattern, repl, value):
+    return re.sub(str(pattern), str(repl), str(value))
 
 
 def _core_string_split(value, sep):
@@ -932,6 +937,9 @@ class AxBaseAI(AIClient):
     def get_options(self) -> dict[str, Any]:
         return copy.deepcopy(self.options)
 
+    def _model_catalog_provider(self) -> str:
+        return str(self.name)
+
     def _merged_options(self, options: dict[str, Any] | None = None) -> dict[str, Any]:
         call_options = _strip_runtime_hooks(options)
         merged = {**self.options, **call_options}
@@ -955,6 +963,7 @@ class AxBaseAI(AIClient):
             validate_chat_request(req)
             merged_options = self._merged_options(options)
             model = req.get("model") or self.model
+            provider_require_expensive_model_confirmation(self._model_catalog_provider(), str(model or ""), self.options, _strip_runtime_hooks(options))
             model_config = merge_model_config(self.model_config, req.get("model_config"), merged_options)
             if merged_options.get("stream") is not None:
                 model_config["stream"] = bool(merged_options["stream"])
@@ -1124,6 +1133,9 @@ class ProviderOperationClient(AxBaseAI):
     def get_estimated_cost(self, model_usage: dict[str, Any] | None = None) -> float:
         model_info = self.options.get("modelInfo", self.options.get("model_info"))
         return float(provider_estimate_cost(model_usage or {}, model_info))
+
+    def _model_catalog_provider(self) -> str:
+        return str(self.profile)
 
     def get_features(self, model: str | None = None) -> dict[str, Any]:
         return copy.deepcopy(
@@ -1302,6 +1314,7 @@ class ProviderOperationClient(AxBaseAI):
         validate_chat_request(req)
         merged_options = {**self._merged_options(options), "stream": True}
         model = req.get("model") or self.model
+        provider_require_expensive_model_confirmation(self._model_catalog_provider(), str(model or ""), self.options, _strip_runtime_hooks(options))
         model_config = merge_model_config(self.model_config, req.get("model_config"), merged_options)
         model_config["stream"] = True
         req = {**req, "model": model, "model_config": model_config}
@@ -14161,6 +14174,123 @@ def openai_responses_validate_astra_effort(effort: Any) -> None:
     invalid = _core_not(valid)
     if invalid:
         raise RuntimeError("Invalid Astra reasoning effort")
+    else:
+        pass
+    return None
+
+
+def _provider_model_index() -> Any:
+    _core_coverage_mark("_provider_model_index")
+    index = _core_json_parse("{\"amazon-bedrock\":[],\"anthropic\":[{\"name\":\"claude-3-haiku-20240307\"},{\"name\":\"claude-3-haiku@20240307\"},{\"name\":\"claude-instant-1.2\"},{\"name\":\"claude-3-5-haiku-latest\"},{\"name\":\"claude-3-5-haiku@20241022\"},{\"name\":\"claude-haiku-4-5\"},{\"name\":\"claude-haiku-4-5@20251001\"},{\"name\":\"claude-sonnet-5\"},{\"name\":\"claude-sonnet-5\"},{\"name\":\"claude-3-5-sonnet-latest\"},{\"name\":\"claude-3-5-sonnet-v2@20241022\"},{\"name\":\"claude-3-5-sonnet@20240620\"},{\"name\":\"claude-3-7-sonnet-latest\"},{\"name\":\"claude-3-7-sonnet@20250219\"},{\"name\":\"claude-3-sonnet-20240229\"},{\"name\":\"claude-sonnet-4-20250514\"},{\"name\":\"claude-sonnet-4-5-20250929\"},{\"name\":\"claude-sonnet-4-5@20250929\"},{\"name\":\"claude-sonnet-4-6\"},{\"name\":\"claude-sonnet-4-6\"},{\"name\":\"claude-sonnet-4@20250514\"},{\"name\":\"claude-opus-5-5\"},{\"name\":\"claude-opus-5-5\"},{\"name\":\"claude-opus-4-5-20251101\"},{\"name\":\"claude-opus-4-5@20251101\"},{\"name\":\"claude-opus-4-6\"},{\"name\":\"claude-opus-4-6\"},{\"name\":\"claude-opus-4-7\"},{\"name\":\"claude-opus-4-7\"},{\"name\":\"claude-opus-4-8\"},{\"name\":\"claude-opus-4-8\"},{\"name\":\"claude-opus-5\"},{\"name\":\"claude-opus-5\"},{\"name\":\"claude-2.1\"},{\"name\":\"claude-fable-5\"},{\"name\":\"claude-fable-5\"},{\"name\":\"claude-fable-5-1\"},{\"name\":\"claude-fable-5-1\"},{\"name\":\"claude-3-opus-latest\"},{\"name\":\"claude-3-opus@20240229\"},{\"name\":\"claude-opus-4-1-20250805\"},{\"name\":\"claude-opus-4-1@20250805\"},{\"name\":\"claude-opus-4-20250514\"},{\"name\":\"claude-opus-4@20250514\"}],\"azure-foundry\":[],\"azure-openai\":[],\"baseten\":[],\"baseten-engine\":[],\"cerebras\":[],\"cloudflare-workers-ai\":[],\"cohere\":[{\"name\":\"embed-english-light-v3.0\"},{\"name\":\"embed-english-v3.0\"},{\"name\":\"embed-multilingual-light-v3.0\"},{\"name\":\"embed-multilingual-v3.0\"},{\"name\":\"command-light\"},{\"name\":\"command\"},{\"name\":\"command-r\"},{\"name\":\"command-r-plus\"}],\"databricks\":[],\"deepinfra\":[],\"deepseek\":[{\"aliases\":[\"deepseek-chat\",\"deepseek-reasoner\"],\"name\":\"deepseek-v4-flash\"},{\"name\":\"deepseek-v4-pro\"}],\"deepseek-responses\":[{\"aliases\":[\"deepseek-chat\",\"deepseek-reasoner\"],\"name\":\"deepseek-v4-flash\"},{\"name\":\"deepseek-v4-pro\"}],\"featherless\":[],\"fireworks\":[],\"friendli\":[],\"google-gemini\":[{\"name\":\"gemini-2.0-flash-thinking-exp-01-21\"},{\"name\":\"gemini-2.0-pro-exp-02-05\"},{\"name\":\"gemini-robotics-er-1.6-preview\"},{\"name\":\"gemini-embedding-001\"},{\"name\":\"gemini-1.5-flash-8b\"},{\"name\":\"gemini-embedding-2\"},{\"name\":\"gemini-1.5-flash\"},{\"name\":\"gemini-2.0-flash-lite\"},{\"name\":\"gemini-2.0-flash\"},{\"name\":\"gemini-2.5-flash-lite\"},{\"name\":\"gemini-flash-lite-latest\"},{\"name\":\"gemini-3.1-flash-lite\"},{\"name\":\"gemini-3.1-flash-lite-image\"},{\"name\":\"gemini-3.1-flash-lite-preview\"},{\"name\":\"gemini-1.0-pro\"},{\"name\":\"gemini-2.5-flash\"},{\"name\":\"gemini-3.5-flash-lite\"},{\"name\":\"gemini-flash-latest\"},{\"name\":\"gemini-3-flash-preview\"},{\"aliases\":[\"gemini-3.1-flash-image-preview\"],\"name\":\"gemini-3.1-flash-image\"},{\"name\":\"nano-banana-2\"},{\"name\":\"gemini-1.5-pro\"},{\"name\":\"gemini-3.6-flash\"},{\"name\":\"gemini-3.7-flash\"},{\"name\":\"gemini-3.8-flash\"},{\"name\":\"gemini-3.5-flash\"},{\"name\":\"gemini-2.5-pro\"},{\"name\":\"gemini-pro-latest\"},{\"name\":\"gemini-3.8-flash-lite-tts\"},{\"aliases\":[\"gemini-3-pro-image-preview\"],\"name\":\"gemini-3-pro-image\"},{\"name\":\"gemini-3.1-pro-preview\"},{\"name\":\"gemini-3.5-transcribe\"},{\"name\":\"gemini-3.8-flash-tts\"},{\"name\":\"gemini-3.1-flash-tts-preview\"},{\"name\":\"gemini-3.8-live\"},{\"name\":\"gemini-3.8-live-extended-thinking\"},{\"name\":\"gemini-3.1-flash-live-preview\"},{\"name\":\"gemini-2.5-flash-native-audio-preview-12-2025\"}],\"grok\":[{\"aliases\":[\"grok-4-1-fast-non-reasoning-latest\"],\"name\":\"grok-4-1-fast-non-reasoning\"},{\"aliases\":[\"grok-4-1-fast-reasoning-latest\"],\"name\":\"grok-4-1-fast-reasoning\"},{\"name\":\"grok-3-mini\"},{\"aliases\":[\"grok-4.20-multi-agent-0309\",\"grok-4.20-multi-agent-latest\"],\"name\":\"grok-4.20-multi-agent\"},{\"aliases\":[\"grok-4.20-0309-non-reasoning\",\"grok-4.20-non-reasoning-latest\"],\"name\":\"grok-4.20-non-reasoning\"},{\"aliases\":[\"grok-4.20-0309-reasoning\",\"grok-4.20-reasoning-latest\",\"grok-4.20\",\"grok-4.20-0309\"],\"name\":\"grok-4.20-reasoning\"},{\"aliases\":[\"grok-4.3-latest\",\"grok-latest\"],\"name\":\"grok-4.3\"},{\"name\":\"grok-3-mini-fast\"},{\"aliases\":[\"grok-4.5-latest\",\"grok-build-latest\"],\"name\":\"grok-4.5\"},{\"name\":\"grok-3\"},{\"name\":\"grok-3-fast\"},{\"name\":\"grok-4.6\"},{\"name\":\"grok-voice-think-fast-1.0\"},{\"name\":\"grok-voice-fast-1.0\"}],\"groq\":[],\"huggingface-router\":[],\"hyperbolic\":[],\"llama-cpp\":[],\"lm-studio\":[],\"localai\":[],\"meta\":[{\"name\":\"muse-spark-1.3\"},{\"name\":\"muse-spark-1.3-contributor\"},{\"name\":\"muse-spark-1.2\"},{\"name\":\"muse-spark-1.2-contributor\"},{\"name\":\"muse-spark-1.1\"},{\"name\":\"muse-image-1.0\"},{\"name\":\"muse-voice-transcribe-1.0\"}],\"meta-chat\":[{\"name\":\"muse-spark-1.3\"},{\"name\":\"muse-spark-1.3-contributor\"},{\"name\":\"muse-spark-1.2\"},{\"name\":\"muse-spark-1.2-contributor\"},{\"name\":\"muse-spark-1.1\"}],\"meta-messages\":[{\"name\":\"muse-spark-1.3\"},{\"name\":\"muse-spark-1.3-contributor\"},{\"name\":\"muse-spark-1.2\"},{\"name\":\"muse-spark-1.2-contributor\"},{\"name\":\"muse-spark-1.1\"}],\"mistral\":[{\"name\":\"mistral-nemo-latest\"},{\"name\":\"open-codestral-mamba\"},{\"name\":\"open-mistral-7b\"},{\"name\":\"open-mistral-nemo-latest\"},{\"name\":\"codestral-latest\"},{\"name\":\"mistral-small-latest\"},{\"name\":\"open-mixtral-8x7b\"},{\"name\":\"mistral-large-latest\"}],\"nebius\":[],\"novita\":[],\"nscale\":[],\"nvidia-nim\":[],\"ollama\":[],\"openai\":[{\"name\":\"text-embedding-3-small\"},{\"name\":\"text-embedding-ada-002\"},{\"name\":\"text-embedding-3-large\"},{\"name\":\"gpt-5-nano\"},{\"name\":\"gpt-4.1-nano\"},{\"name\":\"gpt-6-luna\"},{\"name\":\"gpt-4o-mini\"},{\"name\":\"gpt-5.6-luna\"},{\"name\":\"gpt-5.4-nano\"},{\"name\":\"gpt-3.5-turbo\"},{\"name\":\"gpt-4.1-mini\"},{\"name\":\"gpt-5-mini\"},{\"name\":\"gpt-5.1-codex-mini\"},{\"name\":\"gpt-5.4-mini\"},{\"name\":\"o1-mini\"},{\"name\":\"o4-mini\"},{\"name\":\"gpt-4.1\"},{\"name\":\"o3\"},{\"name\":\"gpt-5\"},{\"name\":\"gpt-5-chat\"},{\"name\":\"gpt-5-chat-latest\"},{\"name\":\"gpt-5-codex\"},{\"name\":\"gpt-5.1\"},{\"name\":\"gpt-5.1-chat-latest\"},{\"name\":\"gpt-5.1-codex\"},{\"name\":\"gpt-5.1-codex-max\"},{\"name\":\"gpt-6-sol\"},{\"name\":\"gpt-4o\"},{\"name\":\"gpt-5.6-terra\"},{\"name\":\"gpt-5.2\"},{\"name\":\"gpt-5.2-chat-latest\"},{\"name\":\"gpt-5.2-codex\"},{\"name\":\"gpt-5.4\"},{\"name\":\"chatgpt-4o-latest\"},{\"aliases\":[\"gpt-5.6\"],\"name\":\"gpt-5.6-sol\"},{\"name\":\"gpt-5.5\"},{\"name\":\"gpt-4-turbo\"},{\"name\":\"gpt-6-astra\"},{\"name\":\"o1\"},{\"name\":\"gpt-4\"},{\"name\":\"gpt-5-pro\"},{\"name\":\"gpt-5.2-pro\"},{\"isExpensive\":true,\"name\":\"gpt-5.5-pro\"},{\"name\":\"gpt-audio\"},{\"name\":\"gpt-audio-mini\"},{\"name\":\"gpt-audio-1.5\"},{\"name\":\"gpt-realtime-1.5\"},{\"name\":\"gpt-realtime-2\"},{\"name\":\"gpt-realtime-2.1\"},{\"name\":\"gpt-realtime-2.1-mini\"},{\"name\":\"gpt-realtime-whisper\"},{\"name\":\"gpt-realtime-translate\"},{\"name\":\"gpt-transcribe\"}],\"openai-compatible\":[],\"openai-responses\":[{\"name\":\"gpt-5-nano\"},{\"name\":\"gpt-4.1-nano\"},{\"name\":\"gpt-6-luna\"},{\"name\":\"gpt-4o-mini\"},{\"name\":\"gpt-5.6-luna\"},{\"name\":\"gpt-5.4-nano\"},{\"name\":\"gpt-3.5-turbo\"},{\"name\":\"gpt-4.1-mini\"},{\"name\":\"gpt-5-mini\"},{\"name\":\"gpt-5.1-codex-mini\"},{\"name\":\"gpt-5.4-mini\"},{\"name\":\"o3-mini\"},{\"name\":\"o4-mini\"},{\"name\":\"gpt-4.1\"},{\"name\":\"o3\"},{\"name\":\"gpt-5\"},{\"name\":\"gpt-5-chat\"},{\"name\":\"gpt-5-chat-latest\"},{\"name\":\"gpt-5-codex\"},{\"name\":\"gpt-5.1\"},{\"name\":\"gpt-5.1-chat-latest\"},{\"name\":\"gpt-5.1-codex\"},{\"name\":\"gpt-5.1-codex-max\"},{\"name\":\"gpt-6-sol\"},{\"name\":\"gpt-4o\"},{\"name\":\"gpt-5.6-terra\"},{\"name\":\"gpt-5.2\"},{\"name\":\"gpt-5.2-chat-latest\"},{\"name\":\"gpt-5.2-codex\"},{\"name\":\"gpt-5.4\"},{\"name\":\"chatgpt-4o-latest\"},{\"aliases\":[\"gpt-5.6\"],\"name\":\"gpt-5.6-sol\"},{\"name\":\"gpt-5.5\"},{\"name\":\"gpt-4-turbo\"},{\"name\":\"gpt-6-astra\"},{\"name\":\"o1\"},{\"name\":\"gpt-4\"},{\"isExpensive\":true,\"name\":\"o3-pro\"},{\"name\":\"gpt-5-pro\"},{\"name\":\"gpt-5.2-pro\"},{\"isExpensive\":true,\"name\":\"gpt-5.5-pro\"},{\"isExpensive\":true,\"name\":\"o1-pro\"}],\"openrouter\":[],\"orcarouter\":[],\"ovhcloud\":[],\"reka\":[{\"name\":\"reka-edge\"},{\"name\":\"reka-flash\"},{\"name\":\"reka-core\"}],\"runpod-vllm\":[],\"sagemaker-vllm\":[],\"sambanova\":[],\"scaleway\":[],\"siliconflow\":[],\"together\":[],\"typesafe\":[],\"vertex-ai\":[],\"vllm\":[],\"webllm\":[{\"name\":\"gemma-2-2b-it-q4f32_1-MLC\"},{\"name\":\"gemma-2-9b-it-q4f32_1-MLC\"},{\"isExpensive\":true,\"name\":\"Llama-3.1-70B-Instruct-q4f16_1-MLC\"},{\"name\":\"Llama-3.1-8B-Instruct-q4f32_1-MLC\"},{\"name\":\"Llama-3.2-1B-Instruct-q4f32_1-MLC\"},{\"name\":\"Llama-3.2-3B-Instruct-q4f32_1-MLC\"},{\"name\":\"Mistral-7B-Instruct-v0.3-q4f32_1-MLC\"},{\"name\":\"Phi-3.5-mini-instruct-q4f32_1-MLC\"},{\"name\":\"Qwen2.5-0.5B-Instruct-q4f32_1-MLC\"},{\"name\":\"Qwen2.5-1.5B-Instruct-q4f32_1-MLC\"},{\"name\":\"Qwen2.5-3B-Instruct-q4f32_1-MLC\"},{\"name\":\"Qwen2.5-7B-Instruct-q4f32_1-MLC\"}]}")
+    return index
+
+
+def _provider_match_model_info(candidates: Any, model: str) -> Any:
+    _core_coverage_mark("_provider_match_model_info")
+    empty_aliases = []
+    for candidate in candidates:
+        candidate_name = _core_get(candidate, "name", "")
+        name_matches = _core_eq(candidate_name, model)
+        if name_matches:
+            return candidate
+        else:
+            pass
+        raw_aliases = _core_get(candidate, "aliases", empty_aliases)
+        aliases = _core_coalesce(raw_aliases, empty_aliases)
+        alias_matches = _core_contains(aliases, model)
+        if alias_matches:
+            return candidate
+        else:
+            pass
+    none = _core_none()
+    return none
+
+
+def provider_find_model_info(provider: str, model: str, model_info: Any) -> Any:
+    _core_coverage_mark("provider_find_model_info")
+    index = _provider_model_index()
+    empty_list = []
+    catalog_models = _core_get(index, provider, empty_list)
+    candidates = []
+    for catalog_model in catalog_models:
+        candidates.append(catalog_model)
+    user_models = _core_coalesce(model_info, empty_list)
+    user_models_is_list = _core_type_is(user_models, "list")
+    if user_models_is_list:
+        for user_model in user_models:
+            candidates.append(user_model)
+    else:
+        pass
+    exact = _provider_match_model_info(candidates, model)
+    has_exact = _core_is_not_none(exact)
+    if has_exact:
+        return exact
+    else:
+        pass
+    normalized = _core_regex_replace("^(?:[a-z]+(?:-[a-z]+)*\\.)?(?:anthropic|openai)\\.", "", model)
+    normalized = _core_regex_replace("-latest$", "", normalized)
+    normalized = _core_regex_replace("-\\d{8}$", "", normalized)
+    normalized = _core_regex_replace("-v\\d+:\\d+$", "", normalized)
+    normalized = _core_regex_replace("@\\d{8}$", "", normalized)
+    normalized = _core_regex_replace("-\\d{2,}(-[a-zA-Z0-9-]+)?$", "", normalized)
+    normalized = _core_regex_replace("-v\\d+@\\d{8}$", "", normalized)
+    normalized = _core_regex_replace("-v\\d+$", "", normalized)
+    normalized_match = _provider_match_model_info(candidates, normalized)
+    return normalized_match
+
+
+def provider_require_expensive_model_confirmation(provider: str, model: str, client_options: Any, options: Any) -> None:
+    _core_coverage_mark("provider_require_expensive_model_confirmation")
+    empty_map = {}
+    empty_list = []
+    client_opts = _core_coalesce(client_options, empty_map)
+    call_opts = _core_coalesce(options, empty_map)
+    models_camel = _core_get(client_opts, "modelList", empty_list)
+    models_snake = _core_get(client_opts, "model_list", models_camel)
+    models = _core_get(client_opts, "models", models_snake)
+    models_is_list = _core_type_is(models, "list")
+    resolved_model = model
+    key_entry = {}
+    key_found = False
+    if models_is_list:
+        for entry in models:
+            entry_key = _core_get(entry, "key", "")
+            key_matches = _core_eq(entry_key, model)
+            key_missing = _core_not(key_found)
+            use_entry = _core_and(key_matches, key_missing)
+            if use_entry:
+                key_found = True
+                key_entry = entry
+                entry_model = _core_get(entry, "model", model)
+                resolved_model = entry_model
+            else:
+                pass
+    else:
+        pass
+    call_confirmation_snake = _core_get(call_opts, "use_expensive_model", None)
+    call_confirmation = _core_get(call_opts, "useExpensiveModel", call_confirmation_snake)
+    entry_confirmation_snake = _core_get(key_entry, "use_expensive_model", None)
+    entry_confirmation = _core_get(key_entry, "useExpensiveModel", entry_confirmation_snake)
+    confirmation = _core_coalesce(call_confirmation, entry_confirmation)
+    confirmed = _core_eq(confirmation, "yes")
+    if confirmed:
+        return None
+    else:
+        pass
+    model_info_snake = _core_get(client_opts, "model_info", None)
+    model_info = _core_get(client_opts, "modelInfo", model_info_snake)
+    info = provider_find_model_info(provider, resolved_model, model_info)
+    has_info = _core_is_not_none(info)
+    if has_info:
+        expensive_snake = _core_get(info, "is_expensive", False)
+        expensive = _core_get(info, "isExpensive", expensive_snake)
+        is_expensive = _core_truthy(expensive)
+        if is_expensive:
+            message = _core_string_format("Model {} is marked as expensive and requires explicit confirmation. Set useExpensiveModel: \"yes\" to proceed.", resolved_model)
+            error = _core_runtime_error(message)
+            raise error
+        else:
+            pass
     else:
         pass
     return None

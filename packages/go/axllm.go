@@ -29061,6 +29061,269 @@ func openai_responses_validate_astra_effort(args ...Value) (Value, error) {
 	return nil, nil
 }
 
+func _provider_model_index(args ...Value) (Value, error) {
+	axirCoverageMark("_provider_model_index")
+	var v_index Value
+	_ = v_index
+	{ v, err := _core_json_parse("{\"amazon-bedrock\":[],\"anthropic\":[{\"name\":\"claude-3-haiku-20240307\"},{\"name\":\"claude-3-haiku@20240307\"},{\"name\":\"claude-instant-1.2\"},{\"name\":\"claude-3-5-haiku-latest\"},{\"name\":\"claude-3-5-haiku@20241022\"},{\"name\":\"claude-haiku-4-5\"},{\"name\":\"claude-haiku-4-5@20251001\"},{\"name\":\"claude-sonnet-5\"},{\"name\":\"claude-sonnet-5\"},{\"name\":\"claude-3-5-sonnet-latest\"},{\"name\":\"claude-3-5-sonnet-v2@20241022\"},{\"name\":\"claude-3-5-sonnet@20240620\"},{\"name\":\"claude-3-7-sonnet-latest\"},{\"name\":\"claude-3-7-sonnet@20250219\"},{\"name\":\"claude-3-sonnet-20240229\"},{\"name\":\"claude-sonnet-4-20250514\"},{\"name\":\"claude-sonnet-4-5-20250929\"},{\"name\":\"claude-sonnet-4-5@20250929\"},{\"name\":\"claude-sonnet-4-6\"},{\"name\":\"claude-sonnet-4-6\"},{\"name\":\"claude-sonnet-4@20250514\"},{\"name\":\"claude-opus-5-5\"},{\"name\":\"claude-opus-5-5\"},{\"name\":\"claude-opus-4-5-20251101\"},{\"name\":\"claude-opus-4-5@20251101\"},{\"name\":\"claude-opus-4-6\"},{\"name\":\"claude-opus-4-6\"},{\"name\":\"claude-opus-4-7\"},{\"name\":\"claude-opus-4-7\"},{\"name\":\"claude-opus-4-8\"},{\"name\":\"claude-opus-4-8\"},{\"name\":\"claude-opus-5\"},{\"name\":\"claude-opus-5\"},{\"name\":\"claude-2.1\"},{\"name\":\"claude-fable-5\"},{\"name\":\"claude-fable-5\"},{\"name\":\"claude-fable-5-1\"},{\"name\":\"claude-fable-5-1\"},{\"name\":\"claude-3-opus-latest\"},{\"name\":\"claude-3-opus@20240229\"},{\"name\":\"claude-opus-4-1-20250805\"},{\"name\":\"claude-opus-4-1@20250805\"},{\"name\":\"claude-opus-4-20250514\"},{\"name\":\"claude-opus-4@20250514\"}],\"azure-foundry\":[],\"azure-openai\":[],\"baseten\":[],\"baseten-engine\":[],\"cerebras\":[],\"cloudflare-workers-ai\":[],\"cohere\":[{\"name\":\"embed-english-light-v3.0\"},{\"name\":\"embed-english-v3.0\"},{\"name\":\"embed-multilingual-light-v3.0\"},{\"name\":\"embed-multilingual-v3.0\"},{\"name\":\"command-light\"},{\"name\":\"command\"},{\"name\":\"command-r\"},{\"name\":\"command-r-plus\"}],\"databricks\":[],\"deepinfra\":[],\"deepseek\":[{\"aliases\":[\"deepseek-chat\",\"deepseek-reasoner\"],\"name\":\"deepseek-v4-flash\"},{\"name\":\"deepseek-v4-pro\"}],\"deepseek-responses\":[{\"aliases\":[\"deepseek-chat\",\"deepseek-reasoner\"],\"name\":\"deepseek-v4-flash\"},{\"name\":\"deepseek-v4-pro\"}],\"featherless\":[],\"fireworks\":[],\"friendli\":[],\"google-gemini\":[{\"name\":\"gemini-2.0-flash-thinking-exp-01-21\"},{\"name\":\"gemini-2.0-pro-exp-02-05\"},{\"name\":\"gemini-robotics-er-1.6-preview\"},{\"name\":\"gemini-embedding-001\"},{\"name\":\"gemini-1.5-flash-8b\"},{\"name\":\"gemini-embedding-2\"},{\"name\":\"gemini-1.5-flash\"},{\"name\":\"gemini-2.0-flash-lite\"},{\"name\":\"gemini-2.0-flash\"},{\"name\":\"gemini-2.5-flash-lite\"},{\"name\":\"gemini-flash-lite-latest\"},{\"name\":\"gemini-3.1-flash-lite\"},{\"name\":\"gemini-3.1-flash-lite-image\"},{\"name\":\"gemini-3.1-flash-lite-preview\"},{\"name\":\"gemini-1.0-pro\"},{\"name\":\"gemini-2.5-flash\"},{\"name\":\"gemini-3.5-flash-lite\"},{\"name\":\"gemini-flash-latest\"},{\"name\":\"gemini-3-flash-preview\"},{\"aliases\":[\"gemini-3.1-flash-image-preview\"],\"name\":\"gemini-3.1-flash-image\"},{\"name\":\"nano-banana-2\"},{\"name\":\"gemini-1.5-pro\"},{\"name\":\"gemini-3.6-flash\"},{\"name\":\"gemini-3.7-flash\"},{\"name\":\"gemini-3.8-flash\"},{\"name\":\"gemini-3.5-flash\"},{\"name\":\"gemini-2.5-pro\"},{\"name\":\"gemini-pro-latest\"},{\"name\":\"gemini-3.8-flash-lite-tts\"},{\"aliases\":[\"gemini-3-pro-image-preview\"],\"name\":\"gemini-3-pro-image\"},{\"name\":\"gemini-3.1-pro-preview\"},{\"name\":\"gemini-3.5-transcribe\"},{\"name\":\"gemini-3.8-flash-tts\"},{\"name\":\"gemini-3.1-flash-tts-preview\"},{\"name\":\"gemini-3.8-live\"},{\"name\":\"gemini-3.8-live-extended-thinking\"},{\"name\":\"gemini-3.1-flash-live-preview\"},{\"name\":\"gemini-2.5-flash-native-audio-preview-12-2025\"}],\"grok\":[{\"aliases\":[\"grok-4-1-fast-non-reasoning-latest\"],\"name\":\"grok-4-1-fast-non-reasoning\"},{\"aliases\":[\"grok-4-1-fast-reasoning-latest\"],\"name\":\"grok-4-1-fast-reasoning\"},{\"name\":\"grok-3-mini\"},{\"aliases\":[\"grok-4.20-multi-agent-0309\",\"grok-4.20-multi-agent-latest\"],\"name\":\"grok-4.20-multi-agent\"},{\"aliases\":[\"grok-4.20-0309-non-reasoning\",\"grok-4.20-non-reasoning-latest\"],\"name\":\"grok-4.20-non-reasoning\"},{\"aliases\":[\"grok-4.20-0309-reasoning\",\"grok-4.20-reasoning-latest\",\"grok-4.20\",\"grok-4.20-0309\"],\"name\":\"grok-4.20-reasoning\"},{\"aliases\":[\"grok-4.3-latest\",\"grok-latest\"],\"name\":\"grok-4.3\"},{\"name\":\"grok-3-mini-fast\"},{\"aliases\":[\"grok-4.5-latest\",\"grok-build-latest\"],\"name\":\"grok-4.5\"},{\"name\":\"grok-3\"},{\"name\":\"grok-3-fast\"},{\"name\":\"grok-4.6\"},{\"name\":\"grok-voice-think-fast-1.0\"},{\"name\":\"grok-voice-fast-1.0\"}],\"groq\":[],\"huggingface-router\":[],\"hyperbolic\":[],\"llama-cpp\":[],\"lm-studio\":[],\"localai\":[],\"meta\":[{\"name\":\"muse-spark-1.3\"},{\"name\":\"muse-spark-1.3-contributor\"},{\"name\":\"muse-spark-1.2\"},{\"name\":\"muse-spark-1.2-contributor\"},{\"name\":\"muse-spark-1.1\"},{\"name\":\"muse-image-1.0\"},{\"name\":\"muse-voice-transcribe-1.0\"}],\"meta-chat\":[{\"name\":\"muse-spark-1.3\"},{\"name\":\"muse-spark-1.3-contributor\"},{\"name\":\"muse-spark-1.2\"},{\"name\":\"muse-spark-1.2-contributor\"},{\"name\":\"muse-spark-1.1\"}],\"meta-messages\":[{\"name\":\"muse-spark-1.3\"},{\"name\":\"muse-spark-1.3-contributor\"},{\"name\":\"muse-spark-1.2\"},{\"name\":\"muse-spark-1.2-contributor\"},{\"name\":\"muse-spark-1.1\"}],\"mistral\":[{\"name\":\"mistral-nemo-latest\"},{\"name\":\"open-codestral-mamba\"},{\"name\":\"open-mistral-7b\"},{\"name\":\"open-mistral-nemo-latest\"},{\"name\":\"codestral-latest\"},{\"name\":\"mistral-small-latest\"},{\"name\":\"open-mixtral-8x7b\"},{\"name\":\"mistral-large-latest\"}],\"nebius\":[],\"novita\":[],\"nscale\":[],\"nvidia-nim\":[],\"ollama\":[],\"openai\":[{\"name\":\"text-embedding-3-small\"},{\"name\":\"text-embedding-ada-002\"},{\"name\":\"text-embedding-3-large\"},{\"name\":\"gpt-5-nano\"},{\"name\":\"gpt-4.1-nano\"},{\"name\":\"gpt-6-luna\"},{\"name\":\"gpt-4o-mini\"},{\"name\":\"gpt-5.6-luna\"},{\"name\":\"gpt-5.4-nano\"},{\"name\":\"gpt-3.5-turbo\"},{\"name\":\"gpt-4.1-mini\"},{\"name\":\"gpt-5-mini\"},{\"name\":\"gpt-5.1-codex-mini\"},{\"name\":\"gpt-5.4-mini\"},{\"name\":\"o1-mini\"},{\"name\":\"o4-mini\"},{\"name\":\"gpt-4.1\"},{\"name\":\"o3\"},{\"name\":\"gpt-5\"},{\"name\":\"gpt-5-chat\"},{\"name\":\"gpt-5-chat-latest\"},{\"name\":\"gpt-5-codex\"},{\"name\":\"gpt-5.1\"},{\"name\":\"gpt-5.1-chat-latest\"},{\"name\":\"gpt-5.1-codex\"},{\"name\":\"gpt-5.1-codex-max\"},{\"name\":\"gpt-6-sol\"},{\"name\":\"gpt-4o\"},{\"name\":\"gpt-5.6-terra\"},{\"name\":\"gpt-5.2\"},{\"name\":\"gpt-5.2-chat-latest\"},{\"name\":\"gpt-5.2-codex\"},{\"name\":\"gpt-5.4\"},{\"name\":\"chatgpt-4o-latest\"},{\"aliases\":[\"gpt-5.6\"],\"name\":\"gpt-5.6-sol\"},{\"name\":\"gpt-5.5\"},{\"name\":\"gpt-4-turbo\"},{\"name\":\"gpt-6-astra\"},{\"name\":\"o1\"},{\"name\":\"gpt-4\"},{\"name\":\"gpt-5-pro\"},{\"name\":\"gpt-5.2-pro\"},{\"isExpensive\":true,\"name\":\"gpt-5.5-pro\"},{\"name\":\"gpt-audio\"},{\"name\":\"gpt-audio-mini\"},{\"name\":\"gpt-audio-1.5\"},{\"name\":\"gpt-realtime-1.5\"},{\"name\":\"gpt-realtime-2\"},{\"name\":\"gpt-realtime-2.1\"},{\"name\":\"gpt-realtime-2.1-mini\"},{\"name\":\"gpt-realtime-whisper\"},{\"name\":\"gpt-realtime-translate\"},{\"name\":\"gpt-transcribe\"}],\"openai-compatible\":[],\"openai-responses\":[{\"name\":\"gpt-5-nano\"},{\"name\":\"gpt-4.1-nano\"},{\"name\":\"gpt-6-luna\"},{\"name\":\"gpt-4o-mini\"},{\"name\":\"gpt-5.6-luna\"},{\"name\":\"gpt-5.4-nano\"},{\"name\":\"gpt-3.5-turbo\"},{\"name\":\"gpt-4.1-mini\"},{\"name\":\"gpt-5-mini\"},{\"name\":\"gpt-5.1-codex-mini\"},{\"name\":\"gpt-5.4-mini\"},{\"name\":\"o3-mini\"},{\"name\":\"o4-mini\"},{\"name\":\"gpt-4.1\"},{\"name\":\"o3\"},{\"name\":\"gpt-5\"},{\"name\":\"gpt-5-chat\"},{\"name\":\"gpt-5-chat-latest\"},{\"name\":\"gpt-5-codex\"},{\"name\":\"gpt-5.1\"},{\"name\":\"gpt-5.1-chat-latest\"},{\"name\":\"gpt-5.1-codex\"},{\"name\":\"gpt-5.1-codex-max\"},{\"name\":\"gpt-6-sol\"},{\"name\":\"gpt-4o\"},{\"name\":\"gpt-5.6-terra\"},{\"name\":\"gpt-5.2\"},{\"name\":\"gpt-5.2-chat-latest\"},{\"name\":\"gpt-5.2-codex\"},{\"name\":\"gpt-5.4\"},{\"name\":\"chatgpt-4o-latest\"},{\"aliases\":[\"gpt-5.6\"],\"name\":\"gpt-5.6-sol\"},{\"name\":\"gpt-5.5\"},{\"name\":\"gpt-4-turbo\"},{\"name\":\"gpt-6-astra\"},{\"name\":\"o1\"},{\"name\":\"gpt-4\"},{\"isExpensive\":true,\"name\":\"o3-pro\"},{\"name\":\"gpt-5-pro\"},{\"name\":\"gpt-5.2-pro\"},{\"isExpensive\":true,\"name\":\"gpt-5.5-pro\"},{\"isExpensive\":true,\"name\":\"o1-pro\"}],\"openrouter\":[],\"orcarouter\":[],\"ovhcloud\":[],\"reka\":[{\"name\":\"reka-edge\"},{\"name\":\"reka-flash\"},{\"name\":\"reka-core\"}],\"runpod-vllm\":[],\"sagemaker-vllm\":[],\"sambanova\":[],\"scaleway\":[],\"siliconflow\":[],\"together\":[],\"typesafe\":[],\"vertex-ai\":[],\"vllm\":[],\"webllm\":[{\"name\":\"gemma-2-2b-it-q4f32_1-MLC\"},{\"name\":\"gemma-2-9b-it-q4f32_1-MLC\"},{\"isExpensive\":true,\"name\":\"Llama-3.1-70B-Instruct-q4f16_1-MLC\"},{\"name\":\"Llama-3.1-8B-Instruct-q4f32_1-MLC\"},{\"name\":\"Llama-3.2-1B-Instruct-q4f32_1-MLC\"},{\"name\":\"Llama-3.2-3B-Instruct-q4f32_1-MLC\"},{\"name\":\"Mistral-7B-Instruct-v0.3-q4f32_1-MLC\"},{\"name\":\"Phi-3.5-mini-instruct-q4f32_1-MLC\"},{\"name\":\"Qwen2.5-0.5B-Instruct-q4f32_1-MLC\"},{\"name\":\"Qwen2.5-1.5B-Instruct-q4f32_1-MLC\"},{\"name\":\"Qwen2.5-3B-Instruct-q4f32_1-MLC\"},{\"name\":\"Qwen2.5-7B-Instruct-q4f32_1-MLC\"}]}"); if err != nil { return nil, err }; v_index = v }
+	return v_index, nil
+}
+
+func _provider_match_model_info(args ...Value) (Value, error) {
+	axirCoverageMark("_provider_match_model_info")
+	var v_candidates Value
+	var v_model Value
+	var v_alias_matches Value
+	var v_aliases Value
+	var v_candidate Value
+	var v_candidate_name Value
+	var v_empty_aliases Value
+	var v_name_matches Value
+	var v_none Value
+	var v_raw_aliases Value
+	if len(args) > 0 { v_candidates = args[0] }
+	_ = v_candidates
+	if len(args) > 1 { v_model = args[1] }
+	_ = v_model
+	_ = v_alias_matches
+	_ = v_aliases
+	_ = v_candidate
+	_ = v_candidate_name
+	_ = v_empty_aliases
+	_ = v_name_matches
+	_ = v_none
+	_ = v_raw_aliases
+	v_empty_aliases = MutableArray()
+	for _, v_candidate = range coreIter(v_candidates) {
+		v_candidate_name = coreGet(v_candidate, "name", "")
+		v_name_matches = _core_eq(v_candidate_name, v_model)
+		if coreTruthy(v_name_matches) {
+			return v_candidate, nil
+		} else {
+		// empty
+		}
+		v_raw_aliases = coreGet(v_candidate, "aliases", v_empty_aliases)
+		v_aliases = _core_coalesce(v_raw_aliases, v_empty_aliases)
+		v_alias_matches = _core_contains(v_aliases, v_model)
+		if coreTruthy(v_alias_matches) {
+			return v_candidate, nil
+		} else {
+		// empty
+		}
+	}
+	v_none = _core_none()
+	return v_none, nil
+}
+
+func provider_find_model_info(args ...Value) (Value, error) {
+	axirCoverageMark("provider_find_model_info")
+	var v_provider Value
+	var v_model Value
+	var v_model_info Value
+	var v_candidates Value
+	var v_catalog_model Value
+	var v_catalog_models Value
+	var v_empty_list Value
+	var v_exact Value
+	var v_has_exact Value
+	var v_index Value
+	var v_normalized Value
+	var v_normalized_match Value
+	var v_user_model Value
+	var v_user_models Value
+	var v_user_models_is_list Value
+	if len(args) > 0 { v_provider = args[0] }
+	_ = v_provider
+	if len(args) > 1 { v_model = args[1] }
+	_ = v_model
+	if len(args) > 2 { v_model_info = args[2] }
+	_ = v_model_info
+	_ = v_candidates
+	_ = v_catalog_model
+	_ = v_catalog_models
+	_ = v_empty_list
+	_ = v_exact
+	_ = v_has_exact
+	_ = v_index
+	_ = v_normalized
+	_ = v_normalized_match
+	_ = v_user_model
+	_ = v_user_models
+	_ = v_user_models_is_list
+	{ v, err := _provider_model_index(); if err != nil { return nil, err }; v_index = v }
+	v_empty_list = MutableArray()
+	v_catalog_models = coreGet(v_index, v_provider, v_empty_list)
+	v_candidates = MutableArray()
+	for _, v_catalog_model = range coreIter(v_catalog_models) {
+		v_candidates = coreAppend(v_candidates, v_catalog_model)
+	}
+	v_user_models = _core_coalesce(v_model_info, v_empty_list)
+	v_user_models_is_list = coreTypeIs(v_user_models, "list")
+	if coreTruthy(v_user_models_is_list) {
+		for _, v_user_model = range coreIter(v_user_models) {
+			v_candidates = coreAppend(v_candidates, v_user_model)
+		}
+	} else {
+	// empty
+	}
+	{ v, err := _provider_match_model_info(v_candidates, v_model); if err != nil { return nil, err }; v_exact = v }
+	v_has_exact = _core_is_not_none(v_exact)
+	if coreTruthy(v_has_exact) {
+		return v_exact, nil
+	} else {
+	// empty
+	}
+	v_normalized = _core_regex_replace("^(?:[a-z]+(?:-[a-z]+)*\\.)?(?:anthropic|openai)\\.", "", v_model)
+	v_normalized = _core_regex_replace("-latest$", "", v_normalized)
+	v_normalized = _core_regex_replace("-\\d{8}$", "", v_normalized)
+	v_normalized = _core_regex_replace("-v\\d+:\\d+$", "", v_normalized)
+	v_normalized = _core_regex_replace("@\\d{8}$", "", v_normalized)
+	v_normalized = _core_regex_replace("-\\d{2,}(-[a-zA-Z0-9-]+)?$", "", v_normalized)
+	v_normalized = _core_regex_replace("-v\\d+@\\d{8}$", "", v_normalized)
+	v_normalized = _core_regex_replace("-v\\d+$", "", v_normalized)
+	{ v, err := _provider_match_model_info(v_candidates, v_normalized); if err != nil { return nil, err }; v_normalized_match = v }
+	return v_normalized_match, nil
+}
+
+func provider_require_expensive_model_confirmation(args ...Value) (Value, error) {
+	axirCoverageMark("provider_require_expensive_model_confirmation")
+	var v_provider Value
+	var v_model Value
+	var v_client_options Value
+	var v_options Value
+	var v_call_confirmation Value
+	var v_call_confirmation_snake Value
+	var v_call_opts Value
+	var v_client_opts Value
+	var v_confirmation Value
+	var v_confirmed Value
+	var v_empty_list Value
+	var v_empty_map Value
+	var v_entry Value
+	var v_entry_confirmation Value
+	var v_entry_confirmation_snake Value
+	var v_entry_key Value
+	var v_entry_model Value
+	var v_error Value
+	var v_expensive Value
+	var v_expensive_snake Value
+	var v_has_info Value
+	var v_info Value
+	var v_is_expensive Value
+	var v_key_entry Value
+	var v_key_found Value
+	var v_key_matches Value
+	var v_key_missing Value
+	var v_message Value
+	var v_model_info Value
+	var v_model_info_snake Value
+	var v_models Value
+	var v_models_camel Value
+	var v_models_is_list Value
+	var v_models_snake Value
+	var v_resolved_model Value
+	var v_use_entry Value
+	if len(args) > 0 { v_provider = args[0] }
+	_ = v_provider
+	if len(args) > 1 { v_model = args[1] }
+	_ = v_model
+	if len(args) > 2 { v_client_options = args[2] }
+	_ = v_client_options
+	if len(args) > 3 { v_options = args[3] }
+	_ = v_options
+	_ = v_call_confirmation
+	_ = v_call_confirmation_snake
+	_ = v_call_opts
+	_ = v_client_opts
+	_ = v_confirmation
+	_ = v_confirmed
+	_ = v_empty_list
+	_ = v_empty_map
+	_ = v_entry
+	_ = v_entry_confirmation
+	_ = v_entry_confirmation_snake
+	_ = v_entry_key
+	_ = v_entry_model
+	_ = v_error
+	_ = v_expensive
+	_ = v_expensive_snake
+	_ = v_has_info
+	_ = v_info
+	_ = v_is_expensive
+	_ = v_key_entry
+	_ = v_key_found
+	_ = v_key_matches
+	_ = v_key_missing
+	_ = v_message
+	_ = v_model_info
+	_ = v_model_info_snake
+	_ = v_models
+	_ = v_models_camel
+	_ = v_models_is_list
+	_ = v_models_snake
+	_ = v_resolved_model
+	_ = v_use_entry
+	v_empty_map = Object()
+	v_empty_list = MutableArray()
+	v_client_opts = _core_coalesce(v_client_options, v_empty_map)
+	v_call_opts = _core_coalesce(v_options, v_empty_map)
+	v_models_camel = coreGet(v_client_opts, "modelList", v_empty_list)
+	v_models_snake = coreGet(v_client_opts, "model_list", v_models_camel)
+	v_models = coreGet(v_client_opts, "models", v_models_snake)
+	v_models_is_list = coreTypeIs(v_models, "list")
+	v_resolved_model = v_model
+	v_key_entry = Object()
+	v_key_found = false
+	if coreTruthy(v_models_is_list) {
+		for _, v_entry = range coreIter(v_models) {
+			v_entry_key = coreGet(v_entry, "key", "")
+			v_key_matches = _core_eq(v_entry_key, v_model)
+			v_key_missing = _core_not(v_key_found)
+			v_use_entry = _core_and(v_key_matches, v_key_missing)
+			if coreTruthy(v_use_entry) {
+				v_key_found = true
+				v_key_entry = v_entry
+				v_entry_model = coreGet(v_entry, "model", v_model)
+				v_resolved_model = v_entry_model
+			} else {
+			// empty
+			}
+		}
+	} else {
+	// empty
+	}
+	v_call_confirmation_snake = coreGet(v_call_opts, "use_expensive_model", nil)
+	v_call_confirmation = coreGet(v_call_opts, "useExpensiveModel", v_call_confirmation_snake)
+	v_entry_confirmation_snake = coreGet(v_key_entry, "use_expensive_model", nil)
+	v_entry_confirmation = coreGet(v_key_entry, "useExpensiveModel", v_entry_confirmation_snake)
+	v_confirmation = _core_coalesce(v_call_confirmation, v_entry_confirmation)
+	v_confirmed = _core_eq(v_confirmation, "yes")
+	if coreTruthy(v_confirmed) {
+		return nil, nil
+	} else {
+	// empty
+	}
+	v_model_info_snake = coreGet(v_client_opts, "model_info", nil)
+	v_model_info = coreGet(v_client_opts, "modelInfo", v_model_info_snake)
+	{ v, err := provider_find_model_info(v_provider, v_resolved_model, v_model_info); if err != nil { return nil, err }; v_info = v }
+	v_has_info = _core_is_not_none(v_info)
+	if coreTruthy(v_has_info) {
+		v_expensive_snake = coreGet(v_info, "is_expensive", false)
+		v_expensive = coreGet(v_info, "isExpensive", v_expensive_snake)
+		v_is_expensive = _core_truthy(v_expensive)
+		if coreTruthy(v_is_expensive) {
+			v_message = _core_string_format("Model {} is marked as expensive and requires explicit confirmation. Set useExpensiveModel: \"yes\" to proceed.", v_resolved_model)
+			v_error = _core_runtime_error(v_message)
+			return nil, asError(v_error)
+		} else {
+		// empty
+		}
+	} else {
+	// empty
+	}
+	return nil, nil
+}
+
 func chat_session_mode_enabled(args ...Value) (Value, error) {
 	axirCoverageMark("chat_session_mode_enabled")
 	var v_options Value
@@ -72591,12 +72854,30 @@ func finishAIOperation(hooks AxRuntimeHooks, attributes map[string]Value, span A
 	finishRuntimeSpan(span, err)
 }
 
+// requireExpensiveModelConfirmation runs the Core expensive-model gate for one
+// chat call before anything is sent. provider is the catalog provider id, the
+// model is the request's model or defaultModel, clientOptions are the client's
+// own stored options and options the per-call options. The two are not merged:
+// only the call options or a model-key entry confirm an expensive model, as in TS.
+func requireExpensiveModelConfirmation(provider string, request map[string]Value, defaultModel Value, clientOptions map[string]Value, options map[string]Value) error {
+	model := coreGet(request, "model", nil)
+	if !coreTruthy(model) {
+		model = defaultModel
+	}
+	_, err := provider_require_expensive_model_confirmation(provider, display(model), clientOptions, stripRuntimeHooks(options))
+	return err
+}
+
 func (c *OpenAICompatibleClient) Chat(ctx context.Context, request map[string]Value, options map[string]Value) (Value, error) {
 	if err := contextCancellationError(ctx); err != nil { return nil, err }
 	hooks, previousUsage := c.runtimeHooksSnapshot()
 	hooks = effectiveRuntimeHooks(ctx, options, hooks)
-	mergedOptions := mergeAIOptions(c.optionsSnapshot(), stripRuntimeHooks(options))
-	modelName := display(coreGet(request, "model", coreGet(c.optionsSnapshot(), "model", "")))
+	clientOptions := c.optionsSnapshot()
+	mergedOptions := mergeAIOptions(clientOptions, stripRuntimeHooks(options))
+	modelName := display(coreGet(request, "model", coreGet(clientOptions, "model", "")))
+	if err := requireExpensiveModelConfirmation(c.Profile, request, coreGet(clientOptions, "model", nil), clientOptions, options); err != nil {
+		return nil, err
+	}
 	streaming := coreTruthy(coreGet(coreGet(request, "model_config", Object()), "stream", coreGet(mergedOptions, "stream", false)))
 	attributes, span, started := beginAIOperation(ctx, hooks, "chat", c.Name, modelName, streaming)
 	next := func() (Value, error) {
@@ -72966,6 +73247,12 @@ func (c *OpenAICompatibleClient) StreamEvents(ctx context.Context, request map[s
         return newAxChatStream(func()(Value,error){if delivered{return nil,io.EOF};delivered=true;return response,nil},nil,nil),nil
     }
 	if err := contextCancellationError(ctx); err != nil { return nil, err }
+	// Streamed requests don't go through Chat, so they run the same
+	// expensive-model gate before any request (realtime or HTTP stream).
+	gateOptions := c.optionsSnapshot()
+	if err := requireExpensiveModelConfirmation(c.Profile, request, coreGet(gateOptions, "model", nil), gateOptions, options); err != nil {
+		return nil, err
+	}
 	prepared, prepareErr := safeValue(func() Value { return c.prepareChatRequest(request, Object("stream", true)) })
 	if prepareErr != nil { return nil, prepareErr }
 	realtimeRequest := asMap(prepared)
@@ -76379,6 +76666,16 @@ func (b *AxBootstrapFewShot) Optimize(request map[string]Value, evaluator Optimi
 		if maxExamples < len(train) {
 			train = train[:maxExamples]
 		}
+		// teacherOptions become the demo runs' forward options; explicit
+		// forward_options win.
+		var forwardOptions map[string]Value
+		if teacherOptions := asMap(optimizeOption(options, "teacherOptions", "teacher_options")); coreTruthy(teacherOptions) {
+			forwardOptions = cloneMap(teacherOptions)
+			explicit := asMap(coreGet(options, "forward_options", nil))
+			for _, key := range orderedKeys(explicit) {
+				coreSet(forwardOptions, key, explicit[key])
+			}
+		}
 		base := gepaCurrentMap(components)
 		demos := Array()
 		accepted := map[string]bool{}
@@ -76397,7 +76694,11 @@ func (b *AxBootstrapFewShot) Optimize(request map[string]Value, evaluator Optimi
 					if accepted[exampleKey] {
 						continue
 					}
-					result, err := evaluator.Evaluate(cloneMap(base), Object("dataset", Object("train", Array(example), "validation", Array()), "phase", "bootstrap", "round", round))
+					evaluateOptions := Object("dataset", Object("train", Array(example), "validation", Array()), "phase", "bootstrap", "round", round)
+					if forwardOptions != nil {
+						coreSet(evaluateOptions, "forward_options", cloneMap(forwardOptions))
+					}
+					result, err := evaluator.Evaluate(cloneMap(base), evaluateOptions)
 					if err != nil {
 						panic(err)
 					}
@@ -76774,17 +77075,64 @@ func (g *AxGEPA) gepaReflect(component map[string]Value, current string, rows []
 	if attempts <= 0 {
 		attempts = 1
 	}
+	// teacherOptions ride on every reflection call; stream stays off.
+	chatOptions := Object()
+	teacherOptions := asMap(optimizeOption(options, "teacherOptions", "teacher_options"))
+	for _, key := range orderedKeys(teacherOptions) {
+		coreSet(chatOptions, key, cloneValue(teacherOptions[key]))
+	}
+	coreSet(chatOptions, "stream", false)
+	var lastErr error
 	for i := 0; i < attempts; i++ {
-		response, err := g.ReflectionClient.Chat(context.Background(), Object("chatPrompt", Array(Object("role", "user", "content", stableStringify(Object("componentKey", coreGet(component, "id", ""), "currentValue", current, "rows", rows))))), Object())
+		lastErr = nil
+		response, err := g.ReflectionClient.Chat(context.Background(), Object("chatPrompt", Array(Object("role", "user", "content", stableStringify(Object("componentKey", coreGet(component, "id", ""), "currentValue", current, "rows", rows))))), cloneMap(chatOptions))
 		if err != nil {
-			panic(err)
+			// A cancelled run stops the optimizer; any other teacher failure
+			// moves on to the next attempt.
+			if gepaTeacherAborted(err) {
+				panic(err)
+			}
+			lastErr = err
+			continue
 		}
 		candidate := gepaExtractReflectionText(response)
 		if gepaValidateComponent(component, candidate) {
 			return candidate
 		}
 	}
+	if lastErr != nil {
+		gepaLogTeacherFailure(options, fmt.Sprintf("proposing a new value for %s; keeping the current value", display(coreGet(component, "id", ""))), lastErr)
+	}
 	return current
+}
+func gepaTeacherAborted(err error) bool {
+	return errors.Is(err, context.Canceled) || coreTruthy(_core_exception_is_aborted(errorValue(err)))
+}
+
+// gepaTeacherLogger resolves where GEPA reports teacher-call failures: nowhere
+// when verbose is exactly false, else the options logger (func(Value) or
+// func(map[string]Value), optionally returning a Value). Go AI clients expose
+// no logger, so there is no student-client fallback.
+func gepaTeacherLogger(options map[string]Value) func(Value) {
+	if verbose, ok := coreGet(options, "verbose", nil).(bool); ok && !verbose {
+		return nil
+	}
+	switch logger := coreGet(options, "logger", nil).(type) {
+	case func(Value):
+		return logger
+	case func(map[string]Value):
+		return func(value Value) { logger(asMap(value)) }
+	case func(Value) Value:
+		return func(value Value) { _ = logger(value) }
+	case func(map[string]Value) Value:
+		return func(value Value) { _ = logger(asMap(value)) }
+	}
+	return nil
+}
+func gepaLogTeacherFailure(options map[string]Value, action string, err error) {
+	if logger := gepaTeacherLogger(options); logger != nil {
+		logger(Object("name", "Notification", "id", "gepa_teacher", "value", fmt.Sprintf("GEPA teacher call failed while %s: %s", action, err.Error())))
+	}
 }
 func gepaExtractReflectionText(response Value) string {
 	results := asSlice(coreGet(response, "results", Array()))
@@ -77371,6 +77719,7 @@ type AxPlaybook struct {
 	engine           *AxACE
 	studentAI        AIClient
 	teacherAI        AIClient
+	teacherOptions   map[string]Value
 	baseInstruction  string
 	verbose          bool
 	started          bool
@@ -77430,11 +77779,12 @@ func Playbook(program *AxGen, options map[string]Value) *AxPlaybook {
 		}
 	}
 	pb := &AxPlaybook{
-		program:   program,
-		studentAI: student,
-		teacherAI: teacher,
-		verbose:   coreTruthy(coreGet(options, "verbose", false)),
-		ctx:       context.Background(),
+		program:        program,
+		studentAI:      student,
+		teacherAI:      teacher,
+		teacherOptions: cloneMap(asMap(playbookOption(options, "teacherOptions", "teacher_options"))),
+		verbose:        coreTruthy(coreGet(options, "verbose", false)),
+		ctx:            context.Background(),
 	}
 	pb.engine = NewACE(pb.runReflector, pb.runCurator, pb.runGenerator, engineOptions)
 	if auto := coreGet(options, "auto", nil); auto != nil {
@@ -77495,7 +77845,7 @@ func (p *AxPlaybook) runReflector(payload map[string]Value) Value {
 	if previous := coreGet(payload, "previous_reflection", nil); previous != nil {
 		coreSet(request, "previous_reflection", playbookStringify(previous))
 	}
-	out, err := p.reflector().Forward(p.ctx, reflectorAI, request, nil)
+	out, err := p.reflector().Forward(p.ctx, reflectorAI, request, cloneMap(p.teacherOptions))
 	if err != nil {
 		if p.verbose {
 			fmt.Println("[AxPlaybook] reflector error:", err)
@@ -77517,7 +77867,7 @@ func (p *AxPlaybook) runCurator(payload map[string]Value) Value {
 		"question_context", playbookStringify(coreGet(payload, "question_context", nil)),
 		"token_budget", coreGet(payload, "token_budget", 1024),
 	)
-	out, err := p.curator().Forward(p.ctx, curatorAI, request, nil)
+	out, err := p.curator().Forward(p.ctx, curatorAI, request, cloneMap(p.teacherOptions))
 	if err != nil {
 		if p.verbose {
 			fmt.Println("[AxPlaybook] curator error:", err)
@@ -77600,9 +77950,19 @@ func (p *AxPlaybook) EvolveAgent(ctx context.Context, dataset Value, options map
 		maxMetricCalls = 1
 	}
 	remaining := maxMetricCalls
-	teacherAI := playbookClient(playbookOption(options, "teacherAI", "teacher_ai", "teacher"))
+	evolveTeacher := playbookClient(playbookOption(options, "teacherAI", "teacher_ai", "teacher"))
+	teacherAI := evolveTeacher
 	if teacherAI == nil {
 		teacherAI = p.teacherAI
+	}
+	// The miner's options go with its model: explicit evolve teacherOptions,
+	// else the playbook's own when the miner runs on the playbook's teacher
+	// (always the case without an evolve teacherAI).
+	minerOptions := Object()
+	if raw := playbookOption(options, "teacherOptions", "teacher_options"); raw != nil {
+		minerOptions = cloneMap(asMap(raw))
+	} else if evolveTeacher == nil {
+		minerOptions = cloneMap(p.teacherOptions)
 	}
 	type batch struct {
 		records   []Value
@@ -77773,7 +78133,7 @@ func (p *AxPlaybook) EvolveAgent(ctx context.Context, dataset Value, options map
 			coreSet(request, "currentPlaybook", rendered)
 		}
 		miner := NewAx(agentPlaybookWeaknessMinerSignature, Object("id", "agent.playbook.weakness-miner", "instruction", "Identify one recurring weakness and one narrow durable avoidance rule. Every evidence quote must be copied verbatim from actionLogExcerpts."))
-		mined, minerErr := miner.Forward(ctx, teacherAI, request, nil)
+		mined, minerErr := miner.Forward(ctx, teacherAI, request, cloneMap(minerOptions))
 		if minerErr != nil {
 			continue
 		}
@@ -79112,6 +79472,26 @@ type conformanceScriptedAI struct {
 	ChatOptions         []map[string]Value
 	ChatCalls           int
 	Features            map[string]Value
+	// Name, Model and Options are the client's name (default "scripted"),
+	// default chat model (default "scripted-chat") and client-level options.
+	Name    string
+	Model   string
+	Options map[string]Value
+}
+
+// conformanceApplyScriptedClientSpec configures a scripted client from a
+// fixture client spec: {"name"?, "model"?, "options"?}.
+func conformanceApplyScriptedClientSpec(client *conformanceScriptedAI, spec Value) *conformanceScriptedAI {
+	if name := display(coreGet(spec, "name", nil)); name != "" {
+		client.Name = name
+	}
+	if model := display(coreGet(spec, "model", nil)); model != "" {
+		client.Model = model
+	}
+	if options := coreGet(spec, "options", nil); coreTruthy(options) {
+		client.Options = asMap(cloneValue(options))
+	}
+	return client
 }
 
 func (f *conformanceScriptedAI) GetFeatures(string) map[string]Value {
@@ -79132,6 +79512,18 @@ func (f *conformanceScriptedAI) Transcribe(ctx context.Context, request map[stri
 }
 
 func (f *conformanceScriptedAI) Chat(ctx context.Context, request map[string]Value, options map[string]Value) (Value, error) {
+	// The scripted client stands in for a provider client, so it runs the same
+	// expensive-model gate first; a rejected call records nothing.
+	name, model := f.Name, f.Model
+	if name == "" {
+		name = "scripted"
+	}
+	if model == "" {
+		model = "scripted-chat"
+	}
+	if err := requireExpensiveModelConfirmation(name, request, model, f.Options, options); err != nil {
+		return nil, err
+	}
 	f.ChatCalls++
 	f.Requests = append(f.Requests, cloneMap(request))
 	f.ChatOptions = append(f.ChatOptions, cloneMap(options))
@@ -80378,7 +80770,7 @@ func runConformanceForward(fixture map[string]Value) {
 			return int(num(pickerIndex)), nil
 		})
 	}
-	client := &conformanceScriptedAI{Responses: asSlice(coreGet(fixture, "responses", Array())), StreamEvents: asSlice(coreGet(fixture, "stream_events", Array())), Features: asMap(coreGet(fixture, "features", Object()))}
+	client := conformanceApplyScriptedClientSpec(&conformanceScriptedAI{Responses: asSlice(coreGet(fixture, "responses", Array())), StreamEvents: asSlice(coreGet(fixture, "stream_events", Array())), Features: asMap(coreGet(fixture, "features", Object()))}, coreGet(fixture, "client", nil))
 	output := expectMaybeFixtureError(func() Value {
 		out, err := gen.Forward(context.Background(), client, asMap(coreGet(fixture, "input", Object())), asMap(coreGet(fixture, "forward_options", Object())))
 		if err != nil {
@@ -80618,7 +81010,7 @@ func conformanceAIClient(fixture map[string]Value) (*OpenAICompatibleClient, *Sc
 func runConformanceAIChat(fixture map[string]Value) {
 	client, transport := conformanceAIClient(fixture)
 	output := expectMaybeFixtureError(func() Value {
-		out, err := client.Chat(context.Background(), asMap(coreGet(fixture, "request", Object())), Object())
+		out, err := client.Chat(context.Background(), asMap(coreGet(fixture, "request", Object())), asMap(coreGet(fixture, "options", Object())))
 		if err != nil {
 			panic(err)
 		}
@@ -80862,8 +81254,12 @@ func runConformanceAIStream(fixture map[string]Value) {
 		}
 		return v
 	}, fixture, nil)
-	if expected := coreGet(fixture, "expected_output", nil); expected != nil {
-		assertEqual(output, expected, "ai stream output")
+	// An expected failure was already matched by expectMaybeFixtureError; only
+	// the transport assertions apply then.
+	if coreGet(fixture, "expected_error_contains", nil) == nil {
+		if expected := coreGet(fixture, "expected_output", nil); expected != nil {
+			assertEqual(output, expected, "ai stream output")
+		}
 	}
 	assertTransportRequest(fixture, transport)
 }
@@ -81431,8 +81827,13 @@ func runConformanceOptimizeInner(fixture map[string]Value) {
 	case "gepa":
 		components := coreGet(fixture, "components", program.GetOptimizableComponents())
 		request := Object("contractVersion", "axir-optimize-contract-v1", "programKind", conformanceProgramKind(fixture), "components", components, "dataset", mustCore(_normalize_optimization_dataset(coreGet(fixture, "dataset", Array()))), "options", coreGet(fixture, "optimize_options", Object()), "trace", Object(), "evaluator", Object("available", true, "contractVersion", "axir-optimizer-evaluator-v1"))
-		reflection := &conformanceScriptedAI{Responses: asSlice(coreGet(fixture, "reflection_responses", Array()))}
-		engine := NewGEPA(reflection, asMap(coreGet(fixture, "gepa_options", Object())))
+		reflection := conformanceApplyScriptedClientSpec(&conformanceScriptedAI{Responses: asSlice(coreGet(fixture, "reflection_responses", Array()))}, coreGet(fixture, "reflection_client", nil))
+		gepaOptions := cloneMap(asMap(coreGet(fixture, "gepa_options", Object())))
+		notifications := []Value{}
+		if coreGet(fixture, "expected_notifications", nil) != nil {
+			coreSet(gepaOptions, "logger", func(notification Value) { notifications = append(notifications, cloneValue(notification)) })
+		}
+		engine := NewGEPA(reflection, gepaOptions)
 		evaluator := &conformanceGEPAEvaluator{Fixture: fixture, Evaluations: MutableArray()}
 		artifact, err := engine.Optimize(request, evaluator)
 		if err != nil {
@@ -81443,6 +81844,12 @@ func runConformanceOptimizeInner(fixture map[string]Value) {
 		}
 		if expected := coreGet(fixture, "expected_gepa_evaluations_subset", nil); expected != nil {
 			assertListSubset(evaluator.Evaluations, expected, "GEPA evaluations")
+		}
+		if expected := coreGet(fixture, "expected_reflection_request_count", nil); expected != nil && len(reflection.Requests) != int(num(expected)) {
+			panic(AxError{Category: "fixture", Message: fmt.Sprintf("expected %d reflection requests, got %d", int(num(expected)), len(reflection.Requests))})
+		}
+		if expected := coreGet(fixture, "expected_notifications", nil); expected != nil {
+			assertConformanceNotifications(notifications, asSlice(expected))
 		}
 	case "bootstrap":
 		components := coreGet(fixture, "components", program.GetOptimizableComponents())
@@ -81465,6 +81872,9 @@ func runConformanceOptimizeInner(fixture map[string]Value) {
 		}
 		if expected := coreGet(fixture, "expected_gepa_evaluations_subset", nil); expected != nil {
 			assertListSubset(evaluator.Evaluations, expected, "BootstrapFewShot evaluations")
+		}
+		if expected := coreGet(fixture, "expected_evaluate_options_subset", nil); expected != nil {
+			assertListSubset(evaluator.EvaluateOptions, expected, "BootstrapFewShot evaluate options")
 		}
 	case "helper":
 		artifact, err := Optimize(program, coreGet(fixture, "dataset", Array()), asMap(coreGet(fixture, "optimize_options", Object())))
@@ -81660,12 +82070,44 @@ func conformanceVerificationSummary() Value {
 	)
 }
 
+// assertConformanceNotifications checks captured notifications against
+// fixture specs: same count; name/id equal when given; value contains every
+// value_contains string.
+func assertConformanceNotifications(actual []Value, expected []Value) {
+	if len(actual) != len(expected) {
+		panic(AxError{Category: "fixture", Message: fmt.Sprintf("expected %d notifications, got %d: %s", len(expected), len(actual), stableStringify(Array(actual...)))})
+	}
+	for index, spec := range expected {
+		notification := actual[index]
+		for _, key := range []string{"name", "id"} {
+			if want := coreGet(spec, key, nil); want != nil && !equal(coreGet(notification, key, nil), want) {
+				panic(AxError{Category: "fixture", Message: fmt.Sprintf("notification %d %s: expected %s, got %s", index, key, stableStringify(want), stableStringify(coreGet(notification, key, nil)))})
+			}
+		}
+		value := display(coreGet(notification, "value", ""))
+		for _, needle := range asSlice(coreGet(spec, "value_contains", Array())) {
+			if !strings.Contains(value, display(needle)) {
+				panic(AxError{Category: "fixture", Message: fmt.Sprintf("notification %d value missing %q: %s", index, display(needle), value)})
+			}
+		}
+	}
+}
+
 type conformanceGEPAEvaluator struct {
 	Fixture     map[string]Value
 	Evaluations *AxArray
+	// EvaluateOptions records each Evaluate call's options without the dataset.
+	EvaluateOptions []Value
 }
 
 func (e *conformanceGEPAEvaluator) Evaluate(candidateMap map[string]Value, options map[string]Value) (Value, error) {
+	recorded := Object()
+	for _, key := range orderedKeys(options) {
+		if key != "dataset" {
+			coreSet(recorded, key, cloneValue(options[key]))
+		}
+	}
+	e.EvaluateOptions = append(e.EvaluateOptions, recorded)
 	normalized := asMap(mustCore(_normalize_optimization_dataset(coreGet(options, "dataset", coreGet(e.Fixture, "dataset", Array())))))
 	rows := MutableArray()
 	components := asSlice(coreGet(e.Fixture, "components", Array()))
@@ -82703,34 +83145,63 @@ func runConformanceAgentPlaybookEvolve(fixture map[string]Value) {
 	if len(sourceResponses) > 0 {
 		response = sourceResponses[0]
 	}
+	teacherSpec := coreGet(fixture, "teacher_client", nil)
 	for _, rawCase := range asSlice(coreGet(fixture, "cases", Array())) {
 		testCase := asMap(rawCase)
-		responses := Array()
-		for i := 0; i < 32; i++ {
-			responses = append(responses, cloneValue(response))
+		scriptedResponses := func() []Value {
+			responses := Array()
+			for i := 0; i < 32; i++ {
+				responses = append(responses, cloneValue(response))
+			}
+			return responses
 		}
-		client := &conformanceScriptedAI{Responses: responses}
+		client := &conformanceScriptedAI{Responses: scriptedResponses()}
+		// A configured teacher runs the playbook's reflector/curator and the
+		// evolve weakness miner; otherwise the student client does.
+		teacher := client
+		if teacherSpec != nil {
+			teacher = conformanceApplyScriptedClientSpec(&conformanceScriptedAI{Responses: scriptedResponses()}, teacherSpec)
+		}
 		runtime := newConformanceScriptedCodeRuntime(coreGet(fixture, "runtime_script", Array()), Object())
 		runtime.LanguageName = display(coreGet(fixture, "runtime_language", "Python"))
 		agentOptions := cloneMap(asMap(coreGet(fixture, "options", Object())))
 		coreSet(agentOptions, "runtime", runtime)
 		ag := NewAgent(display(coreGet(fixture, "signature", "question:string -> answer:string")), agentOptions)
-		playbook := ag.Playbook(Object("target", "responder", "studentAI", client, "teacherAI", client, "maxEpochs", 1))
+		playbookOptions := Object("target", "responder", "studentAI", client, "teacherAI", teacher, "maxEpochs", 1)
+		extraPlaybookOptions := asMap(coreGet(testCase, "playbook_options", Object()))
+		for _, key := range orderedKeys(extraPlaybookOptions) {
+			coreSet(playbookOptions, key, cloneValue(extraPlaybookOptions[key]))
+		}
+		playbook := ag.Playbook(playbookOptions)
 		if seed := coreGet(fixture, "seed", nil); seed != nil {
 			playbook.Load(asMap(seed))
 		}
 		before := stableStringify(playbook.ToJSON())
-		actual, err := playbook.EvolveAgent(context.Background(), coreGet(fixture, "dataset", Object()), asMap(coreGet(testCase, "options", Object())))
+		evolveOptions := cloneMap(asMap(coreGet(testCase, "options", Object())))
+		if teacherSpec != nil {
+			coreSet(evolveOptions, "teacherAI", teacher)
+		}
+		actual, err := playbook.EvolveAgent(context.Background(), coreGet(fixture, "dataset", Object()), evolveOptions)
 		if err != nil {
 			panic(err)
 		}
 		outcomes := asSlice(coreGet(actual, "outcomes", Array()))
 		label := "playbook evolve " + display(coreGet(testCase, "name", "case"))
+		expected := asMap(coreGet(testCase, "expected", Object()))
+		expectedOutcomeCount := coreGet(expected, "outcome_count", nil)
+		if expectedOutcomeCount != nil && len(outcomes) != int(num(expectedOutcomeCount)) {
+			panic(AxError{Category: "fixture", Message: fmt.Sprintf("%s outcome count: expected %d, got %d: %s", label, int(num(expectedOutcomeCount)), len(outcomes), stableStringify(actual))})
+		}
+		if want := coreGet(testCase, "expected_teacher_request_count", nil); want != nil && len(teacher.Requests) != int(num(want)) {
+			panic(AxError{Category: "fixture", Message: fmt.Sprintf("%s expected %d teacher requests, got %d", label, int(num(want)), len(teacher.Requests))})
+		}
 		if len(outcomes) == 0 {
+			if expectedOutcomeCount != nil && int(num(expectedOutcomeCount)) == 0 {
+				continue
+			}
 			panic(AxError{Category: "fixture", Message: label + " produced no outcome: " + stableStringify(actual)})
 		}
 		outcome := outcomes[0]
-		expected := asMap(coreGet(testCase, "expected", Object()))
 		if value := coreGet(expected, "accepted", nil); value != nil {
 			assertEqual(coreGet(outcome, "accepted", nil), value, label+" accepted")
 		}
