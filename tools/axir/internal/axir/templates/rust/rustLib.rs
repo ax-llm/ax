@@ -10608,6 +10608,7 @@ fn merge_balancer_feature_values(features: impl IntoIterator<Item = Value>) -> V
     let feature_values = features.into_iter().collect::<Vec<_>>();
     let mut out = balancer_base_features();
     if !feature_values.is_empty() && feature_values.iter().all(|raw| raw.get("requiresStructuredOutput").or_else(|| raw.get("requires_structured_output")).and_then(Value::as_bool).unwrap_or(false)) { out["requiresStructuredOutput"] = json!(true); }
+    if feature_values.iter().any(|raw| raw.get("responseFormatWithFunctions").or_else(|| raw.get("response_format_with_functions")).and_then(Value::as_bool) == Some(false)) { out["responseFormatWithFunctions"] = json!(false); }
     let mut structured_output_modes = Vec::new();
     let mut all_modes_advertised = !feature_values.is_empty();
     for raw in &feature_values {
@@ -14748,6 +14749,30 @@ fn run_simple_forward_fixture(fixture: &Value) -> AxResult<()> {
                     "fixture",
                     format!("forward requests unexpectedly contain {needle:?}"),
                 ));
+            }
+        }
+    }
+    if let Some(checks) = fixture.get("expected_step_requests").and_then(Value::as_array) {
+        for check in checks {
+            let index = check.get("index").and_then(Value::as_u64).unwrap_or(0) as usize;
+            let Some(request) = client.requests.get(index) else {
+                return Err(AxError::new("fixture", format!("missing request index {index}")));
+            };
+            if let Some(expected) = check.get("request") {
+                expect_json_subset(&format!("request {index}"), request, expected)?;
+            }
+            if let Some(expected) = check.get("function_names") {
+                let names = request
+                    .get("functions")
+                    .and_then(Value::as_array)
+                    .map(|functions| {
+                        functions
+                            .iter()
+                            .map(|spec| spec.get("name").cloned().unwrap_or(Value::Null))
+                            .collect::<Vec<_>>()
+                    })
+                    .unwrap_or_default();
+                expect_json_equal(&format!("request {index} function names"), &Value::Array(names), expected)?;
             }
         }
     }

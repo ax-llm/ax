@@ -912,6 +912,43 @@ writeFixture('balancer-runtime-metric', {
   },
 });
 
+// A balancer reports responseFormatWithFunctions: false when any service does,
+// so AxGen answers through __axOutput beside tools behind it too.
+const formatRejectSpec = {
+  name: 'NoJsonBesideTools',
+  id: 'NoJsonBesideTools-id',
+  features: routerFeatures({
+    functions: true,
+    responseFormatWithFunctions: false,
+  }),
+  metrics: balancerMetrics(100),
+};
+const formatAllowSpec = {
+  name: 'JsonBesideTools',
+  id: 'JsonBesideTools-id',
+  features: routerFeatures({ functions: true }),
+  metrics: balancerMetrics(300),
+};
+const formatBalancer = new AxBalancer(
+  [
+    new FixtureAIService(formatRejectSpec),
+    new FixtureAIService(formatAllowSpec),
+  ] as any,
+  { comparator: AxBalancer.inputOrderComparator, debug: false }
+);
+writeFixture('balancer-response-format-with-functions', {
+  kind: 'ai_balancer',
+  services: [formatRejectSpec, formatAllowSpec],
+  options: { strategy: 'input_order', debug: false },
+  operations: [],
+  expected_output: {
+    features: {
+      responseFormatWithFunctions:
+        formatBalancer.getFeatures().responseFormatWithFunctions ?? null,
+    },
+  },
+});
+
 const retryPrimarySpec = {
   name: 'RetryPrimary',
   id: 'RetryPrimary-id',

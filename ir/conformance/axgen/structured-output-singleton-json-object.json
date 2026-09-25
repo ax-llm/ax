@@ -2,6 +2,7 @@
   "name": "structured-output-singleton-json-object",
   "kind": "forward",
   "signature": "task:string -> javascriptCode:code",
+  "options": { "force_structured": true },
   "input": { "task": "write a program" },
   "features": { "structured_outputs": false, "functions": false },
   "responses": [

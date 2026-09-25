@@ -822,6 +822,18 @@ public final class Conformance {
       String text = Json.stringify(client.requests);
       for (Object item : Core.asList(fixture.get("expected_request_not_contains"))) if (text.contains(String.valueOf(item))) throw new FixtureError("request unexpectedly contains " + item + ": " + text);
     }
+    for (Object rawCheck : Core.asList(fixture.getOrDefault("expected_step_requests", List.of()))) {
+      Map<String, Object> check = Core.asMap(rawCheck);
+      int index = Core.asInt(check.getOrDefault("index", 0));
+      if (index >= client.requests.size()) throw new FixtureError("missing request index " + index);
+      Object request = client.requests.get(index);
+      if (check.containsKey("request")) assertSubset(request, check.get("request"), "request " + index);
+      if (check.containsKey("function_names")) {
+        List<Object> names = new ArrayList<>();
+        for (Object spec : Core.asList(Core.asMap(request).getOrDefault("functions", List.of()))) names.add(Core.asMap(spec).get("name"));
+        assertEqual(names, check.get("function_names"), "request " + index + " function names");
+      }
+    }
     if (fixture.containsKey("expected_tool_calls")) assertEqual(toolBuild.calls, fixture.get("expected_tool_calls"), "tool calls");
 	    if (fixture.containsKey("expected_trace")) {
 	      if (gen.getTraces().isEmpty()) throw new FixtureError("expected trace but none was recorded");

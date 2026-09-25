@@ -733,6 +733,19 @@ static void run_forward(Value fixture) {
       if (request_text.find(display(item)) != std::string::npos) throw AxError("fixture", "request unexpectedly contains " + display(item) + ": " + request_text);
     }
   }
+  for (const auto& check : Core::iter(Core::get(fixture, "expected_step_requests", Value::array()))) {
+    size_t index = static_cast<size_t>(std::stoul(display(Core::get(check, "index", 0))));
+    if (index >= client.requests.size()) throw AxError("fixture", "missing request index " + std::to_string(index));
+    Value request = client.requests[index];
+    Value expected_step_request = Core::get(check, "request");
+    if (!expected_step_request.is_null()) assert_subset(request, expected_step_request, "request " + std::to_string(index));
+    Value expected_names = Core::get(check, "function_names");
+    if (!expected_names.is_null()) {
+      Array names;
+      for (const auto& spec : Core::iter(Core::get(request, "functions", Value::array()))) names.push_back(Core::get(spec, "name"));
+      assert_equal(Value(names), expected_names, "request " + std::to_string(index) + " function names");
+    }
+  }
   Value expected_tool_calls = Core::get(fixture, "expected_tool_calls");
   if (!expected_tool_calls.is_null()) assert_equal(tool_build.calls, expected_tool_calls, "tool calls");
   Value expected_trace = Core::get(fixture, "expected_trace");

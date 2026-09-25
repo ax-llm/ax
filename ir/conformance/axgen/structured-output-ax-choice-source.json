@@ -22,6 +22,9 @@
   },
   "kind": "forward",
   "name": "structured-output-ax-choice-source",
+  "options": {
+    "force_structured": true
+  },
   "responses": [
     {
       "content": "",
