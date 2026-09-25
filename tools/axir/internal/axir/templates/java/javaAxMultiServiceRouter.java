@@ -133,7 +133,10 @@ public final class AxMultiServiceRouter implements AxAIService, AxChatSession.Pr
 
   @Override public AxChatStream openStream(Map<String, Object> request) throws Exception {return openStream(request,null);}
 
-  @Override public AxChatStream openStream(Map<String,Object> request,AxCancellationToken cancellation)throws Exception {
+  @Override public AxChatStream openStream(Map<String,Object> request,AxCancellationToken cancellation)throws Exception {return openStream(request,Map.of(),cancellation);}
+
+  // The selected service gates its own stream; the call options travel with the request.
+  @Override public AxChatStream openStream(Map<String,Object> request,Map<String,Object> options,AxCancellationToken cancellation)throws Exception {
     if(cancellation!=null)cancellation.throwIfCancelled();
     Object modelKey = request.get("model");
     if (modelKey == null) throw new IllegalArgumentException("Model key must be specified for multi-service");
@@ -143,7 +146,7 @@ public final class AxMultiServiceRouter implements AxAIService, AxChatSession.Pr
     Map<String, Object> req = new LinkedHashMap<>(request);
     if (req.containsKey("modelConfig") && !req.containsKey("model_config")) req.put("model_config", req.get("modelConfig"));
     if (!entry.containsKey("model")) req.remove("model");
-    return lastUsedService.openStream(req,cancellation);
+    return lastUsedService.openStream(req,options,cancellation);
   }
 
   @Override public AxChatStream stream(Map<String, Object> request) { return AxChatStream.lazy(() -> openStream(request)); }

@@ -462,7 +462,11 @@ public final class AxBalancer implements AxAIService,ChatRunSelector,AxChatSessi
 
   @Override public AxChatStream openStream(Map<String, Object> request) throws Exception {return openStream(request,null);}
 
-  @Override public AxChatStream openStream(Map<String,Object> request,AxCancellationToken cancellation)throws Exception {
+  @Override public AxChatStream openStream(Map<String,Object> request,AxCancellationToken cancellation)throws Exception {return openStream(request,Map.of(),cancellation);}
+
+  // Services gate their own streams; the call options travel with the request.
+  @Override public AxChatStream openStream(Map<String,Object> request,Map<String,Object> options,AxCancellationToken cancellation)throws Exception {
+    Map<String,Object> callOptions=options==null?Map.of():options;
     if(cancellation!=null)cancellation.throwIfCancelled();
     if (adaptive == null) {
       List<AxAIService> candidates = candidateServices(request);
@@ -472,7 +476,7 @@ public final class AxBalancer implements AxAIService,ChatRunSelector,AxChatSessi
         while (canRetryService(service)) {
           AxChatStream stream = null;
           try {
-            stream = service.openStream(request,cancellation);
+            stream = service.openStream(request,callOptions,cancellation);
             Iterator<Map<String, Object>> iterator = stream.iterator();
             Map<String, Object> first = iterator.hasNext() ? iterator.next() : null;
             boolean[] firstPending = {first != null};
@@ -498,7 +502,7 @@ public final class AxBalancer implements AxAIService,ChatRunSelector,AxChatSessi
       if (last != null) throw last;
       throw new IllegalArgumentException("All candidate services exhausted (tried " + candidates.size() + " service(s))");
     }
-    Map<String,Object> streamOptions=new LinkedHashMap<>();if(cancellation!=null)streamOptions.put("cancellation",cancellation);
+    Map<String,Object> streamOptions=new LinkedHashMap<>(callOptions);if(cancellation!=null)streamOptions.put("cancellation",cancellation);
     List<AdaptiveCandidate> ranked = rankAdaptive(request, streamOptions); AxAIServiceError last = null;
     for (int index = 0; index < ranked.size(); index++) {
       AdaptiveCandidate candidate = ranked.get(index); currentService = candidate.service(); Map<String, Object> selected = eventBase("selected", candidate.statsKey());
@@ -506,7 +510,7 @@ public final class AxBalancer implements AxAIService,ChatRunSelector,AxChatSessi
       long started = System.nanoTime();
       AxChatStream stream = null;
       try {
-        stream = candidate.service().openStream(request,cancellation);
+        stream = candidate.service().openStream(request,callOptions,cancellation);
         Iterator<Map<String, Object>> iterator = stream.iterator();
         Map<String, Object> first = iterator.hasNext() ? iterator.next() : null;
         boolean[] firstPending = {first != null};
