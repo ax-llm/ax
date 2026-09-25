@@ -1,5 +1,11 @@
 # Changelog
 
+## [24.0.23](https://github.com/ax-llm/ax/compare/24.0.22...24.0.23) (2026-09-25)
+
+### Bug Fixes
+
+* **gemini:** embed gemini-embedding-2 on Vertex through global :embedContent ([#715](https://github.com/ax-llm/ax/issues/715)) ([193f2ba](https://github.com/ax-llm/ax/commit/193f2ba165a758d84dfb49b2a10b7ba5cbe7fbbc))
+
 ## [24.0.22](https://github.com/ax-llm/ax/compare/24.0.21...24.0.22) (2026-09-25)
 
 ### Features

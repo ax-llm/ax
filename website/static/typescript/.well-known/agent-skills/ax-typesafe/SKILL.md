@@ -1,7 +1,7 @@
 ---
 name: ax-typesafe
 description: Use Typesafe Jev models with @ax-llm/ax in TypeScript. Covers boolean/class signatures with value descriptions, provider trueThreshold, native Noul/Choice/Score questions, structured criteria, probability-based decisions, and explicit hybrid generation.
-version: "24.0.22"
+version: "24.0.23"
 ---
 
 <!-- cspell:ignore noul -->
