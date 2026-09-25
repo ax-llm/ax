@@ -1,0 +1,28 @@
+{
+  "client": {
+    "model": "premium-model",
+    "options": {
+      "modelInfo": [
+        {
+          "completionTokenCostPer1M": 600,
+          "isExpensive": true,
+          "name": "premium-model",
+          "promptTokenCostPer1M": 150
+        }
+      ]
+    }
+  },
+  "expected_error_contains": "Model premium-model is marked as expensive and requires explicit confirmation. Set useExpensiveModel: \"yes\" to proceed.",
+  "expected_request_count": 0,
+  "input": {
+    "question": "What is Ax?"
+  },
+  "kind": "forward",
+  "name": "expensive-model-forward-rejected-without-confirmation",
+  "responses": [
+    {
+      "content": "{\"answer\":\"Ax composes typed LLM programs.\"}"
+    }
+  ],
+  "signature": "question:string -> answer:string"
+}

@@ -42,6 +42,14 @@ public final class AxBootstrapFewShot implements OptimizerEngine {
     int maxExamples = intOption(opts, 16, 1, "maxExamples", "max_examples");
     int maxDemos = intOption(opts, 4, 1, "maxDemos", "max_demos");
     int batchSize = intOption(opts, 1, 1, "batchSize", "batch_size");
+    // The demo runs are teacher runs: teacherOptions become their forward
+    // options, and explicit forward_options win.
+    Map<String, Object> teacherOptions = Core.asMap(option(opts, "teacherOptions", "teacher_options", null));
+    Map<String, Object> forwardOptions = null;
+    if (!teacherOptions.isEmpty()) {
+      forwardOptions = new LinkedHashMap<>(teacherOptions);
+      forwardOptions.putAll(Core.asMap(opts.get("forward_options")));
+    }
     Map<String, Object> base = Core.asMap(Core._optimization_component_current_map(components));
     List<Object> demos = new ArrayList<>();
     Set<String> accepted = new LinkedHashSet<>();
@@ -57,6 +65,7 @@ public final class AxBootstrapFewShot implements OptimizerEngine {
           evalOptions.put("dataset", Map.of("train", List.of(example), "validation", List.of()));
           evalOptions.put("phase", "bootstrap");
           evalOptions.put("round", round);
+          if (forwardOptions != null) evalOptions.put("forward_options", new LinkedHashMap<>(forwardOptions));
           Map<String, Object> result = evaluator.evaluate(base, evalOptions);
           List<Object> rows = Core.asList(result.getOrDefault("rows", List.of()));
           totalCalls += ((Number) result.getOrDefault("count", rows.isEmpty() ? 1 : rows.size())).intValue();

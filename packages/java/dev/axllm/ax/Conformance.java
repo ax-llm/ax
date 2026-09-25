@@ -35,10 +35,21 @@ public final class Conformance {
     }
 
     ConformanceScriptedAI(List<Object> responses, List<Object> streamEvents, Map<String, Object> features) {
-      super("scripted", "scripted-chat", "scripted-embed", Map.of(), Map.of());
+      this(responses, streamEvents, features, Map.of());
+    }
+
+    // client: a fixture client spec {name?, model?, options?}; options are the
+    // client-level options (e.g. modelInfo) the expensive-model gate reads.
+    ConformanceScriptedAI(List<Object> responses, List<Object> streamEvents, Map<String, Object> features, Map<String, Object> client) {
+      super(clientSpecText(client, "name", "scripted"), clientSpecText(client, "model", "scripted-chat"), "scripted-embed", Map.of(), Core.asMap(client == null ? null : client.get("options")));
       this.responses = new ArrayList<>(responses);
       this.streamEvents = new ArrayList<>(streamEvents);
       this.features = new LinkedHashMap<>(features);
+    }
+
+    static String clientSpecText(Map<String, Object> client, String key, String fallback) {
+      Object value = client == null ? null : client.get(key);
+      return value == null || String.valueOf(value).isEmpty() ? fallback : String.valueOf(value);
     }
 
     @Override
@@ -244,6 +255,7 @@ public final class Conformance {
   static final class ScriptedGEPAEvaluator implements OptimizerEvaluator {
     final Map<String, Object> fixture;
     final List<Map<String, Object>> evaluations = new ArrayList<>();
+    final List<Map<String, Object>> evaluateOptions = new ArrayList<>();
 
     ScriptedGEPAEvaluator(Map<String, Object> fixture) {
       this.fixture = fixture;
@@ -258,6 +270,9 @@ public final class Conformance {
 
     public Map<String, Object> evaluate(Map<String, Object> candidateMap, Map<String, Object> options) {
       Map<String, Object> opts = new LinkedHashMap<>(options == null ? Map.of() : options);
+      Map<String, Object> recordedOptions = new LinkedHashMap<>(opts);
+      recordedOptions.remove("dataset");
+      evaluateOptions.add(recordedOptions);
       Object datasetInput = opts.containsKey("dataset") ? opts.get("dataset") : fixture.getOrDefault("dataset", List.of());
       Map<String, Object> normalized = Core.asMap(Core._normalize_optimization_dataset(datasetInput));
       List<Object> examples = Core.asList(normalized.getOrDefault("train", List.of()));
@@ -810,11 +825,12 @@ public final class Conformance {
         return Core.asInt(fixture.get("result_picker_index"));
       });
     }
-    ConformanceScriptedAI client = new ConformanceScriptedAI(Core.asList(fixture.getOrDefault("responses", List.of())), Core.asList(fixture.getOrDefault("stream_events", List.of())), Core.asMap(fixture.getOrDefault("features", Map.of())));
+    ConformanceScriptedAI client = new ConformanceScriptedAI(Core.asList(fixture.getOrDefault("responses", List.of())), Core.asList(fixture.getOrDefault("stream_events", List.of())), Core.asMap(fixture.getOrDefault("features", Map.of())), Core.asMap(fixture.get("client")));
     Object output = expectMaybeError(() -> gen.forward(client, Core.asMap(fixture.getOrDefault("input", Map.of())), Core.asMap(fixture.getOrDefault("forward_options", Map.of()))), fixture);
     if (!fixture.containsKey("expected_error_contains") && fixture.containsKey("expected_output")) assertEqual(output, fixture.get("expected_output"), "forward output");
     if (fixture.containsKey("expected_request_count") && client.requests.size() != Core.asInt(fixture.get("expected_request_count"))) throw new FixtureError("expected request count mismatch");
-    if (Boolean.TRUE.equals(fixture.getOrDefault("expect_chat_path", true)) && client.chatCalls == 0) throw new FixtureError("expected AxGen to use AxAIService.chat()");
+    // An expected failure (e.g. a gated expensive model) may stop before the provider call.
+    if (!fixture.containsKey("expected_error_contains") && Boolean.TRUE.equals(fixture.getOrDefault("expect_chat_path", true)) && client.chatCalls == 0) throw new FixtureError("expected AxGen to use AxAIService.chat()");
     if (fixture.containsKey("expected_request")) assertSubset(client.requests.get(0), fixture.get("expected_request"), "request");
     if (fixture.containsKey("expected_chat_options_subset")) assertSubset(client.chatOptions.get(0), fixture.get("expected_chat_options_subset"), "chat options");
     if (fixture.containsKey("expected_request_contains")) {
@@ -1295,6 +1311,7 @@ public final class Conformance {
           if (actualDemos != expectedDemos) throw new FixtureError("unexpected demo count for " + fixture.getOrDefault("name", "fixture") + ": got " + actualDemos + ", expected " + expectedDemos);
         }
         if (fixture.containsKey("expected_gepa_evaluations_subset")) assertListSubset(evaluator.evaluations, fixture.get("expected_gepa_evaluations_subset"), "BootstrapFewShot evaluations");
+        if (fixture.containsKey("expected_evaluate_options_subset")) assertListSubset(evaluator.evaluateOptions, fixture.get("expected_evaluate_options_subset"), "BootstrapFewShot evaluate options");
         return;
       }
       if ("helper".equals(operation)) {
@@ -1327,14 +1344,22 @@ public final class Conformance {
         request.put("dataset", Core._normalize_optimization_dataset(fixture.getOrDefault("dataset", List.of())));
         request.put("options", new LinkedHashMap<>(Core.asMap(fixture.getOrDefault("optimize_options", Map.of()))));
         request.put("evidence", Map.of("source", "fixture"));
-        AiClient reflection = fixture.containsKey("reflection_responses")
-          ? new ConformanceScriptedAI(Core.asList(fixture.getOrDefault("reflection_responses", List.of())), List.of())
+        ConformanceScriptedAI reflection = fixture.containsKey("reflection_responses")
+          ? new ConformanceScriptedAI(Core.asList(fixture.getOrDefault("reflection_responses", List.of())), List.of(), Map.of(), Core.asMap(fixture.get("reflection_client")))
           : null;
-        AxGEPA engine = new AxGEPA(reflection, Core.asMap(fixture.getOrDefault("gepa_options", Map.of())));
+        Map<String, Object> gepaOptions = new LinkedHashMap<>(Core.asMap(fixture.getOrDefault("gepa_options", Map.of())));
+        List<Object> notifications = new ArrayList<>();
+        if (fixture.containsKey("expected_notifications")) gepaOptions.put("logger", (java.util.function.Consumer<Object>) notifications::add);
+        AxGEPA engine = new AxGEPA(reflection, gepaOptions);
         ScriptedGEPAEvaluator evaluator = new ScriptedGEPAEvaluator(fixture);
         Map<String, Object> artifact = engine.optimize(request, evaluator);
         if (fixture.containsKey("expected_artifact_subset")) assertSubset(artifact, fixture.get("expected_artifact_subset"), "GEPA artifact");
         if (fixture.containsKey("expected_gepa_evaluations_subset")) assertListSubset(evaluator.evaluations, fixture.get("expected_gepa_evaluations_subset"), "GEPA evaluations");
+        if (fixture.containsKey("expected_reflection_request_count")) {
+          int reflectionRequests = reflection == null ? 0 : reflection.requests.size();
+          if (reflectionRequests != Core.asInt(fixture.get("expected_reflection_request_count"))) throw new FixtureError("expected " + fixture.get("expected_reflection_request_count") + " reflection requests, got " + reflectionRequests);
+        }
+        if (fixture.containsKey("expected_notifications")) assertNotifications(notifications, Core.asList(fixture.get("expected_notifications")));
         return;
       }
       if ("eval".equals(operation)) {
@@ -1531,11 +1556,15 @@ public final class Conformance {
   static void runAgentPlaybookEvolve(Map<String, Object> fixture) {
     List<Object> sourceResponses = Core.asList(fixture.getOrDefault("responses", List.of()));
     Object scriptedResponse = sourceResponses.isEmpty() ? Map.of() : sourceResponses.get(0);
+    Object teacherSpec = fixture.get("teacher_client");
     for (Object rawCase : Core.asList(fixture.getOrDefault("cases", List.of()))) {
       Map<String, Object> testCase = Core.asMap(rawCase);
       List<Object> responses = new ArrayList<>();
       for (int i = 0; i < 32; i++) responses.add(scriptedResponse);
       ConformanceScriptedAI client = new ConformanceScriptedAI(responses, List.of());
+      // A configured teacher runs the playbook's reflector/curator and the
+      // evolve weakness miner; otherwise the student client does.
+      ConformanceScriptedAI teacher = teacherSpec == null ? client : new ConformanceScriptedAI(new ArrayList<>(responses), List.of(), Map.of(), Core.asMap(teacherSpec));
       ScriptedCodeRuntime runtime = new ScriptedCodeRuntime(
           Core.asList(fixture.getOrDefault("runtime_script", List.of())),
           String.valueOf(fixture.getOrDefault("runtime_language", "Python")),
@@ -1546,19 +1575,27 @@ public final class Conformance {
       Map<String, Object> playbookOptions = new LinkedHashMap<>();
       playbookOptions.put("target", "responder");
       playbookOptions.put("studentAI", client);
-      playbookOptions.put("teacherAI", client);
+      playbookOptions.put("teacherAI", teacher);
       playbookOptions.put("maxEpochs", 1);
+      playbookOptions.putAll(Core.asMap(testCase.get("playbook_options")));
       AxPlaybook playbook = agent.playbook(playbookOptions);
       if (fixture.get("seed") instanceof Map<?, ?>) playbook.load(Core.asMap(fixture.get("seed")));
       String before = Json.stringify(playbook.toJson());
-      Map<String, Object> actual = playbook.evolve(
-          fixture.getOrDefault("dataset", Map.of()),
-          Core.asMap(testCase.getOrDefault("options", Map.of())));
+      Map<String, Object> evolveOptions = new LinkedHashMap<>(Core.asMap(testCase.getOrDefault("options", Map.of())));
+      if (teacherSpec != null) evolveOptions.put("teacherAI", teacher);
+      Map<String, Object> actual = playbook.evolve(fixture.getOrDefault("dataset", Map.of()), evolveOptions);
       List<Object> outcomes = Core.asList(actual.getOrDefault("outcomes", List.of()));
-      if (outcomes.isEmpty()) throw new FixtureError("playbook evolve " + testCase.get("name") + " produced no outcome: " + Json.stringify(actual));
-      Map<String, Object> outcome = Core.asMap(outcomes.get(0));
       Map<String, Object> expected = Core.asMap(testCase.getOrDefault("expected", Map.of()));
       String label = "playbook evolve " + testCase.get("name");
+      if (expected.containsKey("outcome_count")) assertEqual(outcomes.size(), expected.get("outcome_count"), label + " outcome count");
+      if (testCase.containsKey("expected_teacher_request_count") && teacher.requests.size() != Core.asInt(testCase.get("expected_teacher_request_count"))) {
+        throw new FixtureError(label + " expected " + testCase.get("expected_teacher_request_count") + " teacher requests, got " + teacher.requests.size());
+      }
+      if (outcomes.isEmpty()) {
+        if (expected.containsKey("outcome_count") && Core.asInt(expected.get("outcome_count")) == 0) continue;
+        throw new FixtureError("playbook evolve " + testCase.get("name") + " produced no outcome: " + Json.stringify(actual));
+      }
+      Map<String, Object> outcome = Core.asMap(outcomes.get(0));
       if (expected.containsKey("accepted")) assertEqual(outcome.get("accepted"), expected.get("accepted"), label + " accepted");
       if (expected.containsKey("metricCallsUsed")) assertEqual(actual.get("metricCallsUsed"), expected.get("metricCallsUsed"), label + " metric calls");
       if (expected.containsKey("heldIn")) assertSubset(outcome.getOrDefault("heldIn", Map.of()), expected.get("heldIn"), label + " held-in");
@@ -2161,7 +2198,7 @@ public final class Conformance {
 	  static void runAIChat(Map<String, Object> fixture) {
     ClientFixture cf = openaiClient(fixture);
     Object result = expectMaybeError(() -> {
-      try { return cf.client.chat(Core.asMap(fixture.get("request"))); }
+      try { return cf.client.chat(Core.asMap(fixture.get("request")), new LinkedHashMap<>(Core.asMap(fixture.get("options")))); }
       catch (Exception e) { throw Core.asRuntime(e); }
     }, fixture);
     if (fixture.containsKey("expected_error_contains")) { assertTransport(fixture, cf.transport); return; }
@@ -2194,7 +2231,13 @@ public final class Conformance {
   static void runAIStream(Map<String, Object> fixture) {
     ClientFixture cf = openaiClient(fixture);
     List<Object> result = new ArrayList<>();
-    try { for (Object item : cf.client.stream(Core.asMap(fixture.get("request")))) result.add(item); } catch (Exception e) { throw Core.asRuntime(e); }
+    expectMaybeError(() -> {
+      try (AxChatStream stream = cf.client.openStream(Core.asMap(fixture.get("request")), new LinkedHashMap<>(Core.asMap(fixture.get("options"))), null)) {
+        for (Object item : stream) result.add(item);
+        return result;
+      } catch (Exception e) { throw Core.asRuntime(e); }
+    }, fixture);
+    if (fixture.containsKey("expected_error_contains")) { assertTransport(fixture, cf.transport); return; }
     if (fixture.containsKey("expected_output")) assertEqual(result, fixture.get("expected_output"), "ai stream output");
     assertTransport(fixture, cf.transport);
   }
@@ -2881,6 +2924,20 @@ public final class Conformance {
 	      if (!matched) throw new FixtureError(label + " missing expected item " + Json.stringify(expectedItem));
 	    }
 	  }
+  static void assertNotifications(List<Object> actual, List<Object> expected) {
+    if (actual.size() != expected.size()) throw new FixtureError("expected " + expected.size() + " notifications, got " + actual.size() + ": " + Json.stringify(actual));
+    for (int index = 0; index < expected.size(); index++) {
+      Map<String, Object> notification = Core.asMap(actual.get(index));
+      Map<String, Object> spec = Core.asMap(expected.get(index));
+      for (String key : List.of("name", "id")) {
+        if (spec.containsKey(key) && !java.util.Objects.equals(notification.get(key), spec.get(key))) throw new FixtureError("notification " + index + " " + key + ": expected " + spec.get(key) + ", got " + notification.get(key));
+      }
+      String value = String.valueOf(notification.getOrDefault("value", ""));
+      for (Object needle : Core.asList(spec.getOrDefault("value_contains", List.of()))) {
+        if (!value.contains(String.valueOf(needle))) throw new FixtureError("notification " + index + " value missing " + needle + ": " + value);
+      }
+    }
+  }
   static Object canonical(Object value) {
     if (value instanceof Number n) {
       double d = n.doubleValue();

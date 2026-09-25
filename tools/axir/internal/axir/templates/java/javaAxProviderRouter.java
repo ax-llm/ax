@@ -121,7 +121,7 @@ public final class AxProviderRouter implements AiClient,ChatRunSelector,AxChatSe
   public Iterable<Map<String, Object>> stream(Map<String, Object> request, Map<String, Object> options) throws Exception {
     Object raw=options==null?null:options.getOrDefault("cancellation",options.getOrDefault("cancellationToken",options.get("cancellation_token")));
     AxCancellationToken cancellation=raw instanceof AxCancellationToken token?token:null;
-    return AxChatStream.lazy(() -> openStream(request,cancellation));
+    return AxChatStream.lazy(() -> openStream(request,options,cancellation));
   }
 
   public AxChatStream openStream(Map<String, Object> request) throws Exception {
@@ -129,10 +129,15 @@ public final class AxProviderRouter implements AiClient,ChatRunSelector,AxChatSe
   }
 
   public AxChatStream openStream(Map<String,Object> request,AxCancellationToken cancellation)throws Exception{
+    return openStream(request,Map.of(),cancellation);
+  }
+
+  // The selected provider gates its own stream; the call options travel with the request.
+  public AxChatStream openStream(Map<String,Object> request,Map<String,Object> options,AxCancellationToken cancellation)throws Exception{
     if(cancellation!=null)cancellation.throwIfCancelled();
     AxAIService provider = selectedProvider(request);
     Map<String, Object> processedRequest = preprocess(provider.getFeatures((String)request.get("model")), request, processing);
-    return provider.openStream(processedRequest,cancellation);
+    return provider.openStream(processedRequest,options,cancellation);
   }
 
   public Map<String, Object> embed(Map<String, Object> request, Map<String, Object> options) throws Exception {

@@ -95,8 +95,8 @@ class FixtureError(AssertionError):
 
 
 class ConformanceScriptedAI(AxBaseAI):
-    def __init__(self, responses=None, stream_events=None, transcribe_responses=None, features=None):
-        super().__init__(name="scripted", model="scripted-chat", embed_model="scripted-embed", features=features)
+    def __init__(self, responses=None, stream_events=None, transcribe_responses=None, features=None, name="scripted", model="scripted-chat", options=None):
+        super().__init__(name=name, model=model, embed_model="scripted-embed", features=features, options=copy.deepcopy(options or {}))
         self.responses = list(responses or [])
         self.stream_events = list(stream_events or [])
         self.transcribe_responses = list(transcribe_responses or [])
@@ -135,6 +135,32 @@ class ConformanceScriptedAI(AxBaseAI):
     def speak(self, request: dict[str, Any], options: dict[str, Any] | None = None):
         self.requests.append(copy.deepcopy(request))
         return {"audio": "fixture-audio", "format": (request or {}).get("format", "pcm")}
+
+
+def _scripted_client_kwargs(spec):
+    # A fixture client spec: {"name"?, "model"?, "options"?} for a scripted client.
+    spec = spec or {}
+    kwargs = {}
+    if spec.get("name"):
+        kwargs["name"] = spec["name"]
+    if spec.get("model"):
+        kwargs["model"] = spec["model"]
+    if spec.get("options"):
+        kwargs["options"] = spec["options"]
+    return kwargs
+
+
+def _assert_notifications(actual, expected):
+    if len(actual) != len(expected):
+        raise FixtureError(f"expected {len(expected)} notifications, got {len(actual)}: {actual}")
+    for index, (notification, spec) in enumerate(zip(actual, expected)):
+        for key in ("name", "id"):
+            if key in spec and notification.get(key) != spec[key]:
+                raise FixtureError(f"notification {index} {key}: expected {spec[key]!r}, got {notification.get(key)!r}")
+        value = str(notification.get("value", ""))
+        for needle in spec.get("value_contains") or []:
+            if str(needle) not in value:
+                raise FixtureError(f"notification {index} value missing {needle!r}: {value}")
 
 
 def _fixture_ai_service_error(spec):
@@ -1055,7 +1081,7 @@ def _run_forward(fixture):
                 _assert_equal(samples, fixture["expected_picker_samples"], "result picker samples")
             return fixture["result_picker_index"]
         gen.set_result_picker(pick_result)
-    client = ConformanceScriptedAI(fixture.get("responses") or [], fixture.get("stream_events") or [], fixture.get("transcribe_responses") or [], fixture.get("features"))
+    client = ConformanceScriptedAI(fixture.get("responses") or [], fixture.get("stream_events") or [], fixture.get("transcribe_responses") or [], fixture.get("features"), **_scripted_client_kwargs(fixture.get("client")))
     try:
         output = gen.forward(client, fixture.get("input") or {}, fixture.get("forward_options"))
     except Exception as exc:
@@ -1346,9 +1372,11 @@ def _run_optimize(fixture):
         def __init__(self, fixture):
             self.fixture = fixture
             self.evaluations = []
+            self.evaluate_options = []
 
         def evaluate(self, candidate_map, options=None):
             opts = options or {}
+            self.evaluate_options.append(copy.deepcopy({key: value for key, value in opts.items() if key != "dataset"}))
             normalized = _normalize_optimization_dataset(opts.get("dataset") or self.fixture.get("dataset") or [])
             rows = []
             score_component = self.fixture.get("score_component_id")
@@ -1546,6 +1574,8 @@ def _run_optimize(fixture):
                 raise FixtureError(f"expected {fixture['expected_demo_count']} demos, got {len(artifact.get('demos') or [])}")
             if "expected_gepa_evaluations_subset" in fixture:
                 _assert_list_subset(evaluator.evaluations, fixture["expected_gepa_evaluations_subset"], "BootstrapFewShot evaluations")
+            if "expected_evaluate_options_subset" in fixture:
+                _assert_list_subset(evaluator.evaluate_options, fixture["expected_evaluate_options_subset"], "BootstrapFewShot evaluate options")
             return
         if operation == "helper":
             opts = copy.deepcopy(fixture.get("optimize_options") or {})
@@ -1561,14 +1591,22 @@ def _run_optimize(fixture):
                 _assert_list_subset(program.get_optimizable_components(), fixture["expected_components_subset"], "post-helper components")
             return
         if operation == "gepa":
-            reflection = ConformanceScriptedAI(fixture.get("reflection_responses") or [], fixture.get("stream_events") or [])
-            engine = AxGEPA(reflection, **copy.deepcopy(fixture.get("gepa_options") or {}))
+            reflection = ConformanceScriptedAI(fixture.get("reflection_responses") or [], fixture.get("stream_events") or [], **_scripted_client_kwargs(fixture.get("reflection_client")))
+            gepa_options = copy.deepcopy(fixture.get("gepa_options") or {})
+            notifications = []
+            if "expected_notifications" in fixture:
+                gepa_options["logger"] = notifications.append
+            engine = AxGEPA(reflection, **gepa_options)
             evaluator = ScriptedGEPAEvaluator(fixture)
             artifact = engine.optimize(build_gepa_request(), evaluator)
             if "expected_artifact_subset" in fixture:
                 _assert_subset(artifact, fixture["expected_artifact_subset"], "GEPA artifact")
             if "expected_gepa_evaluations_subset" in fixture:
                 _assert_list_subset(evaluator.evaluations, fixture["expected_gepa_evaluations_subset"], "GEPA evaluations")
+            if "expected_reflection_request_count" in fixture and len(reflection.requests) != fixture["expected_reflection_request_count"]:
+                raise FixtureError(f"expected {fixture['expected_reflection_request_count']} reflection requests, got {len(reflection.requests)}")
+            if "expected_notifications" in fixture:
+                _assert_notifications(notifications, fixture["expected_notifications"])
             return
         if operation == "eval":
             if not isinstance(program, AxAgent):
@@ -2119,8 +2157,14 @@ def _run_agent_playbook_coverage(fixture):
 
 def _run_agent_playbook_evolve(fixture):
     response = (fixture.get("responses") or [{}])[0]
+    teacher_spec = fixture.get("teacher_client")
     for case in fixture.get("cases") or []:
         client = ConformanceScriptedAI([copy.deepcopy(response) for _ in range(32)])
+        # A configured teacher runs the playbook's reflector/curator and the
+        # evolve weakness miner; otherwise the student client does.
+        teacher = client
+        if teacher_spec is not None:
+            teacher = ConformanceScriptedAI([copy.deepcopy(response) for _ in range(32)], **_scripted_client_kwargs(teacher_spec))
         runtime = ScriptedCodeRuntime(
             copy.deepcopy(fixture.get("runtime_script") or []),
             language=fixture.get("runtime_language", "Python"),
@@ -2131,22 +2175,29 @@ def _run_agent_playbook_evolve(fixture):
         playbook = ag.playbook({
             "target": "responder",
             "studentAI": client,
-            "teacherAI": client,
+            "teacherAI": teacher,
             "maxEpochs": 1,
+            **copy.deepcopy(case.get("playbook_options") or {}),
         })
         seed = fixture.get("seed")
         if isinstance(seed, dict):
             playbook.load(copy.deepcopy(seed))
         before = json.dumps(playbook.to_json(), sort_keys=True, separators=(",", ":"))
-        actual = playbook.evolve(
-            copy.deepcopy(fixture.get("dataset") or {}),
-            copy.deepcopy(case.get("options") or {}),
-        )
+        evolve_options = copy.deepcopy(case.get("options") or {})
+        if teacher_spec is not None:
+            evolve_options["teacherAI"] = teacher
+        actual = playbook.evolve(copy.deepcopy(fixture.get("dataset") or {}), evolve_options)
         outcomes = actual.get("outcomes") or []
+        expected = case.get("expected") or {}
+        if "outcome_count" in expected:
+            _assert_equal(len(outcomes), expected["outcome_count"], f"playbook evolve {case.get('name')} outcome count")
+        if "expected_teacher_request_count" in case and len(teacher.requests) != case["expected_teacher_request_count"]:
+            raise FixtureError(f"playbook evolve {case.get('name')} expected {case['expected_teacher_request_count']} teacher requests, got {len(teacher.requests)}")
         if not outcomes:
+            if expected.get("outcome_count") == 0:
+                continue
             raise FixtureError(f"playbook evolve {case.get('name')} produced no outcome: {actual}")
         outcome = outcomes[0]
-        expected = case.get("expected") or {}
         if "accepted" in expected:
             _assert_equal(outcome.get("accepted"), expected["accepted"], f"playbook evolve {case.get('name')} accepted")
         if "metricCallsUsed" in expected:
@@ -2531,7 +2582,16 @@ def _run_ai_embed(fixture):
 
 def _run_ai_stream(fixture):
     client, transport = _openai_fixture_client(fixture)
-    result = list(client.stream(fixture["request"], fixture.get("options")))
+    try:
+        result = list(client.stream(fixture["request"], fixture.get("options")))
+    except Exception as exc:
+        expected = fixture.get("expected_error_contains")
+        if expected and expected in str(exc):
+            _assert_transport_request(fixture, transport)
+            return
+        raise
+    if fixture.get("expected_error_contains"):
+        raise FixtureError("expected AI stream request to fail")
     if "expected_output" in fixture:
         _assert_equal(result, fixture["expected_output"], "ai stream output")
     _assert_transport_request(fixture, transport)

@@ -1,0 +1,71 @@
+{
+  "components": [
+    {
+      "current": "Base answer instruction",
+      "description": "Primary prompt instruction.",
+      "id": "qa::instruction",
+      "kind": "instruction",
+      "owner": "qa"
+    }
+  ],
+  "dataset": [
+    {
+      "input": {
+        "question": "Capital?"
+      },
+      "score": 1
+    }
+  ],
+  "expected_artifact_subset": {
+    "componentMap": {
+      "qa::instruction": "answer with citations"
+    },
+    "metadata": {
+      "bestScore": 0.9,
+      "candidatesExplored": 2
+    },
+    "optimizerName": "GEPA"
+  },
+  "expected_notifications": [],
+  "expected_reflection_request_count": 1,
+  "gepa_scores": {
+    "Base answer instruction": 0.2,
+    "answer with citations": 0.9
+  },
+  "kind": "optimize",
+  "name": "gepa-teacher-options-reach-expensive-teacher",
+  "operation": "gepa",
+  "optimize_options": {
+    "maxMetricCalls": 6,
+    "minibatchSize": 1,
+    "numTrials": 1,
+    "seed": 7,
+    "teacherOptions": {
+      "useExpensiveModel": "yes"
+    }
+  },
+  "program": "axgen",
+  "reflection_client": {
+    "model": "premium-model",
+    "options": {
+      "modelInfo": [
+        {
+          "completionTokenCostPer1M": 600,
+          "isExpensive": true,
+          "name": "premium-model",
+          "promptTokenCostPer1M": 150
+        }
+      ]
+    }
+  },
+  "reflection_responses": [
+    {
+      "results": [
+        {
+          "content": "New Value: answer with citations",
+          "index": 0
+        }
+      ]
+    }
+  ]
+}

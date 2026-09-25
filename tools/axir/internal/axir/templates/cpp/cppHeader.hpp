@@ -493,6 +493,10 @@ class AxAIService : public AIClient {
   virtual std::vector<Value> stream(Value request);
   virtual void stream_each(Value request, AxStreamHandler handler);
   virtual void stream_each(Value request, AxStreamHandler handler, const AxCancellationToken* cancellation);
+  // Streams with call options (e.g. useExpensiveModel). Services that do not
+  // override the options overload stream as stream_each(request, handler).
+  virtual std::vector<Value> stream(Value request, Value options);
+  virtual void stream_each(Value request, AxStreamHandler handler, Value options);
   virtual Value embed(Value request, Value options);
   virtual Value embed(Value request, Value options, const AxCancellationToken* cancellation);
   virtual Value embed(Value request, Value options, const AxRuntimeHooks& hooks);
@@ -558,6 +562,9 @@ class AxBaseAI : public AxAIService {
   Value last_used_model_config_;
   Value last_model_usage_;
   std::shared_ptr<const AxRuntimeHooks> runtime_hooks_;
+  // Model-catalog key for the expensive-model gate: the client name here, the
+  // provider profile for provider clients.
+  virtual std::string model_catalog_provider() const { return name_; }
   virtual Value do_chat(Value request, Value options) = 0;
   virtual Value do_embed(Value request, Value options) = 0;
 };
@@ -618,6 +625,7 @@ class AxBalancer : public AxAIService {
   using AxAIService::chat;
   using AxAIService::embed;
   using AxAIService::speak;
+  using AxAIService::stream;
   using AxAIService::stream_each;
   using AxAIService::transcribe;
   AxBalancer();
@@ -634,6 +642,7 @@ class AxBalancer : public AxAIService {
   Value chat(Value request, Value options) override;
   std::vector<Value> stream(Value request) override;
   void stream_each(Value request, AxStreamHandler handler) override;
+  void stream_each(Value request, AxStreamHandler handler, Value options) override;
   Value embed(Value request) override;
   Value embed(Value request, Value options) override;
   Value transcribe(Value request) override;
@@ -693,6 +702,7 @@ class MultiServiceRouter : public AxAIService {
   using AxAIService::chat;
   using AxAIService::embed;
   using AxAIService::speak;
+  using AxAIService::stream;
   using AxAIService::stream_each;
   using AxAIService::transcribe;
   MultiServiceRouter();
@@ -707,6 +717,7 @@ class MultiServiceRouter : public AxAIService {
   Value chat(Value request, Value options) override;
   std::vector<Value> stream(Value request) override;
   void stream_each(Value request, AxStreamHandler handler) override;
+  void stream_each(Value request, AxStreamHandler handler, Value options) override;
   Value embed(Value request) override;
   Value embed(Value request, Value options) override;
   Value transcribe(Value request) override;
@@ -847,12 +858,14 @@ class OpenAICompatibleClient : public AxBaseAI {
   using AxBaseAI::chat;
   using AxBaseAI::embed;
   using AxAIService::speak;
+  using AxAIService::stream;
   using AxAIService::stream_each;
   using AxAIService::transcribe;
   explicit OpenAICompatibleClient(Value options = Value::object(), Transport* transport = nullptr, AxCredentialProvider credential_provider = {});
   OpenAICompatibleClient(std::string profile, std::string name, Value options, Transport* transport, std::string default_model, std::string default_embed_model, AxCredentialProvider credential_provider = {});
   std::vector<Value> stream(Value request) override;
   void stream_each(Value request, AxStreamHandler handler) override;
+  void stream_each(Value request, AxStreamHandler handler, Value options) override;
   Value transcribe(Value request) override;
   Value speak(Value request) override;
   std::vector<Value> realtime(Value events);
@@ -866,6 +879,7 @@ class OpenAICompatibleClient : public AxBaseAI {
   OpenAICompatibleClient& credential_provider(AxCredentialProvider provider);
 
  protected:
+  std::string model_catalog_provider() const override { return profile_; }
   Value do_chat(Value request, Value options) override;
   Value do_embed(Value request, Value options) override;
 
@@ -1219,6 +1233,9 @@ class OptimizerEngine {
   virtual Value optimize(Value request, OptimizerEvaluator* evaluator) { return optimize(std::move(request)); }
 };
 
+// Reflection calls run with options teacherOptions. When a reflection call's last
+// attempt fails, GEPA keeps the current value and reports a gepa_teacher
+// notification to options logger (a register_agent_observer() marker).
 class AxGEPA : public OptimizerEngine {
  public:
   explicit AxGEPA(AIClient* reflection_client = nullptr, Value options = Value::object());
@@ -1321,6 +1338,8 @@ class AxPlaybook {
   AxACE engine_;
   AIClient* student_;
   AIClient* teacher_;
+  // options teacherOptions: forward options for the teacher's reflector/curator calls.
+  Value teacher_options_ = Value::object();
   bool verbose_;
   std::string base_instruction_;
   bool started_ = false;
@@ -1411,7 +1430,9 @@ class AxAgent : public AxProgram {
   Value optimize_with(OptimizerEngine& engine, Value dataset, Value options = Value::object());
   Value optimize_with(OptimizerEngine& engine, AIClient& client, Value dataset, Value options = Value::object());
   Value optimize(Value dataset = Value::array(), Value options = Value::object());
-  AxPlaybook& playbook(AIClient& student, Value options = Value::object());
+  // The playbook's reflector/curator (and the evolve weakness miner) run on
+  // `teacher` when given, else on `student`; options teacherOptions go with them.
+  AxPlaybook& playbook(AIClient& student, Value options = Value::object(), AIClient* teacher = nullptr);
   AxPlaybook* get_playbook() const;
 
  private:
@@ -1458,7 +1479,8 @@ AxAgent agent(Value signature, Value options = Value::object());
 Value register_memories_search(std::function<Value(Value, Value)> fn);
 Value register_skills_search(std::function<Value(Value)> fn);
 // Register a non-fatal AxAgent observer and return a marker usable as any
-// onLoadedMemories/onLoadedSkills/onUsedMemories/onUsedSkills option value.
+// onLoadedMemories/onLoadedSkills/onUsedMemories/onUsedSkills option value. The
+// marker also works as the AxGEPA options logger, where exceptions propagate.
 Value register_agent_observer(std::function<void(Value)> fn);
 AxFlow flow(Value options = Value::object());
 AxFlow flow(Value options, AxRuntimeHooks hooks);

@@ -268,11 +268,44 @@ public final class AxGEPA implements OptimizerEngine {
     return out;
   }
 
+  private static Object option(Map<String, Object> opts, String... keys) {
+    for (String key : keys) if (opts.get(key) != null) return opts.get(key);
+    return null;
+  }
+
+  // Teacher notifications go to the options logger (a Consumer of the
+  // notification map), else the student client's logger as JSON text;
+  // verbose:false silences them.
+  @SuppressWarnings("unchecked")
+  private static java.util.function.Consumer<Map<String, Object>> teacherLogger(Map<String, Object> options) {
+    if (Boolean.FALSE.equals(options.get("verbose"))) return null;
+    if (options.get("logger") instanceof java.util.function.Consumer<?> logger) return notification -> ((java.util.function.Consumer<Object>) logger).accept(notification);
+    if (option(options, "studentAI", "student_ai", "student", "client", "ai") instanceof AxAIService student) {
+      java.util.function.Consumer<String> logger = student.getLogger();
+      if (logger != null) return notification -> logger.accept(Json.stringify(notification));
+    }
+    return null;
+  }
+
+  private static void logTeacherFailure(String action, Exception error, Map<String, Object> options) {
+    java.util.function.Consumer<Map<String, Object>> logger = teacherLogger(options);
+    if (logger == null) return;
+    Map<String, Object> notification = new LinkedHashMap<>();
+    notification.put("name", "Notification");
+    notification.put("id", "gepa_teacher");
+    notification.put("value", "GEPA teacher call failed while " + action + ": " + (error.getMessage() == null ? error.toString() : error.getMessage()));
+    logger.accept(notification);
+  }
+
   private String reflect(Map<String, Object> component, String current, List<Object> tuples, List<Object> traceDataset, Map<String, Object> options) {
     if (reflectionClient == null) throw new RuntimeException("AxGEPA requires a reflection_client for reflective trials");
     int attempts = Math.max(1, intOpt(options, "maxReflectionAttempts", 2));
+    Map<String, Object> chatOptions = new LinkedHashMap<>(Core.asMap(option(options, "teacherOptions", "teacher_options")));
+    chatOptions.put("stream", false);
     Object previous = null;
+    Exception lastError = null;
     for (int i = 0; i < attempts; i++) {
+      lastError = null;
       Map<String, Object> payload = new LinkedHashMap<>();
       payload.put("componentKey", component.get("id"));
       payload.put("componentKind", component.get("kind"));
@@ -280,16 +313,25 @@ public final class AxGEPA implements OptimizerEngine {
       payload.put("previousValidationError", previous);
       payload.put("minibatch", tuples);
       payload.put("traceDataset", traceDataset);
+      Map<String, Object> prompt = Map.of("chatPrompt", List.of(Map.of("role", "user", "content", Json.stringify(payload))));
+      Map<String, Object> response;
       try {
-        Map<String, Object> response = reflectionClient.chat(Map.of("chatPrompt", List.of(Map.of("role", "user", "content", Json.stringify(payload)))));
-        String candidate = extractText(response);
-        Object validation = validateValue(component, candidate);
-        if (Boolean.TRUE.equals(validation)) return candidate;
-        previous = validation;
-      } catch (Exception e) {
-        throw new RuntimeException(e);
+        response = reflectionClient instanceof AxAIService service ? service.chat(prompt, new LinkedHashMap<>(chatOptions)) : reflectionClient.chat(prompt);
+      } catch (AxAIServiceAbortedError | java.util.concurrent.CancellationException cancelled) {
+        throw cancelled;
+      } catch (InterruptedException interrupted) {
+        Thread.currentThread().interrupt();
+        throw new RuntimeException(interrupted);
+      } catch (Exception error) {
+        lastError = error;
+        continue;
       }
+      String candidate = extractText(response);
+      Object validation = validateValue(component, candidate);
+      if (Boolean.TRUE.equals(validation)) return candidate;
+      previous = validation;
     }
+    if (lastError != null) logTeacherFailure("proposing a new value for " + component.get("id") + "; keeping the current value", lastError, options);
     return current;
   }
 

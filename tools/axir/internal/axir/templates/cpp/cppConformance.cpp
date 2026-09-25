@@ -27,6 +27,18 @@ static Object as_object(Value value) {
 
 static AxError fixture_ai_service_error_cpp(Value spec);
 
+// A fixture client spec {"name"?, "model"?, "options"?} configures a scripted
+// client's name, default model and client-level options (e.g. modelInfo).
+static std::string scripted_client_text(Value spec, const std::string& key, const std::string& fallback) {
+  Value value = Core::get(spec, key);
+  return Core::truthy(value) ? display(value) : fallback;
+}
+
+static Value scripted_client_options(Value spec) {
+  Value options = Core::get(spec, "options");
+  return Core::truthy(options) ? parse_json(stringify(options)) : Value::object();
+}
+
 struct ConformanceScriptedAI : AxBaseAI {
   Array responses;
   Array transcribe_responses;
@@ -35,8 +47,10 @@ struct ConformanceScriptedAI : AxBaseAI {
   Value features;
   int chat_calls = 0;
 
-  explicit ConformanceScriptedAI(Value values, Value feature_values = Value())
-      : AxBaseAI("scripted", "scripted-chat", "scripted-embed"),
+  explicit ConformanceScriptedAI(Value values, Value feature_values = Value(), Value client_spec = Value())
+      : AxBaseAI(scripted_client_text(client_spec, "name", "scripted"),
+                 scripted_client_text(client_spec, "model", "scripted-chat"),
+                 "scripted-embed", Value::object(), scripted_client_options(client_spec)),
         responses(as_array(values)),
         features(std::move(feature_values)) {}
 
@@ -267,6 +281,7 @@ struct ScriptedOptimizerEngine : OptimizerEngine {
 struct ScriptedGEPAEvaluator : OptimizerEvaluator {
   Value fixture;
   std::vector<Value> evaluations;
+  std::vector<Value> evaluate_options;
 
   explicit ScriptedGEPAEvaluator(Value fixture_) : fixture(std::move(fixture_)) {}
 
@@ -278,6 +293,11 @@ struct ScriptedGEPAEvaluator : OptimizerEvaluator {
   }
 
   Value evaluate(Value candidate_map, Value options) override {
+    Value recorded = Value::object();
+    for (const auto& key : Core::iter(Core::map_keys(options))) {
+      if (display(key) != "dataset") Core::set(recorded, key, Core::get(options, key));
+    }
+    evaluate_options.push_back(parse_json(stringify(recorded)));
     Value dataset_input = !Core::get(options, "dataset").is_null() ? Core::get(options, "dataset") : Core::get(fixture, "dataset", Value::array());
     Value normalized = Core::_normalize_optimization_dataset(dataset_input);
     Array examples = Core::iter(Core::get(normalized, "train", Value::array()));
@@ -701,17 +721,20 @@ static void run_forward(Value fixture) {
       return std::stoi(display(picker_index));
     });
   }
-  ConformanceScriptedAI client(Core::get(fixture, "responses", Value::array()), Core::get(fixture, "features"));
+  ConformanceScriptedAI client(Core::get(fixture, "responses", Value::array()), Core::get(fixture, "features"), Core::get(fixture, "client"));
   Value input = Core::get(fixture, "input", Core::get(fixture, "values", Value::object()));
   Value output = expect_maybe_error([&] { return gen.forward(client, input, Core::get(fixture, "forward_options", Value::object())); }, fixture);
-  if (Core::get(fixture, "expected_error_contains").is_null() && !Core::get(fixture, "expected_output").is_null()) {
+  bool expected_error = !Core::get(fixture, "expected_error_contains").is_null();
+  if (!expected_error && !Core::get(fixture, "expected_output").is_null()) {
     assert_equal(output, Core::get(fixture, "expected_output"), "forward output");
   }
   Value expected_count = Core::get(fixture, "expected_request_count");
   if (!expected_count.is_null() && client.requests.size() != static_cast<size_t>(std::stoul(display(expected_count)))) {
     throw AxError("fixture", "expected request count mismatch");
   }
-  if (Core::truthy(Core::get(fixture, "expect_chat_path", true)) && client.chat_calls == 0) {
+  // An expected failure may stop before the client sends anything (e.g. the
+  // expensive-model gate), so only a successful forward must reach chat().
+  if (!expected_error && Core::truthy(Core::get(fixture, "expect_chat_path", true)) && client.chat_calls == 0) {
     throw AxError("fixture", "expected AxGen to use AIClient.chat()");
   }
   Value expected_request = Core::get(fixture, "expected_request");
@@ -851,6 +874,29 @@ static Value optimize_component_ids(Value components) {
   return ids;
 }
 
+// Same count; per notification, name/id equal when given and value containing
+// every value_contains string.
+static void assert_notifications(const Array& actual, Value expected) {
+  Array expected_items = as_array(expected);
+  if (actual.size() != expected_items.size()) {
+    throw AxError("fixture", "expected " + std::to_string(expected_items.size()) + " notifications, got " + std::to_string(actual.size()) + ": " + stringify(Value(actual)));
+  }
+  for (size_t index = 0; index < actual.size(); ++index) {
+    const Value& spec = expected_items[index];
+    for (const std::string key : {"name", "id"}) {
+      if (Core::truthy(Core::map_contains(spec, key)) && !equal(Core::get(actual[index], key), Core::get(spec, key))) {
+        throw AxError("fixture", "notification " + std::to_string(index) + " " + key + ": expected " + stringify(Core::get(spec, key)) + ", got " + stringify(Core::get(actual[index], key)));
+      }
+    }
+    std::string value = display(Core::get(actual[index], "value", Value("")));
+    for (const auto& needle : Core::iter(Core::get(spec, "value_contains", Value::array()))) {
+      if (value.find(display(needle)) == std::string::npos) {
+        throw AxError("fixture", "notification " + std::to_string(index) + " value missing " + display(needle) + ": " + value);
+      }
+    }
+  }
+}
+
 static AxFlow build_flow(Value fixture, std::vector<std::unique_ptr<AxGen>>& programs, std::vector<std::unique_ptr<AxFlow>>& flows, std::vector<std::unique_ptr<AxAgent>>& agents);
 static Value verification_instruments_summary();
 
@@ -982,14 +1028,28 @@ static void run_optimize(Value fixture) {
       std::unique_ptr<ConformanceScriptedAI> reflection;
       AIClient* reflection_ptr = nullptr;
       if (!Core::get(fixture, "reflection_responses").is_null()) {
-        reflection = std::make_unique<ConformanceScriptedAI>(Core::get(fixture, "reflection_responses", Value::array()));
+        reflection = std::make_unique<ConformanceScriptedAI>(Core::get(fixture, "reflection_responses", Value::array()), Value(), Core::get(fixture, "reflection_client"));
         reflection_ptr = reflection.get();
       }
-      AxGEPA engine(reflection_ptr, Core::get(fixture, "gepa_options", Value::object()));
+      Value gepa_options = Core::map_merge(Value::object(), Core::get(fixture, "gepa_options", Value::object()));
+      auto notifications = std::make_shared<Array>();
+      bool expect_notifications = !Core::get(fixture, "expected_notifications").is_null();
+      if (expect_notifications) {
+        Core::set(gepa_options, "logger", register_agent_observer([notifications](Value notification) { notifications->push_back(notification); }));
+      }
+      AxGEPA engine(reflection_ptr, gepa_options);
       ScriptedGEPAEvaluator evaluator(fixture);
       Value artifact = engine.optimize(request, &evaluator);
       if (!Core::get(fixture, "expected_artifact_subset").is_null()) assert_subset(artifact, Core::get(fixture, "expected_artifact_subset"), "GEPA artifact");
       if (!Core::get(fixture, "expected_gepa_evaluations_subset").is_null()) assert_list_subset(Value(evaluator.evaluations), Core::get(fixture, "expected_gepa_evaluations_subset"), "GEPA evaluations");
+      Value expected_reflection_requests = Core::get(fixture, "expected_reflection_request_count");
+      if (!expected_reflection_requests.is_null()) {
+        size_t actual_requests = reflection ? reflection->requests.size() : 0;
+        if (actual_requests != static_cast<size_t>(std::stoul(display(expected_reflection_requests)))) {
+          throw AxError("fixture", "expected " + display(expected_reflection_requests) + " reflection requests, got " + std::to_string(actual_requests));
+        }
+      }
+      if (expect_notifications) assert_notifications(*notifications, Core::get(fixture, "expected_notifications"));
       return;
     }
     if (op == "bootstrap") {
@@ -1014,6 +1074,7 @@ static void run_optimize(Value fixture) {
         if (actual_demos != expected_demos) throw AxError("fixture", "unexpected demo count for " + display(Core::get(fixture, "name", "fixture")) + ": got " + std::to_string(actual_demos) + ", expected " + std::to_string(expected_demos));
       }
       if (!Core::get(fixture, "expected_gepa_evaluations_subset").is_null()) assert_list_subset(Value(evaluator.evaluations), Core::get(fixture, "expected_gepa_evaluations_subset"), "BootstrapFewShot evaluations");
+      if (!Core::get(fixture, "expected_evaluate_options_subset").is_null()) assert_list_subset(Value(evaluator.evaluate_options), Core::get(fixture, "expected_evaluate_options_subset"), "BootstrapFewShot evaluate options");
       return;
     }
     if (program_kind == "axgen") {
@@ -1346,10 +1407,16 @@ static void run_agent_playbook_coverage(Value fixture) {
 static void run_agent_playbook_evolve(Value fixture) {
   Array source_responses = Core::iter(Core::get(fixture, "responses", Value::array()));
   Value scripted_response = source_responses.empty() ? Value::object() : source_responses.front();
+  Value teacher_spec = Core::get(fixture, "teacher_client");
   for (const auto& test_case : Core::iter(Core::get(fixture, "cases", Value::array()))) {
     Array responses;
     for (int i = 0; i < 32; ++i) responses.push_back(scripted_response);
     ConformanceScriptedAI client{Value(responses)};
+    // A configured teacher runs the playbook's reflector/curator and the evolve
+    // weakness miner; otherwise the student client does.
+    std::unique_ptr<ConformanceScriptedAI> teacher_client;
+    if (!teacher_spec.is_null()) teacher_client = std::make_unique<ConformanceScriptedAI>(Value(responses), Value(), teacher_spec);
+    ConformanceScriptedAI& teacher = teacher_client ? *teacher_client : client;
     ScriptedCodeRuntime runtime(
         Core::get(fixture, "runtime_script", Value::array()),
         display(Core::get(fixture, "runtime_language", "Python")),
@@ -1357,20 +1424,30 @@ static void run_agent_playbook_evolve(Value fixture) {
     Value agent_options = Core::get(fixture, "options", Value::object());
     Core::set(agent_options, "runtime", Core::code_runtime_ref(runtime));
     AxAgent ag(Core::get(fixture, "signature", "question:string -> answer:string"), agent_options);
-    AxPlaybook& playbook = ag.playbook(client, object({
-        {"target", "responder"}, {"maxEpochs", 1},
-    }));
+    Value playbook_options = Core::map_merge(object({{"target", "responder"}, {"maxEpochs", 1}}), parse_json(stringify(Core::get(test_case, "playbook_options", Value::object()))));
+    AxPlaybook& playbook = ag.playbook(client, playbook_options, &teacher);
     Value seed = Core::get(fixture, "seed");
     if (!seed.is_null()) playbook.load(seed);
     std::string before = stringify(playbook.to_json());
+    // The C++ evolve runs its miner on the playbook's teacher (no evolve-level
+    // teacherAI option: a Value cannot hold a client), so the teacher is only
+    // passed to playbook() above.
     Value actual = playbook.evolve(
         Core::get(fixture, "dataset", Value::object()),
         Core::get(test_case, "options", Value::object()));
     Array outcomes = Core::iter(Core::get(actual, "outcomes", Value::array()));
     std::string label = "playbook evolve " + display(Core::get(test_case, "name", "case"));
-    if (outcomes.empty()) throw AxError("fixture", label + " produced no outcome: " + stringify(actual));
-    Value outcome = outcomes.front();
     Value expected = Core::get(test_case, "expected", Value::object());
+    if (!Core::get(expected, "outcome_count").is_null()) assert_equal(Value(static_cast<double>(outcomes.size())), Core::get(expected, "outcome_count"), label + " outcome count");
+    Value expected_teacher_requests = Core::get(test_case, "expected_teacher_request_count");
+    if (!expected_teacher_requests.is_null() && teacher.requests.size() != static_cast<size_t>(std::stoul(display(expected_teacher_requests)))) {
+      throw AxError("fixture", label + " expected " + display(expected_teacher_requests) + " teacher requests, got " + std::to_string(teacher.requests.size()));
+    }
+    if (outcomes.empty()) {
+      if (!Core::get(expected, "outcome_count").is_null() && Core::number(Core::get(expected, "outcome_count")) == 0) continue;
+      throw AxError("fixture", label + " produced no outcome: " + stringify(actual));
+    }
+    Value outcome = outcomes.front();
     if (!Core::get(expected, "accepted").is_null()) assert_equal(Core::get(outcome, "accepted"), Core::get(expected, "accepted"), label + " accepted");
     if (!Core::get(expected, "metricCallsUsed").is_null()) assert_equal(Core::get(actual, "metricCallsUsed"), Core::get(expected, "metricCallsUsed"), label + " metric calls");
     if (!Core::get(expected, "heldIn").is_null()) assert_subset(Core::get(outcome, "heldIn", Value::object()), Core::get(expected, "heldIn"), label + " held-in");
@@ -2227,8 +2304,11 @@ static void assert_ai_error(const AxError& error, Value fixture, const ScriptedT
 
 static void run_ai_chat(Value fixture) {
   ClientFixture cf(fixture);
+  // Fixture "options" are the call options (service_options configure the client).
+  Value call_options = Core::get(fixture, "options");
   Value result = expect_maybe_error([&] {
-    return cf.client->chat(Core::get(fixture, "request", Value::object()));
+    Value request = Core::get(fixture, "request", Value::object());
+    return call_options.is_null() ? cf.client->chat(request) : cf.client->chat(request, call_options);
   }, fixture);
   if (!Core::get(fixture, "expected_error_contains").is_null()) { assert_transport(fixture, cf.transport, *cf.credential_requests); return; }
   Value expected = Core::get(fixture, "expected_output");
@@ -2262,8 +2342,21 @@ static void run_ai_embed(Value fixture) {
 
 static void run_ai_stream(Value fixture) {
   ClientFixture cf(fixture);
+  // Fixture "options" are the stream call options (service_options configure the client).
+  Value call_options = Core::get(fixture, "options");
+  Value request = Core::get(fixture, "request", Value::object());
+  Value expected_error = Core::get(fixture, "expected_error_contains");
   Value out = Value::array();
-  for (const auto& item : cf.client->stream(Core::get(fixture, "request", Value::object()))) Core::append(out, item);
+  try {
+    for (const auto& item : call_options.is_null() ? cf.client->stream(request) : cf.client->stream(request, call_options)) Core::append(out, item);
+  } catch (const std::exception& error) {
+    if (!expected_error.is_null() && std::string(error.what()).find(display(expected_error)) != std::string::npos) {
+      assert_transport(fixture, cf.transport, *cf.credential_requests);
+      return;
+    }
+    throw;
+  }
+  if (!expected_error.is_null()) throw AxError("fixture", "expected AI stream request to fail");
   Value expected = Core::get(fixture, "expected_output");
   if (!expected.is_null()) assert_equal(out, expected, "ai stream output");
   assert_transport(fixture, cf.transport, *cf.credential_requests);

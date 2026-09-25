@@ -53,6 +53,9 @@ public abstract class AxBaseAI implements AxAIService {
   public AxBaseAI setMeter(AxMeter meter) { this.runtimeHooks = new AxRuntimeHooks(runtimeHooks.rateLimiter(), runtimeHooks.tracer(), meter); return this; }
   public Map<String, Object> getOptions() { return new LinkedHashMap<>(options); }
 
+  /** Provider key for the model catalog lookup of the expensive-model gate. */
+  protected String modelCatalogProvider() { return name; }
+
   protected Map<String, Object> mergedOptions(Map<String, Object> callOptions) {
     Map<String, Object> overrides = AxRuntimeHooks.strip(callOptions);
     Map<String, Object> merged = Core.asMap(Core.mapMerge(options, overrides));
@@ -81,13 +84,16 @@ public abstract class AxBaseAI implements AxAIService {
 
   public Map<String, Object> chat(Map<String, Object> request, Map<String, Object> callOptions) throws Exception {
     AxCancellationToken cancellation=cancellation(callOptions);if(cancellation!=null)cancellation.throwIfCancelled();
-    if(cancellation!=null)ACTIVE_CANCELLATION.set(cancellation);
     AxRuntimeHooks hooks = AxGlobals.effective(callOptions, runtimeHooks);
     Map<String, Object> req = Core.coerceChatRequest(request);
     Core.validate_chat_request(req);
     Map<String, Object> mergedOptions = mergedOptions(callOptions);
     Object rawModel = req.get("model");
     String selectedModel = rawModel == null ? model : String.valueOf(rawModel);
+    // Expensive models need confirmation before any request. Only the call
+    // options (or a model-key entry) confirm; the client's own options don't.
+    Core.provider_require_expensive_model_confirmation(modelCatalogProvider(), selectedModel, options, AxRuntimeHooks.strip(callOptions));
+    if(cancellation!=null)ACTIVE_CANCELLATION.set(cancellation);
     Map<String, Object> mergedConfig = Core.asMap(Core.merge_model_config(modelConfig, req.get("model_config"), mergedOptions));
     if (mergedOptions.containsKey("stream")) mergedConfig.put("stream", Boolean.TRUE.equals(mergedOptions.get("stream")));
     req = new LinkedHashMap<>(req);

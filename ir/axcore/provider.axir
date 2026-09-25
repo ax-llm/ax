@@ -10223,4 +10223,141 @@ module @ax.provider version "0.1" {
       core.return
     }
   }
+
+  op ax.provider.semantic @provider_model_index {
+    attr core_kind = "func"
+    attr emit_module = "ai"
+    attr private = true
+    tag "provider-model-catalog-runtime"
+    type signature = "() -> json"
+    body @entry {
+      %index = core.call intrinsic.json.parse(file "data/provider-model-index.json")
+      core.return %index
+    }
+  }
+
+  op ax.provider.semantic @provider_match_model_info {
+    attr core_kind = "func"
+    attr emit_module = "ai"
+    attr private = true
+    tag "src/ax/dsp/modelinfo.ts"
+    type signature = "(candidates:list<json>, model:string) -> json"
+    body @entry(%candidates: json, %model: string) {
+      %empty_aliases = core.list
+      core.for %candidate in %candidates {
+        %candidate_name = core.get %candidate["name"] default ""
+        %name_matches = core.call intrinsic.eq(%candidate_name, %model)
+        core.if %name_matches {
+          core.return %candidate
+        }
+        %raw_aliases = core.get %candidate["aliases"] default %empty_aliases
+        %aliases = core.call intrinsic.coalesce(%raw_aliases, %empty_aliases)
+        %alias_matches = core.call intrinsic.contains(%aliases, %model)
+        core.if %alias_matches {
+          core.return %candidate
+        }
+      }
+      %none = core.call intrinsic.none()
+      core.return %none
+    }
+  }
+
+  op ax.provider.semantic @provider_find_model_info {
+    attr core_kind = "func"
+    attr emit_module = "ai"
+    tag "provider-model-catalog-runtime"
+    tag "src/ax/dsp/modelinfo.ts"
+    type signature = "(provider:string, model:string, model_info?:json) -> json"
+    body @entry(%provider: string, %model: string, %model_info: json) {
+      %index = core.call @provider_model_index()
+      %empty_list = core.list
+      %catalog_models = core.get %index[%provider] default %empty_list
+      %candidates = core.list
+      core.for %catalog_model in %catalog_models {
+        core.append %candidates, %catalog_model
+      }
+      %user_models = core.call intrinsic.coalesce(%model_info, %empty_list)
+      %user_models_is_list = core.type_is %user_models type "list"
+      core.if %user_models_is_list {
+        core.for %user_model in %user_models {
+          core.append %candidates, %user_model
+        }
+      }
+      %exact = core.call @provider_match_model_info(%candidates, %model)
+      %has_exact = core.call intrinsic.is_not_none(%exact)
+      core.if %has_exact {
+        core.return %exact
+      }
+      %normalized = core.call intrinsic.regex.replace("^(?:[a-z]+(?:-[a-z]+)*\\.)?(?:anthropic|openai)\\.", "", %model)
+      %normalized = core.call intrinsic.regex.replace("-latest$", "", %normalized)
+      %normalized = core.call intrinsic.regex.replace("-\\d{8}$", "", %normalized)
+      %normalized = core.call intrinsic.regex.replace("-v\\d+:\\d+$", "", %normalized)
+      %normalized = core.call intrinsic.regex.replace("@\\d{8}$", "", %normalized)
+      %normalized = core.call intrinsic.regex.replace("-\\d{2,}(-[a-zA-Z0-9-]+)?$", "", %normalized)
+      %normalized = core.call intrinsic.regex.replace("-v\\d+@\\d{8}$", "", %normalized)
+      %normalized = core.call intrinsic.regex.replace("-v\\d+$", "", %normalized)
+      %normalized_match = core.call @provider_match_model_info(%candidates, %normalized)
+      core.return %normalized_match
+    }
+  }
+
+  op ax.provider.semantic @provider_require_expensive_model_confirmation {
+    attr core_kind = "func"
+    attr effect = "throws"
+    attr emit_module = "ai"
+    tag "src/ax/ai/base.ts"
+    tag "axai-expensive-model-gate"
+    type signature = "(provider:string, model:string, client_options?:json, options?:json) -> void throws"
+    body @entry(%provider: string, %model: string, %client_options: json, %options: json) {
+      %empty_map = core.map
+      %empty_list = core.list
+      %client_opts = core.call intrinsic.coalesce(%client_options, %empty_map)
+      %call_opts = core.call intrinsic.coalesce(%options, %empty_map)
+      %models_camel = core.get %client_opts["modelList"] default %empty_list
+      %models_snake = core.get %client_opts["model_list"] default %models_camel
+      %models = core.get %client_opts["models"] default %models_snake
+      %models_is_list = core.type_is %models type "list"
+      %resolved_model = core.let %model
+      %key_entry = core.map
+      %key_found = core.let false
+      core.if %models_is_list {
+        core.for %entry in %models {
+          %entry_key = core.get %entry["key"] default ""
+          %key_matches = core.call intrinsic.eq(%entry_key, %model)
+          %key_missing = core.call intrinsic.not(%key_found)
+          %use_entry = core.call intrinsic.and(%key_matches, %key_missing)
+          core.if %use_entry {
+            %key_found = core.let true
+            %key_entry = core.let %entry
+            %entry_model = core.get %entry["model"] default %model
+            %resolved_model = core.let %entry_model
+          }
+        }
+      }
+      %call_confirmation_snake = core.get %call_opts["use_expensive_model"]
+      %call_confirmation = core.get %call_opts["useExpensiveModel"] default %call_confirmation_snake
+      %entry_confirmation_snake = core.get %key_entry["use_expensive_model"]
+      %entry_confirmation = core.get %key_entry["useExpensiveModel"] default %entry_confirmation_snake
+      %confirmation = core.call intrinsic.coalesce(%call_confirmation, %entry_confirmation)
+      %confirmed = core.call intrinsic.eq(%confirmation, "yes")
+      core.if %confirmed {
+        core.return
+      }
+      %model_info_snake = core.get %client_opts["model_info"]
+      %model_info = core.get %client_opts["modelInfo"] default %model_info_snake
+      %info = core.call @provider_find_model_info(%provider, %resolved_model, %model_info)
+      %has_info = core.call intrinsic.is_not_none(%info)
+      core.if %has_info {
+        %expensive_snake = core.get %info["is_expensive"] default false
+        %expensive = core.get %info["isExpensive"] default %expensive_snake
+        %is_expensive = core.call intrinsic.truthy(%expensive)
+        core.if %is_expensive {
+          %message = core.call intrinsic.string.format("Model {} is marked as expensive and requires explicit confirmation. Set useExpensiveModel: \"yes\" to proceed.", %resolved_model)
+          %error = core.call intrinsic.error.runtime(%message)
+          core.raise %error
+        }
+      }
+      core.return
+    }
+  }
 }

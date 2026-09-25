@@ -1601,7 +1601,7 @@
     },
     {
       "id": "axir-2026-09-23-port-the-expensive-model-confirmation-gate-now-reachable-from-ax",
-      "status": "open",
+      "status": "done",
       "title": "Port the expensive-model confirmation gate now reachable from AxGen",
       "createdAt": "2026-09-23",
       "sourcePR": null,
@@ -1618,9 +1618,9 @@
         "Add a conformance fixture covering rejection without the opt-in and success via gen forward options and via gen constructor options.",
         "Run npm run axir:conformance:check and npm run test:axir."
       ],
-      "completedAt": null,
-      "completedByCommit": null,
-      "verification": null
+      "completedAt": "2026-09-25",
+      "completedByCommit": "8097482329b13d7a4d13c3d7a584abdb0629b7d7",
+      "verification": "@provider_require_expensive_model_confirmation (provider.axir) runs before any request on every generated-port chat call and streamed provider request, and in the scripted conformance clients. It resolves model keys, looks the model up in ir/axcore/data/provider-model-index.json (a per-provider name/alias/isExpensive index that axir-conformance-sync derives from the TS catalog and checks for drift) and then in client modelInfo with the TS getModelInfo name normalization, and rejects an isExpensive model with the TS error message unless the call options or the model-key entry set useExpensiveModel 'yes'. A client-level useExpensiveModel does not confirm, as in TS. Java, C++ and Rust gained options-bearing stream overloads, and their balancers and routers forward call options. Native Bedrock is not ported and the catalog lists no amazon-bedrock models. 10 axai goldens generated from the TS client (8 ai_chat and 2 ai_stream: rejection with no transport request, call-option and key-entry confirmation, client option ignored, dated-name normalization, Responses catalog, modelInfo, streaming) and 3 axgen fixtures (forward rejection, forward-option and constructor-option confirmation) pass in all five ports; npm run test:axir, axir:check-packages and axir:conformance:check passed."
     },
     {
       "id": "axir-2026-09-24-forward-apiurl-in-the-openai-responses-provider",
@@ -1666,7 +1666,7 @@
     },
     {
       "id": "axir-2026-09-24-port-optimizer-teacher-options-and-gepa-teacher-failure-reporting",
-      "status": "open",
+      "status": "done",
       "title": "Port teacherOptions to optimizer teacher calls and surface GEPA teacher failures",
       "createdAt": "2026-09-24",
       "sourcePR": null,
@@ -1693,13 +1693,13 @@
         "Add a conformance fixture where an isExpensive teacher is rejected without teacherOptions and reached with useExpensiveModel yes once the gate is ported.",
         "Run npm run axir:conformance:check and npm run test:axir."
       ],
-      "completedAt": null,
-      "completedByCommit": null,
-      "verification": null
+      "completedAt": "2026-09-25",
+      "completedByCommit": "8097482329b13d7a4d13c3d7a584abdb0629b7d7",
+      "verification": "Port GEPA reflection calls send the optimizer teacherOptions merged under stream false, and the evaluator-driven bootstrap passes them as forward_options with explicit forward_options winning; port optimize() hands its options, teacherOptions included, to both stages. A failed reflection attempt moves on to the next attempt, and when the last one fails GEPA logs a gepa_teacher Notification through the optimizer logger (else the student client's, none when verbose is false) and keeps the current value instead of raising; cancellation still propagates. Port AxACE calls injected reflector and curator callables and makes no chat call itself, so its teacher calls take teacherOptions through AxPlaybook (see the playbook entry). gepa-teacher-options-reach-expensive-teacher, gepa-teacher-failure-keeps-current-value and bootstrap-teacher-options-forward-options pass in all five ports; npm run test:axir passed."
     },
     {
       "id": "axir-2026-09-24-port-playbook-and-evolve-miner-teacher-options",
-      "status": "open",
+      "status": "done",
       "title": "Port teacherOptions to playbook and agent evolve teacher calls",
       "createdAt": "2026-09-24",
       "sourcePR": null,
@@ -1722,9 +1722,9 @@
         "Extend the optimizer teacherOptions conformance fixture to a playbook update and an evolve miner call once the isExpensive gate is ported.",
         "Run npm run axir:conformance:check and npm run test:axir."
       ],
-      "completedAt": null,
-      "completedByCommit": null,
-      "verification": null
+      "completedAt": "2026-09-25",
+      "completedByCommit": "8097482329b13d7a4d13c3d7a584abdb0629b7d7",
+      "verification": "Port AxPlaybook accepts teacherOptions (from playbook(), agent.playbook() and the agent playbook config) and passes them to its reflector and curator forwards, and agent-bound evolve passes its teacherOptions to the weakness miner. The miner's options go with its model: evolve teacherOptions when given, else the playbook's own when the miner runs on the playbook's teacher, which is the Python, Java, Go and C++ default. The Rust miner runs only on the evolve teacher or the client, so it uses the evolve teacherOptions, and TS never mines on the playbook teacher. agent-playbook-evolve-teacher-options (expensive teacher reached with both options, miner reached with evolve options only, miner rejected with neither) passes in all five ports; npm run test:axir passed."
     },
     {
       "id": "axir-2026-09-24-port-the-text-output-contract-for-simple-axgen-signatures-withou",
