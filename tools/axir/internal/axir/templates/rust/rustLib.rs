@@ -480,6 +480,23 @@ fn merge_ai_options(defaults: &Value, overrides: &Value) -> AxResult<Value> {
     Ok(Value::Object(merged))
 }
 
+// The expensive-model gate for one chat call: `provider` is the model-catalog
+// provider (the profile id), the model is the request's or `default_model`.
+fn expensive_model_gate(provider: &str, default_model: &str, request: &Value, client_options: &Value, call_options: &Value) -> AxResult<()> {
+    let model = request
+        .get("model")
+        .and_then(Value::as_str)
+        .filter(|model| !model.is_empty())
+        .unwrap_or(default_model);
+    provider_require_expensive_model_confirmation(&[
+        CoreValue::from(provider),
+        CoreValue::from(model),
+        core_value_from_json(client_options),
+        core_value_from_json(call_options),
+    ])?;
+    Ok(())
+}
+
 fn response_model_usage(response: &Value) -> Option<Value> {
     response
         .get("model_usage")
@@ -1480,6 +1497,23 @@ pub trait AxAIClient {
     fn stream_iter(&mut self, request: Value) -> AxResult<AxChatStream> {
         self.stream(request).map(AxChatStream::from_values)
     }
+
+    /// [`stream_iter`](Self::stream_iter) with per-call options, such as
+    /// `useExpensiveModel`. Clients without per-call options ignore them.
+    fn stream_iter_with_options(&mut self, request: Value, _options: Value) -> AxResult<AxChatStream> {
+        self.stream_iter(request)
+    }
+
+    /// [`stream`](Self::stream) with per-call options; collects
+    /// [`stream_iter_with_options`](Self::stream_iter_with_options).
+    fn stream_with_options(&mut self, request: Value, options: Value) -> AxResult<Vec<Value>> {
+        let mut stream = self.stream_iter_with_options(request, options)?;
+        let mut values = Vec::new();
+        for value in &mut stream {
+            values.push(value?);
+        }
+        Ok(values)
+    }
     fn stream_iter_with_cancellation(&mut self,request:Value,cancellation:&AxCancellationToken)->AxResult<AxChatStream>{let _scope=AxCancellationScope::enter(cancellation)?;let stream=self.stream_iter(request)?;let token=cancellation.clone();Ok(AxChatStream::new(CancellableProviderIterator{inner:Box::new(stream),token},None))}
     fn stream_with_cancellation(&mut self,request:Value,cancellation:&AxCancellationToken)->AxResult<Vec<Value>>{let mut stream=self.stream_iter_with_cancellation(request,cancellation)?;let mut values=Vec::new();for value in &mut stream{values.push(value?);}Ok(values)}
 
@@ -1784,6 +1818,10 @@ pub struct OpenAICompatibleClient {
     context_cache_entries: BTreeMap<String, Value>,
     runtime_hooks: AxRuntimeHooks,
     last_model_usage: Option<Value>,
+    // The client's own options and the per-call options while chat_with_options
+    // or stream_iter_with_options runs on merged options; the expensive-model
+    // gate reads them apart.
+    chat_option_scope: Option<(Value, Value)>,
 }
 
 impl OpenAICompatibleClient {
@@ -1822,7 +1860,20 @@ impl OpenAICompatibleClient {
             context_cache_entries: BTreeMap::new(),
             runtime_hooks: AxRuntimeHooks::default(),
             last_model_usage: None,
+            chat_option_scope: None,
         }
+    }
+
+    /// Reject a model marked expensive unless this call confirms it. Only the
+    /// per-call options or the matching model-key entry can set
+    /// `useExpensiveModel: "yes"`; the client's own options do not count.
+    fn require_expensive_model_confirmation(&self, request: &Value) -> AxResult<()> {
+        let no_call_options = json!({});
+        let (client_options, call_options) = match &self.chat_option_scope {
+            Some((client_options, call_options)) => (client_options, call_options),
+            None => (&self.options, &no_call_options),
+        };
+        expensive_model_gate(&self.profile, &self.model, request, client_options, call_options)
     }
 
     /// Enable the optional realtime transport for native steering in ordinary runs.
@@ -3153,6 +3204,8 @@ impl AxAIClient for OpenAICompatibleClient {
     fn open_chat_session(&mut self, request: Value, options: Value) -> AxResult<Option<Box<dyn AxChatSession>>> {
         let model=request.get("model").and_then(Value::as_str).unwrap_or(&self.model);
         if !["openai","openai-responses"].contains(&self.profile.as_str()) || !model.starts_with("gpt-6-astra") { return Ok(None); }
+        // A session streams without chat, so it is gated here with its call options.
+        expensive_model_gate(&self.profile, &self.model, &request, &self.options, if options.is_object() { &options } else { &Value::Null })?;
         Ok(Some(Box::new(session::ResponsesSession::open(self,request,options)?)))
     }
     fn get_id(&self) -> String { format!("{}:{}", self.profile, self.model) }
@@ -3184,9 +3237,31 @@ impl AxAIClient for OpenAICompatibleClient {
     fn chat_with_options(&mut self, request: Value, options: Value) -> AxResult<Value> {
         let previous = self.options.clone();
         self.options = merge_ai_options(&previous, &options)?;
+        let call_options = if options.is_object() { options } else { json!({}) };
+        let previous_scope = self.chat_option_scope.replace((previous.clone(), call_options));
         let response = self.chat(request);
+        self.chat_option_scope = previous_scope;
         self.options = previous;
         response
+    }
+    fn stream_iter_with_options(&mut self, request: Value, options: Value) -> AxResult<AxChatStream> {
+        // The request is built and sent (first event peeked) inside stream_iter,
+        // so the call options only need to apply until it returns.
+        let previous = self.options.clone();
+        self.options = merge_ai_options(&previous, &options)?;
+        let call_options = if options.is_object() { options } else { json!({}) };
+        let previous_scope = self.chat_option_scope.replace((previous.clone(), call_options));
+        let stream = self.stream_iter(request);
+        self.chat_option_scope = previous_scope;
+        self.options = previous;
+        stream
+    }
+    fn stream_with_options(&mut self, request: Value, options: Value) -> AxResult<Vec<Value>> {
+        let mut stream = self.stream_iter_with_options(request, options)?;
+        let mut results = Vec::new();
+        for event in &mut stream { results.push(event?); }
+        self.last_model_usage = response_model_usage(&json!({"results": results}));
+        Ok(results)
     }
     fn chat_with_runtime_hooks(
         &mut self,
@@ -3216,6 +3291,8 @@ impl AxAIClient for OpenAICompatibleClient {
         with_runtime_binding(Some(&hooks), Some(&defaults), || self.stream(request))
     }
     fn chat(&mut self, request: Value) -> AxResult<Value> {
+        // python: AxBaseAI.chat gates expensive models before the rate limiter.
+        self.require_expensive_model_confirmation(&request)?;
         let hooks = merge_runtime_hooks(None, None, Some(&self.runtime_hooks));
         let info = AxRateLimitInfo {
             operation: "chat".to_string(),
@@ -3292,6 +3369,9 @@ impl AxAIClient for OpenAICompatibleClient {
         if self.get_features(request.get("model").and_then(Value::as_str)).get("streaming").and_then(Value::as_bool)==Some(false) {
             return Ok(AxChatStream::from_values(vec![self.chat(request)?]));
         }
+        // Streaming chat is gated like chat, with the call options of
+        // stream_iter_with_options (a plain stream_iter call has none).
+        self.require_expensive_model_confirmation(&request)?;
         let hooks = merge_runtime_hooks(None, None, Some(&self.runtime_hooks));
         let info = AxRateLimitInfo {
             operation: "chat".to_string(),
@@ -5028,7 +5108,11 @@ impl AxAgent {
             let task = self.state_json("options").get("instruction").cloned().unwrap_or_else(|| json!("agent run"));
             let reflector_program: Rc<RefCell<Option<AxGen>>> = Rc::new(RefCell::new(None));
             let curator_program: Rc<RefCell<Option<AxGen>>> = Rc::new(RefCell::new(None));
+            // The construction-time `playbook` config's teacherOptions ride the
+            // reflector/curator calls, as they do for `agent.playbook(...)`.
+            let teacher_options = playbook_teacher_forward_options(playbook_option(&self.playbook_config, &["teacherOptions", "teacher_options"]));
             let reflector_slot = reflector_program.clone();
+            let reflector_options = teacher_options.clone();
             let reflector: Box<dyn FnMut(&Value) -> Value> = Box::new(move |payload: &Value| {
                 let request = json!({
                     "question": playbook_stringify(payload.get("question").unwrap_or(&Value::Null)),
@@ -5037,7 +5121,7 @@ impl AxAgent {
                     "feedback": payload.get("feedback").cloned().unwrap_or(Value::Null),
                     "previous_reflection": playbook_stringify(payload.get("previous_reflection").unwrap_or(&Value::Null)),
                 });
-                playbook_scoped_forward(&reflector_slot, ACE_REFLECTOR_SIGNATURE, request)
+                playbook_scoped_forward(&reflector_slot, ACE_REFLECTOR_SIGNATURE, request, &reflector_options)
             });
             let curator_slot = curator_program.clone();
             let curator: Box<dyn FnMut(&Value) -> Value> = Box::new(move |payload: &Value| {
@@ -5047,7 +5131,7 @@ impl AxAgent {
                     "question_context": playbook_stringify(payload.get("question_context").unwrap_or(&Value::Null)),
                     "token_budget": payload.get("token_budget").cloned().unwrap_or_else(|| json!(1024)),
                 });
-                playbook_scoped_forward(&curator_slot, ACE_CURATOR_SIGNATURE, request)
+                playbook_scoped_forward(&curator_slot, ACE_CURATOR_SIGNATURE, request, &teacher_options)
             });
             let output_for_generator = output.clone();
             let generator: Box<dyn FnMut(&Value) -> Value> = Box::new(move |_| output_for_generator.clone());
@@ -5969,6 +6053,24 @@ impl OptimizerEngine for AxBootstrapFewShot {
             .and_then(Value::as_u64)
             .unwrap_or(1)
             .max(1) as usize;
+        // The demo runs are teacher calls: `teacherOptions` ride each evaluation as
+        // `forward_options` (explicit `forward_options` win).
+        let mut merged_options = self.options.as_object().cloned().unwrap_or_default();
+        if let Some(values) = request.get("options").and_then(Value::as_object) {
+            merged_options.extend(values.iter().map(|(key, value)| (key.clone(), value.clone())));
+        }
+        let teacher_forward_options = ["teacherOptions", "teacher_options"]
+            .iter()
+            .find_map(|key| merged_options.get(*key).filter(|value| !value.is_null()))
+            .and_then(Value::as_object)
+            .filter(|teacher_options| !teacher_options.is_empty())
+            .map(|teacher_options| {
+                let mut forward_options = teacher_options.clone();
+                if let Some(explicit) = merged_options.get("forward_options").and_then(Value::as_object) {
+                    forward_options.extend(explicit.iter().map(|(key, value)| (key.clone(), value.clone())));
+                }
+                Value::Object(forward_options)
+            });
         let examples = request
             .get("dataset")
             .and_then(|dataset| dataset.get("train"))
@@ -5994,7 +6096,13 @@ impl OptimizerEngine for AxBootstrapFewShot {
                     if accepted.contains(&example_key) {
                         continue;
                     }
-                    let score = evaluator(json!({"candidate": example.clone(), "phase": "bootstrap", "round": round}))?;
+                    let mut step = json!({"candidate": example.clone(), "phase": "bootstrap", "round": round});
+                    if let Some(forward_options) = &teacher_forward_options {
+                        // Program evaluators read per-call options from `step.options`.
+                        step["forward_options"] = forward_options.clone();
+                        step["options"] = json!({"forward_options": forward_options.clone()});
+                    }
+                    let score = evaluator(step)?;
                     let scalar = score
                         .get("scalar")
                         .and_then(Value::as_f64)
@@ -6018,8 +6126,14 @@ impl OptimizerEngine for AxBootstrapFewShot {
     }
 }
 
+/// Receives GEPA notifications (`{"name", "id", "value"}`), such as the
+/// `gepa_teacher` report of a failed teacher call.
+pub type AxGEPALogger = Box<dyn FnMut(Value)>;
+
 pub struct AxGEPA {
     pub max_rounds: usize,
+    reflection_client: Option<Rc<RefCell<dyn AxAIClient>>>,
+    logger: Option<AxGEPALogger>,
 }
 
 #[derive(Clone)]
@@ -6030,7 +6144,102 @@ struct AxGEPACandidate {
 
 impl AxGEPA {
     pub fn new() -> Self {
-        Self { max_rounds: 30 }
+        Self { max_rounds: 30, reflection_client: None, logger: None }
+    }
+
+    /// Propose new component values with this teacher (reflection) client. Its
+    /// calls use the optimizer's `teacherOptions` plus `stream: false`, so a
+    /// teacher marked expensive needs `teacherOptions: {"useExpensiveModel": "yes"}`.
+    /// Without a client, the request's recorded `reflection_responses` are replayed.
+    pub fn with_reflection_client<C: AxAIClient + 'static>(mut self, client: Rc<RefCell<C>>) -> Self {
+        self.reflection_client = Some(client);
+        self
+    }
+
+    /// Receive GEPA notifications, such as `gepa_teacher` when a teacher call
+    /// fails and the current value is kept. Options `verbose: false` silences them.
+    pub fn with_logger(mut self, logger: impl FnMut(Value) + 'static) -> Self {
+        self.logger = Some(Box::new(logger));
+        self
+    }
+
+    fn log_teacher_failure(&mut self, action: &str, error: &AxError, options: &Value) {
+        if options.get("verbose") == Some(&Value::Bool(false)) {
+            return;
+        }
+        if let Some(logger) = self.logger.as_mut() {
+            logger(json!({
+                "name": "Notification",
+                "id": "gepa_teacher",
+                "value": format!("GEPA teacher call failed while {action}: {}", error.message),
+            }));
+        }
+    }
+
+    // One reflective proposal for `component` from the teacher. A failed call
+    // moves on to the next attempt (an aborted one propagates); when the last
+    // attempt failed, a `gepa_teacher` notification is logged and the current
+    // value is kept.
+    fn reflect(&mut self, component: &Value, current: &str, parent_eval: &Value, options: &Value) -> AxResult<String> {
+        let Some(client) = self.reflection_client.clone() else {
+            return Ok(current.to_string());
+        };
+        let attempts = ax_gepa_option_usize(options, &["maxReflectionAttempts", "max_reflection_attempts"], 2).max(1);
+        let mut chat_options = ["teacherOptions", "teacher_options"]
+            .iter()
+            .find_map(|key| options.get(*key).and_then(Value::as_object))
+            .cloned()
+            .unwrap_or_default();
+        chat_options.insert("stream".into(), json!(false));
+        let chat_options = Value::Object(chat_options);
+        let rows = parent_eval.get("rows").and_then(Value::as_array).cloned().unwrap_or_default();
+        let tuples = rows
+            .iter()
+            .map(|row| json!({"input": row.get("input"), "prediction": row.get("prediction"), "score": row.get("scalar").cloned().unwrap_or_else(|| json!(0))}))
+            .collect::<Vec<_>>();
+        let trace_dataset = rows
+            .iter()
+            .map(|row| json!({"score": row.get("scalar").cloned().unwrap_or_else(|| json!(0)), "trace": row.get("trace"), "output": row.get("prediction")}))
+            .collect::<Vec<_>>();
+        let model = ["reflectionModel", "reflection_model"]
+            .iter()
+            .find_map(|key| options.get(*key).and_then(Value::as_str));
+        let mut previous_error = Value::Null;
+        let mut last_error = None;
+        for _ in 0..attempts {
+            last_error = None;
+            let content = stable_stringify(&json!({
+                "componentKey": component.get("id"),
+                "componentKind": component.get("kind"),
+                "currentValue": current,
+                "previousValidationError": previous_error,
+                "minibatch": tuples,
+                "traceDataset": trace_dataset,
+            }));
+            let mut prompt = json!({"chat_prompt": [{"role": "user", "content": content}]});
+            if let Some(model) = model {
+                prompt["model"] = json!(model);
+            }
+            let response = client.borrow_mut().chat_with_options(prompt, chat_options.clone());
+            let response = match response {
+                Ok(response) => response,
+                Err(error) if ax_gepa_is_aborted(&error) => return Err(error),
+                Err(error) => {
+                    last_error = Some(error);
+                    continue;
+                }
+            };
+            let candidate = ax_gepa_extract_text(&response);
+            match ax_gepa_component_value_error(component, &candidate) {
+                None => return Ok(candidate),
+                Some(message) => previous_error = json!(message),
+            }
+        }
+        if let Some(error) = last_error {
+            let id = component.get("id").and_then(Value::as_str).unwrap_or("");
+            self.log_teacher_failure(&format!("proposing a new value for {id}; keeping the current value"), &error, options);
+        }
+        Ok(current.to_string())
     }
 }
 
@@ -6171,7 +6380,8 @@ impl OptimizerEngine for AxGEPA {
         }];
         let reflection_values = ax_gepa_reflection_values(&request);
         let rounds = num_trials.min(self.max_rounds);
-        if rounds > 0 && !reflection_values.is_empty() && !train.is_empty() {
+        let can_reflect = self.reflection_client.is_some() || !reflection_values.is_empty();
+        if rounds > 0 && can_reflect && !train.is_empty() {
             let mini = train
                 .iter()
                 .take(minibatch_size)
@@ -6195,11 +6405,15 @@ impl OptimizerEngine for AxGEPA {
                         .and_then(Value::as_str)
                         .unwrap_or("")
                         .to_string();
-                    let next = reflection_values
-                        .iter()
-                        .find(|value| ax_gepa_validate_component_value(component, value))
-                        .cloned()
-                        .unwrap_or(current);
+                    let next = if self.reflection_client.is_some() {
+                        self.reflect(component, &current, &parent_eval, &options)?
+                    } else {
+                        reflection_values
+                            .iter()
+                            .find(|value| ax_gepa_validate_component_value(component, value))
+                            .cloned()
+                            .unwrap_or(current)
+                    };
                     proposed.insert(component_id.to_string(), Value::String(next));
                 }
             }
@@ -6396,9 +6610,52 @@ fn ax_gepa_reflection_values(request: &Value) -> Vec<String> {
         .collect()
 }
 
+// The reflected text of a teacher response: the `New Value:` payload, else a
+// fenced block's body (minus a language tag), else the whole trimmed text.
+fn ax_gepa_extract_text(response: &Value) -> String {
+    let Some(text) = response
+        .get("results")
+        .and_then(Value::as_array)
+        .and_then(|items| items.first())
+        .and_then(|item| item.get("content"))
+        .and_then(Value::as_str)
+    else {
+        return String::new();
+    };
+    let text = text.trim();
+    if let Some(value) = text.strip_prefix("New Value:") {
+        return value.trim().to_string();
+    }
+    let fence = "```";
+    if let (Some(start), Some(end)) = (text.find(fence), text.rfind(fence)) {
+        if end > start {
+            let mut inner = text[(start + fence.len()).min(end)..end].trim();
+            if let Some((tag, rest)) = inner.split_once('\n') {
+                let tag = tag.trim();
+                let mut chars = tag.chars();
+                let identifier = chars.next().is_some_and(|ch| ch == '_' || ch.is_alphabetic())
+                    && chars.all(|ch| ch == '_' || ch.is_alphanumeric());
+                if identifier {
+                    inner = rest;
+                }
+            }
+            return inner.trim().to_string();
+        }
+    }
+    text.to_string()
+}
+
+fn ax_gepa_is_aborted(error: &AxError) -> bool {
+    error.category == "aborted" || error.error_type.as_deref() == Some("AxAIServiceAbortedError")
+}
+
 fn ax_gepa_validate_component_value(component: &Value, value: &str) -> bool {
+    ax_gepa_component_value_error(component, value).is_none()
+}
+
+fn ax_gepa_component_value_error(component: &Value, value: &str) -> Option<String> {
     if value.trim().is_empty() {
-        return false;
+        return Some("component value must be a non-empty string".to_string());
     }
     if component.get("format").and_then(Value::as_str) == Some("snake_case")
         && !value
@@ -6406,23 +6663,23 @@ fn ax_gepa_validate_component_value(component: &Value, value: &str) -> bool {
             .enumerate()
             .all(|(index, ch)| ch == '_' || ch.is_ascii_lowercase() || (index > 0 && ch.is_ascii_digit()))
     {
-        return false;
+        return Some("must be snake_case".to_string());
     }
     if let Some(max_length) = component.get("maxLength").and_then(Value::as_u64) {
         if value.chars().count() > max_length as usize {
-            return false;
+            return Some(format!("must be at most {max_length} characters"));
         }
     }
     component
         .get("preserve")
         .and_then(Value::as_array)
-        .map(|items| {
+        .and_then(|items| {
             items
                 .iter()
                 .filter_map(Value::as_str)
-                .all(|literal| value.contains(literal))
+                .find(|literal| !value.contains(literal))
         })
-        .unwrap_or(true)
+        .map(|literal| format!("must preserve {literal}"))
 }
 
 fn ax_gepa_dominates(a: &Value, b: &Value, eps: f64) -> bool {
@@ -7149,10 +7406,20 @@ fn playbook_option<'a>(options: &'a Value, keys: &[&str]) -> Option<&'a Value> {
     None
 }
 
+// Teacher `teacherOptions` as the forward options of a reflector/curator/miner
+// call; Null (no options) when unset or empty.
+fn playbook_teacher_forward_options(teacher_options: Option<&Value>) -> Value {
+    match teacher_options {
+        Some(Value::Object(options)) if !options.is_empty() => Value::Object(options.clone()),
+        _ => Value::Null,
+    }
+}
+
 fn playbook_scoped_forward(
     slot: &Rc<RefCell<Option<AxGen>>>,
     signature: &str,
     request: Value,
+    options: &Value,
 ) -> Value {
     if slot.borrow().is_none() {
         match AxGen::new(signature) {
@@ -7172,7 +7439,7 @@ fn playbook_scoped_forward(
         state.clone(),
         CoreValue::Null,
         core_value_from_json(&request),
-        CoreValue::Null,
+        core_value_from_json(options),
     ]);
     core_gen_writeback(gen, &state);
     result.map(|value| core_value_to_json(&value)).unwrap_or(Value::Null)
@@ -7234,6 +7501,9 @@ impl<S: AxAIClient + 'static, T: AxAIClient + 'static> AxPlaybook<S, T> {
     ) -> Self {
         let options = if options.is_object() { options } else { json!({}) };
         let verbose = options.get("verbose").and_then(Value::as_bool).unwrap_or(false);
+        // AI service options for the reflector/curator (teacher) calls, e.g.
+        // `{"useExpensiveModel": "yes"}` for a teacher marked expensive.
+        let teacher_options = playbook_teacher_forward_options(playbook_option(&options, &["teacherOptions", "teacher_options"]));
         let base_instruction = program.borrow().get_instruction();
 
         let mut engine_options = Map::new();
@@ -7287,6 +7557,7 @@ impl<S: AxAIClient + 'static, T: AxAIClient + 'static> AxPlaybook<S, T> {
         // the closure needs only the sub-program and the reflection client.
         let reflect_student = student.clone();
         let reflect_prog = reflector_program.clone();
+        let reflect_options = teacher_options.clone();
         let reflector: Box<dyn FnMut(&Value) -> Value> = Box::new(move |payload: &Value| {
             if reflect_prog.borrow().is_none() {
                 match AxGen::new(ACE_REFLECTOR_SIGNATURE) {
@@ -7310,8 +7581,8 @@ impl<S: AxAIClient + 'static, T: AxAIClient + 'static> AxPlaybook<S, T> {
             let mut prog = reflect_prog.borrow_mut();
             let gen = prog.as_mut().expect("reflector sub-program initialized above");
             let result = match &teacher_for_reflect {
-                Some(teacher) => gen.forward(&mut *teacher.borrow_mut(), Value::Object(request)),
-                None => gen.forward(&mut *reflect_student.borrow_mut(), Value::Object(request)),
+                Some(teacher) => gen.forward_with_options(&mut *teacher.borrow_mut(), Value::Object(request), reflect_options.clone()),
+                None => gen.forward_with_options(&mut *reflect_student.borrow_mut(), Value::Object(request), reflect_options.clone()),
             };
             match result {
                 Ok(value) => value,
@@ -7327,6 +7598,7 @@ impl<S: AxAIClient + 'static, T: AxAIClient + 'static> AxPlaybook<S, T> {
         // The real LLM curator: a focused AxGen sub-program driven by the teacher.
         let curate_student = student.clone();
         let curate_prog = curator_program.clone();
+        let curate_options = teacher_options;
         let curator: Box<dyn FnMut(&Value) -> Value> = Box::new(move |payload: &Value| {
             if curate_prog.borrow().is_none() {
                 match AxGen::new(ACE_CURATOR_SIGNATURE) {
@@ -7342,8 +7614,8 @@ impl<S: AxAIClient + 'static, T: AxAIClient + 'static> AxPlaybook<S, T> {
             let mut prog = curate_prog.borrow_mut();
             let gen = prog.as_mut().expect("curator sub-program initialized above");
             let result = match &teacher_for_curate {
-                Some(teacher) => gen.forward(&mut *teacher.borrow_mut(), Value::Object(request)),
-                None => gen.forward(&mut *curate_student.borrow_mut(), Value::Object(request)),
+                Some(teacher) => gen.forward_with_options(&mut *teacher.borrow_mut(), Value::Object(request), curate_options.clone()),
+                None => gen.forward_with_options(&mut *curate_student.borrow_mut(), Value::Object(request), curate_options.clone()),
             };
             match result {
                 Ok(value) => value,
@@ -7414,7 +7686,9 @@ impl<S: AxAIClient + 'static, T: AxAIClient + 'static> AxPlaybook<S, T> {
 
     /// Verified agent-layer playbook learning from train/validation task sets.
     /// The agent is passed explicitly because Rust cannot safely store a
-    /// self-reference inside the stage-bound playbook handle.
+    /// self-reference inside the stage-bound playbook handle. The weakness miner
+    /// runs on `client`; see [`evolve_agent_with_teacher`](Self::evolve_agent_with_teacher)
+    /// to mine on a separate teacher model.
     pub fn evolve_agent<C: AxAIClient>(
         &mut self,
         agent: &mut AxAgent,
@@ -7422,7 +7696,27 @@ impl<S: AxAIClient + 'static, T: AxAIClient + 'static> AxPlaybook<S, T> {
         dataset: &Value,
         options: &Value,
     ) -> AxResult<Value> {
+        self.evolve_agent_with_teacher(agent, client, None::<Rc<RefCell<T>>>, dataset, options)
+    }
+
+    /// [`evolve_agent`](Self::evolve_agent) with the weakness miner on `teacher`
+    /// (the TS `teacherAI` evolve option) when one is given. The miner's AI
+    /// service options are the evolve `teacherOptions` (for example
+    /// `{"useExpensiveModel": "yes"}` for a teacher marked expensive). The
+    /// playbook's own `teacherOptions` cover its reflector/curator calls.
+    pub fn evolve_agent_with_teacher<C: AxAIClient, M: AxAIClient>(
+        &mut self,
+        agent: &mut AxAgent,
+        client: &mut C,
+        teacher: Option<Rc<RefCell<M>>>,
+        dataset: &Value,
+        options: &Value,
+    ) -> AxResult<Value> {
         let options = if options.is_object() { options.clone() } else { json!({}) };
+        // The miner's options go with its model. It runs on the evolve teacher or
+        // on `client`, never on the playbook's own teacher, so the evolve
+        // teacherOptions apply rather than the playbook's.
+        let miner_options = playbook_teacher_forward_options(playbook_option(&options, &["teacherOptions", "teacher_options"]));
         let normalized = core_value_to_json(&_normalize_optimization_dataset(&[core_value_from_json(dataset)])?);
         let train = normalized.get("train").and_then(Value::as_array).cloned().unwrap_or_default();
         let validation = normalized.get("validation").and_then(Value::as_array).cloned().unwrap_or_default();
@@ -7484,7 +7778,11 @@ impl<S: AxAIClient + 'static, T: AxAIClient + 'static> AxPlaybook<S, T> {
             if !current_playbook.trim().is_empty() { request["currentPlaybook"] = json!(current_playbook); }
             let mut miner = match AxGen::new(AGENT_PLAYBOOK_WEAKNESS_MINER_SIGNATURE) { Ok(miner) => miner, Err(_) => continue };
             miner.options = json!({"id":"agent.playbook.weakness-miner","instruction":"Identify one recurring weakness and one narrow durable avoidance rule. Every evidence quote must be copied verbatim from actionLogExcerpts."});
-            let mined = match miner.forward(client, request) { Ok(mined) => mined, Err(_) => continue };
+            let mined = match &teacher {
+                Some(teacher) => miner.forward_with_options(&mut *teacher.borrow_mut(), request, miner_options.clone()),
+                None => miner.forward_with_options(client, request, miner_options.clone()),
+            };
+            let mined = match mined { Ok(mined) => mined, Err(_) => continue };
             let raw_quotes = mined.get("evidenceQuotes").cloned().unwrap_or(Value::Null);
             let quote_candidates = match raw_quotes { Value::Array(values) => values, Value::Null => Vec::new(), value => vec![value] };
             let haystack = playbook_collapse(&excerpts);
@@ -7794,6 +8092,7 @@ impl AxAIClient for AxBalancer {
     }
 
     fn chat(&mut self,request:Value)->AxResult<Value>{AxBalancer::chat(self,request)}
+    fn chat_with_options(&mut self,request:Value,options:Value)->AxResult<Value>{AxBalancer::chat_with_options(self,request,options)}
     fn get_features(&self,model:Option<&str>)->Value{AxBalancer::get_features(self,model)}
     fn get_name(&self)->String{self.services.get(self.current).map(|service|service.get_name()).unwrap_or_else(||"balancer".into())}
     fn get_id(&self)->String{self.services.get(self.current).map(|service|service.get_id()).unwrap_or_else(||"balancer".into())}
@@ -7801,6 +8100,7 @@ impl AxAIClient for AxBalancer {
     fn get_options(&self)->Value{self.services.get(self.current).map(|service|service.get_options()).unwrap_or_else(||json!({}))}
     fn set_options(&mut self,options:Value){AxBalancer::set_options(self,options)}
     fn stream_iter(&mut self,request:Value)->AxResult<AxChatStream>{AxBalancer::stream_iter(self,request)}
+    fn stream_iter_with_options(&mut self,request:Value,options:Value)->AxResult<AxChatStream>{AxBalancer::stream_iter_with_options(self,request,options)}
     fn embed(&mut self,request:Value)->AxResult<Value>{AxBalancer::embed(self,request)}
     fn transcribe(&mut self,request:Value)->AxResult<Value>{AxBalancer::transcribe(self,request)}
     fn speak(&mut self,request:Value)->AxResult<Value>{AxBalancer::speak(self,request)}
@@ -7941,10 +8241,22 @@ impl AxBalancer {
     fn rank(&self,request:&Value)->AxResult<Vec<AxAdaptiveCandidate>>{let strategy=self.adaptive.as_ref().unwrap();let logical=request.get("model").and_then(Value::as_str).unwrap_or("default").to_string();let context=json!({"model":request.get("model"),"options":{}});let slice=strategy.slice.as_ref().map(|callback|callback(&context)).unwrap_or_else(||"default".into());if slice.trim().is_empty(){return Err(AxError::runtime("Adaptive slice must be non-empty."))}let mut ranked=Vec::new();for(order,index)in self.candidate_indices(request)?.into_iter().enumerate(){let key=AxBalancerStatsKey{namespace:strategy.namespace.clone(),slice:slice.clone(),logical_model:logical.clone(),route_key:self.route_keys[index].clone()};let health=sample_balancer_route_health(self.read_stats(&key).as_ref(),strategy.deadline_ms)?;let failure=health.get("failureProbability").and_then(Value::as_f64).unwrap_or(0.05);let late=health.get("deadlineMissProbability").and_then(Value::as_f64).unwrap_or(0.0);let estimated=self.adaptive_cost(index,&key.route_key,request)?;let score=core_value_to_json(&provider_balancer_adaptive_score(&[CoreValue::Num(estimated),CoreValue::Num(strategy.bad_outcome_cost),CoreValue::Num(failure),CoreValue::Num(late)])?).as_f64().unwrap_or(f64::INFINITY);ranked.push(AxAdaptiveCandidate{index,order,route_key:key.route_key.clone(),stats_key:key,score,estimated_cost:estimated,failure_probability:failure,deadline_miss_probability:late})}let rank_input=Value::Array(ranked.iter().map(|value|json!({"routeKey":value.route_key,"score":value.score,"order":value.order})).collect());let core_ranked=core_value_to_json(&provider_balancer_rank_candidates(&[core_value_from_json(&rank_input)])?);let mut ranked_by_key=ranked.into_iter().map(|value|(value.route_key.clone(),value)).collect::<BTreeMap<_,_>>();let ranked=core_ranked.as_array().into_iter().flatten().filter_map(|value|value.get("routeKey").and_then(Value::as_str).and_then(|key|ranked_by_key.remove(key))).collect::<Vec<_>>();let candidates=ranked.iter().map(|value|json!({"routeKey":value.route_key,"serviceName":self.services[value.index].get_name(),"score":value.score,"estimatedCost":value.estimated_cost,"failureProbability":value.failure_probability,"deadlineMissProbability":value.deadline_miss_probability})).collect::<Vec<_>>();let mut event=Self::event_base("ranked",&ranked[0].stats_key);event.insert("candidates".into(),json!(candidates));self.emit(Value::Object(event));Ok(ranked)}
 
     pub fn chat(&mut self, request: Value) -> AxResult<Value> {
-        if self.adaptive.is_none(){let candidates=self.candidate_indices(&request)?;for index in candidates.iter().copied(){self.current=index;let id=self.services[index].get_id();while self.failure_count(&id)<self.max_retries{match self.services[index].chat(request.clone()){Ok(response)=>{self.clear_failure(&id);return Ok(response)},Err(error)if is_retryable_ai_error(&error)=>{self.record_failure(&id)},Err(error)=>return Err(error)}}}return Err(AxError::runtime(format!("All candidate services exhausted (tried {} service(s))",candidates.len())))}let ranked=self.rank(&request)?;let mut last=None;for(attempt,candidate)in ranked.iter().enumerate(){self.current=candidate.index;let mut selected=Self::event_base("selected",&candidate.stats_key);selected.insert("routeKey".into(),json!(candidate.route_key));selected.insert("serviceName".into(),json!(self.services[candidate.index].get_name()));selected.insert("attempt".into(),json!(attempt+1));self.emit(Value::Object(selected));let started=Instant::now();match self.services[candidate.index].chat(request.clone()){Ok(response)=>{self.observe(candidate,AxBalancerStatsObservation{outcome:"success".into(),latency_ms:Some(started.elapsed().as_secs_f64()*1000.0)},false,None,None);return Ok(response)},Err(error)if is_retryable_ai_error(&error)=>{let reason=adaptive_failure_reason(&error);self.observe(candidate,AxBalancerStatsObservation{outcome:"failure".into(),latency_ms:None},false,Some(reason),error.status);let mut fallback=Self::event_base("fallback",&candidate.stats_key);fallback.insert("fromRouteKey".into(),json!(candidate.route_key));fallback.insert("toRouteKey".into(),ranked.get(attempt+1).map(|value|json!(value.route_key)).unwrap_or(Value::Null));fallback.insert("reason".into(),json!(reason));fallback.insert("status".into(),json!(error.status));self.emit(Value::Object(fallback));last=Some(error)},Err(error)=>return Err(error)}}Err(last.unwrap_or_else(||AxError::runtime(format!("All candidate services exhausted (tried {} service(s))",ranked.len()))))
+        self.chat_with_options(request, json!({}))
+    }
+
+    /// [`chat`](Self::chat) with per-call options, passed to the chosen service
+    /// (for example `useExpensiveModel` for a model marked expensive).
+    pub fn chat_with_options(&mut self, request: Value, options: Value) -> AxResult<Value> {
+        if self.adaptive.is_none(){let candidates=self.candidate_indices(&request)?;for index in candidates.iter().copied(){self.current=index;let id=self.services[index].get_id();while self.failure_count(&id)<self.max_retries{match self.services[index].chat_with_options(request.clone(),options.clone()){Ok(response)=>{self.clear_failure(&id);return Ok(response)},Err(error)if is_retryable_ai_error(&error)=>{self.record_failure(&id)},Err(error)=>return Err(error)}}}return Err(AxError::runtime(format!("All candidate services exhausted (tried {} service(s))",candidates.len())))}let ranked=self.rank(&request)?;let mut last=None;for(attempt,candidate)in ranked.iter().enumerate(){self.current=candidate.index;let mut selected=Self::event_base("selected",&candidate.stats_key);selected.insert("routeKey".into(),json!(candidate.route_key));selected.insert("serviceName".into(),json!(self.services[candidate.index].get_name()));selected.insert("attempt".into(),json!(attempt+1));self.emit(Value::Object(selected));let started=Instant::now();match self.services[candidate.index].chat_with_options(request.clone(),options.clone()){Ok(response)=>{self.observe(candidate,AxBalancerStatsObservation{outcome:"success".into(),latency_ms:Some(started.elapsed().as_secs_f64()*1000.0)},false,None,None);return Ok(response)},Err(error)if is_retryable_ai_error(&error)=>{let reason=adaptive_failure_reason(&error);self.observe(candidate,AxBalancerStatsObservation{outcome:"failure".into(),latency_ms:None},false,Some(reason),error.status);let mut fallback=Self::event_base("fallback",&candidate.stats_key);fallback.insert("fromRouteKey".into(),json!(candidate.route_key));fallback.insert("toRouteKey".into(),ranked.get(attempt+1).map(|value|json!(value.route_key)).unwrap_or(Value::Null));fallback.insert("reason".into(),json!(reason));fallback.insert("status".into(),json!(error.status));self.emit(Value::Object(fallback));last=Some(error)},Err(error)=>return Err(error)}}Err(last.unwrap_or_else(||AxError::runtime(format!("All candidate services exhausted (tried {} service(s))",ranked.len()))))
     }
 
     pub fn stream_iter(&mut self, request: Value) -> AxResult<AxChatStream> {
+        self.stream_iter_with_options(request, json!({}))
+    }
+
+    /// [`stream_iter`](Self::stream_iter) with per-call options, passed to the
+    /// chosen service.
+    pub fn stream_iter_with_options(&mut self, request: Value, options: Value) -> AxResult<AxChatStream> {
         if self.adaptive.is_none() {
             let candidates = self.candidate_indices(&request)?;
             let mut last = None;
@@ -7952,7 +8264,7 @@ impl AxBalancer {
                 self.current = index;
                 let id = self.services[index].get_id();
                 while self.failure_count(&id) < self.max_retries {
-                    match self.services[index].stream_iter(request.clone()) {
+                    match self.services[index].stream_iter_with_options(request.clone(), options.clone()) {
                         Ok(stream) => { self.clear_failure(&id); return Ok(stream); }
                         Err(error) if is_retryable_ai_error(&error) => {
                             self.record_failure(&id);
@@ -7974,7 +8286,7 @@ impl AxBalancer {
             selected.insert("attempt".into(), json!(attempt + 1));
             self.emit(Value::Object(selected));
             let started = Instant::now();
-            match self.services[candidate.index].stream_iter(request.clone()) {
+            match self.services[candidate.index].stream_iter_with_options(request.clone(), options.clone()) {
                 Ok(stream) => {
                     // Direct provider stream_iter peeks exactly one normalized event before it
                     // returns, so elapsed time here is time-to-first-chunk rather than completion.
@@ -7999,7 +8311,11 @@ impl AxBalancer {
     }
 
     pub fn stream(&mut self, request: Value) -> AxResult<Vec<Value>> {
-        let mut stream = self.stream_iter(request)?;
+        self.stream_with_options(request, json!({}))
+    }
+
+    pub fn stream_with_options(&mut self, request: Value, options: Value) -> AxResult<Vec<Value>> {
+        let mut stream = self.stream_iter_with_options(request, options)?;
         let mut values = Vec::new();
         for event in &mut stream { values.push(event?); }
         Ok(values)
@@ -8042,6 +8358,11 @@ impl AxAIClient for MultiServiceRouter {
         let key=self.service_key(&request)?;
         let resolved=core_value_to_json(&provider_session_route(&[CoreValue::new_map(),core_value_from_json(&request),core_value_from_json(&options)])?);
         self.services.get_mut(&key).unwrap().chat_with_options(resolved["request"].clone(),resolved["options"].clone())
+    }
+    fn stream_iter_with_options(&mut self,request:Value,options:Value)->AxResult<AxChatStream> {
+        let key=self.service_key(&request)?;
+        let resolved=core_value_to_json(&provider_session_route(&[CoreValue::new_map(),core_value_from_json(&request),core_value_from_json(&options)])?);
+        self.services.get_mut(&key).unwrap().stream_iter_with_options(resolved["request"].clone(),resolved["options"].clone())
     }
     fn open_chat_session(&mut self,request:Value,options:Value)->AxResult<Option<Box<dyn AxChatSession>>> {
         let key=self.service_key(&request)?;
@@ -8273,6 +8594,7 @@ impl AxAIClient for ProviderRouter {
     fn chat(&mut self,request:Value)->AxResult<Value>{ProviderRouter::chat(self,request)}
     fn chat_with_options(&mut self,request:Value,options:Value)->AxResult<Value>{let key=self.provider_key(&request)?;let request=self.preprocess_request(&key,&request)?;self.providers.get_mut(&key).unwrap().chat_with_options(request,options)}
     fn stream_iter(&mut self,request:Value)->AxResult<AxChatStream>{ProviderRouter::stream_iter(self,request)}
+    fn stream_iter_with_options(&mut self,request:Value,options:Value)->AxResult<AxChatStream>{let key=self.provider_key(&request)?;let request=self.preprocess_request(&key,&request)?;self.providers.get_mut(&key).unwrap().stream_iter_with_options(request,options)}
     fn embed(&mut self,request:Value)->AxResult<Value>{ProviderRouter::embed(self,request)}
     fn transcribe(&mut self,request:Value)->AxResult<Value>{ProviderRouter::transcribe(self,request)}
     fn speak(&mut self,request:Value)->AxResult<Value>{ProviderRouter::speak(self,request)}
@@ -9525,22 +9847,18 @@ fn run_agent_playbook_coverage_fixture(fixture: &Value) -> AxResult<()> {
 
 fn run_agent_playbook_evolve_fixture(fixture: &Value) -> AxResult<()> {
     let scripted_response = fixture.get("responses").and_then(Value::as_array).and_then(|items| items.first()).cloned().unwrap_or_else(|| json!({}));
+    let teacher_spec = fixture.get("teacher_client");
     for test_case in fixture.get("cases").and_then(Value::as_array).cloned().unwrap_or_default() {
         let responses = std::iter::repeat(scripted_response.clone()).take(32).collect::<VecDeque<_>>();
-        let playbook_client = Rc::new(RefCell::new(FixtureClient {
-            responses: responses.clone(),
-            transcribe_responses: VecDeque::new(),
-            requests: Vec::new(),
-            chat_options: Vec::new(),
-            features: router_default_features(),
-        }));
-        let mut evaluation_client = FixtureClient {
-            responses,
-            transcribe_responses: VecDeque::new(),
-            requests: Vec::new(),
-            chat_options: Vec::new(),
-            features: router_default_features(),
-        };
+        let playbook_client = Rc::new(RefCell::new(FixtureClient::scripted(responses.clone(), router_default_features())));
+        // A configured teacher runs the playbook's reflector/curator and the
+        // evolve weakness miner; otherwise the student clients do.
+        let teacher = teacher_spec.map(|spec| {
+            Rc::new(RefCell::new(
+                FixtureClient::scripted(responses.clone(), router_default_features()).with_client_spec(Some(spec)),
+            ))
+        });
+        let mut evaluation_client = FixtureClient::scripted(responses, router_default_features());
         let agent_options = core_value_from_json(&fixture.get("options").cloned().unwrap_or_else(|| json!({})));
         let script = fixture.get("runtime_script").and_then(Value::as_array).cloned().unwrap_or_default();
         let language = fixture.get("runtime_language").and_then(Value::as_str).unwrap_or("Python").to_string();
@@ -9552,20 +9870,28 @@ fn run_agent_playbook_evolve_fixture(fixture: &Value) -> AxResult<()> {
         core_set(&agent_options, CoreValue::from("runtime"), host)?;
         let signature = fixture.get("signature").and_then(Value::as_str).unwrap_or("question:string -> answer:string");
         let mut agent = agent_with_core_options(signature, agent_options)?;
-        let mut playbook = agent.playbook(
-            playbook_client,
-            None::<Rc<RefCell<FixtureClient>>>,
-            json!({"target":"responder","maxEpochs":1}),
-        )?;
+        let mut playbook_options = json!({"target":"responder","maxEpochs":1});
+        if let (Some(target), Some(extra)) = (playbook_options.as_object_mut(), test_case.get("playbook_options").and_then(Value::as_object)) {
+            for (key, value) in extra { target.insert(key.clone(), value.clone()); }
+        }
+        let mut playbook = agent.playbook(playbook_client.clone(), teacher.clone(), playbook_options)?;
         if let Some(seed) = fixture.get("seed") { playbook.load(seed); }
         let before = playbook.to_json().to_string();
         let dataset = fixture.get("dataset").cloned().unwrap_or_else(|| json!({}));
         let options = test_case.get("options").cloned().unwrap_or_else(|| json!({}));
-        let actual = playbook.evolve_agent(&mut agent, &mut evaluation_client, &dataset, &options)?;
+        let actual = playbook.evolve_agent_with_teacher(&mut agent, &mut evaluation_client, teacher.clone(), &dataset, &options)?;
         let outcomes = actual.get("outcomes").and_then(Value::as_array).cloned().unwrap_or_default();
         let label = format!("playbook evolve {}", test_case.get("name").and_then(Value::as_str).unwrap_or("case"));
-        let Some(outcome) = outcomes.first() else { return Err(AxError::new("fixture", format!("{label} produced no outcome: {actual}"))); };
         let expected = test_case.get("expected").cloned().unwrap_or_else(|| json!({}));
+        if let Some(value) = expected.get("outcome_count") { expect_json_equal(&format!("{label} outcome count"), &json!(outcomes.len()), value)?; }
+        if let Some(count) = test_case.get("expected_teacher_request_count").and_then(Value::as_u64) {
+            let requests = teacher.as_ref().unwrap_or(&playbook_client).borrow().requests.len();
+            if requests as u64 != count { return Err(AxError::new("fixture", format!("{label} expected {count} teacher requests, got {requests}"))); }
+        }
+        let Some(outcome) = outcomes.first() else {
+            if expected.get("outcome_count").and_then(Value::as_u64) == Some(0) { continue; }
+            return Err(AxError::new("fixture", format!("{label} produced no outcome: {actual}")));
+        };
         if let Some(value) = expected.get("accepted") { expect_json_equal(&format!("{label} accepted"), outcome.get("accepted").unwrap_or(&Value::Null), value)?; }
         if let Some(value) = expected.get("metricCallsUsed") { expect_json_equal(&format!("{label} metric calls"), actual.get("metricCallsUsed").unwrap_or(&Value::Null), value)?; }
         if let Some(value) = expected.get("heldIn") { expect_json_subset(&format!("{label} held-in"), outcome.get("heldIn").unwrap_or(&Value::Null), value)?; }
@@ -11164,18 +11490,16 @@ fn run_agent_forward_contract_fixture(fixture: &Value) -> AxResult<()> {
         .and_then(Value::as_array)
         .cloned()
         .unwrap_or_default();
-    let mut client = FixtureClient {
-        responses: responses.into(),
-        transcribe_responses: fixture
-            .get("transcribe_responses")
-            .and_then(Value::as_array)
-            .cloned()
-            .unwrap_or_default()
-            .into(),
-        requests: Vec::new(),
-        chat_options: Vec::new(),
-        features: fixture.get("features").cloned().unwrap_or_else(router_default_features),
-    };
+    let mut client = FixtureClient::scripted(
+        responses,
+        fixture.get("features").cloned().unwrap_or_else(router_default_features),
+    );
+    client.transcribe_responses = fixture
+        .get("transcribe_responses")
+        .and_then(Value::as_array)
+        .cloned()
+        .unwrap_or_default()
+        .into();
     let semantic_observer_transcript = Rc::new(RefCell::new(Vec::<Value>::new()));
     let semantic_observers_enabled = fixture.get("expected_observer_transcript").is_some();
     let install_semantic_observer = |target: &mut serde_json::Map<String, Value>, key: &str, label: &'static str, throws_error: bool| {
@@ -12796,13 +13120,10 @@ fn conformance_flow_result(fixture: &Value) -> AxResult<Value> {
         .and_then(Value::as_array)
         .cloned()
         .unwrap_or_default();
-    let mut client = FixtureClient {
-        responses: responses.into(),
-        transcribe_responses: VecDeque::new(),
-        requests: Vec::new(),
-        chat_options: Vec::new(),
-        features: fixture.get("features").cloned().unwrap_or_else(router_default_features),
-    };
+    let mut client = FixtureClient::scripted(
+        responses,
+        fixture.get("features").cloned().unwrap_or_else(router_default_features),
+    );
     let input = fixture.get("input").cloned().unwrap_or_else(|| json!({}));
     let mut forward_options = fixture
         .get("forward_options")
@@ -13323,12 +13644,23 @@ fn run_optimize_fixture_inner(fixture: &Value) -> AxResult<()> {
             }
         }
         "gepa" => {
-            let (artifact, evaluations) = conformance_gepa_result(fixture)?;
+            let result = conformance_gepa_result(fixture)?;
             if let Some(expected) = fixture.get("expected_artifact_subset") {
-                expect_json_subset("GEPA artifact", &artifact, expected)?;
+                expect_json_subset("GEPA artifact", &result.artifact, expected)?;
             }
             if let Some(expected) = fixture.get("expected_gepa_evaluations_subset").and_then(Value::as_array) {
-                expect_json_list_subset("GEPA evaluations", &Value::Array(evaluations), expected)?;
+                expect_json_list_subset("GEPA evaluations", &Value::Array(result.evaluations), expected)?;
+            }
+            if let Some(expected) = fixture.get("expected_reflection_request_count").and_then(Value::as_u64) {
+                if result.reflection_requests as u64 != expected {
+                    return Err(AxError::new(
+                        "fixture",
+                        format!("expected {expected} reflection requests, got {}", result.reflection_requests),
+                    ));
+                }
+            }
+            if let Some(expected) = fixture.get("expected_notifications").and_then(Value::as_array) {
+                expect_fixture_notifications(&result.notifications, expected)?;
             }
         }
         "bootstrap" => {
@@ -13344,12 +13676,22 @@ fn run_optimize_fixture_inner(fixture: &Value) -> AxResult<()> {
                     .cloned()
                     .unwrap_or_else(|| json!({})),
             );
+            let mut evaluate_options = Vec::new();
             let mut evaluator = |value: Value| -> AxResult<Value> {
+                // Record each evaluation's options (the step minus its candidate and dataset).
+                let mut options = value.as_object().cloned().unwrap_or_default();
+                for key in ["candidate", "candidateMap", "componentMap", "dataset"] {
+                    options.remove(key);
+                }
+                evaluate_options.push(Value::Object(options));
                 Ok(json!({"scalar": value.get("candidate").and_then(|candidate| candidate.get("score")).and_then(Value::as_f64).unwrap_or(1.0)}))
             };
             let artifact = engine.optimize(request, &mut evaluator)?;
             if let Some(expected) = fixture.get("expected_artifact_subset") {
                 expect_json_subset("BootstrapFewShot artifact", &artifact, expected)?;
+            }
+            if let Some(expected) = fixture.get("expected_evaluate_options_subset").and_then(Value::as_array) {
+                expect_json_list_subset("BootstrapFewShot evaluate options", &Value::Array(evaluate_options), expected)?;
             }
             if let Some(expected) = fixture.get("expected_demo_count").and_then(Value::as_u64) {
                 let actual = artifact
@@ -14248,7 +14590,14 @@ fn run_ace_fixture(fixture: &Value, operation: &str) -> AxResult<()> {
     Ok(())
 }
 
-fn conformance_gepa_result(fixture: &Value) -> AxResult<(Value, Vec<Value>)> {
+struct ConformanceGEPAResult {
+    artifact: Value,
+    evaluations: Vec<Value>,
+    reflection_requests: usize,
+    notifications: Vec<Value>,
+}
+
+fn conformance_gepa_result(fixture: &Value) -> AxResult<ConformanceGEPAResult> {
     let components = fixture
         .get("components")
         .and_then(Value::as_array)
@@ -14263,15 +14612,59 @@ fn conformance_gepa_result(fixture: &Value) -> AxResult<(Value, Vec<Value>)> {
         "reflection_responses": fixture.get("reflection_responses").cloned().unwrap_or_else(|| json!([])),
         "score_options": fixture.get("score_options").cloned().unwrap_or_else(|| json!({})),
     });
+    // The teacher answers reflection calls with the scripted reflection responses;
+    // an optional `reflection_client` spec sets its name, model, and client options.
+    let reflection = Rc::new(RefCell::new(
+        FixtureClient::scripted(
+            fixture.get("reflection_responses").and_then(Value::as_array).cloned().unwrap_or_default(),
+            router_default_features(),
+        )
+        .with_client_spec(fixture.get("reflection_client")),
+    ));
+    let notifications = Rc::new(RefCell::new(Vec::new()));
+    let mut engine = AxGEPA::new().with_reflection_client(reflection.clone());
+    if fixture.get("expected_notifications").is_some() {
+        let captured = notifications.clone();
+        engine = engine.with_logger(move |notification| captured.borrow_mut().push(notification));
+    }
     let mut evaluations = Vec::new();
-    let mut engine = AxGEPA::new();
     let mut evaluator = |step: Value| -> AxResult<Value> {
         let result = conformance_gepa_evaluate(fixture, &step);
         evaluations.push(result.clone());
         Ok(result)
     };
     let artifact = engine.optimize(request, &mut evaluator)?;
-    Ok((artifact, evaluations))
+    let reflection_requests = reflection.borrow().requests.len();
+    let notifications = notifications.borrow().clone();
+    Ok(ConformanceGEPAResult { artifact, evaluations, reflection_requests, notifications })
+}
+
+fn expect_fixture_notifications(actual: &[Value], expected: &[Value]) -> AxResult<()> {
+    if actual.len() != expected.len() {
+        return Err(AxError::new(
+            "fixture",
+            format!("expected {} notifications, got {}: {}", expected.len(), actual.len(), stable_stringify(&Value::Array(actual.to_vec()))),
+        ));
+    }
+    for (index, (notification, spec)) in actual.iter().zip(expected).enumerate() {
+        for key in ["name", "id"] {
+            if let Some(value) = spec.get(key) {
+                if notification.get(key) != Some(value) {
+                    return Err(AxError::new(
+                        "fixture",
+                        format!("notification {index} {key}: expected {value}, got {}", notification.get(key).unwrap_or(&Value::Null)),
+                    ));
+                }
+            }
+        }
+        let value = notification.get("value").and_then(Value::as_str).unwrap_or("");
+        for needle in spec.get("value_contains").and_then(Value::as_array).into_iter().flatten().filter_map(Value::as_str) {
+            if !value.contains(needle) {
+                return Err(AxError::new("fixture", format!("notification {index} value missing {needle:?}: {value}")));
+            }
+        }
+    }
+    Ok(())
 }
 
 fn conformance_gepa_evaluate(fixture: &Value, step: &Value) -> Value {
@@ -14515,6 +14908,9 @@ struct FixtureClient {
     requests: Vec<Value>,
     chat_options: Vec<Value>,
     features: Value,
+    name: String,
+    model: String,
+    options: Value,
 }
 
 impl AxAIClient for FixtureClient {
@@ -14530,6 +14926,19 @@ impl AxAIClient for FixtureClient {
     }
 
     fn chat(&mut self, request: Value) -> AxResult<Value> {
+        self.require_expensive_model_confirmation(&request, &json!({}))?;
+        self.scripted_chat(request)
+    }
+
+    fn chat_with_options(&mut self, request: Value, options: Value) -> AxResult<Value> {
+        self.require_expensive_model_confirmation(&request, &options)?;
+        self.chat_options.push(options);
+        self.scripted_chat(request)
+    }
+}
+
+impl FixtureClient {
+    fn scripted_chat(&mut self, request: Value) -> AxResult<Value> {
         self.requests.push(request);
         let response = self
             .responses
@@ -14550,9 +14959,37 @@ impl AxAIClient for FixtureClient {
         Ok(out)
     }
 
-    fn chat_with_options(&mut self, request: Value, options: Value) -> AxResult<Value> {
-        self.chat_options.push(options);
-        self.chat(request)
+    fn scripted(responses: impl Into<VecDeque<Value>>, features: Value) -> Self {
+        Self {
+            responses: responses.into(),
+            transcribe_responses: VecDeque::new(),
+            requests: Vec::new(),
+            chat_options: Vec::new(),
+            features,
+            name: "scripted".to_string(),
+            model: "scripted-chat".to_string(),
+            options: json!({}),
+        }
+    }
+
+    // A fixture client spec: {"name"?, "model"?, "options"?} for a scripted client.
+    fn with_client_spec(mut self, spec: Option<&Value>) -> Self {
+        let Some(spec) = spec else { return self };
+        if let Some(name) = spec.get("name").and_then(Value::as_str).filter(|name| !name.is_empty()) {
+            self.name = name.to_string();
+        }
+        if let Some(model) = spec.get("model").and_then(Value::as_str).filter(|model| !model.is_empty()) {
+            self.model = model.to_string();
+        }
+        if let Some(options) = spec.get("options").filter(|options| options.is_object()) {
+            self.options = options.clone();
+        }
+        self
+    }
+
+    // The scripted client gates like a real one: a rejected call records nothing.
+    fn require_expensive_model_confirmation(&self, request: &Value, call_options: &Value) -> AxResult<()> {
+        expensive_model_gate(&self.name, &self.model, request, &self.options, call_options)
     }
 }
 
@@ -14678,13 +15115,13 @@ fn run_simple_forward_fixture(fixture: &Value) -> AxResult<()> {
             Ok(picker_index as usize)
         });
     }
-    let mut client = FixtureClient {
-        responses: responses.into(),
-        transcribe_responses: VecDeque::new(),
-        requests: Vec::new(),
-        chat_options: Vec::new(),
-        features: fixture.get("features").cloned().unwrap_or_else(router_default_features),
-    };
+    // An optional fixture `client` spec sets the scripted client's name, default
+    // model, and client-level options (for example `modelInfo`).
+    let mut client = FixtureClient::scripted(
+        responses,
+        fixture.get("features").cloned().unwrap_or_else(router_default_features),
+    )
+    .with_client_spec(fixture.get("client"));
     let result = if let Some(options) = fixture.get("forward_options") {
         program.forward_with_options(&mut client, input, options.clone())
     } else {
@@ -14845,7 +15282,12 @@ fn run_simple_forward_fixture(fixture: &Value) -> AxResult<()> {
 fn run_ai_chat_fixture(fixture: &Value) -> AxResult<()> {
     let (mut client, requests, credential_requests) = fixture_client(fixture)?;
     let request = fixture.get("request").cloned().unwrap_or_else(|| json!({}));
-    let output_result = client.chat(request);
+    // Fixture `options` are the call's options (client options come from
+    // `service_options`, falling back to `options`).
+    let output_result = match fixture.get("options").filter(|options| options.is_object()) {
+        Some(options) => client.chat_with_options(request, options.clone()),
+        None => client.chat(request),
+    };
     if fixture.get("expected_error_contains").is_some() {
         let result = expect_validation_result(output_result.map(|_| ()), fixture);
         expect_transport_request_subset(fixture, &requests, &credential_requests)?;
@@ -14878,7 +15320,17 @@ fn run_ai_credential_wrapper_fixture(fixture: &Value) -> AxResult<()> {
 fn run_ai_stream_fixture(fixture: &Value) -> AxResult<()> {
     let (mut client, requests, credential_requests) = fixture_client(fixture)?;
     let request = fixture.get("request").cloned().unwrap_or_else(|| json!({}));
-    let output = Value::Array(client.stream(request)?);
+    // Fixture `options` are the stream call's options, as for ai_chat.
+    let output_result = match fixture.get("options").filter(|options| options.is_object()) {
+        Some(options) => client.stream_with_options(request, options.clone()),
+        None => client.stream(request),
+    };
+    if fixture.get("expected_error_contains").is_some() {
+        let result = expect_validation_result(output_result.map(|_| ()), fixture);
+        expect_transport_request_subset(fixture, &requests, &credential_requests)?;
+        return result;
+    }
+    let output = Value::Array(output_result?);
     if let Some(expected) = fixture.get("expected_output") {
         expect_json_equal("ai stream output", &output, expected)?;
     }

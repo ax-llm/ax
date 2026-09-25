@@ -10,6 +10,7 @@ from typing import Any
 
 from .ai import (
     _cancellation_token,
+    AxAIServiceAbortedError,
     AxMeter,
     AxRateLimiter,
     AxRuntimeHooks,
@@ -282,6 +283,10 @@ class AxBootstrapFewShot(OptimizerEngine):
         max_examples = _gepa_int(_gepa_option(options, "maxExamples", "max_examples", default=16), 16, 1)
         max_demos = _gepa_int(_gepa_option(options, "maxDemos", "max_demos", default=4), 4, 1)
         batch_size = _gepa_int(_gepa_option(options, "batchSize", "batch_size", default=1), 1, 1)
+        teacher_options = _gepa_option(options, "teacherOptions", "teacher_options", default=None) or {}
+        evaluate_extra = {}
+        if teacher_options:
+            evaluate_extra["forward_options"] = {**teacher_options, **(options.get("forward_options") or {})}
         base_cfg = _gepa_current_map(components)
         demos = []
         accepted = set()
@@ -299,7 +304,7 @@ class AxBootstrapFewShot(OptimizerEngine):
                     example_key = json.dumps(example, sort_keys=True, default=str)
                     if example_key in accepted:
                         continue
-                    result = evaluator.evaluate(dict(base_cfg), {"dataset": {"train": [example], "validation": []}, "phase": "bootstrap", "round": round_index})
+                    result = evaluator.evaluate(dict(base_cfg), {"dataset": {"train": [example], "validation": []}, "phase": "bootstrap", "round": round_index, **evaluate_extra})
                     rows = list((result or {}).get("rows") or [])
                     total_calls += int((result or {}).get("count", len(rows) or 1))
                     if not rows:
@@ -433,12 +438,30 @@ class AxGEPA(OptimizerEngine):
         }
         return out, total_calls + out["count"]
 
+    def _teacher_logger(self, options):
+        if _gepa_option(options, "verbose", default=None) is False:
+            return None
+        logger = _gepa_option(options, "logger", default=None)
+        if logger is not None:
+            return logger
+        student = _gepa_option(options, "studentAI", "student_ai", "student", "client", "ai", default=None)
+        get_logger = getattr(student, "get_logger", None)
+        return get_logger() if callable(get_logger) else None
+
+    def _log_teacher_failure(self, action, error, options):
+        logger = self._teacher_logger(options)
+        if logger is not None:
+            logger({"name": "Notification", "id": "gepa_teacher", "value": f"GEPA teacher call failed while {action}: {error}"})
+
     def _reflect(self, component, current, tuples, trace_dataset, options):
         if self.reflection_client is None:
             raise RuntimeError("AxGEPA requires a reflection_client for reflective trials")
         attempts = max(1, _gepa_int(_gepa_option(options, "maxReflectionAttempts", "max_reflection_attempts", default=2), 2))
+        chat_options = {**(_gepa_option(options, "teacherOptions", "teacher_options", default=None) or {}), "stream": False}
         previous_error = None
+        last_error = None
         for _ in range(attempts):
+            last_error = None
             prompt = {
                 "chatPrompt": [
                     {
@@ -458,12 +481,20 @@ class AxGEPA(OptimizerEngine):
                 ],
                 "model": _gepa_option(options, "reflectionModel", "reflection_model"),
             }
-            response = self.reflection_client.chat(prompt, {"stream": False})
+            try:
+                response = self.reflection_client.chat(prompt, chat_options)
+            except AxAIServiceAbortedError:
+                raise
+            except Exception as exc:
+                last_error = exc
+                continue
             candidate = _gepa_extract_text(response).strip()
             validation = _gepa_validate_component_value(component, candidate)
             if validation is True:
                 return candidate
             previous_error = validation
+        if last_error is not None:
+            self._log_teacher_failure(f"proposing a new value for {component.get('id')}; keeping the current value", last_error, options)
         return current
 
     def _next_minibatch(self, train, iteration, size):
@@ -1044,6 +1075,7 @@ class AxPlaybook:
         self.program = program
         self.student_ai = _playbook_option(opts, "studentAI", "student_ai", "student", "client", "ai")
         self.teacher_ai = _playbook_option(opts, "teacherAI", "teacher_ai", "teacher", default=self.student_ai)
+        self.teacher_options = dict(_playbook_option(opts, "teacherOptions", "teacher_options", default=None) or {})
         if self.student_ai is None:
             raise ValueError("playbook() requires studentAI or client")
         self.verbose = bool(opts.get("verbose"))
@@ -1109,7 +1141,7 @@ class AxPlaybook:
         }
         request = {key: value for key, value in request.items() if value is not None}
         try:
-            return reflector.forward(reflector_ai, request)
+            return reflector.forward(reflector_ai, request, dict(self.teacher_options))
         except Exception as exc:
             if self.verbose:
                 print("[AxPlaybook] reflector error:", exc)
@@ -1128,7 +1160,7 @@ class AxPlaybook:
         }
         request = {key: value for key, value in request.items() if value is not None}
         try:
-            return curator.forward(curator_ai, request)
+            return curator.forward(curator_ai, request, dict(self.teacher_options))
         except Exception as exc:
             if self.verbose:
                 print("[AxPlaybook] curator error:", exc)
@@ -1313,7 +1345,14 @@ class AxAgentPlaybook:
         if not train:
             raise ValueError("AxAgent.playbook().evolve(): at least one training task is required.")
         client = _playbook_option(opts, "studentAI", "student_ai", "client", "ai") or self.inner.student_ai
-        teacher = _playbook_option(opts, "teacherAI", "teacher_ai", "teacher") or self.inner.teacher_ai or client
+        evolve_teacher = _playbook_option(opts, "teacherAI", "teacher_ai", "teacher")
+        teacher = evolve_teacher or self.inner.teacher_ai or client
+        # The miner's options go with its model: explicit evolve teacherOptions,
+        # else the playbook's own when the miner runs on the playbook's teacher.
+        teacher_options = _playbook_option(opts, "teacherOptions", "teacher_options", default=None)
+        if teacher_options is None:
+            teacher_options = self.inner.teacher_options if evolve_teacher is None and teacher is self.inner.teacher_ai else {}
+        teacher_options = dict(teacher_options or {})
         metric = opts.get("metric")
         score_threshold = float(opts.get("scoreThreshold", opts.get("score_threshold", 0.7)))
         min_gain = float(opts.get("minHeldInGain", opts.get("min_held_in_gain", 0.05)))
@@ -1456,7 +1495,7 @@ class AxAgentPlaybook:
                     ),
                 },
             )
-            mined = miner.forward(teacher, request)
+            mined = miner.forward(teacher, request, dict(teacher_options))
             raw_quotes = mined.get("evidenceQuotes")
             candidates = raw_quotes if isinstance(raw_quotes, list) else ([] if raw_quotes is None else [raw_quotes])
             haystack = collapse(excerpts)

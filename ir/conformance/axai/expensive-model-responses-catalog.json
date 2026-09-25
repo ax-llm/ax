@@ -1,0 +1,19 @@
+{
+  "expected_error_contains": "Model o3-pro is marked as expensive and requires explicit confirmation. Set useExpensiveModel: \"yes\" to proceed.",
+  "expected_transport_request_count": 0,
+  "kind": "ai_chat",
+  "model": "o3-pro",
+  "name": "expensive-model-responses-catalog",
+  "provider": "openai-responses",
+  "request": {
+    "chat_prompt": [
+      {
+        "content": "Hello",
+        "role": "user"
+      }
+    ],
+    "model_config": {
+      "stream": false
+    }
+  }
+}

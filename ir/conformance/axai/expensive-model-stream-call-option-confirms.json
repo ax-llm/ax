@@ -1,0 +1,35 @@
+{
+  "expected_transport_request_count": 1,
+  "kind": "ai_stream",
+  "model": "my-premium-model",
+  "name": "expensive-model-stream-call-option-confirms",
+  "options": {
+    "stream": true,
+    "useExpensiveModel": "yes"
+  },
+  "provider": "openai",
+  "request": {
+    "chat_prompt": [
+      {
+        "content": "Hello",
+        "role": "user"
+      }
+    ]
+  },
+  "service_options": {
+    "modelInfo": [
+      {
+        "completionTokenCostPer1M": 1,
+        "isExpensive": true,
+        "name": "my-premium-model",
+        "promptTokenCostPer1M": 1
+      }
+    ]
+  },
+  "transport_responses": [
+    {
+      "body": "data: {\"id\":\"chatcmpl-expensive-stream\",\"object\":\"chat.completion.chunk\",\"created\":1,\"model\":\"my-premium-model\",\"choices\":[{\"index\":0,\"delta\":{\"role\":\"assistant\",\"content\":\"ok\"},\"finish_reason\":null}]}\n\ndata: {\"id\":\"chatcmpl-expensive-stream\",\"object\":\"chat.completion.chunk\",\"created\":1,\"model\":\"my-premium-model\",\"choices\":[{\"index\":0,\"delta\":{},\"finish_reason\":\"stop\"}]}\n\ndata: [DONE]\n\n",
+      "status": 200
+    }
+  ]
+}

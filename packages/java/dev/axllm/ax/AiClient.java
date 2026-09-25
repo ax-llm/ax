@@ -39,6 +39,11 @@ public interface AiClient {
     return new AxChatStream(()->{if(cancellation!=null)cancellation.throwIfCancelled();return iterator.hasNext()?iterator.next():null;},()->{subscription.close();source.close();});
   }
 
+  /** Opens a stream with per-call options (e.g. useExpensiveModel); clients without call options ignore them. */
+  default AxChatStream openStream(Map<String,Object> request,Map<String,Object> options,AxCancellationToken cancellation)throws Exception{
+    return openStream(request,cancellation);
+  }
+
   default Map<String, Object> transcribe(Map<String, Object> request, Map<String, Object> options) throws Exception {
     return Map.of("text", "");
   }

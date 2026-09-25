@@ -58,6 +58,7 @@ public final class AxPlaybook {
   private final AxACE engine;
   private final AiClient studentAI;
   private final AiClient teacherAI;
+  private final Map<String, Object> teacherOptions;
   private final boolean verbose;
   private final String baseInstruction;
   private boolean started = false;
@@ -82,6 +83,7 @@ public final class AxPlaybook {
     this.studentAI = studentClient;
     Object teacher = option(opts, "teacherAI", "teacher_ai", "teacher");
     this.teacherAI = teacher instanceof AiClient teacherClient ? teacherClient : studentClient;
+    this.teacherOptions = new LinkedHashMap<>(Core.asMap(option(opts, "teacherOptions", "teacher_options")));
     this.verbose = Boolean.TRUE.equals(opts.get("verbose"));
 
     Map<String, Object> engineOptions = new LinkedHashMap<>();
@@ -136,7 +138,7 @@ public final class AxPlaybook {
       request.put("previous_reflection", stringify(payload.get("previous_reflection")));
     }
     try {
-      return reflector().forward(this.teacherAI, request);
+      return reflector().forward(this.teacherAI, request, new LinkedHashMap<>(this.teacherOptions));
     } catch (RuntimeException e) {
       if (this.verbose) {
         System.out.println("[AxPlaybook] reflector error: " + e.getMessage());
@@ -153,7 +155,7 @@ public final class AxPlaybook {
     request.put("question_context", stringify(payload.get("question_context")));
     request.put("token_budget", payload.getOrDefault("token_budget", 1024));
     try {
-      return curator().forward(this.teacherAI, request);
+      return curator().forward(this.teacherAI, request, new LinkedHashMap<>(this.teacherOptions));
     } catch (RuntimeException e) {
       if (this.verbose) {
         System.out.println("[AxPlaybook] curator error: " + e.getMessage());
@@ -214,7 +216,7 @@ public final class AxPlaybook {
   }
 
   private Map<String, Object> mineWeakness(
-      String signature, List<Map<String, Object>> records, int proposalIndex, AiClient teacher) {
+      String signature, List<Map<String, Object>> records, int proposalIndex, AiClient teacher, Map<String, Object> teacherOptions) {
     List<Map<String, Object>> selected = records.subList(0, Math.min(4, records.size()));
     List<String> bodies = new ArrayList<>();
     StringBuilder excerpts = new StringBuilder();
@@ -256,7 +258,7 @@ public final class AxPlaybook {
     AxGen miner = new AxGen(AxSignature.create(WEAKNESS_MINER_SIGNATURE), Map.of(
         "id", "agent.playbook.weakness-miner",
         "instruction", "Identify one recurring weakness and one narrow durable avoidance rule. Every evidence quote must be copied verbatim from actionLogExcerpts."));
-    Map<String, Object> mined = miner.forward(teacher, request);
+    Map<String, Object> mined = miner.forward(teacher, request, new LinkedHashMap<>(teacherOptions));
     String haystack = collapse(excerpts.toString());
     List<Object> evidence = new ArrayList<>();
     for (Object quote : coerceList(mined.get("evidenceQuotes"))) {
@@ -309,6 +311,12 @@ public final class AxPlaybook {
     if (train.isEmpty()) throw new IllegalArgumentException("AxAgent.playbook().evolve(): at least one training task is required.");
     AiClient client = opts.get("studentAI") instanceof AiClient ai ? ai : this.studentAI;
     AiClient teacher = opts.get("teacherAI") instanceof AiClient ai ? ai : this.teacherAI;
+    // The miner's options go with its model: explicit evolve teacherOptions,
+    // else the playbook's own when the miner runs on the playbook's teacher.
+    Object evolveTeacherOptions = option(opts, "teacherOptions", "teacher_options");
+    Map<String, Object> minerOptions = new LinkedHashMap<>();
+    if (evolveTeacherOptions != null) minerOptions.putAll(Core.asMap(evolveTeacherOptions));
+    else if (!(opts.get("teacherAI") instanceof AiClient) && teacher == this.teacherAI) minerOptions.putAll(this.teacherOptions);
     double threshold = ((Number) opts.getOrDefault("scoreThreshold", opts.getOrDefault("score_threshold", 0.7))).doubleValue();
     double minGain = ((Number) opts.getOrDefault("minHeldInGain", opts.getOrDefault("min_held_in_gain", 0.05))).doubleValue();
     double epsilon = ((Number) opts.getOrDefault("epsilon", 0.01)).doubleValue();
@@ -346,7 +354,7 @@ public final class AxPlaybook {
       String signature = cluster.getKey();
       Map<String, Object> weakness;
       try {
-        weakness = mineWeakness(signature, cluster.getValue(), index - 1, teacher);
+        weakness = mineWeakness(signature, cluster.getValue(), index - 1, teacher, minerOptions);
       } catch (RuntimeException error) {
         progress(opts, "mining", "cluster [" + signature + "] miner failed: " + error.getMessage(), maxMetricCalls - remaining[0]);
         continue;

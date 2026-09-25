@@ -2646,6 +2646,12 @@ void AxAIService::stream_each(Value request, AxStreamHandler handler, const AxCa
   AxCancellationScope scope(cancellation);
   stream_each(std::move(request), [&](Value event) { if (cancellation) cancellation->throw_if_cancelled(); return handler(std::move(event)); });
 }
+std::vector<Value> AxAIService::stream(Value request, Value options) {
+  std::vector<Value> results;
+  stream_each(std::move(request), [&](const Value& event) { results.push_back(event); return true; }, std::move(options));
+  return results;
+}
+void AxAIService::stream_each(Value request, AxStreamHandler handler, Value) { stream_each(std::move(request), std::move(handler)); }
 Value AxAIService::embed(Value request, Value) { return embed(std::move(request)); }
 Value AxAIService::embed(Value request, Value options, const AxCancellationToken* cancellation) { if(cancellation)cancellation->throw_if_cancelled();AxCancellationScope scope(cancellation);Value response=embed(std::move(request),std::move(options));if(cancellation)cancellation->throw_if_cancelled();return response; }
 Value AxAIService::embed(Value request, Value options, const AxRuntimeHooks&) { return embed(std::move(request), std::move(options)); }
@@ -2913,7 +2919,9 @@ AxBaseAI::AxBaseAI(std::string name, std::string model, std::string embed_model,
 }
 
 Value AxBaseAI::chat(Value request) {
-  return chat(std::move(request), options_, AxRuntimeHooks{});
+  // No call options: the client options still apply through the merge in
+  // chat(), but they are not call options (the expensive-model gate reads those).
+  return chat(std::move(request), Value::object(), AxRuntimeHooks{});
 }
 
 Value AxBaseAI::chat(Value request, Value call_options) {
@@ -2925,6 +2933,9 @@ Value AxBaseAI::chat(Value request, Value call_options, const AxRuntimeHooks& ca
   Core::validate_chat_request(req);
   Value merged_options = merge_usage_options(options_, call_options);
   Value selected_model = Core::coalesce(Core::get(req, "model"), model_);
+  // Expensive-model gate, before any request is sent: only the call options (or
+  // the model-key entry) confirm; the client's own options do not.
+  Core::provider_require_expensive_model_confirmation(Value(model_catalog_provider()), Value(display(selected_model)), options_, call_options);
   Value merged_config = Core::merge_model_config(model_config_, Core::get(req, "model_config"), merged_options);
   Core::set(req, "model", selected_model);
   Core::set(req, "model_config", merged_config);
@@ -3422,17 +3433,28 @@ static bool stream_error_retryable(const AxError& error) {
 }
 
 void OpenAICompatibleClient::stream_each(Value request, AxStreamHandler handler) {
-  if(!Core::truthy(Core::get(get_features(Core::get(request,"model")),"streaming",true))) { handler(chat(request)); return; }
+  stream_each(std::move(request), std::move(handler), Value());
+}
+
+// options are the stream call options; null means none (stream_each(request, handler)).
+void OpenAICompatibleClient::stream_each(Value request, AxStreamHandler handler, Value options) {
+  bool has_call_options = options.is_object();
+  Value call_options = has_call_options ? options : Value::object();
+  if(!Core::truthy(Core::get(get_features(Core::get(request,"model")),"streaming",true))) { handler(has_call_options ? chat(request, Core::map_merge(call_options, object({{"stream", false}}))) : chat(request)); return; }
+  Value stream_options = Core::map_merge(call_options, object({{"stream", true}}));
   Value req = Core::coerce_chat_request(std::move(request));
-  Value config = Core::merge_model_config(model_config_, Core::get(req, "model_config"), Value(Object{{"stream", true}}));
+  Value config = Core::merge_model_config(model_config_, Core::get(req, "model_config"), stream_options);
   Core::set(config, "stream", true);
   Value model = Core::coalesce(Core::get(req, "model"), model_);
   Core::set(req, "model", model);
   Core::set(req, "model_config", config);
   Core::validate_chat_request(req);
+  // Expensive-model gate, as in chat(), before any request: only the stream call
+  // options (or the model-key entry) confirm; the client's own options do not.
+  Core::provider_require_expensive_model_confirmation(Value(model_catalog_provider()), Value(display(model)), options_, call_options);
   last_used_chat_model_ = model;
   last_used_model_config_ = config;
-  Value merged_options = merge_usage_options(options_, object({{"stream", true}}));
+  Value merged_options = merge_usage_options(options_, stream_options);
   AxRuntimeHooks hooks = effective_runtime_hooks({}, *std::atomic_load(&runtime_hooks_));
   Value attributes = object({{"ax.operation", "chat"}, {"ax.ai", name_}, {"ax.model", display(model)}, {"ax.streaming", true}});
   std::shared_ptr<AxSpan> parent = runtime_hook_frames.empty() ? nullptr : runtime_hook_frames.back().span;
@@ -4571,6 +4593,48 @@ static std::vector<Value> gepa_component_group(Value target, const std::vector<V
   return out;
 }
 
+// First non-null value among `keys`.
+static Value gepa_option(const Value& options, std::initializer_list<const char*> keys) {
+  for (const char* key : keys) {
+    Value value = Core::get(options, key);
+    if (!value.is_null()) return value;
+  }
+  return Value();
+}
+
+// options teacherOptions/teacher_options as an object ({} when unset).
+static Value gepa_teacher_options(const Value& options) {
+  Value teacher_options = gepa_option(options, {"teacherOptions", "teacher_options"});
+  return teacher_options.is_object() ? teacher_options : Value::object();
+}
+
+// Where a failed GEPA teacher call is reported: nowhere when options verbose is
+// false; else options logger, a register_agent_observer() marker since a Value
+// cannot hold a callable; else the student client's logger when the options carry
+// a Core::client_ref under studentAI/student_ai/student/client/ai; else nowhere.
+static std::function<void(Value)> gepa_teacher_logger(const Value& options) {
+  Value verbose = gepa_option(options, {"verbose"});
+  if (verbose.is_bool() && !Core::truthy(verbose)) return {};
+  Value logger = gepa_option(options, {"logger"});
+  if (!logger.is_null()) {
+    auto it = agent_observer_registry().find(str(Core::get(logger, "__agent_observer_id", Value(""))));
+    if (it != agent_observer_registry().end() && it->second) return it->second;
+    return {};
+  }
+  Value student = gepa_option(options, {"studentAI", "student_ai", "student", "client", "ai"});
+  if (auto* service = dynamic_cast<AxAIService*>(registered_client(str(Core::get(student, "__client_id", Value("")))))) {
+    std::function<void(std::string)> log = service->get_logger();
+    if (log) return [log](Value notification) { log(stringify(notification)); };
+  }
+  return {};
+}
+
+static void gepa_log_teacher_failure(const std::string& action, const std::string& error, const Value& options) {
+  std::function<void(Value)> logger = gepa_teacher_logger(options);
+  if (!logger) return;
+  logger(object({{"name", "Notification"}, {"id", "gepa_teacher"}, {"value", Value("GEPA teacher call failed while " + action + ": " + error)}}));
+}
+
 AxBootstrapFewShot::AxBootstrapFewShot(Value options) : options_(std::move(options)) {}
 std::string AxBootstrapFewShot::name() const { return "BootstrapFewShot"; }
 std::string AxBootstrapFewShot::version() const { return "axir-bootstrap-fewshot-v1"; }
@@ -4585,6 +4649,11 @@ Value AxBootstrapFewShot::optimize(Value request, OptimizerEvaluator* evaluator)
   int max_examples = std::max(1, gepa_int(Core::get(options, "maxExamples", Core::get(options, "max_examples", Value(16))), 16));
   int max_demos = std::max(1, gepa_int(Core::get(options, "maxDemos", Core::get(options, "max_demos", Value(4))), 4));
   int batch_size = std::max(1, gepa_int(Core::get(options, "batchSize", Core::get(options, "batch_size", Value(1))), 1));
+  // Demo runs forward with teacherOptions; explicit forward_options win.
+  Value teacher_options = gepa_teacher_options(options);
+  bool has_teacher_options = !Core::iter(Core::map_keys(teacher_options)).empty();
+  Value explicit_forward_options = Core::get(options, "forward_options");
+  if (!explicit_forward_options.is_object()) explicit_forward_options = Value::object();
   if (static_cast<int>(train.size()) > max_examples) train.resize(static_cast<size_t>(max_examples));
   Value base_cfg = gepa_current_map(Value(components));
   Value demos = Value::array();
@@ -4597,6 +4666,7 @@ Value AxBootstrapFewShot::optimize(Value request, OptimizerEvaluator* evaluator)
         std::string example_key = stable_stringify(train[static_cast<size_t>(i)]);
         if (accepted.count(example_key)) continue;
         Value eval_options = object({{"dataset", object({{"train", array({train[static_cast<size_t>(i)]})}, {"validation", Value::array()}})}, {"phase", "bootstrap"}, {"round", static_cast<double>(round)}});
+        if (has_teacher_options) Core::set(eval_options, "forward_options", Core::map_merge(teacher_options, explicit_forward_options));
         Value result = evaluator->evaluate(base_cfg, eval_options);
         std::vector<Value> rows = Core::iter(Core::get(result, "rows", Value::array()));
         total_calls += gepa_int(Core::get(result, "count", Value(static_cast<double>(rows.empty() ? 1 : rows.size()))), rows.empty() ? 1 : static_cast<int>(rows.size()));
@@ -4720,6 +4790,10 @@ Value AxGEPA::optimize(Value request, OptimizerEvaluator* evaluator) {
     }
   }
 
+  // Reflection calls run with teacherOptions (e.g. useExpensiveModel); stream stays off.
+  Value reflection_chat_options = Core::map_merge(Value::object(), gepa_teacher_options(options));
+  Core::set(reflection_chat_options, "stream", false);
+
   Value base_eval = evaluate(base_cfg, pareto_set, "initial Pareto evaluation", true, false);
   std::vector<GepCandidate> candidates{{base_cfg, Core::get(base_eval, "avgScores", Value::object()), -1}};
   std::vector<std::vector<double>> per_instance;
@@ -4781,7 +4855,10 @@ Value AxGEPA::optimize(Value request, OptimizerEvaluator* evaluator) {
       std::string current = display(Core::get(proposed, target_id, Value("")));
       std::string candidate_text = current;
       Value previous;
+      std::string last_error;
+      bool last_attempt_failed = false;
       for (int attempt = 0; attempt < 2; ++attempt) {
+        last_attempt_failed = false;
         Value payload = Value::object();
         Core::set(payload, "componentKey", Value(target_id));
         Core::set(payload, "componentKind", Core::get(group_target, "kind", Value("component")));
@@ -4796,10 +4873,28 @@ Value AxGEPA::optimize(Value request, OptimizerEvaluator* evaluator) {
         Core::set(message, "content", Core::json_stringify(payload));
         Core::append(messages, message);
         Core::set(request_chat, "chatPrompt", messages);
-        candidate_text = gepa_extract_text(reflection_client_->chat(request_chat));
+        // A failed teacher call uses up this attempt; cancellation still propagates.
+        Value response;
+        try {
+          response = reflection_client_->chat(request_chat, reflection_chat_options);
+        } catch (const AxAIServiceAbortedError&) {
+          throw;
+        } catch (const std::exception& error) {
+          const auto* ax_error = dynamic_cast<const AxError*>(&error);
+          if (ax_error != nullptr && (ax_error->type == "AxAIServiceAbortedError" || ax_error->category == "aborted")) throw;
+          if (auto token = current_cancellation_token(); token && token->is_cancelled()) throw AxAIServiceAbortedError(token->reason());
+          last_error = error.what();
+          last_attempt_failed = true;
+          continue;
+        }
+        candidate_text = gepa_extract_text(response);
         Value validation = gepa_validate_value(group_target, candidate_text);
         if (Core::truthy(Core::eq(validation, Value(true)))) break;
         previous = validation;
+        candidate_text = current;
+      }
+      if (last_attempt_failed) {
+        gepa_log_teacher_failure("proposing a new value for " + target_id + "; keeping the current value", last_error, options);
         candidate_text = current;
       }
       Core::set(proposed, target_id, Value(candidate_text));
@@ -5326,6 +5421,8 @@ AxPlaybook::AxPlaybook(AxGen& program, AIClient& student, AIClient* teacher, Val
     : program_(&program), engine_(Value::object()), student_(&student), teacher_(teacher == nullptr ? &student : teacher) {
   if (!options.is_object()) options = Value::object();
   verbose_ = Core::truthy(Core::get(options, "verbose", Value(false)));
+  Value teacher_options = playbook_option(options, {"teacherOptions", "teacher_options"});
+  teacher_options_ = Core::map_merge(Value::object(), teacher_options.is_object() ? teacher_options : Value::object());
   Value engine_options = Value::object();
   Value now_value = Core::get(options, "now");
   if (!now_value.is_null()) Core::set(engine_options, "now", now_value);
@@ -5378,7 +5475,7 @@ Value AxPlaybook::run_reflector(const Value& payload) {
   Value previous = Core::get(payload, "previous_reflection");
   if (!previous.is_null()) Core::set(request, "previous_reflection", Value(playbook_stringify(previous)));
   try {
-    return reflector_program_->forward(*teacher_, request);
+    return reflector_program_->forward(*teacher_, request, Core::map_merge(Value::object(), teacher_options_));
   } catch (const std::exception& e) {
     if (verbose_) std::cerr << "[AxPlaybook] reflector error: " << e.what() << "\n";
     return Value();
@@ -5394,7 +5491,7 @@ Value AxPlaybook::run_curator(const Value& payload) {
   Core::set(request, "question_context", Value(playbook_stringify(Core::get(payload, "question_context"))));
   Core::set(request, "token_budget", Core::get(payload, "token_budget", Value(1024)));
   try {
-    return curator_program_->forward(*teacher_, request);
+    return curator_program_->forward(*teacher_, request, Core::map_merge(Value::object(), teacher_options_));
   } catch (const std::exception& e) {
     if (verbose_) std::cerr << "[AxPlaybook] curator error: " << e.what() << "\n";
     return Value();
@@ -5499,6 +5596,11 @@ Value AxPlaybook::evolve(Value dataset, Value options) {
   int runs_per_task = std::max(1, static_cast<int>(num(Core::get(options, "runsPerTask", Core::get(options, "runs_per_task", Value(1))))));
   int dataset_size = static_cast<int>(train.size() + validation.size()) * runs_per_task;
   int max_metric_calls = std::max(1, static_cast<int>(num(Core::get(options, "maxMetricCalls", Core::get(options, "max_metric_calls", Value(std::max(100, (static_cast<int>(max_proposals) + 1) * dataset_size)))))));
+  // The weakness miner runs on this playbook's teacher, so its options are the
+  // evolve teacherOptions when given, else the playbook's own teacherOptions.
+  Value miner_options = playbook_option(options, {"teacherOptions", "teacher_options"});
+  if (miner_options.is_null()) miner_options = teacher_options_;
+  if (!miner_options.is_object()) miner_options = Value::object();
   int remaining = max_metric_calls;
   auto run_batch = [&](const std::vector<Value>& tasks) {
     Array records;
@@ -5624,7 +5726,7 @@ Value AxPlaybook::evolve(Value dataset, Value options) {
           {"id", "agent.playbook.weakness-miner"},
           {"instruction", "Identify one recurring weakness and one narrow durable avoidance rule. Every evidence quote must be copied verbatim from actionLogExcerpts."},
       }));
-      mined = miner.forward(*teacher_, miner_request);
+      mined = miner.forward(*teacher_, miner_request, Core::map_merge(Value::object(), miner_options));
     } catch (...) {
       continue;
     }
@@ -6464,9 +6566,9 @@ Value AxAgent::optimize(Value dataset, Value options) {
 // stage by default; pass {"target":"responder"} for the responder). As the
 // playbook evolves it is injected into the live stage prompt unless {"apply"} is
 // false. The evolution engine (ACE) is an implementation detail.
-AxPlaybook& AxAgent::playbook(AIClient& student, Value options) {
+AxPlaybook& AxAgent::playbook(AIClient& student, Value options, AIClient* teacher) {
   if (playbook_handle_) {
-    if (options.is_object() && !Core::iter(Core::map_keys(options)).empty()) {
+    if (teacher != nullptr || (options.is_object() && !Core::iter(Core::map_keys(options)).empty())) {
       throw AxError("validation", "AxAgent.playbook(): this agent already has a playbook; call playbook() without options to use it.");
     }
     return *playbook_handle_;
@@ -6474,7 +6576,7 @@ AxPlaybook& AxAgent::playbook(AIClient& student, Value options) {
   if (!options.is_object()) options = Value::object();
   std::string target = display(Core::get(options, "target", Value("actor")));
   AxGen* stage = target == "responder" ? responder_.get() : executor_.get();
-  auto handle = std::make_unique<AxPlaybook>(*stage, student, nullptr, options);
+  auto handle = std::make_unique<AxPlaybook>(*stage, student, teacher, options);
   if (Core::truthy(Core::eq(Core::get(options, "apply"), Value(false)))) {
     handle->set_apply_hook([](const std::string&) {});
   } else {
@@ -7301,6 +7403,11 @@ std::vector<Value> AxBalancer::stream(Value request) {
 }
 
 void AxBalancer::stream_each(Value request, AxStreamHandler handler) {
+  stream_each(std::move(request), std::move(handler), Value());
+}
+
+// options (the stream call options, or null) go to the selected service's stream.
+void AxBalancer::stream_each(Value request, AxStreamHandler handler, Value options) {
   if (!adaptive_) {
     auto candidates = candidate_services(request);
     std::exception_ptr last;
@@ -7309,7 +7416,7 @@ void AxBalancer::stream_each(Value request, AxStreamHandler handler) {
       while (failure_count(service) < max_retries_) {
         bool delivered = false;
         try {
-          service->stream_each(request, [&](const Value& event) { delivered = true; return handler(event); });
+          service->stream_each(request, [&](const Value& event) { delivered = true; return handler(event); }, options);
           handle_success(service);
           return;
         } catch (const AxError& error) {
@@ -7322,7 +7429,7 @@ void AxBalancer::stream_each(Value request, AxStreamHandler handler) {
     if (last) std::rethrow_exception(last);
     throw AxError("runtime", "All candidate services exhausted (tried " + std::to_string(candidates.size()) + " service(s))");
   }
-  auto ranked = rank_adaptive(request, Value::object()); std::exception_ptr last;
+  auto ranked = rank_adaptive(request, options.is_object() ? options : Value::object()); std::exception_ptr last;
   for (size_t index = 0; index < ranked.size(); ++index) {
     auto& candidate = ranked[index]; current_service_ = candidate.service;
     emit_routing_event(object({{"type", "selected"}, {"namespace", Core::get(candidate.stats_key, "namespace", "")}, {"slice", Core::get(candidate.stats_key, "slice", "")}, {"logicalModel", Core::get(candidate.stats_key, "logicalModel", "")}, {"routeKey", candidate.route_key}, {"serviceName", candidate.service->get_name()}, {"attempt", static_cast<double>(index + 1)}}));
@@ -7338,7 +7445,7 @@ void AxBalancer::stream_each(Value request, AxStreamHandler handler) {
         }
         delivered = true;
         return handler(event);
-      });
+      }, options);
       if (!observed) {
         double latency = std::max(1.0, std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - started).count());
         observe_adaptive(candidate, object({{"outcome", "success"}, {"latencyMs", latency}}), true);
@@ -7514,6 +7621,10 @@ Value MultiServiceRouter::chat(Value request, Value options) {
 }
 
 void MultiServiceRouter::stream_each(Value request, AxStreamHandler handler) {
+  stream_each(std::move(request), std::move(handler), Value());
+}
+
+void MultiServiceRouter::stream_each(Value request, AxStreamHandler handler, Value options) {
   Value model_key = Core::get(request, "model");
   if (model_key.is_null()) throw AxError("runtime", "Model key must be specified for multi-service");
   auto it = services_.find(display(model_key));
@@ -7522,7 +7633,7 @@ void MultiServiceRouter::stream_each(Value request, AxStreamHandler handler) {
   Value req(object_ref(request));
   if (Core::get(req, "model_config").is_null() && !Core::get(req, "modelConfig").is_null()) Core::set(req, "model_config", Core::get(req, "modelConfig"));
   if (it->second.model.is_null()) Core::map_delete(req, "model");
-  last_used_service_->stream_each(std::move(req), std::move(handler));
+  last_used_service_->stream_each(std::move(req), std::move(handler), std::move(options));
 }
 
 std::vector<Value> MultiServiceRouter::stream(Value request) {
