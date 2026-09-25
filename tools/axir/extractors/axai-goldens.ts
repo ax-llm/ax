@@ -11838,3 +11838,74 @@ for (const testCase of [
     expected_transport_request_count: fetchCount,
   });
 }
+
+// Streaming goes through the same gate (AxBaseAI.chat -> _chat1), so a
+// streamed request for an expensive model is rejected before fetch too.
+const expensiveStreamBody =
+  'data: {"id":"chatcmpl-expensive-stream","object":"chat.completion.chunk","created":1,"model":"my-premium-model","choices":[{"index":0,"delta":{"role":"assistant","content":"ok"},"finish_reason":null}]}\n\n' +
+  'data: {"id":"chatcmpl-expensive-stream","object":"chat.completion.chunk","created":1,"model":"my-premium-model","choices":[{"index":0,"delta":{},"finish_reason":"stop"}]}\n\n' +
+  'data: [DONE]\n\n';
+for (const testCase of [
+  {
+    name: 'expensive-model-stream-rejected-without-confirmation',
+    model: 'gpt-5.5-pro',
+    callOptions: { stream: true },
+  },
+  {
+    name: 'expensive-model-stream-call-option-confirms',
+    model: 'my-premium-model',
+    modelInfo: expensiveCustomModelInfo,
+    callOptions: { stream: true, useExpensiveModel: 'yes' },
+    respond: true,
+  },
+] as const) {
+  let fetchCount = 0;
+  const client = new AxAIOpenAI({
+    name: 'openai',
+    apiKey: 'test-key',
+    config: { model: testCase.model },
+    options: {
+      fetch: async () => {
+        fetchCount++;
+        return new Response(expensiveStreamBody, {
+          status: 200,
+          headers: { 'content-type': 'text/event-stream' },
+        });
+      },
+    },
+    ...('modelInfo' in testCase ? { modelInfo: testCase.modelInfo } : {}),
+  } as any);
+  let errorMessage: string | undefined;
+  try {
+    const stream = await client.chat(
+      {
+        chatPrompt: [{ role: 'user', content: 'Hello' }],
+        modelConfig: { stream: true },
+      },
+      testCase.callOptions
+    );
+    if (stream instanceof ReadableStream) {
+      const reader = stream.getReader();
+      while (!(await reader.read()).done) {
+        // Drain the stream so the request completes.
+      }
+    }
+  } catch (error) {
+    errorMessage = error instanceof Error ? error.message : String(error);
+  }
+  writeFixture(testCase.name, {
+    kind: 'ai_stream',
+    provider: 'openai',
+    model: testCase.model,
+    ...('modelInfo' in testCase
+      ? { service_options: { modelInfo: testCase.modelInfo as Json } }
+      : {}),
+    request: { chat_prompt: [{ role: 'user', content: 'Hello' }] },
+    options: testCase.callOptions as Json,
+    ...('respond' in testCase
+      ? { transport_responses: [{ status: 200, body: expensiveStreamBody }] }
+      : {}),
+    ...(errorMessage ? { expected_error_contains: errorMessage } : {}),
+    expected_transport_request_count: fetchCount,
+  });
+}

@@ -3,6 +3,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { describe, expect, it } from 'vitest';
 import {
+  buildProviderModelIndex,
   compareGeneratedFixtures,
   compareValues,
   normalizeCatalog,
@@ -110,6 +111,35 @@ describe('axir-conformance-sync helpers', () => {
         'utf8'
       )
     ).not.toContain('\n');
+  });
+
+  it('builds the provider model index from the catalog in catalog order', () => {
+    const catalog = normalizeCatalog({
+      all: [
+        {
+          name: 'openai',
+          displayName: 'OpenAI',
+          models: [
+            {
+              name: 'gpt-5.5-pro',
+              isExpensive: true,
+              promptTokenCostPer1M: 30,
+            },
+            { name: 'gpt-5.4-mini', aliases: ['mini'], isExpensive: false },
+          ],
+        },
+        { name: 'amazon-bedrock', displayName: 'Bedrock', models: [] },
+      ],
+      text: [{ name: 'ignored', models: [{ name: 'ignored-model' }] }],
+    });
+
+    expect(buildProviderModelIndex(catalog)).toEqual({
+      'amazon-bedrock': [],
+      openai: [
+        { name: 'gpt-5.5-pro', isExpensive: true },
+        { name: 'gpt-5.4-mini', aliases: ['mini'] },
+      ],
+    });
   });
 
   it('round-trips the profile registry and summary data files', () => {

@@ -1303,6 +1303,7 @@ class ProviderOperationClient(AxBaseAI):
         validate_chat_request(req)
         merged_options = {**self._merged_options(options), "stream": True}
         model = req.get("model") or self.model
+        provider_require_expensive_model_confirmation(self._model_catalog_provider(), str(model or ""), self.options, _strip_runtime_hooks(options))
         model_config = merge_model_config(self.model_config, req.get("model_config"), merged_options)
         model_config["stream"] = True
         req = {**req, "model": model, "model_config": model_config}
