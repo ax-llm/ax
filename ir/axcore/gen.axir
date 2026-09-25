@@ -406,8 +406,9 @@ module @ax.gen version "0.1" {
     attr emit_module = "gen"
     attr private = true
     ref prompt = @render_prompt
-    type signature = "(AxGen, list<json>, json, json) -> AxChatRequest throws"
-    body @entry(%gen: AxGen, %messages: list<json>, %options: json, %selection: json) {
+    tag "src/ax/dsp/generate.ts"
+    type signature = "(AxGen, list<json>, json, json, i64) -> AxChatRequest throws"
+    body @entry(%gen: AxGen, %messages: list<json>, %options: json, %selection: json, %step: i64) {
       %empty_model_config = core.map
       %model_config_snake = core.get %options["model_config"] default %empty_model_config
       %model_config_base = core.get %options["modelConfig"] default %model_config_snake
@@ -476,15 +477,32 @@ module @ax.gen version "0.1" {
       core.set %request["chat_prompt"] = %messages
       %functions = core.get %gen["functions"]
       core.call @assert_no_reserved_output_functions(%functions)
+      // A caller-forced call ('required' or a named function) applies to the
+      // first step only. Later steps drop it together with the caller tools
+      // so the model can answer, as in TS createFunctionConfig.
+      %caller_choice = core.call @caller_function_call_impl(%options)
+      %forced = core.call @function_call_forces_tool_impl(%caller_choice)
+      %first_step = core.call intrinsic.eq(%step, 0)
+      %later_step = core.call intrinsic.not(%first_step)
+      %forcing_dropped = core.call intrinsic.and(%forced, %later_step)
+      %keep_caller_tools = core.call intrinsic.not(%forcing_dropped)
       %function_specs = core.list
-      core.for %fn in %functions {
-        %spec = core.call @tool_spec_impl(%fn)
-        core.append %function_specs, %spec
+      core.if %keep_caller_tools {
+        core.for %fn in %functions {
+          %spec = core.call @tool_spec_impl(%fn)
+          core.append %function_specs, %spec
+        }
       }
       %mode_snake = core.get %options["function_call_mode"]
       %mode_raw = core.get %options["functionCallMode"] default %mode_snake
       %mode = core.call @function_call_mode_impl(%mode_raw)
       core.set %request["function_call"] = %mode
+      %has_caller_choice = core.call intrinsic.is_not_none(%caller_choice)
+      %send_caller_choice = core.call intrinsic.and(%has_caller_choice, %keep_caller_tools)
+      core.if %send_caller_choice {
+        core.set %request["function_call"] = %caller_choice
+        core.set %request["function_call_source"] = "caller"
+      }
       %signature = core.get %gen["signature"]
       %output_fields = core.get %signature["output_fields"]
       %rung = core.get %selection["rung"]
@@ -503,7 +521,18 @@ module @ax.gen version "0.1" {
         core.set %synthetic["name"] = "__axOutput"
         core.set %synthetic["description"] = "Emit the complete structured program output using the declared argument shape."
         core.set %synthetic["parameters"] = %function_schema
-        core.append %function_specs, %synthetic
+        // A caller-forced call must reach a user function, so the output
+        // function is offered only once the forcing is dropped.
+        %forcing_now = core.call intrinsic.and(%forced, %first_step)
+        %forces_output = core.call @function_call_names_output_impl(%caller_choice)
+        %forces_other = core.call intrinsic.not(%forces_output)
+        %forces_user_tool = core.call intrinsic.and(%forcing_now, %forces_other)
+        %has_user_specs = core.call intrinsic.gt(%fn_count, 0)
+        %withhold_output = core.call intrinsic.and(%forces_user_tool, %has_user_specs)
+        %offer_output = core.call intrinsic.not(%withhold_output)
+        core.if %offer_output {
+          core.append %function_specs, %synthetic
+        }
         %no_user_functions = core.call intrinsic.eq(%fn_count, 0)
         core.if %no_user_functions {
           %forced_function_ref = core.map
@@ -709,7 +738,7 @@ module @ax.gen version "0.1" {
           %max_steps_error = core.call intrinsic.error.runtime(%max_steps_message)
           core.raise %max_steps_error
         }
-        %request = core.call @build_gen_chat_request(%gen, %messages, %runtime_options, %selection)
+        %request = core.call @build_gen_chat_request(%gen, %messages, %runtime_options, %selection, %step)
         %response = core.call @complete_with_retries_impl(%client, %request, %runtime_options, %infra_retries)
         core.call intrinsic.axgen.memory_add_response(%gen, %request, %response)
         core.call intrinsic.axgen.record_chat_log(%gen, %request, %response)
@@ -1229,7 +1258,10 @@ module @ax.gen version "0.1" {
       core.if %is_prompt {
         core.return "none"
       }
-      core.return %mode
+      // A tool choice passed here ('required', 'none', or a named call) is
+      // routed through @caller_function_call_impl. Other values behave like
+      // TS, where any mode but 'prompt' sends native tools.
+      core.return "auto"
     }
   }
 
@@ -1533,6 +1565,74 @@ module @ax.gen version "0.1" {
         }
       }
       core.return false
+    }
+  }
+
+  op ax.gen.semantic @caller_function_call_impl {
+    attr core_kind = "func"
+    attr emit_module = "gen"
+    attr private = true
+    tag "src/ax/dsp/functions.ts"
+    type signature = "(json) -> json"
+    body @entry(%options: json) {
+      %requested_snake = core.get %options["function_call"]
+      %requested = core.get %options["functionCall"] default %requested_snake
+      %has_requested = core.call intrinsic.is_not_none(%requested)
+      core.if %has_requested {
+        core.return %requested
+      }
+      // A tool choice passed as functionCallMode used to reach the provider on
+      // every request. Route it through the caller functionCall instead.
+      %mode_snake = core.get %options["function_call_mode"]
+      %mode = core.get %options["functionCallMode"] default %mode_snake
+      %is_required = core.call intrinsic.eq(%mode, "required")
+      %is_none = core.call intrinsic.eq(%mode, "none")
+      %is_named = core.type_is %mode type "object"
+      %required_or_none = core.call intrinsic.or(%is_required, %is_none)
+      %routed = core.call intrinsic.or(%required_or_none, %is_named)
+      core.if %routed {
+        core.return %mode
+      }
+      %none = core.call intrinsic.none()
+      core.return %none
+    }
+  }
+
+  op ax.gen.semantic @function_call_forces_tool_impl {
+    attr core_kind = "func"
+    attr emit_module = "gen"
+    attr private = true
+    tag "src/ax/dsp/functions.ts"
+    type signature = "(json) -> bool"
+    body @entry(%choice: json) {
+      %is_required = core.call intrinsic.eq(%choice, "required")
+      core.if %is_required {
+        core.return true
+      }
+      %is_named = core.type_is %choice type "object"
+      core.return %is_named
+    }
+  }
+
+  op ax.gen.semantic @function_call_names_output_impl {
+    attr core_kind = "func"
+    attr emit_module = "gen"
+    attr private = true
+    tag "structured-output-reserved-function-names"
+    type signature = "(json) -> bool"
+    body @entry(%choice: json) {
+      %is_named = core.type_is %choice type "object"
+      %not_named = core.call intrinsic.not(%is_named)
+      core.if %not_named {
+        core.return false
+      }
+      %empty_function = core.map
+      %function = core.get %choice["function"] default %empty_function
+      %name = core.get %function["name"] default ""
+      %canonical = core.call intrinsic.eq(%name, "__axOutput")
+      %legacy = core.call intrinsic.eq(%name, "__finalResult")
+      %reserved = core.call intrinsic.or(%canonical, %legacy)
+      core.return %reserved
     }
   }
 }

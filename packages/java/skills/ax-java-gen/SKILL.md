@@ -67,6 +67,8 @@ A simple signature (no object or object-array output) selects no structured-outp
 
 `maxSteps` / `max_steps` (default 25) caps the tool loop. Each model turn that calls tools is one step, and validation retries stay inside their step. Reaching the cap raises `Generate failed: Max steps reached: N`.
 
+`functionCall` / `function_call` sets the tool choice: `auto`, `none`, `required`, or `{ type: 'function', function: { name } }` to force one function. A forced call (`required` or named) applies to the first step only, as in TypeScript: later steps drop it together with the tools so the model can answer. Under the `function` structured-output rung the forced step withholds `__axOutput`, so the forcing reaches a user tool, and the next step forces `__axOutput`. A tool choice passed as `functionCallMode` is routed the same way.
+
 ## Multi-Sampling
 
 - Set `sampleCount` / `sample_count` to request N provider candidates. Core parses and validates every candidate, preserving each provider result index.

@@ -1,0 +1,45 @@
+{
+  "expected_output": {
+    "answer": "Nothing to look up"
+  },
+  "expected_request_count": 1,
+  "expected_step_requests": [
+    {
+      "function_names": ["search"],
+      "index": 0,
+      "request": {
+        "function_call": "none",
+        "function_call_source": "caller"
+      }
+    }
+  ],
+  "expected_tool_calls": [],
+  "forward_options": {
+    "function_call": "none"
+  },
+  "input": {
+    "query": "ax docs"
+  },
+  "kind": "forward",
+  "name": "function-call-none-every-step",
+  "responses": [
+    {
+      "content": "Answer: Nothing to look up"
+    }
+  ],
+  "signature": "query:string -> answer:string",
+  "tools": [
+    {
+      "args": {
+        "query": {
+          "type": "string"
+        }
+      },
+      "description": "Search docs",
+      "name": "search",
+      "result": {
+        "title": "Ax docs"
+      }
+    }
+  ]
+}

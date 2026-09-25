@@ -1,0 +1,81 @@
+{
+  "expected_output": {
+    "answer": "Found Ax docs"
+  },
+  "expected_request_count": 2,
+  "expected_step_requests": [
+    {
+      "function_names": ["search"],
+      "index": 0,
+      "request": {
+        "function_call": {
+          "function": {
+            "name": "search"
+          },
+          "type": "function"
+        },
+        "function_call_source": "caller"
+      }
+    },
+    {
+      "function_names": [],
+      "index": 1,
+      "request": {
+        "function_call": "auto"
+      }
+    }
+  ],
+  "expected_tool_calls": [
+    {
+      "args": {
+        "query": "ax docs"
+      },
+      "name": "search"
+    }
+  ],
+  "input": {
+    "query": "ax docs"
+  },
+  "kind": "forward",
+  "name": "forced-function-call-generator-option",
+  "options": {
+    "functionCall": {
+      "function": {
+        "name": "search"
+      },
+      "type": "function"
+    }
+  },
+  "responses": [
+    {
+      "content": "",
+      "function_calls": [
+        {
+          "id": "call_1",
+          "name": "search",
+          "params": {
+            "query": "ax docs"
+          }
+        }
+      ]
+    },
+    {
+      "content": "Answer: Found Ax docs"
+    }
+  ],
+  "signature": "query:string -> answer:string",
+  "tools": [
+    {
+      "args": {
+        "query": {
+          "type": "string"
+        }
+      },
+      "description": "Search docs",
+      "name": "search",
+      "result": {
+        "title": "Ax docs"
+      }
+    }
+  ]
+}

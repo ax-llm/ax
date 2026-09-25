@@ -587,7 +587,7 @@ class AxGen:
         request_options = options or {}
         features = _core_ai_client_features(client, request_options.get("model")) if client is not None else {}
         selection = _select_structured_output_rung(self.signature, features, request_options, self.functions)
-        return _build_gen_chat_request(self, messages, request_options, selection)
+        return _build_gen_chat_request(self, messages, request_options, selection, 0)
 
     def _execute_tool(self, call):
         return _execute_tool_call(self.functions, call)

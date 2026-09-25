@@ -10801,6 +10801,23 @@ func runConformanceForward(fixture map[string]Value) {
 				}
 			}
 		}
+		for _, check := range asSlice(coreGet(fixture, "expected_step_requests", []Value{})) {
+			index := int(num(coreGet(check, "index", 0.0)))
+			if index >= len(client.Requests) {
+				panic(AxError{Category: "fixture", Message: fmt.Sprintf("missing request index %d", index)})
+			}
+			request := client.Requests[index]
+			if expected := coreGet(check, "request", nil); expected != nil {
+				assertSubset(request, expected, fmt.Sprintf("request %d", index))
+			}
+			if expected := coreGet(check, "function_names", nil); expected != nil {
+				names := []Value{}
+				for _, spec := range asSlice(coreGet(request, "functions", []Value{})) {
+					names = append(names, coreGet(spec, "name", nil))
+				}
+				assertEqual(names, expected, fmt.Sprintf("request %d function names", index))
+			}
+		}
 		if expected := coreGet(fixture, "expected_tool_calls", nil); expected != nil {
 			assertEqual(calls, expected, "tool calls")
 		}

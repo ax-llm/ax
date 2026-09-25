@@ -14745,6 +14745,30 @@ fn run_simple_forward_fixture(fixture: &Value) -> AxResult<()> {
             }
         }
     }
+    if let Some(checks) = fixture.get("expected_step_requests").and_then(Value::as_array) {
+        for check in checks {
+            let index = check.get("index").and_then(Value::as_u64).unwrap_or(0) as usize;
+            let Some(request) = client.requests.get(index) else {
+                return Err(AxError::new("fixture", format!("missing request index {index}")));
+            };
+            if let Some(expected) = check.get("request") {
+                expect_json_subset(&format!("request {index}"), request, expected)?;
+            }
+            if let Some(expected) = check.get("function_names") {
+                let names = request
+                    .get("functions")
+                    .and_then(Value::as_array)
+                    .map(|functions| {
+                        functions
+                            .iter()
+                            .map(|spec| spec.get("name").cloned().unwrap_or(Value::Null))
+                            .collect::<Vec<_>>()
+                    })
+                    .unwrap_or_default();
+                expect_json_equal(&format!("request {index} function names"), &Value::Array(names), expected)?;
+            }
+        }
+    }
     if let Some(expected) = fixture.get("expected_chat_prompt_contains").and_then(Value::as_array) {
         let prompts = client
             .requests

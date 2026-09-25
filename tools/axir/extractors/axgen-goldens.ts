@@ -882,3 +882,120 @@ for (const [name, content] of Object.entries({
     expected_text_output: streamed as Json,
   });
 }
+
+// TS createFunctionConfig applies a caller-forced call ('required' or a named
+// function) to the first step only. Later steps drop the forcing and the
+// caller tools so the model can answer.
+const forceSearch = { type: 'function', function: { name: 'search' } };
+const forceOutput = { type: 'function', function: { name: '__axOutput' } };
+
+for (const [name, source] of Object.entries({
+  'forced-function-call-first-step-only': {
+    forward_options: { function_call: forceSearch },
+    choice: forceSearch,
+  },
+  'forced-function-call-required-first-step-only': {
+    forward_options: { function_call: 'required' },
+    choice: 'required',
+  },
+  'forced-function-call-generator-option': {
+    options: { functionCall: forceSearch },
+    choice: forceSearch,
+  },
+  // A tool choice passed as functionCallMode is routed through functionCall
+  // instead of reaching the provider on every request.
+  'forced-function-call-mode-routed': {
+    forward_options: { function_call_mode: 'required' },
+    choice: 'required',
+  },
+})) {
+  const { choice, ...programOptions } = source;
+  writeFixture(name, {
+    kind: 'forward',
+    signature: 'query:string -> answer:string',
+    input: { query: 'ax docs' },
+    ...programOptions,
+    tools: [searchTool],
+    responses: [searchCall('call_1'), { content: 'Answer: Found Ax docs' }],
+    expected_output: { answer: 'Found Ax docs' },
+    expected_step_requests: [
+      {
+        index: 0,
+        request: { function_call: choice, function_call_source: 'caller' },
+        function_names: ['search'],
+      },
+      { index: 1, request: { function_call: 'auto' }, function_names: [] },
+    ],
+    expected_tool_calls: [searchRecord],
+    expected_request_count: 2,
+  });
+}
+
+// 'none' is not forcing, so it reaches every request with the tools declared.
+writeFixture('function-call-none-every-step', {
+  kind: 'forward',
+  signature: 'query:string -> answer:string',
+  input: { query: 'ax docs' },
+  forward_options: { function_call: 'none' },
+  tools: [searchTool],
+  responses: [{ content: 'Answer: Nothing to look up' }],
+  expected_output: { answer: 'Nothing to look up' },
+  expected_step_requests: [
+    {
+      index: 0,
+      request: { function_call: 'none', function_call_source: 'caller' },
+      function_names: ['search'],
+    },
+  ],
+  expected_tool_calls: [],
+  expected_request_count: 1,
+});
+
+// Under the function rung the forced step withholds __axOutput, so the forcing
+// must reach a user tool. The next step forces __axOutput.
+for (const [name, choice] of Object.entries({
+  'forced-function-call-function-rung': forceSearch,
+  'forced-function-call-required-function-rung': 'required',
+})) {
+  writeFixture(name, {
+    kind: 'forward',
+    signature_spec: {
+      inputs: { query: { type: 'string' } },
+      outputs: {
+        summary: { type: 'object', fields: { answer: { type: 'string' } } },
+      },
+    },
+    input: { query: 'ax docs' },
+    options: { structured_output_mode: 'function' },
+    forward_options: { function_call: choice },
+    tools: [searchTool],
+    responses: [
+      searchCall('call_1'),
+      {
+        content: '',
+        function_calls: [
+          {
+            id: 'output_1',
+            name: '__axOutput',
+            params: { summary: { answer: 'Found Ax docs' } },
+          },
+        ],
+      },
+    ],
+    expected_output: { summary: { answer: 'Found Ax docs' } },
+    expected_step_requests: [
+      {
+        index: 0,
+        request: { function_call: choice, function_call_source: 'caller' },
+        function_names: ['search'],
+      },
+      {
+        index: 1,
+        request: { function_call: forceOutput, function_call_source: 'ax' },
+        function_names: ['__axOutput'],
+      },
+    ],
+    expected_tool_calls: [searchRecord],
+    expected_request_count: 2,
+  });
+}
