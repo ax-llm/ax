@@ -634,7 +634,14 @@ module @ax.gen version "0.1" {
         %recovered = core.call @parse_json_string_fields(%output_fields, %output)
         %validated = core.call @validate_output(%output_fields, %recovered)
         %processed = core.call @apply_field_processors(%gen, %validated)
-        core.call @run_assertions(%gen, %processed)
+        %assertion_failure = core.call @run_assertions(%gen, %processed)
+        %assertion_failed = core.call intrinsic.is_not_none(%assertion_failure)
+        core.if %assertion_failed {
+          // The caller raises it outside its validation retries.
+          %failure_bundle = core.map
+          core.set %failure_bundle["assertion_failure"] = %assertion_failure
+          core.return %failure_bundle
+        }
         %public_output = core.call @strip_internal_fields(%output_fields, %processed)
         core.append %outputs, %public_output
         %sample_index = core.get %completion["index"] default %position
@@ -814,17 +821,23 @@ module @ax.gen version "0.1" {
           %structured_call = core.call @find_structured_output_call(%calls)
           %has_structured_call = core.call intrinsic.is_not_none(%structured_call)
           core.if %has_structured_call {
+            %structured_failure = core.call intrinsic.none()
             core.try {
               %structured_args = core.call @structured_output_call_args(%structured_call)
               core.call @validate_exact_output_keys(%output_fields, %structured_args, "output")
               %structured_recovered = core.call @parse_json_string_fields(%output_fields, %structured_args)
               %structured_validated = core.call @validate_output(%output_fields, %structured_recovered)
               %structured_processed = core.call @apply_field_processors(%gen, %structured_validated)
-              core.call @run_assertions(%gen, %structured_processed)
-              %structured_public = core.call @strip_internal_fields(%output_fields, %structured_processed)
-              core.call intrinsic.axgen.memory_cleanup_corrections(%gen)
-              core.call @record_trace(%gen, %values, %structured_public, "ok")
-              core.return %structured_public
+              %structured_assertion_failure = core.call @run_assertions(%gen, %structured_processed)
+              %structured_assertion_failed = core.call intrinsic.is_not_none(%structured_assertion_failure)
+              core.if %structured_assertion_failed {
+                %structured_failure = core.let %structured_assertion_failure
+              } else {
+                %structured_public = core.call @strip_internal_fields(%output_fields, %structured_processed)
+                core.call intrinsic.axgen.memory_cleanup_corrections(%gen)
+                core.call @record_trace(%gen, %values, %structured_public, "ok")
+                core.return %structured_public
+              }
             } catch %structured_validation_error {
               %structured_retries_exhausted = core.call intrinsic.gte(%attempt, %validation_retries)
               core.if %structured_retries_exhausted {
@@ -837,6 +850,9 @@ module @ax.gen version "0.1" {
               core.call intrinsic.axgen.memory_add_correction(%gen, %response, %structured_validation_error)
               core.continue
             }
+            // Only a non-retryable assertion failure leaves the try without
+            // returning; it surfaces without a retry.
+            core.raise %structured_failure
           }
           %updated_messages = core.call @append_tool_call_messages_impl(%messages, %response, %calls)
           %messages = core.let %updated_messages
@@ -867,7 +883,11 @@ module @ax.gen version "0.1" {
           } else {
             %validated_tool_result = core.call @validate_output(%output_fields, %last_tool_result)
             %processed_tool_result = core.call @apply_field_processors(%gen, %validated_tool_result)
-            core.call @run_assertions(%gen, %processed_tool_result)
+            %tool_assertion_failure = core.call @run_assertions(%gen, %processed_tool_result)
+            %tool_assertion_failed = core.call intrinsic.is_not_none(%tool_assertion_failure)
+            core.if %tool_assertion_failed {
+              core.raise %tool_assertion_failure
+            }
             %public_tool_result = core.call @strip_internal_fields(%output_fields, %processed_tool_result)
             core.call intrinsic.axgen.memory_cleanup_corrections(%gen)
             core.call @record_trace(%gen, %values, %public_tool_result, "ok")
@@ -889,6 +909,11 @@ module @ax.gen version "0.1" {
             %messages = core.let %retry_messages
             core.call intrinsic.axgen.memory_add_correction(%gen, %response, %validation_error)
             core.continue
+          }
+          %assertion_failure = core.get %parsed_bundle["assertion_failure"]
+          %assertion_failed = core.call intrinsic.is_not_none(%assertion_failure)
+          core.if %assertion_failed {
+            core.raise %assertion_failure
           }
           %public_outputs = core.get %parsed_bundle["outputs"]
           %structured_samples = core.get %parsed_bundle["samples"]
@@ -970,10 +995,35 @@ module @ax.gen version "0.1" {
     attr emit_module = "gen"
     attr private = true
     tag "assertions-host-boundary"
-    type signature = "(AxGen, json) -> void throws"
+    type signature = "(AxGen, json) -> json throws"
     body @entry(%gen: AxGen, %output: json) {
-      core.call intrinsic.axgen.run_assertions(%gen, %output)
-      core.return
+      // The host evaluates the assertions in order and reports the first
+      // failure: {status: "pass"}, {status: "fail", message?} or
+      // {status: "error", error}. As in TS assertAssertions, a failure with a
+      // message raises a retryable error here. A failure without a message
+      // and an error thrown by the assertion come back to the caller, which
+      // raises them outside its validation retries: TS throws those as plain
+      // errors, which its validation loop does not retry.
+      %result = core.call intrinsic.axgen.run_assertions(%gen, %output)
+      %status = core.get %result["status"] default "pass"
+      %threw = core.call intrinsic.eq(%status, "error")
+      core.if %threw {
+        %thrown = core.get %result["error"]
+        core.return %thrown
+      }
+      %failed = core.call intrinsic.eq(%status, "fail")
+      core.if %failed {
+        %message = core.get %result["message"]
+        %has_message = core.call intrinsic.is_not_none(%message)
+        core.if %has_message {
+          %assertion_error = core.call intrinsic.error.runtime(%message)
+          core.raise %assertion_error
+        }
+        %message_less = core.call intrinsic.error.runtime("Assertion failed without message")
+        core.return %message_less
+      }
+      %passed = core.call intrinsic.none()
+      core.return %passed
     }
   }
 

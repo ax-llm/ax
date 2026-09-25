@@ -2267,33 +2267,49 @@ Value Core::axgen_apply_field_processors(Value gen, Value output) {
   }
   return result;
 }
+static Value assertion_outcome(const std::string& status, const std::string& key = "", Value value = Value()) {
+  Value outcome = Value::object();
+  Core::set(outcome, "status", Value(status));
+  if (!key.empty() && !value.is_null()) Core::set(outcome, key, value);
+  return outcome;
+}
+// Evaluates the assertions in order and reports the first failure as
+// {status: "pass"}, {status: "fail", message?} or {status: "error", error};
+// gen.axir decides what each outcome raises, as TS assertAssertions does.
 Value Core::axgen_run_assertions(Value gen, Value output) {
   for (const auto& raw : array_ref(get(gen, "assertions", Value::array()))) {
+    Value raw_message = get_key(raw, "message");
+    Value message = raw_message.is_null() || str(raw_message).empty() ? Value() : Value(str(raw_message));
     std::string assertion_id = str(get_key(raw, "__assertion_id"));
     if (!assertion_id.empty()) {
       auto it = assertion_registry().find(assertion_id);
       if (it != assertion_registry().end()) {
-        Value returned = it->second(output);
-        if (returned.is_string()) throw AxError("runtime", str(returned));
-        if (returned.is_bool() && !truthy(returned)) throw AxError("runtime", "assertion failed");
+        Value returned;
+        try {
+          returned = it->second(output);
+        } catch (const std::exception& error) {
+          return assertion_outcome("error", "error", exception_value(error));
+        }
+        if (returned.is_string()) return assertion_outcome("fail", "message", returned);
+        if (returned.is_bool() && !truthy(returned)) return assertion_outcome("fail", "message", message);
       }
       continue;
     }
+    Value thrown = get_key(raw, "throw");
+    if (!thrown.is_null()) return assertion_outcome("error", "error", runtime_error(str(thrown)));
     std::string field = str(get_key(raw, "field"));
     Value value = field.empty() ? output : get_key(output, field);
-    std::string message = str(get_key(raw, "message", "assertion failed"));
     Value returned = get_key(raw, "return");
     if (!returned.is_null()) {
-      if (returned.is_bool() && !truthy(returned) && get_key(raw, "message").is_null()) throw AxError("runtime", "assertion failed without message");
-      if (returned.is_bool() && !truthy(returned)) throw AxError("runtime", message);
-      if (returned.is_string()) throw AxError("runtime", str(returned));
+      if (returned.is_bool() && !truthy(returned)) return assertion_outcome("fail", "message", message);
+      if (returned.is_string()) return assertion_outcome("fail", "message", returned);
     }
     Value contains = get_key(raw, "contains");
-    if (!contains.is_null() && str(value).find(str(contains)) == std::string::npos) throw AxError("runtime", message);
+    if (!contains.is_null() && str(value).find(str(contains)) == std::string::npos) return assertion_outcome("fail", "message", message);
     Value equals = get_key(raw, "equals");
-    if (!equals.is_null() && !equal(value, equals)) throw AxError("runtime", message);
+    if (!equals.is_null() && !equal(value, equals)) return assertion_outcome("fail", "message", message);
   }
-  return Value();
+  return assertion_outcome("pass");
 }
 Value Core::axgen_record_trace(Value gen, Value input, Value output, Value status) {
   Value traces = get(gen, "traces", Value::array());
@@ -4280,6 +4296,17 @@ AxGen& AxGen::add_assert(std::function<Value(Value)> assertion) {
   assertion_registry()[id] = std::move(assertion);
   Value spec = Value::object();
   Core::set(spec, "__assertion_id", id);
+  return add_assert(spec);
+}
+
+// A false result fails with the message and is retried with a correction, as
+// TypeScript addAssert(fn, message) is; without a message it surfaces at once.
+AxGen& AxGen::add_assert(std::function<Value(Value)> assertion, std::string message) {
+  std::string id = pointer_id(this) + ":assert:" + std::to_string(assertion_registry().size());
+  assertion_registry()[id] = std::move(assertion);
+  Value spec = Value::object();
+  Core::set(spec, "__assertion_id", id);
+  Core::set(spec, "message", message);
   return add_assert(spec);
 }
 

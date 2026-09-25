@@ -2,16 +2,17 @@
   "assertions": [
     {
       "field": "answer",
+      "message": "answer must be fixed",
       "return": false
     }
   ],
-  "expected_error_contains": "Assertion failed without message",
-  "expected_request_count": 1,
+  "expected_error_contains": "answer must be fixed",
+  "expected_request_count": 4,
   "input": {
     "question": "Assert"
   },
   "kind": "forward",
-  "name": "assertion-false-without-message-error",
+  "name": "assertion-false-with-message-retried",
   "responses": [
     {
       "content": "{\"answer\":\"bad\"}"

@@ -8928,35 +8928,41 @@ func _core_axgen_apply_field_processors(gen Value, output Value) Value {
 	}
 	return result
 }
+// Evaluates the declarative assertions in order and reports the first failure
+// as {status: "pass"}, {status: "fail", message?} or {status: "error", error};
+// gen.axir decides what each outcome raises, as TS assertAssertions does.
 func _core_axgen_run_assertions(gen Value, output Value) (Value, error) {
 	out := asMap(output)
 	for _, raw := range asSlice(coreGet(gen, "assertions", Array())) {
 		assertion := asMap(raw)
+		if thrown, ok := assertion["throw"]; ok {
+			return Object("status", "error", "error", _core_runtime_error(thrown)), nil
+		}
 		field := display(coreGet(assertion, "field", ""))
 		value := output
 		if field != "" {
 			value = coreGet(out, field, nil)
 		}
-		message := display(coreGet(assertion, "message", "assertion failed"))
+		var message Value
+		if text := display(coreGet(assertion, "message", "")); text != "" {
+			message = text
+		}
 		if returned := coreGet(assertion, "return", nil); returned != nil {
 			if b, ok := returned.(bool); ok && !b {
-				if coreGet(assertion, "message", nil) == nil {
-					return nil, AxError{Category: "runtime", Message: "assertion failed without message"}
-				}
-				return nil, AxError{Category: "runtime", Message: message}
+				return Object("status", "fail", "message", message), nil
 			}
 			if s, ok := returned.(string); ok {
-				return nil, AxError{Category: "runtime", Message: s}
+				return Object("status", "fail", "message", s), nil
 			}
 		}
 		if contains := coreGet(assertion, "contains", nil); contains != nil && !strings.Contains(display(value), display(contains)) {
-			return nil, AxError{Category: "runtime", Message: message}
+			return Object("status", "fail", "message", message), nil
 		}
 		if equals := coreGet(assertion, "equals", nil); equals != nil && !equal(value, equals) {
-			return nil, AxError{Category: "runtime", Message: message}
+			return Object("status", "fail", "message", message), nil
 		}
 	}
-	return nil, nil
+	return Object("status", "pass"), nil
 }
 func _core_axgen_record_trace(target Value, items ...Value) Value {
 	event := Object()

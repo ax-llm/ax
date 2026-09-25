@@ -18,12 +18,7 @@ This ledger tracks portable TypeScript behavior that should be migrated into AxI
 
 ## Open
 
-- `axir-2026-09-25-surface-a-message-less-axgen-assertion-failure-without-retrying` [axgen] Surface a message-less AxGen assertion failure without retrying
-  - Status: open
-  - Source commit: `54cb4074079188e739242edabcfff272708d3adc`
-  - TS paths: `src/ax/dsp/asserts.ts`
-  - Impact: In TypeScript an assertion that returns false without a message throws a plain Error (src/ax/dsp/asserts.ts:106), which the AxGen validation loop surfaces after one request; a string result or false with a message is an AxAssertionError and is retried within the validation budget. The generated ports retry all three. Not contained in IR: assertion evaluation and the message-less decision live in host code in every port (intrinsic.axgen.run_assertions in pyGen.py, goRuntime.go.txt, rustLib.rs, javaCore.java and cppRuntime.cpp), each raising a plain runtime error; callable assertions carry no message in any port API, and Go supports only declarative assertion specs. An IR-level fix needs a host-to-IR assertion outcome contract in all five ports.
-  - Suggested AxIR work: Have intrinsic.axgen.run_assertions return assertion outcomes to the IR instead of raising in all five ports; Raise a marked non-retryable error in the IR for a false result without a message and rethrow it from the @forward validation catch; Add an optional message to callable assertions in the port APIs; Pin assertion-false-without-message-error to 1 request and a false-with-message fixture to 4
+No entries.
 
 ## Done
 
@@ -766,3 +761,12 @@ This ledger tracks portable TypeScript behavior that should be migrated into AxI
   - Completed at: 2026-09-25
   - Completed by: `47e80b3888e4a85cbfd21502abe717ea2a9e4863`
   - Verification: `@gemini_build_vertex_embed_request (ir/axcore/provider.axir) now sends the Vertex :predict task type as task_type. @gemini_build_embed_request never sent a task type; it now takes the options and sets taskType on each Gemini API batchEmbedContents request, as TypeScript does. New axai fixtures vertex-gemini-embed-task-type and gemini-embeddings-task-type match what the TS client sends (checked with a capturing fetch); both failed on the previous Python and Go ports and pass in all five ports. Niced npm run test:axir: go test hit two known load flakes (the C++ portable-cancellation wall-clock check, then the 30m timeout); the C++ fixture passed 3/3 alone, and the failed and unfinished go tests passed on rerun; check, lint, audit provenance, lower and verify release for all five targets passed. axir:check-packages and axir:conformance:check passed.`
+- `axir-2026-09-25-surface-a-message-less-axgen-assertion-failure-without-retrying` [axgen] Surface a message-less AxGen assertion failure without retrying
+  - Status: done
+  - Source commit: `54cb4074079188e739242edabcfff272708d3adc`
+  - TS paths: `src/ax/dsp/asserts.ts`
+  - Impact: In TypeScript an assertion that returns false without a message throws a plain Error (src/ax/dsp/asserts.ts:106), which the AxGen validation loop surfaces after one request; a string result or false with a message is an AxAssertionError and is retried within the validation budget. The generated ports retry all three. Not contained in IR: assertion evaluation and the message-less decision live in host code in every port (intrinsic.axgen.run_assertions in pyGen.py, goRuntime.go.txt, rustLib.rs, javaCore.java and cppRuntime.cpp), each raising a plain runtime error; callable assertions carry no message in any port API, and Go supports only declarative assertion specs. An IR-level fix needs a host-to-IR assertion outcome contract in all five ports.
+  - Suggested AxIR work: Have intrinsic.axgen.run_assertions return assertion outcomes to the IR instead of raising in all five ports; Raise a marked non-retryable error in the IR for a false result without a message and rethrow it from the @forward validation catch; Add an optional message to callable assertions in the port APIs; Pin assertion-false-without-message-error to 1 request and a false-with-message fixture to 4
+  - Completed at: 2026-09-25
+  - Completed by: `7feebf199de9fdda7e93f2f2344f2156662eb553`
+  - Verification: `intrinsic.axgen.run_assertions reports {status: pass|fail(message?)|error} in all five ports, and gen.axir @run_assertions raises a retryable error for a failure with a message while returning a message-less failure (Assertion failed without message) or a thrown error to its callers, which raise it outside the validation retries. assertion-false-without-message-error, assertion-contains-without-message-error, assertion-thrown-error-not-retried and assertion-false-without-message-structured-output pin 1 request; assertion-false-with-message-retried and assertion-return-modes pin 4, matching a TypeScript probe; mutation checks fail each rule. Python and Go conformance 950/950; npm run axir:check-packages, npm run axir:conformance:check and npm run test:axir pass.`

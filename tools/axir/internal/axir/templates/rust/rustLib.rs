@@ -19709,20 +19709,46 @@ fn core_axgen_apply_field_processors(args: &[CoreValue]) -> Result<CoreValue, Ax
 
 #[allow(dead_code)]
 #[allow(clippy::all)]
+fn core_axgen_assertion_outcome(status: &str, key: &str, value: CoreValue) -> Result<CoreValue, AxError> {
+    let outcome = CoreValue::new_map();
+    core_set(&outcome, CoreValue::from("status"), CoreValue::from(status))?;
+    if !value.is_null() {
+        core_set(&outcome, CoreValue::from(key), value)?;
+    }
+    Ok(outcome)
+}
+
+// Evaluates the assertions in order and reports the first failure as
+// {status: "pass"}, {status: "fail", message?} or {status: "error", error};
+// gen.axir decides what each outcome raises, as TS assertAssertions does.
+#[allow(dead_code)]
+#[allow(clippy::all)]
 fn core_axgen_run_assertions(args: &[CoreValue]) -> Result<CoreValue, AxError> {
     let gen = core_arg(args, 0);
     let output = core_arg(args, 1);
     let assertions = core_get(&gen, &CoreValue::from("assertions"), CoreValue::Null);
     for assertion in core_axgen_iter_or_empty(&assertions)? {
         if let CoreValue::Host(host) = &assertion {
-            let result = host.call_method("call", &[output.clone()])?;
+            let result = match host.call_method("call", &[output.clone()]) {
+                Ok(result) => result,
+                Err(error) => {
+                    return core_axgen_assertion_outcome("error", "error", CoreValue::Error(Rc::new(error)));
+                }
+            };
             if let Some(text) = result.as_str() {
-                return Err(AxError::runtime(text));
+                return core_axgen_assertion_outcome("fail", "message", CoreValue::from(text));
             }
             if result == CoreValue::Bool(false) {
-                return Err(AxError::runtime("assertion failed"));
+                return core_axgen_assertion_outcome("fail", "message", CoreValue::Null);
             }
             continue;
+        }
+        let has_key =
+            |key: &str| matches!(&assertion, CoreValue::Map(map) if map.borrow().contains(key));
+        if has_key("throw") {
+            let thrown = core_get(&assertion, &CoreValue::from("throw"), CoreValue::Null);
+            let error = CoreValue::Error(Rc::new(AxError::runtime(thrown.text())));
+            return core_axgen_assertion_outcome("error", "error", error);
         }
         let field = core_get(&assertion, &CoreValue::from("field"), CoreValue::Null);
         let value = if core_truthy(&field) {
@@ -19732,45 +19758,34 @@ fn core_axgen_run_assertions(args: &[CoreValue]) -> Result<CoreValue, AxError> {
         };
         let mut message = core_get(&assertion, &CoreValue::from("message"), CoreValue::Null);
         if !core_truthy(&message) {
-            message = CoreValue::from("assertion failed");
+            message = CoreValue::Null;
         }
-        let has_return =
-            matches!(&assertion, CoreValue::Map(map) if map.borrow().contains("return"));
-        if has_return {
+        if has_key("return") {
             let returned = core_get(&assertion, &CoreValue::from("return"), CoreValue::Null);
             if returned.is_null() {
                 continue;
             }
-            let has_message =
-                matches!(&assertion, CoreValue::Map(map) if map.borrow().contains("message"));
-            if returned == CoreValue::Bool(false) && !has_message {
-                return Err(AxError::runtime("assertion failed without message"));
-            }
             if returned == CoreValue::Bool(false) {
-                return Err(AxError::runtime(message.text()));
+                return core_axgen_assertion_outcome("fail", "message", message);
             }
             if let Some(text) = returned.as_str() {
-                return Err(AxError::runtime(text));
+                return core_axgen_assertion_outcome("fail", "message", CoreValue::from(text));
             }
         }
-        let has_contains =
-            matches!(&assertion, CoreValue::Map(map) if map.borrow().contains("contains"));
-        if has_contains {
+        if has_key("contains") {
             let needle = core_get(&assertion, &CoreValue::from("contains"), CoreValue::Null);
             if !value.text().contains(&needle.text()) {
-                return Err(AxError::runtime(message.text()));
+                return core_axgen_assertion_outcome("fail", "message", message);
             }
         }
-        let has_equals =
-            matches!(&assertion, CoreValue::Map(map) if map.borrow().contains("equals"));
-        if has_equals {
+        if has_key("equals") {
             let expected = core_get(&assertion, &CoreValue::from("equals"), CoreValue::Null);
             if value != expected {
-                return Err(AxError::runtime(message.text()));
+                return core_axgen_assertion_outcome("fail", "message", message);
             }
         }
     }
-    Ok(CoreValue::Null)
+    core_axgen_assertion_outcome("pass", "message", CoreValue::Null)
 }
 
 #[allow(dead_code)]
