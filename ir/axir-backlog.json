@@ -1646,7 +1646,7 @@
     },
     {
       "id": "axir-2026-09-24-port-axgen-infrastructure-only-retries",
-      "status": "open",
+      "status": "done",
       "title": "Port AxGen infrastructure-only retries",
       "createdAt": "2026-09-24",
       "sourcePR": null,
@@ -1660,9 +1660,9 @@
         "Let the forward scripted clients raise scripted errors and add fixtures for retried and surfaced errors and for the attempt counts",
         "Retry an AxAIRefusalError inside the AxGen validation budget, with no backoff and no correction message"
       ],
-      "completedAt": null,
-      "completedByCommit": null,
-      "verification": null
+      "completedAt": "2026-09-25",
+      "completedByCommit": "a63d8ec19b624f763dea06dccea60cbb96c389df",
+      "verification": "@complete_with_retries_impl retries only errors that intrinsic.exception.is_infrastructure accepts (5xx status, network, timeout, terminated stream), up to maxRetries (default 3), and @forward retries an AxAIRefusalError inside the validation budget with no backoff and no correction message. Eleven axgen fixtures (infra-retry-*, refusal-*) pin the request counts measured with a TypeScript AxMockAIService probe. Python and Go conformance 915/915; npm run axir:check-packages, npm run axir:conformance:check and npm run test:axir pass."
     },
     {
       "id": "axir-2026-09-24-port-optimizer-teacher-options-and-gepa-teacher-failure-reporting",
