@@ -1294,3 +1294,60 @@ writeFixture('validation-budget-step-exhausted', {
   expected_tool_calls: [searchRecord],
   expected_request_count: 4,
 });
+
+// TS nests the validation loop inside the infrastructure loop of each step.
+// An infrastructure retry spends the step's maxRetries budget and restarts
+// validation with a fresh budget, and the next tool step starts with fresh
+// budgets. The request counts match a TS AxGen probe.
+const unavailable = scriptedError('status', { status: 503 });
+const answered = { content: 'Answer: 4' };
+
+writeFixture('infra-retry-restarts-validation-budget', {
+  kind: 'forward',
+  signature: 'question:string -> answer:number',
+  input: { question: 'Status?' },
+  options: { max_retries: 1 },
+  responses: [badNumber, unavailable, badNumber, answered],
+  expected_output: { answer: 4 },
+  expected_request_count: 4,
+});
+
+writeFixture('infra-retry-restarts-default-validation-budget', {
+  kind: 'forward',
+  signature: 'question:string -> answer:number',
+  input: { question: 'Status?' },
+  responses: [
+    badNumber,
+    badNumber,
+    badNumber,
+    unavailable,
+    badNumber,
+    badNumber,
+    badNumber,
+    answered,
+  ],
+  expected_output: { answer: 4 },
+  expected_request_count: 8,
+});
+
+writeFixture('infra-retry-budget-shared-within-step', {
+  kind: 'forward',
+  signature: 'question:string -> answer:number',
+  input: { question: 'Status?' },
+  options: { max_retries: 1 },
+  responses: [unavailable, badNumber, unavailable, answered],
+  expected_error_contains: 'Service fixture failure',
+  expected_request_count: 3,
+});
+
+writeFixture('infra-retry-budget-resets-per-step', {
+  kind: 'forward',
+  signature: 'query:string -> answer:number',
+  input: { query: 'ax docs' },
+  tools: [searchTool],
+  options: { max_retries: 1 },
+  responses: [unavailable, searchCall('call_1'), unavailable, answered],
+  expected_output: { answer: 4 },
+  expected_tool_calls: [searchRecord],
+  expected_request_count: 4,
+});

@@ -18,7 +18,18 @@ This ledger tracks portable TypeScript behavior that should be migrated into AxI
 
 ## Open
 
-No entries.
+- `axir-2026-09-25-nest-axgen-infrastructure-retries-around-the-validation-loop` [axgen] Nest AxGen infrastructure retries around the validation loop
+  - Status: open
+  - Source commit: `54cb4074079188e739242edabcfff272708d3adc`
+  - TS paths: `src/ax/dsp/generate.ts`
+  - Impact: TypeScript AxGen nests the validation loop inside the infrastructure retry loop of each step: an infrastructure error (5xx status, network, timeout, terminated stream) spends one budget shared by the whole step (maxRetries, default 3) and restarts the validation loop with a fresh validation budget, and the next tool step starts with fresh budgets. The generated ports retried infrastructure errors per request, so each request got its own budget and a retry left the validation attempt count unchanged.
+  - Suggested AxIR work: Retry infrastructure errors in @forward with a step-level budget and reset the validation attempt count on each retry; Reset the infrastructure budget when the tool loop advances a step; Add fixtures with request counts from a TypeScript AxMockAIService probe
+- `axir-2026-09-25-surface-a-message-less-axgen-assertion-failure-without-retrying` [axgen] Surface a message-less AxGen assertion failure without retrying
+  - Status: open
+  - Source commit: `54cb4074079188e739242edabcfff272708d3adc`
+  - TS paths: `src/ax/dsp/asserts.ts`
+  - Impact: In TypeScript an assertion that returns false without a message throws a plain Error (src/ax/dsp/asserts.ts:106), which the AxGen validation loop surfaces after one request; a string result or false with a message is an AxAssertionError and is retried within the validation budget. The generated ports retry all three. Not contained in IR: assertion evaluation and the message-less decision live in host code in every port (intrinsic.axgen.run_assertions in pyGen.py, goRuntime.go.txt, rustLib.rs, javaCore.java and cppRuntime.cpp), each raising a plain runtime error; callable assertions carry no message in any port API, and Go supports only declarative assertion specs. An IR-level fix needs a host-to-IR assertion outcome contract in all five ports.
+  - Suggested AxIR work: Have intrinsic.axgen.run_assertions return assertion outcomes to the IR instead of raising in all five ports; Raise a marked non-retryable error in the IR for a false result without a message and rethrow it from the @forward validation catch; Add an optional message to callable assertions in the port APIs; Pin assertion-false-without-message-error to 1 request and a false-with-message fixture to 4
 
 ## Done
 

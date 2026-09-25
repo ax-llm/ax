@@ -394,7 +394,6 @@ func TestLoadCheckLowerAxCore(t *testing.T) {
 		"op core.func @execute_tool_call",
 		"op core.func @build_gen_chat_request",
 		"op core.method @forward",
-		"op core.func @complete_with_retries_impl",
 		"op core.func @fold_stream",
 		"op core.func @stream_event_content_parts_impl",
 		"op core.func @ai",
@@ -763,7 +762,7 @@ func TestBuildRuntimeModel(t *testing.T) {
 			t.Fatalf("runtime model missing core body source for %s: %#v", want, model.BodySources)
 		}
 	}
-	for _, want := range []string{"signature_parse_impl", "signature_parse_type_expr_impl", "signature_parse_modifier_bag_impl", "signature_parse_object_fields_impl", "schema_to_json_schema_impl", "validate_value_impl", "template_parse_impl", "prompt_messages_impl", "complete_with_retries_impl", "parse_output_impl", "tool_spec_impl", "ai_model_usage_impl", "openai_message_impl", "openai_stream_choice_impl", "stream_event_content_parts_impl"} {
+	for _, want := range []string{"signature_parse_impl", "signature_parse_type_expr_impl", "signature_parse_modifier_bag_impl", "signature_parse_object_fields_impl", "schema_to_json_schema_impl", "validate_value_impl", "template_parse_impl", "prompt_messages_impl", "parse_output_impl", "tool_spec_impl", "ai_model_usage_impl", "openai_message_impl", "openai_stream_choice_impl", "stream_event_content_parts_impl"} {
 		if model.BodySources[want] != "core" || !model.PrivateSymbols[want] {
 			t.Fatalf("runtime model missing private core helper %s: body=%#v private=%#v", want, model.BodySources, model.PrivateSymbols)
 		}
@@ -3766,7 +3765,6 @@ func TestPythonGeneratedIdioms(t *testing.T) {
 	for _, want := range []string{
 		"# BEGIN AXIR CORE EMITTED FUNCTIONS",
 		"def _build_gen_chat_request(",
-		"def _complete_with_retries_impl(",
 		"def _parse_output_impl(",
 		"def _render_examples(",
 		"def _render_demos(",
