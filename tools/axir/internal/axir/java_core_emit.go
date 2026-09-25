@@ -448,6 +448,8 @@ func javaLiteral(value interface{}) string {
 			return javaName(v)
 		}
 		return javaStringLiteral(v)
+	case QuotedString:
+		return javaStringLiteral(string(v))
 	case bool:
 		if v {
 			return "Boolean.TRUE"

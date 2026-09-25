@@ -46,8 +46,13 @@ func checkOpTypeAttrs(file string, op Operation, known map[string]bool) Diagnost
 		if attr.Kind != "type" {
 			continue
 		}
-		value, ok := attr.Value.(string)
-		if !ok {
+		var value string
+		switch v := attr.Value.(type) {
+		case string:
+			value = v
+		case QuotedString:
+			value = string(v)
+		default:
 			continue
 		}
 		owner := op.Symbol

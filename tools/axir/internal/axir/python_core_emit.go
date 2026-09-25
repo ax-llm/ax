@@ -615,6 +615,8 @@ func pythonLiteral(value interface{}) string {
 			return pyName(v)
 		}
 		return strconv.Quote(v)
+	case QuotedString:
+		return strconv.Quote(string(v))
 	case bool:
 		if v {
 			return "True"

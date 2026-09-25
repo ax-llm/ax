@@ -2602,6 +2602,15 @@ func TestCoreBodyCheckerDiagnostics(t *testing.T) {
 			want: "core.try missing error binding",
 		},
 		{
+			name: "quoted raise error",
+			op: badBodyOp([]Operation{{
+				Name:       "core.raise",
+				Attributes: []Attribute{{Kind: "attr", Name: "error", Value: QuotedString("%input"), Line: 4}},
+				Line:       4,
+			}}),
+			want: "core.raise error must be a value ref",
+		},
+		{
 			name: "unreachable after terminator",
 			op: badBodyOp([]Operation{
 				{Name: "core.return", Line: 4},
