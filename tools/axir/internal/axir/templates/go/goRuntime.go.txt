@@ -2977,12 +2977,30 @@ func finishAIOperation(hooks AxRuntimeHooks, attributes map[string]Value, span A
 	finishRuntimeSpan(span, err)
 }
 
+// requireExpensiveModelConfirmation runs the Core expensive-model gate for one
+// chat call before anything is sent. provider is the catalog provider id, the
+// model is the request's model or defaultModel, clientOptions are the client's
+// own stored options and options the per-call options. The two are not merged:
+// only the call options or a model-key entry confirm an expensive model, as in TS.
+func requireExpensiveModelConfirmation(provider string, request map[string]Value, defaultModel Value, clientOptions map[string]Value, options map[string]Value) error {
+	model := coreGet(request, "model", nil)
+	if !coreTruthy(model) {
+		model = defaultModel
+	}
+	_, err := provider_require_expensive_model_confirmation(provider, display(model), clientOptions, stripRuntimeHooks(options))
+	return err
+}
+
 func (c *OpenAICompatibleClient) Chat(ctx context.Context, request map[string]Value, options map[string]Value) (Value, error) {
 	if err := contextCancellationError(ctx); err != nil { return nil, err }
 	hooks, previousUsage := c.runtimeHooksSnapshot()
 	hooks = effectiveRuntimeHooks(ctx, options, hooks)
-	mergedOptions := mergeAIOptions(c.optionsSnapshot(), stripRuntimeHooks(options))
-	modelName := display(coreGet(request, "model", coreGet(c.optionsSnapshot(), "model", "")))
+	clientOptions := c.optionsSnapshot()
+	mergedOptions := mergeAIOptions(clientOptions, stripRuntimeHooks(options))
+	modelName := display(coreGet(request, "model", coreGet(clientOptions, "model", "")))
+	if err := requireExpensiveModelConfirmation(c.Profile, request, coreGet(clientOptions, "model", nil), clientOptions, options); err != nil {
+		return nil, err
+	}
 	streaming := coreTruthy(coreGet(coreGet(request, "model_config", Object()), "stream", coreGet(mergedOptions, "stream", false)))
 	attributes, span, started := beginAIOperation(ctx, hooks, "chat", c.Name, modelName, streaming)
 	next := func() (Value, error) {
@@ -3352,6 +3370,12 @@ func (c *OpenAICompatibleClient) StreamEvents(ctx context.Context, request map[s
         return newAxChatStream(func()(Value,error){if delivered{return nil,io.EOF};delivered=true;return response,nil},nil,nil),nil
     }
 	if err := contextCancellationError(ctx); err != nil { return nil, err }
+	// Streamed requests don't go through Chat, so they run the same
+	// expensive-model gate before any request (realtime or HTTP stream).
+	gateOptions := c.optionsSnapshot()
+	if err := requireExpensiveModelConfirmation(c.Profile, request, coreGet(gateOptions, "model", nil), gateOptions, options); err != nil {
+		return nil, err
+	}
 	prepared, prepareErr := safeValue(func() Value { return c.prepareChatRequest(request, Object("stream", true)) })
 	if prepareErr != nil { return nil, prepareErr }
 	realtimeRequest := asMap(prepared)
@@ -6765,6 +6789,16 @@ func (b *AxBootstrapFewShot) Optimize(request map[string]Value, evaluator Optimi
 		if maxExamples < len(train) {
 			train = train[:maxExamples]
 		}
+		// teacherOptions become the demo runs' forward options; explicit
+		// forward_options win.
+		var forwardOptions map[string]Value
+		if teacherOptions := asMap(optimizeOption(options, "teacherOptions", "teacher_options")); coreTruthy(teacherOptions) {
+			forwardOptions = cloneMap(teacherOptions)
+			explicit := asMap(coreGet(options, "forward_options", nil))
+			for _, key := range orderedKeys(explicit) {
+				coreSet(forwardOptions, key, explicit[key])
+			}
+		}
 		base := gepaCurrentMap(components)
 		demos := Array()
 		accepted := map[string]bool{}
@@ -6783,7 +6817,11 @@ func (b *AxBootstrapFewShot) Optimize(request map[string]Value, evaluator Optimi
 					if accepted[exampleKey] {
 						continue
 					}
-					result, err := evaluator.Evaluate(cloneMap(base), Object("dataset", Object("train", Array(example), "validation", Array()), "phase", "bootstrap", "round", round))
+					evaluateOptions := Object("dataset", Object("train", Array(example), "validation", Array()), "phase", "bootstrap", "round", round)
+					if forwardOptions != nil {
+						coreSet(evaluateOptions, "forward_options", cloneMap(forwardOptions))
+					}
+					result, err := evaluator.Evaluate(cloneMap(base), evaluateOptions)
 					if err != nil {
 						panic(err)
 					}
@@ -7160,17 +7198,64 @@ func (g *AxGEPA) gepaReflect(component map[string]Value, current string, rows []
 	if attempts <= 0 {
 		attempts = 1
 	}
+	// teacherOptions ride on every reflection call; stream stays off.
+	chatOptions := Object()
+	teacherOptions := asMap(optimizeOption(options, "teacherOptions", "teacher_options"))
+	for _, key := range orderedKeys(teacherOptions) {
+		coreSet(chatOptions, key, cloneValue(teacherOptions[key]))
+	}
+	coreSet(chatOptions, "stream", false)
+	var lastErr error
 	for i := 0; i < attempts; i++ {
-		response, err := g.ReflectionClient.Chat(context.Background(), Object("chatPrompt", Array(Object("role", "user", "content", stableStringify(Object("componentKey", coreGet(component, "id", ""), "currentValue", current, "rows", rows))))), Object())
+		lastErr = nil
+		response, err := g.ReflectionClient.Chat(context.Background(), Object("chatPrompt", Array(Object("role", "user", "content", stableStringify(Object("componentKey", coreGet(component, "id", ""), "currentValue", current, "rows", rows))))), cloneMap(chatOptions))
 		if err != nil {
-			panic(err)
+			// A cancelled run stops the optimizer; any other teacher failure
+			// moves on to the next attempt.
+			if gepaTeacherAborted(err) {
+				panic(err)
+			}
+			lastErr = err
+			continue
 		}
 		candidate := gepaExtractReflectionText(response)
 		if gepaValidateComponent(component, candidate) {
 			return candidate
 		}
 	}
+	if lastErr != nil {
+		gepaLogTeacherFailure(options, fmt.Sprintf("proposing a new value for %s; keeping the current value", display(coreGet(component, "id", ""))), lastErr)
+	}
 	return current
+}
+func gepaTeacherAborted(err error) bool {
+	return errors.Is(err, context.Canceled) || coreTruthy(_core_exception_is_aborted(errorValue(err)))
+}
+
+// gepaTeacherLogger resolves where GEPA reports teacher-call failures: nowhere
+// when verbose is exactly false, else the options logger (func(Value) or
+// func(map[string]Value), optionally returning a Value). Go AI clients expose
+// no logger, so there is no student-client fallback.
+func gepaTeacherLogger(options map[string]Value) func(Value) {
+	if verbose, ok := coreGet(options, "verbose", nil).(bool); ok && !verbose {
+		return nil
+	}
+	switch logger := coreGet(options, "logger", nil).(type) {
+	case func(Value):
+		return logger
+	case func(map[string]Value):
+		return func(value Value) { logger(asMap(value)) }
+	case func(Value) Value:
+		return func(value Value) { _ = logger(value) }
+	case func(map[string]Value) Value:
+		return func(value Value) { _ = logger(asMap(value)) }
+	}
+	return nil
+}
+func gepaLogTeacherFailure(options map[string]Value, action string, err error) {
+	if logger := gepaTeacherLogger(options); logger != nil {
+		logger(Object("name", "Notification", "id", "gepa_teacher", "value", fmt.Sprintf("GEPA teacher call failed while %s: %s", action, err.Error())))
+	}
 }
 func gepaExtractReflectionText(response Value) string {
 	results := asSlice(coreGet(response, "results", Array()))
@@ -7757,6 +7842,7 @@ type AxPlaybook struct {
 	engine           *AxACE
 	studentAI        AIClient
 	teacherAI        AIClient
+	teacherOptions   map[string]Value
 	baseInstruction  string
 	verbose          bool
 	started          bool
@@ -7816,11 +7902,12 @@ func Playbook(program *AxGen, options map[string]Value) *AxPlaybook {
 		}
 	}
 	pb := &AxPlaybook{
-		program:   program,
-		studentAI: student,
-		teacherAI: teacher,
-		verbose:   coreTruthy(coreGet(options, "verbose", false)),
-		ctx:       context.Background(),
+		program:        program,
+		studentAI:      student,
+		teacherAI:      teacher,
+		teacherOptions: cloneMap(asMap(playbookOption(options, "teacherOptions", "teacher_options"))),
+		verbose:        coreTruthy(coreGet(options, "verbose", false)),
+		ctx:            context.Background(),
 	}
 	pb.engine = NewACE(pb.runReflector, pb.runCurator, pb.runGenerator, engineOptions)
 	if auto := coreGet(options, "auto", nil); auto != nil {
@@ -7881,7 +7968,7 @@ func (p *AxPlaybook) runReflector(payload map[string]Value) Value {
 	if previous := coreGet(payload, "previous_reflection", nil); previous != nil {
 		coreSet(request, "previous_reflection", playbookStringify(previous))
 	}
-	out, err := p.reflector().Forward(p.ctx, reflectorAI, request, nil)
+	out, err := p.reflector().Forward(p.ctx, reflectorAI, request, cloneMap(p.teacherOptions))
 	if err != nil {
 		if p.verbose {
 			fmt.Println("[AxPlaybook] reflector error:", err)
@@ -7903,7 +7990,7 @@ func (p *AxPlaybook) runCurator(payload map[string]Value) Value {
 		"question_context", playbookStringify(coreGet(payload, "question_context", nil)),
 		"token_budget", coreGet(payload, "token_budget", 1024),
 	)
-	out, err := p.curator().Forward(p.ctx, curatorAI, request, nil)
+	out, err := p.curator().Forward(p.ctx, curatorAI, request, cloneMap(p.teacherOptions))
 	if err != nil {
 		if p.verbose {
 			fmt.Println("[AxPlaybook] curator error:", err)
@@ -7986,9 +8073,19 @@ func (p *AxPlaybook) EvolveAgent(ctx context.Context, dataset Value, options map
 		maxMetricCalls = 1
 	}
 	remaining := maxMetricCalls
-	teacherAI := playbookClient(playbookOption(options, "teacherAI", "teacher_ai", "teacher"))
+	evolveTeacher := playbookClient(playbookOption(options, "teacherAI", "teacher_ai", "teacher"))
+	teacherAI := evolveTeacher
 	if teacherAI == nil {
 		teacherAI = p.teacherAI
+	}
+	// The miner's options go with its model: explicit evolve teacherOptions,
+	// else the playbook's own when the miner runs on the playbook's teacher
+	// (always the case without an evolve teacherAI).
+	minerOptions := Object()
+	if raw := playbookOption(options, "teacherOptions", "teacher_options"); raw != nil {
+		minerOptions = cloneMap(asMap(raw))
+	} else if evolveTeacher == nil {
+		minerOptions = cloneMap(p.teacherOptions)
 	}
 	type batch struct {
 		records   []Value
@@ -8159,7 +8256,7 @@ func (p *AxPlaybook) EvolveAgent(ctx context.Context, dataset Value, options map
 			coreSet(request, "currentPlaybook", rendered)
 		}
 		miner := NewAx(agentPlaybookWeaknessMinerSignature, Object("id", "agent.playbook.weakness-miner", "instruction", "Identify one recurring weakness and one narrow durable avoidance rule. Every evidence quote must be copied verbatim from actionLogExcerpts."))
-		mined, minerErr := miner.Forward(ctx, teacherAI, request, nil)
+		mined, minerErr := miner.Forward(ctx, teacherAI, request, cloneMap(minerOptions))
 		if minerErr != nil {
 			continue
 		}
@@ -9498,6 +9595,26 @@ type conformanceScriptedAI struct {
 	ChatOptions         []map[string]Value
 	ChatCalls           int
 	Features            map[string]Value
+	// Name, Model and Options are the client's name (default "scripted"),
+	// default chat model (default "scripted-chat") and client-level options.
+	Name    string
+	Model   string
+	Options map[string]Value
+}
+
+// conformanceApplyScriptedClientSpec configures a scripted client from a
+// fixture client spec: {"name"?, "model"?, "options"?}.
+func conformanceApplyScriptedClientSpec(client *conformanceScriptedAI, spec Value) *conformanceScriptedAI {
+	if name := display(coreGet(spec, "name", nil)); name != "" {
+		client.Name = name
+	}
+	if model := display(coreGet(spec, "model", nil)); model != "" {
+		client.Model = model
+	}
+	if options := coreGet(spec, "options", nil); coreTruthy(options) {
+		client.Options = asMap(cloneValue(options))
+	}
+	return client
 }
 
 func (f *conformanceScriptedAI) GetFeatures(string) map[string]Value {
@@ -9518,6 +9635,18 @@ func (f *conformanceScriptedAI) Transcribe(ctx context.Context, request map[stri
 }
 
 func (f *conformanceScriptedAI) Chat(ctx context.Context, request map[string]Value, options map[string]Value) (Value, error) {
+	// The scripted client stands in for a provider client, so it runs the same
+	// expensive-model gate first; a rejected call records nothing.
+	name, model := f.Name, f.Model
+	if name == "" {
+		name = "scripted"
+	}
+	if model == "" {
+		model = "scripted-chat"
+	}
+	if err := requireExpensiveModelConfirmation(name, request, model, f.Options, options); err != nil {
+		return nil, err
+	}
 	f.ChatCalls++
 	f.Requests = append(f.Requests, cloneMap(request))
 	f.ChatOptions = append(f.ChatOptions, cloneMap(options))
@@ -10764,7 +10893,7 @@ func runConformanceForward(fixture map[string]Value) {
 			return int(num(pickerIndex)), nil
 		})
 	}
-	client := &conformanceScriptedAI{Responses: asSlice(coreGet(fixture, "responses", Array())), StreamEvents: asSlice(coreGet(fixture, "stream_events", Array())), Features: asMap(coreGet(fixture, "features", Object()))}
+	client := conformanceApplyScriptedClientSpec(&conformanceScriptedAI{Responses: asSlice(coreGet(fixture, "responses", Array())), StreamEvents: asSlice(coreGet(fixture, "stream_events", Array())), Features: asMap(coreGet(fixture, "features", Object()))}, coreGet(fixture, "client", nil))
 	output := expectMaybeFixtureError(func() Value {
 		out, err := gen.Forward(context.Background(), client, asMap(coreGet(fixture, "input", Object())), asMap(coreGet(fixture, "forward_options", Object())))
 		if err != nil {
@@ -11004,7 +11133,7 @@ func conformanceAIClient(fixture map[string]Value) (*OpenAICompatibleClient, *Sc
 func runConformanceAIChat(fixture map[string]Value) {
 	client, transport := conformanceAIClient(fixture)
 	output := expectMaybeFixtureError(func() Value {
-		out, err := client.Chat(context.Background(), asMap(coreGet(fixture, "request", Object())), Object())
+		out, err := client.Chat(context.Background(), asMap(coreGet(fixture, "request", Object())), asMap(coreGet(fixture, "options", Object())))
 		if err != nil {
 			panic(err)
 		}
@@ -11248,8 +11377,12 @@ func runConformanceAIStream(fixture map[string]Value) {
 		}
 		return v
 	}, fixture, nil)
-	if expected := coreGet(fixture, "expected_output", nil); expected != nil {
-		assertEqual(output, expected, "ai stream output")
+	// An expected failure was already matched by expectMaybeFixtureError; only
+	// the transport assertions apply then.
+	if coreGet(fixture, "expected_error_contains", nil) == nil {
+		if expected := coreGet(fixture, "expected_output", nil); expected != nil {
+			assertEqual(output, expected, "ai stream output")
+		}
 	}
 	assertTransportRequest(fixture, transport)
 }
@@ -11817,8 +11950,13 @@ func runConformanceOptimizeInner(fixture map[string]Value) {
 	case "gepa":
 		components := coreGet(fixture, "components", program.GetOptimizableComponents())
 		request := Object("contractVersion", "axir-optimize-contract-v1", "programKind", conformanceProgramKind(fixture), "components", components, "dataset", mustCore(_normalize_optimization_dataset(coreGet(fixture, "dataset", Array()))), "options", coreGet(fixture, "optimize_options", Object()), "trace", Object(), "evaluator", Object("available", true, "contractVersion", "axir-optimizer-evaluator-v1"))
-		reflection := &conformanceScriptedAI{Responses: asSlice(coreGet(fixture, "reflection_responses", Array()))}
-		engine := NewGEPA(reflection, asMap(coreGet(fixture, "gepa_options", Object())))
+		reflection := conformanceApplyScriptedClientSpec(&conformanceScriptedAI{Responses: asSlice(coreGet(fixture, "reflection_responses", Array()))}, coreGet(fixture, "reflection_client", nil))
+		gepaOptions := cloneMap(asMap(coreGet(fixture, "gepa_options", Object())))
+		notifications := []Value{}
+		if coreGet(fixture, "expected_notifications", nil) != nil {
+			coreSet(gepaOptions, "logger", func(notification Value) { notifications = append(notifications, cloneValue(notification)) })
+		}
+		engine := NewGEPA(reflection, gepaOptions)
 		evaluator := &conformanceGEPAEvaluator{Fixture: fixture, Evaluations: MutableArray()}
 		artifact, err := engine.Optimize(request, evaluator)
 		if err != nil {
@@ -11829,6 +11967,12 @@ func runConformanceOptimizeInner(fixture map[string]Value) {
 		}
 		if expected := coreGet(fixture, "expected_gepa_evaluations_subset", nil); expected != nil {
 			assertListSubset(evaluator.Evaluations, expected, "GEPA evaluations")
+		}
+		if expected := coreGet(fixture, "expected_reflection_request_count", nil); expected != nil && len(reflection.Requests) != int(num(expected)) {
+			panic(AxError{Category: "fixture", Message: fmt.Sprintf("expected %d reflection requests, got %d", int(num(expected)), len(reflection.Requests))})
+		}
+		if expected := coreGet(fixture, "expected_notifications", nil); expected != nil {
+			assertConformanceNotifications(notifications, asSlice(expected))
 		}
 	case "bootstrap":
 		components := coreGet(fixture, "components", program.GetOptimizableComponents())
@@ -11851,6 +11995,9 @@ func runConformanceOptimizeInner(fixture map[string]Value) {
 		}
 		if expected := coreGet(fixture, "expected_gepa_evaluations_subset", nil); expected != nil {
 			assertListSubset(evaluator.Evaluations, expected, "BootstrapFewShot evaluations")
+		}
+		if expected := coreGet(fixture, "expected_evaluate_options_subset", nil); expected != nil {
+			assertListSubset(evaluator.EvaluateOptions, expected, "BootstrapFewShot evaluate options")
 		}
 	case "helper":
 		artifact, err := Optimize(program, coreGet(fixture, "dataset", Array()), asMap(coreGet(fixture, "optimize_options", Object())))
@@ -12046,12 +12193,44 @@ func conformanceVerificationSummary() Value {
 	)
 }
 
+// assertConformanceNotifications checks captured notifications against
+// fixture specs: same count; name/id equal when given; value contains every
+// value_contains string.
+func assertConformanceNotifications(actual []Value, expected []Value) {
+	if len(actual) != len(expected) {
+		panic(AxError{Category: "fixture", Message: fmt.Sprintf("expected %d notifications, got %d: %s", len(expected), len(actual), stableStringify(Array(actual...)))})
+	}
+	for index, spec := range expected {
+		notification := actual[index]
+		for _, key := range []string{"name", "id"} {
+			if want := coreGet(spec, key, nil); want != nil && !equal(coreGet(notification, key, nil), want) {
+				panic(AxError{Category: "fixture", Message: fmt.Sprintf("notification %d %s: expected %s, got %s", index, key, stableStringify(want), stableStringify(coreGet(notification, key, nil)))})
+			}
+		}
+		value := display(coreGet(notification, "value", ""))
+		for _, needle := range asSlice(coreGet(spec, "value_contains", Array())) {
+			if !strings.Contains(value, display(needle)) {
+				panic(AxError{Category: "fixture", Message: fmt.Sprintf("notification %d value missing %q: %s", index, display(needle), value)})
+			}
+		}
+	}
+}
+
 type conformanceGEPAEvaluator struct {
 	Fixture     map[string]Value
 	Evaluations *AxArray
+	// EvaluateOptions records each Evaluate call's options without the dataset.
+	EvaluateOptions []Value
 }
 
 func (e *conformanceGEPAEvaluator) Evaluate(candidateMap map[string]Value, options map[string]Value) (Value, error) {
+	recorded := Object()
+	for _, key := range orderedKeys(options) {
+		if key != "dataset" {
+			coreSet(recorded, key, cloneValue(options[key]))
+		}
+	}
+	e.EvaluateOptions = append(e.EvaluateOptions, recorded)
 	normalized := asMap(mustCore(_normalize_optimization_dataset(coreGet(options, "dataset", coreGet(e.Fixture, "dataset", Array())))))
 	rows := MutableArray()
 	components := asSlice(coreGet(e.Fixture, "components", Array()))
@@ -13089,34 +13268,63 @@ func runConformanceAgentPlaybookEvolve(fixture map[string]Value) {
 	if len(sourceResponses) > 0 {
 		response = sourceResponses[0]
 	}
+	teacherSpec := coreGet(fixture, "teacher_client", nil)
 	for _, rawCase := range asSlice(coreGet(fixture, "cases", Array())) {
 		testCase := asMap(rawCase)
-		responses := Array()
-		for i := 0; i < 32; i++ {
-			responses = append(responses, cloneValue(response))
+		scriptedResponses := func() []Value {
+			responses := Array()
+			for i := 0; i < 32; i++ {
+				responses = append(responses, cloneValue(response))
+			}
+			return responses
 		}
-		client := &conformanceScriptedAI{Responses: responses}
+		client := &conformanceScriptedAI{Responses: scriptedResponses()}
+		// A configured teacher runs the playbook's reflector/curator and the
+		// evolve weakness miner; otherwise the student client does.
+		teacher := client
+		if teacherSpec != nil {
+			teacher = conformanceApplyScriptedClientSpec(&conformanceScriptedAI{Responses: scriptedResponses()}, teacherSpec)
+		}
 		runtime := newConformanceScriptedCodeRuntime(coreGet(fixture, "runtime_script", Array()), Object())
 		runtime.LanguageName = display(coreGet(fixture, "runtime_language", "Python"))
 		agentOptions := cloneMap(asMap(coreGet(fixture, "options", Object())))
 		coreSet(agentOptions, "runtime", runtime)
 		ag := NewAgent(display(coreGet(fixture, "signature", "question:string -> answer:string")), agentOptions)
-		playbook := ag.Playbook(Object("target", "responder", "studentAI", client, "teacherAI", client, "maxEpochs", 1))
+		playbookOptions := Object("target", "responder", "studentAI", client, "teacherAI", teacher, "maxEpochs", 1)
+		extraPlaybookOptions := asMap(coreGet(testCase, "playbook_options", Object()))
+		for _, key := range orderedKeys(extraPlaybookOptions) {
+			coreSet(playbookOptions, key, cloneValue(extraPlaybookOptions[key]))
+		}
+		playbook := ag.Playbook(playbookOptions)
 		if seed := coreGet(fixture, "seed", nil); seed != nil {
 			playbook.Load(asMap(seed))
 		}
 		before := stableStringify(playbook.ToJSON())
-		actual, err := playbook.EvolveAgent(context.Background(), coreGet(fixture, "dataset", Object()), asMap(coreGet(testCase, "options", Object())))
+		evolveOptions := cloneMap(asMap(coreGet(testCase, "options", Object())))
+		if teacherSpec != nil {
+			coreSet(evolveOptions, "teacherAI", teacher)
+		}
+		actual, err := playbook.EvolveAgent(context.Background(), coreGet(fixture, "dataset", Object()), evolveOptions)
 		if err != nil {
 			panic(err)
 		}
 		outcomes := asSlice(coreGet(actual, "outcomes", Array()))
 		label := "playbook evolve " + display(coreGet(testCase, "name", "case"))
+		expected := asMap(coreGet(testCase, "expected", Object()))
+		expectedOutcomeCount := coreGet(expected, "outcome_count", nil)
+		if expectedOutcomeCount != nil && len(outcomes) != int(num(expectedOutcomeCount)) {
+			panic(AxError{Category: "fixture", Message: fmt.Sprintf("%s outcome count: expected %d, got %d: %s", label, int(num(expectedOutcomeCount)), len(outcomes), stableStringify(actual))})
+		}
+		if want := coreGet(testCase, "expected_teacher_request_count", nil); want != nil && len(teacher.Requests) != int(num(want)) {
+			panic(AxError{Category: "fixture", Message: fmt.Sprintf("%s expected %d teacher requests, got %d", label, int(num(want)), len(teacher.Requests))})
+		}
 		if len(outcomes) == 0 {
+			if expectedOutcomeCount != nil && int(num(expectedOutcomeCount)) == 0 {
+				continue
+			}
 			panic(AxError{Category: "fixture", Message: label + " produced no outcome: " + stableStringify(actual)})
 		}
 		outcome := outcomes[0]
-		expected := asMap(coreGet(testCase, "expected", Object()))
 		if value := coreGet(expected, "accepted", nil); value != nil {
 			assertEqual(coreGet(outcome, "accepted", nil), value, label+" accepted")
 		}
