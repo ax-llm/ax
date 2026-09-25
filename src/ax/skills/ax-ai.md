@@ -650,6 +650,14 @@ AI, Ax selects the service hostname from the location automatically:
 Pass the canonical lower-case Vertex location ID. Ax preserves the supplied
 value and does not normalize or validate it.
 
+`gemini-embedding-2` is the exception: Vertex serves it only at `global`
+through `:embedContent`, so Ax sends its embeddings there whatever `region` is
+set. Each request embeds exactly one text (pass several and `embed()` throws,
+because Vertex would fuse them into one vector), and no task type is sent even
+when `embedType` is configured, since Vertex ignores one for this model. Put
+task instructions in the text itself, e.g. `task: search result | query: {content}`. Other embedding models keep the
+regional `:predict` endpoint.
+
 The generated Python, Java, C++, Go, and Rust clients accept the same
 `projectId` / `project_id`, `region`, and optional `endpointId` / `endpoint_id`
 options. In generated clients, `apiKey` / `api_key` is a caller-supplied bearer

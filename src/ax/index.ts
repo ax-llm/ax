@@ -379,6 +379,8 @@ import {
   type AxAIGoogleGeminiToolGoogleSearchRetrieval,
   type AxAIGoogleVertexBatchEmbedRequest,
   type AxAIGoogleVertexBatchEmbedResponse,
+  type AxAIGoogleVertexEmbedContentRequest,
+  type AxAIGoogleVertexEmbedContentResponse,
 } from './ai/google-gemini/types.js';
 import {
   axModelInfoMeta,
@@ -1763,6 +1765,8 @@ export type { AxAIGoogleGeminiToolGoogleMaps };
 export type { AxAIGoogleGeminiToolGoogleSearchRetrieval };
 export type { AxAIGoogleVertexBatchEmbedRequest };
 export type { AxAIGoogleVertexBatchEmbedResponse };
+export type { AxAIGoogleVertexEmbedContentRequest };
+export type { AxAIGoogleVertexEmbedContentResponse };
 export type { AxAIInputModelList };
 export type { AxAIMemory };
 export type { AxAIMetaArgs };

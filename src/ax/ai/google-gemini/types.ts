@@ -374,6 +374,30 @@ export type AxAIGoogleVertexBatchEmbedResponse = {
   }[];
 };
 
+/**
+ * AxAIGoogleVertexEmbedContentRequest: Structure for a single-text Vertex `:embedContent` request.
+ */
+export type AxAIGoogleVertexEmbedContentRequest = {
+  content: {
+    parts: { text: string }[];
+  };
+  autoTruncate?: boolean;
+  outputDimensionality?: number;
+};
+
+/**
+ * AxAIGoogleVertexEmbedContentResponse: Structure for handling a Vertex `:embedContent` response.
+ */
+export type AxAIGoogleVertexEmbedContentResponse = {
+  embedding: {
+    values: number[];
+  };
+  usageMetadata?: {
+    promptTokenCount?: number;
+    totalTokenCount?: number;
+  };
+};
+
 // ============================================================================
 // Context Cache Types (for explicit caching support)
 // ============================================================================

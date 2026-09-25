@@ -620,6 +620,157 @@ describe('AxAIGoogleGemini model key preset merging', () => {
     });
   });
 
+  describe('gemini-embedding-2 embeddings', () => {
+    const embedContentResponse = {
+      embedding: { values: [0.1, 0.2, 0.3] },
+      usageMetadata: { promptTokenCount: 2, totalTokenCount: 2 },
+    };
+
+    const createVertexAI = (
+      fetch: typeof globalThis.fetch,
+      { beta, autoTruncate }: { beta?: boolean; autoTruncate?: boolean } = {}
+    ) =>
+      new AxAIGoogleGemini({
+        apiKey: async () => 'vertex-token',
+        projectId: 'demo-project',
+        region: 'us-central1',
+        config: {
+          model: AxAIGoogleGeminiModel.Gemini25Flash,
+          embedModel: AxAIGoogleGeminiEmbedModel.GeminiEmbedding2,
+          embedType: AxAIGoogleGeminiEmbedTypes.RetrievalDocument,
+          dimensions: 768,
+          autoTruncate,
+        },
+        options: { beta, fetch },
+      });
+
+    it('sends one text to the global :embedContent endpoint with no task type', async () => {
+      const capture: { calls: Array<{ url: string; body?: any }> } = {
+        calls: [],
+      };
+      const fetch = createSequencedMockFetch([embedContentResponse], capture);
+      const ai = createVertexAI(fetch);
+
+      const res = await ai.embed({ texts: ['hello world'] });
+
+      // Vertex serves this model only at locations/global; us-central1 404s.
+      expect(capture.calls[0]?.url).toBe(
+        'https://aiplatform.googleapis.com/v1/projects/demo-project/locations/global/publishers/google/models/gemini-embedding-2:embedContent'
+      );
+      // embedType is configured, but Vertex ignores a task type for this model.
+      expect(capture.calls[0]?.body).toEqual({
+        content: { parts: [{ text: 'hello world' }] },
+        outputDimensionality: 768,
+      });
+      expect(res.embeddings).toEqual([[0.1, 0.2, 0.3]]);
+      expect(res.modelUsage?.model).toBe('gemini-embedding-2');
+      expect(res.modelUsage?.tokens).toEqual({
+        promptTokens: 2,
+        completionTokens: 0,
+        totalTokens: 2,
+      });
+      expect(ai.getLastUsedEmbedModel()).toBe('gemini-embedding-2');
+    });
+
+    it('honors options.beta by routing onto v1beta1', async () => {
+      const capture: { calls: Array<{ url: string; body?: any }> } = {
+        calls: [],
+      };
+      const fetch = createSequencedMockFetch([embedContentResponse], capture);
+      const ai = createVertexAI(fetch, { beta: true });
+
+      await ai.embed({ texts: ['hello world'] });
+
+      expect(capture.calls[0]?.url).toBe(
+        'https://aiplatform.googleapis.com/v1beta1/projects/demo-project/locations/global/publishers/google/models/gemini-embedding-2:embedContent'
+      );
+    });
+
+    it('sends autoTruncate when configured', async () => {
+      const capture: { calls: Array<{ url: string; body?: any }> } = {
+        calls: [],
+      };
+      const fetch = createSequencedMockFetch([embedContentResponse], capture);
+      const ai = createVertexAI(fetch, { autoTruncate: false });
+
+      await ai.embed({ texts: ['hello world'] });
+
+      // Vertex truncates past 8,192 tokens by default; false makes it return 400.
+      expect(capture.calls[0]?.body?.autoTruncate).toBe(false);
+    });
+
+    it('rejects more than one text without calling Vertex', async () => {
+      const capture: { calls: Array<{ url: string; body?: any }> } = {
+        calls: [],
+      };
+      const fetch = createSequencedMockFetch([embedContentResponse], capture);
+      const ai = createVertexAI(fetch);
+
+      // Vertex would fuse both texts into one vector.
+      await expect(ai.embed({ texts: ['a', 'b'] })).rejects.toThrow(
+        'gemini-embedding-2 on Vertex embeds one text per request'
+      );
+      expect(fetch).not.toHaveBeenCalled();
+    });
+
+    it.each([
+      {
+        label: 'an :embedContent response without usageMetadata',
+        embedModel: AxAIGoogleGeminiEmbedModel.GeminiEmbedding2,
+        response: { embedding: { values: [0.4] } },
+      },
+      {
+        label: 'a :predict response',
+        embedModel: AxAIGoogleGeminiEmbedModel.GeminiEmbedding001,
+        response: { predictions: [{ embeddings: { values: [0.4] } }] },
+      },
+    ])(
+      'records no usage for $label after a call that reported usage',
+      async ({ embedModel, response }) => {
+        const fetch = createSequencedMockFetch(
+          [embedContentResponse, response],
+          { calls: [] }
+        );
+        const ai = createVertexAI(fetch);
+
+        const first = await ai.embed({ texts: ['a'] });
+        const second = await ai.embed({ embedModel, texts: ['b'] });
+
+        expect(first.modelUsage?.tokens?.promptTokens).toBe(2);
+        expect(second.modelUsage).toBeUndefined();
+      }
+    );
+
+    it('leaves the Gemini API on batchEmbedContents with taskType', async () => {
+      const capture: { calls: Array<{ url: string; body?: any }> } = {
+        calls: [],
+      };
+      const fetch = createSequencedMockFetch(
+        [{ embeddings: [{ values: [0.1] }, { values: [0.2] }] }],
+        capture
+      );
+      const ai = new AxAIGoogleGemini({
+        apiKey: 'gemini-key',
+        config: {
+          model: AxAIGoogleGeminiModel.Gemini25Flash,
+          embedModel: AxAIGoogleGeminiEmbedModel.GeminiEmbedding2,
+          embedType: AxAIGoogleGeminiEmbedTypes.RetrievalDocument,
+        },
+        options: { fetch },
+      });
+
+      const res = await ai.embed({ texts: ['a', 'b'] });
+
+      expect(capture.calls[0]?.url).toBe(
+        'https://generativelanguage.googleapis.com/v1beta/models/gemini-embedding-2:batchEmbedContents'
+      );
+      expect(capture.calls[0]?.body?.requests?.[0]?.taskType).toBe(
+        'RETRIEVAL_DOCUMENT'
+      );
+      expect(res.embeddings).toEqual([[0.1], [0.2]]);
+    });
+  });
+
   it('honors options.beta by routing Vertex chat requests onto v1beta1', async () => {
     const capture: { calls: Array<{ url: string; body?: any }> } = {
       calls: [],
