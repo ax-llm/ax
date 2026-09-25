@@ -1837,6 +1837,28 @@
       "verification": "Core @resolve_model_key (ir/axcore/ai.axir) maps a request-named key to its model or embedModel, layers the key's modelConfig under the request's own and its option defaults (thinkingTokenBudget, showThoughts, serviceTier for chat, stream, debug, useExpensiveModel, beta) under the caller's options, and resolves only the id for a key used as the client default. All five ports call it at every chat, stream, embed, validate and chat-session entry point; the Rust trait methods route through chat_with_options/stream_iter_with_options so #702's chat_option_scope sees key defaults as call options. The expensive-model gate no longer confirms through a key entry's own useExpensiveModel, matching TypeScript for client-default keys; the Go and Rust conformance doubles resolve keys the same way. Fixtures openai-model-key-resolves-model-and-defaults, openai-model-key-request-config-overrides-key-defaults, openai-model-key-client-default-resolves-model-only, openai-model-key-resolves-embed-model (matching what the TS client sends, checked with a capturing fetch) and the TS-derived expensive-model-client-default-key-entry-does-not-confirm. All five ports pass 416/416 axai; full npm run test:axir passed (go test, check, lint, audit provenance, lower, verify release for all five targets); axir:check-packages and axir:conformance:check passed."
     },
     {
+      "id": "axir-2026-09-25-send-the-vertex-embedding-task-type-as-task-type-in-the-ports",
+      "status": "open",
+      "title": "Send the Vertex embedding task type as task_type in the ports",
+      "createdAt": "2026-09-25",
+      "sourcePR": 708,
+      "sourceCommit": "8f8dab50d44d31c080f99fed534f7b73d3abed26",
+      "tsPaths": [
+        "src/ax/ai/google-gemini/api.ts",
+        "src/ax/ai/google-gemini/api.test.ts"
+      ],
+      "portableSurface": "axai",
+      "impact": "TypeScript now sends the Vertex :predict embedding task type as task_type, the only key Vertex reads. @gemini_build_vertex_embed_request in ir/axcore/provider.axir still sets taskType, which Vertex silently ignores, so every generated port embeds as RETRIEVAL_QUERY whatever embed_type or embedType is configured. Verified live on gemini-embedding-001 in TypeScript; a RETRIEVAL_DOCUMENT request sent as taskType returns the RETRIEVAL_QUERY vector.",
+      "suggestedAxirWork": [
+        "In @gemini_build_vertex_embed_request set %instance[\"task_type\"] instead of %instance[\"taskType\"] then regenerate the five ports with npm run axir:generate-packages",
+        "Add a Vertex embed fixture in tools/axir/extractors/axai-goldens.ts with embed_type RETRIEVAL_DOCUMENT in service_options that expects task_type on instances[0] and confirm it fails on the current ports",
+        "Run npm run axir:conformance:write and npm run test:axir"
+      ],
+      "completedAt": null,
+      "completedByCommit": null,
+      "verification": null
+    },
+    {
       "id": "axir-2026-09-25-surface-a-message-less-axgen-assertion-failure-without-retrying",
       "status": "open",
       "title": "Surface a message-less AxGen assertion failure without retrying",

@@ -18,6 +18,13 @@ This ledger tracks portable TypeScript behavior that should be migrated into AxI
 
 ## Open
 
+- `axir-2026-09-25-send-the-vertex-embedding-task-type-as-task-type-in-the-ports` [axai] Send the Vertex embedding task type as task_type in the ports
+  - Status: open
+  - Source PR: #708
+  - Source commit: `8f8dab50d44d31c080f99fed534f7b73d3abed26`
+  - TS paths: `src/ax/ai/google-gemini/api.ts`, `src/ax/ai/google-gemini/api.test.ts`
+  - Impact: TypeScript now sends the Vertex :predict embedding task type as task_type, the only key Vertex reads. @gemini_build_vertex_embed_request in ir/axcore/provider.axir still sets taskType, which Vertex silently ignores, so every generated port embeds as RETRIEVAL_QUERY whatever embed_type or embedType is configured. Verified live on gemini-embedding-001 in TypeScript; a RETRIEVAL_DOCUMENT request sent as taskType returns the RETRIEVAL_QUERY vector.
+  - Suggested AxIR work: In @gemini_build_vertex_embed_request set %instance["task_type"] instead of %instance["taskType"] then regenerate the five ports with npm run axir:generate-packages; Add a Vertex embed fixture in tools/axir/extractors/axai-goldens.ts with embed_type RETRIEVAL_DOCUMENT in service_options that expects task_type on instances[0] and confirm it fails on the current ports; Run npm run axir:conformance:write and npm run test:axir
 - `axir-2026-09-25-surface-a-message-less-axgen-assertion-failure-without-retrying` [axgen] Surface a message-less AxGen assertion failure without retrying
   - Status: open
   - Source commit: `54cb4074079188e739242edabcfff272708d3adc`
