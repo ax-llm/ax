@@ -2,16 +2,16 @@
   "assertions": [
     {
       "field": "answer",
-      "return": false
+      "throw": "assertion exploded"
     }
   ],
-  "expected_error_contains": "Assertion failed without message",
+  "expected_error_contains": "assertion exploded",
   "expected_request_count": 1,
   "input": {
     "question": "Assert"
   },
   "kind": "forward",
-  "name": "assertion-false-without-message-error",
+  "name": "assertion-thrown-error-not-retried",
   "responses": [
     {
       "content": "{\"answer\":\"bad\"}"

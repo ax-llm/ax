@@ -249,7 +249,18 @@ class AxGen:
         self.options["result_picker"] = result_picker
         return self
 
-    def add_assert(self, assertion):
+    def add_assert(self, assertion, message=None):
+        """Add an assertion: a declarative spec or a callable over the outputs.
+
+        A callable returns None or True to pass, a string to fail with that
+        message, or False to fail with ``message``. As in TypeScript, a failure
+        with a message is retried with a correction, while a failure without
+        one, or an error the callable raises, surfaces at once.
+        """
+        if message is not None and callable(assertion):
+            assertion = _MessageAssertion(assertion, message)
+        elif message is not None and isinstance(assertion, dict):
+            assertion = {**assertion, "message": message}
         self.assertions.append(assertion)
         return self
 
@@ -1056,33 +1067,50 @@ def _core_axgen_apply_field_processors(gen, output):
     return result
 
 
+class _MessageAssertion:
+    """A callable assertion with the message TypeScript addAssert(fn, message) takes."""
+
+    def __init__(self, fn, message):
+        self.fn = fn
+        self.message = message
+
+    def __call__(self, output):
+        return self.fn(output)
+
+
 def _core_axgen_run_assertions(gen, output):
+    # Evaluate the assertions in order and report the first failure as
+    # {status: "pass"}, {status: "fail", message?} or {status: "error", error};
+    # gen.axir decides what each outcome raises, as TS assertAssertions does.
     for assertion in _core_get(gen, "assertions", []) or []:
         if callable(assertion):
-            result = assertion(output)
+            try:
+                result = assertion(output)
+            except Exception as error:  # noqa: BLE001 - gen.axir surfaces it
+                return {"status": "error", "error": error}
             if isinstance(result, str):
-                raise RuntimeError(result)
+                return {"status": "fail", "message": result}
             if result is False:
-                raise RuntimeError("assertion failed")
+                return {"status": "fail", "message": getattr(assertion, "message", None) or None}
             continue
+        if "throw" in assertion:
+            return {"status": "error", "error": RuntimeError(str(assertion["throw"]))}
         field = assertion.get("field")
         value = output.get(field) if field else output
-        message = assertion.get("message") or "assertion failed"
+        message = str(assertion["message"]) if assertion.get("message") else None
         if "return" in assertion:
             returned = assertion.get("return")
             if returned is None:
                 continue
-            if returned is False and "message" not in assertion:
-                raise RuntimeError("assertion failed without message")
             if returned is False:
-                raise RuntimeError(str(message))
+                return {"status": "fail", "message": message}
             if isinstance(returned, str):
-                raise RuntimeError(returned)
+                return {"status": "fail", "message": returned}
         if "contains" in assertion and str(assertion["contains"]) not in str(value):
-            raise RuntimeError(str(message))
+            return {"status": "fail", "message": message}
         if "equals" in assertion and value != assertion["equals"]:
-            raise RuntimeError(str(message))
-    return None
+            return {"status": "fail", "message": message}
+    return {"status": "pass"}
 
 
 def _core_axgen_run_streaming_assertions(gen, content):

@@ -522,18 +522,79 @@ writeFixture('assertion-return-modes', {
   expected_request_count: 4,
 });
 
+// TS assertAssertions throws a plain Error for a failure without a message
+// (asserts.ts), which the validation loop does not retry, and lets an error
+// the assertion throws escape the same way. A string result or a failure with
+// a message is an AxAssertionError and is retried. The request counts match a
+// TS AxGen probe.
+const badAnswers = [
+  { content: '{"answer":"bad"}' },
+  { content: '{"answer":"still bad"}' },
+  { content: '{"answer":"again"}' },
+  { content: '{"answer":"once more"}' },
+];
+
 writeFixture('assertion-false-without-message-error', {
   kind: 'forward',
   signature: 'question:string -> answer:string',
   input: { question: 'Assert' },
   assertions: [{ field: 'answer', return: false }],
-  responses: [
-    { content: '{"answer":"bad"}' },
-    { content: '{"answer":"still bad"}' },
-    { content: '{"answer":"again"}' },
-    { content: '{"answer":"once more"}' },
+  responses: badAnswers,
+  expected_error_contains: 'Assertion failed without message',
+  expected_request_count: 1,
+});
+
+writeFixture('assertion-false-with-message-retried', {
+  kind: 'forward',
+  signature: 'question:string -> answer:string',
+  input: { question: 'Assert' },
+  assertions: [
+    { field: 'answer', return: false, message: 'answer must be fixed' },
   ],
-  expected_error_contains: 'assertion failed without message',
+  responses: badAnswers,
+  expected_error_contains: 'answer must be fixed',
+  expected_request_count: 4,
+});
+
+writeFixture('assertion-contains-without-message-error', {
+  kind: 'forward',
+  signature: 'question:string -> answer:string',
+  input: { question: 'Assert' },
+  assertions: [{ field: 'answer', contains: 'good' }],
+  responses: badAnswers,
+  expected_error_contains: 'Assertion failed without message',
+  expected_request_count: 1,
+});
+
+writeFixture('assertion-thrown-error-not-retried', {
+  kind: 'forward',
+  signature: 'question:string -> answer:string',
+  input: { question: 'Assert' },
+  assertions: [{ field: 'answer', throw: 'assertion exploded' }],
+  responses: badAnswers,
+  expected_error_contains: 'assertion exploded',
+  expected_request_count: 1,
+});
+
+writeFixture('assertion-false-without-message-structured-output', {
+  kind: 'forward',
+  signature: 'query:string -> answer:string, confidence:number',
+  options: { force_structured: true },
+  input: { query: 'test' },
+  features: { structured_outputs: false, functions: true },
+  assertions: [{ field: 'answer', return: false }],
+  responses: Array.from({ length: 2 }, (_, index) => ({
+    content: '',
+    function_calls: [
+      {
+        id: `call${index + 1}`,
+        name: '__axOutput',
+        params: { answer: 'Done', confidence: 1 },
+      },
+    ],
+  })),
+  expected_error_contains: 'Assertion failed without message',
+  expected_request_count: 1,
 });
 
 writeFixture('field-processor-memory-write', {

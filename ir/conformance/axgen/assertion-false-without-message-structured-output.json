@@ -1,0 +1,51 @@
+{
+  "assertions": [
+    {
+      "field": "answer",
+      "return": false
+    }
+  ],
+  "expected_error_contains": "Assertion failed without message",
+  "expected_request_count": 1,
+  "features": {
+    "functions": true,
+    "structured_outputs": false
+  },
+  "input": {
+    "query": "test"
+  },
+  "kind": "forward",
+  "name": "assertion-false-without-message-structured-output",
+  "options": {
+    "force_structured": true
+  },
+  "responses": [
+    {
+      "content": "",
+      "function_calls": [
+        {
+          "id": "call1",
+          "name": "__axOutput",
+          "params": {
+            "answer": "Done",
+            "confidence": 1
+          }
+        }
+      ]
+    },
+    {
+      "content": "",
+      "function_calls": [
+        {
+          "id": "call2",
+          "name": "__axOutput",
+          "params": {
+            "answer": "Done",
+            "confidence": 1
+          }
+        }
+      ]
+    }
+  ],
+  "signature": "query:string -> answer:string, confidence:number"
+}
