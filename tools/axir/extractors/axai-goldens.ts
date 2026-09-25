@@ -6132,6 +6132,91 @@ writeFixture('gemini-live-realtime-audio-session-and-events', {
   ],
 });
 
+// Extended thinking can say a short acknowledgement, end that turn with the
+// interaction IN_PROGRESS, think, and then answer in a second turn.
+const geminiLiveTurnOutput = (
+  remoteId: string,
+  content: string,
+  finishReason: string | null
+) => ({
+  results: [
+    {
+      index: 0,
+      id: '0',
+      content,
+      function_calls: [],
+      finish_reason: finishReason,
+    },
+  ],
+  remote_id: remoteId,
+  model_usage: null,
+});
+
+writeFixture('gemini-live-realtime-audio-extended-thinking-two-turns', {
+  kind: 'ai_realtime',
+  provider: 'google-gemini',
+  model: 'gemini-3.8-live-extended-thinking',
+  events: [
+    {
+      id: 'gemini_live_ack',
+      serverContent: { outputTranscription: { text: 'Let me think.' } },
+    },
+    {
+      id: 'gemini_live_ack_done',
+      serverContent: { turnComplete: true, interactionStatus: 'IN_PROGRESS' },
+    },
+    {
+      id: 'gemini_live_answer',
+      serverContent: { outputTranscription: { text: 'Hello there.' } },
+    },
+    {
+      id: 'gemini_live_answer_more',
+      serverContent: { outputTranscription: { text: ' How are you?' } },
+    },
+    {
+      id: 'gemini_live_done',
+      serverContent: { turnComplete: true, interactionStatus: 'IDLE' },
+    },
+  ],
+  expected_output: [
+    geminiLiveTurnOutput('gemini_live_ack', 'Let me think.', null),
+    geminiLiveTurnOutput('gemini_live_ack_done', '', null),
+    geminiLiveTurnOutput('gemini_live_answer', ' Hello there.', null),
+    geminiLiveTurnOutput('gemini_live_answer_more', ' How are you?', null),
+    geminiLiveTurnOutput('gemini_live_done', '', 'stop'),
+  ],
+});
+
+writeFixture('gemini-live-realtime-audio-turn-break-keeps-existing-space', {
+  kind: 'ai_realtime',
+  provider: 'google-gemini',
+  model: 'gemini-3.8-live-extended-thinking',
+  events: [
+    {
+      id: 'gemini_live_ack',
+      serverContent: { outputTranscription: { text: 'One moment. ' } },
+    },
+    {
+      id: 'gemini_live_ack_done',
+      serverContent: { turnComplete: true, interactionStatus: 'IN_PROGRESS' },
+    },
+    {
+      id: 'gemini_live_answer',
+      serverContent: { outputTranscription: { text: 'Done.' } },
+    },
+    {
+      id: 'gemini_live_done',
+      serverContent: { turnComplete: true, interactionStatus: 'IDLE' },
+    },
+  ],
+  expected_output: [
+    geminiLiveTurnOutput('gemini_live_ack', 'One moment. ', null),
+    geminiLiveTurnOutput('gemini_live_ack_done', '', null),
+    geminiLiveTurnOutput('gemini_live_answer', 'Done.', null),
+    geminiLiveTurnOutput('gemini_live_done', '', 'stop'),
+  ],
+});
+
 writeFixture('gemini-live-realtime-audio-structured-output-error', {
   kind: 'ai_realtime',
   provider: 'google-gemini',
@@ -11597,6 +11682,48 @@ writeFixture('gemini-31-flash-tts-raw-pcm-is-labelled-pcm16', {
     audio: 'AAAAAA==',
     format: 'pcm16',
     mime_type: 'audio/l16; rate=24000; channels=1',
+    sample_rate: 24000,
+    channels: 1,
+  },
+  expected_transport_request: {
+    url: 'https://generativelanguage.googleapis.com/v1beta/models/gemini-3.1-flash-tts-preview:generateContent',
+  },
+});
+
+// Headerless PCM carries its sample rate and channel count only in the mime
+// parameters: keys are case-insensitive and non-numeric parameters are skipped.
+writeFixture('gemini-tts-raw-pcm-mime-parameters-are-parsed', {
+  kind: 'ai_speak',
+  provider: 'google-gemini',
+  request: { text: 'Hello from Ax.', model: 'gemini-3.1-flash-tts-preview' },
+  transport_responses: [
+    {
+      status: 200,
+      json: {
+        candidates: [
+          {
+            content: {
+              role: 'model',
+              parts: [
+                {
+                  inlineData: {
+                    mimeType: 'audio/L16;codec=pcm;RATE=16000;Channels=2',
+                    data: 'AAAAAA==',
+                  },
+                },
+              ],
+            },
+          },
+        ],
+      },
+    },
+  ],
+  expected_output: {
+    audio: 'AAAAAA==',
+    format: 'pcm16',
+    mime_type: 'audio/L16;codec=pcm;RATE=16000;Channels=2',
+    sample_rate: 16000,
+    channels: 2,
   },
   expected_transport_request: {
     url: 'https://generativelanguage.googleapis.com/v1beta/models/gemini-3.1-flash-tts-preview:generateContent',

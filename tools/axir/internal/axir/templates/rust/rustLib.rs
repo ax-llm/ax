@@ -2973,11 +2973,17 @@ fn realtime_event_is_done(event: &Value) -> bool {
     ) {
         return true;
     }
-    event
-        .get("serverContent")
+    let server = event.get("serverContent");
+    let turn_complete = server
         .and_then(|s| s.get("turnComplete"))
         .and_then(|t| t.as_bool())
-        .unwrap_or(false)
+        .unwrap_or(false);
+    // Extended thinking ends an acknowledgement turn IN_PROGRESS and answers in the next turn.
+    let in_progress = server
+        .and_then(|s| s.get("interactionStatus"))
+        .and_then(|s| s.as_str())
+        == Some("IN_PROGRESS");
+    turn_complete && !in_progress
 }
 
 #[cfg(feature = "realtime")]

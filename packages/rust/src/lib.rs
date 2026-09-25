@@ -3896,11 +3896,17 @@ fn realtime_event_is_done(event: &Value) -> bool {
     ) {
         return true;
     }
-    event
-        .get("serverContent")
+    let server = event.get("serverContent");
+    let turn_complete = server
         .and_then(|s| s.get("turnComplete"))
         .and_then(|t| t.as_bool())
-        .unwrap_or(false)
+        .unwrap_or(false);
+    // Extended thinking ends an acknowledgement turn IN_PROGRESS and answers in the next turn.
+    let in_progress = server
+        .and_then(|s| s.get("interactionStatus"))
+        .and_then(|s| s.as_str())
+        == Some("IN_PROGRESS");
+    turn_complete && !in_progress
 }
 
 #[cfg(feature = "realtime")]
@@ -50468,6 +50474,7 @@ fn _gemini_normalize_speak_response(args: &[CoreValue]) -> Result<CoreValue, AxE
     let mut v_is_pcm_mime = CoreValue::Null;
     let mut v_is_wav_mime = CoreValue::Null;
     let mut v_mime_lower = CoreValue::Null;
+    let mut v_mime_params = CoreValue::Null;
     let mut v_mime_type = CoreValue::Null;
     let mut v_out = CoreValue::Null;
     let mut v_part = CoreValue::Null;
@@ -50533,6 +50540,80 @@ fn _gemini_normalize_speak_response(args: &[CoreValue]) -> Result<CoreValue, AxE
     v_has_mime = core_truthy_value(&[v_mime_type.clone()])?;
     if core_truthy(&v_has_mime) {
         core_set(&v_out, CoreValue::from("mime_type"), v_mime_type.clone())?;
+        v_mime_params = _audio_mime_params_impl(&[v_mime_type.clone()])?;
+        v_out = core_map_merge(&[v_out.clone(), v_mime_params.clone()])?;
+    }
+    return Ok(v_out.clone());
+}
+
+#[allow(
+    unused_variables,
+    unused_assignments,
+    unused_mut,
+    unreachable_code,
+    clippy::all
+)]
+fn _audio_mime_params_impl(args: &[CoreValue]) -> Result<CoreValue, AxError> {
+    axir_coverage_mark("_audio_mime_params_impl");
+    let mut v_mime_type = core_arg(args, 0);
+    let mut v_has_params = CoreValue::Null;
+    let mut v_has_value = CoreValue::Null;
+    let mut v_is_channels = CoreValue::Null;
+    let mut v_is_number = CoreValue::Null;
+    let mut v_is_rate = CoreValue::Null;
+    let mut v_key = CoreValue::Null;
+    let mut v_lower = CoreValue::Null;
+    let mut v_media = CoreValue::Null;
+    let mut v_number = CoreValue::Null;
+    let mut v_out = CoreValue::Null;
+    let mut v_pair = CoreValue::Null;
+    let mut v_param = CoreValue::Null;
+    let mut v_params = CoreValue::Null;
+    let mut v_params_text = CoreValue::Null;
+    let mut v_parse_error = CoreValue::Null;
+    let mut v_value = CoreValue::Null;
+    v_out = CoreValue::new_map();
+    v_lower = core_string_lower(&[v_mime_type.clone()])?;
+    v_media = core_string_split_once(&[v_lower.clone(), CoreValue::from(";")])?;
+    v_has_params = core_get(&v_media, &CoreValue::from("found"), CoreValue::Bool(false));
+    if core_truthy(&v_has_params) {
+        v_params_text = core_get(&v_media, &CoreValue::from("right"), CoreValue::from(""));
+        v_params = core_string_split(&[v_params_text.clone(), CoreValue::from(";")])?;
+        for v_param in core_iter(&v_params)? {
+            let mut v_param = v_param;
+            v_pair = core_string_split_once(&[v_param.clone(), CoreValue::from("=")])?;
+            v_has_value = core_get(&v_pair, &CoreValue::from("found"), CoreValue::Bool(false));
+            if core_truthy(&v_has_value) {
+                v_key = core_get(&v_pair, &CoreValue::from("left"), CoreValue::from(""));
+                v_key = core_string_trim(&v_key);
+                v_value = core_get(&v_pair, &CoreValue::from("right"), CoreValue::from(""));
+                v_value = core_string_trim(&v_value);
+                v_is_number = core_regex_match(CoreValue::from("^[0-9]+(\\.[0-9]+)?$"), &v_value)?;
+                if core_truthy(&v_is_number) {
+                    let __core_try: Result<CoreFlow, AxError> = (|| {
+                        v_number = core_json_parse(&[v_value.clone()])?;
+                        v_is_rate = core_eq(&[v_key.clone(), CoreValue::from("rate")])?;
+                        if core_truthy(&v_is_rate) {
+                            core_set(&v_out, CoreValue::from("sample_rate"), v_number.clone())?;
+                        }
+                        v_is_channels = core_eq(&[v_key.clone(), CoreValue::from("channels")])?;
+                        if core_truthy(&v_is_channels) {
+                            core_set(&v_out, CoreValue::from("channels"), v_number.clone())?;
+                        }
+                        Ok(CoreFlow::Normal)
+                    })();
+                    match __core_try {
+                        Ok(CoreFlow::Normal) => {}
+                        Ok(CoreFlow::Return(value)) => return Ok(value),
+                        Ok(CoreFlow::Break) => break,
+                        Ok(CoreFlow::Continue) => continue,
+                        Err(__core_caught) => {
+                            v_parse_error = CoreValue::Error(std::rc::Rc::new(__core_caught));
+                        }
+                    }
+                }
+            }
+        }
     }
     return Ok(v_out.clone());
 }
@@ -51262,6 +51343,7 @@ fn _gemini_live_bidi_normalize_realtime_event(args: &[CoreValue]) -> Result<Core
     let mut v_state = core_arg(args, 1);
     let mut v_ai_name = core_arg(args, 2);
     let mut v_model = core_arg(args, 3);
+    let mut v_after_previous = CoreValue::Null;
     let mut v_audio = CoreValue::Null;
     let mut v_call_count = CoreValue::Null;
     let mut v_calls = CoreValue::Null;
@@ -51283,17 +51365,26 @@ fn _gemini_live_bidi_normalize_realtime_event(args: &[CoreValue]) -> Result<Core
     let mut v_has_inline_data = CoreValue::Null;
     let mut v_has_input_transcription = CoreValue::Null;
     let mut v_has_output_transcription = CoreValue::Null;
+    let mut v_has_previous_transcript = CoreValue::Null;
     let mut v_inline_data = CoreValue::Null;
     let mut v_input_text = CoreValue::Null;
     let mut v_input_transcription = CoreValue::Null;
+    let mut v_interaction_in_progress = CoreValue::Null;
+    let mut v_interaction_status = CoreValue::Null;
     let mut v_mime = CoreValue::Null;
     let mut v_model_turn = CoreValue::Null;
     let mut v_model_usage = CoreValue::Null;
+    let mut v_needs_space = CoreValue::Null;
+    let mut v_next_open = CoreValue::Null;
+    let mut v_next_spaced = CoreValue::Null;
     let mut v_none_finish = CoreValue::Null;
     let mut v_out = CoreValue::Null;
     let mut v_output_transcription = CoreValue::Null;
     let mut v_part = CoreValue::Null;
     let mut v_parts = CoreValue::Null;
+    let mut v_previous_open = CoreValue::Null;
+    let mut v_previous_spaced = CoreValue::Null;
+    let mut v_previous_transcript = CoreValue::Null;
     let mut v_result = CoreValue::Null;
     let mut v_results = CoreValue::Null;
     let mut v_server = CoreValue::Null;
@@ -51303,8 +51394,10 @@ fn _gemini_live_bidi_normalize_realtime_event(args: &[CoreValue]) -> Result<Core
     let mut v_top_part = CoreValue::Null;
     let mut v_top_tool_call = CoreValue::Null;
     let mut v_transcript_text = CoreValue::Null;
+    let mut v_turn_break = CoreValue::Null;
     let mut v_turn_complete = CoreValue::Null;
     let mut v_usage = CoreValue::Null;
+    let mut v_words_touch = CoreValue::Null;
     v_error_payload = core_get(&v_event, &CoreValue::from("error"), CoreValue::Null);
     v_has_error = core_is_not_none(&[v_error_payload.clone()])?;
     if core_truthy(&v_has_error) {
@@ -51379,6 +51472,38 @@ fn _gemini_live_bidi_normalize_realtime_event(args: &[CoreValue]) -> Result<Core
             &CoreValue::from("text"),
             CoreValue::from(""),
         );
+        v_turn_break = core_get(
+            &v_state,
+            &CoreValue::from("turn_break"),
+            CoreValue::Bool(false),
+        );
+        v_previous_transcript = core_get(
+            &v_state,
+            &CoreValue::from("last_transcript"),
+            CoreValue::from(""),
+        );
+        v_has_previous_transcript = core_truthy_value(&[v_previous_transcript.clone()])?;
+        v_previous_spaced = core_regex_match(CoreValue::from("\\s$"), &v_previous_transcript)?;
+        v_next_spaced = core_regex_match(CoreValue::from("^\\s"), &v_transcript_text)?;
+        v_previous_open = core_not(&[v_previous_spaced.clone()])?;
+        v_next_open = core_not(&[v_next_spaced.clone()])?;
+        v_after_previous = core_and(&[v_turn_break.clone(), v_has_previous_transcript.clone()])?;
+        v_words_touch = core_and(&[v_previous_open.clone(), v_next_open.clone()])?;
+        v_needs_space = core_and(&[v_after_previous.clone(), v_words_touch.clone()])?;
+        if core_truthy(&v_needs_space) {
+            v_transcript_text =
+                core_string_format(&[CoreValue::from(" {}"), v_transcript_text.clone()])?;
+        }
+        core_set(
+            &v_state,
+            CoreValue::from("turn_break"),
+            CoreValue::Bool(false),
+        )?;
+        core_set(
+            &v_state,
+            CoreValue::from("last_transcript"),
+            v_transcript_text.clone(),
+        )?;
         core_append(&v_text_parts, v_transcript_text.clone())?;
     }
     v_input_transcription = core_get(
@@ -51468,11 +51593,26 @@ fn _gemini_live_bidi_normalize_realtime_event(args: &[CoreValue]) -> Result<Core
         CoreValue::Bool(false),
     );
     if core_truthy(&v_turn_complete) {
-        core_set(
-            &v_result,
-            CoreValue::from("finish_reason"),
-            CoreValue::from("stop"),
-        )?;
+        v_interaction_status = core_get(
+            &v_server,
+            &CoreValue::from("interactionStatus"),
+            CoreValue::from(""),
+        );
+        v_interaction_in_progress =
+            core_eq(&[v_interaction_status.clone(), CoreValue::from("IN_PROGRESS")])?;
+        if core_truthy(&v_interaction_in_progress) {
+            core_set(
+                &v_state,
+                CoreValue::from("turn_break"),
+                CoreValue::Bool(true),
+            )?;
+        } else {
+            core_set(
+                &v_result,
+                CoreValue::from("finish_reason"),
+                CoreValue::from("stop"),
+            )?;
+        }
     }
     v_usage = core_get(&v_event, &CoreValue::from("usageMetadata"), CoreValue::Null);
     v_gemini_usage = _gemini_usage_impl(&[v_usage.clone()])?;
@@ -101999,7 +102139,7 @@ fn mcp_websocket_request_ids(args: &[CoreValue]) -> Result<CoreValue, AxError> {
     return Ok(v_ids.clone());
 }
 
-// END AXIR CORE EMITTED FUNCTIONS (736 of 736 core functions)
+// END AXIR CORE EMITTED FUNCTIONS (737 of 737 core functions)
 
 fn run_ai_session_events_fixture(fixture: &Value) -> AxResult<()> {
     let state = core_value_from_json(&json!({}));

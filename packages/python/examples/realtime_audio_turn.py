@@ -139,6 +139,25 @@ try:
             raise AssertionError('early close accepted an incomplete upload')
 finally:
     wire._WebSocketRealtimeTransport = original_socket
+# Gemini Live extended thinking: an acknowledgement turn ends IN_PROGRESS and the
+# answer follows in a second turn, so the driver must keep reading past it.
+gemini = ai("google-gemini", model="gemini-3.8-live-extended-thinking", api_key="test-key")
+gemini_transport = ScriptedRealtimeTransport([
+    {"setupComplete": {}},
+    {"serverContent": {"outputTranscription": {"text": "Let me think."}}},
+    {"serverContent": {"turnComplete": True, "interactionStatus": "IN_PROGRESS"}},
+    {"serverContent": {"outputTranscription": {"text": "Hello there."}}},
+    {"serverContent": {"modelTurn": {"parts": [{"inlineData": {"mimeType": "audio/pcm", "data": "AQI="}}]}}},
+    {"serverContent": {"turnComplete": True, "interactionStatus": "IDLE"}},
+])
+gemini_final = gemini.realtime_chat(
+    {"model": "gemini-3.8-live-extended-thinking", "chat_prompt": [{"role": "user", "content": "Say hello."}]},
+    transport=gemini_transport,
+)
+gemini_result = gemini_final["results"][0]
+assert gemini_result["content"] == "Let me think. Hello there.", gemini_result
+assert gemini_result["finish_reason"] == "stop", gemini_result
+assert gemini_result.get("audio", {}).get("data") == "AQI=", gemini_result
 from axllm import AxMemory
 memory = AxMemory()
 memory.update_result({"thought_blocks": [{"id": "r", "data": "Plan"}], "images": [{"id": "image", "data": "partial"}]})
