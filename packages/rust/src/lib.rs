@@ -63644,6 +63644,7 @@ fn _forward_impl(args: &[CoreValue]) -> Result<CoreValue, AxError> {
     let mut v_structured_retries_exhausted = CoreValue::Null;
     let mut v_structured_retry_messages = CoreValue::Null;
     let mut v_structured_samples = CoreValue::Null;
+    let mut v_structured_stage = CoreValue::Null;
     let mut v_structured_validated = CoreValue::Null;
     let mut v_structured_validation_error = CoreValue::Null;
     let mut v_system_message = CoreValue::Null;
@@ -63881,6 +63882,7 @@ fn _forward_impl(args: &[CoreValue]) -> Result<CoreValue, AxError> {
             v_has_structured_call = core_is_not_none(&[v_structured_call.clone()])?;
             if core_truthy(&v_has_structured_call) {
                 v_structured_failure = core_none(&[])?;
+                v_structured_stage = CoreValue::from("validation");
                 let __core_try: Result<CoreFlow, AxError> = (|| {
                     v_structured_args = _structured_output_call_args(&[v_structured_call.clone()])?;
                     _validate_exact_output_keys(&[
@@ -63898,6 +63900,7 @@ fn _forward_impl(args: &[CoreValue]) -> Result<CoreValue, AxError> {
                     ])?;
                     v_structured_processed =
                         _apply_field_processors(&[v_gen.clone(), v_structured_validated.clone()])?;
+                    v_structured_stage = CoreValue::from("assertion");
                     v_structured_assertion_failure =
                         _run_assertions(&[v_gen.clone(), v_structured_processed.clone()])?;
                     v_structured_assertion_failed =
@@ -63936,11 +63939,14 @@ fn _forward_impl(args: &[CoreValue]) -> Result<CoreValue, AxError> {
                         v_structured_next_attempt =
                             core_add(&[v_attempt.clone(), CoreValue::Num(1f64)])?;
                         v_attempt = v_structured_next_attempt.clone();
-                        v_structured_retry_messages = _append_assertion_retry_messages(&[
-                            v_messages.clone(),
-                            v_response.clone(),
-                            v_structured_validation_error.clone(),
-                        ])?;
+                        v_structured_retry_messages =
+                            _append_structured_output_retry_messages_impl(&[
+                                v_messages.clone(),
+                                v_response.clone(),
+                                v_structured_call.clone(),
+                                v_structured_validation_error.clone(),
+                                v_structured_stage.clone(),
+                            ])?;
                         v_messages = v_structured_retry_messages.clone();
                         core_axgen_memory_add_correction(&[
                             v_gen.clone(),
@@ -70504,6 +70510,99 @@ fn _user_functions_callable_impl(args: &[CoreValue]) -> Result<CoreValue, AxErro
     v_disabled = core_eq(&[v_choice.clone(), CoreValue::from("none")])?;
     v_callable = core_not(&[v_disabled.clone()])?;
     return Ok(v_callable.clone());
+}
+
+#[allow(
+    unused_variables,
+    unused_assignments,
+    unused_mut,
+    unreachable_code,
+    clippy::all
+)]
+fn _append_structured_output_retry_messages_impl(args: &[CoreValue]) -> Result<CoreValue, AxError> {
+    axir_coverage_mark("_append_structured_output_retry_messages_impl");
+    let mut v_messages = core_arg(args, 0);
+    let mut v_response = core_arg(args, 1);
+    let mut v_call = core_arg(args, 2);
+    let mut v_error = core_arg(args, 3);
+    let mut v_stage = core_arg(args, 4);
+    let mut v_correction = CoreValue::Null;
+    let mut v_correction_text = CoreValue::Null;
+    let mut v_direct_name = CoreValue::Null;
+    let mut v_error_text = CoreValue::Null;
+    let mut v_fn = CoreValue::Null;
+    let mut v_has_period = CoreValue::Null;
+    let mut v_id = CoreValue::Null;
+    let mut v_is_assertion = CoreValue::Null;
+    let mut v_name = CoreValue::Null;
+    let mut v_notice = CoreValue::Null;
+    let mut v_output_calls = CoreValue::Null;
+    let mut v_period = CoreValue::Null;
+    let mut v_result_message = CoreValue::Null;
+    let mut v_with_call = CoreValue::Null;
+    v_output_calls = CoreValue::new_list();
+    core_append(&v_output_calls, v_call.clone())?;
+    v_with_call = _append_tool_call_messages_impl(&[
+        v_messages.clone(),
+        v_response.clone(),
+        v_output_calls.clone(),
+    ])?;
+    v_id = core_get(&v_call, &CoreValue::from("id"), CoreValue::Null);
+    v_direct_name = core_get(&v_call, &CoreValue::from("name"), CoreValue::Null);
+    v_fn = core_get(&v_call, &CoreValue::from("function"), CoreValue::Null);
+    v_name = core_get(&v_fn, &CoreValue::from("name"), v_direct_name.clone());
+    v_result_message = CoreValue::new_map();
+    core_set(
+        &v_result_message,
+        CoreValue::from("role"),
+        CoreValue::from("function"),
+    )?;
+    core_set(
+        &v_result_message,
+        CoreValue::from("function_id"),
+        v_id.clone(),
+    )?;
+    core_set(&v_result_message, CoreValue::from("name"), v_name.clone())?;
+    core_set(
+        &v_result_message,
+        CoreValue::from("result"),
+        CoreValue::from("done"),
+    )?;
+    core_append(&v_with_call, v_result_message.clone())?;
+    v_notice = CoreValue::new_map();
+    core_set(&v_notice, CoreValue::from("role"), CoreValue::from("user"))?;
+    core_set(&v_notice, CoreValue::from("content"), CoreValue::from("The previous tool call failed. Fix arguments and try again, ensuring required fields match schema."))?;
+    core_append(&v_with_call, v_notice.clone())?;
+    v_error_text = core_exception_message(&[v_error.clone()])?;
+    v_error_text = core_string_trim(&v_error_text);
+    v_correction_text =
+        core_string_format(&[CoreValue::from("Invalid Field: {}"), v_error_text.clone()])?;
+    v_is_assertion = core_eq(&[v_stage.clone(), CoreValue::from("assertion")])?;
+    if core_truthy(&v_is_assertion) {
+        v_has_period = core_string_ends_with(&[v_error_text.clone(), CoreValue::from(".")])?;
+        v_period = CoreValue::from(".");
+        if core_truthy(&v_has_period) {
+            v_period = CoreValue::from("");
+        }
+        v_correction_text = core_string_format(&[
+            CoreValue::from("Follow these instructions: {}{}"),
+            v_error_text.clone(),
+            v_period.clone(),
+        ])?;
+    }
+    v_correction = CoreValue::new_map();
+    core_set(
+        &v_correction,
+        CoreValue::from("role"),
+        CoreValue::from("user"),
+    )?;
+    core_set(
+        &v_correction,
+        CoreValue::from("content"),
+        v_correction_text.clone(),
+    )?;
+    core_append(&v_with_call, v_correction.clone())?;
+    return Ok(v_with_call.clone());
 }
 
 #[allow(
@@ -103912,7 +104011,7 @@ fn mcp_websocket_request_ids(args: &[CoreValue]) -> Result<CoreValue, AxError> {
     return Ok(v_ids.clone());
 }
 
-// END AXIR CORE EMITTED FUNCTIONS (746 of 746 core functions)
+// END AXIR CORE EMITTED FUNCTIONS (747 of 747 core functions)
 
 fn run_ai_session_events_fixture(fixture: &Value) -> AxResult<()> {
     let state = core_value_from_json(&json!({}));

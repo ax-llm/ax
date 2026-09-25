@@ -597,6 +597,70 @@ writeFixture('assertion-false-without-message-structured-output', {
   expected_request_count: 1,
 });
 
+// When an __axOutput call fails validation or a message-bearing assertion,
+// TS keeps the call on the assistant turn with a "done" result, then adds the
+// tool-call failure notice and the rendered error ("Invalid Field" or "Follow
+// these instructions"), and forces __axOutput again. The retry corrects it, as
+// a TS AxGen probe shows.
+const outputCall = (id: string, params: Record<string, Json>) => ({
+  content: '',
+  function_calls: [{ id, name: '__axOutput', params }],
+});
+const outputRetryNotice =
+  'The previous tool call failed. Fix arguments and try again, ensuring required fields match schema.';
+const forcedOutputRetry = {
+  index: 1,
+  request: {
+    function_call: { type: 'function', function: { name: '__axOutput' } },
+  },
+  function_names: ['__axOutput'],
+};
+
+writeFixture('structured-output-retry-missing-field', {
+  kind: 'forward',
+  signature: 'query:string -> answer:string, confidence:number',
+  options: { force_structured: true },
+  input: { query: 'test' },
+  features: { structured_outputs: false, functions: true },
+  responses: [
+    outputCall('output_1', { answer: 'Done' }),
+    outputCall('output_2', { answer: 'Done', confidence: 1 }),
+  ],
+  expected_output: { answer: 'Done', confidence: 1 },
+  expected_request_contains: [
+    'output_1',
+    '"done"',
+    outputRetryNotice,
+    'Invalid Field: ',
+  ],
+  expected_step_requests: [forcedOutputRetry],
+  expected_request_count: 2,
+});
+
+writeFixture('structured-output-retry-assertion', {
+  kind: 'forward',
+  signature: 'query:string -> answer:string, confidence:number',
+  options: { force_structured: true },
+  input: { query: 'test' },
+  features: { structured_outputs: false, functions: true },
+  assertions: [
+    { field: 'answer', contains: 'Fixed', message: 'answer must say Fixed' },
+  ],
+  responses: [
+    outputCall('output_1', { answer: 'Done', confidence: 1 }),
+    outputCall('output_2', { answer: 'Fixed', confidence: 1 }),
+  ],
+  expected_output: { answer: 'Fixed', confidence: 1 },
+  expected_request_contains: [
+    'output_1',
+    '"done"',
+    outputRetryNotice,
+    'Follow these instructions: answer must say Fixed.',
+  ],
+  expected_step_requests: [forcedOutputRetry],
+  expected_request_count: 2,
+});
+
 writeFixture('field-processor-memory-write', {
   kind: 'forward',
   signature: 'question:string -> answer:string',

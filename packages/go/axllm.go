@@ -35318,6 +35318,7 @@ func _forward_impl(args ...Value) (Value, error) {
 	var v_structured_retries_exhausted Value
 	var v_structured_retry_messages Value
 	var v_structured_samples Value
+	var v_structured_stage Value
 	var v_structured_validated Value
 	var v_structured_validation_error Value
 	var v_system_message Value
@@ -35421,6 +35422,7 @@ func _forward_impl(args ...Value) (Value, error) {
 	_ = v_structured_retries_exhausted
 	_ = v_structured_retry_messages
 	_ = v_structured_samples
+	_ = v_structured_stage
 	_ = v_structured_validated
 	_ = v_structured_validation_error
 	_ = v_system_message
@@ -35562,6 +35564,7 @@ func _forward_impl(args ...Value) (Value, error) {
 			v_has_structured_call = _core_is_not_none(v_structured_call)
 			if coreTruthy(v_has_structured_call) {
 				v_structured_failure = _core_none()
+				v_structured_stage = "validation"
 				{
 					__flow, __err := func() (coreFlow, error) {
 						{ v, err := _structured_output_call_args(v_structured_call); if err != nil { return coreFlow{}, err }; v_structured_args = v }
@@ -35569,6 +35572,7 @@ func _forward_impl(args ...Value) (Value, error) {
 						{ v, err := _parse_json_string_fields(v_output_fields, v_structured_args); if err != nil { return coreFlow{}, err }; v_structured_recovered = v }
 						{ v, err := validate_output(v_output_fields, v_structured_recovered); if err != nil { return coreFlow{}, err }; v_structured_validated = v }
 						{ v, err := _apply_field_processors(v_gen, v_structured_validated); if err != nil { return coreFlow{}, err }; v_structured_processed = v }
+						v_structured_stage = "assertion"
 						{ v, err := _run_assertions(v_gen, v_structured_processed); if err != nil { return coreFlow{}, err }; v_structured_assertion_failure = v }
 						v_structured_assertion_failed = _core_is_not_none(v_structured_assertion_failure)
 						if coreTruthy(v_structured_assertion_failed) {
@@ -35592,7 +35596,7 @@ func _forward_impl(args ...Value) (Value, error) {
 						}
 						v_structured_next_attempt = _core_add(v_attempt, 1)
 						v_attempt = v_structured_next_attempt
-						{ v, err := _append_assertion_retry_messages(v_messages, v_response, v_structured_validation_error); if err != nil { return nil, err }; v_structured_retry_messages = v }
+						{ v, err := _append_structured_output_retry_messages_impl(v_messages, v_response, v_structured_call, v_structured_validation_error, v_structured_stage); if err != nil { return nil, err }; v_structured_retry_messages = v }
 						v_messages = v_structured_retry_messages
 						_core_axgen_memory_add_correction(v_gen, v_response, v_structured_validation_error)
 						continue
@@ -42851,6 +42855,91 @@ func _user_functions_callable_impl(args ...Value) (Value, error) {
 	v_disabled = _core_eq(v_choice, "none")
 	v_callable = _core_not(v_disabled)
 	return v_callable, nil
+}
+
+func _append_structured_output_retry_messages_impl(args ...Value) (Value, error) {
+	axirCoverageMark("_append_structured_output_retry_messages_impl")
+	var v_messages Value
+	var v_response Value
+	var v_call Value
+	var v_error Value
+	var v_stage Value
+	var v_correction Value
+	var v_correction_text Value
+	var v_direct_name Value
+	var v_error_text Value
+	var v_fn Value
+	var v_has_period Value
+	var v_id Value
+	var v_is_assertion Value
+	var v_name Value
+	var v_notice Value
+	var v_output_calls Value
+	var v_period Value
+	var v_result_message Value
+	var v_with_call Value
+	if len(args) > 0 { v_messages = args[0] }
+	_ = v_messages
+	if len(args) > 1 { v_response = args[1] }
+	_ = v_response
+	if len(args) > 2 { v_call = args[2] }
+	_ = v_call
+	if len(args) > 3 { v_error = args[3] }
+	_ = v_error
+	if len(args) > 4 { v_stage = args[4] }
+	_ = v_stage
+	_ = v_correction
+	_ = v_correction_text
+	_ = v_direct_name
+	_ = v_error_text
+	_ = v_fn
+	_ = v_has_period
+	_ = v_id
+	_ = v_is_assertion
+	_ = v_name
+	_ = v_notice
+	_ = v_output_calls
+	_ = v_period
+	_ = v_result_message
+	_ = v_with_call
+	v_output_calls = MutableArray()
+	v_output_calls = coreAppend(v_output_calls, v_call)
+	{ v, err := _append_tool_call_messages_impl(v_messages, v_response, v_output_calls); if err != nil { return nil, err }; v_with_call = v }
+	v_id = coreGet(v_call, "id", nil)
+	v_direct_name = coreGet(v_call, "name", nil)
+	v_fn = coreGet(v_call, "function", nil)
+	v_name = coreGet(v_fn, "name", v_direct_name)
+	v_result_message = Object()
+	if err := coreSet(v_result_message, "role", "function"); err != nil { return nil, err }
+	if err := coreSet(v_result_message, "function_id", v_id); err != nil { return nil, err }
+	if err := coreSet(v_result_message, "name", v_name); err != nil { return nil, err }
+	if err := coreSet(v_result_message, "result", "done"); err != nil { return nil, err }
+	v_with_call = coreAppend(v_with_call, v_result_message)
+	v_notice = Object()
+	if err := coreSet(v_notice, "role", "user"); err != nil { return nil, err }
+	if err := coreSet(v_notice, "content", "The previous tool call failed. Fix arguments and try again, ensuring required fields match schema."); err != nil { return nil, err }
+	v_with_call = coreAppend(v_with_call, v_notice)
+	v_error_text = _core_exception_message(v_error)
+	v_error_text = coreStringTrim(v_error_text)
+	v_correction_text = _core_string_format("Invalid Field: {}", v_error_text)
+	v_is_assertion = _core_eq(v_stage, "assertion")
+	if coreTruthy(v_is_assertion) {
+		v_has_period = _core_string_ends_with(v_error_text, ".")
+		v_period = "."
+		if coreTruthy(v_has_period) {
+			v_period = ""
+		} else {
+		// empty
+		}
+		v_correction_text = _core_string_format("Follow these instructions: {}{}", v_error_text, v_period)
+	} else {
+	// empty
+	}
+	v_correction = Object()
+	if err := coreSet(v_correction, "role", "user"); err != nil { return nil, err }
+	if err := coreSet(v_correction, "content", v_correction_text); err != nil { return nil, err }
+	v_with_call = coreAppend(v_with_call, v_correction)
+	return v_with_call, nil
 }
 
 func _ace_normalize_reflection_bullet_tags(args ...Value) (Value, error) {

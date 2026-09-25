@@ -847,6 +847,7 @@ struct Core {
   static Value _function_call_names_output_impl(Value choice);
   static Value _ace_resolve_curator_operation_targets(Value operations, Value playbook, Value reflection, Value generator_output);
   static Value _user_functions_callable_impl(Value functions, Value options);
+  static Value _append_structured_output_retry_messages_impl(Value messages, Value response, Value call, Value error, Value stage);
   static Value _ace_normalize_reflection_bullet_tags(Value reflection);
   static Value _ace_dequeue_section_candidate(Value section_queues, Value section, Value used_ids, Value playbook);
   static Value _regex_test(Value pattern, Value value);
