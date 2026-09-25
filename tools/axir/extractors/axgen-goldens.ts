@@ -1115,3 +1115,109 @@ for (const [name, source] of Object.entries({
     expected_request_count: 1,
   });
 }
+
+// TS AxGen retries only infrastructure errors (5xx status, network, timeout,
+// stream termination), up to maxRetries (default 3) times. Everything else
+// surfaces after one request. The counts match a TS AxGen probe.
+const scriptedError = (type: string, extra: Record<string, Json> = {}) => ({
+  error: { type, message: 'Service fixture failure', ...extra },
+});
+const recovered = { content: 'Answer: Recovered' };
+
+for (const [name, error] of Object.entries({
+  'infra-retry-status-400-not-retried': scriptedError('status', {
+    status: 400,
+  }),
+  'infra-retry-status-429-not-retried': scriptedError('status', {
+    status: 429,
+  }),
+  'infra-retry-response-error-not-retried': scriptedError('response'),
+})) {
+  writeFixture(name, {
+    kind: 'forward',
+    signature: 'question:string -> answer:string',
+    input: { question: 'Status?' },
+    responses: [error, recovered],
+    expected_error_contains: 'Service fixture failure',
+    expected_request_count: 1,
+  });
+}
+
+for (const [name, error] of Object.entries({
+  'infra-retry-status-500-retried': scriptedError('status', { status: 500 }),
+  'infra-retry-network-retried': scriptedError('network'),
+  'infra-retry-timeout-retried': scriptedError('timeout'),
+})) {
+  writeFixture(name, {
+    kind: 'forward',
+    signature: 'question:string -> answer:string',
+    input: { question: 'Status?' },
+    responses: [error, recovered],
+    expected_output: { answer: 'Recovered' },
+    expected_request_count: 2,
+  });
+}
+
+writeFixture('infra-retry-default-attempts', {
+  kind: 'forward',
+  signature: 'question:string -> answer:string',
+  input: { question: 'Status?' },
+  responses: Array.from({ length: 5 }, () =>
+    scriptedError('status', { status: 503 })
+  ),
+  expected_error_contains: 'Service fixture failure',
+  expected_request_count: 4,
+});
+
+writeFixture('infra-retry-max-retries-option', {
+  kind: 'forward',
+  signature: 'question:string -> answer:string',
+  input: { question: 'Status?' },
+  options: { max_retries: 1 },
+  responses: Array.from({ length: 3 }, () =>
+    scriptedError('status', { status: 503 })
+  ),
+  expected_error_contains: 'Service fixture failure',
+  expected_request_count: 2,
+});
+
+// TS AxGen retries a model refusal inside its validation loop, so a refusal
+// spends the validation budget (maxRetries in TS, validation_retries here).
+// The same prompt goes out again at once, with no correction message.
+const refusal = {
+  error: { type: 'refusal', message: 'Model refused the fixture request' },
+};
+
+writeFixture('refusal-retried-without-correction', {
+  kind: 'forward',
+  signature: 'question:string -> answer:string',
+  input: { question: 'Status?' },
+  responses: [refusal, recovered],
+  expected_output: { answer: 'Recovered' },
+  expected_request_not_contains: ['Model refused the fixture request'],
+  expected_request_count: 2,
+});
+
+writeFixture('refusal-retries-exhausted', {
+  kind: 'forward',
+  signature: 'question:string -> answer:string',
+  input: { question: 'Status?' },
+  options: { validation_retries: 1 },
+  responses: [refusal, refusal, recovered],
+  expected_error_contains: 'Model refused the fixture request',
+  expected_request_count: 2,
+});
+
+writeFixture('refusal-shares-validation-budget', {
+  kind: 'forward',
+  signature: 'question:string -> answer:number',
+  input: { question: 'Status?' },
+  options: { validation_retries: 1 },
+  responses: [
+    refusal,
+    { content: '{"answer":"not a number"}' },
+    { content: 'Answer: 4' },
+  ],
+  expected_error_contains: 'to be a number',
+  expected_request_count: 2,
+});

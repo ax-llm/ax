@@ -1,0 +1,27 @@
+{
+  "expected_error_contains": "to be a number",
+  "expected_request_count": 2,
+  "input": {
+    "question": "Status?"
+  },
+  "kind": "forward",
+  "name": "refusal-shares-validation-budget",
+  "options": {
+    "validation_retries": 1
+  },
+  "responses": [
+    {
+      "error": {
+        "message": "Model refused the fixture request",
+        "type": "refusal"
+      }
+    },
+    {
+      "content": "{\"answer\":\"not a number\"}"
+    },
+    {
+      "content": "Answer: 4"
+    }
+  ],
+  "signature": "question:string -> answer:number"
+}

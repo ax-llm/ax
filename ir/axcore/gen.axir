@@ -741,7 +741,11 @@ module @ax.gen version "0.1" {
       core.call intrinsic.axgen.memory_add_request(%gen, %messages)
       %validation_retries_snake = core.get %runtime_options["validation_retries"] default 2
       %validation_retries = core.get %runtime_options["validationRetries"] default %validation_retries_snake
-      %infra_retries_snake = core.get %runtime_options["infra_retries"] default 2
+      // TS retries infrastructure errors up to maxRetries (default 3) times.
+      // infra_retries stays as a port-specific override.
+      %max_retries_snake = core.get %runtime_options["max_retries"] default 3
+      %max_retries = core.get %runtime_options["maxRetries"] default %max_retries_snake
+      %infra_retries_snake = core.get %runtime_options["infra_retries"] default %max_retries
       %infra_retries = core.get %runtime_options["infraRetries"] default %infra_retries_snake
       %attempt = core.const 0
       %max_steps_snake = core.get %runtime_options["max_steps"] default 25
@@ -757,7 +761,26 @@ module @ax.gen version "0.1" {
           core.raise %max_steps_error
         }
         %request = core.call @build_gen_chat_request(%gen, %messages, %runtime_options, %selection, %step)
-        %response = core.call @complete_with_retries_impl(%client, %request, %runtime_options, %infra_retries)
+        %response = core.map
+        core.try {
+          %completed = core.call @complete_with_retries_impl(%client, %request, %runtime_options, %infra_retries)
+          %response = core.let %completed
+        } catch %completion_error {
+          // As in TS, a refusal spends the validation budget: the same prompt
+          // goes out again at once, with no backoff and no correction message.
+          %refused = core.call intrinsic.exception.is_refusal(%completion_error)
+          %not_refused = core.call intrinsic.not(%refused)
+          core.if %not_refused {
+            core.raise %completion_error
+          }
+          %refusal_retries_exhausted = core.call intrinsic.gte(%attempt, %validation_retries)
+          core.if %refusal_retries_exhausted {
+            core.raise %completion_error
+          }
+          %refusal_next_attempt = core.call intrinsic.add(%attempt, 1)
+          %attempt = core.let %refusal_next_attempt
+          core.continue
+        }
         core.call intrinsic.axgen.memory_add_response(%gen, %request, %response)
         core.call intrinsic.axgen.record_chat_log(%gen, %request, %response)
         %calls = core.call @response_function_calls_impl(%response)
@@ -985,6 +1008,13 @@ module @ax.gen version "0.1" {
         } catch %error {
           %aborted = core.call intrinsic.exception.is_aborted(%error)
           core.if %aborted {
+            core.raise %error
+          }
+          // As in TS, only infrastructure errors (5xx status, network, timeout,
+          // stream termination) are retried; anything else surfaces at once.
+          %infrastructure = core.call intrinsic.exception.is_infrastructure(%error)
+          %not_infrastructure = core.call intrinsic.not(%infrastructure)
+          core.if %not_infrastructure {
             core.raise %error
           }
           %last_error = core.let %error

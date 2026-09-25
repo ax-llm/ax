@@ -127,6 +127,8 @@ var coreIntrinsicRust = map[CoreIntrinsic]string{
 	"intrinsic.div":                                   "core_div",
 	"intrinsic.exception.message":                     "core_exception_message",
 	"intrinsic.exception.is_aborted":                  "core_exception_is_aborted",
+	"intrinsic.exception.is_infrastructure":           "core_exception_is_infrastructure",
+	"intrinsic.exception.is_refusal":                  "core_exception_is_refusal",
 	"intrinsic.map.keys":                              "core_map_keys",
 	"intrinsic.map.values":                            "core_map_values",
 	"intrinsic.retry.sleep":                           "core_retry_sleep",

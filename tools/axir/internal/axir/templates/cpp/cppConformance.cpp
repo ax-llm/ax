@@ -25,6 +25,8 @@ static Object as_object(Value value) {
   return {};
 }
 
+static AxError fixture_ai_service_error_cpp(Value spec);
+
 // A fixture client spec {"name"?, "model"?, "options"?} configures a scripted
 // client's name, default model and client-level options (e.g. modelInfo).
 static std::string scripted_client_text(Value spec, const std::string& key, const std::string& fallback) {
@@ -59,6 +61,8 @@ struct ConformanceScriptedAI : AxBaseAI {
     if (responses.empty()) throw AxError("fixture", "scripted client exhausted");
     Value out = responses.front();
     responses.erase(responses.begin());
+    Value error = Core::get(out, "error");
+    if (!error.is_null()) throw fixture_ai_service_error_cpp(error);
     return Core::legacy_response_to_chat_response(out);
   }
 
@@ -136,6 +140,7 @@ static AxError fixture_ai_service_error_cpp(Value spec) {
   if (type == "authentication") return AxError("ai", "Authentication failed", "AxAIServiceAuthenticationError", number(Core::get(spec, "status"), 401), "", false);
   if (type == "response") return AxError("ai", message, "AxAIServiceResponseError", 0, "", false);
   if (type == "timeout") return AxError("ai", message, "AxAIServiceTimeoutError", 0, "", true);
+  if (type == "refusal") return AxError("ai", message, "AxAIRefusalError", 0, "", false);
   if (type == "plain") return AxError("runtime", message);
   return AxError("ai", "Network Error: " + message, "AxAIServiceNetworkError", 0, "", true);
 }

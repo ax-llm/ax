@@ -12,7 +12,12 @@ from typing import Any
 from .ai import (
     _core_math_floor,
     AIClient,
+    AxAIRefusalError,
     AxAIServiceAbortedError,
+    AxAIServiceNetworkError,
+    AxAIServiceStatusError,
+    AxAIServiceStreamTerminatedError,
+    AxAIServiceTimeoutError,
     AxCancellationToken,
     AxMeter,
     AxRateLimiter,
@@ -854,6 +859,19 @@ def _core_exception_message(error):
 
 def _core_exception_is_aborted(error):
     return isinstance(error, AxAIServiceAbortedError)
+
+
+def _core_exception_is_infrastructure(error):
+    # TS AxGen retries only 5xx status, network, timeout and stream-termination errors.
+    if isinstance(error, AxAIServiceStatusError):
+        status = getattr(error, "status", None)
+        return isinstance(status, int) and 500 <= status < 600
+    return isinstance(error, (AxAIServiceNetworkError, AxAIServiceTimeoutError, AxAIServiceStreamTerminatedError))
+
+
+# TS AxGen retries a model refusal inside its validation loop.
+def _core_exception_is_refusal(error):
+    return isinstance(error, AxAIRefusalError)
 
 
 def _core_regex_match(pattern, value):
@@ -3988,7 +4006,9 @@ def _forward_impl(gen: AxGen, client: AIClient, values: Any, options: Any) -> An
     _core_axgen_memory_add_request(gen, messages)
     validation_retries_snake = _core_get(runtime_options, "validation_retries", 2)
     validation_retries = _core_get(runtime_options, "validationRetries", validation_retries_snake)
-    infra_retries_snake = _core_get(runtime_options, "infra_retries", 2)
+    max_retries_snake = _core_get(runtime_options, "max_retries", 3)
+    max_retries = _core_get(runtime_options, "maxRetries", max_retries_snake)
+    infra_retries_snake = _core_get(runtime_options, "infra_retries", max_retries)
     infra_retries = _core_get(runtime_options, "infraRetries", infra_retries_snake)
     attempt = 0
     max_steps_snake = _core_get(runtime_options, "max_steps", 25)
@@ -4004,7 +4024,25 @@ def _forward_impl(gen: AxGen, client: AIClient, values: Any, options: Any) -> An
         else:
             pass
         request = _build_gen_chat_request(gen, messages, runtime_options, selection, step)
-        response = _complete_with_retries_impl(client, request, runtime_options, infra_retries)
+        response = {}
+        try:
+            completed = _complete_with_retries_impl(client, request, runtime_options, infra_retries)
+            response = completed
+        except Exception as completion_error:
+            refused = _core_exception_is_refusal(completion_error)
+            not_refused = _core_not(refused)
+            if not_refused:
+                raise completion_error
+            else:
+                pass
+            refusal_retries_exhausted = _core_gte(attempt, validation_retries)
+            if refusal_retries_exhausted:
+                raise completion_error
+            else:
+                pass
+            refusal_next_attempt = _core_add(attempt, 1)
+            attempt = refusal_next_attempt
+            continue
         _core_axgen_memory_add_response(gen, request, response)
         _core_axgen_record_chat_log(gen, request, response)
         calls = _response_function_calls_impl(response)
@@ -4618,18 +4656,6 @@ def _set_examples(gen: AxGen, examples: list[Any]) -> AxGen:
     return gen
 
 
-def _set_demos(gen: AxGen, demos: list[Any]) -> AxGen:
-    _core_coverage_mark("_set_demos")
-    gen["demos"] = demos
-    return gen
-
-
-def _render_examples(gen: AxGen) -> list[Any]:
-    _core_coverage_mark("_render_examples")
-    messages = _core_axgen_render_examples(gen)
-    return messages
-
-
 def chat_session_native_event(state: Any, event: Any) -> Any:
     _core_coverage_mark("chat_session_native_event")
     result = {}
@@ -4754,10 +4780,10 @@ def chat_session_native_event(state: Any, event: Any) -> Any:
     return result
 
 
-def _render_demos(gen: AxGen) -> list[Any]:
-    _core_coverage_mark("_render_demos")
-    messages = _core_axgen_render_demos(gen)
-    return messages
+def _set_demos(gen: AxGen, demos: list[Any]) -> AxGen:
+    _core_coverage_mark("_set_demos")
+    gen["demos"] = demos
+    return gen
 
 
 def _regex_quantifier(s: Any, child: Any) -> Any:
@@ -4945,16 +4971,16 @@ def _ace_estimate_token_count(text: str) -> i64:
     return tokens
 
 
-def _apply_field_processors(gen: AxGen, output: Any) -> Any:
-    _core_coverage_mark("_apply_field_processors")
-    processed = _core_axgen_apply_field_processors(gen, output)
-    return processed
+def _render_examples(gen: AxGen) -> list[Any]:
+    _core_coverage_mark("_render_examples")
+    messages = _core_axgen_render_examples(gen)
+    return messages
 
 
-def _run_assertions(gen: AxGen, output: Any) -> None:
-    _core_coverage_mark("_run_assertions")
-    _core_axgen_run_assertions(gen, output)
-    return None
+def _render_demos(gen: AxGen) -> list[Any]:
+    _core_coverage_mark("_render_demos")
+    messages = _core_axgen_render_demos(gen)
+    return messages
 
 
 def _ace_recompute_playbook_stats(playbook: Any) -> Any:
@@ -4989,22 +5015,22 @@ def _ace_recompute_playbook_stats(playbook: Any) -> Any:
     return playbook
 
 
+def _apply_field_processors(gen: AxGen, output: Any) -> Any:
+    _core_coverage_mark("_apply_field_processors")
+    processed = _core_axgen_apply_field_processors(gen, output)
+    return processed
+
+
+def _run_assertions(gen: AxGen, output: Any) -> None:
+    _core_coverage_mark("_run_assertions")
+    _core_axgen_run_assertions(gen, output)
+    return None
+
+
 def _append_assertion_retry_messages(messages: list[Any], response: Any, error: error) -> list[Any]:
     _core_coverage_mark("_append_assertion_retry_messages")
     updated_messages = _append_validation_retry_messages_impl(messages, response, error)
     return updated_messages
-
-
-def _record_trace(gen: AxGen, input: Any, output: Any, status: str) -> None:
-    _core_coverage_mark("_record_trace")
-    _core_axgen_record_trace(gen, input, output, status)
-    return None
-
-
-def _should_continue_steps(gen: AxGen, calls: list[Any]) -> bool:
-    _core_coverage_mark("_should_continue_steps")
-    should_continue = _core_axgen_should_continue_steps(gen, calls)
-    return should_continue
 
 
 def _ace_empty_playbook(description: Any, now: str) -> Any:
@@ -5028,31 +5054,16 @@ def _ace_empty_playbook(description: Any, now: str) -> Any:
     return out
 
 
-def _complete_with_retries_impl(client: AIClient, request: AxChatRequest, options: Any, retries: int) -> Any:
-    _core_coverage_mark("_complete_with_retries_impl")
-    attempt = 0
-    last_error = _core_none()
-    while True:
-        try:
-            response = _core_ai_complete_once(client, request, options)
-            return response
-        except Exception as error:
-            aborted = _core_exception_is_aborted(error)
-            if aborted:
-                raise error
-            else:
-                pass
-            last_error = error
-            exhausted = _core_gte(attempt, retries)
-            if exhausted:
-                raise error
-            else:
-                pass
-            _core_retry_sleep(attempt, client, options)
-            next_attempt = _core_add(attempt, 1)
-            attempt = next_attempt
-            continue
-    raise last_error
+def _record_trace(gen: AxGen, input: Any, output: Any, status: str) -> None:
+    _core_coverage_mark("_record_trace")
+    _core_axgen_record_trace(gen, input, output, status)
+    return None
+
+
+def _should_continue_steps(gen: AxGen, calls: list[Any]) -> bool:
+    _core_coverage_mark("_should_continue_steps")
+    should_continue = _core_axgen_should_continue_steps(gen, calls)
+    return should_continue
 
 
 def _ace_render_playbook(playbook: Any) -> str:
@@ -5107,6 +5118,39 @@ def _ace_render_playbook(playbook: Any) -> str:
     combined = _core_string_format("{}\n{}", header, joined_sections)
     result = str(combined).strip()
     return result
+
+
+def _complete_with_retries_impl(client: AIClient, request: AxChatRequest, options: Any, retries: int) -> Any:
+    _core_coverage_mark("_complete_with_retries_impl")
+    attempt = 0
+    last_error = _core_none()
+    while True:
+        try:
+            response = _core_ai_complete_once(client, request, options)
+            return response
+        except Exception as error:
+            aborted = _core_exception_is_aborted(error)
+            if aborted:
+                raise error
+            else:
+                pass
+            infrastructure = _core_exception_is_infrastructure(error)
+            not_infrastructure = _core_not(infrastructure)
+            if not_infrastructure:
+                raise error
+            else:
+                pass
+            last_error = error
+            exhausted = _core_gte(attempt, retries)
+            if exhausted:
+                raise error
+            else:
+                pass
+            _core_retry_sleep(attempt, client, options)
+            next_attempt = _core_add(attempt, 1)
+            attempt = next_attempt
+            continue
+    raise last_error
 
 
 def chat_session_boundary_action(state: Any) -> Any:
@@ -5180,42 +5224,6 @@ def _parse_output_impl(content: str) -> Any:
     return output
 
 
-def _is_flexible_json_field(typ: FieldType) -> bool:
-    _core_coverage_mark("_is_flexible_json_field")
-    type_name = _core_get(typ, "name", None)
-    is_json = _core_eq(type_name, "json")
-    is_object = _core_eq(type_name, "object")
-    fields = _core_get(typ, "fields", None)
-    has_fields = _core_truthy(fields)
-    no_fields = _core_not(has_fields)
-    flexible = is_json
-    if is_object:
-        if no_fields:
-            flexible = True
-        else:
-            pass
-    else:
-        pass
-    return flexible
-
-
-def _parse_json_string_value(value: Any) -> Any:
-    _core_coverage_mark("_parse_json_string_value")
-    is_string = _core_type_is(value, "string")
-    not_string = _core_not(is_string)
-    if not_string:
-        return value
-    else:
-        pass
-    result = value
-    try:
-        parsed = _core_json_parse(value)
-        result = parsed
-    except Exception as parse_error:
-        result = value
-    return result
-
-
 def _ace_update_bullet_feedback(playbook: Any, bullet_id: str, tag: str, now: str) -> Any:
     _core_coverage_mark("_ace_update_bullet_feedback")
     empty_map = {}
@@ -5263,6 +5271,25 @@ def _ace_update_bullet_feedback(playbook: Any, bullet_id: str, tag: str, now: st
     return playbook
 
 
+def _is_flexible_json_field(typ: FieldType) -> bool:
+    _core_coverage_mark("_is_flexible_json_field")
+    type_name = _core_get(typ, "name", None)
+    is_json = _core_eq(type_name, "json")
+    is_object = _core_eq(type_name, "object")
+    fields = _core_get(typ, "fields", None)
+    has_fields = _core_truthy(fields)
+    no_fields = _core_not(has_fields)
+    flexible = is_json
+    if is_object:
+        if no_fields:
+            flexible = True
+        else:
+            pass
+    else:
+        pass
+    return flexible
+
+
 def _regex_alternative(s: Any) -> Any:
     _core_coverage_mark("_regex_alternative")
     choices = _core_none()
@@ -5308,6 +5335,67 @@ def _regex_alternative(s: Any) -> Any:
     t17["k"] = "alt"
     t17["terms"] = choices
     return t17
+
+
+def chat_session_mark_submitted(state: Any, ids: list[Any]) -> None:
+    _core_coverage_mark("chat_session_mark_submitted")
+    pending = _core_get(state, "pending", None)
+    for id in ids:
+        record = _core_get(pending, id, None)
+        record["status"] = "sent"
+        pending[id] = record
+    state["pending"] = pending
+    state["boundary"] = False
+    state["needs_continuation"] = False
+    return None
+
+
+def _parse_json_string_value(value: Any) -> Any:
+    _core_coverage_mark("_parse_json_string_value")
+    is_string = _core_type_is(value, "string")
+    not_string = _core_not(is_string)
+    if not_string:
+        return value
+    else:
+        pass
+    result = value
+    try:
+        parsed = _core_json_parse(value)
+        result = parsed
+    except Exception as parse_error:
+        result = value
+    return result
+
+
+def chat_session_queue_update(state: Any, update: Any) -> bool:
+    _core_coverage_mark("chat_session_queue_update")
+    terminal = _core_get(state, "terminal", False)
+    if terminal:
+        return False
+    else:
+        pass
+    target = _core_get(update, "target", "root")
+    path = _core_get(state, "path", None)
+    matches = chat_session_target_matches(target, path)
+    unmatched = _core_not(matches)
+    if unmatched:
+        return False
+    else:
+        pass
+    id = _core_get(update, "id", None)
+    updates = _core_get(state, "updates", None)
+    exists = _core_map_contains(updates, id)
+    if exists:
+        return False
+    else:
+        pass
+    record = {}
+    record["update"] = update
+    record["status"] = "queued"
+    updates[id] = record
+    state["updates"] = updates
+    state["needs_continuation"] = True
+    return True
 
 
 def _parse_json_string_for_field(field: Field, value: Any) -> Any:
@@ -5368,50 +5456,6 @@ def _parse_json_string_for_field(field: Field, value: Any) -> Any:
     else:
         pass
     return value
-
-
-def chat_session_mark_submitted(state: Any, ids: list[Any]) -> None:
-    _core_coverage_mark("chat_session_mark_submitted")
-    pending = _core_get(state, "pending", None)
-    for id in ids:
-        record = _core_get(pending, id, None)
-        record["status"] = "sent"
-        pending[id] = record
-    state["pending"] = pending
-    state["boundary"] = False
-    state["needs_continuation"] = False
-    return None
-
-
-def chat_session_queue_update(state: Any, update: Any) -> bool:
-    _core_coverage_mark("chat_session_queue_update")
-    terminal = _core_get(state, "terminal", False)
-    if terminal:
-        return False
-    else:
-        pass
-    target = _core_get(update, "target", "root")
-    path = _core_get(state, "path", None)
-    matches = chat_session_target_matches(target, path)
-    unmatched = _core_not(matches)
-    if unmatched:
-        return False
-    else:
-        pass
-    id = _core_get(update, "id", None)
-    updates = _core_get(state, "updates", None)
-    exists = _core_map_contains(updates, id)
-    if exists:
-        return False
-    else:
-        pass
-    record = {}
-    record["update"] = update
-    record["status"] = "queued"
-    updates[id] = record
-    state["updates"] = updates
-    state["needs_continuation"] = True
-    return True
 
 
 def _ace_dedupe_playbook(playbook: Any) -> Any:
@@ -5515,26 +5559,6 @@ def chat_session_record_unresolved(gen: Any, state: Any) -> None:
     return None
 
 
-def _parse_json_string_fields(output_fields: list[Any], values: Any) -> Any:
-    _core_coverage_mark("_parse_json_string_fields")
-    values_is_map = _core_type_is(values, "object")
-    not_map = _core_not(values_is_map)
-    if not_map:
-        return values
-    else:
-        pass
-    for field in output_fields:
-        name = _core_get(field, "name", None)
-        has_key = _core_map_contains(values, name)
-        if has_key:
-            value = _core_get(values, name, None)
-            parsed = _parse_json_string_for_field(field, value)
-            values[name] = parsed
-        else:
-            pass
-    return values
-
-
 def _ace_prune_section_for_addition(section: Any, protected_ids: Any) -> Any:
     _core_coverage_mark("_ace_prune_section_for_addition")
     candidate_index = -1
@@ -5624,16 +5648,15 @@ def chat_session_close_state(state: Any) -> list[Any]:
     return unresolved
 
 
-def _parse_json_string_for_fields(fields_map: Any, values: Any) -> Any:
-    _core_coverage_mark("_parse_json_string_for_fields")
+def _parse_json_string_fields(output_fields: list[Any], values: Any) -> Any:
+    _core_coverage_mark("_parse_json_string_fields")
     values_is_map = _core_type_is(values, "object")
     not_map = _core_not(values_is_map)
     if not_map:
         return values
     else:
         pass
-    nested_fields = _core_fields_from_map(fields_map)
-    for field in nested_fields:
+    for field in output_fields:
         name = _core_get(field, "name", None)
         has_key = _core_map_contains(values, name)
         if has_key:
@@ -5850,6 +5873,27 @@ def _regex_space(c: Any) -> Any:
     else:
         pass
     return t2
+
+
+def _parse_json_string_for_fields(fields_map: Any, values: Any) -> Any:
+    _core_coverage_mark("_parse_json_string_for_fields")
+    values_is_map = _core_type_is(values, "object")
+    not_map = _core_not(values_is_map)
+    if not_map:
+        return values
+    else:
+        pass
+    nested_fields = _core_fields_from_map(fields_map)
+    for field in nested_fields:
+        name = _core_get(field, "name", None)
+        has_key = _core_map_contains(values, name)
+        if has_key:
+            value = _core_get(values, name, None)
+            parsed = _parse_json_string_for_field(field, value)
+            values[name] = parsed
+        else:
+            pass
+    return values
 
 
 def _validate_exact_output_keys(fields: list[Any], values: Any, context: str) -> None:
@@ -6084,24 +6128,6 @@ def _ace_apply_curator_operations(playbook: Any, operations: Any, options: Any, 
     return out
 
 
-def _tool_spec_impl(fn: Tool) -> Any:
-    _core_coverage_mark("_tool_spec_impl")
-    spec = {}
-    name = _core_get(fn, "name", None)
-    description = _core_get(fn, "description", None)
-    parameters = _core_get(fn, "parameters", None)
-    spec["name"] = name
-    spec["description"] = description
-    spec["parameters"] = parameters
-    execution = _core_get(fn, "execution", "blocking")
-    background = _core_eq(execution, "background")
-    if background:
-        spec["execution"] = execution
-    else:
-        pass
-    return spec
-
-
 def _regex_member(n: Any, c: Any) -> Any:
     _core_coverage_mark("_regex_member")
     e = _core_none()
@@ -6242,6 +6268,24 @@ def _regex_member(n: Any, c: Any) -> Any:
     return False
 
 
+def _tool_spec_impl(fn: Tool) -> Any:
+    _core_coverage_mark("_tool_spec_impl")
+    spec = {}
+    name = _core_get(fn, "name", None)
+    description = _core_get(fn, "description", None)
+    parameters = _core_get(fn, "parameters", None)
+    spec["name"] = name
+    spec["description"] = description
+    spec["parameters"] = parameters
+    execution = _core_get(fn, "execution", "blocking")
+    background = _core_eq(execution, "background")
+    if background:
+        spec["execution"] = execution
+    else:
+        pass
+    return spec
+
+
 def _function_call_mode_impl(mode: Any) -> str:
     _core_coverage_mark("_function_call_mode_impl")
     missing = _core_is_none(mode)
@@ -6325,19 +6369,6 @@ def _completion_call_to_chat_impl(call: Any) -> Any:
     return out
 
 
-def _tool_result_message_impl(call: Any, result: Any) -> Any:
-    _core_coverage_mark("_tool_result_message_impl")
-    id = _core_get(call, "id", None)
-    name = _core_get(call, "name", None)
-    result_json = _core_json_stringify(result)
-    message = {}
-    message["role"] = "function"
-    message["function_id"] = id
-    message["name"] = name
-    message["result"] = result_json
-    return message
-
-
 def _regex_state(pos: Any, caps: Any) -> Any:
     _core_coverage_mark("_regex_state")
     t1 = {}
@@ -6345,23 +6376,6 @@ def _regex_state(pos: Any, caps: Any) -> Any:
     t2 = _regex_copy_map(caps)
     t1["caps"] = t2
     return t1
-
-
-def _tool_error_message_impl(call: Any, error: error) -> Any:
-    _core_coverage_mark("_tool_error_message_impl")
-    id = _core_get(call, "id", None)
-    name = _core_get(call, "name", None)
-    error_text = _core_exception_message(error)
-    payload = {}
-    payload["error"] = error_text
-    payload_json = _core_json_stringify(payload)
-    message = {}
-    message["role"] = "function"
-    message["function_id"] = id
-    message["name"] = name
-    message["result"] = payload_json
-    message["is_error"] = True
-    return message
 
 
 def _regex_capture_ids(n: Any) -> Any:
@@ -6408,6 +6422,19 @@ def _regex_capture_ids(n: Any) -> Any:
     else:
         pass
     return out
+
+
+def _tool_result_message_impl(call: Any, result: Any) -> Any:
+    _core_coverage_mark("_tool_result_message_impl")
+    id = _core_get(call, "id", None)
+    name = _core_get(call, "name", None)
+    result_json = _core_json_stringify(result)
+    message = {}
+    message["role"] = "function"
+    message["function_id"] = id
+    message["name"] = name
+    message["result"] = result_json
+    return message
 
 
 def _ace_is_noop_acknowledgment(content: str) -> bool:
@@ -6543,6 +6570,23 @@ def _ace_is_noop_acknowledgment(content: str) -> bool:
     return is_noop
 
 
+def _tool_error_message_impl(call: Any, error: error) -> Any:
+    _core_coverage_mark("_tool_error_message_impl")
+    id = _core_get(call, "id", None)
+    name = _core_get(call, "name", None)
+    error_text = _core_exception_message(error)
+    payload = {}
+    payload["error"] = error_text
+    payload_json = _core_json_stringify(payload)
+    message = {}
+    message["role"] = "function"
+    message["function_id"] = id
+    message["name"] = name
+    message["result"] = payload_json
+    message["is_error"] = True
+    return message
+
+
 def _append_validation_retry_messages_impl(messages: list[Any], response: Any, error: error) -> list[Any]:
     _core_coverage_mark("_append_validation_retry_messages_impl")
     content = _core_get(response, "content", "")
@@ -6558,6 +6602,22 @@ def _append_validation_retry_messages_impl(messages: list[Any], response: Any, e
     retry_message["content"] = retry_content
     messages.append(retry_message)
     return messages
+
+
+def _regex_push(stack: Any, top: Any, value: Any) -> Any:
+    _core_coverage_mark("_regex_push")
+    t1 = _core_string_format("{}", top)
+    stack[t1] = value
+    t2 = _core_add(top, 1)
+    return t2
+
+
+def _regex_task(n: Any, next: Any) -> Any:
+    _core_coverage_mark("_regex_task")
+    t1 = {}
+    t1["node"] = n
+    t1["next"] = next
+    return t1
 
 
 def _parse_text_field_value_impl(field: Any, text: str) -> Any:
@@ -6578,103 +6638,6 @@ def _parse_text_field_value_impl(field: Any, text: str) -> Any:
     else:
         pass
     return text
-
-
-def _regex_push(stack: Any, top: Any, value: Any) -> Any:
-    _core_coverage_mark("_regex_push")
-    t1 = _core_string_format("{}", top)
-    stack[t1] = value
-    t2 = _core_add(top, 1)
-    return t2
-
-
-def _parse_text_output_fields_impl(content: str, fields: Any, is_final: bool) -> Any:
-    _core_coverage_mark("_parse_text_output_fields_impl")
-    lines = _core_string_split(content, "\n")
-    count = _core_len(lines)
-    index = 0
-    values = {}
-    current = _core_none()
-    current_name = ""
-    parts = []
-    for line in lines:
-        index = _core_add(index, 1)
-        line_trimmed = str(line).strip()
-        matched = _core_none()
-        value = ""
-        withhold = False
-        for field in fields:
-            name = _core_get(field, "name", None)
-            title = _core_get(field, "title", name)
-            labels = []
-            labels.append(name)
-            labels.append(title)
-            for label in labels:
-                prefix = _core_string_format("{}:", label)
-                found = _core_string_starts_with(line_trimmed, prefix)
-                if found:
-                    matched = field
-                    length = _core_len(prefix)
-                    value = _core_string_slice(line_trimmed, length)
-                    break
-                else:
-                    pass
-                last = _core_eq(index, count)
-                partial = _core_not(is_final)
-                partial = _core_and(partial, last)
-                if partial:
-                    prefix_partial = _core_string_starts_with(prefix, line_trimmed)
-                    withhold = _core_or(withhold, prefix_partial)
-                else:
-                    pass
-            has_match = _core_is_not_none(matched)
-            if has_match:
-                break
-            else:
-                pass
-        has_match = _core_is_not_none(matched)
-        if has_match:
-            has_current = _core_ne(current_name, "")
-            if has_current:
-                raw = _core_string_join("\n", parts)
-                parsed = _parse_text_field_value_impl(current, raw)
-                values[current_name] = parsed
-            else:
-                pass
-            current = matched
-            current_name = _core_get(matched, "name", None)
-            parts = []
-            parts.append(value)
-        else:
-            has_current = _core_ne(current_name, "")
-            keep = _core_not(withhold)
-            keep = _core_and(keep, has_current)
-            if keep:
-                parts.append(line)
-            else:
-                pass
-    has_current = _core_ne(current_name, "")
-    if has_current:
-        raw = _core_string_join("\n", parts)
-        try:
-            parsed = _parse_text_field_value_impl(current, raw)
-            values[current_name] = parsed
-        except Exception as parse_error:
-            if is_final:
-                raise parse_error
-            else:
-                pass
-    else:
-        pass
-    return values
-
-
-def _regex_task(n: Any, next: Any) -> Any:
-    _core_coverage_mark("_regex_task")
-    t1 = {}
-    t1["node"] = n
-    t1["next"] = next
-    return t1
 
 
 def _regex_frame(todo: Any, st: Any) -> Any:
@@ -7222,6 +7185,87 @@ def _regex_search(n: Any, u: Any, initial: Any, d: Any) -> Any:
     return t225
 
 
+def _parse_text_output_fields_impl(content: str, fields: Any, is_final: bool) -> Any:
+    _core_coverage_mark("_parse_text_output_fields_impl")
+    lines = _core_string_split(content, "\n")
+    count = _core_len(lines)
+    index = 0
+    values = {}
+    current = _core_none()
+    current_name = ""
+    parts = []
+    for line in lines:
+        index = _core_add(index, 1)
+        line_trimmed = str(line).strip()
+        matched = _core_none()
+        value = ""
+        withhold = False
+        for field in fields:
+            name = _core_get(field, "name", None)
+            title = _core_get(field, "title", name)
+            labels = []
+            labels.append(name)
+            labels.append(title)
+            for label in labels:
+                prefix = _core_string_format("{}:", label)
+                found = _core_string_starts_with(line_trimmed, prefix)
+                if found:
+                    matched = field
+                    length = _core_len(prefix)
+                    value = _core_string_slice(line_trimmed, length)
+                    break
+                else:
+                    pass
+                last = _core_eq(index, count)
+                partial = _core_not(is_final)
+                partial = _core_and(partial, last)
+                if partial:
+                    prefix_partial = _core_string_starts_with(prefix, line_trimmed)
+                    withhold = _core_or(withhold, prefix_partial)
+                else:
+                    pass
+            has_match = _core_is_not_none(matched)
+            if has_match:
+                break
+            else:
+                pass
+        has_match = _core_is_not_none(matched)
+        if has_match:
+            has_current = _core_ne(current_name, "")
+            if has_current:
+                raw = _core_string_join("\n", parts)
+                parsed = _parse_text_field_value_impl(current, raw)
+                values[current_name] = parsed
+            else:
+                pass
+            current = matched
+            current_name = _core_get(matched, "name", None)
+            parts = []
+            parts.append(value)
+        else:
+            has_current = _core_ne(current_name, "")
+            keep = _core_not(withhold)
+            keep = _core_and(keep, has_current)
+            if keep:
+                parts.append(line)
+            else:
+                pass
+    has_current = _core_ne(current_name, "")
+    if has_current:
+        raw = _core_string_join("\n", parts)
+        try:
+            parsed = _parse_text_field_value_impl(current, raw)
+            values[current_name] = parsed
+        except Exception as parse_error:
+            if is_final:
+                raise parse_error
+            else:
+                pass
+    else:
+        pass
+    return values
+
+
 def _ace_normalize_curator_operations(operations: Any) -> list[Any]:
     _core_coverage_mark("_ace_normalize_curator_operations")
     empty_list = []
@@ -7483,27 +7527,6 @@ def _function_call_names_output_impl(choice: Any) -> bool:
     return reserved
 
 
-def _user_functions_callable_impl(functions: list[Any], options: Any) -> bool:
-    _core_coverage_mark("_user_functions_callable_impl")
-    function_count = _core_len(functions)
-    no_functions = _core_eq(function_count, 0)
-    if no_functions:
-        return False
-    else:
-        pass
-    mode_snake = _core_get(options, "function_call_mode", None)
-    mode = _core_get(options, "functionCallMode", mode_snake)
-    prompt_emulated = _core_eq(mode, "prompt")
-    if prompt_emulated:
-        return False
-    else:
-        pass
-    choice = _caller_function_call_impl(options)
-    disabled = _core_eq(choice, "none")
-    callable = _core_not(disabled)
-    return callable
-
-
 def _ace_locate_bullet_section(playbook: Any, bullet_id: str) -> Any:
     _core_coverage_mark("_ace_locate_bullet_section")
     empty_map = {}
@@ -7533,6 +7556,27 @@ def _ace_locate_bullet_section(playbook: Any, bullet_id: str) -> Any:
         else:
             pass
     return found
+
+
+def _user_functions_callable_impl(functions: list[Any], options: Any) -> bool:
+    _core_coverage_mark("_user_functions_callable_impl")
+    function_count = _core_len(functions)
+    no_functions = _core_eq(function_count, 0)
+    if no_functions:
+        return False
+    else:
+        pass
+    mode_snake = _core_get(options, "function_call_mode", None)
+    mode = _core_get(options, "functionCallMode", mode_snake)
+    prompt_emulated = _core_eq(mode, "prompt")
+    if prompt_emulated:
+        return False
+    else:
+        pass
+    choice = _caller_function_call_impl(options)
+    disabled = _core_eq(choice, "none")
+    callable = _core_not(disabled)
+    return callable
 
 
 def _ace_resolve_curator_operation_targets(operations: Any, playbook: Any, reflection: Any, generator_output: Any) -> list[Any]:
