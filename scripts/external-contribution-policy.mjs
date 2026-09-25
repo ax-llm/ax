@@ -17,6 +17,7 @@ export const MAX_LEDGER_BYTES = 1024 * 1024;
 const trustedAssociations = new Set(['OWNER', 'MEMBER']);
 const trustedUserIds = new Set([
   832235, // dosco
+  212140, // joshvfleming
 ]);
 const typescriptExtensions = ['.ts', '.tsx', '.mts', '.cts'];
 const generatedLanguageRoots = [
