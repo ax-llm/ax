@@ -1,0 +1,75 @@
+{
+  "assertions": [
+    {
+      "contains": "Fixed",
+      "field": "answer",
+      "message": "answer must say Fixed"
+    }
+  ],
+  "expected_output": {
+    "answer": "Fixed",
+    "confidence": 1
+  },
+  "expected_request_contains": [
+    "output_1",
+    "\"done\"",
+    "The previous tool call failed. Fix arguments and try again, ensuring required fields match schema.",
+    "Follow these instructions: answer must say Fixed."
+  ],
+  "expected_request_count": 2,
+  "expected_step_requests": [
+    {
+      "function_names": ["__axOutput"],
+      "index": 1,
+      "request": {
+        "function_call": {
+          "function": {
+            "name": "__axOutput"
+          },
+          "type": "function"
+        }
+      }
+    }
+  ],
+  "features": {
+    "functions": true,
+    "structured_outputs": false
+  },
+  "input": {
+    "query": "test"
+  },
+  "kind": "forward",
+  "name": "structured-output-retry-assertion",
+  "options": {
+    "force_structured": true
+  },
+  "responses": [
+    {
+      "content": "",
+      "function_calls": [
+        {
+          "id": "output_1",
+          "name": "__axOutput",
+          "params": {
+            "answer": "Done",
+            "confidence": 1
+          }
+        }
+      ]
+    },
+    {
+      "content": "",
+      "function_calls": [
+        {
+          "id": "output_2",
+          "name": "__axOutput",
+          "params": {
+            "answer": "Fixed",
+            "confidence": 1
+          }
+        }
+      ]
+    }
+  ],
+  "signature": "query:string -> answer:string, confidence:number"
+}

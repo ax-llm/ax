@@ -18,7 +18,12 @@ This ledger tracks portable TypeScript behavior that should be migrated into AxI
 
 ## Open
 
-No entries.
+- `axir-2026-09-25-keep-the-axoutput-call-on-axgen-structured-output-retries` [axgen] Keep the __axOutput call on AxGen structured-output retries
+  - Status: open
+  - Source commit: `48100c563798830887a043c04b679410c2903f75`
+  - TS paths: `src/ax/dsp/generate.ts`, `src/ax/dsp/response/nonStreaming.ts`
+  - Impact: When an __axOutput call on the function structured-output rung fails validation or a message-bearing assertion, TypeScript AxGen keeps the call on the assistant turn with a done function result, then adds 'The previous tool call failed. Fix arguments and try again, ensuring required fields match schema.' and the rendered error (Invalid Field or Follow these instructions), and forces __axOutput again. The generated ports rebuilt the assistant turn as empty content without the call, so the port request validator rejected the retry locally (Assistant content is required when no tool calls are provided) and the forward failed instead of being corrected. Gemini selects this rung whenever tools are callable.
+  - Suggested AxIR work: Rebuild the structured-output retry with the output call and a done function result; Add the tool-call failure notice and the TS-titled error correction; Pin a missing field and a message-bearing assertion corrected on retry; Live-check one Gemini model in Python and Go
 
 ## Done
 

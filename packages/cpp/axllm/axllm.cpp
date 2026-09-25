@@ -18302,12 +18302,14 @@ Value Core::_forward_impl(Value gen, Value client, Value values, Value options) 
       Value has_structured_call = Core::is_not_none(structured_call);
       if (Core::truthy(has_structured_call)) {
         Value structured_failure = Core::none();
+        Value structured_stage = Value("validation");
         try {
           Value structured_args = Core::_structured_output_call_args(structured_call);
           Core::_validate_exact_output_keys(output_fields, structured_args, Value("output"));
           Value structured_recovered = Core::_parse_json_string_fields(output_fields, structured_args);
           Value structured_validated = Core::validate_output(output_fields, structured_recovered);
           Value structured_processed = Core::_apply_field_processors(gen, structured_validated);
+          structured_stage = Value("assertion");
           Value structured_assertion_failure = Core::_run_assertions(gen, structured_processed);
           Value structured_assertion_failed = Core::is_not_none(structured_assertion_failure);
           if (Core::truthy(structured_assertion_failed)) {
@@ -18327,7 +18329,7 @@ Value Core::_forward_impl(Value gen, Value client, Value values, Value options) 
           }
           Value structured_next_attempt = Core::add(attempt, Value(1));
           attempt = structured_next_attempt;
-          Value structured_retry_messages = Core::_append_assertion_retry_messages(messages, response, structured_validation_error);
+          Value structured_retry_messages = Core::_append_structured_output_retry_messages_impl(messages, response, structured_call, structured_validation_error, structured_stage);
           messages = structured_retry_messages;
           Core::axgen_memory_add_correction(gen, response, structured_validation_error);
           continue;
@@ -21771,6 +21773,44 @@ Value Core::_user_functions_callable_impl(Value functions, Value options) {
   Value disabled = Core::eq(choice, Value("none"));
   Value callable = Core::not_(disabled);
   return callable;
+}
+
+Value Core::_append_structured_output_retry_messages_impl(Value messages, Value response, Value call, Value error, Value stage) {
+  axir_coverage_mark("_append_structured_output_retry_messages_impl");
+  Value output_calls = Value::array();
+  Core::append(output_calls, call);
+  Value with_call = Core::_append_tool_call_messages_impl(messages, response, output_calls);
+  Value id = Core::get(call, Value("id"), Value());
+  Value direct_name = Core::get(call, Value("name"), Value());
+  Value fn = Core::get(call, Value("function"), Value());
+  Value name = Core::get(fn, Value("name"), direct_name);
+  Value result_message = Value::object();
+  Core::set(result_message, Value("role"), Value("function"));
+  Core::set(result_message, Value("function_id"), id);
+  Core::set(result_message, Value("name"), name);
+  Core::set(result_message, Value("result"), Value("done"));
+  Core::append(with_call, result_message);
+  Value notice = Value::object();
+  Core::set(notice, Value("role"), Value("user"));
+  Core::set(notice, Value("content"), Value("The previous tool call failed. Fix arguments and try again, ensuring required fields match schema."));
+  Core::append(with_call, notice);
+  Value error_text = Core::exception_message(error);
+  error_text = Core::string_trim(error_text);
+  Value correction_text = Core::string_format(Value("Invalid Field: {}"), error_text);
+  Value is_assertion = Core::eq(stage, Value("assertion"));
+  if (Core::truthy(is_assertion)) {
+    Value has_period = Core::string_ends_with(error_text, Value("."));
+    Value period = Value(".");
+    if (Core::truthy(has_period)) {
+      period = Value("");
+    }
+    correction_text = Core::string_format(Value("Follow these instructions: {}{}"), error_text, period);
+  }
+  Value correction = Value::object();
+  Core::set(correction, Value("role"), Value("user"));
+  Core::set(correction, Value("content"), correction_text);
+  Core::append(with_call, correction);
+  return with_call;
 }
 
 Value Core::_ace_normalize_reflection_bullet_tags(Value reflection) {

@@ -822,12 +822,14 @@ module @ax.gen version "0.1" {
           %has_structured_call = core.call intrinsic.is_not_none(%structured_call)
           core.if %has_structured_call {
             %structured_failure = core.call intrinsic.none()
+            %structured_stage = core.let "validation"
             core.try {
               %structured_args = core.call @structured_output_call_args(%structured_call)
               core.call @validate_exact_output_keys(%output_fields, %structured_args, "output")
               %structured_recovered = core.call @parse_json_string_fields(%output_fields, %structured_args)
               %structured_validated = core.call @validate_output(%output_fields, %structured_recovered)
               %structured_processed = core.call @apply_field_processors(%gen, %structured_validated)
+              %structured_stage = core.let "assertion"
               %structured_assertion_failure = core.call @run_assertions(%gen, %structured_processed)
               %structured_assertion_failed = core.call intrinsic.is_not_none(%structured_assertion_failure)
               core.if %structured_assertion_failed {
@@ -845,7 +847,7 @@ module @ax.gen version "0.1" {
               }
               %structured_next_attempt = core.call intrinsic.add(%attempt, 1)
               %attempt = core.let %structured_next_attempt
-              %structured_retry_messages = core.call @append_assertion_retry_messages(%messages, %response, %structured_validation_error)
+              %structured_retry_messages = core.call @append_structured_output_retry_messages_impl(%messages, %response, %structured_call, %structured_validation_error, %structured_stage)
               %messages = core.let %structured_retry_messages
               core.call intrinsic.axgen.memory_add_correction(%gen, %response, %structured_validation_error)
               core.continue
@@ -1747,6 +1749,57 @@ module @ax.gen version "0.1" {
       %disabled = core.call intrinsic.eq(%choice, "none")
       %callable = core.call intrinsic.not(%disabled)
       core.return %callable
+    }
+  }
+
+  op ax.gen.semantic @append_structured_output_retry_messages_impl {
+    attr core_kind = "func"
+    attr emit_module = "gen"
+    attr private = true
+    tag "structured-output-retry-message-core-helper"
+    type signature = "(list<json>, json, json, error, string) -> list<json>"
+    body @entry(%messages: list<json>, %response: json, %call: json, %error: error, %stage: string) {
+      // As in TS, the output call stays on the assistant turn with a "done"
+      // result, followed by the tool-call failure notice and the rendered
+      // error: "Follow these instructions" for an assertion, "Invalid Field"
+      // otherwise. Dropping the call leaves an empty assistant turn that
+      // providers reject.
+      %output_calls = core.list
+      core.append %output_calls, %call
+      %with_call = core.call @append_tool_call_messages_impl(%messages, %response, %output_calls)
+      %id = core.get %call["id"]
+      %direct_name = core.get %call["name"]
+      %fn = core.get %call["function"]
+      %name = core.get %fn["name"] default %direct_name
+      %result_message = core.map
+      core.set %result_message["role"] = "function"
+      core.set %result_message["function_id"] = %id
+      core.set %result_message["name"] = %name
+      core.set %result_message["result"] = "done"
+      core.append %with_call, %result_message
+      %notice = core.map
+      core.set %notice["role"] = "user"
+      core.set %notice["content"] = "The previous tool call failed. Fix arguments and try again, ensuring required fields match schema."
+      core.append %with_call, %notice
+      %error_text = core.call intrinsic.exception.message(%error)
+      %error_text = core.string_trim %error_text
+      %correction_text = core.call intrinsic.string.format("Invalid Field: {}", %error_text)
+      %is_assertion = core.call intrinsic.eq(%stage, "assertion")
+      core.if %is_assertion {
+        %has_period = core.call intrinsic.string.ends_with(%error_text, ".")
+        %period = core.let "."
+        core.if %has_period {
+          %period = core.let ""
+        }
+        %correction_text = core.call intrinsic.string.format("Follow these instructions: {}{}", %error_text, %period)
+      }
+      %correction = core.map
+      core.set %correction["role"] = "user"
+      core.set %correction["content"] = %correction_text
+      core.append %with_call, %correction
+      // Callers must reassign from this return: in Go the forward loop's
+      // messages can be a plain slice, so in-place appends never reach them.
+      core.return %with_call
     }
   }
 }
