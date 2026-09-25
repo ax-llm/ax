@@ -85,6 +85,17 @@ describe('external contribution trust boundary', () => {
     ).toBe(true);
   });
 
+  it('trusts joshvfleming by immutable GitHub user ID', () => {
+    expect(
+      isTrustedAuthor({
+        association: 'COLLABORATOR',
+        id: 212140,
+        login: 'joshvfleming',
+        type: 'User',
+      })
+    ).toBe(true);
+  });
+
   it('does not trust the dosco login without its allowlisted user ID', () => {
     expect(
       isTrustedAuthor({
