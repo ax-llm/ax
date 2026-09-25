@@ -1,11 +1,11 @@
 # Changelog
 
-## [24.0.22](https://github.com/ax-llm/ax/compare/24.0.20...24.0.21) (2026-09-25)
+## [24.0.22](https://github.com/ax-llm/ax/compare/24.0.21...24.0.22) (2026-09-25)
 
 ### Features
 
 * **ai:** add Sept-2026 OpenAI, Anthropic and Gemini models; fix broken defaults ([#670](https://github.com/ax-llm/ax/issues/670)) ([77652db](https://github.com/ax-llm/ax/commit/77652db26a29f9be2da973eaedf9d293aea4eddc))
-* **axir:** add python-parity RuntimeEnvelope constructors to the Rust port ([#682](https://github.com/ax-llm/ax/issues/682)) ([3e2e407](https://github.com/ax-llm/ax/commit/3e2e407c66d22cb19ec0b080c4644fcfa7f0a3b6)), closes [r#final](https://github.com/ax-llm/r/issues/final) [r#final](https://github.com/ax-llm/r/issues/final)
+* **axir:** add python-parity RuntimeEnvelope constructors to the Rust port ([#682](https://github.com/ax-llm/ax/issues/682)) ([3e2e407](https://github.com/ax-llm/ax/commit/3e2e407c66d22cb19ec0b080c4644fcfa7f0a3b6))
 * **axir:** port the expensive-model gate and teacherOptions to all five ports ([#702](https://github.com/ax-llm/ax/issues/702)) ([19d6384](https://github.com/ax-llm/ax/commit/19d63844ec849b5cc69a0ba6540d04aad274dba7))
 * **bedrock:** add Claude Opus 5.5 (structured output without forced tool_choice) ([#668](https://github.com/ax-llm/ax/issues/668)) ([fc288a2](https://github.com/ax-llm/ax/commit/fc288a25c02dc1bef122f9f6e6915a7281a9752d))
 * **bedrock:** add OpenAI GPT-6 Sol, Luna, and Astra to AxAIBedrock ([#676](https://github.com/ax-llm/ax/issues/676)) ([8aaa662](https://github.com/ax-llm/ax/commit/8aaa662f842261d76c3c40477d3a3a9379e32e62))
@@ -36,12 +36,6 @@
 * **mcp:** accept JSON-RPC in binary WebSocket frames ([#673](https://github.com/ax-llm/ax/issues/673)) ([ad09ce0](https://github.com/ax-llm/ax/commit/ad09ce0b8df9c43e99eb6ecda7a773f9606bb737))
 * **openai:** pass apiURL through in AxAIOpenAIResponses ([#678](https://github.com/ax-llm/ax/issues/678)) ([ab5f720](https://github.com/ax-llm/ax/commit/ab5f72075aca7079259771c2e1d404d2d81438d5))
 * **openai:** recognize Amazon Bedrock's OpenAI model IDs ([#683](https://github.com/ax-llm/ax/issues/683)) ([33cd535](https://github.com/ax-llm/ax/commit/33cd5357da3b1b6162f00600297aba3f17df2549))
-
-## [24.0.21](https://github.com/ax-llm/ax/compare/24.0.20...24.0.21) (2026-09-22)
-
-### Bug Fixes
-
-* **typesafe:** accept rounded probability tolerance boundaries ([#665](https://github.com/ax-llm/ax/issues/665)) ([5647a96](https://github.com/ax-llm/ax/commit/5647a96c5dcfba38abdef355ff485d6f440e8fac))
 
 ## [24.0.21](https://github.com/ax-llm/ax/compare/24.0.20...24.0.21) (2026-09-22)
 
