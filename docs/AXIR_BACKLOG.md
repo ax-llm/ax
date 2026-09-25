@@ -18,7 +18,12 @@ This ledger tracks portable TypeScript behavior that should be migrated into AxI
 
 ## Open
 
-No entries.
+- `axir-2026-09-25-surface-a-message-less-axgen-assertion-failure-without-retrying` [axgen] Surface a message-less AxGen assertion failure without retrying
+  - Status: open
+  - Source commit: `54cb4074079188e739242edabcfff272708d3adc`
+  - TS paths: `src/ax/dsp/asserts.ts`
+  - Impact: In TypeScript an assertion that returns false without a message throws a plain Error (src/ax/dsp/asserts.ts:106), which the AxGen validation loop surfaces after one request; a string result or false with a message is an AxAssertionError and is retried within the validation budget. The generated ports retry all three. Not contained in IR: assertion evaluation and the message-less decision live in host code in every port (intrinsic.axgen.run_assertions in pyGen.py, goRuntime.go.txt, rustLib.rs, javaCore.java and cppRuntime.cpp), each raising a plain runtime error; callable assertions carry no message in any port API, and Go supports only declarative assertion specs. An IR-level fix needs a host-to-IR assertion outcome contract in all five ports.
+  - Suggested AxIR work: Have intrinsic.axgen.run_assertions return assertion outcomes to the IR instead of raising in all five ports; Raise a marked non-retryable error in the IR for a false result without a message and rethrow it from the @forward validation catch; Add an optional message to callable assertions in the port APIs; Pin assertion-false-without-message-error to 1 request and a false-with-message fixture to 4
 
 ## Done
 
@@ -733,6 +738,15 @@ No entries.
   - Completed at: 2026-09-25
   - Completed by: `b6060666d825244d655b33ec29a9887b24522d5c`
   - Verification: `@forward defaults validation_retries to maxRetries (default 3) and resets the validation attempt counter when the tool loop advances a step. The validation-budget-* fixtures and assertion-return-modes pin the request counts measured with a TypeScript AxMockAIService probe, and mutation checks fail each one. Python and Go conformance 937/937; npm run axir:check-packages, npm run axir:conformance:check and npm run test:axir pass.`
+- `axir-2026-09-25-nest-axgen-infrastructure-retries-around-the-validation-loop` [axgen] Nest AxGen infrastructure retries around the validation loop
+  - Status: done
+  - Source commit: `54cb4074079188e739242edabcfff272708d3adc`
+  - TS paths: `src/ax/dsp/generate.ts`
+  - Impact: TypeScript AxGen nests the validation loop inside the infrastructure retry loop of each step: an infrastructure error (5xx status, network, timeout, terminated stream) spends one budget shared by the whole step (maxRetries, default 3) and restarts the validation loop with a fresh validation budget, and the next tool step starts with fresh budgets. The generated ports retried infrastructure errors per request, so each request got its own budget and a retry left the validation attempt count unchanged.
+  - Suggested AxIR work: Retry infrastructure errors in @forward with a step-level budget and reset the validation attempt count on each retry; Reset the infrastructure budget when the tool loop advances a step; Add fixtures with request counts from a TypeScript AxMockAIService probe
+  - Completed at: 2026-09-25
+  - Completed by: `4e4b52c6632f31081523aee16ae8d64890b18f02`
+  - Verification: `@forward retries infrastructure errors with one budget per step (maxRetries, default 3), resets the validation attempt count on each infrastructure retry, and resets both budgets when the tool loop advances. The infra-retry-restarts-*, infra-retry-budget-shared-within-step and infra-retry-budget-resets-per-step fixtures pin request counts measured with a TypeScript AxMockAIService probe, and mutation checks fail each rule. Python and Go conformance 946/946; npm run axir:check-packages, npm run axir:conformance:check and npm run test:axir pass.`
 - `axir-2026-09-25-port-model-key-resolution-on-single-ai-clients` [axai] Port model-key resolution on single AI clients
   - Status: done
   - Source commit: `78de31b0b5b2b67a897fbfaafdaf1bff6c810800`

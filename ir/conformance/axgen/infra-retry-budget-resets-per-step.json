@@ -1,0 +1,68 @@
+{
+  "expected_output": {
+    "answer": 4
+  },
+  "expected_request_count": 4,
+  "expected_tool_calls": [
+    {
+      "args": {
+        "query": "ax docs"
+      },
+      "name": "search"
+    }
+  ],
+  "input": {
+    "query": "ax docs"
+  },
+  "kind": "forward",
+  "name": "infra-retry-budget-resets-per-step",
+  "options": {
+    "max_retries": 1
+  },
+  "responses": [
+    {
+      "error": {
+        "message": "Service fixture failure",
+        "status": 503,
+        "type": "status"
+      }
+    },
+    {
+      "content": "",
+      "function_calls": [
+        {
+          "id": "call_1",
+          "name": "search",
+          "params": {
+            "query": "ax docs"
+          }
+        }
+      ]
+    },
+    {
+      "error": {
+        "message": "Service fixture failure",
+        "status": 503,
+        "type": "status"
+      }
+    },
+    {
+      "content": "Answer: 4"
+    }
+  ],
+  "signature": "query:string -> answer:number",
+  "tools": [
+    {
+      "args": {
+        "query": {
+          "type": "string"
+        }
+      },
+      "description": "Search docs",
+      "name": "search",
+      "result": {
+        "title": "Ax docs"
+      }
+    }
+  ]
+}

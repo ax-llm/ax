@@ -1,0 +1,33 @@
+{
+  "expected_output": {
+    "answer": 4
+  },
+  "expected_request_count": 4,
+  "input": {
+    "question": "Status?"
+  },
+  "kind": "forward",
+  "name": "infra-retry-restarts-validation-budget",
+  "options": {
+    "max_retries": 1
+  },
+  "responses": [
+    {
+      "content": "{\"answer\":\"not a number\"}"
+    },
+    {
+      "error": {
+        "message": "Service fixture failure",
+        "status": 503,
+        "type": "status"
+      }
+    },
+    {
+      "content": "{\"answer\":\"not a number\"}"
+    },
+    {
+      "content": "Answer: 4"
+    }
+  ],
+  "signature": "question:string -> answer:number"
+}

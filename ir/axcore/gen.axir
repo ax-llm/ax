@@ -739,8 +739,8 @@ module @ax.gen version "0.1" {
       %cached_messages = core.call intrinsic.axgen.apply_context_cache(%gen, %ordered_messages, %options)
       %messages = core.let %cached_messages
       core.call intrinsic.axgen.memory_add_request(%gen, %messages)
-      // As in TS, maxRetries (default 3) caps the validation retries of each
-      // step and the infrastructure retries of each request.
+      // As in TS, maxRetries (default 3) caps both the validation retries
+      // and the infrastructure retries of each step.
       // validation_retries and infra_retries stay as port-specific overrides.
       %max_retries_snake = core.get %runtime_options["max_retries"] default 3
       %max_retries = core.get %runtime_options["maxRetries"] default %max_retries_snake
@@ -749,6 +749,7 @@ module @ax.gen version "0.1" {
       %infra_retries_snake = core.get %runtime_options["infra_retries"] default %max_retries
       %infra_retries = core.get %runtime_options["infraRetries"] default %infra_retries_snake
       %attempt = core.const 0
+      %infra_attempt = core.let 0
       %max_steps_snake = core.get %runtime_options["max_steps"] default 25
       %max_steps = core.get %runtime_options["maxSteps"] default %max_steps_snake
       %step = core.let 0
@@ -764,22 +765,44 @@ module @ax.gen version "0.1" {
         %request = core.call @build_gen_chat_request(%gen, %messages, %runtime_options, %selection, %step)
         %response = core.map
         core.try {
-          %completed = core.call @complete_with_retries_impl(%client, %request, %runtime_options, %infra_retries)
+          %completed = core.call intrinsic.ai.complete_once(%client, %request, %runtime_options)
           %response = core.let %completed
         } catch %completion_error {
-          // As in TS, a refusal spends the validation budget: the same prompt
-          // goes out again at once, with no backoff and no correction message.
-          %refused = core.call intrinsic.exception.is_refusal(%completion_error)
-          %not_refused = core.call intrinsic.not(%refused)
-          core.if %not_refused {
+          %aborted = core.call intrinsic.exception.is_aborted(%completion_error)
+          core.if %aborted {
             core.raise %completion_error
           }
-          %refusal_retries_exhausted = core.call intrinsic.gte(%attempt, %validation_retries)
-          core.if %refusal_retries_exhausted {
-            core.raise %completion_error
+          // As in TS, only infrastructure errors (5xx status, network, timeout,
+          // stream termination) and refusals are retried; anything else
+          // surfaces at once.
+          %infrastructure = core.call intrinsic.exception.is_infrastructure(%completion_error)
+          core.if %infrastructure {
+            // TS nests the validation loop inside the infrastructure loop of
+            // each step: an infrastructure retry spends the step's budget and
+            // restarts the validation loop with a fresh validation budget.
+            %infra_exhausted = core.call intrinsic.gte(%infra_attempt, %infra_retries)
+            core.if %infra_exhausted {
+              core.raise %completion_error
+            }
+            core.call intrinsic.retry.sleep(%infra_attempt, %client, %runtime_options)
+            %next_infra_attempt = core.call intrinsic.add(%infra_attempt, 1)
+            %infra_attempt = core.let %next_infra_attempt
+            %attempt = core.let 0
+          } else {
+            // As in TS, a refusal spends the validation budget: the same prompt
+            // goes out again at once, with no backoff and no correction message.
+            %refused = core.call intrinsic.exception.is_refusal(%completion_error)
+            %not_refused = core.call intrinsic.not(%refused)
+            core.if %not_refused {
+              core.raise %completion_error
+            }
+            %refusal_retries_exhausted = core.call intrinsic.gte(%attempt, %validation_retries)
+            core.if %refusal_retries_exhausted {
+              core.raise %completion_error
+            }
+            %refusal_next_attempt = core.call intrinsic.add(%attempt, 1)
+            %attempt = core.let %refusal_next_attempt
           }
-          %refusal_next_attempt = core.call intrinsic.add(%attempt, 1)
-          %attempt = core.let %refusal_next_attempt
           core.continue
         }
         core.call intrinsic.axgen.memory_add_response(%gen, %request, %response)
@@ -836,8 +859,10 @@ module @ax.gen version "0.1" {
           core.if %continue_after_tools {
             %next_step = core.call intrinsic.add(%step, 1)
             %step = core.let %next_step
-            // As in TS, each step starts with a fresh validation budget.
+            // As in TS, each step starts with fresh validation and
+            // infrastructure budgets.
             %attempt = core.let 0
+            %infra_attempt = core.let 0
             core.continue
           } else {
             %validated_tool_result = core.call @validate_output(%output_fields, %last_tool_result)
@@ -992,47 +1017,6 @@ module @ax.gen version "0.1" {
     attr core_kind = "semantic"
     tag "validation-vs-infra-retry"
     type fields = "validationRetries:i64,infraRetries:i64"
-  }
-
-  op ax.gen.semantic @complete_with_retries_impl {
-    attr core_kind = "func"
-    attr effect = "throws"
-    attr emit_module = "gen"
-    attr private = true
-    tag "infra-retry-core-helper"
-    type signature = "(AIClient, AxChatRequest, json, i64) -> json throws"
-    body @entry(%client: AIClient, %request: AxChatRequest, %options: json, %retries: i64) {
-      %attempt = core.const 0
-      %last_error = core.call intrinsic.none()
-      core.loop {
-        core.try {
-          %response = core.call intrinsic.ai.complete_once(%client, %request, %options)
-          core.return %response
-        } catch %error {
-          %aborted = core.call intrinsic.exception.is_aborted(%error)
-          core.if %aborted {
-            core.raise %error
-          }
-          // As in TS, only infrastructure errors (5xx status, network, timeout,
-          // stream termination) are retried; anything else surfaces at once.
-          %infrastructure = core.call intrinsic.exception.is_infrastructure(%error)
-          %not_infrastructure = core.call intrinsic.not(%infrastructure)
-          core.if %not_infrastructure {
-            core.raise %error
-          }
-          %last_error = core.let %error
-          %exhausted = core.call intrinsic.gte(%attempt, %retries)
-          core.if %exhausted {
-            core.raise %error
-          }
-          core.call intrinsic.retry.sleep(%attempt, %client, %options)
-          %next_attempt = core.call intrinsic.add(%attempt, 1)
-          %attempt = core.let %next_attempt
-          core.continue
-        }
-      }
-      core.raise %last_error
-    }
   }
 
   op ax.gen.semantic @parse_output_impl {
