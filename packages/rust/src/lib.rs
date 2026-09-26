@@ -65906,6 +65906,7 @@ fn _forward_impl(args: &[CoreValue]) -> Result<CoreValue, AxError> {
     let mut v_steps_exhausted = CoreValue::Null;
     let mut v_stop_output = CoreValue::Null;
     let mut v_stop_public = CoreValue::Null;
+    let mut v_stop_thought = CoreValue::Null;
     let mut v_stream_option = CoreValue::Null;
     let mut v_streamed = CoreValue::Null;
     let mut v_structured_args = CoreValue::Null;
@@ -66345,11 +66346,16 @@ fn _forward_impl(args: &[CoreValue]) -> Result<CoreValue, AxError> {
                 continue;
             } else {
                 v_stop_output = CoreValue::new_map();
+                v_stop_thought = core_get(
+                    &v_response,
+                    &CoreValue::from("thought"),
+                    CoreValue::from(""),
+                );
                 v_stop_public = _with_output_thought_impl(&[
                     v_stop_output.clone(),
                     v_thought_field.clone(),
                     v_thought_prefix.clone(),
-                    CoreValue::from(""),
+                    v_stop_thought.clone(),
                 ])?;
                 core_axgen_memory_cleanup_corrections(&[v_gen.clone()])?;
                 _record_trace(&[
@@ -68846,22 +68852,6 @@ fn _render_demos(args: &[CoreValue]) -> Result<CoreValue, AxError> {
     unreachable_code,
     clippy::all
 )]
-fn _apply_field_processors(args: &[CoreValue]) -> Result<CoreValue, AxError> {
-    axir_coverage_mark("_apply_field_processors");
-    let mut v_gen = core_arg(args, 0);
-    let mut v_output = core_arg(args, 1);
-    let mut v_processed = CoreValue::Null;
-    v_processed = core_axgen_apply_field_processors(&[v_gen.clone(), v_output.clone()])?;
-    return Ok(v_processed.clone());
-}
-
-#[allow(
-    unused_variables,
-    unused_assignments,
-    unused_mut,
-    unreachable_code,
-    clippy::all
-)]
 fn _ace_update_bullet_feedback(args: &[CoreValue]) -> Result<CoreValue, AxError> {
     axir_coverage_mark("_ace_update_bullet_feedback");
     let mut v_playbook = core_arg(args, 0);
@@ -68949,6 +68939,22 @@ fn _ace_update_bullet_feedback(args: &[CoreValue]) -> Result<CoreValue, AxError>
         return Ok(v_updated.clone());
     }
     return Ok(v_playbook.clone());
+}
+
+#[allow(
+    unused_variables,
+    unused_assignments,
+    unused_mut,
+    unreachable_code,
+    clippy::all
+)]
+fn _apply_field_processors(args: &[CoreValue]) -> Result<CoreValue, AxError> {
+    axir_coverage_mark("_apply_field_processors");
+    let mut v_gen = core_arg(args, 0);
+    let mut v_output = core_arg(args, 1);
+    let mut v_processed = CoreValue::Null;
+    v_processed = core_axgen_apply_field_processors(&[v_gen.clone(), v_output.clone()])?;
+    return Ok(v_processed.clone());
 }
 
 #[allow(
@@ -69821,23 +69827,6 @@ fn _should_continue_steps(args: &[CoreValue]) -> Result<CoreValue, AxError> {
     unreachable_code,
     clippy::all
 )]
-fn _parse_output_impl(args: &[CoreValue]) -> Result<CoreValue, AxError> {
-    axir_coverage_mark("_parse_output_impl");
-    let mut v_content = core_arg(args, 0);
-    let mut v_output = CoreValue::Null;
-    let mut v_text = CoreValue::Null;
-    v_text = core_string_trim(&v_content);
-    v_output = core_json_parse_strict(&[v_text.clone()])?;
-    return Ok(v_output.clone());
-}
-
-#[allow(
-    unused_variables,
-    unused_assignments,
-    unused_mut,
-    unreachable_code,
-    clippy::all
-)]
 fn _ace_prune_section_for_addition(args: &[CoreValue]) -> Result<CoreValue, AxError> {
     axir_coverage_mark("_ace_prune_section_for_addition");
     let mut v_section = core_arg(args, 0);
@@ -69967,6 +69956,23 @@ fn _ace_prune_section_for_addition(args: &[CoreValue]) -> Result<CoreValue, AxEr
     core_set(&v_out, CoreValue::from("pruned"), v_null_pruned.clone())?;
     core_set(&v_out, CoreValue::from("section"), v_section.clone())?;
     return Ok(v_out.clone());
+}
+
+#[allow(
+    unused_variables,
+    unused_assignments,
+    unused_mut,
+    unreachable_code,
+    clippy::all
+)]
+fn _parse_output_impl(args: &[CoreValue]) -> Result<CoreValue, AxError> {
+    axir_coverage_mark("_parse_output_impl");
+    let mut v_content = core_arg(args, 0);
+    let mut v_output = CoreValue::Null;
+    let mut v_text = CoreValue::Null;
+    v_text = core_string_trim(&v_content);
+    v_output = core_json_parse_strict(&[v_text.clone()])?;
+    return Ok(v_output.clone());
 }
 
 #[allow(
@@ -74414,12 +74420,9 @@ fn _stream_text_yield_delta_impl(args: &[CoreValue]) -> Result<CoreValue, AxErro
     let mut v_end = core_arg(args, 3);
     let mut v_xstate = core_arg(args, 4);
     let mut v_held = core_arg(args, 5);
+    let mut v_complete = core_arg(args, 6);
     let mut v_base = CoreValue::Null;
     let mut v_before_start = CoreValue::Null;
-    let mut v_curr = CoreValue::Null;
-    let mut v_curr_code = CoreValue::Null;
-    let mut v_curr_type = CoreValue::Null;
-    let mut v_curr_type_name = CoreValue::Null;
     let mut v_d1 = CoreValue::Null;
     let mut v_d1_length = CoreValue::Null;
     let mut v_d2 = CoreValue::Null;
@@ -74440,6 +74443,9 @@ fn _stream_text_yield_delta_impl(args: &[CoreValue]) -> Result<CoreValue, AxErro
     let mut v_none = CoreValue::Null;
     let mut v_not_texty = CoreValue::Null;
     let mut v_nothing = CoreValue::Null;
+    let mut v_open = CoreValue::Null;
+    let mut v_opening = CoreValue::Null;
+    let mut v_partial_opening = CoreValue::Null;
     let mut v_position = CoreValue::Null;
     let mut v_skip = CoreValue::Null;
     let mut v_streamed = CoreValue::Null;
@@ -74495,19 +74501,26 @@ fn _stream_text_yield_delta_impl(args: &[CoreValue]) -> Result<CoreValue, AxErro
     if core_truthy(&v_nothing) {
         return Ok(v_none.clone());
     }
-    v_curr = core_get(&v_xstate, &CoreValue::from("curr_field"), CoreValue::Null);
-    v_curr_type = core_get(&v_curr, &CoreValue::from("type"), CoreValue::Null);
-    v_curr_type_name = core_get(&v_curr_type, &CoreValue::from("name"), CoreValue::from(""));
-    v_curr_code = core_eq(&[v_curr_type_name.clone(), CoreValue::from("code")])?;
+    v_open = core_not(&[v_complete.clone()])?;
     v_d2 = _stream_trim_end_impl(&[v_d1.clone()])?;
-    if core_truthy(&v_curr_code) {
+    if core_truthy(&v_is_code) {
         v_d2 = _stream_strip_trailing_fence_impl(&[v_d2.clone()])?;
+        if core_truthy(&v_open) {
+            v_d2 = _stream_strip_partial_closing_fence_impl(&[v_d2.clone()])?;
+        }
     }
     v_d3 = v_d2.clone();
     if core_truthy(&v_first_chunk) {
         v_d3 = _stream_trim_start_impl(&[v_d2.clone()])?;
     }
-    if core_truthy(&v_curr_code) {
+    if core_truthy(&v_is_code) {
+        v_opening = core_and(&[v_open.clone(), v_first_chunk.clone()])?;
+        if core_truthy(&v_opening) {
+            v_partial_opening = _stream_is_partial_opening_fence_impl(&[v_d3.clone()])?;
+            if core_truthy(&v_partial_opening) {
+                return Ok(v_none.clone());
+            }
+        }
         v_d3 = _stream_strip_leading_fence_impl(&[v_d3.clone()])?;
     }
     v_d3_length = core_len(&[v_d3.clone()])?;
@@ -74691,6 +74704,7 @@ fn _stream_text_values_impl(args: &[CoreValue]) -> Result<CoreValue, AxError> {
     let mut v_values = core_arg(args, 2);
     let mut v_xstate = core_arg(args, 3);
     let mut v_held = core_arg(args, 4);
+    let mut v_complete = core_arg(args, 5);
     let mut v_already = CoreValue::Null;
     let mut v_assumed = CoreValue::Null;
     let mut v_candidate = CoreValue::Null;
@@ -74769,6 +74783,7 @@ fn _stream_text_values_impl(args: &[CoreValue]) -> Result<CoreValue, AxError> {
             v_prev_end.clone(),
             v_xstate.clone(),
             v_held.clone(),
+            CoreValue::Bool(true),
         ])?;
         v_has_prev_delta = core_is_not_none(&[v_prev_delta.clone()])?;
         if core_truthy(&v_has_prev_delta) {
@@ -74824,6 +74839,7 @@ fn _stream_text_values_impl(args: &[CoreValue]) -> Result<CoreValue, AxError> {
         v_content_length.clone(),
         v_xstate.clone(),
         v_held.clone(),
+        v_complete.clone(),
     ])?;
     v_has_curr_delta = core_is_not_none(&[v_curr_delta.clone()])?;
     if core_truthy(&v_has_curr_delta) {
@@ -77684,75 +77700,6 @@ fn _regex_validate_names(args: &[CoreValue]) -> Result<CoreValue, AxError> {
     unreachable_code,
     clippy::all
 )]
-fn _stream_json_parse_partial_impl(args: &[CoreValue]) -> Result<CoreValue, AxError> {
-    axir_coverage_mark("_stream_json_parse_partial_impl");
-    let mut v_json_text = core_arg(args, 0);
-    let mut v_blank = CoreValue::Null;
-    let mut v_complete = CoreValue::Null;
-    let mut v_is_blank = CoreValue::Null;
-    let mut v_marker = CoreValue::Null;
-    let mut v_none = CoreValue::Null;
-    let mut v_out = CoreValue::Null;
-    let mut v_parsed = CoreValue::Null;
-    let mut v_partial_error = CoreValue::Null;
-    let mut v_repair_error = CoreValue::Null;
-    let mut v_repaired = CoreValue::Null;
-    let mut v_repaired_value = CoreValue::Null;
-    v_out = CoreValue::new_map();
-    v_none = core_none(&[])?;
-    core_set(&v_out, CoreValue::from("parsed"), v_none.clone())?;
-    core_set(&v_out, CoreValue::from("marker"), v_none.clone())?;
-    v_blank = core_string_trim(&v_json_text);
-    v_is_blank = core_eq(&[v_blank.clone(), CoreValue::from("")])?;
-    if core_truthy(&v_is_blank) {
-        return Ok(v_out.clone());
-    }
-    v_complete = CoreValue::Bool(false);
-    let __core_try: Result<CoreFlow, AxError> = (|| {
-        v_parsed = core_json_parse_strict(&[v_json_text.clone()])?;
-        core_set(&v_out, CoreValue::from("parsed"), v_parsed.clone())?;
-        v_complete = CoreValue::Bool(true);
-        Ok(CoreFlow::Normal)
-    })();
-    match __core_try {
-        Ok(CoreFlow::Normal) => {}
-        Ok(CoreFlow::Return(value)) => return Ok(value),
-        Ok(CoreFlow::Break) => unreachable!("break outside loop"),
-        Ok(CoreFlow::Continue) => unreachable!("continue outside loop"),
-        Err(__core_caught) => {
-            v_partial_error = CoreValue::Error(std::rc::Rc::new(__core_caught));
-        }
-    }
-    if core_truthy(&v_complete) {
-        return Ok(v_out.clone());
-    }
-    v_marker = _stream_json_context_impl(&[v_json_text.clone()])?;
-    core_set(&v_out, CoreValue::from("marker"), v_marker.clone())?;
-    v_repaired = _stream_json_repair_impl(&[v_json_text.clone()])?;
-    let __core_try: Result<CoreFlow, AxError> = (|| {
-        v_repaired_value = core_json_parse_strict(&[v_repaired.clone()])?;
-        core_set(&v_out, CoreValue::from("parsed"), v_repaired_value.clone())?;
-        Ok(CoreFlow::Normal)
-    })();
-    match __core_try {
-        Ok(CoreFlow::Normal) => {}
-        Ok(CoreFlow::Return(value)) => return Ok(value),
-        Ok(CoreFlow::Break) => unreachable!("break outside loop"),
-        Ok(CoreFlow::Continue) => unreachable!("continue outside loop"),
-        Err(__core_caught) => {
-            v_repair_error = CoreValue::Error(std::rc::Rc::new(__core_caught));
-        }
-    }
-    return Ok(v_out.clone());
-}
-
-#[allow(
-    unused_variables,
-    unused_assignments,
-    unused_mut,
-    unreachable_code,
-    clippy::all
-)]
 fn _parse_text_contract_output_impl(args: &[CoreValue]) -> Result<CoreValue, AxError> {
     axir_coverage_mark("_parse_text_contract_output_impl");
     let mut v_content = core_arg(args, 0);
@@ -77822,6 +77769,75 @@ fn _parse_text_contract_output_impl(args: &[CoreValue]) -> Result<CoreValue, AxE
     v_values = _stream_text_extract_values_impl(&[v_content.clone(), v_output_fields.clone()])?;
     core_set(&v_out, CoreValue::from("values"), v_values.clone())?;
     core_set(&v_out, CoreValue::from("extracted"), CoreValue::Bool(true))?;
+    return Ok(v_out.clone());
+}
+
+#[allow(
+    unused_variables,
+    unused_assignments,
+    unused_mut,
+    unreachable_code,
+    clippy::all
+)]
+fn _stream_json_parse_partial_impl(args: &[CoreValue]) -> Result<CoreValue, AxError> {
+    axir_coverage_mark("_stream_json_parse_partial_impl");
+    let mut v_json_text = core_arg(args, 0);
+    let mut v_blank = CoreValue::Null;
+    let mut v_complete = CoreValue::Null;
+    let mut v_is_blank = CoreValue::Null;
+    let mut v_marker = CoreValue::Null;
+    let mut v_none = CoreValue::Null;
+    let mut v_out = CoreValue::Null;
+    let mut v_parsed = CoreValue::Null;
+    let mut v_partial_error = CoreValue::Null;
+    let mut v_repair_error = CoreValue::Null;
+    let mut v_repaired = CoreValue::Null;
+    let mut v_repaired_value = CoreValue::Null;
+    v_out = CoreValue::new_map();
+    v_none = core_none(&[])?;
+    core_set(&v_out, CoreValue::from("parsed"), v_none.clone())?;
+    core_set(&v_out, CoreValue::from("marker"), v_none.clone())?;
+    v_blank = core_string_trim(&v_json_text);
+    v_is_blank = core_eq(&[v_blank.clone(), CoreValue::from("")])?;
+    if core_truthy(&v_is_blank) {
+        return Ok(v_out.clone());
+    }
+    v_complete = CoreValue::Bool(false);
+    let __core_try: Result<CoreFlow, AxError> = (|| {
+        v_parsed = core_json_parse_strict(&[v_json_text.clone()])?;
+        core_set(&v_out, CoreValue::from("parsed"), v_parsed.clone())?;
+        v_complete = CoreValue::Bool(true);
+        Ok(CoreFlow::Normal)
+    })();
+    match __core_try {
+        Ok(CoreFlow::Normal) => {}
+        Ok(CoreFlow::Return(value)) => return Ok(value),
+        Ok(CoreFlow::Break) => unreachable!("break outside loop"),
+        Ok(CoreFlow::Continue) => unreachable!("continue outside loop"),
+        Err(__core_caught) => {
+            v_partial_error = CoreValue::Error(std::rc::Rc::new(__core_caught));
+        }
+    }
+    if core_truthy(&v_complete) {
+        return Ok(v_out.clone());
+    }
+    v_marker = _stream_json_context_impl(&[v_json_text.clone()])?;
+    core_set(&v_out, CoreValue::from("marker"), v_marker.clone())?;
+    v_repaired = _stream_json_repair_impl(&[v_json_text.clone()])?;
+    let __core_try: Result<CoreFlow, AxError> = (|| {
+        v_repaired_value = core_json_parse_strict(&[v_repaired.clone()])?;
+        core_set(&v_out, CoreValue::from("parsed"), v_repaired_value.clone())?;
+        Ok(CoreFlow::Normal)
+    })();
+    match __core_try {
+        Ok(CoreFlow::Normal) => {}
+        Ok(CoreFlow::Return(value)) => return Ok(value),
+        Ok(CoreFlow::Break) => unreachable!("break outside loop"),
+        Ok(CoreFlow::Continue) => unreachable!("continue outside loop"),
+        Err(__core_caught) => {
+            v_repair_error = CoreValue::Error(std::rc::Rc::new(__core_caught));
+        }
+    }
     return Ok(v_out.clone());
 }
 
@@ -77966,6 +77982,36 @@ fn _regex_clear_capture(args: &[CoreValue]) -> Result<CoreValue, AxError> {
     unreachable_code,
     clippy::all
 )]
+fn _regex_copy_map(args: &[CoreValue]) -> Result<CoreValue, AxError> {
+    axir_coverage_mark("_regex_copy_map");
+    let mut v_value = core_arg(args, 0);
+    let mut v_iter_3 = CoreValue::Null;
+    let mut v_key = CoreValue::Null;
+    let mut v_out = CoreValue::Null;
+    let mut v_t1 = CoreValue::Null;
+    let mut v_t2 = CoreValue::Null;
+    let mut v_t4 = CoreValue::Null;
+    v_key = core_none(&[])?;
+    v_out = core_none(&[])?;
+    v_t1 = CoreValue::new_map();
+    v_out = v_t1.clone();
+    v_t2 = core_map_keys(&[v_value.clone()])?;
+    for v_iter_3 in core_iter(&v_t2)? {
+        let mut v_iter_3 = v_iter_3;
+        v_key = v_iter_3.clone();
+        v_t4 = core_get(&v_value, &v_key.clone(), CoreValue::Null);
+        core_set(&v_out, v_key.clone(), v_t4.clone())?;
+    }
+    return Ok(v_out.clone());
+}
+
+#[allow(
+    unused_variables,
+    unused_assignments,
+    unused_mut,
+    unreachable_code,
+    clippy::all
+)]
 fn _stream_json_validate_impl(args: &[CoreValue]) -> Result<CoreValue, AxError> {
     axir_coverage_mark("_stream_json_validate_impl");
     let mut v_fields = core_arg(args, 0);
@@ -78053,36 +78099,6 @@ fn _stream_json_validate_impl(args: &[CoreValue]) -> Result<CoreValue, AxError> 
         ])?;
     }
     return Ok(CoreValue::Null);
-}
-
-#[allow(
-    unused_variables,
-    unused_assignments,
-    unused_mut,
-    unreachable_code,
-    clippy::all
-)]
-fn _regex_copy_map(args: &[CoreValue]) -> Result<CoreValue, AxError> {
-    axir_coverage_mark("_regex_copy_map");
-    let mut v_value = core_arg(args, 0);
-    let mut v_iter_3 = CoreValue::Null;
-    let mut v_key = CoreValue::Null;
-    let mut v_out = CoreValue::Null;
-    let mut v_t1 = CoreValue::Null;
-    let mut v_t2 = CoreValue::Null;
-    let mut v_t4 = CoreValue::Null;
-    v_key = core_none(&[])?;
-    v_out = core_none(&[])?;
-    v_t1 = CoreValue::new_map();
-    v_out = v_t1.clone();
-    v_t2 = core_map_keys(&[v_value.clone()])?;
-    for v_iter_3 in core_iter(&v_t2)? {
-        let mut v_iter_3 = v_iter_3;
-        v_key = v_iter_3.clone();
-        v_t4 = core_get(&v_value, &v_key.clone(), CoreValue::Null);
-        core_set(&v_out, v_key.clone(), v_t4.clone())?;
-    }
-    return Ok(v_out.clone());
 }
 
 #[allow(
@@ -79921,6 +79937,7 @@ fn _stream_chunk_content_impl(args: &[CoreValue]) -> Result<CoreValue, AxError> 
         v_values.clone(),
         v_xstate.clone(),
         v_held.clone(),
+        CoreValue::Bool(false),
     ])?;
     return Ok(v_text_deltas.clone());
 }
@@ -80175,6 +80192,7 @@ fn _stream_finalize_impl(args: &[CoreValue]) -> Result<CoreValue, AxError> {
             v_values.clone(),
             v_xstate.clone(),
             v_held.clone(),
+            CoreValue::Bool(true),
         ])?;
         _stream_emit_deltas_impl(&[v_ctx.clone(), v_index.clone(), v_text_deltas.clone()])?;
     }
@@ -80284,6 +80302,115 @@ fn _stream_result_impl(args: &[CoreValue]) -> Result<CoreValue, AxError> {
         core_axgen_emit_delta(&[v_sink.clone(), v_envelope.clone()])?;
     }
     return Ok(v_output.clone());
+}
+
+#[allow(
+    unused_variables,
+    unused_assignments,
+    unused_mut,
+    unreachable_code,
+    clippy::all
+)]
+fn _stream_strip_partial_closing_fence_impl(args: &[CoreValue]) -> Result<CoreValue, AxError> {
+    axir_coverage_mark("_stream_strip_partial_closing_fence_impl");
+    let mut v_text = core_arg(args, 0);
+    let mut v_at_start = CoreValue::Null;
+    let mut v_before = CoreValue::Null;
+    let mut v_body = CoreValue::Null;
+    let mut v_ch = CoreValue::Null;
+    let mut v_cursor = CoreValue::Null;
+    let mut v_end = CoreValue::Null;
+    let mut v_kept = CoreValue::Null;
+    let mut v_length = CoreValue::Null;
+    let mut v_long_run = CoreValue::Null;
+    let mut v_no_run = CoreValue::Null;
+    let mut v_not_tick = CoreValue::Null;
+    let mut v_out = CoreValue::Null;
+    let mut v_run = CoreValue::Null;
+    let mut v_tick = CoreValue::Null;
+    v_length = core_len(&[v_text.clone()])?;
+    v_cursor = v_length.clone();
+    v_run = CoreValue::Num(0f64);
+    loop {
+        v_at_start = core_lte(&[v_cursor.clone(), CoreValue::Num(0f64)])?;
+        if core_truthy(&v_at_start) {
+            break;
+        }
+        v_before = core_add(&[v_cursor.clone(), CoreValue::Num(-1f64)])?;
+        v_ch = core_string_slice(&[v_text.clone(), v_before.clone(), v_cursor.clone()])?;
+        v_tick = core_eq(&[v_ch.clone(), CoreValue::from("`")])?;
+        v_not_tick = core_not(&[v_tick.clone()])?;
+        if core_truthy(&v_not_tick) {
+            break;
+        }
+        v_run = core_add(&[v_run.clone(), CoreValue::Num(1f64)])?;
+        v_cursor = v_before.clone();
+    }
+    v_no_run = core_eq(&[v_run.clone(), CoreValue::Num(0f64)])?;
+    if core_truthy(&v_no_run) {
+        return Ok(v_text.clone());
+    }
+    v_long_run = core_gte(&[v_run.clone(), CoreValue::Num(3f64)])?;
+    if core_truthy(&v_long_run) {
+        v_end = core_add(&[v_length.clone(), CoreValue::Num(-2f64)])?;
+        v_kept = core_string_slice(&[v_text.clone(), CoreValue::Num(0f64), v_end.clone()])?;
+        return Ok(v_kept.clone());
+    }
+    v_body = core_string_slice(&[v_text.clone(), CoreValue::Num(0f64), v_cursor.clone()])?;
+    v_out = _stream_trim_end_impl(&[v_body.clone()])?;
+    return Ok(v_out.clone());
+}
+
+#[allow(
+    unused_variables,
+    unused_assignments,
+    unused_mut,
+    unreachable_code,
+    clippy::all
+)]
+fn _stream_is_partial_opening_fence_impl(args: &[CoreValue]) -> Result<CoreValue, AxError> {
+    axir_coverage_mark("_stream_is_partial_opening_fence_impl");
+    let mut v_text = core_arg(args, 0);
+    let mut v_at_end = CoreValue::Null;
+    let mut v_ch = CoreValue::Null;
+    let mut v_cursor = CoreValue::Null;
+    let mut v_fenced = CoreValue::Null;
+    let mut v_length = CoreValue::Null;
+    let mut v_next = CoreValue::Null;
+    let mut v_not_fenced = CoreValue::Null;
+    let mut v_not_word = CoreValue::Null;
+    let mut v_one = CoreValue::Null;
+    let mut v_short_run = CoreValue::Null;
+    let mut v_two = CoreValue::Null;
+    let mut v_word = CoreValue::Null;
+    v_one = core_eq(&[v_text.clone(), CoreValue::from("`")])?;
+    v_two = core_eq(&[v_text.clone(), CoreValue::from("``")])?;
+    v_short_run = core_or(&[v_one.clone(), v_two.clone()])?;
+    if core_truthy(&v_short_run) {
+        return Ok(CoreValue::Bool(true));
+    }
+    v_fenced = core_string_starts_with(&[v_text.clone(), CoreValue::from("```")])?;
+    v_not_fenced = core_not(&[v_fenced.clone()])?;
+    if core_truthy(&v_not_fenced) {
+        return Ok(CoreValue::Bool(false));
+    }
+    v_length = core_len(&[v_text.clone()])?;
+    v_cursor = CoreValue::Num(3f64);
+    loop {
+        v_at_end = core_gte(&[v_cursor.clone(), v_length.clone()])?;
+        if core_truthy(&v_at_end) {
+            break;
+        }
+        v_next = core_add(&[v_cursor.clone(), CoreValue::Num(1f64)])?;
+        v_ch = core_string_slice(&[v_text.clone(), v_cursor.clone(), v_next.clone()])?;
+        v_word = core_regex_match(CoreValue::from("^[a-zA-Z0-9]$"), &v_ch)?;
+        v_not_word = core_not(&[v_word.clone()])?;
+        if core_truthy(&v_not_word) {
+            return Ok(CoreValue::Bool(false));
+        }
+        v_cursor = v_next.clone();
+    }
+    return Ok(CoreValue::Bool(true));
 }
 
 #[allow(
@@ -112737,7 +112864,7 @@ fn mcp_websocket_request_ids(args: &[CoreValue]) -> Result<CoreValue, AxError> {
     return Ok(v_ids.clone());
 }
 
-// END AXIR CORE EMITTED FUNCTIONS (814 of 814 core functions)
+// END AXIR CORE EMITTED FUNCTIONS (816 of 816 core functions)
 
 fn run_ai_session_events_fixture(fixture: &Value) -> AxResult<()> {
     let state = core_value_from_json(&json!({}));

@@ -2508,6 +2508,7 @@ export class AxGen<IN = any, OUT extends AxGenOut = any>
               } catch (e) {
                 if (e instanceof AxStopFunctionCallException) {
                   stopFunctionTriggered = true;
+                  let stopOutputYielded = false;
 
                   // Extract structured output values from the synthetic function call
                   if (this.structuredOutputFunctionFallback) {
@@ -2515,6 +2516,7 @@ export class AxGen<IN = any, OUT extends AxGenOut = any>
                       isReservedStructuredOutputFunctionName(c.func.name)
                     );
                     if (structuredCall?.args) {
+                      stopOutputYielded = true;
                       const args = structuredCall.args as Record<
                         string,
                         unknown
@@ -2581,6 +2583,31 @@ export class AxGen<IN = any, OUT extends AxGenOut = any>
                         trackYield(out);
                         yield out;
                       }
+                    }
+                  }
+
+                  // A user stop function ends the run on this step, and the
+                  // step's thought stays in the output: a stream has yielded
+                  // it chunk by chunk, a non-streaming response has not.
+                  if (!stopOutputYielded) {
+                    for (const state of states) {
+                      const thought = state.values[this.thoughtFieldName];
+                      const thoughtYielded =
+                        currentAttemptValues.get(state.index)?.[
+                          this.thoughtFieldName
+                        ] !== undefined;
+                      if (thought === undefined || thoughtYielded) {
+                        continue;
+                      }
+                      const out = {
+                        version: controlVersion + errCount,
+                        index: state.index,
+                        delta: {
+                          [this.thoughtFieldName]: thought,
+                        } as Partial<OUT>,
+                      };
+                      trackYield(out);
+                      yield out;
                     }
                   }
                 } else {
@@ -3642,10 +3669,31 @@ export class AxGen<IN = any, OUT extends AxGenOut = any>
 
     // If no result picker, use normal streaming
     if (!options?.resultPicker) {
-      yield* this._forward1(ai, values, {
+      let streamed: AxGenDeltaOut<OUT>[] = [];
+      let streamedVersion = 0;
+      for await (const delta of this._forward1(ai, values, {
         ...options,
         stream: true,
-      });
+      })) {
+        if (delta.version !== streamedVersion) {
+          streamed = [];
+        }
+        streamedVersion = delta.version;
+        // mergeDeltas keeps and extends the first delta object, so merge a
+        // copy and leave the yielded deltas as the consumer received them.
+        streamed = mergeDeltas<OUT>(streamed, {
+          ...delta,
+          delta: { ...delta.delta },
+        });
+        yield delta;
+      }
+      // Store the finished result, as forward does.
+      const finished = streamed[0];
+      if (cachingFunction && cacheKey && finished) {
+        try {
+          await cachingFunction(cacheKey, finished.delta);
+        } catch {}
+      }
       return;
     }
 

@@ -18,6 +18,12 @@ This ledger tracks portable TypeScript behavior that should be migrated into AxI
 
 ## Open
 
+- `axir-2026-09-26-coerce-structured-values-and-cache-streamed-results-in-the-ports` [axgen] Coerce structured output values and cache streamed results in the ports
+  - Status: open
+  - Source commit: `533da1418d110bd3979f8bf6f01ba243edf57012`
+  - TS paths: `src/ax/dsp/extract/structuredJson.ts`, `src/ax/dsp/generate.ts`, `src/ax/dsp/generate.structuredTypes.test.ts`, `src/ax/dsp/generate.streamParity.test.ts`
+  - Impact: TypeScript now type-checks structured JSON output values: a numeric string becomes a number through Number() and a true or false string a boolean, as the text contract does, and any other type mismatch is a validation error that the model retries. The ports reject those strings. TypeScript streamingForward also stores the finished result through cachingFunction with or without a result picker, and the ports have no cachingFunction yet.
+  - Suggested AxIR work: Coerce numeric and boolean strings in the IR structured output validation and add TS-golden fixtures; Store the merged streamed result through cachingFunction when the ports add it
 - `axir-2026-09-26-yield-typescript-style-field-deltas-from-the-ports-axgen-streami` [axgen] Yield TypeScript-style field deltas from the ports' AxGen streaming APIs
   - Status: open
   - Source commit: `a14c26b0f960cd360472b778263b606cbdda09fd`

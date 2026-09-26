@@ -162,6 +162,7 @@ for await (const chunk of stream) {
 
 - Each chunk is `{ version, index, delta }`. Merge deltas per `index` (strings and arrays append, other values replace), and discard what you merged when `version` changes.
 - A new version starts on a validation or refusal retry, and when a later step replaces output an earlier step already emitted (for example after a field processor's feedback); the thought so far is re-emitted in the new version. Versions never decrease.
+- A streamed `code` field drops its fences wherever the chunks split: a fence that may still be incomplete is held back, as a partial label is, so the merged deltas equal the non-streaming value.
 
 ## Stopping And Cancellation
 
@@ -221,7 +222,7 @@ gen.addStreamingAssert(
 Rules:
 
 - Schema validation retries with parser/constraint feedback.
-- `addAssert(...)` checks the complete parsed output after validation/processors and retries with correction feedback on failure.
+- `addAssert(...)` checks the complete parsed output after validation/processors and retries with correction feedback on failure. Assertions and field processors run on the step that answers, not on a step that calls tools.
 - `bestOfN(...)` scores complete candidates and returns the highest reward or first threshold hit.
 - `refine(...)` runs rounds and can feed reward-derived advice into instruction components between rounds.
 - `addStreamingAssert(...)` targets a string/code output field and receives partial text so far.
@@ -262,6 +263,7 @@ Rules:
 - `functionCall` sets the tool choice: `'auto'`, `'none'`, `'required'`, or `{ type: 'function', function: { name: 'search' } }` to force one function.
 - A forced call (`'required'` or a named function) applies to the first step only. Later steps drop it together with the tools so the model can answer. With the `function` structured-output rung, `__axOutput` is left out of the forced step, so the forcing reaches a user tool.
 - `stopFunction` accepts a string or string[] to halt multi-step on specific function calls.
+- A stop function ends the run without an answer; the output keeps the thought of every step, the stop step's included, streamed or not.
 - Multi-step continues until all outputs filled, stop function called, or `maxSteps` reached.
 
 ## Caching
@@ -290,7 +292,7 @@ const result = await gen.forward(llm, { question: '...' }, {
 
 Rules:
 
-- `cachingFunction` acts as a get/set: called with `(key)` to read, `(key, value)` to write.
+- `cachingFunction` acts as a get/set: called with `(key)` to read, `(key, value)` to write. `forward` and `streamingForward` both store the finished result, with or without a result picker.
 - `contextCache` enables AI provider-level prompt caching for long context.
 - Provider-facing forward options are merged with constructor defaults before
   the chat call. This includes `promptCacheKey`, `sessionId`, and
@@ -371,6 +373,7 @@ Rules:
 - Chat-log provenance records the selected path at `providerMetadata.ax.structured_output_rung` (`native`, `function`, or `json_object`).
 - Native structured-output schemas list every object property in `required`, set `additionalProperties: false` on objects, and express optional fields as nullable types.
 - Flexible `json` fields and unshaped `object` fields are sent as JSON-encoded strings for native structured outputs, then parsed back into normal JavaScript values.
+- Structured JSON values must have their declared types. As in the text contract, a numeric string becomes a number and `"true"`/`"false"` a boolean; any other mismatch (a number for a string, a string for an array, a value outside a class's options) is a validation error with a correction retry.
 - Streaming programs reject error and token-limit terminal results even when the final chunk has no content and earlier chunks already form valid output.
 
 ## Step Hooks

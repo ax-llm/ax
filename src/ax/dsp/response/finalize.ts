@@ -230,7 +230,8 @@ export async function* finalizeStreamingResponse<OUT extends AxGenOut>({
         state.content,
         state.values as Record<string, OUT>,
         state.xstate,
-        state.index
+        state.index,
+        true
       );
     }
   }

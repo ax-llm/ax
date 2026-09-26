@@ -37296,6 +37296,7 @@ func _forward_impl(args ...Value) (Value, error) {
 	var v_steps_exhausted Value
 	var v_stop_output Value
 	var v_stop_public Value
+	var v_stop_thought Value
 	var v_stream_option Value
 	var v_streamed Value
 	var v_structured_args Value
@@ -37420,6 +37421,7 @@ func _forward_impl(args ...Value) (Value, error) {
 	_ = v_steps_exhausted
 	_ = v_stop_output
 	_ = v_stop_public
+	_ = v_stop_thought
 	_ = v_stream_option
 	_ = v_streamed
 	_ = v_structured_args
@@ -37671,7 +37673,8 @@ func _forward_impl(args ...Value) (Value, error) {
 				continue
 			} else {
 				v_stop_output = Object()
-				{ v, err := _with_output_thought_impl(v_stop_output, v_thought_field, v_thought_prefix, ""); if err != nil { return nil, err }; v_stop_public = v }
+				v_stop_thought = coreGet(v_response, "thought", "")
+				{ v, err := _with_output_thought_impl(v_stop_output, v_thought_field, v_thought_prefix, v_stop_thought); if err != nil { return nil, err }; v_stop_public = v }
 				_core_axgen_memory_cleanup_corrections(v_gen)
 				if _, err := _record_trace(v_gen, v_values, v_stop_public, "ok"); err != nil { return nil, err }
 				return v_stop_public, nil
@@ -40394,20 +40397,6 @@ func _render_demos(args ...Value) (Value, error) {
 	return v_messages, nil
 }
 
-func _apply_field_processors(args ...Value) (Value, error) {
-	axirCoverageMark("_apply_field_processors")
-	var v_gen Value
-	var v_output Value
-	var v_processed Value
-	if len(args) > 0 { v_gen = args[0] }
-	_ = v_gen
-	if len(args) > 1 { v_output = args[1] }
-	_ = v_output
-	_ = v_processed
-	v_processed = _core_axgen_apply_field_processors(v_gen, v_output)
-	return v_processed, nil
-}
-
 func _ace_update_bullet_feedback(args ...Value) (Value, error) {
 	axirCoverageMark("_ace_update_bullet_feedback")
 	var v_playbook Value
@@ -40511,6 +40500,20 @@ func _ace_update_bullet_feedback(args ...Value) (Value, error) {
 	// empty
 	}
 	return v_playbook, nil
+}
+
+func _apply_field_processors(args ...Value) (Value, error) {
+	axirCoverageMark("_apply_field_processors")
+	var v_gen Value
+	var v_output Value
+	var v_processed Value
+	if len(args) > 0 { v_gen = args[0] }
+	_ = v_gen
+	if len(args) > 1 { v_output = args[1] }
+	_ = v_output
+	_ = v_processed
+	v_processed = _core_axgen_apply_field_processors(v_gen, v_output)
+	return v_processed, nil
 }
 
 func _run_assertions(args ...Value) (Value, error) {
@@ -41408,20 +41411,6 @@ func _should_continue_steps(args ...Value) (Value, error) {
 	return v_should_continue, nil
 }
 
-func _parse_output_impl(args ...Value) (Value, error) {
-	axirCoverageMark("_parse_output_impl")
-	var v_content Value
-	var v_output Value
-	var v_text Value
-	if len(args) > 0 { v_content = args[0] }
-	_ = v_content
-	_ = v_output
-	_ = v_text
-	v_text = coreStringTrim(v_content)
-	{ v, err := _core_json_parse_strict(v_text); if err != nil { return nil, err }; v_output = v }
-	return v_output, nil
-}
-
 func _ace_prune_section_for_addition(args ...Value) (Value, error) {
 	axirCoverageMark("_ace_prune_section_for_addition")
 	var v_section Value
@@ -41583,6 +41572,20 @@ func _ace_prune_section_for_addition(args ...Value) (Value, error) {
 	if err := coreSet(v_out, "pruned", v_null_pruned); err != nil { return nil, err }
 	if err := coreSet(v_out, "section", v_section); err != nil { return nil, err }
 	return v_out, nil
+}
+
+func _parse_output_impl(args ...Value) (Value, error) {
+	axirCoverageMark("_parse_output_impl")
+	var v_content Value
+	var v_output Value
+	var v_text Value
+	if len(args) > 0 { v_content = args[0] }
+	_ = v_content
+	_ = v_output
+	_ = v_text
+	v_text = coreStringTrim(v_content)
+	{ v, err := _core_json_parse_strict(v_text); if err != nil { return nil, err }; v_output = v }
+	return v_output, nil
 }
 
 func chat_session_close_state(args ...Value) (Value, error) {
@@ -46703,12 +46706,9 @@ func _stream_text_yield_delta_impl(args ...Value) (Value, error) {
 	var v_end Value
 	var v_xstate Value
 	var v_held Value
+	var v_complete Value
 	var v_base Value
 	var v_before_start Value
-	var v_curr Value
-	var v_curr_code Value
-	var v_curr_type Value
-	var v_curr_type_name Value
 	var v_d1 Value
 	var v_d1_length Value
 	var v_d2 Value
@@ -46729,6 +46729,9 @@ func _stream_text_yield_delta_impl(args ...Value) (Value, error) {
 	var v_none Value
 	var v_not_texty Value
 	var v_nothing Value
+	var v_open Value
+	var v_opening Value
+	var v_partial_opening Value
 	var v_position Value
 	var v_skip Value
 	var v_streamed Value
@@ -46749,12 +46752,10 @@ func _stream_text_yield_delta_impl(args ...Value) (Value, error) {
 	_ = v_xstate
 	if len(args) > 5 { v_held = args[5] }
 	_ = v_held
+	if len(args) > 6 { v_complete = args[6] }
+	_ = v_complete
 	_ = v_base
 	_ = v_before_start
-	_ = v_curr
-	_ = v_curr_code
-	_ = v_curr_type
-	_ = v_curr_type_name
 	_ = v_d1
 	_ = v_d1_length
 	_ = v_d2
@@ -46775,6 +46776,9 @@ func _stream_text_yield_delta_impl(args ...Value) (Value, error) {
 	_ = v_none
 	_ = v_not_texty
 	_ = v_nothing
+	_ = v_open
+	_ = v_opening
+	_ = v_partial_opening
 	_ = v_position
 	_ = v_skip
 	_ = v_streamed
@@ -46824,13 +46828,15 @@ func _stream_text_yield_delta_impl(args ...Value) (Value, error) {
 	} else {
 	// empty
 	}
-	v_curr = coreGet(v_xstate, "curr_field", nil)
-	v_curr_type = coreGet(v_curr, "type", nil)
-	v_curr_type_name = coreGet(v_curr_type, "name", "")
-	v_curr_code = _core_eq(v_curr_type_name, "code")
+	v_open = _core_not(v_complete)
 	{ v, err := _stream_trim_end_impl(v_d1); if err != nil { return nil, err }; v_d2 = v }
-	if coreTruthy(v_curr_code) {
+	if coreTruthy(v_is_code) {
 		{ v, err := _stream_strip_trailing_fence_impl(v_d2); if err != nil { return nil, err }; v_d2 = v }
+		if coreTruthy(v_open) {
+			{ v, err := _stream_strip_partial_closing_fence_impl(v_d2); if err != nil { return nil, err }; v_d2 = v }
+		} else {
+		// empty
+		}
 	} else {
 	// empty
 	}
@@ -46840,7 +46846,18 @@ func _stream_text_yield_delta_impl(args ...Value) (Value, error) {
 	} else {
 	// empty
 	}
-	if coreTruthy(v_curr_code) {
+	if coreTruthy(v_is_code) {
+		v_opening = _core_and(v_open, v_first_chunk)
+		if coreTruthy(v_opening) {
+			{ v, err := _stream_is_partial_opening_fence_impl(v_d3); if err != nil { return nil, err }; v_partial_opening = v }
+			if coreTruthy(v_partial_opening) {
+				return v_none, nil
+			} else {
+			// empty
+			}
+		} else {
+		// empty
+		}
 		{ v, err := _stream_strip_leading_fence_impl(v_d3); if err != nil { return nil, err }; v_d3 = v }
 	} else {
 	// empty
@@ -47009,6 +47026,7 @@ func _stream_text_values_impl(args ...Value) (Value, error) {
 	var v_values Value
 	var v_xstate Value
 	var v_held Value
+	var v_complete Value
 	var v_already Value
 	var v_assumed Value
 	var v_candidate Value
@@ -47078,6 +47096,8 @@ func _stream_text_values_impl(args ...Value) (Value, error) {
 	_ = v_xstate
 	if len(args) > 4 { v_held = args[4] }
 	_ = v_held
+	if len(args) > 5 { v_complete = args[5] }
+	_ = v_complete
 	_ = v_already
 	_ = v_assumed
 	_ = v_candidate
@@ -47144,7 +47164,7 @@ func _stream_text_values_impl(args ...Value) (Value, error) {
 		v_prev_field = coreGet(v_entry, "field", nil)
 		v_prev_start = coreGet(v_entry, "s", 0)
 		v_prev_end = coreGet(v_entry, "e", 0)
-		{ v, err := _stream_text_yield_delta_impl(v_content, v_prev_field, v_prev_start, v_prev_end, v_xstate, v_held); if err != nil { return nil, err }; v_prev_delta = v }
+		{ v, err := _stream_text_yield_delta_impl(v_content, v_prev_field, v_prev_start, v_prev_end, v_xstate, v_held, true); if err != nil { return nil, err }; v_prev_delta = v }
 		v_has_prev_delta = _core_is_not_none(v_prev_delta)
 		if coreTruthy(v_has_prev_delta) {
 			v_deltas = coreAppend(v_deltas, v_prev_delta)
@@ -47191,7 +47211,7 @@ func _stream_text_values_impl(args ...Value) (Value, error) {
 	}
 	v_curr_start = coreGet(v_xstate, "s", 0)
 	v_content_length = _core_len(v_content)
-	{ v, err := _stream_text_yield_delta_impl(v_content, v_curr, v_curr_start, v_content_length, v_xstate, v_held); if err != nil { return nil, err }; v_curr_delta = v }
+	{ v, err := _stream_text_yield_delta_impl(v_content, v_curr, v_curr_start, v_content_length, v_xstate, v_held, v_complete); if err != nil { return nil, err }; v_curr_delta = v }
 	v_has_curr_delta = _core_is_not_none(v_curr_delta)
 	if coreTruthy(v_has_curr_delta) {
 		v_deltas = coreAppend(v_deltas, v_curr_delta)
@@ -50284,81 +50304,6 @@ func _regex_validate_names(args ...Value) (Value, error) {
 	return nil, nil
 }
 
-func _stream_json_parse_partial_impl(args ...Value) (Value, error) {
-	axirCoverageMark("_stream_json_parse_partial_impl")
-	var v_json_text Value
-	var v_blank Value
-	var v_complete Value
-	var v_is_blank Value
-	var v_marker Value
-	var v_none Value
-	var v_out Value
-	var v_parsed Value
-	var v_partial_error Value
-	var v_repair_error Value
-	var v_repaired Value
-	var v_repaired_value Value
-	if len(args) > 0 { v_json_text = args[0] }
-	_ = v_json_text
-	_ = v_blank
-	_ = v_complete
-	_ = v_is_blank
-	_ = v_marker
-	_ = v_none
-	_ = v_out
-	_ = v_parsed
-	_ = v_partial_error
-	_ = v_repair_error
-	_ = v_repaired
-	_ = v_repaired_value
-	v_out = Object()
-	v_none = _core_none()
-	if err := coreSet(v_out, "parsed", v_none); err != nil { return nil, err }
-	if err := coreSet(v_out, "marker", v_none); err != nil { return nil, err }
-	v_blank = coreStringTrim(v_json_text)
-	v_is_blank = _core_eq(v_blank, "")
-	if coreTruthy(v_is_blank) {
-		return v_out, nil
-	} else {
-	// empty
-	}
-	v_complete = false
-	{
-		__flow, __err := func() (coreFlow, error) {
-			{ v, err := _core_json_parse_strict(v_json_text); if err != nil { return coreFlow{}, err }; v_parsed = v }
-			if err := coreSet(v_out, "parsed", v_parsed); err != nil { return coreFlow{}, err }
-			v_complete = true
-			return coreFlow{}, nil
-		}()
-		if __err == nil && __flow.kind == coreFlowReturn { return __flow.value, nil }
-		if __err != nil {
-			v_partial_error = errorValue(__err)
-		// empty
-		}
-	}
-	if coreTruthy(v_complete) {
-		return v_out, nil
-	} else {
-	// empty
-	}
-	{ v, err := _stream_json_context_impl(v_json_text); if err != nil { return nil, err }; v_marker = v }
-	if err := coreSet(v_out, "marker", v_marker); err != nil { return nil, err }
-	{ v, err := _stream_json_repair_impl(v_json_text); if err != nil { return nil, err }; v_repaired = v }
-	{
-		__flow, __err := func() (coreFlow, error) {
-			{ v, err := _core_json_parse_strict(v_repaired); if err != nil { return coreFlow{}, err }; v_repaired_value = v }
-			if err := coreSet(v_out, "parsed", v_repaired_value); err != nil { return coreFlow{}, err }
-			return coreFlow{}, nil
-		}()
-		if __err == nil && __flow.kind == coreFlowReturn { return __flow.value, nil }
-		if __err != nil {
-			v_repair_error = errorValue(__err)
-		// empty
-		}
-	}
-	return v_out, nil
-}
-
 func _parse_text_contract_output_impl(args ...Value) (Value, error) {
 	axirCoverageMark("_parse_text_contract_output_impl")
 	var v_content Value
@@ -50452,6 +50397,81 @@ func _parse_text_contract_output_impl(args ...Value) (Value, error) {
 	{ v, err := _stream_text_extract_values_impl(v_content, v_output_fields); if err != nil { return nil, err }; v_values = v }
 	if err := coreSet(v_out, "values", v_values); err != nil { return nil, err }
 	if err := coreSet(v_out, "extracted", true); err != nil { return nil, err }
+	return v_out, nil
+}
+
+func _stream_json_parse_partial_impl(args ...Value) (Value, error) {
+	axirCoverageMark("_stream_json_parse_partial_impl")
+	var v_json_text Value
+	var v_blank Value
+	var v_complete Value
+	var v_is_blank Value
+	var v_marker Value
+	var v_none Value
+	var v_out Value
+	var v_parsed Value
+	var v_partial_error Value
+	var v_repair_error Value
+	var v_repaired Value
+	var v_repaired_value Value
+	if len(args) > 0 { v_json_text = args[0] }
+	_ = v_json_text
+	_ = v_blank
+	_ = v_complete
+	_ = v_is_blank
+	_ = v_marker
+	_ = v_none
+	_ = v_out
+	_ = v_parsed
+	_ = v_partial_error
+	_ = v_repair_error
+	_ = v_repaired
+	_ = v_repaired_value
+	v_out = Object()
+	v_none = _core_none()
+	if err := coreSet(v_out, "parsed", v_none); err != nil { return nil, err }
+	if err := coreSet(v_out, "marker", v_none); err != nil { return nil, err }
+	v_blank = coreStringTrim(v_json_text)
+	v_is_blank = _core_eq(v_blank, "")
+	if coreTruthy(v_is_blank) {
+		return v_out, nil
+	} else {
+	// empty
+	}
+	v_complete = false
+	{
+		__flow, __err := func() (coreFlow, error) {
+			{ v, err := _core_json_parse_strict(v_json_text); if err != nil { return coreFlow{}, err }; v_parsed = v }
+			if err := coreSet(v_out, "parsed", v_parsed); err != nil { return coreFlow{}, err }
+			v_complete = true
+			return coreFlow{}, nil
+		}()
+		if __err == nil && __flow.kind == coreFlowReturn { return __flow.value, nil }
+		if __err != nil {
+			v_partial_error = errorValue(__err)
+		// empty
+		}
+	}
+	if coreTruthy(v_complete) {
+		return v_out, nil
+	} else {
+	// empty
+	}
+	{ v, err := _stream_json_context_impl(v_json_text); if err != nil { return nil, err }; v_marker = v }
+	if err := coreSet(v_out, "marker", v_marker); err != nil { return nil, err }
+	{ v, err := _stream_json_repair_impl(v_json_text); if err != nil { return nil, err }; v_repaired = v }
+	{
+		__flow, __err := func() (coreFlow, error) {
+			{ v, err := _core_json_parse_strict(v_repaired); if err != nil { return coreFlow{}, err }; v_repaired_value = v }
+			if err := coreSet(v_out, "parsed", v_repaired_value); err != nil { return coreFlow{}, err }
+			return coreFlow{}, nil
+		}()
+		if __err == nil && __flow.kind == coreFlowReturn { return __flow.value, nil }
+		if __err != nil {
+			v_repair_error = errorValue(__err)
+		// empty
+		}
+	}
 	return v_out, nil
 }
 
@@ -50591,6 +50611,36 @@ func _regex_clear_capture(args ...Value) (Value, error) {
 	return nil, nil
 }
 
+func _regex_copy_map(args ...Value) (Value, error) {
+	axirCoverageMark("_regex_copy_map")
+	var v_value Value
+	var v_iter_3 Value
+	var v_key Value
+	var v_out Value
+	var v_t1 Value
+	var v_t2 Value
+	var v_t4 Value
+	if len(args) > 0 { v_value = args[0] }
+	_ = v_value
+	_ = v_iter_3
+	_ = v_key
+	_ = v_out
+	_ = v_t1
+	_ = v_t2
+	_ = v_t4
+	v_key = _core_none()
+	v_out = _core_none()
+	v_t1 = Object()
+	v_out = v_t1
+	v_t2 = _core_map_keys(v_value)
+	for _, v_iter_3 = range coreIter(v_t2) {
+		v_key = v_iter_3
+		v_t4 = coreGet(v_value, v_key, nil)
+		if err := coreSet(v_out, v_key, v_t4); err != nil { return nil, err }
+	}
+	return v_out, nil
+}
+
 func _stream_json_validate_impl(args ...Value) (Value, error) {
 	axirCoverageMark("_stream_json_validate_impl")
 	var v_fields Value
@@ -50696,36 +50746,6 @@ func _stream_json_validate_impl(args ...Value) (Value, error) {
 		if _, err := _stream_json_validate_value_impl(v_field, v_value, v_allow_missing); err != nil { return nil, err }
 	}
 	return nil, nil
-}
-
-func _regex_copy_map(args ...Value) (Value, error) {
-	axirCoverageMark("_regex_copy_map")
-	var v_value Value
-	var v_iter_3 Value
-	var v_key Value
-	var v_out Value
-	var v_t1 Value
-	var v_t2 Value
-	var v_t4 Value
-	if len(args) > 0 { v_value = args[0] }
-	_ = v_value
-	_ = v_iter_3
-	_ = v_key
-	_ = v_out
-	_ = v_t1
-	_ = v_t2
-	_ = v_t4
-	v_key = _core_none()
-	v_out = _core_none()
-	v_t1 = Object()
-	v_out = v_t1
-	v_t2 = _core_map_keys(v_value)
-	for _, v_iter_3 = range coreIter(v_t2) {
-		v_key = v_iter_3
-		v_t4 = coreGet(v_value, v_key, nil)
-		if err := coreSet(v_out, v_key, v_t4); err != nil { return nil, err }
-	}
-	return v_out, nil
 }
 
 func _stream_json_validate_value_impl(args ...Value) (Value, error) {
@@ -52744,7 +52764,7 @@ func _stream_chunk_content_impl(args ...Value) (Value, error) {
 		v_pending = coreAppend(v_pending, v_text)
 	}
 	if err := coreSet(v_state, "feedback", v_pending); err != nil { return nil, err }
-	{ v, err := _stream_text_values_impl(v_fields, v_content, v_values, v_xstate, v_held); if err != nil { return nil, err }; v_text_deltas = v }
+	{ v, err := _stream_text_values_impl(v_fields, v_content, v_values, v_xstate, v_held, false); if err != nil { return nil, err }; v_text_deltas = v }
 	return v_text_deltas, nil
 }
 
@@ -52988,7 +53008,7 @@ func _stream_finalize_impl(args ...Value) (Value, error) {
 	// empty
 	}
 	if coreTruthy(v_text_route) {
-		{ v, err := _stream_text_values_impl(v_fields, v_content, v_values, v_xstate, v_held); if err != nil { return nil, err }; v_text_deltas = v }
+		{ v, err := _stream_text_values_impl(v_fields, v_content, v_values, v_xstate, v_held, true); if err != nil { return nil, err }; v_text_deltas = v }
 		if _, err := _stream_emit_deltas_impl(v_ctx, v_index, v_text_deltas); err != nil { return nil, err }
 	} else {
 	// empty
@@ -53115,6 +53135,147 @@ func _stream_result_impl(args ...Value) (Value, error) {
 	// empty
 	}
 	return v_output, nil
+}
+
+func _stream_strip_partial_closing_fence_impl(args ...Value) (Value, error) {
+	axirCoverageMark("_stream_strip_partial_closing_fence_impl")
+	var v_text Value
+	var v_at_start Value
+	var v_before Value
+	var v_body Value
+	var v_ch Value
+	var v_cursor Value
+	var v_end Value
+	var v_kept Value
+	var v_length Value
+	var v_long_run Value
+	var v_no_run Value
+	var v_not_tick Value
+	var v_out Value
+	var v_run Value
+	var v_tick Value
+	if len(args) > 0 { v_text = args[0] }
+	_ = v_text
+	_ = v_at_start
+	_ = v_before
+	_ = v_body
+	_ = v_ch
+	_ = v_cursor
+	_ = v_end
+	_ = v_kept
+	_ = v_length
+	_ = v_long_run
+	_ = v_no_run
+	_ = v_not_tick
+	_ = v_out
+	_ = v_run
+	_ = v_tick
+	v_length = _core_len(v_text)
+	v_cursor = v_length
+	v_run = 0
+	for {
+		v_at_start = _core_lte(v_cursor, 0)
+		if coreTruthy(v_at_start) {
+			break
+		} else {
+		// empty
+		}
+		v_before = _core_add(v_cursor, -1)
+		v_ch = _core_string_slice(v_text, v_before, v_cursor)
+		v_tick = _core_eq(v_ch, "`")
+		v_not_tick = _core_not(v_tick)
+		if coreTruthy(v_not_tick) {
+			break
+		} else {
+		// empty
+		}
+		v_run = _core_add(v_run, 1)
+		v_cursor = v_before
+	}
+	v_no_run = _core_eq(v_run, 0)
+	if coreTruthy(v_no_run) {
+		return v_text, nil
+	} else {
+	// empty
+	}
+	v_long_run = _core_gte(v_run, 3)
+	if coreTruthy(v_long_run) {
+		v_end = _core_add(v_length, -2)
+		v_kept = _core_string_slice(v_text, 0, v_end)
+		return v_kept, nil
+	} else {
+	// empty
+	}
+	v_body = _core_string_slice(v_text, 0, v_cursor)
+	{ v, err := _stream_trim_end_impl(v_body); if err != nil { return nil, err }; v_out = v }
+	return v_out, nil
+}
+
+func _stream_is_partial_opening_fence_impl(args ...Value) (Value, error) {
+	axirCoverageMark("_stream_is_partial_opening_fence_impl")
+	var v_text Value
+	var v_at_end Value
+	var v_ch Value
+	var v_cursor Value
+	var v_fenced Value
+	var v_length Value
+	var v_next Value
+	var v_not_fenced Value
+	var v_not_word Value
+	var v_one Value
+	var v_short_run Value
+	var v_two Value
+	var v_word Value
+	if len(args) > 0 { v_text = args[0] }
+	_ = v_text
+	_ = v_at_end
+	_ = v_ch
+	_ = v_cursor
+	_ = v_fenced
+	_ = v_length
+	_ = v_next
+	_ = v_not_fenced
+	_ = v_not_word
+	_ = v_one
+	_ = v_short_run
+	_ = v_two
+	_ = v_word
+	v_one = _core_eq(v_text, "`")
+	v_two = _core_eq(v_text, "``")
+	v_short_run = _core_or(v_one, v_two)
+	if coreTruthy(v_short_run) {
+		return true, nil
+	} else {
+	// empty
+	}
+	v_fenced = _core_string_starts_with(v_text, "```")
+	v_not_fenced = _core_not(v_fenced)
+	if coreTruthy(v_not_fenced) {
+		return false, nil
+	} else {
+	// empty
+	}
+	v_length = _core_len(v_text)
+	v_cursor = 3
+	for {
+		v_at_end = _core_gte(v_cursor, v_length)
+		if coreTruthy(v_at_end) {
+			break
+		} else {
+		// empty
+		}
+		v_next = _core_add(v_cursor, 1)
+		v_ch = _core_string_slice(v_text, v_cursor, v_next)
+		v_word = coreRegexMatch("^[a-zA-Z0-9]$", v_ch)
+		v_not_word = _core_not(v_word)
+		if coreTruthy(v_not_word) {
+			return false, nil
+		} else {
+		// empty
+		}
+		v_cursor = v_next
+	}
+	return true, nil
 }
 
 func _agent_factory(args ...Value) (Value, error) {

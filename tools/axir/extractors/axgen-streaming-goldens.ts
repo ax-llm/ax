@@ -977,6 +977,72 @@ const cases: Record<string, Case> = {
       ),
     ],
   },
+  // Asserts check the answer, so a tool step with no answer yet skips them:
+  // with no retry budget, an assert run on the tool step would fail it.
+  'forward-tool-step-skips-assertions': {
+    kind: 'forward',
+    signature: 'question:string -> answer:string',
+    options: { max_retries: 0 },
+    tools: [lookupTool],
+    assertions: [{ field: 'answer', contains: 'final', message: 'Say final' }],
+    responses: [
+      {
+        results: [
+          {
+            index: 0,
+            content: 'Answer: partial draft',
+            function_calls: [call('call_1', 'lookup', '{"key":"a"}')],
+            finish_reason: 'function_call',
+          },
+        ],
+      },
+      { results: [{ index: 0, content: 'Answer: final' }] },
+    ],
+  },
+  // Non-streaming forward keeps the stop step's thought too.
+  'forward-stop-function-step-thought': {
+    kind: 'forward',
+    signature: 'question:string -> answer:string',
+    tools: [lookupTool, finishTool],
+    stop_functions: ['finish'],
+    forward_options: { show_thoughts: true },
+    responses: [
+      {
+        results: [
+          {
+            index: 0,
+            thought: 'First. ',
+            function_calls: [call('call_1', 'lookup', '{"key":"a"}')],
+            finish_reason: 'function_call',
+          },
+        ],
+      },
+      {
+        results: [
+          {
+            index: 0,
+            thought: 'Done.',
+            function_calls: [call('call_2', 'finish', '{"note":"ok"}')],
+            finish_reason: 'function_call',
+          },
+        ],
+      },
+    ],
+  },
+  'streaming-forward-text-code-before-field': {
+    signature: 'question:string -> answer:code, reason:string',
+    responses: [
+      streamed(
+        text('Answer: ```python\nprint(1)\n```\n'),
+        text('Reason: short'),
+        done()
+      ),
+    ],
+  },
+  'streaming-forward-text-code-trailing-backtick': {
+    signature: 'question:string -> answer:code',
+    responses: [streamed(text('Answer: echo `date'), done('`'))],
+  },
   'text-extract-unlabeled-single-field': {
     kind: 'forward',
     signature: 'question:string -> answer:string',

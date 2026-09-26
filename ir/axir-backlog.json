@@ -1927,6 +1927,29 @@
       "verification": "intrinsic.axgen.run_assertions reports {status: pass|fail(message?)|error} in all five ports, and gen.axir @run_assertions raises a retryable error for a failure with a message while returning a message-less failure (Assertion failed without message) or a thrown error to its callers, which raise it outside the validation retries. assertion-false-without-message-error, assertion-contains-without-message-error, assertion-thrown-error-not-retried and assertion-false-without-message-structured-output pin 1 request; assertion-false-with-message-retried and assertion-return-modes pin 4, matching a TypeScript probe; mutation checks fail each rule. Python and Go conformance 950/950; npm run axir:check-packages, npm run axir:conformance:check and npm run test:axir pass."
     },
     {
+      "id": "axir-2026-09-26-coerce-structured-values-and-cache-streamed-results-in-the-ports",
+      "status": "open",
+      "title": "Coerce structured output values and cache streamed results in the ports",
+      "createdAt": "2026-09-26",
+      "sourcePR": null,
+      "sourceCommit": "533da1418d110bd3979f8bf6f01ba243edf57012",
+      "tsPaths": [
+        "src/ax/dsp/extract/structuredJson.ts",
+        "src/ax/dsp/generate.ts",
+        "src/ax/dsp/generate.structuredTypes.test.ts",
+        "src/ax/dsp/generate.streamParity.test.ts"
+      ],
+      "portableSurface": "axgen",
+      "impact": "TypeScript now type-checks structured JSON output values: a numeric string becomes a number through Number() and a true or false string a boolean, as the text contract does, and any other type mismatch is a validation error that the model retries. The ports reject those strings. TypeScript streamingForward also stores the finished result through cachingFunction with or without a result picker, and the ports have no cachingFunction yet.",
+      "suggestedAxirWork": [
+        "Coerce numeric and boolean strings in the IR structured output validation and add TS-golden fixtures",
+        "Store the merged streamed result through cachingFunction when the ports add it"
+      ],
+      "completedAt": null,
+      "completedByCommit": null,
+      "verification": null
+    },
+    {
       "id": "axir-2026-09-26-fold-streamed-chunks-in-an-axgen-forward-with-stream-true-in-the",
       "status": "done",
       "title": "Fold streamed chunks in an AxGen forward with stream true in the ports",

@@ -213,7 +213,9 @@ writeFixture('stop-function-keeps-earlier-thought', {
       ],
     },
   ],
-  expected_output: { thought: 'Look it up' },
+  // A user stop function ends the forward without an answer; the output
+  // keeps every step's thought, the stop step's included, as TS does.
+  expected_output: { thought: 'Look it upStop here' },
   expected_request_count: 2,
 });
 

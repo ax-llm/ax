@@ -1,6 +1,7 @@
 import {
   createInvalidJsonError,
   createRequiredFieldMissingError,
+  createTypeValidationError,
   ValidationError,
 } from '../errors.js';
 import type { AxField, AxSignature } from '../sig.js';
@@ -209,25 +210,102 @@ export function validateStructuredOutputValues(
       continue;
     }
 
-    validateStructuredFieldValue(field, value, options);
+    const typedValue = validateStructuredFieldValue(field, value, options);
+    values[field.name] = typedValue;
 
     if (field.schema) {
       values[field.name] = validateWithStandardSchema(
         field.schema,
         field.name,
-        value
+        typedValue
       );
     }
   }
 }
 
+// A structured JSON value must have its field's declared type. As in the text
+// contract, a numeric string becomes a number (through Number()) and
+// "true"/"false" a boolean; any other mismatch is a validation error, which
+// the model gets as a correction. JSON, media, URL and date values keep their
+// own validation.
+function coerceStructuredValue(
+  field: Readonly<AxField>,
+  value: unknown
+): unknown {
+  const invalid = (detail: string) =>
+    createTypeValidationError(
+      field,
+      typeof value === 'string' ? value : JSON.stringify(value),
+      detail
+    );
+
+  switch (field.type?.name) {
+    case 'number': {
+      if (typeof value === 'number') return value;
+      const number =
+        typeof value === 'string' && value.trim() !== ''
+          ? Number(value)
+          : Number.NaN;
+      if (Number.isNaN(number)) throw invalid('Invalid number');
+      return number;
+    }
+    case 'boolean': {
+      if (typeof value === 'boolean') return value;
+      const text = typeof value === 'string' ? value.toLowerCase() : '';
+      if (text === 'true') return true;
+      if (text === 'false') return false;
+      throw invalid('Invalid boolean');
+    }
+    case 'string':
+    case 'code':
+      if (typeof value !== 'string') throw invalid('Expected a string');
+      return value;
+    case 'class': {
+      const classOptions = field.type.options;
+      if (typeof value !== 'string') throw invalid('Expected a string');
+      if (classOptions && !classOptions.includes(value)) {
+        throw invalid(
+          `Invalid class '${value}', expected one of the following: ${classOptions.join(', ')}`
+        );
+      }
+      return value;
+    }
+    case 'object':
+      if (!value || typeof value !== 'object' || Array.isArray(value)) {
+        throw invalid('Expected an object');
+      }
+      return value;
+    default:
+      return value;
+  }
+}
+
 function validateStructuredFieldValue(
   field: Readonly<AxField>,
-  value: unknown,
+  rawValue: unknown,
   options?: { allowMissingRequired?: boolean }
-): void {
+): unknown {
   const type = field.type;
-  if (!type) return;
+  if (!type) return rawValue;
+
+  let value = rawValue;
+  if (type.isArray) {
+    if (!Array.isArray(value)) {
+      throw createTypeValidationError(
+        field,
+        typeof value === 'string' ? value : JSON.stringify(value),
+        'Expected an array'
+      );
+    }
+    const itemField: AxField = { ...field, type: { ...type, isArray: false } };
+    value = value.map((item) =>
+      item === undefined || item === null
+        ? item
+        : coerceStructuredValue(itemField, item)
+    );
+  } else {
+    value = coerceStructuredValue(field, value);
+  }
 
   // validateURL throws on non-strings, so only run it on the whole value for
   // scalar fields; array fields are validated per-item in the loop below.
@@ -286,6 +364,8 @@ function validateStructuredFieldValue(
       }
     }
   }
+
+  return value;
 }
 
 function validateNestedObjectFields(
@@ -341,7 +421,11 @@ function validateNestedObjectFields(
       continue;
     }
 
-    validateStructuredFieldValue(nestedField, value, options);
+    obj[nestedField.name] = validateStructuredFieldValue(
+      nestedField,
+      value,
+      options
+    );
   }
 }
 
