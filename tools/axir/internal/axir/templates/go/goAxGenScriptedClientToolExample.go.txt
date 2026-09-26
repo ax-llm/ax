@@ -37,6 +37,7 @@ func main() {
 	})
 	qa := ax.NewAx("query:string -> answer:string", nil)
 	qa.Functions = []ax.Tool{search}
+	qa.AddFieldTransform("answer", "trim")
 	client := &scriptedClient{responses: []ax.Value{
 		ax.Object("results", ax.Array(ax.Object(
 			"content", "",
@@ -46,7 +47,7 @@ func main() {
 			)),
 		))),
 		ax.Object("results", ax.Array(ax.Object(
-			"content", "{\"answer\":\"Found Ax docs\"}",
+			"content", "Answer:  Found Ax docs ",
 			"function_calls", ax.Array(),
 		))),
 	}}
