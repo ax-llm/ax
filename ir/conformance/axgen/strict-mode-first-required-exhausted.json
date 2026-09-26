@@ -1,4 +1,5 @@
 {
+  "expected_error_cause_contains": "Unable to fix validation error: Expected (Required) field not found: 'Answer'. Begin a new section with \"Answer:\" and then provide a valid number value directly after.",
   "expected_error_contains": "Generate failed: Unable to fix validation error: Expected (Required) field not found: 'Answer'. Begin a new section with \"Answer:\" and then provide a valid number value directly after.",
   "expected_request_count": 2,
   "forward_options": {

@@ -341,6 +341,7 @@ async function record(name: string, spec: Case): Promise<void> {
   const deltas: JsonMap[] = [];
   let output: Json | undefined;
   let error: string | undefined;
+  let errorCause: string | undefined;
   try {
     if (kind === 'forward') {
       output = clone((await gen.forward(ai, input, forwardOptions)) as Json);
@@ -355,6 +356,11 @@ async function record(name: string, spec: Case): Promise<void> {
     }
   } catch (e) {
     error = (e as Error).message.split('\n')[0];
+    // AxGenerateError keeps the failure it wraps as its cause.
+    const cause = (e as Error).cause;
+    if ((e as Error).name === 'AxGenerateError' && cause instanceof Error) {
+      errorCause = cause.message.split('\n')[0];
+    }
   }
 
   const fixture: Record<string, unknown> = {
@@ -408,6 +414,9 @@ async function record(name: string, spec: Case): Promise<void> {
       throw new Error(`${name}: TS error "${error}" lacks "${expected}"`);
     }
     fixture.expected_error_contains = expected;
+    if (spec.error_contains === undefined && errorCause !== undefined) {
+      fixture.expected_error_cause_contains = errorCause;
+    }
   } else if (spec.error_contains !== undefined) {
     throw new Error(
       `${name}: expected TS to fail with "${spec.error_contains}"`
@@ -710,7 +719,6 @@ const cases: Record<string, Case> = {
   'streaming-forward-validation-exhausted': {
     signature: 'question:string -> answer:string, score:number',
     forward_options: { max_retries: 1 },
-    error_contains: "Field 'Score' has an invalid value 'y': Invalid number",
     responses: [
       streamed(text('Answer: a\nScore: x'), done()),
       streamed(text('Answer: b\nScore: y'), done()),
@@ -1168,8 +1176,6 @@ const cases: Record<string, Case> = {
         ],
       },
     ],
-    error_contains:
-      "Required field not found: 'Answer' (string), 'Score' (number)",
   },
   'text-extract-number-array': {
     kind: 'forward',

@@ -1,4 +1,5 @@
 {
+  "expected_error_cause_contains": "Unable to fix validation error: Field 'size' has an invalid value 'huge': Invalid number. Provide a number. Ensure formatting exactly matches the expected type.",
   "expected_error_contains": "Generate failed: Unable to fix validation error: Field 'size' has an invalid value 'huge': Invalid number. Provide a number. Ensure formatting exactly matches the expected type.",
   "expected_request_count": 2,
   "features": {

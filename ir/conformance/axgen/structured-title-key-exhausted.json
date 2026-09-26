@@ -1,4 +1,5 @@
 {
+  "expected_error_cause_contains": "Unable to fix validation error: Required field is missing: 'Count'. After the \"Count:\" label, provide a non-empty number. Do not use null, undefined, or leave it blank.",
   "expected_error_contains": "Generate failed: Unable to fix validation error: Required field is missing: 'Count'. After the \"Count:\" label, provide a non-empty number. Do not use null, undefined, or leave it blank.",
   "expected_request_count": 2,
   "features": {

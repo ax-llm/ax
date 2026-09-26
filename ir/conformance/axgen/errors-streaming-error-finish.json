@@ -8,6 +8,7 @@
       "version": 0
     }
   ],
+  "expected_error_cause_contains": "Streaming response failed",
   "expected_error_contains": "Generate failed: Streaming response failed",
   "expected_request_count": 1,
   "input": {

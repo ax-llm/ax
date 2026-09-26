@@ -1,4 +1,5 @@
 {
+  "expected_error_cause_contains": "Unable to fix validation error: Required field not found: 'Reason' (string). Add a line starting with the exact label followed by a colon (e.g., \"Reason:\") and then provide a valid string value. Keep the output concise and avoid unrelated text.",
   "expected_error_contains": "Generate failed: Unable to fix validation error: Required field not found: 'Reason' (string). Add a line starting with the exact label followed by a colon (e.g., \"Reason:\") and then provide a valid string value. Keep the output concise and avoid unrelated text.",
   "expected_request_count": 2,
   "input": {

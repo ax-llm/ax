@@ -1,4 +1,5 @@
 {
+  "expected_error_cause_contains": "Unable to fix validation error: Field 'Mood' has an invalid value 'calm': Invalid class 'calm', expected one of the following: happy, sad. Provide a classification class. Ensure formatting exactly matches the expected type.",
   "expected_error_contains": "Generate failed: Unable to fix validation error: Field 'Mood' has an invalid value 'calm': Invalid class 'calm', expected one of the following: happy, sad. Provide a classification class. Ensure formatting exactly matches the expected type.",
   "expected_request_count": 2,
   "features": {

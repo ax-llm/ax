@@ -1,4 +1,5 @@
 {
+  "expected_error_cause_contains": "Unable to fix validation error: Field 'Label' has an invalid value '6': Expected a string. Provide a string. Ensure formatting exactly matches the expected type.",
   "expected_error_contains": "Generate failed: Unable to fix validation error: Field 'Label' has an invalid value '6': Expected a string. Provide a string. Ensure formatting exactly matches the expected type.",
   "expected_request_count": 2,
   "features": {

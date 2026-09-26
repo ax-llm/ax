@@ -1,4 +1,5 @@
 {
+  "expected_error_cause_contains": "upstream token required",
   "expected_error_contains": "Generate failed: upstream token required",
   "expected_processor_calls": [
     {

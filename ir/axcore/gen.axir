@@ -802,9 +802,10 @@ module @ax.gen version "0.1" {
         // A step is one model turn; validation retries stay inside it, as in TS.
         %steps_exhausted = core.call intrinsic.gte(%step, %max_steps)
         core.if %steps_exhausted {
-          %max_steps_message = core.call intrinsic.string.format("Generate failed: Max steps reached: {}", %max_steps)
+          %max_steps_message = core.call intrinsic.string.format("Max steps reached: {}", %max_steps)
           %max_steps_error = core.call intrinsic.error.runtime(%max_steps_message)
-          core.raise %max_steps_error
+          %max_steps_failed = core.call @generate_failed_impl(%max_steps_error)
+          core.raise %max_steps_failed
         }
         %request = core.call @build_gen_chat_request(%gen, %messages, %runtime_options, %selection, %step)
         %response = core.map
@@ -1996,9 +1997,10 @@ module @ax.gen version "0.1" {
       core.loop {
         %steps_exhausted = core.call intrinsic.gte(%step, %max_steps)
         core.if %steps_exhausted {
-          %max_steps_message = core.call intrinsic.string.format("Generate failed: Max steps reached: {}", %max_steps)
+          %max_steps_message = core.call intrinsic.string.format("Max steps reached: {}", %max_steps)
           %max_steps_error = core.call intrinsic.error.runtime(%max_steps_message)
-          core.raise %max_steps_error
+          %max_steps_failed = core.call @generate_failed_impl(%max_steps_error)
+          core.raise %max_steps_failed
         }
         %step_started = core.call intrinsic.gt(%step, 0)
         %output_emitted = core.get %run["output_emitted"] default false
@@ -2507,12 +2509,15 @@ module @ax.gen version "0.1" {
     type signature = "(error, string) -> error"
     body @entry(%error: error, %output: string) {
       // Exhausted validation, assertion or refusal retries, as TS reports
-      // them: the last error's message and the last attempt's output.
+      // them: "Unable to fix validation error: " with the last error's
+      // message and the last attempt's output, as the cause of "Generate
+      // failed: ...". The last error is the cause of the first.
       %text = core.call intrinsic.exception.message(%error)
-      %message = core.call intrinsic.add("Generate failed: Unable to fix validation error: ", %text)
+      %message = core.call intrinsic.add("Unable to fix validation error: ", %text)
       %message = core.call intrinsic.add(%message, "\n\nLLM Output:\n")
       %message = core.call intrinsic.add(%message, %output)
-      %wrapped = core.call intrinsic.exception.rewrap(%error, %message)
+      %unfixed = core.call intrinsic.exception.rewrap(%error, %message)
+      %wrapped = core.call @generate_failed_impl(%unfixed)
       core.return %wrapped
     }
   }
