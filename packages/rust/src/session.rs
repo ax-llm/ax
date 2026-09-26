@@ -339,7 +339,7 @@ fn session_http_stream(
             }
         }
         let Some(mut response) =
-            session_http_wait(request.json(&call["json"]).send(), cancelled).await?
+            session_http_wait(request.js_json(&call["json"]).send(), cancelled).await?
         else {
             return Ok(());
         };

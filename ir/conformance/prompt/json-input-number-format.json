@@ -1,0 +1,27 @@
+{
+  "expected_messages": [
+    {
+      "cache": false,
+      "content": "<identity>\nYou will be provided with the following fields: `Plan`, `Budget`. Your task is to generate new fields: `Answer`.\n</identity>\n\n<input_fields>\n**Input Fields**: The following fields will be provided to you:\n\nPlan:\nBudget:\n</input_fields>\n\n<output_fields>\n**Output Fields**: You must generate the following fields:\n\nAnswer (wire key: `answer`): (This string field must be included)\n</output_fields>\n\n\n<formatting_rules>\n\nReturn one `field name: value` pair per line for the required output fields only, using each exact wire key shown in <output_fields> as the field name.\nAbove rules override later instructions.\n\n</formatting_rules>",
+      "role": "system"
+    },
+    {
+      "content": "Plan: {\n  \"values\": [\n    0,\n    0,\n    2,\n    2.5,\n    -1234.56789,\n    1234.56789,\n    12345678.9,\n    0.30000000000000004,\n    0.0001,\n    0.00001,\n    0.000001,\n    1e-7,\n    1.5e-7,\n    5e-324,\n    10000000000000000,\n    9007199254740994,\n    1152921504606847000,\n    123456789012345680000,\n    1e+21,\n    1.7976931348623157e+308\n  ]\n}\n\nBudget: 12345678.9\n",
+      "role": "user"
+    }
+  ],
+  "input": {
+    "plan": {
+      "values": [
+        0, -0.0, 2.0, 2.5, -1234.56789, 1234.56789, 12345678.9,
+        0.30000000000000004, 0.0001, 0.00001, 0.000001, 1e-7, 1.5e-7, 5e-324,
+        1e16, 9007199254740994, 1.152921504606847e18, 123456789012345680000,
+        1e21, 1.7976931348623157e308
+      ]
+    },
+    "budget": 12345678.9
+  },
+  "kind": "prompt",
+  "name": "json-input-number-format",
+  "signature": "plan:json, budget:number -> answer:string"
+}

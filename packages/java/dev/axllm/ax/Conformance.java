@@ -607,6 +607,7 @@ public final class Conformance {
       case "validate_value" -> runValidateValue(fixture);
       case "validate_output" -> runValidateOutput(fixture);
       case "strip_internal" -> runStripInternal(fixture);
+      case "number_format" -> runNumberFormat(fixture);
       case "prompt" -> runPrompt(fixture);
       case "template" -> assertEqual(Core.render_template_content(fixture.get("template"), fixture.getOrDefault("vars", Map.of()), fixture.getOrDefault("context", "fixture-template")), fixture.getOrDefault("expected_output", ""), "template output");
       case "template_error" -> runTemplateError(fixture);
@@ -785,6 +786,29 @@ public final class Conformance {
     if (!fixture.containsKey("expected_error_contains")) assertEqual(result, fixture.getOrDefault("expected_values", fixture.getOrDefault("values", Map.of())), "validated output");
   }
 
+  // String(x) and JSON.stringify(x) for numbers parsed from text with
+  // Double.parseDouble, which also reaches NaN, the infinities and -0. String(x)
+  // is string.str and string.format's "{}" (the streaming extractor's number
+  // text). The JSON form must come out of every encoder: Json.stringify (wire
+  // bodies and json.stringify), the key-sorted json.stable_stringify and
+  // json.pretty (prompt values).
+  static void runNumberFormat(Map<String, Object> fixture) {
+    for (Object item : Core.asList(fixture.get("cases"))) {
+      String input = String.valueOf(Core.get(item, "input", ""));
+      Double number = Double.parseDouble(input);
+      String json = String.valueOf(Core.get(item, "json", ""));
+      checkNumberFormat("string.str", input, Core.stringStr(number), String.valueOf(Core.get(item, "string", "")));
+      checkNumberFormat("string.format", input, String.valueOf(Core.stringFormat("{}", number)), String.valueOf(Core.get(item, "string", "")));
+      List<Object> list = new ArrayList<>(List.of(number));
+      checkNumberFormat("wire JSON", input, Json.stringify(list), "[" + json + "]");
+      checkNumberFormat("json.stringify", input, String.valueOf(Core.jsonStringify(list)), "[" + json + "]");
+      checkNumberFormat("json.stable_stringify", input, String.valueOf(Core.jsonStableStringify(list)), "[" + json + "]");
+      checkNumberFormat("json.pretty", input, String.valueOf(Core.jsonPretty(list)), "[\n  " + json + "\n]");
+    }
+  }
+  static void checkNumberFormat(String label, String input, String actual, String expected) {
+    if (!actual.equals(expected)) throw new FixtureError(label + " of " + input + ": expected " + expected + ", got " + actual);
+  }
   static void runStripInternal(Map<String, Object> fixture) {
     AxSignature sig = buildSignature(fixture);
     assertEqual(Core.strip_internal(sig.outputs, fixture.getOrDefault("values", Map.of())), fixture.get("expected_output"), "strip internal");

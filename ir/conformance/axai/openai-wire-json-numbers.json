@@ -1,0 +1,117 @@
+{
+  "expected_output": {
+    "model_usage": {
+      "ai": "openai",
+      "model": "gpt-5.4-mini",
+      "tokens": {
+        "completion_tokens": 2,
+        "prompt_tokens": 1,
+        "total_tokens": 3
+      }
+    },
+    "remote_id": "chatcmpl_wire_numbers",
+    "results": [
+      {
+        "content": "ok",
+        "finish_reason": "stop",
+        "function_calls": [],
+        "id": "0",
+        "index": 0
+      }
+    ]
+  },
+  "expected_transport_wire_json_contains": [
+    "\"default\":[0,0,2,2.5,-1234.56789,1234.56789,12345678.9,0.30000000000000004,0.0001,0.00001,0.000001,1e-7,1.5e-7,5e-324,10000000000000000,9007199254740994,1152921504606847000,123456789012345680000,1e+21,1.7976931348623157e+308]",
+    "\"{\\\"n\\\":[0,0,2,2.5,-1234.56789,1234.56789,12345678.9,0.30000000000000004,0.0001,0.00001,0.000001,1e-7,1.5e-7,5e-324,10000000000000000,9007199254740994,1152921504606847000,123456789012345680000,1e+21,1.7976931348623157e+308]}\""
+  ],
+  "kind": "ai_chat",
+  "model": "gpt-5.4-mini",
+  "name": "openai-wire-json-numbers",
+  "provider": "openai",
+  "request": {
+    "chat_prompt": [
+      {
+        "content": "Record the numbers",
+        "role": "user"
+      },
+      {
+        "functionCalls": [
+          {
+            "function": {
+              "name": "record",
+              "params": {
+                "n": [
+                  0, -0.0, 2.0, 2.5, -1234.56789, 1234.56789, 12345678.9,
+                  0.30000000000000004, 0.0001, 0.00001, 0.000001, 1e-7, 1.5e-7,
+                  5e-324, 1e16, 9007199254740994, 1.152921504606847e18,
+                  123456789012345680000, 1e21, 1.7976931348623157e308
+                ]
+              }
+            },
+            "id": "call-1",
+            "type": "function"
+          }
+        ],
+        "role": "assistant"
+      },
+      {
+        "functionId": "call-1",
+        "result": "recorded",
+        "role": "function"
+      }
+    ],
+    "functions": [
+      {
+        "description": "Record numbers",
+        "name": "record",
+        "parameters": {
+          "properties": {
+            "n": {
+              "default": [
+                0, -0.0, 2.0, 2.5, -1234.56789, 1234.56789, 12345678.9,
+                0.30000000000000004, 0.0001, 0.00001, 0.000001, 1e-7, 1.5e-7,
+                5e-324, 1e16, 9007199254740994, 1.152921504606847e18,
+                123456789012345680000, 1e21, 1.7976931348623157e308
+              ],
+              "items": {
+                "type": "number"
+              },
+              "type": "array"
+            }
+          },
+          "required": ["n"],
+          "type": "object"
+        }
+      }
+    ],
+    "model_config": {
+      "stream": false
+    }
+  },
+  "transport_responses": [
+    {
+      "json": {
+        "choices": [
+          {
+            "finish_reason": "stop",
+            "index": 0,
+            "message": {
+              "content": "ok",
+              "refusal": null,
+              "role": "assistant"
+            }
+          }
+        ],
+        "id": "chatcmpl_wire_numbers",
+        "model": "gpt-5.4-mini",
+        "object": "chat.completion",
+        "usage": {
+          "completion_tokens": 2,
+          "prompt_tokens": 1,
+          "total_tokens": 3
+        }
+      },
+      "status": 200
+    }
+  ]
+}

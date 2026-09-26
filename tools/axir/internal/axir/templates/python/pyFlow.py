@@ -63,6 +63,8 @@ from .signature import (
     _core_string_find_outside_quotes,
     _core_string_split_once,
     _core_string_split_top_level,
+    _js_json_dumps,
+    _js_number_text,
 )
 from .agent import (
     OptimizerEngine,
@@ -554,7 +556,8 @@ def _core_string_split_trim_nonempty(value, sep):
 
 
 def _core_string_str(value):
-    return str(value)
+    # String(x): a float two is "2", not "2.0".
+    return _js_number_text(value) if isinstance(value, float) else str(value)
 
 
 def _core_string_starts_with(value, prefix):
@@ -562,7 +565,7 @@ def _core_string_starts_with(value, prefix):
 
 
 def _core_json_stable_stringify(value):
-    return json.dumps(value or {}, sort_keys=True, separators=(",", ":"), ensure_ascii=False)
+    return _js_json_dumps(value or {}, sort_keys=True)
 
 
 def _core_program_components(program):

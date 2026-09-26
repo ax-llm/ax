@@ -18,7 +18,7 @@ import uuid
 from dataclasses import dataclass, field
 from typing import Any, Callable
 
-from .signature import AxSignature
+from .signature import AxSignature, _js_json_dumps, _js_number_text
 from .tool import Tool
 from .ai import AxCancellationToken, AxAIServiceAbortedError
 
@@ -79,7 +79,7 @@ def _core_len(value): return len(value or [])
 def _core_contains(container, item): return False if container is None else item in container
 def _core_truthy(value): return bool(value)
 def _core_none(): return None
-def _core_json_stringify(value): return json.dumps(value, separators=(",", ":"), sort_keys=True, ensure_ascii=False)
+def _core_json_stringify(value): return _js_json_dumps(value, sort_keys=True)
 def _core_json_parse(value): return json.loads(value)
 def _core_math_abs(value): return abs(value)
 
@@ -122,7 +122,7 @@ def _core_validation_error(message): return AxMCPError(str(message))
 def _core_string_format(template, *args):
     rendered = str(template)
     for value in args:
-        rendered = rendered.replace("{}", str(value), 1)
+        rendered = rendered.replace("{}", _js_number_text(value) if isinstance(value, float) else str(value), 1)
     return rendered
 
 
@@ -4321,7 +4321,7 @@ class AxMCPStreamableHTTPTransport(AxMCPTransport):
 
     def _request_stream_once(self, message: dict[str, Any]) -> None:
         try:
-            body = json.dumps(message, ensure_ascii=False).encode("utf-8")
+            body = _js_json_dumps(message).encode("utf-8")
             headers = self.build_headers(
                 {"Content-Type": "application/json", "Accept": "text/event-stream"},
                 True, str(message.get("method") or ""),
@@ -4421,7 +4421,7 @@ class AxMCPStreamableHTTPTransport(AxMCPTransport):
 
     def send_with_context(self, message, extra_headers=None, context=None):
         _mcp_check_context(context)
-        body = json.dumps(message, ensure_ascii=False).encode("utf-8")
+        body = _js_json_dumps(message).encode("utf-8")
         headers = self.build_headers(
             {"Content-Type": "application/json", "Accept": "application/json, text/event-stream"},
             message.get("method") != "initialize",
@@ -4754,7 +4754,7 @@ class AxMCPWebSocketTransport(AxMCPTransport):
             with self._lock:
                 if self._socket is not sock: return
             # A late reply belongs to its original connection and must never reconnect.
-            sock.send(json.dumps(response, allow_nan=False, ensure_ascii=False))
+            sock.send(_js_json_dumps(response))
             return
         handler = getattr(self, "_message_handler", None)
         if callable(handler): handler(message)
@@ -4776,7 +4776,7 @@ class AxMCPWebSocketTransport(AxMCPTransport):
         ids = mcp_websocket_request_ids(messages, self.protocol_version, batch)
         _mcp_check_context(context)
         # Serialize before registering anything: serialization failures leave no pending work.
-        payload = json.dumps(messages if batch else messages[0], allow_nan=False, ensure_ascii=False)
+        payload = _js_json_dumps(messages if batch else messages[0])
         self.connect()
         slots = [{"done": threading.Event()} for _ in ids]
         with self._lock:
@@ -4804,7 +4804,7 @@ class AxMCPWebSocketTransport(AxMCPTransport):
         self.connect()
         with self._lock: sock = self._socket
         if sock is None: raise AxMCPError("MCP WebSocket closed")
-        sock.send(json.dumps(message, allow_nan=False, ensure_ascii=False))
+        sock.send(_js_json_dumps(message))
     def close(self):
         with self._lock: sock = self._socket
         if sock is not None: self._terminate(sock, AxMCPError("MCP WebSocket closed"))
@@ -4847,7 +4847,7 @@ class AxMCPStdioTransport(AxMCPTransport):
 
 
 def ax_mcp_stdio_encode(message: dict[str, Any]) -> str:
-    return json.dumps(message, separators=(",", ":"), ensure_ascii=False) + "\n"
+    return _js_json_dumps(message) + "\n"
 
 
 def ax_mcp_stdio_decode(line: str) -> dict[str, Any]:

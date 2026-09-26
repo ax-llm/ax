@@ -670,6 +670,12 @@
         "kind": "template_validate",
         "runner": "rust:prompt",
         "category": "semantic"
+      },
+      {
+        "suite": "prompt",
+        "kind": "number_format",
+        "runner": "rust:prompt",
+        "category": "semantic"
       }
     ],
     "schema": [

@@ -895,10 +895,7 @@ func display(value Value) string {
 	case int64:
 		return strconv.FormatInt(v, 10)
 	case float64:
-		if math.Trunc(v) == v {
-			return strconv.FormatInt(int64(v), 10)
-		}
-		return strconv.FormatFloat(v, 'f', -1, 64)
+		return jsNumberString(v)
 	case AxError:
 		return v.Error()
 	case error:
@@ -939,14 +936,21 @@ func canonical(value Value) Value {
 		}
 		return out
 	case float64:
-		if math.Trunc(v) == v {
+		if math.Trunc(v) == v && math.Abs(v) < 1<<63 {
 			return int64(v)
+		}
+		if math.IsNaN(v) || math.IsInf(v, 0) {
+			return nonFiniteNumber(strconv.FormatFloat(v, 'f', -1, 64))
 		}
 		return v
 	default:
 		return v
 	}
 }
+
+// nonFiniteNumber keeps NaN and the infinities apart from null (their JSON
+// text) when equal compares values.
+type nonFiniteNumber string
 
 func equal(left Value, right Value) bool {
 	return stableStringify(canonical(left)) == stableStringify(canonical(right))
@@ -1022,7 +1026,9 @@ func writeStableJSON(b *strings.Builder, value Value) {
 	case int64:
 		b.WriteString(strconv.FormatInt(v, 10))
 	case float64:
-		b.WriteString(strconv.FormatFloat(v, 'f', -1, 64))
+		b.WriteString(jsNumberText(v))
+	case nonFiniteNumber:
+		b.WriteString(string(v))
 	case []Value:
 		b.WriteByte('[')
 		for i, item := range v {
@@ -1095,7 +1101,7 @@ func writeOrderedJSON(b *strings.Builder, value Value) {
 	case int64:
 		b.WriteString(strconv.FormatInt(v, 10))
 	case float64:
-		b.WriteString(strconv.FormatFloat(v, 'f', -1, 64))
+		b.WriteString(jsNumberText(v))
 	case []Value:
 		b.WriteByte('[')
 		for i, item := range v {
@@ -1967,9 +1973,23 @@ func writePrettyJSON(b *strings.Builder, value Value, indent string) {
 	}
 }
 
+// jsNumberString is JavaScript's String(x): jsNumberText, with NaN and the
+// infinities spelled out rather than JSON's null.
+func jsNumberString(f float64) string {
+	switch {
+	case math.IsNaN(f):
+		return "NaN"
+	case math.IsInf(f, 1):
+		return "Infinity"
+	case math.IsInf(f, -1):
+		return "-Infinity"
+	}
+	return jsNumberText(f)
+}
+
 // jsNumberText formats a number as JSON.stringify (and encoding/json) does:
-// plain decimals from 1e-6 up to 1e21, exponent form outside that range, and
-// null for NaN and the infinities.
+// shortest round-trip digits, plain decimals from 1e-6 up to 1e21, exponent
+// form outside that range, 0 for -0, and null for NaN and the infinities.
 func jsNumberText(f float64) string {
 	if math.IsNaN(f) || math.IsInf(f, 0) {
 		return "null"
@@ -89814,6 +89834,8 @@ func runConformanceFixture(fixture map[string]Value) {
 		assertEqual(mustCore(strip_internal(sig.Outputs, coreGet(fixture, "values", Object()))), coreGet(fixture, "expected_output", nil), "strip internal")
 	case "prompt":
 		runConformancePrompt(fixture)
+	case "number_format":
+		runConformanceNumberFormat(fixture)
 	case "template":
 		assertEqual(mustCore(render_template_content(coreGet(fixture, "template", ""), coreGet(fixture, "vars", Object()), coreGet(fixture, "context", "fixture-template"))), coreGet(fixture, "expected_output", ""), "template output")
 	case "template_error":
@@ -91950,6 +91972,35 @@ func runConformanceFlow(fixture map[string]Value) {
 	}
 	if expected := coreGet(fixture, "expected_components_subset", nil); expected != nil {
 		assertListSubset(flow.GetOptimizableComponents(), expected, "flow components")
+	}
+}
+
+// runConformanceNumberFormat checks String(x) and JSON.stringify(x) for numbers
+// parsed from text with strconv.ParseFloat, which also reaches NaN, the
+// infinities and -0. String(x) is string.str and string.format's "{}" (the
+// streaming extractor's number text). The JSON form must come out of every
+// encoder: the wire body and json.stringify (key-sorted), the ordered prompt
+// writer and json.pretty (prompt values).
+func runConformanceNumberFormat(fixture map[string]Value) {
+	for _, item := range coreIter(coreGet(fixture, "cases", Array())) {
+		input := display(coreGet(item, "input", ""))
+		number, err := strconv.ParseFloat(input, 64)
+		if err != nil {
+			panic(AxError{Category: "fixture", Message: "number_format input " + input + ": " + err.Error()})
+		}
+		text := display(coreGet(item, "json", ""))
+		check := func(label, actual, expected string) {
+			if actual != expected {
+				panic(AxError{Category: "fixture", Message: label + " of " + input + ": expected " + expected + ", got " + actual})
+			}
+		}
+		check("string.str", display(_core_string_str(number)), display(coreGet(item, "string", "")))
+		check("string.format", display(_core_string_format("{}", number)), display(coreGet(item, "string", "")))
+		list := []Value{number}
+		check("wire JSON", string(wireJSONBody(list)), "["+text+"]")
+		check("json.stringify", display(_core_json_stringify(list)), "["+text+"]")
+		check("ordered JSON", orderedStringify(list), "["+text+"]")
+		check("json.pretty", display(_core_json_pretty(list)), "[\n  "+text+"\n]")
 	}
 }
 

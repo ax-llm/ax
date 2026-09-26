@@ -1,4 +1,4 @@
-use crate::{tool, AxCancellationToken, AxToolContext, AxError, AxResult, Tool};
+use crate::{js_json_string, tool, AxCancellationToken, AxToolContext, AxError, AxResult, JsJsonBody, Tool};
 use serde_json::{json, Map, Value};
 use std::collections::{HashMap, HashSet};
 use std::fs::File;
@@ -833,7 +833,7 @@ impl AxMCPTransport for AxMCPStreamableHTTPTransport {
         let runtime = tokio::runtime::Builder::new_current_thread().enable_all().build()?;
         let client = reqwest::Client::builder().timeout(Duration::from_secs(30)).build()?;
         let mut request = client.post(&self.endpoint)
-            .header("Accept", "application/json, text/event-stream").json(&message);
+            .header("Accept", "application/json, text/event-stream").js_json(&message);
         let method=message.get("method").and_then(Value::as_str).unwrap_or_default();
         for (key, value) in self.build_request_headers(Map::new(), method != "initialize",method,message.get("params").unwrap_or(&Value::Null),&extra_headers) {
             if let Some(text) = value.as_str() { request = request.header(key, text); }
@@ -889,7 +889,7 @@ impl AxMCPTransport for AxMCPStreamableHTTPTransport {
                     Ok(response) if response.status().is_success()=>{
                         if connected_once{if let Some(callback)=&lifecycle{callback("reconnected".into())}}connected_once=true;
                         let reader=BufReader::new(response);let mut data=Vec::<String>::new();let mut event_id=None::<String>;
-                        for line in reader.lines(){if stop.load(Ordering::SeqCst){break}let Ok(line)=line else{break};if line.is_empty(){if let Some(value)=event_id.take(){last_event_id=Some(value)}if !data.is_empty(){if let Ok(message)=serde_json::from_str::<Value>(&data.join("\n")){if message.get("id").is_some()&&message.get("method").is_some(){if let Some(callback)=&request_handler{let response=callback(message);let mut post=client.post(&endpoint).header("Content-Type","application/json").json(&response);for(key,value)in &headers{if let Some(text)=value.as_str(){post=post.header(key,text)}}let _=post.send();}}else if let Some(callback)=&handler{callback(message)}}data.clear()}}else if let Some(value)=line.strip_prefix("id:"){event_id=Some(value.trim().to_string())}else if let Some(value)=line.strip_prefix("data:"){data.push(value.trim_start().to_string())}}
+                        for line in reader.lines(){if stop.load(Ordering::SeqCst){break}let Ok(line)=line else{break};if line.is_empty(){if let Some(value)=event_id.take(){last_event_id=Some(value)}if !data.is_empty(){if let Ok(message)=serde_json::from_str::<Value>(&data.join("\n")){if message.get("id").is_some()&&message.get("method").is_some(){if let Some(callback)=&request_handler{let response=callback(message);let mut post=client.post(&endpoint).header("Content-Type","application/json").js_json(&response);for(key,value)in &headers{if let Some(text)=value.as_str(){post=post.header(key,text)}}let _=post.send();}}else if let Some(callback)=&handler{callback(message)}}data.clear()}}else if let Some(value)=line.strip_prefix("id:"){event_id=Some(value.trim().to_string())}else if let Some(value)=line.strip_prefix("data:"){data.push(value.trim_start().to_string())}}
                         if !stop.load(Ordering::SeqCst){if let Some(callback)=&lifecycle{callback("disconnected".into())}}
                     }
                     _=>{}
@@ -901,7 +901,7 @@ impl AxMCPTransport for AxMCPStreamableHTTPTransport {
     fn open_request_stream(&mut self,message:Value)->AxResult<()>{
         if self.era.as_deref()!=Some("modern"){return Err(AxError::new("mcp","Request streams are only available for modern MCP"))}
         let _=self.close_request_stream();let stop=Arc::new(AtomicBool::new(false));self.listen_stop=stop.clone();let endpoint=self.endpoint.clone();let client=self.client.clone();let method=message.get("method").and_then(Value::as_str).unwrap_or_default().to_string();let headers=self.build_request_headers(Map::new(),true,&method,message.get("params").unwrap_or(&Value::Null),&Map::new());let handler=self.message_handler.clone();let request_handler=self.request_handler.clone();let lifecycle=self.lifecycle_handler.clone();
-        self.listen_thread=Some(thread::spawn(move||{let mut request=client.post(&endpoint).json(&message);for(key,value)in &headers{if let Some(text)=value.as_str(){request=request.header(key,text)}}if let Ok(response)=request.send(){if response.status().is_success(){let reader=BufReader::new(response);let mut data=Vec::<String>::new();for line in reader.lines(){if stop.load(Ordering::SeqCst){break}let Ok(line)=line else{break};if line.is_empty(){if !data.is_empty(){if let Ok(message)=serde_json::from_str::<Value>(&data.join("\n")){if message.get("id").is_some()&&message.get("method").is_some(){if let Some(callback)=&request_handler{let response=callback(message);let mut post=client.post(&endpoint).header("Content-Type","application/json").json(&response);for(key,value)in &headers{if let Some(text)=value.as_str(){post=post.header(key,text)}}let _=post.send();}}else if let Some(callback)=&handler{callback(message)}}data.clear()}}else if let Some(value)=line.strip_prefix("data:"){data.push(value.trim_start().to_string())}}}}if !stop.load(Ordering::SeqCst){if let Some(callback)=lifecycle{callback("disconnected".into())}}}));Ok(())
+        self.listen_thread=Some(thread::spawn(move||{let mut request=client.post(&endpoint).js_json(&message);for(key,value)in &headers{if let Some(text)=value.as_str(){request=request.header(key,text)}}if let Ok(response)=request.send(){if response.status().is_success(){let reader=BufReader::new(response);let mut data=Vec::<String>::new();for line in reader.lines(){if stop.load(Ordering::SeqCst){break}let Ok(line)=line else{break};if line.is_empty(){if !data.is_empty(){if let Ok(message)=serde_json::from_str::<Value>(&data.join("\n")){if message.get("id").is_some()&&message.get("method").is_some(){if let Some(callback)=&request_handler{let response=callback(message);let mut post=client.post(&endpoint).header("Content-Type","application/json").js_json(&response);for(key,value)in &headers{if let Some(text)=value.as_str(){post=post.header(key,text)}}let _=post.send();}}else if let Some(callback)=&handler{callback(message)}}data.clear()}}else if let Some(value)=line.strip_prefix("data:"){data.push(value.trim_start().to_string())}}}}if !stop.load(Ordering::SeqCst){if let Some(callback)=lifecycle{callback("disconnected".into())}}}));Ok(())
     }
     fn close_request_stream(&mut self)->AxResult<()>{self.listen_stop.store(true,Ordering::SeqCst);let _=self.listen_thread.take();Ok(())}
     fn close(&mut self)->AxResult<()>{self.listen_stop.store(true,Ordering::SeqCst);if self.era.as_deref()==Some("modern"){let _=self.listen_thread.take();}else if let Some(thread)=self.listen_thread.take(){let _=thread.join();}Ok(())}
@@ -1021,7 +1021,7 @@ impl AxMCPTransport for AxMCPScriptedTransport {
     fn sent_request_streams(&self)->Vec<Value>{self.request_streams.clone()}
 }
 
-pub fn ax_mcp_stdio_encode(message: &Value) -> AxResult<String> { Ok(format!("{}\n", serde_json::to_string(message)?)) }
+pub fn ax_mcp_stdio_encode(message: &Value) -> AxResult<String> { Ok(format!("{}\n", js_json_string(message))) }
 pub fn ax_mcp_stdio_decode(line: &str) -> AxResult<Value> { Ok(serde_json::from_str(line.trim())?) }
 pub fn ax_mcp_pkce_verifier() -> String {
     let mut bytes = [0_u8; 32];

@@ -353,6 +353,8 @@ func renderSkill(spec packageSkillSpec, model AxRuntimeModel, target string) str
 			"",
 			skillFieldProcessorText(target),
 			"",
+			skillNumberFormatText(target),
+			"",
 			"`maxSteps` / `max_steps` (default 25) caps the tool loop. Each model turn that calls tools is one step, and validation retries stay inside their step. Reaching the cap raises `Generate failed: Max steps reached: N`. A call to a stop function (`stopFunctions` / `stop_functions`) runs the tool and ends the forward, as in TypeScript: the output is empty apart from the earlier steps' thought, and the tool's result is not the output.",
 			"",
 			"`maxRetries` / `max_retries` (default 3) caps both retry loops, as in TypeScript. A failed provider request is retried only for infrastructure errors: a 5xx status, a network error, a timeout, or a terminated stream. As in TypeScript, these retries wrap the validation loop: a step's infrastructure retries share one budget, and each one restarts validation with a fresh budget. Any other error, such as a 400 or 429 status, a response error, or a rejection before the request is sent, surfaces after one request. Validation failures, and assertion failures that carry a message, are retried inside the current step with a correction message, and each tool step starts with fresh budgets. As in TypeScript, an assertion that fails without a message, or that raises an error, surfaces at once without a retry; give it a message (the `message` key of a declarative assertion, or the message argument of a callable assertion where the target has one) to make its failure retryable. On the `function` rung a retry keeps the failed `__axOutput` call on the assistant turn with a `done` result and asks the model to fix its arguments, as TypeScript does. A model refusal spends the same budget: the same prompt goes out again at once, with no backoff and no correction message. `validationRetries` / `validation_retries` and `infraRetries` / `infra_retries` override the two budgets separately.",
@@ -487,6 +489,22 @@ func skillTextContractText(target string) string {
 		warning = "warns once"
 	}
 	return "Text-contract answers are parsed as TypeScript's `extractValues` parses them: `Label: value` lines, a single-field answer without a label, JavaScript `Number()` coercion, a JSON array or markdown list for list fields, fenced code and JSON blocks, and `null` for an optional field, with TypeScript's validation messages. For compatibility an answer that is exactly one JSON object whose keys are all output fields is still read as those fields; that fallback " + warning + " and is removed in the next major version, when such an answer is read as text, as in TypeScript."
+}
+
+func skillNumberFormatText(target string) string {
+	text := "Prompts and provider request bodies write numbers as TypeScript's `JSON.stringify` does: shortest round-trip digits, `2` for a float two, exponent form below 1e-6 and from 1e21 up (`1e-7`, `1e+21`), and `null` for NaN and the infinities. "
+	switch target {
+	case "python":
+		return text + "Python ints keep their exact digits past 2^53, where TypeScript's doubles round them."
+	case "java":
+		return text + "`Long` values, which `Json.parse` gives integer literals that fit in a long, keep their exact digits past 2^53, where TypeScript's doubles round them."
+	case "rust":
+		return text + "Integer JSON numbers (`u64` / `i64`, which serde_json parses exactly) keep their exact digits past 2^53, where TypeScript's doubles round them."
+	case "go":
+		return text + "`int` and `int64` values keep their exact digits past 2^53, where TypeScript's doubles round them; JSON text parses to `float64`, which rounds as TypeScript does."
+	default:
+		return text + "Values hold numbers as doubles, so integers past 2^53 round as they do in TypeScript."
+	}
 }
 
 func skillFieldProcessorText(target string) string {
