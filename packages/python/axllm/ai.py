@@ -25,7 +25,7 @@ from typing import Any, Callable, Iterable, Protocol, TypedDict, Literal
 from .signature import (
     _signature_validate_value_descriptions_impl,
 )
-from .signature import _core_record_new, _core_regex_match
+from .signature import _core_record_new, _core_regex_match, _js_json_dumps, _js_number_text
 
 def _core_validation_error(message):
     return ValueError(str(message))
@@ -749,7 +749,7 @@ class _WebSocketRealtimeTransport:
         if event.get("type") == "binary":
             self._ws.send(base64.b64decode(str(event.get("data") or "")), opcode=self._websocket.ABNF.OPCODE_BINARY)
         else:
-            self._ws.send(json.dumps(event, ensure_ascii=False))
+            self._ws.send(_js_json_dumps(event))
 
     def recv(self) -> dict[str, Any] | None:
         opcode, raw = self._ws.recv_data(control_frame=True)
@@ -1221,7 +1221,7 @@ class ProviderOperationClient(AxBaseAI):
         if not cache_body.get("systemInstruction") and not cache_body.get("contents"):
             return None
         min_tokens = int(cfg.get("minTokens", cfg.get("min_tokens", 2048)))
-        encoded = json.dumps(cache_body, sort_keys=True, separators=(",", ":"), ensure_ascii=False)
+        encoded = _js_json_dumps(cache_body, sort_keys=True)
         eligible = math.ceil(len(encoded) / 4) >= min_tokens
         ttl_seconds = int(cfg.get("ttlSeconds", cfg.get("ttl_seconds", 3600)))
         refresh_window_ms = int(float(cfg.get("refreshWindowSeconds", cfg.get("refresh_window_seconds", 300))) * 1000)
@@ -3189,9 +3189,10 @@ def _core_list_get(values, index, default=None):
 
 
 def _wire_json_body(payload):
-    """The JSON bytes the HTTP transport sends for a request payload: RFC 8259
-    escapes for control characters, other text as UTF-8 as in the other ports."""
-    return json.dumps(payload, ensure_ascii=False).encode("utf-8")
+    """The JSON bytes the HTTP transport sends for a request payload, as TS
+    JSON.stringify writes them: compact, RFC 8259 escapes for control
+    characters, other text as UTF-8, and JavaScript's number text."""
+    return _js_json_dumps(payload).encode("utf-8")
 
 
 def _core_json_parse(value):
@@ -3199,7 +3200,7 @@ def _core_json_parse(value):
 
 
 def _core_json_stringify(value):
-    return json.dumps(value or {}, sort_keys=True, separators=(",", ":"), ensure_ascii=False)
+    return _js_json_dumps(value or {}, sort_keys=True)
 
 
 def _core_string_starts_with(value, prefix):
@@ -3225,7 +3226,8 @@ def _core_string_slice(value, start, end=None):
 
 
 def _core_string_format(template, *args):
-    return str(template).format(*args)
+    # "{}" takes String(x): a float two is "2", 1e-7 is "1e-7".
+    return str(template).format(*(_js_number_text(arg) if isinstance(arg, float) else arg for arg in args))
 
 
 def _core_string_replace(value, old, new):
@@ -3233,7 +3235,8 @@ def _core_string_replace(value, old, new):
 
 
 def _core_string_str(value):
-    return str(value)
+    # String(x): a float two is "2", not "2.0".
+    return _js_number_text(value) if isinstance(value, float) else str(value)
 
 
 def _core_ai_error_response(message, response_body=None):

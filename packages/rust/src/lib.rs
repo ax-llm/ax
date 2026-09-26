@@ -1380,14 +1380,6 @@ fn build_fixture_signature(fixture: &Value) -> AxResult<AxSignature> {
         .unwrap_or("question:string -> answer:string"))
 }
 
-fn trim_num(value: f64) -> String {
-    if value.fract() == 0.0 {
-        format!("{}", value as i64)
-    } else {
-        value.to_string()
-    }
-}
-
 // Decode a standard-alphabet base64 string into raw bytes. Mirrors Python's
 // base64.b64decode tolerance: whitespace is ignored and the input may omit
 // trailing padding. Invalid characters terminate decoding (the caller falls
@@ -1552,8 +1544,242 @@ fn encode_multipart(payload: &Value) -> (Vec<u8>, String) {
     (body, format!("multipart/form-data; boundary={BOUNDARY}"))
 }
 
+// ----- JavaScript JSON text -----
+// Prompts, wire bodies and the json.* intrinsics write JSON as TS
+// JSON.stringify does. serde_json's own float text differs from JavaScript's:
+// 2.0 for a float two, 1e21 for 1e+21, 1e-6 for 0.000001.
+
+/// Number.prototype.toString, the text JavaScript's String(x) gives a number:
+/// shortest round-trip digits, plain decimals from 1e-6 up to 1e21, exponent
+/// form outside that range (1e-7, 1.5e+21), 0 for -0, and NaN, Infinity or
+/// -Infinity.
+pub(crate) fn js_number_text(value: f64) -> String {
+    if value.is_nan() {
+        return "NaN".to_string();
+    }
+    if value.is_infinite() {
+        return if value > 0.0 { "Infinity" } else { "-Infinity" }.to_string();
+    }
+    if value == 0.0 {
+        return "0".to_string();
+    }
+    // {:e} writes the shortest round-trip digits: 1.23456789e3, 1e21, 5e-324.
+    // When two decimals of that length parse back, it can pick the farther one
+    // (it rounds an exact tie up), where JavaScript takes the nearer one, and
+    // the even one on a tie. {:.Ne} rounds the exact value half to even, so its
+    // result of the same length wins whenever it parses back.
+    let shortest = format!("{:e}", value.abs());
+    let length = shortest
+        .split('e')
+        .next()
+        .unwrap_or_default()
+        .bytes()
+        .filter(u8::is_ascii_digit)
+        .count();
+    let nearest = format!("{:.*e}", length.saturating_sub(1), value.abs());
+    let scientific = if nearest.parse::<f64>() == Ok(value.abs()) {
+        nearest
+    } else {
+        shortest
+    };
+    let (mantissa, exponent) = scientific
+        .split_once('e')
+        .unwrap_or((scientific.as_str(), "0"));
+    let exponent: i32 = exponent.parse().unwrap_or(0);
+    let digits: String = mantissa.chars().filter(char::is_ascii_digit).collect();
+    let digits = match digits.trim_end_matches('0') {
+        "" => "0",
+        trimmed => trimmed,
+    };
+    let count = digits.len() as i32;
+    let point = exponent + 1; // digits before the decimal point
+    let text = if count <= point && point <= 21 {
+        format!("{digits}{}", "0".repeat((point - count) as usize))
+    } else if 0 < point && point <= 21 {
+        format!(
+            "{}.{}",
+            &digits[..point as usize],
+            &digits[point as usize..]
+        )
+    } else if -6 < point && point <= 0 {
+        format!("0.{}{digits}", "0".repeat((-point) as usize))
+    } else {
+        let power = point - 1;
+        let fraction = if count > 1 {
+            format!(".{}", &digits[1..])
+        } else {
+            String::new()
+        };
+        format!(
+            "{}{fraction}e{}{}",
+            &digits[..1],
+            if power < 0 { "-" } else { "+" },
+            power.abs()
+        )
+    };
+    if value < 0.0 {
+        format!("-{text}")
+    } else {
+        text
+    }
+}
+
+/// serde_json formatter that writes floats as JavaScript does
+/// (js_number_text). serde_json already writes NaN and the infinities as null,
+/// and integers (u64 and i64 values, parsed exactly) keep their digits. The
+/// wrapped formatter sets the layout: compact or pretty.
+struct JsNumberFormatter<F>(F);
+
+impl<F: serde_json::ser::Formatter> serde_json::ser::Formatter for JsNumberFormatter<F> {
+    fn write_f64<W: ?Sized + std::io::Write>(
+        &mut self,
+        writer: &mut W,
+        value: f64,
+    ) -> std::io::Result<()> {
+        writer.write_all(js_number_text(value).as_bytes())
+    }
+    fn write_f32<W: ?Sized + std::io::Write>(
+        &mut self,
+        writer: &mut W,
+        value: f32,
+    ) -> std::io::Result<()> {
+        // An f32 keeps its own shortest digits: 0.1f32 is 0.1.
+        self.write_f64(
+            writer,
+            value.to_string().parse().unwrap_or(f64::from(value)),
+        )
+    }
+    fn begin_array<W: ?Sized + std::io::Write>(&mut self, writer: &mut W) -> std::io::Result<()> {
+        self.0.begin_array(writer)
+    }
+    fn end_array<W: ?Sized + std::io::Write>(&mut self, writer: &mut W) -> std::io::Result<()> {
+        self.0.end_array(writer)
+    }
+    fn begin_array_value<W: ?Sized + std::io::Write>(
+        &mut self,
+        writer: &mut W,
+        first: bool,
+    ) -> std::io::Result<()> {
+        self.0.begin_array_value(writer, first)
+    }
+    fn end_array_value<W: ?Sized + std::io::Write>(
+        &mut self,
+        writer: &mut W,
+    ) -> std::io::Result<()> {
+        self.0.end_array_value(writer)
+    }
+    fn begin_object<W: ?Sized + std::io::Write>(&mut self, writer: &mut W) -> std::io::Result<()> {
+        self.0.begin_object(writer)
+    }
+    fn end_object<W: ?Sized + std::io::Write>(&mut self, writer: &mut W) -> std::io::Result<()> {
+        self.0.end_object(writer)
+    }
+    fn begin_object_key<W: ?Sized + std::io::Write>(
+        &mut self,
+        writer: &mut W,
+        first: bool,
+    ) -> std::io::Result<()> {
+        self.0.begin_object_key(writer, first)
+    }
+    fn end_object_key<W: ?Sized + std::io::Write>(
+        &mut self,
+        writer: &mut W,
+    ) -> std::io::Result<()> {
+        self.0.end_object_key(writer)
+    }
+    fn begin_object_value<W: ?Sized + std::io::Write>(
+        &mut self,
+        writer: &mut W,
+    ) -> std::io::Result<()> {
+        self.0.begin_object_value(writer)
+    }
+    fn end_object_value<W: ?Sized + std::io::Write>(
+        &mut self,
+        writer: &mut W,
+    ) -> std::io::Result<()> {
+        self.0.end_object_value(writer)
+    }
+}
+
+fn js_json_write<F: serde_json::ser::Formatter>(value: &Value, formatter: F) -> Vec<u8> {
+    let mut out = Vec::with_capacity(128);
+    let mut serializer =
+        serde_json::Serializer::with_formatter(&mut out, JsNumberFormatter(formatter));
+    // Serializing a serde_json::Value into a Vec cannot fail.
+    let _ = value.serialize(&mut serializer);
+    out
+}
+
+/// TS JSON.stringify(value): the bytes the HTTP, WebSocket and MCP transports
+/// send.
+pub(crate) fn js_json_vec(value: &Value) -> Vec<u8> {
+    js_json_write(value, serde_json::ser::CompactFormatter)
+}
+
+/// TS JSON.stringify(value) as a string.
+pub(crate) fn js_json_string(value: &Value) -> String {
+    String::from_utf8(js_json_vec(value)).unwrap_or_default()
+}
+
+/// TS JSON.stringify(value, null, 2), as prompts render object values.
+pub(crate) fn js_json_pretty(value: &Value) -> String {
+    String::from_utf8(js_json_write(
+        value,
+        serde_json::ser::PrettyFormatter::with_indent(b"  "),
+    ))
+    .unwrap_or_default()
+}
+
+/// reqwest's RequestBuilder::json, with the body from js_json_vec: the same
+/// Content-Type default (a Content-Type the caller set stays), numbers as
+/// JavaScript writes them.
+pub(crate) trait JsJsonBody: Sized {
+    fn js_json(self, body: &Value) -> Self;
+}
+
+impl JsJsonBody for reqwest::blocking::RequestBuilder {
+    fn js_json(self, body: &Value) -> Self {
+        let has_content_type = self
+            .try_clone()
+            .and_then(|builder| builder.build().ok())
+            .is_some_and(|request| {
+                request
+                    .headers()
+                    .contains_key(reqwest::header::CONTENT_TYPE)
+            });
+        let builder = if has_content_type {
+            self
+        } else {
+            self.header(reqwest::header::CONTENT_TYPE, "application/json")
+        };
+        builder.body(js_json_vec(body))
+    }
+}
+
+impl JsJsonBody for reqwest::RequestBuilder {
+    fn js_json(self, body: &Value) -> Self {
+        let has_content_type = self
+            .try_clone()
+            .and_then(|builder| builder.build().ok())
+            .is_some_and(|request| {
+                request
+                    .headers()
+                    .contains_key(reqwest::header::CONTENT_TYPE)
+            });
+        let builder = if has_content_type {
+            self
+        } else {
+            self.header(reqwest::header::CONTENT_TYPE, "application/json")
+        };
+        builder.body(js_json_vec(body))
+    }
+}
+
 fn json_number(value: f64) -> Value {
-    if value.fract() == 0.0 {
+    // Integral values below 2^53 become integers, so they equal parsed JSON
+    // integers. Larger ones stay floats and print as JavaScript does (1e+21,
+    // not an i64 saturated at 9223372036854775807).
+    if value.fract() == 0.0 && value.abs() < 9_007_199_254_740_992.0 {
         json!(value as i64)
     } else {
         json!(value)
@@ -3098,7 +3324,7 @@ impl OpenAICompatibleClient {
             }
         }
         let body = call.get("json").cloned().unwrap_or_else(|| json!({}));
-        let response = builder.json(&body).send()?;
+        let response = builder.js_json(&body).send()?;
         if let Some(token) = &cancellation {
             token.throw_if_cancelled()?;
         }
@@ -3545,7 +3771,7 @@ impl OpenAICompatibleClient {
         for (key, value) in &headers {
             request_builder = request_builder.header(key, value.as_str().unwrap_or_default());
         }
-        let raw = request_builder.json(&body).send()?.error_for_status()?;
+        let raw = request_builder.js_json(&body).send()?.error_for_status()?;
         // Binary operations (e.g. OpenAI /audio/speech returns raw mp3) must not
         // be UTF-8 decoded or parsed as JSON; return the bytes as a base64 string
         // so the speak normalizer can pass it through to the `audio` field.
@@ -4399,7 +4625,7 @@ impl WsRealtimeTransport {
                 .send(tungstenite::Message::Binary(bytes.into()))
                 .map_err(|e| AxError::runtime(e.to_string()));
         }
-        let text = serde_json::to_string(event).map_err(|e| AxError::runtime(e.to_string()))?;
+        let text = js_json_string(event);
         self.socket
             .send(tungstenite::Message::Text(text.into()))
             .map_err(|e| AxError::runtime(e.to_string()))
@@ -13158,7 +13384,7 @@ pub fn stable_stringify(value: &Value) -> String {
             let values = items.iter().map(stable_stringify).collect::<Vec<_>>();
             format!("[{}]", values.join(","))
         }
-        _ => serde_json::to_string(value).unwrap_or_else(|_| "null".to_string()),
+        _ => js_json_string(value),
     }
 }
 
@@ -13227,6 +13453,7 @@ pub fn run_conformance_fixture(fixture: Value) -> AxResult<()> {
         "validate_value" => run_validate_value_fixture(&fixture)?,
         "strip_internal" => run_strip_internal_fixture(&fixture)?,
         "prompt" => run_prompt_fixture(&fixture)?,
+        "number_format" => run_number_format_fixture(&fixture)?,
         "template" => run_template_fixture(&fixture)?,
         "template_error" => run_template_error_fixture(&fixture)?,
         "template_validate" => run_template_validate_fixture(&fixture)?,
@@ -22641,18 +22868,17 @@ fn expect_transport_request_subset(
     Ok(())
 }
 
-// reqwest's RequestBuilder::json sends serde_json::to_vec(payload). Check those
-// bytes: strict JSON, a lossless round trip, and each expected fragment.
+// The transports send js_json_vec(payload) (JsJsonBody). Check those bytes:
+// strict JSON, a lossless round trip, and each expected fragment.
 fn expect_wire_json(payload: &Value, fragments: &[Value]) -> AxResult<()> {
-    let body = serde_json::to_string(payload)
-        .map_err(|error| AxError::new("fixture", error.to_string()))?;
+    let body = js_json_string(payload);
     let decoded: Value = serde_json::from_str(&body).map_err(|error| {
         AxError::new(
             "fixture",
             format!("wire JSON is not valid JSON ({error}): {body}"),
         )
     })?;
-    if &decoded != payload {
+    if !wire_json_equal(&decoded, payload) {
         return Err(AxError::new(
             "fixture",
             format!("wire JSON does not round-trip: {body}"),
@@ -22664,6 +22890,107 @@ fn expect_wire_json(payload: &Value, fragments: &[Value]) -> AxResult<()> {
                 "fixture",
                 format!("wire JSON missing {fragment:?}: {body}"),
             ));
+        }
+    }
+    Ok(())
+}
+
+// JSON equality where a float equals the integer JavaScript writes for it: a
+// float 2.0 goes out as 2 and parses back as an integer.
+fn wire_json_equal(left: &Value, right: &Value) -> bool {
+    match (left, right) {
+        (Value::Number(a), Value::Number(b)) => {
+            a == b || ((a.is_f64() || b.is_f64()) && a.as_f64() == b.as_f64())
+        }
+        (Value::Array(a), Value::Array(b)) => {
+            a.len() == b.len() && a.iter().zip(b).all(|(x, y)| wire_json_equal(x, y))
+        }
+        (Value::Object(a), Value::Object(b)) => {
+            a.len() == b.len()
+                && a.iter()
+                    .all(|(key, x)| b.get(key).is_some_and(|y| wire_json_equal(x, y)))
+        }
+        _ => left == right,
+    }
+}
+
+// String(x) and JSON.stringify(x) for numbers parsed from text with
+// str::parse::<f64>, which also reaches NaN, the infinities and -0. String(x)
+// is string.str and string.format's "{}" (the streaming extractor's number
+// text). The JSON form must come out of every encoder: the wire body
+// (js_json_string), the json.stringify, json.stable_stringify and json.pretty
+// intrinsics, and AxGen's value text.
+fn run_number_format_fixture(fixture: &Value) -> AxResult<()> {
+    for case in fixture
+        .get("cases")
+        .and_then(Value::as_array)
+        .into_iter()
+        .flatten()
+    {
+        let input = case
+            .get("input")
+            .and_then(Value::as_str)
+            .unwrap_or_default();
+        let number: f64 = input.parse().map_err(|error| {
+            AxError::new("fixture", format!("number_format input {input}: {error}"))
+        })?;
+        let json_text = case.get("json").and_then(Value::as_str).unwrap_or_default();
+        let listed = format!("[{json_text}]");
+        let list = CoreValue::list_from(vec![CoreValue::Num(number)]);
+        let text = |value: CoreValue| value.as_str().map(str::to_string).unwrap_or_default();
+        let checks = [
+            (
+                "string.str",
+                text(core_string_str(&[CoreValue::Num(number)])?),
+                case.get("string")
+                    .and_then(Value::as_str)
+                    .unwrap_or_default()
+                    .to_string(),
+            ),
+            (
+                "string.format",
+                text(core_string_format(&[
+                    CoreValue::from("{}"),
+                    CoreValue::Num(number),
+                ])?),
+                case.get("string")
+                    .and_then(Value::as_str)
+                    .unwrap_or_default()
+                    .to_string(),
+            ),
+            (
+                "wire JSON",
+                js_json_string(&Value::Array(vec![json!(number)])),
+                listed.clone(),
+            ),
+            (
+                "json.stringify",
+                text(core_json_stringify(&[list.clone()])?),
+                listed.clone(),
+            ),
+            (
+                "json.stable_stringify",
+                text(core_json_stable_stringify(&[list.clone()])?),
+                listed.clone(),
+            ),
+            (
+                "json.pretty",
+                text(core_json_pretty(&[list.clone()])?),
+                format!("[\n  {json_text}\n]"),
+            ),
+            (
+                "axgen value text",
+                core_axgen_value_text_impl(&list),
+                listed.clone(),
+            ),
+        ];
+        for (label, actual, expected) in checks {
+            if actual != expected {
+                return Err(AxError::new(
+                    "fixture",
+                    format!("{label} of {input}: expected {expected}, got {actual}"),
+                ));
+            }
         }
     }
     Ok(())
@@ -22943,7 +23270,7 @@ impl CoreValue {
                     "False".to_string()
                 }
             }
-            CoreValue::Num(n) => trim_num(*n),
+            CoreValue::Num(n) => js_number_text(*n),
             CoreValue::Error(e) => e.message.clone(),
             CoreValue::Host(host) => host.host_type().to_string(),
             other => core_value_to_json(other).to_string(),
@@ -25209,8 +25536,7 @@ fn core_prompt_output_fields_section(signature: &CoreValue) -> Result<String, Ax
         }
         output.push_str(&format!(
             "\n\n**Exact JSON shape**: {BT}{}{BT}",
-            serde_json::to_string(&Value::Object(shape))
-                .map_err(|err| AxError::runtime(err.to_string()))?
+            js_json_string(&Value::Object(shape))
         ));
     }
     Ok(output)
@@ -25283,10 +25609,10 @@ fn core_prompt_process_value(field: &CoreValue, value: &CoreValue) -> Result<Cor
             return Ok(value.clone());
         }
     }
-    // json.dumps(value, indent=2)
-    let dumped = serde_json::to_string_pretty(&core_value_to_json(value))
-        .map_err(|err| AxError::runtime(err.to_string()))?;
-    Ok(CoreValue::from_string(dumped))
+    // JSON.stringify(value, null, 2)
+    Ok(CoreValue::from_string(js_json_pretty(&core_value_to_json(
+        value,
+    ))))
 }
 
 #[allow(dead_code)]
@@ -25673,7 +25999,7 @@ fn core_python_dumps(value: &Value) -> String {
     match value {
         Value::Null => "null".to_string(),
         Value::Bool(b) => b.to_string(),
-        Value::Number(n) => n.to_string(),
+        Value::Number(_) => js_json_string(value),
         Value::String(s) => serde_json::to_string(s).unwrap_or_default(),
         Value::Array(items) => {
             let parts: Vec<String> = items.iter().map(core_python_dumps).collect();
@@ -29343,13 +29669,12 @@ fn core_regex_replace(args: &[CoreValue]) -> Result<CoreValue, AxError> {
     ))
 }
 
-// python: json.dumps(value, indent=2)
+// JSON.stringify(value, null, 2)
 #[allow(dead_code)]
 fn core_json_pretty(args: &[CoreValue]) -> Result<CoreValue, AxError> {
-    let json = core_value_to_json(&core_arg(args, 0));
-    let text = serde_json::to_string_pretty(&json)
-        .map_err(|err| AxError::runtime(format!("json pretty error: {err}")))?;
-    Ok(CoreValue::from_string(text))
+    Ok(CoreValue::from_string(js_json_pretty(&core_value_to_json(
+        &core_arg(args, 0),
+    ))))
 }
 
 // python: word.lower().capitalize() (first char upper, remainder lower)

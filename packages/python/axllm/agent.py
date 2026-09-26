@@ -50,7 +50,7 @@ from .gen import (
     _validate_optimized_artifact,
 )
 from .mcp import resolve_execution_context
-from .signature import AxSignature, parse_signature
+from .signature import AxSignature, _js_json_dumps, _js_number_text, parse_signature
 from .gen import (
     chat_session_mode_enabled,
     chat_session_validate_required_arguments,
@@ -475,7 +475,7 @@ class AxGEPA(OptimizerEngine):
                 "chatPrompt": [
                     {
                         "role": "user",
-                        "content": json.dumps(
+                        "content": _js_json_dumps(
                             {
                                 "componentKey": component.get("id"),
                                 "componentKind": component.get("kind"),
@@ -485,6 +485,7 @@ class AxGEPA(OptimizerEngine):
                                 "traceDataset": trace_dataset,
                             },
                             sort_keys=True,
+                            separators=(", ", ": "),
                         ),
                     }
                 ],
@@ -1472,7 +1473,7 @@ class AxAgentPlaybook:
             task_summaries = "\n".join(
                 f"- {record.get('task', {}).get('id') or f'#{index + 1}'} "
                 f"(score {float(record.get('score', 0)):.2f}): "
-                f"{json.dumps(record.get('task', {}).get('input'), sort_keys=True, default=str)[:240]}"
+                f"{_js_json_dumps(record.get('task', {}).get('input'), sort_keys=True, default=str, separators=(', ', ': '))[:240]}"
                 for index, record in enumerate(selected)
             )
             function_calls = [
@@ -1489,7 +1490,7 @@ class AxAgentPlaybook:
                 "clusterSignature": signature,
                 "taskSummaries": task_summaries,
                 "actionLogExcerpts": excerpts,
-                "functionCallSummary": "\n".join(json.dumps(call, sort_keys=True, default=str) for call in function_calls) or None,
+                "functionCallSummary": "\n".join(_js_json_dumps(call, sort_keys=True, default=str, separators=(", ", ": ")) for call in function_calls) or None,
                 "toolErrors": "\n".join(tool_errors) or None,
                 "currentPlaybook": self.inner.render() or None,
             }
@@ -2192,13 +2193,11 @@ def _core_list_get(values, index, default=None):
 
 
 def _core_json_stringify(value):
-    import json
-    return json.dumps(value, sort_keys=True, separators=(",", ":"), ensure_ascii=False)
+    return _js_json_dumps(value, sort_keys=True)
 
 
 def _core_json_stable_stringify(value):
-    import json
-    return json.dumps(value, sort_keys=True, separators=(",", ":"), ensure_ascii=False)
+    return _js_json_dumps(value, sort_keys=True)
 
 
 def _core_json_parse(value):
@@ -2206,7 +2205,8 @@ def _core_json_parse(value):
 
 
 def _core_string_format(template, *args):
-    return str(template).format(*args)
+    # "{}" takes String(x): a float two is "2", 1e-7 is "1e-7".
+    return str(template).format(*(_js_number_text(arg) if isinstance(arg, float) else arg for arg in args))
 
 
 def _core_string_slice(value, start, end=None):
@@ -2293,7 +2293,7 @@ def _core_runtime_error(message):
 
 
 def _core_json_pretty(value):
-    return json.dumps(value, indent=2, ensure_ascii=False)
+    return _js_json_dumps(value, indent=2)
 
 
 def _core_agent_native_stage_forward(stage, state, client, values, options, selected):

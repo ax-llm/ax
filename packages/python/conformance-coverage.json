@@ -670,6 +670,12 @@
         "kind": "template_validate",
         "runner": "python:prompt",
         "category": "semantic"
+      },
+      {
+        "suite": "prompt",
+        "kind": "number_format",
+        "runner": "python:prompt",
+        "category": "semantic"
       }
     ],
     "schema": [

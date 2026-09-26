@@ -3180,6 +3180,30 @@ static void run_flow(Value fixture) {
   }
 }
 
+// String(x) and JSON.stringify(x) for numbers parsed from text with strtod,
+// which also reaches NaN, the infinities and -0. String(x) is string.str and
+// string.format's "{}" (the streaming extractor's number text). The JSON form
+// must come out of every encoder: stringify (wire bodies and json.stringify),
+// the key-sorted json.stable_stringify and json.pretty (prompt values).
+static void run_number_format(Value fixture) {
+  for (const auto& item : Core::iter(Core::get(fixture, "cases", Value::array()))) {
+    std::string input = display(Core::get(item, "input"));
+    Value number(std::strtod(input.c_str(), nullptr));
+    std::string json = display(Core::get(item, "json"));
+    auto check = [&](const std::string& label, const std::string& actual, const std::string& expected) {
+      if (actual != expected) throw AxError("fixture", label + " of " + input + ": expected " + expected + ", got " + actual);
+    };
+    check("string.str", display(Core::string_str(number)), display(Core::get(item, "string")));
+    check("string.format", display(Core::string_format(Value("{}"), number)), display(Core::get(item, "string")));
+    Value list = Value::array();
+    Core::append(list, number);
+    check("wire JSON", stringify(list), "[" + json + "]");
+    check("json.stringify", display(Core::json_stringify(list)), "[" + json + "]");
+    check("json.stable_stringify", display(Core::json_stable_stringify(list)), "[" + json + "]");
+    check("json.pretty", display(Core::json_pretty(list)), "[\n  " + json + "\n]");
+  }
+}
+
 static void run_flow_mermaid(Value fixture) {
   std::string operation = display(Core::get(fixture, "operation", ""));
   Value conditions = Value::object();
@@ -3244,6 +3268,8 @@ static void run(Value fixture) {
   } else if (kind == "strip_internal") {
     Value sig = build_signature(fixture);
     assert_equal(Core::strip_internal(Core::get(sig, "outputs"), Core::get(fixture, "values", Value::object())), Core::get(fixture, "expected_output"), "strip internal");
+  } else if (kind == "number_format") {
+    run_number_format(fixture);
   } else if (kind == "template") {
     assert_equal(Core::render_template_content(Core::get(fixture, "template"), Core::get(fixture, "vars", Value::object()), Core::get(fixture, "context", "fixture-template")), Core::get(fixture, "expected_output", ""), "template");
   } else if (kind == "template_error") {

@@ -402,10 +402,7 @@ final class Core {
     return out;
   }
   static String display(Object value) {
-    if (value instanceof Number n) {
-      double d = n.doubleValue();
-      if (Math.rint(d) == d) return String.valueOf((long) d);
-    }
+    if (value instanceof Number n) return Json.numberText(n);
     return String.valueOf(value);
   }
   static Object stringSplit(Object value, Object sep) { return Arrays.asList(String.valueOf(value).split(Pattern.quote(String.valueOf(sep)), -1)); }
