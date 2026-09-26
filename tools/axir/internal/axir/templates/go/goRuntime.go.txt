@@ -6298,8 +6298,6 @@ type AxFieldTransform func(value Value) Value
 // without a retry.
 type AxStreamingAssertion func(content string, done bool) Value
 
-}
-
 // AddFieldTransform rewrites an output field's final value before the
 // assertions run. op is "uppercase", "lowercase", "trim", "prefix:<text>",
 // "suffix:<text>" or an AxFieldTransform. This is a port extension:
