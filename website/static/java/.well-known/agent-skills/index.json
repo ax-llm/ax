@@ -41,7 +41,7 @@
       "type": "skill-md",
       "description": "Use when writing Java code with `dev.axllm:ax` for AxGen programs, forward calls, indexed multi-sampling, result pickers, streaming, tools, assertions, traces, usage, and output parsing.",
       "url": "ax-java-gen/SKILL.md",
-      "digest": "sha256:7f18c7d26e9e9278219820abba7f6989420ccfbf252382f8d851f64df36868d8"
+      "digest": "sha256:b54dfd2bbaa9b2085e6e3a85bc2080ac653e1ce298b838b81dac81d75dc23f78"
     },
     {
       "name": "ax-java-flow",
