@@ -260,6 +260,8 @@ final class Core {
         case "assertions" -> g.assertions;
         case "streaming_assertions", "streamingAssertions" -> g.streamingAssertions;
         case "field_processors", "fieldProcessors" -> g.fieldProcessors;
+        case "feedback_processors", "feedbackProcessors" -> g.feedbackProcessors;
+        case "streaming_field_processors", "streamingFieldProcessors" -> g.streamingFieldProcessors;
         case "stop_functions", "stopFunctions" -> g.stopFunctions;
         case "memory" -> g.memory;
         case "chat_log", "chatLog" -> g.chatLog;
@@ -339,6 +341,7 @@ final class Core {
     int i = asInt(index);
     return i >= 0 && i < list.size() ? list.get(i) : defaultValue;
   }
+  static Object listGet(Object values, Object index) { return listGet(values, index, null); }
   static Object typeIs(Object value, Object typeName) {
     return switch (String.valueOf(typeName)) {
       case "object" -> value instanceof Map<?, ?>;
@@ -415,6 +418,13 @@ final class Core {
     out.put("right", idx >= 0 ? text.substring(idx + s.length()) : "");
     return out;
   }
+  // JS indexOf in UTF-16 units, the same units as len and string.slice: the
+  // needle's index at or after start (a negative start searches from 0), else -1.
+  static Object stringIndexOf(Object value, Object needle, Object start) {
+    int from = start == null ? 0 : Math.max(0, asInt(start));
+    return String.valueOf(value).indexOf(String.valueOf(needle), from);
+  }
+  static Object stringIndexOf(Object value, Object needle) { return stringIndexOf(value, needle, 0); }
   static Object stringSplitTrimNonEmpty(Object value, Object sep) {
     List<Object> out = new ArrayList<>();
     for (String part : String.valueOf(value).split(Pattern.quote(String.valueOf(sep)))) if (!part.trim().isEmpty()) out.add(part.trim());
@@ -697,6 +707,116 @@ final class Core {
     } catch (Exception e) {
       throw new RuntimeException(e.getMessage(), e);
     }
+  }
+  /** Pull handle over an open provider stream: next() returns the next chunk, or null at the end. */
+  static final class ChatStreamHandle {
+    private final AxChatStream stream;
+    private final java.util.Iterator<Map<String, Object>> iterator;
+    private boolean closed;
+
+    ChatStreamHandle(AxChatStream stream) {
+      this.stream = stream;
+      this.iterator = stream.iterator();
+    }
+
+    Map<String, Object> next() {
+      if (closed || !iterator.hasNext()) return null;
+      return iterator.next();
+    }
+
+    void close() {
+      if (closed) return;
+      closed = true;
+      stream.close();
+    }
+  }
+  // streaming_forward reads the provider stream chunk by chunk. openStream()
+  // returns a pull-based AxChatStream (an HTTP provider reads each SSE event
+  // as it arrives) with the call options and cancellation token, as
+  // complete_once passes them to chat(); a client without streaming answers
+  // with its chat response as one chunk.
+  static Object aiStreamOpen(Object client, Object request, Object options) {
+    if (!(client instanceof AiClient ai)) throw new RuntimeException("client does not implement AiClient");
+    Map<String, Object> callOptions = new LinkedHashMap<>(asMap(options));
+    Object token = callOptions.getOrDefault("cancellation", callOptions.getOrDefault("cancellationToken", callOptions.get("cancellation_token")));
+    AxCancellationToken cancellation = token instanceof AxCancellationToken value ? value : null;
+    try {
+      AxChatStream stream = ai.openStream(asMap(request), callOptions, cancellation);
+      if (stream == null) throw new AxAIServiceResponseError("AI client returned no stream");
+      return new ChatStreamHandle(stream);
+    } catch (RuntimeException error) {
+      throw error;
+    } catch (Exception error) {
+      throw new RuntimeException(error.getMessage(), error);
+    }
+  }
+  // Provider errors surface here as the client raised them, so the exception
+  // intrinsics classify them as they do for complete_once.
+  static Object aiStreamNext(Object handle) {
+    if (!(handle instanceof ChatStreamHandle stream)) throw new IllegalArgumentException("not an open AI stream");
+    return stream.next();
+  }
+  static Object aiStreamClose(Object handle) {
+    if (handle instanceof ChatStreamHandle stream) {
+      try {
+        stream.close();
+      } catch (RuntimeException ignored) {
+        // closing an abandoned stream is best effort
+      }
+    }
+    return null;
+  }
+  // The sink receives each {version, index, delta} envelope; its errors
+  // propagate, so a consumer that stops aborts the run.
+  @SuppressWarnings("unchecked")
+  static Object axgenEmitDelta(Object sink, Object envelope) {
+    if (sink == null) return null;
+    if (!(sink instanceof java.util.function.Consumer<?> consumer)) throw new IllegalArgumentException("streaming sink must be a Consumer");
+    ((java.util.function.Consumer<Object>) consumer).accept(envelope);
+    return null;
+  }
+  // TS field processors take (value, {values, sessionId, done}); a
+  // one-argument callback gets the value alone. A null result is undefined.
+  @SuppressWarnings("unchecked")
+  static Object axgenCallProcessor(Object spec, Object value, Object context) {
+    Object processor = spec instanceof Map<?, ?> map ? (map.containsKey("processor") ? map.get("processor") : map.get("fn")) : spec;
+    Map<String, Object> processorContext = new LinkedHashMap<>();
+    processorContext.put("values", new LinkedHashMap<>(asMap(get(context, "values", null))));
+    processorContext.put("done", truthy(get(context, "done", false)));
+    if (processor instanceof java.util.function.BiFunction<?, ?, ?> fn) return ((java.util.function.BiFunction<Object, Object, Object>) fn).apply(value, processorContext);
+    if (processor instanceof AxGen.FieldProcessorCallback callback) return callback.apply(value);
+    if (processor instanceof java.util.function.Function<?, ?> fn) return ((java.util.function.Function<Object, Object>) fn).apply(value);
+    throw new IllegalArgumentException("field processor must be callable");
+  }
+  // A callable check(value, done) returns null or true to pass, a message
+  // string, or false; a {not_contains} spec fails when the field text contains
+  // it, without a message (the IR then uses the spec's message).
+  @SuppressWarnings("unchecked")
+  static Object axgenCheckStreamingAssertion(Object spec, Object value, Object done) {
+    Object check = spec instanceof Map<?, ?> map ? (map.containsKey("fn") ? map.get("fn") : map.get("assert")) : spec;
+    Object result;
+    if (check instanceof java.util.function.BiFunction<?, ?, ?> fn) result = ((java.util.function.BiFunction<Object, Object, Object>) fn).apply(value, truthy(done));
+    else if (check instanceof java.util.function.Function<?, ?> fn) result = ((java.util.function.Function<Object, Object>) fn).apply(value);
+    else {
+      Map<String, Object> descriptor = asMap(spec);
+      Object needle = descriptor.containsKey("not_contains") ? descriptor.get("not_contains") : descriptor.get("notContains");
+      boolean failed = needle != null && String.valueOf(value).contains(String.valueOf(needle));
+      return assertionOutcome(failed ? "fail" : "pass", null, null);
+    }
+    if (result == null || Boolean.TRUE.equals(result)) return assertionOutcome("pass", null, null);
+    if (result instanceof String message) return assertionOutcome("fail", "message", message);
+    return assertionOutcome("fail", null, null);
+  }
+  private static final Set<String> AXGEN_DEPRECATIONS_SHOWN = java.util.concurrent.ConcurrentHashMap.newKeySet();
+  // Deprecated port behavior warns once per key per process.
+  static Object axgenDeprecation(Object key, Object message) {
+    if (!AXGEN_DEPRECATIONS_SHOWN.add(String.valueOf(key))) return null;
+    try {
+      System.getLogger("dev.axllm.ax").log(System.Logger.Level.WARNING, String.valueOf(message));
+    } catch (RuntimeException ignored) {
+      // a failing logger must not fail the forward
+    }
+    return null;
   }
   static Object aiClientFeatures(Object client, Object model) {
     if (client instanceof SessionRun session) return aiClientFeatures(session.client, model);
