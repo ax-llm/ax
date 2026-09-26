@@ -18,6 +18,12 @@ This ledger tracks portable TypeScript behavior that should be migrated into AxI
 
 ## Open
 
+- `axir-2026-09-26-parse-the-ports-text-contract-answers-with-typescript-s-extractv` [axgen] Parse the ports' text-contract answers with TypeScript's extractValues
+  - Status: open
+  - Source commit: `8a2e5f5f303a27d8c38b8d2a06e8a519f8a1f39d`
+  - TS paths: `src/ax/dsp/extract/streamingText.ts`, `src/ax/dsp/extract/fieldValue.ts`, `src/ax/dsp/response/nonStreaming.ts`
+  - Impact: The ports' forward parsed text-contract answers line by line: an unlabeled single-field answer, JavaScript Number() coercion, markdown lists, fenced code and JSON blocks, null for optional fields, missed-field recovery and TypeScript's validation messages were missing, and any JSON object was parsed as fields. Ports now run TypeScript's extractValues and keep a deprecated fallback only for one JSON object of declared output fields.
+  - Suggested AxIR work: Add or update the TS-derived conformance fixture.; Update AxIR/Core or descriptor data to match the portable TS behavior.; Run npm run axir:conformance:check and npm run test:axir.
 - `axir-2026-09-26-port-typescript-s-per-step-output-reset-and-monotonic-versions-t` [axgen] Port TypeScript's per-step output reset and monotonic versions to the ports' forward and streaming
   - Status: open
   - Source commit: `3cf10a6e022146b06dda420f5b2bd9227e1ad20f`

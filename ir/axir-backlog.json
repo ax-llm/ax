@@ -1946,6 +1946,29 @@
       "verification": "fold_chat_response_stream folds stream chunks (content and thought append, thought blocks accumulate, function-call fragments merge by id) and complete_once in all five ports streams and folds a forward with stream: true; the stream-forward-* fixtures match a TypeScript probe. Python and Go conformance 966/966; npm run test --workspace=@ax-llm/ax, npm run axir:check-packages, npm run axir:conformance:check and npm run test:axir pass; mutation checks fail each rule; live on gemini-3.5-flash-lite and gemini-3.8-flash in TypeScript, Python and Go."
     },
     {
+      "id": "axir-2026-09-26-parse-the-ports-text-contract-answers-with-typescript-s-extractv",
+      "status": "open",
+      "title": "Parse the ports' text-contract answers with TypeScript's extractValues",
+      "createdAt": "2026-09-26",
+      "sourcePR": null,
+      "sourceCommit": "8a2e5f5f303a27d8c38b8d2a06e8a519f8a1f39d",
+      "tsPaths": [
+        "src/ax/dsp/extract/streamingText.ts",
+        "src/ax/dsp/extract/fieldValue.ts",
+        "src/ax/dsp/response/nonStreaming.ts"
+      ],
+      "portableSurface": "axgen",
+      "impact": "The ports' forward parsed text-contract answers line by line: an unlabeled single-field answer, JavaScript Number() coercion, markdown lists, fenced code and JSON blocks, null for optional fields, missed-field recovery and TypeScript's validation messages were missing, and any JSON object was parsed as fields. Ports now run TypeScript's extractValues and keep a deprecated fallback only for one JSON object of declared output fields.",
+      "suggestedAxirWork": [
+        "Add or update the TS-derived conformance fixture.",
+        "Update AxIR/Core or descriptor data to match the portable TS behavior.",
+        "Run npm run axir:conformance:check and npm run test:axir."
+      ],
+      "completedAt": null,
+      "completedByCommit": null,
+      "verification": null
+    },
+    {
       "id": "axir-2026-09-26-port-typescript-s-per-step-output-reset-and-monotonic-versions-t",
       "status": "open",
       "title": "Port TypeScript's per-step output reset and monotonic versions to the ports' forward and streaming",

@@ -245,6 +245,7 @@ type ProcessorSpec = {
   echo?: boolean;
   when_done?: boolean;
   times?: number;
+  throws?: string;
 };
 
 function tsProcessor(spec: ProcessorSpec, calls: JsonMap[]) {
@@ -252,6 +253,7 @@ function tsProcessor(spec: ProcessorSpec, calls: JsonMap[]) {
   return (value: unknown, context?: { done?: boolean }) => {
     const done = context?.done ?? false;
     calls.push({ field: spec.field, value: clone(value) as Json, done });
+    if (spec.throws !== undefined) throw new Error(spec.throws);
     if (spec.when_done && !done) return undefined;
     if (spec.times !== undefined && returned >= spec.times) return undefined;
     const result = spec.echo
@@ -865,6 +867,24 @@ const cases: Record<string, Case> = {
     ],
   },
 
+  // A processor's own error ends the run at once, with no retry.
+  'streaming-forward-streaming-processor-error': {
+    signature: 'question:string -> answer:string',
+    streaming_processors: [{ field: 'answer', throws: 'processor exploded' }],
+    responses: [
+      streamed(text('Answer: a'), text('b'), done()),
+      streamed(text('Answer: ab'), done()),
+    ],
+  },
+  'streaming-forward-feedback-processor-error': {
+    signature: 'question:string -> answer:string',
+    feedback_processors: [{ field: 'answer', throws: 'processor exploded' }],
+    responses: [
+      streamed(text('Answer: a'), done('b')),
+      streamed(text('Answer: ab'), done()),
+    ],
+  },
+
   // ----- non-streaming forward: TypeScript's text extraction -----
   'forward-feedback-processor': {
     kind: 'forward',
@@ -875,6 +895,15 @@ const cases: Record<string, Case> = {
     responses: [
       { results: [{ index: 0, content: 'Answer: Pariss' }] },
       { results: [{ index: 0, content: 'Answer: Paris' }] },
+    ],
+  },
+  'forward-feedback-processor-error': {
+    kind: 'forward',
+    signature: 'question:string -> answer:string',
+    feedback_processors: [{ field: 'answer', throws: 'processor exploded' }],
+    responses: [
+      { results: [{ index: 0, content: 'Answer: one' }] },
+      { results: [{ index: 0, content: 'Answer: two' }] },
     ],
   },
   'forward-feedback-processor-echo-max-steps': {

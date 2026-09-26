@@ -1199,13 +1199,15 @@ def _add_fixture_transforms(gen, fixture):
 
 def _fixture_processor(spec, calls):
     # A fixture field processor records each call and returns `returns`, or
-    # the value itself with `echo`; `when_done` waits for the final value and
-    # `times` limits how many results it returns.
+    # the value itself with `echo`; `when_done` waits for the final value,
+    # `times` limits how many results it returns, and `throws` raises.
     returned = [0]
 
     def processor(value, context=None):
         done = bool((context or {}).get("done"))
         calls.append({"field": spec["field"], "value": copy.deepcopy(value), "done": done})
+        if spec.get("throws") is not None:
+            raise RuntimeError(spec["throws"])
         if spec.get("when_done") and not done:
             return None
         if spec.get("times") is not None and returned[0] >= spec["times"]:

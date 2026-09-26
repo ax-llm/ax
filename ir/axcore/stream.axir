@@ -3274,7 +3274,7 @@ module @ax.stream version "0.1" {
       // field has a value; processStreamingFieldProcessors (kind "streaming")
       // calls those of the current field with its raw text so far. Returns
       // the feedback texts, in order, for the caller to send as user
-      // messages.
+      // messages. A processor error is left in state["fatal_error"].
       %feedback = core.list
       %empty_values = core.map
       %values = core.get %state["values"] default %empty_values
@@ -3324,7 +3324,14 @@ module @ax.stream version "0.1" {
         %context = core.map
         core.set %context["values"] = %values
         core.set %context["done"] = %done
-        %result = core.call intrinsic.axgen.call_processor(%spec, %value, %context)
+        %result = core.call intrinsic.none()
+        core.try {
+          %result = core.call intrinsic.axgen.call_processor(%spec, %value, %context)
+        } catch %processor_error {
+          // As in TS, a processor's own error ends the run without a retry.
+          core.set %state["fatal_error"] = %processor_error
+          core.return %feedback
+        }
         %text = core.call @stream_feedback_text_impl(%result)
         %has_text = core.call intrinsic.is_not_none(%text)
         core.if %has_text {
@@ -3341,17 +3348,20 @@ module @ax.stream version "0.1" {
     attr emit_module = "gen"
     attr private = true
     tag "src/ax/dsp/asserts.ts"
-    type signature = "(AxGen, json, string, bool) -> void throws"
+    type signature = "(AxGen, json, string, bool) -> json throws"
     body @entry(%gen: AxGen, %xstate: json, %content: string, %done: bool) {
       // assertStreamingAssertions: the current field's assertions see its raw
-      // text so far; a failure raises a retryable error.
+      // text so far; a failure raises a retryable error. An error the
+      // assertion itself raises is returned for the caller to raise without
+      // a retry, as TS does.
+      %none = core.call intrinsic.none()
       %curr = core.get %xstate["curr_field"]
       %no_curr = core.call intrinsic.is_none(%curr)
       %start = core.get %xstate["s"] default -1
       %unstarted = core.call intrinsic.eq(%start, -1)
       %skip = core.call intrinsic.or(%no_curr, %unstarted)
       core.if %skip {
-        core.return
+        core.return %none
       }
       %curr_name = core.get %curr["name"] default ""
       %value = core.call intrinsic.string.slice(%content, %start)
@@ -3364,7 +3374,12 @@ module @ax.stream version "0.1" {
         core.if %other {
           core.continue
         }
-        %outcome = core.call intrinsic.axgen.check_streaming_assertion(%spec, %value, %done)
+        %outcome = core.map
+        core.try {
+          %outcome = core.call intrinsic.axgen.check_streaming_assertion(%spec, %value, %done)
+        } catch %assertion_error {
+          core.return %assertion_error
+        }
         %status = core.get %outcome["status"] default "pass"
         %failed = core.call intrinsic.eq(%status, "fail")
         core.if %failed {
@@ -3380,7 +3395,7 @@ module @ax.stream version "0.1" {
           core.raise %error
         }
       }
-      core.return
+      core.return %none
     }
   }
 
@@ -3544,8 +3559,18 @@ module @ax.stream version "0.1" {
       core.if %skip {
         core.return %deltas
       }
-      core.call @stream_check_assertions_impl(%gen, %xstate, %content, false)
+      %assertion_thrown = core.call @stream_check_assertions_impl(%gen, %xstate, %content, false)
+      %assertion_threw = core.call intrinsic.is_not_none(%assertion_thrown)
+      core.if %assertion_threw {
+        core.set %state["fatal_error"] = %assertion_thrown
+        core.return %deltas
+      }
       %feedback = core.call @stream_run_processors_impl(%gen, "streaming", %state, %content, false)
+      %processor_failure = core.get %state["fatal_error"]
+      %processor_failed = core.call intrinsic.is_not_none(%processor_failure)
+      core.if %processor_failed {
+        core.return %deltas
+      }
       %empty_feedback = core.list
       %pending = core.get %state["feedback"] default %empty_feedback
       core.for %text in %feedback {
@@ -3620,7 +3645,12 @@ module @ax.stream version "0.1" {
       core.if %text_route {
         core.call @stream_text_final_impl(%xstate, %values, %content, %fields)
       }
-      core.call @stream_check_assertions_impl(%gen, %xstate, %content, true)
+      %assertion_thrown = core.call @stream_check_assertions_impl(%gen, %xstate, %content, true)
+      %assertion_threw = core.call intrinsic.is_not_none(%assertion_thrown)
+      core.if %assertion_threw {
+        core.set %out["failure"] = %assertion_thrown
+        core.return %out
+      }
       %empty_feedback = core.list
       %feedback = core.get %state["feedback"] default %empty_feedback
       %processed = core.call @stream_run_processors_impl(%gen, "feedback", %state, %content, true)
@@ -3630,6 +3660,12 @@ module @ax.stream version "0.1" {
       %streamed = core.call @stream_run_processors_impl(%gen, "streaming", %state, %content, true)
       core.for %streamed_text in %streamed {
         core.append %feedback, %streamed_text
+      }
+      %processor_failure = core.get %state["fatal_error"]
+      %processor_failed = core.call intrinsic.is_not_none(%processor_failure)
+      core.if %processor_failed {
+        core.set %out["failure"] = %processor_failure
+        core.return %out
       }
       // Assertions see the transformed output without the thought, as in
       // forward.

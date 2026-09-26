@@ -347,7 +347,11 @@ func renderSkill(spec packageSkillSpec, model AxRuntimeModel, target string) str
 			"",
 			"When the provider returns a thought (it does when `showThoughts` / `show_thoughts` is set), the forward output carries it under `thought`, or under the constructor's `thoughtFieldName` / `thought_field_name`, on every structured-output rung, as in TypeScript. The output thought joins each tool step's thought in order, a validation or refusal retry starts it over, and an empty thought is left out. As in TypeScript, a per-call thought field name is ignored.",
 			"",
-			"`stream: true` on a forward streams the model's response and folds its chunks into one answer before parsing, as in TypeScript: content and thought append, and function-call fragments merge by id, so the output matches a non-streaming forward, thought included. The streaming forward API yields the provider's raw chat response chunks (`results[].content`, `results[].thought`, `results[].function_calls`), not TypeScript's `{ version, index, delta }` field deltas.",
+			"`stream: true` on a forward streams the model's response and folds its chunks into one answer before parsing, as in TypeScript: content and thought append, and function-call fragments merge by id, so the output matches a non-streaming forward, thought included. "+skillStreamingForwardText(target),
+			"",
+			skillTextContractText(target),
+			"",
+			skillFieldProcessorText(target),
 			"",
 			"`maxSteps` / `max_steps` (default 25) caps the tool loop. Each model turn that calls tools is one step, and validation retries stay inside their step. Reaching the cap raises `Generate failed: Max steps reached: N`. A call to a stop function (`stopFunctions` / `stop_functions`) runs the tool and ends the forward, as in TypeScript: the output is empty apart from the earlier steps' thought, and the tool's result is not the output.",
 			"",
@@ -457,6 +461,43 @@ func renderSkill(spec packageSkillSpec, model AxRuntimeModel, target string) str
 		"",
 		skillBulletList(guardrails),
 	)
+}
+
+func skillStreamingForwardText(target string) string {
+	deltas := "merge each index's deltas (strings and lists append, other values replace) and discard what you merged when the version changes. A validation or refusal retry starts a new version, an infrastructure retry continues the current one, and a step that replaces output an earlier step emitted (for example after a field processor's feedback) starts a new version that re-sends the thought so far. Streaming assertions and streaming field processors see the current field's text as it streams, as in TypeScript."
+	switch target {
+	case "python":
+		return "`streaming_forward(client, values, {\"deltas\": True})` yields TypeScript's `{\"version\", \"index\", \"delta\"}` deltas as the model streams: " + deltas + " Closing the generator stops the run. Without the flag, `streaming_forward` still yields the provider's raw chat response chunks and raises a `DeprecationWarning`: deltas become the default in the next major version, and `stream_raw()` keeps the raw chunks."
+	case "go":
+		return "`StreamingForward(ctx, client, values, options)` returns an `iter.Seq2[AxGenDelta, error]` of TypeScript's `{Version, Index, Delta}` deltas as the model streams: " + deltas + " Stopping the iteration cancels the run."
+	default:
+		return "The streaming forward API yields the provider's raw chat response chunks (`results[].content`, `results[].thought`, `results[].function_calls`), not TypeScript's `{ version, index, delta }` field deltas."
+	}
+}
+
+func skillTextContractText(target string) string {
+	warning := map[string]string{
+		"python": "raises a `DeprecationWarning` once",
+		"go":     "logs a deprecation warning once",
+		"java":   "logs a deprecation warning once",
+		"rust":   "prints a deprecation warning once",
+		"cpp":    "prints a deprecation warning once",
+	}[target]
+	if warning == "" {
+		warning = "warns once"
+	}
+	return "Text-contract answers are parsed as TypeScript's `extractValues` parses them: `Label: value` lines, a single-field answer without a label, JavaScript `Number()` coercion, a JSON array or markdown list for list fields, fenced code and JSON blocks, and `null` for an optional field, with TypeScript's validation messages. For compatibility an answer that is exactly one JSON object whose keys are all output fields is still read as those fields; that fallback " + warning + " and is removed in the next major version, when such an answer is read as text, as in TypeScript."
+}
+
+func skillFieldProcessorText(target string) string {
+	switch target {
+	case "python":
+		return "`add_field_processor(field, fn, feedback=True)` follows TypeScript: `fn(value, {\"values\", \"done\"})` runs on the parsed field, and a non-empty result goes back to the model as a user message for another step, whose answer replaces the earlier one. `add_streaming_field_processor(field, fn)` does the same on each streamed chunk of a string or code field. Without `feedback=True`, `add_field_processor` still rewrites the field value and raises a `DeprecationWarning`: that default becomes the feedback behavior in the next major version. `add_field_transform(field, op)` is the permanent, port-only home of the rewrite (`uppercase`, `lowercase`, `trim`, `prefix:...`, `suffix:...`, or a callable); in `streaming_forward` a transformed field is held back and sent once, transformed."
+	case "go":
+		return "Field processors follow TypeScript when registered with the feedback option: the processor runs on the parsed field, and a non-empty result goes back to the model as a user message for another step, whose answer replaces the earlier one. `AddStreamingFieldProcessor` does the same on each streamed chunk of a string or code field. Without the option, `AddFieldProcessor` still rewrites the field value and is deprecated: that default becomes the feedback behavior in the next major version. `AddFieldTransform` is the permanent, port-only home of the rewrite; in `StreamingForward` a transformed field is held back and sent once, transformed."
+	default:
+		return "Field processors rewrite the field value, a port extension; TypeScript's feedback processors (a result sent back to the model for another step) are in progress for this language."
+	}
 }
 
 func skillResultPickerSurface(target string) string {

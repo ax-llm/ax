@@ -634,6 +634,14 @@ module @ax.gen version "0.1" {
         %processor_state = core.map
         core.set %processor_state["values"] = %validated
         %sample_feedback = core.call @stream_run_processors_impl(%gen, "feedback", %processor_state, %content, true)
+        %processor_failure = core.get %processor_state["fatal_error"]
+        %processor_failed = core.call intrinsic.is_not_none(%processor_failure)
+        core.if %processor_failed {
+          // The caller raises it outside its validation retries.
+          %processor_bundle = core.map
+          core.set %processor_bundle["assertion_failure"] = %processor_failure
+          core.return %processor_bundle
+        }
         core.for %feedback_text in %sample_feedback {
           core.append %feedback, %feedback_text
         }
@@ -2108,6 +2116,11 @@ module @ax.gen version "0.1" {
                   }
                   %content_deltas = core.call @stream_chunk_content_impl(%gen, %config, %state, %result)
                   %stage = core.let "fatal"
+                  %callback_failure = core.get %state["fatal_error"]
+                  %callback_failed = core.call intrinsic.is_not_none(%callback_failure)
+                  core.if %callback_failed {
+                    core.raise %callback_failure
+                  }
                   core.call @stream_emit_deltas_impl(%ctx, %index, %content_deltas)
                   %stage = core.let "validation"
                 }
