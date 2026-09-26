@@ -2281,6 +2281,31 @@ static bool json_path_exists(Value value, const std::string& path) {
   return true;
 }
 
+// The HTTP transport sends stringify(payload). Check those bytes: RFC 8259 strings
+// (no raw U+0000-U+001F, only JSON escapes), a lossless round trip, and each
+// expected fragment.
+static void assert_wire_json(Value payload, Value fragments) {
+  std::string body = stringify(payload);
+  bool in_string = false;
+  for (std::size_t i = 0; i < body.size(); ++i) {
+    unsigned char c = static_cast<unsigned char>(body[i]);
+    if (in_string && c == '\\') {
+      char next = i + 1 < body.size() ? body[i + 1] : '\0';
+      if (next != '\0' && std::string("\"\\/bfnrt").find(next) != std::string::npos) { ++i; continue; }
+      auto hex = [&](std::size_t at) { return at < body.size() && std::isxdigit(static_cast<unsigned char>(body[at])) != 0; };
+      if (next == 'u' && hex(i + 2) && hex(i + 3) && hex(i + 4) && hex(i + 5)) { i += 5; continue; }
+      throw AxError("fixture", "wire JSON has an invalid escape: " + body);
+    }
+    if (c == '"') in_string = !in_string;
+    else if (c < 0x20 && (in_string || std::string(" \t\n\r").find(static_cast<char>(c)) == std::string::npos)) throw AxError("fixture", "wire JSON has a raw control character: " + body);
+  }
+  if (in_string) throw AxError("fixture", "wire JSON has an unterminated string: " + body);
+  if (display(Core::json_stable_stringify(parse_json(body))) != display(Core::json_stable_stringify(payload))) throw AxError("fixture", "wire JSON does not round-trip: " + body);
+  for (const auto& fragment : Core::iter(fragments)) {
+    if (body.find(display(fragment)) == std::string::npos) throw AxError("fixture", "wire JSON missing " + display(fragment) + ": " + body);
+  }
+}
+
 static void assert_transport(Value fixture, const ScriptedTransport& transport, Value credential_requests = Value::array()) {
   Value expected_count = Core::get(fixture, "expected_transport_request_count");
   if (!expected_count.is_null() && transport.requests.size() != static_cast<std::size_t>(std::stoul(display(expected_count)))) throw AxError("fixture", "provider transport request count mismatch");
@@ -2295,7 +2320,8 @@ static void assert_transport(Value fixture, const ScriptedTransport& transport, 
   }
   Value expected = Core::get(fixture, "expected_transport_request");
   Value expected_absent = Core::get(fixture, "expected_transport_json_absent");
-  if (expected.is_null() && expected_absent.is_null()) return;
+  Value expected_wire = Core::get(fixture, "expected_transport_wire_json_contains");
+  if (expected.is_null() && expected_absent.is_null() && expected_wire.is_null()) return;
   if (transport.requests.empty()) throw AxError("fixture", "expected provider transport request but none were sent");
   if (!expected.is_null()) assert_subset(transport.requests[0], expected, "provider request");
   Value request_json = Core::get(transport.requests[0], "json", Value::object());
@@ -2303,6 +2329,7 @@ static void assert_transport(Value fixture, const ScriptedTransport& transport, 
     std::string key = display(raw_key);
     if (json_path_exists(request_json, key)) throw AxError("fixture", "provider request json unexpectedly contained " + key);
   }
+  if (!expected_wire.is_null()) assert_wire_json(request_json, expected_wire);
 }
 
 static void assert_ai_error(const AxError& error, Value fixture, const ScriptedTransport& transport) {

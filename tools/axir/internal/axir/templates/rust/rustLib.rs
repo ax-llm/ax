@@ -15820,7 +15820,10 @@ fn expect_transport_request_subset(
     }
     let expected = fixture.get("expected_transport_request");
     let expected_absent = fixture.get("expected_transport_json_absent");
-    if expected.is_none() && expected_absent.is_none() {
+    let expected_wire = fixture
+        .get("expected_transport_wire_json_contains")
+        .and_then(Value::as_array);
+    if expected.is_none() && expected_absent.is_none() && expected_wire.is_none() {
         return Ok(());
     }
     let actual = requests
@@ -15836,6 +15839,31 @@ fn expect_transport_request_subset(
             return Err(AxError::new(
                 "fixture",
                 format!("provider request json unexpectedly contained {key}"),
+            ));
+        }
+    }
+    if let Some(fragments) = expected_wire {
+        expect_wire_json(request_json.unwrap_or(&Value::Null), fragments)?;
+    }
+    Ok(())
+}
+
+// reqwest's RequestBuilder::json sends serde_json::to_vec(payload). Check those
+// bytes: strict JSON, a lossless round trip, and each expected fragment.
+fn expect_wire_json(payload: &Value, fragments: &[Value]) -> AxResult<()> {
+    let body = serde_json::to_string(payload)
+        .map_err(|error| AxError::new("fixture", error.to_string()))?;
+    let decoded: Value = serde_json::from_str(&body).map_err(|error| {
+        AxError::new("fixture", format!("wire JSON is not valid JSON ({error}): {body}"))
+    })?;
+    if &decoded != payload {
+        return Err(AxError::new("fixture", format!("wire JSON does not round-trip: {body}")));
+    }
+    for fragment in fragments.iter().filter_map(Value::as_str) {
+        if !body.contains(fragment) {
+            return Err(AxError::new(
+                "fixture",
+                format!("wire JSON missing {fragment:?}: {body}"),
             ));
         }
     }

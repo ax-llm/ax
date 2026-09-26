@@ -12352,3 +12352,56 @@ for (const testCase of [
     expected_transport_request_count: fetchCount,
   });
 }
+
+// Wire JSON escaping (RFC 8259): tab, CR, U+0001, U+007F and a non-BMP emoji in
+// a prompt, in tool-call args and in a tool result. OpenAI takes tool-call args
+// as a JSON string, so that text is encoded twice. Each runner encodes the
+// recorded request with its HTTP body encoder and checks the bytes against the
+// TS encoder's output, strict JSON validity, and a lossless round trip.
+const wireJSONText =
+  'tab\there cr\rhere ctl\u0001here del\u007fhere emoji\u{1F600}here';
+writeFixture('openai-wire-json-control-characters', {
+  kind: 'ai_chat',
+  provider: 'openai',
+  model: AxAIOpenAIModel.GPT54Mini,
+  request: {
+    chat_prompt: [
+      { role: 'user', content: wireJSONText },
+      {
+        role: 'assistant',
+        functionCalls: [
+          {
+            id: 'call-1',
+            type: 'function',
+            function: { name: 'lookup', params: { q: wireJSONText } },
+          },
+        ],
+      },
+      { role: 'function', functionId: 'call-1', result: wireJSONText },
+    ],
+    functions: [
+      {
+        name: 'lookup',
+        description: 'Look up text',
+        parameters: {
+          type: 'object',
+          properties: { q: { type: 'string' } },
+          required: ['q'],
+        },
+      },
+    ],
+    model_config: { stream: false },
+  },
+  transport_responses: [
+    compatibleResponse('chatcmpl_wire_json', AxAIOpenAIModel.GPT54Mini),
+  ],
+  expected_output: compatibleExpectedOutput(
+    'openai',
+    'chatcmpl_wire_json',
+    AxAIOpenAIModel.GPT54Mini
+  ),
+  expected_transport_wire_json_contains: [
+    JSON.stringify(wireJSONText),
+    JSON.stringify(JSON.stringify({ q: wireJSONText })),
+  ],
+});

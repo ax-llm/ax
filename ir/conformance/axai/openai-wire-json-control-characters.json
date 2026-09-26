@@ -1,0 +1,103 @@
+{
+  "expected_output": {
+    "model_usage": {
+      "ai": "openai",
+      "model": "gpt-5.4-mini",
+      "tokens": {
+        "completion_tokens": 2,
+        "prompt_tokens": 1,
+        "total_tokens": 3
+      }
+    },
+    "remote_id": "chatcmpl_wire_json",
+    "results": [
+      {
+        "content": "ok",
+        "finish_reason": "stop",
+        "function_calls": [],
+        "id": "0",
+        "index": 0
+      }
+    ]
+  },
+  "expected_transport_wire_json_contains": [
+    "\"tab\\there cr\\rhere ctl\\u0001here delhere emoji😀here\"",
+    "\"{\\\"q\\\":\\\"tab\\\\there cr\\\\rhere ctl\\\\u0001here delhere emoji😀here\\\"}\""
+  ],
+  "kind": "ai_chat",
+  "model": "gpt-5.4-mini",
+  "name": "openai-wire-json-control-characters",
+  "provider": "openai",
+  "request": {
+    "chat_prompt": [
+      {
+        "content": "tab\there cr\rhere ctl\u0001here delhere emoji😀here",
+        "role": "user"
+      },
+      {
+        "functionCalls": [
+          {
+            "function": {
+              "name": "lookup",
+              "params": {
+                "q": "tab\there cr\rhere ctl\u0001here delhere emoji😀here"
+              }
+            },
+            "id": "call-1",
+            "type": "function"
+          }
+        ],
+        "role": "assistant"
+      },
+      {
+        "functionId": "call-1",
+        "result": "tab\there cr\rhere ctl\u0001here delhere emoji😀here",
+        "role": "function"
+      }
+    ],
+    "functions": [
+      {
+        "description": "Look up text",
+        "name": "lookup",
+        "parameters": {
+          "properties": {
+            "q": {
+              "type": "string"
+            }
+          },
+          "required": ["q"],
+          "type": "object"
+        }
+      }
+    ],
+    "model_config": {
+      "stream": false
+    }
+  },
+  "transport_responses": [
+    {
+      "json": {
+        "choices": [
+          {
+            "finish_reason": "stop",
+            "index": 0,
+            "message": {
+              "content": "ok",
+              "refusal": null,
+              "role": "assistant"
+            }
+          }
+        ],
+        "id": "chatcmpl_wire_json",
+        "model": "gpt-5.4-mini",
+        "object": "chat.completion",
+        "usage": {
+          "completion_tokens": 2,
+          "prompt_tokens": 1,
+          "total_tokens": 3
+        }
+      },
+      "status": 200
+    }
+  ]
+}

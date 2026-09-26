@@ -36405,13 +36405,31 @@ std::string display(const Value& value) {
   return str(value);
 }
 
+// JSON string contents (RFC 8259): the quote, the backslash and U+0000-U+001F
+// are escaped (\b \f \n \r \t, else \u00XX); every other byte, including UTF-8
+// sequences, is copied as is.
 static std::string escape_json(const std::string& in) {
+  static const char* digits = "0123456789abcdef";
   std::string out;
-  for (char c : in) {
-    if (c == '"') out += "\\\"";
-    else if (c == '\\') out += "\\\\";
-    else if (c == '\n') out += "\\n";
-    else out.push_back(c);
+  out.reserve(in.size());
+  for (unsigned char c : in) {
+    switch (c) {
+      case '"': out += "\\\""; break;
+      case '\\': out += "\\\\"; break;
+      case '\b': out += "\\b"; break;
+      case '\f': out += "\\f"; break;
+      case '\n': out += "\\n"; break;
+      case '\r': out += "\\r"; break;
+      case '\t': out += "\\t"; break;
+      default:
+        if (c < 0x20) {
+          out += "\\u00";
+          out.push_back(digits[c >> 4]);
+          out.push_back(digits[c & 0xf]);
+        } else {
+          out.push_back(static_cast<char>(c));
+        }
+    }
   }
   return out;
 }

@@ -12,7 +12,7 @@ from typing import Any
 
 from .ai import AnthropicClient, AxAIRefusalError, AxAIServiceAbortedError, AxAIServiceAuthenticationError, AxAIServiceError, AxAIServiceNetworkError, AxAIServiceResponseError, AxAIServiceStatusError, AxAIServiceStreamTerminatedError, AxAIServiceTimeoutError, AxBaseAI, AxBalancer, AxCancellationToken, AxRuntimeHooks, GoogleGeminiClient, MultiServiceRouter, OpenAICompatibleClient, OpenAIResponsesClient, ProviderRouter, _effective_runtime_hooks, _runtime_hook_scope, ai, get_supported_ai_models, provider_descriptor, provider_model_catalog_summary, provider_normalize_profile, provider_profile_registry, provider_resolve_descriptor, set_meter, set_rate_limiter, set_tracer, set_usage_observer
 from .ai import build_chat_request, build_embed_request, normalize_chat_response, normalize_embed_response, normalize_stream_delta, provider_resolve_profile, _gemini_build_speak_request, _gemini_build_transcribe_request, _gemini_normalize_speak_response, _gemini_normalize_transcribe_response, _grok_build_speak_request, _grok_build_transcribe_request, _openai_tool_call_to_provider_impl, ai_context_cache_expiry, ai_context_cache_plan, ai_context_cache_recovery, ai_context_cache_rejection, ai_gemini_cache_ops
-from .ai import openai_responses_transport_cursor, openai_responses_session_event
+from .ai import openai_responses_transport_cursor, openai_responses_session_event, _wire_json_body
 from .ai import AxBalancerAdaptiveStrategy, AxBalancerOptions, AxInMemoryBalancerStatsStore, _core_set_math_random_values, create_balancer_route_stats, provider_balancer_adaptive_score, sample_balancer_route_health, update_balancer_route_stats
 from .gen import (
     _parse_text_output_fields_impl,
@@ -3333,7 +3333,8 @@ def _assert_transport_request(fixture, transport):
         if index >= len(transport.requests):
             raise FixtureError("missing provider transport request")
         _assert_subset(transport.requests[index], expected, f"provider request {index}")
-    if "expected_transport_request" not in fixture and "expected_transport_json_absent" not in fixture:
+    wire_fragments = fixture.get("expected_transport_wire_json_contains") or []
+    if "expected_transport_request" not in fixture and "expected_transport_json_absent" not in fixture and not wire_fragments:
         return
     if not transport.requests:
         raise FixtureError("expected provider transport request but none were sent")
@@ -3343,6 +3344,23 @@ def _assert_transport_request(fixture, transport):
     for key in fixture.get("expected_transport_json_absent") or []:
         if _json_path_exists(request_json, key):
             raise FixtureError(f"provider request json unexpectedly contained {key!r}")
+    if wire_fragments:
+        _assert_wire_json(request_json, wire_fragments)
+
+
+def _assert_wire_json(payload, fragments):
+    """Encode a recorded request payload as the transport sends it and check the
+    bytes: strict JSON (json.loads rejects raw control characters), a lossless
+    round trip, and each expected fragment."""
+    text = _wire_json_body(payload).decode("utf-8")
+    try:
+        decoded = json.loads(text)
+    except ValueError as exc:
+        raise FixtureError(f"wire JSON is not valid JSON ({exc}): {text!r}") from exc
+    _assert_equal(decoded, payload, "wire JSON round trip")
+    for fragment in fragments:
+        if str(fragment) not in text:
+            raise FixtureError(f"wire JSON missing {fragment!r}: {text!r}")
 
 
 def _legacy_response_to_chat_response(raw):

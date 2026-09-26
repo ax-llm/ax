@@ -2889,7 +2889,8 @@ public final class Conformance {
       if (index >= transport.requests.size()) throw new FixtureError("missing provider transport request");
       assertSubset(transport.requests.get(index), expectedRequests.get(index), "provider request " + index);
     }
-    if (!fixture.containsKey("expected_transport_request") && !fixture.containsKey("expected_transport_json_absent")) return;
+    List<Object> wireFragments = Core.asList(fixture.getOrDefault("expected_transport_wire_json_contains", List.of()));
+    if (!fixture.containsKey("expected_transport_request") && !fixture.containsKey("expected_transport_json_absent") && wireFragments.isEmpty()) return;
     if (transport.requests.isEmpty()) throw new FixtureError("expected provider transport request but none were sent");
     if (fixture.containsKey("expected_transport_request")) assertSubset(transport.requests.get(0), fixture.get("expected_transport_request"), "provider request");
     Map<String, Object> requestJson = Core.asMap(Core.asMap(transport.requests.get(0)).get("json"));
@@ -2897,6 +2898,28 @@ public final class Conformance {
       String key = String.valueOf(rawKey);
       if (jsonPathExists(requestJson, key)) throw new FixtureError("provider request json unexpectedly contained " + key);
     }
+    if (!wireFragments.isEmpty()) assertWireJson(requestJson, wireFragments);
+  }
+  // The HTTP transport sends Json.stringify(payload). Check those bytes: RFC 8259
+  // strings (no raw U+0000-U+001F, only JSON escapes), a lossless round trip, and
+  // each expected fragment.
+  static void assertWireJson(Object payload, List<Object> fragments) {
+    String body = Json.stringify(payload);
+    boolean inString = false;
+    for (int i = 0; i < body.length(); i++) {
+      char c = body.charAt(i);
+      if (inString && c == '\\') {
+        char next = i + 1 < body.length() ? body.charAt(i + 1) : '\0';
+        if (next != '\0' && "\"\\/bfnrt".indexOf(next) >= 0) { i++; continue; }
+        if (next == 'u' && i + 5 < body.length() && body.substring(i + 2, i + 6).matches("[0-9a-fA-F]{4}")) { i += 5; continue; }
+        throw new FixtureError("wire JSON has an invalid escape at " + i + ": " + body);
+      }
+      if (c == '"') inString = !inString;
+      else if (c < 0x20 && (inString || " \t\n\r".indexOf(c) < 0)) throw new FixtureError("wire JSON has a raw control character at " + i + ": " + body);
+    }
+    if (inString) throw new FixtureError("wire JSON has an unterminated string: " + body);
+    if (!Json.stableStringify(Json.parse(body)).equals(Json.stableStringify(payload))) throw new FixtureError("wire JSON does not round-trip: " + body);
+    for (Object fragment : fragments) if (!body.contains(String.valueOf(fragment))) throw new FixtureError("wire JSON missing " + fragment + ": " + body);
   }
   static List<String> stringList(Object value) { List<String> out = new ArrayList<>(); for (Object item : Core.asList(value)) out.add(String.valueOf(item)); return out; }
   static void assertEqual(Object actual, Object expected, String label) {
