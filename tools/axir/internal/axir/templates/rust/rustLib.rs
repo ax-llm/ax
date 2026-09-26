@@ -4504,6 +4504,12 @@ impl AxGen {
     /// own stop from a failed run, return an error only your callback uses,
     /// for example `AxError::new("stopped", "enough output")`, and match its
     /// category.
+    ///
+    /// Under a run control ([`AxForwardOptions::with_control`]) the stream
+    /// works as a controlled forward does: the run reports `started`, then
+    /// `completed` or `failed`, and applies steering at each model request.
+    /// A stop from `on_delta` ends the run as `aborted`, as `abort()` on the
+    /// control reports it.
     pub fn streaming_forward<C: AxAIClient>(
         &mut self,
         client: &mut C,
@@ -4526,11 +4532,10 @@ impl AxGen {
         options: impl Into<AxForwardOptions>,
         sink: impl FnMut(Value) -> AxResult<()> + 'static,
     ) -> AxResult<Value> {
-        let stopped = Rc::new(RefCell::new(None));
-        let host = CoreDeltaSinkHost { sink: RefCell::new(Box::new(sink)), stopped: stopped.clone() };
-        let result = self.run_forward(client, input, options.into(), Some(CoreValue::Host(Rc::new(host))));
+        let host = Rc::new(CoreDeltaSinkHost { sink: RefCell::new(Box::new(sink)), stopped: RefCell::new(None) });
+        let result = self.run_forward(client, input, options.into(), Some(host.clone()));
         // The consumer's own error, not the abort that carried it out of the run.
-        let stop = stopped.borrow_mut().take();
+        let stop = host.stopped.borrow_mut().take();
         match stop {
             Some(error) => Err(error),
             None => result,
@@ -4543,7 +4548,7 @@ impl AxGen {
         client: &mut C,
         input: Value,
         options: AxForwardOptions,
-        sink: Option<CoreValue>,
+        sink: Option<Rc<CoreDeltaSinkHost>>,
     ) -> AxResult<Value> {
         session::with_control(options, |mut options| {
         let defaults = self.runtime_hooks.clone();
@@ -4563,10 +4568,17 @@ impl AxGen {
             if method == "stream" && !run_session {
                 return client.stream(request).map(Value::Array);
             }
-            // The streaming forward pulls the provider's chunks one at a time;
-            // a session run answers with one chat response instead.
-            if method == "stream_open" && !run_session {
-                return Ok(publish_open_chat_stream(client.stream_iter_with_options(request, options)?));
+            // The streaming forward pulls the provider's chunks one at a time.
+            // A run under control or with background tools opens the stream
+            // through its boundary, where a chat session answers with one
+            // chunk.
+            if method == "stream_open" {
+                let stream = if run_session {
+                    session_run.stream_open(client, request, options)?
+                } else {
+                    client.stream_iter_with_options(request, options)?
+                };
+                return Ok(publish_open_chat_stream(stream));
             }
             if method == "transcribe" {
                 client.transcribe(request)
@@ -4584,12 +4596,13 @@ impl AxGen {
             let values = core_value_from_json(&input);
             let options = core_value_from_json(&options);
             match &sink {
-                Some(sink) => _streaming_forward_impl(&[state.clone(), CoreValue::Null, values, options, sink.clone()]),
+                Some(sink) => _streaming_forward_impl(&[state.clone(), CoreValue::Null, values, options, CoreValue::Host(sink.clone())]),
                 None => _forward_impl(&[state.clone(), CoreValue::Null, values, options]),
             }
         });
         drop(chat);
-        session_run.finish(result.as_ref().err());
+        let consumer_stopped = sink.as_ref().is_some_and(|sink| sink.stopped.borrow().is_some());
+        session_run.finish(result.as_ref().err(), consumer_stopped);
         core_gen_writeback(self, &state);
         Ok(core_value_to_json(&result?))
         })
@@ -15975,7 +15988,11 @@ fn fixture_field_processor(
 
 // python: _run_streaming_forward. Streams the forward into a delta list and
 // checks the deltas (also those sent before an expected error), the merged
-// output, the requests, tool calls and field processor calls.
+// output, the requests, tool calls and field processor calls. With `control`
+// a run control records its lifecycle events ({type, path} for started,
+// completed, failed and aborted); with `stop_after_deltas` the consumer
+// stops the run from on_delta after that many deltas, which is the expected
+// outcome, and the output is not compared.
 fn run_streaming_forward_fixture(fixture: &Value) -> AxResult<()> {
     let signature = build_fixture_signature(fixture)?;
     let (fixture_tools, recorded_calls) = build_fixture_tools_recording(fixture)?;
@@ -16008,16 +16025,39 @@ fn run_streaming_forward_fixture(fixture: &Value) -> AxResult<()> {
         fixture.get("features").cloned().unwrap_or_else(router_default_features),
     );
     let input = fixture.get("input").cloned().unwrap_or_else(|| json!({}));
-    let options = fixture.get("forward_options").cloned().unwrap_or_else(|| json!({}));
+    let mut options = AxForwardOptions::from(fixture.get("forward_options").cloned().unwrap_or_else(|| json!({})));
+    let control_events = Arc::new(Mutex::new(Vec::new()));
+    if fixture.get("control").and_then(Value::as_bool).unwrap_or(false) {
+        let control = run_control();
+        let events = control_events.clone();
+        control.on_event(move |event| {
+            if matches!(event["type"].as_str(), Some("started" | "completed" | "failed" | "aborted")) {
+                events.lock().unwrap().push(json!({"path": event["path"], "type": event["type"]}));
+            }
+        });
+        options = options.with_control(control);
+    }
+    let stop_after = fixture.get("stop_after_deltas").and_then(Value::as_u64);
     let deltas = Rc::new(RefCell::new(Vec::new()));
     let sink_deltas = deltas.clone();
     let result = program.streaming_forward(&mut client, input, options, move |update| {
-        sink_deltas.borrow_mut().push(json!({"version": update.version, "index": update.index, "delta": update.delta}));
+        let mut deltas = sink_deltas.borrow_mut();
+        deltas.push(json!({"version": update.version, "index": update.index, "delta": update.delta}));
+        if stop_after.is_some_and(|limit| deltas.len() as u64 >= limit) {
+            return Err(AxError::new("fixture_consumer_stop", "the consumer stopped the stream"));
+        }
         Ok(())
     });
     let actual_deltas = Value::Array(deltas.borrow().clone());
     let expected_deltas = fixture.get("expected_deltas").cloned().unwrap_or_else(|| json!([]));
     match result {
+        // The consumer's own stop: the run ended as the fixture asked.
+        Err(error) if stop_after.is_some() && error.category == "fixture_consumer_stop" => {
+            if fixture.get("expected_error_contains").is_some() {
+                return Err(AxError::new("fixture", "expected streaming forward to fail"));
+            }
+            expect_json_equal("streaming deltas", &actual_deltas, &expected_deltas)?;
+        }
         Err(error) => {
             let expected = fixture.get("expected_error_contains").and_then(Value::as_str);
             if !expected.is_some_and(|expected| error.message.contains(expected)) {
@@ -16030,8 +16070,14 @@ fn run_streaming_forward_fixture(fixture: &Value) -> AxResult<()> {
                 return Err(AxError::new("fixture", "expected streaming forward to fail"));
             }
             expect_json_equal("streaming deltas", &actual_deltas, &expected_deltas)?;
-            expect_json_equal("streaming output", &output, fixture.get("expected_output").unwrap_or(&Value::Null))?;
+            if stop_after.is_none() {
+                expect_json_equal("streaming output", &output, fixture.get("expected_output").unwrap_or(&Value::Null))?;
+            }
         }
+    }
+    if let Some(expected) = fixture.get("expected_control_events") {
+        let actual = Value::Array(control_events.lock().unwrap().clone());
+        expect_json_equal("run control events", &actual, expected)?;
     }
     if let Some(expected) = fixture.get("expected_request_count").and_then(Value::as_u64) {
         if client.requests.len() != expected as usize {
@@ -21530,11 +21576,12 @@ impl CoreHost for CoreFieldProcessorHost {
 // {version, index, delta} envelope to the host closure. A closure error is
 // kept in `stopped` and leaves the run as an abort, which the IR raises at
 // once from every stage (a plain error while the final answer is checked
-// would be retried as a validation failure); streaming_forward_with_sink
-// then returns the kept error.
+// would be retried as a validation failure); the run then ends as a
+// consumer stop (`aborted` under a run control), and
+// streaming_forward_with_sink returns the kept error.
 struct CoreDeltaSinkHost {
     sink: RefCell<Box<dyn FnMut(Value) -> AxResult<()>>>,
-    stopped: Rc<RefCell<Option<AxError>>>,
+    stopped: RefCell<Option<AxError>>,
 }
 
 fn core_delta_consumer_stopped() -> AxError {
@@ -23729,6 +23776,43 @@ mod axgen_streaming_surface_tests {
         let mut program = flow("stream.flow").execute("qa", ax("question:string -> answer:string")?).returns(json!({"answer": "answer"}));
         let deltas = program.streaming_forward(&mut client, json!({"question": "Capital of France?"}), json!({}))?;
         assert_eq!(deltas, vec![AxGenDelta { version: 1, index: 0, delta: json!({"answer": "Paris"}) }]);
+        Ok(())
+    }
+
+    fn recorded_control() -> (AxRunControl, Arc<Mutex<Vec<String>>>) {
+        let control = run_control();
+        let events = Arc::new(Mutex::new(Vec::new()));
+        let seen = events.clone();
+        control.on_event(move |event| seen.lock().unwrap().push(event["type"].as_str().unwrap_or_default().to_string()));
+        (control, events)
+    }
+
+    #[test]
+    fn controlled_stream_applies_steering_and_reports_its_end() -> AxResult<()> {
+        // Under a run control the chunks still arrive one by one, and the
+        // queued steering reaches the streamed request.
+        let (control, events) = recorded_control();
+        control.steer("Answer in lowercase.")?;
+        let mut client = ScriptedStream::new(vec![vec!["Answer: hel", "lo"]]);
+        let mut program = ax("question:string -> answer:string")?;
+        let (deltas, on_delta) = recorder();
+        let options = AxForwardOptions::from(json!({})).with_control(control);
+        let output = program.streaming_forward(&mut client, json!({"question": "Hi?"}), options, on_delta)?;
+        assert_eq!(output, json!({"answer": "hello"}));
+        assert_eq!(*deltas.borrow(), vec![delta(0, json!({"answer": "hel"})), delta(0, json!({"answer": "lo"}))]);
+        assert!(stable_stringify(&client.requests[0]).contains("Answer in lowercase."));
+        assert_eq!(*events.lock().unwrap(), vec!["queued", "started", "applied", "completed"]);
+        // A stop from on_delta ends the controlled run as aborted, not failed.
+        let (control, events) = recorded_control();
+        let mut client = ScriptedStream::new(vec![vec!["Answer: hel", "lo"]]);
+        let options = AxForwardOptions::from(json!({})).with_control(control);
+        let error = program
+            .streaming_forward(&mut client, json!({"question": "Hi?"}), options, |_delta| {
+                Err(AxError::new("stopped", "enough output"))
+            })
+            .unwrap_err();
+        assert_eq!(error.category, "stopped");
+        assert_eq!(*events.lock().unwrap(), vec!["started", "aborted"]);
         Ok(())
     }
 }
