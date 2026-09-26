@@ -2193,7 +2193,55 @@ export class AxGen<IN = any, OUT extends AxGenOut = any>
       (options.asyncMode ?? ai.getOptions().asyncMode) !== 'off' &&
       options.functionCallMode !== 'prompt';
 
+    // Versions never decrease. The version a consumer is merging is the last
+    // one yielded; an attempt that starts errCount over (a new step or an
+    // infrastructure retry) resumes from it instead of falling back to
+    // controlVersion. Per index, the thought yielded in that version is kept
+    // so a new version can carry it forward.
+    let currentVersion = 0;
+    let outputEmittedThisVersion = false;
+    const emittedThought = new Map<number, string>();
+    const trackYield = (delta: Readonly<AxGenDeltaOut<OUT>>) => {
+      if (delta.version !== currentVersion) {
+        currentVersion = delta.version;
+        emittedThought.clear();
+        outputEmittedThisVersion = false;
+      }
+      for (const [key, value] of Object.entries(delta.delta)) {
+        if (key === this.thoughtFieldName && typeof value === 'string') {
+          emittedThought.set(
+            delta.index,
+            (emittedThought.get(delta.index) ?? '') + value
+          );
+        } else {
+          outputEmittedThisVersion = true;
+        }
+      }
+    };
+
     multiStepLoop: for (let n = 0; n < maxSteps; n++) {
+      // A step that follows emitted output fields replaces them: it starts a
+      // new version (consumers discard older versions) and carries the
+      // thought yielded so far into it, so thought still joins across steps.
+      if (n > 0 && outputEmittedThisVersion) {
+        controlVersion = Math.max(controlVersion, currentVersion) + 1;
+        committedValues.forEach((_, index) => committedValues.set(index, {}));
+        const carried = [...emittedThought.entries()];
+        currentVersion = controlVersion;
+        emittedThought.clear();
+        outputEmittedThisVersion = false;
+        for (const [index, thought] of carried) {
+          if (!thought) continue;
+          const delta = {
+            version: controlVersion,
+            index,
+            delta: { [this.thoughtFieldName]: thought } as Partial<OUT>,
+          };
+          trackYield(delta);
+          yield delta;
+        }
+      }
+
       if (!controlsUseSession && options.control) {
         const path = options.executionPath ?? 'root';
         for (const update of options.control.pending(path, controlAfter)) {
@@ -2204,7 +2252,7 @@ export class AxGen<IN = any, OUT extends AxGenOut = any>
               options.sessionId
             );
           else mutableOptions.thinkingTokenBudget = update.level;
-          controlVersion++;
+          controlVersion = Math.max(controlVersion, currentVersion) + 1;
           committedValues.forEach((_, index) => committedValues.set(index, {}));
           options.control.emit({
             type: 'applied',
@@ -2286,6 +2334,8 @@ export class AxGen<IN = any, OUT extends AxGenOut = any>
         infraRetryCount <= infraMaxRetries;
         infraRetryCount++
       ) {
+        // errCount starts over below; resume from the version consumers hold.
+        controlVersion = Math.max(controlVersion, currentVersion);
         try {
           // Validation error retry loop (inner loop).
           // `maxRetries` means extra attempts after the initial one.
@@ -2354,7 +2404,8 @@ export class AxGen<IN = any, OUT extends AxGenOut = any>
                       innerVersion !== lastSessionVersion
                     ) {
                       lastSessionVersion = innerVersion;
-                      controlVersion++;
+                      controlVersion =
+                        Math.max(controlVersion, currentVersion - errCount) + 1;
                       committedValues.forEach((_, index) =>
                         committedValues.set(index, {})
                       );
@@ -2444,11 +2495,13 @@ export class AxGen<IN = any, OUT extends AxGenOut = any>
                     }
 
                     if (hasEffectiveDelta) {
-                      yield {
+                      const out = {
                         version: controlVersion + errCount,
                         index: result.index,
                         delta: effectiveDelta,
                       };
+                      trackYield(out);
+                      yield out;
                     }
                   }
                 }
@@ -2520,11 +2573,13 @@ export class AxGen<IN = any, OUT extends AxGenOut = any>
                         if (thought !== undefined && !thoughtYielded) {
                           delta[this.thoughtFieldName] = thought;
                         }
-                        yield {
+                        const out = {
                           version: controlVersion + errCount,
                           index: state.index,
                           delta: delta as Partial<OUT>,
                         };
+                        trackYield(out);
+                        yield out;
                       }
                     }
                   }
