@@ -1,3 +1,4 @@
+// cspell:ignore CAVS abcdbcdecdefdefgefghfghighijhijkijkljklmklmnlmnomnopnopq abcdefghbcdefghicdefghijdefghijkefghijklfghijklmghijklmnhijklmnoijklmnopjklmnopqklmnopqrlmnopqrsmnopqrstnopqrstu héllo wörld
 import { describe, expect, it } from 'vitest';
 
 import { AxMockAIService } from '../ai/mock/api.js';

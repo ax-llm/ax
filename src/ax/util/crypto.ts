@@ -81,7 +81,7 @@ const SHA256_K = new Uint32Array([
   0x90befffa, 0xa4506ceb, 0xbef9a3f7, 0xc67178f2,
 ]);
 
-const rotr = (x: number, n: number) => (x >>> n) | (x << (32 - n));
+const rotateRight = (x: number, n: number) => (x >>> n) | (x << (32 - n));
 
 /**
  * Synchronous SHA-256 (FIPS 180-4) of the given bytes, as lowercase hex.
@@ -111,8 +111,8 @@ function sha256HexSync(message: Uint8Array): string {
     for (let i = 16; i < 64; i++) {
       const w15 = words[i - 15]!;
       const w2 = words[i - 2]!;
-      const s0 = rotr(w15, 7) ^ rotr(w15, 18) ^ (w15 >>> 3);
-      const s1 = rotr(w2, 17) ^ rotr(w2, 19) ^ (w2 >>> 10);
+      const s0 = rotateRight(w15, 7) ^ rotateRight(w15, 18) ^ (w15 >>> 3);
+      const s1 = rotateRight(w2, 17) ^ rotateRight(w2, 19) ^ (w2 >>> 10);
       words[i] = words[i - 16]! + s0 + words[i - 7]! + s1;
     }
 
@@ -125,10 +125,10 @@ function sha256HexSync(message: Uint8Array): string {
     let g = hash[6]!;
     let h = hash[7]!;
     for (let i = 0; i < 64; i++) {
-      const s1 = rotr(e, 6) ^ rotr(e, 11) ^ rotr(e, 25);
+      const s1 = rotateRight(e, 6) ^ rotateRight(e, 11) ^ rotateRight(e, 25);
       const choice = (e & f) ^ (~e & g);
       const t1 = (h + s1 + choice + SHA256_K[i]! + words[i]!) | 0;
-      const s0 = rotr(a, 2) ^ rotr(a, 13) ^ rotr(a, 22);
+      const s0 = rotateRight(a, 2) ^ rotateRight(a, 13) ^ rotateRight(a, 22);
       const majority = (a & b) ^ (a & c) ^ (b & c);
       const t2 = (s0 + majority) | 0;
       h = g;
