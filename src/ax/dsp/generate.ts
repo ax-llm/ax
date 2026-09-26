@@ -1928,6 +1928,8 @@ export class AxGen<IN = any, OUT extends AxGenOut = any>
       | AxStreamingAssertionError
       | undefined;
     let lastError: Error | undefined;
+    // What the failing attempt answered, for the exhausted-retries message.
+    let lastOutput = '';
 
     const promptTemplateClass =
       this.options?.promptTemplate ?? AxPromptTemplate;
@@ -2747,6 +2749,7 @@ export class AxGen<IN = any, OUT extends AxGenOut = any>
               }
 
               lastError = e as Error;
+              lastOutput = states.map((s) => s.content).join('\n---\n');
               let errorFields: AxIField[] | undefined;
               const debug = this.isDebug(ai, options);
               const logger = this.getLogger(ai, options);
@@ -2871,7 +2874,7 @@ export class AxGen<IN = any, OUT extends AxGenOut = any>
                 (err ?? lastError)?.message ??
                 (err ?? lastError)?.toString() ??
                 'unknown error'
-              }\n\nLLM Output:\n${states.map((s) => s.content).join('\n---\n')}`
+              }\n\nLLM Output:\n${lastOutput}`
             ),
             ai,
             this.signature

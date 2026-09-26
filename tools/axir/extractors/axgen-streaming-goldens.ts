@@ -293,6 +293,8 @@ type Case = {
   // The part of TS's error message the ports must produce; defaults to the
   // first line without TS's "Generate failed: " wrapper.
   error_contains?: string;
+  // Pin TS's whole error message, not only its first line.
+  full_error?: boolean;
 };
 
 async function record(name: string, spec: Case): Promise<void> {
@@ -341,6 +343,7 @@ async function record(name: string, spec: Case): Promise<void> {
   const deltas: JsonMap[] = [];
   let output: Json | undefined;
   let error: string | undefined;
+  let errorMessage: string | undefined;
   let errorCause: string | undefined;
   try {
     if (kind === 'forward') {
@@ -355,7 +358,8 @@ async function record(name: string, spec: Case): Promise<void> {
       }
     }
   } catch (e) {
-    error = (e as Error).message.split('\n')[0];
+    errorMessage = (e as Error).message;
+    error = errorMessage.split('\n')[0];
     // AxGenerateError keeps the failure it wraps as its cause.
     const cause = (e as Error).cause;
     if ((e as Error).name === 'AxGenerateError' && cause instanceof Error) {
@@ -408,9 +412,11 @@ async function record(name: string, spec: Case): Promise<void> {
     fixture.expected_output = output;
   }
   if (error !== undefined) {
-    // Without an explicit substring, pin TypeScript's whole message.
-    const expected = spec.error_contains ?? error;
-    if (!error.includes(expected)) {
+    // Without an explicit substring, pin TypeScript's first line, or its
+    // whole message when asked.
+    const expected =
+      spec.error_contains ?? (spec.full_error ? errorMessage! : error);
+    if (!errorMessage!.includes(expected)) {
       throw new Error(`${name}: TS error "${error}" lacks "${expected}"`);
     }
     fixture.expected_error_contains = expected;
@@ -1447,6 +1453,45 @@ const cases: Record<string, Case> = {
     features: nativeFeatures,
     responses: [
       streamed(text('{"count":"7",'), text('"detail":{"note":"n"}}'), done()),
+    ],
+  },
+
+  // ----- the output an exhausted retry reports -----
+  // "Unable to fix validation error" ends with the last attempt's output,
+  // each sample's answer joined with "\n---\n", streamed or not.
+  'errors-exhausted-llm-output': {
+    kind: 'forward',
+    signature: 'question:string -> answer:string, score:number',
+    forward_options: { max_retries: 0 },
+    full_error: true,
+    responses: [{ results: [{ index: 0, content: 'Answer: x\nScore: nope' }] }],
+  },
+  'errors-streaming-exhausted-llm-output': {
+    signature: 'question:string -> answer:string, score:number',
+    forward_options: { max_retries: 0 },
+    full_error: true,
+    responses: [streamed(text('Answer: x\n'), done('Score: nope'))],
+  },
+  'errors-structured-exhausted-llm-output': {
+    kind: 'forward',
+    signature: 'question:string -> detail:object{ n:number }',
+    features: nativeFeatures,
+    forward_options: { max_retries: 0 },
+    full_error: true,
+    responses: [{ results: [{ index: 0, content: '{"detail":{"n":"x"}}' }] }],
+  },
+  'errors-multi-sample-exhausted-llm-output': {
+    kind: 'forward',
+    signature: 'question:string -> answer:string, score:number',
+    forward_options: { max_retries: 0, sample_count: 2 },
+    full_error: true,
+    responses: [
+      {
+        results: [
+          { index: 0, content: 'Answer: a\nScore: nope' },
+          { index: 1, content: 'Answer: b\nScore: 2' },
+        ],
+      },
     ],
   },
 

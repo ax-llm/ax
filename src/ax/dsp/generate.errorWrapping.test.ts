@@ -79,4 +79,46 @@ describe('AxGen error wrapping', () => {
       expect(error.message.startsWith(prefix)).toBe(true);
     }
   );
+
+  // Without streaming, the LLM Output section used to be empty.
+  it('ends exhausted retries with the last answer, without streaming too', async () => {
+    const gen = ax('question:string -> answer:string, score:number');
+
+    const error = await failure(() =>
+      gen.forward(
+        client(['Answer: x\nScore: nope']),
+        { question: 'q' },
+        { maxRetries: 0 }
+      )
+    );
+
+    expect(
+      error.message.endsWith('\n\nLLM Output:\nAnswer: x\nScore: nope')
+    ).toBe(true);
+    expect((error.cause as Error).message).toContain(
+      'LLM Output:\nAnswer: x\nScore: nope'
+    );
+  });
+
+  it('reports every sample of the last attempt, joined with ---', async () => {
+    const gen = ax('question:string -> answer:string, score:number');
+    const samples = new AxMockAIService<string>({
+      name: 'mock',
+      features: { functions: false, streaming: false },
+      chatResponse: async () => ({
+        results: [
+          { index: 0, content: 'Answer: a\nScore: nope', finishReason: 'stop' },
+          { index: 1, content: 'Answer: b\nScore: 2', finishReason: 'stop' },
+        ],
+      }),
+    });
+
+    const error = await failure(() =>
+      gen.forward(samples, { question: 'q' }, { maxRetries: 0, sampleCount: 2 })
+    );
+
+    expect(error.message).toContain(
+      'LLM Output:\nAnswer: a\nScore: nope\n---\nAnswer: b\nScore: 2'
+    );
+  });
 });

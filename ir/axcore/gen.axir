@@ -2541,8 +2541,14 @@ module @ax.gen version "0.1" {
       }
       %contents = core.list
       core.for %completion in %completions {
+        // A sample with no content (a tool call, or null) answered "".
         %content = core.get %completion["content"] default ""
-        core.append %contents, %content
+        %text = core.let ""
+        %has_content = core.call intrinsic.is_not_none(%content)
+        core.if %has_content {
+          %text = core.let %content
+        }
+        core.append %contents, %text
       }
       %joined = core.call intrinsic.string.join("\n---\n", %contents)
       core.return %joined
