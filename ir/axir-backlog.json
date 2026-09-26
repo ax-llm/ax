@@ -1947,7 +1947,7 @@
     },
     {
       "id": "axir-2026-09-26-parse-the-ports-text-contract-answers-with-typescript-s-extractv",
-      "status": "open",
+      "status": "done",
       "title": "Parse the ports' text-contract answers with TypeScript's extractValues",
       "createdAt": "2026-09-26",
       "sourcePR": null,
@@ -1964,13 +1964,13 @@
         "Update AxIR/Core or descriptor data to match the portable TS behavior.",
         "Run npm run axir:conformance:check and npm run test:axir."
       ],
-      "completedAt": null,
-      "completedByCommit": null,
-      "verification": null
+      "completedAt": "2026-09-26",
+      "completedByCommit": "a38b9a54e6d28874b5e6225a68fdfedc929f8f69",
+      "verification": "@parse_sample_outputs runs TypeScript's extractValues (@stream_text_extract_values_impl) on the text contract: unlabeled single field, Number() coercion, markdown and JSON lists, fenced code and JSON, null optionals, missed-field recovery and TypeScript's messages. The JSON-object fallback fires only for one JSON object whose keys are all declared output fields, with a one-time deprecation warning. TS-golden text-extract-* fixtures plus negative fallback fixtures (extra keys, non-object JSON, JSON inside text) pass in all five ports, and the key-subset guard is mutation-checked. npm run test:axir (verify release python/java/cpp/go/rust 1039/1039)."
     },
     {
       "id": "axir-2026-09-26-port-typescript-s-per-step-output-reset-and-monotonic-versions-t",
-      "status": "open",
+      "status": "done",
       "title": "Port TypeScript's per-step output reset and monotonic versions to the ports' forward and streaming",
       "createdAt": "2026-09-26",
       "sourcePR": null,
@@ -1986,9 +1986,9 @@
         "Update AxIR/Core or descriptor data to match the portable TS behavior.",
         "Run npm run axir:conformance:check and npm run test:axir."
       ],
-      "completedAt": null,
-      "completedByCommit": null,
-      "verification": null
+      "completedAt": "2026-09-26",
+      "completedByCommit": "a38b9a54e6d28874b5e6225a68fdfedc929f8f69",
+      "verification": "@streaming_forward follows TypeScript #720: a step after emitted output fields starts a new version, resets the committed values and re-sends the thought so far; validation and refusal retries start a new version and infrastructure retries resume the last yielded one, so versions never decrease. @forward's feedback step replaces the earlier step's fields and keeps the joined thought. TS-golden streaming-forward-* (step reset, infra retry mid-stream and after a validation retry, replayed prefix) and forward-feedback-processor* fixtures deep-equal the delta sequence and output in all five ports. npm run test:axir (verify release python/java/cpp/go/rust 1039/1039); live TS/Python/Go on gemini-3.5-flash-lite, gemini-3.8-flash and gpt-5.4-mini."
     },
     {
       "id": "axir-2026-09-26-return-an-empty-axgen-output-on-a-user-stop-function",

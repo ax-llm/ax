@@ -18,18 +18,6 @@ This ledger tracks portable TypeScript behavior that should be migrated into AxI
 
 ## Open
 
-- `axir-2026-09-26-parse-the-ports-text-contract-answers-with-typescript-s-extractv` [axgen] Parse the ports' text-contract answers with TypeScript's extractValues
-  - Status: open
-  - Source commit: `8a2e5f5f303a27d8c38b8d2a06e8a519f8a1f39d`
-  - TS paths: `src/ax/dsp/extract/streamingText.ts`, `src/ax/dsp/extract/fieldValue.ts`, `src/ax/dsp/response/nonStreaming.ts`
-  - Impact: The ports' forward parsed text-contract answers line by line: an unlabeled single-field answer, JavaScript Number() coercion, markdown lists, fenced code and JSON blocks, null for optional fields, missed-field recovery and TypeScript's validation messages were missing, and any JSON object was parsed as fields. Ports now run TypeScript's extractValues and keep a deprecated fallback only for one JSON object of declared output fields.
-  - Suggested AxIR work: Add or update the TS-derived conformance fixture.; Update AxIR/Core or descriptor data to match the portable TS behavior.; Run npm run axir:conformance:check and npm run test:axir.
-- `axir-2026-09-26-port-typescript-s-per-step-output-reset-and-monotonic-versions-t` [axgen] Port TypeScript's per-step output reset and monotonic versions to the ports' forward and streaming
-  - Status: open
-  - Source commit: `3cf10a6e022146b06dda420f5b2bd9227e1ad20f`
-  - TS paths: `src/ax/dsp/generate.ts`, `src/ax/dsp/generate.stepVersions.test.ts`
-  - Impact: TypeScript now starts a new delta version when a step follows emitted output fields, carrying the thought forward, and never lets versions decrease after validation or infrastructure retries. The ports' forward joins thought across steps but must also let a later step's fields replace an earlier step's, and their streaming op must yield the same versions and deltas.
-  - Suggested AxIR work: Add or update the TS-derived conformance fixture.; Update AxIR/Core or descriptor data to match the portable TS behavior.; Run npm run axir:conformance:check and npm run test:axir.
 - `axir-2026-09-26-yield-typescript-style-field-deltas-from-the-ports-axgen-streami` [axgen] Yield TypeScript-style field deltas from the ports' AxGen streaming APIs
   - Status: open
   - Source commit: `a14c26b0f960cd360472b778263b606cbdda09fd`
@@ -815,6 +803,24 @@ This ledger tracks portable TypeScript behavior that should be migrated into AxI
   - Completed at: 2026-09-26
   - Completed by: `5b9dad4b9bc9f3d265b75b35c0785c425525053b`
   - Verification: `fold_chat_response_stream folds stream chunks (content and thought append, thought blocks accumulate, function-call fragments merge by id) and complete_once in all five ports streams and folds a forward with stream: true; the stream-forward-* fixtures match a TypeScript probe. Python and Go conformance 966/966; npm run test --workspace=@ax-llm/ax, npm run axir:check-packages, npm run axir:conformance:check and npm run test:axir pass; mutation checks fail each rule; live on gemini-3.5-flash-lite and gemini-3.8-flash in TypeScript, Python and Go.`
+- `axir-2026-09-26-parse-the-ports-text-contract-answers-with-typescript-s-extractv` [axgen] Parse the ports' text-contract answers with TypeScript's extractValues
+  - Status: done
+  - Source commit: `8a2e5f5f303a27d8c38b8d2a06e8a519f8a1f39d`
+  - TS paths: `src/ax/dsp/extract/streamingText.ts`, `src/ax/dsp/extract/fieldValue.ts`, `src/ax/dsp/response/nonStreaming.ts`
+  - Impact: The ports' forward parsed text-contract answers line by line: an unlabeled single-field answer, JavaScript Number() coercion, markdown lists, fenced code and JSON blocks, null for optional fields, missed-field recovery and TypeScript's validation messages were missing, and any JSON object was parsed as fields. Ports now run TypeScript's extractValues and keep a deprecated fallback only for one JSON object of declared output fields.
+  - Suggested AxIR work: Add or update the TS-derived conformance fixture.; Update AxIR/Core or descriptor data to match the portable TS behavior.; Run npm run axir:conformance:check and npm run test:axir.
+  - Completed at: 2026-09-26
+  - Completed by: `a38b9a54e6d28874b5e6225a68fdfedc929f8f69`
+  - Verification: `@parse_sample_outputs runs TypeScript's extractValues (@stream_text_extract_values_impl) on the text contract: unlabeled single field, Number() coercion, markdown and JSON lists, fenced code and JSON, null optionals, missed-field recovery and TypeScript's messages. The JSON-object fallback fires only for one JSON object whose keys are all declared output fields, with a one-time deprecation warning. TS-golden text-extract-* fixtures plus negative fallback fixtures (extra keys, non-object JSON, JSON inside text) pass in all five ports, and the key-subset guard is mutation-checked. npm run test:axir (verify release python/java/cpp/go/rust 1039/1039).`
+- `axir-2026-09-26-port-typescript-s-per-step-output-reset-and-monotonic-versions-t` [axgen] Port TypeScript's per-step output reset and monotonic versions to the ports' forward and streaming
+  - Status: done
+  - Source commit: `3cf10a6e022146b06dda420f5b2bd9227e1ad20f`
+  - TS paths: `src/ax/dsp/generate.ts`, `src/ax/dsp/generate.stepVersions.test.ts`
+  - Impact: TypeScript now starts a new delta version when a step follows emitted output fields, carrying the thought forward, and never lets versions decrease after validation or infrastructure retries. The ports' forward joins thought across steps but must also let a later step's fields replace an earlier step's, and their streaming op must yield the same versions and deltas.
+  - Suggested AxIR work: Add or update the TS-derived conformance fixture.; Update AxIR/Core or descriptor data to match the portable TS behavior.; Run npm run axir:conformance:check and npm run test:axir.
+  - Completed at: 2026-09-26
+  - Completed by: `a38b9a54e6d28874b5e6225a68fdfedc929f8f69`
+  - Verification: `@streaming_forward follows TypeScript #720: a step after emitted output fields starts a new version, resets the committed values and re-sends the thought so far; validation and refusal retries start a new version and infrastructure retries resume the last yielded one, so versions never decrease. @forward's feedback step replaces the earlier step's fields and keeps the joined thought. TS-golden streaming-forward-* (step reset, infra retry mid-stream and after a validation retry, replayed prefix) and forward-feedback-processor* fixtures deep-equal the delta sequence and output in all five ports. npm run test:axir (verify release python/java/cpp/go/rust 1039/1039); live TS/Python/Go on gemini-3.5-flash-lite, gemini-3.8-flash and gpt-5.4-mini.`
 - `axir-2026-09-26-return-an-empty-axgen-output-on-a-user-stop-function` [axgen] Return an empty AxGen output on a user stop function
   - Status: done
   - Source commit: `aaf45800d6ea5337041ab120e1947fde480fccb0`
