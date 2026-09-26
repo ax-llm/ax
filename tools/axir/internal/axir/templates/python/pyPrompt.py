@@ -126,7 +126,7 @@ def _core_sorted_strings(values):
 
 
 def _core_json_pretty(value):
-    return json.dumps(value, indent=2)
+    return json.dumps(value, indent=2, ensure_ascii=False)
 
 
 def _core_template_error_message(context: str, source: str, index: int, message: str) -> str:
@@ -530,7 +530,8 @@ def _core_prompt_process_value(field, value):
         return value
     if field.type and field.type.name in ("image", "audio", "file", "url") and isinstance(value, dict):
         return value
-    return json.dumps(value, indent=2)
+    # JSON.stringify(value, null, 2): non-ASCII text stays UTF-8.
+    return json.dumps(value, indent=2, ensure_ascii=False)
 
 
 def _core_prompt_default_render_in_field(field, value):

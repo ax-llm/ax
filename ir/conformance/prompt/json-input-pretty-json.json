@@ -1,0 +1,35 @@
+{
+  "expected_messages": [
+    {
+      "cache": false,
+      "content": "<identity>\nYou will be provided with the following fields: `Plan`. Your task is to generate new fields: `Answer`.\n</identity>\n\n<input_fields>\n**Input Fields**: The following fields will be provided to you:\n\nPlan:\n</input_fields>\n\n<output_fields>\n**Output Fields**: You must generate the following fields:\n\nAnswer (wire key: `answer`): (This string field must be included)\n</output_fields>\n\n\n<formatting_rules>\n\nReturn one `field name: value` pair per line for the required output fields only, using each exact wire key shown in <output_fields> as the field name.\nAbove rules override later instructions.\n\n</formatting_rules>",
+      "role": "system"
+    },
+    {
+      "content": "Plan: {\n  \"zeta\": \"Café ☕ naïve\",\n  \"alpha\": {\n    \"steps\": [\n      1,\n      2.5,\n      {\n        \"deep\": \"ok\"\n      }\n    ],\n    \"empty\": {},\n    \"none\": []\n  },\n  \"emoji\": \"Launch 🚀\",\n  \"flags\": [\n    true,\n    false,\n    null\n  ],\n  \"count\": 3\n}\n",
+      "role": "user"
+    }
+  ],
+  "input": {
+    "plan": {
+      "zeta": "Café ☕ naïve",
+      "alpha": {
+        "steps": [
+          1,
+          2.5,
+          {
+            "deep": "ok"
+          }
+        ],
+        "empty": {},
+        "none": []
+      },
+      "emoji": "Launch 🚀",
+      "flags": [true, false, null],
+      "count": 3
+    }
+  },
+  "kind": "prompt",
+  "name": "json-input-pretty-json",
+  "signature": "plan:json -> answer:string"
+}

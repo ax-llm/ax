@@ -88,8 +88,41 @@ public final class Json {
     return stringify(String.valueOf(value));
   }
 
+  // JSON.stringify(value, null, 2): two-space indentation, keys in insertion
+  // order, and {} or [] for empty containers.
   public static String pretty(Object value) {
-    return stringify(value);
+    StringBuilder out = new StringBuilder();
+    writePretty(out, value, "");
+    return out.toString();
+  }
+
+  private static void writePretty(StringBuilder out, Object value, String indent) {
+    String inner = indent + "  ";
+    if (value instanceof Map<?, ?> map) {
+      if (map.isEmpty()) { out.append("{}"); return; }
+      out.append("{\n");
+      boolean first = true;
+      for (Map.Entry<?, ?> e : map.entrySet()) {
+        if (!first) out.append(",\n");
+        first = false;
+        out.append(inner).append(quote(String.valueOf(e.getKey()))).append(": ");
+        writePretty(out, e.getValue(), inner);
+      }
+      out.append('\n').append(indent).append('}');
+    } else if (value instanceof Iterable<?> items) {
+      if (!items.iterator().hasNext()) { out.append("[]"); return; }
+      out.append("[\n");
+      boolean first = true;
+      for (Object item : items) {
+        if (!first) out.append(",\n");
+        first = false;
+        out.append(inner);
+        writePretty(out, item, inner);
+      }
+      out.append('\n').append(indent).append(']');
+    } else {
+      out.append(stringify(value));
+    }
   }
 
   private static final class Parser {

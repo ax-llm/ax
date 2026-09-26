@@ -17,20 +17,26 @@ const outDir = join(
   'ir/conformance/prompt'
 );
 
-function stable(value: unknown, parentKey = ''): unknown {
+// Input values keep their key order: prompts render object values in insertion
+// order, so sorting them would no longer match the golden.
+function stable(value: unknown, parentKey = '', keepOrder = false): unknown {
   if (Array.isArray(value)) {
-    return value.map((item) => stable(item, parentKey));
+    return value.map((item) => stable(item, parentKey, keepOrder));
   }
   if (value && typeof value === 'object') {
     const entries = Object.entries(value as Record<string, unknown>);
     const ordered =
+      keepOrder ||
       parentKey === 'inputs' ||
       parentKey === 'outputs' ||
       parentKey === 'fields'
         ? entries
         : entries.sort(([a], [b]) => a.localeCompare(b));
     return Object.fromEntries(
-      ordered.map(([key, item]) => [key, stable(item, key)])
+      ordered.map(([key, item]) => [
+        key,
+        stable(item, key, keepOrder || key === 'input'),
+      ])
     );
   }
   return value;
@@ -408,3 +414,16 @@ stringPrompt(
   'ticket:string -> analysis:object{ urgent:boolean(true "Core task blocked"), teams:class[] "support, billing"(billing "Invoices") }',
   { ticket: 'Checkout is down' }
 );
+
+// Object input values render as JSON.stringify(value, null, 2): two-space
+// indentation, keys in insertion order, {} and [] for empty containers, and
+// non-ASCII text (including non-BMP emoji) as UTF-8 rather than \u escapes.
+stringPrompt('json-input-pretty-json', 'plan:json -> answer:string', {
+  plan: {
+    zeta: 'Café ☕ naïve',
+    alpha: { steps: [1, 2.5, { deep: 'ok' }], empty: {}, none: [] },
+    emoji: 'Launch 🚀',
+    flags: [true, false, null],
+    count: 3,
+  },
+});

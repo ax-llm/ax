@@ -1913,17 +1913,80 @@ func _core_json_pretty(value Value) Value {
 	return prettyJSONText(value)
 }
 
-// prettyJSONText indents a value as JSON for prompts, without the "__order"
-// lists and without escaping <, > and & as json.MarshalIndent does.
+// prettyJSONText renders a value for prompts as JSON.stringify(value, null, 2)
+// does: two-space indentation, keys in insertion order, {} and [] for empty
+// containers, and strings escaped as on the wire.
 func prettyJSONText(value Value) string {
-	var out bytes.Buffer
-	encoder := json.NewEncoder(&out)
-	encoder.SetEscapeHTML(false)
-	encoder.SetIndent("", "  ")
-	if encoder.Encode(runtimeJSONValue(value)) != nil {
-		return ""
+	var b strings.Builder
+	writePrettyJSON(&b, value, "")
+	return b.String()
+}
+
+func writePrettyJSON(b *strings.Builder, value Value, indent string) {
+	inner := indent + "  "
+	switch v := value.(type) {
+	case map[string]Value:
+		keys := orderedKeys(v)
+		if len(keys) == 0 {
+			b.WriteString("{}")
+			return
+		}
+		b.WriteString("{\n")
+		for i, key := range keys {
+			if i > 0 {
+				b.WriteString(",\n")
+			}
+			b.WriteString(inner)
+			writeJSONString(b, key)
+			b.WriteString(": ")
+			writePrettyJSON(b, v[key], inner)
+		}
+		b.WriteString("\n" + indent + "}")
+	case []Value:
+		if len(v) == 0 {
+			b.WriteString("[]")
+			return
+		}
+		b.WriteString("[\n")
+		for i, item := range v {
+			if i > 0 {
+				b.WriteString(",\n")
+			}
+			b.WriteString(inner)
+			writePrettyJSON(b, item, inner)
+		}
+		b.WriteString("\n" + indent + "]")
+	case *AxArray:
+		writePrettyJSON(b, asSlice(v), indent)
+	case float64:
+		b.WriteString(jsNumberText(v))
+	case nil, string, bool, int, int64, json.Number:
+		writeOrderedJSON(b, v)
+	default:
+		writePrettyJSON(b, plainJSONValue(v), indent)
 	}
-	return strings.TrimSuffix(out.String(), "\n")
+}
+
+// jsNumberText formats a number as JSON.stringify (and encoding/json) does:
+// plain decimals from 1e-6 up to 1e21, exponent form outside that range, and
+// null for NaN and the infinities.
+func jsNumberText(f float64) string {
+	if math.IsNaN(f) || math.IsInf(f, 0) {
+		return "null"
+	}
+	if f == 0 {
+		return "0"
+	}
+	format := byte('f')
+	if abs := math.Abs(f); abs < 1e-6 || abs >= 1e21 {
+		format = 'e'
+	}
+	text := strconv.FormatFloat(f, format, -1, 64)
+	// JavaScript writes 1e-7 where Go writes 1e-07.
+	if n := len(text); format == 'e' && n >= 4 && text[n-4] == 'e' && text[n-3] == '-' && text[n-2] == '0' {
+		text = text[:n-2] + text[n-1:]
+	}
+	return text
 }
 
 // Higher-level host intrinsics. Most defer to Core-emitted helpers or target objects.

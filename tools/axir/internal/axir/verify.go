@@ -54,6 +54,7 @@ type VerifyStep struct {
 }
 
 func Verify(rootFile string, opts VerifyOptions) (VerifyReport, error) {
+	rootFile = absoluteRootFile(rootFile)
 	targets := normalizeVerifyTargets(opts.Targets)
 	mode, err := normalizeVerifyMode(opts.Mode)
 	if err != nil {
@@ -479,6 +480,9 @@ func verifyGoTarget(report VerifyTargetReport, conformanceRoot string) (VerifyTa
 	if err := runVerifyCommand(&report, "conformance", report.OutDir, env, goTool, args...); err != nil {
 		return report, err
 	}
+	if err := requireConformanceFixtures(&report); err != nil {
+		return report, err
+	}
 	if report.releaseMode() {
 		if err := verifyGoPackageSmoke(&report, goTool); err != nil {
 			return report, err
@@ -575,6 +579,9 @@ func verifyRustTarget(report VerifyTargetReport, conformanceRoot string) (Verify
 	if err := runCargoVerifyCommand(&report, "conformance", report.OutDir, env, cargo, args...); err != nil {
 		return report, err
 	}
+	if err := requireConformanceFixtures(&report); err != nil {
+		return report, err
+	}
 	if report.releaseMode() {
 		if err := verifyRustPackageSmoke(&report, cargo); err != nil {
 			return report, err
@@ -616,6 +623,48 @@ fn main() -> AxResult<()> {
 		return err
 	}
 	return runCargoVerifyCommand(report, "package rust consumer", consumerDir, scrubbedEnviron(), cargo, "run", "--quiet", "--manifest-path", filepath.Join(consumerDir, "Cargo.toml"))
+}
+
+// absoluteRootFile resolves a relative root file against the working directory.
+// Targets run their conformance from their generated package directories, so a
+// relative root would hand those runs suite paths that do not exist there.
+func absoluteRootFile(rootFile string) string {
+	if abs, err := filepath.Abs(rootFile); err == nil {
+		return abs
+	}
+	return rootFile
+}
+
+// requireConformanceFixtures fails a target whose conformance step ran no
+// fixtures. Every runner prints one "ok <name>" line per fixture, and a runner
+// given suite paths that do not exist exits 0 without checking anything.
+func requireConformanceFixtures(report *VerifyTargetReport) error {
+	start := report.startStep("conformance fixtures")
+	ran := 0
+	for index := len(report.Steps) - 1; index >= 0; index-- {
+		if report.Steps[index].Name == "conformance" {
+			ran = countConformanceFixtures(report.Steps[index].Message)
+			break
+		}
+	}
+	if ran == 0 {
+		message := "conformance ran 0 fixtures; check that the conformance root exists"
+		report.finishStep("conformance fixtures", "fail", message, start)
+		return fmt.Errorf("conformance fixtures failed: %s", message)
+	}
+	report.finishStep("conformance fixtures", "ok", fmt.Sprintf("%d fixtures", ran), start)
+	return nil
+}
+
+// countConformanceFixtures counts the "ok <name>" lines a runner prints.
+func countConformanceFixtures(output string) int {
+	count := 0
+	for _, line := range strings.Split(output, "\n") {
+		if strings.HasPrefix(strings.TrimSpace(line), "ok ") {
+			count++
+		}
+	}
+	return count
 }
 
 func conformanceRootFor(rootFile string) string {
@@ -726,6 +775,9 @@ func verifyPythonTarget(report VerifyTargetReport, conformanceRoot string) (Veri
 	}
 	args := append([]string{"-m", "axllm.conformance"}, conformanceSuitePaths(conformanceRoot)...)
 	if err := runVerifyCommand(&report, "conformance", "", env, python, args...); err != nil {
+		return report, err
+	}
+	if err := requireConformanceFixtures(&report); err != nil {
 		return report, err
 	}
 	if report.releaseMode() {
@@ -874,6 +926,9 @@ func verifyJavaTarget(report VerifyTargetReport, conformanceRoot string) (Verify
 	}
 	args = append([]string{"-cp", report.OutDir, "dev.axllm.ax.Conformance"}, conformanceSuitePaths(conformanceRoot)...)
 	if err := runVerifyCommand(&report, "conformance", "", nil, java, args...); err != nil {
+		return report, err
+	}
+	if err := requireConformanceFixtures(&report); err != nil {
 		return report, err
 	}
 	if report.releaseMode() {
@@ -1307,6 +1362,9 @@ func verifyCppTarget(report VerifyTargetReport, conformanceRoot string) (VerifyT
 	}
 	args := append([]string{}, conformanceSuitePaths(conformanceRoot)...)
 	if err := runVerifyCommand(&report, "conformance", "", nil, conformanceBin, args...); err != nil {
+		return report, err
+	}
+	if err := requireConformanceFixtures(&report); err != nil {
 		return report, err
 	}
 	if report.releaseMode() {

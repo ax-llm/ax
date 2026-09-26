@@ -1232,7 +1232,7 @@ def _core_string_str(value):
 def _core_axgen_value_text(value):
     if isinstance(value, str):
         return value
-    return json.dumps(value, sort_keys=True)
+    return json.dumps(value, sort_keys=True, ensure_ascii=False)
 
 
 def _core_axgen_fields_for(gen, kind):
