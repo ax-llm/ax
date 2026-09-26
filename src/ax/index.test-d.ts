@@ -577,3 +577,30 @@ const responsesConfigMaxEffort: AxAIOpenAIResponsesConfig<
   string
 >['reasoningEffort'] = 'max';
 void responsesConfigMaxEffort;
+
+// === Deprecated responseFormatWithFunctions stays source-compatible ===
+// 24.0.22-24.0.23 exposed this flag; it is ignored since 24.0.24 but code
+// that sets it must keep compiling until the next major.
+import type { AxAIFeatures } from './ai/base.js';
+import type { AxMockAIServiceConfig } from './ai/mock/api.js';
+
+const deprecatedFeatures: AxAIFeatures = {
+  functions: true,
+  streaming: true,
+  media: {
+    images: { supported: false, formats: [] },
+    audio: { supported: false, formats: [] },
+    files: { supported: false, formats: [], uploadMethod: 'none' },
+    urls: { supported: false, webSearch: false, contextFetching: false },
+  },
+  caching: { supported: false, types: [] },
+  thinking: false,
+  multiTurn: true,
+  responseFormatWithFunctions: false,
+};
+void deprecatedFeatures;
+
+const deprecatedMockConfig: AxMockAIServiceConfig<string> = {
+  features: { functions: true, responseFormatWithFunctions: false },
+};
+void deprecatedMockConfig;
