@@ -78,6 +78,9 @@ var goConformance string
 //go:embed templates/go/goErrorBoundaryTest.go.txt
 var goErrorBoundaryTest string
 
+//go:embed templates/go/goOrderedValuesTest.go.txt
+var goOrderedValuesTest string
+
 //go:embed templates/go/goMod.mod
 var goMod string
 

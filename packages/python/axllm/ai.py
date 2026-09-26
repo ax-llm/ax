@@ -576,7 +576,10 @@ class AxUnsupportedCapabilityError(AxAIServiceError):
 def ai(provider: str = "openai", **options):
     resolved = provider_resolve_profile(provider or "openai")
     if not resolved.get("known"):
-        raise ValueError(f"unsupported AxAI provider: {provider}")
+        if isinstance(provider, str):
+            raise ValueError(f"unsupported AxAI provider: {provider}")
+        # Name only the type: a config dict passed by mistake carries its apiKey.
+        raise ValueError(f"unsupported AxAI provider: expected a provider name, got {type(provider).__name__}")
     canonical = resolved.get("id")
     descriptor = provider_descriptor(canonical)
     transport = descriptor.get("transport")

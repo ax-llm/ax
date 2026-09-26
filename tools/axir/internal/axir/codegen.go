@@ -417,6 +417,7 @@ func EmitGo(model AxRuntimeModel, outDir string) error {
 		"typesafe_mcp_test.go":              goTypesafeMCPTest,
 		"session_test.go":                   goSessionTest,
 		"errors_test.go":                    goErrorBoundaryTest,
+		"ordered_values_test.go":            goOrderedValuesTest,
 		"runtime/goja/goja.go":              renderRuntimeHostNamespaces(goGojaRuntime),
 		"runtime/goja/goja_test.go":         goGojaRuntimeTest,
 		"axir-capabilities.json":            mustCapabilityManifest(model, "go"),
