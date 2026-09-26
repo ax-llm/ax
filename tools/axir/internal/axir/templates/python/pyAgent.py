@@ -2184,12 +2184,12 @@ def _core_list_get(values, index, default=None):
 
 def _core_json_stringify(value):
     import json
-    return json.dumps(value, sort_keys=True, separators=(",", ":"))
+    return json.dumps(value, sort_keys=True, separators=(",", ":"), ensure_ascii=False)
 
 
 def _core_json_stable_stringify(value):
     import json
-    return json.dumps(value, sort_keys=True, separators=(",", ":"))
+    return json.dumps(value, sort_keys=True, separators=(",", ":"), ensure_ascii=False)
 
 
 def _core_json_parse(value):

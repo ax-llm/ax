@@ -23,7 +23,7 @@ public final class Json {
 
   public static String stringify(Object value) {
     if (value == null) return "null";
-    if (value instanceof String s) return "\"" + s.replace("\\", "\\\\").replace("\"", "\\\"").replace("\n", "\\n") + "\"";
+    if (value instanceof String s) return quote(s);
     if (value instanceof Number number) return numberString(number);
     if (value instanceof Boolean) return String.valueOf(value);
     if (value instanceof Map<?, ?> map) {
@@ -37,6 +37,30 @@ public final class Json {
       return "[" + String.join(",", parts) + "]";
     }
     return stringify(String.valueOf(value));
+  }
+
+  // JSON string (RFC 8259): the quote, the backslash and U+0000-U+001F are escaped
+  // (\b \f \n \r \t, other controls as a backslash-u00XX escape); every other
+  // character is written as is.
+  private static String quote(String s) {
+    StringBuilder out = new StringBuilder(s.length() + 2).append('"');
+    for (int i = 0; i < s.length(); i++) {
+      char c = s.charAt(i);
+      switch (c) {
+        case '"' -> out.append("\\\"");
+        case '\\' -> out.append("\\\\");
+        case '\b' -> out.append("\\b");
+        case '\f' -> out.append("\\f");
+        case '\n' -> out.append("\\n");
+        case '\r' -> out.append("\\r");
+        case '\t' -> out.append("\\t");
+        default -> {
+          if (c < 0x20) out.append(String.format("\\u%04x", (int) c));
+          else out.append(c);
+        }
+      }
+    }
+    return out.append('"').toString();
   }
 
   private static String numberString(Number number) {
@@ -106,6 +130,8 @@ public final class Json {
           if (e == 'n') c = '\n';
           else if (e == 't') c = '\t';
           else if (e == 'r') c = '\r';
+          else if (e == 'b') c = '\b';
+          else if (e == 'f') c = '\f';
           else if (e == 'u' && pos + 4 <= src.length()) {
             c = (char) Integer.parseInt(src.substring(pos, pos + 4), 16);
             pos += 4;

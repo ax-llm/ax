@@ -20,6 +20,7 @@ import (
 	"reflect"
 	"regexp"
  "unicode/utf16"
+ "unicode/utf8"
 	"sort"
 	"strconv"
 	"strings"
@@ -955,12 +956,59 @@ func stableStringify(value Value) string {
 	return b.String()
 }
 
+// writeJSONString writes s as a JSON string (RFC 8259): the quote, the backslash
+// and U+0000-U+001F are escaped (\b \f \n \r \t, else \u00XX), everything else
+// is written as UTF-8, and invalid UTF-8 bytes become U+FFFD. strconv.Quote
+// would write Go escapes such as \x01, \a and \v, which are not JSON.
+func writeJSONString(b *strings.Builder, s string) {
+	const hexDigits = "0123456789abcdef"
+	b.WriteByte('"')
+	for i := 0; i < len(s); {
+		c := s[i]
+		if c >= utf8.RuneSelf {
+			r, size := utf8.DecodeRuneInString(s[i:])
+			if r == utf8.RuneError && size == 1 {
+				b.WriteRune(utf8.RuneError)
+			} else {
+				b.WriteString(s[i : i+size])
+			}
+			i += size
+			continue
+		}
+		switch c {
+		case '"', '\\':
+			b.WriteByte('\\')
+			b.WriteByte(c)
+		case '\b':
+			b.WriteString(`\b`)
+		case '\f':
+			b.WriteString(`\f`)
+		case '\n':
+			b.WriteString(`\n`)
+		case '\r':
+			b.WriteString(`\r`)
+		case '\t':
+			b.WriteString(`\t`)
+		default:
+			if c < 0x20 {
+				b.WriteString(`\u00`)
+				b.WriteByte(hexDigits[c>>4])
+				b.WriteByte(hexDigits[c&0xf])
+			} else {
+				b.WriteByte(c)
+			}
+		}
+		i++
+	}
+	b.WriteByte('"')
+}
+
 func writeStableJSON(b *strings.Builder, value Value) {
 	switch v := value.(type) {
 	case nil:
 		b.WriteString("null")
 	case string:
-		b.WriteString(strconv.Quote(v))
+		writeJSONString(b, v)
 	case bool:
 		if v {
 			b.WriteString("true")
@@ -996,7 +1044,7 @@ func writeStableJSON(b *strings.Builder, value Value) {
 				b.WriteByte(',')
 			}
 			first = false
-			b.WriteString(strconv.Quote(key))
+			writeJSONString(b, key)
 			b.WriteByte(':')
 			writeStableJSON(b, v[key])
 		}
@@ -1033,7 +1081,7 @@ func writeOrderedJSON(b *strings.Builder, value Value) {
 	case nil:
 		b.WriteString("null")
 	case string:
-		b.WriteString(strconv.Quote(v))
+		writeJSONString(b, v)
 	case bool:
 		if v {
 			b.WriteString("true")
@@ -1069,7 +1117,7 @@ func writeOrderedJSON(b *strings.Builder, value Value) {
 				b.WriteByte(',')
 			}
 			first = false
-			b.WriteString(strconv.Quote(key))
+			writeJSONString(b, key)
 			b.WriteByte(':')
 			writeOrderedJSON(b, v[key])
 		}
@@ -2743,12 +2791,17 @@ func (f AxCredentialProviderFunc) Credentials(ctx context.Context, request AxCre
 	return f(ctx, request)
 }
 
+// wireJSONBody is the JSON the HTTP and MCP transports send for a payload.
+func wireJSONBody(payload Value) []byte {
+	return []byte(stableStringify(payload))
+}
+
 func (t HTTPTransport) Call(ctx context.Context, request Value) (Value, error) {
 	req := asMap(request)
 	var body []byte
 	multipartContentType := ""
 	if _, ok := req["json"]; ok {
-		body = []byte(stableStringify(coreGet(req, "json", Object())))
+		body = wireJSONBody(coreGet(req, "json", Object()))
 	} else if _, ok := req["data"]; ok {
 		body, multipartContentType = encodeMultipart(asMap(coreGet(req, "data", Object())))
 	}
@@ -2792,7 +2845,7 @@ func (t HTTPTransport) Call(ctx context.Context, request Value) (Value, error) {
 
 func (t HTTPTransport) Stream(ctx context.Context, request Value) (AxHTTPStreamResponse, error) {
 	req := asMap(request)
-	body := []byte(stableStringify(coreGet(req, "json", Object())))
+	body := wireJSONBody(coreGet(req, "json", Object()))
 	httpReq, err := http.NewRequestWithContext(ctx, display(coreGet(req, "method", "POST")), display(req["url"]), bytes.NewReader(body))
 	if err != nil {
 		return AxHTTPStreamResponse{}, err
@@ -11538,7 +11591,8 @@ func assertTransportRequest(fixture map[string]Value, transport *ScriptedTranspo
 	expectedRequests := asSlice(coreGet(fixture, "expected_transport_requests", Array()))
 	expectedCredentialRequests := coreGet(fixture, "expected_credential_requests", nil)
 	expectedCount := coreGet(fixture, "expected_transport_request_count", nil)
-	if expected == nil && len(expectedAbsent) == 0 && len(expectedRequests) == 0 && expectedCredentialRequests == nil && expectedCount == nil {
+	expectedWire := coreIter(coreGet(fixture, "expected_transport_wire_json_contains", Array()))
+	if expected == nil && len(expectedAbsent) == 0 && len(expectedRequests) == 0 && expectedCredentialRequests == nil && expectedCount == nil && len(expectedWire) == 0 {
 		return
 	}
 	if expectedCount != nil && len(transport.Requests) != int(num(expectedCount)) {
@@ -11553,7 +11607,7 @@ func assertTransportRequest(fixture map[string]Value, transport *ScriptedTranspo
 		}
 		assertSubset(transport.Requests[index], expectedRequest, fmt.Sprintf("transport request %d", index))
 	}
-	if expected == nil && len(expectedAbsent) == 0 {
+	if expected == nil && len(expectedAbsent) == 0 && len(expectedWire) == 0 {
 		return
 	}
 	if len(transport.Requests) == 0 {
@@ -11567,6 +11621,27 @@ func assertTransportRequest(fixture map[string]Value, transport *ScriptedTranspo
 		key := display(rawKey)
 		if jsonPathExists(requestJSON, key) {
 			panic(AxError{Category: "fixture", Message: "provider request json unexpectedly contained " + key})
+		}
+	}
+	if len(expectedWire) > 0 {
+		assertWireJSON(coreGet(asMap(transport.Requests[0]), "json", Object()), expectedWire)
+	}
+}
+
+// assertWireJSON encodes a recorded request payload as the transports send it
+// and checks the bytes: strict JSON, a lossless round trip, and each fragment.
+func assertWireJSON(payload Value, fragments []Value) {
+	body := wireJSONBody(payload)
+	if !json.Valid(body) {
+		panic(AxError{Category: "fixture", Message: "wire JSON is not valid JSON: " + string(body)})
+	}
+	var decoded any
+	if err := json.Unmarshal(body, &decoded); err != nil || !equal(decoded, payload) {
+		panic(AxError{Category: "fixture", Message: "wire JSON does not round-trip: " + string(body)})
+	}
+	for _, fragment := range fragments {
+		if !strings.Contains(string(body), display(fragment)) {
+			panic(AxError{Category: "fixture", Message: "wire JSON missing " + strconv.Quote(display(fragment)) + ": " + string(body)})
 		}
 	}
 }
