@@ -15436,6 +15436,7 @@ fn expect_error_category(err: &AxError, fixture: &Value) -> AxResult<()> {
     Ok(())
 }
 
+
 fn render_fixture_template(template: &str, vars: &Value) -> AxResult<String> {
     let rendered = render_template_content(&[CoreValue::from(template), core_value_from_json(vars)])?;
     Ok(rendered.text())
@@ -15792,6 +15793,9 @@ fn run_streaming_forward_fixture(fixture: &Value) -> AxResult<()> {
             if !expected.is_some_and(|expected| error.message.contains(expected)) {
                 return Err(error);
             }
+            // expected_error_cause_contains is not checked: AxError gains its
+            // cause (and source()) in the next major version, since a new
+            // public field would break struct literals now.
             expect_json_equal("streaming deltas before the error", &actual_deltas, &expected_deltas)?;
         }
         Ok(output) => {
@@ -15904,6 +15908,8 @@ fn run_simple_forward_fixture(fixture: &Value) -> AxResult<()> {
     } else {
         program.forward(&mut client, input)
     };
+    // expected_error_cause_contains is not checked: AxError gains its cause
+    // (and source()) in the next major version.
     if fixture.get("expected_error_contains").is_some() {
         expect_validation_result(result.map(|_| ()), fixture)?;
         if let Some(expected) = fixture.get("expected_request_count").and_then(Value::as_u64) {
@@ -19985,6 +19991,18 @@ fn core_exception_message(args: &[CoreValue]) -> Result<CoreValue, AxError> {
     )))
 }
 
+// The same error with a new message, whose text includes the original's. It
+// keeps its category, type, status, code, retryability and response body, so
+// existing handlers still match it. TS wraps it in AxGenerateError with the
+// original as its cause; the Rust AxError gains a cause, source() and
+// #[non_exhaustive] in the next major version.
+#[allow(dead_code)]
+fn core_exception_rewrap(args: &[CoreValue]) -> Result<CoreValue, AxError> {
+    let mut wrapped = core_as_error(&core_arg(args, 0));
+    wrapped.message = core_arg(args, 1).text();
+    Ok(CoreValue::Error(Rc::new(wrapped)))
+}
+
 #[allow(dead_code)]
 fn core_exception_is_aborted(args: &[CoreValue]) -> Result<CoreValue, AxError> {
     let aborted = match core_arg(args, 0) {
@@ -20016,6 +20034,65 @@ fn core_exception_is_refusal(args: &[CoreValue]) -> Result<CoreValue, AxError> {
         CoreValue::Error(error) if error.error_type.as_deref() == Some("AxAIRefusalError")
     );
     Ok(CoreValue::Bool(refusal))
+}
+
+#[cfg(test)]
+mod exception_rewrap_tests {
+    use super::*;
+
+    fn rewrap(error: &AxError, message: &str) -> AxError {
+        let wrapped = core_exception_rewrap(&[CoreValue::Error(Rc::new(error.clone())), CoreValue::from(message)])
+            .expect("rewrap returns an error value");
+        assert!(matches!(wrapped, CoreValue::Error(_)));
+        core_as_error(&wrapped)
+    }
+
+    // A rewrapped error keeps its kind and category, so existing handlers
+    // still match it, and only its message changes.
+    #[test]
+    fn rewrap_keeps_kind_and_category() {
+        let mut refusal = AxError::new("ai_service", "Model refused the request");
+        refusal.error_type = Some("AxAIRefusalError".into());
+        refusal.status = Some(400);
+        refusal.code = Some("refusal".into());
+        refusal.response_body = Some(json!({"reason": "policy"}));
+
+        let unfixed = rewrap(&refusal, "Unable to fix validation error: Model refused the request");
+        let failed = rewrap(&unfixed, "Generate failed: Unable to fix validation error: Model refused the request");
+        for wrapped in [&unfixed, &failed] {
+            assert_eq!(wrapped.category, "ai_service");
+            assert_eq!(wrapped.error_type.as_deref(), Some("AxAIRefusalError"));
+            assert_eq!(wrapped.status, Some(400));
+            assert_eq!(wrapped.code.as_deref(), Some("refusal"));
+            assert!(!wrapped.retryable);
+            assert_eq!(wrapped.response_body, Some(json!({"reason": "policy"})));
+            let classified = core_exception_is_refusal(&[CoreValue::Error(Rc::new(wrapped.clone()))]).unwrap();
+            assert_eq!(classified, CoreValue::Bool(true));
+        }
+        assert_eq!(failed.to_string(), "Generate failed: Unable to fix validation error: Model refused the request");
+        assert!(failed.source().is_none());
+    }
+
+    // A forward that exhausts its validation retries fails with "Generate
+    // failed: Unable to fix validation error: ..." of the validation
+    // category, with the last validation error and the last output in its
+    // message.
+    #[test]
+    fn exhausted_forward_error_keeps_category() {
+        let mut program = AxGen::new("question:string -> count:number").expect("signature parses");
+        program.options = json!({"max_retries": 1});
+        let mut client = FixtureClient::scripted(
+            vec![
+                json!({"results": [{"index": 0, "content": "Count: many"}]}),
+                json!({"results": [{"index": 0, "content": "Count: lots"}]}),
+            ],
+            router_default_features(),
+        );
+        let error = program.forward(&mut client, json!({"question": "How many?"})).expect_err("retries run out");
+        assert_eq!(error.category, "validation");
+        assert!(error.message.starts_with("Generate failed: Unable to fix validation error: Field 'Count' has an invalid value 'lots'"));
+        assert!(error.message.ends_with("LLM Output:\nCount: lots"));
+    }
 }
 
 #[allow(dead_code)]

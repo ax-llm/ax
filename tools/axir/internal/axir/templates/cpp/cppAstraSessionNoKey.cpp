@@ -2,6 +2,7 @@
 #include "axllm/mcp.hpp"
 #include <iostream>
 #include <future>
+#include <typeinfo>
 using namespace axllm;
 struct Gate {
   std::mutex mutex;std::condition_variable ready;bool started=false,released=false;std::atomic<int> calls{0};
@@ -599,10 +600,29 @@ static void mcp_http_context_cancellation(){
 static void mcp_http_context_cancellation(){}
 #endif
 
+// "Generate failed: Unable to fix validation error: ..." rewraps twice: each
+// error keeps the AxError class, category, type and fields of the one it wraps
+// and chains it as its cause, also after a catch.
+static void rewrapped_error_cause(){
+  Value refusal=Core::ai_error_refusal("No answer",object({{"reason","policy"}}));
+  Value failed=Core::exception_rewrap(Core::exception_rewrap(refusal,"Unable to fix validation error: No answer"),"Generate failed: Unable to fix validation error: No answer");
+  try{Core::raise_error(failed);}catch(const AxError& error){
+    const AxError* unfixed=error.cause();const AxError* root=unfixed?unfixed->cause():nullptr;
+    if(!root||root->cause()||std::string(error.what())!="Generate failed: Unable to fix validation error: No answer"||std::string(unfixed->what())!="Unable to fix validation error: No answer"||std::string(root->what())!="No answer")throw std::runtime_error("Rewrapped error lost its cause chain");
+    for(const AxError* link:{&error,unfixed,root})if(typeid(*link)!=typeid(AxError)||link->category!="ai"||link->type!="AxAIRefusalError"||stringify(link->response_body)!="{\"reason\":\"policy\"}")throw std::runtime_error("Rewrapped error changed its class, category or fields");
+    Value caught=Core::exception_value(error);
+    if(!Core::truthy(Core::exception_is_refusal(caught))||display(Core::exception_message(Core::get(Core::get(caught,"cause"),"cause")))!="No answer")throw std::runtime_error("Caught rewrapped error lost its cause");
+  }
+  try{Core::raise_error(Core::exception_rewrap(Value("plain"),"Generate failed: plain"));}catch(const AxError& error){
+    if(error.category!="runtime"||!error.cause()||std::string(error.cause()->what())!="plain")throw std::runtime_error("Rewrapped plain value lost its cause");
+  }
+}
+
 int main(int argc,char** argv){
   Value original=object({{"a",1}});Value copied=Core::map_merge(original,Value::object());
   Core::set(copied,"z",2);Core::set(original,"b",3);Core::set(original,"z",4);
   if(stringify(Value(Core::iter(original)))!="[\"a\",\"b\",\"z\"]"||stringify(Value(Core::iter(copied)))!="[\"a\",\"z\"]")throw std::runtime_error("Copied map insertion order leaked");
+  rewrapped_error_cause();
   mcp_http_context_cancellation();
   owned_child_controls();
   owned_flow_failure();
