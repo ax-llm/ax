@@ -33,6 +33,11 @@ import {
   AxAIServiceStatusError,
   AxAIServiceTimeoutError,
 } from '../../../src/ax/util/apicall.js';
+import {
+  goldenValue,
+  NumberLiteral,
+  restoreNumberLiterals,
+} from './number-literals.js';
 
 type Json = null | boolean | number | string | Json[] | { [key: string]: Json };
 type Fixture = Record<string, Json>;
@@ -43,6 +48,7 @@ const outDir = join(
 );
 
 function stable(value: unknown, preserveOrder = false): unknown {
+  if (value instanceof NumberLiteral) return value;
   if (Array.isArray(value))
     return value.map((item) => stable(item, preserveOrder));
   if (value && typeof value === 'object') {
@@ -61,7 +67,7 @@ function stable(value: unknown, preserveOrder = false): unknown {
 function writeFixture(name: string, fixture: Fixture): void {
   writeFileSync(
     join(outDir, `${name}.json`),
-    `${JSON.stringify(stable({ name, ...fixture }), null, 2)}\n`
+    `${restoreNumberLiterals(JSON.stringify(stable({ name, ...fixture }), null, 2))}\n`
   );
 }
 
@@ -12404,4 +12410,107 @@ writeFixture('openai-wire-json-control-characters', {
     JSON.stringify(wireJSONText),
     JSON.stringify(JSON.stringify({ q: wireJSONText })),
   ],
+});
+
+// Wire JSON numbers as TS JSON.stringify writes them (Number's toString):
+// shortest round-trip digits, integral values without ".0", exponent form only
+// below 1e-6 and from 1e21 up, and -0 as 0. The numbers sit in a tool schema,
+// which goes into the body as is, and in tool-call args, which OpenAI takes as
+// a JSON string, so there they are encoded twice. The literals keep 2.0, -0.0,
+// 1e16 and 1.152921504606847e18 floats in the runners' JSON parsers. The
+// needles must appear in the body TS itself sends.
+const wireNumbers = [
+  0,
+  new NumberLiteral('-0.0'),
+  new NumberLiteral('2.0'),
+  2.5,
+  -1234.56789,
+  1234.56789,
+  12345678.9,
+  0.30000000000000004,
+  0.0001,
+  0.00001,
+  0.000001,
+  1e-7,
+  1.5e-7,
+  5e-324,
+  new NumberLiteral('1e16'),
+  9007199254740994,
+  new NumberLiteral('1.152921504606847e18'),
+  123456789012345680000,
+  1e21,
+  1.7976931348623157e308,
+];
+const wireNumbersRequest = {
+  chat_prompt: [
+    { role: 'user', content: 'Record the numbers' },
+    {
+      role: 'assistant',
+      functionCalls: [
+        {
+          id: 'call-1',
+          type: 'function',
+          function: { name: 'record', params: { n: wireNumbers } },
+        },
+      ],
+    },
+    { role: 'function', functionId: 'call-1', result: 'recorded' },
+  ],
+  functions: [
+    {
+      name: 'record',
+      description: 'Record numbers',
+      parameters: {
+        type: 'object',
+        properties: {
+          n: { type: 'array', items: { type: 'number' }, default: wireNumbers },
+        },
+        required: ['n'],
+      },
+    },
+  ],
+  model_config: { stream: false },
+};
+const wireNumbersResponse = compatibleResponse(
+  'chatcmpl_wire_numbers',
+  AxAIOpenAIModel.GPT54Mini
+);
+const wireNumbersGolden = goldenValue(wireNumbersRequest);
+let wireNumbersBody = '';
+await new AxAIOpenAI({
+  name: 'openai',
+  apiKey: 'test-key',
+  config: { model: AxAIOpenAIModel.GPT54Mini },
+  options: {
+    fetch: async (_url: unknown, init?: RequestInit) => {
+      wireNumbersBody = String(init?.body);
+      return Response.json(wireNumbersResponse.json);
+    },
+  },
+} as any).chat({
+  chatPrompt: wireNumbersGolden.chat_prompt,
+  functions: wireNumbersGolden.functions,
+  modelConfig: wireNumbersGolden.model_config,
+} as any);
+const wireNumberNeedles = [
+  `"default":${JSON.stringify(goldenValue(wireNumbers))}`,
+  JSON.stringify(JSON.stringify({ n: goldenValue(wireNumbers) })),
+];
+for (const needle of wireNumberNeedles) {
+  if (!wireNumbersBody.includes(needle)) {
+    throw new Error(`TS wire JSON lacks ${needle}: ${wireNumbersBody}`);
+  }
+}
+writeFixture('openai-wire-json-numbers', {
+  kind: 'ai_chat',
+  provider: 'openai',
+  model: AxAIOpenAIModel.GPT54Mini,
+  request: wireNumbersRequest as unknown as Json,
+  transport_responses: [wireNumbersResponse],
+  expected_output: compatibleExpectedOutput(
+    'openai',
+    'chatcmpl_wire_numbers',
+    AxAIOpenAIModel.GPT54Mini
+  ),
+  expected_transport_wire_json_contains: wireNumberNeedles,
 });

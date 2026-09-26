@@ -7,6 +7,11 @@ import {
 } from '../../../src/ax/agent/templateEngine.js';
 import { AxPromptTemplate } from '../../../src/ax/dsp/prompt.js';
 import { AxSignature, f, fn } from '../../../src/ax/dsp/sig.js';
+import {
+  goldenValue,
+  NumberLiteral,
+  restoreNumberLiterals,
+} from './number-literals.js';
 
 type Json = null | boolean | number | string | Json[] | { [key: string]: Json };
 
@@ -20,6 +25,7 @@ const outDir = join(
 // Input values keep their key order: prompts render object values in insertion
 // order, so sorting them would no longer match the golden.
 function stable(value: unknown, parentKey = '', keepOrder = false): unknown {
+  if (value instanceof NumberLiteral) return value;
   if (Array.isArray(value)) {
     return value.map((item) => stable(item, parentKey, keepOrder));
   }
@@ -45,7 +51,7 @@ function stable(value: unknown, parentKey = '', keepOrder = false): unknown {
 function writeFixture(name: string, fixture: Fixture): void {
   writeFileSync(
     join(outDir, `${name}.json`),
-    `${JSON.stringify(stable({ name, ...fixture }), null, 2)}\n`
+    `${restoreNumberLiterals(JSON.stringify(stable({ name, ...fixture }), null, 2))}\n`
   );
 }
 
@@ -76,7 +82,7 @@ function stringPrompt(
       ? { options: fixtureOptions as Json }
       : {}),
     ...extra,
-    expected_messages: promptMessages(sig, input, options),
+    expected_messages: promptMessages(sig, goldenValue(input), options),
   });
 }
 
@@ -426,4 +432,95 @@ stringPrompt('json-input-pretty-json', 'plan:json -> answer:string', {
     flags: [true, false, null],
     count: 3,
   },
+});
+
+// Numbers in prompt JSON render as JSON.stringify writes them (Number's
+// toString): shortest round-trip digits, integral values without ".0",
+// exponent form only below 1e-6 and from 1e21 up (1e-7, 1e+21), and -0 as 0.
+// Top-level number fields render the same way. The literals keep 2.0, -0.0,
+// 1e16 and 1.152921504606847e18 as floats in the runners' JSON parsers.
+stringPrompt(
+  'json-input-number-format',
+  'plan:json, budget:number -> answer:string',
+  {
+    plan: {
+      values: [
+        0,
+        new NumberLiteral('-0.0'),
+        new NumberLiteral('2.0'),
+        2.5,
+        -1234.56789,
+        1234.56789,
+        12345678.9,
+        0.30000000000000004,
+        0.0001,
+        0.00001,
+        0.000001,
+        1e-7,
+        1.5e-7,
+        5e-324,
+        new NumberLiteral('1e16'),
+        9007199254740994,
+        new NumberLiteral('1.152921504606847e18'),
+        123456789012345680000,
+        1e21,
+        1.7976931348623157e308,
+      ],
+    },
+    budget: 12345678.9,
+  }
+);
+
+// String(x) and JSON.stringify(x) for numbers each runner parses from `input`
+// with its own float parser. That reaches values a JSON fixture cannot hold:
+// NaN and the infinities (JSON null, String "NaN" / "Infinity") and -0 ("0").
+// Runners check `string` against their string.str intrinsic and `json`
+// against every JSON encoder they use (compact, key-sorted, pretty, wire).
+const numberFormatInputs = [
+  '0',
+  '-0',
+  '2',
+  '2.0',
+  '-2',
+  '2.5',
+  '0.1',
+  '0.30000000000000004',
+  '4.35',
+  '100',
+  '1234.56789',
+  '-1234.56789',
+  '12345678.9',
+  '0.0001',
+  '0.00001',
+  '0.000001',
+  '0.0000015',
+  '1e-7',
+  '1.5e-7',
+  '-1e-7',
+  '1.2345678901234567e-7',
+  '123e-20',
+  '1e16',
+  '1e20',
+  '9.999999999999999e20',
+  '1e21',
+  '-1e21',
+  '1.5e21',
+  '123456789012345680000',
+  '9007199254740993',
+  '9007199254740994',
+  '1152921504606846976',
+  '5e-324',
+  '2.2250738585072014e-308',
+  '1.7976931348623157e308',
+  '1e300',
+  'NaN',
+  'Infinity',
+  '-Infinity',
+];
+writeFixture('number-format-cases', {
+  kind: 'number_format',
+  cases: numberFormatInputs.map((input) => {
+    const value = Number(input);
+    return { input, string: String(value), json: JSON.stringify(value) };
+  }),
 });

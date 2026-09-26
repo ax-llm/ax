@@ -4,6 +4,7 @@ import os
 import copy
 import re
 from typing import Any
+from .signature import _js_number_text
 from .signature import (
     _signature_describe_field_values_impl,
 )
@@ -167,7 +168,8 @@ def _core_string_lower(value):
 
 
 def _core_string_format(template, *args):
-    return str(template).format(*args)
+    # "{}" takes String(x): a float two is "2", 1e-7 is "1e-7".
+    return str(template).format(*(_js_number_text(arg) if isinstance(arg, float) else arg for arg in args))
 
 
 def _core_description_append(base, hint):

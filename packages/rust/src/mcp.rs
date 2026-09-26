@@ -1,4 +1,6 @@
-use crate::{tool, AxCancellationToken, AxError, AxResult, AxToolContext, Tool};
+use crate::{
+    js_json_string, tool, AxCancellationToken, AxError, AxResult, AxToolContext, JsJsonBody, Tool,
+};
 use serde_json::{json, Map, Value};
 use std::collections::{HashMap, HashSet};
 use std::fs::File;
@@ -4615,7 +4617,7 @@ impl AxMCPTransport for AxMCPStreamableHTTPTransport {
         let mut request = client
             .post(&self.endpoint)
             .header("Accept", "application/json, text/event-stream")
-            .json(&message);
+            .js_json(&message);
         let method = message
             .get("method")
             .and_then(Value::as_str)
@@ -4817,7 +4819,7 @@ impl AxMCPTransport for AxMCPStreamableHTTPTransport {
                                                 let mut post = client
                                                     .post(&endpoint)
                                                     .header("Content-Type", "application/json")
-                                                    .json(&response);
+                                                    .js_json(&response);
                                                 for (key, value) in &headers {
                                                     if let Some(text) = value.as_str() {
                                                         post = post.header(key, text)
@@ -4880,7 +4882,7 @@ impl AxMCPTransport for AxMCPStreamableHTTPTransport {
         let request_handler = self.request_handler.clone();
         let lifecycle = self.lifecycle_handler.clone();
         self.listen_thread = Some(thread::spawn(move || {
-            let mut request = client.post(&endpoint).json(&message);
+            let mut request = client.post(&endpoint).js_json(&message);
             for (key, value) in &headers {
                 if let Some(text) = value.as_str() {
                     request = request.header(key, text)
@@ -4907,7 +4909,7 @@ impl AxMCPTransport for AxMCPStreamableHTTPTransport {
                                             let mut post = client
                                                 .post(&endpoint)
                                                 .header("Content-Type", "application/json")
-                                                .json(&response);
+                                                .js_json(&response);
                                             for (key, value) in &headers {
                                                 if let Some(text) = value.as_str() {
                                                     post = post.header(key, text)
@@ -5187,7 +5189,7 @@ impl AxMCPTransport for AxMCPScriptedTransport {
 }
 
 pub fn ax_mcp_stdio_encode(message: &Value) -> AxResult<String> {
-    Ok(format!("{}\n", serde_json::to_string(message)?))
+    Ok(format!("{}\n", js_json_string(message)))
 }
 pub fn ax_mcp_stdio_decode(line: &str) -> AxResult<Value> {
     Ok(serde_json::from_str(line.trim())?)

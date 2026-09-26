@@ -253,7 +253,7 @@ fn session_http_stream(call: Value, cancelled: &AtomicBool, sender: &mpsc::Sende
         if let Some(headers) = call["headers"].as_object() {
             for (key,value) in headers { request = request.header(key.as_str(),value.as_str().unwrap_or("")); }
         }
-        let Some(mut response) = session_http_wait(request.json(&call["json"]).send(),cancelled).await? else { return Ok(()); };
+        let Some(mut response) = session_http_wait(request.js_json(&call["json"]).send(),cancelled).await? else { return Ok(()); };
         let status = response.status().as_u16();
         if status >= 400 {
             let Some(bytes) = session_http_wait(response.bytes(),cancelled).await? else { return Ok(()); };

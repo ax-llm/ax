@@ -4,7 +4,7 @@ import os
 import json
 import re
 from typing import Any
-from .signature import _signature_describe_field_values_impl, _signature_nested_value_descriptions_impl
+from .signature import _js_json_dumps, _js_number_text, _signature_describe_field_values_impl, _signature_nested_value_descriptions_impl
 
 
 PROMPT_FEATURES = {
@@ -93,7 +93,8 @@ def _core_get(target, key, default=None):
 
 
 def _core_string_format(template, *args):
-    return str(template).format(*args)
+    # "{}" takes String(x): a float two is "2", 1e-7 is "1e-7".
+    return str(template).format(*(_js_number_text(arg) if isinstance(arg, float) else arg for arg in args))
 
 
 def _core_string_join(sep, values):
@@ -125,7 +126,7 @@ def _core_sorted_strings(values):
 
 
 def _core_json_pretty(value):
-    return json.dumps(value, indent=2, ensure_ascii=False)
+    return _js_json_dumps(value, indent=2)
 
 
 def _core_template_error_message(context: str, source: str, index: int, message: str) -> str:
@@ -470,7 +471,7 @@ def _core_prompt_output_fields_section(signature) -> str:
     shape = ""
     if _core_prompt_has_complex_fields(signature):
         value = {field.name: _core_prompt_output_type_placeholder(field.type) for field in output_fields}
-        shape = "\n\n**Exact JSON shape**: " + BT + json.dumps(value, separators=(",", ":")) + BT
+        shape = "\n\n**Exact JSON shape**: " + BT + _js_json_dumps(value) + BT
     return "**Output Fields**: You must generate the following fields:\n\n" + fields + shape
 
 
@@ -529,8 +530,9 @@ def _core_prompt_process_value(field, value):
         return value
     if field.type and field.type.name in ("image", "audio", "file", "url") and isinstance(value, dict):
         return value
-    # JSON.stringify(value, null, 2): non-ASCII text stays UTF-8.
-    return json.dumps(value, indent=2, ensure_ascii=False)
+    # JSON.stringify(value, null, 2): non-ASCII text stays UTF-8 and numbers
+    # read as JavaScript writes them.
+    return _js_json_dumps(value, indent=2)
 
 
 def _core_prompt_default_render_in_field(field, value):

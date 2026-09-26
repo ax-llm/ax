@@ -2,28 +2,43 @@ package main
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
+	"strings"
 
 	ax "github.com/ax-llm/ax/packages/go"
 )
 
 // scriptedClient stands in for a real provider so this example runs without a
 // key. Swap it for ax.NewAI("openai", ...) to grow a playbook against a live
-// model. The canned JSON satisfies the bound program AND the playbook's internal
-// reflector/curator sub-programs, so the full ACE loop is exercised offline.
+// model. Each program answers in its own output format, chosen by the output
+// wire keys in its prompt: the bound program, then the playbook's reflector and
+// curator, so the full ACE loop is exercised offline.
 type scriptedClient struct{}
 
-func (c *scriptedClient) Chat(context.Context, map[string]ax.Value, map[string]ax.Value) (ax.Value, error) {
-	content := "{" +
-		"\"answer\":\"Ax composes typed LLM programs.\"," +
-		"\"reasoning\":\"The playbook lacked a brevity rule.\"," +
-		"\"errorIdentification\":\"Answer was too verbose.\"," +
-		"\"rootCauseAnalysis\":\"No guidance on conciseness.\"," +
-		"\"correctApproach\":\"Add a concise-answer guideline.\"," +
-		"\"keyInsight\":\"Prefer one-sentence answers.\"," +
-		"\"bulletTags\":[]," +
-		"\"operations\":[{\"type\":\"ADD\",\"section\":\"Guidelines\",\"content\":\"Answer in one concise sentence.\"}]" +
-		"}"
+func outputs(request map[string]ax.Value, key string) bool {
+	prompt, _ := json.Marshal(request["chat_prompt"])
+	return strings.Contains(string(prompt), "(wire key: `"+key+"`)")
+}
+
+func (c *scriptedClient) Chat(_ context.Context, request map[string]ax.Value, _ map[string]ax.Value) (ax.Value, error) {
+	content := "Answer: Ax composes typed LLM programs."
+	switch {
+	case outputs(request, "errorIdentification"):
+		content = strings.Join([]string{
+			"Reasoning: The playbook lacked a brevity rule.",
+			"Error Identification: Answer was too verbose.",
+			"Root Cause Analysis: No guidance on conciseness.",
+			"Correct Approach: Add a concise-answer guideline.",
+			"Key Insight: Prefer one-sentence answers.",
+			"Bullet Tags: []",
+		}, "\n")
+	case outputs(request, "operations"):
+		content = strings.Join([]string{
+			"Reasoning: The playbook lacked a brevity rule.",
+			`Operations: [{"type": "ADD", "section": "Guidelines", "content": "Answer in one concise sentence."}]`,
+		}, "\n")
+	}
 	return ax.Object("results", ax.Array(ax.Object("content", content))), nil
 }
 
@@ -67,6 +82,9 @@ func main() {
 	stateMap, _ := pb.ToJSON().(map[string]ax.Value)
 	if _, ok := stateMap["playbook"]; !ok {
 		panic(fmt.Sprintf("missing playbook: %v", stateMap))
+	}
+	if !strings.Contains(rendered, "Answer in one concise sentence.") {
+		panic(fmt.Sprintf("playbook did not grow: %q", rendered))
 	}
 	fmt.Println("rendered:", rendered)
 	fmt.Println("go-ace-playbook-ok")

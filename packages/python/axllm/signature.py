@@ -12,6 +12,132 @@ class AxSignatureError(ValueError):
     pass
 
 
+# JSON text as JavaScript's JSON.stringify writes it, shared by prompts, wire
+# bodies and the json.* intrinsics. json.dumps differs in its numbers: it writes
+# 2.0 for a float two, switches to exponents at 1e16 and 1e-5 (as 1e+16 and
+# 1e-05), and writes NaN and Infinity, which are not JSON.
+
+# JSON string escaping as json.dumps(ensure_ascii=False) does it (C-accelerated).
+_json_encode_string = json.encoder.encode_basestring
+
+
+def _js_number_text(value) -> str:
+    """A float as JavaScript's String(x) writes it (Number.prototype.toString):
+    repr's shortest round-trip digits, plain decimals from 1e-6 up to 1e21,
+    exponent form outside that range (1e-7, 1.5e+21), 0 for -0.0, and NaN,
+    Infinity or -Infinity."""
+    value = float(value)
+    if value != value:
+        return "NaN"
+    if value in (float("inf"), float("-inf")):
+        return "Infinity" if value > 0 else "-Infinity"
+    if value == 0:
+        return "0"
+    text = repr(value)
+    if "e" not in text:
+        # repr writes plain decimals from 1e-4 up to 1e16, where JavaScript
+        # does too; only an integral value's ".0" differs.
+        return text[:-2] if text.endswith(".0") else text
+    mantissa, _, exponent = repr(abs(value)).partition("e")
+    whole, _, fraction = mantissa.partition(".")
+    digits = (whole + fraction).lstrip("0")
+    # digits read as 0.ddd x 10^point
+    point = len(whole) + int(exponent or 0) - (len(whole + fraction) - len(digits))
+    digits = digits.rstrip("0")
+    count = len(digits)
+    if count <= point <= 21:
+        text = digits + "0" * (point - count)
+    elif 0 < point <= 21:
+        text = digits[:point] + "." + digits[point:]
+    elif -6 < point <= 0:
+        text = "0." + "0" * -point + digits
+    else:
+        power = point - 1
+        text = digits[0] + ("." + digits[1:] if count > 1 else "") + ("e+" if power >= 0 else "e-") + str(abs(power))
+    return "-" + text if value < 0 else text
+
+
+def _js_json_number(value) -> str:
+    """JSON.stringify's number: _js_number_text, or null for NaN and the
+    infinities."""
+    text = _js_number_text(value)
+    return "null" if text in ("NaN", "Infinity", "-Infinity") else text
+
+
+def _js_json_key(key) -> str:
+    if isinstance(key, str):
+        return key
+    if key is True or key is False or key is None:
+        return {True: "true", False: "false", None: "null"}[key]
+    if isinstance(key, int):
+        return int.__repr__(key)
+    if isinstance(key, float):
+        return _js_number_text(key)
+    raise TypeError(f"keys must be str, int, float, bool or None, not {type(key).__name__}")
+
+
+def _js_json_dumps(value, indent: int | None = None, sort_keys: bool = False, default=None, separators: tuple[str, str] | None = None) -> str:
+    """json.dumps(value, ensure_ascii=False) with JavaScript's output: compact
+    separators by default (JSON.stringify(value)), `indent`-space lines as
+    JSON.stringify(value, null, indent) writes them, floats as
+    _js_json_number, and NaN or Infinity as null. Ints keep their exact digits;
+    dict keys convert and sort, and `default` and `separators` work, as in
+    json.dumps."""
+    out: list[str] = []
+    active: set[int] = set()
+    item_separator, key_separator = separators or ((",", ":") if indent is None else (",", ": "))
+
+    def write(item, prefix: str) -> None:
+        if isinstance(item, str):
+            out.append(_json_encode_string(item))
+        elif item is None:
+            out.append("null")
+        elif item is True:
+            out.append("true")
+        elif item is False:
+            out.append("false")
+        elif isinstance(item, int):
+            out.append(int.__repr__(item))
+        elif isinstance(item, float):
+            out.append(_js_json_number(item))
+        elif isinstance(item, (dict, list, tuple)):
+            marker = id(item)
+            if marker in active:
+                raise ValueError("Circular reference detected")
+            active.add(marker)
+            inner = prefix + " " * indent if indent is not None else ""
+            if isinstance(item, dict):
+                entries = sorted(item.items(), key=lambda entry: entry[0]) if sort_keys else list(item.items())
+                opening, closing = "{", "}"
+            else:
+                entries = [(None, element) for element in item]
+                opening, closing = "[", "]"
+            if not entries:
+                out.append(opening + closing)
+            else:
+                out.append(opening)
+                for index, (key, element) in enumerate(entries):
+                    if index:
+                        out.append(item_separator)
+                    if indent is not None:
+                        out.append("\n" + inner)
+                    if opening == "{":
+                        out.append(_json_encode_string(_js_json_key(key)))
+                        out.append(key_separator)
+                    write(element, inner)
+                if indent is not None:
+                    out.append("\n" + prefix)
+                out.append(closing)
+            active.discard(marker)
+        elif default is not None:
+            write(default(item), prefix)
+        else:
+            raise TypeError(f"Object of type {type(item).__name__} is not JSON serializable")
+
+    write(value, "")
+    return "".join(out)
+
+
 VALID_FIELD_TYPES = {
     "audio",
     "boolean",
@@ -366,7 +492,8 @@ def _core_regex_match(pattern, value):
 
 
 def _core_string_format(template, *args):
-    return str(template).format(*args)
+    # "{}" takes String(x): a float two is "2", 1e-7 is "1e-7".
+    return str(template).format(*(_js_number_text(arg) if isinstance(arg, float) else arg for arg in args))
 
 
 def _core_string_join(sep, values):

@@ -119,6 +119,24 @@ func TestFlowMermaidCrossLanguageParity(t *testing.T) {
 	}
 }
 
+// TestNumberFormatCrossLanguageParity keeps prompt/number-format-cases.json
+// dispatched by every runner: it is the only fixture that reaches NaN, the
+// infinities and -0, which a JSON fixture cannot hold.
+func TestNumberFormatCrossLanguageParity(t *testing.T) {
+	dispatch := map[string]struct{ source, marker string }{
+		"go":     {goRuntime + goConformance, `case "number_format":`},
+		"cpp":    {cppConformance, `kind == "number_format"`},
+		"java":   {javaConformance, `case "number_format" ->`},
+		"rust":   {rustLib, `"number_format" => run_number_format_fixture`},
+		"python": {pyConformance, `kind == "number_format"`},
+	}
+	for language, entry := range dispatch {
+		if !strings.Contains(entry.source, entry.marker) {
+			t.Errorf("DRIFT: number_format fixtures are not dispatched by the %s runner", language)
+		}
+	}
+}
+
 // TestAgentPublicAPIParity is the G9 gate: cross-language public-API parity for AxAgent.
 //
 // The Rust agent shipped without optimize()/playbook(), and Go without optimize(), because no
@@ -2820,6 +2838,10 @@ func TestPromptConformanceFixturesLoad(t *testing.T) {
 			if _, ok := fixture["expected_result"]; !ok {
 				t.Fatalf("%s missing expected_result", file)
 			}
+		case "number_format":
+			if cases, ok := fixture["cases"].([]any); !ok || len(cases) == 0 {
+				t.Fatalf("%s missing cases", file)
+			}
 		default:
 			t.Fatalf("%s has unknown prompt kind %v", file, fixture["kind"])
 		}
@@ -3102,6 +3124,12 @@ func TestAxOptimizeConformanceFixturesLoad(t *testing.T) {
 		case "verification":
 			if _, ok := fixture["expected_output"]; !ok {
 				t.Fatalf("%s missing expected_output", file)
+			}
+		case "playbook-evolve":
+			for _, key := range []string{"responses", "teacher_responses", "expected_playbook"} {
+				if _, ok := fixture[key]; !ok {
+					t.Fatalf("%s missing %s", file, key)
+				}
 			}
 		default:
 			t.Fatalf("%s has unknown axoptimize operation %v", file, fixture["operation"])
