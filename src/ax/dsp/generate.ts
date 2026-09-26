@@ -139,6 +139,21 @@ import {
 } from './validators.js';
 
 const axSessionOutputVersion = Symbol('ax.sessionOutputVersion');
+
+// Forward options the AxGen constructor sets as defaults for every call: a
+// value the call gives wins. modelConfig merges key by key.
+const constructorDefaultOptionKeys = [
+  'model',
+  'sampleCount',
+  'showThoughts',
+  'thinkingTokenBudget',
+  'stepHooks',
+  'onFunctionCall',
+  'disableMemoryCleanup',
+  'selfTuning',
+  'asyncMode',
+  'resultPicker',
+] as const;
 const STRUCTURED_OUTPUT_FUNCTION_NAME = '__axOutput';
 const LEGACY_STRUCTURED_OUTPUT_FUNCTION_NAME = '__finalResult';
 
@@ -509,7 +524,7 @@ export class AxGen<IN = any, OUT extends AxGenOut = any>
   private async renderPromptWithMetricsForInternalUse(
     ai: Readonly<AxAIService>,
     values: IN,
-    options?: Readonly<
+    callOptions?: Readonly<
       Partial<Omit<AxProgramForwardOptions<any>, 'functions'>>
     >,
     functionsOverride?: AxFunction[]
@@ -517,6 +532,7 @@ export class AxGen<IN = any, OUT extends AxGenOut = any>
     prompt: AxChatRequest['chatPrompt'];
     promptMetrics?: AxPromptMetrics;
   }> {
+    const options = this.withConstructorDefaults(callOptions);
     const promptTemplateClass =
       options?.promptTemplate ??
       this.options?.promptTemplate ??
@@ -714,6 +730,29 @@ export class AxGen<IN = any, OUT extends AxGenOut = any>
       options
     );
     return promptMetrics!;
+  }
+
+  private withConstructorDefaults<O extends object | undefined>(
+    callOptions: O
+  ): O {
+    const defaults = this.options as Record<string, unknown> | undefined;
+    if (!defaults) return callOptions;
+    const call = (callOptions ?? {}) as Record<string, unknown>;
+    let merged: Record<string, unknown> | undefined;
+    for (const key of constructorDefaultOptionKeys) {
+      if (call[key] === undefined && defaults[key] !== undefined) {
+        merged ??= { ...call };
+        merged[key] = defaults[key];
+      }
+    }
+    if (defaults.modelConfig !== undefined) {
+      merged ??= { ...call };
+      merged.modelConfig = {
+        ...(defaults.modelConfig as object),
+        ...(call.modelConfig as object | undefined),
+      };
+    }
+    return (merged ?? callOptions) as O;
   }
 
   private getSignatureName(): string {
@@ -3161,8 +3200,9 @@ export class AxGen<IN = any, OUT extends AxGenOut = any>
   public async *_forward1(
     ai: Readonly<AxAIService>,
     values: IN,
-    options: Readonly<AxProgramForwardOptions<any>>
+    callOptions: Readonly<AxProgramForwardOptions<any>>
   ): AxGenStreamingOut<OUT> {
+    const options = this.withConstructorDefaults(callOptions);
     this.validateInputs(values);
 
     const inheritedHookFrame = axGetRuntimeHookFrame(options);
@@ -3454,8 +3494,9 @@ export class AxGen<IN = any, OUT extends AxGenOut = any>
   public async forward<T extends Readonly<AxAIService>>(
     ai: T,
     values: IN,
-    options?: Readonly<AxProgramForwardOptionsWithModels<T>>
+    callOptions?: Readonly<AxProgramForwardOptionsWithModels<T>>
   ): Promise<OUT> {
+    const options = this.withConstructorDefaults(callOptions);
     // Caching pre-check: if cachingFunction provided and returns a value, short-circuit
     const cachingFunction =
       options?.cachingFunction ??
@@ -3634,8 +3675,9 @@ export class AxGen<IN = any, OUT extends AxGenOut = any>
   async *streamingForward<T extends Readonly<AxAIService>>(
     ai: T,
     values: IN,
-    options?: Readonly<AxProgramStreamingForwardOptionsWithModels<T>>
+    callOptions?: Readonly<AxProgramStreamingForwardOptionsWithModels<T>>
   ): AxGenStreamingOut<OUT> {
+    const options = this.withConstructorDefaults(callOptions);
     // Caching pre-check for streaming
     const cachingFunction =
       options?.cachingFunction ??
