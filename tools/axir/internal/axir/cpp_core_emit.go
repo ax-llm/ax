@@ -376,6 +376,7 @@ var coreIntrinsicCpp = map[CoreIntrinsic]string{
 	IntrinsicAIClientFeatures:          "Core::ai_client_features",
 	IntrinsicRetrySleep:                "Core::retry_sleep",
 	IntrinsicExceptionMessage:          "Core::exception_message",
+	IntrinsicExceptionRewrap:           "Core::exception_rewrap",
 	IntrinsicRuntimeError:              "Core::runtime_error",
 	IntrinsicJSONParse:                 "Core::json_parse",
 	IntrinsicJSONParseStrict:           "Core::json_parse_strict",

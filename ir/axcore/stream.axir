@@ -3405,6 +3405,9 @@ module @ax.stream version "0.1" {
           core.if %has_returned {
             %message = core.let %returned
           }
+          // Marked so the attempt can tell an exhausted streaming assertion,
+          // which TS surfaces as it is, from other exhausted retries.
+          core.set %xstate["assertion_failed"] = true
           %error = core.call intrinsic.error.validation(%message)
           core.raise %error
         }

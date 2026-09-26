@@ -832,11 +832,13 @@ module @ax.gen version "0.1" {
             %refused = core.call intrinsic.exception.is_refusal(%completion_error)
             %not_refused = core.call intrinsic.not(%refused)
             core.if %not_refused {
-              core.raise %completion_error
+              %provider_failure = core.call @generate_failed_impl(%completion_error)
+              core.raise %provider_failure
             }
             %refusal_retries_exhausted = core.call intrinsic.gte(%attempt, %validation_retries)
             core.if %refusal_retries_exhausted {
-              core.raise %completion_error
+              %refusal_failure = core.call @unable_to_fix_impl(%completion_error, "")
+              core.raise %refusal_failure
             }
             %refusal_next_attempt = core.call intrinsic.add(%attempt, 1)
             %attempt = core.let %refusal_next_attempt
@@ -877,7 +879,9 @@ module @ax.gen version "0.1" {
             } catch %structured_validation_error {
               %structured_retries_exhausted = core.call intrinsic.gte(%attempt, %validation_retries)
               core.if %structured_retries_exhausted {
-                core.raise %structured_validation_error
+                %structured_output_text = core.call @attempt_output_impl(%response)
+                %structured_exhausted = core.call @unable_to_fix_impl(%structured_validation_error, %structured_output_text)
+                core.raise %structured_exhausted
               }
               %structured_next_attempt = core.call intrinsic.add(%attempt, 1)
               %attempt = core.let %structured_next_attempt
@@ -889,7 +893,8 @@ module @ax.gen version "0.1" {
             }
             // Only a non-retryable assertion failure leaves the try without
             // returning; it surfaces without a retry.
-            core.raise %structured_failure
+            %structured_fatal = core.call @generate_failed_impl(%structured_failure)
+            core.raise %structured_fatal
           }
           %updated_messages = core.call @append_tool_call_messages_impl(%messages, %response, %calls)
           %messages = core.let %updated_messages
@@ -937,7 +942,9 @@ module @ax.gen version "0.1" {
           } catch %validation_error {
             %retries_exhausted = core.call intrinsic.gte(%attempt, %validation_retries)
             core.if %retries_exhausted {
-              core.raise %validation_error
+              %output_text = core.call @attempt_output_impl(%response)
+              %validation_exhausted = core.call @unable_to_fix_impl(%validation_error, %output_text)
+              core.raise %validation_exhausted
             }
             %next_attempt = core.call intrinsic.add(%attempt, 1)
             %attempt = core.let %next_attempt
@@ -950,7 +957,16 @@ module @ax.gen version "0.1" {
           %assertion_failure = core.get %parsed_bundle["assertion_failure"]
           %assertion_failed = core.call intrinsic.is_not_none(%assertion_failure)
           core.if %assertion_failed {
-            core.raise %assertion_failure
+            %assertion_fatal = core.call @generate_failed_impl(%assertion_failure)
+            core.raise %assertion_fatal
+          }
+          // As in TS, an answer cut off by the token limit fails the forward
+          // after its outputs parse, processors and assertions run.
+          %length_failure = core.call @max_tokens_error_impl(%response)
+          %length_failed = core.call intrinsic.is_not_none(%length_failure)
+          core.if %length_failed {
+            %length_fatal = core.call @generate_failed_impl(%length_failure)
+            core.raise %length_fatal
           }
           %empty_feedback = core.list
           %feedback = core.get %parsed_bundle["feedback"] default %empty_feedback
@@ -2120,7 +2136,10 @@ module @ax.gen version "0.1" {
                   }
                   core.if %hit_length {
                     %stage = core.let "fatal"
-                    %length_error = core.call intrinsic.error.runtime("Max tokens reached before completion")
+                    %length_so_far = core.get %state["content"] default ""
+                    %length_content = core.call intrinsic.add(%length_so_far, %result_content)
+                    %length_message = core.call intrinsic.add("Max tokens reached before completion\nContent: ", %length_content)
+                    %length_error = core.call intrinsic.error.runtime(%length_message)
                     core.raise %length_error
                   }
                   %content_deltas = core.call @stream_chunk_content_impl(%gen, %config, %state, %result)
@@ -2230,7 +2249,8 @@ module @ax.gen version "0.1" {
               }
               %is_fatal = core.call intrinsic.eq(%stage, "fatal")
               core.if %is_fatal {
-                core.raise %attempt_error
+                %fatal_failure = core.call @generate_failed_impl(%attempt_error)
+                core.raise %fatal_failure
               }
               %aborted = core.call intrinsic.exception.is_aborted(%attempt_error)
               core.if %aborted {
@@ -2249,18 +2269,39 @@ module @ax.gen version "0.1" {
                 %refused = core.call intrinsic.exception.is_refusal(%attempt_error)
                 %not_refused = core.call intrinsic.not(%refused)
                 core.if %not_refused {
-                  core.raise %attempt_error
+                  %stream_provider_failure = core.call @generate_failed_impl(%attempt_error)
+                  core.raise %stream_provider_failure
                 }
                 %refusal_exhausted = core.call intrinsic.gte(%attempt, %validation_retries)
                 core.if %refusal_exhausted {
-                  core.raise %attempt_error
+                  %stream_refusal_failure = core.call @unable_to_fix_impl(%attempt_error, "")
+                  core.raise %stream_refusal_failure
                 }
                 %attempt = core.call intrinsic.add(%attempt, 1)
                 core.continue
               }
               %retries_exhausted = core.call intrinsic.gte(%attempt, %validation_retries)
               core.if %retries_exhausted {
-                core.raise %attempt_error
+                // As in TS, an exhausted streaming assertion surfaces as it is;
+                // other exhausted retries are "Unable to fix" failures.
+                %streaming_assertion = core.let false
+                %stream_outputs = core.list
+                core.for %exhausted_state in %states {
+                  %empty_xstate = core.map
+                  %exhausted_xstate = core.get %exhausted_state["xstate"] default %empty_xstate
+                  %flagged = core.get %exhausted_xstate["assertion_failed"] default false
+                  core.if %flagged {
+                    %streaming_assertion = core.let true
+                  }
+                  %exhausted_content = core.get %exhausted_state["content"] default ""
+                  core.append %stream_outputs, %exhausted_content
+                }
+                core.if %streaming_assertion {
+                  core.raise %attempt_error
+                }
+                %stream_output_text = core.call intrinsic.string.join(%stream_outputs, "\n---\n")
+                %stream_exhausted = core.call @unable_to_fix_impl(%attempt_error, %stream_output_text)
+                core.raise %stream_exhausted
               }
               %attempt = core.call intrinsic.add(%attempt, 1)
               %not_recorded = core.call intrinsic.not(%recorded)
@@ -2412,6 +2453,106 @@ module @ax.gen version "0.1" {
       core.set %out["values"] = %values
       core.set %out["extracted"] = true
       core.return %out
+    }
+  }
+
+  op ax.gen.semantic @generate_failed_impl {
+    attr core_kind = "func"
+    attr emit_module = "gen"
+    attr private = true
+    tag "src/ax/dsp/generate.ts"
+    type signature = "(error) -> error"
+    body @entry(%error: error) {
+      // enhanceError: a generation failure surfaces as "Generate failed: ..."
+      // with the original error as its cause; an abort surfaces as it is.
+      // TS wraps it in AxGenerateError; the ports keep the original error's
+      // class until the next major.
+      %aborted = core.call intrinsic.exception.is_aborted(%error)
+      core.if %aborted {
+        core.return %error
+      }
+      %text = core.call intrinsic.exception.message(%error)
+      %message = core.call intrinsic.add("Generate failed: ", %text)
+      %wrapped = core.call intrinsic.exception.rewrap(%error, %message)
+      core.return %wrapped
+    }
+  }
+
+  op ax.gen.semantic @unable_to_fix_impl {
+    attr core_kind = "func"
+    attr emit_module = "gen"
+    attr private = true
+    tag "src/ax/dsp/generate.ts"
+    type signature = "(error, string) -> error"
+    body @entry(%error: error, %output: string) {
+      // Exhausted validation, assertion or refusal retries, as TS reports
+      // them: the last error's message and the last attempt's output.
+      %text = core.call intrinsic.exception.message(%error)
+      %message = core.call intrinsic.add("Generate failed: Unable to fix validation error: ", %text)
+      %message = core.call intrinsic.add(%message, "\n\nLLM Output:\n")
+      %message = core.call intrinsic.add(%message, %output)
+      %wrapped = core.call intrinsic.exception.rewrap(%error, %message)
+      core.return %wrapped
+    }
+  }
+
+  op ax.gen.semantic @attempt_output_impl {
+    attr core_kind = "func"
+    attr emit_module = "gen"
+    attr private = true
+    tag "src/ax/dsp/generate.ts"
+    type signature = "(json) -> string"
+    body @entry(%response: json) {
+      // The attempt's output as TS reports it: each sample's content, joined
+      // with "\n---\n".
+      %empty_results = core.list
+      %completions = core.get %response["results"] default %empty_results
+      %count = core.call intrinsic.len(%completions)
+      %single = core.call intrinsic.eq(%count, 0)
+      core.if %single {
+        %completions = core.list
+        core.append %completions, %response
+      }
+      %contents = core.list
+      core.for %completion in %completions {
+        %content = core.get %completion["content"] default ""
+        core.append %contents, %content
+      }
+      %joined = core.call intrinsic.string.join(%contents, "\n---\n")
+      core.return %joined
+    }
+  }
+
+  op ax.gen.semantic @max_tokens_error_impl {
+    attr core_kind = "func"
+    attr emit_module = "gen"
+    attr private = true
+    tag "src/ax/dsp/response/nonStreaming.ts"
+    type signature = "(json) -> json"
+    body @entry(%response: json) {
+      // processResponse: the first sample the token limit cut off fails the
+      // forward. Returns the error, or none.
+      %empty_results = core.list
+      %completions = core.get %response["results"] default %empty_results
+      %count = core.call intrinsic.len(%completions)
+      %single = core.call intrinsic.eq(%count, 0)
+      core.if %single {
+        %completions = core.list
+        core.append %completions, %response
+      }
+      core.for %completion in %completions {
+        %finish_snake = core.get %completion["finish_reason"]
+        %finish = core.get %completion["finishReason"] default %finish_snake
+        %cut = core.call intrinsic.eq(%finish, "length")
+        core.if %cut {
+          %content = core.get %completion["content"] default ""
+          %message = core.call intrinsic.add("Max tokens reached before completion\nContent: ", %content)
+          %error = core.call intrinsic.error.runtime(%message)
+          core.return %error
+        }
+      }
+      %none = core.call intrinsic.none()
+      core.return %none
     }
   }
 }

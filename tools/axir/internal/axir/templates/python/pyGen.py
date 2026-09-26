@@ -1160,6 +1160,19 @@ def _core_exception_message(error):
     return str(error)
 
 
+# The same error with a new message and the original as its cause. It keeps
+# its class, so existing handlers still catch it (TS wraps it in
+# AxGenerateError, which the ports adopt at the next major).
+def _core_exception_rewrap(error, message):
+    try:
+        wrapped = copy.copy(error)
+        wrapped.args = (message,)
+    except Exception:
+        wrapped = RuntimeError(message)
+    wrapped.__cause__ = error
+    return wrapped
+
+
 def _core_exception_is_aborted(error):
     return isinstance(error, AxAIServiceAbortedError)
 
