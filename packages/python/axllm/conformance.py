@@ -57,6 +57,7 @@ from .flow import (
 from .agent import (
     _agent_native_callables,
     AxACE,
+    playbook,
     AxAgent,
     AxAgentClarificationError,
     AxBootstrapFewShot,
@@ -1645,6 +1646,9 @@ def _run_optimize(fixture):
         if operation in ("ace-compile", "ace-online-update"):
             _run_ace(fixture, operation)
             return
+        if operation == "playbook-evolve":
+            _run_playbook_evolve(fixture)
+            return
         if operation == "score":
             scores = _normalize_optimization_metric_scores(fixture.get("metric_score"))
             scalar = _scalarize_optimization_scores(scores, fixture.get("score_options") or {})
@@ -1758,6 +1762,41 @@ def _run_optimize(fixture):
             return
         raise
     raise FixtureError(f"unknown optimize operation {operation!r}")
+
+
+# playbook().evolve through the real reflector and curator programs: scripted
+# student and teacher clients answer in call order.
+def _run_playbook_evolve(fixture):
+    def scripted(items):
+        return ConformanceScriptedAI([item if isinstance(item, dict) else {"content": item} for item in items or []])
+
+    student = scripted(fixture.get("responses"))
+    teacher = scripted(fixture.get("teacher_responses"))
+    scores = list(fixture.get("metric_scores") or [])
+
+    def metric(_args):
+        return scores.pop(0) if scores else 0
+
+    options = dict(fixture.get("playbook_options") or {})
+    options.update({
+        "studentAI": student,
+        "teacherAI": teacher,
+        "now": fixture.get("now") or "1970-01-01T00:00:00.000Z",
+    })
+    book = playbook(ax(fixture.get("signature") or "question:string -> answer:string"), options)
+    result = book.evolve(fixture.get("examples") or [], metric)
+    if "expected_playbook" in fixture:
+        _assert_equal(result.get("playbook"), fixture["expected_playbook"], "playbook evolve playbook")
+    if "expected_teacher_request_contains" in fixture:
+        text = "\n".join(
+            message.get("content")
+            for request in teacher.requests
+            for message in (request.get("chat_prompt") or [])
+            if isinstance(message.get("content"), str)
+        )
+        for item in fixture.get("expected_teacher_request_contains") or []:
+            if str(item) not in text:
+                raise FixtureError(f"teacher requests missing {item!r}")
 
 
 def _run_ace(fixture, operation):

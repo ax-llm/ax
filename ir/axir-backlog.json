@@ -1969,6 +1969,25 @@
       "verification": "fold_chat_response_stream folds stream chunks (content and thought append, thought blocks accumulate, function-call fragments merge by id) and complete_once in all five ports streams and folds a forward with stream: true; the stream-forward-* fixtures match a TypeScript probe. Python and Go conformance 966/966; npm run test --workspace=@ax-llm/ax, npm run axir:check-packages, npm run axir:conformance:check and npm run test:axir pass; mutation checks fail each rule; live on gemini-3.5-flash-lite and gemini-3.8-flash in TypeScript, Python and Go."
     },
     {
+      "id": "axir-2026-09-26-give-the-ports-playbook-reflector-and-curator-typescript-s-inputs",
+      "status": "done",
+      "title": "Give the ports' playbook reflector and curator TypeScript's inputs",
+      "createdAt": "2026-09-26",
+      "sourcePR": null,
+      "sourceCommit": "1d0811ccc9cc29a501e64cc32752623b77c9738f",
+      "tsPaths": ["src/ax/dsp/optimizers/ace.ts", "src/ax/dsp/playbook.ts"],
+      "portableSurface": "axoptimize",
+      "impact": "TypeScript's ACE reflector and curator programs get the playbook as JSON.stringify({markdown, structured}), the example's input fields as the question and its output fields as the expected answer, bounded to maxSerializedFieldChars. The ports passed the rendered markdown, which is empty for an empty playbook, so the reflector's required playbook input failed and playbook().evolve never grew the playbook.",
+      "suggestedAxirWork": [
+        "Add or update the TS-derived conformance fixture.",
+        "Update AxIR/Core or descriptor data to match the portable TS behavior.",
+        "Run npm run axir:conformance:check and npm run test:axir."
+      ],
+      "completedAt": "2026-09-26",
+      "completedByCommit": "cca8df830442fd250cffa191dd17bb8804b1b586",
+      "verification": "All five ports build the reflector and curator inputs as TypeScript does; the TS-golden axoptimize/playbook-evolve-teacher-inputs fixture (TypeScript playbook().evolve through the real reflector and curator programs with scripted student and teacher clients) pins the grown playbook and the teacher inputs, fails on main in every port and passes in all five; verify --mode dev 1045/1045 per port; Java, C++, Go and Rust teacher messages byte-identical to TypeScript on two scenarios; every port's ACE example asserts that the playbook grows."
+    },
+    {
       "id": "axir-2026-09-26-parse-the-ports-text-contract-answers-with-typescript-s-extractv",
       "status": "done",
       "title": "Parse the ports' text-contract answers with TypeScript's extractValues",

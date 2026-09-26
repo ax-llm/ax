@@ -1024,6 +1024,47 @@ static void assert_notifications(const Array& actual, Value expected) {
 static AxFlow build_flow(Value fixture, std::vector<std::unique_ptr<AxGen>>& programs, std::vector<std::unique_ptr<AxFlow>>& flows, std::vector<std::unique_ptr<AxAgent>>& agents);
 static Value verification_instruments_summary();
 
+// playbook().evolve through the real reflector and curator programs: scripted
+// student and teacher clients answer in call order (a string item is
+// {"content": item}).
+static void run_playbook_evolve(Value fixture) {
+  auto scripted = [](Value items) {
+    Array script;
+    for (const auto& item : Core::iter(items)) script.push_back(item.is_object() ? item : object({{"content", item}}));
+    return Value(script);
+  };
+  ConformanceScriptedAI student(scripted(Core::get(fixture, "responses", Value::array())));
+  ConformanceScriptedAI teacher(scripted(Core::get(fixture, "teacher_responses", Value::array())));
+  auto scores = std::make_shared<Array>(as_array(Core::get(fixture, "metric_scores", Value::array())));
+  AxPlaybook::MetricFn metric = [scores](const Value&) -> Value {
+    if (scores->empty()) return Value(0);
+    Value score = scores->front();
+    scores->erase(scores->begin());
+    return score;
+  };
+  Value options = Core::map_merge(Value::object(), Core::get(fixture, "playbook_options", Value::object()));
+  Core::set(options, "now", Core::get(fixture, "now", Value("1970-01-01T00:00:00.000Z")));
+  AxGen program = ax(display(Core::get(fixture, "signature", Value("question:string -> answer:string"))));
+  AxPlaybook book = playbook(program, student, options, &teacher);
+  Value result = book.evolve(as_array(Core::get(fixture, "examples", Value::array())), metric);
+  if (!Core::get(fixture, "expected_playbook").is_null()) assert_equal(Core::get(result, "playbook"), Core::get(fixture, "expected_playbook"), "playbook evolve playbook");
+  Value expected_contains = Core::get(fixture, "expected_teacher_request_contains");
+  if (expected_contains.is_null()) return;
+  // The plain text of every teacher request message, as the model reads it.
+  std::vector<std::string> contents;
+  for (const auto& request : teacher.requests) {
+    for (const auto& message : Core::iter(Core::get(request, "chat_prompt", Value::array()))) {
+      Value content = Core::get(message, "content");
+      if (content.is_string()) contents.push_back(display(content));
+    }
+  }
+  std::string text;
+  for (size_t i = 0; i < contents.size(); ++i) text += (i ? "\n" : "") + contents[i];
+  for (const auto& item : Core::iter(expected_contains)) {
+    if (text.find(display(item)) == std::string::npos) throw AxError("fixture", "teacher requests missing " + stringify(item));
+  }
+}
+
 static void run_optimize(Value fixture) {
   std::string program_kind = display(Core::get(fixture, "program", "agent"));
   Value options = Core::get(fixture, "options", Value::object());
@@ -1116,6 +1157,10 @@ static void run_optimize(Value fixture) {
       if (!Core::get(fixture, "expected_artifact").is_null()) assert_equal(ace.get_artifact(), Core::get(fixture, "expected_artifact"), "ace online artifact");
       if (!Core::get(fixture, "expected_artifact_subset").is_null()) assert_subset(ace.get_artifact(), Core::get(fixture, "expected_artifact_subset"), "ace online artifact");
       if (!Core::get(fixture, "expected_curator").is_null()) assert_equal(curator_result, Core::get(fixture, "expected_curator"), "ace online curator");
+      return;
+    }
+    if (op == "playbook-evolve") {
+      run_playbook_evolve(fixture);
       return;
     }
     if (op == "score") {

@@ -3125,6 +3125,12 @@ func TestAxOptimizeConformanceFixturesLoad(t *testing.T) {
 			if _, ok := fixture["expected_output"]; !ok {
 				t.Fatalf("%s missing expected_output", file)
 			}
+		case "playbook-evolve":
+			for _, key := range []string{"responses", "teacher_responses", "expected_playbook"} {
+				if _, ok := fixture[key]; !ok {
+					t.Fatalf("%s missing %s", file, key)
+				}
+			}
 		default:
 			t.Fatalf("%s has unknown axoptimize operation %v", file, fixture["operation"])
 		}
