@@ -5,19 +5,19 @@
   "files": {
     "axllm/agent.py": {
       "emitted_lines": 8914,
-      "total_lines": 11443
+      "total_lines": 11520
     },
     "axllm/ai.py": {
       "emitted_lines": 11424,
-      "total_lines": 14872
+      "total_lines": 14875
     },
     "axllm/flow.py": {
       "emitted_lines": 2411,
-      "total_lines": 3116
+      "total_lines": 3119
     },
     "axllm/gen.py": {
       "emitted_lines": 11158,
-      "total_lines": 12693
+      "total_lines": 12695
     },
     "axllm/mcp.py": {
       "emitted_lines": 2328,
@@ -25,15 +25,15 @@
     },
     "axllm/prompt.py": {
       "emitted_lines": 79,
-      "total_lines": 709
+      "total_lines": 711
     },
     "axllm/schema.py": {
       "emitted_lines": 885,
-      "total_lines": 1140
+      "total_lines": 1142
     },
     "axllm/signature.py": {
       "emitted_lines": 1546,
-      "total_lines": 2211
+      "total_lines": 2338
     }
   }
 }

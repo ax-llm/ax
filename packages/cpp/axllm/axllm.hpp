@@ -2149,6 +2149,7 @@ class AxACE {
   void hydrate(const Value& state);
   Value get_playbook() const;
   Value get_artifact() const;
+  Value get_config() const;
   Value compile(const std::vector<Value>& examples, const AceCallable& metric_fn, Value options = Value::object());
   Value apply_online_update(Value args);
 

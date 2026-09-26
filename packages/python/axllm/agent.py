@@ -50,7 +50,7 @@ from .gen import (
     _validate_optimized_artifact,
 )
 from .mcp import resolve_execution_context
-from .signature import AxSignature, parse_signature
+from .signature import AxSignature, _js_json_dumps, _js_number_text, parse_signature
 from .gen import (
     chat_session_mode_enabled,
     chat_session_validate_required_arguments,
@@ -475,7 +475,7 @@ class AxGEPA(OptimizerEngine):
                 "chatPrompt": [
                     {
                         "role": "user",
-                        "content": json.dumps(
+                        "content": _js_json_dumps(
                             {
                                 "componentKey": component.get("id"),
                                 "componentKind": component.get("kind"),
@@ -485,6 +485,7 @@ class AxGEPA(OptimizerEngine):
                                 "traceDataset": trace_dataset,
                             },
                             sort_keys=True,
+                            separators=(", ", ": "),
                         ),
                     }
                 ],
@@ -1065,6 +1066,57 @@ def _playbook_stringify(value):
         return json.dumps(str(value))
 
 
+# JSON.stringify: compact, in insertion order (the Core stringify sorts keys).
+def _playbook_js_json(value):
+    return json.dumps(value, separators=(",", ":"), ensure_ascii=False)
+
+
+# TS stringifyBounded: JSON of the value with every string cut to the ACE
+# config's maxSerializedFieldChars. As in TS, lengths count UTF-16 code units;
+# a cut inside a surrogate pair leaves U+FFFD, as the other ports do.
+def _playbook_truncate(value, max_chars):
+    max_chars = max(0, int(max_chars))
+    units = value.encode("utf-16-le")
+    if len(units) // 2 <= max_chars:
+        return value
+    suffix = "...[truncated]"
+    if max_chars <= len(suffix):
+        return units[: 2 * max_chars].decode("utf-16-le", "replace")
+    return units[: 2 * (max_chars - len(suffix))].decode("utf-16-le", "replace") + suffix
+
+
+def _playbook_bound(value, max_chars, seen=None):
+    if value is None or isinstance(value, (bool, int, float)):
+        return value
+    if isinstance(value, str):
+        return _playbook_truncate(value, max_chars)
+    if not isinstance(value, (list, dict)):
+        return _playbook_truncate(str(value), max_chars)
+    seen = set() if seen is None else seen
+    if id(value) in seen:
+        return "[Circular]"
+    seen.add(id(value))
+    if isinstance(value, list):
+        bounded = [_playbook_bound(entry, max_chars, seen) for entry in value]
+    else:
+        bounded = {key: _playbook_bound(entry, max_chars, seen) for key, entry in value.items()}
+    seen.discard(id(value))
+    return bounded
+
+
+def _playbook_stringify_bounded(value, max_chars):
+    try:
+        return _playbook_js_json(_playbook_bound(value, max_chars))
+    except Exception:
+        return _playbook_js_json("[Unserializable]")
+
+
+# TS extractFieldValues: the example's values for the given signature fields.
+def _playbook_field_values(example, fields):
+    example = example if isinstance(example, dict) else {}
+    return {field.name: example[field.name] for field in fields if field.name in example}
+
+
 def _playbook_compose_instruction(base, rendered):
     parts = [str(base or "").strip(), "", str(rendered or "")]
     return "\n\n".join(part for part in parts if part and part.strip())
@@ -1131,19 +1183,42 @@ class AxPlaybook:
             self._curator_program = AxGen(_ACE_CURATOR_SIGNATURE, {"validation_retries": 1, "id": "ace.curator"})
         return self._curator_program
 
+    def _program_fields(self):
+        signature = getattr(self.program, "signature", None)
+        if signature is None or not hasattr(signature, "get_input_fields"):
+            return [], []
+        return signature.get_input_fields(), signature.get_output_fields()
+
+    def _max_serialized_chars(self):
+        return self.engine.config.get("maxSerializedFieldChars", 2000)
+
+    # As in TS, the reflector and curator get the playbook as
+    # JSON.stringify({markdown, structured}): the rendered markdown and the
+    # playbook itself.
+    def _playbook_input(self, rendered):
+        return _playbook_js_json({"markdown": rendered, "structured": self.engine.get_playbook()})
+
     # The real LLM reflector: a focused AxGen sub-program driven by the teacher.
+    # As in TS, the question holds the example's input fields and the expected
+    # answer its output fields.
     def _run_reflector(self, payload):
         payload = dict(payload or {})
         reflector = self._get_reflector_program()
         reflector_ai = self.teacher_ai or self.student_ai
+        inputs, outputs = self._program_fields()
+        max_chars = self._max_serialized_chars()
+        expected_answer = _playbook_field_values(payload.get("question"), outputs)
         request = {
-            "question": _playbook_stringify(payload.get("question")),
-            "generator_answer": _playbook_stringify(payload.get("generator_answer")),
+            "question": _playbook_stringify_bounded(_playbook_field_values(payload.get("question"), inputs), max_chars),
+            "generator_answer": _playbook_stringify_bounded(payload.get("generator_answer"), max_chars),
             "generator_reasoning": payload.get("generator_reasoning"),
-            "playbook": payload.get("playbook"),
+            "playbook": self._playbook_input(payload.get("playbook")),
+            "expected_answer": (
+                _playbook_stringify_bounded(expected_answer, max_chars) if expected_answer else None
+            ),
             "feedback": payload.get("feedback"),
             "previous_reflection": (
-                _playbook_stringify(payload.get("previous_reflection"))
+                _playbook_js_json(payload.get("previous_reflection"))
                 if payload.get("previous_reflection") is not None
                 else None
             ),
@@ -1161,10 +1236,13 @@ class AxPlaybook:
         payload = dict(payload or {})
         curator = self._get_curator_program()
         curator_ai = self.teacher_ai or self.student_ai
+        inputs, _ = self._program_fields()
         request = {
-            "playbook": payload.get("playbook"),
-            "reflection": _playbook_stringify(payload.get("reflection")),
-            "question_context": _playbook_stringify(payload.get("question_context")),
+            "playbook": self._playbook_input(payload.get("playbook")),
+            "reflection": _playbook_js_json(payload.get("reflection")),
+            "question_context": _playbook_stringify_bounded(
+                _playbook_field_values(payload.get("question_context"), inputs), self._max_serialized_chars()
+            ),
             "token_budget": payload.get("token_budget", 1024),
         }
         request = {key: value for key, value in request.items() if value is not None}
@@ -1472,7 +1550,7 @@ class AxAgentPlaybook:
             task_summaries = "\n".join(
                 f"- {record.get('task', {}).get('id') or f'#{index + 1}'} "
                 f"(score {float(record.get('score', 0)):.2f}): "
-                f"{json.dumps(record.get('task', {}).get('input'), sort_keys=True, default=str)[:240]}"
+                f"{_js_json_dumps(record.get('task', {}).get('input'), sort_keys=True, default=str, separators=(', ', ': '))[:240]}"
                 for index, record in enumerate(selected)
             )
             function_calls = [
@@ -1489,7 +1567,7 @@ class AxAgentPlaybook:
                 "clusterSignature": signature,
                 "taskSummaries": task_summaries,
                 "actionLogExcerpts": excerpts,
-                "functionCallSummary": "\n".join(json.dumps(call, sort_keys=True, default=str) for call in function_calls) or None,
+                "functionCallSummary": "\n".join(_js_json_dumps(call, sort_keys=True, default=str, separators=(", ", ": ")) for call in function_calls) or None,
                 "toolErrors": "\n".join(tool_errors) or None,
                 "currentPlaybook": self.inner.render() or None,
             }
@@ -2192,13 +2270,11 @@ def _core_list_get(values, index, default=None):
 
 
 def _core_json_stringify(value):
-    import json
-    return json.dumps(value, sort_keys=True, separators=(",", ":"), ensure_ascii=False)
+    return _js_json_dumps(value, sort_keys=True)
 
 
 def _core_json_stable_stringify(value):
-    import json
-    return json.dumps(value, sort_keys=True, separators=(",", ":"), ensure_ascii=False)
+    return _js_json_dumps(value, sort_keys=True)
 
 
 def _core_json_parse(value):
@@ -2206,7 +2282,8 @@ def _core_json_parse(value):
 
 
 def _core_string_format(template, *args):
-    return str(template).format(*args)
+    # "{}" takes String(x): a float two is "2", 1e-7 is "1e-7".
+    return str(template).format(*(_js_number_text(arg) if isinstance(arg, float) else arg for arg in args))
 
 
 def _core_string_slice(value, start, end=None):
@@ -2293,7 +2370,7 @@ def _core_runtime_error(message):
 
 
 def _core_json_pretty(value):
-    return json.dumps(value, indent=2, ensure_ascii=False)
+    return _js_json_dumps(value, indent=2)
 
 
 def _core_agent_native_stage_forward(stage, state, client, values, options, selected):

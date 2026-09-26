@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import copy
+import importlib
 import json
 import warnings
 import os
@@ -56,6 +57,7 @@ from .flow import (
 from .agent import (
     _agent_native_callables,
     AxACE,
+    playbook,
     AxAgent,
     AxAgentClarificationError,
     AxBootstrapFewShot,
@@ -555,6 +557,8 @@ def run_fixture(fixture: dict[str, Any], *, source: str | None = None):
             _run_validate_output(fixture)
         elif kind == "strip_internal":
             _run_strip_internal(fixture)
+        elif kind == "number_format":
+            _run_number_format(fixture)
         elif kind == "forward":
             _run_forward(fixture)
         elif kind == "streaming_forward":
@@ -1071,6 +1075,36 @@ def _run_validate_output(fixture):
     if "expected_error_contains" in fixture:
         raise FixtureError("expected validate_output to fail")
     _assert_equal(result, fixture.get("expected_values", values), "validated output")
+
+
+def _run_number_format(fixture):
+    """String(x) and JSON.stringify(x) for numbers parsed from text with float(),
+    which also reaches NaN, the infinities and -0. String(x) is string.str and
+    string.format's "{}" (the streaming extractor's number text) in each module;
+    the JSON form must come out of every encoder: the wire body, each module's
+    json.stringify, json.stable_stringify and json.pretty, and AxGen's value
+    text."""
+    # The package re-exports functions named ai, agent and flow, so load the
+    # modules themselves.
+    modules = {name: importlib.import_module(f".{name}", __package__) for name in ("agent", "ai", "flow", "gen", "mcp", "prompt", "schema", "signature")}
+    for case in fixture.get("cases") or []:
+        number = float(case["input"])
+        listed = f"[{case['json']}]"
+        checks = [("wire JSON", _wire_json_body([number]).decode("utf-8"), listed)]
+        for name in ("ai", "flow", "gen"):
+            checks.append((f"{name} string.str", modules[name]._core_string_str(number), case["string"]))
+        for name in ("agent", "ai", "gen", "mcp", "prompt", "schema", "signature"):
+            checks.append((f"{name} string.format", modules[name]._core_string_format("{}", number), case["string"]))
+        for name in ("ai", "gen", "agent", "mcp"):
+            checks.append((f"{name} json.stringify", modules[name]._core_json_stringify([number]), listed))
+        for name in ("flow", "agent"):
+            checks.append((f"{name} json.stable_stringify", modules[name]._core_json_stable_stringify([number]), listed))
+        for name in ("prompt", "agent"):
+            checks.append((f"{name} json.pretty", modules[name]._core_json_pretty([number]), f"[\n  {case['json']}\n]"))
+        checks.append(("axgen value text", modules["gen"]._core_axgen_value_text([number]), listed))
+        for label, actual, expected in checks:
+            if actual != expected:
+                raise FixtureError(f"{label} of {case['input']}: expected {expected!r}, got {actual!r}")
 
 
 def _run_strip_internal(fixture):
@@ -1612,6 +1646,9 @@ def _run_optimize(fixture):
         if operation in ("ace-compile", "ace-online-update"):
             _run_ace(fixture, operation)
             return
+        if operation == "playbook-evolve":
+            _run_playbook_evolve(fixture)
+            return
         if operation == "score":
             scores = _normalize_optimization_metric_scores(fixture.get("metric_score"))
             scalar = _scalarize_optimization_scores(scores, fixture.get("score_options") or {})
@@ -1725,6 +1762,41 @@ def _run_optimize(fixture):
             return
         raise
     raise FixtureError(f"unknown optimize operation {operation!r}")
+
+
+# playbook().evolve through the real reflector and curator programs: scripted
+# student and teacher clients answer in call order.
+def _run_playbook_evolve(fixture):
+    def scripted(items):
+        return ConformanceScriptedAI([item if isinstance(item, dict) else {"content": item} for item in items or []])
+
+    student = scripted(fixture.get("responses"))
+    teacher = scripted(fixture.get("teacher_responses"))
+    scores = list(fixture.get("metric_scores") or [])
+
+    def metric(_args):
+        return scores.pop(0) if scores else 0
+
+    options = dict(fixture.get("playbook_options") or {})
+    options.update({
+        "studentAI": student,
+        "teacherAI": teacher,
+        "now": fixture.get("now") or "1970-01-01T00:00:00.000Z",
+    })
+    book = playbook(ax(fixture.get("signature") or "question:string -> answer:string"), options)
+    result = book.evolve(fixture.get("examples") or [], metric)
+    if "expected_playbook" in fixture:
+        _assert_equal(result.get("playbook"), fixture["expected_playbook"], "playbook evolve playbook")
+    if "expected_teacher_request_contains" in fixture:
+        text = "\n".join(
+            message.get("content")
+            for request in teacher.requests
+            for message in (request.get("chat_prompt") or [])
+            if isinstance(message.get("content"), str)
+        )
+        for item in fixture.get("expected_teacher_request_contains") or []:
+            if str(item) not in text:
+                raise FixtureError(f"teacher requests missing {item!r}")
 
 
 def _run_ace(fixture, operation):
@@ -3359,10 +3431,28 @@ def _assert_wire_json(payload, fragments):
         decoded = json.loads(text)
     except ValueError as exc:
         raise FixtureError(f"wire JSON is not valid JSON ({exc}): {text!r}") from exc
-    _assert_equal(decoded, payload, "wire JSON round trip")
+    if not _wire_json_equal(decoded, payload):
+        raise FixtureError(f"wire JSON does not round-trip: {text!r}")
     for fragment in fragments:
         if str(fragment) not in text:
             raise FixtureError(f"wire JSON missing {fragment!r}: {text!r}")
+
+
+def _wire_json_equal(left, right):
+    """JSON equality where a float equals the number JavaScript writes for it:
+    json.loads reads 2 (a float 2.0) and 1152921504606847000 (the float 2**60)
+    back as ints."""
+    if isinstance(left, bool) or isinstance(right, bool):
+        return left is right
+    if isinstance(left, (int, float)) and isinstance(right, (int, float)):
+        if isinstance(left, float) or isinstance(right, float):
+            return float(left) == float(right)
+        return left == right
+    if isinstance(left, list) and isinstance(right, list):
+        return len(left) == len(right) and all(_wire_json_equal(a, b) for a, b in zip(left, right))
+    if isinstance(left, dict) and isinstance(right, dict):
+        return left.keys() == right.keys() and all(_wire_json_equal(left[key], right[key]) for key in left)
+    return left == right
 
 
 def _legacy_response_to_chat_response(raw):

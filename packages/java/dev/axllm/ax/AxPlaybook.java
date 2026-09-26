@@ -126,16 +126,43 @@ public final class AxPlaybook {
     return this.curatorProgram;
   }
 
+  // The bound program's signature fields, as TS reads program.getSignature().
+  private List<Field> inputFields() {
+    return this.program == null || this.program.signature == null ? List.of() : this.program.signature.getInputFields();
+  }
+
+  private List<Field> outputFields() {
+    return this.program == null || this.program.signature == null ? List.of() : this.program.signature.getOutputFields();
+  }
+
+  // As in TS, the reflector and curator get the playbook as
+  // JSON.stringify({markdown, structured}): the rendered markdown and the
+  // playbook itself.
+  private String playbookInput(Object rendered) {
+    Map<String, Object> input = new LinkedHashMap<>();
+    input.put("markdown", rendered);
+    input.put("structured", this.engine.getPlaybook());
+    return Json.stringify(input);
+  }
+
   // The real LLM reflector: a focused AxGen sub-program driven by the teacher.
+  // As in TS, the question holds the example's input fields and the expected
+  // answer its output fields.
   private Map<String, Object> runReflector(Map<String, Object> payload) {
+    int maxChars = this.engine.maxSerializedFieldChars();
+    Object example = payload.get("question");
+    Map<String, Object> expectedAnswer = fieldValues(example, outputFields());
     Map<String, Object> request = new LinkedHashMap<>();
-    request.put("question", stringify(payload.get("question")));
-    request.put("generator_answer", stringify(payload.get("generator_answer")));
-    request.put("playbook", payload.get("playbook"));
+    request.put("question", stringifyBounded(fieldValues(example, inputFields()), maxChars));
+    request.put("generator_answer", stringifyBounded(payload.get("generator_answer"), maxChars));
     putIfPresent(request, "generator_reasoning", payload.get("generator_reasoning"));
+    request.put("playbook", playbookInput(payload.get("playbook")));
+    if (!expectedAnswer.isEmpty()) {
+      request.put("expected_answer", stringifyBounded(expectedAnswer, maxChars));
+    }
     putIfPresent(request, "feedback", payload.get("feedback"));
     if (payload.get("previous_reflection") != null) {
-      request.put("previous_reflection", stringify(payload.get("previous_reflection")));
+      request.put("previous_reflection", Json.stringify(payload.get("previous_reflection")));
     }
     try {
       return reflector().forward(this.teacherAI, request, new LinkedHashMap<>(this.teacherOptions));
@@ -150,9 +177,10 @@ public final class AxPlaybook {
   // The real LLM curator: a focused AxGen sub-program driven by the teacher.
   private Map<String, Object> runCurator(Map<String, Object> payload) {
     Map<String, Object> request = new LinkedHashMap<>();
-    request.put("playbook", payload.get("playbook"));
-    request.put("reflection", stringify(payload.get("reflection")));
-    request.put("question_context", stringify(payload.get("question_context")));
+    request.put("playbook", playbookInput(payload.get("playbook")));
+    request.put("reflection", Json.stringify(payload.get("reflection")));
+    request.put("question_context", stringifyBounded(
+        fieldValues(payload.get("question_context"), inputFields()), this.engine.maxSerializedFieldChars()));
     request.put("token_budget", payload.getOrDefault("token_budget", 1024));
     try {
       return curator().forward(this.teacherAI, request, new LinkedHashMap<>(this.teacherOptions));
@@ -665,14 +693,71 @@ public final class AxPlaybook {
     return String.join("\n\n", parts);
   }
 
-  private static String stringify(Object value) {
-    if (value == null) {
-      return "";
+  // TS extractFieldValues: the example's values for the given signature fields.
+  private static Map<String, Object> fieldValues(Object example, List<Field> fields) {
+    Map<String, Object> values = new LinkedHashMap<>();
+    if (example instanceof Map<?, ?> map) {
+      for (Field field : fields) {
+        if (map.containsKey(field.name)) {
+          values.put(field.name, map.get(field.name));
+        }
+      }
+    }
+    return values;
+  }
+
+  // TS stringifyBounded: JSON.stringify of the value with every string cut to
+  // the ACE config's maxSerializedFieldChars. Json.stringify is JSON.stringify:
+  // compact, with map keys in insertion order.
+  private static String stringifyBounded(Object value, int maxChars) {
+    try {
+      return Json.stringify(bound(value, maxChars, java.util.Collections.newSetFromMap(new java.util.IdentityHashMap<>())));
+    } catch (RuntimeException | StackOverflowError e) {
+      return Json.stringify("[Unserializable]");
+    }
+  }
+
+  private static Object bound(Object value, int maxChars, java.util.Set<Object> seen) {
+    if (value == null || value instanceof Number || value instanceof Boolean) {
+      return value;
     }
     if (value instanceof String s) {
-      return s;
+      return truncate(s, maxChars);
     }
-    return Json.stringify(value);
+    if (!(value instanceof Map<?, ?>) && !(value instanceof Iterable<?>)) {
+      return truncate(String.valueOf(value), maxChars);
+    }
+    if (!seen.add(value)) {
+      return "[Circular]";
+    }
+    Object bounded;
+    if (value instanceof Map<?, ?> map) {
+      Map<String, Object> entries = new LinkedHashMap<>();
+      for (Map.Entry<?, ?> entry : map.entrySet()) {
+        entries.put(String.valueOf(entry.getKey()), bound(entry.getValue(), maxChars, seen));
+      }
+      bounded = entries;
+    } else {
+      List<Object> items = new ArrayList<>();
+      for (Object item : (Iterable<?>) value) {
+        items.add(bound(item, maxChars, seen));
+      }
+      bounded = items;
+    }
+    seen.remove(value);
+    return bounded;
+  }
+
+  private static String truncate(String value, int maxChars) {
+    int max = Math.max(0, maxChars);
+    if (value.length() <= max) {
+      return value;
+    }
+    String suffix = "...[truncated]";
+    if (max <= suffix.length()) {
+      return value.substring(0, max);
+    }
+    return value.substring(0, max - suffix.length()) + suffix;
   }
 
   private static void putIfPresent(Map<String, Object> target, String key, Object value) {

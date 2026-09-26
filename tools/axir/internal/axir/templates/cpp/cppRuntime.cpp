@@ -3,6 +3,7 @@
 #include <array>
 #include <atomic>
 #include <condition_variable>
+#include <cstdio>
 #include <cstdlib>
 #include <fstream>
 #include <iostream>
@@ -2751,24 +2752,119 @@ Value parse_json(const std::string& source) {
       if (pos < s.size() && (s[pos] == 'e' || s[pos] == 'E')) { ++pos; if (pos < s.size() && (s[pos] == '+' || s[pos] == '-')) ++pos; while (pos < s.size() && std::isdigit(static_cast<unsigned char>(s[pos]))) ++pos; }
       std::string token = s.substr(start, pos - start);
       // Tolerate malformed/empty numeric tokens (e.g. a model emitting a bare `-` or an
-      // empty value for a number field) instead of throwing std::stod's "no conversion".
-      try {
-        return Value(std::stod(token));
-      } catch (const std::exception&) {
+      // empty value for a number field) as null. strtod, unlike std::stod, also keeps
+      // subnormals such as 5e-324 and gives +-Infinity past the double range, as
+      // JSON.parse does.
+      char* end = nullptr;
+      double parsed = std::strtod(token.c_str(), &end);
+      if (token.empty() || end == token.c_str()) {
         if (pos == start && pos < s.size()) ++pos;  // ensure forward progress
         return Value();
       }
+      return Value(parsed);
     }
   };
   Parser p(source);
   return p.value();
 }
 
-std::string display(const Value& value) {
-  if (auto p = std::get_if<double>(&value.data)) {
-    if (std::floor(*p) == *p) return std::to_string(static_cast<long long>(*p));
-    std::ostringstream ss; ss << *p; return ss.str();
+// Steps a decimal digit string one unit in its last place, up (+1) or down
+// (-1). digits reads d.ddd x 10^exponent; a carry out of the first digit adds
+// a digit and raises exponent. Returns false when stepping down reaches zero.
+static bool step_decimal_digits(std::string& digits, int& exponent, int direction) {
+  std::size_t i = digits.size();
+  if (direction > 0) {
+    while (i > 0 && digits[i - 1] == '9') digits[--i] = '0';
+    if (i == 0) {
+      digits.insert(digits.begin(), '1');
+      ++exponent;
+    } else {
+      ++digits[i - 1];
+    }
+    return true;
   }
+  while (i > 0 && digits[i - 1] == '0') digits[--i] = '9';
+  if (i == 0) return false;
+  --digits[i - 1];
+  if (digits[0] == '0') {
+    digits.erase(digits.begin());
+    --exponent;
+  }
+  return !digits.empty();
+}
+
+// Parses digits read as d.ddd x 10^exponent, written with an integer
+// mantissa so the text has no locale-dependent decimal point.
+static double parse_decimal_digits(const std::string& digits, int exponent) {
+  std::string text = digits + "e" + std::to_string(exponent - static_cast<int>(digits.size()) + 1);
+  return std::strtod(text.c_str(), nullptr);
+}
+
+// The shortest decimal digits that parse back to value (finite, > 0), as
+// JavaScript picks them, with the exponent of the first digit. printf rounds
+// to the nearest decimal of each length; at a power of two the round-trip
+// interval is lopsided, so the neighbour on the other side of value can parse
+// back when the nearest one does not.
+static void shortest_decimal_digits(double value, std::string& digits, int& exponent) {
+  char text[40];
+  for (int precision = 1; precision <= 17; ++precision) {
+    std::snprintf(text, sizeof text, "%.*e", precision - 1, value);
+    digits.clear();
+    const char* c = text;
+    for (; *c && *c != 'e' && *c != 'E'; ++c) {
+      if (*c >= '0' && *c <= '9') digits.push_back(*c);
+    }
+    exponent = *c ? std::atoi(c + 1) : 0;
+    double nearest = std::strtod(text, nullptr);
+    if (nearest == value) break;
+    std::string other = digits;
+    int other_exponent = exponent;
+    if (step_decimal_digits(other, other_exponent, nearest < value ? 1 : -1) &&
+        parse_decimal_digits(other, other_exponent) == value) {
+      digits = other;
+      exponent = other_exponent;
+      break;
+    }
+  }
+  while (digits.size() > 1 && digits.back() == '0') digits.pop_back();
+}
+
+// Number::toString, the text JavaScript's String(x) and JSON.stringify give a
+// number: shortest round-trip digits, plain decimals from 1e-6 up to 1e21,
+// exponent form outside that range (1e-7, 1.5e+21), and 0 for -0.
+static std::string js_number_text(double value) {
+  if (std::isnan(value)) return "NaN";
+  if (std::isinf(value)) return value > 0 ? "Infinity" : "-Infinity";
+  if (value == 0) return "0";
+  // Integral values below 2^53 print exactly as integers (the common case).
+  if (std::floor(value) == value && std::fabs(value) < 9007199254740992.0) return std::to_string(static_cast<long long>(value));
+  std::string digits;
+  int exponent = 0;
+  shortest_decimal_digits(std::fabs(value), digits, exponent);
+  const int k = static_cast<int>(digits.size());
+  const int n = exponent + 1;  // digits before the decimal point
+  std::string out = value < 0 ? "-" : "";
+  if (k <= n && n <= 21) {
+    out += digits + std::string(static_cast<std::size_t>(n - k), '0');
+  } else if (0 < n && n <= 21) {
+    out += digits.substr(0, static_cast<std::size_t>(n)) + "." + digits.substr(static_cast<std::size_t>(n));
+  } else if (-6 < n && n <= 0) {
+    out += "0." + std::string(static_cast<std::size_t>(-n), '0') + digits;
+  } else {
+    out += digits.substr(0, 1);
+    if (k > 1) out += "." + digits.substr(1);
+    out += (n - 1 < 0 ? "e-" : "e+") + std::to_string(std::abs(n - 1));
+  }
+  return out;
+}
+
+// JSON.stringify writes NaN and the infinities as null.
+static std::string json_number_text(double value) {
+  return std::isfinite(value) ? js_number_text(value) : "null";
+}
+
+std::string display(const Value& value) {
+  if (auto p = std::get_if<double>(&value.data)) return js_number_text(*p);
   return str(value);
 }
 
@@ -2804,7 +2900,7 @@ static std::string escape_json(const std::string& in) {
 std::string stringify(const Value& value) {
   if (value.is_null()) return "null";
   if (auto p = std::get_if<bool>(&value.data)) return *p ? "true" : "false";
-  if (value.is_number()) return display(value);
+  if (auto p = std::get_if<double>(&value.data)) return json_number_text(*p);
   if (auto p = std::get_if<std::string>(&value.data)) return "\"" + escape_json(*p) + "\"";
   if (auto p = std::get_if<std::shared_ptr<Array>>(&value.data)) {
     std::string out = "[";
@@ -2820,7 +2916,7 @@ std::string stringify(const Value& value) {
 static std::string stable_stringify(const Value& value) {
   if (value.is_null()) return "null";
   if (auto p = std::get_if<bool>(&value.data)) return *p ? "true" : "false";
-  if (value.is_number()) return display(value);
+  if (auto p = std::get_if<double>(&value.data)) return json_number_text(*p);
   if (auto p = std::get_if<std::string>(&value.data)) return "\"" + escape_json(*p) + "\"";
   if (auto p = std::get_if<std::shared_ptr<Array>>(&value.data)) {
     std::string out = "[";
@@ -5677,6 +5773,8 @@ void AxACE::hydrate(const Value& state) {
 
 Value AxACE::get_playbook() const { return playbook_; }
 
+Value AxACE::get_config() const { return config_; }
+
 Value AxACE::get_artifact() const {
   Value out = Value::object();
   Core::set(out, "playbook", playbook_);
@@ -5957,10 +6055,83 @@ static std::string playbook_compose_instruction(const std::string& base, const s
   return out;
 }
 
-static std::string playbook_stringify(const Value& value) {
-  if (value.is_null()) return std::string();
-  if (value.is_string()) return display(value);
-  return stringify(value);
+// The reflector and curator inputs are TS JSON.stringify text: compact, with
+// object keys in insertion order. stringify() is that serializer: it writes
+// keys in their Core::set / JSON parse order (__order), where the stable
+// stringify sorts them.
+
+// The byte offset that ends the first `units` UTF-16 code units of UTF-8 text
+// (JS string.slice); a surrogate pair the cut would split is left out.
+static size_t playbook_utf16_cut(const std::string& text, size_t units) {
+  size_t end = 0;
+  size_t taken = 0;
+  while (end < text.size()) {
+    unsigned char lead = static_cast<unsigned char>(text[end]);
+    size_t width = lead >= 0xf0 ? 4 : lead >= 0xe0 ? 3 : lead >= 0xc0 ? 2 : 1;
+    size_t cost = width == 4 ? 2 : 1;
+    if (taken + cost > units) break;
+    taken += cost;
+    end += width;
+  }
+  return end;
+}
+
+// TS truncateSerializedString: strings longer than maxSerializedFieldChars
+// (JS length, in UTF-16 code units) keep their head plus "...[truncated]".
+static std::string playbook_truncate(const std::string& value, size_t max_chars) {
+  static const std::string suffix = "...[truncated]";
+  if (playbook_utf16_cut(value, max_chars) >= value.size()) return value;
+  if (max_chars <= suffix.size()) return value.substr(0, playbook_utf16_cut(value, max_chars));
+  return value.substr(0, playbook_utf16_cut(value, max_chars - suffix.size())) + suffix;
+}
+
+static Value playbook_bound(const Value& value, size_t max_chars) {
+  if (value.is_string()) return Value(playbook_truncate(display(value), max_chars));
+  if (value.is_array()) {
+    Value out = Value::array();
+    for (const auto& entry : Core::iter(value)) Core::append(out, playbook_bound(entry, max_chars));
+    return out;
+  }
+  if (value.is_object()) {
+    Value out = Value::object();
+    for (const auto& entry : entries(value)) Core::set(out, entry.first, playbook_bound(entry.second, max_chars));
+    return out;
+  }
+  return value;
+}
+
+// TS stringifyBounded: JSON of the value with every string bounded.
+static std::string playbook_stringify_bounded(const Value& value, size_t max_chars) {
+  return stringify(playbook_bound(value, max_chars));
+}
+
+// TS extractFieldValues: the example's values for the bound program's input or
+// output fields ("inputs" / "outputs"), in field order.
+static Value playbook_field_values(const Value& example, const AxGen* program, const char* fields) {
+  Value out = Value::object();
+  if (program == nullptr || !example.is_object()) return out;
+  Value signature = Core::get(program->value(), "signature");
+  const Object& values = *std::get<std::shared_ptr<Object>>(example.data);
+  for (const auto& field : Core::iter(Core::get(signature, fields, Value::array()))) {
+    std::string name = display(Core::get(field, "name", Value("")));
+    auto found = values.find(name);
+    if (name != "__order" && found != values.end()) Core::set(out, name, found->second);
+  }
+  return out;
+}
+
+// The ACE config's maxSerializedFieldChars (TS default 2000).
+static size_t playbook_max_serialized_chars(const AxACE& engine) {
+  Value max_chars = Core::get(engine.get_config(), "maxSerializedFieldChars");
+  if (!max_chars.is_number()) return 2000;
+  return static_cast<size_t>(std::max(0.0, std::floor(num(max_chars))));
+}
+
+// As in TS, the reflector and curator get the playbook as
+// JSON.stringify({markdown, structured}): the rendered markdown and the
+// playbook itself.
+static std::string playbook_input(const Value& rendered, const Value& structured) {
+  return stringify(object({{"markdown", rendered}, {"structured", structured}}));
 }
 
 static Value playbook_option(const Value& options, std::initializer_list<const char*> keys) {
@@ -6081,18 +6252,24 @@ Value AxPlaybook::run_generator(const Value& example) {
 }
 
 // The real LLM reflector: a focused AxGen sub-program driven by the teacher.
+// As in TS, the question holds the example's input fields and the expected
+// answer its output fields.
 Value AxPlaybook::run_reflector(const Value& payload) {
   if (!reflector_program_) reflector_program_ = std::make_unique<AxGen>(s(kAceReflectorSignature));
+  size_t max_chars = playbook_max_serialized_chars(engine_);
+  Value example = Core::get(payload, "question");
   Value request = Value::object();
-  Core::set(request, "question", Value(playbook_stringify(Core::get(payload, "question"))));
-  Core::set(request, "generator_answer", Value(playbook_stringify(Core::get(payload, "generator_answer"))));
-  Core::set(request, "playbook", Core::get(payload, "playbook", Value("")));
+  Core::set(request, "question", Value(playbook_stringify_bounded(playbook_field_values(example, program_, "inputs"), max_chars)));
+  Core::set(request, "generator_answer", Value(playbook_stringify_bounded(Core::get(payload, "generator_answer"), max_chars)));
   Value reasoning = Core::get(payload, "generator_reasoning");
   if (!reasoning.is_null()) Core::set(request, "generator_reasoning", reasoning);
+  Core::set(request, "playbook", Value(playbook_input(Core::get(payload, "playbook", Value("")), engine_.get_playbook())));
+  Value expected_answer = playbook_field_values(example, program_, "outputs");
+  if (!Core::iter(expected_answer).empty()) Core::set(request, "expected_answer", Value(playbook_stringify_bounded(expected_answer, max_chars)));
   Value feedback = Core::get(payload, "feedback");
   if (!feedback.is_null()) Core::set(request, "feedback", feedback);
   Value previous = Core::get(payload, "previous_reflection");
-  if (!previous.is_null()) Core::set(request, "previous_reflection", Value(playbook_stringify(previous)));
+  if (!previous.is_null()) Core::set(request, "previous_reflection", Value(stringify(previous)));
   try {
     return reflector_program_->forward(*teacher_, request, Core::map_merge(Value::object(), teacher_options_));
   } catch (const std::exception& e) {
@@ -6104,10 +6281,11 @@ Value AxPlaybook::run_reflector(const Value& payload) {
 // The real LLM curator: a focused AxGen sub-program driven by the teacher.
 Value AxPlaybook::run_curator(const Value& payload) {
   if (!curator_program_) curator_program_ = std::make_unique<AxGen>(s(kAceCuratorSignature));
+  Value question_context = playbook_field_values(Core::get(payload, "question_context"), program_, "inputs");
   Value request = Value::object();
-  Core::set(request, "playbook", Core::get(payload, "playbook", Value("")));
-  Core::set(request, "reflection", Value(playbook_stringify(Core::get(payload, "reflection"))));
-  Core::set(request, "question_context", Value(playbook_stringify(Core::get(payload, "question_context"))));
+  Core::set(request, "playbook", Value(playbook_input(Core::get(payload, "playbook", Value("")), engine_.get_playbook())));
+  Core::set(request, "reflection", Value(stringify(Core::get(payload, "reflection"))));
+  Core::set(request, "question_context", Value(playbook_stringify_bounded(question_context, playbook_max_serialized_chars(engine_))));
   Core::set(request, "token_budget", Core::get(payload, "token_budget", Value(1024)));
   try {
     return curator_program_->forward(*teacher_, request, Core::map_merge(Value::object(), teacher_options_));

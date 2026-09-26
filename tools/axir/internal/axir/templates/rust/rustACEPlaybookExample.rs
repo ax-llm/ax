@@ -68,6 +68,10 @@ fn main() -> AxResult<()> {
     assert!(result.get("bestScore").is_some(), "missing bestScore: {result}");
     assert!(state.get("playbook").is_some(), "missing playbook: {state}");
     assert!(state.get("artifact").is_some(), "missing artifact: {state}");
+    assert!(
+        rendered.contains("Answer in one concise sentence."),
+        "the playbook did not grow: {rendered}"
+    );
     println!("rendered: {rendered}");
     println!("rust-ace-playbook-ok");
     Ok(())

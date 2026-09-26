@@ -35,7 +35,7 @@ from .ai import (
 )
 from .prompt import AxPromptTemplate, _core_string_split
 from .schema import AxValidationError, _core_url_valid, strip_internal, validate_fields, validate_output
-from .signature import AxSignature, _core_string_replace
+from .signature import AxSignature, _core_string_replace, _js_json_dumps, _js_number_text
 from .mcp import resolve_execution_context
 # AXIR_CORE_IMPORTS
 
@@ -922,7 +922,7 @@ def _core_json_parse_strict(value):
 
 
 def _core_json_stringify(value):
-    return json.dumps(value, sort_keys=True, separators=(",", ":"), ensure_ascii=False)
+    return _js_json_dumps(value, sort_keys=True)
 
 
 def _core_fields_from_map(fields):
@@ -964,7 +964,8 @@ def _nested_field(name, item):
 
 
 def _core_string_format(template, *args):
-    return str(template).format(*args)
+    # "{}" takes String(x): a float two is "2", 1e-7 is "1e-7".
+    return str(template).format(*(_js_number_text(arg) if isinstance(arg, float) else arg for arg in args))
 
 
 def _core_string_lower(value):
@@ -1226,13 +1227,14 @@ def _core_string_join(sep, values):
 
 
 def _core_string_str(value):
-    return str(value)
+    # String(x): a float two is "2", not "2.0".
+    return _js_number_text(value) if isinstance(value, float) else str(value)
 
 
 def _core_axgen_value_text(value):
     if isinstance(value, str):
         return value
-    return json.dumps(value, sort_keys=True, ensure_ascii=False)
+    return _js_json_dumps(value, sort_keys=True, separators=(", ", ": "))
 
 
 def _core_axgen_fields_for(gen, kind):

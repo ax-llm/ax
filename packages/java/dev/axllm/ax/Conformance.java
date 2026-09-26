@@ -607,6 +607,7 @@ public final class Conformance {
       case "validate_value" -> runValidateValue(fixture);
       case "validate_output" -> runValidateOutput(fixture);
       case "strip_internal" -> runStripInternal(fixture);
+      case "number_format" -> runNumberFormat(fixture);
       case "prompt" -> runPrompt(fixture);
       case "template" -> assertEqual(Core.render_template_content(fixture.get("template"), fixture.getOrDefault("vars", Map.of()), fixture.getOrDefault("context", "fixture-template")), fixture.getOrDefault("expected_output", ""), "template output");
       case "template_error" -> runTemplateError(fixture);
@@ -785,6 +786,29 @@ public final class Conformance {
     if (!fixture.containsKey("expected_error_contains")) assertEqual(result, fixture.getOrDefault("expected_values", fixture.getOrDefault("values", Map.of())), "validated output");
   }
 
+  // String(x) and JSON.stringify(x) for numbers parsed from text with
+  // Double.parseDouble, which also reaches NaN, the infinities and -0. String(x)
+  // is string.str and string.format's "{}" (the streaming extractor's number
+  // text). The JSON form must come out of every encoder: Json.stringify (wire
+  // bodies and json.stringify), the key-sorted json.stable_stringify and
+  // json.pretty (prompt values).
+  static void runNumberFormat(Map<String, Object> fixture) {
+    for (Object item : Core.asList(fixture.get("cases"))) {
+      String input = String.valueOf(Core.get(item, "input", ""));
+      Double number = Double.parseDouble(input);
+      String json = String.valueOf(Core.get(item, "json", ""));
+      checkNumberFormat("string.str", input, Core.stringStr(number), String.valueOf(Core.get(item, "string", "")));
+      checkNumberFormat("string.format", input, String.valueOf(Core.stringFormat("{}", number)), String.valueOf(Core.get(item, "string", "")));
+      List<Object> list = new ArrayList<>(List.of(number));
+      checkNumberFormat("wire JSON", input, Json.stringify(list), "[" + json + "]");
+      checkNumberFormat("json.stringify", input, String.valueOf(Core.jsonStringify(list)), "[" + json + "]");
+      checkNumberFormat("json.stable_stringify", input, String.valueOf(Core.jsonStableStringify(list)), "[" + json + "]");
+      checkNumberFormat("json.pretty", input, String.valueOf(Core.jsonPretty(list)), "[\n  " + json + "\n]");
+    }
+  }
+  static void checkNumberFormat(String label, String input, String actual, String expected) {
+    if (!actual.equals(expected)) throw new FixtureError(label + " of " + input + ": expected " + expected + ", got " + actual);
+  }
   static void runStripInternal(Map<String, Object> fixture) {
     AxSignature sig = buildSignature(fixture);
     assertEqual(Core.strip_internal(sig.outputs, fixture.getOrDefault("values", Map.of())), fixture.get("expected_output"), "strip internal");
@@ -1340,6 +1364,10 @@ public final class Conformance {
         runAce(fixture, operation);
         return;
       }
+      if ("playbook-evolve".equals(operation)) {
+        runPlaybookEvolve(fixture);
+        return;
+      }
       if ("score".equals(operation)) {
         Object scores = Core._normalize_optimization_metric_scores(fixture.get("metric_score"));
         Object scalar = Core._scalarize_optimization_scores(scores, fixture.getOrDefault("score_options", Map.of()));
@@ -1519,6 +1547,53 @@ public final class Conformance {
     if (fixture.containsKey("expected_artifact")) assertEqual(ace.getArtifact(), fixture.get("expected_artifact"), "ace online artifact");
     if (fixture.containsKey("expected_artifact_subset")) assertSubset(ace.getArtifact(), fixture.get("expected_artifact_subset"), "ace online artifact");
     if (fixture.containsKey("expected_curator")) assertEqual(curatorResult, fixture.get("expected_curator"), "ace online curator");
+  }
+
+  // playbook().evolve through the real reflector and curator programs: scripted
+  // student and teacher clients answer in call order.
+  static void runPlaybookEvolve(Map<String, Object> fixture) {
+    ConformanceScriptedAI student = new ConformanceScriptedAI(scriptedContents(fixture.get("responses")), List.of());
+    ConformanceScriptedAI teacher = new ConformanceScriptedAI(scriptedContents(fixture.get("teacher_responses")), List.of());
+    List<Object> scores = new ArrayList<>(Core.asList(fixture.getOrDefault("metric_scores", List.of())));
+    java.util.function.Function<Map<String, Object>, Object> metric = args -> scores.isEmpty() ? 0 : scores.remove(0);
+
+    Map<String, Object> options = new LinkedHashMap<>(Core.asMap(fixture.getOrDefault("playbook_options", Map.of())));
+    Object now = fixture.get("now");
+    options.put("studentAI", student);
+    options.put("teacherAI", teacher);
+    options.put("now", now == null || String.valueOf(now).isEmpty() ? "1970-01-01T00:00:00.000Z" : now);
+    AxGen program = Ax.ax(String.valueOf(fixture.getOrDefault("signature", "question:string -> answer:string")));
+    AxPlaybook book = Ax.playbook(program, options);
+    Map<String, Object> result = book.evolve(Core.asList(fixture.getOrDefault("examples", List.of())), metric, Map.of());
+    if (fixture.containsKey("expected_playbook")) assertEqual(result.get("playbook"), fixture.get("expected_playbook"), "playbook evolve playbook");
+    if (fixture.containsKey("expected_teacher_request_contains")) {
+      // The plain text of every teacher prompt message, not its JSON encoding.
+      List<String> contents = new ArrayList<>();
+      for (Map<String, Object> request : teacher.requests) {
+        for (Object message : Core.asList(request.get("chat_prompt"))) {
+          if (message instanceof Map<?, ?> map && map.get("content") instanceof String content) contents.add(content);
+        }
+      }
+      String text = String.join("\n", contents);
+      for (Object item : Core.asList(fixture.get("expected_teacher_request_contains"))) {
+        if (!text.contains(String.valueOf(item))) throw new FixtureError("teacher requests missing " + item);
+      }
+    }
+  }
+
+  // A string script item is the response {"content": item}.
+  static List<Object> scriptedContents(Object items) {
+    List<Object> out = new ArrayList<>();
+    for (Object item : Core.asList(items)) {
+      if (item instanceof Map<?, ?>) {
+        out.add(Core.ownedCopy(item));
+      } else {
+        Map<String, Object> response = new LinkedHashMap<>();
+        response.put("content", item);
+        out.add(response);
+      }
+    }
+    return out;
   }
 
   static Map<String, Object> verificationInstrumentsSummary() {

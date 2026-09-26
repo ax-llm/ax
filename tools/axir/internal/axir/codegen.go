@@ -1901,6 +1901,7 @@ func BuildConformanceCoverageManifest(model AxRuntimeModel, target string) (Conf
 		{"prompt", "template", "", "semantic"},
 		{"prompt", "template_error", "", "validation-error"},
 		{"prompt", "template_validate", "", "semantic"},
+		{"prompt", "number_format", "", "semantic"},
 		{"axgen", "forward", "", "semantic"},
 		{"axgen", "stream", "", "semantic"},
 		{"axai", "ai_chat", "", "transport-boundary"},
