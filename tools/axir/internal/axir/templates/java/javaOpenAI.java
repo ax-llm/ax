@@ -454,7 +454,10 @@ public class OpenAICompatibleClient extends AxBaseAI implements AxChatSession.Pr
     AxRuntimeHooks hooks = AxGlobals.effective(callOptions, runtimeHooks);
     Map<String, Object> modelConfig = Core.asMap(Core.merge_model_config(modelConfig(), req.get("model_config"), Map.of("stream", true)));
     modelConfig.put("stream", true);
-    req.put("model", req.getOrDefault("model", model));
+    // A request without a model, or with a null one (AxGen sends one when the
+    // forward names no model), uses the client's model, as chat() does.
+    Object requestedModel = req.get("model");
+    req.put("model", requestedModel == null ? model : requestedModel);
     req.put("model_config", modelConfig);
     // Streamed requests skip chat(), so gate them here the same way: only the
     // stream call's options (or a model-key entry) confirm an expensive model.

@@ -270,6 +270,22 @@
         ]
       }
     },
+    "ax": {
+      "streaming": {
+        "sourcePath": "src/examples/cpp/generation/streaming_forward.cpp",
+        "verified": true,
+        "requiresCredentials": true,
+        "code": [
+          "auto story = axllm::ax(R\"(topic:string -> title:string, story:string \"Three short sentences\")\");",
+          "story.streaming_forward(*client, values, axllm::Value::object(), [&](const axllm::AxGenDelta& delta) {",
+          "  // delta.version changes when a retry starts the output over.",
+          "  axllm::Value text = axllm::Core::get(delta.delta, \"story\");",
+          "  if (text.is_string()) std::cout << axllm::display(text) << std::flush;",
+          "  return true;  // return false to stop the run",
+          "});"
+        ]
+      }
+    },
     "signatures": {
       "string": {
         "sourcePath": "src/examples/cpp/generation/basic_generation.cpp",

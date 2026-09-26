@@ -989,11 +989,185 @@ public final class AxGenScriptedClientToolExample {
     AxGen qa = Ax.ax("query:string -> answer:string")
       .addTool(search)
       .addAssert(Map.of("field", "answer", "contains", "Ax", "message", "answer should mention Ax"))
-      .addFieldProcessor("answer", "trim");
+      .addFieldTransform("answer", "trim");
     Map<String, Object> out = qa.forward(new ScriptedClient(), Map.of("query", "ax docs"));
     if (!"Found Ax docs".equals(out.get("answer"))) throw new RuntimeException("bad output: " + out);
     if (qa.getTraces().isEmpty()) throw new RuntimeException("missing trace");
     System.out.println("java-axgen-ok");
+  }
+}
+`
+
+const javaAxGenStreamingNoKeyExample = `import dev.axllm.ax.*;
+import java.util.*;
+import java.util.concurrent.atomic.*;
+
+public final class AxGenStreamingNoKeyExample {
+  // Streams one scripted reply per request, chunk by chunk, and records the
+  // requests and whether each provider stream was closed.
+  static final class ScriptedStreamClient implements AiClient {
+    final List<List<String>> replies;
+    final List<Map<String, Object>> requests = new ArrayList<>();
+    final AtomicInteger closedStreams = new AtomicInteger();
+
+    ScriptedStreamClient(List<List<String>> replies) {
+      this.replies = new ArrayList<>(replies);
+    }
+
+    public Map<String, Object> complete(Map<String, Object> request) {
+      throw new UnsupportedOperationException("this client only streams");
+    }
+
+    @Override
+    public AxChatStream openStream(Map<String, Object> request) {
+      requests.add(request);
+      if (replies.isEmpty()) throw new IllegalStateException("scripted client exhausted");
+      Iterator<String> chunks = replies.remove(0).iterator();
+      boolean[] finished = {false};
+      return new AxChatStream(() -> {
+        Map<String, Object> result = new LinkedHashMap<>();
+        result.put("index", 0);
+        if (chunks.hasNext()) result.put("content", chunks.next());
+        else if (!finished[0]) { finished[0] = true; result.put("finish_reason", "stop"); }
+        else return null;
+        Map<String, Object> event = new LinkedHashMap<>();
+        event.put("results", new ArrayList<>(List.of(result)));
+        return event;
+      }, closedStreams::incrementAndGet);
+    }
+  }
+
+  // Merges a delta as TypeScript consumers do: strings and lists append, other
+  // values replace, and a new version starts the sample over.
+  static int merge(Map<String, Object> merged, int version, AxGenDelta delta) {
+    if (delta.version() != version) merged.clear();
+    for (Map.Entry<String, Object> entry : delta.delta().entrySet()) {
+      Object previous = merged.get(entry.getKey());
+      if (previous instanceof String text && entry.getValue() instanceof String more) merged.put(entry.getKey(), text + more);
+      else if (previous instanceof List<?> items && entry.getValue() instanceof List<?> more) {
+        List<Object> joined = new ArrayList<>(items);
+        joined.addAll(more);
+        merged.put(entry.getKey(), joined);
+      } else merged.put(entry.getKey(), entry.getValue());
+    }
+    return delta.version();
+  }
+
+  static void check(boolean condition, String message) {
+    if (!condition) throw new RuntimeException(message);
+  }
+
+  public static void main(String[] args) throws Exception {
+    // 1. A streamed forward with a streaming assertion, a streaming field
+    //    processor, a TypeScript feedback processor, and field transforms.
+    ScriptedStreamClient client = new ScriptedStreamClient(List.of(
+        List.of("Answer: the ", "forbidden", " city\nNote: capital"),
+        List.of("Answer: Pari", "ss\nNote:  capital  "),
+        List.of("Answer: Paris\n", "Note:  capital  ")));
+    List<String> streamedAnswers = new ArrayList<>();
+    List<Object> feedbackValues = new ArrayList<>();
+    AxGen gen = Ax.ax("question:string -> answer:string, note:string")
+        .addStreamingAssert("answer", (text, done) -> text.contains("forbidden") ? "Do not say forbidden." : null, "Answer without forbidden words.")
+        .addStreamingFieldProcessor("answer", (text, context) -> {
+          streamedAnswers.add(String.valueOf(text));
+          return null;
+        })
+        .addFieldProcessor("answer", (value, context) -> {
+          feedbackValues.add(value);
+          check(context.done() && context.values().containsKey("answer"), "feedback context: " + context);
+          return "Pariss".equals(value) ? "Check the spelling." : null;
+        }, AxFieldProcessorMode.FEEDBACK)
+        .addFieldTransform("note", "trim")
+        .addFieldProcessor("note", (value, context) -> String.valueOf(value).toUpperCase(), AxFieldProcessorMode.TRANSFORM);
+
+    Map<String, Object> merged = new LinkedHashMap<>();
+    int version = 0;
+    SortedSet<Integer> versions = new TreeSet<>();
+    try (AxGenDeltaStream stream = gen.streamingForward(client, Map.of("question", "Capital of France?"), Map.of())) {
+      for (AxGenDelta delta : stream) {
+        versions.add(delta.version());
+        version = merge(merged, version, delta);
+      }
+    }
+    check(Map.of("answer", "Paris", "note", "CAPITAL").equals(merged), "merged output: " + merged);
+    check(versions.equals(new TreeSet<>(List.of(0, 1, 2))), "versions: " + versions);
+    check(client.requests.size() == 3, "requests: " + client.requests.size());
+    check(client.closedStreams.get() == 3, "closed provider streams: " + client.closedStreams.get());
+    check(feedbackValues.equals(List.of("Pariss", "Paris")), "feedback processor values: " + feedbackValues);
+    // A streaming processor sees the field's raw text so far.
+    check(streamedAnswers.contains(" Pari"), "streaming processor chunks: " + streamedAnswers);
+    String lastPrompt = Json.stringify(client.requests.get(2).get("chat_prompt"));
+    check(lastPrompt.contains("Check the spelling."), "feedback missing from the next step: " + lastPrompt);
+    String retryPrompt = Json.stringify(client.requests.get(1).get("chat_prompt"));
+    check(retryPrompt.contains("Do not say forbidden."), "assertion correction missing from the retry: " + retryPrompt);
+
+    // 2. Closing the stream early stops the run and closes the provider stream.
+    ScriptedStreamClient early = new ScriptedStreamClient(List.of(List.of("Answer: one", " two", " three\nNote: n")));
+    AxGen plain = Ax.ax("question:string -> answer:string, note:string");
+    AxGenDeltaStream stopped = plain.streamingForward(early, Map.of("question", "Count"), Map.of());
+    Iterator<AxGenDelta> iterator = stopped.iterator();
+    check(iterator.hasNext(), "missing first delta");
+    AxGenDelta first = iterator.next();
+    check("one".equals(first.delta().get("answer")), "first delta: " + first);
+    stopped.close();
+    check(!iterator.hasNext(), "a closed stream kept yielding");
+    check(early.closedStreams.get() == 1, "closing the stream left the provider stream open");
+    check(early.requests.size() == 1, "closing the stream retried the request");
+    try {
+      stopped.iterator();
+      throw new RuntimeException("a stream was consumed twice");
+    } catch (IllegalStateException expected) {
+      // single use
+    }
+
+    // 3. An exception a streaming assertion throws ends the forward without a
+    //    retry and reaches the consumer as it was thrown.
+    ScriptedStreamClient failing = new ScriptedStreamClient(List.of(List.of("Answer: fine", " then boom", "\nNote: n")));
+    AxGen strict = Ax.ax("question:string -> answer:string, note:string")
+        .addStreamingAssert("answer", (text, done) -> {
+          if (text.contains("boom")) throw new IllegalStateException("assertion exploded");
+          return true;
+        });
+    List<AxGenDelta> beforeError = new ArrayList<>();
+    try (AxGenDeltaStream stream = strict.streamingForward(failing, Map.of("question", "Status?"), Map.of())) {
+      for (AxGenDelta delta : stream) beforeError.add(delta);
+      throw new RuntimeException("the assertion error was not rethrown");
+    } catch (IllegalStateException expected) {
+      check("assertion exploded".equals(expected.getMessage()), "error message: " + expected.getMessage());
+    }
+    check(!beforeError.isEmpty(), "deltas before the error were not delivered");
+    check(failing.requests.size() == 1, "an assertion error was retried");
+
+    // 4. Cancelling the token aborts the run with AxAIServiceAbortedError.
+    ScriptedStreamClient slow = new ScriptedStreamClient(List.of(List.of("Answer: first", " second", " third\nNote: n")));
+    AxCancellationToken token = new AxCancellationToken();
+    try (AxGenDeltaStream stream = plain.streamingForward(slow, Map.of("question", "Count"), Map.of(), token)) {
+      for (AxGenDelta delta : stream) token.cancel("user stopped");
+      throw new RuntimeException("cancellation did not abort the stream");
+    } catch (AxAIServiceAbortedError expected) {
+      check(expected.getMessage().contains("user stopped"), "abort message: " + expected.getMessage());
+    }
+
+    // 5. Through a provider client and its SSE parser: a forward that names no
+    //    model streams with the client's model.
+    List<Object> sentModels = new ArrayList<>();
+    OpenAICompatibleClient.Transport transport = call -> {
+      sentModels.add(((Map<?, ?>) call.get("json")).get("model"));
+      return Map.of("status", 200, "body",
+          "data: {\"id\":\"c1\",\"model\":\"gpt-5.4-mini\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\"Answer: Par\"}}]}\n\n"
+              + "data: {\"id\":\"c1\",\"model\":\"gpt-5.4-mini\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\"is\"},\"finish_reason\":\"stop\"}]}\n\n"
+              + "data: [DONE]\n\n");
+    };
+    OpenAICompatibleClient provider = new OpenAICompatibleClient(Map.of("api_key", "test-key", "model", "gpt-5.4-mini", "transport", transport));
+    Map<String, Object> providerMerged = new LinkedHashMap<>();
+    int providerVersion = 0;
+    try (AxGenDeltaStream stream = Ax.ax("question:string -> answer:string").streamingForward(provider, Map.of("question", "Capital of France?"), Map.of())) {
+      for (AxGenDelta delta : stream) providerVersion = merge(providerMerged, providerVersion, delta);
+    }
+    check(Map.of("answer", "Paris").equals(providerMerged), "provider stream output: " + providerMerged);
+    check(sentModels.equals(List.of("gpt-5.4-mini")), "streamed request models: " + sentModels);
+
+    System.out.println("java-axgen-streaming-ok " + merged);
   }
 }
 `
@@ -1321,12 +1495,181 @@ int main() {
   auto qa = axllm::ax("query:string -> answer:string")
       .add_tool(search)
       .add_assert(axllm::object({{"field", "answer"}, {"contains", "Ax"}, {"message", "answer should mention Ax"}}))
-      .add_field_processor("answer", "trim");
+      .add_field_transform("answer", "trim");
   ScriptedClient client;
   axllm::Value out = qa.forward(client, axllm::object({{"query", "ax docs"}}));
   if (!axllm::equal(axllm::Core::get(out, "answer"), "Found Ax docs")) return 1;
   if (axllm::Core::truthy(axllm::Core::is_none(axllm::Core::get(qa.get_traces(), 0)))) return 1;
   std::cout << "cpp-axgen-ok\n";
+}
+`
+
+const cppAxGenStreamingNoKeyExample = `#include "axllm/axllm.hpp"
+#include <cctype>
+#include <iostream>
+#include <sstream>
+#include <string>
+#include <vector>
+
+// Streams one scripted answer per request as OpenAI SSE chunks of a few
+// characters, the way a provider streams text.
+struct ScriptedStream : axllm::Transport {
+  std::vector<std::string> answers;
+  std::vector<axllm::Value> requests;
+
+  explicit ScriptedStream(std::vector<std::string> scripted) : answers(std::move(scripted)) {}
+
+  axllm::Value call(axllm::Value) override { return axllm::Value::object(); }
+
+  void stream(axllm::Value request, axllm::AxTransportStreamHandler handler) override {
+    requests.push_back(request);
+    const std::string answer = answers.at(requests.size() - 1);
+    for (std::size_t at = 0; at < answer.size(); at += 5) {
+      if (!handler(chunk(axllm::object({{"content", answer.substr(at, 5)}}), axllm::Value()))) return;
+    }
+    if (!handler(chunk(axllm::Value::object(), "stop"))) return;
+    handler(std::string("data: [DONE]\n\n"));
+  }
+
+  static std::string chunk(axllm::Value delta, axllm::Value finish_reason) {
+    axllm::Value choice = axllm::object({{"index", 0}, {"delta", delta}, {"finish_reason", finish_reason}});
+    axllm::Value event = axllm::object({{"id", "chatcmpl_story"}, {"model", "gpt-5.4-mini"}, {"choices", axllm::array({choice})}});
+    return "data: " + axllm::stringify(event) + "\n\n";
+  }
+
+  bool sent(std::size_t index, const std::string& text) const {
+    return index < requests.size() && axllm::stringify(requests[index]).find(text) != std::string::npos;
+  }
+};
+
+struct Interrupted {};
+
+int main() {
+  ScriptedStream transport({
+      "Title: night watch\nStory: A dragon guards the lighthouse.",
+      "Title: night watch\nStory: The cat keeps the lamp lit through every storm while the keeper sleeps.",
+      "Title: night watch\nStory: The cat keeps the lamp lit.",
+      "Title: cut short\nStory: This run stops early.",
+      "Title: cut short\nStory: This handler gives up.",
+      "Title: calm sea\nStory: The sea rests under a quiet moon.",
+  });
+  axllm::OpenAICompatibleClient client(axllm::object({{"api_key", "test-key"}, {"model", "gpt-5.4-mini"}}), &transport);
+  auto story = axllm::ax("topic:string -> title:string, story:string");
+
+  // A callable streaming assertion checks the story as it streams; a failure
+  // retries the attempt with the message as the correction.
+  story.add_streaming_assert("story", [](const std::string& text, bool) -> axllm::Value {
+    if (text.find("dragon") == std::string::npos) return true;
+    return "Keep dragons out of the story.";
+  });
+  // A Feedback processor sends its note back to the model for another step,
+  // whose answer replaces this one, as TypeScript's addFieldProcessor does.
+  story.add_field_processor(
+      "story",
+      [](const axllm::Value& value, const axllm::AxFieldProcessorContext&) -> axllm::Value {
+        std::istringstream words(axllm::display(value));
+        int count = 0;
+        for (std::string word; words >> word;) ++count;
+        if (count <= 8) return nullptr;
+        return "Answer again in at most 8 words.";
+      },
+      axllm::AxFieldProcessorMode::Feedback);
+  // A streaming field processor sees the story's text so far as it streams.
+  std::vector<std::string> seen;
+  bool saw_done = false;
+  story.add_streaming_field_processor("story", [&](const axllm::Value& text, const axllm::AxFieldProcessorContext& context) -> axllm::Value {
+    seen.push_back(axllm::display(text));
+    saw_done = saw_done || context.done;
+    return nullptr;
+  });
+  // A Transform processor rewrites the final title, with the output at hand;
+  // streaming holds the title back and sends it once, rewritten.
+  bool title_saw_story = false;
+  story.add_field_processor(
+      "title",
+      [&](const axllm::Value& value, const axllm::AxFieldProcessorContext& context) -> axllm::Value {
+        title_saw_story = context.done && axllm::Core::get(context.values, "story").is_string();
+        std::string title = axllm::display(value);
+        bool word_start = true;
+        for (char& c : title) {
+          if (word_start) c = static_cast<char>(std::toupper(static_cast<unsigned char>(c)));
+          word_start = c == ' ';
+        }
+        return title;
+      },
+      axllm::AxFieldProcessorMode::Transform);
+
+  // Merge each index's deltas (strings append, other values replace) and
+  // start over when the version changes: the assertion's retry and the
+  // feedback step each start a new version.
+  axllm::Value merged = axllm::Value::object();
+  int64_t version = 0;
+  axllm::Value output = story.streaming_forward(
+      client, axllm::object({{"topic", "a lighthouse keeper's cat"}}), axllm::Value::object(),
+      [&](const axllm::AxGenDelta& delta) {
+        if (delta.version != version) {
+          merged = axllm::Value::object();
+          version = delta.version;
+        }
+        for (const auto& key : axllm::Core::iter(delta.delta)) {
+          std::string field = axllm::display(key);
+          axllm::Value value = axllm::Core::get(delta.delta, field);
+          axllm::Value previous = axllm::Core::get(merged, field);
+          bool append = value.is_string() && (previous.is_null() || previous.is_string());
+          axllm::Core::set(merged, field, append ? axllm::Value(axllm::display(previous) + axllm::display(value)) : value);
+        }
+        return true;
+      });
+  const std::string title = axllm::display(axllm::Core::get(output, "title"));
+  const std::string text = axllm::display(axllm::Core::get(output, "story"));
+  if (title != "Night Watch" || text != "The cat keeps the lamp lit.") return 1;
+  if (axllm::display(axllm::Core::get(merged, "title")) != title || axllm::display(axllm::Core::get(merged, "story")) != text) return 2;
+  if (version != 2 || transport.requests.size() != 3) return 3;
+  if (!transport.sent(1, "Keep dragons out of the story.") || !transport.sent(2, "Answer again in at most 8 words.")) return 4;
+  if (seen.empty() || !saw_done || !title_saw_story) return 5;
+
+  // Returning false stops the run: the stream closes, nothing is thrown, and
+  // the result is what was merged so far.
+  axllm::Value partial = story.streaming_forward(
+      client, axllm::object({{"topic", "a short one"}}), axllm::Value::object(),
+      [](const axllm::AxGenDelta&) { return false; });
+  const std::string partial_story = axllm::display(axllm::Core::get(partial, "story"));
+  if (transport.requests.size() != 4 || partial_story.empty() || std::string("This run stops early.").rfind(partial_story, 0) != 0) return 6;
+
+  // An exception from the handler stops the run and reaches the caller as is.
+  try {
+    story.streaming_forward(client, axllm::object({{"topic", "a short one"}}), axllm::Value::object(),
+                            [](const axllm::AxGenDelta&) -> bool { throw Interrupted{}; });
+    return 7;
+  } catch (const Interrupted&) {
+  }
+  if (transport.requests.size() != 5) return 8;
+
+  // A cancelled token stops the run before a request goes out.
+  axllm::AxCancellationToken token;
+  token.cancel("user left");
+  try {
+    story.streaming_forward(client, axllm::object({{"topic", "a short one"}}), axllm::Value::object(),
+                            [](const axllm::AxGenDelta&) { return true; }, &token);
+    return 9;
+  } catch (const axllm::AxAIServiceAbortedError&) {
+  }
+  if (transport.requests.size() != 5) return 10;
+
+  // Under run control the model call streams through the run's response
+  // boundary, where queued steering joins the request.
+  auto control = axllm::run_control();
+  control.steer("Keep it gentle.");
+  int steered_deltas = 0;
+  axllm::Value calm = story.streaming_forward(
+      client, axllm::object({{"topic", "a calm sea"}}), axllm::object({{"control", control.value()}}),
+      [&](const axllm::AxGenDelta&) {
+        ++steered_deltas;
+        return true;
+      });
+  if (!transport.sent(5, "Keep it gentle.") || steered_deltas < 2) return 11;
+  if (axllm::display(axllm::Core::get(calm, "story")) != "The sea rests under a quiet moon.") return 12;
+  std::cout << "cpp-axgen-streaming-ok " << title << ": " << text << "\n";
 }
 `
 

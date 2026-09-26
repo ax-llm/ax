@@ -728,11 +728,11 @@ static ToolBuild build_tools(Value specs) {
   return out;
 }
 
-// field_transforms use the transform seam; field_processors use the
-// transforming add_field_processor() (the same behavior).
+// field_transforms use add_field_transform(); field_processors use the
+// deprecated add_field_processor(field, op), which still transforms.
 static void add_fixture_transforms(AxGen& gen, Value fixture) {
   for (const auto& spec : Core::iter(Core::get(fixture, "field_transforms", Value::array()))) {
-    detail::AxGenInternal::add_field_transform(gen, display(Core::get(spec, "field")), display(Core::get(spec, "processor", Core::get(spec, "op"))));
+    gen.add_field_transform(display(Core::get(spec, "field")), display(Core::get(spec, "processor", Core::get(spec, "op"))));
   }
   for (const auto& spec : Core::iter(Core::get(fixture, "field_processors", Core::get(fixture, "fieldProcessors", Value::array())))) {
     gen.add_field_processor(display(Core::get(spec, "field")), display(Core::get(spec, "processor", Core::get(spec, "op"))));
@@ -742,10 +742,10 @@ static void add_fixture_transforms(AxGen& gen, Value fixture) {
 // A fixture field processor records each call and returns `returns`, or the
 // value itself with `echo`; `when_done` waits for the final value, `times`
 // limits how many results it returns, and `throws` raises.
-static std::function<Value(Value, Value)> fixture_processor(Value spec, Value calls) {
+static AxFieldProcessor fixture_processor(Value spec, Value calls) {
   auto returned = std::make_shared<double>(0);
-  return [spec, calls, returned](Value value, Value context) mutable {
-    bool done = Core::truthy(Core::get(context, "done"));
+  return [spec, calls, returned](const Value& value, const AxFieldProcessorContext& context) mutable {
+    bool done = context.done;
     Core::append(calls, object({{"field", Core::get(spec, "field")}, {"value", parse_json(stringify(value))}, {"done", done}}));
     Value throws = Core::get(spec, "throws");
     if (!throws.is_null()) throw std::runtime_error(display(throws));
@@ -769,7 +769,7 @@ static void run_forward(Value fixture) {
   add_fixture_transforms(gen, fixture);
   Value processor_calls = Value::array();
   for (const auto& spec : Core::iter(Core::get(fixture, "feedback_processors", Value::array()))) {
-    detail::AxGenInternal::add_feedback_processor(gen, display(Core::get(spec, "field")), fixture_processor(spec, processor_calls));
+    gen.add_field_processor(display(Core::get(spec, "field")), fixture_processor(spec, processor_calls), AxFieldProcessorMode::Feedback);
   }
   if (!Core::get(fixture, "stop_functions", Core::get(fixture, "stopFunctions")).is_null()) {
     gen.set_stop_functions(Core::get(fixture, "stop_functions", Core::get(fixture, "stopFunctions", Value::array())));
@@ -867,9 +867,9 @@ static void run_forward(Value fixture) {
   }
 }
 
-// Runs the streaming forward with a sink that records every
-// {version, index, delta} envelope; deltas sent before an expected error are
-// still compared.
+// Runs the public streaming forward with a handler that records every delta
+// as a {version, index, delta} envelope; deltas sent before an expected error
+// are still compared.
 static void run_streaming_forward(Value fixture) {
   Value sig = build_signature(fixture);
   ToolBuild tool_build = build_tools(Core::get(fixture, "tools", Value::array()));
@@ -880,10 +880,10 @@ static void run_streaming_forward(Value fixture) {
   add_fixture_transforms(gen, fixture);
   Value processor_calls = Value::array();
   for (const auto& spec : Core::iter(Core::get(fixture, "feedback_processors", Value::array()))) {
-    detail::AxGenInternal::add_feedback_processor(gen, display(Core::get(spec, "field")), fixture_processor(spec, processor_calls));
+    gen.add_field_processor(display(Core::get(spec, "field")), fixture_processor(spec, processor_calls), AxFieldProcessorMode::Feedback);
   }
   for (const auto& spec : Core::iter(Core::get(fixture, "streaming_processors", Value::array()))) {
-    detail::AxGenInternal::add_streaming_field_processor(gen, display(Core::get(spec, "field")), fixture_processor(spec, processor_calls));
+    gen.add_streaming_field_processor(display(Core::get(spec, "field")), fixture_processor(spec, processor_calls));
   }
   Value picker_index = Core::get(fixture, "result_picker_index");
   if (!picker_index.is_null()) {
@@ -893,12 +893,15 @@ static void run_streaming_forward(Value fixture) {
   if (!Core::get(fixture, "stop_functions").is_null()) gen.set_stop_functions(Core::get(fixture, "stop_functions", Value::array()));
   ConformanceScriptedAI client(Core::get(fixture, "responses", Value::array()), Core::get(fixture, "features"), Core::get(fixture, "client"));
   Value deltas = Value::array();
-  auto record = [deltas](Value envelope) mutable { Core::append(deltas, std::move(envelope)); };
+  auto record = [deltas](const AxGenDelta& delta) mutable {
+    Core::append(deltas, object({{"version", Value(static_cast<double>(delta.version))}, {"index", Value(static_cast<double>(delta.index))}, {"delta", delta.delta}}));
+    return true;
+  };
   Value expected_error = Core::get(fixture, "expected_error_contains");
   Value output;
   bool failed = false;
   try {
-    output = detail::AxGenInternal::streaming_forward(gen, client, Core::get(fixture, "input", Value::object()), Core::get(fixture, "forward_options", Value::object()), record);
+    output = gen.streaming_forward(client, Core::get(fixture, "input", Value::object()), Core::get(fixture, "forward_options", Value::object()), record);
   } catch (const std::exception& error) {
     if (const auto* ax = dynamic_cast<const AxError*>(&error); ax && ax->category == "fixture") throw;
     if (expected_error.is_null() || std::string(error.what()).find(display(expected_error)) == std::string::npos) throw;
