@@ -1,3 +1,4 @@
+// cspell:ignore Pariss
 import { describe, expect, it } from 'vitest';
 
 import { AxMockAIService } from '../ai/mock/api.js';
