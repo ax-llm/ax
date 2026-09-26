@@ -1768,3 +1768,17 @@ writeFixture('infra-retry-budget-resets-per-step', {
   expected_tool_calls: [searchRecord],
   expected_request_count: 4,
 });
+
+// Structured input values reach the prompt as plain JSON: no key-order
+// bookkeeping (Go keeps an in-band "__order" list per map) and no HTML-style
+// < escapes for <, > and &.
+writeFixture('json-input-prompt-plain-json', {
+  kind: 'forward',
+  signature: 'plan:json -> answer:string',
+  input: { plan: { zeta: 1, alpha: { inner: true }, tag: '<b>&' } },
+  responses: [{ content: '{"answer":"ok"}' }],
+  expected_output: { answer: 'ok' },
+  expected_request_count: 1,
+  expected_chat_prompt_contains: ['<b>&', 'inner'],
+  expected_request_not_contains: ['__order', '\\u003c', '\\u0026'],
+});
