@@ -2860,6 +2860,16 @@ impl OpenAICompatibleClient {
                 .to_string()
         });
         let mut url = format!("{}{path}", base.trim_end_matches('/'));
+        if operation == "embed" {
+            let embed_url = core_value_to_json(&provider_embed_url(&[
+                CoreValue::from(self.profile.as_str()),
+                CoreValue::from(model),
+                core_value_from_json(&self.options),
+            ])?);
+            if let Some(embed_url) = embed_url.as_str().filter(|value| !value.is_empty()) {
+                url = embed_url.to_string();
+            }
+        }
         if !self.api_version.is_empty() {
             let separator = if url.contains('?') { "&" } else { "?" };
             url = format!(
@@ -54320,23 +54330,115 @@ fn _gemini_build_vertex_embed_request(args: &[CoreValue]) -> Result<CoreValue, A
     let mut v_options = core_arg(args, 1);
     let mut v_auto_truncate = CoreValue::Null;
     let mut v_auto_truncate_snake = CoreValue::Null;
+    let mut v_content = CoreValue::Null;
+    let mut v_content_dimensions = CoreValue::Null;
+    let mut v_content_truncate = CoreValue::Null;
+    let mut v_content_truncate_snake = CoreValue::Null;
     let mut v_dimensions = CoreValue::Null;
+    let mut v_embed_content_model = CoreValue::Null;
     let mut v_empty_texts = CoreValue::Null;
+    let mut v_endpoint = CoreValue::Null;
+    let mut v_endpoint_snake = CoreValue::Null;
+    let mut v_error = CoreValue::Null;
     let mut v_has_auto_truncate = CoreValue::Null;
+    let mut v_has_content_dimensions = CoreValue::Null;
+    let mut v_has_content_truncate = CoreValue::Null;
     let mut v_has_dimensions = CoreValue::Null;
+    let mut v_has_endpoint = CoreValue::Null;
     let mut v_has_task_type = CoreValue::Null;
     let mut v_instance = CoreValue::Null;
     let mut v_instances = CoreValue::Null;
+    let mut v_message = CoreValue::Null;
+    let mut v_model = CoreValue::Null;
+    let mut v_model_camel = CoreValue::Null;
+    let mut v_no_endpoint = CoreValue::Null;
     let mut v_parameters = CoreValue::Null;
+    let mut v_part = CoreValue::Null;
+    let mut v_parts = CoreValue::Null;
     let mut v_payload = CoreValue::Null;
+    let mut v_single_text = CoreValue::Null;
     let mut v_task_type = CoreValue::Null;
     let mut v_task_type_snake = CoreValue::Null;
     let mut v_text = CoreValue::Null;
+    let mut v_text_count = CoreValue::Null;
     let mut v_texts = CoreValue::Null;
+    let mut v_use_embed_content = CoreValue::Null;
     v_payload = CoreValue::new_map();
     v_instances = CoreValue::new_list();
     v_empty_texts = CoreValue::new_list();
     v_texts = core_get(&v_request, &CoreValue::from("texts"), v_empty_texts.clone());
+    v_model_camel = core_get(
+        &v_request,
+        &CoreValue::from("embedModel"),
+        CoreValue::from(""),
+    );
+    v_model = core_get(
+        &v_request,
+        &CoreValue::from("embed_model"),
+        v_model_camel.clone(),
+    );
+    v_endpoint_snake = core_get(&v_options, &CoreValue::from("endpoint_id"), CoreValue::Null);
+    v_endpoint = core_get(
+        &v_options,
+        &CoreValue::from("endpointId"),
+        v_endpoint_snake.clone(),
+    );
+    v_has_endpoint = core_truthy_value(&[v_endpoint.clone()])?;
+    v_no_endpoint = core_not(&[v_has_endpoint.clone()])?;
+    v_embed_content_model = _gemini_vertex_embed_content_model_impl(&[v_model.clone()])?;
+    v_use_embed_content = core_and(&[v_embed_content_model.clone(), v_no_endpoint.clone()])?;
+    if core_truthy(&v_use_embed_content) {
+        v_text_count = core_len(&[v_texts.clone()])?;
+        v_single_text = core_eq(&[v_text_count.clone(), CoreValue::Num(1f64)])?;
+        if core_truthy(&v_single_text) {
+        } else {
+            v_message = core_string_format(&[
+                CoreValue::from(
+                    "{} on Vertex embeds one text per request; call embed() once per text",
+                ),
+                v_model.clone(),
+            ])?;
+            v_error = core_ai_error_unsupported(&[v_message.clone()])?;
+            return Err(core_as_error(&v_error));
+        }
+        v_text = core_list_get(&[v_texts.clone(), CoreValue::Num(0f64), CoreValue::from("")])?;
+        v_part = CoreValue::new_map();
+        core_set(&v_part, CoreValue::from("text"), v_text.clone())?;
+        v_parts = CoreValue::new_list();
+        core_append(&v_parts, v_part.clone())?;
+        v_content = CoreValue::new_map();
+        core_set(&v_content, CoreValue::from("parts"), v_parts.clone())?;
+        core_set(&v_payload, CoreValue::from("content"), v_content.clone())?;
+        v_content_truncate_snake = core_get(
+            &v_options,
+            &CoreValue::from("auto_truncate"),
+            CoreValue::Null,
+        );
+        v_content_truncate = core_get(
+            &v_options,
+            &CoreValue::from("autoTruncate"),
+            v_content_truncate_snake.clone(),
+        );
+        v_has_content_truncate = core_is_not_none(&[v_content_truncate.clone()])?;
+        if core_truthy(&v_has_content_truncate) {
+            core_set(
+                &v_payload,
+                CoreValue::from("autoTruncate"),
+                v_content_truncate.clone(),
+            )?;
+        }
+        v_content_dimensions =
+            core_get(&v_request, &CoreValue::from("dimensions"), CoreValue::Null);
+        v_has_content_dimensions = core_is_not_none(&[v_content_dimensions.clone()])?;
+        if core_truthy(&v_has_content_dimensions) {
+            core_set(
+                &v_payload,
+                CoreValue::from("outputDimensionality"),
+                v_content_dimensions.clone(),
+            )?;
+        }
+        return Ok(v_payload.clone());
+    }
     for v_text in core_iter(&v_texts)? {
         let mut v_text = v_text;
         v_instance = CoreValue::new_map();
@@ -55021,14 +55123,74 @@ fn _gemini_normalize_embed_response(args: &[CoreValue]) -> Result<CoreValue, AxE
     let mut v_embeddings = CoreValue::Null;
     let mut v_empty_predictions = CoreValue::Null;
     let mut v_empty_raw_embeddings = CoreValue::Null;
+    let mut v_empty_values = CoreValue::Null;
+    let mut v_has_single_embedding = CoreValue::Null;
+    let mut v_has_usage_metadata = CoreValue::Null;
+    let mut v_model_usage = CoreValue::Null;
     let mut v_out = CoreValue::Null;
     let mut v_prediction = CoreValue::Null;
     let mut v_prediction_embedding = CoreValue::Null;
     let mut v_predictions = CoreValue::Null;
+    let mut v_prompt_tokens = CoreValue::Null;
     let mut v_raw_embeddings = CoreValue::Null;
+    let mut v_single_embedding = CoreValue::Null;
+    let mut v_single_values = CoreValue::Null;
+    let mut v_total_tokens = CoreValue::Null;
+    let mut v_usage = CoreValue::Null;
+    let mut v_usage_metadata = CoreValue::Null;
     let mut v_values = CoreValue::Null;
     v_out = CoreValue::new_map();
     v_embeddings = CoreValue::new_list();
+    v_single_embedding = core_get(&v_raw, &CoreValue::from("embedding"), CoreValue::Null);
+    v_has_single_embedding = core_is_not_none(&[v_single_embedding.clone()])?;
+    if core_truthy(&v_has_single_embedding) {
+        v_empty_values = CoreValue::new_list();
+        v_single_values = core_get(
+            &v_single_embedding,
+            &CoreValue::from("values"),
+            v_empty_values.clone(),
+        );
+        core_append(&v_embeddings, v_single_values.clone())?;
+        core_set(&v_out, CoreValue::from("embeddings"), v_embeddings.clone())?;
+        v_usage_metadata = core_get(&v_raw, &CoreValue::from("usageMetadata"), CoreValue::Null);
+        v_has_usage_metadata = core_truthy_value(&[v_usage_metadata.clone()])?;
+        if core_truthy(&v_has_usage_metadata) {
+            v_prompt_tokens = core_get(
+                &v_usage_metadata,
+                &CoreValue::from("promptTokenCount"),
+                CoreValue::Num(0f64),
+            );
+            v_total_tokens = core_get(
+                &v_usage_metadata,
+                &CoreValue::from("totalTokenCount"),
+                v_prompt_tokens.clone(),
+            );
+            v_usage = CoreValue::new_map();
+            core_set(
+                &v_usage,
+                CoreValue::from("prompt_tokens"),
+                v_prompt_tokens.clone(),
+            )?;
+            core_set(
+                &v_usage,
+                CoreValue::from("completion_tokens"),
+                CoreValue::Num(0f64),
+            )?;
+            core_set(
+                &v_usage,
+                CoreValue::from("total_tokens"),
+                v_total_tokens.clone(),
+            )?;
+            v_model_usage =
+                _ai_model_usage_impl(&[v_ai_name.clone(), v_model.clone(), v_usage.clone()])?;
+            core_set(
+                &v_out,
+                CoreValue::from("model_usage"),
+                v_model_usage.clone(),
+            )?;
+        }
+        return Ok(v_out.clone());
+    }
     v_empty_raw_embeddings = CoreValue::new_list();
     v_raw_embeddings = core_get(
         &v_raw,
@@ -58415,6 +58577,127 @@ fn provider_require_expensive_model_confirmation(args: &[CoreValue]) -> Result<C
         }
     }
     return Ok(CoreValue::Null);
+}
+
+#[allow(
+    unused_variables,
+    unused_assignments,
+    unused_mut,
+    unreachable_code,
+    clippy::all
+)]
+fn _gemini_vertex_embed_content_model_impl(args: &[CoreValue]) -> Result<CoreValue, AxError> {
+    axir_coverage_mark("_gemini_vertex_embed_content_model_impl");
+    let mut v_model = core_arg(args, 0);
+    let mut v_is_embed_content = CoreValue::Null;
+    v_is_embed_content = core_eq(&[v_model.clone(), CoreValue::from("gemini-embedding-2")])?;
+    return Ok(v_is_embed_content.clone());
+}
+
+#[allow(
+    unused_variables,
+    unused_assignments,
+    unused_mut,
+    unreachable_code,
+    clippy::all
+)]
+fn provider_embed_url(args: &[CoreValue]) -> Result<CoreValue, AxError> {
+    axir_coverage_mark("provider_embed_url");
+    let mut v_profile = core_arg(args, 0);
+    let mut v_model = core_arg(args, 1);
+    let mut v_options = core_arg(args, 2);
+    let mut v_base_override = CoreValue::Null;
+    let mut v_base_override_snake = CoreValue::Null;
+    let mut v_base_url = CoreValue::Null;
+    let mut v_beta = CoreValue::Null;
+    let mut v_descriptor = CoreValue::Null;
+    let mut v_embed_content_model = CoreValue::Null;
+    let mut v_endpoint = CoreValue::Null;
+    let mut v_endpoint_snake = CoreValue::Null;
+    let mut v_has_base_override = CoreValue::Null;
+    let mut v_has_endpoint = CoreValue::Null;
+    let mut v_host = CoreValue::Null;
+    let mut v_is_gemini = CoreValue::Null;
+    let mut v_is_vertex = CoreValue::Null;
+    let mut v_no_endpoint = CoreValue::Null;
+    let mut v_project = CoreValue::Null;
+    let mut v_project_snake = CoreValue::Null;
+    let mut v_provider_id = CoreValue::Null;
+    let mut v_routed = CoreValue::Null;
+    let mut v_transport = CoreValue::Null;
+    let mut v_url = CoreValue::Null;
+    let mut v_use_beta = CoreValue::Null;
+    let mut v_use_global = CoreValue::Null;
+    let mut v_version = CoreValue::Null;
+    let mut v_vertex_gemini = CoreValue::Null;
+    v_provider_id = provider_normalize_profile(&[v_profile.clone()])?;
+    v_descriptor = provider_resolve_descriptor(&[v_provider_id.clone(), v_options.clone()])?;
+    v_is_vertex = core_get(
+        &v_descriptor,
+        &CoreValue::from("vertex"),
+        CoreValue::Bool(false),
+    );
+    v_transport = core_get(
+        &v_descriptor,
+        &CoreValue::from("transport"),
+        CoreValue::from("openai-chat"),
+    );
+    v_is_gemini = core_eq(&[
+        v_transport.clone(),
+        CoreValue::from("gemini-generate-content"),
+    ])?;
+    v_vertex_gemini = core_and(&[v_is_vertex.clone(), v_is_gemini.clone()])?;
+    v_endpoint_snake = core_get(&v_options, &CoreValue::from("endpoint_id"), CoreValue::Null);
+    v_endpoint = core_get(
+        &v_options,
+        &CoreValue::from("endpointId"),
+        v_endpoint_snake.clone(),
+    );
+    v_has_endpoint = core_truthy_value(&[v_endpoint.clone()])?;
+    v_no_endpoint = core_not(&[v_has_endpoint.clone()])?;
+    v_embed_content_model = _gemini_vertex_embed_content_model_impl(&[v_model.clone()])?;
+    v_routed = core_and(&[v_vertex_gemini.clone(), v_no_endpoint.clone()])?;
+    v_use_global = core_and(&[v_routed.clone(), v_embed_content_model.clone()])?;
+    if core_truthy(&v_use_global) {
+    } else {
+        return Ok(CoreValue::from(""));
+    }
+    v_base_override_snake = core_get(&v_options, &CoreValue::from("base_url"), CoreValue::Null);
+    v_base_override = core_get(
+        &v_options,
+        &CoreValue::from("baseUrl"),
+        v_base_override_snake.clone(),
+    );
+    v_has_base_override = core_truthy_value(&[v_base_override.clone()])?;
+    v_base_url = v_base_override.clone();
+    if core_truthy(&v_has_base_override) {
+    } else {
+        v_host = resolve_vertex_ai_host(&[CoreValue::from("global")])?;
+        v_beta = core_get(&v_options, &CoreValue::from("beta"), CoreValue::Bool(false));
+        v_use_beta = core_truthy_value(&[v_beta.clone()])?;
+        v_version = CoreValue::from("v1");
+        if core_truthy(&v_use_beta) {
+            v_version = CoreValue::from("v1beta1");
+        }
+        v_base_url = core_string_format(&[
+            CoreValue::from("https://{}/{}"),
+            v_host.clone(),
+            v_version.clone(),
+        ])?;
+    }
+    v_project_snake = core_get(&v_options, &CoreValue::from("project_id"), CoreValue::Null);
+    v_project = core_get(
+        &v_options,
+        &CoreValue::from("projectId"),
+        v_project_snake.clone(),
+    );
+    v_url = core_string_format(&[
+        CoreValue::from("{}/projects/{}/locations/global/publishers/google/models/{}:embedContent"),
+        v_base_url.clone(),
+        v_project.clone(),
+        v_model.clone(),
+    ])?;
+    return Ok(v_url.clone());
 }
 
 #[allow(
@@ -104011,7 +104294,7 @@ fn mcp_websocket_request_ids(args: &[CoreValue]) -> Result<CoreValue, AxError> {
     return Ok(v_ids.clone());
 }
 
-// END AXIR CORE EMITTED FUNCTIONS (747 of 747 core functions)
+// END AXIR CORE EMITTED FUNCTIONS (749 of 749 core functions)
 
 fn run_ai_session_events_fixture(fixture: &Value) -> AxResult<()> {
     let state = core_value_from_json(&json!({}));

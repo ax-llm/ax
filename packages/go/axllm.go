@@ -25737,42 +25737,127 @@ func _gemini_build_vertex_embed_request(args ...Value) (Value, error) {
 	var v_options Value
 	var v_auto_truncate Value
 	var v_auto_truncate_snake Value
+	var v_content Value
+	var v_content_dimensions Value
+	var v_content_truncate Value
+	var v_content_truncate_snake Value
 	var v_dimensions Value
+	var v_embed_content_model Value
 	var v_empty_texts Value
+	var v_endpoint Value
+	var v_endpoint_snake Value
+	var v_error Value
 	var v_has_auto_truncate Value
+	var v_has_content_dimensions Value
+	var v_has_content_truncate Value
 	var v_has_dimensions Value
+	var v_has_endpoint Value
 	var v_has_task_type Value
 	var v_instance Value
 	var v_instances Value
+	var v_message Value
+	var v_model Value
+	var v_model_camel Value
+	var v_no_endpoint Value
 	var v_parameters Value
+	var v_part Value
+	var v_parts Value
 	var v_payload Value
+	var v_single_text Value
 	var v_task_type Value
 	var v_task_type_snake Value
 	var v_text Value
+	var v_text_count Value
 	var v_texts Value
+	var v_use_embed_content Value
 	if len(args) > 0 { v_request = args[0] }
 	_ = v_request
 	if len(args) > 1 { v_options = args[1] }
 	_ = v_options
 	_ = v_auto_truncate
 	_ = v_auto_truncate_snake
+	_ = v_content
+	_ = v_content_dimensions
+	_ = v_content_truncate
+	_ = v_content_truncate_snake
 	_ = v_dimensions
+	_ = v_embed_content_model
 	_ = v_empty_texts
+	_ = v_endpoint
+	_ = v_endpoint_snake
+	_ = v_error
 	_ = v_has_auto_truncate
+	_ = v_has_content_dimensions
+	_ = v_has_content_truncate
 	_ = v_has_dimensions
+	_ = v_has_endpoint
 	_ = v_has_task_type
 	_ = v_instance
 	_ = v_instances
+	_ = v_message
+	_ = v_model
+	_ = v_model_camel
+	_ = v_no_endpoint
 	_ = v_parameters
+	_ = v_part
+	_ = v_parts
 	_ = v_payload
+	_ = v_single_text
 	_ = v_task_type
 	_ = v_task_type_snake
 	_ = v_text
+	_ = v_text_count
 	_ = v_texts
+	_ = v_use_embed_content
 	v_payload = Object()
 	v_instances = MutableArray()
 	v_empty_texts = MutableArray()
 	v_texts = coreGet(v_request, "texts", v_empty_texts)
+	v_model_camel = coreGet(v_request, "embedModel", "")
+	v_model = coreGet(v_request, "embed_model", v_model_camel)
+	v_endpoint_snake = coreGet(v_options, "endpoint_id", nil)
+	v_endpoint = coreGet(v_options, "endpointId", v_endpoint_snake)
+	v_has_endpoint = _core_truthy(v_endpoint)
+	v_no_endpoint = _core_not(v_has_endpoint)
+	{ v, err := _gemini_vertex_embed_content_model_impl(v_model); if err != nil { return nil, err }; v_embed_content_model = v }
+	v_use_embed_content = _core_and(v_embed_content_model, v_no_endpoint)
+	if coreTruthy(v_use_embed_content) {
+		v_text_count = _core_len(v_texts)
+		v_single_text = _core_eq(v_text_count, 1)
+		if coreTruthy(v_single_text) {
+		// empty
+		} else {
+			v_message = _core_string_format("{} on Vertex embeds one text per request; call embed() once per text", v_model)
+			v_error = _core_ai_error_unsupported(v_message)
+			return nil, asError(v_error)
+		}
+		v_text = _core_list_get(v_texts, 0, "")
+		v_part = Object()
+		if err := coreSet(v_part, "text", v_text); err != nil { return nil, err }
+		v_parts = MutableArray()
+		v_parts = coreAppend(v_parts, v_part)
+		v_content = Object()
+		if err := coreSet(v_content, "parts", v_parts); err != nil { return nil, err }
+		if err := coreSet(v_payload, "content", v_content); err != nil { return nil, err }
+		v_content_truncate_snake = coreGet(v_options, "auto_truncate", nil)
+		v_content_truncate = coreGet(v_options, "autoTruncate", v_content_truncate_snake)
+		v_has_content_truncate = _core_is_not_none(v_content_truncate)
+		if coreTruthy(v_has_content_truncate) {
+			if err := coreSet(v_payload, "autoTruncate", v_content_truncate); err != nil { return nil, err }
+		} else {
+		// empty
+		}
+		v_content_dimensions = coreGet(v_request, "dimensions", nil)
+		v_has_content_dimensions = _core_is_not_none(v_content_dimensions)
+		if coreTruthy(v_has_content_dimensions) {
+			if err := coreSet(v_payload, "outputDimensionality", v_content_dimensions); err != nil { return nil, err }
+		} else {
+		// empty
+		}
+		return v_payload, nil
+	} else {
+	// empty
+	}
 	for _, v_text = range coreIter(v_texts) {
 		v_instance = Object()
 		if err := coreSet(v_instance, "content", v_text); err != nil { return nil, err }
@@ -26376,11 +26461,21 @@ func _gemini_normalize_embed_response(args ...Value) (Value, error) {
 	var v_embeddings Value
 	var v_empty_predictions Value
 	var v_empty_raw_embeddings Value
+	var v_empty_values Value
+	var v_has_single_embedding Value
+	var v_has_usage_metadata Value
+	var v_model_usage Value
 	var v_out Value
 	var v_prediction Value
 	var v_prediction_embedding Value
 	var v_predictions Value
+	var v_prompt_tokens Value
 	var v_raw_embeddings Value
+	var v_single_embedding Value
+	var v_single_values Value
+	var v_total_tokens Value
+	var v_usage Value
+	var v_usage_metadata Value
 	var v_values Value
 	if len(args) > 0 { v_raw = args[0] }
 	_ = v_raw
@@ -26392,14 +26487,49 @@ func _gemini_normalize_embed_response(args ...Value) (Value, error) {
 	_ = v_embeddings
 	_ = v_empty_predictions
 	_ = v_empty_raw_embeddings
+	_ = v_empty_values
+	_ = v_has_single_embedding
+	_ = v_has_usage_metadata
+	_ = v_model_usage
 	_ = v_out
 	_ = v_prediction
 	_ = v_prediction_embedding
 	_ = v_predictions
+	_ = v_prompt_tokens
 	_ = v_raw_embeddings
+	_ = v_single_embedding
+	_ = v_single_values
+	_ = v_total_tokens
+	_ = v_usage
+	_ = v_usage_metadata
 	_ = v_values
 	v_out = Object()
 	v_embeddings = MutableArray()
+	v_single_embedding = coreGet(v_raw, "embedding", nil)
+	v_has_single_embedding = _core_is_not_none(v_single_embedding)
+	if coreTruthy(v_has_single_embedding) {
+		v_empty_values = MutableArray()
+		v_single_values = coreGet(v_single_embedding, "values", v_empty_values)
+		v_embeddings = coreAppend(v_embeddings, v_single_values)
+		if err := coreSet(v_out, "embeddings", v_embeddings); err != nil { return nil, err }
+		v_usage_metadata = coreGet(v_raw, "usageMetadata", nil)
+		v_has_usage_metadata = _core_truthy(v_usage_metadata)
+		if coreTruthy(v_has_usage_metadata) {
+			v_prompt_tokens = coreGet(v_usage_metadata, "promptTokenCount", 0)
+			v_total_tokens = coreGet(v_usage_metadata, "totalTokenCount", v_prompt_tokens)
+			v_usage = Object()
+			if err := coreSet(v_usage, "prompt_tokens", v_prompt_tokens); err != nil { return nil, err }
+			if err := coreSet(v_usage, "completion_tokens", 0); err != nil { return nil, err }
+			if err := coreSet(v_usage, "total_tokens", v_total_tokens); err != nil { return nil, err }
+			{ v, err := _ai_model_usage_impl(v_ai_name, v_model, v_usage); if err != nil { return nil, err }; v_model_usage = v }
+			if err := coreSet(v_out, "model_usage", v_model_usage); err != nil { return nil, err }
+		} else {
+		// empty
+		}
+		return v_out, nil
+	} else {
+	// empty
+	}
 	v_empty_raw_embeddings = MutableArray()
 	v_raw_embeddings = coreGet(v_raw, "embeddings", v_empty_raw_embeddings)
 	for _, v_embedding = range coreIter(v_raw_embeddings) {
@@ -29588,6 +29718,118 @@ func provider_require_expensive_model_confirmation(args ...Value) (Value, error)
 	// empty
 	}
 	return nil, nil
+}
+
+func _gemini_vertex_embed_content_model_impl(args ...Value) (Value, error) {
+	axirCoverageMark("_gemini_vertex_embed_content_model_impl")
+	var v_model Value
+	var v_is_embed_content Value
+	if len(args) > 0 { v_model = args[0] }
+	_ = v_model
+	_ = v_is_embed_content
+	v_is_embed_content = _core_eq(v_model, "gemini-embedding-2")
+	return v_is_embed_content, nil
+}
+
+func provider_embed_url(args ...Value) (Value, error) {
+	axirCoverageMark("provider_embed_url")
+	var v_profile Value
+	var v_model Value
+	var v_options Value
+	var v_base_override Value
+	var v_base_override_snake Value
+	var v_base_url Value
+	var v_beta Value
+	var v_descriptor Value
+	var v_embed_content_model Value
+	var v_endpoint Value
+	var v_endpoint_snake Value
+	var v_has_base_override Value
+	var v_has_endpoint Value
+	var v_host Value
+	var v_is_gemini Value
+	var v_is_vertex Value
+	var v_no_endpoint Value
+	var v_project Value
+	var v_project_snake Value
+	var v_provider_id Value
+	var v_routed Value
+	var v_transport Value
+	var v_url Value
+	var v_use_beta Value
+	var v_use_global Value
+	var v_version Value
+	var v_vertex_gemini Value
+	if len(args) > 0 { v_profile = args[0] }
+	_ = v_profile
+	if len(args) > 1 { v_model = args[1] }
+	_ = v_model
+	if len(args) > 2 { v_options = args[2] }
+	_ = v_options
+	_ = v_base_override
+	_ = v_base_override_snake
+	_ = v_base_url
+	_ = v_beta
+	_ = v_descriptor
+	_ = v_embed_content_model
+	_ = v_endpoint
+	_ = v_endpoint_snake
+	_ = v_has_base_override
+	_ = v_has_endpoint
+	_ = v_host
+	_ = v_is_gemini
+	_ = v_is_vertex
+	_ = v_no_endpoint
+	_ = v_project
+	_ = v_project_snake
+	_ = v_provider_id
+	_ = v_routed
+	_ = v_transport
+	_ = v_url
+	_ = v_use_beta
+	_ = v_use_global
+	_ = v_version
+	_ = v_vertex_gemini
+	{ v, err := provider_normalize_profile(v_profile); if err != nil { return nil, err }; v_provider_id = v }
+	{ v, err := provider_resolve_descriptor(v_provider_id, v_options); if err != nil { return nil, err }; v_descriptor = v }
+	v_is_vertex = coreGet(v_descriptor, "vertex", false)
+	v_transport = coreGet(v_descriptor, "transport", "openai-chat")
+	v_is_gemini = _core_eq(v_transport, "gemini-generate-content")
+	v_vertex_gemini = _core_and(v_is_vertex, v_is_gemini)
+	v_endpoint_snake = coreGet(v_options, "endpoint_id", nil)
+	v_endpoint = coreGet(v_options, "endpointId", v_endpoint_snake)
+	v_has_endpoint = _core_truthy(v_endpoint)
+	v_no_endpoint = _core_not(v_has_endpoint)
+	{ v, err := _gemini_vertex_embed_content_model_impl(v_model); if err != nil { return nil, err }; v_embed_content_model = v }
+	v_routed = _core_and(v_vertex_gemini, v_no_endpoint)
+	v_use_global = _core_and(v_routed, v_embed_content_model)
+	if coreTruthy(v_use_global) {
+	// empty
+	} else {
+		return "", nil
+	}
+	v_base_override_snake = coreGet(v_options, "base_url", nil)
+	v_base_override = coreGet(v_options, "baseUrl", v_base_override_snake)
+	v_has_base_override = _core_truthy(v_base_override)
+	v_base_url = v_base_override
+	if coreTruthy(v_has_base_override) {
+	// empty
+	} else {
+		{ v, err := resolve_vertex_ai_host("global"); if err != nil { return nil, err }; v_host = v }
+		v_beta = coreGet(v_options, "beta", false)
+		v_use_beta = _core_truthy(v_beta)
+		v_version = "v1"
+		if coreTruthy(v_use_beta) {
+			v_version = "v1beta1"
+		} else {
+		// empty
+		}
+		v_base_url = _core_string_format("https://{}/{}", v_host, v_version)
+	}
+	v_project_snake = coreGet(v_options, "project_id", nil)
+	v_project = coreGet(v_options, "projectId", v_project_snake)
+	v_url = _core_string_format("{}/projects/{}/locations/global/publishers/google/models/{}:embedContent", v_base_url, v_project, v_model)
+	return v_url, nil
 }
 
 func chat_session_mode_enabled(args ...Value) (Value, error) {
@@ -73998,6 +74240,11 @@ func (c *OpenAICompatibleClient) requestJSON(ctx context.Context, operation stri
 		path += sep + url.QueryEscape(keyName) + "=" + url.QueryEscape(apiKey)
 	}
 	requestURL := strings.TrimRight(base, "/") + path
+	if operation == "embed" {
+		if embedURL := display(mustCore(provider_embed_url(c.Profile, display(pathModel), opts))); embedURL != "" {
+			requestURL = embedURL
+		}
+	}
 	if len(query) > 0 {
 		values := url.Values{}
 		for _, key := range orderedKeys(query) {

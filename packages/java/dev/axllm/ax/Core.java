@@ -12444,6 +12444,46 @@ final class Core {
     Object instances = new java.util.ArrayList<Object>();
     Object empty_texts = new java.util.ArrayList<Object>();
     Object texts = Core.get(request, "texts", empty_texts);
+    Object model_camel = Core.get(request, "embedModel", "");
+    Object model = Core.get(request, "embed_model", model_camel);
+    Object endpoint_snake = Core.get(options, "endpoint_id", null);
+    Object endpoint = Core.get(options, "endpointId", endpoint_snake);
+    Object has_endpoint = Core.truthyValue(endpoint);
+    Object no_endpoint = Core.not(has_endpoint);
+    Object embed_content_model = Core._gemini_vertex_embed_content_model_impl(model);
+    Object use_embed_content = Core.and(embed_content_model, no_endpoint);
+    if (Core.truthy(use_embed_content)) {
+      Object text_count = Core.len(texts);
+      Object single_text = Core.eq(text_count, 1);
+      if (Core.truthy(single_text)) {
+        // empty
+      }
+      if (!Core.truthy(single_text)) {
+        Object message = Core.stringFormat("{} on Vertex embeds one text per request; call embed() once per text", model);
+        Object error = Core.aiErrorUnsupported(message);
+        throw Core.asRuntime(error);
+      }
+      Object text = Core.listGet(texts, 0, "");
+      Object part = new java.util.LinkedHashMap<String, Object>();
+      Core.set(part, "text", text);
+      Object parts = new java.util.ArrayList<Object>();
+      Core.append(parts, part);
+      Object content = new java.util.LinkedHashMap<String, Object>();
+      Core.set(content, "parts", parts);
+      Core.set(payload, "content", content);
+      Object content_truncate_snake = Core.get(options, "auto_truncate", null);
+      Object content_truncate = Core.get(options, "autoTruncate", content_truncate_snake);
+      Object has_content_truncate = Core.isNotNone(content_truncate);
+      if (Core.truthy(has_content_truncate)) {
+        Core.set(payload, "autoTruncate", content_truncate);
+      }
+      Object content_dimensions = Core.get(request, "dimensions", null);
+      Object has_content_dimensions = Core.isNotNone(content_dimensions);
+      if (Core.truthy(has_content_dimensions)) {
+        Core.set(payload, "outputDimensionality", content_dimensions);
+      }
+      return payload;
+    }
     for (Object text : Core.iter(texts)) {
       Object instance = new java.util.LinkedHashMap<String, Object>();
       Core.set(instance, "content", text);
@@ -12744,6 +12784,27 @@ final class Core {
     axirCoverageMark("_gemini_normalize_embed_response");
     Object out = new java.util.LinkedHashMap<String, Object>();
     Object embeddings = new java.util.ArrayList<Object>();
+    Object single_embedding = Core.get(raw, "embedding", null);
+    Object has_single_embedding = Core.isNotNone(single_embedding);
+    if (Core.truthy(has_single_embedding)) {
+      Object empty_values = new java.util.ArrayList<Object>();
+      Object single_values = Core.get(single_embedding, "values", empty_values);
+      Core.append(embeddings, single_values);
+      Core.set(out, "embeddings", embeddings);
+      Object usage_metadata = Core.get(raw, "usageMetadata", null);
+      Object has_usage_metadata = Core.truthyValue(usage_metadata);
+      if (Core.truthy(has_usage_metadata)) {
+        Object prompt_tokens = Core.get(usage_metadata, "promptTokenCount", 0);
+        Object total_tokens = Core.get(usage_metadata, "totalTokenCount", prompt_tokens);
+        Object usage = new java.util.LinkedHashMap<String, Object>();
+        Core.set(usage, "prompt_tokens", prompt_tokens);
+        Core.set(usage, "completion_tokens", 0);
+        Core.set(usage, "total_tokens", total_tokens);
+        Object model_usage = Core._ai_model_usage_impl(ai_name, model, usage);
+        Core.set(out, "model_usage", model_usage);
+      }
+      return out;
+    }
     Object empty_raw_embeddings = new java.util.ArrayList<Object>();
     Object raw_embeddings = Core.get(raw, "embeddings", empty_raw_embeddings);
     for (Object embedding : Core.iter(raw_embeddings)) {
@@ -14345,6 +14406,56 @@ final class Core {
       }
     }
     return null;
+  }
+
+  static Object _gemini_vertex_embed_content_model_impl(Object model) {
+    axirCoverageMark("_gemini_vertex_embed_content_model_impl");
+    Object is_embed_content = Core.eq(model, "gemini-embedding-2");
+    return is_embed_content;
+  }
+
+  static Object provider_embed_url(Object profile, Object model, Object options) {
+    axirCoverageMark("provider_embed_url");
+    Object provider_id = Core.provider_normalize_profile(profile);
+    Object descriptor = Core.provider_resolve_descriptor(provider_id, options);
+    Object is_vertex = Core.get(descriptor, "vertex", Boolean.FALSE);
+    Object transport = Core.get(descriptor, "transport", "openai-chat");
+    Object is_gemini = Core.eq(transport, "gemini-generate-content");
+    Object vertex_gemini = Core.and(is_vertex, is_gemini);
+    Object endpoint_snake = Core.get(options, "endpoint_id", null);
+    Object endpoint = Core.get(options, "endpointId", endpoint_snake);
+    Object has_endpoint = Core.truthyValue(endpoint);
+    Object no_endpoint = Core.not(has_endpoint);
+    Object embed_content_model = Core._gemini_vertex_embed_content_model_impl(model);
+    Object routed = Core.and(vertex_gemini, no_endpoint);
+    Object use_global = Core.and(routed, embed_content_model);
+    if (Core.truthy(use_global)) {
+      // empty
+    }
+    if (!Core.truthy(use_global)) {
+      return "";
+    }
+    Object base_override_snake = Core.get(options, "base_url", null);
+    Object base_override = Core.get(options, "baseUrl", base_override_snake);
+    Object has_base_override = Core.truthyValue(base_override);
+    Object base_url = base_override;
+    if (Core.truthy(has_base_override)) {
+      // empty
+    }
+    if (!Core.truthy(has_base_override)) {
+      Object host = Core.resolve_vertex_ai_host("global");
+      Object beta = Core.get(options, "beta", Boolean.FALSE);
+      Object use_beta = Core.truthyValue(beta);
+      Object version = "v1";
+      if (Core.truthy(use_beta)) {
+        version = "v1beta1";
+      }
+      base_url = Core.stringFormat("https://{}/{}", host, version);
+    }
+    Object project_snake = Core.get(options, "project_id", null);
+    Object project = Core.get(options, "projectId", project_snake);
+    Object url = Core.stringFormat("{}/projects/{}/locations/global/publishers/google/models/{}:embedContent", base_url, project, model);
+    return url;
   }
 
   static Object chat_session_mode_enabled(Object options) {

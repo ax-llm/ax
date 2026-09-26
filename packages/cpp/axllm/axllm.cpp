@@ -13644,6 +13644,46 @@ Value Core::_gemini_build_vertex_embed_request(Value request, Value options) {
   Value instances = Value::array();
   Value empty_texts = Value::array();
   Value texts = Core::get(request, Value("texts"), empty_texts);
+  Value model_camel = Core::get(request, Value("embedModel"), Value(""));
+  Value model = Core::get(request, Value("embed_model"), model_camel);
+  Value endpoint_snake = Core::get(options, Value("endpoint_id"), Value());
+  Value endpoint = Core::get(options, Value("endpointId"), endpoint_snake);
+  Value has_endpoint = Core::truthy_value(endpoint);
+  Value no_endpoint = Core::not_(has_endpoint);
+  Value embed_content_model = Core::_gemini_vertex_embed_content_model_impl(model);
+  Value use_embed_content = Core::and_(embed_content_model, no_endpoint);
+  if (Core::truthy(use_embed_content)) {
+    Value text_count = Core::len(texts);
+    Value single_text = Core::eq(text_count, Value(1));
+    if (Core::truthy(single_text)) {
+      // empty
+    }
+    if (!Core::truthy(single_text)) {
+      Value message = Core::string_format(Value("{} on Vertex embeds one text per request; call embed() once per text"), model);
+      Value error = Core::ai_error_unsupported(message);
+      Core::raise_error(error);
+    }
+    Value text = Core::list_get(texts, Value(0), Value(""));
+    Value part = Value::object();
+    Core::set(part, Value("text"), text);
+    Value parts = Value::array();
+    Core::append(parts, part);
+    Value content = Value::object();
+    Core::set(content, Value("parts"), parts);
+    Core::set(payload, Value("content"), content);
+    Value content_truncate_snake = Core::get(options, Value("auto_truncate"), Value());
+    Value content_truncate = Core::get(options, Value("autoTruncate"), content_truncate_snake);
+    Value has_content_truncate = Core::is_not_none(content_truncate);
+    if (Core::truthy(has_content_truncate)) {
+      Core::set(payload, Value("autoTruncate"), content_truncate);
+    }
+    Value content_dimensions = Core::get(request, Value("dimensions"), Value());
+    Value has_content_dimensions = Core::is_not_none(content_dimensions);
+    if (Core::truthy(has_content_dimensions)) {
+      Core::set(payload, Value("outputDimensionality"), content_dimensions);
+    }
+    return payload;
+  }
   for (auto text : Core::iter(texts)) {
     Value instance = Value::object();
     Core::set(instance, Value("content"), text);
@@ -13944,6 +13984,27 @@ Value Core::_gemini_normalize_embed_response(Value raw, Value ai_name, Value mod
   axir_coverage_mark("_gemini_normalize_embed_response");
   Value out = Value::object();
   Value embeddings = Value::array();
+  Value single_embedding = Core::get(raw, Value("embedding"), Value());
+  Value has_single_embedding = Core::is_not_none(single_embedding);
+  if (Core::truthy(has_single_embedding)) {
+    Value empty_values = Value::array();
+    Value single_values = Core::get(single_embedding, Value("values"), empty_values);
+    Core::append(embeddings, single_values);
+    Core::set(out, Value("embeddings"), embeddings);
+    Value usage_metadata = Core::get(raw, Value("usageMetadata"), Value());
+    Value has_usage_metadata = Core::truthy_value(usage_metadata);
+    if (Core::truthy(has_usage_metadata)) {
+      Value prompt_tokens = Core::get(usage_metadata, Value("promptTokenCount"), Value(0));
+      Value total_tokens = Core::get(usage_metadata, Value("totalTokenCount"), prompt_tokens);
+      Value usage = Value::object();
+      Core::set(usage, Value("prompt_tokens"), prompt_tokens);
+      Core::set(usage, Value("completion_tokens"), Value(0));
+      Core::set(usage, Value("total_tokens"), total_tokens);
+      Value model_usage = Core::_ai_model_usage_impl(ai_name, model, usage);
+      Core::set(out, Value("model_usage"), model_usage);
+    }
+    return out;
+  }
   Value empty_raw_embeddings = Value::array();
   Value raw_embeddings = Core::get(raw, Value("embeddings"), empty_raw_embeddings);
   for (auto embedding : Core::iter(raw_embeddings)) {
@@ -15546,6 +15607,56 @@ Value Core::provider_require_expensive_model_confirmation(Value provider, Value 
     }
   }
   return Value();
+}
+
+Value Core::_gemini_vertex_embed_content_model_impl(Value model) {
+  axir_coverage_mark("_gemini_vertex_embed_content_model_impl");
+  Value is_embed_content = Core::eq(model, Value("gemini-embedding-2"));
+  return is_embed_content;
+}
+
+Value Core::provider_embed_url(Value profile, Value model, Value options) {
+  axir_coverage_mark("provider_embed_url");
+  Value provider_id = Core::provider_normalize_profile(profile);
+  Value descriptor = Core::provider_resolve_descriptor(provider_id, options);
+  Value is_vertex = Core::get(descriptor, Value("vertex"), Value(false));
+  Value transport = Core::get(descriptor, Value("transport"), Value("openai-chat"));
+  Value is_gemini = Core::eq(transport, Value("gemini-generate-content"));
+  Value vertex_gemini = Core::and_(is_vertex, is_gemini);
+  Value endpoint_snake = Core::get(options, Value("endpoint_id"), Value());
+  Value endpoint = Core::get(options, Value("endpointId"), endpoint_snake);
+  Value has_endpoint = Core::truthy_value(endpoint);
+  Value no_endpoint = Core::not_(has_endpoint);
+  Value embed_content_model = Core::_gemini_vertex_embed_content_model_impl(model);
+  Value routed = Core::and_(vertex_gemini, no_endpoint);
+  Value use_global = Core::and_(routed, embed_content_model);
+  if (Core::truthy(use_global)) {
+    // empty
+  }
+  if (!Core::truthy(use_global)) {
+    return Value("");
+  }
+  Value base_override_snake = Core::get(options, Value("base_url"), Value());
+  Value base_override = Core::get(options, Value("baseUrl"), base_override_snake);
+  Value has_base_override = Core::truthy_value(base_override);
+  Value base_url = base_override;
+  if (Core::truthy(has_base_override)) {
+    // empty
+  }
+  if (!Core::truthy(has_base_override)) {
+    Value host = Core::resolve_vertex_ai_host(Value("global"));
+    Value beta = Core::get(options, Value("beta"), Value(false));
+    Value use_beta = Core::truthy_value(beta);
+    Value version = Value("v1");
+    if (Core::truthy(use_beta)) {
+      version = Value("v1beta1");
+    }
+    base_url = Core::string_format(Value("https://{}/{}"), host, version);
+  }
+  Value project_snake = Core::get(options, Value("project_id"), Value());
+  Value project = Core::get(options, Value("projectId"), project_snake);
+  Value url = Core::string_format(Value("{}/projects/{}/locations/global/publishers/google/models/{}:embedContent"), base_url, project, model);
+  return url;
 }
 
 Value Core::chat_session_mode_enabled(Value options) {
@@ -36965,7 +37076,8 @@ static bool service_accepts_request_cpp(const std::shared_ptr<AxAIService>& serv
 Value OpenAICompatibleClient::do_embed(Value request, Value options) {
   Value payload = Core::provider_build_embed_request(profile_, request, options);
   Value model = Core::coalesce(Core::get(request, "embed_model"), Core::coalesce(Core::get(request, "embedModel"), Core::coalesce(Core::get(payload, "model"), embed_model_)));
-  Value raw = request_json(operation_path("embed", model), payload, false, "json", false, operation_method("embed"));
+  std::string embed_url = str(Core::provider_embed_url(profile_, model, options));
+  Value raw = request_json(embed_url.empty() ? operation_path("embed", model) : embed_url, payload, false, "json", false, operation_method("embed"));
   return Core::provider_normalize_embed_response(profile_, raw, name_, model);
 }
 

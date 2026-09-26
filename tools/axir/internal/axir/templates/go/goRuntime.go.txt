@@ -3671,6 +3671,11 @@ func (c *OpenAICompatibleClient) requestJSON(ctx context.Context, operation stri
 		path += sep + url.QueryEscape(keyName) + "=" + url.QueryEscape(apiKey)
 	}
 	requestURL := strings.TrimRight(base, "/") + path
+	if operation == "embed" {
+		if embedURL := display(mustCore(provider_embed_url(c.Profile, display(pathModel), opts))); embedURL != "" {
+			requestURL = embedURL
+		}
+	}
 	if len(query) > 0 {
 		values := url.Values{}
 		for _, key := range orderedKeys(query) {

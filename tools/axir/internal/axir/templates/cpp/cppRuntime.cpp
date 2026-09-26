@@ -3390,7 +3390,8 @@ static bool service_accepts_request_cpp(const std::shared_ptr<AxAIService>& serv
 Value OpenAICompatibleClient::do_embed(Value request, Value options) {
   Value payload = Core::provider_build_embed_request(profile_, request, options);
   Value model = Core::coalesce(Core::get(request, "embed_model"), Core::coalesce(Core::get(request, "embedModel"), Core::coalesce(Core::get(payload, "model"), embed_model_)));
-  Value raw = request_json(operation_path("embed", model), payload, false, "json", false, operation_method("embed"));
+  std::string embed_url = str(Core::provider_embed_url(profile_, model, options));
+  Value raw = request_json(embed_url.empty() ? operation_path("embed", model) : embed_url, payload, false, "json", false, operation_method("embed"));
   return Core::provider_normalize_embed_response(profile_, raw, name_, model);
 }
 

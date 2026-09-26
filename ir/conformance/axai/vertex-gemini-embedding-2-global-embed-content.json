@@ -1,0 +1,66 @@
+{
+  "embed_model": "gemini-embedding-2",
+  "expected_output": {
+    "embeddings": [[0.1, 0.2, 0.3]],
+    "model_usage": {
+      "ai": "google-gemini",
+      "model": "gemini-embedding-2",
+      "tokens": {
+        "completion_tokens": 0,
+        "prompt_tokens": 3,
+        "total_tokens": 3
+      }
+    }
+  },
+  "expected_transport_json_absent": [
+    "instances",
+    "parameters",
+    "task_type",
+    "taskType"
+  ],
+  "expected_transport_request": {
+    "headers": {
+      "Authorization": "Bearer test-key"
+    },
+    "json": {
+      "autoTruncate": false,
+      "content": {
+        "parts": [
+          {
+            "text": "hello world"
+          }
+        ]
+      },
+      "outputDimensionality": 768
+    },
+    "method": "POST",
+    "url": "https://aiplatform.googleapis.com/v1/projects/demo-project/locations/global/publishers/google/models/gemini-embedding-2:embedContent"
+  },
+  "kind": "ai_embed",
+  "name": "vertex-gemini-embedding-2-global-embed-content",
+  "provider": "google-gemini",
+  "request": {
+    "dimensions": 768,
+    "texts": ["hello world"]
+  },
+  "service_options": {
+    "auto_truncate": false,
+    "embed_type": "RETRIEVAL_DOCUMENT",
+    "project_id": "demo-project",
+    "region": "us-central1"
+  },
+  "transport_responses": [
+    {
+      "json": {
+        "embedding": {
+          "values": [0.1, 0.2, 0.3]
+        },
+        "usageMetadata": {
+          "promptTokenCount": 3,
+          "totalTokenCount": 3
+        }
+      },
+      "status": 200
+    }
+  ]
+}

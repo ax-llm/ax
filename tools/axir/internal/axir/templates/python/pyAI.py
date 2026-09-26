@@ -1118,6 +1118,7 @@ class ProviderOperationClient(AxBaseAI):
             typesafe_require_number(self.options.get("trueThreshold", self.options.get("true_threshold", 0.5)), "trueThreshold", 0, 1)
         self.descriptor = descriptor
         self.base_url = (base_url or (os.environ.get("OPENAI_BASE_URL") if profile != "typesafe" else None) or descriptor.get("baseUrl") or "https://api.openai.com/v1").rstrip("/")
+        self.base_url_override = base_url.rstrip("/") if base_url else None
         self.api_key = api_key or (os.environ.get("TYPESAFE_APIKEY") or os.environ.get("TYPESAFE_API_KEY") if profile == "typesafe" else os.environ.get("OPENAI_API_KEY"))
         self.credential_provider = credential_provider or credentialProvider
         if self.descriptor.get("authRequired") and not self.api_key and not self.credential_provider:
@@ -1349,7 +1350,9 @@ class ProviderOperationClient(AxBaseAI):
     def _embed(self, request: dict[str, Any], options: dict[str, Any]):
         payload = provider_build_embed_request(self.profile, request, options)
         model = request.get("embed_model") or request.get("embedModel") or payload.get("model") or self.embed_model
-        endpoint = self._operation_path("embed", model)
+        # The client pops base_url out of its options; the embed route still honors an explicit one.
+        route_options = {**options, "base_url": self.base_url_override} if self.base_url_override else options
+        endpoint = provider_embed_url(self.profile, str(model or ""), route_options) or self._operation_path("embed", model)
         raw = self._request_json(endpoint, payload, stream=False, method=self._operation_method("embed"), operation="embed", cancellation=_cancellation_token(options))
         return provider_normalize_embed_response(self.profile, raw, self.name, model)
 
@@ -1645,7 +1648,7 @@ class ProviderOperationClient(AxBaseAI):
         if cancellation is not None: cancellation.throw_if_cancelled()
         method = str(method or "POST").upper()
         request_base_url = (base_url or self.base_url).rstrip("/")
-        request_url = request_base_url + endpoint
+        request_url = endpoint if endpoint.startswith(("http://", "https://")) else request_base_url + endpoint
         headers = self._headers()
         if accept:
             headers["Accept"] = accept
