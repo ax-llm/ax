@@ -81,6 +81,11 @@ public final class AxACE {
     return value instanceof Number n ? n.intValue() : fallback;
   }
 
+  // The playbook wrapper bounds the reflector and curator inputs by this, as TS does.
+  int maxSerializedFieldChars() {
+    return intConfig("maxSerializedFieldChars", 2000);
+  }
+
   public void reset() {
     this.playbook = this.initialPlaybook != null
       ? clone(this.initialPlaybook)

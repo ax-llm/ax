@@ -5259,26 +5259,27 @@ impl AxAgent {
             // The construction-time `playbook` config's teacherOptions ride the
             // reflector/curator calls, as they do for `agent.playbook(...)`.
             let teacher_options = playbook_teacher_forward_options(playbook_option(&self.playbook_config, &["teacherOptions", "teacher_options"]));
+            // As through agent.playbook(), the reflector and curator get TS's
+            // inputs: the fields of the stage the playbook targets and the
+            // engine's structured playbook.
+            let stage = if config.get("target").and_then(Value::as_str) == Some("responder") { &self.responder } else { &self.executor };
+            let (inputs, outputs) = match stage {
+                CoreValue::Host(host) => host.stage_gen_rc().map(|gen| playbook_program_fields(&gen)).unwrap_or_default(),
+                _ => (Vec::new(), Vec::new()),
+            };
+            let live_state = Rc::new(RefCell::new(AxACELiveState::default()));
             let reflector_slot = reflector_program.clone();
             let reflector_options = teacher_options.clone();
+            let reflector_live = live_state.clone();
+            let curator_inputs = inputs.clone();
             let reflector: Box<dyn FnMut(&Value) -> Value> = Box::new(move |payload: &Value| {
-                let request = json!({
-                    "question": playbook_stringify(payload.get("question").unwrap_or(&Value::Null)),
-                    "generator_answer": playbook_stringify(payload.get("generator_answer").unwrap_or(&Value::Null)),
-                    "playbook": payload.get("playbook").cloned().unwrap_or(Value::Null),
-                    "feedback": payload.get("feedback").cloned().unwrap_or(Value::Null),
-                    "previous_reflection": playbook_stringify(payload.get("previous_reflection").unwrap_or(&Value::Null)),
-                });
+                let request = playbook_reflector_request(payload, &reflector_live.borrow(), &inputs, &outputs);
                 playbook_scoped_forward(&reflector_slot, ACE_REFLECTOR_SIGNATURE, request, &reflector_options)
             });
             let curator_slot = curator_program.clone();
+            let curator_live = live_state.clone();
             let curator: Box<dyn FnMut(&Value) -> Value> = Box::new(move |payload: &Value| {
-                let request = json!({
-                    "playbook": payload.get("playbook").cloned().unwrap_or(Value::Null),
-                    "reflection": playbook_stringify(payload.get("reflection").unwrap_or(&Value::Null)),
-                    "question_context": playbook_stringify(payload.get("question_context").unwrap_or(&Value::Null)),
-                    "token_budget": payload.get("token_budget").cloned().unwrap_or_else(|| json!(1024)),
-                });
+                let request = playbook_curator_request(payload, &curator_live.borrow(), &curator_inputs);
                 playbook_scoped_forward(&curator_slot, ACE_CURATOR_SIGNATURE, request, &teacher_options)
             });
             let output_for_generator = output.clone();
@@ -5293,7 +5294,8 @@ impl AxAgent {
                 engine_options.insert("maxReflectorRounds".into(), json!(1));
             }
             let mut engine = AxACE::new(Value::Object(engine_options))
-                .with_callables(Some(reflector), Some(curator), Some(generator));
+                .with_callables(Some(reflector), Some(curator), Some(generator))
+                .with_live_state(live_state);
             engine.hydrate(&self.playbook_snapshot);
             let args = json!({
                 "example": {"task": task, "failureSignatures": signatures},
@@ -6883,6 +6885,17 @@ pub struct AxACE {
     generator_history: Vec<Value>,
     delta_history: Vec<Value>,
     last_prediction: Value,
+    live_state: Option<Rc<RefCell<AxACELiveState>>>,
+}
+
+/// What a reflector or curator callable reads from the engine while it runs:
+/// the structured playbook at that moment and the config's
+/// maxSerializedFieldChars. The playbook() wrapper builds TS's inputs from it;
+/// the callable payload itself carries the rendered markdown.
+#[derive(Default)]
+struct AxACELiveState {
+    playbook: Value,
+    max_serialized_field_chars: usize,
 }
 
 fn ace_call_core(
@@ -6943,6 +6956,7 @@ impl AxACE {
             generator_history: Vec::new(),
             delta_history: Vec::new(),
             last_prediction: Value::Null,
+            live_state: None,
         }
     }
 
@@ -6956,6 +6970,23 @@ impl AxACE {
         self.curator = curator;
         self.generator = generator;
         self
+    }
+
+    // Share the live state with the callables; the engine refreshes it before
+    // each reflector and curator call.
+    fn with_live_state(mut self, live_state: Rc<RefCell<AxACELiveState>>) -> Self {
+        self.live_state = Some(live_state);
+        self
+    }
+
+    fn publish_live_state(&self) {
+        if let Some(live_state) = &self.live_state {
+            let max_chars = self.config.get("maxSerializedFieldChars").and_then(Value::as_f64).unwrap_or(2000.0);
+            *live_state.borrow_mut() = AxACELiveState {
+                playbook: self.playbook.clone(),
+                max_serialized_field_chars: max_chars.max(0.0) as usize,
+            };
+        }
     }
 
     pub fn name(&self) -> &str {
@@ -7104,6 +7135,7 @@ impl AxACE {
 
     fn run_reflector(&mut self, example: &Value, generator_output: &Value, feedback: &Value, previous_reflection: &Value) -> Value {
         let playbook_render = self.render_playbook();
+        self.publish_live_state();
         if let Some(reflector) = self.reflector.as_mut() {
             let payload = json!({
                 "question": example.clone(),
@@ -7124,6 +7156,7 @@ impl AxACE {
             return Value::Null;
         }
         let playbook_render = self.render_playbook();
+        self.publish_live_state();
         if let Some(curator) = self.curator.as_mut() {
             let payload = json!({
                 "playbook": playbook_render,
@@ -7435,6 +7468,178 @@ fn playbook_stringify(value: &Value) -> String {
     }
 }
 
+// JSON.stringify: compact, keys in insertion order (serde_json's
+// preserve_order keeps maps as built) and numbers as JS prints them. The Core
+// json stringify sorts keys instead.
+fn playbook_js_json(value: &Value) -> String {
+    fn write(value: &Value, out: &mut String) {
+        match value {
+            Value::Number(number) => out.push_str(&playbook_js_number(number)),
+            Value::Array(items) => {
+                out.push('[');
+                for (index, item) in items.iter().enumerate() {
+                    if index > 0 {
+                        out.push(',');
+                    }
+                    write(item, out);
+                }
+                out.push(']');
+            }
+            Value::Object(map) => {
+                out.push('{');
+                for (index, (key, item)) in map.iter().enumerate() {
+                    if index > 0 {
+                        out.push(',');
+                    }
+                    out.push_str(&serde_json::to_string(key).unwrap_or_default());
+                    out.push(':');
+                    write(item, out);
+                }
+                out.push('}');
+            }
+            // null, booleans, and strings, which serde_json escapes as JS does.
+            other => out.push_str(&other.to_string()),
+        }
+    }
+    let mut out = String::new();
+    write(value, &mut out);
+    out
+}
+
+// A number as JS prints it: integers in full, others in their shortest
+// round-trip digits, in exponent form below 1e-6 and from 1e21 ("1e+21").
+fn playbook_js_number(number: &serde_json::Number) -> String {
+    let value = match number.as_f64() {
+        Some(value) if !number.is_i64() && !number.is_u64() => value,
+        _ => return number.to_string(),
+    };
+    if value == 0.0 {
+        return "0".to_string();
+    }
+    let scientific = format!("{:e}", value.abs());
+    let (mantissa, exponent) = scientific.split_once('e').unwrap_or((scientific.as_str(), "0"));
+    let digits = mantissa.replace('.', "");
+    let k = digits.len() as i32;
+    let n = exponent.parse::<i32>().unwrap_or(0) + 1;
+    let text = if k <= n && n <= 21 {
+        format!("{digits}{}", "0".repeat((n - k) as usize))
+    } else if 0 < n && n <= 21 {
+        format!("{}.{}", &digits[..n as usize], &digits[n as usize..])
+    } else if -6 < n && n <= 0 {
+        format!("0.{}{digits}", "0".repeat((-n) as usize))
+    } else {
+        let fraction = if k > 1 { format!(".{}", &digits[1..]) } else { String::new() };
+        format!("{}{fraction}e{}{}", &digits[..1], if n > 0 { '+' } else { '-' }, (n - 1).abs())
+    };
+    if value < 0.0 { format!("-{text}") } else { text }
+}
+
+// TS truncateSerializedString: a string over max_chars UTF-16 units (as JS
+// counts) keeps its first max_chars - 14 plus "...[truncated]", or its first
+// max_chars when that leaves no room for the suffix.
+fn playbook_truncate(value: &str, max_chars: usize) -> String {
+    const SUFFIX: &str = "...[truncated]";
+    // A string has at least as many UTF-8 bytes as UTF-16 units.
+    if value.len() <= max_chars {
+        return value.to_string();
+    }
+    let units = value.encode_utf16().collect::<Vec<_>>();
+    if units.len() <= max_chars {
+        return value.to_string();
+    }
+    if max_chars <= SUFFIX.len() {
+        return String::from_utf16_lossy(&units[..max_chars]);
+    }
+    String::from_utf16_lossy(&units[..max_chars - SUFFIX.len()]) + SUFFIX
+}
+
+// TS stringifyBounded: JSON.stringify of the value with every string, at any
+// depth, truncated.
+fn playbook_stringify_bounded(value: &Value, max_chars: usize) -> String {
+    fn bound(value: &Value, max_chars: usize) -> Value {
+        match value {
+            Value::String(text) => Value::String(playbook_truncate(text, max_chars)),
+            Value::Array(items) => Value::Array(items.iter().map(|item| bound(item, max_chars)).collect()),
+            Value::Object(map) => Value::Object(map.iter().map(|(key, item)| (key.clone(), bound(item, max_chars))).collect()),
+            other => other.clone(),
+        }
+    }
+    playbook_js_json(&bound(value, max_chars))
+}
+
+// TS extractFieldValues: the example's values for the given fields, in field
+// order.
+fn playbook_field_values(example: &Value, fields: &[String]) -> Value {
+    let mut values = Map::new();
+    for name in fields {
+        if let Some(value) = example.get(name) {
+            values.insert(name.clone(), value.clone());
+        }
+    }
+    Value::Object(values)
+}
+
+// The bound program's input and output field names, read when the reflector
+// or curator runs, as TS reads program.getSignature().
+fn playbook_program_fields(program: &Rc<RefCell<AxGen>>) -> (Vec<String>, Vec<String>) {
+    let Ok(program) = program.try_borrow() else {
+        return (Vec::new(), Vec::new());
+    };
+    let names = |fields: &[Field]| fields.iter().map(|field| field.name.clone()).collect::<Vec<_>>();
+    (names(&program.signature.inputs), names(&program.signature.outputs))
+}
+
+// As in TS, the reflector and curator get the playbook as
+// JSON.stringify({markdown, structured}): the rendered markdown the engine
+// passes and its structured playbook.
+fn playbook_input(payload: &Value, live: &AxACELiveState) -> String {
+    let mut input = Map::new();
+    input.insert("markdown".into(), json!(playbook_stringify(payload.get("playbook").unwrap_or(&Value::Null))));
+    input.insert("structured".into(), live.playbook.clone());
+    playbook_js_json(&Value::Object(input))
+}
+
+// TS AxACE.runReflector's inputs: the question holds the example's input
+// fields and the expected answer its output fields (omitted when there are
+// none), both bounded to maxSerializedFieldChars.
+fn playbook_reflector_request(payload: &Value, live: &AxACELiveState, inputs: &[String], outputs: &[String]) -> Value {
+    let max_chars = live.max_serialized_field_chars;
+    let example = payload.get("question").unwrap_or(&Value::Null);
+    let mut request = Map::new();
+    request.insert("question".into(), json!(playbook_stringify_bounded(&playbook_field_values(example, inputs), max_chars)));
+    request.insert(
+        "generator_answer".into(),
+        json!(playbook_stringify_bounded(payload.get("generator_answer").unwrap_or(&Value::Null), max_chars)),
+    );
+    if let Some(reasoning) = payload.get("generator_reasoning").filter(|v| !v.is_null()) {
+        request.insert("generator_reasoning".into(), reasoning.clone());
+    }
+    request.insert("playbook".into(), json!(playbook_input(payload, live)));
+    let expected = playbook_field_values(example, outputs);
+    if expected.as_object().is_some_and(|values| !values.is_empty()) {
+        request.insert("expected_answer".into(), json!(playbook_stringify_bounded(&expected, max_chars)));
+    }
+    if let Some(feedback) = payload.get("feedback").filter(|v| !v.is_null()) {
+        request.insert("feedback".into(), feedback.clone());
+    }
+    if let Some(previous) = payload.get("previous_reflection").filter(|v| !v.is_null()) {
+        request.insert("previous_reflection".into(), json!(playbook_js_json(previous)));
+    }
+    Value::Object(request)
+}
+
+// TS AxACE.runCurator's inputs: the question context holds the example's
+// input fields.
+fn playbook_curator_request(payload: &Value, live: &AxACELiveState, inputs: &[String]) -> Value {
+    let example = payload.get("question_context").unwrap_or(&Value::Null);
+    json!({
+        "playbook": playbook_input(payload, live),
+        "reflection": playbook_js_json(payload.get("reflection").unwrap_or(&Value::Null)),
+        "question_context": playbook_stringify_bounded(&playbook_field_values(example, inputs), live.max_serialized_field_chars),
+        "token_budget": payload.get("token_budget").cloned().unwrap_or_else(|| json!(1024)),
+    })
+}
+
 fn playbook_collapse(value: &str) -> String {
     regex::Regex::new(r"\s+").unwrap().replace_all(value, " ").trim().to_string()
 }
@@ -7701,11 +7906,15 @@ impl<S: AxAIClient + 'static, T: AxAIClient + 'static> AxPlaybook<S, T> {
         });
 
         // The real LLM reflector: a focused AxGen sub-program driven by the teacher.
-        // The rendered playbook arrives inside the payload (the engine renders it), so
-        // the closure needs only the sub-program and the reflection client.
+        // The payload carries the rendered playbook; as in TS, the inputs also take
+        // the bound program's fields and the engine's structured playbook (the live
+        // state the engine refreshes before each call).
+        let live_state = Rc::new(RefCell::new(AxACELiveState::default()));
         let reflect_student = student.clone();
         let reflect_prog = reflector_program.clone();
         let reflect_options = teacher_options.clone();
+        let reflect_program = program.clone();
+        let reflect_live = live_state.clone();
         let reflector: Box<dyn FnMut(&Value) -> Value> = Box::new(move |payload: &Value| {
             if reflect_prog.borrow().is_none() {
                 match AxGen::new(ACE_REFLECTOR_SIGNATURE) {
@@ -7713,24 +7922,13 @@ impl<S: AxAIClient + 'static, T: AxAIClient + 'static> AxPlaybook<S, T> {
                     Err(_) => return Value::Null,
                 }
             }
-            let mut request = Map::new();
-            request.insert("question".into(), json!(playbook_stringify(payload.get("question").unwrap_or(&Value::Null))));
-            request.insert("generator_answer".into(), json!(playbook_stringify(payload.get("generator_answer").unwrap_or(&Value::Null))));
-            request.insert("playbook".into(), payload.get("playbook").cloned().unwrap_or_else(|| json!("")));
-            if let Some(reasoning) = payload.get("generator_reasoning").filter(|v| !v.is_null()) {
-                request.insert("generator_reasoning".into(), reasoning.clone());
-            }
-            if let Some(feedback) = payload.get("feedback").filter(|v| !v.is_null()) {
-                request.insert("feedback".into(), feedback.clone());
-            }
-            if let Some(previous) = payload.get("previous_reflection").filter(|v| !v.is_null()) {
-                request.insert("previous_reflection".into(), json!(playbook_stringify(previous)));
-            }
+            let (inputs, outputs) = playbook_program_fields(&reflect_program);
+            let request = playbook_reflector_request(payload, &reflect_live.borrow(), &inputs, &outputs);
             let mut prog = reflect_prog.borrow_mut();
             let gen = prog.as_mut().expect("reflector sub-program initialized above");
             let result = match &teacher_for_reflect {
-                Some(teacher) => gen.forward_with_options(&mut *teacher.borrow_mut(), Value::Object(request), reflect_options.clone()),
-                None => gen.forward_with_options(&mut *reflect_student.borrow_mut(), Value::Object(request), reflect_options.clone()),
+                Some(teacher) => gen.forward_with_options(&mut *teacher.borrow_mut(), request, reflect_options.clone()),
+                None => gen.forward_with_options(&mut *reflect_student.borrow_mut(), request, reflect_options.clone()),
             };
             match result {
                 Ok(value) => value,
@@ -7747,6 +7945,8 @@ impl<S: AxAIClient + 'static, T: AxAIClient + 'static> AxPlaybook<S, T> {
         let curate_student = student.clone();
         let curate_prog = curator_program.clone();
         let curate_options = teacher_options;
+        let curate_program = program.clone();
+        let curate_live = live_state.clone();
         let curator: Box<dyn FnMut(&Value) -> Value> = Box::new(move |payload: &Value| {
             if curate_prog.borrow().is_none() {
                 match AxGen::new(ACE_CURATOR_SIGNATURE) {
@@ -7754,16 +7954,13 @@ impl<S: AxAIClient + 'static, T: AxAIClient + 'static> AxPlaybook<S, T> {
                     Err(_) => return Value::Null,
                 }
             }
-            let mut request = Map::new();
-            request.insert("playbook".into(), payload.get("playbook").cloned().unwrap_or_else(|| json!("")));
-            request.insert("reflection".into(), json!(playbook_stringify(payload.get("reflection").unwrap_or(&Value::Null))));
-            request.insert("question_context".into(), json!(playbook_stringify(payload.get("question_context").unwrap_or(&Value::Null))));
-            request.insert("token_budget".into(), payload.get("token_budget").cloned().unwrap_or_else(|| json!(1024)));
+            let (inputs, _) = playbook_program_fields(&curate_program);
+            let request = playbook_curator_request(payload, &curate_live.borrow(), &inputs);
             let mut prog = curate_prog.borrow_mut();
             let gen = prog.as_mut().expect("curator sub-program initialized above");
             let result = match &teacher_for_curate {
-                Some(teacher) => gen.forward_with_options(&mut *teacher.borrow_mut(), Value::Object(request), curate_options.clone()),
-                None => gen.forward_with_options(&mut *curate_student.borrow_mut(), Value::Object(request), curate_options.clone()),
+                Some(teacher) => gen.forward_with_options(&mut *teacher.borrow_mut(), request, curate_options.clone()),
+                None => gen.forward_with_options(&mut *curate_student.borrow_mut(), request, curate_options.clone()),
             };
             match result {
                 Ok(value) => value,
@@ -7777,7 +7974,8 @@ impl<S: AxAIClient + 'static, T: AxAIClient + 'static> AxPlaybook<S, T> {
         });
 
         let mut engine = AxACE::new(Value::Object(engine_options))
-            .with_callables(Some(reflector), Some(curator), Some(generator));
+            .with_callables(Some(reflector), Some(curator), Some(generator))
+            .with_live_state(live_state);
         if let Some(auto) = options.get("auto").filter(|v| !v.is_null()) {
             engine.configure_auto(&value_to_level(auto));
         }
@@ -13720,6 +13918,9 @@ fn run_optimize_fixture_inner(fixture: &Value) -> AxResult<()> {
         "ace-compile" | "ace-online-update" => {
             run_ace_fixture(fixture, operation.as_str())?;
         }
+        "playbook-evolve" => {
+            run_playbook_evolve_fixture(fixture)?;
+        }
         "score" => {
             let scores = normalize_metric_scores(fixture.get("metric_score").unwrap_or(&Value::Null));
             let scalar = scalarize_scores(&scores, fixture.get("score_options").unwrap_or(&json!({})));
@@ -14788,6 +14989,54 @@ fn run_ace_fixture(fixture: &Value, operation: &str) -> AxResult<()> {
     }
     if let Some(expected) = fixture.get("expected_curator") {
         expect_json_equal("ace online curator", &curator_result, expected)?;
+    }
+    Ok(())
+}
+
+// python: _run_playbook_evolve. playbook().evolve through the real reflector
+// and curator programs: scripted student and teacher clients answer in call
+// order (a string item is {"content": item}).
+fn run_playbook_evolve_fixture(fixture: &Value) -> AxResult<()> {
+    let scripted = |key: &str| {
+        let responses = fixture
+            .get(key)
+            .and_then(Value::as_array)
+            .cloned()
+            .unwrap_or_default()
+            .into_iter()
+            .map(|item| if item.is_object() { item } else { json!({"content": item}) })
+            .collect::<VecDeque<_>>();
+        Rc::new(RefCell::new(FixtureClient::scripted(responses, router_default_features())))
+    };
+    let student = scripted("responses");
+    let teacher = scripted("teacher_responses");
+    let mut scores: VecDeque<Value> = fixture.get("metric_scores").and_then(Value::as_array).cloned().unwrap_or_default().into();
+    let mut metric = move |_args: &Value| scores.pop_front().unwrap_or_else(|| json!(0));
+    let mut options = fixture.get("playbook_options").filter(|options| options.is_object()).cloned().unwrap_or_else(|| json!({}));
+    options["now"] = json!(fixture.get("now").and_then(Value::as_str).unwrap_or("1970-01-01T00:00:00.000Z"));
+    let signature = fixture.get("signature").and_then(Value::as_str).unwrap_or("question:string -> answer:string");
+    let mut book = playbook(ax(signature)?, student, Some(teacher.clone()), options);
+    let examples = fixture.get("examples").and_then(Value::as_array).cloned().unwrap_or_default();
+    let result = book.evolve(&examples, &mut metric, &json!({}))?;
+    if let Some(expected) = fixture.get("expected_playbook") {
+        expect_json_equal("playbook evolve playbook", result.get("playbook").unwrap_or(&Value::Null), expected)?;
+    }
+    if let Some(expected) = fixture.get("expected_teacher_request_contains").and_then(Value::as_array) {
+        // The plain text of every teacher request message, not its JSON encoding.
+        let text = teacher
+            .borrow()
+            .requests
+            .iter()
+            .flat_map(|request| request.get("chat_prompt").and_then(Value::as_array).cloned().unwrap_or_default())
+            .filter_map(|message| message.get("content").and_then(Value::as_str).map(str::to_string))
+            .collect::<Vec<_>>()
+            .join("\n");
+        for item in expected {
+            let needle = value_as_display_string(item);
+            if !text.contains(&needle) {
+                return Err(AxError::new("fixture", format!("teacher requests missing {needle:?}")));
+            }
+        }
     }
     Ok(())
 }
