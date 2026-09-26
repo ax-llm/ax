@@ -18210,7 +18210,6 @@ Value Core::_forward_impl(Value gen, Value client, Value values, Value options) 
   Value max_steps_snake = Core::get(runtime_options, Value("max_steps"), Value(25));
   Value max_steps = Core::get(runtime_options, Value("maxSteps"), max_steps_snake);
   Value step = Value(0);
-  Value last_tool_result = Core::none();
   while (true) {
     Value steps_exhausted = Core::gte(step, max_steps);
     if (Core::truthy(steps_exhausted)) {
@@ -18308,7 +18307,6 @@ Value Core::_forward_impl(Value gen, Value client, Value values, Value options) 
       for (auto call : Core::iter(calls)) {
         try {
           Value tool_result = Core::_execute_tool_call(functions, call);
-          last_tool_result = tool_result;
           Value tool_message = Core::_tool_result_message_impl(call, tool_result);
           Core::append(messages, tool_message);
           Core::axgen_memory_add_function_result(gen, call, tool_result, Value(true));
@@ -18333,17 +18331,11 @@ Value Core::_forward_impl(Value gen, Value client, Value values, Value options) 
         continue;
       }
       if (!Core::truthy(continue_after_tools)) {
-        Value validated_tool_result = Core::validate_output(output_fields, last_tool_result);
-        Value processed_tool_result = Core::_apply_field_processors(gen, validated_tool_result);
-        Value tool_assertion_failure = Core::_run_assertions(gen, processed_tool_result);
-        Value tool_assertion_failed = Core::is_not_none(tool_assertion_failure);
-        if (Core::truthy(tool_assertion_failed)) {
-          Core::raise_error(tool_assertion_failure);
-        }
-        Value public_tool_result = Core::strip_internal(output_fields, processed_tool_result);
+        Value stop_output = Value::object();
+        Value stop_public = Core::_with_output_thought_impl(stop_output, thought_field, thought_prefix, Value(""));
         Core::axgen_memory_cleanup_corrections(gen);
-        Core::_record_trace(gen, values, public_tool_result, Value("ok"));
-        return public_tool_result;
+        Core::_record_trace(gen, values, stop_public, Value("ok"));
+        return stop_public;
       }
     }
     if (!Core::truthy(has_calls)) {
@@ -19253,6 +19245,30 @@ Value Core::_apply_field_processors(Value gen, Value output) {
   return processed;
 }
 
+Value Core::_run_assertions(Value gen, Value output) {
+  axir_coverage_mark("_run_assertions");
+  Value result = Core::axgen_run_assertions(gen, output);
+  Value status = Core::get(result, Value("status"), Value("pass"));
+  Value threw = Core::eq(status, Value("error"));
+  if (Core::truthy(threw)) {
+    Value thrown = Core::get(result, Value("error"), Value());
+    return thrown;
+  }
+  Value failed = Core::eq(status, Value("fail"));
+  if (Core::truthy(failed)) {
+    Value message = Core::get(result, Value("message"), Value());
+    Value has_message = Core::is_not_none(message);
+    if (Core::truthy(has_message)) {
+      Value assertion_error = Core::runtime_error(message);
+      Core::raise_error(assertion_error);
+    }
+    Value message_less = Core::runtime_error(Value("Assertion failed without message"));
+    return message_less;
+  }
+  Value passed = Core::none();
+  return passed;
+}
+
 Value Core::_ace_render_playbook(Value playbook) {
   axir_coverage_mark("_ace_render_playbook");
   Value empty_map = Value::object();
@@ -19308,30 +19324,6 @@ Value Core::_ace_render_playbook(Value playbook) {
   Value combined = Core::string_format(Value("{}\n{}"), header, joined_sections);
   Value result = Core::string_trim(combined);
   return result;
-}
-
-Value Core::_run_assertions(Value gen, Value output) {
-  axir_coverage_mark("_run_assertions");
-  Value result = Core::axgen_run_assertions(gen, output);
-  Value status = Core::get(result, Value("status"), Value("pass"));
-  Value threw = Core::eq(status, Value("error"));
-  if (Core::truthy(threw)) {
-    Value thrown = Core::get(result, Value("error"), Value());
-    return thrown;
-  }
-  Value failed = Core::eq(status, Value("fail"));
-  if (Core::truthy(failed)) {
-    Value message = Core::get(result, Value("message"), Value());
-    Value has_message = Core::is_not_none(message);
-    if (Core::truthy(has_message)) {
-      Value assertion_error = Core::runtime_error(message);
-      Core::raise_error(assertion_error);
-    }
-    Value message_less = Core::runtime_error(Value("Assertion failed without message"));
-    return message_less;
-  }
-  Value passed = Core::none();
-  return passed;
 }
 
 Value Core::chat_session_boundary_action(Value state) {
@@ -19527,6 +19519,23 @@ Value Core::_parse_output_impl(Value content) {
   return output;
 }
 
+Value Core::_is_flexible_json_field(Value typ) {
+  axir_coverage_mark("_is_flexible_json_field");
+  Value type_name = Core::get(typ, Value("name"), Value());
+  Value is_json = Core::eq(type_name, Value("json"));
+  Value is_object = Core::eq(type_name, Value("object"));
+  Value fields = Core::get(typ, Value("fields"), Value());
+  Value has_fields = Core::truthy_value(fields);
+  Value no_fields = Core::not_(has_fields);
+  Value flexible = is_json;
+  if (Core::truthy(is_object)) {
+    if (Core::truthy(no_fields)) {
+      flexible = Value(true);
+    }
+  }
+  return flexible;
+}
+
 Value Core::chat_session_queue_update(Value state, Value update) {
   axir_coverage_mark("chat_session_queue_update");
   Value terminal = Core::get(state, Value("terminal"), Value(false));
@@ -19553,23 +19562,6 @@ Value Core::chat_session_queue_update(Value state, Value update) {
   Core::set(state, Value("updates"), updates);
   Core::set(state, Value("needs_continuation"), Value(true));
   return Value(true);
-}
-
-Value Core::_is_flexible_json_field(Value typ) {
-  axir_coverage_mark("_is_flexible_json_field");
-  Value type_name = Core::get(typ, Value("name"), Value());
-  Value is_json = Core::eq(type_name, Value("json"));
-  Value is_object = Core::eq(type_name, Value("object"));
-  Value fields = Core::get(typ, Value("fields"), Value());
-  Value has_fields = Core::truthy_value(fields);
-  Value no_fields = Core::not_(has_fields);
-  Value flexible = is_json;
-  if (Core::truthy(is_object)) {
-    if (Core::truthy(no_fields)) {
-      flexible = Value(true);
-    }
-  }
-  return flexible;
 }
 
 Value Core::_ace_dedupe_playbook(Value playbook) {
@@ -20740,14 +20732,6 @@ Value Core::_regex_task(Value n, Value next) {
   return t1;
 }
 
-Value Core::_regex_frame(Value todo, Value st) {
-  axir_coverage_mark("_regex_frame");
-  Value t1 = Value::object();
-  Core::set(t1, Value("todo"), todo);
-  Core::set(t1, Value("st"), st);
-  return t1;
-}
-
 Value Core::_append_validation_retry_messages_impl(Value messages, Value response, Value error) {
   axir_coverage_mark("_append_validation_retry_messages_impl");
   Value content = Core::get(response, Value("content"), Value(""));
@@ -20763,6 +20747,14 @@ Value Core::_append_validation_retry_messages_impl(Value messages, Value respons
   Core::set(retry_message, Value("content"), retry_content);
   Core::append(messages, retry_message);
   return messages;
+}
+
+Value Core::_regex_frame(Value todo, Value st) {
+  axir_coverage_mark("_regex_frame");
+  Value t1 = Value::object();
+  Core::set(t1, Value("todo"), todo);
+  Core::set(t1, Value("st"), st);
+  return t1;
 }
 
 Value Core::_regex_search(Value n, Value u, Value initial, Value d) {

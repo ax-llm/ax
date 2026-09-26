@@ -35178,7 +35178,6 @@ func _forward_impl(args ...Value) (Value, error) {
 	var v_infrastructure Value
 	var v_input_fields Value
 	var v_joined_thought Value
-	var v_last_tool_result Value
 	var v_max_retries Value
 	var v_max_retries_snake Value
 	var v_max_steps Value
@@ -35195,11 +35194,9 @@ func _forward_impl(args ...Value) (Value, error) {
 	var v_output_fields Value
 	var v_parsed Value
 	var v_parsed_bundle Value
-	var v_processed_tool_result Value
 	var v_prompt_template Value
 	var v_public_output Value
 	var v_public_outputs Value
-	var v_public_tool_result Value
 	var v_refusal_next_attempt Value
 	var v_refusal_retries_exhausted Value
 	var v_refused Value
@@ -35215,6 +35212,8 @@ func _forward_impl(args ...Value) (Value, error) {
 	var v_step Value
 	var v_step_thought Value
 	var v_steps_exhausted Value
+	var v_stop_output Value
+	var v_stop_public Value
 	var v_structured_args Value
 	var v_structured_assertion_failed Value
 	var v_structured_assertion_failure Value
@@ -35236,8 +35235,6 @@ func _forward_impl(args ...Value) (Value, error) {
 	var v_thought_field Value
 	var v_thought_field_snake Value
 	var v_thought_prefix Value
-	var v_tool_assertion_failed Value
-	var v_tool_assertion_failure Value
 	var v_tool_error Value
 	var v_tool_error_message Value
 	var v_tool_message Value
@@ -35245,7 +35242,6 @@ func _forward_impl(args ...Value) (Value, error) {
 	var v_updated_messages Value
 	var v_user_message Value
 	var v_validate_exact_json Value
-	var v_validated_tool_result Value
 	var v_validation_error Value
 	var v_validation_feedback Value
 	var v_validation_feedback_message Value
@@ -35289,7 +35285,6 @@ func _forward_impl(args ...Value) (Value, error) {
 	_ = v_infrastructure
 	_ = v_input_fields
 	_ = v_joined_thought
-	_ = v_last_tool_result
 	_ = v_max_retries
 	_ = v_max_retries_snake
 	_ = v_max_steps
@@ -35306,11 +35301,9 @@ func _forward_impl(args ...Value) (Value, error) {
 	_ = v_output_fields
 	_ = v_parsed
 	_ = v_parsed_bundle
-	_ = v_processed_tool_result
 	_ = v_prompt_template
 	_ = v_public_output
 	_ = v_public_outputs
-	_ = v_public_tool_result
 	_ = v_refusal_next_attempt
 	_ = v_refusal_retries_exhausted
 	_ = v_refused
@@ -35326,6 +35319,8 @@ func _forward_impl(args ...Value) (Value, error) {
 	_ = v_step
 	_ = v_step_thought
 	_ = v_steps_exhausted
+	_ = v_stop_output
+	_ = v_stop_public
 	_ = v_structured_args
 	_ = v_structured_assertion_failed
 	_ = v_structured_assertion_failure
@@ -35347,8 +35342,6 @@ func _forward_impl(args ...Value) (Value, error) {
 	_ = v_thought_field
 	_ = v_thought_field_snake
 	_ = v_thought_prefix
-	_ = v_tool_assertion_failed
-	_ = v_tool_assertion_failure
 	_ = v_tool_error
 	_ = v_tool_error_message
 	_ = v_tool_message
@@ -35356,7 +35349,6 @@ func _forward_impl(args ...Value) (Value, error) {
 	_ = v_updated_messages
 	_ = v_user_message
 	_ = v_validate_exact_json
-	_ = v_validated_tool_result
 	_ = v_validation_error
 	_ = v_validation_feedback
 	_ = v_validation_feedback_message
@@ -35419,7 +35411,6 @@ func _forward_impl(args ...Value) (Value, error) {
 	v_max_steps_snake = coreGet(v_runtime_options, "max_steps", 25)
 	v_max_steps = coreGet(v_runtime_options, "maxSteps", v_max_steps_snake)
 	v_step = 0
-	v_last_tool_result = _core_none()
 	for {
 		v_steps_exhausted = _core_gte(v_step, v_max_steps)
 		if coreTruthy(v_steps_exhausted) {
@@ -35540,7 +35531,6 @@ func _forward_impl(args ...Value) (Value, error) {
 				{
 					__flow, __err := func() (coreFlow, error) {
 						{ v, err := _execute_tool_call(v_functions, v_call); if err != nil { return coreFlow{}, err }; v_tool_result = v }
-						v_last_tool_result = v_tool_result
 						{ v, err := _tool_result_message_impl(v_call, v_tool_result); if err != nil { return coreFlow{}, err }; v_tool_message = v }
 						v_messages = coreAppend(v_messages, v_tool_message)
 						_core_axgen_memory_add_function_result(v_gen, v_call, v_tool_result, true)
@@ -35568,19 +35558,11 @@ func _forward_impl(args ...Value) (Value, error) {
 				v_thought_prefix = v_joined_thought
 				continue
 			} else {
-				{ v, err := validate_output(v_output_fields, v_last_tool_result); if err != nil { return nil, err }; v_validated_tool_result = v }
-				{ v, err := _apply_field_processors(v_gen, v_validated_tool_result); if err != nil { return nil, err }; v_processed_tool_result = v }
-				{ v, err := _run_assertions(v_gen, v_processed_tool_result); if err != nil { return nil, err }; v_tool_assertion_failure = v }
-				v_tool_assertion_failed = _core_is_not_none(v_tool_assertion_failure)
-				if coreTruthy(v_tool_assertion_failed) {
-					return nil, asError(v_tool_assertion_failure)
-				} else {
-				// empty
-				}
-				{ v, err := strip_internal(v_output_fields, v_processed_tool_result); if err != nil { return nil, err }; v_public_tool_result = v }
+				v_stop_output = Object()
+				{ v, err := _with_output_thought_impl(v_stop_output, v_thought_field, v_thought_prefix, ""); if err != nil { return nil, err }; v_stop_public = v }
 				_core_axgen_memory_cleanup_corrections(v_gen)
-				if _, err := _record_trace(v_gen, v_values, v_public_tool_result, "ok"); err != nil { return nil, err }
-				return v_public_tool_result, nil
+				if _, err := _record_trace(v_gen, v_values, v_stop_public, "ok"); err != nil { return nil, err }
+				return v_stop_public, nil
 			}
 		} else {
 			v_parsed_bundle = Object()
@@ -37480,6 +37462,62 @@ func _apply_field_processors(args ...Value) (Value, error) {
 	return v_processed, nil
 }
 
+func _run_assertions(args ...Value) (Value, error) {
+	axirCoverageMark("_run_assertions")
+	var v_gen Value
+	var v_output Value
+	var v_assertion_error Value
+	var v_failed Value
+	var v_has_message Value
+	var v_message Value
+	var v_message_less Value
+	var v_passed Value
+	var v_result Value
+	var v_status Value
+	var v_threw Value
+	var v_thrown Value
+	if len(args) > 0 { v_gen = args[0] }
+	_ = v_gen
+	if len(args) > 1 { v_output = args[1] }
+	_ = v_output
+	_ = v_assertion_error
+	_ = v_failed
+	_ = v_has_message
+	_ = v_message
+	_ = v_message_less
+	_ = v_passed
+	_ = v_result
+	_ = v_status
+	_ = v_threw
+	_ = v_thrown
+	{ v, err := _core_axgen_run_assertions(v_gen, v_output); if err != nil { return nil, err }; v_result = v }
+	v_status = coreGet(v_result, "status", "pass")
+	v_threw = _core_eq(v_status, "error")
+	if coreTruthy(v_threw) {
+		v_thrown = coreGet(v_result, "error", nil)
+		return v_thrown, nil
+	} else {
+	// empty
+	}
+	v_failed = _core_eq(v_status, "fail")
+	if coreTruthy(v_failed) {
+		v_message = coreGet(v_result, "message", nil)
+		v_has_message = _core_is_not_none(v_message)
+		if coreTruthy(v_has_message) {
+			v_assertion_error = _core_runtime_error(v_message)
+			return nil, asError(v_assertion_error)
+		} else {
+		// empty
+		}
+		v_message_less = _core_runtime_error("Assertion failed without message")
+		return v_message_less, nil
+	} else {
+	// empty
+	}
+	v_passed = _core_none()
+	return v_passed, nil
+}
+
 func _ace_render_playbook(args ...Value) (Value, error) {
 	axirCoverageMark("_ace_render_playbook")
 	var v_playbook Value
@@ -37607,62 +37645,6 @@ func _ace_render_playbook(args ...Value) (Value, error) {
 	v_combined = _core_string_format("{}\n{}", v_header, v_joined_sections)
 	v_result = coreStringTrim(v_combined)
 	return v_result, nil
-}
-
-func _run_assertions(args ...Value) (Value, error) {
-	axirCoverageMark("_run_assertions")
-	var v_gen Value
-	var v_output Value
-	var v_assertion_error Value
-	var v_failed Value
-	var v_has_message Value
-	var v_message Value
-	var v_message_less Value
-	var v_passed Value
-	var v_result Value
-	var v_status Value
-	var v_threw Value
-	var v_thrown Value
-	if len(args) > 0 { v_gen = args[0] }
-	_ = v_gen
-	if len(args) > 1 { v_output = args[1] }
-	_ = v_output
-	_ = v_assertion_error
-	_ = v_failed
-	_ = v_has_message
-	_ = v_message
-	_ = v_message_less
-	_ = v_passed
-	_ = v_result
-	_ = v_status
-	_ = v_threw
-	_ = v_thrown
-	{ v, err := _core_axgen_run_assertions(v_gen, v_output); if err != nil { return nil, err }; v_result = v }
-	v_status = coreGet(v_result, "status", "pass")
-	v_threw = _core_eq(v_status, "error")
-	if coreTruthy(v_threw) {
-		v_thrown = coreGet(v_result, "error", nil)
-		return v_thrown, nil
-	} else {
-	// empty
-	}
-	v_failed = _core_eq(v_status, "fail")
-	if coreTruthy(v_failed) {
-		v_message = coreGet(v_result, "message", nil)
-		v_has_message = _core_is_not_none(v_message)
-		if coreTruthy(v_has_message) {
-			v_assertion_error = _core_runtime_error(v_message)
-			return nil, asError(v_assertion_error)
-		} else {
-		// empty
-		}
-		v_message_less = _core_runtime_error("Assertion failed without message")
-		return v_message_less, nil
-	} else {
-	// empty
-	}
-	v_passed = _core_none()
-	return v_passed, nil
 }
 
 func chat_session_boundary_action(args ...Value) (Value, error) {
@@ -38069,6 +38051,44 @@ func _parse_output_impl(args ...Value) (Value, error) {
 	return v_output, nil
 }
 
+func _is_flexible_json_field(args ...Value) (Value, error) {
+	axirCoverageMark("_is_flexible_json_field")
+	var v_typ Value
+	var v_fields Value
+	var v_flexible Value
+	var v_has_fields Value
+	var v_is_json Value
+	var v_is_object Value
+	var v_no_fields Value
+	var v_type_name Value
+	if len(args) > 0 { v_typ = args[0] }
+	_ = v_typ
+	_ = v_fields
+	_ = v_flexible
+	_ = v_has_fields
+	_ = v_is_json
+	_ = v_is_object
+	_ = v_no_fields
+	_ = v_type_name
+	v_type_name = coreGet(v_typ, "name", nil)
+	v_is_json = _core_eq(v_type_name, "json")
+	v_is_object = _core_eq(v_type_name, "object")
+	v_fields = coreGet(v_typ, "fields", nil)
+	v_has_fields = _core_truthy(v_fields)
+	v_no_fields = _core_not(v_has_fields)
+	v_flexible = v_is_json
+	if coreTruthy(v_is_object) {
+		if coreTruthy(v_no_fields) {
+			v_flexible = true
+		} else {
+		// empty
+		}
+	} else {
+	// empty
+	}
+	return v_flexible, nil
+}
+
 func chat_session_queue_update(args ...Value) (Value, error) {
 	axirCoverageMark("chat_session_queue_update")
 	var v_state Value
@@ -38125,44 +38145,6 @@ func chat_session_queue_update(args ...Value) (Value, error) {
 	if err := coreSet(v_state, "updates", v_updates); err != nil { return nil, err }
 	if err := coreSet(v_state, "needs_continuation", true); err != nil { return nil, err }
 	return true, nil
-}
-
-func _is_flexible_json_field(args ...Value) (Value, error) {
-	axirCoverageMark("_is_flexible_json_field")
-	var v_typ Value
-	var v_fields Value
-	var v_flexible Value
-	var v_has_fields Value
-	var v_is_json Value
-	var v_is_object Value
-	var v_no_fields Value
-	var v_type_name Value
-	if len(args) > 0 { v_typ = args[0] }
-	_ = v_typ
-	_ = v_fields
-	_ = v_flexible
-	_ = v_has_fields
-	_ = v_is_json
-	_ = v_is_object
-	_ = v_no_fields
-	_ = v_type_name
-	v_type_name = coreGet(v_typ, "name", nil)
-	v_is_json = _core_eq(v_type_name, "json")
-	v_is_object = _core_eq(v_type_name, "object")
-	v_fields = coreGet(v_typ, "fields", nil)
-	v_has_fields = _core_truthy(v_fields)
-	v_no_fields = _core_not(v_has_fields)
-	v_flexible = v_is_json
-	if coreTruthy(v_is_object) {
-		if coreTruthy(v_no_fields) {
-			v_flexible = true
-		} else {
-		// empty
-		}
-	} else {
-	// empty
-	}
-	return v_flexible, nil
 }
 
 func _ace_dedupe_playbook(args ...Value) (Value, error) {
@@ -40538,22 +40520,6 @@ func _regex_task(args ...Value) (Value, error) {
 	return v_t1, nil
 }
 
-func _regex_frame(args ...Value) (Value, error) {
-	axirCoverageMark("_regex_frame")
-	var v_todo Value
-	var v_st Value
-	var v_t1 Value
-	if len(args) > 0 { v_todo = args[0] }
-	_ = v_todo
-	if len(args) > 1 { v_st = args[1] }
-	_ = v_st
-	_ = v_t1
-	v_t1 = Object()
-	if err := coreSet(v_t1, "todo", v_todo); err != nil { return nil, err }
-	if err := coreSet(v_t1, "st", v_st); err != nil { return nil, err }
-	return v_t1, nil
-}
-
 func _append_validation_retry_messages_impl(args ...Value) (Value, error) {
 	axirCoverageMark("_append_validation_retry_messages_impl")
 	var v_messages Value
@@ -40590,6 +40556,22 @@ func _append_validation_retry_messages_impl(args ...Value) (Value, error) {
 	if err := coreSet(v_retry_message, "content", v_retry_content); err != nil { return nil, err }
 	v_messages = coreAppend(v_messages, v_retry_message)
 	return v_messages, nil
+}
+
+func _regex_frame(args ...Value) (Value, error) {
+	axirCoverageMark("_regex_frame")
+	var v_todo Value
+	var v_st Value
+	var v_t1 Value
+	if len(args) > 0 { v_todo = args[0] }
+	_ = v_todo
+	if len(args) > 1 { v_st = args[1] }
+	_ = v_st
+	_ = v_t1
+	v_t1 = Object()
+	if err := coreSet(v_t1, "todo", v_todo); err != nil { return nil, err }
+	if err := coreSet(v_t1, "st", v_st); err != nil { return nil, err }
+	return v_t1, nil
 }
 
 func _regex_search(args ...Value) (Value, error) {

@@ -751,7 +751,6 @@ module @ax.gen version "0.1" {
       %max_steps_snake = core.get %runtime_options["max_steps"] default 25
       %max_steps = core.get %runtime_options["maxSteps"] default %max_steps_snake
       %step = core.let 0
-      %last_tool_result = core.call intrinsic.none()
       core.loop {
         // A step is one model turn; validation retries stay inside it, as in TS.
         %steps_exhausted = core.call intrinsic.gte(%step, %max_steps)
@@ -856,7 +855,6 @@ module @ax.gen version "0.1" {
           core.for %call in %calls {
             core.try {
               %tool_result = core.call @execute_tool_call(%functions, %call)
-              %last_tool_result = core.let %tool_result
               %tool_message = core.call @tool_result_message_impl(%call, %tool_result)
               core.append %messages, %tool_message
               core.call intrinsic.axgen.memory_add_function_result(%gen, %call, %tool_result, true)
@@ -881,17 +879,13 @@ module @ax.gen version "0.1" {
             %thought_prefix = core.let %joined_thought
             core.continue
           } else {
-            %validated_tool_result = core.call @validate_output(%output_fields, %last_tool_result)
-            %processed_tool_result = core.call @apply_field_processors(%gen, %validated_tool_result)
-            %tool_assertion_failure = core.call @run_assertions(%gen, %processed_tool_result)
-            %tool_assertion_failed = core.call intrinsic.is_not_none(%tool_assertion_failure)
-            core.if %tool_assertion_failed {
-              core.raise %tool_assertion_failure
-            }
-            %public_tool_result = core.call @strip_internal_fields(%output_fields, %processed_tool_result)
+            // As in TS, a user stop function ends the forward without an
+            // answer: the output keeps only the earlier steps' thought.
+            %stop_output = core.map
+            %stop_public = core.call @with_output_thought_impl(%stop_output, %thought_field, %thought_prefix, "")
             core.call intrinsic.axgen.memory_cleanup_corrections(%gen)
-            core.call @record_trace(%gen, %values, %public_tool_result, "ok")
-            core.return %public_tool_result
+            core.call @record_trace(%gen, %values, %stop_public, "ok")
+            core.return %stop_public
           }
         } else {
           %parsed_bundle = core.map

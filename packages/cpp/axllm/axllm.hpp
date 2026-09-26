@@ -795,8 +795,8 @@ struct Core {
   static Value _ace_empty_playbook(Value description, Value now);
   static Value _render_demos(Value gen);
   static Value _apply_field_processors(Value gen, Value output);
-  static Value _ace_render_playbook(Value playbook);
   static Value _run_assertions(Value gen, Value output);
+  static Value _ace_render_playbook(Value playbook);
   static Value chat_session_boundary_action(Value state);
   static Value _append_assertion_retry_messages(Value messages, Value response, Value error);
   static Value _record_trace(Value gen, Value input, Value output, Value status);
@@ -805,8 +805,8 @@ struct Core {
   static Value _regex_alternative(Value s);
   static Value chat_session_mark_submitted(Value state, Value ids);
   static Value _parse_output_impl(Value content);
-  static Value chat_session_queue_update(Value state, Value update);
   static Value _is_flexible_json_field(Value typ);
+  static Value chat_session_queue_update(Value state, Value update);
   static Value _ace_dedupe_playbook(Value playbook);
   static Value _parse_json_string_value(Value value);
   static Value _regex_word(Value c);
@@ -833,8 +833,8 @@ struct Core {
   static Value _regex_push(Value stack, Value top, Value value);
   static Value _tool_error_message_impl(Value call, Value error);
   static Value _regex_task(Value n, Value next);
-  static Value _regex_frame(Value todo, Value st);
   static Value _append_validation_retry_messages_impl(Value messages, Value response, Value error);
+  static Value _regex_frame(Value todo, Value st);
   static Value _regex_search(Value n, Value u, Value initial, Value d);
   static Value _parse_text_field_value_impl(Value field, Value text);
   static Value _parse_text_output_fields_impl(Value content, Value fields, Value is_final);

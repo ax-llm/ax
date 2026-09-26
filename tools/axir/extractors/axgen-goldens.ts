@@ -132,19 +132,23 @@ writeFixture('trace-capture', {
   expected_request_count: 1,
 });
 
-writeFixture('stop-function-tool-output', {
+// As in TS, a user stop function ends the forward without an answer: the
+// tool still runs, but its result is not the output, and neither is any
+// content or the stop step's thought. Earlier steps' thought is kept. The
+// outputs match a TS AxMockAIService probe.
+const stopSearchTool = {
+  name: 'search',
+  description: 'Search docs',
+  args: { query: { type: 'string', min: 1 } },
+  returns: { answer: { type: 'string' } },
+  result: { answer: 'Found directly' },
+};
+
+writeFixture('stop-function-empty-output', {
   kind: 'forward',
   signature: 'query:string -> answer:string',
   input: { query: 'ax docs' },
-  tools: [
-    {
-      name: 'search',
-      description: 'Search docs',
-      args: { query: { type: 'string', min: 1 } },
-      returns: { answer: { type: 'string' } },
-      result: { answer: 'Found directly' },
-    },
-  ],
+  tools: [stopSearchTool],
   stop_functions: ['search'],
   responses: [
     {
@@ -154,9 +158,63 @@ writeFixture('stop-function-tool-output', {
       ],
     },
   ],
-  expected_output: { answer: 'Found directly' },
+  expected_output: {},
   expected_tool_calls: [{ name: 'search', args: { query: 'ax docs' } }],
   expected_request_count: 1,
+});
+
+writeFixture('stop-function-keeps-earlier-thought', {
+  kind: 'forward',
+  signature: 'query:string -> answer:string',
+  input: { query: 'ax docs' },
+  tools: [
+    stopSearchTool,
+    {
+      name: 'lookup',
+      description: 'Look up a key',
+      args: { key: { type: 'string' } },
+      result: 'status is green',
+    },
+  ],
+  stop_functions: ['search'],
+  responses: [
+    {
+      results: [
+        {
+          index: 0,
+          content: '',
+          thought: 'Look it up',
+          function_calls: [
+            {
+              id: 'call_1',
+              type: 'function',
+              function: { name: 'lookup', params: { key: 'a' } },
+            },
+          ],
+          finish_reason: 'function_call',
+        },
+      ],
+    },
+    {
+      results: [
+        {
+          index: 0,
+          content: '',
+          thought: 'Stop here',
+          function_calls: [
+            {
+              id: 'call_2',
+              type: 'function',
+              function: { name: 'search', params: { query: 'ax docs' } },
+            },
+          ],
+          finish_reason: 'function_call',
+        },
+      ],
+    },
+  ],
+  expected_output: { thought: 'Look it up' },
+  expected_request_count: 2,
 });
 
 writeFixture('cache-field-prompt-rendering', {

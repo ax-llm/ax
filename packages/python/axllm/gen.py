@@ -4041,7 +4041,6 @@ def _forward_impl(gen: AxGen, client: AIClient, values: Any, options: Any) -> An
     max_steps_snake = _core_get(runtime_options, "max_steps", 25)
     max_steps = _core_get(runtime_options, "maxSteps", max_steps_snake)
     step = 0
-    last_tool_result = _core_none()
     while True:
         steps_exhausted = _core_gte(step, max_steps)
         if steps_exhausted:
@@ -4138,7 +4137,6 @@ def _forward_impl(gen: AxGen, client: AIClient, values: Any, options: Any) -> An
             for call in calls:
                 try:
                     tool_result = _execute_tool_call(functions, call)
-                    last_tool_result = tool_result
                     tool_message = _tool_result_message_impl(call, tool_result)
                     messages.append(tool_message)
                     _core_axgen_memory_add_function_result(gen, call, tool_result, True)
@@ -4159,18 +4157,11 @@ def _forward_impl(gen: AxGen, client: AIClient, values: Any, options: Any) -> An
                 thought_prefix = joined_thought
                 continue
             else:
-                validated_tool_result = validate_output(output_fields, last_tool_result)
-                processed_tool_result = _apply_field_processors(gen, validated_tool_result)
-                tool_assertion_failure = _run_assertions(gen, processed_tool_result)
-                tool_assertion_failed = _core_is_not_none(tool_assertion_failure)
-                if tool_assertion_failed:
-                    raise tool_assertion_failure
-                else:
-                    pass
-                public_tool_result = strip_internal(output_fields, processed_tool_result)
+                stop_output = {}
+                stop_public = _with_output_thought_impl(stop_output, thought_field, thought_prefix, "")
                 _core_axgen_memory_cleanup_corrections(gen)
-                _record_trace(gen, values, public_tool_result, "ok")
-                return public_tool_result
+                _record_trace(gen, values, stop_public, "ok")
+                return stop_public
         else:
             parsed_bundle = {}
             try:
@@ -5115,6 +5106,33 @@ def _apply_field_processors(gen: AxGen, output: Any) -> Any:
     return processed
 
 
+def _run_assertions(gen: AxGen, output: Any) -> Any:
+    _core_coverage_mark("_run_assertions")
+    result = _core_axgen_run_assertions(gen, output)
+    status = _core_get(result, "status", "pass")
+    threw = _core_eq(status, "error")
+    if threw:
+        thrown = _core_get(result, "error", None)
+        return thrown
+    else:
+        pass
+    failed = _core_eq(status, "fail")
+    if failed:
+        message = _core_get(result, "message", None)
+        has_message = _core_is_not_none(message)
+        if has_message:
+            assertion_error = _core_runtime_error(message)
+            raise assertion_error
+        else:
+            pass
+        message_less = _core_runtime_error("Assertion failed without message")
+        return message_less
+    else:
+        pass
+    passed = _core_none()
+    return passed
+
+
 def _ace_render_playbook(playbook: Any) -> str:
     _core_coverage_mark("_ace_render_playbook")
     empty_map = {}
@@ -5167,33 +5185,6 @@ def _ace_render_playbook(playbook: Any) -> str:
     combined = _core_string_format("{}\n{}", header, joined_sections)
     result = str(combined).strip()
     return result
-
-
-def _run_assertions(gen: AxGen, output: Any) -> Any:
-    _core_coverage_mark("_run_assertions")
-    result = _core_axgen_run_assertions(gen, output)
-    status = _core_get(result, "status", "pass")
-    threw = _core_eq(status, "error")
-    if threw:
-        thrown = _core_get(result, "error", None)
-        return thrown
-    else:
-        pass
-    failed = _core_eq(status, "fail")
-    if failed:
-        message = _core_get(result, "message", None)
-        has_message = _core_is_not_none(message)
-        if has_message:
-            assertion_error = _core_runtime_error(message)
-            raise assertion_error
-        else:
-            pass
-        message_less = _core_runtime_error("Assertion failed without message")
-        return message_less
-    else:
-        pass
-    passed = _core_none()
-    return passed
 
 
 def chat_session_boundary_action(state: Any) -> Any:
@@ -5392,6 +5383,25 @@ def _parse_output_impl(content: str) -> Any:
     return output
 
 
+def _is_flexible_json_field(typ: FieldType) -> bool:
+    _core_coverage_mark("_is_flexible_json_field")
+    type_name = _core_get(typ, "name", None)
+    is_json = _core_eq(type_name, "json")
+    is_object = _core_eq(type_name, "object")
+    fields = _core_get(typ, "fields", None)
+    has_fields = _core_truthy(fields)
+    no_fields = _core_not(has_fields)
+    flexible = is_json
+    if is_object:
+        if no_fields:
+            flexible = True
+        else:
+            pass
+    else:
+        pass
+    return flexible
+
+
 def chat_session_queue_update(state: Any, update: Any) -> bool:
     _core_coverage_mark("chat_session_queue_update")
     terminal = _core_get(state, "terminal", False)
@@ -5421,25 +5431,6 @@ def chat_session_queue_update(state: Any, update: Any) -> bool:
     state["updates"] = updates
     state["needs_continuation"] = True
     return True
-
-
-def _is_flexible_json_field(typ: FieldType) -> bool:
-    _core_coverage_mark("_is_flexible_json_field")
-    type_name = _core_get(typ, "name", None)
-    is_json = _core_eq(type_name, "json")
-    is_object = _core_eq(type_name, "object")
-    fields = _core_get(typ, "fields", None)
-    has_fields = _core_truthy(fields)
-    no_fields = _core_not(has_fields)
-    flexible = is_json
-    if is_object:
-        if no_fields:
-            flexible = True
-        else:
-            pass
-    else:
-        pass
-    return flexible
 
 
 def _ace_dedupe_playbook(playbook: Any) -> Any:
@@ -6664,14 +6655,6 @@ def _regex_task(n: Any, next: Any) -> Any:
     return t1
 
 
-def _regex_frame(todo: Any, st: Any) -> Any:
-    _core_coverage_mark("_regex_frame")
-    t1 = {}
-    t1["todo"] = todo
-    t1["st"] = st
-    return t1
-
-
 def _append_validation_retry_messages_impl(messages: list[Any], response: Any, error: error) -> list[Any]:
     _core_coverage_mark("_append_validation_retry_messages_impl")
     content = _core_get(response, "content", "")
@@ -6687,6 +6670,14 @@ def _append_validation_retry_messages_impl(messages: list[Any], response: Any, e
     retry_message["content"] = retry_content
     messages.append(retry_message)
     return messages
+
+
+def _regex_frame(todo: Any, st: Any) -> Any:
+    _core_coverage_mark("_regex_frame")
+    t1 = {}
+    t1["todo"] = todo
+    t1["st"] = st
+    return t1
 
 
 def _regex_search(n: Any, u: Any, initial: Any, d: Any) -> Any:
