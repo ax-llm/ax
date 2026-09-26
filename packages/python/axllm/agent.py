@@ -2293,7 +2293,7 @@ def _core_runtime_error(message):
 
 
 def _core_json_pretty(value):
-    return json.dumps(value, indent=2)
+    return json.dumps(value, indent=2, ensure_ascii=False)
 
 
 def _core_agent_native_stage_forward(stage, state, client, values, options, selected):
