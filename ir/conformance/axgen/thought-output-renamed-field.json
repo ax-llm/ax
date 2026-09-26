@@ -1,0 +1,27 @@
+{
+  "expected_output": {
+    "answer": "ok",
+    "reasoning": "Thinking it over"
+  },
+  "input": {
+    "question": "Status?"
+  },
+  "kind": "forward",
+  "name": "thought-output-renamed-field",
+  "options": {
+    "thought_field_name": "reasoning"
+  },
+  "responses": [
+    {
+      "results": [
+        {
+          "content": "Answer: ok",
+          "finish_reason": "stop",
+          "index": 0,
+          "thought": "Thinking it over"
+        }
+      ]
+    }
+  ],
+  "signature": "question:string -> answer:string"
+}

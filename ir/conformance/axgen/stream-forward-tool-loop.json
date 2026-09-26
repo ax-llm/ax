@@ -1,0 +1,113 @@
+{
+  "expected_output": {
+    "answer": "ok",
+    "thought": "Look up. Answer."
+  },
+  "expected_request": {
+    "model_config": {
+      "stream": true
+    }
+  },
+  "expected_request_count": 2,
+  "expected_tool_calls": [
+    {
+      "args": {
+        "key": "a"
+      },
+      "name": "lookup"
+    }
+  ],
+  "forward_options": {
+    "show_thoughts": true,
+    "stream": true
+  },
+  "input": {
+    "question": "Status?"
+  },
+  "kind": "forward",
+  "name": "stream-forward-tool-loop",
+  "responses": [
+    {
+      "stream": [
+        {
+          "results": [
+            {
+              "index": 0,
+              "thought": "Look "
+            }
+          ]
+        },
+        {
+          "results": [
+            {
+              "function_calls": [
+                {
+                  "function": {
+                    "name": "lookup",
+                    "params": "{\"key\":"
+                  },
+                  "id": "call_1",
+                  "type": "function"
+                }
+              ],
+              "index": 0,
+              "thought": "up. "
+            }
+          ]
+        },
+        {
+          "results": [
+            {
+              "finish_reason": "function_call",
+              "function_calls": [
+                {
+                  "function": {
+                    "name": "",
+                    "params": "\"a\"}"
+                  },
+                  "id": "call_1",
+                  "type": "function"
+                }
+              ],
+              "index": 0
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "stream": [
+        {
+          "results": [
+            {
+              "index": 0,
+              "thought": "Answer."
+            }
+          ]
+        },
+        {
+          "results": [
+            {
+              "content": "Answer: ok",
+              "finish_reason": "stop",
+              "index": 0
+            }
+          ]
+        }
+      ]
+    }
+  ],
+  "signature": "question:string -> answer:string",
+  "tools": [
+    {
+      "args": {
+        "key": {
+          "type": "string"
+        }
+      },
+      "description": "Look up a key",
+      "name": "lookup",
+      "result": "status is green"
+    }
+  ]
+}

@@ -1,0 +1,53 @@
+{
+  "expected_output": {
+    "answer": "ok",
+    "thought": "Think more"
+  },
+  "expected_request": {
+    "model_config": {
+      "stream": true
+    }
+  },
+  "expected_request_count": 1,
+  "forward_options": {
+    "show_thoughts": true,
+    "stream": true
+  },
+  "input": {
+    "question": "Status?"
+  },
+  "kind": "forward",
+  "name": "stream-forward-thought-chunks",
+  "responses": [
+    {
+      "stream": [
+        {
+          "results": [
+            {
+              "index": 0,
+              "thought": "Think "
+            }
+          ]
+        },
+        {
+          "results": [
+            {
+              "index": 0,
+              "thought": "more"
+            }
+          ]
+        },
+        {
+          "results": [
+            {
+              "content": "Answer: ok",
+              "finish_reason": "stop",
+              "index": 0
+            }
+          ]
+        }
+      ]
+    }
+  ],
+  "signature": "question:string -> answer:string"
+}

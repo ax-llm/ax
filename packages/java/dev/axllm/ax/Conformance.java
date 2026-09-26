@@ -73,11 +73,25 @@ public final class Conformance {
       return Core.asMap(responses.remove(0));
     }
 
+    // A scripted {"stream": [...]} response streams its chunks; fixture
+    // stream events stream as before; any other response streams as one.
     public Iterable<Map<String, Object>> stream(Map<String, Object> request) {
-      requests.add(new LinkedHashMap<>(request));
-      List<Map<String, Object>> out = new ArrayList<>();
-      for (Object event : streamEvents) out.add(Core.asMap(event));
-      return out;
+      if (!responses.isEmpty() && Core.asMap(responses.get(0)).containsKey("stream")) {
+        chatCalls++;
+        requests.add(new LinkedHashMap<>(request));
+        chatOptions.add(new LinkedHashMap<>());
+        Map<String, Object> raw = Core.asMap(responses.remove(0));
+        List<Map<String, Object>> out = new ArrayList<>();
+        for (Object chunk : Core.asList(raw.get("stream"))) out.add(Core.legacyResponseToChatResponse(Core.asMap(chunk)));
+        return out;
+      }
+      if (!streamEvents.isEmpty() || responses.isEmpty()) {
+        requests.add(new LinkedHashMap<>(request));
+        List<Map<String, Object>> out = new ArrayList<>();
+        for (Object event : streamEvents) out.add(Core.asMap(event));
+        return out;
+      }
+      return List.of(doChat(request, Map.of()));
     }
 
     public Map<String, Object> transcribe(Map<String, Object> request) {

@@ -1,7 +1,5 @@
 {
-  "expected_output": {
-    "answer": "Found directly"
-  },
+  "expected_output": {},
   "expected_request_count": 1,
   "expected_tool_calls": [
     {
@@ -15,7 +13,7 @@
     "query": "ax docs"
   },
   "kind": "forward",
-  "name": "stop-function-tool-output",
+  "name": "stop-function-empty-output",
   "responses": [
     {
       "content": "",

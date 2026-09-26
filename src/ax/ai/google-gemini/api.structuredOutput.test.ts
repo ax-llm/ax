@@ -64,16 +64,64 @@ const createAI = () =>
   });
 
 describe('Gemini structured output beside function declarations', () => {
-  it('does not combine a JSON response format with functions', () => {
+  it('advertises native JSON Schema and the function rung', () => {
     const features = createAI().getFeatures(
       AxAIGoogleGeminiModel.Gemini38Flash
     );
 
     expect(features.structuredOutputModes).toEqual(['native', 'function']);
-    expect(features.responseFormatWithFunctions).toBe(false);
   });
 
-  it('answers through __axOutput instead of JSON mode while tools stay declared', async () => {
+  it('keeps JSON Schema response mode beside declared tools in auto', async () => {
+    const llm = createAI();
+    const bodies: any[] = [];
+    llm.setOptions({
+      fetch: createSequenceFetch(
+        [
+          functionCallResponse('lookupUser', { name: 'Alice' }),
+          {
+            candidates: [
+              {
+                content: {
+                  role: 'model',
+                  parts: [
+                    {
+                      text: JSON.stringify({
+                        user: { name: 'Alice', age: 30 },
+                      }),
+                    },
+                  ],
+                },
+                finishReason: 'STOP',
+              },
+            ],
+          },
+        ],
+        bodies
+      ),
+    });
+    const gen = ax(createSig(), { functions: [lookupUser] });
+
+    const result = await gen.forward(
+      llm,
+      { question: 'How old is Alice?' },
+      { stream: false }
+    );
+
+    expect(result.user).toEqual({ name: 'Alice', age: 30 });
+    expect(bodies).toHaveLength(2);
+    for (const body of bodies) {
+      expect(body.generationConfig.responseMimeType).toBe('application/json');
+      expect(body.generationConfig.responseJsonSchema).toBeDefined();
+      expect(
+        body.tools[0].function_declarations.map(
+          (declaration: { name: string }) => declaration.name
+        )
+      ).toEqual(['lookupUser']);
+    }
+  });
+
+  it("answers through __axOutput with structuredOutputMode 'function'", async () => {
     const llm = createAI();
     const bodies: any[] = [];
     llm.setOptions({
@@ -92,7 +140,7 @@ describe('Gemini structured output beside function declarations', () => {
     const result = await gen.forward(
       llm,
       { question: 'How old is Alice?' },
-      { stream: false }
+      { stream: false, structuredOutputMode: 'function' }
     );
 
     expect(result.user).toEqual({ name: 'Alice', age: 30 });
@@ -105,9 +153,6 @@ describe('Gemini structured output beside function declarations', () => {
           (declaration: { name: string }) => declaration.name
         )
       ).toEqual(['lookupUser', '__axOutput']);
-      expect(body.toolConfig.function_calling_config).toEqual({
-        mode: 'AUTO',
-      });
     }
   });
 

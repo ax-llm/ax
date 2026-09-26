@@ -683,6 +683,12 @@ final class Core {
   }
   static Object aiCompleteOnce(Object client, Object request, Object options) {
     try {
+      // As in TS, a streamed forward folds the stream's chunks into one response.
+      if (truthy(get(get(request, "model_config", Map.of()), "stream", false)) && client instanceof AiClient streaming) {
+        List<Object> events = new ArrayList<>();
+        for (Map<String, Object> event : streaming.stream(asMap(request))) events.add(event);
+        return chat_response_to_completion(fold_chat_response_stream(events));
+      }
       if (client instanceof AxAIService service) return chat_response_to_completion(service.chat(asMap(request), asMap(options)));
       if (client instanceof AiClient ai) return ai.complete(asMap(request));
       throw new RuntimeException("client does not implement AiClient");

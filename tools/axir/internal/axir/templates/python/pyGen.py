@@ -30,6 +30,7 @@ from .ai import (
     _strip_runtime_hooks,
     chat_response_to_completion,
     ai_merge_replay_metadata,
+    fold_chat_response_stream,
 )
 from .prompt import AxPromptTemplate, _core_string_split
 from .schema import AxValidationError, strip_internal, validate_fields, validate_output
@@ -602,7 +603,7 @@ class AxGen:
     def _request(self, messages, options, client=None):
         request_options = options or {}
         features = _core_ai_client_features(client, request_options.get("model")) if client is not None else {}
-        selection = _select_structured_output_rung(self.signature, features, request_options, self.functions)
+        selection = _select_structured_output_rung(self.signature, features, request_options)
         return _build_gen_chat_request(self, messages, request_options, selection, 0)
 
     def _execute_tool(self, call):
@@ -815,22 +816,30 @@ def _core_string_default_if_empty(value, fallback):
     return text if text else fallback
 
 
+def _core_accepts_options(method):
+    try:
+        parameters = inspect.signature(method).parameters.values()
+        return len(inspect.signature(method).parameters) >= 2 or any(
+            parameter.kind in (inspect.Parameter.VAR_POSITIONAL, inspect.Parameter.VAR_KEYWORD)
+            for parameter in parameters
+        )
+    except (TypeError, ValueError):
+        return False
+
+
 def _core_ai_complete_once(client, request, options):
+    # As in TS, a streamed forward folds the stream's chunks into one response.
+    streaming = bool(((request or {}).get("model_config") or {}).get("stream"))
+    stream = getattr(client, "stream", None)
+    if streaming and callable(stream):
+        events = stream(request, options or {}) if _core_accepts_options(stream) else stream(request)
+        return chat_response_to_completion(fold_chat_response_stream(list(events)))
     chat = getattr(client, "chat", None)
     if callable(chat):
-        try:
-            parameters = inspect.signature(chat).parameters.values()
-            accepts_options = (
-                len(inspect.signature(chat).parameters) >= 2
-                or any(
-                    parameter.kind
-                    in (inspect.Parameter.VAR_POSITIONAL, inspect.Parameter.VAR_KEYWORD)
-                    for parameter in parameters
-                )
-            )
-        except (TypeError, ValueError):
-            accepts_options = False
+        accepts_options = _core_accepts_options(chat)
         response = chat(request, options or {}) if accepts_options else chat(request)
+        if response is not None and not isinstance(response, dict):
+            response = fold_chat_response_stream(list(response))
         return chat_response_to_completion(response)
     complete = getattr(client, "complete", None)
     if callable(complete):

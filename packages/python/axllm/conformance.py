@@ -121,10 +121,23 @@ class ConformanceScriptedAI(AxBaseAI):
             raise RuntimeError("scripted client exhausted")
         return copy.deepcopy(self.responses.pop(0))
 
-    def stream(self, request: dict[str, Any]):
-        self.requests.append(copy.deepcopy(request))
-        for event in self.stream_events:
-            yield copy.deepcopy(event)
+    def stream(self, request: dict[str, Any], options: dict[str, Any] | None = None):
+        # A scripted {"stream": [...]} response streams its chunks; fixture
+        # stream_events stream as before; any other response streams as one.
+        if self.responses and isinstance(self.responses[0], dict) and "stream" in self.responses[0]:
+            self.chat_calls += 1
+            self.requests.append(copy.deepcopy(request))
+            self.chat_options.append(copy.deepcopy(options or {}))
+            raw = self.responses.pop(0)
+            for event in raw["stream"]:
+                yield _legacy_response_to_chat_response(copy.deepcopy(event))
+            return
+        if self.stream_events or not self.responses:
+            self.requests.append(copy.deepcopy(request))
+            for event in self.stream_events:
+                yield copy.deepcopy(event)
+            return
+        yield self._chat(request, options or {})
 
     def transcribe(self, request: dict[str, Any], options: dict[str, Any] | None = None):
         self.requests.append(copy.deepcopy(request))

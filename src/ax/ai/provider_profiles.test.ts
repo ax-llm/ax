@@ -632,17 +632,6 @@ describe('named AI deployment profiles', () => {
     ).toBe(false);
   });
 
-  it('reports that Gemini rejects a JSON response format beside tools', () => {
-    expect(
-      axResolveAIProfileFeatures('google-gemini', 'gemini-3.6-flash')
-        .responseFormatWithFunctions
-    ).toBe(false);
-    expect(
-      axResolveAIProfileFeatures('openai', 'gpt-5.4-mini')
-        .responseFormatWithFunctions
-    ).toBeUndefined();
-  });
-
   it('resolves Vertex structured-output modes per model', () => {
     expect(
       axResolveAIProfileFeatures('vertex-ai', 'unknown-third-party-model')

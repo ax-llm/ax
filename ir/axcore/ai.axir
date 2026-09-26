@@ -1134,4 +1134,158 @@ module @ax.ai version "0.1" {
     tag "src/ax/ai/base.ts"
     type signature = "(AxAIService, kind:string, durationMs:f64, error?:json) -> void"
   }
+
+  op ax.ai.semantic @fold_chat_response_stream {
+    attr core_kind = "func"
+    attr emit_module = "ai"
+    tag "src/ax/dsp/response/streaming.ts"
+    type signature = "(list<json>) -> json"
+    body @entry(%events: list<json>) {
+      // Folds streamed chat response chunks into one response, the way TS
+      // accumulates a stream. Per result index, content and thought append,
+      // thought blocks accumulate, and function-call fragments merge by id: a
+      // string name or params appends, object params replace. The last finish
+      // reason and usage win.
+      %results = core.list
+      %usage = core.call intrinsic.none()
+      core.for %raw_event in %events {
+        %event = core.let %raw_event
+        %has_routing = core.call intrinsic.map.contains(%raw_event, "routing")
+        %has_response = core.call intrinsic.map.contains(%raw_event, "response")
+        %router_envelope = core.call intrinsic.and(%has_routing, %has_response)
+        core.if %router_envelope {
+          %event = core.get %raw_event["response"]
+        }
+        %empty_chunks = core.list
+        %chunks = core.get %event["results"] default %empty_chunks
+        core.for %chunk in %chunks {
+          %index = core.get %chunk["index"] default 0
+          %target = core.call intrinsic.none()
+          core.for %candidate in %results {
+            %candidate_index = core.get %candidate["index"]
+            %same_index = core.call intrinsic.eq(%candidate_index, %index)
+            core.if %same_index {
+              %target = core.let %candidate
+            }
+          }
+          %missing_target = core.call intrinsic.is_none(%target)
+          core.if %missing_target {
+            %new_target = core.map
+            core.set %new_target["index"] = %index
+            core.set %new_target["content"] = ""
+            %new_calls = core.list
+            core.set %new_target["function_calls"] = %new_calls
+            core.append %results, %new_target
+            %target = core.let %new_target
+          }
+          core.call @fold_chat_stream_chunk_impl(%target, %chunk)
+        }
+        %usage_snake = core.get %event["model_usage"]
+        %event_usage = core.get %event["modelUsage"] default %usage_snake
+        %has_usage = core.call intrinsic.is_not_none(%event_usage)
+        core.if %has_usage {
+          %usage = core.let %event_usage
+        }
+      }
+      %response = core.map
+      core.set %response["results"] = %results
+      %found_usage = core.call intrinsic.is_not_none(%usage)
+      core.if %found_usage {
+        core.set %response["model_usage"] = %usage
+      }
+      core.return %response
+    }
+  }
+
+  op ax.ai.semantic @fold_chat_stream_chunk_impl {
+    attr core_kind = "func"
+    attr emit_module = "ai"
+    attr private = true
+    tag "src/ax/dsp/response/streaming.ts"
+    type signature = "(json, json) -> void"
+    body @entry(%target: json, %chunk: json) {
+      %content = core.get %chunk["content"]
+      %content_text = core.type_is %content type "string"
+      core.if %content_text {
+        %old_content = core.get %target["content"] default ""
+        %joined_content = core.call intrinsic.add(%old_content, %content)
+        core.set %target["content"] = %joined_content
+      }
+      %thought = core.get %chunk["thought"]
+      %thought_text = core.type_is %thought type "string"
+      core.if %thought_text {
+        %old_thought = core.get %target["thought"] default ""
+        %joined_thought = core.call intrinsic.add(%old_thought, %thought)
+        core.set %target["thought"] = %joined_thought
+      }
+      %blocks_snake = core.get %chunk["thought_blocks"]
+      %blocks = core.get %chunk["thoughtBlocks"] default %blocks_snake
+      %blocks_list = core.type_is %blocks type "list"
+      core.if %blocks_list {
+        %empty_blocks = core.list
+        %target_blocks = core.get %target["thought_blocks"] default %empty_blocks
+        core.for %block in %blocks {
+          core.append %target_blocks, %block
+        }
+        core.set %target["thought_blocks"] = %target_blocks
+      }
+      %empty_deltas = core.list
+      %deltas_snake = core.get %chunk["function_calls"] default %empty_deltas
+      %deltas = core.get %chunk["functionCalls"] default %deltas_snake
+      %empty_calls = core.list
+      %calls = core.get %target["function_calls"] default %empty_calls
+      core.for %delta in %deltas {
+        %delta_id = core.get %delta["id"]
+        %existing = core.call intrinsic.none()
+        core.for %candidate in %calls {
+          %candidate_id = core.get %candidate["id"]
+          %same_id = core.call intrinsic.eq(%candidate_id, %delta_id)
+          core.if %same_id {
+            %existing = core.let %candidate
+          }
+        }
+        %new_call = core.call intrinsic.is_none(%existing)
+        core.if %new_call {
+          core.append %calls, %delta
+        } else {
+          %empty_function = core.map
+          %existing_fn = core.get %existing["function"] default %empty_function
+          %delta_fn = core.get %delta["function"] default %empty_function
+          %name = core.get %delta_fn["name"]
+          %name_text = core.type_is %name type "string"
+          %name_nonempty = core.call intrinsic.truthy(%name)
+          %append_name = core.call intrinsic.and(%name_text, %name_nonempty)
+          core.if %append_name {
+            %old_name = core.get %existing_fn["name"] default ""
+            %joined_name = core.call intrinsic.add(%old_name, %name)
+            core.set %existing_fn["name"] = %joined_name
+          }
+          %params = core.get %delta_fn["params"]
+          %params_text = core.type_is %params type "string"
+          %params_nonempty = core.call intrinsic.truthy(%params)
+          %append_params = core.call intrinsic.and(%params_text, %params_nonempty)
+          core.if %append_params {
+            %old_params = core.get %existing_fn["params"] default ""
+            %joined_params = core.call intrinsic.add(%old_params, %params)
+            core.set %existing_fn["params"] = %joined_params
+          }
+          %params_object = core.type_is %params type "object"
+          core.if %params_object {
+            core.set %existing_fn["params"] = %params
+          }
+          core.set %existing["function"] = %existing_fn
+        }
+      }
+      core.set %target["function_calls"] = %calls
+      %finish_snake = core.get %chunk["finish_reason"]
+      %finish = core.get %chunk["finishReason"] default %finish_snake
+      %finish_text = core.type_is %finish type "string"
+      %finish_nonempty = core.call intrinsic.truthy(%finish)
+      %has_finish = core.call intrinsic.and(%finish_text, %finish_nonempty)
+      core.if %has_finish {
+        core.set %target["finish_reason"] = %finish
+      }
+      core.return
+    }
+  }
 }

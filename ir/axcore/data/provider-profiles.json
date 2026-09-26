@@ -596,8 +596,7 @@
         "structuredOutputModes": [
           "native",
           "function"
-        ],
-        "responseFormatWithFunctions": false
+        ]
       },
       "operations": {
         "chat": {

@@ -11,7 +11,8 @@
     }
   ],
   "expected_output": {
-    "answer": "kept"
+    "answer": "kept",
+    "thought": "I should preserve this summary."
   },
   "expected_request_count": 1,
   "input": {

@@ -1,6 +1,7 @@
 {
   "expected_output": {
-    "answer": "42"
+    "answer": "42",
+    "thought": "Use the warehouse search tool."
   },
   "expected_request_contains": [
     "Use the warehouse search tool.",

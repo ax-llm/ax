@@ -2405,8 +2405,6 @@ def _merge_service_features(services, model=None):
     }
     if services and all((service.get_features(model) or {}).get("requiresStructuredOutput", (service.get_features(model) or {}).get("requires_structured_output", False)) for service in services):
         features["requiresStructuredOutput"] = True
-    if any((service.get_features(model) or {}).get("responseFormatWithFunctions", (service.get_features(model) or {}).get("response_format_with_functions")) is False for service in services):
-        features["responseFormatWithFunctions"] = False
     structured_output_modes: list[Any] = []
     all_modes_advertised = bool(services)
     for service in services:
