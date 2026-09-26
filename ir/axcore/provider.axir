@@ -8242,16 +8242,57 @@ module @ax.provider version "0.1" {
 
   op ax.provider.semantic @gemini_build_vertex_embed_request {
     attr core_kind = "func"
+    attr effect = "throws"
     attr emit_module = "ai"
     attr private = true
     tag "src/ax/ai/google-gemini/api.ts"
     tag "axai-vertex-routing"
-    type signature = "(AxEmbedRequest, options?:json) -> json"
+    type signature = "(AxEmbedRequest, options?:json) -> json throws"
     body @entry(%request: AxEmbedRequest, %options: json) {
       %payload = core.map
       %instances = core.list
       %empty_texts = core.list
       %texts = core.get %request["texts"] default %empty_texts
+      %model_camel = core.get %request["embedModel"] default ""
+      %model = core.get %request["embed_model"] default %model_camel
+      %endpoint_snake = core.get %options["endpoint_id"]
+      %endpoint = core.get %options["endpointId"] default %endpoint_snake
+      %has_endpoint = core.call intrinsic.truthy(%endpoint)
+      %no_endpoint = core.call intrinsic.not(%has_endpoint)
+      %embed_content_model = core.call @gemini_vertex_embed_content_model_impl(%model)
+      %use_embed_content = core.call intrinsic.and(%embed_content_model, %no_endpoint)
+      core.if %use_embed_content {
+        // :embedContent fuses every part of a request into one vector and has
+        // no batch endpoint, and the model ignores a task type.
+        %text_count = core.call intrinsic.len(%texts)
+        %single_text = core.call intrinsic.eq(%text_count, 1)
+        core.if %single_text {
+        } else {
+          %message = core.call intrinsic.string.format("{} on Vertex embeds one text per request; call embed() once per text", %model)
+          %error = core.call intrinsic.ai.error.unsupported(%message)
+          core.raise %error
+        }
+        %text = core.call intrinsic.list.get(%texts, 0, "")
+        %part = core.map
+        core.set %part["text"] = %text
+        %parts = core.list
+        core.append %parts, %part
+        %content = core.map
+        core.set %content["parts"] = %parts
+        core.set %payload["content"] = %content
+        %content_truncate_snake = core.get %options["auto_truncate"]
+        %content_truncate = core.get %options["autoTruncate"] default %content_truncate_snake
+        %has_content_truncate = core.call intrinsic.is_not_none(%content_truncate)
+        core.if %has_content_truncate {
+          core.set %payload["autoTruncate"] = %content_truncate
+        }
+        %content_dimensions = core.get %request["dimensions"]
+        %has_content_dimensions = core.call intrinsic.is_not_none(%content_dimensions)
+        core.if %has_content_dimensions {
+          core.set %payload["outputDimensionality"] = %content_dimensions
+        }
+        core.return %payload
+      }
       core.for %text in %texts {
         %instance = core.map
         core.set %instance["content"] = %text
@@ -8577,6 +8618,27 @@ module @ax.provider version "0.1" {
     body @entry(%raw: json, %ai_name: string, %model: string) {
       %out = core.map
       %embeddings = core.list
+      %single_embedding = core.get %raw["embedding"]
+      %has_single_embedding = core.call intrinsic.is_not_none(%single_embedding)
+      core.if %has_single_embedding {
+        %empty_values = core.list
+        %single_values = core.get %single_embedding["values"] default %empty_values
+        core.append %embeddings, %single_values
+        core.set %out["embeddings"] = %embeddings
+        %usage_metadata = core.get %raw["usageMetadata"]
+        %has_usage_metadata = core.call intrinsic.truthy(%usage_metadata)
+        core.if %has_usage_metadata {
+          %prompt_tokens = core.get %usage_metadata["promptTokenCount"] default 0
+          %total_tokens = core.get %usage_metadata["totalTokenCount"] default %prompt_tokens
+          %usage = core.map
+          core.set %usage["prompt_tokens"] = %prompt_tokens
+          core.set %usage["completion_tokens"] = 0
+          core.set %usage["total_tokens"] = %total_tokens
+          %model_usage = core.call @ai_model_usage_impl(%ai_name, %model, %usage)
+          core.set %out["model_usage"] = %model_usage
+        }
+        core.return %out
+      }
       %empty_raw_embeddings = core.list
       %raw_embeddings = core.get %raw["embeddings"] default %empty_raw_embeddings
       core.for %embedding in %raw_embeddings {
@@ -10362,6 +10424,71 @@ module @ax.provider version "0.1" {
         }
       }
       core.return
+    }
+  }
+
+  op ax.provider.semantic @gemini_vertex_embed_content_model_impl {
+    attr core_kind = "func"
+    attr emit_module = "ai"
+    attr private = true
+    tag "src/ax/ai/google-gemini/api.ts"
+    tag "axai-vertex-routing"
+    type signature = "(model:string) -> bool"
+    body @entry(%model: string) {
+      // Vertex serves these embedding models only at locations/global through
+      // :embedContent.
+      %is_embed_content = core.call intrinsic.eq(%model, "gemini-embedding-2")
+      core.return %is_embed_content
+    }
+  }
+
+  op ax.provider.semantic @provider_embed_url {
+    attr core_kind = "func"
+    attr effect = "throws"
+    attr emit_module = "ai"
+    tag "src/ax/ai/google-gemini/api.ts"
+    tag "axai-vertex-routing"
+    type signature = "(profile:string, model:string, options?:json) -> string throws"
+    body @entry(%profile: string, %model: string, %options: json) {
+      // Returns the absolute URL for an embed call that leaves the descriptor's
+      // base URL, or "" when the operation path applies.
+      %provider_id = core.call @provider_normalize_profile(%profile)
+      %descriptor = core.call @provider_resolve_descriptor(%provider_id, %options)
+      %is_vertex = core.get %descriptor["vertex"] default false
+      %transport = core.get %descriptor["transport"] default "openai-chat"
+      %is_gemini = core.call intrinsic.eq(%transport, "gemini-generate-content")
+      %vertex_gemini = core.call intrinsic.and(%is_vertex, %is_gemini)
+      %endpoint_snake = core.get %options["endpoint_id"]
+      %endpoint = core.get %options["endpointId"] default %endpoint_snake
+      %has_endpoint = core.call intrinsic.truthy(%endpoint)
+      %no_endpoint = core.call intrinsic.not(%has_endpoint)
+      %embed_content_model = core.call @gemini_vertex_embed_content_model_impl(%model)
+      %routed = core.call intrinsic.and(%vertex_gemini, %no_endpoint)
+      %use_global = core.call intrinsic.and(%routed, %embed_content_model)
+      core.if %use_global {
+      } else {
+        core.return ""
+      }
+      // Served only at the global location, whatever region the client uses.
+      %base_override_snake = core.get %options["base_url"]
+      %base_override = core.get %options["baseUrl"] default %base_override_snake
+      %has_base_override = core.call intrinsic.truthy(%base_override)
+      %base_url = core.let %base_override
+      core.if %has_base_override {
+      } else {
+        %host = core.call @resolve_vertex_ai_host("global")
+        %beta = core.get %options["beta"] default false
+        %use_beta = core.call intrinsic.truthy(%beta)
+        %version = core.let "v1"
+        core.if %use_beta {
+          %version = core.let "v1beta1"
+        }
+        %base_url = core.call intrinsic.string.format("https://{}/{}", %host, %version)
+      }
+      %project_snake = core.get %options["project_id"]
+      %project = core.get %options["projectId"] default %project_snake
+      %url = core.call intrinsic.string.format("{}/projects/{}/locations/global/publishers/google/models/{}:embedContent", %base_url, %project, %model)
+      core.return %url
     }
   }
 }

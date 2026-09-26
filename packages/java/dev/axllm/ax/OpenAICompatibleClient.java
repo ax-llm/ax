@@ -251,7 +251,8 @@ public class OpenAICompatibleClient extends AxBaseAI implements AxChatSession.Pr
   protected Map<String, Object> doEmbed(Map<String, Object> request, Map<String, Object> options) throws Exception {
     Map<String, Object> payload = Core.asMap(Core.provider_build_embed_request(profile, request, options));
     Object modelName = request.getOrDefault("embed_model", request.getOrDefault("embedModel", payload.getOrDefault("model", embedModel)));
-    Object raw = requestJson(operationPath("embed", modelName), payload, false, "json", false, operationMethod("embed"), "embed");
+    String embedUrl = String.valueOf(Core.provider_embed_url(profile, String.valueOf(modelName), options));
+    Object raw = requestJson(embedUrl.isEmpty() ? operationPath("embed", modelName) : embedUrl, payload, false, "json", false, operationMethod("embed"), "embed");
     return Core.asMap(Core.provider_normalize_embed_response(profile, raw, name, modelName));
   }
 

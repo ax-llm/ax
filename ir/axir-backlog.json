@@ -1801,7 +1801,7 @@
     },
     {
       "id": "axir-2026-09-25-embed-gemini-embedding-2-on-vertex-through-global-embedcontent",
-      "status": "open",
+      "status": "done",
       "title": "Embed gemini-embedding-2 on Vertex through global :embedContent in the ports",
       "createdAt": "2026-09-25",
       "sourcePR": 715,
@@ -1820,9 +1820,9 @@
         "Add Vertex fixtures in tools/axir/extractors/axai-goldens.ts for the global URL and body and for the multi-text rejection then confirm they fail on the current ports",
         "Regenerate the ports with npm run axir:generate-packages then run npm run axir:conformance:write and npm run test:axir"
       ],
-      "completedAt": null,
-      "completedByCommit": null,
-      "verification": null
+      "completedAt": "2026-09-26",
+      "completedByCommit": "76e7ab0421fa46ec502980d8e26526daee7fb1a4",
+      "verification": "@gemini_build_vertex_embed_request sends {content: {parts: [{text}]}; autoTruncate; outputDimensionality} with no task type for gemini-embedding-2 on Vertex without an endpoint and raises TypeScript's error before any request on more than one text. @gemini_normalize_embed_response reads embedding.values and maps usageMetadata to model_usage. The new Core op @provider_embed_url returns the global v1 or v1beta1 :embedContent URL (an explicit base URL still replaces the host), and every port's embed path uses it. Other Vertex models and endpointId deployments keep the regional :predict call with task_type. New axai fixtures vertex-gemini-embedding-2-global-embed-content, -multi-region-beta and -rejects-multiple-texts match the TS client's requests (capturing fetch) and failed on the previous Python and Go ports; -endpoint-keeps-predict and -base-url-override pin the unchanged endpoint route and the override (the override one failed in Python). All five ports pass them. Live on Vertex through the Python port: 3072-dim vector identical to the TS client's, usage from usageMetadata, dimensions 256 honored, v1beta1 same vector, multi-text rejected, gemini-embedding-001 still on :predict; main's Python package got the 404. Niced npm run test:axir passed in one run on the branch merged with #717 (go test, check, lint, audit provenance, lower, verify release for all five targets); axir:check-packages, axir:conformance:check and skills:check passed."
     },
     {
       "id": "axir-2026-09-25-keep-the-axoutput-call-on-axgen-structured-output-retries",

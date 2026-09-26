@@ -1123,6 +1123,7 @@ class ProviderOperationClient(AxBaseAI):
             typesafe_require_number(self.options.get("trueThreshold", self.options.get("true_threshold", 0.5)), "trueThreshold", 0, 1)
         self.descriptor = descriptor
         self.base_url = (base_url or (os.environ.get("OPENAI_BASE_URL") if profile != "typesafe" else None) or descriptor.get("baseUrl") or "https://api.openai.com/v1").rstrip("/")
+        self.base_url_override = base_url.rstrip("/") if base_url else None
         self.api_key = api_key or (os.environ.get("TYPESAFE_APIKEY") or os.environ.get("TYPESAFE_API_KEY") if profile == "typesafe" else os.environ.get("OPENAI_API_KEY"))
         self.credential_provider = credential_provider or credentialProvider
         if self.descriptor.get("authRequired") and not self.api_key and not self.credential_provider:
@@ -1354,7 +1355,9 @@ class ProviderOperationClient(AxBaseAI):
     def _embed(self, request: dict[str, Any], options: dict[str, Any]):
         payload = provider_build_embed_request(self.profile, request, options)
         model = request.get("embed_model") or request.get("embedModel") or payload.get("model") or self.embed_model
-        endpoint = self._operation_path("embed", model)
+        # The client pops base_url out of its options; the embed route still honors an explicit one.
+        route_options = {**options, "base_url": self.base_url_override} if self.base_url_override else options
+        endpoint = provider_embed_url(self.profile, str(model or ""), route_options) or self._operation_path("embed", model)
         raw = self._request_json(endpoint, payload, stream=False, method=self._operation_method("embed"), operation="embed", cancellation=_cancellation_token(options))
         return provider_normalize_embed_response(self.profile, raw, self.name, model)
 
@@ -1650,7 +1653,7 @@ class ProviderOperationClient(AxBaseAI):
         if cancellation is not None: cancellation.throw_if_cancelled()
         method = str(method or "POST").upper()
         request_base_url = (base_url or self.base_url).rstrip("/")
-        request_url = request_base_url + endpoint
+        request_url = endpoint if endpoint.startswith(("http://", "https://")) else request_base_url + endpoint
         headers = self._headers()
         if accept:
             headers["Accept"] = accept
@@ -12571,6 +12574,47 @@ def _gemini_build_vertex_embed_request(request: AxEmbedRequest, options: Any) ->
     instances = []
     empty_texts = []
     texts = _core_get(request, "texts", empty_texts)
+    model_camel = _core_get(request, "embedModel", "")
+    model = _core_get(request, "embed_model", model_camel)
+    endpoint_snake = _core_get(options, "endpoint_id", None)
+    endpoint = _core_get(options, "endpointId", endpoint_snake)
+    has_endpoint = _core_truthy(endpoint)
+    no_endpoint = _core_not(has_endpoint)
+    embed_content_model = _gemini_vertex_embed_content_model_impl(model)
+    use_embed_content = _core_and(embed_content_model, no_endpoint)
+    if use_embed_content:
+        text_count = _core_len(texts)
+        single_text = _core_eq(text_count, 1)
+        if single_text:
+            pass
+        else:
+            message = _core_string_format("{} on Vertex embeds one text per request; call embed() once per text", model)
+            error = _core_ai_error_unsupported(message)
+            raise error
+        text = _core_list_get(texts, 0, "")
+        part = {}
+        part["text"] = text
+        parts = []
+        parts.append(part)
+        content = {}
+        content["parts"] = parts
+        payload["content"] = content
+        content_truncate_snake = _core_get(options, "auto_truncate", None)
+        content_truncate = _core_get(options, "autoTruncate", content_truncate_snake)
+        has_content_truncate = _core_is_not_none(content_truncate)
+        if has_content_truncate:
+            payload["autoTruncate"] = content_truncate
+        else:
+            pass
+        content_dimensions = _core_get(request, "dimensions", None)
+        has_content_dimensions = _core_is_not_none(content_dimensions)
+        if has_content_dimensions:
+            payload["outputDimensionality"] = content_dimensions
+        else:
+            pass
+        return payload
+    else:
+        pass
     for text in texts:
         instance = {}
         instance["content"] = text
@@ -12884,6 +12928,29 @@ def _gemini_normalize_embed_response(raw: Any, ai_name: str, model: str) -> AxEm
     _core_coverage_mark("_gemini_normalize_embed_response")
     out = {}
     embeddings = []
+    single_embedding = _core_get(raw, "embedding", None)
+    has_single_embedding = _core_is_not_none(single_embedding)
+    if has_single_embedding:
+        empty_values = []
+        single_values = _core_get(single_embedding, "values", empty_values)
+        embeddings.append(single_values)
+        out["embeddings"] = embeddings
+        usage_metadata = _core_get(raw, "usageMetadata", None)
+        has_usage_metadata = _core_truthy(usage_metadata)
+        if has_usage_metadata:
+            prompt_tokens = _core_get(usage_metadata, "promptTokenCount", 0)
+            total_tokens = _core_get(usage_metadata, "totalTokenCount", prompt_tokens)
+            usage = {}
+            usage["prompt_tokens"] = prompt_tokens
+            usage["completion_tokens"] = 0
+            usage["total_tokens"] = total_tokens
+            model_usage = _ai_model_usage_impl(ai_name, model, usage)
+            out["model_usage"] = model_usage
+        else:
+            pass
+        return out
+    else:
+        pass
     empty_raw_embeddings = []
     raw_embeddings = _core_get(raw, "embeddings", empty_raw_embeddings)
     for embedding in raw_embeddings:
@@ -14567,6 +14634,53 @@ def provider_require_expensive_model_confirmation(provider: str, model: str, cli
     else:
         pass
     return None
+
+
+def _gemini_vertex_embed_content_model_impl(model: str) -> bool:
+    _core_coverage_mark("_gemini_vertex_embed_content_model_impl")
+    is_embed_content = _core_eq(model, "gemini-embedding-2")
+    return is_embed_content
+
+
+def provider_embed_url(profile: str, model: str, options: Any) -> str:
+    _core_coverage_mark("provider_embed_url")
+    provider_id = provider_normalize_profile(profile)
+    descriptor = provider_resolve_descriptor(provider_id, options)
+    is_vertex = _core_get(descriptor, "vertex", False)
+    transport = _core_get(descriptor, "transport", "openai-chat")
+    is_gemini = _core_eq(transport, "gemini-generate-content")
+    vertex_gemini = _core_and(is_vertex, is_gemini)
+    endpoint_snake = _core_get(options, "endpoint_id", None)
+    endpoint = _core_get(options, "endpointId", endpoint_snake)
+    has_endpoint = _core_truthy(endpoint)
+    no_endpoint = _core_not(has_endpoint)
+    embed_content_model = _gemini_vertex_embed_content_model_impl(model)
+    routed = _core_and(vertex_gemini, no_endpoint)
+    use_global = _core_and(routed, embed_content_model)
+    if use_global:
+        pass
+    else:
+        return ""
+    base_override_snake = _core_get(options, "base_url", None)
+    base_override = _core_get(options, "baseUrl", base_override_snake)
+    has_base_override = _core_truthy(base_override)
+    base_url = base_override
+    if has_base_override:
+        pass
+    else:
+        host = resolve_vertex_ai_host("global")
+        beta = _core_get(options, "beta", False)
+        use_beta = _core_truthy(beta)
+        version = "v1"
+        if use_beta:
+            version = "v1beta1"
+        else:
+            pass
+        base_url = _core_string_format("https://{}/{}", host, version)
+    project_snake = _core_get(options, "project_id", None)
+    project = _core_get(options, "projectId", project_snake)
+    url = _core_string_format("{}/projects/{}/locations/global/publishers/google/models/{}:embedContent", base_url, project, model)
+    return url
 
 # END AXIR CORE EMITTED FUNCTIONS
 

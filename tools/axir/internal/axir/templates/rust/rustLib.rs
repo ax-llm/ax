@@ -2249,6 +2249,16 @@ impl OpenAICompatibleClient {
                     .to_string()
             });
         let mut url = format!("{}{path}", base.trim_end_matches('/'));
+        if operation == "embed" {
+            let embed_url = core_value_to_json(&provider_embed_url(&[
+                CoreValue::from(self.profile.as_str()),
+                CoreValue::from(model),
+                core_value_from_json(&self.options),
+            ])?);
+            if let Some(embed_url) = embed_url.as_str().filter(|value| !value.is_empty()) {
+                url = embed_url.to_string();
+            }
+        }
         if !self.api_version.is_empty() {
             let separator = if url.contains('?') { "&" } else { "?" };
             url = format!("{url}{separator}api-version={}", url_component_escape(&self.api_version));

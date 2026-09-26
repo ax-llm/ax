@@ -9024,6 +9024,134 @@ writeFixture('vertex-gemini-embed-task-type', {
   },
 });
 
+// Vertex serves gemini-embedding-2 only at locations/global through
+// :embedContent, one text per request and with no task type (#715).
+const vertexEmbedContentUrl = (version: string) =>
+  `https://aiplatform.googleapis.com/${version}/projects/demo-project/locations/global/publishers/google/models/gemini-embedding-2:embedContent`;
+
+writeFixture('vertex-gemini-embedding-2-global-embed-content', {
+  kind: 'ai_embed',
+  provider: 'google-gemini',
+  embed_model: 'gemini-embedding-2',
+  service_options: {
+    project_id: 'demo-project',
+    region: 'us-central1',
+    auto_truncate: false,
+    embed_type: 'RETRIEVAL_DOCUMENT',
+  },
+  request: { texts: ['hello world'], dimensions: 768 },
+  transport_responses: [
+    {
+      status: 200,
+      json: {
+        embedding: { values: [0.1, 0.2, 0.3] },
+        usageMetadata: { promptTokenCount: 3, totalTokenCount: 3 },
+      },
+    },
+  ],
+  expected_output: {
+    embeddings: [[0.1, 0.2, 0.3]],
+    model_usage: {
+      ai: 'google-gemini',
+      model: 'gemini-embedding-2',
+      tokens: { prompt_tokens: 3, completion_tokens: 0, total_tokens: 3 },
+    },
+  },
+  expected_transport_request: {
+    method: 'POST',
+    url: vertexEmbedContentUrl('v1'),
+    headers: { Authorization: 'Bearer test-key' },
+    json: {
+      content: { parts: [{ text: 'hello world' }] },
+      autoTruncate: false,
+      outputDimensionality: 768,
+    },
+  },
+  expected_transport_json_absent: [
+    'instances',
+    'parameters',
+    'task_type',
+    'taskType',
+  ],
+});
+
+writeFixture('vertex-gemini-embedding-2-multi-region-beta', {
+  kind: 'ai_embed',
+  provider: 'google-gemini',
+  embed_model: 'gemini-embedding-2',
+  service_options: { project_id: 'demo-project', region: 'us', beta: true },
+  request: { texts: ['hello world'] },
+  transport_responses: [
+    { status: 200, json: { embedding: { values: [0.1, 0.2, 0.3] } } },
+  ],
+  expected_output: { embeddings: [[0.1, 0.2, 0.3]] },
+  expected_transport_request: {
+    url: vertexEmbedContentUrl('v1beta1'),
+    json: { content: { parts: [{ text: 'hello world' }] } },
+  },
+  expected_transport_json_absent: ['autoTruncate', 'outputDimensionality'],
+});
+
+// :embedContent fuses every part of a request into one vector, so more than
+// one text is rejected before any request.
+writeFixture('vertex-gemini-embedding-2-rejects-multiple-texts', {
+  kind: 'ai_error',
+  method: 'embed',
+  provider: 'google-gemini',
+  embed_model: 'gemini-embedding-2',
+  service_options: { project_id: 'demo-project', region: 'us-central1' },
+  request: { texts: ['one', 'two'] },
+  transport_responses: [],
+  expected_error_contains:
+    'gemini-embedding-2 on Vertex embeds one text per request',
+  expected_transport_request_count: 0,
+});
+
+// An explicit base URL replaces the Vertex host, as it does for every other
+// Vertex call.
+writeFixture('vertex-gemini-embedding-2-base-url-override', {
+  kind: 'ai_embed',
+  provider: 'google-gemini',
+  embed_model: 'gemini-embedding-2',
+  base_url: 'https://vertex.test/v1',
+  service_options: { project_id: 'demo-project', region: 'us-central1' },
+  request: { texts: ['hello world'] },
+  transport_responses: [
+    { status: 200, json: { embedding: { values: [0.1, 0.2, 0.3] } } },
+  ],
+  expected_output: { embeddings: [[0.1, 0.2, 0.3]] },
+  expected_transport_request: {
+    url: 'https://vertex.test/v1/projects/demo-project/locations/global/publishers/google/models/gemini-embedding-2:embedContent',
+  },
+});
+
+// An endpointId deployment keeps the regional :predict call and its task type.
+writeFixture('vertex-gemini-embedding-2-endpoint-keeps-predict', {
+  kind: 'ai_embed',
+  provider: 'google-gemini',
+  embed_model: 'gemini-embedding-2',
+  service_options: {
+    project_id: 'demo-project',
+    region: 'us-central1',
+    endpoint_id: 'endpoint-42',
+    embed_type: 'RETRIEVAL_DOCUMENT',
+  },
+  request: { texts: ['hello world'] },
+  transport_responses: [
+    {
+      status: 200,
+      json: { predictions: [{ embeddings: { values: [0.4, 0.5] } }] },
+    },
+  ],
+  expected_output: { embeddings: [[0.4, 0.5]] },
+  expected_transport_request: {
+    url: 'https://us-central1-aiplatform.googleapis.com/v1/projects/demo-project/locations/us-central1/endpoints/endpoint-42:predict',
+    json: {
+      instances: [{ content: 'hello world', task_type: 'RETRIEVAL_DOCUMENT' }],
+    },
+  },
+});
+
 writeFixture('vertex-anthropic-us-chat', {
   kind: 'ai_chat',
   provider: 'anthropic',
