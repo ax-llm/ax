@@ -3072,7 +3072,7 @@ module @ax.stream version "0.1" {
       // Yields {version, index, delta}: tracks the version, the thought and
       // whether output fields were yielded, merges it into the view a
       // consumer holds, and sends it to the sink unless a result picker
-      // buffers the run.
+      // buffers the run. A forward with stream: true has no sink.
       %current_version = core.get %run["current_version"] default 0
       %new_version = core.call intrinsic.ne(%version, %current_version)
       core.if %new_version {
@@ -3144,11 +3144,15 @@ module @ax.stream version "0.1" {
       core.if %buffered {
         core.return
       }
+      %sink = core.get %run["sink"]
+      %no_sink = core.call intrinsic.is_none(%sink)
+      core.if %no_sink {
+        core.return
+      }
       %envelope = core.map
       core.set %envelope["version"] = %version
       core.set %envelope["index"] = %index
       core.set %envelope["delta"] = %delta
-      %sink = core.get %run["sink"]
       core.call intrinsic.axgen.emit_delta(%sink, %envelope)
       core.return
     }
@@ -3755,13 +3759,15 @@ module @ax.stream version "0.1" {
       }
       %empty_delta = core.map
       %output = core.get %picked["delta"] default %empty_delta
-      core.if %buffered {
+      %sink = core.get %run["sink"]
+      %has_sink = core.call intrinsic.is_not_none(%sink)
+      %send_picked = core.call intrinsic.and(%buffered, %has_sink)
+      core.if %send_picked {
         %envelope = core.map
         %version = core.get %run["current_version"] default 0
         core.set %envelope["version"] = %version
         core.set %envelope["index"] = %selected
         core.set %envelope["delta"] = %output
-        %sink = core.get %run["sink"]
         core.call intrinsic.axgen.emit_delta(%sink, %envelope)
       }
       core.return %output

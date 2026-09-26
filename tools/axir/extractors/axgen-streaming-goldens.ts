@@ -945,6 +945,38 @@ const cases: Record<string, Case> = {
       { results: [{ index: 0, content: 'Answer: three' }] },
     ],
   },
+  // forward with stream: true returns what a streaming consumer merges.
+  'forward-stream-code-field': {
+    kind: 'forward',
+    signature: 'question:string -> answer:code',
+    forward_options: { stream: true },
+    responses: [
+      streamed(text('Answer: ```py'), text('thon\nprint(1)\n```'), done()),
+    ],
+  },
+  'forward-stream-stop-function-thought': {
+    kind: 'forward',
+    signature: 'question:string -> answer:string',
+    tools: [lookupTool, finishTool],
+    stop_functions: ['finish'],
+    forward_options: { stream: true, show_thoughts: true },
+    responses: [
+      streamed(
+        thought('First. '),
+        chunk({
+          function_calls: [call('call_1', 'lookup', '{"key":"a"}')],
+          finish_reason: 'function_call',
+        })
+      ),
+      streamed(
+        thought('Done.'),
+        chunk({
+          function_calls: [call('call_2', 'finish', '{"note":"ok"}')],
+          finish_reason: 'function_call',
+        })
+      ),
+    ],
+  },
   'text-extract-unlabeled-single-field': {
     kind: 'forward',
     signature: 'question:string -> answer:string',

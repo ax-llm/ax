@@ -1,0 +1,115 @@
+{
+  "expected_output": {
+    "thought": "First. Done."
+  },
+  "expected_request_count": 2,
+  "expected_tool_calls": [
+    {
+      "args": {
+        "key": "a"
+      },
+      "name": "lookup"
+    },
+    {
+      "args": {
+        "note": "ok"
+      },
+      "name": "finish"
+    }
+  ],
+  "forward_options": {
+    "show_thoughts": true,
+    "stream": true
+  },
+  "input": {
+    "question": "Status?"
+  },
+  "kind": "forward",
+  "name": "forward-stream-stop-function-thought",
+  "responses": [
+    {
+      "stream": [
+        {
+          "results": [
+            {
+              "index": 0,
+              "thought": "First. "
+            }
+          ]
+        },
+        {
+          "results": [
+            {
+              "finish_reason": "function_call",
+              "function_calls": [
+                {
+                  "function": {
+                    "name": "lookup",
+                    "params": "{\"key\":\"a\"}"
+                  },
+                  "id": "call_1",
+                  "type": "function"
+                }
+              ],
+              "index": 0
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "stream": [
+        {
+          "results": [
+            {
+              "index": 0,
+              "thought": "Done."
+            }
+          ]
+        },
+        {
+          "results": [
+            {
+              "finish_reason": "function_call",
+              "function_calls": [
+                {
+                  "function": {
+                    "name": "finish",
+                    "params": "{\"note\":\"ok\"}"
+                  },
+                  "id": "call_2",
+                  "type": "function"
+                }
+              ],
+              "index": 0
+            }
+          ]
+        }
+      ]
+    }
+  ],
+  "signature": "question:string -> answer:string",
+  "stop_functions": ["finish"],
+  "tools": [
+    {
+      "args": {
+        "key": {
+          "type": "string"
+        }
+      },
+      "description": "Look up a key",
+      "name": "lookup",
+      "result": "status is green"
+    },
+    {
+      "args": {
+        "note": {
+          "type": "string"
+        }
+      },
+      "description": "Finish the task",
+      "name": "finish",
+      "result": "finished"
+    }
+  ]
+}

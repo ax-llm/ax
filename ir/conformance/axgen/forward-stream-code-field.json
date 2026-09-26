@@ -1,0 +1,45 @@
+{
+  "expected_output": {
+    "answer": "```python\nprint(1)"
+  },
+  "expected_request_count": 1,
+  "forward_options": {
+    "stream": true
+  },
+  "input": {
+    "question": "Status?"
+  },
+  "kind": "forward",
+  "name": "forward-stream-code-field",
+  "responses": [
+    {
+      "stream": [
+        {
+          "results": [
+            {
+              "content": "Answer: ```py",
+              "index": 0
+            }
+          ]
+        },
+        {
+          "results": [
+            {
+              "content": "thon\nprint(1)\n```",
+              "index": 0
+            }
+          ]
+        },
+        {
+          "results": [
+            {
+              "finish_reason": "stop",
+              "index": 0
+            }
+          ]
+        }
+      ]
+    }
+  ],
+  "signature": "question:string -> answer:code"
+}

@@ -723,6 +723,14 @@ module @ax.gen version "0.1" {
     body @entry(%gen: AxGen, %client: AIClient, %values: json, %options: json) {
       %base_options = core.get %gen["options"]
       %runtime_options = core.call intrinsic.map.merge(%base_options, %options)
+      // As in TS, a streamed forward returns what a streaming consumer merges.
+      %stream_option = core.get %runtime_options["stream"] default false
+      %streamed = core.call intrinsic.truthy(%stream_option)
+      core.if %streamed {
+        %no_sink = core.call intrinsic.none()
+        %merged = core.call @streaming_forward(%gen, %client, %values, %options, %no_sink)
+        core.return %merged
+      }
       %signature = core.get %gen["signature"]
       %model = core.get %runtime_options["model"]
       %features = core.call intrinsic.ai.client_features(%client, %model)
