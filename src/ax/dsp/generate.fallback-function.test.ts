@@ -1001,3 +1001,52 @@ describe('thought on the native and function rungs', () => {
     );
   });
 });
+
+describe('deprecated responseFormatWithFunctions flag', () => {
+  it('is ignored: auto keeps the native rung beside callable tools', async () => {
+    const sig = f()
+      .input('question', f.string())
+      .output('user', f.object({ name: f.string(), age: f.number() }))
+      .build();
+    const gen = ax(sig, {
+      functions: [
+        {
+          name: 'lookup',
+          description: 'Look up a user',
+          parameters: {
+            type: 'object',
+            properties: { q: { type: 'string' } },
+            required: ['q'],
+          },
+          func: async () => 'Alice, 30',
+        },
+      ],
+    });
+    let sent: AxChatRequest | undefined;
+    const mockAI = new AxMockAIService({
+      name: 'mock',
+      features: {
+        functions: true,
+        streaming: true,
+        structuredOutputs: true,
+        responseFormatWithFunctions: false,
+      },
+      chatResponse: async (req) => {
+        sent = req as AxChatRequest;
+        return {
+          results: [
+            {
+              index: 0,
+              content: JSON.stringify({ user: { name: 'Alice', age: 30 } }),
+              finishReason: 'stop' as const,
+            },
+          ],
+        };
+      },
+    });
+    const result = await gen.forward(mockAI, { question: 'Who?' });
+    expect(result.user).toEqual({ name: 'Alice', age: 30 });
+    expect(sent?.functions?.map((fn) => fn.name)).not.toContain('__axOutput');
+    expect(sent?.responseFormat).toBeDefined();
+  });
+});

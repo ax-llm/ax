@@ -32,6 +32,8 @@ export type AxMockAIServiceConfig<TModelKey> = {
     structuredOutputModes?: AxAIFeatures['structuredOutputModes'];
     serviceTiers?: AxAIFeatures['serviceTiers'];
     media?: Partial<AxAIFeatures['media']>;
+    /** @deprecated Ignored since 24.0.24; removed in the next major. */
+    responseFormatWithFunctions?: boolean;
   };
   models?: AxAIModelList<TModelKey>;
   options?: AxAIServiceOptions;

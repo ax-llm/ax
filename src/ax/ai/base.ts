@@ -504,6 +504,14 @@ export interface AxAIFeatures {
   structuredOutputs?: boolean;
   /** Ordered, verified structured-output strategies for the selected model. */
   structuredOutputModes?: readonly AxStructuredOutputRung[];
+  /**
+   * @deprecated Ignored since 24.0.24. Ax no longer changes the `auto`
+   * structured-output mode based on this flag. Set
+   * `structuredOutputMode: 'function'` on the program when a provider cannot
+   * combine a JSON response format with tools. Kept so code written for
+   * 24.0.22-24.0.23 still compiles; removed in the next major.
+   */
+  responseFormatWithFunctions?: boolean;
   /** Requires an output schema even for scalar-only signatures (typed inference). */
   requiresStructuredOutput?: boolean;
   /** Enhanced media capability specifications */
