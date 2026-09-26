@@ -1340,6 +1340,10 @@ public final class Conformance {
         runAce(fixture, operation);
         return;
       }
+      if ("playbook-evolve".equals(operation)) {
+        runPlaybookEvolve(fixture);
+        return;
+      }
       if ("score".equals(operation)) {
         Object scores = Core._normalize_optimization_metric_scores(fixture.get("metric_score"));
         Object scalar = Core._scalarize_optimization_scores(scores, fixture.getOrDefault("score_options", Map.of()));
@@ -1519,6 +1523,53 @@ public final class Conformance {
     if (fixture.containsKey("expected_artifact")) assertEqual(ace.getArtifact(), fixture.get("expected_artifact"), "ace online artifact");
     if (fixture.containsKey("expected_artifact_subset")) assertSubset(ace.getArtifact(), fixture.get("expected_artifact_subset"), "ace online artifact");
     if (fixture.containsKey("expected_curator")) assertEqual(curatorResult, fixture.get("expected_curator"), "ace online curator");
+  }
+
+  // playbook().evolve through the real reflector and curator programs: scripted
+  // student and teacher clients answer in call order.
+  static void runPlaybookEvolve(Map<String, Object> fixture) {
+    ConformanceScriptedAI student = new ConformanceScriptedAI(scriptedContents(fixture.get("responses")), List.of());
+    ConformanceScriptedAI teacher = new ConformanceScriptedAI(scriptedContents(fixture.get("teacher_responses")), List.of());
+    List<Object> scores = new ArrayList<>(Core.asList(fixture.getOrDefault("metric_scores", List.of())));
+    java.util.function.Function<Map<String, Object>, Object> metric = args -> scores.isEmpty() ? 0 : scores.remove(0);
+
+    Map<String, Object> options = new LinkedHashMap<>(Core.asMap(fixture.getOrDefault("playbook_options", Map.of())));
+    Object now = fixture.get("now");
+    options.put("studentAI", student);
+    options.put("teacherAI", teacher);
+    options.put("now", now == null || String.valueOf(now).isEmpty() ? "1970-01-01T00:00:00.000Z" : now);
+    AxGen program = Ax.ax(String.valueOf(fixture.getOrDefault("signature", "question:string -> answer:string")));
+    AxPlaybook book = Ax.playbook(program, options);
+    Map<String, Object> result = book.evolve(Core.asList(fixture.getOrDefault("examples", List.of())), metric, Map.of());
+    if (fixture.containsKey("expected_playbook")) assertEqual(result.get("playbook"), fixture.get("expected_playbook"), "playbook evolve playbook");
+    if (fixture.containsKey("expected_teacher_request_contains")) {
+      // The plain text of every teacher prompt message, not its JSON encoding.
+      List<String> contents = new ArrayList<>();
+      for (Map<String, Object> request : teacher.requests) {
+        for (Object message : Core.asList(request.get("chat_prompt"))) {
+          if (message instanceof Map<?, ?> map && map.get("content") instanceof String content) contents.add(content);
+        }
+      }
+      String text = String.join("\n", contents);
+      for (Object item : Core.asList(fixture.get("expected_teacher_request_contains"))) {
+        if (!text.contains(String.valueOf(item))) throw new FixtureError("teacher requests missing " + item);
+      }
+    }
+  }
+
+  // A string script item is the response {"content": item}.
+  static List<Object> scriptedContents(Object items) {
+    List<Object> out = new ArrayList<>();
+    for (Object item : Core.asList(items)) {
+      if (item instanceof Map<?, ?>) {
+        out.add(Core.ownedCopy(item));
+      } else {
+        Map<String, Object> response = new LinkedHashMap<>();
+        response.put("content", item);
+        out.add(response);
+      }
+    }
+    return out;
   }
 
   static Map<String, Object> verificationInstrumentsSummary() {

@@ -3260,25 +3260,29 @@ import java.util.function.Function;
 public final class ACEPlaybookExample {
   // A scripted client stands in for a real provider so this example runs without
   // a key. Swap it for Ax.ai("openai", ...) to grow a playbook against a live
-  // model. The canned JSON satisfies the bound program AND the playbook's internal
-  // reflector/curator sub-programs, so the full ACE loop is exercised offline.
+  // model. Each program answers in its own output format, chosen by the output
+  // wire keys in its prompt: the bound program, then the playbook's reflector and
+  // curator, so the full ACE loop is exercised offline.
   static final class ScriptedClient implements AiClient {
+    static boolean outputs(Map<String, Object> request, String key) {
+      return Json.stringify(request.get("chat_prompt")).contains("(wire key: " + (char) 96 + key + (char) 96 + ")");
+    }
+
     public Map<String, Object> complete(Map<String, Object> request) {
-      String content = "{"
-          + "\"answer\":\"Ax composes typed LLM programs.\","
-          + "\"reasoning\":\"The playbook lacked a brevity rule.\","
-          + "\"errorIdentification\":\"Answer was too verbose.\","
-          + "\"rootCauseAnalysis\":\"No guidance on conciseness.\","
-          + "\"correctApproach\":\"Add a concise-answer guideline.\","
-          + "\"keyInsight\":\"Prefer one-sentence answers.\","
-          + "\"weaknessDescription\":\"The agent does not verify its final step.\","
-          + "\"rootCause\":\"The final step is accepted without a check.\","
-          + "\"proposedGuidance\":\"Verify the final step before completing the task.\","
-          + "\"evidenceQuotes\":[\"final\",\"snapshot\",\"Answer\"],"
-          + "\"configRecommendations\":[],"
-          + "\"bulletTags\":[],"
-          + "\"operations\":[{\"type\":\"ADD\",\"section\":\"Guidelines\",\"content\":\"Answer in one concise sentence.\"}]"
-          + "}";
+      String content;
+      if (outputs(request, "errorIdentification")) {
+        content = "Reasoning: The playbook lacked a brevity rule.\n"
+            + "Error Identification: Answer was too verbose.\n"
+            + "Root Cause Analysis: No guidance on conciseness.\n"
+            + "Correct Approach: Add a concise-answer guideline.\n"
+            + "Key Insight: Prefer one-sentence answers.\n"
+            + "Bullet Tags: []";
+      } else if (outputs(request, "operations")) {
+        content = "Reasoning: The playbook lacked a brevity rule.\n"
+            + "Operations: [{\"type\":\"ADD\",\"section\":\"Guidelines\",\"content\":\"Answer in one concise sentence.\"}]";
+      } else {
+        content = "Answer: Ax composes typed LLM programs.";
+      }
       return Map.of("content", content);
     }
   }
@@ -3305,6 +3309,7 @@ public final class ACEPlaybookExample {
     Map<String, Object> state = pb.toJson();
     if (!result.containsKey("bestScore")) throw new RuntimeException("missing bestScore: " + result);
     if (!state.containsKey("playbook")) throw new RuntimeException("missing playbook: " + state);
+    if (!rendered.contains("Answer in one concise sentence.")) throw new RuntimeException("playbook did not grow: " + rendered);
     System.out.println("rendered: " + rendered);
     System.out.println("java-ace-playbook-ok");
   }
@@ -4510,27 +4515,35 @@ int main() {
 const cppACEPlaybookExample = `#include "axllm/axllm.hpp"
 
 #include <iostream>
+#include <string>
 
 // A scripted client stands in for a real provider so this example runs without a
 // key. Swap it for axllm::ai("openai", ...) to grow a playbook against a live
-// model. The canned JSON satisfies the bound program AND the playbook's internal
-// reflector/curator sub-programs, so the full ACE loop is exercised offline.
+// model. Each program answers in its own output format, chosen by the output
+// wire keys in its prompt: the bound program, then the playbook's reflector and
+// curator, so the full ACE loop is exercised offline.
 struct ScriptedClient : axllm::AIClient {
-  axllm::Value complete(axllm::Value) override {
-    return axllm::object({{"content",
-        "{\"answer\":\"Ax composes typed LLM programs.\","
-        "\"reasoning\":\"The playbook lacked a brevity rule.\","
-        "\"errorIdentification\":\"Answer was too verbose.\","
-        "\"rootCauseAnalysis\":\"No guidance on conciseness.\","
-        "\"correctApproach\":\"Add a concise-answer guideline.\","
-        "\"keyInsight\":\"Prefer one-sentence answers.\","
-        "\"weaknessDescription\":\"The agent does not verify its final step.\","
-        "\"rootCause\":\"The final step is accepted without a check.\","
-        "\"proposedGuidance\":\"Verify the final step before completing the task.\","
-        "\"evidenceQuotes\":[\"final\",\"snapshot\",\"Answer\"],"
-        "\"configRecommendations\":[],"
-        "\"bulletTags\":[],"
-        "\"operations\":[{\"type\":\"ADD\",\"section\":\"Guidelines\",\"content\":\"Answer in one concise sentence.\"}]}"}});
+  axllm::Value complete(axllm::Value request) override {
+    const std::string prompt = axllm::stringify(axllm::Core::get(request, "chat_prompt"));
+    const std::string tick(1, static_cast<char>(96));
+    auto outputs = [&](const std::string& key) {
+      return prompt.find("(wire key: " + tick + key + tick + ")") != std::string::npos;
+    };
+    std::string content = "Answer: Ax composes typed LLM programs.";
+    if (outputs("errorIdentification")) {
+      content =
+          "Reasoning: The playbook lacked a brevity rule.\n"
+          "Error Identification: Answer was too verbose.\n"
+          "Root Cause Analysis: No guidance on conciseness.\n"
+          "Correct Approach: Add a concise-answer guideline.\n"
+          "Key Insight: Prefer one-sentence answers.\n"
+          "Bullet Tags: []";
+    } else if (outputs("operations")) {
+      content =
+          "Reasoning: The playbook lacked a brevity rule.\n"
+          "Operations: [{\"type\": \"ADD\", \"section\": \"Guidelines\", \"content\": \"Answer in one concise sentence.\"}]";
+    }
+    return axllm::object({{"content", content}});
   }
 };
 
@@ -4555,6 +4568,10 @@ int main() {
   axllm::Value state = pb.to_json();
   if (axllm::Core::get(result, "bestScore", axllm::Value()).is_null()) return 1;
   if (axllm::Core::get(state, "playbook", axllm::Value()).is_null()) return 1;
+  if (rendered.find("Answer in one concise sentence.") == std::string::npos) {
+    std::cerr << "the playbook did not grow: " << rendered << "\n";
+    return 1;
+  }
   std::cout << "rendered: " << rendered << "\n";
   std::cout << "cpp-ace-playbook-ok\n";
 }
