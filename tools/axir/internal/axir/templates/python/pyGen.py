@@ -668,22 +668,45 @@ class AxGen:
             span_name="ax_gen_forward",
             attributes={"ax.program.id": self.program_id, "ax.program.type": "AxGen", "ax.streaming": True},
         ):
-            options = _strip_runtime_hooks(options)
-            call_context = resolve_execution_context(options, self.execution_context)
-            if call_context is not self.execution_context:
-                call_gen = copy.copy(self)
-                call_gen.execution_context = call_context
-                call_gen.functions = self._base_functions + (call_context.native_tools() if call_context else [])
-                call_gen.prompt_template = AxPromptTemplate(
-                    self.signature,
-                    functions=call_gen.functions,
-                    structured_output_function_name=self.options.get("structured_output_function_name", self.options.get("structuredOutputFunctionName")),
-                    custom_template=self.options.get("custom_template", self.options.get("customTemplate")),
-                )
-                if self.instruction:
-                    call_gen.prompt_template.set_instruction(self.instruction)
-                return _streaming_forward_impl(call_gen, client, values, options, sink)
-            return _streaming_forward_impl(self, client, values, options, sink)
+            return self._streaming_forward_unscoped_with(client, values, _strip_runtime_hooks(options), sink)
+
+    def _streaming_forward_unscoped_with(self, client, values, options, sink):
+        run_options = {**self.options, **(options or {})}
+        session_enabled = (chat_session_mode_enabled(run_options)
+            and (callable(getattr(client, "_pin_chat_run", None)) or
+                 (callable(getattr(client, "open_chat_session", None)) and
+                  bool(getattr(client, "get_features", lambda model=None: {})(str(run_options.get("model") or getattr(client, "model", "")) or None).get("asyncTools"))))
+            and (run_options.get("control") is not None or any(getattr(tool, "execution", "blocking") == "background" for tool in self.functions)))
+        if session_enabled:
+            raise NotImplementedError(
+                "streaming_forward deltas do not cover async run sessions (control or background tools "
+                "on a session-capable client) yet; use forward() or stream_raw()."
+            )
+        from .session import _BoundaryClient, _SessionClient
+        if run_options.get("control") is not None and not isinstance(client, (_BoundaryClient, _SessionClient)):
+            bounded = _BoundaryClient(client, run_options)
+            try:
+                result = self._streaming_forward_unscoped_with(bounded, values, options, sink)
+            except BaseException as error:
+                bounded.close(error)
+                raise
+            bounded.close()
+            return result
+        call_context = resolve_execution_context(options, self.execution_context)
+        if call_context is not self.execution_context:
+            call_gen = copy.copy(self)
+            call_gen.execution_context = call_context
+            call_gen.functions = self._base_functions + (call_context.native_tools() if call_context else [])
+            call_gen.prompt_template = AxPromptTemplate(
+                self.signature,
+                functions=call_gen.functions,
+                structured_output_function_name=self.options.get("structured_output_function_name", self.options.get("structuredOutputFunctionName")),
+                custom_template=self.options.get("custom_template", self.options.get("customTemplate")),
+            )
+            if self.instruction:
+                call_gen.prompt_template.set_instruction(self.instruction)
+            return _streaming_forward_impl(call_gen, client, values, options, sink)
+        return _streaming_forward_impl(self, client, values, options, sink)
 
     def _streaming_forward_unscoped(self, client: AIClient, values: dict[str, Any], options: dict[str, Any] | None = None):
         run_options = {**self.options, **(options or {})}
@@ -1020,18 +1043,40 @@ class _CoreChatStream:
             close()
 
 
+def _core_completion_chat_chunk(completion):
+    # A complete()-only client answers in the completion shape; stream it as
+    # one chat response chunk.
+    if not isinstance(completion, dict) or "results" in completion:
+        return completion
+    result = {"index": 0, "content": completion.get("content") or ""}
+    calls = [
+        {"id": call.get("id"), "type": "function", "function": {"name": call.get("name"), "params": call.get("params")}}
+        for call in completion.get("function_calls") or []
+    ]
+    if calls:
+        result["function_calls"] = calls
+    for key in ("thought", "thought_blocks"):
+        if completion.get(key):
+            result[key] = completion[key]
+    result["finish_reason"] = completion.get("finish_reason", "function_call" if calls else "stop")
+    return {"results": [result]}
+
+
 def _core_ai_stream_open(client, request, options):
     # streaming_forward reads the provider stream chunk by chunk; a client
-    # without stream() answers with one chat response.
+    # without stream() answers with one chat (or completion) response.
     stream = getattr(client, "stream", None)
     if callable(stream):
         events = stream(request, options or {}) if _core_accepts_options(stream) else stream(request)
         return _CoreChatStream(events)
     chat = getattr(client, "chat", None)
-    if not callable(chat):
-        raise TypeError("AI client must implement stream() or chat()")
-    response = chat(request, options or {}) if _core_accepts_options(chat) else chat(request)
-    return _CoreChatStream([response] if response is None or isinstance(response, dict) else response)
+    if callable(chat):
+        response = chat(request, options or {}) if _core_accepts_options(chat) else chat(request)
+        return _CoreChatStream([response] if response is None or isinstance(response, dict) else response)
+    complete = getattr(client, "complete", None)
+    if callable(complete):
+        return _CoreChatStream([_core_completion_chat_chunk(complete(request))])
+    raise TypeError("AI client must implement stream(), chat() or complete()")
 
 
 def _core_ai_stream_next(handle):
