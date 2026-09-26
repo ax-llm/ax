@@ -6,30 +6,46 @@ use std::cell::RefCell;
 use std::rc::Rc;
 
 // The actor returns model-authored Python code and a real runtime executes it.
-// The same offline response also satisfies the playbook reflector and curator.
+// Every other stage (the responder, the weakness miner, and the playbook
+// reflector and curator) answers with `Label: value` lines; each request is
+// routed by the output wire key its prompt asks for.
 struct ScriptedClient;
 
 impl AxAIClient for ScriptedClient {
-    fn chat(&mut self, _request: Value) -> AxResult<Value> {
-        let content = json!({
-            "pythonCode": "final('Answer', {'answer': 'Ax composes typed LLM programs.'})",
-            "answer": "Ax composes typed LLM programs.",
-            "reasoning": "The playbook lacked a brevity rule.",
-            "errorIdentification": "Answer was too verbose.",
-            "rootCauseAnalysis": "No guidance on conciseness.",
-            "correctApproach": "Add a concise-answer guideline.",
-            "keyInsight": "Prefer one-sentence answers.",
-            "weaknessDescription": "The agent does not verify its final step.",
-            "rootCause": "The final step is accepted without a check.",
-            "proposedGuidance": "Verify the final step before completing the task.",
-            "evidenceQuotes": ["final", "snapshot", "Answer"],
-            "configRecommendations": [],
-            "bulletTags": [],
-            "operations": [
-                {"type": "ADD", "section": "Guidelines", "content": "Answer in one concise sentence."}
+    fn chat(&mut self, request: Value) -> AxResult<Value> {
+        let prompt = request["chat_prompt"].to_string();
+        let asks = |key: &str| prompt.contains(&format!("(wire key: `{key}`)"));
+        let content = if asks("pythonCode") {
+            json!({"pythonCode": "final('Answer', {'answer': 'Ax composes typed LLM programs.'})"})
+                .to_string()
+        } else if asks("weaknessDescription") {
+            [
+                "Weakness Description: The agent does not verify its final step.",
+                "Root Cause: The final step is accepted without a check.",
+                "Proposed Guidance: Verify the final step before completing the task.",
+                r#"Evidence Quotes: ["final", "snapshot", "Answer"]"#,
+                "Config Recommendations: []",
             ]
-        })
-        .to_string();
+            .join("\n")
+        } else if asks("errorIdentification") {
+            [
+                "Reasoning: The playbook lacked a brevity rule.",
+                "Error Identification: Answer was too verbose.",
+                "Root Cause Analysis: No guidance on conciseness.",
+                "Correct Approach: Add a concise-answer guideline.",
+                "Key Insight: Prefer one-sentence answers.",
+                "Bullet Tags: []",
+            ]
+            .join("\n")
+        } else if asks("operations") {
+            [
+                "Reasoning: The playbook lacked a brevity rule.",
+                r#"Operations: [{"type":"ADD","section":"Guidelines","content":"Answer in one concise sentence."}]"#,
+            ]
+            .join("\n")
+        } else {
+            "Answer: Ax composes typed LLM programs.".to_string()
+        };
         Ok(json!({"results": [{"content": content}]}))
     }
 }

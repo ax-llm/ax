@@ -593,9 +593,12 @@ func (t *flowFailureTransport) OwnedWorkerFactory() func() Transport {return fun
 func (t *flowFailureTransport) Call(_ context.Context,request Value)(Value,error){
     body,_:=json.Marshal(coreGet(request,"json",nil));if t.gate.started.Add(1)==3{close(t.gate.all)}
     select{case <-t.gate.all:case <-time.After(3*time.Second):return nil,fmt.Errorf("parallel requests did not overlap")}
-    content:=`{"fastAnswer":"DONE"}`
-    if strings.Contains(string(body),"lateAnswer"){select{case <-t.gate.release:case <-time.After(3*time.Second):return nil,fmt.Errorf("late worker not released")};content=`{"lateAnswer":"LATE"}`;defer close(t.gate.late)
-    }else if strings.Contains(string(body),"failAnswer"){select{case <-t.gate.fast:case <-time.After(3*time.Second):return nil,fmt.Errorf("completed sibling was not reported")};content=`{"wrong":"invalid"}`}
+    content:="Fast Answer: DONE"
+    // The failing node's label has no value, so its required field is missing. (As
+    // in TypeScript, a single-field answer such as {"wrong":"invalid"} is read as
+    // that field's text and would pass.)
+    if strings.Contains(string(body),"lateAnswer"){select{case <-t.gate.release:case <-time.After(3*time.Second):return nil,fmt.Errorf("late worker not released")};content="Late Answer: LATE";defer close(t.gate.late)
+    }else if strings.Contains(string(body),"failAnswer"){select{case <-t.gate.fast:case <-time.After(3*time.Second):return nil,fmt.Errorf("completed sibling was not reported")};content="Fail Answer:"}
     return Object("status",200,"json",Object("id","reply","choices",Array(Object("index",0,"message",Object("role","assistant","content",content),"finish_reason","stop")))),nil
 }
 func TestOwnedFlowFailureDiscardsLateWork(t *testing.T){

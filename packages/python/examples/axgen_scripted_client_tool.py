@@ -14,7 +14,7 @@ class ScriptedClient:
                     {"id": "call_1", "name": "search", "params": {"query": "ax docs"}}
                 ],
             }
-        return {"content": "{\"answer\":\"Found Ax docs\"}"}
+        return {"content": "Answer:  Found Ax docs "}
 
 
 search = (
@@ -27,7 +27,7 @@ search = (
 
 qa = ax("query:string -> answer:string", {"functions": [search]})
 qa.add_assert({"field": "answer", "contains": "Ax", "message": "answer should mention Ax"})
-qa.add_field_processor("answer", "trim")
+qa.add_field_transform("answer", "trim")
 out = qa.forward(ScriptedClient(), {"query": "ax docs"})
 assert out == {"answer": "Found Ax docs"}, out
 assert qa.get_traces()[-1]["output"] == out

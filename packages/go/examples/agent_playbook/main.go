@@ -10,26 +10,42 @@ import (
 )
 
 // The actor returns model-authored Python code and a real runtime executes it.
-// The same offline response also satisfies the playbook reflector and curator.
+// The scripted client answers each stage with `Label: value` lines for the
+// output fields its prompt asks for: the actor, the responder, and the
+// playbook's weakness miner, reflector and curator.
 type scriptedClient struct{}
 
-func (c *scriptedClient) Chat(context.Context, map[string]ax.Value, map[string]ax.Value) (ax.Value, error) {
-	content := "{" +
-		"\"pythonCode\":\"final('Answer', {'answer': 'Ax composes typed LLM programs.'})\"," +
-		"\"answer\":\"Ax composes typed LLM programs.\"," +
-		"\"reasoning\":\"The playbook lacked a brevity rule.\"," +
-		"\"errorIdentification\":\"Answer was too verbose.\"," +
-		"\"rootCauseAnalysis\":\"No guidance on conciseness.\"," +
-		"\"correctApproach\":\"Add a concise-answer guideline.\"," +
-		"\"keyInsight\":\"Prefer one-sentence answers.\"," +
-		"\"weaknessDescription\":\"The agent does not verify its final step.\"," +
-		"\"rootCause\":\"The final step is accepted without a check.\"," +
-		"\"proposedGuidance\":\"Verify the final step before completing the task.\"," +
-		"\"evidenceQuotes\":[\"final\",\"snapshot\",\"Answer\"]," +
-		"\"configRecommendations\":[]," +
-		"\"bulletTags\":[]," +
-		"\"operations\":[{\"type\":\"ADD\",\"section\":\"Guidelines\",\"content\":\"Answer in one concise sentence.\"}]" +
-		"}"
+func (c *scriptedClient) Chat(_ context.Context, request map[string]ax.Value, _ map[string]ax.Value) (ax.Value, error) {
+	prompt, _ := json.Marshal(request["chat_prompt"])
+	fields := string(prompt)
+	if start := strings.Index(fields, "Output Fields"); start >= 0 {
+		fields = fields[start:]
+		if end := strings.Index(fields, "/output_fields"); end >= 0 {
+			fields = fields[:end]
+		}
+	}
+	asks := func(key string) bool { return strings.Contains(fields, "wire key: `"+key+"`") }
+	content := "Answer: Ax composes typed LLM programs."
+	switch {
+	case asks("pythonCode"):
+		content = "Python Code: final('Answer', {'answer': 'Ax composes typed LLM programs.'})"
+	case asks("operations"):
+		content = "Reasoning: The playbook lacked a brevity rule.\n" +
+			"Operations: [{\"type\":\"ADD\",\"section\":\"Guidelines\",\"content\":\"Answer in one concise sentence.\"}]"
+	case asks("errorIdentification"):
+		content = "Reasoning: The playbook lacked a brevity rule.\n" +
+			"Error Identification: Answer was too verbose.\n" +
+			"Root Cause Analysis: No guidance on conciseness.\n" +
+			"Correct Approach: Add a concise-answer guideline.\n" +
+			"Key Insight: Prefer one-sentence answers.\n" +
+			"Bullet Tags: []"
+	case asks("weaknessDescription"):
+		content = "Weakness Description: The agent does not verify its final step.\n" +
+			"Root Cause: The final step is accepted without a check.\n" +
+			"Proposed Guidance: Verify the final step before completing the task.\n" +
+			"Evidence Quotes: [\"final\",\"snapshot\",\"Answer\"]\n" +
+			"Config Recommendations: []"
+	}
 	return ax.Object("results", ax.Array(ax.Object("content", content))), nil
 }
 

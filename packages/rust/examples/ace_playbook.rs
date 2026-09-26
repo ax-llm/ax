@@ -5,26 +5,34 @@ use std::rc::Rc;
 
 // A scripted client stands in for a real provider so this example runs without a
 // key. Swap it for a real client (e.g. OpenAICompatibleClient) to grow a playbook
-// against a live model. The canned JSON satisfies the bound program AND the
-// playbook's internal reflector/curator sub-programs, so the full ACE loop is
-// exercised offline.
+// against a live model. It answers the bound program AND the playbook's internal
+// reflector/curator sub-programs with `Label: value` lines, routed by the output
+// wire key each prompt asks for, so the full ACE loop is exercised offline.
 struct ScriptedClient;
 
 impl AxAIClient for ScriptedClient {
-    fn chat(&mut self, _request: Value) -> AxResult<Value> {
-        let content = json!({
-            "answer": "Ax composes typed LLM programs.",
-            "reasoning": "The playbook lacked a brevity rule.",
-            "errorIdentification": "Answer was too verbose.",
-            "rootCauseAnalysis": "No guidance on conciseness.",
-            "correctApproach": "Add a concise-answer guideline.",
-            "keyInsight": "Prefer one-sentence answers.",
-            "bulletTags": [],
-            "operations": [
-                {"type": "ADD", "section": "Guidelines", "content": "Answer in one concise sentence."}
+    fn chat(&mut self, request: Value) -> AxResult<Value> {
+        let prompt = request["chat_prompt"].to_string();
+        let asks = |key: &str| prompt.contains(&format!("(wire key: `{key}`)"));
+        let content = if asks("errorIdentification") {
+            [
+                "Reasoning: The playbook lacked a brevity rule.",
+                "Error Identification: Answer was too verbose.",
+                "Root Cause Analysis: No guidance on conciseness.",
+                "Correct Approach: Add a concise-answer guideline.",
+                "Key Insight: Prefer one-sentence answers.",
+                "Bullet Tags: []",
             ]
-        })
-        .to_string();
+            .join("\n")
+        } else if asks("operations") {
+            [
+                "Reasoning: The playbook lacked a brevity rule.",
+                r#"Operations: [{"type":"ADD","section":"Guidelines","content":"Answer in one concise sentence."}]"#,
+            ]
+            .join("\n")
+        } else {
+            "Answer: Ax composes typed LLM programs.".to_string()
+        };
         Ok(json!({"results": [{"content": content}]}))
     }
 }

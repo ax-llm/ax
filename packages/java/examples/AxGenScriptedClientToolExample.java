@@ -13,7 +13,7 @@ public final class AxGenScriptedClientToolExample {
           "function_calls", List.of(Map.of("id", "call_1", "name", "search", "params", Map.of("query", "ax docs")))
         );
       }
-      return Map.of("content", "{\"answer\":\"Found Ax docs\"}");
+      return Map.of("content", "Answer: Found Ax docs");
     }
   }
 

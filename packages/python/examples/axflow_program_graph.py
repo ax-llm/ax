@@ -3,7 +3,7 @@ from axllm import ax, flow
 
 class ScriptedClient:
     def complete(self, request):
-        return {"content": "{\"answer\":\"Paris\"}"}
+        return {"content": "Answer: Paris"}
 
 
 qa = ax("question:string -> answer:string")

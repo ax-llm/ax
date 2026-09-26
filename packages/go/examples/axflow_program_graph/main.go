@@ -11,7 +11,7 @@ type scriptedFlowClient struct{}
 
 func (scriptedFlowClient) Chat(context.Context, map[string]ax.Value, map[string]ax.Value) (ax.Value, error) {
 	return ax.Object("results", ax.Array(ax.Object(
-		"content", "{\"answer\":\"Paris\"}",
+		"content", "Answer: Paris",
 		"function_calls", ax.Array(),
 	))), nil
 }

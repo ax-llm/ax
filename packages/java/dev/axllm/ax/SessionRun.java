@@ -57,23 +57,39 @@ final class SessionRun implements AiClient,AutoCloseable {
       if(!closed) queue.offer(new Delivery("tool",call,result,failure));
     }));
   }
+  // The first request pins a routed client and picks an async chat session
+  // when the pinned provider supports one.
+  private void select(Map<String,Object> request) throws Exception {
+    if(selected) return;
+    if(control!=null&&control.isAborted())throw new CancellationException("Run aborted before selecting a provider");
+    var visited=Collections.newSetFromMap(new IdentityHashMap<AiClient,Boolean>());
+    while(client instanceof ChatRunSelector selector){if(!visited.add(client))throw new IllegalStateException("Cyclic run routing");client=selector.pinChatRun(request,options);}
+    selected=true;
+    provider=Core.truthy(Core.chat_session_mode_enabled(options))&&client instanceof AxChatSession.Provider capability&&Core.truthy(Core.get(Core.aiClientFeatures(client,request.get("model")),"asyncTools",false))?capability:null;
+  }
+  // Without a session, controls apply to ordinary requests at the next
+  // response boundary: an abort stops the run and pending updates join the request.
+  private Map<String,Object> boundary(Map<String,Object> request) {
+    if(!fallbackStarted){emit("started",Map.of());fallbackStarted=true;}
+    if(control!=null && control.isAborted())throw new CancellationException("Run aborted before the next model request");
+    var updates=control==null?List.<Map<String,Object>>of():control.pending(path,seen);
+    for(var update:updates)seen.add(String.valueOf(update.get("id")));
+    var applied=Core.asMap(Core.chat_session_apply_boundary_updates(request,updates,level));level=applied.get("level");
+    for(Object id:Core.asList(applied.get("applied")))emit("applied",Map.of("update_id",id,"timing","next-response"));
+    return Core.asMap(applied.get("request"));
+  }
+  // A streamed forward pulls the client's chunks through the same boundary, as
+  // they arrive and with the call's options and cancellation. An async chat
+  // session answers with its final completion as one chunk.
+  @Override public AxChatStream openStream(Map<String,Object> request,Map<String,Object> callOptions,AxCancellationToken cancellation) throws Exception {
+    select(request);
+    if(provider==null) return client.openStream(boundary(request),callOptions==null?options:callOptions,cancellation);
+    return AxChatStream.fromIterable(List.of(Core.completionToChatResponse(complete(request))));
+  }
+  @Override public Iterable<Map<String,Object>> stream(Map<String,Object> request) { return AxChatStream.lazy(()->openStream(request,options,null)); }
   public Map<String,Object> complete(Map<String,Object> request) throws Exception {
-    if(!selected) {
-      if(control!=null&&control.isAborted())throw new CancellationException("Run aborted before selecting a provider");
-      var visited=Collections.newSetFromMap(new IdentityHashMap<AiClient,Boolean>());
-      while(client instanceof ChatRunSelector selector){if(!visited.add(client))throw new IllegalStateException("Cyclic run routing");client=selector.pinChatRun(request,options);}
-      selected=true;
-      provider=Core.truthy(Core.chat_session_mode_enabled(options))&&client instanceof AxChatSession.Provider capability&&Core.truthy(Core.get(Core.aiClientFeatures(client,request.get("model")),"asyncTools",false))?capability:null;
-    }
-    if(provider==null) {
-      if(!fallbackStarted){emit("started",Map.of());fallbackStarted=true;}
-      if(control!=null && control.isAborted())throw new CancellationException("Run aborted before the next model request");
-      var updates=control==null?List.<Map<String,Object>>of():control.pending(path,seen);
-      for(var update:updates)seen.add(String.valueOf(update.get("id")));
-      var applied=Core.asMap(Core.chat_session_apply_boundary_updates(request,updates,level));level=applied.get("level");
-      for(Object id:Core.asList(applied.get("applied")))emit("applied",Map.of("update_id",id,"timing","next-response"));
-      return Core.asMap(Core.aiCompleteOnce(client,applied.get("request"),options));
-    }
+    select(request);
+    if(provider==null) return Core.asMap(Core.aiCompleteOnce(client,boundary(request),options));
     if(session==null) {
       if(control!=null && control.isAborted())throw new CancellationException("Run aborted before opening a session");
       session=provider.openChatSession(request,options);

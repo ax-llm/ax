@@ -4,31 +4,41 @@ from axllm import AxCodeRuntime, AxCodeSession, RuntimeEnvelope, agent
 
 
 # The actor returns model-authored Python code and a real runtime executes it.
-# The same offline response also satisfies the playbook reflector and curator.
+# Each stage answers in its own output format: the actor's code as JSON, and
+# the responder, weakness miner, reflector and curator as field lines.
 class ScriptedClient:
+    @staticmethod
+    def outputs(request, key):
+        return "(wire key: " + chr(96) + key + chr(96) + ")" in json.dumps(request.get("chat_prompt"))
+
     def complete(self, request):
-        return {
-            "content": json.dumps(
-                {
-                    "pythonCode": "final('Answer', {'answer': 'Ax composes typed LLM programs.'})",
-                    "answer": "Ax composes typed LLM programs.",
-                    "reasoning": "The playbook lacked a brevity rule.",
-                    "errorIdentification": "Answer was too verbose.",
-                    "rootCauseAnalysis": "No guidance on conciseness.",
-                    "correctApproach": "Add a concise-answer guideline.",
-                    "keyInsight": "Prefer one-sentence answers.",
-                    "weaknessDescription": "The agent does not verify its final step.",
-                    "rootCause": "The final step is accepted without a check.",
-                    "proposedGuidance": "Verify the final step before completing the task.",
-                    "evidenceQuotes": ["final", "snapshot", "Answer"],
-                    "configRecommendations": [],
-                    "bulletTags": [],
-                    "operations": [
-                        {"type": "ADD", "section": "Guidelines", "content": "Answer in one concise sentence."}
-                    ],
-                }
-            )
-        }
+        if self.outputs(request, "pythonCode"):
+            content = json.dumps({"pythonCode": "final('Answer', {'answer': 'Ax composes typed LLM programs.'})"})
+        elif self.outputs(request, "weaknessDescription"):
+            content = "\n".join([
+                "Weakness Description: The agent does not verify its final step.",
+                "Root Cause: The final step is accepted without a check.",
+                "Proposed Guidance: Verify the final step before completing the task.",
+                'Evidence Quotes: ["final", "snapshot", "Answer"]',
+                "Config Recommendations: []",
+            ])
+        elif self.outputs(request, "errorIdentification"):
+            content = "\n".join([
+                "Reasoning: The playbook lacked a brevity rule.",
+                "Error Identification: Answer was too verbose.",
+                "Root Cause Analysis: No guidance on conciseness.",
+                "Correct Approach: Add a concise-answer guideline.",
+                "Key Insight: Prefer one-sentence answers.",
+                "Bullet Tags: []",
+            ])
+        elif self.outputs(request, "operations"):
+            content = "\n".join([
+                "Reasoning: The playbook lacked a brevity rule.",
+                'Operations: [{"type": "ADD", "section": "Guidelines", "content": "Answer in one concise sentence."}]',
+            ])
+        else:
+            content = "Answer: Ax composes typed LLM programs."
+        return {"content": content}
 
 
 class RuntimeSession(AxCodeSession):
