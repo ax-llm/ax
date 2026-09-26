@@ -552,7 +552,9 @@ struct Core {
   static Value _openai_normalize_stream_delta_impl(Value raw, Value state, Value ai_name, Value model, Value reasoning_content_mode, Value reasoning_details_mode);
   static Value ai_gemini_cache_ops(Value cache_name, Value ttl_seconds, Value api_key, Value model, Value create_body, Value options);
   static Value _openai_stream_choice_impl(Value choice, Value index_ids, Value reasoning_content_mode, Value reasoning_details_mode);
+  static Value fold_chat_response_stream(Value events);
   static Value openai_normalize_error(Value status, Value body, Value request);
+  static Value _fold_chat_stream_chunk_impl(Value target, Value chunk);
   static Value provider_normalize_profile(Value profile);
   static Value provider_profile_registry();
   static Value provider_resolve_profile(Value profile);

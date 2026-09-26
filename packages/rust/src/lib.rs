@@ -5581,9 +5581,9 @@ impl AxGen {
                         self.tools.clone(),
                         options.clone(),
                     );
-                    if session::current_control().is_some()
-                        || self.tools.iter().any(|tool| tool.execution == "background")
-                    {
+                    let run_session = session::current_control().is_some()
+                        || self.tools.iter().any(|tool| tool.execution == "background");
+                    if run_session {
                         if !options.is_object() {
                             options = json!({});
                         }
@@ -5598,6 +5598,9 @@ impl AxGen {
                         }
                         if method.starts_with("route_") {
                             return session::dispatch_run_route(client, method, request, options);
+                        }
+                        if method == "stream" && !run_session {
+                            return client.stream(request).map(Value::Array);
                         }
                         if method == "transcribe" {
                             client.transcribe(request)
@@ -15540,6 +15543,23 @@ impl AxAIClient for SharedRouterFixtureService {
     }
 }
 
+// Converts a scripted fixture response into a chat response.
+fn fixture_chat_response(response: Value) -> Value {
+    if response.get("results").is_some() {
+        return response;
+    }
+    let mut out = json!({
+        "results": [{
+            "content": response.get("content").cloned().unwrap_or_else(|| json!("")),
+            "function_calls": normalize_fixture_function_calls(response.get("function_calls").or_else(|| response.get("tool_calls")).cloned().unwrap_or_else(|| json!([])))
+        }]
+    });
+    if let Some(usage) = response.get("usage") {
+        out["model_usage"] = json!({"tokens": usage.clone()});
+    }
+    out
+}
+
 fn fixture_ai_service_error(spec: &Value) -> AxError {
     let error_type = spec
         .get("type")
@@ -20966,6 +20986,23 @@ impl AxAIClient for FixtureClient {
         self.chat_options.push(options);
         self.scripted_chat(request)
     }
+
+    // A scripted {"stream": [...]} response streams its chunks; any other
+    // response streams as one chunk.
+    fn stream(&mut self, request: Value) -> AxResult<Vec<Value>> {
+        let chunks = self
+            .responses
+            .front()
+            .and_then(|response| response.get("stream"))
+            .and_then(Value::as_array)
+            .cloned();
+        if let Some(chunks) = chunks {
+            self.responses.pop_front();
+            self.requests.push(request);
+            return Ok(chunks.into_iter().map(fixture_chat_response).collect());
+        }
+        Ok(vec![self.chat(request)?])
+    }
 }
 
 impl FixtureClient {
@@ -21000,19 +21037,7 @@ impl FixtureClient {
         if let Some(error) = response.get("error") {
             return Err(fixture_ai_service_error(error));
         }
-        if response.get("results").is_some() {
-            return Ok(response);
-        }
-        let mut out = json!({
-            "results": [{
-                "content": response.get("content").cloned().unwrap_or_else(|| json!("")),
-                "function_calls": normalize_fixture_function_calls(response.get("function_calls").or_else(|| response.get("tool_calls")).cloned().unwrap_or_else(|| json!([])))
-            }]
-        });
-        if let Some(usage) = response.get("usage") {
-            out["model_usage"] = json!({"tokens": usage.clone()});
-        }
-        Ok(out)
+        Ok(fixture_chat_response(response))
     }
 
     fn scripted(responses: impl Into<VecDeque<Value>>, features: Value) -> Self {
@@ -25792,12 +25817,26 @@ pub(crate) fn core_ai_complete_once(args: &[CoreValue]) -> Result<CoreValue, AxE
     }
     CORE_REQUEST_STACK.with(|stack| stack.borrow_mut().push(request.clone()));
     let _request_guard = RequestGuard;
+    // As in TS, a streamed forward folds the stream's chunks into one
+    // response. A client closure without a "stream" method answers it as a
+    // chat call.
+    let model_config = core_get(&request, &CoreValue::from("model_config"), CoreValue::Null);
+    let streaming = core_truthy(&core_get(
+        &model_config,
+        &CoreValue::from("stream"),
+        CoreValue::Null,
+    ));
     let response = chat(
-        "chat",
+        if streaming { "stream" } else { "chat" },
         core_value_to_json(&request),
         core_value_to_json(&options),
     )?;
-    chat_response_to_completion(&[core_value_from_json(&response)])
+    let response = if response.is_array() {
+        fold_chat_response_stream(&[core_value_from_json(&response)])?
+    } else {
+        core_value_from_json(&response)
+    };
+    chat_response_to_completion(&[response])
 }
 
 #[allow(dead_code)]
@@ -39320,6 +39359,109 @@ fn _openai_stream_choice_impl(args: &[CoreValue]) -> Result<CoreValue, AxError> 
     unreachable_code,
     clippy::all
 )]
+fn fold_chat_response_stream(args: &[CoreValue]) -> Result<CoreValue, AxError> {
+    axir_coverage_mark("fold_chat_response_stream");
+    let mut v_events = core_arg(args, 0);
+    let mut v_candidate = CoreValue::Null;
+    let mut v_candidate_index = CoreValue::Null;
+    let mut v_chunk = CoreValue::Null;
+    let mut v_chunks = CoreValue::Null;
+    let mut v_empty_chunks = CoreValue::Null;
+    let mut v_event = CoreValue::Null;
+    let mut v_event_usage = CoreValue::Null;
+    let mut v_found_usage = CoreValue::Null;
+    let mut v_has_response = CoreValue::Null;
+    let mut v_has_routing = CoreValue::Null;
+    let mut v_has_usage = CoreValue::Null;
+    let mut v_index = CoreValue::Null;
+    let mut v_missing_target = CoreValue::Null;
+    let mut v_new_calls = CoreValue::Null;
+    let mut v_new_target = CoreValue::Null;
+    let mut v_raw_event = CoreValue::Null;
+    let mut v_response = CoreValue::Null;
+    let mut v_results = CoreValue::Null;
+    let mut v_router_envelope = CoreValue::Null;
+    let mut v_same_index = CoreValue::Null;
+    let mut v_target = CoreValue::Null;
+    let mut v_usage = CoreValue::Null;
+    let mut v_usage_snake = CoreValue::Null;
+    v_results = CoreValue::new_list();
+    v_usage = core_none(&[])?;
+    for v_raw_event in core_iter(&v_events)? {
+        let mut v_raw_event = v_raw_event;
+        v_event = v_raw_event.clone();
+        v_has_routing = core_map_contains(&[v_raw_event.clone(), CoreValue::from("routing")])?;
+        v_has_response = core_map_contains(&[v_raw_event.clone(), CoreValue::from("response")])?;
+        v_router_envelope = core_and(&[v_has_routing.clone(), v_has_response.clone()])?;
+        if core_truthy(&v_router_envelope) {
+            v_event = core_get(&v_raw_event, &CoreValue::from("response"), CoreValue::Null);
+        }
+        v_empty_chunks = CoreValue::new_list();
+        v_chunks = core_get(
+            &v_event,
+            &CoreValue::from("results"),
+            v_empty_chunks.clone(),
+        );
+        for v_chunk in core_iter(&v_chunks)? {
+            let mut v_chunk = v_chunk;
+            v_index = core_get(&v_chunk, &CoreValue::from("index"), CoreValue::Num(0f64));
+            v_target = core_none(&[])?;
+            for v_candidate in core_iter(&v_results)? {
+                let mut v_candidate = v_candidate;
+                v_candidate_index =
+                    core_get(&v_candidate, &CoreValue::from("index"), CoreValue::Null);
+                v_same_index = core_eq(&[v_candidate_index.clone(), v_index.clone()])?;
+                if core_truthy(&v_same_index) {
+                    v_target = v_candidate.clone();
+                }
+            }
+            v_missing_target = core_is_none(&[v_target.clone()])?;
+            if core_truthy(&v_missing_target) {
+                v_new_target = CoreValue::new_map();
+                core_set(&v_new_target, CoreValue::from("index"), v_index.clone())?;
+                core_set(
+                    &v_new_target,
+                    CoreValue::from("content"),
+                    CoreValue::from(""),
+                )?;
+                v_new_calls = CoreValue::new_list();
+                core_set(
+                    &v_new_target,
+                    CoreValue::from("function_calls"),
+                    v_new_calls.clone(),
+                )?;
+                core_append(&v_results, v_new_target.clone())?;
+                v_target = v_new_target.clone();
+            }
+            _fold_chat_stream_chunk_impl(&[v_target.clone(), v_chunk.clone()])?;
+        }
+        v_usage_snake = core_get(&v_event, &CoreValue::from("model_usage"), CoreValue::Null);
+        v_event_usage = core_get(
+            &v_event,
+            &CoreValue::from("modelUsage"),
+            v_usage_snake.clone(),
+        );
+        v_has_usage = core_is_not_none(&[v_event_usage.clone()])?;
+        if core_truthy(&v_has_usage) {
+            v_usage = v_event_usage.clone();
+        }
+    }
+    v_response = CoreValue::new_map();
+    core_set(&v_response, CoreValue::from("results"), v_results.clone())?;
+    v_found_usage = core_is_not_none(&[v_usage.clone()])?;
+    if core_truthy(&v_found_usage) {
+        core_set(&v_response, CoreValue::from("model_usage"), v_usage.clone())?;
+    }
+    return Ok(v_response.clone());
+}
+
+#[allow(
+    unused_variables,
+    unused_assignments,
+    unused_mut,
+    unreachable_code,
+    clippy::all
+)]
 fn openai_normalize_error(args: &[CoreValue]) -> Result<CoreValue, AxError> {
     axir_coverage_mark("openai_normalize_error");
     let mut v_status = core_arg(args, 0);
@@ -39417,6 +39559,227 @@ fn openai_normalize_error(args: &[CoreValue]) -> Result<CoreValue, AxError> {
         v_retryable.clone(),
     ])?;
     return Ok(v_error.clone());
+}
+
+#[allow(
+    unused_variables,
+    unused_assignments,
+    unused_mut,
+    unreachable_code,
+    clippy::all
+)]
+fn _fold_chat_stream_chunk_impl(args: &[CoreValue]) -> Result<CoreValue, AxError> {
+    axir_coverage_mark("_fold_chat_stream_chunk_impl");
+    let mut v_target = core_arg(args, 0);
+    let mut v_chunk = core_arg(args, 1);
+    let mut v_append_name = CoreValue::Null;
+    let mut v_append_params = CoreValue::Null;
+    let mut v_block = CoreValue::Null;
+    let mut v_blocks = CoreValue::Null;
+    let mut v_blocks_list = CoreValue::Null;
+    let mut v_blocks_snake = CoreValue::Null;
+    let mut v_calls = CoreValue::Null;
+    let mut v_candidate = CoreValue::Null;
+    let mut v_candidate_id = CoreValue::Null;
+    let mut v_content = CoreValue::Null;
+    let mut v_content_text = CoreValue::Null;
+    let mut v_delta = CoreValue::Null;
+    let mut v_delta_fn = CoreValue::Null;
+    let mut v_delta_id = CoreValue::Null;
+    let mut v_deltas = CoreValue::Null;
+    let mut v_deltas_snake = CoreValue::Null;
+    let mut v_empty_blocks = CoreValue::Null;
+    let mut v_empty_calls = CoreValue::Null;
+    let mut v_empty_deltas = CoreValue::Null;
+    let mut v_empty_function = CoreValue::Null;
+    let mut v_existing = CoreValue::Null;
+    let mut v_existing_fn = CoreValue::Null;
+    let mut v_finish = CoreValue::Null;
+    let mut v_finish_nonempty = CoreValue::Null;
+    let mut v_finish_snake = CoreValue::Null;
+    let mut v_finish_text = CoreValue::Null;
+    let mut v_has_finish = CoreValue::Null;
+    let mut v_joined_content = CoreValue::Null;
+    let mut v_joined_name = CoreValue::Null;
+    let mut v_joined_params = CoreValue::Null;
+    let mut v_joined_thought = CoreValue::Null;
+    let mut v_name = CoreValue::Null;
+    let mut v_name_nonempty = CoreValue::Null;
+    let mut v_name_text = CoreValue::Null;
+    let mut v_new_call = CoreValue::Null;
+    let mut v_old_content = CoreValue::Null;
+    let mut v_old_name = CoreValue::Null;
+    let mut v_old_params = CoreValue::Null;
+    let mut v_old_thought = CoreValue::Null;
+    let mut v_params = CoreValue::Null;
+    let mut v_params_nonempty = CoreValue::Null;
+    let mut v_params_object = CoreValue::Null;
+    let mut v_params_text = CoreValue::Null;
+    let mut v_same_id = CoreValue::Null;
+    let mut v_target_blocks = CoreValue::Null;
+    let mut v_thought = CoreValue::Null;
+    let mut v_thought_text = CoreValue::Null;
+    v_content = core_get(&v_chunk, &CoreValue::from("content"), CoreValue::Null);
+    v_content_text = core_type_is(&v_content, CoreValue::from("string"));
+    if core_truthy(&v_content_text) {
+        v_old_content = core_get(&v_target, &CoreValue::from("content"), CoreValue::from(""));
+        v_joined_content = core_add(&[v_old_content.clone(), v_content.clone()])?;
+        core_set(
+            &v_target,
+            CoreValue::from("content"),
+            v_joined_content.clone(),
+        )?;
+    }
+    v_thought = core_get(&v_chunk, &CoreValue::from("thought"), CoreValue::Null);
+    v_thought_text = core_type_is(&v_thought, CoreValue::from("string"));
+    if core_truthy(&v_thought_text) {
+        v_old_thought = core_get(&v_target, &CoreValue::from("thought"), CoreValue::from(""));
+        v_joined_thought = core_add(&[v_old_thought.clone(), v_thought.clone()])?;
+        core_set(
+            &v_target,
+            CoreValue::from("thought"),
+            v_joined_thought.clone(),
+        )?;
+    }
+    v_blocks_snake = core_get(
+        &v_chunk,
+        &CoreValue::from("thought_blocks"),
+        CoreValue::Null,
+    );
+    v_blocks = core_get(
+        &v_chunk,
+        &CoreValue::from("thoughtBlocks"),
+        v_blocks_snake.clone(),
+    );
+    v_blocks_list = core_type_is(&v_blocks, CoreValue::from("list"));
+    if core_truthy(&v_blocks_list) {
+        v_empty_blocks = CoreValue::new_list();
+        v_target_blocks = core_get(
+            &v_target,
+            &CoreValue::from("thought_blocks"),
+            v_empty_blocks.clone(),
+        );
+        for v_block in core_iter(&v_blocks)? {
+            let mut v_block = v_block;
+            core_append(&v_target_blocks, v_block.clone())?;
+        }
+        core_set(
+            &v_target,
+            CoreValue::from("thought_blocks"),
+            v_target_blocks.clone(),
+        )?;
+    }
+    v_empty_deltas = CoreValue::new_list();
+    v_deltas_snake = core_get(
+        &v_chunk,
+        &CoreValue::from("function_calls"),
+        v_empty_deltas.clone(),
+    );
+    v_deltas = core_get(
+        &v_chunk,
+        &CoreValue::from("functionCalls"),
+        v_deltas_snake.clone(),
+    );
+    v_empty_calls = CoreValue::new_list();
+    v_calls = core_get(
+        &v_target,
+        &CoreValue::from("function_calls"),
+        v_empty_calls.clone(),
+    );
+    for v_delta in core_iter(&v_deltas)? {
+        let mut v_delta = v_delta;
+        v_delta_id = core_get(&v_delta, &CoreValue::from("id"), CoreValue::Null);
+        v_existing = core_none(&[])?;
+        for v_candidate in core_iter(&v_calls)? {
+            let mut v_candidate = v_candidate;
+            v_candidate_id = core_get(&v_candidate, &CoreValue::from("id"), CoreValue::Null);
+            v_same_id = core_eq(&[v_candidate_id.clone(), v_delta_id.clone()])?;
+            if core_truthy(&v_same_id) {
+                v_existing = v_candidate.clone();
+            }
+        }
+        v_new_call = core_is_none(&[v_existing.clone()])?;
+        if core_truthy(&v_new_call) {
+            core_append(&v_calls, v_delta.clone())?;
+        } else {
+            v_empty_function = CoreValue::new_map();
+            v_existing_fn = core_get(
+                &v_existing,
+                &CoreValue::from("function"),
+                v_empty_function.clone(),
+            );
+            v_delta_fn = core_get(
+                &v_delta,
+                &CoreValue::from("function"),
+                v_empty_function.clone(),
+            );
+            v_name = core_get(&v_delta_fn, &CoreValue::from("name"), CoreValue::Null);
+            v_name_text = core_type_is(&v_name, CoreValue::from("string"));
+            v_name_nonempty = core_truthy_value(&[v_name.clone()])?;
+            v_append_name = core_and(&[v_name_text.clone(), v_name_nonempty.clone()])?;
+            if core_truthy(&v_append_name) {
+                v_old_name = core_get(
+                    &v_existing_fn,
+                    &CoreValue::from("name"),
+                    CoreValue::from(""),
+                );
+                v_joined_name = core_add(&[v_old_name.clone(), v_name.clone()])?;
+                core_set(
+                    &v_existing_fn,
+                    CoreValue::from("name"),
+                    v_joined_name.clone(),
+                )?;
+            }
+            v_params = core_get(&v_delta_fn, &CoreValue::from("params"), CoreValue::Null);
+            v_params_text = core_type_is(&v_params, CoreValue::from("string"));
+            v_params_nonempty = core_truthy_value(&[v_params.clone()])?;
+            v_append_params = core_and(&[v_params_text.clone(), v_params_nonempty.clone()])?;
+            if core_truthy(&v_append_params) {
+                v_old_params = core_get(
+                    &v_existing_fn,
+                    &CoreValue::from("params"),
+                    CoreValue::from(""),
+                );
+                v_joined_params = core_add(&[v_old_params.clone(), v_params.clone()])?;
+                core_set(
+                    &v_existing_fn,
+                    CoreValue::from("params"),
+                    v_joined_params.clone(),
+                )?;
+            }
+            v_params_object = core_type_is(&v_params, CoreValue::from("object"));
+            if core_truthy(&v_params_object) {
+                core_set(&v_existing_fn, CoreValue::from("params"), v_params.clone())?;
+            }
+            core_set(
+                &v_existing,
+                CoreValue::from("function"),
+                v_existing_fn.clone(),
+            )?;
+        }
+    }
+    core_set(
+        &v_target,
+        CoreValue::from("function_calls"),
+        v_calls.clone(),
+    )?;
+    v_finish_snake = core_get(&v_chunk, &CoreValue::from("finish_reason"), CoreValue::Null);
+    v_finish = core_get(
+        &v_chunk,
+        &CoreValue::from("finishReason"),
+        v_finish_snake.clone(),
+    );
+    v_finish_text = core_type_is(&v_finish, CoreValue::from("string"));
+    v_finish_nonempty = core_truthy_value(&[v_finish.clone()])?;
+    v_has_finish = core_and(&[v_finish_text.clone(), v_finish_nonempty.clone()])?;
+    if core_truthy(&v_has_finish) {
+        core_set(
+            &v_target,
+            CoreValue::from("finish_reason"),
+            v_finish.clone(),
+        )?;
+    }
+    return Ok(CoreValue::Null);
 }
 
 #[allow(
@@ -103982,7 +104345,7 @@ fn mcp_websocket_request_ids(args: &[CoreValue]) -> Result<CoreValue, AxError> {
     return Ok(v_ids.clone());
 }
 
-// END AXIR CORE EMITTED FUNCTIONS (747 of 747 core functions)
+// END AXIR CORE EMITTED FUNCTIONS (749 of 749 core functions)
 
 fn run_ai_session_events_fixture(fixture: &Value) -> AxResult<()> {
     let state = core_value_from_json(&json!({}));

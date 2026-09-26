@@ -1359,6 +1359,14 @@ Value Core::ai_complete_once(Value client, Value request, Value options) {
   std::string id = str(get_key(client, "__client_id"));
   AIClient* registered = registered_client(id);
   if (registered == nullptr) throw AxError("runtime", "client does not implement AIClient");
+  // As in TS, a streamed forward folds the stream's chunks into one response.
+  if (truthy(get(get(request, "model_config", Value::object()), "stream", false))) {
+    if (auto* service = dynamic_cast<AxAIService*>(registered)) {
+      Value events = Value::array();
+      for (const auto& event : service->stream(request, options)) append(events, event);
+      return chat_response_to_completion(fold_chat_response_stream(events));
+    }
+  }
   return chat_response_to_completion(registered->chat(request, options));
 }
 Value Core::ai_client_features(Value client, Value model) {

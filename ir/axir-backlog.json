@@ -1927,6 +1927,25 @@
       "verification": "intrinsic.axgen.run_assertions reports {status: pass|fail(message?)|error} in all five ports, and gen.axir @run_assertions raises a retryable error for a failure with a message while returning a message-less failure (Assertion failed without message) or a thrown error to its callers, which raise it outside the validation retries. assertion-false-without-message-error, assertion-contains-without-message-error, assertion-thrown-error-not-retried and assertion-false-without-message-structured-output pin 1 request; assertion-false-with-message-retried and assertion-return-modes pin 4, matching a TypeScript probe; mutation checks fail each rule. Python and Go conformance 950/950; npm run axir:check-packages, npm run axir:conformance:check and npm run test:axir pass."
     },
     {
+      "id": "axir-2026-09-26-fold-streamed-chunks-in-an-axgen-forward-with-stream-true-in-the",
+      "status": "open",
+      "title": "Fold streamed chunks in an AxGen forward with stream true in the ports",
+      "createdAt": "2026-09-26",
+      "sourcePR": null,
+      "sourceCommit": "a14c26b0f960cd360472b778263b606cbdda09fd",
+      "tsPaths": ["src/ax/dsp/generate.ts", "src/ax/ai/util.ts"],
+      "portableSurface": "axgen",
+      "impact": "A TypeScript AxGen forward with stream: true streams the model's response and folds its chunks into one answer (content and thought append; function-call fragments merge by id), so its output matches a non-streaming forward, thought included. In the generated ports complete_once handed a streamed chat result straight to chat_response_to_completion: the Python port parsed empty content and its retry was rejected locally, and the other ports sent a non-streaming request.",
+      "suggestedAxirWork": [
+        "Add an IR op that folds chat response stream chunks into one response",
+        "Route a streamed request through each port's stream method in complete_once and fold it",
+        "Add streamed chunk fixtures for the text contract and native JSON and a tool loop and the function rung"
+      ],
+      "completedAt": null,
+      "completedByCommit": null,
+      "verification": null
+    },
+    {
       "id": "axir-2026-09-26-return-an-empty-axgen-output-on-a-user-stop-function",
       "status": "open",
       "title": "Return an empty AxGen output on a user stop function",
@@ -1962,6 +1981,24 @@
         "Attach the non-empty thought to the output on the text and structured-output paths",
         "Read thought_field_name from the constructor options only",
         "Add fixtures per rung with and without a thought plus the renamed field"
+      ],
+      "completedAt": null,
+      "completedByCommit": null,
+      "verification": null
+    },
+    {
+      "id": "axir-2026-09-26-yield-typescript-style-field-deltas-from-the-ports-axgen-streami",
+      "status": "open",
+      "title": "Yield TypeScript-style field deltas from the ports' AxGen streaming APIs",
+      "createdAt": "2026-09-26",
+      "sourcePR": null,
+      "sourceCommit": "a14c26b0f960cd360472b778263b606cbdda09fd",
+      "tsPaths": ["src/ax/dsp/generate.ts", "src/ax/dsp/response/streaming.ts"],
+      "portableSurface": "axgen",
+      "impact": "TypeScript AxGen streamingForward yields { version, index, delta } field deltas, with the thought as a delta under the thought field, and re-emits values with a new version after a retry. The generated ports' streaming APIs (streaming_forward / stream and their equivalents) yield the provider's raw chat response chunks instead. Thought chunks already reach callers as raw results[].thought, and a forward with stream: true returns the folded answer and thought.",
+      "suggestedAxirWork": [
+        "Design a port streaming surface that yields versioned field deltas from the parsed stream",
+        "Port TypeScript's delta and version semantics with fixtures per rung"
       ],
       "completedAt": null,
       "completedByCommit": null,

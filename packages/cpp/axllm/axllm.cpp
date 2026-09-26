@@ -1359,6 +1359,14 @@ Value Core::ai_complete_once(Value client, Value request, Value options) {
   std::string id = str(get_key(client, "__client_id"));
   AIClient* registered = registered_client(id);
   if (registered == nullptr) throw AxError("runtime", "client does not implement AIClient");
+  // As in TS, a streamed forward folds the stream's chunks into one response.
+  if (truthy(get(get(request, "model_config", Value::object()), "stream", false))) {
+    if (auto* service = dynamic_cast<AxAIService*>(registered)) {
+      Value events = Value::array();
+      for (const auto& event : service->stream(request, options)) append(events, event);
+      return chat_response_to_completion(fold_chat_response_stream(events));
+    }
+  }
   return chat_response_to_completion(registered->chat(request, options));
 }
 Value Core::ai_client_features(Value client, Value model) {
@@ -7210,6 +7218,58 @@ Value Core::_openai_stream_choice_impl(Value choice, Value index_ids, Value reas
   return out;
 }
 
+Value Core::fold_chat_response_stream(Value events) {
+  axir_coverage_mark("fold_chat_response_stream");
+  Value results = Value::array();
+  Value usage = Core::none();
+  for (auto raw_event : Core::iter(events)) {
+    Value event = raw_event;
+    Value has_routing = Core::map_contains(raw_event, Value("routing"));
+    Value has_response = Core::map_contains(raw_event, Value("response"));
+    Value router_envelope = Core::and_(has_routing, has_response);
+    if (Core::truthy(router_envelope)) {
+      event = Core::get(raw_event, Value("response"), Value());
+    }
+    Value empty_chunks = Value::array();
+    Value chunks = Core::get(event, Value("results"), empty_chunks);
+    for (auto chunk : Core::iter(chunks)) {
+      Value index = Core::get(chunk, Value("index"), Value(0));
+      Value target = Core::none();
+      for (auto candidate : Core::iter(results)) {
+        Value candidate_index = Core::get(candidate, Value("index"), Value());
+        Value same_index = Core::eq(candidate_index, index);
+        if (Core::truthy(same_index)) {
+          target = candidate;
+        }
+      }
+      Value missing_target = Core::is_none(target);
+      if (Core::truthy(missing_target)) {
+        Value new_target = Value::object();
+        Core::set(new_target, Value("index"), index);
+        Core::set(new_target, Value("content"), Value(""));
+        Value new_calls = Value::array();
+        Core::set(new_target, Value("function_calls"), new_calls);
+        Core::append(results, new_target);
+        target = new_target;
+      }
+      Core::_fold_chat_stream_chunk_impl(target, chunk);
+    }
+    Value usage_snake = Core::get(event, Value("model_usage"), Value());
+    Value event_usage = Core::get(event, Value("modelUsage"), usage_snake);
+    Value has_usage = Core::is_not_none(event_usage);
+    if (Core::truthy(has_usage)) {
+      usage = event_usage;
+    }
+  }
+  Value response = Value::object();
+  Core::set(response, Value("results"), results);
+  Value found_usage = Core::is_not_none(usage);
+  if (Core::truthy(found_usage)) {
+    Core::set(response, Value("model_usage"), usage);
+  }
+  return response;
+}
+
 Value Core::openai_normalize_error(Value status, Value body, Value request) {
   axir_coverage_mark("openai_normalize_error");
   Value message = body;
@@ -7256,6 +7316,93 @@ Value Core::openai_normalize_error(Value status, Value body, Value request) {
   Value retryable = Core::or_(retry_more, is_529);
   Value error = Core::ai_error_status(message, status, code, body, request, retryable);
   return error;
+}
+
+Value Core::_fold_chat_stream_chunk_impl(Value target, Value chunk) {
+  axir_coverage_mark("_fold_chat_stream_chunk_impl");
+  Value content = Core::get(chunk, Value("content"), Value());
+  Value content_text = Core::type_is(content, Value("string"));
+  if (Core::truthy(content_text)) {
+    Value old_content = Core::get(target, Value("content"), Value(""));
+    Value joined_content = Core::add(old_content, content);
+    Core::set(target, Value("content"), joined_content);
+  }
+  Value thought = Core::get(chunk, Value("thought"), Value());
+  Value thought_text = Core::type_is(thought, Value("string"));
+  if (Core::truthy(thought_text)) {
+    Value old_thought = Core::get(target, Value("thought"), Value(""));
+    Value joined_thought = Core::add(old_thought, thought);
+    Core::set(target, Value("thought"), joined_thought);
+  }
+  Value blocks_snake = Core::get(chunk, Value("thought_blocks"), Value());
+  Value blocks = Core::get(chunk, Value("thoughtBlocks"), blocks_snake);
+  Value blocks_list = Core::type_is(blocks, Value("list"));
+  if (Core::truthy(blocks_list)) {
+    Value empty_blocks = Value::array();
+    Value target_blocks = Core::get(target, Value("thought_blocks"), empty_blocks);
+    for (auto block : Core::iter(blocks)) {
+      Core::append(target_blocks, block);
+    }
+    Core::set(target, Value("thought_blocks"), target_blocks);
+  }
+  Value empty_deltas = Value::array();
+  Value deltas_snake = Core::get(chunk, Value("function_calls"), empty_deltas);
+  Value deltas = Core::get(chunk, Value("functionCalls"), deltas_snake);
+  Value empty_calls = Value::array();
+  Value calls = Core::get(target, Value("function_calls"), empty_calls);
+  for (auto delta : Core::iter(deltas)) {
+    Value delta_id = Core::get(delta, Value("id"), Value());
+    Value existing = Core::none();
+    for (auto candidate : Core::iter(calls)) {
+      Value candidate_id = Core::get(candidate, Value("id"), Value());
+      Value same_id = Core::eq(candidate_id, delta_id);
+      if (Core::truthy(same_id)) {
+        existing = candidate;
+      }
+    }
+    Value new_call = Core::is_none(existing);
+    if (Core::truthy(new_call)) {
+      Core::append(calls, delta);
+    }
+    if (!Core::truthy(new_call)) {
+      Value empty_function = Value::object();
+      Value existing_fn = Core::get(existing, Value("function"), empty_function);
+      Value delta_fn = Core::get(delta, Value("function"), empty_function);
+      Value name = Core::get(delta_fn, Value("name"), Value());
+      Value name_text = Core::type_is(name, Value("string"));
+      Value name_nonempty = Core::truthy_value(name);
+      Value append_name = Core::and_(name_text, name_nonempty);
+      if (Core::truthy(append_name)) {
+        Value old_name = Core::get(existing_fn, Value("name"), Value(""));
+        Value joined_name = Core::add(old_name, name);
+        Core::set(existing_fn, Value("name"), joined_name);
+      }
+      Value params = Core::get(delta_fn, Value("params"), Value());
+      Value params_text = Core::type_is(params, Value("string"));
+      Value params_nonempty = Core::truthy_value(params);
+      Value append_params = Core::and_(params_text, params_nonempty);
+      if (Core::truthy(append_params)) {
+        Value old_params = Core::get(existing_fn, Value("params"), Value(""));
+        Value joined_params = Core::add(old_params, params);
+        Core::set(existing_fn, Value("params"), joined_params);
+      }
+      Value params_object = Core::type_is(params, Value("object"));
+      if (Core::truthy(params_object)) {
+        Core::set(existing_fn, Value("params"), params);
+      }
+      Core::set(existing, Value("function"), existing_fn);
+    }
+  }
+  Core::set(target, Value("function_calls"), calls);
+  Value finish_snake = Core::get(chunk, Value("finish_reason"), Value());
+  Value finish = Core::get(chunk, Value("finishReason"), finish_snake);
+  Value finish_text = Core::type_is(finish, Value("string"));
+  Value finish_nonempty = Core::truthy_value(finish);
+  Value has_finish = Core::and_(finish_text, finish_nonempty);
+  if (Core::truthy(has_finish)) {
+    Core::set(target, Value("finish_reason"), finish);
+  }
+  return Value();
 }
 
 Value Core::provider_normalize_profile(Value profile) {

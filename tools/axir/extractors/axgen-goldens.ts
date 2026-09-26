@@ -882,6 +882,142 @@ writeFixture('thought-output-multi-sample', {
   expected_output: { answer: 'one', thought: 'Sample one' },
 });
 
+// As in TS, a forward with stream: true streams the model's response and folds
+// its chunks into one answer: content and thought append, and function-call
+// fragments merge by id. The outputs match a non-streaming forward and a TS
+// AxMockAIService probe with the same chunk scripts.
+const chunk = (fields: Record<string, Json>) => ({
+  results: [{ index: 0, ...fields }],
+});
+const streamed = (...chunks: Record<string, Json>[]) => ({ stream: chunks });
+const streamRequest = { model_config: { stream: true } };
+
+writeFixture('stream-forward-text-contract', {
+  kind: 'forward',
+  signature: 'question:string -> answer:string',
+  input: { question: 'Status?' },
+  forward_options: { stream: true },
+  responses: [
+    streamed(
+      chunk({ content: 'Answer: ' }),
+      chunk({ content: 'ok', finish_reason: 'stop' })
+    ),
+  ],
+  expected_output: { answer: 'ok' },
+  expected_request: streamRequest,
+  expected_request_count: 1,
+});
+
+writeFixture('stream-forward-thought-chunks', {
+  kind: 'forward',
+  signature: 'question:string -> answer:string',
+  input: { question: 'Status?' },
+  forward_options: { stream: true, show_thoughts: true },
+  responses: [
+    streamed(
+      chunk({ thought: 'Think ' }),
+      chunk({ thought: 'more' }),
+      chunk({ content: 'Answer: ok', finish_reason: 'stop' })
+    ),
+  ],
+  expected_output: { answer: 'ok', thought: 'Think more' },
+  expected_request: streamRequest,
+  expected_request_count: 1,
+});
+
+writeFixture('stream-forward-native-json', {
+  kind: 'forward',
+  signature: 'question:string -> user:object{name:string}',
+  input: { question: 'Who?' },
+  features: { functions: true, structured_outputs: true },
+  forward_options: { stream: true },
+  responses: [
+    streamed(
+      chunk({ content: '{"user":{"na' }),
+      chunk({ content: 'me":"Ada"}}', finish_reason: 'stop' })
+    ),
+  ],
+  expected_output: { user: { name: 'Ada' } },
+  expected_request: streamRequest,
+  expected_request_count: 1,
+});
+
+writeFixture('stream-forward-tool-loop', {
+  kind: 'forward',
+  signature: 'question:string -> answer:string',
+  input: { question: 'Status?' },
+  tools: [lookupTool],
+  forward_options: { stream: true, show_thoughts: true },
+  responses: [
+    streamed(
+      chunk({ thought: 'Look ' }),
+      chunk({
+        thought: 'up. ',
+        function_calls: [
+          {
+            id: 'call_1',
+            type: 'function',
+            function: { name: 'lookup', params: '{"key":' },
+          },
+        ],
+      }),
+      chunk({
+        function_calls: [
+          {
+            id: 'call_1',
+            type: 'function',
+            function: { name: '', params: '"a"}' },
+          },
+        ],
+        finish_reason: 'function_call',
+      })
+    ),
+    streamed(
+      chunk({ thought: 'Answer.' }),
+      chunk({ content: 'Answer: ok', finish_reason: 'stop' })
+    ),
+  ],
+  expected_output: { answer: 'ok', thought: 'Look up. Answer.' },
+  expected_tool_calls: [{ name: 'lookup', args: { key: 'a' } }],
+  expected_request: streamRequest,
+  expected_request_count: 2,
+});
+
+writeFixture('stream-forward-function-rung', {
+  kind: 'forward',
+  signature: 'question:string -> user:object{name:string}',
+  input: { question: 'Who?' },
+  options: { structured_output_mode: 'function' },
+  features: { functions: true, structured_outputs: false },
+  forward_options: { stream: true },
+  responses: [
+    streamed(
+      chunk({
+        function_calls: [
+          {
+            id: 'output_1',
+            type: 'function',
+            function: { name: '__axOutput', params: '{"user":{"name":' },
+          },
+        ],
+      }),
+      chunk({
+        function_calls: [
+          {
+            id: 'output_1',
+            type: 'function',
+            function: { name: '', params: '"Ada"}}' },
+          },
+        ],
+        finish_reason: 'function_call',
+      })
+    ),
+  ],
+  expected_output: { user: { name: 'Ada' } },
+  expected_request: streamRequest,
+  expected_request_count: 1,
+});
+
 writeFixture('field-processor-memory-write', {
   kind: 'forward',
   signature: 'question:string -> answer:string',

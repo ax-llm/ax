@@ -4109,10 +4109,14 @@ impl AxGen {
         with_runtime_scope(None, Some(&defaults), "ax_gen_forward", "gen", attributes, || {
         let state = core_gen_state(self)?;
         let mut session_run=session::SessionRun::new(state.clone(), self.tools.clone(), options.clone());
-        if session::current_control().is_some() || self.tools.iter().any(|tool|tool.execution=="background") { if !options.is_object(){options=json!({});} options["infraRetries"]=json!(0); }
+        let run_session = session::current_control().is_some() || self.tools.iter().any(|tool|tool.execution=="background");
+        if run_session { if !options.is_object(){options=json!({});} options["infraRetries"]=json!(0); }
         let mut chat = |method: &str, request: Value, options: Value| -> AxResult<Value> {
             if method=="owned_worker" {return Ok(publish_owned_client_factory(client.owned_worker_factory()));}
             if method.starts_with("route_") {return session::dispatch_run_route(client,method,request,options);}
+            if method == "stream" && !run_session {
+                return client.stream(request).map(Value::Array);
+            }
             if method == "transcribe" {
                 client.transcribe(request)
             } else if method == "features" {
@@ -10498,6 +10502,23 @@ impl AxAIClient for SharedRouterFixtureService {
     }
 }
 
+// Converts a scripted fixture response into a chat response.
+fn fixture_chat_response(response: Value) -> Value {
+    if response.get("results").is_some() {
+        return response;
+    }
+    let mut out = json!({
+        "results": [{
+            "content": response.get("content").cloned().unwrap_or_else(|| json!("")),
+            "function_calls": normalize_fixture_function_calls(response.get("function_calls").or_else(|| response.get("tool_calls")).cloned().unwrap_or_else(|| json!([])))
+        }]
+    });
+    if let Some(usage) = response.get("usage") {
+        out["model_usage"] = json!({"tokens": usage.clone()});
+    }
+    out
+}
+
 fn fixture_ai_service_error(spec: &Value) -> AxError {
     let error_type = spec.get("type").and_then(Value::as_str).unwrap_or("network");
     let message = spec
@@ -14983,6 +15004,23 @@ impl AxAIClient for FixtureClient {
         self.chat_options.push(options);
         self.scripted_chat(request)
     }
+
+    // A scripted {"stream": [...]} response streams its chunks; any other
+    // response streams as one chunk.
+    fn stream(&mut self, request: Value) -> AxResult<Vec<Value>> {
+        let chunks = self
+            .responses
+            .front()
+            .and_then(|response| response.get("stream"))
+            .and_then(Value::as_array)
+            .cloned();
+        if let Some(chunks) = chunks {
+            self.responses.pop_front();
+            self.requests.push(request);
+            return Ok(chunks.into_iter().map(fixture_chat_response).collect());
+        }
+        Ok(vec![self.chat(request)?])
+    }
 }
 
 impl FixtureClient {
@@ -15008,19 +15046,7 @@ impl FixtureClient {
         if let Some(error) = response.get("error") {
             return Err(fixture_ai_service_error(error));
         }
-        if response.get("results").is_some() {
-            return Ok(response);
-        }
-        let mut out = json!({
-            "results": [{
-                "content": response.get("content").cloned().unwrap_or_else(|| json!("")),
-                "function_calls": normalize_fixture_function_calls(response.get("function_calls").or_else(|| response.get("tool_calls")).cloned().unwrap_or_else(|| json!([])))
-            }]
-        });
-        if let Some(usage) = response.get("usage") {
-            out["model_usage"] = json!({"tokens": usage.clone()});
-        }
-        Ok(out)
+        Ok(fixture_chat_response(response))
     }
 
     fn scripted(responses: impl Into<VecDeque<Value>>, features: Value) -> Self {
@@ -18953,12 +18979,22 @@ pub(crate) fn core_ai_complete_once(args: &[CoreValue]) -> Result<CoreValue, AxE
     impl Drop for RequestGuard { fn drop(&mut self) { CORE_REQUEST_STACK.with(|stack| { stack.borrow_mut().pop(); }); } }
     CORE_REQUEST_STACK.with(|stack| stack.borrow_mut().push(request.clone()));
     let _request_guard = RequestGuard;
+    // As in TS, a streamed forward folds the stream's chunks into one
+    // response. A client closure without a "stream" method answers it as a
+    // chat call.
+    let model_config = core_get(&request, &CoreValue::from("model_config"), CoreValue::Null);
+    let streaming = core_truthy(&core_get(&model_config, &CoreValue::from("stream"), CoreValue::Null));
     let response = chat(
-        "chat",
+        if streaming { "stream" } else { "chat" },
         core_value_to_json(&request),
         core_value_to_json(&options),
     )?;
-    chat_response_to_completion(&[core_value_from_json(&response)])
+    let response = if response.is_array() {
+        fold_chat_response_stream(&[core_value_from_json(&response)])?
+    } else {
+        core_value_from_json(&response)
+    };
+    chat_response_to_completion(&[response])
 }
 
 #[allow(dead_code)]

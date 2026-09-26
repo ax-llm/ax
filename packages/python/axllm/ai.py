@@ -5745,6 +5745,60 @@ def _openai_stream_choice_impl(choice: Any, index_ids: Any, reasoning_content_mo
     return out
 
 
+def fold_chat_response_stream(events: list[Any]) -> Any:
+    _core_coverage_mark("fold_chat_response_stream")
+    results = []
+    usage = _core_none()
+    for raw_event in events:
+        event = raw_event
+        has_routing = _core_map_contains(raw_event, "routing")
+        has_response = _core_map_contains(raw_event, "response")
+        router_envelope = _core_and(has_routing, has_response)
+        if router_envelope:
+            event = _core_get(raw_event, "response", None)
+        else:
+            pass
+        empty_chunks = []
+        chunks = _core_get(event, "results", empty_chunks)
+        for chunk in chunks:
+            index = _core_get(chunk, "index", 0)
+            target = _core_none()
+            for candidate in results:
+                candidate_index = _core_get(candidate, "index", None)
+                same_index = _core_eq(candidate_index, index)
+                if same_index:
+                    target = candidate
+                else:
+                    pass
+            missing_target = _core_is_none(target)
+            if missing_target:
+                new_target = {}
+                new_target["index"] = index
+                new_target["content"] = ""
+                new_calls = []
+                new_target["function_calls"] = new_calls
+                results.append(new_target)
+                target = new_target
+            else:
+                pass
+            _fold_chat_stream_chunk_impl(target, chunk)
+        usage_snake = _core_get(event, "model_usage", None)
+        event_usage = _core_get(event, "modelUsage", usage_snake)
+        has_usage = _core_is_not_none(event_usage)
+        if has_usage:
+            usage = event_usage
+        else:
+            pass
+    response = {}
+    response["results"] = results
+    found_usage = _core_is_not_none(usage)
+    if found_usage:
+        response["model_usage"] = usage
+    else:
+        pass
+    return response
+
+
 def openai_normalize_error(status: int, body: Any, request: Any = None) -> AxAIServiceError:
     _core_coverage_mark("openai_normalize_error")
     message = body
@@ -5792,6 +5846,96 @@ def openai_normalize_error(status: int, body: Any, request: Any = None) -> AxAIS
     retryable = _core_or(retry_more, is_529)
     error = _core_ai_error_status(message, status, code, body, request, retryable)
     return error
+
+
+def _fold_chat_stream_chunk_impl(target: Any, chunk: Any) -> None:
+    _core_coverage_mark("_fold_chat_stream_chunk_impl")
+    content = _core_get(chunk, "content", None)
+    content_text = _core_type_is(content, "string")
+    if content_text:
+        old_content = _core_get(target, "content", "")
+        joined_content = _core_add(old_content, content)
+        target["content"] = joined_content
+    else:
+        pass
+    thought = _core_get(chunk, "thought", None)
+    thought_text = _core_type_is(thought, "string")
+    if thought_text:
+        old_thought = _core_get(target, "thought", "")
+        joined_thought = _core_add(old_thought, thought)
+        target["thought"] = joined_thought
+    else:
+        pass
+    blocks_snake = _core_get(chunk, "thought_blocks", None)
+    blocks = _core_get(chunk, "thoughtBlocks", blocks_snake)
+    blocks_list = _core_type_is(blocks, "list")
+    if blocks_list:
+        empty_blocks = []
+        target_blocks = _core_get(target, "thought_blocks", empty_blocks)
+        for block in blocks:
+            target_blocks.append(block)
+        target["thought_blocks"] = target_blocks
+    else:
+        pass
+    empty_deltas = []
+    deltas_snake = _core_get(chunk, "function_calls", empty_deltas)
+    deltas = _core_get(chunk, "functionCalls", deltas_snake)
+    empty_calls = []
+    calls = _core_get(target, "function_calls", empty_calls)
+    for delta in deltas:
+        delta_id = _core_get(delta, "id", None)
+        existing = _core_none()
+        for candidate in calls:
+            candidate_id = _core_get(candidate, "id", None)
+            same_id = _core_eq(candidate_id, delta_id)
+            if same_id:
+                existing = candidate
+            else:
+                pass
+        new_call = _core_is_none(existing)
+        if new_call:
+            calls.append(delta)
+        else:
+            empty_function = {}
+            existing_fn = _core_get(existing, "function", empty_function)
+            delta_fn = _core_get(delta, "function", empty_function)
+            name = _core_get(delta_fn, "name", None)
+            name_text = _core_type_is(name, "string")
+            name_nonempty = _core_truthy(name)
+            append_name = _core_and(name_text, name_nonempty)
+            if append_name:
+                old_name = _core_get(existing_fn, "name", "")
+                joined_name = _core_add(old_name, name)
+                existing_fn["name"] = joined_name
+            else:
+                pass
+            params = _core_get(delta_fn, "params", None)
+            params_text = _core_type_is(params, "string")
+            params_nonempty = _core_truthy(params)
+            append_params = _core_and(params_text, params_nonempty)
+            if append_params:
+                old_params = _core_get(existing_fn, "params", "")
+                joined_params = _core_add(old_params, params)
+                existing_fn["params"] = joined_params
+            else:
+                pass
+            params_object = _core_type_is(params, "object")
+            if params_object:
+                existing_fn["params"] = params
+            else:
+                pass
+            existing["function"] = existing_fn
+    target["function_calls"] = calls
+    finish_snake = _core_get(chunk, "finish_reason", None)
+    finish = _core_get(chunk, "finishReason", finish_snake)
+    finish_text = _core_type_is(finish, "string")
+    finish_nonempty = _core_truthy(finish)
+    has_finish = _core_and(finish_text, finish_nonempty)
+    if has_finish:
+        target["finish_reason"] = finish
+    else:
+        pass
+    return None
 
 
 def provider_normalize_profile(profile: str) -> str:

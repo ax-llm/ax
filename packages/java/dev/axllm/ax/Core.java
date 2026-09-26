@@ -683,6 +683,12 @@ final class Core {
   }
   static Object aiCompleteOnce(Object client, Object request, Object options) {
     try {
+      // As in TS, a streamed forward folds the stream's chunks into one response.
+      if (truthy(get(get(request, "model_config", Map.of()), "stream", false)) && client instanceof AiClient streaming) {
+        List<Object> events = new ArrayList<>();
+        for (Map<String, Object> event : streaming.stream(asMap(request))) events.add(event);
+        return chat_response_to_completion(fold_chat_response_stream(events));
+      }
       if (client instanceof AxAIService service) return chat_response_to_completion(service.chat(asMap(request), asMap(options)));
       if (client instanceof AiClient ai) return ai.complete(asMap(request));
       throw new RuntimeException("client does not implement AiClient");
@@ -5975,6 +5981,58 @@ final class Core {
     return out;
   }
 
+  static Object fold_chat_response_stream(Object events) {
+    axirCoverageMark("fold_chat_response_stream");
+    Object results = new java.util.ArrayList<Object>();
+    Object usage = Core.none();
+    for (Object raw_event : Core.iter(events)) {
+      Object event = raw_event;
+      Object has_routing = Core.mapContains(raw_event, "routing");
+      Object has_response = Core.mapContains(raw_event, "response");
+      Object router_envelope = Core.and(has_routing, has_response);
+      if (Core.truthy(router_envelope)) {
+        event = Core.get(raw_event, "response", null);
+      }
+      Object empty_chunks = new java.util.ArrayList<Object>();
+      Object chunks = Core.get(event, "results", empty_chunks);
+      for (Object chunk : Core.iter(chunks)) {
+        Object index = Core.get(chunk, "index", 0);
+        Object target = Core.none();
+        for (Object candidate : Core.iter(results)) {
+          Object candidate_index = Core.get(candidate, "index", null);
+          Object same_index = Core.eq(candidate_index, index);
+          if (Core.truthy(same_index)) {
+            target = candidate;
+          }
+        }
+        Object missing_target = Core.isNone(target);
+        if (Core.truthy(missing_target)) {
+          Object new_target = new java.util.LinkedHashMap<String, Object>();
+          Core.set(new_target, "index", index);
+          Core.set(new_target, "content", "");
+          Object new_calls = new java.util.ArrayList<Object>();
+          Core.set(new_target, "function_calls", new_calls);
+          Core.append(results, new_target);
+          target = new_target;
+        }
+        Core._fold_chat_stream_chunk_impl(target, chunk);
+      }
+      Object usage_snake = Core.get(event, "model_usage", null);
+      Object event_usage = Core.get(event, "modelUsage", usage_snake);
+      Object has_usage = Core.isNotNone(event_usage);
+      if (Core.truthy(has_usage)) {
+        usage = event_usage;
+      }
+    }
+    Object response = new java.util.LinkedHashMap<String, Object>();
+    Core.set(response, "results", results);
+    Object found_usage = Core.isNotNone(usage);
+    if (Core.truthy(found_usage)) {
+      Core.set(response, "model_usage", usage);
+    }
+    return response;
+  }
+
   static Object openai_normalize_error(Object status, Object body, Object request) {
     axirCoverageMark("openai_normalize_error");
     Object message = body;
@@ -6021,6 +6079,93 @@ final class Core {
     Object retryable = Core.or(retry_more, is_529);
     Object error = Core.aiErrorStatus(message, status, code, body, request, retryable);
     return error;
+  }
+
+  static Object _fold_chat_stream_chunk_impl(Object target, Object chunk) {
+    axirCoverageMark("_fold_chat_stream_chunk_impl");
+    Object content = Core.get(chunk, "content", null);
+    Object content_text = Core.typeIs(content, "string");
+    if (Core.truthy(content_text)) {
+      Object old_content = Core.get(target, "content", "");
+      Object joined_content = Core.add(old_content, content);
+      Core.set(target, "content", joined_content);
+    }
+    Object thought = Core.get(chunk, "thought", null);
+    Object thought_text = Core.typeIs(thought, "string");
+    if (Core.truthy(thought_text)) {
+      Object old_thought = Core.get(target, "thought", "");
+      Object joined_thought = Core.add(old_thought, thought);
+      Core.set(target, "thought", joined_thought);
+    }
+    Object blocks_snake = Core.get(chunk, "thought_blocks", null);
+    Object blocks = Core.get(chunk, "thoughtBlocks", blocks_snake);
+    Object blocks_list = Core.typeIs(blocks, "list");
+    if (Core.truthy(blocks_list)) {
+      Object empty_blocks = new java.util.ArrayList<Object>();
+      Object target_blocks = Core.get(target, "thought_blocks", empty_blocks);
+      for (Object block : Core.iter(blocks)) {
+        Core.append(target_blocks, block);
+      }
+      Core.set(target, "thought_blocks", target_blocks);
+    }
+    Object empty_deltas = new java.util.ArrayList<Object>();
+    Object deltas_snake = Core.get(chunk, "function_calls", empty_deltas);
+    Object deltas = Core.get(chunk, "functionCalls", deltas_snake);
+    Object empty_calls = new java.util.ArrayList<Object>();
+    Object calls = Core.get(target, "function_calls", empty_calls);
+    for (Object delta : Core.iter(deltas)) {
+      Object delta_id = Core.get(delta, "id", null);
+      Object existing = Core.none();
+      for (Object candidate : Core.iter(calls)) {
+        Object candidate_id = Core.get(candidate, "id", null);
+        Object same_id = Core.eq(candidate_id, delta_id);
+        if (Core.truthy(same_id)) {
+          existing = candidate;
+        }
+      }
+      Object new_call = Core.isNone(existing);
+      if (Core.truthy(new_call)) {
+        Core.append(calls, delta);
+      }
+      if (!Core.truthy(new_call)) {
+        Object empty_function = new java.util.LinkedHashMap<String, Object>();
+        Object existing_fn = Core.get(existing, "function", empty_function);
+        Object delta_fn = Core.get(delta, "function", empty_function);
+        Object name = Core.get(delta_fn, "name", null);
+        Object name_text = Core.typeIs(name, "string");
+        Object name_nonempty = Core.truthyValue(name);
+        Object append_name = Core.and(name_text, name_nonempty);
+        if (Core.truthy(append_name)) {
+          Object old_name = Core.get(existing_fn, "name", "");
+          Object joined_name = Core.add(old_name, name);
+          Core.set(existing_fn, "name", joined_name);
+        }
+        Object params = Core.get(delta_fn, "params", null);
+        Object params_text = Core.typeIs(params, "string");
+        Object params_nonempty = Core.truthyValue(params);
+        Object append_params = Core.and(params_text, params_nonempty);
+        if (Core.truthy(append_params)) {
+          Object old_params = Core.get(existing_fn, "params", "");
+          Object joined_params = Core.add(old_params, params);
+          Core.set(existing_fn, "params", joined_params);
+        }
+        Object params_object = Core.typeIs(params, "object");
+        if (Core.truthy(params_object)) {
+          Core.set(existing_fn, "params", params);
+        }
+        Core.set(existing, "function", existing_fn);
+      }
+    }
+    Core.set(target, "function_calls", calls);
+    Object finish_snake = Core.get(chunk, "finish_reason", null);
+    Object finish = Core.get(chunk, "finishReason", finish_snake);
+    Object finish_text = Core.typeIs(finish, "string");
+    Object finish_nonempty = Core.truthyValue(finish);
+    Object has_finish = Core.and(finish_text, finish_nonempty);
+    if (Core.truthy(has_finish)) {
+      Core.set(target, "finish_reason", finish);
+    }
+    return null;
   }
 
   static Object provider_normalize_profile(Object profile) {

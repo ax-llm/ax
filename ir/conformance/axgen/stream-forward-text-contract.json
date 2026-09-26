@@ -1,0 +1,43 @@
+{
+  "expected_output": {
+    "answer": "ok"
+  },
+  "expected_request": {
+    "model_config": {
+      "stream": true
+    }
+  },
+  "expected_request_count": 1,
+  "forward_options": {
+    "stream": true
+  },
+  "input": {
+    "question": "Status?"
+  },
+  "kind": "forward",
+  "name": "stream-forward-text-contract",
+  "responses": [
+    {
+      "stream": [
+        {
+          "results": [
+            {
+              "content": "Answer: ",
+              "index": 0
+            }
+          ]
+        },
+        {
+          "results": [
+            {
+              "content": "ok",
+              "finish_reason": "stop",
+              "index": 0
+            }
+          ]
+        }
+      ]
+    }
+  ],
+  "signature": "question:string -> answer:string"
+}

@@ -1409,6 +1409,18 @@ func _core_program_apply_components(program Value, componentMap Value) Value {
 }
 func _core_ai_complete_once(client Value, request Value, options Value) (Value, error) {
 	if c, ok := client.(AIClient); ok {
+		// As in TS, a streamed forward folds the stream's chunks into one response.
+		if coreTruthy(coreGet(coreGet(asMap(request), "model_config", Object()), "stream", false)) {
+			events, err := c.Stream(contextForAIClient(c, context.Background()), asMap(request), asMap(options))
+			if err != nil {
+				return nil, err
+			}
+			folded, err := fold_chat_response_stream(events)
+			if err != nil {
+				return nil, err
+			}
+			return chat_response_to_completion(folded)
+		}
 		out, err := c.Chat(contextForAIClient(c, context.Background()), asMap(request), asMap(options))
 		if err != nil {
 			return nil, err
@@ -12105,6 +12117,117 @@ func _openai_stream_choice_impl(args ...Value) (Value, error) {
 	return v_out, nil
 }
 
+func fold_chat_response_stream(args ...Value) (Value, error) {
+	axirCoverageMark("fold_chat_response_stream")
+	var v_events Value
+	var v_candidate Value
+	var v_candidate_index Value
+	var v_chunk Value
+	var v_chunks Value
+	var v_empty_chunks Value
+	var v_event Value
+	var v_event_usage Value
+	var v_found_usage Value
+	var v_has_response Value
+	var v_has_routing Value
+	var v_has_usage Value
+	var v_index Value
+	var v_missing_target Value
+	var v_new_calls Value
+	var v_new_target Value
+	var v_raw_event Value
+	var v_response Value
+	var v_results Value
+	var v_router_envelope Value
+	var v_same_index Value
+	var v_target Value
+	var v_usage Value
+	var v_usage_snake Value
+	if len(args) > 0 { v_events = args[0] }
+	_ = v_events
+	_ = v_candidate
+	_ = v_candidate_index
+	_ = v_chunk
+	_ = v_chunks
+	_ = v_empty_chunks
+	_ = v_event
+	_ = v_event_usage
+	_ = v_found_usage
+	_ = v_has_response
+	_ = v_has_routing
+	_ = v_has_usage
+	_ = v_index
+	_ = v_missing_target
+	_ = v_new_calls
+	_ = v_new_target
+	_ = v_raw_event
+	_ = v_response
+	_ = v_results
+	_ = v_router_envelope
+	_ = v_same_index
+	_ = v_target
+	_ = v_usage
+	_ = v_usage_snake
+	v_results = MutableArray()
+	v_usage = _core_none()
+	for _, v_raw_event = range coreIter(v_events) {
+		v_event = v_raw_event
+		v_has_routing = _core_map_contains(v_raw_event, "routing")
+		v_has_response = _core_map_contains(v_raw_event, "response")
+		v_router_envelope = _core_and(v_has_routing, v_has_response)
+		if coreTruthy(v_router_envelope) {
+			v_event = coreGet(v_raw_event, "response", nil)
+		} else {
+		// empty
+		}
+		v_empty_chunks = MutableArray()
+		v_chunks = coreGet(v_event, "results", v_empty_chunks)
+		for _, v_chunk = range coreIter(v_chunks) {
+			v_index = coreGet(v_chunk, "index", 0)
+			v_target = _core_none()
+			for _, v_candidate = range coreIter(v_results) {
+				v_candidate_index = coreGet(v_candidate, "index", nil)
+				v_same_index = _core_eq(v_candidate_index, v_index)
+				if coreTruthy(v_same_index) {
+					v_target = v_candidate
+				} else {
+				// empty
+				}
+			}
+			v_missing_target = _core_is_none(v_target)
+			if coreTruthy(v_missing_target) {
+				v_new_target = Object()
+				if err := coreSet(v_new_target, "index", v_index); err != nil { return nil, err }
+				if err := coreSet(v_new_target, "content", ""); err != nil { return nil, err }
+				v_new_calls = MutableArray()
+				if err := coreSet(v_new_target, "function_calls", v_new_calls); err != nil { return nil, err }
+				v_results = coreAppend(v_results, v_new_target)
+				v_target = v_new_target
+			} else {
+			// empty
+			}
+			if _, err := _fold_chat_stream_chunk_impl(v_target, v_chunk); err != nil { return nil, err }
+		}
+		v_usage_snake = coreGet(v_event, "model_usage", nil)
+		v_event_usage = coreGet(v_event, "modelUsage", v_usage_snake)
+		v_has_usage = _core_is_not_none(v_event_usage)
+		if coreTruthy(v_has_usage) {
+			v_usage = v_event_usage
+		} else {
+		// empty
+		}
+	}
+	v_response = Object()
+	if err := coreSet(v_response, "results", v_results); err != nil { return nil, err }
+	v_found_usage = _core_is_not_none(v_usage)
+	if coreTruthy(v_found_usage) {
+		if err := coreSet(v_response, "model_usage", v_usage); err != nil { return nil, err }
+	} else {
+	// empty
+	}
+	return v_response, nil
+}
+
 func openai_normalize_error(args ...Value) (Value, error) {
 	axirCoverageMark("openai_normalize_error")
 	var v_status Value
@@ -12215,6 +12338,208 @@ func openai_normalize_error(args ...Value) (Value, error) {
 	v_retryable = _core_or(v_retry_more, v_is_529)
 	v_error = _core_ai_error_status(v_message, v_status, v_code, v_body, v_request, v_retryable)
 	return v_error, nil
+}
+
+func _fold_chat_stream_chunk_impl(args ...Value) (Value, error) {
+	axirCoverageMark("_fold_chat_stream_chunk_impl")
+	var v_target Value
+	var v_chunk Value
+	var v_append_name Value
+	var v_append_params Value
+	var v_block Value
+	var v_blocks Value
+	var v_blocks_list Value
+	var v_blocks_snake Value
+	var v_calls Value
+	var v_candidate Value
+	var v_candidate_id Value
+	var v_content Value
+	var v_content_text Value
+	var v_delta Value
+	var v_delta_fn Value
+	var v_delta_id Value
+	var v_deltas Value
+	var v_deltas_snake Value
+	var v_empty_blocks Value
+	var v_empty_calls Value
+	var v_empty_deltas Value
+	var v_empty_function Value
+	var v_existing Value
+	var v_existing_fn Value
+	var v_finish Value
+	var v_finish_nonempty Value
+	var v_finish_snake Value
+	var v_finish_text Value
+	var v_has_finish Value
+	var v_joined_content Value
+	var v_joined_name Value
+	var v_joined_params Value
+	var v_joined_thought Value
+	var v_name Value
+	var v_name_nonempty Value
+	var v_name_text Value
+	var v_new_call Value
+	var v_old_content Value
+	var v_old_name Value
+	var v_old_params Value
+	var v_old_thought Value
+	var v_params Value
+	var v_params_nonempty Value
+	var v_params_object Value
+	var v_params_text Value
+	var v_same_id Value
+	var v_target_blocks Value
+	var v_thought Value
+	var v_thought_text Value
+	if len(args) > 0 { v_target = args[0] }
+	_ = v_target
+	if len(args) > 1 { v_chunk = args[1] }
+	_ = v_chunk
+	_ = v_append_name
+	_ = v_append_params
+	_ = v_block
+	_ = v_blocks
+	_ = v_blocks_list
+	_ = v_blocks_snake
+	_ = v_calls
+	_ = v_candidate
+	_ = v_candidate_id
+	_ = v_content
+	_ = v_content_text
+	_ = v_delta
+	_ = v_delta_fn
+	_ = v_delta_id
+	_ = v_deltas
+	_ = v_deltas_snake
+	_ = v_empty_blocks
+	_ = v_empty_calls
+	_ = v_empty_deltas
+	_ = v_empty_function
+	_ = v_existing
+	_ = v_existing_fn
+	_ = v_finish
+	_ = v_finish_nonempty
+	_ = v_finish_snake
+	_ = v_finish_text
+	_ = v_has_finish
+	_ = v_joined_content
+	_ = v_joined_name
+	_ = v_joined_params
+	_ = v_joined_thought
+	_ = v_name
+	_ = v_name_nonempty
+	_ = v_name_text
+	_ = v_new_call
+	_ = v_old_content
+	_ = v_old_name
+	_ = v_old_params
+	_ = v_old_thought
+	_ = v_params
+	_ = v_params_nonempty
+	_ = v_params_object
+	_ = v_params_text
+	_ = v_same_id
+	_ = v_target_blocks
+	_ = v_thought
+	_ = v_thought_text
+	v_content = coreGet(v_chunk, "content", nil)
+	v_content_text = coreTypeIs(v_content, "string")
+	if coreTruthy(v_content_text) {
+		v_old_content = coreGet(v_target, "content", "")
+		v_joined_content = _core_add(v_old_content, v_content)
+		if err := coreSet(v_target, "content", v_joined_content); err != nil { return nil, err }
+	} else {
+	// empty
+	}
+	v_thought = coreGet(v_chunk, "thought", nil)
+	v_thought_text = coreTypeIs(v_thought, "string")
+	if coreTruthy(v_thought_text) {
+		v_old_thought = coreGet(v_target, "thought", "")
+		v_joined_thought = _core_add(v_old_thought, v_thought)
+		if err := coreSet(v_target, "thought", v_joined_thought); err != nil { return nil, err }
+	} else {
+	// empty
+	}
+	v_blocks_snake = coreGet(v_chunk, "thought_blocks", nil)
+	v_blocks = coreGet(v_chunk, "thoughtBlocks", v_blocks_snake)
+	v_blocks_list = coreTypeIs(v_blocks, "list")
+	if coreTruthy(v_blocks_list) {
+		v_empty_blocks = MutableArray()
+		v_target_blocks = coreGet(v_target, "thought_blocks", v_empty_blocks)
+		for _, v_block = range coreIter(v_blocks) {
+			v_target_blocks = coreAppend(v_target_blocks, v_block)
+		}
+		if err := coreSet(v_target, "thought_blocks", v_target_blocks); err != nil { return nil, err }
+	} else {
+	// empty
+	}
+	v_empty_deltas = MutableArray()
+	v_deltas_snake = coreGet(v_chunk, "function_calls", v_empty_deltas)
+	v_deltas = coreGet(v_chunk, "functionCalls", v_deltas_snake)
+	v_empty_calls = MutableArray()
+	v_calls = coreGet(v_target, "function_calls", v_empty_calls)
+	for _, v_delta = range coreIter(v_deltas) {
+		v_delta_id = coreGet(v_delta, "id", nil)
+		v_existing = _core_none()
+		for _, v_candidate = range coreIter(v_calls) {
+			v_candidate_id = coreGet(v_candidate, "id", nil)
+			v_same_id = _core_eq(v_candidate_id, v_delta_id)
+			if coreTruthy(v_same_id) {
+				v_existing = v_candidate
+			} else {
+			// empty
+			}
+		}
+		v_new_call = _core_is_none(v_existing)
+		if coreTruthy(v_new_call) {
+			v_calls = coreAppend(v_calls, v_delta)
+		} else {
+			v_empty_function = Object()
+			v_existing_fn = coreGet(v_existing, "function", v_empty_function)
+			v_delta_fn = coreGet(v_delta, "function", v_empty_function)
+			v_name = coreGet(v_delta_fn, "name", nil)
+			v_name_text = coreTypeIs(v_name, "string")
+			v_name_nonempty = _core_truthy(v_name)
+			v_append_name = _core_and(v_name_text, v_name_nonempty)
+			if coreTruthy(v_append_name) {
+				v_old_name = coreGet(v_existing_fn, "name", "")
+				v_joined_name = _core_add(v_old_name, v_name)
+				if err := coreSet(v_existing_fn, "name", v_joined_name); err != nil { return nil, err }
+			} else {
+			// empty
+			}
+			v_params = coreGet(v_delta_fn, "params", nil)
+			v_params_text = coreTypeIs(v_params, "string")
+			v_params_nonempty = _core_truthy(v_params)
+			v_append_params = _core_and(v_params_text, v_params_nonempty)
+			if coreTruthy(v_append_params) {
+				v_old_params = coreGet(v_existing_fn, "params", "")
+				v_joined_params = _core_add(v_old_params, v_params)
+				if err := coreSet(v_existing_fn, "params", v_joined_params); err != nil { return nil, err }
+			} else {
+			// empty
+			}
+			v_params_object = coreTypeIs(v_params, "object")
+			if coreTruthy(v_params_object) {
+				if err := coreSet(v_existing_fn, "params", v_params); err != nil { return nil, err }
+			} else {
+			// empty
+			}
+			if err := coreSet(v_existing, "function", v_existing_fn); err != nil { return nil, err }
+		}
+	}
+	if err := coreSet(v_target, "function_calls", v_calls); err != nil { return nil, err }
+	v_finish_snake = coreGet(v_chunk, "finish_reason", nil)
+	v_finish = coreGet(v_chunk, "finishReason", v_finish_snake)
+	v_finish_text = coreTypeIs(v_finish, "string")
+	v_finish_nonempty = _core_truthy(v_finish)
+	v_has_finish = _core_and(v_finish_text, v_finish_nonempty)
+	if coreTruthy(v_has_finish) {
+		if err := coreSet(v_target, "finish_reason", v_finish); err != nil { return nil, err }
+	} else {
+	// empty
+	}
+	return nil, nil
 }
 
 func provider_normalize_profile(args ...Value) (Value, error) {
@@ -80011,8 +80336,32 @@ func (f *conformanceScriptedAI) Embed(ctx context.Context, request map[string]Va
 	return raw, nil
 }
 func (f *conformanceScriptedAI) Stream(ctx context.Context, request map[string]Value, options map[string]Value) ([]Value, error) {
-	f.Requests = append(f.Requests, cloneMap(request))
-	return append([]Value(nil), f.StreamEvents...), nil
+	// A scripted {"stream": [...]} response streams its chunks; fixture
+	// stream events stream as before; any other response streams as one.
+	if len(f.Responses) > 0 {
+		if scripted, ok := f.Responses[0].(map[string]Value); ok {
+			if chunks, ok := scripted["stream"]; ok {
+				f.Responses = f.Responses[1:]
+				f.ChatCalls++
+				f.Requests = append(f.Requests, cloneMap(request))
+				f.ChatOptions = append(f.ChatOptions, cloneMap(options))
+				events := []Value{}
+				for _, chunk := range asSlice(chunks) {
+					events = append(events, conformanceLegacyResponse(chunk))
+				}
+				return events, nil
+			}
+		}
+	}
+	if len(f.StreamEvents) > 0 || len(f.Responses) == 0 {
+		f.Requests = append(f.Requests, cloneMap(request))
+		return append([]Value(nil), f.StreamEvents...), nil
+	}
+	response, err := f.Chat(ctx, request, options)
+	if err != nil {
+		return nil, err
+	}
+	return []Value{response}, nil
 }
 
 func RunConformanceFixture(fixture Value) error {
