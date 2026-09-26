@@ -347,7 +347,7 @@ func renderSkill(spec packageSkillSpec, model AxRuntimeModel, target string) str
 			"",
 			"When the provider returns a thought (it does when `showThoughts` / `show_thoughts` is set), the forward output carries it under `thought`, or under the constructor's `thoughtFieldName` / `thought_field_name`, on every structured-output rung, as in TypeScript. The output thought joins each tool step's thought in order, a validation or refusal retry starts it over, and an empty thought is left out. As in TypeScript, a per-call thought field name is ignored.",
 			"",
-			"`stream: true` on a forward streams the model's response and folds its chunks into one answer before parsing, as in TypeScript: content and thought append, and function-call fragments merge by id, so the output matches a non-streaming forward, thought included. "+skillStreamingForwardText(target),
+			"`stream: true` on a forward streams the model's response and returns what a streaming consumer merges, as in TypeScript: the last version's deltas, merged. That matches a non-streaming forward except where TypeScript's streaming differs: a code field keeps its opening fence, and the thought a stop step streamed stays in the output. "+skillStreamingForwardText(target),
 			"",
 			skillTextContractText(target),
 			"",

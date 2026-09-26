@@ -2963,8 +2963,8 @@ module @ax.stream version "0.1" {
         %committed_is_string = core.type_is %committed_value type "string"
         %both_strings = core.call intrinsic.and(%merged_is_string, %committed_is_string)
         core.if %both_strings {
-          %extends = core.call intrinsic.string.starts_with(%merged, %committed_value)
-          core.if %extends {
+          %extends_committed = core.call intrinsic.string.starts_with(%merged, %committed_value)
+          core.if %extends_committed {
             %committed_length = core.call intrinsic.len(%committed_value)
             %diff = core.call intrinsic.string.slice(%merged, %committed_length)
             %has_diff = core.call intrinsic.ne(%diff, "")
