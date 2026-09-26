@@ -749,7 +749,7 @@ class _WebSocketRealtimeTransport:
         if event.get("type") == "binary":
             self._ws.send(base64.b64decode(str(event.get("data") or "")), opcode=self._websocket.ABNF.OPCODE_BINARY)
         else:
-            self._ws.send(json.dumps(event))
+            self._ws.send(json.dumps(event, ensure_ascii=False))
 
     def recv(self) -> dict[str, Any] | None:
         opcode, raw = self._ws.recv_data(control_frame=True)
@@ -1705,7 +1705,7 @@ class ProviderOperationClient(AxBaseAI):
             request_headers = dict(request_headers)
             request_headers["Content-Type"] = multipart_content_type
         else:
-            request_body = json.dumps(payload).encode()
+            request_body = _wire_json_body(payload)
         req = urllib.request.Request(
             call["url"],
             data=request_body,
@@ -3188,12 +3188,18 @@ def _core_list_get(values, index, default=None):
     return values[index] if values is not None and 0 <= index < len(values) else default
 
 
+def _wire_json_body(payload):
+    """The JSON bytes the HTTP transport sends for a request payload: RFC 8259
+    escapes for control characters, other text as UTF-8 as in the other ports."""
+    return json.dumps(payload, ensure_ascii=False).encode("utf-8")
+
+
 def _core_json_parse(value):
     return json.loads(value)
 
 
 def _core_json_stringify(value):
-    return json.dumps(value or {}, sort_keys=True, separators=(",", ":"))
+    return json.dumps(value or {}, sort_keys=True, separators=(",", ":"), ensure_ascii=False)
 
 
 def _core_string_starts_with(value, prefix):

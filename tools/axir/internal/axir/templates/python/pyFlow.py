@@ -562,7 +562,7 @@ def _core_string_starts_with(value, prefix):
 
 
 def _core_json_stable_stringify(value):
-    return json.dumps(value or {}, sort_keys=True, separators=(",", ":"))
+    return json.dumps(value or {}, sort_keys=True, separators=(",", ":"), ensure_ascii=False)
 
 
 def _core_program_components(program):

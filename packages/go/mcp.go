@@ -763,7 +763,7 @@ func (t *AxMCPStreamableHTTPTransport) Send(message map[string]Value) (map[strin
 
 func (t *AxMCPStreamableHTTPTransport) SendWithHeaders(message map[string]Value, extraHeaders map[string]string) (map[string]Value, error) {return t.SendWithContext(context.Background(),message,extraHeaders)}
 func(t *AxMCPStreamableHTTPTransport)SendWithContext(ctx context.Context,message map[string]Value,extraHeaders map[string]string)(map[string]Value,error){
-	body, _ := json.Marshal(message)
+	body := wireJSONBody(message)
 	req, err := http.NewRequestWithContext(ctx,"POST", t.Endpoint, bytes.NewReader(body))
 	if err != nil { return nil, err }
 	method := display(coreGet(message, "method", ""))
@@ -836,7 +836,7 @@ func (t *AxMCPStreamableHTTPTransport) OpenRequestStream(message map[string]Valu
 	if t.Era != "modern" { return AxError{Category:"mcp", Message:"Request streams are only available for modern MCP"} }
 	_ = t.CloseRequestStream()
 	t.listenMu.Lock();ctx,cancel:=context.WithCancel(context.Background());t.listenCancel=cancel;t.listenDone=make(chan struct{});done:=t.listenDone;t.listenMu.Unlock()
-	go func(){defer close(done);body,_:=json.Marshal(message);req,err:=http.NewRequestWithContext(ctx,"POST",t.Endpoint,bytes.NewReader(body));if err!=nil{return};method:=display(coreGet(message,"method",""));for key,value:=range t.BuildHeaders(map[string]string{"Content-Type":"application/json","Accept":"text/event-stream"},true,method,coreGet(message,"params",Object()),Object()){req.Header.Set(key,value)};res,err:=t.client.Do(req);if err!=nil{return};t.listenMu.Lock();t.listenBody=res.Body;t.listenMu.Unlock();if res.StatusCode>=200&&res.StatusCode<300{t.consumeRequestSSE(ctx,res.Body)};_ = res.Body.Close();t.listenMu.Lock();if t.listenBody==res.Body{t.listenBody=nil};t.listenMu.Unlock();if ctx.Err()==nil&&t.lifecycleHandler!=nil{go t.lifecycleHandler("disconnected")}}()
+	go func(){defer close(done);body:=wireJSONBody(message);req,err:=http.NewRequestWithContext(ctx,"POST",t.Endpoint,bytes.NewReader(body));if err!=nil{return};method:=display(coreGet(message,"method",""));for key,value:=range t.BuildHeaders(map[string]string{"Content-Type":"application/json","Accept":"text/event-stream"},true,method,coreGet(message,"params",Object()),Object()){req.Header.Set(key,value)};res,err:=t.client.Do(req);if err!=nil{return};t.listenMu.Lock();t.listenBody=res.Body;t.listenMu.Unlock();if res.StatusCode>=200&&res.StatusCode<300{t.consumeRequestSSE(ctx,res.Body)};_ = res.Body.Close();t.listenMu.Lock();if t.listenBody==res.Body{t.listenBody=nil};t.listenMu.Unlock();if ctx.Err()==nil&&t.lifecycleHandler!=nil{go t.lifecycleHandler("disconnected")}}()
 	return nil
 }
 func(t *AxMCPStreamableHTTPTransport)consumeRequestSSE(ctx context.Context,body io.Reader){scanner:=bufio.NewScanner(body);data:=[]string{};dispatch:=func(){if len(data)>0{var message map[string]Value;if json.Unmarshal([]byte(strings.Join(data,"\n")),&message)==nil{t.dispatchInbound(message)}};data=nil};for scanner.Scan()&&ctx.Err()==nil{line:=strings.TrimSuffix(scanner.Text(),"\r");if line==""{dispatch()}else if strings.HasPrefix(line,"data:"){data=append(data,strings.TrimSpace(strings.TrimPrefix(line,"data:")))}};if len(data)>0{dispatch()}}
@@ -1096,7 +1096,7 @@ func (t *AxMCPScriptedTransport) SendNotification(message map[string]Value) erro
 func (t *AxMCPScriptedTransport) SendResponse(message map[string]Value) error { t.SentResponses = append(t.SentResponses, cloneMCPMap(message)); return nil }
 func (t *AxMCPScriptedTransport) Emit(message map[string]Value) { if _,hasID:=message["id"];hasID&&coreGet(message,"method",nil)!=nil&&t.requestHandler!=nil{_ = t.SendResponse(t.requestHandler(message));return};if t.handler != nil { t.handler(message) } }
 
-func AxMCPStdioEncode(message map[string]Value) string { data, _ := json.Marshal(message); return string(data)+"\n" }
+func AxMCPStdioEncode(message map[string]Value) string { return string(wireJSONBody(message))+"\n" }
 func AxMCPStdioDecode(line string) (map[string]Value, error) { var out map[string]Value; err := json.Unmarshal([]byte(strings.TrimSpace(line)), &out); return out, err }
 func AxMCPPKCEVerifier() string { return base64.RawURLEncoding.EncodeToString([]byte(fmt.Sprintf("%d", time.Now().UnixNano()))) }
 func AxMCPPKCEChallenge(verifier string) string { sum := sha256.Sum256([]byte(verifier)); return base64.RawURLEncoding.EncodeToString(sum[:]) }
@@ -1472,7 +1472,7 @@ func(t *AxMCPWebSocketTransport)respond(socket AxMCPWebSocket,message map[string
     t.mu.Lock();active:=t.socket==socket;t.mu.Unlock();if !active{return}
     response:=handler(message)
     t.mu.Lock();active=t.socket==socket;t.mu.Unlock();if !active{return}
-    data,err:=json.Marshal(response);if err==nil{_ = socket.Send(string(data))}
+    _ = socket.Send(string(wireJSONBody(response)))
 }
 func(t *AxMCPWebSocketTransport)terminate(socket AxMCPWebSocket,err error){
     t.mu.Lock();if t.socket!=socket{t.mu.Unlock();return};t.socket=nil
@@ -1485,7 +1485,7 @@ func(t *AxMCPWebSocketTransport)requests(ctx context.Context,messages []Value,ba
     rawIDs,err:=mcp_websocket_request_ids(messages,protocol,batch);if err!=nil{return nil,err}
     ids:=[]string{};for _,id:=range coreIter(rawIDs){ids=append(ids,display(id))}
     if err=ctx.Err();err!=nil{return nil,err}
-    var payload Value=messages;if !batch{payload=messages[0]};data,err:=json.Marshal(payload);if err!=nil{return nil,err}
+    var payload Value=messages;if !batch{payload=messages[0]};data:=wireJSONBody(payload)
     if err=t.Connect();err!=nil{return nil,err}
     slots:=make([]*mcpWSPending,len(ids))
     t.mu.Lock();for _,id:=range ids{if t.pending[id]!=nil{t.mu.Unlock();return nil,fmt.Errorf("MCP request ID is already pending")}}
@@ -1501,7 +1501,7 @@ func(t *AxMCPWebSocketTransport)Send(message map[string]Value)(map[string]Value,
 func(t *AxMCPWebSocketTransport)SendWithHeaders(message map[string]Value,headers map[string]string)(map[string]Value,error){return t.Send(message)}
 func(t *AxMCPWebSocketTransport)SendWithContext(ctx context.Context,message map[string]Value,headers map[string]string)(map[string]Value,error){result,err:=t.requests(ctx,[]Value{message},false);if err!=nil{return nil,err};return result[0],nil}
 func(t *AxMCPWebSocketTransport)SendBatch(ctx context.Context,messages []Value)([]map[string]Value,error){return t.requests(ctx,messages,true)}
-func(t *AxMCPWebSocketTransport)SendNotification(message map[string]Value)error{if err:=t.Connect();err!=nil{return err};data,err:=json.Marshal(message);if err!=nil{return err};t.mu.Lock();socket:=t.socket;t.mu.Unlock();if socket==nil{return fmt.Errorf("MCP WebSocket closed")};return socket.Send(string(data))}
+func(t *AxMCPWebSocketTransport)SendNotification(message map[string]Value)error{if err:=t.Connect();err!=nil{return err};data:=wireJSONBody(message);t.mu.Lock();socket:=t.socket;t.mu.Unlock();if socket==nil{return fmt.Errorf("MCP WebSocket closed")};return socket.Send(string(data))}
 func(t *AxMCPWebSocketTransport)SendResponse(message map[string]Value)error{return t.SendNotification(message)}
 func(t *AxMCPWebSocketTransport)SetMessageHandler(handler func(map[string]Value)){t.mu.Lock();defer t.mu.Unlock();t.handler=handler}
 func(t *AxMCPWebSocketTransport)SetRequestHandler(handler func(map[string]Value)map[string]Value){t.mu.Lock();defer t.mu.Unlock();t.requestHandler=handler}

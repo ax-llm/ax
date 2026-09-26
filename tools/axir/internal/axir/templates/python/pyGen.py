@@ -750,7 +750,7 @@ def _core_json_parse_strict(value):
 
 
 def _core_json_stringify(value):
-    return json.dumps(value, sort_keys=True, separators=(",", ":"))
+    return json.dumps(value, sort_keys=True, separators=(",", ":"), ensure_ascii=False)
 
 
 def _core_fields_from_map(fields):
