@@ -13,7 +13,8 @@ import java.util.function.Consumer;
  * <p>The forward starts on a worker thread when iteration starts, and the worker waits while the
  * caller handles each delta, so processors, assertions and tools never run while the loop body
  * does. Consume the stream once, in try-with-resources: closing it, or leaving the block early,
- * stops the run and waits for the worker to finish. An error the forward raises is rethrown from
+ * stops the run and waits for the worker to finish; with a run {@code control} the run then ends
+ * as aborted, as {@code control.abort()} reports it. An error the forward raises is rethrown from
  * the iterator's {@code hasNext()} as the forward raised it, after the deltas sent before it.
  *
  * <pre>{@code
@@ -30,6 +31,18 @@ public final class AxGenDeltaStream implements Iterable<AxGenDelta>, AutoCloseab
     void run(Consumer<Map<String, Object>> sink);
   }
 
+  /**
+   * The cancellation token of a streamed run. It also records whether the consumer stopped the
+   * run early, which a run control reports as aborted rather than failed.
+   */
+  static final class StopToken extends AxCancellationToken {
+    private volatile boolean consumerStopped;
+
+    boolean consumerStopped() {
+      return consumerStopped;
+    }
+  }
+
   // A stream dropped without close() is stopped once it is garbage collected.
   private static final Cleaner CLEANER = Cleaner.create();
 
@@ -37,7 +50,7 @@ public final class AxGenDeltaStream implements Iterable<AxGenDelta>, AutoCloseab
   private final Cleaner.Cleanable cleanable;
 
   // stop is the cancellation token the run uses; parent, when given, cancels it too.
-  AxGenDeltaStream(Run run, AxCancellationToken stop, AxCancellationToken parent) {
+  AxGenDeltaStream(Run run, StopToken stop, AxCancellationToken parent) {
     State created = new State(run, stop, parent);
     this.state = created;
     this.cleanable = CLEANER.register(this, created::stop);
@@ -80,7 +93,7 @@ public final class AxGenDeltaStream implements Iterable<AxGenDelta>, AutoCloseab
     private static final String STOPPED = "streaming consumer closed";
 
     private final Object lock = new Object();
-    private final AxCancellationToken stopToken;
+    private final StopToken stopToken;
     private final AxCancellationToken parent;
     private final Runnable body;
     private Thread worker;
@@ -92,7 +105,7 @@ public final class AxGenDeltaStream implements Iterable<AxGenDelta>, AutoCloseab
     private Throwable failure;
     private boolean closed;
 
-    State(Run run, AxCancellationToken stopToken, AxCancellationToken parent) {
+    State(Run run, StopToken stopToken, AxCancellationToken parent) {
       this.stopToken = stopToken;
       this.parent = parent;
       // The worker keeps the caller's tracing and runtime-hook scope.
@@ -133,9 +146,11 @@ public final class AxGenDeltaStream implements Iterable<AxGenDelta>, AutoCloseab
       Thread running;
       synchronized (lock) {
         if (closed) return;
+        running = finished ? null : worker;
+        // Record why the run stops before the worker can see it stop.
+        if (running != null) stopToken.consumerStopped = true;
         closed = true;
         pending = null;
-        running = finished ? null : worker;
         lock.notifyAll();
       }
       if (running == null) return;

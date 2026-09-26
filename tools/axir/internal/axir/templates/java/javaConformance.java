@@ -979,16 +979,55 @@ public final class Conformance {
     return new ConformanceScriptedAI(Core.asList(fixture.getOrDefault("responses", List.of())), List.of(), Core.asMap(fixture.getOrDefault("features", Map.of())));
   }
 
+  // control: true attaches a run control and records its lifecycle events as
+  // {type, path}, ignoring the other event types.
+  static List<Object> attachFixtureControl(Map<String, Object> fixture, Map<String, Object> runOptions) {
+    List<Object> events = java.util.Collections.synchronizedList(new ArrayList<>());
+    if (!Core.truthy(fixture.get("control"))) return events;
+    AxRunControl control = new AxRunControl();
+    control.onEvent(event -> {
+      Object type = event.get("type");
+      if (!List.of("started", "completed", "failed", "aborted").contains(String.valueOf(type))) return;
+      Map<String, Object> recorded = new LinkedHashMap<>();
+      recorded.put("type", type);
+      recorded.put("path", event.get("path"));
+      events.add(recorded);
+    });
+    runOptions.put("control", control);
+    return events;
+  }
+
+  static Map<String, Object> deltaEnvelope(AxGenDelta delta) {
+    Map<String, Object> envelope = new LinkedHashMap<>();
+    envelope.put("version", delta.version());
+    envelope.put("index", delta.index());
+    envelope.put("delta", new LinkedHashMap<>(delta.delta()));
+    return envelope;
+  }
+
   static void runStreamingForward(Map<String, Object> fixture) {
     ToolBuild toolBuild = buildTools(Core.asList(fixture.getOrDefault("tools", List.of())));
     List<Object> processorCalls = new ArrayList<>();
     AxGen gen = streamingFixtureGen(fixture, toolBuild, processorCalls);
     ConformanceScriptedAI client = streamingFixtureClient(fixture);
+    Map<String, Object> runOptions = new LinkedHashMap<>(Core.asMap(fixture.getOrDefault("forward_options", Map.of())));
+    List<Object> controlEvents = attachFixtureControl(fixture, runOptions);
+    Map<String, Object> input = new LinkedHashMap<>(Core.asMap(fixture.getOrDefault("input", Map.of())));
+    Object stopAfter = fixture.get("stop_after_deltas");
     List<Object> deltas = new ArrayList<>();
     Map<String, Object> output = null;
     RuntimeException failure = null;
     try {
-      output = gen.streamingForwardWith(client, new LinkedHashMap<>(Core.asMap(fixture.getOrDefault("input", Map.of()))), Core.asMap(fixture.getOrDefault("forward_options", Map.of())), envelope -> deltas.add(Core.ownedCopy(envelope)));
+      if (stopAfter != null) {
+        // The consumer reads the public stream and stops after stop_after_deltas deltas.
+        int limit = Core.asInt(stopAfter);
+        try (AxGenDeltaStream stream = gen.streamingForward(client, input, runOptions)) {
+          java.util.Iterator<AxGenDelta> iterator = stream.iterator();
+          while (deltas.size() < limit && iterator.hasNext()) deltas.add(deltaEnvelope(iterator.next()));
+        }
+      } else {
+        output = gen.streamingForwardWith(client, input, runOptions, envelope -> deltas.add(Core.ownedCopy(envelope)));
+      }
     } catch (RuntimeException error) {
       String expected = (String) fixture.get("expected_error_contains");
       if (expected == null || !String.valueOf(error.getMessage()).contains(expected)) throw error;
@@ -998,8 +1037,9 @@ public final class Conformance {
     if (failure == null) {
       if (fixture.containsKey("expected_error_contains")) throw new FixtureError("expected streaming forward to fail");
       assertEqual(deltas, fixture.getOrDefault("expected_deltas", List.of()), "streaming deltas");
-      assertEqual(output, fixture.get("expected_output"), "streaming output");
+      if (stopAfter == null) assertEqual(output, fixture.get("expected_output"), "streaming output");
     }
+    if (fixture.containsKey("expected_control_events")) assertEqual(new ArrayList<>(controlEvents), fixture.get("expected_control_events"), "run control events");
     if (fixture.containsKey("expected_request_count") && client.requests.size() != Core.asInt(fixture.get("expected_request_count"))) {
       throw new FixtureError("expected " + fixture.get("expected_request_count") + " requests, got " + client.requests.size());
     }
@@ -1009,26 +1049,23 @@ public final class Conformance {
       String text = Json.stringify(client.requests);
       for (Object item : Core.asList(fixture.get("expected_request_contains"))) if (!text.contains(String.valueOf(item))) throw new FixtureError("request missing " + item + ": " + text);
     }
-    runPublicStreamingForward(fixture, deltas, failure, toolBuild.calls, processorCalls);
+    // A fixture that stops early already ran through the public stream.
+    if (stopAfter == null) runPublicStreamingForward(fixture, deltas, failure, toolBuild.calls, processorCalls);
   }
 
   // The public streamingForward() runs the same forward on a worker thread and
-  // must yield the same deltas, call the same tools and processors, and
-  // rethrow the same error.
+  // must yield the same deltas, call the same tools and processors, report
+  // the same run-control events, and rethrow the same error.
   static void runPublicStreamingForward(Map<String, Object> fixture, List<Object> expectedDeltas, RuntimeException expectedFailure, Object expectedToolCalls, List<Object> expectedProcessorCalls) {
     ToolBuild toolBuild = buildTools(Core.asList(fixture.getOrDefault("tools", List.of())));
     List<Object> processorCalls = new ArrayList<>();
     AxGen gen = streamingFixtureGen(fixture, toolBuild, processorCalls);
+    Map<String, Object> runOptions = new LinkedHashMap<>(Core.asMap(fixture.getOrDefault("forward_options", Map.of())));
+    List<Object> controlEvents = attachFixtureControl(fixture, runOptions);
     List<Object> deltas = new ArrayList<>();
     RuntimeException failure = null;
-    try (AxGenDeltaStream stream = gen.streamingForward(streamingFixtureClient(fixture), new LinkedHashMap<>(Core.asMap(fixture.getOrDefault("input", Map.of()))), Core.asMap(fixture.getOrDefault("forward_options", Map.of())))) {
-      for (AxGenDelta delta : stream) {
-        Map<String, Object> envelope = new LinkedHashMap<>();
-        envelope.put("version", delta.version());
-        envelope.put("index", delta.index());
-        envelope.put("delta", new LinkedHashMap<>(delta.delta()));
-        deltas.add(envelope);
-      }
+    try (AxGenDeltaStream stream = gen.streamingForward(streamingFixtureClient(fixture), new LinkedHashMap<>(Core.asMap(fixture.getOrDefault("input", Map.of()))), runOptions)) {
+      for (AxGenDelta delta : stream) deltas.add(deltaEnvelope(delta));
     } catch (RuntimeException error) {
       failure = error;
     }
@@ -1042,6 +1079,7 @@ public final class Conformance {
     }
     assertEqual(toolBuild.calls, expectedToolCalls, "public streamingForward tool calls");
     assertEqual(processorCalls, expectedProcessorCalls, "public streamingForward field processor calls");
+    if (fixture.containsKey("expected_control_events")) assertEqual(new ArrayList<>(controlEvents), fixture.get("expected_control_events"), "public streamingForward run control events");
   }
 
   static Object flowStateValue(Map<String, Object> state, Object field, Object fallback) {

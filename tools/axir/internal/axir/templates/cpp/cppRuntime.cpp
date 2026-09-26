@@ -6881,7 +6881,10 @@ Value AxGen::streaming_forward(AIClient& client, Value values, Value options, Ax
         session.finish();
         return output;
       } catch (const std::exception& error) {
-        session.finish(error.what());
+        // A handler that stops the run early, returning false or throwing,
+        // ends it as aborted, as control.abort() does, not as failed.
+        if (consumer.stopped) session.finish(std::nullopt, true);
+        else session.finish(error.what());
         throw;
       }
     }

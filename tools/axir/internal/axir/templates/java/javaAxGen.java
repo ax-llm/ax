@@ -549,6 +549,9 @@ public final class AxGen implements AxProgram {
    * the stream stops the run; cancelling {@code cancellation} (or an {@code AxCancellationToken}
    * under the {@code cancellation} option) aborts it, and the iterator then throws the {@link
    * AxAIServiceAbortedError}. A forward error is rethrown from the iterator as the forward raised it.
+   * With a run {@code control} option the run reports started, then completed or failed, and applies
+   * the control's updates at each request, as {@link #forward} does; a stream closed early ends the
+   * run as aborted, as {@code control.abort()} reports it.
    */
   public AxGenDeltaStream streamingForward(AiClient client, Map<String, Object> values, Map<String, Object> options, AxCancellationToken cancellation) {
     Map<String, Object> runOptions = new LinkedHashMap<>(options == null ? Map.of() : options);
@@ -557,7 +560,11 @@ public final class AxGen implements AxProgram {
       Object token = runOptions.remove(key);
       if (parent == null && token instanceof AxCancellationToken given) parent = given;
     }
-    AxCancellationToken stop = new AxCancellationToken();
+    // A token among the constructor options applies too, as it does in forward().
+    for (String key : List.of("cancellation", "cancellationToken", "cancellation_token")) {
+      if (parent == null && this.options.get(key) instanceof AxCancellationToken given) parent = given;
+    }
+    AxGenDeltaStream.StopToken stop = new AxGenDeltaStream.StopToken();
     runOptions.put("cancellation", stop);
     Map<String, Object> input = values == null ? new LinkedHashMap<>() : new LinkedHashMap<>(values);
     return new AxGenDeltaStream(sink -> streamingForwardWith(client, input, runOptions, sink), stop, parent);
@@ -603,7 +610,9 @@ public final class AxGen implements AxProgram {
           bounded.finish(null);
           return output;
         } catch (RuntimeException | Error error) {
-          bounded.finish(error);
+          // A run the streamingForward() consumer stopped early ends as
+          // aborted, as control.abort() reports it.
+          bounded.finish(error, runOptions.get("cancellation") instanceof AxGenDeltaStream.StopToken stop && stop.consumerStopped());
           throw error;
         }
       }
