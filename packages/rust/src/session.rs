@@ -909,14 +909,12 @@ impl SessionRun {
         });
         Ok(())
     }
-    fn legacy_chat<C: AxAIClient + ?Sized>(
-        &mut self,
-        client: &mut C,
-        request: Value,
-        options: Value,
-    ) -> AxResult<Value> {
+    // The request a model call without a chat session sends: under a run
+    // control the first one starts the run, and each applies the updates
+    // queued for this path at the request boundary.
+    fn boundary_request(&mut self, request: Value) -> AxResult<Value> {
         let Some(control) = self.control.clone() else {
-            return client.chat_with_options(request, options);
+            return Ok(request);
         };
         if control.is_aborted() {
             return Err(AxError::runtime(
@@ -941,7 +939,39 @@ impl SessionRun {
         for id in applied["applied"].as_array().cloned().unwrap_or_default() {
             self.emit("applied", json!({"update_id":id,"timing":"next-response"}));
         }
-        client.chat_with_options(applied["request"].clone(), options)
+        Ok(applied["request"].clone())
+    }
+    fn legacy_chat<C: AxAIClient + ?Sized>(
+        &mut self,
+        client: &mut C,
+        request: Value,
+        options: Value,
+    ) -> AxResult<Value> {
+        let request = self.boundary_request(request)?;
+        client.chat_with_options(request, options)
+    }
+    // Whether the run keeps a chat session when its client opens one.
+    fn session_enabled(&self) -> AxResult<bool> {
+        Ok(
+            core_truthy(&chat_session_mode_enabled(&[core_value_from_json(
+                &self.options,
+            )])?)
+                && (self.control.is_some()
+                    || self.tools.iter().any(|tool| tool.execution == "background")),
+        )
+    }
+    // An error of a session run names the calls it left unresolved.
+    fn with_unresolved(&self, mut error: AxError) -> AxError {
+        if self.session.is_some() && !error.message.contains("unresolved calls:") {
+            if let Ok(pending) = chat_session_unresolved(&[self.state.clone()]) {
+                error.message = format!(
+                    "{}; unresolved calls: {}",
+                    error.message,
+                    core_value_to_json(&pending)
+                );
+            }
+        }
+        error
     }
     pub(crate) fn chat<C: AxAIClient>(
         &mut self,
@@ -952,12 +982,7 @@ impl SessionRun {
         if self.control.as_ref().is_some_and(AxRunControl::is_aborted) {
             return Err(AxError::runtime("Run aborted before selecting a provider"));
         }
-        let enabled = core_truthy(&chat_session_mode_enabled(&[core_value_from_json(
-            &self.options,
-        )])?)
-            && (self.control.is_some()
-                || self.tools.iter().any(|tool| tool.execution == "background"));
-        if !enabled {
+        if !self.session_enabled()? {
             return self.legacy_chat(client, request, options);
         }
         let client = pinned_run_client(
@@ -969,19 +994,47 @@ impl SessionRun {
             self.route_selected,
         )?;
         self.route_selected = true;
-        self.chat_selected(client, request, options)
-            .map_err(|mut error| {
-                if self.session.is_some() && !error.message.contains("unresolved calls:") {
-                    if let Ok(pending) = chat_session_unresolved(&[self.state.clone()]) {
-                        error.message = format!(
-                            "{}; unresolved calls: {}",
-                            error.message,
-                            core_value_to_json(&pending)
-                        );
-                    }
-                }
-                error
-            })
+        let result = self.chat_selected(client, request, options);
+        result.map_err(|error| self.with_unresolved(error))
+    }
+    // A streamed model request through the run boundary. Without a chat
+    // session it applies the run's pending updates, as legacy_chat does, and
+    // streams from the run's client chunk by chunk; a chat session answers
+    // with its final response as one chunk.
+    pub(crate) fn stream_open<C: AxAIClient>(
+        &mut self,
+        client: &mut C,
+        mut request: Value,
+        options: Value,
+    ) -> AxResult<AxChatStream> {
+        if self.control.as_ref().is_some_and(AxRunControl::is_aborted) {
+            return Err(AxError::runtime("Run aborted before selecting a provider"));
+        }
+        if !self.session_enabled()? {
+            let request = self.boundary_request(request)?;
+            return client.stream_iter_with_options(request, options);
+        }
+        let client = pinned_run_client(
+            client,
+            &mut request,
+            &options,
+            &mut self.routes,
+            0,
+            self.route_selected,
+        )?;
+        self.route_selected = true;
+        match self.enter_session(client, &request, &options) {
+            Ok(false) => {
+                let request = self.boundary_request(request)?;
+                client.stream_iter_with_options(request, options)
+            }
+            Ok(true) => {
+                let response = self.session_response(client, request, options);
+                let response = response.map_err(|error| self.with_unresolved(error))?;
+                Ok(AxChatStream::from_values(vec![response]))
+            }
+            Err(error) => Err(self.with_unresolved(error)),
+        }
     }
     fn chat_selected<C: AxAIClient + ?Sized>(
         &mut self,
@@ -989,14 +1042,20 @@ impl SessionRun {
         request: Value,
         options: Value,
     ) -> AxResult<Value> {
-        let enabled = core_truthy(&chat_session_mode_enabled(&[core_value_from_json(
-            &self.options,
-        )])?)
-            && (self.control.is_some()
-                || self.tools.iter().any(|tool| tool.execution == "background"));
-        if !enabled {
+        if !self.session_enabled()? || !self.enter_session(client, &request, &options)? {
             return self.legacy_chat(client, request, options);
         }
+        self.session_response(client, request, options)
+    }
+    // Opens the run's chat session with its first request, or sends a later
+    // request into the open session. False when the client opens none: the
+    // run then makes plain model calls.
+    fn enter_session<C: AxAIClient + ?Sized>(
+        &mut self,
+        client: &mut C,
+        request: &Value,
+        options: &Value,
+    ) -> AxResult<bool> {
         if self.session.is_none() {
             if self
                 .control
@@ -1008,7 +1067,7 @@ impl SessionRun {
             }
             self.session = client.open_chat_session(request.clone(), options.clone())?;
             if self.session.is_none() {
-                return self.legacy_chat(client, request, options);
+                return Ok(false);
             }
             self.state = chat_session_create_state(&[
                 core_value_from_json(&request["model"]),
@@ -1030,6 +1089,16 @@ impl SessionRun {
             }
             self.submit(Vec::new())?;
         }
+        Ok(true)
+    }
+    // Drives the open chat session until the model's final response to
+    // `request`, starting tools and applying updates as they arrive.
+    fn session_response<C: AxAIClient + ?Sized>(
+        &mut self,
+        client: &mut C,
+        request: Value,
+        options: Value,
+    ) -> AxResult<Value> {
         loop {
             if self.control.as_ref().is_some_and(AxRunControl::is_aborted) {
                 return Err(AxError::runtime(format!(
@@ -1192,7 +1261,10 @@ impl SessionRun {
         }
         Ok(())
     }
-    pub(crate) fn finish(&mut self, error: Option<&AxError>) {
+    // Ends the run. A run the streaming consumer stopped early ends as
+    // aborted, as control.abort() reports it; any other run as failed or
+    // completed.
+    pub(crate) fn finish(&mut self, error: Option<&AxError>, consumer_stopped: bool) {
         if self.finished {
             return;
         }
@@ -1207,7 +1279,9 @@ impl SessionRun {
         } else {
             json!([])
         };
-        if let Some(error) = error {
+        if consumer_stopped {
+            self.emit("aborted", json!({}));
+        } else if let Some(error) = error {
             self.emit(
                 "failed",
                 json!({"error":error.to_string(),"pending_call_ids":pending}),

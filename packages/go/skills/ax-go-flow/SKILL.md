@@ -94,6 +94,23 @@ output, err := parallelFlow.Forward(
 )
 ```
 
+### Stream a flow
+
+`StreamingForward` runs the whole flow, as `Forward` does, and yields its output as one update (`Version` 1, `Index` 0), as TypeScript's `streamingForward` does; an error ends the sequence.
+
+```go
+for delta, err := range parallelFlow.StreamingForward(
+  ctx, client,
+  map[string]ax.Value{"topicText": "Typed LLM workflows"},
+  nil,
+) {
+  if err != nil {
+    return err
+  }
+  fmt.Println(delta.Version, delta.Delta)
+}
+```
+
 Start from the complete programs under `examples/`, then browse the larger gallery at https://axllm.dev/go/subsystems/flow/.
 
 ## Astra Session Work

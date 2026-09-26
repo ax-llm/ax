@@ -46,6 +46,8 @@ int main() {
       "Title: cut short\nStory: This run stops early.",
       "Title: cut short\nStory: This handler gives up.",
       "Title: calm sea\nStory: The sea rests under a quiet moon.",
+      "Title: still water\nStory: The pond holds the sky.",
+      "Title: still water\nStory: The reeds stay quiet.",
   });
   axllm::OpenAICompatibleClient client(axllm::object({{"api_key", "test-key"}, {"model", "gpt-5.4-mini"}}), &transport);
   auto story = axllm::ax("topic:string -> title:string, story:string");
@@ -151,8 +153,17 @@ int main() {
   if (transport.requests.size() != 5) return 10;
 
   // Under run control the model call streams through the run's response
-  // boundary, where queued steering joins the request.
+  // boundary, where queued steering joins the request, and the control hears
+  // the run's lifecycle.
+  std::vector<std::string> lifecycle;
+  auto listen = [&lifecycle](const axllm::AxRunControl& run) {
+    run.on_event([&lifecycle](axllm::Value event) {
+      std::string type = axllm::display(axllm::Core::get(event, "type"));
+      if (type == "started" || type == "completed" || type == "failed" || type == "aborted") lifecycle.push_back(type);
+    });
+  };
   auto control = axllm::run_control();
+  listen(control);
   control.steer("Keep it gentle.");
   int steered_deltas = 0;
   axllm::Value calm = story.streaming_forward(
@@ -163,5 +174,25 @@ int main() {
       });
   if (!transport.sent(5, "Keep it gentle.") || steered_deltas < 2) return 11;
   if (axllm::display(axllm::Core::get(calm, "story")) != "The sea rests under a quiet moon.") return 12;
+  if (lifecycle != std::vector<std::string>{"started", "completed"}) return 13;
+
+  // A handler that stops a controlled run early, by returning false or by
+  // throwing, ends the run as aborted, as control.abort() reports it.
+  lifecycle.clear();
+  auto stopped = axllm::run_control();
+  listen(stopped);
+  story.streaming_forward(client, axllm::object({{"topic", "still water"}}), axllm::object({{"control", stopped.value()}}),
+                          [](const axllm::AxGenDelta&) { return false; });
+  if (lifecycle != std::vector<std::string>{"started", "aborted"}) return 14;
+  lifecycle.clear();
+  auto interrupted = axllm::run_control();
+  listen(interrupted);
+  try {
+    story.streaming_forward(client, axllm::object({{"topic", "still water"}}), axllm::object({{"control", interrupted.value()}}),
+                            [](const axllm::AxGenDelta&) -> bool { throw Interrupted{}; });
+    return 15;
+  } catch (const Interrupted&) {
+  }
+  if (lifecycle != std::vector<std::string>{"started", "aborted"} || transport.requests.size() != 8) return 16;
   std::cout << "cpp-axgen-streaming-ok " << title << ": " << text << "\n";
 }

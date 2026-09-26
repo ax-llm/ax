@@ -41,7 +41,7 @@
       "type": "skill-md",
       "description": "Use when writing C++ code with `axllm` for AxGen programs, forward calls, indexed multi-sampling, result pickers, streaming, tools, assertions, traces, usage, and output parsing.",
       "url": "ax-cpp-gen/SKILL.md",
-      "digest": "sha256:77541670bf2e38250ed248b441d1fe8a600586297e2d0b6777d38bb12c2609d8"
+      "digest": "sha256:2f463f1ac51cb65ff7f39d6186363e154b1e3327fac47f7f4cbb9f7d85566004"
     },
     {
       "name": "ax-cpp-flow",

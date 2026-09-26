@@ -85543,6 +85543,10 @@ func (g *AxGen) outputFieldFor(method string, field string, text bool) {
 // Forward. The forward runs in its own goroutine and waits while the caller
 // handles each update. An error ends the sequence as a final (AxGenDelta{},
 // err) pair. Stopping the iteration early cancels the run.
+// errStreamingConsumerStopped is the cancel cause of a streaming forward
+// whose consumer stopped the iteration early.
+var errStreamingConsumerStopped = errors.New("streaming consumer stopped")
+
 func (g *AxGen) StreamingForward(ctx context.Context, client AIClient, values map[string]Value, options map[string]Value) iter.Seq2[AxGenDelta, error] {
 	return func(yield func(AxGenDelta, error) bool) {
 		if ctx == nil {
@@ -85579,8 +85583,10 @@ func (g *AxGen) StreamingForward(ctx context.Context, client AIClient, values ma
 			}
 		}()
 		defer func() {
+			// Cancel before releasing the worker, so the run sees why it
+			// stops.
+			cancel(errStreamingConsumerStopped)
 			close(stopped)
-			cancel(errors.New("streaming consumer stopped"))
 			for range deliveries {
 			}
 		}()
@@ -85630,6 +85636,16 @@ func (g *AxGen) streamingForwardWith(ctx context.Context, client AIClient, value
 		g.Memory, g.ChatLog, g.FunctionCallTraces, g.Traces = clone.Memory, clone.ChatLog, clone.FunctionCallTraces, clone.Traces
 	}()
 	clone.Functions = runtimeScopedTools(ctx, g.Functions)
+	if control, _ := coreGet(options, "control", nil).(*AxRunControl); control != nil {
+		// As Forward does, a run control applies its updates at each request
+		// and hears the run's lifecycle; a consumer that stops the stream
+		// early ends the run as aborted.
+		sessionClient := &genSessionClient{AIClient: client, gen: &clone, options: options, control: control, path: display(coreGet(options, "execution_path", coreGet(options, "executionPath", "root"))), deliveries: make(chan sessionDelivery, 32), results: make(chan sessionToolResult, 32)}
+		client = sessionClient
+		defer func() {
+			sessionClient.finish(err, errors.Is(context.Cause(ctx), errStreamingConsumerStopped))
+		}()
+	}
 	return safeValue(func() Value {
 		return mustCore(_streaming_forward_impl(&clone, bindAIClientContext(ctx, client), values, options, sink))
 	})
@@ -91219,12 +91235,48 @@ func runConformanceStreamingForward(fixture map[string]Value) {
 		gen.StopFunctions = stops
 	}
 	client := conformanceApplyScriptedClientSpec(&conformanceScriptedAI{Responses: asSlice(coreGet(fixture, "responses", Array())), Features: asMap(coreGet(fixture, "features", Object()))}, coreGet(fixture, "client", nil))
+	runOptions := cloneMap(asMap(coreGet(fixture, "forward_options", Object())))
+	var controlEventsMu sync.Mutex
+	controlEvents := Array()
+	if coreTruthy(coreGet(fixture, "control", false)) {
+		control := RunControl()
+		control.OnEvent(func(event map[string]Value) {
+			switch display(event["type"]) {
+			case "started", "completed", "failed", "aborted":
+				controlEventsMu.Lock()
+				controlEvents = append(controlEvents, Object("path", event["path"], "type", event["type"]))
+				controlEventsMu.Unlock()
+			}
+		})
+		runOptions["control"] = control
+	}
 	deltas := Array()
-	sink := axGenDeltaSink(func(envelope map[string]Value) error {
-		deltas = append(deltas, publicValue(envelope))
-		return nil
-	})
-	output, err := gen.streamingForwardWith(context.Background(), client, asMap(coreGet(fixture, "input", Object())), asMap(coreGet(fixture, "forward_options", Object())), sink, AxRuntimeHooks{})
+	var output Value
+	var err error
+	if stopAfter := coreGet(fixture, "stop_after_deltas", nil); stopAfter != nil {
+		// The consumer stops the public iterator after stop_after deltas.
+		for delta, deltaErr := range gen.StreamingForward(context.Background(), client, asMap(coreGet(fixture, "input", Object())), runOptions) {
+			if deltaErr != nil {
+				err = deltaErr
+				break
+			}
+			deltas = append(deltas, Object("version", delta.Version, "index", delta.Index, "delta", publicValue(delta.Delta)))
+			if len(deltas) == int(num(stopAfter)) {
+				break
+			}
+		}
+	} else {
+		sink := axGenDeltaSink(func(envelope map[string]Value) error {
+			deltas = append(deltas, publicValue(envelope))
+			return nil
+		})
+		output, err = gen.streamingForwardWith(context.Background(), client, asMap(coreGet(fixture, "input", Object())), runOptions, sink, AxRuntimeHooks{})
+	}
+	if expected := coreGet(fixture, "expected_control_events", nil); expected != nil {
+		controlEventsMu.Lock()
+		assertEqual(controlEvents, expected, "run control events")
+		controlEventsMu.Unlock()
+	}
 	if expected := display(coreGet(fixture, "expected_error_contains", "")); expected != "" {
 		if err == nil {
 			panic(FixtureError{Message: "expected streaming forward to fail"})
@@ -91238,7 +91290,9 @@ func runConformanceStreamingForward(fixture map[string]Value) {
 			panic(err)
 		}
 		assertEqual(deltas, coreGet(fixture, "expected_deltas", Array()), "streaming deltas")
-		assertEqual(output, coreGet(fixture, "expected_output", nil), "streaming output")
+		if coreGet(fixture, "stop_after_deltas", nil) == nil {
+			assertEqual(output, coreGet(fixture, "expected_output", nil), "streaming output")
+		}
 	}
 	if expectedCount := coreGet(fixture, "expected_request_count", nil); expectedCount != nil && int(num(expectedCount)) != len(client.Requests) {
 		panic(FixtureError{Message: fmt.Sprintf("expected %d requests, got %d", int(num(expectedCount)), len(client.Requests))})

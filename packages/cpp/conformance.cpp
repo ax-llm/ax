@@ -892,16 +892,36 @@ static void run_streaming_forward(Value fixture) {
   }
   if (!Core::get(fixture, "stop_functions").is_null()) gen.set_stop_functions(Core::get(fixture, "stop_functions", Value::array()));
   ConformanceScriptedAI client(Core::get(fixture, "responses", Value::array()), Core::get(fixture, "features"), Core::get(fixture, "client"));
+  Value run_options = Core::map_merge(Value::object(), Core::get(fixture, "forward_options", Value::object()));
+  // control attaches a run control and records its lifecycle events.
+  struct ControlEvents {
+    std::mutex mutex;
+    Value events = Value::array();
+  };
+  auto control_events = std::make_shared<ControlEvents>();
+  std::optional<AxRunControl> control;
+  if (Core::truthy(Core::get(fixture, "control", false))) {
+    control = run_control();
+    control->on_event([control_events](Value event) {
+      std::string type = display(Core::get(event, "type"));
+      if (type != "started" && type != "completed" && type != "failed" && type != "aborted") return;
+      std::lock_guard<std::mutex> lock(control_events->mutex);
+      Core::append(control_events->events, object({{"path", Core::get(event, "path")}, {"type", type}}));
+    });
+    Core::set(run_options, "control", control->value());
+  }
+  // stop_after_deltas: the handler stops the run after that many deltas.
+  Value stop_after = Core::get(fixture, "stop_after_deltas");
   Value deltas = Value::array();
-  auto record = [deltas](const AxGenDelta& delta) mutable {
+  auto record = [deltas, stop_after](const AxGenDelta& delta) mutable {
     Core::append(deltas, object({{"version", Value(static_cast<double>(delta.version))}, {"index", Value(static_cast<double>(delta.index))}, {"delta", delta.delta}}));
-    return true;
+    return stop_after.is_null() || Core::number(Core::len(deltas)) < Core::number(stop_after);
   };
   Value expected_error = Core::get(fixture, "expected_error_contains");
   Value output;
   bool failed = false;
   try {
-    output = gen.streaming_forward(client, Core::get(fixture, "input", Value::object()), Core::get(fixture, "forward_options", Value::object()), record);
+    output = gen.streaming_forward(client, Core::get(fixture, "input", Value::object()), run_options, record);
   } catch (const std::exception& error) {
     if (const auto* ax = dynamic_cast<const AxError*>(&error); ax && ax->category == "fixture") throw;
     if (expected_error.is_null() || std::string(error.what()).find(display(expected_error)) == std::string::npos) throw;
@@ -911,7 +931,12 @@ static void run_streaming_forward(Value fixture) {
   if (!failed) {
     if (!expected_error.is_null()) throw AxError("fixture", "expected streaming forward to fail");
     assert_equal(deltas, Core::get(fixture, "expected_deltas", Value::array()), "streaming deltas");
-    assert_equal(output, Core::get(fixture, "expected_output"), "streaming output");
+    if (stop_after.is_null()) assert_equal(output, Core::get(fixture, "expected_output"), "streaming output");
+  }
+  Value expected_control_events = Core::get(fixture, "expected_control_events");
+  if (!expected_control_events.is_null()) {
+    std::lock_guard<std::mutex> lock(control_events->mutex);
+    assert_equal(control_events->events, expected_control_events, "run control events");
   }
   Value expected_count = Core::get(fixture, "expected_request_count");
   if (!expected_count.is_null() && client.requests.size() != static_cast<size_t>(std::stoul(display(expected_count)))) {
