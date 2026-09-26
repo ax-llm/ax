@@ -1065,6 +1065,55 @@ def _playbook_stringify(value):
         return json.dumps(str(value))
 
 
+# JSON.stringify: compact, in insertion order (the Core stringify sorts keys).
+def _playbook_js_json(value):
+    return json.dumps(value, separators=(",", ":"), ensure_ascii=False)
+
+
+# TS stringifyBounded: JSON of the value with every string cut to the ACE
+# config's maxSerializedFieldChars.
+def _playbook_truncate(value, max_chars):
+    max_chars = max(0, int(max_chars))
+    if len(value) <= max_chars:
+        return value
+    suffix = "...[truncated]"
+    if max_chars <= len(suffix):
+        return value[:max_chars]
+    return value[: max_chars - len(suffix)] + suffix
+
+
+def _playbook_bound(value, max_chars, seen=None):
+    if value is None or isinstance(value, (bool, int, float)):
+        return value
+    if isinstance(value, str):
+        return _playbook_truncate(value, max_chars)
+    if not isinstance(value, (list, dict)):
+        return _playbook_truncate(str(value), max_chars)
+    seen = set() if seen is None else seen
+    if id(value) in seen:
+        return "[Circular]"
+    seen.add(id(value))
+    if isinstance(value, list):
+        bounded = [_playbook_bound(entry, max_chars, seen) for entry in value]
+    else:
+        bounded = {key: _playbook_bound(entry, max_chars, seen) for key, entry in value.items()}
+    seen.discard(id(value))
+    return bounded
+
+
+def _playbook_stringify_bounded(value, max_chars):
+    try:
+        return _playbook_js_json(_playbook_bound(value, max_chars))
+    except Exception:
+        return _playbook_js_json("[Unserializable]")
+
+
+# TS extractFieldValues: the example's values for the given signature fields.
+def _playbook_field_values(example, fields):
+    example = example if isinstance(example, dict) else {}
+    return {field.name: example[field.name] for field in fields if field.name in example}
+
+
 def _playbook_compose_instruction(base, rendered):
     parts = [str(base or "").strip(), "", str(rendered or "")]
     return "\n\n".join(part for part in parts if part and part.strip())
@@ -1131,19 +1180,42 @@ class AxPlaybook:
             self._curator_program = AxGen(_ACE_CURATOR_SIGNATURE, {"validation_retries": 1, "id": "ace.curator"})
         return self._curator_program
 
+    def _program_fields(self):
+        signature = getattr(self.program, "signature", None)
+        if signature is None or not hasattr(signature, "get_input_fields"):
+            return [], []
+        return signature.get_input_fields(), signature.get_output_fields()
+
+    def _max_serialized_chars(self):
+        return self.engine.config.get("maxSerializedFieldChars", 2000)
+
+    # As in TS, the reflector and curator get the playbook as
+    # JSON.stringify({markdown, structured}): the rendered markdown and the
+    # playbook itself.
+    def _playbook_input(self, rendered):
+        return _playbook_js_json({"markdown": rendered, "structured": self.engine.get_playbook()})
+
     # The real LLM reflector: a focused AxGen sub-program driven by the teacher.
+    # As in TS, the question holds the example's input fields and the expected
+    # answer its output fields.
     def _run_reflector(self, payload):
         payload = dict(payload or {})
         reflector = self._get_reflector_program()
         reflector_ai = self.teacher_ai or self.student_ai
+        inputs, outputs = self._program_fields()
+        max_chars = self._max_serialized_chars()
+        expected_answer = _playbook_field_values(payload.get("question"), outputs)
         request = {
-            "question": _playbook_stringify(payload.get("question")),
-            "generator_answer": _playbook_stringify(payload.get("generator_answer")),
+            "question": _playbook_stringify_bounded(_playbook_field_values(payload.get("question"), inputs), max_chars),
+            "generator_answer": _playbook_stringify_bounded(payload.get("generator_answer"), max_chars),
             "generator_reasoning": payload.get("generator_reasoning"),
-            "playbook": payload.get("playbook"),
+            "playbook": self._playbook_input(payload.get("playbook")),
+            "expected_answer": (
+                _playbook_stringify_bounded(expected_answer, max_chars) if expected_answer else None
+            ),
             "feedback": payload.get("feedback"),
             "previous_reflection": (
-                _playbook_stringify(payload.get("previous_reflection"))
+                _playbook_js_json(payload.get("previous_reflection"))
                 if payload.get("previous_reflection") is not None
                 else None
             ),
@@ -1161,10 +1233,13 @@ class AxPlaybook:
         payload = dict(payload or {})
         curator = self._get_curator_program()
         curator_ai = self.teacher_ai or self.student_ai
+        inputs, _ = self._program_fields()
         request = {
-            "playbook": payload.get("playbook"),
-            "reflection": _playbook_stringify(payload.get("reflection")),
-            "question_context": _playbook_stringify(payload.get("question_context")),
+            "playbook": self._playbook_input(payload.get("playbook")),
+            "reflection": _playbook_js_json(payload.get("reflection")),
+            "question_context": _playbook_stringify_bounded(
+                _playbook_field_values(payload.get("question_context"), inputs), self._max_serialized_chars()
+            ),
             "token_budget": payload.get("token_budget", 1024),
         }
         request = {key: value for key, value in request.items() if value is not None}

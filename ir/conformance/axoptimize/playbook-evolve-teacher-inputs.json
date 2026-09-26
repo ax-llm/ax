@@ -1,0 +1,59 @@
+{
+  "examples": [
+    {
+      "answer": "Paris",
+      "question": "What is the capital of France?"
+    },
+    {
+      "answer": "pong",
+      "question": "ping"
+    }
+  ],
+  "expected_playbook": {
+    "sections": {
+      "Guidelines": [
+        {
+          "content": "Always cite your sources.",
+          "createdAt": "2024-01-02T03:04:05.000Z",
+          "harmfulCount": 0,
+          "helpfulCount": 0,
+          "id": "guidelines-00001",
+          "section": "Guidelines",
+          "updatedAt": "2024-01-02T03:04:05.000Z"
+        }
+      ]
+    },
+    "stats": {
+      "bulletCount": 1,
+      "harmfulCount": 0,
+      "helpfulCount": 0,
+      "tokenEstimate": 7
+    },
+    "updatedAt": "2024-01-02T03:04:05.000Z",
+    "version": 1
+  },
+  "expected_teacher_request_contains": [
+    "{\"question\":\"What is the capital of France?\"}",
+    "{\"markdown\":\"\",\"structured\":{\"version\":1,\"sections\":{},\"stats\":{\"bulletCount\":0,\"helpfulCount\":0,\"harmfulCount\":0,\"tokenEstimate\":0},\"updatedAt\":\"2024-01-02T03:04:05.000Z\"}}",
+    "{\"answer\":\"Paris\"}",
+    "{\"markdown\":\"\",\"structured\":{\"version\":1,\"sections\":{},\"stats\":{\"bulletCount\":0,\"helpfulCount\":0,\"harmfulCount\":0,\"tokenEstimate\":0},\"updatedAt\":\"2024-01-02T03:04:05.000Z\"}}",
+    "{\"question\":\"What is the capital of France?\"}"
+  ],
+  "kind": "optimize",
+  "metric_scores": [0.5, 1],
+  "name": "playbook-evolve-teacher-inputs",
+  "now": "2024-01-02T03:04:05.000Z",
+  "operation": "playbook-evolve",
+  "playbook_options": {
+    "maxEpochs": 1,
+    "maxReflectorRounds": 1
+  },
+  "responses": ["Answer: Paris", "Answer: pong"],
+  "signature": "question:string -> answer:string",
+  "teacher_responses": [
+    "Reasoning: The answer ignored the source.\nError Identification: Missing citation\nRoot Cause Analysis: No citation guideline\nCorrect Approach: Cite the source\nKey Insight: Citations build trust\nBullet Tags: []",
+    "Reasoning: Add a citation guideline.\nOperations: [{\"type\":\"ADD\",\"section\":\"Guidelines\",\"bulletId\":\"guidelines-00001\",\"content\":\"Always cite your sources.\"}]",
+    "Reasoning: Already correct.\nError Identification: no error\nRoot Cause Analysis: none\nCorrect Approach: keep going\nKey Insight: stable behavior\nBullet Tags: []",
+    "Reasoning: Nothing to change.\nOperations: []"
+  ]
+}

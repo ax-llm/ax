@@ -8,6 +8,7 @@ import {
   normalizeAgentEvalDataset,
   resolveAgentOptimizeTargetIds,
 } from '../../../src/ax/agent/optimize.js';
+import { AxMockAIService } from '../../../src/ax/ai/mock/api.js';
 import { AxACE } from '../../../src/ax/dsp/optimizers/ace.js';
 import {
   applyCuratorOperations,
@@ -29,6 +30,7 @@ import {
   buildParetoFront,
   hypervolume2D,
 } from '../../../src/ax/dsp/optimizers/paretoUtils.js';
+import { playbook } from '../../../src/ax/dsp/playbook.js';
 import { AxSignature, f } from '../../../src/ax/dsp/sig.js';
 import { ax } from '../../../src/ax/dsp/template.js';
 
@@ -2697,5 +2699,147 @@ await (async () => {
       expected_artifact: out.artifact,
       expected_curator: out.curator,
     });
+  }
+})();
+
+// --- playbook() evolve through the real reflector and curator programs ------
+// ace-compile-* fixtures script the reflector and curator outputs; this one
+// runs TS playbook().evolve with scripted student and teacher clients, so the
+// real reflector and curator programs get their inputs: the playbook as
+// JSON.stringify({markdown, structured}), the question as the example's input
+// fields and the expected answer as its output fields. The teacher answers each
+// program in its own output format, recorded in call order for the ports.
+await (async () => {
+  const reflectorAnswer = [
+    'Reasoning: The answer ignored the source.',
+    'Error Identification: Missing citation',
+    'Root Cause Analysis: No citation guideline',
+    'Correct Approach: Cite the source',
+    'Key Insight: Citations build trust',
+    'Bullet Tags: []',
+  ].join('\n');
+  const resolvedAnswer = [
+    'Reasoning: Already correct.',
+    'Error Identification: no error',
+    'Root Cause Analysis: none',
+    'Correct Approach: keep going',
+    'Key Insight: stable behavior',
+    'Bullet Tags: []',
+  ].join('\n');
+  const curatorAnswer = [
+    'Reasoning: Add a citation guideline.',
+    'Operations: [{"type":"ADD","section":"Guidelines","bulletId":"guidelines-00001","content":"Always cite your sources."}]',
+  ].join('\n');
+  const noopCuratorAnswer = [
+    'Reasoning: Nothing to change.',
+    'Operations: []',
+  ].join('\n');
+  const examples = [
+    { question: 'What is the capital of France?', answer: 'Paris' },
+    { question: 'ping', answer: 'pong' },
+  ];
+  const studentAnswers = ['Answer: Paris', 'Answer: pong'];
+  const scores = [0.5, 1];
+
+  const wireKey = (prompt: string, key: string) =>
+    prompt.includes(`(wire key: \`${key}\`)`);
+  let reflections = 0;
+  let curations = 0;
+  const teacherResponses: string[] = [];
+  const teacherContents: string[] = [];
+  const teacherAI = new AxMockAIService<string>({
+    name: 'mock',
+    features: { functions: false, streaming: false },
+    chatResponse: async (req) => {
+      const prompt = JSON.stringify(req.chatPrompt);
+      for (const message of req.chatPrompt) {
+        if (typeof message.content === 'string') {
+          teacherContents.push(message.content);
+        }
+      }
+      let content: string;
+      if (wireKey(prompt, 'errorIdentification')) {
+        content = reflections++ === 0 ? reflectorAnswer : resolvedAnswer;
+      } else {
+        content = curations++ === 0 ? curatorAnswer : noopCuratorAnswer;
+      }
+      teacherResponses.push(content);
+      return { results: [{ index: 0, content, finishReason: 'stop' }] };
+    },
+  });
+  let studentCall = 0;
+  const studentAI = new AxMockAIService<string>({
+    name: 'mock',
+    features: { functions: false, streaming: false },
+    chatResponse: async () => ({
+      results: [
+        {
+          index: 0,
+          content: studentAnswers[studentCall++] ?? '',
+          finishReason: 'stop',
+        },
+      ],
+    }),
+  });
+
+  const program = ax('question:string -> answer:string');
+  const book = playbook(program, {
+    studentAI,
+    teacherAI,
+    maxEpochs: 1,
+    maxReflectorRounds: 1,
+  });
+  // Record what the real reflector and curator programs are given.
+  const engine = (book as any).engine;
+  const reflectorInputs: Record<string, unknown>[] = [];
+  const curatorInputs: Record<string, unknown>[] = [];
+  const reflector = engine.getOrCreateReflectorProgram();
+  const reflectorForward = reflector.forward.bind(reflector);
+  reflector.forward = (
+    ai: unknown,
+    values: Record<string, unknown>,
+    o: unknown
+  ) => {
+    reflectorInputs.push(values);
+    return reflectorForward(ai, values, o);
+  };
+  const curator = engine.getOrCreateCuratorProgram();
+  const curatorForward = curator.forward.bind(curator);
+  curator.forward = (
+    ai: unknown,
+    values: Record<string, unknown>,
+    o: unknown
+  ) => {
+    curatorInputs.push(values);
+    return curatorForward(ai, values, o);
+  };
+  const scoreQueue = [...scores];
+  const metric = async () => (scoreQueue.length ? scoreQueue.shift()! : 0);
+  const result = await withFrozenClockAsync(ACE_NOW, () =>
+    book.evolve(examples as any, metric as any)
+  );
+  const first = reflectorInputs[0] ?? {};
+  const firstCurator = curatorInputs[0] ?? {};
+  writeFixture('playbook-evolve-teacher-inputs', {
+    kind: 'optimize',
+    operation: 'playbook-evolve',
+    now: ACE_NOW,
+    signature: 'question:string -> answer:string',
+    playbook_options: { maxEpochs: 1, maxReflectorRounds: 1 },
+    examples,
+    responses: studentAnswers,
+    teacher_responses: teacherResponses,
+    metric_scores: scores,
+    expected_playbook: result.playbook as unknown as Json,
+    expected_teacher_request_contains: [
+      String(first.question),
+      String(first.playbook),
+      String(first.expected_answer),
+      String(firstCurator.playbook),
+      String(firstCurator.question_context),
+    ],
+  });
+  if (teacherContents.length === 0) {
+    throw new Error('playbook-evolve-teacher-inputs: teacher was never called');
   }
 })();
