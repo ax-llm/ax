@@ -6107,8 +6107,7 @@ type AxGen struct {
 	FieldProcessors Value
 	// FeedbackProcessors and StreamingFieldProcessors list the TypeScript
 	// field processors, {field, processor} maps whose processor is an
-	// AxFieldProcessor (AddFieldProcessor with WithFieldProcessorFeedback,
-	// AddStreamingFieldProcessor).
+	// AxFieldProcessor (AddFieldProcessor, AddStreamingFieldProcessor).
 	FeedbackProcessors       Value
 	StreamingFieldProcessors Value
 	StopFunctions            Value
@@ -6299,25 +6298,14 @@ type AxFieldTransform func(value Value) Value
 // without a retry.
 type AxStreamingAssertion func(content string, done bool) Value
 
-// AxFieldProcessorOption configures AddFieldProcessor.
-type AxFieldProcessorOption func(*axFieldProcessorConfig)
-
-type axFieldProcessorConfig struct{ feedback bool }
-
-// WithFieldProcessorFeedback makes AddFieldProcessor follow TypeScript: the
-// processor, an AxFieldProcessor, runs on the field's final value and a
-// non-empty result is sent to the model as feedback. This becomes the
-// AddFieldProcessor default in the next major version.
-func WithFieldProcessorFeedback() AxFieldProcessorOption {
-	return func(config *axFieldProcessorConfig) { config.feedback = true }
 }
 
 // AddFieldTransform rewrites an output field's final value before the
 // assertions run. op is "uppercase", "lowercase", "trim", "prefix:<text>",
 // "suffix:<text>" or an AxFieldTransform. This is a port extension:
 // TypeScript field processors feed their result back to the model instead
-// (AddFieldProcessor with WithFieldProcessorFeedback). StreamingForward holds
-// a transformed field back and sends it once, transformed.
+// (AddFieldProcessor). StreamingForward holds a transformed field back and
+// sends it once, transformed.
 func (g *AxGen) AddFieldTransform(field string, op Value) *AxGen {
 	if _, callable := axFieldTransformFunc(op); !callable && isFuncValue(op) {
 		panic(AxError{Category: "runtime", Message: "AddFieldTransform: op must be an op name, an AxFieldTransform or a func(Value) Value"})
@@ -6331,29 +6319,12 @@ func isFuncValue(value Value) bool {
 	return value != nil && reflect.TypeOf(value).Kind() == reflect.Func
 }
 
-// AddFieldProcessor adds a field processor. With WithFieldProcessorFeedback()
-// it follows TypeScript: processor, an AxFieldProcessor, runs on the field's
-// final value, and a non-empty result is sent to the model as a user message
-// for another step. Without that option it rewrites the field value like
-// AddFieldTransform, and logs a deprecation once.
-//
-// Deprecated: without WithFieldProcessorFeedback(), AddFieldProcessor rewrites
-// the field value; use AddFieldTransform for that. In the next major version
-// AddFieldProcessor follows TypeScript and feeds its result back to the model.
-func (g *AxGen) AddFieldProcessor(field string, processor Value, options ...AxFieldProcessorOption) *AxGen {
-	config := axFieldProcessorConfig{}
-	for _, option := range options {
-		if option != nil {
-			option(&config)
-		}
-	}
-	if !config.feedback {
-		if _, callable := axFieldTransformFunc(processor); !callable && isFuncValue(processor) {
-			panic(AxError{Category: "runtime", Message: "AddFieldProcessor: without WithFieldProcessorFeedback() the processor must be an op name, an AxFieldTransform or a func(Value) Value"})
-		}
-		_core_axgen_deprecation("field-processor-transform", "AddFieldProcessor without WithFieldProcessorFeedback() rewrites the field value; use AddFieldTransform for that. In the next major version AddFieldProcessor follows TypeScript and feeds its result back to the model.")
-		return g.AddFieldTransform(field, processor)
-	}
+// AddFieldProcessor adds a TypeScript field processor: processor runs on the
+// field's final value, and a non-empty result is sent to the model as a user
+// message for another step, whose answer replaces the earlier one. Use
+// AddFieldTransform to rewrite the field value instead. It panics when field
+// is not an output field of the signature.
+func (g *AxGen) AddFieldProcessor(field string, processor AxFieldProcessor) *AxGen {
 	g.outputFieldFor("addFieldProcessor", field, false)
 	g.FeedbackProcessors = coreAppend(g.FeedbackProcessors, Object("field", field, "processor", processor))
 	return g
@@ -11758,7 +11729,7 @@ func runConformanceForward(fixture map[string]Value) {
 	processorCalls := MutableArray()
 	for _, raw := range asSlice(coreGet(fixture, "feedback_processors", Array())) {
 		spec := asMap(raw)
-		gen.AddFieldProcessor(display(coreGet(spec, "field", "")), conformanceFixtureProcessor(spec, processorCalls), WithFieldProcessorFeedback())
+		gen.AddFieldProcessor(display(coreGet(spec, "field", "")), conformanceFixtureProcessor(spec, processorCalls))
 	}
 	if stops := coreGet(fixture, "stop_functions", coreGet(fixture, "stopFunctions", nil)); stops != nil {
 		gen.StopFunctions = stops
@@ -11879,7 +11850,8 @@ func runConformanceForward(fixture map[string]Value) {
 }
 
 // conformanceAddFixtureTransforms adds field_transforms with AddFieldTransform
-// and field_processors with the deprecated transforming AddFieldProcessor.
+// and field_processors through the FieldProcessors field, Go's older way to
+// add the same transforms.
 func conformanceAddFixtureTransforms(gen *AxGen, fixture map[string]Value) {
 	for _, raw := range asSlice(coreGet(fixture, "field_transforms", Array())) {
 		spec := asMap(raw)
@@ -11887,7 +11859,7 @@ func conformanceAddFixtureTransforms(gen *AxGen, fixture map[string]Value) {
 	}
 	for _, raw := range asSlice(coreGet(fixture, "field_processors", coreGet(fixture, "fieldProcessors", Array()))) {
 		spec := asMap(raw)
-		gen.AddFieldProcessor(display(coreGet(spec, "field", "")), coreGet(spec, "processor", coreGet(spec, "op", nil)))
+		gen.FieldProcessors = coreAppend(gen.FieldProcessors, Object("field", display(coreGet(spec, "field", "")), "processor", coreGet(spec, "processor", coreGet(spec, "op", nil))))
 	}
 }
 
@@ -11936,7 +11908,7 @@ func runConformanceStreamingForward(fixture map[string]Value) {
 	processorCalls := MutableArray()
 	for _, raw := range asSlice(coreGet(fixture, "feedback_processors", Array())) {
 		spec := asMap(raw)
-		gen.AddFieldProcessor(display(coreGet(spec, "field", "")), conformanceFixtureProcessor(spec, processorCalls), WithFieldProcessorFeedback())
+		gen.AddFieldProcessor(display(coreGet(spec, "field", "")), conformanceFixtureProcessor(spec, processorCalls))
 	}
 	for _, raw := range asSlice(coreGet(fixture, "streaming_processors", Array())) {
 		spec := asMap(raw)
