@@ -172,7 +172,7 @@ func runtimeHooksFromOptions(options map[string]Value) AxRuntimeHooks {
 func stripRuntimeHooks(options map[string]Value) map[string]Value {
 	out := cloneMap(options)
 	for _, key := range []string{"runtimeHooks", "runtime_hooks", "rateLimiter", "rate_limiter", "tracer", "meter"} {
-		delete(out, key)
+		coreDelete(out, key)
 	}
 	return out
 }
@@ -561,8 +561,8 @@ func asMap(value Value) map[string]Value {
 	switch v := value.(type) {
 	case map[string]any:
 		out := map[string]Value{}
-		for key, item := range v {
-			coreSet(out, key, normalizeJSON(item))
+		for _, key := range orderedKeys(v) {
+			coreSet(out, key, normalizeJSON(v[key]))
 		}
 		return out
 	case AxSignature:
@@ -769,6 +769,11 @@ func keyAliases(key string) []string {
 func coreSet(target Value, key Value, value Value) error {
 	if m, ok := target.(map[string]Value); ok {
 		k := display(key)
+		if k == "__order" {
+			// The key-order list is bookkeeping, not data: a copy that ranges over a
+			// raw map must not swap in the source's list and then append keys again.
+			return nil
+		}
 		if _, exists := m[k]; !exists {
 			m["__order"] = coreAppend(m["__order"], k)
 		}
@@ -776,6 +781,26 @@ func coreSet(target Value, key Value, value Value) error {
 		return nil
 	}
 	return AxError{Category: "runtime", Message: "core.set target must be a map"}
+}
+
+// coreDelete removes a key together with its "__order" entry, so setting the
+// key again appends it once, at the end.
+func coreDelete(m map[string]Value, key string) {
+	if _, exists := m[key]; !exists {
+		return
+	}
+	delete(m, key)
+	raw, ordered := m["__order"]
+	if !ordered {
+		return
+	}
+	order := Array()
+	for _, item := range asSlice(raw) {
+		if display(item) != key {
+			order = append(order, item)
+		}
+	}
+	m["__order"] = order
 }
 
 func coreAppend(target Value, value Value) Value {
@@ -875,7 +900,9 @@ func display(value Value) string {
 		return v.Error()
 	case error:
 		return v.Error()
-	case *AxArray:
+	case *AxArray, []Value, map[string]Value:
+		// JSON, as the other ports render lists and objects; fmt.Sprint would
+		// print Go syntax with the "__order" lists.
 		return stableStringify(v)
 	default:
 		return fmt.Sprint(v)
@@ -974,10 +1001,29 @@ func writeStableJSON(b *strings.Builder, value Value) {
 			writeStableJSON(b, v[key])
 		}
 		b.WriteByte('}')
+	case json.Number:
+		b.WriteString(v.String())
 	default:
-		data, _ := json.Marshal(v)
-		b.Write(data)
+		writeStableJSON(b, plainJSONValue(v))
 	}
+}
+
+// plainJSONValue turns a typed Go value ([]map[string]Value, []string,
+// map[string]string, a struct, ...) into the Value shapes the JSON writers
+// walk, so maps inside it drop their "__order" lists. Encoding it with
+// json.Marshal alone would print those lists and escape <, > and &.
+func plainJSONValue(value Value) Value {
+	data, err := json.Marshal(value)
+	if err != nil {
+		return nil
+	}
+	decoder := json.NewDecoder(bytes.NewReader(data))
+	decoder.UseNumber()
+	var out any
+	if decoder.Decode(&out) != nil {
+		return nil
+	}
+	return out
 }
 
 // Prompt JSON shapes retain signature declaration order, including nested objects.
@@ -1028,9 +1074,10 @@ func writeOrderedJSON(b *strings.Builder, value Value) {
 			writeOrderedJSON(b, v[key])
 		}
 		b.WriteByte('}')
+	case json.Number:
+		b.WriteString(v.String())
 	default:
-		data, _ := json.Marshal(v)
-		b.Write(data)
+		writeOrderedJSON(b, plainJSONValue(v))
 	}
 }
 
@@ -1104,8 +1151,8 @@ func normalizeJSON(value any) Value {
 	switch v := value.(type) {
 	case map[string]any:
 		out := map[string]Value{}
-		for key, item := range v {
-			coreSet(out, key, normalizeJSON(item))
+		for _, key := range orderedKeys(v) {
+			coreSet(out, key, normalizeJSON(v[key]))
 		}
 		return out
 	case []any:
@@ -1363,11 +1410,11 @@ func _core_map_contains(values Value, key Value) Value {
 func _core_map_get(values Value, key Value) Value { return coreGet(values, key, nil) }
 func _core_map_delete(values Value, key Value) Value {
 	if m, ok := values.(map[string]Value); ok {
-		delete(m, display(key))
+		coreDelete(m, display(key))
 		return m
 	}
 	out := cloneMap(asMap(values))
-	delete(out, display(key))
+	coreDelete(out, display(key))
 	return out
 }
 func _core_map_update(target Value, values Value) Value {
@@ -1679,8 +1726,20 @@ func _core_sorted_strings(values Value) Value {
 	return out
 }
 func _core_json_pretty(value Value) Value {
-	data, _ := json.MarshalIndent(value, "", "  ")
-	return string(data)
+	return prettyJSONText(value)
+}
+
+// prettyJSONText indents a value as JSON for prompts, without the "__order"
+// lists and without escaping <, > and & as json.MarshalIndent does.
+func prettyJSONText(value Value) string {
+	var out bytes.Buffer
+	encoder := json.NewEncoder(&out)
+	encoder.SetEscapeHTML(false)
+	encoder.SetIndent("", "  ")
+	if encoder.Encode(runtimeJSONValue(value)) != nil {
+		return ""
+	}
+	return strings.TrimSuffix(out.String(), "\n")
 }
 
 // Higher-level host intrinsics. Most defer to Core-emitted helpers or target objects.
@@ -1880,6 +1939,35 @@ func cloneValue(value Value) Value {
 			out.Items = append(out.Items, cloneValue(item))
 		}
 		return out
+	default:
+		return v
+	}
+}
+
+// publicValue copies a value for callers outside the runtime: maps lose the
+// "__order" lists that record key order internally, so outputs are plain
+// Go maps, as the other ports return plain objects.
+func publicValue(value Value) Value {
+	switch v := value.(type) {
+	case map[string]Value:
+		out := make(map[string]Value, len(v))
+		for key, item := range v {
+			if key != "__order" {
+				out[key] = publicValue(item)
+			}
+		}
+		return out
+	case []Value:
+		out := make([]Value, len(v))
+		for i, item := range v {
+			out[i] = publicValue(item)
+		}
+		return out
+	case *AxArray:
+		if v == nil {
+			return v
+		}
+		return MutableArray(publicValue(v.Items).([]Value)...)
 	default:
 		return v
 	}
@@ -3249,9 +3337,9 @@ func (c *OpenAICompatibleClient) contextCacheChat(ctx context.Context, request m
 		return nil, false
 	}
 	cachedPayload := cloneMap(payload)
-	delete(cachedPayload, "systemInstruction")
-	delete(cachedPayload, "tools")
-	delete(cachedPayload, "toolConfig")
+	coreDelete(cachedPayload, "systemInstruction")
+	coreDelete(cachedPayload, "tools")
+	coreDelete(cachedPayload, "toolConfig")
 	if cachedCount > len(contents) {
 		cachedCount = len(contents)
 	}
@@ -4614,7 +4702,7 @@ func (r *MultiServiceRouter) Chat(ctx context.Context, request map[string]Value,
 		coreSet(req, "model_config", cloneValue(coreGet(req, "modelConfig", nil)))
 	}
 	if !entry.HasModel {
-		delete(req, "model")
+		coreDelete(req, "model")
 	}
 	return entry.Service.Chat(ctx, req, options)
 }
@@ -4630,8 +4718,8 @@ func (r *MultiServiceRouter) Embed(ctx context.Context, request map[string]Value
 	r.lastUsedService = entry.Service
 	req := cloneMap(request)
 	if !entry.HasModel {
-		delete(req, "embedModel")
-		delete(req, "embed_model")
+		coreDelete(req, "embedModel")
+		coreDelete(req, "embed_model")
 	}
 	return entry.Service.Embed(ctx, req, options)
 }
@@ -4665,7 +4753,7 @@ func (r *MultiServiceRouter) StreamEvents(ctx context.Context, request map[strin
 		coreSet(req, "model_config", cloneValue(coreGet(req, "modelConfig", nil)))
 	}
 	if !entry.HasModel {
-		delete(req, "model")
+		coreDelete(req, "model")
 	}
 	return openAIServiceStream(ctx, entry.Service, req, options)
 }
@@ -5703,7 +5791,7 @@ func (r *ProviderRouter) GetRoutingStats() map[string]Value {
 type AxFileToText func(data, mimeType string) (string, error)
 func preprocessProviderFiles(features, request, processing map[string]Value) (map[string]Value, error) {
   prepared := cloneMap(processing)
-  delete(prepared, "file_texts")
+  coreDelete(prepared, "file_texts")
   raw := coreGet(processing, "fileToText", coreGet(processing, "file_to_text", nil))
   if raw != nil {
     extractor, ok := raw.(AxFileToText)
@@ -5872,7 +5960,20 @@ func (g *AxGen) SetResultPicker(resultPicker AxResultPicker) *AxGen {
 func (g *AxGen) Forward(ctx context.Context, client AIClient, values map[string]Value, options map[string]Value) (Value, error) {
 	return g.ForwardWithHooks(ctx, client, values, options, runtimeHooksFromOptions(options))
 }
-func (g *AxGen) ForwardWithHooks(ctx context.Context, client AIClient, values map[string]Value, options map[string]Value, hooks AxRuntimeHooks) (out Value, err error) {
+
+// ForwardWithHooks returns plain maps: the "__order" lists that keep key
+// order inside the runtime are removed from the program output.
+func (g *AxGen) ForwardWithHooks(ctx context.Context, client AIClient, values map[string]Value, options map[string]Value, hooks AxRuntimeHooks) (Value, error) {
+	output, err := g.forwardWithHooks(ctx, client, values, options, hooks)
+	return publicValue(output), err
+}
+
+// forward runs the program for callers inside the runtime (flow steps, agent
+// stages, optimizers) and keeps the "__order" lists that Forward removes.
+func (g *AxGen) forward(ctx context.Context, client AIClient, values map[string]Value, options map[string]Value) (Value, error) {
+	return g.forwardWithHooks(ctx, client, values, options, runtimeHooksFromOptions(options))
+}
+func (g *AxGen) forwardWithHooks(ctx context.Context, client AIClient, values map[string]Value, options map[string]Value, hooks AxRuntimeHooks) (out Value, err error) {
 	attributes := Object("ax.program.id", g.ProgramID, "ax.program.type", "AxGen")
 	ctx, _, finish := beginRuntimeScope(ctx, hooks, g.RuntimeHooks, "ax_gen_forward", "ax_gen_generation", attributes)
 	defer func() { finish(err) }()
@@ -5897,7 +5998,7 @@ func (g *AxGen) ForwardWithHooks(ctx context.Context, client AIClient, values ma
 		}
 		callOptions := cloneMap(options)
         callOptions["executionContext"] = callContext
-        return clone.ForwardWithHooks(ctx, client, values, callOptions, AxRuntimeHooks{})
+        return clone.forwardWithHooks(ctx, client, values, callOptions, AxRuntimeHooks{})
 	}
 	clone := *g
     // Persist state after session closure records unresolved work.
@@ -6129,7 +6230,20 @@ func (a *AxAgent) AddActorInstruction(addendum string) *AxAgent {
 func (a *AxAgent) Forward(ctx context.Context, client AIClient, values map[string]Value, options map[string]Value) (Value, error) {
 	return a.ForwardWithHooks(ctx, client, values, options, runtimeHooksFromOptions(options))
 }
-func (a *AxAgent) ForwardWithHooks(ctx context.Context, client AIClient, values map[string]Value, options map[string]Value, hooks AxRuntimeHooks) (output Value, forwardErr error) {
+
+// ForwardWithHooks returns plain maps: the "__order" lists that keep key
+// order inside the runtime are removed from the agent output.
+func (a *AxAgent) ForwardWithHooks(ctx context.Context, client AIClient, values map[string]Value, options map[string]Value, hooks AxRuntimeHooks) (Value, error) {
+	output, err := a.forwardWithHooks(ctx, client, values, options, hooks)
+	return publicValue(output), err
+}
+
+// forward runs the agent for callers inside the runtime (flow steps, agent
+// stages, optimizers) and keeps the "__order" lists that Forward removes.
+func (a *AxAgent) forward(ctx context.Context, client AIClient, values map[string]Value, options map[string]Value) (Value, error) {
+	return a.forwardWithHooks(ctx, client, values, options, runtimeHooksFromOptions(options))
+}
+func (a *AxAgent) forwardWithHooks(ctx context.Context, client AIClient, values map[string]Value, options map[string]Value, hooks AxRuntimeHooks) (output Value, forwardErr error) {
 	attributes := Object("ax.program.id", "root.agent", "ax.program.type", "AxAgent")
 	ctx, _, finish := beginRuntimeScope(ctx, hooks, a.RuntimeHooks, "ax_gen_agent_forward", "ax_gen_agent", attributes)
 	defer func() { finish(forwardErr) }()
@@ -6351,7 +6465,7 @@ func (a *AxAgent) EvaluateOptimizationTask(client AIClient, task map[string]Valu
 	if !coreTruthy(input) {
 		input = task
 	}
-	output, err := a.Forward(context.Background(), client, asMap(input), asMap(coreGet(opts, "forward_options", Object())))
+	output, err := a.forward(context.Background(), client, asMap(input), asMap(coreGet(opts, "forward_options", Object())))
 	if err == nil {
 		return mustCore(_build_agent_eval_prediction(output, a.GetActionLog(), a.GetUsage(), a.ExportTrace()))
 	}
@@ -6634,7 +6748,7 @@ func (g *AxGen) EvaluateOptimization(client AIClient, dataset Value, candidateMa
 		if isMap {
 			input = coreGet(task, "input", task)
 		}
-		output, err := g.Forward(context.Background(), client, asMap(input), asMap(coreGet(opts, "forward_options", Object())))
+		output, err := g.forward(context.Background(), client, asMap(input), asMap(coreGet(opts, "forward_options", Object())))
 		if err == nil {
 			prediction = Object("completionType", "final", "output", output, "finalOutput", output, "functionCalls", g.FunctionCallTraces, "actionLog", g.ChatLog, "usage", Object(), "trace", Object("traces", g.Traces))
 		} else {
@@ -6756,7 +6870,20 @@ func (f *AxFlow) GetPlan() Value { return mustCore(_flow_plan(f.State)) }
 func (f *AxFlow) Forward(ctx context.Context, client AIClient, values map[string]Value, options map[string]Value) (Value, error) {
 	return f.ForwardWithHooks(ctx, client, values, options, runtimeHooksFromOptions(options))
 }
-func (f *AxFlow) ForwardWithHooks(ctx context.Context, client AIClient, values map[string]Value, options map[string]Value, hooks AxRuntimeHooks) (out Value, err error) {
+
+// ForwardWithHooks returns plain maps: the "__order" lists that keep key
+// order inside the runtime are removed from the flow output.
+func (f *AxFlow) ForwardWithHooks(ctx context.Context, client AIClient, values map[string]Value, options map[string]Value, hooks AxRuntimeHooks) (Value, error) {
+	output, err := f.forwardWithHooks(ctx, client, values, options, hooks)
+	return publicValue(output), err
+}
+
+// forward runs the flow for callers inside the runtime (flow steps, agent
+// stages, optimizers) and keeps the "__order" lists that Forward removes.
+func (f *AxFlow) forward(ctx context.Context, client AIClient, values map[string]Value, options map[string]Value) (Value, error) {
+	return f.forwardWithHooks(ctx, client, values, options, runtimeHooksFromOptions(options))
+}
+func (f *AxFlow) forwardWithHooks(ctx context.Context, client AIClient, values map[string]Value, options map[string]Value, hooks AxRuntimeHooks) (out Value, err error) {
 	attributes := Object("ax.program.id", display(coreGet(f.State, "program_id", "root.flow")), "ax.program.type", "AxFlow")
 	ctx, _, finish := beginRuntimeScope(ctx, hooks, f.RuntimeHooks, "ax_gen_flow_forward", "ax_gen_flow", attributes)
 	defer func() { finish(err) }()
@@ -7981,7 +8108,7 @@ func (p *AxPlaybook) runGenerator(example map[string]Value) map[string]Value {
 		return Object()
 	}
 	p.inject()
-	out, err := p.program.Forward(p.ctx, p.studentAI, example, nil)
+	out, err := p.program.forward(p.ctx, p.studentAI, example, nil)
 	if err != nil {
 		panic(err)
 	}
@@ -8024,7 +8151,7 @@ func (p *AxPlaybook) runReflector(payload map[string]Value) Value {
 	if previous := coreGet(payload, "previous_reflection", nil); previous != nil {
 		coreSet(request, "previous_reflection", playbookStringify(previous))
 	}
-	out, err := p.reflector().Forward(p.ctx, reflectorAI, request, cloneMap(p.teacherOptions))
+	out, err := p.reflector().forward(p.ctx, reflectorAI, request, cloneMap(p.teacherOptions))
 	if err != nil {
 		if p.verbose {
 			fmt.Println("[AxPlaybook] reflector error:", err)
@@ -8046,7 +8173,7 @@ func (p *AxPlaybook) runCurator(payload map[string]Value) Value {
 		"question_context", playbookStringify(coreGet(payload, "question_context", nil)),
 		"token_budget", coreGet(payload, "token_budget", 1024),
 	)
-	out, err := p.curator().Forward(p.ctx, curatorAI, request, cloneMap(p.teacherOptions))
+	out, err := p.curator().forward(p.ctx, curatorAI, request, cloneMap(p.teacherOptions))
 	if err != nil {
 		if p.verbose {
 			fmt.Println("[AxPlaybook] curator error:", err)
@@ -8312,7 +8439,7 @@ func (p *AxPlaybook) EvolveAgent(ctx context.Context, dataset Value, options map
 			coreSet(request, "currentPlaybook", rendered)
 		}
 		miner := NewAx(agentPlaybookWeaknessMinerSignature, Object("id", "agent.playbook.weakness-miner", "instruction", "Identify one recurring weakness and one narrow durable avoidance rule. Every evidence quote must be copied verbatim from actionLogExcerpts."))
-		mined, minerErr := miner.Forward(ctx, teacherAI, request, cloneMap(minerOptions))
+		mined, minerErr := miner.forward(ctx, teacherAI, request, cloneMap(minerOptions))
 		if minerErr != nil {
 			continue
 		}
@@ -9229,7 +9356,7 @@ func _core_agent_native_stage_forward(stage,state,client,values,options,selected
     original,base,previous:=program.Functions,program.BaseFunctions,program.FunctionCallTraces
     program.Functions=append(append([]Tool{},original...),nativeTools...);program.FunctionCallTraces=Array();program.BaseFunctions=append(append([]Tool{},base...),nativeTools...)
     defer func(){records:=program.FunctionCallTraces;program.Functions=original;program.BaseFunctions=base;program.FunctionCallTraces=append(append(Array(),asSlice(previous)...),asSlice(records)...);mustCore(_agent_record_native_calls(state,selected,records,options))}()
-    ai:=client.(AIClient);return program.Forward(contextForAIClient(ai,context.Background()),ai,asMap(values),asMap(options))
+    ai:=client.(AIClient);return program.forward(contextForAIClient(ai,context.Background()),ai,asMap(values),asMap(options))
 }
 
 func _core_agent_stage_forward(stage Value, client Value, values Value, options Value) (Value, error) {
@@ -9237,16 +9364,16 @@ func _core_agent_stage_forward(stage Value, client Value, values Value, options 
 	ctx := contextForAIClient(ai, context.Background())
 	switch p := stage.(type) {
 	case *AxGen:
-		return p.Forward(ctx, ai, asMap(values), asMap(options))
+		return p.forward(ctx, ai, asMap(values), asMap(options))
 	case *AxFlow:
-		return p.Forward(ctx, ai, asMap(values), asMap(options))
+		return p.forward(ctx, ai, asMap(values), asMap(options))
 	case *AxAgent:
         forwarded:=Object();for key,value:=range asMap(options){forwarded[key]=value}
         if policy,ok:=forwarded["mcpInheritanceFromParent"];ok{
-            parent,_:=forwarded["executionContext"].(*AxExecutionContext);delete(forwarded,"executionContext");delete(forwarded,"mcpInheritanceFromParent")
+            parent,_:=forwarded["executionContext"].(*AxExecutionContext);coreDelete(forwarded,"executionContext");coreDelete(forwarded,"mcpInheritanceFromParent")
             if parent!=nil{inherited,err:=parent.DeriveChecked(policy);if err!=nil{return nil,err};forwarded["inheritedExecutionContext"]=inherited}
         }
-		return p.Forward(ctx, ai, asMap(values), forwarded)
+		return p.forward(ctx, ai, asMap(values), forwarded)
 	}
     if program,ok := stage.(AxExecutableProgram);ok {return program.Forward(ctx,ai,asMap(values),asMap(options))}
     return nil,fmt.Errorf("Flow program has no executable forward method")
@@ -11995,12 +12122,12 @@ func runConformanceOptimizeInner(fixture map[string]Value) {
 				}
 				var evalDataset Value
 				if value, ok := merged["dataset"]; ok {
-					delete(merged, "dataset")
+					coreDelete(merged, "dataset")
 					evalDataset = value
 				}
 				if !coreTruthy(evalDataset) {
 					if value, ok := merged["_dataset"]; ok {
-						delete(merged, "_dataset")
+						coreDelete(merged, "_dataset")
 						evalDataset = value
 					}
 				}
@@ -14290,8 +14417,7 @@ func goPromptValueText(value Value) string {
 	if _, ok := value.(string); ok {
 		return display(value)
 	}
-	data, _ := json.MarshalIndent(value, "", "  ")
-	return string(data)
+	return prettyJSONText(value)
 }
 func goPromptIdentity(sig AxSignature, values map[string]Value) string {
 	return "You will be provided with the following fields: " + goPromptDescFields(goPromptInputFields(sig, values)) + ". Your task is to generate new fields: " + goPromptDescFields(goPromptOutputFields(sig)) + "."

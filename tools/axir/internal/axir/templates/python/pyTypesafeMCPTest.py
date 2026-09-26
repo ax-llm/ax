@@ -216,4 +216,13 @@ class ParityTests(unittest.TestCase):
                 self.assertEqual(len(token._subscriptions),0)
         finally:release.set();server.shutdown();server.server_close();thread.join(2)
 
+    def test_unknown_provider_error_never_echoes_a_config(self):
+        with self.assertRaisesRegex(ValueError, 'unsupported AxAI provider: not-a-provider'):
+            ai('not-a-provider')
+        for config in ({'name': 'openai', 'apiKey': 'sk-test-secret'}, ['openai', 'sk-test-secret']):
+            with self.assertRaises(ValueError) as caught:
+                ai(config)
+            self.assertNotIn('sk-test-secret', str(caught.exception))
+            self.assertIn(type(config).__name__, str(caught.exception))
+
 if __name__=='__main__': unittest.main()
