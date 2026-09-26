@@ -87585,14 +87585,76 @@ func playbookComposeInstruction(base string, rendered string) string {
 	return strings.Join(parts, "\n\n")
 }
 
-func playbookStringify(value Value) string {
-	if value == nil {
-		return ""
+// playbookJSJSON is TS JSON.stringify: compact, with object keys in insertion
+// order (the "__order" lists); stableStringify sorts them.
+func playbookJSJSON(value Value) string { return orderedStringify(value) }
+
+// playbookTruncate is TS truncateSerializedString: a string longer than
+// maxChars UTF-16 code units becomes value.slice(0, maxChars - 14) +
+// "...[truncated]", or value.slice(0, maxChars) when maxChars <= 14.
+func playbookTruncate(value string, maxChars int) string {
+	if maxChars < 0 {
+		maxChars = 0
 	}
-	if s, ok := value.(string); ok {
-		return s
+	// UTF-8 never takes fewer bytes than UTF-16 code units.
+	if len(value) <= maxChars {
+		return value
 	}
-	return stableStringify(value)
+	units := utf16.Encode([]rune(value))
+	if len(units) <= maxChars {
+		return value
+	}
+	const suffix = "...[truncated]"
+	if maxChars <= len(suffix) {
+		return string(utf16.Decode(units[:maxChars]))
+	}
+	return string(utf16.Decode(units[:maxChars-len(suffix)])) + suffix
+}
+
+// playbookBound is TS boundSerializedValue: the value with every string, in
+// lists and maps too, cut to maxChars; maps keep their key order.
+func playbookBound(value Value, maxChars int) Value {
+	switch v := value.(type) {
+	case nil, bool, int, int64, float64, json.Number:
+		return v
+	case string:
+		return playbookTruncate(v, maxChars)
+	case []Value:
+		out := make([]Value, 0, len(v))
+		for _, item := range v {
+			out = append(out, playbookBound(item, maxChars))
+		}
+		return out
+	case *AxArray:
+		return playbookBound(asSlice(v), maxChars)
+	case map[string]Value:
+		out := Object()
+		for _, key := range orderedKeys(v) {
+			coreSet(out, key, playbookBound(v[key], maxChars))
+		}
+		return out
+	default:
+		return playbookBound(plainJSONValue(v), maxChars)
+	}
+}
+
+// playbookStringifyBounded is TS stringifyBounded: JSON.stringify of the value
+// with every string cut to the ACE config's maxSerializedFieldChars.
+func playbookStringifyBounded(value Value, maxChars int) string {
+	return playbookJSJSON(playbookBound(value, maxChars))
+}
+
+// playbookFieldValues is TS extractFieldValues: the example's values for the
+// given signature fields, in field order.
+func playbookFieldValues(example Value, fields []Field) map[string]Value {
+	out := Object()
+	source, _ := example.(map[string]Value)
+	for _, field := range fields {
+		if value, ok := source[field.Name]; ok {
+			coreSet(out, field.Name, value)
+		}
+	}
+	return out
 }
 
 // AxPlaybook is a live, evolving context playbook bound to a program. It mirrors
@@ -87711,25 +87773,52 @@ func (p *AxPlaybook) curator() *AxGen {
 	return p.curatorProgram
 }
 
+// programFields are the bound program's input and output fields.
+func (p *AxPlaybook) programFields() ([]Field, []Field) {
+	if p.program == nil {
+		return nil, nil
+	}
+	return p.program.Signature.GetInputFields(), p.program.Signature.GetOutputFields()
+}
+
+func (p *AxPlaybook) maxSerializedChars() int {
+	return p.engine.intConfig("maxSerializedFieldChars", 2000)
+}
+
+// playbookInput is the playbook as TS gives it to the reflector and curator:
+// JSON.stringify({markdown, structured}), the rendered markdown and the
+// playbook itself.
+func (p *AxPlaybook) playbookInput(rendered Value) string {
+	return playbookJSJSON(Object("markdown", display(rendered), "structured", p.engine.GetPlaybook()))
+}
+
 // The real LLM reflector: a focused AxGen sub-program driven by the teacher.
+// As in TS, the question holds the example's input fields and the expected
+// answer its output fields.
 func (p *AxPlaybook) runReflector(payload map[string]Value) Value {
 	reflectorAI := p.teacherAI
 	if reflectorAI == nil {
 		reflectorAI = p.studentAI
 	}
+	inputs, outputs := p.programFields()
+	maxChars := p.maxSerializedChars()
+	example := coreGet(payload, "question", nil)
 	request := Object(
-		"question", playbookStringify(coreGet(payload, "question", nil)),
-		"generator_answer", playbookStringify(coreGet(payload, "generator_answer", nil)),
-		"playbook", coreGet(payload, "playbook", ""),
+		"question", playbookStringifyBounded(playbookFieldValues(example, inputs), maxChars),
+		"generator_answer", playbookStringifyBounded(coreGet(payload, "generator_answer", nil), maxChars),
 	)
 	if reasoning := coreGet(payload, "generator_reasoning", nil); reasoning != nil {
 		coreSet(request, "generator_reasoning", reasoning)
+	}
+	coreSet(request, "playbook", p.playbookInput(coreGet(payload, "playbook", "")))
+	if expected := playbookFieldValues(example, outputs); len(orderedKeys(expected)) > 0 {
+		coreSet(request, "expected_answer", playbookStringifyBounded(expected, maxChars))
 	}
 	if feedback := coreGet(payload, "feedback", nil); feedback != nil {
 		coreSet(request, "feedback", feedback)
 	}
 	if previous := coreGet(payload, "previous_reflection", nil); previous != nil {
-		coreSet(request, "previous_reflection", playbookStringify(previous))
+		coreSet(request, "previous_reflection", playbookJSJSON(previous))
 	}
 	out, err := p.reflector().forward(p.ctx, reflectorAI, request, cloneMap(p.teacherOptions))
 	if err != nil {
@@ -87747,10 +87836,11 @@ func (p *AxPlaybook) runCurator(payload map[string]Value) Value {
 	if curatorAI == nil {
 		curatorAI = p.studentAI
 	}
+	inputs, _ := p.programFields()
 	request := Object(
-		"playbook", coreGet(payload, "playbook", ""),
-		"reflection", playbookStringify(coreGet(payload, "reflection", nil)),
-		"question_context", playbookStringify(coreGet(payload, "question_context", nil)),
+		"playbook", p.playbookInput(coreGet(payload, "playbook", "")),
+		"reflection", playbookJSJSON(coreGet(payload, "reflection", nil)),
+		"question_context", playbookStringifyBounded(playbookFieldValues(coreGet(payload, "question_context", nil), inputs), p.maxSerializedChars()),
 		"token_budget", coreGet(payload, "token_budget", 1024),
 	)
 	out, err := p.curator().forward(p.ctx, curatorAI, request, cloneMap(p.teacherOptions))
@@ -91991,6 +92081,8 @@ func runConformanceOptimizeInner(fixture map[string]Value) {
 		assertEqual(mustCore(_ace_apply_curator_operations(coreGet(fixture, "playbook", Object()), coreGet(fixture, "operations", Array()), coreGet(fixture, "apply_options", Object()), coreGet(fixture, "now", ""))), coreGet(fixture, "expected_result", nil), "ace applied operations")
 	case "ace-compile", "ace-online-update":
 		runAceFixture(fixture, operation)
+	case "playbook-evolve":
+		runPlaybookEvolveFixture(fixture)
 	case "score":
 		scores := mustCore(_normalize_optimization_metric_scores(coreGet(fixture, "metric_score", nil)))
 		scalar := mustCore(_scalarize_optimization_scores(scores, coreGet(fixture, "score_options", Object())))
@@ -92262,6 +92354,67 @@ func runAceFixture(fixture map[string]Value, operation string) {
 	}
 	if fixture["expected_curator"] != nil {
 		assertEqual(curatorResult, coreGet(fixture, "expected_curator", nil), "ace online curator")
+	}
+}
+
+// runPlaybookEvolveFixture runs Playbook().Evolve through the real reflector
+// and curator programs: scripted student and teacher clients answer in call
+// order, and a string item is the response {"content": item}.
+func runPlaybookEvolveFixture(fixture map[string]Value) {
+	scripted := func(key string) *conformanceScriptedAI {
+		responses := Array()
+		for _, item := range asSlice(coreGet(fixture, key, Array())) {
+			if _, ok := item.(map[string]Value); ok {
+				responses = append(responses, item)
+			} else {
+				responses = append(responses, Object("content", item))
+			}
+		}
+		return &conformanceScriptedAI{Responses: responses}
+	}
+	student := scripted("responses")
+	teacher := scripted("teacher_responses")
+	scores := append(Array(), asSlice(coreGet(fixture, "metric_scores", Array()))...)
+	metric := func(map[string]Value) Value {
+		if len(scores) == 0 {
+			return 0
+		}
+		next := scores[0]
+		scores = scores[1:]
+		return next
+	}
+	now := display(coreGet(fixture, "now", nil))
+	if now == "" {
+		now = "1970-01-01T00:00:00.000Z"
+	}
+	options := cloneMap(asMap(coreGet(fixture, "playbook_options", Object())))
+	coreSet(options, "studentAI", student)
+	coreSet(options, "teacherAI", teacher)
+	coreSet(options, "now", now)
+	book := Playbook(NewAx(display(coreGet(fixture, "signature", "question:string -> answer:string")), Object()), options)
+	result, err := book.Evolve(context.Background(), asSlice(coreGet(fixture, "examples", Array())), metric, nil)
+	if err != nil {
+		panic(err)
+	}
+	if expected, ok := fixture["expected_playbook"]; ok {
+		assertEqual(coreGet(result, "playbook", nil), expected, "playbook evolve playbook")
+	}
+	if expected, ok := fixture["expected_teacher_request_contains"]; ok {
+		// The plain message text of every teacher request, not its JSON encoding.
+		texts := []string{}
+		for _, request := range teacher.Requests {
+			for _, message := range asSlice(coreGet(request, "chat_prompt", Array())) {
+				if content, ok := coreGet(message, "content", nil).(string); ok {
+					texts = append(texts, content)
+				}
+			}
+		}
+		text := strings.Join(texts, "\n")
+		for _, item := range asSlice(expected) {
+			if !strings.Contains(text, display(item)) {
+				panic(AxError{Category: "fixture", Message: "teacher requests missing " + strconv.Quote(display(item))})
+			}
+		}
 	}
 }
 

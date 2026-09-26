@@ -43254,6 +43254,8 @@ void AxACE::hydrate(const Value& state) {
 
 Value AxACE::get_playbook() const { return playbook_; }
 
+Value AxACE::get_config() const { return config_; }
+
 Value AxACE::get_artifact() const {
   Value out = Value::object();
   Core::set(out, "playbook", playbook_);
@@ -43534,10 +43536,83 @@ static std::string playbook_compose_instruction(const std::string& base, const s
   return out;
 }
 
-static std::string playbook_stringify(const Value& value) {
-  if (value.is_null()) return std::string();
-  if (value.is_string()) return display(value);
-  return stringify(value);
+// The reflector and curator inputs are TS JSON.stringify text: compact, with
+// object keys in insertion order. stringify() is that serializer: it writes
+// keys in their Core::set / JSON parse order (__order), where the stable
+// stringify sorts them.
+
+// The byte offset that ends the first `units` UTF-16 code units of UTF-8 text
+// (JS string.slice); a surrogate pair the cut would split is left out.
+static size_t playbook_utf16_cut(const std::string& text, size_t units) {
+  size_t end = 0;
+  size_t taken = 0;
+  while (end < text.size()) {
+    unsigned char lead = static_cast<unsigned char>(text[end]);
+    size_t width = lead >= 0xf0 ? 4 : lead >= 0xe0 ? 3 : lead >= 0xc0 ? 2 : 1;
+    size_t cost = width == 4 ? 2 : 1;
+    if (taken + cost > units) break;
+    taken += cost;
+    end += width;
+  }
+  return end;
+}
+
+// TS truncateSerializedString: strings longer than maxSerializedFieldChars
+// (JS length, in UTF-16 code units) keep their head plus "...[truncated]".
+static std::string playbook_truncate(const std::string& value, size_t max_chars) {
+  static const std::string suffix = "...[truncated]";
+  if (playbook_utf16_cut(value, max_chars) >= value.size()) return value;
+  if (max_chars <= suffix.size()) return value.substr(0, playbook_utf16_cut(value, max_chars));
+  return value.substr(0, playbook_utf16_cut(value, max_chars - suffix.size())) + suffix;
+}
+
+static Value playbook_bound(const Value& value, size_t max_chars) {
+  if (value.is_string()) return Value(playbook_truncate(display(value), max_chars));
+  if (value.is_array()) {
+    Value out = Value::array();
+    for (const auto& entry : Core::iter(value)) Core::append(out, playbook_bound(entry, max_chars));
+    return out;
+  }
+  if (value.is_object()) {
+    Value out = Value::object();
+    for (const auto& entry : entries(value)) Core::set(out, entry.first, playbook_bound(entry.second, max_chars));
+    return out;
+  }
+  return value;
+}
+
+// TS stringifyBounded: JSON of the value with every string bounded.
+static std::string playbook_stringify_bounded(const Value& value, size_t max_chars) {
+  return stringify(playbook_bound(value, max_chars));
+}
+
+// TS extractFieldValues: the example's values for the bound program's input or
+// output fields ("inputs" / "outputs"), in field order.
+static Value playbook_field_values(const Value& example, const AxGen* program, const char* fields) {
+  Value out = Value::object();
+  if (program == nullptr || !example.is_object()) return out;
+  Value signature = Core::get(program->value(), "signature");
+  const Object& values = *std::get<std::shared_ptr<Object>>(example.data);
+  for (const auto& field : Core::iter(Core::get(signature, fields, Value::array()))) {
+    std::string name = display(Core::get(field, "name", Value("")));
+    auto found = values.find(name);
+    if (name != "__order" && found != values.end()) Core::set(out, name, found->second);
+  }
+  return out;
+}
+
+// The ACE config's maxSerializedFieldChars (TS default 2000).
+static size_t playbook_max_serialized_chars(const AxACE& engine) {
+  Value max_chars = Core::get(engine.get_config(), "maxSerializedFieldChars");
+  if (!max_chars.is_number()) return 2000;
+  return static_cast<size_t>(std::max(0.0, std::floor(num(max_chars))));
+}
+
+// As in TS, the reflector and curator get the playbook as
+// JSON.stringify({markdown, structured}): the rendered markdown and the
+// playbook itself.
+static std::string playbook_input(const Value& rendered, const Value& structured) {
+  return stringify(object({{"markdown", rendered}, {"structured", structured}}));
 }
 
 static Value playbook_option(const Value& options, std::initializer_list<const char*> keys) {
@@ -43658,18 +43733,24 @@ Value AxPlaybook::run_generator(const Value& example) {
 }
 
 // The real LLM reflector: a focused AxGen sub-program driven by the teacher.
+// As in TS, the question holds the example's input fields and the expected
+// answer its output fields.
 Value AxPlaybook::run_reflector(const Value& payload) {
   if (!reflector_program_) reflector_program_ = std::make_unique<AxGen>(s(kAceReflectorSignature));
+  size_t max_chars = playbook_max_serialized_chars(engine_);
+  Value example = Core::get(payload, "question");
   Value request = Value::object();
-  Core::set(request, "question", Value(playbook_stringify(Core::get(payload, "question"))));
-  Core::set(request, "generator_answer", Value(playbook_stringify(Core::get(payload, "generator_answer"))));
-  Core::set(request, "playbook", Core::get(payload, "playbook", Value("")));
+  Core::set(request, "question", Value(playbook_stringify_bounded(playbook_field_values(example, program_, "inputs"), max_chars)));
+  Core::set(request, "generator_answer", Value(playbook_stringify_bounded(Core::get(payload, "generator_answer"), max_chars)));
   Value reasoning = Core::get(payload, "generator_reasoning");
   if (!reasoning.is_null()) Core::set(request, "generator_reasoning", reasoning);
+  Core::set(request, "playbook", Value(playbook_input(Core::get(payload, "playbook", Value("")), engine_.get_playbook())));
+  Value expected_answer = playbook_field_values(example, program_, "outputs");
+  if (!Core::iter(expected_answer).empty()) Core::set(request, "expected_answer", Value(playbook_stringify_bounded(expected_answer, max_chars)));
   Value feedback = Core::get(payload, "feedback");
   if (!feedback.is_null()) Core::set(request, "feedback", feedback);
   Value previous = Core::get(payload, "previous_reflection");
-  if (!previous.is_null()) Core::set(request, "previous_reflection", Value(playbook_stringify(previous)));
+  if (!previous.is_null()) Core::set(request, "previous_reflection", Value(stringify(previous)));
   try {
     return reflector_program_->forward(*teacher_, request, Core::map_merge(Value::object(), teacher_options_));
   } catch (const std::exception& e) {
@@ -43681,10 +43762,11 @@ Value AxPlaybook::run_reflector(const Value& payload) {
 // The real LLM curator: a focused AxGen sub-program driven by the teacher.
 Value AxPlaybook::run_curator(const Value& payload) {
   if (!curator_program_) curator_program_ = std::make_unique<AxGen>(s(kAceCuratorSignature));
+  Value question_context = playbook_field_values(Core::get(payload, "question_context"), program_, "inputs");
   Value request = Value::object();
-  Core::set(request, "playbook", Core::get(payload, "playbook", Value("")));
-  Core::set(request, "reflection", Value(playbook_stringify(Core::get(payload, "reflection"))));
-  Core::set(request, "question_context", Value(playbook_stringify(Core::get(payload, "question_context"))));
+  Core::set(request, "playbook", Value(playbook_input(Core::get(payload, "playbook", Value("")), engine_.get_playbook())));
+  Core::set(request, "reflection", Value(stringify(Core::get(payload, "reflection"))));
+  Core::set(request, "question_context", Value(playbook_stringify_bounded(question_context, playbook_max_serialized_chars(engine_))));
   Core::set(request, "token_budget", Core::get(payload, "token_budget", Value(1024)));
   try {
     return curator_program_->forward(*teacher_, request, Core::map_merge(Value::object(), teacher_options_));

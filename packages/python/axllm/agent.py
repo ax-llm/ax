@@ -1071,15 +1071,17 @@ def _playbook_js_json(value):
 
 
 # TS stringifyBounded: JSON of the value with every string cut to the ACE
-# config's maxSerializedFieldChars.
+# config's maxSerializedFieldChars. As in TS, lengths count UTF-16 code units;
+# a cut inside a surrogate pair leaves U+FFFD, as the other ports do.
 def _playbook_truncate(value, max_chars):
     max_chars = max(0, int(max_chars))
-    if len(value) <= max_chars:
+    units = value.encode("utf-16-le")
+    if len(units) // 2 <= max_chars:
         return value
     suffix = "...[truncated]"
     if max_chars <= len(suffix):
-        return value[:max_chars]
-    return value[: max_chars - len(suffix)] + suffix
+        return units[: 2 * max_chars].decode("utf-16-le", "replace")
+    return units[: 2 * (max_chars - len(suffix))].decode("utf-16-le", "replace") + suffix
 
 
 def _playbook_bound(value, max_chars, seen=None):
