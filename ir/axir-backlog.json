@@ -1928,7 +1928,7 @@
     },
     {
       "id": "axir-2026-09-26-fold-streamed-chunks-in-an-axgen-forward-with-stream-true-in-the",
-      "status": "open",
+      "status": "done",
       "title": "Fold streamed chunks in an AxGen forward with stream true in the ports",
       "createdAt": "2026-09-26",
       "sourcePR": null,
@@ -1941,13 +1941,13 @@
         "Route a streamed request through each port's stream method in complete_once and fold it",
         "Add streamed chunk fixtures for the text contract and native JSON and a tool loop and the function rung"
       ],
-      "completedAt": null,
-      "completedByCommit": null,
-      "verification": null
+      "completedAt": "2026-09-26",
+      "completedByCommit": "5b9dad4b9bc9f3d265b75b35c0785c425525053b",
+      "verification": "fold_chat_response_stream folds stream chunks (content and thought append, thought blocks accumulate, function-call fragments merge by id) and complete_once in all five ports streams and folds a forward with stream: true; the stream-forward-* fixtures match a TypeScript probe. Python and Go conformance 966/966; npm run test --workspace=@ax-llm/ax, npm run axir:check-packages, npm run axir:conformance:check and npm run test:axir pass; mutation checks fail each rule; live on gemini-3.5-flash-lite and gemini-3.8-flash in TypeScript, Python and Go."
     },
     {
       "id": "axir-2026-09-26-return-an-empty-axgen-output-on-a-user-stop-function",
-      "status": "open",
+      "status": "done",
       "title": "Return an empty AxGen output on a user stop function",
       "createdAt": "2026-09-26",
       "sourcePR": null,
@@ -1959,13 +1959,13 @@
         "Return an empty output that keeps only the earlier steps' thought on the stop-function path of @forward",
         "Pin it with fixtures with request counts from a TypeScript AxMockAIService probe"
       ],
-      "completedAt": null,
-      "completedByCommit": null,
-      "verification": null
+      "completedAt": "2026-09-26",
+      "completedByCommit": "a14c26b0f960cd360472b778263b606cbdda09fd",
+      "verification": "@forward's stop-function path returns an empty output that keeps only the earlier steps' thought; stop-function-empty-output and stop-function-keeps-earlier-thought pin it with outputs from a TypeScript probe. Python and Go conformance 966/966; npm run test --workspace=@ax-llm/ax, npm run axir:check-packages, npm run axir:conformance:check and npm run test:axir pass; mutation checks fail each rule; live on gemini-3.5-flash-lite and gemini-3.8-flash in TypeScript, Python and Go."
     },
     {
       "id": "axir-2026-09-26-surface-the-axgen-thought-as-a-forward-output-in-the-ports",
-      "status": "open",
+      "status": "done",
       "title": "Surface the AxGen thought as a forward output in the ports",
       "createdAt": "2026-09-26",
       "sourcePR": null,
@@ -1982,9 +1982,9 @@
         "Read thought_field_name from the constructor options only",
         "Add fixtures per rung with and without a thought plus the renamed field"
       ],
-      "completedAt": null,
-      "completedByCommit": null,
-      "verification": null
+      "completedAt": "2026-09-26",
+      "completedByCommit": "aaf45800d6ea5337041ab120e1947fde480fccb0",
+      "verification": "@forward joins each tool step's thought, starts it over on a validation or refusal retry, and @with_output_thought_impl sets the non-empty thought under the constructor thought field on the text and structured-output paths; the thought-output-* fixtures cover each rung, the renamed field, the tool-step join, the retry reset and multi-sample. Python and Go conformance 966/966; npm run test --workspace=@ax-llm/ax, npm run axir:check-packages, npm run axir:conformance:check and npm run test:axir pass; mutation checks fail each rule; live on gemini-3.5-flash-lite and gemini-3.8-flash in TypeScript, Python and Go."
     },
     {
       "id": "axir-2026-09-26-yield-typescript-style-field-deltas-from-the-ports-axgen-streami",
